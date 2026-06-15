@@ -7,11 +7,23 @@
 import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { detectCommandEveSensitiveEgress } from '../../common/api/egressBoundaryCore';
 import { resolveCommandEveRuntimeBootstrapPaths } from './runtimeBootstrapCore';
 
 export const COMMAND_EVE_KANBAN_PREFLIGHT_BRIDGE_VERSION = 'command-eve-kanban-preflight/v0';
 export const COMMAND_EVE_KANBAN_MARKETING_BOARD_BRIDGE_VERSION = 'command-eve-kanban-marketing-board/v0';
 export const COMMAND_EVE_KANBAN_MARKETING_PROOF_CARD_BRIDGE_VERSION = 'command-eve-kanban-marketing-proof-card/v0';
+export const COMMAND_EVE_KANBAN_MARKETING_CARD_CREATE_BRIDGE_VERSION = 'command-eve-kanban-marketing-card-create/v0';
+export const COMMAND_EVE_KANBAN_MARKETING_CARD_MOVE_BRIDGE_VERSION = 'command-eve-kanban-marketing-card-move/v0';
+export const COMMAND_EVE_KANBAN_MARKETING_CARD_ACTION_BRIDGE_VERSION = 'command-eve-kanban-marketing-card-action/v0';
+export const COMMAND_EVE_KANBAN_MARKETING_DISPATCH_PLAN_BRIDGE_VERSION =
+  'command-eve-kanban-marketing-dispatch-plan/v0';
+export const COMMAND_EVE_KANBAN_MARKETING_DISPATCH_APPROVAL_BRIDGE_VERSION =
+  'command-eve-kanban-marketing-dispatch-approval/v0';
+export const COMMAND_EVE_KANBAN_MARKETING_DISPATCH_DECISION_BRIDGE_VERSION =
+  'command-eve-kanban-marketing-dispatch-decision/v0';
+export const COMMAND_EVE_KANBAN_MARKETING_DRAFT_GENERATE_BRIDGE_VERSION =
+  'command-eve-kanban-marketing-draft-generate/v0';
 
 const MIN_HERMES_KANBAN_VERSION = '0.16.0';
 const RUNTIME_RECONCILIATION_VERSION = 'command-eve-runtime-reconciliation/v0';
@@ -20,6 +32,17 @@ const MARKETING_BOARD_WORKFLOW = 'command-eve-marketing';
 const MARKETING_PROOF_IDEMPOTENCY_KEY = 'command-eve-marketing-board-proof-v0';
 const MARKETING_PROOF_CARD_ID = 't_command_eve_marketing_proof';
 const MARKETING_BOARD_LANES = ['research', 'draft', 'assetGeneration', 'review', 'readyToApprove'] as const;
+// Native Hermes task status per Command EVE marketing lane. The board projection in
+// `laneForTask` keys off `current_step_key` first (always set to the lane key for a
+// deterministic projection) and falls back to `status`; the status below keeps the
+// native row coherent with the lane even if the step key is ever cleared upstream.
+const MARKETING_LANE_NATIVE_STATUS: Record<CommandEveKanbanMarketingLaneKey, string> = {
+  research: 'triage',
+  draft: 'todo',
+  assetGeneration: 'ready',
+  review: 'review',
+  readyToApprove: 'review',
+};
 const KANBAN_MODULES = [
   { name: 'hermes_cli.kanban_db', required: true },
   { name: 'hermes_cli.kanban', required: true },
@@ -30,6 +53,7 @@ const KANBAN_MODULES = [
 export type CommandEveKanbanPreflightStatus = 'ready' | 'blocked' | 'failed';
 export type CommandEveKanbanMarketingBoardStatus = 'ready' | 'blocked' | 'failed';
 export type CommandEveKanbanMarketingLaneKey = (typeof MARKETING_BOARD_LANES)[number];
+export type CommandEveKanbanMarketingCardAction = 'comment' | 'block' | 'unblock' | 'complete';
 
 export type CommandEveKanbanModuleCheck = {
   name: string;
@@ -122,6 +146,19 @@ export type CommandEveKanbanMarketingCard = {
   updated_at: number | null;
   linked_run_id: string | null;
   linked_audit_event_id: string | null;
+  controller_review_status: 'pending' | null;
+  controller_review_audit_event_id: string | null;
+  controller_review_handoff_role: string | null;
+  controller_review_handoff_dispatch: string | null;
+  controller_decision_status: CommandEveKanbanMarketingDispatchDecision | null;
+  controller_decision_audit_event_id: string | null;
+  controller_decision_handoff_role: string | null;
+  controller_decision_handoff_dispatch: string | null;
+  generated_draft_status: 'generated' | null;
+  generated_draft_audit_event_id: string | null;
+  generated_draft_source: string | null;
+  generated_draft_text: string | null;
+  generated_draft_at: number | null;
   governance_state: 'read_only' | 'proof_write_recorded' | 'unknown';
 };
 
@@ -149,6 +186,11 @@ export type CommandEveKanbanMarketingBoardModel = {
   summary: {
     total_cards: number;
     audit_linked_cards: number;
+    controller_review_pending_cards: number;
+    controller_decision_recorded_cards: number;
+    controller_decision_approved_cards: number;
+    controller_decision_rejected_cards: number;
+    generated_draft_cards: number;
   };
   columns: CommandEveKanbanMarketingColumn[];
   warnings: string[];
@@ -192,7 +234,222 @@ export type CommandEveKanbanMarketingBoardOptions = {
   pythonPath?: string;
 };
 
+export type CommandEveKanbanMarketingCardCreateResult = {
+  version: typeof COMMAND_EVE_KANBAN_MARKETING_CARD_CREATE_BRIDGE_VERSION;
+  ok: boolean;
+  status: CommandEveKanbanMarketingBoardStatus;
+  reason_code?: string;
+  message?: string;
+  card_id?: string;
+  lane_key?: CommandEveKanbanMarketingLaneKey;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  model?: CommandEveKanbanMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+  };
+};
+
+export type CommandEveKanbanMarketingCardMoveResult = {
+  version: typeof COMMAND_EVE_KANBAN_MARKETING_CARD_MOVE_BRIDGE_VERSION;
+  ok: boolean;
+  status: CommandEveKanbanMarketingBoardStatus;
+  reason_code?: string;
+  message?: string;
+  card_id?: string;
+  from_lane_key?: CommandEveKanbanMarketingLaneKey;
+  to_lane_key?: CommandEveKanbanMarketingLaneKey;
+  moved?: boolean;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  model?: CommandEveKanbanMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+  };
+};
+
+export type CommandEveKanbanMarketingCardActionResult = {
+  version: typeof COMMAND_EVE_KANBAN_MARKETING_CARD_ACTION_BRIDGE_VERSION;
+  ok: boolean;
+  status: CommandEveKanbanMarketingBoardStatus;
+  reason_code?: string;
+  message?: string;
+  card_id?: string;
+  action?: CommandEveKanbanMarketingCardAction;
+  action_applied?: boolean;
+  from_status?: string;
+  to_status?: string;
+  from_lane_key?: CommandEveKanbanMarketingLaneKey;
+  to_lane_key?: CommandEveKanbanMarketingLaneKey;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  model?: CommandEveKanbanMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+  };
+};
+
+export type CommandEveKanbanMarketingDispatchPlanResult = {
+  version: typeof COMMAND_EVE_KANBAN_MARKETING_DISPATCH_PLAN_BRIDGE_VERSION;
+  ok: boolean;
+  status: CommandEveKanbanMarketingBoardStatus;
+  reason_code?: string;
+  reason_codes: string[];
+  message?: string;
+  card_id?: string;
+  command?: 'decompose' | 'specify';
+  subprocess_spawned: boolean;
+  data_boundary_checked: boolean;
+  controller_approval_required?: boolean;
+  release_blocked?: boolean;
+  human_gate?: 'HG-2.5';
+  audit_event_id?: string;
+  audit_event_path?: string;
+  dispatch_plan?: JsonRecord;
+  dispatch_handoff_packet?: JsonRecord;
+  dispatch_source?: string;
+  dispatch_source_reason?: string;
+  policy?: JsonRecord;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+    company_os_root?: string;
+  };
+};
+
+export type CommandEveKanbanMarketingDispatchApprovalResult = {
+  version: typeof COMMAND_EVE_KANBAN_MARKETING_DISPATCH_APPROVAL_BRIDGE_VERSION;
+  ok: boolean;
+  status: CommandEveKanbanMarketingBoardStatus;
+  reason_code?: string;
+  message?: string;
+  card_id?: string;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  approval_event_kind?: 'command_eve_controller_approval_pending';
+  controller_approval_status?: 'pending';
+  subprocess_spawned: false;
+  release_blocked: true;
+  human_gate: 'HG-2.5';
+  dispatch_handoff_packet?: JsonRecord;
+  model?: CommandEveKanbanMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+  };
+};
+
+export type CommandEveKanbanMarketingDispatchDecision = 'approved' | 'rejected';
+
+export type CommandEveKanbanMarketingDispatchDecisionResult = {
+  version: typeof COMMAND_EVE_KANBAN_MARKETING_DISPATCH_DECISION_BRIDGE_VERSION;
+  ok: boolean;
+  status: CommandEveKanbanMarketingBoardStatus;
+  reason_code?: string;
+  message?: string;
+  card_id?: string;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  decision_event_kind?: 'command_eve_controller_decision_recorded';
+  controller_approval_status?: CommandEveKanbanMarketingDispatchDecision;
+  controller_approved: boolean;
+  subprocess_spawned: false;
+  release_blocked: true;
+  human_gate: 'HG-2.5';
+  dispatch_handoff_packet?: JsonRecord;
+  model?: CommandEveKanbanMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+  };
+};
+
+export type CommandEveKanbanMarketingDraftGenerateResult = {
+  version: typeof COMMAND_EVE_KANBAN_MARKETING_DRAFT_GENERATE_BRIDGE_VERSION;
+  ok: boolean;
+  status: CommandEveKanbanMarketingBoardStatus;
+  reason_code?: string;
+  reason_codes: string[];
+  message?: string;
+  card_id?: string;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  draft_event_kind?: 'command_eve_marketing_draft_generated';
+  draft_text?: string;
+  draft_source?: string;
+  subprocess_spawned: false;
+  data_boundary_checked: boolean;
+  controller_approval_status?: CommandEveKanbanMarketingDispatchDecision;
+  controller_approved: boolean;
+  release_blocked: boolean;
+  human_gate: 'HG-2.5';
+  dispatch_handoff_packet?: JsonRecord;
+  policy?: JsonRecord;
+  model?: CommandEveKanbanMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+    company_os_root?: string;
+  };
+};
+
+export type CommandEveKanbanMarketingCardCreateOptions = CommandEveKanbanMarketingBoardOptions & {
+  title: string;
+  description?: string;
+  lane_key: string;
+  client_token: string;
+};
+
+export type CommandEveKanbanMarketingCardMoveOptions = CommandEveKanbanMarketingBoardOptions & {
+  task_id: string;
+  to_lane_key: string;
+};
+
+export type CommandEveKanbanMarketingCardActionOptions = CommandEveKanbanMarketingBoardOptions & {
+  task_id: string;
+  action: CommandEveKanbanMarketingCardAction;
+  comment?: string;
+};
+
+export type CommandEveKanbanMarketingDispatchPlanOptions = CommandEveKanbanMarketingBoardOptions & {
+  task_id: string;
+  command?: 'decompose' | 'specify';
+  companyOsRoot?: string;
+  commandRunner?: CommandEveKanbanPreflightCommandRunner;
+};
+
+export type CommandEveKanbanMarketingDispatchApprovalOptions = CommandEveKanbanMarketingBoardOptions & {
+  task_id: string;
+  dispatch_handoff_packet?: JsonRecord;
+  review_note?: string;
+};
+
+export type CommandEveKanbanMarketingDispatchDecisionOptions = CommandEveKanbanMarketingBoardOptions & {
+  task_id: string;
+  decision: CommandEveKanbanMarketingDispatchDecision;
+  dispatch_handoff_packet?: JsonRecord;
+  decision_note?: string;
+};
+
+export type CommandEveKanbanMarketingDraftGenerateOptions = CommandEveKanbanMarketingBoardOptions & {
+  task_id: string;
+  dispatch_handoff_packet?: JsonRecord;
+  generation_note?: string;
+  companyOsRoot?: string;
+  commandRunner?: CommandEveKanbanPreflightCommandRunner;
+};
+
 type JsonRecord = Record<string, unknown>;
+
+type EmbeddedHermesPreGenerationPolicy = JsonRecord & {
+  allowed: boolean;
+  status: 'pass' | 'blocked';
+  reason_codes: string[];
+  data_boundary_receipt: JsonRecord;
+};
 
 type RuntimeReconciliationShape = {
   version?: unknown;
@@ -220,6 +477,22 @@ function pythonBinary(hermesVenv: string): string {
   return process.platform === 'win32'
     ? path.join(hermesVenv, 'Scripts', 'python.exe')
     : path.join(hermesVenv, 'bin', 'python');
+}
+
+function nodeRuntimeForDispatch(): { executable: string; env: NodeJS.ProcessEnv } {
+  const override = process.env.COMMAND_EVE_NODE_BINARY || process.env.NODE_BINARY;
+  if (override) {
+    return { executable: override, env: {} };
+  }
+
+  if (process.versions?.electron) {
+    return {
+      executable: process.execPath,
+      env: { ELECTRON_RUN_AS_NODE: '1' },
+    };
+  }
+
+  return { executable: process.execPath, env: {} };
 }
 
 function compareSemver(left: string, right: string): number {
@@ -304,6 +577,11 @@ function marketingBoardBaseModel({
     summary: {
       total_cards: 0,
       audit_linked_cards: 0,
+      controller_review_pending_cards: 0,
+      controller_decision_recorded_cards: 0,
+      controller_decision_approved_cards: 0,
+      controller_decision_rejected_cards: 0,
+      generated_draft_cards: 0,
     },
     columns: emptyMarketingColumns(),
     warnings,
@@ -412,6 +690,10 @@ function parseMarketingCards(rows: unknown[]): CommandEveKanbanMarketingCard[] {
     const status = textField(item.status);
     const currentStepKey = nullableTextField(item.current_step_key);
     const linkedAuditEventId = nullableTextField(item.linked_audit_event_id);
+    const controllerReviewStatus = textField(item.controller_review_status) === 'pending' ? ('pending' as const) : null;
+    const rawControllerDecision = textField(item.controller_decision_status);
+    const controllerDecisionStatus =
+      rawControllerDecision === 'approved' || rawControllerDecision === 'rejected' ? rawControllerDecision : null;
     return {
       card_id: textField(item.id),
       card_title: textField(item.title),
@@ -423,6 +705,19 @@ function parseMarketingCards(rows: unknown[]): CommandEveKanbanMarketingCard[] {
       updated_at: typeof item.updated_at === 'number' ? item.updated_at : null,
       linked_run_id: nullableTextField(item.linked_run_id),
       linked_audit_event_id: linkedAuditEventId,
+      controller_review_status: controllerReviewStatus,
+      controller_review_audit_event_id: nullableTextField(item.controller_review_audit_event_id),
+      controller_review_handoff_role: nullableTextField(item.controller_review_handoff_role),
+      controller_review_handoff_dispatch: nullableTextField(item.controller_review_handoff_dispatch),
+      controller_decision_status: controllerDecisionStatus,
+      controller_decision_audit_event_id: nullableTextField(item.controller_decision_audit_event_id),
+      controller_decision_handoff_role: nullableTextField(item.controller_decision_handoff_role),
+      controller_decision_handoff_dispatch: nullableTextField(item.controller_decision_handoff_dispatch),
+      generated_draft_status: textField(item.generated_draft_status) === 'generated' ? ('generated' as const) : null,
+      generated_draft_audit_event_id: nullableTextField(item.generated_draft_audit_event_id),
+      generated_draft_source: nullableTextField(item.generated_draft_source),
+      generated_draft_text: nullableTextField(item.generated_draft_text),
+      generated_draft_at: typeof item.generated_draft_at === 'number' ? item.generated_draft_at : null,
       governance_state: linkedAuditEventId ? 'proof_write_recorded' : 'read_only',
     };
   });
@@ -460,6 +755,11 @@ function buildMarketingModelFromRows({
     summary: {
       total_cards: cards.length,
       audit_linked_cards: cards.filter((card) => card.linked_audit_event_id).length,
+      controller_review_pending_cards: cards.filter((card) => card.controller_review_status === 'pending').length,
+      controller_decision_recorded_cards: cards.filter((card) => card.controller_decision_status).length,
+      controller_decision_approved_cards: cards.filter((card) => card.controller_decision_status === 'approved').length,
+      controller_decision_rejected_cards: cards.filter((card) => card.controller_decision_status === 'rejected').length,
+      generated_draft_cards: cards.filter((card) => card.generated_draft_status === 'generated').length,
     },
     columns,
   };
@@ -514,6 +814,162 @@ try:
             ),
             ''
           ) AS linked_audit_event_id,
+          COALESCE(
+            (
+              SELECT json_extract(e.payload, '$.controller_approval_status')
+              FROM task_events e
+              WHERE e.task_id = t.id
+                AND e.kind = 'command_eve_controller_approval_pending'
+                AND json_valid(e.payload)
+              ORDER BY e.created_at DESC, e.id DESC
+              LIMIT 1
+            ),
+            ''
+          ) AS controller_review_status,
+          COALESCE(
+            (
+              SELECT json_extract(e.payload, '$.audit_event_id')
+              FROM task_events e
+              WHERE e.task_id = t.id
+                AND e.kind = 'command_eve_controller_approval_pending'
+                AND json_valid(e.payload)
+              ORDER BY e.created_at DESC, e.id DESC
+              LIMIT 1
+            ),
+            ''
+          ) AS controller_review_audit_event_id,
+          COALESCE(
+            (
+              SELECT json_extract(e.payload, '$.dispatch_handoff_packet.role_label')
+              FROM task_events e
+              WHERE e.task_id = t.id
+                AND e.kind = 'command_eve_controller_approval_pending'
+                AND json_valid(e.payload)
+              ORDER BY e.created_at DESC, e.id DESC
+              LIMIT 1
+            ),
+            ''
+          ) AS controller_review_handoff_role,
+          COALESCE(
+            (
+              SELECT json_extract(e.payload, '$.dispatch_handoff_packet.dispatch')
+              FROM task_events e
+              WHERE e.task_id = t.id
+                AND e.kind = 'command_eve_controller_approval_pending'
+                AND json_valid(e.payload)
+              ORDER BY e.created_at DESC, e.id DESC
+              LIMIT 1
+            ),
+            ''
+          ) AS controller_review_handoff_dispatch,
+          COALESCE(
+            (
+              SELECT json_extract(e.payload, '$.controller_approval_status')
+              FROM task_events e
+              WHERE e.task_id = t.id
+                AND e.kind = 'command_eve_controller_decision_recorded'
+                AND json_valid(e.payload)
+              ORDER BY e.created_at DESC, e.id DESC
+              LIMIT 1
+            ),
+            ''
+          ) AS controller_decision_status,
+          COALESCE(
+            (
+              SELECT json_extract(e.payload, '$.audit_event_id')
+              FROM task_events e
+              WHERE e.task_id = t.id
+                AND e.kind = 'command_eve_controller_decision_recorded'
+                AND json_valid(e.payload)
+              ORDER BY e.created_at DESC, e.id DESC
+              LIMIT 1
+            ),
+            ''
+          ) AS controller_decision_audit_event_id,
+          COALESCE(
+            (
+              SELECT json_extract(e.payload, '$.dispatch_handoff_packet.role_label')
+              FROM task_events e
+              WHERE e.task_id = t.id
+                AND e.kind = 'command_eve_controller_decision_recorded'
+                AND json_valid(e.payload)
+              ORDER BY e.created_at DESC, e.id DESC
+              LIMIT 1
+            ),
+            ''
+          ) AS controller_decision_handoff_role,
+          COALESCE(
+            (
+              SELECT json_extract(e.payload, '$.dispatch_handoff_packet.dispatch')
+              FROM task_events e
+              WHERE e.task_id = t.id
+                AND e.kind = 'command_eve_controller_decision_recorded'
+                AND json_valid(e.payload)
+              ORDER BY e.created_at DESC, e.id DESC
+              LIMIT 1
+            ),
+            ''
+          ) AS controller_decision_handoff_dispatch,
+          COALESCE(
+            (
+              SELECT json_extract(e.payload, '$.draft_status')
+              FROM task_events e
+              WHERE e.task_id = t.id
+                AND e.kind = 'command_eve_marketing_draft_generated'
+                AND json_valid(e.payload)
+              ORDER BY e.created_at DESC, e.id DESC
+              LIMIT 1
+            ),
+            ''
+          ) AS generated_draft_status,
+          COALESCE(
+            (
+              SELECT json_extract(e.payload, '$.audit_event_id')
+              FROM task_events e
+              WHERE e.task_id = t.id
+                AND e.kind = 'command_eve_marketing_draft_generated'
+                AND json_valid(e.payload)
+              ORDER BY e.created_at DESC, e.id DESC
+              LIMIT 1
+            ),
+            ''
+          ) AS generated_draft_audit_event_id,
+          COALESCE(
+            (
+              SELECT json_extract(e.payload, '$.draft_source')
+              FROM task_events e
+              WHERE e.task_id = t.id
+                AND e.kind = 'command_eve_marketing_draft_generated'
+                AND json_valid(e.payload)
+              ORDER BY e.created_at DESC, e.id DESC
+              LIMIT 1
+            ),
+            ''
+          ) AS generated_draft_source,
+          COALESCE(
+            (
+              SELECT json_extract(e.payload, '$.draft_text')
+              FROM task_events e
+              WHERE e.task_id = t.id
+                AND e.kind = 'command_eve_marketing_draft_generated'
+                AND json_valid(e.payload)
+              ORDER BY e.created_at DESC, e.id DESC
+              LIMIT 1
+            ),
+            ''
+          ) AS generated_draft_text,
+          COALESCE(
+            (
+              SELECT e.created_at
+              FROM task_events e
+              WHERE e.task_id = t.id
+                AND e.kind = 'command_eve_marketing_draft_generated'
+                AND json_valid(e.payload)
+              ORDER BY e.created_at DESC, e.id DESC
+              LIMIT 1
+            ),
+            0
+          ) AS generated_draft_at,
           COALESCE(CAST(t.current_run_id AS TEXT), '') AS linked_run_id
         FROM tasks t
         WHERE COALESCE(t.tenant, '') = ?
@@ -655,6 +1111,665 @@ finally:
 `;
 }
 
+function buildMarketingCardCreateScript(): string {
+  return String.raw`
+import json
+import os
+import sqlite3
+import sys
+
+request = json.loads(sys.stdin.read() or "{}")
+db_path = request["db_path"]
+os.makedirs(os.path.dirname(db_path), exist_ok=True)
+conn = sqlite3.connect(db_path)
+try:
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.executescript("""
+    CREATE TABLE IF NOT EXISTS tasks (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        body TEXT,
+        assignee TEXT,
+        status TEXT NOT NULL,
+        priority INTEGER DEFAULT 0,
+        created_by TEXT,
+        created_at INTEGER NOT NULL,
+        started_at INTEGER,
+        completed_at INTEGER,
+        workspace_kind TEXT NOT NULL DEFAULT 'scratch',
+        workspace_path TEXT,
+        branch_name TEXT,
+        claim_lock TEXT,
+        claim_expires INTEGER,
+        tenant TEXT,
+        result TEXT,
+        idempotency_key TEXT,
+        consecutive_failures INTEGER NOT NULL DEFAULT 0,
+        worker_pid INTEGER,
+        last_failure_error TEXT,
+        max_runtime_seconds INTEGER,
+        last_heartbeat_at INTEGER,
+        current_run_id INTEGER,
+        workflow_template_id TEXT,
+        current_step_key TEXT,
+        skills TEXT,
+        model_override TEXT,
+        max_retries INTEGER,
+        goal_mode INTEGER NOT NULL DEFAULT 0,
+        goal_max_turns INTEGER,
+        session_id TEXT
+    );
+    CREATE TABLE IF NOT EXISTS task_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT NOT NULL,
+        run_id INTEGER,
+        kind TEXT NOT NULL,
+        payload TEXT,
+        created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS task_comments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT NOT NULL,
+        author TEXT NOT NULL,
+        body TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS task_links (
+        parent_id TEXT NOT NULL,
+        child_id TEXT NOT NULL,
+        PRIMARY KEY (parent_id, child_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+    CREATE INDEX IF NOT EXISTS idx_events_task ON task_events(task_id, created_at);
+    """)
+    existing = conn.execute(
+        "SELECT id FROM tasks WHERE idempotency_key = ? AND status != 'archived' LIMIT 1",
+        (request["idempotency_key"],),
+    ).fetchone()
+    if existing:
+        conn.commit()
+        print(json.dumps({"created": False, "card_id": existing[0]}))
+        sys.exit(0)
+    conn.execute(
+        """
+        INSERT INTO tasks (
+          id, title, body, assignee, status, priority, created_by, created_at,
+          workspace_kind, tenant, idempotency_key, workflow_template_id,
+          current_step_key, skills, max_retries, goal_mode
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scratch', ?, ?, ?, ?, ?, ?, 0)
+        """,
+        (
+          request["card_id"],
+          request["title"],
+          request["body"],
+          request["assignee"],
+          request["status"],
+          int(request["priority"]),
+          "command-eve",
+          int(request["created_at"]),
+          request["tenant"],
+          request["idempotency_key"],
+          request["workflow"],
+          request["lane_key"],
+          json.dumps(["company-os-marketing"]),
+          1,
+        ),
+    )
+    conn.execute(
+        "INSERT INTO task_events (task_id, run_id, kind, payload, created_at) VALUES (?, NULL, ?, ?, ?)",
+        (
+          request["card_id"],
+          "command_eve_card_created",
+          json.dumps({
+            "audit_event_id": request["audit_event_id"],
+            "lane_key": request["lane_key"],
+            "client_token": request["idempotency_key"],
+            "human_gate": "HG-2.5",
+            "dispatcher_enabled": False,
+            "auto_decompose_enabled": False,
+          }),
+          int(request["created_at"]),
+        ),
+    )
+    conn.commit()
+    print(json.dumps({"created": True, "card_id": request["card_id"]}))
+finally:
+    conn.close()
+`;
+}
+
+function buildMarketingCardMoveScript(): string {
+  return String.raw`
+import json
+import os
+import sqlite3
+import sys
+
+request = json.loads(sys.stdin.read() or "{}")
+db_path = request["db_path"]
+if not os.path.isfile(db_path):
+    print(json.dumps({"found": False}))
+    sys.exit(0)
+conn = sqlite3.connect(db_path)
+try:
+    conn.execute("PRAGMA journal_mode=WAL")
+    row = conn.execute(
+        "SELECT status, COALESCE(current_step_key, '') FROM tasks WHERE id = ? LIMIT 1",
+        (request["card_id"],),
+    ).fetchone()
+    if row is None:
+        conn.commit()
+        print(json.dumps({"found": False}))
+        sys.exit(0)
+    from_step = row[1] or ""
+    if from_step == request["to_lane_key"] and row[0] == request["to_status"]:
+        conn.commit()
+        print(json.dumps({"found": True, "moved": False, "from_step": from_step}))
+        sys.exit(0)
+    conn.execute(
+        "UPDATE tasks SET status = ?, current_step_key = ?, started_at = COALESCE(started_at, ?) WHERE id = ?",
+        (request["to_status"], request["to_lane_key"], int(request["moved_at"]), request["card_id"]),
+    )
+    conn.execute(
+        "INSERT INTO task_events (task_id, run_id, kind, payload, created_at) VALUES (?, NULL, ?, ?, ?)",
+        (
+          request["card_id"],
+          "command_eve_card_moved",
+          json.dumps({
+            "audit_event_id": request["audit_event_id"],
+            "from_step": from_step,
+            "to_lane_key": request["to_lane_key"],
+            "human_gate": "HG-2.5",
+            "dispatcher_enabled": False,
+            "auto_decompose_enabled": False,
+          }),
+          int(request["moved_at"]),
+        ),
+    )
+    conn.commit()
+    print(json.dumps({"found": True, "moved": True, "from_step": from_step}))
+finally:
+    conn.close()
+`;
+}
+
+function buildMarketingCardActionScript(): string {
+  return String.raw`
+import json
+import os
+import sqlite3
+import sys
+
+request = json.loads(sys.stdin.read() or "{}")
+db_path = request["db_path"]
+if not os.path.isfile(db_path):
+    print(json.dumps({"found": False}))
+    sys.exit(0)
+
+conn = sqlite3.connect(db_path)
+try:
+    conn.execute("PRAGMA journal_mode=WAL")
+    row = conn.execute(
+        "SELECT status, COALESCE(current_step_key, '') FROM tasks WHERE id = ? LIMIT 1",
+        (request["card_id"],),
+    ).fetchone()
+    if row is None:
+        conn.commit()
+        print(json.dumps({"found": False}))
+        sys.exit(0)
+
+    from_status = row[0] or ""
+    from_step = row[1] or ""
+    action = request["action"]
+    to_status = from_status
+    to_step = from_step
+    completed_at = None
+
+    if action == "comment":
+        conn.execute(
+            "INSERT INTO task_comments (task_id, author, body, created_at) VALUES (?, ?, ?, ?)",
+            (request["card_id"], "eve", request["comment"], int(request["action_at"])),
+        )
+    elif action == "block":
+        to_status = "blocked"
+        to_step = "review"
+        conn.execute(
+            "UPDATE tasks SET status = ?, current_step_key = ? WHERE id = ?",
+            (to_status, to_step, request["card_id"]),
+        )
+    elif action == "unblock":
+        to_status = "review"
+        to_step = "review"
+        conn.execute(
+            "UPDATE tasks SET status = ?, current_step_key = ? WHERE id = ?",
+            (to_status, to_step, request["card_id"]),
+        )
+    elif action == "complete":
+        to_status = "completed"
+        to_step = "readyToApprove"
+        completed_at = int(request["action_at"])
+        conn.execute(
+            "UPDATE tasks SET status = ?, current_step_key = ?, completed_at = ? WHERE id = ?",
+            (to_status, to_step, completed_at, request["card_id"]),
+        )
+    else:
+        print(json.dumps({"found": True, "applied": False, "invalid_action": True}))
+        sys.exit(0)
+
+    event_payload = {
+        "audit_event_id": request["audit_event_id"],
+        "action": action,
+        "from_status": from_status,
+        "to_status": to_status,
+        "from_step": from_step,
+        "to_step": to_step,
+        "human_gate": "HG-2.5",
+        "dispatcher_enabled": False,
+        "auto_decompose_enabled": False,
+        "subprocess_spawned": False,
+        "external_calls": False,
+    }
+    if action == "comment":
+        event_payload["comment_length"] = len(request["comment"])
+    if completed_at is not None:
+        event_payload["completed_at"] = completed_at
+
+    conn.execute(
+        "INSERT INTO task_events (task_id, run_id, kind, payload, created_at) VALUES (?, NULL, ?, ?, ?)",
+        (
+          request["card_id"],
+          request["event_kind"],
+          json.dumps(event_payload),
+          int(request["action_at"]),
+        ),
+    )
+    conn.commit()
+    print(json.dumps({
+        "found": True,
+        "applied": True,
+        "from_status": from_status,
+        "to_status": to_status,
+        "from_step": from_step,
+        "to_step": to_step,
+    }))
+finally:
+    conn.close()
+`;
+}
+
+function buildMarketingCardDispatchPlanScript(): string {
+  return String.raw`
+import json
+import os
+import sqlite3
+import sys
+
+request = json.loads(sys.stdin.read() or "{}")
+db_path = request["db_path"]
+if not os.path.isfile(db_path):
+    print(json.dumps({"found": False}))
+    sys.exit(0)
+
+conn = sqlite3.connect(db_path)
+conn.row_factory = sqlite3.Row
+try:
+    row = conn.execute(
+        """
+        SELECT
+          id,
+          title,
+          COALESCE(body, '') AS body,
+          COALESCE(status, '') AS status,
+          COALESCE(current_step_key, '') AS current_step_key,
+          COALESCE(tenant, '') AS tenant,
+          COALESCE(workflow_template_id, '') AS workflow_template_id
+        FROM tasks
+        WHERE id = ?
+        LIMIT 1
+        """,
+        (request["card_id"],),
+    ).fetchone()
+    if row is None:
+        conn.commit()
+        print(json.dumps({"found": False}))
+        sys.exit(0)
+
+    conn.execute(
+        "INSERT INTO task_events (task_id, run_id, kind, payload, created_at) VALUES (?, NULL, ?, ?, ?)",
+        (
+          request["card_id"],
+          "command_eve_dispatch_plan_checked",
+          json.dumps({
+            "audit_event_id": request["audit_event_id"],
+            "human_gate": "HG-2.5",
+            "dispatcher_enabled": False,
+            "auto_decompose_enabled": False,
+            "nl5_gate_checked": bool(request.get("data_boundary_checked")),
+            "subprocess_spawned": bool(request.get("subprocess_spawned")),
+            "controller_approval_required": bool(request.get("controller_approval_required")),
+            "release_blocked": bool(request.get("release_blocked")),
+            "dispatch_status": request.get("dispatch_status"),
+            "dispatch_source": request.get("dispatch_source"),
+            "dispatch_source_reason": request.get("dispatch_source_reason"),
+            "reason_codes": request.get("reason_codes") or [],
+            "dispatch_handoff_packet": request.get("dispatch_handoff_packet") or {},
+            "policy": request.get("policy") or {},
+          }),
+          int(request["checked_at"]),
+        ),
+    )
+    conn.commit()
+    print(json.dumps({"found": True, "task": dict(row)}))
+finally:
+    conn.close()
+`;
+}
+
+function buildMarketingDispatchApprovalScript(): string {
+  return String.raw`
+import json
+import os
+import sqlite3
+import sys
+
+request = json.loads(sys.stdin.read() or "{}")
+db_path = request["db_path"]
+if not os.path.isfile(db_path):
+    print(json.dumps({"found": False}))
+    sys.exit(0)
+
+conn = sqlite3.connect(db_path)
+conn.row_factory = sqlite3.Row
+try:
+    row = conn.execute(
+        """
+        SELECT
+          id,
+          title,
+          COALESCE(body, '') AS body,
+          COALESCE(status, '') AS status,
+          COALESCE(current_step_key, '') AS current_step_key,
+          COALESCE(tenant, '') AS tenant,
+          COALESCE(workflow_template_id, '') AS workflow_template_id
+        FROM tasks
+        WHERE id = ?
+        LIMIT 1
+        """,
+        (request["card_id"],),
+    ).fetchone()
+    if row is None:
+        conn.commit()
+        print(json.dumps({"found": False}))
+        sys.exit(0)
+
+    review_note = request.get("review_note") or ""
+    conn.execute(
+        "INSERT INTO task_events (task_id, run_id, kind, payload, created_at) VALUES (?, NULL, ?, ?, ?)",
+        (
+          request["card_id"],
+          "command_eve_controller_approval_pending",
+          json.dumps({
+            "audit_event_id": request["audit_event_id"],
+            "human_gate": "HG-2.5",
+            "controller_approval_status": "pending",
+            "controller_approved": False,
+            "release_blocked": True,
+            "dispatcher_enabled": False,
+            "auto_decompose_enabled": False,
+            "subprocess_spawned": False,
+            "dispatch_handoff_packet": request.get("dispatch_handoff_packet") or {},
+            "review_note_length": len(review_note),
+            "reason_codes": ["command_eve.controller_approval_pending"],
+          }),
+          int(request["recorded_at"]),
+        ),
+    )
+    conn.commit()
+    print(json.dumps({"found": True, "task": dict(row)}))
+finally:
+    conn.close()
+`;
+}
+
+function buildMarketingDispatchDecisionScript(): string {
+  return String.raw`
+import json
+import os
+import sqlite3
+import sys
+
+request = json.loads(sys.stdin.read() or "{}")
+db_path = request["db_path"]
+if not os.path.isfile(db_path):
+    print(json.dumps({"found": False}))
+    sys.exit(0)
+
+conn = sqlite3.connect(db_path)
+conn.row_factory = sqlite3.Row
+try:
+    row = conn.execute(
+        """
+        SELECT
+          id,
+          title,
+          COALESCE(body, '') AS body,
+          COALESCE(status, '') AS status,
+          COALESCE(current_step_key, '') AS current_step_key,
+          COALESCE(tenant, '') AS tenant,
+          COALESCE(workflow_template_id, '') AS workflow_template_id
+        FROM tasks
+        WHERE id = ?
+        LIMIT 1
+        """,
+        (request["card_id"],),
+    ).fetchone()
+    if row is None:
+        conn.commit()
+        print(json.dumps({"found": False}))
+        sys.exit(0)
+
+    decision = request.get("decision")
+    decision_note = request.get("decision_note") or ""
+    reason_code = (
+        "command_eve.controller_approval_recorded_no_spawn"
+        if decision == "approved"
+        else "command_eve.controller_rejection_recorded"
+    )
+    conn.execute(
+        "INSERT INTO task_events (task_id, run_id, kind, payload, created_at) VALUES (?, NULL, ?, ?, ?)",
+        (
+          request["card_id"],
+          "command_eve_controller_decision_recorded",
+          json.dumps({
+            "audit_event_id": request["audit_event_id"],
+            "human_gate": "HG-2.5",
+            "controller_approval_status": decision,
+            "controller_approved": decision == "approved",
+            "release_blocked": True,
+            "dispatcher_enabled": False,
+            "auto_decompose_enabled": False,
+            "subprocess_spawned": False,
+            "dispatch_handoff_packet": request.get("dispatch_handoff_packet") or {},
+            "decision_note_length": len(decision_note),
+            "reason_codes": [reason_code],
+          }),
+          int(request["recorded_at"]),
+        ),
+    )
+    conn.commit()
+    print(json.dumps({"found": True, "task": dict(row)}))
+finally:
+    conn.close()
+`;
+}
+
+function buildMarketingDraftGenerateScript(): string {
+  return String.raw`
+import json
+import os
+import sqlite3
+import sys
+
+request = json.loads(sys.stdin.read() or "{}")
+db_path = request["db_path"]
+if not os.path.isfile(db_path):
+    print(json.dumps({"found": False}))
+    sys.exit(0)
+
+conn = sqlite3.connect(db_path)
+conn.row_factory = sqlite3.Row
+try:
+    conn.execute("PRAGMA journal_mode=WAL")
+    row = conn.execute(
+        """
+        SELECT
+          id,
+          title,
+          COALESCE(body, '') AS body,
+          COALESCE(status, '') AS status,
+          COALESCE(current_step_key, '') AS current_step_key,
+          COALESCE(tenant, '') AS tenant,
+          COALESCE(workflow_template_id, '') AS workflow_template_id
+        FROM tasks
+        WHERE id = ?
+        LIMIT 1
+        """,
+        (request["card_id"],),
+    ).fetchone()
+    if row is None:
+        conn.commit()
+        print(json.dumps({"found": False}))
+        sys.exit(0)
+
+    decision_row = conn.execute(
+        """
+        SELECT payload
+        FROM task_events
+        WHERE task_id = ?
+          AND kind = 'command_eve_controller_decision_recorded'
+          AND json_valid(payload)
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        """,
+        (request["card_id"],),
+    ).fetchone()
+    if decision_row is None:
+        conn.commit()
+        print(json.dumps({"found": True, "approved": False, "approval_status": ""}))
+        sys.exit(0)
+
+    try:
+        decision_payload = json.loads(decision_row["payload"] or "{}")
+    except Exception:
+        decision_payload = {}
+    approval_status = decision_payload.get("controller_approval_status") or ""
+    controller_approved = bool(decision_payload.get("controller_approved")) and approval_status == "approved"
+    if not controller_approved:
+        conn.commit()
+        print(json.dumps({"found": True, "approved": False, "approval_status": approval_status}))
+        sys.exit(0)
+
+    generated_at = int(request["generated_at"])
+    dispatch_handoff_packet = request.get("dispatch_handoff_packet") or decision_payload.get("dispatch_handoff_packet") or {}
+    event_payload = {
+        "audit_event_id": request["audit_event_id"],
+        "human_gate": "HG-2.5",
+        "controller_approval_status": "approved",
+        "controller_approved": True,
+        "release_blocked": False,
+        "dispatcher_enabled": False,
+        "auto_decompose_enabled": False,
+        "subprocess_spawned": False,
+        "external_calls": False,
+        "nl5_gate_checked": bool(request.get("data_boundary_checked")),
+        "data_boundary_receipt": request.get("data_boundary_receipt") or {},
+        "dispatch_status": request.get("dispatch_status") or "ready",
+        "dispatch_source": request.get("dispatch_source") or "",
+        "dispatch_source_reason": request.get("dispatch_source_reason") or "",
+        "reason_codes": ["command_eve.marketing_draft_generated_local"],
+        "dispatch_handoff_packet": dispatch_handoff_packet,
+        "draft_status": "generated",
+        "draft_source": request["draft_source"],
+        "draft_text": request["draft_text"],
+        "generation_note_length": len(request.get("generation_note") or ""),
+    }
+    conn.execute(
+        "UPDATE tasks SET status = ?, current_step_key = ?, started_at = COALESCE(started_at, ?) WHERE id = ?",
+        ("review", "review", generated_at, request["card_id"]),
+    )
+    conn.execute(
+        "INSERT INTO task_events (task_id, run_id, kind, payload, created_at) VALUES (?, NULL, ?, ?, ?)",
+        (
+          request["card_id"],
+          "command_eve_marketing_draft_generated",
+          json.dumps(event_payload),
+          generated_at,
+        ),
+    )
+    conn.execute(
+        "INSERT INTO task_comments (task_id, author, body, created_at) VALUES (?, ?, ?, ?)",
+        (
+          request["card_id"],
+          "eve",
+          request["draft_text"],
+          generated_at,
+        ),
+    )
+    conn.commit()
+    print(json.dumps({
+        "found": True,
+        "approved": True,
+        "approval_status": "approved",
+        "task": dict(row),
+        "draft_status": "generated",
+        "dispatch_handoff_packet": dispatch_handoff_packet,
+    }))
+finally:
+    conn.close()
+`;
+}
+
+function buildMarketingCardLookupScript(): string {
+  return String.raw`
+import json
+import os
+import sqlite3
+import sys
+
+request = json.loads(sys.stdin.read() or "{}")
+db_path = request["db_path"]
+if not os.path.isfile(db_path):
+    print(json.dumps({"found": False}))
+    sys.exit(0)
+
+conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+conn.row_factory = sqlite3.Row
+try:
+    row = conn.execute(
+        """
+        SELECT
+          id,
+          title,
+          COALESCE(body, '') AS body,
+          COALESCE(status, '') AS status,
+          COALESCE(current_step_key, '') AS current_step_key,
+          COALESCE(tenant, '') AS tenant,
+          COALESCE(workflow_template_id, '') AS workflow_template_id
+        FROM tasks
+        WHERE id = ?
+        LIMIT 1
+        """,
+        (request["card_id"],),
+    ).fetchone()
+    if row is None:
+        print(json.dumps({"found": False}))
+        sys.exit(0)
+    print(json.dumps({"found": True, "task": dict(row)}))
+finally:
+    conn.close()
+`;
+}
+
 function sanitizeEventIdPart(value: string): string {
   return value
     .toLowerCase()
@@ -746,6 +1861,412 @@ function marketingAuditEventId(cardId: string, occurredAt: string): string {
   return ['command-eve-kanban-marketing-proof', sanitizeEventIdPart(cardId), sanitizeEventIdPart(occurredAt)].join('-');
 }
 
+function appendMarketingMutationAuditEvent({
+  eventId,
+  eventType,
+  mode,
+  action,
+  eventLedgerPath,
+  occurredAt,
+  cardId,
+  boardSlug,
+  dbPath,
+  extraPayload = {},
+}: {
+  eventId: string;
+  eventType:
+    | 'kanban.marketing_board_card_created'
+    | 'kanban.marketing_board_card_moved'
+    | 'kanban.marketing_board_card_commented'
+    | 'kanban.marketing_board_card_blocked'
+    | 'kanban.marketing_board_card_unblocked'
+    | 'kanban.marketing_board_card_completed';
+  mode:
+    | 'kanban-card-create'
+    | 'kanban-card-move'
+    | 'kanban-card-comment'
+    | 'kanban-card-block'
+    | 'kanban-card-unblock'
+    | 'kanban-card-complete';
+  action: 'card_create' | 'card_move' | 'card_comment' | 'card_block' | 'card_unblock' | 'card_complete';
+  eventLedgerPath: string;
+  occurredAt: string;
+  cardId: string;
+  boardSlug: string;
+  dbPath: string;
+  extraPayload?: Record<string, unknown>;
+}): string {
+  const event = {
+    schema_version: 'agent-event/v1',
+    event_id: eventId,
+    event_type: eventType,
+    occurred_at: occurredAt,
+    producer: 'command-eve-desktop',
+    workspace: 'command-eve-local',
+    workspace_path: dbPath,
+    issue_id: cardId,
+    parent_issue_id: '',
+    run_id: `kanban-${action.replace(/_/g, '-')}-${cardId}`,
+    session_id: '',
+    agent: 'eve',
+    mode,
+    role_owner: 'Controller',
+    department: 'Marketing',
+    autonomy_level: 'L1',
+    event_policy: 'append-only',
+    payload: {
+      board_slug: boardSlug,
+      card_id: cardId,
+      db_path: dbPath,
+      human_gate: 'HG-2.5',
+      dispatcher_enabled: false,
+      auto_decompose_enabled: false,
+      action,
+      ...extraPayload,
+    },
+    artifact_paths: [dbPath],
+    linear_comment_ids: [] as string[],
+    human_gate_required: false,
+    redaction_level: 'none',
+  };
+  fs.mkdirSync(path.dirname(eventLedgerPath), { recursive: true });
+  fs.appendFileSync(eventLedgerPath, `${JSON.stringify(event)}\n`);
+  return eventId;
+}
+
+function appendMarketingDispatchPlanAuditEvent({
+  eventId,
+  eventLedgerPath,
+  occurredAt,
+  cardId,
+  boardSlug,
+  dbPath,
+  companyOsRoot,
+  dispatchPlan,
+}: {
+  eventId: string;
+  eventLedgerPath: string;
+  occurredAt: string;
+  cardId: string;
+  boardSlug: string;
+  dbPath: string;
+  companyOsRoot: string;
+  dispatchPlan: JsonRecord;
+}): string {
+  const policy = isRecord(dispatchPlan.policy) ? dispatchPlan.policy : {};
+  const subprocessSpawned = dispatchPlan.subprocess_spawned === true;
+  const handoffPacket = isRecord(dispatchPlan.dispatch_handoff_packet) ? dispatchPlan.dispatch_handoff_packet : {};
+  const event = {
+    schema_version: 'agent-event/v1',
+    event_id: eventId,
+    event_type: 'kanban.marketing_board_dispatch_plan_checked',
+    occurred_at: occurredAt,
+    producer: 'command-eve-desktop',
+    workspace: 'command-eve-local',
+    workspace_path: dbPath,
+    issue_id: cardId,
+    parent_issue_id: '',
+    run_id: `kanban-dispatch-plan-${cardId}`,
+    session_id: '',
+    agent: 'eve',
+    mode: 'kanban-dispatch-plan',
+    role_owner: 'Controller',
+    department: 'Marketing',
+    autonomy_level: 'L1',
+    event_policy: 'append-only',
+    payload: {
+      board_slug: boardSlug,
+      card_id: cardId,
+      db_path: dbPath,
+      company_os_root: companyOsRoot,
+      human_gate: 'HG-2.5',
+      controller_approval_required: true,
+      release_blocked: !subprocessSpawned,
+      dispatcher_enabled: false,
+      auto_decompose_enabled: false,
+      action: 'dispatch_plan_check',
+      dispatch_status: textField(dispatchPlan.status),
+      dispatch_source: textField(dispatchPlan.dispatch_source),
+      dispatch_source_reason: textField(dispatchPlan.dispatch_source_reason),
+      subprocess_spawned: subprocessSpawned,
+      reason_codes: Array.isArray(dispatchPlan.reason_codes) ? dispatchPlan.reason_codes : [],
+      data_boundary_receipt: isRecord(policy.data_boundary_receipt) ? policy.data_boundary_receipt : {},
+      dispatch_handoff_packet: handoffPacket,
+    },
+    artifact_paths: [dbPath],
+    linear_comment_ids: [] as string[],
+    human_gate_required: true,
+    redaction_level: 'none',
+  };
+  fs.mkdirSync(path.dirname(eventLedgerPath), { recursive: true });
+  fs.appendFileSync(eventLedgerPath, `${JSON.stringify(event)}\n`);
+  return eventId;
+}
+
+function appendMarketingDispatchApprovalAuditEvent({
+  eventId,
+  eventLedgerPath,
+  occurredAt,
+  cardId,
+  boardSlug,
+  dbPath,
+  dispatchHandoffPacket,
+}: {
+  eventId: string;
+  eventLedgerPath: string;
+  occurredAt: string;
+  cardId: string;
+  boardSlug: string;
+  dbPath: string;
+  dispatchHandoffPacket: JsonRecord;
+}): string {
+  const event = {
+    schema_version: 'agent-event/v1',
+    event_id: eventId,
+    event_type: 'kanban.marketing_board_controller_approval_pending',
+    occurred_at: occurredAt,
+    producer: 'command-eve-desktop',
+    workspace: 'command-eve-local',
+    workspace_path: dbPath,
+    issue_id: cardId,
+    parent_issue_id: '',
+    run_id: `kanban-controller-approval-${cardId}`,
+    session_id: '',
+    agent: 'eve',
+    mode: 'kanban-controller-approval',
+    role_owner: 'Controller',
+    department: 'Marketing',
+    autonomy_level: 'L1',
+    event_policy: 'append-only',
+    payload: {
+      board_slug: boardSlug,
+      card_id: cardId,
+      db_path: dbPath,
+      human_gate: 'HG-2.5',
+      controller_approval_status: 'pending',
+      controller_approved: false,
+      release_blocked: true,
+      dispatcher_enabled: false,
+      auto_decompose_enabled: false,
+      subprocess_spawned: false,
+      action: 'controller_approval_pending',
+      reason_codes: ['command_eve.controller_approval_pending'],
+      dispatch_handoff_packet: dispatchHandoffPacket,
+    },
+    artifact_paths: [dbPath],
+    linear_comment_ids: [] as string[],
+    human_gate_required: true,
+    redaction_level: 'none',
+  };
+  fs.mkdirSync(path.dirname(eventLedgerPath), { recursive: true });
+  fs.appendFileSync(eventLedgerPath, `${JSON.stringify(event)}\n`);
+  return eventId;
+}
+
+function appendMarketingDispatchDecisionAuditEvent({
+  eventId,
+  eventLedgerPath,
+  occurredAt,
+  cardId,
+  boardSlug,
+  dbPath,
+  decision,
+  dispatchHandoffPacket,
+}: {
+  eventId: string;
+  eventLedgerPath: string;
+  occurredAt: string;
+  cardId: string;
+  boardSlug: string;
+  dbPath: string;
+  decision: CommandEveKanbanMarketingDispatchDecision;
+  dispatchHandoffPacket: JsonRecord;
+}): string {
+  const controllerApproved = decision === 'approved';
+  const event = {
+    schema_version: 'agent-event/v1',
+    event_id: eventId,
+    event_type: 'kanban.marketing_board_controller_decision_recorded',
+    occurred_at: occurredAt,
+    producer: 'command-eve-desktop',
+    workspace: 'command-eve-local',
+    workspace_path: dbPath,
+    issue_id: cardId,
+    parent_issue_id: '',
+    run_id: `kanban-controller-decision-${cardId}`,
+    session_id: '',
+    agent: 'eve',
+    mode: 'kanban-controller-decision',
+    role_owner: 'Controller',
+    department: 'Marketing',
+    autonomy_level: 'L1',
+    event_policy: 'append-only',
+    payload: {
+      board_slug: boardSlug,
+      card_id: cardId,
+      db_path: dbPath,
+      human_gate: 'HG-2.5',
+      controller_approval_status: decision,
+      controller_approved: controllerApproved,
+      release_blocked: true,
+      dispatcher_enabled: false,
+      auto_decompose_enabled: false,
+      subprocess_spawned: false,
+      action: 'controller_decision_recorded',
+      reason_codes: [
+        controllerApproved
+          ? 'command_eve.controller_approval_recorded_no_spawn'
+          : 'command_eve.controller_rejection_recorded',
+      ],
+      dispatch_handoff_packet: dispatchHandoffPacket,
+    },
+    artifact_paths: [dbPath],
+    linear_comment_ids: [] as string[],
+    human_gate_required: true,
+    redaction_level: 'none',
+  };
+  fs.mkdirSync(path.dirname(eventLedgerPath), { recursive: true });
+  fs.appendFileSync(eventLedgerPath, `${JSON.stringify(event)}\n`);
+  return eventId;
+}
+
+function appendMarketingDraftGeneratedAuditEvent({
+  eventId,
+  eventLedgerPath,
+  occurredAt,
+  cardId,
+  boardSlug,
+  dbPath,
+  dispatchHandoffPacket,
+  draftSource,
+  draftText,
+  dispatchSource,
+  dispatchSourceReason,
+}: {
+  eventId: string;
+  eventLedgerPath: string;
+  occurredAt: string;
+  cardId: string;
+  boardSlug: string;
+  dbPath: string;
+  dispatchHandoffPacket: JsonRecord;
+  draftSource: string;
+  draftText: string;
+  dispatchSource: string;
+  dispatchSourceReason: string;
+}): string {
+  const event = {
+    schema_version: 'agent-event/v1',
+    event_id: eventId,
+    event_type: 'kanban.marketing_board_marketing_draft_generated',
+    occurred_at: occurredAt,
+    producer: 'command-eve-desktop',
+    workspace: 'command-eve-local',
+    workspace_path: dbPath,
+    issue_id: cardId,
+    parent_issue_id: '',
+    run_id: `kanban-marketing-draft-${cardId}`,
+    session_id: '',
+    agent: 'eve',
+    mode: 'kanban-marketing-draft-generate',
+    role_owner: 'CMO',
+    department: 'Marketing',
+    autonomy_level: 'L1',
+    event_policy: 'append-only',
+    payload: {
+      board_slug: boardSlug,
+      card_id: cardId,
+      db_path: dbPath,
+      human_gate: 'HG-2.5',
+      controller_approval_status: 'approved',
+      controller_approved: true,
+      release_blocked: false,
+      dispatcher_enabled: false,
+      auto_decompose_enabled: false,
+      subprocess_spawned: false,
+      external_calls: false,
+      action: 'marketing_draft_generated',
+      reason_codes: ['command_eve.marketing_draft_generated_local'],
+      dispatch_handoff_packet: dispatchHandoffPacket,
+      draft_status: 'generated',
+      draft_source: draftSource,
+      draft_preview: draftText.slice(0, 600),
+      draft_length: draftText.length,
+      dispatch_source: dispatchSource,
+      dispatch_source_reason: dispatchSourceReason,
+    },
+    artifact_paths: [dbPath],
+    linear_comment_ids: [] as string[],
+    human_gate_required: true,
+    redaction_level: 'none',
+  };
+  fs.mkdirSync(path.dirname(eventLedgerPath), { recursive: true });
+  fs.appendFileSync(eventLedgerPath, `${JSON.stringify(event)}\n`);
+  return eventId;
+}
+
+function marketingCardCreateAuditEventId(cardId: string, occurredAt: string): string {
+  return [
+    'command-eve-kanban-marketing-card-created',
+    sanitizeEventIdPart(cardId),
+    sanitizeEventIdPart(occurredAt),
+  ].join('-');
+}
+
+function marketingCardMoveAuditEventId(cardId: string, occurredAt: string): string {
+  return ['command-eve-kanban-marketing-card-moved', sanitizeEventIdPart(cardId), sanitizeEventIdPart(occurredAt)].join(
+    '-'
+  );
+}
+
+function marketingCardActionAuditEventId(
+  cardId: string,
+  action: CommandEveKanbanMarketingCardAction,
+  occurredAt: string
+): string {
+  return [
+    `command-eve-kanban-marketing-card-${action}`,
+    sanitizeEventIdPart(cardId),
+    sanitizeEventIdPart(occurredAt),
+  ].join('-');
+}
+
+function marketingCardDispatchAuditEventId(cardId: string, occurredAt: string): string {
+  return [
+    'command-eve-kanban-marketing-dispatch-plan',
+    sanitizeEventIdPart(cardId),
+    sanitizeEventIdPart(occurredAt),
+  ].join('-');
+}
+
+function marketingCardDispatchApprovalAuditEventId(cardId: string, occurredAt: string): string {
+  return [
+    'command-eve-kanban-marketing-controller-approval-pending',
+    sanitizeEventIdPart(cardId),
+    sanitizeEventIdPart(occurredAt),
+  ].join('-');
+}
+
+function marketingCardDispatchDecisionAuditEventId(
+  cardId: string,
+  decision: CommandEveKanbanMarketingDispatchDecision,
+  occurredAt: string
+): string {
+  return [
+    `command-eve-kanban-marketing-controller-${decision}`,
+    sanitizeEventIdPart(cardId),
+    sanitizeEventIdPart(occurredAt),
+  ].join('-');
+}
+
+function marketingCardDraftGenerateAuditEventId(cardId: string, occurredAt: string): string {
+  return [
+    'command-eve-kanban-marketing-draft-generated',
+    sanitizeEventIdPart(cardId),
+    sanitizeEventIdPart(occurredAt),
+  ].join('-');
+}
+
 function marketingBoardResultBase(
   hermesHome: string
 ): Pick<CommandEveKanbanMarketingBoardResult, 'version' | 'source'> {
@@ -768,6 +2289,542 @@ function marketingProofResultBase(
       hermes_home: hermesHome,
     },
   };
+}
+
+function marketingCardCreateResultBase(
+  hermesHome: string
+): Pick<CommandEveKanbanMarketingCardCreateResult, 'version' | 'source'> {
+  return {
+    version: COMMAND_EVE_KANBAN_MARKETING_CARD_CREATE_BRIDGE_VERSION,
+    source: {
+      generated_by: 'command-eve-kanban-marketing-board-core',
+      hermes_home: hermesHome,
+    },
+  };
+}
+
+function marketingCardMoveResultBase(
+  hermesHome: string
+): Pick<CommandEveKanbanMarketingCardMoveResult, 'version' | 'source'> {
+  return {
+    version: COMMAND_EVE_KANBAN_MARKETING_CARD_MOVE_BRIDGE_VERSION,
+    source: {
+      generated_by: 'command-eve-kanban-marketing-board-core',
+      hermes_home: hermesHome,
+    },
+  };
+}
+
+function marketingCardActionResultBase(
+  hermesHome: string
+): Pick<CommandEveKanbanMarketingCardActionResult, 'version' | 'source'> {
+  return {
+    version: COMMAND_EVE_KANBAN_MARKETING_CARD_ACTION_BRIDGE_VERSION,
+    source: {
+      generated_by: 'command-eve-kanban-marketing-board-core',
+      hermes_home: hermesHome,
+    },
+  };
+}
+
+function marketingDispatchPlanResultBase(
+  hermesHome: string,
+  companyOsRoot?: string
+): Pick<
+  CommandEveKanbanMarketingDispatchPlanResult,
+  | 'version'
+  | 'source'
+  | 'reason_codes'
+  | 'subprocess_spawned'
+  | 'data_boundary_checked'
+  | 'controller_approval_required'
+  | 'release_blocked'
+  | 'human_gate'
+> {
+  return {
+    version: COMMAND_EVE_KANBAN_MARKETING_DISPATCH_PLAN_BRIDGE_VERSION,
+    reason_codes: [],
+    subprocess_spawned: false,
+    data_boundary_checked: false,
+    controller_approval_required: true,
+    release_blocked: true,
+    human_gate: 'HG-2.5',
+    source: {
+      generated_by: 'command-eve-kanban-marketing-board-core',
+      hermes_home: hermesHome,
+      ...(companyOsRoot ? { company_os_root: companyOsRoot } : {}),
+    },
+  };
+}
+
+function marketingDispatchApprovalResultBase(
+  hermesHome: string
+): Pick<
+  CommandEveKanbanMarketingDispatchApprovalResult,
+  'version' | 'source' | 'subprocess_spawned' | 'release_blocked' | 'human_gate'
+> {
+  return {
+    version: COMMAND_EVE_KANBAN_MARKETING_DISPATCH_APPROVAL_BRIDGE_VERSION,
+    subprocess_spawned: false,
+    release_blocked: true,
+    human_gate: 'HG-2.5',
+    source: {
+      generated_by: 'command-eve-kanban-marketing-board-core',
+      hermes_home: hermesHome,
+    },
+  };
+}
+
+function marketingDispatchDecisionResultBase(
+  hermesHome: string
+): Pick<
+  CommandEveKanbanMarketingDispatchDecisionResult,
+  'version' | 'source' | 'subprocess_spawned' | 'release_blocked' | 'human_gate' | 'controller_approved'
+> {
+  return {
+    version: COMMAND_EVE_KANBAN_MARKETING_DISPATCH_DECISION_BRIDGE_VERSION,
+    subprocess_spawned: false,
+    release_blocked: true,
+    human_gate: 'HG-2.5',
+    controller_approved: false,
+    source: {
+      generated_by: 'command-eve-kanban-marketing-board-core',
+      hermes_home: hermesHome,
+    },
+  };
+}
+
+function marketingDraftGenerateResultBase(
+  hermesHome: string,
+  companyOsRoot?: string
+): Pick<
+  CommandEveKanbanMarketingDraftGenerateResult,
+  | 'version'
+  | 'source'
+  | 'reason_codes'
+  | 'subprocess_spawned'
+  | 'data_boundary_checked'
+  | 'controller_approved'
+  | 'release_blocked'
+  | 'human_gate'
+> {
+  return {
+    version: COMMAND_EVE_KANBAN_MARKETING_DRAFT_GENERATE_BRIDGE_VERSION,
+    reason_codes: [],
+    subprocess_spawned: false,
+    data_boundary_checked: false,
+    controller_approved: false,
+    release_blocked: true,
+    human_gate: 'HG-2.5',
+    source: {
+      generated_by: 'command-eve-kanban-marketing-board-core',
+      hermes_home: hermesHome,
+      ...(companyOsRoot ? { company_os_root: companyOsRoot } : {}),
+    },
+  };
+}
+
+function normalizeMarketingLaneKey(value: string | undefined): CommandEveKanbanMarketingLaneKey | null {
+  const lane = String(value || '').trim();
+  return (MARKETING_BOARD_LANES as readonly string[]).includes(lane)
+    ? (lane as CommandEveKanbanMarketingLaneKey)
+    : null;
+}
+
+function resolveCompanyOsRootForDispatch(
+  options: Pick<CommandEveKanbanMarketingDispatchPlanOptions, 'companyOsRoot' | 'env'>
+): string | undefined {
+  const env = options.env ?? process.env;
+  return firstNonEmpty(
+    options.companyOsRoot,
+    env.COMMAND_EVE_NL5_COMPANY_OS_ROOT,
+    env.COMMAND_EVE_COMPANY_OS_ROOT,
+    env.COMPANY_OS_ROOT,
+    env.COMMAND_EVE_SOURCE_ROOT
+  );
+}
+
+function companyOsDispatchCliPath(companyOsRoot: string): string {
+  return path.join(companyOsRoot, 'scripts', 'orchestration', 'hermes-pre-generation-dispatch.mjs');
+}
+
+function parseJsonRecord(value = ''): JsonRecord | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function reasonCodesFromDispatchPlan(plan: JsonRecord): string[] {
+  return Array.isArray(plan.reason_codes)
+    ? plan.reason_codes.filter((item): item is string => typeof item === 'string' && item.length > 0)
+    : [];
+}
+
+function buildMarketingDispatchRequest({
+  task,
+  cardId,
+  command,
+  companyOsRoot,
+}: {
+  task: JsonRecord;
+  cardId: string;
+  command: 'decompose' | 'specify';
+  companyOsRoot?: string;
+}): JsonRecord {
+  const title = textField(task.title);
+  const body = textField(task.body);
+  const laneKey = textField(task.current_step_key) || textField(task.status) || 'unknown';
+  const payload = [
+    `Command EVE marketing card: ${title}`,
+    body ? `Description: ${body}` : '',
+    `Lane: ${laneKey}`,
+    `Task ID: ${cardId}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  return {
+    command: `hermes kanban ${command}`,
+    taskId: cardId,
+    tenant: MARKETING_BOARD_TENANT,
+    author: 'eve',
+    critic: 'codex-controller',
+    sourceRoot: companyOsRoot || 'command-eve-local',
+    requestedLane: 'local_only',
+    payload,
+    fields: {
+      card_id: cardId,
+      title,
+      body,
+      lane_key: laneKey,
+      tenant: textField(task.tenant) || MARKETING_BOARD_TENANT,
+      workflow_template_id: textField(task.workflow_template_id) || MARKETING_BOARD_WORKFLOW,
+    },
+    routeReceipt: {
+      ok: true,
+      status: 'local-only-pass',
+      requested_lane: 'local_only',
+      effective_lane: 'local_only',
+      sensitivity: 'S1',
+      sensitivity_score: 1,
+      provider_execution_allowed: false,
+      reason_codes: ['command_eve.local_dispatch_preview'],
+    },
+    auxiliaryLaneReceipt: {
+      ok: true,
+      status: 'local-only-pass',
+      effective_lane: 'local_only',
+      sensitivity: 'S1',
+      sensitivity_score: 1,
+      provider_execution_allowed: false,
+      reason_codes: ['command_eve.no_external_auxiliary_lane'],
+    },
+    workerContract: {
+      role: 'cmo',
+      agent: 'hermes',
+      mode: `kanban-${command}`,
+      workspace: 'command-eve-local',
+      dispatch: 'manual',
+      source_of_truth: `Hermes kanban task ${cardId}`,
+      acceptance_criteria:
+        'NL-5 policy passes, HG-2.5 approval exists, and author/critic are separate before dispatch.',
+      gates: 'NL-5 data boundary, route receipt, auxiliary receipt, HG-2.5, author-critic separation',
+      human_gate: 'HG-2.5',
+      reporting: 'Append task_events and agent-events receipts before any Hermes subprocess spawn.',
+      author: 'eve',
+      critic: 'codex-controller',
+    },
+    humanGate: 'HG-2.5',
+    controllerApproval: {
+      status: 'missing',
+      reason: 'Command EVE UI only plans dispatch here; controller execution approval is a later explicit gate.',
+    },
+  };
+}
+
+function buildLocalMarketingDraftText({
+  task,
+  cardId,
+  handoff,
+}: {
+  task: JsonRecord;
+  cardId: string;
+  handoff: JsonRecord;
+}): string {
+  const title = textField(task.title) || `Marketing card ${cardId}`;
+  const body = textField(task.body);
+  const role = textField(handoff.role_label) || 'role:cmo';
+  const angle = body || `Turn "${title}" into a concise founder-led marketing post.`;
+  return [
+    `# ${title}`,
+    '',
+    `Generated by Command EVE after NL-5 data-boundary check and HG-2.5 controller approval.`,
+    '',
+    `Intent`,
+    angle,
+    '',
+    `Hook`,
+    `Most teams do not need another isolated AI chat. They need a governed loop that turns intent into reviewed work.`,
+    '',
+    `Draft`,
+    `Command EVE gives founders and agencies a local-first operating layer: capture the goal, route it through explicit gates, create the working draft, and keep the human approval point visible before anything ships.`,
+    '',
+    `Why it matters`,
+    `The system is not just a prompt box. It records the data-boundary receipt, the controller decision, and the generated artifact in the local ledger so the team can review what happened instead of guessing.`,
+    '',
+    `CTA`,
+    `Start with one governed marketing loop: goal in, draft out, approval recorded.`,
+    '',
+    `Review note`,
+    `Source card: ${cardId}. Role: ${role}. Local draft generation only; no external call or worker subprocess was spawned.`,
+  ].join('\n');
+}
+
+function buildMarketingDispatchHandoffPacket({
+  request,
+  dispatchPlan,
+  policy,
+  cardId,
+  command,
+  companyOsRoot,
+  occurredAt,
+}: {
+  request: JsonRecord;
+  dispatchPlan: JsonRecord;
+  policy: JsonRecord;
+  cardId: string;
+  command: 'decompose' | 'specify';
+  companyOsRoot?: string;
+  occurredAt: string;
+}): JsonRecord {
+  const workerContract = isRecord(request.workerContract || request.worker_contract || request.contract)
+    ? ((request.workerContract || request.worker_contract || request.contract) as JsonRecord)
+    : {};
+  const fields = isRecord(request.fields) ? (request.fields as JsonRecord) : {};
+  const title = textField(fields.title) || `Command EVE marketing card ${cardId}`;
+
+  return {
+    version: 'command-eve-local-dispatch-handoff/v0',
+    status: 'dispatch_ready_waiting_for_controller',
+    dispatch: 'manual',
+    target_runtime: 'hermes-kanban',
+    proposed_command: `hermes kanban ${command}`,
+    card_id: cardId,
+    tenant: textField(request.tenant) || MARKETING_BOARD_TENANT,
+    role_label: `role:${textField(workerContract.role) || 'cmo'}`,
+    agent: textField(workerContract.agent) || 'hermes',
+    mode: textField(workerContract.mode) || `kanban-${command}`,
+    workspace: companyOsRoot || textField(workerContract.workspace) || 'command-eve-local',
+    source_of_truth: textField(workerContract.source_of_truth) || `Hermes kanban task ${cardId}`,
+    title,
+    acceptance_criteria: textField(workerContract.acceptance_criteria),
+    gates: [
+      'NL-5 data boundary',
+      'route receipt',
+      'auxiliary receipt',
+      'HG-2.5 controller approval',
+      'author-critic separation',
+      'no subprocess spawn before controller approval',
+    ],
+    human_gate: 'HG-2.5',
+    controller_approval: {
+      required: true,
+      status: 'missing',
+      reason: 'Local Command EVE UI can prepare the handoff, but controller approval is required before spawn.',
+    },
+    safety: {
+      nl5_gate_checked: isRecord(policy.data_boundary_receipt),
+      subprocess_spawned: dispatchPlan.subprocess_spawned === true,
+      provider_execution_allowed: false,
+      release_blocked: dispatchPlan.subprocess_spawned !== true,
+      dispatch_source: textField(dispatchPlan.dispatch_source),
+      dispatch_source_reason: textField(dispatchPlan.dispatch_source_reason),
+      reason_codes: Array.isArray(dispatchPlan.reason_codes) ? dispatchPlan.reason_codes : [],
+    },
+    reporting: [
+      'task_events.command_eve_dispatch_plan_checked',
+      'agent-events.kanban.marketing_board_dispatch_plan_checked',
+    ],
+    created_at: occurredAt,
+  };
+}
+
+function receiptOk(receipt: JsonRecord): boolean {
+  const status = textField(receipt.status).toLowerCase();
+  return (
+    receipt.ok === true ||
+    receipt.allowed === true ||
+    ['pass', 'passed', 'redacted-pass', 'rerouted-pass', 'local-only-pass'].includes(status)
+  );
+}
+
+function receiptFailed(receipt: JsonRecord): boolean {
+  const status = textField(receipt.status).toLowerCase();
+  return (
+    receipt.ok === false ||
+    receipt.allowed === false ||
+    ['fail', 'failed', 'block', 'blocked', 'reject', 'rejected'].includes(status)
+  );
+}
+
+function parseableWorkerContract(contract: JsonRecord): boolean {
+  if (contract.parseable === true || contract.valid === true || contract.status === 'pass') return true;
+  return [
+    'role',
+    'agent',
+    'mode',
+    'workspace',
+    'dispatch',
+    'source_of_truth',
+    'acceptance_criteria',
+    'gates',
+    'human_gate',
+    'reporting',
+  ].every((key) => textField(contract[key]).length > 0);
+}
+
+function controllerApproved(approval: unknown): boolean {
+  if (approval === true) return true;
+  if (!isRecord(approval)) return false;
+  const status = textField(approval.status || approval.verdict || approval.decision).toLowerCase();
+  return ['approved', 'pass', 'controller_pass', 'hg-2.5-pass', 'accepted'].includes(status);
+}
+
+function authorsSeparate(request: JsonRecord, workerContract: JsonRecord): boolean {
+  const author = textField(request.author || workerContract.author).toLowerCase();
+  const critic = textField(request.critic || workerContract.critic).toLowerCase();
+  return Boolean(author && critic && author !== critic);
+}
+
+function normalizeDispatchCommand(command: unknown): string {
+  const parts = textField(command).toLowerCase().split(/\s+/).filter(Boolean);
+  if (parts[0] === 'hermes') parts.shift();
+  if (parts[0] === 'kanban') parts.shift();
+  return parts[0] || '';
+}
+
+function embeddedDataBoundaryReceipt(request: JsonRecord): JsonRecord {
+  const payload = [
+    typeof request.payload === 'string' ? request.payload : '',
+    isRecord(request.fields) ? JSON.stringify(request.fields) : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+  const findings = detectCommandEveSensitiveEgress(payload);
+  const findingCount = findings.reduce((sum, finding) => sum + finding.count, 0);
+  const requestedLane = textField(request.requestedLane || request.requested_lane || request.lane || 'local_only');
+  const localOnly = ['local_only', 'local', 'lane_local_only'].includes(requestedLane.toLowerCase());
+  const sensitivityScore = findingCount > 0 ? 2 : 1;
+  const ok = localOnly || findingCount === 0;
+
+  return {
+    ok,
+    status: ok ? (localOnly ? 'local-only-pass' : 'pass') : 'blocked',
+    sensitivity: `S${sensitivityScore}`,
+    sensitivity_score: sensitivityScore,
+    effective_sensitivity: `S${sensitivityScore}`,
+    effective_sensitivity_score: sensitivityScore,
+    requested_lane: requestedLane,
+    effective_lane: localOnly ? 'local_only' : requestedLane,
+    finding_count: findingCount,
+    findings: findings.map((finding) => ({
+      kind: finding.kind,
+      rule_id: finding.rule_id,
+      count: finding.count,
+    })),
+    raw_text_stored: false,
+    provider_execution_allowed: false,
+    reason_codes: ok
+      ? ['command_eve.embedded_nl5_data_boundary_pass']
+      : ['command_eve.embedded_nl5_data_boundary_blocked'],
+  };
+}
+
+function buildEmbeddedHermesPreGenerationPolicy(request: JsonRecord): EmbeddedHermesPreGenerationPolicy {
+  const command = normalizeDispatchCommand(request.command || request.proposedCommand);
+  const routeReceipt = isRecord(request.routeReceipt || request.route_receipt)
+    ? ((request.routeReceipt || request.route_receipt) as JsonRecord)
+    : {};
+  const auxiliaryReceipt = isRecord(request.auxiliaryLaneReceipt || request.auxiliary_lane_receipt)
+    ? ((request.auxiliaryLaneReceipt || request.auxiliary_lane_receipt) as JsonRecord)
+    : {};
+  const workerContract = isRecord(request.workerContract || request.worker_contract || request.contract)
+    ? ((request.workerContract || request.worker_contract || request.contract) as JsonRecord)
+    : {};
+  const dataBoundaryReceipt = embeddedDataBoundaryReceipt(request);
+  const failures: string[] = [];
+
+  if (!['specify', 'decompose'].includes(command)) failures.push('hermes.pre_generation.unsupported_command');
+  if (!dataBoundaryReceipt.ok) failures.push('hermes.pre_generation.data_boundary_failed');
+  if (!Object.keys(routeReceipt).length) failures.push('hermes.pre_generation.route_receipt_missing');
+  else if (receiptFailed(routeReceipt) || !receiptOk(routeReceipt))
+    failures.push('hermes.pre_generation.route_receipt_failed');
+  if (!Object.keys(auxiliaryReceipt).length) failures.push('hermes.pre_generation.auxiliary_receipt_missing');
+  else if (receiptFailed(auxiliaryReceipt) || !receiptOk(auxiliaryReceipt)) {
+    failures.push('hermes.pre_generation.auxiliary_receipt_failed');
+  }
+  if (!parseableWorkerContract(workerContract)) failures.push('hermes.pre_generation.worker_contract_unparseable');
+  if (!textField(request.humanGate || request.human_gate || workerContract.human_gate)) {
+    failures.push('hermes.pre_generation.human_gate_missing');
+  }
+  if (!controllerApproved(request.controllerApproval ?? request.controller_approval)) {
+    failures.push('hermes.pre_generation.controller_approval_missing');
+  }
+  if (!authorsSeparate(request, workerContract)) failures.push('hermes.pre_generation.author_critic_not_separate');
+
+  const reasonCodes = [...new Set(failures)];
+  return {
+    version: 'hermes-pre-generation-policy/v0',
+    id: 'hermes.pre_generation_policy',
+    implementation: 'command-eve-embedded-nl5',
+    command,
+    applies: ['specify', 'decompose'].includes(command),
+    allowed: reasonCodes.length === 0,
+    status: reasonCodes.length === 0 ? 'pass' : 'blocked',
+    data_boundary_receipt: dataBoundaryReceipt,
+    route_receipt: routeReceipt,
+    auxiliary_lane_receipt: auxiliaryReceipt,
+    worker_contract_parseable: parseableWorkerContract(workerContract),
+    human_gate: textField(request.humanGate || request.human_gate || workerContract.human_gate),
+    controller_approved: controllerApproved(request.controllerApproval ?? request.controller_approval),
+    author_critic_separate: authorsSeparate(request, workerContract),
+    reason_codes: reasonCodes,
+  };
+}
+
+function buildEmbeddedHermesPreGenerationDispatchPlan({
+  request,
+  reason,
+}: {
+  request: JsonRecord;
+  reason: string;
+}): JsonRecord {
+  const policy = buildEmbeddedHermesPreGenerationPolicy(request);
+  return {
+    version: 'hermes-pre-generation-dispatch/v0',
+    ok: false,
+    status: 'blocked',
+    subprocess_spawned: false,
+    reason_codes: policy.reason_codes.length
+      ? policy.reason_codes
+      : ['hermes.pre_generation.controller_approval_missing'],
+    policy,
+    dispatch_source: 'command-eve-embedded-nl5',
+    dispatch_source_reason: reason,
+  };
+}
+
+function normalizeClientToken(value: string | undefined): string {
+  return String(value || '')
+    .trim()
+    .slice(0, 128);
+}
+
+function marketingCardId(clientToken: string): string {
+  return `t_command_eve_marketing_${sanitizeEventIdPart(clientToken).replace(/-/g, '_') || 'card'}`.slice(0, 96);
 }
 
 function readRuntimeReconciliation(filePath: string): {
@@ -1235,6 +3292,1425 @@ export function createKanbanMarketingProofCard(
     card_id: cardIdFromDb,
     audit_event_path: eventLedgerPath,
     ...(auditEventId ? { audit_event_id: auditEventId } : {}),
+    model: board.model,
+  };
+}
+
+export function createKanbanMarketingCard(
+  options: CommandEveKanbanMarketingCardCreateOptions
+): CommandEveKanbanMarketingCardCreateResult {
+  const paths = resolveCommandEveRuntimeBootstrapPaths(options.userDataPath);
+  const base = marketingCardCreateResultBase(paths.hermesHome);
+
+  let boardSlug: string;
+  try {
+    boardSlug = normalizeBoardSlug(options.boardSlug);
+  } catch (error) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_BOARD_SLUG_INVALID',
+      message: error instanceof Error ? error.message : 'Invalid Hermes Kanban board slug.',
+    };
+  }
+
+  const laneKey = normalizeMarketingLaneKey(options.lane_key);
+  if (!laneKey) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_LANE_INVALID',
+      message: `Unknown Command EVE marketing lane: ${String(options.lane_key || '')}`,
+    };
+  }
+
+  const title = String(options.title || '').trim();
+  if (!title) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_CARD_TITLE_REQUIRED',
+      message: 'A non-empty card title is required to create a marketing card.',
+      lane_key: laneKey,
+    };
+  }
+
+  const clientToken = normalizeClientToken(options.client_token);
+  if (!clientToken) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_CARD_CLIENT_TOKEN_REQUIRED',
+      message: 'A client_token is required so card creation can dedupe idempotently.',
+      lane_key: laneKey,
+    };
+  }
+
+  const reconciliation = readRuntimeReconciliation(paths.runtimeReconciliation);
+  const governanceOk =
+    reconciliation.governance.dispatcher_disabled &&
+    reconciliation.governance.auto_decompose_disabled &&
+    reconciliation.governance.mcp_servers_disabled;
+  if (!governanceOk) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
+      message: 'Card creation requires dispatcher, auto-decompose and external MCP execution to stay disabled.',
+      lane_key: laneKey,
+    };
+  }
+
+  const now = options.now ?? (() => new Date());
+  const occurredAt = now().toISOString();
+  const createdAt = Math.floor(new Date(occurredAt).getTime() / 1000);
+  const dbPath = kanbanDbPath(paths.hermesHome, boardSlug);
+  const eventLedgerPath = resolveMarketingEventLedgerPath(paths, options);
+  const cardId = marketingCardId(clientToken);
+  const existingAuditEvents = fs.existsSync(eventLedgerPath) ? fs.readFileSync(eventLedgerPath, 'utf8') : '';
+  const alreadyRecorded = existingAuditEvents.includes(`"issue_id":"${cardId}"`);
+  const auditEventId = alreadyRecorded ? '' : marketingCardCreateAuditEventId(cardId, occurredAt);
+
+  const pythonPath = pythonForMarketingBoard(paths, options.pythonPath);
+  const writeResult = runPythonJson(
+    pythonPath,
+    {
+      db_path: dbPath,
+      card_id: cardId,
+      title,
+      body: String(options.description || ''),
+      assignee: 'cmo',
+      priority: 5,
+      status: MARKETING_LANE_NATIVE_STATUS[laneKey],
+      lane_key: laneKey,
+      created_at: createdAt,
+      tenant: MARKETING_BOARD_TENANT,
+      workflow: MARKETING_BOARD_WORKFLOW,
+      idempotency_key: clientToken,
+      audit_event_id: auditEventId || `already-recorded:${cardId}`,
+    },
+    buildMarketingCardCreateScript(),
+    paths.hermesHome
+  );
+
+  if (!writeResult.ok || !writeResult.data) {
+    return {
+      ...base,
+      ok: false,
+      status: 'failed',
+      reason_code: 'KANBAN_MARKETING_CARD_CREATE_WRITE_FAILED',
+      message: writeResult.error || 'Command EVE marketing card could not be written.',
+      lane_key: laneKey,
+      audit_event_path: eventLedgerPath,
+      ...(auditEventId ? { audit_event_id: auditEventId } : {}),
+    };
+  }
+
+  const cardIdFromDb = textField(writeResult.data.card_id) || cardId;
+  const created = writeResult.data.created === true;
+  if (created && auditEventId) {
+    appendMarketingMutationAuditEvent({
+      eventId: auditEventId,
+      eventType: 'kanban.marketing_board_card_created',
+      mode: 'kanban-card-create',
+      action: 'card_create',
+      eventLedgerPath,
+      occurredAt,
+      cardId: cardIdFromDb,
+      boardSlug,
+      dbPath,
+      extraPayload: { lane_key: laneKey, client_token: clientToken },
+    });
+  }
+
+  const board = buildKanbanMarketingBoard({
+    ...options,
+    boardSlug,
+    now,
+    pythonPath,
+  });
+
+  return {
+    ...base,
+    ok: true,
+    status: 'ready',
+    reason_code: created ? 'KANBAN_MARKETING_CARD_CREATED' : 'KANBAN_MARKETING_CARD_EXISTS',
+    card_id: cardIdFromDb,
+    lane_key: laneKey,
+    audit_event_path: eventLedgerPath,
+    ...(auditEventId ? { audit_event_id: auditEventId } : {}),
+    model: board.model,
+  };
+}
+
+export function moveKanbanMarketingCard(
+  options: CommandEveKanbanMarketingCardMoveOptions
+): CommandEveKanbanMarketingCardMoveResult {
+  const paths = resolveCommandEveRuntimeBootstrapPaths(options.userDataPath);
+  const base = marketingCardMoveResultBase(paths.hermesHome);
+
+  let boardSlug: string;
+  try {
+    boardSlug = normalizeBoardSlug(options.boardSlug);
+  } catch (error) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_BOARD_SLUG_INVALID',
+      message: error instanceof Error ? error.message : 'Invalid Hermes Kanban board slug.',
+    };
+  }
+
+  const taskId = String(options.task_id || '').trim();
+  if (!taskId) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_CARD_ID_REQUIRED',
+      message: 'A task_id is required to move a marketing card.',
+    };
+  }
+
+  const toLaneKey = normalizeMarketingLaneKey(options.to_lane_key);
+  if (!toLaneKey) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_LANE_INVALID',
+      message: `Unknown Command EVE marketing lane: ${String(options.to_lane_key || '')}`,
+    };
+  }
+
+  const reconciliation = readRuntimeReconciliation(paths.runtimeReconciliation);
+  const governanceOk =
+    reconciliation.governance.dispatcher_disabled &&
+    reconciliation.governance.auto_decompose_disabled &&
+    reconciliation.governance.mcp_servers_disabled;
+  if (!governanceOk) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
+      message: 'Card moves require dispatcher, auto-decompose and external MCP execution to stay disabled.',
+      to_lane_key: toLaneKey,
+    };
+  }
+
+  const now = options.now ?? (() => new Date());
+  const occurredAt = now().toISOString();
+  const movedAt = Math.floor(new Date(occurredAt).getTime() / 1000);
+  const dbPath = kanbanDbPath(paths.hermesHome, boardSlug);
+  const eventLedgerPath = resolveMarketingEventLedgerPath(paths, options);
+  const auditEventId = marketingCardMoveAuditEventId(taskId, occurredAt);
+
+  const pythonPath = pythonForMarketingBoard(paths, options.pythonPath);
+  const moveResult = runPythonJson(
+    pythonPath,
+    {
+      db_path: dbPath,
+      card_id: taskId,
+      to_lane_key: toLaneKey,
+      to_status: MARKETING_LANE_NATIVE_STATUS[toLaneKey],
+      moved_at: movedAt,
+      audit_event_id: auditEventId,
+    },
+    buildMarketingCardMoveScript(),
+    paths.hermesHome
+  );
+
+  if (!moveResult.ok || !moveResult.data) {
+    return {
+      ...base,
+      ok: false,
+      status: 'failed',
+      reason_code: 'KANBAN_MARKETING_CARD_MOVE_WRITE_FAILED',
+      message: moveResult.error || 'Command EVE marketing card could not be moved.',
+      card_id: taskId,
+      to_lane_key: toLaneKey,
+      audit_event_path: eventLedgerPath,
+    };
+  }
+
+  const found = moveResult.data.found === true;
+  if (!found) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_CARD_NOT_FOUND',
+      message: `No marketing card found for task_id: ${taskId}`,
+      card_id: taskId,
+      to_lane_key: toLaneKey,
+      audit_event_path: eventLedgerPath,
+    };
+  }
+
+  const moved = moveResult.data.moved === true;
+  const fromStep = textField(moveResult.data.from_step);
+  const fromLaneKey = normalizeMarketingLaneKey(fromStep) ?? undefined;
+  if (moved) {
+    appendMarketingMutationAuditEvent({
+      eventId: auditEventId,
+      eventType: 'kanban.marketing_board_card_moved',
+      mode: 'kanban-card-move',
+      action: 'card_move',
+      eventLedgerPath,
+      occurredAt,
+      cardId: taskId,
+      boardSlug,
+      dbPath,
+      extraPayload: { from_lane_key: fromLaneKey ?? fromStep, to_lane_key: toLaneKey },
+    });
+  }
+
+  const board = buildKanbanMarketingBoard({
+    ...options,
+    boardSlug,
+    now,
+    pythonPath,
+  });
+
+  return {
+    ...base,
+    ok: true,
+    status: 'ready',
+    reason_code: moved ? 'KANBAN_MARKETING_CARD_MOVED' : 'KANBAN_MARKETING_CARD_ALREADY_IN_LANE',
+    card_id: taskId,
+    ...(fromLaneKey ? { from_lane_key: fromLaneKey } : {}),
+    to_lane_key: toLaneKey,
+    moved,
+    audit_event_path: eventLedgerPath,
+    ...(moved ? { audit_event_id: auditEventId } : {}),
+    model: board.model,
+  };
+}
+
+function marketingCardActionEventKind(action: CommandEveKanbanMarketingCardAction): string {
+  return `command_eve_card_${action === 'comment' ? 'commented' : `${action}ed`}`.replace('completeed', 'completed');
+}
+
+function marketingCardActionAuditType(
+  action: CommandEveKanbanMarketingCardAction
+): Parameters<typeof appendMarketingMutationAuditEvent>[0]['eventType'] {
+  if (action === 'comment') return 'kanban.marketing_board_card_commented';
+  if (action === 'block') return 'kanban.marketing_board_card_blocked';
+  if (action === 'unblock') return 'kanban.marketing_board_card_unblocked';
+  return 'kanban.marketing_board_card_completed';
+}
+
+function marketingCardActionMode(
+  action: CommandEveKanbanMarketingCardAction
+): Parameters<typeof appendMarketingMutationAuditEvent>[0]['mode'] {
+  return `kanban-card-${action}` as Parameters<typeof appendMarketingMutationAuditEvent>[0]['mode'];
+}
+
+function marketingCardActionPayloadName(
+  action: CommandEveKanbanMarketingCardAction
+): Parameters<typeof appendMarketingMutationAuditEvent>[0]['action'] {
+  if (action === 'comment') return 'card_comment';
+  if (action === 'block') return 'card_block';
+  if (action === 'unblock') return 'card_unblock';
+  return 'card_complete';
+}
+
+export function applyKanbanMarketingCardAction(
+  options: CommandEveKanbanMarketingCardActionOptions
+): CommandEveKanbanMarketingCardActionResult {
+  const paths = resolveCommandEveRuntimeBootstrapPaths(options.userDataPath);
+  const base = marketingCardActionResultBase(paths.hermesHome);
+
+  let boardSlug: string;
+  try {
+    boardSlug = normalizeBoardSlug(options.boardSlug);
+  } catch (error) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_BOARD_SLUG_INVALID',
+      message: error instanceof Error ? error.message : 'Invalid Hermes Kanban board slug.',
+      action: options.action,
+    };
+  }
+
+  const taskId = String(options.task_id || '').trim();
+  if (!taskId) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_CARD_ID_REQUIRED',
+      message: 'A task_id is required to mutate a marketing card.',
+      action: options.action,
+    };
+  }
+
+  const action = options.action;
+  if (!['comment', 'block', 'unblock', 'complete'].includes(action)) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_CARD_ACTION_INVALID',
+      message: `Unsupported Command EVE marketing card action: ${String(action || '')}`,
+      card_id: taskId,
+    };
+  }
+
+  const comment = String(options.comment || '').trim();
+  if (action === 'comment' && !comment) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_CARD_COMMENT_REQUIRED',
+      message: 'A non-empty comment is required to append a marketing card comment.',
+      card_id: taskId,
+      action,
+    };
+  }
+
+  const reconciliation = readRuntimeReconciliation(paths.runtimeReconciliation);
+  const governanceOk =
+    reconciliation.governance.dispatcher_disabled &&
+    reconciliation.governance.auto_decompose_disabled &&
+    reconciliation.governance.mcp_servers_disabled;
+  if (!governanceOk) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
+      message: 'Card actions require dispatcher, auto-decompose and external MCP execution to stay disabled.',
+      card_id: taskId,
+      action,
+    };
+  }
+
+  const now = options.now ?? (() => new Date());
+  const occurredAt = now().toISOString();
+  const actionAt = Math.floor(new Date(occurredAt).getTime() / 1000);
+  const dbPath = kanbanDbPath(paths.hermesHome, boardSlug);
+  const eventLedgerPath = resolveMarketingEventLedgerPath(paths, options);
+  const auditEventId = marketingCardActionAuditEventId(taskId, action, occurredAt);
+  const pythonPath = pythonForMarketingBoard(paths, options.pythonPath);
+  const actionResult = runPythonJson(
+    pythonPath,
+    {
+      db_path: dbPath,
+      card_id: taskId,
+      action,
+      comment,
+      action_at: actionAt,
+      event_kind: marketingCardActionEventKind(action),
+      audit_event_id: auditEventId,
+    },
+    buildMarketingCardActionScript(),
+    paths.hermesHome
+  );
+
+  if (!actionResult.ok || !actionResult.data) {
+    return {
+      ...base,
+      ok: false,
+      status: 'failed',
+      reason_code: 'KANBAN_MARKETING_CARD_ACTION_WRITE_FAILED',
+      message: actionResult.error || 'Command EVE marketing card action could not be written.',
+      card_id: taskId,
+      action,
+      audit_event_path: eventLedgerPath,
+    };
+  }
+
+  const found = actionResult.data.found === true;
+  if (!found) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_CARD_NOT_FOUND',
+      message: `No marketing card found for task_id: ${taskId}`,
+      card_id: taskId,
+      action,
+      audit_event_path: eventLedgerPath,
+    };
+  }
+
+  const applied = actionResult.data.applied === true;
+  const fromStatus = textField(actionResult.data.from_status);
+  const toStatus = textField(actionResult.data.to_status);
+  const fromStep = textField(actionResult.data.from_step);
+  const toStep = textField(actionResult.data.to_step);
+  const fromLaneKey = normalizeMarketingLaneKey(fromStep) ?? undefined;
+  const toLaneKey = normalizeMarketingLaneKey(toStep) ?? undefined;
+
+  if (applied) {
+    appendMarketingMutationAuditEvent({
+      eventId: auditEventId,
+      eventType: marketingCardActionAuditType(action),
+      mode: marketingCardActionMode(action),
+      action: marketingCardActionPayloadName(action),
+      eventLedgerPath,
+      occurredAt,
+      cardId: taskId,
+      boardSlug,
+      dbPath,
+      extraPayload: {
+        from_status: fromStatus,
+        to_status: toStatus,
+        from_lane_key: fromLaneKey ?? fromStep,
+        to_lane_key: toLaneKey ?? toStep,
+        subprocess_spawned: false,
+        external_calls: false,
+        ...(action === 'comment' ? { comment_length: comment.length } : {}),
+      },
+    });
+  }
+
+  const board = buildKanbanMarketingBoard({
+    ...options,
+    boardSlug,
+    now,
+    pythonPath,
+  });
+
+  return {
+    ...base,
+    ok: true,
+    status: 'ready',
+    reason_code: `KANBAN_MARKETING_CARD_${action.toUpperCase()}ED`.replace('COMPLETEED', 'COMPLETED'),
+    card_id: taskId,
+    action,
+    action_applied: applied,
+    ...(fromStatus ? { from_status: fromStatus } : {}),
+    ...(toStatus ? { to_status: toStatus } : {}),
+    ...(fromLaneKey ? { from_lane_key: fromLaneKey } : {}),
+    ...(toLaneKey ? { to_lane_key: toLaneKey } : {}),
+    audit_event_path: eventLedgerPath,
+    ...(applied ? { audit_event_id: auditEventId } : {}),
+    model: board.model,
+  };
+}
+
+export function planKanbanMarketingCardDispatch(
+  options: CommandEveKanbanMarketingDispatchPlanOptions
+): CommandEveKanbanMarketingDispatchPlanResult {
+  const paths = resolveCommandEveRuntimeBootstrapPaths(options.userDataPath);
+  const companyOsRoot = resolveCompanyOsRootForDispatch(options);
+  const base = marketingDispatchPlanResultBase(paths.hermesHome, companyOsRoot);
+
+  let boardSlug: string;
+  try {
+    boardSlug = normalizeBoardSlug(options.boardSlug);
+  } catch (error) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_BOARD_SLUG_INVALID',
+      reason_codes: ['KANBAN_BOARD_SLUG_INVALID'],
+      message: error instanceof Error ? error.message : 'Invalid Hermes Kanban board slug.',
+    };
+  }
+
+  const command = options.command === 'specify' ? 'specify' : 'decompose';
+  const taskId = String(options.task_id || '').trim();
+  if (!taskId) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_CARD_ID_REQUIRED',
+      reason_codes: ['KANBAN_MARKETING_CARD_ID_REQUIRED'],
+      message: 'A task_id is required to plan a marketing card dispatch.',
+      command,
+    };
+  }
+
+  const reconciliation = readRuntimeReconciliation(paths.runtimeReconciliation);
+  const governanceOk =
+    reconciliation.governance.dispatcher_disabled &&
+    reconciliation.governance.auto_decompose_disabled &&
+    reconciliation.governance.mcp_servers_disabled;
+  if (!governanceOk) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
+      reason_codes: ['KANBAN_GOVERNANCE_NOT_LOCKED'],
+      message: 'Dispatch planning requires dispatcher, auto-decompose and external MCP execution to stay disabled.',
+      card_id: taskId,
+      command,
+    };
+  }
+
+  const now = options.now ?? (() => new Date());
+  const occurredAt = now().toISOString();
+  const checkedAt = Math.floor(new Date(occurredAt).getTime() / 1000);
+  const dbPath = kanbanDbPath(paths.hermesHome, boardSlug);
+  const eventLedgerPath = resolveMarketingEventLedgerPath(paths, options);
+  const auditEventId = marketingCardDispatchAuditEventId(taskId, occurredAt);
+  const pythonPath = pythonForMarketingBoard(paths, options.pythonPath);
+  const lookup = runPythonJson(
+    pythonPath,
+    {
+      db_path: dbPath,
+      card_id: taskId,
+    },
+    buildMarketingCardLookupScript(),
+    paths.hermesHome
+  );
+
+  if (!lookup.ok || !lookup.data) {
+    return {
+      ...base,
+      ok: false,
+      status: 'failed',
+      reason_code: 'KANBAN_MARKETING_CARD_LOOKUP_FAILED',
+      reason_codes: ['KANBAN_MARKETING_CARD_LOOKUP_FAILED'],
+      message: lookup.error || 'Command EVE marketing card could not be read before dispatch planning.',
+      card_id: taskId,
+      command,
+      audit_event_path: eventLedgerPath,
+    };
+  }
+  if (lookup.data.found !== true || !isRecord(lookup.data.task)) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_CARD_NOT_FOUND',
+      reason_codes: ['KANBAN_MARKETING_CARD_NOT_FOUND'],
+      message: `No marketing card found for task_id: ${taskId}`,
+      card_id: taskId,
+      command,
+      audit_event_path: eventLedgerPath,
+    };
+  }
+
+  const request = buildMarketingDispatchRequest({
+    task: lookup.data.task,
+    cardId: taskId,
+    command,
+    companyOsRoot,
+  });
+  const dispatchCliPath = companyOsRoot ? companyOsDispatchCliPath(companyOsRoot) : '';
+  const hasExternalDispatchCli = Boolean(companyOsRoot && fs.existsSync(dispatchCliPath));
+  const runner = options.commandRunner || defaultCommandRunner;
+  let dispatch: CommandEveKanbanPreflightCommandResult = {
+    ok: false,
+    exitCode: 78,
+    stdout: '',
+    stderr: '',
+  };
+  let dispatchPlan: JsonRecord | null = null;
+
+  if (hasExternalDispatchCli && companyOsRoot) {
+    const nodeRuntime = nodeRuntimeForDispatch();
+    dispatch = runner({
+      executable: nodeRuntime.executable,
+      args: [dispatchCliPath, '--stdin', '--cwd', companyOsRoot],
+      cwd: companyOsRoot,
+      env: {
+        ...process.env,
+        ...nodeRuntime.env,
+        ...(options.env || {}),
+      },
+      timeoutMs: 30_000,
+      input: `${JSON.stringify(request)}\n`,
+    });
+    dispatchPlan = parseJsonRecord(dispatch.stdout || '');
+  } else {
+    dispatchPlan = buildEmbeddedHermesPreGenerationDispatchPlan({
+      request,
+      reason: companyOsRoot
+        ? `Company.OS NL-5 dispatch CLI not found: ${dispatchCliPath}`
+        : 'Company.OS root not configured; using embedded Command EVE NL-5 gate.',
+    });
+    dispatch = {
+      ok: false,
+      exitCode: 78,
+      stdout: `${JSON.stringify(dispatchPlan)}\n`,
+      stderr: '',
+    };
+  }
+
+  if (!dispatchPlan) {
+    return {
+      ...base,
+      ok: false,
+      status: 'failed',
+      reason_code: 'COMMAND_EVE_NL5_DISPATCH_PLAN_PARSE_FAILED',
+      reason_codes: ['COMMAND_EVE_NL5_DISPATCH_PLAN_PARSE_FAILED'],
+      message: dispatch.stderr || dispatch.error || 'Company.OS NL-5 dispatch plan returned non-JSON output.',
+      card_id: taskId,
+      command,
+      audit_event_path: eventLedgerPath,
+    };
+  }
+
+  const policy = isRecord(dispatchPlan.policy) ? dispatchPlan.policy : {};
+  const dataBoundaryChecked = isRecord(policy.data_boundary_receipt);
+  const reasonCodes = reasonCodesFromDispatchPlan(dispatchPlan);
+  const subprocessSpawned = dispatchPlan.subprocess_spawned === true;
+  const dispatchSource =
+    textField(dispatchPlan.dispatch_source) || (hasExternalDispatchCli ? 'company-os-nl5-cli' : '');
+  const dispatchSourceReason = textField(dispatchPlan.dispatch_source_reason);
+  const receiptPolicy = {
+    ...policy,
+    ...(dispatchSource ? { dispatch_source: dispatchSource } : {}),
+    ...(dispatchSourceReason ? { dispatch_source_reason: dispatchSourceReason } : {}),
+  };
+  const dispatchHandoffPacket = buildMarketingDispatchHandoffPacket({
+    request,
+    dispatchPlan,
+    policy: receiptPolicy,
+    cardId: taskId,
+    command,
+    companyOsRoot,
+    occurredAt,
+  });
+  dispatchPlan = {
+    ...dispatchPlan,
+    dispatch_handoff_packet: dispatchHandoffPacket,
+  };
+  const controllerApprovalRequired = true;
+  const releaseBlocked = !subprocessSpawned;
+  const receiptWrite = runPythonJson(
+    pythonPath,
+    {
+      db_path: dbPath,
+      card_id: taskId,
+      audit_event_id: auditEventId,
+      checked_at: checkedAt,
+      dispatch_status: textField(dispatchPlan.status) || (dispatch.ok ? 'ready' : 'blocked'),
+      reason_codes: reasonCodes,
+      data_boundary_checked: dataBoundaryChecked,
+      subprocess_spawned: subprocessSpawned,
+      controller_approval_required: controllerApprovalRequired,
+      release_blocked: releaseBlocked,
+      policy: receiptPolicy,
+      dispatch_handoff_packet: dispatchHandoffPacket,
+      dispatch_source: dispatchSource,
+      dispatch_source_reason: dispatchSourceReason,
+    },
+    buildMarketingCardDispatchPlanScript(),
+    paths.hermesHome
+  );
+
+  if (!receiptWrite.ok || !receiptWrite.data) {
+    return {
+      ...base,
+      ok: false,
+      status: 'failed',
+      reason_code: 'KANBAN_MARKETING_DISPATCH_RECEIPT_WRITE_FAILED',
+      reason_codes: ['KANBAN_MARKETING_DISPATCH_RECEIPT_WRITE_FAILED'],
+      message: receiptWrite.error || 'Command EVE dispatch-plan receipt could not be written.',
+      card_id: taskId,
+      command,
+      audit_event_path: eventLedgerPath,
+      dispatch_plan: dispatchPlan,
+      dispatch_handoff_packet: dispatchHandoffPacket,
+      policy: receiptPolicy,
+      subprocess_spawned: subprocessSpawned,
+      data_boundary_checked: dataBoundaryChecked,
+      controller_approval_required: controllerApprovalRequired,
+      release_blocked: releaseBlocked,
+      human_gate: 'HG-2.5',
+      ...(dispatchSource ? { dispatch_source: dispatchSource } : {}),
+      ...(dispatchSourceReason ? { dispatch_source_reason: dispatchSourceReason } : {}),
+    };
+  }
+
+  appendMarketingDispatchPlanAuditEvent({
+    eventId: auditEventId,
+    eventLedgerPath,
+    occurredAt,
+    cardId: taskId,
+    boardSlug,
+    dbPath,
+    companyOsRoot,
+    dispatchPlan,
+  });
+
+  const ready = dispatchPlan.status === 'ready' || dispatchPlan.status === 'dispatched';
+  return {
+    ...base,
+    ok: dispatchPlan.ok === true && ready,
+    status: ready ? 'ready' : dispatchPlan.status === 'failed' ? 'failed' : 'blocked',
+    reason_code: ready
+      ? 'KANBAN_MARKETING_DISPATCH_PLAN_READY'
+      : reasonCodes[0] || 'KANBAN_MARKETING_DISPATCH_PLAN_BLOCKED',
+    reason_codes: reasonCodes,
+    message: ready
+      ? 'NL-5 dispatch plan is ready, but execution still requires an explicit controller gate.'
+      : 'NL-5 dispatch plan blocked execution before Hermes could spawn.',
+    card_id: taskId,
+    command,
+    subprocess_spawned: subprocessSpawned,
+    data_boundary_checked: dataBoundaryChecked,
+    controller_approval_required: controllerApprovalRequired,
+    release_blocked: releaseBlocked,
+    human_gate: 'HG-2.5',
+    audit_event_id: auditEventId,
+    audit_event_path: eventLedgerPath,
+    dispatch_plan: dispatchPlan,
+    dispatch_handoff_packet: dispatchHandoffPacket,
+    ...(dispatchSource ? { dispatch_source: dispatchSource } : {}),
+    ...(dispatchSourceReason ? { dispatch_source_reason: dispatchSourceReason } : {}),
+    policy: receiptPolicy,
+  };
+}
+
+export function recordKanbanMarketingDispatchApproval(
+  options: CommandEveKanbanMarketingDispatchApprovalOptions
+): CommandEveKanbanMarketingDispatchApprovalResult {
+  const paths = resolveCommandEveRuntimeBootstrapPaths(options.userDataPath);
+  const base = marketingDispatchApprovalResultBase(paths.hermesHome);
+
+  let boardSlug: string;
+  try {
+    boardSlug = normalizeBoardSlug(options.boardSlug);
+  } catch (error) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_BOARD_SLUG_INVALID',
+      message: error instanceof Error ? error.message : 'Invalid Hermes Kanban board slug.',
+    };
+  }
+
+  const taskId = String(options.task_id || '').trim();
+  if (!taskId) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_CARD_ID_REQUIRED',
+      message: 'A task_id is required to record a controller review receipt.',
+    };
+  }
+
+  const dispatchHandoffPacket = isRecord(options.dispatch_handoff_packet) ? options.dispatch_handoff_packet : {};
+  if (!isRecord(dispatchHandoffPacket) || Object.keys(dispatchHandoffPacket).length === 0) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_DISPATCH_HANDOFF_REQUIRED',
+      message: 'Controller review receipt requires a dispatch handoff packet.',
+      card_id: taskId,
+    };
+  }
+
+  const reconciliation = readRuntimeReconciliation(paths.runtimeReconciliation);
+  const governanceOk =
+    reconciliation.governance.dispatcher_disabled &&
+    reconciliation.governance.auto_decompose_disabled &&
+    reconciliation.governance.mcp_servers_disabled;
+  if (!governanceOk) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
+      message:
+        'Controller review receipts require dispatcher, auto-decompose and external MCP execution to stay disabled.',
+      card_id: taskId,
+      dispatch_handoff_packet: dispatchHandoffPacket,
+    };
+  }
+
+  const now = options.now ?? (() => new Date());
+  const occurredAt = now().toISOString();
+  const recordedAt = Math.floor(new Date(occurredAt).getTime() / 1000);
+  const dbPath = kanbanDbPath(paths.hermesHome, boardSlug);
+  const eventLedgerPath = resolveMarketingEventLedgerPath(paths, options);
+  const auditEventId = marketingCardDispatchApprovalAuditEventId(taskId, occurredAt);
+  const pythonPath = pythonForMarketingBoard(paths, options.pythonPath);
+  const receiptWrite = runPythonJson(
+    pythonPath,
+    {
+      db_path: dbPath,
+      card_id: taskId,
+      audit_event_id: auditEventId,
+      recorded_at: recordedAt,
+      dispatch_handoff_packet: dispatchHandoffPacket,
+      review_note: options.review_note || '',
+    },
+    buildMarketingDispatchApprovalScript(),
+    paths.hermesHome
+  );
+
+  if (!receiptWrite.ok || !receiptWrite.data) {
+    return {
+      ...base,
+      ok: false,
+      status: 'failed',
+      reason_code: 'KANBAN_MARKETING_CONTROLLER_APPROVAL_RECEIPT_WRITE_FAILED',
+      message: receiptWrite.error || 'Command EVE controller-review receipt could not be written.',
+      card_id: taskId,
+      audit_event_path: eventLedgerPath,
+      dispatch_handoff_packet: dispatchHandoffPacket,
+    };
+  }
+  if (receiptWrite.data.found !== true) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_CARD_NOT_FOUND',
+      message: `No marketing card found for task_id: ${taskId}`,
+      card_id: taskId,
+      audit_event_path: eventLedgerPath,
+      dispatch_handoff_packet: dispatchHandoffPacket,
+    };
+  }
+
+  appendMarketingDispatchApprovalAuditEvent({
+    eventId: auditEventId,
+    eventLedgerPath,
+    occurredAt,
+    cardId: taskId,
+    boardSlug,
+    dbPath,
+    dispatchHandoffPacket,
+  });
+
+  const board = buildKanbanMarketingBoard({
+    ...options,
+    boardSlug,
+    now,
+    pythonPath,
+  });
+
+  return {
+    ...base,
+    ok: true,
+    status: 'ready',
+    reason_code: 'KANBAN_MARKETING_CONTROLLER_APPROVAL_PENDING_RECORDED',
+    message: 'Controller review receipt recorded; worker execution remains blocked.',
+    card_id: taskId,
+    audit_event_id: auditEventId,
+    audit_event_path: eventLedgerPath,
+    approval_event_kind: 'command_eve_controller_approval_pending',
+    controller_approval_status: 'pending',
+    subprocess_spawned: false,
+    release_blocked: true,
+    human_gate: 'HG-2.5',
+    dispatch_handoff_packet: dispatchHandoffPacket,
+    model: board.model,
+  };
+}
+
+export function recordKanbanMarketingDispatchDecision(
+  options: CommandEveKanbanMarketingDispatchDecisionOptions
+): CommandEveKanbanMarketingDispatchDecisionResult {
+  const paths = resolveCommandEveRuntimeBootstrapPaths(options.userDataPath);
+  const base = marketingDispatchDecisionResultBase(paths.hermesHome);
+
+  let boardSlug: string;
+  try {
+    boardSlug = normalizeBoardSlug(options.boardSlug);
+  } catch (error) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_BOARD_SLUG_INVALID',
+      message: error instanceof Error ? error.message : 'Invalid Hermes Kanban board slug.',
+    };
+  }
+
+  const taskId = String(options.task_id || '').trim();
+  if (!taskId) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_CARD_ID_REQUIRED',
+      message: 'A task_id is required to record a controller decision receipt.',
+    };
+  }
+
+  const decision = options.decision;
+  if (decision !== 'approved' && decision !== 'rejected') {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_CONTROLLER_DECISION_INVALID',
+      message: 'Controller decision must be approved or rejected.',
+      card_id: taskId,
+    };
+  }
+
+  const dispatchHandoffPacket = isRecord(options.dispatch_handoff_packet) ? options.dispatch_handoff_packet : {};
+  if (!isRecord(dispatchHandoffPacket) || Object.keys(dispatchHandoffPacket).length === 0) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_DISPATCH_HANDOFF_REQUIRED',
+      message: 'Controller decision receipt requires a dispatch handoff packet.',
+      card_id: taskId,
+      controller_approval_status: decision,
+      controller_approved: decision === 'approved',
+    };
+  }
+
+  const reconciliation = readRuntimeReconciliation(paths.runtimeReconciliation);
+  const governanceOk =
+    reconciliation.governance.dispatcher_disabled &&
+    reconciliation.governance.auto_decompose_disabled &&
+    reconciliation.governance.mcp_servers_disabled;
+  if (!governanceOk) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
+      message:
+        'Controller decision receipts require dispatcher, auto-decompose and external MCP execution to stay disabled.',
+      card_id: taskId,
+      controller_approval_status: decision,
+      controller_approved: decision === 'approved',
+      dispatch_handoff_packet: dispatchHandoffPacket,
+    };
+  }
+
+  const now = options.now ?? (() => new Date());
+  const occurredAt = now().toISOString();
+  const recordedAt = Math.floor(new Date(occurredAt).getTime() / 1000);
+  const dbPath = kanbanDbPath(paths.hermesHome, boardSlug);
+  const eventLedgerPath = resolveMarketingEventLedgerPath(paths, options);
+  const auditEventId = marketingCardDispatchDecisionAuditEventId(taskId, decision, occurredAt);
+  const pythonPath = pythonForMarketingBoard(paths, options.pythonPath);
+  const receiptWrite = runPythonJson(
+    pythonPath,
+    {
+      db_path: dbPath,
+      card_id: taskId,
+      audit_event_id: auditEventId,
+      recorded_at: recordedAt,
+      decision,
+      dispatch_handoff_packet: dispatchHandoffPacket,
+      decision_note: options.decision_note || '',
+    },
+    buildMarketingDispatchDecisionScript(),
+    paths.hermesHome
+  );
+
+  if (!receiptWrite.ok || !receiptWrite.data) {
+    return {
+      ...base,
+      ok: false,
+      status: 'failed',
+      reason_code: 'KANBAN_MARKETING_CONTROLLER_DECISION_RECEIPT_WRITE_FAILED',
+      message: receiptWrite.error || 'Command EVE controller-decision receipt could not be written.',
+      card_id: taskId,
+      audit_event_path: eventLedgerPath,
+      controller_approval_status: decision,
+      controller_approved: decision === 'approved',
+      dispatch_handoff_packet: dispatchHandoffPacket,
+    };
+  }
+  if (receiptWrite.data.found !== true) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_CARD_NOT_FOUND',
+      message: `No marketing card found for task_id: ${taskId}`,
+      card_id: taskId,
+      audit_event_path: eventLedgerPath,
+      controller_approval_status: decision,
+      controller_approved: decision === 'approved',
+      dispatch_handoff_packet: dispatchHandoffPacket,
+    };
+  }
+
+  appendMarketingDispatchDecisionAuditEvent({
+    eventId: auditEventId,
+    eventLedgerPath,
+    occurredAt,
+    cardId: taskId,
+    boardSlug,
+    dbPath,
+    decision,
+    dispatchHandoffPacket,
+  });
+
+  const board = buildKanbanMarketingBoard({
+    ...options,
+    boardSlug,
+    now,
+    pythonPath,
+  });
+
+  return {
+    ...base,
+    ok: true,
+    status: 'ready',
+    reason_code:
+      decision === 'approved'
+        ? 'KANBAN_MARKETING_CONTROLLER_APPROVAL_RECORDED_NO_SPAWN'
+        : 'KANBAN_MARKETING_CONTROLLER_REJECTION_RECORDED',
+    message:
+      decision === 'approved'
+        ? 'Controller approval receipt recorded; worker execution still remains blocked.'
+        : 'Controller rejection receipt recorded; worker execution remains blocked.',
+    card_id: taskId,
+    audit_event_id: auditEventId,
+    audit_event_path: eventLedgerPath,
+    decision_event_kind: 'command_eve_controller_decision_recorded',
+    controller_approval_status: decision,
+    controller_approved: decision === 'approved',
+    subprocess_spawned: false,
+    release_blocked: true,
+    human_gate: 'HG-2.5',
+    dispatch_handoff_packet: dispatchHandoffPacket,
+    model: board.model,
+  };
+}
+
+export function generateKanbanMarketingDraft(
+  options: CommandEveKanbanMarketingDraftGenerateOptions
+): CommandEveKanbanMarketingDraftGenerateResult {
+  const paths = resolveCommandEveRuntimeBootstrapPaths(options.userDataPath);
+  const companyOsRoot = resolveCompanyOsRootForDispatch(options);
+  const base = marketingDraftGenerateResultBase(paths.hermesHome, companyOsRoot);
+
+  let boardSlug: string;
+  try {
+    boardSlug = normalizeBoardSlug(options.boardSlug);
+  } catch (error) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_BOARD_SLUG_INVALID',
+      reason_codes: ['KANBAN_BOARD_SLUG_INVALID'],
+      message: error instanceof Error ? error.message : 'Invalid Hermes Kanban board slug.',
+    };
+  }
+
+  const taskId = String(options.task_id || '').trim();
+  if (!taskId) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_CARD_ID_REQUIRED',
+      reason_codes: ['KANBAN_MARKETING_CARD_ID_REQUIRED'],
+      message: 'A task_id is required to generate a marketing draft.',
+    };
+  }
+
+  const reconciliation = readRuntimeReconciliation(paths.runtimeReconciliation);
+  const governanceOk =
+    reconciliation.governance.dispatcher_disabled &&
+    reconciliation.governance.auto_decompose_disabled &&
+    reconciliation.governance.mcp_servers_disabled;
+  if (!governanceOk) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
+      reason_codes: ['KANBAN_GOVERNANCE_NOT_LOCKED'],
+      message:
+        'Marketing draft generation requires dispatcher, auto-decompose and external MCP execution to stay disabled.',
+      card_id: taskId,
+    };
+  }
+
+  const now = options.now ?? (() => new Date());
+  const occurredAt = now().toISOString();
+  const generatedAt = Math.floor(new Date(occurredAt).getTime() / 1000);
+  const dbPath = kanbanDbPath(paths.hermesHome, boardSlug);
+  const eventLedgerPath = resolveMarketingEventLedgerPath(paths, options);
+  const auditEventId = marketingCardDraftGenerateAuditEventId(taskId, occurredAt);
+  const pythonPath = pythonForMarketingBoard(paths, options.pythonPath);
+  const lookup = runPythonJson(
+    pythonPath,
+    {
+      db_path: dbPath,
+      card_id: taskId,
+    },
+    buildMarketingCardLookupScript(),
+    paths.hermesHome
+  );
+
+  if (!lookup.ok || !lookup.data) {
+    return {
+      ...base,
+      ok: false,
+      status: 'failed',
+      reason_code: 'KANBAN_MARKETING_CARD_LOOKUP_FAILED',
+      reason_codes: ['KANBAN_MARKETING_CARD_LOOKUP_FAILED'],
+      message: lookup.error || 'Command EVE marketing card could not be read before draft generation.',
+      card_id: taskId,
+      audit_event_path: eventLedgerPath,
+    };
+  }
+  if (lookup.data.found !== true || !isRecord(lookup.data.task)) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_CARD_NOT_FOUND',
+      reason_codes: ['KANBAN_MARKETING_CARD_NOT_FOUND'],
+      message: `No marketing card found for task_id: ${taskId}`,
+      card_id: taskId,
+      audit_event_path: eventLedgerPath,
+    };
+  }
+
+  const command = 'specify' as const;
+  const request = buildMarketingDispatchRequest({
+    task: lookup.data.task,
+    cardId: taskId,
+    command,
+    companyOsRoot,
+  });
+  request.controllerApproval = {
+    status: 'approved',
+    reason: 'HG-2.5 controller decision receipt exists in the local Kanban ledger.',
+  };
+
+  const dispatchCliPath = companyOsRoot ? companyOsDispatchCliPath(companyOsRoot) : '';
+  const hasExternalDispatchCli = Boolean(companyOsRoot && fs.existsSync(dispatchCliPath));
+  const runner = options.commandRunner || defaultCommandRunner;
+  let dispatch: CommandEveKanbanPreflightCommandResult = {
+    ok: false,
+    exitCode: 78,
+    stdout: '',
+    stderr: '',
+  };
+  let dispatchPlan: JsonRecord | null = null;
+
+  if (hasExternalDispatchCli && companyOsRoot) {
+    const nodeRuntime = nodeRuntimeForDispatch();
+    dispatch = runner({
+      executable: nodeRuntime.executable,
+      args: [dispatchCliPath, '--stdin', '--cwd', companyOsRoot],
+      cwd: companyOsRoot,
+      env: {
+        ...process.env,
+        ...nodeRuntime.env,
+        ...(options.env || {}),
+      },
+      timeoutMs: 30_000,
+      input: `${JSON.stringify(request)}\n`,
+    });
+    dispatchPlan = parseJsonRecord(dispatch.stdout || '');
+  } else {
+    const policy = buildEmbeddedHermesPreGenerationPolicy(request);
+    dispatchPlan = {
+      version: 'hermes-pre-generation-dispatch/v0',
+      ok: policy.allowed,
+      status: policy.allowed ? 'ready' : 'blocked',
+      subprocess_spawned: false,
+      reason_codes: policy.reason_codes.length ? policy.reason_codes : ['command_eve.embedded_nl5_ready'],
+      policy,
+      dispatch_source: 'command-eve-embedded-nl5',
+      dispatch_source_reason: companyOsRoot
+        ? `Company.OS NL-5 dispatch CLI not found: ${dispatchCliPath}`
+        : 'Company.OS root not configured; using embedded Command EVE NL-5 gate.',
+    };
+    dispatch = {
+      ok: policy.allowed,
+      exitCode: policy.allowed ? 0 : 78,
+      stdout: `${JSON.stringify(dispatchPlan)}\n`,
+      stderr: '',
+    };
+  }
+
+  if (!dispatchPlan) {
+    return {
+      ...base,
+      ok: false,
+      status: 'failed',
+      reason_code: 'COMMAND_EVE_NL5_DISPATCH_PLAN_PARSE_FAILED',
+      reason_codes: ['COMMAND_EVE_NL5_DISPATCH_PLAN_PARSE_FAILED'],
+      message: dispatch.stderr || dispatch.error || 'Company.OS NL-5 dispatch plan returned non-JSON output.',
+      card_id: taskId,
+      audit_event_path: eventLedgerPath,
+    };
+  }
+
+  const policy = isRecord(dispatchPlan.policy) ? dispatchPlan.policy : {};
+  const dataBoundaryReceipt = isRecord(policy.data_boundary_receipt)
+    ? (policy.data_boundary_receipt as JsonRecord)
+    : {};
+  const dataBoundaryChecked = Object.keys(dataBoundaryReceipt).length > 0;
+  const reasonCodes = reasonCodesFromDispatchPlan(dispatchPlan);
+  const dispatchSource =
+    textField(dispatchPlan.dispatch_source) || (hasExternalDispatchCli ? 'company-os-nl5-cli' : '');
+  const dispatchSourceReason = textField(dispatchPlan.dispatch_source_reason);
+  const ready = dispatchPlan.ok === true && dispatchPlan.status === 'ready' && dataBoundaryChecked;
+
+  if (!ready) {
+    return {
+      ...base,
+      ok: false,
+      status: dispatchPlan.status === 'failed' ? 'failed' : 'blocked',
+      reason_code: reasonCodes[0] || 'KANBAN_MARKETING_DRAFT_NL5_BLOCKED',
+      reason_codes: reasonCodes,
+      message: 'NL-5 blocked marketing draft generation before any output was written.',
+      card_id: taskId,
+      audit_event_path: eventLedgerPath,
+      data_boundary_checked: dataBoundaryChecked,
+      controller_approval_status: 'approved',
+      controller_approved: true,
+      release_blocked: true,
+      dispatch_handoff_packet: isRecord(options.dispatch_handoff_packet) ? options.dispatch_handoff_packet : {},
+      policy,
+    };
+  }
+
+  const dispatchHandoffPacket = isRecord(options.dispatch_handoff_packet) ? options.dispatch_handoff_packet : {};
+  const draftSource = 'command-eve-local-marketing-draft-generator/v0';
+  const draftText = buildLocalMarketingDraftText({
+    task: lookup.data.task,
+    cardId: taskId,
+    handoff: dispatchHandoffPacket,
+  });
+  const receiptWrite = runPythonJson(
+    pythonPath,
+    {
+      db_path: dbPath,
+      card_id: taskId,
+      audit_event_id: auditEventId,
+      generated_at: generatedAt,
+      data_boundary_checked: dataBoundaryChecked,
+      data_boundary_receipt: dataBoundaryReceipt,
+      dispatch_status: textField(dispatchPlan.status) || 'ready',
+      dispatch_source: dispatchSource,
+      dispatch_source_reason: dispatchSourceReason,
+      dispatch_handoff_packet: dispatchHandoffPacket,
+      draft_source: draftSource,
+      draft_text: draftText,
+      generation_note: options.generation_note || '',
+    },
+    buildMarketingDraftGenerateScript(),
+    paths.hermesHome
+  );
+
+  if (!receiptWrite.ok || !receiptWrite.data) {
+    return {
+      ...base,
+      ok: false,
+      status: 'failed',
+      reason_code: 'KANBAN_MARKETING_DRAFT_WRITE_FAILED',
+      reason_codes: ['KANBAN_MARKETING_DRAFT_WRITE_FAILED'],
+      message: receiptWrite.error || 'Command EVE marketing draft could not be written.',
+      card_id: taskId,
+      audit_event_path: eventLedgerPath,
+      data_boundary_checked: dataBoundaryChecked,
+      controller_approval_status: 'approved',
+      controller_approved: true,
+      release_blocked: true,
+      dispatch_handoff_packet: dispatchHandoffPacket,
+      policy,
+    };
+  }
+  if (receiptWrite.data.found !== true) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_CARD_NOT_FOUND',
+      reason_codes: ['KANBAN_MARKETING_CARD_NOT_FOUND'],
+      message: `No marketing card found for task_id: ${taskId}`,
+      card_id: taskId,
+      audit_event_path: eventLedgerPath,
+      data_boundary_checked: dataBoundaryChecked,
+      controller_approval_status: 'approved',
+      controller_approved: true,
+      release_blocked: true,
+      dispatch_handoff_packet: dispatchHandoffPacket,
+      policy,
+    };
+  }
+  if (receiptWrite.data.approved !== true) {
+    const approvalStatus = textField(receiptWrite.data.approval_status);
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_CONTROLLER_APPROVAL_REQUIRED',
+      reason_codes: ['KANBAN_MARKETING_CONTROLLER_APPROVAL_REQUIRED'],
+      message: 'Marketing draft generation requires an approved HG-2.5 controller decision in the local ledger.',
+      card_id: taskId,
+      audit_event_path: eventLedgerPath,
+      data_boundary_checked: dataBoundaryChecked,
+      controller_approval_status:
+        approvalStatus === 'rejected' || approvalStatus === 'approved' ? approvalStatus : undefined,
+      controller_approved: false,
+      release_blocked: true,
+      dispatch_handoff_packet: dispatchHandoffPacket,
+      policy,
+    };
+  }
+
+  const persistedHandoff = isRecord(receiptWrite.data.dispatch_handoff_packet)
+    ? (receiptWrite.data.dispatch_handoff_packet as JsonRecord)
+    : dispatchHandoffPacket;
+  appendMarketingDraftGeneratedAuditEvent({
+    eventId: auditEventId,
+    eventLedgerPath,
+    occurredAt,
+    cardId: taskId,
+    boardSlug,
+    dbPath,
+    dispatchHandoffPacket: persistedHandoff,
+    draftSource,
+    draftText,
+    dispatchSource,
+    dispatchSourceReason,
+  });
+
+  const board = buildKanbanMarketingBoard({
+    ...options,
+    boardSlug,
+    now,
+    pythonPath,
+  });
+
+  return {
+    ...base,
+    ok: true,
+    status: 'ready',
+    reason_code: 'KANBAN_MARKETING_DRAFT_GENERATED',
+    reason_codes: ['command_eve.marketing_draft_generated_local'],
+    message: 'Local marketing draft generated after NL-5 and HG-2.5 approval.',
+    card_id: taskId,
+    audit_event_id: auditEventId,
+    audit_event_path: eventLedgerPath,
+    draft_event_kind: 'command_eve_marketing_draft_generated',
+    draft_text: draftText,
+    draft_source: draftSource,
+    subprocess_spawned: false,
+    data_boundary_checked: dataBoundaryChecked,
+    controller_approval_status: 'approved',
+    controller_approved: true,
+    release_blocked: false,
+    human_gate: 'HG-2.5',
+    dispatch_handoff_packet: persistedHandoff,
+    policy,
     model: board.model,
   };
 }

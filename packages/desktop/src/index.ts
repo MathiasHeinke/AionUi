@@ -9,8 +9,21 @@
 import './process/utils/configureChromium';
 import { installGpuCrashHandler } from './process/utils/gpuRecovery';
 import { initSentry, scheduleStartupLogReport, setSentryDeviceId } from './sentry';
+import {
+  isTelemetryAllowed,
+  readConsent,
+  setConsent,
+  TELEMETRY_CONSENT_GET_CHANNEL,
+  TELEMETRY_CONSENT_SET_CHANNEL,
+  type TelemetryConsentBridgeResult,
+} from './process/commandEve/telemetryConsentCore';
+import { bridge } from '@office-ai/platform';
 
-initSentry();
+// Telemetry is opt-in (default OFF). Sentry is only ever initialized when the
+// user has explicitly consented in the privacy settings — fail CLOSED.
+if (isTelemetryAllowed()) {
+  initSentry();
+}
 
 import './process/utils/configureConsoleLog';
 import { app, BrowserWindow, ipcMain, nativeImage, powerMonitor } from 'electron';
@@ -66,6 +79,19 @@ import {
 } from './process/utils/tray';
 // @ts-expect-error - electron-squirrel-startup doesn't have types
 import electronSquirrelStartup from 'electron-squirrel-startup';
+
+// ============ Command EVE license-key resolution (COMPA-593) ============
+// In the packaged app, electron-builder `extraResources: { from: public, to: . }`
+// copies public/ — including the founder AND server license public keys — into
+// Contents/Resources. entitlementCore's resolver already documents
+// COMMAND_EVE_RESOURCES_PATH as the packaged-app key location, but nothing ever
+// set it, so resolution fell through to `process.cwd()/public` — which is '/'
+// for a Finder launch, where no key exists. Point the resolver at the real
+// resources root so BOTH trusted keys load and server-minted (SaaS) CEVE.v1
+// codes verify offline. Dev (app.isPackaged === false) keeps the cwd/public path.
+if (app.isPackaged && !process.env.COMMAND_EVE_RESOURCES_PATH) {
+  process.env.COMMAND_EVE_RESOURCES_PATH = process.resourcesPath;
+}
 
 // ============ Single Instance Lock ============
 // Acquire lock early so the second instance quits before doing unnecessary work.
@@ -689,6 +715,21 @@ function registerCommandEveRuntimeBridge(): void {
       return { success: false, msg: error instanceof Error ? error.message : String(error) };
     }
   });
+
+  // Telemetry consent (opt-in). The renderer privacy toggle reads/writes the
+  // consent store through these bridge channels. Sentry stays gated on the
+  // persisted value via isTelemetryAllowed() — fail CLOSED on any error.
+  bridge.buildProvider<TelemetryConsentBridgeResult, void>(TELEMETRY_CONSENT_GET_CHANNEL).provider(async () => {
+    const state = readConsent();
+    return { consent: state.consent === true, updatedAt: state.updatedAt };
+  });
+
+  bridge
+    .buildProvider<TelemetryConsentBridgeResult, { consent: boolean }>(TELEMETRY_CONSENT_SET_CHANNEL)
+    .provider(async (request) => {
+      const state = setConsent(request?.consent === true);
+      return { consent: state.consent === true, updatedAt: state.updatedAt };
+    });
 }
 
 function scheduleCommandEveLocalModelWarmup(
@@ -793,7 +834,9 @@ const createWindow = ({ showOnReady = true }: { showOnReady?: boolean } = {}): v
   });
   console.log(`[CommandEVE] Main window created (id=${mainWindow.id})`);
 
-  scheduleStartupLogReport(mainWindow);
+  if (isTelemetryAllowed()) {
+    scheduleStartupLogReport(mainWindow);
+  }
 
   // Show window after content is ready to prevent FOUC (Flash of Unstyled Content)
   // Use 'ready-to-show' which fires when renderer has painted first frame,
@@ -968,7 +1011,9 @@ const handleAppReady = async (): Promise<void> => {
     }
   }
 
-  setSentryDeviceId();
+  if (isTelemetryAllowed()) {
+    setSentryDeviceId();
+  }
 
   try {
     await initializeProcess();

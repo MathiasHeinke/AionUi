@@ -702,6 +702,383 @@ export const application = {
 };
 
 // ---------------------------------------------------------------------------
+// Command EVE Kanban marketing-board mutations — renderer-callable bounded writes
+// ---------------------------------------------------------------------------
+
+export type ICommandEveKanbanMarketingLaneKey = 'research' | 'draft' | 'assetGeneration' | 'review' | 'readyToApprove';
+
+export type ICommandEveKanbanMarketingBoardStatus = 'ready' | 'blocked' | 'failed';
+export type ICommandEveKanbanMarketingCardAction = 'comment' | 'block' | 'unblock' | 'complete';
+
+export interface ICommandEveKanbanMarketingCard {
+  card_id: string;
+  card_title: string;
+  card_status: string;
+  card_priority: number;
+  card_assignee: string;
+  lane_key: ICommandEveKanbanMarketingLaneKey;
+  created_at: number;
+  updated_at: number | null;
+  linked_run_id: string | null;
+  linked_audit_event_id: string | null;
+  governance_state: 'read_only' | 'proof_write_recorded' | 'unknown';
+}
+
+export interface ICommandEveKanbanMarketingColumn {
+  key: ICommandEveKanbanMarketingLaneKey;
+  cards: ICommandEveKanbanMarketingCard[];
+}
+
+export interface ICommandEveKanbanMarketingBoardModel {
+  schema_version: 'command-eve-kanban-marketing-board/v0';
+  generated_at: string;
+  board: {
+    slug: string;
+    db_path: string;
+    db_exists: boolean;
+    table_count: number;
+  };
+  policy: {
+    dispatcher_enabled: false;
+    auto_decompose_enabled: false;
+    card_mutation_requires_humangate: 'HG-2.5';
+    delete_allowed: false;
+    assign_dispatch_allowed: false;
+  };
+  summary: {
+    total_cards: number;
+    audit_linked_cards: number;
+  };
+  columns: ICommandEveKanbanMarketingColumn[];
+  warnings: string[];
+}
+
+export interface ICommandEveKanbanMarketingCardCreateResult {
+  version: 'command-eve-kanban-marketing-card-create/v0';
+  ok: boolean;
+  status: ICommandEveKanbanMarketingBoardStatus;
+  reason_code?: string;
+  message?: string;
+  card_id?: string;
+  lane_key?: ICommandEveKanbanMarketingLaneKey;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  model?: ICommandEveKanbanMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+  };
+}
+
+export interface ICommandEveKanbanMarketingCardMoveResult {
+  version: 'command-eve-kanban-marketing-card-move/v0';
+  ok: boolean;
+  status: ICommandEveKanbanMarketingBoardStatus;
+  reason_code?: string;
+  message?: string;
+  card_id?: string;
+  from_lane_key?: ICommandEveKanbanMarketingLaneKey;
+  to_lane_key?: ICommandEveKanbanMarketingLaneKey;
+  moved?: boolean;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  model?: ICommandEveKanbanMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+  };
+}
+
+export interface ICommandEveKanbanMarketingCardActionResult {
+  version: 'command-eve-kanban-marketing-card-action/v0';
+  ok: boolean;
+  status: ICommandEveKanbanMarketingBoardStatus;
+  reason_code?: string;
+  message?: string;
+  card_id?: string;
+  action?: ICommandEveKanbanMarketingCardAction;
+  action_applied?: boolean;
+  from_status?: string;
+  to_status?: string;
+  from_lane_key?: ICommandEveKanbanMarketingLaneKey;
+  to_lane_key?: ICommandEveKanbanMarketingLaneKey;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  model?: ICommandEveKanbanMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+  };
+}
+
+export interface ICommandEveKanbanMarketingDispatchPlanResult {
+  version: 'command-eve-kanban-marketing-dispatch-plan/v0';
+  ok: boolean;
+  status: ICommandEveKanbanMarketingBoardStatus;
+  reason_code?: string;
+  reason_codes: string[];
+  message?: string;
+  card_id?: string;
+  command?: 'decompose' | 'specify';
+  subprocess_spawned: boolean;
+  data_boundary_checked: boolean;
+  controller_approval_required?: boolean;
+  release_blocked?: boolean;
+  human_gate?: 'HG-2.5';
+  audit_event_id?: string;
+  audit_event_path?: string;
+  dispatch_plan?: Record<string, unknown>;
+  dispatch_source?: string;
+  dispatch_source_reason?: string;
+  policy?: Record<string, unknown>;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+    company_os_root?: string;
+  };
+}
+
+export interface ICommandEveKanbanMarketingCardCreateRequest {
+  title: string;
+  description?: string;
+  lane_key: ICommandEveKanbanMarketingLaneKey;
+  client_token: string;
+  boardSlug?: string;
+  eventLedgerPath?: string;
+}
+
+export interface ICommandEveKanbanMarketingCardMoveRequest {
+  task_id: string;
+  to_lane_key: ICommandEveKanbanMarketingLaneKey;
+  boardSlug?: string;
+  eventLedgerPath?: string;
+}
+
+export interface ICommandEveKanbanMarketingCardActionRequest {
+  task_id: string;
+  action: ICommandEveKanbanMarketingCardAction;
+  comment?: string;
+  boardSlug?: string;
+  eventLedgerPath?: string;
+}
+
+export interface ICommandEveKanbanMarketingDispatchPlanRequest {
+  task_id: string;
+  command?: 'decompose' | 'specify';
+  boardSlug?: string;
+  eventLedgerPath?: string;
+}
+
+export interface ICommandEveCrmOverlayPolicy {
+  local_only: true;
+  plane_sync_enabled: false;
+  hosted_sync_enabled: false;
+  bulk_import_enabled: false;
+  enrichment_enabled: false;
+  outreach_enabled: false;
+  crm_data_class_default: 'S2';
+  customer_write_requires_humangate: 'HG-4';
+  deal_action_ceiling_without_consent: 'draft-only';
+}
+
+export interface ICommandEveCrmOverlayCounts {
+  companies: number;
+  contacts: number;
+  deals: number;
+  audit_events: number;
+}
+
+export interface ICommandEveCrmOverlayDeal {
+  deal_id: string;
+  company_id: string;
+  stage: string;
+  allowed_actions: string;
+  consent_status: string;
+  human_gate: string;
+  data_class: string;
+  last_activity_at: string;
+}
+
+export interface ICommandEveCrmOverlayModel {
+  schema_version: 'command-eve-crm-overlay/v0';
+  generated_at: string;
+  initialized: boolean;
+  db_path: string;
+  event_ledger_path: string;
+  policy: ICommandEveCrmOverlayPolicy;
+  counts: ICommandEveCrmOverlayCounts;
+  recent_deals: ICommandEveCrmOverlayDeal[];
+  warnings: string[];
+}
+
+export interface ICommandEveCrmOverlayResult {
+  version: 'command-eve-crm-overlay/v0';
+  ok: boolean;
+  status: 'ready' | 'blocked' | 'failed';
+  reason_code?: string;
+  message?: string;
+  model?: ICommandEveCrmOverlayModel;
+  source: {
+    generated_by: 'command-eve-crm-overlay-core';
+    hermes_home: string;
+  };
+}
+
+export interface ICommandEveCrmOverlayInitializeResult {
+  version: 'command-eve-crm-overlay-initialize/v0';
+  ok: boolean;
+  status: 'ready' | 'blocked' | 'failed';
+  reason_code?: string;
+  message?: string;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  model?: ICommandEveCrmOverlayModel;
+  source: {
+    generated_by: 'command-eve-crm-overlay-core';
+    hermes_home: string;
+  };
+}
+
+export interface ICommandEveCrmDraftCreateResult {
+  version: 'command-eve-crm-draft-create/v0';
+  ok: boolean;
+  status: 'ready' | 'blocked' | 'failed';
+  reason_code?: string;
+  message?: string;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  company_id?: string;
+  contact_id?: string;
+  deal_id?: string;
+  model?: ICommandEveCrmOverlayModel;
+  source: {
+    generated_by: 'command-eve-crm-overlay-core';
+    hermes_home: string;
+  };
+}
+
+export interface ICommandEveCrmStageLocalRequest {
+  dealId: string;
+  targetStage: 'qualified';
+  eventLedgerPath?: string;
+}
+
+export interface ICommandEveCrmStageLocalResult {
+  version: 'command-eve-crm-stage-local/v0';
+  ok: boolean;
+  status: 'ready' | 'blocked' | 'failed';
+  reason_code?: string;
+  message?: string;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  deal_id?: string;
+  previous_stage?: string;
+  stage?: string;
+  model?: ICommandEveCrmOverlayModel;
+  source: {
+    generated_by: 'command-eve-crm-overlay-core';
+    hermes_home: string;
+  };
+}
+
+export interface ICommandEveCrmConsentLocalRequest {
+  dealId: string;
+  eventLedgerPath?: string;
+}
+
+export interface ICommandEveCrmConsentLocalResult {
+  version: 'command-eve-crm-consent-local/v0';
+  ok: boolean;
+  status: 'ready' | 'blocked' | 'failed';
+  reason_code?: string;
+  message?: string;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  deal_id?: string;
+  consent_status?: string;
+  allowed_actions?: string;
+  model?: ICommandEveCrmOverlayModel;
+  source: {
+    generated_by: 'command-eve-crm-overlay-core';
+    hermes_home: string;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Command EVE registration + license gate (W11)
+// ---------------------------------------------------------------------------
+
+export type ICommandEveLicenseEdition = 'pilot' | 'standard';
+
+export type ICommandEveEntitlementGateState =
+  | 'unconfigured'
+  | 'unregistered'
+  | 'registered_unlicensed'
+  | 'entitled'
+  | 'expired';
+
+export interface ICommandEveEntitlementStatusResult {
+  version: 'command-eve-entitlement/v0';
+  ok: boolean;
+  required: boolean;
+  state: ICommandEveEntitlementGateState;
+  reason_code?: string;
+  message?: string;
+  tenant_id?: string;
+  edition?: ICommandEveLicenseEdition;
+  expires_at?: string | null;
+}
+
+export interface ICommandEveRegistrationRecord {
+  version: 'command-eve-registration/v0';
+  tenant_id: string;
+  name: string;
+  company: string;
+  email: string;
+  gdpr_consent: true;
+  gdpr_consent_at: string;
+  registered_at: string;
+}
+
+export interface ICommandEveEntitlementRecord {
+  version: 'command-eve-entitlement-record/v0';
+  tenant_id: string;
+  code_serial: string;
+  edition: ICommandEveLicenseEdition;
+  expires_at: string | null;
+  activated_at: string;
+}
+
+export interface ICommandEveEntitlementRegisterRequest {
+  name: string;
+  company: string;
+  email: string;
+  consent: boolean;
+}
+
+export interface ICommandEveEntitlementRegisterResult {
+  version: 'command-eve-entitlement/v0';
+  ok: boolean;
+  reason_code?: string;
+  message?: string;
+  record?: ICommandEveRegistrationRecord;
+}
+
+export interface ICommandEveEntitlementActivateRequest {
+  code: string;
+}
+
+export interface ICommandEveEntitlementActivateResult {
+  version: 'command-eve-entitlement/v0';
+  ok: boolean;
+  reason_code?: string;
+  message?: string;
+  record?: ICommandEveEntitlementRecord;
+  audit_event_id?: string;
+  idempotent?: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Command EVE runtime — stays IPC (local runtime, receipts, model tier prep)
 // ---------------------------------------------------------------------------
 
@@ -729,6 +1106,52 @@ export const commandEve = {
     IBridgeResponse<ICommandEveConnectorCatalogResult>,
     { manifestPath?: string } | undefined
   >('command-eve.connector-catalog'),
+  kanbanMarketingCardCreate: bridge.buildProvider<
+    IBridgeResponse<ICommandEveKanbanMarketingCardCreateResult>,
+    ICommandEveKanbanMarketingCardCreateRequest
+  >('command-eve.kanban-marketing-card-create'),
+  kanbanMarketingCardMove: bridge.buildProvider<
+    IBridgeResponse<ICommandEveKanbanMarketingCardMoveResult>,
+    ICommandEveKanbanMarketingCardMoveRequest
+  >('command-eve.kanban-marketing-card-move'),
+  kanbanMarketingCardAction: bridge.buildProvider<
+    IBridgeResponse<ICommandEveKanbanMarketingCardActionResult>,
+    ICommandEveKanbanMarketingCardActionRequest
+  >('command-eve.kanban-marketing-card-action'),
+  kanbanMarketingDispatchPlan: bridge.buildProvider<
+    IBridgeResponse<ICommandEveKanbanMarketingDispatchPlanResult>,
+    ICommandEveKanbanMarketingDispatchPlanRequest
+  >('command-eve.kanban-marketing-dispatch-plan'),
+  crmOverlay: bridge.buildProvider<IBridgeResponse<ICommandEveCrmOverlayResult>, { eventLedgerPath?: string } | void>(
+    'command-eve.crm-overlay'
+  ),
+  crmOverlayInitialize: bridge.buildProvider<
+    IBridgeResponse<ICommandEveCrmOverlayInitializeResult>,
+    { eventLedgerPath?: string } | void
+  >('command-eve.crm-overlay-initialize'),
+  crmDraftCreate: bridge.buildProvider<
+    IBridgeResponse<ICommandEveCrmDraftCreateResult>,
+    { eventLedgerPath?: string } | void
+  >('command-eve.crm-draft-create'),
+  crmStageLocal: bridge.buildProvider<
+    IBridgeResponse<ICommandEveCrmStageLocalResult>,
+    ICommandEveCrmStageLocalRequest
+  >('command-eve.crm-stage-local'),
+  crmConsentLocal: bridge.buildProvider<
+    IBridgeResponse<ICommandEveCrmConsentLocalResult>,
+    ICommandEveCrmConsentLocalRequest
+  >('command-eve.crm-consent-local'),
+  entitlementStatus: bridge.buildProvider<IBridgeResponse<ICommandEveEntitlementStatusResult>, void>(
+    'command-eve.entitlement-status'
+  ),
+  entitlementRegister: bridge.buildProvider<
+    IBridgeResponse<ICommandEveEntitlementRegisterResult>,
+    ICommandEveEntitlementRegisterRequest
+  >('command-eve.entitlement-register'),
+  entitlementActivate: bridge.buildProvider<
+    IBridgeResponse<ICommandEveEntitlementActivateResult>,
+    ICommandEveEntitlementActivateRequest
+  >('command-eve.entitlement-activate'),
 };
 
 // ---------------------------------------------------------------------------
