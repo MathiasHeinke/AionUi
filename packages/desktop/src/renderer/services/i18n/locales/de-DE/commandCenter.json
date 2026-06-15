@@ -227,6 +227,7 @@
       "workerReady": "Worker-Handoffs",
       "workerRequested": "Dispatch-Anfragen",
       "workerObserved": "Observed Worker",
+      "workerStartGates": "Start-Gates",
       "nextStep": "Naechster Schritt",
       "pendingNext": "Controller muss das Handoff noch freigeben oder ablehnen.",
       "approvedNext": "Handoff ist lokal freigegeben; EVE kann jetzt einen lokalen Marketing-Draft erzeugen.",
@@ -235,6 +236,7 @@
       "workerReadyNext": "Worker-Handoff ist vorbereitet. Start bleibt manuell und HG-2.5-gegatet.",
       "workerRequestedNext": "Dispatch-Anfrage ist lokal dokumentiert. Worker-Start bleibt durch Policy gesperrt.",
       "workerObservedNext": "Observed-Worker-Lauf ist lokal abgeschlossen. Publishing und externe Worker bleiben gesperrt.",
+      "workerStartGateNext": "Worker-Start-Gate ist geprueft. Runtime-Start bleibt bis HG-3 und Executor-Konfiguration gesperrt.",
       "rejectedNext": "Handoff ist abgelehnt; Karte ueberarbeiten oder blockiert lassen.",
       "generateDraft": "Draft erzeugen",
       "draftAlreadyGenerated": "Draft erzeugt",
@@ -249,6 +251,10 @@
       "runObservedWorker": "Observed Worker ausfuehren",
       "workerObservedCompleted": "Observed Run gespeichert",
       "workerObservedReport": "Lokaler Worker-Report",
+      "checkWorkerStartGate": "Start-Gate pruefen",
+      "workerStartGateChecked": "Start-Gate geprueft",
+      "workerStartPacket": "Worker-Start-Paket",
+      "workerStartGateBlocked": "HG-3 gesperrt",
       "empty": "Keine Controller-Handoffs in der lokalen Queue."
     },
     "workerDispatchRequest": {
@@ -262,6 +268,13 @@
       "resultTitle": "Observed-Worker-Receipt",
       "externalCalls": "Externe Calls",
       "none": "keine"
+    },
+    "workerStartGate": {
+      "success": "Worker-Start-Gate ist bereit.",
+      "blocked": "Worker-Start-Gate geprueft; Start bleibt gesperrt.",
+      "failed": "Worker-Start-Gate konnte nicht geprueft werden.",
+      "resultTitle": "Worker-Start-Gate",
+      "blockReasons": "Block-Gruende"
     },
     "draftGenerate": {
       "resultTitle": "Marketing-Draft-Receipt",

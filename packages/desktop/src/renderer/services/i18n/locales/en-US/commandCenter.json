@@ -227,6 +227,7 @@
       "workerReady": "Worker handoffs",
       "workerRequested": "Dispatch requests",
       "workerObserved": "Observed workers",
+      "workerStartGates": "Start gates",
       "nextStep": "Next step",
       "pendingNext": "Controller still needs to approve or reject this handoff.",
       "approvedNext": "Handoff is locally approved; EVE can now generate a local marketing draft.",
@@ -235,6 +236,7 @@
       "workerReadyNext": "Worker handoff is prepared. Start remains manual and HG-2.5-gated.",
       "workerRequestedNext": "Dispatch request recorded locally. Worker start remains policy-locked.",
       "workerObservedNext": "Observed worker run completed locally. Publishing and external workers remain locked.",
+      "workerStartGateNext": "Worker start gate checked. Runtime start remains HG-3 locked until an executor is configured.",
       "rejectedNext": "Handoff was rejected; revise the card or keep it blocked.",
       "generateDraft": "Generate draft",
       "draftAlreadyGenerated": "Draft generated",
@@ -249,6 +251,10 @@
       "runObservedWorker": "Run observed worker",
       "workerObservedCompleted": "Observed run recorded",
       "workerObservedReport": "Local worker report",
+      "checkWorkerStartGate": "Check start gate",
+      "workerStartGateChecked": "Start gate checked",
+      "workerStartPacket": "Worker start packet",
+      "workerStartGateBlocked": "HG-3 locked",
       "empty": "No controller handoffs in the local queue."
     },
     "workerDispatchRequest": {
@@ -262,6 +268,13 @@
       "resultTitle": "Observed worker receipt",
       "externalCalls": "External calls",
       "none": "none"
+    },
+    "workerStartGate": {
+      "success": "Worker start gate is ready.",
+      "blocked": "Worker start gate checked; start remains locked.",
+      "failed": "Worker start gate could not be checked.",
+      "resultTitle": "Worker start gate",
+      "blockReasons": "Block reasons"
     },
     "draftGenerate": {
       "resultTitle": "Marketing draft receipt",

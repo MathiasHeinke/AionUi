@@ -25,6 +25,7 @@ import {
   applyKanbanMarketingCardAction,
   approveKanbanMarketingOutput,
   buildKanbanMarketingBoard,
+  checkKanbanMarketingWorkerStartGate,
   createKanbanMarketingCard,
   createKanbanMarketingProofCard,
   generateKanbanMarketingDraft,
@@ -788,6 +789,60 @@ export function initCommandEveBridge(): void {
               controller_approved: false,
               release_blocked: true,
               human_gate: 'HG-2.5',
+              source: {
+                generated_by: 'command-eve-kanban-marketing-board-core',
+                hermes_home: '',
+              },
+            },
+          };
+        }
+      }
+    );
+
+  bridge
+    .buildProvider('command-eve.kanban-marketing-worker-start-gate')
+    .provider(
+      async (request?: {
+        task_id?: string;
+        boardSlug?: string;
+        eventLedgerPath?: string;
+        dispatch_handoff_packet?: Record<string, unknown>;
+        gate_note?: string;
+        executor_enabled?: boolean;
+      }) => {
+        try {
+          const result = checkKanbanMarketingWorkerStartGate({
+            userDataPath: getDataPath(),
+            task_id: request?.task_id || '',
+            boardSlug: request?.boardSlug,
+            eventLedgerPath: request?.eventLedgerPath,
+            dispatch_handoff_packet: request?.dispatch_handoff_packet,
+            gate_note: request?.gate_note,
+            executor_enabled: request?.executor_enabled === true,
+          });
+          return {
+            success: result.ok,
+            msg: result.ok ? undefined : result.reason_code || result.message,
+            data: result,
+          };
+        } catch (error) {
+          return {
+            success: false,
+            msg: error instanceof Error ? error.message : 'Command EVE marketing worker-start-gate bridge failed.',
+            data: {
+              version: 'command-eve-kanban-marketing-worker-start-gate/v0',
+              ok: false,
+              status: 'failed',
+              reason_code: 'KANBAN_MARKETING_WORKER_START_GATE_BRIDGE_FAILED',
+              reason_codes: ['KANBAN_MARKETING_WORKER_START_GATE_BRIDGE_FAILED'],
+              message:
+                error instanceof Error ? error.message : 'Command EVE marketing worker-start-gate bridge failed.',
+              subprocess_spawned: false,
+              external_calls: false,
+              data_boundary_checked: false,
+              controller_approved: false,
+              release_blocked: true,
+              human_gate: 'HG-3',
               source: {
                 generated_by: 'command-eve-kanban-marketing-board-core',
                 hermes_home: '',

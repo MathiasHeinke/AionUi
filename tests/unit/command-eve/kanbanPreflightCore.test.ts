@@ -13,6 +13,7 @@ import {
   applyKanbanMarketingCardAction,
   approveKanbanMarketingOutput,
   buildKanbanMarketingBoard,
+  checkKanbanMarketingWorkerStartGate,
   createKanbanMarketingCard,
   createKanbanMarketingProofCard,
   generateKanbanMarketingDraft,
@@ -1475,6 +1476,115 @@ describe('Command EVE Kanban marketing-board mutations', () => {
         worker_execution_mode: 'observed_local',
         worker_observed_run_status: 'completed',
         worker_contract_yaml: expect.stringContaining('role: role:cmo'),
+      }),
+    });
+
+    const startGate = checkKanbanMarketingWorkerStartGate({
+      userDataPath: root,
+      boardSlug: 'marketing',
+      eventLedgerPath,
+      task_id: created.card_id || '',
+      dispatch_handoff_packet: result.dispatch_handoff_packet,
+      gate_note: 'Check worker start packet and keep execution locked.',
+      now: () => new Date('2026-06-13T10:11:00.000Z'),
+    });
+
+    expect(startGate.ok).toBe(true);
+    expect(startGate.status).toBe('blocked');
+    expect(startGate.reason_code).toBe('KANBAN_MARKETING_WORKER_START_GATE_BLOCKED');
+    expect(startGate.gate_event_kind).toBe('command_eve_marketing_worker_start_gate_checked');
+    expect(startGate.worker_start_gate_status).toBe('blocked');
+    expect(startGate.worker_start_gate_reason_codes).toContain('runtime_executor_not_configured');
+    expect(startGate.worker_start_gate_reason_codes).toContain('hg3_required_before_subprocess_spawn');
+    expect(startGate.worker_start_packet).toMatchObject({
+      version: 'command-eve-worker-start-packet/v0',
+      role_label: 'role:cmo',
+      department: 'marketing',
+      human_gate: 'HG-3',
+      subprocess_spawned: false,
+      external_calls: false,
+      release_blocked: true,
+    });
+    expect(startGate.worker_contract_yaml).toContain('role: role:cmo');
+    expect(startGate.worker_prompt).toContain('Approved local output');
+    expect(startGate.subprocess_spawned).toBe(false);
+    expect(startGate.external_calls).toBe(false);
+    expect(startGate.release_blocked).toBe(true);
+    expect(startGate.data_boundary_checked).toBe(true);
+    expect(startGate.model?.summary.worker_start_gate_checked_cards).toBe(1);
+    expect(startGate.model?.summary.worker_start_gate_blocked_cards).toBe(1);
+    const startGateCard = startGate.model?.columns
+      .flatMap((column) => column.cards)
+      .find((card) => card.card_id === created.card_id);
+    expect(startGateCard).toMatchObject({
+      worker_start_gate_status: 'blocked',
+      worker_start_gate_audit_event_id: startGate.audit_event_id,
+    });
+    expect(startGateCard?.worker_start_gate_reason_codes).toContain('runtime_executor_not_configured');
+    expect(startGateCard?.worker_start_packet).toContain('command-eve-worker-start-packet/v0');
+
+    const startGateEvents = readRows(
+      marketingBoardPath(root),
+      "SELECT task_id, kind, payload FROM task_events WHERE kind = 'command_eve_marketing_worker_start_gate_checked'"
+    );
+    expect(startGateEvents).toHaveLength(1);
+    const startGatePayload = JSON.parse(String((startGateEvents[0] as { payload: string }).payload)) as {
+      subprocess_spawned?: boolean;
+      external_calls?: boolean;
+      release_blocked?: boolean;
+      nl5_gate_checked?: boolean;
+      worker_start_gate_status?: string;
+      worker_start_gate_reason_codes?: string[];
+      worker_start_packet?: {
+        version?: string;
+        human_gate?: string;
+        subprocess_spawned?: boolean;
+        external_calls?: boolean;
+      };
+      reason_codes?: string[];
+    };
+    expect(startGatePayload.subprocess_spawned).toBe(false);
+    expect(startGatePayload.external_calls).toBe(false);
+    expect(startGatePayload.release_blocked).toBe(true);
+    expect(startGatePayload.nl5_gate_checked).toBe(true);
+    expect(startGatePayload.worker_start_gate_status).toBe('blocked');
+    expect(startGatePayload.worker_start_gate_reason_codes).toContain('runtime_executor_not_configured');
+    expect(startGatePayload.worker_start_packet).toMatchObject({
+      version: 'command-eve-worker-start-packet/v0',
+      human_gate: 'HG-3',
+      subprocess_spawned: false,
+      external_calls: false,
+    });
+    expect(startGatePayload.reason_codes).toContain('command_eve.marketing_worker_start_gate_checked_no_spawn');
+
+    const startGateComments = readRows(
+      marketingBoardPath(root),
+      "SELECT task_id, author, body FROM task_comments WHERE body LIKE 'Worker start gate checked%'"
+    );
+    expect(startGateComments).toHaveLength(1);
+    expect(startGateComments[0]).toMatchObject({
+      task_id: created.card_id,
+      author: 'eve',
+    });
+    expect(String((startGateComments[0] as { body: string }).body)).toContain('runtime_executor_not_configured');
+
+    const startGateAuditEvents = readAuditEvents(eventLedgerPath);
+    expect(startGateAuditEvents).toHaveLength(9);
+    expect(startGateAuditEvents[8]).toMatchObject({
+      event_type: 'kanban.marketing_board_worker_start_gate_checked',
+      producer: 'command-eve-desktop',
+      agent: 'eve',
+      mode: 'kanban-marketing-worker-start-gate',
+      human_gate_required: true,
+      payload: expect.objectContaining({
+        release_blocked: true,
+        subprocess_spawned: false,
+        external_calls: false,
+        worker_start_gate_status: 'blocked',
+        worker_start_packet: expect.objectContaining({
+          version: 'command-eve-worker-start-packet/v0',
+          human_gate: 'HG-3',
+        }),
       }),
     });
   });

@@ -768,6 +768,14 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     await expect(page.getByTestId('marketing-dispatch-queue-worker-observed-count')).toContainText(
       /Observed.*:\s*[1-9]\d*/
     );
+    const startGateButton = page.getByTestId(`marketing-dispatch-queue-check-worker-start-gate-${dispatchCardId}`);
+    await expect(startGateButton).toBeEnabled({ timeout: 30_000 });
+    await startGateButton.click();
+    const startGateResult = page.getByTestId('marketing-worker-start-gate-result');
+    await expect(startGateResult).toBeVisible({ timeout: 60_000 });
+    await expect(startGateResult).toContainText(/command-eve-worker-start-packet/);
+    await expect(startGateResult).toContainText(/runtime_executor_not_configured/);
+    await expect(startGateResult).toContainText(/HG-3/);
     await expect(page.getByTestId('command-center-operating-readiness')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('operating-readiness-controllerReviewQueue')).toContainText(/ready|bereit|1/);
     await expect(page.getByTestId('operating-readiness-dispatchBlocked')).toContainText(
@@ -996,6 +1004,40 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
       'command_eve.marketing_worker_observed_run_completed_local_no_spawn'
     );
 
+    const startGateRows = sqliteQuery(
+      dispatchBoardDbPath!,
+      `SELECT kind, payload FROM task_events WHERE task_id = '${dispatchCardId}' AND kind = 'command_eve_marketing_worker_start_gate_checked' LIMIT 1`
+    );
+    expect(startGateRows.length, `worker start gate receipt must exist for ${dispatchCardId}`).toBeGreaterThan(0);
+    const startGatePayload = JSON.parse(startGateRows[0][1]) as {
+      release_blocked?: boolean;
+      subprocess_spawned?: boolean;
+      external_calls?: boolean;
+      nl5_gate_checked?: boolean;
+      worker_start_gate_status?: string;
+      worker_start_gate_reason_codes?: string[];
+      worker_start_packet?: {
+        version?: string;
+        human_gate?: string;
+        subprocess_spawned?: boolean;
+        external_calls?: boolean;
+      };
+      reason_codes?: string[];
+    };
+    expect(startGatePayload.release_blocked).toBe(true);
+    expect(startGatePayload.subprocess_spawned).toBe(false);
+    expect(startGatePayload.external_calls).toBe(false);
+    expect(startGatePayload.nl5_gate_checked).toBe(true);
+    expect(startGatePayload.worker_start_gate_status).toBe('blocked');
+    expect(startGatePayload.worker_start_gate_reason_codes).toContain('runtime_executor_not_configured');
+    expect(startGatePayload.worker_start_packet).toMatchObject({
+      version: 'command-eve-worker-start-packet/v0',
+      human_gate: 'HG-3',
+      subprocess_spawned: false,
+      external_calls: false,
+    });
+    expect(startGatePayload.reason_codes).toContain('command_eve.marketing_worker_start_gate_checked_no_spawn');
+
     const outputComments = sqliteQuery(
       dispatchBoardDbPath!,
       `SELECT COUNT(*) FROM task_comments WHERE task_id = '${dispatchCardId}' AND author = 'eve' AND body LIKE 'Approved local marketing output:%${postTitle}%'`
@@ -1141,6 +1183,33 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     expect(
       matchingObservedWorkerAudit,
       `audit ledger must contain kanban.marketing_board_worker_observed_run_completed for card_id=${dispatchCardId}`
+    ).toBeTruthy();
+    const matchingStartGateAudit = ledgerLines.find((line) => {
+      try {
+        const evt = JSON.parse(line) as { event_type?: string; issue_id?: string; payload?: Record<string, unknown> };
+        const startPacket = evt.payload?.worker_start_packet as
+          | { version?: string; human_gate?: string; subprocess_spawned?: boolean }
+          | undefined;
+        const reasonCodes = evt.payload?.worker_start_gate_reason_codes as string[] | undefined;
+        return (
+          evt.issue_id === dispatchCardId &&
+          evt.event_type === 'kanban.marketing_board_worker_start_gate_checked' &&
+          evt.payload?.subprocess_spawned === false &&
+          evt.payload?.external_calls === false &&
+          evt.payload?.release_blocked === true &&
+          evt.payload?.worker_start_gate_status === 'blocked' &&
+          reasonCodes?.includes('runtime_executor_not_configured') === true &&
+          startPacket?.version === 'command-eve-worker-start-packet/v0' &&
+          startPacket?.human_gate === 'HG-3' &&
+          startPacket?.subprocess_spawned === false
+        );
+      } catch {
+        return false;
+      }
+    });
+    expect(
+      matchingStartGateAudit,
+      `audit ledger must contain kanban.marketing_board_worker_start_gate_checked for card_id=${dispatchCardId}`
     ).toBeTruthy();
 
     const screenshotPath = 'tests/e2e/results/command-eve-kanban-board-dispatch-gate.png';
