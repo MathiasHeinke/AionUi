@@ -1021,6 +1021,25 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
         human_gate?: string;
         subprocess_spawned?: boolean;
         external_calls?: boolean;
+        data_boundary_checked?: boolean;
+        worker_start_data_boundary_receipt?: {
+          version?: string;
+          requested_lane?: string;
+          effective_lane?: string;
+          provider_execution_allowed?: boolean;
+          raw_text_stored?: boolean;
+          finding_count?: number;
+        };
+      };
+      source_nl5_gate_checked?: boolean;
+      worker_start_nl5_checked?: boolean;
+      worker_start_data_boundary_receipt?: {
+        version?: string;
+        requested_lane?: string;
+        effective_lane?: string;
+        provider_execution_allowed?: boolean;
+        raw_text_stored?: boolean;
+        finding_count?: number;
       };
       reason_codes?: string[];
     };
@@ -1028,6 +1047,8 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     expect(startGatePayload.subprocess_spawned).toBe(false);
     expect(startGatePayload.external_calls).toBe(false);
     expect(startGatePayload.nl5_gate_checked).toBe(true);
+    expect(startGatePayload.source_nl5_gate_checked).toBe(true);
+    expect(startGatePayload.worker_start_nl5_checked).toBe(true);
     expect(startGatePayload.worker_start_gate_status).toBe('blocked');
     expect(startGatePayload.worker_start_gate_reason_codes).toContain('runtime_executor_not_configured');
     expect(startGatePayload.worker_start_packet).toMatchObject({
@@ -1035,6 +1056,21 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
       human_gate: 'HG-3',
       subprocess_spawned: false,
       external_calls: false,
+      data_boundary_checked: true,
+    });
+    expect(startGatePayload.worker_start_packet?.worker_start_data_boundary_receipt).toMatchObject({
+      version: 'command-eve-worker-start-data-boundary-receipt/v0',
+      requested_lane: 'local_only',
+      effective_lane: 'local_only',
+      provider_execution_allowed: false,
+      raw_text_stored: false,
+    });
+    expect(startGatePayload.worker_start_data_boundary_receipt).toMatchObject({
+      version: 'command-eve-worker-start-data-boundary-receipt/v0',
+      requested_lane: 'local_only',
+      effective_lane: 'local_only',
+      provider_execution_allowed: false,
+      raw_text_stored: false,
     });
     expect(startGatePayload.reason_codes).toContain('command_eve.marketing_worker_start_gate_checked_no_spawn');
 
@@ -1188,9 +1224,26 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
       try {
         const evt = JSON.parse(line) as { event_type?: string; issue_id?: string; payload?: Record<string, unknown> };
         const startPacket = evt.payload?.worker_start_packet as
-          | { version?: string; human_gate?: string; subprocess_spawned?: boolean }
+          | {
+              version?: string;
+              human_gate?: string;
+              subprocess_spawned?: boolean;
+              data_boundary_checked?: boolean;
+              worker_start_data_boundary_receipt?: {
+                version?: string;
+                provider_execution_allowed?: boolean;
+                raw_text_stored?: boolean;
+              };
+            }
           | undefined;
         const reasonCodes = evt.payload?.worker_start_gate_reason_codes as string[] | undefined;
+        const workerStartBoundaryReceipt = evt.payload?.worker_start_data_boundary_receipt as
+          | {
+              version?: string;
+              provider_execution_allowed?: boolean;
+              raw_text_stored?: boolean;
+            }
+          | undefined;
         return (
           evt.issue_id === dispatchCardId &&
           evt.event_type === 'kanban.marketing_board_worker_start_gate_checked' &&
@@ -1199,9 +1252,19 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
           evt.payload?.release_blocked === true &&
           evt.payload?.worker_start_gate_status === 'blocked' &&
           reasonCodes?.includes('runtime_executor_not_configured') === true &&
+          evt.payload?.source_nl5_gate_checked === true &&
+          evt.payload?.worker_start_nl5_checked === true &&
+          workerStartBoundaryReceipt?.version === 'command-eve-worker-start-data-boundary-receipt/v0' &&
+          workerStartBoundaryReceipt?.provider_execution_allowed === false &&
+          workerStartBoundaryReceipt?.raw_text_stored === false &&
           startPacket?.version === 'command-eve-worker-start-packet/v0' &&
           startPacket?.human_gate === 'HG-3' &&
-          startPacket?.subprocess_spawned === false
+          startPacket?.subprocess_spawned === false &&
+          startPacket?.data_boundary_checked === true &&
+          startPacket?.worker_start_data_boundary_receipt?.version ===
+            'command-eve-worker-start-data-boundary-receipt/v0' &&
+          startPacket?.worker_start_data_boundary_receipt?.provider_execution_allowed === false &&
+          startPacket?.worker_start_data_boundary_receipt?.raw_text_stored === false
         );
       } catch {
         return false;

@@ -2649,8 +2649,42 @@ function buildMarketingWorkerStartGateScript(): string {
   return String.raw`
 import json
 import os
+import re
 import sqlite3
 import sys
+
+SENSITIVE_RULES = [
+    ("secret", "provider-api-key-token", re.compile(r"\b(?:sk-[A-Za-z0-9_-]{16,}|AIza[0-9A-Za-z_-]{20,}|ghp_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,})\b")),
+    ("secret", "secret-assignment", re.compile(r"\b(?:api[_-]?key|secret|token|password|passwort)\s*[:=]\s*[\"']?[^\"'\s]{8,}[\"']?", re.IGNORECASE)),
+    ("german_pii", "german-street-address", re.compile(r"\b[A-ZÄÖÜ][A-Za-zÄÖÜäöüß.-]+(?:straße|strasse|weg|allee|platz|gasse|ring|damm)\s+\d+[a-z]?\b", re.IGNORECASE)),
+    ("german_pii", "german-phone-number", re.compile(r"(?:\+49|0049|0)\s?(?:\(?\d{2,5}\)?[\s./-]?)\d{3,}[\d\s./-]{2,}\b")),
+    ("email", "email-address", re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)),
+]
+
+def local_data_boundary_receipt(payload_text):
+    findings = []
+    for kind, rule_id, pattern in SENSITIVE_RULES:
+        count = len(pattern.findall(payload_text or ""))
+        if count > 0:
+            findings.append({"kind": kind, "rule_id": rule_id, "count": count})
+    finding_count = sum(item["count"] for item in findings)
+    sensitivity_score = 2 if finding_count > 0 else 1
+    return {
+        "version": "command-eve-worker-start-data-boundary-receipt/v0",
+        "ok": True,
+        "status": "local-only-pass",
+        "sensitivity": f"S{sensitivity_score}",
+        "sensitivity_score": sensitivity_score,
+        "effective_sensitivity": f"S{sensitivity_score}",
+        "effective_sensitivity_score": sensitivity_score,
+        "requested_lane": "local_only",
+        "effective_lane": "local_only",
+        "finding_count": finding_count,
+        "findings": findings,
+        "raw_text_stored": False,
+        "provider_execution_allowed": False,
+        "reason_codes": ["command_eve.worker_start_nl5_data_boundary_pass"],
+    }
 
 request = json.loads(sys.stdin.read() or "{}")
 db_path = request["db_path"]
@@ -2712,7 +2746,19 @@ try:
 
     gate_at = int(request["gate_at"])
     executor_enabled = bool(request.get("executor_enabled"))
+    source_nl5_checked = bool(observed_payload.get("nl5_gate_checked"))
+    worker_start_data_boundary_receipt = local_data_boundary_receipt("\n".join([
+        str(row["title"] or ""),
+        str(row["body"] or ""),
+        worker_contract_yaml,
+        worker_prompt,
+    ]))
+    worker_start_nl5_checked = bool(worker_start_data_boundary_receipt.get("ok"))
     gate_reason_codes = []
+    if not source_nl5_checked:
+        gate_reason_codes.append("source_nl5_gate_missing")
+    if not worker_start_nl5_checked:
+        gate_reason_codes.append("worker_start_data_boundary_failed")
     if not executor_enabled:
         gate_reason_codes.extend([
             "dispatcher_enabled=false",
@@ -2734,6 +2780,8 @@ try:
         "gate_reason_codes": gate_reason_codes,
         "subprocess_spawned": False,
         "external_calls": False,
+        "data_boundary_checked": source_nl5_checked and worker_start_nl5_checked,
+        "worker_start_data_boundary_receipt": worker_start_data_boundary_receipt,
         "release_blocked": True,
         "allowed_actions": ["review", "revise_draft", "report"],
         "blocked_actions": ["subprocess_spawn", "external_call", "publish", "schedule", "outreach"],
@@ -2760,8 +2808,11 @@ try:
         "worker_prompt": worker_prompt,
         "dispatch_handoff_packet": observed_payload.get("dispatch_handoff_packet") or request.get("dispatch_handoff_packet") or {},
         "source_worker_observed_audit_event_id": observed_payload.get("audit_event_id") or "",
-        "nl5_gate_checked": bool(observed_payload.get("nl5_gate_checked")),
+        "nl5_gate_checked": source_nl5_checked and worker_start_nl5_checked,
+        "source_nl5_gate_checked": source_nl5_checked,
+        "worker_start_nl5_checked": worker_start_nl5_checked,
         "data_boundary_receipt": observed_payload.get("data_boundary_receipt") or {},
+        "worker_start_data_boundary_receipt": worker_start_data_boundary_receipt,
         "gate_note_length": len(request.get("gate_note") or ""),
         "reason_codes": ["command_eve.marketing_worker_start_gate_checked_no_spawn"],
     }
@@ -2798,6 +2849,9 @@ try:
         "worker_prompt": worker_prompt,
         "dispatch_handoff_packet": event_payload["dispatch_handoff_packet"],
         "data_boundary_checked": event_payload["nl5_gate_checked"],
+        "source_nl5_gate_checked": source_nl5_checked,
+        "worker_start_nl5_checked": worker_start_nl5_checked,
+        "worker_start_data_boundary_receipt": worker_start_data_boundary_receipt,
     }))
 finally:
     conn.close()
@@ -3532,6 +3586,8 @@ function appendMarketingWorkerStartGateAuditEvent({
   gateStatus,
   gateReasonCodes,
   dataBoundaryChecked,
+  sourceNl5GateChecked,
+  workerStartNl5Checked,
 }: {
   eventId: string;
   eventLedgerPath: string;
@@ -3546,6 +3602,8 @@ function appendMarketingWorkerStartGateAuditEvent({
   gateStatus: 'blocked' | 'ready';
   gateReasonCodes: string[];
   dataBoundaryChecked: boolean;
+  sourceNl5GateChecked: boolean;
+  workerStartNl5Checked: boolean;
 }): string {
   const event = {
     schema_version: 'agent-event/v1',
@@ -3581,10 +3639,15 @@ function appendMarketingWorkerStartGateAuditEvent({
       external_calls: false,
       worker_start_gate_status: gateStatus,
       worker_start_gate_reason_codes: gateReasonCodes,
+      source_nl5_gate_checked: sourceNl5GateChecked,
+      worker_start_nl5_checked: workerStartNl5Checked,
       action: 'worker_start_gate_checked_no_spawn',
       reason_codes: ['command_eve.marketing_worker_start_gate_checked_no_spawn'],
       dispatch_handoff_packet: dispatchHandoffPacket,
       worker_start_packet: workerStartPacket,
+      worker_start_data_boundary_receipt: isRecord(workerStartPacket.worker_start_data_boundary_receipt)
+        ? workerStartPacket.worker_start_data_boundary_receipt
+        : {},
       worker_contract_yaml: workerContractYaml,
       worker_prompt_preview: workerPrompt.slice(0, 600),
       worker_prompt_length: workerPrompt.length,
@@ -7042,6 +7105,8 @@ export function checkKanbanMarketingWorkerStartGate(
     gateStatus,
     gateReasonCodes,
     dataBoundaryChecked,
+    sourceNl5GateChecked: receiptWrite.data.source_nl5_gate_checked === true,
+    workerStartNl5Checked: receiptWrite.data.worker_start_nl5_checked === true,
   });
 
   const board = buildKanbanMarketingBoard({

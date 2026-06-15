@@ -848,7 +848,7 @@ describe('Command EVE Kanban marketing-board mutations', () => {
       boardSlug: 'marketing',
       eventLedgerPath,
       title: 'Dispatch me only after gates',
-      description: 'Contains customer-facing marketing work, not a worker launch.',
+      description: 'Contains customer-facing marketing work and German phone +49 30 12345678, not a worker launch.',
       lane_key: 'draft',
       client_token: 'dispatch-plan-1',
       now: () => new Date('2026-06-13T09:00:00.000Z'),
@@ -1503,8 +1503,22 @@ describe('Command EVE Kanban marketing-board mutations', () => {
       human_gate: 'HG-3',
       subprocess_spawned: false,
       external_calls: false,
+      data_boundary_checked: true,
       release_blocked: true,
     });
+    expect(startGate.worker_start_packet?.worker_start_data_boundary_receipt).toMatchObject({
+      version: 'command-eve-worker-start-data-boundary-receipt/v0',
+      requested_lane: 'local_only',
+      effective_lane: 'local_only',
+      provider_execution_allowed: false,
+      raw_text_stored: false,
+    });
+    expect(
+      Number(
+        (startGate.worker_start_packet?.worker_start_data_boundary_receipt as { finding_count?: number })
+          ?.finding_count || 0
+      )
+    ).toBeGreaterThan(0);
     expect(startGate.worker_contract_yaml).toContain('role: role:cmo');
     expect(startGate.worker_prompt).toContain('Approved local output');
     expect(startGate.subprocess_spawned).toBe(false);
@@ -1540,6 +1554,27 @@ describe('Command EVE Kanban marketing-board mutations', () => {
         human_gate?: string;
         subprocess_spawned?: boolean;
         external_calls?: boolean;
+        data_boundary_checked?: boolean;
+        worker_start_data_boundary_receipt?: {
+          version?: string;
+          finding_count?: number;
+          requested_lane?: string;
+          effective_lane?: string;
+          provider_execution_allowed?: boolean;
+          raw_text_stored?: boolean;
+          findings?: Array<{ rule_id?: string; kind?: string; count?: number }>;
+        };
+      };
+      source_nl5_gate_checked?: boolean;
+      worker_start_nl5_checked?: boolean;
+      worker_start_data_boundary_receipt?: {
+        version?: string;
+        finding_count?: number;
+        requested_lane?: string;
+        effective_lane?: string;
+        provider_execution_allowed?: boolean;
+        raw_text_stored?: boolean;
+        findings?: Array<{ rule_id?: string; kind?: string; count?: number }>;
       };
       reason_codes?: string[];
     };
@@ -1549,12 +1584,29 @@ describe('Command EVE Kanban marketing-board mutations', () => {
     expect(startGatePayload.nl5_gate_checked).toBe(true);
     expect(startGatePayload.worker_start_gate_status).toBe('blocked');
     expect(startGatePayload.worker_start_gate_reason_codes).toContain('runtime_executor_not_configured');
+    expect(startGatePayload.source_nl5_gate_checked).toBe(true);
+    expect(startGatePayload.worker_start_nl5_checked).toBe(true);
     expect(startGatePayload.worker_start_packet).toMatchObject({
       version: 'command-eve-worker-start-packet/v0',
       human_gate: 'HG-3',
       subprocess_spawned: false,
       external_calls: false,
+      data_boundary_checked: true,
     });
+    expect(startGatePayload.worker_start_packet?.worker_start_data_boundary_receipt).toMatchObject({
+      version: 'command-eve-worker-start-data-boundary-receipt/v0',
+      requested_lane: 'local_only',
+      effective_lane: 'local_only',
+      provider_execution_allowed: false,
+      raw_text_stored: false,
+    });
+    expect(startGatePayload.worker_start_packet?.worker_start_data_boundary_receipt?.finding_count).toBeGreaterThan(0);
+    expect(
+      startGatePayload.worker_start_packet?.worker_start_data_boundary_receipt?.findings?.some(
+        (finding) => finding.rule_id === 'german-phone-number' && Number(finding.count || 0) > 0
+      )
+    ).toBe(true);
+    expect(startGatePayload.worker_start_data_boundary_receipt?.finding_count).toBeGreaterThan(0);
     expect(startGatePayload.reason_codes).toContain('command_eve.marketing_worker_start_gate_checked_no_spawn');
 
     const startGateComments = readRows(
@@ -1581,12 +1633,28 @@ describe('Command EVE Kanban marketing-board mutations', () => {
         subprocess_spawned: false,
         external_calls: false,
         worker_start_gate_status: 'blocked',
+        worker_start_data_boundary_receipt: expect.objectContaining({
+          version: 'command-eve-worker-start-data-boundary-receipt/v0',
+          finding_count: expect.any(Number),
+          provider_execution_allowed: false,
+          raw_text_stored: false,
+        }),
         worker_start_packet: expect.objectContaining({
           version: 'command-eve-worker-start-packet/v0',
           human_gate: 'HG-3',
+          data_boundary_checked: true,
+          worker_start_data_boundary_receipt: expect.objectContaining({
+            version: 'command-eve-worker-start-data-boundary-receipt/v0',
+            provider_execution_allowed: false,
+            raw_text_stored: false,
+          }),
         }),
       }),
     });
+    const startGateAuditPayload = startGateAuditEvents[8].payload as {
+      worker_start_data_boundary_receipt?: { finding_count?: number };
+    };
+    expect(Number(startGateAuditPayload.worker_start_data_boundary_receipt?.finding_count || 0)).toBeGreaterThan(0);
   });
 
   it('blocks local marketing draft generation before a controller approval decision exists', () => {
