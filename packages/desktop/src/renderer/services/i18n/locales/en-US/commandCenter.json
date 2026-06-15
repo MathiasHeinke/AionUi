@@ -226,6 +226,7 @@
       "outputApproved": "Outputs",
       "workerReady": "Worker handoffs",
       "workerRequested": "Dispatch requests",
+      "workerObserved": "Observed workers",
       "nextStep": "Next step",
       "pendingNext": "Controller still needs to approve or reject this handoff.",
       "approvedNext": "Handoff is locally approved; EVE can now generate a local marketing draft.",
@@ -233,6 +234,7 @@
       "outputApprovedNext": "Output approved locally. Publishing remains a separate gated step.",
       "workerReadyNext": "Worker handoff is prepared. Start remains manual and HG-2.5-gated.",
       "workerRequestedNext": "Dispatch request recorded locally. Worker start remains policy-locked.",
+      "workerObservedNext": "Observed worker run completed locally. Publishing and external workers remain locked.",
       "rejectedNext": "Handoff was rejected; revise the card or keep it blocked.",
       "generateDraft": "Generate draft",
       "draftAlreadyGenerated": "Draft generated",
@@ -244,12 +246,22 @@
       "manualDispatch": "manual",
       "requestWorkerDispatch": "Request dispatch",
       "workerRequestRecorded": "Dispatch locked",
+      "runObservedWorker": "Run observed worker",
+      "workerObservedCompleted": "Observed run recorded",
+      "workerObservedReport": "Local worker report",
       "empty": "No controller handoffs in the local queue."
     },
     "workerDispatchRequest": {
       "success": "Dispatch request recorded; worker start remains locked.",
       "failed": "Dispatch request could not be recorded.",
       "resultTitle": "Dispatch request"
+    },
+    "workerObservedRun": {
+      "success": "Observed worker run recorded locally.",
+      "failed": "Observed worker run could not be recorded.",
+      "resultTitle": "Observed worker receipt",
+      "externalCalls": "External calls",
+      "none": "none"
     },
     "draftGenerate": {
       "resultTitle": "Marketing draft receipt",

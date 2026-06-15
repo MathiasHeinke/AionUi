@@ -21,6 +21,7 @@ import {
   recordKanbanMarketingDispatchApproval,
   recordKanbanMarketingDispatchDecision,
   requestKanbanMarketingWorkerDispatch,
+  runKanbanMarketingWorkerObserved,
   runKanbanPreflight,
   type CommandEveKanbanPreflightCommandRunner,
 } from '@/process/commandEve/kanbanPreflightCore';
@@ -1376,6 +1377,103 @@ describe('Command EVE Kanban marketing-board mutations', () => {
         external_calls: false,
         worker_dispatch_status: 'prepared',
         worker_dispatch_request_status: 'blocked',
+        worker_contract_yaml: expect.stringContaining('role: role:cmo'),
+      }),
+    });
+
+    const observedRun = runKanbanMarketingWorkerObserved({
+      userDataPath: root,
+      boardSlug: 'marketing',
+      eventLedgerPath,
+      task_id: created.card_id || '',
+      dispatch_handoff_packet: result.dispatch_handoff_packet,
+      observed_note: 'Record a local observed worker run without spawning runtime workers.',
+      now: () => new Date('2026-06-13T10:10:00.000Z'),
+    });
+
+    expect(observedRun.ok).toBe(true);
+    expect(observedRun.status).toBe('ready');
+    expect(observedRun.reason_code).toBe('KANBAN_MARKETING_WORKER_OBSERVED_RUN_COMPLETED');
+    expect(observedRun.observed_event_kind).toBe('command_eve_marketing_worker_observed_run_completed');
+    expect(observedRun.worker_observed_run_status).toBe('completed');
+    expect(observedRun.worker_observed_output).toContain('worker.reported:');
+    expect(observedRun.worker_observed_output).toContain('role: role:cmo');
+    expect(observedRun.worker_observed_output).toContain('subprocess_spawned: false');
+    expect(observedRun.worker_observed_output).toContain('external_calls: false');
+    expect(observedRun.worker_contract_yaml).toContain('role: role:cmo');
+    expect(observedRun.worker_prompt).toContain('Approved local output');
+    expect(observedRun.subprocess_spawned).toBe(false);
+    expect(observedRun.external_calls).toBe(false);
+    expect(observedRun.release_blocked).toBe(true);
+    expect(observedRun.controller_approved).toBe(true);
+    expect(observedRun.data_boundary_checked).toBe(true);
+    expect(observedRun.model?.summary.worker_observed_completed_cards).toBe(1);
+    const observedCard = observedRun.model?.columns
+      .flatMap((column) => column.cards)
+      .find((card) => card.card_id === created.card_id);
+    expect(observedCard).toMatchObject({
+      worker_dispatch_status: 'prepared',
+      worker_dispatch_request_status: 'blocked',
+      worker_observed_run_status: 'completed',
+      worker_observed_run_audit_event_id: observedRun.audit_event_id,
+    });
+    expect(observedCard?.worker_observed_output).toContain('worker.reported:');
+
+    const observedEvents = readRows(
+      marketingBoardPath(root),
+      "SELECT task_id, kind, payload FROM task_events WHERE kind = 'command_eve_marketing_worker_observed_run_completed'"
+    );
+    expect(observedEvents).toHaveLength(1);
+    const observedPayload = JSON.parse(String((observedEvents[0] as { payload: string }).payload)) as {
+      subprocess_spawned?: boolean;
+      external_calls?: boolean;
+      release_blocked?: boolean;
+      nl5_gate_checked?: boolean;
+      worker_execution_mode?: string;
+      worker_observed_run_status?: string;
+      worker_observed_output?: string;
+      worker_contract_yaml?: string;
+      reason_codes?: string[];
+    };
+    expect(observedPayload.subprocess_spawned).toBe(false);
+    expect(observedPayload.external_calls).toBe(false);
+    expect(observedPayload.release_blocked).toBe(true);
+    expect(observedPayload.nl5_gate_checked).toBe(true);
+    expect(observedPayload.worker_execution_mode).toBe('observed_local');
+    expect(observedPayload.worker_observed_run_status).toBe('completed');
+    expect(observedPayload.worker_observed_output).toContain('worker.reported:');
+    expect(observedPayload.worker_contract_yaml).toContain('role: role:cmo');
+    expect(observedPayload.reason_codes).toContain(
+      'command_eve.marketing_worker_observed_run_completed_local_no_spawn'
+    );
+
+    const observedComments = readRows(
+      marketingBoardPath(root),
+      "SELECT task_id, author, body FROM task_comments WHERE body LIKE 'Observed local worker run completed%'"
+    );
+    expect(observedComments).toHaveLength(1);
+    expect(observedComments[0]).toMatchObject({
+      task_id: created.card_id,
+      author: 'eve',
+    });
+    expect(String((observedComments[0] as { body: string }).body)).toContain('worker.reported:');
+
+    const observedAuditEvents = readAuditEvents(eventLedgerPath);
+    expect(observedAuditEvents).toHaveLength(8);
+    expect(observedAuditEvents[7]).toMatchObject({
+      event_type: 'kanban.marketing_board_worker_observed_run_completed',
+      producer: 'command-eve-desktop',
+      agent: 'eve',
+      mode: 'kanban-marketing-worker-observed-run',
+      human_gate_required: true,
+      payload: expect.objectContaining({
+        controller_approval_status: 'approved',
+        controller_approved: true,
+        release_blocked: true,
+        subprocess_spawned: false,
+        external_calls: false,
+        worker_execution_mode: 'observed_local',
+        worker_observed_run_status: 'completed',
         worker_contract_yaml: expect.stringContaining('role: role:cmo'),
       }),
     });
