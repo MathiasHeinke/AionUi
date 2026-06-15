@@ -719,12 +719,23 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     await expect(page.getByTestId(`marketing-dispatch-queue-output-approved-tag-${dispatchCardId}`)).toContainText(
       /Outputs|Output/
     );
+    await expect(page.getByTestId(`marketing-dispatch-queue-worker-ready-tag-${dispatchCardId}`)).toContainText(
+      /Worker/
+    );
+    await expect(page.getByTestId(`marketing-worker-handoff-preview-${dispatchCardId}`)).toContainText(
+      /role:\s*role:cmo/
+    );
+    await expect(page.getByTestId(`marketing-worker-handoff-preview-${dispatchCardId}`)).toContainText(
+      /dispatch:\s*manual/
+    );
+    await expect(page.getByTestId('marketing-worker-handoff-result')).toContainText(/role:\s*role:cmo/);
     await expect(page.getByTestId(`marketing-dispatch-queue-next-${dispatchCardId}`)).toContainText(
-      /Publishing|Publishing|separate/
+      /Worker|HG-2.5|manual/
     );
     await expect(page.getByTestId('marketing-dispatch-queue-output-approved-count')).toContainText(
       /Outputs:\s*[1-9]\d*/
     );
+    await expect(page.getByTestId('marketing-dispatch-queue-worker-ready-count')).toContainText(/Worker.*:\s*[1-9]\d*/);
     await expect(page.getByTestId('command-center-operating-readiness')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('operating-readiness-controllerReviewQueue')).toContainText(/ready|bereit|1/);
     await expect(page.getByTestId('operating-readiness-dispatchBlocked')).toContainText(
@@ -869,6 +880,10 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
       nl5_gate_checked?: boolean;
       output_approval_status?: string;
       output_text?: string;
+      worker_dispatch_status?: string;
+      worker_dispatch_ready?: boolean;
+      worker_contract_yaml?: string;
+      worker_prompt?: string;
       reason_codes?: string[];
     };
     expect(outputPayload.controller_approval_status).toBe('approved');
@@ -879,6 +894,11 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     expect(outputPayload.nl5_gate_checked).toBe(true);
     expect(outputPayload.output_approval_status).toBe('approved');
     expect(outputPayload.output_text).toContain(postTitle);
+    expect(outputPayload.worker_dispatch_status).toBe('prepared');
+    expect(outputPayload.worker_dispatch_ready).toBe(true);
+    expect(outputPayload.worker_contract_yaml).toContain('role: role:cmo');
+    expect(outputPayload.worker_contract_yaml).toContain('dispatch: manual');
+    expect(outputPayload.worker_prompt).toContain('Approved local output');
     expect(outputPayload.reason_codes).toContain('command_eve.marketing_output_approved_local');
 
     const outputComments = sqliteQuery(
@@ -972,7 +992,9 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
           evt.payload?.controller_approval_status === 'approved' &&
           evt.payload?.subprocess_spawned === false &&
           evt.payload?.release_blocked === false &&
-          evt.payload?.output_approval_status === 'approved'
+          evt.payload?.output_approval_status === 'approved' &&
+          evt.payload?.worker_dispatch_status === 'prepared' &&
+          String(evt.payload?.worker_contract_yaml || '').includes('role: role:cmo')
         );
       } catch {
         return false;

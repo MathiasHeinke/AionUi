@@ -1222,7 +1222,12 @@ describe('Command EVE Kanban marketing-board mutations', () => {
     expect(output.release_blocked).toBe(false);
     expect(output.subprocess_spawned).toBe(false);
     expect(output.output_text).toContain('Dispatch me only after gates');
+    expect(output.worker_dispatch_status).toBe('prepared');
+    expect(output.worker_contract_yaml).toContain('role: role:cmo');
+    expect(output.worker_contract_yaml).toContain('dispatch: manual');
+    expect(output.worker_prompt).toContain('Approved local output');
     expect(output.model?.summary.output_approved_cards).toBe(1);
+    expect(output.model?.summary.worker_dispatch_ready_cards).toBe(1);
     const outputCard = output.model?.columns
       .flatMap((column) => column.cards)
       .find((card) => card.card_id === created.card_id);
@@ -1231,8 +1236,12 @@ describe('Command EVE Kanban marketing-board mutations', () => {
       output_approval_status: 'approved',
       output_approval_audit_event_id: output.audit_event_id,
       output_approval_source: 'command-eve-local-marketing-output-approval/v0',
+      worker_dispatch_status: 'prepared',
     });
     expect(outputCard?.output_approval_text).toContain('Dispatch me only after gates');
+    expect(outputCard?.worker_contract_yaml).toContain('role: role:cmo');
+    expect(outputCard?.worker_contract_yaml).toContain('dispatch: manual');
+    expect(outputCard?.worker_prompt).toContain('Approved local output');
 
     const outputEvents = readRows(
       marketingBoardPath(root),
@@ -1245,6 +1254,10 @@ describe('Command EVE Kanban marketing-board mutations', () => {
       subprocess_spawned?: boolean;
       external_calls?: boolean;
       nl5_gate_checked?: boolean;
+      worker_dispatch_status?: string;
+      worker_dispatch_ready?: boolean;
+      worker_contract_yaml?: string;
+      worker_prompt?: string;
       reason_codes?: string[];
     };
     expect(outputPayload.output_approval_status).toBe('approved');
@@ -1252,6 +1265,11 @@ describe('Command EVE Kanban marketing-board mutations', () => {
     expect(outputPayload.subprocess_spawned).toBe(false);
     expect(outputPayload.external_calls).toBe(false);
     expect(outputPayload.nl5_gate_checked).toBe(true);
+    expect(outputPayload.worker_dispatch_status).toBe('prepared');
+    expect(outputPayload.worker_dispatch_ready).toBe(true);
+    expect(outputPayload.worker_contract_yaml).toContain('role: role:cmo');
+    expect(outputPayload.worker_contract_yaml).toContain('dispatch: manual');
+    expect(outputPayload.worker_prompt).toContain('Approved local output');
     expect(outputPayload.reason_codes).toContain('command_eve.marketing_output_approved_local');
 
     const outputComments = readRows(
@@ -1280,8 +1298,13 @@ describe('Command EVE Kanban marketing-board mutations', () => {
         subprocess_spawned: false,
         external_calls: false,
         output_approval_status: 'approved',
+        worker_dispatch_status: 'prepared',
+        worker_dispatch_mode: 'manual',
+        worker_contract_yaml: expect.stringContaining('role: role:cmo'),
+        worker_prompt_length: expect.any(Number),
       }),
     });
+    expect(outputAuditEvents[5].payload.worker_prompt_length).toBeGreaterThan(0);
   });
 
   it('blocks local marketing draft generation before a controller approval decision exists', () => {

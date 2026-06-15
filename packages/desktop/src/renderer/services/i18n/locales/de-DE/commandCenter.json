@@ -224,11 +224,13 @@
       "rejected": "Rejected",
       "generated": "Drafts",
       "outputApproved": "Outputs",
+      "workerReady": "Worker-Handoffs",
       "nextStep": "Naechster Schritt",
       "pendingNext": "Controller muss das Handoff noch freigeben oder ablehnen.",
       "approvedNext": "Handoff ist lokal freigegeben; EVE kann jetzt einen lokalen Marketing-Draft erzeugen.",
       "generatedNext": "Draft ist erzeugt und liegt zur Review in der Queue.",
       "outputApprovedNext": "Output ist lokal freigegeben. Publishing bleibt ein separates gegatetes Gate.",
+      "workerReadyNext": "Worker-Handoff ist vorbereitet. Start bleibt manuell und HG-2.5-gegatet.",
       "rejectedNext": "Handoff ist abgelehnt; Karte ueberarbeiten oder blockiert lassen.",
       "generateDraft": "Draft erzeugen",
       "draftAlreadyGenerated": "Draft erzeugt",
@@ -236,6 +238,8 @@
       "outputAlreadyApproved": "Output freigegeben",
       "generatedDraft": "Generierter Draft",
       "approvedOutput": "Freigegebener Output",
+      "preparedWorkerHandoff": "Vorbereiteter Worker-Handoff",
+      "manualDispatch": "manual",
       "empty": "Keine Controller-Handoffs in der lokalen Queue."
     },
     "draftGenerate": {
@@ -246,7 +250,8 @@
     "outputApprove": {
       "resultTitle": "Marketing-Output-Receipt",
       "success": "Lokaler Marketing-Output freigegeben.",
-      "failed": "Marketing-Output konnte nicht freigegeben werden."
+      "failed": "Marketing-Output konnte nicht freigegeben werden.",
+      "workerHandoff": "Worker-Handoff vorbereitet"
     },
     "proof": {
       "note": "Legt genau eine lokale Proof-Karte und ein append-only Audit-Event an. Keine Worker werden gestartet.",

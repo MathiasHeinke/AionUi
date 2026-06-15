@@ -224,11 +224,13 @@
       "rejected": "Rejected",
       "generated": "Drafts",
       "outputApproved": "Outputs",
+      "workerReady": "Worker handoffs",
       "nextStep": "Next step",
       "pendingNext": "Controller still needs to approve or reject this handoff.",
       "approvedNext": "Handoff is locally approved; EVE can now generate a local marketing draft.",
       "generatedNext": "Draft generated and ready for review in the queue.",
       "outputApprovedNext": "Output approved locally. Publishing remains a separate gated step.",
+      "workerReadyNext": "Worker handoff is prepared. Start remains manual and HG-2.5-gated.",
       "rejectedNext": "Handoff was rejected; revise the card or keep it blocked.",
       "generateDraft": "Generate draft",
       "draftAlreadyGenerated": "Draft generated",
@@ -236,6 +238,8 @@
       "outputAlreadyApproved": "Output approved",
       "generatedDraft": "Generated draft",
       "approvedOutput": "Approved output",
+      "preparedWorkerHandoff": "Prepared worker handoff",
+      "manualDispatch": "manual",
       "empty": "No controller handoffs in the local queue."
     },
     "draftGenerate": {
@@ -246,7 +250,8 @@
     "outputApprove": {
       "resultTitle": "Marketing output receipt",
       "success": "Local marketing output approved.",
-      "failed": "Marketing output could not be approved."
+      "failed": "Marketing output could not be approved.",
+      "workerHandoff": "Worker handoff prepared"
     },
     "proof": {
       "note": "Creates exactly one local proof card and one append-only audit event. No workers are started.",

@@ -166,6 +166,10 @@ export type CommandEveKanbanMarketingCard = {
   output_approval_source: string | null;
   output_approval_text: string | null;
   output_approval_at: number | null;
+  worker_dispatch_status: 'prepared' | null;
+  worker_contract_yaml: string | null;
+  worker_prompt: string | null;
+  worker_dispatch_at: number | null;
   governance_state: 'read_only' | 'proof_write_recorded' | 'unknown';
 };
 
@@ -199,6 +203,7 @@ export type CommandEveKanbanMarketingBoardModel = {
     controller_decision_rejected_cards: number;
     generated_draft_cards: number;
     output_approved_cards: number;
+    worker_dispatch_ready_cards: number;
   };
   columns: CommandEveKanbanMarketingColumn[];
   warnings: string[];
@@ -417,6 +422,9 @@ export type CommandEveKanbanMarketingOutputApproveResult = {
   output_event_kind?: 'command_eve_marketing_output_approved';
   output_text?: string;
   output_source?: string;
+  worker_dispatch_status?: 'prepared';
+  worker_contract_yaml?: string;
+  worker_prompt?: string;
   subprocess_spawned: false;
   data_boundary_checked: boolean;
   controller_approval_status?: CommandEveKanbanMarketingDispatchDecision;
@@ -624,6 +632,7 @@ function marketingBoardBaseModel({
       controller_decision_rejected_cards: 0,
       generated_draft_cards: 0,
       output_approved_cards: 0,
+      worker_dispatch_ready_cards: 0,
     },
     columns: emptyMarketingColumns(),
     warnings,
@@ -765,6 +774,10 @@ function parseMarketingCards(rows: unknown[]): CommandEveKanbanMarketingCard[] {
       output_approval_source: nullableTextField(item.output_approval_source),
       output_approval_text: nullableTextField(item.output_approval_text),
       output_approval_at: typeof item.output_approval_at === 'number' ? item.output_approval_at : null,
+      worker_dispatch_status: textField(item.worker_dispatch_status) === 'prepared' ? ('prepared' as const) : null,
+      worker_contract_yaml: nullableTextField(item.worker_contract_yaml),
+      worker_prompt: nullableTextField(item.worker_prompt),
+      worker_dispatch_at: typeof item.worker_dispatch_at === 'number' ? item.worker_dispatch_at : null,
       governance_state: linkedAuditEventId ? 'proof_write_recorded' : 'read_only',
     };
   });
@@ -808,6 +821,7 @@ function buildMarketingModelFromRows({
       controller_decision_rejected_cards: cards.filter((card) => card.controller_decision_status === 'rejected').length,
       generated_draft_cards: cards.filter((card) => card.generated_draft_status === 'generated').length,
       output_approved_cards: cards.filter((card) => card.output_approval_status === 'approved').length,
+      worker_dispatch_ready_cards: cards.filter((card) => card.worker_dispatch_status === 'prepared').length,
     },
     columns,
   };
@@ -1078,6 +1092,54 @@ try:
             ),
             0
           ) AS output_approval_at,
+          COALESCE(
+            (
+              SELECT json_extract(e.payload, '$.worker_dispatch_status')
+              FROM task_events e
+              WHERE e.task_id = t.id
+                AND e.kind = 'command_eve_marketing_output_approved'
+                AND json_valid(e.payload)
+              ORDER BY e.created_at DESC, e.id DESC
+              LIMIT 1
+            ),
+            ''
+          ) AS worker_dispatch_status,
+          COALESCE(
+            (
+              SELECT json_extract(e.payload, '$.worker_contract_yaml')
+              FROM task_events e
+              WHERE e.task_id = t.id
+                AND e.kind = 'command_eve_marketing_output_approved'
+                AND json_valid(e.payload)
+              ORDER BY e.created_at DESC, e.id DESC
+              LIMIT 1
+            ),
+            ''
+          ) AS worker_contract_yaml,
+          COALESCE(
+            (
+              SELECT json_extract(e.payload, '$.worker_prompt')
+              FROM task_events e
+              WHERE e.task_id = t.id
+                AND e.kind = 'command_eve_marketing_output_approved'
+                AND json_valid(e.payload)
+              ORDER BY e.created_at DESC, e.id DESC
+              LIMIT 1
+            ),
+            ''
+          ) AS worker_prompt,
+          COALESCE(
+            (
+              SELECT e.created_at
+              FROM task_events e
+              WHERE e.task_id = t.id
+                AND e.kind = 'command_eve_marketing_output_approved'
+                AND json_valid(e.payload)
+              ORDER BY e.created_at DESC, e.id DESC
+              LIMIT 1
+            ),
+            0
+          ) AS worker_dispatch_at,
           COALESCE(CAST(t.current_run_id AS TEXT), '') AS linked_run_id
         FROM tasks t
         WHERE COALESCE(t.tenant, '') = ?
@@ -1906,6 +1968,45 @@ try:
     approved_at = int(request["approved_at"])
     output_source = request["output_source"]
     output_text = draft_text
+    dispatch_handoff_packet = request.get("dispatch_handoff_packet") or draft_payload.get("dispatch_handoff_packet") or {}
+    if not isinstance(dispatch_handoff_packet, dict):
+        dispatch_handoff_packet = {}
+    role_label = dispatch_handoff_packet.get("role_label") or "role:cmo"
+    agent = dispatch_handoff_packet.get("agent") or "hermes"
+    mode = "marketing-output-review"
+    workspace = dispatch_handoff_packet.get("workspace") or "command-eve-local"
+    source_of_truth = dispatch_handoff_packet.get("source_of_truth") or ("Hermes kanban task " + request["card_id"])
+    title = row["title"] or ("Command EVE marketing card " + request["card_id"])
+    worker_contract_yaml = "\\n".join([
+        "role: " + role_label,
+        "parent_seat: role:ceo",
+        "agent: " + agent,
+        "mode: " + mode,
+        "workspace: " + workspace,
+        "dispatch: manual",
+        "source_of_truth: " + source_of_truth,
+        "scope: Review the approved local marketing output and prepare the next distribution-safe recommendation only.",
+        "acceptance_criteria: Return a worker.reported block with claim-safety notes, channel recommendation, and unresolved risks.",
+        "gates: NL-5 data boundary, HG-2.5 approval, no publishing, no external calls unless explicitly authorized.",
+        "human_gate: HG-2.5",
+        "reporting: Append local task_events and agent-events receipts before any future worker subprocess spawn.",
+    ])
+    worker_prompt = "\\n".join([
+        "You are the Command EVE CMO worker for a local-first, privacy-gated marketing loop.",
+        "",
+        "Source card: " + request["card_id"],
+        "Title: " + title,
+        "HumanGate: HG-2.5",
+        "",
+        "Approved local output:",
+        output_text,
+        "",
+        "Instructions:",
+        "- Do not publish, schedule, email, or call external providers.",
+        "- Treat this as a manual dispatch-ready handoff only.",
+        "- Return worker.reported with claim-safety notes, channel recommendation, residual risks, and next human decision.",
+        "- Keep sensitive customer data local unless a later explicit gate allows otherwise.",
+    ])
     event_payload = {
         "audit_event_id": request["audit_event_id"],
         "human_gate": "HG-2.5",
@@ -1920,11 +2021,17 @@ try:
         "external_calls": False,
         "nl5_gate_checked": bool(draft_payload.get("nl5_gate_checked")),
         "data_boundary_receipt": draft_payload.get("data_boundary_receipt") or {},
-        "dispatch_handoff_packet": request.get("dispatch_handoff_packet") or draft_payload.get("dispatch_handoff_packet") or {},
+        "dispatch_handoff_packet": dispatch_handoff_packet,
         "source_draft_audit_event_id": draft_payload.get("audit_event_id") or "",
         "output_approval_status": "approved",
         "output_source": output_source,
         "output_text": output_text,
+        "worker_dispatch_status": "prepared",
+        "worker_dispatch_ready": True,
+        "worker_dispatch_mode": "manual",
+        "worker_dispatch_target": agent,
+        "worker_contract_yaml": worker_contract_yaml,
+        "worker_prompt": worker_prompt,
         "approval_note_length": len(request.get("approval_note") or ""),
         "reason_codes": ["command_eve.marketing_output_approved_local"],
     }
@@ -1959,6 +2066,9 @@ try:
         "output_text": output_text,
         "output_source": output_source,
         "dispatch_handoff_packet": event_payload["dispatch_handoff_packet"],
+        "worker_dispatch_status": event_payload["worker_dispatch_status"],
+        "worker_contract_yaml": worker_contract_yaml,
+        "worker_prompt": worker_prompt,
         "data_boundary_checked": event_payload["nl5_gate_checked"],
     }))
 finally:
@@ -2452,6 +2562,8 @@ function appendMarketingOutputApprovedAuditEvent({
   dispatchHandoffPacket,
   outputSource,
   outputText,
+  workerContractYaml,
+  workerPrompt,
   dataBoundaryChecked,
 }: {
   eventId: string;
@@ -2463,6 +2575,8 @@ function appendMarketingOutputApprovedAuditEvent({
   dispatchHandoffPacket: JsonRecord;
   outputSource: string;
   outputText: string;
+  workerContractYaml: string;
+  workerPrompt: string;
   dataBoundaryChecked: boolean;
 }): string {
   const event = {
@@ -2505,6 +2619,11 @@ function appendMarketingOutputApprovedAuditEvent({
       output_source: outputSource,
       output_preview: outputText.slice(0, 600),
       output_length: outputText.length,
+      worker_dispatch_status: 'prepared',
+      worker_dispatch_mode: 'manual',
+      worker_contract_yaml: workerContractYaml,
+      worker_prompt_preview: workerPrompt.slice(0, 600),
+      worker_prompt_length: workerPrompt.length,
     },
     artifact_paths: [dbPath],
     linear_comment_ids: [] as string[],
@@ -5189,6 +5308,10 @@ export function approveKanbanMarketingOutput(
   }
 
   const outputText = textField(receiptWrite.data.output_text);
+  const workerContractYaml = textField(receiptWrite.data.worker_contract_yaml);
+  const workerPrompt = textField(receiptWrite.data.worker_prompt);
+  const workerDispatchStatus =
+    textField(receiptWrite.data.worker_dispatch_status) === 'prepared' ? ('prepared' as const) : undefined;
   const persistedHandoff = isRecord(receiptWrite.data.dispatch_handoff_packet)
     ? (receiptWrite.data.dispatch_handoff_packet as JsonRecord)
     : isRecord(options.dispatch_handoff_packet)
@@ -5205,6 +5328,8 @@ export function approveKanbanMarketingOutput(
     dispatchHandoffPacket: persistedHandoff,
     outputSource,
     outputText,
+    workerContractYaml,
+    workerPrompt,
     dataBoundaryChecked,
   });
 
@@ -5228,6 +5353,9 @@ export function approveKanbanMarketingOutput(
     output_event_kind: 'command_eve_marketing_output_approved',
     output_text: outputText,
     output_source: outputSource,
+    worker_dispatch_status: workerDispatchStatus,
+    worker_contract_yaml: workerContractYaml,
+    worker_prompt: workerPrompt,
     subprocess_spawned: false,
     data_boundary_checked: dataBoundaryChecked,
     controller_approval_status: 'approved',

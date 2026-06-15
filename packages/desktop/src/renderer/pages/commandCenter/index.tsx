@@ -191,6 +191,10 @@ interface ICommandEveMarketingCard {
   output_approval_source: string | null;
   output_approval_text: string | null;
   output_approval_at: number | null;
+  worker_dispatch_status: 'prepared' | null;
+  worker_contract_yaml: string | null;
+  worker_prompt: string | null;
+  worker_dispatch_at: number | null;
   governance_state: 'read_only' | 'proof_write_recorded' | 'unknown';
 }
 
@@ -224,6 +228,7 @@ interface ICommandEveMarketingBoardModel {
     controller_decision_rejected_cards: number;
     generated_draft_cards: number;
     output_approved_cards: number;
+    worker_dispatch_ready_cards: number;
   };
   columns: ICommandEveMarketingColumn[];
   warnings: string[];
@@ -495,6 +500,9 @@ interface ICommandEveMarketingOutputApproveResult {
   output_event_kind?: 'command_eve_marketing_output_approved';
   output_text?: string;
   output_source?: string;
+  worker_dispatch_status?: 'prepared';
+  worker_contract_yaml?: string;
+  worker_prompt?: string;
   subprocess_spawned: false;
   data_boundary_checked: boolean;
   controller_approval_status?: 'approved' | 'rejected';
@@ -1417,6 +1425,11 @@ const MarketingDispatchQueueView: React.FC<{
               model.summary.output_approved_cards
             )}`}
           </Tag>
+          <Tag color='purple' data-testid='marketing-dispatch-queue-worker-ready-count'>
+            {`${t('commandCenter.marketingBoard.dispatchQueue.workerReady')}: ${formatCount(
+              model.summary.worker_dispatch_ready_cards
+            )}`}
+          </Tag>
         </div>
       </div>
       {queueCards.length > 0 ? (
@@ -1426,13 +1439,17 @@ const MarketingDispatchQueueView: React.FC<{
             const queueStatus = decision || card.controller_review_status || 'pending';
             const hasGeneratedDraft = card.generated_draft_status === 'generated' && Boolean(card.generated_draft_text);
             const hasApprovedOutput = card.output_approval_status === 'approved' && Boolean(card.output_approval_text);
+            const hasWorkerDispatchReady =
+              card.worker_dispatch_status === 'prepared' && Boolean(card.worker_contract_yaml);
             const nextStepKey = decision
               ? decision === 'approved'
-                ? hasApprovedOutput
-                  ? 'outputApprovedNext'
-                  : hasGeneratedDraft
-                    ? 'generatedNext'
-                    : 'approvedNext'
+                ? hasWorkerDispatchReady
+                  ? 'workerReadyNext'
+                  : hasApprovedOutput
+                    ? 'outputApprovedNext'
+                    : hasGeneratedDraft
+                      ? 'generatedNext'
+                      : 'approvedNext'
                 : 'rejectedNext'
               : 'pendingNext';
             const draftGenerating = generatingDraftCardId === card.card_id;
@@ -1519,6 +1536,11 @@ const MarketingDispatchQueueView: React.FC<{
                         {t('commandCenter.marketingBoard.dispatchQueue.outputApproved')}
                       </Tag>
                     ) : null}
+                    {hasWorkerDispatchReady ? (
+                      <Tag color='purple' data-testid={`marketing-dispatch-queue-worker-ready-tag-${card.card_id}`}>
+                        {t('commandCenter.marketingBoard.dispatchQueue.workerReady')}
+                      </Tag>
+                    ) : null}
                   </div>
                 ) : null}
                 {hasGeneratedDraft ? (
@@ -1550,6 +1572,22 @@ const MarketingDispatchQueueView: React.FC<{
                     </div>
                     <pre className='m-0 max-h-132px overflow-auto whitespace-pre-wrap break-words text-11px leading-16px text-t-secondary'>
                       {card.output_approval_text}
+                    </pre>
+                  </div>
+                ) : null}
+                {hasWorkerDispatchReady ? (
+                  <div
+                    className='mt-8px rounded-8px border border-solid border-fill-3 bg-fill-1 p-8px'
+                    data-testid={`marketing-worker-handoff-preview-${card.card_id}`}
+                  >
+                    <div className='mb-4px flex flex-wrap items-center gap-6px'>
+                      <span className='text-11px font-600 leading-16px text-t-primary'>
+                        {t('commandCenter.marketingBoard.dispatchQueue.preparedWorkerHandoff')}
+                      </span>
+                      <Tag color='purple'>{t('commandCenter.marketingBoard.dispatchQueue.manualDispatch')}</Tag>
+                    </div>
+                    <pre className='m-0 max-h-132px overflow-auto whitespace-pre-wrap break-words text-11px leading-16px text-t-secondary'>
+                      {card.worker_contract_yaml}
                     </pre>
                   </div>
                 ) : null}
@@ -2143,6 +2181,9 @@ const MarketingBoardSection: React.FC<{
                       : t('commandCenter.marketingBoard.dispatch.ready')
                   }`}
                 </Tag>
+                {outputApproveResult.worker_dispatch_status === 'prepared' ? (
+                  <Tag color='purple'>{t('commandCenter.marketingBoard.outputApprove.workerHandoff')}</Tag>
+                ) : null}
               </div>
               <dl className='m-0 grid gap-x-10px gap-y-4px text-11px leading-16px sm:grid-cols-[max-content_1fr]'>
                 <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.card')}</dt>
@@ -2158,6 +2199,14 @@ const MarketingBoardSection: React.FC<{
                   data-testid='marketing-output-approve-result'
                 >
                   {outputApproveResult.output_text}
+                </pre>
+              ) : null}
+              {outputApproveResult.worker_contract_yaml ? (
+                <pre
+                  className='m-0 max-h-160px overflow-auto whitespace-pre-wrap break-words rounded-8px border border-solid border-fill-3 bg-fill-1 p-8px text-11px leading-16px text-t-secondary'
+                  data-testid='marketing-worker-handoff-result'
+                >
+                  {outputApproveResult.worker_contract_yaml}
                 </pre>
               ) : null}
             </div>
