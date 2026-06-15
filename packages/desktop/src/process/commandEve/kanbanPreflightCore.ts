@@ -2883,6 +2883,10 @@ try:
         "worker_prompt": worker_prompt,
         "observed_worker_audit_event_id": observed_payload.get("audit_event_id") or "",
     }
+    event_reason_codes = ["command_eve.marketing_worker_start_gate_checked_no_spawn"]
+    if executor_profile_receipt.get("ok"):
+        event_reason_codes.extend(executor_profile_receipt.get("reason_codes") or [])
+
     event_payload = {
         "audit_event_id": request["audit_event_id"],
         "human_gate": "HG-3",
@@ -2909,7 +2913,7 @@ try:
         "worker_start_data_boundary_receipt": worker_start_data_boundary_receipt,
         "executor_profile_receipt": executor_profile_receipt,
         "gate_note_length": len(request.get("gate_note") or ""),
-        "reason_codes": ["command_eve.marketing_worker_start_gate_checked_no_spawn"],
+        "reason_codes": event_reason_codes,
     }
     conn.execute(
         "INSERT INTO task_events (task_id, run_id, kind, payload, created_at) VALUES (?, NULL, ?, ?, ?)",
@@ -3701,6 +3705,13 @@ function appendMarketingWorkerStartGateAuditEvent({
   sourceNl5GateChecked: boolean;
   workerStartNl5Checked: boolean;
 }): string {
+  const executorProfileReceipt = isRecord(workerStartPacket.executor_profile_receipt)
+    ? (workerStartPacket.executor_profile_receipt as JsonRecord)
+    : {};
+  const executorProfileReasonCodes = Array.isArray(executorProfileReceipt.reason_codes)
+    ? executorProfileReceipt.reason_codes.filter((item): item is string => typeof item === 'string' && item.length > 0)
+    : [];
+  const eventReasonCodes = ['command_eve.marketing_worker_start_gate_checked_no_spawn', ...executorProfileReasonCodes];
   const event = {
     schema_version: 'agent-event/v1',
     event_id: eventId,
@@ -3738,7 +3749,7 @@ function appendMarketingWorkerStartGateAuditEvent({
       source_nl5_gate_checked: sourceNl5GateChecked,
       worker_start_nl5_checked: workerStartNl5Checked,
       action: 'worker_start_gate_checked_no_spawn',
-      reason_codes: ['command_eve.marketing_worker_start_gate_checked_no_spawn'],
+      reason_codes: eventReasonCodes,
       dispatch_handoff_packet: dispatchHandoffPacket,
       worker_start_packet: workerStartPacket,
       worker_start_data_boundary_receipt: isRecord(workerStartPacket.worker_start_data_boundary_receipt)
@@ -7178,6 +7189,13 @@ export function checkKanbanMarketingWorkerStartGate(
   const workerStartPacket = isRecord(receiptWrite.data.worker_start_packet)
     ? (receiptWrite.data.worker_start_packet as JsonRecord)
     : {};
+  const executorProfileReceipt = isRecord(workerStartPacket.executor_profile_receipt)
+    ? (workerStartPacket.executor_profile_receipt as JsonRecord)
+    : {};
+  const executorProfileReasonCodes = Array.isArray(executorProfileReceipt.reason_codes)
+    ? executorProfileReceipt.reason_codes.filter((item): item is string => typeof item === 'string' && item.length > 0)
+    : [];
+  const resultReasonCodes = ['command_eve.marketing_worker_start_gate_checked_no_spawn', ...executorProfileReasonCodes];
   const rawReasonCodes = Array.isArray(receiptWrite.data.worker_start_gate_reason_codes)
     ? receiptWrite.data.worker_start_gate_reason_codes
     : [];
@@ -7223,7 +7241,7 @@ export function checkKanbanMarketingWorkerStartGate(
       gateStatus === 'ready'
         ? 'KANBAN_MARKETING_WORKER_START_GATE_READY'
         : 'KANBAN_MARKETING_WORKER_START_GATE_BLOCKED',
-    reason_codes: ['command_eve.marketing_worker_start_gate_checked_no_spawn'],
+    reason_codes: resultReasonCodes,
     message:
       gateStatus === 'ready'
         ? 'Marketing worker start packet is ready; execution is still subject to HG-3.'

@@ -648,6 +648,19 @@ interface ICommandEveMarketingWorkerStartGateResult {
   };
 }
 
+interface ICommandEveWorkerStartGateUiOptions {
+  executorProfile?: Record<string, unknown>;
+  gateNote?: string;
+}
+
+interface ICommandEveWorkerStartGateTarget {
+  card_id: string;
+  controller_decision_handoff_role?: string | null;
+  controller_review_handoff_role?: string | null;
+  controller_decision_handoff_dispatch?: string | null;
+  controller_review_handoff_dispatch?: string | null;
+}
+
 interface ICommandEveCrmOverlayPolicy {
   local_only: true;
   plane_sync_enabled: false;
@@ -888,6 +901,19 @@ const crmConsentLocal = bridge.buildProvider<
 const MARKETING_LANE_ORDER: IMarketingLaneKey[] = ['research', 'draft', 'assetGeneration', 'review', 'readyToApprove'];
 
 const MARKETING_BOARD_SLUG = 'marketing';
+
+const createObservedLocalExecutorProfile = (): Record<string, unknown> => ({
+  version: 'command-eve-runtime-executor-profile/v0',
+  executor_kind: 'hermes-local-observed',
+  execution_mode: 'observed',
+  transport: 'local',
+  data_boundary_enforced: true,
+  external_calls_allowed: false,
+  subprocess_spawn_allowed: false,
+  hg3_approved: true,
+  approved_by: 'command-eve-ui-hg3-click',
+  approved_at: new Date().toISOString(),
+});
 
 // Stable per-intent idempotency token so a card create dedupes on retry.
 const generateClientToken = (): string => {
@@ -1535,7 +1561,10 @@ const MarketingDispatchQueueView: React.FC<{
   onApproveOutput: (card: ICommandEveMarketingCard) => void;
   onRequestWorkerDispatch: (card: ICommandEveMarketingCard) => void;
   onRunObservedWorker: (card: ICommandEveMarketingCard) => void;
-  onCheckWorkerStartGate: (card: ICommandEveMarketingCard) => void;
+  onCheckWorkerStartGate: (
+    card: ICommandEveWorkerStartGateTarget,
+    options?: ICommandEveWorkerStartGateUiOptions
+  ) => void;
 }> = ({
   model,
   workerStartGateResult,
@@ -1641,11 +1670,17 @@ const MarketingDispatchQueueView: React.FC<{
               (workerStartGateResultForCard?.worker_start_packet
                 ? JSON.stringify(workerStartGateResultForCard.worker_start_packet, null, 2)
                 : '');
-            const workerStartGateChecked = Boolean(card.worker_start_gate_status || workerStartPacketText);
+            const workerStartGateStatus =
+              card.worker_start_gate_status || workerStartGateResultForCard?.worker_start_gate_status || null;
+            const workerStartGateChecked = Boolean(workerStartGateStatus || workerStartPacketText);
+            const workerStartGateReady = workerStartGateStatus === 'ready';
+            const canCheckObservedExecutorProfile = workerObservedCompleted && !workerStartGateReady;
             const nextStepKey = decision
               ? decision === 'approved'
                 ? workerStartGateChecked
-                  ? 'workerStartGateNext'
+                  ? workerStartGateReady
+                    ? 'workerStartGateReadyNext'
+                    : 'workerStartGateNext'
                   : workerObservedCompleted
                     ? 'workerObservedNext'
                     : workerDispatchRequested
@@ -1763,10 +1798,14 @@ const MarketingDispatchQueueView: React.FC<{
                     ) : null}
                     {workerStartGateChecked ? (
                       <Tag
-                        color='orange'
+                        color={workerStartGateReady ? 'green' : 'orange'}
                         data-testid={`marketing-dispatch-queue-worker-start-gate-tag-${card.card_id}`}
                       >
-                        {t('commandCenter.marketingBoard.dispatchQueue.workerStartGateChecked')}
+                        {t(
+                          workerStartGateReady
+                            ? 'commandCenter.marketingBoard.dispatchQueue.workerStartGateReady'
+                            : 'commandCenter.marketingBoard.dispatchQueue.workerStartGateChecked'
+                        )}
                       </Tag>
                     ) : null}
                     {hasWorkerDispatchReady ? (
@@ -1877,7 +1916,16 @@ const MarketingDispatchQueueView: React.FC<{
                           ? t('commandCenter.marketingBoard.dispatchQueue.workerStartGateChecked')
                           : t('commandCenter.marketingBoard.dispatchQueue.checkWorkerStartGate')}
                       </Button>
-                      <Tag color='orange'>{t('commandCenter.marketingBoard.dispatchQueue.workerStartGateBlocked')}</Tag>
+                      <Tag
+                        color={workerStartGateReady ? 'green' : 'orange'}
+                        data-testid={`marketing-dispatch-queue-worker-start-gate-inline-tag-${card.card_id}`}
+                      >
+                        {t(
+                          workerStartGateReady
+                            ? 'commandCenter.marketingBoard.dispatchQueue.workerStartGateReady'
+                            : 'commandCenter.marketingBoard.dispatchQueue.workerStartGateBlocked'
+                        )}
+                      </Tag>
                     </div>
                   </div>
                 ) : null}
@@ -1890,7 +1938,35 @@ const MarketingDispatchQueueView: React.FC<{
                       <span className='text-11px font-600 leading-16px text-t-primary'>
                         {t('commandCenter.marketingBoard.dispatchQueue.workerStartPacket')}
                       </span>
-                      <Tag color='orange'>{t('commandCenter.marketingBoard.dispatchQueue.workerStartGateBlocked')}</Tag>
+                      <Tag
+                        color={workerStartGateReady ? 'green' : 'orange'}
+                        data-testid={`marketing-dispatch-queue-worker-start-gate-packet-tag-${card.card_id}`}
+                      >
+                        {t(
+                          workerStartGateReady
+                            ? 'commandCenter.marketingBoard.dispatchQueue.workerStartGateReady'
+                            : 'commandCenter.marketingBoard.dispatchQueue.workerStartGateBlocked'
+                        )}
+                      </Tag>
+                      {canCheckObservedExecutorProfile ? (
+                        <Button
+                          shape='round'
+                          size='mini'
+                          type='outline'
+                          loading={workerStartGateChecking}
+                          disabled={workerStartGateChecking}
+                          onClick={() =>
+                            onCheckWorkerStartGate(card, {
+                              executorProfile: createObservedLocalExecutorProfile(),
+                              gateNote:
+                                'Command EVE UI checked an explicit HG-3 observed local executor profile without spawning a runtime worker.',
+                            })
+                          }
+                          data-testid={`marketing-dispatch-queue-check-observed-executor-profile-${card.card_id}`}
+                        >
+                          {t('commandCenter.marketingBoard.dispatchQueue.checkObservedExecutorProfile')}
+                        </Button>
+                      ) : null}
                     </div>
                     <pre className='m-0 max-h-180px overflow-auto whitespace-pre-wrap break-words text-11px leading-16px text-t-secondary'>
                       {workerStartPacketText}
@@ -2066,7 +2142,10 @@ const MarketingBoardSection: React.FC<{
   onApproveOutput: (card: ICommandEveMarketingCard) => void;
   onRequestWorkerDispatch: (card: ICommandEveMarketingCard) => void;
   onRunObservedWorker: (card: ICommandEveMarketingCard) => void;
-  onCheckWorkerStartGate: (card: ICommandEveMarketingCard) => void;
+  onCheckWorkerStartGate: (
+    card: ICommandEveWorkerStartGateTarget,
+    options?: ICommandEveWorkerStartGateUiOptions
+  ) => void;
 }> = ({
   result,
   proofResult,
@@ -2127,6 +2206,31 @@ const MarketingBoardSection: React.FC<{
   const model = effectiveResult?.model;
   const cardCount = model?.summary.total_cards ?? 0;
   const blocked = !effectiveResult || effectiveResult.status !== 'ready' || !model;
+  const workerStartGateCard =
+    workerStartGateResult?.card_id && model
+      ? model.columns.flatMap((column) => column.cards).find((card) => card.card_id === workerStartGateResult.card_id)
+      : null;
+  const workerStartGatePacket = workerStartGateResult?.worker_start_packet;
+  const workerStartGateTargetCardId =
+    workerStartGateResult?.card_id || recordStringField(workerStartGatePacket, 'card_id');
+  const workerStartGateTarget =
+    workerStartGateCard ||
+    (workerStartGateTargetCardId
+      ? {
+          card_id: workerStartGateTargetCardId,
+          controller_decision_handoff_dispatch:
+            recordStringField(workerStartGateResult.dispatch_handoff_packet, 'dispatch') || 'manual',
+          controller_review_handoff_dispatch:
+            recordStringField(workerStartGateResult.dispatch_handoff_packet, 'dispatch') || 'manual',
+          controller_decision_handoff_role:
+            recordStringField(workerStartGateResult.dispatch_handoff_packet, 'role_label') || 'role:cmo',
+          controller_review_handoff_role:
+            recordStringField(workerStartGateResult.dispatch_handoff_packet, 'role_label') || 'role:cmo',
+        }
+      : null);
+  const canCheckObservedExecutorProfileFromResult =
+    Boolean(workerStartGateTarget && workerStartGatePacket) &&
+    workerStartGateResult?.worker_start_gate_status !== 'ready';
   return (
     <Section
       id='command-eve-marketing-board'
@@ -2706,6 +2810,25 @@ const MarketingBoardSection: React.FC<{
                     'commandCenter.marketingBoard.dispatch.blockedByGate'
                   )}`}
                 </Tag>
+                {canCheckObservedExecutorProfileFromResult && workerStartGateTarget ? (
+                  <Button
+                    shape='round'
+                    size='mini'
+                    type='outline'
+                    loading={checkingWorkerStartGateCardId === workerStartGateTarget.card_id}
+                    disabled={checkingWorkerStartGateCardId === workerStartGateTarget.card_id}
+                    onClick={() =>
+                      onCheckWorkerStartGate(workerStartGateTarget, {
+                        executorProfile: createObservedLocalExecutorProfile(),
+                        gateNote:
+                          'Command EVE UI checked an explicit HG-3 observed local executor profile from the start-gate result without spawning a runtime worker.',
+                      })
+                    }
+                    data-testid={`marketing-worker-start-gate-check-observed-executor-profile-${workerStartGateTarget.card_id}`}
+                  >
+                    {t('commandCenter.marketingBoard.dispatchQueue.checkObservedExecutorProfile')}
+                  </Button>
+                ) : null}
               </div>
               <dl className='m-0 grid gap-x-10px gap-y-4px text-11px leading-16px sm:grid-cols-[max-content_1fr]'>
                 <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.card')}</dt>
@@ -4051,8 +4174,9 @@ const CommandCenterPage: React.FC = () => {
   );
 
   const checkWorkerStartGate = useCallback(
-    async (card: ICommandEveMarketingCard) => {
+    async (card: ICommandEveWorkerStartGateTarget, options?: ICommandEveWorkerStartGateUiOptions) => {
       if (!isElectronDesktop()) return;
+      const executorProfile = options?.executorProfile ?? null;
       const handoff = {
         version: 'command-eve-worker-start-gate-handoff/v0',
         status: 'worker_start_gate_check',
@@ -4075,8 +4199,10 @@ const CommandCenterPage: React.FC = () => {
           task_id: card.card_id,
           boardSlug: MARKETING_BOARD_SLUG,
           dispatch_handoff_packet: handoff,
-          gate_note: 'Command EVE UI checked the worker start gate without spawning a runtime worker.',
-          executor_enabled: false,
+          gate_note:
+            options?.gateNote || 'Command EVE UI checked the worker start gate without spawning a runtime worker.',
+          executor_enabled: Boolean(executorProfile),
+          executor_profile: executorProfile || undefined,
         });
         const data = response.data ?? null;
         setWorkerStartGateResult(data);

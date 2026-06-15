@@ -777,6 +777,13 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     await expect(startGateResult).toContainText(/command-eve-worker-start-packet/);
     await expect(startGateResult).toContainText(/runtime_executor_not_configured/);
     await expect(startGateResult).toContainText(/HG-3/);
+    const observedExecutorProfileButton = page
+      .locator('[data-testid^="marketing-worker-start-gate-check-observed-executor-profile-"]')
+      .first();
+    await expect(observedExecutorProfileButton).toBeEnabled({ timeout: 30_000 });
+    await observedExecutorProfileButton.click();
+    await expect(startGateResult).toContainText(/command_eve\.runtime_executor_profile_accepted_no_spawn/);
+    await expect(startGateResult).toContainText(/hermes-local-observed/);
     await expect(page.getByTestId('command-center-operating-readiness')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('operating-readiness-controllerReviewQueue')).toContainText(/ready|bereit|1/);
     await expect(page.getByTestId('operating-readiness-dispatchBlocked')).toContainText(
@@ -1005,12 +1012,15 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
       'command_eve.marketing_worker_observed_run_completed_local_no_spawn'
     );
 
-    const startGateRows = sqliteQuery(
+    const blockedStartGateRows = sqliteQuery(
       dispatchBoardDbPath!,
-      `SELECT kind, payload FROM task_events WHERE task_id = '${dispatchCardId}' AND kind = 'command_eve_marketing_worker_start_gate_checked' LIMIT 1`
+      `SELECT kind, payload FROM task_events WHERE task_id = '${dispatchCardId}' AND kind = 'command_eve_marketing_worker_start_gate_checked' AND payload LIKE '%runtime_executor_not_configured%' LIMIT 1`
     );
-    expect(startGateRows.length, `worker start gate receipt must exist for ${dispatchCardId}`).toBeGreaterThan(0);
-    const startGatePayload = JSON.parse(startGateRows[0][1]) as {
+    expect(
+      blockedStartGateRows.length,
+      `blocked worker start gate receipt must exist for ${dispatchCardId}`
+    ).toBeGreaterThan(0);
+    const startGatePayload = JSON.parse(blockedStartGateRows[0][1]) as {
       release_blocked?: boolean;
       subprocess_spawned?: boolean;
       external_calls?: boolean;
@@ -1074,6 +1084,75 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
       raw_text_stored: false,
     });
     expect(startGatePayload.reason_codes).toContain('command_eve.marketing_worker_start_gate_checked_no_spawn');
+
+    const readyStartGateRows = sqliteQuery(
+      dispatchBoardDbPath!,
+      `SELECT kind, payload FROM task_events WHERE task_id = '${dispatchCardId}' AND kind = 'command_eve_marketing_worker_start_gate_checked' AND payload LIKE '%command_eve.runtime_executor_profile_accepted_no_spawn%' LIMIT 1`
+    );
+    expect(
+      readyStartGateRows.length,
+      `ready observed executor start gate receipt must exist for ${dispatchCardId}`
+    ).toBeGreaterThan(0);
+    const readyStartGatePayload = JSON.parse(readyStartGateRows[0][1]) as {
+      release_blocked?: boolean;
+      subprocess_spawned?: boolean;
+      external_calls?: boolean;
+      nl5_gate_checked?: boolean;
+      source_nl5_gate_checked?: boolean;
+      worker_start_nl5_checked?: boolean;
+      worker_start_gate_status?: string;
+      worker_start_gate_reason_codes?: string[];
+      worker_start_packet?: {
+        executor_profile_receipt?: {
+          ok?: boolean;
+          status?: string;
+          executor_kind?: string;
+          execution_mode?: string;
+          transport?: string;
+          data_boundary_enforced?: boolean;
+          external_calls_allowed?: boolean;
+          subprocess_spawn_allowed?: boolean;
+          reason_codes?: string[];
+        };
+      };
+      executor_profile_receipt?: {
+        ok?: boolean;
+        status?: string;
+        executor_kind?: string;
+        execution_mode?: string;
+        transport?: string;
+        data_boundary_enforced?: boolean;
+        external_calls_allowed?: boolean;
+        subprocess_spawn_allowed?: boolean;
+        reason_codes?: string[];
+      };
+      reason_codes?: string[];
+    };
+    expect(readyStartGatePayload.release_blocked).toBe(true);
+    expect(readyStartGatePayload.subprocess_spawned).toBe(false);
+    expect(readyStartGatePayload.external_calls).toBe(false);
+    expect(readyStartGatePayload.nl5_gate_checked).toBe(true);
+    expect(readyStartGatePayload.source_nl5_gate_checked).toBe(true);
+    expect(readyStartGatePayload.worker_start_nl5_checked).toBe(true);
+    expect(readyStartGatePayload.worker_start_gate_status).toBe('ready');
+    expect(readyStartGatePayload.worker_start_gate_reason_codes).toEqual([]);
+    expect(readyStartGatePayload.executor_profile_receipt).toMatchObject({
+      ok: true,
+      status: 'accepted',
+      executor_kind: 'hermes-local-observed',
+      execution_mode: 'observed',
+      transport: 'local',
+      data_boundary_enforced: true,
+      external_calls_allowed: false,
+      subprocess_spawn_allowed: false,
+    });
+    expect(readyStartGatePayload.worker_start_packet?.executor_profile_receipt).toMatchObject({
+      ok: true,
+      status: 'accepted',
+      executor_kind: 'hermes-local-observed',
+    });
+    expect(readyStartGatePayload.reason_codes).toContain('command_eve.marketing_worker_start_gate_checked_no_spawn');
+    expect(readyStartGatePayload.reason_codes).toContain('command_eve.runtime_executor_profile_accepted_no_spawn');
 
     const outputComments = sqliteQuery(
       dispatchBoardDbPath!,

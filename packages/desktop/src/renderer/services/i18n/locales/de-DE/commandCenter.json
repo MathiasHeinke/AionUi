@@ -237,6 +237,7 @@
       "workerRequestedNext": "Dispatch-Anfrage ist lokal dokumentiert. Worker-Start bleibt durch Policy gesperrt.",
       "workerObservedNext": "Observed-Worker-Lauf ist lokal abgeschlossen. Publishing und externe Worker bleiben gesperrt.",
       "workerStartGateNext": "Worker-Start-Gate ist geprueft. Runtime-Start bleibt bis HG-3 und Executor-Konfiguration gesperrt.",
+      "workerStartGateReadyNext": "Observed-local Executor-Profil ist akzeptiert. Runtime-Start bleibt bis Release-Freigabe weiter no-spawn.",
       "rejectedNext": "Handoff ist abgelehnt; Karte ueberarbeiten oder blockiert lassen.",
       "generateDraft": "Draft erzeugen",
       "draftAlreadyGenerated": "Draft erzeugt",
@@ -252,9 +253,11 @@
       "workerObservedCompleted": "Observed Run gespeichert",
       "workerObservedReport": "Lokaler Worker-Report",
       "checkWorkerStartGate": "Start-Gate pruefen",
+      "checkObservedExecutorProfile": "Observed Executor-Profil pruefen",
       "workerStartGateChecked": "Start-Gate geprueft",
       "workerStartPacket": "Worker-Start-Paket",
       "workerStartGateBlocked": "HG-3 gesperrt",
+      "workerStartGateReady": "Observed Profil bereit",
       "empty": "Keine Controller-Handoffs in der lokalen Queue."
     },
     "workerDispatchRequest": {

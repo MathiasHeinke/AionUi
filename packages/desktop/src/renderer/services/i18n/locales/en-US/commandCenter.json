@@ -237,6 +237,7 @@
       "workerRequestedNext": "Dispatch request recorded locally. Worker start remains policy-locked.",
       "workerObservedNext": "Observed worker run completed locally. Publishing and external workers remain locked.",
       "workerStartGateNext": "Worker start gate checked. Runtime start remains HG-3 locked until an executor is configured.",
+      "workerStartGateReadyNext": "Observed local executor profile accepted. Runtime start remains no-spawn until release authority unlocks it.",
       "rejectedNext": "Handoff was rejected; revise the card or keep it blocked.",
       "generateDraft": "Generate draft",
       "draftAlreadyGenerated": "Draft generated",
@@ -252,9 +253,11 @@
       "workerObservedCompleted": "Observed run recorded",
       "workerObservedReport": "Local worker report",
       "checkWorkerStartGate": "Check start gate",
+      "checkObservedExecutorProfile": "Check observed executor profile",
       "workerStartGateChecked": "Start gate checked",
       "workerStartPacket": "Worker start packet",
       "workerStartGateBlocked": "HG-3 locked",
+      "workerStartGateReady": "Observed profile ready",
       "empty": "No controller handoffs in the local queue."
     },
     "workerDispatchRequest": {
