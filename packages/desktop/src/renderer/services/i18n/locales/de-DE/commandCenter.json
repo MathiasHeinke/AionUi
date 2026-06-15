@@ -225,12 +225,14 @@
       "generated": "Drafts",
       "outputApproved": "Outputs",
       "workerReady": "Worker-Handoffs",
+      "workerRequested": "Dispatch-Anfragen",
       "nextStep": "Naechster Schritt",
       "pendingNext": "Controller muss das Handoff noch freigeben oder ablehnen.",
       "approvedNext": "Handoff ist lokal freigegeben; EVE kann jetzt einen lokalen Marketing-Draft erzeugen.",
       "generatedNext": "Draft ist erzeugt und liegt zur Review in der Queue.",
       "outputApprovedNext": "Output ist lokal freigegeben. Publishing bleibt ein separates gegatetes Gate.",
       "workerReadyNext": "Worker-Handoff ist vorbereitet. Start bleibt manuell und HG-2.5-gegatet.",
+      "workerRequestedNext": "Dispatch-Anfrage ist lokal dokumentiert. Worker-Start bleibt durch Policy gesperrt.",
       "rejectedNext": "Handoff ist abgelehnt; Karte ueberarbeiten oder blockiert lassen.",
       "generateDraft": "Draft erzeugen",
       "draftAlreadyGenerated": "Draft erzeugt",
@@ -240,7 +242,14 @@
       "approvedOutput": "Freigegebener Output",
       "preparedWorkerHandoff": "Vorbereiteter Worker-Handoff",
       "manualDispatch": "manual",
+      "requestWorkerDispatch": "Dispatch anfordern",
+      "workerRequestRecorded": "Dispatch gesperrt",
       "empty": "Keine Controller-Handoffs in der lokalen Queue."
+    },
+    "workerDispatchRequest": {
+      "success": "Dispatch-Anfrage dokumentiert; Worker-Start bleibt gesperrt.",
+      "failed": "Dispatch-Anfrage konnte nicht dokumentiert werden.",
+      "resultTitle": "Dispatch-Anfrage"
     },
     "draftGenerate": {
       "resultTitle": "Marketing-Draft-Receipt",

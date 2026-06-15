@@ -729,13 +729,25 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
       /dispatch:\s*manual/
     );
     await expect(page.getByTestId('marketing-worker-handoff-result')).toContainText(/role:\s*role:cmo/);
+    const requestWorkerButton = page.getByTestId(`marketing-dispatch-queue-request-worker-${dispatchCardId}`);
+    await expect(requestWorkerButton).toBeEnabled({ timeout: 30_000 });
+    await requestWorkerButton.click();
+    const workerRequestResult = page.getByTestId('marketing-worker-dispatch-request-result');
+    await expect(workerRequestResult).toBeVisible({ timeout: 60_000 });
+    await expect(workerRequestResult).toContainText(/role:\s*role:cmo/);
+    await expect(page.getByTestId(`marketing-dispatch-queue-worker-requested-tag-${dispatchCardId}`)).toContainText(
+      /Dispatch|gesperrt|Anfrage/
+    );
     await expect(page.getByTestId(`marketing-dispatch-queue-next-${dispatchCardId}`)).toContainText(
-      /Worker|HG-2.5|manual/
+      /Worker|policy|gesperrt|Dispatch/
     );
     await expect(page.getByTestId('marketing-dispatch-queue-output-approved-count')).toContainText(
       /Outputs:\s*[1-9]\d*/
     );
     await expect(page.getByTestId('marketing-dispatch-queue-worker-ready-count')).toContainText(/Worker.*:\s*[1-9]\d*/);
+    await expect(page.getByTestId('marketing-dispatch-queue-worker-requested-count')).toContainText(
+      /Dispatch.*:\s*[1-9]\d*/
+    );
     await expect(page.getByTestId('command-center-operating-readiness')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('operating-readiness-controllerReviewQueue')).toContainText(/ready|bereit|1/);
     await expect(page.getByTestId('operating-readiness-dispatchBlocked')).toContainText(
@@ -901,6 +913,37 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     expect(outputPayload.worker_prompt).toContain('Approved local output');
     expect(outputPayload.reason_codes).toContain('command_eve.marketing_output_approved_local');
 
+    const workerRequestRows = sqliteQuery(
+      dispatchBoardDbPath!,
+      `SELECT kind, payload FROM task_events WHERE task_id = '${dispatchCardId}' AND kind = 'command_eve_marketing_worker_dispatch_requested' LIMIT 1`
+    );
+    expect(
+      workerRequestRows.length,
+      `marketing worker dispatch request receipt must exist for ${dispatchCardId}`
+    ).toBeGreaterThan(0);
+    const workerRequestPayload = JSON.parse(workerRequestRows[0][1]) as {
+      controller_approval_status?: string;
+      controller_approved?: boolean;
+      release_blocked?: boolean;
+      subprocess_spawned?: boolean;
+      external_calls?: boolean;
+      nl5_gate_checked?: boolean;
+      worker_dispatch_status?: string;
+      worker_dispatch_request_status?: string;
+      worker_contract_yaml?: string;
+      reason_codes?: string[];
+    };
+    expect(workerRequestPayload.controller_approval_status).toBe('approved');
+    expect(workerRequestPayload.controller_approved).toBe(true);
+    expect(workerRequestPayload.release_blocked).toBe(true);
+    expect(workerRequestPayload.subprocess_spawned).toBe(false);
+    expect(workerRequestPayload.external_calls).toBe(false);
+    expect(workerRequestPayload.nl5_gate_checked).toBe(true);
+    expect(workerRequestPayload.worker_dispatch_status).toBe('prepared');
+    expect(workerRequestPayload.worker_dispatch_request_status).toBe('blocked');
+    expect(workerRequestPayload.worker_contract_yaml).toContain('role: role:cmo');
+    expect(workerRequestPayload.reason_codes).toContain('command_eve.marketing_worker_dispatch_requested_no_spawn');
+
     const outputComments = sqliteQuery(
       dispatchBoardDbPath!,
       `SELECT COUNT(*) FROM task_comments WHERE task_id = '${dispatchCardId}' AND author = 'eve' AND body LIKE 'Approved local marketing output:%${postTitle}%'`
@@ -1003,6 +1046,27 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     expect(
       matchingOutputAudit,
       `audit ledger must contain kanban.marketing_board_marketing_output_approved for card_id=${dispatchCardId}`
+    ).toBeTruthy();
+    const matchingWorkerDispatchRequestAudit = ledgerLines.find((line) => {
+      try {
+        const evt = JSON.parse(line) as { event_type?: string; issue_id?: string; payload?: Record<string, unknown> };
+        return (
+          evt.issue_id === dispatchCardId &&
+          evt.event_type === 'kanban.marketing_board_worker_dispatch_requested' &&
+          evt.payload?.controller_approval_status === 'approved' &&
+          evt.payload?.subprocess_spawned === false &&
+          evt.payload?.release_blocked === true &&
+          evt.payload?.worker_dispatch_status === 'prepared' &&
+          evt.payload?.worker_dispatch_request_status === 'blocked' &&
+          String(evt.payload?.worker_contract_yaml || '').includes('role: role:cmo')
+        );
+      } catch {
+        return false;
+      }
+    });
+    expect(
+      matchingWorkerDispatchRequestAudit,
+      `audit ledger must contain kanban.marketing_board_worker_dispatch_requested for card_id=${dispatchCardId}`
     ).toBeTruthy();
 
     const screenshotPath = 'tests/e2e/results/command-eve-kanban-board-dispatch-gate.png';

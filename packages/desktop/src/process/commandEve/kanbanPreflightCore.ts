@@ -26,6 +26,8 @@ export const COMMAND_EVE_KANBAN_MARKETING_DRAFT_GENERATE_BRIDGE_VERSION =
   'command-eve-kanban-marketing-draft-generate/v0';
 export const COMMAND_EVE_KANBAN_MARKETING_OUTPUT_APPROVE_BRIDGE_VERSION =
   'command-eve-kanban-marketing-output-approve/v0';
+export const COMMAND_EVE_KANBAN_MARKETING_WORKER_DISPATCH_REQUEST_BRIDGE_VERSION =
+  'command-eve-kanban-marketing-worker-dispatch-request/v0';
 
 const MIN_HERMES_KANBAN_VERSION = '0.16.0';
 const RUNTIME_RECONCILIATION_VERSION = 'command-eve-runtime-reconciliation/v0';
@@ -170,6 +172,9 @@ export type CommandEveKanbanMarketingCard = {
   worker_contract_yaml: string | null;
   worker_prompt: string | null;
   worker_dispatch_at: number | null;
+  worker_dispatch_request_status: 'blocked' | null;
+  worker_dispatch_request_audit_event_id: string | null;
+  worker_dispatch_requested_at: number | null;
   governance_state: 'read_only' | 'proof_write_recorded' | 'unknown';
 };
 
@@ -204,6 +209,7 @@ export type CommandEveKanbanMarketingBoardModel = {
     generated_draft_cards: number;
     output_approved_cards: number;
     worker_dispatch_ready_cards: number;
+    worker_dispatch_requested_cards: number;
   };
   columns: CommandEveKanbanMarketingColumn[];
   warnings: string[];
@@ -439,6 +445,34 @@ export type CommandEveKanbanMarketingOutputApproveResult = {
   };
 };
 
+export type CommandEveKanbanMarketingWorkerDispatchRequestResult = {
+  version: typeof COMMAND_EVE_KANBAN_MARKETING_WORKER_DISPATCH_REQUEST_BRIDGE_VERSION;
+  ok: boolean;
+  status: CommandEveKanbanMarketingBoardStatus;
+  reason_code?: string;
+  reason_codes: string[];
+  message?: string;
+  card_id?: string;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  request_event_kind?: 'command_eve_marketing_worker_dispatch_requested';
+  worker_dispatch_request_status?: 'blocked';
+  worker_contract_yaml?: string;
+  worker_prompt?: string;
+  subprocess_spawned: false;
+  data_boundary_checked: boolean;
+  controller_approval_status?: CommandEveKanbanMarketingDispatchDecision;
+  controller_approved: boolean;
+  release_blocked: true;
+  human_gate: 'HG-2.5';
+  dispatch_handoff_packet?: JsonRecord;
+  model?: CommandEveKanbanMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+  };
+};
+
 export type CommandEveKanbanMarketingCardCreateOptions = CommandEveKanbanMarketingBoardOptions & {
   title: string;
   description?: string;
@@ -489,6 +523,12 @@ export type CommandEveKanbanMarketingOutputApproveOptions = CommandEveKanbanMark
   task_id: string;
   dispatch_handoff_packet?: JsonRecord;
   approval_note?: string;
+};
+
+export type CommandEveKanbanMarketingWorkerDispatchRequestOptions = CommandEveKanbanMarketingBoardOptions & {
+  task_id: string;
+  dispatch_handoff_packet?: JsonRecord;
+  request_note?: string;
 };
 
 type JsonRecord = Record<string, unknown>;
@@ -633,6 +673,7 @@ function marketingBoardBaseModel({
       generated_draft_cards: 0,
       output_approved_cards: 0,
       worker_dispatch_ready_cards: 0,
+      worker_dispatch_requested_cards: 0,
     },
     columns: emptyMarketingColumns(),
     warnings,
@@ -778,6 +819,11 @@ function parseMarketingCards(rows: unknown[]): CommandEveKanbanMarketingCard[] {
       worker_contract_yaml: nullableTextField(item.worker_contract_yaml),
       worker_prompt: nullableTextField(item.worker_prompt),
       worker_dispatch_at: typeof item.worker_dispatch_at === 'number' ? item.worker_dispatch_at : null,
+      worker_dispatch_request_status:
+        textField(item.worker_dispatch_request_status) === 'blocked' ? ('blocked' as const) : null,
+      worker_dispatch_request_audit_event_id: nullableTextField(item.worker_dispatch_request_audit_event_id),
+      worker_dispatch_requested_at:
+        typeof item.worker_dispatch_requested_at === 'number' ? item.worker_dispatch_requested_at : null,
       governance_state: linkedAuditEventId ? 'proof_write_recorded' : 'read_only',
     };
   });
@@ -822,6 +868,7 @@ function buildMarketingModelFromRows({
       generated_draft_cards: cards.filter((card) => card.generated_draft_status === 'generated').length,
       output_approved_cards: cards.filter((card) => card.output_approval_status === 'approved').length,
       worker_dispatch_ready_cards: cards.filter((card) => card.worker_dispatch_status === 'prepared').length,
+      worker_dispatch_requested_cards: cards.filter((card) => card.worker_dispatch_request_status === 'blocked').length,
     },
     columns,
   };
@@ -1140,6 +1187,42 @@ try:
             ),
             0
           ) AS worker_dispatch_at,
+          COALESCE(
+            (
+              SELECT json_extract(e.payload, '$.worker_dispatch_request_status')
+              FROM task_events e
+              WHERE e.task_id = t.id
+                AND e.kind = 'command_eve_marketing_worker_dispatch_requested'
+                AND json_valid(e.payload)
+              ORDER BY e.created_at DESC, e.id DESC
+              LIMIT 1
+            ),
+            ''
+          ) AS worker_dispatch_request_status,
+          COALESCE(
+            (
+              SELECT json_extract(e.payload, '$.audit_event_id')
+              FROM task_events e
+              WHERE e.task_id = t.id
+                AND e.kind = 'command_eve_marketing_worker_dispatch_requested'
+                AND json_valid(e.payload)
+              ORDER BY e.created_at DESC, e.id DESC
+              LIMIT 1
+            ),
+            ''
+          ) AS worker_dispatch_request_audit_event_id,
+          COALESCE(
+            (
+              SELECT e.created_at
+              FROM task_events e
+              WHERE e.task_id = t.id
+                AND e.kind = 'command_eve_marketing_worker_dispatch_requested'
+                AND json_valid(e.payload)
+              ORDER BY e.created_at DESC, e.id DESC
+              LIMIT 1
+            ),
+            0
+          ) AS worker_dispatch_requested_at,
           COALESCE(CAST(t.current_run_id AS TEXT), '') AS linked_run_id
         FROM tasks t
         WHERE COALESCE(t.tenant, '') = ?
@@ -2076,6 +2159,124 @@ finally:
 `;
 }
 
+function buildMarketingWorkerDispatchRequestScript(): string {
+  return String.raw`
+import json
+import os
+import sqlite3
+import sys
+
+request = json.loads(sys.stdin.read() or "{}")
+db_path = request["db_path"]
+if not os.path.isfile(db_path):
+    print(json.dumps({"found": False}))
+    sys.exit(0)
+
+conn = sqlite3.connect(db_path)
+conn.row_factory = sqlite3.Row
+try:
+    row = conn.execute(
+        """
+        SELECT id, title
+        FROM tasks
+        WHERE id = ?
+        LIMIT 1
+        """,
+        (request["card_id"],),
+    ).fetchone()
+    if row is None:
+        print(json.dumps({"found": False}))
+        sys.exit(0)
+
+    output_event = conn.execute(
+        """
+        SELECT payload, created_at
+        FROM task_events
+        WHERE task_id = ?
+          AND kind = 'command_eve_marketing_output_approved'
+          AND json_valid(payload)
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        """,
+        (request["card_id"],),
+    ).fetchone()
+    if output_event is None:
+        print(json.dumps({"found": True, "output_approved": False}))
+        sys.exit(0)
+
+    output_payload = json.loads(output_event["payload"] or "{}")
+    worker_contract_yaml = str(output_payload.get("worker_contract_yaml") or "")
+    worker_prompt = str(output_payload.get("worker_prompt") or "")
+    worker_ready = bool(output_payload.get("worker_dispatch_ready")) and bool(worker_contract_yaml.strip())
+    if not worker_ready:
+        print(json.dumps({
+            "found": True,
+            "output_approved": True,
+            "worker_ready": False,
+        }))
+        sys.exit(0)
+
+    request_at = int(request["request_at"])
+    event_payload = {
+        "audit_event_id": request["audit_event_id"],
+        "human_gate": "HG-2.5",
+        "controller_approval_status": "approved",
+        "controller_approved": True,
+        "release_blocked": True,
+        "publishing_enabled": False,
+        "publish_blocked": True,
+        "dispatcher_enabled": False,
+        "auto_decompose_enabled": False,
+        "subprocess_spawned": False,
+        "external_calls": False,
+        "nl5_gate_checked": bool(output_payload.get("nl5_gate_checked")),
+        "data_boundary_receipt": output_payload.get("data_boundary_receipt") or {},
+        "dispatch_handoff_packet": output_payload.get("dispatch_handoff_packet") or request.get("dispatch_handoff_packet") or {},
+        "source_output_audit_event_id": output_payload.get("audit_event_id") or "",
+        "worker_dispatch_status": output_payload.get("worker_dispatch_status") or "prepared",
+        "worker_dispatch_request_status": "blocked",
+        "worker_dispatch_request_mode": "manual",
+        "worker_dispatch_request_reason": "dispatcher_enabled=false; auto_decompose_enabled=false",
+        "worker_contract_yaml": worker_contract_yaml,
+        "worker_prompt": worker_prompt,
+        "request_note_length": len(request.get("request_note") or ""),
+        "reason_codes": ["command_eve.marketing_worker_dispatch_requested_no_spawn"],
+    }
+    conn.execute(
+        "INSERT INTO task_events (task_id, run_id, kind, payload, created_at) VALUES (?, NULL, ?, ?, ?)",
+        (
+          request["card_id"],
+          "command_eve_marketing_worker_dispatch_requested",
+          json.dumps(event_payload),
+          request_at,
+        ),
+    )
+    conn.execute(
+        "INSERT INTO task_comments (task_id, author, body, created_at) VALUES (?, ?, ?, ?)",
+        (
+          request["card_id"],
+          "eve",
+          "Worker dispatch requested locally but blocked by Command EVE runtime policy. No subprocess was spawned.",
+          request_at,
+        ),
+    )
+    conn.commit()
+    print(json.dumps({
+        "found": True,
+        "output_approved": True,
+        "worker_ready": True,
+        "request_recorded": True,
+        "task": dict(row),
+        "worker_contract_yaml": worker_contract_yaml,
+        "worker_prompt": worker_prompt,
+        "dispatch_handoff_packet": event_payload["dispatch_handoff_packet"],
+        "data_boundary_checked": event_payload["nl5_gate_checked"],
+    }))
+finally:
+    conn.close()
+`;
+}
+
 function buildMarketingCardLookupScript(): string {
   return String.raw`
 import json
@@ -2635,6 +2836,82 @@ function appendMarketingOutputApprovedAuditEvent({
   return eventId;
 }
 
+function appendMarketingWorkerDispatchRequestedAuditEvent({
+  eventId,
+  eventLedgerPath,
+  occurredAt,
+  cardId,
+  boardSlug,
+  dbPath,
+  dispatchHandoffPacket,
+  workerContractYaml,
+  workerPrompt,
+  dataBoundaryChecked,
+}: {
+  eventId: string;
+  eventLedgerPath: string;
+  occurredAt: string;
+  cardId: string;
+  boardSlug: string;
+  dbPath: string;
+  dispatchHandoffPacket: JsonRecord;
+  workerContractYaml: string;
+  workerPrompt: string;
+  dataBoundaryChecked: boolean;
+}): string {
+  const event = {
+    schema_version: 'agent-event/v1',
+    event_id: eventId,
+    event_type: 'kanban.marketing_board_worker_dispatch_requested',
+    occurred_at: occurredAt,
+    producer: 'command-eve-desktop',
+    workspace: 'command-eve-local',
+    workspace_path: dbPath,
+    issue_id: cardId,
+    parent_issue_id: '',
+    run_id: `kanban-marketing-worker-dispatch-${cardId}`,
+    session_id: '',
+    agent: 'eve',
+    mode: 'kanban-marketing-worker-dispatch-request',
+    role_owner: 'Controller',
+    department: 'Marketing',
+    autonomy_level: 'L1',
+    event_policy: 'append-only',
+    payload: {
+      board_slug: boardSlug,
+      card_id: cardId,
+      db_path: dbPath,
+      human_gate: 'HG-2.5',
+      controller_approval_status: 'approved',
+      controller_approved: true,
+      release_blocked: true,
+      publishing_enabled: false,
+      publish_blocked: true,
+      dispatcher_enabled: false,
+      auto_decompose_enabled: false,
+      subprocess_spawned: false,
+      external_calls: false,
+      nl5_gate_checked: dataBoundaryChecked,
+      action: 'worker_dispatch_requested_no_spawn',
+      reason_codes: ['command_eve.marketing_worker_dispatch_requested_no_spawn'],
+      dispatch_handoff_packet: dispatchHandoffPacket,
+      worker_dispatch_status: 'prepared',
+      worker_dispatch_request_status: 'blocked',
+      worker_dispatch_request_mode: 'manual',
+      worker_contract_yaml: workerContractYaml,
+      worker_prompt_preview: workerPrompt.slice(0, 600),
+      worker_prompt_length: workerPrompt.length,
+    },
+    artifact_paths: [dbPath],
+    linear_comment_ids: [] as string[],
+    human_gate_required: true,
+    redaction_level: 'none',
+  };
+  fs.mkdirSync(path.dirname(eventLedgerPath), { recursive: true });
+  fs.appendFileSync(eventLedgerPath, `${JSON.stringify(event)}\n`);
+  return eventId;
+}
+
 function marketingCardCreateAuditEventId(cardId: string, occurredAt: string): string {
   return [
     'command-eve-kanban-marketing-card-created',
@@ -2700,6 +2977,14 @@ function marketingCardDraftGenerateAuditEventId(cardId: string, occurredAt: stri
 function marketingCardOutputApproveAuditEventId(cardId: string, occurredAt: string): string {
   return [
     'command-eve-kanban-marketing-output-approved',
+    sanitizeEventIdPart(cardId),
+    sanitizeEventIdPart(occurredAt),
+  ].join('-');
+}
+
+function marketingCardWorkerDispatchRequestAuditEventId(cardId: string, occurredAt: string): string {
+  return [
+    'command-eve-kanban-marketing-worker-dispatch-requested',
     sanitizeEventIdPart(cardId),
     sanitizeEventIdPart(occurredAt),
   ].join('-');
@@ -2877,6 +3162,34 @@ function marketingOutputApproveResultBase(
 > {
   return {
     version: COMMAND_EVE_KANBAN_MARKETING_OUTPUT_APPROVE_BRIDGE_VERSION,
+    reason_codes: [],
+    subprocess_spawned: false,
+    data_boundary_checked: false,
+    controller_approved: false,
+    release_blocked: true,
+    human_gate: 'HG-2.5',
+    source: {
+      generated_by: 'command-eve-kanban-marketing-board-core',
+      hermes_home: hermesHome,
+    },
+  };
+}
+
+function marketingWorkerDispatchRequestResultBase(
+  hermesHome: string
+): Pick<
+  CommandEveKanbanMarketingWorkerDispatchRequestResult,
+  | 'version'
+  | 'source'
+  | 'reason_codes'
+  | 'subprocess_spawned'
+  | 'data_boundary_checked'
+  | 'controller_approved'
+  | 'release_blocked'
+  | 'human_gate'
+> {
+  return {
+    version: COMMAND_EVE_KANBAN_MARKETING_WORKER_DISPATCH_REQUEST_BRIDGE_VERSION,
     reason_codes: [],
     subprocess_spawned: false,
     data_boundary_checked: false,
@@ -5361,6 +5674,191 @@ export function approveKanbanMarketingOutput(
     controller_approval_status: 'approved',
     controller_approved: true,
     release_blocked: false,
+    human_gate: 'HG-2.5',
+    dispatch_handoff_packet: persistedHandoff,
+    model: board.model,
+  };
+}
+
+export function requestKanbanMarketingWorkerDispatch(
+  options: CommandEveKanbanMarketingWorkerDispatchRequestOptions
+): CommandEveKanbanMarketingWorkerDispatchRequestResult {
+  const paths = resolveCommandEveRuntimeBootstrapPaths(options.userDataPath);
+  const base = marketingWorkerDispatchRequestResultBase(paths.hermesHome);
+
+  let boardSlug: string;
+  try {
+    boardSlug = normalizeBoardSlug(options.boardSlug);
+  } catch (error) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_BOARD_SLUG_INVALID',
+      reason_codes: ['KANBAN_BOARD_SLUG_INVALID'],
+      message: error instanceof Error ? error.message : 'Invalid Hermes Kanban board slug.',
+    };
+  }
+
+  const taskId = String(options.task_id || '').trim();
+  if (!taskId) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_CARD_ID_REQUIRED',
+      reason_codes: ['KANBAN_MARKETING_CARD_ID_REQUIRED'],
+      message: 'A task_id is required to request a marketing worker dispatch.',
+    };
+  }
+
+  const reconciliation = readRuntimeReconciliation(paths.runtimeReconciliation);
+  const governanceOk =
+    reconciliation.governance.dispatcher_disabled &&
+    reconciliation.governance.auto_decompose_disabled &&
+    reconciliation.governance.mcp_servers_disabled;
+  if (!governanceOk) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
+      reason_codes: ['KANBAN_GOVERNANCE_NOT_LOCKED'],
+      message:
+        'Marketing worker dispatch requests require dispatcher, auto-decompose and external MCP execution to stay disabled.',
+      card_id: taskId,
+    };
+  }
+
+  const now = options.now ?? (() => new Date());
+  const occurredAt = now().toISOString();
+  const requestAt = Math.floor(new Date(occurredAt).getTime() / 1000);
+  const dbPath = kanbanDbPath(paths.hermesHome, boardSlug);
+  const eventLedgerPath = resolveMarketingEventLedgerPath(paths, options);
+  const auditEventId = marketingCardWorkerDispatchRequestAuditEventId(taskId, occurredAt);
+  const pythonPath = pythonForMarketingBoard(paths, options.pythonPath);
+  const receiptWrite = runPythonJson(
+    pythonPath,
+    {
+      db_path: dbPath,
+      card_id: taskId,
+      audit_event_id: auditEventId,
+      request_at: requestAt,
+      dispatch_handoff_packet: isRecord(options.dispatch_handoff_packet) ? options.dispatch_handoff_packet : {},
+      request_note: options.request_note || '',
+    },
+    buildMarketingWorkerDispatchRequestScript(),
+    paths.hermesHome
+  );
+
+  if (!receiptWrite.ok || !receiptWrite.data) {
+    return {
+      ...base,
+      ok: false,
+      status: 'failed',
+      reason_code: 'KANBAN_MARKETING_WORKER_DISPATCH_REQUEST_WRITE_FAILED',
+      reason_codes: ['KANBAN_MARKETING_WORKER_DISPATCH_REQUEST_WRITE_FAILED'],
+      message: receiptWrite.error || 'Command EVE marketing worker dispatch request could not be written.',
+      card_id: taskId,
+      audit_event_path: eventLedgerPath,
+    };
+  }
+  if (receiptWrite.data.found !== true) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_CARD_NOT_FOUND',
+      reason_codes: ['KANBAN_MARKETING_CARD_NOT_FOUND'],
+      message: `No marketing card found for task_id: ${taskId}`,
+      card_id: taskId,
+      audit_event_path: eventLedgerPath,
+    };
+  }
+  if (receiptWrite.data.output_approved !== true) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_OUTPUT_APPROVAL_REQUIRED',
+      reason_codes: ['KANBAN_MARKETING_OUTPUT_APPROVAL_REQUIRED'],
+      message: 'Marketing worker dispatch requests require an approved local marketing output first.',
+      card_id: taskId,
+      audit_event_path: eventLedgerPath,
+    };
+  }
+  if (receiptWrite.data.worker_ready !== true) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_WORKER_HANDOFF_REQUIRED',
+      reason_codes: ['KANBAN_MARKETING_WORKER_HANDOFF_REQUIRED'],
+      message: 'Marketing worker dispatch requests require a prepared manual worker handoff.',
+      card_id: taskId,
+      audit_event_path: eventLedgerPath,
+    };
+  }
+  if (receiptWrite.data.request_recorded !== true) {
+    return {
+      ...base,
+      ok: false,
+      status: 'failed',
+      reason_code: 'KANBAN_MARKETING_WORKER_DISPATCH_REQUEST_NOT_RECORDED',
+      reason_codes: ['KANBAN_MARKETING_WORKER_DISPATCH_REQUEST_NOT_RECORDED'],
+      message: 'Command EVE marketing worker dispatch request did not return a persisted receipt.',
+      card_id: taskId,
+      audit_event_path: eventLedgerPath,
+    };
+  }
+
+  const workerContractYaml = textField(receiptWrite.data.worker_contract_yaml);
+  const workerPrompt = textField(receiptWrite.data.worker_prompt);
+  const persistedHandoff = isRecord(receiptWrite.data.dispatch_handoff_packet)
+    ? (receiptWrite.data.dispatch_handoff_packet as JsonRecord)
+    : isRecord(options.dispatch_handoff_packet)
+      ? options.dispatch_handoff_packet
+      : {};
+  const dataBoundaryChecked = receiptWrite.data.data_boundary_checked === true;
+  appendMarketingWorkerDispatchRequestedAuditEvent({
+    eventId: auditEventId,
+    eventLedgerPath,
+    occurredAt,
+    cardId: taskId,
+    boardSlug,
+    dbPath,
+    dispatchHandoffPacket: persistedHandoff,
+    workerContractYaml,
+    workerPrompt,
+    dataBoundaryChecked,
+  });
+
+  const board = buildKanbanMarketingBoard({
+    ...options,
+    boardSlug,
+    now,
+    pythonPath,
+  });
+
+  return {
+    ...base,
+    ok: true,
+    status: 'ready',
+    reason_code: 'KANBAN_MARKETING_WORKER_DISPATCH_LOCKED',
+    reason_codes: ['command_eve.marketing_worker_dispatch_requested_no_spawn'],
+    message: 'Marketing worker dispatch request recorded; worker execution remains locked by Command EVE policy.',
+    card_id: taskId,
+    audit_event_id: auditEventId,
+    audit_event_path: eventLedgerPath,
+    request_event_kind: 'command_eve_marketing_worker_dispatch_requested',
+    worker_dispatch_request_status: 'blocked',
+    worker_contract_yaml: workerContractYaml,
+    worker_prompt: workerPrompt,
+    subprocess_spawned: false,
+    data_boundary_checked: dataBoundaryChecked,
+    controller_approval_status: 'approved',
+    controller_approved: true,
+    release_blocked: true,
     human_gate: 'HG-2.5',
     dispatch_handoff_packet: persistedHandoff,
     model: board.model,

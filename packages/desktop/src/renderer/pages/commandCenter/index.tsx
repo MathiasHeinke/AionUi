@@ -195,6 +195,9 @@ interface ICommandEveMarketingCard {
   worker_contract_yaml: string | null;
   worker_prompt: string | null;
   worker_dispatch_at: number | null;
+  worker_dispatch_request_status: 'blocked' | null;
+  worker_dispatch_request_audit_event_id: string | null;
+  worker_dispatch_requested_at: number | null;
   governance_state: 'read_only' | 'proof_write_recorded' | 'unknown';
 }
 
@@ -229,6 +232,7 @@ interface ICommandEveMarketingBoardModel {
     generated_draft_cards: number;
     output_approved_cards: number;
     worker_dispatch_ready_cards: number;
+    worker_dispatch_requested_cards: number;
   };
   columns: ICommandEveMarketingColumn[];
   warnings: string[];
@@ -517,6 +521,42 @@ interface ICommandEveMarketingOutputApproveResult {
   };
 }
 
+interface ICommandEveMarketingWorkerDispatchRequestRequest {
+  task_id: string;
+  boardSlug?: string;
+  eventLedgerPath?: string;
+  dispatch_handoff_packet?: Record<string, unknown>;
+  request_note?: string;
+}
+
+interface ICommandEveMarketingWorkerDispatchRequestResult {
+  version: 'command-eve-kanban-marketing-worker-dispatch-request/v0';
+  status: 'ready' | 'blocked' | 'failed';
+  ok: boolean;
+  reason_code?: string;
+  reason_codes: string[];
+  message?: string;
+  card_id?: string;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  request_event_kind?: 'command_eve_marketing_worker_dispatch_requested';
+  worker_dispatch_request_status?: 'blocked';
+  worker_contract_yaml?: string;
+  worker_prompt?: string;
+  subprocess_spawned: false;
+  data_boundary_checked: boolean;
+  controller_approval_status?: 'approved' | 'rejected';
+  controller_approved: boolean;
+  release_blocked: true;
+  human_gate: 'HG-2.5';
+  dispatch_handoff_packet?: Record<string, unknown>;
+  model?: ICommandEveMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+  };
+}
+
 interface ICommandEveCrmOverlayPolicy {
   local_only: true;
   plane_sync_enabled: false;
@@ -714,6 +754,11 @@ const kanbanMarketingOutputApprove = bridge.buildProvider<
   IBridgeResponse<ICommandEveMarketingOutputApproveResult>,
   ICommandEveMarketingOutputApproveRequest
 >('command-eve.kanban-marketing-output-approve');
+
+const kanbanMarketingWorkerDispatchRequest = bridge.buildProvider<
+  IBridgeResponse<ICommandEveMarketingWorkerDispatchRequestResult>,
+  ICommandEveMarketingWorkerDispatchRequestRequest
+>('command-eve.kanban-marketing-worker-dispatch-request');
 
 const crmOverlay = bridge.buildProvider<IBridgeResponse<ICommandEveCrmOverlayResult>, { eventLedgerPath?: string }>(
   'command-eve.crm-overlay'
@@ -1380,9 +1425,19 @@ const MarketingDispatchQueueView: React.FC<{
   model: ICommandEveMarketingBoardModel;
   generatingDraftCardId: string | null;
   approvingOutputCardId: string | null;
+  requestingWorkerDispatchCardId: string | null;
   onGenerateDraft: (card: ICommandEveMarketingCard) => void;
   onApproveOutput: (card: ICommandEveMarketingCard) => void;
-}> = ({ model, generatingDraftCardId, approvingOutputCardId, onGenerateDraft, onApproveOutput }) => {
+  onRequestWorkerDispatch: (card: ICommandEveMarketingCard) => void;
+}> = ({
+  model,
+  generatingDraftCardId,
+  approvingOutputCardId,
+  requestingWorkerDispatchCardId,
+  onGenerateDraft,
+  onApproveOutput,
+  onRequestWorkerDispatch,
+}) => {
   const { t } = useTranslation();
   const queueCards = marketingCardsForDispatchQueue(model);
   return (
@@ -1430,6 +1485,11 @@ const MarketingDispatchQueueView: React.FC<{
               model.summary.worker_dispatch_ready_cards
             )}`}
           </Tag>
+          <Tag color='orange' data-testid='marketing-dispatch-queue-worker-requested-count'>
+            {`${t('commandCenter.marketingBoard.dispatchQueue.workerRequested')}: ${formatCount(
+              model.summary.worker_dispatch_requested_cards
+            )}`}
+          </Tag>
         </div>
       </div>
       {queueCards.length > 0 ? (
@@ -1441,19 +1501,23 @@ const MarketingDispatchQueueView: React.FC<{
             const hasApprovedOutput = card.output_approval_status === 'approved' && Boolean(card.output_approval_text);
             const hasWorkerDispatchReady =
               card.worker_dispatch_status === 'prepared' && Boolean(card.worker_contract_yaml);
+            const workerDispatchRequested = card.worker_dispatch_request_status === 'blocked';
             const nextStepKey = decision
               ? decision === 'approved'
-                ? hasWorkerDispatchReady
-                  ? 'workerReadyNext'
-                  : hasApprovedOutput
-                    ? 'outputApprovedNext'
-                    : hasGeneratedDraft
-                      ? 'generatedNext'
-                      : 'approvedNext'
+                ? workerDispatchRequested
+                  ? 'workerRequestedNext'
+                  : hasWorkerDispatchReady
+                    ? 'workerReadyNext'
+                    : hasApprovedOutput
+                      ? 'outputApprovedNext'
+                      : hasGeneratedDraft
+                        ? 'generatedNext'
+                        : 'approvedNext'
                 : 'rejectedNext'
               : 'pendingNext';
             const draftGenerating = generatingDraftCardId === card.card_id;
             const outputApproving = approvingOutputCardId === card.card_id;
+            const workerDispatchRequesting = requestingWorkerDispatchCardId === card.card_id;
             return (
               <article
                 key={card.card_id}
@@ -1540,6 +1604,26 @@ const MarketingDispatchQueueView: React.FC<{
                       <Tag color='purple' data-testid={`marketing-dispatch-queue-worker-ready-tag-${card.card_id}`}>
                         {t('commandCenter.marketingBoard.dispatchQueue.workerReady')}
                       </Tag>
+                    ) : null}
+                    {workerDispatchRequested ? (
+                      <Tag color='orange' data-testid={`marketing-dispatch-queue-worker-requested-tag-${card.card_id}`}>
+                        {t('commandCenter.marketingBoard.dispatchQueue.workerRequested')}
+                      </Tag>
+                    ) : null}
+                    {hasWorkerDispatchReady ? (
+                      <Button
+                        shape='round'
+                        size='mini'
+                        type='outline'
+                        loading={workerDispatchRequesting}
+                        disabled={workerDispatchRequesting || workerDispatchRequested}
+                        onClick={() => onRequestWorkerDispatch(card)}
+                        data-testid={`marketing-dispatch-queue-request-worker-${card.card_id}`}
+                      >
+                        {workerDispatchRequested
+                          ? t('commandCenter.marketingBoard.dispatchQueue.workerRequestRecorded')
+                          : t('commandCenter.marketingBoard.dispatchQueue.requestWorkerDispatch')}
+                      </Button>
                     ) : null}
                   </div>
                 ) : null}
@@ -1731,6 +1815,7 @@ const MarketingBoardSection: React.FC<{
   dispatchDecisionResult: ICommandEveMarketingDispatchDecisionResult | null;
   draftGenerateResult: ICommandEveMarketingDraftGenerateResult | null;
   outputApproveResult: ICommandEveMarketingOutputApproveResult | null;
+  workerDispatchRequestResult: ICommandEveMarketingWorkerDispatchRequestResult | null;
   createModalVisible: boolean;
   createSubmitting: boolean;
   movingCardId: string | null;
@@ -1738,6 +1823,7 @@ const MarketingBoardSection: React.FC<{
   dispatchingCardId: string | null;
   generatingDraftCardId: string | null;
   approvingOutputCardId: string | null;
+  requestingWorkerDispatchCardId: string | null;
   approvalRecording: boolean;
   decisionRecording: 'approved' | 'rejected' | null;
   onCreateProofCard: () => void;
@@ -1752,6 +1838,7 @@ const MarketingBoardSection: React.FC<{
   onRecordDispatchDecision: (decision: 'approved' | 'rejected') => void;
   onGenerateDraft: (card: ICommandEveMarketingCard) => void;
   onApproveOutput: (card: ICommandEveMarketingCard) => void;
+  onRequestWorkerDispatch: (card: ICommandEveMarketingCard) => void;
 }> = ({
   result,
   proofResult,
@@ -1764,6 +1851,7 @@ const MarketingBoardSection: React.FC<{
   dispatchDecisionResult,
   draftGenerateResult,
   outputApproveResult,
+  workerDispatchRequestResult,
   createModalVisible,
   createSubmitting,
   movingCardId,
@@ -1771,6 +1859,7 @@ const MarketingBoardSection: React.FC<{
   dispatchingCardId,
   generatingDraftCardId,
   approvingOutputCardId,
+  requestingWorkerDispatchCardId,
   approvalRecording,
   decisionRecording,
   onCreateProofCard,
@@ -1785,6 +1874,7 @@ const MarketingBoardSection: React.FC<{
   onRecordDispatchDecision,
   onGenerateDraft,
   onApproveOutput,
+  onRequestWorkerDispatch,
 }) => {
   const { t } = useTranslation();
   const model = result?.model;
@@ -2214,6 +2304,73 @@ const MarketingBoardSection: React.FC<{
         />
       ) : null}
 
+      {workerDispatchRequestResult ? (
+        <Alert
+          type={
+            workerDispatchRequestResult.ok
+              ? 'warning'
+              : workerDispatchRequestResult.status === 'failed'
+                ? 'error'
+                : 'warning'
+          }
+          title={
+            workerDispatchRequestResult.reason_code ||
+            t('commandCenter.marketingBoard.workerDispatchRequest.resultTitle')
+          }
+          content={
+            <div className='flex flex-col gap-6px' data-testid='marketing-worker-dispatch-request-result-detail'>
+              <span>{workerDispatchRequestResult.message || '-'}</span>
+              <div className='flex flex-wrap gap-6px'>
+                <Tag color={workerDispatchRequestResult.data_boundary_checked ? 'green' : 'orange'}>
+                  {`${t('commandCenter.marketingBoard.dispatch.dataBoundary')}: ${
+                    workerDispatchRequestResult.data_boundary_checked
+                      ? t('commandCenter.marketingBoard.dispatch.checked')
+                      : t('commandCenter.marketingBoard.dispatch.notChecked')
+                  }`}
+                </Tag>
+                <Tag color={workerDispatchRequestResult.controller_approved ? 'green' : 'orange'}>
+                  {`${t('commandCenter.marketingBoard.dispatch.approvalStatus')}: ${
+                    workerDispatchRequestResult.controller_approval_status
+                      ? t(
+                          `commandCenter.marketingBoard.dispatch.${workerDispatchRequestResult.controller_approval_status}`
+                        )
+                      : '-'
+                  }`}
+                </Tag>
+                <Tag color='green'>
+                  {`${t('commandCenter.marketingBoard.dispatch.subprocess')}: ${
+                    workerDispatchRequestResult.subprocess_spawned
+                      ? t('commandCenter.marketingBoard.dispatch.spawned')
+                      : t('commandCenter.marketingBoard.dispatch.notSpawned')
+                  }`}
+                </Tag>
+                <Tag color='orange'>
+                  {`${t('commandCenter.marketingBoard.dispatch.release')}: ${t(
+                    'commandCenter.marketingBoard.dispatch.blockedByGate'
+                  )}`}
+                </Tag>
+              </div>
+              <dl className='m-0 grid gap-x-10px gap-y-4px text-11px leading-16px sm:grid-cols-[max-content_1fr]'>
+                <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.card')}</dt>
+                <dd className='m-0 truncate text-t-secondary'>{textOrDash(workerDispatchRequestResult.card_id)}</dd>
+                <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.audit')}</dt>
+                <dd className='m-0 truncate text-t-secondary'>
+                  {textOrDash(workerDispatchRequestResult.audit_event_id)}
+                </dd>
+              </dl>
+              {workerDispatchRequestResult.worker_contract_yaml ? (
+                <pre
+                  className='m-0 max-h-160px overflow-auto whitespace-pre-wrap break-words rounded-8px border border-solid border-fill-3 bg-fill-1 p-8px text-11px leading-16px text-t-secondary'
+                  data-testid='marketing-worker-dispatch-request-result'
+                >
+                  {workerDispatchRequestResult.worker_contract_yaml}
+                </pre>
+              ) : null}
+            </div>
+          }
+        />
+      ) : null}
+
       {blocked ? (
         <Alert
           type='warning'
@@ -2232,8 +2389,10 @@ const MarketingBoardSection: React.FC<{
             model={model}
             generatingDraftCardId={generatingDraftCardId}
             approvingOutputCardId={approvingOutputCardId}
+            requestingWorkerDispatchCardId={requestingWorkerDispatchCardId}
             onGenerateDraft={onGenerateDraft}
             onApproveOutput={onApproveOutput}
+            onRequestWorkerDispatch={onRequestWorkerDispatch}
           />
           <div className='grid gap-12px md:grid-cols-2 xl:grid-cols-5'>
             {model.columns.map((column) => (
@@ -2727,6 +2886,8 @@ const CommandCenterPage: React.FC = () => {
     useState<ICommandEveMarketingDispatchDecisionResult | null>(null);
   const [draftGenerateResult, setDraftGenerateResult] = useState<ICommandEveMarketingDraftGenerateResult | null>(null);
   const [outputApproveResult, setOutputApproveResult] = useState<ICommandEveMarketingOutputApproveResult | null>(null);
+  const [workerDispatchRequestResult, setWorkerDispatchRequestResult] =
+    useState<ICommandEveMarketingWorkerDispatchRequestResult | null>(null);
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [commentCard, setCommentCard] = useState<ICommandEveMarketingCard | null>(null);
@@ -2736,6 +2897,7 @@ const CommandCenterPage: React.FC = () => {
   const [dispatchingCardId, setDispatchingCardId] = useState<string | null>(null);
   const [generatingDraftCardId, setGeneratingDraftCardId] = useState<string | null>(null);
   const [approvingOutputCardId, setApprovingOutputCardId] = useState<string | null>(null);
+  const [requestingWorkerDispatchCardId, setRequestingWorkerDispatchCardId] = useState<string | null>(null);
   const [approvalRecording, setApprovalRecording] = useState(false);
   const [decisionRecording, setDecisionRecording] = useState<'approved' | 'rejected' | null>(null);
   const [crmInitializing, setCrmInitializing] = useState(false);
@@ -2855,6 +3017,8 @@ const CommandCenterPage: React.FC = () => {
     setDispatchApprovalResult(null);
     setDispatchDecisionResult(null);
     setDraftGenerateResult(null);
+    setOutputApproveResult(null);
+    setWorkerDispatchRequestResult(null);
     setCreateModalVisible(true);
   }, []);
 
@@ -2892,6 +3056,8 @@ const CommandCenterPage: React.FC = () => {
       setDispatchApprovalResult(null);
       setDispatchDecisionResult(null);
       setDraftGenerateResult(null);
+      setOutputApproveResult(null);
+      setWorkerDispatchRequestResult(null);
       try {
         const response = await kanbanMarketingCardCreate.invoke({
           title: input.title,
@@ -2940,6 +3106,8 @@ const CommandCenterPage: React.FC = () => {
       setDispatchApprovalResult(null);
       setDispatchDecisionResult(null);
       setDraftGenerateResult(null);
+      setOutputApproveResult(null);
+      setWorkerDispatchRequestResult(null);
       try {
         const response = await kanbanMarketingCardMove.invoke({
           task_id: card.card_id,
@@ -2983,6 +3151,8 @@ const CommandCenterPage: React.FC = () => {
     setDispatchApprovalResult(null);
     setDispatchDecisionResult(null);
     setDraftGenerateResult(null);
+    setOutputApproveResult(null);
+    setWorkerDispatchRequestResult(null);
     setCommentCard(card);
   }, []);
 
@@ -3005,6 +3175,8 @@ const CommandCenterPage: React.FC = () => {
       setDispatchApprovalResult(null);
       setDispatchDecisionResult(null);
       setDraftGenerateResult(null);
+      setOutputApproveResult(null);
+      setWorkerDispatchRequestResult(null);
       try {
         const response = await kanbanMarketingCardAction.invoke({
           task_id: card.card_id,
@@ -3076,6 +3248,7 @@ const CommandCenterPage: React.FC = () => {
       setDispatchDecisionResult(null);
       setDraftGenerateResult(null);
       setOutputApproveResult(null);
+      setWorkerDispatchRequestResult(null);
       try {
         const response = await kanbanMarketingDispatchPlan.invoke({
           task_id: card.card_id,
@@ -3123,6 +3296,8 @@ const CommandCenterPage: React.FC = () => {
     }
     setApprovalRecording(true);
     setDraftGenerateResult(null);
+    setOutputApproveResult(null);
+    setWorkerDispatchRequestResult(null);
     try {
       const response = await kanbanMarketingDispatchApproval.invoke({
         task_id: dispatchPlanResult.card_id,
@@ -3174,6 +3349,8 @@ const CommandCenterPage: React.FC = () => {
       }
       setDecisionRecording(decision);
       setDraftGenerateResult(null);
+      setOutputApproveResult(null);
+      setWorkerDispatchRequestResult(null);
       try {
         const response = await kanbanMarketingDispatchDecision.invoke({
           task_id: dispatchPlanResult.card_id,
@@ -3238,6 +3415,8 @@ const CommandCenterPage: React.FC = () => {
       setDispatchApprovalResult(null);
       setDispatchDecisionResult(null);
       setDraftGenerateResult(null);
+      setOutputApproveResult(null);
+      setWorkerDispatchRequestResult(null);
       try {
         const response = await kanbanMarketingDraftGenerate.invoke({
           task_id: card.card_id,
@@ -3300,6 +3479,7 @@ const CommandCenterPage: React.FC = () => {
       setDispatchApprovalResult(null);
       setDispatchDecisionResult(null);
       setOutputApproveResult(null);
+      setWorkerDispatchRequestResult(null);
       try {
         const response = await kanbanMarketingOutputApprove.invoke({
           task_id: card.card_id,
@@ -3341,6 +3521,73 @@ const CommandCenterPage: React.FC = () => {
         Message.error(failure.message || t('commandCenter.marketingBoard.outputApprove.failed'));
       } finally {
         setApprovingOutputCardId(null);
+      }
+    },
+    [applyBoardModel, t]
+  );
+
+  const requestWorkerDispatch = useCallback(
+    async (card: ICommandEveMarketingCard) => {
+      if (!isElectronDesktop()) return;
+      const handoff = {
+        version: 'command-eve-local-dispatch-handoff/v0',
+        status: 'worker_dispatch_requested',
+        dispatch: card.controller_decision_handoff_dispatch || card.controller_review_handoff_dispatch || 'manual',
+        role_label: card.controller_decision_handoff_role || card.controller_review_handoff_role || 'role:cmo',
+        card_id: card.card_id,
+        human_gate: 'HG-2.5',
+      };
+      setRequestingWorkerDispatchCardId(card.card_id);
+      setCreateResult(null);
+      setMoveResult(null);
+      setActionResult(null);
+      setDispatchApprovalResult(null);
+      setDispatchDecisionResult(null);
+      setDraftGenerateResult(null);
+      setOutputApproveResult(null);
+      setWorkerDispatchRequestResult(null);
+      try {
+        const response = await kanbanMarketingWorkerDispatchRequest.invoke({
+          task_id: card.card_id,
+          boardSlug: MARKETING_BOARD_SLUG,
+          dispatch_handoff_packet: handoff,
+          request_note:
+            'Command EVE UI requested worker dispatch after output approval; execution remains policy-locked.',
+        });
+        const data = response.data ?? null;
+        setWorkerDispatchRequestResult(data);
+        await applyBoardModel(data);
+        if (data?.ok) {
+          Message.success(t('commandCenter.marketingBoard.workerDispatchRequest.success'));
+        } else {
+          Message.warning(data?.reason_code || t('commandCenter.marketingBoard.workerDispatchRequest.failed'));
+        }
+      } catch (requestError) {
+        const failure: ICommandEveMarketingWorkerDispatchRequestResult = {
+          version: 'command-eve-kanban-marketing-worker-dispatch-request/v0',
+          ok: false,
+          status: 'failed',
+          reason_code: 'KANBAN_MARKETING_WORKER_DISPATCH_REQUEST_UI_FAILED',
+          reason_codes: ['KANBAN_MARKETING_WORKER_DISPATCH_REQUEST_UI_FAILED'],
+          message:
+            requestError instanceof Error
+              ? requestError.message
+              : t('commandCenter.marketingBoard.workerDispatchRequest.failed'),
+          card_id: card.card_id,
+          subprocess_spawned: false,
+          data_boundary_checked: false,
+          controller_approved: false,
+          release_blocked: true,
+          human_gate: 'HG-2.5',
+          source: {
+            generated_by: 'command-eve-kanban-marketing-board-core',
+            hermes_home: '',
+          },
+        };
+        setWorkerDispatchRequestResult(failure);
+        Message.error(failure.message || t('commandCenter.marketingBoard.workerDispatchRequest.failed'));
+      } finally {
+        setRequestingWorkerDispatchCardId(null);
       }
     },
     [applyBoardModel, t]
@@ -3636,6 +3883,7 @@ const CommandCenterPage: React.FC = () => {
               dispatchDecisionResult={dispatchDecisionResult}
               draftGenerateResult={draftGenerateResult}
               outputApproveResult={outputApproveResult}
+              workerDispatchRequestResult={workerDispatchRequestResult}
               createModalVisible={createModalVisible}
               createSubmitting={createSubmitting}
               movingCardId={movingCardId}
@@ -3643,6 +3891,7 @@ const CommandCenterPage: React.FC = () => {
               dispatchingCardId={dispatchingCardId}
               generatingDraftCardId={generatingDraftCardId}
               approvingOutputCardId={approvingOutputCardId}
+              requestingWorkerDispatchCardId={requestingWorkerDispatchCardId}
               approvalRecording={approvalRecording}
               decisionRecording={decisionRecording}
               onCreateProofCard={createProofCard}
@@ -3657,6 +3906,7 @@ const CommandCenterPage: React.FC = () => {
               onRecordDispatchDecision={recordDispatchDecision}
               onGenerateDraft={generateMarketingDraft}
               onApproveOutput={approveMarketingOutput}
+              onRequestWorkerDispatch={requestWorkerDispatch}
             />
             <MarketingCardCommentModal
               card={commentCard}

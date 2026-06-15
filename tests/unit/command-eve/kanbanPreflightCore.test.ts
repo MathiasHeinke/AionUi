@@ -20,6 +20,7 @@ import {
   planKanbanMarketingCardDispatch,
   recordKanbanMarketingDispatchApproval,
   recordKanbanMarketingDispatchDecision,
+  requestKanbanMarketingWorkerDispatch,
   runKanbanPreflight,
   type CommandEveKanbanPreflightCommandRunner,
 } from '@/process/commandEve/kanbanPreflightCore';
@@ -1305,6 +1306,79 @@ describe('Command EVE Kanban marketing-board mutations', () => {
       }),
     });
     expect(outputAuditEvents[5].payload.worker_prompt_length).toBeGreaterThan(0);
+
+    const workerDispatchRequest = requestKanbanMarketingWorkerDispatch({
+      userDataPath: root,
+      boardSlug: 'marketing',
+      eventLedgerPath,
+      task_id: created.card_id || '',
+      dispatch_handoff_packet: result.dispatch_handoff_packet,
+      request_note: 'Request a worker dispatch but keep runtime execution locked.',
+      now: () => new Date('2026-06-13T10:09:00.000Z'),
+    });
+
+    expect(workerDispatchRequest.ok).toBe(true);
+    expect(workerDispatchRequest.status).toBe('ready');
+    expect(workerDispatchRequest.reason_code).toBe('KANBAN_MARKETING_WORKER_DISPATCH_LOCKED');
+    expect(workerDispatchRequest.request_event_kind).toBe('command_eve_marketing_worker_dispatch_requested');
+    expect(workerDispatchRequest.worker_dispatch_request_status).toBe('blocked');
+    expect(workerDispatchRequest.data_boundary_checked).toBe(true);
+    expect(workerDispatchRequest.controller_approved).toBe(true);
+    expect(workerDispatchRequest.release_blocked).toBe(true);
+    expect(workerDispatchRequest.subprocess_spawned).toBe(false);
+    expect(workerDispatchRequest.worker_contract_yaml).toContain('role: role:cmo');
+    expect(workerDispatchRequest.worker_contract_yaml).toContain('dispatch: manual');
+    expect(workerDispatchRequest.model?.summary.worker_dispatch_requested_cards).toBe(1);
+    const requestedCard = workerDispatchRequest.model?.columns
+      .flatMap((column) => column.cards)
+      .find((card) => card.card_id === created.card_id);
+    expect(requestedCard).toMatchObject({
+      worker_dispatch_status: 'prepared',
+      worker_dispatch_request_status: 'blocked',
+      worker_dispatch_request_audit_event_id: workerDispatchRequest.audit_event_id,
+    });
+
+    const requestEvents = readRows(
+      marketingBoardPath(root),
+      "SELECT task_id, kind, payload FROM task_events WHERE kind = 'command_eve_marketing_worker_dispatch_requested'"
+    );
+    expect(requestEvents).toHaveLength(1);
+    const requestPayload = JSON.parse(String((requestEvents[0] as { payload: string }).payload)) as {
+      subprocess_spawned?: boolean;
+      external_calls?: boolean;
+      release_blocked?: boolean;
+      nl5_gate_checked?: boolean;
+      worker_dispatch_request_status?: string;
+      worker_contract_yaml?: string;
+      reason_codes?: string[];
+    };
+    expect(requestPayload.subprocess_spawned).toBe(false);
+    expect(requestPayload.external_calls).toBe(false);
+    expect(requestPayload.release_blocked).toBe(true);
+    expect(requestPayload.nl5_gate_checked).toBe(true);
+    expect(requestPayload.worker_dispatch_request_status).toBe('blocked');
+    expect(requestPayload.worker_contract_yaml).toContain('role: role:cmo');
+    expect(requestPayload.reason_codes).toContain('command_eve.marketing_worker_dispatch_requested_no_spawn');
+
+    const requestAuditEvents = readAuditEvents(eventLedgerPath);
+    expect(requestAuditEvents).toHaveLength(7);
+    expect(requestAuditEvents[6]).toMatchObject({
+      event_type: 'kanban.marketing_board_worker_dispatch_requested',
+      producer: 'command-eve-desktop',
+      agent: 'eve',
+      mode: 'kanban-marketing-worker-dispatch-request',
+      human_gate_required: true,
+      payload: expect.objectContaining({
+        controller_approval_status: 'approved',
+        controller_approved: true,
+        release_blocked: true,
+        subprocess_spawned: false,
+        external_calls: false,
+        worker_dispatch_status: 'prepared',
+        worker_dispatch_request_status: 'blocked',
+        worker_contract_yaml: expect.stringContaining('role: role:cmo'),
+      }),
+    });
   });
 
   it('blocks local marketing draft generation before a controller approval decision exists', () => {

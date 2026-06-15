@@ -225,12 +225,14 @@
       "generated": "Drafts",
       "outputApproved": "Outputs",
       "workerReady": "Worker handoffs",
+      "workerRequested": "Dispatch requests",
       "nextStep": "Next step",
       "pendingNext": "Controller still needs to approve or reject this handoff.",
       "approvedNext": "Handoff is locally approved; EVE can now generate a local marketing draft.",
       "generatedNext": "Draft generated and ready for review in the queue.",
       "outputApprovedNext": "Output approved locally. Publishing remains a separate gated step.",
       "workerReadyNext": "Worker handoff is prepared. Start remains manual and HG-2.5-gated.",
+      "workerRequestedNext": "Dispatch request recorded locally. Worker start remains policy-locked.",
       "rejectedNext": "Handoff was rejected; revise the card or keep it blocked.",
       "generateDraft": "Generate draft",
       "draftAlreadyGenerated": "Draft generated",
@@ -240,7 +242,14 @@
       "approvedOutput": "Approved output",
       "preparedWorkerHandoff": "Prepared worker handoff",
       "manualDispatch": "manual",
+      "requestWorkerDispatch": "Request dispatch",
+      "workerRequestRecorded": "Dispatch locked",
       "empty": "No controller handoffs in the local queue."
+    },
+    "workerDispatchRequest": {
+      "success": "Dispatch request recorded; worker start remains locked.",
+      "failed": "Dispatch request could not be recorded.",
+      "resultTitle": "Dispatch request"
     },
     "draftGenerate": {
       "resultTitle": "Marketing draft receipt",
