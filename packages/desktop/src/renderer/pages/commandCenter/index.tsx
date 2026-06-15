@@ -5,7 +5,7 @@
  */
 
 import classNames from 'classnames';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, Button, Empty, Input, Message, Modal, Select, Spin, Tag } from '@arco-design/web-react';
 import { bridge } from '@office-ai/platform';
@@ -614,6 +614,7 @@ interface ICommandEveMarketingWorkerStartGateRequest {
   dispatch_handoff_packet?: Record<string, unknown>;
   gate_note?: string;
   executor_enabled?: boolean;
+  executor_profile?: Record<string, unknown>;
 }
 
 interface ICommandEveMarketingWorkerStartGateResult {
@@ -936,18 +937,19 @@ const dispatchHandoffForResult = (
     : undefined;
 };
 
+const marketingDispatchQueueRank = (card: ICommandEveMarketingCard): number => {
+  if (card.controller_review_status === 'pending' && !card.controller_decision_status) return 0;
+  if (card.controller_decision_status === 'approved') return 1;
+  if (card.controller_decision_status === 'rejected') return 2;
+  return 3;
+};
+
 const marketingCardsForDispatchQueue = (model: ICommandEveMarketingBoardModel): ICommandEveMarketingCard[] =>
   model.columns
     .flatMap((column) => column.cards)
     .filter((card) => card.controller_review_status === 'pending' || Boolean(card.controller_decision_status))
     .sort((left, right) => {
-      const rank = (card: ICommandEveMarketingCard): number => {
-        if (card.controller_review_status === 'pending' && !card.controller_decision_status) return 0;
-        if (card.controller_decision_status === 'approved') return 1;
-        if (card.controller_decision_status === 'rejected') return 2;
-        return 3;
-      };
-      const rankDelta = rank(left) - rank(right);
+      const rankDelta = marketingDispatchQueueRank(left) - marketingDispatchQueueRank(right);
       return rankDelta !== 0
         ? rankDelta
         : (right.updated_at || right.created_at) - (left.updated_at || left.created_at);
@@ -2109,9 +2111,22 @@ const MarketingBoardSection: React.FC<{
   onCheckWorkerStartGate,
 }) => {
   const { t } = useTranslation();
-  const model = result?.model;
+  const proofBackedResult: ICommandEveMarketingBoardResult | null =
+    proofResult?.ok && proofResult.status === 'ready' && proofResult.model
+      ? {
+          version: 'command-eve-kanban-marketing-board/v0',
+          ok: true,
+          status: 'ready',
+          reason_code: proofResult.reason_code,
+          message: proofResult.message,
+          model: proofResult.model,
+          source: proofResult.source,
+        }
+      : null;
+  const effectiveResult = result?.status === 'ready' && result.model ? result : (proofBackedResult ?? result);
+  const model = effectiveResult?.model;
   const cardCount = model?.summary.total_cards ?? 0;
-  const blocked = !result || result.status !== 'ready' || !model;
+  const blocked = !effectiveResult || effectiveResult.status !== 'ready' || !model;
   return (
     <Section
       id='command-eve-marketing-board'
@@ -2719,8 +2734,8 @@ const MarketingBoardSection: React.FC<{
         <Alert
           type='warning'
           title={t('commandCenter.marketingBoard.blocked.title')}
-          content={`${result?.reason_code || 'KANBAN_MARKETING_BOARD_UNAVAILABLE'}: ${
-            result?.message || t('commandCenter.marketingBoard.blocked.description')
+          content={`${effectiveResult?.reason_code || 'KANBAN_MARKETING_BOARD_UNAVAILABLE'}: ${
+            effectiveResult?.message || t('commandCenter.marketingBoard.blocked.description')
           }`}
         />
       ) : (
@@ -3223,6 +3238,7 @@ const CommandCenterPage: React.FC = () => {
   const [crmDraftCreateResult, setCrmDraftCreateResult] = useState<ICommandEveCrmDraftCreateResult | null>(null);
   const [crmStageResult, setCrmStageResult] = useState<ICommandEveCrmStageLocalResult | null>(null);
   const [crmConsentResult, setCrmConsentResult] = useState<ICommandEveCrmConsentLocalResult | null>(null);
+  const marketingMutationSerialRef = useRef(0);
   const [proofResult, setProofResult] = useState<ICommandEveMarketingProofCardResult | null>(null);
   const [proofRunning, setProofRunning] = useState(false);
   const [createResult, setCreateResult] = useState<ICommandEveMarketingCardCreateResult | null>(null);
@@ -3263,6 +3279,7 @@ const CommandCenterPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    const marketingMutationSerial = marketingMutationSerialRef.current;
     setLoading(true);
     setError(null);
     if (!isElectronDesktop()) {
@@ -3300,7 +3317,9 @@ const CommandCenterPage: React.FC = () => {
       ]);
       setStatusSurface(statusSurfaceResponse.data ?? null);
       setResult(readModelResponse.data ?? null);
-      setMarketingResult(marketingBoardResponse.data ?? null);
+      if (marketingMutationSerial === marketingMutationSerialRef.current) {
+        setMarketingResult(marketingBoardResponse.data ?? null);
+      }
       setCrmResult(crmOverlayResponse.data ?? null);
       if (!readModelResponse.success && !readModelResponse.data) {
         setError(readModelResponse.msg || t('commandCenter.errors.loadFailed'));
@@ -3330,6 +3349,7 @@ const CommandCenterPage: React.FC = () => {
 
   const createProofCard = useCallback(async () => {
     if (!isElectronDesktop()) return;
+    marketingMutationSerialRef.current += 1;
     setProofRunning(true);
     setProofResult(null);
     try {
@@ -3386,6 +3406,7 @@ const CommandCenterPage: React.FC = () => {
   // Refresh the local board projection from a mutation result's model, falling
   // back to a fresh read if the mutation did not return one.
   const applyBoardModel = useCallback(async (data: IMarketingMutationBoardCarrier | null) => {
+    marketingMutationSerialRef.current += 1;
     if (data?.model) {
       setMarketingResult({
         version: 'command-eve-kanban-marketing-board/v0',

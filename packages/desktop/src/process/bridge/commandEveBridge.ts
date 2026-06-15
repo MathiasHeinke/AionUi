@@ -809,6 +809,7 @@ export function initCommandEveBridge(): void {
         dispatch_handoff_packet?: Record<string, unknown>;
         gate_note?: string;
         executor_enabled?: boolean;
+        executor_profile?: Record<string, unknown>;
       }) => {
         try {
           const result = checkKanbanMarketingWorkerStartGate({
@@ -819,6 +820,7 @@ export function initCommandEveBridge(): void {
             dispatch_handoff_packet: request?.dispatch_handoff_packet,
             gate_note: request?.gate_note,
             executor_enabled: request?.executor_enabled === true,
+            executor_profile: request?.executor_profile,
           });
           return {
             success: result.ok,

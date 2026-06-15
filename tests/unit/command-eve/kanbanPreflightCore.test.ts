@@ -1655,6 +1655,79 @@ describe('Command EVE Kanban marketing-board mutations', () => {
       worker_start_data_boundary_receipt?: { finding_count?: number };
     };
     expect(Number(startGateAuditPayload.worker_start_data_boundary_receipt?.finding_count || 0)).toBeGreaterThan(0);
+
+    const missingExecutorProfileGate = checkKanbanMarketingWorkerStartGate({
+      userDataPath: root,
+      boardSlug: 'marketing',
+      eventLedgerPath,
+      task_id: created.card_id || '',
+      dispatch_handoff_packet: result.dispatch_handoff_packet,
+      gate_note: 'Try to arm the executor without a runtime profile.',
+      executor_enabled: true,
+      now: () => new Date('2026-06-13T10:12:00.000Z'),
+    });
+
+    expect(missingExecutorProfileGate.ok).toBe(true);
+    expect(missingExecutorProfileGate.status).toBe('blocked');
+    expect(missingExecutorProfileGate.worker_start_gate_status).toBe('blocked');
+    expect(missingExecutorProfileGate.worker_start_gate_reason_codes).toContain('runtime_executor_profile_missing');
+    expect(missingExecutorProfileGate.worker_start_gate_reason_codes).not.toContain('runtime_executor_not_configured');
+    expect(missingExecutorProfileGate.subprocess_spawned).toBe(false);
+    expect(missingExecutorProfileGate.external_calls).toBe(false);
+    expect(missingExecutorProfileGate.worker_start_packet?.executor_profile_receipt).toMatchObject({
+      version: 'command-eve-runtime-executor-profile-receipt/v0',
+      ok: false,
+      status: 'missing',
+      configured: false,
+      raw_profile_stored: false,
+    });
+
+    const acceptedExecutorProfile = {
+      version: 'command-eve-runtime-executor-profile/v0',
+      executor_kind: 'hermes-local-observed',
+      execution_mode: 'observed',
+      transport: 'local',
+      data_boundary_enforced: true,
+      external_calls_allowed: false,
+      subprocess_spawn_allowed: false,
+      hg3_approved: true,
+      approved_by: 'codex-controller',
+      approved_at: '2026-06-13T10:13:00.000Z',
+    };
+    const profiledStartGate = checkKanbanMarketingWorkerStartGate({
+      userDataPath: root,
+      boardSlug: 'marketing',
+      eventLedgerPath,
+      task_id: created.card_id || '',
+      dispatch_handoff_packet: result.dispatch_handoff_packet,
+      gate_note: 'Arm only the local observed executor profile; still do not spawn.',
+      executor_enabled: true,
+      executor_profile: acceptedExecutorProfile,
+      now: () => new Date('2026-06-13T10:13:00.000Z'),
+    });
+
+    expect(profiledStartGate.ok).toBe(true);
+    expect(profiledStartGate.status).toBe('ready');
+    expect(profiledStartGate.reason_code).toBe('KANBAN_MARKETING_WORKER_START_GATE_READY');
+    expect(profiledStartGate.worker_start_gate_status).toBe('ready');
+    expect(profiledStartGate.worker_start_gate_reason_codes).toEqual([]);
+    expect(profiledStartGate.subprocess_spawned).toBe(false);
+    expect(profiledStartGate.external_calls).toBe(false);
+    expect(profiledStartGate.release_blocked).toBe(true);
+    expect(profiledStartGate.worker_start_packet?.executor_profile_receipt).toMatchObject({
+      version: 'command-eve-runtime-executor-profile-receipt/v0',
+      ok: true,
+      status: 'accepted',
+      configured: true,
+      executor_kind: 'hermes-local-observed',
+      execution_mode: 'observed',
+      transport: 'local',
+      data_boundary_enforced: true,
+      external_calls_allowed: false,
+      subprocess_spawn_allowed: false,
+      hg3_approved: true,
+      raw_profile_stored: false,
+    });
   });
 
   it('blocks local marketing draft generation before a controller approval decision exists', () => {

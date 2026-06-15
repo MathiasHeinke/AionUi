@@ -258,7 +258,8 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     // Wait for it without re-navigating (we're already on the page).
     const createOpenBtn = page.getByTestId('marketing-card-create-open');
     await expect(createOpenBtn).toBeVisible({ timeout: 30_000 });
-    await expect(createOpenBtn).toBeEnabled({ timeout: 30_000 });
+    const boardFailureContext = await page.getByTestId('command-eve-marketing-board').innerText();
+    await expect(createOpenBtn, boardFailureContext).toBeEnabled({ timeout: 30_000 });
 
     // ── Read the board db_path from the UI ─────────────────────────────────
     // The board section renders: "<Database label>: <db_path>"

@@ -39,6 +39,8 @@ const MARKETING_BOARD_TENANT = 'command-eve-marketing';
 const MARKETING_BOARD_WORKFLOW = 'command-eve-marketing';
 const MARKETING_PROOF_IDEMPOTENCY_KEY = 'command-eve-marketing-board-proof-v0';
 const MARKETING_PROOF_CARD_ID = 't_command_eve_marketing_proof';
+const MARKETING_BOARD_READ_ROW_LIMIT = 30;
+const COMMAND_EVE_KANBAN_PYTHON_JSON_MAX_BUFFER_BYTES = 16 * 1024 * 1024;
 const MARKETING_BOARD_LANES = ['research', 'draft', 'assetGeneration', 'review', 'readyToApprove'] as const;
 // Native Hermes task status per Command EVE marketing lane. The board projection in
 // `laneForTask` keys off `current_step_key` first (always set to the lane key for a
@@ -619,6 +621,7 @@ export type CommandEveKanbanMarketingWorkerStartGateOptions = CommandEveKanbanMa
   dispatch_handoff_packet?: JsonRecord;
   gate_note?: string;
   executor_enabled?: boolean;
+  executor_profile?: JsonRecord;
 };
 
 type JsonRecord = Record<string, unknown>;
@@ -826,7 +829,7 @@ function runPythonJson(
     shell: false,
     timeout: 15_000,
     windowsHide: true,
-    maxBuffer: 512 * 1024,
+    maxBuffer: COMMAND_EVE_KANBAN_PYTHON_JSON_MAX_BUFFER_BYTES,
   });
   if (result.error) {
     return { ok: false, error: result.error.message };
@@ -997,6 +1000,12 @@ request = json.loads(sys.stdin.read() or "{}")
 db_path = request["db_path"]
 tenant = request["tenant"]
 workflow = request["workflow"]
+proof_idempotency_key = request["proof_idempotency_key"]
+try:
+    row_limit = int(request.get("row_limit") or 30)
+except (TypeError, ValueError):
+    row_limit = 30
+row_limit = max(1, min(row_limit, 250))
 if not os.path.isfile(db_path):
     print(json.dumps({"db_exists": False, "table_count": 0, "rows": []}))
     sys.exit(0)
@@ -1008,6 +1017,19 @@ try:
     if "tasks" not in tables:
         print(json.dumps({"db_exists": True, "table_count": len(tables), "rows": [], "warnings": ["tasks_table_missing"]}))
         sys.exit(0)
+    total_matching_rows = conn.execute(
+        """
+        SELECT COUNT(*)
+        FROM tasks t
+        WHERE COALESCE(t.tenant, '') = ?
+           OR COALESCE(t.workflow_template_id, '') = ?
+           OR COALESCE(t.idempotency_key, '') = ?
+        """,
+        (tenant, workflow, proof_idempotency_key),
+    ).fetchone()[0]
+    warnings = []
+    if total_matching_rows > row_limit:
+        warnings.append("marketing_board_rows_limited")
     rows = []
     for row in conn.execute(
         """
@@ -1167,7 +1189,7 @@ try:
             ),
             ''
           ) AS generated_draft_source,
-          COALESCE(
+          substr(COALESCE(
             (
               SELECT json_extract(e.payload, '$.draft_text')
               FROM task_events e
@@ -1178,7 +1200,7 @@ try:
               LIMIT 1
             ),
             ''
-          ) AS generated_draft_text,
+          ), 1, 6000) AS generated_draft_text,
           COALESCE(
             (
               SELECT e.created_at
@@ -1227,7 +1249,7 @@ try:
             ),
             ''
           ) AS output_approval_source,
-          COALESCE(
+          substr(COALESCE(
             (
               SELECT json_extract(e.payload, '$.output_text')
               FROM task_events e
@@ -1238,7 +1260,7 @@ try:
               LIMIT 1
             ),
             ''
-          ) AS output_approval_text,
+          ), 1, 6000) AS output_approval_text,
           COALESCE(
             (
               SELECT e.created_at
@@ -1263,7 +1285,7 @@ try:
             ),
             ''
           ) AS worker_dispatch_status,
-          COALESCE(
+          substr(COALESCE(
             (
               SELECT json_extract(e.payload, '$.worker_contract_yaml')
               FROM task_events e
@@ -1274,8 +1296,8 @@ try:
               LIMIT 1
             ),
             ''
-          ) AS worker_contract_yaml,
-          COALESCE(
+          ), 1, 6000) AS worker_contract_yaml,
+          substr(COALESCE(
             (
               SELECT json_extract(e.payload, '$.worker_prompt')
               FROM task_events e
@@ -1286,7 +1308,7 @@ try:
               LIMIT 1
             ),
             ''
-          ) AS worker_prompt,
+          ), 1, 6000) AS worker_prompt,
           COALESCE(
             (
               SELECT e.created_at
@@ -1371,7 +1393,7 @@ try:
             ),
             0
           ) AS worker_observed_run_at,
-          COALESCE(
+          substr(COALESCE(
             (
               SELECT json_extract(e.payload, '$.worker_observed_output')
               FROM task_events e
@@ -1382,7 +1404,7 @@ try:
               LIMIT 1
             ),
             ''
-          ) AS worker_observed_output,
+          ), 1, 6000) AS worker_observed_output,
           COALESCE(
             (
               SELECT json_extract(e.payload, '$.worker_start_gate_status')
@@ -1431,7 +1453,7 @@ try:
             ),
             ''
           ) AS worker_start_gate_reason_codes,
-          COALESCE(
+          substr(COALESCE(
             (
               SELECT json_extract(e.payload, '$.worker_start_packet')
               FROM task_events e
@@ -1442,18 +1464,30 @@ try:
               LIMIT 1
             ),
             ''
-          ) AS worker_start_packet,
+          ), 1, 6000) AS worker_start_packet,
           COALESCE(CAST(t.current_run_id AS TEXT), '') AS linked_run_id
         FROM tasks t
         WHERE COALESCE(t.tenant, '') = ?
            OR COALESCE(t.workflow_template_id, '') = ?
            OR COALESCE(t.idempotency_key, '') = ?
-        ORDER BY COALESCE(t.priority, 0) DESC, t.created_at ASC, t.id ASC
+        ORDER BY
+          CASE WHEN COALESCE(t.idempotency_key, '') = ? THEN 0 ELSE 1 END,
+          COALESCE(t.started_at, t.completed_at, t.created_at) DESC,
+          COALESCE(t.priority, 0) DESC,
+          t.id DESC
+        LIMIT ?
         """,
-        (tenant, workflow, request["proof_idempotency_key"]),
+        (tenant, workflow, proof_idempotency_key, proof_idempotency_key, row_limit),
     ):
         rows.append(dict(row))
-    print(json.dumps({"db_exists": True, "table_count": len(tables), "rows": rows}))
+    print(json.dumps({
+        "db_exists": True,
+        "table_count": len(tables),
+        "rows": rows,
+        "warnings": warnings,
+        "row_limit": row_limit,
+        "total_matching_rows": total_matching_rows,
+    }))
 finally:
     conn.close()
 `;
@@ -2686,6 +2720,62 @@ def local_data_boundary_receipt(payload_text):
         "reason_codes": ["command_eve.worker_start_nl5_data_boundary_pass"],
     }
 
+def runtime_executor_profile_receipt(profile, executor_enabled):
+    if not executor_enabled:
+        return {
+            "version": "command-eve-runtime-executor-profile-receipt/v0",
+            "ok": False,
+            "status": "disabled",
+            "configured": False,
+            "reason_codes": ["runtime_executor_not_configured"],
+            "raw_profile_stored": False,
+        }
+    if not isinstance(profile, dict):
+        return {
+            "version": "command-eve-runtime-executor-profile-receipt/v0",
+            "ok": False,
+            "status": "missing",
+            "configured": False,
+            "reason_codes": ["runtime_executor_profile_missing"],
+            "raw_profile_stored": False,
+        }
+
+    reason_codes = []
+    if profile.get("version") != "command-eve-runtime-executor-profile/v0":
+        reason_codes.append("runtime_executor_profile_version_invalid")
+    if profile.get("executor_kind") != "hermes-local-observed":
+        reason_codes.append("runtime_executor_kind_not_allowlisted")
+    if profile.get("execution_mode") != "observed":
+        reason_codes.append("runtime_executor_mode_not_observed")
+    if profile.get("transport") != "local":
+        reason_codes.append("runtime_executor_transport_not_local")
+    if profile.get("data_boundary_enforced") is not True:
+        reason_codes.append("runtime_executor_data_boundary_not_enforced")
+    if profile.get("external_calls_allowed") is not False:
+        reason_codes.append("runtime_executor_external_calls_not_forbidden")
+    if profile.get("subprocess_spawn_allowed") is not False:
+        reason_codes.append("runtime_executor_spawn_not_locked")
+    if profile.get("hg3_approved") is not True:
+        reason_codes.append("runtime_executor_hg3_approval_missing")
+
+    return {
+        "version": "command-eve-runtime-executor-profile-receipt/v0",
+        "ok": len(reason_codes) == 0,
+        "status": "accepted" if len(reason_codes) == 0 else "rejected",
+        "configured": True,
+        "executor_kind": str(profile.get("executor_kind") or ""),
+        "execution_mode": str(profile.get("execution_mode") or ""),
+        "transport": str(profile.get("transport") or ""),
+        "data_boundary_enforced": profile.get("data_boundary_enforced") is True,
+        "external_calls_allowed": profile.get("external_calls_allowed") is True,
+        "subprocess_spawn_allowed": profile.get("subprocess_spawn_allowed") is True,
+        "hg3_approved": profile.get("hg3_approved") is True,
+        "approved_by": str(profile.get("approved_by") or ""),
+        "approved_at": str(profile.get("approved_at") or ""),
+        "raw_profile_stored": False,
+        "reason_codes": reason_codes if reason_codes else ["command_eve.runtime_executor_profile_accepted_no_spawn"],
+    }
+
 request = json.loads(sys.stdin.read() or "{}")
 db_path = request["db_path"]
 if not os.path.isfile(db_path):
@@ -2746,6 +2836,7 @@ try:
 
     gate_at = int(request["gate_at"])
     executor_enabled = bool(request.get("executor_enabled"))
+    executor_profile_receipt = runtime_executor_profile_receipt(request.get("executor_profile"), executor_enabled)
     source_nl5_checked = bool(observed_payload.get("nl5_gate_checked"))
     worker_start_data_boundary_receipt = local_data_boundary_receipt("\n".join([
         str(row["title"] or ""),
@@ -2766,6 +2857,8 @@ try:
             "runtime_executor_not_configured",
             "hg3_required_before_subprocess_spawn",
         ])
+    elif not executor_profile_receipt.get("ok"):
+        gate_reason_codes.extend(executor_profile_receipt.get("reason_codes") or ["runtime_executor_profile_rejected"])
     gate_status = "ready" if executor_enabled and not gate_reason_codes else "blocked"
     worker_start_packet = {
         "version": "command-eve-worker-start-packet/v0",
@@ -2777,6 +2870,7 @@ try:
         "dispatch": "manual",
         "human_gate": "HG-3",
         "executor_enabled": executor_enabled,
+        "executor_profile_receipt": executor_profile_receipt,
         "gate_reason_codes": gate_reason_codes,
         "subprocess_spawned": False,
         "external_calls": False,
@@ -2813,6 +2907,7 @@ try:
         "worker_start_nl5_checked": worker_start_nl5_checked,
         "data_boundary_receipt": observed_payload.get("data_boundary_receipt") or {},
         "worker_start_data_boundary_receipt": worker_start_data_boundary_receipt,
+        "executor_profile_receipt": executor_profile_receipt,
         "gate_note_length": len(request.get("gate_note") or ""),
         "reason_codes": ["command_eve.marketing_worker_start_gate_checked_no_spawn"],
     }
@@ -2852,6 +2947,7 @@ try:
         "source_nl5_gate_checked": source_nl5_checked,
         "worker_start_nl5_checked": worker_start_nl5_checked,
         "worker_start_data_boundary_receipt": worker_start_data_boundary_receipt,
+        "executor_profile_receipt": executor_profile_receipt,
     }))
 finally:
     conn.close()
@@ -4549,12 +4645,13 @@ function parseProbe(stdout = ''): {
     installedVersion: parsed.installed_version,
     modules: parsed.modules.map((module) => {
       const item = isRecord(module) ? module : {};
-      return {
+      const check: CommandEveKanbanModuleCheck = {
         name: typeof item.name === 'string' ? item.name : 'unknown',
         required: item.required === true,
         ok: item.ok === true,
-        ...(typeof item.error === 'string' ? { error: item.error } : {}),
       };
+      if (typeof item.error === 'string') check.error = item.error;
+      return check;
     }),
     board: {
       slug: typeof board.slug === 'string' ? board.slug : 'default',
@@ -4719,6 +4816,7 @@ export function buildKanbanMarketingBoard(
       tenant: MARKETING_BOARD_TENANT,
       workflow: MARKETING_BOARD_WORKFLOW,
       proof_idempotency_key: MARKETING_PROOF_IDEMPOTENCY_KEY,
+      row_limit: MARKETING_BOARD_READ_ROW_LIMIT,
     },
     buildMarketingBoardReadScript(),
     paths.hermesHome
@@ -6960,6 +7058,7 @@ export function checkKanbanMarketingWorkerStartGate(
       dispatch_handoff_packet: isRecord(options.dispatch_handoff_packet) ? options.dispatch_handoff_packet : {},
       gate_note: options.gate_note || '',
       executor_enabled: options.executor_enabled === true,
+      executor_profile: isRecord(options.executor_profile) ? options.executor_profile : null,
     },
     buildMarketingWorkerStartGateScript(),
     paths.hermesHome
