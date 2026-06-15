@@ -352,12 +352,13 @@ void registerPwa();
 
 const root = createRoot(document.getElementById('root')!);
 const backendStartupFailure = window.__backendStartupFailure;
+const isE2ETestMode = (window as { __aionE2ETest?: boolean }).__aionE2ETest === true;
 const shouldShowBackendStartupFailureDialog =
   backendStartupFailure?.reason === 'backend_incompatible_runtime' ||
   backendStartupFailure?.reason === 'backend_incomplete_installation' ||
   backendStartupFailure?.reason === 'backend_package_architecture_mismatch' ||
   backendStartupFailure?.reason === 'backend_startup_failed';
-if (backendStartupFailure && shouldShowBackendStartupFailureDialog) {
+if (backendStartupFailure && shouldShowBackendStartupFailureDialog && !isE2ETestMode) {
   root.render(
     <Config>
       <BackendStartupFailureDialog failure={backendStartupFailure} />

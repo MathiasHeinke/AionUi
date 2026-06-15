@@ -707,6 +707,24 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     });
     await expect(page.getByTestId(`marketing-dispatch-queue-next-${dispatchCardId}`)).toContainText(/Review|review/);
     await expect(page.getByTestId('marketing-dispatch-queue-generated-count')).toContainText(/Drafts:\s*[1-9]\d*/);
+    const approveOutputButton = page.getByTestId(`marketing-dispatch-queue-approve-output-${dispatchCardId}`);
+    await expect(approveOutputButton).toBeEnabled({ timeout: 30_000 });
+    await approveOutputButton.click();
+    const outputResult = page.getByTestId('marketing-output-approve-result');
+    await expect(outputResult).toBeVisible({ timeout: 60_000 });
+    await expect(outputResult).toContainText(postTitle);
+    await expect(page.getByTestId(`marketing-approved-output-preview-${dispatchCardId}`)).toContainText(postTitle, {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId(`marketing-dispatch-queue-output-approved-tag-${dispatchCardId}`)).toContainText(
+      /Outputs|Output/
+    );
+    await expect(page.getByTestId(`marketing-dispatch-queue-next-${dispatchCardId}`)).toContainText(
+      /Publishing|Publishing|separate/
+    );
+    await expect(page.getByTestId('marketing-dispatch-queue-output-approved-count')).toContainText(
+      /Outputs:\s*[1-9]\d*/
+    );
     await expect(page.getByTestId('command-center-operating-readiness')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('operating-readiness-controllerReviewQueue')).toContainText(/ready|bereit|1/);
     await expect(page.getByTestId('operating-readiness-dispatchBlocked')).toContainText(
@@ -830,10 +848,47 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
 
     const draftComments = sqliteQuery(
       dispatchBoardDbPath!,
-      `SELECT author, body FROM task_comments WHERE task_id = '${dispatchCardId}' AND author = 'eve' ORDER BY id DESC LIMIT 1`
+      `SELECT COUNT(*) FROM task_comments WHERE task_id = '${dispatchCardId}' AND author = 'eve' AND body LIKE '%${postTitle}%'`
     );
-    expect(draftComments.length, `marketing draft comment must exist for ${dispatchCardId}`).toBeGreaterThan(0);
-    expect(draftComments[0][1]).toContain(postTitle);
+    expect(
+      Number(draftComments[0]?.[0] ?? 0),
+      `marketing draft comment must exist for ${dispatchCardId}`
+    ).toBeGreaterThan(0);
+
+    const outputRows = sqliteQuery(
+      dispatchBoardDbPath!,
+      `SELECT kind, payload FROM task_events WHERE task_id = '${dispatchCardId}' AND kind = 'command_eve_marketing_output_approved' LIMIT 1`
+    );
+    expect(outputRows.length, `marketing output approval receipt must exist for ${dispatchCardId}`).toBeGreaterThan(0);
+    const outputPayload = JSON.parse(outputRows[0][1]) as {
+      controller_approval_status?: string;
+      controller_approved?: boolean;
+      release_blocked?: boolean;
+      subprocess_spawned?: boolean;
+      external_calls?: boolean;
+      nl5_gate_checked?: boolean;
+      output_approval_status?: string;
+      output_text?: string;
+      reason_codes?: string[];
+    };
+    expect(outputPayload.controller_approval_status).toBe('approved');
+    expect(outputPayload.controller_approved).toBe(true);
+    expect(outputPayload.release_blocked).toBe(false);
+    expect(outputPayload.subprocess_spawned).toBe(false);
+    expect(outputPayload.external_calls).toBe(false);
+    expect(outputPayload.nl5_gate_checked).toBe(true);
+    expect(outputPayload.output_approval_status).toBe('approved');
+    expect(outputPayload.output_text).toContain(postTitle);
+    expect(outputPayload.reason_codes).toContain('command_eve.marketing_output_approved_local');
+
+    const outputComments = sqliteQuery(
+      dispatchBoardDbPath!,
+      `SELECT COUNT(*) FROM task_comments WHERE task_id = '${dispatchCardId}' AND author = 'eve' AND body LIKE 'Approved local marketing output:%${postTitle}%'`
+    );
+    expect(
+      Number(outputComments[0]?.[0] ?? 0),
+      `marketing output approval comment must exist for ${dispatchCardId}`
+    ).toBeGreaterThan(0);
 
     const ledgerLines = fs.readFileSync(e2eLedgerPath, 'utf8').split('\n').filter(Boolean);
     const matchingDispatchAudit = ledgerLines.find((line) => {
@@ -907,6 +962,25 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     expect(
       matchingDraftAudit,
       `audit ledger must contain kanban.marketing_board_marketing_draft_generated for card_id=${dispatchCardId}`
+    ).toBeTruthy();
+    const matchingOutputAudit = ledgerLines.find((line) => {
+      try {
+        const evt = JSON.parse(line) as { event_type?: string; issue_id?: string; payload?: Record<string, unknown> };
+        return (
+          evt.issue_id === dispatchCardId &&
+          evt.event_type === 'kanban.marketing_board_marketing_output_approved' &&
+          evt.payload?.controller_approval_status === 'approved' &&
+          evt.payload?.subprocess_spawned === false &&
+          evt.payload?.release_blocked === false &&
+          evt.payload?.output_approval_status === 'approved'
+        );
+      } catch {
+        return false;
+      }
+    });
+    expect(
+      matchingOutputAudit,
+      `audit ledger must contain kanban.marketing_board_marketing_output_approved for card_id=${dispatchCardId}`
     ).toBeTruthy();
 
     const screenshotPath = 'tests/e2e/results/command-eve-kanban-board-dispatch-gate.png';

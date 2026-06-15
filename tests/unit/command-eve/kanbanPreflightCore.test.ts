@@ -11,6 +11,7 @@ import os from 'os';
 import path from 'path';
 import {
   applyKanbanMarketingCardAction,
+  approveKanbanMarketingOutput,
   buildKanbanMarketingBoard,
   createKanbanMarketingCard,
   createKanbanMarketingProofCard,
@@ -1201,6 +1202,86 @@ describe('Command EVE Kanban marketing-board mutations', () => {
         draft_status: 'generated',
       }),
     });
+
+    const output = approveKanbanMarketingOutput({
+      userDataPath: root,
+      boardSlug: 'marketing',
+      eventLedgerPath,
+      task_id: created.card_id || '',
+      dispatch_handoff_packet: result.dispatch_handoff_packet,
+      approval_note: 'Approve the first local marketing loop output.',
+      now: () => new Date('2026-06-13T10:08:00.000Z'),
+    });
+
+    expect(output.ok).toBe(true);
+    expect(output.status).toBe('ready');
+    expect(output.reason_code).toBe('KANBAN_MARKETING_OUTPUT_APPROVED');
+    expect(output.output_event_kind).toBe('command_eve_marketing_output_approved');
+    expect(output.data_boundary_checked).toBe(true);
+    expect(output.controller_approved).toBe(true);
+    expect(output.release_blocked).toBe(false);
+    expect(output.subprocess_spawned).toBe(false);
+    expect(output.output_text).toContain('Dispatch me only after gates');
+    expect(output.model?.summary.output_approved_cards).toBe(1);
+    const outputCard = output.model?.columns
+      .flatMap((column) => column.cards)
+      .find((card) => card.card_id === created.card_id);
+    expect(outputCard).toMatchObject({
+      lane_key: 'readyToApprove',
+      output_approval_status: 'approved',
+      output_approval_audit_event_id: output.audit_event_id,
+      output_approval_source: 'command-eve-local-marketing-output-approval/v0',
+    });
+    expect(outputCard?.output_approval_text).toContain('Dispatch me only after gates');
+
+    const outputEvents = readRows(
+      marketingBoardPath(root),
+      "SELECT task_id, kind, payload FROM task_events WHERE kind = 'command_eve_marketing_output_approved'"
+    );
+    expect(outputEvents).toHaveLength(1);
+    const outputPayload = JSON.parse(String((outputEvents[0] as { payload: string }).payload)) as {
+      output_approval_status?: string;
+      output_text?: string;
+      subprocess_spawned?: boolean;
+      external_calls?: boolean;
+      nl5_gate_checked?: boolean;
+      reason_codes?: string[];
+    };
+    expect(outputPayload.output_approval_status).toBe('approved');
+    expect(outputPayload.output_text).toContain('Dispatch me only after gates');
+    expect(outputPayload.subprocess_spawned).toBe(false);
+    expect(outputPayload.external_calls).toBe(false);
+    expect(outputPayload.nl5_gate_checked).toBe(true);
+    expect(outputPayload.reason_codes).toContain('command_eve.marketing_output_approved_local');
+
+    const outputComments = readRows(
+      marketingBoardPath(root),
+      "SELECT task_id, author, body FROM task_comments WHERE body LIKE 'Approved local marketing output:%'"
+    );
+    expect(outputComments).toHaveLength(1);
+    expect(outputComments[0]).toMatchObject({
+      task_id: created.card_id,
+      author: 'eve',
+    });
+    expect(String((outputComments[0] as { body: string }).body)).toContain('Dispatch me only after gates');
+
+    const outputAuditEvents = readAuditEvents(eventLedgerPath);
+    expect(outputAuditEvents).toHaveLength(6);
+    expect(outputAuditEvents[5]).toMatchObject({
+      event_type: 'kanban.marketing_board_marketing_output_approved',
+      producer: 'command-eve-desktop',
+      agent: 'eve',
+      mode: 'kanban-marketing-output-approve',
+      human_gate_required: true,
+      payload: expect.objectContaining({
+        controller_approval_status: 'approved',
+        controller_approved: true,
+        release_blocked: false,
+        subprocess_spawned: false,
+        external_calls: false,
+        output_approval_status: 'approved',
+      }),
+    });
   });
 
   it('blocks local marketing draft generation before a controller approval decision exists', () => {
@@ -1252,6 +1333,59 @@ describe('Command EVE Kanban marketing-board mutations', () => {
     const auditEvents = readAuditEvents(eventLedgerPath);
     expect(auditEvents.map((event) => event.event_type)).not.toContain(
       'kanban.marketing_board_marketing_draft_generated'
+    );
+  });
+
+  it('blocks local marketing output approval before a generated draft exists', () => {
+    const root = makeRoot();
+    writeLockedReconciliation(root);
+    const eventLedgerPath = path.join(root, 'agent-events.jsonl');
+
+    const created = createKanbanMarketingCard({
+      userDataPath: root,
+      boardSlug: 'marketing',
+      eventLedgerPath,
+      title: 'Do not approve before draft',
+      description: 'Output approval must wait for a generated local draft receipt.',
+      lane_key: 'draft',
+      client_token: 'output-before-draft-1',
+      now: () => new Date('2026-06-15T11:10:00.000Z'),
+    });
+    expect(created.ok).toBe(true);
+
+    const output = approveKanbanMarketingOutput({
+      userDataPath: root,
+      boardSlug: 'marketing',
+      eventLedgerPath,
+      task_id: created.card_id || '',
+      dispatch_handoff_packet: {
+        version: 'command-eve-local-dispatch-handoff/v0',
+        dispatch: 'manual',
+        role_label: 'role:cmo',
+        card_id: created.card_id,
+      },
+      now: () => new Date('2026-06-15T11:11:00.000Z'),
+    });
+
+    expect(output.ok).toBe(false);
+    expect(output.status).toBe('blocked');
+    expect(output.reason_code).toBe('KANBAN_MARKETING_DRAFT_REQUIRED');
+    expect(output.release_blocked).toBe(true);
+    expect(output.subprocess_spawned).toBe(false);
+
+    const outputEvents = readRows(
+      marketingBoardPath(root),
+      "SELECT kind FROM task_events WHERE kind = 'command_eve_marketing_output_approved'"
+    );
+    expect(outputEvents).toHaveLength(0);
+    const comments = readRows(
+      marketingBoardPath(root),
+      "SELECT body FROM task_comments WHERE body LIKE 'Approved local marketing output:%'"
+    );
+    expect(comments).toHaveLength(0);
+    const auditEvents = readAuditEvents(eventLedgerPath);
+    expect(auditEvents.map((event) => event.event_type)).not.toContain(
+      'kanban.marketing_board_marketing_output_approved'
     );
   });
 
