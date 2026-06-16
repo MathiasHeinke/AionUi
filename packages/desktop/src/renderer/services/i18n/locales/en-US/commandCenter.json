@@ -228,6 +228,7 @@
       "workerRequested": "Dispatch requests",
       "workerObserved": "Observed workers",
       "workerStartGates": "Start gates",
+      "dispatcherPreparedCount": "Dispatchers prepared",
       "nextStep": "Next step",
       "pendingNext": "Controller still needs to approve or reject this handoff.",
       "approvedNext": "Handoff is locally approved; EVE can now generate a local marketing draft.",
@@ -238,6 +239,7 @@
       "workerObservedNext": "Observed worker run completed locally. Publishing and external workers remain locked.",
       "workerStartGateNext": "Worker start gate checked. Runtime start remains HG-3 locked until an executor is configured.",
       "workerStartGateReadyNext": "Observed local executor profile accepted. Runtime start remains no-spawn until release authority unlocks it.",
+      "workerDispatcherPreparedNext": "Gated dispatcher is prepared. Real runtime spawn still requires release authority.",
       "rejectedNext": "Handoff was rejected; revise the card or keep it blocked.",
       "generateDraft": "Generate draft",
       "draftAlreadyGenerated": "Draft generated",
@@ -258,6 +260,9 @@
       "workerStartPacket": "Worker start packet",
       "workerStartGateBlocked": "HG-3 locked",
       "workerStartGateReady": "Observed profile ready",
+      "workerDispatcherPrepared": "Dispatcher prepared",
+      "prepareWorkerDispatcher": "Prepare dispatcher",
+      "dispatcherPreparePacket": "Dispatcher prepare packet",
       "empty": "No controller handoffs in the local queue."
     },
     "workerDispatchRequest": {
@@ -278,6 +283,11 @@
       "failed": "Worker start gate could not be checked.",
       "resultTitle": "Worker start gate",
       "blockReasons": "Block reasons"
+    },
+    "workerDispatcherPrepare": {
+      "success": "Gated dispatcher is prepared.",
+      "failed": "Gated dispatcher could not be prepared.",
+      "resultTitle": "Dispatcher prepare gate"
     },
     "draftGenerate": {
       "resultTitle": "Marketing draft receipt",

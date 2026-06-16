@@ -207,6 +207,10 @@ interface ICommandEveMarketingCard {
   worker_start_gate_checked_at: number | null;
   worker_start_gate_reason_codes: string | null;
   worker_start_packet: string | null;
+  worker_dispatcher_prepare_status: 'ready' | null;
+  worker_dispatcher_prepare_audit_event_id: string | null;
+  worker_dispatcher_prepared_at: number | null;
+  worker_dispatcher_prepare_packet: string | null;
   governance_state: 'read_only' | 'proof_write_recorded' | 'unknown';
 }
 
@@ -245,6 +249,7 @@ interface ICommandEveMarketingBoardModel {
     worker_observed_completed_cards: number;
     worker_start_gate_checked_cards: number;
     worker_start_gate_blocked_cards: number;
+    worker_dispatcher_prepared_cards: number;
   };
   columns: ICommandEveMarketingColumn[];
   warnings: string[];
@@ -648,6 +653,46 @@ interface ICommandEveMarketingWorkerStartGateResult {
   };
 }
 
+interface ICommandEveMarketingWorkerDispatcherPrepareRequest {
+  task_id: string;
+  boardSlug?: string;
+  eventLedgerPath?: string;
+  dispatch_handoff_packet?: Record<string, unknown>;
+  prepare_note?: string;
+}
+
+interface ICommandEveMarketingWorkerDispatcherPrepareResult {
+  version: 'command-eve-kanban-marketing-worker-dispatcher-prepare/v0';
+  status: 'ready' | 'blocked' | 'failed';
+  ok: boolean;
+  reason_code?: string;
+  reason_codes: string[];
+  message?: string;
+  card_id?: string;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  prepare_event_kind?: 'command_eve_marketing_worker_dispatcher_prepared';
+  worker_dispatcher_prepare_status?: 'ready';
+  worker_start_gate_status?: 'ready';
+  dispatcher_prepare_packet?: Record<string, unknown>;
+  worker_start_packet?: Record<string, unknown>;
+  worker_contract_yaml?: string;
+  worker_prompt?: string;
+  subprocess_spawned: false;
+  external_calls: false;
+  data_boundary_checked: boolean;
+  controller_approval_status?: 'approved' | 'rejected';
+  controller_approved: boolean;
+  release_blocked: true;
+  human_gate: 'HG-3.5';
+  dispatch_handoff_packet?: Record<string, unknown>;
+  model?: ICommandEveMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+  };
+}
+
 interface ICommandEveWorkerStartGateUiOptions {
   executorProfile?: Record<string, unknown>;
   gateNote?: string;
@@ -873,6 +918,11 @@ const kanbanMarketingWorkerStartGate = bridge.buildProvider<
   IBridgeResponse<ICommandEveMarketingWorkerStartGateResult>,
   ICommandEveMarketingWorkerStartGateRequest
 >('command-eve.kanban-marketing-worker-start-gate');
+
+const kanbanMarketingWorkerDispatcherPrepare = bridge.buildProvider<
+  IBridgeResponse<ICommandEveMarketingWorkerDispatcherPrepareResult>,
+  ICommandEveMarketingWorkerDispatcherPrepareRequest
+>('command-eve.kanban-marketing-worker-dispatcher-prepare');
 
 const crmOverlay = bridge.buildProvider<IBridgeResponse<ICommandEveCrmOverlayResult>, { eventLedgerPath?: string }>(
   'command-eve.crm-overlay'
@@ -1552,11 +1602,13 @@ const MarketingColumnView: React.FC<{
 const MarketingDispatchQueueView: React.FC<{
   model: ICommandEveMarketingBoardModel;
   workerStartGateResult: ICommandEveMarketingWorkerStartGateResult | null;
+  workerDispatcherPrepareResult: ICommandEveMarketingWorkerDispatcherPrepareResult | null;
   generatingDraftCardId: string | null;
   approvingOutputCardId: string | null;
   requestingWorkerDispatchCardId: string | null;
   runningObservedWorkerCardId: string | null;
   checkingWorkerStartGateCardId: string | null;
+  preparingWorkerDispatcherCardId: string | null;
   onGenerateDraft: (card: ICommandEveMarketingCard) => void;
   onApproveOutput: (card: ICommandEveMarketingCard) => void;
   onRequestWorkerDispatch: (card: ICommandEveMarketingCard) => void;
@@ -1565,19 +1617,23 @@ const MarketingDispatchQueueView: React.FC<{
     card: ICommandEveWorkerStartGateTarget,
     options?: ICommandEveWorkerStartGateUiOptions
   ) => void;
+  onPrepareWorkerDispatcher: (card: ICommandEveWorkerStartGateTarget) => void;
 }> = ({
   model,
   workerStartGateResult,
+  workerDispatcherPrepareResult,
   generatingDraftCardId,
   approvingOutputCardId,
   requestingWorkerDispatchCardId,
   runningObservedWorkerCardId,
   checkingWorkerStartGateCardId,
+  preparingWorkerDispatcherCardId,
   onGenerateDraft,
   onApproveOutput,
   onRequestWorkerDispatch,
   onRunObservedWorker,
   onCheckWorkerStartGate,
+  onPrepareWorkerDispatcher,
 }) => {
   const { t } = useTranslation();
   const queueCards = marketingCardsForDispatchQueue(model);
@@ -1588,6 +1644,18 @@ const MarketingDispatchQueueView: React.FC<{
     );
   const workerStartGateCheckedCount =
     model.summary.worker_start_gate_checked_cards + (hasUnprojectedWorkerStartGateResult ? 1 : 0);
+  const hasUnprojectedWorkerDispatcherPrepareResult =
+    Boolean(
+      workerDispatcherPrepareResult?.ok &&
+      workerDispatcherPrepareResult.card_id &&
+      workerDispatcherPrepareResult.dispatcher_prepare_packet
+    ) &&
+    !queueCards.some(
+      (card) =>
+        card.card_id === workerDispatcherPrepareResult?.card_id && Boolean(card.worker_dispatcher_prepare_status)
+    );
+  const workerDispatcherPreparedCount =
+    model.summary.worker_dispatcher_prepared_cards + (hasUnprojectedWorkerDispatcherPrepareResult ? 1 : 0);
   return (
     <div
       className='rounded-12px border border-solid border-[var(--color-border-2)] bg-fill-1 px-12px py-12px'
@@ -1648,6 +1716,11 @@ const MarketingDispatchQueueView: React.FC<{
               workerStartGateCheckedCount
             )}`}
           </Tag>
+          <Tag color='green' data-testid='marketing-dispatch-queue-worker-dispatcher-prepared-count'>
+            {`${t('commandCenter.marketingBoard.dispatchQueue.dispatcherPreparedCount')}: ${formatCount(
+              workerDispatcherPreparedCount
+            )}`}
+          </Tag>
         </div>
       </div>
       {queueCards.length > 0 ? (
@@ -1666,21 +1739,34 @@ const MarketingDispatchQueueView: React.FC<{
                 ? workerStartGateResult
                 : null;
             const workerStartPacketText =
-              card.worker_start_packet ||
               (workerStartGateResultForCard?.worker_start_packet
                 ? JSON.stringify(workerStartGateResultForCard.worker_start_packet, null, 2)
-                : '');
+                : '') || card.worker_start_packet;
             const workerStartGateStatus =
-              card.worker_start_gate_status || workerStartGateResultForCard?.worker_start_gate_status || null;
+              workerStartGateResultForCard?.worker_start_gate_status || card.worker_start_gate_status || null;
             const workerStartGateChecked = Boolean(workerStartGateStatus || workerStartPacketText);
             const workerStartGateReady = workerStartGateStatus === 'ready';
+            const workerDispatcherPrepareResultForCard =
+              workerDispatcherPrepareResult?.ok && workerDispatcherPrepareResult.card_id === card.card_id
+                ? workerDispatcherPrepareResult
+                : null;
+            const workerDispatcherPreparePacketText =
+              card.worker_dispatcher_prepare_packet ||
+              (workerDispatcherPrepareResultForCard?.dispatcher_prepare_packet
+                ? JSON.stringify(workerDispatcherPrepareResultForCard.dispatcher_prepare_packet, null, 2)
+                : '');
+            const workerDispatcherPrepared =
+              card.worker_dispatcher_prepare_status === 'ready' ||
+              workerDispatcherPrepareResultForCard?.worker_dispatcher_prepare_status === 'ready';
             const canCheckObservedExecutorProfile = workerObservedCompleted && !workerStartGateReady;
             const nextStepKey = decision
               ? decision === 'approved'
                 ? workerStartGateChecked
-                  ? workerStartGateReady
-                    ? 'workerStartGateReadyNext'
-                    : 'workerStartGateNext'
+                  ? workerDispatcherPrepared
+                    ? 'workerDispatcherPreparedNext'
+                    : workerStartGateReady
+                      ? 'workerStartGateReadyNext'
+                      : 'workerStartGateNext'
                   : workerObservedCompleted
                     ? 'workerObservedNext'
                     : workerDispatchRequested
@@ -1699,6 +1785,7 @@ const MarketingDispatchQueueView: React.FC<{
             const workerDispatchRequesting = requestingWorkerDispatchCardId === card.card_id;
             const workerObservedRunning = runningObservedWorkerCardId === card.card_id;
             const workerStartGateChecking = checkingWorkerStartGateCardId === card.card_id;
+            const workerDispatcherPreparing = preparingWorkerDispatcherCardId === card.card_id;
             return (
               <article
                 key={card.card_id}
@@ -1806,6 +1893,14 @@ const MarketingDispatchQueueView: React.FC<{
                             ? 'commandCenter.marketingBoard.dispatchQueue.workerStartGateReady'
                             : 'commandCenter.marketingBoard.dispatchQueue.workerStartGateChecked'
                         )}
+                      </Tag>
+                    ) : null}
+                    {workerDispatcherPrepared ? (
+                      <Tag
+                        color='green'
+                        data-testid={`marketing-dispatch-queue-worker-dispatcher-prepared-tag-${card.card_id}`}
+                      >
+                        {t('commandCenter.marketingBoard.dispatchQueue.workerDispatcherPrepared')}
                       </Tag>
                     ) : null}
                     {hasWorkerDispatchReady ? (
@@ -1967,9 +2062,38 @@ const MarketingDispatchQueueView: React.FC<{
                           {t('commandCenter.marketingBoard.dispatchQueue.checkObservedExecutorProfile')}
                         </Button>
                       ) : null}
+                      {workerStartGateReady && !workerDispatcherPrepared ? (
+                        <Button
+                          shape='round'
+                          size='mini'
+                          type='primary'
+                          loading={workerDispatcherPreparing}
+                          disabled={workerDispatcherPreparing}
+                          onClick={() => onPrepareWorkerDispatcher(card)}
+                          data-testid={`marketing-dispatch-queue-card-prepare-worker-dispatcher-${card.card_id}`}
+                        >
+                          {t('commandCenter.marketingBoard.dispatchQueue.prepareWorkerDispatcher')}
+                        </Button>
+                      ) : null}
                     </div>
                     <pre className='m-0 max-h-180px overflow-auto whitespace-pre-wrap break-words text-11px leading-16px text-t-secondary'>
                       {workerStartPacketText}
+                    </pre>
+                  </div>
+                ) : null}
+                {workerDispatcherPrepared && workerDispatcherPreparePacketText ? (
+                  <div
+                    className='mt-8px rounded-8px border border-solid border-fill-3 bg-fill-1 p-8px'
+                    data-testid={`marketing-worker-dispatcher-prepare-preview-${card.card_id}`}
+                  >
+                    <div className='mb-4px flex flex-wrap items-center gap-6px'>
+                      <span className='text-11px font-600 leading-16px text-t-primary'>
+                        {t('commandCenter.marketingBoard.dispatchQueue.dispatcherPreparePacket')}
+                      </span>
+                      <Tag color='green'>{t('commandCenter.marketingBoard.dispatch.notSpawned')}</Tag>
+                    </div>
+                    <pre className='m-0 max-h-180px overflow-auto whitespace-pre-wrap break-words text-11px leading-16px text-t-secondary'>
+                      {workerDispatcherPreparePacketText}
                     </pre>
                   </div>
                 ) : null}
@@ -2116,6 +2240,7 @@ const MarketingBoardSection: React.FC<{
   workerDispatchRequestResult: ICommandEveMarketingWorkerDispatchRequestResult | null;
   workerObservedRunResult: ICommandEveMarketingWorkerObservedRunResult | null;
   workerStartGateResult: ICommandEveMarketingWorkerStartGateResult | null;
+  workerDispatcherPrepareResult: ICommandEveMarketingWorkerDispatcherPrepareResult | null;
   createModalVisible: boolean;
   createSubmitting: boolean;
   movingCardId: string | null;
@@ -2126,6 +2251,7 @@ const MarketingBoardSection: React.FC<{
   requestingWorkerDispatchCardId: string | null;
   runningObservedWorkerCardId: string | null;
   checkingWorkerStartGateCardId: string | null;
+  preparingWorkerDispatcherCardId: string | null;
   approvalRecording: boolean;
   decisionRecording: 'approved' | 'rejected' | null;
   onCreateProofCard: () => void;
@@ -2146,6 +2272,7 @@ const MarketingBoardSection: React.FC<{
     card: ICommandEveWorkerStartGateTarget,
     options?: ICommandEveWorkerStartGateUiOptions
   ) => void;
+  onPrepareWorkerDispatcher: (card: ICommandEveWorkerStartGateTarget) => void;
 }> = ({
   result,
   proofResult,
@@ -2161,6 +2288,7 @@ const MarketingBoardSection: React.FC<{
   workerDispatchRequestResult,
   workerObservedRunResult,
   workerStartGateResult,
+  workerDispatcherPrepareResult,
   createModalVisible,
   createSubmitting,
   movingCardId,
@@ -2171,6 +2299,7 @@ const MarketingBoardSection: React.FC<{
   requestingWorkerDispatchCardId,
   runningObservedWorkerCardId,
   checkingWorkerStartGateCardId,
+  preparingWorkerDispatcherCardId,
   approvalRecording,
   decisionRecording,
   onCreateProofCard,
@@ -2188,6 +2317,7 @@ const MarketingBoardSection: React.FC<{
   onRequestWorkerDispatch,
   onRunObservedWorker,
   onCheckWorkerStartGate,
+  onPrepareWorkerDispatcher,
 }) => {
   const { t } = useTranslation();
   const proofBackedResult: ICommandEveMarketingBoardResult | null =
@@ -2231,6 +2361,14 @@ const MarketingBoardSection: React.FC<{
   const canCheckObservedExecutorProfileFromResult =
     Boolean(workerStartGateTarget && workerStartGatePacket) &&
     workerStartGateResult?.worker_start_gate_status !== 'ready';
+  const canPrepareWorkerDispatcherFromResult =
+    workerStartGateResult?.ok === true &&
+    workerStartGateResult.worker_start_gate_status === 'ready' &&
+    Boolean(workerStartGateResult.card_id) &&
+    !(
+      workerDispatcherPrepareResult?.ok === true &&
+      workerDispatcherPrepareResult.card_id === workerStartGateResult.card_id
+    );
   return (
     <Section
       id='command-eve-marketing-board'
@@ -2829,6 +2967,34 @@ const MarketingBoardSection: React.FC<{
                     {t('commandCenter.marketingBoard.dispatchQueue.checkObservedExecutorProfile')}
                   </Button>
                 ) : null}
+                {canPrepareWorkerDispatcherFromResult && workerStartGateResult?.card_id ? (
+                  <Button
+                    shape='round'
+                    size='mini'
+                    type='primary'
+                    loading={preparingWorkerDispatcherCardId === workerStartGateResult.card_id}
+                    disabled={
+                      preparingWorkerDispatcherCardId === workerStartGateResult.card_id ||
+                      workerStartGateResult.worker_start_gate_status !== 'ready'
+                    }
+                    onClick={() =>
+                      onPrepareWorkerDispatcher({
+                        card_id: workerStartGateResult.card_id || '',
+                        controller_decision_handoff_dispatch:
+                          recordStringField(workerStartGateResult.dispatch_handoff_packet, 'dispatch') || 'manual',
+                        controller_review_handoff_dispatch:
+                          recordStringField(workerStartGateResult.dispatch_handoff_packet, 'dispatch') || 'manual',
+                        controller_decision_handoff_role:
+                          recordStringField(workerStartGateResult.dispatch_handoff_packet, 'role_label') || 'role:cmo',
+                        controller_review_handoff_role:
+                          recordStringField(workerStartGateResult.dispatch_handoff_packet, 'role_label') || 'role:cmo',
+                      })
+                    }
+                    data-testid={`marketing-dispatch-queue-prepare-worker-dispatcher-${workerStartGateResult.card_id}`}
+                  >
+                    {t('commandCenter.marketingBoard.dispatchQueue.prepareWorkerDispatcher')}
+                  </Button>
+                ) : null}
               </div>
               <dl className='m-0 grid gap-x-10px gap-y-4px text-11px leading-16px sm:grid-cols-[max-content_1fr]'>
                 <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.card')}</dt>
@@ -2853,6 +3019,67 @@ const MarketingBoardSection: React.FC<{
         />
       ) : null}
 
+      {workerDispatcherPrepareResult ? (
+        <Alert
+          type={
+            workerDispatcherPrepareResult.ok
+              ? 'success'
+              : workerDispatcherPrepareResult.status === 'failed'
+                ? 'error'
+                : 'warning'
+          }
+          title={
+            workerDispatcherPrepareResult.reason_code ||
+            t('commandCenter.marketingBoard.workerDispatcherPrepare.resultTitle')
+          }
+          content={
+            <div className='flex flex-col gap-6px' data-testid='marketing-worker-dispatcher-prepare-result-detail'>
+              <span>{workerDispatcherPrepareResult.message || '-'}</span>
+              <div className='flex flex-wrap gap-6px'>
+                <Tag color={workerDispatcherPrepareResult.data_boundary_checked ? 'green' : 'orange'}>
+                  {`${t('commandCenter.marketingBoard.dispatch.dataBoundary')}: ${
+                    workerDispatcherPrepareResult.data_boundary_checked
+                      ? t('commandCenter.marketingBoard.dispatch.checked')
+                      : t('commandCenter.marketingBoard.dispatch.notChecked')
+                  }`}
+                </Tag>
+                <Tag color='green'>
+                  {`${t('commandCenter.marketingBoard.dispatch.subprocess')}: ${t(
+                    'commandCenter.marketingBoard.dispatch.notSpawned'
+                  )}`}
+                </Tag>
+                <Tag color='green'>
+                  {`${t('commandCenter.marketingBoard.workerObservedRun.externalCalls')}: ${t(
+                    'commandCenter.marketingBoard.workerObservedRun.none'
+                  )}`}
+                </Tag>
+                <Tag color='orange'>
+                  {`${t('commandCenter.marketingBoard.dispatch.release')}: ${t(
+                    'commandCenter.marketingBoard.dispatch.blockedByGate'
+                  )}`}
+                </Tag>
+              </div>
+              <dl className='m-0 grid gap-x-10px gap-y-4px text-11px leading-16px sm:grid-cols-[max-content_1fr]'>
+                <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.card')}</dt>
+                <dd className='m-0 truncate text-t-secondary'>{textOrDash(workerDispatcherPrepareResult.card_id)}</dd>
+                <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.audit')}</dt>
+                <dd className='m-0 truncate text-t-secondary'>
+                  {textOrDash(workerDispatcherPrepareResult.audit_event_id)}
+                </dd>
+              </dl>
+              {workerDispatcherPrepareResult.dispatcher_prepare_packet ? (
+                <pre
+                  className='m-0 max-h-180px overflow-auto whitespace-pre-wrap break-words rounded-8px border border-solid border-fill-3 bg-fill-1 p-8px text-11px leading-16px text-t-secondary'
+                  data-testid='marketing-worker-dispatcher-prepare-result'
+                >
+                  {JSON.stringify(workerDispatcherPrepareResult.dispatcher_prepare_packet, null, 2)}
+                </pre>
+              ) : null}
+            </div>
+          }
+        />
+      ) : null}
+
       {blocked ? (
         <Alert
           type='warning'
@@ -2870,16 +3097,19 @@ const MarketingBoardSection: React.FC<{
           <MarketingDispatchQueueView
             model={model}
             workerStartGateResult={workerStartGateResult}
+            workerDispatcherPrepareResult={workerDispatcherPrepareResult}
             generatingDraftCardId={generatingDraftCardId}
             approvingOutputCardId={approvingOutputCardId}
             requestingWorkerDispatchCardId={requestingWorkerDispatchCardId}
             runningObservedWorkerCardId={runningObservedWorkerCardId}
             checkingWorkerStartGateCardId={checkingWorkerStartGateCardId}
+            preparingWorkerDispatcherCardId={preparingWorkerDispatcherCardId}
             onGenerateDraft={onGenerateDraft}
             onApproveOutput={onApproveOutput}
             onRequestWorkerDispatch={onRequestWorkerDispatch}
             onRunObservedWorker={onRunObservedWorker}
             onCheckWorkerStartGate={onCheckWorkerStartGate}
+            onPrepareWorkerDispatcher={onPrepareWorkerDispatcher}
           />
           <div className='grid gap-12px md:grid-cols-2 xl:grid-cols-5'>
             {model.columns.map((column) => (
@@ -3381,6 +3611,8 @@ const CommandCenterPage: React.FC = () => {
   const [workerStartGateResult, setWorkerStartGateResult] = useState<ICommandEveMarketingWorkerStartGateResult | null>(
     null
   );
+  const [workerDispatcherPrepareResult, setWorkerDispatcherPrepareResult] =
+    useState<ICommandEveMarketingWorkerDispatcherPrepareResult | null>(null);
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [commentCard, setCommentCard] = useState<ICommandEveMarketingCard | null>(null);
@@ -3393,6 +3625,7 @@ const CommandCenterPage: React.FC = () => {
   const [requestingWorkerDispatchCardId, setRequestingWorkerDispatchCardId] = useState<string | null>(null);
   const [runningObservedWorkerCardId, setRunningObservedWorkerCardId] = useState<string | null>(null);
   const [checkingWorkerStartGateCardId, setCheckingWorkerStartGateCardId] = useState<string | null>(null);
+  const [preparingWorkerDispatcherCardId, setPreparingWorkerDispatcherCardId] = useState<string | null>(null);
   const [approvalRecording, setApprovalRecording] = useState(false);
   const [decisionRecording, setDecisionRecording] = useState<'approved' | 'rejected' | null>(null);
   const [crmInitializing, setCrmInitializing] = useState(false);
@@ -3560,6 +3793,7 @@ const CommandCenterPage: React.FC = () => {
       setWorkerDispatchRequestResult(null);
       setWorkerObservedRunResult(null);
       setWorkerStartGateResult(null);
+      setWorkerDispatcherPrepareResult(null);
       try {
         const response = await kanbanMarketingCardCreate.invoke({
           title: input.title,
@@ -3657,6 +3891,7 @@ const CommandCenterPage: React.FC = () => {
     setWorkerDispatchRequestResult(null);
     setWorkerObservedRunResult(null);
     setWorkerStartGateResult(null);
+    setWorkerDispatcherPrepareResult(null);
     setCommentCard(card);
   }, []);
 
@@ -3683,6 +3918,7 @@ const CommandCenterPage: React.FC = () => {
       setWorkerDispatchRequestResult(null);
       setWorkerObservedRunResult(null);
       setWorkerStartGateResult(null);
+      setWorkerDispatcherPrepareResult(null);
       try {
         const response = await kanbanMarketingCardAction.invoke({
           task_id: card.card_id,
@@ -3925,6 +4161,7 @@ const CommandCenterPage: React.FC = () => {
       setWorkerDispatchRequestResult(null);
       setWorkerObservedRunResult(null);
       setWorkerStartGateResult(null);
+      setWorkerDispatcherPrepareResult(null);
       try {
         const response = await kanbanMarketingDraftGenerate.invoke({
           task_id: card.card_id,
@@ -3990,6 +4227,7 @@ const CommandCenterPage: React.FC = () => {
       setWorkerDispatchRequestResult(null);
       setWorkerObservedRunResult(null);
       setWorkerStartGateResult(null);
+      setWorkerDispatcherPrepareResult(null);
       try {
         const response = await kanbanMarketingOutputApprove.invoke({
           task_id: card.card_id,
@@ -4058,6 +4296,7 @@ const CommandCenterPage: React.FC = () => {
       setWorkerDispatchRequestResult(null);
       setWorkerObservedRunResult(null);
       setWorkerStartGateResult(null);
+      setWorkerDispatcherPrepareResult(null);
       try {
         const response = await kanbanMarketingWorkerDispatchRequest.invoke({
           task_id: card.card_id,
@@ -4126,6 +4365,7 @@ const CommandCenterPage: React.FC = () => {
       setOutputApproveResult(null);
       setWorkerObservedRunResult(null);
       setWorkerStartGateResult(null);
+      setWorkerDispatcherPrepareResult(null);
       try {
         const response = await kanbanMarketingWorkerObservedRun.invoke({
           task_id: card.card_id,
@@ -4241,6 +4481,74 @@ const CommandCenterPage: React.FC = () => {
         Message.error(failure.message || t('commandCenter.marketingBoard.workerStartGate.failed'));
       } finally {
         setCheckingWorkerStartGateCardId(null);
+      }
+    },
+    [applyBoardModel, t]
+  );
+
+  const prepareWorkerDispatcher = useCallback(
+    async (card: ICommandEveWorkerStartGateTarget) => {
+      if (!isElectronDesktop()) return;
+      const handoff = {
+        version: 'command-eve-worker-dispatcher-prepare-handoff/v0',
+        status: 'worker_dispatcher_prepare',
+        dispatch: card.controller_decision_handoff_dispatch || card.controller_review_handoff_dispatch || 'manual',
+        role_label: card.controller_decision_handoff_role || card.controller_review_handoff_role || 'role:cmo',
+        card_id: card.card_id,
+        human_gate: 'HG-3.5',
+      };
+      setPreparingWorkerDispatcherCardId(card.card_id);
+      setCreateResult(null);
+      setMoveResult(null);
+      setActionResult(null);
+      setDispatchApprovalResult(null);
+      setDispatchDecisionResult(null);
+      setDraftGenerateResult(null);
+      setOutputApproveResult(null);
+      setWorkerDispatcherPrepareResult(null);
+      try {
+        const response = await kanbanMarketingWorkerDispatcherPrepare.invoke({
+          task_id: card.card_id,
+          boardSlug: MARKETING_BOARD_SLUG,
+          dispatch_handoff_packet: handoff,
+          prepare_note:
+            'Command EVE UI prepared the gated marketing dispatcher after worker start gate readiness; no runtime worker was spawned.',
+        });
+        const data = response.data ?? null;
+        setWorkerDispatcherPrepareResult(data);
+        await applyBoardModel(data);
+        if (data?.ok) {
+          Message.success(t('commandCenter.marketingBoard.workerDispatcherPrepare.success'));
+        } else {
+          Message.warning(data?.reason_code || t('commandCenter.marketingBoard.workerDispatcherPrepare.failed'));
+        }
+      } catch (prepareError) {
+        const failure: ICommandEveMarketingWorkerDispatcherPrepareResult = {
+          version: 'command-eve-kanban-marketing-worker-dispatcher-prepare/v0',
+          ok: false,
+          status: 'failed',
+          reason_code: 'KANBAN_MARKETING_WORKER_DISPATCHER_PREPARE_UI_FAILED',
+          reason_codes: ['KANBAN_MARKETING_WORKER_DISPATCHER_PREPARE_UI_FAILED'],
+          message:
+            prepareError instanceof Error
+              ? prepareError.message
+              : t('commandCenter.marketingBoard.workerDispatcherPrepare.failed'),
+          card_id: card.card_id,
+          subprocess_spawned: false,
+          external_calls: false,
+          data_boundary_checked: false,
+          controller_approved: false,
+          release_blocked: true,
+          human_gate: 'HG-3.5',
+          source: {
+            generated_by: 'command-eve-kanban-marketing-board-core',
+            hermes_home: '',
+          },
+        };
+        setWorkerDispatcherPrepareResult(failure);
+        Message.error(failure.message || t('commandCenter.marketingBoard.workerDispatcherPrepare.failed'));
+      } finally {
+        setPreparingWorkerDispatcherCardId(null);
       }
     },
     [applyBoardModel, t]
@@ -4539,6 +4847,7 @@ const CommandCenterPage: React.FC = () => {
               workerDispatchRequestResult={workerDispatchRequestResult}
               workerObservedRunResult={workerObservedRunResult}
               workerStartGateResult={workerStartGateResult}
+              workerDispatcherPrepareResult={workerDispatcherPrepareResult}
               createModalVisible={createModalVisible}
               createSubmitting={createSubmitting}
               movingCardId={movingCardId}
@@ -4549,6 +4858,7 @@ const CommandCenterPage: React.FC = () => {
               requestingWorkerDispatchCardId={requestingWorkerDispatchCardId}
               runningObservedWorkerCardId={runningObservedWorkerCardId}
               checkingWorkerStartGateCardId={checkingWorkerStartGateCardId}
+              preparingWorkerDispatcherCardId={preparingWorkerDispatcherCardId}
               approvalRecording={approvalRecording}
               decisionRecording={decisionRecording}
               onCreateProofCard={createProofCard}
@@ -4566,6 +4876,7 @@ const CommandCenterPage: React.FC = () => {
               onRequestWorkerDispatch={requestWorkerDispatch}
               onRunObservedWorker={runObservedWorker}
               onCheckWorkerStartGate={checkWorkerStartGate}
+              onPrepareWorkerDispatcher={prepareWorkerDispatcher}
             />
             <MarketingCardCommentModal
               card={commentCard}

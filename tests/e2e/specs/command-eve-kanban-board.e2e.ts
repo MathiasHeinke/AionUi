@@ -784,6 +784,21 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     await observedExecutorProfileButton.click();
     await expect(startGateResult).toContainText(/command_eve\.runtime_executor_profile_accepted_no_spawn/);
     await expect(startGateResult).toContainText(/hermes-local-observed/);
+    const prepareDispatcherButton = page.getByTestId(
+      `marketing-dispatch-queue-prepare-worker-dispatcher-${dispatchCardId}`
+    );
+    await expect(prepareDispatcherButton).toBeEnabled({ timeout: 30_000 });
+    await prepareDispatcherButton.click();
+    const dispatcherPrepareResult = page.getByTestId('marketing-worker-dispatcher-prepare-result');
+    await expect(dispatcherPrepareResult).toBeVisible({ timeout: 60_000 });
+    await expect(dispatcherPrepareResult).toContainText(/command-eve-worker-dispatcher-prepare-packet/);
+    await expect(dispatcherPrepareResult).toContainText(/subprocess_spawned.*false|subprocess.*false/);
+    await expect(
+      page.getByTestId(`marketing-dispatch-queue-worker-dispatcher-prepared-tag-${dispatchCardId}`)
+    ).toContainText(/Dispatcher|vorbereitet|prepared/);
+    await expect(page.getByTestId(`marketing-dispatch-queue-next-${dispatchCardId}`)).toContainText(
+      /Release|Freigabe|Dispatcher|prepared/
+    );
     await expect(page.getByTestId('command-center-operating-readiness')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('operating-readiness-controllerReviewQueue')).toContainText(/ready|bereit|1/);
     await expect(page.getByTestId('operating-readiness-dispatchBlocked')).toContainText(
@@ -1154,6 +1169,53 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     expect(readyStartGatePayload.reason_codes).toContain('command_eve.marketing_worker_start_gate_checked_no_spawn');
     expect(readyStartGatePayload.reason_codes).toContain('command_eve.runtime_executor_profile_accepted_no_spawn');
 
+    const dispatcherPrepareRows = sqliteQuery(
+      dispatchBoardDbPath!,
+      `SELECT kind, payload FROM task_events WHERE task_id = '${dispatchCardId}' AND kind = 'command_eve_marketing_worker_dispatcher_prepared' LIMIT 1`
+    );
+    expect(
+      dispatcherPrepareRows.length,
+      `marketing worker dispatcher prepare receipt must exist for ${dispatchCardId}`
+    ).toBeGreaterThan(0);
+    const dispatcherPreparePayload = JSON.parse(dispatcherPrepareRows[0][1]) as {
+      dispatcher_prepare_status?: string;
+      worker_start_gate_status?: string;
+      subprocess_spawned?: boolean;
+      external_calls?: boolean;
+      release_blocked?: boolean;
+      reason_codes?: string[];
+      dispatcher_prepare_packet?: {
+        version?: string;
+        executor_kind?: string;
+        execution_mode?: string;
+        transport?: string;
+        dispatcher_prepare_status?: string;
+        worker_start_gate_status?: string;
+        subprocess_spawned?: boolean;
+        external_calls?: boolean;
+        release_blocked?: boolean;
+      };
+    };
+    expect(dispatcherPreparePayload.dispatcher_prepare_status).toBe('ready');
+    expect(dispatcherPreparePayload.worker_start_gate_status).toBe('ready');
+    expect(dispatcherPreparePayload.subprocess_spawned).toBe(false);
+    expect(dispatcherPreparePayload.external_calls).toBe(false);
+    expect(dispatcherPreparePayload.release_blocked).toBe(true);
+    expect(dispatcherPreparePayload.dispatcher_prepare_packet).toMatchObject({
+      version: 'command-eve-worker-dispatcher-prepare-packet/v0',
+      executor_kind: 'hermes-local-observed',
+      execution_mode: 'observed',
+      transport: 'local',
+      dispatcher_prepare_status: 'ready',
+      worker_start_gate_status: 'ready',
+      subprocess_spawned: false,
+      external_calls: false,
+      release_blocked: true,
+    });
+    expect(dispatcherPreparePayload.reason_codes).toContain(
+      'command_eve.marketing_worker_dispatcher_prepared_no_spawn'
+    );
+
     const outputComments = sqliteQuery(
       dispatchBoardDbPath!,
       `SELECT COUNT(*) FROM task_comments WHERE task_id = '${dispatchCardId}' AND author = 'eve' AND body LIKE 'Approved local marketing output:%${postTitle}%'`
@@ -1353,6 +1415,46 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     expect(
       matchingStartGateAudit,
       `audit ledger must contain kanban.marketing_board_worker_start_gate_checked for card_id=${dispatchCardId}`
+    ).toBeTruthy();
+    const matchingDispatcherPrepareAudit = ledgerLines.find((line) => {
+      try {
+        const evt = JSON.parse(line) as { event_type?: string; issue_id?: string; payload?: Record<string, unknown> };
+        const preparePacket = evt.payload?.dispatcher_prepare_packet as
+          | {
+              version?: string;
+              executor_kind?: string;
+              execution_mode?: string;
+              transport?: string;
+              dispatcher_prepare_status?: string;
+              worker_start_gate_status?: string;
+              subprocess_spawned?: boolean;
+              external_calls?: boolean;
+              release_blocked?: boolean;
+            }
+          | undefined;
+        return (
+          evt.issue_id === dispatchCardId &&
+          evt.event_type === 'kanban.marketing_board_worker_dispatcher_prepared' &&
+          evt.payload?.dispatcher_prepare_status === 'ready' &&
+          evt.payload?.worker_start_gate_status === 'ready' &&
+          evt.payload?.subprocess_spawned === false &&
+          evt.payload?.external_calls === false &&
+          evt.payload?.release_blocked === true &&
+          preparePacket?.version === 'command-eve-worker-dispatcher-prepare-packet/v0' &&
+          preparePacket?.executor_kind === 'hermes-local-observed' &&
+          preparePacket?.execution_mode === 'observed' &&
+          preparePacket?.transport === 'local' &&
+          preparePacket?.subprocess_spawned === false &&
+          preparePacket?.external_calls === false &&
+          preparePacket?.release_blocked === true
+        );
+      } catch {
+        return false;
+      }
+    });
+    expect(
+      matchingDispatcherPrepareAudit,
+      `audit ledger must contain kanban.marketing_board_worker_dispatcher_prepared for card_id=${dispatchCardId}`
     ).toBeTruthy();
 
     const screenshotPath = 'tests/e2e/results/command-eve-kanban-board-dispatch-gate.png';

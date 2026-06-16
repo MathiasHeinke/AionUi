@@ -19,6 +19,7 @@ import {
   generateKanbanMarketingDraft,
   moveKanbanMarketingCard,
   planKanbanMarketingCardDispatch,
+  prepareKanbanMarketingWorkerDispatcher,
   recordKanbanMarketingDispatchApproval,
   recordKanbanMarketingDispatchDecision,
   requestKanbanMarketingWorkerDispatch,
@@ -1727,6 +1728,92 @@ describe('Command EVE Kanban marketing-board mutations', () => {
       subprocess_spawn_allowed: false,
       hg3_approved: true,
       raw_profile_stored: false,
+    });
+
+    const dispatcherPrepare = prepareKanbanMarketingWorkerDispatcher({
+      userDataPath: root,
+      boardSlug: 'marketing',
+      eventLedgerPath,
+      task_id: created.card_id || '',
+      dispatch_handoff_packet: result.dispatch_handoff_packet,
+      prepare_note: 'Prepare gated dispatcher only after accepted start gate; still do not spawn.',
+      now: () => new Date('2026-06-13T10:14:00.000Z'),
+    });
+
+    expect(dispatcherPrepare.ok).toBe(true);
+    expect(dispatcherPrepare.status).toBe('ready');
+    expect(dispatcherPrepare.reason_code).toBe('KANBAN_MARKETING_WORKER_DISPATCHER_PREPARED');
+    expect(dispatcherPrepare.prepare_event_kind).toBe('command_eve_marketing_worker_dispatcher_prepared');
+    expect(dispatcherPrepare.worker_dispatcher_prepare_status).toBe('ready');
+    expect(dispatcherPrepare.worker_start_gate_status).toBe('ready');
+    expect(dispatcherPrepare.subprocess_spawned).toBe(false);
+    expect(dispatcherPrepare.external_calls).toBe(false);
+    expect(dispatcherPrepare.release_blocked).toBe(true);
+    expect(dispatcherPrepare.human_gate).toBe('HG-3.5');
+    expect(dispatcherPrepare.data_boundary_checked).toBe(true);
+    expect(dispatcherPrepare.dispatcher_prepare_packet).toMatchObject({
+      version: 'command-eve-worker-dispatcher-prepare-packet/v0',
+      card_id: created.card_id,
+      executor_kind: 'hermes-local-observed',
+      execution_mode: 'observed',
+      transport: 'local',
+      dispatcher_prepare_status: 'ready',
+      worker_start_gate_status: 'ready',
+      subprocess_spawned: false,
+      external_calls: false,
+      release_blocked: true,
+    });
+    expect(dispatcherPrepare.model?.summary.worker_dispatcher_prepared_cards).toBe(1);
+    const dispatcherPreparedCard = dispatcherPrepare.model?.columns
+      .flatMap((column) => column.cards)
+      .find((card) => card.card_id === created.card_id);
+    expect(dispatcherPreparedCard).toMatchObject({
+      worker_dispatcher_prepare_status: 'ready',
+      worker_dispatcher_prepare_audit_event_id: dispatcherPrepare.audit_event_id,
+    });
+    expect(dispatcherPreparedCard?.worker_dispatcher_prepare_packet).toContain(
+      'command-eve-worker-dispatcher-prepare-packet/v0'
+    );
+
+    const dispatcherPrepareEvents = readRows(
+      marketingBoardPath(root),
+      "SELECT task_id, kind, payload FROM task_events WHERE kind = 'command_eve_marketing_worker_dispatcher_prepared'"
+    );
+    expect(dispatcherPrepareEvents).toHaveLength(1);
+    const dispatcherPreparePayload = JSON.parse(
+      String((dispatcherPrepareEvents[0] as { payload: string }).payload)
+    ) as {
+      dispatcher_prepare_status?: string;
+      worker_start_gate_status?: string;
+      subprocess_spawned?: boolean;
+      external_calls?: boolean;
+      release_blocked?: boolean;
+      reason_codes?: string[];
+    };
+    expect(dispatcherPreparePayload.dispatcher_prepare_status).toBe('ready');
+    expect(dispatcherPreparePayload.worker_start_gate_status).toBe('ready');
+    expect(dispatcherPreparePayload.subprocess_spawned).toBe(false);
+    expect(dispatcherPreparePayload.external_calls).toBe(false);
+    expect(dispatcherPreparePayload.release_blocked).toBe(true);
+    expect(dispatcherPreparePayload.reason_codes).toContain(
+      'command_eve.marketing_worker_dispatcher_prepared_no_spawn'
+    );
+
+    const dispatcherPrepareAuditEvents = readAuditEvents(eventLedgerPath);
+    expect(dispatcherPrepareAuditEvents).toHaveLength(12);
+    expect(dispatcherPrepareAuditEvents[11]).toMatchObject({
+      event_type: 'kanban.marketing_board_worker_dispatcher_prepared',
+      producer: 'command-eve-desktop',
+      agent: 'eve',
+      mode: 'kanban-marketing-worker-dispatcher-prepare',
+      human_gate_required: true,
+      payload: expect.objectContaining({
+        dispatcher_prepare_status: 'ready',
+        worker_start_gate_status: 'ready',
+        subprocess_spawned: false,
+        external_calls: false,
+        release_blocked: true,
+      }),
     });
   });
 

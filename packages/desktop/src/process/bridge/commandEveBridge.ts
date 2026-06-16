@@ -31,6 +31,7 @@ import {
   generateKanbanMarketingDraft,
   moveKanbanMarketingCard,
   planKanbanMarketingCardDispatch,
+  prepareKanbanMarketingWorkerDispatcher,
   recordKanbanMarketingDispatchApproval,
   recordKanbanMarketingDispatchDecision,
   requestKanbanMarketingWorkerDispatch,
@@ -845,6 +846,61 @@ export function initCommandEveBridge(): void {
               controller_approved: false,
               release_blocked: true,
               human_gate: 'HG-3',
+              source: {
+                generated_by: 'command-eve-kanban-marketing-board-core',
+                hermes_home: '',
+              },
+            },
+          };
+        }
+      }
+    );
+
+  bridge
+    .buildProvider('command-eve.kanban-marketing-worker-dispatcher-prepare')
+    .provider(
+      async (request?: {
+        task_id?: string;
+        boardSlug?: string;
+        eventLedgerPath?: string;
+        dispatch_handoff_packet?: Record<string, unknown>;
+        prepare_note?: string;
+      }) => {
+        try {
+          const result = prepareKanbanMarketingWorkerDispatcher({
+            userDataPath: getDataPath(),
+            task_id: request?.task_id || '',
+            boardSlug: request?.boardSlug,
+            eventLedgerPath: request?.eventLedgerPath,
+            dispatch_handoff_packet: request?.dispatch_handoff_packet,
+            prepare_note: request?.prepare_note,
+          });
+          return {
+            success: result.ok,
+            msg: result.ok ? undefined : result.reason_code || result.message,
+            data: result,
+          };
+        } catch (error) {
+          return {
+            success: false,
+            msg:
+              error instanceof Error ? error.message : 'Command EVE marketing worker-dispatcher-prepare bridge failed.',
+            data: {
+              version: 'command-eve-kanban-marketing-worker-dispatcher-prepare/v0',
+              ok: false,
+              status: 'failed',
+              reason_code: 'KANBAN_MARKETING_WORKER_DISPATCHER_PREPARE_BRIDGE_FAILED',
+              reason_codes: ['KANBAN_MARKETING_WORKER_DISPATCHER_PREPARE_BRIDGE_FAILED'],
+              message:
+                error instanceof Error
+                  ? error.message
+                  : 'Command EVE marketing worker-dispatcher-prepare bridge failed.',
+              subprocess_spawned: false,
+              external_calls: false,
+              data_boundary_checked: false,
+              controller_approved: false,
+              release_blocked: true,
+              human_gate: 'HG-3.5',
               source: {
                 generated_by: 'command-eve-kanban-marketing-board-core',
                 hermes_home: '',
