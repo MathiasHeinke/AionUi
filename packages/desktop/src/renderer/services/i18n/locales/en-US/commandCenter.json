@@ -125,6 +125,13 @@
       "controllerReview": "Controller review",
       "owner": "Owner"
     },
+    "crmHandoff": {
+      "source": "CRM handoff",
+      "deal": "Deal",
+      "contact": "Contact",
+      "stage": "Stage",
+      "consent": "Consent"
+    },
     "blocked": {
       "title": "Marketing Board not initialized yet",
       "description": "Hermes Kanban is ready, but the local marketing board database has not been created yet."

@@ -150,6 +150,7 @@ export type CommandEveKanbanPreflightOptions = {
 export type CommandEveKanbanMarketingCard = {
   card_id: string;
   card_title: string;
+  card_body: string;
   card_status: string;
   card_priority: number;
   card_assignee: string;
@@ -932,6 +933,7 @@ function parseMarketingCards(rows: unknown[]): CommandEveKanbanMarketingCard[] {
     return {
       card_id: textField(item.id),
       card_title: textField(item.title),
+      card_body: textField(item.body),
       card_status: status,
       card_priority: numberField(item.priority),
       card_assignee: textField(item.assignee),

@@ -165,6 +165,7 @@ type IMarketingCardAction = 'comment' | 'block' | 'unblock' | 'complete';
 interface ICommandEveMarketingCard {
   card_id: string;
   card_title: string;
+  card_body: string;
   card_status: string;
   card_priority: number;
   card_assignee: string;
@@ -1021,6 +1022,35 @@ const formatCount = (value: number | undefined): string => String(Number.isFinit
 const firstReasonCode = (reasonCodes: string[] | undefined, fallback?: string): string =>
   reasonCodes && reasonCodes.length > 0 ? reasonCodes[0] : fallback || '-';
 
+interface ICrmHandoffSource {
+  dealId: string;
+  company: string;
+  contact: string;
+  stage: string;
+  consent: string;
+}
+
+const crmHandoffField = (body: string, label: string): string => {
+  const prefix = `${label}:`;
+  const line = body
+    .split('\n')
+    .map((entry) => entry.trim())
+    .find((entry) => entry.startsWith(prefix));
+  return line ? line.slice(prefix.length).trim() : '';
+};
+
+const crmHandoffSourceForCard = (card: ICommandEveMarketingCard): ICrmHandoffSource | null => {
+  const body = String(card.card_body || '');
+  if (!body.includes('Source: Command EVE local CRM overlay')) return null;
+  return {
+    dealId: crmHandoffField(body, 'CRM deal'),
+    company: crmHandoffField(body, 'Company'),
+    contact: crmHandoffField(body, 'Contact'),
+    stage: crmHandoffField(body, 'Stage'),
+    consent: crmHandoffField(body, 'Consent'),
+  };
+};
+
 const recordStringField = (record: Record<string, unknown> | undefined, key: string): string => {
   const value = record?.[key];
   return typeof value === 'string' ? value.trim() : '';
@@ -1448,6 +1478,7 @@ const MarketingCardView: React.FC<{
   const actioning = actioningCardId === card.card_id;
   const blocked = card.card_status === 'blocked';
   const completed = card.card_status === 'completed';
+  const crmHandoffSource = crmHandoffSourceForCard(card);
   return (
     <article
       data-testid={`marketing-card-${card.card_id}`}
@@ -1460,6 +1491,27 @@ const MarketingCardView: React.FC<{
         </div>
         <Tag color={stateColor(card.card_status)}>{textOrDash(card.card_status)}</Tag>
       </div>
+      {crmHandoffSource ? (
+        <div
+          className='mt-8px rounded-8px border border-solid border-fill-3 bg-fill-1 px-8px py-6px text-11px leading-16px'
+          data-testid={`marketing-card-crm-source-${card.card_id}`}
+        >
+          <div className='mb-4px flex flex-wrap items-center gap-6px'>
+            <Tag color='orange'>{t('commandCenter.marketingBoard.crmHandoff.source')}</Tag>
+            <span className='truncate text-t-primary'>{textOrDash(crmHandoffSource.company)}</span>
+          </div>
+          <div className='grid gap-x-8px gap-y-2px text-t-secondary sm:grid-cols-[max-content_1fr]'>
+            <span className='text-t-tertiary'>{t('commandCenter.marketingBoard.crmHandoff.deal')}</span>
+            <span className='truncate'>{textOrDash(crmHandoffSource.dealId)}</span>
+            <span className='text-t-tertiary'>{t('commandCenter.marketingBoard.crmHandoff.contact')}</span>
+            <span className='truncate'>{textOrDash(crmHandoffSource.contact)}</span>
+            <span className='text-t-tertiary'>{t('commandCenter.marketingBoard.crmHandoff.stage')}</span>
+            <span className='truncate'>{textOrDash(crmHandoffSource.stage)}</span>
+            <span className='text-t-tertiary'>{t('commandCenter.marketingBoard.crmHandoff.consent')}</span>
+            <span className='truncate'>{textOrDash(crmHandoffSource.consent)}</span>
+          </div>
+        </div>
+      ) : null}
       <dl className='mt-8px grid grid-cols-2 gap-x-8px gap-y-4px text-11px leading-16px'>
         <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.labels.owner')}</dt>
         <dd className='m-0 truncate text-t-secondary'>{textOrDash(card.card_assignee)}</dd>
@@ -1830,6 +1882,7 @@ const MarketingDispatchQueueView: React.FC<{
               workerStartGateChecking ||
               workerDispatcherPreparing ||
               safeLocalLoopRunning;
+            const crmHandoffSource = crmHandoffSourceForCard(card);
             return (
               <article
                 key={card.card_id}
@@ -1852,6 +1905,40 @@ const MarketingDispatchQueueView: React.FC<{
                     {t(`commandCenter.marketingBoard.dispatch.${queueStatus}`)}
                   </Tag>
                 </div>
+                {crmHandoffSource ? (
+                  <div
+                    className='mt-8px rounded-8px border border-solid border-fill-3 bg-fill-1 px-8px py-6px text-11px leading-16px'
+                    data-testid={`marketing-dispatch-queue-crm-source-${card.card_id}`}
+                  >
+                    <div className='mb-4px flex flex-wrap items-center gap-6px'>
+                      <Tag color='orange'>{t('commandCenter.marketingBoard.crmHandoff.source')}</Tag>
+                      <span
+                        className='truncate text-t-primary'
+                        data-testid={`marketing-dispatch-queue-crm-company-${card.card_id}`}
+                      >
+                        {textOrDash(crmHandoffSource.company)}
+                      </span>
+                    </div>
+                    <div className='grid gap-x-8px gap-y-2px text-t-secondary sm:grid-cols-[max-content_1fr]'>
+                      <span className='text-t-tertiary'>
+                        {t('commandCenter.marketingBoard.crmHandoff.deal')}
+                      </span>
+                      <span className='truncate'>{textOrDash(crmHandoffSource.dealId)}</span>
+                      <span className='text-t-tertiary'>
+                        {t('commandCenter.marketingBoard.crmHandoff.contact')}
+                      </span>
+                      <span className='truncate'>{textOrDash(crmHandoffSource.contact)}</span>
+                      <span className='text-t-tertiary'>
+                        {t('commandCenter.marketingBoard.crmHandoff.stage')}
+                      </span>
+                      <span className='truncate'>{textOrDash(crmHandoffSource.stage)}</span>
+                      <span className='text-t-tertiary'>
+                        {t('commandCenter.marketingBoard.crmHandoff.consent')}
+                      </span>
+                      <span className='truncate'>{textOrDash(crmHandoffSource.consent)}</span>
+                    </div>
+                  </div>
+                ) : null}
                 <dl className='m-0 mt-8px grid gap-x-10px gap-y-4px text-11px leading-16px sm:grid-cols-[max-content_1fr]'>
                   <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.handoff')}</dt>
                   <dd className='m-0 truncate text-t-secondary'>

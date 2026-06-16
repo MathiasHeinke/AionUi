@@ -1927,7 +1927,19 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     );
     expect(crmMarketingTaskRows[0]?.[1]).toBe('Outreach Pilot');
     expect(crmMarketingTaskRows[0]?.[2]).toBe('research');
+    const crmMarketingBodyRows = sqliteQuery(
+      crmMarketingDbPath!,
+      `SELECT COUNT(*) FROM tasks WHERE id = '${crmMarketingCardId}' AND body LIKE '%CRM deal:%' AND body LIKE '%Company: Alois Consulting GmbH%' AND body LIKE '%Source: Command EVE local CRM overlay%'`
+    );
+    expect(Number(crmMarketingBodyRows[0]?.[0] || 0), 'CRM handoff body must persist source metadata').toBe(1);
     await expect(page.getByTestId(`marketing-dispatch-queue-item-${crmMarketingCardId}`)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId(`marketing-dispatch-queue-crm-source-${crmMarketingCardId}`)).toContainText(
+      /CRM-Handoff|CRM handoff/,
+      { timeout: 30_000 }
+    );
+    await expect(page.getByTestId(`marketing-dispatch-queue-crm-company-${crmMarketingCardId}`)).toContainText(
+      'Alois Consulting GmbH'
+    );
     await expect(page.getByTestId(`marketing-dispatch-queue-status-${crmMarketingCardId}`)).toContainText(
       /ausstehend|pending/
     );

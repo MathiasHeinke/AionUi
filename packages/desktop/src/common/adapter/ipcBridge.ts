@@ -713,6 +713,7 @@ export type ICommandEveKanbanMarketingCardAction = 'comment' | 'block' | 'unbloc
 export interface ICommandEveKanbanMarketingCard {
   card_id: string;
   card_title: string;
+  card_body: string;
   card_status: string;
   card_priority: number;
   card_assignee: string;
