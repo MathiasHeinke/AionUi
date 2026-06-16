@@ -829,6 +829,7 @@ export interface ICommandEveKanbanMarketingDispatchPlanResult {
   audit_event_id?: string;
   audit_event_path?: string;
   dispatch_plan?: Record<string, unknown>;
+  dispatch_handoff_packet?: Record<string, unknown>;
   dispatch_source?: string;
   dispatch_source_reason?: string;
   policy?: Record<string, unknown>;
@@ -836,6 +837,38 @@ export interface ICommandEveKanbanMarketingDispatchPlanResult {
     generated_by: 'command-eve-kanban-marketing-board-core';
     hermes_home: string;
     company_os_root?: string;
+  };
+}
+
+export interface ICommandEveKanbanMarketingWorkerLoopResult {
+  version: string;
+  ok: boolean;
+  status: ICommandEveKanbanMarketingBoardStatus;
+  reason_code?: string;
+  reason_codes?: string[];
+  message?: string;
+  card_id?: string;
+  subprocess_spawned: boolean;
+  external_calls?: boolean;
+  data_boundary_checked: boolean;
+  controller_approval_status?: string;
+  controller_approved?: boolean;
+  release_blocked?: boolean;
+  human_gate?: 'HG-2.5' | 'HG-3' | 'HG-3.5';
+  audit_event_id?: string;
+  audit_event_path?: string;
+  dispatch_handoff_packet?: Record<string, unknown>;
+  worker_contract_yaml?: string;
+  worker_prompt?: string;
+  worker_observed_output?: string;
+  worker_start_gate_status?: 'ready' | 'blocked';
+  worker_start_packet?: Record<string, unknown>;
+  worker_dispatcher_prepare_status?: 'ready';
+  dispatcher_prepare_packet?: Record<string, unknown>;
+  model?: ICommandEveKanbanMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
   };
 }
 
@@ -869,6 +902,32 @@ export interface ICommandEveKanbanMarketingDispatchPlanRequest {
   dispatchMode?: 'auto' | 'embedded';
   boardSlug?: string;
   eventLedgerPath?: string;
+}
+
+export interface ICommandEveKanbanMarketingDispatchGovernanceRequest {
+  task_id: string;
+  decision?: 'approved' | 'rejected';
+  boardSlug?: string;
+  eventLedgerPath?: string;
+  dispatch_handoff_packet?: Record<string, unknown>;
+  review_note?: string;
+  decision_note?: string;
+}
+
+export interface ICommandEveKanbanMarketingWorkerLoopRequest {
+  task_id: string;
+  boardSlug?: string;
+  eventLedgerPath?: string;
+  dispatch_handoff_packet?: Record<string, unknown>;
+  generation_note?: string;
+  approval_note?: string;
+  request_note?: string;
+  observed_note?: string;
+  gate_note?: string;
+  prepare_note?: string;
+  dispatchMode?: 'auto' | 'embedded';
+  executor_enabled?: boolean;
+  executor_profile?: Record<string, unknown>;
 }
 
 export interface ICommandEveCrmOverlayPolicy {
@@ -1137,6 +1196,38 @@ export const commandEve = {
     IBridgeResponse<ICommandEveKanbanMarketingDispatchPlanResult>,
     ICommandEveKanbanMarketingDispatchPlanRequest
   >('command-eve.kanban-marketing-dispatch-plan'),
+  kanbanMarketingDispatchApproval: bridge.buildProvider<
+    IBridgeResponse<ICommandEveKanbanMarketingWorkerLoopResult>,
+    ICommandEveKanbanMarketingDispatchGovernanceRequest
+  >('command-eve.kanban-marketing-dispatch-approval'),
+  kanbanMarketingDispatchDecision: bridge.buildProvider<
+    IBridgeResponse<ICommandEveKanbanMarketingWorkerLoopResult>,
+    ICommandEveKanbanMarketingDispatchGovernanceRequest
+  >('command-eve.kanban-marketing-dispatch-decision'),
+  kanbanMarketingDraftGenerate: bridge.buildProvider<
+    IBridgeResponse<ICommandEveKanbanMarketingWorkerLoopResult>,
+    ICommandEveKanbanMarketingWorkerLoopRequest
+  >('command-eve.kanban-marketing-draft-generate'),
+  kanbanMarketingOutputApprove: bridge.buildProvider<
+    IBridgeResponse<ICommandEveKanbanMarketingWorkerLoopResult>,
+    ICommandEveKanbanMarketingWorkerLoopRequest
+  >('command-eve.kanban-marketing-output-approve'),
+  kanbanMarketingWorkerDispatchRequest: bridge.buildProvider<
+    IBridgeResponse<ICommandEveKanbanMarketingWorkerLoopResult>,
+    ICommandEveKanbanMarketingWorkerLoopRequest
+  >('command-eve.kanban-marketing-worker-dispatch-request'),
+  kanbanMarketingWorkerObservedRun: bridge.buildProvider<
+    IBridgeResponse<ICommandEveKanbanMarketingWorkerLoopResult>,
+    ICommandEveKanbanMarketingWorkerLoopRequest
+  >('command-eve.kanban-marketing-worker-observed-run'),
+  kanbanMarketingWorkerStartGate: bridge.buildProvider<
+    IBridgeResponse<ICommandEveKanbanMarketingWorkerLoopResult>,
+    ICommandEveKanbanMarketingWorkerLoopRequest
+  >('command-eve.kanban-marketing-worker-start-gate'),
+  kanbanMarketingWorkerDispatcherPrepare: bridge.buildProvider<
+    IBridgeResponse<ICommandEveKanbanMarketingWorkerLoopResult>,
+    ICommandEveKanbanMarketingWorkerLoopRequest
+  >('command-eve.kanban-marketing-worker-dispatcher-prepare'),
   crmOverlay: bridge.buildProvider<IBridgeResponse<ICommandEveCrmOverlayResult>, { eventLedgerPath?: string } | void>(
     'command-eve.crm-overlay'
   ),

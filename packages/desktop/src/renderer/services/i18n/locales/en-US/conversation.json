@@ -505,7 +505,10 @@
     "createdUnchecked": "Marketing card was created, but the local dispatch check is not green yet.",
     "desktopRequired": "Local Command EVE board actions are available only in the desktop app.",
     "failed": "Could not create the marketing card.",
-    "filesUnsupported": "Local marketing-board actions do not accept file attachments. Create the card first, then attach files in the board."
+    "filesUnsupported": "Local marketing-board actions do not accept file attachments. Create the card first, then attach files in the board.",
+    "loopFailed": "Marketing loop could not be fully prepared locally.",
+    "loopHandoffMissing": "Marketing loop blocked: the local dispatch handoff is missing.",
+    "loopPrepared": "Marketing loop \"{{title}}\" prepared locally: draft, approval, observed worker and dispatcher start packet were saved no-spawn."
   },
   "runtimeStatus": {
     "phase": {
