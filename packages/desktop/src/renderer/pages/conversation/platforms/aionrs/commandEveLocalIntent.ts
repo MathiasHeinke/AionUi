@@ -21,6 +21,7 @@ export type CommandEveLocalMarketingIntent = {
   description?: string;
   laneKey: ICommandEveKanbanMarketingLaneKey;
   shouldPlanDispatch: boolean;
+  shouldRunSafeLocalLoop: boolean;
 };
 
 export type CommandEveLocalMarketingIntentResult = {
@@ -68,6 +69,7 @@ export const parseCommandEveLocalMarketingIntent = (input: string): CommandEveLo
       ...parsed,
       laneKey: 'research',
       shouldPlanDispatch: true,
+      shouldRunSafeLocalLoop: true,
     };
   }
 
@@ -81,6 +83,7 @@ export const parseCommandEveLocalMarketingIntent = (input: string): CommandEveLo
       ...parsed,
       laneKey: 'research',
       shouldPlanDispatch: true,
+      shouldRunSafeLocalLoop: false,
     };
   }
 

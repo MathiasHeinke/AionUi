@@ -64,6 +64,47 @@ const EMPTY_AT_PATH: Array<string | FileOrFolderItem> = [];
 const EMPTY_UPLOAD_FILES: string[] = [];
 const COMMAND_EVE_MARKETING_BOARD_SLUG = 'marketing';
 
+const commandEveDispatchHandoffForPlan = (
+  dispatchPlan: { dispatch_handoff_packet?: Record<string, unknown>; dispatch_plan?: Record<string, unknown> } | null
+): Record<string, unknown> | undefined => {
+  if (dispatchPlan?.dispatch_handoff_packet) return dispatchPlan.dispatch_handoff_packet;
+  const embedded = dispatchPlan?.dispatch_plan?.dispatch_handoff_packet;
+  return embedded && typeof embedded === 'object' && !Array.isArray(embedded)
+    ? (embedded as Record<string, unknown>)
+    : undefined;
+};
+
+const commandEveLocalDispatchHandoffForCard = (
+  cardId: string,
+  status: string,
+  humanGate: 'HG-2.5' | 'HG-3' | 'HG-3.5'
+): Record<string, unknown> => ({
+  version:
+    humanGate === 'HG-3.5'
+      ? 'command-eve-worker-dispatcher-prepare-handoff/v0'
+      : humanGate === 'HG-3'
+        ? 'command-eve-worker-start-gate-handoff/v0'
+        : 'command-eve-local-dispatch-handoff/v0',
+  status,
+  dispatch: 'manual',
+  role_label: 'role:cmo',
+  card_id: cardId,
+  human_gate: humanGate,
+});
+
+const createCommandEveObservedLocalExecutorProfile = (): Record<string, unknown> => ({
+  version: 'command-eve-runtime-executor-profile/v0',
+  executor_kind: 'hermes-local-observed',
+  execution_mode: 'observed',
+  transport: 'local',
+  data_boundary_enforced: true,
+  external_calls_allowed: false,
+  subprocess_spawn_allowed: false,
+  hg3_approved: true,
+  approved_by: 'command-eve-chat-hg3-observed-local-loop',
+  approved_at: new Date().toISOString(),
+});
+
 const useSendBoxDraft = (conversation_id: string) => {
   const { data, mutate } = useAionrsSendBoxDraft(conversation_id);
 
@@ -297,6 +338,165 @@ const AionrsSendBox: React.FC<{
         emitter.emit('commandEve.commandCenter.refresh');
 
         if (dispatchPlan?.ok && dispatchPlan.data_boundary_checked && dispatchPlan.subprocess_spawned === false) {
+          if (intent.shouldRunSafeLocalLoop) {
+            const planHandoff = commandEveDispatchHandoffForPlan(dispatchPlan);
+            if (!planHandoff) {
+              Message.warning(t('conversation.commandEveLocalMarketingIntent.loopHandoffMissing'));
+              return true;
+            }
+
+            const cardId = cardResult.card_id;
+            const reviewResponse = await ipcBridge.commandEve.kanbanMarketingDispatchApproval.invoke({
+              task_id: cardId,
+              boardSlug: COMMAND_EVE_MARKETING_BOARD_SLUG,
+              dispatch_handoff_packet: planHandoff,
+              review_note: 'Command EVE chat recorded HG-2.5 pending review receipt for /marketing-loop.',
+            });
+            const reviewData = reviewResponse.data ?? null;
+            if (!reviewResponse.success || !reviewData?.ok) {
+              Message.warning(
+                reviewData?.reason_code ||
+                  reviewResponse.msg ||
+                  t('conversation.commandEveLocalMarketingIntent.loopFailed')
+              );
+              return true;
+            }
+
+            const decisionResponse = await ipcBridge.commandEve.kanbanMarketingDispatchDecision.invoke({
+              task_id: cardId,
+              decision: 'approved',
+              boardSlug: COMMAND_EVE_MARKETING_BOARD_SLUG,
+              dispatch_handoff_packet: planHandoff,
+              decision_note:
+                'Command EVE chat recorded HG-2.5 approved receipt for /marketing-loop without worker execution.',
+            });
+            const decisionData = decisionResponse.data ?? null;
+            if (!decisionResponse.success || !decisionData?.ok) {
+              Message.warning(
+                decisionData?.reason_code ||
+                  decisionResponse.msg ||
+                  t('conversation.commandEveLocalMarketingIntent.loopFailed')
+              );
+              return true;
+            }
+
+            const draftResponse = await ipcBridge.commandEve.kanbanMarketingDraftGenerate.invoke({
+              task_id: cardId,
+              boardSlug: COMMAND_EVE_MARKETING_BOARD_SLUG,
+              dispatch_handoff_packet: commandEveLocalDispatchHandoffForCard(cardId, 'controller_approved', 'HG-2.5'),
+              generation_note:
+                'Command EVE chat ran /marketing-loop: generated a local marketing draft after HG-2.5 approval.',
+              dispatchMode: 'embedded',
+            });
+            const draftData = draftResponse.data ?? null;
+            if (!draftResponse.success || !draftData?.ok) {
+              Message.warning(
+                draftData?.reason_code || draftResponse.msg || t('conversation.commandEveLocalMarketingIntent.loopFailed')
+              );
+              return true;
+            }
+
+            const outputResponse = await ipcBridge.commandEve.kanbanMarketingOutputApprove.invoke({
+              task_id: cardId,
+              boardSlug: COMMAND_EVE_MARKETING_BOARD_SLUG,
+              dispatch_handoff_packet: commandEveLocalDispatchHandoffForCard(cardId, 'output_approved', 'HG-2.5'),
+              approval_note: 'Command EVE chat /marketing-loop approved the generated local marketing output.',
+            });
+            const outputData = outputResponse.data ?? null;
+            if (!outputResponse.success || !outputData?.ok) {
+              Message.warning(
+                outputData?.reason_code ||
+                  outputResponse.msg ||
+                  t('conversation.commandEveLocalMarketingIntent.loopFailed')
+              );
+              return true;
+            }
+
+            const workerRequestResponse = await ipcBridge.commandEve.kanbanMarketingWorkerDispatchRequest.invoke({
+              task_id: cardId,
+              boardSlug: COMMAND_EVE_MARKETING_BOARD_SLUG,
+              dispatch_handoff_packet: commandEveLocalDispatchHandoffForCard(
+                cardId,
+                'worker_dispatch_requested',
+                'HG-2.5'
+              ),
+              request_note: 'Command EVE chat /marketing-loop requested dispatch; execution remains policy-locked.',
+            });
+            const workerRequestData = workerRequestResponse.data ?? null;
+            if (!workerRequestResponse.success || !workerRequestData?.ok) {
+              Message.warning(
+                workerRequestData?.reason_code ||
+                  workerRequestResponse.msg ||
+                  t('conversation.commandEveLocalMarketingIntent.loopFailed')
+              );
+              return true;
+            }
+
+            const observedResponse = await ipcBridge.commandEve.kanbanMarketingWorkerObservedRun.invoke({
+              task_id: cardId,
+              boardSlug: COMMAND_EVE_MARKETING_BOARD_SLUG,
+              dispatch_handoff_packet: commandEveLocalDispatchHandoffForCard(cardId, 'worker_observed_run', 'HG-2.5'),
+              observed_note:
+                'Command EVE chat /marketing-loop recorded an observed local worker receipt; no subprocess was spawned.',
+            });
+            const observedData = observedResponse.data ?? null;
+            if (!observedResponse.success || !observedData?.ok) {
+              Message.warning(
+                observedData?.reason_code ||
+                  observedResponse.msg ||
+                  t('conversation.commandEveLocalMarketingIntent.loopFailed')
+              );
+              return true;
+            }
+
+            const startGateResponse = await ipcBridge.commandEve.kanbanMarketingWorkerStartGate.invoke({
+              task_id: cardId,
+              boardSlug: COMMAND_EVE_MARKETING_BOARD_SLUG,
+              dispatch_handoff_packet: commandEveLocalDispatchHandoffForCard(cardId, 'worker_start_gate_check', 'HG-3'),
+              gate_note:
+                'Command EVE chat /marketing-loop checked an explicit HG-3 observed local executor profile without spawning a runtime worker.',
+              executor_enabled: true,
+              executor_profile: createCommandEveObservedLocalExecutorProfile(),
+            });
+            const startGateData = startGateResponse.data ?? null;
+            if (
+              !startGateResponse.success ||
+              !startGateData?.ok ||
+              startGateData.worker_start_gate_status !== 'ready'
+            ) {
+              Message.warning(
+                startGateData?.reason_code ||
+                  startGateResponse.msg ||
+                  t('conversation.commandEveLocalMarketingIntent.loopFailed')
+              );
+              return true;
+            }
+
+            const dispatcherResponse = await ipcBridge.commandEve.kanbanMarketingWorkerDispatcherPrepare.invoke({
+              task_id: cardId,
+              boardSlug: COMMAND_EVE_MARKETING_BOARD_SLUG,
+              dispatch_handoff_packet: commandEveLocalDispatchHandoffForCard(
+                cardId,
+                'worker_dispatcher_prepare',
+                'HG-3.5'
+              ),
+              prepare_note:
+                'Command EVE chat /marketing-loop prepared the gated dispatcher after worker start readiness; no runtime worker was spawned.',
+            });
+            const dispatcherData = dispatcherResponse.data ?? null;
+            if (!dispatcherResponse.success || !dispatcherData?.ok) {
+              Message.warning(
+                dispatcherData?.reason_code ||
+                  dispatcherResponse.msg ||
+                  t('conversation.commandEveLocalMarketingIntent.loopFailed')
+              );
+              return true;
+            }
+
+            Message.success(t('conversation.commandEveLocalMarketingIntent.loopPrepared', { title: intent.title }));
+            return true;
+          }
+
           Message.success(t('conversation.commandEveLocalMarketingIntent.createdChecked', { title: intent.title }));
           return true;
         }

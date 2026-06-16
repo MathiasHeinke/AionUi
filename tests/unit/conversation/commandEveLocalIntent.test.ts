@@ -21,6 +21,7 @@ describe('parseCommandEveLocalMarketingIntent', () => {
       title: 'KI-Rendite Offer',
       laneKey: 'research',
       shouldPlanDispatch: true,
+      shouldRunSafeLocalLoop: false,
     });
   });
 
@@ -31,6 +32,7 @@ describe('parseCommandEveLocalMarketingIntent', () => {
       description: 'Zielgruppe: Agenturen',
       laneKey: 'research',
       shouldPlanDispatch: true,
+      shouldRunSafeLocalLoop: false,
     });
   });
 
@@ -40,6 +42,7 @@ describe('parseCommandEveLocalMarketingIntent', () => {
       title: 'Daily LinkedIn Sprint',
       laneKey: 'research',
       shouldPlanDispatch: true,
+      shouldRunSafeLocalLoop: true,
     });
   });
 
