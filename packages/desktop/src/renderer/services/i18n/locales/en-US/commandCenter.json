@@ -1,8 +1,8 @@
 {
   "sider": "Command Center",
   "title": "Command Center",
-  "subtitle": "Read-only view into EVE's local Company.OS read model. No fake data, no direct write path.",
-  "readOnly": "Read-only",
+  "subtitle": "Local operating view into EVE's Company.OS read model. Marketing and CRM actions write local audit receipts only; dispatcher, auto-decompose, and external actions remain gated.",
+  "readOnly": "Local safe mode",
   "refresh": "Refresh",
   "blocked": {
     "title": "Read model unavailable",
@@ -15,8 +15,11 @@
   "sections": {
     "statusSurface": "Status / Health",
     "source": "Source",
+    "operatingSurfaces": "Operating Surfaces",
+    "operatingReadiness": "Operating Readiness",
     "board": "Local Board",
     "marketingBoard": "Marketing Board",
+    "crmOverlay": "CRM Overlay",
     "workerRuns": "Worker runs",
     "humanGates": "Human gates",
     "ceoCriticalReleases": "CEO-critical releases",
@@ -36,8 +39,62 @@
     "hermesUnavailable": "unavailable",
     "blockedActions": "Blocked actions"
   },
+  "operatingSurfaces": {
+    "description": "The active operating surfaces are visible separately: local marketing work, local CRM, and the dispatch gate. Everything writes local receipts only until a gate allows real execution.",
+    "open": "Open",
+    "status": {
+      "ready": "ready",
+      "check": "check",
+      "blocked": "blocked"
+    },
+    "tags": {
+      "localReceipts": "local receipts",
+      "localOnly": "local-only",
+      "noAutoSpawn": "no auto-spawn"
+    },
+    "marketing": {
+      "title": "Marketing Lane",
+      "description": "Create, move, comment on posts, and check NL-5 before worker dispatch."
+    },
+    "crm": {
+      "title": "CRM Lane",
+      "description": "Prepare companies, contacts, and deals locally; customer data remains HG-4 gated."
+    },
+    "dispatch": {
+      "title": "Dispatch Gate",
+      "description": "Shows whether a card dispatch was checked through NL-5 and Hermes remains blocked.",
+      "checked": "checked",
+      "waiting": "waiting"
+    }
+  },
+  "operatingReadiness": {
+    "description": "Proves local operability without silently enabling autonomy: marketing receipts, CRM NL-5 receipts, dispatch block, and worker lock must be visibly green.",
+    "marketingReceipts": {
+      "title": "Marketing receipts",
+      "description": "Every local marketing card is linked to an append-only audit event."
+    },
+    "crmNl5Receipts": {
+      "title": "CRM NL-5 receipts",
+      "description": "CRM actions write local NL-5 receipts before customer data may later touch any execution path."
+    },
+    "controllerReviewQueue": {
+      "title": "Controller review queue",
+      "description": "At least one dispatch handoff is visibly waiting for HG-2.5 review; worker execution remains locked."
+    },
+    "dispatchBlocked": {
+      "title": "Dispatch blocked before spawn",
+      "description": "The dispatch plan was checked through NL-5 and Hermes/worker execution stayed stopped.",
+      "checked": "checked",
+      "waiting": "waiting for dispatch check"
+    },
+    "workerAutonomyLocked": {
+      "title": "Worker autonomy locked",
+      "description": "Worker dispatch stays explicitly locked until controller and release gates allow real execution.",
+      "missing": "no lock evidence"
+    }
+  },
   "board": {
-    "description": "Board view from the same local read model. No mutation, no dispatcher, no auto-decompose.",
+    "description": "Board view from the same local read model. This overview stays read-only; local controls live in Marketing Board and CRM Overlay. No dispatcher, no auto-decompose.",
     "empty": "No items in this column.",
     "columns": {
       "active": "Active",
@@ -47,7 +104,7 @@
     }
   },
   "marketingBoard": {
-    "description": "Hermes-native Kanban view for Command EVE Marketing. The app reads the local kanban.db and only allows one idempotent proof card with an audit receipt.",
+    "description": "Hermes-native Kanban view for Command EVE Marketing. The app reads the local kanban.db, writes local cards and moves only with audit receipts, and checks dispatches through NL-5 before any worker could start.",
     "emptyColumn": "No marketing cards in this lane.",
     "columns": {
       "research": "Research",
@@ -65,19 +122,283 @@
       "audit": "Audit",
       "board": "Board",
       "database": "Database",
+      "controllerReview": "Controller review",
       "owner": "Owner"
+    },
+    "crmHandoff": {
+      "source": "CRM handoff",
+      "deal": "Deal",
+      "contact": "Contact",
+      "stage": "Stage",
+      "consent": "Consent"
     },
     "blocked": {
       "title": "Marketing Board not initialized yet",
       "description": "Hermes Kanban is ready, but the local marketing board database has not been created yet."
     },
     "actions": {
-      "createProofCard": "Create proof card"
+      "block": "Block",
+      "checkDispatch": "Check dispatch",
+      "comment": "Comment",
+      "complete": "Complete",
+      "createCard": "New post",
+      "createProofCard": "Create proof card",
+      "moveNext": "Move",
+      "finalLane": "Final lane",
+      "unblock": "Unblock"
+    },
+    "create": {
+      "note": "Creates exactly one local marketing card and one append-only audit event. No dispatcher, no auto-decompose, no workers.",
+      "title": "New post",
+      "titleLabel": "Title",
+      "titlePlaceholder": "e.g. LinkedIn post about Command EVE",
+      "titleRequired": "A title is required.",
+      "descriptionLabel": "Description",
+      "descriptionPlaceholder": "Optional card body",
+      "laneLabel": "Lane",
+      "submit": "Create card",
+      "resultTitle": "Card receipt",
+      "success": "Marketing card created.",
+      "failed": "Marketing card could not be created."
+    },
+    "move": {
+      "resultTitle": "Move receipt",
+      "success": "Card moved.",
+      "failed": "Card could not be moved."
+    },
+    "action": {
+      "resultTitle": "Action receipt",
+      "success": "Card action recorded locally.",
+      "failed": "Card action could not be recorded."
+    },
+    "comment": {
+      "title": "Record comment",
+      "card": "Card",
+      "placeholder": "Short local comment for this marketing card",
+      "required": "A comment is required.",
+      "submit": "Save comment"
+    },
+    "dispatch": {
+      "resultTitle": "Dispatch gate receipt",
+      "ready": "Dispatch plan is ready, but still waits for controller approval.",
+      "blocked": "Dispatch was blocked before Hermes could spawn.",
+      "failed": "Dispatch check could not run.",
+      "dataBoundary": "NL-5",
+      "checked": "checked",
+      "notChecked": "not checked",
+      "humanGate": "HumanGate",
+      "controllerApproval": "Controller approval",
+      "required": "required",
+      "notRequired": "not required",
+      "release": "Release",
+      "blockedByGate": "blocked",
+      "card": "Card",
+      "command": "Command",
+      "reason": "Reason",
+      "audit": "Audit",
+      "source": "Source",
+      "handoff": "Handoff",
+      "approvalPanelTitle": "HG-2.5 Review",
+      "waitingForController": "waiting for controller",
+      "approvalPanelDescription": "The local handoff is prepared, but EVE will not start a worker until the controller explicitly approves this handoff.",
+      "gateNl5Passed": "NL-5 checked",
+      "gateNoSpawn": "no spawn",
+      "gateControllerMissing": "controller missing",
+      "approveButton": "Record approval receipt",
+      "rejectButton": "Record rejection",
+      "recordReviewButton": "Record review receipt",
+      "approvalRecorded": "Controller review receipt recorded.",
+      "approvalRecordFailed": "Controller review could not be recorded.",
+      "approvalReceiptTitle": "Controller review receipt",
+      "decisionRecorded": "Controller decision receipt recorded.",
+      "decisionRecordFailed": "Controller decision could not be recorded.",
+      "decisionReceiptTitle": "Controller decision receipt",
+      "controllerDecision": "Controller decision",
+      "approvalStatus": "Review",
+      "notRecorded": "not recorded",
+      "pending": "pending",
+      "approved": "approved",
+      "rejected": "rejected",
+      "subprocess": "Hermes",
+      "spawned": "spawned",
+      "notSpawned": "not spawned"
+    },
+    "dispatchQueue": {
+      "title": "Local dispatch queue",
+      "description": "Shows local controller handoffs and decisions. Approved handoffs can generate a local marketing draft; worker spawns remain locked.",
+      "pending": "Pending",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "generated": "Drafts",
+      "outputApproved": "Outputs",
+      "workerReady": "Worker handoffs",
+      "workerRequested": "Dispatch requests",
+      "workerObserved": "Observed workers",
+      "workerStartGates": "Start gates",
+      "dispatcherPreparedCount": "Dispatchers prepared",
+      "nextStep": "Next step",
+      "pendingNext": "Controller still needs to approve or reject this handoff.",
+      "approvedNext": "Handoff is locally approved; EVE can now generate a local marketing draft.",
+      "generatedNext": "Draft generated and ready for review in the queue.",
+      "outputApprovedNext": "Output approved locally. Publishing remains a separate gated step.",
+      "workerReadyNext": "Worker handoff is prepared. Start remains manual and HG-2.5-gated.",
+      "workerRequestedNext": "Dispatch request recorded locally. Worker start remains policy-locked.",
+      "workerObservedNext": "Observed worker run completed locally. Publishing and external workers remain locked.",
+      "workerStartGateNext": "Worker start gate checked. Runtime start remains HG-3 locked until an executor is configured.",
+      "workerStartGateReadyNext": "Observed local executor profile accepted. Runtime start remains no-spawn until release authority unlocks it.",
+      "workerDispatcherPreparedNext": "Gated dispatcher is prepared. Real runtime spawn still requires release authority.",
+      "rejectedNext": "Handoff was rejected; revise the card or keep it blocked.",
+      "loopProgressTitle": "Loop progress",
+      "loopStepController": "Controller",
+      "loopStepDraft": "Draft",
+      "loopStepOutput": "Output",
+      "loopStepWorkerHandoff": "Worker handoff",
+      "loopStepObserved": "Observed run",
+      "loopStepStartGate": "Start gate",
+      "loopStepDispatcher": "Dispatcher",
+      "generateDraft": "Generate draft",
+      "runSafeLocalLoop": "Run safe local loop",
+      "safeLocalLoopRunning": "Running local loop",
+      "safeLocalLoopSuccess": "Safe local marketing loop prepared.",
+      "safeLocalLoopFailed": "Safe local marketing loop failed.",
+      "draftAlreadyGenerated": "Draft generated",
+      "approveOutput": "Approve output",
+      "outputAlreadyApproved": "Output approved",
+      "generatedDraft": "Generated draft",
+      "approvedOutput": "Approved output",
+      "preparedWorkerHandoff": "Prepared worker handoff",
+      "manualDispatch": "manual",
+      "requestWorkerDispatch": "Request dispatch",
+      "workerRequestRecorded": "Dispatch locked",
+      "runObservedWorker": "Run observed worker",
+      "workerObservedCompleted": "Observed run recorded",
+      "workerObservedReport": "Local worker report",
+      "checkWorkerStartGate": "Check start gate",
+      "checkObservedExecutorProfile": "Check observed executor profile",
+      "workerStartGateChecked": "Start gate checked",
+      "workerStartPacket": "Worker start packet",
+      "workerStartGateBlocked": "HG-3 locked",
+      "workerStartGateReady": "Observed profile ready",
+      "workerDispatcherPrepared": "Dispatcher prepared",
+      "prepareWorkerDispatcher": "Prepare dispatcher",
+      "dispatcherPreparePacket": "Dispatcher prepare packet",
+      "empty": "No controller handoffs in the local queue."
+    },
+    "workerDispatchRequest": {
+      "success": "Dispatch request recorded; worker start remains locked.",
+      "failed": "Dispatch request could not be recorded.",
+      "resultTitle": "Dispatch request"
+    },
+    "workerObservedRun": {
+      "success": "Observed worker run recorded locally.",
+      "failed": "Observed worker run could not be recorded.",
+      "resultTitle": "Observed worker receipt",
+      "externalCalls": "External calls",
+      "none": "none"
+    },
+    "workerStartGate": {
+      "success": "Worker start gate is ready.",
+      "blocked": "Worker start gate checked; start remains locked.",
+      "failed": "Worker start gate could not be checked.",
+      "resultTitle": "Worker start gate",
+      "blockReasons": "Block reasons"
+    },
+    "workerDispatcherPrepare": {
+      "success": "Gated dispatcher is prepared.",
+      "failed": "Gated dispatcher could not be prepared.",
+      "resultTitle": "Dispatcher prepare gate"
+    },
+    "draftGenerate": {
+      "resultTitle": "Marketing draft receipt",
+      "success": "Local marketing draft generated.",
+      "failed": "Marketing draft could not be generated."
+    },
+    "outputApprove": {
+      "resultTitle": "Marketing output receipt",
+      "success": "Local marketing output approved.",
+      "failed": "Marketing output could not be approved.",
+      "workerHandoff": "Worker handoff prepared"
     },
     "proof": {
       "note": "Creates exactly one local proof card and one append-only audit event. No workers are started.",
       "resultTitle": "Proof-card receipt",
       "failed": "Proof card could not be created."
+    }
+  },
+  "crmOverlay": {
+    "description": "Local CRM-ready sales overlay for companies, contacts, and deals. No cloud sync, no bulk imports, no outreach automation.",
+    "policy": {
+      "localOnly": "Local-only",
+      "hg4": "HG-4 for customer data",
+      "noOutreach": "Outreach off"
+    },
+    "blocked": {
+      "title": "CRM Overlay is not initialized yet",
+      "description": "EVE can only use the local CRM schema after the local tables have been created."
+    },
+    "initialize": {
+      "note": "Creates only local CRM tables and an audit receipt. No contacts, no external calls, no Plane sync.",
+      "resultTitle": "CRM overlay receipt",
+      "success": "CRM Overlay initialized locally.",
+      "failed": "CRM Overlay could not be initialized."
+    },
+    "draft": {
+      "resultTitle": "CRM draft receipt",
+      "success": "Local CRM draft created.",
+      "failed": "CRM draft could not be created."
+    },
+    "draftForm": {
+      "title": "Create local CRM draft",
+      "companyLabel": "Company",
+      "companyPlaceholder": "e.g. Alois Consulting GmbH",
+      "contactLabel": "Contact",
+      "contactPlaceholder": "e.g. Alois Example",
+      "roleLabel": "Role",
+      "rolePlaceholder": "e.g. Managing director",
+      "dealLabel": "Deal",
+      "dealPlaceholder": "e.g. Outreach pilot",
+      "notesLabel": "Note",
+      "notesPlaceholder": "Local working note only, no outreach.",
+      "localOnlyNote": "This draft stays local, S2, HG-4 and does not trigger sync, enrichment, or outreach.",
+      "validationRequired": "Company, contact, and deal are required.",
+      "submit": "Create draft",
+      "cancel": "Cancel"
+    },
+    "stage": {
+      "resultTitle": "CRM stage receipt",
+      "success": "Local CRM stage updated.",
+      "failed": "CRM stage could not be updated locally."
+    },
+    "consent": {
+      "resultTitle": "CRM consent receipt",
+      "success": "Local CRM consent recorded.",
+      "failed": "CRM consent could not be recorded locally."
+    },
+    "marketingRequest": {
+      "success": "CRM deal placed into the local HG-2.5 review queue as a marketing work request.",
+      "failed": "Marketing work request could not be created from the CRM deal.",
+      "boardRequired": "Marketing Board must be ready first."
+    },
+    "readyNote": "CRM Overlay is initialized locally. Contacts, deals, and real actions remain gated.",
+    "actions": {
+      "initialize": "Initialize CRM locally",
+      "createDraft": "Create local draft",
+      "captureConsent": "Record consent",
+      "qualifyDraft": "Qualify",
+      "createMarketingRequest": "Marketing request",
+      "createMarketingRequestPending": "Creating request"
+    },
+    "counts": {
+      "companies": "Companies",
+      "contacts": "Contacts",
+      "deals": "Deals",
+      "audit_events": "Audit events"
+    },
+    "labels": {
+      "database": "Database",
+      "ledger": "Ledger",
+      "defaultClass": "Default data class",
+      "actionCeiling": "Action ceiling"
     }
   },
   "labels": {

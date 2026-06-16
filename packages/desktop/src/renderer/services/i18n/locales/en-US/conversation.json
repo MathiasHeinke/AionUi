@@ -500,6 +500,13 @@
   "notFound": "Conversation not found or has been deleted",
   "commandEveRuntimePreparing": "EVE is preparing the local runtime. First start or model switches can take a moment.",
   "commandEveRuntimeNotReady": "EVE cannot send yet: {{reason}}",
+  "commandEveLocalMarketingIntent": {
+    "createdChecked": "Marketing card \"{{title}}\" was created and locally checked through NL5/dispatch.",
+    "createdUnchecked": "Marketing card was created, but the local dispatch check is not green yet.",
+    "desktopRequired": "Local Command EVE board actions are available only in the desktop app.",
+    "failed": "Could not create the marketing card.",
+    "filesUnsupported": "Local marketing-board actions do not accept file attachments. Create the card first, then attach files in the board."
+  },
   "runtimeStatus": {
     "phase": {
       "idle": "EVE ready",

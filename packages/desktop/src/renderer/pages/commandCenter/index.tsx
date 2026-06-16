@@ -5,12 +5,13 @@
  */
 
 import classNames from 'classnames';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, Button, Empty, Spin, Tag } from '@arco-design/web-react';
+import { Alert, Button, Empty, Input, Message, Modal, Select, Spin, Tag } from '@arco-design/web-react';
 import { bridge } from '@office-ai/platform';
 import { useLayoutContext } from '@renderer/hooks/context/LayoutContext';
 import { isElectronDesktop } from '@renderer/utils/platform';
+import { useAddEventListener } from '@renderer/utils/emitter';
 
 const MAX_RUNS = 16;
 
@@ -160,10 +161,12 @@ interface ICommandEveStatusSurfaceResult {
 }
 
 type IMarketingLaneKey = 'research' | 'draft' | 'assetGeneration' | 'review' | 'readyToApprove';
+type IMarketingCardAction = 'comment' | 'block' | 'unblock' | 'complete';
 
 interface ICommandEveMarketingCard {
   card_id: string;
   card_title: string;
+  card_body: string;
   card_status: string;
   card_priority: number;
   card_assignee: string;
@@ -172,6 +175,44 @@ interface ICommandEveMarketingCard {
   updated_at: number | null;
   linked_run_id: string | null;
   linked_audit_event_id: string | null;
+  controller_review_status: 'pending' | null;
+  controller_review_audit_event_id: string | null;
+  controller_review_handoff_role: string | null;
+  controller_review_handoff_dispatch: string | null;
+  controller_decision_status: 'approved' | 'rejected' | null;
+  controller_decision_audit_event_id: string | null;
+  controller_decision_handoff_role: string | null;
+  controller_decision_handoff_dispatch: string | null;
+  generated_draft_status: 'generated' | null;
+  generated_draft_audit_event_id: string | null;
+  generated_draft_source: string | null;
+  generated_draft_text: string | null;
+  generated_draft_at: number | null;
+  output_approval_status: 'approved' | null;
+  output_approval_audit_event_id: string | null;
+  output_approval_source: string | null;
+  output_approval_text: string | null;
+  output_approval_at: number | null;
+  worker_dispatch_status: 'prepared' | null;
+  worker_contract_yaml: string | null;
+  worker_prompt: string | null;
+  worker_dispatch_at: number | null;
+  worker_dispatch_request_status: 'blocked' | null;
+  worker_dispatch_request_audit_event_id: string | null;
+  worker_dispatch_requested_at: number | null;
+  worker_observed_run_status: 'completed' | null;
+  worker_observed_run_audit_event_id: string | null;
+  worker_observed_run_at: number | null;
+  worker_observed_output: string | null;
+  worker_start_gate_status: 'blocked' | 'ready' | null;
+  worker_start_gate_audit_event_id: string | null;
+  worker_start_gate_checked_at: number | null;
+  worker_start_gate_reason_codes: string | null;
+  worker_start_packet: string | null;
+  worker_dispatcher_prepare_status: 'ready' | null;
+  worker_dispatcher_prepare_audit_event_id: string | null;
+  worker_dispatcher_prepared_at: number | null;
+  worker_dispatcher_prepare_packet: string | null;
   governance_state: 'read_only' | 'proof_write_recorded' | 'unknown';
 }
 
@@ -199,6 +240,18 @@ interface ICommandEveMarketingBoardModel {
   summary: {
     total_cards: number;
     audit_linked_cards: number;
+    controller_review_pending_cards: number;
+    controller_decision_recorded_cards: number;
+    controller_decision_approved_cards: number;
+    controller_decision_rejected_cards: number;
+    generated_draft_cards: number;
+    output_approved_cards: number;
+    worker_dispatch_ready_cards: number;
+    worker_dispatch_requested_cards: number;
+    worker_observed_completed_cards: number;
+    worker_start_gate_checked_cards: number;
+    worker_start_gate_blocked_cards: number;
+    worker_dispatcher_prepared_cards: number;
   };
   columns: ICommandEveMarketingColumn[];
   warnings: string[];
@@ -233,6 +286,582 @@ interface ICommandEveMarketingProofCardResult {
   };
 }
 
+interface ICommandEveMarketingCardCreateRequest {
+  title: string;
+  description?: string;
+  lane_key: IMarketingLaneKey;
+  client_token: string;
+  boardSlug?: string;
+  eventLedgerPath?: string;
+}
+
+interface ICommandEveMarketingCardCreateResult {
+  version: 'command-eve-kanban-marketing-card-create/v0';
+  status: 'ready' | 'blocked' | 'failed';
+  ok: boolean;
+  reason_code?: string;
+  message?: string;
+  card_id?: string;
+  lane_key?: IMarketingLaneKey;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  model?: ICommandEveMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+  };
+}
+
+interface ICommandEveMarketingCardMoveRequest {
+  task_id: string;
+  to_lane_key: IMarketingLaneKey;
+  boardSlug?: string;
+  eventLedgerPath?: string;
+}
+
+interface ICommandEveMarketingCardMoveResult {
+  version: 'command-eve-kanban-marketing-card-move/v0';
+  status: 'ready' | 'blocked' | 'failed';
+  ok: boolean;
+  reason_code?: string;
+  message?: string;
+  card_id?: string;
+  from_lane_key?: IMarketingLaneKey;
+  to_lane_key?: IMarketingLaneKey;
+  moved?: boolean;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  model?: ICommandEveMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+  };
+}
+
+interface ICommandEveMarketingCardActionRequest {
+  task_id: string;
+  action: IMarketingCardAction;
+  comment?: string;
+  boardSlug?: string;
+  eventLedgerPath?: string;
+}
+
+interface ICommandEveMarketingCardActionResult {
+  version: 'command-eve-kanban-marketing-card-action/v0';
+  status: 'ready' | 'blocked' | 'failed';
+  ok: boolean;
+  reason_code?: string;
+  message?: string;
+  card_id?: string;
+  action?: IMarketingCardAction;
+  action_applied?: boolean;
+  from_status?: string;
+  to_status?: string;
+  from_lane_key?: IMarketingLaneKey;
+  to_lane_key?: IMarketingLaneKey;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  model?: ICommandEveMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+  };
+}
+
+interface ICommandEveMarketingDispatchPlanRequest {
+  task_id: string;
+  command?: 'decompose' | 'specify';
+  dispatchMode?: 'auto' | 'embedded';
+  boardSlug?: string;
+  eventLedgerPath?: string;
+}
+
+interface ICommandEveMarketingDispatchPlanResult {
+  version: 'command-eve-kanban-marketing-dispatch-plan/v0';
+  status: 'ready' | 'blocked' | 'failed';
+  ok: boolean;
+  reason_code?: string;
+  reason_codes: string[];
+  message?: string;
+  card_id?: string;
+  command?: 'decompose' | 'specify';
+  subprocess_spawned: boolean;
+  data_boundary_checked: boolean;
+  controller_approval_required?: boolean;
+  release_blocked?: boolean;
+  human_gate?: 'HG-2.5';
+  audit_event_id?: string;
+  audit_event_path?: string;
+  dispatch_plan?: Record<string, unknown>;
+  dispatch_handoff_packet?: Record<string, unknown>;
+  dispatch_source?: string;
+  dispatch_source_reason?: string;
+  policy?: Record<string, unknown>;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+    company_os_root?: string;
+  };
+}
+
+interface ICommandEveMarketingDispatchApprovalRequest {
+  task_id: string;
+  boardSlug?: string;
+  eventLedgerPath?: string;
+  dispatch_handoff_packet?: Record<string, unknown>;
+  review_note?: string;
+}
+
+interface ICommandEveMarketingDispatchApprovalResult {
+  version: 'command-eve-kanban-marketing-dispatch-approval/v0';
+  status: 'ready' | 'blocked' | 'failed';
+  ok: boolean;
+  reason_code?: string;
+  message?: string;
+  card_id?: string;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  approval_event_kind?: 'command_eve_controller_approval_pending';
+  controller_approval_status?: 'pending';
+  subprocess_spawned: false;
+  release_blocked: true;
+  human_gate: 'HG-2.5';
+  dispatch_handoff_packet?: Record<string, unknown>;
+  model?: ICommandEveMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+  };
+}
+
+interface ICommandEveMarketingDispatchDecisionRequest {
+  task_id: string;
+  decision: 'approved' | 'rejected';
+  boardSlug?: string;
+  eventLedgerPath?: string;
+  dispatch_handoff_packet?: Record<string, unknown>;
+  decision_note?: string;
+}
+
+interface ICommandEveMarketingDispatchDecisionResult {
+  version: 'command-eve-kanban-marketing-dispatch-decision/v0';
+  status: 'ready' | 'blocked' | 'failed';
+  ok: boolean;
+  reason_code?: string;
+  message?: string;
+  card_id?: string;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  decision_event_kind?: 'command_eve_controller_decision_recorded';
+  controller_approval_status?: 'approved' | 'rejected';
+  controller_approved: boolean;
+  subprocess_spawned: false;
+  release_blocked: true;
+  human_gate: 'HG-2.5';
+  dispatch_handoff_packet?: Record<string, unknown>;
+  model?: ICommandEveMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+  };
+}
+
+interface ICommandEveMarketingDraftGenerateRequest {
+  task_id: string;
+  boardSlug?: string;
+  eventLedgerPath?: string;
+  dispatch_handoff_packet?: Record<string, unknown>;
+  generation_note?: string;
+  dispatchMode?: 'auto' | 'embedded';
+}
+
+interface ICommandEveMarketingDraftGenerateResult {
+  version: 'command-eve-kanban-marketing-draft-generate/v0';
+  status: 'ready' | 'blocked' | 'failed';
+  ok: boolean;
+  reason_code?: string;
+  reason_codes: string[];
+  message?: string;
+  card_id?: string;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  draft_event_kind?: 'command_eve_marketing_draft_generated';
+  draft_text?: string;
+  draft_source?: string;
+  subprocess_spawned: false;
+  data_boundary_checked: boolean;
+  controller_approval_status?: 'approved' | 'rejected';
+  controller_approved: boolean;
+  release_blocked: boolean;
+  human_gate: 'HG-2.5';
+  dispatch_handoff_packet?: Record<string, unknown>;
+  dispatch_source?: string;
+  dispatch_source_reason?: string;
+  policy?: Record<string, unknown>;
+  model?: ICommandEveMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+    company_os_root?: string;
+  };
+}
+
+interface ICommandEveMarketingOutputApproveRequest {
+  task_id: string;
+  boardSlug?: string;
+  eventLedgerPath?: string;
+  dispatch_handoff_packet?: Record<string, unknown>;
+  approval_note?: string;
+}
+
+interface ICommandEveMarketingOutputApproveResult {
+  version: 'command-eve-kanban-marketing-output-approve/v0';
+  status: 'ready' | 'blocked' | 'failed';
+  ok: boolean;
+  reason_code?: string;
+  reason_codes: string[];
+  message?: string;
+  card_id?: string;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  output_event_kind?: 'command_eve_marketing_output_approved';
+  output_text?: string;
+  output_source?: string;
+  worker_dispatch_status?: 'prepared';
+  worker_contract_yaml?: string;
+  worker_prompt?: string;
+  subprocess_spawned: false;
+  data_boundary_checked: boolean;
+  controller_approval_status?: 'approved' | 'rejected';
+  controller_approved: boolean;
+  release_blocked: boolean;
+  human_gate: 'HG-2.5';
+  dispatch_handoff_packet?: Record<string, unknown>;
+  model?: ICommandEveMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+  };
+}
+
+interface ICommandEveMarketingWorkerDispatchRequestRequest {
+  task_id: string;
+  boardSlug?: string;
+  eventLedgerPath?: string;
+  dispatch_handoff_packet?: Record<string, unknown>;
+  request_note?: string;
+}
+
+interface ICommandEveMarketingWorkerDispatchRequestResult {
+  version: 'command-eve-kanban-marketing-worker-dispatch-request/v0';
+  status: 'ready' | 'blocked' | 'failed';
+  ok: boolean;
+  reason_code?: string;
+  reason_codes: string[];
+  message?: string;
+  card_id?: string;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  request_event_kind?: 'command_eve_marketing_worker_dispatch_requested';
+  worker_dispatch_request_status?: 'blocked';
+  worker_contract_yaml?: string;
+  worker_prompt?: string;
+  subprocess_spawned: false;
+  data_boundary_checked: boolean;
+  controller_approval_status?: 'approved' | 'rejected';
+  controller_approved: boolean;
+  release_blocked: true;
+  human_gate: 'HG-2.5';
+  dispatch_handoff_packet?: Record<string, unknown>;
+  model?: ICommandEveMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+  };
+}
+
+interface ICommandEveMarketingWorkerObservedRunRequest {
+  task_id: string;
+  boardSlug?: string;
+  eventLedgerPath?: string;
+  dispatch_handoff_packet?: Record<string, unknown>;
+  observed_note?: string;
+}
+
+interface ICommandEveMarketingWorkerObservedRunResult {
+  version: 'command-eve-kanban-marketing-worker-observed-run/v0';
+  status: 'ready' | 'blocked' | 'failed';
+  ok: boolean;
+  reason_code?: string;
+  reason_codes: string[];
+  message?: string;
+  card_id?: string;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  observed_event_kind?: 'command_eve_marketing_worker_observed_run_completed';
+  worker_observed_run_status?: 'completed';
+  worker_observed_output?: string;
+  worker_contract_yaml?: string;
+  worker_prompt?: string;
+  subprocess_spawned: false;
+  external_calls: false;
+  data_boundary_checked: boolean;
+  controller_approval_status?: 'approved' | 'rejected';
+  controller_approved: boolean;
+  release_blocked: true;
+  human_gate: 'HG-2.5';
+  dispatch_handoff_packet?: Record<string, unknown>;
+  model?: ICommandEveMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+  };
+}
+
+interface ICommandEveMarketingWorkerStartGateRequest {
+  task_id: string;
+  boardSlug?: string;
+  eventLedgerPath?: string;
+  dispatch_handoff_packet?: Record<string, unknown>;
+  gate_note?: string;
+  executor_enabled?: boolean;
+  executor_profile?: Record<string, unknown>;
+}
+
+interface ICommandEveMarketingWorkerStartGateResult {
+  version: 'command-eve-kanban-marketing-worker-start-gate/v0';
+  status: 'ready' | 'blocked' | 'failed';
+  ok: boolean;
+  reason_code?: string;
+  reason_codes: string[];
+  message?: string;
+  card_id?: string;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  gate_event_kind?: 'command_eve_marketing_worker_start_gate_checked';
+  worker_start_gate_status?: 'blocked' | 'ready';
+  worker_start_gate_reason_codes?: string[];
+  worker_start_packet?: Record<string, unknown>;
+  worker_contract_yaml?: string;
+  worker_prompt?: string;
+  subprocess_spawned: false;
+  external_calls: false;
+  data_boundary_checked: boolean;
+  controller_approval_status?: 'approved' | 'rejected';
+  controller_approved: boolean;
+  release_blocked: true;
+  human_gate: 'HG-3';
+  dispatch_handoff_packet?: Record<string, unknown>;
+  model?: ICommandEveMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+  };
+}
+
+interface ICommandEveMarketingWorkerDispatcherPrepareRequest {
+  task_id: string;
+  boardSlug?: string;
+  eventLedgerPath?: string;
+  dispatch_handoff_packet?: Record<string, unknown>;
+  prepare_note?: string;
+}
+
+interface ICommandEveMarketingWorkerDispatcherPrepareResult {
+  version: 'command-eve-kanban-marketing-worker-dispatcher-prepare/v0';
+  status: 'ready' | 'blocked' | 'failed';
+  ok: boolean;
+  reason_code?: string;
+  reason_codes: string[];
+  message?: string;
+  card_id?: string;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  prepare_event_kind?: 'command_eve_marketing_worker_dispatcher_prepared';
+  worker_dispatcher_prepare_status?: 'ready';
+  worker_start_gate_status?: 'ready';
+  dispatcher_prepare_packet?: Record<string, unknown>;
+  worker_start_packet?: Record<string, unknown>;
+  worker_contract_yaml?: string;
+  worker_prompt?: string;
+  subprocess_spawned: false;
+  external_calls: false;
+  data_boundary_checked: boolean;
+  controller_approval_status?: 'approved' | 'rejected';
+  controller_approved: boolean;
+  release_blocked: true;
+  human_gate: 'HG-3.5';
+  dispatch_handoff_packet?: Record<string, unknown>;
+  model?: ICommandEveMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+  };
+}
+
+interface ICommandEveWorkerStartGateUiOptions {
+  executorProfile?: Record<string, unknown>;
+  gateNote?: string;
+}
+
+interface ICommandEveWorkerStartGateTarget {
+  card_id: string;
+  controller_decision_handoff_role?: string | null;
+  controller_review_handoff_role?: string | null;
+  controller_decision_handoff_dispatch?: string | null;
+  controller_review_handoff_dispatch?: string | null;
+}
+
+interface ICommandEveCrmOverlayPolicy {
+  local_only: true;
+  plane_sync_enabled: false;
+  hosted_sync_enabled: false;
+  bulk_import_enabled: false;
+  enrichment_enabled: false;
+  outreach_enabled: false;
+  crm_data_class_default: 'S2';
+  customer_write_requires_humangate: 'HG-4';
+  deal_action_ceiling_without_consent: 'draft-only';
+}
+
+interface ICommandEveCrmOverlayCounts {
+  companies: number;
+  contacts: number;
+  deals: number;
+  audit_events: number;
+}
+
+interface ICommandEveCrmOverlayDeal {
+  deal_id: string;
+  company_id: string;
+  company_display_name: string;
+  contact_display_name: string;
+  contact_role_title: string;
+  deal_label: string;
+  stage: string;
+  allowed_actions: string;
+  consent_status: string;
+  human_gate: string;
+  data_class: string;
+  last_activity_at: string;
+}
+
+interface ICommandEveCrmOverlayModel {
+  schema_version: 'command-eve-crm-overlay/v0';
+  generated_at: string;
+  initialized: boolean;
+  db_path: string;
+  event_ledger_path: string;
+  policy: ICommandEveCrmOverlayPolicy;
+  counts: ICommandEveCrmOverlayCounts;
+  recent_deals: ICommandEveCrmOverlayDeal[];
+  warnings: string[];
+}
+
+interface ICommandEveCrmOverlayResult {
+  version: 'command-eve-crm-overlay/v0';
+  ok: boolean;
+  status: 'ready' | 'blocked' | 'failed';
+  reason_code?: string;
+  message?: string;
+  model?: ICommandEveCrmOverlayModel;
+  source: {
+    generated_by: 'command-eve-crm-overlay-core';
+    hermes_home: string;
+  };
+}
+
+interface ICommandEveCrmOverlayInitializeResult {
+  version: 'command-eve-crm-overlay-initialize/v0';
+  ok: boolean;
+  status: 'ready' | 'blocked' | 'failed';
+  reason_code?: string;
+  message?: string;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  model?: ICommandEveCrmOverlayModel;
+  source: {
+    generated_by: 'command-eve-crm-overlay-core';
+    hermes_home: string;
+  };
+}
+
+interface ICommandEveCrmDraftCreateInput {
+  companyDisplayName: string;
+  contactDisplayName: string;
+  contactRoleTitle: string;
+  dealLabel: string;
+  notes: string;
+}
+
+interface ICommandEveCrmDraftCreateResult {
+  version: 'command-eve-crm-draft-create/v0';
+  ok: boolean;
+  status: 'ready' | 'blocked' | 'failed';
+  reason_code?: string;
+  message?: string;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  company_id?: string;
+  contact_id?: string;
+  deal_id?: string;
+  model?: ICommandEveCrmOverlayModel;
+  source: {
+    generated_by: 'command-eve-crm-overlay-core';
+    hermes_home: string;
+  };
+}
+
+interface ICommandEveCrmStageLocalResult {
+  version: 'command-eve-crm-stage-local/v0';
+  ok: boolean;
+  status: 'ready' | 'blocked' | 'failed';
+  reason_code?: string;
+  message?: string;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  deal_id?: string;
+  previous_stage?: string;
+  stage?: string;
+  model?: ICommandEveCrmOverlayModel;
+  source: {
+    generated_by: 'command-eve-crm-overlay-core';
+    hermes_home: string;
+  };
+}
+
+interface ICommandEveCrmConsentLocalResult {
+  version: 'command-eve-crm-consent-local/v0';
+  ok: boolean;
+  status: 'ready' | 'blocked' | 'failed';
+  reason_code?: string;
+  message?: string;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  deal_id?: string;
+  consent_status?: string;
+  allowed_actions?: string;
+  model?: ICommandEveCrmOverlayModel;
+  source: {
+    generated_by: 'command-eve-crm-overlay-core';
+    hermes_home: string;
+  };
+}
+
+// Shared board-carrying shape between the create and move mutation results, used
+// to re-render the read-only board projection after a successful mutation.
+interface IMarketingMutationBoardCarrier {
+  ok: boolean;
+  status: 'ready' | 'blocked' | 'failed';
+  reason_code?: string;
+  message?: string;
+  model?: ICommandEveMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+  };
+}
+
 const commandCenterReadModel = bridge.buildProvider<
   IBridgeResponse<ICommandEveCommandCenterReadModelResult>,
   { maxRuns?: number } | undefined
@@ -253,12 +882,219 @@ const kanbanMarketingProofCard = bridge.buildProvider<
   { boardSlug?: string } | undefined
 >('command-eve.kanban-marketing-proof-card');
 
+const kanbanMarketingCardCreate = bridge.buildProvider<
+  IBridgeResponse<ICommandEveMarketingCardCreateResult>,
+  ICommandEveMarketingCardCreateRequest
+>('command-eve.kanban-marketing-card-create');
+
+const kanbanMarketingCardMove = bridge.buildProvider<
+  IBridgeResponse<ICommandEveMarketingCardMoveResult>,
+  ICommandEveMarketingCardMoveRequest
+>('command-eve.kanban-marketing-card-move');
+
+const kanbanMarketingCardAction = bridge.buildProvider<
+  IBridgeResponse<ICommandEveMarketingCardActionResult>,
+  ICommandEveMarketingCardActionRequest
+>('command-eve.kanban-marketing-card-action');
+
+const kanbanMarketingDispatchPlan = bridge.buildProvider<
+  IBridgeResponse<ICommandEveMarketingDispatchPlanResult>,
+  ICommandEveMarketingDispatchPlanRequest
+>('command-eve.kanban-marketing-dispatch-plan');
+
+const kanbanMarketingDispatchApproval = bridge.buildProvider<
+  IBridgeResponse<ICommandEveMarketingDispatchApprovalResult>,
+  ICommandEveMarketingDispatchApprovalRequest
+>('command-eve.kanban-marketing-dispatch-approval');
+
+const kanbanMarketingDispatchDecision = bridge.buildProvider<
+  IBridgeResponse<ICommandEveMarketingDispatchDecisionResult>,
+  ICommandEveMarketingDispatchDecisionRequest
+>('command-eve.kanban-marketing-dispatch-decision');
+
+const kanbanMarketingDraftGenerate = bridge.buildProvider<
+  IBridgeResponse<ICommandEveMarketingDraftGenerateResult>,
+  ICommandEveMarketingDraftGenerateRequest
+>('command-eve.kanban-marketing-draft-generate');
+
+const kanbanMarketingOutputApprove = bridge.buildProvider<
+  IBridgeResponse<ICommandEveMarketingOutputApproveResult>,
+  ICommandEveMarketingOutputApproveRequest
+>('command-eve.kanban-marketing-output-approve');
+
+const kanbanMarketingWorkerDispatchRequest = bridge.buildProvider<
+  IBridgeResponse<ICommandEveMarketingWorkerDispatchRequestResult>,
+  ICommandEveMarketingWorkerDispatchRequestRequest
+>('command-eve.kanban-marketing-worker-dispatch-request');
+
+const kanbanMarketingWorkerObservedRun = bridge.buildProvider<
+  IBridgeResponse<ICommandEveMarketingWorkerObservedRunResult>,
+  ICommandEveMarketingWorkerObservedRunRequest
+>('command-eve.kanban-marketing-worker-observed-run');
+
+const kanbanMarketingWorkerStartGate = bridge.buildProvider<
+  IBridgeResponse<ICommandEveMarketingWorkerStartGateResult>,
+  ICommandEveMarketingWorkerStartGateRequest
+>('command-eve.kanban-marketing-worker-start-gate');
+
+const kanbanMarketingWorkerDispatcherPrepare = bridge.buildProvider<
+  IBridgeResponse<ICommandEveMarketingWorkerDispatcherPrepareResult>,
+  ICommandEveMarketingWorkerDispatcherPrepareRequest
+>('command-eve.kanban-marketing-worker-dispatcher-prepare');
+
+const crmOverlay = bridge.buildProvider<IBridgeResponse<ICommandEveCrmOverlayResult>, { eventLedgerPath?: string }>(
+  'command-eve.crm-overlay'
+);
+
+const crmOverlayInitialize = bridge.buildProvider<
+  IBridgeResponse<ICommandEveCrmOverlayInitializeResult>,
+  { eventLedgerPath?: string }
+>('command-eve.crm-overlay-initialize');
+
+const crmDraftCreate = bridge.buildProvider<
+  IBridgeResponse<ICommandEveCrmDraftCreateResult>,
+  Partial<ICommandEveCrmDraftCreateInput> & { eventLedgerPath?: string }
+>('command-eve.crm-draft-create');
+
+const crmStageLocal = bridge.buildProvider<
+  IBridgeResponse<ICommandEveCrmStageLocalResult>,
+  { dealId: string; targetStage: 'qualified'; eventLedgerPath?: string }
+>('command-eve.crm-stage-local');
+
+const crmConsentLocal = bridge.buildProvider<
+  IBridgeResponse<ICommandEveCrmConsentLocalResult>,
+  { dealId: string; eventLedgerPath?: string }
+>('command-eve.crm-consent-local');
+
+const MARKETING_LANE_ORDER: IMarketingLaneKey[] = ['research', 'draft', 'assetGeneration', 'review', 'readyToApprove'];
+
+const MARKETING_BOARD_SLUG = 'marketing';
+
+const createObservedLocalExecutorProfile = (): Record<string, unknown> => ({
+  version: 'command-eve-runtime-executor-profile/v0',
+  executor_kind: 'hermes-local-observed',
+  execution_mode: 'observed',
+  transport: 'local',
+  data_boundary_enforced: true,
+  external_calls_allowed: false,
+  subprocess_spawn_allowed: false,
+  hg3_approved: true,
+  approved_by: 'command-eve-ui-hg3-click',
+  approved_at: new Date().toISOString(),
+});
+
+const localDispatchHandoffForCard = (
+  card: ICommandEveWorkerStartGateTarget,
+  status: string,
+  humanGate: 'HG-2.5' | 'HG-3' | 'HG-3.5'
+): Record<string, unknown> => ({
+  version:
+    humanGate === 'HG-3.5'
+      ? 'command-eve-worker-dispatcher-prepare-handoff/v0'
+      : humanGate === 'HG-3'
+        ? 'command-eve-worker-start-gate-handoff/v0'
+        : 'command-eve-local-dispatch-handoff/v0',
+  status,
+  dispatch: card.controller_decision_handoff_dispatch || card.controller_review_handoff_dispatch || 'manual',
+  role_label: card.controller_decision_handoff_role || card.controller_review_handoff_role || 'role:cmo',
+  card_id: card.card_id,
+  human_gate: humanGate,
+});
+
+// Stable per-intent idempotency token so a card create dedupes on retry.
+const generateClientToken = (): string => {
+  const cryptoApi = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined;
+  if (cryptoApi && typeof cryptoApi.randomUUID === 'function') {
+    return `cmd-eve-card-${cryptoApi.randomUUID()}`;
+  }
+  return `cmd-eve-card-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+};
+
+const nextMarketingLane = (lane: IMarketingLaneKey): IMarketingLaneKey | null => {
+  const index = MARKETING_LANE_ORDER.indexOf(lane);
+  if (index < 0 || index >= MARKETING_LANE_ORDER.length - 1) return null;
+  return MARKETING_LANE_ORDER[index + 1];
+};
+
 const textOrDash = (value?: string | null): string => {
   const text = String(value || '').trim();
   return text || '-';
 };
 
 const formatCount = (value: number | undefined): string => String(Number.isFinite(value) ? value : 0);
+
+const firstReasonCode = (reasonCodes: string[] | undefined, fallback?: string): string =>
+  reasonCodes && reasonCodes.length > 0 ? reasonCodes[0] : fallback || '-';
+
+interface ICrmHandoffSource {
+  dealId: string;
+  company: string;
+  contact: string;
+  stage: string;
+  consent: string;
+}
+
+const crmHandoffField = (body: string, label: string): string => {
+  const prefix = `${label}:`;
+  const line = body
+    .split('\n')
+    .map((entry) => entry.trim())
+    .find((entry) => entry.startsWith(prefix));
+  return line ? line.slice(prefix.length).trim() : '';
+};
+
+const crmHandoffSourceForCard = (card: ICommandEveMarketingCard): ICrmHandoffSource | null => {
+  const body = String(card.card_body || '');
+  if (!body.includes('Source: Command EVE local CRM overlay')) return null;
+  return {
+    dealId: crmHandoffField(body, 'CRM deal'),
+    company: crmHandoffField(body, 'Company'),
+    contact: crmHandoffField(body, 'Contact'),
+    stage: crmHandoffField(body, 'Stage'),
+    consent: crmHandoffField(body, 'Consent'),
+  };
+};
+
+const recordStringField = (record: Record<string, unknown> | undefined, key: string): string => {
+  const value = record?.[key];
+  return typeof value === 'string' ? value.trim() : '';
+};
+
+const dispatchSourceForResult = (result: ICommandEveMarketingDispatchPlanResult): string =>
+  textOrDash(
+    result.dispatch_source ||
+      recordStringField(result.policy, 'implementation') ||
+      recordStringField(result.policy, 'dispatch_source') ||
+      recordStringField(result.dispatch_plan, 'dispatch_source')
+  );
+
+const dispatchHandoffForResult = (
+  result: ICommandEveMarketingDispatchPlanResult
+): Record<string, unknown> | undefined => {
+  if (result.dispatch_handoff_packet) return result.dispatch_handoff_packet;
+  const embedded = result.dispatch_plan?.dispatch_handoff_packet;
+  return embedded && typeof embedded === 'object' && !Array.isArray(embedded)
+    ? (embedded as Record<string, unknown>)
+    : undefined;
+};
+
+const marketingDispatchQueueRank = (card: ICommandEveMarketingCard): number => {
+  if (card.controller_review_status === 'pending' && !card.controller_decision_status) return 0;
+  if (card.controller_decision_status === 'approved') return 1;
+  if (card.controller_decision_status === 'rejected') return 2;
+  return 3;
+};
+
+const marketingCardsForDispatchQueue = (model: ICommandEveMarketingBoardModel): ICommandEveMarketingCard[] =>
+  model.columns
+    .flatMap((column) => column.cards)
+    .filter((card) => card.controller_review_status === 'pending' || Boolean(card.controller_decision_status))
+    .sort((left, right) => {
+      const rankDelta = marketingDispatchQueueRank(left) - marketingDispatchQueueRank(right);
+      return rankDelta !== 0
+        ? rankDelta
+        : (right.updated_at || right.created_at) - (left.updated_at || left.created_at);
+    });
 
 const stateColor = (state: string): 'blue' | 'green' | 'orange' | 'red' | 'gray' => {
   if (['reported', 'done', 'released', 'pass'].includes(state)) return 'green';
@@ -319,12 +1155,18 @@ const buildBoardColumns = (runs: ICommandEveCommandCenterRunCard[]): BoardColumn
   ];
 };
 
-const Section: React.FC<{ title: string; count?: number; children: React.ReactNode }> = ({
+const Section: React.FC<{ title: string; count?: number; id?: string; testId?: string; children: React.ReactNode }> = ({
   title,
   count,
+  id,
+  testId,
   children,
 }) => (
-  <section className='flex flex-col gap-10px rounded-14px border border-solid border-[var(--color-border-2)] bg-fill-1 px-16px py-14px'>
+  <section
+    id={id}
+    data-testid={testId}
+    className='flex flex-col gap-10px rounded-14px border border-solid border-[var(--color-border-2)] bg-fill-1 px-16px py-14px'
+  >
     <div className='flex items-center justify-between gap-12px'>
       <h2 className='m-0 text-16px font-600 leading-24px text-t-primary'>{title}</h2>
       {typeof count === 'number' ? <Tag color='gray'>{formatCount(count)}</Tag> : null}
@@ -332,6 +1174,233 @@ const Section: React.FC<{ title: string; count?: number; children: React.ReactNo
     {children}
   </section>
 );
+
+type OperatingSurfaceStatus = 'ready' | 'check' | 'blocked';
+
+type OperatingSurfaceCard = {
+  key: 'marketing' | 'crm' | 'dispatch';
+  titleKey: string;
+  status: OperatingSurfaceStatus;
+  metric: string;
+  descriptionKey: string;
+  anchorId: string;
+  tags: string[];
+};
+
+type OperatingReadinessCheck = {
+  key: 'marketingReceipts' | 'crmNl5Receipts' | 'controllerReviewQueue' | 'dispatchBlocked' | 'workerAutonomyLocked';
+  ok: boolean;
+  status: OperatingSurfaceStatus;
+  titleKey: string;
+  descriptionKey: string;
+  evidence: string;
+};
+
+const operatingSurfaceColor = (status: OperatingSurfaceStatus): 'green' | 'orange' | 'red' => {
+  if (status === 'ready') return 'green';
+  if (status === 'blocked') return 'red';
+  return 'orange';
+};
+
+const scrollToSection = (anchorId: string): void => {
+  document.getElementById(anchorId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
+const OperatingSurfacesSection: React.FC<{
+  marketingResult: ICommandEveMarketingBoardResult | null;
+  crmResult: ICommandEveCrmOverlayResult | null;
+  dispatchPlanResult: ICommandEveMarketingDispatchPlanResult | null;
+}> = ({ marketingResult, crmResult, dispatchPlanResult }) => {
+  const { t } = useTranslation();
+  const marketingReady = marketingResult?.status === 'ready' && Boolean(marketingResult.model);
+  const crmInitialized = crmResult?.status === 'ready' && crmResult.model?.initialized === true;
+  const dispatchChecked = dispatchPlanResult?.data_boundary_checked === true;
+  const dispatchBlockedBeforeSpawn = dispatchPlanResult?.subprocess_spawned === false;
+  const cards: OperatingSurfaceCard[] = [
+    {
+      key: 'marketing',
+      titleKey: 'commandCenter.operatingSurfaces.marketing.title',
+      status: marketingReady ? 'ready' : marketingResult?.status === 'failed' ? 'blocked' : 'check',
+      metric: formatCount(marketingResult?.model?.summary.total_cards),
+      descriptionKey: 'commandCenter.operatingSurfaces.marketing.description',
+      anchorId: 'command-eve-marketing-board',
+      tags: ['HG-2.5', t('commandCenter.operatingSurfaces.tags.localReceipts')],
+    },
+    {
+      key: 'crm',
+      titleKey: 'commandCenter.operatingSurfaces.crm.title',
+      status: crmInitialized ? 'ready' : crmResult?.status === 'failed' ? 'blocked' : 'check',
+      metric: formatCount(crmResult?.model?.counts.deals),
+      descriptionKey: 'commandCenter.operatingSurfaces.crm.description',
+      anchorId: 'command-eve-crm-overlay',
+      tags: ['HG-4', 'NL-5', t('commandCenter.operatingSurfaces.tags.localOnly')],
+    },
+    {
+      key: 'dispatch',
+      titleKey: 'commandCenter.operatingSurfaces.dispatch.title',
+      status:
+        dispatchChecked && dispatchBlockedBeforeSpawn
+          ? 'ready'
+          : dispatchPlanResult?.status === 'failed'
+            ? 'blocked'
+            : 'check',
+      metric: dispatchChecked
+        ? t('commandCenter.operatingSurfaces.dispatch.checked')
+        : t('commandCenter.operatingSurfaces.dispatch.waiting'),
+      descriptionKey: 'commandCenter.operatingSurfaces.dispatch.description',
+      anchorId: 'command-eve-marketing-board',
+      tags: ['NL-5', t('commandCenter.operatingSurfaces.tags.noAutoSpawn')],
+    },
+  ];
+  return (
+    <Section title={t('commandCenter.sections.operatingSurfaces')} testId='command-center-operating-surfaces'>
+      <p className='m-0 text-12px leading-18px text-t-secondary'>{t('commandCenter.operatingSurfaces.description')}</p>
+      <div className='grid gap-10px lg:grid-cols-3'>
+        {cards.map((card) => (
+          <article
+            key={card.key}
+            className='flex min-h-150px flex-col justify-between gap-12px rounded-12px border border-solid border-[var(--color-border-2)] bg-fill-2 px-14px py-12px'
+            data-testid={`operating-surface-${card.key}`}
+          >
+            <div className='flex items-start justify-between gap-10px'>
+              <div className='min-w-0'>
+                <h3 className='m-0 text-14px font-700 leading-22px text-t-primary'>{t(card.titleKey)}</h3>
+                <p className='m-0 mt-6px text-12px leading-18px text-t-secondary'>{t(card.descriptionKey)}</p>
+              </div>
+              <Tag color={operatingSurfaceColor(card.status)}>
+                {t(`commandCenter.operatingSurfaces.status.${card.status}`)}
+              </Tag>
+            </div>
+            <div className='flex flex-wrap items-center justify-between gap-8px'>
+              <div className='flex flex-wrap gap-6px'>
+                {card.tags.map((tag) => (
+                  <Tag key={`${card.key}-${tag}`} color='gray'>
+                    {tag}
+                  </Tag>
+                ))}
+              </div>
+              <span className='text-13px font-700 leading-20px text-t-primary'>{card.metric}</span>
+            </div>
+            <Button shape='round' type='outline' onClick={() => scrollToSection(card.anchorId)}>
+              {t('commandCenter.operatingSurfaces.open')}
+            </Button>
+          </article>
+        ))}
+      </div>
+    </Section>
+  );
+};
+
+const OperatingReadinessSection: React.FC<{
+  marketingResult: ICommandEveMarketingBoardResult | null;
+  crmResult: ICommandEveCrmOverlayResult | null;
+  dispatchPlanResult: ICommandEveMarketingDispatchPlanResult | null;
+  draftGenerateResult: ICommandEveMarketingDraftGenerateResult | null;
+  readModel: ICommandEveCommandCenterReadModel;
+}> = ({ marketingResult, crmResult, dispatchPlanResult, draftGenerateResult, readModel }) => {
+  const { t } = useTranslation();
+  const marketingCards = marketingResult?.model?.summary.total_cards ?? 0;
+  const marketingAuditCards = marketingResult?.model?.summary.audit_linked_cards ?? 0;
+  const controllerReviewPendingCards = marketingResult?.model?.summary.controller_review_pending_cards ?? 0;
+  const crmAuditEvents = crmResult?.model?.counts.audit_events ?? 0;
+  const noSpawnProofResult = draftGenerateResult ?? dispatchPlanResult;
+  const dispatchChecked = noSpawnProofResult?.data_boundary_checked === true;
+  const dispatchBlockedBeforeSpawn = dispatchChecked && noSpawnProofResult?.subprocess_spawned === false;
+  const workerAutonomyLocked =
+    readModel.blocked_actions.includes('worker_dispatch') ||
+    Boolean(marketingResult?.model?.policy && marketingResult.model.policy.dispatcher_enabled === false);
+  const checks: OperatingReadinessCheck[] = [
+    {
+      key: 'marketingReceipts',
+      ok: marketingResult?.status === 'ready' && marketingAuditCards >= marketingCards,
+      status:
+        marketingResult?.status === 'failed'
+          ? 'blocked'
+          : marketingResult?.status === 'ready' && marketingAuditCards >= marketingCards
+            ? 'ready'
+            : 'check',
+      titleKey: 'commandCenter.operatingReadiness.marketingReceipts.title',
+      descriptionKey: 'commandCenter.operatingReadiness.marketingReceipts.description',
+      evidence: `${formatCount(marketingAuditCards)} / ${formatCount(marketingCards)}`,
+    },
+    {
+      key: 'crmNl5Receipts',
+      ok: crmResult?.status === 'ready' && crmResult.model?.initialized === true && crmAuditEvents > 0,
+      status:
+        crmResult?.status === 'failed'
+          ? 'blocked'
+          : crmResult?.status === 'ready' && crmResult.model?.initialized === true && crmAuditEvents > 0
+            ? 'ready'
+            : 'check',
+      titleKey: 'commandCenter.operatingReadiness.crmNl5Receipts.title',
+      descriptionKey: 'commandCenter.operatingReadiness.crmNl5Receipts.description',
+      evidence: formatCount(crmAuditEvents),
+    },
+    {
+      key: 'controllerReviewQueue',
+      ok: controllerReviewPendingCards > 0 && workerAutonomyLocked,
+      status: controllerReviewPendingCards > 0 && workerAutonomyLocked ? 'ready' : 'check',
+      titleKey: 'commandCenter.operatingReadiness.controllerReviewQueue.title',
+      descriptionKey: 'commandCenter.operatingReadiness.controllerReviewQueue.description',
+      evidence: formatCount(controllerReviewPendingCards),
+    },
+    {
+      key: 'dispatchBlocked',
+      ok: dispatchBlockedBeforeSpawn,
+      status: noSpawnProofResult?.status === 'failed' ? 'blocked' : dispatchBlockedBeforeSpawn ? 'ready' : 'check',
+      titleKey: 'commandCenter.operatingReadiness.dispatchBlocked.title',
+      descriptionKey: 'commandCenter.operatingReadiness.dispatchBlocked.description',
+      evidence: dispatchChecked
+        ? noSpawnProofResult?.reason_code || t('commandCenter.operatingReadiness.dispatchBlocked.checked')
+        : t('commandCenter.operatingReadiness.dispatchBlocked.waiting'),
+    },
+    {
+      key: 'workerAutonomyLocked',
+      ok: workerAutonomyLocked,
+      status: workerAutonomyLocked ? 'ready' : 'blocked',
+      titleKey: 'commandCenter.operatingReadiness.workerAutonomyLocked.title',
+      descriptionKey: 'commandCenter.operatingReadiness.workerAutonomyLocked.description',
+      evidence: readModel.blocked_actions.includes('worker_dispatch')
+        ? 'worker_dispatch'
+        : marketingResult?.model?.policy.dispatcher_enabled === false
+          ? 'dispatcher_enabled=false'
+          : t('commandCenter.operatingReadiness.workerAutonomyLocked.missing'),
+    },
+  ];
+  const readyCount = checks.filter((check) => check.ok).length;
+  return (
+    <Section title={t('commandCenter.sections.operatingReadiness')} testId='command-center-operating-readiness'>
+      <div className='flex flex-wrap items-start justify-between gap-10px'>
+        <p className='m-0 max-w-720px text-12px leading-18px text-t-secondary'>
+          {t('commandCenter.operatingReadiness.description')}
+        </p>
+        <Tag color={readyCount === checks.length ? 'green' : 'orange'}>
+          {`${formatCount(readyCount)} / ${formatCount(checks.length)}`}
+        </Tag>
+      </div>
+      <div className='grid gap-10px md:grid-cols-2'>
+        {checks.map((check) => (
+          <article
+            key={check.key}
+            className='rounded-12px border border-solid border-[var(--color-border-2)] bg-fill-2 px-14px py-12px'
+            data-testid={`operating-readiness-${check.key}`}
+          >
+            <div className='flex items-start justify-between gap-10px'>
+              <div className='min-w-0'>
+                <h3 className='m-0 text-13px font-700 leading-20px text-t-primary'>{t(check.titleKey)}</h3>
+                <p className='m-0 mt-4px text-12px leading-18px text-t-secondary'>{t(check.descriptionKey)}</p>
+              </div>
+              <Tag color={operatingSurfaceColor(check.status)}>
+                {t(`commandCenter.operatingSurfaces.status.${check.status}`)}
+              </Tag>
+            </div>
+            <div className='mt-10px truncate text-11px leading-16px text-t-tertiary'>{check.evidence}</div>
+          </article>
+        ))}
+      </div>
+    </Section>
+  );
+};
 
 const BoardRunCard: React.FC<{ run: ICommandEveCommandCenterRunCard }> = ({ run }) => {
   const { t } = useTranslation();
@@ -387,10 +1456,38 @@ const BoardColumnView: React.FC<{ column: BoardColumn }> = ({ column }) => {
   );
 };
 
-const MarketingCardView: React.FC<{ card: ICommandEveMarketingCard }> = ({ card }) => {
+const MarketingCardView: React.FC<{
+  card: ICommandEveMarketingCard;
+  movingCardId: string | null;
+  dispatchingCardId: string | null;
+  actioningCardId: string | null;
+  onMoveNext: (card: ICommandEveMarketingCard, toLane: IMarketingLaneKey) => void;
+  onPlanDispatch: (card: ICommandEveMarketingCard) => void;
+  onOpenComment: (card: ICommandEveMarketingCard) => void;
+  onApplyAction: (card: ICommandEveMarketingCard, action: Exclude<IMarketingCardAction, 'comment'>) => void;
+}> = ({
+  card,
+  movingCardId,
+  dispatchingCardId,
+  actioningCardId,
+  onMoveNext,
+  onPlanDispatch,
+  onOpenComment,
+  onApplyAction,
+}) => {
   const { t } = useTranslation();
+  const nextLane = nextMarketingLane(card.lane_key);
+  const moving = movingCardId === card.card_id;
+  const dispatching = dispatchingCardId === card.card_id;
+  const actioning = actioningCardId === card.card_id;
+  const blocked = card.card_status === 'blocked';
+  const completed = card.card_status === 'completed';
+  const crmHandoffSource = crmHandoffSourceForCard(card);
   return (
-    <article className='rounded-10px border border-solid border-[var(--color-border-2)] bg-fill-2 px-12px py-10px'>
+    <article
+      data-testid={`marketing-card-${card.card_id}`}
+      className='rounded-10px border border-solid border-[var(--color-border-2)] bg-fill-2 px-12px py-10px'
+    >
       <div className='flex items-start justify-between gap-8px'>
         <div className='min-w-0'>
           <div className='truncate text-13px font-600 leading-20px text-t-primary'>{textOrDash(card.card_title)}</div>
@@ -398,20 +1495,166 @@ const MarketingCardView: React.FC<{ card: ICommandEveMarketingCard }> = ({ card 
         </div>
         <Tag color={stateColor(card.card_status)}>{textOrDash(card.card_status)}</Tag>
       </div>
+      {crmHandoffSource ? (
+        <div
+          className='mt-8px rounded-8px border border-solid border-fill-3 bg-fill-1 px-8px py-6px text-11px leading-16px'
+          data-testid={`marketing-card-crm-source-${card.card_id}`}
+        >
+          <div className='mb-4px flex flex-wrap items-center gap-6px'>
+            <Tag color='orange'>{t('commandCenter.marketingBoard.crmHandoff.source')}</Tag>
+            <span className='truncate text-t-primary'>{textOrDash(crmHandoffSource.company)}</span>
+          </div>
+          <div className='grid gap-x-8px gap-y-2px text-t-secondary sm:grid-cols-[max-content_1fr]'>
+            <span className='text-t-tertiary'>{t('commandCenter.marketingBoard.crmHandoff.deal')}</span>
+            <span className='truncate'>{textOrDash(crmHandoffSource.dealId)}</span>
+            <span className='text-t-tertiary'>{t('commandCenter.marketingBoard.crmHandoff.contact')}</span>
+            <span className='truncate'>{textOrDash(crmHandoffSource.contact)}</span>
+            <span className='text-t-tertiary'>{t('commandCenter.marketingBoard.crmHandoff.stage')}</span>
+            <span className='truncate'>{textOrDash(crmHandoffSource.stage)}</span>
+            <span className='text-t-tertiary'>{t('commandCenter.marketingBoard.crmHandoff.consent')}</span>
+            <span className='truncate'>{textOrDash(crmHandoffSource.consent)}</span>
+          </div>
+        </div>
+      ) : null}
       <dl className='mt-8px grid grid-cols-2 gap-x-8px gap-y-4px text-11px leading-16px'>
         <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.labels.owner')}</dt>
         <dd className='m-0 truncate text-t-secondary'>{textOrDash(card.card_assignee)}</dd>
         <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.labels.audit')}</dt>
         <dd className='m-0 truncate text-t-secondary'>{textOrDash(card.linked_audit_event_id)}</dd>
+        <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.labels.controllerReview')}</dt>
+        <dd className='m-0 truncate text-t-secondary' data-testid={`marketing-card-controller-review-${card.card_id}`}>
+          {card.controller_review_status
+            ? `${t(`commandCenter.marketingBoard.dispatch.${card.controller_review_status}`)} · ${textOrDash(
+                card.controller_review_audit_event_id
+              )}`
+            : t('commandCenter.marketingBoard.dispatch.notRecorded')}
+        </dd>
+        <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.handoff')}</dt>
+        <dd className='m-0 truncate text-t-secondary' data-testid={`marketing-card-controller-handoff-${card.card_id}`}>
+          {card.controller_review_handoff_role || card.controller_review_handoff_dispatch
+            ? `${textOrDash(card.controller_review_handoff_role)} / ${textOrDash(
+                card.controller_review_handoff_dispatch
+              )}`
+            : t('commandCenter.marketingBoard.dispatch.notRecorded')}
+        </dd>
+        <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.controllerDecision')}</dt>
+        <dd
+          className='m-0 truncate text-t-secondary'
+          data-testid={`marketing-card-controller-decision-${card.card_id}`}
+        >
+          {card.controller_decision_status
+            ? `${t(`commandCenter.marketingBoard.dispatch.${card.controller_decision_status}`)} · ${textOrDash(
+                card.controller_decision_audit_event_id
+              )}`
+            : t('commandCenter.marketingBoard.dispatch.notRecorded')}
+        </dd>
       </dl>
+      {card.controller_review_status === 'pending' ? (
+        <div className='mt-8px flex flex-wrap gap-6px'>
+          <Tag color='orange' data-testid={`marketing-card-controller-review-pending-${card.card_id}`}>
+            {t('commandCenter.marketingBoard.dispatch.waitingForController')}
+          </Tag>
+          <Tag color='green'>{t('commandCenter.marketingBoard.dispatch.gateNoSpawn')}</Tag>
+        </div>
+      ) : null}
+      <div className='mt-8px flex flex-wrap items-center justify-end gap-6px'>
+        <Button
+          size='mini'
+          shape='round'
+          disabled={actioning}
+          data-testid={`marketing-card-comment-${card.card_id}`}
+          onClick={() => onOpenComment(card)}
+        >
+          {t('commandCenter.marketingBoard.actions.comment')}
+        </Button>
+        <Button
+          size='mini'
+          shape='round'
+          loading={actioning && !blocked}
+          disabled={actioning || blocked || completed}
+          data-testid={`marketing-card-block-${card.card_id}`}
+          onClick={() => onApplyAction(card, 'block')}
+        >
+          {t('commandCenter.marketingBoard.actions.block')}
+        </Button>
+        <Button
+          size='mini'
+          shape='round'
+          loading={actioning && blocked}
+          disabled={actioning || !blocked}
+          data-testid={`marketing-card-unblock-${card.card_id}`}
+          onClick={() => onApplyAction(card, 'unblock')}
+        >
+          {t('commandCenter.marketingBoard.actions.unblock')}
+        </Button>
+        <Button
+          size='mini'
+          shape='round'
+          loading={actioning && !completed}
+          disabled={actioning || completed}
+          data-testid={`marketing-card-complete-${card.card_id}`}
+          onClick={() => onApplyAction(card, 'complete')}
+        >
+          {t('commandCenter.marketingBoard.actions.complete')}
+        </Button>
+        <Button
+          size='mini'
+          shape='round'
+          loading={dispatching}
+          disabled={dispatching}
+          data-testid={`marketing-card-dispatch-plan-${card.card_id}`}
+          onClick={() => onPlanDispatch(card)}
+        >
+          {t('commandCenter.marketingBoard.actions.checkDispatch')}
+        </Button>
+        {nextLane ? (
+          <Button
+            size='mini'
+            shape='round'
+            loading={moving}
+            disabled={moving}
+            data-testid={`marketing-card-move-${card.card_id}`}
+            onClick={() => onMoveNext(card, nextLane)}
+          >
+            {`${t('commandCenter.marketingBoard.actions.moveNext')} → ${t(
+              `commandCenter.marketingBoard.columns.${nextLane}`
+            )}`}
+          </Button>
+        ) : (
+          <span className='text-11px leading-16px text-t-tertiary' data-testid={`marketing-card-final-${card.card_id}`}>
+            {t('commandCenter.marketingBoard.actions.finalLane')}
+          </span>
+        )}
+      </div>
     </article>
   );
 };
 
-const MarketingColumnView: React.FC<{ column: ICommandEveMarketingColumn }> = ({ column }) => {
+const MarketingColumnView: React.FC<{
+  column: ICommandEveMarketingColumn;
+  movingCardId: string | null;
+  dispatchingCardId: string | null;
+  actioningCardId: string | null;
+  onMoveNext: (card: ICommandEveMarketingCard, toLane: IMarketingLaneKey) => void;
+  onPlanDispatch: (card: ICommandEveMarketingCard) => void;
+  onOpenComment: (card: ICommandEveMarketingCard) => void;
+  onApplyAction: (card: ICommandEveMarketingCard, action: Exclude<IMarketingCardAction, 'comment'>) => void;
+}> = ({
+  column,
+  movingCardId,
+  dispatchingCardId,
+  actioningCardId,
+  onMoveNext,
+  onPlanDispatch,
+  onOpenComment,
+  onApplyAction,
+}) => {
   const { t } = useTranslation();
   return (
-    <div className='flex min-h-180px flex-col gap-10px rounded-12px border border-solid border-[var(--color-border-2)] bg-fill-1 px-12px py-12px'>
+    <div
+      data-testid={`marketing-lane-${column.key}`}
+      className='flex min-h-180px flex-col gap-10px rounded-12px border border-solid border-[var(--color-border-2)] bg-fill-1 px-12px py-12px'
+    >
       <div className='flex items-center justify-between gap-8px'>
         <h3 className='m-0 text-13px font-600 leading-20px text-t-primary'>
           {t(`commandCenter.marketingBoard.columns.${column.key}`)}
@@ -421,7 +1664,17 @@ const MarketingColumnView: React.FC<{ column: ICommandEveMarketingColumn }> = ({
       {column.cards.length > 0 ? (
         <div className='flex flex-col gap-8px'>
           {column.cards.map((card) => (
-            <MarketingCardView key={`${column.key}-${card.card_id}`} card={card} />
+            <MarketingCardView
+              key={`${column.key}-${card.card_id}`}
+              card={card}
+              movingCardId={movingCardId}
+              dispatchingCardId={dispatchingCardId}
+              actioningCardId={actioningCardId}
+              onMoveNext={onMoveNext}
+              onPlanDispatch={onPlanDispatch}
+              onOpenComment={onOpenComment}
+              onApplyAction={onApplyAction}
+            />
           ))}
         </div>
       ) : (
@@ -433,18 +1686,928 @@ const MarketingColumnView: React.FC<{ column: ICommandEveMarketingColumn }> = ({
   );
 };
 
+type IMarketingLoopStepStatus = 'done' | 'active' | 'blocked' | 'pending';
+
+const marketingLoopStepColor = (status: IMarketingLoopStepStatus): string => {
+  if (status === 'done') {
+    return 'green';
+  }
+  if (status === 'active') {
+    return 'blue';
+  }
+  if (status === 'blocked') {
+    return 'red';
+  }
+  return 'gray';
+};
+
+const MarketingDispatchQueueView: React.FC<{
+  model: ICommandEveMarketingBoardModel;
+  workerStartGateResult: ICommandEveMarketingWorkerStartGateResult | null;
+  workerDispatcherPrepareResult: ICommandEveMarketingWorkerDispatcherPrepareResult | null;
+  generatingDraftCardId: string | null;
+  approvingOutputCardId: string | null;
+  requestingWorkerDispatchCardId: string | null;
+  runningObservedWorkerCardId: string | null;
+  checkingWorkerStartGateCardId: string | null;
+  preparingWorkerDispatcherCardId: string | null;
+  runningSafeLocalLoopCardId: string | null;
+  onGenerateDraft: (card: ICommandEveMarketingCard) => void;
+  onApproveOutput: (card: ICommandEveMarketingCard) => void;
+  onRequestWorkerDispatch: (card: ICommandEveMarketingCard) => void;
+  onRunObservedWorker: (card: ICommandEveMarketingCard) => void;
+  onCheckWorkerStartGate: (
+    card: ICommandEveWorkerStartGateTarget,
+    options?: ICommandEveWorkerStartGateUiOptions
+  ) => void;
+  onPrepareWorkerDispatcher: (card: ICommandEveWorkerStartGateTarget) => void;
+  onRunSafeLocalLoop: (card: ICommandEveMarketingCard) => void;
+}> = ({
+  model,
+  workerStartGateResult,
+  workerDispatcherPrepareResult,
+  generatingDraftCardId,
+  approvingOutputCardId,
+  requestingWorkerDispatchCardId,
+  runningObservedWorkerCardId,
+  checkingWorkerStartGateCardId,
+  preparingWorkerDispatcherCardId,
+  runningSafeLocalLoopCardId,
+  onGenerateDraft,
+  onApproveOutput,
+  onRequestWorkerDispatch,
+  onRunObservedWorker,
+  onCheckWorkerStartGate,
+  onPrepareWorkerDispatcher,
+  onRunSafeLocalLoop,
+}) => {
+  const { t } = useTranslation();
+  const queueCards = marketingCardsForDispatchQueue(model);
+  const hasUnprojectedWorkerStartGateResult =
+    Boolean(workerStartGateResult?.ok && workerStartGateResult.card_id && workerStartGateResult.worker_start_packet) &&
+    !queueCards.some(
+      (card) => card.card_id === workerStartGateResult?.card_id && Boolean(card.worker_start_gate_status)
+    );
+  const workerStartGateCheckedCount =
+    model.summary.worker_start_gate_checked_cards + (hasUnprojectedWorkerStartGateResult ? 1 : 0);
+  const hasUnprojectedWorkerDispatcherPrepareResult =
+    Boolean(
+      workerDispatcherPrepareResult?.ok &&
+      workerDispatcherPrepareResult.card_id &&
+      workerDispatcherPrepareResult.dispatcher_prepare_packet
+    ) &&
+    !queueCards.some(
+      (card) =>
+        card.card_id === workerDispatcherPrepareResult?.card_id && Boolean(card.worker_dispatcher_prepare_status)
+    );
+  const workerDispatcherPreparedCount =
+    model.summary.worker_dispatcher_prepared_cards + (hasUnprojectedWorkerDispatcherPrepareResult ? 1 : 0);
+  return (
+    <div
+      className='rounded-12px border border-solid border-[var(--color-border-2)] bg-fill-1 px-12px py-12px'
+      data-testid='marketing-dispatch-queue'
+    >
+      <div className='flex flex-wrap items-start justify-between gap-10px'>
+        <div className='min-w-0'>
+          <h3 className='m-0 text-13px font-600 leading-20px text-t-primary'>
+            {t('commandCenter.marketingBoard.dispatchQueue.title')}
+          </h3>
+          <p className='m-0 mt-2px text-12px leading-18px text-t-secondary'>
+            {t('commandCenter.marketingBoard.dispatchQueue.description')}
+          </p>
+        </div>
+        <div className='flex flex-wrap gap-6px'>
+          <Tag color='orange' data-testid='marketing-dispatch-queue-pending-count'>
+            {`${t('commandCenter.marketingBoard.dispatchQueue.pending')}: ${formatCount(
+              model.summary.controller_review_pending_cards
+            )}`}
+          </Tag>
+          <Tag color='green' data-testid='marketing-dispatch-queue-approved-count'>
+            {`${t('commandCenter.marketingBoard.dispatchQueue.approved')}: ${formatCount(
+              model.summary.controller_decision_approved_cards
+            )}`}
+          </Tag>
+          <Tag color='red' data-testid='marketing-dispatch-queue-rejected-count'>
+            {`${t('commandCenter.marketingBoard.dispatchQueue.rejected')}: ${formatCount(
+              model.summary.controller_decision_rejected_cards
+            )}`}
+          </Tag>
+          <Tag color='blue' data-testid='marketing-dispatch-queue-generated-count'>
+            {`${t('commandCenter.marketingBoard.dispatchQueue.generated')}: ${formatCount(
+              model.summary.generated_draft_cards
+            )}`}
+          </Tag>
+          <Tag color='blue' data-testid='marketing-dispatch-queue-output-approved-count'>
+            {`${t('commandCenter.marketingBoard.dispatchQueue.outputApproved')}: ${formatCount(
+              model.summary.output_approved_cards
+            )}`}
+          </Tag>
+          <Tag color='purple' data-testid='marketing-dispatch-queue-worker-ready-count'>
+            {`${t('commandCenter.marketingBoard.dispatchQueue.workerReady')}: ${formatCount(
+              model.summary.worker_dispatch_ready_cards
+            )}`}
+          </Tag>
+          <Tag color='orange' data-testid='marketing-dispatch-queue-worker-requested-count'>
+            {`${t('commandCenter.marketingBoard.dispatchQueue.workerRequested')}: ${formatCount(
+              model.summary.worker_dispatch_requested_cards
+            )}`}
+          </Tag>
+          <Tag color='green' data-testid='marketing-dispatch-queue-worker-observed-count'>
+            {`${t('commandCenter.marketingBoard.dispatchQueue.workerObserved')}: ${formatCount(
+              model.summary.worker_observed_completed_cards
+            )}`}
+          </Tag>
+          <Tag color='orange' data-testid='marketing-dispatch-queue-worker-start-gate-count'>
+            {`${t('commandCenter.marketingBoard.dispatchQueue.workerStartGates')}: ${formatCount(
+              workerStartGateCheckedCount
+            )}`}
+          </Tag>
+          <Tag color='green' data-testid='marketing-dispatch-queue-worker-dispatcher-prepared-count'>
+            {`${t('commandCenter.marketingBoard.dispatchQueue.dispatcherPreparedCount')}: ${formatCount(
+              workerDispatcherPreparedCount
+            )}`}
+          </Tag>
+        </div>
+      </div>
+      {queueCards.length > 0 ? (
+        <div className='mt-10px grid gap-8px lg:grid-cols-2'>
+          {queueCards.map((card) => {
+            const decision = card.controller_decision_status;
+            const queueStatus = decision || card.controller_review_status || 'pending';
+            const hasGeneratedDraft = card.generated_draft_status === 'generated' && Boolean(card.generated_draft_text);
+            const hasApprovedOutput = card.output_approval_status === 'approved' && Boolean(card.output_approval_text);
+            const hasWorkerDispatchReady =
+              card.worker_dispatch_status === 'prepared' && Boolean(card.worker_contract_yaml);
+            const workerDispatchRequested = card.worker_dispatch_request_status === 'blocked';
+            const workerObservedCompleted = card.worker_observed_run_status === 'completed';
+            const workerStartGateResultForCard =
+              workerStartGateResult?.ok && workerStartGateResult.card_id === card.card_id
+                ? workerStartGateResult
+                : null;
+            const workerStartPacketText =
+              (workerStartGateResultForCard?.worker_start_packet
+                ? JSON.stringify(workerStartGateResultForCard.worker_start_packet, null, 2)
+                : '') || card.worker_start_packet;
+            const workerStartGateStatus =
+              workerStartGateResultForCard?.worker_start_gate_status || card.worker_start_gate_status || null;
+            const workerStartGateChecked = Boolean(workerStartGateStatus || workerStartPacketText);
+            const workerStartGateReady = workerStartGateStatus === 'ready';
+            const workerDispatcherPrepareResultForCard =
+              workerDispatcherPrepareResult?.ok && workerDispatcherPrepareResult.card_id === card.card_id
+                ? workerDispatcherPrepareResult
+                : null;
+            const workerDispatcherPreparePacketText =
+              card.worker_dispatcher_prepare_packet ||
+              (workerDispatcherPrepareResultForCard?.dispatcher_prepare_packet
+                ? JSON.stringify(workerDispatcherPrepareResultForCard.dispatcher_prepare_packet, null, 2)
+                : '');
+            const workerDispatcherPrepared =
+              card.worker_dispatcher_prepare_status === 'ready' ||
+              workerDispatcherPrepareResultForCard?.worker_dispatcher_prepare_status === 'ready';
+            const canCheckObservedExecutorProfile = workerObservedCompleted && !workerStartGateReady;
+            const nextStepKey = decision
+              ? decision === 'approved'
+                ? workerStartGateChecked
+                  ? workerDispatcherPrepared
+                    ? 'workerDispatcherPreparedNext'
+                    : workerStartGateReady
+                      ? 'workerStartGateReadyNext'
+                      : 'workerStartGateNext'
+                  : workerObservedCompleted
+                    ? 'workerObservedNext'
+                    : workerDispatchRequested
+                      ? 'workerRequestedNext'
+                      : hasWorkerDispatchReady
+                        ? 'workerReadyNext'
+                        : hasApprovedOutput
+                          ? 'outputApprovedNext'
+                          : hasGeneratedDraft
+                            ? 'generatedNext'
+                            : 'approvedNext'
+                : 'rejectedNext'
+              : 'pendingNext';
+            const draftGenerating = generatingDraftCardId === card.card_id;
+            const outputApproving = approvingOutputCardId === card.card_id;
+            const workerDispatchRequesting = requestingWorkerDispatchCardId === card.card_id;
+            const workerObservedRunning = runningObservedWorkerCardId === card.card_id;
+            const workerStartGateChecking = checkingWorkerStartGateCardId === card.card_id;
+            const workerDispatcherPreparing = preparingWorkerDispatcherCardId === card.card_id;
+            const safeLocalLoopRunning = runningSafeLocalLoopCardId === card.card_id;
+            const anyMarketingLoopStepRunning =
+              draftGenerating ||
+              outputApproving ||
+              workerDispatchRequesting ||
+              workerObservedRunning ||
+              workerStartGateChecking ||
+              workerDispatcherPreparing ||
+              safeLocalLoopRunning;
+            const controllerApproved = decision === 'approved';
+            const marketingLoopSteps: Array<{
+              key: string;
+              label: string;
+              status: IMarketingLoopStepStatus;
+            }> = [
+              {
+                key: 'controller',
+                label: t('commandCenter.marketingBoard.dispatchQueue.loopStepController'),
+                status: controllerApproved ? 'done' : decision === 'rejected' ? 'blocked' : 'pending',
+              },
+              {
+                key: 'draft',
+                label: t('commandCenter.marketingBoard.dispatchQueue.loopStepDraft'),
+                status: hasGeneratedDraft ? 'done' : controllerApproved ? 'active' : 'pending',
+              },
+              {
+                key: 'output',
+                label: t('commandCenter.marketingBoard.dispatchQueue.loopStepOutput'),
+                status: hasApprovedOutput ? 'done' : hasGeneratedDraft ? 'active' : 'pending',
+              },
+              {
+                key: 'handoff',
+                label: t('commandCenter.marketingBoard.dispatchQueue.loopStepWorkerHandoff'),
+                status: hasWorkerDispatchReady ? 'done' : hasApprovedOutput ? 'active' : 'pending',
+              },
+              {
+                key: 'observed',
+                label: t('commandCenter.marketingBoard.dispatchQueue.loopStepObserved'),
+                status: workerObservedCompleted
+                  ? 'done'
+                  : workerDispatchRequested || hasWorkerDispatchReady
+                    ? 'active'
+                    : 'pending',
+              },
+              {
+                key: 'startGate',
+                label: t('commandCenter.marketingBoard.dispatchQueue.loopStepStartGate'),
+                status: workerStartGateReady
+                  ? 'done'
+                  : workerStartGateChecked
+                    ? 'blocked'
+                    : workerObservedCompleted
+                      ? 'active'
+                      : 'pending',
+              },
+              {
+                key: 'dispatcher',
+                label: t('commandCenter.marketingBoard.dispatchQueue.loopStepDispatcher'),
+                status: workerDispatcherPrepared ? 'done' : workerStartGateReady ? 'active' : 'pending',
+              },
+            ];
+            const crmHandoffSource = crmHandoffSourceForCard(card);
+            return (
+              <article
+                key={card.card_id}
+                className='rounded-10px border border-solid border-fill-3 bg-fill-2 px-10px py-9px'
+                data-testid={`marketing-dispatch-queue-item-${card.card_id}`}
+              >
+                <div className='flex items-start justify-between gap-8px'>
+                  <div className='min-w-0'>
+                    <div className='truncate text-12px font-600 leading-18px text-t-primary'>
+                      {textOrDash(card.card_title)}
+                    </div>
+                    <div className='mt-2px truncate text-11px leading-16px text-t-tertiary'>
+                      {textOrDash(card.card_id)}
+                    </div>
+                  </div>
+                  <Tag
+                    color={decision === 'approved' ? 'green' : decision === 'rejected' ? 'red' : 'orange'}
+                    data-testid={`marketing-dispatch-queue-status-${card.card_id}`}
+                  >
+                    {t(`commandCenter.marketingBoard.dispatch.${queueStatus}`)}
+                  </Tag>
+                </div>
+                {crmHandoffSource ? (
+                  <div
+                    className='mt-8px rounded-8px border border-solid border-fill-3 bg-fill-1 px-8px py-6px text-11px leading-16px'
+                    data-testid={`marketing-dispatch-queue-crm-source-${card.card_id}`}
+                  >
+                    <div className='mb-4px flex flex-wrap items-center gap-6px'>
+                      <Tag color='orange'>{t('commandCenter.marketingBoard.crmHandoff.source')}</Tag>
+                      <span
+                        className='truncate text-t-primary'
+                        data-testid={`marketing-dispatch-queue-crm-company-${card.card_id}`}
+                      >
+                        {textOrDash(crmHandoffSource.company)}
+                      </span>
+                    </div>
+                    <div className='grid gap-x-8px gap-y-2px text-t-secondary sm:grid-cols-[max-content_1fr]'>
+                      <span className='text-t-tertiary'>{t('commandCenter.marketingBoard.crmHandoff.deal')}</span>
+                      <span className='truncate'>{textOrDash(crmHandoffSource.dealId)}</span>
+                      <span className='text-t-tertiary'>{t('commandCenter.marketingBoard.crmHandoff.contact')}</span>
+                      <span className='truncate'>{textOrDash(crmHandoffSource.contact)}</span>
+                      <span className='text-t-tertiary'>{t('commandCenter.marketingBoard.crmHandoff.stage')}</span>
+                      <span className='truncate'>{textOrDash(crmHandoffSource.stage)}</span>
+                      <span className='text-t-tertiary'>{t('commandCenter.marketingBoard.crmHandoff.consent')}</span>
+                      <span className='truncate'>{textOrDash(crmHandoffSource.consent)}</span>
+                    </div>
+                  </div>
+                ) : null}
+                <dl className='m-0 mt-8px grid gap-x-10px gap-y-4px text-11px leading-16px sm:grid-cols-[max-content_1fr]'>
+                  <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.handoff')}</dt>
+                  <dd className='m-0 truncate text-t-secondary'>
+                    {`${textOrDash(card.controller_decision_handoff_role || card.controller_review_handoff_role)} / ${textOrDash(
+                      card.controller_decision_handoff_dispatch || card.controller_review_handoff_dispatch
+                    )}`}
+                  </dd>
+                  <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.audit')}</dt>
+                  <dd className='m-0 truncate text-t-secondary'>
+                    {textOrDash(
+                      card.generated_draft_audit_event_id ||
+                        card.controller_decision_audit_event_id ||
+                        card.controller_review_audit_event_id
+                    )}
+                  </dd>
+                  <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatchQueue.nextStep')}</dt>
+                  <dd className='m-0 text-t-secondary' data-testid={`marketing-dispatch-queue-next-${card.card_id}`}>
+                    {t(`commandCenter.marketingBoard.dispatchQueue.${nextStepKey}`)}
+                  </dd>
+                </dl>
+                <div
+                  className='mt-8px rounded-8px border border-solid border-fill-3 bg-fill-1 px-8px py-6px'
+                  data-testid={`marketing-dispatch-queue-loop-progress-${card.card_id}`}
+                >
+                  <div className='text-11px font-600 leading-16px text-t-primary'>
+                    {t('commandCenter.marketingBoard.dispatchQueue.loopProgressTitle')}
+                  </div>
+                  <div className='mt-6px flex flex-wrap gap-4px'>
+                    {marketingLoopSteps.map((step) => (
+                      <Tag
+                        key={step.key}
+                        color={marketingLoopStepColor(step.status)}
+                        data-testid={`marketing-dispatch-queue-loop-step-${step.key}-${card.card_id}`}
+                      >
+                        {step.label}
+                      </Tag>
+                    ))}
+                  </div>
+                </div>
+                {decision === 'approved' ? (
+                  <div className='mt-8px flex flex-wrap items-center gap-6px'>
+                    {!workerDispatcherPrepared ? (
+                      <Button
+                        shape='round'
+                        size='mini'
+                        type='primary'
+                        loading={safeLocalLoopRunning}
+                        disabled={anyMarketingLoopStepRunning}
+                        onClick={() => onRunSafeLocalLoop(card)}
+                        data-testid={`marketing-dispatch-queue-run-safe-local-loop-${card.card_id}`}
+                      >
+                        {safeLocalLoopRunning
+                          ? t('commandCenter.marketingBoard.dispatchQueue.safeLocalLoopRunning')
+                          : t('commandCenter.marketingBoard.dispatchQueue.runSafeLocalLoop')}
+                      </Button>
+                    ) : null}
+                    <Button
+                      shape='round'
+                      size='mini'
+                      type='outline'
+                      loading={draftGenerating}
+                      disabled={anyMarketingLoopStepRunning || hasGeneratedDraft}
+                      onClick={() => onGenerateDraft(card)}
+                      data-testid={`marketing-dispatch-queue-generate-${card.card_id}`}
+                    >
+                      {hasGeneratedDraft
+                        ? t('commandCenter.marketingBoard.dispatchQueue.draftAlreadyGenerated')
+                        : t('commandCenter.marketingBoard.dispatchQueue.generateDraft')}
+                    </Button>
+                    {hasGeneratedDraft ? (
+                      <Tag color='green' data-testid={`marketing-dispatch-queue-generated-tag-${card.card_id}`}>
+                        {t('commandCenter.marketingBoard.dispatchQueue.generated')}
+                      </Tag>
+                    ) : null}
+                    {hasGeneratedDraft ? (
+                      <Button
+                        shape='round'
+                        size='mini'
+                        type='primary'
+                        loading={outputApproving}
+                        disabled={anyMarketingLoopStepRunning || hasApprovedOutput}
+                        onClick={() => onApproveOutput(card)}
+                        data-testid={`marketing-dispatch-queue-approve-output-${card.card_id}`}
+                      >
+                        {hasApprovedOutput
+                          ? t('commandCenter.marketingBoard.dispatchQueue.outputAlreadyApproved')
+                          : t('commandCenter.marketingBoard.dispatchQueue.approveOutput')}
+                      </Button>
+                    ) : null}
+                    {hasApprovedOutput ? (
+                      <Tag color='blue' data-testid={`marketing-dispatch-queue-output-approved-tag-${card.card_id}`}>
+                        {t('commandCenter.marketingBoard.dispatchQueue.outputApproved')}
+                      </Tag>
+                    ) : null}
+                    {hasWorkerDispatchReady ? (
+                      <Tag color='purple' data-testid={`marketing-dispatch-queue-worker-ready-tag-${card.card_id}`}>
+                        {t('commandCenter.marketingBoard.dispatchQueue.workerReady')}
+                      </Tag>
+                    ) : null}
+                    {workerDispatchRequested ? (
+                      <Tag color='orange' data-testid={`marketing-dispatch-queue-worker-requested-tag-${card.card_id}`}>
+                        {t('commandCenter.marketingBoard.dispatchQueue.workerRequested')}
+                      </Tag>
+                    ) : null}
+                    {workerObservedCompleted ? (
+                      <Tag color='green' data-testid={`marketing-dispatch-queue-worker-observed-tag-${card.card_id}`}>
+                        {t('commandCenter.marketingBoard.dispatchQueue.workerObservedCompleted')}
+                      </Tag>
+                    ) : null}
+                    {workerStartGateChecked ? (
+                      <Tag
+                        color={workerStartGateReady ? 'green' : 'orange'}
+                        data-testid={`marketing-dispatch-queue-worker-start-gate-tag-${card.card_id}`}
+                      >
+                        {t(
+                          workerStartGateReady
+                            ? 'commandCenter.marketingBoard.dispatchQueue.workerStartGateReady'
+                            : 'commandCenter.marketingBoard.dispatchQueue.workerStartGateChecked'
+                        )}
+                      </Tag>
+                    ) : null}
+                    {workerDispatcherPrepared ? (
+                      <Tag
+                        color='green'
+                        data-testid={`marketing-dispatch-queue-worker-dispatcher-prepared-tag-${card.card_id}`}
+                      >
+                        {t('commandCenter.marketingBoard.dispatchQueue.workerDispatcherPrepared')}
+                      </Tag>
+                    ) : null}
+                    {hasWorkerDispatchReady ? (
+                      <Button
+                        shape='round'
+                        size='mini'
+                        type='outline'
+                        loading={workerDispatchRequesting}
+                        disabled={anyMarketingLoopStepRunning || workerDispatchRequested}
+                        onClick={() => onRequestWorkerDispatch(card)}
+                        data-testid={`marketing-dispatch-queue-request-worker-${card.card_id}`}
+                      >
+                        {workerDispatchRequested
+                          ? t('commandCenter.marketingBoard.dispatchQueue.workerRequestRecorded')
+                          : t('commandCenter.marketingBoard.dispatchQueue.requestWorkerDispatch')}
+                      </Button>
+                    ) : null}
+                    {workerDispatchRequested ? (
+                      <Button
+                        shape='round'
+                        size='mini'
+                        type='primary'
+                        loading={workerObservedRunning}
+                        disabled={anyMarketingLoopStepRunning || workerObservedCompleted}
+                        onClick={() => onRunObservedWorker(card)}
+                        data-testid={`marketing-dispatch-queue-run-observed-worker-${card.card_id}`}
+                      >
+                        {workerObservedCompleted
+                          ? t('commandCenter.marketingBoard.dispatchQueue.workerObservedCompleted')
+                          : t('commandCenter.marketingBoard.dispatchQueue.runObservedWorker')}
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : null}
+                {hasGeneratedDraft ? (
+                  <div
+                    className='mt-8px rounded-8px border border-solid border-fill-3 bg-fill-1 p-8px'
+                    data-testid={`marketing-generated-draft-preview-${card.card_id}`}
+                  >
+                    <div className='mb-4px flex flex-wrap items-center gap-6px'>
+                      <span className='text-11px font-600 leading-16px text-t-primary'>
+                        {t('commandCenter.marketingBoard.dispatchQueue.generatedDraft')}
+                      </span>
+                      <Tag color='blue'>{textOrDash(card.generated_draft_source)}</Tag>
+                    </div>
+                    <pre className='m-0 max-h-132px overflow-auto whitespace-pre-wrap break-words text-11px leading-16px text-t-secondary'>
+                      {card.generated_draft_text}
+                    </pre>
+                  </div>
+                ) : null}
+                {hasApprovedOutput ? (
+                  <div
+                    className='mt-8px rounded-8px border border-solid border-fill-3 bg-fill-1 p-8px'
+                    data-testid={`marketing-approved-output-preview-${card.card_id}`}
+                  >
+                    <div className='mb-4px flex flex-wrap items-center gap-6px'>
+                      <span className='text-11px font-600 leading-16px text-t-primary'>
+                        {t('commandCenter.marketingBoard.dispatchQueue.approvedOutput')}
+                      </span>
+                      <Tag color='blue'>{textOrDash(card.output_approval_source)}</Tag>
+                    </div>
+                    <pre className='m-0 max-h-132px overflow-auto whitespace-pre-wrap break-words text-11px leading-16px text-t-secondary'>
+                      {card.output_approval_text}
+                    </pre>
+                  </div>
+                ) : null}
+                {hasWorkerDispatchReady ? (
+                  <div
+                    className='mt-8px rounded-8px border border-solid border-fill-3 bg-fill-1 p-8px'
+                    data-testid={`marketing-worker-handoff-preview-${card.card_id}`}
+                  >
+                    <div className='mb-4px flex flex-wrap items-center gap-6px'>
+                      <span className='text-11px font-600 leading-16px text-t-primary'>
+                        {t('commandCenter.marketingBoard.dispatchQueue.preparedWorkerHandoff')}
+                      </span>
+                      <Tag color='purple'>{t('commandCenter.marketingBoard.dispatchQueue.manualDispatch')}</Tag>
+                    </div>
+                    <pre className='m-0 max-h-132px overflow-auto whitespace-pre-wrap break-words text-11px leading-16px text-t-secondary'>
+                      {card.worker_contract_yaml}
+                    </pre>
+                  </div>
+                ) : null}
+                {workerObservedCompleted && card.worker_observed_output ? (
+                  <div
+                    className='mt-8px rounded-8px border border-solid border-fill-3 bg-fill-1 p-8px'
+                    data-testid={`marketing-worker-observed-preview-${card.card_id}`}
+                  >
+                    <div className='mb-4px flex flex-wrap items-center gap-6px'>
+                      <span className='text-11px font-600 leading-16px text-t-primary'>
+                        {t('commandCenter.marketingBoard.dispatchQueue.workerObservedReport')}
+                      </span>
+                      <Tag color='green'>{t('commandCenter.marketingBoard.dispatch.notSpawned')}</Tag>
+                    </div>
+                    <pre className='m-0 max-h-132px overflow-auto whitespace-pre-wrap break-words text-11px leading-16px text-t-secondary'>
+                      {card.worker_observed_output}
+                    </pre>
+                    <div className='mt-8px flex flex-wrap items-center gap-6px'>
+                      <Button
+                        shape='round'
+                        size='mini'
+                        type='outline'
+                        loading={workerStartGateChecking}
+                        disabled={anyMarketingLoopStepRunning || workerStartGateChecked}
+                        onClick={() => onCheckWorkerStartGate(card)}
+                        data-testid={`marketing-dispatch-queue-check-worker-start-gate-${card.card_id}`}
+                      >
+                        {workerStartGateChecked
+                          ? t('commandCenter.marketingBoard.dispatchQueue.workerStartGateChecked')
+                          : t('commandCenter.marketingBoard.dispatchQueue.checkWorkerStartGate')}
+                      </Button>
+                      <Tag
+                        color={workerStartGateReady ? 'green' : 'orange'}
+                        data-testid={`marketing-dispatch-queue-worker-start-gate-inline-tag-${card.card_id}`}
+                      >
+                        {t(
+                          workerStartGateReady
+                            ? 'commandCenter.marketingBoard.dispatchQueue.workerStartGateReady'
+                            : 'commandCenter.marketingBoard.dispatchQueue.workerStartGateBlocked'
+                        )}
+                      </Tag>
+                    </div>
+                  </div>
+                ) : null}
+                {workerStartGateChecked && workerStartPacketText ? (
+                  <div
+                    className='mt-8px rounded-8px border border-solid border-fill-3 bg-fill-1 p-8px'
+                    data-testid={`marketing-worker-start-gate-preview-${card.card_id}`}
+                  >
+                    <div className='mb-4px flex flex-wrap items-center gap-6px'>
+                      <span className='text-11px font-600 leading-16px text-t-primary'>
+                        {t('commandCenter.marketingBoard.dispatchQueue.workerStartPacket')}
+                      </span>
+                      <Tag
+                        color={workerStartGateReady ? 'green' : 'orange'}
+                        data-testid={`marketing-dispatch-queue-worker-start-gate-packet-tag-${card.card_id}`}
+                      >
+                        {t(
+                          workerStartGateReady
+                            ? 'commandCenter.marketingBoard.dispatchQueue.workerStartGateReady'
+                            : 'commandCenter.marketingBoard.dispatchQueue.workerStartGateBlocked'
+                        )}
+                      </Tag>
+                      {canCheckObservedExecutorProfile ? (
+                        <Button
+                          shape='round'
+                          size='mini'
+                          type='outline'
+                          loading={workerStartGateChecking}
+                          disabled={anyMarketingLoopStepRunning}
+                          onClick={() =>
+                            onCheckWorkerStartGate(card, {
+                              executorProfile: createObservedLocalExecutorProfile(),
+                              gateNote:
+                                'Command EVE UI checked an explicit HG-3 observed local executor profile without spawning a runtime worker.',
+                            })
+                          }
+                          data-testid={`marketing-dispatch-queue-check-observed-executor-profile-${card.card_id}`}
+                        >
+                          {t('commandCenter.marketingBoard.dispatchQueue.checkObservedExecutorProfile')}
+                        </Button>
+                      ) : null}
+                      {workerStartGateReady && !workerDispatcherPrepared ? (
+                        <Button
+                          shape='round'
+                          size='mini'
+                          type='primary'
+                          loading={workerDispatcherPreparing}
+                          disabled={anyMarketingLoopStepRunning}
+                          onClick={() => onPrepareWorkerDispatcher(card)}
+                          data-testid={`marketing-dispatch-queue-card-prepare-worker-dispatcher-${card.card_id}`}
+                        >
+                          {t('commandCenter.marketingBoard.dispatchQueue.prepareWorkerDispatcher')}
+                        </Button>
+                      ) : null}
+                    </div>
+                    <pre className='m-0 max-h-180px overflow-auto whitespace-pre-wrap break-words text-11px leading-16px text-t-secondary'>
+                      {workerStartPacketText}
+                    </pre>
+                  </div>
+                ) : null}
+                {workerDispatcherPrepared && workerDispatcherPreparePacketText ? (
+                  <div
+                    className='mt-8px rounded-8px border border-solid border-fill-3 bg-fill-1 p-8px'
+                    data-testid={`marketing-worker-dispatcher-prepare-preview-${card.card_id}`}
+                  >
+                    <div className='mb-4px flex flex-wrap items-center gap-6px'>
+                      <span className='text-11px font-600 leading-16px text-t-primary'>
+                        {t('commandCenter.marketingBoard.dispatchQueue.dispatcherPreparePacket')}
+                      </span>
+                      <Tag color='green'>{t('commandCenter.marketingBoard.dispatch.notSpawned')}</Tag>
+                    </div>
+                    <pre className='m-0 max-h-180px overflow-auto whitespace-pre-wrap break-words text-11px leading-16px text-t-secondary'>
+                      {workerDispatcherPreparePacketText}
+                    </pre>
+                  </div>
+                ) : null}
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <div className='mt-10px rounded-8px border border-dashed border-border-2 px-10px py-14px text-center text-12px leading-18px text-t-tertiary'>
+          {t('commandCenter.marketingBoard.dispatchQueue.empty')}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const MarketingCardCreateModal: React.FC<{
+  visible: boolean;
+  submitting: boolean;
+  onCancel: () => void;
+  onSubmit: (input: { title: string; description: string; lane_key: IMarketingLaneKey }) => void;
+}> = ({ visible, submitting, onCancel, onSubmit }) => {
+  const { t } = useTranslation();
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [laneKey, setLaneKey] = useState<IMarketingLaneKey>(MARKETING_LANE_ORDER[0]);
+  const [titleError, setTitleError] = useState(false);
+
+  // Reset the form whenever the modal is (re)opened so a new card starts clean.
+  useEffect(() => {
+    if (visible) {
+      setTitle('');
+      setDescription('');
+      setLaneKey(MARKETING_LANE_ORDER[0]);
+      setTitleError(false);
+    }
+  }, [visible]);
+
+  const handleSubmit = (): void => {
+    const trimmed = title.trim();
+    if (!trimmed) {
+      setTitleError(true);
+      return;
+    }
+    onSubmit({ title: trimmed, description: description.trim(), lane_key: laneKey });
+  };
+
+  return (
+    <Modal
+      title={t('commandCenter.marketingBoard.create.title')}
+      visible={visible}
+      onCancel={onCancel}
+      footer={null}
+      maskClosable={!submitting}
+      escToExit={!submitting}
+      unmountOnExit
+    >
+      <div className='flex flex-col gap-14px' data-testid='marketing-card-create-modal'>
+        <div className='flex flex-col gap-6px'>
+          <span className='text-12px leading-18px text-t-secondary'>
+            {t('commandCenter.marketingBoard.create.titleLabel')}
+          </span>
+          <Input
+            value={title}
+            onChange={(value) => {
+              setTitle(value);
+              if (value.trim()) setTitleError(false);
+            }}
+            placeholder={t('commandCenter.marketingBoard.create.titlePlaceholder')}
+            data-testid='marketing-card-create-title'
+            status={titleError ? 'error' : undefined}
+            disabled={submitting}
+          />
+          {titleError ? (
+            <span className='text-11px leading-16px text-danger-6' data-testid='marketing-card-create-title-error'>
+              {t('commandCenter.marketingBoard.create.titleRequired')}
+            </span>
+          ) : null}
+        </div>
+
+        <div className='flex flex-col gap-6px'>
+          <span className='text-12px leading-18px text-t-secondary'>
+            {t('commandCenter.marketingBoard.create.descriptionLabel')}
+          </span>
+          <Input.TextArea
+            value={description}
+            onChange={(value) => setDescription(value)}
+            placeholder={t('commandCenter.marketingBoard.create.descriptionPlaceholder')}
+            autoSize={{ minRows: 3, maxRows: 6 }}
+            data-testid='marketing-card-create-description'
+            disabled={submitting}
+          />
+        </div>
+
+        <div className='flex flex-col gap-6px'>
+          <span className='text-12px leading-18px text-t-secondary'>
+            {t('commandCenter.marketingBoard.create.laneLabel')}
+          </span>
+          <Select
+            value={laneKey}
+            onChange={(value) => setLaneKey(value as IMarketingLaneKey)}
+            data-testid='marketing-card-create-lane'
+            disabled={submitting}
+          >
+            {MARKETING_LANE_ORDER.map((lane) => (
+              <Select.Option key={lane} value={lane}>
+                {t(`commandCenter.marketingBoard.columns.${lane}`)}
+              </Select.Option>
+            ))}
+          </Select>
+        </div>
+
+        <div className='flex items-center justify-end gap-8px'>
+          <Button shape='round' onClick={onCancel} disabled={submitting} data-testid='marketing-card-create-cancel'>
+            {t('common.cancel')}
+          </Button>
+          <Button
+            shape='round'
+            type='primary'
+            loading={submitting}
+            onClick={handleSubmit}
+            data-testid='marketing-card-create-submit'
+          >
+            {t('commandCenter.marketingBoard.create.submit')}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+};
+
 const MarketingBoardSection: React.FC<{
   result: ICommandEveMarketingBoardResult | null;
   proofResult: ICommandEveMarketingProofCardResult | null;
   proofRunning: boolean;
+  createResult: ICommandEveMarketingCardCreateResult | null;
+  moveResult: ICommandEveMarketingCardMoveResult | null;
+  actionResult: ICommandEveMarketingCardActionResult | null;
+  dispatchPlanResult: ICommandEveMarketingDispatchPlanResult | null;
+  dispatchApprovalResult: ICommandEveMarketingDispatchApprovalResult | null;
+  dispatchDecisionResult: ICommandEveMarketingDispatchDecisionResult | null;
+  draftGenerateResult: ICommandEveMarketingDraftGenerateResult | null;
+  outputApproveResult: ICommandEveMarketingOutputApproveResult | null;
+  workerDispatchRequestResult: ICommandEveMarketingWorkerDispatchRequestResult | null;
+  workerObservedRunResult: ICommandEveMarketingWorkerObservedRunResult | null;
+  workerStartGateResult: ICommandEveMarketingWorkerStartGateResult | null;
+  workerDispatcherPrepareResult: ICommandEveMarketingWorkerDispatcherPrepareResult | null;
+  createModalVisible: boolean;
+  createSubmitting: boolean;
+  movingCardId: string | null;
+  actioningCardId: string | null;
+  dispatchingCardId: string | null;
+  generatingDraftCardId: string | null;
+  approvingOutputCardId: string | null;
+  requestingWorkerDispatchCardId: string | null;
+  runningObservedWorkerCardId: string | null;
+  checkingWorkerStartGateCardId: string | null;
+  preparingWorkerDispatcherCardId: string | null;
+  runningSafeLocalLoopCardId: string | null;
+  approvalRecording: boolean;
+  decisionRecording: 'approved' | 'rejected' | null;
   onCreateProofCard: () => void;
-}> = ({ result, proofResult, proofRunning, onCreateProofCard }) => {
+  onOpenCreateModal: () => void;
+  onCloseCreateModal: () => void;
+  onSubmitCreateCard: (input: { title: string; description: string; lane_key: IMarketingLaneKey }) => void;
+  onMoveCardNext: (card: ICommandEveMarketingCard, toLane: IMarketingLaneKey) => void;
+  onOpenComment: (card: ICommandEveMarketingCard) => void;
+  onApplyAction: (card: ICommandEveMarketingCard, action: Exclude<IMarketingCardAction, 'comment'>) => void;
+  onPlanDispatch: (card: ICommandEveMarketingCard) => void;
+  onRecordDispatchReview: () => void;
+  onRecordDispatchDecision: (decision: 'approved' | 'rejected') => void;
+  onGenerateDraft: (card: ICommandEveMarketingCard) => void;
+  onApproveOutput: (card: ICommandEveMarketingCard) => void;
+  onRequestWorkerDispatch: (card: ICommandEveMarketingCard) => void;
+  onRunObservedWorker: (card: ICommandEveMarketingCard) => void;
+  onCheckWorkerStartGate: (
+    card: ICommandEveWorkerStartGateTarget,
+    options?: ICommandEveWorkerStartGateUiOptions
+  ) => void;
+  onPrepareWorkerDispatcher: (card: ICommandEveWorkerStartGateTarget) => void;
+  onRunSafeLocalLoop: (card: ICommandEveMarketingCard) => void;
+}> = ({
+  result,
+  proofResult,
+  proofRunning,
+  createResult,
+  moveResult,
+  actionResult,
+  dispatchPlanResult,
+  dispatchApprovalResult,
+  dispatchDecisionResult,
+  draftGenerateResult,
+  outputApproveResult,
+  workerDispatchRequestResult,
+  workerObservedRunResult,
+  workerStartGateResult,
+  workerDispatcherPrepareResult,
+  createModalVisible,
+  createSubmitting,
+  movingCardId,
+  actioningCardId,
+  dispatchingCardId,
+  generatingDraftCardId,
+  approvingOutputCardId,
+  requestingWorkerDispatchCardId,
+  runningObservedWorkerCardId,
+  checkingWorkerStartGateCardId,
+  preparingWorkerDispatcherCardId,
+  runningSafeLocalLoopCardId,
+  approvalRecording,
+  decisionRecording,
+  onCreateProofCard,
+  onOpenCreateModal,
+  onCloseCreateModal,
+  onSubmitCreateCard,
+  onMoveCardNext,
+  onOpenComment,
+  onApplyAction,
+  onPlanDispatch,
+  onRecordDispatchReview,
+  onRecordDispatchDecision,
+  onGenerateDraft,
+  onApproveOutput,
+  onRequestWorkerDispatch,
+  onRunObservedWorker,
+  onCheckWorkerStartGate,
+  onPrepareWorkerDispatcher,
+  onRunSafeLocalLoop,
+}) => {
   const { t } = useTranslation();
-  const model = result?.model;
+  const proofBackedResult: ICommandEveMarketingBoardResult | null =
+    proofResult?.ok && proofResult.status === 'ready' && proofResult.model
+      ? {
+          version: 'command-eve-kanban-marketing-board/v0',
+          ok: true,
+          status: 'ready',
+          reason_code: proofResult.reason_code,
+          message: proofResult.message,
+          model: proofResult.model,
+          source: proofResult.source,
+        }
+      : null;
+  const effectiveResult = result?.status === 'ready' && result.model ? result : (proofBackedResult ?? result);
+  const model = effectiveResult?.model;
   const cardCount = model?.summary.total_cards ?? 0;
-  const blocked = !result || result.status !== 'ready' || !model;
+  const blocked = !effectiveResult || effectiveResult.status !== 'ready' || !model;
+  const workerStartGateCard =
+    workerStartGateResult?.card_id && model
+      ? model.columns.flatMap((column) => column.cards).find((card) => card.card_id === workerStartGateResult.card_id)
+      : null;
+  const workerStartGatePacket = workerStartGateResult?.worker_start_packet;
+  const workerStartGateTargetCardId =
+    workerStartGateResult?.card_id || recordStringField(workerStartGatePacket, 'card_id');
+  const workerStartGateTarget =
+    workerStartGateCard ||
+    (workerStartGateTargetCardId
+      ? {
+          card_id: workerStartGateTargetCardId,
+          controller_decision_handoff_dispatch:
+            recordStringField(workerStartGateResult.dispatch_handoff_packet, 'dispatch') || 'manual',
+          controller_review_handoff_dispatch:
+            recordStringField(workerStartGateResult.dispatch_handoff_packet, 'dispatch') || 'manual',
+          controller_decision_handoff_role:
+            recordStringField(workerStartGateResult.dispatch_handoff_packet, 'role_label') || 'role:cmo',
+          controller_review_handoff_role:
+            recordStringField(workerStartGateResult.dispatch_handoff_packet, 'role_label') || 'role:cmo',
+        }
+      : null);
+  const canCheckObservedExecutorProfileFromResult =
+    Boolean(workerStartGateTarget && workerStartGatePacket) &&
+    workerStartGateResult?.worker_start_gate_status !== 'ready';
+  const canPrepareWorkerDispatcherFromResult =
+    workerStartGateResult?.ok === true &&
+    workerStartGateResult.worker_start_gate_status === 'ready' &&
+    Boolean(workerStartGateResult.card_id) &&
+    !(
+      workerDispatcherPrepareResult?.ok === true &&
+      workerDispatcherPrepareResult.card_id === workerStartGateResult.card_id
+    );
   return (
-    <Section title={t('commandCenter.sections.marketingBoard')} count={cardCount}>
+    <Section
+      id='command-eve-marketing-board'
+      testId='command-eve-marketing-board'
+      title={t('commandCenter.sections.marketingBoard')}
+      count={cardCount}
+    >
       <div className='flex flex-wrap items-center justify-between gap-10px'>
         <p className='m-0 text-12px leading-18px text-t-secondary'>{t('commandCenter.marketingBoard.description')}</p>
         <div className='flex flex-wrap items-center gap-6px'>
@@ -454,12 +2617,707 @@ const MarketingBoardSection: React.FC<{
         </div>
       </div>
 
+      <div className='flex flex-wrap items-center justify-between gap-10px'>
+        <span className='text-12px leading-18px text-t-tertiary'>{t('commandCenter.marketingBoard.create.note')}</span>
+        <Button
+          shape='round'
+          type='primary'
+          disabled={blocked}
+          onClick={onOpenCreateModal}
+          data-testid='marketing-card-create-open'
+        >
+          {t('commandCenter.marketingBoard.actions.createCard')}
+        </Button>
+      </div>
+
+      {createResult ? (
+        <Alert
+          type={createResult.ok ? 'success' : 'warning'}
+          title={createResult.reason_code || t('commandCenter.marketingBoard.create.resultTitle')}
+          content={
+            createResult.ok
+              ? createResult.card_id || createResult.audit_event_path || '-'
+              : createResult.message || createResult.reason_code || '-'
+          }
+        />
+      ) : null}
+
+      {moveResult ? (
+        <Alert
+          type={moveResult.ok ? 'success' : 'warning'}
+          title={moveResult.reason_code || t('commandCenter.marketingBoard.move.resultTitle')}
+          content={
+            moveResult.ok
+              ? `${textOrDash(moveResult.from_lane_key)} → ${textOrDash(moveResult.to_lane_key)}`
+              : moveResult.message || moveResult.reason_code || '-'
+          }
+        />
+      ) : null}
+
+      {actionResult ? (
+        <Alert
+          type={actionResult.ok ? 'success' : actionResult.status === 'failed' ? 'error' : 'warning'}
+          title={actionResult.reason_code || t('commandCenter.marketingBoard.action.resultTitle')}
+          content={
+            actionResult.ok
+              ? `${textOrDash(actionResult.action)} · ${textOrDash(actionResult.audit_event_id)}`
+              : actionResult.message || actionResult.reason_code || '-'
+          }
+          data-testid='marketing-card-action-result'
+        />
+      ) : null}
+
+      {dispatchPlanResult ? (
+        <Alert
+          type={dispatchPlanResult.ok ? 'success' : dispatchPlanResult.status === 'failed' ? 'error' : 'warning'}
+          title={dispatchPlanResult.reason_code || t('commandCenter.marketingBoard.dispatch.resultTitle')}
+          content={(() => {
+            const handoff = dispatchHandoffForResult(dispatchPlanResult);
+            const handoffRole = recordStringField(handoff, 'role_label');
+            const handoffMode = recordStringField(handoff, 'dispatch');
+            return (
+              <div className='flex flex-col gap-8px' data-testid='marketing-card-dispatch-plan-detail'>
+                <span>{dispatchPlanResult.message || '-'}</span>
+                <div className='flex flex-wrap gap-6px'>
+                  <Tag color={dispatchPlanResult.data_boundary_checked ? 'green' : 'orange'}>
+                    {`${t('commandCenter.marketingBoard.dispatch.dataBoundary')}: ${
+                      dispatchPlanResult.data_boundary_checked
+                        ? t('commandCenter.marketingBoard.dispatch.checked')
+                        : t('commandCenter.marketingBoard.dispatch.notChecked')
+                    }`}
+                  </Tag>
+                  <Tag color={dispatchPlanResult.subprocess_spawned ? 'red' : 'green'}>
+                    {`${t('commandCenter.marketingBoard.dispatch.subprocess')}: ${
+                      dispatchPlanResult.subprocess_spawned
+                        ? t('commandCenter.marketingBoard.dispatch.spawned')
+                        : t('commandCenter.marketingBoard.dispatch.notSpawned')
+                    }`}
+                  </Tag>
+                  <Tag color={dispatchPlanResult.controller_approval_required ? 'orange' : 'green'}>
+                    <span data-testid='marketing-card-dispatch-controller-approval'>
+                      {`${t('commandCenter.marketingBoard.dispatch.controllerApproval')}: ${
+                        dispatchPlanResult.controller_approval_required
+                          ? t('commandCenter.marketingBoard.dispatch.required')
+                          : t('commandCenter.marketingBoard.dispatch.notRequired')
+                      }`}
+                    </span>
+                  </Tag>
+                  <Tag color={dispatchPlanResult.release_blocked ? 'orange' : 'green'}>
+                    <span data-testid='marketing-card-dispatch-release-gate'>
+                      {`${t('commandCenter.marketingBoard.dispatch.release')}: ${
+                        dispatchPlanResult.release_blocked
+                          ? t('commandCenter.marketingBoard.dispatch.blockedByGate')
+                          : t('commandCenter.marketingBoard.dispatch.ready')
+                      }`}
+                    </span>
+                  </Tag>
+                  <Tag color='gray'>{`${t('commandCenter.marketingBoard.dispatch.humanGate')}: ${
+                    dispatchPlanResult.human_gate || 'HG-2.5'
+                  }`}</Tag>
+                  <Tag color='blue'>
+                    <span data-testid='marketing-card-dispatch-plan-source'>
+                      {dispatchSourceForResult(dispatchPlanResult)}
+                    </span>
+                  </Tag>
+                </div>
+                <dl className='m-0 grid gap-x-10px gap-y-4px text-11px leading-16px sm:grid-cols-[max-content_1fr]'>
+                  <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.card')}</dt>
+                  <dd className='m-0 truncate text-t-secondary'>{textOrDash(dispatchPlanResult.card_id)}</dd>
+                  <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.command')}</dt>
+                  <dd className='m-0 truncate text-t-secondary'>{textOrDash(dispatchPlanResult.command)}</dd>
+                  <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.reason')}</dt>
+                  <dd className='m-0 truncate text-t-secondary' data-testid='marketing-card-dispatch-plan-reason'>
+                    {firstReasonCode(dispatchPlanResult.reason_codes, dispatchPlanResult.reason_code)}
+                  </dd>
+                  <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.audit')}</dt>
+                  <dd className='m-0 truncate text-t-secondary'>{textOrDash(dispatchPlanResult.audit_event_id)}</dd>
+                  <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.source')}</dt>
+                  <dd className='m-0 truncate text-t-secondary'>{dispatchSourceForResult(dispatchPlanResult)}</dd>
+                  {handoff ? (
+                    <>
+                      <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.handoff')}</dt>
+                      <dd className='m-0 truncate text-t-secondary' data-testid='marketing-card-dispatch-handoff'>
+                        {`${handoffRole} / ${handoffMode}`}
+                      </dd>
+                    </>
+                  ) : null}
+                </dl>
+                {handoff ? (
+                  <div
+                    className='rounded-8px border border-solid border-fill-3 bg-fill-1 p-10px'
+                    data-testid='marketing-card-dispatch-approval-panel'
+                  >
+                    <div className='mb-6px flex flex-wrap items-center gap-6px'>
+                      <span className='text-12px font-600 text-t-primary'>
+                        {t('commandCenter.marketingBoard.dispatch.approvalPanelTitle')}
+                      </span>
+                      <Tag color='orange' data-testid='marketing-card-dispatch-approval-state'>
+                        {t('commandCenter.marketingBoard.dispatch.waitingForController')}
+                      </Tag>
+                    </div>
+                    <p className='m-0 mb-8px text-11px leading-16px text-t-secondary'>
+                      {t('commandCenter.marketingBoard.dispatch.approvalPanelDescription')}
+                    </p>
+                    <div className='mb-8px flex flex-wrap gap-6px'>
+                      <Tag color='green'>{t('commandCenter.marketingBoard.dispatch.gateNl5Passed')}</Tag>
+                      <Tag color='green'>{t('commandCenter.marketingBoard.dispatch.gateNoSpawn')}</Tag>
+                      <Tag color='orange'>{t('commandCenter.marketingBoard.dispatch.gateControllerMissing')}</Tag>
+                    </div>
+                    <div className='flex flex-wrap gap-6px'>
+                      <Button
+                        shape='round'
+                        type='outline'
+                        loading={approvalRecording}
+                        onClick={onRecordDispatchReview}
+                        data-testid='marketing-card-dispatch-record-review'
+                      >
+                        {t('commandCenter.marketingBoard.dispatch.recordReviewButton')}
+                      </Button>
+                      <Button
+                        shape='round'
+                        type='outline'
+                        loading={decisionRecording === 'approved'}
+                        disabled={Boolean(decisionRecording)}
+                        onClick={() => onRecordDispatchDecision('approved')}
+                        data-testid='marketing-card-dispatch-approve-receipt'
+                      >
+                        {t('commandCenter.marketingBoard.dispatch.approveButton')}
+                      </Button>
+                      <Button
+                        shape='round'
+                        type='outline'
+                        status='danger'
+                        loading={decisionRecording === 'rejected'}
+                        disabled={Boolean(decisionRecording)}
+                        onClick={() => onRecordDispatchDecision('rejected')}
+                        data-testid='marketing-card-dispatch-reject-receipt'
+                      >
+                        {t('commandCenter.marketingBoard.dispatch.rejectButton')}
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })()}
+          data-testid='marketing-card-dispatch-plan-result'
+        />
+      ) : null}
+
+      {dispatchApprovalResult ? (
+        <Alert
+          type={
+            dispatchApprovalResult.ok ? 'success' : dispatchApprovalResult.status === 'failed' ? 'error' : 'warning'
+          }
+          title={dispatchApprovalResult.reason_code || t('commandCenter.marketingBoard.dispatch.approvalReceiptTitle')}
+          content={
+            <div className='flex flex-col gap-6px' data-testid='marketing-card-dispatch-approval-detail'>
+              <span>{dispatchApprovalResult.message || '-'}</span>
+              <div className='flex flex-wrap gap-6px'>
+                <Tag color='orange'>
+                  {`${t('commandCenter.marketingBoard.dispatch.approvalStatus')}: ${
+                    dispatchApprovalResult.controller_approval_status
+                      ? t(`commandCenter.marketingBoard.dispatch.${dispatchApprovalResult.controller_approval_status}`)
+                      : '-'
+                  }`}
+                </Tag>
+                <Tag color='green'>
+                  {`${t('commandCenter.marketingBoard.dispatch.subprocess')}: ${
+                    dispatchApprovalResult.subprocess_spawned
+                      ? t('commandCenter.marketingBoard.dispatch.spawned')
+                      : t('commandCenter.marketingBoard.dispatch.notSpawned')
+                  }`}
+                </Tag>
+                <Tag color='orange'>
+                  {`${t('commandCenter.marketingBoard.dispatch.release')}: ${
+                    dispatchApprovalResult.release_blocked
+                      ? t('commandCenter.marketingBoard.dispatch.blockedByGate')
+                      : t('commandCenter.marketingBoard.dispatch.ready')
+                  }`}
+                </Tag>
+                <Tag color='gray'>{`${t('commandCenter.marketingBoard.dispatch.humanGate')}: ${
+                  dispatchApprovalResult.human_gate
+                }`}</Tag>
+              </div>
+              <dl className='m-0 grid gap-x-10px gap-y-4px text-11px leading-16px sm:grid-cols-[max-content_1fr]'>
+                <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.card')}</dt>
+                <dd className='m-0 truncate text-t-secondary'>{textOrDash(dispatchApprovalResult.card_id)}</dd>
+                <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.audit')}</dt>
+                <dd className='m-0 truncate text-t-secondary'>{textOrDash(dispatchApprovalResult.audit_event_id)}</dd>
+              </dl>
+            </div>
+          }
+          data-testid='marketing-card-dispatch-approval-result'
+        />
+      ) : null}
+
+      {dispatchDecisionResult ? (
+        <Alert
+          type={
+            dispatchDecisionResult.ok ? 'success' : dispatchDecisionResult.status === 'failed' ? 'error' : 'warning'
+          }
+          title={dispatchDecisionResult.reason_code || t('commandCenter.marketingBoard.dispatch.decisionReceiptTitle')}
+          content={
+            <div className='flex flex-col gap-6px' data-testid='marketing-card-dispatch-decision-detail'>
+              <span>{dispatchDecisionResult.message || '-'}</span>
+              <div className='flex flex-wrap gap-6px'>
+                <Tag color={dispatchDecisionResult.controller_approved ? 'green' : 'orange'}>
+                  {`${t('commandCenter.marketingBoard.dispatch.approvalStatus')}: ${
+                    dispatchDecisionResult.controller_approval_status
+                      ? t(`commandCenter.marketingBoard.dispatch.${dispatchDecisionResult.controller_approval_status}`)
+                      : '-'
+                  }`}
+                </Tag>
+                <Tag color='green'>
+                  {`${t('commandCenter.marketingBoard.dispatch.subprocess')}: ${
+                    dispatchDecisionResult.subprocess_spawned
+                      ? t('commandCenter.marketingBoard.dispatch.spawned')
+                      : t('commandCenter.marketingBoard.dispatch.notSpawned')
+                  }`}
+                </Tag>
+                <Tag color='orange'>
+                  {`${t('commandCenter.marketingBoard.dispatch.release')}: ${
+                    dispatchDecisionResult.release_blocked
+                      ? t('commandCenter.marketingBoard.dispatch.blockedByGate')
+                      : t('commandCenter.marketingBoard.dispatch.ready')
+                  }`}
+                </Tag>
+                <Tag color='gray'>{`${t('commandCenter.marketingBoard.dispatch.humanGate')}: ${
+                  dispatchDecisionResult.human_gate
+                }`}</Tag>
+              </div>
+              <dl className='m-0 grid gap-x-10px gap-y-4px text-11px leading-16px sm:grid-cols-[max-content_1fr]'>
+                <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.card')}</dt>
+                <dd className='m-0 truncate text-t-secondary'>{textOrDash(dispatchDecisionResult.card_id)}</dd>
+                <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.audit')}</dt>
+                <dd className='m-0 truncate text-t-secondary'>{textOrDash(dispatchDecisionResult.audit_event_id)}</dd>
+              </dl>
+            </div>
+          }
+          data-testid='marketing-card-dispatch-decision-result'
+        />
+      ) : null}
+
+      {draftGenerateResult ? (
+        <Alert
+          type={draftGenerateResult.ok ? 'success' : draftGenerateResult.status === 'failed' ? 'error' : 'warning'}
+          title={draftGenerateResult.reason_code || t('commandCenter.marketingBoard.draftGenerate.resultTitle')}
+          content={
+            <div className='flex flex-col gap-6px' data-testid='marketing-draft-generate-result-detail'>
+              <span>{draftGenerateResult.message || '-'}</span>
+              <div className='flex flex-wrap gap-6px'>
+                <Tag color={draftGenerateResult.data_boundary_checked ? 'green' : 'orange'}>
+                  {`${t('commandCenter.marketingBoard.dispatch.dataBoundary')}: ${
+                    draftGenerateResult.data_boundary_checked
+                      ? t('commandCenter.marketingBoard.dispatch.checked')
+                      : t('commandCenter.marketingBoard.dispatch.notChecked')
+                  }`}
+                </Tag>
+                <Tag color={draftGenerateResult.controller_approved ? 'green' : 'orange'}>
+                  {`${t('commandCenter.marketingBoard.dispatch.approvalStatus')}: ${
+                    draftGenerateResult.controller_approval_status
+                      ? t(`commandCenter.marketingBoard.dispatch.${draftGenerateResult.controller_approval_status}`)
+                      : '-'
+                  }`}
+                </Tag>
+                <Tag color='green'>
+                  {`${t('commandCenter.marketingBoard.dispatch.subprocess')}: ${
+                    draftGenerateResult.subprocess_spawned
+                      ? t('commandCenter.marketingBoard.dispatch.spawned')
+                      : t('commandCenter.marketingBoard.dispatch.notSpawned')
+                  }`}
+                </Tag>
+                <Tag color={draftGenerateResult.release_blocked ? 'orange' : 'green'}>
+                  {`${t('commandCenter.marketingBoard.dispatch.release')}: ${
+                    draftGenerateResult.release_blocked
+                      ? t('commandCenter.marketingBoard.dispatch.blockedByGate')
+                      : t('commandCenter.marketingBoard.dispatch.ready')
+                  }`}
+                </Tag>
+              </div>
+              <dl className='m-0 grid gap-x-10px gap-y-4px text-11px leading-16px sm:grid-cols-[max-content_1fr]'>
+                <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.card')}</dt>
+                <dd className='m-0 truncate text-t-secondary'>{textOrDash(draftGenerateResult.card_id)}</dd>
+                <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.audit')}</dt>
+                <dd className='m-0 truncate text-t-secondary'>{textOrDash(draftGenerateResult.audit_event_id)}</dd>
+                <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.source')}</dt>
+                <dd className='m-0 truncate text-t-secondary'>{textOrDash(draftGenerateResult.draft_source)}</dd>
+              </dl>
+              {draftGenerateResult.draft_text ? (
+                <pre
+                  className='m-0 max-h-160px overflow-auto whitespace-pre-wrap break-words rounded-8px border border-solid border-fill-3 bg-fill-1 p-8px text-11px leading-16px text-t-secondary'
+                  data-testid='marketing-draft-generate-result'
+                >
+                  {draftGenerateResult.draft_text}
+                </pre>
+              ) : null}
+            </div>
+          }
+        />
+      ) : null}
+
+      {outputApproveResult ? (
+        <Alert
+          type={outputApproveResult.ok ? 'success' : outputApproveResult.status === 'failed' ? 'error' : 'warning'}
+          title={outputApproveResult.reason_code || t('commandCenter.marketingBoard.outputApprove.resultTitle')}
+          content={
+            <div className='flex flex-col gap-6px' data-testid='marketing-output-approve-result-detail'>
+              <span>{outputApproveResult.message || '-'}</span>
+              <div className='flex flex-wrap gap-6px'>
+                <Tag color={outputApproveResult.data_boundary_checked ? 'green' : 'orange'}>
+                  {`${t('commandCenter.marketingBoard.dispatch.dataBoundary')}: ${
+                    outputApproveResult.data_boundary_checked
+                      ? t('commandCenter.marketingBoard.dispatch.checked')
+                      : t('commandCenter.marketingBoard.dispatch.notChecked')
+                  }`}
+                </Tag>
+                <Tag color={outputApproveResult.controller_approved ? 'green' : 'orange'}>
+                  {`${t('commandCenter.marketingBoard.dispatch.approvalStatus')}: ${
+                    outputApproveResult.controller_approval_status
+                      ? t(`commandCenter.marketingBoard.dispatch.${outputApproveResult.controller_approval_status}`)
+                      : '-'
+                  }`}
+                </Tag>
+                <Tag color='green'>
+                  {`${t('commandCenter.marketingBoard.dispatch.subprocess')}: ${
+                    outputApproveResult.subprocess_spawned
+                      ? t('commandCenter.marketingBoard.dispatch.spawned')
+                      : t('commandCenter.marketingBoard.dispatch.notSpawned')
+                  }`}
+                </Tag>
+                <Tag color={outputApproveResult.release_blocked ? 'orange' : 'green'}>
+                  {`${t('commandCenter.marketingBoard.dispatch.release')}: ${
+                    outputApproveResult.release_blocked
+                      ? t('commandCenter.marketingBoard.dispatch.blockedByGate')
+                      : t('commandCenter.marketingBoard.dispatch.ready')
+                  }`}
+                </Tag>
+                {outputApproveResult.worker_dispatch_status === 'prepared' ? (
+                  <Tag color='purple'>{t('commandCenter.marketingBoard.outputApprove.workerHandoff')}</Tag>
+                ) : null}
+              </div>
+              <dl className='m-0 grid gap-x-10px gap-y-4px text-11px leading-16px sm:grid-cols-[max-content_1fr]'>
+                <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.card')}</dt>
+                <dd className='m-0 truncate text-t-secondary'>{textOrDash(outputApproveResult.card_id)}</dd>
+                <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.audit')}</dt>
+                <dd className='m-0 truncate text-t-secondary'>{textOrDash(outputApproveResult.audit_event_id)}</dd>
+                <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.source')}</dt>
+                <dd className='m-0 truncate text-t-secondary'>{textOrDash(outputApproveResult.output_source)}</dd>
+              </dl>
+              {outputApproveResult.output_text ? (
+                <pre
+                  className='m-0 max-h-160px overflow-auto whitespace-pre-wrap break-words rounded-8px border border-solid border-fill-3 bg-fill-1 p-8px text-11px leading-16px text-t-secondary'
+                  data-testid='marketing-output-approve-result'
+                >
+                  {outputApproveResult.output_text}
+                </pre>
+              ) : null}
+              {outputApproveResult.worker_contract_yaml ? (
+                <pre
+                  className='m-0 max-h-160px overflow-auto whitespace-pre-wrap break-words rounded-8px border border-solid border-fill-3 bg-fill-1 p-8px text-11px leading-16px text-t-secondary'
+                  data-testid='marketing-worker-handoff-result'
+                >
+                  {outputApproveResult.worker_contract_yaml}
+                </pre>
+              ) : null}
+            </div>
+          }
+        />
+      ) : null}
+
+      {workerDispatchRequestResult ? (
+        <Alert
+          type={
+            workerDispatchRequestResult.ok
+              ? 'warning'
+              : workerDispatchRequestResult.status === 'failed'
+                ? 'error'
+                : 'warning'
+          }
+          title={
+            workerDispatchRequestResult.reason_code ||
+            t('commandCenter.marketingBoard.workerDispatchRequest.resultTitle')
+          }
+          content={
+            <div className='flex flex-col gap-6px' data-testid='marketing-worker-dispatch-request-result-detail'>
+              <span>{workerDispatchRequestResult.message || '-'}</span>
+              <div className='flex flex-wrap gap-6px'>
+                <Tag color={workerDispatchRequestResult.data_boundary_checked ? 'green' : 'orange'}>
+                  {`${t('commandCenter.marketingBoard.dispatch.dataBoundary')}: ${
+                    workerDispatchRequestResult.data_boundary_checked
+                      ? t('commandCenter.marketingBoard.dispatch.checked')
+                      : t('commandCenter.marketingBoard.dispatch.notChecked')
+                  }`}
+                </Tag>
+                <Tag color={workerDispatchRequestResult.controller_approved ? 'green' : 'orange'}>
+                  {`${t('commandCenter.marketingBoard.dispatch.approvalStatus')}: ${
+                    workerDispatchRequestResult.controller_approval_status
+                      ? t(
+                          `commandCenter.marketingBoard.dispatch.${workerDispatchRequestResult.controller_approval_status}`
+                        )
+                      : '-'
+                  }`}
+                </Tag>
+                <Tag color='green'>
+                  {`${t('commandCenter.marketingBoard.dispatch.subprocess')}: ${
+                    workerDispatchRequestResult.subprocess_spawned
+                      ? t('commandCenter.marketingBoard.dispatch.spawned')
+                      : t('commandCenter.marketingBoard.dispatch.notSpawned')
+                  }`}
+                </Tag>
+                <Tag color='orange'>
+                  {`${t('commandCenter.marketingBoard.dispatch.release')}: ${t(
+                    'commandCenter.marketingBoard.dispatch.blockedByGate'
+                  )}`}
+                </Tag>
+              </div>
+              <dl className='m-0 grid gap-x-10px gap-y-4px text-11px leading-16px sm:grid-cols-[max-content_1fr]'>
+                <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.card')}</dt>
+                <dd className='m-0 truncate text-t-secondary'>{textOrDash(workerDispatchRequestResult.card_id)}</dd>
+                <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.audit')}</dt>
+                <dd className='m-0 truncate text-t-secondary'>
+                  {textOrDash(workerDispatchRequestResult.audit_event_id)}
+                </dd>
+              </dl>
+              {workerDispatchRequestResult.worker_contract_yaml ? (
+                <pre
+                  className='m-0 max-h-160px overflow-auto whitespace-pre-wrap break-words rounded-8px border border-solid border-fill-3 bg-fill-1 p-8px text-11px leading-16px text-t-secondary'
+                  data-testid='marketing-worker-dispatch-request-result'
+                >
+                  {workerDispatchRequestResult.worker_contract_yaml}
+                </pre>
+              ) : null}
+            </div>
+          }
+        />
+      ) : null}
+
+      {workerObservedRunResult ? (
+        <Alert
+          type={
+            workerObservedRunResult.ok ? 'success' : workerObservedRunResult.status === 'failed' ? 'error' : 'warning'
+          }
+          title={workerObservedRunResult.reason_code || t('commandCenter.marketingBoard.workerObservedRun.resultTitle')}
+          content={
+            <div className='flex flex-col gap-6px' data-testid='marketing-worker-observed-run-result-detail'>
+              <span>{workerObservedRunResult.message || '-'}</span>
+              <div className='flex flex-wrap gap-6px'>
+                <Tag color={workerObservedRunResult.data_boundary_checked ? 'green' : 'orange'}>
+                  {`${t('commandCenter.marketingBoard.dispatch.dataBoundary')}: ${
+                    workerObservedRunResult.data_boundary_checked
+                      ? t('commandCenter.marketingBoard.dispatch.checked')
+                      : t('commandCenter.marketingBoard.dispatch.notChecked')
+                  }`}
+                </Tag>
+                <Tag color='green'>
+                  {`${t('commandCenter.marketingBoard.dispatch.subprocess')}: ${t(
+                    'commandCenter.marketingBoard.dispatch.notSpawned'
+                  )}`}
+                </Tag>
+                <Tag color='green'>
+                  {`${t('commandCenter.marketingBoard.workerObservedRun.externalCalls')}: ${t(
+                    'commandCenter.marketingBoard.workerObservedRun.none'
+                  )}`}
+                </Tag>
+                <Tag color='orange'>
+                  {`${t('commandCenter.marketingBoard.dispatch.release')}: ${t(
+                    'commandCenter.marketingBoard.dispatch.blockedByGate'
+                  )}`}
+                </Tag>
+              </div>
+              <dl className='m-0 grid gap-x-10px gap-y-4px text-11px leading-16px sm:grid-cols-[max-content_1fr]'>
+                <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.card')}</dt>
+                <dd className='m-0 truncate text-t-secondary'>{textOrDash(workerObservedRunResult.card_id)}</dd>
+                <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.audit')}</dt>
+                <dd className='m-0 truncate text-t-secondary'>{textOrDash(workerObservedRunResult.audit_event_id)}</dd>
+              </dl>
+              {workerObservedRunResult.worker_observed_output ? (
+                <pre
+                  className='m-0 max-h-180px overflow-auto whitespace-pre-wrap break-words rounded-8px border border-solid border-fill-3 bg-fill-1 p-8px text-11px leading-16px text-t-secondary'
+                  data-testid='marketing-worker-observed-run-result'
+                >
+                  {workerObservedRunResult.worker_observed_output}
+                </pre>
+              ) : null}
+            </div>
+          }
+        />
+      ) : null}
+
+      {workerStartGateResult ? (
+        <Alert
+          type={
+            workerStartGateResult.ok && workerStartGateResult.worker_start_gate_status === 'ready'
+              ? 'success'
+              : workerStartGateResult.status === 'failed'
+                ? 'error'
+                : 'warning'
+          }
+          title={workerStartGateResult.reason_code || t('commandCenter.marketingBoard.workerStartGate.resultTitle')}
+          content={
+            <div className='flex flex-col gap-6px' data-testid='marketing-worker-start-gate-result-detail'>
+              <span>{workerStartGateResult.message || '-'}</span>
+              <div className='flex flex-wrap gap-6px'>
+                <Tag color={workerStartGateResult.data_boundary_checked ? 'green' : 'orange'}>
+                  {`${t('commandCenter.marketingBoard.dispatch.dataBoundary')}: ${
+                    workerStartGateResult.data_boundary_checked
+                      ? t('commandCenter.marketingBoard.dispatch.checked')
+                      : t('commandCenter.marketingBoard.dispatch.notChecked')
+                  }`}
+                </Tag>
+                <Tag color='green'>
+                  {`${t('commandCenter.marketingBoard.dispatch.subprocess')}: ${t(
+                    'commandCenter.marketingBoard.dispatch.notSpawned'
+                  )}`}
+                </Tag>
+                <Tag color='green'>
+                  {`${t('commandCenter.marketingBoard.workerObservedRun.externalCalls')}: ${t(
+                    'commandCenter.marketingBoard.workerObservedRun.none'
+                  )}`}
+                </Tag>
+                <Tag color='orange'>
+                  {`${t('commandCenter.marketingBoard.dispatch.release')}: ${t(
+                    'commandCenter.marketingBoard.dispatch.blockedByGate'
+                  )}`}
+                </Tag>
+                {canCheckObservedExecutorProfileFromResult && workerStartGateTarget ? (
+                  <Button
+                    shape='round'
+                    size='mini'
+                    type='outline'
+                    loading={checkingWorkerStartGateCardId === workerStartGateTarget.card_id}
+                    disabled={checkingWorkerStartGateCardId === workerStartGateTarget.card_id}
+                    onClick={() =>
+                      onCheckWorkerStartGate(workerStartGateTarget, {
+                        executorProfile: createObservedLocalExecutorProfile(),
+                        gateNote:
+                          'Command EVE UI checked an explicit HG-3 observed local executor profile from the start-gate result without spawning a runtime worker.',
+                      })
+                    }
+                    data-testid={`marketing-worker-start-gate-check-observed-executor-profile-${workerStartGateTarget.card_id}`}
+                  >
+                    {t('commandCenter.marketingBoard.dispatchQueue.checkObservedExecutorProfile')}
+                  </Button>
+                ) : null}
+                {canPrepareWorkerDispatcherFromResult && workerStartGateResult?.card_id ? (
+                  <Button
+                    shape='round'
+                    size='mini'
+                    type='primary'
+                    loading={preparingWorkerDispatcherCardId === workerStartGateResult.card_id}
+                    disabled={
+                      preparingWorkerDispatcherCardId === workerStartGateResult.card_id ||
+                      workerStartGateResult.worker_start_gate_status !== 'ready'
+                    }
+                    onClick={() =>
+                      onPrepareWorkerDispatcher({
+                        card_id: workerStartGateResult.card_id || '',
+                        controller_decision_handoff_dispatch:
+                          recordStringField(workerStartGateResult.dispatch_handoff_packet, 'dispatch') || 'manual',
+                        controller_review_handoff_dispatch:
+                          recordStringField(workerStartGateResult.dispatch_handoff_packet, 'dispatch') || 'manual',
+                        controller_decision_handoff_role:
+                          recordStringField(workerStartGateResult.dispatch_handoff_packet, 'role_label') || 'role:cmo',
+                        controller_review_handoff_role:
+                          recordStringField(workerStartGateResult.dispatch_handoff_packet, 'role_label') || 'role:cmo',
+                      })
+                    }
+                    data-testid={`marketing-dispatch-queue-prepare-worker-dispatcher-${workerStartGateResult.card_id}`}
+                  >
+                    {t('commandCenter.marketingBoard.dispatchQueue.prepareWorkerDispatcher')}
+                  </Button>
+                ) : null}
+              </div>
+              <dl className='m-0 grid gap-x-10px gap-y-4px text-11px leading-16px sm:grid-cols-[max-content_1fr]'>
+                <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.card')}</dt>
+                <dd className='m-0 truncate text-t-secondary'>{textOrDash(workerStartGateResult.card_id)}</dd>
+                <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.audit')}</dt>
+                <dd className='m-0 truncate text-t-secondary'>{textOrDash(workerStartGateResult.audit_event_id)}</dd>
+                <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.workerStartGate.blockReasons')}</dt>
+                <dd className='m-0 break-words text-t-secondary'>
+                  {(workerStartGateResult.worker_start_gate_reason_codes || []).join(', ') || '-'}
+                </dd>
+              </dl>
+              {workerStartGateResult.worker_start_packet ? (
+                <pre
+                  className='m-0 max-h-180px overflow-auto whitespace-pre-wrap break-words rounded-8px border border-solid border-fill-3 bg-fill-1 p-8px text-11px leading-16px text-t-secondary'
+                  data-testid='marketing-worker-start-gate-result'
+                >
+                  {JSON.stringify(workerStartGateResult.worker_start_packet, null, 2)}
+                </pre>
+              ) : null}
+            </div>
+          }
+        />
+      ) : null}
+
+      {workerDispatcherPrepareResult ? (
+        <Alert
+          type={
+            workerDispatcherPrepareResult.ok
+              ? 'success'
+              : workerDispatcherPrepareResult.status === 'failed'
+                ? 'error'
+                : 'warning'
+          }
+          title={
+            workerDispatcherPrepareResult.reason_code ||
+            t('commandCenter.marketingBoard.workerDispatcherPrepare.resultTitle')
+          }
+          content={
+            <div className='flex flex-col gap-6px' data-testid='marketing-worker-dispatcher-prepare-result-detail'>
+              <span>{workerDispatcherPrepareResult.message || '-'}</span>
+              <div className='flex flex-wrap gap-6px'>
+                <Tag color={workerDispatcherPrepareResult.data_boundary_checked ? 'green' : 'orange'}>
+                  {`${t('commandCenter.marketingBoard.dispatch.dataBoundary')}: ${
+                    workerDispatcherPrepareResult.data_boundary_checked
+                      ? t('commandCenter.marketingBoard.dispatch.checked')
+                      : t('commandCenter.marketingBoard.dispatch.notChecked')
+                  }`}
+                </Tag>
+                <Tag color='green'>
+                  {`${t('commandCenter.marketingBoard.dispatch.subprocess')}: ${t(
+                    'commandCenter.marketingBoard.dispatch.notSpawned'
+                  )}`}
+                </Tag>
+                <Tag color='green'>
+                  {`${t('commandCenter.marketingBoard.workerObservedRun.externalCalls')}: ${t(
+                    'commandCenter.marketingBoard.workerObservedRun.none'
+                  )}`}
+                </Tag>
+                <Tag color='orange'>
+                  {`${t('commandCenter.marketingBoard.dispatch.release')}: ${t(
+                    'commandCenter.marketingBoard.dispatch.blockedByGate'
+                  )}`}
+                </Tag>
+              </div>
+              <dl className='m-0 grid gap-x-10px gap-y-4px text-11px leading-16px sm:grid-cols-[max-content_1fr]'>
+                <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.card')}</dt>
+                <dd className='m-0 truncate text-t-secondary'>{textOrDash(workerDispatcherPrepareResult.card_id)}</dd>
+                <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.audit')}</dt>
+                <dd className='m-0 truncate text-t-secondary'>
+                  {textOrDash(workerDispatcherPrepareResult.audit_event_id)}
+                </dd>
+              </dl>
+              {workerDispatcherPrepareResult.dispatcher_prepare_packet ? (
+                <pre
+                  className='m-0 max-h-180px overflow-auto whitespace-pre-wrap break-words rounded-8px border border-solid border-fill-3 bg-fill-1 p-8px text-11px leading-16px text-t-secondary'
+                  data-testid='marketing-worker-dispatcher-prepare-result'
+                >
+                  {JSON.stringify(workerDispatcherPrepareResult.dispatcher_prepare_packet, null, 2)}
+                </pre>
+              ) : null}
+            </div>
+          }
+        />
+      ) : null}
+
       {blocked ? (
         <Alert
           type='warning'
           title={t('commandCenter.marketingBoard.blocked.title')}
-          content={`${result?.reason_code || 'KANBAN_MARKETING_BOARD_UNAVAILABLE'}: ${
-            result?.message || t('commandCenter.marketingBoard.blocked.description')
+          content={`${effectiveResult?.reason_code || 'KANBAN_MARKETING_BOARD_UNAVAILABLE'}: ${
+            effectiveResult?.message || t('commandCenter.marketingBoard.blocked.description')
           }`}
         />
       ) : (
@@ -468,9 +3326,38 @@ const MarketingBoardSection: React.FC<{
             <span className='min-w-0 truncate'>{`${t('commandCenter.marketingBoard.labels.board')}: ${model.board.slug}`}</span>
             <span className='min-w-0 truncate'>{`${t('commandCenter.marketingBoard.labels.database')}: ${model.board.db_path}`}</span>
           </div>
+          <MarketingDispatchQueueView
+            model={model}
+            workerStartGateResult={workerStartGateResult}
+            workerDispatcherPrepareResult={workerDispatcherPrepareResult}
+            generatingDraftCardId={generatingDraftCardId}
+            approvingOutputCardId={approvingOutputCardId}
+            requestingWorkerDispatchCardId={requestingWorkerDispatchCardId}
+            runningObservedWorkerCardId={runningObservedWorkerCardId}
+            checkingWorkerStartGateCardId={checkingWorkerStartGateCardId}
+            preparingWorkerDispatcherCardId={preparingWorkerDispatcherCardId}
+            runningSafeLocalLoopCardId={runningSafeLocalLoopCardId}
+            onGenerateDraft={onGenerateDraft}
+            onApproveOutput={onApproveOutput}
+            onRequestWorkerDispatch={onRequestWorkerDispatch}
+            onRunObservedWorker={onRunObservedWorker}
+            onCheckWorkerStartGate={onCheckWorkerStartGate}
+            onPrepareWorkerDispatcher={onPrepareWorkerDispatcher}
+            onRunSafeLocalLoop={onRunSafeLocalLoop}
+          />
           <div className='grid gap-12px md:grid-cols-2 xl:grid-cols-5'>
             {model.columns.map((column) => (
-              <MarketingColumnView key={column.key} column={column} />
+              <MarketingColumnView
+                key={column.key}
+                column={column}
+                movingCardId={movingCardId}
+                dispatchingCardId={dispatchingCardId}
+                actioningCardId={actioningCardId}
+                onMoveNext={onMoveCardNext}
+                onPlanDispatch={onPlanDispatch}
+                onOpenComment={onOpenComment}
+                onApplyAction={onApplyAction}
+              />
             ))}
           </div>
         </>
@@ -486,10 +3373,433 @@ const MarketingBoardSection: React.FC<{
 
       <div className='flex flex-wrap items-center justify-between gap-10px'>
         <span className='text-12px leading-18px text-t-tertiary'>{t('commandCenter.marketingBoard.proof.note')}</span>
-        <Button shape='round' type='primary' loading={proofRunning} onClick={onCreateProofCard}>
+        <Button shape='round' loading={proofRunning} onClick={onCreateProofCard}>
           {t('commandCenter.marketingBoard.actions.createProofCard')}
         </Button>
       </div>
+
+      <MarketingCardCreateModal
+        visible={createModalVisible}
+        submitting={createSubmitting}
+        onCancel={onCloseCreateModal}
+        onSubmit={onSubmitCreateCard}
+      />
+    </Section>
+  );
+};
+
+const MarketingCardCommentModal: React.FC<{
+  card: ICommandEveMarketingCard | null;
+  submitting: boolean;
+  onCancel: () => void;
+  onSubmit: (comment: string) => void;
+}> = ({ card, submitting, onCancel, onSubmit }) => {
+  const { t } = useTranslation();
+  const [comment, setComment] = useState('');
+  const [commentError, setCommentError] = useState(false);
+
+  useEffect(() => {
+    if (card) {
+      setComment('');
+      setCommentError(false);
+    }
+  }, [card]);
+
+  const handleSubmit = (): void => {
+    const trimmed = comment.trim();
+    if (!trimmed) {
+      setCommentError(true);
+      return;
+    }
+    onSubmit(trimmed);
+  };
+
+  return (
+    <Modal
+      title={t('commandCenter.marketingBoard.comment.title')}
+      visible={Boolean(card)}
+      onCancel={onCancel}
+      footer={null}
+      maskClosable={!submitting}
+      escToExit={!submitting}
+      unmountOnExit
+    >
+      <div className='flex flex-col gap-14px' data-testid='marketing-card-comment-modal'>
+        <p className='m-0 text-12px leading-18px text-t-secondary'>
+          {card ? `${t('commandCenter.marketingBoard.comment.card')}: ${card.card_title}` : ''}
+        </p>
+        <Input.TextArea
+          value={comment}
+          onChange={(value) => {
+            setComment(value);
+            if (value.trim()) setCommentError(false);
+          }}
+          placeholder={t('commandCenter.marketingBoard.comment.placeholder')}
+          autoSize={{ minRows: 3, maxRows: 6 }}
+          data-testid='marketing-card-comment-input'
+          status={commentError ? 'error' : undefined}
+          disabled={submitting}
+        />
+        {commentError ? (
+          <span className='text-11px leading-16px text-danger-6' data-testid='marketing-card-comment-error'>
+            {t('commandCenter.marketingBoard.comment.required')}
+          </span>
+        ) : null}
+        <div className='flex items-center justify-end gap-8px'>
+          <Button shape='round' onClick={onCancel} disabled={submitting} data-testid='marketing-card-comment-cancel'>
+            {t('common.cancel')}
+          </Button>
+          <Button
+            shape='round'
+            type='primary'
+            loading={submitting}
+            onClick={handleSubmit}
+            data-testid='marketing-card-comment-submit'
+          >
+            {t('commandCenter.marketingBoard.comment.submit')}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+};
+
+const CrmOverlaySection: React.FC<{
+  result: ICommandEveCrmOverlayResult | null;
+  initializeResult: ICommandEveCrmOverlayInitializeResult | null;
+  draftCreateResult: ICommandEveCrmDraftCreateResult | null;
+  stageResult: ICommandEveCrmStageLocalResult | null;
+  consentResult: ICommandEveCrmConsentLocalResult | null;
+  initializing: boolean;
+  creatingDraft: boolean;
+  stagingDealId: string | null;
+  consentingDealId: string | null;
+  marketingBoardReady: boolean;
+  marketingRequestingDealId: string | null;
+  onInitialize: () => void;
+  onCreateDraft: (input: ICommandEveCrmDraftCreateInput) => Promise<void>;
+  onStageDeal: (dealId: string) => void;
+  onCaptureConsent: (dealId: string) => void;
+  onCreateMarketingRequest: (deal: ICommandEveCrmOverlayDeal) => void;
+}> = ({
+  result,
+  initializeResult,
+  draftCreateResult,
+  stageResult,
+  consentResult,
+  initializing,
+  creatingDraft,
+  stagingDealId,
+  consentingDealId,
+  marketingBoardReady,
+  marketingRequestingDealId,
+  onInitialize,
+  onCreateDraft,
+  onStageDeal,
+  onCaptureConsent,
+  onCreateMarketingRequest,
+}) => {
+  const { t } = useTranslation();
+  const model = result?.model;
+  const counts = model?.counts ?? { companies: 0, contacts: 0, deals: 0, audit_events: 0 };
+  const initialized = result?.status === 'ready' && model?.initialized === true;
+  const [draftModalOpen, setDraftModalOpen] = useState(false);
+  const [draftInput, setDraftInput] = useState<ICommandEveCrmDraftCreateInput>({
+    companyDisplayName: '',
+    contactDisplayName: '',
+    contactRoleTitle: '',
+    dealLabel: '',
+    notes: '',
+  });
+  const updateDraftInput = useCallback(
+    (key: keyof ICommandEveCrmDraftCreateInput) => (value: string) =>
+      setDraftInput((current) => ({ ...current, [key]: value })),
+    []
+  );
+  const resetDraftInput = useCallback(() => {
+    setDraftInput({
+      companyDisplayName: '',
+      contactDisplayName: '',
+      contactRoleTitle: '',
+      dealLabel: '',
+      notes: '',
+    });
+  }, []);
+  const submitDraftInput = useCallback(async () => {
+    const normalized = {
+      companyDisplayName: draftInput.companyDisplayName.trim(),
+      contactDisplayName: draftInput.contactDisplayName.trim(),
+      contactRoleTitle: draftInput.contactRoleTitle.trim(),
+      dealLabel: draftInput.dealLabel.trim(),
+      notes: draftInput.notes.trim(),
+    };
+    if (!normalized.companyDisplayName || !normalized.contactDisplayName || !normalized.dealLabel) {
+      Message.warning(t('commandCenter.crmOverlay.draftForm.validationRequired'));
+      return;
+    }
+    await onCreateDraft(normalized);
+    setDraftModalOpen(false);
+    resetDraftInput();
+  }, [draftInput, onCreateDraft, resetDraftInput, t]);
+  return (
+    <Section
+      id='command-eve-crm-overlay'
+      testId='command-eve-crm-overlay'
+      title={t('commandCenter.sections.crmOverlay')}
+      count={counts.deals}
+    >
+      <div className='flex flex-wrap items-center justify-between gap-10px'>
+        <p className='m-0 text-12px leading-18px text-t-secondary'>{t('commandCenter.crmOverlay.description')}</p>
+        <div className='flex flex-wrap items-center gap-6px'>
+          <Tag color='green'>{t('commandCenter.crmOverlay.policy.localOnly')}</Tag>
+          <Tag color='green'>NL-5</Tag>
+          <Tag color='orange'>{t('commandCenter.crmOverlay.policy.hg4')}</Tag>
+          <Tag color='gray'>{t('commandCenter.crmOverlay.policy.noOutreach')}</Tag>
+        </div>
+      </div>
+
+      {result && result.status !== 'ready' ? (
+        <Alert
+          type={result.status === 'failed' ? 'error' : 'warning'}
+          title={result.reason_code || t('commandCenter.crmOverlay.blocked.title')}
+          content={result.message || t('commandCenter.crmOverlay.blocked.description')}
+          data-testid='crm-overlay-blocked'
+        />
+      ) : null}
+
+      {initializeResult ? (
+        <Alert
+          type={initializeResult.ok ? 'success' : 'warning'}
+          title={initializeResult.reason_code || t('commandCenter.crmOverlay.initialize.resultTitle')}
+          content={
+            initializeResult.audit_event_path || initializeResult.message || initializeResult.audit_event_id || '-'
+          }
+          data-testid='crm-overlay-initialize-result'
+        />
+      ) : null}
+
+      {draftCreateResult ? (
+        <Alert
+          type={draftCreateResult.ok ? 'success' : 'warning'}
+          title={draftCreateResult.reason_code || t('commandCenter.crmOverlay.draft.resultTitle')}
+          content={draftCreateResult.deal_id || draftCreateResult.message || draftCreateResult.audit_event_id || '-'}
+          data-testid='crm-draft-create-result'
+        />
+      ) : null}
+
+      {stageResult ? (
+        <Alert
+          type={stageResult.ok ? 'success' : 'warning'}
+          title={stageResult.reason_code || t('commandCenter.crmOverlay.stage.resultTitle')}
+          content={stageResult.deal_id || stageResult.message || stageResult.audit_event_id || '-'}
+          data-testid='crm-stage-local-result'
+        />
+      ) : null}
+
+      {consentResult ? (
+        <Alert
+          type={consentResult.ok ? 'success' : 'warning'}
+          title={consentResult.reason_code || t('commandCenter.crmOverlay.consent.resultTitle')}
+          content={consentResult.deal_id || consentResult.message || consentResult.audit_event_id || '-'}
+          data-testid='crm-consent-local-result'
+        />
+      ) : null}
+
+      <div className='grid gap-10px sm:grid-cols-2 lg:grid-cols-4'>
+        {(['companies', 'contacts', 'deals', 'audit_events'] as const).map((key) => (
+          <div
+            key={key}
+            className='rounded-10px border border-solid border-[var(--color-border-2)] bg-fill-2 px-12px py-10px'
+          >
+            <div className='text-11px leading-16px text-t-tertiary'>{t(`commandCenter.crmOverlay.counts.${key}`)}</div>
+            <div className='mt-4px text-20px font-700 leading-26px text-t-primary'>{formatCount(counts[key])}</div>
+          </div>
+        ))}
+      </div>
+
+      {model?.recent_deals.length ? (
+        <div className='grid gap-10px lg:grid-cols-2' data-testid='crm-draft-deal-list'>
+          {model.recent_deals.map((deal) => (
+            <article
+              key={deal.deal_id}
+              className='rounded-10px border border-solid border-[var(--color-border-2)] bg-fill-2 px-12px py-10px'
+              data-testid={`crm-draft-deal-${deal.deal_id}`}
+            >
+              <div className='flex items-start justify-between gap-10px'>
+                <div className='min-w-0'>
+                  <div className='truncate text-13px font-600 leading-20px text-t-primary'>
+                    {deal.deal_label || deal.deal_id}
+                  </div>
+                  <div className='mt-2px truncate text-11px leading-16px text-t-secondary'>
+                    {deal.company_display_name || deal.company_id}
+                  </div>
+                  <div className='mt-1px truncate text-11px leading-16px text-t-tertiary'>
+                    {textOrDash(
+                      [deal.contact_display_name, deal.contact_role_title].filter(Boolean).join(' · ') || deal.deal_id
+                    )}
+                  </div>
+                  <div className='mt-1px truncate text-10px leading-14px text-t-tertiary'>{deal.deal_id}</div>
+                </div>
+                <Tag color='blue'>{deal.stage}</Tag>
+              </div>
+              <div className='mt-8px flex flex-wrap gap-6px text-11px leading-16px'>
+                <Tag color='gray'>{deal.allowed_actions}</Tag>
+                <Tag color={deal.consent_status === 'unknown' ? 'orange' : 'green'}>{deal.consent_status}</Tag>
+                <Tag color='orange'>{deal.human_gate}</Tag>
+                <Tag color='gray'>{deal.data_class}</Tag>
+              </div>
+              <div className='mt-6px truncate text-11px leading-16px text-t-tertiary'>
+                {textOrDash(deal.last_activity_at)}
+              </div>
+              <div className='mt-10px flex flex-wrap justify-end gap-8px'>
+                <Button
+                  size='mini'
+                  shape='round'
+                  type='primary'
+                  loading={marketingRequestingDealId === deal.deal_id}
+                  disabled={Boolean(marketingRequestingDealId) || !marketingBoardReady}
+                  onClick={() => onCreateMarketingRequest(deal)}
+                  data-testid={`crm-create-marketing-request-${deal.deal_id}`}
+                >
+                  {marketingRequestingDealId === deal.deal_id
+                    ? t('commandCenter.crmOverlay.actions.createMarketingRequestPending')
+                    : t('commandCenter.crmOverlay.actions.createMarketingRequest')}
+                </Button>
+                <Button
+                  size='mini'
+                  shape='round'
+                  type='outline'
+                  loading={consentingDealId === deal.deal_id}
+                  disabled={Boolean(consentingDealId) || deal.consent_status === 'captured-local'}
+                  onClick={() => onCaptureConsent(deal.deal_id)}
+                  data-testid={`crm-consent-local-${deal.deal_id}`}
+                >
+                  {t('commandCenter.crmOverlay.actions.captureConsent')}
+                </Button>
+                <Button
+                  size='mini'
+                  shape='round'
+                  type='outline'
+                  loading={stagingDealId === deal.deal_id}
+                  disabled={Boolean(stagingDealId) || deal.stage === 'qualified'}
+                  onClick={() => onStageDeal(deal.deal_id)}
+                  data-testid={`crm-stage-qualified-${deal.deal_id}`}
+                >
+                  {t('commandCenter.crmOverlay.actions.qualifyDraft')}
+                </Button>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : null}
+
+      {model ? (
+        <dl className='m-0 grid gap-x-10px gap-y-4px text-11px leading-16px sm:grid-cols-[max-content_1fr]'>
+          <dt className='text-t-tertiary'>{t('commandCenter.crmOverlay.labels.database')}</dt>
+          <dd className='m-0 truncate text-t-secondary' data-testid='crm-overlay-db-path'>
+            {textOrDash(model.db_path)}
+          </dd>
+          <dt className='text-t-tertiary'>{t('commandCenter.crmOverlay.labels.ledger')}</dt>
+          <dd className='m-0 truncate text-t-secondary'>{textOrDash(model.event_ledger_path)}</dd>
+          <dt className='text-t-tertiary'>{t('commandCenter.crmOverlay.labels.defaultClass')}</dt>
+          <dd className='m-0 truncate text-t-secondary'>{model.policy.crm_data_class_default}</dd>
+          <dt className='text-t-tertiary'>{t('commandCenter.crmOverlay.labels.actionCeiling')}</dt>
+          <dd className='m-0 truncate text-t-secondary'>{model.policy.deal_action_ceiling_without_consent}</dd>
+        </dl>
+      ) : null}
+
+      <div className='flex flex-wrap items-center justify-between gap-10px'>
+        <span className='text-12px leading-18px text-t-tertiary'>
+          {initialized ? t('commandCenter.crmOverlay.readyNote') : t('commandCenter.crmOverlay.initialize.note')}
+        </span>
+        <div className='flex flex-wrap items-center gap-8px'>
+          <Button
+            shape='round'
+            loading={initializing}
+            disabled={initializing || initialized}
+            onClick={onInitialize}
+            data-testid='crm-overlay-initialize'
+          >
+            {t('commandCenter.crmOverlay.actions.initialize')}
+          </Button>
+          <Button
+            shape='round'
+            type='outline'
+            loading={creatingDraft}
+            disabled={creatingDraft || !initialized}
+            onClick={() => setDraftModalOpen(true)}
+            data-testid='crm-draft-create'
+          >
+            {t('commandCenter.crmOverlay.actions.createDraft')}
+          </Button>
+        </div>
+      </div>
+      <Modal
+        visible={draftModalOpen}
+        title={t('commandCenter.crmOverlay.draftForm.title')}
+        okText={t('commandCenter.crmOverlay.draftForm.submit')}
+        cancelText={t('commandCenter.crmOverlay.draftForm.cancel')}
+        confirmLoading={creatingDraft}
+        onOk={submitDraftInput}
+        onCancel={() => setDraftModalOpen(false)}
+        unmountOnExit
+        data-testid='crm-draft-create-modal'
+      >
+        <div className='grid gap-12px'>
+          <label className='grid gap-6px text-12px font-600 leading-18px text-t-secondary'>
+            {t('commandCenter.crmOverlay.draftForm.companyLabel')}
+            <Input
+              value={draftInput.companyDisplayName}
+              onChange={updateDraftInput('companyDisplayName')}
+              placeholder={t('commandCenter.crmOverlay.draftForm.companyPlaceholder')}
+              maxLength={120}
+              data-testid='crm-draft-company-name'
+            />
+          </label>
+          <label className='grid gap-6px text-12px font-600 leading-18px text-t-secondary'>
+            {t('commandCenter.crmOverlay.draftForm.contactLabel')}
+            <Input
+              value={draftInput.contactDisplayName}
+              onChange={updateDraftInput('contactDisplayName')}
+              placeholder={t('commandCenter.crmOverlay.draftForm.contactPlaceholder')}
+              maxLength={120}
+              data-testid='crm-draft-contact-name'
+            />
+          </label>
+          <label className='grid gap-6px text-12px font-600 leading-18px text-t-secondary'>
+            {t('commandCenter.crmOverlay.draftForm.roleLabel')}
+            <Input
+              value={draftInput.contactRoleTitle}
+              onChange={updateDraftInput('contactRoleTitle')}
+              placeholder={t('commandCenter.crmOverlay.draftForm.rolePlaceholder')}
+              maxLength={120}
+              data-testid='crm-draft-role-title'
+            />
+          </label>
+          <label className='grid gap-6px text-12px font-600 leading-18px text-t-secondary'>
+            {t('commandCenter.crmOverlay.draftForm.dealLabel')}
+            <Input
+              value={draftInput.dealLabel}
+              onChange={updateDraftInput('dealLabel')}
+              placeholder={t('commandCenter.crmOverlay.draftForm.dealPlaceholder')}
+              maxLength={120}
+              data-testid='crm-draft-deal-label'
+            />
+          </label>
+          <label className='grid gap-6px text-12px font-600 leading-18px text-t-secondary'>
+            {t('commandCenter.crmOverlay.draftForm.notesLabel')}
+            <Input.TextArea
+              value={draftInput.notes}
+              onChange={updateDraftInput('notes')}
+              placeholder={t('commandCenter.crmOverlay.draftForm.notesPlaceholder')}
+              maxLength={240}
+              autoSize={{ minRows: 3, maxRows: 5 }}
+              data-testid='crm-draft-notes'
+            />
+          </label>
+          <Alert type='info' content={t('commandCenter.crmOverlay.draftForm.localOnlyNote')} />
+        </div>
+      </Modal>
     </Section>
   );
 };
@@ -643,11 +3953,58 @@ const CommandCenterPage: React.FC = () => {
   const [statusSurface, setStatusSurface] = useState<ICommandEveStatusSurfaceResult | null>(null);
   const [result, setResult] = useState<ICommandEveCommandCenterReadModelResult | null>(null);
   const [marketingResult, setMarketingResult] = useState<ICommandEveMarketingBoardResult | null>(null);
+  const [crmResult, setCrmResult] = useState<ICommandEveCrmOverlayResult | null>(null);
+  const [crmInitializeResult, setCrmInitializeResult] = useState<ICommandEveCrmOverlayInitializeResult | null>(null);
+  const [crmDraftCreateResult, setCrmDraftCreateResult] = useState<ICommandEveCrmDraftCreateResult | null>(null);
+  const [crmStageResult, setCrmStageResult] = useState<ICommandEveCrmStageLocalResult | null>(null);
+  const [crmConsentResult, setCrmConsentResult] = useState<ICommandEveCrmConsentLocalResult | null>(null);
+  const marketingMutationSerialRef = useRef(0);
   const [proofResult, setProofResult] = useState<ICommandEveMarketingProofCardResult | null>(null);
   const [proofRunning, setProofRunning] = useState(false);
+  const [createResult, setCreateResult] = useState<ICommandEveMarketingCardCreateResult | null>(null);
+  const [moveResult, setMoveResult] = useState<ICommandEveMarketingCardMoveResult | null>(null);
+  const [actionResult, setActionResult] = useState<ICommandEveMarketingCardActionResult | null>(null);
+  const [dispatchPlanResult, setDispatchPlanResult] = useState<ICommandEveMarketingDispatchPlanResult | null>(null);
+  const [dispatchApprovalResult, setDispatchApprovalResult] =
+    useState<ICommandEveMarketingDispatchApprovalResult | null>(null);
+  const [dispatchDecisionResult, setDispatchDecisionResult] =
+    useState<ICommandEveMarketingDispatchDecisionResult | null>(null);
+  const [draftGenerateResult, setDraftGenerateResult] = useState<ICommandEveMarketingDraftGenerateResult | null>(null);
+  const [outputApproveResult, setOutputApproveResult] = useState<ICommandEveMarketingOutputApproveResult | null>(null);
+  const [workerDispatchRequestResult, setWorkerDispatchRequestResult] =
+    useState<ICommandEveMarketingWorkerDispatchRequestResult | null>(null);
+  const [workerObservedRunResult, setWorkerObservedRunResult] =
+    useState<ICommandEveMarketingWorkerObservedRunResult | null>(null);
+  const [workerStartGateResult, setWorkerStartGateResult] = useState<ICommandEveMarketingWorkerStartGateResult | null>(
+    null
+  );
+  const [workerDispatcherPrepareResult, setWorkerDispatcherPrepareResult] =
+    useState<ICommandEveMarketingWorkerDispatcherPrepareResult | null>(null);
+  const [createModalVisible, setCreateModalVisible] = useState(false);
+  const [createSubmitting, setCreateSubmitting] = useState(false);
+  const [commentCard, setCommentCard] = useState<ICommandEveMarketingCard | null>(null);
+  const [commentSubmitting, setCommentSubmitting] = useState(false);
+  const [movingCardId, setMovingCardId] = useState<string | null>(null);
+  const [actioningCardId, setActioningCardId] = useState<string | null>(null);
+  const [dispatchingCardId, setDispatchingCardId] = useState<string | null>(null);
+  const [generatingDraftCardId, setGeneratingDraftCardId] = useState<string | null>(null);
+  const [approvingOutputCardId, setApprovingOutputCardId] = useState<string | null>(null);
+  const [requestingWorkerDispatchCardId, setRequestingWorkerDispatchCardId] = useState<string | null>(null);
+  const [runningObservedWorkerCardId, setRunningObservedWorkerCardId] = useState<string | null>(null);
+  const [checkingWorkerStartGateCardId, setCheckingWorkerStartGateCardId] = useState<string | null>(null);
+  const [preparingWorkerDispatcherCardId, setPreparingWorkerDispatcherCardId] = useState<string | null>(null);
+  const [runningSafeLocalLoopCardId, setRunningSafeLocalLoopCardId] = useState<string | null>(null);
+  const [approvalRecording, setApprovalRecording] = useState(false);
+  const [decisionRecording, setDecisionRecording] = useState<'approved' | 'rejected' | null>(null);
+  const [crmInitializing, setCrmInitializing] = useState(false);
+  const [crmDraftCreating, setCrmDraftCreating] = useState(false);
+  const [crmStagingDealId, setCrmStagingDealId] = useState<string | null>(null);
+  const [crmConsentingDealId, setCrmConsentingDealId] = useState<string | null>(null);
+  const [crmMarketingRequestDealId, setCrmMarketingRequestDealId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    const marketingMutationSerial = marketingMutationSerialRef.current;
     setLoading(true);
     setError(null);
     if (!isElectronDesktop()) {
@@ -672,18 +4029,23 @@ const CommandCenterPage: React.FC = () => {
         },
       });
       setMarketingResult(null);
+      setCrmResult(null);
       setLoading(false);
       return;
     }
     try {
-      const [statusSurfaceResponse, readModelResponse, marketingBoardResponse] = await Promise.all([
+      const [statusSurfaceResponse, readModelResponse, marketingBoardResponse, crmOverlayResponse] = await Promise.all([
         commandEveStatusSurface.invoke({ maxRuns: MAX_RUNS }),
         commandCenterReadModel.invoke({ maxRuns: MAX_RUNS }),
         kanbanMarketingBoard.invoke({ boardSlug: 'marketing' }),
+        crmOverlay.invoke({}),
       ]);
       setStatusSurface(statusSurfaceResponse.data ?? null);
       setResult(readModelResponse.data ?? null);
-      setMarketingResult(marketingBoardResponse.data ?? null);
+      if (marketingMutationSerial === marketingMutationSerialRef.current) {
+        setMarketingResult(marketingBoardResponse.data ?? null);
+      }
+      setCrmResult(crmOverlayResponse.data ?? null);
       if (!readModelResponse.success && !readModelResponse.data) {
         setError(readModelResponse.msg || t('commandCenter.errors.loadFailed'));
       }
@@ -697,6 +4059,14 @@ const CommandCenterPage: React.FC = () => {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useAddEventListener(
+    'commandEve.commandCenter.refresh',
+    () => {
+      void refresh();
+    },
+    [refresh]
+  );
 
   const model = result?.model;
   const totals = model?.morning_brief?.totals ?? {};
@@ -712,6 +4082,7 @@ const CommandCenterPage: React.FC = () => {
 
   const createProofCard = useCallback(async () => {
     if (!isElectronDesktop()) return;
+    marketingMutationSerialRef.current += 1;
     setProofRunning(true);
     setProofResult(null);
     try {
@@ -747,6 +4118,1229 @@ const CommandCenterPage: React.FC = () => {
       setProofRunning(false);
     }
   }, [t]);
+
+  const openCreateModal = useCallback(() => {
+    setCreateResult(null);
+    setActionResult(null);
+    setDispatchPlanResult(null);
+    setDispatchApprovalResult(null);
+    setDispatchDecisionResult(null);
+    setDraftGenerateResult(null);
+    setOutputApproveResult(null);
+    setWorkerDispatchRequestResult(null);
+    setCreateModalVisible(true);
+  }, []);
+
+  const closeCreateModal = useCallback(() => {
+    if (createSubmitting) return;
+    setCreateModalVisible(false);
+  }, [createSubmitting]);
+
+  // Refresh the local board projection from a mutation result's model, falling
+  // back to a fresh read if the mutation did not return one.
+  const applyBoardModel = useCallback(async (data: IMarketingMutationBoardCarrier | null) => {
+    marketingMutationSerialRef.current += 1;
+    if (data?.model) {
+      setMarketingResult({
+        version: 'command-eve-kanban-marketing-board/v0',
+        ok: data.ok,
+        status: data.status,
+        reason_code: data.reason_code,
+        message: data.message,
+        model: data.model,
+        source: data.source,
+      });
+      return;
+    }
+    const nextBoard = await kanbanMarketingBoard.invoke({ boardSlug: MARKETING_BOARD_SLUG });
+    setMarketingResult(nextBoard.data ?? null);
+  }, []);
+
+  const submitCreateCard = useCallback(
+    async (input: { title: string; description: string; lane_key: IMarketingLaneKey }) => {
+      if (!isElectronDesktop()) return;
+      setCreateSubmitting(true);
+      setMoveResult(null);
+      setActionResult(null);
+      setDispatchPlanResult(null);
+      setDispatchApprovalResult(null);
+      setDispatchDecisionResult(null);
+      setDraftGenerateResult(null);
+      setOutputApproveResult(null);
+      setWorkerDispatchRequestResult(null);
+      setWorkerObservedRunResult(null);
+      setWorkerStartGateResult(null);
+      setWorkerDispatcherPrepareResult(null);
+      try {
+        const response = await kanbanMarketingCardCreate.invoke({
+          title: input.title,
+          description: input.description || undefined,
+          lane_key: input.lane_key,
+          client_token: generateClientToken(),
+          boardSlug: MARKETING_BOARD_SLUG,
+        });
+        const data = response.data ?? null;
+        setCreateResult(data);
+        await applyBoardModel(data);
+        if (data?.ok) {
+          setCreateModalVisible(false);
+          Message.success(t('commandCenter.marketingBoard.create.success'));
+        } else {
+          Message.warning(data?.reason_code || t('commandCenter.marketingBoard.create.failed'));
+        }
+      } catch (createError) {
+        const failure: ICommandEveMarketingCardCreateResult = {
+          version: 'command-eve-kanban-marketing-card-create/v0',
+          ok: false,
+          status: 'failed',
+          reason_code: 'KANBAN_MARKETING_CARD_CREATE_UI_FAILED',
+          message: createError instanceof Error ? createError.message : t('commandCenter.marketingBoard.create.failed'),
+          source: {
+            generated_by: 'command-eve-kanban-marketing-board-core',
+            hermes_home: '',
+          },
+        };
+        setCreateResult(failure);
+        Message.error(failure.message || t('commandCenter.marketingBoard.create.failed'));
+      } finally {
+        setCreateSubmitting(false);
+      }
+    },
+    [applyBoardModel, t]
+  );
+
+  const moveCardNext = useCallback(
+    async (card: ICommandEveMarketingCard, toLane: IMarketingLaneKey) => {
+      if (!isElectronDesktop()) return;
+      setMovingCardId(card.card_id);
+      setCreateResult(null);
+      setActionResult(null);
+      setDispatchPlanResult(null);
+      setDispatchApprovalResult(null);
+      setDispatchDecisionResult(null);
+      setDraftGenerateResult(null);
+      setOutputApproveResult(null);
+      setWorkerDispatchRequestResult(null);
+      try {
+        const response = await kanbanMarketingCardMove.invoke({
+          task_id: card.card_id,
+          to_lane_key: toLane,
+          boardSlug: MARKETING_BOARD_SLUG,
+        });
+        const data = response.data ?? null;
+        setMoveResult(data);
+        await applyBoardModel(data);
+        if (data?.ok) {
+          Message.success(t('commandCenter.marketingBoard.move.success'));
+        } else {
+          Message.warning(data?.reason_code || t('commandCenter.marketingBoard.move.failed'));
+        }
+      } catch (moveError) {
+        const failure: ICommandEveMarketingCardMoveResult = {
+          version: 'command-eve-kanban-marketing-card-move/v0',
+          ok: false,
+          status: 'failed',
+          reason_code: 'KANBAN_MARKETING_CARD_MOVE_UI_FAILED',
+          message: moveError instanceof Error ? moveError.message : t('commandCenter.marketingBoard.move.failed'),
+          source: {
+            generated_by: 'command-eve-kanban-marketing-board-core',
+            hermes_home: '',
+          },
+        };
+        setMoveResult(failure);
+        Message.error(failure.message || t('commandCenter.marketingBoard.move.failed'));
+      } finally {
+        setMovingCardId(null);
+      }
+    },
+    [applyBoardModel, t]
+  );
+
+  const openComment = useCallback((card: ICommandEveMarketingCard) => {
+    setCreateResult(null);
+    setMoveResult(null);
+    setActionResult(null);
+    setDispatchPlanResult(null);
+    setDispatchApprovalResult(null);
+    setDispatchDecisionResult(null);
+    setDraftGenerateResult(null);
+    setOutputApproveResult(null);
+    setWorkerDispatchRequestResult(null);
+    setWorkerObservedRunResult(null);
+    setWorkerStartGateResult(null);
+    setWorkerDispatcherPrepareResult(null);
+    setCommentCard(card);
+  }, []);
+
+  const closeComment = useCallback(() => {
+    if (commentSubmitting) return;
+    setCommentCard(null);
+  }, [commentSubmitting]);
+
+  const applyCardAction = useCallback(
+    async (
+      card: ICommandEveMarketingCard,
+      action: IMarketingCardAction,
+      comment?: string
+    ): Promise<ICommandEveMarketingCardActionResult | null> => {
+      if (!isElectronDesktop()) return null;
+      setActioningCardId(card.card_id);
+      setCreateResult(null);
+      setMoveResult(null);
+      setDispatchPlanResult(null);
+      setDispatchApprovalResult(null);
+      setDispatchDecisionResult(null);
+      setDraftGenerateResult(null);
+      setOutputApproveResult(null);
+      setWorkerDispatchRequestResult(null);
+      setWorkerObservedRunResult(null);
+      setWorkerStartGateResult(null);
+      setWorkerDispatcherPrepareResult(null);
+      try {
+        const response = await kanbanMarketingCardAction.invoke({
+          task_id: card.card_id,
+          action,
+          comment,
+          boardSlug: MARKETING_BOARD_SLUG,
+        });
+        const data = response.data ?? null;
+        setActionResult(data);
+        await applyBoardModel(data);
+        if (data?.ok) {
+          Message.success(t('commandCenter.marketingBoard.action.success'));
+        } else {
+          Message.warning(data?.reason_code || t('commandCenter.marketingBoard.action.failed'));
+        }
+        return data;
+      } catch (actionError) {
+        const failure: ICommandEveMarketingCardActionResult = {
+          version: 'command-eve-kanban-marketing-card-action/v0',
+          ok: false,
+          status: 'failed',
+          reason_code: 'KANBAN_MARKETING_CARD_ACTION_UI_FAILED',
+          message: actionError instanceof Error ? actionError.message : t('commandCenter.marketingBoard.action.failed'),
+          card_id: card.card_id,
+          action,
+          source: {
+            generated_by: 'command-eve-kanban-marketing-board-core',
+            hermes_home: '',
+          },
+        };
+        setActionResult(failure);
+        Message.error(failure.message || t('commandCenter.marketingBoard.action.failed'));
+        return failure;
+      } finally {
+        setActioningCardId(null);
+      }
+    },
+    [applyBoardModel, t]
+  );
+
+  const applyNonCommentAction = useCallback(
+    (card: ICommandEveMarketingCard, action: Exclude<IMarketingCardAction, 'comment'>) => {
+      void applyCardAction(card, action);
+    },
+    [applyCardAction]
+  );
+
+  const submitComment = useCallback(
+    async (comment: string) => {
+      if (!commentCard) return;
+      setCommentSubmitting(true);
+      const commentResult = await applyCardAction(commentCard, 'comment', comment);
+      setCommentSubmitting(false);
+      if (commentResult?.ok) {
+        setCommentCard(null);
+      }
+    },
+    [applyCardAction, commentCard]
+  );
+
+  const planDispatch = useCallback(
+    async (card: ICommandEveMarketingCard) => {
+      if (!isElectronDesktop()) return;
+      setDispatchingCardId(card.card_id);
+      setCreateResult(null);
+      setMoveResult(null);
+      setActionResult(null);
+      setDispatchApprovalResult(null);
+      setDispatchDecisionResult(null);
+      setDraftGenerateResult(null);
+      setOutputApproveResult(null);
+      setWorkerDispatchRequestResult(null);
+      try {
+        const response = await kanbanMarketingDispatchPlan.invoke({
+          task_id: card.card_id,
+          command: 'decompose',
+          dispatchMode: 'embedded',
+          boardSlug: MARKETING_BOARD_SLUG,
+        });
+        const data = response.data ?? null;
+        setDispatchPlanResult(data);
+        if (data?.ok) {
+          Message.success(t('commandCenter.marketingBoard.dispatch.ready'));
+        } else {
+          Message.warning(data?.reason_code || t('commandCenter.marketingBoard.dispatch.blocked'));
+        }
+      } catch (dispatchError) {
+        const failure: ICommandEveMarketingDispatchPlanResult = {
+          version: 'command-eve-kanban-marketing-dispatch-plan/v0',
+          ok: false,
+          status: 'failed',
+          reason_code: 'KANBAN_MARKETING_DISPATCH_PLAN_UI_FAILED',
+          reason_codes: ['KANBAN_MARKETING_DISPATCH_PLAN_UI_FAILED'],
+          message:
+            dispatchError instanceof Error ? dispatchError.message : t('commandCenter.marketingBoard.dispatch.failed'),
+          subprocess_spawned: false,
+          data_boundary_checked: false,
+          source: {
+            generated_by: 'command-eve-kanban-marketing-board-core',
+            hermes_home: '',
+          },
+        };
+        setDispatchPlanResult(failure);
+        Message.error(failure.message || t('commandCenter.marketingBoard.dispatch.failed'));
+      } finally {
+        setDispatchingCardId(null);
+      }
+    },
+    [t]
+  );
+
+  const recordDispatchReview = useCallback(async () => {
+    if (!isElectronDesktop() || !dispatchPlanResult?.card_id) return;
+    const handoff = dispatchHandoffForResult(dispatchPlanResult);
+    if (!handoff) {
+      Message.warning(t('commandCenter.marketingBoard.dispatch.approvalRecordFailed'));
+      return;
+    }
+    setApprovalRecording(true);
+    setDraftGenerateResult(null);
+    setOutputApproveResult(null);
+    setWorkerDispatchRequestResult(null);
+    try {
+      const response = await kanbanMarketingDispatchApproval.invoke({
+        task_id: dispatchPlanResult.card_id,
+        boardSlug: MARKETING_BOARD_SLUG,
+        dispatch_handoff_packet: handoff,
+        review_note: 'Command EVE UI recorded HG-2.5 pending review receipt.',
+      });
+      const data = response.data ?? null;
+      setDispatchApprovalResult(data);
+      await applyBoardModel(data);
+      if (data?.ok) {
+        Message.success(t('commandCenter.marketingBoard.dispatch.approvalRecorded'));
+      } else {
+        Message.warning(data?.reason_code || t('commandCenter.marketingBoard.dispatch.approvalRecordFailed'));
+      }
+    } catch (approvalError) {
+      const failure: ICommandEveMarketingDispatchApprovalResult = {
+        version: 'command-eve-kanban-marketing-dispatch-approval/v0',
+        ok: false,
+        status: 'failed',
+        reason_code: 'KANBAN_MARKETING_DISPATCH_APPROVAL_UI_FAILED',
+        message:
+          approvalError instanceof Error
+            ? approvalError.message
+            : t('commandCenter.marketingBoard.dispatch.approvalRecordFailed'),
+        card_id: dispatchPlanResult.card_id,
+        subprocess_spawned: false,
+        release_blocked: true,
+        human_gate: 'HG-2.5',
+        source: {
+          generated_by: 'command-eve-kanban-marketing-board-core',
+          hermes_home: '',
+        },
+      };
+      setDispatchApprovalResult(failure);
+      Message.error(failure.message || t('commandCenter.marketingBoard.dispatch.approvalRecordFailed'));
+    } finally {
+      setApprovalRecording(false);
+    }
+  }, [applyBoardModel, dispatchPlanResult, t]);
+
+  const recordDispatchDecision = useCallback(
+    async (decision: 'approved' | 'rejected') => {
+      if (!isElectronDesktop() || !dispatchPlanResult?.card_id) return;
+      const handoff = dispatchHandoffForResult(dispatchPlanResult);
+      if (!handoff) {
+        Message.warning(t('commandCenter.marketingBoard.dispatch.decisionRecordFailed'));
+        return;
+      }
+      setDecisionRecording(decision);
+      setDraftGenerateResult(null);
+      setOutputApproveResult(null);
+      setWorkerDispatchRequestResult(null);
+      try {
+        const response = await kanbanMarketingDispatchDecision.invoke({
+          task_id: dispatchPlanResult.card_id,
+          decision,
+          boardSlug: MARKETING_BOARD_SLUG,
+          dispatch_handoff_packet: handoff,
+          decision_note: `Command EVE UI recorded HG-2.5 ${decision} receipt without worker execution.`,
+        });
+        const data = response.data ?? null;
+        setDispatchDecisionResult(data);
+        await applyBoardModel(data);
+        if (data?.ok) {
+          Message.success(t('commandCenter.marketingBoard.dispatch.decisionRecorded'));
+        } else {
+          Message.warning(data?.reason_code || t('commandCenter.marketingBoard.dispatch.decisionRecordFailed'));
+        }
+      } catch (decisionError) {
+        const failure: ICommandEveMarketingDispatchDecisionResult = {
+          version: 'command-eve-kanban-marketing-dispatch-decision/v0',
+          ok: false,
+          status: 'failed',
+          reason_code: 'KANBAN_MARKETING_DISPATCH_DECISION_UI_FAILED',
+          message:
+            decisionError instanceof Error
+              ? decisionError.message
+              : t('commandCenter.marketingBoard.dispatch.decisionRecordFailed'),
+          card_id: dispatchPlanResult.card_id,
+          controller_approval_status: decision,
+          controller_approved: decision === 'approved',
+          subprocess_spawned: false,
+          release_blocked: true,
+          human_gate: 'HG-2.5',
+          source: {
+            generated_by: 'command-eve-kanban-marketing-board-core',
+            hermes_home: '',
+          },
+        };
+        setDispatchDecisionResult(failure);
+        Message.error(failure.message || t('commandCenter.marketingBoard.dispatch.decisionRecordFailed'));
+      } finally {
+        setDecisionRecording(null);
+      }
+    },
+    [applyBoardModel, dispatchPlanResult, t]
+  );
+
+  const generateMarketingDraft = useCallback(
+    async (card: ICommandEveMarketingCard) => {
+      if (!isElectronDesktop()) return;
+      const handoff = {
+        version: 'command-eve-local-dispatch-handoff/v0',
+        status: 'controller_approved',
+        dispatch: card.controller_decision_handoff_dispatch || card.controller_review_handoff_dispatch || 'manual',
+        role_label: card.controller_decision_handoff_role || card.controller_review_handoff_role || 'role:cmo',
+        card_id: card.card_id,
+        human_gate: 'HG-2.5',
+      };
+      setGeneratingDraftCardId(card.card_id);
+      setCreateResult(null);
+      setMoveResult(null);
+      setActionResult(null);
+      setDispatchApprovalResult(null);
+      setDispatchDecisionResult(null);
+      setDraftGenerateResult(null);
+      setOutputApproveResult(null);
+      setWorkerDispatchRequestResult(null);
+      setWorkerObservedRunResult(null);
+      setWorkerStartGateResult(null);
+      setWorkerDispatcherPrepareResult(null);
+      try {
+        const response = await kanbanMarketingDraftGenerate.invoke({
+          task_id: card.card_id,
+          boardSlug: MARKETING_BOARD_SLUG,
+          dispatch_handoff_packet: handoff,
+          generation_note: 'Command EVE UI generated a local marketing draft after HG-2.5 approval.',
+          dispatchMode: 'embedded',
+        });
+        const data = response.data ?? null;
+        setDraftGenerateResult(data);
+        await applyBoardModel(data);
+        if (data?.ok) {
+          Message.success(t('commandCenter.marketingBoard.draftGenerate.success'));
+        } else {
+          Message.warning(data?.reason_code || t('commandCenter.marketingBoard.draftGenerate.failed'));
+        }
+      } catch (draftError) {
+        const failure: ICommandEveMarketingDraftGenerateResult = {
+          version: 'command-eve-kanban-marketing-draft-generate/v0',
+          ok: false,
+          status: 'failed',
+          reason_code: 'KANBAN_MARKETING_DRAFT_GENERATE_UI_FAILED',
+          reason_codes: ['KANBAN_MARKETING_DRAFT_GENERATE_UI_FAILED'],
+          message:
+            draftError instanceof Error ? draftError.message : t('commandCenter.marketingBoard.draftGenerate.failed'),
+          card_id: card.card_id,
+          subprocess_spawned: false,
+          data_boundary_checked: false,
+          controller_approved: false,
+          release_blocked: true,
+          human_gate: 'HG-2.5',
+          source: {
+            generated_by: 'command-eve-kanban-marketing-board-core',
+            hermes_home: '',
+          },
+        };
+        setDraftGenerateResult(failure);
+        Message.error(failure.message || t('commandCenter.marketingBoard.draftGenerate.failed'));
+      } finally {
+        setGeneratingDraftCardId(null);
+      }
+    },
+    [applyBoardModel, t]
+  );
+
+  const approveMarketingOutput = useCallback(
+    async (card: ICommandEveMarketingCard) => {
+      if (!isElectronDesktop()) return;
+      const handoff = {
+        version: 'command-eve-local-dispatch-handoff/v0',
+        status: 'output_approved',
+        dispatch: card.controller_decision_handoff_dispatch || card.controller_review_handoff_dispatch || 'manual',
+        role_label: card.controller_decision_handoff_role || card.controller_review_handoff_role || 'role:cmo',
+        card_id: card.card_id,
+        human_gate: 'HG-2.5',
+      };
+      setApprovingOutputCardId(card.card_id);
+      setCreateResult(null);
+      setMoveResult(null);
+      setActionResult(null);
+      setDispatchApprovalResult(null);
+      setDispatchDecisionResult(null);
+      setOutputApproveResult(null);
+      setWorkerDispatchRequestResult(null);
+      setWorkerObservedRunResult(null);
+      setWorkerStartGateResult(null);
+      setWorkerDispatcherPrepareResult(null);
+      try {
+        const response = await kanbanMarketingOutputApprove.invoke({
+          task_id: card.card_id,
+          boardSlug: MARKETING_BOARD_SLUG,
+          dispatch_handoff_packet: handoff,
+          approval_note: 'Command EVE UI approved the local marketing output after generated-draft review.',
+        });
+        const data = response.data ?? null;
+        setOutputApproveResult(data);
+        await applyBoardModel(data);
+        if (data?.ok) {
+          Message.success(t('commandCenter.marketingBoard.outputApprove.success'));
+        } else {
+          Message.warning(data?.reason_code || t('commandCenter.marketingBoard.outputApprove.failed'));
+        }
+      } catch (approvalError) {
+        const failure: ICommandEveMarketingOutputApproveResult = {
+          version: 'command-eve-kanban-marketing-output-approve/v0',
+          ok: false,
+          status: 'failed',
+          reason_code: 'KANBAN_MARKETING_OUTPUT_APPROVE_UI_FAILED',
+          reason_codes: ['KANBAN_MARKETING_OUTPUT_APPROVE_UI_FAILED'],
+          message:
+            approvalError instanceof Error
+              ? approvalError.message
+              : t('commandCenter.marketingBoard.outputApprove.failed'),
+          card_id: card.card_id,
+          subprocess_spawned: false,
+          data_boundary_checked: false,
+          controller_approved: false,
+          release_blocked: true,
+          human_gate: 'HG-2.5',
+          source: {
+            generated_by: 'command-eve-kanban-marketing-board-core',
+            hermes_home: '',
+          },
+        };
+        setOutputApproveResult(failure);
+        Message.error(failure.message || t('commandCenter.marketingBoard.outputApprove.failed'));
+      } finally {
+        setApprovingOutputCardId(null);
+      }
+    },
+    [applyBoardModel, t]
+  );
+
+  const requestWorkerDispatch = useCallback(
+    async (card: ICommandEveMarketingCard) => {
+      if (!isElectronDesktop()) return;
+      const handoff = {
+        version: 'command-eve-local-dispatch-handoff/v0',
+        status: 'worker_dispatch_requested',
+        dispatch: card.controller_decision_handoff_dispatch || card.controller_review_handoff_dispatch || 'manual',
+        role_label: card.controller_decision_handoff_role || card.controller_review_handoff_role || 'role:cmo',
+        card_id: card.card_id,
+        human_gate: 'HG-2.5',
+      };
+      setRequestingWorkerDispatchCardId(card.card_id);
+      setCreateResult(null);
+      setMoveResult(null);
+      setActionResult(null);
+      setDispatchApprovalResult(null);
+      setDispatchDecisionResult(null);
+      setDraftGenerateResult(null);
+      setOutputApproveResult(null);
+      setWorkerDispatchRequestResult(null);
+      setWorkerObservedRunResult(null);
+      setWorkerStartGateResult(null);
+      setWorkerDispatcherPrepareResult(null);
+      try {
+        const response = await kanbanMarketingWorkerDispatchRequest.invoke({
+          task_id: card.card_id,
+          boardSlug: MARKETING_BOARD_SLUG,
+          dispatch_handoff_packet: handoff,
+          request_note:
+            'Command EVE UI requested worker dispatch after output approval; execution remains policy-locked.',
+        });
+        const data = response.data ?? null;
+        setWorkerDispatchRequestResult(data);
+        await applyBoardModel(data);
+        if (data?.ok) {
+          Message.success(t('commandCenter.marketingBoard.workerDispatchRequest.success'));
+        } else {
+          Message.warning(data?.reason_code || t('commandCenter.marketingBoard.workerDispatchRequest.failed'));
+        }
+      } catch (requestError) {
+        const failure: ICommandEveMarketingWorkerDispatchRequestResult = {
+          version: 'command-eve-kanban-marketing-worker-dispatch-request/v0',
+          ok: false,
+          status: 'failed',
+          reason_code: 'KANBAN_MARKETING_WORKER_DISPATCH_REQUEST_UI_FAILED',
+          reason_codes: ['KANBAN_MARKETING_WORKER_DISPATCH_REQUEST_UI_FAILED'],
+          message:
+            requestError instanceof Error
+              ? requestError.message
+              : t('commandCenter.marketingBoard.workerDispatchRequest.failed'),
+          card_id: card.card_id,
+          subprocess_spawned: false,
+          data_boundary_checked: false,
+          controller_approved: false,
+          release_blocked: true,
+          human_gate: 'HG-2.5',
+          source: {
+            generated_by: 'command-eve-kanban-marketing-board-core',
+            hermes_home: '',
+          },
+        };
+        setWorkerDispatchRequestResult(failure);
+        Message.error(failure.message || t('commandCenter.marketingBoard.workerDispatchRequest.failed'));
+      } finally {
+        setRequestingWorkerDispatchCardId(null);
+      }
+    },
+    [applyBoardModel, t]
+  );
+
+  const runObservedWorker = useCallback(
+    async (card: ICommandEveMarketingCard) => {
+      if (!isElectronDesktop()) return;
+      const handoff = {
+        version: 'command-eve-local-dispatch-handoff/v0',
+        status: 'worker_observed_run',
+        dispatch: card.controller_decision_handoff_dispatch || card.controller_review_handoff_dispatch || 'manual',
+        role_label: card.controller_decision_handoff_role || card.controller_review_handoff_role || 'role:cmo',
+        card_id: card.card_id,
+        human_gate: 'HG-2.5',
+      };
+      setRunningObservedWorkerCardId(card.card_id);
+      setCreateResult(null);
+      setMoveResult(null);
+      setActionResult(null);
+      setDispatchApprovalResult(null);
+      setDispatchDecisionResult(null);
+      setDraftGenerateResult(null);
+      setOutputApproveResult(null);
+      setWorkerObservedRunResult(null);
+      setWorkerStartGateResult(null);
+      setWorkerDispatcherPrepareResult(null);
+      try {
+        const response = await kanbanMarketingWorkerObservedRun.invoke({
+          task_id: card.card_id,
+          boardSlug: MARKETING_BOARD_SLUG,
+          dispatch_handoff_packet: handoff,
+          observed_note: 'Command EVE UI ran an observed local marketing worker receipt after locked dispatch request.',
+        });
+        const data = response.data ?? null;
+        setWorkerObservedRunResult(data);
+        await applyBoardModel(data);
+        if (data?.ok) {
+          Message.success(t('commandCenter.marketingBoard.workerObservedRun.success'));
+        } else {
+          Message.warning(data?.reason_code || t('commandCenter.marketingBoard.workerObservedRun.failed'));
+        }
+      } catch (observedError) {
+        const failure: ICommandEveMarketingWorkerObservedRunResult = {
+          version: 'command-eve-kanban-marketing-worker-observed-run/v0',
+          ok: false,
+          status: 'failed',
+          reason_code: 'KANBAN_MARKETING_WORKER_OBSERVED_RUN_UI_FAILED',
+          reason_codes: ['KANBAN_MARKETING_WORKER_OBSERVED_RUN_UI_FAILED'],
+          message:
+            observedError instanceof Error
+              ? observedError.message
+              : t('commandCenter.marketingBoard.workerObservedRun.failed'),
+          card_id: card.card_id,
+          subprocess_spawned: false,
+          external_calls: false,
+          data_boundary_checked: false,
+          controller_approved: false,
+          release_blocked: true,
+          human_gate: 'HG-2.5',
+          source: {
+            generated_by: 'command-eve-kanban-marketing-board-core',
+            hermes_home: '',
+          },
+        };
+        setWorkerObservedRunResult(failure);
+        Message.error(failure.message || t('commandCenter.marketingBoard.workerObservedRun.failed'));
+      } finally {
+        setRunningObservedWorkerCardId(null);
+      }
+    },
+    [applyBoardModel, t]
+  );
+
+  const checkWorkerStartGate = useCallback(
+    async (card: ICommandEveWorkerStartGateTarget, options?: ICommandEveWorkerStartGateUiOptions) => {
+      if (!isElectronDesktop()) return;
+      const executorProfile = options?.executorProfile ?? null;
+      const handoff = {
+        version: 'command-eve-worker-start-gate-handoff/v0',
+        status: 'worker_start_gate_check',
+        dispatch: card.controller_decision_handoff_dispatch || card.controller_review_handoff_dispatch || 'manual',
+        role_label: card.controller_decision_handoff_role || card.controller_review_handoff_role || 'role:cmo',
+        card_id: card.card_id,
+        human_gate: 'HG-3',
+      };
+      setCheckingWorkerStartGateCardId(card.card_id);
+      setCreateResult(null);
+      setMoveResult(null);
+      setActionResult(null);
+      setDispatchApprovalResult(null);
+      setDispatchDecisionResult(null);
+      setDraftGenerateResult(null);
+      setOutputApproveResult(null);
+      setWorkerStartGateResult(null);
+      try {
+        const response = await kanbanMarketingWorkerStartGate.invoke({
+          task_id: card.card_id,
+          boardSlug: MARKETING_BOARD_SLUG,
+          dispatch_handoff_packet: handoff,
+          gate_note:
+            options?.gateNote || 'Command EVE UI checked the worker start gate without spawning a runtime worker.',
+          executor_enabled: Boolean(executorProfile),
+          executor_profile: executorProfile || undefined,
+        });
+        const data = response.data ?? null;
+        setWorkerStartGateResult(data);
+        await applyBoardModel(data);
+        if (data?.ok && data.worker_start_gate_status === 'ready') {
+          Message.success(t('commandCenter.marketingBoard.workerStartGate.success'));
+        } else if (data?.ok) {
+          Message.warning(t('commandCenter.marketingBoard.workerStartGate.blocked'));
+        } else {
+          Message.warning(data?.reason_code || t('commandCenter.marketingBoard.workerStartGate.failed'));
+        }
+      } catch (startGateError) {
+        const failure: ICommandEveMarketingWorkerStartGateResult = {
+          version: 'command-eve-kanban-marketing-worker-start-gate/v0',
+          ok: false,
+          status: 'failed',
+          reason_code: 'KANBAN_MARKETING_WORKER_START_GATE_UI_FAILED',
+          reason_codes: ['KANBAN_MARKETING_WORKER_START_GATE_UI_FAILED'],
+          message:
+            startGateError instanceof Error
+              ? startGateError.message
+              : t('commandCenter.marketingBoard.workerStartGate.failed'),
+          card_id: card.card_id,
+          subprocess_spawned: false,
+          external_calls: false,
+          data_boundary_checked: false,
+          controller_approved: false,
+          release_blocked: true,
+          human_gate: 'HG-3',
+          source: {
+            generated_by: 'command-eve-kanban-marketing-board-core',
+            hermes_home: '',
+          },
+        };
+        setWorkerStartGateResult(failure);
+        Message.error(failure.message || t('commandCenter.marketingBoard.workerStartGate.failed'));
+      } finally {
+        setCheckingWorkerStartGateCardId(null);
+      }
+    },
+    [applyBoardModel, t]
+  );
+
+  const prepareWorkerDispatcher = useCallback(
+    async (card: ICommandEveWorkerStartGateTarget) => {
+      if (!isElectronDesktop()) return;
+      const handoff = {
+        version: 'command-eve-worker-dispatcher-prepare-handoff/v0',
+        status: 'worker_dispatcher_prepare',
+        dispatch: card.controller_decision_handoff_dispatch || card.controller_review_handoff_dispatch || 'manual',
+        role_label: card.controller_decision_handoff_role || card.controller_review_handoff_role || 'role:cmo',
+        card_id: card.card_id,
+        human_gate: 'HG-3.5',
+      };
+      setPreparingWorkerDispatcherCardId(card.card_id);
+      setCreateResult(null);
+      setMoveResult(null);
+      setActionResult(null);
+      setDispatchApprovalResult(null);
+      setDispatchDecisionResult(null);
+      setDraftGenerateResult(null);
+      setOutputApproveResult(null);
+      setWorkerDispatcherPrepareResult(null);
+      try {
+        const response = await kanbanMarketingWorkerDispatcherPrepare.invoke({
+          task_id: card.card_id,
+          boardSlug: MARKETING_BOARD_SLUG,
+          dispatch_handoff_packet: handoff,
+          prepare_note:
+            'Command EVE UI prepared the gated marketing dispatcher after worker start gate readiness; no runtime worker was spawned.',
+        });
+        const data = response.data ?? null;
+        setWorkerDispatcherPrepareResult(data);
+        await applyBoardModel(data);
+        if (data?.ok) {
+          Message.success(t('commandCenter.marketingBoard.workerDispatcherPrepare.success'));
+        } else {
+          Message.warning(data?.reason_code || t('commandCenter.marketingBoard.workerDispatcherPrepare.failed'));
+        }
+      } catch (prepareError) {
+        const failure: ICommandEveMarketingWorkerDispatcherPrepareResult = {
+          version: 'command-eve-kanban-marketing-worker-dispatcher-prepare/v0',
+          ok: false,
+          status: 'failed',
+          reason_code: 'KANBAN_MARKETING_WORKER_DISPATCHER_PREPARE_UI_FAILED',
+          reason_codes: ['KANBAN_MARKETING_WORKER_DISPATCHER_PREPARE_UI_FAILED'],
+          message:
+            prepareError instanceof Error
+              ? prepareError.message
+              : t('commandCenter.marketingBoard.workerDispatcherPrepare.failed'),
+          card_id: card.card_id,
+          subprocess_spawned: false,
+          external_calls: false,
+          data_boundary_checked: false,
+          controller_approved: false,
+          release_blocked: true,
+          human_gate: 'HG-3.5',
+          source: {
+            generated_by: 'command-eve-kanban-marketing-board-core',
+            hermes_home: '',
+          },
+        };
+        setWorkerDispatcherPrepareResult(failure);
+        Message.error(failure.message || t('commandCenter.marketingBoard.workerDispatcherPrepare.failed'));
+      } finally {
+        setPreparingWorkerDispatcherCardId(null);
+      }
+    },
+    [applyBoardModel, t]
+  );
+
+  const runSafeLocalMarketingLoop = useCallback(
+    async (card: ICommandEveMarketingCard) => {
+      if (!isElectronDesktop()) return;
+      const localHandoff = localDispatchHandoffForCard(card, 'controller_approved', 'HG-2.5');
+      const outputHandoff = localDispatchHandoffForCard(card, 'output_approved', 'HG-2.5');
+      const workerRequestHandoff = localDispatchHandoffForCard(card, 'worker_dispatch_requested', 'HG-2.5');
+      const observedHandoff = localDispatchHandoffForCard(card, 'worker_observed_run', 'HG-2.5');
+      const workerStartHandoff = localDispatchHandoffForCard(card, 'worker_start_gate_check', 'HG-3');
+      const dispatcherHandoff = localDispatchHandoffForCard(card, 'worker_dispatcher_prepare', 'HG-3.5');
+
+      setRunningSafeLocalLoopCardId(card.card_id);
+      setCreateResult(null);
+      setMoveResult(null);
+      setActionResult(null);
+      setDispatchApprovalResult(null);
+      setDispatchDecisionResult(null);
+      setDraftGenerateResult(null);
+      setOutputApproveResult(null);
+      setWorkerDispatchRequestResult(null);
+      setWorkerObservedRunResult(null);
+      setWorkerStartGateResult(null);
+      setWorkerDispatcherPrepareResult(null);
+
+      try {
+        const draftResponse = await kanbanMarketingDraftGenerate.invoke({
+          task_id: card.card_id,
+          boardSlug: MARKETING_BOARD_SLUG,
+          dispatch_handoff_packet: localHandoff,
+          generation_note:
+            'Command EVE UI ran the safe local marketing loop: generated a local draft after HG-2.5 approval.',
+          dispatchMode: 'embedded',
+        });
+        const draftData = draftResponse.data ?? null;
+        setDraftGenerateResult(draftData);
+        await applyBoardModel(draftData);
+        if (!draftData?.ok) {
+          throw new Error(draftData?.reason_code || t('commandCenter.marketingBoard.draftGenerate.failed'));
+        }
+
+        const outputResponse = await kanbanMarketingOutputApprove.invoke({
+          task_id: card.card_id,
+          boardSlug: MARKETING_BOARD_SLUG,
+          dispatch_handoff_packet: outputHandoff,
+          approval_note: 'Command EVE UI safe local loop approved the generated marketing output.',
+        });
+        const outputData = outputResponse.data ?? null;
+        setOutputApproveResult(outputData);
+        await applyBoardModel(outputData);
+        if (!outputData?.ok) {
+          throw new Error(outputData?.reason_code || t('commandCenter.marketingBoard.outputApprove.failed'));
+        }
+
+        const workerRequestResponse = await kanbanMarketingWorkerDispatchRequest.invoke({
+          task_id: card.card_id,
+          boardSlug: MARKETING_BOARD_SLUG,
+          dispatch_handoff_packet: workerRequestHandoff,
+          request_note: 'Command EVE UI safe local loop requested dispatch; execution remains policy-locked.',
+        });
+        const workerRequestData = workerRequestResponse.data ?? null;
+        setWorkerDispatchRequestResult(workerRequestData);
+        await applyBoardModel(workerRequestData);
+        if (!workerRequestData?.ok) {
+          throw new Error(
+            workerRequestData?.reason_code || t('commandCenter.marketingBoard.workerDispatchRequest.failed')
+          );
+        }
+
+        const observedResponse = await kanbanMarketingWorkerObservedRun.invoke({
+          task_id: card.card_id,
+          boardSlug: MARKETING_BOARD_SLUG,
+          dispatch_handoff_packet: observedHandoff,
+          observed_note:
+            'Command EVE UI safe local loop recorded an observed local worker receipt; no subprocess was spawned.',
+        });
+        const observedData = observedResponse.data ?? null;
+        setWorkerObservedRunResult(observedData);
+        await applyBoardModel(observedData);
+        if (!observedData?.ok) {
+          throw new Error(observedData?.reason_code || t('commandCenter.marketingBoard.workerObservedRun.failed'));
+        }
+
+        const startGateResponse = await kanbanMarketingWorkerStartGate.invoke({
+          task_id: card.card_id,
+          boardSlug: MARKETING_BOARD_SLUG,
+          dispatch_handoff_packet: workerStartHandoff,
+          gate_note:
+            'Command EVE UI safe local loop checked an explicit HG-3 observed local executor profile without spawning a runtime worker.',
+          executor_enabled: true,
+          executor_profile: createObservedLocalExecutorProfile(),
+        });
+        const startGateData = startGateResponse.data ?? null;
+        setWorkerStartGateResult(startGateData);
+        await applyBoardModel(startGateData);
+        if (!startGateData?.ok || startGateData.worker_start_gate_status !== 'ready') {
+          throw new Error(startGateData?.reason_code || t('commandCenter.marketingBoard.workerStartGate.failed'));
+        }
+
+        const dispatcherResponse = await kanbanMarketingWorkerDispatcherPrepare.invoke({
+          task_id: card.card_id,
+          boardSlug: MARKETING_BOARD_SLUG,
+          dispatch_handoff_packet: dispatcherHandoff,
+          prepare_note:
+            'Command EVE UI safe local loop prepared the gated dispatcher after worker start readiness; no runtime worker was spawned.',
+        });
+        const dispatcherData = dispatcherResponse.data ?? null;
+        setWorkerDispatcherPrepareResult(dispatcherData);
+        await applyBoardModel(dispatcherData);
+        if (!dispatcherData?.ok) {
+          throw new Error(
+            dispatcherData?.reason_code || t('commandCenter.marketingBoard.workerDispatcherPrepare.failed')
+          );
+        }
+
+        Message.success(t('commandCenter.marketingBoard.dispatchQueue.safeLocalLoopSuccess'));
+      } catch (loopError) {
+        Message.error(
+          loopError instanceof Error
+            ? loopError.message
+            : t('commandCenter.marketingBoard.dispatchQueue.safeLocalLoopFailed')
+        );
+      } finally {
+        setRunningSafeLocalLoopCardId(null);
+      }
+    },
+    [applyBoardModel, t]
+  );
+
+  const initializeCrm = useCallback(async () => {
+    if (!isElectronDesktop()) return;
+    setCrmInitializing(true);
+    setCrmInitializeResult(null);
+    try {
+      const response = await crmOverlayInitialize.invoke({});
+      const data = response.data ?? null;
+      setCrmInitializeResult(data);
+      if (data?.model) {
+        setCrmResult({
+          version: 'command-eve-crm-overlay/v0',
+          ok: data.ok,
+          status: data.status,
+          reason_code: data.reason_code,
+          message: data.message,
+          model: data.model,
+          source: data.source,
+        });
+      } else {
+        const nextCrm = await crmOverlay.invoke({});
+        setCrmResult(nextCrm.data ?? null);
+      }
+      if (data?.ok) {
+        Message.success(t('commandCenter.crmOverlay.initialize.success'));
+      } else {
+        Message.warning(data?.reason_code || t('commandCenter.crmOverlay.initialize.failed'));
+      }
+    } catch (crmError) {
+      const failure: ICommandEveCrmOverlayInitializeResult = {
+        version: 'command-eve-crm-overlay-initialize/v0',
+        ok: false,
+        status: 'failed',
+        reason_code: 'CRM_OVERLAY_INITIALIZE_UI_FAILED',
+        message: crmError instanceof Error ? crmError.message : t('commandCenter.crmOverlay.initialize.failed'),
+        source: {
+          generated_by: 'command-eve-crm-overlay-core',
+          hermes_home: '',
+        },
+      };
+      setCrmInitializeResult(failure);
+      Message.error(failure.message || t('commandCenter.crmOverlay.initialize.failed'));
+    } finally {
+      setCrmInitializing(false);
+    }
+  }, [t]);
+
+  const createCrmDraft = useCallback(
+    async (input: ICommandEveCrmDraftCreateInput) => {
+      if (!isElectronDesktop()) return;
+      setCrmDraftCreating(true);
+      setCrmDraftCreateResult(null);
+      try {
+        const response = await crmDraftCreate.invoke(input);
+        const data = response.data ?? null;
+        setCrmDraftCreateResult(data);
+        if (data?.model) {
+          setCrmResult({
+            version: 'command-eve-crm-overlay/v0',
+            ok: data.ok,
+            status: data.status,
+            reason_code: data.reason_code,
+            message: data.message,
+            model: data.model,
+            source: data.source,
+          });
+        } else {
+          const nextCrm = await crmOverlay.invoke({});
+          setCrmResult(nextCrm.data ?? null);
+        }
+        if (data?.ok) {
+          Message.success(t('commandCenter.crmOverlay.draft.success'));
+        } else {
+          Message.warning(data?.reason_code || t('commandCenter.crmOverlay.draft.failed'));
+        }
+      } catch (draftError) {
+        const failure: ICommandEveCrmDraftCreateResult = {
+          version: 'command-eve-crm-draft-create/v0',
+          ok: false,
+          status: 'failed',
+          reason_code: 'CRM_DRAFT_CREATE_UI_FAILED',
+          message: draftError instanceof Error ? draftError.message : t('commandCenter.crmOverlay.draft.failed'),
+          source: {
+            generated_by: 'command-eve-crm-overlay-core',
+            hermes_home: '',
+          },
+        };
+        setCrmDraftCreateResult(failure);
+        Message.error(failure.message || t('commandCenter.crmOverlay.draft.failed'));
+      } finally {
+        setCrmDraftCreating(false);
+      }
+    },
+    [t]
+  );
+
+  const stageCrmDeal = useCallback(
+    async (dealId: string) => {
+      if (!isElectronDesktop()) return;
+      setCrmStagingDealId(dealId);
+      setCrmStageResult(null);
+      try {
+        const response = await crmStageLocal.invoke({ dealId, targetStage: 'qualified' });
+        const data = response.data ?? null;
+        setCrmStageResult(data);
+        if (data?.model) {
+          setCrmResult({
+            version: 'command-eve-crm-overlay/v0',
+            ok: data.ok,
+            status: data.status,
+            reason_code: data.reason_code,
+            message: data.message,
+            model: data.model,
+            source: data.source,
+          });
+        } else {
+          const nextCrm = await crmOverlay.invoke({});
+          setCrmResult(nextCrm.data ?? null);
+        }
+        if (data?.ok) {
+          Message.success(t('commandCenter.crmOverlay.stage.success'));
+        } else {
+          Message.warning(data?.reason_code || t('commandCenter.crmOverlay.stage.failed'));
+        }
+      } catch (stageError) {
+        const failure: ICommandEveCrmStageLocalResult = {
+          version: 'command-eve-crm-stage-local/v0',
+          ok: false,
+          status: 'failed',
+          reason_code: 'CRM_STAGE_LOCAL_UI_FAILED',
+          message: stageError instanceof Error ? stageError.message : t('commandCenter.crmOverlay.stage.failed'),
+          source: {
+            generated_by: 'command-eve-crm-overlay-core',
+            hermes_home: '',
+          },
+        };
+        setCrmStageResult(failure);
+        Message.error(failure.message || t('commandCenter.crmOverlay.stage.failed'));
+      } finally {
+        setCrmStagingDealId(null);
+      }
+    },
+    [t]
+  );
+
+  const captureCrmConsent = useCallback(
+    async (dealId: string) => {
+      if (!isElectronDesktop()) return;
+      setCrmConsentingDealId(dealId);
+      setCrmConsentResult(null);
+      try {
+        const response = await crmConsentLocal.invoke({ dealId });
+        const data = response.data ?? null;
+        setCrmConsentResult(data);
+        if (data?.model) {
+          setCrmResult({
+            version: 'command-eve-crm-overlay/v0',
+            ok: data.ok,
+            status: data.status,
+            reason_code: data.reason_code,
+            message: data.message,
+            model: data.model,
+            source: data.source,
+          });
+        } else {
+          const nextCrm = await crmOverlay.invoke({});
+          setCrmResult(nextCrm.data ?? null);
+        }
+        if (data?.ok) {
+          Message.success(t('commandCenter.crmOverlay.consent.success'));
+        } else {
+          Message.warning(data?.reason_code || t('commandCenter.crmOverlay.consent.failed'));
+        }
+      } catch (consentError) {
+        const failure: ICommandEveCrmConsentLocalResult = {
+          version: 'command-eve-crm-consent-local/v0',
+          ok: false,
+          status: 'failed',
+          reason_code: 'CRM_CONSENT_LOCAL_UI_FAILED',
+          message: consentError instanceof Error ? consentError.message : t('commandCenter.crmOverlay.consent.failed'),
+          source: {
+            generated_by: 'command-eve-crm-overlay-core',
+            hermes_home: '',
+          },
+        };
+        setCrmConsentResult(failure);
+        Message.error(failure.message || t('commandCenter.crmOverlay.consent.failed'));
+      } finally {
+        setCrmConsentingDealId(null);
+      }
+    },
+    [t]
+  );
+
+  const createMarketingRequestFromCrmDeal = useCallback(
+    async (deal: ICommandEveCrmOverlayDeal) => {
+      if (!isElectronDesktop()) return;
+      if (marketingResult?.status !== 'ready' || !marketingResult.model) {
+        Message.warning(t('commandCenter.crmOverlay.marketingRequest.boardRequired'));
+        return;
+      }
+      setCrmMarketingRequestDealId(deal.deal_id);
+      setCreateResult(null);
+      setMoveResult(null);
+      setActionResult(null);
+      setDispatchPlanResult(null);
+      setDispatchApprovalResult(null);
+      setDispatchDecisionResult(null);
+      setDraftGenerateResult(null);
+      setOutputApproveResult(null);
+      setWorkerDispatchRequestResult(null);
+      setWorkerObservedRunResult(null);
+      setWorkerStartGateResult(null);
+      setWorkerDispatcherPrepareResult(null);
+      try {
+        const title = deal.deal_label || deal.company_display_name || deal.deal_id;
+        const description = [
+          `CRM deal: ${deal.deal_id}`,
+          `Company: ${deal.company_display_name || deal.company_id}`,
+          `Contact: ${[deal.contact_display_name, deal.contact_role_title].filter(Boolean).join(' · ') || '-'}`,
+          `Stage: ${deal.stage}`,
+          `Consent: ${deal.consent_status}`,
+          'Source: Command EVE local CRM overlay. No outreach, hosted sync, subprocess, or external dispatch.',
+        ].join('\n');
+        const createResponse = await kanbanMarketingCardCreate.invoke({
+          title,
+          description,
+          lane_key: 'research',
+          client_token: `crm-marketing-${deal.deal_id}`,
+          boardSlug: MARKETING_BOARD_SLUG,
+        });
+        const createData = createResponse.data ?? null;
+        setCreateResult(createData);
+        await applyBoardModel(createData);
+        if (!createData?.ok || !createData.card_id) {
+          Message.warning(createData?.reason_code || t('commandCenter.crmOverlay.marketingRequest.failed'));
+          return;
+        }
+
+        const planResponse = await kanbanMarketingDispatchPlan.invoke({
+          task_id: createData.card_id,
+          command: 'decompose',
+          dispatchMode: 'embedded',
+          boardSlug: MARKETING_BOARD_SLUG,
+        });
+        const planData = planResponse.data ?? null;
+        setDispatchPlanResult(planData);
+        if (!planData?.card_id) {
+          Message.warning(planData?.reason_code || t('commandCenter.marketingBoard.dispatch.blocked'));
+          return;
+        }
+
+        const handoff = dispatchHandoffForResult(planData);
+        if (!handoff) {
+          Message.warning(t('commandCenter.marketingBoard.dispatch.approvalRecordFailed'));
+          return;
+        }
+        const approvalResponse = await kanbanMarketingDispatchApproval.invoke({
+          task_id: planData.card_id,
+          boardSlug: MARKETING_BOARD_SLUG,
+          dispatch_handoff_packet: handoff,
+          review_note:
+            'Command EVE UI turned a local CRM draft into a marketing work request; pending HG-2.5 review. No worker execution.',
+        });
+        const approvalData = approvalResponse.data ?? null;
+        setDispatchApprovalResult(approvalData);
+        await applyBoardModel(approvalData);
+        if (approvalData?.ok) {
+          Message.success(t('commandCenter.crmOverlay.marketingRequest.success'));
+        } else {
+          Message.warning(approvalData?.reason_code || t('commandCenter.crmOverlay.marketingRequest.failed'));
+        }
+      } catch (requestError) {
+        Message.error(
+          requestError instanceof Error ? requestError.message : t('commandCenter.crmOverlay.marketingRequest.failed')
+        );
+      } finally {
+        setCrmMarketingRequestDealId(null);
+      }
+    },
+    [applyBoardModel, marketingResult, t]
+  );
 
   return (
     <div
@@ -814,6 +5408,19 @@ const CommandCenterPage: React.FC = () => {
               )}
             </section>
 
+            <OperatingSurfacesSection
+              marketingResult={marketingResult}
+              crmResult={crmResult}
+              dispatchPlanResult={dispatchPlanResult}
+            />
+            <OperatingReadinessSection
+              marketingResult={marketingResult}
+              crmResult={crmResult}
+              dispatchPlanResult={dispatchPlanResult}
+              draftGenerateResult={draftGenerateResult}
+              readModel={model}
+            />
+
             <Section title={t('commandCenter.sections.board')} count={model.worker_runs.length}>
               <p className='m-0 text-12px leading-18px text-t-secondary'>{t('commandCenter.board.description')}</p>
               <div className='grid gap-12px md:grid-cols-2 xl:grid-cols-4'>
@@ -827,7 +5434,74 @@ const CommandCenterPage: React.FC = () => {
               result={marketingResult}
               proofResult={proofResult}
               proofRunning={proofRunning}
+              createResult={createResult}
+              moveResult={moveResult}
+              actionResult={actionResult}
+              dispatchPlanResult={dispatchPlanResult}
+              dispatchApprovalResult={dispatchApprovalResult}
+              dispatchDecisionResult={dispatchDecisionResult}
+              draftGenerateResult={draftGenerateResult}
+              outputApproveResult={outputApproveResult}
+              workerDispatchRequestResult={workerDispatchRequestResult}
+              workerObservedRunResult={workerObservedRunResult}
+              workerStartGateResult={workerStartGateResult}
+              workerDispatcherPrepareResult={workerDispatcherPrepareResult}
+              createModalVisible={createModalVisible}
+              createSubmitting={createSubmitting}
+              movingCardId={movingCardId}
+              actioningCardId={actioningCardId}
+              dispatchingCardId={dispatchingCardId}
+              generatingDraftCardId={generatingDraftCardId}
+              approvingOutputCardId={approvingOutputCardId}
+              requestingWorkerDispatchCardId={requestingWorkerDispatchCardId}
+              runningObservedWorkerCardId={runningObservedWorkerCardId}
+              checkingWorkerStartGateCardId={checkingWorkerStartGateCardId}
+              preparingWorkerDispatcherCardId={preparingWorkerDispatcherCardId}
+              runningSafeLocalLoopCardId={runningSafeLocalLoopCardId}
+              approvalRecording={approvalRecording}
+              decisionRecording={decisionRecording}
               onCreateProofCard={createProofCard}
+              onOpenCreateModal={openCreateModal}
+              onCloseCreateModal={closeCreateModal}
+              onSubmitCreateCard={submitCreateCard}
+              onMoveCardNext={moveCardNext}
+              onOpenComment={openComment}
+              onApplyAction={applyNonCommentAction}
+              onPlanDispatch={planDispatch}
+              onRecordDispatchReview={recordDispatchReview}
+              onRecordDispatchDecision={recordDispatchDecision}
+              onGenerateDraft={generateMarketingDraft}
+              onApproveOutput={approveMarketingOutput}
+              onRequestWorkerDispatch={requestWorkerDispatch}
+              onRunObservedWorker={runObservedWorker}
+              onCheckWorkerStartGate={checkWorkerStartGate}
+              onPrepareWorkerDispatcher={prepareWorkerDispatcher}
+              onRunSafeLocalLoop={runSafeLocalMarketingLoop}
+            />
+            <MarketingCardCommentModal
+              card={commentCard}
+              submitting={commentSubmitting}
+              onCancel={closeComment}
+              onSubmit={submitComment}
+            />
+
+            <CrmOverlaySection
+              result={crmResult}
+              initializeResult={crmInitializeResult}
+              draftCreateResult={crmDraftCreateResult}
+              stageResult={crmStageResult}
+              consentResult={crmConsentResult}
+              initializing={crmInitializing}
+              creatingDraft={crmDraftCreating}
+              stagingDealId={crmStagingDealId}
+              consentingDealId={crmConsentingDealId}
+              marketingBoardReady={marketingResult?.status === 'ready' && Boolean(marketingResult.model)}
+              marketingRequestingDealId={crmMarketingRequestDealId}
+              onInitialize={initializeCrm}
+              onCreateDraft={createCrmDraft}
+              onStageDeal={stageCrmDeal}
+              onCaptureConsent={captureCrmConsent}
+              onCreateMarketingRequest={createMarketingRequestFromCrmDeal}
             />
 
             <Section title={t('commandCenter.sections.workerRuns')} count={model.worker_runs.length}>

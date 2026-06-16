@@ -1,8 +1,8 @@
 {
   "sider": "Command Center",
   "title": "Command Center",
-  "subtitle": "Read-only Sicht auf EVEs lokales Company.OS Read-Model. Keine Fake-Daten, kein direkter Write-Pfad.",
-  "readOnly": "Read-only",
+  "subtitle": "Lokale Operating-Sicht auf EVEs Company.OS Read-Model. Marketing- und CRM-Aktionen schreiben nur lokale Audit-Receipts; Dispatcher, Auto-Decompose und externe Aktionen bleiben gate-pflichtig.",
+  "readOnly": "Lokaler Safe-Mode",
   "refresh": "Aktualisieren",
   "blocked": {
     "title": "Read-Model nicht verfügbar",
@@ -15,8 +15,11 @@
   "sections": {
     "statusSurface": "Status / Health",
     "source": "Quelle",
+    "operatingSurfaces": "Operating Surfaces",
+    "operatingReadiness": "Operating Readiness",
     "board": "Lokales Board",
     "marketingBoard": "Marketing Board",
+    "crmOverlay": "CRM Overlay",
     "workerRuns": "Worker-Runs",
     "humanGates": "Human-Gates",
     "ceoCriticalReleases": "CEO-kritische Releases",
@@ -36,8 +39,62 @@
     "hermesUnavailable": "nicht verfügbar",
     "blockedActions": "Gesperrte Aktionen"
   },
+  "operatingSurfaces": {
+    "description": "Die aktiven Bedienflächen sind getrennt sichtbar: lokale Marketing-Arbeit, lokales CRM und das Dispatch-Gate. Alles schreibt nur lokale Receipts, bis ein Gate echte Ausführung erlaubt.",
+    "open": "Öffnen",
+    "status": {
+      "ready": "bereit",
+      "check": "prüfen",
+      "blocked": "blockiert"
+    },
+    "tags": {
+      "localReceipts": "lokale Receipts",
+      "localOnly": "local-only",
+      "noAutoSpawn": "kein Auto-Spawn"
+    },
+    "marketing": {
+      "title": "Marketing Lane",
+      "description": "Posts anlegen, bewegen, kommentieren und vor Worker-Dispatch durch NL-5 prüfen."
+    },
+    "crm": {
+      "title": "CRM Lane",
+      "description": "Companies, Kontakte und Deals lokal vorbereiten; Kundendaten bleiben HG-4-gatepflichtig."
+    },
+    "dispatch": {
+      "title": "Dispatch Gate",
+      "description": "Zeigt, ob ein Card-Dispatch durch NL-5 geprüft wurde und Hermes weiter blockiert bleibt.",
+      "checked": "geprüft",
+      "waiting": "wartet"
+    }
+  },
+  "operatingReadiness": {
+    "description": "Beweist die lokale Bedienbarkeit, ohne Autonomie still freizuschalten: Marketing-Receipts, CRM-NL-5-Receipts, Dispatch-Block und Worker-Lock muessen sichtbar gruen sein.",
+    "marketingReceipts": {
+      "title": "Marketing-Receipts",
+      "description": "Alle lokalen Marketing-Karten sind mit einem append-only Audit-Event verknuepft."
+    },
+    "crmNl5Receipts": {
+      "title": "CRM-NL-5-Receipts",
+      "description": "CRM-Aktionen schreiben lokale NL-5-Receipts, bevor Kundendaten spaeter irgendeinen Ausfuehrungspfad beruehren duerfen."
+    },
+    "controllerReviewQueue": {
+      "title": "Controller-Review-Queue",
+      "description": "Mindestens ein Dispatch-Handoff wartet sichtbar auf HG-2.5-Review; Worker-Ausfuehrung bleibt gesperrt."
+    },
+    "dispatchBlocked": {
+      "title": "Dispatch blockiert vor Spawn",
+      "description": "Der Dispatch-Plan wurde durch NL-5 geprueft und Hermes/Worker-Ausfuehrung blieb gestoppt.",
+      "checked": "geprueft",
+      "waiting": "wartet auf Dispatch-Check"
+    },
+    "workerAutonomyLocked": {
+      "title": "Worker-Autonomie gelockt",
+      "description": "Worker-Dispatch bleibt explizit gesperrt, bis Controller- und Release-Gates echte Ausfuehrung erlauben.",
+      "missing": "kein Lock-Evidence"
+    }
+  },
   "board": {
-    "description": "Board-Sicht aus demselben lokalen Read-Model. Keine Mutation, kein Dispatcher, kein Auto-Decompose.",
+    "description": "Board-Sicht aus demselben lokalen Read-Model. Diese Übersicht bleibt read-only; lokale Bedienflächen liegen in Marketing Board und CRM Overlay. Kein Dispatcher, kein Auto-Decompose.",
     "empty": "Keine Items in dieser Spalte.",
     "columns": {
       "active": "Aktiv",
@@ -47,7 +104,7 @@
     }
   },
   "marketingBoard": {
-    "description": "Hermes-native Kanban-Sicht fuer Command EVE Marketing. Die App liest die lokale kanban.db und erlaubt nur eine idempotente Proof-Karte mit Audit-Receipt.",
+    "description": "Hermes-native Kanban-Sicht fuer Command EVE Marketing. Die App liest die lokale kanban.db, schreibt lokale Karten und Moves nur mit Audit-Receipt und prueft Dispatches ueber NL-5, bevor ein Worker starten duerfte.",
     "emptyColumn": "Keine Marketing-Karten in dieser Lane.",
     "columns": {
       "research": "Recherche",
@@ -65,19 +122,283 @@
       "audit": "Audit",
       "board": "Board",
       "database": "Datenbank",
+      "controllerReview": "Controller-Review",
       "owner": "Owner"
+    },
+    "crmHandoff": {
+      "source": "CRM-Handoff",
+      "deal": "Deal",
+      "contact": "Kontakt",
+      "stage": "Stage",
+      "consent": "Consent"
     },
     "blocked": {
       "title": "Marketing Board noch nicht initialisiert",
       "description": "Hermes Kanban ist bereit, aber die lokale Marketing-Board-Datenbank wurde noch nicht angelegt."
     },
     "actions": {
-      "createProofCard": "Proof-Karte anlegen"
+      "block": "Blockieren",
+      "checkDispatch": "Dispatch prüfen",
+      "comment": "Kommentar",
+      "complete": "Abschließen",
+      "createCard": "Post anlegen",
+      "createProofCard": "Proof-Karte anlegen",
+      "moveNext": "Weiter",
+      "finalLane": "Letzte Lane",
+      "unblock": "Freigeben"
+    },
+    "create": {
+      "note": "Legt genau eine lokale Marketing-Karte und ein append-only Audit-Event an. Kein Dispatcher, kein Auto-Decompose, keine Worker.",
+      "title": "Post anlegen",
+      "titleLabel": "Titel",
+      "titlePlaceholder": "z. B. LinkedIn-Post zu Command EVE",
+      "titleRequired": "Ein Titel ist erforderlich.",
+      "descriptionLabel": "Beschreibung",
+      "descriptionPlaceholder": "Optionaler Inhalt der Karte",
+      "laneLabel": "Lane",
+      "submit": "Karte anlegen",
+      "resultTitle": "Karten-Receipt",
+      "success": "Marketing-Karte angelegt.",
+      "failed": "Marketing-Karte konnte nicht angelegt werden."
+    },
+    "move": {
+      "resultTitle": "Move-Receipt",
+      "success": "Karte verschoben.",
+      "failed": "Karte konnte nicht verschoben werden."
+    },
+    "action": {
+      "resultTitle": "Action-Receipt",
+      "success": "Karten-Aktion lokal aufgezeichnet.",
+      "failed": "Karten-Aktion konnte nicht aufgezeichnet werden."
+    },
+    "comment": {
+      "title": "Kommentar notieren",
+      "card": "Karte",
+      "placeholder": "Kurzer lokaler Kommentar fuer diese Marketing-Karte",
+      "required": "Ein Kommentar ist erforderlich.",
+      "submit": "Kommentar speichern"
+    },
+    "dispatch": {
+      "resultTitle": "Dispatch-Gate-Receipt",
+      "ready": "Dispatch-Plan ist bereit, wartet aber weiter auf Controller-Freigabe.",
+      "blocked": "Dispatch wurde vor Hermes blockiert.",
+      "failed": "Dispatch-Prüfung konnte nicht ausgeführt werden.",
+      "dataBoundary": "NL-5",
+      "checked": "geprüft",
+      "notChecked": "nicht geprüft",
+      "humanGate": "HumanGate",
+      "controllerApproval": "Controller-Freigabe",
+      "required": "erforderlich",
+      "notRequired": "nicht erforderlich",
+      "release": "Release",
+      "blockedByGate": "blockiert",
+      "card": "Karte",
+      "command": "Command",
+      "reason": "Reason",
+      "audit": "Audit",
+      "source": "Quelle",
+      "handoff": "Handoff",
+      "approvalPanelTitle": "HG-2.5 Review",
+      "waitingForController": "wartet auf Controller",
+      "approvalPanelDescription": "Das lokale Handoff ist vorbereitet, aber EVE startet keinen Worker, bis der Controller diese Übergabe explizit freigibt.",
+      "gateNl5Passed": "NL-5 geprüft",
+      "gateNoSpawn": "kein Spawn",
+      "gateControllerMissing": "Controller fehlt",
+      "approveButton": "Freigabe-Receipt speichern",
+      "rejectButton": "Ablehnung speichern",
+      "recordReviewButton": "Review-Receipt speichern",
+      "approvalRecorded": "Controller-Review-Receipt gespeichert.",
+      "approvalRecordFailed": "Controller-Review konnte nicht gespeichert werden.",
+      "approvalReceiptTitle": "Controller-Review-Receipt",
+      "decisionRecorded": "Controller-Decision-Receipt gespeichert.",
+      "decisionRecordFailed": "Controller-Entscheidung konnte nicht gespeichert werden.",
+      "decisionReceiptTitle": "Controller-Decision-Receipt",
+      "controllerDecision": "Controller-Entscheidung",
+      "approvalStatus": "Review",
+      "notRecorded": "nicht erfasst",
+      "pending": "ausstehend",
+      "approved": "freigegeben",
+      "rejected": "abgelehnt",
+      "subprocess": "Hermes",
+      "spawned": "gestartet",
+      "notSpawned": "nicht gestartet"
+    },
+    "dispatchQueue": {
+      "title": "Lokale Dispatch-Queue",
+      "description": "Zeigt lokale Controller-Handoffs und Entscheidungen. Freigegebene Handoffs koennen einen lokalen Marketing-Draft erzeugen; Worker-Spawns bleiben weiter gesperrt.",
+      "pending": "Pending",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "generated": "Drafts",
+      "outputApproved": "Outputs",
+      "workerReady": "Worker-Handoffs",
+      "workerRequested": "Dispatch-Anfragen",
+      "workerObserved": "Observed Worker",
+      "workerStartGates": "Start-Gates",
+      "dispatcherPreparedCount": "Dispatcher vorbereitet",
+      "nextStep": "Naechster Schritt",
+      "pendingNext": "Controller muss das Handoff noch freigeben oder ablehnen.",
+      "approvedNext": "Handoff ist lokal freigegeben; EVE kann jetzt einen lokalen Marketing-Draft erzeugen.",
+      "generatedNext": "Draft ist erzeugt und liegt zur Review in der Queue.",
+      "outputApprovedNext": "Output ist lokal freigegeben. Publishing bleibt ein separates gegatetes Gate.",
+      "workerReadyNext": "Worker-Handoff ist vorbereitet. Start bleibt manuell und HG-2.5-gegatet.",
+      "workerRequestedNext": "Dispatch-Anfrage ist lokal dokumentiert. Worker-Start bleibt durch Policy gesperrt.",
+      "workerObservedNext": "Observed-Worker-Lauf ist lokal abgeschlossen. Publishing und externe Worker bleiben gesperrt.",
+      "workerStartGateNext": "Worker-Start-Gate ist geprueft. Runtime-Start bleibt bis HG-3 und Executor-Konfiguration gesperrt.",
+      "workerStartGateReadyNext": "Observed-local Executor-Profil ist akzeptiert. Runtime-Start bleibt bis Release-Freigabe weiter no-spawn.",
+      "workerDispatcherPreparedNext": "Gated Dispatcher ist vorbereitet. Echter Runtime-Spawn braucht weiter Release-Freigabe.",
+      "rejectedNext": "Handoff ist abgelehnt; Karte ueberarbeiten oder blockiert lassen.",
+      "loopProgressTitle": "Loop-Fortschritt",
+      "loopStepController": "Controller",
+      "loopStepDraft": "Draft",
+      "loopStepOutput": "Output",
+      "loopStepWorkerHandoff": "Worker-Handoff",
+      "loopStepObserved": "Observed Run",
+      "loopStepStartGate": "Start-Gate",
+      "loopStepDispatcher": "Dispatcher",
+      "generateDraft": "Draft erzeugen",
+      "runSafeLocalLoop": "Sicheren lokalen Loop ausfuehren",
+      "safeLocalLoopRunning": "Lokaler Loop laeuft",
+      "safeLocalLoopSuccess": "Sicherer lokaler Marketing-Loop ist vorbereitet.",
+      "safeLocalLoopFailed": "Sicherer lokaler Marketing-Loop ist fehlgeschlagen.",
+      "draftAlreadyGenerated": "Draft erzeugt",
+      "approveOutput": "Output freigeben",
+      "outputAlreadyApproved": "Output freigegeben",
+      "generatedDraft": "Generierter Draft",
+      "approvedOutput": "Freigegebener Output",
+      "preparedWorkerHandoff": "Vorbereiteter Worker-Handoff",
+      "manualDispatch": "manual",
+      "requestWorkerDispatch": "Dispatch anfordern",
+      "workerRequestRecorded": "Dispatch gesperrt",
+      "runObservedWorker": "Observed Worker ausfuehren",
+      "workerObservedCompleted": "Observed Run gespeichert",
+      "workerObservedReport": "Lokaler Worker-Report",
+      "checkWorkerStartGate": "Start-Gate pruefen",
+      "checkObservedExecutorProfile": "Observed Executor-Profil pruefen",
+      "workerStartGateChecked": "Start-Gate geprueft",
+      "workerStartPacket": "Worker-Start-Paket",
+      "workerStartGateBlocked": "HG-3 gesperrt",
+      "workerStartGateReady": "Observed Profil bereit",
+      "workerDispatcherPrepared": "Dispatcher vorbereitet",
+      "prepareWorkerDispatcher": "Dispatcher vorbereiten",
+      "dispatcherPreparePacket": "Dispatcher-Prepare-Paket",
+      "empty": "Keine Controller-Handoffs in der lokalen Queue."
+    },
+    "workerDispatchRequest": {
+      "success": "Dispatch-Anfrage dokumentiert; Worker-Start bleibt gesperrt.",
+      "failed": "Dispatch-Anfrage konnte nicht dokumentiert werden.",
+      "resultTitle": "Dispatch-Anfrage"
+    },
+    "workerObservedRun": {
+      "success": "Observed-Worker-Lauf lokal aufgezeichnet.",
+      "failed": "Observed-Worker-Lauf konnte nicht aufgezeichnet werden.",
+      "resultTitle": "Observed-Worker-Receipt",
+      "externalCalls": "Externe Calls",
+      "none": "keine"
+    },
+    "workerStartGate": {
+      "success": "Worker-Start-Gate ist bereit.",
+      "blocked": "Worker-Start-Gate geprueft; Start bleibt gesperrt.",
+      "failed": "Worker-Start-Gate konnte nicht geprueft werden.",
+      "resultTitle": "Worker-Start-Gate",
+      "blockReasons": "Block-Gruende"
+    },
+    "workerDispatcherPrepare": {
+      "success": "Gated Dispatcher ist vorbereitet.",
+      "failed": "Gated Dispatcher konnte nicht vorbereitet werden.",
+      "resultTitle": "Dispatcher-Prepare-Gate"
+    },
+    "draftGenerate": {
+      "resultTitle": "Marketing-Draft-Receipt",
+      "success": "Lokaler Marketing-Draft erzeugt.",
+      "failed": "Marketing-Draft konnte nicht erzeugt werden."
+    },
+    "outputApprove": {
+      "resultTitle": "Marketing-Output-Receipt",
+      "success": "Lokaler Marketing-Output freigegeben.",
+      "failed": "Marketing-Output konnte nicht freigegeben werden.",
+      "workerHandoff": "Worker-Handoff vorbereitet"
     },
     "proof": {
       "note": "Legt genau eine lokale Proof-Karte und ein append-only Audit-Event an. Keine Worker werden gestartet.",
       "resultTitle": "Proof-Card-Receipt",
       "failed": "Proof-Karte konnte nicht angelegt werden."
+    }
+  },
+  "crmOverlay": {
+    "description": "Lokaler CRM-ready Sales-Overlay fuer Companies, Kontakte und Deals. Keine Cloud-Syncs, keine Bulk-Imports, keine Outreach-Automation.",
+    "policy": {
+      "localOnly": "Local-only",
+      "hg4": "HG-4 fuer Kundendaten",
+      "noOutreach": "Outreach aus"
+    },
+    "blocked": {
+      "title": "CRM Overlay noch nicht initialisiert",
+      "description": "EVE kann das lokale CRM-Schema erst nutzen, nachdem die lokalen Tabellen angelegt wurden."
+    },
+    "initialize": {
+      "note": "Legt nur lokale CRM-Tabellen und ein Audit-Receipt an. Keine Kontakte, keine externen Calls, kein Plane-Sync.",
+      "resultTitle": "CRM-Overlay-Receipt",
+      "success": "CRM Overlay lokal initialisiert.",
+      "failed": "CRM Overlay konnte nicht initialisiert werden."
+    },
+    "draft": {
+      "resultTitle": "CRM-Draft-Receipt",
+      "success": "Lokaler CRM-Draft angelegt.",
+      "failed": "CRM-Draft konnte nicht angelegt werden."
+    },
+    "draftForm": {
+      "title": "Lokalen CRM-Draft anlegen",
+      "companyLabel": "Firma",
+      "companyPlaceholder": "z. B. Alois Consulting GmbH",
+      "contactLabel": "Kontakt",
+      "contactPlaceholder": "z. B. Alois Beispiel",
+      "roleLabel": "Rolle",
+      "rolePlaceholder": "z. B. Geschaeftsfuehrer",
+      "dealLabel": "Deal",
+      "dealPlaceholder": "z. B. Outreach-Pilot",
+      "notesLabel": "Notiz",
+      "notesPlaceholder": "Nur lokale Arbeitsnotiz, kein Outreach.",
+      "localOnlyNote": "Dieser Draft bleibt lokal, S2, HG-4 und loest keinen Sync, keine Anreicherung und keinen Outreach aus.",
+      "validationRequired": "Firma, Kontakt und Deal sind erforderlich.",
+      "submit": "Draft anlegen",
+      "cancel": "Abbrechen"
+    },
+    "stage": {
+      "resultTitle": "CRM-Stage-Receipt",
+      "success": "Lokale CRM-Stufe aktualisiert.",
+      "failed": "CRM-Stufe konnte nicht lokal aktualisiert werden."
+    },
+    "consent": {
+      "resultTitle": "CRM-Consent-Receipt",
+      "success": "Lokale CRM-Einwilligung notiert.",
+      "failed": "CRM-Einwilligung konnte nicht lokal notiert werden."
+    },
+    "marketingRequest": {
+      "success": "CRM-Deal als lokalen Marketing-Auftrag in die HG-2.5 Review-Queue gelegt.",
+      "failed": "Marketing-Auftrag konnte nicht aus dem CRM-Deal angelegt werden.",
+      "boardRequired": "Marketing Board muss zuerst bereit sein."
+    },
+    "readyNote": "CRM Overlay ist lokal initialisiert. Kontakte, Deals und echte Aktionen bleiben weiter gate-pflichtig.",
+    "actions": {
+      "initialize": "CRM lokal initialisieren",
+      "createDraft": "Lokalen Draft anlegen",
+      "captureConsent": "Consent notieren",
+      "qualifyDraft": "Qualifizieren",
+      "createMarketingRequest": "Marketing-Auftrag",
+      "createMarketingRequestPending": "Wird angelegt"
+    },
+    "counts": {
+      "companies": "Companies",
+      "contacts": "Kontakte",
+      "deals": "Deals",
+      "audit_events": "Audit-Events"
+    },
+    "labels": {
+      "database": "Datenbank",
+      "ledger": "Ledger",
+      "defaultClass": "Default-Datenklasse",
+      "actionCeiling": "Action-Ceiling"
     }
   },
   "labels": {

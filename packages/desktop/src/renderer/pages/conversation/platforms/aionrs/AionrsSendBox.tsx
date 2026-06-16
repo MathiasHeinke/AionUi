@@ -44,10 +44,12 @@ import { emitter, useAddEventListener } from '@/renderer/utils/emitter';
 import { mergeFileSelectionItems } from '@/renderer/utils/file/fileSelection';
 import { buildDisplayMessage, collectSelectedFiles } from '@/renderer/utils/file/messageFiles';
 import { mergeWithCapabilities, type AgentModeOption } from '@/renderer/utils/model/agentModes';
+import { isElectronDesktop } from '@/renderer/utils/platform';
 import { Message, Tag } from '@arco-design/web-react';
 import { Brain, MagicHat, Shield } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { createCommandEveLocalIntentClientToken, parseCommandEveLocalMarketingIntent } from './commandEveLocalIntent';
 import { useAionrsMessage } from './useAionrsMessage';
 import type { AionrsModelSelection } from './useAionrsModelSelection';
 
@@ -60,6 +62,7 @@ const useAionrsSendBoxDraft = getSendBoxDraftHook('aionrs', {
 
 const EMPTY_AT_PATH: Array<string | FileOrFolderItem> = [];
 const EMPTY_UPLOAD_FILES: string[] = [];
+const COMMAND_EVE_MARKETING_BOARD_SLUG = 'marketing';
 
 const useSendBoxDraft = (conversation_id: string) => {
   const { data, mutate } = useAionrsSendBoxDraft(conversation_id);
@@ -253,6 +256,67 @@ const AionrsSendBox: React.FC<{
     ]
   );
 
+  const runCommandEveLocalMarketingIntent = useCallback(
+    async (input: string, files: string[]): Promise<boolean> => {
+      const intent = parseCommandEveLocalMarketingIntent(input);
+      if (!intent) return false;
+
+      if (files.length > 0) {
+        Message.warning(t('conversation.commandEveLocalMarketingIntent.filesUnsupported'));
+        return true;
+      }
+
+      if (!isElectronDesktop()) {
+        Message.warning(t('conversation.commandEveLocalMarketingIntent.desktopRequired'));
+        return true;
+      }
+
+      try {
+        const createResponse = await ipcBridge.commandEve.kanbanMarketingCardCreate.invoke({
+          title: intent.title,
+          description: intent.description,
+          lane_key: intent.laneKey,
+          client_token: createCommandEveLocalIntentClientToken(),
+          boardSlug: COMMAND_EVE_MARKETING_BOARD_SLUG,
+        });
+        const cardResult = createResponse.data ?? null;
+        if (!createResponse.success || !cardResult?.ok || !cardResult.card_id) {
+          Message.warning(
+            cardResult?.reason_code || createResponse.msg || t('conversation.commandEveLocalMarketingIntent.failed')
+          );
+          return true;
+        }
+
+        const dispatchPlanResponse = await ipcBridge.commandEve.kanbanMarketingDispatchPlan.invoke({
+          task_id: cardResult.card_id,
+          command: 'decompose',
+          dispatchMode: 'embedded',
+          boardSlug: COMMAND_EVE_MARKETING_BOARD_SLUG,
+        });
+        const dispatchPlan = dispatchPlanResponse.data ?? null;
+        emitter.emit('commandEve.commandCenter.refresh');
+
+        if (dispatchPlan?.ok && dispatchPlan.data_boundary_checked && dispatchPlan.subprocess_spawned === false) {
+          Message.success(t('conversation.commandEveLocalMarketingIntent.createdChecked', { title: intent.title }));
+          return true;
+        }
+
+        Message.warning(
+          dispatchPlan?.reason_code ||
+            dispatchPlanResponse.msg ||
+            t('conversation.commandEveLocalMarketingIntent.createdUnchecked')
+        );
+        return true;
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : t('conversation.commandEveLocalMarketingIntent.failed');
+        Message.error(message);
+        return true;
+      }
+    },
+    [t]
+  );
+
   const {
     items: queuedCommands,
     isPaused: isQueuePaused,
@@ -308,6 +372,9 @@ const AionrsSendBox: React.FC<{
 
   const onSendHandler = async (message: string) => {
     const filesToSend = collectSelectedFiles(uploadFile, atPath);
+    const localIntentHandled = await runCommandEveLocalMarketingIntent(message, filesToSend);
+    if (localIntentHandled) return;
+
     clearFiles();
     emitter.emit('aionrs.selected.file.clear');
 

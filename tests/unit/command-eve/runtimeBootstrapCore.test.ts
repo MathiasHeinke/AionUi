@@ -17,6 +17,7 @@ import {
   loadCommandEveRuntimeBootstrapManifest,
   parseOllamaListHasModel,
   prepareCommandEveRuntimeProcessEnv,
+  resolveCommandEveFirstRunProfile,
   resolveCommandEveCapabilityManifestPath,
   resolveCommandEveRuntimeBootstrapPaths,
   resolveCommandEveRuntimeBootstrapManifestPath,
@@ -24,6 +25,7 @@ import {
   type RuntimeBootstrapCommandResult,
   type RuntimeBootstrapRunner,
 } from '@/process/commandEve/runtimeBootstrapCore';
+import { registerTenant } from '@/process/commandEve/entitlementCore';
 
 type Harness = {
   root: string;
@@ -492,6 +494,41 @@ describe('Command EVE runtime bootstrap core', () => {
     expect(harness.commands.length).toBe(0);
   });
 
+  it('seeds EVE first-run from the gate-confirmed registration so it greets by name (COMPA-596)', async () => {
+    const harness = makeHarness({ ollamaInitiallyInstalled: true });
+    // The user completed the registration gate (name + company + GDPR consent).
+    const reg = registerTenant(
+      { name: 'Mathias Heinke', company: 'FYN Labs', email: 'mathias@fynlabs.de', consent: true },
+      { userDataPath: harness.root }
+    );
+    expect(reg.ok).toBe(true);
+
+    const receipt = await ensureCommandEveRuntimeBootstrap({
+      userDataPath: harness.root,
+      runner: harness.runner,
+      detachedSpawner: () => {},
+      statfs: () => ({ bavail: 1, bsize: 1024 }),
+      totalMemoryBytes: 32 * 1024 ** 3,
+      displayNameLookup: () => 'Some Other Name', // registration must outrank the macOS name
+      env: { USER: 'admin' },
+    });
+
+    const paths = resolveCommandEveRuntimeBootstrapPaths(harness.root);
+    const profile = JSON.parse(fs.readFileSync(paths.firstRunProfile, 'utf8')) as {
+      founder_name: string;
+      company_name: string;
+      source: string;
+      needs_confirmation: boolean;
+    };
+
+    expect(receipt.identity?.founder_name).toBe('Mathias Heinke');
+    expect(receipt.identity?.source).toBe('registration');
+    expect(receipt.identity?.needs_confirmation).toBe(false);
+    expect(profile.founder_name).toBe('Mathias Heinke');
+    expect(profile.company_name).toBe('FYN Labs');
+    expect(profile.source).toBe('registration');
+  });
+
   it('does not treat placeholder local usernames as a verified founder identity', async () => {
     const harness = makeHarness({ ollamaInitiallyInstalled: true });
     const receipt = await ensureCommandEveRuntimeBootstrap({
@@ -644,5 +681,46 @@ describe('Command EVE runtime bootstrap core', () => {
     expect(prepared.hermesRoot).toBe(paths.hermesRoot);
     expect(fs.existsSync(paths.hermesShim)).toBe(true);
     expect(env.PATH?.split(path.delimiter)[0]).toBe(paths.hermesRoot);
+  });
+});
+
+describe('resolveCommandEveFirstRunProfile registration seed (COMPA-596)', () => {
+  const now = () => new Date('2026-06-13T00:00:00.000Z');
+
+  it('uses the gate-confirmed founder + company as the highest verified source', () => {
+    const profile = resolveCommandEveFirstRunProfile({
+      env: { COMMAND_EVE_FOUNDER_NAME: 'Someone Else', COMMAND_EVE_COMPANY_NAME: 'Env Co' },
+      now,
+      displayNameLookup: () => 'macOS Name',
+      registration: { founder_name: 'Mathias Heinke', company_name: 'FYN Labs' },
+    });
+    expect(profile.founder_name).toBe('Mathias Heinke');
+    expect(profile.company_name).toBe('FYN Labs');
+    expect(profile.source).toBe('registration');
+    expect(profile.confidence).toBe('verified');
+    expect(profile.needs_confirmation).toBe(false);
+  });
+
+  it('falls back to the macOS display name when there is no registration (backward compatible)', () => {
+    const profile = resolveCommandEveFirstRunProfile({
+      env: {},
+      now,
+      displayNameLookup: () => 'Mathias Heinke',
+    });
+    expect(profile.founder_name).toBe('Mathias Heinke');
+    expect(profile.source).toBe('macos_full_name');
+    expect(profile.needs_confirmation).toBe(true);
+  });
+
+  it('treats a gate-confirmed company without a founder name as verified', () => {
+    const profile = resolveCommandEveFirstRunProfile({
+      env: {},
+      now,
+      displayNameLookup: () => '',
+      registration: { company_name: 'FYN Labs' },
+    });
+    expect(profile.company_name).toBe('FYN Labs');
+    expect(profile.source).toBe('registration');
+    expect(profile.needs_confirmation).toBe(false);
   });
 });

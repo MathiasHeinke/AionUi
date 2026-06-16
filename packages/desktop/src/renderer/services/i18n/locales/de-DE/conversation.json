@@ -92,6 +92,13 @@
   "noModelConfigured": "Kein Modell konfiguriert. Bitte konfiguriere es in den Einstellungen.",
   "commandEveRuntimePreparing": "EVE bereitet die lokale Runtime vor. Das kann beim ersten Start oder nach Modellwechsel etwas dauern.",
   "commandEveRuntimeNotReady": "EVE kann noch nicht senden: {{reason}}",
+  "commandEveLocalMarketingIntent": {
+    "createdChecked": "Marketing-Karte „{{title}}“ angelegt und NL5/Dispatch lokal geprüft.",
+    "createdUnchecked": "Marketing-Karte angelegt, aber der lokale Dispatch-Check ist noch nicht grün.",
+    "desktopRequired": "Lokale Command-EVE-Board-Aktionen funktionieren nur in der Desktop-App.",
+    "failed": "Marketing-Karte konnte nicht angelegt werden.",
+    "filesUnsupported": "Lokale Marketing-Board-Aktionen akzeptieren keine Dateianhänge. Lege erst die Karte an und hänge Dateien danach im Board an."
+  },
   "createFailed": "Gespräch konnte nicht erstellt werden",
   "createError": {
     "pathVariants": {
