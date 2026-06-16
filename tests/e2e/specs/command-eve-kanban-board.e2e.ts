@@ -1462,7 +1462,186 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     await testInfo.attach('kanban-board-dispatch-gate-proof', { path: screenshotPath, contentType: 'image/png' });
   });
 
-  // ── TEST 5: Embedded NL-5 fallback ─────────────────────────────────────────
+  // ── TEST 5: Safe local loop ────────────────────────────────────────────────
+  test('safe local loop: one GUI click prepares the gated marketing dispatcher with receipts', async ({
+    page,
+    electronApp,
+  }, testInfo) => {
+    const userDataPath = await electronApp.evaluate(async ({ app }) => app.getPath('userData'));
+    const reconciliationPath = path.join(
+      userDataPath,
+      'command-eve-runtime',
+      'capabilities',
+      'command-eve-runtime-reconciliation.json'
+    );
+    writeReconciliationLock(reconciliationPath);
+
+    await page.waitForSelector('body', { state: 'visible' });
+    await page.reload();
+    await page.waitForSelector('body', { state: 'visible' });
+    await page.evaluate(() => {
+      window.location.hash = '#/command-center';
+    });
+    await expect(page.getByText(/Command Center|Kommandozentrale/).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/Marketing Board/).first()).toBeVisible({ timeout: 30_000 });
+
+    await page.getByRole('button', { name: /Proof-Karte anlegen|Create proof card/ }).click();
+    await expect(page.getByText(/KANBAN_MARKETING_PROOF_CARD_CREATED|KANBAN_MARKETING_PROOF_CARD_EXISTS/)).toBeVisible({
+      timeout: 60_000,
+    });
+
+    const dbPathLabel = await page.locator('span:has-text("/kanban/boards/marketing/kanban.db")').first().textContent();
+    const dbPathMatch = dbPathLabel?.match(/([^\s]+kanban\.db)/);
+    const safeLoopBoardDbPath = dbPathMatch?.[1] ?? null;
+    expect(safeLoopBoardDbPath, 'Board db_path must be visible in the marketing board section').toBeTruthy();
+
+    const postTitle = `${uniquePostTitle()} Safe Loop`;
+    await page.getByTestId('marketing-card-create-open').click();
+    await expect(page.getByTestId('marketing-card-create-modal')).toBeVisible({ timeout: 10_000 });
+    await page.getByTestId('marketing-card-create-title').fill(postTitle);
+    await page.getByTestId('marketing-card-create-description').fill('E2E mutation proof – safe local loop');
+    await page.getByTestId('marketing-card-create-submit').click();
+    await expect(page.getByTestId('marketing-card-create-modal')).not.toBeVisible({ timeout: 60_000 });
+    await expect(page.getByText('KANBAN_MARKETING_CARD_CREATED')).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByText(postTitle)).toBeVisible({ timeout: 30_000 });
+
+    const cardArticle = page.locator(`article:has-text("${postTitle}")`).first();
+    await expect(cardArticle).toBeVisible({ timeout: 10_000 });
+    const cardTestId = await cardArticle.getAttribute('data-testid');
+    expect(cardTestId, 'Card article must have data-testid attribute').toBeTruthy();
+    const safeLoopCardId = cardTestId?.replace(/^marketing-card-/, '') ?? null;
+    expect(safeLoopCardId, 'card_id must be extractable from data-testid').toBeTruthy();
+
+    await page.getByTestId(`marketing-card-dispatch-plan-${safeLoopCardId}`).click();
+    await expect(page.getByTestId('marketing-card-dispatch-plan-result')).toBeVisible({ timeout: 60_000 });
+    await page.getByTestId('marketing-card-dispatch-record-review').click();
+    await expect(page.getByTestId('marketing-card-dispatch-approval-result')).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId('marketing-card-dispatch-approve-receipt').click();
+    await expect(page.getByTestId('marketing-card-dispatch-decision-result')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId(`marketing-dispatch-queue-status-${safeLoopCardId}`)).toContainText(
+      /freigegeben|approved/
+    );
+
+    const safeLoopButton = page.getByTestId(`marketing-dispatch-queue-run-safe-local-loop-${safeLoopCardId}`);
+    await expect(safeLoopButton).toBeEnabled({ timeout: 30_000 });
+    await safeLoopButton.click();
+
+    const dispatcherPrepareResult = page.getByTestId('marketing-worker-dispatcher-prepare-result');
+    await expect(dispatcherPrepareResult).toBeVisible({ timeout: 60_000 });
+    await expect(dispatcherPrepareResult).toContainText(/command-eve-worker-dispatcher-prepare-packet/);
+    await expect(dispatcherPrepareResult).toContainText(/subprocess_spawned.*false|subprocess.*false/);
+    await expect(page.getByTestId(`marketing-generated-draft-preview-${safeLoopCardId}`)).toContainText(postTitle, {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId(`marketing-approved-output-preview-${safeLoopCardId}`)).toContainText(postTitle, {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId(`marketing-worker-observed-preview-${safeLoopCardId}`)).toContainText(
+      /worker\.reported/,
+      { timeout: 30_000 }
+    );
+    await expect(page.getByTestId(`marketing-worker-start-gate-preview-${safeLoopCardId}`)).toContainText(
+      /command-eve-worker-start-packet/,
+      { timeout: 30_000 }
+    );
+    await expect(page.getByTestId(`marketing-worker-dispatcher-prepare-preview-${safeLoopCardId}`)).toContainText(
+      /command-eve-worker-dispatcher-prepare-packet/,
+      { timeout: 30_000 }
+    );
+    await expect(
+      page.getByTestId(`marketing-dispatch-queue-worker-dispatcher-prepared-tag-${safeLoopCardId}`)
+    ).toContainText(/Dispatcher|vorbereitet|prepared/);
+    await expect(page.getByTestId(`marketing-dispatch-queue-next-${safeLoopCardId}`)).toContainText(
+      /Release|Freigabe|Dispatcher|prepared/
+    );
+
+    const safeLoopEventRows = sqliteQuery(
+      safeLoopBoardDbPath!,
+      `SELECT kind, payload FROM task_events WHERE task_id = '${safeLoopCardId}' AND kind IN (
+        'command_eve_marketing_draft_generated',
+        'command_eve_marketing_output_approved',
+        'command_eve_marketing_worker_dispatch_requested',
+        'command_eve_marketing_worker_observed_run_completed',
+        'command_eve_marketing_worker_start_gate_checked',
+        'command_eve_marketing_worker_dispatcher_prepared'
+      )`
+    );
+    const safeLoopKinds = new Set(safeLoopEventRows.map((row) => row[0]));
+    for (const kind of [
+      'command_eve_marketing_draft_generated',
+      'command_eve_marketing_output_approved',
+      'command_eve_marketing_worker_dispatch_requested',
+      'command_eve_marketing_worker_observed_run_completed',
+      'command_eve_marketing_worker_start_gate_checked',
+      'command_eve_marketing_worker_dispatcher_prepared',
+    ]) {
+      expect(safeLoopKinds.has(kind), `${kind} receipt must exist for ${safeLoopCardId}`).toBe(true);
+    }
+
+    for (const [kind, payloadText] of safeLoopEventRows) {
+      const payload = JSON.parse(payloadText) as {
+        controller_approved?: boolean;
+        subprocess_spawned?: boolean;
+        external_calls?: boolean;
+        nl5_gate_checked?: boolean;
+        release_blocked?: boolean;
+        worker_start_gate_status?: string;
+        dispatcher_prepare_status?: string;
+        dispatcher_prepare_packet?: {
+          version?: string;
+          subprocess_spawned?: boolean;
+          external_calls?: boolean;
+          release_blocked?: boolean;
+        };
+      };
+      expect(payload.controller_approved, `${kind} must stay controller-approved`).toBe(true);
+      expect(payload.subprocess_spawned, `${kind} must not spawn subprocesses`).toBe(false);
+      expect(payload.nl5_gate_checked, `${kind} must keep NL-5 checked`).toBe(true);
+      if ('external_calls' in payload) {
+        expect(payload.external_calls, `${kind} must not call external services`).toBe(false);
+      }
+      if (kind === 'command_eve_marketing_worker_start_gate_checked') {
+        expect(payload.release_blocked, `${kind} must stay release-blocked`).toBe(true);
+        expect(payload.worker_start_gate_status).toBe('ready');
+      }
+      if (kind === 'command_eve_marketing_worker_dispatcher_prepared') {
+        expect(payload.release_blocked, `${kind} must stay release-blocked`).toBe(true);
+        expect(payload.dispatcher_prepare_status).toBe('ready');
+        expect(payload.dispatcher_prepare_packet).toMatchObject({
+          version: 'command-eve-worker-dispatcher-prepare-packet/v0',
+          subprocess_spawned: false,
+          external_calls: false,
+          release_blocked: true,
+        });
+      }
+    }
+
+    const ledgerLines = fs.readFileSync(e2eLedgerPath, 'utf8').split('\n').filter(Boolean);
+    const matchingSafeLoopDispatcherAudit = ledgerLines.find((line) => {
+      try {
+        const evt = JSON.parse(line) as { event_type?: string; issue_id?: string; payload?: Record<string, unknown> };
+        return (
+          evt.issue_id === safeLoopCardId &&
+          evt.event_type === 'kanban.marketing_board_worker_dispatcher_prepared' &&
+          evt.payload?.dispatcher_prepare_status === 'ready' &&
+          evt.payload?.subprocess_spawned === false &&
+          evt.payload?.external_calls === false
+        );
+      } catch {
+        return false;
+      }
+    });
+    expect(
+      matchingSafeLoopDispatcherAudit,
+      `audit ledger must contain safe-loop dispatcher prepare for card_id=${safeLoopCardId}`
+    ).toBeTruthy();
+
+    const screenshotPath = 'tests/e2e/results/command-eve-kanban-board-safe-local-loop.png';
+    await page.screenshot({ path: screenshotPath, fullPage: true });
+    await testInfo.attach('kanban-board-safe-local-loop-proof', { path: screenshotPath, contentType: 'image/png' });
+  });
+
+  // ── TEST 6: Embedded NL-5 fallback ─────────────────────────────────────────
   test('dispatch gate: GUI click uses embedded NL-5 when Company.OS dispatch CLI is unavailable', async ({
     page,
     electronApp,
@@ -1610,7 +1789,7 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     await testInfo.attach('kanban-board-embedded-nl5-proof', { path: screenshotPath, contentType: 'image/png' });
   });
 
-  // ── TEST 6: CRM overlay init ──────────────────────────────────────────────
+  // ── TEST 7: CRM overlay init ──────────────────────────────────────────────
   test('crm overlay: GUI click initializes local-only CRM schema + audit receipt', async ({
     page,
     electronApp,

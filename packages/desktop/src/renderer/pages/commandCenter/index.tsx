@@ -965,6 +965,24 @@ const createObservedLocalExecutorProfile = (): Record<string, unknown> => ({
   approved_at: new Date().toISOString(),
 });
 
+const localDispatchHandoffForCard = (
+  card: ICommandEveWorkerStartGateTarget,
+  status: string,
+  humanGate: 'HG-2.5' | 'HG-3' | 'HG-3.5'
+): Record<string, unknown> => ({
+  version:
+    humanGate === 'HG-3.5'
+      ? 'command-eve-worker-dispatcher-prepare-handoff/v0'
+      : humanGate === 'HG-3'
+        ? 'command-eve-worker-start-gate-handoff/v0'
+        : 'command-eve-local-dispatch-handoff/v0',
+  status,
+  dispatch: card.controller_decision_handoff_dispatch || card.controller_review_handoff_dispatch || 'manual',
+  role_label: card.controller_decision_handoff_role || card.controller_review_handoff_role || 'role:cmo',
+  card_id: card.card_id,
+  human_gate: humanGate,
+});
+
 // Stable per-intent idempotency token so a card create dedupes on retry.
 const generateClientToken = (): string => {
   const cryptoApi = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined;
@@ -1609,6 +1627,7 @@ const MarketingDispatchQueueView: React.FC<{
   runningObservedWorkerCardId: string | null;
   checkingWorkerStartGateCardId: string | null;
   preparingWorkerDispatcherCardId: string | null;
+  runningSafeLocalLoopCardId: string | null;
   onGenerateDraft: (card: ICommandEveMarketingCard) => void;
   onApproveOutput: (card: ICommandEveMarketingCard) => void;
   onRequestWorkerDispatch: (card: ICommandEveMarketingCard) => void;
@@ -1618,6 +1637,7 @@ const MarketingDispatchQueueView: React.FC<{
     options?: ICommandEveWorkerStartGateUiOptions
   ) => void;
   onPrepareWorkerDispatcher: (card: ICommandEveWorkerStartGateTarget) => void;
+  onRunSafeLocalLoop: (card: ICommandEveMarketingCard) => void;
 }> = ({
   model,
   workerStartGateResult,
@@ -1628,12 +1648,14 @@ const MarketingDispatchQueueView: React.FC<{
   runningObservedWorkerCardId,
   checkingWorkerStartGateCardId,
   preparingWorkerDispatcherCardId,
+  runningSafeLocalLoopCardId,
   onGenerateDraft,
   onApproveOutput,
   onRequestWorkerDispatch,
   onRunObservedWorker,
   onCheckWorkerStartGate,
   onPrepareWorkerDispatcher,
+  onRunSafeLocalLoop,
 }) => {
   const { t } = useTranslation();
   const queueCards = marketingCardsForDispatchQueue(model);
@@ -1786,6 +1808,15 @@ const MarketingDispatchQueueView: React.FC<{
             const workerObservedRunning = runningObservedWorkerCardId === card.card_id;
             const workerStartGateChecking = checkingWorkerStartGateCardId === card.card_id;
             const workerDispatcherPreparing = preparingWorkerDispatcherCardId === card.card_id;
+            const safeLocalLoopRunning = runningSafeLocalLoopCardId === card.card_id;
+            const anyMarketingLoopStepRunning =
+              draftGenerating ||
+              outputApproving ||
+              workerDispatchRequesting ||
+              workerObservedRunning ||
+              workerStartGateChecking ||
+              workerDispatcherPreparing ||
+              safeLocalLoopRunning;
             return (
               <article
                 key={card.card_id}
@@ -1830,12 +1861,27 @@ const MarketingDispatchQueueView: React.FC<{
                 </dl>
                 {decision === 'approved' ? (
                   <div className='mt-8px flex flex-wrap items-center gap-6px'>
+                    {!workerDispatcherPrepared ? (
+                      <Button
+                        shape='round'
+                        size='mini'
+                        type='primary'
+                        loading={safeLocalLoopRunning}
+                        disabled={anyMarketingLoopStepRunning}
+                        onClick={() => onRunSafeLocalLoop(card)}
+                        data-testid={`marketing-dispatch-queue-run-safe-local-loop-${card.card_id}`}
+                      >
+                        {safeLocalLoopRunning
+                          ? t('commandCenter.marketingBoard.dispatchQueue.safeLocalLoopRunning')
+                          : t('commandCenter.marketingBoard.dispatchQueue.runSafeLocalLoop')}
+                      </Button>
+                    ) : null}
                     <Button
                       shape='round'
                       size='mini'
                       type='outline'
                       loading={draftGenerating}
-                      disabled={draftGenerating || hasGeneratedDraft}
+                      disabled={anyMarketingLoopStepRunning || hasGeneratedDraft}
                       onClick={() => onGenerateDraft(card)}
                       data-testid={`marketing-dispatch-queue-generate-${card.card_id}`}
                     >
@@ -1854,7 +1900,7 @@ const MarketingDispatchQueueView: React.FC<{
                         size='mini'
                         type='primary'
                         loading={outputApproving}
-                        disabled={outputApproving || hasApprovedOutput}
+                        disabled={anyMarketingLoopStepRunning || hasApprovedOutput}
                         onClick={() => onApproveOutput(card)}
                         data-testid={`marketing-dispatch-queue-approve-output-${card.card_id}`}
                       >
@@ -1909,7 +1955,7 @@ const MarketingDispatchQueueView: React.FC<{
                         size='mini'
                         type='outline'
                         loading={workerDispatchRequesting}
-                        disabled={workerDispatchRequesting || workerDispatchRequested}
+                        disabled={anyMarketingLoopStepRunning || workerDispatchRequested}
                         onClick={() => onRequestWorkerDispatch(card)}
                         data-testid={`marketing-dispatch-queue-request-worker-${card.card_id}`}
                       >
@@ -1924,7 +1970,7 @@ const MarketingDispatchQueueView: React.FC<{
                         size='mini'
                         type='primary'
                         loading={workerObservedRunning}
-                        disabled={workerObservedRunning || workerObservedCompleted}
+                        disabled={anyMarketingLoopStepRunning || workerObservedCompleted}
                         onClick={() => onRunObservedWorker(card)}
                         data-testid={`marketing-dispatch-queue-run-observed-worker-${card.card_id}`}
                       >
@@ -2003,7 +2049,7 @@ const MarketingDispatchQueueView: React.FC<{
                         size='mini'
                         type='outline'
                         loading={workerStartGateChecking}
-                        disabled={workerStartGateChecking || workerStartGateChecked}
+                        disabled={anyMarketingLoopStepRunning || workerStartGateChecked}
                         onClick={() => onCheckWorkerStartGate(card)}
                         data-testid={`marketing-dispatch-queue-check-worker-start-gate-${card.card_id}`}
                       >
@@ -2049,7 +2095,7 @@ const MarketingDispatchQueueView: React.FC<{
                           size='mini'
                           type='outline'
                           loading={workerStartGateChecking}
-                          disabled={workerStartGateChecking}
+                          disabled={anyMarketingLoopStepRunning}
                           onClick={() =>
                             onCheckWorkerStartGate(card, {
                               executorProfile: createObservedLocalExecutorProfile(),
@@ -2068,7 +2114,7 @@ const MarketingDispatchQueueView: React.FC<{
                           size='mini'
                           type='primary'
                           loading={workerDispatcherPreparing}
-                          disabled={workerDispatcherPreparing}
+                          disabled={anyMarketingLoopStepRunning}
                           onClick={() => onPrepareWorkerDispatcher(card)}
                           data-testid={`marketing-dispatch-queue-card-prepare-worker-dispatcher-${card.card_id}`}
                         >
@@ -2252,6 +2298,7 @@ const MarketingBoardSection: React.FC<{
   runningObservedWorkerCardId: string | null;
   checkingWorkerStartGateCardId: string | null;
   preparingWorkerDispatcherCardId: string | null;
+  runningSafeLocalLoopCardId: string | null;
   approvalRecording: boolean;
   decisionRecording: 'approved' | 'rejected' | null;
   onCreateProofCard: () => void;
@@ -2273,6 +2320,7 @@ const MarketingBoardSection: React.FC<{
     options?: ICommandEveWorkerStartGateUiOptions
   ) => void;
   onPrepareWorkerDispatcher: (card: ICommandEveWorkerStartGateTarget) => void;
+  onRunSafeLocalLoop: (card: ICommandEveMarketingCard) => void;
 }> = ({
   result,
   proofResult,
@@ -2300,6 +2348,7 @@ const MarketingBoardSection: React.FC<{
   runningObservedWorkerCardId,
   checkingWorkerStartGateCardId,
   preparingWorkerDispatcherCardId,
+  runningSafeLocalLoopCardId,
   approvalRecording,
   decisionRecording,
   onCreateProofCard,
@@ -2318,6 +2367,7 @@ const MarketingBoardSection: React.FC<{
   onRunObservedWorker,
   onCheckWorkerStartGate,
   onPrepareWorkerDispatcher,
+  onRunSafeLocalLoop,
 }) => {
   const { t } = useTranslation();
   const proofBackedResult: ICommandEveMarketingBoardResult | null =
@@ -3104,12 +3154,14 @@ const MarketingBoardSection: React.FC<{
             runningObservedWorkerCardId={runningObservedWorkerCardId}
             checkingWorkerStartGateCardId={checkingWorkerStartGateCardId}
             preparingWorkerDispatcherCardId={preparingWorkerDispatcherCardId}
+            runningSafeLocalLoopCardId={runningSafeLocalLoopCardId}
             onGenerateDraft={onGenerateDraft}
             onApproveOutput={onApproveOutput}
             onRequestWorkerDispatch={onRequestWorkerDispatch}
             onRunObservedWorker={onRunObservedWorker}
             onCheckWorkerStartGate={onCheckWorkerStartGate}
             onPrepareWorkerDispatcher={onPrepareWorkerDispatcher}
+            onRunSafeLocalLoop={onRunSafeLocalLoop}
           />
           <div className='grid gap-12px md:grid-cols-2 xl:grid-cols-5'>
             {model.columns.map((column) => (
@@ -3626,6 +3678,7 @@ const CommandCenterPage: React.FC = () => {
   const [runningObservedWorkerCardId, setRunningObservedWorkerCardId] = useState<string | null>(null);
   const [checkingWorkerStartGateCardId, setCheckingWorkerStartGateCardId] = useState<string | null>(null);
   const [preparingWorkerDispatcherCardId, setPreparingWorkerDispatcherCardId] = useState<string | null>(null);
+  const [runningSafeLocalLoopCardId, setRunningSafeLocalLoopCardId] = useState<string | null>(null);
   const [approvalRecording, setApprovalRecording] = useState(false);
   const [decisionRecording, setDecisionRecording] = useState<'approved' | 'rejected' | null>(null);
   const [crmInitializing, setCrmInitializing] = useState(false);
@@ -4554,6 +4607,132 @@ const CommandCenterPage: React.FC = () => {
     [applyBoardModel, t]
   );
 
+  const runSafeLocalMarketingLoop = useCallback(
+    async (card: ICommandEveMarketingCard) => {
+      if (!isElectronDesktop()) return;
+      const localHandoff = localDispatchHandoffForCard(card, 'controller_approved', 'HG-2.5');
+      const outputHandoff = localDispatchHandoffForCard(card, 'output_approved', 'HG-2.5');
+      const workerRequestHandoff = localDispatchHandoffForCard(card, 'worker_dispatch_requested', 'HG-2.5');
+      const observedHandoff = localDispatchHandoffForCard(card, 'worker_observed_run', 'HG-2.5');
+      const workerStartHandoff = localDispatchHandoffForCard(card, 'worker_start_gate_check', 'HG-3');
+      const dispatcherHandoff = localDispatchHandoffForCard(card, 'worker_dispatcher_prepare', 'HG-3.5');
+
+      setRunningSafeLocalLoopCardId(card.card_id);
+      setCreateResult(null);
+      setMoveResult(null);
+      setActionResult(null);
+      setDispatchApprovalResult(null);
+      setDispatchDecisionResult(null);
+      setDraftGenerateResult(null);
+      setOutputApproveResult(null);
+      setWorkerDispatchRequestResult(null);
+      setWorkerObservedRunResult(null);
+      setWorkerStartGateResult(null);
+      setWorkerDispatcherPrepareResult(null);
+
+      try {
+        const draftResponse = await kanbanMarketingDraftGenerate.invoke({
+          task_id: card.card_id,
+          boardSlug: MARKETING_BOARD_SLUG,
+          dispatch_handoff_packet: localHandoff,
+          generation_note:
+            'Command EVE UI ran the safe local marketing loop: generated a local draft after HG-2.5 approval.',
+        });
+        const draftData = draftResponse.data ?? null;
+        setDraftGenerateResult(draftData);
+        await applyBoardModel(draftData);
+        if (!draftData?.ok) {
+          throw new Error(draftData?.reason_code || t('commandCenter.marketingBoard.draftGenerate.failed'));
+        }
+
+        const outputResponse = await kanbanMarketingOutputApprove.invoke({
+          task_id: card.card_id,
+          boardSlug: MARKETING_BOARD_SLUG,
+          dispatch_handoff_packet: outputHandoff,
+          approval_note: 'Command EVE UI safe local loop approved the generated marketing output.',
+        });
+        const outputData = outputResponse.data ?? null;
+        setOutputApproveResult(outputData);
+        await applyBoardModel(outputData);
+        if (!outputData?.ok) {
+          throw new Error(outputData?.reason_code || t('commandCenter.marketingBoard.outputApprove.failed'));
+        }
+
+        const workerRequestResponse = await kanbanMarketingWorkerDispatchRequest.invoke({
+          task_id: card.card_id,
+          boardSlug: MARKETING_BOARD_SLUG,
+          dispatch_handoff_packet: workerRequestHandoff,
+          request_note: 'Command EVE UI safe local loop requested dispatch; execution remains policy-locked.',
+        });
+        const workerRequestData = workerRequestResponse.data ?? null;
+        setWorkerDispatchRequestResult(workerRequestData);
+        await applyBoardModel(workerRequestData);
+        if (!workerRequestData?.ok) {
+          throw new Error(
+            workerRequestData?.reason_code || t('commandCenter.marketingBoard.workerDispatchRequest.failed')
+          );
+        }
+
+        const observedResponse = await kanbanMarketingWorkerObservedRun.invoke({
+          task_id: card.card_id,
+          boardSlug: MARKETING_BOARD_SLUG,
+          dispatch_handoff_packet: observedHandoff,
+          observed_note:
+            'Command EVE UI safe local loop recorded an observed local worker receipt; no subprocess was spawned.',
+        });
+        const observedData = observedResponse.data ?? null;
+        setWorkerObservedRunResult(observedData);
+        await applyBoardModel(observedData);
+        if (!observedData?.ok) {
+          throw new Error(observedData?.reason_code || t('commandCenter.marketingBoard.workerObservedRun.failed'));
+        }
+
+        const startGateResponse = await kanbanMarketingWorkerStartGate.invoke({
+          task_id: card.card_id,
+          boardSlug: MARKETING_BOARD_SLUG,
+          dispatch_handoff_packet: workerStartHandoff,
+          gate_note:
+            'Command EVE UI safe local loop checked an explicit HG-3 observed local executor profile without spawning a runtime worker.',
+          executor_enabled: true,
+          executor_profile: createObservedLocalExecutorProfile(),
+        });
+        const startGateData = startGateResponse.data ?? null;
+        setWorkerStartGateResult(startGateData);
+        await applyBoardModel(startGateData);
+        if (!startGateData?.ok || startGateData.worker_start_gate_status !== 'ready') {
+          throw new Error(startGateData?.reason_code || t('commandCenter.marketingBoard.workerStartGate.failed'));
+        }
+
+        const dispatcherResponse = await kanbanMarketingWorkerDispatcherPrepare.invoke({
+          task_id: card.card_id,
+          boardSlug: MARKETING_BOARD_SLUG,
+          dispatch_handoff_packet: dispatcherHandoff,
+          prepare_note:
+            'Command EVE UI safe local loop prepared the gated dispatcher after worker start readiness; no runtime worker was spawned.',
+        });
+        const dispatcherData = dispatcherResponse.data ?? null;
+        setWorkerDispatcherPrepareResult(dispatcherData);
+        await applyBoardModel(dispatcherData);
+        if (!dispatcherData?.ok) {
+          throw new Error(
+            dispatcherData?.reason_code || t('commandCenter.marketingBoard.workerDispatcherPrepare.failed')
+          );
+        }
+
+        Message.success(t('commandCenter.marketingBoard.dispatchQueue.safeLocalLoopSuccess'));
+      } catch (loopError) {
+        Message.error(
+          loopError instanceof Error
+            ? loopError.message
+            : t('commandCenter.marketingBoard.dispatchQueue.safeLocalLoopFailed')
+        );
+      } finally {
+        setRunningSafeLocalLoopCardId(null);
+      }
+    },
+    [applyBoardModel, t]
+  );
+
   const initializeCrm = useCallback(async () => {
     if (!isElectronDesktop()) return;
     setCrmInitializing(true);
@@ -4859,6 +5038,7 @@ const CommandCenterPage: React.FC = () => {
               runningObservedWorkerCardId={runningObservedWorkerCardId}
               checkingWorkerStartGateCardId={checkingWorkerStartGateCardId}
               preparingWorkerDispatcherCardId={preparingWorkerDispatcherCardId}
+              runningSafeLocalLoopCardId={runningSafeLocalLoopCardId}
               approvalRecording={approvalRecording}
               decisionRecording={decisionRecording}
               onCreateProofCard={createProofCard}
@@ -4877,6 +5057,7 @@ const CommandCenterPage: React.FC = () => {
               onRunObservedWorker={runObservedWorker}
               onCheckWorkerStartGate={checkWorkerStartGate}
               onPrepareWorkerDispatcher={prepareWorkerDispatcher}
+              onRunSafeLocalLoop={runSafeLocalMarketingLoop}
             />
             <MarketingCardCommentModal
               card={commentCard}
