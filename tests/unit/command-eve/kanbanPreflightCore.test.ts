@@ -2059,4 +2059,89 @@ describe('Command EVE Kanban marketing-board mutations', () => {
     expect(result.dispatch_source).toBe('command-eve-embedded-nl5');
     expect(result.dispatch_source_reason).toContain('external dispatch stays disabled');
   });
+
+  it('keeps local draft generation on embedded NL-5 when embedded dispatch mode is requested', () => {
+    const root = makeRoot();
+    const companyOsRoot = path.join(root, 'company-os');
+    makeCompanyOsDispatchCli(companyOsRoot);
+    writeLockedReconciliation(root);
+    const eventLedgerPath = path.join(root, 'agent-events.jsonl');
+
+    const created = createKanbanMarketingCard({
+      userDataPath: root,
+      boardSlug: 'marketing',
+      eventLedgerPath,
+      title: 'Generate via local NL-5',
+      description: 'Draft generation must not spawn the Company.OS CLI even when it exists.',
+      lane_key: 'draft',
+      client_token: 'embedded-nl5-draft-1',
+      now: () => new Date('2026-06-15T12:00:00.000Z'),
+    });
+    expect(created.ok).toBe(true);
+
+    const plan = planKanbanMarketingCardDispatch({
+      userDataPath: root,
+      boardSlug: 'marketing',
+      eventLedgerPath,
+      task_id: created.card_id || '',
+      command: 'decompose',
+      dispatchMode: 'embedded',
+      companyOsRoot,
+      commandRunner: failIfExternalDispatchRuns,
+      now: () => new Date('2026-06-15T12:01:00.000Z'),
+    });
+    expect(plan.dispatch_source).toBe('command-eve-embedded-nl5');
+
+    const decision = recordKanbanMarketingDispatchDecision({
+      userDataPath: root,
+      boardSlug: 'marketing',
+      eventLedgerPath,
+      task_id: created.card_id || '',
+      decision: 'approved',
+      dispatch_handoff_packet: plan.dispatch_handoff_packet,
+      now: () => new Date('2026-06-15T12:02:00.000Z'),
+    });
+    expect(decision.ok).toBe(true);
+
+    const draft = generateKanbanMarketingDraft({
+      userDataPath: root,
+      boardSlug: 'marketing',
+      eventLedgerPath,
+      task_id: created.card_id || '',
+      dispatch_handoff_packet: decision.dispatch_handoff_packet,
+      generation_note: 'Generate through the local embedded NL-5 path.',
+      dispatchMode: 'embedded',
+      companyOsRoot,
+      commandRunner: failIfExternalDispatchRuns,
+      now: () => new Date('2026-06-15T12:03:00.000Z'),
+    });
+
+    expect(draft.ok).toBe(true);
+    expect(draft.status).toBe('ready');
+    expect(draft.subprocess_spawned).toBe(false);
+    expect(draft.data_boundary_checked).toBe(true);
+    expect(draft.dispatch_source).toBe('command-eve-embedded-nl5');
+    expect(draft.dispatch_source_reason).toContain('external dispatch stays disabled');
+    expect(draft.policy).toMatchObject({
+      implementation: 'command-eve-embedded-nl5',
+      data_boundary_receipt: expect.objectContaining({
+        ok: true,
+        raw_text_stored: false,
+      }),
+    });
+
+    const draftEvents = readRows(
+      marketingBoardPath(root),
+      "SELECT payload FROM task_events WHERE kind = 'command_eve_marketing_draft_generated'"
+    );
+    expect(draftEvents).toHaveLength(1);
+    const draftPayload = JSON.parse(String((draftEvents[0] as { payload: string }).payload)) as {
+      dispatch_source?: string;
+      nl5_gate_checked?: boolean;
+      subprocess_spawned?: boolean;
+    };
+    expect(draftPayload.dispatch_source).toBe('command-eve-embedded-nl5');
+    expect(draftPayload.nl5_gate_checked).toBe(true);
+    expect(draftPayload.subprocess_spawned).toBe(false);
+  });
 });

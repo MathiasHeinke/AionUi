@@ -432,6 +432,8 @@ export type CommandEveKanbanMarketingDraftGenerateResult = {
   release_blocked: boolean;
   human_gate: 'HG-2.5';
   dispatch_handoff_packet?: JsonRecord;
+  dispatch_source?: string;
+  dispatch_source_reason?: string;
   policy?: JsonRecord;
   model?: CommandEveKanbanMarketingBoardModel;
   source: {
@@ -635,6 +637,7 @@ export type CommandEveKanbanMarketingDraftGenerateOptions = CommandEveKanbanMark
   task_id: string;
   dispatch_handoff_packet?: JsonRecord;
   generation_note?: string;
+  dispatchMode?: 'auto' | 'embedded';
   companyOsRoot?: string;
   commandRunner?: CommandEveKanbanPreflightCommandRunner;
 };
@@ -6617,8 +6620,10 @@ export function generateKanbanMarketingDraft(
     reason: 'HG-2.5 controller decision receipt exists in the local Kanban ledger.',
   };
 
+  const dispatchMode = options.dispatchMode === 'embedded' ? 'embedded' : 'auto';
   const dispatchCliPath = companyOsRoot ? companyOsDispatchCliPath(companyOsRoot) : '';
-  const hasExternalDispatchCli = Boolean(companyOsRoot && fs.existsSync(dispatchCliPath));
+  const hasExternalDispatchCli =
+    dispatchMode !== 'embedded' && Boolean(companyOsRoot && fs.existsSync(dispatchCliPath));
   const runner = options.commandRunner || defaultCommandRunner;
   let dispatch: CommandEveKanbanPreflightCommandResult = {
     ok: false,
@@ -6644,6 +6649,13 @@ export function generateKanbanMarketingDraft(
     });
     dispatchPlan = parseJsonRecord(dispatch.stdout || '');
   } else {
+    let dispatchSourceReason = 'Company.OS root not configured; using embedded Command EVE NL-5 gate.';
+    if (dispatchMode === 'embedded') {
+      dispatchSourceReason =
+        'Command EVE requested embedded NL-5 draft generation; external dispatch stays disabled for local output.';
+    } else if (companyOsRoot) {
+      dispatchSourceReason = `Company.OS NL-5 dispatch CLI not found: ${dispatchCliPath}`;
+    }
     const policy = buildEmbeddedHermesPreGenerationPolicy(request);
     dispatchPlan = {
       version: 'hermes-pre-generation-dispatch/v0',
@@ -6653,9 +6665,7 @@ export function generateKanbanMarketingDraft(
       reason_codes: policy.reason_codes.length ? policy.reason_codes : ['command_eve.embedded_nl5_ready'],
       policy,
       dispatch_source: 'command-eve-embedded-nl5',
-      dispatch_source_reason: companyOsRoot
-        ? `Company.OS NL-5 dispatch CLI not found: ${dispatchCliPath}`
-        : 'Company.OS root not configured; using embedded Command EVE NL-5 gate.',
+      dispatch_source_reason: dispatchSourceReason,
     };
     dispatch = {
       ok: policy.allowed,
@@ -6704,6 +6714,8 @@ export function generateKanbanMarketingDraft(
       controller_approved: true,
       release_blocked: true,
       dispatch_handoff_packet: isRecord(options.dispatch_handoff_packet) ? options.dispatch_handoff_packet : {},
+      ...(dispatchSource ? { dispatch_source: dispatchSource } : {}),
+      ...(dispatchSourceReason ? { dispatch_source_reason: dispatchSourceReason } : {}),
       policy,
     };
   }
@@ -6751,6 +6763,8 @@ export function generateKanbanMarketingDraft(
       controller_approved: true,
       release_blocked: true,
       dispatch_handoff_packet: dispatchHandoffPacket,
+      ...(dispatchSource ? { dispatch_source: dispatchSource } : {}),
+      ...(dispatchSourceReason ? { dispatch_source_reason: dispatchSourceReason } : {}),
       policy,
     };
   }
@@ -6769,6 +6783,8 @@ export function generateKanbanMarketingDraft(
       controller_approved: true,
       release_blocked: true,
       dispatch_handoff_packet: dispatchHandoffPacket,
+      ...(dispatchSource ? { dispatch_source: dispatchSource } : {}),
+      ...(dispatchSourceReason ? { dispatch_source_reason: dispatchSourceReason } : {}),
       policy,
     };
   }
@@ -6789,6 +6805,8 @@ export function generateKanbanMarketingDraft(
       controller_approved: false,
       release_blocked: true,
       dispatch_handoff_packet: dispatchHandoffPacket,
+      ...(dispatchSource ? { dispatch_source: dispatchSource } : {}),
+      ...(dispatchSourceReason ? { dispatch_source_reason: dispatchSourceReason } : {}),
       policy,
     };
   }
@@ -6837,6 +6855,8 @@ export function generateKanbanMarketingDraft(
     release_blocked: false,
     human_gate: 'HG-2.5',
     dispatch_handoff_packet: persistedHandoff,
+    ...(dispatchSource ? { dispatch_source: dispatchSource } : {}),
+    ...(dispatchSourceReason ? { dispatch_source_reason: dispatchSourceReason } : {}),
     policy,
     model: board.model,
   };

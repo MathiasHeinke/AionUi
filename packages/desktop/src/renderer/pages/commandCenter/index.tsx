@@ -471,6 +471,7 @@ interface ICommandEveMarketingDraftGenerateRequest {
   eventLedgerPath?: string;
   dispatch_handoff_packet?: Record<string, unknown>;
   generation_note?: string;
+  dispatchMode?: 'auto' | 'embedded';
 }
 
 interface ICommandEveMarketingDraftGenerateResult {
@@ -493,6 +494,8 @@ interface ICommandEveMarketingDraftGenerateResult {
   release_blocked: boolean;
   human_gate: 'HG-2.5';
   dispatch_handoff_packet?: Record<string, unknown>;
+  dispatch_source?: string;
+  dispatch_source_reason?: string;
   policy?: Record<string, unknown>;
   model?: ICommandEveMarketingBoardModel;
   source: {
@@ -4360,6 +4363,7 @@ const CommandCenterPage: React.FC = () => {
         const response = await kanbanMarketingDispatchPlan.invoke({
           task_id: card.card_id,
           command: 'decompose',
+          dispatchMode: 'embedded',
           boardSlug: MARKETING_BOARD_SLUG,
         });
         const data = response.data ?? null;
@@ -4533,6 +4537,7 @@ const CommandCenterPage: React.FC = () => {
           boardSlug: MARKETING_BOARD_SLUG,
           dispatch_handoff_packet: handoff,
           generation_note: 'Command EVE UI generated a local marketing draft after HG-2.5 approval.',
+          dispatchMode: 'embedded',
         });
         const data = response.data ?? null;
         setDraftGenerateResult(data);
@@ -4949,6 +4954,7 @@ const CommandCenterPage: React.FC = () => {
           dispatch_handoff_packet: localHandoff,
           generation_note:
             'Command EVE UI ran the safe local marketing loop: generated a local draft after HG-2.5 approval.',
+          dispatchMode: 'embedded',
         });
         const draftData = draftResponse.data ?? null;
         setDraftGenerateResult(draftData);

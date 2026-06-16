@@ -607,6 +607,7 @@ export function initCommandEveBridge(): void {
         eventLedgerPath?: string;
         dispatch_handoff_packet?: Record<string, unknown>;
         generation_note?: string;
+        dispatchMode?: 'auto' | 'embedded';
       }) => {
         try {
           const result = generateKanbanMarketingDraft({
@@ -616,6 +617,7 @@ export function initCommandEveBridge(): void {
             eventLedgerPath: request?.eventLedgerPath,
             dispatch_handoff_packet: request?.dispatch_handoff_packet,
             generation_note: request?.generation_note,
+            dispatchMode: request?.dispatchMode,
           });
           return {
             success: result.ok,
