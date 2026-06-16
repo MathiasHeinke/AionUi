@@ -728,6 +728,10 @@ interface ICommandEveCrmOverlayCounts {
 interface ICommandEveCrmOverlayDeal {
   deal_id: string;
   company_id: string;
+  company_display_name: string;
+  contact_display_name: string;
+  contact_role_title: string;
+  deal_label: string;
   stage: string;
   allowed_actions: string;
   consent_status: string;
@@ -774,6 +778,14 @@ interface ICommandEveCrmOverlayInitializeResult {
     generated_by: 'command-eve-crm-overlay-core';
     hermes_home: string;
   };
+}
+
+interface ICommandEveCrmDraftCreateInput {
+  companyDisplayName: string;
+  contactDisplayName: string;
+  contactRoleTitle: string;
+  dealLabel: string;
+  notes: string;
 }
 
 interface ICommandEveCrmDraftCreateResult {
@@ -935,7 +947,7 @@ const crmOverlayInitialize = bridge.buildProvider<
 
 const crmDraftCreate = bridge.buildProvider<
   IBridgeResponse<ICommandEveCrmDraftCreateResult>,
-  { eventLedgerPath?: string }
+  Partial<ICommandEveCrmDraftCreateInput> & { eventLedgerPath?: string }
 >('command-eve.crm-draft-create');
 
 const crmStageLocal = bridge.buildProvider<
@@ -3293,7 +3305,7 @@ const CrmOverlaySection: React.FC<{
   stagingDealId: string | null;
   consentingDealId: string | null;
   onInitialize: () => void;
-  onCreateDraft: () => void;
+  onCreateDraft: (input: ICommandEveCrmDraftCreateInput) => Promise<void>;
   onStageDeal: (dealId: string) => void;
   onCaptureConsent: (dealId: string) => void;
 }> = ({
@@ -3315,6 +3327,44 @@ const CrmOverlaySection: React.FC<{
   const model = result?.model;
   const counts = model?.counts ?? { companies: 0, contacts: 0, deals: 0, audit_events: 0 };
   const initialized = result?.status === 'ready' && model?.initialized === true;
+  const [draftModalOpen, setDraftModalOpen] = useState(false);
+  const [draftInput, setDraftInput] = useState<ICommandEveCrmDraftCreateInput>({
+    companyDisplayName: '',
+    contactDisplayName: '',
+    contactRoleTitle: '',
+    dealLabel: '',
+    notes: '',
+  });
+  const updateDraftInput = useCallback(
+    (key: keyof ICommandEveCrmDraftCreateInput) => (value: string) =>
+      setDraftInput((current) => ({ ...current, [key]: value })),
+    []
+  );
+  const resetDraftInput = useCallback(() => {
+    setDraftInput({
+      companyDisplayName: '',
+      contactDisplayName: '',
+      contactRoleTitle: '',
+      dealLabel: '',
+      notes: '',
+    });
+  }, []);
+  const submitDraftInput = useCallback(async () => {
+    const normalized = {
+      companyDisplayName: draftInput.companyDisplayName.trim(),
+      contactDisplayName: draftInput.contactDisplayName.trim(),
+      contactRoleTitle: draftInput.contactRoleTitle.trim(),
+      dealLabel: draftInput.dealLabel.trim(),
+      notes: draftInput.notes.trim(),
+    };
+    if (!normalized.companyDisplayName || !normalized.contactDisplayName || !normalized.dealLabel) {
+      Message.warning(t('commandCenter.crmOverlay.draftForm.validationRequired'));
+      return;
+    }
+    await onCreateDraft(normalized);
+    setDraftModalOpen(false);
+    resetDraftInput();
+  }, [draftInput, onCreateDraft, resetDraftInput, t]);
   return (
     <Section
       id='command-eve-crm-overlay'
@@ -3401,8 +3451,18 @@ const CrmOverlaySection: React.FC<{
             >
               <div className='flex items-start justify-between gap-10px'>
                 <div className='min-w-0'>
-                  <div className='truncate text-13px font-600 leading-20px text-t-primary'>{deal.deal_id}</div>
-                  <div className='mt-2px truncate text-11px leading-16px text-t-tertiary'>{deal.company_id}</div>
+                  <div className='truncate text-13px font-600 leading-20px text-t-primary'>
+                    {deal.deal_label || deal.deal_id}
+                  </div>
+                  <div className='mt-2px truncate text-11px leading-16px text-t-secondary'>
+                    {deal.company_display_name || deal.company_id}
+                  </div>
+                  <div className='mt-1px truncate text-11px leading-16px text-t-tertiary'>
+                    {textOrDash(
+                      [deal.contact_display_name, deal.contact_role_title].filter(Boolean).join(' · ') || deal.deal_id
+                    )}
+                  </div>
+                  <div className='mt-1px truncate text-10px leading-14px text-t-tertiary'>{deal.deal_id}</div>
                 </div>
                 <Tag color='blue'>{deal.stage}</Tag>
               </div>
@@ -3478,13 +3538,79 @@ const CrmOverlaySection: React.FC<{
             type='outline'
             loading={creatingDraft}
             disabled={creatingDraft || !initialized}
-            onClick={onCreateDraft}
+            onClick={() => setDraftModalOpen(true)}
             data-testid='crm-draft-create'
           >
             {t('commandCenter.crmOverlay.actions.createDraft')}
           </Button>
         </div>
       </div>
+      <Modal
+        visible={draftModalOpen}
+        title={t('commandCenter.crmOverlay.draftForm.title')}
+        okText={t('commandCenter.crmOverlay.draftForm.submit')}
+        cancelText={t('commandCenter.crmOverlay.draftForm.cancel')}
+        confirmLoading={creatingDraft}
+        onOk={submitDraftInput}
+        onCancel={() => setDraftModalOpen(false)}
+        unmountOnExit
+        data-testid='crm-draft-create-modal'
+      >
+        <div className='grid gap-12px'>
+          <label className='grid gap-6px text-12px font-600 leading-18px text-t-secondary'>
+            {t('commandCenter.crmOverlay.draftForm.companyLabel')}
+            <Input
+              value={draftInput.companyDisplayName}
+              onChange={updateDraftInput('companyDisplayName')}
+              placeholder={t('commandCenter.crmOverlay.draftForm.companyPlaceholder')}
+              maxLength={120}
+              data-testid='crm-draft-company-name'
+            />
+          </label>
+          <label className='grid gap-6px text-12px font-600 leading-18px text-t-secondary'>
+            {t('commandCenter.crmOverlay.draftForm.contactLabel')}
+            <Input
+              value={draftInput.contactDisplayName}
+              onChange={updateDraftInput('contactDisplayName')}
+              placeholder={t('commandCenter.crmOverlay.draftForm.contactPlaceholder')}
+              maxLength={120}
+              data-testid='crm-draft-contact-name'
+            />
+          </label>
+          <label className='grid gap-6px text-12px font-600 leading-18px text-t-secondary'>
+            {t('commandCenter.crmOverlay.draftForm.roleLabel')}
+            <Input
+              value={draftInput.contactRoleTitle}
+              onChange={updateDraftInput('contactRoleTitle')}
+              placeholder={t('commandCenter.crmOverlay.draftForm.rolePlaceholder')}
+              maxLength={120}
+              data-testid='crm-draft-role-title'
+            />
+          </label>
+          <label className='grid gap-6px text-12px font-600 leading-18px text-t-secondary'>
+            {t('commandCenter.crmOverlay.draftForm.dealLabel')}
+            <Input
+              value={draftInput.dealLabel}
+              onChange={updateDraftInput('dealLabel')}
+              placeholder={t('commandCenter.crmOverlay.draftForm.dealPlaceholder')}
+              maxLength={120}
+              data-testid='crm-draft-deal-label'
+            />
+          </label>
+          <label className='grid gap-6px text-12px font-600 leading-18px text-t-secondary'>
+            {t('commandCenter.crmOverlay.draftForm.notesLabel')}
+            <Input.TextArea
+              value={draftInput.notes}
+              onChange={updateDraftInput('notes')}
+              placeholder={t('commandCenter.crmOverlay.draftForm.notesPlaceholder')}
+              maxLength={240}
+              autoSize={{ minRows: 3, maxRows: 5 }}
+              data-testid='crm-draft-notes'
+            />
+          </label>
+          <Alert type='info' content={t('commandCenter.crmOverlay.draftForm.localOnlyNote')} />
+        </div>
+      </Modal>
     </Section>
   );
 };
@@ -4779,51 +4905,54 @@ const CommandCenterPage: React.FC = () => {
     }
   }, [t]);
 
-  const createCrmDraft = useCallback(async () => {
-    if (!isElectronDesktop()) return;
-    setCrmDraftCreating(true);
-    setCrmDraftCreateResult(null);
-    try {
-      const response = await crmDraftCreate.invoke({});
-      const data = response.data ?? null;
-      setCrmDraftCreateResult(data);
-      if (data?.model) {
-        setCrmResult({
-          version: 'command-eve-crm-overlay/v0',
-          ok: data.ok,
-          status: data.status,
-          reason_code: data.reason_code,
-          message: data.message,
-          model: data.model,
-          source: data.source,
-        });
-      } else {
-        const nextCrm = await crmOverlay.invoke({});
-        setCrmResult(nextCrm.data ?? null);
+  const createCrmDraft = useCallback(
+    async (input: ICommandEveCrmDraftCreateInput) => {
+      if (!isElectronDesktop()) return;
+      setCrmDraftCreating(true);
+      setCrmDraftCreateResult(null);
+      try {
+        const response = await crmDraftCreate.invoke(input);
+        const data = response.data ?? null;
+        setCrmDraftCreateResult(data);
+        if (data?.model) {
+          setCrmResult({
+            version: 'command-eve-crm-overlay/v0',
+            ok: data.ok,
+            status: data.status,
+            reason_code: data.reason_code,
+            message: data.message,
+            model: data.model,
+            source: data.source,
+          });
+        } else {
+          const nextCrm = await crmOverlay.invoke({});
+          setCrmResult(nextCrm.data ?? null);
+        }
+        if (data?.ok) {
+          Message.success(t('commandCenter.crmOverlay.draft.success'));
+        } else {
+          Message.warning(data?.reason_code || t('commandCenter.crmOverlay.draft.failed'));
+        }
+      } catch (draftError) {
+        const failure: ICommandEveCrmDraftCreateResult = {
+          version: 'command-eve-crm-draft-create/v0',
+          ok: false,
+          status: 'failed',
+          reason_code: 'CRM_DRAFT_CREATE_UI_FAILED',
+          message: draftError instanceof Error ? draftError.message : t('commandCenter.crmOverlay.draft.failed'),
+          source: {
+            generated_by: 'command-eve-crm-overlay-core',
+            hermes_home: '',
+          },
+        };
+        setCrmDraftCreateResult(failure);
+        Message.error(failure.message || t('commandCenter.crmOverlay.draft.failed'));
+      } finally {
+        setCrmDraftCreating(false);
       }
-      if (data?.ok) {
-        Message.success(t('commandCenter.crmOverlay.draft.success'));
-      } else {
-        Message.warning(data?.reason_code || t('commandCenter.crmOverlay.draft.failed'));
-      }
-    } catch (draftError) {
-      const failure: ICommandEveCrmDraftCreateResult = {
-        version: 'command-eve-crm-draft-create/v0',
-        ok: false,
-        status: 'failed',
-        reason_code: 'CRM_DRAFT_CREATE_UI_FAILED',
-        message: draftError instanceof Error ? draftError.message : t('commandCenter.crmOverlay.draft.failed'),
-        source: {
-          generated_by: 'command-eve-crm-overlay-core',
-          hermes_home: '',
-        },
-      };
-      setCrmDraftCreateResult(failure);
-      Message.error(failure.message || t('commandCenter.crmOverlay.draft.failed'));
-    } finally {
-      setCrmDraftCreating(false);
-    }
-  }, [t]);
+    },
+    [t]
+  );
 
   const stageCrmDeal = useCallback(
     async (dealId: string) => {

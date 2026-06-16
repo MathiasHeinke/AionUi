@@ -891,6 +891,10 @@ export interface ICommandEveCrmOverlayCounts {
 export interface ICommandEveCrmOverlayDeal {
   deal_id: string;
   company_id: string;
+  company_display_name: string;
+  contact_display_name: string;
+  contact_role_title: string;
+  deal_label: string;
   stage: string;
   allowed_actions: string;
   consent_status: string;
@@ -937,6 +941,15 @@ export interface ICommandEveCrmOverlayInitializeResult {
     generated_by: 'command-eve-crm-overlay-core';
     hermes_home: string;
   };
+}
+
+export interface ICommandEveCrmDraftCreateRequest {
+  eventLedgerPath?: string;
+  companyDisplayName?: string;
+  contactDisplayName?: string;
+  contactRoleTitle?: string;
+  dealLabel?: string;
+  notes?: string;
 }
 
 export interface ICommandEveCrmDraftCreateResult {
@@ -1131,12 +1144,11 @@ export const commandEve = {
   >('command-eve.crm-overlay-initialize'),
   crmDraftCreate: bridge.buildProvider<
     IBridgeResponse<ICommandEveCrmDraftCreateResult>,
-    { eventLedgerPath?: string } | void
+    ICommandEveCrmDraftCreateRequest | void
   >('command-eve.crm-draft-create'),
-  crmStageLocal: bridge.buildProvider<
-    IBridgeResponse<ICommandEveCrmStageLocalResult>,
-    ICommandEveCrmStageLocalRequest
-  >('command-eve.crm-stage-local'),
+  crmStageLocal: bridge.buildProvider<IBridgeResponse<ICommandEveCrmStageLocalResult>, ICommandEveCrmStageLocalRequest>(
+    'command-eve.crm-stage-local'
+  ),
   crmConsentLocal: bridge.buildProvider<
     IBridgeResponse<ICommandEveCrmConsentLocalResult>,
     ICommandEveCrmConsentLocalRequest

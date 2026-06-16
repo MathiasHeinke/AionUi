@@ -332,6 +332,23 @@
       "success": "Lokaler CRM-Draft angelegt.",
       "failed": "CRM-Draft konnte nicht angelegt werden."
     },
+    "draftForm": {
+      "title": "Lokalen CRM-Draft anlegen",
+      "companyLabel": "Firma",
+      "companyPlaceholder": "z. B. Alois Consulting GmbH",
+      "contactLabel": "Kontakt",
+      "contactPlaceholder": "z. B. Alois Beispiel",
+      "roleLabel": "Rolle",
+      "rolePlaceholder": "z. B. Geschaeftsfuehrer",
+      "dealLabel": "Deal",
+      "dealPlaceholder": "z. B. Outreach-Pilot",
+      "notesLabel": "Notiz",
+      "notesPlaceholder": "Nur lokale Arbeitsnotiz, kein Outreach.",
+      "localOnlyNote": "Dieser Draft bleibt lokal, S2, HG-4 und loest keinen Sync, keine Anreicherung und keinen Outreach aus.",
+      "validationRequired": "Firma, Kontakt und Deal sind erforderlich.",
+      "submit": "Draft anlegen",
+      "cancel": "Abbrechen"
+    },
     "stage": {
       "resultTitle": "CRM-Stage-Receipt",
       "success": "Lokale CRM-Stufe aktualisiert.",

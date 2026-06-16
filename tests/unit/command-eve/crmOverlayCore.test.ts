@@ -175,6 +175,10 @@ finally:
       {
         deal_id: 'd_1',
         company_id: 'c_1',
+        company_display_name: 'Example GmbH',
+        contact_display_name: '',
+        contact_role_title: '',
+        deal_label: '',
         stage: 'draft',
         allowed_actions: 'draft-only',
         consent_status: 'unknown',
@@ -199,6 +203,13 @@ finally:
       userDataPath: root,
       eventLedgerPath,
       now: () => new Date('2026-06-15T08:31:00.000Z'),
+      draftInput: {
+        companyDisplayName: 'Alois Consulting GmbH',
+        contactDisplayName: 'Alois Beispiel',
+        contactRoleTitle: 'Geschaeftsfuehrer',
+        dealLabel: 'Outreach Pilot',
+        notes: 'Local-only CRM draft note.',
+      },
     });
 
     expect(result.ok).toBe(true);
@@ -228,6 +239,10 @@ finally:
     expect(result.model?.recent_deals[0]).toMatchObject({
       deal_id: result.deal_id,
       company_id: result.company_id,
+      company_display_name: 'Alois Consulting GmbH',
+      contact_display_name: 'Alois Beispiel',
+      contact_role_title: 'Geschaeftsfuehrer',
+      deal_label: 'Outreach Pilot',
       stage: 'draft',
       allowed_actions: 'draft-only',
       consent_status: 'unknown',
@@ -239,7 +254,7 @@ finally:
     const dbPath = result.model?.db_path || '';
     const dealRows = readRows(
       dbPath,
-      'SELECT deal_id, stage, allowed_actions, consent_status, human_gate, data_class FROM crm_deals ORDER BY deal_id'
+      'SELECT deal_id, stage, allowed_actions, consent_status, human_gate, data_class, notes_ref FROM crm_deals ORDER BY deal_id'
     );
     expect(dealRows).toEqual([
       {
@@ -249,6 +264,20 @@ finally:
         consent_status: 'unknown',
         human_gate: 'HG-4',
         data_class: 'S2',
+        notes_ref: 'Outreach Pilot',
+      },
+    ]);
+    const companyRows = readRows(dbPath, 'SELECT display_name FROM crm_companies ORDER BY company_id');
+    expect(companyRows).toEqual([{ display_name: 'Alois Consulting GmbH' }]);
+    const contactRows = readRows(
+      dbPath,
+      'SELECT display_name, role_title, notes_ref FROM crm_contacts ORDER BY contact_id'
+    );
+    expect(contactRows).toEqual([
+      {
+        display_name: 'Alois Beispiel',
+        role_title: 'Geschaeftsfuehrer',
+        notes_ref: 'Local-only CRM draft note.',
       },
     ]);
     const crmEvents = readRows(dbPath, 'SELECT kind FROM crm_events ORDER BY id');
@@ -265,6 +294,9 @@ finally:
       allowed_actions: 'draft-only',
       human_gate: 'HG-4',
       data_boundary_checked: true,
+      company_label_length: 'Alois Consulting GmbH'.length,
+      contact_label_length: 'Alois Beispiel'.length,
+      deal_label_length: 'Outreach Pilot'.length,
       data_boundary_receipt: expect.objectContaining({
         version: 'command-eve-crm-nl5-local-receipt/v0',
         action: 'crm_draft_deal_create',

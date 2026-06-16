@@ -1855,11 +1855,21 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     await expect(draftButton).toBeVisible({ timeout: 30_000 });
     await expect(draftButton).toBeEnabled({ timeout: 30_000 });
     await draftButton.click();
+    await expect(page.getByText(/Lokalen CRM-Draft anlegen|Create local CRM draft/)).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId('crm-draft-company-name').fill('Alois Consulting GmbH');
+    await page.getByTestId('crm-draft-contact-name').fill('Alois Beispiel');
+    await page.getByTestId('crm-draft-role-title').fill('Geschaeftsfuehrer');
+    await page.getByTestId('crm-draft-deal-label').fill('Outreach Pilot');
+    await page.getByTestId('crm-draft-notes').fill('Local-only CRM draft note.');
+    await page.getByRole('button', { name: /^Draft anlegen$|^Create draft$/ }).click();
 
     await expect(page.getByTestId('crm-draft-create-result')).toBeVisible({ timeout: 60_000 });
     await expect(page.getByText(/CRM_DRAFT_DEAL_CREATED_LOCAL_ONLY/)).toBeVisible({ timeout: 60_000 });
     const draftDealList = page.getByTestId('crm-draft-deal-list');
     await expect(draftDealList).toBeVisible({ timeout: 30_000 });
+    await expect(draftDealList.getByText('Alois Consulting GmbH')).toBeVisible({ timeout: 30_000 });
+    await expect(draftDealList.getByText('Alois Beispiel · Geschaeftsfuehrer')).toBeVisible({ timeout: 30_000 });
+    await expect(draftDealList.getByText('Outreach Pilot')).toBeVisible({ timeout: 30_000 });
     await expect(draftDealList.getByText(/crm-deal-/)).toBeVisible({ timeout: 30_000 });
     await expect(draftDealList.getByText('draft-only')).toBeVisible({ timeout: 30_000 });
     await expect(draftDealList.getByText('unknown')).toBeVisible({ timeout: 30_000 });
@@ -1889,9 +1899,13 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
 
     const dealRows = sqliteQuery(
       crmDbPath,
-      'SELECT stage, allowed_actions, consent_status, human_gate, data_class FROM crm_deals'
+      'SELECT stage, allowed_actions, consent_status, human_gate, data_class, notes_ref FROM crm_deals'
     );
-    expect(dealRows).toEqual([['qualified', 'review-only', 'captured-local', 'HG-4', 'S2']]);
+    expect(dealRows).toEqual([['qualified', 'review-only', 'captured-local', 'HG-4', 'S2', 'Outreach Pilot']]);
+    const companyRows = sqliteQuery(crmDbPath, 'SELECT display_name FROM crm_companies');
+    expect(companyRows).toEqual([['Alois Consulting GmbH']]);
+    const contactRows = sqliteQuery(crmDbPath, 'SELECT display_name, role_title, notes_ref FROM crm_contacts');
+    expect(contactRows).toEqual([['Alois Beispiel', 'Geschaeftsfuehrer', 'Local-only CRM draft note.']]);
     const draftEventRows = sqliteQuery(
       crmDbPath,
       "SELECT kind, payload FROM crm_events WHERE kind = 'crm_draft_deal_created'"
@@ -1903,6 +1917,9 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
       consent_status?: string;
       allowed_actions?: string;
       human_gate?: string;
+      company_label_length?: number;
+      contact_label_length?: number;
+      deal_label_length?: number;
       data_boundary_checked?: boolean;
       data_boundary_receipt?: { version?: string; action?: string; status?: string };
     };
@@ -1911,6 +1928,9 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     expect(draftEventPayload.consent_status).toBe('unknown');
     expect(draftEventPayload.allowed_actions).toBe('draft-only');
     expect(draftEventPayload.human_gate).toBe('HG-4');
+    expect(draftEventPayload.company_label_length).toBe('Alois Consulting GmbH'.length);
+    expect(draftEventPayload.contact_label_length).toBe('Alois Beispiel'.length);
+    expect(draftEventPayload.deal_label_length).toBe('Outreach Pilot'.length);
     expect(draftEventPayload.data_boundary_checked).toBe(true);
     expect(draftEventPayload.data_boundary_receipt).toMatchObject({
       version: 'command-eve-crm-nl5-local-receipt/v0',

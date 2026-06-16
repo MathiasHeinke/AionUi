@@ -332,6 +332,23 @@
       "success": "Local CRM draft created.",
       "failed": "CRM draft could not be created."
     },
+    "draftForm": {
+      "title": "Create local CRM draft",
+      "companyLabel": "Company",
+      "companyPlaceholder": "e.g. Alois Consulting GmbH",
+      "contactLabel": "Contact",
+      "contactPlaceholder": "e.g. Alois Example",
+      "roleLabel": "Role",
+      "rolePlaceholder": "e.g. Managing director",
+      "dealLabel": "Deal",
+      "dealPlaceholder": "e.g. Outreach pilot",
+      "notesLabel": "Note",
+      "notesPlaceholder": "Local working note only, no outreach.",
+      "localOnlyNote": "This draft stays local, S2, HG-4 and does not trigger sync, enrichment, or outreach.",
+      "validationRequired": "Company, contact, and deal are required.",
+      "submit": "Create draft",
+      "cancel": "Cancel"
+    },
     "stage": {
       "resultTitle": "CRM stage receipt",
       "success": "Local CRM stage updated.",

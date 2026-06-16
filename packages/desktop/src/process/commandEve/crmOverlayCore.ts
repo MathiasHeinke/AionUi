@@ -57,6 +57,10 @@ export type CommandEveCrmDataBoundaryReceipt = {
 export type CommandEveCrmOverlayDeal = {
   deal_id: string;
   company_id: string;
+  company_display_name: string;
+  contact_display_name: string;
+  contact_role_title: string;
+  deal_label: string;
   stage: string;
   allowed_actions: string;
   consent_status: string;
@@ -103,6 +107,14 @@ export type CommandEveCrmOverlayInitializeResult = {
     generated_by: 'command-eve-crm-overlay-core';
     hermes_home: string;
   };
+};
+
+export type CommandEveCrmDraftCreateInput = {
+  companyDisplayName?: string;
+  contactDisplayName?: string;
+  contactRoleTitle?: string;
+  dealLabel?: string;
+  notes?: string;
 };
 
 export type CommandEveCrmDraftCreateResult = {
@@ -177,6 +189,7 @@ export type CommandEveCrmConsentLocalResult = {
 export type CommandEveCrmOverlayOptions = {
   userDataPath: string;
   eventLedgerPath?: string;
+  draftInput?: CommandEveCrmDraftCreateInput;
   env?: NodeJS.ProcessEnv;
   now?: () => Date;
   pythonPath?: string;
@@ -255,6 +268,20 @@ function isRecord(value: unknown): value is JsonRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function sanitizeCrmText(value: unknown, fallback: string, maxLength = 120): string {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value
+    .split('')
+    .map((character) => {
+      const code = character.charCodeAt(0);
+      return code < 32 || code === 127 ? ' ' : character;
+    })
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return normalized ? normalized.slice(0, maxLength) : fallback;
+}
+
 function readPythonJson(
   pythonPath: string,
   input: JsonRecord,
@@ -314,26 +341,56 @@ try:
         "deals": int(conn.execute("SELECT COUNT(*) FROM crm_deals").fetchone()[0]),
         "audit_events": int(conn.execute("SELECT COUNT(*) FROM crm_events").fetchone()[0]),
     }
-    recent_deals = [
-        {
+    recent_deals = []
+    for row in conn.execute(
+        """
+        SELECT
+            d.deal_id,
+            d.company_id,
+            COALESCE(c.display_name, ''),
+            d.contact_ids,
+            d.notes_ref,
+            d.stage,
+            d.allowed_actions,
+            d.consent_status,
+            d.human_gate,
+            d.data_class,
+            d.last_activity_at
+        FROM crm_deals d
+        LEFT JOIN crm_companies c ON c.company_id = d.company_id
+        ORDER BY COALESCE(d.last_activity_at, '') DESC, d.deal_id DESC
+        LIMIT 8
+        """
+    ).fetchall():
+        contact_display_name = ""
+        contact_role_title = ""
+        try:
+            contact_ids = json.loads(row[3] or "[]")
+        except Exception:
+            contact_ids = []
+        first_contact_id = next((item for item in contact_ids if isinstance(item, str) and item), "")
+        if first_contact_id:
+            contact_row = conn.execute(
+                "SELECT display_name, role_title FROM crm_contacts WHERE contact_id = ?",
+                (first_contact_id,),
+            ).fetchone()
+            if contact_row is not None:
+                contact_display_name = contact_row[0] or ""
+                contact_role_title = contact_row[1] or ""
+        recent_deals.append({
             "deal_id": row[0],
             "company_id": row[1] or "",
-            "stage": row[2],
-            "allowed_actions": row[3],
-            "consent_status": row[4],
-            "human_gate": row[5],
-            "data_class": row[6],
-            "last_activity_at": row[7] or "",
-        }
-        for row in conn.execute(
-            """
-            SELECT deal_id, company_id, stage, allowed_actions, consent_status, human_gate, data_class, last_activity_at
-            FROM crm_deals
-            ORDER BY COALESCE(last_activity_at, '') DESC, deal_id DESC
-            LIMIT 8
-            """
-        ).fetchall()
-    ]
+            "company_display_name": row[2] or "",
+            "contact_display_name": contact_display_name,
+            "contact_role_title": contact_role_title,
+            "deal_label": row[4] or "",
+            "stage": row[5],
+            "allowed_actions": row[6],
+            "consent_status": row[7],
+            "human_gate": row[8],
+            "data_class": row[9],
+            "last_activity_at": row[10] or "",
+        })
     print(json.dumps({"initialized": True, "counts": counts, "recent_deals": recent_deals, "warnings": []}))
 finally:
     conn.close()
@@ -472,12 +529,21 @@ try:
     company_id = request["company_id"]
     contact_id = request["contact_id"]
     deal_id = request["deal_id"]
+    company_display_name = request.get("company_display_name") or "Draft Company"
+    contact_display_name = request.get("contact_display_name") or "Draft Contact"
+    contact_role_title = request.get("contact_role_title") or "Decision Maker"
+    deal_label = request.get("deal_label") or "local-draft-only"
+    notes = request.get("notes") or ""
     created_at = request["created_at"]
     event_id = request["audit_event_id"]
     payload = {
         "company_id": company_id,
         "contact_id": contact_id,
         "deal_id": deal_id,
+        "company_label_length": len(company_display_name),
+        "contact_label_length": len(contact_display_name),
+        "deal_label_length": len(deal_label),
+        "notes_length": len(notes),
         "local_only": True,
         "plane_sync_enabled": False,
         "hosted_sync_enabled": False,
@@ -495,7 +561,7 @@ try:
         (company_id, display_name, source, relationship_status, owner, data_class, last_verified)
         VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (company_id, "Draft Company", "command-eve-local-draft", "draft", "eve", "S2", created_at),
+        (company_id, company_display_name, "command-eve-local-draft", "draft", "eve", "S2", created_at),
     )
     conn.execute(
         """
@@ -503,7 +569,7 @@ try:
         (contact_id, display_name, company_id, role_title, source, owner, consent_status, data_class, last_verified, notes_ref)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (contact_id, "Draft Contact", company_id, "Decision Maker", "command-eve-local-draft", "eve", "unknown", "S2", created_at, "local-draft-only"),
+        (contact_id, contact_display_name, company_id, contact_role_title, "command-eve-local-draft", "eve", "unknown", "S2", created_at, notes or "local-draft-only"),
     )
     conn.execute(
         """
@@ -511,7 +577,7 @@ try:
         (deal_id, pipeline_board_slug, company_id, contact_ids, stage, owner, source, confidence, human_gate, allowed_actions, last_activity_at, data_class, consent_status, notes_ref)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (deal_id, "sales", company_id, json.dumps([contact_id]), "draft", "eve", "command-eve-local-draft", 0.1, "HG-4", "draft-only", created_at, "S2", "unknown", "local-draft-only"),
+        (deal_id, "sales", company_id, json.dumps([contact_id]), "draft", "eve", "command-eve-local-draft", 0.1, "HG-4", "draft-only", created_at, "S2", "unknown", deal_label),
     )
     conn.execute(
         "INSERT OR IGNORE INTO crm_events (event_id, kind, payload, created_at) VALUES (?, ?, ?, ?)",
@@ -718,6 +784,10 @@ function recentDealsFrom(value: unknown): CommandEveCrmOverlayDeal[] {
     .map((deal) => ({
       deal_id: typeof deal.deal_id === 'string' ? deal.deal_id : '',
       company_id: typeof deal.company_id === 'string' ? deal.company_id : '',
+      company_display_name: typeof deal.company_display_name === 'string' ? deal.company_display_name : '',
+      contact_display_name: typeof deal.contact_display_name === 'string' ? deal.contact_display_name : '',
+      contact_role_title: typeof deal.contact_role_title === 'string' ? deal.contact_role_title : '',
+      deal_label: typeof deal.deal_label === 'string' ? deal.deal_label : '',
       stage: typeof deal.stage === 'string' ? deal.stage : '',
       allowed_actions: typeof deal.allowed_actions === 'string' ? deal.allowed_actions : '',
       consent_status: typeof deal.consent_status === 'string' ? deal.consent_status : '',
@@ -870,6 +940,11 @@ function appendCrmDraftAuditEvent({
   companyId,
   contactId,
   dealId,
+  companyDisplayName,
+  contactDisplayName,
+  contactRoleTitle,
+  dealLabel,
+  notes,
   dataBoundaryReceipt,
 }: {
   eventId: string;
@@ -879,6 +954,11 @@ function appendCrmDraftAuditEvent({
   companyId: string;
   contactId: string;
   dealId: string;
+  companyDisplayName: string;
+  contactDisplayName: string;
+  contactRoleTitle: string;
+  dealLabel: string;
+  notes: string;
   dataBoundaryReceipt: CommandEveCrmDataBoundaryReceipt;
 }): void {
   const event = {
@@ -903,6 +983,11 @@ function appendCrmDraftAuditEvent({
       company_id: companyId,
       contact_id: contactId,
       deal_id: dealId,
+      company_label_length: companyDisplayName.length,
+      contact_label_length: contactDisplayName.length,
+      contact_role_label_length: contactRoleTitle.length,
+      deal_label_length: dealLabel.length,
+      notes_length: notes.length,
       db_path: dbPath,
       local_only: true,
       plane_sync_enabled: false,
@@ -1208,12 +1293,22 @@ export function createCrmDraftDeal(options: CommandEveCrmOverlayOptions): Comman
   const contactId = `crm-contact-${idPart}`;
   const dealId = `crm-deal-${idPart}`;
   const auditEventId = crmDraftAuditEventId(occurredAt);
+  const companyDisplayName = sanitizeCrmText(options.draftInput?.companyDisplayName, 'Draft Company');
+  const contactDisplayName = sanitizeCrmText(options.draftInput?.contactDisplayName, 'Draft Contact');
+  const contactRoleTitle = sanitizeCrmText(options.draftInput?.contactRoleTitle, 'Decision Maker');
+  const dealLabel = sanitizeCrmText(options.draftInput?.dealLabel, 'local-draft-only');
+  const notes = sanitizeCrmText(options.draftInput?.notes, '', 240);
   const dataBoundaryReceipt = buildCrmDataBoundaryReceipt({
     action: 'crm_draft_deal_create',
     fields: {
       company_id: companyId,
       contact_id: contactId,
       deal_id: dealId,
+      company_display_name: companyDisplayName,
+      contact_display_name: contactDisplayName,
+      contact_role_title: contactRoleTitle,
+      deal_label: dealLabel,
+      notes,
       data_class: 'S2',
       human_gate: 'HG-4',
       local_only: true,
@@ -1231,6 +1326,11 @@ export function createCrmDraftDeal(options: CommandEveCrmOverlayOptions): Comman
       company_id: companyId,
       contact_id: contactId,
       deal_id: dealId,
+      company_display_name: companyDisplayName,
+      contact_display_name: contactDisplayName,
+      contact_role_title: contactRoleTitle,
+      deal_label: dealLabel,
+      notes,
       data_boundary_receipt: dataBoundaryReceipt,
     },
     crmDraftCreateScript(),
@@ -1256,6 +1356,11 @@ export function createCrmDraftDeal(options: CommandEveCrmOverlayOptions): Comman
     companyId,
     contactId,
     dealId,
+    companyDisplayName,
+    contactDisplayName,
+    contactRoleTitle,
+    dealLabel,
+    notes,
     dataBoundaryReceipt,
   });
   const overlay = buildCrmOverlay({ ...options, now });
@@ -1324,8 +1429,7 @@ export function changeCrmDealStageLocal(
     paths.hermesHome
   );
   if (!write.ok || write.data?.ok !== true) {
-    const reasonCode =
-      typeof write.data?.reason_code === 'string' ? write.data.reason_code : 'CRM_STAGE_LOCAL_FAILED';
+    const reasonCode = typeof write.data?.reason_code === 'string' ? write.data.reason_code : 'CRM_STAGE_LOCAL_FAILED';
     return {
       ...base,
       ok: false,

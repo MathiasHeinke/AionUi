@@ -973,35 +973,53 @@ export function initCommandEveBridge(): void {
       }
     });
 
-  bridge.buildProvider('command-eve.crm-draft-create').provider(async (request?: { eventLedgerPath?: string }) => {
-    try {
-      const result = createCrmDraftDeal({
-        userDataPath: getDataPath(),
-        eventLedgerPath: request?.eventLedgerPath,
-      });
-      return {
-        success: result.ok,
-        msg: result.ok ? undefined : result.reason_code || result.message,
-        data: result,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        msg: error instanceof Error ? error.message : 'Command EVE CRM draft create bridge failed.',
-        data: {
-          version: 'command-eve-crm-draft-create/v0',
-          ok: false,
-          status: 'failed',
-          reason_code: 'CRM_DRAFT_CREATE_BRIDGE_FAILED',
-          message: error instanceof Error ? error.message : 'Command EVE CRM draft create bridge failed.',
-          source: {
-            generated_by: 'command-eve-crm-overlay-core',
-            hermes_home: '',
-          },
-        },
-      };
-    }
-  });
+  bridge
+    .buildProvider('command-eve.crm-draft-create')
+    .provider(
+      async (request?: {
+        eventLedgerPath?: string;
+        companyDisplayName?: string;
+        contactDisplayName?: string;
+        contactRoleTitle?: string;
+        dealLabel?: string;
+        notes?: string;
+      }) => {
+        try {
+          const result = createCrmDraftDeal({
+            userDataPath: getDataPath(),
+            eventLedgerPath: request?.eventLedgerPath,
+            draftInput: {
+              companyDisplayName: request?.companyDisplayName,
+              contactDisplayName: request?.contactDisplayName,
+              contactRoleTitle: request?.contactRoleTitle,
+              dealLabel: request?.dealLabel,
+              notes: request?.notes,
+            },
+          });
+          return {
+            success: result.ok,
+            msg: result.ok ? undefined : result.reason_code || result.message,
+            data: result,
+          };
+        } catch (error) {
+          return {
+            success: false,
+            msg: error instanceof Error ? error.message : 'Command EVE CRM draft create bridge failed.',
+            data: {
+              version: 'command-eve-crm-draft-create/v0',
+              ok: false,
+              status: 'failed',
+              reason_code: 'CRM_DRAFT_CREATE_BRIDGE_FAILED',
+              message: error instanceof Error ? error.message : 'Command EVE CRM draft create bridge failed.',
+              source: {
+                generated_by: 'command-eve-crm-overlay-core',
+                hermes_home: '',
+              },
+            },
+          };
+        }
+      }
+    );
 
   bridge
     .buildProvider('command-eve.crm-stage-local')
