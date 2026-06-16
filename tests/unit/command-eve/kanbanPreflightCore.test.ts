@@ -20,6 +20,7 @@ import {
   moveKanbanMarketingCard,
   planKanbanMarketingCardDispatch,
   prepareKanbanMarketingWorkerDispatcher,
+  promoteKanbanMarketingWorkerExecutor,
   recordKanbanMarketingDispatchApproval,
   recordKanbanMarketingDispatchDecision,
   requestKanbanMarketingWorkerDispatch,
@@ -1814,6 +1815,110 @@ describe('Command EVE Kanban marketing-board mutations', () => {
       payload: expect.objectContaining({
         dispatcher_prepare_status: 'ready',
         worker_start_gate_status: 'ready',
+        subprocess_spawned: false,
+        external_calls: false,
+        release_blocked: true,
+      }),
+    });
+
+    const blockedExecutorPromotion = promoteKanbanMarketingWorkerExecutor({
+      userDataPath: root,
+      boardSlug: 'marketing',
+      eventLedgerPath,
+      task_id: created.card_id || '',
+      dispatch_handoff_packet: result.dispatch_handoff_packet,
+      promotion_note: 'Try to promote without CAO approval; this must fail closed.',
+      now: () => new Date('2026-06-13T10:15:00.000Z'),
+    });
+    expect(blockedExecutorPromotion.ok).toBe(false);
+    expect(blockedExecutorPromotion.status).toBe('blocked');
+    expect(blockedExecutorPromotion.reason_code).toBe('KANBAN_MARKETING_EXECUTOR_PROMOTION_CAO_GATE_REQUIRED');
+    expect(blockedExecutorPromotion.subprocess_spawned).toBe(false);
+    expect(blockedExecutorPromotion.external_calls).toBe(false);
+    expect(blockedExecutorPromotion.release_blocked).toBe(true);
+
+    const executorPromotion = promoteKanbanMarketingWorkerExecutor({
+      userDataPath: root,
+      boardSlug: 'marketing',
+      eventLedgerPath,
+      task_id: created.card_id || '',
+      dispatch_handoff_packet: result.dispatch_handoff_packet,
+      promotion_note: 'Promote only the local in-process executor receipt; still do not spawn.',
+      cao_gate_approved: true,
+      now: () => new Date('2026-06-13T10:16:00.000Z'),
+    });
+
+    expect(executorPromotion.ok).toBe(true);
+    expect(executorPromotion.status).toBe('ready');
+    expect(executorPromotion.reason_code).toBe('KANBAN_MARKETING_WORKER_EXECUTOR_PROMOTED');
+    expect(executorPromotion.promotion_event_kind).toBe('command_eve_marketing_worker_executor_promoted');
+    expect(executorPromotion.worker_executor_promotion_status).toBe('completed');
+    expect(executorPromotion.worker_dispatcher_prepare_status).toBe('ready');
+    expect(executorPromotion.subprocess_spawned).toBe(false);
+    expect(executorPromotion.external_calls).toBe(false);
+    expect(executorPromotion.release_blocked).toBe(true);
+    expect(executorPromotion.human_gate).toBe('HG-3.5');
+    expect(executorPromotion.data_boundary_checked).toBe(true);
+    expect(executorPromotion.controller_approved).toBe(true);
+    expect(executorPromotion.worker_report).toContain('worker.reported:');
+    expect(executorPromotion.worker_report).toContain('completed_local_executor');
+    expect(executorPromotion.executor_promotion_packet).toMatchObject({
+      version: 'command-eve-worker-executor-promotion-packet/v0',
+      executor_kind: 'command-eve-in-process-marketing-worker',
+      execution_mode: 'observed_local_executor',
+      worker_executor_promotion_status: 'completed',
+      subprocess_spawned: false,
+      external_calls: false,
+      release_blocked: true,
+      publish_blocked: true,
+    });
+    expect(executorPromotion.model?.summary.worker_executor_promoted_cards).toBe(1);
+    const executorPromotedCard = executorPromotion.model?.columns
+      .flatMap((column) => column.cards)
+      .find((card) => card.card_id === created.card_id);
+    expect(executorPromotedCard).toMatchObject({
+      worker_executor_promotion_status: 'completed',
+      worker_executor_promotion_audit_event_id: executorPromotion.audit_event_id,
+    });
+    expect(executorPromotedCard?.worker_executor_report).toContain('completed_local_executor');
+
+    const executorPromotionEvents = readRows(
+      marketingBoardPath(root),
+      "SELECT task_id, kind, payload FROM task_events WHERE kind = 'command_eve_marketing_worker_executor_promoted'"
+    );
+    expect(executorPromotionEvents).toHaveLength(1);
+    const executorPromotionPayload = JSON.parse(
+      String((executorPromotionEvents[0] as { payload: string }).payload)
+    ) as {
+      worker_executor_promotion_status?: string;
+      subprocess_spawned?: boolean;
+      external_calls?: boolean;
+      release_blocked?: boolean;
+      publish_blocked?: boolean;
+      worker_report?: string;
+      reason_codes?: string[];
+    };
+    expect(executorPromotionPayload.worker_executor_promotion_status).toBe('completed');
+    expect(executorPromotionPayload.subprocess_spawned).toBe(false);
+    expect(executorPromotionPayload.external_calls).toBe(false);
+    expect(executorPromotionPayload.release_blocked).toBe(true);
+    expect(executorPromotionPayload.publish_blocked).toBe(true);
+    expect(executorPromotionPayload.worker_report).toContain('worker.reported:');
+    expect(executorPromotionPayload.reason_codes).toContain(
+      'command_eve.marketing_worker_executor_promoted_local_in_process'
+    );
+
+    const executorPromotionAuditEvents = readAuditEvents(eventLedgerPath);
+    expect(executorPromotionAuditEvents).toHaveLength(13);
+    expect(executorPromotionAuditEvents[12]).toMatchObject({
+      event_type: 'kanban.marketing_board_worker_executor_promoted',
+      producer: 'command-eve-desktop',
+      agent: 'eve',
+      mode: 'kanban-marketing-worker-executor-promotion',
+      human_gate_required: true,
+      payload: expect.objectContaining({
+        worker_executor_promotion_status: 'completed',
+        dispatcher_prepare_status: 'ready',
         subprocess_spawned: false,
         external_calls: false,
         release_blocked: true,

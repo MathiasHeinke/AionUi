@@ -508,7 +508,7 @@
     "filesUnsupported": "Local marketing-board actions do not accept file attachments. Create the card first, then attach files in the board.",
     "loopFailed": "Marketing loop could not be fully prepared locally.",
     "loopHandoffMissing": "Marketing loop blocked: the local dispatch handoff is missing.",
-    "loopPrepared": "Marketing loop \"{{title}}\" prepared locally: draft, approval, observed worker and dispatcher start packet were saved no-spawn."
+    "loopPrepared": "Marketing loop \"{{title}}\" recorded locally: draft, approval, observed worker, dispatcher packet and executor report were saved no-spawn."
   },
   "runtimeStatus": {
     "phase": {

@@ -391,7 +391,9 @@ const AionrsSendBox: React.FC<{
             const draftData = draftResponse.data ?? null;
             if (!draftResponse.success || !draftData?.ok) {
               Message.warning(
-                draftData?.reason_code || draftResponse.msg || t('conversation.commandEveLocalMarketingIntent.loopFailed')
+                draftData?.reason_code ||
+                  draftResponse.msg ||
+                  t('conversation.commandEveLocalMarketingIntent.loopFailed')
               );
               return true;
             }
@@ -488,6 +490,28 @@ const AionrsSendBox: React.FC<{
               Message.warning(
                 dispatcherData?.reason_code ||
                   dispatcherResponse.msg ||
+                  t('conversation.commandEveLocalMarketingIntent.loopFailed')
+              );
+              return true;
+            }
+
+            const executorPromotionResponse = await ipcBridge.commandEve.kanbanMarketingWorkerExecutorPromotion.invoke({
+              task_id: cardId,
+              boardSlug: COMMAND_EVE_MARKETING_BOARD_SLUG,
+              dispatch_handoff_packet: commandEveLocalDispatchHandoffForCard(
+                cardId,
+                'worker_executor_promotion',
+                'HG-3.5'
+              ),
+              promotion_note:
+                'Command EVE chat /marketing-loop promoted the local in-process marketing executor after dispatcher prepare; no subprocess or external call ran.',
+              cao_gate_approved: true,
+            });
+            const executorPromotionData = executorPromotionResponse.data ?? null;
+            if (!executorPromotionResponse.success || !executorPromotionData?.ok) {
+              Message.warning(
+                executorPromotionData?.reason_code ||
+                  executorPromotionResponse.msg ||
                   t('conversation.commandEveLocalMarketingIntent.loopFailed')
               );
               return true;

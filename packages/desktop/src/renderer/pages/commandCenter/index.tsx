@@ -213,6 +213,10 @@ interface ICommandEveMarketingCard {
   worker_dispatcher_prepare_audit_event_id: string | null;
   worker_dispatcher_prepared_at: number | null;
   worker_dispatcher_prepare_packet: string | null;
+  worker_executor_promotion_status: 'completed' | null;
+  worker_executor_promotion_audit_event_id: string | null;
+  worker_executor_promoted_at: number | null;
+  worker_executor_report: string | null;
   governance_state: 'read_only' | 'proof_write_recorded' | 'unknown';
 }
 
@@ -252,6 +256,7 @@ interface ICommandEveMarketingBoardModel {
     worker_start_gate_checked_cards: number;
     worker_start_gate_blocked_cards: number;
     worker_dispatcher_prepared_cards: number;
+    worker_executor_promoted_cards: number;
   };
   columns: ICommandEveMarketingColumn[];
   warnings: string[];
@@ -699,6 +704,47 @@ interface ICommandEveMarketingWorkerDispatcherPrepareResult {
   };
 }
 
+interface ICommandEveMarketingWorkerExecutorPromotionRequest {
+  task_id: string;
+  boardSlug?: string;
+  eventLedgerPath?: string;
+  dispatch_handoff_packet?: Record<string, unknown>;
+  promotion_note?: string;
+  cao_gate_approved?: boolean;
+}
+
+interface ICommandEveMarketingWorkerExecutorPromotionResult {
+  version: 'command-eve-kanban-marketing-worker-executor-promotion/v0';
+  status: 'ready' | 'blocked' | 'failed';
+  ok: boolean;
+  reason_code?: string;
+  reason_codes: string[];
+  message?: string;
+  card_id?: string;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  promotion_event_kind?: 'command_eve_marketing_worker_executor_promoted';
+  worker_executor_promotion_status?: 'completed';
+  worker_dispatcher_prepare_status?: 'ready';
+  executor_promotion_packet?: Record<string, unknown>;
+  worker_report?: string;
+  worker_contract_yaml?: string;
+  worker_prompt?: string;
+  subprocess_spawned: false;
+  external_calls: false;
+  data_boundary_checked: boolean;
+  controller_approval_status?: 'approved' | 'rejected';
+  controller_approved: boolean;
+  release_blocked: true;
+  human_gate: 'HG-3.5';
+  dispatch_handoff_packet?: Record<string, unknown>;
+  model?: ICommandEveMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+  };
+}
+
 interface ICommandEveWorkerStartGateUiOptions {
   executorProfile?: Record<string, unknown>;
   gateNote?: string;
@@ -941,6 +987,11 @@ const kanbanMarketingWorkerDispatcherPrepare = bridge.buildProvider<
   IBridgeResponse<ICommandEveMarketingWorkerDispatcherPrepareResult>,
   ICommandEveMarketingWorkerDispatcherPrepareRequest
 >('command-eve.kanban-marketing-worker-dispatcher-prepare');
+
+const kanbanMarketingWorkerExecutorPromotion = bridge.buildProvider<
+  IBridgeResponse<ICommandEveMarketingWorkerExecutorPromotionResult>,
+  ICommandEveMarketingWorkerExecutorPromotionRequest
+>('command-eve.kanban-marketing-worker-executor-promotion');
 
 const crmOverlay = bridge.buildProvider<IBridgeResponse<ICommandEveCrmOverlayResult>, { eventLedgerPath?: string }>(
   'command-eve.crm-overlay'
@@ -1705,12 +1756,14 @@ const MarketingDispatchQueueView: React.FC<{
   model: ICommandEveMarketingBoardModel;
   workerStartGateResult: ICommandEveMarketingWorkerStartGateResult | null;
   workerDispatcherPrepareResult: ICommandEveMarketingWorkerDispatcherPrepareResult | null;
+  workerExecutorPromotionResult: ICommandEveMarketingWorkerExecutorPromotionResult | null;
   generatingDraftCardId: string | null;
   approvingOutputCardId: string | null;
   requestingWorkerDispatchCardId: string | null;
   runningObservedWorkerCardId: string | null;
   checkingWorkerStartGateCardId: string | null;
   preparingWorkerDispatcherCardId: string | null;
+  promotingWorkerExecutorCardId: string | null;
   runningSafeLocalLoopCardId: string | null;
   onGenerateDraft: (card: ICommandEveMarketingCard) => void;
   onApproveOutput: (card: ICommandEveMarketingCard) => void;
@@ -1721,17 +1774,20 @@ const MarketingDispatchQueueView: React.FC<{
     options?: ICommandEveWorkerStartGateUiOptions
   ) => void;
   onPrepareWorkerDispatcher: (card: ICommandEveWorkerStartGateTarget) => void;
+  onPromoteWorkerExecutor: (card: ICommandEveWorkerStartGateTarget) => void;
   onRunSafeLocalLoop: (card: ICommandEveMarketingCard) => void;
 }> = ({
   model,
   workerStartGateResult,
   workerDispatcherPrepareResult,
+  workerExecutorPromotionResult,
   generatingDraftCardId,
   approvingOutputCardId,
   requestingWorkerDispatchCardId,
   runningObservedWorkerCardId,
   checkingWorkerStartGateCardId,
   preparingWorkerDispatcherCardId,
+  promotingWorkerExecutorCardId,
   runningSafeLocalLoopCardId,
   onGenerateDraft,
   onApproveOutput,
@@ -1739,6 +1795,7 @@ const MarketingDispatchQueueView: React.FC<{
   onRunObservedWorker,
   onCheckWorkerStartGate,
   onPrepareWorkerDispatcher,
+  onPromoteWorkerExecutor,
   onRunSafeLocalLoop,
 }) => {
   const { t } = useTranslation();
@@ -1762,6 +1819,18 @@ const MarketingDispatchQueueView: React.FC<{
     );
   const workerDispatcherPreparedCount =
     model.summary.worker_dispatcher_prepared_cards + (hasUnprojectedWorkerDispatcherPrepareResult ? 1 : 0);
+  const hasUnprojectedWorkerExecutorPromotionResult =
+    Boolean(
+      workerExecutorPromotionResult?.ok &&
+      workerExecutorPromotionResult.card_id &&
+      workerExecutorPromotionResult.worker_report
+    ) &&
+    !queueCards.some(
+      (card) =>
+        card.card_id === workerExecutorPromotionResult?.card_id && Boolean(card.worker_executor_promotion_status)
+    );
+  const workerExecutorPromotedCount =
+    model.summary.worker_executor_promoted_cards + (hasUnprojectedWorkerExecutorPromotionResult ? 1 : 0);
   return (
     <div
       className='rounded-12px border border-solid border-[var(--color-border-2)] bg-fill-1 px-12px py-12px'
@@ -1827,6 +1896,11 @@ const MarketingDispatchQueueView: React.FC<{
               workerDispatcherPreparedCount
             )}`}
           </Tag>
+          <Tag color='green' data-testid='marketing-dispatch-queue-worker-executor-promoted-count'>
+            {`${t('commandCenter.marketingBoard.dispatchQueue.executorPromotedCount')}: ${formatCount(
+              workerExecutorPromotedCount
+            )}`}
+          </Tag>
         </div>
       </div>
       {queueCards.length > 0 ? (
@@ -1864,12 +1938,23 @@ const MarketingDispatchQueueView: React.FC<{
             const workerDispatcherPrepared =
               card.worker_dispatcher_prepare_status === 'ready' ||
               workerDispatcherPrepareResultForCard?.worker_dispatcher_prepare_status === 'ready';
+            const workerExecutorPromotionResultForCard =
+              workerExecutorPromotionResult?.ok && workerExecutorPromotionResult.card_id === card.card_id
+                ? workerExecutorPromotionResult
+                : null;
+            const workerExecutorReport =
+              card.worker_executor_report || workerExecutorPromotionResultForCard?.worker_report || '';
+            const workerExecutorPromoted =
+              card.worker_executor_promotion_status === 'completed' ||
+              workerExecutorPromotionResultForCard?.worker_executor_promotion_status === 'completed';
             const canCheckObservedExecutorProfile = workerObservedCompleted && !workerStartGateReady;
             const nextStepKey = decision
               ? decision === 'approved'
                 ? workerStartGateChecked
                   ? workerDispatcherPrepared
-                    ? 'workerDispatcherPreparedNext'
+                    ? workerExecutorPromoted
+                      ? 'workerExecutorPromotedNext'
+                      : 'workerDispatcherPreparedNext'
                     : workerStartGateReady
                       ? 'workerStartGateReadyNext'
                       : 'workerStartGateNext'
@@ -1892,6 +1977,7 @@ const MarketingDispatchQueueView: React.FC<{
             const workerObservedRunning = runningObservedWorkerCardId === card.card_id;
             const workerStartGateChecking = checkingWorkerStartGateCardId === card.card_id;
             const workerDispatcherPreparing = preparingWorkerDispatcherCardId === card.card_id;
+            const workerExecutorPromoting = promotingWorkerExecutorCardId === card.card_id;
             const safeLocalLoopRunning = runningSafeLocalLoopCardId === card.card_id;
             const anyMarketingLoopStepRunning =
               draftGenerating ||
@@ -1900,6 +1986,7 @@ const MarketingDispatchQueueView: React.FC<{
               workerObservedRunning ||
               workerStartGateChecking ||
               workerDispatcherPreparing ||
+              workerExecutorPromoting ||
               safeLocalLoopRunning;
             const controllerApproved = decision === 'approved';
             const marketingLoopSteps: Array<{
@@ -1951,6 +2038,11 @@ const MarketingDispatchQueueView: React.FC<{
                 key: 'dispatcher',
                 label: t('commandCenter.marketingBoard.dispatchQueue.loopStepDispatcher'),
                 status: workerDispatcherPrepared ? 'done' : workerStartGateReady ? 'active' : 'pending',
+              },
+              {
+                key: 'executor',
+                label: t('commandCenter.marketingBoard.dispatchQueue.loopStepExecutor'),
+                status: workerExecutorPromoted ? 'done' : workerDispatcherPrepared ? 'active' : 'pending',
               },
             ];
             const crmHandoffSource = crmHandoffSourceForCard(card);
@@ -2131,6 +2223,14 @@ const MarketingDispatchQueueView: React.FC<{
                         {t('commandCenter.marketingBoard.dispatchQueue.workerDispatcherPrepared')}
                       </Tag>
                     ) : null}
+                    {workerExecutorPromoted ? (
+                      <Tag
+                        color='green'
+                        data-testid={`marketing-dispatch-queue-worker-executor-promoted-tag-${card.card_id}`}
+                      >
+                        {t('commandCenter.marketingBoard.dispatchQueue.workerExecutorPromoted')}
+                      </Tag>
+                    ) : null}
                     {hasWorkerDispatchReady ? (
                       <Button
                         shape='round'
@@ -2159,6 +2259,21 @@ const MarketingDispatchQueueView: React.FC<{
                         {workerObservedCompleted
                           ? t('commandCenter.marketingBoard.dispatchQueue.workerObservedCompleted')
                           : t('commandCenter.marketingBoard.dispatchQueue.runObservedWorker')}
+                      </Button>
+                    ) : null}
+                    {workerDispatcherPrepared ? (
+                      <Button
+                        shape='round'
+                        size='mini'
+                        type='primary'
+                        loading={workerExecutorPromoting}
+                        disabled={anyMarketingLoopStepRunning || workerExecutorPromoted}
+                        onClick={() => onPromoteWorkerExecutor(card)}
+                        data-testid={`marketing-dispatch-queue-promote-worker-executor-${card.card_id}`}
+                      >
+                        {workerExecutorPromoted
+                          ? t('commandCenter.marketingBoard.dispatchQueue.workerExecutorPromoted')
+                          : t('commandCenter.marketingBoard.dispatchQueue.promoteWorkerExecutor')}
                       </Button>
                     ) : null}
                   </div>
@@ -2325,6 +2440,22 @@ const MarketingDispatchQueueView: React.FC<{
                     </pre>
                   </div>
                 ) : null}
+                {workerExecutorPromoted && workerExecutorReport ? (
+                  <div
+                    className='mt-8px rounded-8px border border-solid border-fill-3 bg-fill-1 p-8px'
+                    data-testid={`marketing-worker-executor-promotion-preview-${card.card_id}`}
+                  >
+                    <div className='mb-4px flex flex-wrap items-center gap-6px'>
+                      <span className='text-11px font-600 leading-16px text-t-primary'>
+                        {t('commandCenter.marketingBoard.dispatchQueue.workerExecutorReport')}
+                      </span>
+                      <Tag color='green'>{t('commandCenter.marketingBoard.dispatch.notSpawned')}</Tag>
+                    </div>
+                    <pre className='m-0 max-h-180px overflow-auto whitespace-pre-wrap break-words text-11px leading-16px text-t-secondary'>
+                      {workerExecutorReport}
+                    </pre>
+                  </div>
+                ) : null}
               </article>
             );
           })}
@@ -2469,6 +2600,7 @@ const MarketingBoardSection: React.FC<{
   workerObservedRunResult: ICommandEveMarketingWorkerObservedRunResult | null;
   workerStartGateResult: ICommandEveMarketingWorkerStartGateResult | null;
   workerDispatcherPrepareResult: ICommandEveMarketingWorkerDispatcherPrepareResult | null;
+  workerExecutorPromotionResult: ICommandEveMarketingWorkerExecutorPromotionResult | null;
   createModalVisible: boolean;
   createSubmitting: boolean;
   movingCardId: string | null;
@@ -2480,6 +2612,7 @@ const MarketingBoardSection: React.FC<{
   runningObservedWorkerCardId: string | null;
   checkingWorkerStartGateCardId: string | null;
   preparingWorkerDispatcherCardId: string | null;
+  promotingWorkerExecutorCardId: string | null;
   runningSafeLocalLoopCardId: string | null;
   approvalRecording: boolean;
   decisionRecording: 'approved' | 'rejected' | null;
@@ -2502,6 +2635,7 @@ const MarketingBoardSection: React.FC<{
     options?: ICommandEveWorkerStartGateUiOptions
   ) => void;
   onPrepareWorkerDispatcher: (card: ICommandEveWorkerStartGateTarget) => void;
+  onPromoteWorkerExecutor: (card: ICommandEveWorkerStartGateTarget) => void;
   onRunSafeLocalLoop: (card: ICommandEveMarketingCard) => void;
 }> = ({
   result,
@@ -2519,6 +2653,7 @@ const MarketingBoardSection: React.FC<{
   workerObservedRunResult,
   workerStartGateResult,
   workerDispatcherPrepareResult,
+  workerExecutorPromotionResult,
   createModalVisible,
   createSubmitting,
   movingCardId,
@@ -2530,6 +2665,7 @@ const MarketingBoardSection: React.FC<{
   runningObservedWorkerCardId,
   checkingWorkerStartGateCardId,
   preparingWorkerDispatcherCardId,
+  promotingWorkerExecutorCardId,
   runningSafeLocalLoopCardId,
   approvalRecording,
   decisionRecording,
@@ -2549,6 +2685,7 @@ const MarketingBoardSection: React.FC<{
   onRunObservedWorker,
   onCheckWorkerStartGate,
   onPrepareWorkerDispatcher,
+  onPromoteWorkerExecutor,
   onRunSafeLocalLoop,
 }) => {
   const { t } = useTranslation();
@@ -3312,6 +3449,78 @@ const MarketingBoardSection: React.FC<{
         />
       ) : null}
 
+      {workerExecutorPromotionResult ? (
+        <Alert
+          type={
+            workerExecutorPromotionResult.ok
+              ? 'success'
+              : workerExecutorPromotionResult.status === 'failed'
+                ? 'error'
+                : 'warning'
+          }
+          title={
+            workerExecutorPromotionResult.reason_code ||
+            t('commandCenter.marketingBoard.workerExecutorPromotion.resultTitle')
+          }
+          content={
+            <div className='flex flex-col gap-6px' data-testid='marketing-worker-executor-promotion-result-detail'>
+              <span>{workerExecutorPromotionResult.message || '-'}</span>
+              <div className='flex flex-wrap gap-6px'>
+                <Tag color={workerExecutorPromotionResult.data_boundary_checked ? 'green' : 'orange'}>
+                  {`${t('commandCenter.marketingBoard.dispatch.dataBoundary')}: ${
+                    workerExecutorPromotionResult.data_boundary_checked
+                      ? t('commandCenter.marketingBoard.dispatch.checked')
+                      : t('commandCenter.marketingBoard.dispatch.notChecked')
+                  }`}
+                </Tag>
+                <Tag color='green'>
+                  {`${t('commandCenter.marketingBoard.dispatch.subprocess')}: ${t(
+                    'commandCenter.marketingBoard.dispatch.notSpawned'
+                  )}`}
+                </Tag>
+                <Tag color='green'>
+                  {`${t('commandCenter.marketingBoard.workerObservedRun.externalCalls')}: ${t(
+                    'commandCenter.marketingBoard.workerObservedRun.none'
+                  )}`}
+                </Tag>
+                <Tag color='orange'>
+                  {`${t('commandCenter.marketingBoard.dispatch.release')}: ${t(
+                    'commandCenter.marketingBoard.dispatch.blockedByGate'
+                  )}`}
+                </Tag>
+                <Tag color='gray'>{`${t('commandCenter.marketingBoard.dispatch.humanGate')}: ${
+                  workerExecutorPromotionResult.human_gate
+                }`}</Tag>
+              </div>
+              <dl className='m-0 grid gap-x-10px gap-y-4px text-11px leading-16px sm:grid-cols-[max-content_1fr]'>
+                <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.card')}</dt>
+                <dd className='m-0 truncate text-t-secondary'>{textOrDash(workerExecutorPromotionResult.card_id)}</dd>
+                <dt className='text-t-tertiary'>{t('commandCenter.marketingBoard.dispatch.audit')}</dt>
+                <dd className='m-0 truncate text-t-secondary'>
+                  {textOrDash(workerExecutorPromotionResult.audit_event_id)}
+                </dd>
+              </dl>
+              {workerExecutorPromotionResult.worker_report ? (
+                <pre
+                  className='m-0 max-h-180px overflow-auto whitespace-pre-wrap break-words rounded-8px border border-solid border-fill-3 bg-fill-1 p-8px text-11px leading-16px text-t-secondary'
+                  data-testid='marketing-worker-executor-promotion-result'
+                >
+                  {workerExecutorPromotionResult.worker_report}
+                </pre>
+              ) : null}
+              {workerExecutorPromotionResult.executor_promotion_packet ? (
+                <pre
+                  className='m-0 max-h-180px overflow-auto whitespace-pre-wrap break-words rounded-8px border border-solid border-fill-3 bg-fill-1 p-8px text-11px leading-16px text-t-secondary'
+                  data-testid='marketing-worker-executor-promotion-packet'
+                >
+                  {JSON.stringify(workerExecutorPromotionResult.executor_promotion_packet, null, 2)}
+                </pre>
+              ) : null}
+            </div>
+          }
+        />
+      ) : null}
+
       {blocked ? (
         <Alert
           type='warning'
@@ -3330,12 +3539,14 @@ const MarketingBoardSection: React.FC<{
             model={model}
             workerStartGateResult={workerStartGateResult}
             workerDispatcherPrepareResult={workerDispatcherPrepareResult}
+            workerExecutorPromotionResult={workerExecutorPromotionResult}
             generatingDraftCardId={generatingDraftCardId}
             approvingOutputCardId={approvingOutputCardId}
             requestingWorkerDispatchCardId={requestingWorkerDispatchCardId}
             runningObservedWorkerCardId={runningObservedWorkerCardId}
             checkingWorkerStartGateCardId={checkingWorkerStartGateCardId}
             preparingWorkerDispatcherCardId={preparingWorkerDispatcherCardId}
+            promotingWorkerExecutorCardId={promotingWorkerExecutorCardId}
             runningSafeLocalLoopCardId={runningSafeLocalLoopCardId}
             onGenerateDraft={onGenerateDraft}
             onApproveOutput={onApproveOutput}
@@ -3343,6 +3554,7 @@ const MarketingBoardSection: React.FC<{
             onRunObservedWorker={onRunObservedWorker}
             onCheckWorkerStartGate={onCheckWorkerStartGate}
             onPrepareWorkerDispatcher={onPrepareWorkerDispatcher}
+            onPromoteWorkerExecutor={onPromoteWorkerExecutor}
             onRunSafeLocalLoop={onRunSafeLocalLoop}
           />
           <div className='grid gap-12px md:grid-cols-2 xl:grid-cols-5'>
@@ -3980,6 +4192,8 @@ const CommandCenterPage: React.FC = () => {
   );
   const [workerDispatcherPrepareResult, setWorkerDispatcherPrepareResult] =
     useState<ICommandEveMarketingWorkerDispatcherPrepareResult | null>(null);
+  const [workerExecutorPromotionResult, setWorkerExecutorPromotionResult] =
+    useState<ICommandEveMarketingWorkerExecutorPromotionResult | null>(null);
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [commentCard, setCommentCard] = useState<ICommandEveMarketingCard | null>(null);
@@ -3993,6 +4207,7 @@ const CommandCenterPage: React.FC = () => {
   const [runningObservedWorkerCardId, setRunningObservedWorkerCardId] = useState<string | null>(null);
   const [checkingWorkerStartGateCardId, setCheckingWorkerStartGateCardId] = useState<string | null>(null);
   const [preparingWorkerDispatcherCardId, setPreparingWorkerDispatcherCardId] = useState<string | null>(null);
+  const [promotingWorkerExecutorCardId, setPromotingWorkerExecutorCardId] = useState<string | null>(null);
   const [runningSafeLocalLoopCardId, setRunningSafeLocalLoopCardId] = useState<string | null>(null);
   const [approvalRecording, setApprovalRecording] = useState(false);
   const [decisionRecording, setDecisionRecording] = useState<'approved' | 'rejected' | null>(null);
@@ -4885,6 +5100,7 @@ const CommandCenterPage: React.FC = () => {
       setDraftGenerateResult(null);
       setOutputApproveResult(null);
       setWorkerDispatcherPrepareResult(null);
+      setWorkerExecutorPromotionResult(null);
       try {
         const response = await kanbanMarketingWorkerDispatcherPrepare.invoke({
           task_id: card.card_id,
@@ -4933,6 +5149,75 @@ const CommandCenterPage: React.FC = () => {
     [applyBoardModel, t]
   );
 
+  const promoteWorkerExecutor = useCallback(
+    async (card: ICommandEveWorkerStartGateTarget) => {
+      if (!isElectronDesktop()) return;
+      const handoff = {
+        version: 'command-eve-worker-executor-promotion-handoff/v0',
+        status: 'worker_executor_promotion',
+        dispatch: card.controller_decision_handoff_dispatch || card.controller_review_handoff_dispatch || 'manual',
+        role_label: card.controller_decision_handoff_role || card.controller_review_handoff_role || 'role:cmo',
+        card_id: card.card_id,
+        human_gate: 'HG-3.5',
+      };
+      setPromotingWorkerExecutorCardId(card.card_id);
+      setCreateResult(null);
+      setMoveResult(null);
+      setActionResult(null);
+      setDispatchApprovalResult(null);
+      setDispatchDecisionResult(null);
+      setDraftGenerateResult(null);
+      setOutputApproveResult(null);
+      setWorkerExecutorPromotionResult(null);
+      try {
+        const response = await kanbanMarketingWorkerExecutorPromotion.invoke({
+          task_id: card.card_id,
+          boardSlug: MARKETING_BOARD_SLUG,
+          dispatch_handoff_packet: handoff,
+          promotion_note:
+            'Command EVE UI promoted the local in-process marketing executor after dispatcher prepare; no subprocess or external call ran.',
+          cao_gate_approved: true,
+        });
+        const data = response.data ?? null;
+        setWorkerExecutorPromotionResult(data);
+        await applyBoardModel(data);
+        if (data?.ok) {
+          Message.success(t('commandCenter.marketingBoard.workerExecutorPromotion.success'));
+        } else {
+          Message.warning(data?.reason_code || t('commandCenter.marketingBoard.workerExecutorPromotion.failed'));
+        }
+      } catch (promotionError) {
+        const failure: ICommandEveMarketingWorkerExecutorPromotionResult = {
+          version: 'command-eve-kanban-marketing-worker-executor-promotion/v0',
+          ok: false,
+          status: 'failed',
+          reason_code: 'KANBAN_MARKETING_WORKER_EXECUTOR_PROMOTION_UI_FAILED',
+          reason_codes: ['KANBAN_MARKETING_WORKER_EXECUTOR_PROMOTION_UI_FAILED'],
+          message:
+            promotionError instanceof Error
+              ? promotionError.message
+              : t('commandCenter.marketingBoard.workerExecutorPromotion.failed'),
+          card_id: card.card_id,
+          subprocess_spawned: false,
+          external_calls: false,
+          data_boundary_checked: false,
+          controller_approved: false,
+          release_blocked: true,
+          human_gate: 'HG-3.5',
+          source: {
+            generated_by: 'command-eve-kanban-marketing-board-core',
+            hermes_home: '',
+          },
+        };
+        setWorkerExecutorPromotionResult(failure);
+        Message.error(failure.message || t('commandCenter.marketingBoard.workerExecutorPromotion.failed'));
+      } finally {
+        setPromotingWorkerExecutorCardId(null);
+      }
+    },
+    [applyBoardModel, t]
+  );
+
   const runSafeLocalMarketingLoop = useCallback(
     async (card: ICommandEveMarketingCard) => {
       if (!isElectronDesktop()) return;
@@ -4942,6 +5227,7 @@ const CommandCenterPage: React.FC = () => {
       const observedHandoff = localDispatchHandoffForCard(card, 'worker_observed_run', 'HG-2.5');
       const workerStartHandoff = localDispatchHandoffForCard(card, 'worker_start_gate_check', 'HG-3');
       const dispatcherHandoff = localDispatchHandoffForCard(card, 'worker_dispatcher_prepare', 'HG-3.5');
+      const executorPromotionHandoff = localDispatchHandoffForCard(card, 'worker_executor_promotion', 'HG-3.5');
 
       setRunningSafeLocalLoopCardId(card.card_id);
       setCreateResult(null);
@@ -4955,6 +5241,7 @@ const CommandCenterPage: React.FC = () => {
       setWorkerObservedRunResult(null);
       setWorkerStartGateResult(null);
       setWorkerDispatcherPrepareResult(null);
+      setWorkerExecutorPromotionResult(null);
 
       try {
         const draftResponse = await kanbanMarketingDraftGenerate.invoke({
@@ -5043,6 +5330,23 @@ const CommandCenterPage: React.FC = () => {
         if (!dispatcherData?.ok) {
           throw new Error(
             dispatcherData?.reason_code || t('commandCenter.marketingBoard.workerDispatcherPrepare.failed')
+          );
+        }
+
+        const executorPromotionResponse = await kanbanMarketingWorkerExecutorPromotion.invoke({
+          task_id: card.card_id,
+          boardSlug: MARKETING_BOARD_SLUG,
+          dispatch_handoff_packet: executorPromotionHandoff,
+          promotion_note:
+            'Command EVE UI safe local loop promoted the in-process marketing executor after dispatcher prepare; no subprocess or external call ran.',
+          cao_gate_approved: true,
+        });
+        const executorPromotionData = executorPromotionResponse.data ?? null;
+        setWorkerExecutorPromotionResult(executorPromotionData);
+        await applyBoardModel(executorPromotionData);
+        if (!executorPromotionData?.ok) {
+          throw new Error(
+            executorPromotionData?.reason_code || t('commandCenter.marketingBoard.workerExecutorPromotion.failed')
           );
         }
 
@@ -5446,6 +5750,7 @@ const CommandCenterPage: React.FC = () => {
               workerObservedRunResult={workerObservedRunResult}
               workerStartGateResult={workerStartGateResult}
               workerDispatcherPrepareResult={workerDispatcherPrepareResult}
+              workerExecutorPromotionResult={workerExecutorPromotionResult}
               createModalVisible={createModalVisible}
               createSubmitting={createSubmitting}
               movingCardId={movingCardId}
@@ -5457,6 +5762,7 @@ const CommandCenterPage: React.FC = () => {
               runningObservedWorkerCardId={runningObservedWorkerCardId}
               checkingWorkerStartGateCardId={checkingWorkerStartGateCardId}
               preparingWorkerDispatcherCardId={preparingWorkerDispatcherCardId}
+              promotingWorkerExecutorCardId={promotingWorkerExecutorCardId}
               runningSafeLocalLoopCardId={runningSafeLocalLoopCardId}
               approvalRecording={approvalRecording}
               decisionRecording={decisionRecording}
@@ -5476,6 +5782,7 @@ const CommandCenterPage: React.FC = () => {
               onRunObservedWorker={runObservedWorker}
               onCheckWorkerStartGate={checkWorkerStartGate}
               onPrepareWorkerDispatcher={prepareWorkerDispatcher}
+              onPromoteWorkerExecutor={promoteWorkerExecutor}
               onRunSafeLocalLoop={runSafeLocalMarketingLoop}
             />
             <MarketingCardCommentModal

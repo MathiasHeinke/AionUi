@@ -100,7 +100,7 @@
     "filesUnsupported": "Lokale Marketing-Board-Aktionen akzeptieren keine Dateianhänge. Lege erst die Karte an und hänge Dateien danach im Board an.",
     "loopFailed": "Marketing-Loop konnte nicht vollständig lokal vorbereitet werden.",
     "loopHandoffMissing": "Marketing-Loop blockiert: das lokale Dispatch-Handoff fehlt.",
-    "loopPrepared": "Marketing-Loop „{{title}}“ lokal vorbereitet: Draft, Approval, observed Worker und Dispatcher-Startpaket sind no-spawn gespeichert."
+    "loopPrepared": "Marketing-Loop „{{title}}“ lokal gespeichert: Draft, Approval, observed Worker, Dispatcher-Paket und Executor-Report sind no-spawn gespeichert."
   },
   "createFailed": "Gespräch konnte nicht erstellt werden",
   "createError": {

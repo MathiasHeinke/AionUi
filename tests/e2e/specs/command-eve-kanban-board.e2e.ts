@@ -1548,11 +1548,18 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
       /command-eve-worker-dispatcher-prepare-packet/,
       { timeout: 30_000 }
     );
+    await expect(page.getByTestId(`marketing-worker-executor-promotion-preview-${safeLoopCardId}`)).toContainText(
+      /completed_local_executor/,
+      { timeout: 30_000 }
+    );
     await expect(
       page.getByTestId(`marketing-dispatch-queue-worker-dispatcher-prepared-tag-${safeLoopCardId}`)
     ).toContainText(/Dispatcher|vorbereitet|prepared/);
+    await expect(
+      page.getByTestId(`marketing-dispatch-queue-worker-executor-promoted-tag-${safeLoopCardId}`)
+    ).toContainText(/Executor|reported/);
     await expect(page.getByTestId(`marketing-dispatch-queue-next-${safeLoopCardId}`)).toContainText(
-      /Release|Freigabe|Dispatcher|prepared/
+      /Publishing|Scheduling|externe|external|gated|gegatet/
     );
 
     const safeLoopEventRows = sqliteQuery(
@@ -1563,7 +1570,8 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
         'command_eve_marketing_worker_dispatch_requested',
         'command_eve_marketing_worker_observed_run_completed',
         'command_eve_marketing_worker_start_gate_checked',
-        'command_eve_marketing_worker_dispatcher_prepared'
+        'command_eve_marketing_worker_dispatcher_prepared',
+        'command_eve_marketing_worker_executor_promoted'
       )`
     );
     const safeLoopKinds = new Set(safeLoopEventRows.map((row) => row[0]));
@@ -1574,6 +1582,7 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
       'command_eve_marketing_worker_observed_run_completed',
       'command_eve_marketing_worker_start_gate_checked',
       'command_eve_marketing_worker_dispatcher_prepared',
+      'command_eve_marketing_worker_executor_promoted',
     ]) {
       expect(safeLoopKinds.has(kind), `${kind} receipt must exist for ${safeLoopCardId}`).toBe(true);
     }
@@ -1593,6 +1602,15 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
           external_calls?: boolean;
           release_blocked?: boolean;
         };
+        worker_executor_promotion_status?: string;
+        executor_promotion_packet?: {
+          version?: string;
+          subprocess_spawned?: boolean;
+          external_calls?: boolean;
+          release_blocked?: boolean;
+          publish_blocked?: boolean;
+        };
+        worker_report?: string;
       };
       expect(payload.controller_approved, `${kind} must stay controller-approved`).toBe(true);
       expect(payload.subprocess_spawned, `${kind} must not spawn subprocesses`).toBe(false);
@@ -1612,6 +1630,18 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
           subprocess_spawned: false,
           external_calls: false,
           release_blocked: true,
+        });
+      }
+      if (kind === 'command_eve_marketing_worker_executor_promoted') {
+        expect(payload.release_blocked, `${kind} must stay release-blocked`).toBe(true);
+        expect(payload.worker_executor_promotion_status).toBe('completed');
+        expect(payload.worker_report).toContain('worker.reported:');
+        expect(payload.executor_promotion_packet).toMatchObject({
+          version: 'command-eve-worker-executor-promotion-packet/v0',
+          subprocess_spawned: false,
+          external_calls: false,
+          release_blocked: true,
+          publish_blocked: true,
         });
       }
     }
@@ -1634,6 +1664,25 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     expect(
       matchingSafeLoopDispatcherAudit,
       `audit ledger must contain safe-loop dispatcher prepare for card_id=${safeLoopCardId}`
+    ).toBeTruthy();
+
+    const matchingSafeLoopExecutorAudit = ledgerLines.find((line) => {
+      try {
+        const evt = JSON.parse(line) as { event_type?: string; issue_id?: string; payload?: Record<string, unknown> };
+        return (
+          evt.issue_id === safeLoopCardId &&
+          evt.event_type === 'kanban.marketing_board_worker_executor_promoted' &&
+          evt.payload?.worker_executor_promotion_status === 'completed' &&
+          evt.payload?.subprocess_spawned === false &&
+          evt.payload?.external_calls === false
+        );
+      } catch {
+        return false;
+      }
+    });
+    expect(
+      matchingSafeLoopExecutorAudit,
+      `audit ledger must contain safe-loop executor promotion for card_id=${safeLoopCardId}`
     ).toBeTruthy();
 
     const screenshotPath = 'tests/e2e/results/command-eve-kanban-board-safe-local-loop.png';

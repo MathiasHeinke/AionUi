@@ -34,6 +34,8 @@ export const COMMAND_EVE_KANBAN_MARKETING_WORKER_START_GATE_BRIDGE_VERSION =
   'command-eve-kanban-marketing-worker-start-gate/v0';
 export const COMMAND_EVE_KANBAN_MARKETING_WORKER_DISPATCHER_PREPARE_BRIDGE_VERSION =
   'command-eve-kanban-marketing-worker-dispatcher-prepare/v0';
+export const COMMAND_EVE_KANBAN_MARKETING_WORKER_EXECUTOR_PROMOTION_BRIDGE_VERSION =
+  'command-eve-kanban-marketing-worker-executor-promotion/v0';
 
 const MIN_HERMES_KANBAN_VERSION = '0.16.0';
 const RUNTIME_RECONCILIATION_VERSION = 'command-eve-runtime-reconciliation/v0';
@@ -197,6 +199,10 @@ export type CommandEveKanbanMarketingCard = {
   worker_dispatcher_prepare_audit_event_id: string | null;
   worker_dispatcher_prepared_at: number | null;
   worker_dispatcher_prepare_packet: string | null;
+  worker_executor_promotion_status: 'completed' | null;
+  worker_executor_promotion_audit_event_id: string | null;
+  worker_executor_promoted_at: number | null;
+  worker_executor_report: string | null;
   governance_state: 'read_only' | 'proof_write_recorded' | 'unknown';
 };
 
@@ -236,6 +242,7 @@ export type CommandEveKanbanMarketingBoardModel = {
     worker_start_gate_checked_cards: number;
     worker_start_gate_blocked_cards: number;
     worker_dispatcher_prepared_cards: number;
+    worker_executor_promoted_cards: number;
   };
   columns: CommandEveKanbanMarketingColumn[];
   warnings: string[];
@@ -594,6 +601,38 @@ export type CommandEveKanbanMarketingWorkerDispatcherPrepareResult = {
   };
 };
 
+export type CommandEveKanbanMarketingWorkerExecutorPromotionResult = {
+  version: typeof COMMAND_EVE_KANBAN_MARKETING_WORKER_EXECUTOR_PROMOTION_BRIDGE_VERSION;
+  ok: boolean;
+  status: CommandEveKanbanMarketingBoardStatus;
+  reason_code?: string;
+  reason_codes: string[];
+  message?: string;
+  card_id?: string;
+  audit_event_id?: string;
+  audit_event_path?: string;
+  promotion_event_kind?: 'command_eve_marketing_worker_executor_promoted';
+  worker_executor_promotion_status?: 'completed';
+  worker_dispatcher_prepare_status?: 'ready';
+  executor_promotion_packet?: JsonRecord;
+  worker_report?: string;
+  worker_contract_yaml?: string;
+  worker_prompt?: string;
+  subprocess_spawned: false;
+  external_calls: false;
+  data_boundary_checked: boolean;
+  controller_approval_status?: CommandEveKanbanMarketingDispatchDecision;
+  controller_approved: boolean;
+  release_blocked: true;
+  human_gate: 'HG-3.5';
+  dispatch_handoff_packet?: JsonRecord;
+  model?: CommandEveKanbanMarketingBoardModel;
+  source: {
+    generated_by: 'command-eve-kanban-marketing-board-core';
+    hermes_home: string;
+  };
+};
+
 export type CommandEveKanbanMarketingCardCreateOptions = CommandEveKanbanMarketingBoardOptions & {
   title: string;
   description?: string;
@@ -672,6 +711,13 @@ export type CommandEveKanbanMarketingWorkerDispatcherPrepareOptions = CommandEve
   task_id: string;
   dispatch_handoff_packet?: JsonRecord;
   prepare_note?: string;
+};
+
+export type CommandEveKanbanMarketingWorkerExecutorPromotionOptions = CommandEveKanbanMarketingBoardOptions & {
+  task_id: string;
+  dispatch_handoff_packet?: JsonRecord;
+  promotion_note?: string;
+  cao_gate_approved?: boolean;
 };
 
 type JsonRecord = Record<string, unknown>;
@@ -821,6 +867,7 @@ function marketingBoardBaseModel({
       worker_start_gate_checked_cards: 0,
       worker_start_gate_blocked_cards: 0,
       worker_dispatcher_prepared_cards: 0,
+      worker_executor_promoted_cards: 0,
     },
     columns: emptyMarketingColumns(),
     warnings,
@@ -994,6 +1041,12 @@ function parseMarketingCards(rows: unknown[]): CommandEveKanbanMarketingCard[] {
       worker_dispatcher_prepared_at:
         typeof item.worker_dispatcher_prepared_at === 'number' ? item.worker_dispatcher_prepared_at : null,
       worker_dispatcher_prepare_packet: nullableTextField(item.worker_dispatcher_prepare_packet),
+      worker_executor_promotion_status:
+        textField(item.worker_executor_promotion_status) === 'completed' ? ('completed' as const) : null,
+      worker_executor_promotion_audit_event_id: nullableTextField(item.worker_executor_promotion_audit_event_id),
+      worker_executor_promoted_at:
+        typeof item.worker_executor_promoted_at === 'number' ? item.worker_executor_promoted_at : null,
+      worker_executor_report: nullableTextField(item.worker_executor_report),
       governance_state: linkedAuditEventId ? 'proof_write_recorded' : 'read_only',
     };
   });
@@ -1043,6 +1096,8 @@ function buildMarketingModelFromRows({
       worker_start_gate_checked_cards: cards.filter((card) => card.worker_start_gate_status).length,
       worker_start_gate_blocked_cards: cards.filter((card) => card.worker_start_gate_status === 'blocked').length,
       worker_dispatcher_prepared_cards: cards.filter((card) => card.worker_dispatcher_prepare_status === 'ready')
+        .length,
+      worker_executor_promoted_cards: cards.filter((card) => card.worker_executor_promotion_status === 'completed')
         .length,
     },
     columns,
@@ -1573,6 +1628,54 @@ try:
             ),
             ''
           ), 1, 6000) AS worker_dispatcher_prepare_packet,
+          COALESCE(
+            (
+              SELECT json_extract(e.payload, '$.worker_executor_promotion_status')
+              FROM task_events e
+              WHERE e.task_id = t.id
+                AND e.kind = 'command_eve_marketing_worker_executor_promoted'
+                AND json_valid(e.payload)
+              ORDER BY e.created_at DESC, e.id DESC
+              LIMIT 1
+            ),
+            ''
+          ) AS worker_executor_promotion_status,
+          COALESCE(
+            (
+              SELECT json_extract(e.payload, '$.audit_event_id')
+              FROM task_events e
+              WHERE e.task_id = t.id
+                AND e.kind = 'command_eve_marketing_worker_executor_promoted'
+                AND json_valid(e.payload)
+              ORDER BY e.created_at DESC, e.id DESC
+              LIMIT 1
+            ),
+            ''
+          ) AS worker_executor_promotion_audit_event_id,
+          COALESCE(
+            (
+              SELECT e.created_at
+              FROM task_events e
+              WHERE e.task_id = t.id
+                AND e.kind = 'command_eve_marketing_worker_executor_promoted'
+                AND json_valid(e.payload)
+              ORDER BY e.created_at DESC, e.id DESC
+              LIMIT 1
+            ),
+            0
+          ) AS worker_executor_promoted_at,
+          substr(COALESCE(
+            (
+              SELECT json_extract(e.payload, '$.worker_report')
+              FROM task_events e
+              WHERE e.task_id = t.id
+                AND e.kind = 'command_eve_marketing_worker_executor_promoted'
+                AND json_valid(e.payload)
+              ORDER BY e.created_at DESC, e.id DESC
+              LIMIT 1
+            ),
+            ''
+          ), 1, 6000) AS worker_executor_report,
           COALESCE(CAST(t.current_run_id AS TEXT), '') AS linked_run_id
         FROM tasks t
         WHERE COALESCE(t.tenant, '') = ?
@@ -3262,6 +3365,215 @@ finally:
 `;
 }
 
+function buildMarketingWorkerExecutorPromotionScript(): string {
+  return String.raw`
+import json
+import os
+import sqlite3
+import sys
+
+request = json.loads(sys.stdin.read() or "{}")
+db_path = request["db_path"]
+if not os.path.isfile(db_path):
+    print(json.dumps({"found": False}))
+    sys.exit(0)
+
+conn = sqlite3.connect(db_path)
+conn.row_factory = sqlite3.Row
+try:
+    row = conn.execute(
+        """
+        SELECT id, title, COALESCE(body, '') AS body
+        FROM tasks
+        WHERE id = ?
+        LIMIT 1
+        """,
+        (request["card_id"],),
+    ).fetchone()
+    if row is None:
+        print(json.dumps({"found": False}))
+        sys.exit(0)
+
+    dispatcher_event = conn.execute(
+        """
+        SELECT payload, created_at
+        FROM task_events
+        WHERE task_id = ?
+          AND kind = 'command_eve_marketing_worker_dispatcher_prepared'
+          AND json_valid(payload)
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        """,
+        (request["card_id"],),
+    ).fetchone()
+    if dispatcher_event is None:
+        print(json.dumps({"found": True, "dispatcher_prepared": False}))
+        sys.exit(0)
+
+    dispatcher_payload = json.loads(dispatcher_event["payload"] or "{}")
+    if dispatcher_payload.get("dispatcher_prepare_status") != "ready":
+        print(json.dumps({
+            "found": True,
+            "dispatcher_prepared": True,
+            "dispatcher_ready": False,
+            "dispatcher_prepare_status": dispatcher_payload.get("dispatcher_prepare_status") or "",
+        }))
+        sys.exit(0)
+
+    if dispatcher_payload.get("data_boundary_checked") is not True:
+        print(json.dumps({
+            "found": True,
+            "dispatcher_prepared": True,
+            "dispatcher_ready": True,
+            "data_boundary_checked": False,
+        }))
+        sys.exit(0)
+
+    if request.get("cao_gate_approved") is not True:
+        print(json.dumps({
+            "found": True,
+            "dispatcher_prepared": True,
+            "dispatcher_ready": True,
+            "data_boundary_checked": True,
+            "cao_gate_approved": False,
+        }))
+        sys.exit(0)
+
+    worker_contract_yaml = str(dispatcher_payload.get("worker_contract_yaml") or "")
+    worker_prompt = str(dispatcher_payload.get("worker_prompt") or "")
+    dispatcher_prepare_packet = dispatcher_payload.get("dispatcher_prepare_packet") or {}
+    if not isinstance(dispatcher_prepare_packet, dict):
+        dispatcher_prepare_packet = {}
+    if not worker_contract_yaml.strip() or not worker_prompt.strip():
+        print(json.dumps({
+            "found": True,
+            "dispatcher_prepared": True,
+            "dispatcher_ready": True,
+            "data_boundary_checked": True,
+            "cao_gate_approved": True,
+            "worker_ready": False,
+        }))
+        sys.exit(0)
+
+    promoted_at = int(request["promoted_at"])
+    title = row["title"] or ("Command EVE marketing card " + request["card_id"])
+    worker_report = "\n".join([
+        "worker.reported:",
+        "  status: completed_local_executor",
+        "  role: role:cmo",
+        "  mode: local_executor_promotion_gate",
+        "  card_id: " + request["card_id"],
+        "  title: " + title,
+        "  executor: command-eve-in-process-marketing-worker",
+        "  claim_safety: draft_only_no_publish",
+        "  output: Local marketing worker promotion completed and recorded in the local Hermes kanban ledger.",
+        "  next_human_decision: Review the worker report before any publish, schedule, outreach, or external model/tool route.",
+        "  gates:",
+        "    human_gate: HG-3.5",
+        "    cao_gate_approved: true",
+        "    nl5_gate_checked: true",
+        "    subprocess_spawned: false",
+        "    external_calls: false",
+        "    publish_blocked: true",
+    ])
+    executor_promotion_packet = {
+        "version": "command-eve-worker-executor-promotion-packet/v0",
+        "card_id": request["card_id"],
+        "role_label": "role:cmo",
+        "department": "marketing",
+        "executor_kind": "command-eve-in-process-marketing-worker",
+        "execution_mode": "observed_local_executor",
+        "transport": "local",
+        "human_gate": "HG-3.5",
+        "cao_gate_approved": True,
+        "worker_executor_promotion_status": "completed",
+        "dispatcher_prepare_status": "ready",
+        "nl5_gate_checked": True,
+        "data_boundary_checked": True,
+        "subprocess_spawned": False,
+        "external_calls": False,
+        "release_blocked": True,
+        "publishing_enabled": False,
+        "publish_blocked": True,
+        "allowed_next_actions": ["review_worker_report", "revise", "release_authority_review", "abort"],
+        "blocked_actions": ["subprocess_spawn", "external_call", "publish", "schedule", "outreach"],
+        "source_dispatcher_prepare_audit_event_id": dispatcher_payload.get("audit_event_id") or "",
+        "dispatcher_prepare_packet": dispatcher_prepare_packet,
+        "worker_report": worker_report,
+        "promotion_note_length": len(request.get("promotion_note") or ""),
+    }
+    event_payload = {
+        "audit_event_id": request["audit_event_id"],
+        "human_gate": "HG-3.5",
+        "controller_approval_status": "approved",
+        "controller_approved": True,
+        "cao_gate_approved": True,
+        "worker_executor_promotion_status": "completed",
+        "dispatcher_prepare_status": "ready",
+        "dispatcher_enabled": False,
+        "auto_decompose_enabled": False,
+        "subprocess_spawned": False,
+        "external_calls": False,
+        "nl5_gate_checked": True,
+        "data_boundary_checked": True,
+        "release_blocked": True,
+        "publishing_enabled": False,
+        "publish_blocked": True,
+        "executor_promotion_packet": executor_promotion_packet,
+        "dispatcher_prepare_packet": dispatcher_prepare_packet,
+        "worker_contract_yaml": worker_contract_yaml,
+        "worker_prompt": worker_prompt,
+        "worker_report": worker_report,
+        "dispatch_handoff_packet": dispatcher_payload.get("dispatch_handoff_packet") or request.get("dispatch_handoff_packet") or {},
+        "source_worker_dispatcher_prepare_audit_event_id": dispatcher_payload.get("audit_event_id") or "",
+        "reason_codes": [
+            "command_eve.marketing_worker_executor_promoted_local_in_process",
+            "command_eve.worker_dispatcher_prepare_verified",
+            "command_eve.nl5_no_bypass_verified",
+        ],
+    }
+    conn.execute(
+        "INSERT INTO task_events (task_id, run_id, kind, payload, created_at) VALUES (?, NULL, ?, ?, ?)",
+        (
+          request["card_id"],
+          "command_eve_marketing_worker_executor_promoted",
+          json.dumps(event_payload),
+          promoted_at,
+        ),
+    )
+    conn.execute(
+        "INSERT INTO task_comments (task_id, author, body, created_at) VALUES (?, ?, ?, ?)",
+        (
+          request["card_id"],
+          "eve",
+          "Local executor promotion completed without subprocess, external calls, publishing, scheduling or outreach.\n\n" + worker_report,
+          promoted_at,
+        ),
+    )
+    conn.commit()
+    print(json.dumps({
+        "found": True,
+        "dispatcher_prepared": True,
+        "dispatcher_ready": True,
+        "data_boundary_checked": True,
+        "cao_gate_approved": True,
+        "worker_ready": True,
+        "promotion_recorded": True,
+        "task": dict(row),
+        "promotion_event_kind": "command_eve_marketing_worker_executor_promoted",
+        "worker_executor_promotion_status": "completed",
+        "dispatcher_prepare_status": "ready",
+        "executor_promotion_packet": executor_promotion_packet,
+        "worker_report": worker_report,
+        "worker_contract_yaml": worker_contract_yaml,
+        "worker_prompt": worker_prompt,
+        "dispatch_handoff_packet": event_payload["dispatch_handoff_packet"],
+    }))
+finally:
+    conn.close()
+`;
+}
+
 function buildMarketingCardLookupScript(): string {
   return String.raw`
 import json
@@ -4158,6 +4470,92 @@ function appendMarketingWorkerDispatcherPrepareAuditEvent({
   return eventId;
 }
 
+function appendMarketingWorkerExecutorPromotionAuditEvent({
+  eventId,
+  eventLedgerPath,
+  occurredAt,
+  cardId,
+  boardSlug,
+  dbPath,
+  dispatchHandoffPacket,
+  workerContractYaml,
+  workerPrompt,
+  executorPromotionPacket,
+  workerReport,
+}: {
+  eventId: string;
+  eventLedgerPath: string;
+  occurredAt: string;
+  cardId: string;
+  boardSlug: string;
+  dbPath: string;
+  dispatchHandoffPacket: JsonRecord;
+  workerContractYaml: string;
+  workerPrompt: string;
+  executorPromotionPacket: JsonRecord;
+  workerReport: string;
+}): string {
+  const event = {
+    schema_version: 'agent-event/v1',
+    event_id: eventId,
+    event_type: 'kanban.marketing_board_worker_executor_promoted',
+    occurred_at: occurredAt,
+    producer: 'command-eve-desktop',
+    workspace: 'command-eve-local',
+    workspace_path: dbPath,
+    issue_id: cardId,
+    parent_issue_id: '',
+    run_id: `kanban-marketing-worker-executor-promotion-${cardId}`,
+    session_id: '',
+    agent: 'eve',
+    mode: 'kanban-marketing-worker-executor-promotion',
+    role_owner: 'Controller',
+    department: 'Marketing',
+    autonomy_level: 'L1',
+    event_policy: 'append-only',
+    payload: {
+      board_slug: boardSlug,
+      card_id: cardId,
+      db_path: dbPath,
+      human_gate: 'HG-3.5',
+      controller_approval_status: 'approved',
+      controller_approved: true,
+      cao_gate_approved: true,
+      worker_executor_promotion_status: 'completed',
+      dispatcher_prepare_status: 'ready',
+      release_blocked: true,
+      publishing_enabled: false,
+      publish_blocked: true,
+      dispatcher_enabled: false,
+      auto_decompose_enabled: false,
+      subprocess_spawned: false,
+      external_calls: false,
+      data_boundary_checked: true,
+      nl5_gate_checked: true,
+      action: 'worker_executor_promoted_local_in_process',
+      reason_codes: [
+        'command_eve.marketing_worker_executor_promoted_local_in_process',
+        'command_eve.worker_dispatcher_prepare_verified',
+        'command_eve.nl5_no_bypass_verified',
+      ],
+      dispatch_handoff_packet: dispatchHandoffPacket,
+      executor_promotion_packet: executorPromotionPacket,
+      worker_contract_yaml: workerContractYaml,
+      worker_prompt_preview: workerPrompt.slice(0, 600),
+      worker_prompt_length: workerPrompt.length,
+      worker_report_preview: workerReport.slice(0, 800),
+      worker_report_length: workerReport.length,
+    },
+    artifact_paths: [dbPath],
+    linear_comment_ids: [] as string[],
+    human_gate_required: true,
+    redaction_level: 'none',
+  };
+  fs.mkdirSync(path.dirname(eventLedgerPath), { recursive: true });
+  fs.appendFileSync(eventLedgerPath, `${JSON.stringify(event)}\n`);
+  return eventId;
+}
+
 function marketingCardCreateAuditEventId(cardId: string, occurredAt: string): string {
   return [
     'command-eve-kanban-marketing-card-created',
@@ -4260,6 +4658,14 @@ function marketingCardWorkerDispatcherPrepareAuditEventId(cardId: string, occurr
   ].join('-');
 }
 
+function marketingCardWorkerExecutorPromotionAuditEventId(cardId: string, occurredAt: string): string {
+  return [
+    'command-eve-kanban-marketing-worker-executor-promotion',
+    sanitizeEventIdPart(cardId),
+    sanitizeEventIdPart(occurredAt),
+  ].join('-');
+}
+
 function marketingBoardResultBase(
   hermesHome: string
 ): Pick<CommandEveKanbanMarketingBoardResult, 'version' | 'source'> {
@@ -4348,6 +4754,36 @@ function marketingWorkerDispatcherPrepareResultBase(
 > {
   return {
     version: COMMAND_EVE_KANBAN_MARKETING_WORKER_DISPATCHER_PREPARE_BRIDGE_VERSION,
+    reason_codes: [],
+    subprocess_spawned: false,
+    external_calls: false,
+    data_boundary_checked: false,
+    controller_approved: false,
+    release_blocked: true,
+    human_gate: 'HG-3.5',
+    source: {
+      generated_by: 'command-eve-kanban-marketing-board-core',
+      hermes_home: hermesHome,
+    },
+  };
+}
+
+function marketingWorkerExecutorPromotionResultBase(
+  hermesHome: string
+): Pick<
+  CommandEveKanbanMarketingWorkerExecutorPromotionResult,
+  | 'version'
+  | 'source'
+  | 'reason_codes'
+  | 'subprocess_spawned'
+  | 'external_calls'
+  | 'data_boundary_checked'
+  | 'controller_approved'
+  | 'release_blocked'
+  | 'human_gate'
+> {
+  return {
+    version: COMMAND_EVE_KANBAN_MARKETING_WORKER_EXECUTOR_PROMOTION_BRIDGE_VERSION,
     reason_codes: [],
     subprocess_spawned: false,
     external_calls: false,
@@ -8002,6 +8438,252 @@ export function prepareKanbanMarketingWorkerDispatcher(
     worker_start_gate_status: 'ready',
     dispatcher_prepare_packet: dispatcherPreparePacket,
     worker_start_packet: workerStartPacket,
+    worker_contract_yaml: workerContractYaml,
+    worker_prompt: workerPrompt,
+    subprocess_spawned: false,
+    external_calls: false,
+    data_boundary_checked: true,
+    controller_approval_status: 'approved',
+    controller_approved: true,
+    release_blocked: true,
+    human_gate: 'HG-3.5',
+    dispatch_handoff_packet: persistedHandoff,
+    model: board.model,
+  };
+}
+
+export function promoteKanbanMarketingWorkerExecutor(
+  options: CommandEveKanbanMarketingWorkerExecutorPromotionOptions
+): CommandEveKanbanMarketingWorkerExecutorPromotionResult {
+  const paths = resolveCommandEveRuntimeBootstrapPaths(options.userDataPath);
+  const base = marketingWorkerExecutorPromotionResultBase(paths.hermesHome);
+
+  let boardSlug: string;
+  try {
+    boardSlug = normalizeBoardSlug(options.boardSlug);
+  } catch (error) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_BOARD_SLUG_INVALID',
+      reason_codes: ['KANBAN_BOARD_SLUG_INVALID'],
+      message: error instanceof Error ? error.message : 'Invalid Hermes Kanban board slug.',
+    };
+  }
+
+  const taskId = String(options.task_id || '').trim();
+  if (!taskId) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_CARD_ID_REQUIRED',
+      reason_codes: ['KANBAN_MARKETING_CARD_ID_REQUIRED'],
+      message: 'A task_id is required to promote a marketing worker executor.',
+    };
+  }
+
+  const reconciliation = readRuntimeReconciliation(paths.runtimeReconciliation);
+  const governanceOk =
+    reconciliation.governance.dispatcher_disabled &&
+    reconciliation.governance.auto_decompose_disabled &&
+    reconciliation.governance.mcp_servers_disabled;
+  if (!governanceOk) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
+      reason_codes: ['KANBAN_GOVERNANCE_NOT_LOCKED'],
+      message: 'Executor promotion requires dispatcher, auto-decompose and external MCP execution to stay disabled.',
+      card_id: taskId,
+    };
+  }
+
+  if (options.cao_gate_approved !== true) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_EXECUTOR_PROMOTION_CAO_GATE_REQUIRED',
+      reason_codes: ['KANBAN_MARKETING_EXECUTOR_PROMOTION_CAO_GATE_REQUIRED'],
+      message: 'Executor promotion requires an explicit CAO/HG-3.5 approval flag.',
+      card_id: taskId,
+    };
+  }
+
+  const now = options.now ?? (() => new Date());
+  const occurredAt = now().toISOString();
+  const promotedAt = Math.floor(new Date(occurredAt).getTime() / 1000);
+  const dbPath = kanbanDbPath(paths.hermesHome, boardSlug);
+  const eventLedgerPath = resolveMarketingEventLedgerPath(paths, options);
+  const auditEventId = marketingCardWorkerExecutorPromotionAuditEventId(taskId, occurredAt);
+  const pythonPath = pythonForMarketingBoard(paths, options.pythonPath);
+  const receiptWrite = runPythonJson(
+    pythonPath,
+    {
+      db_path: dbPath,
+      card_id: taskId,
+      audit_event_id: auditEventId,
+      promoted_at: promotedAt,
+      dispatch_handoff_packet: isRecord(options.dispatch_handoff_packet) ? options.dispatch_handoff_packet : {},
+      promotion_note: options.promotion_note || '',
+      cao_gate_approved: true,
+    },
+    buildMarketingWorkerExecutorPromotionScript(),
+    paths.hermesHome
+  );
+
+  if (!receiptWrite.ok || !receiptWrite.data) {
+    return {
+      ...base,
+      ok: false,
+      status: 'failed',
+      reason_code: 'KANBAN_MARKETING_WORKER_EXECUTOR_PROMOTION_WRITE_FAILED',
+      reason_codes: ['KANBAN_MARKETING_WORKER_EXECUTOR_PROMOTION_WRITE_FAILED'],
+      message: receiptWrite.error || 'Command EVE marketing worker executor promotion could not be written.',
+      card_id: taskId,
+      audit_event_path: eventLedgerPath,
+    };
+  }
+  if (receiptWrite.data.found !== true) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_CARD_NOT_FOUND',
+      reason_codes: ['KANBAN_MARKETING_CARD_NOT_FOUND'],
+      message: `No marketing card found for task_id: ${taskId}`,
+      card_id: taskId,
+      audit_event_path: eventLedgerPath,
+    };
+  }
+  if (receiptWrite.data.dispatcher_prepared !== true) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_WORKER_DISPATCHER_PREPARE_REQUIRED',
+      reason_codes: ['KANBAN_MARKETING_WORKER_DISPATCHER_PREPARE_REQUIRED'],
+      message: 'Executor promotion requires a prepared marketing worker dispatcher first.',
+      card_id: taskId,
+      audit_event_path: eventLedgerPath,
+    };
+  }
+  if (receiptWrite.data.dispatcher_ready !== true) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_WORKER_DISPATCHER_NOT_READY',
+      reason_codes: ['KANBAN_MARKETING_WORKER_DISPATCHER_NOT_READY'],
+      message: 'Executor promotion requires a ready dispatcher prepare packet.',
+      card_id: taskId,
+      audit_event_path: eventLedgerPath,
+    };
+  }
+  if (receiptWrite.data.data_boundary_checked !== true) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_WORKER_EXECUTOR_NL5_REQUIRED',
+      reason_codes: ['KANBAN_MARKETING_WORKER_EXECUTOR_NL5_REQUIRED'],
+      message: 'Executor promotion requires NL-5/no-bypass evidence from the dispatcher prepare packet.',
+      card_id: taskId,
+      audit_event_path: eventLedgerPath,
+    };
+  }
+  if (receiptWrite.data.cao_gate_approved !== true) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_EXECUTOR_PROMOTION_CAO_GATE_REQUIRED',
+      reason_codes: ['KANBAN_MARKETING_EXECUTOR_PROMOTION_CAO_GATE_REQUIRED'],
+      message: 'Executor promotion requires explicit CAO/HG-3.5 approval.',
+      card_id: taskId,
+      audit_event_path: eventLedgerPath,
+    };
+  }
+  if (receiptWrite.data.worker_ready !== true) {
+    return {
+      ...base,
+      ok: false,
+      status: 'blocked',
+      reason_code: 'KANBAN_MARKETING_WORKER_HANDOFF_REQUIRED',
+      reason_codes: ['KANBAN_MARKETING_WORKER_HANDOFF_REQUIRED'],
+      message: 'Executor promotion requires a prepared worker handoff.',
+      card_id: taskId,
+      audit_event_path: eventLedgerPath,
+    };
+  }
+  if (receiptWrite.data.promotion_recorded !== true) {
+    return {
+      ...base,
+      ok: false,
+      status: 'failed',
+      reason_code: 'KANBAN_MARKETING_WORKER_EXECUTOR_PROMOTION_NOT_RECORDED',
+      reason_codes: ['KANBAN_MARKETING_WORKER_EXECUTOR_PROMOTION_NOT_RECORDED'],
+      message: 'Command EVE marketing worker executor promotion did not return a persisted receipt.',
+      card_id: taskId,
+      audit_event_path: eventLedgerPath,
+    };
+  }
+
+  const executorPromotionPacket = isRecord(receiptWrite.data.executor_promotion_packet)
+    ? (receiptWrite.data.executor_promotion_packet as JsonRecord)
+    : {};
+  const workerContractYaml = textField(receiptWrite.data.worker_contract_yaml);
+  const workerPrompt = textField(receiptWrite.data.worker_prompt);
+  const workerReport = textField(receiptWrite.data.worker_report);
+  const persistedHandoff = isRecord(receiptWrite.data.dispatch_handoff_packet)
+    ? (receiptWrite.data.dispatch_handoff_packet as JsonRecord)
+    : isRecord(options.dispatch_handoff_packet)
+      ? options.dispatch_handoff_packet
+      : {};
+  appendMarketingWorkerExecutorPromotionAuditEvent({
+    eventId: auditEventId,
+    eventLedgerPath,
+    occurredAt,
+    cardId: taskId,
+    boardSlug,
+    dbPath,
+    dispatchHandoffPacket: persistedHandoff,
+    workerContractYaml,
+    workerPrompt,
+    executorPromotionPacket,
+    workerReport,
+  });
+
+  const board = buildKanbanMarketingBoard({
+    ...options,
+    boardSlug,
+    now,
+    pythonPath,
+  });
+
+  return {
+    ...base,
+    ok: true,
+    status: 'ready',
+    reason_code: 'KANBAN_MARKETING_WORKER_EXECUTOR_PROMOTED',
+    reason_codes: [
+      'command_eve.marketing_worker_executor_promoted_local_in_process',
+      'command_eve.worker_dispatcher_prepare_verified',
+      'command_eve.nl5_no_bypass_verified',
+    ],
+    message:
+      'Local marketing worker executor promoted in-process; no subprocess, external call, publish, schedule or outreach ran.',
+    card_id: taskId,
+    audit_event_id: auditEventId,
+    audit_event_path: eventLedgerPath,
+    promotion_event_kind: 'command_eve_marketing_worker_executor_promoted',
+    worker_executor_promotion_status: 'completed',
+    worker_dispatcher_prepare_status: 'ready',
+    executor_promotion_packet: executorPromotionPacket,
+    worker_report: workerReport,
     worker_contract_yaml: workerContractYaml,
     worker_prompt: workerPrompt,
     subprocess_spawned: false,

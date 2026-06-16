@@ -236,6 +236,7 @@
       "workerObserved": "Observed Worker",
       "workerStartGates": "Start-Gates",
       "dispatcherPreparedCount": "Dispatcher vorbereitet",
+      "executorPromotedCount": "Executors promoted",
       "nextStep": "Naechster Schritt",
       "pendingNext": "Controller muss das Handoff noch freigeben oder ablehnen.",
       "approvedNext": "Handoff ist lokal freigegeben; EVE kann jetzt einen lokalen Marketing-Draft erzeugen.",
@@ -247,6 +248,7 @@
       "workerStartGateNext": "Worker-Start-Gate ist geprueft. Runtime-Start bleibt bis HG-3 und Executor-Konfiguration gesperrt.",
       "workerStartGateReadyNext": "Observed-local Executor-Profil ist akzeptiert. Runtime-Start bleibt bis Release-Freigabe weiter no-spawn.",
       "workerDispatcherPreparedNext": "Gated Dispatcher ist vorbereitet. Echter Runtime-Spawn braucht weiter Release-Freigabe.",
+      "workerExecutorPromotedNext": "Lokaler Executor-Report ist gespeichert. Publishing, Scheduling und externe Worker bleiben gegatet.",
       "rejectedNext": "Handoff ist abgelehnt; Karte ueberarbeiten oder blockiert lassen.",
       "loopProgressTitle": "Loop-Fortschritt",
       "loopStepController": "Controller",
@@ -256,10 +258,11 @@
       "loopStepObserved": "Observed Run",
       "loopStepStartGate": "Start-Gate",
       "loopStepDispatcher": "Dispatcher",
+      "loopStepExecutor": "Executor-Report",
       "generateDraft": "Draft erzeugen",
       "runSafeLocalLoop": "Sicheren lokalen Loop ausfuehren",
       "safeLocalLoopRunning": "Lokaler Loop laeuft",
-      "safeLocalLoopSuccess": "Sicherer lokaler Marketing-Loop ist vorbereitet.",
+      "safeLocalLoopSuccess": "Sicherer lokaler Marketing-Loop ist bis zum lokalen Executor-Report gespeichert.",
       "safeLocalLoopFailed": "Sicherer lokaler Marketing-Loop ist fehlgeschlagen.",
       "draftAlreadyGenerated": "Draft erzeugt",
       "approveOutput": "Output freigeben",
@@ -282,6 +285,9 @@
       "workerDispatcherPrepared": "Dispatcher vorbereitet",
       "prepareWorkerDispatcher": "Dispatcher vorbereiten",
       "dispatcherPreparePacket": "Dispatcher-Prepare-Paket",
+      "promoteWorkerExecutor": "Lokalen Executor promoten",
+      "workerExecutorPromoted": "Executor reported",
+      "workerExecutorReport": "Lokaler Executor-Report",
       "empty": "Keine Controller-Handoffs in der lokalen Queue."
     },
     "workerDispatchRequest": {
@@ -307,6 +313,11 @@
       "success": "Gated Dispatcher ist vorbereitet.",
       "failed": "Gated Dispatcher konnte nicht vorbereitet werden.",
       "resultTitle": "Dispatcher-Prepare-Gate"
+    },
+    "workerExecutorPromotion": {
+      "success": "Lokaler Executor-Report gespeichert.",
+      "failed": "Lokaler Executor-Report konnte nicht gespeichert werden.",
+      "resultTitle": "Executor-Promotion-Gate"
     },
     "draftGenerate": {
       "resultTitle": "Marketing-Draft-Receipt",

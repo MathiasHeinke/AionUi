@@ -1228,6 +1228,10 @@ export const commandEve = {
     IBridgeResponse<ICommandEveKanbanMarketingWorkerLoopResult>,
     ICommandEveKanbanMarketingWorkerLoopRequest
   >('command-eve.kanban-marketing-worker-dispatcher-prepare'),
+  kanbanMarketingWorkerExecutorPromotion: bridge.buildProvider<
+    IBridgeResponse<ICommandEveKanbanMarketingWorkerLoopResult>,
+    ICommandEveKanbanMarketingWorkerLoopRequest & { cao_gate_approved?: boolean; promotion_note?: string }
+  >('command-eve.kanban-marketing-worker-executor-promotion'),
   crmOverlay: bridge.buildProvider<IBridgeResponse<ICommandEveCrmOverlayResult>, { eventLedgerPath?: string } | void>(
     'command-eve.crm-overlay'
   ),

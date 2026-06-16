@@ -32,6 +32,7 @@ import {
   moveKanbanMarketingCard,
   planKanbanMarketingCardDispatch,
   prepareKanbanMarketingWorkerDispatcher,
+  promoteKanbanMarketingWorkerExecutor,
   recordKanbanMarketingDispatchApproval,
   recordKanbanMarketingDispatchDecision,
   requestKanbanMarketingWorkerDispatch,
@@ -899,6 +900,63 @@ export function initCommandEveBridge(): void {
                 error instanceof Error
                   ? error.message
                   : 'Command EVE marketing worker-dispatcher-prepare bridge failed.',
+              subprocess_spawned: false,
+              external_calls: false,
+              data_boundary_checked: false,
+              controller_approved: false,
+              release_blocked: true,
+              human_gate: 'HG-3.5',
+              source: {
+                generated_by: 'command-eve-kanban-marketing-board-core',
+                hermes_home: '',
+              },
+            },
+          };
+        }
+      }
+    );
+
+  bridge
+    .buildProvider('command-eve.kanban-marketing-worker-executor-promotion')
+    .provider(
+      async (request?: {
+        task_id?: string;
+        boardSlug?: string;
+        eventLedgerPath?: string;
+        dispatch_handoff_packet?: Record<string, unknown>;
+        promotion_note?: string;
+        cao_gate_approved?: boolean;
+      }) => {
+        try {
+          const result = promoteKanbanMarketingWorkerExecutor({
+            userDataPath: getDataPath(),
+            task_id: request?.task_id || '',
+            boardSlug: request?.boardSlug,
+            eventLedgerPath: request?.eventLedgerPath,
+            dispatch_handoff_packet: request?.dispatch_handoff_packet,
+            promotion_note: request?.promotion_note,
+            cao_gate_approved: request?.cao_gate_approved === true,
+          });
+          return {
+            success: result.ok,
+            msg: result.ok ? undefined : result.reason_code || result.message,
+            data: result,
+          };
+        } catch (error) {
+          return {
+            success: false,
+            msg:
+              error instanceof Error ? error.message : 'Command EVE marketing worker-executor-promotion bridge failed.',
+            data: {
+              version: 'command-eve-kanban-marketing-worker-executor-promotion/v0',
+              ok: false,
+              status: 'failed',
+              reason_code: 'KANBAN_MARKETING_WORKER_EXECUTOR_PROMOTION_BRIDGE_FAILED',
+              reason_codes: ['KANBAN_MARKETING_WORKER_EXECUTOR_PROMOTION_BRIDGE_FAILED'],
+              message:
+                error instanceof Error
+                  ? error.message
+                  : 'Command EVE marketing worker-executor-promotion bridge failed.',
               subprocess_spawned: false,
               external_calls: false,
               data_boundary_checked: false,
