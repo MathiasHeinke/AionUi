@@ -1913,10 +1913,12 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     await expect(marketingRequestButton).toBeEnabled({ timeout: 30_000 });
     await marketingRequestButton.click();
 
-    await expect.poll(() => sqliteQuery(crmMarketingDbPath!, "SELECT id FROM tasks WHERE title = 'Outreach Pilot'").length, {
-      message: 'CRM handoff must create a local marketing task row',
-      timeout: 30_000,
-    }).toBeGreaterThan(0);
+    await expect
+      .poll(() => sqliteQuery(crmMarketingDbPath!, "SELECT id FROM tasks WHERE title = 'Outreach Pilot'").length, {
+        message: 'CRM handoff must create a local marketing task row',
+        timeout: 30_000,
+      })
+      .toBeGreaterThan(0);
     const crmMarketingTaskRows = sqliteQuery(
       crmMarketingDbPath!,
       "SELECT id, title, current_step_key FROM tasks WHERE title = 'Outreach Pilot' ORDER BY created_at DESC LIMIT 1"
@@ -1932,7 +1934,18 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
       `SELECT COUNT(*) FROM tasks WHERE id = '${crmMarketingCardId}' AND body LIKE '%CRM deal:%' AND body LIKE '%Company: Alois Consulting GmbH%' AND body LIKE '%Source: Command EVE local CRM overlay%'`
     );
     expect(Number(crmMarketingBodyRows[0]?.[0] || 0), 'CRM handoff body must persist source metadata').toBe(1);
-    await expect(page.getByTestId(`marketing-dispatch-queue-item-${crmMarketingCardId}`)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId(`marketing-dispatch-queue-item-${crmMarketingCardId}`)).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId(`marketing-dispatch-queue-loop-progress-${crmMarketingCardId}`)).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId(`marketing-dispatch-queue-loop-step-controller-${crmMarketingCardId}`)).toContainText(
+      /Controller/
+    );
+    await expect(page.getByTestId(`marketing-dispatch-queue-loop-step-draft-${crmMarketingCardId}`)).toContainText(
+      /Draft/
+    );
     await expect(page.getByTestId(`marketing-dispatch-queue-crm-source-${crmMarketingCardId}`)).toContainText(
       /CRM-Handoff|CRM handoff/,
       { timeout: 30_000 }
@@ -2008,6 +2021,21 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     await expect(
       page.getByTestId(`marketing-dispatch-queue-worker-dispatcher-prepared-tag-${crmMarketingCardId}`)
     ).toContainText(/Dispatcher|vorbereitet|prepared/);
+    await expect(page.getByTestId(`marketing-dispatch-queue-loop-step-output-${crmMarketingCardId}`)).toContainText(
+      /Output/
+    );
+    await expect(page.getByTestId(`marketing-dispatch-queue-loop-step-handoff-${crmMarketingCardId}`)).toContainText(
+      /Handoff|handoff/
+    );
+    await expect(page.getByTestId(`marketing-dispatch-queue-loop-step-observed-${crmMarketingCardId}`)).toContainText(
+      /Observed|observed/
+    );
+    await expect(page.getByTestId(`marketing-dispatch-queue-loop-step-startGate-${crmMarketingCardId}`)).toContainText(
+      /Start-Gate|Start gate/
+    );
+    await expect(page.getByTestId(`marketing-dispatch-queue-loop-step-dispatcher-${crmMarketingCardId}`)).toContainText(
+      /Dispatcher/
+    );
 
     const crmSafeLoopEventRows = sqliteQuery(
       crmMarketingDbPath!,
@@ -2029,9 +2057,7 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
       'command_eve_marketing_worker_start_gate_checked',
       'command_eve_marketing_worker_dispatcher_prepared',
     ]) {
-      expect(crmSafeLoopKinds.has(kind), `${kind} receipt must exist for CRM handoff ${crmMarketingCardId}`).toBe(
-        true
-      );
+      expect(crmSafeLoopKinds.has(kind), `${kind} receipt must exist for CRM handoff ${crmMarketingCardId}`).toBe(true);
     }
 
     for (const [kind, payloadText] of crmSafeLoopEventRows) {

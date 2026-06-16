@@ -1682,6 +1682,21 @@ const MarketingColumnView: React.FC<{
   );
 };
 
+type IMarketingLoopStepStatus = 'done' | 'active' | 'blocked' | 'pending';
+
+const marketingLoopStepColor = (status: IMarketingLoopStepStatus): string => {
+  if (status === 'done') {
+    return 'green';
+  }
+  if (status === 'active') {
+    return 'blue';
+  }
+  if (status === 'blocked') {
+    return 'red';
+  }
+  return 'gray';
+};
+
 const MarketingDispatchQueueView: React.FC<{
   model: ICommandEveMarketingBoardModel;
   workerStartGateResult: ICommandEveMarketingWorkerStartGateResult | null;
@@ -1882,6 +1897,58 @@ const MarketingDispatchQueueView: React.FC<{
               workerStartGateChecking ||
               workerDispatcherPreparing ||
               safeLocalLoopRunning;
+            const controllerApproved = decision === 'approved';
+            const marketingLoopSteps: Array<{
+              key: string;
+              label: string;
+              status: IMarketingLoopStepStatus;
+            }> = [
+              {
+                key: 'controller',
+                label: t('commandCenter.marketingBoard.dispatchQueue.loopStepController'),
+                status: controllerApproved ? 'done' : decision === 'rejected' ? 'blocked' : 'pending',
+              },
+              {
+                key: 'draft',
+                label: t('commandCenter.marketingBoard.dispatchQueue.loopStepDraft'),
+                status: hasGeneratedDraft ? 'done' : controllerApproved ? 'active' : 'pending',
+              },
+              {
+                key: 'output',
+                label: t('commandCenter.marketingBoard.dispatchQueue.loopStepOutput'),
+                status: hasApprovedOutput ? 'done' : hasGeneratedDraft ? 'active' : 'pending',
+              },
+              {
+                key: 'handoff',
+                label: t('commandCenter.marketingBoard.dispatchQueue.loopStepWorkerHandoff'),
+                status: hasWorkerDispatchReady ? 'done' : hasApprovedOutput ? 'active' : 'pending',
+              },
+              {
+                key: 'observed',
+                label: t('commandCenter.marketingBoard.dispatchQueue.loopStepObserved'),
+                status: workerObservedCompleted
+                  ? 'done'
+                  : workerDispatchRequested || hasWorkerDispatchReady
+                    ? 'active'
+                    : 'pending',
+              },
+              {
+                key: 'startGate',
+                label: t('commandCenter.marketingBoard.dispatchQueue.loopStepStartGate'),
+                status: workerStartGateReady
+                  ? 'done'
+                  : workerStartGateChecked
+                    ? 'blocked'
+                    : workerObservedCompleted
+                      ? 'active'
+                      : 'pending',
+              },
+              {
+                key: 'dispatcher',
+                label: t('commandCenter.marketingBoard.dispatchQueue.loopStepDispatcher'),
+                status: workerDispatcherPrepared ? 'done' : workerStartGateReady ? 'active' : 'pending',
+              },
+            ];
             const crmHandoffSource = crmHandoffSourceForCard(card);
             return (
               <article
@@ -1920,21 +1987,13 @@ const MarketingDispatchQueueView: React.FC<{
                       </span>
                     </div>
                     <div className='grid gap-x-8px gap-y-2px text-t-secondary sm:grid-cols-[max-content_1fr]'>
-                      <span className='text-t-tertiary'>
-                        {t('commandCenter.marketingBoard.crmHandoff.deal')}
-                      </span>
+                      <span className='text-t-tertiary'>{t('commandCenter.marketingBoard.crmHandoff.deal')}</span>
                       <span className='truncate'>{textOrDash(crmHandoffSource.dealId)}</span>
-                      <span className='text-t-tertiary'>
-                        {t('commandCenter.marketingBoard.crmHandoff.contact')}
-                      </span>
+                      <span className='text-t-tertiary'>{t('commandCenter.marketingBoard.crmHandoff.contact')}</span>
                       <span className='truncate'>{textOrDash(crmHandoffSource.contact)}</span>
-                      <span className='text-t-tertiary'>
-                        {t('commandCenter.marketingBoard.crmHandoff.stage')}
-                      </span>
+                      <span className='text-t-tertiary'>{t('commandCenter.marketingBoard.crmHandoff.stage')}</span>
                       <span className='truncate'>{textOrDash(crmHandoffSource.stage)}</span>
-                      <span className='text-t-tertiary'>
-                        {t('commandCenter.marketingBoard.crmHandoff.consent')}
-                      </span>
+                      <span className='text-t-tertiary'>{t('commandCenter.marketingBoard.crmHandoff.consent')}</span>
                       <span className='truncate'>{textOrDash(crmHandoffSource.consent)}</span>
                     </div>
                   </div>
@@ -1959,6 +2018,25 @@ const MarketingDispatchQueueView: React.FC<{
                     {t(`commandCenter.marketingBoard.dispatchQueue.${nextStepKey}`)}
                   </dd>
                 </dl>
+                <div
+                  className='mt-8px rounded-8px border border-solid border-fill-3 bg-fill-1 px-8px py-6px'
+                  data-testid={`marketing-dispatch-queue-loop-progress-${card.card_id}`}
+                >
+                  <div className='text-11px font-600 leading-16px text-t-primary'>
+                    {t('commandCenter.marketingBoard.dispatchQueue.loopProgressTitle')}
+                  </div>
+                  <div className='mt-6px flex flex-wrap gap-4px'>
+                    {marketingLoopSteps.map((step) => (
+                      <Tag
+                        key={step.key}
+                        color={marketingLoopStepColor(step.status)}
+                        data-testid={`marketing-dispatch-queue-loop-step-${step.key}-${card.card_id}`}
+                      >
+                        {step.label}
+                      </Tag>
+                    ))}
+                  </div>
+                </div>
                 {decision === 'approved' ? (
                   <div className='mt-8px flex flex-wrap items-center gap-6px'>
                     {!workerDispatcherPrepared ? (
@@ -5240,9 +5318,7 @@ const CommandCenterPage: React.FC = () => {
         }
       } catch (requestError) {
         Message.error(
-          requestError instanceof Error
-            ? requestError.message
-            : t('commandCenter.crmOverlay.marketingRequest.failed')
+          requestError instanceof Error ? requestError.message : t('commandCenter.crmOverlay.marketingRequest.failed')
         );
       } finally {
         setCrmMarketingRequestDealId(null);
