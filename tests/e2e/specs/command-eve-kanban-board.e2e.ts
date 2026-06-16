@@ -1749,7 +1749,7 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     expect(dispatchPayload.dispatch_source).toBe('command-eve-embedded-nl5');
     expect(dispatchPayload.policy?.dispatch_source).toBe('command-eve-embedded-nl5');
     expect(dispatchPayload.dispatch_source_reason || dispatchPayload.policy?.dispatch_source_reason || '').toContain(
-      'Company.OS'
+      'embedded NL-5'
     );
     expect(dispatchPayload.reason_codes).toContain('hermes.pre_generation.controller_approval_missing');
     expect(dispatchPayload.dispatch_handoff_packet).toMatchObject({

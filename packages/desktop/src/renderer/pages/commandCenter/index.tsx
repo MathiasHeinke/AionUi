@@ -11,6 +11,7 @@ import { Alert, Button, Empty, Input, Message, Modal, Select, Spin, Tag } from '
 import { bridge } from '@office-ai/platform';
 import { useLayoutContext } from '@renderer/hooks/context/LayoutContext';
 import { isElectronDesktop } from '@renderer/utils/platform';
+import { useAddEventListener } from '@renderer/utils/emitter';
 
 const MAX_RUNS = 16;
 
@@ -4058,6 +4059,14 @@ const CommandCenterPage: React.FC = () => {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useAddEventListener(
+    'commandEve.commandCenter.refresh',
+    () => {
+      void refresh();
+    },
+    [refresh]
+  );
 
   const model = result?.model;
   const totals = model?.morning_brief?.totals ?? {};
