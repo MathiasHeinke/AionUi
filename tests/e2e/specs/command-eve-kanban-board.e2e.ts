@@ -1962,6 +1962,104 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     expect(crmMarketingApprovalPayload.human_gate).toBe('HG-2.5');
     expect(crmMarketingApprovalPayload.reason_codes).toContain('command_eve.controller_approval_pending');
 
+    await page.getByTestId('marketing-card-dispatch-approve-receipt').click();
+    await expect(page.getByTestId('marketing-card-dispatch-decision-result')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId(`marketing-dispatch-queue-status-${crmMarketingCardId}`)).toContainText(
+      /freigegeben|approved/
+    );
+
+    const crmSafeLoopButton = page.getByTestId(`marketing-dispatch-queue-run-safe-local-loop-${crmMarketingCardId}`);
+    await expect(crmSafeLoopButton).toBeEnabled({ timeout: 30_000 });
+    await crmSafeLoopButton.click();
+
+    await expect(page.getByTestId('marketing-worker-dispatcher-prepare-result')).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId(`marketing-generated-draft-preview-${crmMarketingCardId}`)).toContainText(
+      'Outreach Pilot',
+      { timeout: 30_000 }
+    );
+    await expect(page.getByTestId(`marketing-approved-output-preview-${crmMarketingCardId}`)).toContainText(
+      'Outreach Pilot',
+      { timeout: 30_000 }
+    );
+    await expect(page.getByTestId(`marketing-worker-observed-preview-${crmMarketingCardId}`)).toContainText(
+      /worker\.reported/,
+      { timeout: 30_000 }
+    );
+    await expect(page.getByTestId(`marketing-worker-start-gate-preview-${crmMarketingCardId}`)).toContainText(
+      /command-eve-worker-start-packet/,
+      { timeout: 30_000 }
+    );
+    await expect(page.getByTestId(`marketing-worker-dispatcher-prepare-preview-${crmMarketingCardId}`)).toContainText(
+      /command-eve-worker-dispatcher-prepare-packet/,
+      { timeout: 30_000 }
+    );
+    await expect(
+      page.getByTestId(`marketing-dispatch-queue-worker-dispatcher-prepared-tag-${crmMarketingCardId}`)
+    ).toContainText(/Dispatcher|vorbereitet|prepared/);
+
+    const crmSafeLoopEventRows = sqliteQuery(
+      crmMarketingDbPath!,
+      `SELECT kind, payload FROM task_events WHERE task_id = '${crmMarketingCardId}' AND kind IN (
+        'command_eve_marketing_draft_generated',
+        'command_eve_marketing_output_approved',
+        'command_eve_marketing_worker_dispatch_requested',
+        'command_eve_marketing_worker_observed_run_completed',
+        'command_eve_marketing_worker_start_gate_checked',
+        'command_eve_marketing_worker_dispatcher_prepared'
+      )`
+    );
+    const crmSafeLoopKinds = new Set(crmSafeLoopEventRows.map((row) => row[0]));
+    for (const kind of [
+      'command_eve_marketing_draft_generated',
+      'command_eve_marketing_output_approved',
+      'command_eve_marketing_worker_dispatch_requested',
+      'command_eve_marketing_worker_observed_run_completed',
+      'command_eve_marketing_worker_start_gate_checked',
+      'command_eve_marketing_worker_dispatcher_prepared',
+    ]) {
+      expect(crmSafeLoopKinds.has(kind), `${kind} receipt must exist for CRM handoff ${crmMarketingCardId}`).toBe(
+        true
+      );
+    }
+
+    for (const [kind, payloadText] of crmSafeLoopEventRows) {
+      const payload = JSON.parse(payloadText) as {
+        controller_approved?: boolean;
+        subprocess_spawned?: boolean;
+        external_calls?: boolean;
+        nl5_gate_checked?: boolean;
+        release_blocked?: boolean;
+        worker_start_gate_status?: string;
+        dispatcher_prepare_status?: string;
+        dispatcher_prepare_packet?: {
+          version?: string;
+          subprocess_spawned?: boolean;
+          external_calls?: boolean;
+          release_blocked?: boolean;
+        };
+      };
+      expect(payload.controller_approved, `${kind} must stay controller-approved`).toBe(true);
+      expect(payload.subprocess_spawned, `${kind} must not spawn subprocesses`).toBe(false);
+      expect(payload.nl5_gate_checked, `${kind} must keep NL-5 checked`).toBe(true);
+      if ('external_calls' in payload) {
+        expect(payload.external_calls, `${kind} must not call external services`).toBe(false);
+      }
+      if (kind === 'command_eve_marketing_worker_start_gate_checked') {
+        expect(payload.release_blocked, `${kind} must stay release-blocked`).toBe(true);
+        expect(payload.worker_start_gate_status).toBe('ready');
+      }
+      if (kind === 'command_eve_marketing_worker_dispatcher_prepared') {
+        expect(payload.release_blocked, `${kind} must stay release-blocked`).toBe(true);
+        expect(payload.dispatcher_prepare_status).toBe('ready');
+        expect(payload.dispatcher_prepare_packet).toMatchObject({
+          version: 'command-eve-worker-dispatcher-prepare-packet/v0',
+          subprocess_spawned: false,
+          external_calls: false,
+          release_blocked: true,
+        });
+      }
+    }
+
     await expect(page.getByTestId('command-center-operating-readiness')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('operating-readiness-crmNl5Receipts')).toContainText(/ready|bereit/);
 
