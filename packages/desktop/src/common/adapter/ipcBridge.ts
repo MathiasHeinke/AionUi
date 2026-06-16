@@ -865,6 +865,7 @@ export interface ICommandEveKanbanMarketingCardActionRequest {
 export interface ICommandEveKanbanMarketingDispatchPlanRequest {
   task_id: string;
   command?: 'decompose' | 'specify';
+  dispatchMode?: 'auto' | 'embedded';
   boardSlug?: string;
   eventLedgerPath?: string;
 }

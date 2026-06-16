@@ -72,6 +72,10 @@ const makeCompanyOsDispatchCli = (root: string): string => {
   return cliPath;
 };
 
+const failIfExternalDispatchRuns: CommandEveKanbanPreflightCommandRunner = () => {
+  throw new Error('External dispatch CLI must not run for embedded dispatch mode.');
+};
+
 const createNativeKanbanDb = (dbPath: string): void => {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   execFileSync(
@@ -2006,5 +2010,53 @@ describe('Command EVE Kanban marketing-board mutations', () => {
       role_label: 'role:cmo',
       safety: expect.objectContaining({ dispatch_source: 'command-eve-embedded-nl5' }),
     });
+  });
+
+  it('uses the embedded NL-5 gate when embedded dispatch mode is requested', () => {
+    const root = makeRoot();
+    const companyOsRoot = path.join(root, 'company-os');
+    makeCompanyOsDispatchCli(companyOsRoot);
+    writeLockedReconciliation(root);
+    const eventLedgerPath = path.join(root, 'agent-events.jsonl');
+
+    const created = createKanbanMarketingCard({
+      userDataPath: root,
+      boardSlug: 'marketing',
+      eventLedgerPath,
+      title: 'CRM handoff stays local',
+      description: 'CRM handoff with phone +49 30 12345678 must not spawn Company.OS CLI.',
+      lane_key: 'research',
+      client_token: 'embedded-nl5-forced-1',
+      now: () => new Date('2026-06-15T11:00:00.000Z'),
+    });
+    expect(created.ok).toBe(true);
+
+    const result = planKanbanMarketingCardDispatch({
+      userDataPath: root,
+      boardSlug: 'marketing',
+      eventLedgerPath,
+      task_id: created.card_id || '',
+      command: 'decompose',
+      dispatchMode: 'embedded',
+      companyOsRoot,
+      commandRunner: failIfExternalDispatchRuns,
+      now: () => new Date('2026-06-15T11:30:00.000Z'),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe('blocked');
+    expect(result.reason_code).toBe('hermes.pre_generation.controller_approval_missing');
+    expect(result.subprocess_spawned).toBe(false);
+    expect(result.data_boundary_checked).toBe(true);
+    expect(result.dispatch_handoff_packet).toMatchObject({
+      version: 'command-eve-local-dispatch-handoff/v0',
+      dispatch: 'manual',
+      safety: expect.objectContaining({
+        dispatch_source: 'command-eve-embedded-nl5',
+        subprocess_spawned: false,
+      }),
+    });
+    expect(result.dispatch_source).toBe('command-eve-embedded-nl5');
+    expect(result.dispatch_source_reason).toContain('external dispatch stays disabled');
   });
 });

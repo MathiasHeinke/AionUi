@@ -359,12 +359,19 @@
       "success": "Lokale CRM-Einwilligung notiert.",
       "failed": "CRM-Einwilligung konnte nicht lokal notiert werden."
     },
+    "marketingRequest": {
+      "success": "CRM-Deal als lokalen Marketing-Auftrag in die HG-2.5 Review-Queue gelegt.",
+      "failed": "Marketing-Auftrag konnte nicht aus dem CRM-Deal angelegt werden.",
+      "boardRequired": "Marketing Board muss zuerst bereit sein."
+    },
     "readyNote": "CRM Overlay ist lokal initialisiert. Kontakte, Deals und echte Aktionen bleiben weiter gate-pflichtig.",
     "actions": {
       "initialize": "CRM lokal initialisieren",
       "createDraft": "Lokalen Draft anlegen",
       "captureConsent": "Consent notieren",
-      "qualifyDraft": "Qualifizieren"
+      "qualifyDraft": "Qualifizieren",
+      "createMarketingRequest": "Marketing-Auftrag",
+      "createMarketingRequestPending": "Wird angelegt"
     },
     "counts": {
       "companies": "Companies",

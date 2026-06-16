@@ -1812,6 +1812,19 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     });
     await expect(page.getByText(/Command Center|Kommandozentrale/).first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/CRM Overlay/).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/Marketing Board/).first()).toBeVisible({ timeout: 30_000 });
+    await page.getByRole('button', { name: /Proof-Karte anlegen|Create proof card/ }).click();
+    await expect(page.getByText(/KANBAN_MARKETING_PROOF_CARD_CREATED|KANBAN_MARKETING_PROOF_CARD_EXISTS/)).toBeVisible({
+      timeout: 60_000,
+    });
+    const crmMarketingDbPathLabel = await page
+      .locator('span:has-text("/kanban/boards/marketing/kanban.db")')
+      .first()
+      .textContent();
+    const crmMarketingDbPathMatch = crmMarketingDbPathLabel?.match(/([^\s]+kanban\.db)/);
+    const crmMarketingDbPath = crmMarketingDbPathMatch?.[1] ?? null;
+    expect(crmMarketingDbPath, 'Marketing board db_path must be visible for CRM handoff proof').toBeTruthy();
+
     await expect(page.getByTestId('crm-overlay-blocked')).toBeVisible({ timeout: 30_000 });
 
     const initializeButton = page.getByTestId('crm-overlay-initialize');
@@ -1894,6 +1907,61 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     await expect(page.getByText(/CRM_CONSENT_CAPTURED_LOCAL_ONLY/)).toBeVisible({ timeout: 60_000 });
     await expect(draftDealList.getByText('captured-local')).toBeVisible({ timeout: 30_000 });
     await expect(draftDealList.getByText('review-only')).toBeVisible({ timeout: 30_000 });
+
+    const marketingRequestButton = page.locator('[data-testid^="crm-create-marketing-request-"]').first();
+    await expect(marketingRequestButton).toBeVisible({ timeout: 30_000 });
+    await expect(marketingRequestButton).toBeEnabled({ timeout: 30_000 });
+    await marketingRequestButton.click();
+
+    await expect.poll(() => sqliteQuery(crmMarketingDbPath!, "SELECT id FROM tasks WHERE title = 'Outreach Pilot'").length, {
+      message: 'CRM handoff must create a local marketing task row',
+      timeout: 30_000,
+    }).toBeGreaterThan(0);
+    const crmMarketingTaskRows = sqliteQuery(
+      crmMarketingDbPath!,
+      "SELECT id, title, current_step_key FROM tasks WHERE title = 'Outreach Pilot' ORDER BY created_at DESC LIMIT 1"
+    );
+    const crmMarketingCardId = crmMarketingTaskRows[0]?.[0] ?? '';
+    expect(crmMarketingCardId, 'CRM marketing request card id must be persisted in tasks').toMatch(
+      /^t_command_eve_marketing_/
+    );
+    expect(crmMarketingTaskRows[0]?.[1]).toBe('Outreach Pilot');
+    expect(crmMarketingTaskRows[0]?.[2]).toBe('research');
+    await expect(page.getByTestId(`marketing-dispatch-queue-item-${crmMarketingCardId}`)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId(`marketing-dispatch-queue-status-${crmMarketingCardId}`)).toContainText(
+      /ausstehend|pending/
+    );
+    const crmMarketingDispatchRows = sqliteQuery(
+      crmMarketingDbPath!,
+      `SELECT kind, payload FROM task_events WHERE task_id = '${crmMarketingCardId}' AND kind = 'command_eve_dispatch_plan_checked' LIMIT 1`
+    );
+    expect(crmMarketingDispatchRows.length, 'CRM handoff dispatch receipt must exist').toBeGreaterThan(0);
+    const crmMarketingDispatchPayload = JSON.parse(crmMarketingDispatchRows[0][1]) as {
+      subprocess_spawned?: boolean;
+      nl5_gate_checked?: boolean;
+      dispatch_handoff_packet?: { dispatch?: string };
+      reason_codes?: string[];
+    };
+    expect(crmMarketingDispatchPayload.subprocess_spawned).toBe(false);
+    expect(crmMarketingDispatchPayload.nl5_gate_checked).toBe(true);
+    expect(crmMarketingDispatchPayload.dispatch_handoff_packet?.dispatch).toBe('manual');
+    expect(crmMarketingDispatchPayload.reason_codes).toContain('hermes.pre_generation.controller_approval_missing');
+    const crmMarketingApprovalRows = sqliteQuery(
+      crmMarketingDbPath!,
+      `SELECT kind, payload FROM task_events WHERE task_id = '${crmMarketingCardId}' AND kind = 'command_eve_controller_approval_pending' LIMIT 1`
+    );
+    expect(crmMarketingApprovalRows.length, 'CRM handoff controller approval receipt must exist').toBeGreaterThan(0);
+    const crmMarketingApprovalPayload = JSON.parse(crmMarketingApprovalRows[0][1]) as {
+      controller_approval_status?: string;
+      subprocess_spawned?: boolean;
+      human_gate?: string;
+      reason_codes?: string[];
+    };
+    expect(crmMarketingApprovalPayload.controller_approval_status).toBe('pending');
+    expect(crmMarketingApprovalPayload.subprocess_spawned).toBe(false);
+    expect(crmMarketingApprovalPayload.human_gate).toBe('HG-2.5');
+    expect(crmMarketingApprovalPayload.reason_codes).toContain('command_eve.controller_approval_pending');
+
     await expect(page.getByTestId('command-center-operating-readiness')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('operating-readiness-crmNl5Receipts')).toContainText(/ready|bereit/);
 
@@ -2055,6 +2123,23 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
       }
     });
     expect(matchingCrmConsentAudit, 'audit ledger must contain crm.consent_captured_local').toBeTruthy();
+    const matchingCrmMarketingAudit = ledgerLines.find((line) => {
+      try {
+        const evt = JSON.parse(line) as { event_type?: string; issue_id?: string; payload?: Record<string, unknown> };
+        return (
+          evt.issue_id === crmMarketingCardId &&
+          evt.event_type === 'kanban.marketing_board_controller_approval_pending' &&
+          evt.payload?.controller_approval_status === 'pending' &&
+          evt.payload?.subprocess_spawned === false
+        );
+      } catch {
+        return false;
+      }
+    });
+    expect(
+      matchingCrmMarketingAudit,
+      `audit ledger must contain CRM handoff controller approval for card_id=${crmMarketingCardId}`
+    ).toBeTruthy();
 
     const screenshotPath = 'tests/e2e/results/command-eve-crm-overlay-init.png';
     await page.screenshot({ path: screenshotPath, fullPage: true });

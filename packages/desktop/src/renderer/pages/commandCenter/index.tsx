@@ -369,6 +369,7 @@ interface ICommandEveMarketingCardActionResult {
 interface ICommandEveMarketingDispatchPlanRequest {
   task_id: string;
   command?: 'decompose' | 'specify';
+  dispatchMode?: 'auto' | 'embedded';
   boardSlug?: string;
   eventLedgerPath?: string;
 }
@@ -3304,10 +3305,13 @@ const CrmOverlaySection: React.FC<{
   creatingDraft: boolean;
   stagingDealId: string | null;
   consentingDealId: string | null;
+  marketingBoardReady: boolean;
+  marketingRequestingDealId: string | null;
   onInitialize: () => void;
   onCreateDraft: (input: ICommandEveCrmDraftCreateInput) => Promise<void>;
   onStageDeal: (dealId: string) => void;
   onCaptureConsent: (dealId: string) => void;
+  onCreateMarketingRequest: (deal: ICommandEveCrmOverlayDeal) => void;
 }> = ({
   result,
   initializeResult,
@@ -3318,10 +3322,13 @@ const CrmOverlaySection: React.FC<{
   creatingDraft,
   stagingDealId,
   consentingDealId,
+  marketingBoardReady,
+  marketingRequestingDealId,
   onInitialize,
   onCreateDraft,
   onStageDeal,
   onCaptureConsent,
+  onCreateMarketingRequest,
 }) => {
   const { t } = useTranslation();
   const model = result?.model;
@@ -3476,6 +3483,19 @@ const CrmOverlaySection: React.FC<{
                 {textOrDash(deal.last_activity_at)}
               </div>
               <div className='mt-10px flex flex-wrap justify-end gap-8px'>
+                <Button
+                  size='mini'
+                  shape='round'
+                  type='primary'
+                  loading={marketingRequestingDealId === deal.deal_id}
+                  disabled={Boolean(marketingRequestingDealId) || !marketingBoardReady}
+                  onClick={() => onCreateMarketingRequest(deal)}
+                  data-testid={`crm-create-marketing-request-${deal.deal_id}`}
+                >
+                  {marketingRequestingDealId === deal.deal_id
+                    ? t('commandCenter.crmOverlay.actions.createMarketingRequestPending')
+                    : t('commandCenter.crmOverlay.actions.createMarketingRequest')}
+                </Button>
                 <Button
                   size='mini'
                   shape='round'
@@ -3811,6 +3831,7 @@ const CommandCenterPage: React.FC = () => {
   const [crmDraftCreating, setCrmDraftCreating] = useState(false);
   const [crmStagingDealId, setCrmStagingDealId] = useState<string | null>(null);
   const [crmConsentingDealId, setCrmConsentingDealId] = useState<string | null>(null);
+  const [crmMarketingRequestDealId, setCrmMarketingRequestDealId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -5052,6 +5073,97 @@ const CommandCenterPage: React.FC = () => {
     [t]
   );
 
+  const createMarketingRequestFromCrmDeal = useCallback(
+    async (deal: ICommandEveCrmOverlayDeal) => {
+      if (!isElectronDesktop()) return;
+      if (marketingResult?.status !== 'ready' || !marketingResult.model) {
+        Message.warning(t('commandCenter.crmOverlay.marketingRequest.boardRequired'));
+        return;
+      }
+      setCrmMarketingRequestDealId(deal.deal_id);
+      setCreateResult(null);
+      setMoveResult(null);
+      setActionResult(null);
+      setDispatchPlanResult(null);
+      setDispatchApprovalResult(null);
+      setDispatchDecisionResult(null);
+      setDraftGenerateResult(null);
+      setOutputApproveResult(null);
+      setWorkerDispatchRequestResult(null);
+      setWorkerObservedRunResult(null);
+      setWorkerStartGateResult(null);
+      setWorkerDispatcherPrepareResult(null);
+      try {
+        const title = deal.deal_label || deal.company_display_name || deal.deal_id;
+        const description = [
+          `CRM deal: ${deal.deal_id}`,
+          `Company: ${deal.company_display_name || deal.company_id}`,
+          `Contact: ${[deal.contact_display_name, deal.contact_role_title].filter(Boolean).join(' · ') || '-'}`,
+          `Stage: ${deal.stage}`,
+          `Consent: ${deal.consent_status}`,
+          'Source: Command EVE local CRM overlay. No outreach, hosted sync, subprocess, or external dispatch.',
+        ].join('\n');
+        const createResponse = await kanbanMarketingCardCreate.invoke({
+          title,
+          description,
+          lane_key: 'research',
+          client_token: `crm-marketing-${deal.deal_id}`,
+          boardSlug: MARKETING_BOARD_SLUG,
+        });
+        const createData = createResponse.data ?? null;
+        setCreateResult(createData);
+        await applyBoardModel(createData);
+        if (!createData?.ok || !createData.card_id) {
+          Message.warning(createData?.reason_code || t('commandCenter.crmOverlay.marketingRequest.failed'));
+          return;
+        }
+
+        const planResponse = await kanbanMarketingDispatchPlan.invoke({
+          task_id: createData.card_id,
+          command: 'decompose',
+          dispatchMode: 'embedded',
+          boardSlug: MARKETING_BOARD_SLUG,
+        });
+        const planData = planResponse.data ?? null;
+        setDispatchPlanResult(planData);
+        if (!planData?.card_id) {
+          Message.warning(planData?.reason_code || t('commandCenter.marketingBoard.dispatch.blocked'));
+          return;
+        }
+
+        const handoff = dispatchHandoffForResult(planData);
+        if (!handoff) {
+          Message.warning(t('commandCenter.marketingBoard.dispatch.approvalRecordFailed'));
+          return;
+        }
+        const approvalResponse = await kanbanMarketingDispatchApproval.invoke({
+          task_id: planData.card_id,
+          boardSlug: MARKETING_BOARD_SLUG,
+          dispatch_handoff_packet: handoff,
+          review_note:
+            'Command EVE UI turned a local CRM draft into a marketing work request; pending HG-2.5 review. No worker execution.',
+        });
+        const approvalData = approvalResponse.data ?? null;
+        setDispatchApprovalResult(approvalData);
+        await applyBoardModel(approvalData);
+        if (approvalData?.ok) {
+          Message.success(t('commandCenter.crmOverlay.marketingRequest.success'));
+        } else {
+          Message.warning(approvalData?.reason_code || t('commandCenter.crmOverlay.marketingRequest.failed'));
+        }
+      } catch (requestError) {
+        Message.error(
+          requestError instanceof Error
+            ? requestError.message
+            : t('commandCenter.crmOverlay.marketingRequest.failed')
+        );
+      } finally {
+        setCrmMarketingRequestDealId(null);
+      }
+    },
+    [applyBoardModel, marketingResult, t]
+  );
+
   return (
     <div
       className={classNames(
@@ -5205,10 +5317,13 @@ const CommandCenterPage: React.FC = () => {
               creatingDraft={crmDraftCreating}
               stagingDealId={crmStagingDealId}
               consentingDealId={crmConsentingDealId}
+              marketingBoardReady={marketingResult?.status === 'ready' && Boolean(marketingResult.model)}
+              marketingRequestingDealId={crmMarketingRequestDealId}
               onInitialize={initializeCrm}
               onCreateDraft={createCrmDraft}
               onStageDeal={stageCrmDeal}
               onCaptureConsent={captureCrmConsent}
+              onCreateMarketingRequest={createMarketingRequestFromCrmDeal}
             />
 
             <Section title={t('commandCenter.sections.workerRuns')} count={model.worker_runs.length}>

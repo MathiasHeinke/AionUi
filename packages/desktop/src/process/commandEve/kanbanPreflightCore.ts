@@ -612,6 +612,7 @@ export type CommandEveKanbanMarketingCardActionOptions = CommandEveKanbanMarketi
 export type CommandEveKanbanMarketingDispatchPlanOptions = CommandEveKanbanMarketingBoardOptions & {
   task_id: string;
   command?: 'decompose' | 'specify';
+  dispatchMode?: 'auto' | 'embedded';
   companyOsRoot?: string;
   commandRunner?: CommandEveKanbanPreflightCommandRunner;
 };
@@ -6021,8 +6022,10 @@ export function planKanbanMarketingCardDispatch(
     command,
     companyOsRoot,
   });
+  const dispatchMode = options.dispatchMode === 'embedded' ? 'embedded' : 'auto';
   const dispatchCliPath = companyOsRoot ? companyOsDispatchCliPath(companyOsRoot) : '';
-  const hasExternalDispatchCli = Boolean(companyOsRoot && fs.existsSync(dispatchCliPath));
+  const hasExternalDispatchCli =
+    dispatchMode !== 'embedded' && Boolean(companyOsRoot && fs.existsSync(dispatchCliPath));
   const runner = options.commandRunner || defaultCommandRunner;
   let dispatch: CommandEveKanbanPreflightCommandResult = {
     ok: false,
@@ -6048,11 +6051,16 @@ export function planKanbanMarketingCardDispatch(
     });
     dispatchPlan = parseJsonRecord(dispatch.stdout || '');
   } else {
+    let embeddedReason = 'Company.OS root not configured; using embedded Command EVE NL-5 gate.';
+    if (dispatchMode === 'embedded') {
+      embeddedReason =
+        'Command EVE requested embedded NL-5 planning; external dispatch stays disabled for local handoff.';
+    } else if (companyOsRoot) {
+      embeddedReason = `Company.OS NL-5 dispatch CLI not found: ${dispatchCliPath}`;
+    }
     dispatchPlan = buildEmbeddedHermesPreGenerationDispatchPlan({
       request,
-      reason: companyOsRoot
-        ? `Company.OS NL-5 dispatch CLI not found: ${dispatchCliPath}`
-        : 'Company.OS root not configured; using embedded Command EVE NL-5 gate.',
+      reason: embeddedReason,
     });
     dispatch = {
       ok: false,

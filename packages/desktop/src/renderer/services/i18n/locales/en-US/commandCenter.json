@@ -359,12 +359,19 @@
       "success": "Local CRM consent recorded.",
       "failed": "CRM consent could not be recorded locally."
     },
+    "marketingRequest": {
+      "success": "CRM deal placed into the local HG-2.5 review queue as a marketing work request.",
+      "failed": "Marketing work request could not be created from the CRM deal.",
+      "boardRequired": "Marketing Board must be ready first."
+    },
     "readyNote": "CRM Overlay is initialized locally. Contacts, deals, and real actions remain gated.",
     "actions": {
       "initialize": "Initialize CRM locally",
       "createDraft": "Create local draft",
       "captureConsent": "Record consent",
-      "qualifyDraft": "Qualify"
+      "qualifyDraft": "Qualify",
+      "createMarketingRequest": "Marketing request",
+      "createMarketingRequestPending": "Creating request"
     },
     "counts": {
       "companies": "Companies",

@@ -458,6 +458,7 @@ export function initCommandEveBridge(): void {
       async (request?: {
         task_id?: string;
         command?: 'decompose' | 'specify';
+        dispatchMode?: 'auto' | 'embedded';
         boardSlug?: string;
         eventLedgerPath?: string;
       }) => {
@@ -466,6 +467,7 @@ export function initCommandEveBridge(): void {
             userDataPath: getDataPath(),
             task_id: request?.task_id || '',
             command: request?.command,
+            dispatchMode: request?.dispatchMode,
             boardSlug: request?.boardSlug,
             eventLedgerPath: request?.eventLedgerPath,
           });
