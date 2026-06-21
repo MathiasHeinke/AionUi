@@ -15,6 +15,7 @@ import {
   commandEveOnboardingSkillMarkdown,
   commandEveOnboardingStepScreenHtml,
   copyBundledStrategySkills,
+  eveSelectedLanguageDirective,
   resolveBundledSkillsDir,
   resolveCommandEveRuntimeBootstrapPaths,
 } from '@/process/commandEve/runtimeBootstrapCore';
@@ -508,5 +509,31 @@ describe('EVE onboarding S3: canonical Ollama-install step-screen template', () 
   it('keeps the warm cloud fallback (local is optional, cloud runs immediately)', () => {
     expect(HTML).toMatch(/in der Cloud weiterarbeiten/);
     expect(HTML).toMatch(/EVE Standard l[äa]uft sofort/i);
+  });
+});
+
+describe('EVE soul: setting-driven language directive (appended at bootstrap)', () => {
+  it('appends a German default directive for a German UI locale', () => {
+    const d = eveSelectedLanguageDirective('de-DE');
+    expect(d).toMatch(/selected language/i);
+    expect(d).toMatch(/German \(Deutsch\)/);
+    expect(d).toMatch(/default to it/i);
+  });
+
+  it('appends an English directive for a non-German UI locale', () => {
+    expect(eveSelectedLanguageDirective('en-US')).toMatch(/\*\*English\*\*/);
+    // a non-DE/EN locale still maps to English (EVE's supported pair)
+    expect(eveSelectedLanguageDirective('tr-TR')).toMatch(/\*\*English\*\*/);
+  });
+
+  it('emits NOTHING for an empty/unknown locale (mirror-only, the prior behavior)', () => {
+    expect(eveSelectedLanguageDirective('')).toBe('');
+    expect(eveSelectedLanguageDirective(undefined as unknown as string)).toBe('');
+  });
+
+  it('also tells EVE to follow a mid-session language switch, and never to announce the rule', () => {
+    const d = eveSelectedLanguageDirective('de-DE');
+    expect(d).toMatch(/follow them/i);
+    expect(d).toMatch(/[Nn]ever announce or explain this rule/);
   });
 });

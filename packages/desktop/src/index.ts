@@ -691,6 +691,9 @@ function registerCommandEveRuntimeBridge(): void {
         resourcesPath: process.resourcesPath,
         mode: 'auto',
         env: tierId ? { COMMAND_EVE_LOCAL_MODEL_TIER: tierId } : undefined,
+        // Setting-driven language: thread the operator's selected UI language into
+        // the soul so EVE defaults to it (bootstrap re-runs, so it self-corrects).
+        uiLanguage: ProcessConfig.getSync('language'),
       });
       const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
       const existingWarmup = readJsonFile<CommandEveModelWarmupReceipt>(paths.modelWarmupReceiptPath);
@@ -738,6 +741,9 @@ function registerCommandEveRuntimeBridge(): void {
         resourcesPath: process.resourcesPath,
         mode: 'auto',
         env: tierId ? { COMMAND_EVE_LOCAL_MODEL_TIER: tierId } : undefined,
+        // Setting-driven language: thread the operator's selected UI language into
+        // the soul so EVE defaults to it (bootstrap re-runs, so it self-corrects).
+        uiLanguage: ProcessConfig.getSync('language'),
       });
       const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
       const existingWarmup = readJsonFile<CommandEveModelWarmupReceipt>(paths.modelWarmupReceiptPath);
@@ -1203,6 +1209,9 @@ const handleAppReady = async (): Promise<void> => {
       resourcesPath: process.resourcesPath,
       mode: 'auto',
       env: localModelTierId ? { COMMAND_EVE_LOCAL_MODEL_TIER: localModelTierId } : undefined,
+      // Setting-driven language: thread the operator's selected UI language into
+      // the soul so EVE defaults to it (bootstrap re-runs, so it self-corrects).
+      uiLanguage: ProcessConfig.getSync('language'),
     });
     if (shouldBlockStartupForCommandEveRuntimeBootstrap) {
       const receipt = await bootstrap;

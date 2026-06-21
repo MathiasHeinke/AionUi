@@ -19,6 +19,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { commandEve, type ICommandEveOnboardingStatusModel } from '@/common/adapter/ipcBridge';
 import { isElectronDesktop } from '@renderer/utils/platform';
 import {
@@ -38,6 +39,8 @@ export interface OnboardingStatusState {
 }
 
 export function useOnboardingStatus(): OnboardingStatusState {
+  const { i18n } = useTranslation();
+  const uiLanguage = i18n.language;
   const [loading, setLoading] = useState(true);
   const [model, setModel] = useState<ICommandEveOnboardingStatusModel | null>(null);
   const [greeting, setGreeting] = useState<CommandEveGreetingModel | null>(null);
@@ -54,7 +57,9 @@ export function useOnboardingStatus(): OnboardingStatusState {
       const data = response.data ?? null;
       const nextModel = data && data.ok && data.model ? data.model : null;
       setModel(nextModel);
-      setGreeting(nextModel ? buildOnboardingGreeting(nextModel) : null);
+      // Greet in the operator's SELECTED interface language (re-derives when they
+      // switch language, since uiLanguage is a dependency of this callback).
+      setGreeting(nextModel ? buildOnboardingGreeting(nextModel, uiLanguage) : null);
     } catch (error) {
       // A read failure must NEVER crash the chat or block the operator — the
       // greeting simply stays quiet (null) and the empty chat renders as before.
@@ -64,7 +69,7 @@ export function useOnboardingStatus(): OnboardingStatusState {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [uiLanguage]);
 
   useEffect(() => {
     void refresh();

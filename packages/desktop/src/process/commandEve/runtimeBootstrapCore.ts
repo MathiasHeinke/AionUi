@@ -473,6 +473,12 @@ export type RuntimeBootstrapOptions = {
   ollamaBinaryCandidates?: string[];
   bundledHermesWheelCandidates?: string[];
   displayNameLookup?: () => string;
+  /**
+   * The operator's selected interface language (e.g. 'de-DE' / 'en-US'). Threaded
+   * into the soul so EVE defaults to it. Omitted -> mirror-only. The caller (main
+   * process) resolves it from the stored language setting at bootstrap time.
+   */
+  uiLanguage?: string;
 };
 
 export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
@@ -1922,6 +1928,28 @@ function writeHermesContextLengthCache(paths: RuntimeBootstrapPaths, manifest: R
   fs.writeFileSync(path.join(paths.hermesHome, 'context_length_cache.yaml'), cacheLines.join('\n'), { mode: 0o600 });
 }
 
+/**
+ * The operator's SELECTED interface language, appended to the soul at write time
+ * so EVE DEFAULTS to it (setting-driven) — including her very first words, before
+ * the operator has typed anything to mirror. The soul's "match the operator's
+ * language" rule still handles a mid-session switch. Empty -> no directive (pure
+ * mirror, the prior behavior). EVE speaks DE or EN; any non-German locale maps to
+ * EN (her supported pair). The block carries the operator-facing language only and
+ * is itself never recited (the soul's top-level do-not-recite rule governs it).
+ */
+export function eveSelectedLanguageDirective(uiLanguage: string): string {
+  const code = (uiLanguage || '').trim().toLowerCase();
+  if (!code) return '';
+  const label = code.startsWith('de') ? 'German (Deutsch)' : 'English';
+  return [
+    '',
+    "## The operator's selected language",
+    '',
+    `The operator has chosen **${label}** as their interface language — open in it and default to it, including your very first words before they have written anything. If they write to you in another language, follow them there. Never announce or explain this rule.`,
+    '',
+  ].join('\n');
+}
+
 function writeHermesRuntimeFiles(
   paths: RuntimeBootstrapPaths,
   manifest: RuntimeBootstrapManifest,
@@ -1938,7 +1966,12 @@ function writeHermesRuntimeFiles(
   // a packaged build; resources/bundled-skills in dev). When set, the real
   // strategy skills are copied additively into managedSkillsRoot. '' = no-op (a
   // bare env with no snapshot path) — the onboarding stubs still ship.
-  bundledSkillsDir = ''
+  bundledSkillsDir = '',
+  // The operator's SELECTED interface language (e.g. 'de-DE' / 'en-US'), appended
+  // to the soul so EVE DEFAULTS to it (setting-driven) rather than only mirroring
+  // what the user types. '' = mirror-only (the prior behavior). The bootstrap
+  // re-runs each launch, so a later language switch self-corrects on next start.
+  uiLanguage = ''
 ): string[] {
   ensureDir(paths.hermesHome);
   const { executableSkillIds, bundledSkillFailures } = writeCommandEveManagedSkills(
@@ -2064,7 +2097,11 @@ function writeHermesRuntimeFiles(
   ].join('\n');
   fs.writeFileSync(path.join(paths.hermesHome, 'config.yaml'), config, { mode: 0o600 });
   writeHermesContextLengthCache(paths, manifest);
-  fs.writeFileSync(path.join(paths.hermesHome, 'SOUL.md'), EVE_SOUL_MARKDOWN, { mode: 0o600 });
+  fs.writeFileSync(
+    path.join(paths.hermesHome, 'SOUL.md'),
+    EVE_SOUL_MARKDOWN + eveSelectedLanguageDirective(uiLanguage),
+    { mode: 0o600 }
+  );
   writeHermesOllamaProviderOverride(paths);
   const wrapper = [
     '#!/usr/bin/env bash',
@@ -2502,7 +2539,8 @@ export async function ensureCommandEveRuntimeBootstrap(
     runtimeModelRef,
     DEFAULT_COMMAND_EVE_REASONING_EFFORT,
     DEFAULT_COMMAND_EVE_CREATION_NUDGE_INTERVAL,
-    bundledSkillsDir
+    bundledSkillsDir,
+    options.uiLanguage ?? ''
   );
   if (bundledSkillFailures.length) {
     // VISIBLE preflight break (founder-self-detection): a skip-status stage with a

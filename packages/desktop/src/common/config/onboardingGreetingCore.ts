@@ -50,7 +50,7 @@ export type CommandEveGreetingLinkTarget = 'registration' | 'runtime' | 'none';
 export interface CommandEveGreetingGap {
   /** Which onboarding item this gap came from (stable key for React + tests). */
   id: ICommandEveOnboardingItemId;
-  /** Plain-German one-liner describing the gap (taken from the S0 model). */
+  /** Localized one-liner describing the gap, in the operator's selected language. */
   text: string;
   /** The label for the inline "klick hier" link, or undefined when none. */
   link_label?: string;
@@ -82,8 +82,76 @@ export interface CommandEveGreetingModel {
  * target + link label. The link is a gentle "klick hier"; the destination is an
  * existing in-app page (never an external command, never a secret prompt).
  */
+export type CommandEveGreetingLocale = 'de' | 'en';
+
+/**
+ * EVE speaks DE or EN. Explicit German locale -> 'de'; any other explicit locale
+ * (en, tr, …) -> 'en'. Empty/unknown -> 'de', the product's DACH-first default
+ * (the renderer always passes the live i18n locale, so this only guards the rare
+ * unset case and keeps the prior German-default behavior).
+ */
+export function normalizeGreetingLocale(input?: string): CommandEveGreetingLocale {
+  const code = (input || '').trim().toLowerCase();
+  if (!code) return 'de';
+  return code.startsWith('de') ? 'de' : 'en';
+}
+
+// The greeting's own display copy in the operator's selected language. The
+// reason-code-SPECIFIC local-lane fix lives on the already-localized /runtime
+// RemediationCard, so the greeting stays high-level (per-item, not per-code).
+const GREETING_COPY: Record<
+  CommandEveGreetingLocale,
+  {
+    clickHere: string;
+    headlineReady: string;
+    headlineAlmost: string;
+    sublineReady: string;
+    sublineGaps: string;
+    sublineAlmost: string;
+    gap: Record<
+      'registration' | 'license' | 'licenseExpired' | 'cloud-lane' | 'local-lane' | 'identity' | 'fallback',
+      string
+    >;
+  }
+> = {
+  de: {
+    clickHere: 'klick hier',
+    headlineReady: 'du bist startklar.',
+    headlineAlmost: 'fast geschafft.',
+    sublineReady: 'Schreib mir einfach, woran du gerade arbeitest — ich lege sofort los.',
+    sublineGaps: 'Nur noch das hier, dann können wir loslegen:',
+    sublineAlmost: 'Gleich geht es los.',
+    gap: {
+      registration: 'Lege kurz dein Konto an, damit ich dich kenne.',
+      license: 'Füge deinen Lizenz-Code ein, dann bist du startklar.',
+      licenseExpired: 'Deine Lizenz ist abgelaufen — kurz verlängern, dann geht es weiter.',
+      'cloud-lane': 'Kurz neu aktivieren, dann läuft die Cloud-KI wieder.',
+      'local-lane': 'Die lokale KI braucht noch einen Schritt — ich zeig ihn dir.',
+      identity: 'Sag mir kurz, wie ich dich nennen darf.',
+      fallback: 'Eine Kleinigkeit fehlt noch — ich helfe dir dabei.',
+    },
+  },
+  en: {
+    clickHere: 'click here',
+    headlineReady: "you're all set.",
+    headlineAlmost: 'almost there.',
+    sublineReady: 'Just tell me what you’re working on — I’ll get started right away.',
+    sublineGaps: 'Just this, then we’re good to go:',
+    sublineAlmost: 'Almost ready.',
+    gap: {
+      registration: 'Set up your account so I know who you are.',
+      license: 'Add your license code and you’re all set.',
+      licenseExpired: 'Your license has expired — renew it briefly and we’re back.',
+      'cloud-lane': 'Re-activate briefly and the cloud AI is back.',
+      'local-lane': 'Your local AI needs one more step — I’ll show you.',
+      identity: 'Tell me what I should call you.',
+      fallback: 'One small thing is missing — I’ll help you with it.',
+    },
+  },
+};
+
 function resolveLink(item: ICommandEveOnboardingItem): {
-  link_label?: string;
+  has_link: boolean;
   link_target: CommandEveGreetingLinkTarget;
 } {
   switch (item.id) {
@@ -92,17 +160,36 @@ function resolveLink(item: ICommandEveOnboardingItem): {
     case 'cloud-lane':
       // Account / license / cloud-bearer gaps are all closed at the
       // registration + activation gate.
-      return { link_label: 'klick hier', link_target: 'registration' };
+      return { has_link: true, link_target: 'registration' };
     case 'local-lane':
       // The optional local lane is repaired on the read-only /runtime page,
       // where the S4 RemediationCard renders the reason-code-specific fix.
-      return { link_label: 'klick hier', link_target: 'runtime' };
+      return { has_link: true, link_target: 'runtime' };
     case 'identity':
+    default:
       // Identity confirmation is a soft conversational nicety — no link; EVE
       // simply asks in chat. (It is never a first-value blocker anyway.)
-      return { link_target: 'none' };
+      return { has_link: false, link_target: 'none' };
+  }
+}
+
+/** The localized one-liner for a blocked item (reason-code detail lives on /runtime). */
+function gapText(item: ICommandEveOnboardingItem, locale: CommandEveGreetingLocale): string {
+  const copy = GREETING_COPY[locale].gap;
+  if (item.id === 'license' && item.reason_code === 'LICENSE_EXPIRED') return copy.licenseExpired;
+  switch (item.id) {
+    case 'registration':
+      return copy.registration;
+    case 'license':
+      return copy.license;
+    case 'cloud-lane':
+      return copy['cloud-lane'];
+    case 'local-lane':
+      return copy['local-lane'];
+    case 'identity':
+      return copy.identity;
     default:
-      return { link_target: 'none' };
+      return copy.fallback;
   }
 }
 
@@ -112,12 +199,17 @@ function resolveLink(item: ICommandEveOnboardingItem): {
  * fact in the headline (honesty — that confirmation belongs in chat, not in a
  * one-shot greeting).
  */
-function buildHeadline(model: ICommandEveOnboardingStatusModel, ready: boolean): string {
+function buildHeadline(
+  model: ICommandEveOnboardingStatusModel,
+  ready: boolean,
+  locale: CommandEveGreetingLocale
+): string {
   const name = model.identity.founder_name;
   const confirmed =
     Boolean(name) && model.identity.confidence === 'verified' && !model.identity.needs_confirmation;
   const greeting = confirmed ? `Hi ${name}` : 'Hi';
-  return ready ? `${greeting} — du bist startklar.` : `${greeting} — fast geschafft.`;
+  const tail = ready ? GREETING_COPY[locale].headlineReady : GREETING_COPY[locale].headlineAlmost;
+  return `${greeting} — ${tail}`;
 }
 
 /**
@@ -125,33 +217,35 @@ function buildHeadline(model: ICommandEveOnboardingStatusModel, ready: boolean):
  * Pure: same input ⇒ same output, no IO, no React.
  */
 export function buildOnboardingGreeting(
-  model: ICommandEveOnboardingStatusModel
+  model: ICommandEveOnboardingStatusModel,
+  uiLanguage?: string
 ): CommandEveGreetingModel {
+  const locale = normalizeGreetingLocale(uiLanguage);
+  const copy = GREETING_COPY[locale];
   const ready = model.first_value_ready === true;
 
   if (ready) {
     return {
       schema_version: COMMAND_EVE_ONBOARDING_GREETING_VERSION,
       ready: true,
-      headline: buildHeadline(model, true),
-      subline: 'Schreib mir einfach, woran du gerade arbeitest — ich lege sofort los.',
+      headline: buildHeadline(model, true, locale),
+      subline: copy.sublineReady,
       gaps: [],
     };
   }
 
   // Not ready: surface ONLY the genuine first-value blockers. `skipped` (e.g.
   // the optional local lane) and `ok` items are filtered out so a cloud user is
-  // never nagged about a lane they don't use. We still list a soft identity
-  // confirmation if it is the only thing left, since it carries no link and is
-  // harmless — but only as a non-blocking note, not as a hard gap.
+  // never nagged about a lane they don't use. The gap text is the greeting's own
+  // localized per-item copy (the reason-code-specific fix lives on /runtime).
   const blockers = (model.items || []).filter((item) => item.state === 'blocked');
 
   const gaps: CommandEveGreetingGap[] = blockers.map((item) => {
     const link = resolveLink(item);
     return {
       id: item.id,
-      text: item.plain_meaning,
-      link_label: link.link_label,
+      text: gapText(item, locale),
+      link_label: link.has_link ? copy.clickHere : undefined,
       link_target: link.link_target,
       ...(item.reason_code ? { reason_code: item.reason_code } : {}),
     };
@@ -160,11 +254,8 @@ export function buildOnboardingGreeting(
   return {
     schema_version: COMMAND_EVE_ONBOARDING_GREETING_VERSION,
     ready: false,
-    headline: buildHeadline(model, false),
-    subline:
-      gaps.length > 0
-        ? 'Nur noch das hier, dann können wir loslegen:'
-        : 'Gleich geht es los.',
+    headline: buildHeadline(model, false, locale),
+    subline: gaps.length > 0 ? copy.sublineGaps : copy.sublineAlmost,
     gaps,
   };
 }
