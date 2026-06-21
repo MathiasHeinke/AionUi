@@ -121,7 +121,9 @@ describe('buildOnboardingGreeting', () => {
     );
     expect(greeting.ready).toBe(false);
     expect(greeting.gaps.map((g) => g.id)).toEqual(['cloud-lane']);
-    expect(greeting.gaps[0].text).toBe('Cloud-Zugang fehlt.');
+    // The greeting renders its OWN localized copy (DE default), not the model's
+    // internal plain_meaning; the machine reason_code is preserved for diagnostics.
+    expect(greeting.gaps[0].text).toBe('Kurz neu aktivieren, dann läuft die Cloud-KI wieder.');
     expect(greeting.gaps[0].reason_code).toBe('EVE_INFERENCE_NO_BEARER');
   });
 
@@ -179,5 +181,63 @@ describe('buildOnboardingGreeting', () => {
     const greeting = buildOnboardingGreeting(model({ first_value_ready: false, items: [] }));
     expect(greeting.ready).toBe(false);
     expect(greeting.gaps).toHaveLength(0);
+  });
+});
+
+describe('EVE greeting: setting-driven language (DE/EN)', () => {
+  const blockedModel = () =>
+    model({
+      first_value_ready: false,
+      entitlement_state: 'registered_unlicensed',
+      items: [
+        item({ id: 'registration', state: 'blocked', reason_code: 'REGISTRATION_REQUIRED' }),
+        item({ id: 'license', state: 'blocked', reason_code: 'LICENSE_REQUIRED' }),
+      ],
+    });
+
+  it('defaults to German when no locale is given (DACH-first, back-compat)', () => {
+    const g = buildOnboardingGreeting(blockedModel());
+    expect(g.headline).toContain('fast geschafft');
+    expect(g.gaps[0].link_label).toBe('klick hier');
+    expect(g.gaps.find((x) => x.id === 'registration')!.text).toBe(
+      'Lege kurz dein Konto an, damit ich dich kenne.'
+    );
+  });
+
+  it('renders English when the selected locale is en-US', () => {
+    const g = buildOnboardingGreeting(blockedModel(), 'en-US');
+    expect(g.headline).toContain('almost there');
+    expect(g.gaps[0].link_label).toBe('click here');
+    expect(g.gaps.find((x) => x.id === 'registration')!.text).toBe(
+      'Set up your account so I know who you are.'
+    );
+    // No German leaks into the English greeting.
+    expect(g.gaps.map((x) => x.text).join(' ')).not.toMatch(/klick hier|Konto|startklar/);
+  });
+
+  it('maps de-DE -> German and a non-DE locale (tr-TR) -> English', () => {
+    expect(buildOnboardingGreeting(blockedModel(), 'de-DE').gaps[0].link_label).toBe('klick hier');
+    expect(buildOnboardingGreeting(blockedModel(), 'tr-TR').gaps[0].link_label).toBe('click here');
+  });
+
+  it('ready state greets in the selected language', () => {
+    const ready = model({
+      first_value_ready: true,
+      entitlement_state: 'entitled',
+      cloud_bearer_available: true,
+      items: [],
+    });
+    expect(buildOnboardingGreeting(ready, 'de-DE').headline).toContain('startklar');
+    expect(buildOnboardingGreeting(ready, 'en-US').headline).toContain("you're all set");
+  });
+
+  it('localizes the expired-license gap distinctly in both languages', () => {
+    const m = model({
+      first_value_ready: false,
+      entitlement_state: 'expired',
+      items: [item({ id: 'license', state: 'blocked', reason_code: 'LICENSE_EXPIRED' })],
+    });
+    expect(buildOnboardingGreeting(m, 'de-DE').gaps[0].text).toContain('abgelaufen');
+    expect(buildOnboardingGreeting(m, 'en-US').gaps[0].text).toContain('expired');
   });
 });
