@@ -282,10 +282,38 @@ function verifyNotarizationStapled(artifactPath, deps = {}) {
   return true;
 }
 
+// SECURITY (Teardown C2) — never ship PRIVATE signing-key material. The license
+// signing keys mint every license; one accidental bundle = total entitlement
+// bypass, only undone by rotating the trust root (which breaks issued licenses).
+// Scan the built bundle + the shippable source dirs; THROW (fail the build,
+// before notarize) on any private key. Public keys are allowed and pass.
+async function verifyNoPrivateKeysShipped(context) {
+  const { scanForPrivateKeys } = await import('./release/verify-no-private-keys.mjs');
+  const outDir = (context && context.outDir) || path.join(process.cwd(), 'out');
+  const roots = [outDir, path.join(process.cwd(), 'public'), path.join(process.cwd(), 'resources')].filter((p) => {
+    try {
+      return fs.existsSync(p);
+    } catch {
+      return false;
+    }
+  });
+  if (roots.length === 0) return;
+  const findings = scanForPrivateKeys(roots);
+  if (findings.length > 0) {
+    const lines = findings.map((f) => `  - ${f.file} (${f.reason})`).join('\n');
+    throw new Error(`SECURITY: private signing-key material in a shippable path — build BLOCKED:\n${lines}`);
+  }
+  console.log(`✓ C2 guard: no private-key material under ${roots.length} shippable path(s).`);
+}
+
 exports.default = async function afterAllArtifactBuild(context) {
   if (process.platform !== 'darwin') {
     return context.artifactPaths;
   }
+
+  // Fail the build before notarize if any private signing key sneaked into a
+  // shippable path (C2 CI guard).
+  await verifyNoPrivateKeysShipped(context);
 
   const artifactPaths = Array.isArray(context.artifactPaths) ? context.artifactPaths : [];
   const dmgArtifacts = artifactPaths.filter((artifactPath) => artifactPath.endsWith('.dmg'));
