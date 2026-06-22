@@ -132,7 +132,7 @@ export async function getDefaultAionrsModel(): Promise<TProviderWithModel> {
   if (compatibleProviders.length === 0) {
     throw new Error(
       COMMAND_EVE_SHELL_ENABLED
-        ? 'No enabled local EVE/Hermes model provider'
+        ? 'No enabled local EVE model provider'
         : 'No enabled model provider for Aion CLI'
     );
   }

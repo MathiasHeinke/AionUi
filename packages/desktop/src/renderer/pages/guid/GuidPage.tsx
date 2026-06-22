@@ -685,7 +685,7 @@ const GuidPage: React.FC = () => {
                       ) : (
                         <Robot theme='outline' size={20} fill='currentColor' />
                       )}
-                      <span className='text-13px'>EVE / Hermes</span>
+                      <span className='text-13px'>EVE</span>
                     </span>
                   ) : (
                     <Dropdown

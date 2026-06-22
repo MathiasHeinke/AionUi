@@ -397,7 +397,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         });
 
         if (!conversation || !conversation.id) {
-          const runtimeLabel = COMMAND_EVE_SHELL_ENABLED ? 'EVE/Hermes' : 'Aion CLI';
+          const runtimeLabel = COMMAND_EVE_SHELL_ENABLED ? 'EVE' : 'Aion CLI';
           const installLabel = COMMAND_EVE_SHELL_ENABLED ? 'the local EVE runtime is ready' : 'aionrs is installed';
           alert(`Failed to create ${runtimeLabel} conversation. Please ensure ${installLabel}.`);
           return;

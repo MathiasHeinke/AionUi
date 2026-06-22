@@ -34,7 +34,7 @@
     "checkRequired": "Check required",
     "checkRequiredDescription": "EVE could not fully prove the local status.",
     "readiness": "Readiness",
-    "hermes": "Hermes",
+    "hermes": "EVE Runtime",
     "hermesAvailable": "available",
     "hermesUnavailable": "unavailable",
     "blockedActions": "Blocked actions"
@@ -62,7 +62,7 @@
     },
     "dispatch": {
       "title": "Dispatch Gate",
-      "description": "Shows whether a card dispatch was checked through NL-5 and Hermes remains blocked.",
+      "description": "Shows whether a card dispatch was checked through NL-5 and EVE Runtime remains blocked.",
       "checked": "checked",
       "waiting": "waiting"
     }
@@ -83,7 +83,7 @@
     },
     "dispatchBlocked": {
       "title": "Dispatch blocked before spawn",
-      "description": "The dispatch plan was checked through NL-5 and Hermes/worker execution stayed stopped.",
+      "description": "The dispatch plan was checked through NL-5 and EVE Runtime/worker execution stayed stopped.",
       "checked": "checked",
       "waiting": "waiting for dispatch check"
     },
@@ -104,7 +104,7 @@
     }
   },
   "marketingBoard": {
-    "description": "Hermes-native Kanban view for Command EVE Marketing. The app reads the local kanban.db, writes local cards and moves only with audit receipts, and checks dispatches through NL-5 before any worker could start.",
+    "description": "EVE Runtime-native Kanban view for Command EVE Marketing. The app reads the local kanban.db, writes local cards and moves only with audit receipts, and checks dispatches through NL-5 before any worker could start.",
     "emptyColumn": "No marketing cards in this lane.",
     "columns": {
       "research": "Research",
@@ -127,7 +127,7 @@
     },
     "blocked": {
       "title": "Marketing Board not initialized yet",
-      "description": "Hermes Kanban is ready, but the local marketing board database has not been created yet."
+      "description": "EVE Runtime Kanban is ready, but the local marketing board database has not been created yet."
     },
     "actions": {
       "block": "Block",
@@ -174,7 +174,7 @@
     "dispatch": {
       "resultTitle": "Dispatch gate receipt",
       "ready": "Dispatch plan is ready, but still waits for controller approval.",
-      "blocked": "Dispatch was blocked before Hermes could spawn.",
+      "blocked": "Dispatch was blocked before EVE Runtime could spawn.",
       "failed": "Dispatch check could not run.",
       "dataBoundary": "NL-5",
       "checked": "checked",
@@ -212,7 +212,7 @@
       "pending": "pending",
       "approved": "approved",
       "rejected": "rejected",
-      "subprocess": "Hermes",
+      "subprocess": "EVE Runtime",
       "spawned": "spawned",
       "notSpawned": "not spawned"
     },

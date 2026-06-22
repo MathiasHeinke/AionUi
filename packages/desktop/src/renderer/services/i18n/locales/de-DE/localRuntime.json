@@ -2,13 +2,13 @@
   "sider": "Runtime",
   "title": "Local Runtime",
   "readOnly": "Read-only",
-  "subtitle": "Lokale Wahrheit für Hermes, Ollama, Gemma-Tiers und das letzte Bootstrap-Receipt. Kein Modellwechsel und kein Warm-up in diesem Bildschirm.",
+  "subtitle": "Lokale Wahrheit für EVE Runtime, Ollama, Gemma-Tiers und das letzte Bootstrap-Receipt. Kein Modellwechsel und kein Warm-up in diesem Bildschirm.",
   "refresh": "Aktualisieren",
   "sections": {
     "runtimeTruth": "Runtime-Wahrheit",
     "receipt": "Bootstrap-Receipt",
     "warmup": "Modell-Warm-up",
-    "kanban": "Hermes Kanban"
+    "kanban": "EVE Runtime Kanban"
   },
   "remediation": {
     "title": "Lokale Spur einrichten",
@@ -42,7 +42,7 @@
   },
   "labels": {
     "release": "Release",
-    "hermes": "Hermes",
+    "hermes": "EVE Runtime",
     "provider": "Provider",
     "ollamaUrl": "Ollama URL",
     "egressProxy": "Egress Proxy",
@@ -106,9 +106,9 @@
     "runtime_reconciliation_missing": "Runtime-Reconciliation fehlt",
     "runtime_reconciliation_schema_mismatch": "Runtime-Reconciliation hat ein unerwartetes Schema",
     "runtime_reconciliation_json_invalid": "Runtime-Reconciliation ist kein gültiges JSON",
-    "hermes_version_lookup_failed": "Hermes-Version konnte nicht gelesen werden",
+    "hermes_version_lookup_failed": "EVE Runtime-Version konnte nicht gelesen werden",
     "kanban_board_read_failed": "Kanban-Board konnte nicht read-only gelesen werden",
-    "kanban_optional_dashboard_api_unavailable": "Optionale Hermes-Dashboard-API ist nicht importierbar; Core-Kanban bleibt nutzbar",
+    "kanban_optional_dashboard_api_unavailable": "Optionale EVE Runtime-Dashboard-API ist nicht importierbar; Core-Kanban bleibt nutzbar",
     "kanban_board_db_missing_read_only_no_mutation": "Kanban-DB fehlt noch; der Preflight hat sie bewusst nicht angelegt",
     "kanban_python_probe_nonzero_exit": "Kanban-Python-Probe endete mit einem Nicht-Null-Code"
   },

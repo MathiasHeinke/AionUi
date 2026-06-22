@@ -34,7 +34,7 @@
     "checkRequired": "Prüfung nötig",
     "checkRequiredDescription": "EVE konnte den lokalen Status nicht vollständig beweisen.",
     "readiness": "Readiness",
-    "hermes": "Hermes",
+    "hermes": "EVE Runtime",
     "hermesAvailable": "verfügbar",
     "hermesUnavailable": "nicht verfügbar",
     "blockedActions": "Gesperrte Aktionen"
@@ -62,7 +62,7 @@
     },
     "dispatch": {
       "title": "Dispatch Gate",
-      "description": "Zeigt, ob ein Card-Dispatch durch NL-5 geprüft wurde und Hermes weiter blockiert bleibt.",
+      "description": "Zeigt, ob ein Card-Dispatch durch NL-5 geprüft wurde und EVE Runtime weiter blockiert bleibt.",
       "checked": "geprüft",
       "waiting": "wartet"
     }
@@ -83,7 +83,7 @@
     },
     "dispatchBlocked": {
       "title": "Dispatch blockiert vor Spawn",
-      "description": "Der Dispatch-Plan wurde durch NL-5 geprueft und Hermes/Worker-Ausfuehrung blieb gestoppt.",
+      "description": "Der Dispatch-Plan wurde durch NL-5 geprueft und EVE Runtime/Worker-Ausfuehrung blieb gestoppt.",
       "checked": "geprueft",
       "waiting": "wartet auf Dispatch-Check"
     },
@@ -104,7 +104,7 @@
     }
   },
   "marketingBoard": {
-    "description": "Hermes-native Kanban-Sicht fuer Command EVE Marketing. Die App liest die lokale kanban.db, schreibt lokale Karten und Moves nur mit Audit-Receipt und prueft Dispatches ueber NL-5, bevor ein Worker starten duerfte.",
+    "description": "EVE Runtime-native Kanban-Sicht fuer Command EVE Marketing. Die App liest die lokale kanban.db, schreibt lokale Karten und Moves nur mit Audit-Receipt und prueft Dispatches ueber NL-5, bevor ein Worker starten duerfte.",
     "emptyColumn": "Keine Marketing-Karten in dieser Lane.",
     "columns": {
       "research": "Recherche",
@@ -127,7 +127,7 @@
     },
     "blocked": {
       "title": "Marketing Board noch nicht initialisiert",
-      "description": "Hermes Kanban ist bereit, aber die lokale Marketing-Board-Datenbank wurde noch nicht angelegt."
+      "description": "EVE Runtime Kanban ist bereit, aber die lokale Marketing-Board-Datenbank wurde noch nicht angelegt."
     },
     "actions": {
       "block": "Blockieren",
@@ -174,7 +174,7 @@
     "dispatch": {
       "resultTitle": "Dispatch-Gate-Receipt",
       "ready": "Dispatch-Plan ist bereit, wartet aber weiter auf Controller-Freigabe.",
-      "blocked": "Dispatch wurde vor Hermes blockiert.",
+      "blocked": "Dispatch wurde vor EVE Runtime blockiert.",
       "failed": "Dispatch-Prüfung konnte nicht ausgeführt werden.",
       "dataBoundary": "NL-5",
       "checked": "geprüft",
@@ -212,7 +212,7 @@
       "pending": "ausstehend",
       "approved": "freigegeben",
       "rejected": "abgelehnt",
-      "subprocess": "Hermes",
+      "subprocess": "EVE Runtime",
       "spawned": "gestartet",
       "notSpawned": "nicht gestartet"
     },

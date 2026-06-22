@@ -110,7 +110,7 @@ const AcpRuntimeStatus: React.FC<{
 
   const elapsedMs = activity.startedAt && isActive ? now - activity.startedAt : activity.elapsedMs;
   const modelLabel = activity.modelId?.replace(/^custom:/, '') || t('conversation.runtimeStatus.modelUnknown');
-  const backendLabel = activity.backend || 'Hermes';
+  const backendLabel = activity.backend || 'EVE';
   const hasContextUsage = typeof activity.contextUsed === 'number' && typeof activity.contextSize === 'number';
   const notice =
     isActive && elapsedMs && elapsedMs >= LONG_RUNNING_NOTICE_MS
