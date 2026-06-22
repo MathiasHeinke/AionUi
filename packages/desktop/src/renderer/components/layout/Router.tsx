@@ -14,6 +14,7 @@ const AppearanceSettings = React.lazy(() => import('@renderer/pages/settings/App
 const ModeSettings = React.lazy(() => import('@renderer/pages/settings/ModeSettings'));
 const SystemSettings = React.lazy(() => import('@renderer/pages/settings/SystemSettings'));
 const BillingSettings = React.lazy(() => import('@renderer/pages/settings/BillingSettings'));
+const CompanyBrainSettings = React.lazy(() => import('@renderer/pages/settings/CompanyBrainSettings'));
 const AccountSettings = React.lazy(() => import('@renderer/pages/settings/AccountSettings'));
 const PrivacySettings = React.lazy(() => import('@renderer/pages/settings/PrivacySettings'));
 const WebuiSettings = React.lazy(() => import('@renderer/pages/settings/WebuiSettings'));
@@ -118,6 +119,7 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           <Route path='/settings/pet' element={withRouteFallback(PetSettings)} />
           <Route path='/settings/system' element={withRouteFallback(SystemSettings)} />
           <Route path='/settings/billing' element={withRouteFallback(BillingSettings)} />
+          <Route path='/settings/company-brain' element={withRouteFallback(CompanyBrainSettings)} />
           <Route path='/settings/account' element={withRouteFallback(AccountSettings)} />
           <Route path='/settings/about' element={withRouteFallback(SystemSettings)} />
           <Route path='/settings/privacy' element={withRouteFallback(PrivacySettings)} />

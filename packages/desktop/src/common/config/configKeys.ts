@@ -84,6 +84,14 @@ export type ConfigKeyMap = {
    */
   'commandEve.clientSeeded': boolean | undefined;
   /**
+   * STICKY dismissal of the forced Day-0 onboarding modal. Set true when the user
+   * clicks "Later" / closes the seed modal WITHOUT seeding. Once set, the forced
+   * modal never re-pops on a later launch (the user can still seed any time from
+   * Settings → Company Brain). Distinct from `clientSeeded`: dismissed ≠ seeded,
+   * so the Settings panel still shows "not yet seeded". (useDayZeroOnboarding.)
+   */
+  'commandEve.clientSeedDismissed': boolean | undefined;
+  /**
    * The blended €/h rate used to monetize the €-value receipt ("≈ ~Nh / ~M€ of
    * your work"). Founder-overridable; defaults to DEFAULT_VALUE_RECEIPT_HOURLY_EUR.
    */

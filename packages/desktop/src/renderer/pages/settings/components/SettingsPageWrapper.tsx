@@ -6,6 +6,7 @@ import { isElectronDesktop, resolveExtensionAssetUrl } from '@/renderer/utils/pl
 import { type IExtensionSettingsTab } from '@/common/adapter/ipcBridge';
 import { useExtensionSettingsTabs } from '@/renderer/hooks/system/useExtensionSettingsTabs';
 import {
+  Brain,
   Cat,
   Communication,
   Computer,
@@ -81,6 +82,12 @@ export function getBuiltinSettingsNavItems(isDesktop: boolean, t: TranslateFn): 
       label: t('settings.billing', { defaultValue: 'Billing' }),
       icon: <Wallet theme='outline' size='16' />,
       path: 'billing',
+    },
+    companyBrain: {
+      id: 'companyBrain',
+      label: t('settings.companyBrain', { defaultValue: 'Company Brain' }),
+      icon: <Brain theme='outline' size='16' />,
+      path: 'company-brain',
     },
     account: {
       id: 'account',

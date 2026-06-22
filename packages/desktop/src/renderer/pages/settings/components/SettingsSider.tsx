@@ -4,6 +4,7 @@ import { type IExtensionSettingsTab } from '@/common/adapter/ipcBridge';
 import { useExtI18n } from '@/renderer/hooks/system/useExtI18n';
 import { useExtensionSettingsTabs } from '@/renderer/hooks/system/useExtensionSettingsTabs';
 import {
+  Brain,
   Cat,
   Communication,
   Computer,
@@ -37,6 +38,7 @@ export const BUILTIN_TAB_IDS = [
   'pet',
   'privacy',
   'billing',
+  'companyBrain',
   'account',
   'system',
   'about',
@@ -126,6 +128,12 @@ const SettingsSider: React.FC<{ collapsed?: boolean; tooltipEnabled?: boolean }>
         label: t('settings.billing', { defaultValue: 'Billing' }),
         icon: <Wallet />,
         path: 'billing',
+      },
+      companyBrain: {
+        id: 'companyBrain',
+        label: t('settings.companyBrain', { defaultValue: 'Company Brain' }),
+        icon: <Brain />,
+        path: 'company-brain',
       },
       account: {
         id: 'account',

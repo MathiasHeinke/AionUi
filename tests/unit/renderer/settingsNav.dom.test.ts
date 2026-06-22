@@ -34,6 +34,13 @@ describe('getBuiltinSettingsNavItems', () => {
     expect(ids).toContain('account');
   });
 
+  it('includes the Company Brain tab (fix #4) with the company-brain route path', () => {
+    const items = getBuiltinSettingsNavItems(true, t);
+    const companyBrain = items.find((it) => it.id === 'companyBrain');
+    expect(companyBrain).toBeDefined();
+    expect(companyBrain?.path).toBe('company-brain');
+  });
+
   it('covers every BUILTIN_TAB_ID exactly', () => {
     const ids = new Set(getBuiltinSettingsNavItems(true, t).map((it) => it.id));
     for (const id of BUILTIN_TAB_IDS) expect(ids.has(id)).toBe(true);

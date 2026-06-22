@@ -194,3 +194,18 @@
   font-size: 11px;
   color: var(--color-success-6, #16a34a);
 }
+
+/* ---- company brain settings (fix #4) ---- */
+.company-brain-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.company-brain-settings__status-row {
+  margin-bottom: 8px;
+}
+.company-brain-settings__hint {
+  font-size: 13px;
+  color: var(--text-secondary, #4b5563);
+  margin: 4px 0 12px;
+}
