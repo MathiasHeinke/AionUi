@@ -1555,14 +1555,20 @@ export function initCommandEveBridge(): void {
   });
 
   // Resolve a picker selection ("Privat lokal" tier OR "EVE Inference" tier)
-  // into the full TProviderWithModel used as the conversation `model`. For an
-  // EVE tier we inject the stored CEVE license WIRE STRING here in the MAIN
-  // process (the renderer never asks for the raw wire — it only knows the
-  // selection value). The returned provider does carry the wire as `api_key`
-  // because the conversation `model` is POSTed to the backend over the local
-  // loopback HTTP bridge (same lifecycle as the local-runtime loopback key).
-  // Fail-closed: an EVE selection with no usable wire returns an error result,
-  // never a provider with an empty bearer.
+  // into the TProviderWithModel used as the conversation `model`.
+  //
+  // SECURITY (H3): the renderer must NEVER receive the raw CEVE license wire.
+  // The actual EVE-inference POST happens entirely in the MAIN process — the
+  // Hermes/aionrs agent talks to the local loopback OpenAI shim, and that shim's
+  // per-request `eveRouting` resolver (buildCommandEveShimRoutingResolver in
+  // index.ts) re-reads the wire from the keychain and attaches
+  // `Authorization: Bearer <wire>` itself. So the `api_key` on this returned
+  // provider is NOT the live authorization credential — carrying it to the
+  // renderer (and into persisted conversation params) was a redundant leak of a
+  // live bearer. We therefore VERIFY the wire exists (fail-closed: an EVE
+  // selection with no usable wire still returns an error so the renderer's
+  // graceful local-lane fallback fires) but return the provider WITHOUT the
+  // wire. Main re-injects the real bearer at call time.
   bridge
     .buildProvider('command-eve.resolve-inference-provider')
     .provider(async (request?: { selection?: string; localTierId?: string }) => {
@@ -1583,7 +1589,16 @@ export function initCommandEveBridge(): void {
               data: undefined,
             };
           }
-          const provider = buildEveInferenceProvider({ tierId: eveTierId, licenseWire: wireResult.wire });
+          // Build the provider with the wire (the builder fail-louds on an empty
+          // bearer), then STRIP the wire before it crosses to the renderer. The
+          // loopback shim attaches the real bearer in main; the renderer only
+          // needs the provider shape (id/base_url/use_model/capabilities) to seed
+          // the conversation `model`.
+          const { api_key: _wire, ...providerWithoutWire } = buildEveInferenceProvider({
+            tierId: eveTierId,
+            licenseWire: wireResult.wire,
+          });
+          const provider = { ...providerWithoutWire, api_key: '' };
           return { success: true, data: { provider, lane: 'eve' as const, tierId: eveTierId } };
         }
 
