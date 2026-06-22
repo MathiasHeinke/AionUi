@@ -42,6 +42,7 @@ import '@/common/adapter/browser';
 import type { PropsWithChildren } from 'react';
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { AppErrorBoundary } from './components/base/AppErrorBoundary';
 import type { TFunction } from 'i18next';
 
 // Context providers
@@ -359,14 +360,18 @@ const shouldShowBackendStartupFailureDialog =
   backendStartupFailure?.reason === 'backend_startup_failed';
 if (backendStartupFailure && shouldShowBackendStartupFailureDialog) {
   root.render(
-    <Config>
-      <BackendStartupFailureDialog failure={backendStartupFailure} />
-    </Config>
+    <AppErrorBoundary>
+      <Config>
+        <BackendStartupFailureDialog failure={backendStartupFailure} />
+      </Config>
+    </AppErrorBoundary>
   );
 } else {
   root.render(
-    <AppProviders>
-      <App />
-    </AppProviders>
+    <AppErrorBoundary>
+      <AppProviders>
+        <App />
+      </AppProviders>
+    </AppErrorBoundary>
   );
 }

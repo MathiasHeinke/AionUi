@@ -17,6 +17,8 @@ import {
   Robot,
   Shield,
   System,
+  User,
+  Wallet,
 } from '@icon-park/react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -74,11 +76,26 @@ export function getBuiltinSettingsNavItems(isDesktop: boolean, t: TranslateFn): 
       icon: <Shield theme='outline' size='16' />,
       path: 'privacy',
     },
+    billing: {
+      id: 'billing',
+      label: t('settings.billing', { defaultValue: 'Billing' }),
+      icon: <Wallet theme='outline' size='16' />,
+      path: 'billing',
+    },
+    account: {
+      id: 'account',
+      label: t('settings.account', { defaultValue: 'Account' }),
+      icon: <User theme='outline' size='16' />,
+      path: 'account',
+    },
     system: { id: 'system', label: t('settings.system'), icon: <System theme='outline' size='16' />, path: 'system' },
     about: { id: 'about', label: t('settings.about'), icon: <Info theme='outline' size='16' />, path: 'about' },
   };
 
-  return BUILTIN_TAB_IDS.map((id) => builtinMap[id]);
+  // Drop any id without a map entry instead of leaving an `undefined` hole that
+  // later crashes the render (`result[i].id`). This is what white-screened the
+  // whole app when `billing`/`account` were in BUILTIN_TAB_IDS but not the map.
+  return BUILTIN_TAB_IDS.map((id) => builtinMap[id]).filter((it): it is NavItem => Boolean(it));
 }
 
 const SettingsPageWrapper: React.FC<SettingsPageWrapperProps> = ({ children, className, contentClassName }) => {
