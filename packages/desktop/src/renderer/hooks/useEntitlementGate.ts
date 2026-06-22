@@ -72,6 +72,31 @@ export function useEntitlementGate(): EntitlementGateState {
     void refresh();
   }, [refresh]);
 
+  // §2a — reflect an OFF-BAND entitlement change (the main-process online
+  // re-verify can drop a revoked/expired entitlement after the gate already
+  // rendered). Re-read the main-process status on window focus and on a slow
+  // interval so a server-side revoke eventually re-renders the gate WITHOUT a
+  // manual reload. This is a cheap local status mirror — it never decides
+  // entitlement itself (the main process is always the truth), and it is
+  // fail-closed (a thrown read surfaces 'unconfigured' above). Desktop only.
+  useEffect(() => {
+    if (!isElectronDesktop()) return;
+    const onFocus = (): void => {
+      void refresh();
+    };
+    const onTick = (): void => {
+      void refresh();
+    };
+    window.addEventListener('focus', onFocus);
+    // Slow poll (5 min) as a backstop for a long-running window that never blurs.
+    const RECONCILE_POLL_MS = 5 * 60 * 1000;
+    const timer = window.setInterval(onTick, RECONCILE_POLL_MS);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.clearInterval(timer);
+    };
+  }, [refresh]);
+
   // Block only when the main process says the gate is required AND not entitled.
   // `required:false` (flag off / non-desktop) never blocks. `ok:true` with
   // state 'entitled' is the only unlocked state.

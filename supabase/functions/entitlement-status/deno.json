@@ -1,0 +1,8 @@
+{
+  "//": "entitlement-status Edge Function config (§2a online revocation check). CRITICAL DEPLOY NOTE: this function authenticates with the CEVE license WIRE (Bearer), NOT a Supabase JWT, exactly like eve-inference. It MUST be deployed with verify_jwt = FALSE, i.e. `supabase functions deploy entitlement-status --no-verify-jwt`. The wire's Ed25519 signature is verified server-side via ../_shared/license-code-core.ts using the public key derived from COMMAND_EVE_LICENSE_SIGNING_KEY (already provisioned for mint-license/eve-inference). Other secrets: SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (service-role read of the entitlements row; clients cannot read it).",
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    }
+  }
+}

@@ -37,6 +37,7 @@ import {
   resetEntitlement,
   COMMAND_EVE_ENTITLEMENT_RESET_VERSION,
 } from '@process/commandEve/entitlementResetCore';
+import { reconcileEntitlementOnline } from '@process/commandEve/entitlementOnlineCheckCore';
 import {
   applyKanbanMarketingCardAction,
   approveKanbanMarketingOutput,
@@ -1822,4 +1823,43 @@ export function initCommandEveBridge(): void {
       // A dead refresh / network failure just leaves the gate on Login.
     }
   })();
+
+  // ONLINE RE-VERIFY (§2a) — account-first revocation check, FIRE-AND-RECONCILE
+  // and OFF the critical path. We never await this before the gate's first render
+  // (the renderer reads entitlement-status on mount independently); a conclusive
+  // server 'revoked'/'expired' simply drops the local entitlement + license wire
+  // so the NEXT gate read lands on registered_unlicensed.
+  //
+  // SHIP-INERT: this is DEFAULT-INERT (entitlementOnlineCheckCore) — until the
+  // founder deploys the entitlement-status Edge Function AND it returns a
+  // conclusive verdict, every path is non-conclusive and the local entitlement is
+  // left untouched (a valid offline user is NEVER locked out). The enable mode
+  // defaults to AUTO (env COMMAND_EVE_ONLINE_REVERIFY=off|on overrides).
+  const readWireString = (p: string): string | null => {
+    try {
+      const r = readLicenseWire(p);
+      return r.ok && r.wire ? r.wire : null;
+    } catch {
+      return null;
+    }
+  };
+  const runOnlineReverify = async (): Promise<void> => {
+    try {
+      await reconcileEntitlementOnline(getDataPath(), {
+        readWire: readWireString,
+        clearLicenseWire,
+      });
+    } catch {
+      // A failed/slow check is non-destructive by construction; never throw.
+    }
+  };
+  // Once at boot...
+  void runOnlineReverify();
+  // ...then periodically (every 6h) while the process lives. unref() so this
+  // timer never keeps the app alive on its own.
+  const ONLINE_REVERIFY_INTERVAL_MS = 6 * 60 * 60 * 1000;
+  const reverifyTimer = setInterval(() => void runOnlineReverify(), ONLINE_REVERIFY_INTERVAL_MS);
+  if (typeof reverifyTimer === 'object' && reverifyTimer && typeof reverifyTimer.unref === 'function') {
+    reverifyTimer.unref();
+  }
 }
