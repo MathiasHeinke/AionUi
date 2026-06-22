@@ -36,6 +36,19 @@
   overflow-x: hidden;
   box-shadow: none !important;
   border-right: 1px solid var(--border-base);
+  background: transparent !important; /* let the frosted children layer show */
+}
+
+/* Frosted, translucent sidebar — reads more "edel" than a flat solid in both
+   themes. CSS-level translucency (a refined layered panel); for true native
+   macOS desktop-blur, pair with BrowserWindow vibrancy='sidebar' (follow-up). */
+.layout-sider > .arco-layout-sider-children {
+  background: rgba(249, 250, 252, 0.72) !important; /* light: translucent paper */
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
+}
+[data-theme='dark'] .layout-sider > .arco-layout-sider-children {
+  background: rgba(14, 20, 34, 0.6) !important; /* dark: translucent night-navy */
 }
 
 /* Arco Layout inner container needs flex layout so Header + Content + Footer
