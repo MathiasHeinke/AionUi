@@ -20,7 +20,13 @@ import { resolveBackendAssetUrl } from '@/renderer/utils/platform';
  * Note: keys are lowercase, supports multiple variants (e.g., openclaw-gateway and openclaw)
  */
 const AGENT_LOGO_PATH_MAP = {
-  aionrs: 'brand/aion.svg',
+  // Command EVE brand mark. The EVE runtime (default backend `hermes`) and the
+  // local `aionrs` runtime both render as EVE, so both point at the only brand
+  // asset that actually ships in `assets/logos/` — `brand/app.png` (the ⌘ EVE
+  // mark). The old `brand/aion.svg` / `brand/hermes.svg` paths never existed on
+  // disk, so they 404'd through `/api/assets/logos/...` and the badge rendered a
+  // broken-image placeholder (fix #1).
+  aionrs: 'brand/app.png',
   claude: 'ai-major/claude.svg',
   gemini: 'ai-major/gemini.svg',
   qwen: 'ai-china/qwen.svg',
@@ -28,7 +34,7 @@ const AGENT_LOGO_PATH_MAP = {
   codebuddy: 'tools/coding/codebuddy.svg',
   droid: 'brand/droid.svg',
   goose: 'tools/goose.svg',
-  hermes: 'brand/hermes.svg',
+  hermes: 'brand/app.png',
   snow: 'tools/coding/snow.png',
   auggie: 'brand/auggie.svg',
   kimi: 'ai-china/kimi.svg',

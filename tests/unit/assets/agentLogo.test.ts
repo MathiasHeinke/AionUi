@@ -76,6 +76,23 @@ describe('agentLogo', () => {
       const logo = getAgentLogo('opencode');
       expect(logo).toContain('opencode-dark.svg');
     });
+
+    // fix #1: the EVE runtime (default backend `hermes`) and the local `aionrs`
+    // runtime must point at the brand asset that actually ships in
+    // `assets/logos/` — `brand/app.png`. The old `brand/hermes.svg` /
+    // `brand/aion.svg` paths never existed on disk and 404'd → broken-image
+    // placeholder for the EVE logo / brand mark.
+    it('maps the EVE backend (hermes) to the bundled brand/app.png mark', () => {
+      const logo = getAgentLogo('hermes');
+      expect(logo).toContain('/api/assets/logos/brand/app.png');
+      expect(logo).not.toContain('hermes.svg');
+    });
+
+    it('maps the local aionrs runtime to the bundled brand/app.png mark', () => {
+      const logo = getAgentLogo('aionrs');
+      expect(logo).toContain('/api/assets/logos/brand/app.png');
+      expect(logo).not.toContain('aion.svg');
+    });
   });
 
   describe('resolveAgentLogo', () => {
