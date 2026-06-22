@@ -196,7 +196,15 @@
     "logout": "Abmelden",
     "loggingOut": "Wird abgemeldet…",
     "logoutHint": "Die Abmeldung entfernt deine Anmeldung von diesem Mac. Deine lokale Einrichtung und Lizenz bleiben erhalten, damit Command EVE offline nutzbar bleibt.",
-    "login": "Anmelden"
+    "login": "Anmelden",
+    "reset": "Abmelden & Gerät zurücksetzen",
+    "resetting": "Wird zurückgesetzt …",
+    "resetHint": "Setzt dieses Gerät vollständig zurück (Lizenz + Registrierung) und führt zur Registrierung zurück.",
+    "resetError": "Zurücksetzen fehlgeschlagen.",
+    "resetConfirmTitle": "Gerät zurücksetzen?",
+    "resetConfirmBody": "Entfernt Lizenz, Registrierung und Anmeldung von diesem Gerät. Du landest wieder auf der Registrierung und musst dich neu anmelden.",
+    "resetConfirmOk": "Zurücksetzen",
+    "resetConfirmCancel": "Abbrechen"
   },
   "advancedSettings": "Erweiterte Einstellungen",
   "addModel": "Modell hinzufügen",

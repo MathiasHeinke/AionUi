@@ -1202,6 +1202,27 @@ export interface ICommandEveAuthLogoutResult {
 }
 
 /**
+ * HARD reset result ("Abmelden & Gerät zurücksetzen", §2b). Unlike the soft
+ * logout, this removes the three local trust artifacts (entitlement.json +
+ * registration.json + the license-wire bearer) and revokes the session, so the
+ * gate falls back to `unregistered`. `removed` reports which artifacts were
+ * present and cleared (the operation is idempotent — a re-reset clears nothing
+ * but still returns ok:true). Never returns tokens.
+ */
+export interface ICommandEveEntitlementResetResult {
+  version: 'command-eve-entitlement-reset/v0';
+  ok: boolean;
+  removed: {
+    entitlement: boolean;
+    registration: boolean;
+    license_wire: boolean;
+    session: boolean;
+  };
+  reason_code?: string;
+  message?: string;
+}
+
+/**
  * Local account/registration readout for the avatar + account panel. Mirrors the
  * locally-stored registration record (name/email/company) plus whether a session
  * exists. NEVER returns tokens. PII stays local — only the renderer that owns the
@@ -1439,6 +1460,13 @@ export const commandEve = {
     ICommandEveAuthPasswordLoginRequest
   >('command-eve.auth-password-login'),
   authLogout: bridge.buildProvider<IBridgeResponse<ICommandEveAuthLogoutResult>, void>('command-eve.auth-logout'),
+  // HARD reset ("Gerät zurücksetzen", §2b): removes entitlement.json +
+  // registration.json + the license-wire bearer and revokes the session, so the
+  // gate falls back to the RegistrationGate. The renderer re-reads
+  // entitlement-status after this resolves. No tokens cross the bridge.
+  entitlementReset: bridge.buildProvider<IBridgeResponse<ICommandEveEntitlementResetResult>, void>(
+    'command-eve.entitlement-reset'
+  ),
   // Local registration/session readout for the avatar + account panel (no tokens).
   registrationStatus: bridge.buildProvider<IBridgeResponse<ICommandEveRegistrationStatusResult>, void>(
     'command-eve.registration-status'

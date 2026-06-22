@@ -193,7 +193,15 @@
     "logout": "Sign out",
     "loggingOut": "Signing out…",
     "logoutHint": "Signing out removes your login from this Mac. Your local setup and license are kept so Command EVE stays usable offline.",
-    "login": "Sign in"
+    "login": "Sign in",
+    "reset": "Sign out & reset device",
+    "resetting": "Resetting …",
+    "resetHint": "Fully resets this device (license + registration) and returns you to registration.",
+    "resetError": "Reset failed.",
+    "resetConfirmTitle": "Reset device?",
+    "resetConfirmBody": "Removes the license, registration and login from this device. You will return to registration and must sign in again.",
+    "resetConfirmOk": "Reset",
+    "resetConfirmCancel": "Cancel"
   },
   "advancedSettings": "Advanced Settings",
   "addModel": "Add Model",

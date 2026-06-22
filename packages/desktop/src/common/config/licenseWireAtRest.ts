@@ -185,3 +185,19 @@ export function hasLicenseWire(userDataPath: string): boolean {
   const record = readJsonFile<LicenseWireRecord>(licenseWirePath(userDataPath));
   return Boolean(record && typeof record.wire_ref === 'string' && isKeychainRef(record.wire_ref));
 }
+
+/**
+ * Delete the license-wire record (hard reset / "Gerät zurücksetzen"). Idempotent;
+ * never throws. Mirrors `clearAccountSession` in accountSessionAtRest.ts: the
+ * record is the EVE Inference bearer at rest, so removing it (alongside the
+ * entitlement + registration records) returns the device to the registration
+ * gate with no offline credential left behind.
+ */
+export function clearLicenseWire(userDataPath: string): void {
+  try {
+    const file = licenseWirePath(userDataPath);
+    if (fs.existsSync(file)) fs.rmSync(file, { force: true });
+  } catch {
+    // ignore
+  }
+}

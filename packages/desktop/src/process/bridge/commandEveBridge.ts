@@ -34,6 +34,10 @@ import {
   silentResumeAccountAuth,
 } from '@process/commandEve/accountAuthOrchestratorCore';
 import {
+  resetEntitlement,
+  COMMAND_EVE_ENTITLEMENT_RESET_VERSION,
+} from '@process/commandEve/entitlementResetCore';
+import {
   applyKanbanMarketingCardAction,
   approveKanbanMarketingOutput,
   buildKanbanMarketingBoard,
@@ -58,7 +62,7 @@ import {
 } from '@process/commandEve/onboardingStatusCore';
 import { buildSkillLibrary } from '@process/commandEve/skillLibraryCore';
 import { buildCommandEveStatusSurface } from '@process/commandEve/statusSurfaceCore';
-import { hasLicenseWire, readLicenseWire, storeLicenseWire } from '@/common/config/licenseWireAtRest';
+import { clearLicenseWire, hasLicenseWire, readLicenseWire, storeLicenseWire } from '@/common/config/licenseWireAtRest';
 import {
   buildEveInferenceProvider,
   isEveInferenceSelection,
@@ -1508,6 +1512,39 @@ export function initCommandEveBridge(): void {
         success: false,
         msg: error instanceof Error ? error.message : 'Command EVE auth-logout bridge failed.',
         data: { version, ok: false, reason_code: 'AUTH_LOGOUT_BRIDGE_FAILED' },
+      };
+    }
+  });
+
+  // HARD reset ("Abmelden & Gerät zurücksetzen", §2b). Unlike auth-logout (which
+  // KEEPS the offline entitlement), this removes the three local trust artifacts —
+  // entitlement.json + registration.json + the license-wire bearer — and revokes
+  // the account session, so getEntitlementStatus falls back to `unregistered` and
+  // the renderer's RegistrationGate renders again. Reuses the SAME
+  // revokeAndClearSession the soft logout uses + the new clearLicenseWire. Never
+  // returns tokens; never throws the chrome.
+  bridge.buildProvider('command-eve.entitlement-reset').provider(async () => {
+    try {
+      const result = await resetEntitlement(getDataPath(), {
+        clearLicenseWire,
+        revokeAndClearSession,
+      });
+      return {
+        success: result.ok,
+        msg: result.ok ? undefined : result.reason_code || result.message,
+        data: result,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : 'Command EVE entitlement-reset bridge failed.',
+        data: {
+          version: COMMAND_EVE_ENTITLEMENT_RESET_VERSION,
+          ok: false,
+          removed: { entitlement: false, registration: false, license_wire: false, session: false },
+          reason_code: 'ENTITLEMENT_RESET_BRIDGE_FAILED',
+          message: error instanceof Error ? error.message : undefined,
+        },
       };
     }
   });

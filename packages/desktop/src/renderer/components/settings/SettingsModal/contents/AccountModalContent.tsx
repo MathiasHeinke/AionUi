@@ -8,17 +8,24 @@
  * Account settings tab (browser-loopback auth, P1).
  *
  * Shows the signed-in account (name / email / company, read from the LOCAL
- * registration-status bridge — no tokens) and a Logout button. Per founder
- * decision, logout removes the login from this Mac but KEEPS the local
- * entitlement + license wire so Command EVE stays usable offline. When not
- * signed in, offers a Sign-in button that triggers the web-login flow.
+ * registration-status bridge — no tokens) and TWO distinct sign-out actions:
  *
+ *   - "Abmelden" (SOFT): removes the login from this Mac but KEEPS the local
+ *     entitlement + license wire so Command EVE stays usable offline (founder
+ *     decision; current behavior).
+ *   - "Abmelden & Gerät zurücksetzen" (HARD, §2b): removes the three local trust
+ *     artifacts (entitlement.json + registration.json + the license-wire bearer)
+ *     and revokes the session, returning the device to the RegistrationGate. A
+ *     reload re-mounts ProtectedLayout, whose useEntitlementGate re-reads the now
+ *     `unregistered` state and renders the gate.
+ *
+ * When not signed in, offers a Sign-in button that triggers the web-login flow.
  * Mirrors the Billing settings panel structure (Card + bridge wiring); the
  * decisions all live in the main process — this is presentation only.
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Button, Card, Message } from '@arco-design/web-react';
+import { Button, Card, Message, Popconfirm } from '@arco-design/web-react';
 import { useTranslation } from 'react-i18next';
 import { commandEve, type ICommandEveRegistrationStatusResult } from '@/common/adapter/ipcBridge';
 
@@ -26,6 +33,7 @@ const AccountModalContent: React.FC = () => {
   const { t } = useTranslation();
   const [info, setInfo] = useState<ICommandEveRegistrationStatusResult | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [loggingIn, setLoggingIn] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -54,6 +62,31 @@ const AccountModalContent: React.FC = () => {
       Message.error(t('settings.accountPanel.logout'));
     } finally {
       setLoggingOut(false);
+    }
+  }, [refresh, t]);
+
+  // HARD reset (§2b): wipe local entitlement/registration/license-wire + revoke
+  // the session, then reload so ProtectedLayout's useEntitlementGate re-reads the
+  // now-`unregistered` state and the RegistrationGate renders. The reload is the
+  // cross-tree re-gate trigger (the gate hook lives in ProtectedLayout, not here).
+  const handleReset = useCallback(async () => {
+    setResetting(true);
+    try {
+      const response = await commandEve.entitlementReset.invoke();
+      if (response.data?.ok) {
+        // Re-mount the app so the entitlement gate re-evaluates from scratch.
+        if (typeof window !== 'undefined' && window.location) {
+          window.location.reload();
+          return;
+        }
+        await refresh();
+      } else {
+        Message.error(t('settings.accountPanel.resetError', { defaultValue: 'Zurücksetzen fehlgeschlagen.' }));
+      }
+    } catch {
+      Message.error(t('settings.accountPanel.resetError', { defaultValue: 'Zurücksetzen fehlgeschlagen.' }));
+    } finally {
+      setResetting(false);
     }
   }, [refresh, t]);
 
@@ -110,6 +143,38 @@ const AccountModalContent: React.FC = () => {
               {loggingOut ? t('settings.accountPanel.loggingOut') : t('settings.accountPanel.logout')}
             </Button>
             <span className='text-12px text-t-tertiary'>{t('settings.accountPanel.logoutHint')}</span>
+
+            <Popconfirm
+              focusLock
+              title={t('settings.accountPanel.resetConfirmTitle', {
+                defaultValue: 'Gerät zurücksetzen?',
+              })}
+              content={t('settings.accountPanel.resetConfirmBody', {
+                defaultValue:
+                  'Entfernt Lizenz, Registrierung und Anmeldung von diesem Gerät. Du landest wieder auf der Registrierung und musst dich neu anmelden.',
+              })}
+              okText={t('settings.accountPanel.resetConfirmOk', { defaultValue: 'Zurücksetzen' })}
+              cancelText={t('settings.accountPanel.resetConfirmCancel', { defaultValue: 'Abbrechen' })}
+              onOk={() => void handleReset()}
+            >
+              <Button
+                status='danger'
+                type='outline'
+                shape='round'
+                loading={resetting}
+                data-testid='account-reset'
+              >
+                {resetting
+                  ? t('settings.accountPanel.resetting', { defaultValue: 'Wird zurückgesetzt …' })
+                  : t('settings.accountPanel.reset', { defaultValue: 'Abmelden & Gerät zurücksetzen' })}
+              </Button>
+            </Popconfirm>
+            <span className='text-12px text-t-tertiary'>
+              {t('settings.accountPanel.resetHint', {
+                defaultValue:
+                  'Setzt dieses Gerät vollständig zurück (Lizenz + Registrierung) und führt zur Registrierung zurück.',
+              })}
+            </span>
           </div>
         ) : (
           <div className='flex flex-col gap-12px'>
