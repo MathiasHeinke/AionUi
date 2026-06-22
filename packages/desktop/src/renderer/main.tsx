@@ -35,6 +35,13 @@ if ((window as { electronAPI?: unknown }).electronAPI) {
 // Runtime patches must be imported early
 import './utils/ui/runtimePatches';
 
+// Fresh-launch landing normalization (fix #3): if the window preserved a stale
+// `#/conversation/...` / `#/team/...` hash across relaunch, rewrite it to the
+// home surface BEFORE the HashRouter reads the initial location, so a fresh
+// launch lands on the EVE main/home screen instead of the last chat.
+import { applyBootRouteNormalization } from './utils/bootRoute';
+applyBootRouteNormalization();
+
 // Browser adapter setup
 import '@/common/adapter/browser';
 
