@@ -42,6 +42,10 @@ import {
   readAccountSession,
   storeAccountSession,
 } from '@process/commandEve/accountSessionAtRest';
+// C1: the gate now reads + re-verifies the stored wire, so these orchestrator
+// happy-path tests must persist a readable wire (the real bridge wires this same
+// fn) — a vi.fn() no-op leaves the gate at registered_unlicensed.
+import { storeLicenseWire } from '@/common/config/licenseWireAtRest';
 import {
   activateEntitlementFromSession,
   deriveProfileFromEmail,
@@ -326,7 +330,7 @@ describe('accountAuthOrchestratorCore — (5) login->code->activate happy path',
       throw new Error(`unexpected url ${url}`);
     });
 
-    const storeWire = vi.fn();
+    const storeWire = vi.fn(storeLicenseWire); // wraps the real persister: records the call AND writes the wire C1's gate re-reads
     const result = await activateEntitlementFromSession(root, futureSession(), {
       storeLicenseWire: storeWire,
       fetch: fetchSpy as unknown as typeof fetch,
@@ -384,7 +388,7 @@ describe('accountAuthOrchestratorCore — (6) silent resume', () => {
     });
 
     const result = await silentResumeAccountAuth(root, {
-      storeLicenseWire: vi.fn(),
+      storeLicenseWire,
       fetch: fetchSpy as unknown as typeof fetch,
       anonKey: 'anon-test',
       env: orchestratorEnv(root, publicKeyPem),
