@@ -47,6 +47,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { readLicenseWire } from '@/common/config/licenseWireAtRest';
 
 // ---------------------------------------------------------------------------
 // Wire format + reason codes — MIRROR of scripts/licensing/license-code-core.mjs
@@ -1083,48 +1084,95 @@ export function getEntitlementStatus(options: CommandEveEntitlementOptions): Com
     };
   }
 
-  // CEVE.v2 surface fields, carried onto every entitled/expired result below.
-  const v2Surface = {
-    ...(entitlement.trial_ends_at !== undefined ? { trial_ends_at: entitlement.trial_ends_at } : {}),
-    ...(entitlement.seat_count !== undefined ? { seat_count: entitlement.seat_count } : {}),
-  };
-
-  // Re-evaluate expiry against the real clock (spec §6). A v2 TRIAL entitlement
-  // (trial_ends_at != null) re-locks on trial_ends_at, NOT expires_at — mirroring
-  // the offline verify branch. A PAID / v1 entitlement (trial_ends_at absent or
-  // null) uses the unchanged expires_at check.
-  const trialEndsAt = entitlement.trial_ends_at;
-  if (trialEndsAt !== null && trialEndsAt !== undefined) {
-    const trialEndsMs = Date.parse(trialEndsAt);
-    if (Number.isNaN(trialEndsMs) || now().getTime() >= trialEndsMs) {
-      return {
-        version: COMMAND_EVE_ENTITLEMENT_BRIDGE_VERSION,
-        ok: false,
-        required: true,
-        state: 'expired',
-        reason_code: COMMAND_EVE_LICENSE_REASON_CODES.EXPIRED,
-        tenant_id: registration.tenant_id,
-        edition: entitlement.edition,
-        expires_at: entitlement.expires_at,
-        ...v2Surface,
-      };
-    }
-  } else if (entitlement.expires_at !== null && entitlement.expires_at !== undefined) {
-    const expiresMs = Date.parse(entitlement.expires_at);
-    if (Number.isNaN(expiresMs) || now().getTime() >= expiresMs) {
-      return {
-        version: COMMAND_EVE_ENTITLEMENT_BRIDGE_VERSION,
-        ok: false,
-        required: true,
-        state: 'expired',
-        reason_code: COMMAND_EVE_LICENSE_REASON_CODES.EXPIRED,
-        tenant_id: registration.tenant_id,
-        edition: entitlement.edition,
-        expires_at: entitlement.expires_at,
-        ...v2Surface,
-      };
-    }
+  // SECURITY (C1): the entitlement.json record is a NON-AUTHORITATIVE cache. A
+  // hand-written record alone must NEVER produce 'entitled' — otherwise the gate
+  // can be bypassed with a forged file that never carried a signed code. The gate
+  // therefore re-verifies the STORED WIRE (the raw CEVE code persisted at
+  // activation) on every read, against the SAME resolved key list + live clock
+  // that activation uses, and DERIVES edition/expiry/trial FROM the verified
+  // payload. Activation's offline-grace + idempotency semantics are unchanged;
+  // this only moves the trust anchor from the plain record to the signature.
+  const wireResult = readLicenseWire(options.userDataPath);
+  if (!wireResult.ok || !wireResult.wire) {
+    // No verifiable wire at rest ⇒ the record cannot be trusted on its own. Treat
+    // as not-yet-licensed (the record is a cache, not proof). This is the state a
+    // forged entitlement.json with no signed code lands in.
+    return {
+      version: COMMAND_EVE_ENTITLEMENT_BRIDGE_VERSION,
+      ok: false,
+      required: true,
+      state: 'registered_unlicensed',
+      tenant_id: registration.tenant_id,
+    };
   }
+
+  const keyEntries = resolveLicensePublicKeyEntries(options);
+  // keyEntries is non-empty here: a null publicKeyPem already returned
+  // 'unconfigured' above. Verify the wire against the same ordered key list +
+  // live clock activation used.
+  let verify: VerifyLicenseCodeMultiResult;
+  try {
+    verify = verifyLicenseCodeMultiTs({ code: wireResult.wire, keys: keyEntries, now: now() });
+  } catch {
+    // A broken configured key is an operator error, not an invalid code — but the
+    // gate must still fail closed (never 'entitled').
+    return {
+      version: COMMAND_EVE_ENTITLEMENT_BRIDGE_VERSION,
+      ok: false,
+      required: true,
+      state: 'unconfigured',
+      message: 'The configured license public key is invalid.',
+      tenant_id: registration.tenant_id,
+    };
+  }
+
+  if (verify.ok !== true) {
+    // Wire invalid / tampered / wrong-key / expired ⇒ NEVER 'entitled'. EXPIRED /
+    // NOT_YET_VALID surface as 'expired'; signature/version/shape failures mean
+    // there is no trustworthy license at all ⇒ registered_unlicensed.
+    const reason = verify.reason_code;
+    const expired =
+      reason === COMMAND_EVE_LICENSE_REASON_CODES.EXPIRED ||
+      reason === COMMAND_EVE_LICENSE_REASON_CODES.NOT_YET_VALID;
+    return {
+      version: COMMAND_EVE_ENTITLEMENT_BRIDGE_VERSION,
+      ok: false,
+      required: true,
+      state: expired ? 'expired' : 'registered_unlicensed',
+      reason_code: reason,
+      tenant_id: registration.tenant_id,
+      // On EXPIRED, surface the cached edition/expiry for the UI; never on a
+      // signature/version failure (the record's claims are unverified there).
+      ...(expired ? { edition: entitlement.edition, expires_at: entitlement.expires_at } : {}),
+    };
+  }
+
+  // From here the wire is cryptographically verified AND time-valid. Everything
+  // authoritative is DERIVED from the verified payload, not the cached record.
+  const payload = verify.payload;
+
+  // Defense-in-depth: the verified wire must bind to THIS tenant's activation.
+  // If the cached record's code_serial does not match the verified payload's
+  // serial, the cache is stale/forged relative to the real signed code ⇒ do not
+  // honor it as entitled.
+  if (entitlement.code_serial !== payload.serial) {
+    return {
+      version: COMMAND_EVE_ENTITLEMENT_BRIDGE_VERSION,
+      ok: false,
+      required: true,
+      state: 'registered_unlicensed',
+      tenant_id: registration.tenant_id,
+    };
+  }
+
+  // CEVE.v2 surface fields, DERIVED from the verified payload (not the cache).
+  // trial_ends_at is carried through only on a v2 payload (undefined on v1);
+  // seat_count defaults to 1 on a v2 payload, absent on v1 — matching the verify
+  // result shape so the surface is identical to before, just signature-backed.
+  const v2Surface = {
+    ...(payload.trial_ends_at !== undefined ? { trial_ends_at: payload.trial_ends_at } : {}),
+    ...(payload.seat_count !== undefined ? { seat_count: payload.seat_count } : {}),
+  };
 
   return {
     version: COMMAND_EVE_ENTITLEMENT_BRIDGE_VERSION,
@@ -1132,8 +1180,8 @@ export function getEntitlementStatus(options: CommandEveEntitlementOptions): Com
     required: true,
     state: 'entitled',
     tenant_id: registration.tenant_id,
-    edition: entitlement.edition,
-    expires_at: entitlement.expires_at,
+    edition: payload.edition,
+    expires_at: payload.expires_at,
     ...v2Surface,
   };
 }

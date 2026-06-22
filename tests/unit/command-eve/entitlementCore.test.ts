@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -19,6 +19,8 @@ import {
   type CommandEveEntitlementOptions,
   type CommandEveLicenseEdition,
 } from '@/process/commandEve/entitlementCore';
+import { storeLicenseWire } from '@/common/config/licenseWireAtRest';
+import { setSafeStorageForTesting, type SafeStorageAdapter } from '@/common/config/keychain';
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -32,7 +34,25 @@ const makeRoot = (): string => {
   return root;
 };
 
+// C1: the gate now re-verifies the STORED WIRE on every read, and the wire store
+// is keychain-backed. Provide an in-memory keychain seam so the full
+// register→activate→storeLicenseWire→getEntitlementStatus path works in Node.
+const makeAvailableKeychain = (): SafeStorageAdapter => ({
+  isEncryptionAvailable: () => true,
+  encryptString: (plainText: string) => Buffer.from(`enc::${plainText}`, 'utf8'),
+  decryptString: (encrypted: Buffer) => {
+    const raw = encrypted.toString('utf8');
+    if (!raw.startsWith('enc::')) throw new Error('bad ciphertext');
+    return raw.slice('enc::'.length);
+  },
+});
+
+beforeEach(() => {
+  setSafeStorageForTesting(makeAvailableKeychain());
+});
+
 afterEach(() => {
+  setSafeStorageForTesting(undefined);
   while (tempRoots.length) {
     const root = tempRoots.pop();
     if (root) fs.rmSync(root, { recursive: true, force: true });
@@ -150,6 +170,17 @@ const optionsFor = (
 
 const register = (options: CommandEveEntitlementOptions) =>
   registerTenant({ name: 'Alois', company: 'Alois GmbH', email: 'alois@example.com', consent: true }, options);
+
+/**
+ * Mirror the real bridge: activate the code, and on success persist the raw wire
+ * (keychain at rest) so the C1 gate re-verification has a wire to check. This is
+ * exactly what `command-eve.entitlement-activate` does in commandEveBridge.ts.
+ */
+const activateWithWire = (code: string, options: CommandEveEntitlementOptions) => {
+  const result = activateEntitlement({ code }, options);
+  if (result.ok) storeLicenseWire(options.userDataPath, code);
+  return result;
+};
 
 // ---------------------------------------------------------------------------
 // verifyLicenseCodeTs — port parity with the .mjs core
@@ -567,7 +598,7 @@ describe('activateEntitlement + getEntitlementStatus — CEVE.v2', () => {
       privateKey,
       validPayloadV2({ trial_ends_at: '2026-06-15T00:00:00.000Z', expires_at: null, seat_count: 4 })
     );
-    const result = activateEntitlement({ code }, options);
+    const result = activateWithWire(code, options);
     expect(result.ok).toBe(true);
     expect(result.record?.trial_ends_at).toBe('2026-06-15T00:00:00.000Z');
     expect(result.record?.seat_count).toBe(4);
@@ -599,7 +630,7 @@ describe('activateEntitlement + getEntitlementStatus — CEVE.v2', () => {
       privateKey,
       validPayloadV2({ trial_ends_at: null, expires_at: '2027-01-01T00:00:00.000Z', seat_count: 5 })
     );
-    const result = activateEntitlement({ code }, options);
+    const result = activateWithWire(code, options);
     expect(result.ok).toBe(true);
     expect(result.record?.trial_ends_at).toBe(null);
     expect(result.record?.seat_count).toBe(5);
@@ -790,7 +821,7 @@ describe('getEntitlementStatus', () => {
     const { publicKeyPem, privateKey } = makeKeypair();
     const options = optionsFor(root, publicKeyPem);
     register(options);
-    activateEntitlement({ code: signCode(privateKey, validPayload()) }, options);
+    activateWithWire(signCode(privateKey, validPayload()), options);
     const status = getEntitlementStatus(options);
     expect(status.state).toBe('entitled');
     expect(status.ok).toBe(true);
@@ -803,8 +834,8 @@ describe('getEntitlementStatus', () => {
     // Activate while valid.
     const activateOptions = optionsFor(root, publicKeyPem);
     register(activateOptions);
-    activateEntitlement(
-      { code: signCode(privateKey, validPayload({ expires_at: '2026-06-15T00:00:00.000Z' })) },
+    activateWithWire(
+      signCode(privateKey, validPayload({ expires_at: '2026-06-15T00:00:00.000Z' })),
       activateOptions
     );
     // Later launch: clock now past expiry, same temp dir.
@@ -822,7 +853,7 @@ describe('getEntitlementStatus', () => {
     const { publicKeyPem, privateKey } = makeKeypair();
     const options = optionsFor(root, publicKeyPem);
     register(options);
-    activateEntitlement({ code: signCode(privateKey, validPayload()) }, options);
+    activateWithWire(signCode(privateKey, validPayload()), options);
 
     // Simulate a process restart: a brand-new options object, same userData root,
     // no re-entry of name/company/email/code.
@@ -982,5 +1013,112 @@ describe('multi-key resolution + activation', () => {
     const status = getEntitlementStatus(options);
     expect(status.state).toBe('unconfigured');
     expect(status.ok).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// C1 (CRITICAL) — the gate trusts the VERIFIED WIRE, not the plain record. A
+// hand-written entitlement.json must NEVER, by itself, produce 'entitled'.
+// ---------------------------------------------------------------------------
+
+describe('getEntitlementStatus — C1: forged entitlement.json does not unlock the gate', () => {
+  const ENTITLEMENT_FILE = 'entitlement.json';
+  const entitlementDir = (root: string) => path.join(root, 'command-eve-runtime', 'entitlement');
+
+  // Write a structurally-valid-looking entitlement.json cache directly to disk,
+  // exactly what an attacker hand-crafting the file would do.
+  const writeForgedEntitlement = (root: string, tenantId: string, overrides: Record<string, unknown> = {}) => {
+    const dir = entitlementDir(root);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, ENTITLEMENT_FILE),
+      JSON.stringify({
+        version: 'command-eve-entitlement-record/v0',
+        tenant_id: tenantId,
+        code_serial: 'CEVE-PILOT-0001',
+        edition: 'pilot',
+        expires_at: '2099-01-01T00:00:00.000Z',
+        activated_at: '2026-01-01T00:00:00.000Z',
+        ...overrides,
+      })
+    );
+  };
+
+  it('(a) valid entitlement.json + NO wire on disk ⇒ NOT entitled', () => {
+    const root = makeRoot();
+    const { publicKeyPem } = makeKeypair();
+    const options = optionsFor(root, publicKeyPem);
+    // Real registration (so we get past the unregistered state)...
+    register(options);
+    // ...then a forged entitlement record, but NO license wire was ever stored.
+    writeForgedEntitlement(root, getEntitlementStatus(options).tenant_id ?? '');
+
+    const status = getEntitlementStatus(options);
+    expect(status.state).not.toBe('entitled');
+    expect(status.ok).toBe(false);
+    expect(status.state).toBe('registered_unlicensed');
+  });
+
+  it('(b) valid record + TAMPERED wire (wrong-key signature) ⇒ NOT entitled', () => {
+    const root = makeRoot();
+    const trusted = makeKeypair();
+    const attacker = makeKeypair();
+    const options = optionsFor(root, trusted.publicKeyPem);
+    register(options);
+    writeForgedEntitlement(root, getEntitlementStatus(options).tenant_id ?? '');
+
+    // Store a wire signed by an UNTRUSTED key — the record claims entitled, but
+    // the wire cannot be verified against the trusted key, so the gate must not
+    // unlock.
+    const forgedWire = signCode(attacker.privateKey, validPayload());
+    expect(storeLicenseWire(root, forgedWire).ok).toBe(true);
+
+    const status = getEntitlementStatus(options);
+    expect(status.state).not.toBe('entitled');
+    expect(status.ok).toBe(false);
+    // A signature failure means there is no trustworthy license at all.
+    expect(status.state).toBe('registered_unlicensed');
+  });
+
+  it('(b2) valid record + EXPIRED but correctly-signed wire ⇒ expired, never entitled', () => {
+    const root = makeRoot();
+    const { publicKeyPem, privateKey } = makeKeypair();
+    const options = optionsFor(root, publicKeyPem);
+    register(options);
+    writeForgedEntitlement(root, getEntitlementStatus(options).tenant_id ?? '');
+
+    // A real signature, but the code is expired relative to NOW (2026-06-12).
+    const expiredWire = signCode(privateKey, validPayload({ expires_at: '2026-03-01T00:00:00.000Z' }));
+    expect(storeLicenseWire(root, expiredWire).ok).toBe(true);
+
+    const status = getEntitlementStatus(options);
+    expect(status.state).toBe('expired');
+    expect(status.ok).toBe(false);
+    expect(status.reason_code).toBe('LICENSE_EXPIRED');
+  });
+
+  it('(c) happy path: register + activate a REAL signed code + storeLicenseWire ⇒ entitled across a re-read', () => {
+    const root = makeRoot();
+    const { publicKeyPem, privateKey } = makeKeypair();
+    const options = optionsFor(root, publicKeyPem);
+    register(options);
+
+    const code = signCode(privateKey, validPayload());
+    const activated = activateWithWire(code, options);
+    expect(activated.ok).toBe(true);
+
+    // First read: entitled, derived from the verified payload.
+    const first = getEntitlementStatus(options);
+    expect(first.state).toBe('entitled');
+    expect(first.ok).toBe(true);
+    expect(first.edition).toBe('pilot');
+    expect(first.expires_at).toBe('2027-01-01T00:00:00.000Z');
+
+    // Re-read across a fresh options object (process-restart shape): still
+    // entitled, because the wire re-verifies.
+    const reread = getEntitlementStatus(optionsFor(root, publicKeyPem));
+    expect(reread.state).toBe('entitled');
+    expect(reread.ok).toBe(true);
+    expect(reread.tenant_id).toBe(first.tenant_id);
   });
 });
