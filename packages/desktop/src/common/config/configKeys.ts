@@ -101,6 +101,15 @@ export type ConfigKeyMap = {
    * pricing list / save-offer (spec §1, §6). Default absent ⇒ Solo stays hidden.
    */
   'commandEve.churnSignal': boolean | undefined;
+  /**
+   * Per-OPERATOR report brand (RPT-1 / RPT-3). Intentionally INSTALL-GLOBAL, NOT
+   * seat-scoped: the brand is the operator's own (their agency), seat-independent,
+   * and contains ZERO client data — it is the only non-seat-A content allowed on a
+   * report deliverable, and it is NEVER Command EVE's. Absent ⇒ neutral, unbranded
+   * output. `logoDataUri` MUST be a self-contained `data:` URI (no remote asset;
+   * keeps the print HTML CSP-safe).
+   */
+  'commandEve.reportBrand': { displayName?: string; logoDataUri?: string; footer?: string } | undefined;
   'assistant.telegram.defaultModel': { id: string; use_model: string } | undefined;
   'assistant.telegram.agent':
     | { agent_type: string; backend?: string; id?: string; custom_agent_id?: string; name?: string }

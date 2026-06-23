@@ -76,6 +76,12 @@ import { ProcessConfig } from '@process/utils/initStorage';
 import { getDataPath } from '@process/utils/utils';
 import { getActiveSeatId } from '@process/commandEve/seatContextCore';
 import { readCompanyBrainSeedState, writeCompanyBrainSeed } from '@process/commandEve/companyBrainSeedCore';
+import {
+  createElectronPdfRenderer,
+  exportReport,
+  SeatTruthFenceError,
+  type ReportContent,
+} from '@process/commandEve/reportExportCore';
 
 /** Version tag mirrored onto every credits bridge result (ipcBridge contract). */
 const COMMAND_EVE_CREDITS_BRIDGE_VERSION = 'command-eve-credits/v0' as const;
@@ -1652,6 +1658,75 @@ export function initCommandEveBridge(): void {
       };
     }
   });
+
+  // -------------------------------------------------------------------------
+  // REPORT EXPORT (Lane C / RPT-1). Turn the active seat's report markdown into
+  // a clean OPERATOR-branded PDF / Word / Markdown deliverable on disk, then open
+  // it. The SEAT-TRUTH FENCE is enforced in main, fail-closed: exportReport calls
+  // assertSeatTruth(content.seatId === getActiveSeatId()) BEFORE any byte is
+  // produced — never a cross-seat store query, never a seat-workspace glob. PDF
+  // uses Electron's OWN Chromium (createElectronPdfRenderer → offscreen window +
+  // printToPDF; no heavy headless-chrome dep). The output is an inert static file
+  // (the recipient never logs in), and the brand is the operator's own, never
+  // Command EVE.
+  // -------------------------------------------------------------------------
+  bridge.buildProvider('command-eve.report-export').provider(
+    async (request?: {
+      format?: 'pdf' | 'docx' | 'md';
+      markdown?: string;
+      seatId?: string;
+      outputPath?: string;
+      title?: string;
+      brand?: { displayName?: string; logoDataUri?: string; footer?: string };
+    }) => {
+      const version = 'command-eve-report-export/v0' as const;
+      try {
+        const format = request?.format;
+        const outputPath = request?.outputPath;
+        if (!format || (format !== 'pdf' && format !== 'docx' && format !== 'md')) {
+          return { success: false, msg: 'Unknown export format.', data: { version, ok: false, reason_code: 'REPORT_EXPORT_BAD_FORMAT' } };
+        }
+        if (!outputPath || typeof outputPath !== 'string' || outputPath.trim().length === 0) {
+          return { success: false, msg: 'No output path.', data: { version, ok: false, reason_code: 'REPORT_EXPORT_NO_OUTPUT' } };
+        }
+
+        const content: ReportContent = {
+          markdown: typeof request?.markdown === 'string' ? request.markdown : '',
+          // The fence re-asserts this against the in-process active seat. We do
+          // NOT trust the body for identity beyond the fence equality check.
+          seatId: typeof request?.seatId === 'string' ? request.seatId : '',
+          title: request?.title,
+        };
+
+        const artifact = await exportReport(format, content, {
+          brand: request?.brand,
+          // Fence target is the AUTHORITATIVE in-process active seat (not the body).
+          activeSeatId: getActiveSeatId(),
+          pdfRenderer: format === 'pdf' ? createElectronPdfRenderer() : undefined,
+        });
+
+        const { promises: fsp } = await import('node:fs');
+        await fsp.writeFile(outputPath, artifact.bytes);
+
+        // Open the finished file in the system default app (best-effort).
+        try {
+          const { shell } = (await import('electron')) as { shell?: { openPath(p: string): Promise<string> } };
+          if (shell?.openPath) await shell.openPath(outputPath);
+        } catch {
+          // Open is a convenience; the file is already written.
+        }
+
+        return { success: true, data: { version, ok: true, format, output_path: outputPath } };
+      } catch (error) {
+        const reason_code = error instanceof SeatTruthFenceError ? error.reasonCode : 'REPORT_EXPORT_FAILED';
+        return {
+          success: false,
+          msg: error instanceof Error ? error.message : 'Command EVE report export failed.',
+          data: { version, ok: false, reason_code },
+        };
+      }
+    }
+  );
 
   // Resolve a picker selection ("Privat lokal" tier OR "EVE Inference" tier)
   // into the TProviderWithModel used as the conversation `model`.

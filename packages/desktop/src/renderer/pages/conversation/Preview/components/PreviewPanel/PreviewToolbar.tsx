@@ -121,6 +121,13 @@ interface PreviewToolbarProps {
   onDownload: () => void;
 
   /**
+   * 导出报告（PDF / Word / Markdown，带运营商品牌，限定当前 seat）
+   * Export the report as a branded client deliverable (PDF / Word / Markdown),
+   * fenced to the active seat. Absent ⇒ the Export entry is hidden.
+   */
+  onExport?: (format: 'pdf' | 'docx' | 'md') => void;
+
+  /**
    * 关闭预览面板
    * Close preview panel
    */
@@ -176,6 +183,7 @@ const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
   renderHistoryDropdown,
   onOpenInSystem,
   onDownload,
+  onExport,
   onClose,
   inspectMode,
   onInspectModeToggle,
@@ -192,6 +200,60 @@ const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
     'flex items-center gap-2px px-8px py-3px rd-4px cursor-pointer transition-colors duration-150 text-12px font-medium text-t-secondary hover:text-t-primary hover:bg-bg-3';
   const toolbarBtnActive = '!text-white bg-brand hover:!text-white hover:bg-brand-hover';
   const toolbarIconSize = 12;
+
+  // The branded report Export entry (RPT-1) only makes sense for text reports
+  // (markdown / html) and only when the panel supplied an export handler.
+  const showExport = Boolean(onExport) && (isMarkdown || isHTML);
+
+  // Reusable Export dropdown (PDF / Word / Markdown). Each item is fenced to the
+  // active seat in the main process before any byte is produced.
+  const renderExportDropdown = (): React.ReactNode => (
+    <div className='py-4px bg-bg-2 border border-border-1 rd-4px shadow-md min-w-120px'>
+      {(
+        [
+          { fmt: 'pdf' as const, label: t('preview.export.pdf', { defaultValue: 'PDF' }) },
+          { fmt: 'docx' as const, label: t('preview.export.word', { defaultValue: 'Word' }) },
+          { fmt: 'md' as const, label: t('preview.export.markdown', { defaultValue: 'Markdown' }) },
+        ]
+      ).map(({ fmt, label }) => (
+        <div
+          key={fmt}
+          className='px-12px py-6px text-12px text-t-secondary hover:text-t-primary hover:bg-bg-3 cursor-pointer'
+          onClick={() => {
+            try {
+              onExport?.(fmt);
+            } catch {
+              /* ignore */
+            }
+          }}
+        >
+          {label}
+        </div>
+      ))}
+    </div>
+  );
+
+  const exportEntry = showExport ? (
+    <Dropdown droplist={renderExportDropdown()} trigger={['click']} position='br'>
+      <div className={toolbarBtn} title={t('preview.export.title', { defaultValue: 'Export report' })}>
+        <svg
+          width={toolbarIconSize}
+          height={toolbarIconSize}
+          viewBox='0 0 24 24'
+          fill='none'
+          stroke='currentColor'
+          strokeWidth='2'
+          className='text-t-secondary'
+        >
+          <path d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' />
+          <polyline points='14 2 14 8 20 8' />
+          <line x1='12' y1='18' x2='12' y2='12' />
+          <polyline points='9 15 12 18 15 15' />
+        </svg>
+        <span>{t('preview.export.title', { defaultValue: 'Export' })}</span>
+      </div>
+    </Dropdown>
+  ) : null;
 
   return (
     <div className='flex items-center justify-between h-32px px-10px bg-bg-2 flex-shrink-0 border-b border-border-1 overflow-x-auto'>
@@ -290,6 +352,7 @@ const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
               <span>{t('common.download')}</span>
             </div>
           )}
+          {preferActionButtonsInFront && exportEntry}
           {leftExtra}
         </div>
 
@@ -404,6 +467,8 @@ const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
               <span>{t('common.download')}</span>
             </div>
           )}
+
+          {!preferActionButtonsInFront && exportEntry}
 
           {isHTML && onInspectModeToggle && (
             <div

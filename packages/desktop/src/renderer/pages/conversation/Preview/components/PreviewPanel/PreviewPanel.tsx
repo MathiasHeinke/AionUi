@@ -5,6 +5,7 @@
  */
 
 import { ipcBridge } from '@/common';
+import { configService } from '@/common/config/configService';
 import { downloadFileFromPath, downloadTextContent } from '@/renderer/utils/file/download';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { PreviewToolbarExtrasProvider, type PreviewToolbarExtras } from '../../context/PreviewToolbarExtrasContext';
@@ -354,6 +355,67 @@ const PreviewPanel: React.FC = () => {
     }
   }, [content, content_type, metadata?.file_name, metadata?.file_path, metadata?.language, messageApi, t]);
 
+  // 导出为带运营商品牌的客户交付报告（PDF / Word / Markdown），限定当前 seat。
+  // Export the active artifact as an OPERATOR-branded client deliverable
+  // (RPT-1). The content is the EXACT in-memory markdown the panel already holds
+  // for the OPEN conversation/seat — no cross-seat lookup. The active seat id is
+  // read from configService (the SAME id main holds) and passed as the content's
+  // originating seat; the main process re-asserts content.seatId === active seat
+  // (fail-closed) before producing any byte. The brand is the operator's own,
+  // read from install-global config (never Command EVE).
+  const handleExport = useCallback(
+    async (format: 'pdf' | 'docx' | 'md') => {
+      try {
+        if (!content) {
+          messageApi.error(t('messages.downloadFailed', { defaultValue: 'Failed to download' }));
+          return;
+        }
+        // The seat this artifact belongs to = the seat configService is bound to
+        // (ISO-2), which mirrors the main-process active seat. Passing it makes
+        // the main-side fence a real equality check (content.seatId === active).
+        await configService.whenReady().catch(() => {});
+        const seatId = configService.getCurrentSeatId();
+
+        const title = metadata?.file_name || activeTab.title || 'report';
+        const stem = title.replace(/\.[^.]+$/, '') || 'report';
+        const defaultName = `${stem}.${format}`;
+        const filterMap: Record<typeof format, { name: string; extensions: string[] }> = {
+          pdf: { name: 'PDF', extensions: ['pdf'] },
+          docx: { name: 'Word', extensions: ['docx'] },
+          md: { name: 'Markdown', extensions: ['md'] },
+        };
+        const outputPath = await ipcBridge.dialog.showSave.invoke({
+          defaultPath: defaultName,
+          filters: [filterMap[format]],
+        });
+        if (!outputPath) return; // user cancelled
+
+        const brand = configService.get('commandEve.reportBrand');
+        const res = await ipcBridge.report.export.invoke({
+          format,
+          markdown: content,
+          seatId,
+          outputPath,
+          title: stem,
+          brand,
+        });
+        if (res?.success && res.data?.ok) {
+          messageApi.success(t('preview.export.success', { defaultValue: 'Report exported' }));
+        } else {
+          messageApi.error(
+            t('preview.export.failed', {
+              defaultValue: 'Export failed',
+            }) + (res?.data?.reason_code ? ` (${res.data.reason_code})` : '')
+          );
+        }
+      } catch (error) {
+        console.error('[PreviewPanel] Failed to export report:', error);
+        messageApi.error(t('preview.export.failed', { defaultValue: 'Export failed' }));
+      }
+    },
+    [content, metadata?.file_name, activeTab?.title, messageApi, t]
+  );
+
   // 在系统默认应用中打开文件 / Open file in system default application
   const handleOpenInSystem = useCallback(async () => {
     if (!metadata?.file_path) {
@@ -666,6 +728,7 @@ const PreviewPanel: React.FC = () => {
             renderHistoryDropdown={renderHistoryDropdown}
             onOpenInSystem={handleOpenInSystem}
             onDownload={handleDownload}
+            onExport={handleExport}
             onClose={closePreview}
             inspectMode={inspectMode}
             onInspectModeToggle={() => setInspectMode(!inspectMode)}

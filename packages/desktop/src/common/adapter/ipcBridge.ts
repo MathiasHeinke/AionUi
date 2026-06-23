@@ -15,7 +15,7 @@
 import type { IConfirmation } from '@/common/chat/chatLib';
 import type { AcpSlashCommandApiItem } from '@/common/chat/slash/types';
 import { bridge } from '@office-ai/platform';
-import type { OpenDialogOptions } from 'electron';
+import type { OpenDialogOptions, SaveDialogOptions } from 'electron';
 import type {
   ICssTheme,
   IMcpServer,
@@ -1590,6 +1590,61 @@ export const dialog = {
     | { defaultPath?: string; properties?: OpenDialogOptions['properties']; filters?: OpenDialogOptions['filters'] }
     | undefined
   >('show-open'),
+  // Native save dialog (RPT-1 report export). Returns the chosen path, or
+  // undefined when the user cancels. Mirrors showOpen; the renderer hands the
+  // returned path to report.export which writes the artifact + opens it.
+  showSave: bridge.buildProvider<
+    string | undefined,
+    { defaultPath?: string; filters?: SaveDialogOptions['filters'] } | undefined
+  >('show-save'),
+};
+
+// ---------------------------------------------------------------------------
+// Report export (RPT-1) — stays IPC (Electron printToPDF + native fs write).
+//
+// The renderer hands the EXACT in-memory markdown of the ACTIVE seat's Preview
+// artifact (already scoped to the open conversation/seat) PLUS that artifact's
+// originating seatId. The main process re-asserts content.seatId === active seat
+// (fail-closed seat-truth fence, reportExportCore.assertSeatTruth) BEFORE any
+// byte is produced — never a cross-seat store query, never a seat-workspace glob.
+// PDF is rendered with Electron's OWN Chromium (no heavy headless-chrome dep);
+// docx delegates to the existing DocumentConverter; md is the source verbatim.
+// The brand block is the OPERATOR's own (seat-independent, zero client data),
+// NEVER Command EVE. The output is an inert static file; the recipient never logs
+// in.
+// ---------------------------------------------------------------------------
+
+export interface ICommandEveReportBrand {
+  displayName?: string;
+  /** A self-contained `data:` URI logo (no remote asset; CSP-safe). */
+  logoDataUri?: string;
+  footer?: string;
+}
+
+export interface ICommandEveReportExportRequest {
+  format: 'pdf' | 'docx' | 'md';
+  /** The exact in-memory report markdown of the active seat's artifact. */
+  markdown: string;
+  /** The seat this content originated in (for the fail-closed seat fence). */
+  seatId: string;
+  /** Absolute destination path chosen via dialog.showSave. */
+  outputPath: string;
+  title?: string;
+  brand?: ICommandEveReportBrand;
+}
+
+export interface ICommandEveReportExportResult {
+  version: 'command-eve-report-export/v0';
+  ok: boolean;
+  format?: 'pdf' | 'docx' | 'md';
+  output_path?: string;
+  reason_code?: string;
+}
+
+export const report = {
+  export: bridge.buildProvider<IBridgeResponse<ICommandEveReportExportResult>, ICommandEveReportExportRequest>(
+    'command-eve.report-export'
+  ),
 };
 
 // ---------------------------------------------------------------------------
