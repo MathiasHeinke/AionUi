@@ -71,10 +71,11 @@ import {
   type EveInferenceTierId,
 } from '@/common/config/eveInferenceCore';
 import { getCommandEveLocalRuntimeProvider } from '@/common/config/commandEveShell';
-import { CREDITS_STATUS_FUNCTION_URL, type CreditsTier } from '@/common/config/creditsCore';
+import { CREDITS_STATUS_FUNCTION_URL, type ClientSeedInput, type CreditsTier } from '@/common/config/creditsCore';
 import { ProcessConfig } from '@process/utils/initStorage';
 import { getDataPath } from '@process/utils/utils';
 import { getActiveSeatId } from '@process/commandEve/seatContextCore';
+import { readCompanyBrainSeedState, writeCompanyBrainSeed } from '@process/commandEve/companyBrainSeedCore';
 
 /** Version tag mirrored onto every credits bridge result (ipcBridge contract). */
 const COMMAND_EVE_CREDITS_BRIDGE_VERSION = 'command-eve-credits/v0' as const;
@@ -318,6 +319,43 @@ export function initCommandEveBridge(): void {
             generated_by: 'command-eve-onboarding-status-core',
           },
         },
+      };
+    }
+  });
+
+  // ISO-3: persist the Day-0 Company-Brain seed into the ACTIVE seat's
+  // hermesHome (NOT the global config store). resolveActiveSeatHome inside the
+  // core picks up the active seat automatically — no seatId plumbing here, same
+  // as the kanban/crm providers. The seed is the client's day-0 truth; it must
+  // live per-seat so each reseller client carries its own knowledge.
+  bridge
+    .buildProvider('command-eve.company-brain-seed')
+    .provider(async (request?: { seed?: ClientSeedInput }) => {
+      try {
+        const seed = request?.seed;
+        if (!seed) {
+          return { success: false, msg: 'Missing seed payload.', data: null as unknown };
+        }
+        const result = writeCompanyBrainSeed({ userDataPath: getDataPath(), seed });
+        return { success: result.ok, data: result as unknown };
+      } catch (error) {
+        return {
+          success: false,
+          msg: error instanceof Error ? error.message : 'Command EVE company-brain seed write failed.',
+          data: null as unknown,
+        };
+      }
+    });
+
+  bridge.buildProvider('command-eve.company-brain-status').provider(async () => {
+    try {
+      const state = readCompanyBrainSeedState({ userDataPath: getDataPath() });
+      return { success: true, data: state as unknown };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : 'Command EVE company-brain status read failed.',
+        data: { seeded: false, record: null } as unknown,
       };
     }
   });

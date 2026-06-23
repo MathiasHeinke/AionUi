@@ -25,12 +25,29 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
+import { commandEve } from '@/common/adapter/ipcBridge';
 import { configService } from '@/common/config/configService';
 import {
   isClientSeedSatisfied,
   shouldForceDayZeroOnboarding,
   type ClientSeedInput,
 } from '@/common/config/creditsCore';
+
+/**
+ * ISO-3 default seed sink: persist the seed into the ACTIVE seat's hermesHome via
+ * the main process (NO global config write). This REPLACES the old no-op so the
+ * client's day-0 truth actually lands per-seat where the Hermes agent reads it.
+ */
+export async function persistCompanyBrainSeed(seed: ClientSeedInput): Promise<void> {
+  return defaultPersistSeed(seed);
+}
+
+async function defaultPersistSeed(seed: ClientSeedInput): Promise<void> {
+  const response = await commandEve.companyBrainSeed.invoke({ seed });
+  if (!response?.success) {
+    throw new Error(response?.msg || 'Company-Brain seed write failed.');
+  }
+}
 
 export interface DayZeroOnboardingState {
   /** Whether the force-onboarding prompt should be shown right now. */
@@ -61,15 +78,34 @@ export interface UseDayZeroOnboardingArgs {
 }
 
 export function useDayZeroOnboarding(args: UseDayZeroOnboardingArgs): DayZeroOnboardingState {
-  const [alreadySeeded, setAlreadySeeded] = useState<boolean>(() => Boolean(configService.get('commandEve.clientSeeded')));
+  // ISO-3: "seeded?" is answered from the ACTIVE seat's on-disk evidence
+  // (company-brain/seed.json under its hermesHome), NOT a shared global config
+  // flag — so a fresh seat is never falsely suppressed by another seat's seed.
+  const [alreadySeeded, setAlreadySeeded] = useState<boolean>(false);
+  // The dismiss flag stays in the config bag, but it is SEAT-SCOPED per ISO-2
+  // (commandEve.clientSeedDismissed is in SEAT_SCOPED_CONFIG_KEYS), so it is
+  // already per-seat.
   const [dismissed, setDismissed] = useState<boolean>(() => Boolean(configService.get('commandEve.clientSeedDismissed')));
 
-  // Keep the local flags in sync with config (config initializes async at boot).
+  // Seed the "seeded" state from per-seat on-disk evidence, and the dismiss flag
+  // from the (seat-scoped) config bag. Both init async at boot.
   useEffect(() => {
-    void configService.whenReady().then(() => {
-      setAlreadySeeded(Boolean(configService.get('commandEve.clientSeeded')));
-      setDismissed(Boolean(configService.get('commandEve.clientSeedDismissed')));
-    });
+    let cancelled = false;
+    void (async () => {
+      try {
+        const status = await commandEve.companyBrainStatus.invoke();
+        if (!cancelled && status?.success) {
+          setAlreadySeeded(Boolean(status.data?.seeded));
+        }
+      } catch (error) {
+        console.error('Day-0 company-brain status read failed:', error);
+      }
+      await configService.whenReady();
+      if (!cancelled) setDismissed(Boolean(configService.get('commandEve.clientSeedDismissed')));
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const shouldForce =
@@ -82,15 +118,17 @@ export function useDayZeroOnboarding(args: UseDayZeroOnboardingArgs): DayZeroOnb
   const recordSeed = useCallback(
     async (seed: ClientSeedInput) => {
       if (!isClientSeedSatisfied(seed)) return;
-      // Forward to the Company-Brain sink first (best-effort), then persist the
-      // local switching-cost flag so the prompt never re-nags.
+      // ISO-3: persist the seed into the ACTIVE seat's hermesHome. The default
+      // sink is the real per-seat write (defaultPersistSeed); an explicit
+      // onSeedRecorded overrides it (tests / future seams). The "seeded" flag is
+      // flipped from the WRITE succeeding — no global config flag is set.
+      const sink = args.onSeedRecorded ?? defaultPersistSeed;
       try {
-        await args.onSeedRecorded?.(seed);
+        await sink(seed);
+        setAlreadySeeded(true);
       } catch (error) {
         console.error('Day-0 client seed sink failed:', error);
       }
-      await configService.set('commandEve.clientSeeded', true);
-      setAlreadySeeded(true);
     },
     [args]
   );

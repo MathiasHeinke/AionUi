@@ -25,14 +25,14 @@
 import React, { useState } from 'react';
 import { Button, Card, Tag } from '@arco-design/web-react';
 import { useTranslation } from 'react-i18next';
-import { useDayZeroOnboarding } from '@renderer/hooks/useDayZeroOnboarding';
+import { persistCompanyBrainSeed, useDayZeroOnboarding } from '@renderer/hooks/useDayZeroOnboarding';
 import DayZeroOnboardingModal from '@renderer/components/billing/DayZeroOnboardingModal';
 
 const CompanyBrainModalContent: React.FC = () => {
   const { t } = useTranslation();
   // enabled:false → this hook instance NEVER force-pops; `shouldForce` stays
   // false. We only use its `seeded` status + `recordSeed` action here.
-  const { seeded, recordSeed } = useDayZeroOnboarding({ enabled: false });
+  const { seeded, recordSeed } = useDayZeroOnboarding({ enabled: false, onSeedRecorded: persistCompanyBrainSeed });
   const [seedOpen, setSeedOpen] = useState(false);
 
   const handleSeed = async (seed: Parameters<typeof recordSeed>[0]) => {

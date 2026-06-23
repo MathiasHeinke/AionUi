@@ -1240,6 +1240,36 @@ export interface ICommandEveRegistrationStatusResult {
   company?: string;
 }
 
+/** ISO-3: the Day-0 client seed payload the renderer hands to the seed writer. */
+export interface ICommandEveClientSeedInput {
+  kind: 'connect_client' | 'paste_brief';
+  value: string;
+}
+
+/** ISO-3: the structured on-disk per-seat seed marker (company-brain/seed.json). */
+export interface ICommandEveCompanyBrainSeedRecord {
+  schema_version: string;
+  seeded_at: string;
+  kind: ICommandEveClientSeedInput['kind'];
+  value: string;
+}
+
+/** ISO-3: per-seat "seeded?" answer sourced from on-disk evidence. */
+export interface ICommandEveCompanyBrainSeedState {
+  seeded: boolean;
+  record: ICommandEveCompanyBrainSeedRecord | null;
+}
+
+/** ISO-3: result of writing the seed into the active seat's hermesHome. */
+export interface ICommandEveCompanyBrainSeedResult {
+  ok: boolean;
+  hermesHome: string;
+  seedJsonPath: string;
+  memoryPath: string;
+  briefPath: string | null;
+  record: ICommandEveCompanyBrainSeedRecord;
+}
+
 export interface ICommandEveResolveInferenceProviderResult {
   /** The resolved conversation `model` provider (local-runtime or EVE cloud). */
   provider: TProviderWithModel;
@@ -1479,6 +1509,17 @@ export const commandEve = {
   // Local registration/session readout for the avatar + account panel (no tokens).
   registrationStatus: bridge.buildProvider<IBridgeResponse<ICommandEveRegistrationStatusResult>, void>(
     'command-eve.registration-status'
+  ),
+  // ISO-3: persist the Day-0 Company-Brain seed into the ACTIVE seat's hermesHome
+  // (MEMORY.md block + company-brain/seed.json), and read the per-seat "seeded?"
+  // state from that on-disk evidence. The seed is the client's day-0 truth and
+  // never crosses into the global config store.
+  companyBrainSeed: bridge.buildProvider<
+    IBridgeResponse<ICommandEveCompanyBrainSeedResult | null>,
+    { seed: ICommandEveClientSeedInput }
+  >('command-eve.company-brain-seed'),
+  companyBrainStatus: bridge.buildProvider<IBridgeResponse<ICommandEveCompanyBrainSeedState>, void>(
+    'command-eve.company-brain-status'
   ),
   // Resolve a picker selection into the full conversation `model` provider.
   // For an EVE tier the bearer (CEVE wire) is injected in the main process.

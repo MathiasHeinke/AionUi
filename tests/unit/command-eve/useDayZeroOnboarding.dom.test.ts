@@ -5,14 +5,17 @@
  */
 
 /**
- * Fix #4 — the forced "Seed your Company Brain" modal must show AT MOST ONCE.
+ * Fix #4 + ISO-3 — the forced "Seed your Company Brain" modal must show AT MOST
+ * ONCE, AND the "seeded?" truth is now sourced from per-seat ON-DISK evidence
+ * (commandEve.companyBrainStatus) rather than a shared global config flag.
  *
  * `useDayZeroOnboarding` decides whether the FORCED Day-0 modal pops. These tests
  * prove the non-nagging contract:
  *  - it forces only on a first run (entitled, never seeded, never dismissed);
- *  - a "Later"/dismiss is STICKY (persists `commandEve.clientSeedDismissed`) so it
- *    never re-pops on a later launch;
- *  - a real seed is STICKY (persists `commandEve.clientSeeded`) — same result;
+ *  - a "Later"/dismiss is STICKY (persists `commandEve.clientSeedDismissed`,
+ *    seat-scoped per ISO-2) so it never re-pops on a later launch;
+ *  - a real seed PERSISTS via the per-seat write seam (companyBrainStatus then
+ *    reports seeded:true) — same non-nag result;
  *  - `enabled:false` (the Settings → Company Brain panel) NEVER force-pops, yet
  *    still exposes the seed status + records a seed.
  */
@@ -36,12 +39,31 @@ vi.mock('@/common/config/configService', () => {
   };
 });
 
+// ISO-3: the hook reads seeded? from commandEve.companyBrainStatus and writes
+// via commandEve.companyBrainSeed. Mock a simple in-memory seeded flag.
+let onDiskSeeded = false;
+const companyBrainSeedInvoke = vi.fn(async (_req: { seed: { value: string } }) => {
+  onDiskSeeded = true;
+  return { success: true, data: { ok: true } };
+});
+const companyBrainStatusInvoke = vi.fn(async () => ({
+  success: true,
+  data: { seeded: onDiskSeeded, record: null },
+}));
+vi.mock('@/common/adapter/ipcBridge', () => ({
+  commandEve: {
+    companyBrainSeed: { invoke: (req: { seed: { value: string } }) => companyBrainSeedInvoke(req) },
+    companyBrainStatus: { invoke: () => companyBrainStatusInvoke() },
+  },
+}));
+
 import { useDayZeroOnboarding } from '@renderer/hooks/useDayZeroOnboarding';
 import { configService } from '@/common/config/configService';
 
 describe('useDayZeroOnboarding (fix #4: at-most-once forced modal)', () => {
   beforeEach(() => {
     store.clear();
+    onDiskSeeded = false;
     vi.clearAllMocks();
   });
 
@@ -76,7 +98,7 @@ describe('useDayZeroOnboarding (fix #4: at-most-once forced modal)', () => {
     expect(result.current.shouldForce).toBe(false);
   });
 
-  it('recordSeed() flips seeded, persists the flag, and stops forcing', async () => {
+  it('recordSeed() with an explicit sink flips seeded and stops forcing (no global flag)', async () => {
     const onSeedRecorded = vi.fn();
     const { result } = renderHook(() =>
       useDayZeroOnboarding({ enabled: true, onSeedRecorded })
@@ -88,23 +110,37 @@ describe('useDayZeroOnboarding (fix #4: at-most-once forced modal)', () => {
     expect(result.current.seeded).toBe(true);
     expect(result.current.shouldForce).toBe(false);
     expect(onSeedRecorded).toHaveBeenCalledOnce();
-    expect(configService.set).toHaveBeenCalledWith('commandEve.clientSeeded', true);
+    // ISO-3: the global clientSeeded flag is NEVER written anymore.
+    expect(configService.set).not.toHaveBeenCalledWith('commandEve.clientSeeded', true);
   });
 
-  it('a persisted seed flag means it never force-pops again', async () => {
-    store.set('commandEve.clientSeeded', true);
+  it('recordSeed() with the DEFAULT sink persists via the per-seat write seam', async () => {
+    const { result } = renderHook(() => useDayZeroOnboarding({ enabled: true }));
+    await waitFor(() => expect(result.current.shouldForce).toBe(true));
+    await act(async () => {
+      await result.current.recordSeed({ kind: 'paste_brief', value: 'real client brief' });
+    });
+    expect(result.current.seeded).toBe(true);
+    expect(result.current.shouldForce).toBe(false);
+    // The real per-seat write seam was hit (NOT a no-op, NOT the config store).
+    expect(companyBrainSeedInvoke).toHaveBeenCalledOnce();
+    expect(configService.set).not.toHaveBeenCalledWith('commandEve.clientSeeded', true);
+  });
+
+  it('a per-seat on-disk seed means it never force-pops again', async () => {
+    onDiskSeeded = true;
     const { result } = renderHook(() => useDayZeroOnboarding({ enabled: true }));
     await waitFor(() => expect(result.current.seeded).toBe(true));
     expect(result.current.shouldForce).toBe(false);
   });
 
-  it('a blank/whitespace seed does NOT satisfy the requirement (no flag flip)', async () => {
+  it('a blank/whitespace seed does NOT satisfy the requirement (no write, no flip)', async () => {
     const { result } = renderHook(() => useDayZeroOnboarding({ enabled: true }));
     await waitFor(() => expect(result.current.shouldForce).toBe(true));
     await act(async () => {
       await result.current.recordSeed({ kind: 'paste_brief', value: '   ' });
     });
     expect(result.current.seeded).toBe(false);
-    expect(configService.set).not.toHaveBeenCalledWith('commandEve.clientSeeded', true);
+    expect(companyBrainSeedInvoke).not.toHaveBeenCalled();
   });
 });

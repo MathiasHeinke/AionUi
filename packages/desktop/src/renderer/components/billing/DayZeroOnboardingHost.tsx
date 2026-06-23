@@ -12,7 +12,7 @@
 
 import React from 'react';
 import DayZeroOnboardingModal from './DayZeroOnboardingModal';
-import { useDayZeroOnboarding } from '@renderer/hooks/useDayZeroOnboarding';
+import { persistCompanyBrainSeed, useDayZeroOnboarding } from '@renderer/hooks/useDayZeroOnboarding';
 
 export interface DayZeroOnboardingHostProps {
   /** True iff the entitlement gate has passed (entitled). */
@@ -20,7 +20,12 @@ export interface DayZeroOnboardingHostProps {
 }
 
 const DayZeroOnboardingHost: React.FC<DayZeroOnboardingHostProps> = ({ entitled }) => {
-  const { shouldForce, recordSeed, dismiss } = useDayZeroOnboarding({ enabled: entitled });
+  // ISO-3: persist the seed into the ACTIVE seat's hermesHome (per-seat client
+  // truth), not the global config store.
+  const { shouldForce, recordSeed, dismiss } = useDayZeroOnboarding({
+    enabled: entitled,
+    onSeedRecorded: persistCompanyBrainSeed,
+  });
 
   if (!shouldForce) return null;
 
