@@ -1343,6 +1343,15 @@ export interface ICommandEveOnboardingStatusResult {
   };
 }
 
+// Phase 4 / ISO-2: the in-process active seat id, read back by the renderer's
+// per-seat config namespace. Defaults to the legacy seat ('seat-1').
+export interface ICommandEveActiveSeatResult {
+  version: 'command-eve-active-seat/v0';
+  ok: boolean;
+  seat_id: string;
+  reason_code?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Command EVE runtime — stays IPC (local runtime, receipts, model tier prep)
 // ---------------------------------------------------------------------------
@@ -1492,6 +1501,11 @@ export const commandEve = {
   onboardingStatus: bridge.buildProvider<IBridgeResponse<ICommandEveOnboardingStatusResult>, void>(
     'command-eve.onboarding-status'
   ),
+  // Active-seat readout (Phase 4 / ISO-2). The in-process active seat is held by
+  // the main process (seatContextCore); the renderer's per-seat config namespace
+  // reads it back here so its seat-scoped config keys are prefixed with the SAME
+  // id main uses. Read-only, no PII; defaults to the legacy seat.
+  activeSeat: bridge.buildProvider<IBridgeResponse<ICommandEveActiveSeatResult>, void>('command-eve.active-seat'),
 };
 
 // ---------------------------------------------------------------------------

@@ -74,6 +74,7 @@ import { getCommandEveLocalRuntimeProvider } from '@/common/config/commandEveShe
 import { CREDITS_STATUS_FUNCTION_URL, type CreditsTier } from '@/common/config/creditsCore';
 import { ProcessConfig } from '@process/utils/initStorage';
 import { getDataPath } from '@process/utils/utils';
+import { getActiveSeatId } from '@process/commandEve/seatContextCore';
 
 /** Version tag mirrored onto every credits bridge result (ipcBridge contract). */
 const COMMAND_EVE_CREDITS_BRIDGE_VERSION = 'command-eve-credits/v0' as const;
@@ -1588,6 +1589,28 @@ export function initCommandEveBridge(): void {
         success: false,
         msg: error instanceof Error ? error.message : 'Command EVE registration-status bridge failed.',
         data: { version, ok: false, registered: false, has_session: false },
+      };
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // ACTIVE SEAT readout (Phase 4 / ISO-2). The in-process active seat is held
+  // ONLY in the main process (seatContextCore.getActiveSeatId, default
+  // LEGACY_SEAT_ID). The renderer's per-seat config namespace
+  // (seatConfigKeyCore + configService) must namespace its seat-scoped keys with
+  // the SAME id the main process uses, so it reads it back over this bridge. No
+  // write, no PII; returns just the sanitized active seat id string. Defaults to
+  // the legacy seat until a seat switcher (Task #2) calls setActiveSeatId.
+  // -------------------------------------------------------------------------
+  bridge.buildProvider('command-eve.active-seat').provider(async () => {
+    const version = 'command-eve-active-seat/v0' as const;
+    try {
+      return { success: true, data: { version, ok: true, seat_id: getActiveSeatId() } };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : 'Command EVE active-seat bridge failed.',
+        data: { version, ok: false, seat_id: 'seat-1', reason_code: 'ACTIVE_SEAT_BRIDGE_FAILED' },
       };
     }
   });
