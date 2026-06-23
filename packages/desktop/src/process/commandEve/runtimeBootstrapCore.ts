@@ -10,6 +10,7 @@ import http from 'http';
 import os from 'os';
 import path from 'path';
 import { readRegistration } from './entitlementCore';
+import { getActiveSeatId, resolveSeatHome } from './seatContextCore';
 
 export const COMMAND_EVE_RUNTIME_BOOTSTRAP_VERSION = 'command-eve-runtime-bootstrap/v0';
 
@@ -1053,11 +1054,42 @@ const defaultDetachedSpawner: RuntimeBootstrapDetachedSpawner = (command, args, 
   child.unref();
 };
 
-export function resolveCommandEveRuntimeBootstrapPaths(userDataPath: string): RuntimeBootstrapPaths {
+/**
+ * Resolve the full runtime bootstrap path set for an install, SEAT-AWARE at the
+ * source (Phase 4 / ISO-1 / SEAT-TOOL-1, STEP 2).
+ *
+ * `seatId` defaults to `getActiveSeatId()` — intentional process-global state:
+ * the desktop runs exactly ONE active seat at a time, so defaulting to the
+ * active seat makes ALL ~20 call-sites (index.ts, crmOverlayCore, the
+ * kanbanPreflightCore child-process spawn, skillLibraryCore, …) seat-aware with
+ * zero edits. `getActiveSeatId()` defaults to `LEGACY_SEAT_ID`, so with no seat
+ * selected EVERYTHING is BYTE-IDENTICAL to the shipped 1.1.3 single-seat layout
+ * (`<hermesRoot>/home`, NO `seats/` segment).
+ *
+ * Only the SEAT-SCOPED state follows the seat: `hermesHome` and
+ * `managedSkillsRoot` (which lives under the home). The SHARED infra —
+ * `hermesVenv`, `hermesWrapper`, `hermesShim`, `hermesRoot` itself — stays on the
+ * shared `hermesRoot` (one python venv / one shim on PATH per install).
+ *
+ * A crafted/unsafe seatId (active OR explicit) cannot escape `seats/`:
+ * `resolveSeatHome` THROWS via the path-traversal allowlist guard rather than
+ * silently falling back to a shared home — the throw is surfaced here, not
+ * swallowed.
+ */
+export function resolveCommandEveRuntimeBootstrapPaths(
+  userDataPath: string,
+  seatId: string | null = getActiveSeatId()
+): RuntimeBootstrapPaths {
   const root = path.resolve(userDataPath || path.join(os.homedir(), '.command-eve'));
   const runtimeRoot = path.join(root, 'command-eve-runtime');
   const capabilitiesRoot = path.join(runtimeRoot, 'capabilities');
   const hermesRoot = path.join(runtimeRoot, 'hermes');
+  // The seat home is derived from the SAME userData root precedence as above
+  // (resolveSeatHome resolves userDataPath || ~/.command-eve identically), so the
+  // legacy/no-seat home is byte-identical to the previous `path.join(hermesRoot,
+  // 'home')`. A real seat yields `<hermesRoot>/seats/<sanitized-id>/home`.
+  const seat = resolveSeatHome(userDataPath, seatId);
+  const hermesHome = seat.hermesHome;
   return {
     userDataPath: root,
     runtimeRoot,
@@ -1066,11 +1098,11 @@ export function resolveCommandEveRuntimeBootstrapPaths(userDataPath: string): Ru
     capabilitiesRoot,
     capabilityPack: path.join(capabilitiesRoot, COMMAND_EVE_CAPABILITIES_FILE),
     hermesRoot,
-    hermesHome: path.join(hermesRoot, 'home'),
+    hermesHome,
     hermesVenv: path.join(hermesRoot, 'venv'),
     hermesWrapper: path.join(hermesRoot, 'hermes-command-eve'),
     hermesShim: path.join(hermesRoot, 'hermes'),
-    managedSkillsRoot: path.join(hermesRoot, 'home', COMMAND_EVE_MANAGED_SKILLS_DIR),
+    managedSkillsRoot: path.join(hermesHome, COMMAND_EVE_MANAGED_SKILLS_DIR),
     runtimeReconciliation: path.join(capabilitiesRoot, COMMAND_EVE_RUNTIME_RECONCILIATION_FILE),
     firstRunProfile: path.join(runtimeRoot, 'first-run-profile.json'),
   };
@@ -1109,6 +1141,19 @@ export function prepareCommandEveRuntimeProcessEnv(
   ensureDir(paths.hermesHome);
   writeHermesCliShim(paths);
   prependPathSegment(env, paths.hermesRoot);
+  // GATE-NULL seat-isolation crux: pin the ACTIVE seat's home onto the env the
+  // backend (and therefore the hermes ACP agent + ALL its children) inherits.
+  // index.ts calls this with env=process.env BEFORE backendManager.start (which
+  // spawns the backend with `...process.env`, see web-host/backend-launcher
+  // buildSpawnEnv), so every backend-spawned process carries HERMES_HOME
+  // EXPLICITLY. This is what closes the cross-seat leak: the shim's baked
+  // fallback is never the operative value for a real agent, so a later
+  // shared-shim overwrite (seat switch) cannot retroactively re-home a
+  // still-running agent whose process tree already has HERMES_HOME set
+  // (env-inheritance pinning). Setting it here ALSO makes any direct PATH-shim
+  // invocation in this process tree resolve the active seat without relying on
+  // the bake.
+  env.HERMES_HOME = paths.hermesHome;
   return paths;
 }
 
@@ -1789,13 +1834,43 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
+/**
+ * Render the two-line `HERMES_HOME` preamble shared by the PATH shim and the
+ * wrapper. A per-seat HERMES_HOME injected by the spawning process WINS; the
+ * baked `home` is only the fallback for a BARE invocation that has no env.
+ *
+ * Byte-safety: `home` is single-quoted via {@link shellQuote} (which escapes `'`
+ * as `'\''`), so `{ } $ \` " \\` are ALL literal — there is no double-quoted
+ * `${VAR:-WORD}` position left, so the old brace/quote-corruption class is gone.
+ * A `[ -z "${HERMES_HOME:-}" ]` test is used instead of `${VAR:-WORD}` so the
+ * fallback value never has to survive a double-quoted expansion.
+ *
+ * IMPORTANT (honesty): this baked fallback does NOT, by itself, close the
+ * single-shared-shim cross-seat leak. The leak is closed by the SPAWNER
+ * injecting HERMES_HOME (env-inheritance pinning, see
+ * prepareCommandEveRuntimeProcessEnv): every backend-spawned process already
+ * carries its seat's HERMES_HOME, so a stale shared bake left behind by a later
+ * seat switch is never the operative value for a running agent. The bake is
+ * belt-and-suspenders for a bare, env-less invocation only.
+ */
+export function renderHermesHomeExport(home: string): string[] {
+  return [`if [ -z "\${HERMES_HOME:-}" ]; then HERMES_HOME=${shellQuote(home)}; fi`, 'export HERMES_HOME'];
+}
+
 function writeHermesCliShim(paths: RuntimeBootstrapPaths): void {
   const consoleBinary = hermesConsoleBinary(paths);
   if (!fs.existsSync(consoleBinary)) return;
   const shim = [
     '#!/usr/bin/env bash',
     'set -euo pipefail',
-    `export HERMES_HOME=${shellQuote(paths.hermesHome)}`,
+    // A per-seat HERMES_HOME injected by the spawning process WINS; the baked
+    // value is only the fallback for a bare, env-less invocation. For
+    // legacy/no-seat the fallback equals the legacy home. The cross-seat leak is
+    // closed by the spawner pinning HERMES_HOME (see renderHermesHomeExport +
+    // prepareCommandEveRuntimeProcessEnv), NOT by this bake — a stale shared bake
+    // is harmless because every backend-spawned process already carries its seat
+    // home explicitly.
+    ...renderHermesHomeExport(paths.hermesHome),
     `exec ${shellQuote(consoleBinary)} "$@"`,
     '',
   ].join('\n');
@@ -2022,7 +2097,10 @@ function writeHermesRuntimeFiles(
   const wrapper = [
     '#!/usr/bin/env bash',
     'set -euo pipefail',
-    `export HERMES_HOME=${shellQuote(paths.hermesHome)}`,
+    // Per-seat HERMES_HOME injected by the spawning process WINS; baked value is
+    // the fallback for a bare invocation (legacy-equal for no-seat). Same
+    // env-inheritance-pinning contract as the shim — see renderHermesHomeExport.
+    ...renderHermesHomeExport(paths.hermesHome),
     `exec ${shellQuote(hermesConsoleBinary(paths))} "$@"`,
     '',
   ].join('\n');

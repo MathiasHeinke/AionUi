@@ -262,6 +262,22 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(receipt.base_model).toBe('gemma4:e4b');
       expect(fs.existsSync(paths.hermesWrapper)).toBe(true);
       expect(fs.existsSync(paths.hermesShim)).toBe(true);
+      // BAKE-LEAK FIX (Phase 4 / SEAT-TOOL-1 STEP 2): the shim/wrapper must use
+      // the `${HERMES_HOME:-<fallback>}` form so a per-seat HERMES_HOME injected
+      // by the spawning process WINS, while the baked fallback (legacy-equal for
+      // no-seat) keeps single-seat behavior byte-identical. A hard
+      // `export HERMES_HOME='<home>'` would pin every spawned process to whatever
+      // seat was active when the single shared shim file was last written.
+      const shimText = fs.readFileSync(paths.hermesShim, 'utf8');
+      const wrapperText = fs.readFileSync(paths.hermesWrapper, 'utf8');
+      expect(shimText).toContain('${HERMES_HOME:-');
+      expect(wrapperText).toContain('${HERMES_HOME:-');
+      // The fallback value is the (legacy) home for this no-seat install.
+      expect(shimText).toContain(paths.hermesHome);
+      expect(wrapperText).toContain(paths.hermesHome);
+      // It must NOT be the old hard assignment form.
+      expect(shimText).not.toMatch(/export HERMES_HOME='[^$]/);
+      expect(wrapperText).not.toMatch(/export HERMES_HOME='[^$]/);
       expect(fs.readFileSync(paths.capabilityPack, 'utf8')).toContain('content-machine');
       expect(fs.readFileSync(path.join(paths.hermesHome, 'command-eve-capabilities.json'), 'utf8')).toContain(
         'github-gitnexus'
