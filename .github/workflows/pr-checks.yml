@@ -133,6 +133,23 @@ jobs:
       - name: Run extension system tests
         run: bunx vitest run
 
+      # ISO-8 GATE-NULL — the cross-seat (per-client) DATA-isolation keystone.
+      # This re-runs the consolidated cross-seat harness ALONE as a NAMED,
+      # fail-loud standing gate so the per-client-isolation proof surfaces as its
+      # own signal (not buried in the 900-test suite above). It is the DESKTOP
+      # DATA half of GATE-NULL; the ACCESS half (RLS / cross-tenant SQL bleed +
+      # grant-regression lint) is the `d8-cross-client-isolation` +
+      # `migration-lint` jobs in the MAIN Company.OS repo's
+      # .github/workflows/backend-gates.yml, backed by
+      # supabase/tests/{b2_delegate_isolation_bleed_test.sql,
+      # d8_cross_client_isolation_bleed_test.sql,run-d8-bleed-test.sh,
+      # migration-lint.sh}. GATE-NULL = data(this) + access(main) — keep this
+      # job's name in lockstep with that one. The harness self-tests itself
+      # (inject-a-leak) so a regression FAILS RED and cannot silently false-PASS.
+      # GATE: do NOT enable the +99€-per-seat SKU until this is green on every OS.
+      - name: D8 cross-client isolation (GATE-NULL — desktop data half)
+        run: bunx vitest run tests/unit/command-eve/seatIsolationGateNull.test.ts
+
   # Job 3: Coverage test (Linux only)
   coverage-tests:
     name: Coverage Test
