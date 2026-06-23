@@ -140,10 +140,11 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
         // is not live yet ⇒ fall back to the manual code-paste flow. If we have a
         // local registration already, jump straight to the license step.
         if (data?.needs_paste) {
+          // B-6: stay on the auth step (no forced registration/paste jump) — the
+          // trial is being provisioned server-side; the user retries in place.
           const knownKey = `registrationGate.auth.errors.${data.reason_code}`;
           const translated = data.reason_code ? t(knownKey) : '';
-          setAuthError(translated && translated !== knownKey ? translated : t('registrationGate.auth.errors.unknown'));
-          setStep('registration');
+          setAuthError(translated && translated !== knownKey ? translated : t('registrationGate.auth.licensePending'));
           return;
         }
         setAuthError(t('registrationGate.auth.errors.unknown'));
@@ -196,9 +197,14 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
           return;
         }
         if (data?.needs_paste) {
-          // Signed in, but my-license is still pending ⇒ offer the manual code path.
+          // B-6: a fresh trial signup has NO code to paste — the account + trial
+          // exist server-side but my-license hasn't surfaced the code yet (rare:
+          // the orchestrator already backed off ~7.5s internally). STAY on the
+          // auth step with a "being set up" hint so the user simply retries
+          // "Anmelden" in place; do NOT dump them into a code-paste box they
+          // cannot satisfy. The "Ich habe einen Code" link below remains for the
+          // rare emailed-code case.
           setAuthError(t('registrationGate.auth.licensePending'));
-          setStep('license');
           return;
         }
         setAuthError(resolveAuthError(data?.reason_code));
