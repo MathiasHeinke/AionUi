@@ -1280,6 +1280,18 @@ const handleAppReady = async (): Promise<void> => {
       });
       (globalThis as typeof globalThis & { __backendPort?: number }).__backendPort = respawnPort;
       registerCronResumeBridge(respawnPort);
+      // ISO-6: the EVE assistant skill prompt is a function of the ACTIVE seat —
+      // regenerate it so the new seat's client entity (its ISO-3 seed), not the
+      // prior seat's nor the admin's, is what the agent runs with. The single
+      // global COMMAND_EVE_ASSISTANT_ID prompt is overwritten per switch; without
+      // this re-run the freshly-spawned backend would serve the previous seat's
+      // baked skill prompt. Best-effort: a write failure must NOT fail the switch.
+      try {
+        const { ensureCommandEveAssistant } = await import('./process/commandEve/assistantBootstrap');
+        await ensureCommandEveAssistant(respawnPort, app.getVersion(), { userDataPath: getDataPathForRestart() });
+      } catch (err) {
+        console.error('[Command EVE] Per-seat assistant prompt regeneration failed after seat switch:', err);
+      }
     });
   } catch (error) {
     console.error('[CommandEVE] Failed to start aioncore:', error);

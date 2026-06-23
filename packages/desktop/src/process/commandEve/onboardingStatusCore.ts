@@ -31,6 +31,17 @@
  * HONESTY: this slice is read+map only. It claims no capability it does not
  * wire here — it never asks for an API key/secret, never claims a connector or
  * a learned-from-seed memory (those are out of this lane, S5/S6).
+ *
+ * ISO-6 (2nd identity-assembly site). The `first-run-profile.json` seed is the
+ * GLOBAL admin/operator identity (the person who pasted the CEVE license).
+ * Rendering it into a CLIENT seat's onboarding greeting/status greets that
+ * client with the operator's founder/company — the SAME cross-seat identity
+ * bleed ISO-6 closed in the assistant prompt, at a 2nd assembly site. So when a
+ * REAL (non-legacy) seat is active this core sources the onboarding identity
+ * from THAT seat's ISO-3 Company-Brain seed (via `resolveCommandEveSeatIdentity`,
+ * shared with the assistant-prompt fix) and SUPPRESSES the admin profile; a
+ * real-but-unseeded seat renders a NEUTRAL greeting (never the operator).
+ * Legacy/single-seat → byte-identical to 1.1.3 (the admin profile drives it).
  */
 
 import fs from 'fs';
@@ -46,6 +57,9 @@ import {
   type CommandEveEntitlementStatusResult,
 } from './entitlementCore';
 import { hasLicenseWire } from '@/common/config/licenseWireAtRest';
+import { resolveCommandEveSeatIdentity, type CommandEveSeatIdentity, type CommandEveSeatSeedRecord } from './assistantBootstrapCore';
+import { getActiveSeatId, isActiveSeatLegacy } from './seatContextCore';
+import { readCompanyBrainSeedState } from './companyBrainSeedCore';
 
 export const COMMAND_EVE_ONBOARDING_STATUS_BRIDGE_VERSION = 'command-eve-onboarding-status/v0';
 
@@ -147,6 +161,21 @@ export interface CommandEveOnboardingStatusOptions {
   readEntitlement?: () => CommandEveEntitlementStatusResult;
   /** Injectable license-wire presence check (tests). */
   readLicenseWirePresence?: () => boolean;
+  /**
+   * ISO-6 (2nd site) — injectable active-seat reader. Defaults to the process-
+   * local seat holder via `isActiveSeatLegacy()` / `getActiveSeatId()`. When the
+   * active seat is a real (non-legacy) seat, the onboarding identity is sourced
+   * from THAT seat's ISO-3 Company-Brain seed and the global admin profile is
+   * SUPPRESSED (never greet a client seat with the operator's identity). Legacy /
+   * no-seat → byte-identical to 1.1.3 (the admin profile is used as before).
+   */
+  readActiveSeat?: () => { legacy: boolean; seatId: string };
+  /**
+   * ISO-6 (2nd site) — injectable per-seat Company-Brain seed reader for the
+   * ACTIVE seat. Defaults to `readCompanyBrainSeedState({ userDataPath })`.
+   * Returns the seat's client-truth seed, or undefined when the seat is unseeded.
+   */
+  readActiveSeatSeed?: () => CommandEveSeatSeedRecord | undefined;
 }
 
 type JsonRecord = Record<string, unknown>;
@@ -376,6 +405,62 @@ function localLaneItem(receipt?: RuntimeBootstrapReceipt): CommandEveOnboardingI
   };
 }
 
+/**
+ * ISO-6 (2nd site) — derive the onboarding identity + item for a REAL active
+ * seat from its ISO-3 Company-Brain seed. The global admin profile is NEVER
+ * consulted here, so a client seat's onboarding greeting can never render the
+ * operator/admin founder/company.
+ *
+ *  - seeded seat → the seat's client entity becomes `company_name`; `founder_name`
+ *    stays undefined (we know the client ENTITY, not a personal name) so the
+ *    greeting headline is the neutral "Hi" — never the admin's name. The item is
+ *    `ok` (the client truth is recorded for this seat).
+ *  - unseeded seat → a NEUTRAL identity (no names at all) + a soft `skipped`
+ *    item; the greeting is neutral and the admin identity is suppressed.
+ */
+function seatIdentityItem(seatIdentity: CommandEveSeatIdentity): {
+  item: CommandEveOnboardingItem;
+  identity: CommandEveOnboardingStatusModel['identity'];
+} {
+  if (seatIdentity.hasClientEntity && seatIdentity.clientEntity) {
+    return {
+      identity: {
+        founder_name: undefined,
+        company_name: seatIdentity.clientEntity,
+        needs_confirmation: false,
+        // The seat seed is a confirmed per-seat client truth, but it is NOT the
+        // admin registration → keep source 'unverified' (the wire enum has no
+        // 'seat' member) while marking it confirmed via confidence.
+        confidence: 'verified',
+        source: 'unverified',
+      },
+      item: {
+        id: 'identity',
+        state: 'ok',
+        plain_meaning: `Dieser Seat gehört ${seatIdentity.clientEntity}.`,
+        remediation_kind: 'none',
+      },
+    };
+  }
+  // Real but unseeded seat: NEVER the admin identity — render nothing and greet
+  // neutrally; ask (softly, in chat) for the client.
+  return {
+    identity: {
+      founder_name: undefined,
+      company_name: undefined,
+      needs_confirmation: false,
+      confidence: 'placeholder',
+      source: 'unverified',
+    },
+    item: {
+      id: 'identity',
+      state: 'skipped',
+      plain_meaning: 'Sag mir, für welchen Client dieser Seat ist — die Betreiber-Identität nutze ich hier nicht.',
+      remediation_kind: 'none',
+    },
+  };
+}
+
 function identityItem(profile?: RuntimeBootstrapIdentityProfile): {
   item: CommandEveOnboardingItem;
   identity: CommandEveOnboardingStatusModel['identity'];
@@ -450,7 +535,33 @@ export function buildCommandEveOnboardingStatus(
     const { registration, license } = entitlementItem(entitlement);
     const cloudLane = cloudLaneItem(cloudBearerAvailable, licensed);
     const localLane = localLaneItem(parsedReceipt.receipt);
-    const { item: identity, identity: identitySummary } = identityItem(parsedProfile.profile);
+
+    // ISO-6 (2nd site): when a REAL (non-legacy) seat is active, the onboarding
+    // identity + greeting must source from THAT seat's ISO-3 Company-Brain seed
+    // and the global admin profile is SUPPRESSED — a client seat never greets
+    // with the operator/admin founder/company. Legacy/no-seat → byte-identical
+    // to 1.1.3 (the admin profile drives identity exactly as before).
+    const activeSeat = options.readActiveSeat
+      ? options.readActiveSeat()
+      : { legacy: isActiveSeatLegacy(), seatId: getActiveSeatId() };
+    let identityItemResult: { item: CommandEveOnboardingItem; identity: CommandEveOnboardingStatusModel['identity'] };
+    if (!activeSeat.legacy) {
+      const seatSeed = options.readActiveSeatSeed
+        ? options.readActiveSeatSeed()
+        : (() => {
+            const state = readCompanyBrainSeedState({ userDataPath: options.userDataPath });
+            return state.seeded && state.record ? { kind: state.record.kind, value: state.record.value } : undefined;
+          })();
+      const seatIdentity = resolveCommandEveSeatIdentity({
+        legacy: false,
+        seatId: activeSeat.seatId,
+        seed: seatSeed,
+      }) as CommandEveSeatIdentity; // never undefined for legacy:false
+      identityItemResult = seatIdentityItem(seatIdentity);
+    } else {
+      identityItemResult = identityItem(parsedProfile.profile);
+    }
+    const { item: identity, identity: identitySummary } = identityItemResult;
 
     // THE first-value gate: licensed AND a usable cloud bearer is present.
     // Registration is implied by `entitled`. Local stages are deliberately NOT

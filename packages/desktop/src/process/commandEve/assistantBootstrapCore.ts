@@ -65,11 +65,58 @@ export type CommandEveAssistantCapabilityPackContext = {
   connectors?: CommandEveAssistantCapability[];
 };
 
+/**
+ * ISO-6 — the per-seat ENTITY truth that OUTRANKS the global admin
+ * `profile`/`receipt.identity` when a real (non-legacy) seat is active.
+ *
+ * THE LEAK THIS CLOSES. `profile` / `receipt.identity` are derived from the
+ * single GLOBAL `first-run-profile.json` / `registration.json` (the ADMIN/
+ * operator who pasted the CEVE license). Rendering them into a CLIENT seat's
+ * system prompt greets that client with the admin's founder/company seed — a
+ * cross-seat identity bleed that taints client-facing output. When a real seat
+ * is active, EVE's prompt must instead carry THAT seat's client entity, sourced
+ * from the seat's own ISO-3 Company-Brain seed (under its seat-scoped
+ * hermesHome), never the admin's.
+ *
+ * `legacy: true` (no seat selected) → this is undefined and the prompt is
+ * BYTE-IDENTICAL to 1.1.3 (the operator IS the single user, admin == seat).
+ */
+export type CommandEveSeatIdentity = {
+  /** The sanitized active seat id (audit/debug only — never the entity). */
+  seatId: string;
+  /** True when this seat carries a real client entity (a real seat + a seed). */
+  hasClientEntity: boolean;
+  /** The client entity line for the prompt (from the seat's day-0 seed). */
+  clientEntity?: string;
+  /** How the entity was sourced (always 'seat' here — the seat seed). */
+  source: 'seat';
+  /** The seat seed kind, for the prompt to know connector vs pasted brief. */
+  kind?: 'connect_client' | 'paste_brief';
+  /**
+   * Optional per-seat DSGVO/data-residency posture appendix. Defaults to the
+   * per-client-isolation posture for a real seat with a client entity; absent
+   * for legacy so SOUL.md/prompt stay byte-identical.
+   */
+  dsgvoPosture?: string;
+};
+
+/** The narrow ISO-3 seed shape this layer consumes (kept Electron-free). */
+export type CommandEveSeatSeedRecord = {
+  kind: 'connect_client' | 'paste_brief';
+  value: string;
+};
+
 export type CommandEveAssistantFirstRunContext = {
   appVersion: string;
   receipt?: CommandEveAssistantRuntimeReceipt;
   profile?: CommandEveAssistantLocalIdentity;
   capabilityPack?: CommandEveAssistantCapabilityPackContext;
+  /**
+   * ISO-6: the active seat's client entity. When present and
+   * `hasClientEntity`, it OUTRANKS `profile`/`receipt.identity` for the
+   * founder/company seed lines so a client seat never renders the admin seed.
+   */
+  seatIdentity?: CommandEveSeatIdentity;
 };
 
 export const COMMAND_EVE_DISABLED_BUILTIN_SKILLS = [
@@ -113,11 +160,93 @@ function localIdentity(context: CommandEveAssistantFirstRunContext): CommandEveA
   return context.profile || context.receipt?.identity;
 }
 
+/** Max length of the client-entity line lifted from a seed value (a brief can
+ * be long; the prompt only needs the entity headline, not the whole brief — the
+ * full brief is already in MEMORY.md per seat via ISO-3). */
+const SEAT_ENTITY_MAX_LEN = 160;
+
+/**
+ * ISO-6 default per-seat DSGVO/data-residency posture. Tightens (never loosens)
+ * the global egress boundary: it asserts THIS seat's client data is fenced to
+ * this seat's home and must not bleed into another seat or be attributed to the
+ * admin operator. Only emitted for a real seat carrying a client entity; legacy
+ * seats get NO appendix (byte-identical to 1.1.3).
+ */
+export const COMMAND_EVE_SEAT_DSGVO_POSTURE_DE =
+  'Dieser Seat gehoert genau diesem Mandanten/Endkunden. Dessen Daten, Briefings und Ergebnisse bleiben in diesem Seat (per-Client-Isolation, DSGVO). Vermische sie nie mit einem anderen Seat und schreibe sie nie dem Betreiber/Admin zu.';
+export const COMMAND_EVE_SEAT_DSGVO_POSTURE_EN =
+  'This seat belongs to exactly this client/end-customer. Their data, briefs and deliverables stay inside this seat (per-client isolation, GDPR). Never mix them with another seat, and never attribute them to the operator/admin.';
+
+/**
+ * PURE: derive the active seat's prompt identity from its ISO-3 Company-Brain
+ * seed. Electron-free + fs-free (the seed record is injected), so the leak-CI
+ * assertion runs in plain vitest.
+ *
+ * - legacy seat (no client entity / no seed) → returns `legacy` identity with
+ *   `hasClientEntity:false`; the prompt then falls back to the global admin
+ *   profile, BYTE-IDENTICAL to 1.1.3.
+ * - real seat WITH a seed → returns the client entity lifted from the seed
+ *   (kind-aware) + the default DSGVO posture; this OUTRANKS the admin profile.
+ * - real seat WITHOUT a seed yet → `hasClientEntity:false` so the prompt still
+ *   does NOT render the admin's entity for that client (it shows "not seeded
+ *   yet" rather than leaking the operator's company).
+ */
+export function resolveCommandEveSeatIdentity(args: {
+  legacy: boolean;
+  seatId: string;
+  seed?: CommandEveSeatSeedRecord | null;
+  locale?: 'de-DE' | 'en-US';
+}): CommandEveSeatIdentity | undefined {
+  // Legacy / single-seat: the operator IS the single user — NO seat override,
+  // the prompt uses the global admin profile exactly as it does today.
+  if (args.legacy) return undefined;
+
+  const seed = args.seed;
+  const value = typeof seed?.value === 'string' ? seed.value.trim() : '';
+  const hasClientEntity = Boolean(seed) && value.length > 0;
+
+  if (!hasClientEntity) {
+    // A real seat that has not been seeded yet: still suppress the admin entity
+    // for this client (do NOT fall back to the admin profile), but carry no
+    // client entity line.
+    return {
+      seatId: args.seatId,
+      hasClientEntity: false,
+      source: 'seat',
+    };
+  }
+
+  // Lift a short entity headline from the seed value. A connector id / pasted
+  // brief can be multi-line; the prompt only needs the entity headline (the
+  // full brief is already MEMORY.md-resident per seat via ISO-3).
+  const firstLine = value.split('\n').map((line) => line.trim()).find((line) => line.length > 0) || value;
+  const clientEntity = firstLine.length > SEAT_ENTITY_MAX_LEN ? `${firstLine.slice(0, SEAT_ENTITY_MAX_LEN - 1)}…` : firstLine;
+
+  const dsgvoPosture =
+    args.locale === 'de-DE' ? COMMAND_EVE_SEAT_DSGVO_POSTURE_DE : COMMAND_EVE_SEAT_DSGVO_POSTURE_EN;
+
+  return {
+    seatId: args.seatId,
+    hasClientEntity: true,
+    clientEntity,
+    source: 'seat',
+    kind: seed?.kind,
+    dsgvoPosture,
+  };
+}
+
 export function buildCommandEveAssistantFirstRunContext(
   context: CommandEveAssistantFirstRunContext,
   locale: 'de-DE' | 'en-US'
 ): string {
-  const identity = localIdentity(context);
+  const seatIdentity = context.seatIdentity;
+  // ISO-6: when a real seat is active, the SEAT's client entity OUTRANKS the
+  // global admin profile/receipt identity. For a real seat we NEVER fall back to
+  // the admin's founder/company seed — that would bleed the operator's identity
+  // into a client-facing prompt. `usingSeat` is true for ANY real seat (even one
+  // not yet seeded) so the admin identity is suppressed in both cases.
+  const usingSeat = Boolean(seatIdentity);
+  const identity = usingSeat ? undefined : localIdentity(context);
   const receipt = context.receipt;
   const capabilityPack = context.capabilityPack;
   const skills = capabilityPack?.skills || [];
@@ -125,6 +254,23 @@ export function buildCommandEveAssistantFirstRunContext(
   const failedStages = (receipt?.stages || []).filter((stage) => ['blocked', 'failed'].includes(stage.status));
 
   if (locale === 'de-DE') {
+    const seatLinesDe = usingSeat
+      ? [
+          seatIdentity?.hasClientEntity
+            ? `- Client-Seat-Entitaet: ${seatIdentity.clientEntity} (Quelle: ${
+                seatIdentity.kind === 'paste_brief' ? 'Briefing' : 'verbundener Client'
+              }, verifiziert fuer diesen Seat)`
+            : '- Client-Seat-Entitaet: fuer diesen Seat noch nicht hinterlegt (frage den User nach dem Client; nutze NIE die Betreiber-/Admin-Identitaet)',
+          seatIdentity?.dsgvoPosture ? `- Seat-Datenhaltung: ${seatIdentity.dsgvoPosture}` : '',
+        ].filter(Boolean)
+      : [
+          `- Founder-Seed: ${identity?.founder_name || 'noch nicht bekannt'}${
+            identity?.needs_confirmation ? ' (vom User bestaetigen lassen)' : ''
+          }`,
+          `- Company-Seed: ${identity?.company_name || 'noch nicht bekannt'}${
+            identity?.needs_confirmation && identity?.company_name ? ' (vom User bestaetigen lassen)' : ''
+          }`,
+        ];
     return [
       '## Lokaler First-Run-Kontext (Bootstrap-Receipt)',
       '',
@@ -133,13 +279,10 @@ export function buildCommandEveAssistantFirstRunContext(
         receipt?.provider || 'nicht verifiziert'
       }`,
       `- Naechste Runtime-Aktion: ${receipt?.next_action || 'Receipt noch nicht geschrieben.'}`,
-      `- Founder-Seed: ${identity?.founder_name || 'noch nicht bekannt'}${
-        identity?.needs_confirmation ? ' (vom User bestaetigen lassen)' : ''
+      ...seatLinesDe,
+      `- Identity-Quelle: ${usingSeat ? 'seat' : identity?.source || 'unverified'} / ${
+        usingSeat ? (seatIdentity?.hasClientEntity ? 'verified' : 'unseeded') : identity?.confidence || 'placeholder'
       }`,
-      `- Company-Seed: ${identity?.company_name || 'noch nicht bekannt'}${
-        identity?.needs_confirmation && identity?.company_name ? ' (vom User bestaetigen lassen)' : ''
-      }`,
-      `- Identity-Quelle: ${identity?.source || 'unverified'} / ${identity?.confidence || 'placeholder'}`,
       `- Skills installiert: ${receipt?.capabilities?.skills ?? skills.length}; Connector Policies: ${
         receipt?.capabilities?.connectors ?? connectors.length
       }`,
@@ -158,6 +301,23 @@ export function buildCommandEveAssistantFirstRunContext(
     ].join('\n');
   }
 
+  const seatLinesEn = usingSeat
+    ? [
+        seatIdentity?.hasClientEntity
+          ? `- Client seat entity: ${seatIdentity.clientEntity} (source: ${
+              seatIdentity.kind === 'paste_brief' ? 'brief' : 'connected client'
+            }, verified for this seat)`
+          : '- Client seat entity: not recorded for this seat yet (ask the user for the client; NEVER use the operator/admin identity)',
+        seatIdentity?.dsgvoPosture ? `- Seat data posture: ${seatIdentity.dsgvoPosture}` : '',
+      ].filter(Boolean)
+    : [
+        `- Founder seed: ${identity?.founder_name || 'not known yet'}${
+          identity?.needs_confirmation ? ' (ask the user to confirm)' : ''
+        }`,
+        `- Company seed: ${identity?.company_name || 'not known yet'}${
+          identity?.needs_confirmation && identity?.company_name ? ' (ask the user to confirm)' : ''
+        }`,
+      ];
   return [
     '## Local First-Run Context (Bootstrap Receipt)',
     '',
@@ -166,13 +326,10 @@ export function buildCommandEveAssistantFirstRunContext(
       receipt?.provider || 'not verified'
     }`,
     `- Next runtime action: ${receipt?.next_action || 'Receipt has not been written yet.'}`,
-    `- Founder seed: ${identity?.founder_name || 'not known yet'}${
-      identity?.needs_confirmation ? ' (ask the user to confirm)' : ''
+    ...seatLinesEn,
+    `- Identity source: ${usingSeat ? 'seat' : identity?.source || 'unverified'} / ${
+      usingSeat ? (seatIdentity?.hasClientEntity ? 'verified' : 'unseeded') : identity?.confidence || 'placeholder'
     }`,
-    `- Company seed: ${identity?.company_name || 'not known yet'}${
-      identity?.needs_confirmation && identity?.company_name ? ' (ask the user to confirm)' : ''
-    }`,
-    `- Identity source: ${identity?.source || 'unverified'} / ${identity?.confidence || 'placeholder'}`,
     `- Skills installed: ${receipt?.capabilities?.skills ?? skills.length}; connector policies: ${
       receipt?.capabilities?.connectors ?? connectors.length
     }`,

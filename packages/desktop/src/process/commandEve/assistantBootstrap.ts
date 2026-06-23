@@ -4,6 +4,7 @@ import {
   buildCommandEveAssistant,
   buildCommandEveAssistantContext,
   buildCommandEveAssistantSkill,
+  resolveCommandEveSeatIdentity,
   selectCommandEvePresetAgentType,
   unwrapCommandEveApiData,
   type CommandEveApiEnvelope,
@@ -12,11 +13,14 @@ import {
   type CommandEveAssistantLocalIdentity,
   type CommandEveAssistantRuntimeReceipt,
   type CommandEveDetectedAgent,
+  type CommandEveSeatSeedRecord,
 } from './assistantBootstrapCore';
 import { COMMAND_EVE_ASSISTANT_ID } from '@/common/config/commandEveShell';
 import fs from 'fs';
 import path from 'path';
 import { resolveCommandEveRuntimeBootstrapPaths } from './runtimeBootstrapCore';
+import { getActiveSeatId, isActiveSeatLegacy } from './seatContextCore';
+import { readCompanyBrainSeedState } from './companyBrainSeedCore';
 
 export type EnsureCommandEveAssistantOptions = {
   userDataPath?: string;
@@ -144,22 +148,71 @@ async function importCommandEveManagedSkills(backendPort: number, userDataPath?:
   return Array.from(new Set(skillNames));
 }
 
-function loadCommandEveFirstRunContext(
-  appVersion: string,
-  userDataPath?: string
-): CommandEveAssistantFirstRunContext | undefined {
+/**
+ * The base first-run context (global receipt/profile/capabilityPack) PLUS the
+ * raw, locale-neutral seat seed for the ACTIVE seat. `seatIdentity` itself is
+ * resolved per-locale at the build call site (the DSGVO posture text differs by
+ * locale), so this struct keeps the entity locale-neutral.
+ */
+type CommandEveFirstRunLoad = {
+  baseContext: CommandEveAssistantFirstRunContext;
+  /** True when a real (non-legacy) seat is active → admin seed must be suppressed. */
+  realSeatActive: boolean;
+  /** The active seat id (audit only). */
+  seatId: string;
+  /** The active seat's ISO-3 client seed (undefined for legacy/unseeded). */
+  seatSeed?: CommandEveSeatSeedRecord;
+};
+
+function loadCommandEveFirstRunContext(appVersion: string, userDataPath?: string): CommandEveFirstRunLoad | undefined {
   if (!userDataPath) return undefined;
   const paths = resolveCommandEveRuntimeBootstrapPaths(userDataPath);
   const receipt = readJsonFile<CommandEveAssistantRuntimeReceipt>(paths.receiptPath);
   const profile = readJsonFile<CommandEveAssistantLocalIdentity>(paths.firstRunProfile);
   const capabilityPack = readJsonFile<CommandEveAssistantCapabilityPackContext>(paths.capabilityPack);
-  if (!receipt && !profile && !capabilityPack) return undefined;
+
+  // ISO-6: when a real seat is active, source THIS seat's client entity from its
+  // ISO-3 Company-Brain seed (under the seat-scoped hermesHome), never the
+  // admin's global first-run-profile/registration. A legacy/no-seat install
+  // carries no seat seed and falls back to the admin profile — byte-identical.
+  const realSeatActive = !isActiveSeatLegacy();
+  const seatId = getActiveSeatId();
+  let seatSeed: CommandEveSeatSeedRecord | undefined;
+  if (realSeatActive) {
+    const state = readCompanyBrainSeedState({ userDataPath });
+    if (state.seeded && state.record) {
+      seatSeed = { kind: state.record.kind, value: state.record.value };
+    }
+  }
+
+  // A real seat must STILL produce a context (to suppress the admin seed) even
+  // when no global receipt/profile exists; only a legacy install with nothing
+  // loaded returns undefined (byte-identical to before).
+  if (!receipt && !profile && !capabilityPack && !realSeatActive) return undefined;
+
   return {
-    appVersion,
-    receipt,
-    profile,
-    capabilityPack,
+    baseContext: { appVersion, receipt, profile, capabilityPack },
+    realSeatActive,
+    seatId,
+    seatSeed,
   };
+}
+
+/**
+ * Build the per-locale skill prompt, attaching the ISO-6 per-seat identity. For
+ * a real seat the resolved `seatIdentity` OUTRANKS the global admin profile
+ * inside `buildCommandEveAssistantFirstRunContext`; for legacy it is undefined
+ * and the prompt is byte-identical to 1.1.3.
+ */
+function buildCommandEveAssistantSkillForSeat(
+  locale: 'de-DE' | 'en-US',
+  load: CommandEveFirstRunLoad | undefined
+): string {
+  if (!load) return buildCommandEveAssistantSkill(locale);
+  const seatIdentity = load.realSeatActive
+    ? resolveCommandEveSeatIdentity({ legacy: false, seatId: load.seatId, seed: load.seatSeed, locale })
+    : undefined;
+  return buildCommandEveAssistantSkill(locale, { ...load.baseContext, seatIdentity });
 }
 
 function hasAvailableHermesAgent(agents: CommandEveDetectedAgent[]): boolean {
@@ -248,7 +301,7 @@ export async function ensureCommandEveAssistant(
   const presetAgentType = selectCommandEvePresetAgentType(agents);
   const customSkillNames = await importCommandEveManagedSkills(backendPort, options.userDataPath);
   const assistant = buildCommandEveAssistantPayload(presetAgentType, customSkillNames, appVersion);
-  const firstRunContext = loadCommandEveFirstRunContext(appVersion, options.userDataPath);
+  const firstRunLoad = loadCommandEveFirstRunContext(appVersion, options.userDataPath);
   const existingAssistant = await loadCommandEveAssistant(backendPort);
   const method = existingAssistant ? 'PUT' : 'POST';
   const path = method === 'PUT' ? `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}` : '/api/assistants';
@@ -296,13 +349,13 @@ export async function ensureCommandEveAssistant(
       backendPort,
       'assistant-skill',
       'de-DE',
-      buildCommandEveAssistantSkill('de-DE', firstRunContext)
+      buildCommandEveAssistantSkillForSeat('de-DE', firstRunLoad)
     ),
     writeAssistantResource(
       backendPort,
       'assistant-skill',
       'en-US',
-      buildCommandEveAssistantSkill('en-US', firstRunContext)
+      buildCommandEveAssistantSkillForSeat('en-US', firstRunLoad)
     ),
   ]);
 
