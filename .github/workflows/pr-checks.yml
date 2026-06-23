@@ -150,6 +150,12 @@ jobs:
       - name: D8 cross-client isolation (GATE-NULL — desktop data half)
         run: bunx vitest run tests/unit/command-eve/seatIsolationGateNull.test.ts
 
+      # SOUL-1 (1.1.7) — prove the agent actually loads its identity. Fails loud if
+      # the rich SOUL.md write is dropped/thinned OR the ACP chat lane stops loading
+      # it, so the "soul ships vs silently no-ops" doctrine check runs every PR.
+      - name: SOUL-1 — agent identity is wired (SOUL.md reaches the prompt)
+        run: bash scripts/release/verify-soul-wired.sh
+
   # Job 3: Coverage test (Linux only)
   coverage-tests:
     name: Coverage Test
