@@ -27,6 +27,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { commandEve } from '@/common/adapter/ipcBridge';
 import { configService } from '@/common/config/configService';
+import { useActiveSeatId } from '@renderer/hooks/useActiveSeatId';
+import { useConfig } from '@renderer/hooks/config/useConfig';
 import {
   isClientSeedSatisfied,
   shouldForceDayZeroOnboarding,
@@ -78,35 +80,75 @@ export interface UseDayZeroOnboardingArgs {
 }
 
 export function useDayZeroOnboarding(args: UseDayZeroOnboardingArgs): DayZeroOnboardingState {
+  // THE ACTIVE-SEAT DEPENDENCY (closes the last renderer seam at the HOOK level):
+  // useActiveSeatId returns configService.getCurrentSeatId() and re-renders on the
+  // seat-rebind signal that rebindSeat fires AFTER the config cache has fully
+  // re-homed. By depending BOTH seat-scoped reads below on this id, EVERY mount
+  // site of this hook (DayZeroOnboardingHost AND the Settings → Company Brain
+  // route, plus any future site) re-homes on a switch WITHOUT a remount — no
+  // mount-site whack-a-mole. On a single-seat/legacy install the id is stable
+  // (the rebind signal only fires on an ACTUAL change), so neither read re-fires
+  // — byte-identical to 1.1.3.
+  const activeSeatId = useActiveSeatId();
+
   // ISO-3: "seeded?" is answered from the ACTIVE seat's on-disk evidence
   // (company-brain/seed.json under its hermesHome), NOT a shared global config
   // flag — so a fresh seat is never falsely suppressed by another seat's seed.
   const [alreadySeeded, setAlreadySeeded] = useState<boolean>(false);
-  // The dismiss flag stays in the config bag, but it is SEAT-SCOPED per ISO-2
-  // (commandEve.clientSeedDismissed is in SEAT_SCOPED_CONFIG_KEYS), so it is
-  // already per-seat.
-  const [dismissed, setDismissed] = useState<boolean>(() => Boolean(configService.get('commandEve.clientSeedDismissed')));
 
-  // Seed the "seeded" state from per-seat on-disk evidence, and the dismiss flag
-  // from the (seat-scoped) config bag. Both init async at boot.
+  // The dismiss flag is SEAT-SCOPED per ISO-2 (commandEve.clientSeedDismissed is
+  // in SEAT_SCOPED_CONFIG_KEYS). Read it via useConfig so the per-key re-notify
+  // that rebindSeat fires for every seat-scoped key whose value changed reaches
+  // this hook reactively — instead of the old one-shot configService.get that
+  // survived a switch and kept serving the prior seat's dismissed flag.
+  const [dismissedConfig] = useConfig('commandEve.clientSeedDismissed');
+  const dismissed = Boolean(dismissedConfig);
+
+  // BOOT READINESS (preserves the original whenReady() guarantee): useConfig's
+  // first snapshot is a synchronous configService.get that can run BEFORE the
+  // config cache has finished loading, and initialize() does not notify per key.
+  // So force one re-read after whenReady() resolves — re-rendering makes
+  // useConfig's useSyncExternalStore re-pull the now-populated dismissed flag
+  // (e.g. a sticky dismissed=true persisted from a prior launch). No-op once
+  // ready; the seat-rebind re-notify covers every subsequent switch.
+  const [, setReadyTick] = useState(0);
   useEffect(() => {
     let cancelled = false;
+    void configService.whenReady().then(() => {
+      if (!cancelled) setReadyTick((t) => t + 1);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Seed the "seeded" state from per-seat on-disk evidence. Re-runs whenever the
+  // active seat changes (the dependency below), so a switch re-invokes
+  // companyBrainStatus and re-reads seat B's on-disk seed. Idempotent: a re-run
+  // for the SAME seat just re-confirms the same value. The dismiss flag is now
+  // reactive via useConfig above, so it is NOT re-read here.
+  useEffect(() => {
+    let cancelled = false;
+    // The seat this load is for. A status resolved for a seat that is no longer
+    // active (a fast A→B→A or B switch raced ahead) must be IGNORED so a stale
+    // write can never clobber the current seat's state.
+    const loadForSeat = activeSeatId;
     void (async () => {
       try {
         const status = await commandEve.companyBrainStatus.invoke();
-        if (!cancelled && status?.success) {
+        // Drop the result if this effect was torn down OR the active seat moved
+        // on while the IPC was in flight (stale-write guard).
+        if (!cancelled && loadForSeat === configService.getCurrentSeatId() && status?.success) {
           setAlreadySeeded(Boolean(status.data?.seeded));
         }
       } catch (error) {
         console.error('Day-0 company-brain status read failed:', error);
       }
-      await configService.whenReady();
-      if (!cancelled) setDismissed(Boolean(configService.get('commandEve.clientSeedDismissed')));
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [activeSeatId]);
 
   const shouldForce =
     args.enabled &&
@@ -134,8 +176,9 @@ export function useDayZeroOnboarding(args: UseDayZeroOnboardingArgs): DayZeroOnb
   );
 
   const dismiss = useCallback(() => {
-    // STICKY: persist so the forced modal never re-pops on a later launch.
-    setDismissed(true);
+    // STICKY: persist so the forced modal never re-pops on a later launch. The
+    // set() notifies the config subscribers synchronously, so the useConfig read
+    // above flips `dismissed` to true immediately (no separate local setState).
     void configService.set('commandEve.clientSeedDismissed', true);
   }, []);
 

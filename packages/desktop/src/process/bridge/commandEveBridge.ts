@@ -75,6 +75,7 @@ import { CREDITS_STATUS_FUNCTION_URL, type ClientSeedInput, type CreditsTier } f
 import { ProcessConfig } from '@process/utils/initStorage';
 import { getDataPath } from '@process/utils/utils';
 import { getActiveSeatId } from '@process/commandEve/seatContextCore';
+import { isSeatSwitchAuthorized, parseMySeats, resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
 import { readCompanyBrainSeedState, writeCompanyBrainSeed } from '@process/commandEve/companyBrainSeedCore';
 import {
   createElectronPdfRenderer,
@@ -117,6 +118,36 @@ function unwrapBridgeRequest<T>(request?: T | CommandEveBridgeEnvelope<T>): T | 
     return (request as CommandEveBridgeEnvelope<T>).data;
   }
   return request as T | undefined;
+}
+
+/**
+ * Read the raw my-seats wire payload (B3 data contract) from the my-seats edge
+ * function. The function is AUTHORED but NOT deployed (founder gate), and the
+ * desktop never calls it from a non-account/legacy install — so this returns
+ * `null` today (the bridge fail-closes to a single legacy seat). When the
+ * function ships, this is the single place that performs the JWT-bound read; it
+ * MUST never accept a client-supplied account/seat id (the IDOR guard is
+ * server-side). Returning `null` (not throwing) keeps the switcher hidden and
+ * the user hard-pinned until a real seat list exists.
+ */
+function readMySeatsWire(): unknown | null {
+  // PREPARED: no my-seats function deployed yet ⇒ fail-closed single legacy seat.
+  // (A future slice resolves the account session bearer + GETs my-seats here.)
+  return null;
+}
+
+/**
+ * Persist the B3 active-seat pointer via the set-active-seat edge function.
+ * BEST-EFFORT: the local runtime switch already succeeded before this runs, so a
+ * failure here must NOT roll back a working local switch (applySeatSwitch treats
+ * a throw as persist_failed, not a switch failure). PREPARED: the set-active-seat
+ * function is AUTHORED-not-deployed, so this is a no-op today (the next launch
+ * re-derives the active seat). The server-side IDOR guard (target in the
+ * caller's authorized set) is enforced by the function, not here.
+ */
+async function persistActiveSeatPointer(seatId: string): Promise<void> {
+  // PREPARED: no set-active-seat function deployed yet ⇒ no-op (local switch stands).
+  void seatId;
 }
 
 export function initCommandEveBridge(): void {
@@ -1655,6 +1686,121 @@ export function initCommandEveBridge(): void {
         success: false,
         msg: error instanceof Error ? error.message : 'Command EVE active-seat bridge failed.',
         data: { version, ok: false, seat_id: 'seat-1', reason_code: 'ACTIVE_SEAT_BRIDGE_FAILED' },
+      };
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // MY-SEATS read (Phase 4 / A5 + B3 data contract). Returns the account, the
+  // account's seats, the active seat, and the per-seat role — the payload the
+  // admin SeatSwitcher lists and the fail-closed SeatGuard classifies. The
+  // my-seats edge function (B3) is AUTHORED but NOT deployed (founder gate), so
+  // this handler FAIL-CLOSES to a SINGLE legacy seat (no account, delegate role)
+  // until the function is live: a single-seat / legacy install is byte-identical
+  // to 1.1.3 (no switcher, hard-pinned). When the function IS reachable, the raw
+  // wire is parsed defensively (parseMySeats) so a malformed/hostile payload can
+  // never widen access. No seatId/account-id is ever client-supplied — the
+  // function binds to the JWT-resolved account (IDOR guard lives server-side).
+  // -------------------------------------------------------------------------
+  bridge.buildProvider('command-eve.my-seats').provider(async () => {
+    const version = 'command-eve-my-seats/v0' as const;
+    // Fail-closed contract: one legacy seat, delegate role, pinned. This is the
+    // value a legacy/single-seat/no-account install ALWAYS returns.
+    const legacyContract = {
+      account_id: null as string | null,
+      role: 'delegate' as const,
+      active_seat_id: getActiveSeatId(),
+      seats: [] as Array<{ seat_id: string; name: string; role: 'admin' | 'delegate'; is_active: boolean }>,
+    };
+    try {
+      const wire = readMySeatsWire();
+      if (!wire) {
+        // No my-seats source live yet ⇒ fail-closed single legacy seat.
+        return { success: true, data: { version, ok: true, contract: legacyContract, source: 'legacy_fallback' } };
+      }
+      const parsed = parseMySeats(wire);
+      if (!parsed) {
+        return { success: true, data: { version, ok: true, contract: legacyContract, source: 'legacy_fallback' } };
+      }
+      return { success: true, data: { version, ok: true, contract: parsed, source: 'my_seats' } };
+    } catch (error) {
+      // ANY failure ⇒ fail-closed single legacy seat (never widen on error).
+      return {
+        success: true,
+        msg: error instanceof Error ? error.message : undefined,
+        data: { version, ok: true, contract: legacyContract, source: 'legacy_fallback' },
+      };
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // SWITCH-SEAT (Phase 4 / A5, SLICE C). The GATE-NULL runtime keystone wired
+  // over IPC. Drives applySeatSwitch (the pure, ordered, fail-safe lifecycle):
+  // setActiveSeatId → prepareEnv → STOP+RE-SPAWN backend → rebindConfig →
+  // reseed-status → best-effort persist. The IPC-level ADMIN GATE is enforced
+  // HERE in main (a renderer guard alone is not a security boundary): the target
+  // is authorized ONLY when isSeatSwitchAuthorized(access, target) — admin, >1
+  // seat, target in the authorized list. A delegate, or any target not in the
+  // caller's seats, is rejected fail-closed BEFORE any state mutates.
+  // -------------------------------------------------------------------------
+  bridge.buildProvider('command-eve.switch-seat').provider(async (request?: { seatId?: string }) => {
+    const version = 'command-eve-switch-seat/v0' as const;
+    try {
+      const targetSeatId = typeof request?.seatId === 'string' ? request.seatId : '';
+      if (!targetSeatId) {
+        return { success: false, msg: 'Missing seatId.', data: { version, ok: false, reason_code: 'SWITCH_SEAT_NO_TARGET', active_seat_id: getActiveSeatId() } };
+      }
+
+      // Re-resolve the caller's access from the SAME my-seats source (never trust
+      // a renderer-asserted role). Fail-closed if unreachable ⇒ delegate ⇒ reject.
+      const wire = readMySeatsWire();
+      const access = resolveSeatAccess(wire ? parseMySeats(wire) : null);
+      if (!isSeatSwitchAuthorized(access, targetSeatId)) {
+        return {
+          success: false,
+          msg: 'Not authorized to switch to this seat.',
+          data: { version, ok: false, reason_code: 'SWITCH_SEAT_FORBIDDEN', active_seat_id: getActiveSeatId() },
+        };
+      }
+
+      const { applySeatSwitch } = await import('@process/commandEve/seatSwitchCore');
+      const { restartCommandEveBackendForSeat } = await import('@process/commandEve/seatSwitchRuntime');
+      const { prepareCommandEveRuntimeProcessEnv } = await import('@process/commandEve/runtimeBootstrapCore');
+
+      const result = await applySeatSwitch(targetSeatId, {
+        prepareEnv: () => {
+          prepareCommandEveRuntimeProcessEnv(getDataPath());
+        },
+        restartBackend: () => restartCommandEveBackendForSeat(),
+        rebindConfig: async (seatId) => {
+          // configService lives RENDERER-side, so this MAIN-process seam cannot
+          // touch its in-memory cache. The renderer re-homes its cache itself:
+          // useSeatAccess.switchTo() calls configService.rebindSeat() with the
+          // authoritative active_seat_id this handler returns (the target on
+          // success, the prior seat on rollback). This thunk is intentionally a
+          // no-op in main; the load-bearing rebind is the renderer call. Kept as a
+          // seam so the lifecycle ordering (a→b→c→d) stays explicit and testable.
+          void seatId;
+        },
+        reseedStatus: (seatId) => {
+          // Re-read the per-seat company-brain seed (informational; never fails the switch).
+          void readCompanyBrainSeedState({ userDataPath: getDataPath(), seatId });
+        },
+        persistActiveSeat: async (seatId) => {
+          await persistActiveSeatPointer(seatId);
+        },
+      });
+
+      return {
+        success: result.ok,
+        msg: result.ok ? undefined : result.reason_code,
+        data: { version, ...result },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : 'Command EVE switch-seat bridge failed.',
+        data: { version, ok: false, reason_code: 'SWITCH_SEAT_BRIDGE_FAILED', active_seat_id: getActiveSeatId() },
       };
     }
   });

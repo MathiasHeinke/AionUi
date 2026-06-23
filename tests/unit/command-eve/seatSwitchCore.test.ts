@@ -1,0 +1,341 @@
+/**
+ * @license
+ * Copyright 2025 AionUi (aionui.com)
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/**
+ * A5 ADVERSARIAL leak-CI for the seat-switch lifecycle (the GATE-NULL runtime
+ * keystone). Proves: (1) the switch fires every seam in the right ORDER and
+ * re-homes the env to seats/<new>/home (not legacy /home); (2) a switch WITHOUT
+ * a re-spawn leaves the simulated running agent on the OLD home (re-spawn is
+ * mandatory); (3) a failed re-spawn rolls back to the prior seat (no
+ * half-switched state); (4) a path-traversal/NUL/separator id is rejected
+ * fail-closed BEFORE any mutation; (5) the SeatGuard classification is
+ * fail-closed (unknown ⇒ delegate, never admin) + a delegate can never be
+ * authorized to a foreign seat; (6) legacy/single-seat triggers NO re-spawn.
+ */
+
+import path from 'path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  applySeatSwitch,
+  isSeatSwitchAuthorized,
+  parseMySeats,
+  resolveSeatAccess,
+  type SeatSwitchDeps,
+} from '@process/commandEve/seatSwitchCore';
+import {
+  LEGACY_SEAT_ID,
+  __resetActiveSeatForTests,
+  getActiveSeatId,
+  resolveActiveSeatHome,
+  setActiveSeatId,
+} from '@process/commandEve/seatContextCore';
+
+const USER_DATA = '/tmp/command-eve-test-userdata';
+const SEAT_A = '11111111-1111-1111-1111-111111111111';
+const SEAT_B = '22222222-2222-2222-2222-222222222222';
+
+/**
+ * A test harness that simulates the env + a "running agent" whose HERMES_HOME is
+ * FROZEN at the value present when restartBackend (re-spawn) last ran — exactly
+ * the env-inheritance pinning the real backend has.
+ */
+function makeHarness() {
+  const env: { HERMES_HOME?: string } = { HERMES_HOME: resolveActiveSeatHome(USER_DATA).hermesHome };
+  // The simulated running agent's frozen home (only re-homed on a re-spawn).
+  let agentFrozenHome = env.HERMES_HOME;
+  const calls: string[] = [];
+
+  const prepareEnv = vi.fn(() => {
+    calls.push('prepareEnv');
+    // Re-bake env.HERMES_HOME for the CURRENTLY-active seat (what the real
+    // prepareCommandEveRuntimeProcessEnv does).
+    env.HERMES_HOME = resolveActiveSeatHome(USER_DATA).hermesHome;
+  });
+  const restartBackend = vi.fn(() => {
+    calls.push('restartBackend');
+    // Re-spawn: the new agent inherits the CURRENT env.HERMES_HOME.
+    agentFrozenHome = env.HERMES_HOME;
+  });
+  const rebindConfig = vi.fn((seatId: string) => {
+    calls.push(`rebindConfig:${seatId}`);
+  });
+  const reseedStatus = vi.fn((seatId: string) => {
+    calls.push(`reseedStatus:${seatId}`);
+  });
+  const persistActiveSeat = vi.fn((seatId: string) => {
+    calls.push(`persist:${seatId}`);
+  });
+
+  const deps: SeatSwitchDeps = { prepareEnv, restartBackend, rebindConfig, reseedStatus, persistActiveSeat };
+  return {
+    deps,
+    calls,
+    env,
+    get agentFrozenHome() {
+      return agentFrozenHome;
+    },
+    mocks: { prepareEnv, restartBackend, rebindConfig, reseedStatus, persistActiveSeat },
+  };
+}
+
+beforeEach(() => {
+  __resetActiveSeatForTests();
+});
+afterEach(() => {
+  __resetActiveSeatForTests();
+  vi.restoreAllMocks();
+});
+
+describe('applySeatSwitch — ordering + env re-home (the keystone)', () => {
+  it('fires the seams in the documented ORDER and re-homes the env + agent to seats/<new>/home', async () => {
+    const h = makeHarness();
+    const result = await applySeatSwitch(SEAT_A, h.deps);
+
+    expect(result.ok).toBe(true);
+    expect(result.active_seat_id).toBe(SEAT_A);
+    expect(result.rolled_back).toBe(false);
+
+    // ORDER: setActiveSeatId happens inside applySeatSwitch BEFORE prepareEnv;
+    // we observe prepareEnv → restartBackend → rebindConfig → reseed → persist.
+    expect(h.calls).toEqual([
+      'prepareEnv',
+      'restartBackend',
+      `rebindConfig:${SEAT_A}`,
+      `reseedStatus:${SEAT_A}`,
+      `persist:${SEAT_A}`,
+    ]);
+
+    // The active seat moved, and the env + the re-spawned agent point UNDER
+    // seats/<A>/home — NOT the legacy /home.
+    expect(getActiveSeatId()).toBe(SEAT_A);
+    const expectedHome = path.join(USER_DATA, 'command-eve-runtime', 'hermes', 'seats', SEAT_A, 'home');
+    expect(resolveActiveSeatHome(USER_DATA).hermesHome).toBe(expectedHome);
+    expect(h.env.HERMES_HOME).toBe(expectedHome);
+    expect(h.agentFrozenHome).toBe(expectedHome);
+    // The legacy home is NOT where we ended up.
+    expect(expectedHome).not.toBe(path.join(USER_DATA, 'command-eve-runtime', 'hermes', 'home'));
+  });
+
+  it('setActiveSeatId runs BEFORE prepareEnv (prepareEnv observes the NEW seat)', async () => {
+    const h = makeHarness();
+    let seatSeenByPrepareEnv = '';
+    h.mocks.prepareEnv.mockImplementation(() => {
+      // At prepareEnv time the active seat MUST already be the target.
+      seatSeenByPrepareEnv = getActiveSeatId();
+      h.env.HERMES_HOME = resolveActiveSeatHome(USER_DATA).hermesHome;
+    });
+    await applySeatSwitch(SEAT_B, h.deps);
+    expect(seatSeenByPrepareEnv).toBe(SEAT_B);
+  });
+});
+
+describe('applySeatSwitch — env-freeze proof (re-spawn is MANDATORY)', () => {
+  it('a switch WITHOUT a re-spawn leaves the running agent on the OLD home (proves the leak)', async () => {
+    // Switch once to A (full re-spawn) so the agent is frozen on A's home.
+    const h = makeHarness();
+    await applySeatSwitch(SEAT_A, h.deps);
+    const aHome = h.agentFrozenHome;
+
+    // Now simulate a BROKEN switch that re-homes the env but SKIPS the re-spawn.
+    setActiveSeatId(SEAT_B);
+    h.mocks.prepareEnv(); // env now points at B
+    // (no restartBackend call)
+    const bHome = resolveActiveSeatHome(USER_DATA).hermesHome;
+
+    // The env moved to B, but the still-running agent is STILL frozen on A —
+    // this is exactly the cross-seat leak a switch without re-spawn would cause.
+    expect(h.env.HERMES_HOME).toBe(bHome);
+    expect(h.agentFrozenHome).toBe(aHome);
+    expect(h.agentFrozenHome).not.toBe(bHome);
+  });
+});
+
+describe('applySeatSwitch — failed re-spawn rolls back (no half-switched state)', () => {
+  it('rolls the active seat back to the prior seat and re-homes the env when restartBackend throws', async () => {
+    // Start on A (clean re-spawn).
+    const h = makeHarness();
+    await applySeatSwitch(SEAT_A, h.deps);
+    h.calls.length = 0;
+
+    // Now a switch to B whose re-spawn FAILS.
+    h.mocks.restartBackend.mockImplementationOnce(() => {
+      throw new Error('aioncore failed to re-spawn');
+    });
+    const result = await applySeatSwitch(SEAT_B, h.deps);
+
+    expect(result.ok).toBe(false);
+    expect(result.rolled_back).toBe(true);
+    expect(result.reason_code).toBe('SEAT_SWITCH_RESPAWN_FAILED');
+
+    // Rolled back to A — NOT stuck half-way on B.
+    expect(getActiveSeatId()).toBe(SEAT_A);
+    const aHome = path.join(USER_DATA, 'command-eve-runtime', 'hermes', 'seats', SEAT_A, 'home');
+    expect(resolveActiveSeatHome(USER_DATA).hermesHome).toBe(aHome);
+    expect(h.env.HERMES_HOME).toBe(aHome);
+    // persist must NOT have fired for the failed target.
+    expect(h.mocks.persistActiveSeat).not.toHaveBeenCalledWith(SEAT_B);
+  });
+
+  it('a failed re-spawn from the LEGACY seat rolls back to legacy', async () => {
+    const h = makeHarness();
+    h.mocks.restartBackend.mockImplementationOnce(() => {
+      throw new Error('boom');
+    });
+    const result = await applySeatSwitch(SEAT_A, h.deps);
+    expect(result.ok).toBe(false);
+    expect(result.rolled_back).toBe(true);
+    expect(getActiveSeatId()).toBe(LEGACY_SEAT_ID);
+  });
+});
+
+describe('applySeatSwitch — path-traversal fail-closed', () => {
+  it.each(['../seat-b', '..', 'seat/../../etc', 'a\0b', 'seat\\b', '/abs/seat'])(
+    'rejects unsafe id %j BEFORE any mutation and leaves the active seat unchanged',
+    async (badId) => {
+      // Establish a known prior seat (A).
+      const h = makeHarness();
+      await applySeatSwitch(SEAT_A, h.deps);
+      h.calls.length = 0;
+      h.mocks.prepareEnv.mockClear();
+      h.mocks.restartBackend.mockClear();
+
+      const result = await applySeatSwitch(badId, h.deps);
+      expect(result.ok).toBe(false);
+      expect(result.reason_code).toBe('SEAT_SWITCH_REJECTED_UNSAFE_ID');
+      expect(result.rolled_back).toBe(false);
+      // NOTHING ran — no env re-home, no re-spawn — and the active seat is still A.
+      expect(h.mocks.prepareEnv).not.toHaveBeenCalled();
+      expect(h.mocks.restartBackend).not.toHaveBeenCalled();
+      expect(getActiveSeatId()).toBe(SEAT_A);
+    }
+  );
+});
+
+describe('applySeatSwitch — legacy / no-op single-seat triggers NO re-spawn', () => {
+  it('switching to the seat we are already on does NOT re-spawn the backend', async () => {
+    const h = makeHarness();
+    // Active seat is LEGACY by default; "switch" to legacy.
+    const result = await applySeatSwitch(LEGACY_SEAT_ID, h.deps);
+    expect(result.ok).toBe(true);
+    expect(result.active_seat_id).toBe(LEGACY_SEAT_ID);
+    expect(h.mocks.prepareEnv).not.toHaveBeenCalled();
+    expect(h.mocks.restartBackend).not.toHaveBeenCalled();
+  });
+
+  it('switching to the currently-active real seat is a no-op re-spawn', async () => {
+    const h = makeHarness();
+    await applySeatSwitch(SEAT_A, h.deps);
+    h.mocks.restartBackend.mockClear();
+    const result = await applySeatSwitch(SEAT_A, h.deps);
+    expect(result.ok).toBe(true);
+    expect(h.mocks.restartBackend).not.toHaveBeenCalled();
+  });
+});
+
+describe('applySeatSwitch — persist is BEST-EFFORT (local switch still succeeds)', () => {
+  it('a failed persistActiveSeat does NOT fail or roll back the local switch', async () => {
+    const h = makeHarness();
+    h.mocks.persistActiveSeat.mockImplementationOnce(() => {
+      throw new Error('network down');
+    });
+    const result = await applySeatSwitch(SEAT_A, h.deps);
+    expect(result.ok).toBe(true);
+    expect(result.persist_failed).toBe(true);
+    expect(result.rolled_back).toBe(false);
+    expect(getActiveSeatId()).toBe(SEAT_A);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SeatGuard classification (parseMySeats + resolveSeatAccess + isSeatSwitchAuthorized)
+// ---------------------------------------------------------------------------
+
+describe('SeatGuard — fail-closed classification', () => {
+  it('a null/unparseable contract ⇒ delegate pinned to the legacy seat, canSwitch=false', () => {
+    const access = resolveSeatAccess(null);
+    expect(access.role).toBe('delegate');
+    expect(access.canSwitch).toBe(false);
+    expect(access.pinnedSeatId).toBe(LEGACY_SEAT_ID);
+    expect(parseMySeats(undefined)).toBeNull();
+    expect(parseMySeats('garbage')).toBeNull();
+    expect(parseMySeats(42)).toBeNull();
+  });
+
+  it('unknown / missing role defaults to delegate, NOT admin', () => {
+    const access = resolveSeatAccess(
+      parseMySeats({ account: { id: 'acc1' }, active_seat_id: SEAT_A, seats: [{ tenant_id: SEAT_A, name: 'A', role: 'wat' }, { tenant_id: SEAT_B, name: 'B' }] })
+    );
+    expect(access.role).toBe('delegate');
+    expect(access.canSwitch).toBe(false);
+  });
+
+  it('an admin with >1 seat ⇒ canSwitch=true; admin with exactly 1 seat ⇒ canSwitch=false (legacy-like)', () => {
+    const multi = resolveSeatAccess(
+      parseMySeats({ account: { id: 'acc1', role: 'admin' }, active_seat_id: SEAT_A, seats: [{ tenant_id: SEAT_A, name: 'A', is_active: true }, { tenant_id: SEAT_B, name: 'B' }] })
+    );
+    expect(multi.role).toBe('admin');
+    expect(multi.canSwitch).toBe(true);
+
+    const single = resolveSeatAccess(
+      parseMySeats({ account: { id: 'acc1', role: 'admin' }, active_seat_id: SEAT_A, seats: [{ tenant_id: SEAT_A, name: 'A', is_active: true }] })
+    );
+    expect(single.canSwitch).toBe(false);
+  });
+
+  it('a delegate is pinned even with multiple visible seats (over-scope guard)', () => {
+    const access = resolveSeatAccess(
+      parseMySeats({ account: { id: 'acc1', role: 'delegate' }, active_seat_id: SEAT_A, seats: [{ tenant_id: SEAT_A, name: 'A', is_active: true }, { tenant_id: SEAT_B, name: 'B' }] })
+    );
+    expect(access.role).toBe('delegate');
+    expect(access.canSwitch).toBe(false);
+    expect(access.pinnedSeatId).toBe(SEAT_A);
+  });
+
+  it('parseMySeats drops a non-sanitizable seat id (it can never become a path segment or a switch target)', () => {
+    const parsed = parseMySeats({
+      account: { id: 'acc1', role: 'admin' },
+      active_seat_id: SEAT_A,
+      seats: [
+        { tenant_id: SEAT_A, name: 'A' },
+        { tenant_id: '../evil', name: 'Evil' },
+        { tenant_id: SEAT_B, name: 'B' },
+      ],
+    });
+    expect(parsed?.seats.map((s) => s.seat_id)).toEqual([SEAT_A, SEAT_B]);
+  });
+});
+
+describe('SeatGuard — isSeatSwitchAuthorized (the IPC-level gate)', () => {
+  const adminAccess = resolveSeatAccess(
+    parseMySeats({ account: { id: 'acc1', role: 'admin' }, active_seat_id: SEAT_A, seats: [{ tenant_id: SEAT_A, name: 'A', is_active: true }, { tenant_id: SEAT_B, name: 'B' }] })
+  );
+
+  it('an admin may switch to a seat IN their authorized list', () => {
+    expect(isSeatSwitchAuthorized(adminAccess, SEAT_B)).toBe(true);
+  });
+
+  it('an admin may NOT switch to a FOREIGN seat (not in their list)', () => {
+    expect(isSeatSwitchAuthorized(adminAccess, '33333333-3333-3333-3333-333333333333')).toBe(false);
+  });
+
+  it('a DELEGATE can NEVER be authorized to switch, even to a seat in their list', () => {
+    const delegateAccess = resolveSeatAccess(
+      parseMySeats({ account: { id: 'acc1', role: 'delegate' }, active_seat_id: SEAT_A, seats: [{ tenant_id: SEAT_A, name: 'A' }, { tenant_id: SEAT_B, name: 'B' }] })
+    );
+    expect(isSeatSwitchAuthorized(delegateAccess, SEAT_B)).toBe(false);
+    expect(isSeatSwitchAuthorized(delegateAccess, SEAT_A)).toBe(false);
+  });
+
+  it('an unsafe / legacy target is never authorized', () => {
+    expect(isSeatSwitchAuthorized(adminAccess, '../seat-b')).toBe(false);
+    expect(isSeatSwitchAuthorized(adminAccess, LEGACY_SEAT_ID)).toBe(false);
+    expect(isSeatSwitchAuthorized(adminAccess, '')).toBe(false);
+  });
+
+  it('a fail-closed (null) access posture authorizes NOTHING', () => {
+    expect(isSeatSwitchAuthorized(resolveSeatAccess(null), SEAT_A)).toBe(false);
+  });
+});

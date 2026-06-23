@@ -1382,6 +1382,45 @@ export interface ICommandEveActiveSeatResult {
   reason_code?: string;
 }
 
+// Phase 4 / A5 + B3: a single seat in the account, as listed by the SeatSwitcher
+// and classified by the fail-closed SeatGuard.
+export interface ICommandEveSeatListEntry {
+  seat_id: string;
+  name: string;
+  role: 'admin' | 'delegate';
+  is_active: boolean;
+}
+
+// Phase 4 / A5 + B3: the my-seats data contract — account, seats, active seat,
+// per-seat role. The admin SeatSwitcher lists `seats`; the SeatGuard classifies
+// `role`. Fail-closed: a legacy/single-seat install returns one legacy seat,
+// `role:'delegate'`, no account (hard-pinned, no switcher).
+export interface ICommandEveMySeatsContract {
+  account_id: string | null;
+  role: 'admin' | 'delegate';
+  active_seat_id: string;
+  seats: ICommandEveSeatListEntry[];
+}
+
+export interface ICommandEveMySeatsResult {
+  version: 'command-eve-my-seats/v0';
+  ok: boolean;
+  contract: ICommandEveMySeatsContract;
+  /** 'my_seats' when sourced from the live edge function; 'legacy_fallback' when fail-closed. */
+  source: 'my_seats' | 'legacy_fallback';
+}
+
+// Phase 4 / A5: the result of a seat switch (the GATE-NULL runtime keystone).
+export interface ICommandEveSwitchSeatResult {
+  version: 'command-eve-switch-seat/v0';
+  ok: boolean;
+  active_seat_id: string;
+  rolled_back?: boolean;
+  reason_code?: string;
+  message?: string;
+  persist_failed?: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Command EVE runtime — stays IPC (local runtime, receipts, model tier prep)
 // ---------------------------------------------------------------------------
@@ -1547,6 +1586,14 @@ export const commandEve = {
   // reads it back here so its seat-scoped config keys are prefixed with the SAME
   // id main uses. Read-only, no PII; defaults to the legacy seat.
   activeSeat: bridge.buildProvider<IBridgeResponse<ICommandEveActiveSeatResult>, void>('command-eve.active-seat'),
+  // A5 + B3: list the account's seats (admin SeatSwitcher) / classify role
+  // (fail-closed SeatGuard). Read-only; fail-closes to one legacy seat.
+  mySeats: bridge.buildProvider<IBridgeResponse<ICommandEveMySeatsResult>, void>('command-eve.my-seats'),
+  // A5: switch the active seat (the GATE-NULL runtime keystone). Main enforces
+  // the admin gate + the full ordered, fail-safe re-spawn lifecycle.
+  switchSeat: bridge.buildProvider<IBridgeResponse<ICommandEveSwitchSeatResult>, { seatId?: string }>(
+    'command-eve.switch-seat'
+  ),
 };
 
 // ---------------------------------------------------------------------------

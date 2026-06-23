@@ -2,6 +2,7 @@ import React, { Suspense } from 'react';
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 import AppLoader from '@renderer/components/layout/AppLoader';
 import { useAuth } from '@renderer/hooks/context/AuthContext';
+import { useActiveSeatId } from '@renderer/hooks/useActiveSeatId';
 import { useEntitlementGate } from '@renderer/hooks/useEntitlementGate';
 import { isElectronDesktop } from '@renderer/utils/platform';
 import { TEAM_MODE_ENABLED } from '@/common/config/constants';
@@ -42,6 +43,9 @@ const withRouteFallback = (Component: React.LazyExoticComponent<React.ComponentT
 export const ProtectedLayout: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
   const { status } = useAuth();
   const { loading: gateLoading, status: gateStatus, blocked: gateBlocked, refresh: refreshGate } = useEntitlementGate();
+  // The active seat id — stable on a single-seat/legacy install, and updated by
+  // the switch lifecycle (configService.rebindSeat) on every admin seat switch.
+  const activeSeatId = useActiveSeatId();
 
   if (status === 'checking' || gateLoading) {
     return <AppLoader />;
@@ -73,11 +77,21 @@ export const ProtectedLayout: React.FC<{ layout: React.ReactElement }> = ({ layo
 
   // Entitled: render the main layout. Mount the Day-0 onboarding host alongside
   // it — it self-quiets unless this is a first run with no Company-Brain seed.
+  //
+  // SEAT-REMOUNT BOUNDARY: key the per-seat host by the active seat id. The host's
+  // useDayZeroOnboarding seeds its seat-scoped state (alreadySeeded from on-disk
+  // evidence, dismissed from the seat-scoped config) in a MOUNT-ONCE effect and
+  // does not subscribe to configService — so without a remount it would keep
+  // serving the PRIOR seat's onboarding state after an admin switches seats. The
+  // key REMOUNTS it on a switch, re-firing every mount-once seat read under the
+  // new seat. On a single-seat/legacy install the id is stable, so this is a
+  // no-op remount (byte-identical to 1.1.3). This is the general fix: any future
+  // per-seat host placed here inherits the same correct re-read on a switch.
   return (
     <>
       {React.cloneElement(layout)}
       <Suspense fallback={null}>
-        <DayZeroOnboardingHost entitled />
+        <DayZeroOnboardingHost key={activeSeatId} entitled />
       </Suspense>
     </>
   );

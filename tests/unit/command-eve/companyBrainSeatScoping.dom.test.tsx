@@ -28,14 +28,25 @@ let activeSeat = 'seat-1';
 
 // Dismiss flag lives in the (seat-scoped) config bag; keep a tiny seat-aware mock.
 const configStore: Map<string, unknown> = new Map();
+const keySubs: Map<string, Set<() => void>> = new Map();
 vi.mock('@/common/config/configService', () => {
   const physical = (k: string) => `${activeSeat}::${k}`;
   return {
     configService: {
       whenReady: () => Promise.resolve(),
+      // This test never switches seats while a hook is mounted, so the active
+      // seat id is stable per render and no rebind ever fires.
+      getCurrentSeatId: () => activeSeat,
+      onSeatRebind: () => () => {},
+      subscribe: (key: string, cb: () => void) => {
+        if (!keySubs.has(key)) keySubs.set(key, new Set());
+        keySubs.get(key)!.add(cb);
+        return () => keySubs.get(key)?.delete(cb);
+      },
       get: (k: string) => configStore.get(physical(k)),
       set: vi.fn(async (k: string, v: unknown) => {
         configStore.set(physical(k), v);
+        for (const cb of keySubs.get(k) ?? []) cb();
       }),
     },
   };

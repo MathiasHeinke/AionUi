@@ -1243,6 +1243,33 @@ const handleAppReady = async (): Promise<void> => {
     (globalThis as typeof globalThis & { __backendPort?: number }).__backendPort = backendPort;
     registerCronResumeBridge(backendPort);
     backendStartedOk = true;
+
+    // A5 / SLICE B — register the seat-switch backend re-spawn hook. A seat
+    // switch MUST stop + re-spawn aioncore so the new ACP agent inherits the
+    // freshly-baked process.env.HERMES_HOME (a running agent's HERMES_HOME is
+    // env-frozen at spawn — runtimeBootstrapCore.ts:1144). The hook re-runs the
+    // SAME prepareEnv→start sequence as boot, for the now-active seat.
+    const { setCommandEveBackendRestart } = await import('./process/commandEve/seatSwitchRuntime');
+    setCommandEveBackendRestart(async () => {
+      const { getDataPath: getDataPathForRestart } = await import('./process/utils/utils');
+      const { getSystemDir: getSystemDirForRestart } = await import('./process/utils/initStorage');
+      const { prepareCommandEveRuntimeProcessEnv } = await import('./process/commandEve/runtimeBootstrapCore');
+      // STOP first so there is no orphan / no in-flight request bleed: stop()
+      // SIGTERMs (then SIGKILLs after 5s) the whole process tree and cleans up
+      // registered agent processes before we re-spawn.
+      await backendManager.stop();
+      // Re-bake the shim + re-home process.env.HERMES_HOME for the ACTIVE seat
+      // (seatContextCore.getActiveSeatId — already set by applySeatSwitch step a).
+      prepareCommandEveRuntimeProcessEnv(getDataPathForRestart());
+      const sysDirForRestart = getSystemDirForRestart();
+      const respawnPort = await backendManager.start(getDataPathForRestart(), sysDirForRestart.logDir, {
+        cacheDir: sysDirForRestart.cacheDir,
+        workDir: sysDirForRestart.workDir,
+        logDir: sysDirForRestart.logDir,
+      });
+      (globalThis as typeof globalThis & { __backendPort?: number }).__backendPort = respawnPort;
+      registerCronResumeBridge(respawnPort);
+    });
   } catch (error) {
     console.error('[CommandEVE] Failed to start aioncore:', error);
     backendStartupFailed = true;

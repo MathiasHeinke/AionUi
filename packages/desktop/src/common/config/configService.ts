@@ -2,6 +2,8 @@ import type { ConfigKey, ConfigKeyMap } from './configKeys';
 import { LEGACY_SEAT_ID, SEAT_KEY_PREFIX, assertSeatId, isSeatScopedConfigKey, seatScopedKey } from './seatConfigKeyCore';
 
 type Subscriber = (value: unknown) => void;
+/** Fired with the NEW active seat id after the config cache re-homes (rebindSeat). */
+type SeatSubscriber = (seatId: string) => void;
 
 declare global {
   interface Window {
@@ -94,6 +96,12 @@ class ConfigServiceImpl {
   // every renderer consumer keeps calling get/set with the plain key.
   private cache = new Map<string, unknown>();
   private subscribers = new Map<string, Set<Subscriber>>();
+  // Seat-rebind subscribers: fired AFTER the cache re-homes to a new active seat.
+  // This is the single renderer-observable "the seat changed" signal — the basis
+  // for remounting per-seat hosts so every mount-once seat read re-fires (closes
+  // the class of renderer hooks that hold seat-scoped state in mount-once state
+  // and never re-read on a switch).
+  private seatSubscribers = new Set<SeatSubscriber>();
   private initialized = false;
   private initPromise: Promise<void> | null = null;
 
@@ -176,6 +184,11 @@ class ConfigServiceImpl {
       const after = this.cache.get(key);
       if (before !== after) this.notify(key as ConfigKey, after);
     }
+    // Fire the seat-rebind signal LAST, after the cache has fully re-homed, so a
+    // subscriber that re-reads (or remounts) observes the NEW seat's namespace.
+    // Only reached when the seat actually changed (the early-return above guards
+    // the no-op / legacy-stable case), so single-seat installs never fire it.
+    for (const cb of this.seatSubscribers) cb(this.currentSeatId);
   }
 
   /** The active seat id this service is currently bound to (ISO-2). */
@@ -274,6 +287,19 @@ class ConfigServiceImpl {
     };
   }
 
+  /**
+   * Subscribe to active-seat changes. The callback fires AFTER the config cache
+   * has re-homed to the new seat (i.e. subsequent get() reads see the new seat's
+   * namespace). Returns an unsubscribe fn. Used by useActiveSeatId to drive a
+   * remount key for per-seat hosts.
+   */
+  onSeatRebind(callback: SeatSubscriber): () => void {
+    this.seatSubscribers.add(callback);
+    return () => {
+      this.seatSubscribers.delete(callback);
+    };
+  }
+
   isInitialized(): boolean {
     return this.initialized;
   }
@@ -281,6 +307,7 @@ class ConfigServiceImpl {
   reset(): void {
     this.cache.clear();
     this.subscribers.clear();
+    this.seatSubscribers.clear();
     this.initialized = false;
     this.initPromise = null;
     // Clean-reset returns to the legacy seat so a fresh initialize() re-resolves

@@ -25,15 +25,33 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 
 // store/subscribers at module scope so the hoisted vi.mock captures them.
 const store: Map<string, unknown> = new Map();
+// Per-key config subscribers (mirrors configService.subscribe) so useConfig's
+// useSyncExternalStore re-reads when set() notifies the dismissed key.
+const keySubs: Map<string, Set<() => void>> = new Map();
+const notifyKey = (key: string) => {
+  for (const cb of keySubs.get(key) ?? []) cb();
+};
 
 vi.mock('@/common/config/configService', () => {
   const whenReady = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
   return {
     configService: {
       whenReady,
+      // Single-seat / legacy: the active seat never changes, so no rebind ever
+      // fires and useActiveSeatId returns a stable id (byte-identical path).
+      getCurrentSeatId: () => 'legacy',
+      onSeatRebind: () => () => {},
+      subscribe: (key: string, cb: () => void) => {
+        if (!keySubs.has(key)) keySubs.set(key, new Set());
+        keySubs.get(key)!.add(cb);
+        return () => keySubs.get(key)?.delete(cb);
+      },
       get: (k: string) => store.get(k),
       set: vi.fn(async (k: string, v: unknown) => {
         store.set(k, v);
+        // Notify synchronously so the useConfig read flips immediately (mirrors
+        // the real configService.set, which notifies before the async PUT).
+        notifyKey(k);
       }),
     },
   };
@@ -63,6 +81,7 @@ import { configService } from '@/common/config/configService';
 describe('useDayZeroOnboarding (fix #4: at-most-once forced modal)', () => {
   beforeEach(() => {
     store.clear();
+    keySubs.clear();
     onDiskSeeded = false;
     vi.clearAllMocks();
   });
