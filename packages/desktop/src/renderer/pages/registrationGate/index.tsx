@@ -55,6 +55,14 @@ type GateStep = 'auth' | 'registration' | 'license';
  */
 const CURTAIN_CHECKOUT_URL = 'https://command-eve.com/account';
 
+// OAUTH-2 (browser web-login) is NOT live yet: the web /auth/desktop page the
+// loopback flow needs does not exist, so commandEve.authWebLogin always fails.
+// Showing the button strands a fresh user — a failed browser-login used to dump
+// them into the manual register->paste fallback, which looks like the OLD offline
+// flow. Hide the button until OAUTH-2 ships; the in-app email/password login on the
+// same screen is the working PRIMARY path. Flip to true when the web page is live.
+const BROWSER_LOGIN_ENABLED = false;
+
 /**
  * True only for the day-14 TRIAL-EXPIRED state: the gate reports `expired` AND
  * the (now-mirrored) CEVE.v2 `trial_ends_at` field is a non-null string, which
@@ -149,9 +157,12 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
         }
         setAuthError(t('registrationGate.auth.errors.unknown'));
       } catch (error) {
+        // B-6: a browser-login failure (e.g. OAUTH-2's web /auth/desktop page is not
+        // live yet) must NOT dump the user into the manual register->paste fallback —
+        // that looks like the old offline flow. Stay on the auth step with an inline
+        // error; the in-app email/password login on this same screen still works.
         console.error('Web login bridge call failed:', error);
         setAuthError(t('registrationGate.auth.errors.unknown'));
-        setStep('registration');
       } finally {
         setAuthBusy(false);
       }
@@ -598,15 +609,17 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
                 : t('registrationGate.auth.register')}
             </Button>
 
-            <button
-              type='button'
-              className='registration-gate__back'
-              onClick={() => void handleWebLogin('login')}
-              disabled={authBusy}
-              data-testid='registration-gate-browser-login'
-            >
-              {t('registrationGate.auth.browserLogin')}
-            </button>
+            {BROWSER_LOGIN_ENABLED && (
+              <button
+                type='button'
+                className='registration-gate__back'
+                onClick={() => void handleWebLogin('login')}
+                disabled={authBusy}
+                data-testid='registration-gate-browser-login'
+              >
+                {t('registrationGate.auth.browserLogin')}
+              </button>
+            )}
 
             <button
               type='button'
