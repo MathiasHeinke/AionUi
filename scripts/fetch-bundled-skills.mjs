@@ -45,7 +45,7 @@ import { fileURLToPath } from 'node:url';
 // ALLOWLIST — the curated EVE strategy skill set.
 // ---------------------------------------------------------------------------
 // EXPLICIT allowlist (never glob .claude/skills — gitnexus and other dev/IDE
-// skills must NOT travel into the shipped app). 14 single-folder skills with one
+// skills must NOT travel into the shipped app). 15 single-folder skills with one
 // SKILL.md each, PLUS marketing-outbound which is a BUNDLE (no top-level
 // SKILL.md; 17 nested sub-skill dirs each with their own SKILL.md).
 //
@@ -68,6 +68,9 @@ export const EVE_STRATEGY_SKILLS = Object.freeze([
   { id: 'landing-copy' },
   { id: 'human-design-profile' },
   { id: 'marketing-outbound', bundle: true },
+  // client-report: in-seat generator of the operator's client-facing report deliverable
+  // (single-folder skill: SKILL.md + report-template.md).
+  { id: 'client-report' },
 ]);
 
 /** Just the ids, for callers that want the flat allowlist. */

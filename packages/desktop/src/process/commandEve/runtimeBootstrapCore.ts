@@ -57,6 +57,11 @@ export const EVE_STRATEGY_SKILL_IDS = [
   'landing-copy',
   'human-design-profile',
   'marketing-outbound',
+  // client-report: the in-seat GENERATOR of the operator's client-facing deliverable
+  // (exec summary / findings / recommendations / next steps), assembled from ONLY the
+  // active seat's truth and shaped to feed the report export. Seat-fenced + honesty-walled
+  // in its SKILL.md (no cross-seat read, no fabricated KPI, no "learns" claim).
+  'client-report',
 ] as const;
 const COMMAND_EVE_CAPABILITIES_FILE = 'command-eve-capabilities.json';
 const COMMAND_EVE_MANAGED_SKILLS_DIR = 'skills-command-eve';
@@ -1259,8 +1264,8 @@ function commandEveManagedSkillMarkdown(skill: CommandEveCapabilityPack['skills'
 }
 
 // The APP-OWNED config-awareness onboarding skill (Guided Onboarding SLICE S1).
-// This is deliberately NOT in EVE_STRATEGY_SKILL_IDS (that allowlist stays at 15 so
-// its bundle-copy test stays green) and NOT in command-eve-capabilities.json — it is
+// This is deliberately NOT in EVE_STRATEGY_SKILL_IDS (the bundled allowlist, now 16:
+// the 15 strategy skills + client-report) and NOT in command-eve-capabilities.json — it is
 // a separate app-owned managed skill written directly into managedSkillsRoot, which
 // is already on skills.external_dirs, so the running Hermes agent discovers it like
 // any other skill. It teaches EVE to READ her own onboarding-status (the S0
