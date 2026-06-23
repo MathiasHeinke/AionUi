@@ -220,6 +220,105 @@ export function resolveSeatHermesHome(userDataPath: string, seatId?: string | nu
 }
 
 /**
+ * ISO-4 — the storage-root resolver for the getDataPath()/getConfigPath()-derived
+ * workspace tree (chat history, the agent workDir / produced deliverables,
+ * assistants, user/cron skills, chat/config caches). ISO-1 seat-scoped the
+ * HERMES_HOME family; this seat-scopes the *workspace* roots that root at
+ * `cacheDir` (=getConfigPath()-derived) and `workDir` (=getDataPath()-derived) —
+ * the SUSPECTED REAL REMAINING LEAK (raw client conversation content + produced
+ * client deliverables).
+ *
+ * BYTE-IDENTICAL LEGACY COMPAT: for a legacy/no-seat id (undefined/null/''/
+ * 'default'/'seat-1') the returned roots are EXACTLY the inputs — no `seats/`
+ * segment, no migration, existing single-seat chat history + produced files stay
+ * in place. For a real seat the roots become `<root>/seats/<sanitized-id>` so two
+ * seats (two end-clients of a reseller) get DISJOINT chat-history / workDir /
+ * assistants / skills trees. A non-sanitizable id THROWS (path-traversal guard)
+ * — it can never become a `seats/<id>` path segment.
+ *
+ * PURE: no fs access, no Electron. The caller passes the already-resolved config
+ * and data roots (getConfigPath()/getDataPath(), or the user's stored override)
+ * and the active seat; this only computes the seat sub-root. Operates on the
+ * inputs verbatim (it does NOT re-derive the userData root) so a user-chosen
+ * override directory is seat-scoped just like the default.
+ */
+export type SeatScopedStorageRoots = {
+  /** The sanitized seat id that produced these roots. */
+  seatId: string;
+  /** True when this is the legacy single-seat (roots returned verbatim). */
+  legacy: boolean;
+  /**
+   * The seat-scoped cache root (chat history / config cache / assistants /
+   * skills / cron skills). Legacy: === `configRoot` (byte-identical). Real seat:
+   * `<configRoot>/seats/<sanitized-id>`.
+   */
+  cacheRoot: string;
+  /**
+   * The seat-scoped work root (the agent's produced deliverables / per-
+   * conversation workspace handed to the backend). Legacy: === `dataRoot`
+   * (byte-identical). Real seat: `<dataRoot>/seats/<sanitized-id>`.
+   */
+  workRoot: string;
+};
+
+export function resolveSeatScopedStorageRoots(configRoot: string, dataRoot: string, seatId?: string | null): SeatScopedStorageRoots {
+  if (isLegacySeatId(seatId)) {
+    return {
+      seatId: LEGACY_SEAT_ID,
+      legacy: true,
+      // Verbatim — EXACTLY today's roots, no `seats/` segment.
+      cacheRoot: configRoot,
+      workRoot: dataRoot,
+    };
+  }
+
+  // assertSeatId throws for any id that could traverse out of `seats/`.
+  const sanitized = assertSeatId(seatId);
+  return {
+    seatId: sanitized,
+    legacy: false,
+    cacheRoot: path.join(configRoot, SEATS_SUBDIR, sanitized),
+    workRoot: path.join(dataRoot, SEATS_SUBDIR, sanitized),
+  };
+}
+
+/**
+ * Convenience over `resolveSeatScopedStorageRoots` for the CURRENTLY-active seat
+ * (the process-local holder ISO-1 introduced). This is the seam initStorage.ts
+ * calls at request time so a seat switch re-homes the workspace roots without a
+ * module reload.
+ */
+export function resolveActiveSeatScopedStorageRoots(configRoot: string, dataRoot: string): SeatScopedStorageRoots {
+  return resolveSeatScopedStorageRoots(configRoot, dataRoot, activeSeatId);
+}
+
+/**
+ * ISO-4 — INVERSE of `resolveSeatScopedStorageRoots`: strip a trailing
+ * `seats/<seatId>` segment from a possibly-seat-scoped root so the INSTALL-GLOBAL
+ * BASE root can be persisted (e.g. when the operator changes the workspace dir
+ * while a non-legacy seat is active — `updateSystemInfo`). Persisting the
+ * seat-scoped path verbatim would double-nest (`.../seats/<id>/seats/<id>`) on
+ * the next boot's re-scope. Legacy / no trailing seat segment → returned
+ * verbatim. Pure; no fs.
+ */
+export function stripSeatScopeFromRoot(root: string, seatId?: string | null): string {
+  if (isLegacySeatId(seatId)) return root;
+  const sanitized = sanitizeSeatId(seatId);
+  if (sanitized === null) return root; // unsafe id never produced a scoped path
+  const suffix = path.join(SEATS_SUBDIR, sanitized);
+  // Match only an exact trailing `<sep>seats/<id>` segment.
+  if (root.endsWith(path.sep + suffix) || root.endsWith('/' + suffix)) {
+    return root.slice(0, root.length - (suffix.length + 1));
+  }
+  return root;
+}
+
+/** Convenience: strip the CURRENTLY-active seat's scope segment from a root. */
+export function stripActiveSeatScopeFromRoot(root: string): string {
+  return stripSeatScopeFromRoot(root, activeSeatId);
+}
+
+/**
  * Minimal active-seat state holder for the current process.
  *
  * DEFAULTS to the legacy seat so NOTHING changes until a seat is explicitly

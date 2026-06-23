@@ -27,6 +27,7 @@ import {
   hasElectronAppPath,
   verifyDirectoryFiles,
 } from './utils';
+import { resolveActiveSeatScopedStorageRoots } from '@process/commandEve/seatContextCore';
 import { runLegacyDatabaseMigrations } from '@process/services/database/runLegacyDatabaseMigrations';
 import {
   BUILTIN_IMAGE_GEN_ID,
@@ -245,13 +246,71 @@ const envFile = JsonFileBuilder<IEnvStorageRefer>(path.join(getHomePage(), STORA
 
 const dirConfig = envFile.getSync('aionui.dir');
 
-const cacheDir = dirConfig?.cacheDir || getHomePage();
+// The INSTALL-GLOBAL base roots (the operator's stored override, else the
+// default config/data paths). These are the ROOTS that ISO-4 seat-scopes per
+// call: a legacy/no-seat active seat returns them VERBATIM (byte-identical to
+// 1.1.3 — no `seats/` segment, existing chat history + produced files stay in
+// place); a real active seat sub-roots them under `seats/<id>/`.
+const baseCacheDir = dirConfig?.cacheDir || getHomePage();
+const baseWorkDir = dirConfig?.workDir || getDataPath();
 
-const configFile = JsonFileBuilder<IConfigStorageRefer>(path.join(cacheDir, STORAGE_PATH.config));
+/**
+ * ISO-4 — the chat-history / assistants / skills / cron / workspace cache root
+ * for the CURRENTLY-ACTIVE seat, resolved AT CALL TIME (not captured once at
+ * module load) so a seat switch re-homes the workspace without a module reload.
+ * Legacy/no-seat → `baseCacheDir` verbatim (byte-identical to 1.1.3).
+ */
+const currentCacheRoot = (): string => resolveActiveSeatScopedStorageRoots(baseCacheDir, baseWorkDir).cacheRoot;
+
+/**
+ * ISO-4 — the agent workDir (produced deliverables / per-conversation
+ * workspace) root for the currently-active seat, resolved at call time.
+ * Legacy/no-seat → `baseWorkDir` verbatim.
+ */
+const currentWorkRoot = (): string => resolveActiveSeatScopedStorageRoots(baseCacheDir, baseWorkDir).workRoot;
+
+/**
+ * ISO-4 (CRITICAL fix) — the backend `--data-dir` (FIRST positional arg of
+ * backendManager.start) root for the CURRENTLY-ACTIVE seat, resolved at call
+ * time. This is the dir holding the LIVE aioncore conversation+message SQLite
+ * (the renderer conversation list, message bodies, and full-text search all read
+ * from it). ISO-4's first cut seat-scoped cacheDir/workDir but LEFT the data-dir
+ * at the global unscoped getDataPath() — so when seat B was active the backend
+ * still served seat A's conversations. This re-homes the data-dir to the active
+ * seat exactly like workDir.
+ *
+ * BYTE-IDENTICAL LEGACY COMPAT: legacy/no-seat → EXACTLY getDataPath() (no
+ * `seats/` segment) so an existing single-seat user keeps their conversation
+ * SQLite in place — no move, no loss. A real seat → `<getDataPath()>/seats/<id>`.
+ *
+ * Scoped via the SAME resolveActiveSeatScopedStorageRoots seam as workDir; we
+ * pass getDataPath() as BOTH roots and read `.workRoot` (a data root, like
+ * workDir) so the scoping rule is identical and auditable. getDataPath() itself
+ * is NOT made seat-aware — only the value handed to backendManager.start is.
+ */
+const currentBackendDataDir = (): string => resolveActiveSeatScopedStorageRoots(getDataPath(), getDataPath()).workRoot;
+
+/**
+ * ISO-4 — the seat-scoped backend `--data-dir` for the currently-active seat.
+ * Both backendManager.start call sites (boot + the A5 re-spawn) MUST use this so
+ * the conversation+message SQLite follows the active seat. Legacy/no-seat returns
+ * getDataPath() byte-identical.
+ */
+export const getBackendDataDir = (): string => currentBackendDataDir();
+
+// INSTALL-GLOBAL singletons. The config bag (license/entitlement/version/window
+// bounds/spend cap) and the env file are install-global and stay at the LEGACY
+// base root — they are NOT seat-scoped here. Per-seat-meaningful CONFIG KEYS are
+// already namespaced at the renderer layer by ISO-2 (seatConfigKeyCore); the
+// per-client CONTENT (chat history, deliverables, assistants, skills) is what
+// ISO-4 seat-scopes below. Wiring these into ConfigStorage/EnvStorage
+// interceptors at init requires a stable path, so they intentionally bind to the
+// global base root.
+const configFile = JsonFileBuilder<IConfigStorageRefer>(path.join(baseCacheDir, STORAGE_PATH.config));
 type ConversationHistoryData = Record<string, TMessage[]>;
 
-const _chatMessageFile = JsonFileBuilder<ConversationHistoryData>(path.join(cacheDir, STORAGE_PATH.chatMessage));
-const _chatFile = JsonFileBuilder<IChatConversationRefer>(path.join(cacheDir, STORAGE_PATH.chat));
+const _chatMessageFile = JsonFileBuilder<ConversationHistoryData>(path.join(baseCacheDir, STORAGE_PATH.chatMessage));
+const _chatFile = JsonFileBuilder<IChatConversationRefer>(path.join(baseCacheDir, STORAGE_PATH.chat));
 
 const chatFile = _chatFile;
 
@@ -263,52 +322,70 @@ const buildMessageListStorage = (conversation_id: string, dir: string) => {
   return JsonFileBuilder<TMessage[]>(path.join(dir, CHAT_HISTORY_DIR, conversation_id + '.txt'));
 };
 
-const conversationHistoryProxy = (options: typeof _chatMessageFile, dir: string) => {
+/**
+ * ISO-4: the per-conversation chat-history proxy resolves the seat-scoped cache
+ * root AT CALL TIME (via `dirFn`) so a switch re-homes the transcripts. The
+ * JsonFileBuilder cache is keyed per file PATH, so a different seat → different
+ * path → a different cache instance (correct by construction) AS LONG AS the
+ * path is computed at call time, never captured once. Seat A's transcript for
+ * conversation C1 lives at `<cacheRoot-A>/CHAT_HISTORY_DIR/C1.txt`; seat B reads
+ * `<cacheRoot-B>/CHAT_HISTORY_DIR/C1.txt` which is empty — the disjoint-roots
+ * fence.
+ */
+const conversationHistoryProxy = (options: typeof _chatMessageFile, dirFn: () => string) => {
   return {
     ...options,
     async set(key: string, data: TMessage[]) {
       const conversation_id = key;
-      const storage = buildMessageListStorage(conversation_id, dir);
+      const storage = buildMessageListStorage(conversation_id, dirFn());
       return await storage.setJson(data);
     },
     async get(key: string): Promise<TMessage[]> {
       const conversation_id = key;
-      const storage = buildMessageListStorage(conversation_id, dir);
+      const storage = buildMessageListStorage(conversation_id, dirFn());
       const data = await storage.toJson();
       if (Array.isArray(data)) return data;
       return [];
     },
     backup(conversation_id: string) {
+      const dir = dirFn();
       const storage = buildMessageListStorage(conversation_id, dir);
       return storage.backup(path.join(dir, CHAT_HISTORY_DIR, 'backup', conversation_id + '_' + Date.now() + '.txt'));
     },
   };
 };
 
-const chatMessageFile = conversationHistoryProxy(_chatMessageFile, cacheDir);
+const chatMessageFile = conversationHistoryProxy(_chatMessageFile, currentCacheRoot);
 
 /**
  * 获取助手规则目录路径
  * Get assistant rules directory path
+ *
+ * ISO-4: seat-scoped at call time — assistant rules authored for one client seat
+ * are not visible to another.
  */
 const getAssistantsDir = () => {
-  return path.join(cacheDir, STORAGE_PATH.assistants);
+  return path.join(currentCacheRoot(), STORAGE_PATH.assistants);
 };
 
 /**
  * 获取技能脚本目录路径
  * Get skills scripts directory path
+ *
+ * ISO-4: seat-scoped at call time.
  */
 const getSkillsDir = () => {
-  return path.join(cacheDir, STORAGE_PATH.skills);
+  return path.join(currentCacheRoot(), STORAGE_PATH.skills);
 };
 
 /**
  * Get the directory for per-cron-job SKILL.md files.
  * Each cron job gets its own subdirectory: {cronSkillsDir}/{job_id}/SKILL.md
+ *
+ * ISO-4: seat-scoped at call time.
  */
 const getCronSkillsDir = () => {
-  return path.join(cacheDir, STORAGE_PATH.cronSkills);
+  return path.join(currentCacheRoot(), STORAGE_PATH.cronSkills);
 };
 
 /**
@@ -317,7 +394,7 @@ const getCronSkillsDir = () => {
  * corpus. Failures are swallowed — at worst a stale copy lingers on disk.
  */
 const cleanupLegacyBuiltinSkillsDir = () => {
-  const legacyDir = path.join(cacheDir, LEGACY_BUILTIN_SKILLS_DIR);
+  const legacyDir = path.join(currentCacheRoot(), LEGACY_BUILTIN_SKILLS_DIR);
   if (!existsSync(legacyDir)) return;
   fs.rm(legacyDir, { recursive: true, force: true })
     .then(() => console.log('[CommandEVE] Cleaned up legacy builtin-skills cache'))
@@ -660,11 +737,19 @@ export const getSystemDir = () => {
   // electron-log writes to the platform-standard logs directory
   const logDir = getPlatformServices().paths.getLogsDir();
 
+  // ISO-4: cacheDir/workDir are resolved for the CURRENTLY-ACTIVE seat AT CALL
+  // TIME. This is the load-bearing rewire: backendManager.start (index.ts:1233 +
+  // the A5 re-spawn at :1265) passes these to the prebuilt backend, which roots
+  // EVERY per-conversation workspace + produced deliverable under them. With the
+  // active seat threaded in, a seat switch (which re-spawns the backend via the
+  // A5 hook) re-homes the whole workspace to <root>/seats/<id>/. Legacy/no-seat
+  // → byte-identical to 1.1.3 (baseCacheDir/baseWorkDir verbatim, no `seats/`
+  // segment), so a single-seat upgrade is a no-op on disk.
   return {
-    cacheDir: cacheDir,
+    cacheDir: currentCacheRoot(),
     // getDataPath() returns CLI-safe path (symlink on macOS) to avoid spaces
     // getDataPath() 返回 CLI 安全路径（macOS 上的符号链接）以避免空格问题
-    workDir: dirConfig?.workDir || getDataPath(),
+    workDir: currentWorkRoot(),
     logDir,
     platform: process.platform as PlatformType,
     arch: process.arch as ArchitectureType,

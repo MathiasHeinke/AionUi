@@ -14,6 +14,7 @@ import path from 'path';
 import { ipcBridge } from '@/common';
 import { getSystemDir, ProcessEnv } from '@process/utils/initStorage';
 import { copyDirectoryRecursively, getConfigPath, getDataPath, resolveCliSafePath } from '@process/utils';
+import { stripActiveSeatScopeFromRoot } from '@process/commandEve/seatContextCore';
 
 export function initApplicationBridgeCore(): void {
   // application.systemInfo is served by the backend via HTTP; updateSystemInfo
@@ -28,7 +29,18 @@ export function initApplicationBridgeCore(): void {
     if (oldDir.cacheDir !== safeCacheDir) {
       await copyDirectoryRecursively(oldDir.cacheDir, safeCacheDir);
     }
-    await ProcessEnv.set('aionui.dir', { cacheDir: safeCacheDir, workDir: safeWorkDir, logDir: safeLogDir });
+    // ISO-4: the incoming cacheDir/workDir come from getSystemDir() and are
+    // therefore SEAT-SCOPED when a non-legacy seat is active. `aionui.dir` is the
+    // INSTALL-GLOBAL base override that initStorage re-seat-scopes on every boot,
+    // so we must persist the BASE (de-seat-scoped) form — persisting the scoped
+    // path verbatim would double-nest `.../seats/<id>/seats/<id>` on next boot.
+    // For the legacy seat (the shipped default) this strip is a no-op → byte-
+    // identical to 1.1.3.
+    await ProcessEnv.set('aionui.dir', {
+      cacheDir: stripActiveSeatScopeFromRoot(safeCacheDir),
+      workDir: stripActiveSeatScopeFromRoot(safeWorkDir),
+      logDir: safeLogDir,
+    });
   });
 
   ipcBridge.application.getPath.provider(({ name }) => {

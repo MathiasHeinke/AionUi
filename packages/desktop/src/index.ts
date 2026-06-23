@@ -1227,10 +1227,16 @@ const handleAppReady = async (): Promise<void> => {
   // the legacy Electron SQLite catalog for a one-shot v26 migration and must
   // close it before the backend touches the same file.
   try {
-    const { getDataPath } = await import('./process/utils/utils');
-    const { getSystemDir } = await import('./process/utils/initStorage');
+    const { getSystemDir, getBackendDataDir } = await import('./process/utils/initStorage');
     const sysDir = getSystemDir();
-    const backendPort = await backendManager.start(getDataPath(), sysDir.logDir, {
+    // ISO-4 CRITICAL: the FIRST positional arg is the backend --data-dir (the
+    // live conversation+message SQLite). It MUST be seat-scoped to the ACTIVE
+    // seat — NOT the global getDataPath() — else seat B's renderer reads seat A's
+    // conversation list / message bodies / full-text search. getBackendDataDir()
+    // returns getDataPath() byte-identical for the legacy seat (existing chat DB
+    // preserved in place) and <getDataPath()>/seats/<id> for a real seat. Kept
+    // consistent with sysDir.cacheDir/workDir, which are scoped the same way.
+    const backendPort = await backendManager.start(getBackendDataDir(), sysDir.logDir, {
       cacheDir: sysDir.cacheDir,
       workDir: sysDir.workDir,
       logDir: sysDir.logDir,
@@ -1252,7 +1258,7 @@ const handleAppReady = async (): Promise<void> => {
     const { setCommandEveBackendRestart } = await import('./process/commandEve/seatSwitchRuntime');
     setCommandEveBackendRestart(async () => {
       const { getDataPath: getDataPathForRestart } = await import('./process/utils/utils');
-      const { getSystemDir: getSystemDirForRestart } = await import('./process/utils/initStorage');
+      const { getSystemDir: getSystemDirForRestart, getBackendDataDir: getBackendDataDirForRestart } = await import('./process/utils/initStorage');
       const { prepareCommandEveRuntimeProcessEnv } = await import('./process/commandEve/runtimeBootstrapCore');
       // STOP first so there is no orphan / no in-flight request bleed: stop()
       // SIGTERMs (then SIGKILLs after 5s) the whole process tree and cleans up
@@ -1262,7 +1268,12 @@ const handleAppReady = async (): Promise<void> => {
       // (seatContextCore.getActiveSeatId — already set by applySeatSwitch step a).
       prepareCommandEveRuntimeProcessEnv(getDataPathForRestart());
       const sysDirForRestart = getSystemDirForRestart();
-      const respawnPort = await backendManager.start(getDataPathForRestart(), sysDirForRestart.logDir, {
+      // ISO-4 CRITICAL: re-spawn the backend with the SAME seat-scoped --data-dir
+      // as boot, now for the NEW active seat (set by applySeatSwitch step a). This
+      // is what re-homes the conversation+message SQLite on a seat switch — the
+      // renderer's conversation list / message bodies / full-text search follow
+      // the active seat. getBackendDataDir() reads the active seat at call time.
+      const respawnPort = await backendManager.start(getBackendDataDirForRestart(), sysDirForRestart.logDir, {
         cacheDir: sysDirForRestart.cacheDir,
         workDir: sysDirForRestart.workDir,
         logDir: sysDirForRestart.logDir,
