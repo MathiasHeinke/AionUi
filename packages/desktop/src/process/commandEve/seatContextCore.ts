@@ -1,0 +1,273 @@
+/**
+ * @license
+ * Copyright 2025 AionUi (aionui.com)
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/**
+ * Command EVE SEAT CONTEXT core (Phase 4 / ISO-1 / SEAT-TOOL-1, STEP 1 — the
+ * PURE path-isolation core).
+ *
+ * THE KEYSTONE + ITS RISK. Today there is ONE global HERMES_HOME per install:
+ * `resolveCommandEveRuntimeBootstrapPaths(userDataPath)`
+ * (runtimeBootstrapCore.ts:1056) derives
+ *   hermesRoot = <userData>/command-eve-runtime/hermes
+ *   hermesHome = <hermesRoot>/home
+ * with NO seat dimension; the shim/wrapper hardcode a single
+ * `export HERMES_HOME=<that one home>` (:1798, :2025). Seat A's agent could read
+ * seat B's MEMORY.md / USER.md / state.db / connectors — the WORST failure
+ * (DSGVO + the reseller trust thesis; SOUL.md: "a leak here is the worst failure
+ * you can commit").
+ *
+ * This module is the PURE, INJECTABLE seam the riskier rewire step will consume.
+ * It has NO Electron dependency and performs NO fs side-effects in the resolver
+ * itself, so it unit-tests in plain node/vitest. It does NOT yet rewire the ~20
+ * call-sites — that is the next, gated step.
+ *
+ * DOCTRINE FOR THIS STEP:
+ *   1. The NO-seat / default-seat path is BYTE-IDENTICAL to today's shipped
+ *      1.1.3 single-seat path (zero behavior change for existing users).
+ *   2. A seatId MUST be sanitized (uuid / safe-slug only) so a crafted id can
+ *      NEVER traverse out of the `seats/` subtree — path traversal is a security
+ *      bug, not just a bug.
+ *   3. The active-seat holder DEFAULTS to the legacy seat so nothing changes
+ *      until a seat is explicitly selected.
+ */
+
+import os from 'os';
+import path from 'path';
+
+/**
+ * The legacy single-seat id. Any of `undefined` / `null` / '' / 'default' /
+ * 'seat-1' resolve to EXACTLY today's path (no `seats/<id>/` segment at all),
+ * preserving byte-identical backward compatibility with the shipped 1.1.3
+ * single-seat layout.
+ */
+export const LEGACY_SEAT_ID = 'seat-1';
+
+/**
+ * The set of ids that are treated as "the legacy single-seat" and therefore map
+ * to the pre-seat path with NO `seats/<id>/` segment. Kept explicit (not a
+ * heuristic) so the byte-identical guarantee is auditable.
+ */
+const LEGACY_SEAT_ALIASES: ReadonlySet<string> = new Set(['default', LEGACY_SEAT_ID]);
+
+/**
+ * The subdirectory under hermesRoot that holds per-seat homes. A sanitized
+ * seatId can NEVER escape this subtree.
+ */
+export const SEATS_SUBDIR = 'seats';
+
+/**
+ * Strict allowlist for a real (non-legacy) seat id. Accepts ONLY:
+ *  - a canonical UUID (8-4-4-4-12 hex, any case), OR
+ *  - a conservative safe slug: lower/upper alnum plus `-` and `_`, 1..64 chars.
+ *
+ * This is an ALLOWLIST, not a denylist: anything containing '/', '\\', '..',
+ * a NUL byte, a leading/trailing dot, whitespace, a drive letter, or any other
+ * character is rejected by construction. There is no way for a `..` segment, an
+ * absolute path, or a separator to pass — so a sanitized id can never traverse
+ * out of `seats/`.
+ */
+const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const SAFE_SLUG_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * Returns true when the given id denotes the legacy single-seat (so the path
+ * must omit the `seats/<id>/` segment entirely). `undefined` / `null` / '' all
+ * count as legacy.
+ */
+export function isLegacySeatId(seatId?: string | null): boolean {
+  if (seatId === undefined || seatId === null) return true;
+  if (typeof seatId !== 'string') return true;
+  const trimmed = seatId.trim();
+  if (trimmed.length === 0) return true;
+  return LEGACY_SEAT_ALIASES.has(trimmed);
+}
+
+/**
+ * Sanitize a candidate seat id.
+ *
+ * - Legacy ids (`undefined`/`null`/''/'default'/'seat-1') return
+ *   `LEGACY_SEAT_ID` — the caller MUST route these to the no-`seats/` legacy
+ *   path (use `isLegacySeatId` / `resolveSeatHome`, which do this).
+ * - A real id is accepted ONLY if it matches the UUID or safe-slug allowlist
+ *   AND contains no traversal/separator/NUL characters.
+ * - Anything else returns `null` (rejected) — it must NEVER be turned into a
+ *   path segment.
+ *
+ * Returning `null` (rather than throwing) lets call-sites choose to fail-closed
+ * to the legacy seat or to surface an explicit error; `assertSeatId` is the
+ * throwing variant for code paths that must hard-stop on a bad id.
+ */
+export function sanitizeSeatId(seatId?: string | null): string | null {
+  if (isLegacySeatId(seatId)) return LEGACY_SEAT_ID;
+
+  // Past this point seatId is a non-empty string (isLegacySeatId handled the
+  // nullish/empty/non-string cases).
+  const raw = seatId as string;
+
+  // Defense-in-depth explicit rejects BEFORE the allowlist, so the security
+  // intent is unmistakable even though the allowlist alone would reject them.
+  if (raw.includes('\0')) return null; // NUL byte
+  if (raw.includes('/') || raw.includes('\\')) return null; // any separator
+  if (raw.includes('..')) return null; // traversal
+  if (path.isAbsolute(raw)) return null; // absolute path
+  if (raw !== raw.trim()) return null; // leading/trailing whitespace
+  if (raw.startsWith('.')) return null; // dotfile / '.'/'..'
+
+  // Canonicalize to lower-case BEFORE it can become a path segment. macOS
+  // (APFS) and Windows (NTFS) are case-insensitive-preserving, so 'ABC' and
+  // 'abc' would be two distinct seatId strings but ONE on-disk directory — a
+  // silent cross-seat leak (seat A reading seat B). Folding to a single case
+  // makes the resolver's notion of seat identity match the filesystem's. The
+  // allowlist still validates the lower-cased form (both REs are case-tolerant,
+  // so folding never turns a previously-valid id invalid).
+  const candidate = raw.toLowerCase();
+  if (UUID_RE.test(candidate)) return candidate;
+  if (SAFE_SLUG_RE.test(candidate)) return candidate;
+  return null;
+}
+
+/**
+ * Throwing variant of `sanitizeSeatId`. Returns the legacy id for legacy inputs;
+ * returns the sanitized id for a valid real id; THROWS for anything that would
+ * escape the `seats/` subtree. Use this where a bad id must hard-stop.
+ */
+export function assertSeatId(seatId?: string | null): string {
+  const sanitized = sanitizeSeatId(seatId);
+  if (sanitized === null) {
+    throw new Error(`Command EVE: rejected unsafe seatId (path-traversal guard): ${JSON.stringify(seatId)}`);
+  }
+  return sanitized;
+}
+
+/**
+ * The hermes home path shape, mirroring the relevant slice of
+ * `resolveCommandEveRuntimeBootstrapPaths`. Kept narrow on purpose: this STEP
+ * only owns the home path; the next step threads it back into the full
+ * RuntimeBootstrapPaths resolver.
+ */
+export type SeatHomePaths = {
+  /** The sanitized seat id that produced these paths. */
+  seatId: string;
+  /** True when this is the legacy single-seat (no `seats/<id>/` segment). */
+  legacy: boolean;
+  /** <userData>/command-eve-runtime/hermes (shared across seats; venv lives here). */
+  hermesRoot: string;
+  /**
+   * The per-seat home. Legacy: <hermesRoot>/home (byte-identical to 1.1.3).
+   * Real seat: <hermesRoot>/seats/<sanitized-seatId>/home.
+   */
+  hermesHome: string;
+};
+
+/**
+ * Resolve the per-seat hermes home for a given userDataPath + optional seatId.
+ *
+ * BYTE-IDENTICAL LEGACY COMPAT: when `seatId` is undefined/null/''/'default'/
+ * 'seat-1', the returned `hermesHome` is EXACTLY
+ *   resolve(userDataPath || ~/.command-eve)/command-eve-runtime/hermes/home
+ * i.e. the same value today's `resolveCommandEveRuntimeBootstrapPaths(...).hermesHome`
+ * produces — no `seats/` segment is introduced.
+ *
+ * For a real seatId the home becomes
+ *   <hermesRoot>/seats/<sanitized-seatId>/home
+ * and a non-sanitizable id THROWS (path-traversal guard) — it can never be
+ * turned into a path segment.
+ *
+ * PURE: no fs access, no Electron. The userData root is resolved with the SAME
+ * `path.resolve(userDataPath || join(os-home, '.command-eve'))` precedence as the
+ * live resolver, but the os-home default is injectable (`homeDir`) so the
+ * function is fully deterministic under test.
+ */
+export function resolveSeatHome(userDataPath: string, seatId?: string | null, homeDir?: string): SeatHomePaths {
+  // Default the os-home to os.homedir() so the NO-inject branch is byte-identical
+  // to the live resolver (`path.join(os.homedir(), '.command-eve')`,
+  // runtimeBootstrapCore.ts:1057). `homeDir` stays overridable for deterministic
+  // unit tests. A literal '~' is NEVER tilde-expanded by path.join, so it must
+  // not be the default — that produced a bogus `<cwd>/~/.command-eve` path.
+  const resolvedHomeDir = homeDir ?? os.homedir();
+  const root = path.resolve(userDataPath || path.join(resolvedHomeDir, '.command-eve'));
+  const runtimeRoot = path.join(root, 'command-eve-runtime');
+  const hermesRoot = path.join(runtimeRoot, 'hermes');
+
+  if (isLegacySeatId(seatId)) {
+    return {
+      seatId: LEGACY_SEAT_ID,
+      legacy: true,
+      hermesRoot,
+      // EXACTLY today's shape: <hermesRoot>/home — NO `seats/` segment.
+      hermesHome: path.join(hermesRoot, 'home'),
+    };
+  }
+
+  const sanitized = assertSeatId(seatId);
+  return {
+    seatId: sanitized,
+    legacy: false,
+    hermesRoot,
+    hermesHome: path.join(hermesRoot, SEATS_SUBDIR, sanitized, 'home'),
+  };
+}
+
+/**
+ * Convenience: just the hermesHome string for a seat (the value the shim/wrapper
+ * HERMES_HOME export and the bootstrap resolver will consume in the next step).
+ */
+export function resolveSeatHermesHome(userDataPath: string, seatId?: string | null, homeDir?: string): string {
+  return resolveSeatHome(userDataPath, seatId, homeDir).hermesHome;
+}
+
+/**
+ * Minimal active-seat state holder for the current process.
+ *
+ * DEFAULTS to the legacy seat so NOTHING changes until a seat is explicitly
+ * selected — single-seat installs keep using the legacy path with zero behavior
+ * change. `setActiveSeatId` sanitizes its input (throws on an unsafe id) so a
+ * crafted id can never become "active" and then leak into a path.
+ *
+ * This is a process-local singleton holder; it is deliberately tiny and pure so
+ * it can be reset between tests via `__resetActiveSeatForTests`.
+ */
+let activeSeatId: string = LEGACY_SEAT_ID;
+
+/** Get the currently-active seat id (defaults to the legacy seat). */
+export function getActiveSeatId(): string {
+  return activeSeatId;
+}
+
+/** True when the active seat is the legacy single-seat (the default). */
+export function isActiveSeatLegacy(): boolean {
+  return isLegacySeatId(activeSeatId);
+}
+
+/**
+ * Set the active seat id for this process. The id is sanitized first; an unsafe
+ * id THROWS and the active seat is left unchanged (fail-closed). Passing a
+ * legacy id (undefined/null/''/'default'/'seat-1') resets to the legacy seat.
+ * Returns the resulting active seat id.
+ */
+export function setActiveSeatId(seatId?: string | null): string {
+  const sanitized = assertSeatId(seatId);
+  activeSeatId = sanitized;
+  return activeSeatId;
+}
+
+/** Reset the active seat back to the legacy default (for clean-reset / tests). */
+export function clearActiveSeat(): void {
+  activeSeatId = LEGACY_SEAT_ID;
+}
+
+/**
+ * Resolve the hermes home for the CURRENTLY-active seat. Thin convenience over
+ * `resolveSeatHome` using the process-local active seat.
+ */
+export function resolveActiveSeatHome(userDataPath: string, homeDir?: string): SeatHomePaths {
+  return resolveSeatHome(userDataPath, activeSeatId, homeDir);
+}
+
+/** Test-only: force-reset the active-seat holder. */
+export function __resetActiveSeatForTests(): void {
+  activeSeatId = LEGACY_SEAT_ID;
+}
