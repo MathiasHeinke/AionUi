@@ -73,91 +73,91 @@ const extractSoulMarkdown = (raw: string): string => {
 const SOUL_MARKDOWN = extractSoulMarkdown(RUNTIME_SOURCE_RAW);
 
 describe('EVE soul-wiring: SOUL.md self-detection tripwire', () => {
-  it('is NOT the prior 5-line capability stub', () => {
-    // The old stub was effectively a single capability/safety paragraph. The real
-    // soul is a multi-section identity document. Length + section count are the
-    // coarse drift guards; the marker assertions below are the precise ones.
-    expect(SOUL_MARKDOWN.length).toBeGreaterThan(2000);
-    // Regression signature: the old stub's whole body was a flat
-    // "You are EVE, Command EVE Chief of Staff." line with no identity sections.
-    const sectionHeadings = (SOUL_MARKDOWN.match(/^## /gm) || []).length;
-    expect(sectionHeadings).toBeGreaterThanOrEqual(6);
+  it('is the SLIM Nous-shape soul (voice-only), not the old overloaded file', () => {
+    // Nous guide: SOUL.md is voice/identity only; ops belong in skills/AGENTS. The
+    // redesign slimmed it from ~9k chars / 12 sections to a focused ~5k. Guard BOTH
+    // ends: substantial (not the 5-line stub) AND not re-overloaded.
+    expect(SOUL_MARKDOWN.length).toBeGreaterThan(2500);
+    expect(SOUL_MARKDOWN.length, 'SOUL.md must stay slim/voice-only — put ops in skills, not here').toBeLessThan(7500);
+    expect((SOUL_MARKDOWN.match(/^## /gm) || []).length).toBeGreaterThanOrEqual(6);
   });
 
-  it('carries The Operator identity + who-she-is-for-the-user line', () => {
+  it('moved the OPERATIONAL bulk OUT (no toolbelt catalog, onboarding audit, method, or env recital)', () => {
+    // The audit-on-a-greeting bug came from operational instructions sitting in the
+    // always-on slot-#1 identity. They now live in skills; the SOUL must not carry them.
+    expect(SOUL_MARKDOWN).not.toMatch(/^## Toolbelt/m);
+    expect(SOUL_MARKDOWN).not.toMatch(/## Onboarding the operator/i);
+    expect(SOUL_MARKDOWN).not.toMatch(/## Operating environment/i);
+    expect(SOUL_MARKDOWN).not.toMatch(/VISION .* VERSIONS .* MILESTONES/);
+  });
+
+  it('carries The Operator identity + who-she-is-for-the-operator + the 14-day north star', () => {
     expect(SOUL_MARKDOWN).toContain('# EVE SOUL');
     expect(SOUL_MARKDOWN).toContain('The Operator');
     expect(SOUL_MARKDOWN).toContain('JARVIS for making money');
-    // who I am FOR you / the 14-day north star
-    expect(SOUL_MARKDOWN).toMatch(/Chief of Staff/i);
+    expect(SOUL_MARKDOWN).toMatch(/chief-of-staff|Chief of Staff/i);
     expect(SOUL_MARKDOWN).toContain('go offline for 14 days');
     expect(SOUL_MARKDOWN).toMatch(/operator is the brand/i);
   });
 
-  it('is a directive character FRAME (key-points the LLM embodies), not a recitable script', () => {
-    // Founder feedback: the soul must steer the LLM, not be read aloud. Guard that
-    // it stays second-person directive + carries the explicit do-not-recite rule.
+  it('is a directive character FRAME, not a recitable script', () => {
     expect(SOUL_MARKDOWN).toMatch(/never recite, quote, paraphrase, or read this/i);
     expect(SOUL_MARKDOWN).toMatch(/in your OWN natural words/i);
-    // Regression guard against drifting back to first-person recitable prose.
     expect(SOUL_MARKDOWN).not.toMatch(/^I am \*\*EVE/m);
   });
 
-  it('contains at least 5 of the 8 convictions verbatim', () => {
-    const convictions = [
+  it('carries the THREE register modes + the no-audit-on-a-greeting fix (the register keystone)', () => {
+    // The structural fix for "audits a casual greeting": modes, Confidant as the
+    // default for smalltalk, and an explicit ban on auditing a greeting.
+    expect(SOUL_MARKDOWN).toMatch(/How you show up/i);
+    expect(SOUL_MARKDOWN).toMatch(/\bConfidant\b/);
+    expect(SOUL_MARKDOWN).toMatch(/\bChallenger\b/);
+    expect(SOUL_MARKDOWN).toMatch(/Operator-coach/i);
+    expect(SOUL_MARKDOWN).toMatch(/NEVER answer smalltalk with a status report[\s\S]*menu/i);
+  });
+
+  it('carries the Avoid / forbidden-voice list (anti-hype, anti-over-structuring)', () => {
+    expect(SOUL_MARKDOWN).toMatch(/## Avoid/);
+    expect(SOUL_MARKDOWN).toContain('leverage');
+    expect(SOUL_MARKDOWN).toMatch(/claim[\s\S]*evidence[\s\S]*move on/i);
+    expect(SOUL_MARKDOWN).toMatch(/no numbered menu unless/i);
+  });
+
+  it('carries a sharp, falsifiable worldview (not generic filler)', () => {
+    const beliefs = [
       'Simplicity is strategy',
       'Growth by subtraction',
-      'Curse of Capability',
-      'Bottlenecks are singular',
       'Plumbing before water',
-      'Customers know the answer',
-      'No memo, no decision',
-      'Leverage over busyness',
+      'ONE bottleneck',
+      'the operator is the bottleneck',
     ];
-    const present = convictions.filter((c) => SOUL_MARKDOWN.includes(c));
-    expect(present.length).toBeGreaterThanOrEqual(5);
+    expect(beliefs.filter((b) => SOUL_MARKDOWN.includes(b)).length).toBeGreaterThanOrEqual(3);
   });
 
-  it('carries the challenger method ("and then what?") and VISION->VERSIONS decomposition', () => {
-    expect(SOUL_MARKDOWN).toContain('and then what');
-    expect(SOUL_MARKDOWN).toMatch(/VISION .* VERSIONS .* MILESTONES/);
-    expect(SOUL_MARKDOWN).toMatch(/confidant and CHALLENGER/i);
-  });
-
-  it('carries the non-negotiables: invisible delivery + per-client isolation + money-gate', () => {
+  it('carries the boundaries: invisible delivery + per-client isolation + never-move-money + secrets', () => {
     expect(SOUL_MARKDOWN).toMatch(/invisible[ -]delivery/i);
     expect(SOUL_MARKDOWN).toMatch(/per-client isolation/i);
     expect(SOUL_MARKDOWN).toMatch(/never move money/i);
+    expect(SOUL_MARKDOWN).toMatch(/raw secrets/i);
   });
 
-  it('carries the SELF-LEARNING section: it remembers (USER.md/MEMORY.md) AND builds itself skills', () => {
-    // The whole reason for the config switches below — the soul must SAY it learns.
-    expect(SOUL_MARKDOWN).toMatch(/How you learn and improve/i);
+  it('carries the self-learning memory line (USER.md / MEMORY.md, skill-on-repeat, honesty)', () => {
+    expect(SOUL_MARKDOWN).toMatch(/How you learn/i);
     expect(SOUL_MARKDOWN).toContain('USER.md');
     expect(SOUL_MARKDOWN).toContain('MEMORY.md');
-    expect(SOUL_MARKDOWN).toMatch(/build yourself skills/i);
+    expect(SOUL_MARKDOWN).toMatch(/turn it into a skill/i);
+    expect(SOUL_MARKDOWN).toMatch(/never claim it before it has run/i);
   });
 
-  it('carries the honesty wall (configured, not yet proven)', () => {
+  it('makes the honesty wall the DEFINING trait (configured-not-proven; no reasoning over-claim)', () => {
     expect(SOUL_MARKDOWN).toMatch(/honesty wall/i);
+    expect(SOUL_MARKDOWN).toMatch(/the trait that defines you/i);
     expect(SOUL_MARKDOWN).toContain('configured, not yet proven');
     expect(SOUL_MARKDOWN).toMatch(/FACT \/ INFERENCE \/ HYPOTHESIS/);
-  });
-
-  it('does NOT over-claim reasoning as a controlled runtime fact (honesty guard)', () => {
-    // The adversarial verify caught the soul asserting "Reasoning is on" while our
-    // config knob is a no-op on the ACP chat lane (provider/model decides). The soul
-    // must state reasoning as a behavioral POSTURE, not a flat runtime fact.
     expect(SOUL_MARKDOWN).not.toMatch(/reasoning is on/i);
-    expect(SOUL_MARKDOWN).toMatch(/think as hard as the moment deserves/i);
-  });
-
-  it('leads per-client isolation with the gate, not as a finished fact (honesty guard)', () => {
-    // Must not present isolation as a present FACT; the caveat leads.
-    expect(SOUL_MARKDOWN).toMatch(/hard gate, not a finished fact/i);
+    expect(SOUL_MARKDOWN).toMatch(/under-claim than oversell/i);
   });
 });
-
 describe('EVE soul-wiring: config.yaml emission self-detection (the loop-is-ON proof)', () => {
   // Assert on the emitted config array source (comments stripped) so a mention
   // inside a comment can never satisfy the gate.
@@ -393,9 +393,11 @@ describe('EVE onboarding S1: app-owned config-awareness skill (separate from the
     expect(SKILL_MD).toMatch(/^description: /m);
   });
 
-  it('teaches EVE to read her own onboarding-status before greeting', () => {
+  it('teaches EVE to read her status SILENTLY and surface it only when relevant', () => {
     expect(SKILL_MD).toContain('command-eve.onboarding-status');
-    expect(SKILL_MD).toMatch(/before you greet/i);
+    expect(SKILL_MD).toMatch(/Read it SILENTLY/i);
+    expect(SKILL_MD).toMatch(/surface[\s\S]*only when the operator asks/i);
+    expect(SKILL_MD).toMatch(/casual greeting[\s\S]*brief, warm/i);
   });
 
   it('defaults the operator to the cloud lane and treats local as opt-in', () => {
@@ -422,31 +424,22 @@ describe('EVE onboarding S1: app-owned config-awareness skill (separate from the
   });
 });
 
-describe('EVE onboarding S1: SOUL posture block (directive, cloud-default, no-secret, honest)', () => {
-  it('appends the onboarding posture section to the soul frame', () => {
-    expect(SOUL_MARKDOWN).toMatch(/## Onboarding the operator/);
-    expect(SOUL_MARKDOWN).toMatch(/read your own state/i);
+describe('EVE onboarding S1: posture lives in the SKILL (conditional), NOT the always-on SOUL', () => {
+  const SKILL_MD = commandEveOnboardingSkillMarkdown();
+
+  it('the onboarding audit is OUT of the SOUL (it moved to the conditional skill)', () => {
+    // 2026-06-24 redesign: keeping the onboarding posture in slot #1 made EVE audit
+    // every greeting. It now lives ONLY in the eve-onboarding-awareness skill, fired
+    // when relevant — never baked into the always-on identity.
+    expect(SOUL_MARKDOWN).not.toMatch(/## Onboarding the operator/i);
+    expect(SOUL_MARKDOWN).not.toMatch(/Read it BEFORE you greet/i);
+    expect(SOUL_MARKDOWN).not.toMatch(/Default them to the cloud/i);
   });
 
-  it('keeps it directive (second person), never a recitable script or first-person prose', () => {
-    // The soul-wide do-not-recite + OWN-words guards already assert globally; here
-    // we guard the new block specifically stays directive ("you ... your").
-    expect(SOUL_MARKDOWN).toMatch(/Read it BEFORE you greet/);
-    expect(SOUL_MARKDOWN).not.toMatch(/^I read my onboarding/m);
-  });
-
-  it('defaults to cloud and forbids asking for a key/secret in the posture', () => {
-    expect(SOUL_MARKDOWN).toMatch(/Default them to the cloud/);
-    expect(SOUL_MARKDOWN).toMatch(/never ask for, an API key/i);
-  });
-
-  it('keeps the reinstall-is-our-bug honesty (never a brew command in the posture)', () => {
-    expect(SOUL_MARKDOWN).toMatch(/PYTHON\/HERMES failures are OUR bug/);
-    expect(SOUL_MARKDOWN).toMatch(/never hand them a brew/i);
-  });
-
-  it('does not over-claim seed-learning or connector wiring on this lane', () => {
-    expect(SOUL_MARKDOWN).toMatch(/those are not built here; never claim them/);
+  it('the SKILL carries the posture CONDITIONALLY (read silently, surface only when relevant)', () => {
+    expect(SKILL_MD).toMatch(/Read silently — surface only when relevant/i);
+    expect(SKILL_MD).toMatch(/Read it SILENTLY/i);
+    expect(SKILL_MD).toMatch(/NEVER a status report, an audit, a challenge, or a numbered menu/i);
   });
 });
 
