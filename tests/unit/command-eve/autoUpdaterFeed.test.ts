@@ -51,11 +51,15 @@ vi.mock('@/process/services/autoUpdateDiagnostics', () => ({
 // is mutable so individual tests can flip it before calling resolveUpdateFeedUrl
 // (the service reads the live export at call time).
 const ceShellState = vi.hoisted(() => ({ shellEnabled: true }));
-vi.mock('@/common/config/commandEveShell', () => ({
+// Spread the REAL module and override only the one dynamic flag the test toggles.
+// (A full hand-written mock kept whack-a-mole'ing on missing exports — getConfigPath/
+// getDataPath/initStorage pull a chain of dir-name + cli-safe-name exports; mirroring
+// the real surface via importOriginal is robust to that chain.)
+vi.mock('@/common/config/commandEveShell', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/common/config/commandEveShell')>()),
   get COMMAND_EVE_SHELL_ENABLED() {
     return ceShellState.shellEnabled;
   },
-  COMMAND_EVE_UPDATE_FEED_BASE_URL: 'https://pub-0a282738bf7a4731a6bb71c2420bfd69.r2.dev',
 }));
 
 import {
