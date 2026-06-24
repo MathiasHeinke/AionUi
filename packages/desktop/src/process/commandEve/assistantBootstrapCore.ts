@@ -331,7 +331,7 @@ Fuehre den Founder iterativ von frischer Installation zu arbeitsfaehigem Company
 - first-goal-setup
 
 ## Department Skills
-- content-machine: Founder Voice, Source Inventory, Content Vault, Social/Blog/Newsletter/Book/Video/Campaign Routing.
+- founder-voice-content: Erfasst die Founder Voice einmal (USER.md) und macht aus einer gesprochenen oder getippten Kunden-Anekdote Draft-Posts in genau dieser Stimme — anonymisiert, nie ohne Freigabe veroeffentlicht. Der echte, ausfuehrbare Content-Skill (loest das alte content-machine-Label ab).
 - blog-department: Topic Intent, Outline, Draft, Claim Safety, Editorial Review Packet. Kein Publish ohne Release Gate.
 - video-first-content-engine: Raw recordings zu Draft-Paketen, Clips, Posts und Artikelplaenen. Kein Upload/Schedule ohne Gate.
 - department-pack-creator: neue Company.OS-Faehigkeiten als SOP, Parent/Child Contracts, CapabilityProfile und 10/10 Evaluator.
@@ -394,7 +394,7 @@ Guide the founder from fresh install to an operational Company.OS setup. You are
 - first-goal-setup
 
 ## Department skills
-- content-machine: Founder Voice, Source Inventory, Content Vault, Social/Blog/Newsletter/Book/Video/Campaign routing.
+- founder-voice-content: captures the Founder Voice once (USER.md) and turns a spoken or typed client anecdote into draft posts in that voice — anonymized, never published without approval. The real, executable content skill (replaces the old content-machine label).
 - blog-department: Topic Intent, Outline, Draft, Claim Safety, Editorial Review Packet. No publish without a release gate.
 - video-first-content-engine: raw recordings to draft packages, clips, posts and article plans. No upload/schedule without a gate.
 - department-pack-creator: new Company.OS capabilities as SOP, parent/child contracts, CapabilityProfile and 10/10 evaluator.

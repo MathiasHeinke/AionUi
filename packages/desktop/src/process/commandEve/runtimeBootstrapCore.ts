@@ -56,6 +56,7 @@ export const EVE_STRATEGY_SKILL_IDS = [
   'landing-copy',
   'human-design-profile',
   'marketing-outbound',
+  'founder-voice-content',
 ] as const;
 const COMMAND_EVE_CAPABILITIES_FILE = 'command-eve-capabilities.json';
 const COMMAND_EVE_MANAGED_SKILLS_DIR = 'skills-command-eve';
@@ -1129,7 +1130,7 @@ function commandEveManagedSkillMarkdown(skill: CommandEveCapabilityPack['skills'
 }
 
 // The APP-OWNED config-awareness onboarding skill (Guided Onboarding SLICE S1).
-// This is deliberately NOT in EVE_STRATEGY_SKILL_IDS (that allowlist stays at 15 so
+// This is deliberately NOT in EVE_STRATEGY_SKILL_IDS (that allowlist's count so
 // its bundle-copy test stays green) and NOT in command-eve-capabilities.json — it is
 // a separate app-owned managed skill written directly into managedSkillsRoot, which
 // is already on skills.external_dirs, so the running Hermes agent discovers it like

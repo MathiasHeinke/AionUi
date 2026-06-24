@@ -68,6 +68,7 @@ export const EVE_STRATEGY_SKILLS = Object.freeze([
   { id: 'landing-copy' },
   { id: 'human-design-profile' },
   { id: 'marketing-outbound', bundle: true },
+  { id: 'founder-voice-content' },
 ]);
 
 /** Just the ids, for callers that want the flat allowlist. */
