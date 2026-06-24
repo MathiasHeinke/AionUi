@@ -322,10 +322,11 @@ describe('Command EVE runtime bootstrap core', () => {
       // auto_decompose flipped ON so EVE can decompose goals into child work.
       expect(configYaml).toContain('auto_decompose: true');
       expect(configYaml).toContain(`model_url: ${baseUrl}`);
-      // SOUL.md now carries the full composed eve-doctrine soul (identity +
-      // voice + convictions + method + non-negotiables + self-learning), not the
-      // old 5-line capability stub. This is the founder-self-detection regression
-      // tripwire: if the soul silently drifts back to a stub, these break.
+      // SOUL.md now carries the SLIM Nous-shape voice/identity soul (identity +
+      // register modes + voice + beliefs + honesty-wall + boundaries + how-you-learn),
+      // not the old 5-line capability stub and not the old overloaded ~9k file. This is
+      // the founder-self-detection regression tripwire: if the soul drifts back to a
+      // stub OR re-bloats with operational bulk, these break.
       const soulMd = fs.readFileSync(path.join(paths.hermesHome, 'SOUL.md'), 'utf8');
       // Identity markers.
       expect(soulMd).toContain('The Operator');
@@ -333,30 +334,34 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(soulMd).toContain('and then what');
       expect(soulMd.toLowerCase()).toContain('invisible delivery');
       expect(soulMd.toLowerCase()).toContain('per-client isolation');
-      // At least 5 of the 8 convictions verbatim.
+      // The three register modes (the no-audit-on-a-greeting structural fix).
+      expect(soulMd).toContain('Confidant');
+      expect(soulMd).toContain('Challenger');
+      expect(soulMd).toMatch(/Operator-coach/i);
+      // At least 3 of the sharp, falsifiable convictions verbatim.
       const convictions = [
         'Simplicity is strategy',
         'Growth by subtraction',
-        'Curse of Capability',
-        'Bottlenecks are singular',
         'Plumbing before water',
-        'Customers know the answer',
-        'No memo, no decision',
-        'Leverage over busyness',
+        'ONE bottleneck',
+        'the operator is the bottleneck',
       ];
-      expect(convictions.filter((c) => soulMd.includes(c)).length).toBeGreaterThanOrEqual(5);
-      // Self-learning section: it remembers (USER.md/MEMORY.md) and builds itself
-      // skills. Directive second-person frame, so the marker is "build yourself skills".
+      expect(convictions.filter((c) => soulMd.includes(c)).length).toBeGreaterThanOrEqual(3);
+      // Self-learning section: it remembers (USER.md/MEMORY.md) and turns repeated
+      // work into a skill. Directive second-person frame.
       expect(soulMd).toContain('USER.md');
       expect(soulMd).toContain('MEMORY.md');
-      expect(soulMd).toContain('Build yourself skills');
-      // Not a stub: substantial body + the prior 5-line stub signature is gone.
+      expect(soulMd).toMatch(/turn it into a skill/i);
+      // Honesty wall as the defining trait.
+      expect(soulMd).toMatch(/honesty wall/i);
+      expect(soulMd).toContain('configured, not yet proven');
+      // Slim, not a stub AND not re-bloated: substantial body, prior stub gone,
+      // operational bulk relocated out of slot #1.
       expect(soulMd.length).toBeGreaterThan(2000);
+      expect(soulMd.length).toBeLessThan(7500);
       expect(soulMd).not.toContain('You are EVE, Command EVE Chief of Staff.');
-      // Operating-environment block preserved (EVE-cloud default + full surface).
-      expect(soulMd).toContain('EVE Standard');
-      expect(soulMd).toContain('Hermes capability surface');
-      expect(soulMd).not.toContain('Default to local-first execution');
+      expect(soulMd).not.toMatch(/^## Toolbelt/m);
+      expect(soulMd).not.toMatch(/## Operating environment/i);
       expect(fs.existsSync(path.join(paths.managedSkillsRoot, 'first-run-company-discovery', 'SKILL.md'))).toBe(true);
       expect(fs.existsSync(path.join(paths.managedSkillsRoot, 'content-machine', 'SKILL.md'))).toBe(false);
       const reconciliation = JSON.parse(fs.readFileSync(paths.runtimeReconciliation, 'utf8')) as {
