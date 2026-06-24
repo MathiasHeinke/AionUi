@@ -266,6 +266,70 @@ describe('Command EVE shim — EVE cloud routing', () => {
     expect(fnSeen.body).not.toHaveProperty('model');
   });
 
+  it('forwards the function-calling fields (tools/tool_choice) on the EVE cloud lane — the tool-use tripwire', async () => {
+    // REGRESSION GUARD: the cloud outboundBody once dropped `tools`, so the model
+    // received ZERO tools and could never call one (tool_turns=0) — EVE went
+    // "deaf" (narrated <bash>…</bash> as text instead of acting). If a refactor
+    // re-strips tools on this lane, this test must fail.
+    const ollamaBaseUrl = await startFakeOpenAiServer(() => {});
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl,
+      eveRouting: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE, tier: 'standard' }),
+    });
+
+    const tools = [
+      {
+        type: 'function',
+        function: { name: 'read_file', description: 'read a file', parameters: { type: 'object', properties: {} } },
+      },
+    ];
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [{ role: 'user', content: 'read the config' }],
+        stream: false,
+        tools,
+        tool_choice: 'auto',
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    // The tools array + tool_choice MUST reach the eve-inference function.
+    expect(fnSeen.body?.tools).toEqual(tools);
+    expect(fnSeen.body?.tool_choice).toBe('auto');
+  });
+
+  it('omits tools on a tool-less EVE cloud turn (byte-clean, no empty array)', async () => {
+    const ollamaBaseUrl = await startFakeOpenAiServer(() => {});
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl,
+      eveRouting: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE, tier: 'standard' }),
+    });
+
+    await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [{ role: 'user', content: 'hi' }],
+        stream: false,
+      }),
+    });
+
+    expect(fnSeen.body).not.toHaveProperty('tools');
+    expect(fnSeen.body).not.toHaveProperty('tool_choice');
+  });
+
   it('keeps a local-selection chat on Ollama (EVE route inactive)', async () => {
     let ollamaSeen = false;
     const ollamaBaseUrl = await startFakeOpenAiServer(() => {

@@ -453,10 +453,31 @@ async function handleEveCloudCompletions(
   // Forward only OpenAI-standard fields + the tier the function routes on. The
   // function STRIPS model/models/user/license itself, so the local Gemma model
   // ref Hermes sent is harmless, but we omit it to keep the request clean.
+  //
+  // AGENT TOOL-USE: forward the function-calling fields too. The Hermes agent
+  // sends OpenAI-style `tools` so the model can actually call file/terminal/skill/
+  // delegate tools. Previously this body was {messages,stream,tier} only, so the
+  // model received ZERO tools on the cloud lane and could only emit prose
+  // (tool_turns=0) — it would narrate a <bash>…</bash> string instead of calling a
+  // tool. The local lane already forwards tools (nativeChatPayload); this brings
+  // the cloud lane to parity. Conditional spreads so a tool-less turn stays
+  // byte-identical to before.
+  //
+  // DOWNSTREAM CONTRACT: the DEPLOYED eve-inference re-filters by its own
+  // FORWARDABLE_BODY_KEYS allowlist, which (verified 2026-06-24 on prod
+  // unvbeothoimlzlolxucl) ALREADY includes tools/tool_choice/parallel_tool_calls/
+  // response_format — so these survive to the model. NOTE: keep the Company.OS
+  // eve-inference deploy line in sync; if a redeploy ships a FORWARDABLE_BODY_KEYS
+  // that lacks these keys, tools get re-stripped server-side and EVE goes "deaf"
+  // again. (supabase/functions/_shared/eve-inference-core.ts FORWARDABLE_BODY_KEYS)
   const outboundBody: Record<string, unknown> = {
     messages: outboundMessages,
     stream,
     tier,
+    ...(Array.isArray(body.tools) && body.tools.length > 0 ? { tools: body.tools } : {}),
+    ...(body.tool_choice !== undefined ? { tool_choice: body.tool_choice } : {}),
+    ...(body.parallel_tool_calls !== undefined ? { parallel_tool_calls: body.parallel_tool_calls } : {}),
+    ...(body.response_format !== undefined ? { response_format: body.response_format } : {}),
   };
 
   let upstream: Response;

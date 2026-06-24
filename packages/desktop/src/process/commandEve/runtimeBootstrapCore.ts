@@ -305,6 +305,7 @@ export type RuntimeBootstrapStageId =
   | 'capacity'
   | 'python'
   | 'hermes'
+  | 'web'
   | 'ollama'
   | 'model'
   | 'identity';
@@ -2386,6 +2387,37 @@ export async function ensureCommandEveRuntimeBootstrap(
   } else {
     pushStage(makeStage('hermes', 'pass', { detail: `Hermes ${installedHermesVersion} already installed.` }));
   }
+
+  // KEYLESS WEB BACKEND (ddgs). The agent's web_search/web_extract tools are gated
+  // OUT of the model's toolset by check_web_api_key() unless a web backend is
+  // available, and ddgs (DuckDuckGo) is the ONLY keyless one — product doctrine is
+  // to NEVER ask the operator for an API key. Ensure it's importable in the venv.
+  // Idempotent (probe import first) and self-healing on an EXISTING runtime (this
+  // runs every bootstrap, not only on a fresh/version-bump install). NON-blocking:
+  // web is a nice-to-have, so a failure is 'skip', never a boot-blocking 'failed'.
+  if (mode !== 'check' && fs.existsSync(pythonBinary(paths))) {
+    const ddgsProbe = await runner(pythonBinary(paths), ['-c', 'import ddgs'], {
+      env,
+      timeoutMs: DEFAULT_STAGE_TIMEOUT_MS,
+    });
+    if (!ddgsProbe.ok) {
+      const started = Date.now();
+      const ddgsInstall = await runner(pythonBinary(paths), ['-m', 'pip', 'install', 'ddgs'], {
+        env,
+        timeoutMs: DEFAULT_LONG_STAGE_TIMEOUT_MS,
+      });
+      pushStage(
+        makeStage('web', ddgsInstall.ok ? 'pass' : 'skip', {
+          detail: ddgsInstall.ok
+            ? 'Keyless web backend (ddgs) installed — EVE can web_search/web_extract.'
+            : `Keyless web backend (ddgs) unavailable; web search stays off until a later run: ${scrubOutput(ddgsInstall.stderr || ddgsInstall.error)}`,
+          command: `${pythonBinary(paths)} -m pip install ddgs`,
+          duration_ms: Date.now() - started,
+        })
+      );
+    }
+  }
+
   const bundledSkillsDir = resolveBundledSkillsDir(env, options.resourcesPath);
   const bundledSkillFailures = writeHermesRuntimeFiles(
     paths,
