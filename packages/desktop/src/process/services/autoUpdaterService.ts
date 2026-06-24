@@ -11,6 +11,7 @@ import log from 'electron-log';
 import { EventEmitter } from 'events';
 import { COMMAND_EVE_SHELL_ENABLED, COMMAND_EVE_UPDATE_FEED_BASE_URL } from '@/common/config/commandEveShell';
 import { recordAutoUpdateQuitAndInstall, recordAutoUpdateStatus } from './autoUpdateDiagnostics';
+import { setIsQuitting } from '@process/utils/tray';
 
 /**
  * Environment variable that supplies the generic auto-update feed base URL.
@@ -460,15 +461,19 @@ class AutoUpdaterService extends EventEmitter {
       currentAppVersion: app.getVersion(),
       userDataPath: app.getPath('userData'),
     });
-    // On macOS, autoUpdater.quitAndInstall() closes all windows but the
-    // 'window-all-closed' handler does NOT call app.quit() (standard macOS
-    // behavior + close-to-tray). This leaves the process alive and Squirrel
-    // cannot finish replacing the app bundle. Force-exit after a short delay
-    // to let Squirrel receive the install signal.
+    // electron-updater's quitAndInstall() closes all windows and THEN calls
+    // app.quit(). The mainWindow 'close' handler hides-to-tray while isQuitting is
+    // false, so without this flag the close is hijacked (window just hides), the
+    // "all windows closed" gate never trips, and the install stalls. Set the flag
+    // FIRST so the window actually closes and the quit proceeds.
+    setIsQuitting(true);
+    // Do NOT app.exit() here. On macOS electron-updater serves the downloaded
+    // update from an HTTP server running INSIDE this process; Squirrel.Mac re-reads
+    // the bundle from it during quitAndInstall. A forced exit kills that server
+    // mid-install -> the installer aborts and nothing is written (the exact crash we
+    // had). The graceful quit lets Squirrel finish the swap and relaunch
+    // (isForceRunAfter=true).
     autoUpdater.quitAndInstall(true, true);
-    setTimeout(() => {
-      app.exit(0);
-    }, 1000);
   }
 
   /**
