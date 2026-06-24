@@ -170,6 +170,11 @@ mac:
   gatekeeperAssess: false
   entitlements: entitlements.plist
   entitlementsInherit: entitlements.plist
+  # Info.plist purpose strings. NSMicrophoneUsageDescription is REQUIRED for mic
+  # access (speech-to-text voice input) — macOS shows it on the permission prompt
+  # and refuses the mic without it under the hardened runtime.
+  extendInfo:
+    NSMicrophoneUsageDescription: Command EVE uses your microphone for voice input (speech-to-text). With the local provider, your audio is transcribed on this Mac and never leaves the device.
 
 dmg:
   # Use UDZO format which is more reliable on CI

@@ -43,7 +43,7 @@ import type {
   ProviderHealthCheckResponse,
   UpdateProviderRequest,
 } from '../types/provider/providerApi';
-import type { SpeechToTextRequest, SpeechToTextResult } from '../types/provider/speech';
+import type { CommandEveLocalSttRequest, SpeechToTextRequest, SpeechToTextResult } from '../types/provider/speech';
 import type {
   ITeamAgentRemovedEvent,
   ITeamAgentRenamedEvent,
@@ -1427,6 +1427,11 @@ export interface ICommandEveSwitchSeatResult {
 
 export const commandEve = {
   runtimeStatus: bridge.buildProvider<IBridgeResponse<ICommandEveRuntimeStatus>, void>('command-eve.runtime-status'),
+  // On-device speech-to-text via the bundled venv (keyless, DSGVO-clean). Distinct
+  // from speechToText.transcribe (aioncore /api/stt, cloud openai/deepgram).
+  speechToTextLocal: bridge.buildProvider<IBridgeResponse<SpeechToTextResult>, CommandEveLocalSttRequest>(
+    'command-eve.speech-to-text-local'
+  ),
   ensureAssistant: bridge.buildProvider<IBridgeResponse<ICommandEveAssistantReadiness>, void>(
     'command-eve.ensure-assistant'
   ),

@@ -2397,6 +2397,8 @@ export type I18nKey =
   | 'settings.speechToTextOptional'
   | 'settings.speechToTextProvider'
   | 'settings.speechToTextProviderDeepgram'
+  | 'settings.speechToTextProviderLocal'
+  | 'settings.speechToTextProviderLocalHint'
   | 'settings.speechToTextProviderOpenAI'
   | 'settings.speechToTextPunctuate'
   | 'settings.speechToTextRequired'
