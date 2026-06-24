@@ -1256,7 +1256,15 @@ const handleAppReady = async (): Promise<void> => {
     // env-frozen at spawn — runtimeBootstrapCore.ts:1144). The hook re-runs the
     // SAME prepareEnv→start sequence as boot, for the now-active seat.
     const { setCommandEveBackendRestart } = await import('./process/commandEve/seatSwitchRuntime');
+    // RESPAWN GENERATION — guards the GLOBAL post-start writes below (__backendPort,
+    // cron-resume bridge, assistant prompt). The bridge's in-flight lock + 300s watchdog
+    // can, in the worst case (a respawn whose start() lives past 300s), let a NEWER switch
+    // run fully while this one is still parked on its own start(). When this stale switch
+    // finally returns, it must NOT clobber the newer switch's global state with its own
+    // (already SIGKILLed) port. Captured at hook entry; re-checked after start().
+    let commandEveRespawnGeneration = 0;
     setCommandEveBackendRestart(async () => {
+      const myRespawnGen = ++commandEveRespawnGeneration;
       const { getDataPath: getDataPathForRestart } = await import('./process/utils/utils');
       const { getSystemDir: getSystemDirForRestart, getBackendDataDir: getBackendDataDirForRestart } = await import('./process/utils/initStorage');
       const { prepareCommandEveRuntimeProcessEnv } = await import('./process/commandEve/runtimeBootstrapCore');
@@ -1278,6 +1286,16 @@ const handleAppReady = async (): Promise<void> => {
         workDir: sysDirForRestart.workDir,
         logDir: sysDirForRestart.logDir,
       });
+      // SUPERSEDED-RESPAWN GUARD: if a newer switch ran while we were parked on start()
+      // (only reachable on a >300s-hung respawn the watchdog force-released), bail BEFORE
+      // publishing any global state — our respawnPort points at a process the newer
+      // switch's stop() already SIGKILLed, so writing __backendPort / cron-bridge /
+      // assistant here would point cron resume + every __backendPort consumer at a dead
+      // backend. The newer switch already published the live state.
+      if (myRespawnGen !== commandEveRespawnGeneration) {
+        console.warn('[Command EVE] Superseded seat respawn (gen', myRespawnGen, 'of', commandEveRespawnGeneration, ') — skipping stale global-state publish.');
+        return;
+      }
       (globalThis as typeof globalThis & { __backendPort?: number }).__backendPort = respawnPort;
       registerCronResumeBridge(respawnPort);
       // ISO-6: the EVE assistant skill prompt is a function of the ACTIVE seat —

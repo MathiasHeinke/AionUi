@@ -150,6 +150,38 @@ async function persistActiveSeatPointer(seatId: string): Promise<void> {
   void seatId;
 }
 
+// IN-FLIGHT LOCK for command-eve.switch-seat. A switch is a real STOP+RE-SPAWN of
+// the backend under a new HERMES_HOME; two overlapping switches would interleave
+// lifecycles (orphaned process, nondeterministic landing seat). The renderer's 45s
+// timeout can re-enable the rail BEFORE main finishes, so the renderer disabled
+// state is NOT a sufficient guard — this single main-process boolean is the real
+// serialization boundary (there is exactly one main process).
+let commandEveSwitchSeatInFlight = false;
+// EPOCH for the lock. Bumped each time the lock is taken; a release only fires if its
+// epoch is still current. This stops a LATE-completing switch (one whose watchdog
+// already force-released the lock, after which a NEW switch took it) from clobbering
+// the new switch's lock in its stale finally.
+let commandEveSwitchSeatEpoch = 0;
+// WATCHDOG bound for the lock — a pure LIVENESS BACKSTOP, not a completion guarantee.
+// If applySeatSwitch's await never settles (a hung re-spawn whose start() never binds
+// its port), the finally never runs and the lock would stay true for the whole session,
+// wedging EVERY future switch behind a misleading "kurz warten". The watchdog force-
+// releases the lock so a hung switch degrades to retryable.
+//   It is set FAR above any plausible respawn ceiling (5 min), NOT merely above the
+// renderer's 45s timeout: 60s > 45s would NOT have guaranteed 60s > respawn time, so a
+// legitimately slow respawn could trip it mid-flight and admit a concurrent switch. At
+// 5 min the respawn is provably dead, so a retry is correct.
+//   Safety on the rare post-watchdog retry does NOT rest on the bound: a NEW switch's
+// restartBackend ALWAYS runs backendManager.stop() FIRST, which SIGTERMs→SIGKILLs (5s)
+// the existing process tree before its start() — so two backends never truly coexist.
+// The SEAT pointer is then deterministic (last setActiveSeatId wins). The GLOBAL respawn
+// state the restart hook publishes (__backendPort, cron-resume bridge, assistant prompt)
+// is NOT seat-pointer state, so a stale superseded respawn could clobber it on its late
+// return; that is closed separately by the respawn-generation guard in index.ts (the hook
+// bails its post-start writes if a newer respawn ran). This lock comment does not claim
+// to cover that global state.
+const COMMAND_EVE_SWITCH_SEAT_LOCK_TIMEOUT_MS = 300_000;
+
 export function initCommandEveBridge(): void {
   bridge.buildProvider('command-eve.command-center-read-model').provider(async (request?: { maxRuns?: number }) => {
     try {
@@ -1745,6 +1777,25 @@ export function initCommandEveBridge(): void {
   // -------------------------------------------------------------------------
   bridge.buildProvider('command-eve.switch-seat').provider(async (request?: { seatId?: string }) => {
     const version = 'command-eve-switch-seat/v0' as const;
+    // Serialize: reject a second switch while one is mid-flight (see the lock note
+    // above). Returned BEFORE any state mutates ⇒ the in-flight switch is untouched.
+    if (commandEveSwitchSeatInFlight) {
+      return {
+        success: false,
+        msg: 'A seat switch is already in progress.',
+        data: { version, ok: false, reason_code: 'SWITCH_SEAT_IN_PROGRESS', active_seat_id: getActiveSeatId() },
+      };
+    }
+    commandEveSwitchSeatInFlight = true;
+    const myEpoch = ++commandEveSwitchSeatEpoch;
+    // Release only if THIS switch still owns the lock (epoch unchanged) — never clobber
+    // a newer switch that took the lock after our watchdog force-released it.
+    const releaseLock = () => {
+      if (commandEveSwitchSeatEpoch === myEpoch) commandEveSwitchSeatInFlight = false;
+    };
+    // Arm the watchdog (see the bound above) so a never-settling respawn cannot leave
+    // the lock stuck. Cleared in finally on every normal/error exit.
+    const lockWatchdog = setTimeout(releaseLock, COMMAND_EVE_SWITCH_SEAT_LOCK_TIMEOUT_MS);
     try {
       const targetSeatId = typeof request?.seatId === 'string' ? request.seatId : '';
       if (!targetSeatId) {
@@ -1802,6 +1853,12 @@ export function initCommandEveBridge(): void {
         msg: error instanceof Error ? error.message : 'Command EVE switch-seat bridge failed.',
         data: { version, ok: false, reason_code: 'SWITCH_SEAT_BRIDGE_FAILED', active_seat_id: getActiveSeatId() },
       };
+    } finally {
+      // Release the lock on EVERY exit (success, rollback, throw) so the rail is never
+      // permanently wedged into SWITCH_SEAT_IN_PROGRESS. Cancel the watchdog and release
+      // via the epoch-guarded path so a late completion never clears a newer switch's lock.
+      clearTimeout(lockWatchdog);
+      releaseLock();
     }
   });
 

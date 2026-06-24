@@ -1,0 +1,199 @@
+/*
+ * Command EVE — seat rail (far-left collapsible bar of client/project seats).
+ * Collapsed = colored dots inside a real tap target; expanded = colored circles with
+ * initials. The active seat is ringed. The CLICK TARGET (.seat-rail__seat / __add) is
+ * always >= 28px even when the visual dot is 14px (WCAG 2.5.8 / touch). Theme-
+ * consistent via the Arco CSS vars (sane light fallbacks). Per-seat --seat-color +
+ * --seat-text (luminance-picked) are injected inline.
+ */
+
+.command-eve-seat-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+  height: 100%;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  background: var(--color-bg-2, #f7f8fa);
+  border-right: 1px solid var(--color-border-2, #e5e6eb);
+  overflow: hidden; /* the rail itself never scrolls — only the inner seats region does */
+  transition: width 160ms ease;
+  -webkit-app-region: no-drag;
+}
+.command-eve-seat-rail--expanded { width: 72px; }
+.command-eve-seat-rail--collapsed { width: 40px; }
+
+/* Visually-hidden but announced — the switch-failure live region for screen readers. */
+.seat-rail__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* The scrollable seat LIST. The toggle and the "+" live OUTSIDE this region, so the
+   "add client" affordance stays bottom-pinned even when an operator owns more seats
+   than fit the viewport — the +99€/seat success state, where a flex-spacer pin would
+   silently collapse and scroll the "+" off-screen. */
+.seat-rail__seats {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  /* Inner vertical buffer so the 6px focus / 4px active box-shadow rings on the
+     first and last seat are not clipped by this overflow box at the scroll extremes
+     (the rail's own 12px padding is on the OUTER element, outside this clip box). */
+  padding: 6px 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.seat-rail__seats::-webkit-scrollbar { width: 0; height: 0; }
+
+/* Toggle — a visible resting chip (not transparent-until-hover), >= 28px target. */
+.seat-rail__toggle {
+  border: 1px solid var(--color-border-2, #e5e6eb);
+  background: var(--color-bg-1, #ffffff);
+  cursor: pointer;
+  color: var(--color-text-3, #86909c);
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.seat-rail__toggle:hover {
+  background: var(--color-fill-2, #f2f3f5);
+  color: var(--color-text-1, #1d2129);
+  border-color: var(--color-border-3, #c9cdd4);
+}
+.seat-rail__toggle:focus-visible {
+  outline: 2px solid var(--color-primary-6, #165dff);
+  outline-offset: 2px;
+}
+
+/* Seat = a transparent CLICK TARGET; the colored visual is the inner .__dot. */
+.seat-rail__seat {
+  position: relative;
+  border: none;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+.command-eve-seat-rail--expanded .seat-rail__seat { width: 48px; height: 48px; }
+.command-eve-seat-rail--collapsed .seat-rail__seat { width: 28px; height: 28px; }
+.seat-rail__seat[aria-disabled='true'] { cursor: default; }
+.seat-rail__seat:focus-visible { outline: none; }
+
+.seat-rail__dot {
+  pointer-events: none; /* clicks belong to the button */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--seat-text, #ffffff);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-radius: 50%;
+  background: var(--seat-color, #2563eb);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  transition: transform 120ms ease, box-shadow 120ms ease, width 160ms ease, height 160ms ease;
+}
+.command-eve-seat-rail--expanded .seat-rail__dot { width: 44px; height: 44px; font-size: 14px; }
+.command-eve-seat-rail--collapsed .seat-rail__dot { width: 14px; height: 14px; font-size: 0; }
+.seat-rail__seat:hover .seat-rail__dot { transform: scale(1.07); }
+.seat-rail__seat:active .seat-rail__dot { transform: scale(0.97); }
+
+.seat-rail__seat--active .seat-rail__dot {
+  box-shadow: 0 0 0 2px var(--color-bg-2, #f7f8fa), 0 0 0 4px var(--seat-color, #2563eb);
+}
+.command-eve-seat-rail--collapsed .seat-rail__seat--active .seat-rail__dot {
+  box-shadow: 0 0 0 2px var(--color-bg-2, #f7f8fa), 0 0 0 3px var(--seat-color, #2563eb);
+}
+
+/* Keyboard focus must be perceivable in BOTH modes, even on the active seat (whose
+   resting ring is 0 0 0 4px color expanded / 3px collapsed). Declared AFTER the active
+   rules and prefixed with the rail class so its specificity (0,4,0) beats the
+   equal-order collapsed-active rule — otherwise focus is suppressed when collapsed.
+   Distinct primary outer ring = a focus indicator that never reads as the resting
+   active ring (WCAG 2.4.7). */
+.command-eve-seat-rail .seat-rail__seat:focus-visible .seat-rail__dot {
+  box-shadow: 0 0 0 2px var(--color-bg-2, #f7f8fa), 0 0 0 4px var(--seat-color, #2563eb), 0 0 0 6px var(--color-primary-6, #165dff);
+}
+
+/* While a switch is in flight, freeze ONLY the (non-active) seats — the toggle and
+   "+" stay usable so a hung switch can never lock the whole rail. */
+.command-eve-seat-rail--switching .seat-rail__seat:not(.seat-rail__seat--active) {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.seat-rail__add {
+  flex-shrink: 0;
+  border: none;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+.command-eve-seat-rail--expanded .seat-rail__add { width: 48px; height: 48px; }
+.command-eve-seat-rail--collapsed .seat-rail__add { width: 28px; height: 28px; }
+.seat-rail__add:focus-visible { outline: none; }
+.seat-rail__add:focus-visible .seat-rail__add-glyph {
+  border-color: var(--color-primary-6, #165dff);
+  color: var(--color-primary-6, #165dff);
+}
+
+.seat-rail__add-glyph {
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  border: 1.5px dashed var(--color-border-3, #c9cdd4);
+  color: var(--color-text-3, #86909c);
+  border-radius: 50%;
+  transition: border-color 120ms ease, color 120ms ease, width 160ms ease, height 160ms ease;
+}
+.command-eve-seat-rail--expanded .seat-rail__add-glyph { width: 44px; height: 44px; font-size: 22px; }
+.command-eve-seat-rail--collapsed .seat-rail__add-glyph { width: 18px; height: 18px; font-size: 13px; }
+.seat-rail__add:hover .seat-rail__add-glyph {
+  border-color: var(--color-text-3, #86909c);
+  color: var(--color-text-1, #1d2129);
+}
+
+/* Honor the OS reduced-motion setting — kill the collapse slide and the per-seat
+   scale/box-shadow animation. (The sibling layout.css gates only its own selectors,
+   so the rail must declare its own block.) Focus rings/colors still apply instantly. */
+@media (prefers-reduced-motion: reduce) {
+  .command-eve-seat-rail,
+  .seat-rail__seats,
+  .seat-rail__dot,
+  .seat-rail__toggle,
+  .seat-rail__add-glyph {
+    transition: none;
+  }
+  .seat-rail__seat:hover .seat-rail__dot,
+  .seat-rail__seat:active .seat-rail__dot {
+    transform: none;
+  }
+}

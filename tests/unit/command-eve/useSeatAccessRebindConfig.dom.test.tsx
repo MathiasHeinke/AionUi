@@ -191,4 +191,45 @@ describe('useSeatAccess.switchTo — renderer config cache re-homes (CONFIRMED-H
     expect(fakeConfig.rebindSeat).not.toHaveBeenCalledWith(SEAT_B);
     expect(fakeConfig.boundSeatId).toBe(SEAT_A);
   });
+
+  it('on the 45s UI timeout, the rebind follows the LATE real settle — a rollback re-homes to PRIOR, never the target guess', async () => {
+    // The completeness-critic HIGH: the old code rebound to main's MID-FLIGHT pointer
+    // (= target) at the 45s mark; if main then rolled back, the renderer was stranded on
+    // the target. Now the rebind is driven by the REAL settle, so a late rollback wins.
+    vi.useFakeTimers();
+    try {
+      let resolveInvoke!: (v: unknown) => void;
+      switchSeatInvoke.mockReturnValue(new Promise((res) => { resolveInvoke = res; }));
+      const { latest } = await mountAndSettle();
+
+      let result: boolean | undefined;
+      const switchPromise = latest()
+        .switchTo(SEAT_B)
+        .then((r) => { result = r; });
+
+      // Advance past the 45s UI timeout → switchTo returns false, the rail un-freezes,
+      // and main has NOT settled, so there is NO authoritative rebind to the target yet.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(45_000);
+      });
+      expect(result).toBe(false);
+      expect(fakeConfig.rebindSeat).not.toHaveBeenCalledWith(SEAT_B);
+
+      // Main settles LATE with a ROLLBACK to the prior seat A.
+      await act(async () => {
+        resolveInvoke({ data: { ok: false, reason_code: 'SEAT_SWITCH_RESPAWN_FAILED', active_seat_id: SEAT_A }, success: false });
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      // The renderer ends bound to main's TRUE terminal seat (A) — never the un-confirmed B.
+      expect(fakeConfig.rebindSeat).toHaveBeenCalledWith(SEAT_A);
+      expect(fakeConfig.rebindSeat).not.toHaveBeenCalledWith(SEAT_B);
+      expect(fakeConfig.boundSeatId).toBe(SEAT_A);
+      await switchPromise;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

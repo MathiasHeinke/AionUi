@@ -168,7 +168,9 @@
 .arco-message-wrapper {
   left: 0 !important;
   width: 100% !important;
-  padding-left: 266px;
+  /* 260px sider + 6px + the Command EVE seat rail (0 when hidden; SeatRail publishes
+     --seat-rail-width on :root so toasts stay centered for admins as it collapses). */
+  padding-left: calc(266px + var(--seat-rail-width, 0px));
   box-sizing: border-box;
   z-index: 10001 !important;
 }

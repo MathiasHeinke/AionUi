@@ -25,6 +25,7 @@ import {
   COMMAND_EVE_DISPLAY_NAME,
   COMMAND_EVE_SHELL_ENABLED,
 } from '@/common/config/commandEveShell';
+import SeatRail from '@renderer/components/seats/SeatRail';
 import '@renderer/styles/layout.css';
 
 const SidebarIcon: React.FC<{ size?: number; strokeWidth?: number }> = ({ size = 18, strokeWidth = 4 }) => (
@@ -314,6 +315,9 @@ const Layout: React.FC<{
           )}
 
           <ArcoLayout className={'size-full layout flex-1 min-h-0'}>
+            {/* Command EVE: the far-left CLIENT/SEAT rail (admins only; fail-closed
+                hidden for delegates / non-seat installs). Sits left of the Sider. */}
+            {COMMAND_EVE_SHELL_ENABLED && !isMobile && <SeatRail />}
             <ArcoLayout.Sider
               collapsedWidth={isMobile ? 0 : 0}
               collapsed={collapsed}
