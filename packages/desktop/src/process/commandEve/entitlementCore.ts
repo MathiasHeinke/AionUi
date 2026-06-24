@@ -1143,7 +1143,17 @@ export function getEntitlementStatus(options: CommandEveEntitlementOptions): Com
       tenant_id: registration.tenant_id,
       // On EXPIRED, surface the cached edition/expiry for the UI; never on a
       // signature/version failure (the record's claims are unverified there).
-      ...(expired ? { edition: entitlement.edition, expires_at: entitlement.expires_at } : {}),
+      // EXPIRED means the signature WAS valid (only the time bound elapsed), so the
+      // cached trial_ends_at is trustworthy — surface it too so the gate can tell a
+      // lapsed TRIAL from a lapsed paid license and render the day-14 conversion
+      // curtain (isTrialExpired) instead of dropping the user on the paste box.
+      ...(expired
+        ? {
+            edition: entitlement.edition,
+            expires_at: entitlement.expires_at,
+            ...(entitlement.trial_ends_at ? { trial_ends_at: entitlement.trial_ends_at } : {}),
+          }
+        : {}),
     };
   }
 

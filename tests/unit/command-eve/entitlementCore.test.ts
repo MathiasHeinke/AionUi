@@ -618,6 +618,12 @@ describe('activateEntitlement + getEntitlementStatus — CEVE.v2', () => {
     const expired = getEntitlementStatus(later);
     expect(expired.state).toBe('expired');
     expect(expired.reason_code).toBe('LICENSE_EXPIRED');
+    // Regression guard: a lapsed TRIAL must STILL surface trial_ends_at on the
+    // EXPIRED status, so the gate can render the day-14 conversion curtain
+    // (isTrialExpired) instead of dropping the user on the license-paste box. The
+    // EXPIRED verify-branch used to discard trial_ends_at, making the curtain dead
+    // code — this asserts the surfaced field is back.
+    expect(expired.trial_ends_at).toBe('2026-06-15T00:00:00.000Z');
   });
 
   it('activates a v2 paid license and stays entitled on expires_at (seat_count informational)', () => {

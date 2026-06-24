@@ -120,8 +120,15 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
   // license, or a now-expired PAID license) jump straight to the license step.
   // Otherwise the PRIMARY first-run path is the web-login 'auth' step. A trial
   // expiry is handled by the curtain above, not this step.
+  // Login-first is the default landing. A merely-stale local registration with no
+  // license (state 'registered_unlicensed' — e.g. a machine that ran a prior alpha
+  // and still has ~/.command-eve/registration.json) must NOT skip the login screen
+  // onto the old Lizenzcode paste box (the founder's bug). Only a genuinely EXPIRED
+  // *paid* license starts on the manual license step; a trial expiry is taken over
+  // by the curtain (trialExpired) and everyone else → 'auth'. A code-holder reaches
+  // the paste box via the "Ich habe einen Lizenzcode" link.
   const initialStep: GateStep =
-    !trialExpired && (status?.state === 'registered_unlicensed' || status?.state === 'expired') ? 'license' : 'auth';
+    !trialExpired && status?.state === 'expired' ? 'license' : 'auth';
   const [step, setStep] = useState<GateStep>(initialStep);
 
   // Auth state. authBusy/authError are shared by the in-app password flow and the
@@ -626,7 +633,11 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
               className='registration-gate__back'
               onClick={() => {
                 setAuthError(null);
-                setStep('registration');
+                // "I have a code" must land on the code-PASTE step, not the local
+                // Name/Firma/E-Mail registration form (a code-holder should never be
+                // forced through a PII registration first). The license step creates
+                // any needed record server-side on activation.
+                setStep('license');
               }}
               disabled={authBusy}
               data-testid='registration-gate-have-code'
