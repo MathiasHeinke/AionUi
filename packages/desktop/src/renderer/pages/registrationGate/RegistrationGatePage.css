@@ -236,6 +236,54 @@
 .registration-gate__back:hover { color: #cdd8e6; }
 .registration-gate__registered-as { font-size: 12px; line-height: 17px; color: #8a99ad; text-align: center; }
 
+/* LOGIN / REGISTER segmented toggle (auth step) — the active mode drives the single
+   primary action + the password field semantics, so the two are never ambiguous. */
+.registration-gate__authmode {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.registration-gate__authmode-tab {
+  flex: 1 1 0;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: #8a99ad;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 19px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.registration-gate__authmode-tab:hover:not(:disabled) { color: #cdd8e6; }
+.registration-gate__authmode-tab--active {
+  background: linear-gradient(180deg, rgba(251, 146, 60, 0.18) 0%, rgba(249, 115, 22, 0.18) 100%);
+  color: #fdba74;
+  box-shadow: inset 0 0 0 1px rgba(249, 115, 22, 0.35);
+}
+.registration-gate__authmode-tab:disabled { cursor: default; opacity: 0.6; }
+
+/* "Sicheres Passwort vorschlagen" — a subtle accent link under the password field
+   (register mode only). The reliable in-app path to a strong password in Electron. */
+.registration-gate__suggest-pw {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #fdba74;
+  font-size: 12px;
+  line-height: 17px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+.registration-gate__suggest-pw:hover:not(:disabled) { color: #fed7aa; }
+.registration-gate__suggest-pw:disabled { cursor: default; opacity: 0.6; }
+
 .registration-gate__card--curtain { border-color: rgba(249, 115, 22, 0.4); }
 .registration-gate__curtain-lede { margin: 0; font-size: 14px; line-height: 21px; color: #aebccd; }
 .registration-gate__curtain-preserved {

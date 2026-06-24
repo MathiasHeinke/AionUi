@@ -55,13 +55,13 @@ type GateStep = 'auth' | 'registration' | 'license';
  */
 const CURTAIN_CHECKOUT_URL = 'https://command-eve.com/account';
 
-// OAUTH-2 (browser web-login) is NOT live yet: the web /auth/desktop page the
-// loopback flow needs does not exist, so commandEve.authWebLogin always fails.
-// Showing the button strands a fresh user — a failed browser-login used to dump
-// them into the manual register->paste fallback, which looks like the OLD offline
-// flow. Hide the button until OAUTH-2 ships; the in-app email/password login on the
-// same screen is the working PRIMARY path. Flip to true when the web page is live.
-const BROWSER_LOGIN_ENABLED = false;
+// OAUTH-2 browser web-login: the web /auth/desktop page (the loopback target) is now
+// LIVE (command-eve.com/auth/desktop → 200) and the desktop-auth-broker is deployed +
+// audited, so the button works end-to-end. SAFETY NET: if the round-trip ever fails,
+// handleWebLogin's catch stays on THIS auth step with an inline error (B-6) — it never
+// dumps the user into the old register->paste fallback. The in-app email/password
+// login on the same screen remains an equal primary path.
+const BROWSER_LOGIN_ENABLED = true;
 
 /**
  * True only for the day-14 TRIAL-EXPIRED state: the gate reports `expired` AND
@@ -99,6 +99,44 @@ const KNOWN_LICENSE_REASON_CODES = new Set([
 ]);
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Unbiased crypto random in [0, maxExclusive) via rejection sampling (modulo alone
+// skews toward the low glyphs since 2^32 is not a multiple of the set size).
+function randomInt(maxExclusive: number): number {
+  const cryptoObj = globalThis.crypto ?? (window as Window & { crypto: Crypto }).crypto;
+  const limit = Math.floor(0xffffffff / maxExclusive) * maxExclusive;
+  const buffer = new Uint32Array(1);
+  let value = 0;
+  do {
+    cryptoObj.getRandomValues(buffer);
+    value = buffer[0];
+  } while (value >= limit);
+  return value % maxExclusive;
+}
+
+// Electron is Chromium, NOT WebKit, so the native macOS "Strong Password" suggestion
+// (a Safari-only popover) never appears here regardless of markup. We still set the
+// correct autocomplete semantics (new-password on register) so external managers can
+// help, AND offer this deterministic in-app generator so a strong password is one click
+// away with no dependency on any OS/manager. Excludes look-alike glyphs. GUARANTEES one
+// char from each class (upper/lower/digit/special) then crypto-shuffles, so a server
+// policy that requires a digit/symbol can NEVER reject the app's own one-click password.
+function generateStrongPassword(): string {
+  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const lower = 'abcdefghijkmnpqrstuvwxyz';
+  const digit = '23456789';
+  const special = '!@#$%^&*-_=+';
+  const all = upper + lower + digit + special;
+  const length = 18;
+  const chars: string[] = [upper[randomInt(upper.length)], lower[randomInt(lower.length)], digit[randomInt(digit.length)], special[randomInt(special.length)]];
+  while (chars.length < length) chars.push(all[randomInt(all.length)]);
+  // Fisher–Yates so the four guaranteed glyphs are not always the first four.
+  for (let i = chars.length - 1; i > 0; i -= 1) {
+    const j = randomInt(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join('');
+}
 
 export interface RegistrationGatePageProps {
   /** Latest entitlement status from the main process (drives initial step). */
@@ -139,6 +177,22 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
   const [pendingIntent, setPendingIntent] = useState<'login' | 'register' | null>(null);
+  // LOGIN vs REGISTER are now explicit modes, not two competing buttons on one screen.
+  // The mode drives the primary button label/action AND the password field semantics
+  // (current-password ⇒ fill an existing one; new-password ⇒ offer/generate a new one).
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const switchAuthMode = useCallback((next: 'login' | 'register') => {
+    setAuthMode(next);
+    setAuthError(null);
+  }, []);
+  const handleSuggestPassword = useCallback(() => {
+    const generated = generateStrongPassword();
+    setAuthPassword(generated);
+    setPasswordRevealed(true);
+  }, []);
+  // Reveal toggle is OWNED here (not Arco-internal) so "suggest password" can force the
+  // freshly generated value visible — the user must be able to see/save it.
+  const [passwordRevealed, setPasswordRevealed] = useState(false);
   const handleWebLogin = useCallback(
     async (intent: 'login' | 'register') => {
       setAuthError(null);
@@ -224,6 +278,13 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
           // rare emailed-code case.
           setAuthError(t('registrationGate.auth.licensePending'));
           return;
+        }
+        // Funnel choice (Option A): "Confirm email" is OFF in Supabase Auth, so a
+        // register normally returns a session and never lands here. If it ever does
+        // (toggle re-enabled, or flipped after this build), the account now EXISTS —
+        // flip the form to LOGIN so the user's next action ("Anmelden") just works.
+        if (data?.reason_code === 'EMAIL_CONFIRMATION_REQUIRED') {
+          setAuthMode('login');
         }
         setAuthError(resolveAuthError(data?.reason_code));
       } catch (error) {
@@ -547,10 +608,40 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
             data-testid='registration-gate-auth'
             onSubmit={(event) => {
               event.preventDefault();
-              void handlePasswordAuth('login');
+              void handlePasswordAuth(authMode);
             }}
           >
-            <p className='registration-gate__subtitle'>{t('registrationGate.auth.subtitle')}</p>
+            {/* Explicit LOGIN / REGISTER mode toggle. The single primary action below
+                ALWAYS matches the selected mode — no more "Anmelden" button shown while
+                the user is trying to register. */}
+            <div className='registration-gate__authmode' role='tablist' aria-label={t('registrationGate.auth.modeToggle')}>
+              <button
+                type='button'
+                role='tab'
+                aria-selected={authMode === 'login'}
+                className={`registration-gate__authmode-tab ${authMode === 'login' ? 'registration-gate__authmode-tab--active' : ''}`}
+                onClick={() => switchAuthMode('login')}
+                disabled={authBusy}
+                data-testid='registration-gate-mode-login'
+              >
+                {t('registrationGate.auth.login')}
+              </button>
+              <button
+                type='button'
+                role='tab'
+                aria-selected={authMode === 'register'}
+                className={`registration-gate__authmode-tab ${authMode === 'register' ? 'registration-gate__authmode-tab--active' : ''}`}
+                onClick={() => switchAuthMode('register')}
+                disabled={authBusy}
+                data-testid='registration-gate-mode-register'
+              >
+                {t('registrationGate.auth.register')}
+              </button>
+            </div>
+
+            <p className='registration-gate__subtitle'>
+              {authMode === 'login' ? t('registrationGate.auth.loginSubtitle') : t('registrationGate.auth.registerSubtitle')}
+            </p>
 
             <div className='registration-gate__field'>
               <label className='registration-gate__label' htmlFor='registration-gate-email'>
@@ -559,12 +650,13 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
               <Input
                 id='registration-gate-email'
                 type='email'
+                name='username'
                 value={authEmail}
                 onChange={(value) => setAuthEmail(value)}
                 placeholder={t('registrationGate.auth.emailPlaceholder')}
                 data-testid='registration-gate-email'
                 disabled={authBusy}
-                autoComplete='email'
+                autoComplete='username'
               />
             </div>
 
@@ -572,15 +664,35 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
               <label className='registration-gate__label' htmlFor='registration-gate-password'>
                 {t('registrationGate.auth.passwordLabel')}
               </label>
+              {/* key=authMode ⇒ Chromium treats login vs register as DISTINCT fields, so
+                  current-password offers to FILL an existing one and new-password offers a
+                  NEW one. (Electron is Chromium, so the native macOS suggestion popover —
+                  a Safari feature — never shows; the in-app generator below is the reliable
+                  path, and the markup still lets external managers help.) */}
               <Input.Password
+                key={authMode}
                 id='registration-gate-password'
+                name={authMode === 'register' ? 'new-password' : 'current-password'}
                 value={authPassword}
                 onChange={(value) => setAuthPassword(value)}
                 placeholder={t('registrationGate.auth.passwordPlaceholder')}
                 data-testid='registration-gate-password'
                 disabled={authBusy}
-                autoComplete='current-password'
+                autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
+                visibility={passwordRevealed}
+                onVisibilityChange={setPasswordRevealed}
               />
+              {authMode === 'register' ? (
+                <button
+                  type='button'
+                  className='registration-gate__suggest-pw'
+                  onClick={handleSuggestPassword}
+                  disabled={authBusy}
+                  data-testid='registration-gate-suggest-password'
+                >
+                  {t('registrationGate.auth.suggestPassword')}
+                </button>
+              ) : null}
             </div>
 
             {authError ? (
@@ -594,37 +706,33 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
               htmlType='submit'
               long
               shape='round'
-              loading={authBusy && pendingIntent === 'login'}
+              loading={authBusy && pendingIntent === authMode}
               disabled={authBusy}
-              data-testid='registration-gate-login'
+              data-testid={authMode === 'login' ? 'registration-gate-login' : 'registration-gate-register'}
             >
-              {authBusy && pendingIntent === 'login'
-                ? t('registrationGate.auth.loggingIn')
-                : t('registrationGate.auth.login')}
-            </Button>
-
-            <Button
-              long
-              shape='round'
-              loading={authBusy && pendingIntent === 'register'}
-              disabled={authBusy}
-              onClick={() => void handlePasswordAuth('register')}
-              data-testid='registration-gate-register'
-            >
-              {authBusy && pendingIntent === 'register'
-                ? t('registrationGate.auth.registering')
-                : t('registrationGate.auth.register')}
+              {authMode === 'login'
+                ? authBusy && pendingIntent === 'login'
+                  ? t('registrationGate.auth.loggingIn')
+                  : t('registrationGate.auth.login')
+                : authBusy && pendingIntent === 'register'
+                  ? t('registrationGate.auth.registering')
+                  : t('registrationGate.auth.register')}
             </Button>
 
             {BROWSER_LOGIN_ENABLED && (
               <button
                 type='button'
                 className='registration-gate__back'
-                onClick={() => void handleWebLogin('login')}
+                onClick={() => void handleWebLogin(authMode)}
                 disabled={authBusy}
                 data-testid='registration-gate-browser-login'
               >
-                {t('registrationGate.auth.browserLogin')}
+                {/* pendingIntent stays null ONLY for the browser-loopback flow (the
+                    password flow sets it), so this is the browser action's own busy
+                    feedback — without it the whole card freezes with no spinner. */}
+                {authBusy && pendingIntent === null
+                  ? t('registrationGate.auth.browserLoginOpening')
+                  : t('registrationGate.auth.browserLogin')}
               </button>
             )}
 
