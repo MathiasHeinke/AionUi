@@ -461,6 +461,8 @@
   "speechToTextProvider": "Anbieter",
   "speechToTextProviderOpenAI": "OpenAI Whisper",
   "speechToTextProviderDeepgram": "Deepgram Nova-2",
+  "speechToTextProviderLocal": "Lokal auf dem Gerät (kein Key)",
+  "speechToTextProviderLocalHint": "Läuft mit Whisper auf deinem Mac — kein API-Key, dein Audio verlässt das Gerät nie.",
   "speechToTextApiKey": "API-Schlüssel",
   "speechToTextBaseUrl": "Base URL",
   "speechToTextModel": "Modell",

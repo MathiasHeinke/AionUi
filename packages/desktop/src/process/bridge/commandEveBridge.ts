@@ -40,6 +40,8 @@ import {
   runKanbanPreflight,
 } from '@process/commandEve/kanbanPreflightCore';
 import { buildLocalRuntimeStatus } from '@process/commandEve/localRuntimeStatusCore';
+import { transcribeLocalSpeech } from '@process/commandEve/localSttCore';
+import type { CommandEveLocalSttRequest } from '@/common/types/provider/speech';
 import {
   buildCommandEveOnboardingStatus,
   COMMAND_EVE_ONBOARDING_STATUS_BRIDGE_VERSION,
@@ -272,6 +274,23 @@ export function initCommandEveBridge(): void {
             generated_by: 'command-eve-onboarding-status-core',
           },
         },
+      };
+    }
+  });
+
+  // On-device speech-to-text. Runs in the main process (which can spawn the bundled
+  // venv python); the audio never reaches aioncore or any cloud STT — DSGVO-clean.
+  bridge.buildProvider('command-eve.speech-to-text-local').provider(async (request?: CommandEveLocalSttRequest) => {
+    try {
+      if (!request) {
+        return { success: false, msg: 'STT_LOCAL_NO_REQUEST' };
+      }
+      const data = await transcribeLocalSpeech(request, { userDataPath: getDataPath() });
+      return { success: true, data };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : 'STT_LOCAL_FAILED',
       };
     }
   });

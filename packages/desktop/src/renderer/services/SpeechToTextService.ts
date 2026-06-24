@@ -5,7 +5,8 @@
  */
 
 import { ipcBridge } from '@/common';
-import type { SpeechToTextResult } from '@/common/types/provider/speech';
+import { configService } from '@/common/config/configService';
+import type { SpeechToTextConfig, SpeechToTextResult } from '@/common/types/provider/speech';
 import { isElectronDesktop } from '@/renderer/utils/platform';
 
 const MAX_AUDIO_FILE_SIZE_MB = 30;
@@ -61,12 +62,26 @@ export async function transcribeAudioBlob(blob: Blob, languageHint?: string): Pr
 
   if (isElectronDesktop()) {
     const audioBuffer = new Uint8Array(await blob.arrayBuffer());
-    return ipcBridge.speechToText.transcribe.invoke({
+    const payload = {
       audioBuffer: Array.from(audioBuffer),
       file_name,
       languageHint,
       mimeType,
-    });
+    };
+    // The 'local' provider transcribes ON-DEVICE via the bundled venv (no cloud,
+    // no key) — a separate main-process IPC, NOT aioncore's /api/stt cloud lane.
+    const sttConfig = configService.get('tools.speechToText') as SpeechToTextConfig | undefined;
+    if (sttConfig?.provider === 'local') {
+      const response = await ipcBridge.commandEve.speechToTextLocal.invoke({
+        ...payload,
+        localModel: sttConfig.local?.model,
+      });
+      if (!response.success || !response.data) {
+        throw new Error(response.msg || 'STT_REQUEST_FAILED');
+      }
+      return response.data;
+    }
+    return ipcBridge.speechToText.transcribe.invoke(payload);
   }
 
   const formData = new FormData();

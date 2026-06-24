@@ -53,6 +53,10 @@ const DEFAULT_SPEECH_TO_TEXT_CONFIG: SpeechToTextConfig = {
     punctuate: true,
     smartFormat: true,
   },
+  local: {
+    model: 'base',
+    language: '',
+  },
 };
 
 const normalizeSpeechToTextConfig = (config?: SpeechToTextConfig): SpeechToTextConfig => ({
@@ -65,6 +69,10 @@ const normalizeSpeechToTextConfig = (config?: SpeechToTextConfig): SpeechToTextC
   deepgram: {
     ...DEFAULT_SPEECH_TO_TEXT_CONFIG.deepgram,
     ...config?.deepgram,
+  },
+  local: {
+    ...DEFAULT_SPEECH_TO_TEXT_CONFIG.local,
+    ...config?.local,
   },
 });
 
@@ -121,6 +129,19 @@ const SpeechToTextSettingsSection: React.FC<{
     [onChange]
   );
 
+  const handleLocalChange = useCallback(
+    (field: keyof NonNullable<SpeechToTextConfig['local']>, value: string) => {
+      onChange((current) => ({
+        ...current,
+        local: {
+          ...current.local,
+          [field]: value,
+        },
+      }));
+    },
+    [onChange]
+  );
+
   return (
     <div className='px-[12px] md:px-[32px] py-[24px] bg-2 rd-12px md:rd-16px border border-border-2'>
       <div className='flex items-center justify-between gap-12px mb-8px'>
@@ -146,12 +167,32 @@ const SpeechToTextSettingsSection: React.FC<{
           <Form layout='horizontal' labelAlign='left' className='space-y-12px'>
             <Form.Item label={t('settings.speechToTextProvider')}>
               <AionSelect value={config.provider} onChange={handleProviderChange}>
+                <AionSelect.Option value='local'>{t('settings.speechToTextProviderLocal')}</AionSelect.Option>
                 <AionSelect.Option value='openai'>{t('settings.speechToTextProviderOpenAI')}</AionSelect.Option>
                 <AionSelect.Option value='deepgram'>{t('settings.speechToTextProviderDeepgram')}</AionSelect.Option>
               </AionSelect>
             </Form.Item>
 
-            {config.provider === 'openai' ? (
+            {config.provider === 'local' ? (
+              <>
+                <div className='text-13px text-t-secondary mb-4px'>{t('settings.speechToTextProviderLocalHint')}</div>
+                <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextModel', 'optional')}>
+                  <AionSelect
+                    value={config.local?.model || 'base'}
+                    onChange={(value) => handleLocalChange('model', value)}
+                  >
+                    <AionSelect.Option value='tiny'>tiny (~75 MB)</AionSelect.Option>
+                    <AionSelect.Option value='base'>base (~150 MB)</AionSelect.Option>
+                    <AionSelect.Option value='small'>small (~500 MB)</AionSelect.Option>
+                    <AionSelect.Option value='medium'>medium (~1.5 GB)</AionSelect.Option>
+                    <AionSelect.Option value='large-v3'>large-v3 (~3 GB)</AionSelect.Option>
+                  </AionSelect>
+                </Form.Item>
+                <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextLanguage', 'optional')}>
+                  <Input value={config.local?.language} onChange={(value) => handleLocalChange('language', value)} />
+                </Form.Item>
+              </>
+            ) : config.provider === 'openai' ? (
               <>
                 <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextApiKey', 'required')}>
                   <Input.Password

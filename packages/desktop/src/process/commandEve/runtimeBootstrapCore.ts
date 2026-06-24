@@ -1951,6 +1951,16 @@ function writeHermesRuntimeFiles(
     '  local_only_classifications:',
     '    - S2',
     '    - S3',
+    // Speech-to-text: PIN the local (on-device faster-whisper) provider so audio is
+    // transcribed on the Mac and can NEVER silently fall back to a cloud STT (the
+    // python auto-detect order would otherwise pick a cloud provider if a key were
+    // present). enabled defaults true; the desktop mic button gates actual use.
+    // The desktop passes a per-request model override; this is just the floor.
+    'stt:',
+    '  enabled: true',
+    '  provider: local',
+    '  local:',
+    '    model: base',
     '',
   ].join('\n');
   fs.writeFileSync(path.join(paths.hermesHome, 'config.yaml'), config, { mode: 0o600 });
