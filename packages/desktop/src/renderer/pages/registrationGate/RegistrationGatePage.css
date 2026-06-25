@@ -165,6 +165,22 @@
   color: #74859b !important;
   -webkit-text-fill-color: #74859b !important;
 }
+/* Chromium/password-manager AUTOFILL paints its own light background that
+   `background-color` cannot override (only an inset box-shadow can). Without this
+   the autofilled / suggested password rendered as light text on a white box —
+   unreadable. Mask it with a dark inset fill + force the light text colour. */
+.registration-gate .arco-input:-webkit-autofill,
+.registration-gate input:-webkit-autofill,
+.registration-gate input:-webkit-autofill:hover,
+.registration-gate input:-webkit-autofill:focus,
+.registration-gate input:-webkit-autofill:active {
+  -webkit-text-fill-color: #eef3fa !important;
+  -webkit-box-shadow: 0 0 0 1000px rgba(13, 21, 38, 0.94) inset !important;
+  box-shadow: 0 0 0 1000px rgba(13, 21, 38, 0.94) inset !important;
+  caret-color: #eef3fa !important;
+  /* Delay the autofill background repaint so the dark fill stays put. */
+  transition: background-color 9999s ease-in-out 0s !important;
+}
 .registration-gate .arco-input-wrapper,
 .registration-gate .arco-input-inner-wrapper {
   background-color: rgba(255, 255, 255, 0.05);
