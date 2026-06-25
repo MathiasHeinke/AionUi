@@ -119,7 +119,19 @@ const SENSITIVE_RULES: SensitiveRule[] = [
   {
     kind: 'german_pii',
     ruleId: 'german-phone-number',
-    pattern: /(?:\+49|0049|0)\s?(?:\(?\d{2,5}\)?[\s./-]?)\d{3,}[\d\s./-]{2,}\b/g,
+    // Two anchored alternatives. The OLD pattern (`(?:\+49|0049|0)…[\d\s./-]{2,}`) had no
+    // leading boundary, a bare `0` trunk, and a greedy digit/separator tail with no upper
+    // bound — so it matched arbitrary numeric noise: 16-digit IDs, space-split number pairs,
+    // and digits inside larger tokens. A real tool result carrying Electron/Chromium process
+    // args (`--field-trial-handle=…12330025412369110397`, `--trace-process-track-uuid=…`)
+    // produced 99 phantom "phone numbers" → a hard egress block (HTTP 451, non-retryable) →
+    // the agent aborted silently and the UI hung on any longer tool session. (Verified against
+    // the actual request-dump: 99 → 0 false positives, all real German numbers still caught.)
+    // (A) +49/0049 international form: prefix + optional (0) + 6-12 more digits (single seps).
+    // (B) national 0-trunk: leading 0 + area code (1-4) + a separator + subscriber (>=6 digits).
+    // Both require word/number boundaries so they cannot start or end mid-token.
+    pattern:
+      /(?<![\w.+/])(?:\+49|0049)[ ./-]?\(?0?\)?[ ./-]?(?:\d[ ./-]?){6,12}\d\b|(?<![\w.+/\d-])0\d{1,4}[ ./-](?:\d[ ./-]?){5,9}\d(?![\d\w])/g,
     replacement: '[REDACTED_PHONE]',
   },
   // --- International PII (S2) — addresses, phones, national IDs outside DACH ---

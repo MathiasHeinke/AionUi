@@ -42,6 +42,32 @@ describe('Command EVE egress boundary core', () => {
     expect(result.receipt.findings.some((finding) => finding.rule_id === 'german-phone-number')).toBe(true);
   });
 
+  it('does NOT flag Electron/Chromium process-arg numeric noise as German phone numbers (the tool-hang regression)', async () => {
+    // A real 48 KB tool result carried these process args. The old over-greedy phone rule
+    // matched 99 of them → a hard 451 block → the agent aborted silently → the UI hung on
+    // any longer tool session. None of these are phone numbers.
+    const result = await evaluateCommandEveEgressBoundary({
+      text:
+        'process args: --field-trial-handle=1718379636,r,12330025412369110397,12660610757921497076 ' +
+        '--time-ticks-at-unix-epoch=-1781998042247974 --trace-process-track-uuid=3190708993808206286 ' +
+        'mem 1959428064 100448 0 435308800   3328 08509136  89024 0025412369110397',
+      provider: { ...LOCAL_PROVIDER, kind: 'cloud', name: 'EVE Inference' },
+    });
+
+    expect(result.receipt.findings.some((finding) => finding.rule_id === 'german-phone-number')).toBe(false);
+    expect(result.decision).toBe('allow');
+  });
+
+  it('still blocks a genuine German phone number after the tighten', async () => {
+    const result = await evaluateCommandEveEgressBoundary({
+      text: 'Ruf den Kunden unter 0151 23456789 an oder +49 30 12345678.',
+      provider: { ...LOCAL_PROVIDER, kind: 'cloud', name: 'EVE Inference' },
+    });
+
+    expect(result.decision).toBe('block');
+    expect(result.receipt.findings.some((finding) => finding.rule_id === 'german-phone-number')).toBe(true);
+  });
+
   it('supports redaction mode for explicit user policy without leaking raw text in receipts', async () => {
     const result = await evaluateCommandEveEgressBoundary({
       text: 'E-Mail: mathias@example.com und token=supersecretvalue',
