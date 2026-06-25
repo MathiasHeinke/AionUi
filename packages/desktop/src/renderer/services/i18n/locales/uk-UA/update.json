@@ -22,5 +22,6 @@
   "autoUpdateMode": "Режим автоматичного оновлення",
   "showInFolder": "Показати в папці",
   "openFile": "Відкрити файл",
-  "errorTitle": "Помилка оновлення"
+  "errorTitle": "Помилка оновлення",
+  "installing": "Installing – the app will restart …"
 }

@@ -22,5 +22,6 @@
   "autoUpdateMode": "Modo de atualização automática",
   "showInFolder": "Mostrar na pasta",
   "openFile": "Abrir arquivo",
-  "errorTitle": "A atualização falhou"
+  "errorTitle": "A atualização falhou",
+  "installing": "Installing – the app will restart …"
 }

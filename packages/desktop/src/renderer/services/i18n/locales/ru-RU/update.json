@@ -36,5 +36,6 @@
     "downloadNoBody": "Ответ загрузки не содержит данные",
     "missingUrl": "Отсутствует URL",
     "checkReturnedNull": "Проверка обновлений не вернула результат (режим разработки)"
-  }
+  },
+  "installing": "Installing – the app will restart …"
 }

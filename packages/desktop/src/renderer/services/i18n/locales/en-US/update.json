@@ -26,5 +26,6 @@
   "errors": {
     "checkReturnedNull": "Update check returned no result (development mode)",
     "noFeedConfigured": "No update feed is configured. Updates are unavailable until a feed URL is set."
-  }
+  },
+  "installing": "Installing – the app will restart …"
 }

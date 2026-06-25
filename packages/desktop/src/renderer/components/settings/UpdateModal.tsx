@@ -14,7 +14,7 @@ import MarkdownView from '@/renderer/components/Markdown';
 import type { UpdateDownloadProgressEvent, UpdateReleaseInfo, AutoUpdateStatus } from '@/common/update/updateTypes';
 import { useTranslation } from 'react-i18next';
 
-type UpdateStatus = 'checking' | 'upToDate' | 'available' | 'downloading' | 'downloaded' | 'success' | 'error';
+type UpdateStatus = 'checking' | 'upToDate' | 'available' | 'downloading' | 'downloaded' | 'installing' | 'success' | 'error';
 
 type UpdateInfo = UpdateReleaseInfo;
 
@@ -194,12 +194,16 @@ const UpdateModal: React.FC = () => {
   };
 
   const quitAndInstall = async () => {
+    // Immediate feedback: spinning up the native MacUpdater + quitting takes ~1s, during
+    // which nothing visibly happened (felt hung). Switch to the 'installing' spinner FIRST.
+    setStatus('installing');
     try {
       await ipcBridge.autoUpdate.quitAndInstall.invoke();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error('Install failed:', err);
       Message.error(msg);
+      setStatus('downloaded'); // revert so the user can retry the install
     }
   };
 
@@ -450,6 +454,17 @@ const UpdateModal: React.FC = () => {
             >
               {t('update.installNow')}
             </Button>
+          </div>
+        );
+
+      case 'installing':
+        return (
+          <div className='flex flex-col items-center justify-center py-48px'>
+            <div className='w-48px h-48px mb-20px relative'>
+              <div className='absolute inset-0 border-3 border-fill-3 rounded-full' />
+              <div className='absolute inset-0 border-3 border-primary border-t-transparent rounded-full animate-spin' />
+            </div>
+            <div className='text-15px text-t-primary font-500'>{t('update.installing')}</div>
           </div>
         );
 

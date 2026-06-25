@@ -22,5 +22,6 @@
   "autoUpdateMode": "自動更新モード",
   "showInFolder": "フォルダーで表示",
   "openFile": "ファイルを開く",
-  "errorTitle": "更新に失敗しました"
+  "errorTitle": "更新に失敗しました",
+  "installing": "Installing – the app will restart …"
 }

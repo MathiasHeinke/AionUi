@@ -26,5 +26,6 @@
   "errors": {
     "checkReturnedNull": "Die Update-Prüfung lieferte kein Ergebnis (Entwicklungsmodus)",
     "noFeedConfigured": "Es ist keine Update-Quelle konfiguriert. Updates sind nicht verfügbar, bis eine Feed-URL gesetzt ist."
-  }
+  },
+  "installing": "Wird installiert – die App startet gleich neu …"
 }

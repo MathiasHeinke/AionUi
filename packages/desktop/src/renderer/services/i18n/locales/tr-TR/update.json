@@ -22,5 +22,6 @@
   "autoUpdateMode": "Otomatik güncelleme modu",
   "showInFolder": "Klasörde göster",
   "openFile": "Dosyayı aç",
-  "errorTitle": "Güncelleme başarısız"
+  "errorTitle": "Güncelleme başarısız",
+  "installing": "Installing – the app will restart …"
 }

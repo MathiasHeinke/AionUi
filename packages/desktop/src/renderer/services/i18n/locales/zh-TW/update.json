@@ -22,5 +22,6 @@
   "autoUpdateMode": "自動更新模式",
   "showInFolder": "在資料夾中顯示",
   "openFile": "開啟檔案",
-  "errorTitle": "更新失敗"
+  "errorTitle": "更新失敗",
+  "installing": "Installing – the app will restart …"
 }
