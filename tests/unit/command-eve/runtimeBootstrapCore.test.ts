@@ -296,6 +296,16 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(configYaml).toContain('reasoning_effort: low');
       expect(configYaml).not.toContain('reasoning_effort: none');
       expect(configYaml).toMatch(/reasoning_effort: (low|medium|high|xhigh)/);
+      // Web tool-loop hang fix (self-detection): the convergence backstop +
+      // the cloud-lane vision drop + the shrunk per-tool timeouts must ship.
+      // Dropping any of these silently re-opens the ~30-min "tool use never
+      // finishes" hang on internet-bound calls.
+      expect(configYaml).toMatch(/max_turns: \d+/);
+      expect(configYaml).toMatch(/max_turns: ([1-9]\d?)\b/); // bounded well under Hermes' 90 default
+      expect(configYaml).toContain('disabled_toolsets:');
+      expect(configYaml).toMatch(/disabled_toolsets:\s*\n\s*- vision/);
+      expect(configYaml).toMatch(/terminal:\s*\n\s*timeout: \d+/);
+      expect(configYaml).toMatch(/auxiliary:\s*\n\s*web_extract:\s*\n\s*timeout: \d+/);
       expect(configYaml).toContain('skills:');
       expect(configYaml).toContain('external_dirs:');
       expect(configYaml).toContain('"${HERMES_HOME}/skills-command-eve"');

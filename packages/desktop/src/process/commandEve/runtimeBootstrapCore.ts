@@ -193,6 +193,25 @@ export type CommandEveReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
 const DEFAULT_COMMAND_EVE_REASONING_EFFORT: CommandEveReasoningEffort = 'low';
 const DEFAULT_COMMAND_EVE_CREATION_NUDGE_INTERVAL = 10;
 
+// Tool-loop convergence backstop. Hermes' own default cap is 90 iterations
+// (agent_init.py max_iterations) with NO per-turn wall-clock guard, so on an
+// unreadable target (e.g. a React SPA that curl returns as a JS bundle) the model
+// loops emitting tool_calls for ~30 min until the budget exhausts — the "macht Tool
+// Use, aber macht's nicht fertig" hang. agent.max_turns IS read from config.yaml
+// (FACT cli.py:3257-3258 -> max_iterations cli.py:5184; gateway/run.py:881-882),
+// so a tighter cap deterministically ENDS the turn with whatever was gathered. The
+// deeper cure (a real per-turn wall-clock cap + cross-iteration dedup) is a Hermes
+// wheel change, handed off separately; this is the no-wheel backstop. Tune freely.
+const DEFAULT_COMMAND_EVE_MAX_TURNS = 30;
+// Per-foreground-command kill (seconds). Hermes' wheel default is 180s; a stalled
+// `curl` to a slow/blocked URL burns the full ceiling every time. config.yaml
+// terminal.timeout OVERRIDES the env (FACT cli.py:583-629, gateway/run.py:905-936).
+const DEFAULT_COMMAND_EVE_TERMINAL_TIMEOUT_S = 45;
+// web_extract summarizer timeout (seconds). It routes BACK through the 25811 shim ->
+// eve-inference -> the chat model, so a slow inference makes the tool slow; the wheel
+// default is ~30s (auxiliary.web_extract.timeout, _DEFAULT_AUX_TIMEOUT).
+const DEFAULT_COMMAND_EVE_WEB_EXTRACT_TIMEOUT_S = 20;
+
 // EVE's always-on soul (SOUL.md, slot #1). 2026-06-24 redesign per Nous' own
 // SOUL.md guidance + the steipete/vitalik community souls: a SOUL.md is VOICE +
 // IDENTITY + JUDGEMENT only — "if it should apply everywhere". Operational HOW-TO
@@ -2005,6 +2024,20 @@ function writeHermesRuntimeFiles(
     // challenger entirely. "low" is a real-but-cheap challenger that keeps the
     // at-cost text fence intact; paid/top tiers raise it to medium/high upstream.
     `  reasoning_effort: ${reasoningEffort}`,
+    // max_turns is the convergence backstop: it caps the tool-call loop so a turn
+    // can never run away for ~30 min on an unreadable target. Hermes reads it from
+    // here (cli.py:3257 -> max_iterations) — its own default is 90.
+    `  max_turns: ${DEFAULT_COMMAND_EVE_MAX_TURNS}`,
+    // Drop vision_analyze / browser_vision: the cloud lane (V4 Flash) has NO vision,
+    // so any image call HARD-502s ("No endpoints found that support image input")
+    // and the error is fed back as retryable context -> a wasted loop. Hermes
+    // subtracts disabled_toolsets from the enabled set (FACT tools_config.py:61 maps
+    // 'vision' -> vision_analyze, :1463-1467). Vision is currently broken on BOTH
+    // lanes anyway (it routes to the main provider via the shim). REMOVE this line
+    // once local-lane multimodal vision is wired (needs the wheel-side vision
+    // auto-routing fix) so it can be used on the local Gemma lane.
+    '  disabled_toolsets:',
+    '    - vision',
     'skills:',
     // creation_nudge_interval > 0 re-enables the background skill-review fork
     // that creates/optimizes skills ("the user keeps wanting X, so EVE builds
@@ -2103,6 +2136,17 @@ function writeHermesRuntimeFiles(
     '  provider: local',
     '  local:',
     '    model: base',
+    // Shrink the per-foreground-command kill (wheel default 180s). A stalled `curl`
+    // to a slow URL otherwise burns the full ceiling EACH time, and a turn can chain
+    // many — the "internet tool calls hang" symptom. config.yaml is authoritative
+    // (overrides the env). (A network-only timeout via curl --max-time is a wheel item.)
+    'terminal:',
+    `  timeout: ${DEFAULT_COMMAND_EVE_TERMINAL_TIMEOUT_S}`,
+    // Bound the web_extract summarizer (it round-trips back through the shim to the
+    // chat model, so a slow inference makes the tool slow). Wheel default ~30s.
+    'auxiliary:',
+    '  web_extract:',
+    `    timeout: ${DEFAULT_COMMAND_EVE_WEB_EXTRACT_TIMEOUT_S}`,
     '',
   ].join('\n');
   fs.writeFileSync(path.join(paths.hermesHome, 'config.yaml'), config, { mode: 0o600 });
