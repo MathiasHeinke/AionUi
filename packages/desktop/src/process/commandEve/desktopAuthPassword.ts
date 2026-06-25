@@ -42,6 +42,11 @@ import {
 const LOGIN_URL = `${COMMAND_EVE_SUPABASE_URL}/auth/v1/token?grant_type=password`;
 const SIGNUP_URL = `${COMMAND_EVE_SUPABASE_URL}/auth/v1/signup`;
 
+// Hard cap on the GoTrue round-trip so a stalled connection can never hang the
+// in-app auth flow (the endless spinner). 20s is generous — the live endpoint
+// answers in well under 1s.
+const AUTH_FETCH_TIMEOUT_MS = 20_000;
+
 export interface PasswordGrantResult {
   ok: boolean;
   session?: CommandEveAccountSession;
@@ -104,14 +109,23 @@ export async function passwordGrant(
   const url = intent === 'register' ? SIGNUP_URL : LOGIN_URL;
 
   let res: Response;
+  // Bound the GoTrue round-trip: without a timeout a stalled connection would hang
+  // the whole in-app login/register forever (the endless "Konto wird erstellt…"
+  // spinner). On abort the catch below returns AUTH_NETWORK — a clean, retryable
+  // error — instead of never resolving.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), AUTH_FETCH_TIMEOUT_MS);
   try {
     res = await fetchImpl(url, {
       method: 'POST',
       headers: { apikey: anonKey, 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ email: cleanEmail, password }),
+      signal: controller.signal,
     });
   } catch {
     return { ok: false, reason_code: 'AUTH_NETWORK' };
+  } finally {
+    clearTimeout(timer);
   }
 
   let json: unknown = null;

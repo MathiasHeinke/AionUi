@@ -40,6 +40,25 @@ import { getFreshSession, hasAccountSession } from './accountSessionAtRest';
 export const REGISTER_PROFILE_URL = `${COMMAND_EVE_SUPABASE_URL}/functions/v1/register-profile`;
 export const MY_LICENSE_URL = `${COMMAND_EVE_SUPABASE_URL}/functions/v1/my-license`;
 
+// Per-request hard cap. Without it a single stalled register-profile/my-license
+// fetch hangs the whole post-login activation forever (the endless "Konto wird
+// erstellt…" spinner) — the bounded backoff above only paces SUCCESSFUL replies,
+// it cannot rescue one call that never returns. On abort the catch returns the
+// existing *_NETWORK reason_code (register-profile is non-fatal; my-license treats
+// it as a retryable miss), so the flow always resolves.
+const BACKEND_FETCH_TIMEOUT_MS = 20_000;
+
+/** Run a fetch with a hard timeout; aborts (→ throws) if the cap is hit. */
+async function fetchWithTimeout(fetchImpl: typeof fetch, url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), BACKEND_FETCH_TIMEOUT_MS);
+  try {
+    return await fetchImpl(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Backoff schedule (ms) for re-reading my-license while the code is PENDING. */
 const DEFAULT_MY_LICENSE_BACKOFF_MS = [500, 1000, 2000, 4000];
 
@@ -125,7 +144,7 @@ export async function postRegisterProfile(
   const fetchImpl = deps.fetch ?? (globalThis.fetch as typeof fetch);
   const anonKey = deps.anonKey ?? resolveSupabaseAnonKey();
   try {
-    const response = await fetchImpl(REGISTER_PROFILE_URL, {
+    const response = await fetchWithTimeout(fetchImpl, REGISTER_PROFILE_URL, {
       method: 'POST',
       headers: authHeaders(session.access_token, anonKey),
       body: JSON.stringify({
@@ -164,7 +183,7 @@ export async function postMyLicenseOnce(
   const anonKey = deps.anonKey ?? resolveSupabaseAnonKey();
   let response: Response;
   try {
-    response = await fetchImpl(MY_LICENSE_URL, {
+    response = await fetchWithTimeout(fetchImpl, MY_LICENSE_URL, {
       method: 'POST',
       headers: authHeaders(session.access_token, anonKey),
       body: JSON.stringify({}),
