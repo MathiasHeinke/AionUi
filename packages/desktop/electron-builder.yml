@@ -267,5 +267,5 @@ electronDownload:
 # `publish-update-feed.mjs` mirrors to R2 (latest-mac.yml + zip + blockmap).
 publish:
   provider: generic
-  url: https://pub-0a282738bf7a4731a6bb71c2420bfd69.r2.dev
+  url: https://eve-update-proxy.commandeve.workers.dev
   publishAutoUpdate: true

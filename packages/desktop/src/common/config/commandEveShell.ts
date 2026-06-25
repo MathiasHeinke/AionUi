@@ -12,15 +12,20 @@ export const COMMAND_EVE_APP_ID = 'com.fynlabs.commandeve';
 /**
  * Generic (electron-updater) over-the-air update feed base URL for Command EVE.
  *
- * This is the Cloudflare R2 public bucket the release pipeline mirrors the
- * channel yml + zip + blockmap to (electron-builder.yml `publish.url` bakes the
- * SAME value into the bundled app-update.yml). It is the default the runtime
- * feed resolver falls back to when COMMAND_EVE_SHELL_ENABLED and no explicit
- * COMMAND_EVE_UPDATE_FEED_URL env / persisted `update.feedUrl` override is set,
- * so an installed Command EVE build actually checks `<base>/latest-arm64-mac.yml`
- * on startup. Upstream (CE shell off) builds never get this default.
+ * This is the Cloudflare Worker that proxies the R2 release bucket (electron-builder.yml
+ * `publish.url` bakes the SAME value into the bundled app-update.yml). It is the default the
+ * runtime feed resolver falls back to when COMMAND_EVE_SHELL_ENABLED and no explicit
+ * COMMAND_EVE_UPDATE_FEED_URL env / persisted `update.feedUrl` override is set, so an
+ * installed Command EVE build actually checks `<base>/latest-arm64-mac.yml` on startup.
+ *
+ * WHY A WORKER, NOT THE pub-*.r2.dev URL: electron-updater does DIFFERENTIAL (delta)
+ * downloads via HTTP MULTI-range requests; R2's public pub-*.r2.dev URL answers single
+ * ranges (206) but 400s on multi-range, forcing a full ~700MB download every update. This
+ * Worker (apps/eve-update-proxy) implements multipart/byteranges itself, so the updater gets
+ * its delta and users download only the changed blocks. Upstream (CE shell off) builds never
+ * get this default.
  */
-export const COMMAND_EVE_UPDATE_FEED_BASE_URL = 'https://pub-0a282738bf7a4731a6bb71c2420bfd69.r2.dev';
+export const COMMAND_EVE_UPDATE_FEED_BASE_URL = 'https://eve-update-proxy.commandeve.workers.dev';
 export const COMMAND_EVE_PROTOCOL_SCHEME = 'command-eve';
 export const COMMAND_EVE_ASSISTANT_ID = 'command-eve-chief-of-staff';
 export const COMMAND_EVE_ASSISTANT_KEY = `custom:${COMMAND_EVE_ASSISTANT_ID}`;
