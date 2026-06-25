@@ -209,7 +209,13 @@ export async function evaluateCommandEveEgressBoundary(
   input: CommandEveEgressBoundaryInput
 ): Promise<CommandEveEgressBoundaryResult> {
   const text = input.text || '';
-  const policyAction = input.policyAction || 'block';
+  // DEFAULT = redact, NOT block. A hard block returns HTTP 451 (non-retryable) and the
+  // agent aborts mid-turn — for a product that runs terminal/tool calls whose output is
+  // full of numeric noise (and for a reseller legitimately processing client contact
+  // data), that silently HANGS the whole session. Redaction preserves the DSGVO invariant
+  // (sensitive values are replaced with placeholders and NEVER reach the cloud model) while
+  // letting the turn proceed. `block` remains available as an explicit opt-in strict mode.
+  const policyAction = input.policyAction || 'redact';
   const findings = detectCommandEveSensitiveEgress(text);
   const hasSensitiveFindings = findings.length > 0;
   const sanitizedText = hasSensitiveFindings ? redactCommandEveSensitiveText(text) : text;

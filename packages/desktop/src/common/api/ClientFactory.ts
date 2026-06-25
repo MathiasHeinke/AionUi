@@ -84,7 +84,7 @@ export class ClientFactory {
           defaultHeaders: commandEveOpenAiHeaders(),
           ...(COMMAND_EVE_SHELL_ENABLED
             ? {
-                commandEveEgressPolicyAction: 'block',
+                commandEveEgressPolicyAction: 'redact',
                 commandEveEgressProviderName: provider.platform || 'openai-compatible',
               }
             : {}),
@@ -106,7 +106,7 @@ export class ClientFactory {
           baseURL: base_url,
           ...(COMMAND_EVE_SHELL_ENABLED
             ? {
-                commandEveEgressPolicyAction: 'block',
+                commandEveEgressPolicyAction: 'redact',
                 commandEveEgressProviderName: provider.platform || 'gemini',
               }
             : {}),
@@ -121,7 +121,7 @@ export class ClientFactory {
           model: provider.use_model,
           ...(COMMAND_EVE_SHELL_ENABLED
             ? {
-                commandEveEgressPolicyAction: 'block',
+                commandEveEgressPolicyAction: 'redact',
                 commandEveEgressProviderName: provider.platform || 'vertex-ai',
               }
             : {}),
@@ -138,7 +138,7 @@ export class ClientFactory {
           timeout: options.timeout,
           ...(COMMAND_EVE_SHELL_ENABLED
             ? {
-                commandEveEgressPolicyAction: 'block',
+                commandEveEgressPolicyAction: 'redact',
                 commandEveEgressProviderName: provider.platform || 'anthropic',
               }
             : {}),
@@ -156,7 +156,7 @@ export class ClientFactory {
           defaultHeaders: commandEveOpenAiHeaders(),
           ...(COMMAND_EVE_SHELL_ENABLED
             ? {
-                commandEveEgressPolicyAction: 'block',
+                commandEveEgressPolicyAction: 'redact',
                 commandEveEgressProviderName: provider.platform || 'openai-compatible',
               }
             : {}),

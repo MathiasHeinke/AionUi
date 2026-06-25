@@ -219,24 +219,64 @@ function messageRole(message: unknown): string {
   return typeof role === 'string' && role.trim() ? role.trim().slice(0, 40) : 'unknown';
 }
 
-function messageText(message: unknown): string {
-  if (!message || typeof message !== 'object') return '';
-  const content = (message as Record<string, unknown>).content;
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content
-    .map((part) => {
-      if (!part || typeof part !== 'object') return '';
-      const text = (part as Record<string, unknown>).text;
-      return typeof text === 'string' ? text : '';
+// The function-call arguments the model echoes back (e.g. crm_lookup({phone:"+49…"}))
+// are part of the egress payload but live in tool_calls[].function.arguments, NOT in
+// .content — so the scan must read them and the redactor must strip them, else a phone
+// the user gave (redacted out of .content) re-leaks via the tool the model called with it.
+function toolCallArgsText(message: Record<string, unknown>): string {
+  const toolCalls = message.tool_calls;
+  if (!Array.isArray(toolCalls)) return '';
+  return toolCalls
+    .map((tc) => {
+      const fn = tc && typeof tc === 'object' ? (tc as Record<string, unknown>).function : undefined;
+      const args = fn && typeof fn === 'object' ? (fn as Record<string, unknown>).arguments : undefined;
+      return typeof args === 'string' ? args : '';
     })
     .filter(Boolean)
     .join('\n');
 }
 
+function messageText(message: unknown): string {
+  if (!message || typeof message !== 'object') return '';
+  const msg = message as Record<string, unknown>;
+  const argsText = toolCallArgsText(msg);
+  const content = msg.content;
+  let contentText = '';
+  if (typeof content === 'string') {
+    contentText = content;
+  } else if (Array.isArray(content)) {
+    contentText = content
+      .map((part) => {
+        if (!part || typeof part !== 'object') return '';
+        const text = (part as Record<string, unknown>).text;
+        return typeof text === 'string' ? text : '';
+      })
+      .filter(Boolean)
+      .join('\n');
+  }
+  return [contentText, argsText].filter(Boolean).join('\n');
+}
+
 function redactMessageContent(message: unknown): unknown {
   if (!message || typeof message !== 'object') return message;
   const nextMessage = { ...(message as Record<string, unknown>) };
+  // Redact tool-call arguments too (the model can echo PII into a tool call it makes).
+  const toolCalls = nextMessage.tool_calls;
+  if (Array.isArray(toolCalls)) {
+    nextMessage.tool_calls = toolCalls.map((tc) => {
+      if (!tc || typeof tc !== 'object') return tc;
+      const nextTc = { ...(tc as Record<string, unknown>) };
+      const fn = nextTc.function;
+      if (fn && typeof fn === 'object') {
+        const nextFn = { ...(fn as Record<string, unknown>) };
+        if (typeof nextFn.arguments === 'string') {
+          nextFn.arguments = redactCommandEveSensitiveText(nextFn.arguments);
+        }
+        nextTc.function = nextFn;
+      }
+      return nextTc;
+    });
+  }
   const content = nextMessage.content;
   if (typeof content === 'string') {
     nextMessage.content = redactCommandEveSensitiveText(content);
@@ -738,7 +778,9 @@ export async function startCommandEveOllamaOpenAiShim(shimOptions: CommandEveOll
     maxTokens: shimOptions.maxTokens || DEFAULT_MAX_TOKENS,
     promptProofPath: shimOptions.promptProofPath || '',
     egressReceiptPath: shimOptions.egressReceiptPath || '',
-    egressPolicyAction: shimOptions.egressPolicyAction || 'block',
+    // Redact-and-continue by default (see egressBoundaryCore): a hard block 451s
+    // non-retryably and hangs the turn. PII is stripped before egress, never leaked.
+    egressPolicyAction: shimOptions.egressPolicyAction || 'redact',
     // Default resolver keeps every request on the local lane.
     eveRouting: shimOptions.eveRouting || ((): undefined => undefined),
     // Default resolver returns no status map ⇒ every worker is treated active

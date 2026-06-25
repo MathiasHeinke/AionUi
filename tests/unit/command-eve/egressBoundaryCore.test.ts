@@ -16,30 +16,47 @@ const LOCAL_PROVIDER = {
 };
 
 describe('Command EVE egress boundary core', () => {
-  it('blocks secrets by default without storing raw text', async () => {
+  it('redacts secrets by default (never blocks) without leaking raw text', async () => {
     const result = await evaluateCommandEveEgressBoundary({
       text: 'Mein API key: sk-abcdefghijklmnopqrstuvwxyz123456',
       provider: LOCAL_PROVIDER,
       now: new Date('2026-06-10T08:00:00.000Z'),
     });
 
-    expect(result.decision).toBe('block');
+    // DEFAULT is redact-and-continue, NOT a hard block (which 451s + hangs the turn).
+    expect(result.decision).toBe('redact');
     expect(result.receipt.finding_count).toBeGreaterThan(0);
     expect(result.receipt.findings.some((finding) => finding.kind === 'secret')).toBe(true);
     expect(result.receipt.input_sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(result.receipt.raw_text_stored).toBe(false);
+    // The raw secret leaks NOWHERE: not in the receipt, not in the forwarded text.
     expect(JSON.stringify(result.receipt)).not.toContain('abcdefghijklmnopqrstuvwxyz');
+    expect(result.allowedText).toContain('[REDACTED_SECRET]');
+    expect(result.allowedText).not.toContain('abcdefghijklmnopqrstuvwxyz');
   });
 
-  it('blocks German PII by default', async () => {
+  it('redacts German PII by default (never blocks)', async () => {
     const result = await evaluateCommandEveEgressBoundary({
       text: 'Bitte merke dir: Hauptstraße 12, 10115 Berlin und +49 30 12345678.',
       provider: LOCAL_PROVIDER,
     });
 
-    expect(result.decision).toBe('block');
+    expect(result.decision).toBe('redact');
     expect(result.receipt.findings.some((finding) => finding.rule_id === 'german-street-address')).toBe(true);
     expect(result.receipt.findings.some((finding) => finding.rule_id === 'german-phone-number')).toBe(true);
+    expect(result.allowedText).toContain('[REDACTED_PHONE]');
+    expect(result.allowedText).not.toContain('12345678');
+  });
+
+  it('explicit policyAction:block still hard-blocks (opt-in strict mode preserved)', async () => {
+    const result = await evaluateCommandEveEgressBoundary({
+      text: 'Mein API key: sk-abcdefghijklmnopqrstuvwxyz123456',
+      provider: LOCAL_PROVIDER,
+      policyAction: 'block',
+    });
+
+    expect(result.decision).toBe('block');
+    expect(result.receipt.findings.some((finding) => finding.kind === 'secret')).toBe(true);
   });
 
   it('does NOT flag Electron/Chromium process-arg numeric noise as German phone numbers (the tool-hang regression)', async () => {
@@ -58,14 +75,17 @@ describe('Command EVE egress boundary core', () => {
     expect(result.decision).toBe('allow');
   });
 
-  it('still blocks a genuine German phone number after the tighten', async () => {
+  it('still catches + redacts a genuine German phone number after the tighten', async () => {
     const result = await evaluateCommandEveEgressBoundary({
       text: 'Ruf den Kunden unter 0151 23456789 an oder +49 30 12345678.',
       provider: { ...LOCAL_PROVIDER, kind: 'cloud', name: 'EVE Inference' },
     });
 
-    expect(result.decision).toBe('block');
+    expect(result.decision).toBe('redact');
     expect(result.receipt.findings.some((finding) => finding.rule_id === 'german-phone-number')).toBe(true);
+    expect(result.allowedText).toContain('[REDACTED_PHONE]');
+    expect(result.allowedText).not.toContain('23456789');
+    expect(result.allowedText).not.toContain('12345678');
   });
 
   it('supports redaction mode for explicit user policy without leaking raw text in receipts', async () => {
@@ -109,30 +129,34 @@ describe('Command EVE egress boundary core', () => {
     expect(payload).not.toContain('supersecretvalue');
   });
 
-  it('blocks international financial PII (IBAN + card) the German-only filter missed', async () => {
+  it('redacts international financial PII (IBAN + card) the German-only filter missed', async () => {
     const result = await evaluateCommandEveEgressBoundary({
       text: 'Bitte überweise auf IBAN DE89 3704 0044 0532 0130 00, Karte 4111 1111 1111 1111.',
       provider: { ...LOCAL_PROVIDER, kind: 'cloud', name: 'openrouter' },
     });
 
-    expect(result.decision).toBe('block');
+    expect(result.decision).toBe('redact');
     expect(result.receipt.findings.some((finding) => finding.kind === 'financial' && finding.rule_id === 'iban')).toBe(true);
     expect(result.receipt.findings.some((finding) => finding.rule_id === 'payment-card-number')).toBe(true);
+    // No country/bank prefix or PAN digits leak — neither in the receipt nor the forwarded text.
     expect(JSON.stringify(result.receipt)).not.toContain('0532');
     expect(JSON.stringify(result.receipt)).not.toContain('4111');
+    expect(result.allowedText).not.toContain('0532');
+    expect(result.allowedText).not.toContain('4111 1111');
   });
 
-  it('blocks non-DACH PII (intl phone, US address, SSN)', async () => {
+  it('redacts non-DACH PII (intl phone, US address, SSN)', async () => {
     const result = await evaluateCommandEveEgressBoundary({
       text: 'Reach the client at +1 415 555 1234, ship to 1600 Pennsylvania Avenue, SSN 123-45-6789.',
       provider: { ...LOCAL_PROVIDER, kind: 'cloud', name: 'openrouter' },
     });
 
-    expect(result.decision).toBe('block');
+    expect(result.decision).toBe('redact');
     expect(result.receipt.findings.some((finding) => finding.kind === 'intl_pii')).toBe(true);
     expect(result.receipt.findings.some((finding) => finding.rule_id === 'intl-phone-number')).toBe(true);
     expect(result.receipt.findings.some((finding) => finding.rule_id === 'intl-street-address')).toBe(true);
     expect(result.receipt.findings.some((finding) => finding.rule_id === 'us-ssn')).toBe(true);
+    expect(result.allowedText).not.toContain('123-45-6789');
   });
 
   it('redacts a label-anchored health identifier (GDPR Art. 9) without leaking the value', async () => {
@@ -195,14 +219,15 @@ describe('Command EVE egress boundary core', () => {
     expect(bare.receipt.findings.some((finding) => finding.kind === 'health')).toBe(true);
   });
 
-  it('catches a bare parenthesised US phone (no country code)', async () => {
+  it('catches + redacts a bare parenthesised US phone (no country code)', async () => {
     const result = await evaluateCommandEveEgressBoundary({
       text: 'Call the client at (415) 555-2671 tomorrow.',
       provider: { ...LOCAL_PROVIDER, kind: 'cloud', name: 'openrouter' },
     });
 
-    expect(result.decision).toBe('block');
+    expect(result.decision).toBe('redact');
     expect(result.receipt.findings.some((finding) => finding.rule_id === 'north-american-phone')).toBe(true);
+    expect(result.allowedText).not.toContain('555-2671');
   });
 
   it('does NOT redact bare 3-3-4 business reference numbers (order/ticket/SKU)', async () => {

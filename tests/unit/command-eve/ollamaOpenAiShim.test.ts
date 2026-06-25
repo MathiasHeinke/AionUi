@@ -178,10 +178,10 @@ describe('Command EVE Ollama OpenAI shim warm-up', () => {
     expect(result.error).toContain('local-only');
   });
 
-  it('blocks sensitive data before the fake Ollama upstream sees the request', async () => {
-    let upstreamSeen = false;
-    const baseUrl = await startFakeOpenAiServer((_body) => {
-      upstreamSeen = true;
+  it('redacts sensitive data before the fake Ollama upstream sees it (never blocks/hangs)', async () => {
+    let upstreamBody: Record<string, unknown> | undefined;
+    const baseUrl = await startFakeOpenAiServer((bodySeen) => {
+      upstreamBody = bodySeen;
     });
 
     shimServerUrl = await startCommandEveOllamaOpenAiShim({
@@ -198,13 +198,14 @@ describe('Command EVE Ollama OpenAI shim warm-up', () => {
         stream: false,
       }),
     });
-    const body = (await response.json()) as { error?: { receipt?: { decision?: string; raw_text_stored?: boolean } } };
 
-    expect(response.status).toBe(451);
-    expect(response.headers.get('x-command-eve-egress-decision')).toBe('block');
-    expect(body.error?.receipt?.decision).toBe('block');
-    expect(body.error?.receipt?.raw_text_stored).toBe(false);
-    expect(upstreamSeen).toBe(false);
+    // The turn PROCEEDS (no 451, no hang) but the secret is stripped before the upstream sees it.
+    expect(response.status).toBe(200);
+    expect(response.headers.get('x-command-eve-egress-decision')).toBe('redact');
+    expect(upstreamBody).toBeDefined();
+    const forwarded = JSON.stringify(upstreamBody);
+    expect(forwarded).not.toContain('abcdefghijklmnopqrstuvwxyz');
+    expect(forwarded).toContain('[REDACTED_SECRET]');
   });
 });
 
@@ -360,7 +361,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
     expect(fnSeen.body).toBeUndefined();
   });
 
-  it('blocks sensitive data on the EVE lane BEFORE the function is called', async () => {
+  it('redacts sensitive data on the EVE lane before the function is called (never blocks/hangs)', async () => {
     const fnSeen: EveFnSeen = {};
     const fnUrl = await startFakeEveFunction(fnSeen);
 
@@ -380,10 +381,56 @@ describe('Command EVE shim — EVE cloud routing', () => {
       }),
     });
 
-    expect(response.status).toBe(451);
-    expect(response.headers.get('x-command-eve-egress-decision')).toBe('block');
-    // The function never saw the secret.
-    expect(fnSeen.body).toBeUndefined();
+    // The turn PROCEEDS to the cloud function (no 451, no hang), but the secret is redacted
+    // out of the forwarded payload — the function still never sees the raw secret.
+    expect(response.status).toBe(200);
+    expect(response.headers.get('x-command-eve-egress-decision')).toBe('redact');
+    expect(fnSeen.body).toBeDefined();
+    const forwarded = JSON.stringify(fnSeen.body);
+    expect(forwarded).not.toContain('abcdefghijklmnopqrstuvwxyz');
+    expect(forwarded).toContain('[REDACTED_SECRET]');
+  });
+
+  it('redacts PII the model echoed into a tool-call argument (not just .content)', async () => {
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      eveRouting: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE, tier: 'standard' }),
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [
+          { role: 'user', content: 'Leg den Kontakt an.' },
+          {
+            role: 'assistant',
+            content: '',
+            tool_calls: [
+              {
+                id: 'call_1',
+                type: 'function',
+                function: { name: 'crm_create', arguments: '{"phone":"+49 30 12345678"}' },
+              },
+            ],
+          },
+          { role: 'tool', tool_call_id: 'call_1', content: 'ok' },
+        ],
+        stream: false,
+      }),
+    });
+
+    // The phone was ONLY in the tool-call argument — it must still be detected + redacted.
+    expect(response.status).toBe(200);
+    expect(response.headers.get('x-command-eve-egress-decision')).toBe('redact');
+    const forwarded = JSON.stringify(fnSeen.body);
+    expect(forwarded).not.toContain('12345678');
+    expect(forwarded).toContain('[REDACTED_PHONE]');
   });
 
   it('fail-closes with 401 when an EVE route is active but the license is missing', async () => {
