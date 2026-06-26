@@ -386,8 +386,8 @@ describe('EVE soul-wiring: internal Operating Rule reconciled to defer to SOUL.m
 describe('EVE onboarding S1: app-owned config-awareness skill (separate from the strategy allowlist)', () => {
   const SKILL_MD = commandEveOnboardingSkillMarkdown();
 
-  it('is its own app-owned skill, NOT in EVE_STRATEGY_SKILL_IDS (allowlist is 17: 15 strategy + blog-writer + client-report)', () => {
-    expect(EVE_STRATEGY_SKILL_IDS).toHaveLength(17);
+  it('is its own app-owned skill, NOT in EVE_STRATEGY_SKILL_IDS (allowlist is 18: 15 strategy + blog-writer + founder-voice + client-report)', () => {
+    expect(EVE_STRATEGY_SKILL_IDS).toHaveLength(18);
     expect(EVE_STRATEGY_SKILL_IDS as readonly string[]).not.toContain('eve-onboarding-awareness');
   });
 
