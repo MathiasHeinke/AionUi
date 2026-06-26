@@ -20,6 +20,7 @@ import HOC from '@renderer/utils/ui/HOC';
 import QuotaExhaustedWall from '@renderer/components/billing/QuotaExhaustedWall';
 import React from 'react';
 import AcpE2EStreamInjector from './AcpE2EStreamInjector';
+import AcpRuntimeStatus from './AcpRuntimeStatus';
 import AcpSendBox from './AcpSendBox';
 import { useAcpMessage } from './useAcpMessage';
 
@@ -76,6 +77,12 @@ const AcpChat: React.FC<{
             <MessageList className='flex-1' emptySlot={emptySlot} />
           </FlexFullContainer>
           <AcpE2EStreamInjector conversationId={conversation_id} />
+          {/* Live runtime + DSGVO egress status strip: shows the current phase
+              ("EVE thinking") AND surfaces the egress-boundary decision — when EVE
+              redacts sensitive data before model egress the operator SEES "EVE redacted
+              N finding(s)" instead of it happening silently. Self-suppresses when the
+              operator hides it (commandEve.runtimeStatusVisible) or there is nothing to show. */}
+          <AcpRuntimeStatus activity={messageState.runtimeActivity} running={messageState.running} aiProcessing={messageState.aiProcessing} />
           {/* Lane-3 402 quota-exhausted wall — fed by the LIVE stream-error path
               in useAcpMessage. The wall idle-suppresses itself: it renders only
               when a turn was in-flight AND a 402 quota_exhausted body arrived. */}
