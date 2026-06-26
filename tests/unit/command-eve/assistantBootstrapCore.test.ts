@@ -93,6 +93,16 @@ describe('Command EVE assistant bootstrap core', () => {
     expect(COMMAND_EVE_ASSISTANT_RULE_EN).toContain('raw tokens');
   });
 
+  it('teaches EVE to route secrets into a local .env instead of chat (proactive guardrail)', () => {
+    // Founder 2026-06-26: EVE must KNOW secrets don't belong in chat and proactively
+    // offer a local .env (like Claude Code reminds), not just decline to ask for them.
+    expect(COMMAND_EVE_ASSISTANT_RULE_DE).toMatch(/\.env/);
+    expect(COMMAND_EVE_ASSISTANT_RULE_DE).toMatch(/lokale[\s\S]{0,40}\.env/i);
+    expect(COMMAND_EVE_ASSISTANT_RULE_DE).toMatch(/rotier/i);
+    expect(COMMAND_EVE_ASSISTANT_RULE_EN).toMatch(/local[\s\S]{0,40}\.env/i);
+    expect(COMMAND_EVE_ASSISTANT_RULE_EN).toMatch(/rotat/i);
+  });
+
   it('bootstraps EVE with the Chief-of-Staff skill and connector catalog', () => {
     expect(COMMAND_EVE_ASSISTANT_SKILL_DE).toContain('content-machine');
     expect(COMMAND_EVE_ASSISTANT_SKILL_DE).toContain('Codex CLI');

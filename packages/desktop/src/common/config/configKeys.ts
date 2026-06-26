@@ -57,6 +57,12 @@ export type ConfigKeyMap = {
   'system.keepAwake': boolean | undefined;
   'system.autoPreviewOfficeFiles': boolean | undefined;
   'commandEve.runtimeStatusVisible': boolean | undefined;
+  // Show the data-boundary (egress) signal in the runtime status strip. Only ever
+  // surfaces a REAL action (EVE redacted/blocked an outbound secret); it never
+  // claims "all clear" (we can't prove a negative). Founder 2026-06-26 is skeptical
+  // of any reassuring claim, so this is an off-switch; default ON so a real
+  // redaction stays visible to the operator. undefined => treated as true.
+  'commandEve.egressStatusVisible': boolean | undefined;
   'commandEve.modelWarmupEnabled': boolean | undefined;
   'commandEve.localModelTierId': string | undefined;
   /**

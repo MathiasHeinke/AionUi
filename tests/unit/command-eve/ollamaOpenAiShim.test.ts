@@ -267,6 +267,37 @@ describe('Command EVE shim — EVE cloud routing', () => {
     expect(fnSeen.body).not.toHaveProperty('model');
   });
 
+  it('rewrites a 429 daily-cap into a friendly German message, not a cold rate-limit error', async () => {
+    // UX: the raw upstream 429 surfaced in chat as a terse "rate_limit" error.
+    // The shim must rewrite it to a warm, operator-facing line (named cause +
+    // way forward) while staying OpenAI-error-shaped so the chat renders it.
+    const ollamaBaseUrl = await startFakeOpenAiServer(() => {});
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen, { status: 429 });
+
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl,
+      eveRouting: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE, tier: 'standard' }),
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [{ role: 'user', content: 'plan my week' }],
+        stream: false,
+      }),
+    });
+    const json = (await response.json()) as { error?: { message?: string; type?: string } };
+
+    expect(response.status).toBe(429);
+    expect(json.error?.type).toBe('eve_daily_cap');
+    expect(json.error?.message).toMatch(/Tageskontingent/);
+    expect(json.error?.message).toMatch(/Morgen/);
+  });
+
   it('forwards the function-calling fields (tools/tool_choice) on the EVE cloud lane — the tool-use tripwire', async () => {
     // REGRESSION GUARD: the cloud outboundBody once dropped `tools`, so the model
     // received ZERO tools and could never call one (tool_turns=0) — EVE went

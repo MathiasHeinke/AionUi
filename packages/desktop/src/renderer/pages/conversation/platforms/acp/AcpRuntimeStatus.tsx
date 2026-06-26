@@ -53,6 +53,8 @@ const AcpRuntimeStatus: React.FC<{
 }> = ({ activity, running, aiProcessing }) => {
   const { t } = useTranslation();
   const [visible] = useConfig('commandEve.runtimeStatusVisible');
+  const [egressVisibleSetting] = useConfig('commandEve.egressStatusVisible');
+  const egressVisible = egressVisibleSetting ?? true;
   const [now, setNow] = useState(Date.now());
   const [egressBoundary, setEgressBoundary] = useState<EgressBoundaryStatus | null>(null);
   const isVisible = visible ?? true;
@@ -122,24 +124,27 @@ const AcpRuntimeStatus: React.FC<{
   const notice =
     isActive && elapsedMs && elapsedMs >= LONG_RUNNING_NOTICE_MS
       ? t('conversation.runtimeStatus.notice.longRunning')
-      : isActive && elapsedMs && elapsedMs >= LOCAL_MODEL_NOTICE_MS
+      : // The "model is warming up / first answer is slow" notice only makes sense on
+        // the LOCAL lane. On the cloud lane (V4 etc.) it's just wrong — a slow cloud
+        // answer is not a local-model warmup — so suppress it there.
+        isActive && isLocalLane && elapsedMs && elapsedMs >= LOCAL_MODEL_NOTICE_MS
         ? t('conversation.runtimeStatus.notice.localModel')
         : null;
+  // Data-boundary signal: only ever surface a REAL action EVE took on outbound text
+  // (it redacted or blocked a detected secret). We deliberately DO NOT render an
+  // "all clear / no sensitive hits" line — that would assert a guarantee we can't
+  // prove (founder 2026-06-26: skeptical of the reassuring claim). The whole signal
+  // is also behind an operator off-switch (commandEve.egressStatusVisible).
   const egressDecision = egressBoundary?.decision;
   const egressLabel =
-    egressDecision === 'block'
-      ? t('conversation.runtimeStatus.egress.blocked', { count: egressBoundary?.finding_count ?? 0 })
-      : egressDecision === 'redact'
-        ? t('conversation.runtimeStatus.egress.redacted', { count: egressBoundary?.finding_count ?? 0 })
-        : egressDecision === 'allow'
-          ? t('conversation.runtimeStatus.egress.clear')
+    !egressVisible
+      ? null
+      : egressDecision === 'block'
+        ? t('conversation.runtimeStatus.egress.blocked', { count: egressBoundary?.finding_count ?? 0 })
+        : egressDecision === 'redact'
+          ? t('conversation.runtimeStatus.egress.redacted', { count: egressBoundary?.finding_count ?? 0 })
           : null;
-  const egressClass =
-    egressDecision === 'block'
-      ? 'text-danger-6'
-      : egressDecision === 'redact'
-        ? 'text-warning-6'
-        : 'text-success-6';
+  const egressClass = egressDecision === 'block' ? 'text-danger-6' : 'text-warning-6';
 
   return (
     <div className='mb-8px flex items-start justify-between gap-12px px-12px py-8px rd-12px border border-solid border-border-2 bg-fill-1 text-12px text-t-secondary'>

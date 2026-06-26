@@ -108,6 +108,8 @@ export interface IConfigStorageRefer {
   'system.autoPreviewOfficeFiles'?: boolean;
   // Show Command EVE runtime activity in conversations
   'commandEve.runtimeStatusVisible'?: boolean;
+  // Show the data-boundary (egress) redaction/block signal in the status strip
+  'commandEve.egressStatusVisible'?: boolean;
   // Pre-warm the local Command EVE model after runtime bootstrap
   'commandEve.modelWarmupEnabled'?: boolean;
   // Selected local model tier for Command EVE's Hermes/Ollama runtime

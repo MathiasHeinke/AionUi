@@ -1900,6 +1900,8 @@ export type I18nKey =
   | 'settings.commandEveModelTier.default'
   | 'settings.commandEveModelTier.opt_in'
   | 'settings.commandEveModelTier.pro'
+  | 'settings.commandEveEgressStatus'
+  | 'settings.commandEveEgressStatusDesc'
   | 'settings.commandEveModelWarmup'
   | 'settings.commandEveModelWarmupDesc'
   | 'settings.commandEveRuntimeStatus'

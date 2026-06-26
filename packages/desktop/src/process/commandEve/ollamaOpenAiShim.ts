@@ -616,6 +616,31 @@ async function handleEveCloudCompletions(
   // function returns OpenAI-compatible completions on 200 and sanitized error
   // bodies otherwise.
   const text = await upstream.text().catch(() => '');
+
+  // Friendly daily-cap (429): the raw upstream body is a terse
+  // "rate_limit"/"daily cap reached" JSON that surfaces in chat as a cold
+  // error. Rewrite it to a warm, operator-facing message that names WHY (the
+  // free tier's daily fair-use budget) and the way forward, WITHOUT inventing a
+  // cap number — if the function reported a concrete reset/limit we keep its
+  // text, otherwise a generic friendly line. Stays OpenAI-error-shaped so the
+  // chat renders message verbatim.
+  if (upstream.status === 429) {
+    let upstreamMessage = '';
+    try {
+      const parsed = JSON.parse(text) as { error?: { message?: string }; message?: string };
+      upstreamMessage = (parsed?.error?.message || parsed?.message || '').trim();
+    } catch {
+      upstreamMessage = '';
+    }
+    const friendly =
+      'EVE hat ihr kostenloses Tageskontingent für heute erreicht. ' +
+      'Morgen läuft es automatisch wieder — oder du schaltest mehr Kontingent über die Credits frei.' +
+      (upstreamMessage ? ` (${upstreamMessage})` : '');
+    response.writeHead(429, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ error: { message: friendly, type: 'eve_daily_cap', code: 429 } }));
+    return;
+  }
+
   response.writeHead(upstream.status || 502, {
     'content-type': upstream.headers.get('content-type') || 'application/json',
   });

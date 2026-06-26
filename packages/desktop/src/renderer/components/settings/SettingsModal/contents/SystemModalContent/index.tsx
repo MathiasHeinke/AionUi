@@ -52,6 +52,7 @@ const SystemModalContent: React.FC = () => {
   const [saveUploadToWorkspace, setSaveUploadToWorkspace] = useState(false);
   const [autoPreviewOfficeFiles, setAutoPreviewOfficeFiles] = useState(true);
   const [runtimeStatusVisible, setRuntimeStatusVisible] = useState(true);
+  const [egressStatusVisible, setEgressStatusVisible] = useState(true);
   const [modelWarmupEnabled, setModelWarmupEnabled] = useState(true);
 
   useEffect(() => {
@@ -94,6 +95,7 @@ const SystemModalContent: React.FC = () => {
     setSaveUploadToWorkspace(configService.get('upload.saveToWorkspace') ?? false);
     setAutoPreviewOfficeFiles(configService.get('system.autoPreviewOfficeFiles') ?? true);
     setRuntimeStatusVisible(configService.get('commandEve.runtimeStatusVisible') ?? true);
+    setEgressStatusVisible(configService.get('commandEve.egressStatusVisible') ?? true);
     setModelWarmupEnabled(configService.get('commandEve.modelWarmupEnabled') ?? true);
     const pt = configService.get('acp.promptTimeout');
     if (pt && pt > 0) setPromptTimeout(pt);
@@ -249,6 +251,14 @@ const SystemModalContent: React.FC = () => {
     });
   }, []);
 
+  const handleEgressStatusVisibleChange = useCallback((checked: boolean) => {
+    setEgressStatusVisible(checked);
+    configService.set('commandEve.egressStatusVisible', checked).catch(() => {
+      setEgressStatusVisible(!checked);
+      configService.setLocal('commandEve.egressStatusVisible', !checked);
+    });
+  }, []);
+
   const handleModelWarmupEnabledChange = useCallback((checked: boolean) => {
     setModelWarmupEnabled(checked);
     configService.set('commandEve.modelWarmupEnabled', checked).catch(() => {
@@ -291,6 +301,12 @@ const SystemModalContent: React.FC = () => {
       label: t('settings.commandEveRuntimeStatus'),
       description: t('settings.commandEveRuntimeStatusDesc'),
       component: <Switch checked={runtimeStatusVisible} onChange={handleRuntimeStatusVisibleChange} />,
+    },
+    {
+      key: 'commandEveEgressStatus',
+      label: t('settings.commandEveEgressStatus'),
+      description: t('settings.commandEveEgressStatusDesc'),
+      component: <Switch checked={egressStatusVisible} onChange={handleEgressStatusVisibleChange} />,
     },
     {
       key: 'commandEveModelWarmup',
