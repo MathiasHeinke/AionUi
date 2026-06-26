@@ -32,7 +32,9 @@ echo "== SOUL-1 live check =="
 
 # --- 1. The desktop writes a RICH SOUL.md ---------------------------------------
 if [ ! -f "$BOOT" ]; then bad "runtimeBootstrapCore.ts not found at $BOOT"; fi
-if grep -q "writeFileSync(path.join(paths.hermesHome, 'SOUL.md')" "$BOOT" 2>/dev/null; then
+# Flatten newlines so a multi-line `writeFileSync(\n  path.join(...'SOUL.md'),\n  ...)`
+# still matches (the call was reformatted across lines; the write is unchanged).
+if tr '\n' ' ' < "$BOOT" 2>/dev/null | grep -q "writeFileSync( *path.join(paths.hermesHome, 'SOUL.md')"; then
   pass "desktop writes \$HERMES_HOME/SOUL.md (per-seat)"
 else
   bad "no writeFileSync of \$HERMES_HOME/SOUL.md in the bootstrap"
@@ -58,8 +60,10 @@ else
     GATE="$TMP/agent/system_prompt.py"
     SESS="$TMP/acp_adapter/session.py"
     # 2. the load gate exists.
+    # load_soul_md may take args (0.17.0 made it context-length-aware: load_soul_md(_ctx_len));
+    # match the call with any argument list, not just empty parens.
     if grep -q "if agent.load_soul_identity or not agent.skip_context_files:" "$GATE" 2>/dev/null \
-       && grep -q "load_soul_md()" "$GATE" 2>/dev/null; then
+       && grep -qE "load_soul_md\(" "$GATE" 2>/dev/null; then
       pass "wheel loads SOUL.md (gate: load_soul_identity OR NOT skip_context_files)"
     else
       bad "wheel system_prompt.py gate / load_soul_md() not as expected"

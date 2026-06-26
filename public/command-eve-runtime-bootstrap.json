@@ -3,7 +3,7 @@
   "release": "1.2.0",
   "hermes": {
     "package": "hermes-agent",
-    "version": "0.16.0",
+    "version": "0.17.0",
     "extras": ["acp"]
   },
   "local_runtime": {

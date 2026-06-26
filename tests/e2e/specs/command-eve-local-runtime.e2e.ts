@@ -18,7 +18,7 @@ test.describe('Command EVE Local Runtime', () => {
 
     await expect(page.getByText('Local Runtime').first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText('Read-only').first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText('hermes-agent 0.16.0').first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('hermes-agent 0.17.0').first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText('http://127.0.0.1:11434').first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText('http://127.0.0.1:25811').first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText('gemma4:e4b').first()).toBeVisible({ timeout: 30_000 });
