@@ -70,11 +70,18 @@ export async function transcribeAudioBlob(blob: Blob, languageHint?: string): Pr
     };
     // The 'local' provider transcribes ON-DEVICE via the bundled venv (no cloud,
     // no key) — a separate main-process IPC, NOT aioncore's /api/stt cloud lane.
+    //
+    // DEFAULT to local on desktop. The on-device lane is the DSGVO-clean lane (audio never
+    // leaves the Mac, no key) and is what the product intends (hermes config.yaml pins
+    // stt.provider:local). Previously an UNSET provider fell through to aioncore's /api/stt
+    // cloud lane, which 400s instantly → "Spracheingabe fehlgeschlagen" even though the local
+    // lane works. Only route to a cloud STT provider if one is EXPLICITLY configured.
     const sttConfig = configService.get('tools.speechToText') as SpeechToTextConfig | undefined;
-    if (sttConfig?.provider === 'local') {
+    const useLocal = !sttConfig?.provider || sttConfig.provider === 'local';
+    if (useLocal) {
       const response = await ipcBridge.commandEve.speechToTextLocal.invoke({
         ...payload,
-        localModel: sttConfig.local?.model,
+        localModel: sttConfig?.local?.model,
       });
       if (!response.success || !response.data) {
         throw new Error(response.msg || 'STT_REQUEST_FAILED');

@@ -91,9 +91,19 @@ function audioExtension(fileName: string): string {
   return ext || 'webm';
 }
 
+// A GUI app launched from Finder inherits a STRIPPED PATH (typically /usr/bin:/bin only),
+// so a system ffmpeg/whisper the transcription may fall back to is invisible. Augment PATH
+// with the venv's own bin + the common install locations so the on-device lane stays robust.
+const STT_EXTRA_PATH_DIRS = ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin'];
+
 const defaultRunner: CommandEveSttRunner = (command, args, options) =>
   new Promise((resolve) => {
-    execFile(command, args, { timeout: options.timeoutMs, maxBuffer: 8 * 1024 * 1024 }, (error, stdout, stderr) => {
+    const homeBin = process.env.HOME ? path.join(process.env.HOME, '.local', 'bin') : '';
+    const augmentedPath = [path.dirname(command), homeBin, ...STT_EXTRA_PATH_DIRS, process.env.PATH || '']
+      .filter(Boolean)
+      .join(':');
+    const env = { ...process.env, PATH: augmentedPath };
+    execFile(command, args, { timeout: options.timeoutMs, maxBuffer: 8 * 1024 * 1024, env }, (error, stdout, stderr) => {
       resolve({
         ok: !error,
         stdout: stdout?.toString() ?? '',
