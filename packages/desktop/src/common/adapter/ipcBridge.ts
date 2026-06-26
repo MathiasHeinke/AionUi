@@ -1949,7 +1949,11 @@ export const mode = {
 export const acpConversation = {
   sendMessage: conversation.sendMessage,
   responseStream: conversation.responseStream,
-  getAvailableAgents: httpGet<AgentMetadata[], void>('/api/agents'),
+  // aioncore v0.1.37 (0.34.0) renamed the agent-list GET from /api/agents to
+  // /api/agents/management (the plain /api/agents GET now 404s). The renderer base
+  // was not bumped alongside the engine, so we repoint the call. /api/agents/refresh
+  // (POST re-scan) is unchanged.
+  getAvailableAgents: httpGet<AgentMetadata[], void>('/api/agents/management'),
   refreshCustomAgents: httpPost<void, void>('/api/agents/refresh'),
   testCustomAgent: httpPost<
     { step: 'success' } | { step: 'fail_cli'; error: string } | { step: 'fail_acp'; error: string },

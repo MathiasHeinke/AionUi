@@ -228,7 +228,9 @@ function hasAvailableHermesAgent(agents: CommandEveDetectedAgent[]): boolean {
 }
 
 async function loadCommandEveDetectedAgents(backendPort: number): Promise<CommandEveDetectedAgent[]> {
-  let agents = await requestJson<CommandEveDetectedAgent[]>(backendPort, '/api/agents');
+  // aioncore v0.1.37 renamed the agent-list GET to /api/agents/management (plain
+  // /api/agents now 404s). A 404 here threw and aborted the whole EVE re-seed.
+  let agents = await requestJson<CommandEveDetectedAgent[]>(backendPort, '/api/agents/management');
   if (hasAvailableHermesAgent(agents)) return agents;
 
   // The backend agent registry can finish Hermes detection just after the
@@ -236,7 +238,7 @@ async function loadCommandEveDetectedAgents(backendPort: number): Promise<Comman
   // short chance to appear, otherwise old first-run state survives forever.
   for (let attempt = 0; attempt < 5; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 600));
-    agents = await requestJson<CommandEveDetectedAgent[]>(backendPort, '/api/agents');
+    agents = await requestJson<CommandEveDetectedAgent[]>(backendPort, '/api/agents/management');
     if (hasAvailableHermesAgent(agents)) break;
   }
   return agents;

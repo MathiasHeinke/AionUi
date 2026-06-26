@@ -60,7 +60,7 @@ async function captureAssistantSkills(userDataPath: string): Promise<Record<stri
     const url = new URL(String(input));
     const method = String(init?.method || 'GET').toUpperCase();
     const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
-    if (url.pathname === '/api/agents') return jsonResponse({ success: true, data: [{ backend: 'hermes', available: true }] });
+    if (url.pathname === '/api/agents/management') return jsonResponse({ success: true, data: [{ backend: 'hermes', available: true }] });
     if (url.pathname === '/api/assistants' && method === 'GET') return jsonResponse({ success: true, data: [ready] });
     if (url.pathname === '/api/assistants' && method === 'POST') return jsonResponse({ success: true, data: ready });
     if (url.pathname === `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}` && method === 'PUT') return jsonResponse({ success: true, data: ready });
@@ -184,7 +184,7 @@ describe('Command EVE assistant bootstrap', () => {
       const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
       calls.push({ method, path: url.pathname, body });
 
-      if (url.pathname === '/api/agents') {
+      if (url.pathname === '/api/agents/management') {
         return jsonResponse({ success: true, data: [{ backend: 'hermes', available: true }] });
       }
 
