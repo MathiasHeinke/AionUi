@@ -68,6 +68,9 @@ export const EVE_STRATEGY_SKILLS = Object.freeze([
   { id: 'landing-copy' },
   { id: 'human-design-profile' },
   { id: 'marketing-outbound', bundle: true },
+  // blog-writer: a REAL executable long-form/blog skill (replaces the fake "blog-department"
+  // prompt label). On-voice (USER.md), SEO-aware, claim-safe, never publishes.
+  { id: 'blog-writer' },
   // client-report: in-seat generator of the operator's client-facing report deliverable
   // (single-folder skill: SKILL.md + report-template.md).
   { id: 'client-report' },

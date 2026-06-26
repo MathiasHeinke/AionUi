@@ -14,10 +14,11 @@ import {
 
 // --- allowlist shape -------------------------------------------------------
 
-test('the allowlist is exactly 16: the 15 curated strategy skills + client-report', () => {
-  assert.equal(EVE_STRATEGY_SKILL_IDS.length, 16);
+test('the allowlist is exactly 17: 15 curated strategy skills + blog-writer + client-report', () => {
+  assert.equal(EVE_STRATEGY_SKILL_IDS.length, 17);
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('eve-doctrine'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('marketing-outbound'));
+  assert.ok(EVE_STRATEGY_SKILL_IDS.includes('blog-writer'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('client-report'));
   // gitnexus and other dev/IDE skills must NEVER be in the allowlist.
   assert.ok(!EVE_STRATEGY_SKILL_IDS.includes('gitnexus'));

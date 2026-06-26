@@ -63,6 +63,10 @@ export const EVE_STRATEGY_SKILL_IDS = [
   'landing-copy',
   'human-design-profile',
   'marketing-outbound',
+  // blog-writer: a REAL, executable long-form/blog skill (was previously only a fake
+  // "blog-department" prompt label with no SKILL.md). On-voice (pulls USER.md), SEO-aware,
+  // claim-safe (UWG/DSGVO), never publishes — produces a draft for the human-gated flow.
+  'blog-writer',
   // client-report: the in-seat GENERATOR of the operator's client-facing deliverable
   // (exec summary / findings / recommendations / next steps), assembled from ONLY the
   // active seat's truth and shaped to feed the report export. Seat-fenced + honesty-walled
@@ -1263,7 +1267,7 @@ function commandEveManagedSkillMarkdown(skill: CommandEveCapabilityPack['skills'
 }
 
 // The APP-OWNED config-awareness onboarding skill (Guided Onboarding SLICE S1).
-// This is deliberately NOT in EVE_STRATEGY_SKILL_IDS (the bundled allowlist, now 16:
+// This is deliberately NOT in EVE_STRATEGY_SKILL_IDS (the bundled allowlist, now 17:
 // the 15 strategy skills + client-report) and NOT in command-eve-capabilities.json — it is
 // a separate app-owned managed skill written directly into managedSkillsRoot, which
 // is already on skills.external_dirs, so the running Hermes agent discovers it like
