@@ -3,12 +3,17 @@ import { COMMAND_EVE_ASSISTANT_ID } from '@/common/config/commandEveShell';
 import {
   COMMAND_EVE_ASSISTANT_RULE_DE,
   COMMAND_EVE_ASSISTANT_RULE_EN,
+  COMMAND_EVE_ASSISTANT_RULE_FOUNDER_DE,
+  COMMAND_EVE_ASSISTANT_RULE_FOUNDER_EN,
   COMMAND_EVE_ASSISTANT_SKILL_DE,
   COMMAND_EVE_ASSISTANT_SKILL_EN,
+  COMMAND_EVE_ASSISTANT_SKILL_FOUNDER_DE,
+  COMMAND_EVE_ASSISTANT_SKILL_FOUNDER_EN,
   buildCommandEveAssistantFirstRunContext,
   buildCommandEveAssistant,
   buildCommandEveAssistantContext,
   buildCommandEveAssistantSkill,
+  getCommandEveAssistantRule,
   selectCommandEvePresetAgentType,
   unwrapCommandEveApiData,
 } from '@/process/commandEve/assistantBootstrapCore';
@@ -43,14 +48,18 @@ describe('Command EVE assistant bootstrap core', () => {
     expect(selectCommandEvePresetAgentType(agents)).toBe('aionrs');
   });
 
-  it('builds the canonical EVE preset assistant', () => {
+  it('builds the canonical EVE preset assistant (operator-facing by default)', () => {
     const assistant = buildCommandEveAssistant('codex');
     expect(assistant.id).toBe(COMMAND_EVE_ASSISTANT_ID);
     expect(assistant.name).toBe('EVE');
     expect(assistant.preset_agent_type).toBe('codex');
-    expect(assistant.avatar).toBe('command-eve-logo.svg');
-    expect(assistant.description).toContain('Chief-of-Staff-Schicht');
-    expect(assistant.description_i18n?.['de-DE']).toContain('Chief-of-Staff');
+    // Avatar resolves from the renderer root (leading slash) like the favicon — not a bare filename.
+    expect(assistant.avatar).toBe('/command-eve-logo.svg');
+    // The shipped operator assistant is "The Operator", never the internal founder persona.
+    expect(assistant.description).not.toContain('Chief-of-Staff');
+    expect(assistant.description).toMatch(/Geldverdienen|making money/);
+    expect(assistant.description_i18n?.['de-DE']).not.toContain('Chief-of-Staff');
+    expect(assistant.description_i18n?.['en-US']).toMatch(/making money/);
     expect(assistant.disabled_builtin_skills).toEqual([
       'aionui-skills',
       'cron',
@@ -84,13 +93,44 @@ describe('Command EVE assistant bootstrap core', () => {
     expect(buildCommandEveAssistantContext('1.0.0-alpha.5')).toContain('Execution backends are tools, not identity');
   });
 
-  it('codifies authority and secret boundaries in both supported languages', () => {
-    expect(COMMAND_EVE_ASSISTANT_RULE_DE).toContain('Du setzt keine Plane-Items auf Done');
+  it('codifies operator boundaries (invisible delivery, per-client isolation, secrets) in both languages', () => {
+    expect(COMMAND_EVE_ASSISTANT_RULE_DE).toContain('Unsichtbare Lieferung');
+    expect(COMMAND_EVE_ASSISTANT_RULE_DE).toContain('Kunden-Isolation');
     expect(COMMAND_EVE_ASSISTANT_RULE_DE).toContain('sprichst du Deutsch und per Du');
     expect(COMMAND_EVE_ASSISTANT_RULE_DE).toContain('Passwoertern');
-    expect(COMMAND_EVE_ASSISTANT_RULE_EN).toContain('You do not set Plane items to Done');
+    expect(COMMAND_EVE_ASSISTANT_RULE_EN).toContain('Invisible delivery');
+    expect(COMMAND_EVE_ASSISTANT_RULE_EN).toContain('per-client isolation');
     expect(COMMAND_EVE_ASSISTANT_RULE_EN).toContain('informal "Du"');
     expect(COMMAND_EVE_ASSISTANT_RULE_EN).toContain('raw tokens');
+  });
+
+  it('keeps the internal founder orchestration boundaries ONLY in the founder build', () => {
+    // The founder build (COMMAND_EVE_FOUNDER_BUILD=1) keeps the Chief-of-Staff layer;
+    // the shipped operator default never carries it. getCommandEveAssistantRule selects.
+    expect(COMMAND_EVE_ASSISTANT_RULE_FOUNDER_DE).toContain('Du setzt keine Plane-Items auf Done');
+    expect(COMMAND_EVE_ASSISTANT_RULE_FOUNDER_EN).toContain('You do not set Plane items to Done');
+    expect(getCommandEveAssistantRule('de-DE', false)).toBe(COMMAND_EVE_ASSISTANT_RULE_DE);
+    expect(getCommandEveAssistantRule('de-DE', true)).toBe(COMMAND_EVE_ASSISTANT_RULE_FOUNDER_DE);
+    expect(getCommandEveAssistantRule('en-US', true)).toBe(COMMAND_EVE_ASSISTANT_RULE_FOUNDER_EN);
+    // The founder persona must contain Chief-of-Staff; the operator one must not.
+    const founder = buildCommandEveAssistant('hermes', [], true);
+    expect(founder.description).toContain('Chief-of-Staff');
+  });
+
+  it('GUARD: no internal Company.OS / founder vocabulary leaks into the operator-facing surfaces', () => {
+    const operatorSurfaces = [
+      COMMAND_EVE_ASSISTANT_RULE_DE,
+      COMMAND_EVE_ASSISTANT_RULE_EN,
+      COMMAND_EVE_ASSISTANT_SKILL_DE,
+      COMMAND_EVE_ASSISTANT_SKILL_EN,
+      buildCommandEveAssistant('hermes').description ?? '',
+      buildCommandEveAssistant('hermes').description_i18n?.['en-US'] ?? '',
+      (buildCommandEveAssistant('hermes').prompts ?? []).join(' '),
+    ].join('\n');
+    for (const token of ['Chief-of-Staff', 'Founder Intent', 'CEO Delegation', 'CEO-Delegation', 'Worker Contract', 'C-Level', 'C-level', 'Plane', 'Company.OS', 'Codex CLI', 'Claude Code CLI']) {
+      expect(operatorSurfaces).not.toContain(token);
+    }
+    expect(operatorSurfaces).not.toMatch(/HG-[0-9]/);
   });
 
   it('teaches EVE to route secrets into a local .env instead of chat (proactive guardrail)', () => {
@@ -103,13 +143,17 @@ describe('Command EVE assistant bootstrap core', () => {
     expect(COMMAND_EVE_ASSISTANT_RULE_EN).toMatch(/rotat/i);
   });
 
-  it('bootstraps EVE with the Chief-of-Staff skill and connector catalog', () => {
-    expect(COMMAND_EVE_ASSISTANT_SKILL_DE).toContain('content-machine');
-    expect(COMMAND_EVE_ASSISTANT_SKILL_DE).toContain('Codex CLI');
-    expect(COMMAND_EVE_ASSISTANT_SKILL_DE).toContain('Worker Contract Draft mit Dispatch: manual');
-    expect(COMMAND_EVE_ASSISTANT_SKILL_EN).toContain('video-first-content-engine');
-    expect(COMMAND_EVE_ASSISTANT_SKILL_EN).toContain('Claude Code CLI');
+  it('bootstraps EVE with the operator first-run skill + connector catalog', () => {
+    // Operator skill: real product skills + honest connector status, no internal orchestration.
+    expect(COMMAND_EVE_ASSISTANT_SKILL_DE).toContain('business-diagnostic');
+    expect(COMMAND_EVE_ASSISTANT_SKILL_DE).toContain('blog-writer');
+    expect(COMMAND_EVE_ASSISTANT_SKILL_EN).toContain('business-diagnostic');
     expect(COMMAND_EVE_ASSISTANT_SKILL_EN).toContain('connected only when a preflight/receipt proves it');
+    // The internal Chief-of-Staff skill (content-machine / Codex CLI) lives only in the founder build.
+    expect(COMMAND_EVE_ASSISTANT_SKILL_FOUNDER_DE).toContain('Codex CLI');
+    expect(COMMAND_EVE_ASSISTANT_SKILL_FOUNDER_EN).toContain('Claude Code CLI');
+    expect(buildCommandEveAssistantSkill('de-DE', undefined, false)).toBe(COMMAND_EVE_ASSISTANT_SKILL_DE);
+    expect(buildCommandEveAssistantSkill('en-US', undefined, true)).toContain('Claude Code CLI');
   });
 
   it('renders local runtime, identity, skill and connector status into EVE first-run context', () => {

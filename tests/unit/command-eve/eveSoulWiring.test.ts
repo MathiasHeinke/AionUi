@@ -23,6 +23,8 @@ import { buildCommandEvePromptProof } from '@/process/commandEve/ollamaOpenAiShi
 import {
   COMMAND_EVE_ASSISTANT_RULE_DE,
   COMMAND_EVE_ASSISTANT_RULE_EN,
+  COMMAND_EVE_ASSISTANT_RULE_FOUNDER_DE,
+  COMMAND_EVE_ASSISTANT_RULE_FOUNDER_EN,
 } from '@/process/commandEve/assistantBootstrapCore';
 
 // =========================================================================
@@ -366,10 +368,13 @@ describe('EVE soul-wiring: internal Operating Rule reconciled to defer to SOUL.m
   });
 
   it('preserves the no-secrets / gate boundaries (consumers + existing invariants unbroken)', () => {
-    expect(COMMAND_EVE_ASSISTANT_RULE_EN).toContain('You do not set Plane items to Done');
+    // Operator rule keeps the secret + human-gate boundaries...
     expect(COMMAND_EVE_ASSISTANT_RULE_EN).toContain('raw tokens');
-    expect(COMMAND_EVE_ASSISTANT_RULE_DE).toContain('Du setzt keine Plane-Items auf Done');
+    expect(COMMAND_EVE_ASSISTANT_RULE_EN).toMatch(/Human-gate before anything irreversible/);
     expect(COMMAND_EVE_ASSISTANT_RULE_DE).toContain('Passwoertern');
+    // ...while the internal Plane/Done founder boundary lives only in the founder rule.
+    expect(COMMAND_EVE_ASSISTANT_RULE_FOUNDER_EN).toContain('You do not set Plane items to Done');
+    expect(COMMAND_EVE_ASSISTANT_RULE_FOUNDER_DE).toContain('Du setzt keine Plane-Items auf Done');
   });
 });
 

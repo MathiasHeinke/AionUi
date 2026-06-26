@@ -1,6 +1,6 @@
 {
   "version": "command-eve-capability-pack/v0",
-  "release": "1.2.1",
+  "release": "1.2.2",
   "policy": {
     "default_mode": "proposal_only",
     "secret_rule": "Never ask for passwords, cookies, recovery codes, raw tokens or .env contents in chat.",
@@ -37,9 +37,9 @@
     },
     {
       "id": "goal-materialization",
-      "name": "Founder intent to CEO delegation and worker contracts",
+      "name": "Turn your goal into a plan and get it done",
       "tier": "autonomy_core",
-      "source": "Company.OS worker contract doctrine",
+      "source": "Command EVE planning",
       "default_state": "active"
     },
     {
@@ -74,7 +74,7 @@
       "id": "security-fortress-review",
       "name": "Security and Fortress review routing",
       "tier": "gated_department",
-      "source": "Company.OS security productization gates",
+      "source": "Command EVE security review",
       "default_state": "gated"
     },
     {
@@ -102,7 +102,7 @@
       "id": "crm-department",
       "name": "CRM and relationship operating layer",
       "tier": "department",
-      "source": "Company.OS revenue department roadmap",
+      "source": "Command EVE revenue layer",
       "default_state": "available"
     }
   ],
@@ -173,11 +173,11 @@
     },
     {
       "id": "plane-sync",
-      "name": "Plane sync surface",
+      "name": "Work-board sync (optional)",
       "tier": "recommended",
       "setup_mode": "optional_sync_connector",
       "default_state": "needs_auth",
-      "human_gate": "HG-3 before write-capable ledger changes"
+      "human_gate": "asks before write-capable changes"
     },
     {
       "id": "google-workspace",

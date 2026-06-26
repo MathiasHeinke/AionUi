@@ -4,10 +4,30 @@ import type { AcpModelInfo } from '../types/platform/acpTypes';
 export const COMMAND_EVE_SHELL_ENABLED =
   typeof process === 'undefined' ? true : process.env.AIONUI_UPSTREAM_MODE !== '1';
 
+/**
+ * Founder / internal build flag.
+ *
+ * DEFAULT (every shipped operator build) is FALSE: EVE is the operator-facing
+ * "The Operator" confidant (SOUL.md) — a co-founder-grade partner for making
+ * money with AI for the operator and their clients. Operators NEVER see the
+ * internal Company.OS orchestration scaffolding (Chief-of-Staff, Founder Intent,
+ * CEO/Codex delegation, Worker Contracts, Plane, HG-gates) or the Command Center.
+ *
+ * The founder opts into the internal Chief-of-Staff orchestration persona + tools
+ * by setting COMMAND_EVE_FOUNDER_BUILD=1 in their environment. This is a
+ * process-layer signal (the assistant seed runs in the main process); the renderer
+ * must receive it via config/IPC, not by reading process.env.
+ */
+export const COMMAND_EVE_FOUNDER_BUILD_ENV = 'COMMAND_EVE_FOUNDER_BUILD';
+export function isCommandEveFounderBuild(env: NodeJS.ProcessEnv | undefined = typeof process === 'undefined' ? undefined : process.env): boolean {
+  const value = env?.[COMMAND_EVE_FOUNDER_BUILD_ENV];
+  return value === '1' || value === 'true';
+}
+
 export const COMMAND_EVE_APP_NAME = 'Command EVE';
 export const COMMAND_EVE_DISPLAY_NAME = 'EVE';
 export const COMMAND_EVE_TITLE = '⌘ EVE';
-export const COMMAND_EVE_VERSION = '1.2.1';
+export const COMMAND_EVE_VERSION = '1.2.2';
 export const COMMAND_EVE_APP_ID = 'com.fynlabs.commandeve';
 /**
  * Generic (electron-updater) over-the-air update feed base URL for Command EVE.
@@ -29,7 +49,10 @@ export const COMMAND_EVE_UPDATE_FEED_BASE_URL = 'https://eve-update-proxy.comman
 export const COMMAND_EVE_PROTOCOL_SCHEME = 'command-eve';
 export const COMMAND_EVE_ASSISTANT_ID = 'command-eve-chief-of-staff';
 export const COMMAND_EVE_ASSISTANT_KEY = `custom:${COMMAND_EVE_ASSISTANT_ID}`;
-export const COMMAND_EVE_ASSISTANT_AVATAR = 'command-eve-logo.svg';
+// Leading slash: the renderer serves public/ at its web root, so '/command-eve-logo.svg'
+// resolves like the favicon (index.html). A bare 'command-eve-logo.svg' resolves relative
+// to the current route → 404 → broken-image glyph in the assistant avatar.
+export const COMMAND_EVE_ASSISTANT_AVATAR = '/command-eve-logo.svg';
 export const COMMAND_EVE_DEFAULT_ACP_BACKEND = 'hermes';
 export const COMMAND_EVE_DEFAULT_ACP_MODEL_ID = 'custom:command-eve-gemma4-e4b-64k:latest';
 export const COMMAND_EVE_LOCAL_RUNTIME_PROVIDER_ID = 'command-eve-local-runtime';

@@ -31,7 +31,7 @@
     "searchPlaceholder": "Search skills...",
     "noSearchResults": "No matching skills found",
     "commandEveCapabilitiesTitle": "Command EVE capabilities",
-    "commandEveCapabilitiesDesc": "These skills and connectors are EVE's productized Chief-of-Staff capabilities. They are activated through EVE Runtime, local receipts and HumanGates, not the legacy AionUI skill market.",
+    "commandEveCapabilitiesDesc": "These are EVE's built-in skills and connectors. They activate through EVE's runtime with your permission, with approval gates on anything that spends money or publishes.",
     "commandEveConnectorsTitle": "Connector policies",
     "commandEveCapabilityAvailable": "available",
     "commandEveCapabilityTier": "command-eve"

@@ -1,6 +1,5 @@
 import {
-  COMMAND_EVE_ASSISTANT_RULE_DE,
-  COMMAND_EVE_ASSISTANT_RULE_EN,
+  getCommandEveAssistantRule,
   buildCommandEveAssistant,
   buildCommandEveAssistantContext,
   buildCommandEveAssistantSkill,
@@ -15,7 +14,7 @@ import {
   type CommandEveDetectedAgent,
   type CommandEveSeatSeedRecord,
 } from './assistantBootstrapCore';
-import { COMMAND_EVE_ASSISTANT_ID } from '@/common/config/commandEveShell';
+import { COMMAND_EVE_ASSISTANT_ID, isCommandEveFounderBuild } from '@/common/config/commandEveShell';
 import fs from 'fs';
 import path from 'path';
 import { resolveCommandEveRuntimeBootstrapPaths } from './runtimeBootstrapCore';
@@ -49,6 +48,12 @@ type CommandEveAssistantRecord = {
   preset_agent_type?: string;
   enabled_skills?: string[];
   custom_skill_names?: string[];
+  // User-editable fields the backend returns; used by the merge-only re-seed to
+  // preserve operator edits and to detect a stale managed seed / broken avatar.
+  description?: string;
+  avatar?: string;
+  name?: string;
+  prompts?: string[];
 };
 
 const SAFE_COMMAND_EVE_SKILL_ID = /^[a-z0-9][a-z0-9-]{0,80}$/;
@@ -206,13 +211,14 @@ function loadCommandEveFirstRunContext(appVersion: string, userDataPath?: string
  */
 function buildCommandEveAssistantSkillForSeat(
   locale: 'de-DE' | 'en-US',
-  load: CommandEveFirstRunLoad | undefined
+  load: CommandEveFirstRunLoad | undefined,
+  isFounderBuild: boolean
 ): string {
-  if (!load) return buildCommandEveAssistantSkill(locale);
+  if (!load) return buildCommandEveAssistantSkill(locale, undefined, isFounderBuild);
   const seatIdentity = load.realSeatActive
     ? resolveCommandEveSeatIdentity({ legacy: false, seatId: load.seatId, seed: load.seatSeed, locale })
     : undefined;
-  return buildCommandEveAssistantSkill(locale, { ...load.baseContext, seatIdentity });
+  return buildCommandEveAssistantSkill(locale, { ...load.baseContext, seatIdentity }, isFounderBuild);
 }
 
 function hasAvailableHermesAgent(agents: CommandEveDetectedAgent[]): boolean {
@@ -239,13 +245,30 @@ async function loadCommandEveDetectedAgents(backendPort: number): Promise<Comman
 function buildCommandEveAssistantPayload(
   presetAgentType: string,
   customSkillNames: string[],
-  appVersion: string
+  appVersion: string,
+  isFounderBuild: boolean
 ): ReturnType<typeof buildCommandEveAssistant> & { description: string } {
-  const assistant = buildCommandEveAssistant(presetAgentType, customSkillNames);
+  const assistant = buildCommandEveAssistant(presetAgentType, customSkillNames, isFounderBuild);
   return {
     ...assistant,
     description: `${assistant.description}\n\n${buildCommandEveAssistantContext(appVersion)}`,
   };
+}
+
+// A description that still carries a known MANAGED seed marker (the old internal
+// founder persona, or any current managed seed) is NOT a user edit — it is safe to
+// refresh to the correct current seed on update. Anything else is a genuine user
+// edit and is preserved by the merge-only PUT.
+const COMMAND_EVE_STALE_SEED_MARKERS = [
+  'Chief-of-Staff',
+  'Founder Intent',
+  'CEO-Delegation',
+  'CEO delegation',
+  'Worker Contract',
+];
+function commandEveAssistantHasManagedSeed(existing: CommandEveAssistantRecord | undefined): boolean {
+  const description = String(existing?.description || '');
+  return COMMAND_EVE_STALE_SEED_MARKERS.some((marker) => description.includes(marker));
 }
 
 function findCommandEveAssistant(assistants: CommandEveAssistantRecord[]): CommandEveAssistantRecord | undefined {
@@ -297,16 +320,37 @@ export async function ensureCommandEveAssistant(
   appVersion: string,
   options: EnsureCommandEveAssistantOptions = {}
 ): Promise<CommandEveAssistantEnsureResult> {
+  const isFounderBuild = isCommandEveFounderBuild();
   const agents = await loadCommandEveDetectedAgents(backendPort);
   const presetAgentType = selectCommandEvePresetAgentType(agents);
   const customSkillNames = await importCommandEveManagedSkills(backendPort, options.userDataPath);
-  const assistant = buildCommandEveAssistantPayload(presetAgentType, customSkillNames, appVersion);
+  const assistant = buildCommandEveAssistantPayload(presetAgentType, customSkillNames, appVersion, isFounderBuild);
   const firstRunLoad = loadCommandEveFirstRunContext(appVersion, options.userDataPath);
   const existingAssistant = await loadCommandEveAssistant(backendPort);
   const method = existingAssistant ? 'PUT' : 'POST';
   const path = method === 'PUT' ? `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}` : '/api/assistants';
-  const body =
-    method === 'PUT' ? JSON.stringify({ ...assistant, id: COMMAND_EVE_ASSISTANT_ID }) : JSON.stringify(assistant);
+
+  // Merge-only on update: if the operator hand-edited their EVE assistant (its
+  // description no longer carries a managed seed marker), PRESERVE name/description/
+  // prompts and only reconcile the operational fields. A stale managed seed (the old
+  // internal founder persona) OR the old broken bare-filename avatar is refreshed to
+  // the current correct seed. A fresh install (POST) always gets the full operator seed.
+  const preserveUserEdits = Boolean(existingAssistant) && !commandEveAssistantHasManagedSeed(existingAssistant);
+  const mergedPutPayload = preserveUserEdits
+    ? {
+        ...existingAssistant,
+        id: COMMAND_EVE_ASSISTANT_ID,
+        avatar:
+          !existingAssistant?.avatar || existingAssistant.avatar === 'command-eve-logo.svg'
+            ? assistant.avatar
+            : existingAssistant.avatar,
+        preset_agent_type: presetAgentType,
+        enabled_skills: assistant.enabled_skills,
+        custom_skill_names: assistant.custom_skill_names,
+        disabled_builtin_skills: assistant.disabled_builtin_skills,
+      }
+    : { ...assistant, id: COMMAND_EVE_ASSISTANT_ID };
+  const body = method === 'PUT' ? JSON.stringify(mergedPutPayload) : JSON.stringify(assistant);
 
   await requestJson(backendPort, path, { method, body });
 
@@ -343,19 +387,19 @@ export async function ensureCommandEveAssistant(
   });
 
   await Promise.all([
-    writeAssistantResource(backendPort, 'assistant-rule', 'de-DE', COMMAND_EVE_ASSISTANT_RULE_DE),
-    writeAssistantResource(backendPort, 'assistant-rule', 'en-US', COMMAND_EVE_ASSISTANT_RULE_EN),
+    writeAssistantResource(backendPort, 'assistant-rule', 'de-DE', getCommandEveAssistantRule('de-DE', isFounderBuild)),
+    writeAssistantResource(backendPort, 'assistant-rule', 'en-US', getCommandEveAssistantRule('en-US', isFounderBuild)),
     writeAssistantResource(
       backendPort,
       'assistant-skill',
       'de-DE',
-      buildCommandEveAssistantSkillForSeat('de-DE', firstRunLoad)
+      buildCommandEveAssistantSkillForSeat('de-DE', firstRunLoad, isFounderBuild)
     ),
     writeAssistantResource(
       backendPort,
       'assistant-skill',
       'en-US',
-      buildCommandEveAssistantSkillForSeat('en-US', firstRunLoad)
+      buildCommandEveAssistantSkillForSeat('en-US', firstRunLoad, isFounderBuild)
     ),
   ]);
 
