@@ -32,7 +32,10 @@ import {
 
 /** The Lane-2 no-card trial entry + checkout destinations (desktop holds no card). */
 const TRIAL_ENTRY_URL = 'https://command-eve.com/account';
-const PACK_CHECKOUT_URL = 'https://command-eve.com/account/credits';
+// INTERIM (1.1.8): /account/credits 404s today (the pack-buy page is 1.1.9 web work) and a
+// 404 falls through to the homepage at peak purchase intent. Point at the real /account route
+// so the operator lands somewhere they can act. Restore /account/credits once that page ships.
+const PACK_CHECKOUT_URL = 'https://command-eve.com/account';
 
 const BillingModalContent: React.FC = () => {
   const { t } = useTranslation();

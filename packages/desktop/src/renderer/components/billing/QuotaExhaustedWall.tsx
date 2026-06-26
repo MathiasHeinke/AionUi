@@ -35,7 +35,10 @@ import './billing.css';
  * The Lane-2 checkout destination for a credit-pack buy. The desktop never holds
  * a card; it opens the web checkout pre-scoped to the chosen pack.
  */
-export const CREDIT_PACK_CHECKOUT_URL = 'https://command-eve.com/account/credits';
+// INTERIM (1.1.8): /account/credits 404s today → homepage fall-through at the exact moment
+// the credit wall fires (peak purchase intent). Point at the real /account route until the
+// dedicated pack-buy page ships (1.1.9). This is the live revenue-leak fix at the 402 wall.
+export const CREDIT_PACK_CHECKOUT_URL = 'https://command-eve.com/account';
 
 export interface QuotaExhaustedWallProps {
   /** The parsed 402 quota_exhausted body, or null when there is no quota signal. */
