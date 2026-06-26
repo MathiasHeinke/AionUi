@@ -278,7 +278,7 @@ You tell the truth about yourself before anything else. Never call a capability 
 
 ## How you learn
 
-You remember the operator across sessions — a profile of them (USER.md) and your own working notes (MEMORY.md) — so they never have to repeat themselves; and when they keep wanting the same thing, you turn it into a skill and sharpen it over time. This loop is configured on — the first time you actually create or refine a skill for them, you say so; you never claim it before it has run.
+You remember the operator across sessions — a profile of them (USER.md) and your own working notes (MEMORY.md) — so they never have to repeat themselves; and when they keep wanting the same thing, you turn it into a skill and sharpen it over time. Their profile STARTS as a scaffold you fill in as you learn (it is seeded on first run, not pre-known): you actively capture real facts about them with the memory tool when they surface, you say plainly what you actually know versus still need to ask, and you never claim a memory or a skill you have not yet captured or run.
 
 ## Defaults under ambiguity
 
@@ -299,7 +299,8 @@ export type RuntimeBootstrapStageId =
   | 'web'
   | 'ollama'
   | 'model'
-  | 'identity';
+  | 'identity'
+  | 'memory-seed';
 
 export type RuntimeBootstrapIdentitySource =
   | 'registration'
@@ -1969,6 +1970,52 @@ export function eveSelectedLanguageDirective(uiLanguage: string): string {
   ].join('\n');
 }
 
+// Seed the durable founder profile (memories/USER.md) on first run so EVE's "I remember you
+// across sessions" is real from turn one: the file loads into EVERY system prompt and compounds.
+// The audit found USER.md was NEVER created (the founder profile never persisted) — this gives the
+// profile a real, structured substrate to grow from instead of an empty file. IDEMPOTENT: never
+// clobber a USER.md EVE has already grown. (Reliably WRITING new facts on the weak 4B local model
+// is a separate hermes-wheel item; this is the autonomous half — make the substrate exist + honest.)
+export function seedFounderUserProfile(
+  paths: RuntimeBootstrapPaths,
+  firstRunProfile: RuntimeBootstrapIdentityProfile
+): boolean {
+  const memDir = path.join(paths.hermesHome, 'memories');
+  const userMdPath = path.join(memDir, 'USER.md');
+  try {
+    if (fs.existsSync(userMdPath) && fs.readFileSync(userMdPath, 'utf8').trim()) {
+      return false; // already grown by EVE — never clobber the operator's profile
+    }
+    fs.mkdirSync(memDir, { recursive: true });
+    // Only carry a name/company forward when the bootstrap deemed them RELIABLE — a
+    // 'placeholder' confidence means the registration form gave garbage (e.g. an email
+    // local-part), which we must NOT enshrine as the operator's identity.
+    const reliable = firstRunProfile.confidence !== 'placeholder';
+    const name = (reliable && firstRunProfile.founder_name?.trim()) || '';
+    const company = (reliable && firstRunProfile.company_name?.trim()) || '';
+    const ENTRY_DELIMITER = '\n§\n'; // matches the memory tool's entry separator
+    const identityEntry =
+      name || company
+        ? `# Operator\nName: ${name || '(unbestätigt — beiläufig nachfragen)'}\nFirma/Brand: ${company || '(unbestätigt — beiläufig nachfragen)'}\n(Bei der Registrierung angegeben${firstRunProfile.needs_confirmation ? ' — beim ersten Gespräch kurz bestätigen lassen' : ''}.)`
+        : `# Operator\n(Noch keine bestätigte Identität. Frag im ersten Gespräch beiläufig nach Name, Firma/Brand und worum es geht — und HALTE es hier fest.)`;
+    const scaffoldEntry = [
+      '# Was ich über den Operator lernen + hier festhalten soll',
+      '- Geschäft: Was verkauft er, an wen, Angebot/Preis?',
+      '- Ziele: Woran arbeitet er gerade (Vision → Versionen → Meilensteine)?',
+      '- Schreibstimme: Wie klingt er (Tonalität, Lieblingsphrasen, was er NIE sagt)? — fürs On-Voice-Schreiben.',
+      '- Kunden/Seats: Für wen liefert er als Reseller? Pro Kunde streng getrennt halten.',
+      '- Präferenzen: Format, Länge, Sprache, wo er Human-Gates will.',
+      '- Entscheidungen: Was haben wir gemeinsam entschieden + warum (damit er sich nie wiederholen muss)?',
+      '',
+      'Trag echte Fakten ein, sobald du sie erfährst (memory-Tool, target=user). Erfinde nichts; was du nicht weißt, bleibt eine offene Frage, die du beiläufig klärst.',
+    ].join('\n');
+    fs.writeFileSync(userMdPath, [identityEntry, scaffoldEntry].join(ENTRY_DELIMITER) + '\n', { mode: 0o600 });
+    return true;
+  } catch {
+    return false; // best-effort: a seed failure must never block the boot
+  }
+}
+
 function writeHermesRuntimeFiles(
   paths: RuntimeBootstrapPaths,
   manifest: RuntimeBootstrapManifest,
@@ -2606,6 +2653,17 @@ export async function ensureCommandEveRuntimeBootstrap(
       })
     );
   }
+
+  // Seed the durable founder profile so EVE's cross-session memory has a real substrate from
+  // session one (the audit found USER.md was never created). Idempotent — keeps a grown profile.
+  const seededUserProfile = seedFounderUserProfile(paths, firstRunProfile);
+  pushStage(
+    makeStage('memory-seed', 'pass', {
+      detail: seededUserProfile
+        ? 'Seeded memories/USER.md (founder profile scaffold) — EVE remembers the operator from session one.'
+        : 'memories/USER.md already present — kept the operator profile EVE has grown.',
+    })
+  );
 
   let ollama = await resolveOllamaCommand(runner, env, options.ollamaBinaryCandidates);
   if (!ollama.ok && mode === 'auto' && manifest.installer_policy.allow_homebrew_install) {
