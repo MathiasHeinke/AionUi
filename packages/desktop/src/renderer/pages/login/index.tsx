@@ -22,10 +22,14 @@ type CommandEveLanguage = {
 const COMMAND_EVE_DEFAULT_LANGUAGE = 'de-DE';
 const COMMAND_EVE_LANGUAGE_BOOTSTRAPPED_KEY = 'commandEveLanguageBootstrapped';
 const COMMAND_EVE_DEFAULT_VERSION = 'v1.x';
-const COMMAND_EVE_BRAND_CONFIG_URL = '/command-eve-brand.json?v=command-eve-brand-20260610';
-const COMMAND_EVE_LOGIN_VIDEO = '/eve-wait-focus.mp4?v=command-eve-login-20260604';
-const COMMAND_EVE_LOGIN_ANIMATION = '/eve-wait-focus-loop.gif?v=command-eve-login-20260604';
-const COMMAND_EVE_LOGIN_POSTER = '/eve-wait-focus-anchor.png?v=command-eve-login-20260604';
+// RELATIVE ('./') not absolute ('/'): the packaged app loads the renderer via file:// with a
+// HashRouter, so an absolute '/asset' resolves to the filesystem root → 404 (the first-view brand
+// config + hero video/animation/poster silently fail to load → "missing icons in the first view").
+// './' resolves against out/renderer/ (where public/ lands) in both the dev server and packaged build.
+const COMMAND_EVE_BRAND_CONFIG_URL = './command-eve-brand.json?v=command-eve-brand-20260610';
+const COMMAND_EVE_LOGIN_VIDEO = './eve-wait-focus.mp4?v=command-eve-login-20260604';
+const COMMAND_EVE_LOGIN_ANIMATION = './eve-wait-focus-loop.gif?v=command-eve-login-20260604';
+const COMMAND_EVE_LOGIN_POSTER = './eve-wait-focus-anchor.png?v=command-eve-login-20260604';
 const COMMAND_EVE_HERO_FIELD_GAP = 32;
 const COMMAND_EVE_HERO_FIELD_RADIUS = 175;
 const COMMAND_EVE_HERO_FIELD_AMPLITUDE = 9;

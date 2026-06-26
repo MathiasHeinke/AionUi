@@ -49,10 +49,12 @@ export const COMMAND_EVE_UPDATE_FEED_BASE_URL = 'https://eve-update-proxy.comman
 export const COMMAND_EVE_PROTOCOL_SCHEME = 'command-eve';
 export const COMMAND_EVE_ASSISTANT_ID = 'command-eve-chief-of-staff';
 export const COMMAND_EVE_ASSISTANT_KEY = `custom:${COMMAND_EVE_ASSISTANT_ID}`;
-// Leading slash: the renderer serves public/ at its web root, so '/command-eve-logo.svg'
-// resolves like the favicon (index.html). A bare 'command-eve-logo.svg' resolves relative
-// to the current route → 404 → broken-image glyph in the assistant avatar.
-export const COMMAND_EVE_ASSISTANT_AVATAR = '/command-eve-logo.svg';
+// RELATIVE path (no leading slash): the packaged app loads the renderer via file://
+// (loadFile) with a HashRouter, so an ABSOLUTE '/command-eve-logo.svg' resolves to the
+// filesystem root (file:///command-eve-logo.svg → 404 → broken-image glyph). './' resolves
+// against the document base (out/renderer/index.html, where public/ assets land) in BOTH
+// the dev server and the packaged file:// build. Same rule as Vite's favicon rewrite.
+export const COMMAND_EVE_ASSISTANT_AVATAR = './command-eve-logo.svg';
 export const COMMAND_EVE_DEFAULT_ACP_BACKEND = 'hermes';
 export const COMMAND_EVE_DEFAULT_ACP_MODEL_ID = 'custom:command-eve-gemma4-e4b-64k:latest';
 export const COMMAND_EVE_LOCAL_RUNTIME_PROVIDER_ID = 'command-eve-local-runtime';

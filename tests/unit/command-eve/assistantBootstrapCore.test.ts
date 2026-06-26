@@ -53,8 +53,9 @@ describe('Command EVE assistant bootstrap core', () => {
     expect(assistant.id).toBe(COMMAND_EVE_ASSISTANT_ID);
     expect(assistant.name).toBe('EVE');
     expect(assistant.preset_agent_type).toBe('codex');
-    // Avatar resolves from the renderer root (leading slash) like the favicon — not a bare filename.
-    expect(assistant.avatar).toBe('/command-eve-logo.svg');
+    // Avatar is RELATIVE ('./') so it resolves under the packaged file:// HashRouter
+    // (an absolute '/...' hits the filesystem root → broken image).
+    expect(assistant.avatar).toBe('./command-eve-logo.svg');
     // The shipped operator assistant is "The Operator", never the internal founder persona.
     expect(assistant.description).not.toContain('Chief-of-Staff');
     expect(assistant.description).toMatch(/Geldverdienen|making money/);
