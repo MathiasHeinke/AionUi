@@ -289,7 +289,7 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(configYaml).toContain(`base_url: ${baseUrl}/v1`);
       expect(configYaml).toContain('context_length: 65536');
       expect(configYaml).toContain('ollama_num_ctx: 65536');
-      expect(configYaml).toContain('max_tokens: 512');
+      expect(configYaml).toContain('max_tokens: 2048'); // cloud-lane-on: 512 truncated even cloud answers
       // Soul-wiring: reasoning is ON (challenger alive). Default tier is the
       // cheap-but-real 'low'; it must never regress to 'none' (which disables
       // reasoning entirely in Hermes).

@@ -22,7 +22,13 @@ const DEFAULT_HERMES_VERSION = '0.16.0';
 const DEFAULT_HERMES_PACKAGE = 'hermes-agent';
 const DEFAULT_FAST_CONTEXT_LENGTH = 65_536;
 const DEFAULT_LONG_CONTEXT_LENGTH = 65_536;
-const DEFAULT_HERMES_MAX_TOKENS = 512;
+// Agent response budget. 512 was the at-cost text fence — but the SAME agent config rides
+// through the loopback shim to the CLOUD lane, so 512 truncated even cloud answers and starved
+// real content (a LinkedIn post, a marketing section, a report). Founder decision 2026-06-26:
+// "cloud lane on" — raise it so EVE can actually write. Free models cost ~0 (no fence loss),
+// eve-inference still clamps to its own 4096 ceiling, and the model self-terminates so short
+// answers stay short. Long-form (blog/book) chunks above this; this just lifts the floor.
+const DEFAULT_HERMES_MAX_TOKENS = 2048;
 const COMMAND_EVE_OLLAMA_MODEL_PREFIX = 'command-eve';
 const BUNDLED_HERMES_DIR = 'bundled-hermes';
 // The bundled EVE strategy skills (real eve-doctrine/plan-system/etc. SKILL.md
