@@ -100,8 +100,18 @@ const makeGitHubReleaseResponse = () => [
   },
 ];
 
-const getCheckHandler = async () => {
+// vi.resetModules() wipes the platform-services registration that vitest.setup.ts performed
+// on the PREVIOUS module instance — @/common (ipcBridge) then throws 'Services not registered'.
+// Re-register on the fresh instance before importing anything that calls getPlatformServices().
+async function resetModulesWithPlatform() {
   vi.resetModules();
+  const { registerPlatformServices } = await import('@/common/platform');
+  const { NodePlatformServices } = await import('@/common/platform/NodePlatformServices');
+  registerPlatformServices(new NodePlatformServices());
+}
+
+const getCheckHandler = async () => {
+  await resetModulesWithPlatform();
   const { initUpdateBridge } = await import('@process/bridge/updateBridge');
   const { ipcBridge } = await import('@/common');
 
@@ -168,7 +178,7 @@ describe('updateBridge CDN URL rewriting', () => {
 
 describe('updateBridge allowlist includes CDN host', () => {
   it('accepts static.command-eve.com URLs for download', async () => {
-    vi.resetModules();
+    await resetModulesWithPlatform();
     vi.clearAllMocks();
 
     const fetchMock = vi.fn().mockResolvedValue({
@@ -206,7 +216,7 @@ describe('updateBridge allowlist includes CDN host', () => {
   });
 
   it('rejects non-allowlisted hosts', async () => {
-    vi.resetModules();
+    await resetModulesWithPlatform();
     vi.clearAllMocks();
 
     const { initUpdateBridge } = await import('@process/bridge/updateBridge');
