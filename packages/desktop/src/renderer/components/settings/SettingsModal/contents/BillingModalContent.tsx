@@ -18,7 +18,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, InputNumber, Message, Progress, Tag } from '@arco-design/web-react';
+import { Alert, Button, Card, Input, InputNumber, Message, Progress, Tag } from '@arco-design/web-react';
 import { useTranslation } from 'react-i18next';
 import { openExternalUrl } from '@renderer/utils/platform';
 import { configService } from '@/common/config/configService';
@@ -53,6 +53,42 @@ const BillingModalContent: React.FC = () => {
       setCapEur(status.spend_cap_eur_cents > 0 ? Math.round(status.spend_cap_eur_cents / 100) : undefined);
     }
   }, [status]);
+
+  // Report branding: READ + rendered on every deliverable (PreviewPanel) but never SET
+  // until now. The reseller prop is "deliver under YOUR brand" — this is where they set it.
+  const [brand, setBrand] = useState<{ displayName?: string; footer?: string; logoDataUri?: string }>(
+    () => configService.get('commandEve.reportBrand') ?? {}
+  );
+  const [brandSaving, setBrandSaving] = useState(false);
+
+  const handleSaveBrand = async () => {
+    setBrandSaving(true);
+    try {
+      await configService.set('commandEve.reportBrand', {
+        displayName: brand.displayName?.trim() || undefined,
+        footer: brand.footer?.trim() || undefined,
+        logoDataUri: brand.logoDataUri || undefined,
+      });
+      Message.success(
+        t('credits.settings.brandSaved', { defaultValue: 'Branding saved — it appears on every report EVE delivers.' })
+      );
+    } catch (error) {
+      Message.error(String(error instanceof Error ? error.message : error));
+    } finally {
+      setBrandSaving(false);
+    }
+  };
+
+  const handleLogoFile = (file: File | undefined) => {
+    if (!file) return;
+    if (file.size > 512 * 1024) {
+      Message.error(t('credits.settings.brandLogoTooBig', { defaultValue: 'Logo must be under 512 KB.' }));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setBrand((b) => ({ ...b, logoDataUri: String(reader.result) }));
+    reader.readAsDataURL(file);
+  };
 
   const handleSaveCap = async () => {
     const validation = validateSpendCapEur(capEur ?? 0);
@@ -199,6 +235,63 @@ const BillingModalContent: React.FC = () => {
               )}
             </Button>
           ))}
+        </div>
+      </Card>
+
+      {/* Report branding — the operator's own name/logo/footer on every deliverable EVE
+          exports. The reseller prop is "deliver under YOUR brand"; this is the setter that
+          was missing (the value is already READ + rendered by the report PreviewPanel). */}
+      <Card className='billing-settings__brand' title={t('credits.settings.brandTitle', { defaultValue: 'Report branding' })}>
+        <p className='billing-settings__hint'>
+          {t('credits.settings.brandHint', {
+            defaultValue: 'Your name, logo and footer on every report EVE delivers — deliver under your brand, not ours.',
+          })}
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 440 }}>
+          <Input
+            value={brand.displayName ?? ''}
+            onChange={(v) => setBrand((b) => ({ ...b, displayName: v }))}
+            placeholder={t('credits.settings.brandNamePlaceholder', { defaultValue: 'Your agency / brand name' })}
+            maxLength={80}
+            showWordLimit
+            data-testid='billing-brand-name'
+          />
+          <Input.TextArea
+            value={brand.footer ?? ''}
+            onChange={(v) => setBrand((b) => ({ ...b, footer: v }))}
+            placeholder={t('credits.settings.brandFooterPlaceholder', { defaultValue: 'Footer line (contact, website, legal)' })}
+            maxLength={200}
+            autoSize={{ minRows: 2, maxRows: 4 }}
+            data-testid='billing-brand-footer'
+          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {brand.logoDataUri ? (
+              <img src={brand.logoDataUri} alt='brand logo' style={{ height: 40, maxWidth: 160, objectFit: 'contain', borderRadius: 4 }} />
+            ) : null}
+            <label style={{ cursor: 'pointer' }}>
+              <input
+                type='file'
+                accept='image/png,image/jpeg,image/svg+xml'
+                style={{ display: 'none' }}
+                onChange={(e) => handleLogoFile(e.target.files?.[0] ?? undefined)}
+              />
+              <Button>
+                {brand.logoDataUri
+                  ? t('credits.settings.brandLogoChange', { defaultValue: 'Change logo' })
+                  : t('credits.settings.brandLogoPick', { defaultValue: 'Upload logo' })}
+              </Button>
+            </label>
+            {brand.logoDataUri ? (
+              <Button status='danger' type='text' onClick={() => setBrand((b) => ({ ...b, logoDataUri: undefined }))}>
+                {t('credits.settings.brandLogoRemove', { defaultValue: 'Remove' })}
+              </Button>
+            ) : null}
+          </div>
+          <div>
+            <Button type='primary' loading={brandSaving} onClick={handleSaveBrand} data-testid='billing-brand-save'>
+              {t('credits.settings.brandSave', { defaultValue: 'Save branding' })}
+            </Button>
+          </div>
         </div>
       </Card>
     </div>
