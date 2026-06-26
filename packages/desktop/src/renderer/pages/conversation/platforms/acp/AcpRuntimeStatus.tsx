@@ -109,8 +109,15 @@ const AcpRuntimeStatus: React.FC<{
   if (!isVisible) return null;
 
   const elapsedMs = activity.startedAt && isActive ? now - activity.startedAt : activity.elapsedMs;
-  const modelLabel = activity.modelId?.replace(/^custom:/, '') || t('conversation.runtimeStatus.modelUnknown');
-  const backendLabel = activity.backend || 'EVE';
+  // Brand + privacy: the operator sees EVE + which LANE inference runs on (local = on-device,
+  // a DSGVO selling point), NEVER the internal backend name ('hermes') or the raw engine model
+  // id ('custom:command-eve-gemma4-*'). Newly visible once the status strip was mounted.
+  const isLocalLane = /^custom:|gemma|command-eve/i.test(activity.modelId ?? '');
+  const laneLabel = activity.modelId
+    ? isLocalLane
+      ? t('conversation.runtimeStatus.laneLocal', { defaultValue: 'lokal' })
+      : t('conversation.runtimeStatus.laneCloud', { defaultValue: 'Cloud' })
+    : t('conversation.runtimeStatus.modelUnknown');
   const hasContextUsage = typeof activity.contextUsed === 'number' && typeof activity.contextSize === 'number';
   const notice =
     isActive && elapsedMs && elapsedMs >= LONG_RUNNING_NOTICE_MS
@@ -144,7 +151,7 @@ const AcpRuntimeStatus: React.FC<{
           {isActive ? <Loading theme='outline' size='14' className='animate-spin shrink-0 text-primary-6' /> : null}
           <span className='font-500 text-t-primary'>{phaseLabel}</span>
           <span className='truncate'>
-            {backendLabel} · {modelLabel}
+            EVE · {laneLabel}
           </span>
           {elapsedMs !== undefined ? (
             <span className='inline-flex items-center gap-4px text-t-tertiary'>
