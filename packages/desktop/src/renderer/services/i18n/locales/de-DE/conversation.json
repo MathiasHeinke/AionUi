@@ -479,10 +479,10 @@
   "runtimeStatus": {
     "phase": {
       "idle": "EVE bereit",
-      "connecting": "Hermes verbindet",
+      "connecting": "EVE verbindet",
       "ready": "EVE bereit",
       "submitting": "Anfrage wird gesendet",
-      "thinking": "Gemma denkt",
+      "thinking": "EVE denkt",
       "streaming": "Antwort streamt",
       "done": "Antwort fertig",
       "error": "Runtime-Fehler"

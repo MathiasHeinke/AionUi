@@ -503,10 +503,10 @@
   "runtimeStatus": {
     "phase": {
       "idle": "EVE ready",
-      "connecting": "Hermes connecting",
+      "connecting": "EVE connecting",
       "ready": "EVE ready",
       "submitting": "Sending request",
-      "thinking": "Gemma thinking",
+      "thinking": "EVE thinking",
       "streaming": "Response streaming",
       "done": "Response complete",
       "error": "Runtime error"
