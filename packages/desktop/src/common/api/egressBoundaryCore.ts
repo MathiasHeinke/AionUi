@@ -128,10 +128,15 @@ const SENSITIVE_RULES: SensitiveRule[] = [
     // the agent aborted silently and the UI hung on any longer tool session. (Verified against
     // the actual request-dump: 99 → 0 false positives, all real German numbers still caught.)
     // (A) +49/0049 international form: prefix + optional (0) + 6-12 more digits (single seps).
-    // (B) national 0-trunk: leading 0 + area code (1-4) + a separator + subscriber (>=6 digits).
+    // (B) national 0-trunk: leading 0 + an IMMEDIATE digit (excludes "0 435308800" process
+    //     pairs) + 7-10 more digits, each optionally single-separated. The optional separator
+    //     is the key fix: it matches BOTH the contiguous form `01701234567`/`03012345678` (the
+    //     dominant way a German types a mobile — a v1.1.78-era tighten REGRESSED this to raw
+    //     egress) AND the spaced `0170 1234567`. Total 9-12 digits with a trailing boundary, so
+    //     16-digit process IDs (`0025412369110397`) and 2+-space number tables still don't match.
     // Both require word/number boundaries so they cannot start or end mid-token.
     pattern:
-      /(?<![\w.+/])(?:\+49|0049)[ ./-]?\(?0?\)?[ ./-]?(?:\d[ ./-]?){6,12}\d\b|(?<![\w.+/\d-])0\d{1,4}[ ./-](?:\d[ ./-]?){5,9}\d(?![\d\w])/g,
+      /(?<![\w.+/])(?:\+49|0049)[ ./-]?\(?0?\)?[ ./-]?(?:\d[ ./-]?){6,12}\d\b|(?<![\w.+/\d-])0\d(?:[ ./-]?\d){7,10}(?![\d\w])/g,
     replacement: '[REDACTED_PHONE]',
   },
   // --- International PII (S2) — addresses, phones, national IDs outside DACH ---

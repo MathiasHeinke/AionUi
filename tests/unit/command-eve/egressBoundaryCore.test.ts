@@ -88,6 +88,20 @@ describe('Command EVE egress boundary core', () => {
     expect(result.allowedText).not.toContain('12345678');
   });
 
+  it('catches + redacts CONTIGUOUS (no-separator) German numbers — the regression guard', async () => {
+    // The dominant way a German types a mobile/landline is with NO separators. A v1.1.78-era
+    // tighten required a separator and silently let these leak raw to the cloud. Never again.
+    for (const num of ['01701234567', '03012345678', '015112345678', '04012345678']) {
+      const result = await evaluateCommandEveEgressBoundary({
+        text: `Ruf den Kunden unter ${num} an.`,
+        provider: { ...LOCAL_PROVIDER, kind: 'cloud', name: 'EVE Inference' },
+      });
+      expect(result.receipt.findings.some((f) => f.rule_id === 'german-phone-number')).toBe(true);
+      expect(result.allowedText).toContain('[REDACTED_PHONE]');
+      expect(result.allowedText).not.toContain(num);
+    }
+  });
+
   it('supports redaction mode for explicit user policy without leaking raw text in receipts', async () => {
     const result = await evaluateCommandEveEgressBoundary({
       text: 'E-Mail: mathias@example.com und token=supersecretvalue',
