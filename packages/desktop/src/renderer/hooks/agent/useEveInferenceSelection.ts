@@ -31,6 +31,7 @@ import {
   EVE_DEFAULT_INFERENCE_SELECTION,
   EVE_INFERENCE_DEFAULT_TIER_ID,
   eveTierValue,
+  isEveInferenceSelection,
   type EvePickerGroup,
   type EvePickerItem,
 } from '@/common/config/eveInferenceCore';
@@ -140,16 +141,19 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
     [items, onChange]
   );
 
-  // If trialing flips a previously-selected paid EVE tier to disabled, reset to
-  // the safe default (EVE Standard) once, so no surface shows a disabled value
-  // as "active".
+  // Reset to the safe default (EVE Mittel) once when the active selection is no
+  // longer usable, so no surface shows a stranded value as "active":
+  //  - a paid EVE tier that trialing just greyed out (disabled), OR
+  //  - a now-UNKNOWN EVE selection (e.g. the retired `eve-maximum` tier removed in
+  //    the 3-tier model) that resolves to no picker item.
   useEffect(() => {
-    if (selectedRaw && selectedRaw.disabled) {
-      const fallback = eveTierValue(EVE_INFERENCE_DEFAULT_TIER_ID);
+    const fallback = eveTierValue(EVE_INFERENCE_DEFAULT_TIER_ID);
+    const isUnknownEve = isEveInferenceSelection(selection) && !items.some((item) => item.value === selection);
+    if (((selectedRaw && selectedRaw.disabled) || isUnknownEve) && selection !== fallback) {
       setSelection(fallback);
       configService.set('commandEve.inferenceSelection', fallback);
     }
-  }, [selectedRaw]);
+  }, [selectedRaw, items, selection]);
 
   return { selection, groups, items, selectedItem, commit, isSelectable, cloudBearerAvailable, refreshBearer };
 }

@@ -81,47 +81,46 @@ describe('eveInferenceCore — trial detection', () => {
 });
 
 describe('eveInferenceCore — STUFEN shape (requirement 0)', () => {
-  it('exposes EXACTLY the four EVE levels in order: Standard, Hoch, Max, Maximum', () => {
+  it('exposes EXACTLY the three EVE levels in order: Mittel, Hoch, Max', () => {
     const groups = buildEvePickerGroups(PAID_NULL);
     const eve = groups.find((g) => g.kind === 'eve')!;
-    expect(eve.items.map((i) => i.label)).toEqual(['Standard', 'Hoch', 'Max', 'Maximum']);
+    expect(eve.items.map((i) => i.label)).toEqual(['Mittel', 'Hoch', 'Max']);
   });
 
-  it('Standard + Hoch are FREE (not paid-only); Standard is the default', () => {
-    const standard = EVE_INFERENCE_TIERS.find((t) => t.id === 'eve-standard')!;
+  it('Mittel is the free-eligible default (DeepSeek V4 Flash); Hoch + Max are paid', () => {
+    const mittel = EVE_INFERENCE_TIERS.find((t) => t.id === 'eve-standard')!;
     const hoch = EVE_INFERENCE_TIERS.find((t) => t.id === 'eve-high')!;
-    expect(standard.paidOnly).toBe(false);
-    expect(hoch.paidOnly).toBe(false);
-    expect(hoch.label).toBe('Hoch');
+    const max = EVE_INFERENCE_TIERS.find((t) => t.id === 'eve-max')!;
+    expect(mittel.paidOnly).toBe(false);
+    expect(mittel.label).toBe('Mittel');
+    expect(mittel.modelLabel).toBe('DeepSeek V4 Flash');
+    expect(hoch.paidOnly).toBe(true);
+    expect(max.paidOnly).toBe(true);
     expect(EVE_INFERENCE_DEFAULT_TIER_ID).toBe('eve-standard');
   });
 
-  it('Max is paid + consumes credits (DeepSeek V4 Pro) and shows a credit badge, NOT gated', () => {
+  it('Hoch is paid + consumes credits (DeepSeek V4 Pro), NOT gated', () => {
+    const items = flat(buildEvePickerGroups(PAID_NULL));
+    const hoch = byLabel(items, 'eve', 'Hoch')!;
+    expect(hoch.consumesCredits).toBe(true);
+    expect(hoch.gated).toBe(false);
+    expect(hoch.sublabel).toBe('DeepSeek V4 Pro');
+    expect(hoch.costBadge).toBe('mehr Credits');
+  });
+
+  it('Max is paid + GATED (GLM 5.2) and carries the highest-cost badge', () => {
     const items = flat(buildEvePickerGroups(PAID_NULL));
     const max = byLabel(items, 'eve', 'Max')!;
     expect(max.consumesCredits).toBe(true);
-    expect(max.gated).toBe(false);
-    expect(max.sublabel).toBe('DeepSeek V4 Pro');
-    expect(max.costBadge).toBe('verbraucht Credits');
+    expect(max.gated).toBe(true);
+    expect(max.sublabel).toBe('GLM 5.2');
+    expect(max.costBadge).toBe('höchste Kosten');
   });
 
-  it('Maximum is paid + GATED (GLM 5.2) and carries the highest-cost (~5×) badge', () => {
+  it('the FREE level (Mittel) carries NO cost badge in the base picker (free = no credit surprise)', () => {
     const items = flat(buildEvePickerGroups(PAID_NULL));
-    const maximum = byLabel(items, 'eve', 'Maximum')!;
-    expect(maximum.consumesCredits).toBe(true);
-    expect(maximum.gated).toBe(true);
-    expect(maximum.sublabel).toBe('GLM 5.2');
-    // The badge makes the ~5× rate unmistakable.
-    expect(maximum.costBadge).toBe('~5× Kosten');
-    expect(maximum.costBadge).toMatch(/5/);
-  });
-
-  it('the two FREE levels carry NO cost badge (free = no credit surprise)', () => {
-    const items = flat(buildEvePickerGroups(PAID_NULL));
-    expect(byLabel(items, 'eve', 'Standard')!.costBadge).toBeUndefined();
-    expect(byLabel(items, 'eve', 'Hoch')!.costBadge).toBeUndefined();
-    expect(byLabel(items, 'eve', 'Standard')!.consumesCredits).toBe(false);
-    expect(byLabel(items, 'eve', 'Hoch')!.consumesCredits).toBe(false);
+    expect(byLabel(items, 'eve', 'Mittel')!.costBadge).toBeUndefined();
+    expect(byLabel(items, 'eve', 'Mittel')!.consumesCredits).toBe(false);
   });
 });
 
@@ -129,30 +128,29 @@ describe('eveInferenceCore — free-tier greying (requirement 1)', () => {
   it('renders EXACTLY two groups and nothing else', () => {
     const groups = buildEvePickerGroups(TRIAL);
     expect(groups.map((g) => g.kind)).toEqual(['local', 'eve']);
-    // Local: Standard + Hoch only (no 31B pro tier). EVE: the four STUFEN.
+    // Local: Standard + Hoch only (no 31B pro tier). EVE: the three STUFEN.
     expect(groups[0].items.map((i) => i.label)).toEqual(['Standard', 'Hoch']);
-    expect(groups[1].items.map((i) => i.label)).toEqual(['Standard', 'Hoch', 'Max', 'Maximum']);
+    expect(groups[1].items.map((i) => i.label)).toEqual(['Mittel', 'Hoch', 'Max']);
   });
 
-  it('greys EVE Max + EVE Maximum (PAID_TIER_REQUIRED) while trialing; Standard + Hoch + locals selectable', () => {
+  it('greys the paid Pro rungs (Hoch + Max) while trialing; Mittel + locals selectable', () => {
     const items = flat(buildEvePickerGroups(TRIAL));
 
-    // EVE Max + Maximum disabled with the paid hint.
-    const eveMax = byLabel(items, 'eve', 'Max')!;
-    const eveMaximum = byLabel(items, 'eve', 'Maximum')!;
-    expect(eveMax.disabled).toBe(true);
-    expect(eveMax.disabledReasonCode).toBe('PAID_TIER_REQUIRED');
-    expect(eveMaximum.disabled).toBe(true);
-    expect(eveMaximum.disabledReasonCode).toBe('PAID_TIER_REQUIRED');
+    // The paid Pro rungs (Hoch + Max) disabled with the paid hint.
+    const hoch = byLabel(items, 'eve', 'Hoch')!;
+    const max = byLabel(items, 'eve', 'Max')!;
+    expect(hoch.disabled).toBe(true);
+    expect(hoch.disabledReasonCode).toBe('PAID_TIER_REQUIRED');
+    expect(max.disabled).toBe(true);
+    expect(max.disabledReasonCode).toBe('PAID_TIER_REQUIRED');
 
     // The cost badge is shown EVEN while greyed, so the user knows what it costs
     // before deciding to upgrade.
-    expect(eveMax.costBadge).toBe('verbraucht Credits');
-    expect(eveMaximum.costBadge).toBe('~5× Kosten');
+    expect(hoch.costBadge).toBe('mehr Credits');
+    expect(max.costBadge).toBe('höchste Kosten');
 
-    // EVE Standard + Hoch (the FREE levels) selectable on a trial.
-    expect(byLabel(items, 'eve', 'Standard')!.disabled).toBe(false);
-    expect(byLabel(items, 'eve', 'Hoch')!.disabled).toBe(false);
+    // EVE Mittel (the free model) selectable on a trial.
+    expect(byLabel(items, 'eve', 'Mittel')!.disabled).toBe(false);
 
     // Both local tiers selectable.
     expect(byLabel(items, 'local', 'Standard')!.disabled).toBe(false);
@@ -166,10 +164,9 @@ describe('eveInferenceCore — free-tier greying (requirement 1)', () => {
   it('leaves ALL EVE levels selectable when paid (trial_ends_at null/absent)', () => {
     for (const ent of [PAID_NULL, PAID_ABSENT]) {
       const items = flat(buildEvePickerGroups(ent));
-      expect(byLabel(items, 'eve', 'Standard')!.disabled).toBe(false);
+      expect(byLabel(items, 'eve', 'Mittel')!.disabled).toBe(false);
       expect(byLabel(items, 'eve', 'Hoch')!.disabled).toBe(false);
       expect(byLabel(items, 'eve', 'Max')!.disabled).toBe(false);
-      expect(byLabel(items, 'eve', 'Maximum')!.disabled).toBe(false);
     }
   });
 
@@ -197,27 +194,21 @@ describe('eveInferenceCore — honest CLOUD labeling (audit #1)', () => {
     expect(groups.find((g) => g.kind === 'local')!.title).not.toContain('Cloud');
   });
 
-  it('the FREE EVE levels carry the external/OpenRouter sublabel; paid levels show their model', () => {
+  it('each EVE level names its concrete cloud model in the sublabel (level in the primary label, model in the secondary)', () => {
     const items = flat(buildEvePickerGroups(TRIAL));
-    // Free levels keep the cloud/external sublabel.
-    for (const label of ['Standard', 'Hoch']) {
-      expect(byLabel(items, 'eve', label)!.sublabel).toBe(EVE_INFERENCE_TIER_SUBLABEL);
-    }
-    // Paid levels surface the concrete model as the sublabel (still a level in
-    // the primary label, model only in the secondary descriptor).
-    expect(byLabel(items, 'eve', 'Max')!.sublabel).toBe('DeepSeek V4 Pro');
-    expect(byLabel(items, 'eve', 'Maximum')!.sublabel).toBe('GLM 5.2');
-    // Sanity: the free sublabel makes the external/cloud nature explicit.
-    expect(EVE_INFERENCE_TIER_SUBLABEL).toMatch(/OpenRouter/);
+    expect(byLabel(items, 'eve', 'Mittel')!.sublabel).toBe('DeepSeek V4 Flash');
+    expect(byLabel(items, 'eve', 'Hoch')!.sublabel).toBe('DeepSeek V4 Pro');
+    expect(byLabel(items, 'eve', 'Max')!.sublabel).toBe('GLM 5.2');
   });
 
-  it('a user cannot mistake EVE Standard for private/local: heading + row both say cloud/external', () => {
+  it('a user cannot mistake EVE for private/local: heading says (Cloud) and rows name cloud models, never Gemma', () => {
     const groups = buildEvePickerGroups(TRIAL);
     const eveGroup = groups.find((g) => g.kind === 'eve')!;
-    const eveStandard = eveGroup.items.find((i) => i.label === 'Standard')!;
-    // Heading carries (Cloud); the Standard row carries the OpenRouter sublabel.
     expect(eveGroup.title.toLowerCase()).toContain('cloud');
-    expect(eveStandard.sublabel!.toLowerCase()).toContain('openrouter');
+    // EVE rows name external cloud models (DeepSeek / GLM), never a bundled local one (Gemma).
+    const eveSubs = eveGroup.items.map((i) => i.sublabel ?? '');
+    expect(eveSubs.every((s) => !/gemma/i.test(s))).toBe(true);
+    expect(eveSubs.some((s) => /DeepSeek|GLM/i.test(s))).toBe(true);
   });
 });
 
@@ -235,16 +226,14 @@ describe('eveInferenceCore — EVE Standard routing (requirement 2)', () => {
   });
 
   it('maps every level to the wire string the backend registry understands', () => {
-    // Hoch sends the legacy-compatible `high` alias (the backend tier→level
-    // bridge maps it to the `hoch` level); Max/Maximum send their level names.
+    // Each level sends its registry level name; the backend resolves the model.
     expect(buildEveInferenceProvider({ tierId: 'eve-high', licenseWire: FAKE_WIRE }).use_model).toBe('high');
     expect(buildEveInferenceProvider({ tierId: 'eve-max', licenseWire: FAKE_WIRE }).use_model).toBe('max');
-    expect(buildEveInferenceProvider({ tierId: 'eve-maximum', licenseWire: FAKE_WIRE }).use_model).toBe('maximum');
   });
 
-  it('the wire values are exactly the registry-accepted set (no raw model id ever sent)', () => {
+  it('the wire values are exactly the registry-accepted set (matches the server KNOWN_TIERS standard/high/max)', () => {
     const wires = EVE_INFERENCE_TIERS.map((t) => t.tier);
-    expect(wires).toEqual(['standard', 'high', 'max', 'maximum']);
+    expect(wires).toEqual(['standard', 'high', 'max']);
     // The desktop never sends "DeepSeek V4 Pro" / "GLM 5.2" on the wire — only
     // the level; the backend resolves the model.
     for (const w of wires) {

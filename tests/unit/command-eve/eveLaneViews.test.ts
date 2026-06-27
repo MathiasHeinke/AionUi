@@ -16,28 +16,34 @@ import {
 const byLane = (views: PickerLaneView[]) => Object.fromEntries(views.map((v) => [v.lane, v]));
 
 describe('buildEveLaneViews — lane axis (Lokal · EVE Free · EVE Pro)', () => {
-  it('TRIAL/free user: Lokal + EVE Free selectable, EVE Pro LOCKED (shown, greyed)', () => {
+  it('TRIAL/free user: Lokal + EVE Free (one model) selectable, EVE Pro LOCKED (all 3 greyed)', () => {
     const v = byLane(buildEveLaneViews({ trial_ends_at: '2026-12-31T00:00:00Z' }));
     expect(v.local.state).toBe('available');
     expect(v.local.items.every((i) => !i.disabled)).toBe(true);
 
     expect(v.free.state).toBe('available');
-    expect(v.free.items.length).toBeGreaterThan(0);
-    expect(v.free.items.every((i) => !i.disabled)).toBe(true);
+    // EVE Free = exactly ONE model (DeepSeek V4 Flash), no cost badge, "· 100/Tag".
+    expect(v.free.items).toHaveLength(1);
+    expect(v.free.items[0].disabled).toBe(false);
+    expect(v.free.items[0].costBadge).toBeUndefined();
+    expect(v.free.items[0].sublabel).toContain('100/Tag');
 
     expect(v.pro.state).toBe('locked');
-    // Pro is SHOWN (items present) but every strength is greyed.
-    expect(v.pro.items.length).toBeGreaterThan(0);
+    // EVE Pro = Mittel · Hoch · Max (3 rungs), all greyed on a trial.
+    expect(v.pro.items).toHaveLength(3);
     expect(v.pro.items.every((i) => i.disabled && i.disabledReasonCode === 'PAID_TIER_REQUIRED')).toBe(true);
+    expect(v.pro.items.map((i) => i.label)).toEqual(['Mittel', 'Hoch', 'Max']);
   });
 
-  it('PAYING user (no trial_ends_at): EVE Free HIDDEN, EVE Pro available + selectable', () => {
+  it('PAYING user (no trial_ends_at): EVE Free HIDDEN, EVE Pro = 3 rungs selectable', () => {
     const v = byLane(buildEveLaneViews({}));
     expect(v.local.state).toBe('available');
     expect(v.free.state).toBe('hidden');
     expect(v.pro.state).toBe('available');
-    expect(v.pro.items.length).toBeGreaterThan(0);
+    expect(v.pro.items).toHaveLength(3);
     expect(v.pro.items.every((i) => !i.disabled)).toBe(true);
+    // Increasing credit cost is surfaced as a badge on every Pro rung.
+    expect(v.pro.items.every((i) => typeof i.costBadge === 'string')).toBe(true);
   });
 
   it('accents are stable per lane (grey/blue/gold)', () => {
@@ -59,9 +65,10 @@ describe('buildEveLaneViews — lane axis (Lokal · EVE Free · EVE Pro)', () =>
 describe('laneOfSelection', () => {
   it('maps a selection value back to its lane', () => {
     expect(laneOfSelection(localTierValue('local-standard'))).toBe('local');
+    // eve-standard is the free-eligible model (the Free lane + Pro "Mittel").
     expect(laneOfSelection(eveTierValue('eve-standard'))).toBe('free');
-    expect(laneOfSelection(eveTierValue('eve-high'))).toBe('free');
+    // eve-high / eve-max are paid → Pro.
+    expect(laneOfSelection(eveTierValue('eve-high'))).toBe('pro');
     expect(laneOfSelection(eveTierValue('eve-max'))).toBe('pro');
-    expect(laneOfSelection(eveTierValue('eve-maximum'))).toBe('pro');
   });
 });
