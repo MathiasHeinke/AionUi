@@ -19,14 +19,7 @@ import {
 } from '@/process/commandEve/assistantBootstrapCore';
 
 describe('Command EVE assistant bootstrap core', () => {
-  it('prefers Hermes only when a verified Hermes agent is detected', () => {
-    expect(
-      selectCommandEvePresetAgentType([
-        { backend: 'codex', available: true },
-        { backend: 'claude', available: true },
-      ])
-    ).toBe('aionrs');
-
+  it('binds EVE to Hermes when a verified Hermes agent is detected', () => {
     expect(
       selectCommandEvePresetAgentType([
         { backend: 'codex', available: true },
@@ -35,8 +28,22 @@ describe('Command EVE assistant bootstrap core', () => {
     ).toBe('hermes');
   });
 
-  it('falls back to Aion CLI when no preferred external backend is available', () => {
-    expect(selectCommandEvePresetAgentType([{ backend: 'codex', available: false }])).toBe('aionrs');
+  it('binds EVE to Hermes even when only NON-EVE backends are online (never aionrs)', () => {
+    // The Jun-2026 freeze: hermes was not online at seed time, so the selector
+    // fell through to aionrs and 1.2.7 froze that binding → "kein Modell
+    // ausgewählt". EVE has no model wiring on aionrs, so a non-online hermes must
+    // still bind to hermes (durable config, attached once the runtime is up).
+    expect(
+      selectCommandEvePresetAgentType([
+        { backend: 'codex', available: true },
+        { backend: 'claude', available: true },
+      ])
+    ).toBe('hermes');
+  });
+
+  it('binds EVE to Hermes when NOTHING is online yet (never aionrs)', () => {
+    expect(selectCommandEvePresetAgentType([{ backend: 'codex', available: false }])).toBe('hermes');
+    expect(selectCommandEvePresetAgentType([])).toBe('hermes');
   });
 
   it('unwraps backend API envelopes before runtime selection', () => {
@@ -45,7 +52,7 @@ describe('Command EVE assistant bootstrap core', () => {
       data: [{ backend: 'codex', available: true }],
     });
 
-    expect(selectCommandEvePresetAgentType(agents)).toBe('aionrs');
+    expect(selectCommandEvePresetAgentType(agents)).toBe('hermes');
   });
 
   it('builds the canonical EVE preset assistant (operator-facing by default)', () => {

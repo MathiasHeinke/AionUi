@@ -770,11 +770,21 @@ export function selectCommandEvePresetAgentType(agents: CommandEveDetectedAgent[
       .filter(Boolean)
   );
 
+  // Prefer a configured EVE backend that is already online at seed time.
   for (const candidate of COMMAND_EVE_AGENT_FALLBACK_ORDER) {
     if (availableKeys.has(candidate)) return candidate;
   }
 
-  return 'aionrs';
+  // Nothing online YET (hermes/Ollama still booting at first-run or re-seed).
+  // Bind to EVE's PRIMARY backend anyway — NEVER fall through to 'aionrs'. EVE
+  // has no model wiring on the native aionrs agent, so an aionrs binding is the
+  // "kein Modell ausgewählt" dead-end that freezes EVE on a non-EVE platform
+  // (the Jun-2026 re-seed race: hermes was not online at seed time, so this fell
+  // through to aionrs and 1.2.7's no-destructive-re-seed froze that binding).
+  // The binding is durable config, not a liveness probe — the runtime attaches
+  // hermes once it is up, and assistantStorageRepair re-binds any install that
+  // was already frozen on aionrs.
+  return COMMAND_EVE_AGENT_FALLBACK_ORDER[0] ?? 'aionrs';
 }
 
 // Operator-facing assistant metadata (the shipped default) vs the internal founder

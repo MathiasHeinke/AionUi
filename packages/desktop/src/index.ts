@@ -1256,6 +1256,9 @@ const handleAppReady = async (): Promise<void> => {
       if (repair.repaired > 0) {
         console.warn(`[CommandEVE] Pre-flight assistant-storage repair: re-activated ${repair.repaired} orphaned definition(s).`);
       }
+      if (repair.rebound && repair.rebound > 0) {
+        console.warn(`[CommandEVE] Pre-flight assistant-storage repair: re-bound ${repair.rebound} EVE definition(s) aionrs→hermes.`);
+      }
     } catch (error) {
       console.warn('[CommandEVE] Pre-flight assistant-storage repair skipped:', error);
     }
@@ -1307,6 +1310,9 @@ const handleAppReady = async (): Promise<void> => {
         const repair = await repairCommandEveAssistantStorage(getBackendDataDirForRestart());
         if (repair.repaired > 0) {
           console.warn(`[CommandEVE] Pre-flight assistant-storage repair (respawn): re-activated ${repair.repaired} orphaned definition(s).`);
+        }
+        if (repair.rebound && repair.rebound > 0) {
+          console.warn(`[CommandEVE] Pre-flight assistant-storage repair (respawn): re-bound ${repair.rebound} EVE definition(s) aionrs→hermes.`);
         }
       } catch (error) {
         console.warn('[CommandEVE] Pre-flight assistant-storage repair (respawn) skipped:', error);
