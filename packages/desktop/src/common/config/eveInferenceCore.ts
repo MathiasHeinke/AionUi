@@ -429,6 +429,112 @@ export function buildEvePickerGroups(entitlement: EveEntitlementView | null | un
 }
 
 // ---------------------------------------------------------------------------
+// Lane axis (presentation-only) — the founder's "pick a lane, then a strength"
+// model: Lokal · EVE Free · EVE Pro. This is a VIEW over the existing tiers; it
+// changes NO wire `tier`, NO selection value, and NOT the router contract
+// (tier === backend registry level). It only regroups + gates for display.
+// ---------------------------------------------------------------------------
+
+export type PickerLane = 'local' | 'free' | 'pro';
+
+export interface PickerLaneView {
+  lane: PickerLane;
+  /** Lane heading, e.g. "Lokal" | "EVE Free" | "EVE Pro". */
+  title: string;
+  /** UI accent for the lane chip/pill. */
+  accent: 'grey' | 'blue' | 'gold';
+  /**
+   * available — selectable now.
+   * locked    — shown (strengths render greyed) but not selectable; carries an
+   *             upgrade affordance (the visible-but-not-pushy upsell).
+   * hidden    — not offered at all (the EVE Free lane for a paying user).
+   */
+  state: 'available' | 'locked' | 'hidden';
+  /** The strengths in this lane (reuses the EvePickerItem shape). */
+  items: EvePickerItem[];
+}
+
+/** The local strengths as picker items (never gated). */
+function buildLocalLaneItems(): EvePickerItem[] {
+  return EVE_LOCAL_PICKER_TIERS.map((tier) => ({
+    value: localTierValue(tier.id),
+    group: 'local' as const,
+    label: tier.label,
+    sublabel: tier.modelLabel,
+    disabled: false,
+  }));
+}
+
+/**
+ * EVE-cloud strengths for a lane, filtered by paid-ness. `forceDisabled` greys
+ * every row (a LOCKED lane — shown but not selectable on a trial).
+ */
+function buildEveLaneItems(paidOnly: boolean, forceDisabled: boolean): EvePickerItem[] {
+  return EVE_INFERENCE_TIERS.filter((tier) => tier.paidOnly === paidOnly).map((tier) => {
+    const modelLabel = 'modelLabel' in tier ? (tier.modelLabel as string) : undefined;
+    const costBadge = 'costBadge' in tier ? (tier.costBadge as string) : undefined;
+    return {
+      value: eveTierValue(tier.id),
+      group: 'eve' as const,
+      label: tier.label,
+      sublabel: modelLabel ?? EVE_INFERENCE_TIER_SUBLABEL,
+      disabled: forceDisabled,
+      ...(forceDisabled ? { disabledReasonCode: 'PAID_TIER_REQUIRED' as const } : {}),
+      consumesCredits: tier.consumesCredits === true,
+      gated: tier.gated === true,
+      ...(costBadge ? { costBadge } : {}),
+    };
+  });
+}
+
+/**
+ * Build the three-lane picker view (Lokal · EVE Free · EVE Pro) for the current
+ * entitlement. Founder rules (2026-06-27): Lokal is offered to EVERYONE (the
+ * privacy lane); a TRIAL/free user gets Lokal + EVE Free selectable and EVE Pro
+ * LOCKED (shown with an upgrade affordance); a PAYING user no longer sees EVE
+ * Free (hidden) and EVE Pro becomes selectable. Pure presentation grouping of the
+ * existing tiers — no wire/tier change. (Free's wire tiers stay defined so a
+ * persisted `eve-standard` selection still resolves + renders even when the lane
+ * is hidden for a paying user.)
+ */
+export function buildEveLaneViews(entitlement: EveEntitlementView | null | undefined): PickerLaneView[] {
+  const trialing = isTrialingEntitlement(entitlement);
+  return [
+    {
+      lane: 'local',
+      title: 'Lokal',
+      accent: 'grey',
+      state: 'available',
+      items: buildLocalLaneItems(),
+    },
+    {
+      lane: 'free',
+      title: 'EVE Free',
+      accent: 'blue',
+      // Paying (non-trial) users no longer see the Free lane.
+      state: trialing ? 'available' : 'hidden',
+      items: buildEveLaneItems(false, false),
+    },
+    {
+      lane: 'pro',
+      title: 'EVE Pro',
+      accent: 'gold',
+      // Trial/free: shown but LOCKED (greyed strengths + upgrade). Paid: available.
+      state: trialing ? 'locked' : 'available',
+      items: buildEveLaneItems(true, trialing),
+    },
+  ];
+}
+
+/** The lane a selection value belongs to (for the active-pill accent + open-to-lane). */
+export function laneOfSelection(value: string | null | undefined): PickerLane {
+  if (isLocalSelection(value)) return 'local';
+  const tierId = parseEveTierIdFromSelection(value);
+  const tier = tierId ? findEveInferenceTier(tierId) : undefined;
+  return tier?.paidOnly ? 'pro' : 'free';
+}
+
+// ---------------------------------------------------------------------------
 // EVE tier → synthetic provider for ClientFactory. The license wire string is
 // the BEARER credential (OpenAI SDK sends `api_key` as `Authorization: Bearer`).
 // ---------------------------------------------------------------------------
