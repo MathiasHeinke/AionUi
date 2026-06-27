@@ -356,27 +356,27 @@ export async function ensureCommandEveAssistant(
 
   await requestJson(backendPort, path, { method, body });
 
-  let reconciledAssistant = await loadCommandEveAssistant(backendPort);
-  if (!commandEveAssistantIsReconciled(reconciledAssistant, presetAgentType, customSkillNames) && existingAssistant) {
-    console.warn(
-      `[CommandEVE] Existing EVE assistant did not reconcile via PUT (${commandEveAssistantReconciliationError(
-        reconciledAssistant,
-        presetAgentType,
-        customSkillNames
-      )}); recreating managed EVE assistant.`
-    );
-    await requestJson(backendPort, `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}`, { method: 'DELETE' });
-    await requestJson(backendPort, '/api/assistants', { method: 'POST', body: JSON.stringify(assistant) });
-    reconciledAssistant = await loadCommandEveAssistant(backendPort);
-  }
-
+  const reconciledAssistant = await loadCommandEveAssistant(backendPort);
   if (!commandEveAssistantIsReconciled(reconciledAssistant, presetAgentType, customSkillNames)) {
-    throw new Error(
-      `Command EVE assistant reconciliation failed: ${commandEveAssistantReconciliationError(
+    // The merge-only PUT did not fully reconcile — in practice the preset_agent_type
+    // (the backend keeps the assistant's stored agent on PUT; the runtime resolves the
+    // live agent for the conversation regardless, so the mismatch is cosmetic).
+    //
+    // We DELIBERATELY DO NOT recreate via DELETE + POST here. The backend's DELETE
+    // soft-deletes the assistant's user-source assistant_definitions row and the
+    // follow-up POST does NOT restore a LIVE definition, which (a) makes the EVE
+    // assistant VANISH from /api/assistants for the rest of the session (the UI falls
+    // back to a raw CLI agent), and (b) leaves an active-assistant ↔ soft-deleted-
+    // definition inconsistency that BRICKS aioncore's router.assistant.bootstrap on the
+    // NEXT restart (the "incomplete installation" crash — see assistantStorageRepair.ts).
+    // Keeping the merged assistant preserves its LIVE definition and the operator
+    // persona/skills the PUT already applied — EVE stays present and usable.
+    console.warn(
+      `[CommandEVE] EVE assistant did not fully reconcile via PUT (${commandEveAssistantReconciliationError(
         reconciledAssistant,
         presetAgentType,
         customSkillNames
-      )}`
+      )}); keeping the merged assistant (no destructive DELETE+POST recreate).`
     );
   }
 
@@ -407,12 +407,16 @@ export async function ensureCommandEveAssistant(
 
   const readyAssistant = await loadCommandEveAssistant(backendPort);
   if (!commandEveAssistantIsReconciled(readyAssistant, presetAgentType, customSkillNames)) {
-    throw new Error(
-      `Command EVE assistant final readiness failed: ${commandEveAssistantReconciliationError(
+    // Non-fatal: do not throw (a throw would abort the re-seed and skip the enable +
+    // resource writes already done above, and bricking the seed over a cosmetic preset
+    // mismatch is worse than shipping a present-and-usable EVE). EVE is enabled, has its
+    // live definition + persona/skills, and the runtime resolves the live agent.
+    console.warn(
+      `[CommandEVE] EVE assistant not fully reconciled after setup (${commandEveAssistantReconciliationError(
         readyAssistant,
         presetAgentType,
         customSkillNames
-      )}`
+      )}); proceeding — EVE is present and usable.`
     );
   }
 

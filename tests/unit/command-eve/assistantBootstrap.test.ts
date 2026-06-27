@@ -163,7 +163,13 @@ describe('Command EVE assistant bootstrap', () => {
     ]);
   });
 
-  it('recreates a stale managed EVE assistant when preset reconciliation does not persist via PUT', async () => {
+  it('does NOT destructively recreate (no DELETE+POST) when the PUT cannot reconcile the preset — keeps EVE present and still resolves', async () => {
+    // The backend permanently reports the assistant on the 'aionrs' preset; the
+    // merge-only PUT cannot flip it to 'hermes'. The OLD behavior recreated it via
+    // DELETE + POST, which soft-deleted the assistant's user definition — making EVE
+    // VANISH from /api/assistants mid-session AND bricking aioncore's bootstrap on the
+    // next restart. The fix: keep the merged assistant (NO destructive recreate) and do
+    // not throw over a cosmetic preset mismatch (the runtime resolves the live agent).
     const staleAssistant = {
       id: COMMAND_EVE_ASSISTANT_ID,
       name: 'EVE',
@@ -171,65 +177,42 @@ describe('Command EVE assistant bootstrap', () => {
       enabled_skills: [],
       custom_skill_names: [],
     };
-    const repairedAssistant = {
-      ...staleAssistant,
-      preset_agent_type: 'hermes',
-    };
-    const calls: Array<{ method: string; path: string; body?: unknown }> = [];
-    let assistantListReads = 0;
+    const calls: Array<{ method: string; path: string }> = [];
 
     const fetchMock = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const url = new URL(String(input));
       const method = String(init?.method || 'GET').toUpperCase();
-      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
-      calls.push({ method, path: url.pathname, body });
+      calls.push({ method, path: url.pathname });
 
       if (url.pathname === '/api/agents/management') {
         return jsonResponse({ success: true, data: [{ backend: 'hermes', available: true }] });
       }
-
       if (url.pathname === '/api/assistants' && method === 'GET') {
-        assistantListReads += 1;
-        return jsonResponse({ success: true, data: [assistantListReads < 3 ? staleAssistant : repairedAssistant] });
+        return jsonResponse({ success: true, data: [staleAssistant] });
       }
-
       if (url.pathname === `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}` && method === 'PUT') {
         return jsonResponse({ success: true, data: staleAssistant });
       }
-
-      if (url.pathname === `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}` && method === 'DELETE') {
-        return jsonResponse({ success: true, data: true });
-      }
-
-      if (url.pathname === '/api/assistants' && method === 'POST') {
-        expect(body).toMatchObject({
-          id: COMMAND_EVE_ASSISTANT_ID,
-          preset_agent_type: 'hermes',
-        });
-        return jsonResponse({ success: true, data: repairedAssistant });
-      }
-
       if (url.pathname === `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}/state` && method === 'PATCH') {
-        return jsonResponse({ success: true, data: repairedAssistant });
+        return jsonResponse({ success: true, data: staleAssistant });
       }
-
       if (url.pathname.startsWith('/api/skills/assistant-') && method === 'POST') {
         return jsonResponse({ success: true, data: true });
       }
-
+      // A DELETE on the assistant or a recreate-POST /api/assistants would land here and
+      // fail the test — they must NOT happen anymore.
       throw new Error(`Unexpected request ${method} ${url.pathname}`);
     };
 
     globalThis.fetch = fetchMock as typeof fetch;
-    await ensureCommandEveAssistant(25809, '1.0.0-alpha.4');
+    // Must RESOLVE (not throw) even though the preset never reconciles to hermes.
+    await expect(ensureCommandEveAssistant(25809, '1.0.0-alpha.4')).resolves.toBeDefined();
 
-    expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual(
-      expect.arrayContaining([
-        `PUT /api/assistants/${COMMAND_EVE_ASSISTANT_ID}`,
-        `DELETE /api/assistants/${COMMAND_EVE_ASSISTANT_ID}`,
-        'POST /api/assistants',
-        `PATCH /api/assistants/${COMMAND_EVE_ASSISTANT_ID}/state`,
-      ])
-    );
+    const sigs = calls.map((call) => `${call.method} ${call.path}`);
+    expect(sigs).toContain(`PUT /api/assistants/${COMMAND_EVE_ASSISTANT_ID}`);
+    expect(sigs).toContain(`PATCH /api/assistants/${COMMAND_EVE_ASSISTANT_ID}/state`);
+    // The destructive recreate must NOT happen — it is the soft-delete source.
+    expect(sigs).not.toContain(`DELETE /api/assistants/${COMMAND_EVE_ASSISTANT_ID}`);
+    expect(calls.filter((call) => call.method === 'POST' && call.path === '/api/assistants')).toHaveLength(0);
   });
 });
