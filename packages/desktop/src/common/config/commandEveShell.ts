@@ -63,7 +63,9 @@ export const COMMAND_EVE_EGRESS_PROXY_OPENAI_BASE_URL = 'http://127.0.0.1:25811/
 export const COMMAND_EVE_LOCAL_MODEL_TIERS = [
   {
     id: 'gemma-4-e4b-local-default',
-    label: 'Gemma 4 E4B',
+    // User-facing CAPABILITY descriptor (NEVER a model name — founder mandate). The
+    // model id/ref below stay concrete for routing; only this label reaches the UI.
+    label: 'schnell · privat',
     modelId: 'custom:command-eve-gemma4-e4b-64k:latest',
     modelRef: 'gemma4:e4b',
     contextLength: 65_536,
@@ -73,7 +75,7 @@ export const COMMAND_EVE_LOCAL_MODEL_TIERS = [
   },
   {
     id: 'gemma-4-12b-local-planning',
-    label: 'Gemma 4 12B',
+    label: 'intelligenter · privat',
     modelId: 'custom:command-eve-gemma4-12b-64k:latest',
     modelRef: 'gemma4:12b',
     contextLength: 65_536,
@@ -83,7 +85,7 @@ export const COMMAND_EVE_LOCAL_MODEL_TIERS = [
   },
   {
     id: 'gemma-4-31b-local-pro',
-    label: 'Gemma 4 31B',
+    label: 'leistungsstark · privat',
     modelId: 'custom:command-eve-gemma4-31b-64k:latest',
     modelRef: 'gemma4:31b',
     contextLength: 65_536,

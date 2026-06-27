@@ -35,6 +35,7 @@ import {
   buildEveInferenceProvider,
   buildEvePickerGroups,
   buildEveInferenceRequestBody,
+  commandEveActiveModeLabel,
   EVE_DEFAULT_INFERENCE_SELECTION,
   EVE_INFERENCE_FUNCTION_URL,
   EVE_INFERENCE_DEFAULT_TIER_ID,
@@ -93,7 +94,7 @@ describe('eveInferenceCore — STUFEN shape (requirement 0)', () => {
     const max = EVE_INFERENCE_TIERS.find((t) => t.id === 'eve-max')!;
     expect(mittel.paidOnly).toBe(false);
     expect(mittel.label).toBe('Standard');
-    expect(mittel.modelLabel).toBe('DeepSeek V4 Flash');
+    expect(mittel.modelLabel).toBe('großer Kontext');
     expect(hoch.paidOnly).toBe(true);
     expect(max.paidOnly).toBe(true);
     expect(EVE_INFERENCE_DEFAULT_TIER_ID).toBe('eve-standard');
@@ -104,7 +105,7 @@ describe('eveInferenceCore — STUFEN shape (requirement 0)', () => {
     const hoch = byLabel(items, 'eve', 'Hoch')!;
     expect(hoch.consumesCredits).toBe(true);
     expect(hoch.gated).toBe(false);
-    expect(hoch.sublabel).toBe('DeepSeek V4 Pro');
+    expect(hoch.sublabel).toBe('intelligenter');
     expect(hoch.costBadge).toBe('mehr Credits');
   });
 
@@ -113,7 +114,7 @@ describe('eveInferenceCore — STUFEN shape (requirement 0)', () => {
     const max = byLabel(items, 'eve', 'Max')!;
     expect(max.consumesCredits).toBe(true);
     expect(max.gated).toBe(true);
-    expect(max.sublabel).toBe('GLM 5.2');
+    expect(max.sublabel).toBe('höchste Intelligenz');
     expect(max.costBadge).toBe('höchste Kosten');
   });
 
@@ -157,8 +158,8 @@ describe('eveInferenceCore — free-tier greying (requirement 1)', () => {
     expect(byLabel(items, 'local', 'Hoch')!.disabled).toBe(false);
 
     // Local tiers carry their bundled model labels as sublabels.
-    expect(byLabel(items, 'local', 'Standard')!.sublabel).toBe('Gemma 4 E4B');
-    expect(byLabel(items, 'local', 'Hoch')!.sublabel).toBe('Gemma 4 12B');
+    expect(byLabel(items, 'local', 'Standard')!.sublabel).toBe('schnell · privat');
+    expect(byLabel(items, 'local', 'Hoch')!.sublabel).toBe('intelligenter · privat');
   });
 
   it('leaves ALL EVE levels selectable when paid (trial_ends_at null/absent)', () => {
@@ -196,19 +197,52 @@ describe('eveInferenceCore — honest CLOUD labeling (audit #1)', () => {
 
   it('each EVE level names its concrete cloud model in the sublabel (level in the primary label, model in the secondary)', () => {
     const items = flat(buildEvePickerGroups(TRIAL));
-    expect(byLabel(items, 'eve', 'Standard')!.sublabel).toBe('DeepSeek V4 Flash');
-    expect(byLabel(items, 'eve', 'Hoch')!.sublabel).toBe('DeepSeek V4 Pro');
-    expect(byLabel(items, 'eve', 'Max')!.sublabel).toBe('GLM 5.2');
+    expect(byLabel(items, 'eve', 'Standard')!.sublabel).toBe('großer Kontext');
+    expect(byLabel(items, 'eve', 'Hoch')!.sublabel).toBe('intelligenter');
+    expect(byLabel(items, 'eve', 'Max')!.sublabel).toBe('höchste Intelligenz');
   });
 
-  it('a user cannot mistake EVE for private/local: heading says (Cloud) and rows name cloud models, never Gemma', () => {
+  it('cloud heading marks EVE as Cloud; rows show CAPABILITY, never a concrete model name', () => {
     const groups = buildEvePickerGroups(TRIAL);
     const eveGroup = groups.find((g) => g.kind === 'eve')!;
     expect(eveGroup.title.toLowerCase()).toContain('cloud');
-    // EVE rows name external cloud models (DeepSeek / GLM), never a bundled local one (Gemma).
+    // Founder mandate: NO concrete model name anywhere user-facing — not the cloud
+    // vendors (DeepSeek/GLM) and not the local one (Gemma). The lane is still
+    // unmistakably "Cloud" via the heading; the rows describe capability only.
     const eveSubs = eveGroup.items.map((i) => i.sublabel ?? '');
-    expect(eveSubs.every((s) => !/gemma/i.test(s))).toBe(true);
-    expect(eveSubs.some((s) => /DeepSeek|GLM/i.test(s))).toBe(true);
+    expect(eveSubs.every((s) => !/gemma|deepseek|glm|openrouter/i.test(s))).toBe(true);
+    // The local group is unmistakably NOT cloud (heading), so no model name is needed.
+    const localGroup = groups.find((g) => g.kind === 'local')!;
+    expect(localGroup.title.toLowerCase()).not.toContain('cloud');
+    expect(localGroup.items.map((i) => i.sublabel ?? '').every((s) => !/gemma|deepseek|glm/i.test(s))).toBe(true);
+  });
+});
+
+describe('commandEveActiveModeLabel — honest, MODEL-FREE self-description (EVE no longer claims Gemma)', () => {
+  const NO_MODEL = /gemma|deepseek|glm|ollama|openrouter/i;
+
+  it('describes the LOCAL lane as private, with no model name (DE + EN)', () => {
+    const de = commandEveActiveModeLabel(localTierValue('local-standard'), 'de-DE');
+    const en = commandEveActiveModeLabel(localTierValue('local-high'), 'en-US');
+    expect(de).toMatch(/lokal/i);
+    expect(en).toMatch(/local/i);
+    expect(de).not.toMatch(NO_MODEL);
+    expect(en).not.toMatch(NO_MODEL);
+  });
+
+  it('describes a CLOUD tier as EVE-Cloud + Stufe, never the model (DE + EN)', () => {
+    const de = commandEveActiveModeLabel(eveTierValue('eve-max'), 'de-DE');
+    const en = commandEveActiveModeLabel(eveTierValue('eve-standard'), 'en-US');
+    expect(de).toMatch(/EVE-Cloud/);
+    expect(de).toContain('Max'); // the STUFE label, not the model
+    expect(en).toMatch(/EVE Cloud/);
+    expect(de).not.toMatch(NO_MODEL);
+    expect(en).not.toMatch(NO_MODEL);
+  });
+
+  it('falls back to "nicht verifiziert" / "not verified" for an unknown/absent selection', () => {
+    expect(commandEveActiveModeLabel(undefined, 'de-DE')).toBe('nicht verifiziert');
+    expect(commandEveActiveModeLabel('something-else', 'en-US')).toBe('not verified');
   });
 });
 

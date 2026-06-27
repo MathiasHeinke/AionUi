@@ -261,7 +261,7 @@ const AccountModalContent: React.FC = () => {
             <div className='text-13px text-t-tertiary' data-testid='eve-cloud-needs-activation'>
               {t('settings.accountPanel.eveCloud.inactiveBody', {
                 defaultValue:
-                  'EVE Cloud ist nicht aktiviert — Anfragen laufen aktuell auf dem lokalen Modell. Hinterlege deinen Lizenzcode erneut, um die Cloud-Modelle (DeepSeek V4 / GLM) zu nutzen. Dein Gerät wird dabei NICHT zurückgesetzt.',
+                  'EVE Cloud ist nicht aktiviert — Anfragen laufen aktuell lokal & privat auf deinem Gerät. Hinterlege deinen Lizenzcode erneut, um die EVE-Cloud (mehr Intelligenz, großer Kontext) zu nutzen. Dein Gerät wird dabei NICHT zurückgesetzt.',
               })}
             </div>
             <Input.TextArea

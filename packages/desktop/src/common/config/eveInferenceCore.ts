@@ -85,7 +85,7 @@ export const EVE_INFERENCE_GROUP_TITLE = `${EVE_INFERENCE_PROVIDER_NAME} (Cloud)
  * Sublabel for EVE tiers (mirrors the local tiers' model-label sublabel). Makes
  * the cloud/external nature explicit on every EVE row, not just the heading.
  */
-export const EVE_INFERENCE_TIER_SUBLABEL = 'Externe Free-Modelle · OpenRouter';
+export const EVE_INFERENCE_TIER_SUBLABEL = 'EVE Cloud';
 
 /**
  * EVE Inference cloud LEVELS (Stufen). `tier` is the wire value POSTed in the
@@ -119,8 +119,8 @@ export const EVE_INFERENCE_TIERS = [
     paidOnly: false,
     consumesCredits: false,
     gated: false,
-    /** User-facing model behind this level (sublabel only; never the picker id). */
-    modelLabel: 'DeepSeek V4 Flash',
+    /** User-facing CAPABILITY descriptor (sublabel only; NEVER a model name — founder mandate). */
+    modelLabel: 'großer Kontext',
   },
   {
     id: 'eve-high',
@@ -132,7 +132,7 @@ export const EVE_INFERENCE_TIERS = [
     paidOnly: true,
     consumesCredits: true,
     gated: false,
-    modelLabel: 'DeepSeek V4 Pro',
+    modelLabel: 'intelligenter',
     costBadge: 'mehr Credits',
   },
   {
@@ -143,7 +143,7 @@ export const EVE_INFERENCE_TIERS = [
     paidOnly: true,
     consumesCredits: true,
     gated: true,
-    modelLabel: 'GLM 5.2',
+    modelLabel: 'höchste Intelligenz',
     /** Highest-cost badge so the rate vs Hoch is obvious before picking. */
     costBadge: 'höchste Kosten',
   },
@@ -550,6 +550,37 @@ export function laneOfSelection(value: string | null | undefined): PickerLane {
   const tierId = parseEveTierIdFromSelection(value);
   const tier = tierId ? findEveInferenceTier(tierId) : undefined;
   return tier?.paidOnly ? 'pro' : 'free';
+}
+
+/**
+ * Honest, MODEL-FREE self-description of the active inference lane for EVE's own
+ * system context (founder mandate: EVE must NEVER name a concrete model — it used
+ * to claim "Gemma 4" because the bootstrap receipt's local model ref leaked into
+ * the prompt). Maps a (effective) picker selection to a capability descriptor —
+ * lane + Stufe + a context hint — with NO vendor/model/version name. ASCII-
+ * transliterated to match the surrounding assistant-prompt strings. Pass the
+ * EFFECTIVE selection (resolveEffectiveInferenceSelection) so an absent value
+ * resolves to the EVE Cloud default rather than "not verified".
+ */
+export function commandEveActiveModeLabel(
+  selection: string | null | undefined,
+  locale: 'de-DE' | 'en-US'
+): string {
+  const de = locale === 'de-DE';
+  if (isLocalSelection(selection)) {
+    return de
+      ? 'lokal & privat (laeuft vollstaendig auf dem Geraet des Nutzers, nichts verlaesst den Rechner)'
+      : 'local & private (runs fully on the user device, nothing leaves the machine)';
+  }
+  if (isEveInferenceSelection(selection)) {
+    const tierId = parseEveTierIdFromSelection(selection);
+    const stufe = tierId ? findEveInferenceTier(tierId)?.label : undefined;
+    if (de) {
+      return stufe ? `EVE-Cloud, Stufe ${stufe} (grosser Kontext)` : 'EVE-Cloud (grosser Kontext)';
+    }
+    return stufe ? `EVE Cloud, level ${stufe} (large context)` : 'EVE Cloud (large context)';
+  }
+  return de ? 'nicht verifiziert' : 'not verified';
 }
 
 // ---------------------------------------------------------------------------

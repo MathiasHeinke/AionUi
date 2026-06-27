@@ -15,6 +15,8 @@ import {
   type CommandEveSeatSeedRecord,
 } from './assistantBootstrapCore';
 import { COMMAND_EVE_ASSISTANT_ID, isCommandEveFounderBuild } from '@/common/config/commandEveShell';
+import { resolveEffectiveInferenceSelection } from '@/common/config/eveInferenceCore';
+import { ProcessConfig } from '@process/utils/initStorage';
 import fs from 'fs';
 import path from 'path';
 import { resolveCommandEveRuntimeBootstrapPaths } from './runtimeBootstrapCore';
@@ -212,13 +214,18 @@ function loadCommandEveFirstRunContext(appVersion: string, userDataPath?: string
 function buildCommandEveAssistantSkillForSeat(
   locale: 'de-DE' | 'en-US',
   load: CommandEveFirstRunLoad | undefined,
-  isFounderBuild: boolean
+  isFounderBuild: boolean,
+  inferenceSelection?: string
 ): string {
   if (!load) return buildCommandEveAssistantSkill(locale, undefined, isFounderBuild);
   const seatIdentity = load.realSeatActive
     ? resolveCommandEveSeatIdentity({ legacy: false, seatId: load.seatId, seed: load.seatSeed, locale })
     : undefined;
-  return buildCommandEveAssistantSkill(locale, { ...load.baseContext, seatIdentity }, isFounderBuild);
+  return buildCommandEveAssistantSkill(
+    locale,
+    { ...load.baseContext, seatIdentity, inferenceSelection },
+    isFounderBuild
+  );
 }
 
 function hasAvailableHermesAgent(agents: CommandEveDetectedAgent[]): boolean {
@@ -328,6 +335,14 @@ export async function ensureCommandEveAssistant(
   const customSkillNames = await importCommandEveManagedSkills(backendPort, options.userDataPath);
   const assistant = buildCommandEveAssistantPayload(presetAgentType, customSkillNames, appVersion, isFounderBuild);
   const firstRunLoad = loadCommandEveFirstRunContext(appVersion, options.userDataPath);
+  // The EFFECTIVE picker selection drives EVE's model-FREE "Betriebsmodus" line
+  // (same sync read as the warm-up lane in index.ts) so EVE describes its active
+  // lane instead of leaking the local model ref. Best-effort: undefined → the
+  // line reads "nicht verifiziert" and the standing model-identity rule still
+  // forbids naming a model.
+  const activeInferenceSelection = resolveEffectiveInferenceSelection(
+    ProcessConfig.getSync('commandEve.inferenceSelection')
+  );
   const existingAssistant = await loadCommandEveAssistant(backendPort);
   const method = existingAssistant ? 'PUT' : 'POST';
   const path = method === 'PUT' ? `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}` : '/api/assistants';
@@ -395,13 +410,13 @@ export async function ensureCommandEveAssistant(
       backendPort,
       'assistant-skill',
       'de-DE',
-      buildCommandEveAssistantSkillForSeat('de-DE', firstRunLoad, isFounderBuild)
+      buildCommandEveAssistantSkillForSeat('de-DE', firstRunLoad, isFounderBuild, activeInferenceSelection)
     ),
     writeAssistantResource(
       backendPort,
       'assistant-skill',
       'en-US',
-      buildCommandEveAssistantSkillForSeat('en-US', firstRunLoad, isFounderBuild)
+      buildCommandEveAssistantSkillForSeat('en-US', firstRunLoad, isFounderBuild, activeInferenceSelection)
     ),
   ]);
 

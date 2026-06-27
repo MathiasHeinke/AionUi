@@ -117,9 +117,16 @@ describe('Command EVE assistant bootstrap core', () => {
     // the shipped operator default never carries it. getCommandEveAssistantRule selects.
     expect(COMMAND_EVE_ASSISTANT_RULE_FOUNDER_DE).toContain('Du setzt keine Plane-Items auf Done');
     expect(COMMAND_EVE_ASSISTANT_RULE_FOUNDER_EN).toContain('You do not set Plane items to Done');
-    expect(getCommandEveAssistantRule('de-DE', false)).toBe(COMMAND_EVE_ASSISTANT_RULE_DE);
-    expect(getCommandEveAssistantRule('de-DE', true)).toBe(COMMAND_EVE_ASSISTANT_RULE_FOUNDER_DE);
-    expect(getCommandEveAssistantRule('en-US', true)).toBe(COMMAND_EVE_ASSISTANT_RULE_FOUNDER_EN);
+    // getCommandEveAssistantRule selects the right variant AND appends the standing
+    // model-identity rule (the hard "never name a model" guarantee), so it CONTAINS
+    // the selected base rather than equalling it.
+    expect(getCommandEveAssistantRule('de-DE', false)).toContain(COMMAND_EVE_ASSISTANT_RULE_DE);
+    expect(getCommandEveAssistantRule('de-DE', false)).not.toContain('Du setzt keine Plane-Items auf Done');
+    expect(getCommandEveAssistantRule('de-DE', true)).toContain(COMMAND_EVE_ASSISTANT_RULE_FOUNDER_DE);
+    expect(getCommandEveAssistantRule('en-US', true)).toContain(COMMAND_EVE_ASSISTANT_RULE_FOUNDER_EN);
+    // The standing model-identity rule is appended to every variant.
+    expect(getCommandEveAssistantRule('de-DE', false)).toContain('Modell-Identitaet');
+    expect(getCommandEveAssistantRule('en-US', false)).toContain('Model identity');
     // The founder persona must contain Chief-of-Staff; the operator one must not.
     const founder = buildCommandEveAssistant('hermes', [], true);
     expect(founder.description).toContain('Chief-of-Staff');
@@ -226,5 +233,33 @@ describe('Command EVE assistant bootstrap core', () => {
     expect(skill).toContain('Local First-Run Context');
     expect(skill).toContain('model:MODEL_NOT_FETCHED');
     expect(skill).toContain('Connectors needs_auth: github-gitnexus');
+  });
+
+  it('renders the active lane as a MODEL-FREE Betriebsmodus and NEVER the local model ref (EVE stops claiming Gemma)', () => {
+    const context = buildCommandEveAssistantFirstRunContext(
+      {
+        appVersion: '1.2.9',
+        receipt: { status: 'ready', provider: 'ollama', default_model: 'command-eve-gemma4-e4b-64k:latest' },
+        inferenceSelection: 'command-eve-inference:eve-max',
+      },
+      'de-DE'
+    );
+    // The model-free Betriebsmodus line replaces the old "Modell: <gemma ref>" leak.
+    expect(context).toContain('Betriebsmodus: EVE-Cloud');
+    expect(context).not.toContain('Modell:');
+    expect(context).not.toContain('command-eve-gemma4-e4b-64k:latest');
+    expect(context).not.toMatch(/gemma/i);
+
+    // Local selection → honest "lokal" mode, still no model name.
+    const local = buildCommandEveAssistantFirstRunContext(
+      {
+        appVersion: '1.2.9',
+        receipt: { status: 'ready', provider: 'ollama', default_model: 'command-eve-gemma4-e4b-64k:latest' },
+        inferenceSelection: 'command-eve-local:local-standard',
+      },
+      'de-DE'
+    );
+    expect(local).toMatch(/Betriebsmodus: lokal/i);
+    expect(local).not.toMatch(/gemma/i);
   });
 });

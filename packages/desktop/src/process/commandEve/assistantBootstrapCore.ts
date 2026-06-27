@@ -5,6 +5,7 @@ import {
   COMMAND_EVE_ASSISTANT_ID,
   COMMAND_EVE_TITLE,
 } from '@/common/config/commandEveShell';
+import { commandEveActiveModeLabel } from '@/common/config/eveInferenceCore';
 
 export type CommandEveDetectedAgent = {
   agent_type?: string;
@@ -117,6 +118,15 @@ export type CommandEveAssistantFirstRunContext = {
    * founder/company seed lines so a client seat never renders the admin seed.
    */
   seatIdentity?: CommandEveSeatIdentity;
+  /**
+   * The EFFECTIVE picker inference selection (commandEve.inferenceSelection) at
+   * skill-write time. Rendered as the model-FREE "Betriebsmodus" line so EVE
+   * describes its active lane (EVE-Cloud / lokal-privat) and NEVER the local
+   * model name (the old `receipt.default_model` leak that made EVE claim "Gemma
+   * 4"). Best-effort + may go stale on a mid-session lane switch — the standing
+   * "Modell-Identitaet" rule is the hard guarantee that EVE never names a model.
+   */
+  inferenceSelection?: string;
 };
 
 export const COMMAND_EVE_DISABLED_BUILTIN_SKILLS = [
@@ -275,9 +285,10 @@ export function buildCommandEveAssistantFirstRunContext(
       '## Lokaler First-Run-Kontext (Bootstrap-Receipt)',
       '',
       `- App-Version: ${context.appVersion}`,
-      `- Runtime: ${receipt?.status || 'unbekannt'}; Modell: ${receipt?.default_model || 'nicht verifiziert'}; Provider: ${
-        receipt?.provider || 'nicht verifiziert'
-      }`,
+      `- Runtime: ${receipt?.status || 'unbekannt'}; Betriebsmodus: ${commandEveActiveModeLabel(
+        context.inferenceSelection,
+        'de-DE'
+      )}`,
       `- Naechste Runtime-Aktion: ${receipt?.next_action || 'Receipt noch nicht geschrieben.'}`,
       ...seatLinesDe,
       `- Identity-Quelle: ${usingSeat ? 'seat' : identity?.source || 'unverified'} / ${
@@ -322,9 +333,10 @@ export function buildCommandEveAssistantFirstRunContext(
     '## Local First-Run Context (Bootstrap Receipt)',
     '',
     `- App version: ${context.appVersion}`,
-    `- Runtime: ${receipt?.status || 'unknown'}; model: ${receipt?.default_model || 'not verified'}; provider: ${
-      receipt?.provider || 'not verified'
-    }`,
+    `- Runtime: ${receipt?.status || 'unknown'}; Operating mode: ${commandEveActiveModeLabel(
+      context.inferenceSelection,
+      'en-US'
+    )}`,
     `- Next runtime action: ${receipt?.next_action || 'Receipt has not been written yet.'}`,
     ...seatLinesEn,
     `- Identity source: ${usingSeat ? 'seat' : identity?.source || 'unverified'} / ${
@@ -751,11 +763,32 @@ A connector is connected only when a preflight/receipt proves it. Otherwise say 
 ## First response shape
 Follows SOUL.md's register, not a fixed template: a greeting or smalltalk gets a short, warm, human reply — no status report, no audit, no numbered menu. Only when the operator brings a real task or explicitly asks about status/setup do you structure the answer (e.g. your read, the strongest risk to challenge, connector status, concrete next steps).`;
 
-export function getCommandEveAssistantRule(locale: 'de-DE' | 'en-US', isFounderBuild: boolean): string {
-  if (isFounderBuild) {
-    return locale === 'de-DE' ? COMMAND_EVE_ASSISTANT_RULE_FOUNDER_DE : COMMAND_EVE_ASSISTANT_RULE_FOUNDER_EN;
+/**
+ * Standing MODEL-IDENTITY rule, appended to every variant. The hard guarantee
+ * that EVE never names a concrete model (it used to claim "Gemma 4" from the
+ * leaked receipt model ref). Loaded on EVERY conversation, so it holds even if
+ * the dynamic "Betriebsmodus" line is stale after a mid-session lane switch.
+ */
+function commandEveModelIdentityRule(locale: 'de-DE' | 'en-US'): string {
+  if (locale === 'de-DE') {
+    return `## Modell-Identitaet (immer)
+Nenne NIE einen konkreten Modell- oder Versionsnamen (kein "Gemma", "DeepSeek", "GLM", "Ollama", "OpenRouter" o. ae.) — weder fuer dich selbst noch fuer die waehlbaren Stufen. Fragt der User "welches Modell bist du / worauf laeufst du", beschreibe nur deinen Betriebsmodus aus dem First-Run-Kontext: EVE-Cloud (mehr Intelligenz, grosser Kontext) oder lokal & privat (alles bleibt auf dem Geraet). Steht dort "nicht verifiziert" oder bist du unsicher, sag offen, dass du den aktiven Modus gerade nicht sicher bestimmst — rate nichts und nenne keinen Modellnamen. Wichtig ist, was du leisten kannst, nicht welches Modell darunter laeuft.`;
   }
-  return locale === 'de-DE' ? COMMAND_EVE_ASSISTANT_RULE_DE : COMMAND_EVE_ASSISTANT_RULE_EN;
+  return `## Model identity (always)
+NEVER name a concrete model or version (no "Gemma", "DeepSeek", "GLM", "Ollama", "OpenRouter", etc.) — neither for yourself nor for the selectable levels. If the user asks "which model are you / what do you run on", describe ONLY your operating mode from the first-run context: EVE Cloud (more intelligence, large context) or local & private (everything stays on the device). If it says "not verified" or you are unsure, say openly that you cannot reliably determine the active mode right now — do not guess and do not name a model. What matters is what you can do, not which model runs underneath.`;
+}
+
+export function getCommandEveAssistantRule(locale: 'de-DE' | 'en-US', isFounderBuild: boolean): string {
+  const base = isFounderBuild
+    ? locale === 'de-DE'
+      ? COMMAND_EVE_ASSISTANT_RULE_FOUNDER_DE
+      : COMMAND_EVE_ASSISTANT_RULE_FOUNDER_EN
+    : locale === 'de-DE'
+      ? COMMAND_EVE_ASSISTANT_RULE_DE
+      : COMMAND_EVE_ASSISTANT_RULE_EN;
+  // Append the standing model-identity rule to every variant (the hard guarantee
+  // EVE never names a model — the '# EVE Operating Rule' header stays at the top).
+  return `${base}\n\n${commandEveModelIdentityRule(locale)}`;
 }
 
 function normalizeAgentKey(agent: CommandEveDetectedAgent): string {
