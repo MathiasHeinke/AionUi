@@ -51,6 +51,30 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   'claude-3.5-haiku': 200_000,
   'claude-3-opus': 200_000,
   'claude-3-haiku': 200_000,
+
+  // ── Command EVE cloud lane (eve-inference → OpenRouter) ──────────────────
+  // All three EVE cloud tiers serve a 1M-context model (FACT: OpenRouter catalog
+  // 2026-06-27, context_length=1_048_576 each): Mittel=DeepSeek V4 Flash,
+  // Hoch=DeepSeek V4 Pro, Max=GLM 5.2. Keyed by BOTH the model slug AND the EVE
+  // selection prefix, so the fuzzy fallback resolves whichever id the request_trace
+  // carries — the founder's point: GLM must NOT read as 64k like a local model.
+  'z-ai/glm-5.2': 1_048_576,
+  'glm-5.2': 1_048_576,
+  'deepseek/deepseek-v4-pro': 1_048_576,
+  'deepseek/deepseek-v4-flash': 1_048_576,
+  'deepseek-v4-pro': 1_048_576,
+  'deepseek-v4-flash': 1_048_576,
+  'deepseek-v4': 1_048_576,
+  'command-eve-inference': 1_048_576, // any EVE cloud tier (eve-standard/high/max)
+
+  // ── Command EVE local lane (bundled Gemma via Ollama) ────────────────────
+  // FALLBACK ONLY — the live `acp_context_usage` frame reports the real runtime
+  // size and always wins. This is the `ollama_num_ctx` MEMORY CAP (64k on the M1
+  // 16GB baseline), NOT the model's theoretical max — deliberately bounded.
+  // INFERENCE (config-sourced, runtimeBootstrapCore DEFAULT_LONG_CONTEXT_LENGTH).
+  'command-eve-gemma': 65_536,
+  'gemma-4': 65_536,
+  gemma4: 65_536,
 };
 
 /**

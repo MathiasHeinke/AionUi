@@ -389,14 +389,6 @@
   margin-top: auto;
 }
 
-.actionTools {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 1;
-  min-width: 0;
-}
-
 .actionEntry {
   display: inline-flex;
   align-items: center;
@@ -413,40 +405,12 @@
   flex: 0 1 auto;
 }
 
-/* 首页输入框右下「模型 / 模式」按钮：与对话框 .sendbox-tools/.sendbox-actions 同款 */
-.actionSubmit :global(.sendbox-model-btn),
-.actionSubmit :global(.sendbox-model-btn:hover),
-.actionSubmit :global(.sendbox-model-btn:active),
-.actionSubmit :global(.sendbox-model-btn:focus),
-.actionSubmit :global(.sendbox-model-btn:focus-visible) {
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  color: var(--text-secondary) !important;
-}
-
-.actionSubmit :global(.sendbox-model-btn:hover),
-.actionSubmit :global(.sendbox-model-btn:active),
-.actionSubmit :global(.sendbox-model-btn:focus),
-.actionSubmit :global(.sendbox-model-btn:focus-visible) {
-  color: var(--text-primary) !important;
-}
-
 .actionConfigGroup :global(.sendbox-model-btn .arco-btn-content) {
   gap: 0 !important;
 }
 
 .actionConfigGroup :global(.sendbox-model-btn .arco-btn-content > span:first-child) {
   gap: 4px !important;
-}
-
-.actionSubmit {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  margin-left: auto;
-  min-width: 0;
 }
 
 .workspaceFootnote {

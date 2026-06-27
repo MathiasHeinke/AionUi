@@ -2,6 +2,11 @@
   "plan": "Plan-Modus",
   "default": "Standard",
   "acceptEdits": "Änderungen übernehmen",
+  "eve": {
+    "ask": "Standard",
+    "acceptEdits": "Änderungen übernehmen",
+    "yolo": "YOLO"
+  },
   "autoEdit": "Auto-Bearbeitung",
   "auto_edit": "Auto-Bearbeitung",
   "yolo": "YOLO",

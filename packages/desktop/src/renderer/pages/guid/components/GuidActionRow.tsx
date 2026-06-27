@@ -7,7 +7,9 @@
 import { ipcBridge } from '@/common';
 import type { IMcpServer } from '@/common/config/storage';
 import AgentModeSelector from '@/renderer/components/agent/AgentModeSelector';
-import { supportsModeSwitch, type AgentModeOption } from '@/renderer/utils/model/agentModes';
+import UnifiedSendBar from '@/renderer/components/chat/UnifiedSendBar';
+import { createModeLabelFormatter, supportsModeSwitch } from '@/renderer/utils/model/agentModes';
+import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { getCleanFileNames, FileService } from '@/renderer/services/FileService';
 import { iconColors } from '@/renderer/styles/colors';
@@ -17,7 +19,7 @@ import type { Assistant } from '@/common/types/agent/assistantTypes';
 import PresetAgentTag, { type AgentSwitcherItem } from './PresetAgentTag';
 import { Button, Checkbox, Dropdown, Menu, Message, Tooltip } from '@arco-design/web-react';
 import { ArrowUp, Lightning, Plus, Shield, UploadOne } from '@icon-park/react';
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import styles from '../index.module.css';
 
@@ -64,6 +66,13 @@ type GuidActionRowProps = {
   loading: boolean;
   isButtonDisabled: boolean;
   speechInputNode?: React.ReactNode;
+  /**
+   * Context + credits indicator (STEP 4). Mounted into the shared bar so the
+   * consumed-context/credits surface is the same on the start screen and in-chat.
+   * Pre-conversation it stays quiet (no token usage yet) but the credits half is
+   * live, matching the in-chat indicator.
+   */
+  contextIndicatorNode?: React.ReactNode;
   onSend: () => void;
 };
 
@@ -95,6 +104,7 @@ const GuidActionRow: React.FC<GuidActionRowProps> = ({
   loading,
   isButtonDisabled,
   speechInputNode,
+  contextIndicatorNode,
   onSend,
 }) => {
   const { t } = useTranslation();
@@ -130,8 +140,11 @@ const GuidActionRow: React.FC<GuidActionRowProps> = ({
     [onFilesUploaded, t]
   );
 
-  const getModeDisplayLabel = (mode: AgentModeOption): string =>
-    t(`agentMode.${mode.value}`, { defaultValue: mode.label });
+  // EVE-aware permission-mode label formatter. For the Hermes/EVE backend it
+  // maps the three honest modes to the clean EVE labels (Standard / Änderungen
+  // übernehmen / YOLO); other backends keep their generic agentMode.<value>
+  // labels. modeBackend resolves to the agent actually driving the picker.
+  const getModeDisplayLabel = useMemo(() => createModeLabelFormatter(modeBackend, t), [modeBackend, t]);
 
   const isWebUI = !isElectronDesktop();
 
@@ -266,90 +279,115 @@ const GuidActionRow: React.FC<GuidActionRowProps> = ({
     </Menu>
   );
 
-  return (
-    <div className={styles.actionRow}>
-      <div className={styles.actionTools}>
-        <div className={styles.actionEntry}>
-          <Dropdown trigger='hover' onVisibleChange={setIsPlusDropdownOpen} droplist={menuContent}>
-            <span className='flex items-center gap-4px cursor-pointer lh-[1]'>
-              <Button
-                type='secondary'
-                shape='circle'
-                className={isPlusDropdownOpen ? styles.plusButtonRotate : ''}
-                icon={<Plus theme='outline' size='14' strokeWidth={2} fill={iconColors.primary} />}
-                loading={uploading}
-                disabled={uploading}
-                data-testid='file-upload-btn'
-              />
-              {files.length > 0 && (
-                <Tooltip
-                  className={'!max-w-max'}
-                  content={<span className='whitespace-break-spaces'>{getCleanFileNames(files).join('\n')}</span>}
-                >
-                  <span className='text-t-primary'>File({files.length})</span>
-                </Tooltip>
-              )}
-            </span>
-          </Dropdown>
-          {isWebUI && (
-            <input
-              ref={fileInputRef}
-              type='file'
-              multiple
-              style={{ display: 'none' }}
-              onChange={handleLocalFileChange}
-            />
+  // Left cluster: the [+ file] dropdown (with skills/MCP submenus) + file-count tag.
+  const fileAttachSlot = (
+    <div className={styles.actionEntry}>
+      <Dropdown trigger='hover' onVisibleChange={setIsPlusDropdownOpen} droplist={menuContent}>
+        <span className='flex items-center gap-4px cursor-pointer lh-[1]'>
+          <Button
+            type='secondary'
+            shape='circle'
+            className={isPlusDropdownOpen ? styles.plusButtonRotate : ''}
+            icon={<Plus theme='outline' size='14' strokeWidth={2} fill={iconColors.primary} />}
+            loading={uploading}
+            disabled={uploading}
+            data-testid='file-upload-btn'
+          />
+          {files.length > 0 && (
+            <Tooltip
+              className={'!max-w-max'}
+              content={<span className='whitespace-break-spaces'>{getCleanFileNames(files).join('\n')}</span>}
+            >
+              <span className='text-t-primary'>File({files.length})</span>
+            </Tooltip>
           )}
-        </div>
+        </span>
+      </Dropdown>
+      {isWebUI && (
+        <input ref={fileInputRef} type='file' multiple style={{ display: 'none' }} onChange={handleLocalFileChange} />
+      )}
+    </div>
+  );
+
+  // Model picker + permission mode form one visual config group (same CSS as
+  // before: `.actionConfigGroup :global(.sendbox-model-btn …)` styles the pill).
+  // The permission selector is the EVE 3-mode selector and stays a LOCAL callback
+  // (onModeSelect) — pre-conversation, so the choice seeds the first message's
+  // session_mode rather than calling ipcBridge.acpConversation.setMode.
+  const modelSlot =
+    configOptionCount > 0 ? (
+      <div className={styles.actionConfigGroup} data-mobile={isMobile ? 'true' : undefined}>
+        {modelSelectorNode}
+
+        {showModeSwitch && (
+          <AgentModeSelector
+            backend={modeBackend}
+            compact
+            initialMode={selectedMode}
+            onModeSelect={onModeSelect}
+            compactLeadingIcon={<Shield theme='outline' size='14' fill={iconColors.secondary} />}
+            modeLabelFormatter={getModeDisplayLabel}
+            // EVE start screen mirrors the in-chat pill: "Berechtigung · <mode>".
+            // EVE-only so non-EVE start screens keep their bare mode label.
+            compactLabelPrefix={isCommandEveAcpConversation(modeBackend) ? t('agentMode.permission') : undefined}
+            hideCompactLabelPrefixOnMobile
+          />
+        )}
       </div>
-      <div className={styles.actionSubmit}>
-        {configOptionCount > 0 && (
-          <div className={styles.actionConfigGroup} data-mobile={isMobile ? 'true' : undefined}>
-            {modelSelectorNode}
+    ) : null;
 
-            {showModeSwitch && (
-              <AgentModeSelector
-                backend={modeBackend}
-                compact
-                initialMode={selectedMode}
-                onModeSelect={onModeSelect}
-                compactLeadingIcon={<Shield theme='outline' size='14' fill={iconColors.secondary} />}
-                modeLabelFormatter={getModeDisplayLabel}
-              />
-            )}
-          </div>
-        )}
-
-        {!hidePresetTag && is_presetAgent && selectedAgentInfo && (
-          <div className={styles.actionPresetAgent}>
-            <PresetAgentTag
-              agentInfo={selectedAgentInfo}
-              assistants={assistants}
-              localeKey={localeKey}
-              onClose={onClosePresetTag}
-              agentLogo={agentLogo}
-              agentSwitcherItems={agentSwitcherItems}
-              onAgentSwitch={onAgentSwitch}
-            />
-          </div>
-        )}
-
-        {speechInputNode}
-        <Button
-          shape='circle'
-          type='primary'
-          loading={loading}
-          disabled={isButtonDisabled}
-          className='send-button-custom'
-          style={{
-            backgroundColor: isButtonDisabled ? undefined : '#000000',
-            borderColor: isButtonDisabled ? undefined : '#000000',
-          }}
-          icon={<ArrowUp theme='filled' size='14' fill='white' strokeWidth={5} />}
-          onClick={onSend}
-          data-testid='guid-send-btn'
+  // The preset-agent tag rides between the config group and the right controls,
+  // exactly where it sat in the old actionSubmit row.
+  const presetTagSlot =
+    !hidePresetTag && is_presetAgent && selectedAgentInfo ? (
+      <div className={styles.actionPresetAgent}>
+        <PresetAgentTag
+          agentInfo={selectedAgentInfo}
+          assistants={assistants}
+          localeKey={localeKey}
+          onClose={onClosePresetTag}
+          agentLogo={agentLogo}
+          agentSwitcherItems={agentSwitcherItems}
+          onAgentSwitch={onAgentSwitch}
         />
       </div>
+    ) : null;
+
+  const sendButton = (
+    <Button
+      shape='circle'
+      type='primary'
+      loading={loading}
+      disabled={isButtonDisabled}
+      className='send-button-custom'
+      style={{
+        backgroundColor: isButtonDisabled ? undefined : '#000000',
+        borderColor: isButtonDisabled ? undefined : '#000000',
+      }}
+      icon={<ArrowUp theme='filled' size='14' fill='white' strokeWidth={5} />}
+      onClick={onSend}
+      data-testid='guid-send-btn'
+    />
+  );
+
+  // ONE Claude-Code-style control row (STEP 4), shared with the in-chat send box.
+  // The textarea, file previews and mention dropdown stay in GuidInputCard above
+  // this row; the bar only arranges the controls.
+  return (
+    <div className={styles.actionRow}>
+      <UnifiedSendBar
+        leftSlot={fileAttachSlot}
+        modelSlot={
+          <>
+            {modelSlot}
+            {presetTagSlot}
+          </>
+        }
+        permissionSlot={null}
+        contextSlot={contextIndicatorNode}
+        micSlot={speechInputNode}
+        sendSlot={sendButton}
+      />
     </div>
   );
 };

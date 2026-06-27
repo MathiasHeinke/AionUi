@@ -13,6 +13,9 @@ import {
   COMMAND_EVE_SHELL_ENABLED,
 } from '@/common/config/commandEveShell';
 import EveInferencePicker from '@/renderer/components/agent/EveInferencePicker';
+import ContextUsageIndicator from '@/renderer/components/agent/ContextUsageIndicator';
+import SpeechInputButton from '@/renderer/components/chat/SpeechInputButton';
+import { appendSpeechTranscript } from '@/renderer/hooks/system/useSpeechInput';
 
 import { useInputFocusRing } from '@/renderer/hooks/chat/useInputFocusRing';
 import { openExternalUrl, resolveExtensionAssetUrl } from '@/renderer/utils/platform';
@@ -581,6 +584,28 @@ const GuidPage: React.FC = () => {
     />
   );
 
+  // Start-screen mic — same SpeechInputButton the in-chat bar mounts (STEP 4).
+  // Transcript appends onto the draft input. Quiet/hidden unless speech-to-text
+  // is enabled in settings (the button self-suppresses).
+  const handleGuidSpeechTranscript = useCallback(
+    (transcript: string) => {
+      guidInput.setInput((prev) => appendSpeechTranscript(prev, transcript));
+    },
+    [guidInput.setInput]
+  );
+  const speechInputNode = (
+    <SpeechInputButton
+      disabled={guidInput.loading}
+      locale={i18n?.language || 'en-US'}
+      onTranscript={handleGuidSpeechTranscript}
+    />
+  );
+
+  // Context + credits indicator — the SAME ring/popover as in-chat. Pre-conversation
+  // there is no live token usage, so the context ring stays quiet (renders null with
+  // tokenUsage=null); the credits half of the popover is independent and live.
+  const contextIndicatorNode = <ContextUsageIndicator tokenUsage={null} />;
+
   // Build the action row
   const actionRowNode = (
     <GuidActionRow
@@ -611,6 +636,8 @@ const GuidPage: React.FC = () => {
       hidePresetTag
       loading={guidInput.loading}
       isButtonDisabled={send.isButtonDisabled}
+      speechInputNode={speechInputNode}
+      contextIndicatorNode={contextIndicatorNode}
       onSend={send.sendMessageHandler}
     />
   );

@@ -22,8 +22,6 @@ import { emitter } from '../../../utils/emitter';
 import AcpChat from '../platforms/acp/AcpChat';
 import ChatLayout from './ChatLayout';
 import ChatSlider from './ChatSlider.tsx';
-import AcpModelSelector from '@/renderer/components/agent/AcpModelSelector';
-import EveInferencePicker from '@/renderer/components/agent/EveInferencePicker';
 import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
 import { saveAionrsDefaultModel } from '@/renderer/pages/guid/hooks/agentSelectionUtils';
 import { getConversationOrNull } from '@/renderer/pages/conversation/utils/conversationCache';
@@ -283,32 +281,20 @@ const ChatConversation: React.FC<{
     );
   }, [t]);
 
-  // For ACP/Codex conversations, use AcpModelSelector that can show/switch models.
-  // For other conversations, show disabled model selector.
-  // Mobile: model selection moves into the sendbox `+` action sheet, so the
-  // header selector is suppressed to free up vertical space.
+  // Model picker placement (Claude-Code-style, founder mandate): for ACP
+  // conversations the in-chat model/inference picker now lives in the bottom
+  // UnifiedSendBar (AcpSendBox → modelSlot), exactly like the start screen —
+  // so it is NOT rendered in the header here (that would be a duplicate). Only
+  // the non-ACP fallback (disabled GoogleModelSelector) stays in the header,
+  // since those conversation types never reach the AcpSendBox bottom bar.
+  // Mobile: model selection lives in the sendbox `+` action sheet either way.
   const modelSelector = useMemo(() => {
     if (!conversation || isAionrsConversation) return undefined;
     if (isMobile) return undefined;
     if (isLegacyReadOnlyConversation) return undefined;
     if (conversation.type === 'acp') {
-      const extra = conversation.extra as { backend?: string; current_model_id?: string };
-      // Founder mandate: an EVE (Hermes) conversation surfaces the EVE Inference
-      // tier picker (Standard/High/Max + Private) in-session — NOT the raw ACP
-      // model list. Persisting to `commandEve.inferenceSelection` (configService,
-      // via the shared hook) makes the switch take effect on the next turn: the
-      // send-path shim re-resolves the live selection per request.
-      if (isCommandEveAcpConversation(extra.backend)) {
-        return <EveInferencePicker />;
-      }
-      return (
-        <AcpModelSelector
-          conversation_id={conversation.id}
-          backend={extra.backend}
-          initialModelId={extra.current_model_id}
-          waitForWarmup
-        />
-      );
+      // Moved to the bottom bar (AcpSendBox modelSlot) — see note above.
+      return undefined;
     }
     return <GoogleModelSelector disabled={true} />;
   }, [conversation, isAionrsConversation, isMobile, isLegacyReadOnlyConversation]);

@@ -40,10 +40,13 @@ import {
   type CreditsStatus,
 } from '@/common/config/creditsCore';
 
+// NEW server billing model: the Starter grant is 60,000 credits (1 credit = 0.1 ct).
+const STARTER_GRANT = 60_000;
+
 function status(overrides: Partial<CreditsStatus> = {}): CreditsStatus {
   return {
     tier: 'starter',
-    included_allowance_credits_remaining: 30,
+    included_allowance_credits_remaining: STARTER_GRANT / 2, // half-used by default
     purchased_credits_remaining: 0,
     spend_cap_eur_cents: 0,
     free_actions_used_this_period: 0,
@@ -58,16 +61,17 @@ function status(overrides: Partial<CreditsStatus> = {}): CreditsStatus {
 // ---------------------------------------------------------------------------
 
 describe('buildCreditMeterModel — allowance used fraction', () => {
-  it('computes used fraction from grant minus remaining (Starter 60 grant)', () => {
-    const m = buildCreditMeterModel(status({ tier: 'starter', included_allowance_credits_remaining: 30 }));
-    // 60 grant, 30 left ⇒ 30 used ⇒ 0.5
+  it('computes used fraction from grant minus remaining (Starter 60,000 grant)', () => {
+    const remaining = STARTER_GRANT / 2;
+    const m = buildCreditMeterModel(status({ tier: 'starter', included_allowance_credits_remaining: remaining }));
+    // 60,000 grant, 30,000 left ⇒ 30,000 used ⇒ 0.5
     expect(m.allowanceUsedFraction).toBeCloseTo(0.5, 5);
     expect(m.isFree).toBe(false);
-    expect(m.allowanceRemaining).toBe(30);
+    expect(m.allowanceRemaining).toBe(remaining);
   });
 
   it('clamps used fraction to [0,1] when remaining exceeds the grant (top-up drift)', () => {
-    const m = buildCreditMeterModel(status({ included_allowance_credits_remaining: 999 }));
+    const m = buildCreditMeterModel(status({ included_allowance_credits_remaining: STARTER_GRANT + 99_999 }));
     expect(m.allowanceUsedFraction).toBe(0);
   });
 
@@ -84,21 +88,22 @@ describe('buildCreditMeterModel — allowance used fraction', () => {
 
   it('totalRemaining sums allowance + purchased', () => {
     const m = buildCreditMeterModel(
-      status({ included_allowance_credits_remaining: 10, purchased_credits_remaining: 25 })
+      status({ included_allowance_credits_remaining: 10_000, purchased_credits_remaining: 25_000 })
     );
-    expect(m.totalRemaining).toBe(35);
+    expect(m.totalRemaining).toBe(35_000);
   });
 });
 
 describe('isNearAllowanceWall — the ~85% trigger', () => {
   it('is true at/over 85% used (paid)', () => {
-    const m = buildCreditMeterModel(status({ included_allowance_credits_remaining: 9 })); // 51/60 used = 0.85
+    // 9,000 of 60,000 remaining ⇒ 51,000 used ⇒ 0.85
+    const m = buildCreditMeterModel(status({ included_allowance_credits_remaining: 9_000 }));
     expect(m.allowanceUsedFraction).toBeGreaterThanOrEqual(0.85);
     expect(isNearAllowanceWall(m)).toBe(true);
   });
 
   it('is false well under threshold', () => {
-    const m = buildCreditMeterModel(status({ included_allowance_credits_remaining: 50 }));
+    const m = buildCreditMeterModel(status({ included_allowance_credits_remaining: 50_000 }));
     expect(isNearAllowanceWall(m)).toBe(false);
   });
 
@@ -284,13 +289,26 @@ describe('marginInvariant — effective €/credit must exceed raw cost', () => 
     expect(marginInvariantHolds({ eur: 100, credits: 100, bonus: 200 }, 0.5)).toBe(false);
   });
 
-  it('the default catalog holds at a 1-credit ≈ ~0.71€-at-cost calibration (+40% markup)', () => {
-    // +40% markup ⇒ list price ≈ raw / (1/1.4) ⇒ a raw of (1/1.4)=0.714 is the
-    // break-even at the no-bonus packs; bonus packs must still clear it.
-    const raw = 1 / 1.4;
+  it('the default catalog holds at the NEW 0.1ct credit unit (face value, no bonus)', () => {
+    // NEW server billing model: 1 credit = 0.1 ct ⇒ every face-value pack pays a
+    // flat 0.001 €/credit (25€/25,000 cr = 0.001, 100€/100,000 cr = 0.001, …).
+    // Margin lives at CONSUMPTION via the tier factors, so the raw COST per credit
+    // is sub-cent; any raw below the 0.001 face price clears the invariant.
+    const rawSubCent = 0.0005; // raw cost/credit below the 0.001 €/credit face price
     for (const pack of DEFAULT_CREDIT_PACKS) {
-      expect(marginInvariantHolds(pack, raw)).toBe(true);
+      expect(packEffectiveCostPerCredit(pack)).toBeCloseTo(0.001, 6);
+      expect(pack.bonus).toBe(0);
+      expect(marginInvariantHolds(pack, rawSubCent)).toBe(true);
     }
+  });
+
+  it('the default catalog ships at FACE VALUE: N€ → N×1000 credits, no bonus', () => {
+    expect(DEFAULT_CREDIT_PACKS.map((p) => [p.eur, p.credits, p.bonus])).toEqual([
+      [25, 25_000, 0],
+      [50, 50_000, 0],
+      [100, 100_000, 0],
+      [250, 250_000, 0],
+    ]);
   });
 });
 

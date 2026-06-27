@@ -10,6 +10,7 @@ import { configService } from '@/common/config/configService';
 import AionScrollArea from '@/renderer/components/base/AionScrollArea';
 import FeedbackButton from '@/renderer/components/base/FeedbackButton';
 import LanguageSwitcher from '@/renderer/components/settings/LanguageSwitcher';
+import { useIsDevMode } from '@/renderer/hooks/useIsDevMode';
 import { notifyManualRestartRequired } from '@/renderer/utils/appRestart';
 import { isElectronDesktop } from '@/renderer/utils/platform';
 import { Alert, Collapse, Form, InputNumber, Message, Modal, Switch } from '@arco-design/web-react';
@@ -30,6 +31,7 @@ import PreferenceRow from './PreferenceRow';
 const SystemModalContent: React.FC = () => {
   const { t } = useTranslation();
   const isDesktop = isElectronDesktop();
+  const isDevMode = useIsDevMode();
   const [form] = Form.useForm();
   const [modal, modalContextHolder] = Modal.useModal();
   const [error, setError] = useState<string | null>(null);
@@ -296,12 +298,19 @@ const SystemModalContent: React.FC = () => {
       label: t('settings.closeToTray'),
       component: <Switch checked={closeToTray} onChange={handleCloseToTrayChange} />,
     },
-    {
-      key: 'commandEveRuntimeStatus',
-      label: t('settings.commandEveRuntimeStatus'),
-      description: t('settings.commandEveRuntimeStatusDesc'),
-      component: <Switch checked={runtimeStatusVisible} onChange={handleRuntimeStatusVisibleChange} />,
-    },
+    // Runtime log strip toggle — DEV BUILDS ONLY. The strip itself is dev-gated, so
+    // the toggle is meaningless to operators (who never see the strip in production).
+    // The egress notice below stays for ALL users (DSGVO signal).
+    ...(isDevMode
+      ? [
+          {
+            key: 'commandEveRuntimeStatus',
+            label: t('settings.commandEveRuntimeStatus'),
+            description: t('settings.commandEveRuntimeStatusDesc'),
+            component: <Switch checked={runtimeStatusVisible} onChange={handleRuntimeStatusVisibleChange} />,
+          },
+        ]
+      : []),
     {
       key: 'commandEveEgressStatus',
       label: t('settings.commandEveEgressStatus'),

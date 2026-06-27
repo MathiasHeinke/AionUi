@@ -21,6 +21,7 @@ import QuotaExhaustedWall from '@renderer/components/billing/QuotaExhaustedWall'
 import React from 'react';
 import AcpE2EStreamInjector from './AcpE2EStreamInjector';
 import AcpRuntimeStatus from './AcpRuntimeStatus';
+import EgressBoundaryNotice from './EgressBoundaryNotice';
 import AcpSendBox from './AcpSendBox';
 import { useAcpMessage } from './useAcpMessage';
 
@@ -77,11 +78,14 @@ const AcpChat: React.FC<{
             <MessageList className='flex-1' emptySlot={emptySlot} />
           </FlexFullContainer>
           <AcpE2EStreamInjector conversationId={conversation_id} />
-          {/* Live runtime + DSGVO egress status strip: shows the current phase
-              ("EVE thinking") AND surfaces the egress-boundary decision — when EVE
-              redacts sensitive data before model egress the operator SEES "EVE redacted
-              N finding(s)" instead of it happening silently. Self-suppresses when the
-              operator hides it (commandEve.runtimeStatusVisible) or there is nothing to show. */}
+          {/* DSGVO egress notice — PRODUCTION-VISIBLE for all users: when EVE redacts
+              or blocks sensitive data before model egress the operator SEES "EVE redacted
+              N finding(s)" instead of it happening silently. Gated only by the operator
+              off-switch (commandEve.egressStatusVisible), never by dev mode. */}
+          <EgressBoundaryNotice active={messageState.running || messageState.aiProcessing} />
+          {/* Runtime log strip (phase / lane / duration / context / Logs) — FOUNDER/DEV
+              ONLY: hidden for operators in packaged builds (useIsDevMode gate inside).
+              The consumed-context number relocates to the unified send bar (STEP 4). */}
           <AcpRuntimeStatus activity={messageState.runtimeActivity} running={messageState.running} aiProcessing={messageState.aiProcessing} />
           {/* Lane-3 402 quota-exhausted wall — fed by the LIVE stream-error path
               in useAcpMessage. The wall idle-suppresses itself: it renders only

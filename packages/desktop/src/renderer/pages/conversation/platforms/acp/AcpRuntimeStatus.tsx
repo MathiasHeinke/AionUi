@@ -1,7 +1,8 @@
 import { ipcBridge } from '@/common';
 import { useConfig } from '@/renderer/hooks/config/useConfig';
+import { useIsDevMode } from '@/renderer/hooks/useIsDevMode';
 import { Button, Message, Tooltip } from '@arco-design/web-react';
-import { Loading, Shield, Time } from '@icon-park/react';
+import { Loading, Time } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AcpRuntimeActivity, AcpRuntimeActivityPhase } from './useAcpMessage';
@@ -9,14 +10,6 @@ import type { AcpRuntimeActivity, AcpRuntimeActivityPhase } from './useAcpMessag
 const ACTIVE_PHASES = new Set<AcpRuntimeActivityPhase>(['connecting', 'submitting', 'thinking', 'streaming']);
 const LOCAL_MODEL_NOTICE_MS = 15_000;
 const LONG_RUNNING_NOTICE_MS = 45_000;
-
-type EgressBoundaryStatus = {
-  decision?: string;
-  observed_at?: string;
-  finding_count?: number;
-  policy_action?: string;
-  receipt_path?: string;
-};
 
 const statusDotClass: Record<AcpRuntimeActivityPhase, string> = {
   idle: 'bg-fill-4',
@@ -52,11 +45,12 @@ const AcpRuntimeStatus: React.FC<{
   aiProcessing: boolean;
 }> = ({ activity, running, aiProcessing }) => {
   const { t } = useTranslation();
+  // Founder/dev-only chrome: this log strip is hidden for operators (see the gate
+  // below). The DSGVO egress notice is a SEPARATE, production-visible component
+  // (EgressBoundaryNotice) so gating this strip never hides the compliance signal.
+  const isDevMode = useIsDevMode();
   const [visible] = useConfig('commandEve.runtimeStatusVisible');
-  const [egressVisibleSetting] = useConfig('commandEve.egressStatusVisible');
-  const egressVisible = egressVisibleSetting ?? true;
   const [now, setNow] = useState(Date.now());
-  const [egressBoundary, setEgressBoundary] = useState<EgressBoundaryStatus | null>(null);
   const isVisible = visible ?? true;
   const isActive = running || aiProcessing || ACTIVE_PHASES.has(activity.phase);
 
@@ -64,26 +58,6 @@ const AcpRuntimeStatus: React.FC<{
     if (!isVisible || !isActive) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
-  }, [isActive, isVisible]);
-
-  useEffect(() => {
-    if (!isVisible) return;
-    let cancelled = false;
-    const refresh = () => {
-      void ipcBridge.commandEve.runtimeStatus
-        .invoke()
-        .then((response) => {
-          if (cancelled || !response.success) return;
-          setEgressBoundary(response.data?.egress_boundary ?? null);
-        })
-        .catch(() => {});
-    };
-    refresh();
-    const timer = window.setInterval(refresh, isActive ? 2500 : 10000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
   }, [isActive, isVisible]);
 
   const openLogs = useCallback(() => {
@@ -108,7 +82,9 @@ const AcpRuntimeStatus: React.FC<{
     });
   }, [activity.phase, isActive, t]);
 
-  if (!isVisible) return null;
+  // Operators never see this strip: hidden unless explicitly enabled AND in a dev
+  // build. In packaged/production builds it is always hidden (isDevMode === false).
+  if (!isVisible || !isDevMode) return null;
 
   const elapsedMs = activity.startedAt && isActive ? now - activity.startedAt : activity.elapsedMs;
   // Brand + privacy: the operator sees EVE + which LANE inference runs on (local = on-device,
@@ -130,21 +106,6 @@ const AcpRuntimeStatus: React.FC<{
         isActive && isLocalLane && elapsedMs && elapsedMs >= LOCAL_MODEL_NOTICE_MS
         ? t('conversation.runtimeStatus.notice.localModel')
         : null;
-  // Data-boundary signal: only ever surface a REAL action EVE took on outbound text
-  // (it redacted or blocked a detected secret). We deliberately DO NOT render an
-  // "all clear / no sensitive hits" line — that would assert a guarantee we can't
-  // prove (founder 2026-06-26: skeptical of the reassuring claim). The whole signal
-  // is also behind an operator off-switch (commandEve.egressStatusVisible).
-  const egressDecision = egressBoundary?.decision;
-  const egressLabel =
-    !egressVisible
-      ? null
-      : egressDecision === 'block'
-        ? t('conversation.runtimeStatus.egress.blocked', { count: egressBoundary?.finding_count ?? 0 })
-        : egressDecision === 'redact'
-          ? t('conversation.runtimeStatus.egress.redacted', { count: egressBoundary?.finding_count ?? 0 })
-          : null;
-  const egressClass = egressDecision === 'block' ? 'text-danger-6' : 'text-warning-6';
 
   return (
     <div className='mb-8px flex items-start justify-between gap-12px px-12px py-8px rd-12px border border-solid border-border-2 bg-fill-1 text-12px text-t-secondary'>
@@ -174,17 +135,6 @@ const AcpRuntimeStatus: React.FC<{
           ) : null}
         </div>
         {notice ? <div className='pl-16px text-t-tertiary'>{notice}</div> : null}
-        {egressLabel ? (
-          <div className={`pl-16px flex items-center gap-6px ${egressClass}`}>
-            <Shield theme='outline' size='13' />
-            <span>{egressLabel}</span>
-            {egressBoundary?.observed_at ? (
-              <span className='text-t-tertiary'>
-                {new Date(egressBoundary.observed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </span>
-            ) : null}
-          </div>
-        ) : null}
       </div>
       <Tooltip content={t('conversation.runtimeStatus.logsTooltip')}>
         <Button type='text' size='mini' onClick={openLogs}>

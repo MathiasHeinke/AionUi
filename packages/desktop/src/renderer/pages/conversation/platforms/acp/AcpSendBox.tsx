@@ -4,6 +4,12 @@ import { isBackendHttpError } from '@/common/adapter/httpBridge';
 import { isSideQuestionSupported } from '@/common/chat/sideQuestion';
 import { parseError, uuid } from '@/common/utils';
 import AgentModeSelector from '@/renderer/components/agent/AgentModeSelector';
+import AcpModelSelector from '@/renderer/components/agent/AcpModelSelector';
+import EveInferencePicker from '@/renderer/components/agent/EveInferencePicker';
+import ContextUsageIndicator from '@/renderer/components/agent/ContextUsageIndicator';
+import UnifiedSendBar from '@/renderer/components/chat/UnifiedSendBar';
+import SpeechInputButton from '@/renderer/components/chat/SpeechInputButton';
+import { appendSpeechTranscript } from '@/renderer/hooks/system/useSpeechInput';
 import CommandQueuePanel from '@/renderer/components/chat/CommandQueuePanel';
 import MobileActionSheet, {
   type MobileActionSheetEntry,
@@ -17,6 +23,7 @@ import FilePreview from '@/renderer/components/media/FilePreview';
 import HorizontalFileList from '@/renderer/components/media/HorizontalFileList';
 import { useAcpModelInfo } from '@/renderer/hooks/agent/useAcpModelInfo';
 import { useAgentModesForBackend } from '@/renderer/hooks/agent/useAgentModesForBackend';
+import { createModeLabelFormatter } from '@/renderer/utils/model/agentModes';
 import { useEveInferenceSelection } from '@/renderer/hooks/agent/useEveInferenceSelection';
 import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
 import { savePreferredMode } from '@/renderer/pages/guid/hooks/agentSelectionUtils';
@@ -105,9 +112,18 @@ const AcpSendBox: React.FC<{
   workspacePath?: string;
   messageState: UseAcpMessageReturn;
 }> = ({ conversation_id, backend, session_mode, agent_name, workspacePath, messageState }) => {
-  const { aiProcessing, setAiProcessing, resetState, hasThinkingMessage, slashCommands, fetchSlashCommands } =
-    messageState;
-  const { t } = useTranslation();
+  const {
+    aiProcessing,
+    setAiProcessing,
+    resetState,
+    hasThinkingMessage,
+    slashCommands,
+    fetchSlashCommands,
+    tokenUsage,
+    context_limit,
+    runtimeActivity,
+  } = messageState;
+  const { t, i18n } = useTranslation();
   const teamPermission = useTeamPermission();
   // In team mode, all agents show the permission mode selector (members don't propagate)
   const showModeSelector = true;
@@ -148,6 +164,13 @@ const AcpSendBox: React.FC<{
     onSelectModelFailed: () => Message.error(t('agent.model.switchFailed')),
   });
   const availableAgentModes = useAgentModesForBackend(backend);
+
+  // EVE-aware permission-mode label formatter. For the Hermes/EVE backend it
+  // maps the three honest modes to the clean EVE labels (Standard / Änderungen
+  // übernehmen / YOLO) via agentMode.eve.*; for every other backend it keeps the
+  // prior generic agentMode.<value> mapping untouched. Shared by the in-chat
+  // pill and the mobile action sheet so both surfaces stay in lockstep.
+  const formatModeLabel = useMemo(() => createModeLabelFormatter(backend, t), [backend, t]);
 
   // Command EVE (Hermes) conversations swap the raw ACP model row for the EVE
   // Inference tier picker (Standard/High/Max + Private). Same persistence key as
@@ -221,6 +244,16 @@ const AcpSendBox: React.FC<{
   const setContentRef = useLatestRef(setContent);
   const contentRef = useLatestRef(content);
   const atPathRef = useLatestRef(atPath);
+
+  // Mic transcript → append onto the draft content (same helper SendBox uses for
+  // its internal mic). The mic now lives in the UnifiedSendBar cluster on BOTH
+  // surfaces, so SendBox's own inline mic is suppressed (hideSpeechButton).
+  const handleSpeechTranscript = useCallback(
+    (transcript: string) => {
+      setContentRef.current(appendSpeechTranscript(contentRef.current, transcript));
+    },
+    [setContentRef, contentRef]
+  );
 
   const addOrUpdateMessage = useAddOrUpdateMessage(); // Move this here so it's available in useEffect
   const addOrUpdateMessageRef = useLatestRef(addOrUpdateMessage);
@@ -480,7 +513,7 @@ Please check your local CLI tool authentication status`,
 
     const modeOptions: MobileActionSheetOption[] = availableAgentModes.map((mode) => ({
       key: mode.value,
-      label: t(`agentMode.${mode.value}`, { defaultValue: mode.label }),
+      label: formatModeLabel(mode),
       description: mode.description,
       active: currentMode === mode.value,
     }));
@@ -620,6 +653,7 @@ Please check your local CLI tool authentication status`,
     canSwitchModel,
     currentMode,
     eveInference,
+    formatModeLabel,
     handleSheetModeChange,
     isEveConversation,
     isMobile,
@@ -719,21 +753,59 @@ Please check your local CLI tool authentication status`,
             loadedMcpStatuses={loadedMcpStatuses}
           />
         }
+        hideSpeechButton
         rightTools={
-          showModeSelector ? (
-            <AgentModeSelector
-              backend={backend}
-              conversation_id={conversation_id}
-              compact
-              initialMode={session_mode}
-              compactLeadingIcon={<Shield theme='outline' size='14' fill={iconColors.secondary} />}
-              modeLabelFormatter={(mode) => t(`agentMode.${mode.value}`, { defaultValue: mode.label })}
-              compactLabelPrefix={t('agentMode.permission')}
-              hideCompactLabelPrefixOnMobile
-              onModeChanged={isLeaderInTeam ? teamPermission?.propagateMode : undefined}
-              beforeRuntimeSync={prepareRuntimeSync}
-            />
-          ) : undefined
+          // The ONE Claude-Code-style control cluster (STEP 4), shared with the
+          // start screen. Founder mandate: the in-chat model/inference picker now
+          // lives HERE in the bottom bar's modelSlot (like Claude Code), NOT in the
+          // chat header — so the start screen and the in-chat surface read
+          // identically. EVE conversations get the EveInferencePicker (tier/Stufe);
+          // every other ACP backend gets the existing AcpModelSelector. On mobile
+          // the picker stays in the `+` action sheet (sheetEntries), so the bar's
+          // modelSlot is left empty there to avoid a duplicate.
+          // Order: [model · permission · context+credits · mic]. SendBox owns send.
+          <UnifiedSendBar
+            modelSlot={
+              isMobile ? null : isEveConversation ? (
+                <EveInferencePicker disabled={isBusy} />
+              ) : (
+                <AcpModelSelector conversation_id={conversation_id} backend={backend} waitForWarmup />
+              )
+            }
+            permissionSlot={
+              showModeSelector ? (
+                <AgentModeSelector
+                  backend={backend}
+                  conversation_id={conversation_id}
+                  compact
+                  initialMode={session_mode}
+                  compactLeadingIcon={<Shield theme='outline' size='14' fill={iconColors.secondary} />}
+                  modeLabelFormatter={formatModeLabel}
+                  compactLabelPrefix={t('agentMode.permission')}
+                  hideCompactLabelPrefixOnMobile
+                  onModeChanged={isLeaderInTeam ? teamPermission?.propagateMode : undefined}
+                  beforeRuntimeSync={prepareRuntimeSync}
+                />
+              ) : null
+            }
+            contextSlot={
+              /* Consumed-context ring + credits popover (Claude-Code-style). Quiet
+                 until the first acp_context_usage frame arrives (renders null with no
+                 tokenUsage). Model-sensitive window via the live request_trace model. */
+              <ContextUsageIndicator
+                tokenUsage={tokenUsage}
+                context_limit={context_limit}
+                modelId={runtimeActivity.modelId}
+              />
+            }
+            micSlot={
+              <SpeechInputButton
+                disabled={isBusy}
+                locale={i18n?.language || 'en-US'}
+                onTranscript={handleSpeechTranscript}
+              />
+            }
+          />
         }
         prefix={
           <>

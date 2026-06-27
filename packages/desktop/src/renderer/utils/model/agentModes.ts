@@ -9,6 +9,7 @@ import {
   CODEX_MODE_NATIVE_FULL_ACCESS,
   CODEX_MODE_READ_ONLY,
 } from '@/common/types/codex/codexModes';
+import { COMMAND_EVE_DEFAULT_ACP_BACKEND } from '@/common/config/commandEveShell';
 
 /**
  * Agent mode option interface
@@ -115,6 +116,53 @@ export const AGENT_MODES: Record<string, AgentModeOption[]> = {
 export function getAgentModes(backend: string | undefined): AgentModeOption[] {
   if (!backend) return [];
   return AGENT_MODES[backend] || [];
+}
+
+/**
+ * Maps Hermes' ACP-advertised EVE permission-mode IDs to the clean, founder-
+ * approved EVE labels (i18n keys under `agentMode.eve.*`). EVE honestly enforces
+ * exactly these three modes — no Plan-Modus, no "Nicht fragen" (those would be
+ * fake buttons). Any mode value not in this map (e.g. a future Hermes mode)
+ * falls through to the generic `agentMode.<value>` key so nothing renders blank.
+ *
+ * default     → "Standard"               (ask before edits / sensitive actions)
+ * accept_edits → "Änderungen übernehmen"  (auto-allow workspace edits)
+ * dont_ask    → "YOLO"                    (auto-allow edits this session)
+ */
+const EVE_MODE_I18N_KEY: Record<string, string> = {
+  default: 'agentMode.eve.ask',
+  accept_edits: 'agentMode.eve.acceptEdits',
+  dont_ask: 'agentMode.eve.yolo',
+};
+
+/**
+ * Minimal translator signature (matches react-i18next's `t`). Kept local so the
+ * formatter factory does not pull a UI dependency into this pure util.
+ */
+type TranslateFn = (key: string, opts?: { defaultValue?: string }) => string;
+
+/**
+ * Build a `modeLabelFormatter` for `AgentModeSelector` that is EVE-aware.
+ *
+ * - For the Command EVE (Hermes) backend it maps the three honest permission
+ *   modes to the clean EVE labels via `agentMode.eve.*`.
+ * - For every other backend it preserves the existing behaviour: translate the
+ *   raw mode value via `agentMode.<value>`, falling back to the static label.
+ *
+ * Apply this at the EVE call sites only so other backends' labels are untouched.
+ */
+export function createModeLabelFormatter(
+  backend: string | undefined,
+  t: TranslateFn
+): (mode: AgentModeOption) => string {
+  const isEve = backend === COMMAND_EVE_DEFAULT_ACP_BACKEND;
+  return (mode: AgentModeOption): string => {
+    if (isEve) {
+      const eveKey = EVE_MODE_I18N_KEY[mode.value];
+      if (eveKey) return t(eveKey, { defaultValue: mode.label });
+    }
+    return t(`agentMode.${mode.value}`, { defaultValue: mode.label });
+  };
 }
 
 /**

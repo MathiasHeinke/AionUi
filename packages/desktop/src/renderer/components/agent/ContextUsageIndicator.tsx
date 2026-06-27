@@ -6,50 +6,52 @@
 
 import { Popover } from '@arco-design/web-react';
 import React, { useMemo } from 'react';
-import { useTranslation } from 'react-i18next';
 
 import type { TokenUsageData } from '@/common/config/storage';
 
-// 从 modelContextLimits 导入默认上下文限制
-import { DEFAULT_CONTEXT_LIMIT } from '@/renderer/utils/model/modelContextLimits';
+// 按模型解析上下文窗口（内部回退到 DEFAULT_CONTEXT_LIMIT）
+import { getModelContextLimit } from '@/renderer/utils/model/modelContextLimits';
+// Claude-Code-style popover body: context window + credits (with "Nachkaufen").
+import ContextCreditsPopover from './ContextCreditsPopover';
 
 interface ContextUsageIndicatorProps {
   tokenUsage: TokenUsageData | null;
   context_limit?: number;
+  /**
+   * Active model id — used to resolve the context window when no live `context_limit`
+   * has arrived yet (cold start). The cloud lane (GLM 5.2 / DeepSeek V4 = 1M) must NOT
+   * read as 64k like a local model; the registry resolves the right window per model.
+   */
+  modelId?: string;
   className?: string;
   size?: number;
 }
 
 const ContextUsageIndicator: React.FC<ContextUsageIndicatorProps> = ({
   tokenUsage,
-  context_limit = DEFAULT_CONTEXT_LIMIT,
+  context_limit,
+  modelId,
   className = '',
   size = 24,
 }) => {
-  const { t } = useTranslation();
+  // The LIVE per-model frame size (context_limit > 0, from Hermes' acp_context_usage)
+  // ALWAYS wins; otherwise fall back to the model registry (GLM/DeepSeek 1M, local
+  // Gemma 64k), and only then the generic 1M default. Fixes cloud reading as 64k.
+  const effectiveLimit = context_limit && context_limit > 0 ? context_limit : getModelContextLimit(modelId);
 
-  const { percentage, displayTotal, displayLimit, isWarning, isDanger } = useMemo(() => {
+  // The ring fill + warning/danger thresholds. The full numeric readout now lives
+  // in the popover body (<ContextCreditsPopover/>), so this only feeds the SVG.
+  const { percentage, isWarning, isDanger } = useMemo(() => {
     if (!tokenUsage) {
-      return {
-        percentage: 0,
-        displayTotal: '0',
-        displayLimit: formatTokenCount(context_limit, true),
-        isWarning: false,
-        isDanger: false,
-      };
+      return { percentage: 0, isWarning: false, isDanger: false };
     }
-
-    const total = tokenUsage.total_tokens;
-    const pct = (total / context_limit) * 100;
-
+    const pct = (tokenUsage.total_tokens / effectiveLimit) * 100;
     return {
       percentage: pct,
-      displayTotal: formatTokenCount(total),
-      displayLimit: formatTokenCount(context_limit, true),
       isWarning: pct > 70,
       isDanger: pct > 90,
     };
-  }, [tokenUsage, context_limit]);
+  }, [tokenUsage, effectiveLimit]);
 
   // 如果没有 token 数据，不显示
   if (!tokenUsage) {
@@ -74,13 +76,11 @@ const ContextUsageIndicator: React.FC<ContextUsageIndicatorProps> = ({
     return 'var(--color-fill-3)';
   };
 
+  // The popover body = the Claude-Code-style context + credits panel. The ring
+  // itself still derives its fill from `percentage` (above); the panel owns the
+  // full readout + the credits section + "Nachkaufen".
   const popoverContent = (
-    <div className='p-8px min-w-160px'>
-      <div className='text-14px font-medium text-t-primary'>
-        {percentage.toFixed(1)}% · {displayTotal} / {displayLimit}{' '}
-        {t('conversation.context_usage.contextUsed', 'context used')}
-      </div>
-    </div>
+    <ContextCreditsPopover tokenUsage={tokenUsage} contextLimit={context_limit} modelId={modelId} />
   );
 
   return (

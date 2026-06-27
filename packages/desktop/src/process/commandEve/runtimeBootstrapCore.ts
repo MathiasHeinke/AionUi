@@ -2099,6 +2099,19 @@ function writeHermesRuntimeFiles(
     // auto-routing fix) so it can be used on the local Gemma lane.
     '  disabled_toolsets:',
     '    - vision',
+    // Context auto-compaction threshold (Claude-Code-style: compact LATER, keep
+    // more working memory). Hermes reads the TOP-LEVEL `compression.threshold` key
+    // (FACT run_agent.py:1142 `_agent_cfg.get("compression")` -> :1145
+    // `compression.threshold`, into ContextCompressor.threshold_percent at
+    // run_agent.py:1189). The wheel default is 0.50 (FACT
+    // agent/context_compressor.py:67 + hermes_cli/config.py:351-358); raising it
+    // to 0.80 means EVE summarizes the middle of the conversation only when ~80%
+    // of the window is used instead of 50%, so it remembers more before compacting
+    // — matching Claude Code. This is a config-only change (deep-merged over the
+    // wheel defaults, so enabled/target_ratio/protect_last_n stay at their
+    // defaults); it does NOT require a hermes wheel rebuild.
+    'compression:',
+    '  threshold: 0.80',
     'skills:',
     // creation_nudge_interval > 0 re-enables the background skill-review fork
     // that creates/optimizes skills ("the user keeps wanting X, so EVE builds

@@ -25,9 +25,13 @@
  *   2. An EVE-inference call may return HTTP 402 with a structured body:
  *      { error:'quota_exhausted', credits_needed, packs:[{ eur, credits, bonus }] }
  *
- * Hard invariant from the spec, enforced here in `packEffectiveCostPerCredit`
- * and asserted by `marginInvariantHolds`: the effective €/credit a buyer pays
- * ALWAYS exceeds raw inference cost — there is NO unlimited tier anywhere.
+ * Credit unit (NEW server billing model): 1 credit = 0.1 ct (0.001 €), so a
+ * face-value pack of N euros delivers N × 1000 credits and ships with NO
+ * purchase-time bonus — margin is taken at CONSUMPTION via the per-tier factors.
+ *
+ * Hard invariant, enforced here in `packEffectiveCostPerCredit` and asserted by
+ * `marginInvariantHolds`: the effective €/credit a buyer pays ALWAYS exceeds raw
+ * inference cost — there is NO unlimited tier anywhere.
  */
 
 // ---------------------------------------------------------------------------
@@ -43,12 +47,13 @@ export type CreditsTier = 'free' | 'solo' | 'starter';
 
 /**
  * The credits-status response (Lane-1 contract). All credit counts are in
- * CREDITS (1 credit = a fixed € of inference at cost; the markup is applied at
- * PURCHASE, not here). `spend_cap_eur_cents` is the user's optional hard cap.
+ * CREDITS (NEW model: 1 credit = 0.1 ct; margin is taken at CONSUMPTION via the
+ * tier factors, never at purchase). `spend_cap_eur_cents` is the user's optional
+ * hard cap.
  */
 export interface CreditsStatus {
   tier: CreditsTier;
-  /** Remaining credits from the monthly bundled allowance (Starter ~60€, Solo ~38€). */
+  /** Remaining credits from the monthly bundled allowance (Starter 60,000 cr, Solo 38,000 cr). */
   included_allowance_credits_remaining: number;
   /** Remaining credits the user bought as packs (carry over; consumed after allowance). */
   purchased_credits_remaining: number;
@@ -68,7 +73,13 @@ export interface CreditPack {
   eur: number;
   /** Base credits the pack is worth at our calibration constant. */
   credits: number;
-  /** Bonus credits (capped) — 100-pack +8%, 250-pack +15% (spec §1). */
+  /**
+   * Bonus credits. The NEW server billing model (per-token markup at consumption,
+   * credit unit = 0.1ct) ships packs at FACE VALUE with NO purchase-time bonus —
+   * margin lives at consumption via tier factors, not in the pack. Kept on the
+   * shape (always 0) so the 402 wall / transparent-math code stays unchanged and
+   * the server can re-introduce a bonus later without a desktop shape change.
+   */
   bonus: number;
 }
 
@@ -86,24 +97,36 @@ export interface QuotaExhaustedBody {
 // ---------------------------------------------------------------------------
 
 /**
- * The +40% markup over raw inference cost (spec §1). The desktop uses this only
- * for the TRANSPARENT-MATH display fallback when the server omits a pack's
- * credit count; the binding €→credits conversion + margin live server-side.
+ * Legacy markup hint, RETAINED for the transparent-math display fallback only.
+ * SUPERSEDED by the per-token markup billing model (margin at CONSUMPTION via
+ * tier factors, not a flat purchase-time markup). The binding €→credits
+ * conversion + margin live server-side; the desktop never re-derives money here.
  */
 export const CREDIT_PACK_MARKUP = 0.4;
 
 /**
+ * The credit UNIT in EUR. NEW server billing model: 1 credit = 0.1 cent (0.001 €),
+ * so a face-value pack of N euros buys N × 1000 credits (25€ → 25,000 cr). This is
+ * the float-safe display constant; the server is authoritative on every debit.
+ */
+export const CREDIT_UNIT_EUR = 0.001;
+
+/** Credits delivered per euro at the credit unit (1 / CREDIT_UNIT_EUR = 1000). */
+export const CREDITS_PER_EUR = 1000;
+
+/**
  * Default catalog the pricing UI shows when offline / before the first 402.
- * Mirrors spec §1 (25/50/100/250 €; 100-pack +8% bonus, 250-pack +15% bonus).
- * `credits` here are illustrative at a placeholder calibration of 1 credit ≈
- * 1€-at-cost; the founder calibrates the real constant pre-go-live (spec §2).
- * The LIVE numbers always come from the 402 body — this is only the resting UI.
+ * NEW server billing model (per-token markup billing): packs are FACE VALUE with
+ * NO purchase-time bonus — 25€=25,000 cr · 50€=50,000 cr · 100€=100,000 cr ·
+ * 250€=250,000 cr (1 credit = 0.1 ct). Margin is taken at CONSUMPTION via the
+ * tier factors, never as a pack bonus. The LIVE numbers always come from the 402
+ * body — this is only the resting UI.
  */
 export const DEFAULT_CREDIT_PACKS: readonly CreditPack[] = [
-  { eur: 25, credits: 25, bonus: 0 },
-  { eur: 50, credits: 50, bonus: 0 },
-  { eur: 100, credits: 100, bonus: 8 },
-  { eur: 250, credits: 250, bonus: 38 },
+  { eur: 25, credits: 25_000, bonus: 0 },
+  { eur: 50, credits: 50_000, bonus: 0 },
+  { eur: 100, credits: 100_000, bonus: 0 },
+  { eur: 250, credits: 250_000, bonus: 0 },
 ] as const;
 
 /** The visible Starter plan (spec §1). The ONE plan shown at the curtain. */
@@ -160,15 +183,16 @@ export interface CreditMeterModel {
 }
 
 /**
- * Spec §3 allowance constants: a full Starter allowance ≈ 60€-at-cost,
- * Solo ≈ 38€. We compute the "used" fraction from the period grant minus what
+ * Allowance constants in CREDITS (NEW server billing model: 1 credit = 0.1 ct).
+ * A full Starter seat ships a 60,000-credit monthly allowance (= 60€ face value);
+ * Solo ≈ 38,000. We compute the "used" fraction from the period grant minus what
  * remains; the grant is derived from the tier (the server is authoritative, but
  * the meter is a read-only display and only needs the resting full-grant size).
  */
 export const TIER_ALLOWANCE_CREDITS: Record<CreditsTier, number> = {
   free: 0,
-  solo: 38,
-  starter: 60,
+  solo: 38_000,
+  starter: 60_000,
 };
 
 /**

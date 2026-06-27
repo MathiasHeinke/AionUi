@@ -184,6 +184,12 @@ const SendBox: React.FC<{
    * `tools` and `rightTools` are not rendered inline on mobile.
    */
   onMobilePlusClick?: () => void;
+  /**
+   * Suppress SendBox's own inline SpeechInputButton. Used when the parent renders
+   * the mic itself inside `rightTools` (the UnifiedSendBar cluster) so the bar
+   * stays the single source of the control row and there is no double mic.
+   */
+  hideSpeechButton?: boolean;
 }> = ({
   onSend,
   onStop,
@@ -211,6 +217,7 @@ const SendBox: React.FC<{
   onSelectedWorkspaceItemsChange,
   bottomHint,
   onMobilePlusClick,
+  hideSpeechButton = false,
 }) => {
   const layout = useLayoutContext();
   const isMobile = layout?.isMobile ?? false;
@@ -1304,13 +1311,16 @@ const SendBox: React.FC<{
   // tools/rightTools into the `+` launcher and skip the inline speech button.
   const renderedTools = isMobileCompact ? mobilePlusButton : tools;
   const renderedRightTools = isMobileCompact ? null : rightTools;
-  const renderedSpeechButton = isMobileCompact ? null : (
-    <SpeechInputButton
-      disabled={disabled || isLoading || loading || isUploading}
-      locale={speechLocale}
-      onTranscript={handleSpeechTranscript}
-    />
-  );
+  // The parent (UnifiedSendBar) can own the mic inside rightTools; in that case
+  // suppress SendBox's own inline mic so the control row has exactly one.
+  const renderedSpeechButton =
+    isMobileCompact || hideSpeechButton ? null : (
+      <SpeechInputButton
+        disabled={disabled || isLoading || loading || isUploading}
+        locale={speechLocale}
+        onTranscript={handleSpeechTranscript}
+      />
+    );
 
   const renderHighlightedInputValue = useCallback(() => {
     if (!input) {

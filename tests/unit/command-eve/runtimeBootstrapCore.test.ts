@@ -304,6 +304,12 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(configYaml).toMatch(/max_turns: ([1-9]\d?)\b/); // bounded well under Hermes' 90 default
       expect(configYaml).toContain('disabled_toolsets:');
       expect(configYaml).toMatch(/disabled_toolsets:\s*\n\s*- vision/);
+      // Context auto-compaction threshold (Claude-Code-style: compact LATER).
+      // The top-level compression.threshold is raised from the wheel default 0.50
+      // to 0.80 so EVE keeps more working memory before summarizing the middle of
+      // the conversation. Config-only (deep-merged over wheel defaults).
+      expect(configYaml).toMatch(/compression:\s*\n\s*threshold: 0\.80/);
+      expect(configYaml).not.toContain('threshold: 0.50');
       expect(configYaml).toMatch(/terminal:\s*\n\s*timeout: \d+/);
       expect(configYaml).toMatch(/auxiliary:\s*\n\s*web_extract:\s*\n\s*timeout: \d+/);
       expect(configYaml).toContain('skills:');

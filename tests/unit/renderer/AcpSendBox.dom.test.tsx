@@ -49,6 +49,11 @@ vi.mock('@/renderer/components/chat/SendBox', () => ({
 }));
 
 vi.mock('@/renderer/components/agent/AgentModeSelector', () => ({ default: () => null }));
+// The in-chat model/inference picker now lives in the bottom bar's modelSlot
+// (founder mandate: moved out of the chat header). Stub both pickers so this
+// test stays focused on the send/reset path, mirroring the AgentModeSelector stub.
+vi.mock('@/renderer/components/agent/AcpModelSelector', () => ({ default: () => null }));
+vi.mock('@/renderer/components/agent/EveInferencePicker', () => ({ default: () => null }));
 vi.mock('@/renderer/components/chat/CommandQueuePanel', () => ({ default: () => null }));
 vi.mock('@/renderer/components/chat/MobileActionSheet', () => ({
   default: () => null,
@@ -166,21 +171,33 @@ vi.mock('@arco-design/web-react', () => ({
   Tag: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
 }));
 
-const makeMessageState = (): UseAcpMessageReturn => ({
-  thought: { subject: '', description: '' },
-  setThought: vi.fn(),
-  running: true,
-  hasHydratedRunningState: true,
-  acpStatus: null,
-  aiProcessing: false,
-  setAiProcessing: vi.fn(),
-  resetState: resetStateMock,
-  tokenUsage: null,
-  context_limit: 0,
-  hasThinkingMessage: false,
-  slashCommands: [],
-  fetchSlashCommands: vi.fn(),
-});
+const makeMessageState = (): UseAcpMessageReturn =>
+  ({
+    thought: { subject: '', description: '' },
+    setThought: vi.fn(),
+    running: true,
+    hasHydratedRunningState: true,
+    acpStatus: null,
+    aiProcessing: false,
+    setAiProcessing: vi.fn(),
+    resetState: resetStateMock,
+    tokenUsage: null,
+    context_limit: 0,
+    hasThinkingMessage: false,
+    slashCommands: [],
+    fetchSlashCommands: vi.fn(),
+    // STEP 2/STEP 4: AcpSendBox reads runtimeActivity.modelId when building the
+    // UnifiedSendBar's ContextUsageIndicator, so the message-state stub must
+    // provide it (was undefined → crash). quotaWall is part of the contract too.
+    runtimeActivity: { phase: 'idle', updatedAt: 0 },
+    quotaWall: {
+      visible: false,
+      body: null,
+      jobInFlight: false,
+      open: vi.fn(),
+      dismiss: vi.fn(),
+    },
+  }) as unknown as UseAcpMessageReturn;
 
 describe('AcpSendBox', () => {
   beforeEach(() => {
