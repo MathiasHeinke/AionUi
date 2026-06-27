@@ -24,6 +24,7 @@
  * both mobile sheets cannot drift apart.
  */
 
+import { commandEve } from '@/common/adapter/ipcBridge';
 import { configService } from '@/common/config/configService';
 import {
   buildEvePickerGroups,
@@ -34,6 +35,7 @@ import {
   type EvePickerItem,
 } from '@/common/config/eveInferenceCore';
 import { useEntitlementGate } from '@renderer/hooks/useEntitlementGate';
+import { isElectronDesktop } from '@renderer/utils/platform';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 export interface UseEveInferenceSelectionResult {
@@ -49,6 +51,16 @@ export interface UseEveInferenceSelectionResult {
   commit: (value: string) => void;
   /** True iff `value` is a known, selectable item. */
   isSelectable: (value: string) => boolean;
+  /**
+   * Whether the EVE Inference (cloud) lane has a usable license bearer at rest.
+   * `true` = activated, cloud routes; `false` = entitled-but-no-wire (a send on
+   * an EVE tier SILENTLY falls back to local), so the surface must read
+   * "Aktivierung nötig" rather than lie "EVE Cloud"; `undefined` = unknown
+   * (loading / non-desktop / transient read error) → do NOT degrade the label.
+   */
+  cloudBearerAvailable: boolean | undefined;
+  /** Re-read the bearer presence (call after a re-activation). */
+  refreshBearer: () => Promise<void>;
 }
 
 /**
@@ -71,6 +83,36 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
     });
     return unsubscribe;
   }, []);
+
+  // Bearer presence for the EVE (cloud) lane. The header chip + picker must tell
+  // the TRUTH: an EVE tier with NO license wire silently falls back to local on
+  // send (useGuidSend), so showing a confident "EVE Cloud · Hoch" would lie.
+  // `undefined` stays the safe default (don't degrade on a transient/unknown read).
+  const [cloudBearerAvailable, setCloudBearerAvailable] = useState<boolean | undefined>(undefined);
+  const refreshBearer = useCallback(async () => {
+    if (!isElectronDesktop()) {
+      setCloudBearerAvailable(undefined);
+      return;
+    }
+    try {
+      const response = await commandEve.licenseWireStatus.invoke();
+      setCloudBearerAvailable(response?.data?.available === true);
+    } catch {
+      // Unknown on a transient bridge error — leave the label untouched.
+      setCloudBearerAvailable(undefined);
+    }
+  }, []);
+  useEffect(() => {
+    void refreshBearer();
+  }, [refreshBearer]);
+  // Reflect a re-activation done in Settings → Account without a reload: re-read
+  // on window focus (cheap presence-only call).
+  useEffect(() => {
+    if (!isElectronDesktop()) return;
+    const onFocus = (): void => void refreshBearer();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [refreshBearer]);
 
   const groups = useMemo(() => buildEvePickerGroups(status), [status]);
   const items = useMemo(() => groups.flatMap((g) => g.items), [groups]);
@@ -109,7 +151,7 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
     }
   }, [selectedRaw]);
 
-  return { selection, groups, items, selectedItem, commit, isSelectable };
+  return { selection, groups, items, selectedItem, commit, isSelectable, cloudBearerAvailable, refreshBearer };
 }
 
 export default useEveInferenceSelection;

@@ -51,7 +51,13 @@ const EveInferencePicker: React.FC<{
   const { t } = useTranslation();
   // All state/persistence/gating lives in the shared hook so the GuidPage
   // picker, the in-session header and the mobile sheets never drift apart.
-  const { selection, groups, selectedItem, commit } = useEveInferenceSelection(onChange);
+  const { selection, groups, selectedItem, commit, cloudBearerAvailable } = useEveInferenceSelection(onChange);
+
+  // An EVE (cloud) tier is selected but there is NO license wire at rest: a send
+  // silently falls back to local Gemma (useGuidSend), so the chip must NOT claim
+  // "EVE Cloud · Hoch". `=== false` only (a transient/unknown read stays honest
+  // by leaving the normal label).
+  const eveCloudNeedsActivation = selectedItem?.group === 'eve' && cloudBearerAvailable === false;
 
   const handleSelect = useCallback(
     (item: EvePickerItem) => {
@@ -66,10 +72,15 @@ const EveInferencePicker: React.FC<{
       // Honest cloud labeling: the EVE lane is external cloud, so the chip reads
       // "EVE Cloud · <tier>" — never just "EVE" (which could read as private).
       const groupTitle = selectedItem.group === 'eve' ? 'EVE Cloud' : t('common.localModel', 'Lokal');
+      // ...but if the cloud lane has no bearer at rest, the send falls back to
+      // local — so say so instead of lying about the tier.
+      if (eveCloudNeedsActivation) {
+        return `EVE Cloud · ${t('conversation.eveInference.needsActivation', 'Aktivierung nötig')}`;
+      }
       return `${groupTitle} · ${selectedItem.label}`;
     }
     return t('conversation.eveInference.pick', 'Modell wählen');
-  }, [selectedItem, t]);
+  }, [selectedItem, eveCloudNeedsActivation, t]);
 
   const renderLogo = () => <Brain theme='outline' size='14' fill={iconColors.secondary} className='shrink-0' />;
 

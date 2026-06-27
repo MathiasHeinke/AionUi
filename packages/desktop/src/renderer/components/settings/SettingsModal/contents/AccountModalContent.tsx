@@ -25,7 +25,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Button, Card, Message, Popconfirm } from '@arco-design/web-react';
+import { Button, Card, Input, Message, Popconfirm } from '@arco-design/web-react';
 import { useTranslation } from 'react-i18next';
 import { commandEve, type ICommandEveRegistrationStatusResult } from '@/common/adapter/ipcBridge';
 
@@ -35,6 +35,15 @@ const AccountModalContent: React.FC = () => {
   const [loggingOut, setLoggingOut] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [loggingIn, setLoggingIn] = useState(false);
+  // EVE Cloud (license-wire) re-activation. `bearer` = is the cloud bearer at
+  // rest present? An entitled device whose activation predates the wire-at-rest
+  // feature (or hit a keychain failure at activation) is entitled but bearer-less
+  // → EVE Cloud silently falls back to local. Re-pasting the SAME license code
+  // re-stores the wire (activateEntitlement is idempotent on the serial), with NO
+  // full device reset.
+  const [bearer, setBearer] = useState<boolean | undefined>(undefined);
+  const [licenseCode, setLicenseCode] = useState('');
+  const [activating, setActivating] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -45,9 +54,52 @@ const AccountModalContent: React.FC = () => {
     }
   }, []);
 
+  const refreshBearer = useCallback(async () => {
+    try {
+      const response = await commandEve.licenseWireStatus.invoke();
+      setBearer(response?.data?.available === true);
+    } catch {
+      setBearer(undefined);
+    }
+  }, []);
+
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+    void refreshBearer();
+  }, [refresh, refreshBearer]);
+
+  // Re-store the EVE Cloud license-wire bearer by re-activating with the user's
+  // license code. activateEntitlement re-verifies the code cryptographically and
+  // is idempotent on the code serial; on ok the bridge calls storeLicenseWire.
+  const handleActivateCloud = useCallback(async () => {
+    const code = licenseCode.trim();
+    if (!code) return;
+    setActivating(true);
+    try {
+      const response = await commandEve.entitlementActivate.invoke({ code });
+      if (response.data?.ok) {
+        setLicenseCode('');
+        await refreshBearer();
+        Message.success(
+          t('settings.accountPanel.eveCloud.activated', { defaultValue: 'EVE Cloud aktiviert.' })
+        );
+      } else {
+        Message.error(
+          t('settings.accountPanel.eveCloud.activateError', {
+            defaultValue: 'Aktivierung fehlgeschlagen — prüfe den Lizenzcode.',
+          })
+        );
+      }
+    } catch {
+      Message.error(
+        t('settings.accountPanel.eveCloud.activateError', {
+          defaultValue: 'Aktivierung fehlgeschlagen — prüfe den Lizenzcode.',
+        })
+      );
+    } finally {
+      setActivating(false);
+    }
+  }, [licenseCode, refreshBearer, t]);
 
   const handleLogout = useCallback(async () => {
     setLoggingOut(true);
@@ -199,6 +251,51 @@ const AccountModalContent: React.FC = () => {
           </div>
         )}
       </Card>
+
+      {/* EVE Cloud (license-wire) status + re-activation. Only surfaced when the
+          bearer is DEFINITIVELY absent (`=== false`) so an entitled-but-bearer-less
+          device can re-store the cloud credential without a full reset. */}
+      {bearer === false ? (
+        <Card title={t('settings.accountPanel.eveCloud.title', { defaultValue: 'EVE Cloud' })}>
+          <div className='flex flex-col gap-12px'>
+            <div className='text-13px text-t-tertiary' data-testid='eve-cloud-needs-activation'>
+              {t('settings.accountPanel.eveCloud.inactiveBody', {
+                defaultValue:
+                  'EVE Cloud ist nicht aktiviert — Anfragen laufen aktuell auf dem lokalen Modell. Hinterlege deinen Lizenzcode erneut, um die Cloud-Modelle (DeepSeek V4 / GLM) zu nutzen. Dein Gerät wird dabei NICHT zurückgesetzt.',
+              })}
+            </div>
+            <Input.TextArea
+              value={licenseCode}
+              onChange={setLicenseCode}
+              placeholder={t('settings.accountPanel.eveCloud.codePlaceholder', {
+                defaultValue: 'Lizenzcode einfügen …',
+              })}
+              autoSize={{ minRows: 2, maxRows: 4 }}
+              data-testid='eve-cloud-code'
+            />
+            <Button
+              type='primary'
+              shape='round'
+              loading={activating}
+              disabled={licenseCode.trim().length === 0}
+              onClick={() => void handleActivateCloud()}
+              data-testid='eve-cloud-activate'
+            >
+              {activating
+                ? t('settings.accountPanel.eveCloud.activating', { defaultValue: 'Wird aktiviert …' })
+                : t('settings.accountPanel.eveCloud.activate', { defaultValue: 'EVE Cloud aktivieren' })}
+            </Button>
+          </div>
+        </Card>
+      ) : bearer === true ? (
+        <Card title={t('settings.accountPanel.eveCloud.title', { defaultValue: 'EVE Cloud' })}>
+          <div className='text-13px text-t-tertiary' data-testid='eve-cloud-active'>
+            {t('settings.accountPanel.eveCloud.activeBody', {
+              defaultValue: 'EVE Cloud ist aktiviert — die Cloud-Modelle stehen zur Verfügung.',
+            })}
+          </div>
+        </Card>
+      ) : null}
     </div>
   );
 };
