@@ -1245,6 +1245,20 @@ const handleAppReady = async (): Promise<void> => {
     // returns getDataPath() byte-identical for the legacy seat (existing chat DB
     // preserved in place) and <getDataPath()>/seats/<id> for a real seat. Kept
     // consistent with sysDir.cacheDir/workDir, which are scoped the same way.
+    // Pre-flight: heal any orphaned (soft-deleted) EVE assistant_definition
+    // BEFORE aioncore boots. Otherwise its router.assistant.bootstrap crashes on
+    // the active-assistant ↔ soft-deleted-definition inconsistency left by the
+    // de-founder-ize re-seed's DELETE+POST → "incomplete installation" brick on
+    // every restart. Fail-open (never blocks the spawn). See assistantStorageRepair.ts.
+    try {
+      const { repairCommandEveAssistantStorage } = await import('./process/commandEve/assistantStorageRepair');
+      const repair = await repairCommandEveAssistantStorage(getBackendDataDir());
+      if (repair.repaired > 0) {
+        console.warn(`[CommandEVE] Pre-flight assistant-storage repair: re-activated ${repair.repaired} orphaned definition(s).`);
+      }
+    } catch (error) {
+      console.warn('[CommandEVE] Pre-flight assistant-storage repair skipped:', error);
+    }
     const backendPort = await backendManager.start(getBackendDataDir(), sysDir.logDir, {
       cacheDir: sysDir.cacheDir,
       workDir: sysDir.workDir,
@@ -1285,6 +1299,18 @@ const handleAppReady = async (): Promise<void> => {
       // (seatContextCore.getActiveSeatId — already set by applySeatSwitch step a).
       prepareCommandEveRuntimeProcessEnv(getDataPathForRestart());
       const sysDirForRestart = getSystemDirForRestart();
+      // Same pre-flight assistant-storage repair as boot, for the now-active seat's
+      // DB (fail-open). Keeps a seat-switch respawn from hitting the orphaned-
+      // definition bootstrap crash. See assistantStorageRepair.ts.
+      try {
+        const { repairCommandEveAssistantStorage } = await import('./process/commandEve/assistantStorageRepair');
+        const repair = await repairCommandEveAssistantStorage(getBackendDataDirForRestart());
+        if (repair.repaired > 0) {
+          console.warn(`[CommandEVE] Pre-flight assistant-storage repair (respawn): re-activated ${repair.repaired} orphaned definition(s).`);
+        }
+      } catch (error) {
+        console.warn('[CommandEVE] Pre-flight assistant-storage repair (respawn) skipped:', error);
+      }
       // ISO-4 CRITICAL: re-spawn the backend with the SAME seat-scoped --data-dir
       // as boot, now for the NEW active seat (set by applySeatSwitch step a). This
       // is what re-homes the conversation+message SQLite on a seat switch — the
