@@ -29,10 +29,10 @@ describe('buildEveLaneViews — lane axis (Lokal · EVE Free · EVE Pro)', () =>
     expect(v.free.items[0].sublabel).toContain('100/Tag');
 
     expect(v.pro.state).toBe('locked');
-    // EVE Pro = Mittel · Hoch · Max (3 rungs), all greyed on a trial.
+    // EVE Pro = Standard · Hoch · Max (3 rungs), all greyed on a trial.
     expect(v.pro.items).toHaveLength(3);
     expect(v.pro.items.every((i) => i.disabled && i.disabledReasonCode === 'PAID_TIER_REQUIRED')).toBe(true);
-    expect(v.pro.items.map((i) => i.label)).toEqual(['Mittel', 'Hoch', 'Max']);
+    expect(v.pro.items.map((i) => i.label)).toEqual(['Standard', 'Hoch', 'Max']);
   });
 
   it('PAYING user (no trial_ends_at): EVE Free HIDDEN, EVE Pro = 3 rungs selectable', () => {
@@ -65,7 +65,7 @@ describe('buildEveLaneViews — lane axis (Lokal · EVE Free · EVE Pro)', () =>
 describe('laneOfSelection', () => {
   it('maps a selection value back to its lane', () => {
     expect(laneOfSelection(localTierValue('local-standard'))).toBe('local');
-    // eve-standard is the free-eligible model (the Free lane + Pro "Mittel").
+    // eve-standard is the free-eligible model (the Free lane + Pro "Standard").
     expect(laneOfSelection(eveTierValue('eve-standard'))).toBe('free');
     // eve-high / eve-max are paid → Pro.
     expect(laneOfSelection(eveTierValue('eve-high'))).toBe('pro');

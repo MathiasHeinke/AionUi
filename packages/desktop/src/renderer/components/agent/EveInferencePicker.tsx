@@ -12,19 +12,18 @@
  * nothing else — no raw CLI/agent picker, no raw provider/model list:
  *
  *   - Privat (lokal):   Standard (Gemma 4 E4B) · Hoch (Gemma 4 12B)
- *   - EVE Inference:    Standard · Hoch · Max · Maximum
+ *   - EVE Inference:    Standard · Hoch · Max
  *
- * EVE LEVELS (Stufen):
- *   - Standard / Hoch — FREE (Standard is the default).
- *   - Max — PAID (DeepSeek V4 Pro). Marked "verbraucht Credits".
- *   - Maximum / "härteste Aufgabe" — PAID + GATED (GLM 5.2). Carries a VISIBLE
- *     higher-cost badge ("~5× Kosten") so the rate is obvious before picking.
+ * EVE LEVELS (Stufen) — both lanes share the entry word "Standard":
+ *   - Standard — FREE (DeepSeek V4 Flash). The default for a fresh chat.
+ *   - Hoch — PAID (DeepSeek V4 Pro). Marked "mehr Credits".
+ *   - Max / "härteste Aufgabe" — PAID + GATED (GLM 5.2). Carries a VISIBLE
+ *     higher-cost badge ("höchste Kosten") so the rate is obvious before picking.
  *
  * When the entitlement is trialing/free (entitlementCore CEVE.v2
- * `trial_ends_at` present), EVE Max + EVE Maximum are GREYED OUT (disabled) with
- * a subtle "im Paid-Tarif" hint. Only EVE Standard + EVE Hoch + the two local
- * tiers stay selectable. The picker model + gating come from the pure
- * `eveInferenceCore`.
+ * `trial_ends_at` present), EVE Hoch + EVE Max are GREYED OUT (disabled) with
+ * a subtle "im Paid-Tarif" hint. Only EVE Standard + the two local tiers stay
+ * selectable. The picker model + gating come from the pure `eveInferenceCore`.
  *
  * The selection is persisted to `commandEve.inferenceSelection`; the send path
  * resolves it (and injects the CEVE bearer for an EVE level) via the main-process
@@ -85,7 +84,7 @@ const EveInferencePicker: React.FC<{
   const renderLogo = () => <Brain theme='outline' size='14' fill={iconColors.secondary} className='shrink-0' />;
 
   const droplist = (
-    <Menu className='eve-inference-picker-menu' style={{ maxWidth: 280 }}>
+    <Menu className='eve-inference-picker-menu' style={{ maxWidth: 340, minWidth: 240 }}>
       {groups.map((group) => (
         <Menu.ItemGroup key={group.kind} title={group.title}>
           {group.items.map((item) => {
@@ -98,9 +97,12 @@ const EveInferencePicker: React.FC<{
               >
                 <div className='flex items-center justify-between gap-8px w-full'>
                   <span className='flex items-center gap-6px min-w-0'>
-                    <span className={item.disabled ? 'opacity-50' : ''}>{item.label}</span>
+                    {/* STUFE label never shrinks; the long model sublabel
+                        truncates first so the right-side cost badge + paid hint
+                        never overlap it (U1: the greyed paid rows overflowed). */}
+                    <span className={item.disabled ? 'opacity-50 shrink-0' : 'shrink-0'}>{item.label}</span>
                     {item.sublabel ? (
-                      <span className='text-12px opacity-50'>({item.sublabel})</span>
+                      <span className='text-12px opacity-50 truncate min-w-0'>({item.sublabel})</span>
                     ) : null}
                   </span>
                   <span className='flex items-center gap-6px shrink-0'>

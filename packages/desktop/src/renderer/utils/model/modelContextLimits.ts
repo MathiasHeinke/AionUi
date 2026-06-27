@@ -54,7 +54,7 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
 
   // ── Command EVE cloud lane (eve-inference → OpenRouter) ──────────────────
   // All three EVE cloud tiers serve a 1M-context model (FACT: OpenRouter catalog
-  // 2026-06-27, context_length=1_048_576 each): Mittel=DeepSeek V4 Flash,
+  // 2026-06-27, context_length=1_048_576 each): Standard=DeepSeek V4 Flash,
   // Hoch=DeepSeek V4 Pro, Max=GLM 5.2. Keyed by BOTH the model slug AND the EVE
   // selection prefix, so the fuzzy fallback resolves whichever id the request_trace
   // carries — the founder's point: GLM must NOT read as 64k like a local model.

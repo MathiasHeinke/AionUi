@@ -81,18 +81,18 @@ describe('eveInferenceCore — trial detection', () => {
 });
 
 describe('eveInferenceCore — STUFEN shape (requirement 0)', () => {
-  it('exposes EXACTLY the three EVE levels in order: Mittel, Hoch, Max', () => {
+  it('exposes EXACTLY the three EVE levels in order: Standard, Hoch, Max', () => {
     const groups = buildEvePickerGroups(PAID_NULL);
     const eve = groups.find((g) => g.kind === 'eve')!;
-    expect(eve.items.map((i) => i.label)).toEqual(['Mittel', 'Hoch', 'Max']);
+    expect(eve.items.map((i) => i.label)).toEqual(['Standard', 'Hoch', 'Max']);
   });
 
-  it('Mittel is the free-eligible default (DeepSeek V4 Flash); Hoch + Max are paid', () => {
+  it('Standard is the free-eligible default (DeepSeek V4 Flash); Hoch + Max are paid', () => {
     const mittel = EVE_INFERENCE_TIERS.find((t) => t.id === 'eve-standard')!;
     const hoch = EVE_INFERENCE_TIERS.find((t) => t.id === 'eve-high')!;
     const max = EVE_INFERENCE_TIERS.find((t) => t.id === 'eve-max')!;
     expect(mittel.paidOnly).toBe(false);
-    expect(mittel.label).toBe('Mittel');
+    expect(mittel.label).toBe('Standard');
     expect(mittel.modelLabel).toBe('DeepSeek V4 Flash');
     expect(hoch.paidOnly).toBe(true);
     expect(max.paidOnly).toBe(true);
@@ -117,10 +117,10 @@ describe('eveInferenceCore — STUFEN shape (requirement 0)', () => {
     expect(max.costBadge).toBe('höchste Kosten');
   });
 
-  it('the FREE level (Mittel) carries NO cost badge in the base picker (free = no credit surprise)', () => {
+  it('the FREE level (Standard) carries NO cost badge in the base picker (free = no credit surprise)', () => {
     const items = flat(buildEvePickerGroups(PAID_NULL));
-    expect(byLabel(items, 'eve', 'Mittel')!.costBadge).toBeUndefined();
-    expect(byLabel(items, 'eve', 'Mittel')!.consumesCredits).toBe(false);
+    expect(byLabel(items, 'eve', 'Standard')!.costBadge).toBeUndefined();
+    expect(byLabel(items, 'eve', 'Standard')!.consumesCredits).toBe(false);
   });
 });
 
@@ -130,10 +130,10 @@ describe('eveInferenceCore — free-tier greying (requirement 1)', () => {
     expect(groups.map((g) => g.kind)).toEqual(['local', 'eve']);
     // Local: Standard + Hoch only (no 31B pro tier). EVE: the three STUFEN.
     expect(groups[0].items.map((i) => i.label)).toEqual(['Standard', 'Hoch']);
-    expect(groups[1].items.map((i) => i.label)).toEqual(['Mittel', 'Hoch', 'Max']);
+    expect(groups[1].items.map((i) => i.label)).toEqual(['Standard', 'Hoch', 'Max']);
   });
 
-  it('greys the paid Pro rungs (Hoch + Max) while trialing; Mittel + locals selectable', () => {
+  it('greys the paid Pro rungs (Hoch + Max) while trialing; Standard + locals selectable', () => {
     const items = flat(buildEvePickerGroups(TRIAL));
 
     // The paid Pro rungs (Hoch + Max) disabled with the paid hint.
@@ -149,8 +149,8 @@ describe('eveInferenceCore — free-tier greying (requirement 1)', () => {
     expect(hoch.costBadge).toBe('mehr Credits');
     expect(max.costBadge).toBe('höchste Kosten');
 
-    // EVE Mittel (the free model) selectable on a trial.
-    expect(byLabel(items, 'eve', 'Mittel')!.disabled).toBe(false);
+    // EVE Standard (the free model) selectable on a trial.
+    expect(byLabel(items, 'eve', 'Standard')!.disabled).toBe(false);
 
     // Both local tiers selectable.
     expect(byLabel(items, 'local', 'Standard')!.disabled).toBe(false);
@@ -164,7 +164,7 @@ describe('eveInferenceCore — free-tier greying (requirement 1)', () => {
   it('leaves ALL EVE levels selectable when paid (trial_ends_at null/absent)', () => {
     for (const ent of [PAID_NULL, PAID_ABSENT]) {
       const items = flat(buildEvePickerGroups(ent));
-      expect(byLabel(items, 'eve', 'Mittel')!.disabled).toBe(false);
+      expect(byLabel(items, 'eve', 'Standard')!.disabled).toBe(false);
       expect(byLabel(items, 'eve', 'Hoch')!.disabled).toBe(false);
       expect(byLabel(items, 'eve', 'Max')!.disabled).toBe(false);
     }
@@ -196,7 +196,7 @@ describe('eveInferenceCore — honest CLOUD labeling (audit #1)', () => {
 
   it('each EVE level names its concrete cloud model in the sublabel (level in the primary label, model in the secondary)', () => {
     const items = flat(buildEvePickerGroups(TRIAL));
-    expect(byLabel(items, 'eve', 'Mittel')!.sublabel).toBe('DeepSeek V4 Flash');
+    expect(byLabel(items, 'eve', 'Standard')!.sublabel).toBe('DeepSeek V4 Flash');
     expect(byLabel(items, 'eve', 'Hoch')!.sublabel).toBe('DeepSeek V4 Pro');
     expect(byLabel(items, 'eve', 'Max')!.sublabel).toBe('GLM 5.2');
   });

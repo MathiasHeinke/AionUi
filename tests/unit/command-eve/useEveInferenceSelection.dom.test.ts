@@ -14,9 +14,9 @@
  *   - a switch made on one surface propagates to others via the config
  *     subscription (header ↔ sheet ↔ GuidPage);
  *   - a greyed paid level (trialing) is NOT committable, and a previously-stored
- *     paid level auto-resets to the default (Mittel) when the entitlement is trialing.
+ *     paid level auto-resets to the default (Standard) when the entitlement is trialing.
  *
- * STUFEN note (3-tier model): Mittel (DeepSeek V4 Flash) is the free-eligible rung
+ * STUFEN note (3-tier model): Standard (DeepSeek V4 Flash) is the free-eligible rung
  * — the EVE Free model AND EVE Pro's cheapest. Hoch (DeepSeek V4 Pro) + Max (GLM 5.2)
  * are the paid Pro rungs that grey out while trialing.
  */
@@ -50,7 +50,7 @@ vi.mock('@/common/config/configService', () => {
 });
 
 // Controllable entitlement status. `trial_ends_at` non-null ⇒ trialing (greys the
-// paid Pro rungs Hoch/Max; only Mittel stays free). Default: paid (all selectable).
+// paid Pro rungs Hoch/Max; only Standard stays free). Default: paid (all selectable).
 const entitlement: { trial_ends_at?: string | null } = { trial_ends_at: null };
 vi.mock('@renderer/hooks/useEntitlementGate', () => ({
   useEntitlementGate: () => ({ loading: false, status: entitlement, blocked: false, refresh: vi.fn() }),
@@ -72,11 +72,11 @@ describe('useEveInferenceSelection', () => {
     vi.clearAllMocks();
   });
 
-  it('defaults a fresh user to EVE Mittel (cloud, the free-eligible rung)', () => {
+  it('defaults a fresh user to EVE Standard (cloud, the free-eligible rung)', () => {
     const { result } = renderHook(() => useEveInferenceSelection());
     expect(result.current.selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION);
     expect(result.current.selectedItem?.group).toBe('eve');
-    expect(result.current.selectedItem?.label).toBe('Mittel');
+    expect(result.current.selectedItem?.label).toBe('Standard');
   });
 
   it('commit() persists the choice to commandEve.inferenceSelection (next-turn pickup)', () => {
@@ -106,14 +106,14 @@ describe('useEveInferenceSelection', () => {
     await waitFor(() => expect(result.current.selection).toBe(localStandard));
   });
 
-  it('keeps EVE Mittel (free-eligible) selectable while trialing', () => {
+  it('keeps EVE Standard (free-eligible) selectable while trialing', () => {
     entitlement.trial_ends_at = '2099-01-01T00:00:00.000Z'; // trialing
     const { result } = renderHook(() => useEveInferenceSelection());
-    const eveMittel = eveTierValue('eve-standard');
-    // Mittel is the free model — selectable + committable on a trial.
-    expect(result.current.isSelectable(eveMittel)).toBe(true);
-    act(() => result.current.commit(eveMittel));
-    expect(result.current.selection).toBe(eveMittel);
+    const eveStandard = eveTierValue('eve-standard');
+    // Standard is the free model — selectable + committable on a trial.
+    expect(result.current.isSelectable(eveStandard)).toBe(true);
+    act(() => result.current.commit(eveStandard));
+    expect(result.current.selection).toBe(eveStandard);
   });
 
   it('greys the paid Pro rungs (Hoch + Max) while trialing and refuses to commit a greyed level', () => {
@@ -125,13 +125,13 @@ describe('useEveInferenceSelection', () => {
     expect(result.current.isSelectable(eveMax)).toBe(false);
     act(() => result.current.commit(eveHoch));
     act(() => result.current.commit(eveMax));
-    // commit is a no-op for a disabled level — selection stays at the default (Mittel).
+    // commit is a no-op for a disabled level — selection stays at the default (Standard).
     expect(result.current.selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION);
     expect(configService.set).not.toHaveBeenCalledWith('commandEve.inferenceSelection', eveHoch);
     expect(configService.set).not.toHaveBeenCalledWith('commandEve.inferenceSelection', eveMax);
   });
 
-  it('auto-resets a previously-stored paid level (Max) to the default (Mittel) when trialing', async () => {
+  it('auto-resets a previously-stored paid level (Max) to the default (Standard) when trialing', async () => {
     store.set('commandEve.inferenceSelection', eveTierValue('eve-max'));
     entitlement.trial_ends_at = '2099-01-01T00:00:00.000Z'; // trialing
     const { result } = renderHook(() => useEveInferenceSelection());
@@ -141,7 +141,7 @@ describe('useEveInferenceSelection', () => {
 
   it('auto-resets a now-removed tier (the retired eve-maximum) to the default', async () => {
     // A user who persisted the old eve-maximum tier (removed in the 3-tier model)
-    // must not be stranded on an unresolvable selection — reset to Mittel.
+    // must not be stranded on an unresolvable selection — reset to Standard.
     store.set('commandEve.inferenceSelection', 'command-eve-inference:eve-maximum');
     entitlement.trial_ends_at = null; // paid
     const { result } = renderHook(() => useEveInferenceSelection());

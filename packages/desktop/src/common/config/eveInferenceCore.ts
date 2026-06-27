@@ -14,23 +14,23 @@
  *
  *   - Privat (lokal):   Standard = Gemma 4 E4B, Hoch = Gemma 4 12B
  *                       (the bundled local tiers from commandEveShell.ts).
- *   - EVE Inference:    Standard, Hoch, Max, Maximum (cloud, OpenAI-compatible
- *                       Edge fn). The user sees a level; the backend resolves
- *                       the concrete model from that level via a registry.
+ *   - EVE Inference:    Standard, Hoch, Max (cloud, OpenAI-compatible Edge fn).
+ *                       The user sees a level; the backend resolves the concrete
+ *                       model from that level via a registry. Both lanes share
+ *                       the entry word "Standard" (founder choice 2026-06-27).
  *
- * THE FOUR EVE LEVELS (STUFEN):
- *   - Standard  — FREE. The default for a fresh chat.
- *   - Hoch      — FREE. (Was paid in the old 3-tier model; now free.)
- *   - Max       — PAID. DeepSeek V4 Pro. Consumes credits (visible badge).
- *   - Maximum / "härteste Aufgabe" — PAID + GATED. GLM 5.2. The highest cost
- *     level: it carries a VISIBLE higher-cost badge so the ~5× rate vs Max is
- *     obvious before the user picks it.
+ * THE THREE EVE LEVELS (STUFEN):
+ *   - Standard  — FREE. DeepSeek V4 Flash. The default for a fresh chat.
+ *   - Hoch      — PAID. DeepSeek V4 Pro. Consumes credits ("mehr Credits").
+ *   - Max / "härteste Aufgabe" — PAID + GATED. GLM 5.2. The highest cost level:
+ *     it carries a VISIBLE higher-cost badge ("höchste Kosten") so the rate vs
+ *     Hoch is obvious before the user picks it.
  *
  * FREE-TIER RULES (entitlement trialing/free per entitlementCore):
- *   - EVE Max + EVE Maximum are GREYED OUT (disabled, "im Paid-Tarif" hint).
+ *   - EVE Hoch + EVE Max are GREYED OUT (disabled, "im Paid-Tarif" hint).
  *   - BYOK is GREYED OUT in settings (handled at the settings surface using
  *     {@link isByokDisabledForEntitlement} from this module).
- *   - Only EVE Standard + EVE Hoch + the two local tiers are selectable.
+ *   - Only EVE Standard + the two local tiers are selectable.
  *
  * BACKEND LEVEL REGISTRY (no tier→level shift): the eve-inference Edge Function
  * resolves the concrete upstream model from a user-facing LEVEL via a registry
@@ -107,11 +107,11 @@ export const EVE_INFERENCE_TIER_SUBLABEL = 'Externe Free-Modelle · OpenRouter';
 export const EVE_INFERENCE_TIERS = [
   {
     id: 'eve-standard',
-    // STUFE: Mittel — the entry rung. Same model as the FREE lane (DeepSeek V4
+    // STUFE: Standard — the entry rung. Same model as the FREE lane (DeepSeek V4
     // Flash): on a trial it is EVE Free (100/Tag, €0); for a paying user it is
     // EVE Pro's cheapest, metered rung. The wire `tier` is `standard` either way;
     // the SERVER decides free-cap vs credit-meter by the entitlement.
-    label: 'Mittel',
+    label: 'Standard',
     tier: 'standard',
     /** Free-tier-eligible: selectable on a trial (capped, not metered). The Pro
      *  lane renders this same model as the cheapest METERED rung — that cost
@@ -124,7 +124,7 @@ export const EVE_INFERENCE_TIERS = [
   },
   {
     id: 'eve-high',
-    // STUFE: Hoch — DeepSeek V4 Pro, paid, more credits than Mittel.
+    // STUFE: Hoch — DeepSeek V4 Pro, paid, more credits than Standard.
     label: 'Hoch',
     // The wire `high` IS the registry level (no tier→level bridge/shift); the
     // backend looks `high` up directly. The German label "Hoch" is UI-only.
@@ -464,7 +464,7 @@ function buildLocalLaneItems(): EvePickerItem[] {
 
 /**
  * One EVE-cloud tier as a Pro-lane item (model label + relative-cost badge). EVERY
- * Pro rung is metered; the free-eligible rung (Mittel) carries no tier badge — it
+ * Pro rung is metered; the free-eligible rung (Standard) carries no tier badge — it
  * is the cheapest METERED rung here, so we surface a "günstigste" marker. The paid
  * rungs use their own ascending badge ("mehr Credits" / "höchste Kosten").
  */
@@ -487,7 +487,7 @@ function eveTierToProItem(tier: EveInferenceTier, forceDisabled: boolean): EvePi
 /**
  * The EVE Free lane = the single free-eligible model (DeepSeek V4 Flash), rendered
  * as FREE (capped 100/Tag, no credit/cost badge). It is the SAME model as EVE Pro's
- * cheapest rung ("Mittel") — only the billing differs (free-cap vs credit-meter),
+ * cheapest rung ("Standard") — only the billing differs (free-cap vs credit-meter),
  * which the server decides by entitlement.
  */
 function buildFreeLaneItems(): EvePickerItem[] {
@@ -509,7 +509,7 @@ function buildFreeLaneItems(): EvePickerItem[] {
  * privacy lane, downloadable models); a TRIAL/free user gets Lokal + EVE Free
  * selectable and EVE Pro LOCKED (all three rungs shown greyed, with an upgrade
  * affordance); a PAYING user no longer sees EVE Free (hidden) and EVE Pro becomes
- * selectable. EVE Pro = Mittel (DeepSeek V4 Flash, cheapest) · Hoch (DeepSeek V4
+ * selectable. EVE Pro = Standard (DeepSeek V4 Flash, cheapest) · Hoch (DeepSeek V4
  * Pro) · Max (GLM 5.2), increasing credit cost — pick the intelligence, the server
  * meters it. Pure presentation over the existing tiers — no wire/tier change.
  */
@@ -536,7 +536,7 @@ export function buildEveLaneViews(entitlement: EveEntitlementView | null | undef
       title: 'EVE Pro',
       accent: 'gold',
       // Trial/free: all three rungs SHOWN but greyed + upgrade. Paid: selectable.
-      // EVE Pro includes the Mittel rung (same model as Free) so the full
+      // EVE Pro includes the Standard rung (same model as Free) so the full
       // intelligence ladder lives in one lane.
       state: trialing ? 'locked' : 'available',
       items: EVE_INFERENCE_TIERS.map((tier) => eveTierToProItem(tier, trialing)),

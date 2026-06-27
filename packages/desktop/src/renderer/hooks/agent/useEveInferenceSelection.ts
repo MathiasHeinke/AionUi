@@ -141,7 +141,7 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
     [items, onChange]
   );
 
-  // Reset to the safe default (EVE Mittel) once when the active selection is no
+  // Reset to the safe default (EVE Standard) once when the active selection is no
   // longer usable, so no surface shows a stranded value as "active":
   //  - a paid EVE tier that trialing just greyed out (disabled), OR
   //  - a now-UNKNOWN EVE selection (e.g. the retired `eve-maximum` tier removed in
