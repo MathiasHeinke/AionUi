@@ -288,43 +288,49 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
       return null;
     }
 
-    const compactContent = (
-      <span data-testid='mode-selector' data-current-mode={current_mode} className='inline-flex'>
-        <Button
-          data-testid={backend ? `agent-mode-selector-${backend}` : 'agent-mode-selector'}
-          className={`sendbox-model-btn agent-mode-compact-pill ${canInteract ? '' : 'agent-mode-compact-pill--readonly'}`}
-          shape='round'
-          size='small'
-          onClick={canInteract ? () => !isLoading && setDropdownVisible((visible) => !visible) : undefined}
-          style={{
-            opacity: isLoading ? 0.6 : 1,
-            transition: 'opacity 0.2s',
-            cursor: canInteract ? 'pointer' : 'default',
-          }}
-        >
-          <span className='flex items-center gap-6px min-w-0 leading-none'>
-            {compactLeadingIcon && <span className='shrink-0 inline-flex items-center'>{compactLeadingIcon}</span>}
-            {showLogoInCompact && <span className='shrink-0 inline-flex items-center'>{renderLogo()}</span>}
-            <MarqueePillLabel>{compactLabel}</MarqueePillLabel>
-            {canInteract && <Down size={12} className='text-t-tertiary shrink-0' />}
-          </span>
-        </Button>
-      </span>
+    // Single trigger element. When interactive it becomes the Arco Dropdown
+    // child directly — NO wrapping <span> and NO manual onClick that toggles
+    // visibility. A controlled `popupVisible` plus the Button's own toggle was
+    // a double-toggle: Arco's trigger opened the popup and the Button's onClick
+    // immediately flipped it back, so a click appeared to do nothing and the
+    // founder could never switch the permission mode. We now mirror the proven
+    // EveInferencePicker pattern: let `trigger='click'` own open/close and gate
+    // opening with `disabled` while a switch is in flight.
+    const compactTrigger = (
+      <Button
+        data-testid={backend ? `agent-mode-selector-${backend}` : 'agent-mode-selector'}
+        className={`sendbox-model-btn agent-mode-compact-pill ${canInteract ? '' : 'agent-mode-compact-pill--readonly'}`}
+        shape='round'
+        size='small'
+        style={{
+          opacity: isLoading ? 0.6 : 1,
+          transition: 'opacity 0.2s',
+          cursor: canInteract ? 'pointer' : 'default',
+        }}
+      >
+        <span className='flex items-center gap-6px min-w-0 leading-none'>
+          {compactLeadingIcon && <span className='shrink-0 inline-flex items-center'>{compactLeadingIcon}</span>}
+          {showLogoInCompact && <span className='shrink-0 inline-flex items-center'>{renderLogo()}</span>}
+          <MarqueePillLabel>{compactLabel}</MarqueePillLabel>
+          {canInteract && <Down size={12} className='text-t-tertiary shrink-0' />}
+        </span>
+      </Button>
     );
 
     if (!canInteract) {
-      return compactContent;
+      return (
+        <span data-testid='mode-selector' data-current-mode={current_mode} className='inline-flex'>
+          {compactTrigger}
+        </span>
+      );
     }
 
     return (
-      <Dropdown
-        trigger='click'
-        popupVisible={dropdownVisible}
-        onVisibleChange={(visible) => !isLoading && setDropdownVisible(visible)}
-        droplist={dropdownMenu}
-      >
-        {compactContent}
-      </Dropdown>
+      <span data-testid='mode-selector' data-current-mode={current_mode} className='inline-flex'>
+        <Dropdown trigger='click' position='bl' disabled={isLoading} droplist={dropdownMenu}>
+          {compactTrigger}
+        </Dropdown>
+      </span>
     );
   }
 
