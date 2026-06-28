@@ -29,6 +29,7 @@ import skillLibrary from './skillLibrary.json';
 import localRuntime from './localRuntime.json';
 import deinTeam from './deinTeam.json';
 import registrationGate from './registrationGate.json';
+import credits from './credits.json';
 
 export default {
   common,
@@ -57,4 +58,5 @@ export default {
   localRuntime,
   deinTeam,
   registrationGate,
+  credits,
 };

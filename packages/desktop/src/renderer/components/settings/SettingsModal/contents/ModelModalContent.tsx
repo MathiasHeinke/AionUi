@@ -459,7 +459,6 @@ const ModelModalContent: React.FC = () => {
                     <div className='flex items-start justify-between gap-8px'>
                       <div className='min-w-0'>
                         <div className='text-15px font-700 leading-22px text-t-primary'>{tier.label}</div>
-                        <div className='mt-4px break-all text-12px leading-18px text-t-secondary'>{tier.modelId}</div>
                       </div>
                       {selected && <Tag color='green'>{t('settings.commandEveLocalRuntimeCurrent')}</Tag>}
                     </div>

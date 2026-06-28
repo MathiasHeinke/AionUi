@@ -158,7 +158,7 @@ const LocalAgents: React.FC = () => {
               </div>
               <div className='min-w-0'>
                 <Typography.Text className='block text-14px font-semibold leading-18px text-t-primary'>
-                  Hermes
+                  EVE Runtime
                 </Typography.Text>
                 <Typography.Text className='block text-11px leading-16px text-t-secondary'>
                   {t('settings.agentManagement.commandEveRuntimeBackendDesc')}

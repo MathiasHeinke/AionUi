@@ -1,0 +1,40 @@
+{
+  "settings": {
+    "freeActions": "{{used}} / {{cap}} free actions used",
+    "allowanceUsed": "{{pct}}% of allowance used · {{rem}} credits left",
+    "purchasedRemaining": "{{n}} purchased credits",
+    "noStatus": "Credit status will appear once you are signed in.",
+    "spendCapTitle": "Spend cap",
+    "spendCapHint": "Cap how much EVE may spend on credits per period. 0 = uncapped.",
+    "save": "Save",
+    "capInvalid": "Enter a valid spend cap (0 = uncapped).",
+    "capSaved": "Spend cap saved.",
+    "capFailed": "Could not save the spend cap.",
+    "plansTitle": "Plans",
+    "starter": "Starter",
+    "solo": "Solo",
+    "churnOnly": "save offer",
+    "starterIncludes": "Starter ({{eur}}€) includes a monthly Action-Credit allowance + your Company Brain.",
+    "startTrial": "Start free — no card",
+    "packsTitle": "Credit packs",
+    "packsHint": "Out of allowance? Top up. Going big = a bigger pack, never a higher plan.",
+    "packBonus": "+{{n}} bonus",
+    "brandTitle": "Report branding",
+    "brandHint": "Your name, logo and footer on every report EVE delivers — deliver under your brand, not ours.",
+    "brandNamePlaceholder": "Your agency / brand name",
+    "brandFooterPlaceholder": "Footer line (contact, website, legal)",
+    "brandLogoChange": "Change logo",
+    "brandLogoPick": "Upload logo",
+    "brandLogoRemove": "Remove",
+    "brandLogoTooBig": "Logo must be under 512 KB.",
+    "brandSave": "Save branding",
+    "brandSaved": "Branding saved — it appears on every report EVE delivers."
+  },
+  "meter": {
+    "freeActions": "{{used}} / {{cap}} actions",
+    "allowanceUsed": "{{pct}}% of allowance used",
+    "allowanceRemaining": "Allowance: {{n}} credits left",
+    "purchasedRemaining": "Purchased: {{n}} credits left",
+    "spendCap": "Spend cap: {{eur}}€"
+  }
+}
