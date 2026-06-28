@@ -37,7 +37,10 @@ const areEnvRecordsEqual = (a: Record<string, string>, b: Record<string, string>
 };
 const DEFAULT_SPEECH_TO_TEXT_CONFIG: SpeechToTextConfig = {
   enabled: false,
-  provider: 'openai',
+  // DEFAULT to the on-device 'local' lane (bundled faster-whisper, keyless, DSGVO-clean).
+  // Was 'openai' — a mismatch that made a user who simply flipped "enabled" silently pick
+  // the cloud-no-key lane (which 400s) instead of the local lane that actually works.
+  provider: 'local',
   openai: {
     api_key: '',
     base_url: '',
@@ -54,7 +57,8 @@ const DEFAULT_SPEECH_TO_TEXT_CONFIG: SpeechToTextConfig = {
     smartFormat: true,
   },
   local: {
-    model: 'base',
+    // 'small' transcribes German noticeably better than 'base' and is still fast on an M1.
+    model: 'small',
     language: '',
   },
 };

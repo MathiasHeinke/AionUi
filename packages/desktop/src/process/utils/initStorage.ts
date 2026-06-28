@@ -36,6 +36,7 @@ import {
 } from '../resources/builtinMcp/constants';
 import { encryptImageGenApiKeyAtRest } from '@/common/config/imageGenApiKeyAtRest';
 import { IMAGE_GEN_ENV_KEYS } from '@/common/config/imageGenerationMcpEnv';
+import type { SpeechToTextConfig } from '@/common/types/provider/speech';
 // Platform and architecture types (moved from deleted updateConfig)
 type PlatformType = 'win32' | 'darwin' | 'linux';
 type ArchitectureType = 'x64' | 'arm64' | 'ia32' | 'arm';
@@ -651,6 +652,48 @@ const ensureBuiltinMcpServers = async (): Promise<void> => {
   }
 };
 
+/**
+ * First-run seed for the on-device speech-to-text lane (Command EVE shell only).
+ *
+ * The mic button (SpeechInputButton) renders ONLY when `tools.speechToText.enabled`
+ * is truthy, and the renderer routing (SpeechToTextService) sends audio to the
+ * keyless on-device faster-whisper lane when `provider` is unset or 'local'. With
+ * no seed the key is undefined → the button is hidden → "audio geht nicht". The
+ * product is German + local-first, so we turn the local Whisper lane ON by default.
+ *
+ * IDEMPOTENT: only seeds when the user has NOT already configured STT (mirrors the
+ * mcp.config default-seed above). Never clobbers an existing config.
+ *
+ * NOTE: faster-whisper lazy-installs + downloads the chosen model on FIRST use only
+ * (the 'small' model is ~460 MB, a one-time on-device fetch); nothing is downloaded
+ * here at seed time.
+ */
+const seedCommandEveSpeechToText = async (): Promise<void> => {
+  if (!COMMAND_EVE_SHELL_ENABLED) return;
+  try {
+    const existing = await configFile.get('tools.speechToText').catch((): undefined => undefined);
+    // Respect any prior user choice — only seed a virgin config.
+    if (existing && typeof existing === 'object') return;
+
+    const seed: SpeechToTextConfig = {
+      enabled: true,
+      // On-device lane: keyless, audio never leaves the Mac (DSGVO-clean). The renderer
+      // routes to the bundled venv faster-whisper when provider is 'local'.
+      provider: 'local',
+      local: {
+        // 'small' is the German-tuned default: better than 'base' on German, still fast
+        // on an M1 Pro 16GB. faster-whisper lazy-downloads it on first transcription.
+        model: 'small',
+        language: '',
+      },
+    };
+    await configFile.set('tools.speechToText', seed);
+    console.log('[CommandEVE] Seeded on-device speech-to-text (local faster-whisper, model=small)');
+  } catch (error) {
+    console.error('[CommandEVE] Failed to seed speech-to-text default:', error);
+  }
+};
+
 const initStorage = async () => {
   const t0 = performance.now();
   const mark = (label: string) => console.log(`[CommandEVE:init] ${label} +${Math.round(performance.now() - t0)}ms`);
@@ -687,6 +730,12 @@ const initStorage = async () => {
   // 4.2 Ensure built-in MCP servers exist and are up-to-date
   await ensureBuiltinMcpServers();
   mark('4.2 builtinMcpServers');
+
+  // 4.3 Seed the on-device speech-to-text default (Command EVE shell only). Turns the
+  //     local faster-whisper mic lane ON by default so the mic button renders + routes
+  //     local. Idempotent — never clobbers a user who already configured STT.
+  await seedCommandEveSpeechToText();
+  mark('4.3 speechToTextSeed');
 
   // 5. Ensure assistant-related directories exist. Built-in assistant records
   //    now live in the backend SQLite catalog (see aionui-assistant crate) and
