@@ -158,8 +158,8 @@ describe('eveInferenceCore — free-tier greying (requirement 1)', () => {
     expect(byLabel(items, 'local', 'Hoch')!.disabled).toBe(false);
 
     // Local tiers carry their bundled model labels as sublabels.
-    expect(byLabel(items, 'local', 'Standard')!.sublabel).toBe('schnell · privat');
-    expect(byLabel(items, 'local', 'Hoch')!.sublabel).toBe('intelligenter · privat');
+    expect(byLabel(items, 'local', 'Standard')!.sublabel).toBe('Gemma 4 E4B');
+    expect(byLabel(items, 'local', 'Hoch')!.sublabel).toBe('Gemma 4 12B');
   });
 
   it('leaves ALL EVE levels selectable when paid (trial_ends_at null/absent)', () => {
@@ -211,23 +211,33 @@ describe('eveInferenceCore — honest CLOUD labeling (audit #1)', () => {
     // unmistakably "Cloud" via the heading; the rows describe capability only.
     const eveSubs = eveGroup.items.map((i) => i.sublabel ?? '');
     expect(eveSubs.every((s) => !/gemma|deepseek|glm|openrouter/i.test(s))).toBe(true);
-    // The local group is unmistakably NOT cloud (heading), so no model name is needed.
+    // The local group is unmistakably NOT cloud (heading). Offline/local models ARE
+    // named (founder 2026-06-28: they run on the user's own device) — only the cloud
+    // lane stays model-abstract.
     const localGroup = groups.find((g) => g.kind === 'local')!;
     expect(localGroup.title.toLowerCase()).not.toContain('cloud');
-    expect(localGroup.items.map((i) => i.sublabel ?? '').every((s) => !/gemma|deepseek|glm/i.test(s))).toBe(true);
+    expect(localGroup.items.some((i) => /gemma/i.test(i.sublabel ?? ''))).toBe(true);
+    // ...but a CLOUD vendor/model must never appear, even in the local rows.
+    expect(localGroup.items.map((i) => i.sublabel ?? '').every((s) => !/deepseek|glm/i.test(s))).toBe(true);
   });
 });
 
-describe('commandEveActiveModeLabel — honest, MODEL-FREE self-description (EVE no longer claims Gemma)', () => {
+describe('commandEveActiveModeLabel — honest lane self-description (cloud abstract, local named)', () => {
   const NO_MODEL = /gemma|deepseek|glm|ollama|openrouter/i;
+  // Cloud models/providers must NEVER appear anywhere; the on-device (gemma) model MAY (local only).
+  const NO_CLOUD_MODEL = /deepseek|glm|openrouter/i;
 
-  it('describes the LOCAL lane as private, with no model name (DE + EN)', () => {
+  it('NAMES the on-device model for the LOCAL lane (founder: offline models are named)', () => {
     const de = commandEveActiveModeLabel(localTierValue('local-standard'), 'de-DE');
     const en = commandEveActiveModeLabel(localTierValue('local-high'), 'en-US');
     expect(de).toMatch(/lokal/i);
     expect(en).toMatch(/local/i);
-    expect(de).not.toMatch(NO_MODEL);
-    expect(en).not.toMatch(NO_MODEL);
+    // The local model IS named (runs openly on the user's own device)...
+    expect(de).toMatch(/gemma/i);
+    expect(en).toMatch(/gemma/i);
+    // ...but a CLOUD model/provider must never leak.
+    expect(de).not.toMatch(NO_CLOUD_MODEL);
+    expect(en).not.toMatch(NO_CLOUD_MODEL);
   });
 
   it('describes a CLOUD tier as EVE-Cloud + Stufe, never the model (DE + EN)', () => {

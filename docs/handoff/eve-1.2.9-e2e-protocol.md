@@ -72,7 +72,14 @@ M1–M6 gefixt (Worker + Review), für den nächsten 1.2.9-Rebuild:
 - **M5** Themes (builtinThemes.ts): Light-Theme „AionUi" → „EVE"; 3 off-brand Themes entfernt (Misaka Mikoto, Hello Kitty, Y2K); dead cover-Imports in themeCovers.ts mit aufgeräumt. Behalten: EVE, Dark, Retro Windows, Retroma Obsidian, Discourse Horizon, Glittering Input Field.
 - **M6** System: „vorwärmen"- + Runtime-Status-Text „Gemma" → „EVE-Modell" / „EVE Runtime" (de+en).
 
-Verifiziert: 1340 Tests grün (renderer+settings+command-eve), JSON valide, oxlint 0, credits-Namespace registriert. (Full tsc + Rebuild folgen.)
+Verifiziert: 1340 Tests grün (renderer+settings+command-eve), JSON valide, oxlint 0, credits-Namespace registriert.
+
+### KORREKTUR (Founder 2026-06-28): „gemma bzw die offline modelle müssen mit namen genannt sein"
+Die Cloud/Local-Unterscheidung präzisiert: **OFFLINE/lokale Modelle WERDEN benannt** (laufen offen auf dem Gerät des Nutzers), **nur die CLOUD bleibt modell-abstrakt** (EVE-Cloud · Intelligenz/Kontext, kein DeepSeek/GLM). Zurückgedreht für lokal (M1/M6-Anteil + Picker + EVE-Selbstauskunft), Cloud-Abstraktion bleibt:
+- Picker lokal: „Standard · Gemma 4 E4B" / „Hoch · Gemma 4 12B" (statt „schnell · privat"); Cloud bleibt „großer Kontext/intelligenter/höchste Intelligenz".
+- Modell-Settings: Karten zeigen wieder die Modell-ID; Intro/Badge/Status nennen wieder „Ollama/Gemma"; System „Gemma-Modell" zurück.
+- EVE-Selbstauskunft: lokal → „lokal & privat, Modell Gemma 4 E4B"; Cloud → „EVE-Cloud" (kein Modellname). Standing-Rule jetzt lane-spezifisch (Cloud: nie nennen; lokal: nennen/sollen).
+- Damit ist die frühere Residue „Runtime-Seite nennt Gemma-Tiers" KEIN Defekt mehr (korrekt — offline benannt). Offen bleibt nur: en MCP „AionUi", M7/M8 Skill-Copy.
 
 ## ⚠️ RESIDUEN (NICHT im M1–M6-Scope — Fast-follow, Founder-Entscheidung)
 - **Runtime-Seite** (`localRuntime.json`, Haupt-Nav „Runtime"): Untertitel „…EVE Runtime, **Ollama, Gemma-Tiers**…" + „Lokale KI braucht **Ollama** / muss **Ollama** installiert sein". „Gemma-Tiers" ist ein Modell-Leak; „Ollama" ist hier funktional (Install-Hinweis). Nicht getestet/geändert in dieser Runde.

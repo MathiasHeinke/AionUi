@@ -63,9 +63,9 @@ export const COMMAND_EVE_EGRESS_PROXY_OPENAI_BASE_URL = 'http://127.0.0.1:25811/
 export const COMMAND_EVE_LOCAL_MODEL_TIERS = [
   {
     id: 'gemma-4-e4b-local-default',
-    // User-facing CAPABILITY descriptor (NEVER a model name — founder mandate). The
-    // model id/ref below stay concrete for routing; only this label reaches the UI.
-    label: 'schnell · privat',
+    // Offline/local models ARE named (founder 2026-06-28): they run on the user's
+    // own device, so transparency wins — only the CLOUD lane stays model-abstract.
+    label: 'Gemma 4 E4B',
     modelId: 'custom:command-eve-gemma4-e4b-64k:latest',
     modelRef: 'gemma4:e4b',
     contextLength: 65_536,
@@ -75,7 +75,7 @@ export const COMMAND_EVE_LOCAL_MODEL_TIERS = [
   },
   {
     id: 'gemma-4-12b-local-planning',
-    label: 'intelligenter · privat',
+    label: 'Gemma 4 12B',
     modelId: 'custom:command-eve-gemma4-12b-64k:latest',
     modelRef: 'gemma4:12b',
     contextLength: 65_536,
@@ -85,7 +85,7 @@ export const COMMAND_EVE_LOCAL_MODEL_TIERS = [
   },
   {
     id: 'gemma-4-31b-local-pro',
-    label: 'leistungsstark · privat',
+    label: 'Gemma 4 31B',
     modelId: 'custom:command-eve-gemma4-31b-64k:latest',
     modelRef: 'gemma4:31b',
     contextLength: 65_536,

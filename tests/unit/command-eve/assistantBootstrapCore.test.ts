@@ -235,7 +235,7 @@ describe('Command EVE assistant bootstrap core', () => {
     expect(skill).toContain('Connectors needs_auth: github-gitnexus');
   });
 
-  it('renders the active lane as a MODEL-FREE Betriebsmodus and NEVER the local model ref (EVE stops claiming Gemma)', () => {
+  it('cloud Betriebsmodus is model-free; local Betriebsmodus NAMES the on-device model (EVE stops claiming Gemma on cloud)', () => {
     const context = buildCommandEveAssistantFirstRunContext(
       {
         appVersion: '1.2.9',
@@ -250,7 +250,8 @@ describe('Command EVE assistant bootstrap core', () => {
     expect(context).not.toContain('command-eve-gemma4-e4b-64k:latest');
     expect(context).not.toMatch(/gemma/i);
 
-    // Local selection → honest "lokal" mode, still no model name.
+    // Local selection → honest "lokal & privat" mode that NAMES the on-device model
+    // (founder 2026-06-28: offline models are named; only cloud stays abstract).
     const local = buildCommandEveAssistantFirstRunContext(
       {
         appVersion: '1.2.9',
@@ -260,6 +261,6 @@ describe('Command EVE assistant bootstrap core', () => {
       'de-DE'
     );
     expect(local).toMatch(/Betriebsmodus: lokal/i);
-    expect(local).not.toMatch(/gemma/i);
+    expect(local).toMatch(/Gemma 4 E4B/);
   });
 });

@@ -568,8 +568,17 @@ export function commandEveActiveModeLabel(
 ): string {
   const de = locale === 'de-DE';
   if (isLocalSelection(selection)) {
-    return de
-      ? 'lokal & privat (laeuft vollstaendig auf dem Geraet des Nutzers, nichts verlaesst den Rechner)'
+    // Offline/local models ARE named (founder 2026-06-28) — they run openly on the
+    // user's own device, so EVE states the concrete local model. Only the CLOUD
+    // lane stays model-abstract.
+    const localModel = parseLocalTierFromSelection(selection)?.modelLabel;
+    if (de) {
+      return localModel
+        ? `lokal & privat, Modell ${localModel} (laeuft vollstaendig auf dem Geraet des Nutzers, nichts verlaesst den Rechner)`
+        : 'lokal & privat (laeuft vollstaendig auf dem Geraet des Nutzers, nichts verlaesst den Rechner)';
+    }
+    return localModel
+      ? `local & private, model ${localModel} (runs fully on the user device, nothing leaves the machine)`
       : 'local & private (runs fully on the user device, nothing leaves the machine)';
   }
   if (isEveInferenceSelection(selection)) {
