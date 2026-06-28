@@ -174,6 +174,17 @@ const SendBox: React.FC<{
   hasPendingAttachments?: boolean;
   enableBtw?: boolean;
   allowSendWhileLoading?: boolean;
+  /**
+   * Keep the TEXTAREA editable even when `disabled` is set — so the user can ALWAYS
+   * type (and queue) a new message while a task is running, even if the parent's
+   * `disabled` flag flips for a transient reason (e.g. a momentarily-cleared model
+   * ref). Founder mandate (Issue B): "ich will das Chat-Input-Feld KOMPLETT nutzen
+   * können, auch wenn gerade eine andere Aufgabe läuft" — typing must NEVER be
+   * blocked by the running task. Defaults to `allowSendWhileLoading` (the EVE
+   * composers already opt into the queue-while-busy path), so enabling the queue
+   * also unblocks composing. The SEND action stays gated by `disabled` as before.
+   */
+  keepInputEditableWhenDisabled?: boolean;
   compactActions?: boolean;
   selectedWorkspaceItems?: FileSelectionItem[];
   onSelectedWorkspaceItemsChange?: (items: FileSelectionItem[]) => void;
@@ -212,6 +223,7 @@ const SendBox: React.FC<{
   hasPendingAttachments = false,
   enableBtw = false,
   allowSendWhileLoading = false,
+  keepInputEditableWhenDisabled,
   compactActions = false,
   selectedWorkspaceItems,
   onSelectedWorkspaceItemsChange,
@@ -219,6 +231,11 @@ const SendBox: React.FC<{
   onMobilePlusClick,
   hideSpeechButton = false,
 }) => {
+  // Typing must NEVER be blocked by the running task (Issue B). When a composer
+  // opts into the queue-while-busy path (allowSendWhileLoading), the textarea
+  // stays editable regardless of the `disabled` prop — `disabled` then only gates
+  // the SEND action. An explicit `keepInputEditableWhenDisabled` overrides this.
+  const keepInputEditable = keepInputEditableWhenDisabled ?? allowSendWhileLoading;
   const layout = useLayoutContext();
   const isMobile = layout?.isMobile ?? false;
   // Mobile compact mode: parent supplies the `+` action sheet, which collapses
@@ -1553,7 +1570,11 @@ const SendBox: React.FC<{
             </div>
             <Input.TextArea
               autoFocus={!isMobile}
-              disabled={disabled}
+              // Typing stays available even while a task runs / the parent is
+              // `disabled` for a transient reason — the send button still gates
+              // dispatch. Only a hard "no model selected"-style disable (without
+              // the queue path) blocks composing. (Issue B: never block typing.)
+              disabled={disabled && !keepInputEditable}
               spellCheck={false}
               value={input}
               placeholder={

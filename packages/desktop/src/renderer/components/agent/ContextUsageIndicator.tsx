@@ -10,7 +10,7 @@ import React, { useMemo } from 'react';
 import type { TokenUsageData } from '@/common/config/storage';
 
 // 按模型解析上下文窗口（内部回退到 DEFAULT_CONTEXT_LIMIT）
-import { getModelContextLimit } from '@/renderer/utils/model/modelContextLimits';
+import { resolveEffectiveContextLimit } from '@/renderer/utils/model/modelContextLimits';
 // Claude-Code-style popover body: context window + credits (with "Nachkaufen").
 import ContextCreditsPopover from './ContextCreditsPopover';
 
@@ -34,10 +34,12 @@ const ContextUsageIndicator: React.FC<ContextUsageIndicatorProps> = ({
   className = '',
   size = 24,
 }) => {
-  // The LIVE per-model frame size (context_limit > 0, from Hermes' acp_context_usage)
-  // ALWAYS wins; otherwise fall back to the model registry (GLM/DeepSeek 1M, local
-  // Gemma 64k), and only then the generic 1M default. Fixes cloud reading as 64k.
-  const effectiveLimit = context_limit && context_limit > 0 ? context_limit : getModelContextLimit(modelId);
+  // Model-sensitive context window. On the CLOUD lane the window follows the MODEL
+  // (floored at its registry size) so the local-runtime 64k compaction cap that
+  // Hermes misreports on cloud turns can't pin "EVE Cloud · Max" at 64k; on the
+  // LOCAL lane the live frame size IS the real runtime window and wins. See
+  // resolveEffectiveContextLimit for the full rationale.
+  const effectiveLimit = resolveEffectiveContextLimit(modelId, context_limit);
 
   // The ring fill + warning/danger thresholds. The full numeric readout now lives
   // in the popover body (<ContextCreditsPopover/>), so this only feeds the SVG.

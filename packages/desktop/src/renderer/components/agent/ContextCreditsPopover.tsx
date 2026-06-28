@@ -29,7 +29,7 @@ import { Caution, Lightning } from '@icon-park/react';
 import { useTranslation } from 'react-i18next';
 
 import type { TokenUsageData } from '@/common/config/storage';
-import { getModelContextLimit } from '@/renderer/utils/model/modelContextLimits';
+import { resolveEffectiveContextLimit } from '@/renderer/utils/model/modelContextLimits';
 import { useCreditsStatus } from '@renderer/hooks/useCreditsStatus';
 import { isNearAllowanceWall, TIER_ALLOWANCE_CREDITS } from '@/common/config/creditsCore';
 import { openExternalUrl } from '@renderer/utils/platform';
@@ -76,8 +76,10 @@ const ContextCreditsPopover: React.FC<ContextCreditsPopoverProps> = ({ tokenUsag
   const { meter } = useCreditsStatus();
 
   // ── (a) Context window ──────────────────────────────────────────────────
-  // Live frame size wins; else the model registry (cloud 1M / local 64k); else 1M.
-  const effectiveLimit = contextLimit && contextLimit > 0 ? contextLimit : getModelContextLimit(modelId);
+  // Model-sensitive: CLOUD follows the model (floored at its registry window, so
+  // the local-runtime 64k cap misreported on cloud turns can't shrink Max); LOCAL
+  // uses the live frame size as the real window. See resolveEffectiveContextLimit.
+  const effectiveLimit = resolveEffectiveContextLimit(modelId, contextLimit);
   const used = tokenUsage ? tokenUsage.total_tokens : 0;
   const ctxPct = clampPct(effectiveLimit > 0 ? (used / effectiveLimit) * 100 : 0);
 

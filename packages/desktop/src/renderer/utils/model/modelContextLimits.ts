@@ -83,6 +83,48 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
 export const DEFAULT_CONTEXT_LIMIT = 1_048_576;
 
 /**
+ * The EVE CLOUD lane's true context window (all three cloud tiers serve a
+ * 1M-context model — FACT modelContextLimits above + OpenRouter catalog).
+ *
+ * WHY a named constant the resolver leans on: the live `acp_context_usage.size`
+ * frame Hermes emits carries the runtime's CONFIGURED `context_length`, which on
+ * a Command EVE build is the LOCAL Ollama `ollama_num_ctx` memory cap (64k on the
+ * M1 16GB baseline, bounded to ≤262144 in runtimeBootstrapCore). Hermes reports
+ * that SAME 64k window on CLOUD turns too (one managed config, not per-lane), so
+ * a naive "live size always wins" pins the cloud Max model (GLM 5.2, 1M) at 64k —
+ * exactly the founder's "Kontextfenster auf 64K trotz Cloud Max Model?". The
+ * model's real window must follow the MODEL on the cloud lane, so the cloud
+ * resolver floors the displayed window at the model's registry size and never
+ * lets the local-runtime compaction cap shrink it. (Auto-compaction still fires
+ * at its own threshold — that is a separate Hermes concern, decoupled here.)
+ */
+export const EVE_CLOUD_CONTEXT_LIMIT = 1_048_576;
+
+/**
+ * True iff `modelId` denotes the EVE cloud inference lane (any tier:
+ * standard/high/max), whose real context window is the large cloud window, NOT
+ * the local-runtime `acp_context_usage.size` (which is the Ollama memory cap).
+ *
+ * Matches the cloud model slugs (GLM/DeepSeek), the EVE inference provider id,
+ * and the bare wire tier values the request_trace may carry. Deliberately does
+ * NOT match local Gemma ids (those keep the live 64k size as truth).
+ */
+export function isEveCloudModelId(modelName: string | undefined | null): boolean {
+  if (!modelName) return false;
+  const id = modelName.toLowerCase();
+  // Local lane never qualifies — its 64k live size is the real window.
+  if (id.includes('gemma') || id.includes('command-eve-gemma')) return false;
+  return (
+    id.includes('command-eve-inference') ||
+    id.includes('glm-5.2') ||
+    id.includes('deepseek-v4') ||
+    id === 'standard' ||
+    id === 'high' ||
+    id === 'max'
+  );
+}
+
+/**
  * 根据模型名称获取 context limit
  * 支持模糊匹配，例如 "gemini-2.5-pro-latest" 会匹配 "gemini-2.5-pro"
  */
@@ -108,4 +150,34 @@ export function getModelContextLimit(modelName: string | undefined | null): numb
   }
 
   return bestLimit;
+}
+
+/**
+ * Resolve the context window to DISPLAY/USE for a model, given the optional LIVE
+ * runtime size from Hermes' `acp_context_usage` frame.
+ *
+ *  - LOCAL lane (and unknown models): the live `size` is the truth — it IS the
+ *    real runtime window — so it wins when present; else the registry; else 1M.
+ *  - CLOUD lane (EVE inference): the window follows the MODEL. The live `size` is
+ *    the local-runtime compaction cap (64k) misreported on cloud turns, so we
+ *    FLOOR at the model's registry window and never let that cap shrink it. This
+ *    is what makes "EVE Cloud · Max" read as its real ~1M window, not 64k.
+ *
+ * Compaction is intentionally NOT modeled here: the displayed window is the
+ * model's real capacity; Hermes still compacts at its own (separate) threshold.
+ */
+export function resolveEffectiveContextLimit(modelName: string | undefined | null, liveContextLimit?: number | null): number {
+  const live = typeof liveContextLimit === 'number' && liveContextLimit > 0 ? liveContextLimit : 0;
+  const registry = getModelContextLimit(modelName);
+
+  if (isEveCloudModelId(modelName)) {
+    // Cloud: the model's window is the floor; a smaller live cap can't shrink it.
+    // A bare tier id (e.g. "max") resolves to the 1M DEFAULT via getModelContextLimit;
+    // EVE_CLOUD_CONTEXT_LIMIT keeps the floor explicit even if the registry ever
+    // returns a smaller default for an as-yet-unmapped cloud id.
+    return Math.max(registry, EVE_CLOUD_CONTEXT_LIMIT, live);
+  }
+
+  // Local / unknown: the live runtime size is the real window when we have one.
+  return live > 0 ? live : registry;
 }
