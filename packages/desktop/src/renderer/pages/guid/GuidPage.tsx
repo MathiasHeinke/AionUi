@@ -663,24 +663,30 @@ const GuidPage: React.FC = () => {
                     }}
                     aria-label={t('common.back')}
                   />
-                  <p className={`${styles.heroTitle} text-2xl font-semibold mb-0 text-0`}>
-                    <span className={styles.heroTitleInlineIcon} aria-hidden='true'>
-                      {selectedAssistantAvatar?.kind === 'image' ? (
-                        <img
-                          src={selectedAssistantAvatar.value}
-                          alt=''
-                          width={28}
-                          height={28}
-                          style={{ objectFit: 'contain' }}
-                        />
-                      ) : selectedAssistantAvatar?.kind === 'emoji' ? (
-                        <span className={styles.heroTitleEmoji}>{selectedAssistantAvatar.value}</span>
-                      ) : (
-                        <Robot theme='outline' size={26} fill='currentColor' />
-                      )}
-                    </span>
-                    <span>{heroTitle}</span>
-                  </p>
+                  {/* Command EVE: the "EVE" name + logo here duplicates the macOS
+                      window title-bar brand, so it is suppressed for the EVE assistant.
+                      Non-EVE preset assistants still show their name/avatar (it is the
+                      only label identifying which assistant is active — not redundant). */}
+                  {isCommandEveAssistant ? null : (
+                    <p className={`${styles.heroTitle} text-2xl font-semibold mb-0 text-0`}>
+                      <span className={styles.heroTitleInlineIcon} aria-hidden='true'>
+                        {selectedAssistantAvatar?.kind === 'image' ? (
+                          <img
+                            src={selectedAssistantAvatar.value}
+                            alt=''
+                            width={28}
+                            height={28}
+                            style={{ objectFit: 'contain' }}
+                          />
+                        ) : selectedAssistantAvatar?.kind === 'emoji' ? (
+                          <span className={styles.heroTitleEmoji}>{selectedAssistantAvatar.value}</span>
+                        ) : (
+                          <Robot theme='outline' size={26} fill='currentColor' />
+                        )}
+                      </span>
+                      <span>{heroTitle}</span>
+                    </p>
+                  )}
                   <Button
                     size='mini'
                     type='text'

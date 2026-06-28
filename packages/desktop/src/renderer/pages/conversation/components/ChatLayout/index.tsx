@@ -1,4 +1,5 @@
 import { AgentLogoIcon } from '@/renderer/components/agent/AgentBadge';
+import { COMMAND_EVE_ASSISTANT_ID, COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import type { PresetAssistantInfo } from '@/renderer/hooks/agent/usePresetAssistantInfo';
 import FlexFullContainer from '@/renderer/components/layout/FlexFullContainer';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
@@ -62,6 +63,10 @@ const ChatLayout: React.FC<{
 }> = (props) => {
   const { conversation_id, workspacePath, isTemporaryWorkspace } = props;
   const { backend, presetAssistant, agent_name, workspaceEnabled = true, workspacePreferenceKey } = props;
+  // Command EVE: the EVE logo here duplicates the macOS window title-bar brand, so the
+  // chat-header logo icon is suppressed for the EVE assistant (the editable conversation
+  // title still shows). Other agents keep their identity logo — it is not redundant there.
+  const isCommandEveAssistant = COMMAND_EVE_SHELL_ENABLED && presetAssistant?.id === COMMAND_EVE_ASSISTANT_ID;
   const layout = useLayoutContext();
   const isMacRuntime = isMacEnvironment();
   const isWindowsRuntime = isWindowsEnvironment();
@@ -202,14 +207,15 @@ const ChatLayout: React.FC<{
           conversation_id={conversation_id}
           leading={
             props.headerLeading ??
-            ((backend || presetAssistant) && (
-              <AgentLogoIcon
-                backend={backend}
-                agent_name={display_name}
-                agentLogo={presetAssistant?.logo}
-                agentLogoIsEmoji={presetAssistant?.isEmoji}
-              />
-            ))
+            (!isCommandEveAssistant &&
+              (backend || presetAssistant) && (
+                <AgentLogoIcon
+                  backend={backend}
+                  agent_name={display_name}
+                  agentLogo={presetAssistant?.logo}
+                  agentLogoIsEmoji={presetAssistant?.isEmoji}
+                />
+              ))
           }
         />
       </FlexFullContainer>

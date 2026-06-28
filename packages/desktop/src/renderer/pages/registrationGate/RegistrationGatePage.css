@@ -188,6 +188,19 @@
   border-radius: 11px;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
+/* Input.Password renders `.arco-input-inner-wrapper` whose own Arco defaults paint a
+   LIGHT fill (base `--color-fill-2`, hover `--color-fill-3`, focus white `--color-bg-2`)
+   that wins over the rule above, and forces the inner `<input>` transparent — so the
+   light masked dots (#eef3fa) sat on a near-white box and were invisible. The plain
+   email `Input` was unaffected because its `.arco-input` keeps its own dark fill.
+   Force a dark fill on the password inner-wrapper across ALL states so the dots read. */
+.registration-gate .arco-input-inner-wrapper,
+.registration-gate .arco-input-inner-wrapper:hover,
+.registration-gate .arco-input-inner-wrapper.arco-input-inner-wrapper-focus,
+.registration-gate .arco-input-inner-wrapper:focus,
+.registration-gate .arco-input-inner-wrapper:focus-within {
+  background-color: rgba(15, 23, 40, 0.92) !important;
+}
 .registration-gate .arco-input-wrapper:focus-within,
 .registration-gate .arco-input-inner-wrapper:focus-within {
   border-color: rgba(249, 115, 22, 0.7);

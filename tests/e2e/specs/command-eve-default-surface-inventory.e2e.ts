@@ -86,7 +86,9 @@ test.describe('Command EVE default surface inventory', () => {
 
   test('keeps raw Hermes power tabs out of the default navigation', async ({ page }) => {
     await goToGuid(page);
-    await expect(page.getByTestId('layout-sider-brand-label')).toHaveText('EVE', { timeout: 30_000 });
+    // Sidebar EVE wordmark removed (brand now only in the macOS title bar); the sidebar
+    // header still mounts and serves as the shell-loaded readiness gate.
+    await expect(page.getByTestId('layout-sider-header')).toBeVisible({ timeout: 30_000 });
     expectNoForbiddenSurface(await collectDefaultSurfaceLabels(page));
 
     await goToSettings(page, 'agent');

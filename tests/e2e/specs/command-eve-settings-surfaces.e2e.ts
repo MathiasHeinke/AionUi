@@ -15,7 +15,9 @@ test.describe('Command EVE settings surfaces', () => {
   test('brands the shell sidebar and exposes governed Command EVE surfaces', async ({ page }) => {
     await goToGuid(page);
 
-    await expect(page.getByTestId('layout-sider-brand-label')).toHaveText('EVE', { timeout: 30_000 });
+    // The in-app EVE wordmark was removed from the sidebar (brand lives only in the
+    // macOS window title bar now); the sidebar header still mounts as a readiness gate.
+    await expect(page.getByTestId('layout-sider-header')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/^AionUi$/)).toHaveCount(0);
     await expect(page.getByText(/Command Center/).first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/Connectoren|Connectors/).first()).toBeVisible({ timeout: 30_000 });
