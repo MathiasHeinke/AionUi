@@ -14,6 +14,8 @@ const {
   buildSpctlAssessArgs,
   evaluateSpctlAssessment,
   verifyNotarizationStapled,
+  collectVersionMismatches,
+  verifyBuiltVersionMatchesSource,
 } = require('../../../scripts/afterAllArtifactBuild.js');
 
 describe('afterAllArtifactBuild DMG notarization helpers', () => {
@@ -289,5 +291,103 @@ describe('afterAllArtifactBuild notarization self-verification (fail-closed)', (
     });
     expect(result).toBe(true);
     expect(spctlCalls).toBe(1);
+  });
+});
+
+describe('afterAllArtifactBuild VERSION-TRUTH guard (fail-closed version consistency)', () => {
+  const versionTempDirs: string[] = [];
+  const makeOutDirWithApp = (): string => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-version-'));
+    versionTempDirs.push(dir);
+    fs.mkdirSync(path.join(dir, 'mac-arm64', 'Command EVE.app'), { recursive: true });
+    return dir;
+  };
+  afterEach(() => {
+    while (versionTempDirs.length) fs.rmSync(versionTempDirs.pop() as string, { recursive: true, force: true });
+  });
+
+  it('reports no mismatches when Info.plist + asar both equal the source version', () => {
+    expect(
+      collectVersionMismatches('1.2.12', {
+        shortVersion: '1.2.12',
+        bundleVersion: '1.2.12',
+        asarVersion: '1.2.12',
+      })
+    ).toEqual([]);
+  });
+
+  it('flags the 1.1.7-class footgun: app.asar version lags the source-of-truth', () => {
+    const mismatches = collectVersionMismatches('1.2.12', {
+      shortVersion: '1.1.7',
+      bundleVersion: '1.1.7',
+      asarVersion: '1.1.7',
+    });
+    expect(mismatches).toHaveLength(3);
+    expect(mismatches.join(' ')).toContain('1.1.7');
+    expect(mismatches.join(' ')).toContain('electron-updater');
+  });
+
+  it('flags a partial mismatch (Info.plist correct but packaged asar stale)', () => {
+    const mismatches = collectVersionMismatches('1.2.12', {
+      shortVersion: '1.2.12',
+      bundleVersion: '1.2.12',
+      asarVersion: '1.1.7',
+    });
+    expect(mismatches).toHaveLength(1);
+    expect(mismatches[0]).toContain('app.asar');
+  });
+
+  it('passes the built-app check when every stamped version matches the source', () => {
+    const calls: string[] = [];
+    expect(() =>
+      verifyBuiltVersionMatchesSource(
+        { outDir: makeOutDirWithApp() },
+        {
+          readRootVersion: () => '1.2.12',
+          readInfoPlistVersions: (p: string) => {
+            calls.push(`plist:${path.basename(p)}`);
+            return { shortVersion: '1.2.12', bundleVersion: '1.2.12' };
+          },
+          readAsarPackageVersion: (p: string) => {
+            calls.push(`asar:${path.basename(p)}`);
+            return '1.2.12';
+          },
+        }
+      )
+    ).not.toThrow();
+    expect(calls).toEqual(['plist:Command EVE.app', 'asar:Command EVE.app']);
+  });
+
+  it('THROWS (blocks the build) when the built app stamps the wrong version', () => {
+    expect(() =>
+      verifyBuiltVersionMatchesSource(
+        { outDir: makeOutDirWithApp() },
+        {
+          readRootVersion: () => '1.2.12',
+          readInfoPlistVersions: () => ({ shortVersion: '1.1.7', bundleVersion: '1.1.7' }),
+          readAsarPackageVersion: () => '1.1.7',
+        }
+      )
+    ).toThrow(/VERSION-TRUTH.*does NOT stamp the source-of-truth version \(1\.2\.12\)/s);
+  });
+
+  it('is a no-op when no built macOS .app exists (e.g. windows/linux-only run)', () => {
+    const emptyOut = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-version-empty-'));
+    versionTempDirs.push(emptyOut);
+    expect(() =>
+      verifyBuiltVersionMatchesSource(
+        { outDir: emptyOut },
+        {
+          readRootVersion: () => '1.2.12',
+          // These must never be called when no .app is present.
+          readInfoPlistVersions: () => {
+            throw new Error('should not read plist when no app exists');
+          },
+          readAsarPackageVersion: () => {
+            throw new Error('should not read asar when no app exists');
+          },
+        }
+      )
+    ).not.toThrow();
   });
 });

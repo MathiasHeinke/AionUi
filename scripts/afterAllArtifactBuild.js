@@ -282,6 +282,139 @@ function verifyNotarizationStapled(artifactPath, deps = {}) {
   return true;
 }
 
+// VERSION-TRUTH guard — fail-closed assertion that the built macOS app stamps the
+// SINGLE source-of-truth version (repo-root package.json `version`, the same value
+// electron-builder uses for the DMG/zip filename and for latest-mac.yml) into BOTH
+//   • Contents/Info.plist  → CFBundleShortVersionString + CFBundleVersion, and
+//   • the packaged app.asar/package.json `version` → what app.getVersion() returns
+//     at runtime (drives ensureCommandEveAssistant, Sentry, the About panel and,
+//     critically, electron-updater's installed-version comparison).
+//
+// Why this exists: a stale third version source (an old "1.1.7"-class value baked
+// in via a generated app package.json, a leftover out/ asar, or an electron-builder
+// directories.app repoint) would make every 1.2.x DMG INSTALL AS the old version —
+// the app always looks old AND electron-updater perpetually re-"updates"/downgrades
+// because installed (old) < feed (new). Nothing self-detected that today. This guard
+// turns that silent footgun into a loud build failure BEFORE notarize (founder
+// self-detection standard). It is a pure verifier — it never rewrites the build.
+
+// Read the single source-of-truth version from the repo-root package.json (the
+// exact value electron-builder reads as Metadata.version via `directories.app: .`).
+function readRootPackageVersion(projectRoot = process.cwd()) {
+  const pkg = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
+  if (!pkg.version || typeof pkg.version !== 'string') {
+    throw new Error('VERSION-TRUTH: repo-root package.json has no string `version`.');
+  }
+  return pkg.version;
+}
+
+// Read CFBundleShortVersionString + CFBundleVersion from a built .app's Info.plist.
+// Uses PlistBuddy (always present on macOS, where this hook runs) so we never need
+// an XML/binary-plist parser dependency. Pure read.
+function readInfoPlistVersions(appPath, deps = {}) {
+  const plistPath = path.join(appPath, 'Contents', 'Info.plist');
+  const read = (key) => {
+    const runner =
+      deps.runPlistBuddy ||
+      ((p, k) => execFileSync('/usr/libexec/PlistBuddy', ['-c', `Print :${k}`, p], { encoding: 'utf8' }));
+    return String(runner(plistPath, key)).trim();
+  };
+  return {
+    shortVersion: read('CFBundleShortVersionString'),
+    bundleVersion: read('CFBundleVersion'),
+  };
+}
+
+// Read the `version` from the package.json packaged inside the app's app.asar —
+// i.e. exactly what app.getVersion() returns at runtime. Parses the asar header
+// (pickle: uint32 len at byte 12, JSON header at byte 16, 4-byte-aligned data) and
+// extracts the root package.json entry without needing the @electron/asar CLI.
+function readAsarPackageVersion(appPath, deps = {}) {
+  const reader = deps.readAsarPackageJson || defaultReadAsarPackageJson;
+  const asarPath = path.join(appPath, 'Contents', 'Resources', 'app.asar');
+  const raw = reader(asarPath);
+  const pkg = JSON.parse(raw);
+  if (!pkg.version || typeof pkg.version !== 'string') {
+    throw new Error('VERSION-TRUTH: packaged app.asar package.json has no string `version`.');
+  }
+  return pkg.version;
+}
+
+function defaultReadAsarPackageJson(asarPath) {
+  const fd = fs.openSync(asarPath, 'r');
+  try {
+    const head = Buffer.alloc(16);
+    fs.readSync(fd, head, 0, 16, 0);
+    const jsonLen = head.readUInt32LE(12);
+    const hb = Buffer.alloc(jsonLen);
+    fs.readSync(fd, hb, 0, jsonLen, 16);
+    let s = hb.toString('utf8');
+    s = s.slice(0, s.lastIndexOf('}') + 1);
+    const header = JSON.parse(s);
+    const entry = header.files && header.files['package.json'];
+    if (!entry) throw new Error('VERSION-TRUTH: no root package.json entry in app.asar header.');
+    const baseDataOffset = 16 + jsonLen + ((4 - (jsonLen % 4)) % 4);
+    const off = baseDataOffset + Number(entry.offset);
+    const fb = Buffer.alloc(entry.size);
+    fs.readSync(fd, fb, 0, entry.size, off);
+    return fb.toString('utf8');
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+// Compare the three stamped versions against the expected SSOT version. Returns a
+// list of human-readable mismatch reasons (empty array = all consistent). Pure so
+// it is fully unit-testable without a real .app on disk.
+function collectVersionMismatches(expected, { shortVersion, bundleVersion, asarVersion }) {
+  const mismatches = [];
+  if (shortVersion !== expected)
+    mismatches.push(`Info.plist CFBundleShortVersionString=${shortVersion} (expected ${expected})`);
+  if (bundleVersion !== expected)
+    mismatches.push(`Info.plist CFBundleVersion=${bundleVersion} (expected ${expected})`);
+  if (asarVersion !== expected)
+    mismatches.push(
+      `app.asar package.json version=${asarVersion} (expected ${expected}) — drives app.getVersion()/electron-updater`
+    );
+  return mismatches;
+}
+
+// Locate the built .app(s) under context.outDir (mac-arm64/, mac-x64/, mac/) and
+// assert each stamps the SSOT version. THROWS (fails the build, before notarize)
+// on any mismatch. No mac app found ⇒ no-op (e.g. a Windows/Linux-only invocation).
+function verifyBuiltVersionMatchesSource(context, deps = {}) {
+  const projectRoot = deps.projectRoot || process.cwd();
+  const expected = (deps.readRootVersion || readRootPackageVersion)(projectRoot);
+  const outDir = (context && context.outDir) || path.join(projectRoot, 'out');
+
+  const appPaths = [];
+  for (const sub of ['mac-arm64', 'mac-x64', 'mac-universal', 'mac']) {
+    const dir = path.join(outDir, sub);
+    if (!fs.existsSync(dir)) continue;
+    for (const entry of fs.readdirSync(dir)) {
+      if (entry.endsWith('.app')) appPaths.push(path.join(dir, entry));
+    }
+  }
+  if (appPaths.length === 0) {
+    console.log('VERSION-TRUTH guard: no built macOS .app found under outDir — skipping (non-mac artifact run).');
+    return;
+  }
+
+  for (const appPath of appPaths) {
+    const { shortVersion, bundleVersion } = (deps.readInfoPlistVersions || readInfoPlistVersions)(appPath, deps);
+    const asarVersion = (deps.readAsarPackageVersion || readAsarPackageVersion)(appPath, deps);
+    const mismatches = collectVersionMismatches(expected, { shortVersion, bundleVersion, asarVersion });
+    if (mismatches.length > 0) {
+      throw new Error(
+        `VERSION-TRUTH: built ${path.basename(appPath)} does NOT stamp the source-of-truth version ` +
+          `(${expected}) — build BLOCKED before notarize. A stale third version source would ship an app that ` +
+          `installs as the wrong version and breaks electron-updater:\n  - ${mismatches.join('\n  - ')}`
+      );
+    }
+    console.log(`✓ VERSION-TRUTH guard: ${path.basename(appPath)} stamps ${expected} in Info.plist + app.asar.`);
+  }
+}
+
 // SECURITY (Teardown C2) — never ship PRIVATE signing-key material. The license
 // signing keys mint every license; one accidental bundle = total entitlement
 // bypass, only undone by rotating the trust root (which breaks issued licenses).
@@ -315,6 +448,12 @@ exports.default = async function afterAllArtifactBuild(context) {
   // shippable path (C2 CI guard).
   await verifyNoPrivateKeysShipped(context);
 
+  // Fail the build before notarize if the built app does NOT stamp the single
+  // source-of-truth version (root package.json) into Info.plist + app.asar. This
+  // catches the "ships as 1.1.7 / breaks electron-updater" class of footgun loudly
+  // instead of letting a stale version reach users.
+  verifyBuiltVersionMatchesSource(context);
+
   const artifactPaths = Array.isArray(context.artifactPaths) ? context.artifactPaths : [];
   const dmgArtifacts = artifactPaths.filter((artifactPath) => artifactPath.endsWith('.dmg'));
 
@@ -339,3 +478,8 @@ exports.rebuildDmgWithHdiutil = rebuildDmgWithHdiutil;
 exports.getDmgSignIdentity = getDmgSignIdentity;
 exports.notarizeDmgArtifact = notarizeDmgArtifact;
 exports.signDmgArtifact = signDmgArtifact;
+exports.readRootPackageVersion = readRootPackageVersion;
+exports.readInfoPlistVersions = readInfoPlistVersions;
+exports.readAsarPackageVersion = readAsarPackageVersion;
+exports.collectVersionMismatches = collectVersionMismatches;
+exports.verifyBuiltVersionMatchesSource = verifyBuiltVersionMatchesSource;
