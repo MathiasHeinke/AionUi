@@ -1,6 +1,6 @@
 {
   "version": "command-eve-capability-pack/v0",
-  "release": "1.2.11",
+  "release": "1.2.14",
   "policy": {
     "default_mode": "proposal_only",
     "secret_rule": "Never ask for passwords, cookies, recovery codes, raw tokens or .env contents in chat.",
@@ -47,7 +47,7 @@
       "name": "Content Machine",
       "tier": "department",
       "source": "aionui-hermes-content-machine-skill",
-      "default_state": "available"
+      "default_state": "active"
     },
     {
       "id": "blog-department",
@@ -61,7 +61,7 @@
       "name": "Video-first Content Engine",
       "tier": "department",
       "source": "aionui-hermes-video-first-content-engine-skill",
-      "default_state": "available"
+      "default_state": "active"
     },
     {
       "id": "department-pack-creator",
@@ -82,14 +82,14 @@
       "name": "Local Kanban and work-item ledger",
       "tier": "autonomy_core",
       "source": "Command EVE local ledger doctrine",
-      "default_state": "available"
+      "default_state": "active"
     },
     {
       "id": "voice-first-run",
       "name": "Voice first-run and speech IO",
       "tier": "autonomy_core",
       "source": "Command EVE L1 voice control plane",
-      "default_state": "available"
+      "default_state": "active"
     },
     {
       "id": "desktop-observation",
@@ -103,7 +103,14 @@
       "name": "CRM and relationship operating layer",
       "tier": "department",
       "source": "Command EVE revenue layer",
-      "default_state": "available"
+      "default_state": "active"
+    },
+    {
+      "id": "blog-publishing-lane",
+      "name": "Blog and social publishing lane",
+      "tier": "department",
+      "source": "Command EVE human-gated publishing pipeline",
+      "default_state": "active"
     }
   ],
   "connectors": [

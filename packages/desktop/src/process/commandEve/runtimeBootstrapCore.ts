@@ -76,6 +76,18 @@ export const EVE_STRATEGY_SKILL_IDS = [
   // active seat's truth and shaped to feed the report export. Seat-fenced + honesty-walled
   // in its SKILL.md (no cross-seat read, no fabricated KPI, no "learns" claim).
   'client-report',
+  // Operator content / ops / CRM skills (2026-06-29). Unlike the strategy skills above,
+  // these 6 ids ALSO exist in the capability pack (as department capabilities). They were
+  // 'available' prompt-labels; now that they carry a real bundled SKILL.md they are flipped
+  // to 'active'. Listing them here makes copyBundledStrategySkills copy the REAL content over
+  // the auto-generated stub, so the running agent gets the real method (not the stub). The
+  // id overlap with the capability pack is intentional and handled additively (real-over-stub).
+  'content-machine',
+  'video-first-content-engine',
+  'blog-publishing-lane',
+  'local-kanban-ledger',
+  'voice-first-run',
+  'crm-department',
 ] as const;
 const COMMAND_EVE_CAPABILITIES_FILE = 'command-eve-capabilities.json';
 const COMMAND_EVE_MANAGED_SKILLS_DIR = 'skills-command-eve';
@@ -548,7 +560,7 @@ export type RuntimeBootstrapOptions = {
 
 export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
   version: 'command-eve-capability-pack/v0',
-  release: '1.2.11',
+  release: '1.2.13',
   policy: {
     default_mode: 'proposal_only',
     secret_rule: 'Never ask for passwords, cookies, recovery codes, raw tokens or .env contents in chat.',
@@ -595,7 +607,7 @@ export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
       name: 'Content Machine',
       tier: 'department',
       source: 'aionui-hermes-content-machine-skill',
-      default_state: 'available',
+      default_state: 'active',
     },
     {
       id: 'blog-department',
@@ -609,7 +621,7 @@ export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
       name: 'Video-first Content Engine',
       tier: 'department',
       source: 'aionui-hermes-video-first-content-engine-skill',
-      default_state: 'available',
+      default_state: 'active',
     },
     {
       id: 'department-pack-creator',
@@ -630,14 +642,14 @@ export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
       name: 'Local Kanban and work-item ledger',
       tier: 'autonomy_core',
       source: 'Command EVE local ledger doctrine',
-      default_state: 'available',
+      default_state: 'active',
     },
     {
       id: 'voice-first-run',
       name: 'Voice first-run and speech IO',
       tier: 'autonomy_core',
       source: 'Command EVE L1 voice control plane',
-      default_state: 'available',
+      default_state: 'active',
     },
     {
       id: 'desktop-observation',
@@ -651,7 +663,14 @@ export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
       name: 'CRM and relationship operating layer',
       tier: 'department',
       source: 'Company.OS revenue department roadmap',
-      default_state: 'available',
+      default_state: 'active',
+    },
+    {
+      id: 'blog-publishing-lane',
+      name: 'Blog and social publishing lane',
+      tier: 'department',
+      source: 'Command EVE human-gated publishing pipeline',
+      default_state: 'active',
     },
   ],
   connectors: [
@@ -814,7 +833,7 @@ type PythonLookup = CommandLookup & {
 
 export const DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST: RuntimeBootstrapManifest = {
   version: 'command-eve-runtime-bootstrap-manifest/v0',
-  release: '1.2.11',
+  release: '1.2.13',
   hermes: {
     package: DEFAULT_HERMES_PACKAGE,
     version: DEFAULT_HERMES_VERSION,
@@ -1303,8 +1322,8 @@ function commandEveManagedSkillMarkdown(skill: CommandEveCapabilityPack['skills'
 }
 
 // The APP-OWNED config-awareness onboarding skill (Guided Onboarding SLICE S1).
-// This is deliberately NOT in EVE_STRATEGY_SKILL_IDS (the bundled allowlist, now 18:
-// the 15 strategy skills + client-report) and NOT in command-eve-capabilities.json — it is
+// This is deliberately NOT in EVE_STRATEGY_SKILL_IDS (the bundled allowlist, now 24) and
+// NOT in command-eve-capabilities.json — it is
 // a separate app-owned managed skill written directly into managedSkillsRoot, which
 // is already on skills.external_dirs, so the running Hermes agent discovers it like
 // any other skill. It teaches EVE to READ her own onboarding-status (the S0
@@ -1557,9 +1576,12 @@ function writeCommandEveManagedSkills(
     ensureDir(skillDir);
     fs.writeFileSync(path.join(skillDir, 'SKILL.md'), commandEveManagedSkillMarkdown(skill), { mode: 0o600 });
   }
-  // ADDITIVE: copy the real strategy skills over the stubs (separate id-space, so
-  // they don't collide with the onboarding capability ids — FACT: none of the 15
-  // strategy ids appear in command-eve-capabilities.json).
+  // ADDITIVE: copy the real strategy skills over the stubs. Most strategy ids are a
+  // separate id-space from the onboarding capability ids, but 6 operator skills
+  // (content-machine, video-first-content-engine, blog-publishing-lane, local-kanban-ledger,
+  // voice-first-run, crm-department) INTENTIONALLY overlap: their capability entry is now
+  // 'active' (so they surface as executable in the Skill Library) AND they are bundled here,
+  // so the real SKILL.md is copied over the auto-generated stub. Same dest path → real wins.
   const bundledSkillFailures = copyBundledStrategySkills(paths, bundledSkillsDir);
   // ADDITIVE (S1): the app-owned config-awareness onboarding skill. Its id is in
   // neither the capability pack nor the strategy allowlist, so it cannot collide.
