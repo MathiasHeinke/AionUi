@@ -143,6 +143,7 @@ const mapSpeechInputError = (error: unknown): SpeechInputErrorCode => {
   if (
     message.includes('STT_OPENAI_NOT_CONFIGURED') ||
     message.includes('STT_DEEPGRAM_NOT_CONFIGURED') ||
+    message.includes('STT_GROQ_KEY_MISSING') ||
     message.includes('STT_DISABLED')
   ) {
     return 'not-configured';
@@ -156,7 +157,11 @@ const mapSpeechInputError = (error: unknown): SpeechInputErrorCode => {
   if (message.includes('STT_ABORTED')) {
     return 'aborted';
   }
-  if (message.includes('STT_REQUEST_FAILED')) {
+  if (
+    message.includes('STT_REQUEST_FAILED') ||
+    message.includes('STT_GROQ_TRANSCRIPTION_FAILED') ||
+    message.includes('STT_LOCAL_TRANSCRIPTION_FAILED')
+  ) {
     return 'transcription-failed';
   }
 
@@ -169,6 +174,12 @@ export const useSpeechInput = ({ locale, onTranscript }: UseSpeechInputOptions) 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [recordingDurationMs, setRecordingDurationMs] = useState(0);
   const [recordingLevels, setRecordingLevels] = useState<number[]>(() => createInitialWaveformLevels());
+  // The last recorded/selected audio that FAILED to transcribe. Kept so the user
+  // can RETRY the transcription without re-recording (e.g. a transient Groq
+  // network blip, or a missing key they just fixed). Cleared on success, on a
+  // fresh recording, and on clearError.
+  const [canRetry, setCanRetry] = useState(false);
+  const lastAudioBlobRef = useRef<Blob | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -300,39 +311,60 @@ export const useSpeechInput = ({ locale, onTranscript }: UseSpeechInputOptions) 
     setErrorCode(null);
     setErrorMessage(null);
     setStatus('idle');
+    setCanRetry(false);
+    lastAudioBlobRef.current = null;
     resetSpeechVisualizer();
   }, [resetSpeechVisualizer]);
 
   const transcribeBlob = useCallback(
     async (blob: Blob) => {
+      // Preserve the audio so a failed transcription can be retried without
+      // re-recording. Only dropped on success / clearError / a fresh recording.
+      lastAudioBlobRef.current = blob;
       try {
         setStatus('transcribing');
         setErrorCode(null);
         setErrorMessage(null);
+        setCanRetry(false);
         const result = await transcribeAudioBlob(blob, recognitionLocale);
         const transcript = result.text.trim();
         if (!transcript) {
+          // Re-transcribing identical audio would just fail again — not retryable.
+          lastAudioBlobRef.current = null;
           setErrorCode('empty-transcript');
           setErrorMessage(null);
           setStatus('error');
           resetSpeechVisualizer();
           return;
         }
+        lastAudioBlobRef.current = null;
         onTranscriptRef.current(transcript);
         setStatus('idle');
         resetSpeechVisualizer();
       } catch (error) {
-        setErrorCode(mapSpeechInputError(error));
+        const code = mapSpeechInputError(error);
+        setErrorCode(code);
         const message = error instanceof Error ? error.message : String(error);
         setErrorMessage(
           message.startsWith('STT_REQUEST_FAILED:') ? message.replace('STT_REQUEST_FAILED:', '').trim() : null
         );
+        // Offer retry whenever the audio is intact but transcription failed
+        // (network, transient backend error, a just-fixed missing key). Capture/
+        // permission errors mean there's no usable audio, so no retry.
+        const retryable = code !== 'permission-denied' && code !== 'audio-capture' && code !== 'aborted';
+        setCanRetry(retryable && lastAudioBlobRef.current !== null);
         setStatus('error');
         resetSpeechVisualizer();
       }
     },
     [onTranscriptRef, recognitionLocale, resetSpeechVisualizer]
   );
+
+  const retryTranscription = useCallback(() => {
+    const blob = lastAudioBlobRef.current;
+    if (!blob) return;
+    void transcribeBlob(blob);
+  }, [transcribeBlob]);
 
   const startRecording = useCallback(async () => {
     if (availability !== 'record') {
@@ -349,6 +381,9 @@ export const useSpeechInput = ({ locale, onTranscript }: UseSpeechInputOptions) 
       streamRef.current = stream;
       recorderRef.current = recorder;
       chunksRef.current = [];
+      // A fresh recording supersedes any preserved failed-transcription audio.
+      lastAudioBlobRef.current = null;
+      setCanRetry(false);
       await startSpeechVisualizer(stream);
 
       recorder.ondataavailable = (event) => {
@@ -422,11 +457,13 @@ export const useSpeechInput = ({ locale, onTranscript }: UseSpeechInputOptions) 
 
   return {
     availability,
+    canRetry,
     clearError,
     errorCode,
     errorMessage,
     recordingDurationMs,
     recordingLevels,
+    retryTranscription,
     startRecording,
     status,
     stopRecording,

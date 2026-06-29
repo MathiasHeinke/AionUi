@@ -36,6 +36,13 @@ const SpeechStopIcon = () => (
 
 const SpeechLoaderIcon = () => <span className='speech-loader-spinner' aria-hidden='true' />;
 
+const SpeechRetryIcon = () => (
+  <svg width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' aria-hidden='true'>
+    <path d='M21 12a9 9 0 1 1-3-6.7L21 8' />
+    <path d='M21 3v5h-5' />
+  </svg>
+);
+
 const SPEECH_TO_TEXT_CONFIG_CHANGED_EVENT = 'aionui:speech-to-text-config-changed';
 
 const getAvailabilityMessageKey = (availability: SpeechInputAvailability) => {
@@ -102,11 +109,13 @@ const SpeechInputButton: React.FC<SpeechInputButtonProps> = ({ disabled, locale,
   const [isConfigLoaded, setIsConfigLoaded] = useState(false);
   const {
     availability,
+    canRetry,
     clearError,
     errorCode,
     errorMessage,
     recordingDurationMs,
     recordingLevels,
+    retryTranscription,
     startRecording,
     status,
     stopRecording,
@@ -174,8 +183,18 @@ const SpeechInputButton: React.FC<SpeechInputButtonProps> = ({ disabled, locale,
       return;
     }
     Message.error(detail ? `${baseMessage}: ${detail}` : baseMessage);
-    clearError();
-  }, [clearError, errorCode, errorMessage, t]);
+    // When the audio is still intact (canRetry), DON'T clearError — keep the
+    // error state so the inline Retry button stays visible and the preserved
+    // recording isn't dropped. Otherwise reset immediately as before.
+    if (!canRetry) {
+      clearError();
+    }
+  }, [canRetry, clearError, errorCode, errorMessage, t]);
+
+  const handleRetry = () => {
+    if (disabled) return;
+    retryTranscription();
+  };
 
   const handleClick = () => {
     if (disabled) {
@@ -252,6 +271,20 @@ const SpeechInputButton: React.FC<SpeechInputButtonProps> = ({ disabled, locale,
                 : formatSpeechDuration(recordingDurationMs)}
             </span>
           </div>
+        )}
+        {canRetry && !showSpeechFeedback && (
+          <Tooltip content={t('conversation.chat.speech.retryTooltip')} mini>
+            <Button
+              type='text'
+              size='small'
+              shape='circle'
+              className='speech-input-button speech-input-button--retry'
+              disabled={disabled}
+              onClick={handleRetry}
+              aria-label={t('conversation.chat.speech.retryTooltip')}
+              icon={<SpeechRetryIcon />}
+            />
+          </Tooltip>
         )}
         <Tooltip content={ariaLabel} mini>
           <Button

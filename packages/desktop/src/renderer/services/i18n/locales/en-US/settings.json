@@ -473,6 +473,8 @@
   "speechToTextProviderDeepgram": "Deepgram Nova-2",
   "speechToTextProviderLocal": "On-device (no key)",
   "speechToTextProviderLocalHint": "Runs on your Mac with Whisper — no API key, and your audio never leaves the device.",
+  "speechToTextProviderGroq": "Groq (fast, cloud)",
+  "speechToTextProviderGroqHint": "Groq Whisper large-v3-turbo — sub-second, strong German. Your audio is sent to Groq. Needs GROQ_API_KEY in ~/.hermes/.env.",
   "speechToTextApiKey": "API Key",
   "speechToTextBaseUrl": "Base URL",
   "speechToTextModel": "Model",

@@ -399,7 +399,8 @@
       "permissionDenied": "Mikrofonberechtigung wurde verweigert",
       "recordingUnsupported": "Live-Aufnahme wird hier nicht unterstützt. Bitte lade stattdessen eine Audiodatei hoch",
       "transcriptionFailed": "Audiotranskription fehlgeschlagen",
-      "genericError": "Spracheingabe fehlgeschlagen. Bitte versuche es erneut"
+      "genericError": "Spracheingabe fehlgeschlagen. Bitte versuche es erneut",
+      "retryTooltip": "Transkription erneut versuchen (Aufnahme bleibt erhalten)"
     }
   },
   "sideQuestion": {

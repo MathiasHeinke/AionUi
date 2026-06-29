@@ -398,7 +398,8 @@
       "permissionDenied": "Microphone permission was denied",
       "recordingUnsupported": "Live recording is not supported here. Please upload an audio file instead",
       "transcriptionFailed": "Audio transcription failed",
-      "genericError": "Voice input failed. Please try again"
+      "genericError": "Voice input failed. Please try again",
+      "retryTooltip": "Retry transcription (your recording is kept)"
     }
   },
   "sideQuestion": {

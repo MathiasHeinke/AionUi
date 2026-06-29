@@ -68,20 +68,27 @@ export async function transcribeAudioBlob(blob: Blob, languageHint?: string): Pr
       languageHint,
       mimeType,
     };
-    // The 'local' provider transcribes ON-DEVICE via the bundled venv (no cloud,
-    // no key) — a separate main-process IPC, NOT aioncore's /api/stt cloud lane.
+    // The 'local' and 'groq' providers transcribe via the bundled venv through a
+    // separate main-process IPC, NOT aioncore's /api/stt cloud lane:
+    //   - 'local' runs faster-whisper ON-DEVICE (no cloud, no key) — DSGVO-clean.
+    //   - 'groq'  calls the Groq Whisper API (whisper-large-v3-turbo, sub-second,
+    //     strong German). The key is injected at runtime in the MAIN process from
+    //     ~/.hermes/.env — never bundled, hardcoded, persisted, or logged here.
     //
-    // DEFAULT to local on desktop. The on-device lane is the DSGVO-clean lane (audio never
-    // leaves the Mac, no key) and is what the product intends (hermes config.yaml pins
-    // stt.provider:local). Previously an UNSET provider fell through to aioncore's /api/stt
-    // cloud lane, which 400s instantly → "Spracheingabe fehlgeschlagen" even though the local
-    // lane works. Only route to a cloud STT provider if one is EXPLICITLY configured.
+    // DEFAULT to local on desktop. Previously an UNSET provider fell through to
+    // aioncore's /api/stt cloud lane, which 400s instantly → "Spracheingabe
+    // fehlgeschlagen" even though the local lane works. Only the venv lanes
+    // (local/groq) go through speechToTextLocal; openai/deepgram stay on the
+    // aioncore /api/stt cloud lane.
     const sttConfig = configService.get('tools.speechToText') as SpeechToTextConfig | undefined;
-    const useLocal = !sttConfig?.provider || sttConfig.provider === 'local';
-    if (useLocal) {
+    const provider = sttConfig?.provider;
+    const useVenvLane = !provider || provider === 'local' || provider === 'groq';
+    if (useVenvLane) {
       const response = await ipcBridge.commandEve.speechToTextLocal.invoke({
         ...payload,
+        provider: provider === 'groq' ? 'groq' : 'local',
         localModel: sttConfig?.local?.model,
+        groqModel: sttConfig?.groq?.model,
       });
       if (!response.success || !response.data) {
         throw new Error(response.msg || 'STT_REQUEST_FAILED');

@@ -13,7 +13,7 @@ import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { AgentLogoIcon } from './AgentBadge';
 import { Button, Dropdown, Menu, Message } from '@arco-design/web-react';
 import { Down } from '@icon-park/react';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import MarqueePillLabel from './MarqueePillLabel';
 
@@ -142,6 +142,18 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
   const [current_mode, setCurrentMode] = useState<string>(validInitialMode);
   const [isLoading, setIsLoading] = useState(false);
   const [dropdownVisible, setDropdownVisible] = useState(false);
+  // Once the user picks a mode in THIS conversation, neither the initialMode
+  // re-sync nor the passive backend getMode-sync may overwrite it. This is the
+  // core fix for "the in-session permission selector resets to Standard and
+  // locks": the start-view choice (carried as session_mode → initialMode) used
+  // to be silently overwritten by the backend's bare `default` once the agent
+  // warmed, and every modes/dynamicModes change snapped current_mode back. The
+  // ref is reset per conversation so switching tabs re-enables the sync.
+  const userSelectedModeRef = useRef(false);
+  // Remember the initialMode we last applied so the prop-change effect fires
+  // ONLY on a genuine initialMode change (agent switch / new session_mode), not
+  // on every `modes` array identity change.
+  const appliedInitialModeRef = useRef<string | undefined>(initialMode);
   const getDisplayModeLabel = useCallback(
     (mode: AgentModeOption) => modeLabelFormatter?.(mode) ?? mode.label,
     [modeLabelFormatter]
@@ -151,17 +163,38 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
   // Mobile conversation header agent pill is display-only by design.
   const canInteract = can_switchMode && !(compact && compactLabelType === 'agent');
 
-  // When initialMode prop changes (e.g. agent switch on Guid page), update local state.
-  // Validate against available modes to handle backends with non-standard default
-  // (e.g. opencode uses 'build' instead of 'default').
+  // A new conversation tab OR a backend (agent) switch re-enables both syncs —
+  // the user's selection guard is scoped to one conversation/agent context.
+  // Reset so the incoming context's initialMode/getMode can seed the pill
+  // without a stale lock. Keyed ONLY on conversation_id + backend; re-seeding on
+  // every `modes` identity change is exactly the bug that snapped a user pick
+  // back, so `modes`/`initialMode` are deliberately excluded here.
   useEffect(() => {
-    if (initialMode !== undefined) {
-      const valid = modes.some((m) => m.value === initialMode) ? initialMode : defaultMode;
-      setCurrentMode(valid);
-    }
+    userSelectedModeRef.current = false;
+    appliedInitialModeRef.current = initialMode;
+    setCurrentMode(initialMode && modes.some((m) => m.value === initialMode) ? initialMode : defaultMode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversation_id, backend]);
+
+  // When initialMode prop GENUINELY changes (e.g. agent switch on the Guid start
+  // screen, or a new persisted session_mode), update local state — UNLESS the
+  // user has already made an explicit pick in this conversation. Guarded against
+  // `modes`-identity churn by comparing to the last applied initialMode.
+  useEffect(() => {
+    if (initialMode === undefined) return;
+    if (initialMode === appliedInitialModeRef.current) return;
+    appliedInitialModeRef.current = initialMode;
+    if (userSelectedModeRef.current) return;
+    const valid = modes.some((m) => m.value === initialMode) ? initialMode : defaultMode;
+    setCurrentMode(valid);
   }, [initialMode, modes, defaultMode]);
 
-  // Sync mode from backend when mounting or switching conversation tabs
+  // Sync mode from backend when mounting or switching conversation tabs.
+  // This is a PASSIVE read used to reflect the backend's live mode — it must
+  // never override the user's explicit in-session pick, and it must not
+  // downgrade a valid non-default selection (the start-view choice carried via
+  // session_mode) to the backend's bare `default` before that choice has been
+  // pushed. Those two rules are the fix for the reset-and-lock report.
   useEffect(() => {
     if (!conversation_id || !can_switchMode) return;
     let cancelled = false;
@@ -171,13 +204,23 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
       return ipcBridge.acpConversation.getMode.invoke({ conversation_id });
     })()
       .then((result) => {
-        if (!cancelled && result) {
-          // Only sync from backend when manager is initialized;
-          // before first message, getMode returns { mode: 'default', initialized: false }
-          // which would overwrite the correct initialMode (e.g. opencode has no 'default').
-          if (result.initialized !== false) {
-            setCurrentMode(result.mode);
-          }
+        if (cancelled || !result) return;
+        // The user's explicit pick wins, always.
+        if (userSelectedModeRef.current) return;
+        // Before the manager is initialized, getMode returns
+        // { mode: 'default', initialized: false } — never adopt that.
+        if (result.initialized === false) return;
+        // Don't let a backend `default` clobber a deliberately non-default
+        // initialMode (the persisted session_mode). The selector applies that
+        // choice on the first message; reading back `default` here is stale.
+        const backendMode = result.mode;
+        const initialIsNonDefault =
+          initialMode !== undefined && initialMode !== defaultMode && modes.some((m) => m.value === initialMode);
+        if (backendMode === defaultMode && initialIsNonDefault) return;
+        // Only adopt a backend mode that is actually a known mode for this
+        // backend (guards against a stale/foreign value rendering blank).
+        if (modes.some((m) => m.value === backendMode)) {
+          setCurrentMode(backendMode);
         }
       })
       .catch(() => {
@@ -187,7 +230,7 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [conversation_id, can_switchMode, beforeRuntimeSync]);
+  }, [conversation_id, can_switchMode, beforeRuntimeSync, defaultMode, initialMode, modes]);
 
   const handleModeChange = useCallback(
     async (mode: string) => {
@@ -195,6 +238,9 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
       setDropdownVisible(false);
 
       if (mode === current_mode) return;
+
+      // The user has now explicitly chosen — no passive sync may override it.
+      userSelectedModeRef.current = true;
 
       // Local mode (Guid page): update state and notify parent, no IPC needed
       if (!conversation_id && onModeSelect) {

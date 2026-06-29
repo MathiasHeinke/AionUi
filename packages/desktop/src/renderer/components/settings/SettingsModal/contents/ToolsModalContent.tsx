@@ -61,6 +61,12 @@ const DEFAULT_SPEECH_TO_TEXT_CONFIG: SpeechToTextConfig = {
     model: 'small',
     language: '',
   },
+  // Groq cloud STT. No api_key here BY DESIGN — the key is read at runtime from
+  // ~/.hermes/.env, never stored in the desktop config.
+  groq: {
+    model: 'whisper-large-v3-turbo',
+    language: '',
+  },
 };
 
 const normalizeSpeechToTextConfig = (config?: SpeechToTextConfig): SpeechToTextConfig => ({
@@ -77,6 +83,10 @@ const normalizeSpeechToTextConfig = (config?: SpeechToTextConfig): SpeechToTextC
   local: {
     ...DEFAULT_SPEECH_TO_TEXT_CONFIG.local,
     ...config?.local,
+  },
+  groq: {
+    ...DEFAULT_SPEECH_TO_TEXT_CONFIG.groq,
+    ...config?.groq,
   },
 });
 
@@ -146,6 +156,19 @@ const SpeechToTextSettingsSection: React.FC<{
     [onChange]
   );
 
+  const handleGroqChange = useCallback(
+    (field: keyof NonNullable<SpeechToTextConfig['groq']>, value: string) => {
+      onChange((current) => ({
+        ...current,
+        groq: {
+          ...current.groq,
+          [field]: value,
+        },
+      }));
+    },
+    [onChange]
+  );
+
   return (
     <div className='px-[12px] md:px-[32px] py-[24px] bg-2 rd-12px md:rd-16px border border-border-2'>
       <div className='flex items-center justify-between gap-12px mb-8px'>
@@ -172,6 +195,7 @@ const SpeechToTextSettingsSection: React.FC<{
             <Form.Item label={t('settings.speechToTextProvider')}>
               <AionSelect value={config.provider} onChange={handleProviderChange}>
                 <AionSelect.Option value='local'>{t('settings.speechToTextProviderLocal')}</AionSelect.Option>
+                <AionSelect.Option value='groq'>{t('settings.speechToTextProviderGroq')}</AionSelect.Option>
                 <AionSelect.Option value='openai'>{t('settings.speechToTextProviderOpenAI')}</AionSelect.Option>
                 <AionSelect.Option value='deepgram'>{t('settings.speechToTextProviderDeepgram')}</AionSelect.Option>
               </AionSelect>
@@ -194,6 +218,16 @@ const SpeechToTextSettingsSection: React.FC<{
                 </Form.Item>
                 <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextLanguage', 'optional')}>
                   <Input value={config.local?.language} onChange={(value) => handleLocalChange('language', value)} />
+                </Form.Item>
+              </>
+            ) : config.provider === 'groq' ? (
+              <>
+                <div className='text-13px text-t-secondary mb-4px'>{t('settings.speechToTextProviderGroqHint')}</div>
+                <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextModel', 'optional')}>
+                  <Input value={config.groq?.model} onChange={(value) => handleGroqChange('model', value)} />
+                </Form.Item>
+                <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextLanguage', 'optional')}>
+                  <Input value={config.groq?.language} onChange={(value) => handleGroqChange('language', value)} />
                 </Form.Item>
               </>
             ) : config.provider === 'openai' ? (
