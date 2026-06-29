@@ -79,6 +79,22 @@ export const EVE_STRATEGY_SKILL_IDS = [
 ] as const;
 const COMMAND_EVE_CAPABILITIES_FILE = 'command-eve-capabilities.json';
 const COMMAND_EVE_MANAGED_SKILLS_DIR = 'skills-command-eve';
+// Founder-only OPERATIONS skills channel — STRICTLY separate from the operator-
+// facing strategy bundle (skills-command-eve / EVE_STRATEGY_SKILL_IDS). These
+// skills are sourced ONLY from the founder's Company.OS checkout, which exists on
+// the founder's dev box and is ABSENT on every shipped operator install, and they
+// are NEVER placed in electron-builder extraResources — so they can never travel
+// into an operator's DMG. The channel re-seeds the founder box so the ops skills
+// survive a full ~/.command-eve reset (the runtime `skills/` primary dir is wiped
+// on reset; the Company.OS checkout is the durable git-tracked SSOT). Discovery-
+// based + NON-fail-closed: on an operator box the source is simply absent and the
+// entire channel is a silent no-op (no managed dir, no external_dirs entry), so
+// operator config.yaml stays byte-identical to today.
+const COMMAND_EVE_FOUNDER_OPS_SKILLS_DIR = 'skills-founder-ops';
+const COMMAND_EVE_FOUNDER_OPS_SKILLS_DIR_ENV = 'COMMAND_EVE_FOUNDER_OPS_SKILLS_DIR';
+const FOUNDER_OPS_SKILLS_SOURCE_CANDIDATES = [
+  '/Users/mathiasheinke/Developer/Company.OS/.claude/founder-ops-skills',
+];
 const COMMAND_EVE_RUNTIME_RECONCILIATION_FILE = 'command-eve-runtime-reconciliation.json';
 const DEFAULT_STAGE_TIMEOUT_MS = 120_000;
 const DEFAULT_LONG_STAGE_TIMEOUT_MS = 2_700_000;
@@ -166,6 +182,20 @@ export function resolveBundledSkillsDir(env: NodeJS.ProcessEnv, resourcesPath?: 
   ].filter(Boolean);
   return candidates.find((candidate) => fs.existsSync(candidate)) || '';
 }
+
+// Resolve the FOUNDER-ONLY ops-skills source dir. Unlike resolveBundledSkillsDir
+// this never looks at resourcesPath (the channel is deliberately NOT bundled into
+// the app), so on a shipped operator install it returns '' and the channel is a
+// no-op. Precedence: explicit env override (dev/tests) -> the founder Company.OS
+// checkout. Returns the FIRST candidate that exists, or '' when none do.
+export function resolveFounderOpsSkillsDir(env: NodeJS.ProcessEnv): string {
+  const candidates = [
+    compact(env[COMMAND_EVE_FOUNDER_OPS_SKILLS_DIR_ENV]),
+    ...FOUNDER_OPS_SKILLS_SOURCE_CANDIDATES,
+  ].filter(Boolean);
+  return candidates.find((candidate) => fs.existsSync(candidate)) || '';
+}
+
 const LOCAL_OLLAMA_BINARY_CANDIDATES =
   process.platform === 'darwin'
     ? ['/Applications/Ollama.app/Contents/Resources/ollama', '/opt/homebrew/bin/ollama', '/usr/local/bin/ollama']
@@ -448,6 +478,7 @@ export type RuntimeBootstrapPaths = {
   hermesWrapper: string;
   hermesShim: string;
   managedSkillsRoot: string;
+  founderOpsSkillsRoot: string;
   runtimeReconciliation: string;
   firstRunProfile: string;
 };
@@ -517,7 +548,7 @@ export type RuntimeBootstrapOptions = {
 
 export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
   version: 'command-eve-capability-pack/v0',
-  release: '1.2.9',
+  release: '1.2.11',
   policy: {
     default_mode: 'proposal_only',
     secret_rule: 'Never ask for passwords, cookies, recovery codes, raw tokens or .env contents in chat.',
@@ -783,7 +814,7 @@ type PythonLookup = CommandLookup & {
 
 export const DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST: RuntimeBootstrapManifest = {
   version: 'command-eve-runtime-bootstrap-manifest/v0',
-  release: '1.2.9',
+  release: '1.2.11',
   hermes: {
     package: DEFAULT_HERMES_PACKAGE,
     version: DEFAULT_HERMES_VERSION,
@@ -1115,6 +1146,7 @@ export function resolveCommandEveRuntimeBootstrapPaths(
     hermesWrapper: path.join(hermesRoot, 'hermes-command-eve'),
     hermesShim: path.join(hermesRoot, 'hermes'),
     managedSkillsRoot: path.join(hermesHome, COMMAND_EVE_MANAGED_SKILLS_DIR),
+    founderOpsSkillsRoot: path.join(hermesHome, COMMAND_EVE_FOUNDER_OPS_SKILLS_DIR),
     runtimeReconciliation: path.join(capabilitiesRoot, COMMAND_EVE_RUNTIME_RECONCILIATION_FILE),
     firstRunProfile: path.join(runtimeRoot, 'first-run-profile.json'),
   };
@@ -1475,6 +1507,35 @@ export function copyBundledStrategySkills(paths: RuntimeBootstrapPaths, bundledS
     copyDirTreeMode600(srcDir, destDir);
   }
   return failures;
+}
+
+// Copy the FOUNDER-ONLY ops skills from founderOpsSkillsDir into founderOpsSkillsRoot,
+// returning the copied skill ids (dir names). Discovery-based: it copies EVERY
+// immediate sub-dir that contains at least one SKILL.md — there is no allowlist,
+// because this channel is the founder's own curation surface, not a shipped set.
+// NON-fail-closed by design: when founderOpsSkillsDir is '' (every operator box,
+// and any env without the founder checkout) this is a SILENT no-op — it must never
+// surface a warning, because the absence of these skills is the correct, expected
+// state for everyone except the founder. The managed dir is created lazily only
+// when there is something to copy, so an operator config never gains the external_dir.
+export function copyFounderOpsSkills(paths: RuntimeBootstrapPaths, founderOpsSkillsDir: string): string[] {
+  const copied: string[] = [];
+  if (!founderOpsSkillsDir) return copied;
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(founderOpsSkillsDir, { withFileTypes: true });
+  } catch {
+    return copied;
+  }
+  for (const ent of entries) {
+    if (!ent.isDirectory()) continue;
+    const srcDir = path.join(founderOpsSkillsDir, ent.name);
+    if (!hasAnySkillMd(srcDir)) continue;
+    ensureDir(paths.founderOpsSkillsRoot);
+    copyDirTreeMode600(srcDir, path.join(paths.founderOpsSkillsRoot, ent.name));
+    copied.push(ent.name);
+  }
+  return copied;
 }
 
 // Returns the executable (onboarding-stub) skill ids AND any bundled-strategy-skill
@@ -2051,7 +2112,11 @@ function writeHermesRuntimeFiles(
   // to the soul so EVE DEFAULTS to it (setting-driven) rather than only mirroring
   // what the user types. '' = mirror-only (the prior behavior). The bootstrap
   // re-runs each launch, so a later language switch self-corrects on next start.
-  uiLanguage = ''
+  uiLanguage = '',
+  // The resolved FOUNDER-ONLY ops-skills source dir (resolveFounderOpsSkillsDir).
+  // '' on every operator box and on any env without the founder checkout -> the
+  // channel is a no-op and config.yaml stays byte-identical to today.
+  founderOpsSkillsDir = ''
 ): string[] {
   ensureDir(paths.hermesHome);
   const { executableSkillIds, bundledSkillFailures } = writeCommandEveManagedSkills(
@@ -2065,6 +2130,13 @@ function writeHermesRuntimeFiles(
   const ollamaNumCtx = tierOllamaNumCtx(tier);
   const maxTokens = tierMaxTokens(tier);
   const commandEveSkillDir = `\${HERMES_HOME}/${COMMAND_EVE_MANAGED_SKILLS_DIR}`;
+  // Founder-only ops channel: copy whatever the founder curated, then ONLY add the
+  // external_dir when something landed — so operator configs are unaffected.
+  const copiedFounderOpsSkills = copyFounderOpsSkills(paths, founderOpsSkillsDir);
+  const externalSkillDirs = [commandEveSkillDir];
+  if (copiedFounderOpsSkills.length) {
+    externalSkillDirs.push(`\${HERMES_HOME}/${COMMAND_EVE_FOUNDER_OPS_SKILLS_DIR}`);
+  }
   // Vetted external MCP connectors (HumanGate-approved, vault-backed) — empty today;
   // v1.4 populates this via resolveVettedMcpServersForBootstrap. See WO write-slice.
   const vettedMcpServers = resolveVettedMcpServersForBootstrap(capabilityPack);
@@ -2124,7 +2196,7 @@ function writeHermesRuntimeFiles(
     // full catalog — the user installs more via the skills hub into the primary
     // dir, which stays available. (FACT hermes skill_utils.py:427 get_all_skills_dirs.)
     '  external_dirs:',
-    ...yamlStringList([commandEveSkillDir], '    '),
+    ...yamlStringList(externalSkillDirs, '    '),
     // Only genuinely-unsafe skills are disabled (see constant above).
     '  disabled:',
     ...yamlStringList(COMMAND_EVE_HERMES_DISABLED_SKILLS, '    '),
@@ -2659,6 +2731,7 @@ export async function ensureCommandEveRuntimeBootstrap(
   }
 
   const bundledSkillsDir = resolveBundledSkillsDir(env, options.resourcesPath);
+  const founderOpsSkillsDir = resolveFounderOpsSkillsDir(env);
   const bundledSkillFailures = writeHermesRuntimeFiles(
     paths,
     manifest,
@@ -2668,7 +2741,8 @@ export async function ensureCommandEveRuntimeBootstrap(
     DEFAULT_COMMAND_EVE_REASONING_EFFORT,
     DEFAULT_COMMAND_EVE_CREATION_NUDGE_INTERVAL,
     bundledSkillsDir,
-    options.uiLanguage ?? ''
+    options.uiLanguage ?? '',
+    founderOpsSkillsDir
   );
   if (bundledSkillFailures.length) {
     // VISIBLE preflight break (founder-self-detection): a skip-status stage with a

@@ -24,6 +24,8 @@ import {
   validateCommandEveCapabilityPack,
   copyBundledStrategySkills,
   resolveBundledSkillsDir,
+  copyFounderOpsSkills,
+  resolveFounderOpsSkillsDir,
   EVE_STRATEGY_SKILL_IDS,
   type RuntimeBootstrapCommandResult,
   type RuntimeBootstrapRunner,
@@ -1338,5 +1340,62 @@ describe('Command EVE bundled strategy skills (SLICE B2)', () => {
     } else {
       expect(resolved).toBe('');
     }
+  });
+});
+
+// Build a fixture founder-ops source dir: flat <id>/SKILL.md, plus one dir WITHOUT
+// a SKILL.md (must be skipped by the discovery copy) and one stray file (ignored).
+const buildFounderOpsFixture = (root: string): string => {
+  const dir = path.join(root, 'founder-ops-skills');
+  for (const id of ['claude-code-tmux-delegation', 'production-public-sync']) {
+    const skillDir = path.join(dir, id);
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), `---\nname: ${id}\ncategory: operations\n---\n\n# ${id}\n`);
+  }
+  // a dir with no SKILL.md — must NOT be copied / counted.
+  fs.mkdirSync(path.join(dir, 'not-a-skill'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'not-a-skill', 'README.md'), 'no skill here\n');
+  // a stray top-level file — must be ignored (only dirs are scanned).
+  fs.writeFileSync(path.join(dir, 'INDEX.md'), '# index\n');
+  return dir;
+};
+
+describe('Command EVE founder-only ops skills channel', () => {
+  it('copies every discovered <id>/SKILL.md into founderOpsSkillsRoot (no allowlist)', () => {
+    const root = makeRoot();
+    const founderOpsDir = buildFounderOpsFixture(root);
+    const paths = resolveCommandEveRuntimeBootstrapPaths(root);
+
+    const copied = copyFounderOpsSkills(paths, founderOpsDir).sort();
+    expect(copied).toEqual(['claude-code-tmux-delegation', 'production-public-sync']);
+    expect(fs.existsSync(path.join(paths.founderOpsSkillsRoot, 'production-public-sync', 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(paths.founderOpsSkillsRoot, 'claude-code-tmux-delegation', 'SKILL.md'))).toBe(true);
+    // dirs without a SKILL.md are skipped; the managed channel does not gain them.
+    expect(fs.existsSync(path.join(paths.founderOpsSkillsRoot, 'not-a-skill'))).toBe(false);
+  });
+
+  it('is a SILENT no-op when no founder-ops source is resolvable (the operator case)', () => {
+    const root = makeRoot();
+    const paths = resolveCommandEveRuntimeBootstrapPaths(root);
+    // NON-fail-closed: no failures, no managed dir, so config never gains the external_dir.
+    expect(copyFounderOpsSkills(paths, '')).toEqual([]);
+    expect(fs.existsSync(paths.founderOpsSkillsRoot)).toBe(false);
+  });
+
+  it('resolveFounderOpsSkillsDir honors the env override and never reads resourcesPath', () => {
+    const root = makeRoot();
+    const envDir = path.join(root, 'env-founder-ops');
+    fs.mkdirSync(envDir, { recursive: true });
+    // 1) explicit env override wins when it exists.
+    expect(resolveFounderOpsSkillsDir({ COMMAND_EVE_FOUNDER_OPS_SKILLS_DIR: envDir } as NodeJS.ProcessEnv)).toBe(
+      envDir
+    );
+    // 2) env pointing nowhere falls through to the founder candidate, which is the
+    //    Company.OS checkout — present only on the founder box. Robust to both:
+    //    on an operator/CI box it resolves to '' (channel off).
+    const fallback = resolveFounderOpsSkillsDir({
+      COMMAND_EVE_FOUNDER_OPS_SKILLS_DIR: path.join(root, 'does-not-exist'),
+    } as NodeJS.ProcessEnv);
+    expect([fallback === '', fallback.endsWith('.claude/founder-ops-skills')]).toContain(true);
   });
 });
