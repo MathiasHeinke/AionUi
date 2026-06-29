@@ -516,6 +516,10 @@ export const useGuidAgentSelection = ({
             gemini: 'yolo',
             codex: CODEX_MODE_NATIVE_FULL_ACCESS,
             qwen: 'yolo',
+            // hermes (EVE) spells YOLO as 'dont_ask'; the bare 'yolo' fallback below
+            // saved a value hermes doesn't know → the in-session selector snapped it
+            // back to the default ("Standard"). Save the value hermes actually offers.
+            hermes: 'dont_ask',
           };
           _setSelectedMode(yoloValues[configKey] || 'yolo');
         }

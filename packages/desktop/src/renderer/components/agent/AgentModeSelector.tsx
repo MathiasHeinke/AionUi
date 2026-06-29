@@ -8,7 +8,7 @@ import { ipcBridge } from '@/common';
 import { configService } from '@/common/config/configService';
 import type { AcpSessionConfigOption } from '@/common/types/platform/acpTypes';
 import { savePreferredMode } from '@/renderer/pages/guid/hooks/agentSelectionUtils';
-import { getAgentModes, supportsModeSwitch, type AgentModeOption } from '@/renderer/utils/model/agentModes';
+import { getAgentModes, resolveModeForBackend, supportsModeSwitch, type AgentModeOption } from '@/renderer/utils/model/agentModes';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { AgentLogoIcon } from './AgentBadge';
 import { Button, Dropdown, Menu, Message } from '@arco-design/web-react';
@@ -137,8 +137,13 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
   }, [dynamicModes, cachedModes, backend]);
   const defaultMode = modes[0]?.value ?? 'default';
   // Validate initialMode against available modes; fall back to backend's default
-  // when the provided value doesn't match (e.g. opencode has 'build'/'plan', not 'default')
-  const validInitialMode = initialMode && modes.some((m) => m.value === initialMode) ? initialMode : defaultMode;
+  // when the provided value doesn't match (e.g. opencode has 'build'/'plan', not 'default').
+  // resolveModeForBackend ALSO maps cross-backend synonyms (e.g. a saved
+  // session_mode 'yolo' → hermes' equivalent 'dont_ask'), which is the real fix for
+  // "YOLO set in the start view resets to Standard in the chat" — the start screen
+  // stored 'yolo' but hermes only knows default/accept_edits/dont_ask, so the plain
+  // some()-match snapped it back to the default.
+  const validInitialMode = resolveModeForBackend(initialMode, modes) ?? defaultMode;
   const [current_mode, setCurrentMode] = useState<string>(validInitialMode);
   const [isLoading, setIsLoading] = useState(false);
   const [dropdownVisible, setDropdownVisible] = useState(false);

@@ -66,6 +66,18 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
   // mapping + rationale.
   const sessionStatus = deriveSessionStatus({ isGenerating, hasCompletionUnread, isWaitingInput, hasError, cronStatus });
 
+  // Conversation avatars often resolve to a runtime API URL (e.g. the assistant's
+  // http://127.0.0.1:<port>/api/assistants/:id/avatar) that 404s, leaving the broken-
+  // image glyph the founder saw across the sidebar. On ANY load failure, fall back to
+  // the bundled ⌘ Command-EVE mark (a relative asset that always loads). One-shot guard
+  // via data-fb so a failing fallback can't loop.
+  const fallbackToCommandMark = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget;
+    if (img.dataset.fb) return;
+    img.dataset.fb = '1';
+    img.src = COMMAND_EVE_ASSISTANT_AVATAR;
+  };
+
   const renderLeadingIcon = () => {
     // When the row is pinned, hovering reveals a pushpin marker that overlays
     // the leading icon. We dim the resting icon on hover so the pin reads cleanly.
@@ -90,6 +102,7 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
           src={assistantInfo.logo}
           alt={assistantInfo.name}
           className={classNames('w-16px h-16px rounded-50% flex-shrink-0', composedClass)}
+          onError={fallbackToCommandMark}
         />
       );
     }
@@ -102,6 +115,7 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
           src={logo}
           alt={`${backendKey || 'agent'} logo`}
           className={classNames('w-16px h-16px rounded-50% flex-shrink-0', composedClass)}
+          onError={fallbackToCommandMark}
         />
       );
     }

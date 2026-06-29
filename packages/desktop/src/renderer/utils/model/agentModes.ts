@@ -119,6 +119,37 @@ export function getAgentModes(backend: string | undefined): AgentModeOption[] {
 }
 
 /**
+ * Cross-backend permission-mode synonyms. Different ACP backends spell the same
+ * intent differently: hermes' auto-approve is `dont_ask`, gemini/qwen/aionrs call
+ * it `yolo`, claude `bypassPermissions`; "accept edits" is `accept_edits` (hermes)
+ * vs `auto_edit` (aionrs). A conversation created under one vocabulary (e.g. the
+ * start screen saved `session_mode: 'yolo'`) must resolve to THIS backend's
+ * equivalent instead of silently snapping back to the default — that mismatch is
+ * exactly the "YOLO jumps to Standard after the first send" bug.
+ */
+const MODE_SYNONYM_GROUPS: readonly (readonly string[])[] = [
+  ['yolo', 'dont_ask', 'bypassPermissions'], // auto-approve / YOLO
+  ['default', 'ask'], // ask every time
+  ['accept_edits', 'acceptEdits', 'auto_edit', 'autoEdit'], // semi-autonomous
+];
+
+/**
+ * Resolve a (possibly foreign-vocabulary) mode value to a mode this backend
+ * actually offers. Exact match wins; otherwise map via the synonym groups;
+ * returns undefined when nothing matches so the caller can fall back to default.
+ */
+export function resolveModeForBackend(value: string | undefined, modes: AgentModeOption[]): string | undefined {
+  if (!value) return undefined;
+  if (modes.some((m) => m.value === value)) return value;
+  const group = MODE_SYNONYM_GROUPS.find((g) => g.includes(value));
+  if (group) {
+    const match = modes.find((m) => group.includes(m.value));
+    if (match) return match.value;
+  }
+  return undefined;
+}
+
+/**
  * Maps Hermes' ACP-advertised EVE permission-mode IDs to the clean, founder-
  * approved EVE labels (i18n keys under `agentMode.eve.*`). EVE honestly enforces
  * exactly these three modes — no Plan-Modus, no "Nicht fragen" (those would be
