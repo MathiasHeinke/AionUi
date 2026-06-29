@@ -9,7 +9,7 @@ import type { IMcpServer } from '@/common/config/storage';
 import AgentModeSelector from '@/renderer/components/agent/AgentModeSelector';
 import UnifiedSendBar from '@/renderer/components/chat/UnifiedSendBar';
 import { createModeLabelFormatter, supportsModeSwitch } from '@/renderer/utils/model/agentModes';
-import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
+import { COMMAND_EVE_DEFAULT_ACP_BACKEND, COMMAND_EVE_SHELL_ENABLED, isCommandEveAcpConversation } from '@/common/config/commandEveShell';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { getCleanFileNames, FileService } from '@/renderer/services/FileService';
 import { iconColors } from '@/renderer/styles/colors';
@@ -111,7 +111,12 @@ const GuidActionRow: React.FC<GuidActionRowProps> = ({
   const layout = useLayoutContext();
   const isMobile = layout?.isMobile ?? false;
   const [isPlusDropdownOpen, setIsPlusDropdownOpen] = useState(false);
-  const modeBackend = effectiveModeAgent || selectedAgent;
+  // In the Command-EVE shell every conversation runs on the hermes ACP backend, so the
+  // START-screen mode selector must use hermes' modes + EVE labels (Fragen / Auto-Edits /
+  // Nicht fragen) — IDENTICAL to in-session. Otherwise modeBackend fell back to the agent's
+  // apparent backend (aionrs → Standard / Auto-Bearbeitung / YOLO), which both mislabeled it
+  // AND made the start screen save a 'yolo' value hermes doesn't understand.
+  const modeBackend = COMMAND_EVE_SHELL_ENABLED ? COMMAND_EVE_DEFAULT_ACP_BACKEND : effectiveModeAgent || selectedAgent;
   const showModeSwitch = !hideModeSwitch && supportsModeSwitch(modeBackend);
   const configOptionCount = (modelSelectorNode ? 1 : 0) + (showModeSwitch ? 1 : 0);
 

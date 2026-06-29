@@ -22,6 +22,25 @@ import { isConversationPinned } from './utils/groupingHelpers';
 import SessionStatusDot from './SessionStatusDot';
 import { deriveSessionStatus } from './sessionStatus';
 
+// State-driven avatar with a ⌘ fallback. Conversation avatars frequently resolve to a
+// runtime API URL (http://127.0.0.1:<port>/api/assistants/:id/avatar) that 404s. A plain
+// onError that mutates img.src is undone by React's controlled `src` on the next render
+// (and the broken cached URL won't re-fire onError), so the broken glyph returns — that
+// was the founder's "kaputte Symbole" across the sidebar. Driving the src from STATE
+// survives re-renders: on error we switch to the bundled ⌘ mark (which always loads).
+const RowLeadingImg: React.FC<{ src: string; alt: string; className: string }> = ({ src, alt, className }) => {
+  const [resolvedSrc, setResolvedSrc] = React.useState(src);
+  React.useEffect(() => setResolvedSrc(src), [src]);
+  return (
+    <img
+      src={resolvedSrc}
+      alt={alt}
+      className={className}
+      onError={() => setResolvedSrc((cur) => (cur === COMMAND_EVE_ASSISTANT_AVATAR ? cur : COMMAND_EVE_ASSISTANT_AVATAR))}
+    />
+  );
+};
+
 const ConversationRow: React.FC<ConversationRowProps> = (props) => {
   const {
     conversation,
@@ -66,18 +85,6 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
   // mapping + rationale.
   const sessionStatus = deriveSessionStatus({ isGenerating, hasCompletionUnread, isWaitingInput, hasError, cronStatus });
 
-  // Conversation avatars often resolve to a runtime API URL (e.g. the assistant's
-  // http://127.0.0.1:<port>/api/assistants/:id/avatar) that 404s, leaving the broken-
-  // image glyph the founder saw across the sidebar. On ANY load failure, fall back to
-  // the bundled ⌘ Command-EVE mark (a relative asset that always loads). One-shot guard
-  // via data-fb so a failing fallback can't loop.
-  const fallbackToCommandMark = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    const img = e.currentTarget;
-    if (img.dataset.fb) return;
-    img.dataset.fb = '1';
-    img.src = COMMAND_EVE_ASSISTANT_AVATAR;
-  };
-
   const renderLeadingIcon = () => {
     // When the row is pinned, hovering reveals a pushpin marker that overlays
     // the leading icon. We dim the resting icon on hover so the pin reads cleanly.
@@ -98,11 +105,10 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
         );
       }
       return (
-        <img
+        <RowLeadingImg
           src={assistantInfo.logo}
           alt={assistantInfo.name}
           className={classNames('w-16px h-16px rounded-50% flex-shrink-0', composedClass)}
-          onError={fallbackToCommandMark}
         />
       );
     }
@@ -111,11 +117,10 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
     const logo = getAgentLogo(backendKey);
     if (logo) {
       return (
-        <img
+        <RowLeadingImg
           src={logo}
           alt={`${backendKey || 'agent'} logo`}
           className={classNames('w-16px h-16px rounded-50% flex-shrink-0', composedClass)}
-          onError={fallbackToCommandMark}
         />
       );
     }

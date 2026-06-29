@@ -3,9 +3,9 @@
   "default": "Default",
   "acceptEdits": "Accept Edits",
   "eve": {
-    "ask": "Ask every time",
-    "acceptEdits": "Accept Edits",
-    "yolo": "YOLO"
+    "ask": "Ask",
+    "acceptEdits": "Auto-edit",
+    "yolo": "Don't ask"
   },
   "autoEdit": "Auto Edit",
   "auto_edit": "Auto Edit",

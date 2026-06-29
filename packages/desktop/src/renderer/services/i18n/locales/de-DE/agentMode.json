@@ -3,9 +3,9 @@
   "default": "Standard",
   "acceptEdits": "Änderungen übernehmen",
   "eve": {
-    "ask": "Standard",
-    "acceptEdits": "Änderungen übernehmen",
-    "yolo": "YOLO"
+    "ask": "Fragen",
+    "acceptEdits": "Auto-Edits",
+    "yolo": "Nicht fragen"
   },
   "autoEdit": "Auto-Bearbeitung",
   "auto_edit": "Auto-Bearbeitung",

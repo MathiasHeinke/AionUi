@@ -184,7 +184,11 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
     appliedInitialModeRef.current = initialMode;
     // Re-arm the one-shot backend seed for the incoming conversation/agent.
     seededBackendModeRef.current = false;
-    setCurrentMode(initialMode && modes.some((m) => m.value === initialMode) ? initialMode : defaultMode);
+    // Use resolveModeForBackend (not a bare some()-match) so a cross-backend
+    // synonym like 'yolo' resolves to hermes' 'dont_ask' instead of snapping to
+    // the default — this effect re-runs on every conversation/backend switch and
+    // was silently RE-OVERRIDING the line-146 seed back to Standard.
+    setCurrentMode(resolveModeForBackend(initialMode, modes) ?? defaultMode);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversation_id, backend]);
 
@@ -197,7 +201,7 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
     if (initialMode === appliedInitialModeRef.current) return;
     appliedInitialModeRef.current = initialMode;
     if (userSelectedModeRef.current) return;
-    const valid = modes.some((m) => m.value === initialMode) ? initialMode : defaultMode;
+    const valid = resolveModeForBackend(initialMode, modes) ?? defaultMode;
     setCurrentMode(valid);
   }, [initialMode, modes, defaultMode]);
 
@@ -276,26 +280,31 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
 
       if (!conversation_id) return;
 
+      // OPTIMISTIC: reflect the pick in the UI immediately. The backend /mode PUT is
+      // BEST-EFFORT — the bundled runtime 404s it (the mode lives on the conversation's
+      // session_mode, there is no live /mode route), and the OLD code only set
+      // current_mode AFTER a successful setMode, so a 404 reverted the switch → exactly
+      // the "Umschalten in der Session geht nicht" the founder reported. We must keep the
+      // user's pick regardless of the network result.
+      setCurrentMode(mode);
+      onModeChanged?.(mode);
+      if (backend) {
+        // Mirror Guid-page behaviour: an in-session switch becomes the next default.
+        void savePreferredMode(backend, mode);
+      }
       setIsLoading(true);
       try {
         await beforeRuntimeSync?.();
-        const confirmed = await ipcBridge.acpConversation.setMode.invoke({
-          conversation_id,
-          mode,
-        });
-        const confirmedMode = confirmed.mode || mode;
-
-        setCurrentMode(confirmedMode);
-        onModeChanged?.(confirmedMode);
-        if (backend) {
-          // Mirror Guid page behaviour so a switch made inside the
-          // conversation also becomes the next-session default.
-          void savePreferredMode(backend, confirmedMode);
+        const confirmed = await ipcBridge.acpConversation.setMode.invoke({ conversation_id, mode });
+        // Only correct course if the backend authoritatively confirms a DIFFERENT mode.
+        const confirmedMode = confirmed?.mode;
+        if (confirmedMode && confirmedMode !== mode && modes.some((m) => m.value === confirmedMode)) {
+          setCurrentMode(confirmedMode);
+          onModeChanged?.(confirmedMode);
         }
-        Message.success(t('agentMode.switchSuccess'));
       } catch (error) {
-        console.error('[AgentModeSelector] Failed to switch mode:', error);
-        Message.error(t('agentMode.switchFailed'));
+        // best-effort: a missing /mode route must NOT undo the visible switch.
+        console.warn('[AgentModeSelector] setMode best-effort (kept local pick):', error);
       } finally {
         setIsLoading(false);
       }
@@ -347,13 +356,14 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
         : can_switchMode
           ? getCurrentModeLabel()
           : agent_name || backend || 'Agent';
+    // The compact chat-bar pill drops the "Berechtigung · " prefix: the 🛡 shield
+    // icon already signals "permission", and the founder wants it short + identical
+    // in the start view and in-session (e.g. "Auto-Edits", not the long
+    // "Berechtigung · Änderungen übernehmen"). compactLabelPrefix is kept in the
+    // condition so non-EVE callers can still opt back in via compactLabelOverride.
     const compactLabel =
       compactLabelOverride ||
-      (compactLabelPrefix && compactLabelType !== 'agent'
-        ? hideCompactLabelPrefixOnMobile && isMobile
-          ? baseCompactLabel
-          : `${compactLabelPrefix} · ${baseCompactLabel}`
-        : baseCompactLabel);
+      (compactLabelPrefix && compactLabelType !== 'agent' ? baseCompactLabel : baseCompactLabel);
     if (!canInteract && legacyCompactBehavior) {
       return null;
     }
