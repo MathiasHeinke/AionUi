@@ -397,7 +397,8 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(soulMd).not.toMatch(/^## Toolbelt/m);
       expect(soulMd).not.toMatch(/## Operating environment/i);
       expect(fs.existsSync(path.join(paths.managedSkillsRoot, 'first-run-company-discovery', 'SKILL.md'))).toBe(true);
-      expect(fs.existsSync(path.join(paths.managedSkillsRoot, 'content-machine', 'SKILL.md'))).toBe(false);
+      // 1.2.14: content-machine flipped 'available'→'active' + bundled, so its real SKILL.md now lands.
+      expect(fs.existsSync(path.join(paths.managedSkillsRoot, 'content-machine', 'SKILL.md'))).toBe(true);
       const reconciliation = JSON.parse(fs.readFileSync(paths.runtimeReconciliation, 'utf8')) as {
         executable_skill_ids: string[];
         prompt_label_skill_ids: string[];
@@ -411,7 +412,9 @@ describe('Command EVE runtime bootstrap core', () => {
         blocked_external_mcp_transports: string[];
       };
       expect(reconciliation.executable_skill_ids).toContain('first-run-company-discovery');
-      expect(reconciliation.prompt_label_skill_ids).toContain('content-machine');
+      // 1.2.14: content-machine et al. are now executable (real bundled SKILL.md); department-pack-creator stays a prompt-label.
+      expect(reconciliation.executable_skill_ids).toContain('content-machine');
+      expect(reconciliation.prompt_label_skill_ids).toContain('department-pack-creator');
       expect(reconciliation.hermes_config.skills_external_dirs).toEqual(['${HERMES_HOME}/skills-command-eve']);
       expect(reconciliation.hermes_config.mcp_servers).toEqual([]);
       expect(reconciliation.hermes_config.platform_toolsets).toEqual({ cli: ['hermes-cli'], acp: ['hermes-acp'] });

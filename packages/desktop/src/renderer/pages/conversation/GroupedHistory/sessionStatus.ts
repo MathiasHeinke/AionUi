@@ -40,6 +40,12 @@ export interface SessionStatusInput {
   isGenerating: boolean;
   /** A completed run produced output the user has not opened yet. */
   hasCompletionUnread: boolean;
+  /** EVE is waiting on the user (a turn ended in `ai_waiting_input` — a question
+   * or permission prompt the user hasn't answered yet). */
+  isWaitingInput: boolean;
+  /** The last chat turn errored / disconnected (terminal stream `error` or
+   * `agent_status` error, or a turn that ended in `error`/`stopped`). */
+  hasError: boolean;
   /** This conversation's scheduled-task status (`'none'` when not scheduled). */
   cronStatus: SessionCronStatus;
 }
@@ -49,16 +55,18 @@ export interface SessionStatusInput {
  *
  * Priority (most urgent / most informative first):
  *   1. running   — an in-flight turn dominates everything.
- *   2. error     — a failed/missed scheduled run is the loudest resting state.
- *   3. attention — a paused scheduled task needs a decision.
+ *   2. error     — a failed chat turn OR a failed/missed scheduled run is the
+ *                  loudest resting state.
+ *   3. attention — EVE is waiting on the user (a question/permission), or a
+ *                  paused scheduled task needs a decision.
  *   4. done      — a finished run (chat completion OR a scheduled `unread`
  *                  execution) is waiting to be read.
  *   5. idle      — nothing to surface (active-but-quiet cron included).
  */
 export function deriveSessionStatus(input: SessionStatusInput): SessionStatus {
   if (input.isGenerating) return 'running';
-  if (input.cronStatus === 'error') return 'error';
-  if (input.cronStatus === 'paused') return 'attention';
+  if (input.hasError || input.cronStatus === 'error') return 'error';
+  if (input.isWaitingInput || input.cronStatus === 'paused') return 'attention';
   if (input.hasCompletionUnread || input.cronStatus === 'unread') return 'done';
   return 'idle';
 }

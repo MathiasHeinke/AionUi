@@ -154,6 +154,11 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
   // ONLY on a genuine initialMode change (agent switch / new session_mode), not
   // on every `modes` array identity change.
   const appliedInitialModeRef = useRef<string | undefined>(initialMode);
+  // Backend session mode is never seeded from session_mode (warmup calls no
+  // setMode), so getMode authoritatively returns 'default' and the pick is lost.
+  // Seed it ONCE per conversation from a non-default initialMode; this ref makes
+  // the push idempotent so an SWR/getMode re-run can't double-fire it.
+  const seededBackendModeRef = useRef(false);
   const getDisplayModeLabel = useCallback(
     (mode: AgentModeOption) => modeLabelFormatter?.(mode) ?? mode.label,
     [modeLabelFormatter]
@@ -172,6 +177,8 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
   useEffect(() => {
     userSelectedModeRef.current = false;
     appliedInitialModeRef.current = initialMode;
+    // Re-arm the one-shot backend seed for the incoming conversation/agent.
+    seededBackendModeRef.current = false;
     setCurrentMode(initialMode && modes.some((m) => m.value === initialMode) ? initialMode : defaultMode);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversation_id, backend]);
@@ -210,12 +217,24 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
         // Before the manager is initialized, getMode returns
         // { mode: 'default', initialized: false } — never adopt that.
         if (result.initialized === false) return;
-        // Don't let a backend `default` clobber a deliberately non-default
-        // initialMode (the persisted session_mode). The selector applies that
-        // choice on the first message; reading back `default` here is stale.
         const backendMode = result.mode;
         const initialIsNonDefault =
           initialMode !== undefined && initialMode !== defaultMode && modes.some((m) => m.value === initialMode);
+        // ROOT FIX: the backend session mode is never seeded from session_mode,
+        // so a non-default start-view pick reads back here as bare `default`.
+        // Push the pick to the backend ONCE so the real session mode matches the
+        // selector, then adopt initialMode as authoritative instead of `default`.
+        if (backendMode === defaultMode && initialIsNonDefault && !seededBackendModeRef.current && initialMode) {
+          seededBackendModeRef.current = true;
+          setCurrentMode(initialMode);
+          void ipcBridge.acpConversation.setMode.invoke({ conversation_id, mode: initialMode }).catch(() => {
+            // Seeding is best-effort; the selector already shows initialMode and
+            // an explicit in-session pick will re-issue setMode authoritatively.
+          });
+          return;
+        }
+        // Even if the one-shot seed already ran, never downgrade a deliberately
+        // non-default initialMode to a stale backend `default`.
         if (backendMode === defaultMode && initialIsNonDefault) return;
         // Only adopt a backend mode that is actually a known mode for this
         // backend (guards against a stale/foreign value rendering blank).

@@ -99,6 +99,8 @@ type ConversationListSyncSnapshot = {
   conversations: TChatConversation[];
   generatingConversationIds: Set<string>;
   completionUnreadConversationIds: Set<string>;
+  attentionConversationIds: Set<string>;
+  errorConversationIds: Set<string>;
 };
 
 const listeners = new Set<() => void>();
@@ -108,12 +110,16 @@ let conversationsState: TChatConversation[] = [];
 let generatingConversationIdsState = new Set<string>();
 let completionUnreadConversationIdsState = new Set<string>();
 let completedConversationIdsState = new Set<string>();
+let attentionConversationIdsState = new Set<string>();
+let errorConversationIdsState = new Set<string>();
 let conversation_idsState = new Set<string>();
 let activeConversationIdState: string | null = null;
 let snapshotState: ConversationListSyncSnapshot = {
   conversations: conversationsState,
   generatingConversationIds: generatingConversationIdsState,
   completionUnreadConversationIds: completionUnreadConversationIdsState,
+  attentionConversationIds: attentionConversationIdsState,
+  errorConversationIds: errorConversationIdsState,
 };
 
 const emitStoreChange = () => {
@@ -121,6 +127,8 @@ const emitStoreChange = () => {
     conversations: conversationsState,
     generatingConversationIds: generatingConversationIdsState,
     completionUnreadConversationIds: completionUnreadConversationIdsState,
+    attentionConversationIds: attentionConversationIdsState,
+    errorConversationIds: errorConversationIdsState,
   };
   listeners.forEach((listener) => listener());
 };
@@ -207,6 +215,46 @@ const clearCompletionUnreadState = (conversation_id: string) => {
   emitStoreChange();
 };
 
+const markAttention = (conversation_id: string) => {
+  if (attentionConversationIdsState.has(conversation_id)) {
+    return;
+  }
+
+  attentionConversationIdsState = new Set(attentionConversationIdsState).add(conversation_id);
+  emitStoreChange();
+};
+
+const clearAttention = (conversation_id: string) => {
+  if (!attentionConversationIdsState.has(conversation_id)) {
+    return;
+  }
+
+  const next = new Set(attentionConversationIdsState);
+  next.delete(conversation_id);
+  attentionConversationIdsState = next;
+  emitStoreChange();
+};
+
+const markError = (conversation_id: string) => {
+  if (errorConversationIdsState.has(conversation_id)) {
+    return;
+  }
+
+  errorConversationIdsState = new Set(errorConversationIdsState).add(conversation_id);
+  emitStoreChange();
+};
+
+const clearError = (conversation_id: string) => {
+  if (!errorConversationIdsState.has(conversation_id)) {
+    return;
+  }
+
+  const next = new Set(errorConversationIdsState);
+  next.delete(conversation_id);
+  errorConversationIdsState = next;
+  emitStoreChange();
+};
+
 const markCompleted = (conversation_id: string) => {
   completedConversationIdsState = new Set(completedConversationIdsState).add(conversation_id);
 };
@@ -237,6 +285,12 @@ const logLateStreamIgnored = (conversation_id: string, type: string) => {
 
 const setActiveConversationState = (conversation_id: string | null) => {
   activeConversationIdState = conversation_id;
+  // Opening a conversation means the user has seen its resting state, so clear
+  // the "needs you" / "errored" flags (mirrors clearCompletionUnread).
+  if (conversation_id) {
+    clearAttention(conversation_id);
+    clearError(conversation_id);
+  }
 };
 
 const initializeConversationListSyncStore = () => {
@@ -253,6 +307,8 @@ const initializeConversationListSyncStore = () => {
       clearGenerating(event.conversation_id);
       clearCompletionUnreadState(event.conversation_id);
       clearCompleted(event.conversation_id);
+      clearAttention(event.conversation_id);
+      clearError(event.conversation_id);
     }
     refreshConversations();
   });
@@ -268,6 +324,13 @@ const initializeConversationListSyncStore = () => {
 
     if (isTerminalStreamMessage(message)) {
       const wasGenerating = generatingConversationIdsState.has(conversation_id);
+      const isErrorStream =
+        message.type === 'error' || (message.type === 'agent_status' && isTerminalAgentStatus(message.data));
+      if (isErrorStream && activeConversationIdState !== conversation_id) {
+        // A failed/disconnected turn is the loudest resting state — flag it red
+        // (unless the user is already looking at this conversation).
+        markError(conversation_id);
+      }
       if (wasGenerating && activeConversationIdState !== conversation_id) {
         markCompletionUnread(conversation_id);
       }
@@ -279,6 +342,12 @@ const initializeConversationListSyncStore = () => {
       type: message.type,
       completed: completedConversationIdsState.has(conversation_id),
     });
+    if (message.type === 'start') {
+      // A fresh turn clears any stale resting flags from the previous turn so the
+      // row doesn't keep an old "errored"/"needs you" dot while it's regenerating.
+      clearAttention(conversation_id);
+      clearError(conversation_id);
+    }
     if (decision.clearCompleted) {
       clearCompleted(conversation_id);
     }
@@ -291,8 +360,17 @@ const initializeConversationListSyncStore = () => {
     }
   });
   ipcBridge.conversation.turnCompleted.on((event) => {
-    if (isTerminalTurnState(event.state) && activeConversationIdState !== event.session_id) {
+    const isUnseen = activeConversationIdState !== event.session_id;
+    if (isTerminalTurnState(event.state) && isUnseen) {
       markCompletionUnread(event.session_id);
+      // Split the terminal turn states into their semantic resting flags:
+      //   ai_waiting_input → attention (EVE is waiting on the user)
+      //   error / stopped  → error     (the turn failed / was interrupted)
+      if (event.state === 'ai_waiting_input') {
+        markAttention(event.session_id);
+      } else if (event.state === 'error' || event.state === 'stopped') {
+        markError(event.session_id);
+      }
     }
     markCompleted(event.session_id);
     clearGenerating(event.session_id);
@@ -305,14 +383,19 @@ export const useConversationListSync = () => {
     initializeConversationListSyncStore();
   }, []);
 
-  const { conversations, generatingConversationIds, completionUnreadConversationIds } = useSyncExternalStore(
-    subscribeConversationListSync,
-    getConversationListSyncSnapshot,
-    getConversationListSyncSnapshot
-  );
+  const {
+    conversations,
+    generatingConversationIds,
+    completionUnreadConversationIds,
+    attentionConversationIds,
+    errorConversationIds,
+  } = useSyncExternalStore(subscribeConversationListSync, getConversationListSyncSnapshot, getConversationListSyncSnapshot);
 
   const clearCompletionUnread = useCallback((conversation_id: string) => {
     clearCompletionUnreadState(conversation_id);
+    // Reading a conversation also clears its "needs you" / "errored" resting flags.
+    clearAttention(conversation_id);
+    clearError(conversation_id);
   }, []);
 
   const setActiveConversation = useCallback((conversation_id: string | null) => {
@@ -333,10 +416,26 @@ export const useConversationListSync = () => {
     [completionUnreadConversationIds]
   );
 
+  const isConversationWaitingInput = useCallback(
+    (conversation_id: string) => {
+      return attentionConversationIds.has(conversation_id);
+    },
+    [attentionConversationIds]
+  );
+
+  const hasConversationError = useCallback(
+    (conversation_id: string) => {
+      return errorConversationIds.has(conversation_id);
+    },
+    [errorConversationIds]
+  );
+
   return {
     conversations,
     isConversationGenerating,
     hasCompletionUnread,
+    isConversationWaitingInput,
+    hasConversationError,
     clearCompletionUnread,
     setActiveConversation,
   };

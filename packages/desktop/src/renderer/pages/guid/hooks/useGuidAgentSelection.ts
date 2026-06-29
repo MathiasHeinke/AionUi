@@ -146,6 +146,11 @@ export const useGuidAgentSelection = ({
   const selectedAgentRef = useRef<string | null>(null);
   // Guard: only run the initial restore once; user selections are never overwritten
   const initialRestoreDoneRef = useRef(false);
+  // Tracks the agent key the mode-fallback was last applied for. An SWR
+  // revalidation re-runs the mode effect with the SAME agent; without this the
+  // unconditional `_setSelectedMode(fallbackMode)` would reset an explicit pick
+  // back to 'default' mid-send (the start-screen permission-reset bug).
+  const modeFallbackAppliedForRef = useRef<string | null>(null);
   const [selectedAcpModel, _setSelectedAcpModel] = useState<string | null>(null);
 
   // Wrap setSelectedAgentKey to also save to storage
@@ -457,7 +462,15 @@ export const useGuidAgentSelection = ({
       COMMAND_EVE_SHELL_ENABLED && configKey === 'codex'
         ? CODEX_MODE_NATIVE_DEFAULT
         : resolveDefaultMode(configKey, availableAgentsData as unknown as AgentMetadata[] | undefined);
-    _setSelectedMode(fallbackMode);
+    // Only reset to the fallback when the AGENT actually changed. An SWR
+    // revalidation re-runs this effect with the same configKey; resetting then
+    // would clobber an explicit user pick (or a completed restore) back to
+    // 'default' — exactly the start-screen permission-reset bug.
+    const agentChanged = modeFallbackAppliedForRef.current !== configKey;
+    if (agentChanged) {
+      modeFallbackAppliedForRef.current = configKey;
+      _setSelectedMode(fallbackMode);
+    }
     if (!configKey) return;
 
     let cancelled = false;

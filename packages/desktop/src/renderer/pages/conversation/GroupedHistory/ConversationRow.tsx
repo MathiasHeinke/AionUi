@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { COMMAND_EVE_ASSISTANT_AVATAR } from '@/common/config/commandEveShell';
 import { getAgentLogo } from '@/renderer/utils/model/agentLogo';
 import FlexFullContainer from '@/renderer/components/layout/FlexFullContainer';
 import { usePresetAssistantInfo } from '@/renderer/hooks/agent/usePresetAssistantInfo';
@@ -26,6 +27,8 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
     conversation,
     isGenerating,
     hasCompletionUnread,
+    isWaitingInput,
+    hasError,
     collapsed,
     tooltipEnabled,
     batchMode,
@@ -54,18 +57,25 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
   const siderTooltipProps = getSiderTooltipProps(tooltipEnabled);
   const inlineNameTooltipEnabled = !collapsed && !isMobile && !!conversation.name;
 
-  // ONE semantic status for the row (Claude-Code-style): the leading icon stays
-  // the agent avatar (identity), and a single colored dot — done=green,
-  // attention=orange, error=red, running=Spin — replaces the old mix of a
+  // ONE semantic status for the row (Variante B): the leading icon stays the
+  // agent/⌘ avatar (identity), and a single colored dot — done=green,
+  // attention=orange, error=red, running=Spin overlay — replaces the old mix of a
   // separate unread dot + the cron alarm/pause/attention glyph swapped in as the
-  // leading icon. See sessionStatus.ts for the full mapping + rationale.
-  const sessionStatus = deriveSessionStatus({ isGenerating, hasCompletionUnread, cronStatus });
+  // leading icon. The dots now fire for NORMAL chats too (waiting-input + errored
+  // turns), not just scheduled/cron tasks. See sessionStatus.ts for the full
+  // mapping + rationale.
+  const sessionStatus = deriveSessionStatus({ isGenerating, hasCompletionUnread, isWaitingInput, hasError, cronStatus });
 
   const renderLeadingIcon = () => {
     // When the row is pinned, hovering reveals a pushpin marker that overlays
     // the leading icon. We dim the resting icon on hover so the pin reads cleanly.
     const pinnedHoverFade = isPinned ? 'group-hover:opacity-0 transition-opacity' : '';
-    const composedClass = classNames(pinnedHoverFade);
+    // Variante B: "erledigt"/idle rows render the brand mark in an ANTHRACITE
+    // (muted) treatment so they recede; pending states (running/attention/error/
+    // done) render it at full strength so they pop. grayscale + reduced opacity
+    // keeps it subtle and works for both the colored agent logos and the ⌘ mark.
+    const idleMuted = sessionStatus === 'idle' ? 'grayscale opacity-55' : '';
+    const composedClass = classNames(pinnedHoverFade, idleMuted, 'transition-all');
 
     if (assistantInfo) {
       if (assistantInfo.isEmoji) {
@@ -91,6 +101,21 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
         <img
           src={logo}
           alt={`${backendKey || 'agent'} logo`}
+          className={classNames('w-16px h-16px rounded-50% flex-shrink-0', composedClass)}
+        />
+      );
+    }
+
+    // GUARANTEED EVE fallback: when no preset assistant info and no backend logo
+    // resolves (EVE/hermes/aionrs lanes already map to the ⌘ mark via getAgentLogo,
+    // but this covers any lane that returns falsy), render the Command EVE ⌘ brand
+    // mark instead of the generic MessageOne glyph so an EVE row always reads as EVE.
+    const isEveLane = backendKey === 'hermes' || backendKey === 'aionrs';
+    if (isEveLane || !backendKey) {
+      return (
+        <img
+          src={COMMAND_EVE_ASSISTANT_AVATAR}
+          alt='Command EVE'
           className={classNames('w-16px h-16px rounded-50% flex-shrink-0', composedClass)}
         />
       );
@@ -159,10 +184,21 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
           </span>
         )}
         <span className='size-22px flex items-center justify-center shrink-0 relative'>
-          {isGenerating && !batchMode ? <Spin size={16} /> : renderLeadingIcon()}
+          {/* Variante B: the ⌘/agent avatar ALWAYS renders (identity stays put);
+              while a turn streams we overlay a small Spin on its bottom-right
+              instead of replacing the avatar with a bare spinner. */}
+          {renderLeadingIcon()}
+          {isGenerating && !batchMode && (
+            <span
+              className='absolute -bottom-2px -right-2px flex-center pointer-events-none'
+              style={{ lineHeight: 0 }}
+            >
+              <Spin size={14} />
+            </span>
+          )}
           {/* ONE semantic status dot, overlaid on the avatar's bottom-right. Hidden
               in batch mode (the checkbox owns the row) and while generating (the
-              Spin already signals "running"). idle renders nothing. */}
+              Spin overlay already signals "running"). idle renders nothing. */}
           {!batchMode && !isGenerating && <SessionStatusDot status={sessionStatus} overlay />}
           {/* Pinned indicator: only visible when row is hovered, overlays leading icon */}
           {!batchMode && isPinned && !isMobile && !isGenerating && (
