@@ -76,7 +76,8 @@ describe('useEveInferenceSelection', () => {
     const { result } = renderHook(() => useEveInferenceSelection());
     expect(result.current.selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION);
     expect(result.current.selectedItem?.group).toBe('eve');
-    expect(result.current.selectedItem?.label).toBe('Standard');
+    // Cloud picker rows read "EVE Standard / EVE High / EVE Max" (1.2.13).
+    expect(result.current.selectedItem?.label).toBe('EVE Standard');
   });
 
   it('commit() persists the choice to commandEve.inferenceSelection (next-turn pickup)', () => {

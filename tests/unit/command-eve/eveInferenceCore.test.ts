@@ -82,10 +82,11 @@ describe('eveInferenceCore — trial detection', () => {
 });
 
 describe('eveInferenceCore — STUFEN shape (requirement 0)', () => {
-  it('exposes EXACTLY the three EVE levels in order: Standard, Hoch, Max', () => {
+  it('exposes EXACTLY the three EVE levels in order: EVE Standard, EVE High, EVE Max', () => {
     const groups = buildEvePickerGroups(PAID_NULL);
     const eve = groups.find((g) => g.kind === 'eve')!;
-    expect(eve.items.map((i) => i.label)).toEqual(['Standard', 'Hoch', 'Max']);
+    // Founder mandate 1.2.13: picker rows read "EVE Standard / EVE High / EVE Max".
+    expect(eve.items.map((i) => i.label)).toEqual(['EVE Standard', 'EVE High', 'EVE Max']);
   });
 
   it('Standard is the free-eligible default (DeepSeek V4 Flash); Hoch + Max are paid', () => {
@@ -100,28 +101,30 @@ describe('eveInferenceCore — STUFEN shape (requirement 0)', () => {
     expect(EVE_INFERENCE_DEFAULT_TIER_ID).toBe('eve-standard');
   });
 
-  it('Hoch is paid + consumes credits (DeepSeek V4 Pro), NOT gated', () => {
+  it('EVE High is paid + consumes credits (DeepSeek V4 Pro), NOT gated; cost badge suppressed in picker', () => {
     const items = flat(buildEvePickerGroups(PAID_NULL));
-    const hoch = byLabel(items, 'eve', 'Hoch')!;
+    const hoch = byLabel(items, 'eve', 'EVE High')!;
     expect(hoch.consumesCredits).toBe(true);
     expect(hoch.gated).toBe(false);
     expect(hoch.sublabel).toBe('intelligenter');
-    expect(hoch.costBadge).toBe('mehr Credits');
+    // Founder mandate 1.2.13: cost/upsell labels are NOT surfaced in the picker.
+    expect(hoch.costBadge).toBeUndefined();
   });
 
-  it('Max is paid + GATED (GLM 5.2) and carries the highest-cost badge', () => {
+  it('EVE Max is paid + GATED (GLM 5.2); cost badge suppressed in picker', () => {
     const items = flat(buildEvePickerGroups(PAID_NULL));
-    const max = byLabel(items, 'eve', 'Max')!;
+    const max = byLabel(items, 'eve', 'EVE Max')!;
     expect(max.consumesCredits).toBe(true);
     expect(max.gated).toBe(true);
     expect(max.sublabel).toBe('höchste Intelligenz');
-    expect(max.costBadge).toBe('höchste Kosten');
+    expect(max.costBadge).toBeUndefined();
   });
 
-  it('the FREE level (Standard) carries NO cost badge in the base picker (free = no credit surprise)', () => {
+  it('no EVE picker row carries a cost badge (founder mandate: tone down upsell)', () => {
     const items = flat(buildEvePickerGroups(PAID_NULL));
-    expect(byLabel(items, 'eve', 'Standard')!.costBadge).toBeUndefined();
-    expect(byLabel(items, 'eve', 'Standard')!.consumesCredits).toBe(false);
+    const eve = items.filter((i) => i.group === 'eve');
+    expect(eve.every((i) => i.costBadge === undefined)).toBe(true);
+    expect(byLabel(items, 'eve', 'EVE Standard')!.consumesCredits).toBe(false);
   });
 });
 
@@ -129,29 +132,30 @@ describe('eveInferenceCore — free-tier greying (requirement 1)', () => {
   it('renders EXACTLY two groups and nothing else', () => {
     const groups = buildEvePickerGroups(TRIAL);
     expect(groups.map((g) => g.kind)).toEqual(['local', 'eve']);
-    // Local: Standard + Hoch only (no 31B pro tier). EVE: the three STUFEN.
+    // Local: Standard + Hoch only (no 31B pro tier). EVE: the three STUFEN
+    // (display labels "EVE Standard / EVE High / EVE Max").
     expect(groups[0].items.map((i) => i.label)).toEqual(['Standard', 'Hoch']);
-    expect(groups[1].items.map((i) => i.label)).toEqual(['Standard', 'Hoch', 'Max']);
+    expect(groups[1].items.map((i) => i.label)).toEqual(['EVE Standard', 'EVE High', 'EVE Max']);
   });
 
-  it('greys the paid Pro rungs (Hoch + Max) while trialing; Standard + locals selectable', () => {
+  it('greys the paid Pro rungs (EVE High + EVE Max) while trialing; EVE Standard + locals selectable', () => {
     const items = flat(buildEvePickerGroups(TRIAL));
 
-    // The paid Pro rungs (Hoch + Max) disabled with the paid hint.
-    const hoch = byLabel(items, 'eve', 'Hoch')!;
-    const max = byLabel(items, 'eve', 'Max')!;
+    // The paid Pro rungs (EVE High + EVE Max) disabled with the paid hint.
+    const hoch = byLabel(items, 'eve', 'EVE High')!;
+    const max = byLabel(items, 'eve', 'EVE Max')!;
     expect(hoch.disabled).toBe(true);
     expect(hoch.disabledReasonCode).toBe('PAID_TIER_REQUIRED');
     expect(max.disabled).toBe(true);
     expect(max.disabledReasonCode).toBe('PAID_TIER_REQUIRED');
 
-    // The cost badge is shown EVEN while greyed, so the user knows what it costs
-    // before deciding to upgrade.
-    expect(hoch.costBadge).toBe('mehr Credits');
-    expect(max.costBadge).toBe('höchste Kosten');
+    // Founder mandate 1.2.13: even while greyed, the picker does NOT push cost
+    // labels — the upsell is conveyed by the disabled/paid hint, not a cost badge.
+    expect(hoch.costBadge).toBeUndefined();
+    expect(max.costBadge).toBeUndefined();
 
     // EVE Standard (the free model) selectable on a trial.
-    expect(byLabel(items, 'eve', 'Standard')!.disabled).toBe(false);
+    expect(byLabel(items, 'eve', 'EVE Standard')!.disabled).toBe(false);
 
     // Both local tiers selectable.
     expect(byLabel(items, 'local', 'Standard')!.disabled).toBe(false);
@@ -165,9 +169,9 @@ describe('eveInferenceCore — free-tier greying (requirement 1)', () => {
   it('leaves ALL EVE levels selectable when paid (trial_ends_at null/absent)', () => {
     for (const ent of [PAID_NULL, PAID_ABSENT]) {
       const items = flat(buildEvePickerGroups(ent));
-      expect(byLabel(items, 'eve', 'Standard')!.disabled).toBe(false);
-      expect(byLabel(items, 'eve', 'Hoch')!.disabled).toBe(false);
-      expect(byLabel(items, 'eve', 'Max')!.disabled).toBe(false);
+      expect(byLabel(items, 'eve', 'EVE Standard')!.disabled).toBe(false);
+      expect(byLabel(items, 'eve', 'EVE High')!.disabled).toBe(false);
+      expect(byLabel(items, 'eve', 'EVE Max')!.disabled).toBe(false);
     }
   });
 
@@ -197,9 +201,9 @@ describe('eveInferenceCore — honest CLOUD labeling (audit #1)', () => {
 
   it('each EVE level names its concrete cloud model in the sublabel (level in the primary label, model in the secondary)', () => {
     const items = flat(buildEvePickerGroups(TRIAL));
-    expect(byLabel(items, 'eve', 'Standard')!.sublabel).toBe('großer Kontext');
-    expect(byLabel(items, 'eve', 'Hoch')!.sublabel).toBe('intelligenter');
-    expect(byLabel(items, 'eve', 'Max')!.sublabel).toBe('höchste Intelligenz');
+    expect(byLabel(items, 'eve', 'EVE Standard')!.sublabel).toBe('großer Kontext');
+    expect(byLabel(items, 'eve', 'EVE High')!.sublabel).toBe('intelligenter');
+    expect(byLabel(items, 'eve', 'EVE Max')!.sublabel).toBe('höchste Intelligenz');
   });
 
   it('cloud heading marks EVE as Cloud; rows show CAPABILITY, never a concrete model name', () => {

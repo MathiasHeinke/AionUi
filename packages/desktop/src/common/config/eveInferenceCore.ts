@@ -153,6 +153,18 @@ export type EveInferenceTier = (typeof EVE_INFERENCE_TIERS)[number];
 export type EveInferenceTierId = EveInferenceTier['id'];
 export type EveInferenceWireTier = EveInferenceTier['tier'];
 
+/**
+ * User-facing cloud-row labels (founder mandate 1.2.13): the EVE Inference rows
+ * read "EVE Standard / EVE High / EVE Max" in the picker. The raw `tier.label`
+ * ("Standard" / "Hoch" / "Max") stays the wire-aligned internal label; this map
+ * is presentation-only and does NOT change any selection value or wire `tier`.
+ */
+export const EVE_INFERENCE_TIER_DISPLAY_LABELS: Record<EveInferenceWireTier, string> = {
+  standard: 'EVE Standard',
+  high: 'EVE High',
+  max: 'EVE Max',
+};
+
 export const EVE_INFERENCE_DEFAULT_TIER_ID: EveInferenceTierId = EVE_INFERENCE_TIERS[0].id;
 
 // ---------------------------------------------------------------------------
@@ -406,18 +418,21 @@ export function buildEvePickerGroups(entitlement: EveEntitlementView | null | un
       // Paid levels surface their model label (DeepSeek V4 Pro / GLM 5.2);
       // free levels keep the cloud/external sublabel.
       const modelLabel = 'modelLabel' in tier ? (tier.modelLabel as string) : undefined;
-      const costBadge = 'costBadge' in tier ? (tier.costBadge as string) : undefined;
       const sublabel = modelLabel ?? EVE_INFERENCE_TIER_SUBLABEL;
       return {
         value: eveTierValue(tier.id),
         group: 'eve' as const,
-        label: tier.label,
+        // Cloud rows read "EVE Standard / EVE High / EVE Max" (the group header
+        // "EVE Inference (Cloud)" already conveys the lane). Founder mandate:
+        // tone down the cost/upsell — the per-row cost badges ("mehr Credits",
+        // "höchste Kosten") are intentionally NOT surfaced here. `consumesCredits`
+        // / `gated` flags are still carried for any non-picker logic.
+        label: EVE_INFERENCE_TIER_DISPLAY_LABELS[tier.tier],
         sublabel,
         disabled,
         ...(disabled ? { disabledReasonCode: 'PAID_TIER_REQUIRED' as const } : {}),
         consumesCredits,
         gated,
-        ...(costBadge ? { costBadge } : {}),
       };
     }),
   };

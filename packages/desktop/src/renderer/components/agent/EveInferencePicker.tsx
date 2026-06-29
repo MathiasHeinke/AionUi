@@ -68,15 +68,19 @@ const EveInferencePicker: React.FC<{
 
   const displayLabel = useMemo(() => {
     if (selectedItem) {
-      // Honest cloud labeling: the EVE lane is external cloud, so the chip reads
-      // "EVE Cloud · <tier>" — never just "EVE" (which could read as private).
-      const groupTitle = selectedItem.group === 'eve' ? 'EVE Cloud' : t('common.localModel', 'Lokal');
-      // ...but if the cloud lane has no bearer at rest, the send falls back to
+      // ...if the cloud lane has no bearer at rest, the send falls back to
       // local — so say so instead of lying about the tier.
       if (eveCloudNeedsActivation) {
         return `EVE Cloud · ${t('conversation.eveInference.needsActivation', 'Aktivierung nötig')}`;
       }
-      return `${groupTitle} · ${selectedItem.label}`;
+      // The EVE cloud rows already read "EVE Standard / EVE High / EVE Max", so the
+      // chip shows that label verbatim (no redundant "EVE Cloud · EVE Standard").
+      // The local lane stays prefixed with "Lokal · <tier>" so the private lane is
+      // never mistaken for cloud.
+      if (selectedItem.group === 'eve') {
+        return selectedItem.label;
+      }
+      return `${t('common.localModel', 'Lokal')} · ${selectedItem.label}`;
     }
     return t('conversation.eveInference.pick', 'Modell wählen');
   }, [selectedItem, eveCloudNeedsActivation, t]);

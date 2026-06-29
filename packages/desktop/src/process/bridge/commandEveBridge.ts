@@ -6,6 +6,11 @@
 
 import { bridge } from '@office-ai/platform';
 import { buildCommandCenterReadModel } from '@process/commandEve/commandCenterReadModelCore';
+import {
+  buildLocalTitlePrompt,
+  pickLocalTitleModel,
+  sanitizeGeneratedTitle,
+} from '@process/commandEve/commandEveTitleCore';
 import { buildConnectorCatalog } from '@process/commandEve/connectorCatalogCore';
 import { runConnectorPreflight } from '@process/commandEve/connectorPreflightCore';
 import {
@@ -20,6 +25,7 @@ import {
   getEntitlementStatus,
   readRegistration,
   registerTenant,
+  updateRegistrationProfile,
   COMMAND_EVE_ENTITLEMENT_BRIDGE_VERSION,
 } from '@process/commandEve/entitlementCore';
 import { runDesktopAuthLoopback, type DesktopAuthIntent } from '@process/commandEve/desktopAuthLoopback';
@@ -447,6 +453,67 @@ export function initCommandEveBridge(): void {
       };
     }
   });
+
+  // Auto session-title (1.2.13): summarize the first task into a short 3-6 word
+  // title using the bundled ON-DEVICE Gemma model (Ollama, local only — NEVER the
+  // cloud/credits lane). Best-effort + fail-quiet: any error (Ollama not running,
+  // model not pulled, timeout) returns ok:false so the renderer keeps the
+  // truncated fallback title. Short timeout so a stuck local model never lingers.
+  bridge
+    .buildProvider('command-eve.generate-local-title')
+    .provider(async (request?: { text?: string; locale?: 'de-DE' | 'en-US' }) => {
+      const ollamaBaseUrl = 'http://127.0.0.1:11434';
+      const TITLE_TIMEOUT_MS = 12_000;
+      const text = String(request?.text || '').trim();
+      if (!text) return { success: false, msg: 'TITLE_NO_TEXT', data: { ok: false } };
+
+      const withTimeout = async (input: string, init: RequestInit): Promise<Response> => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), TITLE_TIMEOUT_MS);
+        try {
+          return await fetch(input, { ...init, signal: controller.signal });
+        } finally {
+          clearTimeout(timer);
+        }
+      };
+
+      try {
+        // 1) Pick the bundled local model from Ollama's tag list. If Ollama is
+        //    down or the model is not pulled, bail quietly (fallback title stays).
+        const tagsRes = await withTimeout(`${ollamaBaseUrl}/api/tags`, { method: 'GET' });
+        if (!tagsRes.ok) return { success: false, msg: 'TITLE_OLLAMA_TAGS', data: { ok: false } };
+        const tagsJson = (await tagsRes.json()) as { models?: Array<{ name?: string }> };
+        const modelNames = (tagsJson.models || []).map((m) => String(m?.name || ''));
+        const model = pickLocalTitleModel(modelNames);
+        if (!model) return { success: false, msg: 'TITLE_NO_LOCAL_MODEL', data: { ok: false } };
+
+        // 2) One-shot, NON-streaming local chat. num_predict is tiny — a title is
+        //    a few tokens; keep the local model cheap and fast.
+        const prompt = buildLocalTitlePrompt(text, request?.locale === 'en-US' ? 'en-US' : 'de-DE');
+        const chatRes = await withTimeout(`${ollamaBaseUrl}/api/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model,
+            stream: false,
+            messages: [{ role: 'user', content: prompt }],
+            options: { num_predict: 24, temperature: 0.2 },
+          }),
+        });
+        if (!chatRes.ok) return { success: false, msg: 'TITLE_OLLAMA_CHAT', data: { ok: false } };
+        const chatJson = (await chatRes.json()) as { message?: { content?: string } };
+        const title = sanitizeGeneratedTitle(chatJson.message?.content);
+        if (!title) return { success: false, msg: 'TITLE_EMPTY', data: { ok: false } };
+        return { success: true, data: { ok: true, title } };
+      } catch (error) {
+        // AbortError / network / JSON — stay quiet, keep the fallback title.
+        return {
+          success: false,
+          msg: error instanceof Error ? error.message : 'TITLE_LOCAL_FAILED',
+          data: { ok: false },
+        };
+      }
+    });
 
   bridge.buildProvider('command-eve.kanban-preflight').provider(async (request?: { boardSlug?: string }) => {
     try {
@@ -1693,9 +1760,14 @@ export function initCommandEveBridge(): void {
       if (hasSession) {
         const read = readAccountSession(userDataPath);
         if (read.ok && read.session) {
+          // Email is the LOGIN identity → the session is authoritative.
           email = read.session.user.email || email;
-          name = read.session.user.name || name;
-          company = read.session.user.company || company;
+          // Name + company are LOCALLY EDITABLE (account panel, 1.2.13). A present
+          // local registration value is the user's explicit edit and OUTRANKS the
+          // session-derived value for display; only fall back to the session when
+          // the local record has none.
+          name = registration?.name || read.session.user.name || name;
+          company = registration?.company || read.session.user.company || company;
         }
       }
       return {
@@ -1718,6 +1790,38 @@ export function initCommandEveBridge(): void {
       };
     }
   });
+
+  // Edit the local registration profile (name + company only; email is the login
+  // identity and stays out of this path). Merge-only; requires an existing record.
+  bridge
+    .buildProvider('command-eve.registration-update')
+    .provider(async (request?: { name?: string; company?: string }) => {
+      try {
+        const result = updateRegistrationProfile(
+          {
+            ...(request?.name !== undefined ? { name: request.name } : {}),
+            ...(request?.company !== undefined ? { company: request.company } : {}),
+          },
+          { userDataPath: getDataPath() }
+        );
+        return {
+          success: result.ok,
+          msg: result.ok ? undefined : result.reason_code || result.message,
+          data: result,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          msg: error instanceof Error ? error.message : 'Command EVE registration-update bridge failed.',
+          data: {
+            version: COMMAND_EVE_ENTITLEMENT_BRIDGE_VERSION,
+            ok: false,
+            reason_code: 'REGISTRATION_UPDATE_BRIDGE_FAILED',
+            message: error instanceof Error ? error.message : 'Command EVE registration-update bridge failed.',
+          },
+        };
+      }
+    });
 
   // -------------------------------------------------------------------------
   // ACTIVE SEAT readout (Phase 4 / ISO-2). The in-process active seat is held

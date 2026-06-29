@@ -106,6 +106,12 @@ const CreditMeterBadge: React.FC<CreditMeterBadgeProps> = ({ onOpenBilling }) =>
             status={near ? 'warning' : 'normal'}
             style={{ width: 56 }}
           />
+          {/* Founder mandate 1.2.13: keep the subtle bar, just surface the bare
+              percentage next to it (e.g. "32%"). The verbose "..of allowance used"
+              copy stays in the tooltip/label; this is the at-a-glance number. */}
+          <span className='credit-meter-badge__percent' data-testid='credit-meter-percent'>
+            {percent}%
+          </span>
         </span>
         <span className='credit-meter-badge__label'>{meterLabel(meter, t)}</span>
       </button>

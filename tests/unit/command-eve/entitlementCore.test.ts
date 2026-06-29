@@ -12,8 +12,10 @@ import path from 'node:path';
 import {
   activateEntitlement,
   getEntitlementStatus,
+  readRegistration,
   registerTenant,
   resolveLicensePublicKeyEntries,
+  updateRegistrationProfile,
   verifyLicenseCodeMultiTs,
   verifyLicenseCodeTs,
   type CommandEveEntitlementOptions,
@@ -693,6 +695,63 @@ describe('registerTenant', () => {
     const result = registerTenant({ name: 'A', company: 'X', email: 'not-an-email', consent: true }, options);
     expect(result.ok).toBe(false);
     expect(result.reason_code).toBe('REGISTRATION_EMAIL_INVALID');
+  });
+});
+
+describe('updateRegistrationProfile', () => {
+  it('updates name + company on the existing record, preserving tenant_id/email/consent', () => {
+    const root = makeRoot();
+    const { publicKeyPem } = makeKeypair();
+    const options = optionsFor(root, publicKeyPem);
+    const before = register(options);
+    expect(before.ok).toBe(true);
+
+    const result = updateRegistrationProfile({ name: 'Alois Neu', company: 'Neue GmbH' }, options);
+    expect(result.ok).toBe(true);
+    expect(result.record?.name).toBe('Alois Neu');
+    expect(result.record?.company).toBe('Neue GmbH');
+    // Identity/auth fields are preserved verbatim — never touched here.
+    expect(result.record?.email).toBe('alois@example.com');
+    expect(result.record?.tenant_id).toBe(before.record?.tenant_id);
+    expect(result.record?.gdpr_consent).toBe(true);
+
+    // Persisted to disk (next read reflects the edit).
+    const onDisk = readRegistration(root);
+    expect(onDisk?.name).toBe('Alois Neu');
+    expect(onDisk?.company).toBe('Neue GmbH');
+    expect(onDisk?.email).toBe('alois@example.com');
+  });
+
+  it('is merge-only: an omitted field keeps its current value', () => {
+    const root = makeRoot();
+    const { publicKeyPem } = makeKeypair();
+    const options = optionsFor(root, publicKeyPem);
+    register(options);
+
+    const result = updateRegistrationProfile({ company: 'Only Company Changed' }, options);
+    expect(result.ok).toBe(true);
+    expect(result.record?.name).toBe('Alois'); // unchanged
+    expect(result.record?.company).toBe('Only Company Changed');
+  });
+
+  it('rejects an empty name/company (REGISTRATION_FIELDS_REQUIRED)', () => {
+    const root = makeRoot();
+    const { publicKeyPem } = makeKeypair();
+    const options = optionsFor(root, publicKeyPem);
+    register(options);
+
+    const result = updateRegistrationProfile({ name: '   ' }, options);
+    expect(result.ok).toBe(false);
+    expect(result.reason_code).toBe('REGISTRATION_FIELDS_REQUIRED');
+  });
+
+  it('rejects when there is no existing registration (REGISTRATION_MISSING)', () => {
+    const root = makeRoot();
+    const { publicKeyPem } = makeKeypair();
+    const options = optionsFor(root, publicKeyPem);
+    const result = updateRegistrationProfile({ name: 'X', company: 'Y' }, options);
+    expect(result.ok).toBe(false);
+    expect(result.reason_code).toBe('REGISTRATION_MISSING');
   });
 });
 

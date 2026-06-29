@@ -823,8 +823,8 @@ export function selectCommandEvePresetAgentType(agents: CommandEveDetectedAgent[
 // Operator-facing assistant metadata (the shipped default) vs the internal founder
 // metadata (COMMAND_EVE_FOUNDER_BUILD=1). The operator never sees Founder/CEO/Worker-Contract framing.
 const COMMAND_EVE_ASSISTANT_META_OPERATOR = {
-  description_de: 'Dein mitgruender-starker Kopf fuers Geldverdienen mit KI — plant, challenged und fuehrt die Arbeit fuer dich und deine Kunden aus.',
-  description_en: 'Your co-founder-grade confidant for making money with AI — plans, challenges and runs the work for you and your clients.',
+  description_de: 'Dein KI-Partner fuers Geldverdienen — plant, challenged und liefert.',
+  description_en: 'Your AI partner for making money — plans, challenges, delivers.',
   prompts_de: [
     'Moin EVE, was weisst du schon ueber mich und mein Geschaeft?',
     'Challenge dieses Angebot, bevor ich Geld reinstecke.',

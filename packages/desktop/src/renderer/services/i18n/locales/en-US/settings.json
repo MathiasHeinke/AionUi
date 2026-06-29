@@ -201,7 +201,16 @@
     "resetConfirmTitle": "Reset device?",
     "resetConfirmBody": "Removes the license, registration and login from this device. You will return to registration and must sign in again.",
     "resetConfirmOk": "Reset",
-    "resetConfirmCancel": "Cancel"
+    "resetConfirmCancel": "Cancel",
+    "openProfile": "Open profile",
+    "edit": "Edit",
+    "save": "Save",
+    "saving": "Saving …",
+    "cancel": "Cancel",
+    "saved": "Profile saved.",
+    "saveError": "Save failed.",
+    "fieldsRequired": "Name and company must not be empty.",
+    "emailLocked": "Changing your email is a separate sign-in flow (coming soon)."
   },
   "advancedSettings": "Advanced Settings",
   "addModel": "Add Model",

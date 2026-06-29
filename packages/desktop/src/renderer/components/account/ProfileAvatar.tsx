@@ -16,6 +16,7 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import { Tooltip } from '@arco-design/web-react';
+import { User } from '@icon-park/react';
 import { useTranslation } from 'react-i18next';
 import { commandEve } from '@/common/adapter/ipcBridge';
 import './profileAvatar.css';
@@ -58,17 +59,30 @@ const ProfileAvatar: React.FC<ProfileAvatarProps> = ({ onOpenAccount }) => {
   }, [refresh]);
 
   const initials = initialsFromName(name);
-  const tooltip = name || email || t('settings.accountPanel.title', { defaultValue: 'Account' });
+  // Tooltip makes the "this opens your profile" intent explicit on hover.
+  const profileHint = t('settings.accountPanel.openProfile', { defaultValue: 'Profil öffnen' });
+  const tooltip = `${name || email || t('settings.accountPanel.title', { defaultValue: 'Account' })} · ${profileHint}`;
 
   return (
     <Tooltip content={tooltip} position='bottom'>
       <button
         type='button'
-        className='profile-avatar'
+        // `profile-avatar--button` reads as a pill (person icon + initials) so it
+        // is obviously a clickable "open profile" control, not a static badge.
+        className='profile-avatar profile-avatar--button'
         onClick={() => onOpenAccount?.()}
         aria-label={tooltip}
         data-testid='profile-avatar'
       >
+        {/* Person icon BEFORE the initials — the universal "this is your account /
+            open profile" affordance (founder mandate 1.2.13). */}
+        <User
+          theme='outline'
+          size={14}
+          fill='currentColor'
+          className='profile-avatar__person-icon'
+          aria-hidden='true'
+        />
         {initials ? (
           <span className='profile-avatar__initials'>{initials}</span>
         ) : (

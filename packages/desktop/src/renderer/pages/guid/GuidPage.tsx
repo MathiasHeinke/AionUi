@@ -8,6 +8,7 @@ import { ipcBridge } from '@/common';
 import type { IMcpServer } from '@/common/config/storage';
 import { resolveLocaleKey } from '@/common/utils';
 import {
+  COMMAND_EVE_ASSISTANT_AVATAR,
   COMMAND_EVE_ASSISTANT_ID,
   COMMAND_EVE_ASSISTANT_KEY,
   COMMAND_EVE_SHELL_ENABLED,
@@ -687,14 +688,19 @@ const GuidPage: React.FC = () => {
                       <span>{heroTitle}</span>
                     </p>
                   )}
-                  <Button
-                    size='mini'
-                    type='text'
-                    icon={<Write theme='outline' size={16} fill='currentColor' />}
-                    className={styles.heroTitleEdit}
-                    onClick={() => openAssistantDetailsRef.current?.()}
-                    aria-label={t('settings.editAssistant', { defaultValue: 'Assistant Details' })}
-                  />
+                  {/* Command EVE: the EVE assistant is not user-editable (its persona,
+                      skills and runtime are managed by the bootstrap), so the edit
+                      pencil is suppressed. Other preset assistants keep it. */}
+                  {isCommandEveAssistant ? null : (
+                    <Button
+                      size='mini'
+                      type='text'
+                      icon={<Write theme='outline' size={16} fill='currentColor' />}
+                      className={styles.heroTitleEdit}
+                      onClick={() => openAssistantDetailsRef.current?.()}
+                      aria-label={t('settings.editAssistant', { defaultValue: 'Assistant Details' })}
+                    />
+                  )}
                 </div>
                 <div className={styles.heroHeaderRight}>
                   {isCommandEveAssistant ? (
@@ -707,17 +713,18 @@ const GuidPage: React.FC = () => {
                       className={styles.heroAgentSwitchButton}
                       style={{ display: 'inline-flex', alignItems: 'center', gap: 4, opacity: 0.85 }}
                     >
-                      {effectiveAgentLogo ? (
-                        <img
-                          src={effectiveAgentLogo}
-                          alt=''
-                          width={20}
-                          height={20}
-                          className={styles.heroAgentSwitchIcon}
-                        />
-                      ) : (
-                        <Robot theme='outline' size={20} fill='currentColor' />
-                      )}
+                      {/* Command EVE brand mark (the ⌘ logo). NOT effectiveAgentLogo —
+                          when EVE is bound to a non-EVE execution backend (e.g. the
+                          gemini ACP fallback), effectiveAgentLogo resolves to that
+                          backend's rainbow sparkle, which mislabels the EVE assistant.
+                          The clean ⌘ EVE mark is the assistant's identity here. */}
+                      <img
+                        src={COMMAND_EVE_ASSISTANT_AVATAR}
+                        alt=''
+                        width={20}
+                        height={20}
+                        className={styles.heroAgentSwitchIcon}
+                      />
                       <span className='text-13px'>EVE</span>
                     </span>
                   ) : (

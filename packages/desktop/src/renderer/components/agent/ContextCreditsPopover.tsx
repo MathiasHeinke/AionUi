@@ -164,26 +164,27 @@ const ContextCreditsPopover: React.FC<ContextCreditsPopoverProps> = ({ tokenUsag
           </div>
         )}
 
+        {/* Founder mandate 1.2.13: NO prominent "Nachkaufen" upsell in the context
+            view. The buy affordance is SUBTLE and only appears when the tank is
+            actually low — folded into the warning as a quiet text link, never a
+            standing primary CTA pushing the user to spend. */}
         {credits?.low && (
           <div className='context-credits-popover__warning flex items-center gap-6px mt-8px' data-testid='context-credits-low'>
             <Caution theme='outline' size='14' fill='rgb(var(--warning-6))' />
             <span className='text-12px' style={{ color: 'rgb(var(--warning-6))' }}>
               {t('credits.context.tankLow', { defaultValue: 'Tank fast leer' })}
             </span>
+            <Button
+              type='text'
+              size='mini'
+              className='context-credits-popover__topup-link px-2px text-12px'
+              onClick={handleTopUp}
+              data-testid='context-credits-topup'
+            >
+              {t('credits.context.topUp', { defaultValue: 'Nachkaufen' })}
+            </Button>
           </div>
         )}
-
-        <Button
-          long
-          shape='round'
-          size='small'
-          type='primary'
-          className='mt-10px'
-          onClick={handleTopUp}
-          data-testid='context-credits-topup'
-        >
-          {t('credits.context.topUp', { defaultValue: 'Nachkaufen' })}
-        </Button>
       </section>
     </div>
   );

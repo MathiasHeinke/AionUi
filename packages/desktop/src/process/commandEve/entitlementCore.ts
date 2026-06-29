@@ -898,6 +898,64 @@ export function registerTenant(
   };
 }
 
+/** Profile fields the user may edit AFTER registration (name + company only). */
+export interface UpdateRegistrationProfileInput {
+  name?: string;
+  company?: string;
+}
+
+/**
+ * Update the editable PII fields (name + company) on the EXISTING local-only
+ * registration record. The EMAIL is the login identity and is NOT touched here
+ * (changing it is a separate Supabase-auth flow). Requires an existing record —
+ * there is no consent/email to mint a new one, so this never creates one.
+ *
+ * Merge-only: a missing field is left at its current value; an empty field is
+ * rejected (the registration contract requires non-empty name + company).
+ * tenant_id / email / gdpr_consent / registered_at are preserved verbatim.
+ */
+export function updateRegistrationProfile(
+  input: UpdateRegistrationProfileInput,
+  options: CommandEveEntitlementOptions
+): CommandEveRegisterResult {
+  const existing = readRegistration(options.userDataPath);
+  if (!existing) {
+    return {
+      version: COMMAND_EVE_ENTITLEMENT_BRIDGE_VERSION,
+      ok: false,
+      reason_code: 'REGISTRATION_MISSING',
+      message: 'no local registration record to update.',
+    };
+  }
+
+  // Merge-only: undefined ⇒ keep current; a provided value is trimmed.
+  const name = input.name === undefined ? existing.name : normalizeField(input.name);
+  const company = input.company === undefined ? existing.company : normalizeField(input.company);
+
+  if (!name || !company) {
+    return {
+      version: COMMAND_EVE_ENTITLEMENT_BRIDGE_VERSION,
+      ok: false,
+      reason_code: 'REGISTRATION_FIELDS_REQUIRED',
+      message: 'name and company must be non-empty.',
+    };
+  }
+
+  const record: CommandEveRegistrationRecord = {
+    ...existing,
+    name,
+    company,
+  };
+
+  writeJsonAtomic600(path.join(entitlementStateDir(options.userDataPath), REGISTRATION_FILE), record);
+
+  return {
+    version: COMMAND_EVE_ENTITLEMENT_BRIDGE_VERSION,
+    ok: true,
+    record,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Activation
 // ---------------------------------------------------------------------------

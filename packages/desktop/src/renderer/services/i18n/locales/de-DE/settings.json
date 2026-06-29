@@ -206,7 +206,16 @@
     "resetConfirmTitle": "Gerät zurücksetzen?",
     "resetConfirmBody": "Entfernt Lizenz, Registrierung und Anmeldung von diesem Gerät. Du landest wieder auf der Registrierung und musst dich neu anmelden.",
     "resetConfirmOk": "Zurücksetzen",
-    "resetConfirmCancel": "Abbrechen"
+    "resetConfirmCancel": "Abbrechen",
+    "openProfile": "Profil öffnen",
+    "edit": "Bearbeiten",
+    "save": "Speichern",
+    "saving": "Wird gespeichert …",
+    "cancel": "Abbrechen",
+    "saved": "Profil gespeichert.",
+    "saveError": "Speichern fehlgeschlagen.",
+    "fieldsRequired": "Name und Firma dürfen nicht leer sein.",
+    "emailLocked": "E-Mail-Adresse ändern ist eine separate Anmelde-Funktion (folgt)."
   },
   "advancedSettings": "Erweiterte Einstellungen",
   "addModel": "Modell hinzufügen",

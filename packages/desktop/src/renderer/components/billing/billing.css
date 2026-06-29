@@ -19,13 +19,22 @@
 .credit-meter-badge__bar {
   display: inline-flex;
   align-items: center;
+  gap: 6px;
+}
+/* Subtle at-a-glance percentage next to the meter bar (1.2.13). Inherits the
+   badge's secondary color so it stays quiet; turns warning near the wall. */
+.credit-meter-badge__percent {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary, #6b7280);
 }
 .credit-meter-badge__label {
   max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.credit-meter-badge[data-near-wall='true'] .credit-meter-badge__label {
+.credit-meter-badge[data-near-wall='true'] .credit-meter-badge__label,
+.credit-meter-badge[data-near-wall='true'] .credit-meter-badge__percent {
   color: var(--color-warning-6, #d97706);
   font-weight: 600;
 }

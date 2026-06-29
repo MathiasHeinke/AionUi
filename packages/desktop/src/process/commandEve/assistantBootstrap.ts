@@ -254,13 +254,19 @@ async function loadCommandEveDetectedAgents(backendPort: number): Promise<Comman
 function buildCommandEveAssistantPayload(
   presetAgentType: string,
   customSkillNames: string[],
-  appVersion: string,
+  _appVersion: string,
   isFounderBuild: boolean
 ): ReturnType<typeof buildCommandEveAssistant> & { description: string } {
+  // The user-VISIBLE description is the short operator one-liner ONLY. The
+  // behavioral runtime context (`buildCommandEveAssistantContext`, which carries
+  // the app version + "Default local operating surface" framing) is written via
+  // the assistant-skill/-rule resources, NOT baked into the display description —
+  // otherwise the hero subtitle showed a long blob with a stale "⌘ EVE <version>"
+  // line. `_appVersion` is kept in the signature for call-site compatibility.
   const assistant = buildCommandEveAssistant(presetAgentType, customSkillNames, isFounderBuild);
   return {
     ...assistant,
-    description: `${assistant.description}\n\n${buildCommandEveAssistantContext(appVersion)}`,
+    description: assistant.description ?? '',
   };
 }
 
@@ -274,6 +280,13 @@ const COMMAND_EVE_STALE_SEED_MARKERS = [
   'CEO-Delegation',
   'CEO delegation',
   'Worker Contract',
+  // Operator installs seeded BEFORE the display-description cleanup baked the
+  // behavioral runtime context (the "Default local operating surface" /
+  // "⌘ EVE <version>" blob) into the visible description. That blob is a managed
+  // seed, not a user edit, so detecting it lets the bootstrap refresh the stale
+  // long description down to the clean one-liner instead of preserving it.
+  'Default local operating surface',
+  'Execution backends are tools, not identity',
 ];
 function commandEveAssistantHasManagedSeed(existing: CommandEveAssistantRecord | undefined): boolean {
   const description = String(existing?.description || '');
@@ -403,6 +416,12 @@ export async function ensureCommandEveAssistant(
     }),
   });
 
+  // Runtime posture ("Execution backends are tools, not identity", canonical
+  // source posture, app version). This used to be baked into the user-VISIBLE
+  // `description`, which is wrong — it belongs in the BEHAVIORAL skill resource,
+  // not the hero subtitle. Appended to the skill body so EVE keeps the posture
+  // while the operator only sees the short one-line description.
+  const runtimeContext = buildCommandEveAssistantContext(appVersion);
   await Promise.all([
     writeAssistantResource(backendPort, 'assistant-rule', 'de-DE', getCommandEveAssistantRule('de-DE', isFounderBuild)),
     writeAssistantResource(backendPort, 'assistant-rule', 'en-US', getCommandEveAssistantRule('en-US', isFounderBuild)),
@@ -410,13 +429,13 @@ export async function ensureCommandEveAssistant(
       backendPort,
       'assistant-skill',
       'de-DE',
-      buildCommandEveAssistantSkillForSeat('de-DE', firstRunLoad, isFounderBuild, activeInferenceSelection)
+      `${buildCommandEveAssistantSkillForSeat('de-DE', firstRunLoad, isFounderBuild, activeInferenceSelection)}\n\n${runtimeContext}`
     ),
     writeAssistantResource(
       backendPort,
       'assistant-skill',
       'en-US',
-      buildCommandEveAssistantSkillForSeat('en-US', firstRunLoad, isFounderBuild, activeInferenceSelection)
+      `${buildCommandEveAssistantSkillForSeat('en-US', firstRunLoad, isFounderBuild, activeInferenceSelection)}\n\n${runtimeContext}`
     ),
   ]);
 

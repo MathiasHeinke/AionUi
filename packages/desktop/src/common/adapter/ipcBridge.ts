@@ -455,6 +455,13 @@ export interface ICommandEveRuntimeStatus {
   stages?: ICommandEveRuntimeStage[];
 }
 
+/** Result of the local auto session-title lane. ok:false ⇒ keep the fallback. */
+export interface ICommandEveLocalTitleResult {
+  ok: boolean;
+  /** The generated short title (3-6 words). Present only when ok === true. */
+  title?: string;
+}
+
 export interface ICommandEveAssistantReadiness {
   status: 'ready';
   assistant_id: string;
@@ -1132,6 +1139,16 @@ export interface ICommandEveEntitlementRegisterResult {
   record?: ICommandEveRegistrationRecord;
 }
 
+/**
+ * Edit the locally-stored registration profile (name + company only). The email
+ * is the login identity and is NOT editable here. Merge-only — an omitted field
+ * keeps its current value.
+ */
+export interface ICommandEveRegistrationUpdateRequest {
+  name?: string;
+  company?: string;
+}
+
 export interface ICommandEveEntitlementActivateRequest {
   code: string;
 }
@@ -1442,6 +1459,13 @@ export const commandEve = {
   warmLocalModel: bridge.buildProvider<IBridgeResponse<ICommandEveRuntimeStatus>, { tierId?: string } | undefined>(
     'command-eve.warm-local-model'
   ),
+  // Auto session-title: summarize the first task into a short title using the
+  // bundled ON-DEVICE Gemma model (local Ollama lane only — never cloud/credits).
+  // Best-effort; ok:false ⇒ the renderer keeps the truncated fallback title.
+  generateLocalTitle: bridge.buildProvider<
+    IBridgeResponse<ICommandEveLocalTitleResult>,
+    { text: string; locale?: 'de-DE' | 'en-US' }
+  >('command-eve.generate-local-title'),
   evaluateGateDecision: bridge.buildProvider<
     IBridgeResponse<ICommandEveGateDecision>,
     { action: ICommandEveGateAction }
@@ -1554,6 +1578,12 @@ export const commandEve = {
   registrationStatus: bridge.buildProvider<IBridgeResponse<ICommandEveRegistrationStatusResult>, void>(
     'command-eve.registration-status'
   ),
+  // Edit the local registration profile (name + company). Email = login identity,
+  // not editable here. Reuses the register result shape (record echoed back).
+  registrationUpdate: bridge.buildProvider<
+    IBridgeResponse<ICommandEveEntitlementRegisterResult>,
+    ICommandEveRegistrationUpdateRequest
+  >('command-eve.registration-update'),
   // ISO-3: persist the Day-0 Company-Brain seed into the ACTIVE seat's hermesHome
   // (MEMORY.md block + company-brain/seed.json), and read the per-seat "seeded?"
   // state from that on-disk evidence. The seed is the client's day-0 truth and

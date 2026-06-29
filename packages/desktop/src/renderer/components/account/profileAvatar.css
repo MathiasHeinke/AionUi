@@ -26,9 +26,31 @@
   user-select: none;
 }
 
+/* Button variant (1.2.13): person icon + initials in a pill so it obviously
+   reads as a clickable "open profile" control rather than a static badge. */
+.profile-avatar--button {
+  width: auto;
+  height: 26px;
+  border-radius: 9999px;
+  gap: 5px;
+  padding: 0 9px 0 7px;
+}
+
 .profile-avatar:hover {
   background: var(--color-fill-3, rgba(120, 120, 130, 0.26));
   border-color: var(--color-primary-light-4, rgba(120, 140, 255, 0.5));
+}
+
+.profile-avatar--button:hover {
+  /* Slightly louder hover so the affordance is unmistakable. */
+  background: var(--color-fill-3, rgba(120, 120, 130, 0.3));
+  border-color: var(--color-primary-6, rgba(120, 140, 255, 0.65));
+}
+
+.profile-avatar__person-icon {
+  display: inline-flex;
+  align-items: center;
+  opacity: 0.85;
 }
 
 .profile-avatar__initials {

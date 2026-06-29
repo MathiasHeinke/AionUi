@@ -44,6 +44,11 @@ const AccountModalContent: React.FC = () => {
   const [bearer, setBearer] = useState<boolean | undefined>(undefined);
   const [licenseCode, setLicenseCode] = useState('');
   const [activating, setActivating] = useState(false);
+  // Profile edit (name + company only — email is the login identity, locked).
+  const [editing, setEditing] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [draftName, setDraftName] = useState('');
+  const [draftCompany, setDraftCompany] = useState('');
 
   const refresh = useCallback(async () => {
     try {
@@ -53,6 +58,36 @@ const AccountModalContent: React.FC = () => {
       // self-quiet
     }
   }, []);
+
+  const beginEdit = useCallback(() => {
+    setDraftName(info?.name || '');
+    setDraftCompany(info?.company || '');
+    setEditing(true);
+  }, [info?.name, info?.company]);
+
+  const handleSaveProfile = useCallback(async () => {
+    const name = draftName.trim();
+    const company = draftCompany.trim();
+    if (!name || !company) {
+      Message.error(t('settings.accountPanel.fieldsRequired', { defaultValue: 'Name und Firma dürfen nicht leer sein.' }));
+      return;
+    }
+    setSavingProfile(true);
+    try {
+      const response = await commandEve.registrationUpdate.invoke({ name, company });
+      if (response.data?.ok) {
+        await refresh();
+        setEditing(false);
+        Message.success(t('settings.accountPanel.saved', { defaultValue: 'Profil gespeichert.' }));
+      } else {
+        Message.error(t('settings.accountPanel.saveError', { defaultValue: 'Speichern fehlgeschlagen.' }));
+      }
+    } catch {
+      Message.error(t('settings.accountPanel.saveError', { defaultValue: 'Speichern fehlgeschlagen.' }));
+    } finally {
+      setSavingProfile(false);
+    }
+  }, [draftName, draftCompany, refresh, t]);
 
   const refreshBearer = useCallback(async () => {
     try {
@@ -161,29 +196,103 @@ const AccountModalContent: React.FC = () => {
       <Card title={t('settings.accountPanel.title', { defaultValue: 'Account' })}>
         {signedIn ? (
           <div className='flex flex-col gap-12px'>
-            <div className='text-13px text-t-tertiary'>{t('settings.accountPanel.signedInAs')}</div>
-            {info?.name ? (
-              <div className='flex justify-between gap-8px'>
-                <span className='text-t-tertiary'>{t('settings.accountPanel.name')}</span>
-                <span className='text-t-primary font-[500]' data-testid='account-name'>
-                  {info.name}
-                </span>
-              </div>
-            ) : null}
-            {info?.email ? (
-              <div className='flex justify-between gap-8px'>
-                <span className='text-t-tertiary'>{t('settings.accountPanel.email')}</span>
-                <span className='text-t-primary font-[500]' data-testid='account-email'>
-                  {info.email}
-                </span>
-              </div>
-            ) : null}
-            {info?.company ? (
-              <div className='flex justify-between gap-8px'>
-                <span className='text-t-tertiary'>{t('settings.accountPanel.company')}</span>
-                <span className='text-t-primary font-[500]'>{info.company}</span>
-              </div>
-            ) : null}
+            <div className='flex items-center justify-between gap-8px'>
+              <span className='text-13px text-t-tertiary'>{t('settings.accountPanel.signedInAs')}</span>
+              {!editing ? (
+                <Button
+                  size='mini'
+                  type='text'
+                  onClick={beginEdit}
+                  data-testid='account-edit'
+                >
+                  {t('settings.accountPanel.edit', { defaultValue: 'Bearbeiten' })}
+                </Button>
+              ) : null}
+            </div>
+
+            {editing ? (
+              <>
+                {/* Name + Firma are EDITABLE and persisted to the local registration
+                    record via command-eve.registration-update (1.2.13). */}
+                <div className='flex flex-col gap-4px'>
+                  <span className='text-t-tertiary text-12px'>{t('settings.accountPanel.name')}</span>
+                  <Input
+                    value={draftName}
+                    onChange={setDraftName}
+                    disabled={savingProfile}
+                    data-testid='account-name-input'
+                  />
+                </div>
+                <div className='flex flex-col gap-4px'>
+                  <span className='text-t-tertiary text-12px'>{t('settings.accountPanel.company')}</span>
+                  <Input
+                    value={draftCompany}
+                    onChange={setDraftCompany}
+                    disabled={savingProfile}
+                    data-testid='account-company-input'
+                  />
+                </div>
+                {/* E-Mail stays read-only: it is the login identity. Changing it is a
+                    separate auth flow (Supabase email change) — flagged, not faked. */}
+                {info?.email ? (
+                  <div className='flex flex-col gap-4px'>
+                    <span className='text-t-tertiary text-12px'>{t('settings.accountPanel.email')}</span>
+                    <Input value={info.email} disabled data-testid='account-email' />
+                    <span className='text-11px text-t-tertiary'>
+                      {t('settings.accountPanel.emailLocked', {
+                        defaultValue: 'E-Mail-Adresse ändern ist eine separate Anmelde-Funktion (folgt).',
+                      })}
+                    </span>
+                  </div>
+                ) : null}
+                <div className='flex gap-8px'>
+                  <Button
+                    type='primary'
+                    shape='round'
+                    loading={savingProfile}
+                    onClick={() => void handleSaveProfile()}
+                    data-testid='account-save'
+                  >
+                    {savingProfile
+                      ? t('settings.accountPanel.saving', { defaultValue: 'Wird gespeichert …' })
+                      : t('settings.accountPanel.save', { defaultValue: 'Speichern' })}
+                  </Button>
+                  <Button
+                    shape='round'
+                    disabled={savingProfile}
+                    onClick={() => setEditing(false)}
+                    data-testid='account-cancel-edit'
+                  >
+                    {t('settings.accountPanel.cancel', { defaultValue: 'Abbrechen' })}
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                {info?.name ? (
+                  <div className='flex justify-between gap-8px'>
+                    <span className='text-t-tertiary'>{t('settings.accountPanel.name')}</span>
+                    <span className='text-t-primary font-[500]' data-testid='account-name'>
+                      {info.name}
+                    </span>
+                  </div>
+                ) : null}
+                {info?.email ? (
+                  <div className='flex justify-between gap-8px'>
+                    <span className='text-t-tertiary'>{t('settings.accountPanel.email')}</span>
+                    <span className='text-t-primary font-[500]' data-testid='account-email'>
+                      {info.email}
+                    </span>
+                  </div>
+                ) : null}
+                {info?.company ? (
+                  <div className='flex justify-between gap-8px'>
+                    <span className='text-t-tertiary'>{t('settings.accountPanel.company')}</span>
+                    <span className='text-t-primary font-[500]'>{info.company}</span>
+                  </div>
+                ) : null}
+              </>
+            )}
 
             <Button
               status='danger'
