@@ -8,6 +8,7 @@ import type { TChatConversation } from '@/common/config/storage';
 import { getActivityTime } from '@/renderer/utils/chat/timeline';
 import { getWorkspaceDisplayName } from '@/renderer/utils/workspace/workspace';
 import { getWorkspaceUpdateTime } from '@/renderer/utils/workspace/workspaceHistory';
+import { getWorkspaceCustomName } from '@/renderer/utils/workspace/workspaceName';
 
 import type { GroupedHistoryResult, TimelineItem, TimelineSection } from '../types';
 import { getConversationSortOrder } from './sortOrderHelpers';
@@ -67,7 +68,9 @@ export const groupConversationsByWorkspace = (
         // non-custom conversations end up in `withoutWorkspaceConvs` above
         // and never reach this helper. Passing `false` is therefore correct
         // without consulting `extra.is_temporary_workspace` per-row.
-        display_name: getWorkspaceDisplayName(workspace, false, t),
+        // A user-set project rename (workspaceName override) wins over the
+        // path-derived label; clearing the override restores the default.
+        display_name: getWorkspaceCustomName(workspace) ?? getWorkspaceDisplayName(workspace, false, t),
         conversations: sortedConvs,
       },
     });

@@ -72,7 +72,10 @@
     "removeProjectTitle": "Remove project",
     "removeProject": "Remove project",
     "removeProjectConfirm": "Remove project \"{{name}}\"? Its {{count}} conversation(s) will be removed too.",
-    "newConversationInProject": "New chat in this project"
+    "newConversationInProject": "New chat in this project",
+    "renameProject": "Rename project",
+    "renameProjectTitle": "Rename project",
+    "renameProjectPlaceholder": "Project name"
   },
   "historySearch": {
     "tooltip": "Search messages",
@@ -533,5 +536,12 @@
     "createdChecked": "Created marketing card \"{{title}}\" and checked its dispatch plan (HG-2.5). Continue in the Command Center: advance the stages there and — on a deliberate approval — promote to executor (HG-3.5).",
     "createdUnchecked": "Created marketing card \"{{title}}\". Its dispatch plan was not confirmed yet — please continue and approve in the Command Center.",
     "failed": "The Command EVE marketing command failed."
+  },
+  "status": {
+    "running": "Running",
+    "attention": "Needs attention",
+    "error": "Error",
+    "done": "Done – unread",
+    "idle": "Ready"
   }
 }

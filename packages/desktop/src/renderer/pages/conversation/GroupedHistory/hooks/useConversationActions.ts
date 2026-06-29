@@ -15,6 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { isConversationPinned } from '../utils/groupingHelpers';
+import { setWorkspaceCustomName } from '@/renderer/utils/workspace/workspaceName';
 
 type UseConversationActionsParams = {
   batchMode: boolean;
@@ -276,6 +277,42 @@ export const useConversationActions = ({
     }
   }, [removeProjectTarget, removeConversation, t]);
 
+  /**
+   * Rename a project (workspace). Persists a label OVERRIDE keyed by the
+   * workspace path (workspaceName store) — the on-disk directory and every
+   * conversation's `extra.workspace` path are left untouched, so the rename is
+   * purely cosmetic and fully reversible (blank restores the default label).
+   */
+  const [renameProjectTarget, setRenameProjectTarget] = useState<{
+    workspace: string;
+    name: string;
+  } | null>(null);
+  const [renameProjectName, setRenameProjectName] = useState('');
+
+  const handleRenameProjectStart = useCallback((workspace: string, currentName: string) => {
+    setRenameProjectTarget({ workspace, name: currentName });
+    setRenameProjectName(currentName);
+  }, []);
+
+  const handleRenameProjectCancel = useCallback(() => {
+    setRenameProjectTarget(null);
+    setRenameProjectName('');
+  }, []);
+
+  const handleRenameProjectConfirm = useCallback(() => {
+    if (!renameProjectTarget) return;
+    const next = renameProjectName.trim();
+    // No-op (and no toast) when nothing actually changed.
+    if (next === renameProjectTarget.name.trim()) {
+      handleRenameProjectCancel();
+      return;
+    }
+    setWorkspaceCustomName(renameProjectTarget.workspace, next);
+    emitter.emit('chat.history.refresh');
+    Message.success(t('conversation.history.renameSuccess'));
+    handleRenameProjectCancel();
+  }, [renameProjectTarget, renameProjectName, handleRenameProjectCancel, t]);
+
   return {
     renameModalVisible,
     renameModalName,
@@ -296,5 +333,11 @@ export const useConversationActions = ({
     removeProjectLoading,
     handleRemoveProjectCancel,
     handleRemoveProjectConfirm,
+    renameProjectTarget,
+    renameProjectName,
+    setRenameProjectName,
+    handleRenameProjectStart,
+    handleRenameProjectCancel,
+    handleRenameProjectConfirm,
   };
 };

@@ -7,7 +7,6 @@
 import { getAgentLogo } from '@/renderer/utils/model/agentLogo';
 import FlexFullContainer from '@/renderer/components/layout/FlexFullContainer';
 import { usePresetAssistantInfo } from '@/renderer/hooks/agent/usePresetAssistantInfo';
-import { CronJobIndicator } from '@/renderer/pages/cron';
 import { cleanupSiderTooltips, getSiderTooltipProps } from '@/renderer/utils/ui/siderTooltip';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { Checkbox, Dropdown, Menu, Spin, Tooltip } from '@arco-design/web-react';
@@ -19,6 +18,8 @@ import { useTranslation } from 'react-i18next';
 import type { ConversationRowProps } from './types';
 import { getBackendKeyFromConversation } from './utils/exportHelpers';
 import { isConversationPinned } from './utils/groupingHelpers';
+import SessionStatusDot from './SessionStatusDot';
+import { deriveSessionStatus } from './sessionStatus';
 
 const ConversationRow: React.FC<ConversationRowProps> = (props) => {
   const {
@@ -53,11 +54,14 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
   const siderTooltipProps = getSiderTooltipProps(tooltipEnabled);
   const inlineNameTooltipEnabled = !collapsed && !isMobile && !!conversation.name;
 
-  const renderLeadingIcon = () => {
-    if (cronStatus !== 'none') {
-      return <CronJobIndicator status={cronStatus} size={16} className='flex-shrink-0' />;
-    }
+  // ONE semantic status for the row (Claude-Code-style): the leading icon stays
+  // the agent avatar (identity), and a single colored dot — done=green,
+  // attention=orange, error=red, running=Spin — replaces the old mix of a
+  // separate unread dot + the cron alarm/pause/attention glyph swapped in as the
+  // leading icon. See sessionStatus.ts for the full mapping + rationale.
+  const sessionStatus = deriveSessionStatus({ isGenerating, hasCompletionUnread, cronStatus });
 
+  const renderLeadingIcon = () => {
     // When the row is pinned, hovering reveals a pushpin marker that overlays
     // the leading icon. We dim the resting icon on hover so the pin reads cleanly.
     const pinnedHoverFade = isPinned ? 'group-hover:opacity-0 transition-opacity' : '';
@@ -120,18 +124,6 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
     onOpenMenu(conversation);
   };
 
-  const renderCompletionUnreadDot = () => {
-    if (batchMode || !hasCompletionUnread || isGenerating) {
-      return null;
-    }
-
-    return (
-      <span className='absolute right-8px top-1/2 -translate-y-1/2 flex items-center justify-center group-hover:hidden'>
-        <span className='h-8px w-8px rounded-full bg-#2C7FFF shadow-[0_0_0_2px_rgba(44,127,255,0.18)]' />
-      </span>
-    );
-  };
-
   return (
     <Tooltip
       key={conversation.id}
@@ -168,6 +160,10 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
         )}
         <span className='size-22px flex items-center justify-center shrink-0 relative'>
           {isGenerating && !batchMode ? <Spin size={16} /> : renderLeadingIcon()}
+          {/* ONE semantic status dot, overlaid on the avatar's bottom-right. Hidden
+              in batch mode (the checkbox owns the row) and while generating (the
+              Spin already signals "running"). idle renders nothing. */}
+          {!batchMode && !isGenerating && <SessionStatusDot status={sessionStatus} overlay />}
           {/* Pinned indicator: only visible when row is hovered, overlays leading icon */}
           {!batchMode && isPinned && !isMobile && !isGenerating && (
             <span
@@ -194,7 +190,6 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
           </Tooltip>
         </FlexFullContainer>
 
-        {renderCompletionUnreadDot()}
         {!batchMode && (
           <div
             className={classNames(

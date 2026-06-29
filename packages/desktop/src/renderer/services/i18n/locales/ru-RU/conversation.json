@@ -71,7 +71,10 @@
     "removeProjectTitle": "Удалить проект",
     "removeProject": "Удалить проект",
     "removeProjectConfirm": "Удалить проект «{{name}}»? Будет также удалено {{count}} бесед(ы) в нём.",
-    "newConversationInProject": "Новая беседа в этом проекте"
+    "newConversationInProject": "Новая беседа в этом проекте",
+    "renameProject": "Переименовать проект",
+    "renameProjectTitle": "Переименовать проект",
+    "renameProjectPlaceholder": "Название проекта"
   },
   "historySearch": {
     "tooltip": "Поиск сообщений",
@@ -496,5 +499,12 @@
       }
     }
   },
-  "notFound": "Беседа не найдена или была удалена"
+  "notFound": "Беседа не найдена или была удалена",
+  "status": {
+    "running": "Выполняется",
+    "attention": "Требует внимания",
+    "error": "Ошибка",
+    "done": "Готово — не прочитано",
+    "idle": "Готов"
+  }
 }

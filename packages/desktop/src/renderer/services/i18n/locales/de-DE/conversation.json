@@ -71,7 +71,10 @@
     "removeProjectTitle": "Projekt entfernen",
     "removeProject": "Projekt entfernen",
     "removeProjectConfirm": "Projekt „{{name}}“ entfernen? Die {{count}} zugehörigen Gespräche werden ebenfalls entfernt.",
-    "newConversationInProject": "Neuer Chat in diesem Projekt"
+    "newConversationInProject": "Neuer Chat in diesem Projekt",
+    "renameProject": "Projekt umbenennen",
+    "renameProjectTitle": "Projekt umbenennen",
+    "renameProjectPlaceholder": "Projektname"
   },
   "historySearch": {
     "tooltip": "Nachrichten durchsuchen",
@@ -513,5 +516,12 @@
     "createdChecked": "Marketing-Karte \"{{title}}\" angelegt und Dispatch-Plan (HG-2.5) geprüft. Weiter geht es im Command Center: dort die Stufen freigeben und – bei bewusster Freigabe – zum Executor (HG-3.5) befördern.",
     "createdUnchecked": "Marketing-Karte \"{{title}}\" angelegt. Der Dispatch-Plan wurde noch nicht bestätigt – bitte im Command Center fortsetzen und freigeben.",
     "failed": "Command-EVE-Marketing-Befehl fehlgeschlagen."
+  },
+  "status": {
+    "running": "Läuft",
+    "attention": "Benötigt Aufmerksamkeit",
+    "error": "Fehler",
+    "done": "Fertig – ungelesen",
+    "idle": "Bereit"
   }
 }

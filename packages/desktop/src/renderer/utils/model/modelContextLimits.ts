@@ -118,6 +118,12 @@ export function isEveCloudModelId(modelName: string | undefined | null): boolean
     id.includes('command-eve-inference') ||
     id.includes('glm-5.2') ||
     id.includes('deepseek-v4') ||
+    // The EVE Inference selection ids (and their bare tier forms) the picker
+    // persists — e.g. "command-eve-inference:eve-max" (caught above) or a bare
+    // "eve-max"/"eve-high"/"eve-standard" if the prefix was ever stripped.
+    id === 'eve-standard' ||
+    id === 'eve-high' ||
+    id === 'eve-max' ||
     id === 'standard' ||
     id === 'high' ||
     id === 'max'

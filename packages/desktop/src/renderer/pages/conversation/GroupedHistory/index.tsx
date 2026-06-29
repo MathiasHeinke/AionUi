@@ -12,7 +12,7 @@ import { useCronJobsMap } from '@/renderer/pages/cron';
 import { DndContext, DragOverlay, closestCenter } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { Button, Dropdown, Empty, Input, Menu, Modal, Tooltip } from '@arco-design/web-react';
-import { Delete, FolderOpen, MoreOne, Plus, Right } from '@icon-park/react';
+import { Delete, EditOne, FolderOpen, MoreOne, Plus, Right } from '@icon-park/react';
 import classNames from 'classnames';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -146,6 +146,12 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
     removeProjectLoading,
     handleRemoveProjectCancel,
     handleRemoveProjectConfirm,
+    renameProjectTarget,
+    renameProjectName,
+    setRenameProjectName,
+    handleRenameProjectStart,
+    handleRenameProjectCancel,
+    handleRenameProjectConfirm,
   } = useConversationActions({
     batchMode,
     onSessionClick,
@@ -300,6 +306,30 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
           onChange={setRenameModalName}
           onPressEnter={handleRenameConfirm}
           placeholder={t('conversation.history.renamePlaceholder')}
+          allowClear
+        />
+      </Modal>
+
+      {/* Project (workspace) rename — same modal shape as the conversation
+          rename above. Persists a label override only; the directory and the
+          conversations' workspace paths are untouched (clear ⇒ default name). */}
+      <Modal
+        title={t('conversation.history.renameProjectTitle')}
+        visible={renameProjectTarget !== null}
+        onOk={handleRenameProjectConfirm}
+        onCancel={handleRenameProjectCancel}
+        okText={t('conversation.history.saveName')}
+        cancelText={t('conversation.history.cancelEdit')}
+        style={{ borderRadius: '12px' }}
+        alignCenter
+        getPopupContainer={() => document.body}
+      >
+        <Input
+          autoFocus
+          value={renameProjectName}
+          onChange={setRenameProjectName}
+          onPressEnter={handleRenameProjectConfirm}
+          placeholder={t('conversation.history.renameProjectPlaceholder')}
           allowClear
         />
       </Modal>
@@ -547,11 +577,21 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
                 const projectMenu = (
                   <Menu
                     onClickMenuItem={(key) => {
+                      if (key === 'rename') {
+                        handleRenameProjectStart(group.workspace, group.displayName);
+                        return;
+                      }
                       if (key === 'remove') {
                         handleRemoveProject(group.displayName, group.conversations);
                       }
                     }}
                   >
+                    <Menu.Item key='rename'>
+                      <span className='flex items-center gap-8px'>
+                        <EditOne theme='outline' size='14' />
+                        {t('conversation.history.renameProject')}
+                      </span>
+                    </Menu.Item>
                     <Menu.Item key='remove' className='!text-[rgb(var(--danger-6))]'>
                       <span className='flex items-center gap-8px'>
                         <Delete theme='outline' size='14' />

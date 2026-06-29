@@ -71,7 +71,10 @@
     "removeProjectTitle": "Projeyi kaldır",
     "removeProject": "Projeyi kaldır",
     "removeProjectConfirm": "\"{{name}}\" projesi kaldırılsın mı? Projedeki {{count}} konuşma da kaldırılacak.",
-    "newConversationInProject": "Bu projede yeni konuşma"
+    "newConversationInProject": "Bu projede yeni konuşma",
+    "renameProject": "Projeyi yeniden adlandır",
+    "renameProjectTitle": "Projeyi yeniden adlandır",
+    "renameProjectPlaceholder": "Proje adı"
   },
   "historySearch": {
     "tooltip": "Mesajları ara",
@@ -498,5 +501,12 @@
       }
     }
   },
-  "notFound": "Konuşma bulunamadı veya silinmiş"
+  "notFound": "Konuşma bulunamadı veya silinmiş",
+  "status": {
+    "running": "Çalışıyor",
+    "attention": "İlgi gerekiyor",
+    "error": "Hata",
+    "done": "Tamamlandı – okunmadı",
+    "idle": "Hazır"
+  }
 }

@@ -71,7 +71,10 @@
     "removeProjectTitle": "Remover projeto",
     "removeProject": "Remover projeto",
     "removeProjectConfirm": "Remover o projeto \"{{name}}\"? Suas {{count}} conversa(s) também serão removidas.",
-    "newConversationInProject": "Novo chat neste projeto"
+    "newConversationInProject": "Novo chat neste projeto",
+    "renameProject": "Renomear projeto",
+    "renameProjectTitle": "Renomear projeto",
+    "renameProjectPlaceholder": "Nome do projeto"
   },
   "historySearch": {
     "tooltip": "Pesquisar mensagens",
@@ -502,5 +505,12 @@
       }
     }
   },
-  "notFound": "Conversa não encontrada ou foi deletada"
+  "notFound": "Conversa não encontrada ou foi deletada",
+  "status": {
+    "running": "Em execução",
+    "attention": "Requer atenção",
+    "error": "Erro",
+    "done": "Concluído – não lido",
+    "idle": "Pronto"
+  }
 }

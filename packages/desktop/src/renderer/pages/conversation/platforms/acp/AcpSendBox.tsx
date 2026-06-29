@@ -25,6 +25,7 @@ import { useAcpModelInfo } from '@/renderer/hooks/agent/useAcpModelInfo';
 import { useAgentModesForBackend } from '@/renderer/hooks/agent/useAgentModesForBackend';
 import { createModeLabelFormatter } from '@/renderer/utils/model/agentModes';
 import { useEveInferenceSelection } from '@/renderer/hooks/agent/useEveInferenceSelection';
+import { isEveInferenceSelection } from '@/common/config/eveInferenceCore';
 import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
 import { savePreferredMode } from '@/renderer/pages/guid/hooks/agentSelectionUtils';
 import { useAutoTitle } from '@/renderer/hooks/chat/useAutoTitle';
@@ -178,6 +179,21 @@ const AcpSendBox: React.FC<{
   // effect on the next turn (the send shim re-reads the live selection).
   const isEveConversation = isCommandEveAcpConversation(backend);
   const eveInference = useEveInferenceSelection();
+
+  // Model id handed to the context indicator/popover. On an EVE conversation the
+  // runtime `request_trace.model_id` carries Hermes' LOCAL config model (one
+  // managed Ollama config, reported on cloud turns too), so it reads as a local
+  // 64k model — that is exactly why the cloud Max popover showed "55K / 65.5K"
+  // instead of the model's real ~1M window: the resolver could not tell the turn
+  // was a CLOUD turn from that local-looking id. When an EVE Inference (cloud)
+  // tier is the active selection AND the cloud bearer is usable, use that cloud
+  // SELECTION id (e.g. "command-eve-inference:eve-max") so the window resolver
+  // detects the cloud lane and floors at the model's real window. When a LOCAL
+  // tier is selected (or the bearer is missing so a send silently falls back to
+  // local), keep the live runtime model id whose 64k IS the real local window.
+  const cloudSelectionActive =
+    isEveConversation && isEveInferenceSelection(eveInference.selection) && eveInference.cloudBearerAvailable === true;
+  const indicatorModelId = cloudSelectionActive ? eveInference.selection : runtimeActivity.modelId;
 
   // Mirror AgentModeSelector's getMode sync so the sheet shows the live mode label.
   useEffect(() => {
@@ -795,7 +811,7 @@ Please check your local CLI tool authentication status`,
               <ContextUsageIndicator
                 tokenUsage={tokenUsage}
                 context_limit={context_limit}
-                modelId={runtimeActivity.modelId}
+                modelId={indicatorModelId}
               />
             }
             micSlot={

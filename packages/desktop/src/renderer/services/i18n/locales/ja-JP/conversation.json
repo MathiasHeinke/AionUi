@@ -71,7 +71,10 @@
     "removeProjectTitle": "プロジェクトを削除",
     "removeProject": "プロジェクトを削除",
     "removeProjectConfirm": "プロジェクト「{{name}}」を削除しますか？プロジェクト内の {{count}} 件の会話も削除されます。",
-    "newConversationInProject": "このプロジェクト内で新しい会話"
+    "newConversationInProject": "このプロジェクト内で新しい会話",
+    "renameProject": "プロジェクト名を変更",
+    "renameProjectTitle": "プロジェクト名を変更",
+    "renameProjectPlaceholder": "プロジェクト名"
   },
   "historySearch": {
     "tooltip": "メッセージを検索",
@@ -496,5 +499,12 @@
       }
     }
   },
-  "notFound": "会話が存在しないか、削除されました"
+  "notFound": "会話が存在しないか、削除されました",
+  "status": {
+    "running": "実行中",
+    "attention": "要対応",
+    "error": "エラー",
+    "done": "完了・未読",
+    "idle": "待機中"
+  }
 }

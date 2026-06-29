@@ -71,7 +71,10 @@
     "removeProjectTitle": "Видалити проєкт",
     "removeProject": "Видалити проєкт",
     "removeProjectConfirm": "Видалити проєкт «{{name}}»? Також буде видалено {{count}} розмов у ньому.",
-    "newConversationInProject": "Нова розмова в цьому проєкті"
+    "newConversationInProject": "Нова розмова в цьому проєкті",
+    "renameProject": "Перейменувати проект",
+    "renameProjectTitle": "Перейменувати проект",
+    "renameProjectPlaceholder": "Назва проекту"
   },
   "historySearch": {
     "tooltip": "Пошук повідомлень",
@@ -495,5 +498,12 @@
       }
     }
   },
-  "notFound": "Розмову не знайдено або її видалено"
+  "notFound": "Розмову не знайдено або її видалено",
+  "status": {
+    "running": "Виконується",
+    "attention": "Потребує уваги",
+    "error": "Помилка",
+    "done": "Готово — не прочитано",
+    "idle": "Готовий"
+  }
 }
