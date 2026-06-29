@@ -76,6 +76,16 @@ export const EVE_STRATEGY_SKILLS = Object.freeze([
   // client-report: in-seat generator of the operator's client-facing report deliverable
   // (single-folder skill: SKILL.md + report-template.md).
   { id: 'client-report' },
+  // Operator content / ops / CRM skills built in Company.OS (2026-06-29). User-facing
+  // (never founder-ops): a content operating system, a video→content engine, the
+  // human-gated publishing lane, a local kanban work-ledger, the first-run voice
+  // interview, and a local client-pipeline CRM. Each is a single-folder skill (one SKILL.md).
+  { id: 'content-machine' },
+  { id: 'video-first-content-engine' },
+  { id: 'blog-publishing-lane' },
+  { id: 'local-kanban-ledger' },
+  { id: 'voice-first-run' },
+  { id: 'crm-department' },
 ]);
 
 /** Just the ids, for callers that want the flat allowlist. */

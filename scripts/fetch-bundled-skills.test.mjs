@@ -14,13 +14,16 @@ import {
 
 // --- allowlist shape -------------------------------------------------------
 
-test('the allowlist is exactly 18: 15 strategy + blog-writer + founder-voice + client-report', () => {
-  assert.equal(EVE_STRATEGY_SKILL_IDS.length, 18);
+test('the allowlist is exactly 24: 15 strategy + blog-writer + founder-voice + client-report + 6 operator content/ops/CRM', () => {
+  assert.equal(EVE_STRATEGY_SKILL_IDS.length, 24);
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('eve-doctrine'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('marketing-outbound'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('blog-writer'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('founder-voice'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('client-report'));
+  assert.ok(EVE_STRATEGY_SKILL_IDS.includes('content-machine'));
+  assert.ok(EVE_STRATEGY_SKILL_IDS.includes('crm-department'));
+  assert.ok(EVE_STRATEGY_SKILL_IDS.includes('voice-first-run'));
   // gitnexus and other dev/IDE skills must NEVER be in the allowlist.
   assert.ok(!EVE_STRATEGY_SKILL_IDS.includes('gitnexus'));
 });
@@ -79,7 +82,7 @@ function makeFixtureSrc(root, { omit = [] } = {}) {
   return srcRoot;
 }
 
-test('stageBundledSkills refreshes from source and verifies all 18 (no failures)', () => {
+test('stageBundledSkills refreshes from source and verifies all 24 (no failures)', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fbs-test-'));
   try {
     const srcRoot = makeFixtureSrc(root);
