@@ -114,8 +114,23 @@ extraResources:
     to: bundled-aioncore
   # Hermes wheel is bundled so first-run setup does not depend on hermes-agent
   # being published to the public Python package index.
+  #
+  # NOTE: the web-search dependency wheels under resources/bundled-hermes/web/
+  # (lxml, brotli, primp, ...) ship UNSIGNED native Mach-O .so binaries inside
+  # third-party PyPI wheels. Apple notarytool inspects INSIDE those .whl files
+  # and rejects the whole app ("The binary is not signed with a valid Developer
+  # ID certificate") — and the wheels cannot be Dev-ID signed without breaking
+  # the pip RECORD hash. We therefore EXCLUDE web/ from the notarized bundle and
+  # let the first-run runtime bootstrap install ddgs from PyPI over the network
+  # (web search needs network anyway). The wheels stay in the source tree for the
+  # offline-capable path / future signing — they are only kept out of the .app.
+  # filter is relative to the `from` dir; "!web" prunes the directory and
+  # "!web/**" drops its contents so NO .whl with a native binary lands here.
   - from: resources/bundled-hermes
     to: bundled-hermes
+    filter:
+      - '!web'
+      - '!web/**'
   # EVE strategy skills (the real eve-doctrine/plan-system/icp-persona-panel/etc.
   # SKILL.md trees), staged into resources/bundled-skills by
   # scripts/fetch-bundled-skills.mjs (committed snapshot; refreshed from the

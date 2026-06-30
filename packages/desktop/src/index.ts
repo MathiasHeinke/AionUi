@@ -34,17 +34,14 @@ import { initMainAdapterWithWindow } from './common/adapter/main';
 import { ipcBridge } from './common';
 import { initializeProcess } from './process';
 import { ProcessConfig } from './process/utils/initStorage';
-import {
-  EVE_INFERENCE_FUNCTION_URL,
-  findEveInferenceTier,
-  isEveInferenceSelection,
-  parseEveTierIdFromSelection,
-  resolveCommandEveWarmupLane,
-  resolveEffectiveInferenceSelection,
-} from './common/config/eveInferenceCore';
+import { EVE_INFERENCE_FUNCTION_URL, resolveCommandEveWarmupLane } from './common/config/eveInferenceCore';
 import { readLicenseWire } from './common/config/licenseWireAtRest';
 import type { EveTeamWorkerStatusMap } from './common/config/eveTeamControlsCore';
-import { buildEveCloudRoute, type CommandEveEveCloudRoute } from './process/commandEve/ollamaOpenAiShim';
+import type { CommandEveEveCloudRoute } from './process/commandEve/ollamaOpenAiShim';
+import {
+  readInferenceSelectionFromBackend,
+  resolveEveCloudRouteFromBackend,
+} from './process/commandEve/inferenceSelectionBackendRead';
 import { getDataPath } from '@process/utils/utils';
 import { registerWindowMaximizeListeners } from '@process/bridge';
 import { BackendLifecycleManager } from '@aionui/web-host';
@@ -387,33 +384,42 @@ function commandEveGateAuditPath(runtimeRoot: string): string {
  * resolver runs PER request (sync) so it always reflects the live picker
  * selection and the keychain-at-rest CEVE license:
  *
- *   - reads `commandEve.inferenceSelection` from the in-memory config cache,
+ *   - reads `commandEve.inferenceSelection` FROM THE BACKEND settings store
+ *     (the renderer writes the picker value there via /api/settings/client, NOT
+ *     to the main-process ProcessConfig JSON — reading ProcessConfig always
+ *     returned undefined and silently defaulted EVE Max/High to Standard/Flash),
  *   - returns `{ active: false }` for any local (Privat lokal) selection,
  *   - for an EVE tier, parses the wire tier and reads the license, returning a
  *     route the shim POSTs to the eve-inference Edge Function (bearer = license).
+ *
+ * ASYNC: the selection lives in the backend SQLite store, so the resolver reads
+ * it over HTTP per request. The shim awaits it.
  *
  * Fail-soft: any read error keeps the request on the local lane (returns
  * undefined), never throwing inside the HTTP handler. The shim itself
  * fail-closes (401/500) if an EVE route is active but the license/URL is
  * missing, so a dropped license never becomes a silent unauthenticated call.
  */
-function buildCommandEveShimRoutingResolver(): () => CommandEveEveCloudRoute | undefined {
-  return () => {
+function buildCommandEveShimRoutingResolver(): () => Promise<CommandEveEveCloudRoute | undefined> {
+  return async () => {
     try {
-      // Apply the same EVE-Standard default the renderer uses, so a fresh user
-      // who never opened the picker still routes to the cloud lane.
-      const selection = resolveEffectiveInferenceSelection(ProcessConfig.getSync('commandEve.inferenceSelection'));
-      if (!isEveInferenceSelection(selection)) {
-        return { active: false };
-      }
-      const tierId = parseEveTierIdFromSelection(selection);
-      const tier = tierId ? findEveInferenceTier(tierId)?.tier : undefined;
-      const wireResult = readLicenseWire(getDataPath());
-      return buildEveCloudRoute({
-        isEveSelection: true,
-        tier,
+      // HONEST TIER ROUTING (1.2.19 + backend-store fix): the wire tier POSTed to
+      // eve-inference is the user's ACTUAL current picker selection — read from
+      // the BACKEND settings store (the only store the renderer writes it to) and
+      // mapped VERBATIM eve-standard→'standard' / eve-high→'high' / eve-max→'max'.
+      // The full chain lives in resolveEveCloudRouteFromBackend so the live path
+      // and its end-to-end regression test exercise the SAME code. (Previously the
+      // resolver read commandEve.inferenceSelection from ProcessConfig — a store
+      // the renderer never writes — so it ALWAYS saw undefined and defaulted EVE
+      // Max/High to Standard → DeepSeek V4 Flash: the OpenRouter "100% Flash,
+      // GLM/Pro never called" symptom.)
+      return await resolveEveCloudRouteFromBackend({
+        readSelection: readInferenceSelectionFromBackend,
+        readLicense: () => {
+          const wireResult = readLicenseWire(getDataPath());
+          return wireResult.ok ? wireResult.wire : undefined;
+        },
         functionUrl: EVE_INFERENCE_FUNCTION_URL,
-        license: wireResult.ok ? wireResult.wire : undefined,
       });
     } catch (error) {
       console.warn('[Command EVE] EVE shim routing resolver failed; staying local:', error);
@@ -876,28 +882,34 @@ function scheduleCommandEveLocalModelWarmup(
   mark?: (label: string) => void,
   eveWarmup?: CommandEveEveLaneWarmup
 ): void {
-  let lane: ReturnType<typeof resolveCommandEveWarmupLane>;
-  try {
-    lane = resolveCommandEveWarmupLane(ProcessConfig.getSync('commandEve.inferenceSelection'));
-  } catch (error) {
-    // Fail-soft: if the selection cannot be read, fall back to the (safe) local
-    // warm-up gate rather than skipping warm-up entirely.
-    console.warn('[Command EVE] Could not resolve warm-up lane; defaulting to local gate:', error);
-    lane = { lane: 'local' };
-  }
-
-  if (lane.lane === 'eve') {
-    // EVE is the active lane: warm the cloud route, NOT the local model. Skip the
-    // Ollama warm-up so we never load Gemma into VRAM the user will not use.
-    if (eveWarmup) {
-      scheduleCommandEveEveLaneWarmup(shimUrl, lane.tier, eveWarmup, mark);
+  // Resolve the warm-up lane from the LIVE picker selection in the BACKEND store
+  // (same source the per-request routing resolver reads), not the main-process
+  // ProcessConfig the renderer never writes to. Async + fire-and-forget so boot
+  // is not blocked; fail-soft to the local gate on any read error.
+  void (async () => {
+    let lane: ReturnType<typeof resolveCommandEveWarmupLane>;
+    try {
+      lane = resolveCommandEveWarmupLane(await readInferenceSelectionFromBackend());
+    } catch (error) {
+      // Fail-soft: if the selection cannot be read, fall back to the (safe) local
+      // warm-up gate rather than skipping warm-up entirely.
+      console.warn('[Command EVE] Could not resolve warm-up lane; defaulting to local gate:', error);
+      lane = { lane: 'local' };
     }
-    return;
-  }
 
-  // Local lane: keep the existing bundled-model warm-up (receipt-gated).
-  if (receipt.status !== 'ready' || !receipt.default_model) return;
-  void ensureCommandEveLocalModelWarmup(receipt, shimUrl, warmup, mark);
+    if (lane.lane === 'eve') {
+      // EVE is the active lane: warm the cloud route, NOT the local model. Skip the
+      // Ollama warm-up so we never load Gemma into VRAM the user will not use.
+      if (eveWarmup) {
+        scheduleCommandEveEveLaneWarmup(shimUrl, lane.tier, eveWarmup, mark);
+      }
+      return;
+    }
+
+    // Local lane: keep the existing bundled-model warm-up (receipt-gated).
+    if (receipt.status !== 'ready' || !receipt.default_model) return;
+    void ensureCommandEveLocalModelWarmup(receipt, shimUrl, warmup, mark);
+  })();
 }
 
 function registerCronResumeBridge(backendPort: number): void {
@@ -1259,6 +1271,9 @@ const handleAppReady = async (): Promise<void> => {
       if (repair.rebound && repair.rebound > 0) {
         console.warn(`[CommandEVE] Pre-flight assistant-storage repair: re-bound ${repair.rebound} EVE definition(s) aionrs→hermes.`);
       }
+      if (repair.reseeded && repair.reseeded > 0) {
+        console.warn(`[CommandEVE] Pre-flight assistant-storage repair: cleared ${repair.reseeded} orphaned EVE mirror row(s) with no live definition (will re-seed via POST).`);
+      }
     } catch (error) {
       console.warn('[CommandEVE] Pre-flight assistant-storage repair skipped:', error);
     }
@@ -1313,6 +1328,9 @@ const handleAppReady = async (): Promise<void> => {
         }
         if (repair.rebound && repair.rebound > 0) {
           console.warn(`[CommandEVE] Pre-flight assistant-storage repair (respawn): re-bound ${repair.rebound} EVE definition(s) aionrs→hermes.`);
+        }
+        if (repair.reseeded && repair.reseeded > 0) {
+          console.warn(`[CommandEVE] Pre-flight assistant-storage repair (respawn): cleared ${repair.reseeded} orphaned EVE mirror row(s) with no live definition (will re-seed via POST).`);
         }
       } catch (error) {
         console.warn('[CommandEVE] Pre-flight assistant-storage repair (respawn) skipped:', error);

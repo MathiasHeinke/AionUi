@@ -19,6 +19,15 @@ import {
   evaluateWorkerDispatch,
   type EveTeamWorkerStatusMap,
 } from '../../common/config/eveTeamControlsCore';
+import { EVE_INFERENCE_TIERS } from '../../common/config/eveInferenceCore';
+
+/**
+ * The known EVE wire tiers (registry SSOT) — derived from EVE_INFERENCE_TIERS so
+ * a new tier in eveInferenceCore is automatically valid here. The shim uses this
+ * to REFUSE an active EVE route whose tier is missing/unknown rather than
+ * silently downgrade it to the cheapest model (HONEST TIER ROUTING, 1.2.19).
+ */
+const KNOWN_EVE_WIRE_TIERS: ReadonlySet<string> = new Set(EVE_INFERENCE_TIERS.map((t) => t.tier));
 
 const DEFAULT_SHIM_PORT = 25811;
 const DEFAULT_OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
@@ -51,8 +60,20 @@ export type CommandEveEveCloudRoute = {
   tier?: string;
 };
 
-/** Per-request resolver: is the active selection an EVE cloud tier? */
-export type CommandEveEveRoutingResolver = () => CommandEveEveCloudRoute | undefined;
+/**
+ * Per-request resolver: is the active selection an EVE cloud tier?
+ *
+ * MAY be async: the live picker selection lives in the aioncore BACKEND settings
+ * store (the renderer's configService writes `commandEve.inferenceSelection` to
+ * `/api/settings/client`, NOT to the main-process ProcessConfig JSON), so the
+ * resolver reads it over HTTP per request. The shim awaits the result. A sync
+ * resolver (returning the route directly) is still accepted for tests / the
+ * no-op default.
+ */
+export type CommandEveEveRoutingResolver = () =>
+  | CommandEveEveCloudRoute
+  | undefined
+  | Promise<CommandEveEveCloudRoute | undefined>;
 
 /**
  * Per-request resolver for the persisted "Dein Team" worker-status map
@@ -453,7 +474,16 @@ async function handleEveCloudCompletions(
 ): Promise<void> {
   const functionUrl = typeof route.functionUrl === 'string' ? route.functionUrl.trim() : '';
   const license = typeof route.license === 'string' ? route.license.trim() : '';
-  const tier = typeof route.tier === 'string' && route.tier.trim() ? route.tier.trim() : 'standard';
+  // HONEST TIER ROUTING (1.2.19): the wire tier is the user's ACTUAL picker
+  // selection, forwarded VERBATIM — NO silent fall-through to 'standard'. The
+  // routing resolver derives this from the live selection via
+  // resolveWireTierFromSelection (eve-standard→'standard', eve-high→'high',
+  // eve-max→'max'). If an ACTIVE EVE route arrives without a known wire tier the
+  // selection→tier chain is broken; we FAIL LOUD (500) instead of metering the
+  // cheapest model — the previous `: 'standard'` fallback was exactly the bug
+  // that made a paid EVE-Max user silently bill DeepSeek V4 Flash (OpenRouter
+  // logs: 100% Flash, GLM 5.2 + V4 Pro never called).
+  const tier = typeof route.tier === 'string' ? route.tier.trim() : '';
   const model = String(body.model || '');
   const stream = Boolean(body.stream);
 
@@ -468,6 +498,20 @@ async function handleEveCloudCompletions(
   if (license.length === 0) {
     jsonResponse(response, 401, {
       error: { message: 'EVE Inference is unavailable: no CEVE license bearer credential.' },
+    });
+    return;
+  }
+  // HONEST TIER ROUTING (1.2.19): refuse an active EVE route with a missing or
+  // unknown wire tier rather than silently downgrading to the cheapest model.
+  // A correct route always carries one of the registry tiers (standard/high/max);
+  // a missing/unknown value means the selection→tier resolution broke upstream.
+  if (!KNOWN_EVE_WIRE_TIERS.has(tier)) {
+    jsonResponse(response, 500, {
+      error: {
+        message:
+          'EVE Inference routing error: the selected level could not be resolved to a billing tier. ' +
+          'Re-pick the EVE level and try again.',
+      },
     });
     return;
   }
@@ -660,7 +704,7 @@ async function handleChatCompletions(
   // the active picker selection is an EVE tier. A warm-up ping ("ping") stays
   // local — it only ever exercises the bundled local model.
   if (!isCommandEveWarmupRequest(body)) {
-    const eveRoute = options.eveRouting();
+    const eveRoute = await options.eveRouting();
     if (eveRoute?.active) {
       await handleEveCloudCompletions(body, response, options, eveRoute);
       return;

@@ -235,3 +235,98 @@ describe('repairCommandEveAssistantStorage — re-binds EVE aionrs → hermes (B
     expect(agentIdOf(dir, 'def-eve')).toBe('aionrs-1');
   });
 });
+
+function eveExists(dataDir: string, assistantId: string): boolean {
+  const db = new DatabaseSync(path.join(dataDir, 'aionui-backend.db'));
+  const row = db.prepare('SELECT 1 AS n FROM assistants WHERE id = ?').get(assistantId) as
+    | { n: number }
+    | undefined;
+  db.close();
+  return Boolean(row && row.n);
+}
+
+function liveDefCount(dataDir: string, assistantId: string): number {
+  const db = new DatabaseSync(path.join(dataDir, 'aionui-backend.db'));
+  const row = db
+    .prepare('SELECT COUNT(*) AS n FROM assistant_definitions WHERE assistant_id = ? AND deleted_at IS NULL')
+    .get(assistantId) as { n: number } | undefined;
+  db.close();
+  return row ? Number(row.n) : 0;
+}
+
+describe('repairCommandEveAssistantStorage — clears the no-live-definition orphan (BUG 3, the Alois brick)', () => {
+  const EVE = 'command-eve-chief-of-staff';
+
+  it('clears the orphaned EVE assistants row when it has ZERO definition rows AT ALL', async () => {
+    // Alois state: an ACTIVE EVE legacy mirror row, but NO assistant_definitions
+    // row exists for it — not soft-deleted, genuinely absent. BUG 1 matches
+    // nothing; BUG 3 must remove the orphan so the backend re-seeds via POST.
+    const dir = makeDataDir();
+    seedDb(dir, (db) => {
+      db.prepare(`INSERT INTO assistants (id, name) VALUES ('${EVE}','EVE')`).run();
+      // intentionally NO assistant_definitions row
+    });
+    const result = await repairCommandEveAssistantStorage(dir);
+    expect(result.repaired).toBe(0); // nothing to un-soft-delete
+    expect(result.reseeded).toBe(1); // the orphan mirror row was cleared
+    // Bootstrap-ready state: no orphaned EVE row + still zero live defs → the
+    // next ensureCommandEveAssistant takes the POST (re-seed) path.
+    expect(eveExists(dir, EVE)).toBe(false);
+    expect(liveDefCount(dir, EVE)).toBe(0);
+  });
+
+  it('does NOT clear the EVE row when a live definition exists (healthy install)', async () => {
+    const dir = makeDataDir();
+    seedDb(dir, (db) => {
+      db.prepare(`INSERT INTO assistants (id, name) VALUES ('${EVE}','EVE')`).run();
+      db.prepare(
+        `INSERT INTO assistant_definitions (id, assistant_id, source, deleted_at) VALUES ('def-eve','${EVE}','user',NULL)`
+      ).run();
+    });
+    const result = await repairCommandEveAssistantStorage(dir);
+    expect(result.reseeded).toBe(0);
+    expect(eveExists(dir, EVE)).toBe(true);
+    expect(liveDefCount(dir, EVE)).toBe(1);
+  });
+
+  it('heals a SOFT-DELETED def via BUG 1 instead of clearing the row (BUG 3 stays a no-op)', async () => {
+    // The merely-soft-deleted case must be healed by un-soft-delete (BUG 1), NOT
+    // by the BUG 3 row-clear — BUG 3 runs AFTER BUG 1 so the row is already live.
+    const dir = makeDataDir();
+    seedDb(dir, (db) => {
+      db.prepare(`INSERT INTO assistants (id, name) VALUES ('${EVE}','EVE')`).run();
+      db.prepare(
+        `INSERT INTO assistant_definitions (id, assistant_id, source, deleted_at) VALUES ('def-eve','${EVE}','user',1782510337017)`
+      ).run();
+    });
+    const result = await repairCommandEveAssistantStorage(dir);
+    expect(result.repaired).toBe(1); // BUG 1 un-soft-deleted it
+    expect(result.reseeded).toBe(0); // BUG 3 saw a live def → no clear
+    expect(eveExists(dir, EVE)).toBe(true);
+    expect(deletedAtOf(dir, 'def-eve')).toBeNull();
+    expect(liveDefCount(dir, EVE)).toBe(1);
+  });
+
+  it('does NOT clear a NON-EVE assistant that has zero definitions (scoped to EVE only)', async () => {
+    const dir = makeDataDir();
+    seedDb(dir, (db) => {
+      db.prepare("INSERT INTO assistants (id, name) VALUES ('excel-creator','Excel')").run();
+      // no definition row for excel-creator either — but it is NOT the EVE id
+    });
+    const result = await repairCommandEveAssistantStorage(dir);
+    expect(result.reseeded).toBe(0);
+    expect(eveExists(dir, 'excel-creator')).toBe(true);
+  });
+
+  it('is idempotent — a second run after the clear is a no-op (fresh-install shape)', async () => {
+    const dir = makeDataDir();
+    seedDb(dir, (db) => {
+      db.prepare(`INSERT INTO assistants (id, name) VALUES ('${EVE}','EVE')`).run();
+    });
+    const first = await repairCommandEveAssistantStorage(dir);
+    expect(first.reseeded).toBe(1);
+    const second = await repairCommandEveAssistantStorage(dir);
+    expect(second.reseeded).toBe(0); // EVE row already gone → nothing to clear
+    expect(eveExists(dir, EVE)).toBe(false);
+  });
+});

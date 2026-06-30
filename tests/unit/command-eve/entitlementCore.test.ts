@@ -12,6 +12,7 @@ import path from 'node:path';
 import {
   activateEntitlement,
   getEntitlementStatus,
+  isPaidSeatEdition,
   readRegistration,
   registerTenant,
   resolveLicensePublicKeyEntries,
@@ -655,6 +656,63 @@ describe('activateEntitlement + getEntitlementStatus — CEVE.v2', () => {
     // has_paid_seat true (unlocks the BYOK / add-own-model affordance). Derived
     // from the verified payload, NOT a separate claim.
     expect(status.has_paid_seat).toBe(true);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // PERMANENT FREE seat (edition="free") — founder model, locked 2026-06-30.
+  // The free seat is entitled FOREVER (expires_at null, trial_ends_at null) but
+  // is NOT paid. THE TRAP: it carries a null trial_ends_at exactly like a paid
+  // license, so has_paid_seat MUST be derived on edition (free ⇒ NOT paid), never
+  // on trial_ends_at alone — else BYOK/local/client-seat would unlock for a free
+  // user.
+  // ─────────────────────────────────────────────────────────────────────────
+  it('activates a FREE seat (edition=free) → entitled FOREVER and has_paid_seat is FALSE (the trap closed)', () => {
+    const root = makeRoot();
+    const { publicKeyPem, privateKey } = makeKeypair();
+    const options = optionsFor(root, publicKeyPem);
+    register(options);
+
+    // The permanent-free license: edition="free", BOTH bounds null (perpetual).
+    const code = signCodeV2(
+      privateKey,
+      validPayloadV2({ edition: 'free', trial_ends_at: null, expires_at: null, seat_count: 1 })
+    );
+    const result = activateWithWire(code, options);
+    expect(result.ok).toBe(true);
+    expect(result.record?.edition).toBe('free');
+    expect(result.record?.trial_ends_at).toBe(null);
+
+    // Entitled NOW (NOW = 2026-06-12).
+    const status = getEntitlementStatus(options);
+    expect(status.state).toBe('entitled');
+    expect(status.edition).toBe('free');
+    // THE TRAP CLOSED: a free seat has trial_ends_at == null but is NOT paid.
+    // has_paid_seat must be falsy ⇒ the BYOK / local-model / client-seat
+    // affordances stay LOCKED for a free user.
+    expect(status.has_paid_seat).toBeFalsy();
+
+    // KEYSTONE: the free seat does NOT expire — it is STILL entitled years later,
+    // long past where the old day-14 trial would have locked out. "Free FOREVER."
+    const farFuture: CommandEveEntitlementOptions = {
+      ...optionsFor(root, publicKeyPem),
+      now: () => new Date('2030-01-01T00:00:00.000Z'),
+    };
+    const stillEntitled = getEntitlementStatus(farFuture);
+    expect(stillEntitled.state).toBe('entitled');
+    expect(stillEntitled.edition).toBe('free');
+    expect(stillEntitled.has_paid_seat).toBeFalsy();
+  });
+
+  it('isPaidSeatEdition: free is never paid; standard/comped non-trial is paid; a trial is never paid', () => {
+    // The free-forever trap: null trial_ends_at + edition "free" ⇒ NOT paid.
+    expect(isPaidSeatEdition(null, 'free')).toBe(false);
+    expect(isPaidSeatEdition(undefined, 'free')).toBe(false);
+    // A real paid/comped license: null trial_ends_at + non-free edition ⇒ paid.
+    expect(isPaidSeatEdition(null, 'standard')).toBe(true);
+    expect(isPaidSeatEdition(undefined, undefined)).toBe(true); // v1 comped (no trial, no edition surfaced as free)
+    // A trial (non-null trial_ends_at) is never paid, regardless of edition.
+    expect(isPaidSeatEdition('2030-01-01T00:00:00.000Z', 'pilot')).toBe(false);
+    expect(isPaidSeatEdition('2030-01-01T00:00:00.000Z', 'standard')).toBe(false);
   });
 });
 

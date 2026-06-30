@@ -1,0 +1,119 @@
+/**
+ * @license
+ * Copyright 2025 AionUi (aionui.com)
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/**
+ * Read the live `commandEve.inferenceSelection` picker value FROM THE BACKEND
+ * settings store — the single source of truth the renderer actually writes to.
+ *
+ * WHY THIS EXISTS (the 1.2.19 EVE-Max-routes-as-Flash root cause):
+ *
+ *   The renderer's `configService.set('commandEve.inferenceSelection', value)`
+ *   PUTs to `/api/settings/client`, which the aioncore backend persists in its
+ *   SQLite `client_preferences` table. It does NOT write the main-process
+ *   `ProcessConfig` JSON file (`command-eve-config.txt`).
+ *
+ *   The main-process EVE routing resolver + warm-up lane previously read the
+ *   selection via `ProcessConfig.getSync('commandEve.inferenceSelection')` — a
+ *   store that NEVER receives the picker value. So that read ALWAYS returned
+ *   `undefined`, which `resolveEffectiveInferenceSelection` defaults to EVE
+ *   Standard → wire tier `standard` → DeepSeek V4 Flash. A user who picked EVE
+ *   High/Max was silently billed/served Flash (OpenRouter logs: 100% Flash, GLM
+ *   5.2 + V4 Pro never called). Because `standard` is a VALID wire tier, the
+ *   shim's fail-loud (500 on unknown tier) never fired — the symptom was a clean
+ *   `ok` + Flash, never an error.
+ *
+ *   This is the EXACT same store-split bug already fixed once for
+ *   `webui.desktop.enabled` (see webuiConfig.ts: "renderer's configService was
+ *   migrated to the backend HTTP store, but this main-process path was not").
+ *
+ * SEAT SCOPING: `commandEve.inferenceSelection` is a seat-scoped key
+ * (SEAT_SCOPED_CONFIG_KEYS). The renderer persists it under the seat-physical
+ * key (`seatScopedKey(logicalKey, activeSeatId)`); a legacy/no-seat holder uses
+ * the un-prefixed key verbatim. We resolve the SAME physical key here so we read
+ * the value the renderer actually wrote for the active seat.
+ *
+ * Fail-soft: any read error returns `undefined`, so the caller falls back to the
+ * EVE-Standard default (never throws inside the HTTP handler / warm-up).
+ */
+
+import { httpRequest } from '@/common/adapter/httpBridge';
+import { seatScopedKey } from '@/common/config/seatConfigKeyCore';
+import {
+  EVE_INFERENCE_FUNCTION_URL,
+  isEveInferenceSelection,
+  resolveEffectiveInferenceSelection,
+  resolveWireTierFromSelection,
+} from '@/common/config/eveInferenceCore';
+import { buildEveCloudRoute, type CommandEveEveCloudRoute } from './ollamaOpenAiShim';
+import { getActiveSeatId } from './seatContextCore';
+
+const INFERENCE_SELECTION_KEY = 'commandEve.inferenceSelection';
+
+/**
+ * Read the persisted EVE inference picker selection from the backend settings
+ * store for the currently-active seat. Returns the raw stored string (e.g.
+ * `"command-eve-inference:eve-max"`) or `undefined` when absent/unreadable.
+ *
+ * NOTE: returns the RAW persisted value — apply `resolveEffectiveInferenceSelection`
+ * at the call site so an absent value maps to the EVE-Standard default exactly as
+ * the renderer's send path does.
+ */
+export async function readInferenceSelectionFromBackend(): Promise<string | undefined> {
+  let physicalKey = INFERENCE_SELECTION_KEY;
+  try {
+    physicalKey = seatScopedKey(INFERENCE_SELECTION_KEY, getActiveSeatId());
+  } catch {
+    // Seat context not resolvable yet → fall back to the un-prefixed (legacy) key.
+    physicalKey = INFERENCE_SELECTION_KEY;
+  }
+
+  try {
+    const settings = await httpRequest<Record<string, unknown>>('GET', '/api/settings/client');
+    // Prefer the seat-physical key; fall back to the un-prefixed key so a legacy
+    // holder (or a value written before seat scoping) is still found.
+    const raw = settings?.[physicalKey] ?? settings?.[INFERENCE_SELECTION_KEY];
+    return typeof raw === 'string' && raw.trim().length > 0 ? raw : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The COMPLETE main-process EVE-cloud route resolution chain, dependency-injected
+ * so the full picker-selection → wire-tier mapping is unit-testable end-to-end
+ * (the previous 1.2.19 unit tests only covered `resolveWireTierFromSelection` in
+ * isolation; they passed while the LIVE chain still produced Standard because the
+ * selection was read from the wrong store).
+ *
+ * Chain (exactly what the shim's per-request routing resolver runs):
+ *   readSelection() [backend store] → resolveEffectiveInferenceSelection
+ *     → isEveInferenceSelection? → resolveWireTierFromSelection → buildEveCloudRoute
+ *
+ * A LOCAL selection returns `{ active: false }`. An EVE selection returns an
+ * active route carrying the wire tier (standard/high/max) + license. Fail-soft:
+ * if `readSelection` rejects, the caller's wrapper catches and stays local.
+ */
+export async function resolveEveCloudRouteFromBackend(deps: {
+  /** Read the raw persisted picker selection (backend store). */
+  readSelection: () => Promise<string | undefined>;
+  /** Read the CEVE license wire (or undefined when absent). */
+  readLicense: () => string | undefined;
+  /** Edge Function URL (overridable in tests). */
+  functionUrl?: string;
+}): Promise<CommandEveEveCloudRoute | undefined> {
+  const selection = resolveEffectiveInferenceSelection(await deps.readSelection());
+  if (!isEveInferenceSelection(selection)) {
+    return { active: false };
+  }
+  const tier = resolveWireTierFromSelection(selection);
+  const license = deps.readLicense();
+  return buildEveCloudRoute({
+    isEveSelection: true,
+    tier,
+    functionUrl: deps.functionUrl ?? EVE_INFERENCE_FUNCTION_URL,
+    license,
+  });
+}

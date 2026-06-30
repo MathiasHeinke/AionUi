@@ -5,7 +5,7 @@ import {
   COMMAND_EVE_ASSISTANT_ID,
   COMMAND_EVE_TITLE,
 } from '@/common/config/commandEveShell';
-import { commandEveActiveModeLabel } from '@/common/config/eveInferenceCore';
+import { commandEveActiveModeLabel, describeCommandEveActiveLane } from '@/common/config/eveInferenceCore';
 
 export type CommandEveDetectedAgent = {
   agent_type?: string;
@@ -120,10 +120,17 @@ export type CommandEveAssistantFirstRunContext = {
   seatIdentity?: CommandEveSeatIdentity;
   /**
    * The EFFECTIVE picker inference selection (commandEve.inferenceSelection) at
-   * skill-write time. Rendered as the model-FREE "Betriebsmodus" line so EVE
-   * describes its active lane (EVE-Cloud / lokal-privat) and NEVER the local
-   * model name (the old `receipt.default_model` leak that made EVE claim "Gemma
-   * 4"). Best-effort + may go stale on a mid-session lane switch — the standing
+   * skill-write time, read from the BACKEND settings store (NOT ProcessConfig —
+   * the picker value never lands in ProcessConfig; see
+   * inferenceSelectionBackendRead.ts, the same store-split trap that mis-routed
+   * EVE Max as Flash). The SAME value the send-path router uses to pick the wire
+   * tier, so the self-description lane and the router never diverge.
+   *
+   * Rendered TWO ways: (1) the explicit "Aktive Inferenz-Lane" line via
+   * `describeCommandEveActiveLane` (Task #50 — EVE describes the active CLOUD
+   * tier honestly, never the local shim model id on a cloud lane), and (2) the
+   * model-FREE "Betriebsmodus" summary via `commandEveActiveModeLabel`. Both are
+   * best-effort + may go stale on a mid-session lane switch — the standing
    * "Modell-Identitaet" rule is the hard guarantee that EVE never names a model.
    */
   inferenceSelection?: string;
@@ -285,10 +292,24 @@ export function buildCommandEveAssistantFirstRunContext(
       '## Lokaler First-Run-Kontext (Bootstrap-Receipt)',
       '',
       `- App-Version: ${context.appVersion}`,
+      // HONEST ACTIVE LANE (Task #50): derived from the picker selection — read
+      // here from the BACKEND settings store (the router's own source of truth,
+      // threaded as `context.inferenceSelection` via readInferenceSelectionFromBackend),
+      // NOT the local Ollama warm-up receipt. On an EVE cloud lane this reads
+      // "EVE Cloud, <Stufe>-Stufe …" and never leaks the local shim model id
+      // (command-eve-gemma4-e4b-64k) or claims a local model.
+      `- Aktive Inferenz-Lane: ${describeCommandEveActiveLane(context.inferenceSelection, 'de-DE')}`,
       `- Runtime: ${receipt?.status || 'unbekannt'}; Betriebsmodus: ${commandEveActiveModeLabel(
         context.inferenceSelection,
         'de-DE'
       )}`,
+      // The local runtime receipt below describes ONLY the bundled local Ollama
+      // warm-up. It is the active model ONLY on the local lane; on the EVE cloud
+      // lane it is just the warmed-but-idle local fallback — do NOT report it as
+      // the model you are answering with.
+      `- Lokale Runtime (Fallback-Warmup, nur auf der lokalen Lane aktiv): ${receipt?.status || 'unbekannt'}; lokales Modell: ${
+        receipt?.default_model || 'nicht verifiziert'
+      }`,
       `- Naechste Runtime-Aktion: ${receipt?.next_action || 'Receipt noch nicht geschrieben.'}`,
       ...seatLinesDe,
       `- Identity-Quelle: ${usingSeat ? 'seat' : identity?.source || 'unverified'} / ${
@@ -309,6 +330,7 @@ export function buildCommandEveAssistantFirstRunContext(
         : '- Blocker: keine im letzten Receipt',
       '',
       'Arbeitsregel: Sprich Deutsch und per Du, solange der User nichts anderes verlangt. Begruesse den User mit den bekannten Seeds, aber nenne sie als bestaetigungspflichtig, wenn confidence nicht verified ist. Behandle needs_auth, unverified und gated Connectoren als noch nicht einsatzbereit.',
+      'Selbstbeschreibung: Wenn du gefragt wirst, welches Modell/welche Lane du nutzt, beschreibe dich AUSSCHLIESSLICH ueber die "Aktive Inferenz-Lane" oben (z. B. "EVE Cloud, Max-Stufe"). Nenne NIEMALS den lokalen Shim-Modellnamen (command-eve-gemma4-e4b-64k) und behaupte NICHT, du laeufst lokal, solange die aktive Lane EVE Cloud ist. Die lokale Runtime ist auf einer Cloud-Lane nur ein vorgewaermter Fallback, nicht das antwortende Modell.',
     ].join('\n');
   }
 
@@ -333,10 +355,24 @@ export function buildCommandEveAssistantFirstRunContext(
     '## Local First-Run Context (Bootstrap Receipt)',
     '',
     `- App version: ${context.appVersion}`,
+    // HONEST ACTIVE LANE (Task #50): derived from the picker selection — read
+    // here from the BACKEND settings store (the router's own source of truth,
+    // threaded as `context.inferenceSelection` via readInferenceSelectionFromBackend),
+    // NOT the local Ollama warm-up receipt. On an EVE cloud lane this reads
+    // "EVE Cloud, <Tier> tier …" and never leaks the local shim model id
+    // (command-eve-gemma4-e4b-64k) or claims a local model.
+    `- Active inference lane: ${describeCommandEveActiveLane(context.inferenceSelection, 'en-US')}`,
     `- Runtime: ${receipt?.status || 'unknown'}; Operating mode: ${commandEveActiveModeLabel(
       context.inferenceSelection,
       'en-US'
     )}`,
+    // The local runtime receipt below describes ONLY the bundled local Ollama
+    // warm-up. It is the active model ONLY on the local lane; on the EVE cloud
+    // lane it is just the warmed-but-idle local fallback — do NOT report it as
+    // the model you are answering with.
+    `- Local runtime (fallback warm-up, active only on the local lane): ${receipt?.status || 'unknown'}; local model: ${
+      receipt?.default_model || 'not verified'
+    }`,
     `- Next runtime action: ${receipt?.next_action || 'Receipt has not been written yet.'}`,
     ...seatLinesEn,
     `- Identity source: ${usingSeat ? 'seat' : identity?.source || 'unverified'} / ${
@@ -357,6 +393,7 @@ export function buildCommandEveAssistantFirstRunContext(
       : '- Blockers: none in the latest receipt',
     '',
     'Operating rule: greet the user with known seeds, but mark them as requiring confirmation when confidence is not verified. Treat needs_auth, unverified and gated connectors as not operational yet.',
+    'Self-description: when asked which model/lane you run on, describe yourself SOLELY by the "Active inference lane" above (e.g. "EVE Cloud, Max tier"). NEVER name the local shim model id (command-eve-gemma4-e4b-64k) and do NOT claim to run locally while the active lane is EVE Cloud. On a cloud lane the local runtime is only a warmed fallback, not the model answering.',
   ].join('\n');
 }
 

@@ -16,7 +16,7 @@ import {
 } from './assistantBootstrapCore';
 import { COMMAND_EVE_ASSISTANT_ID, isCommandEveFounderBuild } from '@/common/config/commandEveShell';
 import { resolveEffectiveInferenceSelection } from '@/common/config/eveInferenceCore';
-import { ProcessConfig } from '@process/utils/initStorage';
+import { readInferenceSelectionFromBackend } from './inferenceSelectionBackendRead';
 import fs from 'fs';
 import path from 'path';
 import { resolveCommandEveRuntimeBootstrapPaths } from './runtimeBootstrapCore';
@@ -349,12 +349,15 @@ export async function ensureCommandEveAssistant(
   const assistant = buildCommandEveAssistantPayload(presetAgentType, customSkillNames, appVersion, isFounderBuild);
   const firstRunLoad = loadCommandEveFirstRunContext(appVersion, options.userDataPath);
   // The EFFECTIVE picker selection drives EVE's model-FREE "Betriebsmodus" line
-  // (same sync read as the warm-up lane in index.ts) so EVE describes its active
-  // lane instead of leaking the local model ref. Best-effort: undefined → the
-  // line reads "nicht verifiziert" and the standing model-identity rule still
-  // forbids naming a model.
+  // so EVE describes its active lane instead of leaking the local model ref.
+  // Read from the BACKEND settings store (the only store the renderer writes the
+  // picker value to) — the same source the routing resolver + warm-up lane read.
+  // Reading ProcessConfig here always returned undefined → EVE always described
+  // "Standard" regardless of the picked level. Best-effort: undefined → the line
+  // reads "nicht verifiziert" and the standing model-identity rule still forbids
+  // naming a model.
   const activeInferenceSelection = resolveEffectiveInferenceSelection(
-    ProcessConfig.getSync('commandEve.inferenceSelection')
+    await readInferenceSelectionFromBackend()
   );
   const existingAssistant = await loadCommandEveAssistant(backendPort);
   const method = existingAssistant ? 'PUT' : 'POST';

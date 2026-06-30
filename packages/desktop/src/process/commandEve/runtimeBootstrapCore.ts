@@ -31,6 +31,24 @@ const DEFAULT_LONG_CONTEXT_LENGTH = 65_536;
 const DEFAULT_HERMES_MAX_TOKENS = 2048;
 const COMMAND_EVE_OLLAMA_MODEL_PREFIX = 'command-eve';
 const BUNDLED_HERMES_DIR = 'bundled-hermes';
+// Vendored keyless-web-backend wheels (ddgs + its runtime closure: primp, lxml,
+// httpx[brotli,http2,socks], click, fake-useragent, …). Committed under
+// resources/bundled-hermes/web for the OFFLINE-CAPABLE path
+// (pip --no-index --find-links <this dir>). Binary wheels (primp/lxml/brotli) are
+// built for the SHIPPED bundled CPython (3.12, arm64) — the PRIMARY interpreter the
+// venv is created from (resolvePythonCommand step 0).
+//
+// IMPORTANT: these binary wheels carry UNSIGNED native Mach-O .so files, which Apple
+// notarytool rejects when it inspects INSIDE the .whl. The NOTARIZED macOS .app
+// therefore deliberately EXCLUDES resources/bundled-hermes/web from the bundle
+// (electron-builder.yml puts a negated "web" exclude filter on the bundled-hermes
+// extraResources mapping). So in a shipped install resolveBundledWebWheelsDir() finds
+// no wheels dir, and the first-run ddgs install falls back to a network
+// `pip install ddgs` from PyPI (web search hits the network anyway). The wheels stay
+// in-tree for dev / offline-capable / future-signed builds, where the dir IS present
+// and the offline install is used.
+const BUNDLED_WEB_WHEELS_SUBDIR = 'web';
+const COMMAND_EVE_WEB_WHEELS_DIR_ENV = 'COMMAND_EVE_WEB_WHEELS_DIR';
 // The bundled EVE strategy skills (real eve-doctrine/plan-system/etc. SKILL.md
 // trees), shipped at Contents/Resources/bundled-skills via electron-builder
 // extraResources (staged by scripts/fetch-bundled-skills.mjs). At first run they
@@ -1938,6 +1956,31 @@ function resolveBundledHermesWheel(
   return candidates.find((candidate) => fs.existsSync(candidate)) || '';
 }
 
+/**
+ * Resolve the directory holding the vendored ddgs wheel closure (a pip find-links
+ * dir). Mirrors resolveBundledHermesWheel so it stays unit-testable without electron
+ * `app`: explicit env override (dev/tests) -> packaged <resourcesPath>/bundled-hermes/web
+ * -> dev <cwd>/resources/bundled-hermes/web. Returns the FIRST dir that exists AND
+ * contains at least one ddgs-*.whl (so an empty/partial dir doesn't trick the offline
+ * install), or '' when none qualify — callers then fall back to a network ddgs install.
+ */
+export function resolveBundledWebWheelsDir(env: NodeJS.ProcessEnv, resourcesPath?: string): string {
+  const candidates = [
+    compact(env[COMMAND_EVE_WEB_WHEELS_DIR_ENV]),
+    resourcesPath ? path.join(resourcesPath, BUNDLED_HERMES_DIR, BUNDLED_WEB_WHEELS_SUBDIR) : '',
+    path.join(process.cwd(), 'resources', BUNDLED_HERMES_DIR, BUNDLED_WEB_WHEELS_SUBDIR),
+  ].filter(Boolean);
+  return (
+    candidates.find((dir) => {
+      try {
+        return fs.existsSync(dir) && fs.readdirSync(dir).some((f) => /^ddgs-.*\.whl$/i.test(f));
+      } catch {
+        return false;
+      }
+    }) || ''
+  );
+}
+
 function buildHermesPackageSpec(manifest: RuntimeBootstrapManifest, wheelPath = ''): string {
   const extras = hermesExtrasSpecifier(manifest);
   if (wheelPath) return `${wheelPath}${extras}`;
@@ -2332,6 +2375,22 @@ function writeHermesRuntimeFiles(
     // (overrides the env). (A network-only timeout via curl --max-time is a wheel item.)
     'terminal:',
     `  timeout: ${DEFAULT_COMMAND_EVE_TERMINAL_TIMEOUT_S}`,
+    // KEYLESS WEB BACKEND — pin ddgs explicitly so search resolution is DETERMINISTIC
+    // and never depends on the registry's implicit fallback walk. The active provider is
+    // chosen by config precedence (FACT agent/web_search_registry.py get_active_search_provider:
+    // reads web.search_backend, then web.backend) and the toolset gate (FACT
+    // tools/web_tools.py check_web_api_key -> _load_web_config().get("backend") /
+    // _is_backend_available("ddgs") -> _ddgs_package_importable()). Both read this `web:`
+    // map. ddgs is the ONLY keyless backend (DuckDuckGo, no API key — product doctrine never
+    // asks the operator for one). It is SEARCH-ONLY (supports_extract()==False), so we set
+    // search_backend + the shared backend to ddgs but deliberately DO NOT set extract_backend:
+    // the registry's capability filter then lets web_extract fall through (web_extract also
+    // round-trips through the auxiliary summarizer below). Emitting the key is a no-op unless
+    // the ddgs package is importable in the venv (vendored at build/installed at bootstrap);
+    // when it is, web_search is enabled in the toolset AND routes to ddgs.
+    'web:',
+    '  backend: ddgs',
+    '  search_backend: ddgs',
     // Bound the web_extract summarizer (it round-trips back through the shim to the
     // chat model, so a slow inference makes the tool slow). Wheel default ~30s.
     'auxiliary:',
@@ -2758,16 +2817,57 @@ export async function ensureCommandEveRuntimeBootstrap(
     });
     if (!ddgsProbe.ok) {
       const started = Date.now();
-      const ddgsInstall = await runner(pythonBinary(paths), ['-m', 'pip', 'install', 'ddgs'], {
-        env,
-        timeoutMs: DEFAULT_LONG_STAGE_TIMEOUT_MS,
-      });
+      // Prefer the VENDORED offline closure (resources/bundled-hermes/web): a fully
+      // offline `pip --no-index --find-links <dir> ddgs` IF the build shipped it.
+      //
+      // NOTE: the NOTARIZED macOS .app deliberately ships NO web wheels — the binary
+      // wheels (lxml/brotli/primp) carry UNSIGNED native Mach-O .so files that Apple
+      // notarytool rejects (electron-builder.yml excludes resources/bundled-hermes/web
+      // from the bundle). So in a shipped install resolveBundledWebWheelsDir() returns
+      // '' and we take the NETWORK path below: `pip install ddgs` from PyPI. Web search
+      // queries DuckDuckGo over the network anyway, so requiring connectivity to install
+      // ddgs on first run is acceptable. The offline closure still exists in-tree for
+      // dev/offline-capable/future-signed builds (those CAN resolve a wheels dir).
+      const webWheelsDir = resolveBundledWebWheelsDir(env, options.resourcesPath);
+      const offlineArgs = webWheelsDir
+        ? ['-m', 'pip', 'install', '--no-index', '--find-links', webWheelsDir, 'ddgs']
+        : null;
+      let ddgsInstall = offlineArgs
+        ? await runner(pythonBinary(paths), offlineArgs, { env, timeoutMs: DEFAULT_LONG_STAGE_TIMEOUT_MS })
+        : { command: '', ok: false };
+      const installedOffline = Boolean(offlineArgs) && ddgsInstall.ok;
+      // Did we fall back to the network BECAUSE no offline wheels were bundled (the
+      // normal notarized-build case), as opposed to the wheels being present but failing
+      // (arch/abi mismatch)? This drives an honest note that the FIRST web search needed
+      // connectivity to install the backend.
+      const noBundledWheels = offlineArgs == null;
+      // Network fallback: no vendored dir (notarized build), OR the offline install failed
+      // (e.g. an arch/abi-mismatched wheel set). Never blocks boot — web is a nice-to-have,
+      // so the rest of bootstrap always continues regardless of this outcome.
+      if (!ddgsInstall.ok) {
+        ddgsInstall = await runner(pythonBinary(paths), ['-m', 'pip', 'install', 'ddgs'], {
+          env,
+          timeoutMs: DEFAULT_LONG_STAGE_TIMEOUT_MS,
+        });
+      }
+      const installCommand = installedOffline
+        ? `${pythonBinary(paths)} -m pip install --no-index --find-links ${webWheelsDir} ddgs`
+        : `${pythonBinary(paths)} -m pip install ddgs`;
+      // Honest note: when web wheels are NOT bundled (the notarized .app), the keyless web
+      // backend is fetched from PyPI — so the first web search on a fresh install needs an
+      // internet connection. Surface that plainly in the receipt so oversight (and the
+      // operator) can see why an offline first-run has web search disabled.
+      const networkNote = noBundledWheels
+        ? ' (fetched from PyPI — the first web search on a fresh install needs an internet connection)'
+        : '';
       pushStage(
         makeStage('web', ddgsInstall.ok ? 'pass' : 'skip', {
           detail: ddgsInstall.ok
-            ? 'Keyless web backend (ddgs) installed — EVE can web_search/web_extract.'
-            : `Keyless web backend (ddgs) unavailable; web search stays off until a later run: ${scrubOutput(ddgsInstall.stderr || ddgsInstall.error)}`,
-          command: `${pythonBinary(paths)} -m pip install ddgs`,
+            ? `Keyless web backend (ddgs) installed${installedOffline ? ' from the bundled offline wheels' : ` from the network${networkNote}`} — EVE can web_search/web_extract.`
+            : `Keyless web backend (ddgs) unavailable${
+                noBundledWheels ? ' — no network on this fresh install and no bundled wheels' : ''
+              }; web search stays off until a later (online) run: ${scrubOutput(ddgsInstall.stderr || ddgsInstall.error)}`,
+          command: installCommand,
           duration_ms: Date.now() - started,
         })
       );

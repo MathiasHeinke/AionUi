@@ -313,6 +313,13 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(configYaml).toMatch(/compression:\s*\n\s*threshold: 0\.80/);
       expect(configYaml).not.toContain('threshold: 0.50');
       expect(configYaml).toMatch(/terminal:\s*\n\s*timeout: \d+/);
+      // Keyless web backend pinned EXPLICITLY: web.search_backend + the shared
+      // web.backend must both resolve to ddgs so search resolution is deterministic
+      // (web_search_registry get_active_search_provider) and the toolset gate
+      // (web_tools check_web_api_key) reads a concrete backend instead of relying on
+      // the implicit fallback walk. ddgs is search-only, so extract_backend is left
+      // unset on purpose (registry capability-filter falls through for web_extract).
+      expect(configYaml).toMatch(/web:\s*\n\s*backend: ddgs\s*\n\s*search_backend: ddgs/);
       expect(configYaml).toMatch(/auxiliary:\s*\n\s*web_extract:\s*\n\s*timeout: \d+/);
       expect(configYaml).toContain('skills:');
       expect(configYaml).toContain('external_dirs:');

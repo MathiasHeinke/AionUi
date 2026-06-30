@@ -50,8 +50,11 @@ import {
   isTrialingEntitlement,
   localTierValue,
   parseEveTierIdFromSelection,
+  resolveCommandEveActiveLane,
+  describeCommandEveActiveLane,
   resolveCommandEveWarmupLane,
   resolveEffectiveInferenceSelection,
+  resolveWireTierFromSelection,
   type EvePickerItem,
 } from '@/common/config/eveInferenceCore';
 
@@ -423,5 +426,120 @@ describe('eveInferenceCore — startup warm-up lane selection', () => {
   it('warms the LOCAL lane only for an explicit local selection', () => {
     expect(resolveCommandEveWarmupLane(localTierValue('local-high'))).toEqual({ lane: 'local' });
     expect(resolveCommandEveWarmupLane(localTierValue('local-standard'))).toEqual({ lane: 'local' });
+  });
+});
+
+describe('eveInferenceCore — HONEST tier routing (resolveWireTierFromSelection, 1.2.19)', () => {
+  // This is the EXACT contract the desktop money-path repair rests on: the wire
+  // tier POSTed to eve-inference is the user's ACTUAL picker selection, mapped
+  // VERBATIM to the registry value — so EVE Max meters GLM 5.2 and EVE High
+  // meters DeepSeek V4 Pro, never the cheapest Flash. (Root cause closed:
+  // OpenRouter logs showed 100% Flash because the selection→wire-tier mapping
+  // was an unasserted inline expression that fell back to 'standard'.)
+
+  it('maps eve-max → wire tier "max" (GLM 5.2 lane)', () => {
+    expect(resolveWireTierFromSelection(eveTierValue('eve-max'))).toBe('max');
+  });
+
+  it('maps eve-high → wire tier "high" (DeepSeek V4 Pro lane)', () => {
+    expect(resolveWireTierFromSelection(eveTierValue('eve-high'))).toBe('high');
+  });
+
+  it('maps eve-standard → wire tier "standard" (DeepSeek V4 Flash lane)', () => {
+    expect(resolveWireTierFromSelection(eveTierValue('eve-standard'))).toBe('standard');
+  });
+
+  it('returns the registry value VERBATIM for every defined EVE tier (no shift/bridge)', () => {
+    for (const tier of EVE_INFERENCE_TIERS) {
+      expect(resolveWireTierFromSelection(eveTierValue(tier.id))).toBe(tier.tier);
+    }
+  });
+
+  it('models an in-session switch: re-resolving the new selection changes the wire tier', () => {
+    // The picker persists a NEW selection on an in-session switch; the send path
+    // re-resolves the CURRENT selection per request. So switching Standard → Max
+    // → High must yield a DIFFERENT wire tier each time (the switch "persists"
+    // to the wire), proving a paid user who picks Max is not stuck on Flash.
+    let current = eveTierValue('eve-standard');
+    expect(resolveWireTierFromSelection(current)).toBe('standard');
+
+    current = eveTierValue('eve-max'); // user switches to EVE Max mid-session
+    expect(resolveWireTierFromSelection(current)).toBe('max');
+
+    current = eveTierValue('eve-high'); // user switches down to EVE High
+    expect(resolveWireTierFromSelection(current)).toBe('high');
+  });
+
+  it('returns undefined for a LOCAL selection (so the cloud lane is never engaged)', () => {
+    expect(resolveWireTierFromSelection(localTierValue('local-standard'))).toBeUndefined();
+    expect(resolveWireTierFromSelection(localTierValue('local-high'))).toBeUndefined();
+  });
+
+  it('returns undefined for an absent/empty/unknown selection (caller fails loud, never silently meters Flash)', () => {
+    expect(resolveWireTierFromSelection(undefined)).toBeUndefined();
+    expect(resolveWireTierFromSelection(null)).toBeUndefined();
+    expect(resolveWireTierFromSelection('')).toBeUndefined();
+    // A retired/unknown EVE tier id resolves to no tier (not a silent 'standard').
+    expect(resolveWireTierFromSelection('command-eve-inference:eve-maximum')).toBeUndefined();
+    expect(resolveWireTierFromSelection('command-eve-inference:eve-bogus')).toBeUndefined();
+  });
+});
+
+describe('eveInferenceCore — honest active-lane self-description (Task #50 port)', () => {
+  const SHIM = 'command-eve-gemma4-e4b-64k';
+
+  it('resolves an EVE cloud selection to its tier (shim-free)', () => {
+    expect(resolveCommandEveActiveLane(eveTierValue('eve-max'))).toEqual({
+      kind: 'eve',
+      tierId: 'eve-max',
+      tierLabel: 'Max',
+      wireTier: 'max',
+    });
+  });
+
+  it('resolves a local selection to the real local model label', () => {
+    expect(resolveCommandEveActiveLane(localTierValue('local-standard'))).toEqual({
+      kind: 'local',
+      tierId: 'local-standard',
+      modelLabel: 'Gemma 4 E4B',
+    });
+  });
+
+  it('an absent selection resolves to the EVE Standard cloud lane (router default), never local', () => {
+    expect(resolveCommandEveActiveLane(undefined).kind).toBe('eve');
+    expect(resolveCommandEveActiveLane('').kind).toBe('eve');
+  });
+
+  it('describes EVE Cloud Max as the active tier, never the shim model (DE + EN)', () => {
+    const de = describeCommandEveActiveLane(eveTierValue('eve-max'), 'de-DE');
+    expect(de).toBe('EVE Cloud, Max-Stufe (großer Kontext, höchste Qualität)');
+    expect(de).not.toContain(SHIM);
+    expect(de.toLowerCase()).not.toContain('ollama');
+    expect(de.toLowerCase()).not.toContain('lokal');
+
+    const en = describeCommandEveActiveLane(eveTierValue('eve-max'), 'en-US');
+    expect(en).toBe('EVE Cloud, Max tier (large context, top quality)');
+    expect(en).not.toContain(SHIM);
+    expect(en.toLowerCase()).not.toContain('local');
+  });
+
+  it('describes a local lane by its honest model name', () => {
+    expect(describeCommandEveActiveLane(localTierValue('local-standard'), 'de-DE')).toBe(
+      'Lokal · Gemma 4 E4B (privat, läuft auf deinem Mac)'
+    );
+    expect(describeCommandEveActiveLane(localTierValue('local-high'), 'en-US')).toBe(
+      'Local · Gemma 4 12B (private, runs on your Mac)'
+    );
+  });
+
+  it('NEVER surfaces the shim model id on ANY EVE cloud tier', () => {
+    for (const tier of ['eve-standard', 'eve-high', 'eve-max'] as const) {
+      for (const locale of ['de-DE', 'en-US'] as const) {
+        const desc = describeCommandEveActiveLane(eveTierValue(tier), locale);
+        expect(desc).not.toContain(SHIM);
+        expect(desc.toLowerCase()).not.toContain('ollama');
+        expect(desc).toContain('EVE Cloud');
+      }
+    }
   });
 });

@@ -303,6 +303,35 @@ export function parseEveTierIdFromSelection(value: string | null | undefined): E
 }
 
 /**
+ * Resolve the WIRE TIER an EVE picker selection POSTs to the eve-inference Edge
+ * Function (HONEST TIER ROUTING, 1.2.19). Maps a selection value straight to the
+ * registry wire value VERBATIM via `parseEveTierIdFromSelection →
+ * findEveInferenceTier → .tier`, so:
+ *
+ *   command-eve-inference:eve-standard → 'standard'
+ *   command-eve-inference:eve-high     → 'high'
+ *   command-eve-inference:eve-max      → 'max'
+ *
+ * Returns `undefined` for a LOCAL selection or any value that does not resolve
+ * to a known EVE tier (so a caller can fail-loud rather than silently meter the
+ * cheapest model). This is the ONE place the selection→wire-tier mapping lives,
+ * shared by the main-process shim routing resolver AND the warm-up lane, so the
+ * tier a paid user picked (Hoch/Max) can never silently degrade to Standard.
+ *
+ * ROOT CAUSE this closes (OpenRouter logs: 100% Flash, GLM+Pro never called):
+ * the shim previously derived the tier inline and fell back to 'standard' on any
+ * empty value. Centralizing + verbatim-mapping here makes "EVE Max → max" a
+ * unit-tested contract instead of an inline expression nobody asserted.
+ */
+export function resolveWireTierFromSelection(
+  selection: string | null | undefined
+): EveInferenceWireTier | undefined {
+  const tierId = parseEveTierIdFromSelection(selection);
+  if (!tierId) return undefined;
+  return findEveInferenceTier(tierId)?.tier;
+}
+
+/**
  * Parse a local picker tier out of a selection value (e.g.
  * "command-eve-local:local-standard" → its EveLocalPickerTier). Returns
  * undefined when the value is not a known local selection.
@@ -341,19 +370,132 @@ export function resolveCommandEveWarmupLane(persisted: string | null | undefined
 }
 
 // ---------------------------------------------------------------------------
+// HONEST SELF-DESCRIPTION of the ACTIVE inference lane (founder mandate, Task
+// #50 closeout for the cloud lanes).
+//
+// THE BUG THIS FIXES: the Hermes/ACP agent is always *configured* against the
+// local Ollama-compatible SHIM model id (`command-eve-gemma4-e4b-64k:latest`,
+// see commandEveShell.ts). On an EVE *cloud* lane the shim transparently routes
+// that request to the eve-inference Edge Function (GLM etc.) — but the raw shim
+// model name still leaks into the "model header" and the local bootstrap
+// receipt (`provider: 'ollama'`, `default_model: <shim id>`). So when EVE was
+// asked "what model are you?" on EVE Cloud Max it read that local receipt line
+// and (truthfully per what it was shown, but WRONGLY) said "local Gemma E4B via
+// Ollama", contradicting its own (now-correct) "EVE Cloud, Max" lane line.
+//
+// THE FIX: the active lane/tier is fully determined by the SAME persisted
+// picker selection the router uses (`commandEve.inferenceSelection`) — never by
+// the shim model id. This pure resolver turns that selection into an honest,
+// shim-free self-description string EVE can read:
+//   - EVE cloud lane  → "EVE Cloud, <Tier>-Stufe (…)" — NO shim id, NO "local".
+//   - Private/local   → the real local model name (honest, unchanged).
+// It NEVER surfaces `command-eve-gemma4-e4b-64k` on a cloud lane.
+//
+// 1.2.19 STORE-SPLIT RECONCILE: in this release line the persisted selection
+// lives in the BACKEND settings store, NOT ProcessConfig (see
+// inferenceSelectionBackendRead.ts — the same trap that mis-routed EVE Max as
+// Flash). The caller therefore feeds the selection it read from the backend
+// store (one read shared by the router tier AND this self-description lane);
+// these pure resolvers only consume that already-read string.
+// ---------------------------------------------------------------------------
+
+export type CommandEveActiveLane =
+  | { kind: 'eve'; tierId: EveInferenceTierId; tierLabel: string; wireTier: EveInferenceWireTier }
+  | { kind: 'local'; tierId: string; modelLabel: string };
+
+/**
+ * Resolve the ACTIVE inference lane from the persisted picker selection (the
+ * single source of truth the send-path router also reads). Pure + sync so the
+ * self-description and the router share one discriminant.
+ *
+ * Falls back to the EVE Standard default for an absent/empty selection (the same
+ * default the renderer + router apply), so a fresh user is described as the
+ * cloud lane they actually hit, not the unused local model.
+ */
+export function resolveCommandEveActiveLane(persisted: string | null | undefined): CommandEveActiveLane {
+  const selection = resolveEffectiveInferenceSelection(persisted);
+
+  if (isEveInferenceSelection(selection)) {
+    const tierId = parseEveTierIdFromSelection(selection) ?? EVE_INFERENCE_DEFAULT_TIER_ID;
+    const tier = findEveInferenceTier(tierId) ?? EVE_INFERENCE_TIERS[0];
+    return { kind: 'eve', tierId: tier.id, tierLabel: tier.label, wireTier: tier.tier };
+  }
+
+  const localTier = parseLocalTierFromSelection(selection);
+  if (localTier) {
+    return { kind: 'local', tierId: localTier.id, modelLabel: localTier.modelLabel };
+  }
+  // An unknown non-EVE value: treat as the local default tier (honest local
+  // model name), never the cloud lane.
+  const fallback = EVE_LOCAL_PICKER_TIERS[0];
+  return { kind: 'local', tierId: fallback.id, modelLabel: fallback.modelLabel };
+}
+
+/**
+ * Short, honest per-tier quality blurb for the EVE cloud tiers — describes the
+ * lane by its USER-FACING tier properties (context size + quality), never by the
+ * upstream provider model id (which the user never picked and must never see).
+ */
+const EVE_CLOUD_TIER_BLURB: Record<EveInferenceTierId, { de: string; en: string }> = {
+  'eve-standard': {
+    de: 'solide Qualität, schnelle Antworten',
+    en: 'solid quality, fast answers',
+  },
+  'eve-high': {
+    de: 'höhere Qualität, größerer Kontext',
+    en: 'higher quality, larger context',
+  },
+  'eve-max': {
+    de: 'großer Kontext, höchste Qualität',
+    en: 'large context, top quality',
+  },
+};
+
+/**
+ * Build the honest self-description string for the active lane, in the given
+ * locale. This is what EVE reads to answer "which model/lane are you running?".
+ *
+ * CLOUD: "EVE Cloud, <Tier>-Stufe (<blurb>)" — describes the active tier; NEVER
+ * the shim model id and NEVER claims a local model.
+ * LOCAL: the real local model name (e.g. "Lokal · Gemma 4 E4B (privat, auf
+ * deinem Mac)") — honest about running locally.
+ */
+export function describeCommandEveActiveLane(
+  persisted: string | null | undefined,
+  locale: 'de-DE' | 'en-US'
+): string {
+  const lane = resolveCommandEveActiveLane(persisted);
+  const de = locale === 'de-DE';
+
+  if (lane.kind === 'eve') {
+    const blurb = EVE_CLOUD_TIER_BLURB[lane.tierId]?.[de ? 'de' : 'en'] ?? '';
+    return de
+      ? `EVE Cloud, ${lane.tierLabel}-Stufe${blurb ? ` (${blurb})` : ''}`
+      : `EVE Cloud, ${lane.tierLabel} tier${blurb ? ` (${blurb})` : ''}`;
+  }
+
+  return de
+    ? `Lokal · ${lane.modelLabel} (privat, läuft auf deinem Mac)`
+    : `Local · ${lane.modelLabel} (private, runs on your Mac)`;
+}
+
+// ---------------------------------------------------------------------------
 // Entitlement → gating. The ONLY input the gating needs is the trial flag, so
 // callers pass a minimal shape (mirrors entitlementCore's status surface).
 // ---------------------------------------------------------------------------
 
 /**
  * Minimal entitlement view the picker needs. `trial_ends_at` present + non-null
- * ⇒ this is a TRIAL/free entitlement (entitlementCore CEVE.v2 contract); a paid
- * (non-trial) license keeps it null/absent.
+ * ⇒ this is a TRIAL entitlement (entitlementCore CEVE.v2 contract). NOTE: both a
+ * PAID license AND the PERMANENT FREE seat keep trial_ends_at null/absent, so
+ * trial_ends_at ALONE cannot tell free from paid — that is exactly why the BYOK
+ * gate keys off `has_paid_seat`, not trial_ends_at.
  *
- * `has_paid_seat` (1.2.18) is the explicit, main-process-derived paid-tier hint
- * (see entitlementCore: `entitled && trial_ends_at == null`). It is the single
- * authoritative discriminant for paid-only UI affordances (BYOK / add-own-model);
- * absent/false ⇒ free tier. Carried here so the pure gate helpers can consume it.
+ * `has_paid_seat` (1.2.18 + free-seat 2026-06-30) is the explicit, main-process-
+ * derived paid-tier hint (see entitlementCore.isPaidSeatEdition: `entitled &&
+ * trial_ends_at == null && edition != 'free'`). It is the single authoritative
+ * discriminant for paid-only UI affordances (BYOK / add-own-model / client seats);
+ * absent/false ⇒ free or trial tier. Carried here so the pure gate helpers consume it.
  */
 export interface EveEntitlementView {
   trial_ends_at?: string | null;

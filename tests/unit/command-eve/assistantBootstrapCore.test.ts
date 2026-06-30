@@ -246,9 +246,13 @@ describe('Command EVE assistant bootstrap core', () => {
     );
     // The model-free Betriebsmodus line replaces the old "Modell: <gemma ref>" leak.
     expect(context).toContain('Betriebsmodus: EVE-Cloud');
-    expect(context).not.toContain('Modell:');
-    expect(context).not.toContain('command-eve-gemma4-e4b-64k:latest');
-    expect(context).not.toMatch(/gemma/i);
+    // The OLD inline "Runtime … Modell: <gemma>" leak is gone. The shim id may now
+    // appear ONLY in the explicitly-fenced "Lokale Runtime (Fallback-Warmup …)"
+    // line ("lokales Modell:"), never as the described ACTIVE lane.
+    const laneLine = context.split('\n').find((l) => l.includes('Aktive Inferenz-Lane'));
+    expect(laneLine).toBeDefined();
+    expect(laneLine).not.toContain('command-eve-gemma4-e4b-64k');
+    expect(laneLine?.toLowerCase()).not.toMatch(/gemma/);
 
     // Local selection → honest "lokal & privat" mode that NAMES the on-device model
     // (founder 2026-06-28: offline models are named; only cloud stays abstract).
@@ -262,5 +266,111 @@ describe('Command EVE assistant bootstrap core', () => {
     );
     expect(local).toMatch(/Betriebsmodus: lokal/i);
     expect(local).toMatch(/Gemma 4 E4B/);
+  });
+
+  // -------------------------------------------------------------------------
+  // HONEST SELF-DESCRIPTION of the ACTIVE lane (Task #50 closeout for cloud
+  // lanes — ported from the AionUi self-knowledge fix). The regression: on an
+  // EVE cloud lane the system-prompt receipt line surfaced the local Ollama
+  // warm-up (provider:ollama, default_model:<shim id>) so EVE answered "local
+  // Gemma E4B via Ollama" while actually routing GLM via EVE Cloud Max. The
+  // self-description must follow the ACTIVE lane (the picker selection the
+  // router uses, read from the BACKEND store), never the shim model id.
+  // -------------------------------------------------------------------------
+  describe('honest active-lane self-description', () => {
+    const SHIM = 'command-eve-gemma4-e4b-64k';
+
+    const ollamaReceipt = {
+      status: 'ready' as const,
+      provider: 'ollama',
+      // The bundled local warm-up shim model — this is what leaked before.
+      default_model: 'command-eve-gemma4-e4b-64k:latest',
+      next_action: 'Runtime ready for EVE first session.',
+    };
+
+    it('EVE Cloud Max selection → describes the active CLOUD tier, never the shim model (DE)', () => {
+      const context = buildCommandEveAssistantFirstRunContext(
+        {
+          appVersion: '1.2.20',
+          receipt: ollamaReceipt,
+          inferenceSelection: 'command-eve-inference:eve-max',
+        },
+        'de-DE'
+      );
+
+      expect(context).toContain('Aktive Inferenz-Lane: EVE Cloud, Max-Stufe');
+      expect(context).toContain('großer Kontext, höchste Qualität');
+      expect(context).not.toContain(`Aktive Inferenz-Lane: ${SHIM}`);
+      // The local warm-up line is explicitly framed as the fallback, not "the model".
+      expect(context).toContain('Lokale Runtime (Fallback-Warmup, nur auf der lokalen Lane aktiv)');
+      // The standing self-description rule is present.
+      expect(context).toContain('Selbstbeschreibung:');
+    });
+
+    it('EVE Cloud Max selection → describes the active CLOUD tier (EN)', () => {
+      const context = buildCommandEveAssistantFirstRunContext(
+        {
+          appVersion: '1.2.20',
+          receipt: ollamaReceipt,
+          inferenceSelection: 'command-eve-inference:eve-max',
+        },
+        'en-US'
+      );
+
+      expect(context).toContain('Active inference lane: EVE Cloud, Max tier');
+      expect(context).toContain('large context, top quality');
+      expect(context).not.toContain(`Active inference lane: ${SHIM}`);
+      expect(context).toContain('Self-description:');
+    });
+
+    it('LOCAL selection → honestly names the local model (DE)', () => {
+      const context = buildCommandEveAssistantFirstRunContext(
+        {
+          appVersion: '1.2.20',
+          receipt: ollamaReceipt,
+          inferenceSelection: 'command-eve-local:local-standard',
+        },
+        'de-DE'
+      );
+
+      expect(context).toContain('Aktive Inferenz-Lane: Lokal · Gemma 4 E4B (privat, läuft auf deinem Mac)');
+      // It does NOT claim EVE Cloud on the local lane.
+      expect(context).not.toContain('Aktive Inferenz-Lane: EVE Cloud');
+    });
+
+    it('absent selection → defaults to the EVE cloud lane (the router default), not the local shim', () => {
+      const context = buildCommandEveAssistantFirstRunContext(
+        {
+          appVersion: '1.2.20',
+          receipt: ollamaReceipt,
+          // No selection persisted yet — fresh user.
+        },
+        'en-US'
+      );
+
+      expect(context).toContain('Active inference lane: EVE Cloud, Standard tier');
+      expect(context).not.toContain(`Active inference lane: ${SHIM}`);
+    });
+
+    it('the cloud-lane ACTIVE-lane line NEVER leaks the raw shim model id', () => {
+      for (const locale of ['de-DE', 'en-US'] as const) {
+        const context = buildCommandEveAssistantFirstRunContext(
+          {
+            appVersion: '1.2.20',
+            receipt: ollamaReceipt,
+            inferenceSelection: 'command-eve-inference:eve-max',
+          },
+          locale
+        );
+        // The shim id may appear ONLY in the explicitly-fenced local-fallback line,
+        // never as the described active lane. Assert the active-lane line is clean.
+        const laneLine = context
+          .split('\n')
+          .find((l) => l.includes('Aktive Inferenz-Lane') || l.includes('Active inference lane'));
+        expect(laneLine).toBeDefined();
+        expect(laneLine).not.toContain(SHIM);
+        expect(laneLine?.toLowerCase()).not.toContain('ollama');
+      }
+    });
   });
 });

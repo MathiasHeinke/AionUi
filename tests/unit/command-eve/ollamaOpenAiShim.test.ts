@@ -514,6 +514,102 @@ describe('Command EVE shim — EVE cloud routing', () => {
     expect(response.status).toBe(500);
   });
 
+  it('forwards the EVE Max wire tier VERBATIM (max → GLM 5.2), never silently downgraded to Flash', async () => {
+    // HONEST TIER ROUTING (1.2.19) — the money-path tripwire. The deployed
+    // eve-inference routes max → z-ai/glm-5.2; the desktop must POST tier:'max'
+    // when the user picked EVE Max. The OLD shim fell back to 'standard' on any
+    // empty tier, which is why OpenRouter logs showed 100% Flash. This asserts a
+    // max route POSTs tier:'max' (GLM lane), not 'standard' (Flash).
+    let ollamaSeen = false;
+    const ollamaBaseUrl = await startFakeOpenAiServer(() => {
+      ollamaSeen = true;
+    });
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl,
+      eveRouting: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE, tier: 'max' }),
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [{ role: 'user', content: 'hardest task' }],
+        stream: false,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(ollamaSeen).toBe(false);
+    // The POSTed tier is the picker's max, not a downgraded standard.
+    expect(fnSeen.body?.tier).toBe('max');
+  });
+
+  it('forwards the EVE High wire tier VERBATIM (high → DeepSeek V4 Pro)', async () => {
+    const ollamaBaseUrl = await startFakeOpenAiServer(() => {});
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl,
+      eveRouting: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE, tier: 'high' }),
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [{ role: 'user', content: 'think harder' }],
+        stream: false,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(fnSeen.body?.tier).toBe('high');
+  });
+
+  it('FAILS LOUD (500) when an active EVE route carries a missing/unknown tier — never silently meters Flash', async () => {
+    // The old `: 'standard'` fallback would have made this turn bill DeepSeek V4
+    // Flash. The hardened shim refuses an active EVE route whose tier is not a
+    // known registry tier, so a broken selection→tier chain surfaces instead of
+    // quietly mis-billing the cheapest model.
+    let ollamaSeen = false;
+    const ollamaBaseUrl = await startFakeOpenAiServer(() => {
+      ollamaSeen = true;
+    });
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl,
+      // Active EVE route, but the tier is absent (the resolver could not map the
+      // selection) — the bug condition that previously degraded to Flash.
+      eveRouting: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE }),
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [{ role: 'user', content: 'hi' }],
+        stream: false,
+      }),
+    });
+
+    expect(response.status).toBe(500);
+    // NO request was metered: neither the function (Flash) nor local Ollama saw it.
+    expect(fnSeen.body).toBeUndefined();
+    expect(ollamaSeen).toBe(false);
+  });
+
   it('keeps the warm-up ping on the local lane even when an EVE route is active', async () => {
     let ollamaSeen = false;
     const ollamaBaseUrl = await startFakeOpenAiServer(() => {

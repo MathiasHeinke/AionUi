@@ -29,12 +29,39 @@
  * seed-time selector is fixed in assistantBootstrapCore (never picks aionrs), but
  * already-frozen installs still carry the bad agent_id — this repair re-binds it.
  *
+ * BUG 3 (no-live-definition brick — the one Alois actually hit): an ACTIVE EVE
+ * assistant with NO live `assistant_definitions` row AT ALL — not merely soft-
+ * deleted (BUG 1), genuinely ABSENT. aioncore keeps the legacy `assistants` table
+ * as a downgrade/mirror projection of the new `assistant_definitions` SSOT; the
+ * `router.assistant.bootstrap` stage rebuilds that legacy mirror from the live
+ * definitions and CRASHES (`failed to bootstrap assistant storage` →
+ * `BOOTSTRAP_SERVER_FAILED`, the "Installation unvollständig" dialog) when the EVE
+ * legacy mirror row points at a definition that no longer exists live. BUG 1's
+ * un-soft-delete UPDATE matches nothing (there is no row to un-delete), so the
+ * brick survives every restart. Worse, `ensureCommandEveAssistant` reads the
+ * legacy mirror to decide POST-vs-PUT and — seeing the orphaned `assistants` row —
+ * takes the PUT path, which NEVER re-creates a definition. So the backend cannot
+ * self-heal it either; Alois needed a hand INSERT. THE SAFE HEAL: delete ONLY the
+ * orphaned EVE legacy mirror row (the derived, downgrade-only projection — the
+ * real definition is already absent, so no user data is lost). With the EVE
+ * `assistants` row gone and still no live definition, the next
+ * `ensureCommandEveAssistant` takes the POST path and lets aioncore's OWN
+ * authoritative creation rebuild a complete, CHECK-valid definition row (every
+ * NOT-NULL/CHECK column correct) — instead of this layer hand-rolling a brittle
+ * INSERT against aioncore's rich `assistant_definitions` schema. It is the exact
+ * `DELETE FROM assistants WHERE id = ?` aioncore itself runs on a real delete.
+ *
  * THE REPAIR: run on the AT-REST conversation DB BEFORE aioncore is spawned —
  *   (1) re-activate (un-soft-delete) any user-source definition whose assistant
  *       is still live (heals BUG 1);
  *   (2) re-bind the EVE assistant's definition from an aionrs agent back to the
- *       hermes agent when one exists (heals BUG 2).
- * Both are idempotent and cheap (no-ops once healed; UPDATE matches 0 rows).
+ *       hermes agent when one exists (heals BUG 2);
+ *   (3) clear the orphaned EVE legacy mirror row when the EVE assistant is active
+ *       but has ZERO live definition rows AFTER (1) ran, so the backend re-seeds a
+ *       clean definition via its own POST path (heals BUG 3).
+ * All three are idempotent and cheap (no-ops once healed; the statements match 0
+ * rows). BUG 3 only fires after BUG 1, so a row that was merely soft-deleted is
+ * already live and BUG 3 leaves it alone — it acts strictly on a genuine ABSENCE.
  *
  * FAIL-OPEN: every failure path is swallowed and reported, NEVER thrown — a
  * repair error must not block the backend from starting (the backend may still
@@ -50,6 +77,12 @@ export interface AssistantStorageRepairResult {
   repaired: number;
   /** Number of EVE definitions re-bound from aionrs → hermes (BUG 2). */
   rebound?: number;
+  /**
+   * Number of orphaned EVE legacy mirror rows cleared (BUG 3) — the EVE
+   * `assistants` row was active with ZERO live definition rows, so it is removed
+   * to let the backend re-seed a clean definition via its own POST path.
+   */
+  reseeded?: number;
   /** Set when the repair was skipped or failed (DB absent, wrong schema, error). */
   skipped?: string;
 }
@@ -133,13 +166,48 @@ export async function repairCommandEveAssistantStorage(
         // best-effort; a re-bind failure must not block the orphan heal or boot
       }
 
+      // BUG 3 — clear an orphaned EVE legacy mirror row that has NO live
+      // definition AT ALL (the brick Alois hit). Runs AFTER BUG 1's un-soft-
+      // delete, so a row that was merely soft-deleted is now live and this is a
+      // no-op for it — BUG 3 only fires on a genuine ABSENCE. SCOPED to the EVE
+      // assistant id only (never another AionUi preset). Deleting the legacy
+      // mirror row (a downgrade/projection table; the real SSOT is
+      // assistant_definitions, which is already absent here) lets the next
+      // ensureCommandEveAssistant see no EVE row → take the POST path → have
+      // aioncore re-create a complete, CHECK-valid definition. Idempotent: once a
+      // live definition exists OR the orphan row is gone, the guard matches 0 rows.
+      let reseeded = 0;
+      try {
+        const eveActive = db
+          .prepare('SELECT 1 AS n FROM assistants WHERE id = ? LIMIT 1')
+          .get(COMMAND_EVE_ASSISTANT_ID) as { n: number } | undefined;
+        if (eveActive && eveActive.n) {
+          const liveDef = db
+            .prepare(
+              'SELECT 1 AS n FROM assistant_definitions ' +
+                'WHERE assistant_id = ? AND deleted_at IS NULL LIMIT 1'
+            )
+            .get(COMMAND_EVE_ASSISTANT_ID) as { n: number } | undefined;
+          if (!liveDef) {
+            const cleared = db
+              .prepare('DELETE FROM assistants WHERE id = ?')
+              .run(COMMAND_EVE_ASSISTANT_ID);
+            reseeded = cleared.changes;
+          }
+        }
+      } catch {
+        // best-effort; an orphan-clear failure must not block the orphan/re-bind
+        // heals or boot. A fresh install (no EVE row) or a healthy install (live
+        // definition present) never reaches the DELETE.
+      }
+
       // Fold any change into the main DB so aioncore opens a clean file.
       try {
         db.pragma('wal_checkpoint(TRUNCATE)');
       } catch {
         // best-effort; SQLite recovers the WAL on open anyway
       }
-      return { repaired: info.changes, rebound };
+      return { repaired: info.changes, rebound, reseeded };
     } finally {
       db.close();
     }

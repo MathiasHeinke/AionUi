@@ -74,8 +74,39 @@ export const COMMAND_EVE_SUPPORTED_WIRE_VERSIONS = [
   COMMAND_EVE_LICENSE_CODE_WIRE_VERSION_V2,
 ] as const;
 
-export const COMMAND_EVE_LICENSE_EDITIONS = ['pilot', 'standard'] as const;
+// Editions a verified license may carry:
+//   * 'pilot'    — the 7-day RICH intro TRIAL (trial_ends_at set).
+//   * 'standard' — a PAID client-seat subscription (trial_ends_at null).
+//   * 'free'     — the PERMANENT FREE operator seat (founder model 2026-06-30): the
+//                  pilot trial converts to this when the 7-day window lapses. It is
+//                  entitled FOREVER (expires_at null, trial_ends_at null) but limited
+//                  to the free lane + 100/day, NO BYOK / local models / client seats.
+//                  It is its OWN state — distinct from 'expired' (locked out) AND from
+//                  paid. has_paid_seat MUST be FALSE for it (see getEntitlementStatus):
+//                  the edition is the discriminant, NOT trial_ends_at alone (a free
+//                  license carries a null trial_ends_at by design, so keying paid-ness
+//                  on null trial_ends_at would wrongly unlock BYOK for a free user).
+export const COMMAND_EVE_LICENSE_EDITIONS = ['pilot', 'standard', 'free'] as const;
 export type CommandEveLicenseEdition = (typeof COMMAND_EVE_LICENSE_EDITIONS)[number];
+
+/**
+ * The PAID-seat discriminant. A seat is paid iff it is entitled AND non-trial AND
+ * NOT the permanent-free edition. Centralised so every has_paid_seat derivation
+ * stays consistent and the free-forever trap (a free license has trial_ends_at ==
+ * null, which alone would look paid) is closed in ONE place.
+ *
+ * Inputs come from the SIGNED, time-valid payload (enforced path) or the cached
+ * record (flag-OFF dev path):
+ *   - trialEndsAt: trial_ends_at (null/undefined ⇒ non-trial)
+ *   - edition:     the signed edition string
+ * Paid ⇔ trial_ends_at is null/undefined AND edition !== 'free'.
+ */
+export function isPaidSeatEdition(
+  trialEndsAt: string | null | undefined,
+  edition: string | null | undefined,
+): boolean {
+  return (trialEndsAt === null || trialEndsAt === undefined) && edition !== 'free';
+}
 
 export const COMMAND_EVE_LICENSE_REASON_CODES = {
   MALFORMED: 'LICENSE_MALFORMED',
@@ -1121,9 +1152,13 @@ export function getEntitlementStatus(options: CommandEveEntitlementOptions): Com
       ...(entitlement ? { edition: entitlement.edition, expires_at: entitlement.expires_at } : {}),
       // Parity with the enforced path so a dev running flag-OFF with a cached paid
       // record is not surprised by a locked BYOK affordance. Same derivation
-      // (non-trial entitlement ⇒ paid), but over the cached record (gate not
-      // enforced here, so there is no verified wire to derive from).
-      ...(entitlement && entitlement.trial_ends_at == null ? { has_paid_seat: true } : {}),
+      // (non-trial AND non-free entitlement ⇒ paid), but over the cached record
+      // (gate not enforced here, so there is no verified wire to derive from). The
+      // edition guard closes the free-forever trap: a cached free record carries a
+      // null trial_ends_at, which alone would wrongly read as paid.
+      ...(entitlement && isPaidSeatEdition(entitlement.trial_ends_at, entitlement.edition)
+        ? { has_paid_seat: true }
+        : {}),
     };
   }
 
@@ -1263,12 +1298,16 @@ export function getEntitlementStatus(options: CommandEveEntitlementOptions): Com
     ...(payload.seat_count !== undefined ? { seat_count: payload.seat_count } : {}),
   };
 
-  // Paid-seat UI hint (1.2.18), DERIVED from the verified payload: we are on the
-  // 'entitled' path (wire cryptographically verified + time-valid), so the only
-  // discriminant left is trial-vs-paid. trial_ends_at == null (null on a v2 paid
-  // license, undefined on a v1 license) ⇒ paid/comped real access ⇒ true. A v2
-  // TRIAL carries a non-null trial_ends_at ⇒ false (omitted). See the field doc.
-  const hasPaidSeat = payload.trial_ends_at == null;
+  // Paid-seat UI hint (1.2.18 + free-seat 2026-06-30), DERIVED from the verified
+  // payload: we are on the 'entitled' path (wire cryptographically verified +
+  // time-valid), so the discriminant left is trial-vs-free-vs-paid:
+  //   * a v2 TRIAL carries a non-null trial_ends_at            ⇒ NOT paid;
+  //   * the PERMANENT FREE seat carries edition="free" (and a null trial_ends_at by
+  //     design) ⇒ NOT paid — the edition guard is what closes the free-forever trap,
+  //     because keying paid-ness on a null trial_ends_at alone would unlock BYOK /
+  //     local models / client seats for a FREE user;
+  //   * a PAID license (edition "standard"/comped, trial_ends_at null) ⇒ paid.
+  const hasPaidSeat = isPaidSeatEdition(payload.trial_ends_at, payload.edition);
 
   return {
     version: COMMAND_EVE_ENTITLEMENT_BRIDGE_VERSION,
