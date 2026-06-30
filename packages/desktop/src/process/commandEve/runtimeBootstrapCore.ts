@@ -88,6 +88,14 @@ export const EVE_STRATEGY_SKILL_IDS = [
   'local-kanban-ledger',
   'voice-first-run',
   'crm-department',
+  // Reasoning skills (2026-06-30). Like the 6 operator skills above, these 2 ids ALSO exist in
+  // the capability pack as 'active' department capabilities, so listing them here makes
+  // copyBundledStrategySkills copy the REAL bundled SKILL.md over the auto-generated stub (the
+  // running agent gets the real method, and the skill surfaces as executable in the Skill Library).
+  // challenge-engine = invocable devil's-advocate/red-team (pairs with pre-mortem).
+  // brainstorm-divergent = wide divergent idea generator that FEEDS option-tournament.
+  'challenge-engine',
+  'brainstorm-divergent',
 ] as const;
 const COMMAND_EVE_CAPABILITIES_FILE = 'command-eve-capabilities.json';
 const COMMAND_EVE_MANAGED_SKILLS_DIR = 'skills-command-eve';
@@ -670,6 +678,20 @@ export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
       name: 'Blog and social publishing lane',
       tier: 'department',
       source: 'Command EVE human-gated publishing pipeline',
+      default_state: 'active',
+    },
+    {
+      id: 'challenge-engine',
+      name: 'Challenge engine (devil\'s-advocate / red-team)',
+      tier: 'department',
+      source: 'Command EVE reasoning toolbelt',
+      default_state: 'active',
+    },
+    {
+      id: 'brainstorm-divergent',
+      name: 'Divergent brainstorm (wide idea generation)',
+      tier: 'department',
+      source: 'Command EVE reasoning toolbelt',
       default_state: 'active',
     },
   ],
@@ -1322,7 +1344,7 @@ function commandEveManagedSkillMarkdown(skill: CommandEveCapabilityPack['skills'
 }
 
 // The APP-OWNED config-awareness onboarding skill (Guided Onboarding SLICE S1).
-// This is deliberately NOT in EVE_STRATEGY_SKILL_IDS (the bundled allowlist, now 24) and
+// This is deliberately NOT in EVE_STRATEGY_SKILL_IDS (the bundled allowlist, now 26) and
 // NOT in command-eve-capabilities.json — it is
 // a separate app-owned managed skill written directly into managedSkillsRoot, which
 // is already on skills.external_dirs, so the running Hermes agent discovers it like

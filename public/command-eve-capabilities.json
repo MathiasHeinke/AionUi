@@ -1,6 +1,6 @@
 {
   "version": "command-eve-capability-pack/v0",
-  "release": "1.2.16",
+  "release": "1.2.17",
   "policy": {
     "default_mode": "proposal_only",
     "secret_rule": "Never ask for passwords, cookies, recovery codes, raw tokens or .env contents in chat.",
@@ -110,6 +110,20 @@
       "name": "Blog and social publishing lane",
       "tier": "department",
       "source": "Command EVE human-gated publishing pipeline",
+      "default_state": "active"
+    },
+    {
+      "id": "challenge-engine",
+      "name": "Challenge engine (devil's-advocate / red-team)",
+      "tier": "department",
+      "source": "Command EVE reasoning toolbelt",
+      "default_state": "active"
+    },
+    {
+      "id": "brainstorm-divergent",
+      "name": "Divergent brainstorm (wide idea generation)",
+      "tier": "department",
+      "source": "Command EVE reasoning toolbelt",
       "default_state": "active"
     }
   ],

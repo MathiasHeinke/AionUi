@@ -9,6 +9,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { getPlatformServices } from '@/common/platform';
 import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
+import { readGroqApiKeyFromHermesEnv } from '@/process/commandEve/localSttCore';
 import { application } from '@/common/adapter/ipcBridge';
 import type { TMessage } from '@/common/chat/chatLib';
 import type {
@@ -675,11 +676,16 @@ const seedCommandEveSpeechToText = async (): Promise<void> => {
     // Respect any prior user choice — only seed a virgin config.
     if (existing && typeof existing === 'object') return;
 
+    // Groq STT is the DEFAULT when a GROQ_API_KEY is present in ~/.hermes/.env (the founder's
+    // box) — sub-second, strong German, zero per-user setup (founder ask: "muss Standard sein").
+    // Without a key (keyless / operator boxes) it falls back to the on-device, DSGVO-clean local
+    // lane, so this never breaks a build that has no Groq key.
     const seed: SpeechToTextConfig = {
       enabled: true,
-      // On-device lane: keyless, audio never leaves the Mac (DSGVO-clean). The renderer
-      // routes to the bundled venv faster-whisper when provider is 'local'.
-      provider: 'local',
+      provider: readGroqApiKeyFromHermesEnv() ? 'groq' : 'local',
+      // Groq Whisper: sub-second + strong German. The KEY is read per-call from ~/.hermes/.env,
+      // never persisted into config here.
+      groq: { model: 'whisper-large-v3-turbo' },
       local: {
         // 'small' is the German-tuned default: better than 'base' on German, still fast
         // on an M1 Pro 16GB. faster-whisper lazy-downloads it on first transcription.

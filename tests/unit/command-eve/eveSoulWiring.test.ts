@@ -222,7 +222,7 @@ describe('EVE soul-wiring: bundled strategy skills copy (real, additive, fail-cl
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-soul-bundle-'));
     const bundledSkillsDir = path.join(root, 'bundled-skills');
     fs.mkdirSync(bundledSkillsDir, { recursive: true });
-    // 15 single-folder skills (all allowlisted ids except the marketing-outbound bundle).
+    // 25 single-folder skills (all allowlisted ids except the marketing-outbound bundle).
     for (const id of EVE_STRATEGY_SKILL_IDS) {
       if (id === 'marketing-outbound') continue;
       const dir = path.join(bundledSkillsDir, id);
@@ -242,7 +242,7 @@ describe('EVE soul-wiring: bundled strategy skills copy (real, additive, fail-cl
     return { root, bundledSkillsDir, paths };
   };
 
-  it('lands all 16 allowlisted strategy skills with real (non-stub) content', () => {
+  it('lands all 26 allowlisted strategy skills with real (non-stub) content', () => {
     const { root, bundledSkillsDir, paths } = makeFixture();
     try {
       const failures = copyBundledStrategySkills(paths, bundledSkillsDir);
@@ -391,8 +391,8 @@ describe('EVE soul-wiring: internal Operating Rule reconciled to defer to SOUL.m
 describe('EVE onboarding S1: app-owned config-awareness skill (separate from the strategy allowlist)', () => {
   const SKILL_MD = commandEveOnboardingSkillMarkdown();
 
-  it('is its own app-owned skill, NOT in EVE_STRATEGY_SKILL_IDS (allowlist is 24: 15 strategy + blog-writer + founder-voice + client-report + 6 operator content/ops/CRM)', () => {
-    expect(EVE_STRATEGY_SKILL_IDS).toHaveLength(24);
+  it('is its own app-owned skill, NOT in EVE_STRATEGY_SKILL_IDS (allowlist is 26: 15 strategy + blog-writer + founder-voice + client-report + 6 operator content/ops/CRM + challenge-engine + brainstorm-divergent)', () => {
+    expect(EVE_STRATEGY_SKILL_IDS).toHaveLength(26);
     expect(EVE_STRATEGY_SKILL_IDS as readonly string[]).not.toContain('eve-onboarding-awareness');
   });
 

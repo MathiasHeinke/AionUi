@@ -86,6 +86,14 @@ export const EVE_STRATEGY_SKILLS = Object.freeze([
   { id: 'local-kanban-ledger' },
   { id: 'voice-first-run' },
   { id: 'crm-department' },
+  // Reasoning skills (2026-06-30): the invocable challenger + the divergent idea generator.
+  // challenge-engine = the deliberate devil's-advocate/red-team tool the operator fires at a
+  // SPECIFIC claim (pairs with pre-mortem, which assumes failure). brainstorm-divergent = the
+  // upstream wide-field idea generator that FEEDS option-tournament (which only selects from a
+  // bounded fork). Like the 6 operator skills, both also live in the capability pack as
+  // 'active' department capabilities, so the real bundled SKILL.md lands over the stub.
+  { id: 'challenge-engine' },
+  { id: 'brainstorm-divergent' },
 ]);
 
 /** Just the ids, for callers that want the flat allowlist. */

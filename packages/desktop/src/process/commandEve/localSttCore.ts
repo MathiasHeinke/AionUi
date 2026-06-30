@@ -42,7 +42,7 @@ const DEFAULT_GROQ_TIMEOUT_MS = 45_000;
 // command-eve seat HERMES_HOME — so we read it explicitly rather than relying on
 // the subprocess's HERMES_HOME (which points at the command-eve seat that has no
 // .env). Returns null when there is no HOME or no key.
-function readGroqApiKeyFromHermesEnv(): string | null {
+export function readGroqApiKeyFromHermesEnv(): string | null {
   const home = process.env.HOME;
   if (!home) return null;
   const envPath = path.join(home, '.hermes', '.env');
