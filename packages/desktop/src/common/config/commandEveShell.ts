@@ -27,7 +27,7 @@ export function isCommandEveFounderBuild(env: NodeJS.ProcessEnv | undefined = ty
 export const COMMAND_EVE_APP_NAME = 'Command EVE';
 export const COMMAND_EVE_DISPLAY_NAME = 'EVE';
 export const COMMAND_EVE_TITLE = '⌘ EVE';
-export const COMMAND_EVE_VERSION = '1.2.19';
+export const COMMAND_EVE_VERSION = '1.2.20';
 export const COMMAND_EVE_APP_ID = 'com.fynlabs.commandeve';
 /**
  * Generic (electron-updater) over-the-air update feed base URL for Command EVE.

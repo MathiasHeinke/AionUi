@@ -17,6 +17,7 @@ import {
   Puzzle,
   Robot,
   Shield,
+  Speed,
   System,
   User,
   Wallet,
@@ -40,17 +41,27 @@ type TranslateFn = (key: string, options?: { defaultValue?: string }) => string;
 export function getBuiltinSettingsNavItems(isDesktop: boolean, t: TranslateFn): NavItem[] {
   const builtinMap: Record<string, NavItem> = {
     model: { id: 'model', label: t('settings.model'), icon: <LinkCloud theme='outline' size='16' />, path: 'model' },
-    assistants: {
-      id: 'assistants',
-      label: t('settings.assistants', { defaultValue: 'Assistants' }),
+    // 1.2.18 — 'agent' + 'assistants' merged into the single 'eveRuntime' tab; the
+    // formerly-main-sidebar 'runtime' + 'connectors' surfaces moved in here too.
+    // Kept in lockstep with SettingsSider's builtinMap and BUILTIN_TAB_IDS, or the
+    // hardened filter below silently drops the unmapped ids (3 missing nav tabs).
+    eveRuntime: {
+      id: 'eveRuntime',
+      label: t('settings.eveRuntime', { defaultValue: 'EVE-Runtime' }),
       icon: <Robot theme='outline' size='16' />,
-      path: 'assistants',
+      path: 'eve-runtime',
     },
-    agent: {
-      id: 'agent',
-      label: t('settings.agents', { defaultValue: 'Agents' }),
-      icon: <Robot theme='outline' size='16' />,
-      path: 'agent',
+    runtime: {
+      id: 'runtime',
+      label: t('settings.runtime', { defaultValue: 'Runtime' }),
+      icon: <Speed theme='outline' size='16' />,
+      path: 'runtime',
+    },
+    connectors: {
+      id: 'connectors',
+      label: t('settings.connectors', { defaultValue: 'Connectoren' }),
+      icon: <Puzzle theme='outline' size='16' />,
+      path: 'connectors',
     },
     capabilities: {
       id: 'capabilities',

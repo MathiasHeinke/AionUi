@@ -5,8 +5,12 @@
  */
 
 import { ipcBridge } from '@/common';
+import { conversation as conversationBridge } from '@/common/adapter/ipcBridge';
 import { transformMessage } from '@/common/chat/chatLib';
 import type { AvailableCommand } from '@/common/chat/chatLib';
+import type { AcpPermissionRequest } from '@/common/types/platform/acpTypes';
+import { resolveAcpAutoApprove } from './acpAutoApprove';
+import { addEventListener } from '@/renderer/utils/emitter';
 import type { SlashCommandItem } from '@/common/chat/slash/types';
 import { mapAcpCommandsToSlashCommands } from '@/common/chat/slash/acpMapping';
 import type { IResponseMessage } from '@/common/adapter/ipcBridge';
@@ -90,6 +94,20 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
   // Use refs to sync state for immediate access in event handlers
   const runningRef = useRef(running);
   const aiProcessingRef = useRef(aiProcessing);
+
+  // Live permission mode for THIS conversation, used by the acp_permission
+  // auto-approve path. Seeded from conversation.get's extra.session_mode (on
+  // conversation switch) and kept current via the 'acp.permission.mode' emitter
+  // event that AgentModeSelector broadcasts. The backend has no live /mode route
+  // (it 404s), so this renderer-side value is the source of truth for whether an
+  // incoming request_permission should be auto-allowed (YOLO/"Nicht fragen") or
+  // gated. Guards against a stale/closed-over mode in the response handler.
+  const permissionModeRef = useRef<string | undefined>(undefined);
+
+  // Guard against double auto-responding the same permission request: a stream
+  // can re-deliver an acp_permission (reconnect/replay), and confirmMessage is
+  // not idempotent on the backend — answer each call_id at most once.
+  const autoApprovedCallIdsRef = useRef<Set<string>>(new Set());
 
   // Track whether current turn has content output
   const hasContentInTurnRef = useRef(false);
@@ -430,14 +448,52 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           }
           break;
         }
-        case 'acp_permission':
+        case 'acp_permission': {
           // Auto-recover running state only if turn hasn't finished
           if (!runningRef.current && !turnFinishedRef.current) {
             setRunning(true);
             runningRef.current = true;
           }
+
+          // YOLO / "Nicht fragen" auto-approve. The selected permission mode is
+          // persisted on the conversation but never reaches Hermes (the only push
+          // path, PUT /api/conversations/:id/mode, 404s on the bundled runtime), so
+          // Hermes keeps asking. The desktop honors the mode here: in the
+          // auto-approve mode ONLY, answer the request's own allow_once option and
+          // skip rendering the "Approve edit:" dialog. The gating modes (Standard,
+          // Änderungen übernehmen) fall through and render the dialog as before.
+          const request = message.data as AcpPermissionRequest | undefined;
+          const callId = request?.tool_call?.tool_call_id || message.msg_id;
+          const decision = resolveAcpAutoApprove(permissionModeRef.current, request);
+          if (decision.autoApprove && decision.optionId) {
+            // Already auto-answered this call (stream replay/reconnect): silently
+            // no-op. confirmMessage is not idempotent and the dialog must NOT pop
+            // for a request we already allowed.
+            if (autoApprovedCallIdsRef.current.has(callId)) {
+              break;
+            }
+            autoApprovedCallIdsRef.current.add(callId);
+            void conversationBridge.confirmMessage
+              .invoke({
+                confirm_key: decision.optionId,
+                msg_id: message.msg_id,
+                conversation_id: message.conversation_id,
+                call_id: callId,
+              })
+              .catch((error: unknown) => {
+                // If the auto-allow POST fails, fall back to the manual dialog so
+                // the user is never silently stuck waiting on an agent that asked.
+                autoApprovedCallIdsRef.current.delete(callId);
+                console.warn('[useAcpMessage] auto-approve failed, falling back to dialog:', error);
+                addOrUpdateMessage(transformedMessage);
+              });
+            // Do NOT render the gating dialog for an auto-approved request.
+            break;
+          }
+
           addOrUpdateMessage(transformedMessage);
           break;
+        }
         case 'acp_model_info':
           // Model info updates are handled by AcpModelSelector, no action needed here
           break;
@@ -552,6 +608,19 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
     return ipcBridge.acpConversation.responseStream.on(handleResponseMessage);
   }, [handleResponseMessage]);
 
+  // Keep the live permission mode current for the auto-approve path. The picker
+  // (AgentModeSelector) broadcasts the effective mode on initial sync and on every
+  // in-session switch; only adopt events for THIS conversation. Because the backend
+  // /mode route 404s, this is the only reliable signal that a user switched to (or
+  // away from) YOLO/"Nicht fragen" after the conversation was first loaded.
+  useEffect(() => {
+    return addEventListener('acp.permission.mode', (evt) => {
+      if (evt.conversation_id === conversation_id) {
+        permissionModeRef.current = evt.mode;
+      }
+    });
+  }, [conversation_id]);
+
   // Reset state when conversation changes and restore actual running status
   useEffect(() => {
     let cancelled = false;
@@ -568,6 +637,10 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
     activeThinkingRef.current = null;
     setHasThinkingMessage(false);
     setHasHydratedRunningState(false);
+    // New conversation context: drop the stale live mode and the per-call
+    // auto-approve dedupe set until conversation.get re-seeds them below.
+    permissionModeRef.current = undefined;
+    autoApprovedCallIdsRef.current = new Set();
 
     // Clear running/processing immediately for the new conversation. Hydration only
     // turns these back on when the backend reports status === 'running'. Otherwise
@@ -616,6 +689,14 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
         if (last_context_limit && last_context_limit > 0) {
           setContextLimit(last_context_limit);
         }
+      }
+
+      // Seed the live permission mode for the auto-approve path from the
+      // conversation's persisted session_mode (the picker writes it here; the
+      // founder's YOLO/"Nicht fragen" pick reads back as 'yolo'/'dont_ask').
+      // AgentModeSelector keeps it current via the 'acp.permission.mode' event.
+      if (res.type === 'acp' && typeof res.extra?.session_mode === 'string') {
+        permissionModeRef.current = res.extra.session_mode;
       }
     })
       .catch((error: unknown) => {

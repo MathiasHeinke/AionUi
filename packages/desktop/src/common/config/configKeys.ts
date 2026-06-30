@@ -81,6 +81,20 @@ export type ConfigKeyMap = {
    * free local always-on worker stays active.
    */
   'commandEve.teamWorkerStatus': Record<string, 'active' | 'paused' | 'off'> | undefined;
+  /**
+   * CLI-Keystone worker assignments. A map of stable roster `agent_id` →
+   * { kind: 'claude' | 'codex' | 'image', cli_path?, cli_version? } — the
+   * PERSISTED record the worker-assignment card writes (it is no longer a no-op
+   * stub). This is the namespace JOIN: a runnable CLI worker is bound to a real
+   * EVE role, never an invented id. The producer (eveWorkerAssignmentCore)
+   * translates these into the Hermes routing the runtime consumes — Codex flips
+   * `model.openai_runtime` (version-gated), Claude resolves an `acp_command` ACP
+   * delegate — and is status-gated by the existing dispatch rule. Absent =
+   * no CLI worker bound (EVE answers on its normal lane).
+   */
+  'commandEve.workerAssignments':
+    | Record<string, { kind: 'claude' | 'codex' | 'image'; cli_path?: string; cli_version?: string }>
+    | undefined;
   // --- Credits / billing UX (Lane 3, WG#3 credits-billing spec) ---
   /**
    * Day-0 onboarding seed flag: set true once the user has provided ONE real

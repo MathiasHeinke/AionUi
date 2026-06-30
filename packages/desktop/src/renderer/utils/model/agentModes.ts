@@ -152,13 +152,14 @@ export function resolveModeForBackend(value: string | undefined, modes: AgentMod
 /**
  * Maps Hermes' ACP-advertised EVE permission-mode IDs to the clean, founder-
  * approved EVE labels (i18n keys under `agentMode.eve.*`). EVE honestly enforces
- * exactly these three modes — no Plan-Modus, no "Nicht fragen" (those would be
- * fake buttons). Any mode value not in this map (e.g. a future Hermes mode)
- * falls through to the generic `agentMode.<value>` key so nothing renders blank.
+ * exactly these three real Hermes modes — no fake Plan-Modus and no extra buttons
+ * the runtime can't honour. Any mode value not in this map (e.g. a future Hermes
+ * mode) falls through to the generic `agentMode.<value>` key so nothing renders blank.
  *
- * default     → "Standard"               (ask before edits / sensitive actions)
- * accept_edits → "Änderungen übernehmen"  (auto-allow workspace edits)
- * dont_ask    → "YOLO"                    (auto-allow edits this session)
+ * default      → "Fragen"        (ask before edits / sensitive actions)
+ * accept_edits → "Auto-Edits"    (auto-allow workspace edits)
+ * dont_ask     → "Nicht fragen"  (auto-allow edits this session)
+ * (1.2.16 shortened the labels to keep the start screen and in-session pill identical.)
  */
 const EVE_MODE_I18N_KEY: Record<string, string> = {
   default: 'agentMode.eve.ask',

@@ -16,6 +16,7 @@ import {
   commandEveOnboardingStepScreenHtml,
   copyBundledStrategySkills,
   eveSelectedLanguageDirective,
+  eveWorkerRoutingDirective,
   resolveBundledSkillsDir,
   resolveCommandEveRuntimeBootstrapPaths,
 } from '@/process/commandEve/runtimeBootstrapCore';
@@ -542,5 +543,42 @@ describe('EVE soul: setting-driven language directive (appended at bootstrap)', 
     const d = eveSelectedLanguageDirective('de-DE');
     expect(d).toMatch(/follow them/i);
     expect(d).toMatch(/[Nn]ever announce or explain this rule/);
+  });
+});
+
+describe('EVE soul: CLI-Keystone Claude worker-routing directive (the LIVE delegate glue)', () => {
+  const delegate = {
+    agent_id: 'eval-research',
+    label: 'Claude',
+    acpCommand: 'bunx',
+    acpArgs: ['@agentclientprotocol/claude-agent-acp'],
+    provider: 'copilot-acp',
+  };
+
+  it('emits the EXACT acp_command/acp_args EVE must pass to delegate_task (wheel-consumable)', () => {
+    const d = eveWorkerRoutingDirective(delegate);
+    expect(d).toMatch(/delegate_task/);
+    expect(d).toContain('acp_command: bunx');
+    expect(d).toContain('@agentclientprotocol/claude-agent-acp');
+    expect(d).toContain('eval-research');
+  });
+
+  it('honors an operator cli_path bin with empty args', () => {
+    const d = eveWorkerRoutingDirective({ ...delegate, acpCommand: '/opt/claude/bin/claude', acpArgs: [] });
+    expect(d).toContain('acp_command: /opt/claude/bin/claude');
+    expect(d).toContain('acp_args: []');
+  });
+
+  it('restates the honesty wall — delegation is still gated, never auto-run, not for normal chat', () => {
+    const d = eveWorkerRoutingDirective(delegate).toLowerCase();
+    expect(d).toContain('gated');
+    expect(d).toMatch(/not auto-run|never auto-run|nicht.*automat/);
+    expect(d).toMatch(/not delegate normal|do not delegate/);
+  });
+
+  it('emits NOTHING when no Claude delegate is wired (SOUL.md byte-equal to today)', () => {
+    expect(eveWorkerRoutingDirective(null)).toBe('');
+    expect(eveWorkerRoutingDirective(undefined)).toBe('');
+    expect(eveWorkerRoutingDirective({ ...delegate, acpCommand: '' })).toBe('');
   });
 });

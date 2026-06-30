@@ -6,11 +6,11 @@
 
 /**
  * Proves the founder's EVE permission-mode labels actually RESOLVE through i18n
- * (Standard / Änderungen übernehmen / YOLO in DE) — not a reasoning claim. Loads the
- * real de-DE / en-US locale modules exactly as the app does (addResourceBundle into
- * the single 'translation' namespace, deep=true) and asserts the agentMode.eve.* keys
- * the createModeLabelFormatter uses resolve. Guards against the agentMode-vs-common
- * collision the adversarial reviewer flagged.
+ * (the short 1.2.16 labels Fragen / Auto-Edits / Nicht fragen in DE) — not a
+ * reasoning claim. Loads the real de-DE / en-US locale modules exactly as the app
+ * does (addResourceBundle into the single 'translation' namespace, deep=true) and
+ * asserts the agentMode.eve.* keys the createModeLabelFormatter uses resolve.
+ * Guards against the agentMode-vs-common collision the adversarial reviewer flagged.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -30,9 +30,10 @@ describe('EVE permission-mode labels resolve through i18n', () => {
 
   it('DE: the 3 honest EVE modes render the founder labels', () => {
     inst.changeLanguage('de-DE');
-    expect(inst.t('agentMode.eve.ask')).toBe('Standard');
-    expect(inst.t('agentMode.eve.acceptEdits')).toBe('Änderungen übernehmen');
-    expect(inst.t('agentMode.eve.yolo')).toBe('YOLO');
+    // 1.2.16 shortened + made start↔session identical: Fragen / Auto-Edits / Nicht fragen.
+    expect(inst.t('agentMode.eve.ask')).toBe('Fragen');
+    expect(inst.t('agentMode.eve.acceptEdits')).toBe('Auto-Edits');
+    expect(inst.t('agentMode.eve.yolo')).toBe('Nicht fragen');
     // Sanity: the existing dropdown header the founder's screenshot showed also resolves
     expect(inst.t('agentMode.switchMode')).toBe('Berechtigungsmodus');
     expect(inst.t('agentMode.permission')).toBe('Berechtigung');
@@ -40,9 +41,10 @@ describe('EVE permission-mode labels resolve through i18n', () => {
 
   it('EN: the same keys render English (no German-only hardcoding)', () => {
     inst.changeLanguage('en-US');
-    expect(inst.t('agentMode.eve.ask')).toBe('Ask every time');
-    expect(inst.t('agentMode.eve.acceptEdits')).toBe('Accept Edits');
-    expect(inst.t('agentMode.eve.yolo')).toBe('YOLO');
+    // 1.2.16 EN parity: Ask / Auto-edit / Don't ask.
+    expect(inst.t('agentMode.eve.ask')).toBe('Ask');
+    expect(inst.t('agentMode.eve.acceptEdits')).toBe('Auto-edit');
+    expect(inst.t('agentMode.eve.yolo')).toBe("Don't ask");
   });
 
   it('the agentMode object is NOT clobbered by common.agentMode (the reviewer’s concern)', () => {

@@ -131,6 +131,14 @@ export interface IConfigStorageRefer {
   // by the team panel; READ by the main process (getSync) so the shim refuses to
   // dispatch a paused/off delegated worker (DUX-4). Absent ids default active.
   'commandEve.teamWorkerStatus'?: Record<string, 'active' | 'paused' | 'off'>;
+  // CLI-Keystone worker assignments (agent_id → { kind, cli_path?, cli_version? }).
+  // Written by the worker-assignment card; READ by the main process so the bootstrap
+  // resolves the Claude ACP delegate (resolveAssignedClaudeDelegate) + codexRuntime
+  // (deferred -> '') and feeds them into the runtime. Absent = no external worker.
+  'commandEve.workerAssignments'?: Record<
+    string,
+    { kind: 'claude' | 'codex' | 'image'; cli_path?: string; cli_version?: string }
+  >;
   // Telegram assistant default model / Telegram 助手默认模型
   'assistant.telegram.defaultModel'?: {
     id: string;

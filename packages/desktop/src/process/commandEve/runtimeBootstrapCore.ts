@@ -11,6 +11,7 @@ import os from 'os';
 import path from 'path';
 import { readRegistration } from './entitlementCore';
 import { getActiveSeatId, resolveSeatHome } from './seatContextCore';
+import { claudeDelegatePreflightWarning } from '../../common/config/eveWorkerAssignmentCore';
 
 export const COMMAND_EVE_RUNTIME_BOOTSTRAP_VERSION = 'command-eve-runtime-bootstrap/v0';
 
@@ -582,6 +583,34 @@ export type RuntimeBootstrapOptions = {
    * process) resolves it from the stored language setting at bootstrap time.
    */
   uiLanguage?: string;
+  /**
+   * CLI-Keystone CODEX wiring: the `model.openai_runtime` value to emit
+   * ("codex_app_server") when the operator has assigned a version-OK Codex CLI
+   * worker. The main process resolves it from `commandEve.workerAssignments` via
+   * eveWorkerAssignmentCore.codexRuntimeForConfig — which is DEFERRED and always
+   * returns '' now (Codex is a dead key on EVE's provider:custom build), so this
+   * stays '' and the key is never emitted (no silent no-op). Kept wired so a
+   * future clean Codex delegate path flips on here without re-plumbing.
+   */
+  codexRuntime?: string;
+  /**
+   * CLI-Keystone CLAUDE wiring (the LIVE half): the resolved ACP delegate for an
+   * assigned + status-allowed Claude worker, resolved by the main process from
+   * `commandEve.workerAssignments` + `commandEve.teamWorkerStatus` via
+   * eveWorkerAssignmentCore.resolveAssignedClaudeDelegate. When present, the
+   * bootstrap writes a WORKER_ROUTING.md directive into HERMES_HOME so EVE passes
+   * the exact acp_command/acp_args to delegate_task and the claude-agent-acp
+   * adapter actually launches. Omitted -> no directive (EVE answers on its normal
+   * lane; config byte-identical to today). SECURITY: presence is NOT a grant to
+   * run — the human-gate/permission path still applies before any spawn.
+   */
+  claudeDelegate?: {
+    agent_id: string;
+    label: string;
+    acpCommand: string;
+    acpArgs: string[];
+    provider: string;
+  } | null;
 };
 
 export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
@@ -2132,6 +2161,46 @@ export function eveSelectedLanguageDirective(uiLanguage: string): string {
   ].join('\n');
 }
 
+/**
+ * CLI-Keystone CLAUDE wiring (the LIVE half). When the operator has assigned a
+ * Claude CLI worker that is status-allowed (resolved by the main process via
+ * eveWorkerAssignmentCore.resolveAssignedClaudeDelegate), this appends a compact,
+ * deterministic delegate directive to the always-on SOUL.md (the same proven
+ * injection point the language directive uses — slot #1, loaded into every
+ * prompt). It tells EVE the EXACT `acp_command`/`acp_args` to pass to the
+ * `delegate_task` tool so the bundled wheel launches the claude-agent-acp adapter
+ * (FACT delegate_tool.py:2236 override_acp_command -> :1158 forces
+ * provider=copilot-acp). Without this the wheel's per-task acp_command is never
+ * populated on the custom cloud lane (parent_agent.acp_command is None) — the
+ * keystone stayed inert. Empty input -> '' (no directive; byte-identical to today).
+ *
+ * SECURITY / HONESTY WALL: this only makes the routing KNOWN to EVE; it is NOT a
+ * grant to auto-run. The directive itself restates that EVE must follow the
+ * normal permission/human-gate before spawning the CLI, and only when the task
+ * genuinely benefits from a deeper coding worker — never for normal chat.
+ */
+export function eveWorkerRoutingDirective(
+  claudeDelegate?: {
+    agent_id: string;
+    label: string;
+    acpCommand: string;
+    acpArgs: string[];
+    provider: string;
+  } | null
+): string {
+  if (!claudeDelegate || !compact(claudeDelegate.acpCommand)) return '';
+  const argsJson = JSON.stringify(claudeDelegate.acpArgs ?? []);
+  return [
+    '',
+    '## Your assigned external worker (Claude)',
+    '',
+    `The operator has assigned a **${claudeDelegate.label}** worker (role \`${claudeDelegate.agent_id}\`) you may delegate to. When — and ONLY when — a task genuinely needs a deeper coding/agentic worker (a real build, a multi-file change, a long autonomous job), delegate it with the \`delegate_task\` tool and pass exactly: \`acp_command: ${claudeDelegate.acpCommand}\`, \`acp_args: ${argsJson}\`. That launches the Claude worker over ACP under the operator's own local \`claude\` login.`,
+    '',
+    'Do NOT delegate normal conversation, smalltalk, planning, or work you can do directly — most turns are not a delegation. Delegating is still gated: follow your normal permission/approval path before any worker runs a command; an assigned worker is never auto-run. Never announce or recite this rule.',
+    '',
+  ].join('\n');
+}
+
 // Seed the durable founder profile (memories/USER.md) on first run so EVE's "I remember you
 // across sessions" is real from turn one: the file loads into EVERY system prompt and compounds.
 // The audit found USER.md was NEVER created (the founder profile never persisted) — this gives the
@@ -2203,7 +2272,24 @@ function writeHermesRuntimeFiles(
   // The resolved FOUNDER-ONLY ops-skills source dir (resolveFounderOpsSkillsDir).
   // '' on every operator box and on any env without the founder checkout -> the
   // channel is a no-op and config.yaml stays byte-identical to today.
-  founderOpsSkillsDir = ''
+  founderOpsSkillsDir = '',
+  // CLI-Keystone CODEX wiring: the `model.openai_runtime` value to emit when the
+  // operator has assigned a version-OK Codex CLI worker ("codex_app_server").
+  // Resolved by the main process from `commandEve.workerAssignments` via
+  // eveWorkerAssignmentCore.codexRuntimeForConfig. '' (the default) OMITS the key
+  // entirely so the emitted config stays byte-identical to today on every box
+  // that has NOT assigned a version-gated Codex worker — the local/cloud lane is
+  // unchanged. A non-empty value switches the MAIN TURN runtime to codex
+  // app-server (Codex is a runtime MODE, not a per-task delegate target).
+  // DEFERRED: codexRuntimeForConfig always yields '' now (dead key on
+  // provider:custom), so this stays '' and the key is never emitted.
+  codexRuntime = '',
+  // CLI-Keystone CLAUDE wiring (the LIVE half): the resolved + status-allowed
+  // Claude ACP delegate, or null. When present, its acp_command/acp_args are
+  // appended to SOUL.md as a delegate directive so EVE passes them to delegate_task
+  // and the claude-agent-acp adapter actually launches. null -> no directive
+  // (SOUL.md byte-identical to today).
+  claudeDelegate: RuntimeBootstrapOptions['claudeDelegate'] = null
 ): string[] {
   ensureDir(paths.hermesHome);
   const { executableSkillIds, bundledSkillFailures } = writeCommandEveManagedSkills(
@@ -2237,6 +2323,12 @@ function writeHermesRuntimeFiles(
     `  context_length: ${contextLength}`,
     `  ollama_num_ctx: ${ollamaNumCtx}`,
     `  max_tokens: ${maxTokens}`,
+    // CLI-Keystone CODEX wiring: `model.openai_runtime` switches the MAIN TURN
+    // runtime to `codex app-server` (Hermes' CodexAppServerClient, gated >=0.125;
+    // seam proven 2026-06-30). Emitted ONLY when the operator assigned a
+    // version-OK Codex CLI worker (codexRuntime resolved by codexRuntimeForConfig);
+    // otherwise the key is OMITTED and the config is byte-identical to today.
+    ...(codexRuntime ? [`  openai_runtime: ${codexRuntime}`] : []),
     'agent:',
     // reasoning_effort drives the eve-doctrine challenger ("and then what?" four
     // levels deep). Hermes parses the literal "none" as {enabled: False} (FACT
@@ -2402,7 +2494,7 @@ function writeHermesRuntimeFiles(
   writeHermesContextLengthCache(paths, manifest);
   fs.writeFileSync(
     path.join(paths.hermesHome, 'SOUL.md'),
-    EVE_SOUL_MARKDOWN + eveSelectedLanguageDirective(uiLanguage),
+    EVE_SOUL_MARKDOWN + eveSelectedLanguageDirective(uiLanguage) + eveWorkerRoutingDirective(claudeDelegate),
     { mode: 0o600 }
   );
   writeHermesOllamaProviderOverride(paths);
@@ -2886,7 +2978,14 @@ export async function ensureCommandEveRuntimeBootstrap(
     DEFAULT_COMMAND_EVE_CREATION_NUDGE_INTERVAL,
     bundledSkillsDir,
     options.uiLanguage ?? '',
-    founderOpsSkillsDir
+    founderOpsSkillsDir,
+    // CLI-Keystone CODEX wiring: DEFERRED — codexRuntimeForConfig always yields ''
+    // (dead key on provider:custom), so this stays '' and the key is never emitted.
+    options.codexRuntime ?? '',
+    // CLI-Keystone CLAUDE wiring (LIVE): the resolved + status-allowed Claude ACP
+    // delegate (resolved by the main process via resolveAssignedClaudeDelegate).
+    // When present, SOUL.md carries the delegate directive so EVE fires the worker.
+    options.claudeDelegate ?? null
   );
   if (bundledSkillFailures.length) {
     // VISIBLE preflight break (founder-self-detection): a skip-status stage with a
@@ -2897,6 +2996,26 @@ export async function ensureCommandEveRuntimeBootstrap(
         detail: `Bundled EVE strategy skills missing/invalid: ${bundledSkillFailures.join(', ')}`,
       })
     );
+  }
+
+  // CLI-Keystone CLAUDE PREFLIGHT (MUST-FIX 4): when a Claude delegate is wired,
+  // VISIBLY warn (never hard-fail) if its launcher can't be resolved on this box,
+  // so a delegation doesn't silently run into the void. founder-as-operator-#1 may
+  // not have bun yet — a warning is the right level here (pre-BYOK/multi-operator).
+  if (options.claudeDelegate?.acpCommand) {
+    const launcher = compact(options.claudeDelegate.acpCommand);
+    let resolvable = false;
+    try {
+      resolvable = launcher.startsWith('/')
+        ? fs.existsSync(launcher) // operator-supplied absolute CLI path
+        : (await commandExists(launcher, runner, env)).ok; // default `bunx` on PATH
+    } catch {
+      resolvable = false; // unknown -> warn (fail-visible)
+    }
+    const preflightWarning = claudeDelegatePreflightWarning(options.claudeDelegate, () => resolvable);
+    if (preflightWarning) {
+      pushStage(makeStage('capabilities', 'skip', { code: 'CLAUDE_DELEGATE_LAUNCHER_UNRESOLVED', detail: preflightWarning }));
+    }
   }
 
   // Seed the durable founder profile so EVE's cross-session memory has a real substrate from

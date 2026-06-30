@@ -37,6 +37,11 @@ import { ProcessConfig } from './process/utils/initStorage';
 import { EVE_INFERENCE_FUNCTION_URL, resolveCommandEveWarmupLane } from './common/config/eveInferenceCore';
 import { readLicenseWire } from './common/config/licenseWireAtRest';
 import type { EveTeamWorkerStatusMap } from './common/config/eveTeamControlsCore';
+import {
+  codexRuntimeForConfig,
+  resolveAssignedClaudeDelegate,
+  type EveWorkerAssignmentMap,
+} from './common/config/eveWorkerAssignmentCore';
 import type { CommandEveEveCloudRoute } from './process/commandEve/ollamaOpenAiShim';
 import {
   readInferenceSelectionFromBackend,
@@ -450,6 +455,53 @@ function buildCommandEveShimTeamStatusResolver(): () => EveTeamWorkerStatusMap |
   };
 }
 
+/**
+ * CLI-Keystone runtime glue (the wiring the audit found MISSING). Reads the
+ * PERSISTED worker assignments + the live team-status map and resolves them into
+ * the two bootstrap inputs that make the keystone ALIVE:
+ *   - codexRuntime: the `model.openai_runtime` value — DEFERRED, always '' now
+ *     (Codex is a dead key on EVE's provider:custom build; see
+ *     eveWorkerAssignmentCore.codexRuntimeForConfig). Kept wired so a future clean
+ *     Codex path flips on here with no re-plumbing.
+ *   - claudeDelegate: the resolved + status-allowed Claude ACP delegate (or null),
+ *     whose acp_command/acp_args the bootstrap writes into SOUL.md so EVE actually
+ *     fires a delegated Claude worker over claude-agent-acp.
+ *
+ * Fail-soft: any read/resolve error yields { codexRuntime: '', claudeDelegate:
+ * null } so a config glitch can NEVER block startup — it just means no external
+ * worker is wired this launch (EVE answers on its normal lane).
+ *
+ * SECURITY: resolving routing is NOT a grant to run. resolveAssignedClaudeDelegate
+ * reuses the dispatch gate (paused/off => null); the human-gate/permission path
+ * still applies before any CLI worker spawns shell.
+ */
+async function resolveCommandEveWorkerRuntimeInputs(): Promise<{
+  codexRuntime: string;
+  claudeDelegate: ReturnType<typeof resolveAssignedClaudeDelegate>;
+}> {
+  try {
+    const assignmentsRaw = await ProcessConfig.get('commandEve.workerAssignments').catch((): undefined => undefined);
+    const statusesRaw = await ProcessConfig.get('commandEve.teamWorkerStatus').catch((): undefined => undefined);
+    const assignments =
+      assignmentsRaw && typeof assignmentsRaw === 'object'
+        ? (Object.fromEntries(
+            Object.entries(assignmentsRaw as Record<string, { kind: string; cli_path?: string; cli_version?: string }>).map(
+              ([id, v]) => [id, { agent_id: id, ...v }]
+            )
+          ) as EveWorkerAssignmentMap)
+        : ({} as EveWorkerAssignmentMap);
+    const statuses =
+      statusesRaw && typeof statusesRaw === 'object' ? (statusesRaw as EveTeamWorkerStatusMap) : ({} as EveTeamWorkerStatusMap);
+    return {
+      codexRuntime: codexRuntimeForConfig(assignments),
+      claudeDelegate: resolveAssignedClaudeDelegate(assignments, statuses),
+    };
+  } catch (error) {
+    console.warn('[Command EVE] worker-runtime input resolver failed; no external worker wired:', error);
+    return { codexRuntime: '', claudeDelegate: null };
+  }
+}
+
 function writeCommandEveModelWarmupReceipt(runtimeRoot: string, receipt: CommandEveModelWarmupReceipt): void {
   try {
     if (!runtimeRoot) return;
@@ -700,6 +752,10 @@ function registerCommandEveRuntimeBridge(): void {
         // Setting-driven language: thread the operator's selected UI language into
         // the soul so EVE defaults to it (bootstrap re-runs, so it self-corrects).
         uiLanguage: ProcessConfig.getSync('language'),
+        // CLI-Keystone runtime glue: read commandEve.workerAssignments + team status
+        // and thread codexRuntime ('' — Codex deferred) + the resolved Claude ACP
+        // delegate so the bootstrap writes the live delegate directive into SOUL.md.
+        ...(await resolveCommandEveWorkerRuntimeInputs()),
       });
       const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
       const existingWarmup = readJsonFile<CommandEveModelWarmupReceipt>(paths.modelWarmupReceiptPath);
@@ -750,6 +806,10 @@ function registerCommandEveRuntimeBridge(): void {
         // Setting-driven language: thread the operator's selected UI language into
         // the soul so EVE defaults to it (bootstrap re-runs, so it self-corrects).
         uiLanguage: ProcessConfig.getSync('language'),
+        // CLI-Keystone runtime glue: read commandEve.workerAssignments + team status
+        // and thread codexRuntime ('' — Codex deferred) + the resolved Claude ACP
+        // delegate so the bootstrap writes the live delegate directive into SOUL.md.
+        ...(await resolveCommandEveWorkerRuntimeInputs()),
       });
       const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
       const existingWarmup = readJsonFile<CommandEveModelWarmupReceipt>(paths.modelWarmupReceiptPath);
@@ -1215,6 +1275,10 @@ const handleAppReady = async (): Promise<void> => {
     mark(`commandEveOllamaShim (${shimUrl})`);
     prepareCommandEveRuntimeProcessEnv(getDataPath());
     const localModelTierId = await ProcessConfig.get('commandEve.localModelTierId').catch((): undefined => undefined);
+    // CLI-Keystone runtime glue: resolve codexRuntime ('' — Codex deferred) + the
+    // status-allowed Claude ACP delegate from commandEve.workerAssignments BEFORE the
+    // bootstrap so SOUL.md carries the live delegate directive (the keystone fires).
+    const workerRuntimeInputs = await resolveCommandEveWorkerRuntimeInputs();
     const bootstrap = ensureCommandEveRuntimeBootstrap({
       userDataPath: getDataPath(),
       appPath: app.getAppPath(),
@@ -1224,6 +1288,7 @@ const handleAppReady = async (): Promise<void> => {
       // Setting-driven language: thread the operator's selected UI language into
       // the soul so EVE defaults to it (bootstrap re-runs, so it self-corrects).
       uiLanguage: ProcessConfig.getSync('language'),
+      ...workerRuntimeInputs,
     });
     if (shouldBlockStartupForCommandEveRuntimeBootstrap) {
       const receipt = await bootstrap;

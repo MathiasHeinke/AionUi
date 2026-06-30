@@ -9,6 +9,7 @@ import { configService } from '@/common/config/configService';
 import type { AcpSessionConfigOption } from '@/common/types/platform/acpTypes';
 import { savePreferredMode } from '@/renderer/pages/guid/hooks/agentSelectionUtils';
 import { getAgentModes, resolveModeForBackend, supportsModeSwitch, type AgentModeOption } from '@/renderer/utils/model/agentModes';
+import { emitter } from '@/renderer/utils/emitter';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { AgentLogoIcon } from './AgentBadge';
 import { Button, Dropdown, Menu, Message } from '@arco-design/web-react';
@@ -259,6 +260,18 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
       cancelled = true;
     };
   }, [conversation_id, can_switchMode, beforeRuntimeSync, defaultMode, initialMode, modes]);
+
+  // Broadcast the effective permission mode for THIS conversation so the ACP
+  // message handler's auto-approve path stays in lockstep with the pill. This is
+  // the load-bearing signal for the YOLO/"Nicht fragen" fix: the backend has no
+  // live /mode route (it 404s), so the desktop honors the mode itself, and the
+  // request_permission handler reads the mode from this broadcast. Fires on the
+  // initial resolved mode and on every change (sync or user pick). No-op without a
+  // conversation_id (the Guid start screen has no live conversation to gate yet).
+  useEffect(() => {
+    if (!conversation_id) return;
+    emitter.emit('acp.permission.mode', { conversation_id, mode: current_mode });
+  }, [conversation_id, current_mode]);
 
   const handleModeChange = useCallback(
     async (mode: string) => {

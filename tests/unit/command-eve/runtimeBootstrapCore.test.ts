@@ -486,6 +486,86 @@ describe('Command EVE runtime bootstrap core', () => {
     });
   });
 
+  it('CLI-Keystone: config NEVER carries model.openai_runtime (Codex deferred — no dead key)', async () => {
+    // Audit 2026-07-01: Codex is deferred — codexRuntimeForConfig always yields ''.
+    // The producer NEVER feeds a codexRuntime, so the dead key is never emitted.
+    // (Belt-and-braces consumability: even a stray non-empty codexRuntime is moot
+    // because the wheel ignores openai_runtime for provider=custom — but the live
+    // wiring proves the producer simply doesn't emit it.)
+    const harness = makeHarness({ ollamaInitiallyInstalled: true, modelInitiallyPulled: true });
+    await withOllamaServer(async (baseUrl) => {
+      const manifestPath = writeManifest(harness.root, baseUrl);
+      await ensureCommandEveRuntimeBootstrap({
+        userDataPath: harness.root,
+        manifestPath,
+        runner: harness.runner,
+        detachedSpawner: () => {},
+        statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+        totalMemoryBytes: 32 * 1024 ** 3,
+        ollamaBinaryCandidates: [],
+        // The producer (codexRuntimeForConfig) yields '' — so this is what the real
+        // call sites pass. Codex contributes ZERO config.
+        codexRuntime: '',
+      });
+      const paths = resolveCommandEveRuntimeBootstrapPaths(harness.root);
+      const configYaml = fs.readFileSync(path.join(paths.hermesHome, 'config.yaml'), 'utf8');
+      expect(configYaml).not.toContain('openai_runtime');
+      expect(configYaml).toContain('provider: custom');
+    });
+  });
+
+  it('CLI-Keystone CLAUDE wiring (LIVE): an assigned Claude delegate makes SOUL.md carry a wheel-consumable acp_command directive', async () => {
+    // WITHOUT a claudeDelegate, SOUL.md has NO delegate directive (byte-equal today).
+    const harnessOff = makeHarness({ ollamaInitiallyInstalled: true, modelInitiallyPulled: true });
+    await withOllamaServer(async (baseUrl) => {
+      const manifestPath = writeManifest(harnessOff.root, baseUrl);
+      await ensureCommandEveRuntimeBootstrap({
+        userDataPath: harnessOff.root,
+        manifestPath,
+        runner: harnessOff.runner,
+        detachedSpawner: () => {},
+        statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+        totalMemoryBytes: 32 * 1024 ** 3,
+        ollamaBinaryCandidates: [],
+      });
+      const paths = resolveCommandEveRuntimeBootstrapPaths(harnessOff.root);
+      const soul = fs.readFileSync(path.join(paths.hermesHome, 'SOUL.md'), 'utf8');
+      expect(soul).not.toContain('acp_command');
+      expect(soul).not.toContain('assigned external worker');
+    });
+
+    // WITH a resolved Claude delegate, SOUL.md tells EVE the EXACT acp_command/acp_args
+    // to pass to delegate_task — the tuple the bundled wheel consumes (override_acp_command
+    // -> forced provider=copilot-acp). This is what makes Claude actually fire.
+    const harnessOn = makeHarness({ ollamaInitiallyInstalled: true, modelInitiallyPulled: true });
+    await withOllamaServer(async (baseUrl) => {
+      const manifestPath = writeManifest(harnessOn.root, baseUrl);
+      await ensureCommandEveRuntimeBootstrap({
+        userDataPath: harnessOn.root,
+        manifestPath,
+        runner: harnessOn.runner,
+        detachedSpawner: () => {},
+        statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+        totalMemoryBytes: 32 * 1024 ** 3,
+        ollamaBinaryCandidates: [],
+        claudeDelegate: {
+          agent_id: 'eval-research',
+          label: 'Claude',
+          acpCommand: 'bunx',
+          acpArgs: ['@agentclientprotocol/claude-agent-acp'],
+          provider: 'copilot-acp',
+        },
+      });
+      const paths = resolveCommandEveRuntimeBootstrapPaths(harnessOn.root);
+      const soul = fs.readFileSync(path.join(paths.hermesHome, 'SOUL.md'), 'utf8');
+      expect(soul).toContain('delegate_task');
+      expect(soul).toContain('acp_command: bunx');
+      expect(soul).toContain('@agentclientprotocol/claude-agent-acp');
+      // honesty wall: the directive must restate that delegation is still gated.
+      expect(soul.toLowerCase()).toContain('gated');
+    });
+  });
+
   it('uses the packaged macOS Ollama binary when it exists outside PATH', async () => {
     const harness = makeHarness({ modelInitiallyPulled: true });
     const bundledOllama = path.join(harness.root, 'Ollama.app', 'Contents', 'Resources', 'ollama');

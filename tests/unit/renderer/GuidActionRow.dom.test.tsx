@@ -38,6 +38,9 @@ vi.mock('@/renderer/utils/platform', () => ({ isElectronDesktop: () => true }));
 vi.mock('@/common/config/commandEveShell', () => ({
   isCommandEveAcpConversation: (b?: string) => b === 'hermes',
   COMMAND_EVE_DEFAULT_ACP_BACKEND: 'hermes',
+  // GuidActionRow reads COMMAND_EVE_SHELL_ENABLED to force the hermes backend on
+  // the start screen so it shows EVE's permission modes/labels (see source).
+  COMMAND_EVE_SHELL_ENABLED: true,
 }));
 vi.mock('@/renderer/utils/model/agentModes', () => ({
   supportsModeSwitch: () => true,
