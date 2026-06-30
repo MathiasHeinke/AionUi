@@ -14,11 +14,12 @@ import {
   SiderSearchEntry,
   SiderScheduledEntry,
   SiderCommandCenterEntry,
-  SiderConnectorCatalogEntry,
-  SiderSkillLibraryEntry,
-  SiderLocalRuntimeEntry,
-  SiderDeinTeamEntry,
 } from './SiderNav';
+// 1.2.18 Req 1 — Connectoren / Skills / Runtime / Dein Team moved OUT of the main
+// sidebar INTO Settings (declutter; the operator is the conductor). Their entries
+// (SiderConnectorCatalogEntry / SiderSkillLibraryEntry / SiderLocalRuntimeEntry /
+// SiderDeinTeamEntry) stay exported from ./SiderNav but are no longer rendered
+// here; the pages live under /settings/* now (see SettingsSider + Router).
 import SiderFooter from './SiderFooter';
 import CronJobSiderSection from './CronJobSiderSection';
 import TeamSiderSection from './TeamSiderSection';
@@ -120,57 +121,9 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
     }
   };
 
-  const handleConnectorCatalogClick = () => {
-    cleanupSiderTooltips();
-    blurActiveElement();
-    closePreview();
-    setIsBatchMode(false);
-    Promise.resolve(navigate('/connectors')).catch((error) => {
-      console.error('Navigation failed:', error);
-    });
-    if (onSessionClick) {
-      onSessionClick();
-    }
-  };
-
-  const handleSkillLibraryClick = () => {
-    cleanupSiderTooltips();
-    blurActiveElement();
-    closePreview();
-    setIsBatchMode(false);
-    Promise.resolve(navigate('/skills')).catch((error) => {
-      console.error('Navigation failed:', error);
-    });
-    if (onSessionClick) {
-      onSessionClick();
-    }
-  };
-
-  const handleLocalRuntimeClick = () => {
-    cleanupSiderTooltips();
-    blurActiveElement();
-    closePreview();
-    setIsBatchMode(false);
-    Promise.resolve(navigate('/runtime')).catch((error) => {
-      console.error('Navigation failed:', error);
-    });
-    if (onSessionClick) {
-      onSessionClick();
-    }
-  };
-
-  const handleDeinTeamClick = () => {
-    cleanupSiderTooltips();
-    blurActiveElement();
-    closePreview();
-    setIsBatchMode(false);
-    Promise.resolve(navigate('/team-roster')).catch((error) => {
-      console.error('Navigation failed:', error);
-    });
-    if (onSessionClick) {
-      onSessionClick();
-    }
-  };
+  // 1.2.18 — handlers for Connectoren/Skills/Runtime/Dein Team removed; those
+  // surfaces moved into Settings (the old top-level routes still resolve via
+  // redirects in Router.tsx for bookmarks/deep-links).
 
   const handleQuickThemeToggle = () => {
     void setTheme(theme === 'dark' ? 'light' : 'dark');
@@ -267,34 +220,7 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleCommandCenterClick}
             />
-            <SiderConnectorCatalogEntry
-              isMobile={isMobile}
-              isActive={pathname === '/connectors'}
-              collapsed={collapsed}
-              siderTooltipProps={siderTooltipProps}
-              onClick={handleConnectorCatalogClick}
-            />
-            <SiderSkillLibraryEntry
-              isMobile={isMobile}
-              isActive={pathname === '/skills'}
-              collapsed={collapsed}
-              siderTooltipProps={siderTooltipProps}
-              onClick={handleSkillLibraryClick}
-            />
-            <SiderLocalRuntimeEntry
-              isMobile={isMobile}
-              isActive={pathname === '/runtime'}
-              collapsed={collapsed}
-              siderTooltipProps={siderTooltipProps}
-              onClick={handleLocalRuntimeClick}
-            />
-            <SiderDeinTeamEntry
-              isMobile={isMobile}
-              isActive={pathname === '/team-roster'}
-              collapsed={collapsed}
-              siderTooltipProps={siderTooltipProps}
-              onClick={handleDeinTeamClick}
-            />
+            {/* 1.2.18 — Connectoren / Skills / Runtime / Dein Team entries moved into Settings. */}
             {/* Divider between fixed top nav and scrollable content area */}
             <div
               className={classNames(

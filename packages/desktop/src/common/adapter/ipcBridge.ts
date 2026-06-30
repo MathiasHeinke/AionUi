@@ -1102,6 +1102,14 @@ export interface ICommandEveEntitlementStatusResult {
    */
   trial_ends_at?: string | null;
   seat_count?: number;
+  /**
+   * OFFLINE UI HINT (1.2.18) — NOT a binding gate. Derived in the main process
+   * from the verified, time-valid payload (`entitled` && `trial_ends_at == null`)
+   * so the renderer can gate paid-only affordances (BYOK / add-own-model) on ONE
+   * honest boolean without making an entitlement decision itself. Present only
+   * when true; absent ⇒ false. The server remains binding for money-metered paths.
+   */
+  has_paid_seat?: boolean;
 }
 
 export interface ICommandEveRegistrationRecord {

@@ -44,6 +44,7 @@ import {
   EVE_INFERENCE_TIERS,
   eveTierValue,
   isByokDisabledForEntitlement,
+  isModelByokAllowed,
   isEveInferenceSelection,
   isEveTierSelectable,
   isTrialingEntitlement,
@@ -186,6 +187,28 @@ describe('eveInferenceCore — free-tier greying (requirement 1)', () => {
     expect(isByokDisabledForEntitlement(PAID_NULL)).toBe(false);
     expect(isByokDisabledForEntitlement(PAID_ABSENT)).toBe(false);
     expect(isByokDisabledForEntitlement(null)).toBe(false);
+  });
+});
+
+describe('eveInferenceCore — paid-seat BYOK gate (1.2.18 Req 4)', () => {
+  // The paid-seat gate is STRICTER than the trial-only check: it unlocks ONLY on
+  // the explicit, main-process-derived has_paid_seat flag (entitled && non-trial).
+  const PAID_SEAT = { trial_ends_at: null, has_paid_seat: true } as const;
+
+  it('unlocks add-own-model/API-key ONLY for an explicit paid seat', () => {
+    expect(isModelByokAllowed(PAID_SEAT)).toBe(true);
+  });
+
+  it('stays locked for trial, free (no flag), absent, and null/undefined', () => {
+    // Trial: never paid, even if a stale flag were present (both conditions required).
+    expect(isModelByokAllowed({ trial_ends_at: '2026-07-01T00:00:00.000Z', has_paid_seat: true })).toBe(false);
+    expect(isModelByokAllowed(TRIAL)).toBe(false);
+    // Non-trial but WITHOUT the explicit paid flag ⇒ free ⇒ locked (the new
+    // behavior vs the trial-only check, which would have wrongly unlocked these).
+    expect(isModelByokAllowed(PAID_NULL)).toBe(false);
+    expect(isModelByokAllowed(PAID_ABSENT)).toBe(false);
+    expect(isModelByokAllowed(null)).toBe(false);
+    expect(isModelByokAllowed(undefined)).toBe(false);
   });
 });
 

@@ -349,9 +349,15 @@ export function resolveCommandEveWarmupLane(persisted: string | null | undefined
  * Minimal entitlement view the picker needs. `trial_ends_at` present + non-null
  * ⇒ this is a TRIAL/free entitlement (entitlementCore CEVE.v2 contract); a paid
  * (non-trial) license keeps it null/absent.
+ *
+ * `has_paid_seat` (1.2.18) is the explicit, main-process-derived paid-tier hint
+ * (see entitlementCore: `entitled && trial_ends_at == null`). It is the single
+ * authoritative discriminant for paid-only UI affordances (BYOK / add-own-model);
+ * absent/false ⇒ free tier. Carried here so the pure gate helpers can consume it.
  */
 export interface EveEntitlementView {
   trial_ends_at?: string | null;
+  has_paid_seat?: boolean;
 }
 
 /**
@@ -368,6 +374,21 @@ export function isTrialingEntitlement(entitlement: EveEntitlementView | null | u
 /** True iff BYOK (bring-your-own-key) must be greyed out for this entitlement. */
 export function isByokDisabledForEntitlement(entitlement: EveEntitlementView | null | undefined): boolean {
   return isTrialingEntitlement(entitlement);
+}
+
+/**
+ * True iff the user MAY add their own model / API key (BYOK) — the paid-seat gate
+ * (1.2.18, founder Req 4). Authoritative discriminant is the main-process-derived
+ * `has_paid_seat` (entitled && non-trial). A trialing OR free OR unknown
+ * entitlement returns false. This is the inverse the Settings→Modell "Add
+ * Platform" / api_key affordances gate on (it SUPERSEDES the trial-only
+ * `isByokDisabledForEntitlement`, which locked trial but left a hypothetical
+ * free-perpetual tier unlocked). Defense-in-depth: even if a caller passes a
+ * stale view, a present-and-true `has_paid_seat` is required AND it must not be
+ * trialing — both conditions, so a malformed view can never wrongly unlock.
+ */
+export function isModelByokAllowed(entitlement: EveEntitlementView | null | undefined): boolean {
+  return entitlement?.has_paid_seat === true && !isTrialingEntitlement(entitlement);
 }
 
 /**

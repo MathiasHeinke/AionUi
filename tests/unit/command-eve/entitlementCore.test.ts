@@ -610,6 +610,9 @@ describe('activateEntitlement + getEntitlementStatus — CEVE.v2', () => {
     expect(entitled.state).toBe('entitled');
     expect(entitled.trial_ends_at).toBe('2026-06-15T00:00:00.000Z');
     expect(entitled.seat_count).toBe(4);
+    // 1.2.18 paid-seat hint: a TRIAL is NOT a paid seat ⇒ has_paid_seat absent/false
+    // (the BYOK gate stays locked while trialing).
+    expect(entitled.has_paid_seat).toBeFalsy();
 
     // Later launch past trial end → re-locks to expired (gated by trial_ends_at,
     // not expires_at which is null here).
@@ -648,6 +651,10 @@ describe('activateEntitlement + getEntitlementStatus — CEVE.v2', () => {
     expect(status.seat_count).toBe(5);
     // seat_count is never a blocking factor offline.
     expect(status.ok).toBe(true);
+    // 1.2.18 paid-seat hint: a verified PAID license (trial_ends_at null) ⇒
+    // has_paid_seat true (unlocks the BYOK / add-own-model affordance). Derived
+    // from the verified payload, NOT a separate claim.
+    expect(status.has_paid_seat).toBe(true);
   });
 });
 

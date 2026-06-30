@@ -53,6 +53,17 @@
   "customCssDesc": "Gib hier benutzerdefinierte CSS-Stile ein, um das Erscheinungsbild der Oberfläche anzupassen. Das System fügt automatisch !important hinzu, um höchste Priorität sicherzustellen. Änderungen werden sofort wirksam.",
   "assistants": "Assistenten",
   "agents": "Agenten",
+  "eveRuntime": "EVE-Runtime",
+  "runtime": "Runtime",
+  "connectors": "Connectoren",
+  "byokPaidSeatOnly": "Eigene Modelle/API-Keys nur im Pro-Tarif (99€/Monat)",
+  "skillState": {
+    "all": "Alle",
+    "executable": "Ausführbar",
+    "promptLabel": "Prompt-Label",
+    "gated": "Gesperrt",
+    "disabled": "Deaktiviert"
+  },
   "assistantsList": "Verfügbare Assistenten",
   "assistantsEmpty": "Keine Assistenten konfiguriert.",
   "pdfToPptAssistantName": "PDF zu PPT",

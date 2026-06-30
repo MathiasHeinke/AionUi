@@ -70,6 +70,9 @@ import {
   COMMAND_EVE_ONBOARDING_STATUS_BRIDGE_VERSION,
 } from '@process/commandEve/onboardingStatusCore';
 import { buildSkillLibrary } from '@process/commandEve/skillLibraryCore';
+import { readSkillContent } from '@process/commandEve/skillContentCore';
+import { listLearnedSkills } from '@process/commandEve/learnedSkillsCore';
+import { resolveCommandEveRuntimeBootstrapPaths } from '@process/commandEve/runtimeBootstrapCore';
 import { buildCommandEveStatusSurface } from '@process/commandEve/statusSurfaceCore';
 import { clearLicenseWire, hasLicenseWire, readLicenseWire, storeLicenseWire } from '@/common/config/licenseWireAtRest';
 import {
@@ -80,7 +83,7 @@ import {
 } from '@/common/config/eveInferenceCore';
 import { getCommandEveLocalRuntimeProvider } from '@/common/config/commandEveShell';
 import { CREDITS_STATUS_FUNCTION_URL, type ClientSeedInput, type CreditsTier } from '@/common/config/creditsCore';
-import { ProcessConfig } from '@process/utils/initStorage';
+import { ProcessConfig, getSkillsDir, getCronSkillsDir } from '@process/utils/initStorage';
 import { getDataPath } from '@process/utils/utils';
 import { getActiveSeatId } from '@process/commandEve/seatContextCore';
 import { isSeatSwitchAuthorized, parseMySeats, resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
@@ -334,6 +337,54 @@ export function initCommandEveBridge(): void {
               generated_by: 'command-eve-skill-library-core',
             },
           },
+        };
+      }
+    });
+
+  // 1.2.18 Req 2 — read-only SKILL.md body for the unified Fähigkeiten surface
+  // (click-to-read). Reads ONLY the on-disk skill roots the desktop manages
+  // (user/custom, EVE-learned cron, managed strategy); traversal-guarded in the
+  // core. Pure backend-owned builtins are read by the renderer via the existing
+  // /api/skills/builtin-skill endpoint, never here.
+  bridge
+    .buildProvider('command-eve.skill-content')
+    .provider(async (request?: { skill_id?: string; skill_path?: string }) => {
+      try {
+        const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
+        const rootDirs = [getSkillsDir(), getCronSkillsDir(), paths.managedSkillsRoot];
+        const result = readSkillContent({
+          rootDirs,
+          skillPath: request?.skill_path,
+          skillName: request?.skill_id,
+        });
+        return {
+          success: result.ok,
+          msg: result.ok ? undefined : result.reason_code,
+          data: result,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          msg: error instanceof Error ? error.message : 'Command EVE skill-content bridge failed.',
+          data: { ok: false, read_only: true as const, reason_code: 'READ_FAILED' as const },
+        };
+      }
+    });
+
+  // 1.2.18 Req 2 — list EVE-learned skills ({cronSkillsDir}/{job_id}/SKILL.md) so
+  // the unified surface can show them read-only. Does NOT move the files (the cron
+  // runtime reads them in place); a pure scan + frontmatter parse.
+  bridge
+    .buildProvider('command-eve.learned-skills')
+    .provider(async () => {
+      try {
+        const cards = listLearnedSkills(getCronSkillsDir());
+        return { success: true, data: { ok: true as const, skills: cards } };
+      } catch (error) {
+        return {
+          success: false,
+          msg: error instanceof Error ? error.message : 'Command EVE learned-skills bridge failed.',
+          data: { ok: false as const, skills: [] },
         };
       }
     });

@@ -29,10 +29,13 @@ import { getSiderTooltipProps } from '@/renderer/utils/ui/siderTooltip';
 
 /** Builtin settings tab IDs in display order (must match router paths). */
 export const BUILTIN_TAB_IDS = [
-  'agent',
+  // 1.2.18 — 'agent' + 'assistants' merged into the single 'eveRuntime' tab; the
+  // formerly-main-sidebar 'runtime' + 'connectors' surfaces moved in here too.
   'model',
-  'assistants',
+  'eveRuntime',
   'capabilities',
+  'runtime',
+  'connectors',
   'appearance',
   'webui',
   'pet',
@@ -53,6 +56,9 @@ export const LEGACY_ANCHOR_REMAP: Record<string, string> = {
   'skills-hub': 'capabilities',
   tools: 'capabilities',
   display: 'appearance',
+  // 1.2.18 — Agenten + Assistenten consolidated into EVE-Runtime.
+  agent: 'eveRuntime',
+  assistants: 'eveRuntime',
 };
 
 /**
@@ -61,7 +67,8 @@ export const LEGACY_ANCHOR_REMAP: Record<string, string> = {
  * Extension tabs anchored between these builtins inherit the enclosing group visually.
  */
 const GROUP_HEADER_BEFORE: Record<string, string> = {
-  agent: 'settings.groupAiCore',
+  // 1.2.18 — AI-Core group now opens above EVE-Runtime (was 'agent').
+  eveRuntime: 'settings.groupAiCore',
   appearance: 'settings.groupApp',
   about: 'settings.groupAbout',
 };
@@ -91,17 +98,26 @@ const SettingsSider: React.FC<{ collapsed?: boolean; tooltipEnabled?: boolean }>
     // Build builtin items
     const builtinMap: Record<string, SiderItem> = {
       model: { id: 'model', label: t('settings.model'), icon: <LinkCloud />, path: 'model' },
-      assistants: {
-        id: 'assistants',
-        label: t('settings.assistants', { defaultValue: 'Assistants' }),
+      // 1.2.18 — merged Agenten + Assistenten + Dein Team. The operator is the
+      // conductor; EVE orchestrates. Backend multi-agent capability stays intact.
+      eveRuntime: {
+        id: 'eveRuntime',
+        label: t('settings.eveRuntime', { defaultValue: 'EVE-Runtime' }),
         icon: <Robot />,
-        path: 'assistants',
+        path: 'eve-runtime',
       },
-      agent: {
-        id: 'agent',
-        label: t('settings.agents', { defaultValue: 'Agents' }),
+      // Moved in from the main sidebar (declutter).
+      runtime: {
+        id: 'runtime',
+        label: t('settings.runtime', { defaultValue: 'Runtime' }),
         icon: <Speed />,
-        path: 'agent',
+        path: 'runtime',
+      },
+      connectors: {
+        id: 'connectors',
+        label: t('settings.connectors', { defaultValue: 'Connectoren' }),
+        icon: <Puzzle />,
+        path: 'connectors',
       },
       capabilities: {
         id: 'capabilities',

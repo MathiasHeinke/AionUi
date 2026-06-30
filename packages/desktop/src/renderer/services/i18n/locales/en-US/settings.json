@@ -53,6 +53,17 @@
   "customCssDesc": "Enter custom CSS styles here to modify the interface appearance. The system will automatically add !important to ensure highest priority. Changes will take effect immediately.",
   "assistants": "Assistants",
   "agents": "Agents",
+  "eveRuntime": "EVE-Runtime",
+  "runtime": "Runtime",
+  "connectors": "Connectors",
+  "byokPaidSeatOnly": "Custom models/API keys require the Pro plan (€99/month)",
+  "skillState": {
+    "all": "All",
+    "executable": "Executable",
+    "promptLabel": "Prompt label",
+    "gated": "Locked",
+    "disabled": "Disabled"
+  },
   "assistantsList": "Available assistants",
   "assistantsEmpty": "No assistants configured.",
   "pdfToPptAssistantName": "PDF to PPT",

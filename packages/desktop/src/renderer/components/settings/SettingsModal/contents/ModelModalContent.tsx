@@ -26,7 +26,7 @@ import { useProvidersQuery } from '@/renderer/hooks/agent/useModelProviderList';
 import { useSettingsViewMode } from '../settingsViewContext';
 import { consumePendingDeepLink } from '@/renderer/hooks/system/useDeepLink';
 import { useEntitlementGate } from '@/renderer/hooks/useEntitlementGate';
-import { isByokDisabledForEntitlement } from '@/common/config/eveInferenceCore';
+import { isModelByokAllowed } from '@/common/config/eveInferenceCore';
 import '../model-provider.css';
 
 /**
@@ -324,11 +324,14 @@ const ModelModalContent: React.FC = () => {
       });
   };
 
-  // BYOK (bring-your-own-key) gating: while the entitlement is trialing/free
-  // (entitlementCore CEVE.v2 trial_ends_at present), custom-provider add (the
-  // BYOK path) is greyed out — trial users use EVE Standard + local tiers only.
+  // BYOK (bring-your-own-key) gating (1.2.18 Req 4): adding an own model / API key
+  // (offline OR cloud — both flow through the "Add Platform" path) is unlocked
+  // ONLY for a PAID SEAT (Pro/CTO, 99€/Monat). Free AND trial entitlements are
+  // greyed out — they use EVE Standard + the local tiers. The discriminant is the
+  // main-process-derived has_paid_seat hint (entitled && non-trial); the server
+  // stays the binding gate for everything money-metered.
   const { status: entitlementStatus } = useEntitlementGate();
-  const byokDisabled = COMMAND_EVE_SHELL_ENABLED && isByokDisabledForEntitlement(entitlementStatus);
+  const byokDisabled = COMMAND_EVE_SHELL_ENABLED && !isModelByokAllowed(entitlementStatus);
 
   const [addPlatformModalCtrl, addPlatformModalContext] = AddPlatformModal.useModal({
     onSubmit(platform) {
@@ -384,7 +387,7 @@ const ModelModalContent: React.FC = () => {
               {t('settings.clearStatus')}
             </Button>
             <Tooltip
-              content={t('settings.byokPaidOnly', 'Eigener API-Key nur im Paid-Tarif verfügbar')}
+              content={t('settings.byokPaidSeatOnly', 'Eigene Modelle/API-Keys nur im Pro-Tarif (99€/Monat)')}
               disabled={!byokDisabled}
             >
               <Button
@@ -557,7 +560,7 @@ const ModelModalContent: React.FC = () => {
                             <span className='mx-6px'>|</span>
                             <span
                               className='cursor-pointer hover:text-t-primary transition-colors'
-                              onClick={() => editModalCtrl.open({ data: platform })}
+                              onClick={() => editModalCtrl.open({ data: platform, disabled: byokDisabled })}
                             >
                               {t('settings.apiKeyCount')}（{getApiKeyCount(platform.api_key)}）
                             </span>
@@ -592,7 +595,7 @@ const ModelModalContent: React.FC = () => {
                               size='mini'
                               className='model-provider-action-btn !w-28px !h-28px !min-w-28px text-t-secondary hover:text-t-primary'
                               icon={<Write size='14' />}
-                              onClick={() => editModalCtrl.open({ data: platform })}
+                              onClick={() => editModalCtrl.open({ data: platform, disabled: byokDisabled })}
                             />
                           </div>
                         </div>

@@ -37,7 +37,17 @@ type AssistantNavigationState = {
 };
 const OPEN_ASSISTANT_EDITOR_INTENT_KEY = 'guid.openAssistantEditorIntent';
 
-const AssistantSettings: React.FC = () => {
+/**
+ * AssistantSettingsBody — the wrapper-LESS body (list + drawer + modals).
+ *
+ * Extracted so it can be embedded inside the merged "EVE-Runtime" Settings page
+ * (Tab "Assistenten") WITHOUT the outer {@link SettingsPageWrapper}. All hooks
+ * (`useAssistantList`/`useAssistantEditor`/`useDetectedAgents`) + CRUD + the
+ * drawer/modal portals + the `useSearchParams`/route-state driven open-editor
+ * intent stay intact here; the route component {@link AssistantSettings} below
+ * just wraps this in {@link SettingsPageWrapper}.
+ */
+export const AssistantSettingsBody: React.FC = () => {
   const [message, messageContext] = Message.useMessage({ maxCount: 10 });
   const viewMode = useSettingsViewMode();
   const isPageMode = viewMode === 'page';
@@ -117,9 +127,8 @@ const AssistantSettings: React.FC = () => {
   }, [assistants, editor, navigationState]);
 
   return (
-    <SettingsPageWrapper>
-      <div className='flex flex-col h-full w-full'>
-        {messageContext}
+    <div className='flex flex-col h-full w-full'>
+      {messageContext}
         <AionScrollArea className='flex-1 min-h-0 pb-16px scrollbar-hide' disableOverflow={isPageMode}>
           <AssistantListPanel
             assistants={assistants}
@@ -193,9 +202,19 @@ const AssistantSettings: React.FC = () => {
             message={message}
           />
         </AionScrollArea>
-      </div>
-    </SettingsPageWrapper>
+    </div>
   );
 };
+
+/**
+ * AssistantSettings — the standalone Settings route component. Wraps
+ * {@link AssistantSettingsBody} in {@link SettingsPageWrapper} so the existing
+ * `/settings/assistants` route keeps its page chrome (scroll/padding/nav).
+ */
+const AssistantSettings: React.FC = () => (
+  <SettingsPageWrapper>
+    <AssistantSettingsBody />
+  </SettingsPageWrapper>
+);
 
 export default AssistantSettings;

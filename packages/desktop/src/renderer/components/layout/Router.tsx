@@ -8,8 +8,10 @@ import { isElectronDesktop } from '@renderer/utils/platform';
 import { TEAM_MODE_ENABLED } from '@/common/config/constants';
 const Conversation = React.lazy(() => import('@renderer/pages/conversation'));
 const Guid = React.lazy(() => import('@renderer/pages/guid'));
-const AgentSettings = React.lazy(() => import('@renderer/pages/settings/AgentSettings'));
-const AssistantSettings = React.lazy(() => import('@renderer/pages/settings/AssistantSettings'));
+// 1.2.18 — Agenten + Assistenten + Dein Team merged into the single EVE-Runtime
+// settings page. The old AgentSettings/AssistantSettings/DeinTeamPage routes now
+// redirect here (their components still exist; EVE-Runtime embeds their bodies).
+const EveRuntimeSettings = React.lazy(() => import('@renderer/pages/settings/EveRuntime/EveRuntimeSettings'));
 const CapabilitiesSettings = React.lazy(() => import('@renderer/pages/settings/CapabilitiesSettings'));
 const AppearanceSettings = React.lazy(() => import('@renderer/pages/settings/AppearanceSettings'));
 const ModeSettings = React.lazy(() => import('@renderer/pages/settings/ModeSettings'));
@@ -28,9 +30,7 @@ const TaskDetailPage = React.lazy(() => import('@renderer/pages/cron/ScheduledTa
 const TeamIndex = React.lazy(() => import('@renderer/pages/team'));
 const CommandCenterPage = React.lazy(() => import('@renderer/pages/commandCenter'));
 const ConnectorCatalogPage = React.lazy(() => import('@renderer/pages/connectorCatalog'));
-const SkillLibraryPage = React.lazy(() => import('@renderer/pages/skillLibrary'));
 const LocalRuntimePage = React.lazy(() => import('@renderer/pages/localRuntime'));
-const DeinTeamPage = React.lazy(() => import('@renderer/pages/deinTeam'));
 const RegistrationGatePage = React.lazy(() => import('@renderer/pages/registrationGate'));
 const DayZeroOnboardingHost = React.lazy(() => import('@renderer/components/billing/DayZeroOnboardingHost'));
 
@@ -121,9 +121,14 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
             element={TEAM_MODE_ENABLED ? withRouteFallback(TeamIndex) : <Navigate to='/guid' replace />}
           />
           <Route path='/settings/model' element={withRouteFallback(ModeSettings)} />
-          <Route path='/settings/assistants' element={withRouteFallback(AssistantSettings)} />
-          <Route path='/settings/agent' element={withRouteFallback(AgentSettings)} />
+          <Route path='/settings/eve-runtime' element={withRouteFallback(EveRuntimeSettings)} />
+          {/* 1.2.18 — Agenten + Assistenten merged into EVE-Runtime; redirect old deep-links/bookmarks. */}
+          <Route path='/settings/assistants' element={<Navigate to='/settings/eve-runtime' replace />} />
+          <Route path='/settings/agent' element={<Navigate to='/settings/eve-runtime' replace />} />
           <Route path='/settings/capabilities' element={withRouteFallback(CapabilitiesSettings)} />
+          {/* 1.2.18 — Connectoren + Runtime moved from the main sidebar into Settings. */}
+          <Route path='/settings/connectors' element={withRouteFallback(ConnectorCatalogPage)} />
+          <Route path='/settings/runtime' element={withRouteFallback(LocalRuntimePage)} />
           {/* Legacy routes — redirect to the merged /settings/capabilities page */}
           <Route path='/settings/skills-hub' element={<Navigate to='/settings/capabilities?tab=skills' replace />} />
           <Route path='/settings/tools' element={<Navigate to='/settings/capabilities?tab=tools' replace />} />
@@ -143,10 +148,11 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           <Route path='/scheduled' element={withRouteFallback(ScheduledTasksPage)} />
           <Route path='/scheduled/:job_id' element={withRouteFallback(TaskDetailPage)} />
           <Route path='/command-center' element={withRouteFallback(CommandCenterPage)} />
-          <Route path='/connectors' element={withRouteFallback(ConnectorCatalogPage)} />
-          <Route path='/skills' element={withRouteFallback(SkillLibraryPage)} />
-          <Route path='/runtime' element={withRouteFallback(LocalRuntimePage)} />
-          <Route path='/team-roster' element={withRouteFallback(DeinTeamPage)} />
+          {/* 1.2.18 — old standalone routes now redirect into Settings (bookmark-safe). */}
+          <Route path='/connectors' element={<Navigate to='/settings/connectors' replace />} />
+          <Route path='/skills' element={<Navigate to='/settings/capabilities?tab=skills' replace />} />
+          <Route path='/runtime' element={<Navigate to='/settings/runtime' replace />} />
+          <Route path='/team-roster' element={<Navigate to='/settings/eve-runtime' replace />} />
         </Route>
         <Route path='*' element={<Navigate to={isElectronDesktop() || status === 'authenticated' ? '/guid' : '/login'} replace />} />
       </Routes>

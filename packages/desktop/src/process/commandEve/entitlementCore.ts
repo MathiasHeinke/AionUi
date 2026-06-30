@@ -537,6 +537,22 @@ export interface CommandEveEntitlementStatusResult {
    */
   trial_ends_at?: string | null;
   seat_count?: number;
+  /**
+   * OFFLINE UI HINT (1.2.18) — NOT a binding gate. A single honest boolean the
+   * renderer can gate paid-only affordances on (e.g. BYOK / add-own-model). It is
+   * DERIVED from the SIGNED, time-valid payload, not a separate claim:
+   *   has_paid_seat = (state === 'entitled') && (trial_ends_at == null)
+   * Rationale (real mint model, verified 2026-06-30): the only `entitled` states a
+   * self-serve user can be in are TRIAL (pilot + trial_ends_at, status 'trialing')
+   * and PAID (standard + active, trial_ends_at null) — there is NO free-perpetual
+   * self-serve tier (post-trial ⇒ 'expired' ⇒ not entitled ⇒ curtain). So a
+   * non-trial `entitled` license reliably means real (paid OR founder-comped)
+   * access. Present ONLY when true; absent ⇒ treat as false. The SERVER stays the
+   * binding gate for everything money-metered (inference credits, seat billing);
+   * this flag only governs the UI affordance for BYOK, which is not server-
+   * enforceable (a user's own key bypasses EVE inference entirely).
+   */
+  has_paid_seat?: boolean;
 }
 
 export interface CommandEveRegisterResult {
@@ -1103,6 +1119,11 @@ export function getEntitlementStatus(options: CommandEveEntitlementOptions): Com
       state: entitlement ? 'entitled' : registration ? 'registered_unlicensed' : 'unregistered',
       ...(registration ? { tenant_id: registration.tenant_id } : {}),
       ...(entitlement ? { edition: entitlement.edition, expires_at: entitlement.expires_at } : {}),
+      // Parity with the enforced path so a dev running flag-OFF with a cached paid
+      // record is not surprised by a locked BYOK affordance. Same derivation
+      // (non-trial entitlement ⇒ paid), but over the cached record (gate not
+      // enforced here, so there is no verified wire to derive from).
+      ...(entitlement && entitlement.trial_ends_at == null ? { has_paid_seat: true } : {}),
     };
   }
 
@@ -1242,6 +1263,13 @@ export function getEntitlementStatus(options: CommandEveEntitlementOptions): Com
     ...(payload.seat_count !== undefined ? { seat_count: payload.seat_count } : {}),
   };
 
+  // Paid-seat UI hint (1.2.18), DERIVED from the verified payload: we are on the
+  // 'entitled' path (wire cryptographically verified + time-valid), so the only
+  // discriminant left is trial-vs-paid. trial_ends_at == null (null on a v2 paid
+  // license, undefined on a v1 license) ⇒ paid/comped real access ⇒ true. A v2
+  // TRIAL carries a non-null trial_ends_at ⇒ false (omitted). See the field doc.
+  const hasPaidSeat = payload.trial_ends_at == null;
+
   return {
     version: COMMAND_EVE_ENTITLEMENT_BRIDGE_VERSION,
     ok: true,
@@ -1251,5 +1279,6 @@ export function getEntitlementStatus(options: CommandEveEntitlementOptions): Com
     edition: payload.edition,
     expires_at: payload.expires_at,
     ...v2Surface,
+    ...(hasPaidSeat ? { has_paid_seat: true } : {}),
   };
 }

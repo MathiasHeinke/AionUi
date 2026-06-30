@@ -20,7 +20,7 @@ const ProviderLogo: React.FC<{ logo: string | null; name: string; size?: number 
   return <LinkCloud theme='outline' size={size} className='text-t-secondary flex shrink-0' />;
 };
 
-const EditModeModal = ModalHOC<{ data?: IProvider; onChange(data: IProvider): void }>(
+const EditModeModal = ModalHOC<{ data?: IProvider; onChange(data: IProvider): void; disabled?: boolean }>(
   ({ modalProps, modalCtrl, ...props }) => {
     const { t } = useTranslation();
     const { data } = props;
@@ -81,6 +81,14 @@ const EditModeModal = ModalHOC<{ data?: IProvider; onChange(data: IProvider): vo
           overflow: 'auto',
         }}
         onOk={async () => {
+          // 1.2.18 Req 4 — paid-seat gate: free/trial may not edit BYOK credentials
+          // on an existing provider either. Block the save (defense-in-depth behind
+          // the disabled api_key field below; the "Add Platform" button is the
+          // primary gate in ModelModalContent).
+          if (props.disabled) {
+            modalCtrl.close();
+            return;
+          }
           try {
             const values = await form.validate();
             const updatedProvider: IProvider = {
@@ -160,9 +168,15 @@ const EditModeModal = ModalHOC<{ data?: IProvider; onChange(data: IProvider): vo
               required={!isBedrock}
               rules={[{ required: !isBedrock }]}
               field={'api_key'}
-              extra={<div className='text-11px text-t-secondary mt-2'>💡 {t('settings.multiApiKeyEditTip')}</div>}
+              extra={
+                <div className='text-11px text-t-secondary mt-2'>
+                  {props.disabled
+                    ? `🔒 ${t('settings.byokPaidSeatOnly', 'Eigene Modelle/API-Keys nur im Pro-Tarif (99€/Monat)')}`
+                    : `💡 ${t('settings.multiApiKeyEditTip')}`}
+                </div>
+              }
             >
-              <Input.TextArea rows={4} placeholder={t('settings.apiKeyPlaceholder')} />
+              <Input.TextArea rows={4} placeholder={t('settings.apiKeyPlaceholder')} disabled={props.disabled} />
             </Form.Item>
 
             {/* AWS Bedrock Authentication Method */}
