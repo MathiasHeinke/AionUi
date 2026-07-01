@@ -45,6 +45,21 @@ const SpeechRetryIcon = () => (
 
 const SPEECH_TO_TEXT_CONFIG_CHANGED_EVENT = 'aionui:speech-to-text-config-changed';
 
+/**
+ * S9 #4 store-split fix — the mic CONSUMER-DEFAULT. The first-run seed used to
+ * write `{enabled:true}` to the main-process ProcessConfig store, but this
+ * consumer reads the BACKEND store (configService), so the seed was never visible
+ * here and the mic button stayed hidden on a virgin install ("audio geht nicht").
+ * The product is German + local-first, so an ABSENT config (undefined / no
+ * `enabled` field) now means the seed intention "default ON". Only an EXPLICIT
+ * `enabled === false` (a real user opt-out persisted to the backend) hides the
+ * button. This pure predicate is the single source of that default (the dead JSON
+ * seed was deleted from initStorage).
+ */
+export function resolveSpeechInputEnabledDefault(config: { enabled?: boolean } | null | undefined): boolean {
+  return config?.enabled !== false;
+}
+
 const getAvailabilityMessageKey = (availability: SpeechInputAvailability) => {
   switch (availability) {
     case 'file':
@@ -144,7 +159,10 @@ const SpeechInputButton: React.FC<SpeechInputButtonProps> = ({ disabled, locale,
         if (cancelled) {
           return;
         }
-        setIsSpeechToTextEnabled(Boolean(config?.enabled));
+        // S9 #4 store-split fix — CONSUMER-DEFAULT flip. See
+        // resolveSpeechInputEnabledDefault: absent config ⇒ ON (the seed
+        // intention); explicit `enabled:false` ⇒ hidden.
+        setIsSpeechToTextEnabled(resolveSpeechInputEnabledDefault(config));
       } catch {
         if (cancelled) {
           return;

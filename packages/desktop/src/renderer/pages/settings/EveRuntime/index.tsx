@@ -68,7 +68,9 @@ const EveRuntime: React.FC = () => {
           key='orchestration'
           title={t('eveRuntime.tab.orchestration', { defaultValue: 'Orchestrierung' })}
         >
-          {/* Page chrome reused from pages/deinTeam/index.tsx (header + section card). */}
+          {/* Header + section-card chrome for the curated Dein-Team panel (the old
+              standalone pages/deinTeam route was deleted in S9 cleanup; the panel
+              lives here under EveRuntime settings now). */}
           <div className={classNames('flex flex-col gap-18px', isMobile ? 'pt-2' : 'pt-4')}>
             <header className='min-w-0'>
               <h2 className='m-0 text-18px font-700 leading-24px text-t-primary'>

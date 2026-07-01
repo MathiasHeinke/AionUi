@@ -29,6 +29,7 @@ import './process/utils/configureConsoleLog';
 import { app, BrowserWindow, ipcMain, nativeImage, powerMonitor } from 'electron';
 import fixPath from 'fix-path';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { initMainAdapterWithWindow } from './common/adapter/main';
 import { ipcBridge } from './common';
@@ -47,6 +48,13 @@ import {
   readInferenceSelectionFromBackend,
   resolveEveCloudRouteFromBackend,
 } from './process/commandEve/inferenceSelectionBackendRead';
+import { readCommandEveSettingsFromBackend } from './process/commandEve/commandEveBackendSettingsRead';
+import { createTeamWorkerStatusResolver } from './process/commandEve/teamWorkerStatusResolverCore';
+import {
+  buildCompanyOsRootCandidates,
+  COMPANY_OS_ROOT_MARKER,
+  resolveCompanyOsRoot,
+} from './process/commandEve/companyOsRootResolveCore';
 import { getDataPath } from '@process/utils/utils';
 import { registerWindowMaximizeListeners } from '@process/bridge';
 import { BackendLifecycleManager } from '@aionui/web-host';
@@ -434,25 +442,73 @@ function buildCommandEveShimRoutingResolver(): () => Promise<CommandEveEveCloudR
 }
 
 /**
- * Build the "Dein Team" worker-status resolver passed to the Ollama OpenAI shim
- * (DUX-4). The resolver runs PER request (sync) so it always reflects the live
- * pause/throttle/fire state the panel persists to `commandEve.teamWorkerStatus`.
- * The shim uses it to refuse dispatching a paused/off delegated worker.
+ * S10 — set `COMMAND_EVE_COMPANY_OS_ROOT` in the main-process env at startup so
+ * the command-center / status-surface cores can find the Company.OS dev-monorepo
+ * CLIs they invoke — BUT ONLY when a plausible checkout actually exists. On an
+ * end-user machine there is no Company.OS checkout (the scripts are a separate,
+ * un-bundled monorepo), so we leave the env UNSET and the cores fail-closed with
+ * their existing clean `COMPANY_OS_ROOT_MISSING` — we NEVER invent a path.
  *
- * Fail-soft: any read error returns `undefined`, which the shim treats as "no
- * status map" ⇒ every worker active ⇒ no gating (never blocks a call on a read
- * error). Only a positively-known paused/off roster worker is ever blocked.
+ * MUST run BEFORE initializeProcess() (which registers the bridge providers that
+ * invoke those cores). Idempotent + fail-soft: any error is logged and swallowed.
+ * The resolution/marker logic lives in the pure, unit-tested
+ * `companyOsRootResolveCore`; here we only wire the real fs probe + candidates and
+ * perform the single env mutation for a `detected` root.
  */
-function buildCommandEveShimTeamStatusResolver(): () => EveTeamWorkerStatusMap | undefined {
-  return () => {
-    try {
-      const statuses = ProcessConfig.getSync('commandEve.teamWorkerStatus');
-      return statuses && typeof statuses === 'object' ? (statuses as EveTeamWorkerStatusMap) : undefined;
-    } catch (error) {
-      console.warn('[Command EVE] EVE shim team-status resolver failed; no gating:', error);
-      return undefined;
+function setCommandEveCompanyOsRootEnv(): void {
+  try {
+    const candidates = buildCompanyOsRootCandidates(app.getAppPath(), process.cwd(), os.homedir());
+    const resolution = resolveCompanyOsRoot({
+      env: process.env,
+      candidates,
+      markerExists: (root) => {
+        try {
+          return fs.existsSync(path.join(root, COMPANY_OS_ROOT_MARKER));
+        } catch {
+          return false;
+        }
+      },
+    });
+    if (resolution.action === 'respect-existing') {
+      console.info(
+        `[Command EVE] COMPANY_OS_ROOT already set via ${resolution.envKey} (respecting): ${resolution.root}`
+      );
+      return;
     }
-  };
+    if (resolution.action === 'detected') {
+      process.env.COMMAND_EVE_COMPANY_OS_ROOT = resolution.root;
+      console.info(`[Command EVE] COMPANY_OS_ROOT auto-detected (dev checkout): ${resolution.root}`);
+      return;
+    }
+    // action === 'unset': no checkout found. Leave the env unset — the
+    // command-center / status-surface cores fail-closed cleanly (this is the
+    // correct, honest end-user behavior — the operator SKU never ships the CLIs).
+    console.info(
+      '[Command EVE] No Company.OS checkout found; leaving COMPANY_OS_ROOT unset ' +
+        '(command-center/status-surface fail-closed as designed).'
+    );
+  } catch (error) {
+    console.warn('[Command EVE] COMPANY_OS_ROOT resolution failed (non-blocking):', error);
+  }
+}
+
+/**
+ * Build the "Dein Team" worker-status resolver passed to the Ollama OpenAI shim
+ * (DUX-4 / S9 #1 — THE MONEY BUG). The resolver runs PER dispatch evaluation and
+ * reads the live pause/throttle/fire state FRESH from the BACKEND settings store
+ * — the store the panel actually writes to (`commandEve.teamWorkerStatus` via
+ * `/api/settings/client`) — so a fire is effective on the very next dispatch. The
+ * shim awaits it and refuses to dispatch a paused/off worker.
+ *
+ * The fresh-read + last-known-good fail-direction lives in the pure, injectable
+ * `createTeamWorkerStatusResolver` core (unit-tested end-to-end against a mocked
+ * backend). Here we only wire the REAL backend batch reader + a console.warn
+ * side-channel. See teamWorkerStatusResolverCore.ts for the full rationale.
+ */
+function buildCommandEveShimTeamStatusResolver(): () => Promise<EveTeamWorkerStatusMap | undefined> {
+  return createTeamWorkerStatusResolver(readCommandEveSettingsFromBackend, (error) =>
+    console.warn('[Command EVE] EVE shim team-status backend read failed; using last-known-good roster:', error)
+  );
 }
 
 /**
@@ -480,8 +536,19 @@ async function resolveCommandEveWorkerRuntimeInputs(): Promise<{
   claudeDelegate: ReturnType<typeof resolveAssignedClaudeDelegate>;
 }> {
   try {
-    const assignmentsRaw = await ProcessConfig.get('commandEve.workerAssignments').catch((): undefined => undefined);
-    const statusesRaw = await ProcessConfig.get('commandEve.teamWorkerStatus').catch((): undefined => undefined);
+    // S9 #3 store-split fix: worker assignments + team status are RENDERER-written
+    // keys — the panel/keystone UI persists them to the BACKEND settings store
+    // (`/api/settings/client`), NOT the main-process ProcessConfig JSON this used
+    // to read (which never held them ⇒ the SOUL.md delegate directive never
+    // rendered; the comment above literally named it "the wiring the audit found
+    // MISSING"). Read BOTH keys in ONE backend GET (batch reader). Fail-soft:
+    // absent/unreadable ⇒ undefined ⇒ no directive (today's behavior).
+    const bag = await readCommandEveSettingsFromBackend([
+      'commandEve.workerAssignments',
+      'commandEve.teamWorkerStatus',
+    ]);
+    const assignmentsRaw = bag['commandEve.workerAssignments'];
+    const statusesRaw = bag['commandEve.teamWorkerStatus'];
     const assignments =
       assignmentsRaw && typeof assignmentsRaw === 'object'
         ? (Object.fromEntries(
@@ -562,7 +629,16 @@ async function runCommandEveLocalModelWarmup(
     return skipped;
   }
 
-  const enabled = (await ProcessConfig.get('commandEve.modelWarmupEnabled').catch((): undefined => undefined)) ?? true;
+  // S9 #6 store-split fix: `modelWarmupEnabled` is a RENDERER-written key (the
+  // settings toggle persists it to the BACKEND store, not the main-process
+  // ProcessConfig this used to read). Read it from the backend so the user's
+  // opt-out is actually honored. Fail-direction unchanged: absent OR unreadable ⇒
+  // `?? true` (warm-up ON by default) — the reader THROWS on a backend error, so
+  // we fail-soft to an empty bag here to preserve the old default-on behavior.
+  const warmupBag = await readCommandEveSettingsFromBackend(['commandEve.modelWarmupEnabled']).catch(
+    (): Record<string, unknown> => ({})
+  );
+  const enabled = (warmupBag['commandEve.modelWarmupEnabled'] as boolean | undefined) ?? true;
   if (!enabled) {
     console.info('[Command EVE] Local model warm-up skipped by user preference.');
     const skipped: CommandEveModelWarmupReceipt = {
@@ -663,6 +739,14 @@ async function getCommandEveRuntimeStatusPayload(): Promise<CommandEveRuntimeSta
   const egressBoundaryFile = commandEveEgressBoundaryReceiptPath(paths.runtimeRoot);
   const egressBoundary = readJsonFile<Record<string, unknown>>(egressBoundaryFile);
   const modelWarmup = readJsonFile<CommandEveModelWarmupReceipt>(paths.modelWarmupReceiptPath);
+  // S9 #8 (DEFER): `commandEve.executionMode` has NO renderer writer today — the
+  // ProcessConfig read below therefore always resolves to the fixed default
+  // 'observed' (normalizeCommandEveExecutionMode). That is intentional for this
+  // slice: the writer is an autonomy regler (observed/delegated/autonomous) —
+  // effectively the HG-ladder as UI — and is a deliberate open PRODUCT decision
+  // for the Founder, NOT a store-split bug to silently wire tonight. Tracked as
+  // sweep #8 for the 1.3 plan. Do NOT convert this to the backend batch reader
+  // until the writer + its gating semantics are decided.
   const executionMode = normalizeCommandEveExecutionMode(
     await ProcessConfig.get('commandEve.executionMode').catch((): undefined => undefined)
   );
@@ -857,6 +941,11 @@ function registerCommandEveRuntimeBridge(): void {
         return { success: false, msg: 'Invalid or missing Command EVE gate action.' };
       }
       const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
+      // S9 #8 (DEFER): no renderer writer for `commandEve.executionMode` yet, so
+      // this ProcessConfig read resolves to the fixed default 'observed'. The
+      // writer (observed/delegated/autonomous autonomy regler = the HG-ladder as
+      // UI) is a deliberate open Founder product decision, NOT a store-split bug.
+      // Keep on ProcessConfig until the writer is decided (sweep #8, 1.3 plan).
       const mode = await ProcessConfig.get('commandEve.executionMode').catch((): undefined => undefined);
       const decision = evaluateCommandEveGateDecision({ mode, action: action as CommandEveGateAction });
       appendCommandEveGateDecision(commandEveGateAuditPath(paths.runtimeRoot), decision);
@@ -1208,6 +1297,13 @@ const handleAppReady = async (): Promise<void> => {
   const mark = (label: string) => console.log(`[CommandEVE:ready] ${label} +${Math.round(performance.now() - t0)}ms`);
   mark('start');
 
+  // S10: resolve + set COMMAND_EVE_COMPANY_OS_ROOT BEFORE initializeProcess()
+  // registers the bridge providers that read it (command-center / status-surface).
+  // Honest: sets it only when a real Company.OS checkout is detectable; otherwise
+  // leaves it unset so those cores fail-closed cleanly on end-user installs.
+  setCommandEveCompanyOsRootEnv();
+  mark('companyOsRootEnv');
+
   if (!app.isPackaged) {
     try {
       const { default: installExtension, REACT_DEVELOPER_TOOLS } = await import('electron-devtools-installer');
@@ -1284,7 +1380,16 @@ const handleAppReady = async (): Promise<void> => {
     // switch re-spawn. If a boot-time seat-restore is ever added, it MUST call
     // setActiveSeatId + setActiveSeatLabel BEFORE this bake.
     prepareCommandEveRuntimeProcessEnv(getDataPath());
-    const localModelTierId = await ProcessConfig.get('commandEve.localModelTierId').catch((): undefined => undefined);
+    // S9 #5 store-split fix: `localModelTierId` is a RENDERER-written key (the
+    // local-model tier picker persists it to the BACKEND store, not the
+    // main-process ProcessConfig this used to read). Read it from the backend so
+    // the picked tier actually reaches the bootstrap env. Fail-direction
+    // unchanged: absent OR unreadable ⇒ undefined ⇒ bootstrap's own tier default
+    // (the reader THROWS on a backend error, so fail-soft to an empty bag here).
+    const localModelTierBag = await readCommandEveSettingsFromBackend(['commandEve.localModelTierId']).catch(
+      (): Record<string, unknown> => ({})
+    );
+    const localModelTierId = localModelTierBag['commandEve.localModelTierId'] as string | undefined;
     // CLI-Keystone runtime glue: resolve codexRuntime ('' — Codex deferred) + the
     // status-allowed Claude ACP delegate from commandEve.workerAssignments BEFORE the
     // bootstrap so SOUL.md carries the live delegate directive (the keystone fires).

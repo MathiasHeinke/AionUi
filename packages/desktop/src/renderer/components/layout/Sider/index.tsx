@@ -18,9 +18,10 @@ import {
 } from './SiderNav';
 // 1.2.18 Req 1 — Connectoren / Skills / Runtime / Dein Team moved OUT of the main
 // sidebar INTO Settings (declutter; the operator is the conductor). Their entries
-// (SiderConnectorCatalogEntry / SiderSkillLibraryEntry / SiderLocalRuntimeEntry /
-// SiderDeinTeamEntry) stay exported from ./SiderNav but are no longer rendered
-// here; the pages live under /settings/* now (see SettingsSider + Router).
+// (SiderConnectorCatalogEntry / SiderSkillLibraryEntry / SiderLocalRuntimeEntry)
+// stay exported from ./SiderNav but are no longer rendered here; the pages live
+// under /settings/* now (see SettingsSider + Router). The old SiderDeinTeamEntry
+// was deleted (S9 cleanup) — the Dein-Team panel lives on via EveRuntime settings.
 import SiderFooter from './SiderFooter';
 import CronJobSiderSection from './CronJobSiderSection';
 import TeamSiderSection from './TeamSiderSection';

@@ -9,7 +9,6 @@ import fs from 'fs/promises';
 import path from 'path';
 import { getPlatformServices } from '@/common/platform';
 import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
-import { readGroqApiKeyFromHermesEnv } from '@/process/commandEve/localSttCore';
 import { application } from '@/common/adapter/ipcBridge';
 import type { TMessage } from '@/common/chat/chatLib';
 import type {
@@ -37,7 +36,6 @@ import {
 } from '../resources/builtinMcp/constants';
 import { encryptImageGenApiKeyAtRest } from '@/common/config/imageGenApiKeyAtRest';
 import { IMAGE_GEN_ENV_KEYS } from '@/common/config/imageGenerationMcpEnv';
-import type { SpeechToTextConfig } from '@/common/types/provider/speech';
 // Platform and architecture types (moved from deleted updateConfig)
 type PlatformType = 'win32' | 'darwin' | 'linux';
 type ArchitectureType = 'x64' | 'arm64' | 'ia32' | 'arm';
@@ -653,52 +651,11 @@ const ensureBuiltinMcpServers = async (): Promise<void> => {
   }
 };
 
-/**
- * First-run seed for the on-device speech-to-text lane (Command EVE shell only).
- *
- * The mic button (SpeechInputButton) renders ONLY when `tools.speechToText.enabled`
- * is truthy, and the renderer routing (SpeechToTextService) sends audio to the
- * keyless on-device faster-whisper lane when `provider` is unset or 'local'. With
- * no seed the key is undefined → the button is hidden → "audio geht nicht". The
- * product is German + local-first, so we turn the local Whisper lane ON by default.
- *
- * IDEMPOTENT: only seeds when the user has NOT already configured STT (mirrors the
- * mcp.config default-seed above). Never clobbers an existing config.
- *
- * NOTE: faster-whisper lazy-installs + downloads the chosen model on FIRST use only
- * (the 'small' model is ~460 MB, a one-time on-device fetch); nothing is downloaded
- * here at seed time.
- */
-const seedCommandEveSpeechToText = async (): Promise<void> => {
-  if (!COMMAND_EVE_SHELL_ENABLED) return;
-  try {
-    const existing = await configFile.get('tools.speechToText').catch((): undefined => undefined);
-    // Respect any prior user choice — only seed a virgin config.
-    if (existing && typeof existing === 'object') return;
-
-    // Groq STT is the DEFAULT when a GROQ_API_KEY is present in ~/.hermes/.env (the founder's
-    // box) — sub-second, strong German, zero per-user setup (founder ask: "muss Standard sein").
-    // Without a key (keyless / operator boxes) it falls back to the on-device, DSGVO-clean local
-    // lane, so this never breaks a build that has no Groq key.
-    const seed: SpeechToTextConfig = {
-      enabled: true,
-      provider: readGroqApiKeyFromHermesEnv() ? 'groq' : 'local',
-      // Groq Whisper: sub-second + strong German. The KEY is read per-call from ~/.hermes/.env,
-      // never persisted into config here.
-      groq: { model: 'whisper-large-v3-turbo' },
-      local: {
-        // 'small' is the German-tuned default: better than 'base' on German, still fast
-        // on an M1 Pro 16GB. faster-whisper lazy-downloads it on first transcription.
-        model: 'small',
-        language: '',
-      },
-    };
-    await configFile.set('tools.speechToText', seed);
-    console.log('[CommandEVE] Seeded on-device speech-to-text (local faster-whisper, model=small)');
-  } catch (error) {
-    console.error('[CommandEVE] Failed to seed speech-to-text default:', error);
-  }
-};
+// S9 #4: `seedCommandEveSpeechToText` was DELETED. It wrote the STT default to
+// the main-process ProcessConfig store, but the mic button reads the BACKEND
+// settings store (configService) — so the seed was never visible and the button
+// stayed hidden on a virgin install. The default is now a CONSUMER-DEFAULT in
+// SpeechInputButton.tsx (absent config ⇒ ON; explicit `enabled:false` ⇒ hidden).
 
 const initStorage = async () => {
   const t0 = performance.now();
@@ -737,11 +694,14 @@ const initStorage = async () => {
   await ensureBuiltinMcpServers();
   mark('4.2 builtinMcpServers');
 
-  // 4.3 Seed the on-device speech-to-text default (Command EVE shell only). Turns the
-  //     local faster-whisper mic lane ON by default so the mic button renders + routes
-  //     local. Idempotent — never clobbers a user who already configured STT.
-  await seedCommandEveSpeechToText();
-  mark('4.3 speechToTextSeed');
+  // 4.3 (REMOVED — S9 #4) The on-device speech-to-text default is no longer
+  //     SEEDED here. That seed wrote `{enabled:true}` to the main-process
+  //     ProcessConfig store, but the mic button (SpeechInputButton) reads the
+  //     BACKEND settings store (configService) — a store this seed never wrote to
+  //     — so the seed was DEAD (button hidden on a virgin install). The default
+  //     now lives as a CONSUMER-DEFAULT: SpeechInputButton treats an absent
+  //     config as ON and only hides on an explicit user opt-out (enabled:false).
+  //     See SpeechInputButton.tsx (S9 #4) and the store-split-fix spec.
 
   // 5. Ensure assistant-related directories exist. Built-in assistant records
   //    now live in the backend SQLite catalog (see aionui-assistant crate) and

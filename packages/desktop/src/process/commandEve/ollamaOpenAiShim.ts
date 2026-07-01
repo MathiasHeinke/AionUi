@@ -82,8 +82,18 @@ export type CommandEveEveRoutingResolver = () =>
  * delegated worker's dispatch (DUX-4). Returns the status map, or `undefined`
  * when there is none — in which case every worker defaults to active (no-op
  * gating, exactly as before this resolver existed).
+ *
+ * MONEY-BUG NOTE (S9 #1): this resolver is now allowed to be ASYNC. The live
+ * status map is persisted by the renderer to the BACKEND settings store, so the
+ * main-process resolver must do a per-request backend READ to reflect a fire the
+ * instant it happens (a fired worker must stop spending on the VERY NEXT
+ * dispatch). The shim `await`s it. A sync resolver (tests / the no-op default)
+ * is still accepted — awaiting a plain value is a no-op.
  */
-export type CommandEveTeamStatusResolver = () => EveTeamWorkerStatusMap | undefined;
+export type CommandEveTeamStatusResolver = () =>
+  | EveTeamWorkerStatusMap
+  | undefined
+  | Promise<EveTeamWorkerStatusMap | undefined>;
 
 export type CommandEveOllamaShimOptions = {
   port?: number;
@@ -578,7 +588,12 @@ async function handleEveCloudCompletions(
   // error instead of silently spending on a worker the user turned off. The
   // un-delegated EVE (`eve`) and any unknown id are always allowed (fail-open),
   // so only a positively-known paused/off roster worker is blocked.
-  const teamStatuses = options.teamWorkerStatus() ?? {};
+  // Fresh READ per dispatch evaluation (money control): the resolver reads the
+  // live status map from the backend store the panel writes to, so a fired /
+  // paused worker is refused on the very next dispatch — no TTL, no cache-warm
+  // grace. `await` because the resolver is now backend-backed (async); a sync
+  // resolver awaits to itself.
+  const teamStatuses = (await options.teamWorkerStatus()) ?? {};
   const dispatch = evaluateWorkerDispatch(attributionAgentId, teamStatuses);
   if (!dispatch.allowed) {
     response.setHeader('x-command-eve-worker-dispatch', dispatch.reason);
