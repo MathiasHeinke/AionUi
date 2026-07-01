@@ -29,6 +29,7 @@ import {
   LEGACY_SEAT_ID,
   __resetActiveSeatForTests,
   getActiveSeatId,
+  getActiveSeatLabel,
   resolveActiveSeatHome,
   setActiveSeatId,
 } from '@process/commandEve/seatContextCore';
@@ -154,13 +155,16 @@ describe('applySeatSwitch — env-freeze proof (re-spawn is MANDATORY)', () => {
 });
 
 describe('applySeatSwitch — failed re-spawn rolls back (no half-switched state)', () => {
-  it('rolls the active seat back to the prior seat and re-homes the env when restartBackend throws', async () => {
+  it('rolls back to the prior seat, RE-STARTS the prior-seat backend, and re-homes the env when the switch re-spawn throws (Hotfix-B: pointer + live agent agree)', async () => {
     // Start on A (clean re-spawn).
     const h = makeHarness();
     await applySeatSwitch(SEAT_A, h.deps);
     h.calls.length = 0;
+    h.mocks.restartBackend.mockClear();
 
-    // Now a switch to B whose re-spawn FAILS.
+    // Now a switch to B whose FORWARD re-spawn FAILS. The SECOND restartBackend
+    // call (the rollback-restart for the prior seat A) uses the default mock and
+    // SUCCEEDS — so the prior seat's backend comes back live.
     h.mocks.restartBackend.mockImplementationOnce(() => {
       throw new Error('aioncore failed to re-spawn');
     });
@@ -169,17 +173,54 @@ describe('applySeatSwitch — failed re-spawn rolls back (no half-switched state
     expect(result.ok).toBe(false);
     expect(result.rolled_back).toBe(true);
     expect(result.reason_code).toBe('SEAT_SWITCH_RESPAWN_FAILED');
+    // NOT the dead-backend fail-closed state: the prior seat is live.
+    expect(result.backend_down).toBeUndefined();
 
     // Rolled back to A — NOT stuck half-way on B.
     expect(getActiveSeatId()).toBe(SEAT_A);
     const aHome = path.join(USER_DATA, 'command-eve-runtime', 'hermes', 'seats', SEAT_A, 'home');
     expect(resolveActiveSeatHome(USER_DATA).hermesHome).toBe(aHome);
     expect(h.env.HERMES_HOME).toBe(aHome);
+    // Hotfix-B: restartBackend ran TWICE — the failed forward re-spawn AND the
+    // successful rollback-restart for the prior seat — and the simulated running
+    // agent is now FROZEN on A's home (a live agent that matches the pointer).
+    expect(h.mocks.restartBackend).toHaveBeenCalledTimes(2);
+    expect(h.agentFrozenHome).toBe(aHome);
     // persist must NOT have fired for the failed target.
     expect(h.mocks.persistActiveSeat).not.toHaveBeenCalledWith(SEAT_B);
   });
 
-  it('a failed re-spawn from the LEGACY seat rolls back to legacy', async () => {
+  it('FAIL-CLOSED (Hotfix-B): when the switch re-spawn AND the rollback-restart BOTH throw ⇒ backend_down + SEAT_SWITCH_ROLLED_BACK_BACKEND_DOWN (not a clean rollback)', async () => {
+    // Start on A (clean re-spawn).
+    const h = makeHarness();
+    await applySeatSwitch(SEAT_A, h.deps);
+    h.calls.length = 0;
+    h.mocks.restartBackend.mockClear();
+
+    // BOTH the forward re-spawn AND the rollback-restart throw (e.g. corrupted venv
+    // that fails for every seat). The prior-seat backend cannot be brought back.
+    h.mocks.restartBackend.mockImplementation(() => {
+      throw new Error('corrupted venv — every spawn fails');
+    });
+    const result = await applySeatSwitch(SEAT_B, h.deps);
+
+    expect(result.ok).toBe(false);
+    expect(result.rolled_back).toBe(true);
+    expect(result.backend_down).toBe(true);
+    expect(result.reason_code).toBe('SEAT_SWITCH_ROLLED_BACK_BACKEND_DOWN');
+
+    // Pointer is honestly on the prior seat A (env re-homed there), but the caller
+    // now KNOWS the backend is down — no silent dead-backend reported as clean.
+    expect(getActiveSeatId()).toBe(SEAT_A);
+    const aHome = path.join(USER_DATA, 'command-eve-runtime', 'hermes', 'seats', SEAT_A, 'home');
+    expect(h.env.HERMES_HOME).toBe(aHome);
+    // The rollback re-invoked restartBackend AT MOST ONCE (no infinite loop): the
+    // forward attempt + exactly one rollback-restart attempt = 2 total.
+    expect(h.mocks.restartBackend).toHaveBeenCalledTimes(2);
+    expect(h.mocks.persistActiveSeat).not.toHaveBeenCalledWith(SEAT_B);
+  });
+
+  it('a failed re-spawn from the LEGACY seat rolls back to legacy (and restarts the legacy backend)', async () => {
     const h = makeHarness();
     h.mocks.restartBackend.mockImplementationOnce(() => {
       throw new Error('boom');
@@ -187,6 +228,9 @@ describe('applySeatSwitch — failed re-spawn rolls back (no half-switched state
     const result = await applySeatSwitch(SEAT_A, h.deps);
     expect(result.ok).toBe(false);
     expect(result.rolled_back).toBe(true);
+    // The rollback-restart (default mock) succeeds ⇒ honest rollback, backend live.
+    expect(result.reason_code).toBe('SEAT_SWITCH_RESPAWN_FAILED');
+    expect(result.backend_down).toBeUndefined();
     expect(getActiveSeatId()).toBe(LEGACY_SEAT_ID);
   });
 });
@@ -232,6 +276,32 @@ describe('applySeatSwitch — legacy / no-op single-seat triggers NO re-spawn', 
     const result = await applySeatSwitch(SEAT_A, h.deps);
     expect(result.ok).toBe(true);
     expect(h.mocks.restartBackend).not.toHaveBeenCalled();
+  });
+
+  it('the no-op path REFRESHES the display label from the wire name (server-side rename re-selected in place) without re-spawning (audit INFO)', async () => {
+    const h = makeHarness();
+    // Land on A with its original label.
+    await applySeatSwitch(SEAT_A, h.deps, 'Bäckerei Müller');
+    expect(getActiveSeatLabel()).toBe('Bäckerei Müller');
+    h.mocks.restartBackend.mockClear();
+
+    // The seat was renamed server-side; the operator re-selects it in place. The
+    // no-op fast path must pick up the NEW wire name — no restart, no rollback.
+    const result = await applySeatSwitch(SEAT_A, h.deps, 'Bäckerei Müller GmbH');
+    expect(result.ok).toBe(true);
+    expect(result.rolled_back).toBe(false);
+    expect(h.mocks.restartBackend).not.toHaveBeenCalled();
+    expect(getActiveSeatLabel()).toBe('Bäckerei Müller GmbH');
+  });
+
+  it('the no-op path leaves the label UNTOUCHED when no wire label is provided', async () => {
+    const h = makeHarness();
+    await applySeatSwitch(SEAT_A, h.deps, 'Kanzlei Schmidt');
+    expect(getActiveSeatLabel()).toBe('Kanzlei Schmidt');
+    // Re-select in place with no label ⇒ holder unchanged (no accidental blank).
+    const result = await applySeatSwitch(SEAT_A, h.deps);
+    expect(result.ok).toBe(true);
+    expect(getActiveSeatLabel()).toBe('Kanzlei Schmidt');
   });
 });
 

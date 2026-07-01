@@ -106,8 +106,13 @@ function switchErrorMessage(code: string): string {
       return 'Ein Kunden-Wechsel läuft bereits. Bitte kurz warten.';
     case 'SWITCH_SEAT_NO_BRIDGE':
       return 'Kunden-Wechsel ist hier nicht verfügbar.';
+    case 'SEAT_SWITCH_ROLLED_BACK_BACKEND_DOWN':
+      // Hotfix-B: the switch failed AND the backend could not be restarted — do NOT
+      // claim "EVE läuft weiter" (it does NOT). Tell the operator a relaunch is needed.
+      return 'Kunden-Wechsel fehlgeschlagen und der EVE-Dienst konnte nicht neu gestartet werden. Bitte starte Command EVE neu.';
     default:
-      // SWITCH_SEAT_FAILED / SWITCH_SEAT_BRIDGE_FAILED / SWITCH_SEAT_NO_TARGET / …
+      // SWITCH_SEAT_FAILED / SWITCH_SEAT_BRIDGE_FAILED / SWITCH_SEAT_NO_TARGET /
+      // SEAT_SWITCH_RESPAWN_FAILED (rolled back, backend restarted — EVE IS live) / …
       return 'Kunden-Wechsel fehlgeschlagen — EVE läuft weiter auf dem bisherigen Kunden. Bitte erneut versuchen.';
   }
 }

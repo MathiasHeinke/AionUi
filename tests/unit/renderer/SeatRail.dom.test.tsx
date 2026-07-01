@@ -146,6 +146,16 @@ describe('SeatRail', () => {
     expect(messageErrorMock).not.toHaveBeenCalled();
   });
 
+  it('Hotfix-B: the dead-backend fail-closed code shows a DISTINCT relaunch message, NOT the misleading "läuft weiter"', () => {
+    mockAccess({ lastSwitchError: 'SEAT_SWITCH_ROLLED_BACK_BACKEND_DOWN' });
+    render(<SeatRail />);
+    expect(messageErrorMock).toHaveBeenCalledTimes(1);
+    const content = String(messageErrorMock.mock.calls[0][0].content);
+    // Honest: it tells the operator to relaunch and does NOT claim EVE keeps running.
+    expect(content).toContain('neu');
+    expect(content).not.toContain('läuft weiter');
+  });
+
   it('re-fires the toast when the SAME reject code repeats (nonce bump)', () => {
     mockAccess({ lastSwitchError: 'SWITCH_SEAT_FORBIDDEN', switchErrorNonce: 1 });
     const { rerender } = render(<SeatRail />);

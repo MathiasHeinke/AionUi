@@ -50,8 +50,11 @@ vi.mock('@process/commandEve/seatWireFetchCore', () => ({
 
 // The seat-switch handler dynamically imports the runtime seams — stub them so the
 // switch does not spawn a real backend; the GATE runs BEFORE these are reached.
+// MUTABLE mock so a test can make the re-spawn FAIL (Hotfix-B rollback paths). By
+// default it resolves (a clean re-spawn). Tests reset it in beforeEach.
+const { restartBackendMock } = vi.hoisted(() => ({ restartBackendMock: vi.fn(async () => {}) }));
 vi.mock('@process/commandEve/seatSwitchRuntime', () => ({
-  restartCommandEveBackendForSeat: async () => {},
+  restartCommandEveBackendForSeat: (...args: unknown[]) => restartBackendMock(...args),
 }));
 
 import { initCommandEveBridge } from '@process/bridge/commandEveBridge';
@@ -80,11 +83,13 @@ const delegateWire = () => ({
 });
 
 type MySeatsEnvelope = { success: boolean; data?: { contract?: unknown; source?: string } };
-type SwitchEnvelope = { success: boolean; data?: { ok?: boolean; reason_code?: string; active_seat_id?: string } };
+type SwitchEnvelope = { success: boolean; data?: { ok?: boolean; reason_code?: string; active_seat_id?: string; rolled_back?: boolean; backend_down?: boolean } };
 
 beforeEach(() => {
   registered.clear();
   wirePayload = null;
+  restartBackendMock.mockReset();
+  restartBackendMock.mockImplementation(async () => {});
   __resetActiveSeatForTests();
   setActiveSeatId(SEAT_A);
   initCommandEveBridge();
@@ -174,5 +179,40 @@ describe('mirror (b) — REAL switch-seat handler: admin gate + Founder chip + l
     const res = await (registered.get('command-eve.switch-seat') as (r?: { seatId?: string }) => Promise<SwitchEnvelope>)({});
     expect(res.success).toBe(false);
     expect(res.data?.reason_code).toBe('SWITCH_SEAT_NO_TARGET');
+  });
+
+  // Hotfix-B: the failed-switch honesty contract, through the REAL bridge handler.
+  it('a switch whose re-spawn fails ONCE rolls back to the prior seat with the backend restarted (SEAT_SWITCH_RESPAWN_FAILED, not backend_down)', async () => {
+    wirePayload = adminWire(); // active = SEAT_A
+    // Forward re-spawn for SEAT_B throws; the rollback-restart for SEAT_A succeeds.
+    restartBackendMock.mockRejectedValueOnce(new Error('aioncore failed to re-spawn'));
+    const res = await switchSeat(SEAT_B);
+
+    expect(res.success).toBe(false);
+    expect(res.data?.ok).toBe(false);
+    expect(res.data?.rolled_back).toBe(true);
+    expect(res.data?.reason_code).toBe('SEAT_SWITCH_RESPAWN_FAILED');
+    expect(res.data?.backend_down).toBeUndefined();
+    // Rolled back to the prior seat A.
+    expect(res.data?.active_seat_id).toBe(SEAT_A);
+    // restartBackend ran twice: the failed forward attempt + the successful rollback.
+    expect(restartBackendMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('a switch whose re-spawn AND rollback-restart BOTH fail surfaces the DISTINCT fail-closed backend_down state (SEAT_SWITCH_ROLLED_BACK_BACKEND_DOWN — not a clean rollback)', async () => {
+    wirePayload = adminWire(); // active = SEAT_A
+    // Every spawn fails (e.g. corrupted venv) ⇒ the prior seat cannot be restored live.
+    restartBackendMock.mockRejectedValue(new Error('corrupted venv — every spawn fails'));
+    const res = await switchSeat(SEAT_B);
+
+    expect(res.success).toBe(false);
+    expect(res.data?.ok).toBe(false);
+    expect(res.data?.rolled_back).toBe(true);
+    expect(res.data?.backend_down).toBe(true);
+    expect(res.data?.reason_code).toBe('SEAT_SWITCH_ROLLED_BACK_BACKEND_DOWN');
+    // Pointer honestly on the prior seat, but the caller KNOWS the backend is down.
+    expect(res.data?.active_seat_id).toBe(SEAT_A);
+    // At most ONE rollback-restart (no infinite loop): forward + one rollback = 2.
+    expect(restartBackendMock).toHaveBeenCalledTimes(2);
   });
 });

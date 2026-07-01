@@ -1541,11 +1541,32 @@ const handleAppReady = async (): Promise<void> => {
       // is what re-homes the conversation+message SQLite on a seat switch — the
       // renderer's conversation list / message bodies / full-text search follow
       // the active seat. getBackendDataDir() reads the active seat at call time.
-      const respawnPort = await backendManager.start(getBackendDataDirForRestart(), sysDirForRestart.logDir, {
-        cacheDir: sysDirForRestart.cacheDir,
-        workDir: sysDirForRestart.workDir,
-        logDir: sysDirForRestart.logDir,
-      });
+      //
+      // Hotfix-B: stop() above ALREADY SIGTERM/SIGKILLed the pre-switch backend, so
+      // __backendPort now points at a DEAD pid. If start() throws (port bind fail,
+      // spawn error, corrupted venv), we MUST clear __backendPort BEFORE the throw
+      // propagates — otherwise every httpBridge / cron-resume consumer keeps calling
+      // the dead pre-switch port, and applySeatSwitch's rollback would present a
+      // silent dead backend as a clean rollback. Clearing it makes the backend HONESTLY
+      // unavailable; the rollback then re-invokes this hook to restart the PRIOR seat
+      // (which republishes a live port on success), or surfaces the fail-closed
+      // SEAT_SWITCH_ROLLED_BACK_BACKEND_DOWN state if that restart also throws.
+      let respawnPort: number;
+      try {
+        respawnPort = await backendManager.start(getBackendDataDirForRestart(), sysDirForRestart.logDir, {
+          cacheDir: sysDirForRestart.cacheDir,
+          workDir: sysDirForRestart.workDir,
+          logDir: sysDirForRestart.logDir,
+        });
+      } catch (startError) {
+        // Only clear if WE still own the current generation — a newer respawn that
+        // already published a live port must not have its port clobbered to unset by
+        // this stale/failed one (mirrors the superseded-respawn guard below).
+        if (myRespawnGen === commandEveRespawnGeneration) {
+          delete (globalThis as typeof globalThis & { __backendPort?: number }).__backendPort;
+        }
+        throw startError;
+      }
       // SUPERSEDED-RESPAWN GUARD: if a newer switch ran while we were parked on start()
       // (only reachable on a >300s-hung respawn the watchdog force-released), bail BEFORE
       // publishing any global state — our respawnPort points at a process the newer

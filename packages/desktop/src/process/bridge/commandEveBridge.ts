@@ -1993,6 +1993,12 @@ export function initCommandEveBridge(): void {
   // is authorized ONLY when isSeatSwitchAuthorized(access, target) — admin, >1
   // seat, target in the authorized list. A delegate, or any target not in the
   // caller's seats, is rejected fail-closed BEFORE any state mutates.
+  //   Hotfix-B: on a failed re-spawn, applySeatSwitch's rollback re-invokes THIS
+  // handler's restartBackend thunk for the restored prior seat, so a rolled-back
+  // switch leaves a LIVE backend (reason_code SEAT_SWITCH_RESPAWN_FAILED). If that
+  // prior-seat restart ALSO fails, the result carries backend_down + reason_code
+  // SEAT_SWITCH_ROLLED_BACK_BACKEND_DOWN — a DISTINCT fail-closed error (relaunch
+  // needed), never a silent dead backend reported as a clean rollback.
   // -------------------------------------------------------------------------
   bridge.buildProvider('command-eve.switch-seat').provider(async (request?: { seatId?: string }) => {
     const version = 'command-eve-switch-seat/v0' as const;

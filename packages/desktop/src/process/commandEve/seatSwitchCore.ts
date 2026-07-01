@@ -33,9 +33,25 @@
  * (simulated) running agent on the OLD home.
  *
  * FAIL-SAFE: if any STRUCTURAL step (a–d) throws, we roll back the active seat to
- * its prior value and re-prepare the env for it, then re-throw. We never leave a
- * half-switched agent: the re-spawn either lands the NEW seat or the rollback
- * lands the PRIOR seat — there is no in-between exposed to the renderer.
+ * its prior value AND re-prepare the env for it AND re-invoke restartBackend so the
+ * PRIOR seat's backend is running again — the pointer and the LIVE agent agree. The
+ * restart hook (index.ts) stop()s the current process tree BEFORE it start()s, so a
+ * switch whose start() threw already SIGTERM/SIGKILLed the old backend: without this
+ * rollback-restart the renderer would show "back on the prior seat" while aioncore is
+ * DEAD (every chat/bridge call fails until a relaunch). We now restart it.
+ *
+ * HONEST POST-ROLLBACK CONTRACT (Hotfix-B):
+ *   - restartBackend threw, prior-seat restart SUCCEEDS ⇒ ok:false, rolled_back:true,
+ *     reason_code SEAT_SWITCH_RESPAWN_FAILED, backend LIVE on the prior seat (the
+ *     pointer is truthful — a plain retry is safe).
+ *   - restartBackend threw AND the prior-seat restart ALSO fails ⇒ ok:false,
+ *     rolled_back:true, backend_down:true, reason_code
+ *     SEAT_SWITCH_ROLLED_BACK_BACKEND_DOWN. The renderer surfaces a DISTINCT
+ *     fail-closed error (switch failed AND backend down — needs relaunch), NOT a
+ *     clean rollback. The restart hook clears __backendPort so nothing points at a
+ *     dead pid. There is NO silent dead-backend state.
+ * The rollback re-invokes restartBackend AT MOST ONCE, so a persistently-throwing
+ * restart cannot recurse (no infinite restart loop).
  *
  * persistActiveSeat (f) is BEST-EFFORT: the local runtime switch already
  * succeeded, so a network failure persisting the pointer must NOT roll back a
@@ -66,6 +82,14 @@ export interface SeatSwitchResult {
   active_seat_id: string;
   /** True when the runtime was rolled back to the prior seat after a structural failure. */
   rolled_back: boolean;
+  /**
+   * True when the switch failed AND the prior-seat backend could NOT be restarted
+   * (both restartBackend AND the rollback-restart threw). The runtime pointer is on
+   * the prior seat but NO backend is running — the renderer must surface a real
+   * error (relaunch/retry needed), NOT report a clean rollback. Set ONLY on the
+   * SEAT_SWITCH_ROLLED_BACK_BACKEND_DOWN fail-closed path.
+   */
+  backend_down?: boolean;
   reason_code?: string;
   message?: string;
   /** True when persisting the B3 pointer failed but the LOCAL switch still succeeded. */
@@ -133,6 +157,17 @@ export async function applySeatSwitch(
   // legacy/single-seat installs that "select" their only seat never respawn the
   // backend — byte-identical to 1.1.3). Still best-effort persist the pointer.
   if (targetSeatId === priorSeatId) {
+    // Audit INFO fix: refresh the DISPLAY LABEL on the no-op path from the wire name
+    // the caller already threaded (access.seats[].name). A client seat renamed
+    // server-side then re-selected in place would otherwise keep the stale label
+    // (the label holder is only re-set on the structural switch path below). A
+    // legacy/founder target folds to 'Founder'. Pure: no network, no restart — the
+    // fresh label reaches the agent on the NEXT genuine switch's env bake, and any
+    // label read (env trio / prompt) sees the current name immediately. Only touched
+    // when a label was actually provided (undefined ⇒ leave the holder as-is).
+    if (targetLabel !== undefined) {
+      setActiveSeatLabel(isLegacySeatId(targetSeatId) ? DEFAULT_SEAT_LABEL : targetLabel);
+    }
     let persistFailed = false;
     if (deps.persistActiveSeat) {
       try {
@@ -144,13 +179,20 @@ export async function applySeatSwitch(
     return { ok: true, active_seat_id: targetSeatId, rolled_back: false, ...(persistFailed ? { persist_failed: true } : {}) };
   }
 
-  // Roll the runtime back to the prior seat on a structural failure. Re-baking
-  // the env for the prior seat re-homes process.env.HERMES_HOME; we DO NOT
-  // restart the backend on rollback by default (the old agent was never
-  // re-spawned if restartBackend was the step that threw — and if it threw
-  // mid-restart the caller's restartBackend is responsible for not leaving an
-  // orphan; see restartCommandEveBackendForSeat which stop()s before start()).
-  const rollback = async (): Promise<void> => {
+  // Roll the runtime back to the prior seat on a structural failure. Re-bake the
+  // env for the prior seat (re-homes process.env.HERMES_HOME) AND re-invoke
+  // restartBackend so the prior seat's agent is LIVE again — the restart hook
+  // stop()s BEFORE it start()s, so if restartBackend was the step that threw the
+  // old backend is already dead; we MUST bring it back or the pointer would claim
+  // a seat with no running agent (the silent dead-backend bug this fix closes).
+  //
+  // Returns whether the prior-seat backend is live afterwards:
+  //   true  ⇒ restart succeeded — the pointer + a running agent AGREE (retry-safe).
+  //   false ⇒ the rollback-restart ALSO failed — the caller surfaces the distinct
+  //           SEAT_SWITCH_ROLLED_BACK_BACKEND_DOWN fail-closed state (relaunch needed).
+  // restartBackend is re-invoked AT MOST ONCE here, so a persistently-throwing
+  // restart can never recurse (no infinite restart loop).
+  const rollback = async (): Promise<{ backendLive: boolean }> => {
     try {
       setActiveSeatId(priorSeatId);
       // Restore the prior label too so the id + label holders never disagree (the
@@ -165,7 +207,18 @@ export async function applySeatSwitch(
     try {
       await deps.prepareEnv();
     } catch {
-      // Best-effort env re-home on rollback; the holder is already reverted.
+      // Best-effort env re-home on rollback; the holder is already reverted. Do NOT
+      // attempt the restart on a failed env bake — a restart under the wrong home
+      // would be worse than a clean fail-closed. Treat as backend-down.
+      return { backendLive: false };
+    }
+    // Re-spawn the prior seat's backend so the live agent matches the restored
+    // pointer. A throw here is the fail-closed (b) path — backend stays down.
+    try {
+      await deps.restartBackend();
+      return { backendLive: true };
+    } catch {
+      return { backendLive: false };
     }
   };
 
@@ -181,13 +234,30 @@ export async function applySeatSwitch(
     await deps.restartBackend(); // (c) stop + re-spawn so the agent re-homes
     await deps.rebindConfig(targetSeatId); // (d) config cache re-reads under target
   } catch (error) {
-    await rollback();
+    const { backendLive } = await rollback();
+    const causeMessage = error instanceof Error ? error.message : 'Seat switch failed.';
+    if (backendLive) {
+      // (a) The prior seat's backend is running again — pointer + live agent AGREE.
+      // An honest rollback: the switch failed but EVE is operational on the prior seat.
+      return {
+        ok: false,
+        active_seat_id: getActiveSeatId(),
+        rolled_back: true,
+        reason_code: 'SEAT_SWITCH_RESPAWN_FAILED',
+        message: `Seat switch failed; rolled back to the prior seat (backend restarted). Cause: ${causeMessage}`,
+      };
+    }
+    // (b) FAIL-CLOSED: the switch failed AND the prior-seat backend could not be
+    // restarted. The pointer is on the prior seat but NO agent is running — surface
+    // a DISTINCT error so the renderer never claims a clean rollback. The restart
+    // hook has cleared __backendPort (no dead-pid pointer).
     return {
       ok: false,
       active_seat_id: getActiveSeatId(),
       rolled_back: true,
-      reason_code: 'SEAT_SWITCH_RESPAWN_FAILED',
-      message: error instanceof Error ? error.message : 'Seat switch failed; rolled back to the prior seat.',
+      backend_down: true,
+      reason_code: 'SEAT_SWITCH_ROLLED_BACK_BACKEND_DOWN',
+      message: `Seat switch failed AND the backend could not be restarted — relaunch Command EVE. Cause: ${causeMessage}`,
     };
   }
 
