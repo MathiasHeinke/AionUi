@@ -9,6 +9,46 @@ export type CommandEveEgressDecision = 'allow' | 'block' | 'redact';
 export type CommandEveEgressProviderKind = 'local' | 'cloud' | 'unknown';
 export type CommandEveEgressFindingKind = 'secret' | 'german_pii' | 'email' | 'financial' | 'intl_pii' | 'health';
 
+/**
+ * Sensitivity-Gate S0–S3 (S12, v2 brick).
+ *
+ * S3 = HARD FLOOR: secret / financial / health. The operator PII toggle (S11)
+ * can NEVER waive an S3 redaction — raw credentials, health and finance data of
+ * a reseller's CLIENTS must not leave for a third-party cloud model even with the
+ * operator's protection switched off. That is Auftragsverarbeiter (processor)
+ * liability, not operator convenience, and it is the DSGVO sales lever:
+ * "even with the filter OFF, EVE never sends your clients' raw credentials,
+ * health or finance data to the cloud."
+ *
+ * FLIP TO false ONLY behind a future founder-gated (HG-4) per-call override —
+ * never a silent standing switch. Shipped `true` (recommended DSGVO-safe default).
+ */
+export const S3_HARD_FLOOR = true;
+
+/**
+ * The PII/DSGVO egress-redaction toggle mode (S11), threaded into the boundary so
+ * the decision becomes sensitivity-class-aware (S12). `'on'` = redact S1+ (the
+ * default); `'off'` = the operator waived redaction FOR WAIVABLE CLASSES ONLY
+ * (S1/S2) — S3 is still redacted by the hard floor. When UNDEFINED the boundary
+ * behaves exactly as before S12 (redact everything), so passing no toggle context
+ * is byte-identical to legacy callers.
+ */
+export type CommandEveEgressToggleMode = 'on' | 'off';
+
+/**
+ * Sensitivity ladder (S12). Defined here — the lowest-level egress module — so
+ * both this boundary and `sensitivityClassCore` share one source of truth without
+ * a runtime import cycle. `sensitivityClassCore` re-exports it.
+ */
+export type CommandEveSensitivityClass = 'S0' | 'S1' | 'S2' | 'S3';
+
+const SENSITIVITY_CLASS_RANK: Record<CommandEveSensitivityClass, number> = {
+  S0: 0,
+  S1: 1,
+  S2: 2,
+  S3: 3,
+};
+
 export type CommandEveEgressProvider = {
   kind: CommandEveEgressProviderKind;
   name?: string;
@@ -50,6 +90,36 @@ export type CommandEveEgressBoundaryReceipt = {
    * redaction. Omitted on every other turn.
    */
   redaction?: CommandEveEgressRedactionStatus;
+  /**
+   * S12 — the MAX sensitivity class present in this request (S0–S3). Present
+   * whenever a toggle context was passed (i.e. the class-aware path ran). Omitted
+   * on the pure-legacy path (no toggle context) to keep those receipts byte-stable.
+   */
+  sensitivity_class?: CommandEveSensitivityClass;
+  /**
+   * S12 — set `true` when the operator toggle was OFF but an S3 finding was STILL
+   * redacted (or blocked) by the hard floor. Positive trust evidence: EVE
+   * protected the client's credentials / health / finance data despite the
+   * operator having switched the filter off. Absent when no S3 hard-floor
+   * enforcement occurred.
+   */
+  s3_hard_floor_enforced?: true;
+  /**
+   * S12 — evidence of a deliberate DSGVO control-waiver: the operator toggle was
+   * OFF and S1 (email / phone-only) findings were consciously passed through
+   * UNREDACTED. Absent when no S1 finding was waived.
+   */
+  operator_waived_s1?: true;
+  /**
+   * S12 — as `operator_waived_s1` but for S2 findings (address / non-DACH PII).
+   */
+  operator_waived_s2?: true;
+  /**
+   * S12 — set `true` when an S3 finding could NOT be safely redacted and the
+   * boundary therefore hard-BLOCKED the turn (decision `'block'`). Absent
+   * otherwise.
+   */
+  blocked_s3?: true;
 };
 
 export type CommandEveEgressBoundaryInput = {
@@ -57,6 +127,16 @@ export type CommandEveEgressBoundaryInput = {
   provider: CommandEveEgressProvider;
   policyAction?: CommandEveEgressPolicyAction;
   now?: Date;
+  /**
+   * S12 — the operator PII/DSGVO toggle mode (S11) for this seat, threaded in so
+   * the boundary can apply the sensitivity-class gate:
+   *   - `'on'`  → redact every S1+ finding (the safe default behaviour).
+   *   - `'off'` → WAIVE S1/S2 findings (operator responsibility) but STILL redact
+   *               (or block) S3 — the hard floor the operator cannot switch off.
+   *   - UNDEFINED → legacy behaviour: redact everything, no class-aware receipt
+   *                 fields. Byte-identical to pre-S12 for every existing caller.
+   */
+  toggleMode?: CommandEveEgressToggleMode;
 };
 
 export type CommandEveEgressBoundaryResult = {
@@ -226,6 +306,64 @@ export function redactCommandEveSensitiveText(text: string): string {
   return SENSITIVE_RULES.reduce((currentText, rule) => currentText.replace(rule.pattern, rule.replacement), text);
 }
 
+/**
+ * S12 — the S-class of a single detector RULE. Mirrors the finding-kind→class map
+ * in `sensitivityClassCore`, with the same german_pii phone-only refinement
+ * (`german-phone-number` → S1, other german_pii → S2). Kept HERE so the
+ * threshold redactor and the classifier can never drift apart. An unmapped kind
+ * falls through to the hard floor (S3 — unsure → HIGHER/safer).
+ */
+export function sensitivityClassForRule(kind: CommandEveEgressFindingKind, ruleId: string): CommandEveSensitivityClass {
+  switch (kind) {
+    case 'secret':
+    case 'financial':
+    case 'health':
+      return 'S3';
+    case 'intl_pii':
+      return 'S2';
+    case 'german_pii':
+      return ruleId === 'german-phone-number' ? 'S1' : 'S2';
+    case 'email':
+      return 'S1';
+    default:
+      return 'S3';
+  }
+}
+
+/**
+ * S12 — redact ONLY the rules whose S-class is at/above `minClass`, leaving
+ * lower-class matches intact. This is what makes the operator toggle SELECTIVE:
+ * with the toggle OFF and `minClass='S3'`, S1/S2 findings pass through unredacted
+ * (operator's waivable responsibility) while S3 credentials/health/finance are
+ * still stripped (the hard floor). `minClass='S1'` reproduces
+ * `redactCommandEveSensitiveText` exactly (every rule is ≥ S1).
+ */
+export function redactCommandEveSensitiveTextAtOrAbove(text: string, minClass: CommandEveSensitivityClass): string {
+  const threshold = SENSITIVITY_CLASS_RANK[minClass];
+  return SENSITIVE_RULES.reduce((currentText, rule) => {
+    const ruleClass = sensitivityClassForRule(rule.kind, rule.ruleId);
+    if (SENSITIVITY_CLASS_RANK[ruleClass] < threshold) return currentText;
+    return currentText.replace(rule.pattern, rule.replacement);
+  }, text);
+}
+
+/**
+ * S12 — MAX S-class across a set of findings (S0 when empty). Internal to the
+ * boundary; the public, pure classifier is `classifyMaxSensitivity` in
+ * `sensitivityClassCore` (which returns the identical result via the same rule
+ * map). Kept here to avoid a value-level import cycle between the two modules.
+ */
+function maxSensitivityClass(findings: CommandEveEgressFinding[]): CommandEveSensitivityClass {
+  let max: CommandEveSensitivityClass = 'S0';
+  for (const finding of findings) {
+    const sClass = sensitivityClassForRule(finding.kind, finding.rule_id);
+    if (SENSITIVITY_CLASS_RANK[sClass] > SENSITIVITY_CLASS_RANK[max]) {
+      max = sClass;
+    }
+  }
+  return max;
+}
+
 export async function evaluateCommandEveEgressBoundary(
   input: CommandEveEgressBoundaryInput
 ): Promise<CommandEveEgressBoundaryResult> {
@@ -239,28 +377,114 @@ export async function evaluateCommandEveEgressBoundary(
   const policyAction = input.policyAction || 'redact';
   const findings = detectCommandEveSensitiveEgress(text);
   const hasSensitiveFindings = findings.length > 0;
-  const sanitizedText = hasSensitiveFindings ? redactCommandEveSensitiveText(text) : text;
-  const decision: CommandEveEgressDecision = hasSensitiveFindings
-    ? policyAction === 'allow'
-      ? 'allow'
-      : policyAction
-    : 'allow';
+  const observedAt = (input.now || new Date()).toISOString();
+  const findingCount = findings.reduce((sum, finding) => sum + finding.count, 0);
+  const inputSha = await sha256(text);
+
+  // ── LEGACY PATH (no toggle context) ─────────────────────────────────────────
+  // Byte-identical to pre-S12. Every existing caller passes no `toggleMode`, so
+  // this branch is the untouched behaviour: redact everything (or block/allow per
+  // policyAction), with NO class-aware receipt fields. Regression-guarded by test.
+  if (input.toggleMode === undefined) {
+    const sanitizedText = hasSensitiveFindings ? redactCommandEveSensitiveText(text) : text;
+    const decision: CommandEveEgressDecision = hasSensitiveFindings
+      ? policyAction === 'allow'
+        ? 'allow'
+        : policyAction
+      : 'allow';
+    const receipt: CommandEveEgressBoundaryReceipt = {
+      version: 'command-eve-egress-boundary-receipt/v0',
+      observed_at: observedAt,
+      provider: input.provider,
+      policy_action: policyAction,
+      decision,
+      finding_count: findingCount,
+      findings,
+      input_sha256: inputSha,
+      ...(decision === 'redact' ? { output_sha256: await sha256(sanitizedText) } : {}),
+      raw_text_stored: false,
+      reason: hasSensitiveFindings ? `sensitive-egress-${decision}` : 'no-sensitive-egress-detected',
+    };
+    return {
+      decision,
+      allowedText: decision === 'redact' ? sanitizedText : text,
+      receipt,
+    };
+  }
+
+  // ── SENSITIVITY-GATE PATH (S12, toggle context present) ─────────────────────
+  const toggleMode = input.toggleMode;
+  const maxSClass = maxSensitivityClass(findings);
+  const maxRank = SENSITIVITY_CLASS_RANK[maxSClass];
+  const hasS3 = maxRank >= SENSITIVITY_CLASS_RANK.S3;
+
+  // The one rule (architecture §"Die Lücke"):
+  //   shouldRedact = (maxSClass === 'S3' AND hard floor) OR (toggle 'on' AND ≥ S1)
+  // Toggle OFF waives S1/S2 only; S3 is ALWAYS redacted (or blocked) by the floor.
+  const s3Enforced = hasS3 && S3_HARD_FLOOR;
+  const toggleWantsRedaction = toggleMode === 'on' && maxRank >= SENSITIVITY_CLASS_RANK.S1;
+  const shouldRedact = s3Enforced || toggleWantsRedaction;
+
+  // The redaction THRESHOLD is what makes the waiver selective:
+  //   - toggle 'on'  → redact every S1+ finding.
+  //   - toggle 'off' → redact ONLY S3 (waive S1/S2); lower matches pass through.
+  const redactThreshold: CommandEveSensitivityClass = toggleMode === 'on' ? 'S1' : 'S3';
+
+  // S3 that cannot be safely redacted → hard BLOCK (strict opt-in preserved). A
+  // block is only possible when the caller explicitly asked for strict mode AND an
+  // S3 finding is present; the default `policyAction` ('redact') never blocks.
+  const blockS3 = hasS3 && policyAction === 'block';
+
+  let decision: CommandEveEgressDecision;
+  let outputText = text;
+  if (blockS3) {
+    decision = 'block';
+  } else if (shouldRedact) {
+    decision = 'redact';
+    outputText = redactCommandEveSensitiveTextAtOrAbove(text, redactThreshold);
+  } else {
+    // Nothing to redact at this threshold (S0, or S1/S2 waived with toggle off).
+    decision = 'allow';
+  }
+
+  // Per-class waiver evidence: with the toggle OFF, S1/S2 findings that were NOT
+  // redacted are consciously waived by the operator — record the honest audit trail.
+  const waivedS1 = toggleMode === 'off' && findings.some((f) => sensitivityClassForRule(f.kind, f.rule_id) === 'S1');
+  const waivedS2 = toggleMode === 'off' && findings.some((f) => sensitivityClassForRule(f.kind, f.rule_id) === 'S2');
+  // Hard-floor evidence: the toggle was off, yet an S3 finding was still redacted
+  // or blocked. Positive trust signal — EVE protected the client despite the toggle.
+  const s3HardFloorEnforced = toggleMode === 'off' && s3Enforced && (decision === 'redact' || decision === 'block');
+
+  const reason = !hasSensitiveFindings
+    ? 'no-sensitive-egress-detected'
+    : decision === 'block'
+      ? 'sensitive-egress-block-s3'
+      : decision === 'redact'
+        ? `sensitive-egress-redact-${redactThreshold.toLowerCase()}`
+        : 'sensitive-egress-waived';
+
   const receipt: CommandEveEgressBoundaryReceipt = {
     version: 'command-eve-egress-boundary-receipt/v0',
-    observed_at: (input.now || new Date()).toISOString(),
+    observed_at: observedAt,
     provider: input.provider,
     policy_action: policyAction,
     decision,
-    finding_count: findings.reduce((sum, finding) => sum + finding.count, 0),
+    finding_count: findingCount,
     findings,
-    input_sha256: await sha256(text),
-    ...(decision === 'redact' ? { output_sha256: await sha256(sanitizedText) } : {}),
+    input_sha256: inputSha,
+    ...(decision === 'redact' ? { output_sha256: await sha256(outputText) } : {}),
     raw_text_stored: false,
-    reason: hasSensitiveFindings ? `sensitive-egress-${decision}` : 'no-sensitive-egress-detected',
+    reason,
+    sensitivity_class: maxSClass,
+    ...(s3HardFloorEnforced ? { s3_hard_floor_enforced: true as const } : {}),
+    ...(waivedS1 ? { operator_waived_s1: true as const } : {}),
+    ...(waivedS2 ? { operator_waived_s2: true as const } : {}),
+    ...(decision === 'block' ? { blocked_s3: true as const } : {}),
   };
+
   return {
     decision,
-    allowedText: decision === 'redact' ? sanitizedText : text,
+    allowedText: decision === 'redact' ? outputText : text,
     receipt,
   };
 }

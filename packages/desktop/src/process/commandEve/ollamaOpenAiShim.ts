@@ -10,9 +10,10 @@ import http, { type IncomingMessage, type ServerResponse } from 'http';
 import path from 'path';
 import {
   evaluateCommandEveEgressBoundary,
-  redactCommandEveSensitiveText,
+  redactCommandEveSensitiveTextAtOrAbove,
   writeCommandEveEgressBoundaryReceipt,
   type CommandEveEgressPolicyAction,
+  type CommandEveSensitivityClass,
 } from './egressBoundaryCore';
 import { resolveAttributionAgentId } from '../../common/config/eveTeamRoster';
 import {
@@ -314,7 +315,13 @@ function messageText(message: unknown): string {
   return [contentText, argsText].filter(Boolean).join('\n');
 }
 
-function redactMessageContent(message: unknown): unknown {
+/**
+ * Redact PII from a message. `minClass` (S12) selects the class THRESHOLD:
+ * `'S1'` (default) redacts everything (legacy / toggle-on behaviour); `'S3'`
+ * redacts ONLY the hard-floor classes (secret/financial/health) so a toggle-off
+ * turn still strips credentials while passing waived S1/S2 through.
+ */
+function redactMessageContent(message: unknown, minClass: CommandEveSensitivityClass = 'S1'): unknown {
   if (!message || typeof message !== 'object') return message;
   const nextMessage = { ...(message as Record<string, unknown>) };
   // Redact tool-call arguments too (the model can echo PII into a tool call it makes).
@@ -327,7 +334,7 @@ function redactMessageContent(message: unknown): unknown {
       if (fn && typeof fn === 'object') {
         const nextFn = { ...(fn as Record<string, unknown>) };
         if (typeof nextFn.arguments === 'string') {
-          nextFn.arguments = redactCommandEveSensitiveText(nextFn.arguments);
+          nextFn.arguments = redactCommandEveSensitiveTextAtOrAbove(nextFn.arguments, minClass);
         }
         nextTc.function = nextFn;
       }
@@ -336,7 +343,7 @@ function redactMessageContent(message: unknown): unknown {
   }
   const content = nextMessage.content;
   if (typeof content === 'string') {
-    nextMessage.content = redactCommandEveSensitiveText(content);
+    nextMessage.content = redactCommandEveSensitiveTextAtOrAbove(content, minClass);
     return nextMessage;
   }
   if (!Array.isArray(content)) return nextMessage;
@@ -344,7 +351,7 @@ function redactMessageContent(message: unknown): unknown {
     if (!part || typeof part !== 'object') return part;
     const nextPart = { ...(part as Record<string, unknown>) };
     if (typeof nextPart.text === 'string') {
-      nextPart.text = redactCommandEveSensitiveText(nextPart.text);
+      nextPart.text = redactCommandEveSensitiveTextAtOrAbove(nextPart.text, minClass);
     }
     return nextPart;
   });
@@ -561,6 +568,15 @@ async function handleEveCloudCompletions(
   const redactionDisabledByOperator = egressRedactionMode === 'off';
 
   // Egress boundary — same gate as local, but the provider is a CLOUD lane.
+  //
+  // SENSITIVITY-GATE (S12) WRAPS S11 here. Instead of forcing 'allow' wholesale
+  // when the operator disabled the filter (which would have leaked EVERYTHING,
+  // including raw credentials/health/finance), we thread the toggle MODE into the
+  // boundary. The boundary then applies the class-aware gate: toggle 'off' waives
+  // S1/S2 (operator responsibility) but the S3 HARD FLOOR still redacts (or blocks)
+  // credentials/health/finance — the DSGVO grantee the operator cannot switch off.
+  // S11's structure (fresh per-request read, receipt stamp, off-badge header) is
+  // untouched; only the wholesale 'allow' is replaced by the gate.
   const egressBoundary = await evaluateCommandEveEgressBoundary({
     text: asMessages(body.messages).map(messageText).join('\n\n'),
     provider: {
@@ -569,11 +585,8 @@ async function handleEveCloudCompletions(
       model: tier,
       baseUrl: functionUrl,
     },
-    // When the operator disabled the filter for this seat we force 'allow' so the
-    // boundary neither redacts nor blocks — the payload goes UNREDACTED. We still
-    // RUN the boundary (so the receipt records what WOULD have been found) and stamp
-    // the honest evidence below; a control-waiver is never silent.
-    policyAction: redactionDisabledByOperator ? 'allow' : options.egressPolicyAction,
+    policyAction: options.egressPolicyAction,
+    toggleMode: egressRedactionMode,
   });
   // Stamp the honest evidence onto the receipt when the operator turned the filter
   // off — this is the audit trail for a deliberate DSGVO control-waiver.
@@ -601,7 +614,13 @@ async function handleEveCloudCompletions(
   }
   let outboundMessages = asMessages(body.messages);
   if (egressBoundary.decision === 'redact') {
-    outboundMessages = outboundMessages.map(redactMessageContent);
+    // S12: redact the OUTBOUND messages at the SAME class threshold the boundary
+    // used. Toggle 'off' + S3 hard floor ⇒ redact ONLY S3 here (S1/S2 waived);
+    // toggle 'on' ⇒ redact all S1+ (identical to legacy). Deriving the threshold
+    // from the toggle keeps the messages and the boundary decision consistent —
+    // we never over-redact a waived S1/S2 nor under-redact an S3.
+    const messageRedactThreshold: CommandEveSensitivityClass = redactionDisabledByOperator ? 'S3' : 'S1';
+    outboundMessages = outboundMessages.map((message) => redactMessageContent(message, messageRedactThreshold));
   }
 
   const proof = buildCommandEvePromptProof({ ...body, messages: outboundMessages });
@@ -800,7 +819,10 @@ async function handleChatCompletions(
       return;
     }
     if (egressBoundary.decision === 'redact') {
-      body.messages = asMessages(body.messages).map(redactMessageContent);
+      // Local lane never egresses and never carries a toggle context, so it always
+      // redacts at the full S1 threshold (legacy behaviour). Wrap so Array.map's
+      // (value,index,array) never leaks the index into the minClass parameter.
+      body.messages = asMessages(body.messages).map((message) => redactMessageContent(message));
     }
 
     const proof = buildCommandEvePromptProof(body);

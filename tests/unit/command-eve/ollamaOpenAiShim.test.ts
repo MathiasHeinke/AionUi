@@ -709,6 +709,62 @@ describe('Command EVE shim — PER-SEAT PII/DSGVO egress switch (S11)', () => {
     fs.rmSync(receiptDir, { recursive: true, force: true });
   });
 
+  it('mode OFF + S3 (IBAN) → STILL redacted at the seam (hard floor) while a co-occurring phone (S1) is waived', async () => {
+    const fs = await import('fs');
+    const os = await import('os');
+    const path = await import('path');
+    const receiptDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-egress-s3floor-'));
+    const receiptPath = path.join(receiptDir, 'egress-boundary-receipt.json');
+
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      egressReceiptPath: receiptPath,
+      eveRouting: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE, tier: 'standard' }),
+      egressRedactionMode: () => 'off',
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [{ role: 'user', content: `IBAN DE89 3704 0044 0532 0130 00 und ruf ${PHONE} an.` }],
+        stream: false,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    // The toggle was OFF, yet the S3 IBAN is redacted → decision is redact, not allow.
+    expect(response.headers.get('x-command-eve-egress-decision')).toBe('redact');
+    // The off-badge still fires (operator disabled the filter) — honest evidence.
+    expect(response.headers.get('x-command-eve-egress-redaction')).toBe('disabled_by_operator');
+
+    const forwarded = JSON.stringify(fnSeen.body);
+    // S3 hard floor: the IBAN NEVER reaches the cloud, even with the filter off.
+    expect(forwarded).toContain('[REDACTED_IBAN]');
+    expect(forwarded).not.toContain('0532');
+    // S1 waived: the phone passes through unredacted (operator responsibility).
+    expect(forwarded).toContain('12345678');
+    expect(forwarded).not.toContain('[REDACTED_PHONE]');
+
+    const receipt = JSON.parse(fs.readFileSync(receiptPath, 'utf8')) as {
+      redaction?: string;
+      decision?: string;
+      sensitivity_class?: string;
+      s3_hard_floor_enforced?: boolean;
+      operator_waived_s1?: boolean;
+    };
+    expect(receipt.decision).toBe('redact');
+    expect(receipt.sensitivity_class).toBe('S3');
+    expect(receipt.s3_hard_floor_enforced).toBe(true);
+    expect(receipt.operator_waived_s1).toBe(true);
+    expect(receipt.redaction).toBe('disabled_by_operator');
+    fs.rmSync(receiptDir, { recursive: true, force: true });
+  });
+
   it('mode ON → redacts as before (the fail-safe default is preserved)', async () => {
     const fnSeen: EveFnSeen = {};
     const fnUrl = await startFakeEveFunction(fnSeen);

@@ -11,6 +11,9 @@ export {
   detectCommandEveSensitiveEgress,
   evaluateCommandEveEgressBoundary,
   redactCommandEveSensitiveText,
+  redactCommandEveSensitiveTextAtOrAbove,
+  sensitivityClassForRule,
+  S3_HARD_FLOOR,
   type CommandEveEgressBoundaryInput,
   type CommandEveEgressBoundaryReceipt,
   type CommandEveEgressBoundaryResult,
@@ -21,6 +24,8 @@ export {
   type CommandEveEgressProvider,
   type CommandEveEgressProviderKind,
   type CommandEveEgressRedactionStatus,
+  type CommandEveEgressToggleMode,
+  type CommandEveSensitivityClass,
 } from '@/common/api/egressBoundaryCore';
 
 import type { CommandEveEgressBoundaryReceipt } from '@/common/api/egressBoundaryCore';
