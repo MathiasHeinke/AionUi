@@ -297,6 +297,102 @@ describe('Command EVE connector catalog core', () => {
     expect(slack?.guided_setup.state).toBe('humangate_required');
   });
 
+  it('parses the OPTIONAL mcp_invocation field tolerantly (arch §4)', () => {
+    const root = makeRoot();
+    const manifestPath = path.join(root, 'kits', 'company-os-kit', '.company-os', 'eve', 'connector-manifests.json');
+    writeJson(manifestPath, {
+      version: 'eve-connector-manifest/v0',
+      policy: { state_authority: 'local-preflight-result-files-only' },
+      connectors: [
+        {
+          id: 'linear-project-management',
+          name: 'Linear',
+          tier: 'recommended',
+          purpose: 'p',
+          required_for: ['x'],
+          auth_method: 'Linear API key',
+          auth_surface: 'w',
+          setup_mode: 'guided_connector',
+          safe_preflight: ['s'],
+          verify_command: 'v',
+          allowed_actions: ['read'],
+          blocked_actions: ['write'],
+          human_gate: 'HG-3',
+          memory_policy: 'm',
+          preflight_result_file: '.company-os/operations/preflight-results/linear-project-management-latest.json',
+          mcp_invocation: {
+            transport: 'stdio',
+            command: 'npx',
+            args: ['-y', 'mcp-linear'],
+            env_refs: ['LINEAR_API_KEY'],
+            scope_default: 'founder',
+          },
+        },
+        {
+          // NO mcp_invocation — must still parse as a valid connector.
+          id: 'local-company-os-workspace',
+          name: 'Local Workspace',
+          tier: 'core',
+          purpose: 'p',
+          required_for: ['T0'],
+          auth_method: 'local filesystem',
+          auth_surface: 'w',
+          setup_mode: 'bootstrap',
+          safe_preflight: ['s'],
+          verify_command: 'v',
+          allowed_actions: ['read'],
+          blocked_actions: ['overwrite'],
+          human_gate: 'HG-1',
+          memory_policy: 'm',
+          preflight_result_file: '.company-os/operations/preflight-results/local-company-os-workspace-latest.json',
+        },
+        {
+          // MALFORMED mcp_invocation (http transport) — dropped, connector stays valid.
+          id: 'notion-workspace',
+          name: 'Notion',
+          tier: 'recommended',
+          purpose: 'p',
+          required_for: ['x'],
+          auth_method: 'Notion API key',
+          auth_surface: 'w',
+          setup_mode: 'guided_connector',
+          safe_preflight: ['s'],
+          verify_command: 'v',
+          allowed_actions: ['read'],
+          blocked_actions: ['write'],
+          human_gate: 'HG-3',
+          memory_policy: 'm',
+          preflight_result_file: '.company-os/operations/preflight-results/notion-workspace-latest.json',
+          mcp_invocation: { transport: 'http', command: 'curl', args: [], env_refs: [] },
+        },
+      ],
+    });
+
+    const result = buildConnectorCatalog({ companyOsRoot: root, env: {} });
+    const cards = result.model?.connectors ?? [];
+    expect(result.ok).toBe(true);
+    // All three connectors parse (an entry without / with a bad mcp_invocation stays valid).
+    expect(cards.map((c) => c.id).sort()).toEqual([
+      'linear-project-management',
+      'local-company-os-workspace',
+      'notion-workspace',
+    ]);
+
+    const linear = cards.find((c) => c.id === 'linear-project-management');
+    expect(linear?.mcp_invocation).toEqual({
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', 'mcp-linear'],
+      env_refs: ['LINEAR_API_KEY'],
+      scope_default: 'founder',
+    });
+
+    // No mcp_invocation → field absent, connector still valid.
+    expect(cards.find((c) => c.id === 'local-company-os-workspace')?.mcp_invocation).toBeUndefined();
+    // http transport → dropped (unrepresentable); connector still valid.
+    expect(cards.find((c) => c.id === 'notion-workspace')?.mcp_invocation).toBeUndefined();
+  });
+
   it('rejects unsupported manifest schemas', () => {
     const root = makeRoot();
     const manifestPath = path.join(root, 'manifest.json');

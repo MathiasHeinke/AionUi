@@ -64,6 +64,26 @@ export type CommandEveConnectorManifestPolicy = {
   ui_state_model?: Record<string, unknown>;
 };
 
+/**
+ * Optional MCP-invocation descriptor for a curated connector (credential-vault
+ * architecture §4). Declares HOW a vetted connector's stdio MCP server is
+ * spawned and WHICH env-var NAMES it needs — the manifest side of the
+ * manifest↔vault bridge. `env_refs` are env-var NAMES (static, public); the
+ * vault record maps each name to a `keychain:v1:` ref (dynamic, secret). ONLY
+ * stdio transport is representable — http/sse/streamable_http stay hard-blocked
+ * by the global `mcp_enable_policy`. An entry WITHOUT this field stays a valid
+ * connector (parse-tolerant; today none carry it).
+ */
+export type CommandEveConnectorMcpInvocation = {
+  transport: 'stdio';
+  command: string;
+  args: string[];
+  /** env-var NAMES (e.g. ['LINEAR_API_KEY']) — NEVER values. */
+  env_refs: string[];
+  /** Default vault scope; the operator may override at setup. */
+  scope_default?: 'founder' | 'seat';
+};
+
 export type CommandEveConnectorManifestConnector = {
   id: string;
   name: string;
@@ -80,6 +100,8 @@ export type CommandEveConnectorManifestConnector = {
   human_gate: string;
   memory_policy: string;
   preflight_result_file: string;
+  /** OPTIONAL curated-connector stdio MCP invocation (arch §4). */
+  mcp_invocation?: CommandEveConnectorMcpInvocation;
 };
 
 export type CommandEveConnectorPreflight = {
@@ -182,11 +204,38 @@ function asBooleanOrNull(record: JsonRecord): boolean | null {
   return null;
 }
 
+/**
+ * Parse the OPTIONAL `mcp_invocation` block (arch §4) tolerantly: a missing OR
+ * malformed block yields `undefined` (the connector stays valid). Only a
+ * well-formed stdio invocation with a non-empty command + string args + string
+ * env_refs is accepted; any other transport or shape is dropped (http/sse stay
+ * unrepresentable). scope_default is passed through only when 'founder'|'seat'.
+ */
+function normalizeMcpInvocation(value: unknown): CommandEveConnectorMcpInvocation | undefined {
+  if (!isRecord(value)) return undefined;
+  if (value.transport !== 'stdio') return undefined;
+  const command = asString(value.command).trim();
+  if (!command) return undefined;
+  const args = asStringArray(value.args);
+  const env_refs = asStringArray(value.env_refs);
+  const scopeDefault = asString(value.scope_default).trim();
+  const scope_default = scopeDefault === 'founder' || scopeDefault === 'seat' ? scopeDefault : undefined;
+  return {
+    transport: 'stdio',
+    command,
+    args,
+    env_refs,
+    ...(scope_default ? { scope_default } : {}),
+  };
+}
+
 function normalizeConnector(value: unknown): CommandEveConnectorManifestConnector | null {
   if (!isRecord(value)) return null;
   const id = asString(value.id).trim();
   const name = asString(value.name).trim();
   if (!id || !name) return null;
+
+  const mcpInvocation = normalizeMcpInvocation(value.mcp_invocation);
 
   return {
     id,
@@ -204,6 +253,7 @@ function normalizeConnector(value: unknown): CommandEveConnectorManifestConnecto
     human_gate: asString(value.human_gate).trim(),
     memory_policy: asString(value.memory_policy).trim(),
     preflight_result_file: asString(value.preflight_result_file).trim(),
+    ...(mcpInvocation ? { mcp_invocation: mcpInvocation } : {}),
   };
 }
 
