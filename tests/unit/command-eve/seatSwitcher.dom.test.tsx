@@ -89,12 +89,25 @@ describe('SeatSwitcher — fail-closed SeatGuard (delegate / legacy / unknown)',
     expect(switchSeatInvoke).not.toHaveBeenCalled();
   });
 
-  it('a single-seat admin (legacy-like) sees NO switcher and triggers no re-spawn', async () => {
-    mySeatsInvoke.mockResolvedValue(mySeats('admin', [{ tenant_id: SEAT_A, name: 'Only seat', is_active: true }]));
+  it('an admin with NO client seats (only the Founder home) sees NO switcher and triggers no re-spawn', async () => {
+    // Spec B4.2: resolveSeatAccess prepends the synthetic Founder (seat-1) chip for
+    // admins. An admin whose wire lists ZERO client seats therefore has exactly ONE
+    // seat (the Founder home) ⇒ canSwitch=false ⇒ no switcher (nothing to switch TO).
+    // This replaces the old "single-seat admin is legacy-like" case: a single CLIENT
+    // seat now yields TWO seats (Founder + client) and DOES switch (covered below).
+    mySeatsInvoke.mockResolvedValue(mySeats('admin', []));
     render(<SeatSwitcher />);
     await waitFor(() => expect(mySeatsInvoke).toHaveBeenCalled());
     expect(screen.queryByTestId('seat-switcher')).toBeNull();
     expect(switchSeatInvoke).not.toHaveBeenCalled();
+  });
+
+  it('an admin with ONE client seat sees the switcher (Founder home + client = 2 seats, spec B4.2)', async () => {
+    // The un-strand-the-founder fix: an admin sitting on a single client seat can
+    // ALWAYS return to their Founder home, so the switcher IS shown (2 seats).
+    mySeatsInvoke.mockResolvedValue(mySeats('admin', [{ tenant_id: SEAT_A, name: 'Only client', is_active: true }]));
+    render(<SeatSwitcher />);
+    expect(await screen.findByTestId('seat-switcher')).toBeTruthy();
   });
 
   it('a failed my-seats read fail-closes to NO switcher (never widens to admin)', async () => {

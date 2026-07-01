@@ -87,6 +87,7 @@ import { ProcessConfig, getSkillsDir, getCronSkillsDir } from '@process/utils/in
 import { getDataPath } from '@process/utils/utils';
 import { getActiveSeatId } from '@process/commandEve/seatContextCore';
 import { isSeatSwitchAuthorized, parseMySeats, resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
+import { readMySeatsWire as readMySeatsWireCore } from '@process/commandEve/seatWireFetchCore';
 import { readCompanyBrainSeedState, writeCompanyBrainSeed } from '@process/commandEve/companyBrainSeedCore';
 import {
   createElectronPdfRenderer,
@@ -132,19 +133,25 @@ function unwrapBridgeRequest<T>(request?: T | CommandEveBridgeEnvelope<T>): T | 
 }
 
 /**
- * Read the raw my-seats wire payload (B3 data contract) from the my-seats edge
- * function. The function is AUTHORED but NOT deployed (founder gate), and the
- * desktop never calls it from a non-account/legacy install — so this returns
- * `null` today (the bridge fail-closes to a single legacy seat). When the
- * function ships, this is the single place that performs the JWT-bound read; it
- * MUST never accept a client-supplied account/seat id (the IDOR guard is
- * server-side). Returning `null` (not throwing) keeps the switcher hidden and
- * the user hard-pinned until a real seat list exists.
+ * Read the raw my-seats wire payload (B3 data contract) from the DEPLOYED
+ * my-seats edge function (v5, verify_jwt=true). This is the single place that
+ * performs the JWT-bound read: it reuses the desktop's stored account session
+ * (accountSessionAtRest.getFreshSession) as the Bearer — the SAME auth chain the
+ * my-license read uses — and NEVER accepts a client-supplied account/seat id (the
+ * IDOR guard is server-side; the function derives the account+seats from the JWT).
+ *
+ * Fail-closed by construction (see seatWireFetchCore): no stored session / offline
+ * / 401 / non-2xx / malformed / timeout all resolve to `null`, which the bridge
+ * already treats as "no seat source" ⇒ a single legacy seat ⇒ rail hidden. So on a
+ * legacy/no-account install this is byte-identical to before (returns `null`).
+ * NEVER throws into the bridge handler.
+ *
+ * The wire's active_seat_id is overridden with the desktop's runtime-truth active
+ * seat (getActiveSeatId) inside the core — the ring must follow what actually
+ * spawned, not a possibly-stale/absent server pointer.
  */
-function readMySeatsWire(): unknown | null {
-  // PREPARED: no my-seats function deployed yet ⇒ fail-closed single legacy seat.
-  // (A future slice resolves the account session bearer + GETs my-seats here.)
-  return null;
+async function readMySeatsWire(): Promise<unknown | null> {
+  return readMySeatsWireCore(getDataPath());
 }
 
 /**
@@ -1919,7 +1926,7 @@ export function initCommandEveBridge(): void {
       seats: [] as Array<{ seat_id: string; name: string; role: 'admin' | 'delegate'; is_active: boolean }>,
     };
     try {
-      const wire = readMySeatsWire();
+      const wire = await readMySeatsWire();
       if (!wire) {
         // No my-seats source live yet ⇒ fail-closed single legacy seat.
         return { success: true, data: { version, ok: true, contract: legacyContract, source: 'legacy_fallback' } };
@@ -1978,7 +1985,7 @@ export function initCommandEveBridge(): void {
 
       // Re-resolve the caller's access from the SAME my-seats source (never trust
       // a renderer-asserted role). Fail-closed if unreachable ⇒ delegate ⇒ reject.
-      const wire = readMySeatsWire();
+      const wire = await readMySeatsWire();
       const access = resolveSeatAccess(wire ? parseMySeats(wire) : null);
       if (!isSeatSwitchAuthorized(access, targetSeatId)) {
         return {

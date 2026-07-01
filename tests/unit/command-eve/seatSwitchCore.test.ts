@@ -272,17 +272,54 @@ describe('SeatGuard — fail-closed classification', () => {
     expect(access.canSwitch).toBe(false);
   });
 
-  it('an admin with >1 seat ⇒ canSwitch=true; admin with exactly 1 seat ⇒ canSwitch=false (legacy-like)', () => {
+  it('an admin with >1 seat ⇒ canSwitch=true; admin with ONE client seat now also canSwitch=true (Founder chip adds home, spec B4.2)', () => {
     const multi = resolveSeatAccess(
       parseMySeats({ account: { id: 'acc1', role: 'admin' }, active_seat_id: SEAT_A, seats: [{ tenant_id: SEAT_A, name: 'A', is_active: true }, { tenant_id: SEAT_B, name: 'B' }] })
     );
     expect(multi.role).toBe('admin');
     expect(multi.canSwitch).toBe(true);
 
+    // Spec B4.2: resolveSeatAccess prepends the synthetic Founder (seat-1) chip for
+    // admins, so an admin with a single CLIENT seat has TWO seats (Founder + client)
+    // and CAN switch (they must be able to return home). The old "single seat admin ⇒
+    // canSwitch=false" only holds now when the client-seat list is EMPTY (below).
     const single = resolveSeatAccess(
       parseMySeats({ account: { id: 'acc1', role: 'admin' }, active_seat_id: SEAT_A, seats: [{ tenant_id: SEAT_A, name: 'A', is_active: true }] })
     );
-    expect(single.canSwitch).toBe(false);
+    expect(single.canSwitch).toBe(true);
+    expect(single.seats.map((s) => s.seat_id)).toEqual([LEGACY_SEAT_ID, SEAT_A]);
+
+    // Admin with ZERO client seats ⇒ only the Founder chip ⇒ nothing to switch TO.
+    const founderOnly = resolveSeatAccess(
+      parseMySeats({ account: { id: 'acc1', role: 'admin' }, active_seat_id: LEGACY_SEAT_ID, seats: [] })
+    );
+    expect(founderOnly.canSwitch).toBe(false);
+    expect(founderOnly.seats.map((s) => s.seat_id)).toEqual([LEGACY_SEAT_ID]);
+  });
+
+  it('the Founder chip is prepended FIRST for an admin, absent for a delegate, and rings when active (spec B4.2)', () => {
+    // Admin: Founder chip is seat[0], named 'Founder', role 'admin'.
+    const adminHome = resolveSeatAccess(
+      parseMySeats({ account: { id: 'acc1', role: 'admin' }, active_seat_id: LEGACY_SEAT_ID, seats: [{ tenant_id: SEAT_A, name: 'A' }] })
+    );
+    expect(adminHome.seats[0]).toEqual({ seat_id: LEGACY_SEAT_ID, name: 'Founder', role: 'admin', is_active: true });
+    expect(adminHome.activeSeatId).toBe(LEGACY_SEAT_ID);
+    // The ring follows active_seat_id: at home the Founder chip is active, a client is not.
+    expect(adminHome.seats.find((s) => s.seat_id === SEAT_A)?.is_active).toBe(false);
+
+    // Admin sitting on a client seat: the Founder chip exists but does NOT ring.
+    const adminOnClient = resolveSeatAccess(
+      parseMySeats({ account: { id: 'acc1', role: 'admin' }, active_seat_id: SEAT_A, seats: [{ tenant_id: SEAT_A, name: 'A' }] })
+    );
+    expect(adminOnClient.seats[0].seat_id).toBe(LEGACY_SEAT_ID);
+    expect(adminOnClient.seats[0].is_active).toBe(false);
+    expect(adminOnClient.activeSeatId).toBe(SEAT_A);
+
+    // Delegate: NO Founder chip — they can never reach the founder home.
+    const delegate = resolveSeatAccess(
+      parseMySeats({ account: { id: 'acc1', role: 'delegate' }, active_seat_id: SEAT_A, seats: [{ tenant_id: SEAT_A, name: 'A' }] })
+    );
+    expect(delegate.seats.some((s) => s.seat_id === LEGACY_SEAT_ID)).toBe(false);
   });
 
   it('a delegate is pinned even with multiple visible seats (over-scope guard)', () => {
@@ -321,17 +358,24 @@ describe('SeatGuard — isSeatSwitchAuthorized (the IPC-level gate)', () => {
     expect(isSeatSwitchAuthorized(adminAccess, '33333333-3333-3333-3333-333333333333')).toBe(false);
   });
 
-  it('a DELEGATE can NEVER be authorized to switch, even to a seat in their list', () => {
+  it('a DELEGATE can NEVER be authorized to switch, even to a seat in their list OR the legacy home', () => {
     const delegateAccess = resolveSeatAccess(
       parseMySeats({ account: { id: 'acc1', role: 'delegate' }, active_seat_id: SEAT_A, seats: [{ tenant_id: SEAT_A, name: 'A' }, { tenant_id: SEAT_B, name: 'B' }] })
     );
     expect(isSeatSwitchAuthorized(delegateAccess, SEAT_B)).toBe(false);
     expect(isSeatSwitchAuthorized(delegateAccess, SEAT_A)).toBe(false);
+    // Spec B4.2: a delegate stays PINNED — they can never reach the founder home
+    // (no canSwitch, and the Founder chip is never added to their list).
+    expect(isSeatSwitchAuthorized(delegateAccess, LEGACY_SEAT_ID)).toBe(false);
   });
 
-  it('an unsafe / legacy target is never authorized', () => {
+  it('an ADMIN MAY return to the legacy Founder home; an unsafe target is still never authorized (spec B4.2)', () => {
+    // CHANGED from "legacy target is never authorized": the legacy seat is the
+    // founder's home and resolveSeatAccess prepends it to an admin's authorized list,
+    // so an admin may switch back to it. Every other guard is intact.
+    expect(isSeatSwitchAuthorized(adminAccess, LEGACY_SEAT_ID)).toBe(true);
+    expect(isSeatSwitchAuthorized(adminAccess, 'seat-1')).toBe(true); // alias folds to legacy
     expect(isSeatSwitchAuthorized(adminAccess, '../seat-b')).toBe(false);
-    expect(isSeatSwitchAuthorized(adminAccess, LEGACY_SEAT_ID)).toBe(false);
     expect(isSeatSwitchAuthorized(adminAccess, '')).toBe(false);
   });
 

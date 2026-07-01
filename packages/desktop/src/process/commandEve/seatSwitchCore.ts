@@ -275,6 +275,18 @@ export function parseMySeats(raw: unknown): MySeatsContract | null {
 }
 
 /**
+ * The synthetic FOUNDER chip (spec B4.2). The legacy seat ('seat-1') is the
+ * founder's HOME; the my-seats wire never lists it (the server only knows real
+ * tenant seats, never the desktop's legacy alias). Without this chip an admin who
+ * switched into a client seat could never return home — and the switch guard
+ * (isSeatSwitchAuthorized) would reject 'seat-1' because it is not in seats[].
+ * We PREPEND it (top of the rail) for ADMINS ONLY, so the founder always has a
+ * visible, switchable way back. A delegate never gets it (they own no account and
+ * see nothing anyway — invariant: a delegate can never reach the founder home).
+ */
+const FOUNDER_CHIP_NAME = 'Founder';
+
+/**
  * Resolve the SeatGuard access posture from a parsed contract (or `null`).
  *
  * FAIL-CLOSED invariants:
@@ -286,6 +298,14 @@ export function parseMySeats(raw: unknown): MySeatsContract | null {
  *  - admin with > 1 seat ⇒ canSwitch=true.
  *  - the pinned seat for a delegate is their single seat: the active seat if it
  *    is in their list, else the first listed seat, else the legacy seat.
+ *
+ * FOUNDER CHIP (admin only): the legacy 'seat-1' home is PREPENDED first for an
+ * admin (see FOUNDER_CHIP_NAME) so the founder can always return home. This is
+ * the ONE clean enrichment point — both the renderer (useSeatAccess) and the main
+ * switch guard resolve through here, so the chip is present consistently for the
+ * rail display AND for the isSeatSwitchAuthorized list-membership check. Because
+ * the chip adds a seat, an admin with a single client seat now has 2 seats ⇒
+ * canSwitch=true (they can hop between that client and home) — the intended fix.
  */
 export function resolveSeatAccess(contract: MySeatsContract | null): SeatAccess {
   if (contract === null) {
@@ -298,8 +318,24 @@ export function resolveSeatAccess(contract: MySeatsContract | null): SeatAccess 
     };
   }
 
-  const { role, seats } = contract;
+  const { role } = contract;
   const activeSeatId = contract.active_seat_id || LEGACY_SEAT_ID;
+
+  // Prepend the Founder chip for admins (idempotent — never double-prepend if the
+  // wire somehow already surfaced the legacy seat). Delegates get the wire's seats
+  // verbatim (no founder home). Placed FIRST so it sits at the top of the rail.
+  let seats = contract.seats;
+  if (role === 'admin' && !seats.some((s) => isLegacySeatId(s.seat_id))) {
+    seats = [
+      {
+        seat_id: LEGACY_SEAT_ID,
+        name: FOUNDER_CHIP_NAME,
+        role: 'admin',
+        is_active: activeSeatId === LEGACY_SEAT_ID,
+      },
+      ...seats,
+    ];
+  }
 
   // The delegate's pinned seat: prefer the active seat IF it is one of theirs;
   // else the first seat they can see; else the legacy fallback.
@@ -320,14 +356,29 @@ export function resolveSeatAccess(contract: MySeatsContract | null): SeatAccess 
  *
  * A delegate (or an admin trying to reach a seat NOT in their authorized list)
  * is rejected — this is the IPC-level fail-closed gate that a renderer guard
- * alone could not enforce. Legacy/no-account always rejects a NON-legacy target
- * (single-seat installs never switch).
+ * alone could not enforce.
+ *
+ * LEGACY SEAT AS TARGET (spec B4.2 — un-strand the founder): the legacy 'seat-1'
+ * is the FOUNDER'S HOME. It USED to be forbidden as any switch target, which
+ * stranded an admin in a client seat with no way back. New rule: an ADMIN MAY
+ * switch to the legacy seat (it is prepended to their authorized list as the
+ * Founder chip by resolveSeatAccess, so the membership check below admits it). A
+ * DELEGATE still can NEVER reach it — a delegate never has canSwitch=true and
+ * never has the legacy seat in their list, so both guards reject them. This keeps
+ * every other fail-closed guard intact (unsafe id, unlisted target, non-admin).
  */
 export function isSeatSwitchAuthorized(access: SeatAccess, targetSeatId: string): boolean {
   if (!access.canSwitch) return false;
+  // An EMPTY / whitespace target is not a switch intent (it is a missing id, not a
+  // "go home" request). Reject it BEFORE sanitizing — otherwise it would fold to the
+  // legacy seat and, now that admins may target the legacy home, silently authorize a
+  // home-switch on an empty string. An EXPLICIT legacy alias ('seat-1'/'default') is
+  // still a valid target (handled by sanitize + the membership check below).
+  if (typeof targetSeatId !== 'string' || targetSeatId.trim().length === 0) return false;
   const sanitized = sanitizeSeatId(targetSeatId);
   if (sanitized === null) return false;
-  // The legacy seat is never a switch target through an account switcher.
-  if (isLegacySeatId(sanitized)) return false;
+  // The legacy seat is a valid target ONLY when it is in the caller's authorized
+  // list (resolveSeatAccess prepends it for admins as the Founder home; delegates
+  // never have it). We no longer hard-block it here — membership is the gate.
   return access.seats.some((s) => s.seat_id === sanitized);
 }
