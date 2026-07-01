@@ -14,6 +14,7 @@ import {
   SiderSearchEntry,
   SiderScheduledEntry,
   SiderCommandCenterEntry,
+  SiderKanbanEntry,
 } from './SiderNav';
 // 1.2.18 Req 1 — Connectoren / Skills / Runtime / Dein Team moved OUT of the main
 // sidebar INTO Settings (declutter; the operator is the conductor). Their entries
@@ -121,6 +122,19 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
     }
   };
 
+  const handleKanbanClick = () => {
+    cleanupSiderTooltips();
+    blurActiveElement();
+    closePreview();
+    setIsBatchMode(false);
+    Promise.resolve(navigate('/kanban')).catch((error) => {
+      console.error('Navigation failed:', error);
+    });
+    if (onSessionClick) {
+      onSessionClick();
+    }
+  };
+
   // 1.2.18 — handlers for Connectoren/Skills/Runtime/Dein Team removed; those
   // surfaces moved into Settings (the old top-level routes still resolve via
   // redirects in Router.tsx for bookmarks/deep-links).
@@ -219,6 +233,13 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               collapsed={collapsed}
               siderTooltipProps={siderTooltipProps}
               onClick={handleCommandCenterClick}
+            />
+            <SiderKanbanEntry
+              isMobile={isMobile}
+              isActive={pathname === '/kanban'}
+              collapsed={collapsed}
+              siderTooltipProps={siderTooltipProps}
+              onClick={handleKanbanClick}
             />
             {/* 1.2.18 — Connectoren / Skills / Runtime / Dein Team entries moved into Settings. */}
             {/* Divider between fixed top nav and scrollable content area */}

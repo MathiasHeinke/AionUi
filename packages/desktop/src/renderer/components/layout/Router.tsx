@@ -29,6 +29,7 @@ const ScheduledTasksPage = React.lazy(() => import('@renderer/pages/cron/Schedul
 const TaskDetailPage = React.lazy(() => import('@renderer/pages/cron/ScheduledTasksPage/TaskDetailPage'));
 const TeamIndex = React.lazy(() => import('@renderer/pages/team'));
 const CommandCenterPage = React.lazy(() => import('@renderer/pages/commandCenter'));
+const KanbanBoardPage = React.lazy(() => import('@renderer/pages/kanban'));
 const ConnectorCatalogPage = React.lazy(() => import('@renderer/pages/connectorCatalog'));
 const LocalRuntimePage = React.lazy(() => import('@renderer/pages/localRuntime'));
 const RegistrationGatePage = React.lazy(() => import('@renderer/pages/registrationGate'));
@@ -148,6 +149,7 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           <Route path='/scheduled' element={withRouteFallback(ScheduledTasksPage)} />
           <Route path='/scheduled/:job_id' element={withRouteFallback(TaskDetailPage)} />
           <Route path='/command-center' element={withRouteFallback(CommandCenterPage)} />
+          <Route path='/kanban' element={withRouteFallback(KanbanBoardPage)} />
           {/* 1.2.18 — old standalone routes now redirect into Settings (bookmark-safe). */}
           <Route path='/connectors' element={<Navigate to='/settings/connectors' replace />} />
           <Route path='/skills' element={<Navigate to='/settings/capabilities?tab=skills' replace />} />

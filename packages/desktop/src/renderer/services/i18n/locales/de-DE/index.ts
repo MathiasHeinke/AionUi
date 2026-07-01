@@ -24,6 +24,7 @@ import agent from './agent.json';
 import team from './team.json';
 import pet from './pet.json';
 import commandCenter from './commandCenter.json';
+import kanban from './kanban.json';
 import connectorCatalog from './connectorCatalog.json';
 import skillLibrary from './skillLibrary.json';
 import localRuntime from './localRuntime.json';
@@ -53,6 +54,7 @@ export default {
   team,
   pet,
   commandCenter,
+  kanban,
   connectorCatalog,
   skillLibrary,
   localRuntime,

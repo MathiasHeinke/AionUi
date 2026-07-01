@@ -1,0 +1,72 @@
+{
+  "sider": "Tasks",
+  "title": "Tasks",
+  "subtitle": "This seat's board — runs on the native Hermes kanban.",
+  "refresh": "Refresh",
+  "labels": {
+    "board": "Board",
+    "cards": "Cards"
+  },
+  "columns": {
+    "research": "Research",
+    "draft": "Draft",
+    "assetGeneration": "Assets",
+    "review": "Review",
+    "readyToApprove": "Approval"
+  },
+  "emptyColumn": "No cards",
+  "card": {
+    "owner": "Owner",
+    "audit": "Audit"
+  },
+  "actions": {
+    "comment": "Comment",
+    "block": "Block",
+    "unblock": "Unblock",
+    "complete": "Complete",
+    "moveNext": "Next",
+    "finalLane": "Final lane"
+  },
+  "empty": {
+    "title": "No board in this seat yet",
+    "description": "EVE can create one — ask her in the chat."
+  },
+  "unavailable": {
+    "description": "The board is unavailable."
+  },
+  "blocked": {
+    "electronBridgeRequired": "The board is only available in the desktop app."
+  },
+  "errors": {
+    "loadFailed": "Could not load the board."
+  },
+  "create": {
+    "open": "New task",
+    "title": "New card",
+    "titleLabel": "Title",
+    "titlePlaceholder": "What needs doing?",
+    "titleRequired": "A title is required",
+    "descriptionLabel": "Description",
+    "descriptionPlaceholder": "Optional details",
+    "laneLabel": "Column",
+    "cancel": "Cancel",
+    "submit": "Create",
+    "success": "Card created.",
+    "failed": "Create failed."
+  },
+  "comment": {
+    "title": "Add comment",
+    "card": "Card",
+    "placeholder": "Your note",
+    "required": "A note is required",
+    "submit": "Save"
+  },
+  "move": {
+    "success": "Card moved.",
+    "failed": "Move failed."
+  },
+  "action": {
+    "success": "Updated.",
+    "failed": "Action failed."
+  }
+}

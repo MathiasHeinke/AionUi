@@ -1,0 +1,72 @@
+{
+  "sider": "Aufgaben",
+  "title": "Aufgaben",
+  "subtitle": "Das Board dieses Seats — läuft auf dem nativen Hermes-Kanban.",
+  "refresh": "Aktualisieren",
+  "labels": {
+    "board": "Board",
+    "cards": "Karten"
+  },
+  "columns": {
+    "research": "Recherche",
+    "draft": "Draft",
+    "assetGeneration": "Assets",
+    "review": "Review",
+    "readyToApprove": "Freigabe"
+  },
+  "emptyColumn": "Keine Karten",
+  "card": {
+    "owner": "Owner",
+    "audit": "Audit"
+  },
+  "actions": {
+    "comment": "Kommentar",
+    "block": "Blockieren",
+    "unblock": "Entblocken",
+    "complete": "Erledigt",
+    "moveNext": "Weiter",
+    "finalLane": "Letzte Spalte"
+  },
+  "empty": {
+    "title": "Noch kein Board in diesem Seat",
+    "description": "EVE kann eins anlegen — frag sie im Chat."
+  },
+  "unavailable": {
+    "description": "Das Board ist nicht verfügbar."
+  },
+  "blocked": {
+    "electronBridgeRequired": "Das Board ist nur in der Desktop-App verfügbar."
+  },
+  "errors": {
+    "loadFailed": "Board konnte nicht geladen werden."
+  },
+  "create": {
+    "open": "Neue Aufgabe",
+    "title": "Neue Karte",
+    "titleLabel": "Titel",
+    "titlePlaceholder": "Was ist zu tun?",
+    "titleRequired": "Ein Titel ist erforderlich",
+    "descriptionLabel": "Beschreibung",
+    "descriptionPlaceholder": "Optionale Details",
+    "laneLabel": "Spalte",
+    "cancel": "Abbrechen",
+    "submit": "Anlegen",
+    "success": "Karte angelegt.",
+    "failed": "Anlegen fehlgeschlagen."
+  },
+  "comment": {
+    "title": "Kommentar hinzufügen",
+    "card": "Karte",
+    "placeholder": "Deine Notiz",
+    "required": "Eine Notiz ist erforderlich",
+    "submit": "Speichern"
+  },
+  "move": {
+    "success": "Karte verschoben.",
+    "failed": "Verschieben fehlgeschlagen."
+  },
+  "action": {
+    "success": "Aktualisiert.",
+    "failed": "Aktion fehlgeschlagen."
+  }
+}
