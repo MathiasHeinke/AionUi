@@ -63,6 +63,19 @@ export type ConfigKeyMap = {
   // of any reassuring claim, so this is an off-switch; default ON so a real
   // redaction stays visible to the operator. undefined => treated as true.
   'commandEve.egressStatusVisible': boolean | undefined;
+  /**
+   * PER-SEAT PII/DSGVO egress redaction switch (S11). One of:
+   *   - 'on'  → sensitive data (phone/IBAN/address/health/finance/secrets) is
+   *             redacted from outbound text BEFORE it reaches a cloud model.
+   *   - 'off' → the operator (the DSGVO-responsible party) turned the filter off
+   *             for THIS seat; cloud egress goes UNREDACTED. Recorded honestly on
+   *             the egress receipt (`redaction: 'disabled_by_operator'`) and via a
+   *             persistent "PII-Schutz aus" badge — a control-waiver is never silent.
+   * Absent/undefined ⇒ treated as 'on'. FAIL-SAFE: a read error also resolves to
+   * 'on' (always redact) — Privacy needs NO last-known-good; the safe direction is
+   * always redact. Only the CLOUD lane is gated; local models never egress.
+   */
+  'commandEve.egressRedactionMode': 'on' | 'off' | undefined;
   'commandEve.modelWarmupEnabled': boolean | undefined;
   'commandEve.localModelTierId': string | undefined;
   /**

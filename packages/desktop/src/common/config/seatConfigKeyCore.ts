@@ -81,6 +81,10 @@ export const SEAT_SCOPED_CONFIG_KEYS: ReadonlySet<string> = new Set<string>([
   'commandEve.inferenceSelection',
   'commandEve.churnSignal',
   'commandEve.valueReceiptHourlyEur',
+  // S11: the PII/DSGVO egress redaction switch is PER-SEAT — the operator turns it
+  // off in HIS own seat (e.g. writing a brief with real contact data) while every
+  // client seat keeps its own DSGVO posture. Never install-global.
+  'commandEve.egressRedactionMode',
 ]);
 
 /** True when this key must be routed through `seatScopedKey`. */

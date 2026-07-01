@@ -43,11 +43,17 @@ vi.mock('@/renderer/components/settings/SettingsModal/contents/SystemModalConten
   default: () => <div>DevSettings</div>,
 }));
 
+const { configGetMock, configSetMock, configSetLocalMock } = vi.hoisted(() => ({
+  configGetMock: vi.fn(() => undefined as unknown),
+  configSetMock: vi.fn(() => Promise.resolve()),
+  configSetLocalMock: vi.fn(),
+}));
+
 vi.mock('@/common/config/configService', () => ({
   configService: {
-    get: vi.fn(() => undefined),
-    set: vi.fn(() => Promise.resolve()),
-    setLocal: vi.fn(),
+    get: configGetMock,
+    set: configSetMock,
+    setLocal: configSetLocalMock,
   },
 }));
 
@@ -240,5 +246,70 @@ describe('SystemModalContent directory settings', () => {
     await user.unhover(workDirButton);
     await user.hover(logDirButton);
     expect(await screen.findByText('settings.changeLogDir')).toBeInTheDocument();
+  });
+});
+
+describe('SystemModalContent — PII/DSGVO egress toggle (S11)', () => {
+  beforeEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+    systemInfoMock.mockResolvedValue(defaultSystemInfo);
+    configGetMock.mockReturnValue(undefined);
+  });
+
+  const findPiiSwitch = async (): Promise<HTMLElement> => {
+    const row = (await screen.findByText('settings.commandEvePiiProtection')).closest(
+      '[data-testid="system-preference-commandEvePiiProtection"]'
+    );
+    expect(row).not.toBeNull();
+    return within(row as HTMLElement).getByRole('switch');
+  };
+
+  it('renders the PII-Schutz toggle in the privacy area (default ON when unset)', async () => {
+    renderContent();
+    const sw = await findPiiSwitch();
+    // Absent config ⇒ ON (fail-safe default).
+    expect(sw).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('turning OFF (after confirm) persists mode "off"', async () => {
+    const user = userEvent.setup();
+    renderContent();
+    const sw = await findPiiSwitch();
+
+    // The mocked Modal.useModal auto-approves onOk → the waiver is confirmed.
+    await user.click(sw);
+
+    await waitFor(() => {
+      expect(configSetMock).toHaveBeenCalledWith('commandEve.egressRedactionMode', 'off');
+    });
+  });
+
+  it('turning back ON persists mode "on" immediately (safe direction, no confirm needed)', async () => {
+    const user = userEvent.setup();
+    // Start from an explicit 'off' so the first click re-enables.
+    configGetMock.mockImplementation((key: string) => (key === 'commandEve.egressRedactionMode' ? 'off' : undefined));
+    renderContent();
+    const sw = await findPiiSwitch();
+    expect(sw).toHaveAttribute('aria-checked', 'false');
+
+    await user.click(sw);
+
+    await waitFor(() => {
+      expect(configSetMock).toHaveBeenCalledWith('commandEve.egressRedactionMode', 'on');
+    });
   });
 });

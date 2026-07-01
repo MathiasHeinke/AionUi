@@ -63,12 +63,13 @@ describe('(b) cross-seat fence — two seats → two distinct keys', () => {
 });
 
 describe('(c) the allowlist is explicit + auditable', () => {
-  it('exposes exactly the 7 per-seat keys', () => {
+  it('exposes exactly the 8 per-seat keys', () => {
     expect([...SEAT_SCOPED_CONFIG_KEYS].toSorted()).toEqual(
       [
         'commandEve.churnSignal',
         'commandEve.clientSeedDismissed',
         'commandEve.clientSeeded',
+        'commandEve.egressRedactionMode',
         'commandEve.executionMode',
         'commandEve.inferenceSelection',
         'commandEve.teamWorkerStatus',
@@ -83,7 +84,7 @@ describe('(c) the allowlist is explicit + auditable', () => {
     }
   });
 
-  it('the 7 allowlisted keys ARE seat-scoped', () => {
+  it('the 8 allowlisted keys ARE seat-scoped', () => {
     for (const key of SEAT_SCOPED_CONFIG_KEYS) {
       expect(isSeatScopedConfigKey(key)).toBe(true);
     }

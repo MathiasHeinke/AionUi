@@ -95,6 +95,24 @@ export type CommandEveTeamStatusResolver = () =>
   | undefined
   | Promise<EveTeamWorkerStatusMap | undefined>;
 
+/**
+ * Per-request resolver for the PER-SEAT PII/DSGVO egress-redaction mode
+ * (`commandEve.egressRedactionMode`) — S11. Injected at shim startup (main
+ * process) so the shim can READ the live on/off switch the settings card writes
+ * to the BACKEND store. Returns `'on'` (redact — the default) or `'off'` (the
+ * operator turned the filter off for this seat; skip redaction, but record it on
+ * the receipt).
+ *
+ * MAY be async (the value is a per-request backend read, seat-scoped-aware) — the
+ * shim `await`s it. When omitted, the shim behaves EXACTLY as before this switch
+ * existed: it always redacts (the default resolver returns `'on'`), so the toggle
+ * is purely additive and fail-SAFE by construction.
+ */
+export type CommandEveEgressRedactionModeResolver = () =>
+  | 'on'
+  | 'off'
+  | Promise<'on' | 'off'>;
+
 export type CommandEveOllamaShimOptions = {
   port?: number;
   ollamaBaseUrl?: string;
@@ -115,6 +133,14 @@ export type CommandEveOllamaShimOptions = {
    * (every worker is treated as active), so this is purely additive.
    */
   teamWorkerStatus?: CommandEveTeamStatusResolver;
+  /**
+   * Optional PER-SEAT PII/DSGVO egress-redaction-mode resolver (S11). When it
+   * resolves to `'off'` the shim SKIPS redaction on the CLOUD lane for this seat
+   * and stamps the egress receipt `redaction: 'disabled_by_operator'` (evidence,
+   * never silent). `'on'`/omitted ⇒ redact as before (fail-safe). The LOCAL lane
+   * never egresses, so it is never gated by this resolver.
+   */
+  egressRedactionMode?: CommandEveEgressRedactionModeResolver;
 };
 
 export type CommandEveModelWarmupOptions = {
@@ -526,6 +552,14 @@ async function handleEveCloudCompletions(
     return;
   }
 
+  // PER-SEAT PII/DSGVO egress switch (S11). Read the live mode FRESH per request
+  // BEFORE the boundary runs. FAIL-SAFE by construction: the resolver returns 'on'
+  // on any read error (always redact — no last-known-good), so only a conscious,
+  // successfully-read 'off' disables redaction, and only for THIS seat's cloud
+  // lane. The local lane never egresses and is never reached here.
+  const egressRedactionMode = await options.egressRedactionMode();
+  const redactionDisabledByOperator = egressRedactionMode === 'off';
+
   // Egress boundary — same gate as local, but the provider is a CLOUD lane.
   const egressBoundary = await evaluateCommandEveEgressBoundary({
     text: asMessages(body.messages).map(messageText).join('\n\n'),
@@ -535,20 +569,32 @@ async function handleEveCloudCompletions(
       model: tier,
       baseUrl: functionUrl,
     },
-    policyAction: options.egressPolicyAction,
+    // When the operator disabled the filter for this seat we force 'allow' so the
+    // boundary neither redacts nor blocks — the payload goes UNREDACTED. We still
+    // RUN the boundary (so the receipt records what WOULD have been found) and stamp
+    // the honest evidence below; a control-waiver is never silent.
+    policyAction: redactionDisabledByOperator ? 'allow' : options.egressPolicyAction,
   });
+  // Stamp the honest evidence onto the receipt when the operator turned the filter
+  // off — this is the audit trail for a deliberate DSGVO control-waiver.
+  const egressReceipt = redactionDisabledByOperator
+    ? { ...egressBoundary.receipt, redaction: 'disabled_by_operator' as const }
+    : egressBoundary.receipt;
   try {
-    writeCommandEveEgressBoundaryReceipt(options.egressReceiptPath, egressBoundary.receipt);
+    writeCommandEveEgressBoundaryReceipt(options.egressReceiptPath, egressReceipt);
   } catch (error) {
     console.warn('[Command EVE] Failed to write egress boundary receipt:', error);
   }
   response.setHeader('x-command-eve-egress-decision', egressBoundary.decision);
+  if (redactionDisabledByOperator) {
+    response.setHeader('x-command-eve-egress-redaction', 'disabled_by_operator');
+  }
   if (egressBoundary.decision === 'block') {
     jsonResponse(response, 451, {
       error: {
         message:
           'Command EVE blocked sensitive data before model egress. Move secrets into settings, an env file, or an approved vault flow.',
-        receipt: egressBoundary.receipt,
+        receipt: egressReceipt,
       },
     });
     return;
@@ -870,6 +916,9 @@ export async function startCommandEveOllamaOpenAiShim(shimOptions: CommandEveOll
     // Default resolver returns no status map ⇒ every worker is treated active
     // (gating is a no-op until the main process injects the live status map).
     teamWorkerStatus: shimOptions.teamWorkerStatus || ((): undefined => undefined),
+    // Default resolver returns 'on' ⇒ always redact (fail-SAFE). The switch is a
+    // no-op (redaction unchanged) until the main process injects the live mode.
+    egressRedactionMode: shimOptions.egressRedactionMode || ((): 'on' => 'on'),
   };
   server = http.createServer((request, response) => {
     void (async () => {

@@ -33,6 +33,11 @@ const EgressBoundaryNotice: React.FC<{ active?: boolean }> = ({ active = false }
   const { t } = useTranslation();
   const [egressVisibleSetting] = useConfig('commandEve.egressStatusVisible');
   const egressVisible = egressVisibleSetting ?? true;
+  // S11 — PER-SEAT PII/DSGVO switch. When the operator turned the filter OFF for
+  // this seat, a DSGVO control-waiver is in effect and must NEVER be invisible: we
+  // show a persistent "PII-Schutz aus" badge for as long as it is off (absent ⇒ on).
+  const [egressRedactionMode] = useConfig('commandEve.egressRedactionMode');
+  const redactionDisabled = egressRedactionMode === 'off';
   const [egressBoundary, setEgressBoundary] = useState<EgressBoundaryStatus | null>(null);
 
   useEffect(() => {
@@ -56,7 +61,15 @@ const EgressBoundaryNotice: React.FC<{ active?: boolean }> = ({ active = false }
     };
   }, [egressVisible, active]);
 
-  if (!egressVisible) return null;
+  // The persistent "PII-Schutz aus" badge is shown even when the data-boundary
+  // signal is hidden (`egressVisible` off): a DSGVO control-waiver must always be
+  // visible and cannot be dismissed via the display toggle.
+  const offBadge = redactionDisabled ? (
+    <div className='mb-8px flex items-center gap-6px px-12px py-6px rd-12px border border-solid border-border-2 bg-fill-1 text-12px text-danger-6'>
+      <Shield theme='outline' size='13' />
+      <span>{t('conversation.runtimeStatus.egress.disabled', { defaultValue: 'PII-Schutz aus' })}</span>
+    </div>
+  ) : null;
 
   const egressDecision = egressBoundary?.decision;
   const egressLabel =
@@ -65,20 +78,32 @@ const EgressBoundaryNotice: React.FC<{ active?: boolean }> = ({ active = false }
       : egressDecision === 'redact'
         ? t('conversation.runtimeStatus.egress.redacted', { count: egressBoundary?.finding_count ?? 0 })
         : null;
-  if (!egressLabel) return null;
 
-  const egressClass = egressDecision === 'block' ? 'text-danger-6' : 'text-warning-6';
+  // Only the ACTION strip is gated by the display toggle; the off-badge is not.
+  const actionStrip =
+    egressVisible && egressLabel ? (
+      <div
+        className={`mb-8px flex items-center gap-6px px-12px py-6px rd-12px border border-solid border-border-2 bg-fill-1 text-12px ${
+          egressDecision === 'block' ? 'text-danger-6' : 'text-warning-6'
+        }`}
+      >
+        <Shield theme='outline' size='13' />
+        <span>{egressLabel}</span>
+        {egressBoundary?.observed_at ? (
+          <span className='text-t-tertiary'>
+            {new Date(egressBoundary.observed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        ) : null}
+      </div>
+    ) : null;
+
+  if (!offBadge && !actionStrip) return null;
 
   return (
-    <div className={`mb-8px flex items-center gap-6px px-12px py-6px rd-12px border border-solid border-border-2 bg-fill-1 text-12px ${egressClass}`}>
-      <Shield theme='outline' size='13' />
-      <span>{egressLabel}</span>
-      {egressBoundary?.observed_at ? (
-        <span className='text-t-tertiary'>
-          {new Date(egressBoundary.observed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </span>
-      ) : null}
-    </div>
+    <>
+      {offBadge}
+      {actionStrip}
+    </>
   );
 };
 

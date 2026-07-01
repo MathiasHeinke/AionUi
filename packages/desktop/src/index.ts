@@ -50,6 +50,7 @@ import {
 } from './process/commandEve/inferenceSelectionBackendRead';
 import { readCommandEveSettingsFromBackend } from './process/commandEve/commandEveBackendSettingsRead';
 import { createTeamWorkerStatusResolver } from './process/commandEve/teamWorkerStatusResolverCore';
+import { createEgressRedactionModeResolver } from './process/commandEve/egressRedactionModeResolverCore';
 import {
   buildCompanyOsRootCandidates,
   COMPANY_OS_ROOT_MARKER,
@@ -512,6 +513,23 @@ function buildCommandEveShimTeamStatusResolver(): () => Promise<EveTeamWorkerSta
 }
 
 /**
+ * Build the PER-SEAT PII/DSGVO egress-redaction-mode resolver passed to the shim
+ * (S11). Runs PER cloud request and reads the live `commandEve.egressRedactionMode`
+ * switch FRESH from the BACKEND settings store (the store the settings card writes
+ * to) so a toggle flip takes effect on the very next turn.
+ *
+ * FAIL-SAFE: any backend read error resolves to 'on' (always redact) — Privacy
+ * needs NO last-known-good; the safe direction is always redact (see
+ * egressRedactionModeResolverCore.ts). Only a conscious, successfully-read 'off'
+ * disables redaction, and only for the active seat's cloud lane.
+ */
+function buildCommandEveShimEgressRedactionModeResolver(): () => Promise<'on' | 'off'> {
+  return createEgressRedactionModeResolver(readCommandEveSettingsFromBackend, (error) =>
+    console.warn('[Command EVE] EVE shim egress-redaction-mode backend read failed; failing SAFE (redact):', error)
+  );
+}
+
+/**
  * CLI-Keystone runtime glue (the wiring the audit found MISSING). Reads the
  * PERSISTED worker assignments + the live team-status map and resolves them into
  * the two bootstrap inputs that make the keystone ALIVE:
@@ -851,6 +869,7 @@ function registerCommandEveRuntimeBridge(): void {
           egressReceiptPath: commandEveEgressBoundaryReceiptPath(paths.runtimeRoot),
           eveRouting: buildCommandEveShimRoutingResolver(),
           teamWorkerStatus: buildCommandEveShimTeamStatusResolver(),
+          egressRedactionMode: buildCommandEveShimEgressRedactionModeResolver(),
         }));
       commandEveOllamaShimUrl = shimUrl;
       const warmupReceipt = shouldWarm
@@ -911,6 +930,7 @@ function registerCommandEveRuntimeBridge(): void {
           egressReceiptPath: commandEveEgressBoundaryReceiptPath(paths.runtimeRoot),
           eveRouting: buildCommandEveShimRoutingResolver(),
           teamWorkerStatus: buildCommandEveShimTeamStatusResolver(),
+          egressRedactionMode: buildCommandEveShimEgressRedactionModeResolver(),
         }));
       commandEveOllamaShimUrl = shimUrl;
       const warmupReceipt = await ensureCommandEveLocalModelWarmup(receipt, shimUrl, warmCommandEveLocalModel);
@@ -1366,6 +1386,7 @@ const handleAppReady = async (): Promise<void> => {
       egressReceiptPath: commandEveEgressBoundaryReceiptPath(runtimePaths.runtimeRoot),
       eveRouting: buildCommandEveShimRoutingResolver(),
       teamWorkerStatus: buildCommandEveShimTeamStatusResolver(),
+      egressRedactionMode: buildCommandEveShimEgressRedactionModeResolver(),
     });
     commandEveOllamaShimUrl = shimUrl;
     mark(`commandEveOllamaShim (${shimUrl})`);

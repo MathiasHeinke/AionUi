@@ -504,7 +504,8 @@
     "egress": {
       "blocked": "EVE hat sensible Daten vor dem Modell blockiert ({{count}} Treffer).",
       "redacted": "EVE hat sensible Daten vor dem Modell bereinigt ({{count}} Treffer).",
-      "clear": "Letzter Modellaufruf ohne sensible Treffer."
+      "clear": "Letzter Modellaufruf ohne sensible Treffer.",
+      "disabled": "PII-Schutz aus"
     }
   },
   "sendbox": {

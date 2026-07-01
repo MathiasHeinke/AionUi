@@ -642,6 +642,161 @@ describe('Command EVE shim — EVE cloud routing', () => {
   });
 });
 
+describe('Command EVE shim — PER-SEAT PII/DSGVO egress switch (S11)', () => {
+  const PHONE = '+49 30 12345678';
+
+  it('mode OFF → forwards the payload UNREDACTED to the cloud function + receipt header disabled_by_operator', async () => {
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1', // never reached
+      eveRouting: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE, tier: 'standard' }),
+      // Operator turned the filter OFF for this seat.
+      egressRedactionMode: () => 'off',
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [{ role: 'user', content: `Ruf ${PHONE} an.` }],
+        stream: false,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    // NOT redacted: the boundary was forced to 'allow', so the raw phone reaches the fn.
+    expect(response.headers.get('x-command-eve-egress-decision')).toBe('allow');
+    // Honest evidence, never silent: the receipt header records the operator waiver.
+    expect(response.headers.get('x-command-eve-egress-redaction')).toBe('disabled_by_operator');
+    const forwarded = JSON.stringify(fnSeen.body);
+    expect(forwarded).toContain('12345678');
+    expect(forwarded).not.toContain('[REDACTED_PHONE]');
+  });
+
+  it('mode OFF → the written egress receipt carries redaction: disabled_by_operator (audit evidence)', async () => {
+    const fs = await import('fs');
+    const os = await import('os');
+    const path = await import('path');
+    const receiptDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-egress-receipt-'));
+    const receiptPath = path.join(receiptDir, 'egress-boundary-receipt.json');
+
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      egressReceiptPath: receiptPath,
+      eveRouting: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE, tier: 'standard' }),
+      egressRedactionMode: () => 'off',
+    });
+
+    await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [{ role: 'user', content: `IBAN DE89 3704 0044 0532 0130 00` }],
+        stream: false,
+      }),
+    });
+
+    const receipt = JSON.parse(fs.readFileSync(receiptPath, 'utf8')) as { redaction?: string; decision?: string };
+    expect(receipt.redaction).toBe('disabled_by_operator');
+    fs.rmSync(receiptDir, { recursive: true, force: true });
+  });
+
+  it('mode ON → redacts as before (the fail-safe default is preserved)', async () => {
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      eveRouting: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE, tier: 'standard' }),
+      egressRedactionMode: () => 'on',
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [{ role: 'user', content: `Ruf ${PHONE} an.` }],
+        stream: false,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('x-command-eve-egress-decision')).toBe('redact');
+    expect(response.headers.get('x-command-eve-egress-redaction')).toBeNull();
+    const forwarded = JSON.stringify(fnSeen.body);
+    expect(forwarded).not.toContain('12345678');
+    expect(forwarded).toContain('[REDACTED_PHONE]');
+  });
+
+  it('mode UNDEFINED (resolver omitted) → redacts (fail-safe default resolver returns on)', async () => {
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+    // No egressRedactionMode option at all — must behave exactly as before S11 (redact).
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      eveRouting: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE, tier: 'standard' }),
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [{ role: 'user', content: `Ruf ${PHONE} an.` }],
+        stream: false,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('x-command-eve-egress-decision')).toBe('redact');
+    const forwarded = JSON.stringify(fnSeen.body);
+    expect(forwarded).not.toContain('12345678');
+  });
+
+  it('the LOCAL lane always redacts regardless of the mode (never egresses; toggle only gates cloud)', async () => {
+    let ollamaBody: Record<string, unknown> | undefined;
+    const ollamaBaseUrl = await startFakeOpenAiServer((bodySeen) => {
+      ollamaBody = bodySeen;
+    });
+
+    // Local selection (EVE route inactive) + mode OFF: the local lane MUST still
+    // redact (it does not egress, so the operator's cloud-lane waiver never
+    // reaches it — the local path never calls the mode resolver).
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl,
+      eveRouting: () => buildEveCloudRoute({ isEveSelection: false }),
+      egressRedactionMode: () => 'off',
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [{ role: 'user', content: `Ruf ${PHONE} an.` }],
+        stream: false,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    // The local lane redacted (unchanged behavior), NOT gated by the cloud toggle.
+    expect(response.headers.get('x-command-eve-egress-decision')).toBe('redact');
+    const forwarded = JSON.stringify(ollamaBody);
+    expect(forwarded).not.toContain('12345678');
+  });
+});
+
 describe('warmCommandEveEveLane — EVE cloud preflight', () => {
   it('routes the preflight through the shim to the EVE function (NOT a local ping), with bearer + tier', async () => {
     let ollamaSeen = false;

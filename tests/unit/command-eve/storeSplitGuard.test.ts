@@ -45,6 +45,10 @@ const RENDERER_WRITTEN_KEYS: readonly string[] = [
   'commandEve.workerAssignments',
   'commandEve.localModelTierId',
   'commandEve.modelWarmupEnabled',
+  // S11: the PII/DSGVO egress redaction switch. The settings card writes it via
+  // configService to the backend store; the shim reads it via the backend batch
+  // reader (createEgressRedactionModeResolver), never from ProcessConfig.
+  'commandEve.egressRedactionMode',
 ];
 
 /**

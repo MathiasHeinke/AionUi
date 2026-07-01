@@ -55,6 +55,9 @@ const SystemModalContent: React.FC = () => {
   const [autoPreviewOfficeFiles, setAutoPreviewOfficeFiles] = useState(true);
   const [runtimeStatusVisible, setRuntimeStatusVisible] = useState(true);
   const [egressStatusVisible, setEgressStatusVisible] = useState(true);
+  // S11 — PER-SEAT PII/DSGVO egress redaction switch. `true` = filter ON (redact),
+  // the fail-safe default; `false` = operator turned it OFF for this seat.
+  const [egressRedactionOn, setEgressRedactionOn] = useState(true);
   const [modelWarmupEnabled, setModelWarmupEnabled] = useState(true);
 
   useEffect(() => {
@@ -98,6 +101,8 @@ const SystemModalContent: React.FC = () => {
     setAutoPreviewOfficeFiles(configService.get('system.autoPreviewOfficeFiles') ?? true);
     setRuntimeStatusVisible(configService.get('commandEve.runtimeStatusVisible') ?? true);
     setEgressStatusVisible(configService.get('commandEve.egressStatusVisible') ?? true);
+    // Absent ⇒ 'on' (redact) — fail-safe default. ON iff not explicitly 'off'.
+    setEgressRedactionOn(configService.get('commandEve.egressRedactionMode') !== 'off');
     setModelWarmupEnabled(configService.get('commandEve.modelWarmupEnabled') ?? true);
     const pt = configService.get('acp.promptTimeout');
     if (pt && pt > 0) setPromptTimeout(pt);
@@ -261,6 +266,45 @@ const SystemModalContent: React.FC = () => {
     });
   }, []);
 
+  // S11 — PER-SEAT PII/DSGVO egress redaction switch. Turning it OFF is a DSGVO
+  // control-waiver, so it is gated behind an explicit confirm with the warning
+  // (spec §5). Turning it back ON is immediate (the safe direction). The persisted
+  // value is the string mode 'on'|'off' (seat-scoped); the fail-safe main-process
+  // resolver treats absent/error as 'on'.
+  const applyEgressRedactionMode = useCallback((on: boolean) => {
+    const mode = on ? 'on' : 'off';
+    const previous = !on;
+    setEgressRedactionOn(on);
+    configService.set('commandEve.egressRedactionMode', mode).catch(() => {
+      setEgressRedactionOn(previous);
+      configService.setLocal('commandEve.egressRedactionMode', previous ? 'on' : 'off');
+    });
+  }, []);
+
+  const handleEgressRedactionChange = useCallback(
+    (checked: boolean) => {
+      if (checked) {
+        // Re-enabling the filter is the SAFE direction — no confirm needed.
+        applyEgressRedactionMode(true);
+        return;
+      }
+      // Disabling it is a conscious DSGVO control-waiver — confirm with the warning.
+      modal.confirm({
+        title: t('settings.commandEvePiiProtectionConfirmTitle', {
+          defaultValue: 'PII-Schutz für diesen Seat ausschalten?',
+        }),
+        content: t('settings.commandEvePiiProtectionConfirmBody', {
+          defaultValue:
+            'Aus: Inhalte gehen UNGESCHWÄRZT an das Cloud-Modell (gilt nur für diesen Seat). Persönliche Daten (Telefon, IBAN, Adressen, Gesundheits-/Finanzdaten) werden dann NICHT mehr automatisch entfernt, bevor sie deinen Mac verlassen.',
+        }),
+        okText: t('settings.commandEvePiiProtectionConfirmOk', { defaultValue: 'Trotzdem ausschalten' }),
+        cancelText: t('common.cancel', { defaultValue: 'Abbrechen' }),
+        onOk: () => applyEgressRedactionMode(false),
+      });
+    },
+    [applyEgressRedactionMode, modal, t]
+  );
+
   const handleModelWarmupEnabledChange = useCallback((checked: boolean) => {
     setModelWarmupEnabled(checked);
     configService.set('commandEve.modelWarmupEnabled', checked).catch(() => {
@@ -311,6 +355,17 @@ const SystemModalContent: React.FC = () => {
           },
         ]
       : []),
+    {
+      // S11 — PER-SEAT PII/DSGVO egress redaction switch. Mounted right next to the
+      // egress status signal (the same Privacy area). Default ON (fail-safe redact).
+      key: 'commandEvePiiProtection',
+      label: t('settings.commandEvePiiProtection', { defaultValue: 'PII-Schutz (DSGVO-Egress-Filter)' }),
+      description: t('settings.commandEvePiiProtectionDesc', {
+        defaultValue:
+          'An: Persönliche Daten (Telefon, IBAN, Adressen, Gesundheits-/Finanzdaten) werden vor dem Senden an Cloud-Modelle automatisch geschwärzt. Lokale Modelle sind nicht betroffen — dort verlassen Daten deinen Mac nie. Gilt nur für diesen Seat.',
+      }),
+      component: <Switch checked={egressRedactionOn} onChange={handleEgressRedactionChange} />,
+    },
     {
       key: 'commandEveEgressStatus',
       label: t('settings.commandEveEgressStatus'),

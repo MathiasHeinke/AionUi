@@ -22,6 +22,16 @@ export type CommandEveEgressFinding = {
   count: number;
 };
 
+/**
+ * Redaction-status evidence on the receipt (S11). Present ONLY when the shim
+ * consciously DID NOT apply the redactor to an outbound turn because the operator
+ * turned the PII/DSGVO egress filter OFF for the active seat. Absent on every
+ * normal turn — its absence means "the standard boundary applied" (redact/block/
+ * allow per `decision`), never "silently disabled". Evidence, not silence: a
+ * DSGVO control-waiver must be visible in the audit trail.
+ */
+export type CommandEveEgressRedactionStatus = 'disabled_by_operator';
+
 export type CommandEveEgressBoundaryReceipt = {
   version: 'command-eve-egress-boundary-receipt/v0';
   observed_at: string;
@@ -34,6 +44,12 @@ export type CommandEveEgressBoundaryReceipt = {
   output_sha256?: string;
   raw_text_stored: false;
   reason: string;
+  /**
+   * S11 — only set to `'disabled_by_operator'` when the operator switched the
+   * PII/DSGVO egress filter OFF for this seat and the shim therefore skipped
+   * redaction. Omitted on every other turn.
+   */
+  redaction?: CommandEveEgressRedactionStatus;
 };
 
 export type CommandEveEgressBoundaryInput = {

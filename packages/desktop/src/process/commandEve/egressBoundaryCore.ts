@@ -20,6 +20,7 @@ export {
   type CommandEveEgressPolicyAction,
   type CommandEveEgressProvider,
   type CommandEveEgressProviderKind,
+  type CommandEveEgressRedactionStatus,
 } from '@/common/api/egressBoundaryCore';
 
 import type { CommandEveEgressBoundaryReceipt } from '@/common/api/egressBoundaryCore';
