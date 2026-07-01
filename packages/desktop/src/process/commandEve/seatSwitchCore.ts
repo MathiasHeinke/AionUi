@@ -47,13 +47,16 @@
  */
 
 import {
+  DEFAULT_SEAT_LABEL,
   LEGACY_SEAT_ID,
   assertSeatId,
   clearActiveSeat,
   getActiveSeatId,
+  getActiveSeatLabel,
   isLegacySeatId,
   sanitizeSeatId,
   setActiveSeatId,
+  setActiveSeatLabel,
 } from './seatContextCore';
 
 /** Stable result envelope returned to the bridge / renderer. */
@@ -95,9 +98,20 @@ export interface SeatSwitchDeps {
  * @param newSeatId the target seat (sanitized via assertSeatId — a path-traversal
  *   / separator / NUL id THROWS BEFORE anything mutates, so a crafted id can never
  *   become active).
+ * @param deps the injectable side-effecting seams.
+ * @param targetLabel OPTIONAL display label for the target seat (Seat-Context-
+ *   Bridge / B1). Captured from the SAME wire seat record the caller already holds
+ *   (access.seats[].name) — NO network here. Set alongside setActiveSeatId in the
+ *   structural phase so the very next env bake carries the new label. A legacy/
+ *   founder target folds to 'Founder' (setActiveSeatLabel defaults a blank to it).
  */
-export async function applySeatSwitch(newSeatId: string | null | undefined, deps: SeatSwitchDeps): Promise<SeatSwitchResult> {
+export async function applySeatSwitch(
+  newSeatId: string | null | undefined,
+  deps: SeatSwitchDeps,
+  targetLabel?: string | null
+): Promise<SeatSwitchResult> {
   const priorSeatId = getActiveSeatId();
+  const priorSeatLabel = getActiveSeatLabel();
 
   // (a) Sanitize FIRST. A bad id throws here, BEFORE any state mutates, so the
   // active seat is untouched (fail-closed). assertSeatId folds legacy aliases to
@@ -139,6 +153,9 @@ export async function applySeatSwitch(newSeatId: string | null | undefined, deps
   const rollback = async (): Promise<void> => {
     try {
       setActiveSeatId(priorSeatId);
+      // Restore the prior label too so the id + label holders never disagree (the
+      // rolled-back env bake must carry the prior seat's label, not the target's).
+      setActiveSeatLabel(priorSeatLabel);
     } catch {
       // The prior seat was already sanitized once (it was active); if it somehow
       // fails to re-set, fall back to the hard legacy default — never leave the
@@ -155,6 +172,11 @@ export async function applySeatSwitch(newSeatId: string | null | undefined, deps
   // (b) Make the target active, then (c) re-home env, then (d) re-spawn.
   try {
     setActiveSeatId(targetSeatId); // (a→b boundary: holder now points at target
+    // Seat-Context-Bridge (B1): capture the target label from the wire seat record
+    // the caller threaded (access.seats[].name). Done HERE, alongside the id set,
+    // so the prepareEnv bake immediately below carries the NEW label. A legacy/
+    // founder target with no label folds to 'Founder'. Pure: no network.
+    setActiveSeatLabel(isLegacySeatId(targetSeatId) ? DEFAULT_SEAT_LABEL : targetLabel);
     await deps.prepareEnv(); // (b) env.HERMES_HOME → seats/<target>/home
     await deps.restartBackend(); // (c) stop + re-spawn so the agent re-homes
     await deps.rebindConfig(targetSeatId); // (d) config cache re-reads under target

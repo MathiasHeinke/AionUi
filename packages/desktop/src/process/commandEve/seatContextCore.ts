@@ -331,9 +331,48 @@ export function stripActiveSeatScopeFromRoot(root: string): string {
  */
 let activeSeatId: string = LEGACY_SEAT_ID;
 
+/**
+ * The DISPLAY LABEL of the currently-active seat (Seat-Context-Bridge / B1).
+ *
+ * This is a PLAIN display name ('Founder' for the legacy/founder home, or the
+ * client seat's `name` from the my-seats wire) — NEVER a secret, id or PII
+ * beyond what already shows on a chip. It is process-local state, set at the
+ * SAME two points the id is set (seat-switch + boot) and only READ in the env
+ * bake path — so the env-bake path performs NO network / no seat-record lookup
+ * (the label is captured at switch/boot from the wire's seat list the caller
+ * already holds). It defaults to 'Founder' so a legacy single-seat install bakes
+ * a truthful founder label with zero behavior change.
+ */
+export const DEFAULT_SEAT_LABEL = 'Founder';
+let activeSeatLabel: string = DEFAULT_SEAT_LABEL;
+
 /** Get the currently-active seat id (defaults to the legacy seat). */
 export function getActiveSeatId(): string {
   return activeSeatId;
+}
+
+/**
+ * Get the currently-active seat's DISPLAY LABEL (defaults to 'Founder' for the
+ * legacy home). Set by `setActiveSeatLabel` at the seat-switch + boot set-points;
+ * only ever read (never fetched) in the env-bake path.
+ */
+export function getActiveSeatLabel(): string {
+  return activeSeatLabel;
+}
+
+/**
+ * Set the active seat's DISPLAY LABEL for this process. A blank/whitespace/
+ * non-string label resets to the 'Founder' default (fail-truthful — the bake
+ * never emits an empty label). The label is a display name only; it is the
+ * caller's responsibility to pass a name, never a secret. Returns the resulting
+ * label. Kept separate from `setActiveSeatId` so a switch can set the id first
+ * (with its sanitize/throw guard) and the label second, from the SAME wire seat
+ * record — no second store, no network in the bake path.
+ */
+export function setActiveSeatLabel(label?: string | null): string {
+  const trimmed = typeof label === 'string' ? label.trim() : '';
+  activeSeatLabel = trimmed.length > 0 ? trimmed : DEFAULT_SEAT_LABEL;
+  return activeSeatLabel;
 }
 
 /** True when the active seat is the legacy single-seat (the default). */
@@ -353,9 +392,23 @@ export function setActiveSeatId(seatId?: string | null): string {
   return activeSeatId;
 }
 
+/**
+ * Get the KANBAN BOARD SLUG for the currently-active seat (Seat-Context-Bridge /
+ * B1). The bundled Hermes wheel natively consumes `HERMES_KANBAN_BOARD` to pin a
+ * worker onto a board. Per-seat boards are NOT created yet (a later slice, spec
+ * §S7), so this returns '' for now. The env-bake path MUST only set the env var
+ * when this is non-empty, so it never overwrites a user's own board env with an
+ * empty string. Kept as a resolver (not a constant) so the later slice fills it
+ * from the active seat's record with no bake-path change.
+ */
+export function getActiveSeatBoardSlug(): string {
+  return '';
+}
+
 /** Reset the active seat back to the legacy default (for clean-reset / tests). */
 export function clearActiveSeat(): void {
   activeSeatId = LEGACY_SEAT_ID;
+  activeSeatLabel = DEFAULT_SEAT_LABEL;
 }
 
 /**
@@ -366,7 +419,8 @@ export function resolveActiveSeatHome(userDataPath: string, homeDir?: string): S
   return resolveSeatHome(userDataPath, activeSeatId, homeDir);
 }
 
-/** Test-only: force-reset the active-seat holder. */
+/** Test-only: force-reset the active-seat holder (id + label). */
 export function __resetActiveSeatForTests(): void {
   activeSeatId = LEGACY_SEAT_ID;
+  activeSeatLabel = DEFAULT_SEAT_LABEL;
 }

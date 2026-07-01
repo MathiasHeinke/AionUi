@@ -85,7 +85,7 @@ import { getCommandEveLocalRuntimeProvider } from '@/common/config/commandEveShe
 import { CREDITS_STATUS_FUNCTION_URL, type ClientSeedInput, type CreditsTier } from '@/common/config/creditsCore';
 import { ProcessConfig, getSkillsDir, getCronSkillsDir } from '@process/utils/initStorage';
 import { getDataPath } from '@process/utils/utils';
-import { getActiveSeatId } from '@process/commandEve/seatContextCore';
+import { getActiveSeatId, sanitizeSeatId } from '@process/commandEve/seatContextCore';
 import { isSeatSwitchAuthorized, parseMySeats, resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
 import { readMySeatsWire as readMySeatsWireCore } from '@process/commandEve/seatWireFetchCore';
 import { readCompanyBrainSeedState, writeCompanyBrainSeed } from '@process/commandEve/companyBrainSeedCore';
@@ -1999,6 +1999,13 @@ export function initCommandEveBridge(): void {
       const { restartCommandEveBackendForSeat } = await import('@process/commandEve/seatSwitchRuntime');
       const { prepareCommandEveRuntimeProcessEnv } = await import('@process/commandEve/runtimeBootstrapCore');
 
+      // Seat-Context-Bridge (B1): the target seat's DISPLAY LABEL comes from the
+      // SAME wire seat record already resolved above (access.seats[].name) — no
+      // extra fetch. applySeatSwitch captures it into the process-local label
+      // holder alongside setActiveSeatId, so the re-spawn env bake carries it.
+      const sanitizedTarget = sanitizeSeatId(targetSeatId);
+      const targetLabel = access.seats.find((s) => s.seat_id === sanitizedTarget)?.name;
+
       const result = await applySeatSwitch(targetSeatId, {
         prepareEnv: () => {
           prepareCommandEveRuntimeProcessEnv(getDataPath());
@@ -2014,14 +2021,24 @@ export function initCommandEveBridge(): void {
           // seam so the lifecycle ordering (a→b→c→d) stays explicit and testable.
           void seatId;
         },
-        reseedStatus: (seatId) => {
+        reseedStatus: async (seatId) => {
           // Re-read the per-seat company-brain seed (informational; never fails the switch).
           void readCompanyBrainSeedState({ userDataPath: getDataPath(), seatId });
+          // Seat-Context-Bridge (B2, set-point b): re-stamp the target seat's USER.md
+          // tier blocks AFTER the re-spawn env bake, so the newly-spawned agent reads a
+          // §FOUNDER (+ §SEAT for a seeded real seat) that matches the seat it landed on.
+          // Best-effort — a stamp failure is informational and never fails the switch.
+          try {
+            const { stampUserMdTiersForSwitch } = await import('@process/commandEve/userMdTierStampCore');
+            stampUserMdTiersForSwitch({ userDataPath: getDataPath(), seatId });
+          } catch {
+            // best-effort: the runtime is already on the new seat.
+          }
         },
         persistActiveSeat: async (seatId) => {
           await persistActiveSeatPointer(seatId);
         },
-      });
+      }, targetLabel);
 
       return {
         success: result.ok,

@@ -10,8 +10,16 @@ import http from 'http';
 import os from 'os';
 import path from 'path';
 import { readRegistration } from './entitlementCore';
-import { getActiveSeatId, resolveSeatHome } from './seatContextCore';
+import {
+  getActiveSeatBoardSlug,
+  getActiveSeatId,
+  getActiveSeatLabel,
+  isActiveSeatLegacy,
+  resolveSeatHome,
+} from './seatContextCore';
 import { claudeDelegatePreflightWarning } from '../../common/config/eveWorkerAssignmentCore';
+import { readCompanyBrainSeedStateFromHome } from './companyBrainSeedCore';
+import { stampUserMdTiersToHome } from './userMdTierStampCore';
 
 export const COMMAND_EVE_RUNTIME_BOOTSTRAP_VERSION = 'command-eve-runtime-bootstrap/v0';
 
@@ -1310,6 +1318,25 @@ export function prepareCommandEveRuntimeProcessEnv(
   // invocation in this process tree resolve the active seat without relying on
   // the bake.
   env.HERMES_HOME = paths.hermesHome;
+
+  // Seat-Context-Bridge (S3 / spec B1): the agent's self-knowledge TRIO, baked
+  // with the SAME env-inheritance pinning semantics as HERMES_HOME above —
+  // written BEFORE spawn and re-baked on every seat-switch re-spawn, so a running
+  // agent can never be retroactively re-seated. NO network / no seat-record
+  // lookup here: the id + label are process-local state set at the switch/boot
+  // set-points (seatContextCore), and only READ in this hot bake path.
+  //  - COMMAND_EVE_ACTIVE_SEAT: 'seat-1' (founder/legacy) | sanitized uuid.
+  //  - COMMAND_EVE_SEAT_LABEL:  display name ('Founder' | client seat label),
+  //    never a secret (defaults to 'Founder' for a legacy install).
+  env.COMMAND_EVE_ACTIVE_SEAT = getActiveSeatId();
+  env.COMMAND_EVE_SEAT_LABEL = getActiveSeatLabel();
+  // HERMES_KANBAN_BOARD is natively consumed by the bundled wheel to pin a worker
+  // onto a board. Per-seat boards do not exist yet (spec §S7 fills the slug), so
+  // getActiveSeatBoardSlug() returns '' today. Set it ONLY when non-empty — never
+  // write an empty string over a user's own HERMES_KANBAN_BOARD env value.
+  const boardSlug = getActiveSeatBoardSlug();
+  if (boardSlug) env.HERMES_KANBAN_BOARD = boardSlug;
+
   return paths;
 }
 
@@ -3045,11 +3072,32 @@ export async function ensureCommandEveRuntimeBootstrap(
   // Seed the durable founder profile so EVE's cross-session memory has a real substrate from
   // session one (the audit found USER.md was never created). Idempotent — keeps a grown profile.
   const seededUserProfile = seedFounderUserProfile(paths, firstRunProfile);
+  // Seat-Context-Bridge (S3 / spec B2): after the scaffold exists, stamp the
+  // marker-fenced tier blocks into the ACTIVE seat's USER.md — §FOUNDER (global L0,
+  // every seat) + §SEAT (this seat's ISO-3 client seed, REAL seats only). Idempotent
+  // (re-stamps only its own fences, EVE-grown content survives), hard char budgets.
+  // paths.hermesHome already resolves to the active seat; the §SEAT seed is read from
+  // that SAME home so a legacy install writes only §FOUNDER, byte-compatibly.
+  const legacySeatAtBoot = isActiveSeatLegacy();
+  const bootSeatSeed = legacySeatAtBoot ? null : readCompanyBrainSeedStateFromHome(paths.hermesHome).record;
+  const tierStamp = stampUserMdTiersToHome({
+    hermesHome: paths.hermesHome,
+    legacy: legacySeatAtBoot,
+    profile: firstRunProfile,
+    seed: bootSeatSeed,
+    locale: 'de-DE',
+  });
   pushStage(
     makeStage('memory-seed', 'pass', {
-      detail: seededUserProfile
-        ? 'Seeded memories/USER.md (founder profile scaffold) — EVE remembers the operator from session one.'
-        : 'memories/USER.md already present — kept the operator profile EVE has grown.',
+      detail:
+        (seededUserProfile
+          ? 'Seeded memories/USER.md (founder profile scaffold) — EVE remembers the operator from session one. '
+          : 'memories/USER.md already present — kept the operator profile EVE has grown. ') +
+        (tierStamp.ok
+          ? `Tier-stamped USER.md (§FOUNDER${tierStamp.seatStamped ? ' + §SEAT' : ''}${
+              tierStamp.founderTruncated || tierStamp.seatTruncated ? ', truncated to budget' : ''
+            }).`
+          : 'Tier-stamp skipped (best-effort).'),
     })
   );
 

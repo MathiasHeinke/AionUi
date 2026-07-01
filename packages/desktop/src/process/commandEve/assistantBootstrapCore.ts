@@ -252,6 +252,167 @@ export function resolveCommandEveSeatIdentity(args: {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Seat-Context-Bridge (S3 / spec B3) — the "ich bin in Seat X" prompt block.
+//
+// An EXTENSION of the ISO-6 seatIdentity handling (not a new system): it renders
+// a short orientation paragraph telling EVE which seat it is in. It consumes the
+// SAME process-local values the B1 env bake sets (getActiveSeatId /
+// getActiveSeatLabel) — single source, no store split — and the ISO-3 client
+// entity already resolved for the seat.
+//
+// TWO shapes, spec-verbatim:
+//   REAL seat   → 'Du arbeitest gerade im Seat „{label}" für {client}. …' + the
+//                 INTERN/EXTERN sentence (the seat name NEVER in deliverables).
+//   FOUNDER seat→ 'Du bist im Founder-Seat von {founder}. Angelegte Seats: …' —
+//                 the roster (label + 1-line purpose each) IF a roster resolves.
+//
+// ISOLATION INVARIANT (hard-tested): the roster is reachable ONLY from the
+// founder/legacy seat. The wire read is GATED on isActiveSeatLegacy() BEFORE it
+// happens — a real client seat NEVER reads the my-seats wire, so another client's
+// name is structurally unreachable from a client seat's prompt (invariant §2).
+// Fail-closed: a null wire (offline / no account / delegate) renders the founder
+// block WITHOUT a roster + an honest "keine Seats geladen" note — never faked.
+// ---------------------------------------------------------------------------
+
+/** A single roster row for the founder block: a seat label + its 1-line purpose. */
+export type CommandEveSeatRosterEntry = { label: string; purpose: string };
+
+export interface RenderSeatContextBlockInput {
+  /** The active seat's DISPLAY LABEL (B1 getActiveSeatLabel) — env-consistent. */
+  seatLabel: string;
+  /** The active seat's sanitized id (B1 getActiveSeatId) — env-consistent. */
+  seatId: string;
+  /** True when the active seat is the legacy/founder home (isActiveSeatLegacy). */
+  legacy: boolean;
+  /** The founder display name for the founder block header ('Founder' fallback). */
+  founderName?: string;
+  /** REAL seat: the resolved ISO-6 client entity line (undefined if not seeded). */
+  clientEntity?: string;
+  /** REAL seat: the active board slug (B1 HERMES_KANBAN_BOARD) or '' → "keins". */
+  boardSlug?: string;
+  /**
+   * FOUNDER seat only: the resolved roster, or `null` when the my-seats wire was
+   * unreachable (offline / no account / delegate). null → honest omission. This
+   * is passed in ALREADY-RESOLVED so the render is pure; the async wire read +
+   * legacy gate live in `resolveSeatContextBlock`.
+   */
+  roster?: CommandEveSeatRosterEntry[] | null;
+  locale?: 'de-DE' | 'en-US';
+}
+
+/**
+ * PURE renderer for the seat-context block. No fs, no network, no Electron — the
+ * roster + entities are injected, so it unit-tests in plain vitest. Returns the
+ * block string (never empty).
+ */
+export function renderSeatContextBlock(input: RenderSeatContextBlockInput): string {
+  const locale = input.locale ?? 'de-DE';
+  const de = locale === 'de-DE';
+
+  if (!input.legacy) {
+    // REAL client seat. NEVER any roster path here (invariant §2).
+    const client = (input.clientEntity && input.clientEntity.trim()) || (de ? 'diesem Kunden' : 'this client');
+    const board = (input.boardSlug && input.boardSlug.trim()) || (de ? 'keins' : 'none');
+    if (de) {
+      return [
+        '## Seat-Kontext',
+        `Du arbeitest gerade im Seat „${input.seatLabel}" für ${client}. Aktives Board: ${board}. Interne Orientierung — der Seat-Name erscheint NIE in Deliverables, Dateien oder Entwürfen.`,
+      ].join('\n');
+    }
+    return [
+      '## Seat context',
+      `You are currently working in the seat "${input.seatLabel}" for ${client}. Active board: ${board}. Internal orientation only — the seat name NEVER appears in deliverables, files or drafts.`,
+    ].join('\n');
+  }
+
+  // FOUNDER / legacy seat. Roster ONLY here.
+  const founder = (input.founderName && input.founderName.trim()) || (de ? 'dem Betreiber' : 'the operator');
+  const roster = input.roster;
+  const hasRoster = Array.isArray(roster) && roster.length > 0;
+  if (de) {
+    const rosterLine = hasRoster
+      ? `Angelegte Seats:\n${roster!.map((r) => `- ${r.label}: ${r.purpose}`).join('\n')}`
+      : roster === null
+        ? 'Angelegte Seats: keine Seats geladen (Liste gerade nicht verfügbar).'
+        : 'Angelegte Seats: noch keine angelegt.';
+    return [
+      '## Seat-Kontext',
+      `Du bist im Founder-Seat von ${founder}. ${rosterLine}`,
+      'Von hier orchestrierst du; Client-Arbeit passiert in deren Seats.',
+    ].join('\n');
+  }
+  const rosterLineEn = hasRoster
+    ? `Created seats:\n${roster!.map((r) => `- ${r.label}: ${r.purpose}`).join('\n')}`
+    : roster === null
+      ? 'Created seats: no seats loaded (list not available right now).'
+      : 'Created seats: none created yet.';
+  return [
+    '## Seat context',
+    `You are in the Founder seat of ${founder}. ${rosterLineEn}`,
+    'From here you orchestrate; client work happens in their seats.',
+  ].join('\n');
+}
+
+/** The injectable seams `resolveSeatContextBlock` drives (all pure/mockable). */
+export interface ResolveSeatContextBlockDeps {
+  /** B1: the active seat id (default seatContextCore.getActiveSeatId). */
+  getActiveSeatId: () => string;
+  /** B1: the active seat label (default seatContextCore.getActiveSeatLabel). */
+  getActiveSeatLabel: () => string;
+  /** B1: whether the active seat is legacy/founder (default isActiveSeatLegacy). */
+  isActiveSeatLegacy: () => boolean;
+  /**
+   * The my-seats wire reader (default readMySeatsWire). Called ONLY when the
+   * active seat is legacy (the isolation gate). Returns the raw wire or null.
+   */
+  readMySeatsWire: () => Promise<unknown | null>;
+  /** Parse + role-classify the raw wire (default parseMySeats/resolveSeatAccess). */
+  parseRoster: (raw: unknown | null) => CommandEveSeatRosterEntry[] | null;
+  /** The founder display name for the founder block (default from the profile). */
+  founderName?: string;
+  /** REAL seat: the resolved client entity line (from ISO-6 seatIdentity). */
+  clientEntity?: string;
+  /** REAL seat: the active board slug (B1). */
+  boardSlug?: string;
+  locale?: 'de-DE' | 'en-US';
+}
+
+/**
+ * Resolve + render the seat-context block. The ISOLATION GATE lives here: the
+ * my-seats wire is read ONLY when `isActiveSeatLegacy()` is true. For a real seat
+ * the wire is NEVER touched (roster structurally unreachable). Fail-closed: any
+ * wire error → `null` roster → founder block renders the honest "keine Seats
+ * geladen" omission. Never throws.
+ */
+export async function resolveSeatContextBlock(deps: ResolveSeatContextBlockDeps): Promise<string> {
+  const legacy = deps.isActiveSeatLegacy();
+  const seatId = deps.getActiveSeatId();
+  const seatLabel = deps.getActiveSeatLabel();
+
+  let roster: CommandEveSeatRosterEntry[] | null = null;
+  if (legacy) {
+    // FOUNDER seat ONLY: read + parse the roster. A real seat skips this entirely.
+    try {
+      const raw = await deps.readMySeatsWire();
+      roster = deps.parseRoster(raw);
+    } catch {
+      roster = null; // fail-closed → honest omission
+    }
+  }
+
+  return renderSeatContextBlock({
+    seatLabel,
+    seatId,
+    legacy,
+    founderName: deps.founderName,
+    clientEntity: deps.clientEntity,
+    boardSlug: deps.boardSlug,
+    roster: legacy ? roster : undefined,
+    locale: deps.locale,
+  });
+}
+
 export function buildCommandEveAssistantFirstRunContext(
   context: CommandEveAssistantFirstRunContext,
   locale: 'de-DE' | 'en-US'

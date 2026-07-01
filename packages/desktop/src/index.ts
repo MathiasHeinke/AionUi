@@ -1273,6 +1273,16 @@ const handleAppReady = async (): Promise<void> => {
     });
     commandEveOllamaShimUrl = shimUrl;
     mark(`commandEveOllamaShim (${shimUrl})`);
+    // Seat-Context-Bridge (B1): this bakes the env trio (COMMAND_EVE_ACTIVE_SEAT /
+    // _SEAT_LABEL / HERMES_KANBAN_BOARD) alongside HERMES_HOME. At BOOT the active
+    // seat is ALWAYS the legacy/founder home: nothing calls setActiveSeatId before
+    // this point (the persist pointer is a no-op — commandEveBridge.persistActive-
+    // SeatPointer — and there is no boot-time restore of a saved seat), so
+    // getActiveSeatId() === LEGACY_SEAT_ID and getActiveSeatLabel() === 'Founder'
+    // here. The label default 'Founder' is therefore correct for boot; a real
+    // seat's label is captured later, at applySeatSwitch, and re-baked on the
+    // switch re-spawn. If a boot-time seat-restore is ever added, it MUST call
+    // setActiveSeatId + setActiveSeatLabel BEFORE this bake.
     prepareCommandEveRuntimeProcessEnv(getDataPath());
     const localModelTierId = await ProcessConfig.get('commandEve.localModelTierId').catch((): undefined => undefined);
     // CLI-Keystone runtime glue: resolve codexRuntime ('' — Codex deferred) + the

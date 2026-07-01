@@ -4,6 +4,7 @@ import {
   buildCommandEveAssistantContext,
   buildCommandEveAssistantSkill,
   resolveCommandEveSeatIdentity,
+  resolveSeatContextBlock,
   selectCommandEvePresetAgentType,
   unwrapCommandEveApiData,
   type CommandEveApiEnvelope,
@@ -12,6 +13,8 @@ import {
   type CommandEveAssistantLocalIdentity,
   type CommandEveAssistantRuntimeReceipt,
   type CommandEveDetectedAgent,
+  type CommandEveSeatIdentity,
+  type CommandEveSeatRosterEntry,
   type CommandEveSeatSeedRecord,
 } from './assistantBootstrapCore';
 import { COMMAND_EVE_ASSISTANT_ID, isCommandEveFounderBuild } from '@/common/config/commandEveShell';
@@ -20,7 +23,14 @@ import { readInferenceSelectionFromBackend } from './inferenceSelectionBackendRe
 import fs from 'fs';
 import path from 'path';
 import { resolveCommandEveRuntimeBootstrapPaths } from './runtimeBootstrapCore';
-import { getActiveSeatId, isActiveSeatLegacy } from './seatContextCore';
+import {
+  getActiveSeatBoardSlug,
+  getActiveSeatId,
+  getActiveSeatLabel,
+  isActiveSeatLegacy,
+} from './seatContextCore';
+import { parseMySeats, resolveSeatAccess } from './seatSwitchCore';
+import { readMySeatsWire } from './seatWireFetchCore';
 import { readCompanyBrainSeedState } from './companyBrainSeedCore';
 
 export type EnsureCommandEveAssistantOptions = {
@@ -228,6 +238,80 @@ function buildCommandEveAssistantSkillForSeat(
   );
 }
 
+/**
+ * Seat-Context-Bridge (B3): the default roster parser — turn the raw my-seats
+ * wire into a founder-block roster (label + 1-line purpose). Fail-closed: a null/
+ * unparseable wire → `null` (honest "keine Seats geladen" omission). The 1-line
+ * purpose is derived from the seat's ROLE (the wire carries no free-text purpose
+ * yet): the Founder home is labeled as such, client seats as delegatable client
+ * seats. This is where a later slice can enrich the purpose from a per-seat field.
+ */
+function parseFounderRoster(raw: unknown | null, locale: 'de-DE' | 'en-US'): CommandEveSeatRosterEntry[] | null {
+  const contract = parseMySeats(raw);
+  if (!contract) return null;
+  const access = resolveSeatAccess(contract);
+  // resolveSeatAccess prepends the synthetic Founder chip for admins; drop it from
+  // the roster (the header already names the founder) and list only real seats.
+  const rows = access.seats
+    .filter((s) => s.seat_id !== 'seat-1')
+    .map((s) => ({
+      label: s.name,
+      purpose:
+        locale === 'de-DE'
+          ? s.role === 'admin'
+            ? 'Client-Seat (Admin-Zugriff)'
+            : 'Client-Seat (invisible delivery, streng isoliert)'
+          : s.role === 'admin'
+            ? 'Client seat (admin access)'
+            : 'Client seat (invisible delivery, strictly isolated)',
+    }));
+  return rows;
+}
+
+/**
+ * Build the seat-context block for one locale, composing the injectable deps from
+ * the live seat state + the already-loaded first-run context. Consumes the SAME
+ * B1 values the env bake sets (getActiveSeatId/getActiveSeatLabel) so the prompt
+ * and the env can never diverge (the anti-store-split guarantee). For a real seat
+ * the roster is structurally unreachable (resolveSeatContextBlock gates the wire
+ * read on isActiveSeatLegacy). Best-effort: never throws — returns '' on failure.
+ */
+async function buildCommandEveSeatContextBlock(
+  locale: 'de-DE' | 'en-US',
+  load: CommandEveFirstRunLoad | undefined,
+  userDataPath?: string
+): Promise<string> {
+  try {
+    // Real-seat client entity (from the SAME ISO-6 resolver the prompt identity uses).
+    let clientEntity: string | undefined;
+    if (load?.realSeatActive) {
+      const seatIdentity: CommandEveSeatIdentity | undefined = resolveCommandEveSeatIdentity({
+        legacy: false,
+        seatId: load.seatId,
+        seed: load.seatSeed,
+        locale,
+      });
+      clientEntity = seatIdentity?.clientEntity;
+    }
+    const founderName = load?.baseContext.profile?.founder_name;
+    return await resolveSeatContextBlock({
+      getActiveSeatId,
+      getActiveSeatLabel,
+      isActiveSeatLegacy,
+      // The wire read is only ever invoked from the founder/legacy seat (the gate
+      // is inside resolveSeatContextBlock). userDataPath threads the auth chain.
+      readMySeatsWire: () => readMySeatsWire(userDataPath || ''),
+      parseRoster: (raw) => parseFounderRoster(raw, locale),
+      founderName,
+      clientEntity,
+      boardSlug: getActiveSeatBoardSlug(),
+      locale,
+    });
+  } catch {
+    return '';
+  }
+}
+
 function hasAvailableHermesAgent(agents: CommandEveDetectedAgent[]): boolean {
   return agents.some(
     (agent) => (agent.backend || agent.agent_type || '').toLowerCase() === 'hermes' && agent.available !== false
@@ -425,6 +509,17 @@ export async function ensureCommandEveAssistant(
   // not the hero subtitle. Appended to the skill body so EVE keeps the posture
   // while the operator only sees the short one-line description.
   const runtimeContext = buildCommandEveAssistantContext(appVersion);
+  // Seat-Context-Bridge (B3): the "ich bin in Seat X" block, resolved per locale.
+  // For a real client seat it is a self-contained orientation paragraph (NO wire
+  // read); for the founder seat it appends the seat roster (gated behind the
+  // isActiveSeatLegacy wire read). Best-effort — '' on failure keeps the prompt
+  // byte-identical to before the bridge landed.
+  const [seatBlockDe, seatBlockEn] = await Promise.all([
+    buildCommandEveSeatContextBlock('de-DE', firstRunLoad, options.userDataPath),
+    buildCommandEveSeatContextBlock('en-US', firstRunLoad, options.userDataPath),
+  ]);
+  const withSeatBlock = (skill: string, block: string): string =>
+    block ? `${skill}\n\n${block}\n\n${runtimeContext}` : `${skill}\n\n${runtimeContext}`;
   await Promise.all([
     writeAssistantResource(backendPort, 'assistant-rule', 'de-DE', getCommandEveAssistantRule('de-DE', isFounderBuild)),
     writeAssistantResource(backendPort, 'assistant-rule', 'en-US', getCommandEveAssistantRule('en-US', isFounderBuild)),
@@ -432,13 +527,19 @@ export async function ensureCommandEveAssistant(
       backendPort,
       'assistant-skill',
       'de-DE',
-      `${buildCommandEveAssistantSkillForSeat('de-DE', firstRunLoad, isFounderBuild, activeInferenceSelection)}\n\n${runtimeContext}`
+      withSeatBlock(
+        buildCommandEveAssistantSkillForSeat('de-DE', firstRunLoad, isFounderBuild, activeInferenceSelection),
+        seatBlockDe
+      )
     ),
     writeAssistantResource(
       backendPort,
       'assistant-skill',
       'en-US',
-      `${buildCommandEveAssistantSkillForSeat('en-US', firstRunLoad, isFounderBuild, activeInferenceSelection)}\n\n${runtimeContext}`
+      withSeatBlock(
+        buildCommandEveAssistantSkillForSeat('en-US', firstRunLoad, isFounderBuild, activeInferenceSelection),
+        seatBlockEn
+      )
     ),
   ]);
 
