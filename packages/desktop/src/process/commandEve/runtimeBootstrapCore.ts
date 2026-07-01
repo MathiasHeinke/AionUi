@@ -13,7 +13,6 @@ import { readRegistration } from './entitlementCore';
 import {
   getActiveSeatBoardSlug,
   getActiveSeatId,
-  getActiveSeatLabel,
   isActiveSeatLegacy,
   resolveSeatHome,
 } from './seatContextCore';
@@ -1319,23 +1318,46 @@ export function prepareCommandEveRuntimeProcessEnv(
   // the bake.
   env.HERMES_HOME = paths.hermesHome;
 
-  // Seat-Context-Bridge (S3 / spec B1): the agent's self-knowledge TRIO, baked
-  // with the SAME env-inheritance pinning semantics as HERMES_HOME above —
-  // written BEFORE spawn and re-baked on every seat-switch re-spawn, so a running
-  // agent can never be retroactively re-seated. NO network / no seat-record
-  // lookup here: the id + label are process-local state set at the switch/boot
-  // set-points (seatContextCore), and only READ in this hot bake path.
-  //  - COMMAND_EVE_ACTIVE_SEAT: 'seat-1' (founder/legacy) | sanitized uuid.
-  //  - COMMAND_EVE_SEAT_LABEL:  display name ('Founder' | client seat label),
-  //    never a secret (defaults to 'Founder' for a legacy install).
+  // Seat-Context-Bridge (S3 / spec B1): the agent's self-knowledge, baked with the
+  // SAME env-inheritance pinning semantics as HERMES_HOME above — written BEFORE
+  // spawn and re-baked on every seat-switch re-spawn, so a running agent can never
+  // be retroactively re-seated. NO network / no seat-record lookup here: the id is
+  // process-local state set at the switch/boot set-points (seatContextCore) and
+  // only READ in this hot bake path.
+  //  - COMMAND_EVE_ACTIVE_SEAT: 'seat-1' (founder/legacy) | sanitized uuid. This is
+  //    the OPAQUE seat id — never a client's real name — so it is safe for the whole
+  //    backend subtree, INCLUDING delegated third-party CLI workers (claude-agent-
+  //    acp), to inherit.
+  //
+  // H3 (isolation-critical) — the SEAT DISPLAY LABEL (getActiveSeatLabel = the
+  // client's real company name for a real seat) is DELIBERATELY NOT written into the
+  // process env. The backend + its ENTIRE subtree inherit process.env; a delegated
+  // claude-agent-acp worker would otherwise carry the client's real name in the env
+  // of a third-party Node process — an Invisible-Delivery / Invariante-2 leak. The
+  // internal prompt block that DOES need the clear name reads it from process-local
+  // state (getActiveSeatLabel), NOT from env (see buildCommandEveSeatContextBlock),
+  // so removing it here loses nothing internal while closing the extern-leak. The
+  // opaque COMMAND_EVE_ACTIVE_SEAT above is the ONLY seat identifier in child env.
   env.COMMAND_EVE_ACTIVE_SEAT = getActiveSeatId();
-  env.COMMAND_EVE_SEAT_LABEL = getActiveSeatLabel();
+  // NEVER: env.COMMAND_EVE_SEAT_LABEL = getActiveSeatLabel(); — the clear name must
+  // not reach any child-process env. Delete a stale value defensively so a re-bake
+  // over an env that once carried it (or a caller-seeded env) cannot leak it either.
+  delete env.COMMAND_EVE_SEAT_LABEL;
   // HERMES_KANBAN_BOARD is natively consumed by the bundled wheel to pin a worker
   // onto a board. Per-seat boards do not exist yet (spec §S7 fills the slug), so
-  // getActiveSeatBoardSlug() returns '' today. Set it ONLY when non-empty — never
-  // write an empty string over a user's own HERMES_KANBAN_BOARD env value.
+  // getActiveSeatBoardSlug() returns '' today. Set it ONLY when non-empty.
+  //
+  // H5 (ship-hardening) — SYMMETRIC clear on empty. Previously this only ever SET
+  // the var and never cleared it; once a later slice feeds real per-seat slugs, a
+  // switch A(slug)→B('') would leave seat-B's re-baked env inheriting seat-A's
+  // board pin (carryover). Because the switch re-bakes onto the SAME process.env,
+  // an `else delete` is required so the target seat NEVER inherits the prior seat's
+  // board — seat isolation outranks any ambient board pin. When empty we DELETE
+  // (rather than write '') so the wheel cleanly falls back to its 'default' board,
+  // and the env-trio stays byte-absent when no per-seat slug exists (today's case).
   const boardSlug = getActiveSeatBoardSlug();
   if (boardSlug) env.HERMES_KANBAN_BOARD = boardSlug;
+  else delete env.HERMES_KANBAN_BOARD;
 
   return paths;
 }

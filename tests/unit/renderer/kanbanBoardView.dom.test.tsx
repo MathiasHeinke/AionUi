@@ -108,16 +108,63 @@ describe('KanbanColumnView (payload → cards)', () => {
     expect(screen.queryByTestId('kanban-card-move-z')).toBeNull();
     expect(screen.getByTestId('kanban-card-final-z')).toBeTruthy();
   });
+
+  // H1 renderer half (belt-and-suspenders): while a seat switch is in flight the
+  // page passes locked=true, and EVERY per-card write control must be disabled so
+  // the operator cannot fire a write the MAIN process would refuse anyway.
+  it('locked=true disables every write control on a card (H1)', () => {
+    const onMove = vi.fn();
+    const onApply = vi.fn();
+    const onComment = vi.fn();
+    const column: IKanbanBoardColumn = { key: 'research', cards: [makeCard('a', 'research')] };
+    render(
+      <KanbanColumnView
+        column={column}
+        busyCardId={null}
+        locked
+        onMoveNext={onMove}
+        onOpenComment={onComment}
+        onApplyAction={onApply}
+      />
+    );
+    for (const testid of [
+      'kanban-card-comment-a',
+      'kanban-card-block-a',
+      'kanban-card-complete-a',
+      'kanban-card-move-a',
+    ]) {
+      expect((screen.getByTestId(testid) as HTMLButtonElement).disabled).toBe(true);
+    }
+    // A click on a disabled control fires nothing.
+    fireEvent.click(screen.getByTestId('kanban-card-move-a'));
+    fireEvent.click(screen.getByTestId('kanban-card-complete-a'));
+    expect(onMove).not.toHaveBeenCalled();
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it('locked=false (default) leaves the controls enabled (no-op on a single-seat install)', () => {
+    const column: IKanbanBoardColumn = { key: 'research', cards: [makeCard('a', 'research')] };
+    render(
+      <KanbanColumnView
+        column={column}
+        busyCardId={null}
+        onMoveNext={vi.fn()}
+        onOpenComment={vi.fn()}
+        onApplyAction={vi.fn()}
+      />
+    );
+    expect((screen.getByTestId('kanban-card-move-a') as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByTestId('kanban-card-comment-a') as HTMLButtonElement).disabled).toBe(false);
+  });
 });
 
-// ── Seat-remount keying MIRROR ────────────────────────────────────────────────
-// Mirrors KanbanBoardHost: a host that renders <Body key={activeSeatId} /> so a
-// seat switch remounts the body. A mount-once effect (the board read) must fire
-// once per mount, i.e. once per DISTINCT seat id, and NOT re-fire on a stable id.
+// ── Seat-remount keying MIRROR (local structural mirror — kept as a sanity check) ─
+// A host that renders <Body key={activeSeatId} /> so a seat switch remounts the
+// body. A mount-once effect (the board read) must fire once per mount, i.e. once
+// per DISTINCT seat id, and NOT re-fire on a stable id.
 
-describe('seat-remount keying (KanbanBoardHost mirror)', () => {
+describe('seat-remount keying (structural mirror)', () => {
   const Body: React.FC<{ onMount: () => void }> = ({ onMount }) => {
-    // Mount-once effect — the analogue of the page's board-read effect.
     React.useEffect(() => {
       onMount();
     }, [onMount]);
@@ -125,7 +172,6 @@ describe('seat-remount keying (KanbanBoardHost mirror)', () => {
   };
 
   const Host: React.FC<{ seatId: string; onMount: () => void }> = ({ seatId, onMount }) => (
-    // The load-bearing line under test: keying the body by the seat id.
     <Body key={seatId} onMount={onMount} />
   );
 
@@ -133,16 +179,10 @@ describe('seat-remount keying (KanbanBoardHost mirror)', () => {
     const onMount = vi.fn();
     const { rerender } = render(<Host seatId='seat-a' onMount={onMount} />);
     expect(onMount).toHaveBeenCalledTimes(1);
-
-    // Same seat id on a normal re-render → NO remount, NO extra read.
     rerender(<Host seatId='seat-a' onMount={onMount} />);
     expect(onMount).toHaveBeenCalledTimes(1);
-
-    // Seat switch → remount → the mount-once read fires again under the new seat.
     rerender(<Host seatId='seat-b' onMount={onMount} />);
     expect(onMount).toHaveBeenCalledTimes(2);
-
-    // Switch back → remount again (fresh read for seat-a's board, no stale leak).
     rerender(<Host seatId='seat-a' onMount={onMount} />);
     expect(onMount).toHaveBeenCalledTimes(3);
   });

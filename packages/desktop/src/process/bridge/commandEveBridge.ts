@@ -200,6 +200,36 @@ let commandEveSwitchSeatEpoch = 0;
 // to cover that global state.
 const COMMAND_EVE_SWITCH_SEAT_LOCK_TIMEOUT_MS = 300_000;
 
+/**
+ * H1 (isolation-critical) — MID-SWITCH KANBAN WRITE-FENCE. The SACRED invariant:
+ * a kanban WRITE must never land in the wrong seat's DB while a seat switch is in
+ * flight. The switch sets the active-seat pointer (setActiveSeatId) BEFORE the
+ * ~seconds-long backend re-spawn await completes; during that window the main
+ * event loop still services IPC, so a click on the STILL-VISIBLE seat-A board
+ * would resolve its DB path via getActiveSeatId() = seat B and write seat-A's
+ * card into seat-B's kanban.db (cross-client contamination, Invariante 1).
+ *
+ * This is the MAIN-process half of the belt-and-suspenders fix (the renderer
+ * disables the buttons too): every kanban MUTATION handler calls this guard FIRST
+ * and REFUSES the write with SEAT_SWITCH_IN_PROGRESS while `commandEveSwitchSeat
+ * InFlight` is set (the SAME single boolean that serializes the switch itself, so
+ * the fence opens/closes exactly with the switch). Reads are never fenced — only
+ * writes can contaminate. Returns a fail-closed envelope when a switch is active,
+ * else `null` (proceed). The seat pointer is deterministic once the lock clears
+ * (last setActiveSeatId wins), so a write after the fence lifts is on the target.
+ */
+function guardKanbanMutationDuringSwitch<V extends string>(
+  version: V
+): { success: false; msg: string; data: { version: V; ok: false; status: 'blocked'; reason_code: 'SEAT_SWITCH_IN_PROGRESS'; message: string } } | null {
+  if (!commandEveSwitchSeatInFlight) return null;
+  const message = 'A seat switch is in progress — the board write was refused to protect per-seat isolation.';
+  return {
+    success: false,
+    msg: 'SEAT_SWITCH_IN_PROGRESS',
+    data: { version, ok: false, status: 'blocked', reason_code: 'SEAT_SWITCH_IN_PROGRESS', message },
+  };
+}
+
 export function initCommandEveBridge(): void {
   bridge.buildProvider('command-eve.command-center-read-model').provider(async (request?: { maxRuns?: number }) => {
     try {
@@ -635,6 +665,8 @@ export function initCommandEveBridge(): void {
   bridge
     .buildProvider('command-eve.kanban-marketing-proof-card')
     .provider(async (request?: { boardSlug?: string; eventLedgerPath?: string }) => {
+      const fenced = guardKanbanMutationDuringSwitch('command-eve-kanban-marketing-proof-card/v0');
+      if (fenced) return fenced;
       try {
         const result = createKanbanMarketingProofCard({
           userDataPath: getDataPath(),
@@ -676,6 +708,8 @@ export function initCommandEveBridge(): void {
         boardSlug?: string;
         eventLedgerPath?: string;
       }) => {
+        const fenced = guardKanbanMutationDuringSwitch('command-eve-kanban-marketing-card-create/v0');
+        if (fenced) return fenced;
         try {
           const result = createKanbanMarketingCard({
             userDataPath: getDataPath(),
@@ -715,6 +749,8 @@ export function initCommandEveBridge(): void {
     .buildProvider('command-eve.kanban-marketing-card-move')
     .provider(
       async (request?: { task_id?: string; to_lane_key?: string; boardSlug?: string; eventLedgerPath?: string }) => {
+        const fenced = guardKanbanMutationDuringSwitch('command-eve-kanban-marketing-card-move/v0');
+        if (fenced) return fenced;
         try {
           const result = moveKanbanMarketingCard({
             userDataPath: getDataPath(),
@@ -758,6 +794,8 @@ export function initCommandEveBridge(): void {
         boardSlug?: string;
         eventLedgerPath?: string;
       }) => {
+        const fenced = guardKanbanMutationDuringSwitch('command-eve-kanban-marketing-card-action/v0');
+        if (fenced) return fenced;
         try {
           const result = applyKanbanMarketingCardAction({
             userDataPath: getDataPath(),

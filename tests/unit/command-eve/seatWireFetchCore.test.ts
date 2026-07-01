@@ -195,3 +195,57 @@ describe('readMySeatsWire — fail-closed to null (never throws)', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+// ── H7 — the abort timer covers the BODY READ, not just the header round-trip ──
+// Previously the timer cleared when headers arrived; a server that sent headers but
+// STALLED the body hung readMySeatsWire until the 300s switch watchdog. Now the SAME
+// AbortController is armed across response.json(); a stalled body is aborted and
+// fail-closes to null well before any watchdog.
+
+describe('H7 — stalled BODY read is aborted (never parks the switch lock)', () => {
+  it('headers arrive but json() hangs → the abort timer fires → resolves null quickly', async () => {
+    // A Response whose headers are "here" (fetch resolves) but whose body never
+    // arrives — json() only settles when the injected abort signal fires. This is
+    // exactly the header-here / body-stalled shape H7 closes. The fetch mock wires
+    // the Response's json() to the controller's signal that readMySeatsWire passes.
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      const signal = init.signal as AbortSignal;
+      const response = {
+        ok: true,
+        status: 200,
+        json: () =>
+          new Promise((_resolve, reject) => {
+            // Never resolves on its own — only an abort (the H7 timer) unblocks it,
+            // rejecting exactly as a real fetch body read does on abort.
+            if (signal.aborted) return reject(new Error('AbortError'));
+            signal.addEventListener('abort', () => reject(new Error('AbortError')), { once: true });
+          }),
+      } as unknown as Response;
+      return response;
+    });
+
+    const start = Date.now();
+    const wire = await readMySeatsWire(
+      USER_DATA,
+      // A small real timeout so the body-abort fires fast; NOT the 300s watchdog.
+      baseDeps({ fetch: fetchMock as unknown as typeof fetch, timeoutMs: 40 })
+    );
+    const elapsed = Date.now() - start;
+
+    expect(wire).toBeNull(); // fail-closed on the aborted body read
+    // Resolved via the body-covering timer (~40ms), FAR below the 300s watchdog.
+    expect(elapsed).toBeLessThan(5000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('a body that resolves BEFORE the timeout still returns the wire (no false abort)', async () => {
+    // Regression guard: the timer must not abort a body that arrives in time.
+    const fetchMock = vi.fn(async () => okResponse(edgeBody()));
+    const wire = (await readMySeatsWire(
+      USER_DATA,
+      baseDeps({ fetch: fetchMock as unknown as typeof fetch, timeoutMs: 1000 })
+    )) as Record<string, unknown>;
+    expect(wire).not.toBeNull();
+    expect((wire.account as Record<string, unknown>).id).toBe('acc1');
+  });
+});

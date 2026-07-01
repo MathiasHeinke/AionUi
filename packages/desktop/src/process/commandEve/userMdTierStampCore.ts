@@ -147,16 +147,56 @@ export interface UserMdTierStampResult {
 }
 
 /**
- * Replace (or insert) a marker-fenced block inside an existing body. If a prior
- * block exists (between begin/end markers) it is REPLACED IN PLACE; otherwise the
- * block is appended with a separating blank line. Content outside the fence is
- * preserved verbatim. Mirrors the ISO-3 MEMORY.md upsert discipline so the two
- * fences behave identically.
+ * Strip EVERY standalone occurrence of a marker TOKEN from a body, preserving all
+ * surrounding text. Used by the H4 repair path to eliminate orphan/stray/reversed
+ * markers WITHOUT deleting EVE-grown prose (only the marker tokens are removed).
+ */
+function stripMarkerTokens(body: string, ...markers: string[]): string {
+  let out = body;
+  for (const marker of markers) {
+    // Remove the marker plus a single trailing newline if present, so a stripped
+    // orphan does not leave a phantom blank line where the token stood.
+    out = out.split(`${marker}\n`).join('').split(marker).join('');
+  }
+  return out;
+}
+
+/**
+ * Replace (or insert) a marker-fenced block inside an existing body. If a WELL-
+ * FORMED prior block exists (a begin marker with a matching end AFTER it) it is
+ * REPLACED IN PLACE; otherwise the block is appended with a separating blank line.
+ * Content outside the fence is preserved verbatim. Mirrors the ISO-3 MEMORY.md
+ * upsert discipline so the two fences behave identically.
+ *
+ * H4 (isolation-adjacent, destructive-write hardening) — USER.md is agent-writable
+ * by design, so an EVE edit CAN drop or reorder a marker. The OLD code took the
+ * replace path ONLY when both markers existed AND end>begin; ANY half/reversed
+ * fence fell into the plain append branch, which (a) left the orphan/stray marker
+ * in place and (b) on the NEXT stamp let that orphan pair with the fresh block and
+ * SWALLOW the grown content between them, or DUPLICATE per boot/switch. We now
+ * DETECT a malformed fence and repair it DETERMINISTICALLY: strip every stray
+ * marker TOKEN (never the surrounding prose), then append one clean block. The
+ * result is always exactly ONE well-formed fence with NO orphan markers, so the
+ * very next stamp finds it well-formed and replaces in place (idempotent, no dup,
+ * no content loss). A well-formed fence is NEVER touched by the repair path.
  */
 export function upsertFencedBlock(existing: string, begin: string, end: string, block: string): string {
   const beginIdx = existing.indexOf(begin);
-  const endIdx = existing.indexOf(end);
-  if (beginIdx !== -1 && endIdx !== -1 && endIdx > beginIdx) {
+  // The matching end must come AFTER this begin (a reversed END...BEGIN, or an end
+  // that belongs to a different/earlier fragment, is NOT a well-formed pair).
+  const endIdx = beginIdx !== -1 ? existing.indexOf(end, beginIdx + begin.length) : existing.indexOf(end);
+
+  const wellFormed = beginIdx !== -1 && endIdx !== -1 && endIdx > beginIdx;
+
+  // Defensive malformed-fence detection: a lone begin, a lone end, a reversed
+  // order, or ANY leftover duplicate marker beyond the one well-formed pair.
+  const beginCount = existing.split(begin).length - 1;
+  const endCount = existing.split(end).length - 1;
+  const malformed = !wellFormed
+    ? beginCount > 0 || endCount > 0 // any stray marker at all when not well-formed
+    : beginCount > 1 || endCount > 1; // well-formed but with extra stray marker(s)
+
+  if (wellFormed && !malformed) {
     const before = existing.slice(0, beginIdx).replace(/\s+$/, '');
     const after = existing.slice(endIdx + end.length).replace(/^\s+/, '');
     // Match the SAME leading form the append branch produces so a re-stamp of a
@@ -166,7 +206,16 @@ export function upsertFencedBlock(existing: string, begin: string, end: string, 
     const joined = `${prefix}${block}\n${after.length > 0 ? `\n${after}` : ''}`;
     return joined.replace(/\s+$/, '') + '\n';
   }
-  const base = existing.replace(/\s+$/, '');
+
+  // Malformed (or a well-formed pair contaminated by extra stray markers): strip
+  // EVERY marker token of this fence (grown prose survives — only tokens go), then
+  // fall through to a clean append. If a well-formed pair existed among the strays,
+  // its stale body content is intentionally dropped here (it is this fence's own
+  // block, which we are re-stamping anyway) — grown content OUTSIDE the markers is
+  // preserved because we only remove the tokens, never surrounding text.
+  const cleaned = malformed ? stripMarkerTokens(existing, begin, end) : existing;
+
+  const base = cleaned.replace(/\s+$/, '');
   const prefix = base.length > 0 ? `${base}\n\n` : '';
   return `${prefix}${block}\n`;
 }
@@ -190,9 +239,23 @@ export function removeFencedBlock(existing: string, begin: string, end: string):
  */
 export function truncateToBudget(body: string, budget: number): { body: string; truncated: boolean } {
   if (body.length <= budget) return { body, truncated: false };
-  // Reserve one char for the ellipsis so the RESULT is ≤ budget.
-  const cut = Math.max(0, budget - 1);
-  return { body: `${body.slice(0, cut)}…`, truncated: true };
+  // Reserve one code UNIT for the ellipsis so the RESULT (still measured in code
+  // units, `.length`) stays ≤ budget.
+  const unitLimit = Math.max(0, budget - 1);
+  // H8 — never split a surrogate pair. A raw `body.slice(0, unitLimit)` can cut an
+  // astral character (emoji / some CJK) mid-pair, leaving a lone surrogate that
+  // renders as U+FFFD () at the block end. Instead accumulate WHOLE code points
+  // while their combined code-unit length still fits under `unitLimit`, dropping the
+  // boundary character ENTIRELY rather than half of it. This keeps the result both
+  // surrogate-safe AND within the code-unit budget (the caller's hard invariant).
+  let used = 0;
+  let truncated = '';
+  for (const codePoint of body) {
+    if (used + codePoint.length > unitLimit) break;
+    truncated += codePoint;
+    used += codePoint.length;
+  }
+  return { body: `${truncated}…`, truncated: true };
 }
 
 /**

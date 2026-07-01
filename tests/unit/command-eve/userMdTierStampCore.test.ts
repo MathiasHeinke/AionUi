@@ -30,6 +30,7 @@ import {
   stampUserMdTiers,
   stampUserMdTiersToHome,
   truncateToBudget,
+  upsertFencedBlock,
   type UserMdStampFs,
 } from '@/process/commandEve/userMdTierStampCore';
 import type { RuntimeBootstrapIdentityProfile } from '@/process/commandEve/runtimeBootstrapCore';
@@ -229,5 +230,121 @@ describe('B2 stamp — cross-seat NAME isolation (2-seat fixture, real disk)', (
     const md = fs.readFileSync(path.join(home, 'memories', 'USER.md'), 'utf8');
     expect(md).toContain(FOUNDER_MARKER_BEGIN);
     expect(md).not.toContain(SEAT_MARKER_BEGIN);
+  });
+});
+
+// ── H4 — fence-corruption hardening (upsertFencedBlock) ────────────────────────
+// USER.md is agent-writable, so an EVE edit CAN drop/reorder a fence marker. A
+// half/reversed fence must NEVER silently append (leaving an orphan that later
+// swallows grown content or duplicates per boot). It must be repaired
+// deterministically, and a well-formed fence must be left completely alone.
+
+describe('H4 upsertFencedBlock — corrupt-fence hardening', () => {
+  const B = FOUNDER_MARKER_BEGIN;
+  const E = FOUNDER_MARKER_END;
+  const block = `${B}\n§ FOUNDER v2\n${E}`;
+
+  const beginCount = (s: string) => s.split(B).length - 1;
+  const endCount = (s: string) => s.split(E).length - 1;
+
+  it('well-formed fence: replaces in place, exactly one fence, grown prose survives (regression guard)', () => {
+    const existing = `# Notes\ngrown line\n\n${B}\n§ FOUNDER v1\n${E}\n\n# Tail\ntail line\n`;
+    const out = upsertFencedBlock(existing, B, E, block);
+    expect(out).toContain('§ FOUNDER v2');
+    expect(out).not.toContain('§ FOUNDER v1');
+    expect(out).toContain('grown line');
+    expect(out).toContain('tail line');
+    expect(beginCount(out)).toBe(1);
+    expect(endCount(out)).toBe(1);
+  });
+
+  it('orphan BEGIN (no END): grown content is NOT lost, exactly one clean fence results', () => {
+    // A dropped END left an orphan BEGIN above grown prose. The OLD code would
+    // append below and, on the next read, the orphan BEGIN + new END would swallow
+    // "PRECIOUS grown insight".
+    const existing = `${B}\n§ FOUNDER stale\n\nPRECIOUS grown insight EVE wrote\n`;
+    const out = upsertFencedBlock(existing, B, E, block);
+    expect(out).toContain('PRECIOUS grown insight EVE wrote'); // no content loss
+    expect(out).toContain('§ FOUNDER v2');
+    expect(beginCount(out)).toBe(1); // the orphan was cleaned, only the fresh BEGIN remains
+    expect(endCount(out)).toBe(1);
+    // Re-stamp is now idempotent-safe (well-formed) — no duplication.
+    const out2 = upsertFencedBlock(out, B, E, block);
+    expect(beginCount(out2)).toBe(1);
+    expect(endCount(out2)).toBe(1);
+  });
+
+  it('stray END (no BEGIN): no duplicate fence after two stamps', () => {
+    const existing = `some grown note\n${E}\nmore grown note\n`;
+    const out1 = upsertFencedBlock(existing, B, E, block);
+    // The stray END token is gone; grown notes survive.
+    expect(out1).toContain('some grown note');
+    expect(out1).toContain('more grown note');
+    expect(beginCount(out1)).toBe(1);
+    expect(endCount(out1)).toBe(1);
+    // Stamp AGAIN: still exactly one fence (no per-boot duplication).
+    const out2 = upsertFencedBlock(out1, B, E, block);
+    expect(beginCount(out2)).toBe(1);
+    expect(endCount(out2)).toBe(1);
+  });
+
+  it('reversed markers (END before BEGIN): repaired deterministically to one clean fence', () => {
+    const existing = `${E}\ngrown middle\n${B}\n`;
+    const out = upsertFencedBlock(existing, B, E, block);
+    expect(out).toContain('grown middle'); // prose between the reversed markers survives
+    expect(out).toContain('§ FOUNDER v2');
+    expect(beginCount(out)).toBe(1);
+    expect(endCount(out)).toBe(1);
+    // Deterministic: repeating on the same corrupt input yields the same result.
+    const outAgain = upsertFencedBlock(`${E}\ngrown middle\n${B}\n`, B, E, block);
+    expect(outAgain).toBe(out);
+  });
+
+  it('duplicate stray marker alongside a well-formed pair is scrubbed to one fence', () => {
+    const existing = `${B}\n§ FOUNDER v1\n${E}\ngrown\n${B}\n`; // extra orphan BEGIN below
+    const out = upsertFencedBlock(existing, B, E, block);
+    expect(out).toContain('grown');
+    expect(beginCount(out)).toBe(1);
+    expect(endCount(out)).toBe(1);
+    expect(out).toContain('§ FOUNDER v2');
+  });
+});
+
+// ── H8 — code-point-safe truncation (no split surrogate → no U+FFFD) ───────────
+
+describe('H8 truncateToBudget — surrogate-pair safety', () => {
+  const REPLACEMENT = '�';
+
+  it('an emoji at the budget boundary is NOT split into a lone surrogate (no U+FFFD)', () => {
+    // Build a body where the naive UTF-16 cut (budget-1) would land INSIDE the
+    // surrogate pair of a trailing emoji.
+    const budget = 10;
+    const body = 'abcdefgh' + '😀' + 'zzzz'; // '😀' occupies code units 8 and 9
+    const r = truncateToBudget(body, budget);
+    expect(r.truncated).toBe(true);
+    // No replacement char anywhere — the emoji was dropped whole, never half-cut.
+    expect(r.body).not.toContain(REPLACEMENT);
+    // Still within the code-unit budget.
+    expect(r.body.length).toBeLessThanOrEqual(budget);
+    expect(r.body.endsWith('…')).toBe(true);
+  });
+
+  it('a full run of astral chars truncates cleanly on code-point boundaries', () => {
+    const body = '🎉'.repeat(50); // 100 UTF-16 code units, 50 code points
+    const r = truncateToBudget(body, 20);
+    expect(r.truncated).toBe(true);
+    expect(r.body).not.toContain(REPLACEMENT);
+    expect(r.body.length).toBeLessThanOrEqual(20);
+    // Every emoji in the result is intact (no lone surrogate): the code-point count
+    // (minus the ellipsis) times 2 equals the code-unit length of the emoji run.
+    const emojiOnly = r.body.replace('…', '');
+    expect([...emojiOnly].every((cp) => cp === '🎉')).toBe(true);
+  });
+
+  it('ASCII truncation is unchanged (still ≤ budget, ellipsis appended)', () => {
+    const r = truncateToBudget('x'.repeat(1000), 100);
+    expect(r.truncated).toBe(true);
+    expect(r.body.length).toBeLessThanOrEqual(100);
+    expect(r.body.endsWith('…')).toBe(true);
   });
 });

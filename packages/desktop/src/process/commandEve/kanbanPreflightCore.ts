@@ -2084,12 +2084,21 @@ function resolveMarketingEventLedgerPath(
     env.COMPANY_OS_ROOT,
     env.COMMAND_EVE_SOURCE_ROOT
   );
+  // H6 (ship-hardening) — PER-SEAT audit ledger. The board DB is already per-seat
+  // (kanbanDbPath resolves under paths.hermesHome, which is per-seat), but the
+  // mutation-audit FALLBACK previously wrote paths.runtimeRoot/agent-events.jsonl —
+  // an INSTALL-GLOBAL file, so seat-A and seat-B mutation trails commingled in one
+  // ledger (a cross-seat trail, weakening the per-client audit boundary). Anchor the
+  // fallback on paths.hermesHome (per-seat) so each seat's audit trail stays in its
+  // own home, matching the board DB. An explicit eventLedgerPath / env override /
+  // COMPANY_OS_ROOT metrics path still wins (those are deliberate, operator-chosen
+  // sinks); only the implicit fallback moves per-seat.
   return (
     firstNonEmpty(
       options.eventLedgerPath,
       env.COMMAND_EVE_AGENT_EVENTS_PATH,
       companyOsRoot ? path.join(companyOsRoot, 'metrics', 'agent-events.jsonl') : undefined
-    ) || path.join(paths.runtimeRoot, 'agent-events.jsonl')
+    ) || path.join(paths.hermesHome, 'agent-events.jsonl')
   );
 }
 

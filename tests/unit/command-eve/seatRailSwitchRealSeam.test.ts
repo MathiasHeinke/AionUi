@@ -1,0 +1,178 @@
+/**
+ * @license
+ * Copyright 2025 AionUi (aionui.com)
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/**
+ * TEST-HONESTY MIRRORS (a) + (b) — drive the REAL registered bridge providers, not
+ * fixture-vs-fixture twins. The 1.2.19 mirror-gap class is: the my-seats provider,
+ * the switch-seat handler and the prompt assembly were only tested against hand-
+ * built fixtures that duplicated the production logic. Here we run the ACTUAL
+ * `initCommandEveBridge` providers over a controlled wire and assert through the
+ * SAME resolveSeatAccess / isSeatSwitchAuthorized code the renderer + main use.
+ *
+ *  (a) command-eve.my-seats → (real parseMySeats) → resolveSeatAccess → rail VISIBLE
+ *      (admin, >1 seat, Founder chip prepended) — and fail-closed for a delegate.
+ *  (b) command-eve.switch-seat: the IPC admin GATE + Founder-chip target + label
+ *      threading, enforced in MAIN (a delegate / unlisted target is rejected before
+ *      any state mutates; an admin→client and admin→Founder-home succeed).
+ */
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Capture real providers.
+const registered = new Map<string, (req?: unknown) => Promise<unknown>>();
+vi.mock('@office-ai/platform', () => ({
+  bridge: {
+    buildProvider: (channel: string) => ({
+      provider: (fn: (req?: unknown) => Promise<unknown>) => {
+        registered.set(channel, fn);
+        return { channel };
+      },
+    }),
+  },
+}));
+
+// Neutralize the heavy leaf deps the bridge pulls at import.
+vi.mock('@process/utils/initStorage', () => ({
+  ProcessConfig: { get: () => undefined, getSync: () => undefined, set: () => {} },
+  getSkillsDir: () => '/tmp/skills',
+  getCronSkillsDir: () => '/tmp/cron-skills',
+}));
+vi.mock('@process/utils/utils', () => ({ getDataPath: () => '/tmp/ce-rail-data' }));
+
+// Control ONLY the network wire read; the parse + access classification stay REAL.
+let wirePayload: unknown = null;
+vi.mock('@process/commandEve/seatWireFetchCore', () => ({
+  readMySeatsWire: async () => wirePayload,
+}));
+
+// The seat-switch handler dynamically imports the runtime seams — stub them so the
+// switch does not spawn a real backend; the GATE runs BEFORE these are reached.
+vi.mock('@process/commandEve/seatSwitchRuntime', () => ({
+  restartCommandEveBackendForSeat: async () => {},
+}));
+
+import { initCommandEveBridge } from '@process/bridge/commandEveBridge';
+import { parseMySeats, resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
+import { setActiveSeatId, __resetActiveSeatForTests } from '@process/commandEve/seatContextCore';
+
+const SEAT_A = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+const SEAT_B = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+const LEGACY = 'seat-1';
+
+const adminWire = () => ({
+  ok: true,
+  account: { id: 'acc-1', role: 'admin' },
+  seats: [
+    { tenant_id: SEAT_A, name: 'Bäckerei Müller', role: 'admin', is_active: true },
+    { tenant_id: SEAT_B, name: 'Kanzlei Schmidt', role: 'admin', is_active: false },
+  ],
+  active_seat_id: SEAT_A,
+});
+
+const delegateWire = () => ({
+  ok: true,
+  account: { id: 'acc-2', role: 'delegate' },
+  seats: [{ tenant_id: SEAT_A, name: 'Bäckerei Müller', role: 'delegate', is_active: true }],
+  active_seat_id: SEAT_A,
+});
+
+type MySeatsEnvelope = { success: boolean; data?: { contract?: unknown; source?: string } };
+type SwitchEnvelope = { success: boolean; data?: { ok?: boolean; reason_code?: string; active_seat_id?: string } };
+
+beforeEach(() => {
+  registered.clear();
+  wirePayload = null;
+  __resetActiveSeatForTests();
+  setActiveSeatId(SEAT_A);
+  initCommandEveBridge();
+});
+afterEach(() => {
+  __resetActiveSeatForTests();
+  vi.clearAllMocks();
+});
+
+const mySeats = () => (registered.get('command-eve.my-seats') as () => Promise<MySeatsEnvelope>)();
+const switchSeat = (seatId: string) =>
+  (registered.get('command-eve.switch-seat') as (r?: { seatId?: string }) => Promise<SwitchEnvelope>)({ seatId });
+
+describe('mirror (a) — REAL my-seats provider → resolveSeatAccess → rail visibility', () => {
+  it('an admin with >1 seat: the contract resolves to canSwitch + a prepended Founder chip', async () => {
+    wirePayload = adminWire();
+    const res = await mySeats();
+    expect(res.success).toBe(true);
+    expect(res.data?.source).toBe('my_seats');
+
+    // Feed the provider's OWN contract through the SAME resolver the rail uses.
+    const access = resolveSeatAccess(res.data?.contract as ReturnType<typeof parseMySeats>);
+    expect(access.role).toBe('admin');
+    expect(access.canSwitch).toBe(true); // rail VISIBLE
+    // The Founder home chip is prepended for admins (return-home path).
+    expect(access.seats[0].seat_id).toBe(LEGACY);
+    expect(access.seats[0].name).toBe('Founder');
+    // Both client seats are present.
+    expect(access.seats.map((s) => s.seat_id)).toContain(SEAT_A);
+    expect(access.seats.map((s) => s.seat_id)).toContain(SEAT_B);
+  });
+
+  it('a delegate: fail-closed to a single pinned seat, rail HIDDEN (no Founder chip)', async () => {
+    wirePayload = delegateWire();
+    const res = await mySeats();
+    const access = resolveSeatAccess(res.data?.contract as ReturnType<typeof parseMySeats>);
+    expect(access.role).toBe('delegate');
+    expect(access.canSwitch).toBe(false); // rail HIDDEN
+    expect(access.seats.some((s) => s.seat_id === LEGACY)).toBe(false); // never a home chip
+  });
+
+  it('no wire (offline / no account) ⇒ legacy fallback ⇒ rail hidden', async () => {
+    wirePayload = null;
+    const res = await mySeats();
+    expect(res.data?.source).toBe('legacy_fallback');
+    const access = resolveSeatAccess(res.data?.contract as ReturnType<typeof parseMySeats>);
+    expect(access.canSwitch).toBe(false);
+  });
+});
+
+describe('mirror (b) — REAL switch-seat handler: admin gate + Founder chip + label threading', () => {
+  it('a DELEGATE is rejected by the MAIN gate (no state mutation)', async () => {
+    wirePayload = delegateWire();
+    const res = await switchSeat(SEAT_B);
+    expect(res.success).toBe(false);
+    expect(res.data?.reason_code).toBe('SWITCH_SEAT_FORBIDDEN');
+    // Active seat unchanged.
+    expect(res.data?.active_seat_id).toBe(SEAT_A);
+  });
+
+  it('an admin → an UNLISTED target is rejected (membership gate)', async () => {
+    wirePayload = adminWire();
+    const res = await switchSeat('cccccccc-cccc-cccc-cccc-cccccccccccc');
+    expect(res.success).toBe(false);
+    expect(res.data?.reason_code).toBe('SWITCH_SEAT_FORBIDDEN');
+  });
+
+  it('an admin → a listed CLIENT seat is authorized and lands on the target (label threaded from the wire seat record)', async () => {
+    wirePayload = adminWire();
+    const res = await switchSeat(SEAT_B);
+    expect(res.success).toBe(true);
+    expect(res.data?.ok).toBe(true);
+    expect(res.data?.active_seat_id).toBe(SEAT_B);
+  });
+
+  it('an admin → the Founder HOME (legacy chip) is authorized (return-home path)', async () => {
+    wirePayload = adminWire();
+    // Start in a client seat, then switch back home.
+    setActiveSeatId(SEAT_B);
+    const res = await switchSeat(LEGACY);
+    expect(res.success).toBe(true);
+    expect(res.data?.active_seat_id).toBe(LEGACY);
+  });
+
+  it('a missing target id is rejected before any mutation', async () => {
+    wirePayload = adminWire();
+    const res = await (registered.get('command-eve.switch-seat') as (r?: { seatId?: string }) => Promise<SwitchEnvelope>)({});
+    expect(res.success).toBe(false);
+    expect(res.data?.reason_code).toBe('SWITCH_SEAT_NO_TARGET');
+  });
+});

@@ -91,41 +91,56 @@ export async function readMySeatsWire(userDataPath: string, deps: ReadMySeatsWir
     // JWT-bound GET (identity is the token; the function derives the account +
     // seats server-side — the desktop supplies NO account/seat id, so there is
     // nothing here for an IDOR to widen).
+    //
+    // H7 (ship-hardening) — the abort timer must cover the BODY READ too, not just
+    // the header round-trip. Previously the timer was cleared in the fetch's finally
+    // (which resolves when the RESPONSE HEADERS arrive); `response.json()` then read
+    // the body with NO timeout, so a server that sent headers but STALLED the body
+    // hung readMySeatsWire indefinitely — parking the seat-switch lock until the 300s
+    // watchdog. We now keep the SAME AbortController armed across `.json()` and clear
+    // the timer only AFTER the body is read (or a failure). An abort mid-body rejects
+    // json() ⇒ caught ⇒ fail-closed null, exactly like a header-phase timeout.
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    let response: Response;
     try {
-      response = await fetchImpl(MY_SEATS_FUNCTION_URL, {
-        method: 'GET',
-        headers: {
-          'content-type': 'application/json',
-          apikey: anonKey,
-          Authorization: `Bearer ${accessToken}`,
-          Accept: 'application/json',
-        },
-        signal: controller.signal,
-      });
-    } catch {
-      // Offline / DNS / abort (timeout) ⇒ fail-closed. Rail stays hidden.
-      return null;
+      let response: Response;
+      try {
+        response = await fetchImpl(MY_SEATS_FUNCTION_URL, {
+          method: 'GET',
+          headers: {
+            'content-type': 'application/json',
+            apikey: anonKey,
+            Authorization: `Bearer ${accessToken}`,
+            Accept: 'application/json',
+          },
+          signal: controller.signal,
+        });
+      } catch {
+        // Offline / DNS / abort (header-phase timeout) ⇒ fail-closed. Rail hidden.
+        return null;
+      }
+
+      // Non-2xx (401 unauthenticated, 5xx, function absent) ⇒ fail-closed.
+      if (!response.ok) return null;
+
+      // Body read UNDER the same abort timer: a stalled body is aborted mid-read,
+      // rejecting json() ⇒ caught ⇒ null, so the switch lock is never parked.
+      const raw = (await response.json().catch((): null => null)) as Record<string, unknown> | null;
+      if (!raw || typeof raw !== 'object') return null;
+
+      // The function reports { ok:true, account, seats, active_seat_id }. A defensive
+      // ok:false (shouldn't happen on a 2xx) ⇒ fail-closed.
+      if ((raw as { ok?: unknown }).ok === false) return null;
+
+      // Override the wire pointer with the desktop's runtime-truth active seat. The
+      // rail rings by this id; the desktop is authoritative for what actually spawned.
+      // parseMySeats sanitizes it (a non-sanitizable id folds to the legacy seat).
+      return { ...raw, active_seat_id: activeSeat() };
     } finally {
+      // Clear ONLY after the body read completes (or a failure) so the timer covers
+      // both the header round-trip AND the body read (H7).
       clearTimeout(timer);
     }
-
-    // Non-2xx (401 unauthenticated, 5xx, function absent) ⇒ fail-closed.
-    if (!response.ok) return null;
-
-    const raw = (await response.json().catch((): null => null)) as Record<string, unknown> | null;
-    if (!raw || typeof raw !== 'object') return null;
-
-    // The function reports { ok:true, account, seats, active_seat_id }. A defensive
-    // ok:false (shouldn't happen on a 2xx) ⇒ fail-closed.
-    if ((raw as { ok?: unknown }).ok === false) return null;
-
-    // Override the wire pointer with the desktop's runtime-truth active seat. The
-    // rail rings by this id; the desktop is authoritative for what actually spawned.
-    // parseMySeats sanitizes it (a non-sanitizable id folds to the legacy seat).
-    return { ...raw, active_seat_id: activeSeat() };
   } catch {
     // ANY unexpected failure ⇒ fail-closed. NEVER throw into the bridge handler.
     return null;

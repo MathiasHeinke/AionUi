@@ -132,6 +132,61 @@ describe('ISO-6 wiring — the assembled prompt reflects the ACTIVE seat, not th
   });
 });
 
+// TEST-HONESTY MIRROR (c) — the REAL assembly seam. Run ensureCommandEveAssistant
+// end-to-end (buildCommandEveSeatContextBlock → withSeatBlock → writeAssistantResource)
+// and assert the seat-context BLOCK actually lands in the WRITTEN assistant-skill
+// resource — not a fixture that merely re-renders the pure block. Also proves H2:
+// the block reports the REAL board ('default') EVE writes, never the old "keins".
+describe('mirror (c) — the seat-context block is REALLY written into the assistant resource', () => {
+  it('a real seat: the assembled resource CONTAINS the Seat-Kontext block for its client + the DEFAULT board (H2)', async () => {
+    const root = makeRoot();
+    const paths = resolveCommandEveRuntimeBootstrapPaths(root, 'seat-1');
+    writeJson(paths.firstRunProfile, {
+      version: 'command-eve-first-run-profile/v0',
+      source: 'registration',
+      confidence: 'verified',
+      needs_confirmation: false,
+      updated_at: new Date().toISOString(),
+      founder_name: 'Mathias Admin',
+      company_name: 'FYN Labs GmbH',
+    });
+    setActiveSeatId(SEAT_A);
+    writeCompanyBrainSeed({ userDataPath: root, seed: { kind: 'connect_client', value: 'Mueller GmbH' } });
+
+    const skills = await captureAssistantSkills(root);
+
+    // The German resource carries the real Seat-Kontext block …
+    expect(skills['de-DE']).toContain('## Seat-Kontext');
+    // … reporting the REAL board EVE writes (H2), never the misleading "keins".
+    expect(skills['de-DE']).toContain('Aktives Board: default');
+    expect(skills['de-DE']).not.toContain('Aktives Board: keins');
+    // The English resource mirrors it.
+    expect(skills['en-US']).toContain('## Seat context');
+    expect(skills['en-US']).toContain('Active board: default');
+    expect(skills['en-US']).not.toContain('Active board: none');
+  });
+
+  it('the FOUNDER seat: the assembled resource carries the Founder seat-context block', async () => {
+    const root = makeRoot();
+    const paths = resolveCommandEveRuntimeBootstrapPaths(root, 'seat-1');
+    writeJson(paths.firstRunProfile, {
+      version: 'command-eve-first-run-profile/v0',
+      source: 'registration',
+      confidence: 'verified',
+      needs_confirmation: false,
+      updated_at: new Date().toISOString(),
+      founder_name: 'Mathias Admin',
+      company_name: 'FYN Labs GmbH',
+    });
+    // Legacy/founder seat (no setActiveSeatId).
+    const skills = await captureAssistantSkills(root);
+    expect(skills['de-DE']).toContain('Founder-Seat');
+    expect(skills['en-US']).toContain('Founder seat');
+    // The founder block is the roster shape, never the real-seat "Aktives Board" line.
+    expect(skills['de-DE']).not.toContain('Aktives Board');
+  });
+});
+
 function jsonResponse(payload: unknown): Response {
   return {
     ok: true,

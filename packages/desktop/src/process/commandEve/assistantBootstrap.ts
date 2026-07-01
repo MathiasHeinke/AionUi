@@ -24,6 +24,7 @@ import fs from 'fs';
 import path from 'path';
 import { resolveCommandEveRuntimeBootstrapPaths } from './runtimeBootstrapCore';
 import {
+  COMMAND_EVE_DEFAULT_BOARD_SLUG,
   getActiveSeatBoardSlug,
   getActiveSeatId,
   getActiveSeatLabel,
@@ -304,7 +305,12 @@ async function buildCommandEveSeatContextBlock(
       parseRoster: (raw) => parseFounderRoster(raw, locale),
       founderName,
       clientEntity,
-      boardSlug: getActiveSeatBoardSlug(),
+      // H2 (board-slug unify): report the board EVE actually writes. No explicit
+      // per-seat pin yet (getActiveSeatBoardSlug() === '') ⇒ fall back to the
+      // wheel's 'default' board (COMMAND_EVE_DEFAULT_BOARD_SLUG) — the SAME slug the
+      // /kanban page reads and EVE's native tools author — so the prompt reports the
+      // real board ("Aktives Board: default") instead of the misleading "keins".
+      boardSlug: getActiveSeatBoardSlug() || COMMAND_EVE_DEFAULT_BOARD_SLUG,
       locale,
     });
   } catch {

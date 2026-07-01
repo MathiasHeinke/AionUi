@@ -393,13 +393,26 @@ export function setActiveSeatId(seatId?: string | null): string {
 }
 
 /**
+ * The board the bundled Hermes wheel + the native kanban bridges write when no
+ * explicit per-seat slug is pinned. The wheel's `HERMES_KANBAN_BOARD` env defaults
+ * to 'default', and kanbanDbPath maps 'default' → `HERMES_HOME/kanban.db` — the
+ * physical per-seat board EVE's native tools author. The `/kanban` page and the
+ * seat-context prompt both report THIS slug so the operator's board and EVE's
+ * board are the same DB file (H2 board-slug unify). Per-seat isolation stays
+ * physical (HERMES_HOME is per-seat) — the slug is the same, the file is not.
+ */
+export const COMMAND_EVE_DEFAULT_BOARD_SLUG = 'default';
+
+/**
  * Get the KANBAN BOARD SLUG for the currently-active seat (Seat-Context-Bridge /
  * B1). The bundled Hermes wheel natively consumes `HERMES_KANBAN_BOARD` to pin a
- * worker onto a board. Per-seat boards are NOT created yet (a later slice, spec
- * §S7), so this returns '' for now. The env-bake path MUST only set the env var
- * when this is non-empty, so it never overwrites a user's own board env with an
- * empty string. Kept as a resolver (not a constant) so the later slice fills it
- * from the active seat's record with no bake-path change.
+ * worker onto a board. Per-seat board PINS are NOT created yet (a later slice, spec
+ * §S7), so this returns '' for now — meaning "no explicit pin ⇒ the wheel uses its
+ * own 'default' board". The env-bake path only sets the env var when this is
+ * non-empty (H5), so the wheel falls back to 'default' cleanly. Kept as a resolver
+ * (not a constant) so the later slice fills it from the active seat's record with
+ * no bake-path change. For DISPLAY / read use `COMMAND_EVE_DEFAULT_BOARD_SLUG` as
+ * the fallback (that is the board EVE actually writes when this is empty).
  */
 export function getActiveSeatBoardSlug(): string {
   return '';

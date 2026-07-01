@@ -1937,3 +1937,92 @@ describe('Command EVE Kanban marketing-executor LADDER (v15 gated, additive)', (
     ).toHaveLength(0);
   });
 });
+
+// The HERMES_HOME/kanban.db board — the physical board EVE's native Hermes tools
+// author when HERMES_KANBAN_BOARD defaults to 'default' (kanbanDbPath maps
+// 'default' → HERMES_HOME/kanban.db). This is the board the /kanban page now reads
+// after H2 (was the disconnected marketing sub-board).
+const defaultBoardPath = (root: string): string =>
+  path.join(root, 'command-eve-runtime', 'hermes', 'home', 'kanban.db');
+
+describe('H2 — /kanban board slug unify: "default" hits HERMES_HOME/kanban.db (the board EVE writes)', () => {
+  it('a card created on boardSlug="default" lands in HERMES_HOME/kanban.db, NOT the marketing sub-board', () => {
+    const root = makeRoot();
+    writeLockedReconciliation(root);
+    const defaultDb = defaultBoardPath(root);
+
+    const result = createKanbanMarketingCard({
+      userDataPath: root,
+      title: 'Operator card on the shared board',
+      lane_key: 'research',
+      client_token: 'tok-default',
+      boardSlug: 'default', // ← exactly what the page now sends
+      eventLedgerPath: path.join(root, 'agent-events.jsonl'),
+      now: () => new Date('2026-07-02T09:00:00.000Z'),
+    });
+
+    expect(result.ok).toBe(true);
+    // The write landed in the DEFAULT board DB — the one EVE authors.
+    const rows = readRows(defaultDb, 'SELECT id, title FROM tasks');
+    expect(rows).toHaveLength(1);
+    expect((rows[0] as { title: string }).title).toBe('Operator card on the shared board');
+    // And NOT in the old disconnected 'marketing' sub-board (never even created).
+    expect(fs.existsSync(marketingBoardPath(root))).toBe(false);
+    // The reported db_path is HERMES_HOME/kanban.db (unified with EVE's board).
+    expect(result.source?.hermes_home).toBeTruthy();
+    expect(defaultDb).toBe(path.join(String(result.source?.hermes_home), 'kanban.db'));
+  });
+});
+
+describe('H6 — per-seat audit ledger (no cross-seat trail in one install-global file)', () => {
+  it('the implicit ledger fallback is per-seat (paths.hermesHome), so two seats write SEPARATE files', () => {
+    // Two independent installs/seats (distinct userDataPath ⇒ distinct hermesHome).
+    // With NO explicit eventLedgerPath and NO company-os-root env, the fallback must
+    // anchor on each seat's own hermesHome — never a shared install-global file.
+    const rootA = makeRoot();
+    const rootB = makeRoot();
+    writeLockedReconciliation(rootA);
+    writeLockedReconciliation(rootB);
+
+    const emptyEnv: NodeJS.ProcessEnv = {}; // no COMPANY_OS_ROOT / AGENT_EVENTS_PATH
+
+    const resA = createKanbanMarketingCard({
+      userDataPath: rootA,
+      title: 'Seat A card',
+      lane_key: 'research',
+      client_token: 'tok-a',
+      boardSlug: 'default',
+      env: emptyEnv,
+      now: () => new Date('2026-07-02T09:10:00.000Z'),
+    });
+    const resB = createKanbanMarketingCard({
+      userDataPath: rootB,
+      title: 'Seat B card',
+      lane_key: 'research',
+      client_token: 'tok-b',
+      boardSlug: 'default',
+      env: emptyEnv,
+      now: () => new Date('2026-07-02T09:11:00.000Z'),
+    });
+
+    expect(resA.ok).toBe(true);
+    expect(resB.ok).toBe(true);
+
+    // Each seat's audit ledger is a DISTINCT file under its OWN hermesHome.
+    const ledgerA = resA.audit_event_path as string;
+    const ledgerB = resB.audit_event_path as string;
+    expect(ledgerA).toBe(path.join(rootA, 'command-eve-runtime', 'hermes', 'home', 'agent-events.jsonl'));
+    expect(ledgerB).toBe(path.join(rootB, 'command-eve-runtime', 'hermes', 'home', 'agent-events.jsonl'));
+    expect(ledgerA).not.toBe(ledgerB);
+
+    // And neither wrote the OLD install-global runtimeRoot ledger (cross-seat trail).
+    const globalA = path.join(rootA, 'command-eve-runtime', 'agent-events.jsonl');
+    expect(fs.existsSync(globalA)).toBe(false);
+
+    // The seat-A ledger contains ONLY seat-A's event (no seat-B contamination).
+    const eventsA = readAuditEvents(ledgerA);
+    expect(eventsA.length).toBeGreaterThanOrEqual(1);
+    const serializedA = JSON.stringify(eventsA);
+    expect(serializedA).not.toContain('tok-b');
+  });
+});

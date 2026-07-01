@@ -33,6 +33,7 @@ import { useTranslation } from 'react-i18next';
 import { Button, Empty, Input, Message, Modal, Select, Spin, Tag } from '@arco-design/web-react';
 import { bridge } from '@office-ai/platform';
 import { useActiveSeatId } from '@renderer/hooks/useActiveSeatId';
+import { useSeatAccess } from '@renderer/hooks/useSeatAccess';
 import { isElectronDesktop } from '@renderer/utils/platform';
 import {
   buildOrderedColumns,
@@ -48,9 +49,15 @@ import {
   type KanbanLaneKey,
 } from './kanbanBoardModel';
 
-// The board slug the native kanban bridge resolves per-seat. Same slug the
-// command-center surface uses; per-seat isolation is physical (HERMES_HOME).
-const KANBAN_BOARD_SLUG = 'marketing';
+// H2 (board-slug unify): the page MUST point at the SAME board EVE's native
+// Hermes kanban tools write. Those tools default HERMES_KANBAN_BOARD to 'default'
+// (the bundled wheel), which kanbanDbPath maps to HERMES_HOME/kanban.db — the
+// physical per-seat board. The page previously hardcoded 'marketing', which maps
+// to a DIFFERENT file (HERMES_HOME/kanban/boards/marketing/kanban.db), so the
+// operator's board and EVE's board were disconnected out-of-the-box (the core
+// operator↔EVE loop was dead). 'default' re-unifies them onto the one DB EVE
+// authors. Per-seat isolation stays physical (HERMES_HOME is per-seat).
+const KANBAN_BOARD_SLUG = 'default';
 
 interface IBridgeResponse<D = unknown> {
   success: boolean;
@@ -144,10 +151,13 @@ const cardStatusColor = (status: string): 'blue' | 'green' | 'orange' | 'red' | 
 const KanbanCardView: React.FC<{
   card: IKanbanBoardCard;
   busy: boolean;
+  // H1 belt-and-suspenders: writes are fenced in MAIN during a seat switch; the
+  // renderer disables the buttons too so the operator never fires a doomed write.
+  locked?: boolean;
   onMoveNext: (card: IKanbanBoardCard, toLane: KanbanLaneKey) => void;
   onOpenComment: (card: IKanbanBoardCard) => void;
   onApplyAction: (card: IKanbanBoardCard, action: Exclude<KanbanCardAction, 'comment'>) => void;
-}> = ({ card, busy, onMoveNext, onOpenComment, onApplyAction }) => {
+}> = ({ card, busy, locked = false, onMoveNext, onOpenComment, onApplyAction }) => {
   const { t } = useTranslation();
   const nextLane = nextKanbanLane(card.lane_key);
   const blocked = card.card_status === 'blocked';
@@ -174,7 +184,7 @@ const KanbanCardView: React.FC<{
         <Button
           size='mini'
           shape='round'
-          disabled={busy}
+          disabled={busy || locked}
           data-testid={`kanban-card-comment-${card.card_id}`}
           onClick={() => onOpenComment(card)}
         >
@@ -184,7 +194,7 @@ const KanbanCardView: React.FC<{
           size='mini'
           shape='round'
           loading={busy && !blocked}
-          disabled={busy || blocked || completed}
+          disabled={busy || locked || blocked || completed}
           data-testid={`kanban-card-block-${card.card_id}`}
           onClick={() => onApplyAction(card, 'block')}
         >
@@ -194,7 +204,7 @@ const KanbanCardView: React.FC<{
           size='mini'
           shape='round'
           loading={busy && blocked}
-          disabled={busy || !blocked}
+          disabled={busy || locked || !blocked}
           data-testid={`kanban-card-unblock-${card.card_id}`}
           onClick={() => onApplyAction(card, 'unblock')}
         >
@@ -204,7 +214,7 @@ const KanbanCardView: React.FC<{
           size='mini'
           shape='round'
           loading={busy && !completed}
-          disabled={busy || completed}
+          disabled={busy || locked || completed}
           data-testid={`kanban-card-complete-${card.card_id}`}
           onClick={() => onApplyAction(card, 'complete')}
         >
@@ -216,7 +226,7 @@ const KanbanCardView: React.FC<{
             shape='round'
             type='outline'
             loading={busy}
-            disabled={busy}
+            disabled={busy || locked}
             data-testid={`kanban-card-move-${card.card_id}`}
             onClick={() => onMoveNext(card, nextLane)}
           >
@@ -239,10 +249,12 @@ const KanbanCardView: React.FC<{
 const KanbanColumnView: React.FC<{
   column: IKanbanBoardColumn;
   busyCardId: string | null;
+  // H1: forwarded to each card so a seat switch disables every write control.
+  locked?: boolean;
   onMoveNext: (card: IKanbanBoardCard, toLane: KanbanLaneKey) => void;
   onOpenComment: (card: IKanbanBoardCard) => void;
   onApplyAction: (card: IKanbanBoardCard, action: Exclude<KanbanCardAction, 'comment'>) => void;
-}> = ({ column, busyCardId, onMoveNext, onOpenComment, onApplyAction }) => {
+}> = ({ column, busyCardId, locked = false, onMoveNext, onOpenComment, onApplyAction }) => {
   const { t } = useTranslation();
   return (
     <div
@@ -262,6 +274,7 @@ const KanbanColumnView: React.FC<{
               key={`${column.key}-${card.card_id}`}
               card={card}
               busy={busyCardId === card.card_id}
+              locked={locked}
               onMoveNext={onMoveNext}
               onOpenComment={onOpenComment}
               onApplyAction={onApplyAction}
@@ -472,6 +485,11 @@ const KanbanCardCommentModal: React.FC<{
 
 const KanbanBoardPage: React.FC = () => {
   const { t } = useTranslation();
+  // H1 belt-and-suspenders: while an admin seat switch is in flight, disable every
+  // write control. The MAIN process also refuses the write (SEAT_SWITCH_IN_PROGRESS)
+  // — the renderer guard just keeps the operator from firing a doomed click. On a
+  // single-seat / legacy install `switching` is never true (no-op).
+  const { switching } = useSeatAccess();
   const [loading, setLoading] = useState(true);
   const [boardResult, setBoardResult] = useState<IKanbanBoardEnvelope | null>(null);
   const [createModalVisible, setCreateModalVisible] = useState(false);
@@ -670,7 +688,7 @@ const KanbanBoardPage: React.FC = () => {
             <Button
               type='primary'
               shape='round'
-              disabled={!boardReady}
+              disabled={!boardReady || switching}
               data-testid='kanban-card-create-open'
               onClick={() => setCreateModalVisible(true)}
             >
@@ -737,6 +755,7 @@ const KanbanBoardPage: React.FC = () => {
                   key={column.key}
                   column={column}
                   busyCardId={busyCardId}
+                  locked={switching}
                   onMoveNext={moveCardNext}
                   onOpenComment={setCommentCard}
                   onApplyAction={applyNonCommentAction}

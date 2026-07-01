@@ -158,8 +158,8 @@ describe('B3 resolveSeatContextBlock — isolation gate (roster unreachable from
   });
 });
 
-describe('B3 consistency — env == prompt (anti store-split)', () => {
-  it('the prompt block consumes the SAME id + label the env bake sets', async () => {
+describe('B3 consistency — env id == prompt, label in STATE not env (H3 anti store-split)', () => {
+  it('the prompt block consumes the SAME id (env) + label (STATE); the label is NOT in env', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-consistency-'));
     // Set the live process-local seat state (as a switch/boot would).
     setActiveSeatId(SEAT_A);
@@ -180,13 +180,16 @@ describe('B3 consistency — env == prompt (anti store-split)', () => {
       locale: 'de-DE',
     });
 
-    // The env's id + label appear verbatim in the prompt block — they can't diverge.
+    // The opaque id appears in env; the CLEAR NAME does NOT (H3).
     expect(env.COMMAND_EVE_ACTIVE_SEAT).toBe(SEAT_A);
-    expect(env.COMMAND_EVE_SEAT_LABEL).toBe('Acme GmbH');
-    expect(block).toContain(env.COMMAND_EVE_SEAT_LABEL as string);
+    expect(env.COMMAND_EVE_SEAT_LABEL).toBeUndefined();
+    // The prompt block still carries the label — read from process-local STATE, so
+    // env and prompt cannot diverge even though the label is not in env.
+    expect(getActiveSeatLabel()).toBe('Acme GmbH');
+    expect(block).toContain('Acme GmbH');
   });
 
-  it('legacy defaults are consistent across env + prompt (Founder / seat-1)', async () => {
+  it('legacy defaults are consistent across env id + prompt (Founder / seat-1)', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-consistency-legacy-'));
     const env: NodeJS.ProcessEnv = { PATH: '/usr/bin' };
     prepareCommandEveRuntimeProcessEnv(root, env);
@@ -200,7 +203,8 @@ describe('B3 consistency — env == prompt (anti store-split)', () => {
       locale: 'de-DE',
     });
     expect(env.COMMAND_EVE_ACTIVE_SEAT).toBe(LEGACY_SEAT_ID);
-    expect(env.COMMAND_EVE_SEAT_LABEL).toBe(DEFAULT_SEAT_LABEL);
+    expect(env.COMMAND_EVE_SEAT_LABEL).toBeUndefined();
+    expect(getActiveSeatLabel()).toBe(DEFAULT_SEAT_LABEL);
     expect(block).toContain('Founder-Seat');
   });
 });
