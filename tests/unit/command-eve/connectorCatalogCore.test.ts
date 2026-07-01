@@ -202,6 +202,101 @@ describe('Command EVE connector catalog core', () => {
     expect(blocked?.guided_setup.secret_handling).toBe('never_in_chat');
   });
 
+  it('keeps the stdio-only read-only posture when curated connectors (Linear/Notion/Slack) are present', () => {
+    const root = makeRoot();
+    const manifestPath = path.join(root, 'kits', 'company-os-kit', '.company-os', 'eve', 'connector-manifests.json');
+    writeJson(manifestPath, {
+      version: 'eve-connector-manifest/v0',
+      policy: {
+        state_authority: 'local-preflight-result-files-only',
+        secret_rule: 'Never ask for tokens in chat.',
+        write_rule: 'Writes require HumanGate.',
+      },
+      connectors: [
+        {
+          id: 'linear-project-management',
+          name: 'Linear',
+          tier: 'recommended',
+          purpose: 'Read backlogs and draft issues.',
+          required_for: ['client_delivery_wedge'],
+          auth_method: 'Linear API key',
+          auth_surface: 'Linear workspace',
+          setup_mode: 'guided_connector',
+          safe_preflight: ['list teams read-only'],
+          verify_command: 'connector-specific: list Linear teams read-only',
+          allowed_actions: ['read issues'],
+          blocked_actions: ['create or update issues without review'],
+          human_gate: 'HG-3 before write-capable Linear changes',
+          memory_policy: 'store issue metadata, not secrets',
+          dsgvo_note: 'US SaaS (Linear) — confirm DPA.',
+          preflight_result_file:
+            '.company-os/operations/preflight-results/linear-project-management-latest.json',
+        },
+        {
+          id: 'notion-workspace',
+          name: 'Notion',
+          tier: 'recommended',
+          purpose: 'Read shared pages and draft docs.',
+          required_for: ['client_delivery_wedge'],
+          auth_method: 'Notion OAuth or integration API key',
+          auth_surface: 'Notion workspace',
+          setup_mode: 'guided_connector',
+          safe_preflight: ['search read-only'],
+          verify_command: 'connector-specific: read-only Notion search',
+          allowed_actions: ['read shared pages'],
+          blocked_actions: ['write or publish pages without review'],
+          human_gate: 'HG-2 for read scopes; HG-3 for write/share actions',
+          memory_policy: 'summaries and links only',
+          dsgvo_note: 'US SaaS (Notion) — confirm DPA.',
+          preflight_result_file: '.company-os/operations/preflight-results/notion-workspace-latest.json',
+        },
+        {
+          id: 'slack-internal-comms',
+          name: 'Slack',
+          tier: 'optional',
+          purpose: 'Read approved channels; posting gated.',
+          required_for: ['operator_internal_only'],
+          auth_method: 'Slack OAuth with channel scopes',
+          auth_surface: 'Slack workspace',
+          setup_mode: 'deferred_gated_connector',
+          safe_preflight: ['read-only channel test'],
+          verify_command: 'connector-specific: read-only Slack channel test',
+          allowed_actions: ['read approved channels'],
+          blocked_actions: ['post messages'],
+          human_gate: 'HG-3 before posting to any Slack channel or DM',
+          memory_policy: 'do not persist raw message bodies',
+          dsgvo_note: 'US SaaS (Slack) — confirm DPA.',
+          preflight_result_file: '.company-os/operations/preflight-results/slack-internal-comms-latest.json',
+        },
+      ],
+    });
+
+    const result = buildConnectorCatalog({ companyOsRoot: root, env: {} });
+    const cards = result.model?.connectors ?? [];
+
+    expect(result.ok).toBe(true);
+    // The new curated entries parse into cards.
+    expect(cards.map((card) => card.id)).toEqual([
+      'linear-project-management',
+      'notion-workspace',
+      'slack-internal-comms',
+    ]);
+    // stdio-only read-only posture is unchanged by the new catalog entries.
+    expect(result.model?.mcp_enable_policy.allowed).toBe(false);
+    expect(result.model?.mcp_enable_policy.blocked_transports).toEqual(['http', 'sse', 'streamable_http']);
+    expect(result.model?.mcp_enable_policy.connector_write_allowed).toBe(false);
+    // No per-connector guided setup ever opens raw MCP enable / write.
+    for (const card of cards) {
+      expect(card.guided_setup.mcp_enable_allowed).toBe(false);
+      expect(card.guided_setup.connector_write_allowed).toBe(false);
+      expect(card.guided_setup.secret_handling).toBe('never_in_chat');
+    }
+    // Slack (deferred gated + HG-3) is treated as gated -> HumanGate required, never auto-connected.
+    const slack = cards.find((card) => card.id === 'slack-internal-comms');
+    expect(slack?.evidence_state).toBe('gated');
+    expect(slack?.guided_setup.state).toBe('humangate_required');
+  });
+
   it('rejects unsupported manifest schemas', () => {
     const root = makeRoot();
     const manifestPath = path.join(root, 'manifest.json');
