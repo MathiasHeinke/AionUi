@@ -346,6 +346,86 @@ export function initCommandEveBridge(): void {
       }
     });
 
+  // -------------------------------------------------------------------------
+  // GUIDED_AUTH_SETUP (S5 phase 2, arch §6) — the REAL handler for the
+  // previously-dead connector action. API-KEY PATH ONLY (OAuth deferred, arch
+  // §6.3). Fail-closed FIRST on secure storage: no keychain → refuse, NEVER
+  // plaintext, NEVER a record written. Then encrypt → vault record (vetted only
+  // WITH a human_gate_receipt) → reconcile so the card flips to `connected`.
+  //
+  // The card can SHOW "connect", but the actual ENABLE stays behind
+  // COMMAND_EVE_MCP_VAULT_ENABLED (default false): the record is written + vetted,
+  // but the reconcile re-render emits it into config.yaml ONLY when the flag flips
+  // (the separate GATE-NULL slice). connectorCatalogCore's global
+  // mcp_enable_allowed / connector_write_allowed stay FALSE (no global flip).
+  // -------------------------------------------------------------------------
+  bridge.buildProvider('command-eve.guided-auth-setup').provider(
+    async (request?: {
+      connectorId?: string;
+      secrets?: Record<string, string>;
+      scope?: 'founder' | 'seat';
+      seatId?: string;
+      humanGateReceipt?: string;
+      manifestPath?: string;
+    }) => {
+      const version = 'command-eve-guided-auth-setup/v0' as const;
+      try {
+        const { runGuidedApiKeySetup } = await import('@process/commandEve/guidedAuthSetupCore');
+        const { referenceMcpInvocationFor } = await import('@process/commandEve/curatedConnectorReference');
+        const { reconcileVaultConfigAfterConnectorChange } = await import(
+          '@process/commandEve/reconcileHermesMcpConfigWiring'
+        );
+
+        const connectorId = typeof request?.connectorId === 'string' ? request.connectorId.trim() : '';
+        if (!connectorId) {
+          return { success: false, msg: 'GUIDED_AUTH_CONNECTOR_ID_MISSING', data: { version, ok: false } };
+        }
+
+        // Resolve the connector's stdio mcp_invocation: prefer the authoritative
+        // manifest (buildConnectorCatalog), fall back to the sandbox reference for
+        // the reference LIVE connector (Notion) so it can be set up sandbox-alone.
+        let invocation = referenceMcpInvocationFor(connectorId);
+        try {
+          const catalog = buildConnectorCatalog({ manifestPath: request?.manifestPath });
+          const fromManifest = catalog.model?.connectors.find((c) => c.id === connectorId)?.mcp_invocation;
+          if (fromManifest) invocation = fromManifest;
+        } catch {
+          // manifest unavailable — keep the reference fallback (Notion) if any.
+        }
+
+        const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
+        const result = runGuidedApiKeySetup({
+          connector_id: connectorId,
+          mcp_invocation: invocation,
+          secrets: request?.secrets ?? {},
+          scope: request?.scope === 'seat' ? 'seat' : 'founder',
+          seat_id: request?.scope === 'seat' ? getActiveSeatId() : undefined,
+          human_gate_receipt: typeof request?.humanGateReceipt === 'string' ? request.humanGateReceipt : '',
+          userDataPath: paths.userDataPath,
+          configRoot: paths.hermesRoot,
+        });
+
+        if (!result.ok) {
+          return { success: false, msg: result.reason_code, data: { version, ...result } };
+        }
+
+        // Reconcile (re-render config.yaml from the vault + respawn). Behind the
+        // flag this is a NO-OP receipt today (byte-identical config.yaml).
+        const reconcile = await reconcileVaultConfigAfterConnectorChange('approve');
+        return {
+          success: true,
+          data: { version, ...result, reconcile },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          msg: error instanceof Error ? error.message : 'Command EVE guided auth setup bridge failed.',
+          data: { version, ok: false, reason_code: 'GUIDED_AUTH_BRIDGE_FAILED' },
+        };
+      }
+    }
+  );
+
   bridge
     .buildProvider('command-eve.skill-library')
     .provider(async (request?: { runtimeReconciliationPath?: string; capabilityPackPath?: string }) => {
@@ -2042,6 +2122,7 @@ export function initCommandEveBridge(): void {
       const { applySeatSwitch } = await import('@process/commandEve/seatSwitchCore');
       const { restartCommandEveBackendForSeat } = await import('@process/commandEve/seatSwitchRuntime');
       const { prepareCommandEveRuntimeProcessEnv } = await import('@process/commandEve/runtimeBootstrapCore');
+      const { reconcileVaultConfigForSeatSwitch } = await import('@process/commandEve/reconcileHermesMcpConfigWiring');
 
       // Seat-Context-Bridge (B1): the target seat's DISPLAY LABEL comes from the
       // SAME wire seat record already resolved above (access.seats[].name) — no
@@ -2051,8 +2132,16 @@ export function initCommandEveBridge(): void {
       const targetLabel = access.seats.find((s) => s.seat_id === sanitizedTarget)?.name;
 
       const result = await applySeatSwitch(targetSeatId, {
-        prepareEnv: () => {
+        prepareEnv: async () => {
           prepareCommandEveRuntimeProcessEnv(getDataPath());
+          // S5-P2 vault reconcile (arch §7): refresh the TARGET seat's config.yaml
+          // from the vault BEFORE applySeatSwitch's own restartBackend — so a seat's
+          // Founder-connectors are present on entry. respawnAfter:false because the
+          // switch lifecycle already owns the single respawn (the step right after
+          // this prepareEnv). Behind COMMAND_EVE_MCP_VAULT_ENABLED (default false):
+          // while off, the reRenderConfig closure is a no-op returning 0, so seat
+          // switch behavior stays BYTE-IDENTICAL to today (no extra bootstrap run).
+          await reconcileVaultConfigForSeatSwitch();
         },
         restartBackend: () => restartCommandEveBackendForSeat(),
         rebindConfig: async (seatId) => {

@@ -7,7 +7,7 @@
 import classNames from 'classnames';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, Button, Empty, Spin, Tag } from '@arco-design/web-react';
+import { Alert, Button, Empty, Input, Message, Modal, Spin, Tag } from '@arco-design/web-react';
 import { bridge } from '@office-ai/platform';
 import { useLayoutContext } from '@renderer/hooks/context/LayoutContext';
 import { isElectronDesktop } from '@renderer/utils/platform';
@@ -78,6 +78,14 @@ type ConnectorCatalogCard = {
   human_gate: string;
   memory_policy: string;
   preflight_result_file: string;
+  /** OPTIONAL stdio invocation (arch §4) — present for curated connectors; drives the guided-auth field set. */
+  mcp_invocation?: {
+    transport: 'stdio';
+    command: string;
+    args: string[];
+    env_refs: string[];
+    scope_default?: 'founder' | 'seat';
+  };
   evidence_state: ConnectorEvidenceState;
   latest_preflight: ConnectorPreflight | null;
   guided_setup: ConnectorGuidedSetup;
@@ -146,6 +154,27 @@ const connectorPreflightBridge = bridge.buildProvider<
   { connectorId: string; manifestPath?: string }
 >('command-eve.connector-preflight');
 
+// S5-P2 guided_auth_setup (arch §6): the API-key setup handler. secrets never
+// leave the handler in plaintext (they are encrypted main-side). The card can
+// SHOW this, but the actual MCP enable stays behind COMMAND_EVE_MCP_VAULT_ENABLED.
+type GuidedAuthSetupResult = {
+  version: 'command-eve-guided-auth-setup/v0';
+  ok: boolean;
+  reason_code?: string;
+  connector_id?: string;
+  path?: string;
+};
+const guidedAuthSetupBridge = bridge.buildProvider<
+  BridgeResponse<GuidedAuthSetupResult>,
+  {
+    connectorId: string;
+    secrets: Record<string, string>;
+    scope: 'founder' | 'seat';
+    humanGateReceipt: string;
+    manifestPath?: string;
+  }
+>('command-eve.guided-auth-setup');
+
 const stateColor = (state: ConnectorEvidenceState): 'blue' | 'green' | 'orange' | 'red' | 'gray' | 'purple' => {
   if (state === 'connected') return 'green';
   if (state === 'blocked') return 'red';
@@ -186,14 +215,97 @@ const SummaryCard: React.FC<{ label: string; value: number; color: ConnectorEvid
   </div>
 );
 
+/**
+ * GUIDED AUTH SETUP MODAL (S5-P2 scaffold, arch §6). API-KEY path only. One
+ * password field per env-var the connector's stdio invocation declares. The value
+ * NEVER leaves the renderer as chat/state — it goes straight to the main-side
+ * handler which encrypts it into the keychain vault. If the connector declares no
+ * mcp_invocation (OAuth-only / not-yet-wired), the modal refuses (OAuth deferred).
+ */
+const GuidedAuthSetupModal: React.FC<{
+  connector: ConnectorCatalogCard | null;
+  visible: boolean;
+  submitting: boolean;
+  onCancel: () => void;
+  onSubmit: (input: { connectorId: string; secrets: Record<string, string>; humanGateReceipt: string }) => void;
+}> = ({ connector, visible, submitting, onCancel, onSubmit }) => {
+  const envRefs = connector?.mcp_invocation?.env_refs ?? [];
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [receipt, setReceipt] = useState('');
+
+  useEffect(() => {
+    // Reset the fields whenever the target connector changes (never carry a secret
+    // from one connector's modal into another).
+    setValues({});
+    setReceipt('');
+  }, [connector?.id, visible]);
+
+  const canSubmit =
+    !!connector &&
+    envRefs.length > 0 &&
+    envRefs.every((name) => (values[name] ?? '').length > 0) &&
+    receipt.trim().length > 0;
+
+  return (
+    <Modal
+      title={connector ? `Connect ${connector.name}` : 'Connect connector'}
+      visible={visible}
+      onCancel={onCancel}
+      okText='Connect (encrypt + store)'
+      confirmLoading={submitting}
+      okButtonProps={{ disabled: !canSubmit }}
+      onOk={() => {
+        if (!connector || !canSubmit) return;
+        onSubmit({ connectorId: connector.id, secrets: values, humanGateReceipt: receipt.trim() });
+      }}
+    >
+      {envRefs.length === 0 ? (
+        <Alert
+          type='warning'
+          content='This connector has no API-key invocation wired yet (OAuth capture is deferred). It cannot be connected from here.'
+        />
+      ) : (
+        <div className='flex flex-col gap-12px'>
+          <Alert
+            type='info'
+            content='Your key is encrypted into the OS keychain and stored in the credential vault. It never appears in chat, logs, or config.yaml.'
+          />
+          {envRefs.map((name) => (
+            <div key={name} className='flex flex-col gap-4px'>
+              <label className='text-12px font-600 text-t-primary'>{name}</label>
+              <Input.Password
+                data-testid={`guided-auth-input-${name}`}
+                value={values[name] ?? ''}
+                placeholder={`Paste ${name}`}
+                onChange={(v) => setValues((prev) => ({ ...prev, [name]: v }))}
+              />
+            </div>
+          ))}
+          <div className='flex flex-col gap-4px'>
+            <label className='text-12px font-600 text-t-primary'>HumanGate receipt (required)</label>
+            <Input
+              data-testid='guided-auth-input-receipt'
+              value={receipt}
+              placeholder='e.g. receipt://hg-3/<id>'
+              onChange={setReceipt}
+            />
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+};
+
 const ConnectorCard: React.FC<{
   connector: ConnectorCatalogCard;
   running: boolean;
   onRunPreflight: (connectorId: string) => void;
-}> = ({ connector, running, onRunPreflight }) => {
+  onGuidedAuthSetup: (connector: ConnectorCatalogCard) => void;
+}> = ({ connector, running, onRunPreflight, onGuidedAuthSetup }) => {
   const { t } = useTranslation();
   const latestPreflight = connector.latest_preflight;
   const stateLabel = t(`connectorCatalog.states.${connector.evidence_state}`);
+  const isGuidedAuth = connector.guided_setup.primary_action === 'guided_auth_setup';
   const canRunPreflight = connector.guided_setup.primary_action === 'run_read_only_preflight';
   return (
     <article
@@ -306,15 +418,17 @@ const ConnectorCard: React.FC<{
 
       <Button
         data-testid={`connector-preflight-button-${connector.id}`}
-        disabled={!canRunPreflight || running}
+        disabled={(!canRunPreflight && !isGuidedAuth) || running}
         loading={running}
         long
         title={
           canRunPreflight
             ? t('connectorCatalog.actions.runPreflightTitle')
-            : t('connectorCatalog.actions.guidedSetupDisabled')
+            : isGuidedAuth
+              ? 'Connect this connector by pasting its API key (encrypted into the vault).'
+              : t('connectorCatalog.actions.guidedSetupDisabled')
         }
-        onClick={() => onRunPreflight(connector.id)}
+        onClick={() => (isGuidedAuth ? onGuidedAuthSetup(connector) : onRunPreflight(connector.id))}
       >
         {t(`connectorCatalog.setupActions.${connector.guided_setup.primary_action}`)}
       </Button>
@@ -331,6 +445,9 @@ const ConnectorCatalogPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [preflightStatus, setPreflightStatus] = useState<ConnectorPreflightResult | null>(null);
   const [runningPreflightId, setRunningPreflightId] = useState<string | null>(null);
+  // S5-P2 guided-auth-setup modal state.
+  const [authModalConnector, setAuthModalConnector] = useState<ConnectorCatalogCard | null>(null);
+  const [authSubmitting, setAuthSubmitting] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -393,6 +510,33 @@ const ConnectorCatalogPage: React.FC = () => {
       }
     },
     [refresh, result?.model?.source.manifest_path, t]
+  );
+
+  const submitGuidedAuth = useCallback(
+    async (input: { connectorId: string; secrets: Record<string, string>; humanGateReceipt: string }) => {
+      setAuthSubmitting(true);
+      try {
+        const response = await guidedAuthSetupBridge.invoke({
+          connectorId: input.connectorId,
+          secrets: input.secrets,
+          scope: 'founder',
+          humanGateReceipt: input.humanGateReceipt,
+          manifestPath: result?.model?.source.manifest_path,
+        });
+        if (response.success && response.data?.ok) {
+          Message.success('Connector credential stored securely.');
+          setAuthModalConnector(null);
+          await refresh();
+        } else {
+          Message.error(response.msg || response.data?.reason_code || 'Guided setup failed.');
+        }
+      } catch (authError) {
+        Message.error(authError instanceof Error ? authError.message : 'Guided setup failed.');
+      } finally {
+        setAuthSubmitting(false);
+      }
+    },
+    [refresh, result?.model?.source.manifest_path]
   );
 
   const model = result?.model;
@@ -513,6 +657,7 @@ const ConnectorCatalogPage: React.FC = () => {
                       connector={connector}
                       running={runningPreflightId === connector.id}
                       onRunPreflight={runPreflight}
+                      onGuidedAuthSetup={setAuthModalConnector}
                     />
                   ))}
                 </div>
@@ -536,6 +681,14 @@ const ConnectorCatalogPage: React.FC = () => {
           </>
         )}
       </div>
+
+      <GuidedAuthSetupModal
+        connector={authModalConnector}
+        visible={authModalConnector !== null}
+        submitting={authSubmitting}
+        onCancel={() => setAuthModalConnector(null)}
+        onSubmit={submitGuidedAuth}
+      />
     </div>
   );
 };

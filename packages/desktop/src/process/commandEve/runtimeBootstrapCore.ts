@@ -19,6 +19,14 @@ import {
 import { claudeDelegatePreflightWarning } from '../../common/config/eveWorkerAssignmentCore';
 import { readCompanyBrainSeedStateFromHome } from './companyBrainSeedCore';
 import { stampUserMdTiersToHome } from './userMdTierStampCore';
+import { isMcpVaultEnabled } from './mcpVaultFlagCore';
+import { readVettedConnectorsForSeat, resolveEnvFromVault } from './vaultEnvResolveCore';
+import type { VaultConnectorRecord } from './vaultRecordCore';
+import {
+  buildConnectorCatalog,
+  type CommandEveConnectorCatalogOptions,
+  type CommandEveConnectorMcpInvocation,
+} from './connectorCatalogCore';
 
 export const COMMAND_EVE_RUNTIME_BOOTSTRAP_VERSION = 'command-eve-runtime-bootstrap/v0';
 
@@ -1124,15 +1132,140 @@ export function renderHermesMcpServersYaml(servers: CommandEveHermesMcpServer[])
 }
 
 /**
- * The seam where v1.4 supplies the HumanGate-approved, vault-backed, profile-scoped
- * vetted MCP connectors. Returns [] today: the connector catalog is deliberately
- * read-only (connectorCatalogCore: read_only, mcp_enable_allowed:false,
- * connector_write_allowed:false) and there is no credential vault yet, so wiring a
- * connector now would flip the security posture before Trust-as-Architecture exists.
- * See WO 2026-06-19-wo-mcp-servers-write-slice (gated v1.4).
+ * A per-connector `mcp_invocation` lookup: connector_id → the manifest's stdio
+ * invocation descriptor (command/args/env_refs, arch §4). The feeder joins a
+ * vetted VAULT record (which carries only `env_refs` NAME→ref) against this to
+ * learn HOW to spawn the server. Supplied by the caller (resolved from the
+ * connector manifest) so the feeder stays pure + testable. A connector with no
+ * entry here has no known invocation and is DROPPED (fail-closed — never spawn a
+ * command we can't describe).
  */
-function resolveVettedMcpServersForBootstrap(_capabilityPack: CommandEveCapabilityPack): CommandEveHermesMcpServer[] {
-  return [];
+export type McpInvocationResolver = (connectorId: string) => CommandEveConnectorMcpInvocation | undefined;
+
+/** Injectable seams for the feeder — all default to the real S5-P1 cores. */
+export interface ResolveVettedMcpServersDeps {
+  /** Read the vetted (founder ∪ active-seat) records. Defaults to readVettedConnectorsForSeat. */
+  readVetted?: (userDataPath: string, configRoot: string, seatId?: string | null) => VaultConnectorRecord[];
+  /** Decrypt a record's env_refs, all-or-nothing. Defaults to resolveEnvFromVault. */
+  resolveEnv?: typeof resolveEnvFromVault;
+  /** Map a connector_id → its manifest `mcp_invocation`. No default (caller supplies). */
+  mcpInvocationFor?: McpInvocationResolver;
+  /** userData root the FOUNDER vault lives under (`<root>/…/vault/founder`). */
+  userDataPath?: string;
+  /** The runtime configRoot the SEAT vault lives under (the hermesRoot). */
+  configRoot?: string;
+}
+
+/**
+ * The FEEDER (arch §8) — supplies the HumanGate-approved, vault-backed,
+ * seat-scoped vetted MCP connectors for a seat's config.yaml.
+ *
+ * SAFETY GATE (arch §8/§9/§11.5): behind `COMMAND_EVE_MCP_VAULT_ENABLED`
+ * (default FALSE). While the flag is false this returns `[]` — BYTE-IDENTICAL to
+ * the prior hardcoded `return []`, so `renderHermesMcpServersYaml([])` emits
+ * `mcp_servers: {}` and NO live posture changes. The flip to true is the separate
+ * GATE-NULL-gated slice; this function NEVER flips it.
+ *
+ * When the flag is TRUE it:
+ *   1. reads the vetted records = founderVault ∪ seatVault(seatId) (S5-P1
+ *      readVettedConnectorsForSeat) — a seat-A record can NEVER appear in seat-B's
+ *      set because the read is a file POSITION, not a filter;
+ *   2. for each record, looks up its manifest `mcp_invocation` (command/args) —
+ *      a record with no known invocation is DROPPED (never spawn an undescribed
+ *      command); NON-stdio transports are structurally impossible (the manifest
+ *      schema only represents stdio);
+ *   3. resolves env from the vault ALL-OR-NOTHING (resolveEnvFromVault) — a single
+ *      failed decrypt DROPS the WHOLE connector (never a half-configured server,
+ *      never a plaintext/empty env value);
+ *   4. maps the survivor to a stdio `CommandEveHermesMcpServer`.
+ *
+ * The env values live only in the returned in-memory objects (handed straight to
+ * renderHermesMcpServersYaml → the 0600 config.yaml); the plaintext is never
+ * logged (arch §11.6).
+ */
+export function resolveVettedMcpServersForBootstrap(
+  _capabilityPack: CommandEveCapabilityPack,
+  seatId: string | null = getActiveSeatId(),
+  deps: ResolveVettedMcpServersDeps = {}
+): CommandEveHermesMcpServer[] {
+  // SAFETY GATE: default-false → byte-identical empty result → mcp_servers: {}.
+  if (!isMcpVaultEnabled()) return [];
+
+  const readVetted = deps.readVetted ?? readVettedConnectorsForSeat;
+  const resolveEnv = deps.resolveEnv ?? resolveEnvFromVault;
+  const mcpInvocationFor = deps.mcpInvocationFor;
+  // Without a manifest-invocation resolver we cannot describe ANY spawn — emit
+  // nothing rather than guess (fail-closed). Both vault roots must be present.
+  if (!mcpInvocationFor || typeof deps.userDataPath !== 'string' || typeof deps.configRoot !== 'string') {
+    return [];
+  }
+
+  let vetted: VaultConnectorRecord[];
+  try {
+    // seatVaultDir (inside readVetted) THROWS for an unsanitizable seatId —
+    // fail-closed to an empty set rather than propagate into config.yaml.
+    vetted = readVetted(deps.userDataPath, deps.configRoot, seatId);
+  } catch {
+    return [];
+  }
+  const servers: CommandEveHermesMcpServer[] = [];
+  for (const record of vetted) {
+    if (record.vetted !== true) continue; // defensive; readVetted already filters
+    const invocation = mcpInvocationFor(record.connector_id);
+    if (!invocation || invocation.transport !== 'stdio') continue; // drop undescribed / non-stdio
+    const env = resolveEnv(record);
+    if (!env.ok) continue; // ALL-OR-NOTHING: a bad decrypt drops the whole connector
+    servers.push({
+      id: record.connector_id,
+      command: invocation.command,
+      args: invocation.args,
+      env: env.env,
+    });
+  }
+  return servers;
+}
+
+/**
+ * Public, informational count of the vetted MCP servers a seat WOULD emit — used
+ * by the reconcile receipt (arch §7 `connector_count`). Behind the same
+ * COMMAND_EVE_MCP_VAULT_ENABLED gate as the feeder, so it returns 0 while the flag
+ * is off (byte-identical to today). Does NOT write anything; the real emission is
+ * inside the bootstrap re-render.
+ */
+export function countVettedMcpServersForSeat(
+  capabilityPack: CommandEveCapabilityPack,
+  seatId: string | null,
+  deps: ResolveVettedMcpServersDeps = {}
+): number {
+  return resolveVettedMcpServersForBootstrap(capabilityPack, seatId, deps).length;
+}
+
+/**
+ * Build an {@link McpInvocationResolver} from the connector manifest (arch §4):
+ * connector_id → its `mcp_invocation`. Reuses `buildConnectorCatalog` (the SAME
+ * read-only, stdio-only, http/sse-rejecting normalizer S5-P1 shipped) so the
+ * feeder never re-parses the manifest or invents a different shape. A missing
+ * manifest / parse error yields a resolver that returns `undefined` for every id
+ * (fail-closed — no server is describable, so the feeder emits nothing).
+ *
+ * PURE except the manifest read already done by buildConnectorCatalog. Cheap: the
+ * catalog is built ONCE and captured in a Map closure.
+ */
+export function buildMcpInvocationResolver(options: CommandEveConnectorCatalogOptions = {}): McpInvocationResolver {
+  const byId = new Map<string, CommandEveConnectorMcpInvocation>();
+  try {
+    const result = buildConnectorCatalog(options);
+    if (result.ok && result.model) {
+      for (const connector of result.model.connectors) {
+        if (connector.mcp_invocation && connector.mcp_invocation.transport === 'stdio') {
+          byId.set(connector.id, connector.mcp_invocation);
+        }
+      }
+    }
+  } catch {
+    // fail-closed: an empty map → every lookup undefined → feeder emits nothing.
+  }
+  return (connectorId: string) => byId.get(connectorId);
 }
 
 const makeStage = (
@@ -2362,7 +2495,13 @@ function writeHermesRuntimeFiles(
   // appended to SOUL.md as a delegate directive so EVE passes them to delegate_task
   // and the claude-agent-acp adapter actually launches. null -> no directive
   // (SOUL.md byte-identical to today).
-  claudeDelegate: RuntimeBootstrapOptions['claudeDelegate'] = null
+  claudeDelegate: RuntimeBootstrapOptions['claudeDelegate'] = null,
+  // S5-P2 MCP-vault feeder deps (arch §8). Threaded so the vetted-connector
+  // emitter has the two vault roots + the manifest `mcp_invocation` resolver READY
+  // for the GATE-NULL flip. Behind COMMAND_EVE_MCP_VAULT_ENABLED (default false),
+  // so with the default `{}` (or the flag off) the feeder returns [] and the
+  // emitted config.yaml stays byte-identical (`mcp_servers: {}`).
+  mcpVaultDeps: ResolveVettedMcpServersDeps = {}
 ): string[] {
   ensureDir(paths.hermesHome);
   const { executableSkillIds, bundledSkillFailures } = writeCommandEveManagedSkills(
@@ -2385,7 +2524,7 @@ function writeHermesRuntimeFiles(
   }
   // Vetted external MCP connectors (HumanGate-approved, vault-backed) — empty today;
   // v1.4 populates this via resolveVettedMcpServersForBootstrap. See WO write-slice.
-  const vettedMcpServers = resolveVettedMcpServersForBootstrap(capabilityPack);
+  const vettedMcpServers = resolveVettedMcpServersForBootstrap(capabilityPack, getActiveSeatId(), mcpVaultDeps);
   const config = [
     '# Command EVE managed Hermes config.',
     '# Generated by the first-run runtime bootstrapper; keep secrets out of this file.',
@@ -3058,7 +3197,17 @@ export async function ensureCommandEveRuntimeBootstrap(
     // CLI-Keystone CLAUDE wiring (LIVE): the resolved + status-allowed Claude ACP
     // delegate (resolved by the main process via resolveAssignedClaudeDelegate).
     // When present, SOUL.md carries the delegate directive so EVE fires the worker.
-    options.claudeDelegate ?? null
+    options.claudeDelegate ?? null,
+    // S5-P2 MCP-vault feeder deps (arch §8) — READY for the GATE-NULL flip but
+    // INERT today: the feeder is gated by COMMAND_EVE_MCP_VAULT_ENABLED (default
+    // false), so with the flag off it returns [] regardless of these and the
+    // emitted config.yaml stays byte-identical (`mcp_servers: {}`). Founder vault =
+    // userData-rooted; seat vault = hermesRoot-scoped; invocation from the manifest.
+    {
+      userDataPath: paths.userDataPath,
+      configRoot: paths.hermesRoot,
+      mcpInvocationFor: buildMcpInvocationResolver({ env, companyOsRoot: compact(env.COMMAND_EVE_COMPANY_OS_ROOT) || undefined }),
+    }
   );
   if (bundledSkillFailures.length) {
     // VISIBLE preflight break (founder-self-detection): a skip-status stage with a
