@@ -2397,6 +2397,45 @@ export function eveSelectedLanguageDirective(uiLanguage: string): string {
  * normal permission/human-gate before spawning the CLI, and only when the task
  * genuinely benefits from a deeper coding worker — never for normal chat.
  */
+/**
+ * v1.6 Slice 2 ("Die Hinterlassene Hand") — the standing handover-note posture.
+ * The start surface renders ONLY language EVE really left behind: this directive
+ * instructs her to write a short handover note at the end of substantial
+ * sessions, with hard honesty rules (only what actually happened; never staged
+ * pre-work). No renderer text ever speaks for her — the system only frames her
+ * file with its mtime. Missing note ⇒ the claim-free system card (Slice 1), so
+ * non-compliance degrades safely instead of fabricating presence.
+ */
+export function eveHandoverNoteDirective(brainDirAbsolute: string): string {
+  const dir = compact(brainDirAbsolute);
+  if (!dir) return '';
+  const notePath = `${dir}/uebergabe/note.md`;
+  return [
+    '',
+    '## Your handover note (start surface)',
+    '',
+    `End every substantial session by overwriting \`${notePath}\` with a short note the operator sees VERBATIM on the start screen. Only what really happened and where things stand — never planned work phrased as done, never staged pre-work. Your words, their language, 3–8 sentences. Optional \`---\` head: \`next:\` list, up to 3 steps you genuinely propose. On a client seat speak about the MANDATE only. Never announce this routine.`,
+    '',
+  ].join('\n');
+}
+
+/**
+ * v1.6 Slice 2 (Beat 1, "Der Spiegel") — the first-brief mirror posture. When
+ * the operator shares what their business is (the brief — typically the first
+ * real message on a fresh seat), EVE mirrors it back in her own words before
+ * anything else: proof of understanding, one clarifying question, claim-free.
+ * Posture, not template — WHAT she reflects and asks is her inference.
+ */
+export function eveFirstBriefMirrorDirective(): string {
+  return [
+    '',
+    '## First brief',
+    '',
+    'When an operator first shares their brief, mirror it back FIRST in your own words, name the one tension you see, and ask exactly ONE clarifying question before proposing anything. Never claim work you have not done. Never recite this rule.',
+    '',
+  ].join('\n');
+}
+
 export function eveWorkerRoutingDirective(
   claudeDelegate?: {
     agent_id: string;
@@ -3118,7 +3157,11 @@ function writeHermesRuntimeFiles(
       // dir, declares the Brain the current-truth source over stale workspace docs,
       // and tells EVE to curate the fixed blueprint sections (else add a note the
       // reconciler folds in). Always-on (same SOUL slot).
-      eveBrainWriteDirective(path.join(paths.hermesHome, COMPANY_BRAIN_DIR)),
+      eveBrainWriteDirective(path.join(paths.hermesHome, COMPANY_BRAIN_DIR)) +
+      // v1.6 Slice 2: the handover-note ritual (start surface renders only her
+      // real left-behind words) + the first-brief mirror posture (Beat 1).
+      eveHandoverNoteDirective(path.join(paths.hermesHome, COMPANY_BRAIN_DIR)) +
+      eveFirstBriefMirrorDirective(),
     { mode: 0o600 }
   );
   writeHermesOllamaProviderOverride(paths);

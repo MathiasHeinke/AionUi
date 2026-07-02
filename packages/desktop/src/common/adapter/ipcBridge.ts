@@ -1501,6 +1501,18 @@ export interface ICommandEveOnboardingStatusResult {
   };
 }
 
+// v1.6 Slice 2 ("Die Hinterlassene Hand"): the raw handover-note read for the
+// start surface. exists:false is a NORMAL state (claim-free system card renders);
+// mtime_ms is the system's timestamp authority (never a claim inside the file).
+export interface ICommandEveStartscreenNoteResult {
+  version: 'command-eve-startscreen-note/v0';
+  ok: boolean;
+  exists?: boolean;
+  mtime_ms?: number;
+  raw?: string;
+  reason_code?: string;
+}
+
 // Phase 4 / ISO-2: the in-process active seat id, read back by the renderer's
 // per-seat config namespace. Defaults to the legacy seat ('seat-1').
 export interface ICommandEveActiveSeatResult {
@@ -1790,6 +1802,11 @@ export const commandEve = {
   // Guided onboarding (SLICE S0): read-only setup-completeness aggregator.
   onboardingStatus: bridge.buildProvider<IBridgeResponse<ICommandEveOnboardingStatusResult>, void>(
     'command-eve.onboarding-status'
+  ),
+  // v1.6 Slice 2 ("Die Hinterlassene Hand"): EVE's handover note for the start
+  // surface — raw file + mtime only (parse/framing live in startscreenNoteCore).
+  startscreenNote: bridge.buildProvider<IBridgeResponse<ICommandEveStartscreenNoteResult>, void>(
+    'command-eve.startscreen-note'
   ),
   // Active-seat readout (Phase 4 / ISO-2). The in-process active seat is held by
   // the main process (seatContextCore); the renderer's per-seat config namespace

@@ -96,6 +96,8 @@ import { getActiveSeatId, getActiveSeatKind, resolveActiveSeatHome, sanitizeSeat
 import { isSeatSwitchAuthorized, parseMySeats, resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
 import { readMySeatsWire as readMySeatsWireCore } from '@process/commandEve/seatWireFetchCore';
 import { readCompanyBrainSeedState, writeCompanyBrainSeed } from '@process/commandEve/companyBrainSeedCore';
+import { COMMAND_EVE_HANDOVER_NOTE_RELPATH, HANDOVER_NOTE_MAX_RAW_CHARS } from '@/common/config/startscreenNoteCore';
+import nodePath from 'node:path';
 import { COMMAND_EVE_DAY_ZERO_BRIEF_ID, listEntries, mirrorBriefBodyToFile, pruneSessionDigests, readEntryBody, reconcileUnindexedEntries, removeEntry, SESSION_DIGEST_KIND, upsertEntry, upsertSystemEntry, type CompanyBrainWriteKind } from '@process/commandEve/companyBrainStoreCore';
 import { runSessionDigest, type SessionDigestDeps } from '@process/commandEve/sessionDigestCore';
 import {
@@ -829,6 +831,42 @@ export function initCommandEveBridge(): void {
         success: false,
         msg: error instanceof Error ? error.message : 'Command EVE company-brain status read failed.',
         data: { seeded: false, record: null } as unknown,
+      };
+    }
+  });
+
+  // v1.6 Slice 2 ("Die Hinterlassene Hand") — read EVE's handover note for the
+  // start surface. DUMB READER by design: returns the raw file + its mtime; the
+  // tolerant parse and all framing live in the pure startscreenNoteCore (the
+  // system's mtime is the ONLY timestamp authority, never a claim inside the
+  // file). Per-seat via resolveActiveSeatHome (her note never crosses seats).
+  // Missing file is a NORMAL state ({ok:true, exists:false} → the claim-free
+  // system card), not an error.
+  bridge.buildProvider('command-eve.startscreen-note').provider(async () => {
+    const version = 'command-eve-startscreen-note/v0';
+    try {
+      const home = resolveActiveSeatHome(getDataPath()).hermesHome;
+      const notePath = nodePath.join(home, ...COMMAND_EVE_HANDOVER_NOTE_RELPATH.split('/'));
+      const { promises: fsp } = await import('node:fs');
+      let stat;
+      try {
+        stat = await fsp.stat(notePath);
+      } catch {
+        return { success: true, data: { version, ok: true, exists: false } as unknown };
+      }
+      if (!stat.isFile()) {
+        return { success: true, data: { version, ok: true, exists: false } as unknown };
+      }
+      const raw = (await fsp.readFile(notePath, 'utf8')).slice(0, HANDOVER_NOTE_MAX_RAW_CHARS);
+      return {
+        success: true,
+        data: { version, ok: true, exists: true, mtime_ms: stat.mtimeMs, raw } as unknown,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : 'Command EVE startscreen note read failed.',
+        data: { version, ok: false, reason_code: 'STARTSCREEN_NOTE_READ_FAILED' } as unknown,
       };
     }
   });
