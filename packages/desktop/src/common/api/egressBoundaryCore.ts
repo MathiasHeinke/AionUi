@@ -230,9 +230,17 @@ const SENSITIVE_RULES: SensitiveRule[] = [
     //     dominant way a German types a mobile — a v1.1.78-era tighten REGRESSED this to raw
     //     egress) AND the spaced `0170 1234567`. Total 9-12 digits with a trailing boundary, so
     //     16-digit process IDs (`0025412369110397`) and 2+-space number tables still don't match.
-    // Both require word/number boundaries so they cannot start or end mid-token.
+    // (C) parenthesised national trunk: `(089) 12345678` / `(0521) 123456` — a
+    //     completely common German landline spelling that (B) misses because the
+    //     `)` interrupts the 0-trunk digit tail (found by the v1.6 egress brief
+    //     corpus gate 2026-07-03: the 8-local-digit form leaked RAW; the 7-digit
+    //     sibling was only caught by ACCIDENT via the NANP rule). Shape is
+    //     strict — literal `(0` + 1-4 digits + `)` + 5-10 single-separated local
+    //     digits — so the 1.2.0 false-positive classes (prices, dates, IDs,
+    //     "(0,5)", "(2024)") still cannot match.
+    // All require word/number boundaries so they cannot start or end mid-token.
     pattern:
-      /(?<![\w.+/])(?:\+49|0049)[ ./-]?\(?0?\)?[ ./-]?(?:\d[ ./-]?){6,12}\d\b|(?<![\w.+/\d-])0\d(?:[ ./-]?\d){7,10}(?![\d\w])/g,
+      /(?<![\w.+/])(?:\+49|0049)[ ./-]?\(?0?\)?[ ./-]?(?:\d[ ./-]?){6,12}\d\b|(?<![\w.+/\d-])0\d(?:[ ./-]?\d){7,10}(?![\d\w])|(?<![\w.+/])\(0\d{1,4}\)[ ./-]?(?:\d[ ./-]?){4,9}\d(?![\d\w])/g,
     replacement: '[REDACTED_PHONE]',
   },
   // --- International PII (S2) — addresses, phones, national IDs outside DACH ---
