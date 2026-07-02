@@ -19,7 +19,7 @@ import React, { useMemo } from 'react';
 import { Progress, Tooltip } from '@arco-design/web-react';
 import { useTranslation } from 'react-i18next';
 import { useCreditsStatus } from '@renderer/hooks/useCreditsStatus';
-import { isNearAllowanceWall, type CreditMeterModel } from '@/common/config/creditsCore';
+import { CREDIT_UNIT_EUR, isNearAllowanceWall, type CreditMeterModel } from '@/common/config/creditsCore';
 import './billing.css';
 
 export interface CreditMeterBadgeProps {
@@ -64,15 +64,17 @@ const CreditMeterBadge: React.FC<CreditMeterBadgeProps> = ({ onOpenBilling }) =>
       {!meter.isFree && (
         <>
           <div>
-            {t('credits.meter.allowanceRemaining', {
-              defaultValue: 'Allowance: {{n}} credits left',
+            {t('credits.meter.allowanceRemainingEur', {
+              defaultValue: 'Allowance: {{n}} credits left (≈ {{eur}} €)',
               n: meter.allowanceRemaining,
+              eur: (meter.allowanceRemaining * CREDIT_UNIT_EUR).toLocaleString('de-DE', { maximumFractionDigits: 2 }),
             })}
           </div>
           <div>
-            {t('credits.meter.purchasedRemaining', {
-              defaultValue: 'Purchased: {{n}} credits left',
+            {t('credits.meter.purchasedRemainingEur', {
+              defaultValue: 'Purchased: {{n}} credits left (≈ {{eur}} €)',
               n: meter.purchasedRemaining,
+              eur: (meter.purchasedRemaining * CREDIT_UNIT_EUR).toLocaleString('de-DE', { maximumFractionDigits: 2 }),
             })}
           </div>
         </>

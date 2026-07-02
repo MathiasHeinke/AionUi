@@ -5,6 +5,19 @@ export const COMMAND_EVE_SHELL_ENABLED =
   typeof process === 'undefined' ? true : process.env.AIONUI_UPSTREAM_MODE !== '1';
 
 /**
+ * v1.6 Slice 4 ("Day-Zero-Soft-Fold"): in Command-EVE builds the forced Day-0
+ * "Seed your Company Brain" modal no longer pops — the CHAT is the brief
+ * collector (the ready greeting asks for the brief; EVE mirrors it, Beat 1).
+ * Everything else survives: the per-seat seed/dismissed persistence, both IPC
+ * providers, the Settings → Company Brain manual path, and the host component
+ * itself (per-seat correctness stays pinned by its tests). Upstream builds
+ * (AIONUI_UPSTREAM_MODE=1) keep the modal unchanged.
+ */
+export function isDayZeroForcePopEnabled(): boolean {
+  return !COMMAND_EVE_SHELL_ENABLED;
+}
+
+/**
  * Founder / internal build flag.
  *
  * DEFAULT (every shipped operator build) is FALSE: EVE is the operator-facing

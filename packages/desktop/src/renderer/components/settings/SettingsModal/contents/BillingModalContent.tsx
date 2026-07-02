@@ -31,6 +31,7 @@ import { isLegacySeatId } from '@process/commandEve/seatSwitchCore';
 import {
   buildSeatBillingStatus,
   CLIENT_SEAT_FROM_EUR,
+  CREDIT_UNIT_EUR,
   DEFAULT_CREDIT_PACKS,
   validateSpendCapEur,
 } from '@/common/config/creditsCore';
@@ -181,10 +182,11 @@ const BillingModalContent: React.FC = () => {
           ) : (
             <>
               <div className='billing-settings__meter-label'>
-                {t('credits.settings.allowanceUsed', {
-                  defaultValue: '{{pct}}% of allowance used · {{rem}} credits left',
+                {t('credits.settings.allowanceUsedEur', {
+                  defaultValue: '{{pct}}% of allowance used · {{rem}} credits left (≈ {{eur}} €)',
                   pct: Math.round(meter.allowanceUsedFraction * 100),
                   rem: meter.totalRemaining,
+                  eur: (meter.totalRemaining * CREDIT_UNIT_EUR).toLocaleString('de-DE', { maximumFractionDigits: 2 }),
                 })}
               </div>
               <Progress percent={Math.round(meter.allowanceUsedFraction * 100)} showText={false} />
@@ -193,6 +195,11 @@ const BillingModalContent: React.FC = () => {
                   defaultValue: '{{n}} purchased credits',
                   n: meter.purchasedRemaining,
                 })}
+              </div>
+              {/* v1.6 Slice 3 — the "Was ist ein Credit?" explainer: the PACK
+                  price maps 1000:1 (model usage varies by tier factor ⇒ "≈"). */}
+              <div className='billing-settings__meter-detail' data-testid='billing-credit-explainer'>
+                {t('credits.settings.explainer', { defaultValue: '1.000 Credits ≈ 1 € (Pack-Preis)' })}
               </div>
             </>
           )}

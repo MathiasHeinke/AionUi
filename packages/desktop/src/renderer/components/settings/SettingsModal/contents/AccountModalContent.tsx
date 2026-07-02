@@ -294,14 +294,19 @@ const AccountModalContent: React.FC = () => {
               </>
             )}
 
+            {/* v1.6 Slice 3 — de-escalated: the SOFT sign-out (session only; license
+                + registration stay, the app keeps working) is a neutral button so
+                it no longer reads like the destructive twin of the device reset
+                below. Only the hard reset keeps danger + confirm. */}
             <Button
-              status='danger'
               shape='round'
               loading={loggingOut}
               onClick={() => void handleLogout()}
               data-testid='account-logout'
             >
-              {loggingOut ? t('settings.accountPanel.loggingOut') : t('settings.accountPanel.logout')}
+              {loggingOut
+                ? t('settings.accountPanel.loggingOut')
+                : t('settings.accountPanel.logoutSoft', { defaultValue: 'Von diesem Mac abmelden' })}
             </Button>
             <span className='text-12px text-t-tertiary'>{t('settings.accountPanel.logoutHint')}</span>
 

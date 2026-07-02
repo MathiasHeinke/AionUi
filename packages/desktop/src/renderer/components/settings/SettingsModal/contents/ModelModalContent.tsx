@@ -512,17 +512,14 @@ const ModelModalContent: React.FC = () => {
           <div className='flex flex-col items-center justify-center py-40px'>
             <Info theme='outline' size='48' className='text-t-secondary mb-16px' />
             <h3 className='text-16px font-500 text-t-primary mb-8px'>{t('settings.noConfiguredModels')}</h3>
+            {/* v1.6 Slice 3 — brand fix: this empty state used to deep-link the
+                upstream AionUi GitHub wiki (foreign brand). EVE Cloud + local are
+                built in; the empty state stays product-neutral, no external link. */}
             <p className='text-14px text-t-secondary text-center max-w-400px'>
-              {t('settings.needHelpConfigGuide')}
-              <a
-                href='https://github.com/iOfficeAI/AionUi/wiki/LLM-Configuration'
-                target='_blank'
-                rel='noopener noreferrer'
-                className='text-[rgb(var(--primary-6))] hover:text-[rgb(var(--primary-5))] underline ml-4px'
-              >
-                {t('settings.configGuide')}
-              </a>
-              {t('settings.configGuideSuffix')}
+              {t('settings.eveNoConfiguredModelsHint', {
+                defaultValue:
+                  'EVE Cloud und die lokale KI sind fest eingebaut — hier musst du nichts einrichten. Eigene Modelle kannst du später als Profi-Option ergänzen.',
+              })}
             </p>
           </div>
         ) : (

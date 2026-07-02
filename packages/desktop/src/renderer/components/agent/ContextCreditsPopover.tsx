@@ -31,7 +31,7 @@ import { useTranslation } from 'react-i18next';
 import type { TokenUsageData } from '@/common/config/storage';
 import { resolveEffectiveContextLimit } from '@/renderer/utils/model/modelContextLimits';
 import { useCreditsStatus } from '@renderer/hooks/useCreditsStatus';
-import { isNearAllowanceWall, TIER_ALLOWANCE_CREDITS } from '@/common/config/creditsCore';
+import { CREDIT_UNIT_EUR, isNearAllowanceWall, TIER_ALLOWANCE_CREDITS } from '@/common/config/creditsCore';
 import { openExternalUrl } from '@renderer/utils/platform';
 // REUSE the 402-wall checkout destination so "Nachkaufen" and the in-job wall
 // land on the exact same Lane-2 page — no second source of truth for the URL.
@@ -84,17 +84,32 @@ const ContextCreditsPopover: React.FC<ContextCreditsPopoverProps> = ({ tokenUsag
   const ctxPct = clampPct(effectiveLimit > 0 ? (used / effectiveLimit) * 100 : 0);
 
   // ── (b) Credits ─────────────────────────────────────────────────────────
-  // The total spendable balance (allowance + purchased). The bar shows how much
-  // of a sensible REFERENCE (the tier's full monthly grant, floored to the
-  // Starter grant for an unknown/free tier) is still in the tank.
+  // PAID: total spendable balance (allowance + purchased); the bar shows how much
+  // of the tier's monthly grant is still in the tank, plus the honest € face
+  // value (pack price maps 1000:1 — model usage varies by tier factor, hence "≈").
+  // FREE (v1.6 Slice 3): the free tier has NO credit tank — it has the daily
+  // action allowance. Before this branch the paid math ran on totalRemaining=0
+  // and lit "Tank fast leer + Nachkaufen" PERMANENTLY for every free user; now
+  // the popover shows "X / Y Gratis-Aktionen heute" and warns near the daily
+  // cap (isNearAllowanceWall is free-tier-aware) — with no buy upsell.
   const credits = useMemo(() => {
     if (!meter) return null;
+    if (meter.isFree) {
+      const cap = meter.freeCap > 0 ? meter.freeCap : 0;
+      const used = Math.min(meter.freeActionsUsed, cap || meter.freeActionsUsed);
+      const remainingPct = cap > 0 ? clampPct(((cap - used) / cap) * 100) : 0;
+      // No cap known (quiet ok:false fallback) ⇒ no meter — never invent numbers.
+      if (cap <= 0) return null;
+      return { isFree: true as const, used, cap, remainingPct, low: isNearAllowanceWall(meter) };
+    }
     const remaining = meter.totalRemaining;
     const grant = TIER_ALLOWANCE_CREDITS[meter.tier] || TIER_ALLOWANCE_CREDITS.starter;
     const reference = grant > 0 ? grant : 1;
     const remainingPct = clampPct((remaining / reference) * 100);
     return {
+      isFree: false as const,
       remaining,
+      approxEur: remaining * CREDIT_UNIT_EUR,
       remainingPct,
       // "Tank fast leer": the pure wall rule (allowance crossed ~85% used) OR the
       // visible balance dropped under 20% of the reference grant.
@@ -139,10 +154,17 @@ const ContextCreditsPopover: React.FC<ContextCreditsPopoverProps> = ({ tokenUsag
           </span>
           {credits ? (
             <span className='text-12px text-t-secondary' data-testid='context-credits-credits-readout'>
-              {t('credits.context.remaining', {
-                defaultValue: '{{n}} verbleibend',
-                n: credits.remaining.toLocaleString('de-DE'),
-              })}
+              {credits.isFree
+                ? t('credits.context.freeToday', {
+                    defaultValue: '{{used}} / {{cap}} Gratis-Aktionen heute',
+                    used: credits.used.toLocaleString('de-DE'),
+                    cap: credits.cap.toLocaleString('de-DE'),
+                  })
+                : t('credits.context.remainingEur', {
+                    defaultValue: '{{n}} verbleibend (≈ {{eur}} €)',
+                    n: credits.remaining.toLocaleString('de-DE'),
+                    eur: credits.approxEur.toLocaleString('de-DE', { maximumFractionDigits: 2 }),
+                  })}
             </span>
           ) : (
             <span className='text-12px text-t-secondary'>
@@ -167,8 +189,19 @@ const ContextCreditsPopover: React.FC<ContextCreditsPopoverProps> = ({ tokenUsag
         {/* Founder mandate 1.2.13: NO prominent "Nachkaufen" upsell in the context
             view. The buy affordance is SUBTLE and only appears when the tank is
             actually low — folded into the warning as a quiet text link, never a
-            standing primary CTA pushing the user to spend. */}
-        {credits?.low && (
+            standing primary CTA pushing the user to spend. FREE tier: the daily
+            allowance resets tomorrow — a near-cap warning, never a buy link. */}
+        {credits?.low && credits.isFree && (
+          <div className='context-credits-popover__warning flex items-center gap-6px mt-8px' data-testid='context-credits-free-low'>
+            <Caution theme='outline' size='14' fill='rgb(var(--warning-6))' />
+            <span className='text-12px' style={{ color: 'rgb(var(--warning-6))' }}>
+              {t('credits.context.freeNearCap', {
+                defaultValue: 'Tageslimit fast erreicht — morgen geht es kostenlos weiter',
+              })}
+            </span>
+          </div>
+        )}
+        {credits?.low && !credits.isFree && (
           <div className='context-credits-popover__warning flex items-center gap-6px mt-8px' data-testid='context-credits-low'>
             <Caution theme='outline' size='14' fill='rgb(var(--warning-6))' />
             <span className='text-12px' style={{ color: 'rgb(var(--warning-6))' }}>
@@ -183,6 +216,14 @@ const ContextCreditsPopover: React.FC<ContextCreditsPopoverProps> = ({ tokenUsag
             >
               {t('credits.context.topUp', { defaultValue: 'Nachkaufen' })}
             </Button>
+          </div>
+        )}
+
+        {/* "Was ist ein Credit?" — the one-line explainer (paid meters only; the
+            free meter counts actions, not credits). Pack price maps 1000:1. */}
+        {credits && !credits.isFree && (
+          <div className='mt-6px text-11px text-t-tertiary' data-testid='context-credits-explainer'>
+            {t('credits.context.explainer', { defaultValue: '1.000 Credits ≈ 1 € (Pack-Preis)' })}
           </div>
         )}
       </section>

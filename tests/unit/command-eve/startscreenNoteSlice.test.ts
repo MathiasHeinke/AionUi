@@ -146,3 +146,42 @@ describe('SOUL directives: handover ritual + first-brief mirror (posture, not te
     expect(soulWrite).toContain('eveFirstBriefMirrorDirective()');
   });
 });
+
+describe('v1.6 Slice 4 — Day-Zero-Soft-Fold', () => {
+  it('Command-EVE builds never force-pop the Day-Zero modal; upstream keeps it', async () => {
+    const { COMMAND_EVE_SHELL_ENABLED, isDayZeroForcePopEnabled } = await import(
+      '@/common/config/commandEveShell'
+    );
+    // In the test env AIONUI_UPSTREAM_MODE is unset ⇒ this IS an EVE build.
+    expect(COMMAND_EVE_SHELL_ENABLED).toBe(true);
+    expect(isDayZeroForcePopEnabled()).toBe(false);
+  });
+
+  it('the Router mount is gated on the predicate (source tripwire)', () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../../../packages/desktop/src/renderer/components/layout/Router.tsx'),
+      'utf8'
+    );
+    expect(source).toContain('isDayZeroForcePopEnabled()');
+    // The host mount must sit INSIDE the gate, not beside it.
+    const gated = source.slice(source.indexOf('isDayZeroForcePopEnabled()'));
+    expect(gated).toContain('<DayZeroOnboardingHost');
+  });
+
+  it('the ready greeting now ASKS for the brief (chat = collector), de and en', async () => {
+    const { buildOnboardingGreeting } = await import('@/common/config/onboardingGreetingCore');
+    const model = {
+      schema_version: 'command-eve-onboarding-status/v0',
+      generated_at: '2026-07-02T00:00:00.000Z',
+      read_only: true,
+      first_value_ready: true,
+      entitlement_state: 'entitled',
+      cloud_bearer_available: true,
+      identity: { needs_confirmation: true, confidence: 'placeholder', source: 'unverified' },
+      items: [],
+      warnings: [],
+    } as never;
+    expect(buildOnboardingGreeting(model, 'de-DE').subline).toContain('Erzähl mir in 2–3 Sätzen');
+    expect(buildOnboardingGreeting(model, 'en-US').subline).toContain('Tell me in 2–3 sentences');
+  });
+});

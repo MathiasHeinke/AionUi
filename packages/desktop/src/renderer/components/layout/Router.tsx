@@ -6,6 +6,7 @@ import { useActiveSeatId } from '@renderer/hooks/useActiveSeatId';
 import { useEntitlementGate } from '@renderer/hooks/useEntitlementGate';
 import { isElectronDesktop } from '@renderer/utils/platform';
 import { TEAM_MODE_ENABLED } from '@/common/config/constants';
+import { isDayZeroForcePopEnabled } from '@/common/config/commandEveShell';
 const Conversation = React.lazy(() => import('@renderer/pages/conversation'));
 const Guid = React.lazy(() => import('@renderer/pages/guid'));
 // 1.2.18 — Agenten + Assistenten + Dein Team merged into the single EVE-Runtime
@@ -91,9 +92,15 @@ export const ProtectedLayout: React.FC<{ layout: React.ReactElement }> = ({ layo
   return (
     <>
       {React.cloneElement(layout)}
-      <Suspense fallback={null}>
-        <DayZeroOnboardingHost key={activeSeatId} entitled />
-      </Suspense>
+      {/* v1.6 Slice 4 (Day-Zero-Soft-Fold): in Command-EVE builds the forced
+          modal stays OFF — the chat greeting collects the brief and EVE mirrors
+          it (Beat 1). All persistence seams + the Settings manual path survive;
+          upstream builds keep the modal. */}
+      {isDayZeroForcePopEnabled() ? (
+        <Suspense fallback={null}>
+          <DayZeroOnboardingHost key={activeSeatId} entitled />
+        </Suspense>
+      ) : null}
     </>
   );
 };

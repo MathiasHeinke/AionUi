@@ -27,7 +27,9 @@
     "brandLogoRemove": "Entfernen",
     "brandLogoTooBig": "Das Logo muss kleiner als 512 KB sein.",
     "brandSave": "Branding speichern",
-    "brandSaved": "Branding gespeichert — es erscheint auf jedem Report, den EVE liefert."
+    "brandSaved": "Branding gespeichert — es erscheint auf jedem Report, den EVE liefert.",
+    "allowanceUsedEur": "{{pct}}% des Kontingents verbraucht · {{rem}} Credits übrig (≈ {{eur}} €)",
+    "explainer": "1.000 Credits ≈ 1 € (Pack-Preis)"
   },
   "meter": {
     "freeActions": "{{used}} / {{cap}} Gratis-Aktionen heute",
@@ -35,7 +37,9 @@
     "allowanceUsed": "{{pct}}% des Guthabens genutzt",
     "allowanceRemaining": "Guthaben: {{n}} Credits übrig",
     "purchasedRemaining": "Gekauft: {{n}} Credits übrig",
-    "spendCap": "Ausgabe-Limit: {{eur}}€"
+    "spendCap": "Ausgabe-Limit: {{eur}}€",
+    "allowanceRemainingEur": "Guthaben: {{n}} Credits übrig (≈ {{eur}} €)",
+    "purchasedRemainingEur": "Gekauft: {{n}} Credits übrig (≈ {{eur}} €)"
   },
   "wall": {
     "title": "Diesen Auftrag zu Ende bringen",
@@ -46,5 +50,17 @@
     "autoReload": "Automatisch nachladen, wenn die Credits knapp werden",
     "buy": "Weiter — {{eur}}€ Credits hinzufügen",
     "later": "Jetzt nicht"
+  },
+  "context": {
+    "title": "Kontextfenster",
+    "creditsTitle": "Credits",
+    "remaining": "{{n}} verbleibend",
+    "remainingEur": "{{n}} verbleibend (≈ {{eur}} €)",
+    "freeToday": "{{used}} / {{cap}} Gratis-Aktionen heute",
+    "freeNearCap": "Tageslimit fast erreicht — morgen geht es kostenlos weiter",
+    "noStatus": "nach Anmeldung",
+    "tankLow": "Tank fast leer",
+    "topUp": "Nachkaufen",
+    "explainer": "1.000 Credits ≈ 1 € (Pack-Preis)"
   }
 }

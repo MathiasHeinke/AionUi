@@ -27,7 +27,9 @@
     "brandLogoRemove": "Remove",
     "brandLogoTooBig": "Logo must be under 512 KB.",
     "brandSave": "Save branding",
-    "brandSaved": "Branding saved — it appears on every report EVE delivers."
+    "brandSaved": "Branding saved — it appears on every report EVE delivers.",
+    "allowanceUsedEur": "{{pct}}% of allowance used · {{rem}} credits left (≈ €{{eur}})",
+    "explainer": "1,000 credits ≈ €1 (pack price)"
   },
   "meter": {
     "freeActions": "{{used}} / {{cap}} free actions today",
@@ -35,7 +37,9 @@
     "allowanceUsed": "{{pct}}% of allowance used",
     "allowanceRemaining": "Allowance: {{n}} credits left",
     "purchasedRemaining": "Purchased: {{n}} credits left",
-    "spendCap": "Spend cap: {{eur}}€"
+    "spendCap": "Spend cap: {{eur}}€",
+    "allowanceRemainingEur": "Allowance: {{n}} credits left (≈ €{{eur}})",
+    "purchasedRemainingEur": "Purchased: {{n}} credits left (≈ €{{eur}})"
   },
   "wall": {
     "title": "Keep this job going",
@@ -46,5 +50,17 @@
     "autoReload": "Auto-reload when credits run low",
     "buy": "Continue — add {{eur}}€ credits",
     "later": "Not now"
+  },
+  "context": {
+    "title": "Context window",
+    "creditsTitle": "Credits",
+    "remaining": "{{n}} remaining",
+    "remainingEur": "{{n}} remaining (≈ €{{eur}})",
+    "freeToday": "{{used}} / {{cap}} free actions today",
+    "freeNearCap": "Daily limit almost reached — continues free tomorrow",
+    "noStatus": "after sign-in",
+    "tankLow": "Tank almost empty",
+    "topUp": "Top up",
+    "explainer": "1,000 credits ≈ €1 (pack price)"
   }
 }

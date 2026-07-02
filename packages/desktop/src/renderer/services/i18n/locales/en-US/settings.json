@@ -222,7 +222,8 @@
     "saved": "Profile saved.",
     "saveError": "Save failed.",
     "fieldsRequired": "Name and company must not be empty.",
-    "emailLocked": "Changing your email is a separate sign-in flow (coming soon)."
+    "emailLocked": "Changing your email is a separate sign-in flow (coming soon).",
+    "logoutSoft": "Sign out on this Mac"
   },
   "advancedSettings": "Advanced Settings",
   "addModel": "Add Model",
@@ -1094,5 +1095,6 @@
   "skillsAdded": "{{addedCount}} skills added and selected{{skippedCountText}}",
   "skippedCount": "{{count}} skipped",
   "allSkillsExist": "All found skills already exist",
-  "noExternalSources": "No external skill sources discovered"
+  "noExternalSources": "No external skill sources discovered",
+  "eveNoConfiguredModelsHint": "EVE Cloud and the local AI are built in — nothing to set up here. You can add your own models later as a pro option."
 }

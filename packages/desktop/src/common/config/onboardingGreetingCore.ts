@@ -127,7 +127,10 @@ const GREETING_COPY: Record<
     clickHere: 'klick hier',
     headlineReady: 'du bist startklar.',
     headlineAlmost: 'fast geschafft.',
-    sublineReady: 'Schreib mir einfach, woran du gerade arbeitest — ich lege sofort los.',
+    // v1.6 Slice 4 (Day-Zero-Soft-Fold): the chat is the brief collector — the
+    // ready state actively asks for the brief (EVE mirrors it, Beat 1). Shows
+    // only until EVE's first handover note exists (the note then owns the surface).
+    sublineReady: 'Erzähl mir in 2–3 Sätzen, was dein Geschäft ist und woran du gerade arbeitest — ich merke es mir und spiele es dir kurz zurück.',
     sublineGaps: 'Nur noch das hier, dann können wir loslegen:',
     sublineAlmost: 'Gleich geht es los.',
     headlineDegraded: 'Hi.',
@@ -147,7 +150,7 @@ const GREETING_COPY: Record<
     clickHere: 'click here',
     headlineReady: "you're all set.",
     headlineAlmost: 'almost there.',
-    sublineReady: 'Just tell me what you’re working on — I’ll get started right away.',
+    sublineReady: 'Tell me in 2–3 sentences what your business is and what you’re working on — I’ll remember it and play it back to you.',
     sublineGaps: 'Just this, then we’re good to go:',
     sublineAlmost: 'Almost ready.',
     headlineDegraded: 'Hi.',

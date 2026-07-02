@@ -232,7 +232,8 @@
     "saved": "Profil gespeichert.",
     "saveError": "Speichern fehlgeschlagen.",
     "fieldsRequired": "Name und Firma dürfen nicht leer sein.",
-    "emailLocked": "E-Mail-Adresse ändern ist eine separate Anmelde-Funktion (folgt)."
+    "emailLocked": "E-Mail-Adresse ändern ist eine separate Anmelde-Funktion (folgt).",
+    "logoutSoft": "Von diesem Mac abmelden"
   },
   "advancedSettings": "Erweiterte Einstellungen",
   "addModel": "Modell hinzufügen",
@@ -1055,5 +1056,6 @@
     "pendingTimeout": "Genehmigungsanfrage abgelaufen (5 Minuten). Bitte erneut versuchen.",
     "pendingCancel": "Abbrechen",
     "pendingTimeRemaining": "Verbleibende Zeit: {{time}}"
-  }
+  },
+  "eveNoConfiguredModelsHint": "EVE Cloud und die lokale KI sind fest eingebaut — hier musst du nichts einrichten. Eigene Modelle kannst du später als Profi-Option ergänzen."
 }
