@@ -638,6 +638,161 @@ export function reconcileUnindexedEntries(hermesHome: string, opts?: { now?: () 
 }
 
 /**
+ * L3 SESSION-DIGEST kind (v1.4 T5). This is the ONE kind that is NOT in
+ * COMPANY_BRAIN_WRITE_KINDS (the USER-IPC write allowlist) — so the Settings write
+ * path can never produce it — yet is written deterministically by the DESKTOP's
+ * main-side digest writer through upsertSystemEntry (below). Read already tolerates
+ * it (open string-union), so a digest shows up in the Company-Brain list like any
+ * other entry.
+ */
+export const SESSION_DIGEST_KIND = 'session_digest' as const;
+
+/** Max L3 session_digest entries kept per seat before FIFO-pruning (spec §2 L3). */
+export const SESSION_DIGEST_MAX = 50;
+
+/** Kinds the DESKTOP SYSTEM writer (not the user IPC) may write — T5 widens by one. */
+const SYSTEM_WRITE_KINDS: readonly string[] = [...COMPANY_BRAIN_WRITE_KINDS, SESSION_DIGEST_KIND];
+
+export interface UpsertSystemEntryInput {
+  /** REQUIRED for a system entry — the writer owns the id (stable so re-digest replaces). */
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  author?: CompanyBrainAuthor;
+  source?: CompanyBrainSource;
+  now?: () => Date;
+}
+
+/**
+ * T5 — SYSTEM WRITE PATH (session digests). A SEPARATE writer from upsertEntry: it
+ * accepts the widened SYSTEM_WRITE_KINDS allowlist (the 7 user kinds PLUS
+ * 'session_digest'), so the DESKTOP can persist an L3 digest WITHOUT relaxing the
+ * user-facing IPC write allowlist (upsertEntry / isWritableKind stay at the 7 kinds —
+ * a Settings write of kind 'session_digest' is still refused). The id is REQUIRED and
+ * writer-owned (stable `sd-<conversation>` → a re-digest REPLACES rather than
+ * duplicates). Same atomic (tmp+rename), 0o600, index-last-authority discipline as
+ * upsertEntry; the CREATE branch uses the SAME `.staging-<id>.md` dance so a crash
+ * between body write and index commit leaves an UN-adoptable staging file, never an
+ * orphan the T4 reconciler would fold back in as an author:'eve' note.
+ *
+ * Fail-closed: rejects a kind outside SYSTEM_WRITE_KINDS, a blank title/id, a
+ * non-absolute home, and any id that fails assertEntryId.
+ */
+export function upsertSystemEntry(hermesHome: string, input: UpsertSystemEntryInput): UpsertEntryResult {
+  assertAbsoluteHome(hermesHome);
+  if (!SYSTEM_WRITE_KINDS.includes(input.kind)) {
+    throw new Error(`Command EVE: refusing to write company-brain SYSTEM entry with unknown kind ${JSON.stringify(input.kind)}.`);
+  }
+  const title = (input.title ?? '').trim();
+  if (title.length === 0) {
+    throw new Error('Command EVE: refusing to write a company-brain SYSTEM entry with a blank title.');
+  }
+  const id = assertEntryId(input.id);
+
+  const index = readBrainIndex(hermesHome);
+  const created = !index.entries.some((e) => e.id === id);
+  const updated_at = (input.now?.() ?? new Date()).toISOString();
+  const body_file = path.posix.join(ENTRIES_SUBDIR, `${id}.md`);
+  const entry: CompanyBrainEntry = {
+    id,
+    kind: input.kind,
+    title,
+    updated_at,
+    author: input.author ?? 'eve',
+    source: input.source ?? 'chat',
+    body_file,
+  };
+
+  const bodyPath = path.join(entriesDirOf(hermesHome), `${id}.md`);
+  const bodyContents = `${(input.body ?? '').replace(/\s+$/, '')}\n`;
+  const stagingPath = path.join(entriesDirOf(hermesHome), `.staging-${id}.md`);
+  if (created) {
+    writeFileAtomic(stagingPath, bodyContents);
+  } else {
+    writeFileAtomic(bodyPath, bodyContents);
+  }
+
+  const nextEntries = created ? [...index.entries, entry] : index.entries.map((e) => (e.id === id ? entry : e));
+  const nextIndex: CompanyBrainIndex = { schema_version: COMMAND_EVE_COMPANY_BRAIN_SCHEMA, entries: nextEntries };
+  writeIndex(hermesHome, nextIndex);
+
+  if (created) {
+    fs.renameSync(stagingPath, bodyPath);
+  }
+
+  return { ok: true, index: nextIndex, entry, bodyPath, created };
+}
+
+export interface PruneResult {
+  ok: boolean;
+  index: CompanyBrainIndex;
+  /** Number of session_digest entries removed this pass (oldest-first). */
+  pruned: number;
+  /** The ids pruned this pass (audit/test). */
+  prunedIds: string[];
+}
+
+/**
+ * T5 — FIFO-PRUNE session digests to at most `max` per seat (spec §2 L3, default
+ * SESSION_DIGEST_MAX=50). Only kind==='session_digest' entries count and are pruned;
+ * every other kind is untouched. Oldest-first by updated_at (lexicographic ISO sort
+ * is chronological); ties break on id for determinism. Removes the body FIRST then
+ * rewrites the index (the SAME reconciler-safe order as removeEntry — the only
+ * tolerated crash residue is a dangling index slot, never an orphan body the T4
+ * reconciler would resurrect). Best-effort: never throws; a bad home / index-write
+ * failure degrades to a no-op. Idempotent — at or below the cap it prunes nothing.
+ */
+export function pruneSessionDigests(hermesHome: string, max: number = SESSION_DIGEST_MAX): PruneResult {
+  let index: CompanyBrainIndex;
+  try {
+    assertAbsoluteHome(hermesHome);
+    index = readBrainIndex(hermesHome);
+  } catch {
+    return { ok: false, index: emptyIndex(), pruned: 0, prunedIds: [] };
+  }
+
+  const cap = Math.max(0, Math.floor(max));
+  const digests = index.entries.filter((e) => e.kind === SESSION_DIGEST_KIND);
+  if (digests.length <= cap) {
+    return { ok: true, index, pruned: 0, prunedIds: [] };
+  }
+
+  // Oldest-first: chronological by ISO updated_at, id as a stable tiebreaker.
+  const ordered = [...digests].sort((a, b) =>
+    a.updated_at === b.updated_at ? a.id.localeCompare(b.id) : a.updated_at.localeCompare(b.updated_at)
+  );
+  const doomed = ordered.slice(0, digests.length - cap);
+  const doomedIds = new Set(doomed.map((e) => e.id));
+
+  // Bodies FIRST (reconciler-safe order). rmSync({force:true}) ignores ENOENT; a
+  // hard failure aborts THAT id but the pass continues for the rest — never a
+  // half-remove that leaves the index and disk disagreeing about a kept entry.
+  const prunedIds: string[] = [];
+  for (const e of doomed) {
+    try {
+      fs.rmSync(path.join(entriesDirOf(hermesHome), `${e.id}.md`), { force: true });
+      prunedIds.push(e.id);
+    } catch {
+      doomedIds.delete(e.id); // keep this entry indexed — its body survived the unlink
+    }
+  }
+
+  if (prunedIds.length === 0) {
+    return { ok: false, index, pruned: 0, prunedIds: [] };
+  }
+
+  const nextEntries = index.entries.filter((e) => !doomedIds.has(e.id));
+  const nextIndex: CompanyBrainIndex = { schema_version: COMMAND_EVE_COMPANY_BRAIN_SCHEMA, entries: nextEntries };
+  try {
+    writeIndex(hermesHome, nextIndex);
+  } catch {
+    return { ok: false, index, pruned: 0, prunedIds: [] };
+  }
+  return { ok: true, index: nextIndex, pruned: prunedIds.length, prunedIds };
+}
+
+/**
  * Day-Zero convenience for the boot / seat-switch hooks: migrate a v1 seed if one
  * exists (creating brain.json), else scaffold an empty brain — THEN fold in any
  * EVE-written .md files that are not yet in the index (T4 reconciler). Idempotent +

@@ -48,7 +48,15 @@ const isTerminalStreamMessage = (message: { type: string; data: unknown }): bool
   );
 };
 
-const isTerminalTurnState = (state: string): boolean => {
+/**
+ * The three terminal turn states (turn finished for now). EXPORTED so the T5
+ * session-digest relay (useSessionDigestRelay) uses the SAME predicate — the two must
+ * agree on what "terminal" means, so the relay's immediate-flush condition can never
+ * drift from the sidebar's resting-flag logic. NOTE the state-default falle (see the
+ * turn.completed mapper): a missing state becomes 'ai_waiting_input' only when
+ * status==='finished', else 'unknown' — and 'unknown' is NOT terminal here.
+ */
+export const isTerminalTurnState = (state: string): boolean => {
   return state === 'ai_waiting_input' || state === 'error' || state === 'stopped';
 };
 

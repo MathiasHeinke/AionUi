@@ -89,7 +89,8 @@ import { getActiveSeatId, resolveActiveSeatHome, sanitizeSeatId } from '@process
 import { isSeatSwitchAuthorized, parseMySeats, resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
 import { readMySeatsWire as readMySeatsWireCore } from '@process/commandEve/seatWireFetchCore';
 import { readCompanyBrainSeedState, writeCompanyBrainSeed } from '@process/commandEve/companyBrainSeedCore';
-import { COMMAND_EVE_DAY_ZERO_BRIEF_ID, listEntries, mirrorBriefBodyToFile, readEntryBody, reconcileUnindexedEntries, removeEntry, upsertEntry, type CompanyBrainWriteKind } from '@process/commandEve/companyBrainStoreCore';
+import { COMMAND_EVE_DAY_ZERO_BRIEF_ID, listEntries, mirrorBriefBodyToFile, pruneSessionDigests, readEntryBody, reconcileUnindexedEntries, removeEntry, SESSION_DIGEST_KIND, upsertEntry, upsertSystemEntry, type CompanyBrainWriteKind } from '@process/commandEve/companyBrainStoreCore';
+import { runSessionDigest, type SessionDigestDeps } from '@process/commandEve/sessionDigestCore';
 import {
   createElectronPdfRenderer,
   exportReport,
@@ -306,6 +307,123 @@ function guardBrainMutationDuringSwitch(): { success: false; msg: string; data: 
     msg: 'SEAT_SWITCH_IN_PROGRESS',
     data: { ok: false, reason_code: 'SEAT_SWITCH_IN_PROGRESS', message },
   };
+}
+
+// -----------------------------------------------------------------------------
+// v1.4 T5 — L3 SESSION-DIGEST main-side plumbing.
+// -----------------------------------------------------------------------------
+
+// PRE-SWITCH-FLUSH in-flight marker. The digest handler records the CURRENTLY-RUNNING
+// digest here (its promise); the seat-switch handler awaits it (hard-capped) BEFORE it
+// starts the switch, so an OUTGOING seat's still-running digest completes and lands in
+// the CORRECT (outgoing) seat's brain rather than being abandoned or landing wrong. We
+// keep only the single most-recent run — the flush awaits AT MOST one run, never starts
+// a new Ollama call (spec §4: "nur Abwarten eines laufenden").
+let commandEveSessionDigestInFlight: Promise<unknown> | null = null;
+
+const OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
+const SESSION_DIGEST_TIMEOUT_MS = 12_000;
+
+/** Resolve the local aioncore backend port the restart hook publishes (main-side). */
+function getCommandEveBackendPort(): number | undefined {
+  return (globalThis as typeof globalThis & { __backendPort?: number }).__backendPort;
+}
+
+/**
+ * T5 — MAIN-side local digest via Ollama. REUSES the generate-local-title pattern
+ * (same base URL, 12s timeout, tags-probe → pickLocalTitleModel → non-streaming chat
+ * with a num_predict cap) but with a LARGER num_predict (a digest is a paragraph, not
+ * a title) and the digest prompt. FAIL-QUIET by contract: any error (Ollama down,
+ * model not pulled, timeout, bad JSON) resolves to null so the writer skips the entry
+ * — NEVER a raw-text fallback (privacy: no raw transcript in the brain).
+ */
+async function generateLocalDigest(prompt: string): Promise<string | null> {
+  const withTimeout = async (input: string, init: RequestInit): Promise<Response> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), SESSION_DIGEST_TIMEOUT_MS);
+    try {
+      return await fetch(input, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  try {
+    const tagsRes = await withTimeout(`${OLLAMA_BASE_URL}/api/tags`, { method: 'GET' });
+    if (!tagsRes.ok) return null;
+    const tagsJson = (await tagsRes.json()) as { models?: Array<{ name?: string }> };
+    const modelNames = (tagsJson.models || []).map((m) => String(m?.name || ''));
+    const model = pickLocalTitleModel(modelNames);
+    if (!model) return null;
+
+    const chatRes = await withTimeout(`${OLLAMA_BASE_URL}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        stream: false,
+        messages: [{ role: 'user', content: prompt }],
+        // A digest is ~600 chars; ~300 tokens is plenty and keeps the local call cheap.
+        options: { num_predict: 320, temperature: 0.3 },
+      }),
+    });
+    if (!chatRes.ok) return null;
+    const chatJson = (await chatRes.json()) as { message?: { content?: string } };
+    const content = chatJson.message?.content;
+    return typeof content === 'string' && content.trim().length > 0 ? content : null;
+  } catch {
+    // AbortError / network / JSON — fail-quiet (no digest, never a raw fallback).
+    return null;
+  }
+}
+
+/**
+ * T5 — MAIN-side transcript fetch. Raw loopback GET against the local backend
+ * (globalThis.__backendPort), the SAME pattern webuiBridge uses; content_mode=compact,
+ * a bounded page_size window. The backend wraps the payload in { data: { items } };
+ * we return the raw items array (sessionDigestCore's extractTranscriptText tolerates
+ * the compact shape). No auth (loopback-only routes). Returns [] on any failure.
+ */
+async function fetchConversationTranscript(conversationId: string, window: number): Promise<unknown> {
+  const port = getCommandEveBackendPort();
+  if (!port) return [];
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SESSION_DIGEST_TIMEOUT_MS);
+  try {
+    const url = `http://127.0.0.1:${port}/api/conversations/${encodeURIComponent(conversationId)}/messages?page=1&page_size=${Math.max(1, Math.floor(window))}&content_mode=compact`;
+    const res = await fetch(url, { method: 'GET', signal: controller.signal });
+    if (!res.ok) return [];
+    const json = (await res.json()) as { data?: { items?: unknown } | null; items?: unknown };
+    return json?.data?.items ?? json?.items ?? [];
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * T5 — resolve a conversation's TITLE (best-effort) for the digest entry title. Reads
+ * the same conversations list the sidebar uses; returns the matching row's name, else
+ * undefined (the digest core falls back to a dated "Session <datum>").
+ */
+async function fetchConversationTitle(conversationId: string): Promise<string | undefined> {
+  const port = getCommandEveBackendPort();
+  if (!port) return undefined;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SESSION_DIGEST_TIMEOUT_MS);
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/conversations?limit=10000`, { method: 'GET', signal: controller.signal });
+    if (!res.ok) return undefined;
+    const json = (await res.json()) as { data?: { items?: Array<Record<string, unknown>> } | null; items?: Array<Record<string, unknown>> };
+    const items = json?.data?.items ?? json?.items ?? [];
+    const row = items.find((c) => String(c?.id ?? '') === conversationId);
+    const name = row && typeof row.name === 'string' ? row.name.trim() : '';
+    return name.length > 0 ? name : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function initCommandEveBridge(): void {
@@ -814,6 +932,52 @@ export function initCommandEveBridge(): void {
         data: { ok: false, reason_code: 'COMPANY_BRAIN_REMOVE_FAILED' } as unknown,
       };
     }
+  });
+
+  // v1.4 T5 — L3 SESSION-DIGEST writer. The renderer relay (useSessionDigestRelay)
+  // hands us ONLY a conversation id when a turn goes quiet; here in main we fetch the
+  // transcript (compact, loopback), summarize it with the LOCAL Ollama model, and
+  // write ONE session_digest entry into the ACTIVE seat's Company Brain (stable id ⇒
+  // re-digest replaces), then FIFO-prune. The heavy orchestration is the pure
+  // runSessionDigest core; this handler only injects the real deps + fences. The run's
+  // promise is stashed in commandEveSessionDigestInFlight so the seat-switch handler
+  // can FLUSH (await) it before switching. Best-effort/fail-quiet: the outcome is
+  // diagnostic; the relay ignores it. The FENCE (isSwitchInFlight) refuses a write
+  // while a seat switch is in flight so a digest can never land in the wrong seat.
+  bridge.buildProvider('command-eve.session-digest').provider(async (request?: { conversation_id?: string }) => {
+    const conversationId = typeof request?.conversation_id === 'string' ? request.conversation_id : '';
+    // Resolve the ACTIVE seat home ONCE, up front — the writer/prune close over it, so
+    // even if a switch begins mid-run the write targets the home resolved at start; the
+    // post-inference fence re-check then refuses the write if a switch is in flight.
+    let home = '';
+    try {
+      home = resolveActiveSeatHome(getDataPath()).hermesHome;
+    } catch {
+      return { success: false, msg: 'SESSION_DIGEST_NO_SEAT', data: { ok: false, reason_code: 'SESSION_DIGEST_NO_SEAT', outcome: 'error' } as unknown };
+    }
+    const deps: SessionDigestDeps = {
+      isSwitchInFlight: () => commandEveSwitchSeatInFlight,
+      fetchTranscript: (id, window) => fetchConversationTranscript(id, window),
+      resolveTitle: (id) => fetchConversationTitle(id),
+      generateDigest: (prompt) => generateLocalDigest(prompt),
+      writeDigestEntry: ({ id, title, body, now }) => {
+        upsertSystemEntry(home, { id, kind: SESSION_DIGEST_KIND, title, body, author: 'eve', source: 'chat', now });
+      },
+      pruneDigests: () => pruneSessionDigests(home).pruned,
+    };
+    const run = runSessionDigest(deps, { conversationId });
+    // Record for the pre-switch flush (keep only the most recent). Cleared when it
+    // settles IF it is still the tracked run (a newer run supersedes it).
+    commandEveSessionDigestInFlight = run;
+    void run.finally(() => {
+      if (commandEveSessionDigestInFlight === run) commandEveSessionDigestInFlight = null;
+    });
+    const result = await run;
+    return {
+      success: result.ok,
+      msg: result.ok ? undefined : result.outcome,
+      data: { ok: result.ok, outcome: result.outcome, id: result.id, pruned: result.pruned } as unknown,
+    };
   });
 
   // On-device speech-to-text. Runs in the main process (which can spawn the bundled
@@ -2302,6 +2466,30 @@ export function initCommandEveBridge(): void {
         data: { version, ok: false, reason_code: 'SWITCH_SEAT_IN_PROGRESS', active_seat_id: getActiveSeatId() },
       };
     }
+
+    // T5 — PRE-SWITCH DIGEST FLUSH. If a session digest of the OUTGOING seat is still
+    // running, wait for it to finish (hard 3s cap) BEFORE we take the switch lock — so
+    // it completes and lands in the CORRECT (outgoing) seat's brain while that seat is
+    // still active (the pointer only moves later, inside applySeatSwitch.prepareEnv).
+    // We do this BEFORE setting commandEveSwitchSeatInFlight so the digest's own
+    // post-inference fence (which keys on that flag) does not refuse the very write we
+    // are flushing. We only AWAIT an ALREADY-running run — never start a new Ollama
+    // call in the switch path (spec §4). On timeout we skip + log and proceed (a switch
+    // must never wedge behind a stuck digest). Doing this before the lock leaves a tiny
+    // window for a second switch to enter concurrently; that is acceptable — a second
+    // switch during a ≤3s flush is vanishingly rare and still hits the lock below.
+    const pendingDigest: Promise<unknown> | null = commandEveSessionDigestInFlight;
+    if (pendingDigest) {
+      const noop = (): void => undefined;
+      const settledOrCapped: Promise<void> = pendingDigest.then(noop, noop);
+      const cap = new Promise<void>((resolve) => setTimeout(resolve, 3000));
+      try {
+        await Promise.race([settledOrCapped, cap]);
+      } catch {
+        /* best-effort — never block the switch on a digest */
+      }
+    }
+
     commandEveSwitchSeatInFlight = true;
     const myEpoch = ++commandEveSwitchSeatEpoch;
     // Release only if THIS switch still owns the lock (epoch unchanged) — never clobber

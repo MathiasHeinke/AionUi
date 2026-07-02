@@ -1339,6 +1339,25 @@ export interface ICommandEveCompanyBrainRemoveResult {
 }
 
 /**
+ * v1.4 T5: the session-digest request. The renderer relay (useSessionDigestRelay)
+ * hands the main-side writer ONLY a conversation id; the main process fetches the
+ * transcript, summarizes it with the local model, and writes an L3 session_digest
+ * entry into the ACTIVE seat's Company Brain. Best-effort — a failure is non-fatal.
+ */
+export interface ICommandEveSessionDigestRequest {
+  conversation_id: string;
+}
+
+/** v1.4 T5: the session-digest result (outcome is diagnostic — the relay ignores it). */
+export interface ICommandEveSessionDigestResult {
+  ok: boolean;
+  reason_code?: string;
+  outcome?: 'written' | 'switch_in_flight' | 'no_conversation' | 'no_transcript' | 'no_digest' | 'error';
+  id?: string;
+  pruned?: number;
+}
+
+/**
  * v1.4 T3: lazy single-body read (company-brain-read). LIST stays index-only (no
  * bodies); the UI fetches ONE body on demand (open/edit) via this handler rather
  * than fattening the list payload. `body` is null for a missing/unreadable body
@@ -1676,6 +1695,12 @@ export const commandEve = {
   companyBrainRemove: bridge.buildProvider<IBridgeResponse<ICommandEveCompanyBrainRemoveResult>, { id: string }>(
     'command-eve.company-brain-remove'
   ),
+  // v1.4 T5: L3 session-digest writer. Renderer relay → main (transcript fetch +
+  // local Ollama summary + per-seat session_digest entry). Best-effort/fail-quiet.
+  sessionDigest: bridge.buildProvider<
+    IBridgeResponse<ICommandEveSessionDigestResult>,
+    ICommandEveSessionDigestRequest
+  >('command-eve.session-digest'),
   // Resolve a picker selection into the full conversation `model` provider.
   // For an EVE tier the bearer (CEVE wire) is injected in the main process.
   resolveInferenceProvider: bridge.buildProvider<
