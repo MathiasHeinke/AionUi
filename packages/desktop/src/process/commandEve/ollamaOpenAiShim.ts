@@ -114,6 +114,21 @@ export type CommandEveEgressRedactionModeResolver = () =>
   | 'off'
   | Promise<'on' | 'off'>;
 
+/**
+ * Per-request resolver for the OPAQUE active-seat id (A3 per-seat usage
+ * attribution). Returns `getActiveSeatId()` = `'seat-1'` (legacy/founder) or a
+ * sanitized seat UUID — NEVER the display LABEL (H3: the seat name must never
+ * leave the device). The shim spreads the returned id into the cloud outbound
+ * body as `seat_id` so `usage_events.seat_id` can attribute the spend per seat;
+ * the server allowlist keeps `seat_id` upstream-invisible (it is NOT in
+ * FORWARDABLE_BODY_KEYS).
+ *
+ * MAY be async. When omitted, the default resolver returns the legacy
+ * `'seat-1'`, so a build without the id injected behaves byte-identically to
+ * before this field existed (the server treats `'seat-1'` and absent alike).
+ */
+export type CommandEveActiveSeatIdResolver = () => string | Promise<string>;
+
 export type CommandEveOllamaShimOptions = {
   port?: number;
   ollamaBaseUrl?: string;
@@ -142,6 +157,13 @@ export type CommandEveOllamaShimOptions = {
    * never egresses, so it is never gated by this resolver.
    */
   egressRedactionMode?: CommandEveEgressRedactionModeResolver;
+  /**
+   * Optional OPAQUE active-seat-id resolver (A3 per-seat usage attribution).
+   * Read ONCE at the start of a cloud request and spread into the outbound body
+   * as `seat_id` (opaque id only, never the label — H3). When omitted, the
+   * default resolver returns the legacy `'seat-1'` ⇒ byte-identical to before.
+   */
+  activeSeatId?: CommandEveActiveSeatIdResolver;
 };
 
 export type CommandEveModelWarmupOptions = {
@@ -586,6 +608,14 @@ async function handleEveCloudCompletions(
   const egressRedactionMode = await options.egressRedactionMode();
   const redactionDisabledByOperator = egressRedactionMode === 'off';
 
+  // A3 per-seat usage attribution: resolve the OPAQUE active-seat id ONCE, here
+  // at the request start, so BOTH terminal log paths (stream + non-stream) ride
+  // it for free. Opaque id only ('seat-1' | uuid) — never the label (H3). It is
+  // spread into the outbound body below; the server persists it to
+  // usage_events.seat_id and keeps it upstream-invisible (not in
+  // FORWARDABLE_BODY_KEYS). A default 'seat-1' keeps attribution byte-stable.
+  const seatId = await options.activeSeatId();
+
   // Egress boundary — same gate as local, but the provider is a CLOUD lane.
   //
   // SENSITIVITY-GATE (S12) WRAPS S11 here. Instead of forcing 'allow' wholesale
@@ -714,6 +744,13 @@ async function handleEveCloudCompletions(
     stream,
     tier,
     ...(attributionAgentId !== 'eve' ? { agent_id: attributionAgentId } : {}),
+    // A3 per-seat attribution: the opaque active-seat id. Only emitted when a
+    // non-empty id resolved (always true with the default 'seat-1' resolver);
+    // a blank id is omitted so an old app + new server stays NULL ("Nicht
+    // zugeordnet") rather than writing an empty-string seat. The server
+    // sanitizes and persists it to usage_events.seat_id; it is NEVER in
+    // FORWARDABLE_BODY_KEYS so it stays invisible to OpenRouter.
+    ...(typeof seatId === 'string' && seatId.length > 0 ? { seat_id: seatId } : {}),
     ...(Array.isArray(body.tools) && body.tools.length > 0 ? { tools: body.tools } : {}),
     ...(body.tool_choice !== undefined ? { tool_choice: body.tool_choice } : {}),
     ...(body.parallel_tool_calls !== undefined ? { parallel_tool_calls: body.parallel_tool_calls } : {}),
@@ -960,6 +997,9 @@ export async function startCommandEveOllamaOpenAiShim(shimOptions: CommandEveOll
     // Default resolver returns 'on' ⇒ always redact (fail-SAFE). The switch is a
     // no-op (redaction unchanged) until the main process injects the live mode.
     egressRedactionMode: shimOptions.egressRedactionMode || ((): 'on' => 'on'),
+    // Default resolver returns the legacy 'seat-1' ⇒ attribution is byte-stable
+    // (server treats 'seat-1' and absent alike) until main injects getActiveSeatId.
+    activeSeatId: shimOptions.activeSeatId || ((): string => 'seat-1'),
   };
   server = http.createServer((request, response) => {
     void (async () => {

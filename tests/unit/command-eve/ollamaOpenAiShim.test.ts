@@ -904,3 +904,93 @@ describe('warmCommandEveEveLane — EVE cloud preflight', () => {
     expect(result.error).toContain('loopback');
   });
 });
+
+describe('Command EVE shim — per-seat usage attribution (A3)', () => {
+  const eveRoute = (fnUrl: string) => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE, tier: 'standard' as const });
+
+  it('spreads the OPAQUE active-seat id into the cloud body as seat_id (a real UUID seat)', async () => {
+    const seatUuid = '11111111-2222-3333-4444-555555555555';
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      eveRouting: () => eveRoute(fnUrl),
+      activeSeatId: () => seatUuid,
+    });
+
+    await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'hi' }], stream: false }),
+    });
+
+    expect(fnSeen.body?.seat_id).toBe(seatUuid);
+  });
+
+  it('sends the legacy "seat-1" by default (resolver omitted ⇒ byte-stable attribution)', async () => {
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+
+    // No activeSeatId option at all — the default resolver returns 'seat-1'.
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      eveRouting: () => eveRoute(fnUrl),
+    });
+
+    await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'hi' }], stream: false }),
+    });
+
+    expect(fnSeen.body?.seat_id).toBe('seat-1');
+  });
+
+  it('omits seat_id entirely when the resolver returns an empty id (old-app-safe NULL, not "")', async () => {
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      eveRouting: () => eveRoute(fnUrl),
+      activeSeatId: () => '',
+    });
+
+    await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'hi' }], stream: false }),
+    });
+
+    expect(fnSeen.body).not.toHaveProperty('seat_id');
+  });
+
+  it('sends ONLY the opaque id — the display LABEL never rides the body (H3)', async () => {
+    const seatUuid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    const secretLabel = 'Klinik Salem';
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      eveRouting: () => eveRoute(fnUrl),
+      // The resolver hands the shim the id ONLY — never the label.
+      activeSeatId: () => seatUuid,
+    });
+
+    await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'hi' }], stream: false }),
+    });
+
+    expect(fnSeen.body?.seat_id).toBe(seatUuid);
+    // The whole body, serialized, must not contain the seat's human name.
+    expect(JSON.stringify(fnSeen.body)).not.toContain(secretLabel);
+  });
+});

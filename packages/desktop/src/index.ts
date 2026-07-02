@@ -44,6 +44,7 @@ import {
   type EveWorkerAssignmentMap,
 } from './common/config/eveWorkerAssignmentCore';
 import type { CommandEveEveCloudRoute } from './process/commandEve/ollamaOpenAiShim';
+import { getActiveSeatId } from './process/commandEve/seatContextCore';
 import {
   readInferenceSelectionFromBackend,
   resolveEveCloudRouteFromBackend,
@@ -530,6 +531,20 @@ function buildCommandEveShimEgressRedactionModeResolver(): () => Promise<'on' | 
 }
 
 /**
+ * Build the OPAQUE active-seat-id resolver passed to the shim (A3 per-seat usage
+ * attribution). Runs PER cloud request and returns the in-process active seat id
+ * (`seatContextCore.getActiveSeatId` — 'seat-1' legacy/founder or a sanitized
+ * seat UUID). It is a SYNCHRONOUS in-memory read of the process-local holder
+ * `applySeatSwitch` maintains — NO network, NO backend read — so it never adds
+ * latency and can never fail (the holder defaults to 'seat-1'). The shim spreads
+ * the value into the outbound body as `seat_id`; the display LABEL is NEVER read
+ * or sent here (H3).
+ */
+function buildCommandEveShimActiveSeatIdResolver(): () => string {
+  return () => getActiveSeatId();
+}
+
+/**
  * CLI-Keystone runtime glue (the wiring the audit found MISSING). Reads the
  * PERSISTED worker assignments + the live team-status map and resolves them into
  * the two bootstrap inputs that make the keystone ALIVE:
@@ -870,6 +885,7 @@ function registerCommandEveRuntimeBridge(): void {
           eveRouting: buildCommandEveShimRoutingResolver(),
           teamWorkerStatus: buildCommandEveShimTeamStatusResolver(),
           egressRedactionMode: buildCommandEveShimEgressRedactionModeResolver(),
+          activeSeatId: buildCommandEveShimActiveSeatIdResolver(),
         }));
       commandEveOllamaShimUrl = shimUrl;
       const warmupReceipt = shouldWarm
@@ -931,6 +947,7 @@ function registerCommandEveRuntimeBridge(): void {
           eveRouting: buildCommandEveShimRoutingResolver(),
           teamWorkerStatus: buildCommandEveShimTeamStatusResolver(),
           egressRedactionMode: buildCommandEveShimEgressRedactionModeResolver(),
+          activeSeatId: buildCommandEveShimActiveSeatIdResolver(),
         }));
       commandEveOllamaShimUrl = shimUrl;
       const warmupReceipt = await ensureCommandEveLocalModelWarmup(receipt, shimUrl, warmCommandEveLocalModel);
@@ -1387,6 +1404,7 @@ const handleAppReady = async (): Promise<void> => {
       eveRouting: buildCommandEveShimRoutingResolver(),
       teamWorkerStatus: buildCommandEveShimTeamStatusResolver(),
       egressRedactionMode: buildCommandEveShimEgressRedactionModeResolver(),
+      activeSeatId: buildCommandEveShimActiveSeatIdResolver(),
     });
     commandEveOllamaShimUrl = shimUrl;
     mark(`commandEveOllamaShim (${shimUrl})`);

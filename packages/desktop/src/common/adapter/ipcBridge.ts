@@ -1509,6 +1509,35 @@ export interface ICommandEveMySeatsResult {
   source: 'my_seats' | 'legacy_fallback';
 }
 
+// v1.5 A3: per-seat usage attribution — one seat's aggregated usage for a month.
+// Opaque seat ids ONLY (never names — H3); the LABEL join happens in the renderer.
+export interface ICommandEveSeatUsageRow {
+  /** Opaque seat id ('seat-1' | uuid) or null for the "Nicht zugeordnet" bucket. */
+  seat_id: string | null;
+  calls: number;
+  ok_calls: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  retail_eur_cents: number;
+  raw_eur_cents: number;
+  credits: number;
+}
+
+// v1.5 A3: the seat-usage bridge result. SELF-QUIET: `ok:false` (empty seats)
+// when there is no license wire / no URL / a network or 404 error (version-skew:
+// the seat-usage Edge Function is not deployed yet). The renderer then shows the
+// honest "Verbrauchsdaten ab dem nächsten Server-Update" resting state.
+export interface ICommandEveSeatUsageResult {
+  version: 'command-eve-seat-usage/v0';
+  ok: boolean;
+  reason_code?: string;
+  message?: string;
+  /** Echoed queried month `YYYY-MM`. */
+  month: string;
+  seats: ICommandEveSeatUsageRow[];
+  total: Omit<ICommandEveSeatUsageRow, 'seat_id'>;
+}
+
 // Phase 4 / A5: the result of a seat switch (the GATE-NULL runtime keystone).
 export interface ICommandEveSwitchSeatResult {
   version: 'command-eve-switch-seat/v0';
@@ -1730,6 +1759,13 @@ export const commandEve = {
   // A5 + B3: list the account's seats (admin SeatSwitcher) / classify role
   // (fail-closed SeatGuard). Read-only; fail-closes to one legacy seat.
   mySeats: bridge.buildProvider<IBridgeResponse<ICommandEveMySeatsResult>, void>('command-eve.my-seats'),
+  // v1.5 A3: per-seat usage attribution — read the seat-usage Edge Function
+  // (CEVE bearer, held in main). Opaque ids only; the LABEL join happens in the
+  // renderer. SELF-QUIET: fail-closes to an empty ok:false model (no URL / no
+  // bearer / network / 404) so the card shows the honest resting state.
+  seatUsage: bridge.buildProvider<IBridgeResponse<ICommandEveSeatUsageResult>, { month?: string }>(
+    'command-eve.seat-usage'
+  ),
   // A5: switch the active seat (the GATE-NULL runtime keystone). Main enforces
   // the admin gate + the full ordered, fail-safe re-spawn lifecycle.
   switchSeat: bridge.buildProvider<IBridgeResponse<ICommandEveSwitchSeatResult>, { seatId?: string }>(

@@ -83,6 +83,13 @@ import {
 } from '@/common/config/eveInferenceCore';
 import { getCommandEveLocalRuntimeProvider } from '@/common/config/commandEveShell';
 import { CREDITS_STATUS_FUNCTION_URL, type ClientSeedInput, type CreditsTier } from '@/common/config/creditsCore';
+import {
+  SEAT_USAGE_FUNCTION_URL,
+  currentUsageMonth,
+  emptySeatUsage,
+  isValidUsageMonth,
+  parseSeatUsageResponse,
+} from '@/common/config/seatUsageCore';
 import { ProcessConfig, getSkillsDir, getCronSkillsDir } from '@process/utils/initStorage';
 import { getDataPath } from '@process/utils/utils';
 import { getActiveSeatId, resolveActiveSeatHome, sanitizeSeatId } from '@process/commandEve/seatContextCore';
@@ -2874,6 +2881,93 @@ export function initCommandEveBridge(): void {
       };
     }
   });
+
+  // -------------------------------------------------------------------------
+  // Per-seat usage attribution (v1.5 A3). The main process holds the CEVE bearer
+  // and is the ONLY side that calls the seat-usage Edge Function — the renderer
+  // never sees the wire. Opaque seat ids ONLY come back (no names — H3); the
+  // LABEL join happens in the renderer against the my-seats wire the operator
+  // already holds. SELF-QUIET: no license wire / no URL / a network or 404 error
+  // (the seat-usage Edge Function is not deployed yet — version-skew) returns an
+  // `ok:false` empty model, so the card renders the honest "Verbrauchsdaten ab
+  // dem nächsten Server-Update" resting state instead of throwing.
+  // -------------------------------------------------------------------------
+  bridge
+    .buildProvider('command-eve.seat-usage')
+    .provider(async (request?: { month?: string } | CommandEveBridgeEnvelope<{ month?: string }>) => {
+      const payload = unwrapBridgeRequest<{ month?: string }>(request);
+      const month = isValidUsageMonth(payload?.month) ? (payload!.month as string) : currentUsageMonth();
+      const quiet = (reasonCode: string, message?: string) => ({
+        version: 'command-eve-seat-usage/v0' as const,
+        ok: false,
+        reason_code: reasonCode,
+        ...(message ? { message } : {}),
+        ...emptySeatUsage(month),
+      });
+
+      try {
+        // No Edge Function URL configured ⇒ nothing to call. Quiet, not a crash.
+        if (!SEAT_USAGE_FUNCTION_URL) {
+          return { success: false, msg: 'SEAT_USAGE_NO_URL', data: quiet('SEAT_USAGE_NO_URL') };
+        }
+
+        // No usable CEVE bearer ⇒ not yet licensed/activated. Quiet.
+        const wireResult = readLicenseWire(getDataPath());
+        if (!wireResult.ok || !wireResult.wire) {
+          const reason = wireResult.reason_code || 'SEAT_USAGE_NO_BEARER';
+          return { success: false, msg: reason, data: quiet(reason) };
+        }
+
+        // Proxy GET with the CEVE license as a bearer (header only — never logged,
+        // never returned to the renderer). Same auth pattern as credits-status.
+        let response: Response;
+        try {
+          const url = `${SEAT_USAGE_FUNCTION_URL}?month=${encodeURIComponent(month)}`;
+          response = await fetch(url, {
+            method: 'GET',
+            headers: {
+              Authorization: `Bearer ${wireResult.wire}`,
+              Accept: 'application/json',
+            },
+          });
+        } catch (networkError) {
+          // Offline / function not deployed — stay quiet (version-skew resting state).
+          return {
+            success: false,
+            msg: networkError instanceof Error ? networkError.message : 'SEAT_USAGE_NETWORK',
+            data: quiet('SEAT_USAGE_NETWORK'),
+          };
+        }
+
+        if (!response.ok) {
+          // 404 ⇒ the seat-usage Edge Function is not deployed yet (version-skew).
+          return { success: false, msg: `SEAT_USAGE_HTTP_${response.status}`, data: quiet(`SEAT_USAGE_HTTP_${response.status}`) };
+        }
+
+        const raw = (await response.json().catch((): null => null)) as unknown;
+        const parsed = parseSeatUsageResponse(raw, month);
+        if (!parsed.ok) {
+          return { success: false, msg: 'SEAT_USAGE_BAD_BODY', data: quiet('SEAT_USAGE_BAD_BODY') };
+        }
+
+        return {
+          success: true,
+          data: {
+            version: 'command-eve-seat-usage/v0' as const,
+            ok: true,
+            month: parsed.month,
+            seats: parsed.seats,
+            total: parsed.total,
+          },
+        };
+      } catch (error) {
+        return {
+          success: false,
+          msg: error instanceof Error ? error.message : 'Command EVE seat-usage bridge failed.',
+          data: quiet('SEAT_USAGE_BRIDGE_FAILED'),
+        };
+      }
+    });
 
   // Persist the user's hard spend cap (EUR cents; 0 ⇒ uncapped) via ProcessConfig.
   // This is a LOCAL persistence write — the binding enforcement is the backend's

@@ -25,12 +25,20 @@ import { useTranslation } from 'react-i18next';
 import { openExternalUrl } from '@renderer/utils/platform';
 import { configService } from '@/common/config/configService';
 import { useCreditsStatus } from '@renderer/hooks/useCreditsStatus';
+import { useSeatUsage } from '@renderer/hooks/useSeatUsage';
+import { useSeatAccess } from '@renderer/hooks/useSeatAccess';
+import { isLegacySeatId } from '@process/commandEve/seatSwitchCore';
 import {
   buildSeatBillingStatus,
   CLIENT_SEAT_FROM_EUR,
   DEFAULT_CREDIT_PACKS,
   validateSpendCapEur,
 } from '@/common/config/creditsCore';
+import {
+  buildSeatUsageCardRows,
+  currentUsageMonth,
+  priorUsageMonth,
+} from '@/common/config/seatUsageCore';
 
 // The Gen-B web money surface. The desktop holds no card; it opens the web account
 // where the free own-seat lives and client seats / credit packs are bought. The
@@ -42,6 +50,32 @@ const ADD_SEAT_URL = `${ACCOUNT_URL}?intent=add_seat`;
 const BillingModalContent: React.FC = () => {
   const { t } = useTranslation();
   const { meter, status, setSpendCap } = useCreditsStatus();
+
+  // v1.5 A3 — per-seat usage attribution. The LABEL join is renderer-only (the
+  // server sends opaque ids — H3): join seat_id → access.seats[].name from the
+  // my-seats wire the operator already holds. Ordering follows access.seats (=
+  // the Rail order, Founder-Ask). Founder summary (ALL seats) only when the admin
+  // is on their own legacy/founder home; a delegate / client-seat context sees
+  // ONLY its own row (deckungsgleich mit dem my-seats-Scoping).
+  const { access } = useSeatAccess();
+  const { usage, available: usageAvailable, month: usageMonth, setMonth: setUsageMonth } = useSeatUsage();
+  const isFounderSummary = access.role === 'admin' && isLegacySeatId(access.activeSeatId);
+  const seatLabelById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of access.seats) m.set(s.seat_id, s.name);
+    return m;
+  }, [access.seats]);
+  const usageRows = useMemo(() => {
+    if (!usage || !usage.ok) return [];
+    return buildSeatUsageCardRows(
+      usage.seats,
+      access.seats.map((s) => s.seat_id),
+      (seatId) => (seatId === null ? undefined : seatLabelById.get(seatId)),
+      isFounderSummary ? null : access.activeSeatId
+    );
+  }, [usage, access.seats, access.activeSeatId, seatLabelById, isFounderSummary]);
+  const currentMonth = currentUsageMonth();
+  const isPriorMonth = usageMonth !== currentMonth;
 
   // Gen-B seat status: is this the free own seat (0 € for ever) or a paid seat?
   // Drives the status line + the client-seat CTA copy. Defaults to the free own
@@ -168,6 +202,71 @@ const BillingModalContent: React.FC = () => {
           content={t('credits.settings.noStatus', { defaultValue: 'Credit status will appear once you are signed in.' })}
         />
       )}
+
+      {/* v1.5 A3 — Verbrauch nach Kunde. Per-seat usage for the month, labels
+          joined from the my-seats wire (never from the server). Founder sees a
+          summary of ALL seats (Rail order); a client seat sees only its own row.
+          Version-skew honest: no server data ⇒ the resting note. */}
+      <Card
+        className='billing-settings__usage'
+        data-testid='billing-usage'
+        title={t('credits.settings.usageTitle', { defaultValue: 'Verbrauch nach Kunde' })}
+        extra={
+          <Button
+            size='mini'
+            type='text'
+            onClick={() => setUsageMonth(isPriorMonth ? currentMonth : priorUsageMonth(currentMonth))}
+            data-testid='billing-usage-month-toggle'
+          >
+            {isPriorMonth
+              ? t('credits.settings.usageMonthCurrent', { defaultValue: 'Aktueller Monat' })
+              : t('credits.settings.usageMonthPrior', { defaultValue: 'Vormonat' })}
+          </Button>
+        }
+      >
+        <p className='billing-settings__hint'>
+          {t('credits.settings.usageHint', {
+            defaultValue: 'Verbrauch diesen Monat je Seat ({{month}}).',
+            month: usageMonth,
+          })}
+        </p>
+        {usageAvailable && usageRows.length > 0 ? (
+          <div className='billing-settings__usage-list'>
+            {usageRows.map((row) => (
+              <div
+                key={row.seat_id ?? '__unattributed__'}
+                className='billing-settings__usage-row'
+                data-testid={`billing-usage-row-${row.seat_id ?? 'unattributed'}`}
+              >
+                <div className='billing-settings__usage-row-head'>
+                  <span className='billing-settings__usage-label'>{row.label}</span>
+                  <span className='billing-settings__usage-figures'>
+                    {t('credits.settings.usageFigures', {
+                      defaultValue: '{{calls}} Calls · {{credits}} Credits · {{eur}} €',
+                      calls: row.calls,
+                      credits: row.credits,
+                      eur: row.retail_eur.toFixed(2),
+                    })}
+                  </span>
+                </div>
+                <Progress percent={Math.round(row.bar_fraction * 100)} showText={false} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <Alert
+            type='info'
+            data-testid='billing-usage-empty'
+            content={
+              usageAvailable
+                ? t('credits.settings.usageEmpty', { defaultValue: 'Noch keine Verbrauchsdaten (ab v1.5 erfasst).' })
+                : t('credits.settings.usageUnavailable', {
+                    defaultValue: 'Verbrauchsdaten ab dem nächsten Server-Update.',
+                  })
+            }
+          />
+        )}
+      </Card>
 
       {/* Spend-cap setting */}
       <Card className='billing-settings__cap' title={t('credits.settings.spendCapTitle', { defaultValue: 'Spend cap' })}>

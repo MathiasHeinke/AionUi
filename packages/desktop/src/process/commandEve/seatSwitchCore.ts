@@ -75,6 +75,12 @@ import {
   setActiveSeatLabel,
 } from './seatContextCore';
 
+// Pure re-exports so the renderer can classify the active seat (Founder/legacy
+// vs a real client seat) WITHOUT importing seatContextCore directly (which pulls
+// in Node `os`/`path` at module top). Both are pure values/functions — used by
+// the A3 billing consumption card to decide the founder-summary visibility.
+export { LEGACY_SEAT_ID, isLegacySeatId };
+
 /** Stable result envelope returned to the bridge / renderer. */
 export interface SeatSwitchResult {
   ok: boolean;
