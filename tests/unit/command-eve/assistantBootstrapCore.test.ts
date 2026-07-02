@@ -198,7 +198,7 @@ describe('Command EVE assistant bootstrap core', () => {
           connectors: [
             { id: 'local-command-eve-runtime', default_state: 'installed' },
             { id: 'codex-cli', default_state: 'unverified' },
-            { id: 'honcho-memory', default_state: 'needs_auth' },
+            { id: 'github-gitnexus', default_state: 'needs_auth' },
             { id: 'marketing-publishing-stack', default_state: 'gated' },
           ],
         },

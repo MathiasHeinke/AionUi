@@ -331,7 +331,12 @@ function isGatedConnector(connector: CommandEveConnectorManifestConnector): bool
 
 function needsAuth(connector: CommandEveConnectorManifestConnector): boolean {
   const text = `${connector.auth_method} ${connector.auth_surface} ${connector.setup_mode}`.toLowerCase();
-  return /oauth|api|token|provider|account|workspace|mail|stripe|supabase|vercel|github|honcho/.test(text);
+  // 'honcho' token dropped (D5, Roundtable 4:0): the null-wiring Honcho card was
+  // removed from the catalog and no manifest connector carries 'honcho' in its
+  // auth_method/auth_surface/setup_mode, so the token was dead. Re-add only when
+  // a real Honcho connector manifest lands (see resumption criteria in
+  // runtimeBootstrapCore.ts, where the card was removed).
+  return /oauth|api|token|provider|account|workspace|mail|stripe|supabase|vercel|github/.test(text);
 }
 
 function hasInternalReadOnlyPreflight(connector: CommandEveConnectorManifestConnector): boolean {

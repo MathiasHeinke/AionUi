@@ -810,14 +810,20 @@ export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
       default_state: 'needs_auth',
       human_gate: 'HG-3 before write-capable GitHub actions',
     },
-    {
-      id: 'honcho-memory',
-      name: 'Honcho Memory',
-      tier: 'autonomy_core',
-      setup_mode: 'guided_connector',
-      default_state: 'needs_auth',
-      human_gate: 'HG-2 before first durable memory write',
-    },
+    // REMOVED (D5, Roundtable 4:0): the 'honcho-memory' card claimed
+    // default_state: 'needs_auth' — a promise of an auth flow that does not
+    // exist. Honcho has NULL wiring on the desktop lane: no client, no
+    // guided setup/preflight path, no vault manifest, and honcho-ai is not
+    // bundled. Advertising needs_auth for a connector with no reachable auth
+    // path is exactly the dishonesty the catalog-honesty lint now forbids
+    // (tests/unit/command-eve/connectorCatalogHonesty.test.ts). The dormant
+    // Hermes wheel plugin is untouched; only the catalog surface is removed.
+    // RESUMPTION CRITERIA (all required before re-adding a card): a
+    // write-slice exists as a Plan item WITH a target version, AND a
+    // vault/keychain path for the Honcho token is specified, AND the card
+    // binds to a real setup path (guidedAuthSetupCore / connectorPreflightCore
+    // manifest entry) so the honesty lint passes with a concrete auth-flow
+    // reference — not a bare needs_auth label.
     {
       id: 'plane-sync',
       name: 'Plane sync surface',
@@ -2710,8 +2716,12 @@ function writeHermesRuntimeFiles(
   runtimeModelRef = commandEveOllamaContextModelRef(tier.model_ref, tierOllamaNumCtx(tier)),
   // Tier-keyed soul-wiring knobs. Defaults keep the at-cost text fence intact
   // for the single-tenant founder build: a real-but-cheap challenger ('low')
-  // and the free-tier skill-creation interval (0). Paid/top tiers raise these
-  // upstream via index.ts plumbing (separate slice).
+  // and the skill-creation interval at its real default (10 =
+  // DEFAULT_COMMAND_EVE_CREATION_NUDGE_INTERVAL, matching Hermes' own default so
+  // the self-improvement loop is ON — DOC-ROT FIX: the prior comment claimed a
+  // free-tier default of 0, which was never the resolved value). A cost-driven
+  // per-tier override can be plumbed upstream via index.ts (separate slice), but
+  // it must never silently ship 0.
   reasoningEffort: CommandEveReasoningEffort = DEFAULT_COMMAND_EVE_REASONING_EFFORT,
   creationNudgeInterval = DEFAULT_COMMAND_EVE_CREATION_NUDGE_INTERVAL,
   // The resolved bundled-skills snapshot dir (Contents/Resources/bundled-skills in
@@ -2848,8 +2858,11 @@ function writeHermesRuntimeFiles(
     // creation_nudge_interval > 0 re-enables the background skill-review fork
     // that creates/optimizes skills ("the user keeps wanting X, so EVE builds
     // itself a skill"). 0 is an explicit kill-switch; Hermes' own default is 10
-    // (FACT agent/agent_init.py:1193). Tier-gated: free=0, paid>0, because each
-    // nudge spends tokens on a background fork.
+    // (FACT agent/agent_init.py:1193). DOC-ROT FIX: the resolved default here is
+    // 10 (DEFAULT_COMMAND_EVE_CREATION_NUDGE_INTERVAL, :296), NOT a tier-gated
+    // free=0/paid>0 — there is no tier-gating wired at this call site today; a
+    // per-tier cost override would be plumbed upstream via index.ts (separate
+    // slice) and must never silently ship 0.
     `  creation_nudge_interval: ${creationNudgeInterval}`,
     // external_dirs ADDS the EVE-managed skills on top of Hermes' own primary
     // skills dir (${HERMES_HOME}/skills). It does NOT replace or restrict the
@@ -2902,6 +2915,12 @@ function writeHermesRuntimeFiles(
     // edit can't silently disable it. It NEVER touches the bundled strategy
     // skills — only skills the agent created itself (FACT config.py docstring),
     // so the curated toolbelt is protected.
+    // DOC-ROT HONESTY (v1.4-Plan Lane A gap): this is config-emitted, but on the
+    // desktop ACP (chat) lane maybe_run_curator NEVER fires — the curator tick
+    // only runs from cli.py / the gateway, not the ACP session loop. So
+    // 'enabled: true' declares the capability truthfully but does not mean a
+    // running curator on the lane the user actually talks to; a Desktop-tick
+    // trigger is still missing (flagged Lane A gap, founder-gated follow-up).
     'curator:',
     '  enabled: true',
     'kanban:',

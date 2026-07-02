@@ -185,14 +185,6 @@
       "human_gate": "HG-3 before write-capable GitHub actions"
     },
     {
-      "id": "honcho-memory",
-      "name": "Honcho Memory",
-      "tier": "autonomy_core",
-      "setup_mode": "guided_connector",
-      "default_state": "needs_auth",
-      "human_gate": "HG-2 before first durable memory write"
-    },
-    {
       "id": "plane-sync",
       "name": "Work-board sync (optional)",
       "tier": "recommended",
