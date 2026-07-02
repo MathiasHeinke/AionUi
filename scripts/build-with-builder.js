@@ -247,6 +247,49 @@ function createDmgWithPrepackaged(appDir, targetArch) {
   );
 }
 
+// LAST-RESORT DMG PATH: electron-builder's bundled dmgbuild has a recurring
+// volume-sizing bug with our 2.2GB .app ("No space left on device" INSIDE the
+// temp volume while copying — the host disk has plenty). Every 1.3.0 build hit
+// it through all retries and the DMG had to be hand-rolled with hdiutil (twice
+// in one night). This encodes that exact proven manual sequence: staging dir
+// (ditto the stapled .app + /Applications symlink) → hdiutil create UDZO →
+// optional codesign (APPLE_DMG_SIGN_IDENTITY) → optional notarize+staple
+// (NOTARYTOOL_KEYCHAIN_PROFILE). Trade-off vs dmgbuild: no styled background /
+// icon layout — a plain but valid, signed, notarized DMG beats a failed build.
+function createDmgWithHdiutil(appDir, targetArch) {
+  const appName = fs.readdirSync(appDir).find((f) => f.endsWith('.app'));
+  if (!appName) throw new Error(`No .app found in ${appDir}`);
+  const appPath = path.join(appDir, appName);
+  const version = require('../package.json').version;
+  const outDir = path.resolve(__dirname, '../out');
+  const dmgPath = path.join(outDir, `Command-EVE-${version}-mac-${targetArch}.dmg`);
+  const volName = `Command EVE ${version}-${targetArch}`;
+
+  const os = require('os');
+  const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'ceve-dmg-'));
+  try {
+    // ditto preserves signatures, xattrs and the notarization staple.
+    execSync(`ditto "${appPath}" "${path.join(stage, appName)}"`, { stdio: 'inherit' });
+    fs.symlinkSync('/Applications', path.join(stage, 'Applications'));
+    if (fs.existsSync(dmgPath)) fs.rmSync(dmgPath);
+    execSync(`hdiutil create -volname "${volName}" -srcfolder "${stage}" -ov -format UDZO "${dmgPath}"`, { stdio: 'inherit' });
+  } finally {
+    fs.rmSync(stage, { recursive: true, force: true });
+  }
+
+  const signIdentity = process.env.APPLE_DMG_SIGN_IDENTITY;
+  if (signIdentity) {
+    execSync(`codesign --force --sign "${signIdentity}" "${dmgPath}"`, { stdio: 'inherit' });
+  }
+  const notaryProfile = process.env.NOTARYTOOL_KEYCHAIN_PROFILE;
+  if (notaryProfile) {
+    execSync(`xcrun notarytool submit "${dmgPath}" --keychain-profile "${notaryProfile}" --wait`, { stdio: 'inherit' });
+    execSync(`xcrun stapler staple "${dmgPath}"`, { stdio: 'inherit' });
+    execSync(`xcrun stapler validate "${dmgPath}"`, { stdio: 'inherit' });
+  }
+  console.log(`✅ DMG created via hdiutil fallback: ${dmgPath}`);
+}
+
 function buildWithDmgRetry(cmd, targetArch) {
   const isMac = process.platform === 'darwin';
   const outDir = path.resolve(__dirname, '../out');
@@ -276,8 +319,10 @@ function buildWithDmgRetry(cmd, targetArch) {
         console.log(`   ⚠️  DMG retry ${attempt}/${DMG_RETRY_MAX} failed`);
         cleanupDiskImages();
         if (attempt === DMG_RETRY_MAX) {
-          console.log(`   ❌ DMG creation failed after ${DMG_RETRY_MAX} retries`);
-          throw retryError;
+          console.log(`   ❌ dmgbuild failed after ${DMG_RETRY_MAX} retries — falling back to hdiutil (plain DMG, signed+notarized when env is set)`);
+          cleanupDiskImages();
+          createDmgWithHdiutil(appDir, targetArch);
+          return;
         }
       }
     }
