@@ -31,6 +31,7 @@ import {
   migrateSeedToBrain,
   readBrainIndex,
   readEntryBody,
+  reconcileUnindexedEntries,
   removeEntry,
   upsertEntry,
 } from '@process/commandEve/companyBrainStoreCore';
@@ -323,5 +324,114 @@ describe('per-seat isolation — two homes stay disjoint', () => {
     expect(readEntryBody(homeA, listEntries(homeA)[0].id)).toContain('A-secret');
     expect(readEntryBody(homeA, listEntries(homeA)[0].id)).not.toContain('B-secret');
     expect(homeA).not.toBe(homeB);
+  });
+});
+
+describe('T4 reconciler — EVE write-path intake (unindexed entries/*.md → brain.json)', () => {
+  const entriesDir = (home: string) => path.join(home, COMPANY_BRAIN_DIR, ENTRIES_SUBDIR);
+  const writeNote = (home: string, name: string, body: string) => {
+    fs.mkdirSync(entriesDir(home), { recursive: true });
+    fs.writeFileSync(path.join(entriesDir(home), name), body);
+  };
+
+  it('adopts an unindexed EVE note: title from the first H1, author eve, source chat, kind note', () => {
+    const home = makeHome();
+    ensureCompanyBrainScaffold(home); // empty brain.json + entries/
+    writeNote(home, 'note-mueller-tonalitaet.md', '# Tonalität Bäckerei Müller\nLocker, regional, per Du.');
+
+    const res = reconcileUnindexedEntries(home, { now: fixedClock('2026-07-02T12:00:00.000Z') });
+    expect(res.ok).toBe(true);
+    expect(res.adopted).toBe(1);
+    expect(res.adoptedIds).toEqual(['note-mueller-tonalitaet']);
+
+    const idx = readBrainIndex(home);
+    const entry = idx.entries.find((e) => e.id === 'note-mueller-tonalitaet');
+    expect(entry).toBeDefined();
+    expect(entry!.kind).toBe('note');
+    expect(entry!.title).toBe('Tonalität Bäckerei Müller');
+    expect(entry!.author).toBe('eve');
+    expect(entry!.source).toBe('chat');
+    expect(entry!.updated_at).toBe('2026-07-02T12:00:00.000Z');
+    // The body is untouched (readEntryBody sees the same content).
+    expect(readEntryBody(home, 'note-mueller-tonalitaet')).toContain('Locker, regional, per Du.');
+  });
+
+  it('title falls back to the first non-empty line when there is no H1, then to the default when the body is blank', () => {
+    const home = makeHome();
+    ensureCompanyBrainScaffold(home);
+    writeNote(home, 'note-plain.md', 'Kein Heading hier\nzweite Zeile');
+    writeNote(home, 'note-blank.md', '   \n\n');
+
+    reconcileUnindexedEntries(home);
+    const idx = readBrainIndex(home);
+    expect(idx.entries.find((e) => e.id === 'note-plain')!.title).toBe('Kein Heading hier');
+    expect(idx.entries.find((e) => e.id === 'note-blank')!.title).toBe('EVE-Notiz');
+  });
+
+  it('is IDEMPOTENT: a second pass adopts nothing and never rewrites an indexed entry', () => {
+    const home = makeHome();
+    ensureCompanyBrainScaffold(home);
+    writeNote(home, 'note-a.md', '# A');
+    const first = reconcileUnindexedEntries(home, { now: fixedClock('2026-07-02T12:00:00.000Z') });
+    expect(first.adopted).toBe(1);
+    const second = reconcileUnindexedEntries(home, { now: fixedClock('2026-07-02T13:00:00.000Z') });
+    expect(second.adopted).toBe(0);
+    // updated_at from the FIRST pass survives (no rewrite).
+    expect(readBrainIndex(home).entries.find((e) => e.id === 'note-a')!.updated_at).toBe('2026-07-02T12:00:00.000Z');
+  });
+
+  it('leaves existing user/settings brain.json entries UNTOUCHED (does not clobber a user-edited title)', () => {
+    const home = makeHome();
+    const created = upsertEntry(home, { kind: 'offer', id: 'offer-fixed', title: 'User Title', body: 'body' });
+    expect(created.ok).toBe(true);
+    // Drop an unindexed EVE note beside it.
+    writeNote(home, 'note-eve.md', '# EVE Note');
+
+    const res = reconcileUnindexedEntries(home);
+    expect(res.adopted).toBe(1);
+    const idx = readBrainIndex(home);
+    // The user entry is byte-identical (author/title/source unchanged).
+    const userEntry = idx.entries.find((e) => e.id === 'offer-fixed')!;
+    expect(userEntry.title).toBe('User Title');
+    expect(userEntry.author).toBe('user');
+    expect(userEntry.source).toBe('settings');
+    expect(userEntry.kind).toBe('offer');
+    // The EVE note is now present.
+    expect(idx.entries.some((e) => e.id === 'note-eve' && e.author === 'eve')).toBe(true);
+  });
+
+  it('ignores non-.md files, dotfiles, subdirectories, and filenames that are not safe entry ids (no traversal, no synthesized id)', () => {
+    const home = makeHome();
+    ensureCompanyBrainScaffold(home);
+    writeNote(home, 'note-ok.md', '# Ok');
+    // Non-.md — ignored.
+    writeNote(home, 'ignore.txt', 'not markdown');
+    // Dotfile .md — ignored.
+    writeNote(home, '.hidden.md', '# Hidden');
+    // Unsafe basename (uppercase/space would fail the [a-z0-9-] entry-id RE) — ignored.
+    writeNote(home, 'Note With Space.md', '# Spaced');
+    // A subdirectory named like a note — NOT a regular file, ignored (no recursion).
+    fs.mkdirSync(path.join(entriesDir(home), 'note-dir.md'), { recursive: true });
+
+    const res = reconcileUnindexedEntries(home);
+    expect(res.adoptedIds).toEqual(['note-ok']);
+    const ids = readBrainIndex(home).entries.map((e) => e.id);
+    expect(ids).toEqual(['note-ok']);
+  });
+
+  it('degrades to a no-op when entries/ does not exist (best-effort, never throws)', () => {
+    const home = makeHome(); // nothing scaffolded
+    const res = reconcileUnindexedEntries(home);
+    expect(res.ok).toBe(false);
+    expect(res.adopted).toBe(0);
+  });
+
+  it('ensureCompanyBrainReady folds in an EVE note dropped after scaffold (boot/switch hook path)', () => {
+    const home = makeHome();
+    ensureCompanyBrainReady(home); // day-zero scaffold
+    // EVE writes a note after the seat is live.
+    fs.writeFileSync(path.join(entriesDir(home), 'note-later.md'), '# Später gelernt');
+    const idx = ensureCompanyBrainReady(home); // next boot/switch reconciles
+    expect(idx.entries.some((e) => e.id === 'note-later' && e.author === 'eve')).toBe(true);
   });
 });

@@ -447,13 +447,146 @@ export function migrateSeedToBrain(hermesHome: string, opts?: { now?: () => Date
   return { ok: result.ok, migrated: true, index: result.index };
 }
 
+/** The title of an EVE-authored note whose body has no leading '# ' heading. */
+const EVE_NOTE_FALLBACK_TITLE = 'EVE-Notiz';
+
+/** Result of a reconcile pass (T4 — EVE write-path intake). */
+export interface ReconcileResult {
+  ok: boolean;
+  /** The (possibly-updated) index after intake. */
+  index: CompanyBrainIndex;
+  /** Number of previously-unindexed .md files folded into brain.json this pass. */
+  adopted: number;
+  /** The ids adopted this pass (audit/test). */
+  adoptedIds: string[];
+}
+
+/**
+ * Lift a note title from a Markdown body: the first non-empty line, and — when
+ * that line is an ATX H1 (`# Titel`) — its heading text. Falls back to the given
+ * default for an empty/whitespace body so an adopted entry never carries a blank
+ * title. Trimmed to SEAT_ENTITY_MAX_LEN-ish so a runaway first line can't bloat
+ * the index (mirrors the §SEAT first-line lift discipline).
+ */
+const titleFromBody = (body: string, fallback: string): string => {
+  const firstLine = body.split('\n').map((l) => l.trim()).find((l) => l.length > 0);
+  if (!firstLine) return fallback;
+  const heading = /^#{1,6}\s+(.*\S)\s*$/.exec(firstLine);
+  const title = (heading ? heading[1] : firstLine).trim();
+  if (title.length === 0) return fallback;
+  return title.length > 120 ? `${title.slice(0, 119)}…` : title;
+};
+
+/**
+ * T4 — EVE WRITE-PATH RECONCILER (Option A, spec §4). EVE writes durable client
+ * knowledge with the wheel's `write_file` tool straight into
+ * company-brain/entries/note-<slug>.md (allowed — it is her own HERMES_HOME). The
+ * DESKTOP stays the deterministic INDEX authority: this pass finds any DIRECT .md
+ * child of entries/ that is NOT referenced by brain.json and folds it in as
+ *   { kind:'note', title: <first-H1 or first line>, author:'eve', source:'chat' }.
+ *
+ * SAFETY / TRAVERSAL. Only DIRECT children of entries/ are considered (readdir,
+ * withFileTypes — no recursion, symlinks are not followed as dirs). The on-disk
+ * BASENAME (minus `.md`) must itself pass assertEntryId; a file whose name is not a
+ * safe [a-z0-9-] slug is IGNORED (never renamed, never adopted) — we never
+ * synthesize an id for it, so a crafted filename can neither traverse nor collide.
+ * Non-.md files and dotfiles are skipped.
+ *
+ * IDEMPOTENT + best-effort. A file already in the index (matched by id) is left
+ * untouched — its title/author are NEVER rewritten, so a later user edit through
+ * Settings is not clobbered by a reconcile. A missing entries/ dir or any fs error
+ * degrades to a no-op (ok:false, adopted:0). The index is rewritten (atomic) only
+ * when something was actually adopted.
+ */
+export function reconcileUnindexedEntries(hermesHome: string, opts?: { now?: () => Date }): ReconcileResult {
+  let index: CompanyBrainIndex;
+  try {
+    assertAbsoluteHome(hermesHome);
+    index = readBrainIndex(hermesHome);
+  } catch {
+    return { ok: false, index: emptyIndex(), adopted: 0, adoptedIds: [] };
+  }
+
+  const entriesDir = entriesDirOf(hermesHome);
+  let dirents: fs.Dirent[];
+  try {
+    dirents = fs.readdirSync(entriesDir, { withFileTypes: true });
+  } catch {
+    // No entries/ dir (or unreadable) → nothing to reconcile.
+    return { ok: false, index, adopted: 0, adoptedIds: [] };
+  }
+
+  const known = new Set(index.entries.map((e) => e.id));
+  const now = (opts?.now?.() ?? new Date()).toISOString();
+  const adoptedIds: string[] = [];
+  const adopted: CompanyBrainEntry[] = [];
+
+  for (const dirent of dirents) {
+    // Only DIRECT regular-file children ending in .md — no recursion, no dirs,
+    // no symlinked directories treated as entries.
+    if (!dirent.isFile()) continue;
+    const name = dirent.name;
+    if (name.startsWith('.') || !name.endsWith('.md')) continue;
+    const base = name.slice(0, -'.md'.length);
+    // The ON-DISK basename must itself be a safe entry id; otherwise IGNORE it
+    // (never rename, never synthesize an id — a crafted filename can't collide).
+    let id: string;
+    try {
+      id = assertEntryId(base);
+    } catch {
+      continue;
+    }
+    if (known.has(id)) continue; // already indexed → never rewrite its title/author
+
+    let body = '';
+    try {
+      body = fs.readFileSync(path.join(entriesDir, name), 'utf8');
+    } catch {
+      continue; // unreadable body → skip (don't adopt a phantom)
+    }
+    const entry: CompanyBrainEntry = {
+      id,
+      kind: 'note',
+      title: titleFromBody(body, EVE_NOTE_FALLBACK_TITLE),
+      updated_at: now,
+      author: 'eve',
+      source: 'chat',
+      body_file: path.posix.join(ENTRIES_SUBDIR, `${id}.md`),
+    };
+    adopted.push(entry);
+    adoptedIds.push(id);
+    known.add(id);
+  }
+
+  if (adopted.length === 0) {
+    return { ok: true, index, adopted: 0, adoptedIds: [] };
+  }
+
+  const nextIndex: CompanyBrainIndex = {
+    schema_version: COMMAND_EVE_COMPANY_BRAIN_SCHEMA,
+    entries: [...index.entries, ...adopted],
+  };
+  try {
+    writeIndex(hermesHome, nextIndex);
+  } catch {
+    // Best-effort: a failed index write degrades to a no-op (the .md stays on
+    // disk unindexed; the next pass retries). Report the in-memory intent.
+    return { ok: false, index: nextIndex, adopted: adopted.length, adoptedIds };
+  }
+  return { ok: true, index: nextIndex, adopted: adopted.length, adoptedIds };
+}
+
 /**
  * Day-Zero convenience for the boot / seat-switch hooks: migrate a v1 seed if one
- * exists (creating brain.json), else scaffold an empty brain. Idempotent + best-
- * effort — the single call the lifecycle hooks make so every seat ends up with a
- * functional brain.json exactly once.
+ * exists (creating brain.json), else scaffold an empty brain — THEN fold in any
+ * EVE-written .md files that are not yet in the index (T4 reconciler). Idempotent +
+ * best-effort — the single call the lifecycle hooks make so every seat ends up with
+ * a functional brain.json (and EVE's fresh notes visible) exactly once.
  */
 export function ensureCompanyBrainReady(hermesHome: string, opts?: { now?: () => Date }): CompanyBrainIndex {
   const migration = migrateSeedToBrain(hermesHome, opts);
-  return migration.index;
+  const reconciled = reconcileUnindexedEntries(hermesHome, opts);
+  // reconcileUnindexedEntries returns the live index on ok; on a best-effort
+  // failure it may return the migration index — prefer whichever is authoritative.
+  return reconciled.ok ? reconciled.index : migration.index;
 }

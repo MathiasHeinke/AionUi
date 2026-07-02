@@ -123,6 +123,24 @@ describe('company-brain store providers (real bridge seam)', () => {
     expect(afterRemove.data?.entries).toEqual([]);
   });
 
+  it('T4: an EVE note dropped straight into entries/*.md is folded into the index by the LIST handler (reconciler hook)', async () => {
+    // EVE writes a note with write_file into her own seat home — no brain.json
+    // entry yet. Opening the Company-Brain tab (list) must reconcile it in FIRST so
+    // the operator sees EVE's note immediately.
+    const home = resolveSeatHome(dataRoot, SEAT).hermesHome;
+    const entriesDir = path.join(home, COMPANY_BRAIN_DIR, 'entries');
+    fs.mkdirSync(entriesDir, { recursive: true });
+    fs.writeFileSync(path.join(entriesDir, 'note-mueller-brand.md'), '# Marke Müller\nRegional, herzlich.');
+
+    const listed = await call('command-eve.company-brain-list');
+    expect(listed.success).toBe(true);
+    const entry = listed.data?.entries?.find((e) => e.id === 'note-mueller-brand');
+    expect(entry).toBeDefined();
+    expect(entry).toMatchObject({ id: 'note-mueller-brand', title: 'Marke Müller', kind: 'note' });
+    // The reconciler folded it into brain.json (persisted, not just a list-time view).
+    expect(fs.existsSync(path.join(home, COMPANY_BRAIN_DIR, 'brain.json'))).toBe(true);
+  });
+
   it('read returns the body for an entry written through the seam (lazy single-body read)', async () => {
     const written = await call('command-eve.company-brain-write', { kind: 'note', title: 'My note', body: 'the body text' });
     const id = written.data?.entry?.id as string;

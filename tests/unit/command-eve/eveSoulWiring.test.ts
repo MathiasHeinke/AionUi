@@ -346,6 +346,35 @@ describe('EVE soul-wiring: prompt-proof shim covers the soul (self-detection sta
     expect(proof.marker).toBe('none');
     expect(proof.ok).toBe(false);
   });
+
+  it('T4: classifies the you-are-here environment_hint as "eve_you_are_here" (most-specific signal)', () => {
+    // The wheel appends agent.environment_hint verbatim; the fixed marker phrase
+    // "Company Brain: company-brain/ (Index: brain.json)" is present in the prompt.
+    const proof = buildCommandEvePromptProof({
+      messages: [
+        { role: 'system', content: SOUL_MARKDOWN },
+        {
+          role: 'system',
+          content:
+            'Du bist im Founder-Seat von Mathias. Aktives Board: default. Dein Company Brain: company-brain/ (Index: brain.json) (3 Einträge) — lies brain.json für den Index. Frühere Arbeit findest du mit session_search.',
+        },
+        { role: 'user', content: 'where are we?' },
+      ],
+    });
+    expect(proof.marker).toBe('eve_you_are_here');
+    expect(proof.ok).toBe(true);
+  });
+
+  it('T4: a SOUL-only prompt (no hint) still classifies as "eve_soul" — the missing hint is self-detected (marker downgrades)', () => {
+    const proof = buildCommandEvePromptProof({
+      messages: [
+        { role: 'system', content: SOUL_MARKDOWN },
+        { role: 'user', content: 'where are we?' },
+      ],
+    });
+    expect(proof.marker).toBe('eve_soul');
+    expect(proof.ok).toBe(true);
+  });
 });
 
 describe('EVE soul-wiring: internal Operating Rule reconciled to defer to SOUL.md', () => {

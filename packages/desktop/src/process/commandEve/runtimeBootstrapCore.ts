@@ -11,14 +11,17 @@ import os from 'os';
 import path from 'path';
 import { readRegistration } from './entitlementCore';
 import {
+  COMMAND_EVE_DEFAULT_BOARD_SLUG,
+  DEFAULT_SEAT_LABEL,
   getActiveSeatBoardSlug,
   getActiveSeatId,
+  getActiveSeatLabel,
   isActiveSeatLegacy,
   resolveSeatHome,
 } from './seatContextCore';
 import { claudeDelegatePreflightWarning } from '../../common/config/eveWorkerAssignmentCore';
 import { readCompanyBrainSeedStateFromHome } from './companyBrainSeedCore';
-import { ensureCompanyBrainReady } from './companyBrainStoreCore';
+import { ensureCompanyBrainReady, readBrainIndex } from './companyBrainStoreCore';
 import { stampUserMdTiersToHome } from './userMdTierStampCore';
 import { isMcpVaultEnabled } from './mcpVaultFlagCore';
 import { readVettedConnectorsForSeat, resolveEnvFromVault } from './vaultEnvResolveCore';
@@ -2408,6 +2411,178 @@ export function eveWorkerRoutingDirective(
   ].join('\n');
 }
 
+/**
+ * HARD budget (code-points, H8-style) for the environment_hint string. The wheel
+ * appends it VERBATIM to the system prompt's environment-hints block (FACT
+ * prompt_builder.py:989-998 build_environment_hints reads agent.environment_hint,
+ * :1000 `hints.append(extra)`), so it MUST stay small and stable.
+ */
+export const COMMAND_EVE_ENVIRONMENT_HINT_MAX_CHARS = 600;
+
+/**
+ * The FIXED marker substring both hint variants carry — the anchor the prompt-
+ * proof self-detection matches ('eve_you_are_here'). Keep this literal in sync with
+ * the marker regex in ollamaOpenAiShim.classifyPromptMarker and both hint texts
+ * below. It names the LIVE brain path + index file, so it can never accidentally
+ * collide with the dead brief.md wording.
+ */
+export const COMMAND_EVE_YOU_ARE_HERE_MARKER = 'Company Brain: company-brain/ (Index: brain.json)';
+
+/**
+ * Code-point-safe truncate to `budget` units (H8 — never split a surrogate pair).
+ * Mirrors userMdTierStampCore.truncateToBudget but returns the string directly
+ * (the hint is a single YAML scalar, not a fenced block). Appends '…' on truncate.
+ */
+function truncateCodePoints(text: string, budget: number): string {
+  if (text.length <= budget) return text;
+  const unitLimit = Math.max(0, budget - 1); // reserve one unit for the ellipsis
+  let used = 0;
+  let out = '';
+  for (const cp of text) {
+    if (used + cp.length > unitLimit) break;
+    out += cp;
+    used += cp.length;
+  }
+  return `${out}…`;
+}
+
+/**
+ * Escape a string for a YAML DOUBLE-QUOTED scalar (the form we emit for
+ * environment_hint). Backslash + double-quote are escaped; control chars that
+ * would break the single-line scalar (newline / carriage-return / tab) become
+ * spaces so the value always stays on ONE physical line (`environment_hint: "…"`).
+ * The hint text is authored newline-free, so this is defense-in-depth against a
+ * stray entity/label containing a control character.
+ */
+export function yamlDoubleQuote(value: string): string {
+  const escaped = value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/[\r\n\t]+/g, ' ');
+  return `"${escaped}"`;
+}
+
+/**
+ * You-are-here hint inputs (spec §3.2). All process-local, all injectable so the
+ * builder unit-tests without Electron/fs:
+ *  - legacy: the ACTIVE seat is the founder/legacy single-seat (isActiveSeatLegacy)
+ *  - label: the active seat DISPLAY label (getActiveSeatLabel — internal, never a
+ *    deliverable string; the founder branch ignores it)
+ *  - entity: the client entity headline lifted from THIS seat's day-0 seed (same
+ *    first-non-empty-line lift the §SEAT stamp uses) — '' when unseeded
+ *  - boardSlug: the active board slug (getActiveSeatBoardSlug; '' → the wheel's
+ *    'default' board, so we DISPLAY COMMAND_EVE_DEFAULT_BOARD_SLUG)
+ *  - entryCount: number of company-brain entries in brain.json (readBrainIndex)
+ */
+export interface CommandEveEnvironmentHintInput {
+  legacy: boolean;
+  label?: string | null;
+  entity?: string | null;
+  boardSlug?: string | null;
+  entryCount: number;
+}
+
+/**
+ * Build the you-are-here `environment_hint` string (spec §3.2 / §4). DE, ≤600
+ * code-points HARD (H8 truncate). Two variants:
+ *  - FOUNDER seat: "Du bist im Founder-Seat …"
+ *  - CLIENT seat: "Du arbeitest im Seat »<label>« für <entity> …" — restates that
+ *    the seat name NEVER appears in deliverables (invisible-delivery doctrine).
+ * Both carry COMMAND_EVE_YOU_ARE_HERE_MARKER verbatim (the prompt-proof anchor) and
+ * point EVE at the LIVE brain path + session_search for prior work. Returns '' for
+ * an empty/degenerate input only if a builder ever needs to suppress it (today it
+ * always emits — an unseeded client seat still gets the orientation).
+ */
+export function buildCommandEveEnvironmentHint(input: CommandEveEnvironmentHintInput): string {
+  const count = Number.isFinite(input.entryCount) && input.entryCount > 0 ? Math.floor(input.entryCount) : 0;
+  const countPhrase = `${count} ${count === 1 ? 'Eintrag' : 'Einträge'}`;
+  const board = compact(input.boardSlug) || COMMAND_EVE_DEFAULT_BOARD_SLUG;
+  // The marker names the path + index file; the count is appended after it so the
+  // fixed substring stays intact regardless of the count.
+  const brainClause = `${COMMAND_EVE_YOU_ARE_HERE_MARKER} (${countPhrase}) — lies brain.json für den Index.`;
+
+  let text: string;
+  if (input.legacy) {
+    const name = compact(input.label) || DEFAULT_SEAT_LABEL;
+    text = [
+      `Du bist im Founder-Seat von ${name}.`,
+      `Aktives Board: ${board}.`,
+      `Dein ${brainClause}`,
+      'Frühere Arbeit findest du mit session_search.',
+    ].join(' ');
+  } else {
+    const label = compact(input.label) || 'diesem Seat';
+    const entity = compact(input.entity) || '(noch nicht gebrieft)';
+    text = [
+      `Du arbeitest im Seat »${label}« für ${entity}.`,
+      `Aktives Board: ${board}.`,
+      `${brainClause}`,
+      'Frühere Arbeit: session_search.',
+      'Der Seat-Name erscheint NIE in Deliverables.',
+    ].join(' ');
+  }
+  return truncateCodePoints(text, COMMAND_EVE_ENVIRONMENT_HINT_MAX_CHARS);
+}
+
+/**
+ * The EVE WRITE-CONVENTION directive (spec §4, ≤400c) appended to SOUL.md next to
+ * the language + worker-routing directives. Tells EVE HOW to persist durable
+ * client knowledge so the T4 reconciler folds it into the operator's Company Brain.
+ * Static text (no interpolation) — same always-on injection slot.
+ */
+export function eveBrainWriteDirective(): string {
+  return [
+    '',
+    '## Dauerhaftes Kundenwissen sichern',
+    '',
+    'Neues dauerhaftes Kundenwissen (Fakten über Firma/Angebot/Tonalität/Vorlieben) → schreibe es als Markdown-Datei nach `company-brain/entries/note-<kurz-slug>.md` (eine Notiz pro Datei, erste Zeile `# <Titel>`). Es erscheint dann im Company Brain des Operators. Erfinde nichts; nur Bestätigtes.',
+    '',
+  ].join('\n');
+}
+
+/**
+ * Lift the client-entity headline from a seat's day-0 seed value — the FIRST
+ * non-empty trimmed line (identical discipline to renderSeatBody /
+ * resolveCommandEveSeatIdentity, so the hint's entity matches the §SEAT stamp).
+ * '' when there is no usable seed. Kept local so the entity source is one place.
+ */
+function entityHeadlineFromSeedValue(value: string): string {
+  const trimmed = compact(value);
+  if (trimmed.length === 0) return '';
+  return trimmed.split('\n').map((l) => l.trim()).find((l) => l.length > 0) || trimmed;
+}
+
+/**
+ * PROCESS-LOCAL glue: assemble the you-are-here `environment_hint` for a resolved
+ * seat home. Reads ONLY process-local state — the active-seat holder
+ * (isActiveSeatLegacy/getActiveSeatLabel/getActiveSeatBoardSlug), THIS home's day-0
+ * seed (readCompanyBrainSeedStateFromHome, for the client entity) and brain.json
+ * entry count (readBrainIndex). No network, no env. Best-effort: any read failure
+ * degrades to the founder/empty variant rather than throwing (a hint failure must
+ * never block boot / a seat switch). The label is read for the CLIENT branch only
+ * and never leaves this file except inside the config.yaml scalar (H3).
+ */
+export function renderCommandEveEnvironmentHintForHome(hermesHome: string): string {
+  try {
+    const legacy = isActiveSeatLegacy();
+    const entryCount = readBrainIndex(hermesHome).entries.length;
+    // The seed (and thus the client entity) is only meaningful for a real seat;
+    // a legacy/founder home never renders a client entity (byte-parity with §SEAT).
+    const entity = legacy ? '' : entityHeadlineFromSeedValue(readCompanyBrainSeedStateFromHome(hermesHome).record?.value ?? '');
+    return buildCommandEveEnvironmentHint({
+      legacy,
+      label: getActiveSeatLabel(),
+      entity,
+      boardSlug: getActiveSeatBoardSlug(),
+      entryCount,
+    });
+  } catch {
+    // Fail-safe: emit the minimal founder orientation rather than nothing, so the
+    // marker + brain-path guidance are still present even if a read glitched.
+    return buildCommandEveEnvironmentHint({ legacy: true, entryCount: 0 });
+  }
+}
+
 // Seed the durable founder profile (memories/USER.md) on first run so EVE's "I remember you
 // across sessions" is real from turn one: the file loads into EVERY system prompt and compounds.
 // The audit found USER.md was NEVER created (the founder profile never persisted) — this gives the
@@ -2526,6 +2701,13 @@ function writeHermesRuntimeFiles(
   // Vetted external MCP connectors (HumanGate-approved, vault-backed) — empty today;
   // v1.4 populates this via resolveVettedMcpServersForBootstrap. See WO write-slice.
   const vettedMcpServers = resolveVettedMcpServersForBootstrap(capabilityPack, getActiveSeatId(), mcpVaultDeps);
+  // T4 YOU-ARE-HERE: build the environment_hint from PROCESS-LOCAL seat context for
+  // THIS seat's home (paths.hermesHome already resolves to the active/target seat).
+  // All sources are process-local (no network, no env) so the emitted file — which
+  // lives 0600 in the seat home and is NOT inherited via process env (H3) — is the
+  // only carrier. The client entity is the SAME first-non-empty-line lift the §SEAT
+  // stamp uses (renderSeatBody), read from THIS seat's day-0 seed.
+  const environmentHint = renderCommandEveEnvironmentHintForHome(paths.hermesHome);
   const config = [
     '# Command EVE managed Hermes config.',
     '# Generated by the first-run runtime bootstrapper; keep secrets out of this file.',
@@ -2553,6 +2735,19 @@ function writeHermesRuntimeFiles(
     // can never run away for ~30 min on an unreadable target. Hermes reads it from
     // here (cli.py:3257 -> max_iterations) — its own default is 90.
     `  max_turns: ${DEFAULT_COMMAND_EVE_MAX_TURNS}`,
+    // T4 YOU-ARE-HERE: `agent.environment_hint` is appended VERBATIM to the system
+    // prompt's environment-hints block (FACT prompt_builder.py:989-1000
+    // build_environment_hints reads agent.environment_hint via load_config, then
+    // `hints.append(extra)`). It carries the per-turn orientation (seat/client,
+    // active board, brain path + entry count, session_search for prior work) —
+    // re-derived seat-fresh on every boot AND seat-switch because this whole file
+    // is re-emitted for the target home each time (provisionSeatRuntimeFiles). It
+    // is emitted here as a YAML double-quoted scalar; the HERMES_ENVIRONMENT_HINT
+    // ENV var is DELIBERATELY NOT set (H3 — a client label must never reach a child
+    // process env; the file lives 0600 in the seat home and children don't inherit
+    // it). Omitted when empty so the config stays byte-identical for a degenerate
+    // seat context.
+    ...(environmentHint ? [`  environment_hint: ${yamlDoubleQuote(environmentHint)}`] : []),
     // Drop vision_analyze / browser_vision: the cloud lane (V4 Flash) has NO vision,
     // so any image call HARD-502s ("No endpoints found that support image input")
     // and the error is fed back as retryable context -> a wasted loop. Hermes
@@ -2707,7 +2902,13 @@ function writeHermesRuntimeFiles(
   writeHermesContextLengthCache(paths, manifest);
   fs.writeFileSync(
     path.join(paths.hermesHome, 'SOUL.md'),
-    EVE_SOUL_MARKDOWN + eveSelectedLanguageDirective(uiLanguage) + eveWorkerRoutingDirective(claudeDelegate),
+    EVE_SOUL_MARKDOWN +
+      eveSelectedLanguageDirective(uiLanguage) +
+      eveWorkerRoutingDirective(claudeDelegate) +
+      // T4: the EVE write-convention directive — tells EVE to persist durable
+      // client knowledge as company-brain/entries/note-<slug>.md so the reconciler
+      // folds it into the operator's Company Brain. Always-on (same SOUL slot).
+      eveBrainWriteDirective(),
     { mode: 0o600 }
   );
   writeHermesOllamaProviderOverride(paths);

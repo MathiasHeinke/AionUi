@@ -27,6 +27,11 @@ import {
   copyFounderOpsSkills,
   resolveFounderOpsSkillsDir,
   EVE_STRATEGY_SKILL_IDS,
+  buildCommandEveEnvironmentHint,
+  yamlDoubleQuote,
+  eveBrainWriteDirective,
+  COMMAND_EVE_ENVIRONMENT_HINT_MAX_CHARS,
+  COMMAND_EVE_YOU_ARE_HERE_MARKER,
   type RuntimeBootstrapCommandResult,
   type RuntimeBootstrapRunner,
 } from '@/process/commandEve/runtimeBootstrapCore';
@@ -403,6 +408,38 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(soulMd).not.toContain('You are EVE, Command EVE Chief of Staff.');
       expect(soulMd).not.toMatch(/^## Toolbelt/m);
       expect(soulMd).not.toMatch(/## Operating environment/i);
+      // T4: the EVE write-convention directive is appended to SOUL.md — EVE knows
+      // to persist durable client knowledge into company-brain/entries/note-*.md so
+      // the reconciler folds it into the operator's Company Brain.
+      expect(soulMd).toContain('Dauerhaftes Kundenwissen sichern');
+      expect(soulMd).toContain('company-brain/entries/note-<kurz-slug>.md');
+      // T4: `agent.environment_hint` (you-are-here) is emitted into config.yaml —
+      // a founder/legacy install bakes the FOUNDER variant. It carries the fixed
+      // prompt-proof marker phrase + the LIVE brain path guidance, is a SINGLE
+      // physical YAML line (double-quoted scalar), and stays within the 600-char
+      // budget. The wheel appends it verbatim to the environment-hints block.
+      const hintLine = configYaml.split('\n').find((line) => line.startsWith('  environment_hint:'));
+      expect(hintLine).toBeDefined();
+      expect(hintLine).toContain('Company Brain: company-brain/ (Index: brain.json)');
+      expect(hintLine).toContain('Founder-Seat');
+      expect(hintLine).toContain('session_search');
+      // Single physical line (double-quoted scalar) — no raw newline broke it.
+      expect(hintLine!.startsWith('  environment_hint: "')).toBe(true);
+      expect(hintLine!.endsWith('"')).toBe(true);
+      // Budget: the scalar VALUE (between the quotes) is ≤600 code-points.
+      const hintValue = hintLine!.slice('  environment_hint: "'.length, -1);
+      expect(Array.from(hintValue).length).toBeLessThanOrEqual(600);
+      // A founder/legacy install must NOT emit the client-only "erscheint NIE in
+      // Deliverables" clause (that is the CLIENT variant).
+      expect(hintLine).not.toContain('erscheint NIE in Deliverables');
+      // H3 BAKE-LEAK GUARD: the you-are-here hint travels via the config.yaml FILE
+      // ONLY. It must NEVER be exported into the process env (a client label in a
+      // child-process env is the worst leak). The prepared runtime env carries the
+      // seat ID but no hint / no label / no HERMES_ENVIRONMENT_HINT.
+      const bakedEnv: NodeJS.ProcessEnv = {};
+      prepareCommandEveRuntimeProcessEnv(harness.root, bakedEnv);
+      expect(bakedEnv.HERMES_ENVIRONMENT_HINT).toBeUndefined();
+      expect(Object.values(bakedEnv).some((v) => typeof v === 'string' && v.includes('Company Brain: company-brain/'))).toBe(false);
       expect(fs.existsSync(path.join(paths.managedSkillsRoot, 'first-run-company-discovery', 'SKILL.md'))).toBe(true);
       // 1.2.14: content-machine flipped 'available'→'active' + bundled, so its real SKILL.md now lands.
       expect(fs.existsSync(path.join(paths.managedSkillsRoot, 'content-machine', 'SKILL.md'))).toBe(true);
@@ -1487,5 +1524,108 @@ describe('Command EVE founder-only ops skills channel', () => {
       COMMAND_EVE_FOUNDER_OPS_SKILLS_DIR: path.join(root, 'does-not-exist'),
     } as NodeJS.ProcessEnv);
     expect([fallback === '', fallback.endsWith('.claude/founder-ops-skills')]).toContain(true);
+  });
+});
+
+describe('T4 you-are-here environment_hint — pure builder', () => {
+  it('FOUNDER variant: names the founder seat, board, live brain path + count, session_search — carries the marker', () => {
+    const hint = buildCommandEveEnvironmentHint({
+      legacy: true,
+      label: 'Mathias',
+      entity: '(ignored for founder)',
+      boardSlug: '',
+      entryCount: 3,
+    });
+    expect(hint).toContain('Founder-Seat von Mathias');
+    // Empty board slug DISPLAYS the wheel's default board.
+    expect(hint).toContain('Aktives Board: default');
+    expect(hint).toContain(COMMAND_EVE_YOU_ARE_HERE_MARKER);
+    expect(hint).toContain('(3 Einträge)');
+    expect(hint).toContain('session_search');
+    // Founder never carries the client-only invisible-delivery clause.
+    expect(hint).not.toContain('erscheint NIE in Deliverables');
+  });
+
+  it('CLIENT variant: names the seat label + client entity, restates seat-name-never-in-deliverables', () => {
+    const hint = buildCommandEveEnvironmentHint({
+      legacy: false,
+      label: 'Bäckerei Müller',
+      entity: 'Bäckerei Müller GmbH — Social-Media & lokale Sichtbarkeit',
+      boardSlug: 'kunde-mueller',
+      entryCount: 1,
+    });
+    expect(hint).toContain('Seat »Bäckerei Müller«');
+    expect(hint).toContain('für Bäckerei Müller GmbH — Social-Media & lokale Sichtbarkeit');
+    expect(hint).toContain('Aktives Board: kunde-mueller');
+    expect(hint).toContain(COMMAND_EVE_YOU_ARE_HERE_MARKER);
+    // Singular count phrasing.
+    expect(hint).toContain('(1 Eintrag)');
+    expect(hint).toContain('Der Seat-Name erscheint NIE in Deliverables.');
+  });
+
+  it('CLIENT variant without a seed: still orients (no fabricated entity) + carries the marker', () => {
+    const hint = buildCommandEveEnvironmentHint({ legacy: false, label: 'Seat X', entity: '', boardSlug: '', entryCount: 0 });
+    expect(hint).toContain('Seat »Seat X«');
+    expect(hint).toContain('(noch nicht gebrieft)');
+    expect(hint).toContain('(0 Einträge)');
+    expect(hint).toContain(COMMAND_EVE_YOU_ARE_HERE_MARKER);
+  });
+
+  it('HARD budget: a runaway client entity is code-point-truncated to ≤600 and still ends with an ellipsis', () => {
+    const hint = buildCommandEveEnvironmentHint({
+      legacy: false,
+      label: 'L',
+      entity: 'x'.repeat(5000),
+      boardSlug: 'b',
+      entryCount: 2,
+    });
+    expect(Array.from(hint).length).toBeLessThanOrEqual(COMMAND_EVE_ENVIRONMENT_HINT_MAX_CHARS);
+    expect(hint.endsWith('…')).toBe(true);
+  });
+
+  it('the EMITTED YAML scalar is always a single physical line, even if a source carried a newline', () => {
+    // Defense-in-depth: the process-local glue lifts the entity FIRST LINE before
+    // it reaches the builder, but the final safety net is yamlDoubleQuote flattening
+    // control chars. So even a builder output that carried a newline (a caller that
+    // bypassed the first-line lift) emits as ONE physical YAML line.
+    const hint = buildCommandEveEnvironmentHint({
+      legacy: false,
+      label: 'A',
+      entity: 'Entity\nSecond line',
+      boardSlug: '',
+      entryCount: 0,
+    });
+    const scalar = yamlDoubleQuote(hint);
+    expect(scalar.includes('\n')).toBe(false);
+    expect(scalar.startsWith('"')).toBe(true);
+    expect(scalar.endsWith('"')).toBe(true);
+  });
+});
+
+describe('T4 yamlDoubleQuote — safe single-line scalar', () => {
+  it('wraps in double quotes and escapes backslash + double-quote', () => {
+    expect(yamlDoubleQuote('plain')).toBe('"plain"');
+    expect(yamlDoubleQuote('a "quote" here')).toBe('"a \\"quote\\" here"');
+    expect(yamlDoubleQuote('back\\slash')).toBe('"back\\\\slash"');
+  });
+
+  it('flattens control chars (newline/CR/tab) to spaces so the value stays on one physical line', () => {
+    const out = yamlDoubleQuote('line1\nline2\ttab\r\nline3');
+    expect(out.includes('\n')).toBe(false);
+    expect(out.includes('\r')).toBe(false);
+    expect(out.includes('\t')).toBe(false);
+    expect(out.startsWith('"')).toBe(true);
+    expect(out.endsWith('"')).toBe(true);
+  });
+});
+
+describe('T4 eveBrainWriteDirective — SOUL write-convention', () => {
+  it('instructs EVE to persist durable client knowledge as company-brain/entries/note-*.md within a ≤400c section', () => {
+    const dir = eveBrainWriteDirective();
+    expect(dir).toContain('Dauerhaftes Kundenwissen sichern');
+    expect(dir).toContain('company-brain/entries/note-<kurz-slug>.md');
+    expect(dir).toContain('erste Zeile `# <Titel>`');
+    // The prose body (excluding the section scaffolding) stays compact (≤400c).
+    expect(Array.from(dir).length).toBeLessThanOrEqual(600);
   });
 });

@@ -89,7 +89,7 @@ import { getActiveSeatId, resolveActiveSeatHome, sanitizeSeatId } from '@process
 import { isSeatSwitchAuthorized, parseMySeats, resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
 import { readMySeatsWire as readMySeatsWireCore } from '@process/commandEve/seatWireFetchCore';
 import { readCompanyBrainSeedState, writeCompanyBrainSeed } from '@process/commandEve/companyBrainSeedCore';
-import { listEntries, readEntryBody, removeEntry, upsertEntry, type CompanyBrainWriteKind } from '@process/commandEve/companyBrainStoreCore';
+import { listEntries, readEntryBody, reconcileUnindexedEntries, removeEntry, upsertEntry, type CompanyBrainWriteKind } from '@process/commandEve/companyBrainStoreCore';
 import {
   createElectronPdfRenderer,
   exportReport,
@@ -658,6 +658,11 @@ export function initCommandEveBridge(): void {
   bridge.buildProvider('command-eve.company-brain-list').provider(async () => {
     try {
       const home = resolveActiveSeatHome(getDataPath()).hermesHome;
+      // T4: fold any EVE-written note (write_file into entries/<id>.md) into
+      // brain.json BEFORE listing, so opening the Company-Brain tab shows EVE's
+      // fresh notes immediately. Best-effort + idempotent: never throws, never
+      // rewrites an already-indexed entry.
+      reconcileUnindexedEntries(home);
       const entries = listEntries(home);
       return { success: true, data: { ok: true, entries } as unknown };
     } catch (error) {
