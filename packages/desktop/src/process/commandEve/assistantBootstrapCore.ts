@@ -194,6 +194,23 @@ export const COMMAND_EVE_SEAT_DSGVO_POSTURE_DE =
 export const COMMAND_EVE_SEAT_DSGVO_POSTURE_EN =
   'This seat belongs to exactly this client/end-customer. Their data, briefs and deliverables stay inside this seat (per-client isolation, GDPR). Never mix them with another seat, and never attribute them to the operator/admin.';
 
+// K3 (v1.5): the OWN_COMPANY posture. Data-isolation is KEPT (isolation is not a
+// branding concern, §5), but the seat is the operator's OWN project/firm — so the
+// "belongs to a client / never attribute to the operator" framing is replaced by
+// an own-project framing. The seat name MAY appear in deliverables (own brand).
+export const COMMAND_EVE_SEAT_POSTURE_OWN_DE =
+  'Dieser Seat ist ein eigenes Projekt/eine eigene Firma des Operators — er ist hier selbst der Auftraggeber. Die Daten bleiben in diesem Seat (Isolation, DSGVO); vermische sie nie mit einem anderen Seat.';
+export const COMMAND_EVE_SEAT_POSTURE_OWN_EN =
+  "This seat is one of the operator's own projects/firms — they are the client here. Its data stays inside this seat (isolation, GDPR); never mix it with another seat.";
+
+// K3 (v1.5): the DEPARTMENT posture. CONSERVATIVE — like the client posture
+// (data-isolation kept; internal label stays internal), but with a department
+// framing rather than a client/end-customer one.
+export const COMMAND_EVE_SEAT_POSTURE_DEPT_DE =
+  'Dieser Seat ist eine Abteilung/ein Bereich des Operators — Arbeit hier gehoert zu genau diesem Bereich. Die Daten bleiben in diesem Seat (Isolation, DSGVO); vermische sie nie mit einem anderen Seat und schreibe sie nie dem Betreiber/Admin unspezifisch zu.';
+export const COMMAND_EVE_SEAT_POSTURE_DEPT_EN =
+  "This seat is one of the operator's departments/areas — work here belongs to exactly this area. Its data stays inside this seat (isolation, GDPR); never mix it with another seat, and never attribute it loosely to the operator/admin.";
+
 /**
  * PURE: derive the active seat's prompt identity from its ISO-3 Company-Brain
  * seed. Electron-free + fs-free (the seed record is injected), so the leak-CI
@@ -292,6 +309,13 @@ export interface RenderSeatContextBlockInput {
   /** REAL seat: the active board slug (B1 HERMES_KANBAN_BOARD) or '' → "keins". */
   boardSlug?: string;
   /**
+   * K3 (v1.5): the active seat's profile kind. Conditions ONLY the REAL-seat
+   * orientation text (own_company drops the "seat name NEVER in deliverables"
+   * clause). Default 'client' (absent ⇒ today's behavior). Distinct from the seed
+   * `kind` above (connector-vs-brief); this is the profile.kind doctrine flag.
+   */
+  seatKind?: 'client' | 'own_company' | 'department';
+  /**
    * FOUNDER seat only: the resolved roster, or `null` when the my-seats wire was
    * unreachable (offline / no account / delegate). null → honest omission. This
    * is passed in ALREADY-RESOLVED so the render is pure; the async wire read +
@@ -311,9 +335,40 @@ export function renderSeatContextBlock(input: RenderSeatContextBlockInput): stri
   const de = locale === 'de-DE';
 
   if (!input.legacy) {
-    // REAL client seat. NEVER any roster path here (invariant §2).
-    const client = (input.clientEntity && input.clientEntity.trim()) || (de ? 'diesem Kunden' : 'this client');
+    // REAL seat. NEVER any roster path here (invariant §2).
     const board = (input.boardSlug && input.boardSlug.trim()) || (de ? 'keins' : 'none');
+    // K3 — kind-conditioned orientation (§4 matrix). CLIENT stays BYTE-IDENTICAL
+    // (snapshot-proven). own_company: own-project framing + NO invisible-delivery
+    // clause (the own brand belongs in deliverables). department: conservative =
+    // like client (keeps the clause) but with the department framing.
+    const kind = input.seatKind ?? 'client';
+    if (kind === 'own_company') {
+      const entity = (input.clientEntity && input.clientEntity.trim()) || (de ? 'dieses eigene Projekt' : 'this own project');
+      if (de) {
+        return [
+          '## Seat-Kontext',
+          `Du arbeitest gerade im Seat „${input.seatLabel}" für ${entity} (eigenes Projekt/eigene Firma des Operators). Aktives Board: ${board}. Der Operator ist hier selbst der Auftraggeber; dies ist die eigene Marke.`,
+        ].join('\n');
+      }
+      return [
+        '## Seat context',
+        `You are currently working in the seat "${input.seatLabel}" for ${entity} (the operator's own project/firm). Active board: ${board}. The operator is the client here; this is their own brand.`,
+      ].join('\n');
+    }
+    if (kind === 'department') {
+      const area = (input.clientEntity && input.clientEntity.trim()) || (de ? 'diesen Bereich' : 'this area');
+      if (de) {
+        return [
+          '## Seat-Kontext',
+          `Du arbeitest gerade im Seat „${input.seatLabel}" für ${area} (Abteilung/Bereich des Operators). Aktives Board: ${board}. Interne Orientierung — der Seat-Name erscheint NIE in Deliverables, Dateien oder Entwürfen.`,
+        ].join('\n');
+      }
+      return [
+        '## Seat context',
+        `You are currently working in the seat "${input.seatLabel}" for ${area} (a department/area of the operator). Active board: ${board}. Internal orientation only — the seat name NEVER appears in deliverables, files or drafts.`,
+      ].join('\n');
+    }
+    const client = (input.clientEntity && input.clientEntity.trim()) || (de ? 'diesem Kunden' : 'this client');
     if (de) {
       return [
         '## Seat-Kontext',
@@ -363,6 +418,12 @@ export interface ResolveSeatContextBlockDeps {
   /** B1: whether the active seat is legacy/founder (default isActiveSeatLegacy). */
   isActiveSeatLegacy: () => boolean;
   /**
+   * K3: the active seat's profile kind (default getActiveSeatKind). Only read for
+   * a REAL seat; conditions the orientation text. Optional so existing callers /
+   * tests that omit it default to 'client' (today's behavior).
+   */
+  getActiveSeatKind?: () => 'client' | 'own_company' | 'department';
+  /**
    * The my-seats wire reader (default readMySeatsWire). Called ONLY when the
    * active seat is legacy (the isolation gate). Returns the raw wire or null.
    */
@@ -408,6 +469,8 @@ export async function resolveSeatContextBlock(deps: ResolveSeatContextBlockDeps)
     founderName: deps.founderName,
     clientEntity: deps.clientEntity,
     boardSlug: deps.boardSlug,
+    // K3: only meaningful for a real seat; default 'client' when the dep is omitted.
+    seatKind: legacy ? 'client' : deps.getActiveSeatKind?.() ?? 'client',
     roster: legacy ? roster : undefined,
     locale: deps.locale,
   });

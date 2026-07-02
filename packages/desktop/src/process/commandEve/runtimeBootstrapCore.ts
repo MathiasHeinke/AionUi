@@ -15,9 +15,11 @@ import {
   DEFAULT_SEAT_LABEL,
   getActiveSeatBoardSlug,
   getActiveSeatId,
+  getActiveSeatKind,
   getActiveSeatLabel,
   isActiveSeatLegacy,
   resolveSeatHome,
+  type SeatKind,
 } from './seatContextCore';
 import { claudeDelegatePreflightWarning } from '../../common/config/eveWorkerAssignmentCore';
 import { COMPANY_BRAIN_DIR, readCompanyBrainSeedStateFromHome } from './companyBrainSeedCore';
@@ -2536,6 +2538,13 @@ export interface CommandEveEnvironmentHintInput {
   legacy: boolean;
   label?: string | null;
   entity?: string | null;
+  /**
+   * K3: the seat's kind — conditions ONLY the doctrine clauses of the client
+   * (non-legacy) hint. Default 'client' (absent ⇒ today's behavior). own_company
+   * drops the "NIE in Deliverables" + "im Auftrag des Kunden" clauses; department
+   * keeps them (conservative), with the department framing.
+   */
+  kind?: SeatKind;
   boardSlug?: string | null;
   entryCount: number;
   /**
@@ -2629,25 +2638,47 @@ export function buildCommandEveEnvironmentHint(input: CommandEveEnvironmentHintI
     ].join(' ');
   } else {
     const label = clampHintField(compact(input.label) || 'diesem Seat', COMMAND_EVE_HINT_LABEL_MAX_CP, 'label');
-    // F3: entity framed as DATA (guillemets + "laut Operator-Briefing"); '' → no
-    // guillemets, an honest "(noch nicht gebrieft)" placeholder instead.
     const rawEntity = compact(input.entity);
-    const entityClause = rawEntity
-      ? `für den Kunden laut Operator-Briefing: «${clampHintField(rawEntity, COMMAND_EVE_HINT_ENTITY_MAX_CP, 'entity')}»`
-      : 'für einen noch nicht gebrieften Kunden (noch nicht gebrieft)';
+    const clampedEntity = rawEntity ? clampHintField(rawEntity, COMMAND_EVE_HINT_ENTITY_MAX_CP, 'entity') : '';
+    // K3 — kind-conditioned entity framing + doctrine clauses (§4 matrix). CLIENT
+    // stays BYTE-IDENTICAL to pre-K3 (snapshot-proven). own_company: own-project
+    // framing, DROPS both the "NIE in Deliverables" and "im Auftrag des Kunden"
+    // clauses (own brand belongs in deliverables). department: conservative — like
+    // client (keeps both clauses) but with the department framing.
+    const kind: SeatKind = input.kind ?? 'client';
+    // F3: entity framed as DATA (guillemets + attribution); '' → an honest
+    // "(noch nicht gebrieft)" placeholder instead.
+    let entityClause: string;
+    const doctrineClauses: string[] = [];
+    if (kind === 'own_company') {
+      entityClause = clampedEntity
+        ? `für das eigene Projekt laut Briefing: «${clampedEntity}»`
+        : 'für ein noch nicht gebrieftes eigenes Projekt (noch nicht gebrieft)';
+      // own_company: NO invisible-delivery, NO "im Auftrag des Kunden".
+      doctrineClauses.push('Dieser Seat ist ein eigenes Projekt/eine eigene Firma des Operators — er ist hier selbst der Auftraggeber.');
+    } else if (kind === 'department') {
+      entityClause = clampedEntity
+        ? `für den Bereich laut Briefing: «${clampedEntity}»`
+        : 'für einen noch nicht gebrieften Bereich (noch nicht gebrieft)';
+      // department: conservative — KEEP invisible-delivery; department role framing.
+      doctrineClauses.push('Der Seat-Name erscheint NIE in Deliverables.');
+      doctrineClauses.push('Dieser Seat ist eine Abteilung/ein Bereich des Operators — Arbeit hier gehört zu genau diesem Bereich.');
+    } else {
+      entityClause = clampedEntity
+        ? `für den Kunden laut Operator-Briefing: «${clampedEntity}»`
+        : 'für einen noch nicht gebrieften Kunden (noch nicht gebrieft)';
+      // client (unchanged): invisible-delivery + "im Auftrag des Kunden".
+      doctrineClauses.push('Der Seat-Name erscheint NIE in Deliverables.');
+      doctrineClauses.push('Dein Operator bedient dich hier IM AUFTRAG des Kunden, nicht für seine eigene Firma.');
+    }
     text = [
       `Du arbeitest im Seat »${label}« ${entityClause}.`,
       `Aktives Board: ${board}.`,
       markerClause,
       'Frühere Arbeit: session_search.',
-      // The invisible-delivery sentence stays AHEAD of the long path detail, so a
-      // truncate trims the path (recoverable) — never the doctrine clause.
-      'Der Seat-Name erscheint NIE in Deliverables.',
-      // T9 — operator-vs-client role: the operator drives EVE, but the work here is
-      // for the client, not the operator's own firm. Fixed + name-free (the hint
-      // input carries no operator name), kept AHEAD of the trimmable path detail so
-      // it survives the H8 truncate next to the doctrine clause.
-      'Dein Operator bedient dich hier IM AUFTRAG des Kunden, nicht für seine eigene Firma.',
+      // Doctrine clauses stay AHEAD of the long path detail, so a truncate trims
+      // the path (recoverable) — never the doctrine clauses.
+      ...doctrineClauses,
       pathDetailClause,
     ].join(' ');
   }
@@ -2732,6 +2763,9 @@ export function renderCommandEveEnvironmentHintForHome(hermesHome: string): stri
       legacy,
       label: getActiveSeatLabel(),
       entity,
+      // K3: the active seat's kind conditions the client-branch doctrine clauses.
+      // Legacy ignores kind; the holder default ('client') keeps today's behavior.
+      kind: getActiveSeatKind(),
       boardSlug: getActiveSeatBoardSlug(),
       entryCount,
       brainDir,
@@ -3794,6 +3828,9 @@ export async function ensureCommandEveRuntimeBootstrap(
     profile: firstRunProfile,
     seed: bootSeatSeed,
     locale: 'de-DE',
+    // K3: boot is always legacy (§SEAT stripped, kind never consulted); the holder
+    // default ('client') keeps this byte-identical. Passed for end-to-end consistency.
+    kind: getActiveSeatKind(),
   });
   pushStage(
     makeStage('memory-seed', 'pass', {

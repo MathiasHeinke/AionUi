@@ -101,6 +101,35 @@ describe('B3 renderSeatContextBlock (pure) — real seat', () => {
   });
 });
 
+describe('K3 renderSeatContextBlock — kind-conditioned real-seat orientation', () => {
+  const real = { seatLabel: 'FYN Labs', seatId: SEAT_A, legacy: false as const, clientEntity: 'FYN Labs GmbH', boardSlug: '' };
+
+  it('client (default) is BYTE-IDENTICAL to an explicit client kind (both locales)', () => {
+    for (const locale of ['de-DE', 'en-US'] as const) {
+      expect(renderSeatContextBlock({ ...real, locale })).toBe(renderSeatContextBlock({ ...real, seatKind: 'client', locale }));
+    }
+  });
+
+  it('own_company DROPS the invisible-delivery clause and uses own-project framing', () => {
+    const de = renderSeatContextBlock({ ...real, seatKind: 'own_company', locale: 'de-DE' });
+    expect(de).not.toContain('NIE in Deliverables');
+    expect(de).toContain('eigenes Projekt/eigene Firma des Operators');
+    expect(de).toContain('Der Operator ist hier selbst der Auftraggeber');
+    const en = renderSeatContextBlock({ ...real, seatKind: 'own_company', locale: 'en-US' });
+    expect(en).not.toContain('NEVER appears in deliverables');
+    expect(en).toContain("operator's own project/firm");
+  });
+
+  it('department KEEPS the invisible-delivery clause (conservative) with department framing', () => {
+    const de = renderSeatContextBlock({ ...real, seatKind: 'department', locale: 'de-DE' });
+    expect(de).toContain('NIE in Deliverables');
+    expect(de).toContain('Abteilung/Bereich des Operators');
+    const en = renderSeatContextBlock({ ...real, seatKind: 'department', locale: 'en-US' });
+    expect(en).toContain('NEVER appears in deliverables');
+    expect(en).toContain('department/area of the operator');
+  });
+});
+
 describe('B3 resolveSeatContextBlock — isolation gate (roster unreachable from a real seat)', () => {
   it('a REAL seat NEVER reads the my-seats wire (structural gate)', async () => {
     const readMySeatsWire = vi.fn(async () => ({ account: { role: 'admin' }, seats: [] }));

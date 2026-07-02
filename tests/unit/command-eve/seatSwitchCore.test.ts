@@ -29,6 +29,7 @@ import {
   LEGACY_SEAT_ID,
   __resetActiveSeatForTests,
   getActiveSeatId,
+  getActiveSeatKind,
   getActiveSeatLabel,
   resolveActiveSeatHome,
   setActiveSeatId,
@@ -305,6 +306,75 @@ describe('applySeatSwitch — legacy / no-op single-seat triggers NO re-spawn', 
   });
 });
 
+describe('K2 parseMySeats — kind tolerance (default-deny to client)', () => {
+  const wire = (kind?: unknown) => ({
+    account: { id: 'acc1', role: 'admin' },
+    active_seat_id: SEAT_A,
+    seats: [{ tenant_id: SEAT_A, name: 'A', ...(kind === undefined ? {} : { kind }) }],
+  });
+  const kindOf = (k?: unknown) => parseMySeats(wire(k))!.seats.find((s) => s.seat_id === SEAT_A)!.kind;
+
+  it('accepts the two literals own_company / department', () => {
+    expect(kindOf('own_company')).toBe('own_company');
+    expect(kindOf('department')).toBe('department');
+  });
+
+  it('folds absent / null / typo / uppercase / hostile / explicit-client to client (default-deny)', () => {
+    expect(kindOf(undefined)).toBe('client'); // absent
+    expect(kindOf(null)).toBe('client');
+    expect(kindOf('client')).toBe('client');
+    expect(kindOf('CLIENT')).toBe('client'); // case-sensitive literal match
+    expect(kindOf('own-company')).toBe('client'); // hyphen typo
+    expect(kindOf('__proto__')).toBe('client'); // hostile
+    expect(kindOf(42)).toBe('client'); // non-string
+  });
+});
+
+describe('K2 applySeatSwitch — kind holder threading (set / restore)', () => {
+  it('the structural switch sets the kind holder from the wire record', async () => {
+    const h = makeHarness();
+    await applySeatSwitch(SEAT_A, h.deps, 'Klinik Salem', 'client');
+    expect(getActiveSeatKind()).toBe('client');
+    await applySeatSwitch(SEAT_B, h.deps, 'FYN Labs', 'own_company');
+    expect(getActiveSeatKind()).toBe('own_company');
+  });
+
+  it('a legacy/founder target folds the kind holder to the default (client)', async () => {
+    const h = makeHarness();
+    await applySeatSwitch(SEAT_A, h.deps, 'FYN Labs', 'own_company');
+    expect(getActiveSeatKind()).toBe('own_company');
+    // Switching home resets kind (legacy never consults kind, folds to default).
+    await applySeatSwitch(LEGACY_SEAT_ID, h.deps, 'Founder', 'own_company');
+    expect(getActiveSeatKind()).toBe('client');
+  });
+
+  it('a failed re-spawn ROLLS BACK the kind holder to the prior seat kind', async () => {
+    const h = makeHarness();
+    // Land on an own_company seat.
+    await applySeatSwitch(SEAT_A, h.deps, 'FYN Labs', 'own_company');
+    expect(getActiveSeatKind()).toBe('own_company');
+    // Make the next switch's restart throw so it rolls back.
+    h.mocks.restartBackend.mockRejectedValueOnce(new Error('respawn boom'));
+    const result = await applySeatSwitch(SEAT_B, h.deps, 'Klinik Salem', 'client');
+    expect(result.ok).toBe(false);
+    expect(result.rolled_back).toBe(true);
+    // The kind holder is restored to the prior (own_company), not the failed target's.
+    expect(getActiveSeatKind()).toBe('own_company');
+  });
+
+  it('the no-op in-place re-select refreshes the kind (server-side re-classification)', async () => {
+    const h = makeHarness();
+    await applySeatSwitch(SEAT_A, h.deps, 'A', 'client');
+    expect(getActiveSeatKind()).toBe('client');
+    h.mocks.restartBackend.mockClear();
+    // Re-select A in place after it was re-classified to own_company.
+    const result = await applySeatSwitch(SEAT_A, h.deps, 'A', 'own_company');
+    expect(result.ok).toBe(true);
+    expect(h.mocks.restartBackend).not.toHaveBeenCalled();
+    expect(getActiveSeatKind()).toBe('own_company');
+  });
+});
+
 describe('applySeatSwitch — persist is BEST-EFFORT (local switch still succeeds)', () => {
   it('a failed persistActiveSeat does NOT fail or roll back the local switch', async () => {
     const h = makeHarness();
@@ -372,7 +442,8 @@ describe('SeatGuard — fail-closed classification', () => {
     const adminHome = resolveSeatAccess(
       parseMySeats({ account: { id: 'acc1', role: 'admin' }, active_seat_id: LEGACY_SEAT_ID, seats: [{ tenant_id: SEAT_A, name: 'A' }] })
     );
-    expect(adminHome.seats[0]).toEqual({ seat_id: LEGACY_SEAT_ID, name: 'Founder', role: 'admin', is_active: true });
+    // K2: the Founder chip is cosmetically 'own_company' (the founder home is the operator's own).
+    expect(adminHome.seats[0]).toEqual({ seat_id: LEGACY_SEAT_ID, name: 'Founder', kind: 'own_company', role: 'admin', is_active: true });
     expect(adminHome.activeSeatId).toBe(LEGACY_SEAT_ID);
     // The ring follows active_seat_id: at home the Founder chip is active, a client is not.
     expect(adminHome.seats.find((s) => s.seat_id === SEAT_A)?.is_active).toBe(false);

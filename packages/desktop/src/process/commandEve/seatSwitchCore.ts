@@ -63,15 +63,18 @@
  */
 
 import {
+  DEFAULT_SEAT_KIND,
   DEFAULT_SEAT_LABEL,
   LEGACY_SEAT_ID,
   assertSeatId,
   clearActiveSeat,
   getActiveSeatId,
+  getActiveSeatKind,
   getActiveSeatLabel,
   isLegacySeatId,
   sanitizeSeatId,
   setActiveSeatId,
+  setActiveSeatKind,
   setActiveSeatLabel,
 } from './seatContextCore';
 
@@ -138,10 +141,12 @@ export interface SeatSwitchDeps {
 export async function applySeatSwitch(
   newSeatId: string | null | undefined,
   deps: SeatSwitchDeps,
-  targetLabel?: string | null
+  targetLabel?: string | null,
+  targetKind?: SeatKind | null
 ): Promise<SeatSwitchResult> {
   const priorSeatId = getActiveSeatId();
   const priorSeatLabel = getActiveSeatLabel();
+  const priorSeatKind = getActiveSeatKind();
 
   // (a) Sanitize FIRST. A bad id throws here, BEFORE any state mutates, so the
   // active seat is untouched (fail-closed). assertSeatId folds legacy aliases to
@@ -174,6 +179,13 @@ export async function applySeatSwitch(
     if (targetLabel !== undefined) {
       setActiveSeatLabel(isLegacySeatId(targetSeatId) ? DEFAULT_SEAT_LABEL : targetLabel);
     }
+    // K2: refresh the kind holder alongside the label on the in-place re-select
+    // (a seat re-classified server-side then re-selected picks up the new kind).
+    // A legacy/founder target folds to the DEFAULT ('client') — the legacy branch
+    // never consults kind. Only touched when a kind was actually threaded.
+    if (targetKind !== undefined) {
+      setActiveSeatKind(isLegacySeatId(targetSeatId) ? DEFAULT_SEAT_KIND : targetKind);
+    }
     let persistFailed = false;
     if (deps.persistActiveSeat) {
       try {
@@ -204,6 +216,9 @@ export async function applySeatSwitch(
       // Restore the prior label too so the id + label holders never disagree (the
       // rolled-back env bake must carry the prior seat's label, not the target's).
       setActiveSeatLabel(priorSeatLabel);
+      // K2: restore the prior kind for the same reason — the rolled-back env bake
+      // + tier stamp must carry the prior seat's kind, not the failed target's.
+      setActiveSeatKind(priorSeatKind);
     } catch {
       // The prior seat was already sanitized once (it was active); if it somehow
       // fails to re-set, fall back to the hard legacy default — never leave the
@@ -236,6 +251,11 @@ export async function applySeatSwitch(
     // so the prepareEnv bake immediately below carries the NEW label. A legacy/
     // founder target with no label folds to 'Founder'. Pure: no network.
     setActiveSeatLabel(isLegacySeatId(targetSeatId) ? DEFAULT_SEAT_LABEL : targetLabel);
+    // K2: set the kind at the SAME set-point (after the label), from the wire
+    // record the caller threaded, so the prepareEnv bake + the tier stamp below
+    // carry the NEW kind. A legacy/founder target folds to DEFAULT ('client');
+    // the legacy branch never consults kind. Pure: no network.
+    setActiveSeatKind(isLegacySeatId(targetSeatId) ? DEFAULT_SEAT_KIND : targetKind);
     await deps.prepareEnv(); // (b) env.HERMES_HOME → seats/<target>/home
     await deps.restartBackend(); // (c) stop + re-spawn so the agent re-homes
     await deps.rebindConfig(targetSeatId); // (d) config cache re-reads under target
@@ -300,9 +320,19 @@ export async function applySeatSwitch(
 
 export type SeatRole = 'admin' | 'delegate';
 
+// v1.5 K2: profile.kind — conditions ONLY prompt/display texts (§5 prompt-only).
+// Re-exported from the seatContextCore SSOT so the desktop has ONE kind type.
+export type { SeatKind } from './seatContextCore';
+import type { SeatKind } from './seatContextCore';
+
 export interface SeatListEntry {
   seat_id: string;
   name: string;
+  /**
+   * v1.5 K2: the seat's kind. Default-denied to 'client' (the strictest doctrine)
+   * for absent/unknown/hostile values (asSeatKind). kind is prompt-only.
+   */
+  kind: SeatKind;
   role: SeatRole;
   is_active: boolean;
 }
@@ -336,6 +366,18 @@ function asSeatRole(value: unknown): SeatRole {
 }
 
 /**
+ * v1.5 K2: coerce a wire `kind` value to a SeatKind, DEFAULT-DENY. Only the two
+ * literals 'own_company' / 'department' are accepted; ALL else — absent, null, a
+ * typo, uppercase 'CLIENT', a hostile value — folds to 'client' (the strictest
+ * doctrine). Mirrors asSeatRole. This is the fail-conservative invariant at the
+ * parser boundary: a version-skew backend without kind, or a corrupt payload,
+ * degrades to full client isolation, never to a laxer posture.
+ */
+function asSeatKind(value: unknown): SeatKind {
+  return value === 'own_company' || value === 'department' ? value : 'client';
+}
+
+/**
  * Parse a raw my-seats wire payload into the typed contract, fail-closed.
  * Returns `null` when the payload is structurally unusable (the caller then
  * treats the user as a single pinned delegate on the legacy seat).
@@ -361,6 +403,8 @@ export function parseMySeats(raw: unknown): MySeatsContract | null {
     seats.push({
       seat_id: sanitized,
       name: typeof e.name === 'string' && e.name.length > 0 ? e.name : sanitized,
+      // K2: tolerate the wire's kind (absent/unknown ⇒ 'client', default-deny).
+      kind: asSeatKind(e.kind),
       role: asSeatRole(e.role),
       is_active: e.is_active === true,
     });
@@ -428,6 +472,11 @@ export function resolveSeatAccess(contract: MySeatsContract | null): SeatAccess 
       {
         seat_id: LEGACY_SEAT_ID,
         name: FOUNDER_CHIP_NAME,
+        // K2 cosmetic: the founder home is the operator's OWN company. The legacy
+        // branch never consults kind (isLegacySeatId short-circuits the client
+        // doctrine anyway), so this only labels the chip honestly for a UI that
+        // reads it.
+        kind: 'own_company',
         role: 'admin',
         is_active: activeSeatId === LEGACY_SEAT_ID,
       },

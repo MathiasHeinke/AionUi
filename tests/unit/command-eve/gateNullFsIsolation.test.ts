@@ -63,6 +63,7 @@ import {
   resolveSeatHome,
   resolveSeatScopedStorageRoots,
   setActiveSeatId,
+  setActiveSeatKind,
   setActiveSeatLabel,
 } from '@/process/commandEve/seatContextCore';
 import { SEAT_SCOPED_CONFIG_KEYS, seatScopedKey } from '@/common/config/seatConfigKeyCore';
@@ -626,5 +627,86 @@ describe('GATE-NULL FS Invariant 6 — Seat A\'s client name can never reach a c
     // H5: the board pin is symmetrically DELETED (no per-seat slug today), so seat A
     // can never inherit a prior seat's board — seat isolation outranks any ambient pin.
     expect(env.HERMES_KANBAN_BOARD).toBeUndefined();
+  });
+});
+
+// ============================================================================
+// INVARIANT 7 — kind IS PROMPT-ONLY (v1.5 K3, §5)
+// ============================================================================
+describe('GATE-NULL FS Invariant 7 — profile.kind is PROMPT-ONLY: it never reaches a path resolver, and an own_company seat is byte-identically isolated from client seats', () => {
+  // (a) API-ASSERTION — no seat path resolver / storage-root resolver / key
+  // prefixer accepts kind. Their signatures take (userData, seatId[, …]) only, so
+  // there is structurally no way for kind to influence a produced path. We assert
+  // this by construction: setting the kind holder to any value NEVER changes what a
+  // resolver produces for the SAME seat id.
+  it('the kind holder never influences a resolver output (same seatId → same path for every kind)', () => {
+    const userData = makeUserData();
+    const configRoot = path.join(path.resolve(userData), 'cfg');
+    const dataRoot = path.join(path.resolve(userData), 'data');
+
+    const capture = () => ({
+      home: resolveSeatHome(userData, SEAT_A).hermesHome,
+      storage: resolveSeatScopedStorageRoots(configRoot, dataRoot, SEAT_A),
+    });
+
+    setActiveSeatId(SEAT_A);
+    setActiveSeatKind('client');
+    const asClient = capture();
+    setActiveSeatKind('own_company');
+    const asOwn = capture();
+    setActiveSeatKind('department');
+    const asDept = capture();
+
+    // Byte-identical resolver output across all kinds — kind is structurally absent
+    // from the path derivation (the resolvers do not even take a kind parameter).
+    expect(asOwn.home).toBe(asClient.home);
+    expect(asDept.home).toBe(asClient.home);
+    expect(asOwn.storage).toEqual(asClient.storage);
+    expect(asDept.storage).toEqual(asClient.storage);
+    // seatScopedKey likewise ignores kind (no kind arg exists on it).
+    for (const key of SEAT_SCOPED_CONFIG_KEYS) {
+      const before = seatScopedKey(key, SEAT_A);
+      setActiveSeatKind('own_company');
+      expect(seatScopedKey(key, SEAT_A)).toBe(before);
+    }
+  });
+
+  // (b) WRITE/READ-CONTAINMENT — an own_company seat next to two client seats has
+  // byte-identically disjoint homes. A full write pass on the own_company seat
+  // leaves both client seats byte-identical; the own_company §SEAT block carries
+  // its own entity and never another seat's.
+  it('a full write pass on an own_company seat leaves the client seats byte-identical (same isolation as a client seat)', () => {
+    const userData = makeUserData();
+    const homeOwn = resolveSeatHome(userData, SEAT_A).hermesHome; // treated as own_company
+    const homeClient = resolveSeatHome(userData, SEAT_B).hermesHome; // a real client
+
+    // Establish the client seat as populated, then snapshot it.
+    setActiveSeatId(SEAT_B);
+    setActiveSeatKind('client');
+    writeCompanyBrainSeedToHome({ hermesHome: homeClient, seed: { kind: 'paste_brief', value: `${ENTITY_B}\n${B_TRACER}` } });
+    upsertEntry(homeClient, { kind: 'note', title: 'B note', body: `${ENTITY_B} ${B_TRACER}` });
+    stampUserMdTiers({ userDataPath: userData, seatId: SEAT_B, profile: FALLBACK_PROFILE, kind: 'client' });
+    const beforeClient = snapshotTree(homeClient);
+    expect(beforeClient.length).toBeGreaterThan(0);
+
+    // Full write pass on the own_company seat.
+    setActiveSeatId(SEAT_A);
+    setActiveSeatKind('own_company');
+    writeCompanyBrainSeedToHome({ hermesHome: homeOwn, seed: { kind: 'paste_brief', value: `${ENTITY_A}\n${A_TRACER}` } });
+    upsertEntry(homeOwn, { kind: 'brief', title: 'own brief', body: `${ENTITY_A} ${A_TRACER}` });
+    const resOwn = stampUserMdTiers({ userDataPath: userData, seatId: SEAT_A, profile: FALLBACK_PROFILE, kind: 'own_company' });
+    expect(resOwn.seatStamped).toBe(true);
+
+    // The client seat is byte-identical — the own_company pass touched nothing under it.
+    expect(snapshotTree(homeClient)).toEqual(beforeClient);
+
+    // The own_company §SEAT block carries its OWN entity + drops the client doctrine,
+    // but NEVER contains the client seat's entity/tracer (isolation is kind-blind).
+    const userMdOwn = fs.readFileSync(resOwn.userMdPath, 'utf8');
+    expect(userMdOwn).toContain(ENTITY_A);
+    expect(userMdOwn).not.toContain(ENTITY_B);
+    expect(userMdOwn).not.toContain(B_TRACER);
+    // Doctrine proof: own_company drops the "nie in Deliverables" clause.
+    expect(userMdOwn).not.toContain('erscheint nie in Deliverables');
   });
 });

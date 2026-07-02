@@ -51,7 +51,7 @@ import type { RuntimeBootstrapIdentityProfile } from './runtimeBootstrapCore';
 import { resolveCommandEveRuntimeBootstrapPaths } from './runtimeBootstrapCore';
 import type { CompanyBrainSeedRecord } from './companyBrainSeedCore';
 import { COMPANY_BRAIN_DIR, readCompanyBrainSeedStateFromHome } from './companyBrainSeedCore';
-import { isLegacySeatId, resolveSeatHome } from './seatContextCore';
+import { isLegacySeatId, resolveSeatHome, type SeatKind } from './seatContextCore';
 
 /**
  * A minimal, always-valid fallback profile when no persisted first-run-profile
@@ -303,7 +303,8 @@ export function renderFounderBody(
 export function renderSeatBody(
   seed: CompanyBrainSeedRecord | null,
   locale: 'de-DE' | 'en-US' = 'de-DE',
-  brainDir?: string | null
+  brainDir?: string | null,
+  kind: SeatKind = 'client'
 ): string | null {
   const value = typeof seed?.value === 'string' ? seed.value.trim() : '';
   if (!seed || value.length === 0) return null;
@@ -331,7 +332,34 @@ export function renderSeatBody(
   // the VARIABLE-length brief-ref line. On a real install the absolute brief path is
   // ~140c and can push the block past ≤400c; ordering the long path LAST means a
   // truncate trims the (recoverable) path detail, never the role/isolation doctrine.
+  // K3 — kind-conditioned doctrine (§4 matrix). CLIENT stays BYTE-IDENTICAL to
+  // pre-K3 (regression-proven by snapshot). own_company DROPS the invisible-
+  // delivery clause (the seat name is the operator's OWN brand and MUST be usable
+  // in deliverables) but KEEPS data-isolation. department is conservative = LIKE
+  // client (keeps invisible-delivery) but with the department role/entity framing.
   if (locale === 'en-US') {
+    if (kind === 'own_company') {
+      return [
+        '§ SEAT',
+        `Own project/firm (this seat), per briefing: «${firstLine}»`,
+        // T9 (own_company): the operator is the client here — it is their own project/firm.
+        'This seat is one of the operator\'s own projects/firms — they are the client here.',
+        // Isolation KEPT; invisible-delivery DROPPED (own brand belongs in deliverables).
+        'This seat belongs to this project/firm. Its data stays in this seat (isolation, GDPR).',
+        `Source: ${kindLabel}. Full brief: ${briefRefEn} — read it with read_file when you need it.`,
+      ].join('\n');
+    }
+    if (kind === 'department') {
+      return [
+        '§ SEAT',
+        `Department/area (this seat), per briefing: «${firstLine}»`,
+        // T9 (department): the operator's own department/area — not a client.
+        'This seat is one of the operator\'s departments/areas — work here belongs to exactly this area.',
+        // Conservative: invisible-delivery KEPT (an internal org label has no place outside).
+        'This seat belongs to exactly this area. Its data stays in this seat (isolation, GDPR); the seat name never appears in deliverables.',
+        `Source: ${kindLabel}. Full brief: ${briefRefEn} — read it with read_file when you need it.`,
+      ].join('\n');
+    }
     return [
       '§ SEAT',
       `Client (this seat), per operator briefing: «${firstLine}»`,
@@ -339,6 +367,28 @@ export function renderSeatBody(
       'Your operator runs you here on the client\'s behalf, not for their own firm.',
       'This seat belongs to exactly this client. Their data stays in this seat (per-client isolation, GDPR); the seat name never appears in deliverables.',
       `Source: ${kindLabel}. Full brief: ${briefRefEn} — read it with read_file when you need it.`,
+    ].join('\n');
+  }
+  if (kind === 'own_company') {
+    return [
+      '§ SEAT',
+      `Eigenes Projekt/eigene Firma (dieser Seat), laut Briefing: «${firstLine}»`,
+      // T9 (own_company): der Operator ist hier selbst der Auftraggeber.
+      'Dieser Seat ist ein eigenes Projekt/eine eigene Firma des Operators — er ist hier selbst der Auftraggeber.',
+      // Isolation BLEIBT; NIE-in-Deliverables ENTFÄLLT (eigene Marke gehört in Deliverables).
+      'Dieser Seat gehört diesem Projekt/dieser Firma. Seine Daten bleiben in diesem Seat (Isolation, DSGVO).',
+      `Quelle: ${kindLabel}. Vollständiges Briefing: ${briefRefDe} — lies es bei Bedarf mit read_file.`,
+    ].join('\n');
+  }
+  if (kind === 'department') {
+    return [
+      '§ SEAT',
+      `Abteilung/Bereich (dieser Seat), laut Briefing: «${firstLine}»`,
+      // T9 (department): eine Abteilung/ein Bereich des Operators — kein Kunde.
+      'Dieser Seat ist eine Abteilung/ein Bereich des Operators — Arbeit hier gehört zu genau diesem Bereich.',
+      // Konservativ: NIE-in-Deliverables BLEIBT (internes Org-Etikett hat außen nichts verloren).
+      'Dieser Seat gehört genau diesem Bereich. Seine Daten bleiben in diesem Seat (Isolation, DSGVO); der Seat-Name erscheint nie in Deliverables.',
+      `Quelle: ${kindLabel}. Vollständiges Briefing: ${briefRefDe} — lies es bei Bedarf mit read_file.`,
     ].join('\n');
   }
   return [
@@ -370,6 +420,8 @@ export function stampUserMdTiersToHome(args: {
   profile: RuntimeBootstrapIdentityProfile;
   seed?: CompanyBrainSeedRecord | null;
   locale?: 'de-DE' | 'en-US';
+  /** K3: the seat's kind — conditions the §SEAT doctrine text only. Default 'client'. */
+  kind?: SeatKind;
   deps?: UserMdTierStampDeps;
 }): UserMdTierStampResult {
   const fsImpl = args.deps?.fsImpl ?? defaultFs;
@@ -419,7 +471,15 @@ export function stampUserMdTiersToHome(args: {
     if (args.legacy) {
       next = removeFencedBlock(next, SEAT_MARKER_BEGIN, SEAT_MARKER_END);
     } else {
-      const seatBody = renderSeatBody(args.seed ?? null, locale, path.join(args.hermesHome, COMPANY_BRAIN_DIR));
+      // K3: pass the seat kind so the doctrine text matches (own_company drops the
+      // client invisible-delivery clause). A legacy seat never reaches here (§SEAT
+      // is stripped above), so kind only ever conditions a REAL seat's block.
+      const seatBody = renderSeatBody(
+        args.seed ?? null,
+        locale,
+        path.join(args.hermesHome, COMPANY_BRAIN_DIR),
+        args.kind ?? 'client'
+      );
       if (seatBody) {
         const seatTrunc = truncateToBudget(seatBody, SEAT_BLOCK_MAX_CHARS);
         if (seatTrunc.truncated) {
@@ -465,6 +525,8 @@ export function stampUserMdTiers(args: {
   seatId: string;
   profile: RuntimeBootstrapIdentityProfile;
   locale?: 'de-DE' | 'en-US';
+  /** K3: the seat's kind — conditions the §SEAT doctrine text only. Default 'client'. */
+  kind?: SeatKind;
   deps?: UserMdTierStampDeps;
 }): UserMdTierStampResult {
   const home = resolveSeatHome(args.userDataPath, args.seatId);
@@ -478,6 +540,7 @@ export function stampUserMdTiers(args: {
     profile: args.profile,
     seed,
     locale: args.locale,
+    kind: args.kind,
     deps: args.deps,
   });
 }
@@ -494,6 +557,9 @@ export function stampUserMdTiersForSwitch(args: {
   userDataPath: string;
   seatId: string;
   locale?: 'de-DE' | 'en-US';
+  /** K3: the target seat's kind (the caller passes getActiveSeatKind() — the holder
+   *  applySeatSwitch set from the wire record). Default 'client'. */
+  kind?: SeatKind;
   deps?: UserMdTierStampDeps;
 }): UserMdTierStampResult {
   const profile = readPersistedFirstRunProfile(args.userDataPath, args.deps?.fsImpl);
@@ -502,6 +568,7 @@ export function stampUserMdTiersForSwitch(args: {
     seatId: args.seatId,
     profile,
     locale: args.locale ?? 'de-DE',
+    kind: args.kind,
     deps: args.deps,
   });
 }

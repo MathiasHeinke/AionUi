@@ -1492,6 +1492,9 @@ export interface ICommandEveActiveSeatResult {
 export interface ICommandEveSeatListEntry {
   seat_id: string;
   name: string;
+  // v1.5 K2: profile.kind (prompt-only). Default-denied to 'client' for
+  // absent/unknown values; the founder chip is cosmetically 'own_company'.
+  kind: 'client' | 'own_company' | 'department';
   role: 'admin' | 'delegate';
   is_active: boolean;
 }

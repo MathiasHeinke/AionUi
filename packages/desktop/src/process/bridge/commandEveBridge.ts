@@ -92,7 +92,7 @@ import {
 } from '@/common/config/seatUsageCore';
 import { ProcessConfig, getSkillsDir, getCronSkillsDir } from '@process/utils/initStorage';
 import { getDataPath } from '@process/utils/utils';
-import { getActiveSeatId, resolveActiveSeatHome, sanitizeSeatId } from '@process/commandEve/seatContextCore';
+import { getActiveSeatId, getActiveSeatKind, resolveActiveSeatHome, sanitizeSeatId } from '@process/commandEve/seatContextCore';
 import { isSeatSwitchAuthorized, parseMySeats, resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
 import { readMySeatsWire as readMySeatsWireCore } from '@process/commandEve/seatWireFetchCore';
 import { readCompanyBrainSeedState, writeCompanyBrainSeed } from '@process/commandEve/companyBrainSeedCore';
@@ -2426,7 +2426,7 @@ export function initCommandEveBridge(): void {
       account_id: null as string | null,
       role: 'delegate' as const,
       active_seat_id: getActiveSeatId(),
-      seats: [] as Array<{ seat_id: string; name: string; role: 'admin' | 'delegate'; is_active: boolean }>,
+      seats: [] as Array<{ seat_id: string; name: string; kind: 'client' | 'own_company' | 'department'; role: 'admin' | 'delegate'; is_active: boolean }>,
     };
     try {
       const wire = await readMySeatsWire();
@@ -2538,7 +2538,13 @@ export function initCommandEveBridge(): void {
       // extra fetch. applySeatSwitch captures it into the process-local label
       // holder alongside setActiveSeatId, so the re-spawn env bake carries it.
       const sanitizedTarget = sanitizeSeatId(targetSeatId);
-      const targetLabel = access.seats.find((s) => s.seat_id === sanitizedTarget)?.name;
+      const targetSeatRecord = access.seats.find((s) => s.seat_id === sanitizedTarget);
+      const targetLabel = targetSeatRecord?.name;
+      // K2: the target seat's KIND comes from the SAME wire record as its label
+      // (access.seats[].kind — already default-denied by parseMySeats/asSeatKind).
+      // applySeatSwitch threads it into the kind holder alongside the label so the
+      // re-spawn env bake + the tier stamp below carry the correct doctrine.
+      const targetKind = targetSeatRecord?.kind;
 
       const result = await applySeatSwitch(targetSeatId, {
         prepareEnv: async () => {
@@ -2622,7 +2628,10 @@ export function initCommandEveBridge(): void {
           // Best-effort — a stamp failure is informational and never fails the switch.
           try {
             const { stampUserMdTiersForSwitch } = await import('@process/commandEve/userMdTierStampCore');
-            stampUserMdTiersForSwitch({ userDataPath: getDataPath(), seatId });
+            // K3: the kind holder was set by applySeatSwitch's structural phase
+            // (from the wire record) BEFORE reseedStatus runs here, so getActiveSeatKind()
+            // is the target seat's kind — the §SEAT block gets the correct doctrine.
+            stampUserMdTiersForSwitch({ userDataPath: getDataPath(), seatId, kind: getActiveSeatKind() });
           } catch {
             // best-effort: the runtime is already on the new seat.
           }
@@ -2630,7 +2639,7 @@ export function initCommandEveBridge(): void {
         persistActiveSeat: async (seatId) => {
           await persistActiveSeatPointer(seatId);
         },
-      }, targetLabel);
+      }, targetLabel, targetKind);
 
       return {
         success: result.ok,

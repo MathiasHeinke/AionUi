@@ -346,6 +346,20 @@ let activeSeatId: string = LEGACY_SEAT_ID;
 export const DEFAULT_SEAT_LABEL = 'Founder';
 let activeSeatLabel: string = DEFAULT_SEAT_LABEL;
 
+/**
+ * The KIND of the currently-active seat (v1.5 K2/K3 / profile.kind). kind
+ * conditions ONLY prompt/display texts — NEVER paths, RLS, billing or switch
+ * authorization (§5 GATE-NULL: kind is prompt-only). Fail-conservative: the
+ * default is 'client' (the strictest doctrine — full client isolation +
+ * invisible-delivery), so a legacy/founder home, an absent wire field, or any
+ * unknown value all behave exactly as today. It is process-local state set at the
+ * SAME set-points as the label (seat-switch + boot) from the wire seat record the
+ * caller already holds — no network in the read path.
+ */
+export type SeatKind = 'client' | 'own_company' | 'department';
+export const DEFAULT_SEAT_KIND: SeatKind = 'client';
+let activeSeatKind: SeatKind = DEFAULT_SEAT_KIND;
+
 /** Get the currently-active seat id (defaults to the legacy seat). */
 export function getActiveSeatId(): string {
   return activeSeatId;
@@ -373,6 +387,27 @@ export function setActiveSeatLabel(label?: string | null): string {
   const trimmed = typeof label === 'string' ? label.trim() : '';
   activeSeatLabel = trimmed.length > 0 ? trimmed : DEFAULT_SEAT_LABEL;
   return activeSeatLabel;
+}
+
+/**
+ * Get the currently-active seat's KIND (defaults to 'client'). Set by
+ * `setActiveSeatKind` at the seat-switch + boot set-points; only ever read (never
+ * fetched) in the prompt/stamp/hint render paths. kind is PROMPT-ONLY (§5).
+ */
+export function getActiveSeatKind(): SeatKind {
+  return activeSeatKind;
+}
+
+/**
+ * Set the active seat's KIND for this process. DEFAULT-DENY: only the two literals
+ * 'own_company' / 'department' are accepted; anything else (absent, null, a
+ * typo, a hostile value, or the legacy default) folds to 'client' — the strictest
+ * doctrine. Kept separate from `setActiveSeatId`/`setActiveSeatLabel` so a switch
+ * sets id → label → kind from the SAME wire seat record. Returns the resulting kind.
+ */
+export function setActiveSeatKind(kind?: string | null): SeatKind {
+  activeSeatKind = kind === 'own_company' || kind === 'department' ? kind : DEFAULT_SEAT_KIND;
+  return activeSeatKind;
 }
 
 /** True when the active seat is the legacy single-seat (the default). */
@@ -422,6 +457,7 @@ export function getActiveSeatBoardSlug(): string {
 export function clearActiveSeat(): void {
   activeSeatId = LEGACY_SEAT_ID;
   activeSeatLabel = DEFAULT_SEAT_LABEL;
+  activeSeatKind = DEFAULT_SEAT_KIND;
 }
 
 /**
@@ -432,8 +468,9 @@ export function resolveActiveSeatHome(userDataPath: string, homeDir?: string): S
   return resolveSeatHome(userDataPath, activeSeatId, homeDir);
 }
 
-/** Test-only: force-reset the active-seat holder (id + label). */
+/** Test-only: force-reset the active-seat holder (id + label + kind). */
 export function __resetActiveSeatForTests(): void {
   activeSeatId = LEGACY_SEAT_ID;
   activeSeatLabel = DEFAULT_SEAT_LABEL;
+  activeSeatKind = DEFAULT_SEAT_KIND;
 }

@@ -256,6 +256,58 @@ describe('T9 operator-vs-client role semantics — §SEAT + §FOUNDER bodies', (
   });
 });
 
+describe('K3 kind-conditioned §SEAT doctrine (own_company drops client doctrine)', () => {
+  const seed = { schema_version: 'v1', seeded_at: '', kind: 'paste_brief' as const, value: 'FYN Labs GmbH' };
+  const REAL_BRAIN = '/Users/mathias/Library/Application Support/Command EVE/seats/eigen/hermes/home/company-brain';
+
+  it('client (default) is BYTE-IDENTICAL to an explicit client kind (regression proof)', () => {
+    for (const locale of ['de-DE', 'en-US'] as const) {
+      const implicit = renderSeatBody(seed, locale, REAL_BRAIN);
+      const explicit = renderSeatBody(seed, locale, REAL_BRAIN, 'client');
+      expect(explicit).toBe(implicit);
+    }
+  });
+
+  it('own_company (de) DROPS invisible-delivery AND "im Auftrag des Kunden", KEEPS data-isolation', () => {
+    const body = renderSeatBody(seed, 'de-DE', REAL_BRAIN, 'own_company')!;
+    expect(body).not.toContain('im Auftrag des Kunden');
+    expect(body).not.toContain('erscheint nie in Deliverables');
+    expect(body).toContain('er ist hier selbst der Auftraggeber');
+    expect(body).toContain('bleiben in diesem Seat'); // data-isolation kept
+  });
+
+  it('own_company (en) DROPS invisible-delivery AND the client-behalf sentence, KEEPS isolation', () => {
+    const body = renderSeatBody(seed, 'en-US', REAL_BRAIN, 'own_company')!;
+    expect(body).not.toContain('on the client');
+    expect(body).not.toContain('never appears in deliverables');
+    expect(body).toContain('they are the client here');
+    expect(body).toContain('stays in this seat');
+  });
+
+  it('department (de/en) KEEPS invisible-delivery (conservative) but NOT "im Auftrag des Kunden"', () => {
+    const de = renderSeatBody(seed, 'de-DE', REAL_BRAIN, 'department')!;
+    expect(de).toContain('erscheint nie in Deliverables');
+    expect(de).not.toContain('im Auftrag des Kunden');
+    expect(de).toContain('Abteilung/ein Bereich des Operators');
+    const en = renderSeatBody(seed, 'en-US', REAL_BRAIN, 'department')!;
+    expect(en).toContain('never appears in deliverables');
+    expect(en).not.toContain('on the client\'s behalf');
+    expect(en).toContain('departments/areas');
+  });
+
+  it('all kinds stay within the ≤400c §SEAT budget after stamping (own_company is shorter than client)', () => {
+    for (const kind of ['client', 'own_company', 'department'] as const) {
+      const { fsImpl, files } = makeMemFs();
+      const seatHome = REAL_BRAIN.replace(/\/company-brain$/, '');
+      const r = stampUserMdTiersToHome({ hermesHome: seatHome, legacy: false, profile: PROFILE, seed, kind, deps: { fsImpl } });
+      expect(r.seatStamped).toBe(true);
+      const body = files[path.join(seatHome, 'memories', 'USER.md')];
+      const seatBody = body.slice(body.indexOf(SEAT_MARKER_BEGIN) + SEAT_MARKER_BEGIN.length, body.indexOf(SEAT_MARKER_END)).replace(/^\n|\n$/g, '');
+      expect(seatBody.length).toBeLessThanOrEqual(SEAT_BLOCK_MAX_CHARS);
+    }
+  });
+});
+
 describe('B2 stamp — cross-seat NAME isolation (2-seat fixture, real disk)', () => {
   it('a client seat USER.md NEVER contains another seat\'s name', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-2seat-'));

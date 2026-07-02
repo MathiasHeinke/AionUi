@@ -11,6 +11,7 @@ import path from 'path';
 import {
   ensureCommandEveAssistant,
   resolveCommandEveManagedSkillImportPaths,
+  rosterPurposeForKind,
 } from '@/process/commandEve/assistantBootstrap';
 import { COMMAND_EVE_ASSISTANT_ID } from '@/common/config/commandEveShell';
 import { resolveCommandEveRuntimeBootstrapPaths } from '@/process/commandEve/runtimeBootstrapCore';
@@ -269,5 +270,24 @@ describe('Command EVE assistant bootstrap', () => {
     // The destructive recreate must NOT happen — it is the soft-delete source.
     expect(sigs).not.toContain(`DELETE /api/assistants/${COMMAND_EVE_ASSISTANT_ID}`);
     expect(calls.filter((call) => call.method === 'POST' && call.path === '/api/assistants')).toHaveLength(0);
+  });
+});
+
+describe('K3 rosterPurposeForKind — kind-aware founder roster purpose', () => {
+  it('client (default) keeps the pre-K3 wording verbatim (regression-safe)', () => {
+    expect(rosterPurposeForKind('client', 'delegate', 'de-DE')).toBe('Client-Seat (invisible delivery, streng isoliert)');
+    expect(rosterPurposeForKind('client', 'admin', 'de-DE')).toBe('Client-Seat (Admin-Zugriff)');
+    expect(rosterPurposeForKind('client', 'delegate', 'en-US')).toBe('Client seat (invisible delivery, strictly isolated)');
+    expect(rosterPurposeForKind('client', 'admin', 'en-US')).toBe('Client seat (admin access)');
+  });
+
+  it('own_company reads as an own project/firm', () => {
+    expect(rosterPurposeForKind('own_company', 'admin', 'de-DE')).toBe('Eigenes Projekt/eigene Firma des Operators');
+    expect(rosterPurposeForKind('own_company', 'delegate', 'en-US')).toBe("Operator's own project/firm");
+  });
+
+  it('department reads as a department/area', () => {
+    expect(rosterPurposeForKind('department', 'admin', 'de-DE')).toBe('Abteilung/Bereich des Operators');
+    expect(rosterPurposeForKind('department', 'delegate', 'en-US')).toBe("Operator's department/area");
   });
 });

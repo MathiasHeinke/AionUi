@@ -1646,6 +1646,44 @@ describe('T4 you-are-here environment_hint — pure builder', () => {
   });
 });
 
+describe('K3 environment_hint — kind-conditioned doctrine clauses', () => {
+  const base = { legacy: false, label: 'Seat X', entity: 'Acme GmbH', boardSlug: 'b', entryCount: 1 } as const;
+
+  it('client (default) is BYTE-IDENTICAL to an explicit client kind', () => {
+    expect(buildCommandEveEnvironmentHint({ ...base })).toBe(buildCommandEveEnvironmentHint({ ...base, kind: 'client' }));
+  });
+
+  it('own_company DROPS "NIE in Deliverables" AND "IM AUFTRAG des Kunden", uses own-project framing', () => {
+    const hint = buildCommandEveEnvironmentHint({ ...base, kind: 'own_company' });
+    expect(hint).not.toContain('NIE in Deliverables');
+    expect(hint).not.toContain('IM AUFTRAG des Kunden');
+    expect(hint).toContain('er ist hier selbst der Auftraggeber');
+    expect(hint).toContain('für das eigene Projekt laut Briefing: «Acme GmbH»');
+  });
+
+  it('department KEEPS "NIE in Deliverables" (conservative) but NOT "IM AUFTRAG des Kunden"', () => {
+    const hint = buildCommandEveEnvironmentHint({ ...base, kind: 'department' });
+    expect(hint).toContain('Der Seat-Name erscheint NIE in Deliverables.');
+    expect(hint).not.toContain('IM AUFTRAG des Kunden');
+    expect(hint).toContain('Abteilung/ein Bereich des Operators');
+    expect(hint).toContain('für den Bereich laut Briefing: «Acme GmbH»');
+  });
+
+  it('own_company stays within the ≤600cp budget under a runaway entity + long path', () => {
+    const hint = buildCommandEveEnvironmentHint({
+      legacy: false,
+      label: 'L'.repeat(200),
+      entity: 'x'.repeat(5000),
+      boardSlug: 'b',
+      entryCount: 2,
+      kind: 'own_company',
+      brainDir: `/Users/${'x'.repeat(400)}/company-brain`,
+    });
+    expect(Array.from(hint).length).toBeLessThanOrEqual(COMMAND_EVE_ENVIRONMENT_HINT_MAX_CHARS);
+    expect(hint).toContain('er ist hier selbst der Auftraggeber');
+  });
+});
+
 describe('T4 yamlDoubleQuote — safe single-line scalar', () => {
   it('wraps in double quotes and escapes backslash + double-quote', () => {
     expect(yamlDoubleQuote('plain')).toBe('"plain"');

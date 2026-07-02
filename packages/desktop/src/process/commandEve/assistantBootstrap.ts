@@ -27,10 +27,11 @@ import {
   COMMAND_EVE_DEFAULT_BOARD_SLUG,
   getActiveSeatBoardSlug,
   getActiveSeatId,
+  getActiveSeatKind,
   getActiveSeatLabel,
   isActiveSeatLegacy,
 } from './seatContextCore';
-import { parseMySeats, resolveSeatAccess } from './seatSwitchCore';
+import { parseMySeats, resolveSeatAccess, type SeatKind, type SeatRole } from './seatSwitchCore';
 import { readMySeatsWire } from './seatWireFetchCore';
 import { readCompanyBrainSeedState } from './companyBrainSeedCore';
 
@@ -247,6 +248,29 @@ function buildCommandEveAssistantSkillForSeat(
  * yet): the Founder home is labeled as such, client seats as delegatable client
  * seats. This is where a later slice can enrich the purpose from a per-seat field.
  */
+/**
+ * K3 (§4.4): the 1-line roster purpose for a seat, by KIND. client (default)
+ * keeps the pre-K3 wording verbatim (a client seat, delegatable, isolated).
+ * own_company / department read as own-project / department so the founder sees
+ * what each seat is. Falls through to client for any unexpected kind.
+ */
+export function rosterPurposeForKind(kind: SeatKind, role: SeatRole, locale: 'de-DE' | 'en-US'): string {
+  const de = locale === 'de-DE';
+  if (kind === 'own_company') {
+    return de ? 'Eigenes Projekt/eigene Firma des Operators' : "Operator's own project/firm";
+  }
+  if (kind === 'department') {
+    return de ? 'Abteilung/Bereich des Operators' : "Operator's department/area";
+  }
+  return de
+    ? role === 'admin'
+      ? 'Client-Seat (Admin-Zugriff)'
+      : 'Client-Seat (invisible delivery, streng isoliert)'
+    : role === 'admin'
+      ? 'Client seat (admin access)'
+      : 'Client seat (invisible delivery, strictly isolated)';
+}
+
 function parseFounderRoster(raw: unknown | null, locale: 'de-DE' | 'en-US'): CommandEveSeatRosterEntry[] | null {
   const contract = parseMySeats(raw);
   if (!contract) return null;
@@ -257,14 +281,10 @@ function parseFounderRoster(raw: unknown | null, locale: 'de-DE' | 'en-US'): Com
     .filter((s) => s.seat_id !== 'seat-1')
     .map((s) => ({
       label: s.name,
-      purpose:
-        locale === 'de-DE'
-          ? s.role === 'admin'
-            ? 'Client-Seat (Admin-Zugriff)'
-            : 'Client-Seat (invisible delivery, streng isoliert)'
-          : s.role === 'admin'
-            ? 'Client seat (admin access)'
-            : 'Client seat (invisible delivery, strictly isolated)',
+      // K3 (§4.4): the roster purpose reflects the seat's KIND so the founder sees
+      // at a glance what each seat is — a client, an own project, or a department.
+      // client (default) keeps the pre-K3 wording verbatim (regression-safe).
+      purpose: rosterPurposeForKind(s.kind, s.role, locale),
     }));
   return rows;
 }
@@ -299,6 +319,8 @@ async function buildCommandEveSeatContextBlock(
       getActiveSeatId,
       getActiveSeatLabel,
       isActiveSeatLegacy,
+      // K3: the active seat's profile kind conditions the REAL-seat orientation text.
+      getActiveSeatKind,
       // The wire read is only ever invoked from the founder/legacy seat (the gate
       // is inside resolveSeatContextBlock). userDataPath threads the auth chain.
       readMySeatsWire: () => readMySeatsWire(userDataPath || ''),
