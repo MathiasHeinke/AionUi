@@ -72,6 +72,38 @@ describe('httpBridge', () => {
 
       expect(result).toBe('');
     });
+
+    // FROZEN-PORT FAULT-LINE GUARD (live 1.3 bug, fix 213ced9): a seat switch
+    // respawns the backend on a FRESH ephemeral port while window.__backendPort
+    // is contextBridge-frozen at the BOOT value. The resolver MUST prefer the
+    // LIVE __aionBackend.getPort() (sync IPC → backendManager.port) over the
+    // frozen boot value — else every post-switch HTTP/WS call targets the dead
+    // old port (settings PUTs bounce, list fetches die silently). If this test
+    // starts failing because someone re-ordered the resolver, that exact live
+    // bug is back.
+    it('prefers the LIVE __aionBackend.getPort() over the frozen window.__backendPort (seat-switch respawn)', () => {
+      vi.stubGlobal('window', {
+        __backendPort: 34567, // boot-frozen value — the DEAD pre-switch port
+        __aionBackend: { getPort: () => 45678 }, // live port after the respawn
+      });
+
+      const result = getBaseUrl();
+
+      expect(result).toBe('http://127.0.0.1:45678');
+    });
+
+    it('falls back to the frozen window.__backendPort when the live getter is absent or dead', () => {
+      // No bridge at all → frozen value is the only signal.
+      vi.stubGlobal('window', { __backendPort: 34567 });
+      expect(getBaseUrl()).toBe('http://127.0.0.1:34567');
+
+      // Bridge present but reports no live port (respawn window) → frozen fallback.
+      vi.stubGlobal('window', {
+        __backendPort: 34567,
+        __aionBackend: { getPort: () => 0 },
+      });
+      expect(getBaseUrl()).toBe('http://127.0.0.1:34567');
+    });
   });
 
   describe('httpGet', () => {
