@@ -66,6 +66,7 @@ import path from 'path';
 import type { ClientSeedInput } from '@/common/config/creditsCore';
 import { isClientSeedSatisfied } from '@/common/config/creditsCore';
 import { resolveActiveSeatHome, resolveSeatHome } from '@process/commandEve/seatContextCore';
+import { stripYamlUnprintables } from '@process/commandEve/runtimeBootstrapCore';
 
 /** Schema tag for the on-disk per-seat seed marker. */
 export const COMMAND_EVE_COMPANY_BRAIN_SEED_SCHEMA = 'command-eve-company-brain-seed/v1';
@@ -214,11 +215,17 @@ export function writeCompanyBrainSeedToHome(args: {
   }
 
   const seededAt = (args.now?.() ?? new Date()).toISOString();
+  // F1 (HIGH) defense-in-depth: strip YAML-unprintables from the seed value at the
+  // PERSIST boundary so seed.json and brief.md never carry a control char that would
+  // later break the config.yaml environment_hint scalar (and silently drop the wheel
+  // to its memory-OFF defaults). \n \t \r are preserved — a pasted brief keeps its
+  // line structure; only C0(-\t\n\r)/DEL/C1/U+2028/U+2029 fold to a space.
+  const cleanValue = stripYamlUnprintables(seed.value);
   const record: CompanyBrainSeedRecord = {
     schema_version: COMMAND_EVE_COMPANY_BRAIN_SEED_SCHEMA,
     seeded_at: seededAt,
     kind: seed.kind,
-    value: seed.value,
+    value: cleanValue,
   };
 
   const brainDir = path.join(hermesHome, COMPANY_BRAIN_DIR);
@@ -235,7 +242,7 @@ export function writeCompanyBrainSeedToHome(args: {
   //    workspace-confined HERMES_HOME), and the §SEAT USER.md stamp
   //    (userMdTierStampCore) links to exactly this path. connect_client stores
   //    the client entity as a one-liner; paste_brief stores the whole brief.
-  writeFileAtomic(briefPath, `${seed.value.replace(/\s+$/, '')}\n`);
+  writeFileAtomic(briefPath, `${cleanValue.replace(/\s+$/, '')}\n`);
 
   // 3) Migration: kill any stale legacy root-MEMORY.md seed block (dead write —
   //    the wheel never loaded it). Idempotent; foreign content is preserved.

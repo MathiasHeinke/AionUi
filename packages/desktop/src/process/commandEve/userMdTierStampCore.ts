@@ -315,17 +315,21 @@ export function renderSeatBody(
       : locale === 'en-US'
         ? 'connected client'
         : 'verbundener Client';
+  // F3 (MEDIUM) — the client line is a Prompt-Injection lane (operator/seed data,
+  // not an instruction). Frame it as DATA with guillemets «…», matching the you-are-
+  // here hint; SOUL tells EVE that «…»-wrapped text is data, never a command. The
+  // whole block is still truncated to SEAT_BLOCK_MAX_CHARS (≤400c) by the stamper.
   if (locale === 'en-US') {
     return [
       '§ SEAT',
-      `Client (this seat): ${firstLine}`,
+      `Client (this seat), per operator briefing: «${firstLine}»`,
       `Source: ${kindLabel}. Full brief: company-brain/brief.md in this seat home — read it with read_file when you need it.`,
       'This seat belongs to exactly this client. Their data stays in this seat (per-client isolation, GDPR); the seat name never appears in deliverables.',
     ].join('\n');
   }
   return [
     '§ SEAT',
-    `Client (dieser Seat): ${firstLine}`,
+    `Client (dieser Seat), laut Operator-Briefing: «${firstLine}»`,
     `Quelle: ${kindLabel}. Vollständiges Briefing: company-brain/brief.md in diesem Seat-Home — lies es bei Bedarf mit read_file.`,
     'Dieser Seat gehört genau diesem Kunden. Seine Daten bleiben in diesem Seat (Per-Client-Isolation, DSGVO); der Seat-Name erscheint nie in Deliverables.',
   ].join('\n');

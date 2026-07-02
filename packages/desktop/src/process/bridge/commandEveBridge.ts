@@ -89,7 +89,7 @@ import { getActiveSeatId, resolveActiveSeatHome, sanitizeSeatId } from '@process
 import { isSeatSwitchAuthorized, parseMySeats, resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
 import { readMySeatsWire as readMySeatsWireCore } from '@process/commandEve/seatWireFetchCore';
 import { readCompanyBrainSeedState, writeCompanyBrainSeed } from '@process/commandEve/companyBrainSeedCore';
-import { listEntries, readEntryBody, reconcileUnindexedEntries, removeEntry, upsertEntry, type CompanyBrainWriteKind } from '@process/commandEve/companyBrainStoreCore';
+import { COMMAND_EVE_DAY_ZERO_BRIEF_ID, listEntries, mirrorBriefBodyToFile, readEntryBody, reconcileUnindexedEntries, removeEntry, upsertEntry, type CompanyBrainWriteKind } from '@process/commandEve/companyBrainStoreCore';
 import {
   createElectronPdfRenderer,
   exportReport,
@@ -181,6 +181,13 @@ async function persistActiveSeatPointer(seatId: string): Promise<void> {
  * throw here is caught by the caller so it can never fail the switch.
  */
 async function resolveCommandEveWorkerRuntimeInputsForSwitch(): Promise<{
+  /**
+   * F7 (MEDIUM): FALSE when the settings read THREW (backend unreachable) — as
+   * opposed to a reachable-but-empty config. The caller uses this to SKIP a
+   * provisioning re-write with degraded inputs (which would otherwise silently
+   * strip the Claude-delegate SOUL directive), leaving last-known-good files.
+   */
+  reachable: boolean;
   codexRuntime: string;
   claudeDelegate: import('@/common/config/eveWorkerAssignmentCore').ResolvedClaudeDelegate | null;
 }> {
@@ -203,12 +210,15 @@ async function resolveCommandEveWorkerRuntimeInputsForSwitch(): Promise<{
     const statuses =
       statusesRaw && typeof statusesRaw === 'object' ? (statusesRaw as EveTeamWorkerStatusMap) : ({} as EveTeamWorkerStatusMap);
     return {
+      reachable: true,
       codexRuntime: codexRuntimeForConfig(assignments),
       claudeDelegate: resolveAssignedClaudeDelegate(assignments, statuses),
     };
   } catch (error) {
-    console.warn('[Command EVE] seat-switch worker-runtime input resolver failed; no external worker wired for the target seat:', error);
-    return { codexRuntime: '', claudeDelegate: null };
+    // F7: the settings READ threw → backend unreachable. Report reachable:false so
+    // the switch's prepareEnv does NOT re-provision on degraded (empty) inputs.
+    console.warn('[Command EVE] seat-switch worker-runtime input read UNREACHABLE; last-known-good runtime files will be kept (no re-provision):', error);
+    return { reachable: false, codexRuntime: '', claudeDelegate: null };
   }
 }
 
@@ -271,6 +281,30 @@ function guardKanbanMutationDuringSwitch<V extends string>(
     success: false,
     msg: 'SEAT_SWITCH_IN_PROGRESS',
     data: { version, ok: false, status: 'blocked', reason_code: 'SEAT_SWITCH_IN_PROGRESS', message },
+  };
+}
+
+/**
+ * F4 (HIGH) — MID-SWITCH COMPANY-BRAIN WRITE-FENCE (HOTFIX-A class). Same sacred
+ * invariant as the kanban fence, applied to the per-seat Company Brain: a brain
+ * WRITE / REMOVE must never land in the WRONG seat's company-brain/ while a seat
+ * switch is in flight. The switch sets the active-seat pointer (setActiveSeatId)
+ * BEFORE the ~seconds-long backend re-spawn completes; during that window the main
+ * loop still services IPC, so a brain mutation resolved via resolveActiveSeatHome()
+ * would write seat-A's knowledge into seat-B's home (cross-client contamination).
+ * This is the brain twin of guardKanbanMutationDuringSwitch over the SAME single
+ * `commandEveSwitchSeatInFlight` boolean, so the fence opens/closes exactly with the
+ * switch. Fail-closed with the brain envelope shape { ok:false, reason_code } the T3
+ * UI already reads. Reads (list/read) are NOT write-fenced — only writes can
+ * contaminate — but list SKIPS its reconcile while a switch is in flight (below).
+ */
+function guardBrainMutationDuringSwitch(): { success: false; msg: string; data: { ok: false; reason_code: 'SEAT_SWITCH_IN_PROGRESS'; message: string } } | null {
+  if (!commandEveSwitchSeatInFlight) return null;
+  const message = 'A seat switch is in progress — the Company-Brain write was refused to protect per-seat isolation.';
+  return {
+    success: false,
+    msg: 'SEAT_SWITCH_IN_PROGRESS',
+    data: { ok: false, reason_code: 'SEAT_SWITCH_IN_PROGRESS', message },
   };
 }
 
@@ -626,6 +660,28 @@ export function initCommandEveBridge(): void {
           return { success: false, msg: 'Missing seed payload.', data: null as unknown };
         }
         const result = writeCompanyBrainSeed({ userDataPath: getDataPath(), seed });
+        // F5 (HIGH): on a post-T2 seat the empty day-zero scaffold (brain.json) is
+        // ALWAYS created before the first seed, so migrateSeedToBrain is a permanent
+        // no-op (it only migrates when brain.json is ABSENT) — the Seed button never
+        // produced a brain ENTRY. Fold the seed into a 'brief' entry HERE, right
+        // after a successful seed write, under the SAME stable id the migration uses
+        // (COMMAND_EVE_DAY_ZERO_BRIEF_ID) so a second seed UPDATES it (no duplicate).
+        // Best-effort: the seed write already succeeded; a failed upsert must not turn
+        // the seed into an error, so it is logged and swallowed.
+        if (result.ok) {
+          try {
+            upsertEntry(result.hermesHome, {
+              id: COMMAND_EVE_DAY_ZERO_BRIEF_ID,
+              kind: 'brief',
+              title: 'Day-0 Briefing',
+              body: result.record.value,
+              author: 'user',
+              source: 'seed-migration',
+            });
+          } catch (error) {
+            console.warn('[Command EVE] seed→brain brief entry upsert failed (seed itself succeeded):', error);
+          }
+        }
         return { success: result.ok, data: result as unknown };
       } catch (error) {
         return {
@@ -662,7 +718,14 @@ export function initCommandEveBridge(): void {
       // brain.json BEFORE listing, so opening the Company-Brain tab shows EVE's
       // fresh notes immediately. Best-effort + idempotent: never throws, never
       // rewrites an already-indexed entry.
-      reconcileUnindexedEntries(home);
+      // F4 (HIGH): reconcile is an INDEX WRITE (it can adopt .md files into
+      // brain.json). SKIP it while a seat switch is in flight — resolveActiveSeatHome
+      // may already point at the target seat while the backend still re-spawns, so a
+      // reconcile in this window could fold one seat's files into another's index.
+      // Listing itself is a harmless read and still returns the (un-reconciled) index.
+      if (!commandEveSwitchSeatInFlight) {
+        reconcileUnindexedEntries(home);
+      }
       const entries = listEntries(home);
       return { success: true, data: { ok: true, entries } as unknown };
     } catch (error) {
@@ -699,6 +762,10 @@ export function initCommandEveBridge(): void {
   bridge
     .buildProvider('command-eve.company-brain-write')
     .provider(async (request?: { id?: string; kind?: string; title?: string; body?: string }) => {
+      // F4 (HIGH): fence FIRST — refuse a brain write while a seat switch is in
+      // flight so it can never land in the wrong seat's company-brain/.
+      const fenced = guardBrainMutationDuringSwitch();
+      if (fenced) return fenced;
       try {
         if (!request || typeof request.kind !== 'string' || typeof request.title !== 'string') {
           return { success: false, msg: 'COMPANY_BRAIN_WRITE_BAD_REQUEST', data: { ok: false, reason_code: 'COMPANY_BRAIN_WRITE_BAD_REQUEST' } as unknown };
@@ -712,6 +779,12 @@ export function initCommandEveBridge(): void {
           author: 'user',
           source: 'settings',
         });
+        // F8 (MEDIUM): a 'brief'-kind edit must also refresh company-brain/brief.md
+        // (the file the §SEAT stamp points the agent at) so it never diverges from
+        // the brief entry. Best-effort — mirrorBriefBodyToFile never throws.
+        if (result.ok && result.entry.kind === 'brief') {
+          mirrorBriefBodyToFile(home, request.body ?? '');
+        }
         return { success: result.ok, data: { ok: result.ok, entry: result.entry, created: result.created } as unknown };
       } catch (error) {
         return {
@@ -723,6 +796,10 @@ export function initCommandEveBridge(): void {
     });
 
   bridge.buildProvider('command-eve.company-brain-remove').provider(async (request?: { id?: string }) => {
+    // F4 (HIGH): fence FIRST — refuse a brain remove while a seat switch is in
+    // flight so it can never delete from the wrong seat's company-brain/.
+    const fenced = guardBrainMutationDuringSwitch();
+    if (fenced) return fenced;
     try {
       if (!request || typeof request.id !== 'string') {
         return { success: false, msg: 'COMPANY_BRAIN_REMOVE_BAD_REQUEST', data: { ok: false, reason_code: 'COMPANY_BRAIN_REMOVE_BAD_REQUEST' } as unknown };
@@ -2283,23 +2360,34 @@ export function initCommandEveBridge(): void {
           // own skills/. BEST-EFFORT: a provisioning error must NOT fail the switch —
           // we log it (founder-self-detection) and let the switch proceed.
           try {
-            const workerInputs = await resolveCommandEveWorkerRuntimeInputsForSwitch();
-            const provisioned = provisionSeatRuntimeFiles({
-              userDataPath: getDataPath(),
-              resourcesPath: process.resourcesPath,
-              // Setting-driven language, identical to the boot bootstrap, so the
-              // target seat's SOUL.md defaults to the operator's UI language.
-              uiLanguage: ProcessConfig.getSync('language'),
-              ...workerInputs,
-            });
-            if (!provisioned.ok) {
+            const { reachable, ...workerInputs } = await resolveCommandEveWorkerRuntimeInputsForSwitch();
+            // F7 (MEDIUM): if the backend was UNREACHABLE, do NOT re-provision. A
+            // provision run with the degraded (empty) inputs would rewrite the
+            // target seat's SOUL.md/config.yaml WITHOUT the Claude-delegate directive
+            // (silent capability loss). Skipping keeps the last-known-good files that
+            // a prior reachable provisioning wrote. Self-detected via console.warn.
+            if (!reachable) {
               console.warn(
-                `[Command EVE] Seat-switch runtime provisioning failed for ${sanitizedTarget ?? targetSeatId} (${provisioned.hermes_home}); the switch proceeds on best-effort. Cause: ${provisioned.error ?? 'unknown'}`
+                `[Command EVE] Seat-switch runtime provisioning SKIPPED for ${sanitizedTarget ?? targetSeatId}: backend settings unreachable; keeping last-known-good runtime files (no degraded re-write).`
               );
-            } else if (provisioned.bundled_skill_failures.length) {
-              console.warn(
-                `[Command EVE] Seat-switch runtime provisioning: bundled EVE strategy skills missing/invalid for ${sanitizedTarget ?? targetSeatId}: ${provisioned.bundled_skill_failures.join(', ')}`
-              );
+            } else {
+              const provisioned = provisionSeatRuntimeFiles({
+                userDataPath: getDataPath(),
+                resourcesPath: process.resourcesPath,
+                // Setting-driven language, identical to the boot bootstrap, so the
+                // target seat's SOUL.md defaults to the operator's UI language.
+                uiLanguage: ProcessConfig.getSync('language'),
+                ...workerInputs,
+              });
+              if (!provisioned.ok) {
+                console.warn(
+                  `[Command EVE] Seat-switch runtime provisioning failed for ${sanitizedTarget ?? targetSeatId} (${provisioned.hermes_home}); the switch proceeds on best-effort. Cause: ${provisioned.error ?? 'unknown'}`
+                );
+              } else if (provisioned.bundled_skill_failures.length) {
+                console.warn(
+                  `[Command EVE] Seat-switch runtime provisioning: bundled EVE strategy skills missing/invalid for ${sanitizedTarget ?? targetSeatId}: ${provisioned.bundled_skill_failures.join(', ')}`
+                );
+              }
             }
           } catch (error) {
             // Defensive: the resolver / import path itself failing must not fail the switch.

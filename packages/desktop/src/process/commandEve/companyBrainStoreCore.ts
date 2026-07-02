@@ -332,23 +332,47 @@ export function upsertEntry(hermesHome: string, input: UpsertEntryInput): Upsert
     body_file,
   };
 
-  // 1) body first (atomic) — the index only points at bodies that exist.
+  // F6 (MEDIUM) — STAGED body write to defeat reconciler resurrection. A CREATE
+  // writes the body to `.staging-<id>.md` FIRST (a dotfile — the reconciler skips
+  // dotfiles, so a crash between the body write and the index commit leaves an
+  // UN-adoptable staging file, not an orphan the reconciler folds in as an eve
+  // note). The index is committed, THEN the staging file is renamed onto the final
+  // `<id>.md`. An EDIT (existing id already in the index) writes `<id>.md` directly
+  // — it is already referenced, so there is no resurrection window to protect.
   const bodyPath = path.join(entriesDirOf(hermesHome), `${id}.md`);
-  writeFileAtomic(bodyPath, `${(input.body ?? '').replace(/\s+$/, '')}\n`);
+  const bodyContents = `${(input.body ?? '').replace(/\s+$/, '')}\n`;
+  const stagingPath = path.join(entriesDirOf(hermesHome), `.staging-${id}.md`);
+  if (created) {
+    writeFileAtomic(stagingPath, bodyContents);
+  } else {
+    writeFileAtomic(bodyPath, bodyContents);
+  }
 
-  // 2) index last (atomic) — replace-in-place on edit, append on create.
+  // 2) index (atomic) — replace-in-place on edit, append on create.
   const nextEntries = created ? [...index.entries, entry] : index.entries.map((e) => (e.id === id ? entry : e));
   const nextIndex: CompanyBrainIndex = { schema_version: COMMAND_EVE_COMPANY_BRAIN_SCHEMA, entries: nextEntries };
   writeIndex(hermesHome, nextIndex);
+
+  // 3) CREATE only: promote the staging body onto the final name AFTER the index
+  //    references it (crash here → next reconcile skips the dotfile; the indexed
+  //    entry's body reads as null until a re-edit, never resurrected as an eve note).
+  if (created) {
+    fs.renameSync(stagingPath, bodyPath);
+  }
 
   return { ok: true, index: nextIndex, entry, bodyPath, created };
 }
 
 /**
- * Remove an entry: drop it from the index (atomic), then best-effort unlink its body
- * file. The index is updated first so a failed unlink never leaves a dangling index
- * slot. Idempotent — removing an absent id rewrites the same index and reports
- * removed:false.
+ * Remove an entry. F6 (MEDIUM) — ORDER INVERTED: the body file is UNLINKED FIRST,
+ * and only THEN is the index rewritten (atomic). This is the reconciler-safe order:
+ * the sole tolerated crash window is "index slot without a body" (a dangling slot
+ * whose readEntryBody returns null — harmless, self-heals on the next remove/edit).
+ * The DANGEROUS order (index-first) leaves "body on disk, no index slot" — which the
+ * T4 reconciler then RESURRECTS as an author:'eve' note, un-deleting what the user
+ * just deleted. If the unlink FAILS (e.g. EPERM) we do NOT rewrite the index — the
+ * entry stays fully present (fail-closed: never half-remove). Idempotent — removing
+ * an absent id unlinks nothing and rewrites the same index (removed:false).
  */
 export function removeEntry(hermesHome: string, id: string): RemoveEntryResult {
   assertAbsoluteHome(hermesHome);
@@ -356,16 +380,42 @@ export function removeEntry(hermesHome: string, id: string): RemoveEntryResult {
   const index = readBrainIndex(hermesHome);
   const nextEntries = index.entries.filter((e) => e.id !== safeId);
   const removed = nextEntries.length !== index.entries.length;
-  const nextIndex: CompanyBrainIndex = { schema_version: COMMAND_EVE_COMPANY_BRAIN_SCHEMA, entries: nextEntries };
-  writeIndex(hermesHome, nextIndex);
+
   if (removed) {
+    // 1) body FIRST. If the unlink throws (not merely absent), abort WITHOUT
+    //    touching the index so the entry is never left as an index-less body the
+    //    reconciler would adopt. fs.rmSync({force:true}) does not throw on ENOENT.
     try {
       fs.rmSync(path.join(entriesDirOf(hermesHome), `${safeId}.md`), { force: true });
     } catch {
-      /* best-effort — the index is already correct */
+      return { ok: false, index, removed: false };
     }
   }
+
+  // 2) index LAST — the tolerated residue is a dangling index slot, never an
+  //    orphan body. A no-op remove still rewrites the identical index (idempotent).
+  const nextIndex: CompanyBrainIndex = { schema_version: COMMAND_EVE_COMPANY_BRAIN_SCHEMA, entries: nextEntries };
+  writeIndex(hermesHome, nextIndex);
   return { ok: true, index: nextIndex, removed };
+}
+
+/**
+ * F8 (MEDIUM) — MIRROR a 'brief' body onto company-brain/brief.md. The §SEAT USER.md
+ * stamp points the agent at company-brain/brief.md, but a T3 edit of the day-0 brief
+ * updates only the brain ENTRY (entries/<id>.md) — so brief.md and the brief entry
+ * diverged (the agent kept reading the stale brief.md). This atomically writes the
+ * brief body onto <home>/company-brain/brief.md at 0600 (the SAME file + posture the
+ * seed writer uses), keeping the two in sync. Best-effort by contract: it NEVER
+ * throws — a failed mirror must not fail the upsert. Only 'brief'-kind edits call it.
+ */
+export function mirrorBriefBodyToFile(hermesHome: string, body: string): boolean {
+  try {
+    assertAbsoluteHome(hermesHome);
+    writeFileAtomic(path.join(brainDirOf(hermesHome), 'brief.md'), `${(body ?? '').replace(/\s+$/, '')}\n`);
+    return true;
+  } catch {
+    return false; // best-effort — the upsert already succeeded
+  }
 }
 
 /**
@@ -437,6 +487,9 @@ export function migrateSeedToBrain(hermesHome: string, opts?: { now?: () => Date
   }
 
   const result = upsertEntry(hermesHome, {
+    // F5: STABLE day-0 id so a legacy migration converges with a later seed IPC
+    // upsert (same id → UPDATE, never a duplicate Day-0 entry).
+    id: COMMAND_EVE_DAY_ZERO_BRIEF_ID,
     kind: 'brief',
     title: 'Day-0 Briefing',
     body,
@@ -449,6 +502,14 @@ export function migrateSeedToBrain(hermesHome: string, opts?: { now?: () => Date
 
 /** The title of an EVE-authored note whose body has no leading '# ' heading. */
 const EVE_NOTE_FALLBACK_TITLE = 'EVE-Notiz';
+
+/**
+ * STABLE id for the day-0 briefing entry (F5). Both the seed IPC handler's
+ * best-effort upsert AND the v1→v2 migration use this SAME id, so a re-seed / a
+ * legacy migration UPDATES the one Day-0 entry in place instead of duplicating it —
+ * the seed→entry path converges on exactly one 'brief' entry per seat.
+ */
+export const COMMAND_EVE_DAY_ZERO_BRIEF_ID = 'brief-day-0';
 
 /** Result of a reconcile pass (T4 — EVE write-path intake). */
 export interface ReconcileResult {

@@ -15,13 +15,14 @@
  * it runs against tmp dirs with no Electron.
  */
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
 import {
   COMMAND_EVE_COMPANY_BRAIN_SCHEMA,
+  COMMAND_EVE_DAY_ZERO_BRIEF_ID,
   ENTRIES_SUBDIR,
   assertEntryId,
   ensureCompanyBrainReady,
@@ -29,6 +30,7 @@ import {
   isWritableKind,
   listEntries,
   migrateSeedToBrain,
+  mirrorBriefBodyToFile,
   readBrainIndex,
   readEntryBody,
   reconcileUnindexedEntries,
@@ -433,5 +435,116 @@ describe('T4 reconciler — EVE write-path intake (unindexed entries/*.md → br
     fs.writeFileSync(path.join(entriesDir(home), 'note-later.md'), '# Später gelernt');
     const idx = ensureCompanyBrainReady(home); // next boot/switch reconciles
     expect(idx.entries.some((e) => e.id === 'note-later' && e.author === 'eve')).toBe(true);
+  });
+});
+
+describe('T4.5 audit hotfixes — F5 / F6 / F8', () => {
+  const entriesDir = (home: string) => path.join(home, COMPANY_BRAIN_DIR, ENTRIES_SUBDIR);
+
+  // ── F5 — stable day-0 id: a re-seed UPDATES the same brief entry (no duplicate) ─
+  it('F5: migration uses the stable day-0 brief id and a second seed UPDATES it (no duplicate)', () => {
+    const home = makeHome();
+    // A v1 seed exists BUT brain.json is absent → migration folds it into ONE brief.
+    writeCompanyBrainSeedToHome({ hermesHome: home, seed: { kind: 'paste_brief', value: 'Erstes Briefing' } });
+    const first = migrateSeedToBrain(home, { now: fixedClock('2026-07-02T10:00:00.000Z') });
+    expect(first.migrated).toBe(true);
+    const briefs = first.index.entries.filter((e) => e.kind === 'brief');
+    expect(briefs).toHaveLength(1);
+    expect(briefs[0].id).toBe(COMMAND_EVE_DAY_ZERO_BRIEF_ID);
+
+    // A later re-seed via upsert on the SAME stable id UPDATES in place — never a 2nd brief.
+    const updated = upsertEntry(home, {
+      id: COMMAND_EVE_DAY_ZERO_BRIEF_ID,
+      kind: 'brief',
+      title: 'Day-0 Briefing',
+      body: 'Zweites, aktualisiertes Briefing',
+      author: 'user',
+      source: 'seed-migration',
+    });
+    expect(updated.created).toBe(false);
+    const afterBriefs = readBrainIndex(home).entries.filter((e) => e.kind === 'brief');
+    expect(afterBriefs).toHaveLength(1);
+    expect(afterBriefs[0].id).toBe(COMMAND_EVE_DAY_ZERO_BRIEF_ID);
+    expect(readEntryBody(home, COMMAND_EVE_DAY_ZERO_BRIEF_ID)).toContain('Zweites, aktualisiertes Briefing');
+  });
+
+  it('F5: seed→entry works on a post-T2 seat (empty scaffold already present) via a direct stable-id upsert', () => {
+    const home = makeHome();
+    // Post-T2: the empty day-zero scaffold ALWAYS exists before the first seed, so
+    // migrateSeedToBrain is a permanent no-op — the entry must come from the upsert.
+    ensureCompanyBrainScaffold(home);
+    expect(migrateSeedToBrain(home).migrated).toBe(false); // no-op: brain.json already present
+    upsertEntry(home, {
+      id: COMMAND_EVE_DAY_ZERO_BRIEF_ID,
+      kind: 'brief',
+      title: 'Day-0 Briefing',
+      body: 'Der Brief',
+      author: 'user',
+      source: 'seed-migration',
+    });
+    const briefs = readBrainIndex(home).entries.filter((e) => e.kind === 'brief');
+    expect(briefs).toHaveLength(1);
+    expect(briefs[0].id).toBe(COMMAND_EVE_DAY_ZERO_BRIEF_ID);
+  });
+
+  // ── F6 — reconciler resurrection defence ──────────────────────────────────────
+  it('F6: a FAILED unlink (EPERM) leaves the entry PRESENT (fail-closed remove, never half-removed)', () => {
+    const home = makeHome();
+    const created = upsertEntry(home, { kind: 'note', title: 'Keeper', body: 'stays' });
+    const id = created.entry.id;
+
+    // Force fs.rmSync to throw (EPERM-class) once.
+    const rmSpy = vi.spyOn(fs, 'rmSync').mockImplementationOnce(() => {
+      throw Object.assign(new Error('EPERM'), { code: 'EPERM' });
+    });
+    const res = removeEntry(home, id);
+    rmSpy.mockRestore();
+
+    // Fail-closed: not removed, index untouched, body still there → reconcile can't
+    // resurrect a half-removed entry (there is no orphan body without an index slot).
+    expect(res.ok).toBe(false);
+    expect(res.removed).toBe(false);
+    expect(readBrainIndex(home).entries.some((e) => e.id === id)).toBe(true);
+    const reconciled = reconcileUnindexedEntries(home);
+    expect(reconciled.adopted).toBe(0); // nothing to adopt — the body is still indexed
+  });
+
+  it('F6: crash window "staging body on disk, index without it" is NOT adopted (staging is a dotfile)', () => {
+    const home = makeHome();
+    ensureCompanyBrainScaffold(home);
+    // Simulate a CREATE that crashed after the staging write but before the index
+    // commit + rename: a .staging-<id>.md dotfile sits in entries/ with no index slot.
+    fs.writeFileSync(path.join(entriesDir(home), `.staging-note-crashed.md`), '# Crashed mid-write\nbody');
+    const res = reconcileUnindexedEntries(home);
+    // The reconciler skips dotfiles — the crashed staging body is NOT resurrected as an eve note.
+    expect(res.adopted).toBe(0);
+    expect(readBrainIndex(home).entries.some((e) => e.id === 'note-crashed')).toBe(false);
+  });
+
+  it('F6: upsert CREATE promotes the staging body onto the final name and the entry reads back', () => {
+    const home = makeHome();
+    const res = upsertEntry(home, { kind: 'note', title: 'Staged', body: 'final body' });
+    // After a successful create there is NO leftover staging dotfile, and the final
+    // <id>.md exists + reads back through the index.
+    const leftovers = fs.readdirSync(entriesDir(home)).filter((n) => n.startsWith('.staging-'));
+    expect(leftovers).toEqual([]);
+    expect(fs.existsSync(bodyOf(home, res.entry.id))).toBe(true);
+    expect(readEntryBody(home, res.entry.id)).toBe('final body\n');
+  });
+
+  // ── F8 — brief.md ↔ brief-entry sync ──────────────────────────────────────────
+  it('F8: mirrorBriefBodyToFile writes company-brain/brief.md (0600, best-effort)', () => {
+    const home = makeHome();
+    ensureCompanyBrainScaffold(home);
+    expect(mirrorBriefBodyToFile(home, 'Der aktualisierte Brief')).toBe(true);
+    const briefPath = path.join(home, COMPANY_BRAIN_DIR, 'brief.md');
+    expect(fs.readFileSync(briefPath, 'utf8')).toBe('Der aktualisierte Brief\n');
+    if (process.platform !== 'win32') {
+      expect(fs.statSync(briefPath).mode & 0o777).toBe(0o600);
+    }
+  });
+
+  it('F8: mirrorBriefBodyToFile never throws on a bad home (returns false)', () => {
+    expect(mirrorBriefBodyToFile('relative/not/absolute', 'x')).toBe(false);
   });
 });

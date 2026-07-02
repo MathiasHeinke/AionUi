@@ -194,3 +194,50 @@ describe('company-brain store providers (real bridge seam)', () => {
     expect(res.data?.ok).toBe(false);
   });
 });
+
+describe('T4.5 F5 / F8 — seed→brief entry + brief.md sync (real bridge seam)', () => {
+  it('F5: a Day-0 seed on a seat with an EXISTING empty brain creates a brief entry, and a second seed UPDATES it (no duplicate)', async () => {
+    const home = resolveSeatHome(dataRoot, SEAT).hermesHome;
+
+    // First seed → a 'brief' entry appears under the stable day-0 id.
+    const first = await call('command-eve.company-brain-seed', { seed: { kind: 'paste_brief', value: 'Erstes Briefing' } });
+    expect(first.success).toBe(true);
+    const afterFirst = (await call('command-eve.company-brain-list')).data?.entries ?? [];
+    const briefs1 = afterFirst.filter((e) => (e as { kind?: string }).kind === 'brief');
+    expect(briefs1).toHaveLength(1);
+    expect(briefs1[0].id).toBe('brief-day-0');
+
+    // Second seed → SAME entry updated, still exactly one brief (no duplicate).
+    const second = await call('command-eve.company-brain-seed', { seed: { kind: 'paste_brief', value: 'Zweites Briefing' } });
+    expect(second.success).toBe(true);
+    const afterSecond = (await call('command-eve.company-brain-list')).data?.entries ?? [];
+    const briefs2 = afterSecond.filter((e) => (e as { kind?: string }).kind === 'brief');
+    expect(briefs2).toHaveLength(1);
+    expect(briefs2[0].id).toBe('brief-day-0');
+    // The brief entry body reflects the latest seed.
+    const read = await call('command-eve.company-brain-read', { id: 'brief-day-0' });
+    expect((read.data as { body?: string }).body).toContain('Zweites Briefing');
+    // brief.md exists (seed writer) under this seat home.
+    expect(fs.existsSync(path.join(home, COMPANY_BRAIN_DIR, 'brief.md'))).toBe(true);
+  });
+
+  it('F8: editing the brief entry through WRITE also refreshes company-brain/brief.md', async () => {
+    const home = resolveSeatHome(dataRoot, SEAT).hermesHome;
+    // Seed first so a brief entry + brief.md exist.
+    await call('command-eve.company-brain-seed', { seed: { kind: 'paste_brief', value: 'Original' } });
+
+    // Edit the brief entry via the write handler (kind: 'brief', same id).
+    const edited = await call('command-eve.company-brain-write', {
+      id: 'brief-day-0',
+      kind: 'brief',
+      title: 'Day-0 Briefing',
+      body: 'Editiertes Briefing über die Settings-UI',
+    });
+    expect(edited.success).toBe(true);
+
+    // F8: brief.md is now in sync with the edited entry (no divergence).
+    const briefMd = fs.readFileSync(path.join(home, COMPANY_BRAIN_DIR, 'brief.md'), 'utf8');
+    expect(briefMd).toContain('Editiertes Briefing über die Settings-UI');
+    expect(briefMd).not.toContain('Original');
+  });
+});
