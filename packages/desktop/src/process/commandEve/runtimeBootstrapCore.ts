@@ -2853,6 +2853,154 @@ function buildReceipt(options: {
   };
 }
 
+/** Inputs for a seat-home runtime-file provisioning pass. A strict SUBSET of
+ * RuntimeBootstrapOptions — only the fields writeHermesRuntimeFiles genuinely
+ * consumes to shape the emitted config.yaml / SOUL.md / managed skills. */
+export type ProvisionSeatRuntimeFilesOptions = {
+  userDataPath: string;
+  appPath?: string;
+  resourcesPath?: string;
+  manifestPath?: string;
+  capabilityManifestPath?: string;
+  env?: NodeJS.ProcessEnv;
+  /** The seat whose home to provision. Defaults to the ACTIVE seat (getActiveSeatId). */
+  seatId?: string | null;
+  uiLanguage?: string;
+  codexRuntime?: string;
+  claudeDelegate?: RuntimeBootstrapOptions['claudeDelegate'];
+};
+
+export type ProvisionSeatRuntimeFilesResult = {
+  ok: boolean;
+  hermes_home: string;
+  /** True when the emitted config.yaml carries memory_enabled: true (the wheel default is OFF). */
+  memory_enabled: boolean;
+  /** Missing/invalid bundled strategy skills (empty = all landed, or no snapshot path). */
+  bundled_skill_failures: string[];
+  /** Set when provisioning threw (best-effort — the caller must NOT fail the switch). */
+  error?: string;
+};
+
+/**
+ * PROVISION THE DESKTOP-OWNED HERMES RUNTIME FILES FOR AN ARBITRARY SEAT HOME
+ * (T0 — the per-seat-runtime-provisioning fix).
+ *
+ * THE BUG this closes: writeHermesRuntimeFiles (config.yaml with
+ * memory_enabled/user_profile_enabled/nudge intervals/data_boundary, SOUL.md, the
+ * skills-command-eve copy) is written ONLY by ensureCommandEveRuntimeBootstrap for
+ * the BOOT-ACTIVE seat home — and at boot the active seat is ALWAYS the
+ * legacy/founder home (there is no boot-restore of a saved seat; index.ts:1395).
+ * A seat SWITCH re-homes HERMES_HOME + re-spawns the agent, but never wrote these
+ * files into the TARGET client seat home. So every real client seat ran the Hermes
+ * agent on WHEEL DEFAULTS — memory_enabled=FALSE (agent_init.py), no SOUL.md, no
+ * EVE skills. This is the idempotent naht that provisions ANY seat home so the
+ * switch lifecycle can call it for the target seat right after prepareEnv.
+ *
+ * IDEMPOTENT + SAFE: it writes ONLY the Desktop-OWNED files (config.yaml, SOUL.md,
+ * the skills-command-eve copy, the wrapper/shim/provider-override/context-cache/
+ * reconciliation) via the SAME writeHermesRuntimeFiles the boot path uses — same
+ * 0600 modes, same byte-deterministic content for identical inputs. It NEVER
+ * touches EVE-GROWN state: memories/ (USER.md/MEMORY.md) and the agent's primary
+ * skills/ dir are not seeded here (seedFounderUserProfile / the agent's own writes
+ * own those), so a second call is byte-idempotent and anything EVE grew survives.
+ *
+ * SHARED INFRA IS NOT RE-RUN: the python venv / hermes install / ollama / model
+ * pull are shared across seats (hermesRoot, not the seat home) and were already
+ * done at boot — this pass is purely the seat-home FILE emit, so it is fast and
+ * never blocks a switch.
+ *
+ * BEST-EFFORT: every failure is caught and returned in the result (ok:false +
+ * error); the caller (the seat-switch prepareEnv thunk) logs it via console.warn
+ * and proceeds — a provisioning error must NEVER fail the switch.
+ */
+export function provisionSeatRuntimeFiles(
+  options: ProvisionSeatRuntimeFilesOptions
+): ProvisionSeatRuntimeFilesResult {
+  const env = { ...process.env, ...options.env };
+  const seatId = options.seatId === undefined ? getActiveSeatId() : options.seatId;
+  // resolveCommandEveRuntimeBootstrapPaths THROWS on a crafted/unsafe seat id
+  // (path-traversal guard) rather than falling back to a shared home — surface it
+  // as a best-effort failure so a bad target can never provision the wrong home.
+  let paths: RuntimeBootstrapPaths;
+  try {
+    paths = resolveCommandEveRuntimeBootstrapPaths(options.userDataPath, seatId);
+  } catch (error) {
+    return {
+      ok: false,
+      hermes_home: '',
+      memory_enabled: false,
+      bundled_skill_failures: [],
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  try {
+    // Resolve the SAME inputs the boot path resolves (loadCommandEve* fall back to
+    // the embedded defaults when no manifest file is found, so this is safe headless).
+    const manifestPath = resolveCommandEveRuntimeBootstrapManifestPath(options);
+    const capabilityManifestPath = resolveCommandEveCapabilityManifestPath(options);
+    let manifest = DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST;
+    try {
+      manifest = loadCommandEveRuntimeBootstrapManifest(manifestPath);
+    } catch {
+      manifest = DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST;
+    }
+    let capabilityPack = DEFAULT_COMMAND_EVE_CAPABILITY_PACK;
+    try {
+      capabilityPack = loadCommandEveCapabilityPack(capabilityManifestPath);
+    } catch {
+      capabilityPack = DEFAULT_COMMAND_EVE_CAPABILITY_PACK;
+    }
+    const preferredTierId = compact(env.COMMAND_EVE_LOCAL_MODEL_TIER);
+    const tier = selectRuntimeBootstrapTier(manifest, preferredTierId);
+    const runtimeModelRef = commandEveOllamaContextModelRef(tier.model_ref, tierOllamaNumCtx(tier));
+    const bundledSkillsDir = resolveBundledSkillsDir(env, options.resourcesPath);
+    const founderOpsSkillsDir = resolveFounderOpsSkillsDir(env);
+
+    ensureDir(paths.hermesHome);
+    const bundledSkillFailures = writeHermesRuntimeFiles(
+      paths,
+      manifest,
+      tier,
+      capabilityPack,
+      runtimeModelRef,
+      DEFAULT_COMMAND_EVE_REASONING_EFFORT,
+      DEFAULT_COMMAND_EVE_CREATION_NUDGE_INTERVAL,
+      bundledSkillsDir,
+      options.uiLanguage ?? '',
+      founderOpsSkillsDir,
+      options.codexRuntime ?? '',
+      options.claudeDelegate ?? null,
+      // MCP-vault feeder deps (arch §8) — READY for the GATE-NULL flip but INERT
+      // today (COMMAND_EVE_MCP_VAULT_ENABLED default false), so the emitted
+      // config.yaml stays byte-identical to the boot path's `mcp_servers: {}`.
+      {
+        userDataPath: paths.userDataPath,
+        configRoot: paths.hermesRoot,
+        mcpInvocationFor: buildMcpInvocationResolver({
+          env,
+          companyOsRoot: compact(env.COMMAND_EVE_COMPANY_OS_ROOT) || undefined,
+        }),
+      }
+    );
+
+    return {
+      ok: true,
+      hermes_home: paths.hermesHome,
+      memory_enabled: true, // writeHermesRuntimeFiles always emits `memory:\n  memory_enabled: true`
+      bundled_skill_failures: bundledSkillFailures,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      hermes_home: paths.hermesHome,
+      memory_enabled: false,
+      bundled_skill_failures: [],
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 export async function ensureCommandEveRuntimeBootstrap(
   options: RuntimeBootstrapOptions
 ): Promise<RuntimeBootstrapReceipt> {

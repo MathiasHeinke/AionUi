@@ -168,6 +168,49 @@ async function persistActiveSeatPointer(seatId: string): Promise<void> {
   void seatId;
 }
 
+/**
+ * T0 — resolve the CLI-Keystone worker-runtime inputs (codexRuntime + the
+ * status-allowed Claude ACP delegate) for a seat-switch provisioning pass. A
+ * bridge-local MIRROR of index.ts:resolveCommandEveWorkerRuntimeInputs so the
+ * TARGET seat's config.yaml/SOUL.md are shaped identically to the boot path: the
+ * worker assignments + team status are RENDERER-written keys living in the BACKEND
+ * settings store (not the main-process ProcessConfig), so we read them via the
+ * same batch backend reader. FAIL-SOFT: any read/parse failure yields ''/null (no
+ * delegate directive — byte-identical to a seat with no assigned worker), and a
+ * throw here is caught by the caller so it can never fail the switch.
+ */
+async function resolveCommandEveWorkerRuntimeInputsForSwitch(): Promise<{
+  codexRuntime: string;
+  claudeDelegate: import('@/common/config/eveWorkerAssignmentCore').ResolvedClaudeDelegate | null;
+}> {
+  try {
+    const { readCommandEveSettingsFromBackend } = await import('@process/commandEve/commandEveBackendSettingsRead');
+    const { codexRuntimeForConfig, resolveAssignedClaudeDelegate } = await import('@/common/config/eveWorkerAssignmentCore');
+    type EveWorkerAssignmentMap = import('@/common/config/eveWorkerAssignmentCore').EveWorkerAssignmentMap;
+    type EveTeamWorkerStatusMap = import('@/common/config/eveTeamControlsCore').EveTeamWorkerStatusMap;
+    const bag = await readCommandEveSettingsFromBackend(['commandEve.workerAssignments', 'commandEve.teamWorkerStatus']);
+    const assignmentsRaw = bag['commandEve.workerAssignments'];
+    const statusesRaw = bag['commandEve.teamWorkerStatus'];
+    const assignments =
+      assignmentsRaw && typeof assignmentsRaw === 'object'
+        ? (Object.fromEntries(
+            Object.entries(assignmentsRaw as Record<string, { kind: string; cli_path?: string; cli_version?: string }>).map(
+              ([id, v]) => [id, { agent_id: id, ...v }]
+            )
+          ) as EveWorkerAssignmentMap)
+        : ({} as EveWorkerAssignmentMap);
+    const statuses =
+      statusesRaw && typeof statusesRaw === 'object' ? (statusesRaw as EveTeamWorkerStatusMap) : ({} as EveTeamWorkerStatusMap);
+    return {
+      codexRuntime: codexRuntimeForConfig(assignments),
+      claudeDelegate: resolveAssignedClaudeDelegate(assignments, statuses),
+    };
+  } catch (error) {
+    console.warn('[Command EVE] seat-switch worker-runtime input resolver failed; no external worker wired for the target seat:', error);
+    return { codexRuntime: '', claudeDelegate: null };
+  }
+}
+
 // IN-FLIGHT LOCK for command-eve.switch-seat. A switch is a real STOP+RE-SPAWN of
 // the backend under a new HERMES_HOME; two overlapping switches would interleave
 // lifecycles (orphaned process, nondeterministic landing seat). The renderer's 45s
@@ -2121,7 +2164,7 @@ export function initCommandEveBridge(): void {
 
       const { applySeatSwitch } = await import('@process/commandEve/seatSwitchCore');
       const { restartCommandEveBackendForSeat } = await import('@process/commandEve/seatSwitchRuntime');
-      const { prepareCommandEveRuntimeProcessEnv } = await import('@process/commandEve/runtimeBootstrapCore');
+      const { prepareCommandEveRuntimeProcessEnv, provisionSeatRuntimeFiles } = await import('@process/commandEve/runtimeBootstrapCore');
       const { reconcileVaultConfigForSeatSwitch } = await import('@process/commandEve/reconcileHermesMcpConfigWiring');
 
       // Seat-Context-Bridge (B1): the target seat's DISPLAY LABEL comes from the
@@ -2134,6 +2177,43 @@ export function initCommandEveBridge(): void {
       const result = await applySeatSwitch(targetSeatId, {
         prepareEnv: async () => {
           prepareCommandEveRuntimeProcessEnv(getDataPath());
+          // T0 — PROVISION THE TARGET SEAT'S RUNTIME FILES. applySeatSwitch has
+          // already run setActiveSeatId(target) (step a), so getActiveSeatId() is the
+          // target and prepareCommandEveRuntimeProcessEnv just re-homed HERMES_HOME to
+          // the target seat's home. But the boot bootstrap only ever provisions the
+          // LEGACY/founder home (there is no boot-restore of a saved seat — index.ts
+          // ~1395), so a client seat's home has NO config.yaml/SOUL.md/skills-command-
+          // eve — the agent would boot on WHEEL DEFAULTS (memory_enabled=FALSE, no
+          // SOUL). Write the Desktop-OWNED files into the target home NOW, before
+          // applySeatSwitch's restartBackend re-spawns the agent (which is the very
+          // next step), so the fresh agent finds them. Idempotent + safe: it writes
+          // ONLY config.yaml/SOUL.md/skills-command-eve (+ wrapper/shim/reconciliation)
+          // exactly as boot does and NEVER touches EVE-grown memories/ or the agent's
+          // own skills/. BEST-EFFORT: a provisioning error must NOT fail the switch —
+          // we log it (founder-self-detection) and let the switch proceed.
+          try {
+            const workerInputs = await resolveCommandEveWorkerRuntimeInputsForSwitch();
+            const provisioned = provisionSeatRuntimeFiles({
+              userDataPath: getDataPath(),
+              resourcesPath: process.resourcesPath,
+              // Setting-driven language, identical to the boot bootstrap, so the
+              // target seat's SOUL.md defaults to the operator's UI language.
+              uiLanguage: ProcessConfig.getSync('language'),
+              ...workerInputs,
+            });
+            if (!provisioned.ok) {
+              console.warn(
+                `[Command EVE] Seat-switch runtime provisioning failed for ${sanitizedTarget ?? targetSeatId} (${provisioned.hermes_home}); the switch proceeds on best-effort. Cause: ${provisioned.error ?? 'unknown'}`
+              );
+            } else if (provisioned.bundled_skill_failures.length) {
+              console.warn(
+                `[Command EVE] Seat-switch runtime provisioning: bundled EVE strategy skills missing/invalid for ${sanitizedTarget ?? targetSeatId}: ${provisioned.bundled_skill_failures.join(', ')}`
+              );
+            }
+          } catch (error) {
+            // Defensive: the resolver / import path itself failing must not fail the switch.
+            console.warn('[Command EVE] Seat-switch runtime provisioning threw; the switch proceeds on best-effort:', error);
+          }
           // S5-P2 vault reconcile (arch §7): refresh the TARGET seat's config.yaml
           // from the vault BEFORE applySeatSwitch's own restartBackend — so a seat's
           // Founder-connectors are present on entry. respawnAfter:false because the
@@ -2141,6 +2221,8 @@ export function initCommandEveBridge(): void {
           // this prepareEnv). Behind COMMAND_EVE_MCP_VAULT_ENABLED (default false):
           // while off, the reRenderConfig closure is a no-op returning 0, so seat
           // switch behavior stays BYTE-IDENTICAL to today (no extra bootstrap run).
+          // Runs AFTER the base provisioning above so, once the flag is on, the vault
+          // re-render layers on top of a config.yaml that already exists.
           await reconcileVaultConfigForSeatSwitch();
         },
         restartBackend: () => restartCommandEveBackendForSeat(),
