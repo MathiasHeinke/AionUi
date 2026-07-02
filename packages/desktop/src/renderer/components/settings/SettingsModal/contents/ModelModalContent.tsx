@@ -15,7 +15,7 @@ import {
 import type { IProvider } from '@/common/config/storage';
 import { Button, Divider, Message, Popconfirm, Collapse, Tag, Switch, Tooltip } from '@arco-design/web-react';
 import { DeleteFour, Info, Minus, Plus, Write, Heartbeat } from '@icon-park/react';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import AddModelModal from '@/renderer/pages/settings/components/AddModelModal';
 import AddPlatformModal from '@/renderer/pages/settings/components/AddPlatformModal';
@@ -26,6 +26,7 @@ import { useProvidersQuery } from '@/renderer/hooks/agent/useModelProviderList';
 import { useSettingsViewMode } from '../settingsViewContext';
 import { consumePendingDeepLink } from '@/renderer/hooks/system/useDeepLink';
 import { useEntitlementGate } from '@/renderer/hooks/useEntitlementGate';
+import { useCreditsStatus } from '@renderer/hooks/useCreditsStatus';
 import { isModelByokAllowed } from '@/common/config/eveInferenceCore';
 import '../model-provider.css';
 
@@ -324,14 +325,28 @@ const ModelModalContent: React.FC = () => {
       });
   };
 
-  // BYOK (bring-your-own-key) gating (1.2.18 Req 4): adding an own model / API key
-  // (offline OR cloud — both flow through the "Add Platform" path) is unlocked
-  // ONLY for a PAID SEAT (Pro/CTO, 99€/Monat). Free AND trial entitlements are
-  // greyed out — they use EVE Standard + the local tiers. The discriminant is the
-  // main-process-derived has_paid_seat hint (entitled && non-trial); the server
-  // stays the binding gate for everything money-metered.
+  // BYOK (bring-your-own-key) gating (1.2.18 Req 4 + v1.5 M7): adding an own model
+  // / API key (offline OR cloud — both flow through the "Add Platform" path) is
+  // unlocked by EITHER paid path — a PAID CLIENT SEAT (has_paid_seat) OR an ACTIVE
+  // CREDIT SUBSCRIPTION (has_active_topup, from 25 €/Monat). Free AND trial
+  // entitlements are greyed out. Both discriminants are main-process-derived
+  // honest hints (has_paid_seat from the entitlement, has_active_topup from
+  // credits-status); the server stays the binding gate for everything
+  // money-metered. Cancelling the subscription re-locks for free (has_active_topup
+  // flips off on the next status read).
   const { status: entitlementStatus } = useEntitlementGate();
-  const byokDisabled = COMMAND_EVE_SHELL_ENABLED && !isModelByokAllowed(entitlementStatus);
+  const { status: creditsStatus } = useCreditsStatus();
+  const proFeatureView = useMemo(
+    () => ({
+      trial_ends_at: entitlementStatus?.trial_ends_at ?? null,
+      has_paid_seat: entitlementStatus?.has_paid_seat === true,
+      // Additive M7 unlock. Absent (pre-deploy / no subscription) ⇒ false ⇒
+      // today's paid-seat-only behavior.
+      has_active_topup: creditsStatus?.ok === true && creditsStatus.has_active_topup === true,
+    }),
+    [entitlementStatus?.trial_ends_at, entitlementStatus?.has_paid_seat, creditsStatus?.ok, creditsStatus?.has_active_topup]
+  );
+  const byokDisabled = COMMAND_EVE_SHELL_ENABLED && !isModelByokAllowed(proFeatureView);
 
   const [addPlatformModalCtrl, addPlatformModalContext] = AddPlatformModal.useModal({
     onSubmit(platform) {
@@ -387,7 +402,7 @@ const ModelModalContent: React.FC = () => {
               {t('settings.clearStatus')}
             </Button>
             <Tooltip
-              content={t('settings.byokPaidSeatOnly', 'Eigene Modelle/API-Keys nur im Pro-Tarif (99€/Monat)')}
+              content={t('settings.byokPaidSeatOnly', 'Freigeschaltet mit Kunden-Seat ODER Credit-Abo (ab 25 €/Monat)')}
               disabled={!byokDisabled}
             >
               <Button

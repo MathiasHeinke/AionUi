@@ -1395,6 +1395,12 @@ export interface ICommandEveCreditsStatusResult {
   free_actions_used_this_period: number;
   free_cap: number;
   period_start: string;
+  /**
+   * v1.5 M7: an active credit subscription (recurring top-up) that unlocks Pro
+   * features (BYOK / add-own-model) without a paid client seat. Additive — an
+   * absent field ⇒ false ⇒ today's behavior.
+   */
+  has_active_topup?: boolean;
 }
 
 /** Request to write the user's spend cap (Lane-1 contract; 0 ⇒ uncapped). */

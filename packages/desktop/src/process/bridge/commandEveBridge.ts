@@ -128,6 +128,9 @@ function quietCreditsStatus(spendCapEurCents: number, reasonCode: string, messag
     free_actions_used_this_period: 0,
     free_cap: 0,
     period_start: '',
+    // v1.5 M7: quiet/pre-deploy read ⇒ no active subscription (fail-closed to
+    // locked; Pro features stay gated until a real status confirms an unlock).
+    has_active_topup: false,
   };
 }
 
@@ -2870,6 +2873,9 @@ export function initCommandEveBridge(): void {
           free_actions_used_this_period: num(raw.free_actions_used_this_period),
           free_cap: num(raw.free_cap),
           period_start: typeof raw.period_start === 'string' ? raw.period_start : '',
+          // v1.5 M7: an active credit subscription (recurring top-up) also unlocks
+          // Pro features. Additive: an absent field ⇒ false ⇒ today's behavior.
+          has_active_topup: raw.has_active_topup === true,
         },
       };
     } catch (error) {

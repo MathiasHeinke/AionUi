@@ -57,7 +57,7 @@
   "runtime": "Runtime",
   "connectors": "Connectors",
   "billing": "Billing",
-  "byokPaidSeatOnly": "Custom models/API keys require a client seat (from €99/month)",
+  "byokPaidSeatOnly": "Unlocked with a client seat OR a credit subscription (from €25/month)",
   "skillState": {
     "all": "All",
     "executable": "Executable",

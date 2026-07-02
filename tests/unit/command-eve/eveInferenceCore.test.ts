@@ -215,6 +215,32 @@ describe('eveInferenceCore — paid-seat BYOK gate (1.2.18 Req 4)', () => {
   });
 });
 
+describe('eveInferenceCore — Pro-feature unlock via active credit subscription (M7)', () => {
+  it('unlocks BYOK on an active credit subscription WITHOUT a paid seat', () => {
+    // The second unlock path: no client seat, but an active recurring top-up.
+    expect(isModelByokAllowed({ trial_ends_at: null, has_paid_seat: false, has_active_topup: true })).toBe(true);
+    // has_paid_seat absent entirely, subscription active ⇒ unlocked.
+    expect(isModelByokAllowed({ trial_ends_at: null, has_active_topup: true })).toBe(true);
+  });
+
+  it('still unlocks on a paid seat alone (OR semantics; topup absent ⇒ false ⇒ today)', () => {
+    expect(isModelByokAllowed({ trial_ends_at: null, has_paid_seat: true })).toBe(true);
+    expect(isModelByokAllowed({ trial_ends_at: null, has_paid_seat: true, has_active_topup: false })).toBe(true);
+  });
+
+  it('a trial NEVER unlocks, even with an active subscription (trial gate is absolute)', () => {
+    expect(
+      isModelByokAllowed({ trial_ends_at: '2026-07-01T00:00:00.000Z', has_active_topup: true })
+    ).toBe(false);
+  });
+
+  it('an absent has_active_topup falls back to today: no seat + no subscription ⇒ locked', () => {
+    // Version-skew: an old credits-status without the field ⇒ absent ⇒ false ⇒ locked.
+    expect(isModelByokAllowed({ trial_ends_at: null, has_paid_seat: false })).toBe(false);
+    expect(isModelByokAllowed({ trial_ends_at: null })).toBe(false);
+  });
+});
+
 describe('eveInferenceCore — honest CLOUD labeling (audit #1)', () => {
   it('the EVE group heading carries an explicit "(Cloud)" marker', () => {
     const groups = buildEvePickerGroups(TRIAL);

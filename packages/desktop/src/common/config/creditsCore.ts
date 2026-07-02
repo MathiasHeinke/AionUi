@@ -71,6 +71,13 @@ export interface CreditsStatus {
   free_cap: number;
   /** ISO start of the current billing/allowance period. */
   period_start: string;
+  /**
+   * v1.5 M7: an ACTIVE credit subscription (recurring top-up, from 25 €/month)
+   * that unlocks Pro features (BYOK / add-own-model) WITHOUT a paid client seat.
+   * Additive — an absent field ⇒ false ⇒ today's behavior. Cancelling the
+   * subscription flips this off on the next status read (re-locks for free).
+   */
+  has_active_topup?: boolean;
 }
 
 /** A single buyable credit pack as advertised in the 402 body (Lane-2 contract). */

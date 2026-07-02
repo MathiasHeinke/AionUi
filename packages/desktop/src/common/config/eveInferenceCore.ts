@@ -493,13 +493,20 @@ export function describeCommandEveActiveLane(
  *
  * `has_paid_seat` (1.2.18 + free-seat 2026-06-30) is the explicit, main-process-
  * derived paid-tier hint (see entitlementCore.isPaidSeatEdition: `entitled &&
- * trial_ends_at == null && edition != 'free'`). It is the single authoritative
+ * trial_ends_at == null && edition != 'free'`). It is ONE authoritative
  * discriminant for paid-only UI affordances (BYOK / add-own-model / client seats);
  * absent/false ⇒ free or trial tier. Carried here so the pure gate helpers consume it.
+ *
+ * `has_active_topup` (v1.5 M7) is the SECOND unlock path: an active credit
+ * SUBSCRIPTION (recurring top-up, from 25 €/month) that grants Pro features WITHOUT
+ * a paid client seat. It is sourced from the credits-status contract (additive; an
+ * absent field ⇒ false ⇒ today's behavior). Either signal unlocks BYOK; cancelling
+ * the subscription flips it back off for free (the gate re-reads the live status).
  */
 export interface EveEntitlementView {
   trial_ends_at?: string | null;
   has_paid_seat?: boolean;
+  has_active_topup?: boolean;
 }
 
 /**
@@ -519,18 +526,21 @@ export function isByokDisabledForEntitlement(entitlement: EveEntitlementView | n
 }
 
 /**
- * True iff the user MAY add their own model / API key (BYOK) — the paid-seat gate
- * (1.2.18, founder Req 4). Authoritative discriminant is the main-process-derived
- * `has_paid_seat` (entitled && non-trial). A trialing OR free OR unknown
- * entitlement returns false. This is the inverse the Settings→Modell "Add
- * Platform" / api_key affordances gate on (it SUPERSEDES the trial-only
- * `isByokDisabledForEntitlement`, which locked trial but left a hypothetical
- * free-perpetual tier unlocked). Defense-in-depth: even if a caller passes a
- * stale view, a present-and-true `has_paid_seat` is required AND it must not be
- * trialing — both conditions, so a malformed view can never wrongly unlock.
+ * True iff the user MAY add their own model / API key (BYOK) — the Pro-feature
+ * gate (1.2.18 Req 4 + v1.5 M7). Unlocked by EITHER paid path:
+ *   - `has_paid_seat` (a paid client seat), OR
+ *   - `has_active_topup` (an active credit subscription, from 25 €/month, M7).
+ * AND it must not be trialing (a trial never unlocks Pro features). A free OR
+ * trial OR unknown entitlement returns false. This is what the Settings→Modell
+ * "Add Platform" / api_key affordances gate on; it SUPERSEDES the trial-only
+ * `isByokDisabledForEntitlement`. Defense-in-depth: a present-and-true unlock
+ * signal is REQUIRED and it must not be trialing — both conditions — so a
+ * malformed/stale view can never wrongly unlock. Cancelling the subscription
+ * flips `has_active_topup` off on the next live status read, re-locking for free.
  */
 export function isModelByokAllowed(entitlement: EveEntitlementView | null | undefined): boolean {
-  return entitlement?.has_paid_seat === true && !isTrialingEntitlement(entitlement);
+  const paidUnlock = entitlement?.has_paid_seat === true || entitlement?.has_active_topup === true;
+  return paidUnlock && !isTrialingEntitlement(entitlement);
 }
 
 /**

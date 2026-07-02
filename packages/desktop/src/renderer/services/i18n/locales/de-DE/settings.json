@@ -57,7 +57,7 @@
   "runtime": "Runtime",
   "connectors": "Connectoren",
   "billing": "Abrechnung",
-  "byokPaidSeatOnly": "Eigene Modelle/API-Keys nur im Kunden-Seat (ab 99 €/Monat)",
+  "byokPaidSeatOnly": "Freigeschaltet mit Kunden-Seat ODER Credit-Abo (ab 25 €/Monat)",
   "skillState": {
     "all": "Alle",
     "executable": "Ausführbar",
