@@ -27,6 +27,7 @@ import {
   SEAT_MARKER_BEGIN,
   SEAT_MARKER_END,
   renderFounderBody,
+  renderSeatBody,
   stampUserMdTiers,
   stampUserMdTiersToHome,
   truncateToBudget,
@@ -204,6 +205,54 @@ describe('B2 stamp — hard char budgets (truncate + log, never overflow)', () =
     const r = truncateToBudget(founderBody, FOUNDER_BLOCK_MAX_CHARS);
     expect(r.body.length).toBeLessThanOrEqual(FOUNDER_BLOCK_MAX_CHARS);
     expect(FOUNDER_BLOCK_MAX_CHARS).toBe(600);
+  });
+});
+
+describe('T9 operator-vs-client role semantics — §SEAT + §FOUNDER bodies', () => {
+  const seed = { schema_version: 'v1', seeded_at: '', kind: 'paste_brief' as const, value: 'Bäckerei Müller GmbH' };
+  const REAL_BRAIN = '/Users/mathias/Library/Application Support/Command EVE/seats/kunde-x/hermes/home/company-brain';
+
+  it('§SEAT de carries the operator-vs-client role sentence', () => {
+    const body = renderSeatBody(seed, 'de-DE', REAL_BRAIN);
+    expect(body).toContain('Dein Operator bedient dich hier im Auftrag des Kunden, nicht für seine eigene Firma.');
+    // The isolation doctrine still present.
+    expect(body).toContain('der Seat-Name erscheint nie in Deliverables');
+  });
+
+  it('§SEAT en carries the operator-vs-client role sentence', () => {
+    const body = renderSeatBody(seed, 'en-US', REAL_BRAIN);
+    expect(body).toContain('Your operator runs you here on the client\'s behalf, not for their own firm.');
+    expect(body).toContain('the seat name never appears in deliverables');
+  });
+
+  it('§SEAT budget holds: with a REAL absolute brain path the truncated block ≤400c and the role + isolation doctrine survive (the long path trims first)', () => {
+    const { fsImpl, files } = makeMemFs();
+    const r = stampUserMdTiersToHome({
+      hermesHome: REAL_BRAIN.replace(/\/company-brain$/, ''),
+      legacy: false,
+      profile: PROFILE,
+      seed,
+      deps: { fsImpl },
+    });
+    expect(r.seatStamped).toBe(true);
+    const seatHome = REAL_BRAIN.replace(/\/company-brain$/, '');
+    const body = files[path.join(seatHome, 'memories', 'USER.md')];
+    const begin = body.indexOf(SEAT_MARKER_BEGIN) + SEAT_MARKER_BEGIN.length;
+    const end = body.indexOf(SEAT_MARKER_END);
+    const seatBody = body.slice(begin, end).replace(/^\n|\n$/g, '');
+    expect(seatBody.length).toBeLessThanOrEqual(SEAT_BLOCK_MAX_CHARS);
+    // Fixed doctrine (role + isolation) survives even though the absolute path is present.
+    expect(seatBody).toContain('Dein Operator bedient dich hier im Auftrag des Kunden');
+    expect(seatBody).toContain('der Seat-Name erscheint nie in Deliverables');
+  });
+
+  it('§FOUNDER body carries the operator-role half-sentence (both locales) and stays ≤600c', () => {
+    const de = renderFounderBody(PROFILE, 'de-DE');
+    expect(de).toContain('in Kunden-Seats handelt er im Auftrag des jeweiligen Kunden, nicht für seine eigene Firma');
+    expect(de.length).toBeLessThanOrEqual(FOUNDER_BLOCK_MAX_CHARS);
+    const en = renderFounderBody(PROFILE, 'en-US');
+    expect(en).toContain('in client seats they act on the respective client\'s behalf, not for their own firm');
+    expect(en.length).toBeLessThanOrEqual(FOUNDER_BLOCK_MAX_CHARS);
   });
 });
 

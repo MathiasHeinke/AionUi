@@ -1569,6 +1569,38 @@ describe('T4 you-are-here environment_hint — pure builder', () => {
     // Singular count phrasing.
     expect(hint).toContain('(1 Eintrag)');
     expect(hint).toContain('Der Seat-Name erscheint NIE in Deliverables.');
+    // T9 — the client hint carries the operator-vs-client role sentence.
+    expect(hint).toContain('Dein Operator bedient dich hier IM AUFTRAG des Kunden, nicht für seine eigene Firma.');
+  });
+
+  it('T9 FOUNDER variant does NOT carry the operator-vs-client role sentence (there the operator IS the Auftraggeber)', () => {
+    const hint = buildCommandEveEnvironmentHint({
+      legacy: true,
+      label: 'Mathias',
+      entity: '(ignored for founder)',
+      boardSlug: '',
+      entryCount: 3,
+    });
+    expect(hint).not.toContain('IM AUFTRAG des Kunden');
+    expect(hint).not.toContain('im Auftrag des Kunden');
+  });
+
+  it('T9 CLIENT role sentence survives the H8 truncate together with the marker + "NIE in Deliverables" under a runaway entity + long path', () => {
+    const longAbs = `/Users/${'x'.repeat(400)}/company-brain`;
+    const hint = buildCommandEveEnvironmentHint({
+      legacy: false,
+      label: 'Bäckerei Müller GmbH — Social & lokale Sichtbarkeit lang'.padEnd(200, 'z'),
+      entity: 'x'.repeat(5000),
+      boardSlug: 'kunde-mueller',
+      entryCount: 7,
+      brainDir: longAbs,
+    });
+    expect(Array.from(hint).length).toBeLessThanOrEqual(COMMAND_EVE_ENVIRONMENT_HINT_MAX_CHARS);
+    // All three fixed doctrine anchors survive together (they sit AHEAD of the
+    // trim-first absolute-path detail).
+    expect(hint).toContain(COMMAND_EVE_YOU_ARE_HERE_MARKER);
+    expect(hint).toContain('Der Seat-Name erscheint NIE in Deliverables.');
+    expect(hint).toContain('Dein Operator bedient dich hier IM AUFTRAG des Kunden, nicht für seine eigene Firma.');
   });
 
   it('CLIENT variant without a seed: still orients (no fabricated entity) + carries the marker', () => {

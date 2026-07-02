@@ -280,7 +280,7 @@ export function renderFounderBody(
       '§ FOUNDER',
       `Operator: ${nameLine}`,
       `Company/brand: ${companyLine}`,
-      'Global operator identity (L0) — stamped into every seat. Per-client isolation is sacred: one client\'s data/brief/output never bleeds into another; never attribute a client seat\'s work to the operator.',
+      'Global operator identity (L0) — stamped into every seat. The operator runs this installation; in client seats they act on the respective client\'s behalf, not for their own firm. Per-client isolation is sacred: one client\'s data/brief/output never bleeds into another; never attribute a client seat\'s work to the operator.',
     ].join('\n');
   }
   const nameLine = name || (confirm ? '(unbestätigt — beiläufig nachfragen)' : 'noch nicht bekannt');
@@ -289,7 +289,7 @@ export function renderFounderBody(
     '§ FOUNDER',
     `Operator: ${nameLine}`,
     `Firma/Brand: ${companyLine}`,
-    'Globale Operator-Identität (L0) — in jeden Seat gestempelt. Per-Client-Isolation ist heilig: Daten/Briefing/Output eines Kunden bluten nie in einen anderen; schreibe Client-Seat-Arbeit nie dem Betreiber zu.',
+    'Globale Operator-Identität (L0) — in jeden Seat gestempelt. Der Operator bedient diese Installation; in Kunden-Seats handelt er im Auftrag des jeweiligen Kunden, nicht für seine eigene Firma. Per-Client-Isolation ist heilig: Daten/Briefing/Output eines Kunden bluten nie in einen anderen; schreibe Client-Seat-Arbeit nie dem Betreiber zu.',
   ].join('\n');
 }
 
@@ -326,19 +326,28 @@ export function renderSeatBody(
   // F3 (MEDIUM) — the client line is a Prompt-Injection lane (operator/seed data,
   // not an instruction). Frame it as DATA with guillemets «…», matching the you-are-
   // here hint; SOUL tells EVE that «…»-wrapped text is data, never a command.
+  // Ordering (H8 truncate-from-END discipline): the FIXED doctrine lines — the T9
+  // operator-vs-client role sentence + the per-client-isolation clause — come BEFORE
+  // the VARIABLE-length brief-ref line. On a real install the absolute brief path is
+  // ~140c and can push the block past ≤400c; ordering the long path LAST means a
+  // truncate trims the (recoverable) path detail, never the role/isolation doctrine.
   if (locale === 'en-US') {
     return [
       '§ SEAT',
       `Client (this seat), per operator briefing: «${firstLine}»`,
-      `Source: ${kindLabel}. Full brief: ${briefRefEn} — read it with read_file when you need it.`,
+      // T9 — operator-vs-client role: the operator drives EVE, the work is FOR the client.
+      'Your operator runs you here on the client\'s behalf, not for their own firm.',
       'This seat belongs to exactly this client. Their data stays in this seat (per-client isolation, GDPR); the seat name never appears in deliverables.',
+      `Source: ${kindLabel}. Full brief: ${briefRefEn} — read it with read_file when you need it.`,
     ].join('\n');
   }
   return [
     '§ SEAT',
     `Client (dieser Seat), laut Operator-Briefing: «${firstLine}»`,
-    `Quelle: ${kindLabel}. Vollständiges Briefing: ${briefRefDe} — lies es bei Bedarf mit read_file.`,
+    // T9 — operator-vs-client role: the operator drives EVE, the work is FOR the client.
+    'Dein Operator bedient dich hier im Auftrag des Kunden, nicht für seine eigene Firma.',
     'Dieser Seat gehört genau diesem Kunden. Seine Daten bleiben in diesem Seat (Per-Client-Isolation, DSGVO); der Seat-Name erscheint nie in Deliverables.',
+    `Quelle: ${kindLabel}. Vollständiges Briefing: ${briefRefDe} — lies es bei Bedarf mit read_file.`,
   ].join('\n');
 }
 

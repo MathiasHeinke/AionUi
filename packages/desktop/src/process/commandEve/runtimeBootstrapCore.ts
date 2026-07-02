@@ -2643,6 +2643,11 @@ export function buildCommandEveEnvironmentHint(input: CommandEveEnvironmentHintI
       // The invisible-delivery sentence stays AHEAD of the long path detail, so a
       // truncate trims the path (recoverable) — never the doctrine clause.
       'Der Seat-Name erscheint NIE in Deliverables.',
+      // T9 — operator-vs-client role: the operator drives EVE, but the work here is
+      // for the client, not the operator's own firm. Fixed + name-free (the hint
+      // input carries no operator name), kept AHEAD of the trimmable path detail so
+      // it survives the H8 truncate next to the doctrine clause.
+      'Dein Operator bedient dich hier IM AUFTRAG des Kunden, nicht für seine eigene Firma.',
       pathDetailClause,
     ].join(' ');
   }
