@@ -20,7 +20,9 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  buildFallbackGreeting,
   buildOnboardingGreeting,
+  getGreetingBannerTitle,
   COMMAND_EVE_ONBOARDING_GREETING_VERSION,
 } from '@/common/config/onboardingGreetingCore';
 import type {
@@ -239,5 +241,43 @@ describe('EVE greeting: setting-driven language (DE/EN)', () => {
     });
     expect(buildOnboardingGreeting(m, 'de-DE').gaps[0].text).toContain('abgelaufen');
     expect(buildOnboardingGreeting(m, 'en-US').gaps[0].text).toContain('expired');
+  });
+});
+
+/**
+ * v1.6 Slice 1 ("nie wieder leer") — the claim-free fallback greeting for a
+ * FAILED status read, plus the waiting-banner title. Honesty invariants: the
+ * fallback NEVER claims readiness, never greets by name, never invents gaps.
+ */
+describe('buildFallbackGreeting (v1.6 degraded state)', () => {
+  it('is claim-free: not ready, no gaps, no name, marked degraded', () => {
+    const g = buildFallbackGreeting('de-DE');
+    expect(g.schema_version).toBe(COMMAND_EVE_ONBOARDING_GREETING_VERSION);
+    expect(g.ready).toBe(false);
+    expect(g.gaps).toEqual([]);
+    expect(g.degraded).toBe(true);
+    // Never the ready claim, never a personal greeting.
+    expect(g.headline).not.toContain('startklar');
+    expect(g.headline).toBe('Hi.');
+    expect(g.subline).toContain('Einrichtungs-Status');
+  });
+
+  it('localizes de/en and defaults unknown locales like the greeting (de-first)', () => {
+    expect(buildFallbackGreeting('en-US').subline).toContain('setup status');
+    expect(buildFallbackGreeting('en-US').headline).not.toContain('all set');
+    expect(buildFallbackGreeting(undefined).subline).toContain('Einrichtungs-Status');
+    expect(buildFallbackGreeting('tr-TR').subline).toContain('setup status');
+  });
+
+  it('is pure: same input, same output', () => {
+    expect(buildFallbackGreeting('de-DE')).toEqual(buildFallbackGreeting('de-DE'));
+  });
+});
+
+describe('getGreetingBannerTitle (v1.6 waiting banner)', () => {
+  it('localizes the banner title de/en with the de-first default', () => {
+    expect(getGreetingBannerTitle('de-DE')).toBe('Bevor es weitergeht:');
+    expect(getGreetingBannerTitle('en-US')).toBe('Before we continue:');
+    expect(getGreetingBannerTitle(undefined)).toBe('Bevor es weitergeht:');
   });
 });

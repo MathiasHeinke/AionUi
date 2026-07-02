@@ -75,6 +75,12 @@ export interface CommandEveGreetingModel {
    * optional local lane as a gap).
    */
   gaps: CommandEveGreetingGap[];
+  /**
+   * True ONLY on the claim-free fallback greeting (`buildFallbackGreeting`):
+   * the status read failed, so this model asserts NOTHING about readiness —
+   * never `ready`, never a name, never a gap list.
+   */
+  degraded?: true;
 }
 
 /**
@@ -108,6 +114,9 @@ const GREETING_COPY: Record<
     sublineReady: string;
     sublineGaps: string;
     sublineAlmost: string;
+    headlineDegraded: string;
+    sublineDegraded: string;
+    bannerTitle: string;
     gap: Record<
       'registration' | 'license' | 'licenseExpired' | 'cloud-lane' | 'local-lane' | 'identity' | 'fallback',
       string
@@ -121,6 +130,9 @@ const GREETING_COPY: Record<
     sublineReady: 'Schreib mir einfach, woran du gerade arbeitest — ich lege sofort los.',
     sublineGaps: 'Nur noch das hier, dann können wir loslegen:',
     sublineAlmost: 'Gleich geht es los.',
+    headlineDegraded: 'Hi.',
+    sublineDegraded: 'Ich konnte deinen Einrichtungs-Status gerade nicht lesen — im Chat geht es trotzdem weiter.',
+    bannerTitle: 'Bevor es weitergeht:',
     gap: {
       registration: 'Lege kurz dein Konto an, damit ich dich kenne.',
       license: 'Füge deinen Lizenz-Code ein, dann bist du startklar.',
@@ -138,6 +150,9 @@ const GREETING_COPY: Record<
     sublineReady: 'Just tell me what you’re working on — I’ll get started right away.',
     sublineGaps: 'Just this, then we’re good to go:',
     sublineAlmost: 'Almost ready.',
+    headlineDegraded: 'Hi.',
+    sublineDegraded: 'I couldn’t read your setup status just now — the chat still works.',
+    bannerTitle: 'Before we continue:',
     gap: {
       registration: 'Set up your account so I know who you are.',
       license: 'Add your license code and you’re all set.',
@@ -258,4 +273,32 @@ export function buildOnboardingGreeting(
     subline: gaps.length > 0 ? copy.sublineGaps : copy.sublineAlmost,
     gaps,
   };
+}
+
+/**
+ * The claim-free fallback greeting for a FAILED status read (core throw, bridge
+ * throw, or IPC failure — the churn-hole-#4 class where the chat used to render
+ * NOTHING). Honesty invariants: never the `ready` state, never a name (an
+ * unknown status must not greet a client seat with a cached identity — ISO-6),
+ * never invented gaps. Pure: same input ⇒ same output, no IO, no React.
+ */
+export function buildFallbackGreeting(uiLanguage?: string): CommandEveGreetingModel {
+  const copy = GREETING_COPY[normalizeGreetingLocale(uiLanguage)];
+  return {
+    schema_version: COMMAND_EVE_ONBOARDING_GREETING_VERSION,
+    ready: false,
+    headline: copy.headlineDegraded,
+    subline: copy.sublineDegraded,
+    gaps: [],
+    degraded: true,
+  };
+}
+
+/**
+ * Localized title line for the persistent in-conversation waiting banner (the
+ * surface that keeps genuine first-value blockers visible once a conversation
+ * has messages and the one-shot emptySlot greeting is gone).
+ */
+export function getGreetingBannerTitle(uiLanguage?: string): string {
+  return GREETING_COPY[normalizeGreetingLocale(uiLanguage)].bannerTitle;
 }

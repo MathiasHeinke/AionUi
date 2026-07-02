@@ -34,6 +34,12 @@ const AcpChat: React.FC<{
   cron_job_id?: string;
   hideSendBox?: boolean;
   emptySlot?: React.ReactNode;
+  /**
+   * Rendered ABOVE the message list, inside the MessageListProvider — the seam
+   * for surfaces that must stay visible once the emptySlot is gone (v1.6
+   * onboarding waiting banner). The slot component decides its own visibility.
+   */
+  headerSlot?: React.ReactNode;
   loadedSkills?: string[];
   loadedMcpServers?: string[];
   loadedMcpStatuses?: IConversationMcpStatus[];
@@ -47,6 +53,7 @@ const AcpChat: React.FC<{
   cron_job_id,
   hideSendBox,
   emptySlot,
+  headerSlot,
   loadedSkills,
   loadedMcpServers,
   loadedMcpStatuses,
@@ -74,6 +81,7 @@ const AcpChat: React.FC<{
     >
       <ConversationArtifactProvider conversation_id={conversation_id}>
         <div className='flex-1 flex flex-col px-20px min-h-0'>
+          {headerSlot}
           <FlexFullContainer>
             <MessageList className='flex-1' emptySlot={emptySlot} />
           </FlexFullContainer>

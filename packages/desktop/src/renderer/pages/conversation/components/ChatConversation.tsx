@@ -28,6 +28,7 @@ import { getConversationOrNull } from '@/renderer/pages/conversation/utils/conve
 import { getConversationCreateErrorMessage } from '@/renderer/pages/conversation/utils/conversationCreateError';
 import GoogleModelSelector from '../platforms/gemini/GoogleModelSelector';
 import OnboardingReadinessGreeting from './OnboardingReadinessGreeting';
+import OnboardingWaitingBanner from './OnboardingWaitingBanner';
 import AionrsChat from '../platforms/aionrs/AionrsChat';
 import AionrsModelSelector from '../platforms/aionrs/AionrsModelSelector';
 import { useAionrsModelSelection } from '../platforms/aionrs/useAionrsModelSelection';
@@ -242,12 +243,13 @@ const ChatConversation: React.FC<{
     }
     switch (conversation.type) {
       case 'acp': {
-        // Guided onboarding (SLICE S2): for a Command EVE (Hermes) conversation,
-        // render the one-time German readiness greeting in the empty-chat seam.
-        // It is shown by MessageList ONLY while the conversation has zero
-        // messages (no new message type, no persistence), self-quiets on any
-        // read failure, and is scoped to EVE conversations so no other backend
-        // is affected.
+        // Guided onboarding: for a Command EVE (Hermes) conversation, render the
+        // one-time readiness greeting in the empty-chat seam (zero messages
+        // only; renders a claim-free fallback when the status read fails) and
+        // the persistent waiting banner above the list once messages exist
+        // (v1.6 Slice 1 — genuine first-value blockers stay visible after the
+        // greeting is gone). Both are scoped to EVE conversations so no other
+        // backend is affected.
         const isCommandEve = isCommandEveAcpConversation(conversation.extra?.backend);
         return (
           <AcpChat
@@ -260,6 +262,7 @@ const ChatConversation: React.FC<{
             cron_job_id={(conversation.extra as { cron_job_id?: string })?.cron_job_id}
             hideSendBox={resolvedHideSendBox}
             emptySlot={isCommandEve ? <OnboardingReadinessGreeting /> : undefined}
+            headerSlot={isCommandEve ? <OnboardingWaitingBanner /> : undefined}
             loadedSkills={(conversation.extra as { skills?: string[] } | undefined)?.skills}
             loadedMcpServers={(conversation.extra as { mcp_servers?: string[] } | undefined)?.mcp_servers}
             loadedMcpStatuses={
