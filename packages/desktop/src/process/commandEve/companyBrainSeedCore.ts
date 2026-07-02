@@ -18,20 +18,29 @@
  * THE FIX (this module). Persist the seed into the ACTIVE seat's hermesHome so
  * the Hermes agent reads it as that client's durable knowledge:
  *
- *   - <hermesHome>/MEMORY.md gains a clearly-delimited, dated "Client context
- *     (day-0 seed)" block. MEMORY.md is the agent's own working-notes file
- *     (memory_enabled=true, runtimeBootstrapCore.ts:2051-2053) that is loaded
- *     into every turn's context — so this is WHERE the agent will actually
- *     consume the client truth. The block is fenced by stable BEGIN/END markers
- *     so a RE-SEED REPLACES it in place (idempotent — never endlessly appends).
- *
  *   - <hermesHome>/company-brain/seed.json is a structured, machine-readable
  *     marker so "has THIS seat been seeded?" is answerable from on-disk per-seat
  *     evidence (readCompanyBrainSeedState) rather than a shared global flag.
  *
- *   - for kind `paste_brief` the raw brief is ALSO dropped verbatim at
- *     <hermesHome>/company-brain/brief.md so the agent can read the full source
- *     text, not just the MEMORY.md summary block.
+ *   - <hermesHome>/company-brain/brief.md holds the full brief verbatim, for
+ *     EVERY seed kind (connect_client stores the client entity as a one-liner;
+ *     paste_brief stores the whole pasted brief). This is the file the AGENT
+ *     actually reads via read_file — its own HERMES_HOME is not workspace-
+ *     confined by the wheel's file_tools — and the §SEAT USER.md stamp
+ *     (userMdTierStampCore) links to exactly this path. seed.json + brief.md
+ *     are the whole persistence surface; there is NO MEMORY.md write.
+ *
+ * WHY NOT MEMORY.md (v1.4 T1 correction). The prior code wrote a fenced "Client
+ * context (day-0 seed)" block into <hermesHome>/MEMORY.md (ROOT). The bundled
+ * Hermes wheel only ever loads <hermesHome>/memories/MEMORY.md (wheel
+ * memory_tool.py:55-57,153) — so the root block was a DEAD WRITE the agent never
+ * saw (live-confirmed: a 191-byte tot root file next to a growing memories/
+ * MEMORY.md). We do NOT redirect the write into memories/ either: memories/ is
+ * the agent's own 2200c hot-cache under a drift-guard budget, and stamping a full
+ * brief into it collides with that budget (spec §0.3, G3 risk). The brief lives
+ * in company-brain/ (agent reads it on demand); memories/ stays the agent's.
+ * migrateStrayRootMemoryBlock() cleans up any legacy root block on the next seed
+ * write and once at boot (Founder-decision #3: delete the stale root file).
  *
  * SEAT-CORRECT BY CONSTRUCTION. The home is resolved with
  * `resolveActiveSeatHome(userDataPath).hermesHome` (the SAME active-seat seam
@@ -45,9 +54,10 @@
  * The seat-resolving wrappers (`writeCompanyBrainSeed` /
  * `readCompanyBrainSeedState`) sit on top and pick up the active seat.
  *
- * HONESTY (eve-doctrine): this module PERSISTS the seed; it does not make the
- * claim that EVE "learns" the client. The narrow claim is: each seat carries its
- * own client truth on disk under its own hermesHome, decided per-seat.
+ * HONESTY (eve-doctrine): this module PERSISTS the seed into a file the agent can
+ * actually read (company-brain/brief.md), and the §SEAT stamp points at it. It
+ * does not claim EVE "learns" the client. The narrow claim is: each seat carries
+ * its own client truth on disk under its own hermesHome, reachable per-seat.
  */
 
 import fs from 'fs';
@@ -64,9 +74,12 @@ export const COMMAND_EVE_COMPANY_BRAIN_SEED_SCHEMA = 'command-eve-company-brain-
 export const COMPANY_BRAIN_DIR = 'company-brain';
 
 /**
- * Stable fence markers around the MEMORY.md seed block. A re-seed REPLACES the
- * text between these markers (idempotent) instead of appending a new block, so a
- * file never accumulates duplicate "Client context" sections.
+ * Stable fence markers that DELIMITED the legacy root-MEMORY.md "Client context"
+ * seed block. That block was a dead write (the wheel only loads memories/
+ * MEMORY.md), so the writer is gone — but these markers are STILL needed to
+ * recognize and remove OUR old block from an installed root MEMORY.md during
+ * migration (migrateStrayRootMemoryBlock). Foreign content OUTSIDE the fence is
+ * never touched.
  */
 const MEMORY_BLOCK_BEGIN = '<!-- command-eve:company-brain-seed:begin -->';
 const MEMORY_BLOCK_END = '<!-- command-eve:company-brain-seed:end -->';
@@ -91,10 +104,16 @@ export interface WriteCompanyBrainSeedResult {
   hermesHome: string;
   /** Absolute path of the structured marker that was written. */
   seedJsonPath: string;
-  /** Absolute path of MEMORY.md that received the delimited block. */
-  memoryPath: string;
-  /** Absolute path of the raw brief (paste_brief only), else null. */
-  briefPath: string | null;
+  /**
+   * Absolute path of the brief written for EVERY seed kind — the file the agent
+   * reads via read_file and the §SEAT USER.md stamp links to.
+   */
+  briefPath: string;
+  /**
+   * True when a stale legacy root-MEMORY.md seed block was removed as part of
+   * this write (the dead-write migration). Purely informational.
+   */
+  migratedRootMemory: boolean;
   record: CompanyBrainSeedRecord;
 }
 
@@ -106,7 +125,7 @@ const ensureDir = (dir: string): void => {
  * Atomic file write (temp + rename) at mode 0o600 — the SAME convention used for
  * SOUL.md / config.yaml / receipts (runtimeBootstrapCore.ts:993, :2093-2095) so
  * the seed files inherit the same private-by-default posture as the rest of the
- * seat home. A partially-written MEMORY.md can never be observed by the agent.
+ * seat home. A partially-written file can never be observed by the agent.
  */
 const writeFileAtomic = (file: string, contents: string): void => {
   ensureDir(path.dirname(file));
@@ -115,44 +134,62 @@ const writeFileAtomic = (file: string, contents: string): void => {
   fs.renameSync(tempFile, file);
 };
 
-const renderMemoryBlock = (record: CompanyBrainSeedRecord): string => {
-  const kindLabel = record.kind === 'paste_brief' ? 'Pasted brief' : 'Connected client';
-  // A fenced, dated, human-readable block. The value is indented as a markdown
-  // block-quote so multi-line briefs stay inside the section and read cleanly in
-  // the agent's context.
-  const quoted = record.value
-    .split('\n')
-    .map((line) => `> ${line}`)
-    .join('\n');
-  return [
-    MEMORY_BLOCK_BEGIN,
-    '## Client context (day-0 seed)',
-    '',
-    `_Seeded ${record.seeded_at} · source: ${kindLabel}_`,
-    '',
-    quoted,
-    MEMORY_BLOCK_END,
-  ].join('\n');
+/**
+ * Remove OUR fenced seed block from a body, preserving all foreign content around
+ * it (the same before/after-splice discipline the old upsert used, minus the
+ * insert). Only the well-formed `BEGIN … END` span is cut. Returns the cleaned
+ * body plus whether a block was actually found. Conservative: a half/reversed
+ * fence is NOT touched (we never guess at foreign structure).
+ */
+const removeMemoryBlock = (existing: string): { body: string; removed: boolean } => {
+  const beginIdx = existing.indexOf(MEMORY_BLOCK_BEGIN);
+  const endIdx = existing.indexOf(MEMORY_BLOCK_END);
+  if (beginIdx === -1 || endIdx === -1 || endIdx <= beginIdx) {
+    return { body: existing, removed: false };
+  }
+  const before = existing.slice(0, beginIdx).replace(/\s+$/, '');
+  const after = existing.slice(endIdx + MEMORY_BLOCK_END.length).replace(/^\s+/, '');
+  const joined = before.length > 0 && after.length > 0 ? `${before}\n\n${after}` : `${before}${after}`;
+  const trimmed = joined.replace(/\s+$/, '');
+  return { body: trimmed.length > 0 ? `${trimmed}\n` : '', removed: true };
 };
 
 /**
- * Upsert the delimited seed block into an existing MEMORY.md body. If a prior
- * block exists (fenced by the markers) it is REPLACED in place; otherwise the
- * block is appended with a separating blank line. This is what makes re-seeding
- * idempotent — no duplicate blocks ever accumulate.
+ * MIGRATION (v1.4 T1, idempotent): heal a legacy install where a prior version
+ * wrote OUR "Client context (day-0 seed)" fence into the DEAD root
+ * <hermesHome>/MEMORY.md (the wheel only ever loads memories/MEMORY.md, so the
+ * block was never read). We:
+ *   - do nothing if the root file is absent or carries no OUR-fence;
+ *   - strip ONLY the fenced block, leaving any foreign content the user/agent may
+ *     have added around it untouched (conservative — never touch outside-fence);
+ *   - delete the root file entirely if it is empty / whitespace-only afterwards.
+ * NEVER writes into memories/ (that is the agent's own budgeted hot-cache — G3).
+ * Best-effort: any fs error is swallowed (migration must never block a seed/boot).
+ * Runs on every seed write AND once at boot via readCompanyBrainSeedStateFromHome,
+ * so an already-clean home is a cheap no-op. Returns true iff it changed anything.
  */
-const upsertMemoryBlock = (existing: string, block: string): string => {
-  const beginIdx = existing.indexOf(MEMORY_BLOCK_BEGIN);
-  const endIdx = existing.indexOf(MEMORY_BLOCK_END);
-  if (beginIdx !== -1 && endIdx !== -1 && endIdx > beginIdx) {
-    const before = existing.slice(0, beginIdx);
-    const after = existing.slice(endIdx + MEMORY_BLOCK_END.length);
-    return `${before.replace(/\s+$/, '')}\n\n${block}\n${after.replace(/^\s+/, '')}`.replace(/\s+$/, '') + '\n';
+export function migrateStrayRootMemoryBlock(hermesHome: string): boolean {
+  if (!hermesHome || !path.isAbsolute(hermesHome)) return false;
+  const rootMemoryPath = path.join(hermesHome, 'MEMORY.md');
+  let existing: string;
+  try {
+    existing = fs.readFileSync(rootMemoryPath, 'utf8');
+  } catch {
+    return false; // absent / unreadable → nothing to migrate
   }
-  const base = existing.replace(/\s+$/, '');
-  const prefix = base.length > 0 ? `${base}\n\n` : '';
-  return `${prefix}${block}\n`;
-};
+  const { body, removed } = removeMemoryBlock(existing);
+  if (!removed) return false; // no OUR-fence present → leave a foreign root file alone
+  try {
+    if (body.trim().length === 0) {
+      fs.rmSync(rootMemoryPath, { force: true }); // Founder-decision #3: delete the stale file
+    } else {
+      writeFileAtomic(rootMemoryPath, body); // foreign content survives, our fence removed
+    }
+    return true;
+  } catch {
+    return false; // best-effort
+  }
+}
 
 /**
  * PURE writer: persist the seed under an ALREADY-RESOLVED hermesHome. No seat
@@ -186,35 +223,30 @@ export function writeCompanyBrainSeedToHome(args: {
 
   const brainDir = path.join(hermesHome, COMPANY_BRAIN_DIR);
   const seedJsonPath = path.join(brainDir, 'seed.json');
-  const memoryPath = path.join(hermesHome, 'MEMORY.md');
+  const briefPath = path.join(brainDir, 'brief.md');
 
-  // 1) MEMORY.md — upsert the delimited block (create the file if absent).
   ensureDir(hermesHome);
-  let existingMemory = '';
-  try {
-    existingMemory = fs.readFileSync(memoryPath, 'utf8');
-  } catch {
-    existingMemory = '';
-  }
-  const nextMemory = upsertMemoryBlock(existingMemory, renderMemoryBlock(record));
-  writeFileAtomic(memoryPath, nextMemory);
 
-  // 2) company-brain/seed.json — the structured per-seat "seeded?" evidence.
+  // 1) company-brain/seed.json — the structured per-seat "seeded?" evidence.
   writeFileAtomic(seedJsonPath, `${JSON.stringify(record, null, 2)}\n`);
 
-  // 3) paste_brief → also drop the raw brief verbatim for full-source reads.
-  let briefPath: string | null = null;
-  if (seed.kind === 'paste_brief') {
-    briefPath = path.join(brainDir, 'brief.md');
-    writeFileAtomic(briefPath, `${seed.value.replace(/\s+$/, '')}\n`);
-  }
+  // 2) company-brain/brief.md — the full brief, verbatim, for EVERY seed kind.
+  //    THIS is the file the agent actually reads (read_file in its own, non-
+  //    workspace-confined HERMES_HOME), and the §SEAT USER.md stamp
+  //    (userMdTierStampCore) links to exactly this path. connect_client stores
+  //    the client entity as a one-liner; paste_brief stores the whole brief.
+  writeFileAtomic(briefPath, `${seed.value.replace(/\s+$/, '')}\n`);
+
+  // 3) Migration: kill any stale legacy root-MEMORY.md seed block (dead write —
+  //    the wheel never loaded it). Idempotent; foreign content is preserved.
+  const migratedRootMemory = migrateStrayRootMemoryBlock(hermesHome);
 
   return {
     ok: true,
     hermesHome,
     seedJsonPath,
-    memoryPath,
     briefPath,
+    migratedRootMemory,
     record,
   };
 }
@@ -237,11 +269,20 @@ export function writeCompanyBrainSeed(args: {
 }
 
 /**
- * PURE reader: answer "seeded?" from an ALREADY-RESOLVED hermesHome by reading
- * the structured marker. Never throws on a missing file — an unseeded seat
- * simply returns { seeded:false, record:null }.
+ * Reader: answer "seeded?" from an ALREADY-RESOLVED hermesHome by reading the
+ * structured marker. Never throws on a missing file — an unseeded seat simply
+ * returns { seeded:false, record:null }.
+ *
+ * SIDE EFFECT (v1.4 T1, deliberate): this is the cheapest once-at-boot hook — it
+ * already runs at bootstrap (runtimeBootstrapCore.ts) with the active seat home —
+ * so it ALSO runs the idempotent legacy-root-MEMORY.md migration here. The
+ * migration is a best-effort no-op on an already-clean home and never throws, so
+ * the "seeded?" answer is unaffected. (It touches only <hermesHome>/MEMORY.md at
+ * root — never seed.json, never memories/.)
  */
 export function readCompanyBrainSeedStateFromHome(hermesHome: string): CompanyBrainSeedState {
+  // Once-at-boot cleanup of the dead legacy root block (idempotent, best-effort).
+  migrateStrayRootMemoryBlock(hermesHome);
   const seedJsonPath = path.join(hermesHome, COMPANY_BRAIN_DIR, 'seed.json');
   try {
     const raw = fs.readFileSync(seedJsonPath, 'utf8');

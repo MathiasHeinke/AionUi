@@ -22,6 +22,7 @@ import path from 'path';
 import {
   COMMAND_EVE_COMPANY_BRAIN_SEED_SCHEMA,
   COMPANY_BRAIN_DIR,
+  migrateStrayRootMemoryBlock,
   readCompanyBrainSeedState,
   readCompanyBrainSeedStateFromHome,
   writeCompanyBrainSeed,
@@ -60,7 +61,7 @@ afterEach(() => {
 });
 
 describe('writeCompanyBrainSeed — the seed actually persists (NOT a no-op)', () => {
-  it('(a) creates MEMORY.md block + company-brain/seed.json under the active seat home with the payload', () => {
+  it('(a) creates company-brain/seed.json + brief.md under the active seat home; NO root MEMORY.md write', () => {
     const userData = makeRoot();
     setActiveSeatId(SEAT_A);
     const result = writeCompanyBrainSeed({
@@ -71,18 +72,18 @@ describe('writeCompanyBrainSeed — the seed actually persists (NOT a no-op)', (
     const home = resolveSeatHome(userData, SEAT_A).hermesHome;
     expect(result.hermesHome).toBe(home);
 
-    const memory = fs.readFileSync(path.join(home, 'MEMORY.md'), 'utf8');
-    expect(memory).toContain('Client context (day-0 seed)');
-    expect(memory).toContain('ACME GmbH — client A secret brief');
-
     const seedJson = JSON.parse(fs.readFileSync(path.join(home, COMPANY_BRAIN_DIR, 'seed.json'), 'utf8'));
     expect(seedJson.schema_version).toBe(COMMAND_EVE_COMPANY_BRAIN_SEED_SCHEMA);
     expect(seedJson.kind).toBe('paste_brief');
     expect(seedJson.value).toContain('ACME');
 
-    // paste_brief also drops the raw brief verbatim.
+    // The brief is the file the agent reads (linked from the §SEAT stamp).
     const brief = fs.readFileSync(path.join(home, COMPANY_BRAIN_DIR, 'brief.md'), 'utf8');
     expect(brief).toContain('ACME GmbH — client A secret brief');
+    expect(path.resolve(result.briefPath)).toBe(path.resolve(path.join(home, COMPANY_BRAIN_DIR, 'brief.md')));
+
+    // T1: the DEAD root-MEMORY.md write is gone — the wheel never loaded it.
+    expect(fs.existsSync(path.join(home, 'MEMORY.md'))).toBe(false);
 
     // seeded? is answerable from the on-disk evidence.
     expect(readCompanyBrainSeedState({ userDataPath: userData, seatId: SEAT_A }).seeded).toBe(true);
@@ -97,11 +98,13 @@ describe('writeCompanyBrainSeed — the seed actually persists (NOT a no-op)', (
     });
     // Skip the mode assertion on platforms that don't honor unix modes.
     if (process.platform !== 'win32') {
-      expect(fs.statSync(result.memoryPath).mode & 0o777).toBe(0o600);
       expect(fs.statSync(result.seedJsonPath).mode & 0o777).toBe(0o600);
+      expect(fs.statSync(result.briefPath).mode & 0o777).toBe(0o600);
     }
-    // connect_client does NOT drop a raw brief.
-    expect(result.briefPath).toBeNull();
+    // T1: brief.md is written for connect_client TOO (the §SEAT link always resolves).
+    const brief = fs.readFileSync(result.briefPath, 'utf8');
+    expect(brief).toContain('client-xyz');
+    expect(path.basename(result.briefPath)).toBe('brief.md');
   });
 });
 
@@ -119,9 +122,9 @@ describe('cross-seat fence — disjoint homes, no leak', () => {
     const homeB = resolveSeatHome(userData, SEAT_B).hermesHome;
 
     // Negative: seat B home does not exist OR does not contain seat A's truth.
-    const memoryBExists = fs.existsSync(path.join(homeB, 'MEMORY.md'));
-    if (memoryBExists) {
-      expect(fs.readFileSync(path.join(homeB, 'MEMORY.md'), 'utf8')).not.toContain('ACME');
+    const briefBExists = fs.existsSync(path.join(homeB, COMPANY_BRAIN_DIR, 'brief.md'));
+    if (briefBExists) {
+      expect(fs.readFileSync(path.join(homeB, COMPANY_BRAIN_DIR, 'brief.md'), 'utf8')).not.toContain('ACME');
     }
     expect(fs.existsSync(path.join(homeB, COMPANY_BRAIN_DIR, 'seed.json'))).toBe(false);
 
@@ -145,10 +148,12 @@ describe('cross-seat fence — disjoint homes, no leak', () => {
 
     const homeA = resolveSeatHome(userData, SEAT_A).hermesHome;
     const homeB = resolveSeatHome(userData, SEAT_B).hermesHome;
-    expect(fs.readFileSync(path.join(homeA, 'MEMORY.md'), 'utf8')).toContain('A-only secret');
-    expect(fs.readFileSync(path.join(homeA, 'MEMORY.md'), 'utf8')).not.toContain('B-only secret');
-    expect(fs.readFileSync(path.join(homeB, 'MEMORY.md'), 'utf8')).toContain('B-only secret');
-    expect(fs.readFileSync(path.join(homeB, 'MEMORY.md'), 'utf8')).not.toContain('A-only secret');
+    const briefA = fs.readFileSync(path.join(homeA, COMPANY_BRAIN_DIR, 'brief.md'), 'utf8');
+    const briefB = fs.readFileSync(path.join(homeB, COMPANY_BRAIN_DIR, 'brief.md'), 'utf8');
+    expect(briefA).toContain('A-only secret');
+    expect(briefA).not.toContain('B-only secret');
+    expect(briefB).toContain('B-only secret');
+    expect(briefB).not.toContain('A-only secret');
   });
 });
 
@@ -166,13 +171,13 @@ describe('legacy / no-seat byte-compatibility', () => {
     expect(legacyHome).not.toContain(`${path.sep}seats${path.sep}`);
     expect(legacyHome.endsWith(path.join('hermes', 'home'))).toBe(true);
 
-    expect(fs.readFileSync(path.join(legacyHome, 'MEMORY.md'), 'utf8')).toContain('legacy single-seat brief');
+    expect(fs.readFileSync(path.join(legacyHome, COMPANY_BRAIN_DIR, 'brief.md'), 'utf8')).toContain('legacy single-seat brief');
     expect(readCompanyBrainSeedStateFromHome(legacyHome).seeded).toBe(true);
   });
 });
 
 describe('idempotent re-seed', () => {
-  it('(d) re-seeding REPLACES the block in place — no duplicate blocks accumulate', () => {
+  it('(d) re-seeding REPLACES brief.md + seed.json in place — reflects the LATEST seed only', () => {
     const userData = makeRoot();
     setActiveSeatId(SEAT_A);
     const home = resolveSeatHome(userData, SEAT_A).hermesHome;
@@ -180,31 +185,17 @@ describe('idempotent re-seed', () => {
     writeCompanyBrainSeed({ userDataPath: userData, seed: { kind: 'paste_brief', value: 'first brief' } });
     writeCompanyBrainSeed({ userDataPath: userData, seed: { kind: 'paste_brief', value: 'second brief' } });
 
-    const memory = fs.readFileSync(path.join(home, 'MEMORY.md'), 'utf8');
-    // Exactly ONE seed block.
-    const beginCount = (memory.match(/command-eve:company-brain-seed:begin/g) || []).length;
-    expect(beginCount).toBe(1);
-    // The block reflects the LATEST seed only.
-    expect(memory).toContain('second brief');
-    expect(memory).not.toContain('first brief');
+    const brief = fs.readFileSync(path.join(home, COMPANY_BRAIN_DIR, 'brief.md'), 'utf8');
+    // The brief reflects the LATEST seed only (overwrite, not append).
+    expect(brief).toContain('second brief');
+    expect(brief).not.toContain('first brief');
 
     // seed.json reflects the latest.
     const seedJson = JSON.parse(fs.readFileSync(path.join(home, COMPANY_BRAIN_DIR, 'seed.json'), 'utf8'));
     expect(seedJson.value).toBe('second brief');
-  });
 
-  it('preserves pre-existing MEMORY.md content outside the seed block', () => {
-    const userData = makeRoot();
-    setActiveSeatId(SEAT_A);
-    const home = resolveSeatHome(userData, SEAT_A).hermesHome;
-    fs.mkdirSync(home, { recursive: true });
-    fs.writeFileSync(path.join(home, 'MEMORY.md'), '# Existing notes\n\nkeep me\n');
-
-    writeCompanyBrainSeed({ userDataPath: userData, seed: { kind: 'paste_brief', value: 'the seed' } });
-    const memory = fs.readFileSync(path.join(home, 'MEMORY.md'), 'utf8');
-    expect(memory).toContain('# Existing notes');
-    expect(memory).toContain('keep me');
-    expect(memory).toContain('the seed');
+    // No root MEMORY.md is ever created by the write path.
+    expect(fs.existsSync(path.join(home, 'MEMORY.md'))).toBe(false);
   });
 });
 
@@ -234,7 +225,7 @@ describe('write confinement / guards (writer never escapes the seat home)', () =
       userDataPath: userData,
       seed: { kind: 'paste_brief', value: 'contained' },
     });
-    for (const p of [result.memoryPath, result.seedJsonPath, result.briefPath].filter(Boolean) as string[]) {
+    for (const p of [result.seedJsonPath, result.briefPath].filter(Boolean) as string[]) {
       expect(path.resolve(p).startsWith(path.resolve(home) + path.sep)).toBe(true);
     }
   });
@@ -280,5 +271,109 @@ describe('global-store NON-write', () => {
       expect(path.resolve(f).startsWith(path.resolve(home) + path.sep)).toBe(true);
     }
     expect(offending.length).toBeGreaterThan(0);
+  });
+});
+
+// ── T1 — legacy dead-write migration (root MEMORY.md) ──────────────────────────
+// A prior version wrote OUR "Client context (day-0 seed)" fence into the DEAD root
+// <hermesHome>/MEMORY.md (the wheel only ever loads memories/MEMORY.md). The
+// migration strips ONLY that fence, deletes the file if it becomes empty, NEVER
+// touches foreign content outside the fence, and NEVER touches memories/.
+
+const OUR_BEGIN = '<!-- command-eve:company-brain-seed:begin -->';
+const OUR_END = '<!-- command-eve:company-brain-seed:end -->';
+const legacyRootBlock = [
+  OUR_BEGIN,
+  '## Client context (day-0 seed)',
+  '',
+  '_Seeded 2026-06-29T00:00:00.000Z · source: Pasted brief_',
+  '',
+  '> STALE ACME client brief that the agent never actually read',
+  OUR_END,
+].join('\n');
+
+describe('T1 migration — kill the stale legacy root-MEMORY.md seed block', () => {
+  it('removes OUR fence and DELETES the file when only our block was in it', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-mig-only-'));
+    tempRoots.push(home);
+    const rootMemory = path.join(home, 'MEMORY.md');
+    fs.writeFileSync(rootMemory, `${legacyRootBlock}\n`);
+
+    const changed = migrateStrayRootMemoryBlock(home);
+    expect(changed).toBe(true);
+    // Founder-decision #3: the now-empty stale file is DELETED, not left behind.
+    expect(fs.existsSync(rootMemory)).toBe(false);
+    // Never touches the agent's own memories/ hot-cache.
+    expect(fs.existsSync(path.join(home, 'memories', 'MEMORY.md'))).toBe(false);
+  });
+
+  it('strips ONLY our fence and PRESERVES foreign content around it (never deletes)', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-mig-foreign-'));
+    tempRoots.push(home);
+    const rootMemory = path.join(home, 'MEMORY.md');
+    fs.writeFileSync(rootMemory, `# Foreign header the user typed\n\nkeep this line\n\n${legacyRootBlock}\n\n## Foreign tail\ntail survives\n`);
+
+    const changed = migrateStrayRootMemoryBlock(home);
+    expect(changed).toBe(true);
+    // File still exists (had foreign content) and foreign content is intact.
+    const after = fs.readFileSync(rootMemory, 'utf8');
+    expect(after).toContain('# Foreign header the user typed');
+    expect(after).toContain('keep this line');
+    expect(after).toContain('## Foreign tail');
+    expect(after).toContain('tail survives');
+    // Our fence + its body are gone.
+    expect(after).not.toContain(OUR_BEGIN);
+    expect(after).not.toContain(OUR_END);
+    expect(after).not.toContain('STALE ACME');
+  });
+
+  it('leaves a foreign root MEMORY.md (no OUR-fence) completely untouched', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-mig-noop-'));
+    tempRoots.push(home);
+    const rootMemory = path.join(home, 'MEMORY.md');
+    const foreign = '# Someone else wrote this\nno command-eve fence here\n';
+    fs.writeFileSync(rootMemory, foreign);
+
+    const changed = migrateStrayRootMemoryBlock(home);
+    expect(changed).toBe(false);
+    expect(fs.readFileSync(rootMemory, 'utf8')).toBe(foreign);
+  });
+
+  it('is idempotent — running twice, and on a clean/absent home, is a no-op', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-mig-idem-'));
+    tempRoots.push(home);
+    // absent root file → no-op
+    expect(migrateStrayRootMemoryBlock(home)).toBe(false);
+    // seed it, then migrate twice: first migrates, second is a clean no-op
+    const rootMemory = path.join(home, 'MEMORY.md');
+    fs.writeFileSync(rootMemory, `${legacyRootBlock}\n`);
+    expect(migrateStrayRootMemoryBlock(home)).toBe(true);
+    expect(migrateStrayRootMemoryBlock(home)).toBe(false);
+  });
+
+  it('the seed write ALSO migrates a stale root block (writeCompanyBrainSeedToHome reports it)', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-mig-onwrite-'));
+    tempRoots.push(home);
+    fs.writeFileSync(path.join(home, 'MEMORY.md'), `${legacyRootBlock}\n`);
+
+    const result = writeCompanyBrainSeedToHome({
+      hermesHome: home,
+      seed: { kind: 'paste_brief', value: 'fresh brief' },
+    });
+    expect(result.migratedRootMemory).toBe(true);
+    // The stale root file is gone; the fresh brief lives in company-brain/.
+    expect(fs.existsSync(path.join(home, 'MEMORY.md'))).toBe(false);
+    expect(fs.readFileSync(path.join(home, COMPANY_BRAIN_DIR, 'brief.md'), 'utf8')).toContain('fresh brief');
+  });
+
+  it('the boot read path (readCompanyBrainSeedStateFromHome) runs the migration once', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-mig-onread-'));
+    tempRoots.push(home);
+    fs.writeFileSync(path.join(home, 'MEMORY.md'), `${legacyRootBlock}\n`);
+
+    // Reading "seeded?" at boot cleans up the dead root block as a side effect.
+    const state = readCompanyBrainSeedStateFromHome(home);
+    expect(state.seeded).toBe(false); // not seeded — but the stale file is cleaned
+    expect(fs.existsSync(path.join(home, 'MEMORY.md'))).toBe(false);
   });
 });

@@ -107,6 +107,15 @@ describe('B2 stamp — §FOUNDER present in every seat, §SEAT gating', () => {
     expect(body).toContain(FOUNDER_MARKER_BEGIN);
     expect(body).toContain(SEAT_MARKER_BEGIN);
     expect(body).toContain('Bäckerei Müller');
+    // T1: §SEAT v2 points at the LIVING brief.md the agent can read, NOT the dead
+    // root MEMORY.md the old text referenced.
+    expect(body).toContain('company-brain/brief.md');
+    expect(body).not.toContain('MEMORY.md');
+    // Budget: the §SEAT body stays within the hard ≤400c budget.
+    const begin = body.indexOf(SEAT_MARKER_BEGIN) + SEAT_MARKER_BEGIN.length;
+    const end = body.indexOf(SEAT_MARKER_END);
+    const seatBody = body.slice(begin, end).replace(/^\n|\n$/g, '');
+    expect(seatBody.length).toBeLessThanOrEqual(SEAT_BLOCK_MAX_CHARS);
   });
 
   it('real seat WITHOUT a seed: §FOUNDER present, §SEAT absent (honest omission)', () => {
