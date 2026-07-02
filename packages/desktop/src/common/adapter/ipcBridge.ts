@@ -1295,6 +1295,49 @@ export interface ICommandEveCompanyBrainSeedResult {
   record: ICommandEveCompanyBrainSeedRecord;
 }
 
+/** v1.4 T2: one entry in the multi-entry Company-Brain index (brain.json v2). */
+export interface ICommandEveCompanyBrainEntry {
+  id: string;
+  /** company | offer | audience | tone | dos_donts | brief | note (open string). */
+  kind: string;
+  title: string;
+  updated_at: string;
+  author: 'user' | 'eve';
+  source: 'settings' | 'chat' | 'seed-migration';
+  body_file: string;
+}
+
+/** v1.4 T2: the company-brain-list payload — index only, NO bodies. */
+export interface ICommandEveCompanyBrainListResult {
+  ok: boolean;
+  reason_code?: string;
+  entries: ICommandEveCompanyBrainEntry[];
+}
+
+/** v1.4 T2: the company-brain-write request (upsert; author:user, source:settings). */
+export interface ICommandEveCompanyBrainWriteRequest {
+  /** Reuse an existing id to EDIT in place; omit to CREATE. */
+  id?: string;
+  kind: string;
+  title: string;
+  body: string;
+}
+
+/** v1.4 T2: the company-brain-write result. */
+export interface ICommandEveCompanyBrainWriteResult {
+  ok: boolean;
+  reason_code?: string;
+  entry?: ICommandEveCompanyBrainEntry;
+  created?: boolean;
+}
+
+/** v1.4 T2: the company-brain-remove result. */
+export interface ICommandEveCompanyBrainRemoveResult {
+  ok: boolean;
+  reason_code?: string;
+  removed?: boolean;
+}
+
 export interface ICommandEveResolveInferenceProviderResult {
   /** The resolved conversation `model` provider (local-runtime or EVE cloud). */
   provider: TProviderWithModel;
@@ -1602,6 +1645,20 @@ export const commandEve = {
   >('command-eve.company-brain-seed'),
   companyBrainStatus: bridge.buildProvider<IBridgeResponse<ICommandEveCompanyBrainSeedState>, void>(
     'command-eve.company-brain-status'
+  ),
+  // v1.4 T2: multi-entry Company-Brain store (brain.json v2), active-seat-resolved.
+  // list = index only (no bodies); write = upsert (user/settings, append-first);
+  // remove = delete an entry + its body. Bodies are read by the agent via read_file,
+  // not pulled through IPC.
+  companyBrainList: bridge.buildProvider<IBridgeResponse<ICommandEveCompanyBrainListResult>, void>(
+    'command-eve.company-brain-list'
+  ),
+  companyBrainWrite: bridge.buildProvider<
+    IBridgeResponse<ICommandEveCompanyBrainWriteResult>,
+    ICommandEveCompanyBrainWriteRequest
+  >('command-eve.company-brain-write'),
+  companyBrainRemove: bridge.buildProvider<IBridgeResponse<ICommandEveCompanyBrainRemoveResult>, { id: string }>(
+    'command-eve.company-brain-remove'
   ),
   // Resolve a picker selection into the full conversation `model` provider.
   // For an EVE tier the bearer (CEVE wire) is injected in the main process.

@@ -85,10 +85,11 @@ import { getCommandEveLocalRuntimeProvider } from '@/common/config/commandEveShe
 import { CREDITS_STATUS_FUNCTION_URL, type ClientSeedInput, type CreditsTier } from '@/common/config/creditsCore';
 import { ProcessConfig, getSkillsDir, getCronSkillsDir } from '@process/utils/initStorage';
 import { getDataPath } from '@process/utils/utils';
-import { getActiveSeatId, sanitizeSeatId } from '@process/commandEve/seatContextCore';
+import { getActiveSeatId, resolveActiveSeatHome, sanitizeSeatId } from '@process/commandEve/seatContextCore';
 import { isSeatSwitchAuthorized, parseMySeats, resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
 import { readMySeatsWire as readMySeatsWireCore } from '@process/commandEve/seatWireFetchCore';
 import { readCompanyBrainSeedState, writeCompanyBrainSeed } from '@process/commandEve/companyBrainSeedCore';
+import { listEntries, removeEntry, upsertEntry, type CompanyBrainWriteKind } from '@process/commandEve/companyBrainStoreCore';
 import {
   createElectronPdfRenderer,
   exportReport,
@@ -644,6 +645,69 @@ export function initCommandEveBridge(): void {
         success: false,
         msg: error instanceof Error ? error.message : 'Command EVE company-brain status read failed.',
         data: { seeded: false, record: null } as unknown,
+      };
+    }
+  });
+
+  // v1.4 T2: multi-entry Company-Brain store (brain.json v2). All three handlers
+  // resolve the ACTIVE seat's hermesHome (resolveActiveSeatHome) — the store is
+  // per-seat, never global, never cross-seat. LIST returns the index only (titles,
+  // NO bodies); WRITE upserts a user/settings entry (append-first — "Weiteren
+  // Client ergänzen" is honest now); REMOVE deletes an entry + its body. Errors
+  // surface as { ok:false, reason_code } (the T3 UI reads that shape). No UI here.
+  bridge.buildProvider('command-eve.company-brain-list').provider(async () => {
+    try {
+      const home = resolveActiveSeatHome(getDataPath()).hermesHome;
+      const entries = listEntries(home);
+      return { success: true, data: { ok: true, entries } as unknown };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : 'Command EVE company-brain list failed.',
+        data: { ok: false, reason_code: 'COMPANY_BRAIN_LIST_FAILED', entries: [] } as unknown,
+      };
+    }
+  });
+
+  bridge
+    .buildProvider('command-eve.company-brain-write')
+    .provider(async (request?: { id?: string; kind?: string; title?: string; body?: string }) => {
+      try {
+        if (!request || typeof request.kind !== 'string' || typeof request.title !== 'string') {
+          return { success: false, msg: 'COMPANY_BRAIN_WRITE_BAD_REQUEST', data: { ok: false, reason_code: 'COMPANY_BRAIN_WRITE_BAD_REQUEST' } as unknown };
+        }
+        const home = resolveActiveSeatHome(getDataPath()).hermesHome;
+        const result = upsertEntry(home, {
+          id: request.id,
+          kind: request.kind as CompanyBrainWriteKind, // upsertEntry re-validates against the write allowlist
+          title: request.title,
+          body: request.body ?? '',
+          author: 'user',
+          source: 'settings',
+        });
+        return { success: result.ok, data: { ok: result.ok, entry: result.entry, created: result.created } as unknown };
+      } catch (error) {
+        return {
+          success: false,
+          msg: error instanceof Error ? error.message : 'Command EVE company-brain write failed.',
+          data: { ok: false, reason_code: 'COMPANY_BRAIN_WRITE_FAILED' } as unknown,
+        };
+      }
+    });
+
+  bridge.buildProvider('command-eve.company-brain-remove').provider(async (request?: { id?: string }) => {
+    try {
+      if (!request || typeof request.id !== 'string') {
+        return { success: false, msg: 'COMPANY_BRAIN_REMOVE_BAD_REQUEST', data: { ok: false, reason_code: 'COMPANY_BRAIN_REMOVE_BAD_REQUEST' } as unknown };
+      }
+      const home = resolveActiveSeatHome(getDataPath()).hermesHome;
+      const result = removeEntry(home, request.id);
+      return { success: result.ok, data: { ok: result.ok, removed: result.removed } as unknown };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : 'Command EVE company-brain remove failed.',
+        data: { ok: false, reason_code: 'COMPANY_BRAIN_REMOVE_FAILED' } as unknown,
       };
     }
   });

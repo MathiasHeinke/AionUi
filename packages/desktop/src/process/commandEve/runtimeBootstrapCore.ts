@@ -18,6 +18,7 @@ import {
 } from './seatContextCore';
 import { claudeDelegatePreflightWarning } from '../../common/config/eveWorkerAssignmentCore';
 import { readCompanyBrainSeedStateFromHome } from './companyBrainSeedCore';
+import { ensureCompanyBrainReady } from './companyBrainStoreCore';
 import { stampUserMdTiersToHome } from './userMdTierStampCore';
 import { isMcpVaultEnabled } from './mcpVaultFlagCore';
 import { readVettedConnectorsForSeat, resolveEnvFromVault } from './vaultEnvResolveCore';
@@ -2958,6 +2959,12 @@ export function provisionSeatRuntimeFiles(
     const founderOpsSkillsDir = resolveFounderOpsSkillsDir(env);
 
     ensureDir(paths.hermesHome);
+    // Day-Zero (v1.4 T2): the SWITCH/seat-anlage hook — scaffold (or migrate a v1
+    // seed into) the TARGET seat's Company-Brain so a client seat has a functional
+    // brain.json from the moment it becomes active, not only after a full boot.
+    // Idempotent + best-effort (never throws), so a populated store is never
+    // clobbered and provisioning is never blocked.
+    ensureCompanyBrainReady(paths.hermesHome);
     const bundledSkillFailures = writeHermesRuntimeFiles(
       paths,
       manifest,
@@ -3399,6 +3406,11 @@ export async function ensureCommandEveRuntimeBootstrap(
   // that SAME home so a legacy install writes only §FOUNDER, byte-compatibly.
   const legacySeatAtBoot = isActiveSeatLegacy();
   const bootSeatSeed = legacySeatAtBoot ? null : readCompanyBrainSeedStateFromHome(paths.hermesHome).record;
+  // Day-Zero (v1.4 T2): ensure the boot-active seat carries a functional Company-
+  // Brain — migrate a v1 seed into brain.json if one exists, else scaffold an empty
+  // brain.json. Idempotent + best-effort (never throws), so the boot-active home has
+  // a working multi-entry store from the first chat.
+  ensureCompanyBrainReady(paths.hermesHome);
   const tierStamp = stampUserMdTiersToHome({
     hermesHome: paths.hermesHome,
     legacy: legacySeatAtBoot,
