@@ -41,8 +41,11 @@ vi.mock('@renderer/services/i18n', () => ({
   changeLanguage: changeLanguageMock,
 }));
 
+// APP→WEB AUTH HANDOFF: the curtain CTA now opens via openAccountWeb (MAIN attaches
+// the desktop session so the operator lands logged in); we assert the RELATIVE path.
 vi.mock('@renderer/utils/platform', () => ({
-  openExternalUrl: openExternalMock,
+  openAccountWeb: openExternalMock,
+  openExternalUrl: vi.fn(),
 }));
 
 // Keep i18n deterministic: echo the key (with interpolation visible) so we can
@@ -130,7 +133,7 @@ describe('RegistrationGatePage — day-14 trial curtain (T2)', () => {
     fireEvent.click(screen.getByTestId('registration-gate-curtain-continue'));
 
     await waitFor(() => expect(openExternalMock).toHaveBeenCalledTimes(1));
-    expect(openExternalMock).toHaveBeenCalledWith('https://command-eve.com/account');
+    expect(openExternalMock).toHaveBeenCalledWith('/account');
 
     // The curtain has no reset/wipe path: no activate/register bridge call is made.
     expect(entitlementRegisterMock).not.toHaveBeenCalled();

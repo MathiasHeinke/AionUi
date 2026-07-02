@@ -24,7 +24,9 @@ const { switchToMock, openExternalMock, useSeatAccessMock, messageErrorMock } = 
 }));
 
 vi.mock('@renderer/hooks/useSeatAccess', () => ({ useSeatAccess: useSeatAccessMock }));
-vi.mock('@renderer/utils/platform', () => ({ openExternalUrl: openExternalMock }));
+// APP→WEB AUTH HANDOFF: the "+" now opens via openAccountWeb (MAIN attaches the
+// desktop session so the operator lands logged in); we assert the RELATIVE path.
+vi.mock('@renderer/utils/platform', () => ({ openAccountWeb: openExternalMock, openExternalUrl: vi.fn() }));
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (_k: string, d?: unknown, vars?: { name?: string }) =>
@@ -122,8 +124,9 @@ describe('SeatRail', () => {
     render(<SeatRail />);
     fireEvent.click(screen.getByTestId('seat-rail-add'));
     // Gen-B: the "+" adds a CLIENT seat → deep-link to the LIVE ?intent=add_seat
-    // consumer on /account (scroll + highlight the add-seat section).
-    expect(openExternalMock).toHaveBeenCalledWith('https://command-eve.com/account?intent=add_seat');
+    // consumer on /account (scroll + highlight the add-seat section). openAccountWeb
+    // pins the origin + carries the session, so the component passes a RELATIVE path.
+    expect(openExternalMock).toHaveBeenCalledWith('/account?intent=add_seat');
   });
 
   it('toggle collapses/expands the rail', () => {

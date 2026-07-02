@@ -2272,6 +2272,74 @@ export function initCommandEveBridge(): void {
     }
   });
 
+  // -------------------------------------------------------------------------
+  // APP→WEB AUTH HANDOFF (money-critical). Open command-eve.com/account (and its
+  // ?intent=add_seat / ?pack_eur=<n> deep-links) in the system browser WITH the
+  // desktop session carried across, so the user lands LOGGED IN and checkout can
+  // start. Before this, the browser had its own empty localStorage session, so the
+  // user arrived logged out and the purchase never began (Alois could not buy
+  // credits). The refresh token is read HERE in MAIN via getFreshSession (the
+  // renderer never holds it), attached to the URL as a FRAGMENT (never a query, so
+  // it stays out of server logs + the Referer header), and the website exchanges +
+  // rotates it immediately (making the URL value worthless). FAIL-SAFE: any error,
+  // or no session, opens the NAKED url (today's behaviour → the site routes to
+  // /login); the buy path must NEVER hard-fail. The token is NEVER returned to the
+  // renderer and NEVER logged.
+  // -------------------------------------------------------------------------
+  bridge.buildProvider('command-eve.open-account-web').provider(async (request?: { path?: string }) => {
+    const openExternal = (url: string): Promise<void> => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { shell } = require('electron') as { shell?: { openExternal(u: string): Promise<void> } };
+      if (!shell?.openExternal) return Promise.reject(new Error('shell.openExternal unavailable'));
+      return shell.openExternal(url);
+    };
+
+    try {
+      const { buildAccountWebUrl, COMMAND_EVE_WEB_ORIGIN } = await import('@process/commandEve/accountWebHandoffCore');
+      const path = typeof request?.path === 'string' && request.path.startsWith('/') ? request.path : '/account';
+
+      // Read the session at rest (MAIN only). getFreshSession rotates a near-expiry
+      // access token; we only need the refresh_token, which the website exchanges.
+      let refreshToken: string | undefined;
+      try {
+        const { getFreshSession } = await import('@process/commandEve/accountSessionAtRest');
+        const fresh = await getFreshSession(getDataPath());
+        if (fresh.ok && fresh.session?.refresh_token) {
+          refreshToken = fresh.session.refresh_token;
+        }
+      } catch {
+        // No/failed session → carry no token; the naked URL below still opens.
+        refreshToken = undefined;
+      }
+
+      // Build the URL in MAIN (token stays here); origin is pinned to command-eve.com.
+      const url = buildAccountWebUrl(COMMAND_EVE_WEB_ORIGIN, path, refreshToken);
+      await openExternal(url);
+      // NEVER return the url (it may carry the fragment token) — only ok + whether
+      // a session was carried (a boolean, not the token) for the renderer's UX.
+      return { success: true, data: { ok: true, carried_session: Boolean(refreshToken) } };
+    } catch (error) {
+      // Even on a failure to read/build/open with the token, try the NAKED url so
+      // the operator still reaches the site (logged out → /login). Never throw the
+      // chrome; never log the token (there is none to log on this path).
+      try {
+        const path = typeof request?.path === 'string' && request.path.startsWith('/') ? request.path : '/account';
+        await openExternal(`https://command-eve.com${path}`);
+      } catch {
+        // opening the browser genuinely failed — still report ok:true so the buy
+        // path never hard-fails; the renderer keeps its own copy-link fallback.
+      }
+      return {
+        success: true,
+        data: {
+          ok: true,
+          carried_session: false,
+          reason_code: error instanceof Error ? 'OPEN_ACCOUNT_WEB_FELL_BACK' : undefined,
+        },
+      };
+    }
+  });
+
   // HARD reset ("Abmelden & Gerät zurücksetzen", §2b). Unlike auth-logout (which
   // KEEPS the offline entitlement), this removes the three local trust artifacts —
   // entitlement.json + registration.json + the license-wire bearer — and revokes

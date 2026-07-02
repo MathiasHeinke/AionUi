@@ -109,3 +109,37 @@ export const openExternalUrl = async (url: string): Promise<void> => {
     window.open(url, '_blank', 'noopener,noreferrer');
   }
 };
+
+// The pinned command-eve.com account origin (single source for the web fallback).
+const COMMAND_EVE_WEB_ORIGIN = 'https://command-eve.com';
+
+/**
+ * APP→WEB AUTH HANDOFF (money-critical). Open a command-eve.com account path
+ * (`/account?intent=add_seat`, `/account?pack_eur=<n>`, …) in the system browser
+ * WITH the desktop session carried across, so the user lands LOGGED IN and the
+ * checkout can start. This replaces the old `openExternalUrl('https://command-eve.com/account…')`
+ * pattern, which opened the browser with its own empty localStorage session → the
+ * user arrived logged out and the purchase never began.
+ *
+ * In Electron the token is attached IN MAIN (via the `command-eve.open-account-web`
+ * provider — the renderer never sees the token). In the plain web build there is no
+ * MAIN process and no desktop session, so we fall back to a normal external open of
+ * the absolute URL (unchanged behaviour). Never throws — the buy path must not
+ * hard-fail; a failure degrades to a naked external open.
+ *
+ * @param path an ABSOLUTE app path beginning with '/', e.g. '/account?intent=add_seat'.
+ */
+export const openAccountWeb = async (path: string): Promise<void> => {
+  const safePath = typeof path === 'string' && path.startsWith('/') ? path : '/account';
+
+  if (isElectronDesktop()) {
+    try {
+      const { ipcBridge } = await import('@/common');
+      await ipcBridge.commandEve.openAccountWeb.invoke({ path: safePath });
+      return;
+    } catch {
+      // MAIN handoff unavailable → fall through to a naked external open (logged out).
+    }
+  }
+  await openExternalUrl(`${COMMAND_EVE_WEB_ORIGIN}${safePath}`);
+};

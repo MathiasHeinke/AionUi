@@ -24,7 +24,7 @@ import React, { useEffect, useState } from 'react';
 import { Message, Tooltip } from '@arco-design/web-react';
 import { useTranslation } from 'react-i18next';
 import { useSeatAccess } from '@renderer/hooks/useSeatAccess';
-import { openExternalUrl } from '@renderer/utils/platform';
+import { openAccountWeb } from '@renderer/utils/platform';
 import '@renderer/styles/seatRail.css';
 
 // A fixed palette. The seat's color is deterministic from its id (FNV-1a hash) so the
@@ -92,8 +92,10 @@ export function seatInitials(name: string): string {
 
 // The "+" chip adds a CLIENT seat (the +99€/seat expansion). Deep-link to the LIVE
 // Gen-B consumer on /account (?intent=add_seat scrolls + highlights the add-seat
-// section) so the click lands the operator exactly where they buy a seat.
-const ACCOUNT_URL = 'https://command-eve.com/account?intent=add_seat';
+// section) so the click lands the operator exactly where they buy a seat. RELATIVE
+// path: openAccountWeb pins the command-eve.com origin AND carries the desktop
+// session so the operator lands LOGGED IN (checkout can start).
+const ADD_SEAT_PATH = '/account?intent=add_seat';
 
 // Reason-code → human German string for a failed/rolled-back switch. A switch is the
 // most consequential rail action (it re-homes the whole app to another client), so a
@@ -229,7 +231,7 @@ const SeatRail: React.FC = () => {
           className='seat-rail__add'
           data-testid='seat-rail-add'
           aria-label={t('commandEve.seatRail.add', 'Kunde hinzufügen')}
-          onClick={() => void openExternalUrl(ACCOUNT_URL)}
+          onClick={() => void openAccountWeb(ADD_SEAT_PATH)}
         >
           <span className='seat-rail__add-glyph' aria-hidden='true'>
             +

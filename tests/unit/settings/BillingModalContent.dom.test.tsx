@@ -38,9 +38,13 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-const openExternalMock = vi.fn(() => Promise.resolve());
+// APP→WEB AUTH HANDOFF: the billing CTAs now open via openAccountWeb (MAIN attaches
+// the desktop session so the browser lands logged in). We assert the RELATIVE path
+// it is called with (the origin + session are pinned/attached inside openAccountWeb).
+const openAccountWebMock = vi.fn(() => Promise.resolve());
 vi.mock('@renderer/utils/platform', () => ({
-  openExternalUrl: (url: string) => openExternalMock(url),
+  openAccountWeb: (path: string) => openAccountWebMock(path),
+  openExternalUrl: vi.fn(() => Promise.resolve()),
 }));
 
 // Honest mini-store mock (the SystemModalContent pattern): get serves a backing map.
@@ -147,7 +151,7 @@ describe('BillingModalContent — client-seat CTA + pack deep-links (Gen-B consu
     const user = userEvent.setup();
     render(<BillingModalContent />);
     await user.click(screen.getByTestId('billing-add-seat'));
-    expect(openExternalMock).toHaveBeenCalledWith('https://command-eve.com/account?intent=add_seat');
+    expect(openAccountWebMock).toHaveBeenCalledWith('/account?intent=add_seat');
   });
 
   it('the client-seat CTA advertises the 99€ floor', () => {
@@ -161,7 +165,7 @@ describe('BillingModalContent — client-seat CTA + pack deep-links (Gen-B consu
     const user = userEvent.setup();
     render(<BillingModalContent />);
     await user.click(screen.getByTestId('billing-pack-100'));
-    expect(openExternalMock).toHaveBeenCalledWith('https://command-eve.com/account?pack_eur=100');
+    expect(openAccountWebMock).toHaveBeenCalledWith('/account?pack_eur=100');
   });
 
   it('a credit pack shows the +20% recurring bonus badge (fires because bonus > 0)', () => {

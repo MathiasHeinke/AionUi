@@ -23,7 +23,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, Checkbox, Input } from '@arco-design/web-react';
 import { changeLanguage } from '@renderer/services/i18n';
-import { openExternalUrl } from '@renderer/utils/platform';
+import { openAccountWeb } from '@renderer/utils/platform';
 import {
   commandEve,
   type ICommandEveEntitlementStatusResult,
@@ -54,7 +54,10 @@ type GateStep = 'auth' | 'registration' | 'license';
  * user signs in for their free own seat (and can add paid client seats from
  * 99 €). The desktop never holds a card or a checkout form.
  */
-const CURTAIN_CHECKOUT_URL = 'https://command-eve.com/account';
+// RELATIVE path: openAccountWeb pins the command-eve.com origin AND carries the
+// desktop session (refresh token, attached in MAIN) so the operator lands LOGGED
+// IN on /account and the checkout can start — not on a logged-out redirect.
+const CURTAIN_CHECKOUT_PATH = '/account';
 
 // OAUTH-2 browser web-login: the web /auth/desktop page (the loopback target) is now
 // LIVE (command-eve.com/auth/desktop → 200) and the desktop-auth-broker is deployed +
@@ -307,7 +310,7 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
   const handleContinueToCheckout = useCallback(async () => {
     setCurtainOpening(true);
     try {
-      await openExternalUrl(CURTAIN_CHECKOUT_URL);
+      await openAccountWeb(CURTAIN_CHECKOUT_PATH);
     } catch (error) {
       console.error('Failed to open conversion checkout:', error);
     } finally {

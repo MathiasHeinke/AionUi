@@ -22,7 +22,7 @@
 import React, { useMemo, useState } from 'react';
 import { Button, Modal, Radio, Switch } from '@arco-design/web-react';
 import { useTranslation } from 'react-i18next';
-import { openExternalUrl } from '@renderer/utils/platform';
+import { openAccountWeb } from '@renderer/utils/platform';
 import {
   buildWallModel,
   shouldSurfaceQuotaWall,
@@ -53,11 +53,20 @@ export interface QuotaExhaustedWallProps {
   autoReloadDefault?: boolean;
   /** Called when the user changes the auto-reload toggle. */
   onAutoReloadChange?: (enabled: boolean) => void;
-  /** Override the checkout open (tests inject this; defaults to openExternalUrl). */
+  /** Override the checkout open (tests inject this; defaults to openAccountWeb, which
+   * carries the desktop session so the browser lands logged in). */
   openCheckout?: (url: string) => Promise<void> | void;
 }
 
-/** Build the deep-link to the Lane-2 checkout for a specific pack. */
+/** The RELATIVE deep-link path for a pack (openAccountWeb pins the origin + carries
+ * the session so the browser lands LOGGED IN and the checkout can start). */
+function checkoutPathForPack(pack: WallPack): string {
+  const params = new URLSearchParams({ pack_eur: String(pack.eur) });
+  return `/account?${params.toString()}`;
+}
+
+/** Build the ABSOLUTE deep-link URL for a pack. Used ONLY for the injectable
+ * `openCheckout` override (tests); the default open uses the relative path above. */
 function checkoutUrlForPack(pack: WallPack): string {
   const params = new URLSearchParams({ pack_eur: String(pack.eur) });
   return `${CREDIT_PACK_CHECKOUT_URL}?${params.toString()}`;
@@ -95,9 +104,15 @@ const QuotaExhaustedWall: React.FC<QuotaExhaustedWallProps> = ({
 
   const handleBuy = async () => {
     if (!selectedPack) return;
-    const url = checkoutUrlForPack(selectedPack);
     try {
-      await (openCheckout ? openCheckout(url) : openExternalUrl(url));
+      if (openCheckout) {
+        // Injected override (tests) — receives the ABSOLUTE deep-link URL.
+        await openCheckout(checkoutUrlForPack(selectedPack));
+      } else {
+        // Default: carry the desktop session across (MAIN attaches the refresh
+        // token as a fragment) so the browser lands LOGGED IN and checkout starts.
+        await openAccountWeb(checkoutPathForPack(selectedPack));
+      }
     } catch (error) {
       console.error('Failed to open credit-pack checkout:', error);
     }

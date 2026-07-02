@@ -28,7 +28,7 @@ vi.mock('@/common/adapter/ipcBridge', () => ({
   },
 }));
 vi.mock('@renderer/services/i18n', () => ({ changeLanguage: vi.fn() }));
-vi.mock('@renderer/utils/platform', () => ({ openExternalUrl: vi.fn() }));
+vi.mock('@renderer/utils/platform', () => ({ openAccountWeb: vi.fn(), openExternalUrl: vi.fn() }));
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string) => key,

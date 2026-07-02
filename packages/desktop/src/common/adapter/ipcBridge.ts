@@ -1227,6 +1227,29 @@ export interface ICommandEveAuthLogoutResult {
 }
 
 /**
+ * APP→WEB AUTH HANDOFF request (money-critical). The renderer asks MAIN to open a
+ * command-eve.com account path in the system browser; MAIN attaches the desktop
+ * session (refresh token) as a URL fragment so the user lands LOGGED IN and can
+ * check out. `path` is an absolute app path ('/account?intent=add_seat', etc.) —
+ * MAIN pins the origin. The renderer NEVER supplies or receives the token.
+ */
+export interface ICommandEveOpenAccountWebRequest {
+  path: string;
+}
+
+/**
+ * Result of the handoff open. NEVER carries the token or the built URL (the URL
+ * fragment holds the refresh token). `carried_session` is a boolean the renderer
+ * may use for UX (e.g. "opening your account…") — it is NOT the token. `ok` is
+ * always true: the buy path must never hard-fail (a fallback opens the naked URL).
+ */
+export interface ICommandEveOpenAccountWebResult {
+  ok: boolean;
+  carried_session: boolean;
+  reason_code?: string;
+}
+
+/**
  * HARD reset result ("Abmelden & Gerät zurücksetzen", §2b). Unlike the soft
  * logout, this removes the three local trust artifacts (entitlement.json +
  * registration.json + the license-wire bearer) and revokes the session, so the
@@ -1687,6 +1710,14 @@ export const commandEve = {
     ICommandEveAuthPasswordLoginRequest
   >('command-eve.auth-password-login'),
   authLogout: bridge.buildProvider<IBridgeResponse<ICommandEveAuthLogoutResult>, void>('command-eve.auth-logout'),
+  // APP→WEB AUTH HANDOFF (money-critical): MAIN opens command-eve.com/account with
+  // the desktop session (refresh token) attached as a URL fragment, so the browser
+  // lands LOGGED IN and checkout can start. The renderer passes only a path; the
+  // token never crosses the bridge (in or out).
+  openAccountWeb: bridge.buildProvider<
+    IBridgeResponse<ICommandEveOpenAccountWebResult>,
+    ICommandEveOpenAccountWebRequest
+  >('command-eve.open-account-web'),
   // HARD reset ("Gerät zurücksetzen", §2b): removes entitlement.json +
   // registration.json + the license-wire bearer and revokes the session, so the
   // gate falls back to the RegistrationGate. The renderer re-reads

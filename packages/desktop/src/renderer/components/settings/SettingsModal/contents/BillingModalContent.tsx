@@ -22,7 +22,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, Input, InputNumber, Message, Progress } from '@arco-design/web-react';
 import { useTranslation } from 'react-i18next';
-import { openExternalUrl } from '@renderer/utils/platform';
+import { openAccountWeb } from '@renderer/utils/platform';
 import { configService } from '@/common/config/configService';
 import { useCreditsStatus } from '@renderer/hooks/useCreditsStatus';
 import { useSeatUsage } from '@renderer/hooks/useSeatUsage';
@@ -43,9 +43,10 @@ import {
 // The Gen-B web money surface. The desktop holds no card; it opens the web account
 // where the free own-seat lives and client seats / credit packs are bought. The
 // ?intent=add_seat and ?pack_eur=<n> consumers are LIVE on command-eve.com/account
-// (Gen B: scroll + highlight the relevant section).
-const ACCOUNT_URL = 'https://command-eve.com/account';
-const ADD_SEAT_URL = `${ACCOUNT_URL}?intent=add_seat`;
+// (Gen B: scroll + highlight the relevant section). We open these via openAccountWeb
+// (MAIN attaches the desktop session so the browser lands LOGGED IN → checkout can
+// start); paths are RELATIVE — openAccountWeb pins the command-eve.com origin.
+const ADD_SEAT_PATH = '/account?intent=add_seat';
 
 const BillingModalContent: React.FC = () => {
   const { t } = useTranslation();
@@ -152,10 +153,10 @@ const BillingModalContent: React.FC = () => {
   };
 
   const openAddSeat = () => {
-    void openExternalUrl(ADD_SEAT_URL).catch((): undefined => undefined);
+    void openAccountWeb(ADD_SEAT_PATH).catch((): undefined => undefined);
   };
   const openPackCheckout = (eur: number) => {
-    void openExternalUrl(`${ACCOUNT_URL}?pack_eur=${eur}`).catch((): undefined => undefined);
+    void openAccountWeb(`/account?pack_eur=${eur}`).catch((): undefined => undefined);
   };
 
   return (
