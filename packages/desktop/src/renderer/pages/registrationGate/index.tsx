@@ -48,10 +48,11 @@ import gateLoopPoster from './assets/gate-loop-poster.jpg';
 type GateStep = 'auth' | 'registration' | 'license';
 
 /**
- * The day-14 trial-conversion curtain destination. This routes the user OUT to
- * the web `/account` surface where the existing 250€/mo checkout lives — the
- * desktop never holds a card or a checkout form. Founder may refine the exact
- * destination (e.g. a deep-link that pre-fills the tenant) — see needs_founder.
+ * The trial-conversion curtain destination (reached ONLY by a legacy trial
+ * license). Gen-B: the operator's OWN seat is 0 € for ever, so the curtain no
+ * longer sells a plan — it routes OUT to the web `/account` surface where the
+ * user signs in for their free own seat (and can add paid client seats from
+ * 99 €). The desktop never holds a card or a checkout form.
  */
 const CURTAIN_CHECKOUT_URL = 'https://command-eve.com/account';
 
@@ -504,7 +505,8 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
   // flow when a trial has expired. It is intentionally distinct from the hard
   // license-error states: it leads with the value the user already built (their
   // Company OS, memory, connections, SOPs are PRESERVED and waiting) and offers a
-  // single primary CTA out to the web 250€/mo checkout. It wipes nothing and
+  // single primary CTA out to the web /account (free own seat; client seats from
+  // 99 €). It wipes nothing and
   // cannot itself unlock the app — the structural route guard keeps every main
   // surface blocked until the entitlement flips to `entitled` (after the user
   // converts on the web and re-activates / the gate re-reads).

@@ -1,6 +1,6 @@
 {
   "settings": {
-    "freeActions": "{{used}} / {{cap}} free actions used",
+    "freeActions": "{{used}} / {{cap}} free actions today",
     "allowanceUsed": "{{pct}}% of allowance used · {{rem}} credits left",
     "purchasedRemaining": "{{n}} purchased credits",
     "noStatus": "Credit status will appear once you are signed in.",
@@ -10,14 +10,13 @@
     "capInvalid": "Enter a valid spend cap (0 = uncapped).",
     "capSaved": "Spend cap saved.",
     "capFailed": "Could not save the spend cap.",
-    "plansTitle": "Plans",
-    "starter": "Starter",
-    "solo": "Solo",
-    "churnOnly": "save offer",
-    "starterIncludes": "Starter ({{eur}}€) includes a monthly Action-Credit allowance + your Company Brain.",
-    "startTrial": "Start free — no card",
+    "seatTitle": "Your seat",
+    "ownSeatFree": "Your own seat: 0 € — forever",
+    "ownSeatPaid": "Your seat is active (paid client seat)",
+    "clientSeatHint": "Grow by adding CLIENT seats — from {{eur}} €/month, incl. 60,000 credits each. Your own seat always stays free.",
+    "addClientSeat": "Add a client seat — from {{eur}} €/month",
     "packsTitle": "Credit packs",
-    "packsHint": "Out of allowance? Top up. Going big = a bigger pack, never a higher plan.",
+    "packsHint": "Out of allowance? Recurring top-ups add +20 % credits. Going big = a bigger pack, never a higher plan.",
     "packBonus": "+{{n}} bonus",
     "brandTitle": "Report branding",
     "brandHint": "Your name, logo and footer on every report EVE delivers — deliver under your brand, not ours.",
@@ -31,10 +30,21 @@
     "brandSaved": "Branding saved — it appears on every report EVE delivers."
   },
   "meter": {
-    "freeActions": "{{used}} / {{cap}} actions",
+    "freeActions": "{{used}} / {{cap}} free actions today",
+    "freeForever": "0 € — forever",
     "allowanceUsed": "{{pct}}% of allowance used",
     "allowanceRemaining": "Allowance: {{n}} credits left",
     "purchasedRemaining": "Purchased: {{n}} credits left",
     "spendCap": "Spend cap: {{eur}}€"
+  },
+  "wall": {
+    "title": "Keep this job going",
+    "jobCost": "This job needs ≈ {{n}} more credits to finish.",
+    "bonus": "+{{n}} bonus",
+    "recommended": "recommended",
+    "moreJobs": "≈ {{n}} more jobs like this",
+    "autoReload": "Auto-reload when credits run low",
+    "buy": "Continue — add {{eur}}€ credits",
+    "later": "Not now"
   }
 }

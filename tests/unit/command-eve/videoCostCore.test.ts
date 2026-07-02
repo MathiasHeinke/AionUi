@@ -84,6 +84,29 @@ describe('VIDEO_TIERS — default + upgrade shape', () => {
     expect(getVideoTier('nope').isDefault).toBe(true);
     expect(getVideoTier(undefined).id).toBe('fast');
   });
+
+  // M3.7 — HONEST unit-mismatch guard (NOT a blind recalibration). The
+  // creditsCore credit unit is 0.1 ct (1000 credits/€), but this preview is
+  // pinned to 1 credit = 1 US-cent (24/68 cr/s). That is a factor-~10 UNDER-state
+  // relative to the 0.1ct-unit debit — deliberately LEFT as-is because the real
+  // video charge is authoritative SERVER-side (per-token/second markup at
+  // consumption), and a blind ×10 here could over/under-state depending on
+  // whether the server debits video at cost or at markup. This test PINS the
+  // known figures + the mismatch so the founder margin decision is visible and a
+  // future change is a conscious edit, not an accident. See videoCostCore.ts.
+  it('DOCUMENTS the 1cr=1ct calibration (founder margin decision vs the 0.1ct credit unit)', () => {
+    // The preview is pinned to the 1cr=1ct calibration (Seedance USD cents).
+    expect(getVideoTier('fast').creditsPerSecond).toBe(24);
+    expect(getVideoTier('hd').creditsPerSecond).toBe(68);
+    // A 5s Fast clip previews 120 credits at THIS calibration.
+    expect(estimateVideoCost({ durationSeconds: 5, tierId: 'fast' }).estimatedCredits).toBe(120);
+    // At the creditsCore 0.1ct unit the AT-COST figure would be ~10× higher
+    // (~240/680 cr/s). This is NOT applied here — recalibrating is a founder
+    // margin decision against the live server debit (report open-point M3.7).
+    const zeroPointOneCtUnitFast = 24 * 10; // ~$0.2419/s at 0.1ct/credit, at cost
+    expect(zeroPointOneCtUnitFast).toBe(240);
+    expect(getVideoTier('fast').creditsPerSecond).not.toBe(zeroPointOneCtUnitFast);
+  });
 });
 
 // ---------------------------------------------------------------------------

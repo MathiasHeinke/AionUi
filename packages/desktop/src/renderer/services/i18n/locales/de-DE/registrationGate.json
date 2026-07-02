@@ -85,13 +85,13 @@
     }
   },
   "curtain": {
-    "title": "Deine Testphase ist beendet",
-    "lede": "Willkommen zurück. Deine 14-tägige Testphase von Command EVE ist abgelaufen. Du kannst genau dort weitermachen, wo du aufgehört hast.",
+    "title": "Willkommen zurück",
+    "lede": "Deine alte Testphase ist beendet — aber dein eigener Seat ist jetzt kostenlos, für immer. Melde dich an und mach genau dort weiter, wo du aufgehört hast. Kunden-Seats gibt es ab 99 €.",
     "preservedTitle": "Deine Einrichtung bleibt erhalten",
     "preservedBody": "Dein Company OS, dein Gedächtnis, deine Verbindungen und deine SOPs sind weiterhin gespeichert und warten auf dich. Es wird nichts gelöscht oder zurückgesetzt.",
-    "price": "Weiter für 79 €/Monat",
-    "continue": "Jetzt fortsetzen",
-    "hint": "Der Button öffnet die sichere Bezahlseite in deinem Browser. Sobald dein Abo aktiv ist, schalte Command EVE mit deinem neuen Lizenzcode wieder frei."
+    "price": "Dein eigener Seat: 0 € — für immer",
+    "continue": "Anmelden und weitermachen",
+    "hint": "Der Button öffnet dein Konto im Browser. Melde dich an, um deinen kostenlosen eigenen Seat zu reaktivieren; Kunden-Seats fügst du hinzu, wann immer du bereit bist."
   },
   "unconfigured": {
     "title": "Aktivierung nicht verfügbar",

@@ -56,7 +56,8 @@
   "eveRuntime": "EVE-Runtime",
   "runtime": "Runtime",
   "connectors": "Connectors",
-  "byokPaidSeatOnly": "Custom models/API keys require the Pro plan (€99/month)",
+  "billing": "Billing",
+  "byokPaidSeatOnly": "Custom models/API keys require a client seat (from €99/month)",
   "skillState": {
     "all": "All",
     "executable": "Executable",

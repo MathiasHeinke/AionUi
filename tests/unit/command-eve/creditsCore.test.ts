@@ -20,21 +20,22 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildCreditMeterModel,
-  buildPricingPlans,
+  buildSeatBillingStatus,
   buildValueReceiptModel,
   buildWallModel,
+  CLIENT_SEAT_FROM_EUR,
   detectQuotaExhausted,
   DEFAULT_CREDIT_PACKS,
   isClientSeedSatisfied,
   isNearAllowanceWall,
   marginInvariantHolds,
+  OWN_SEAT_EUR,
   packEffectiveCostPerCredit,
   parseQuotaExhaustedBody,
+  RECURRING_TOP_UP_BONUS_FACTOR,
   selectDefaultPackIndex,
   shouldForceDayZeroOnboarding,
   shouldSurfaceQuotaWall,
-  SOLO_PLAN_EUR,
-  STARTER_PLAN_EUR,
   validateSpendCapEur,
   type CreditPack,
   type CreditsStatus,
@@ -289,26 +290,32 @@ describe('marginInvariant — effective €/credit must exceed raw cost', () => 
     expect(marginInvariantHolds({ eur: 100, credits: 100, bonus: 200 }, 0.5)).toBe(false);
   });
 
-  it('the default catalog holds at the NEW 0.1ct credit unit (face value, no bonus)', () => {
-    // NEW server billing model: 1 credit = 0.1 ct ⇒ every face-value pack pays a
-    // flat 0.001 €/credit (25€/25,000 cr = 0.001, 100€/100,000 cr = 0.001, …).
-    // Margin lives at CONSUMPTION via the tier factors, so the raw COST per credit
-    // is sub-cent; any raw below the 0.001 face price clears the invariant.
-    const rawSubCent = 0.0005; // raw cost/credit below the 0.001 €/credit face price
+  it('the default catalog holds the margin invariant at the recurring +20% bonus', () => {
+    // GEN-B: recurring top-ups grant +20% (server TOP_UP_BONUS_FACTOR=1.2), so each
+    // pack delivers N×1000 face + 20% bonus. Effective €/credit = eur/(1.2 × N×1000)
+    // = 0.001/1.2 ≈ 0.000833. The raw at-cost per credit is sub-cent (margin is
+    // taken at CONSUMPTION via the tier factors), so any raw below ~0.000833 clears
+    // the invariant even WITH the bonus.
+    const rawSubCent = 0.0005; // below the bonus-effective 0.000833 €/credit
     for (const pack of DEFAULT_CREDIT_PACKS) {
-      expect(packEffectiveCostPerCredit(pack)).toBeCloseTo(0.001, 6);
-      expect(pack.bonus).toBe(0);
+      expect(packEffectiveCostPerCredit(pack)).toBeCloseTo(0.001 / 1.2, 6);
+      expect(pack.bonus).toBeGreaterThan(0);
       expect(marginInvariantHolds(pack, rawSubCent)).toBe(true);
     }
   });
 
-  it('the default catalog ships at FACE VALUE: N€ → N×1000 credits, no bonus', () => {
+  it('the default catalog ships the RECURRING packs: N€ → N×1000 credits + 20% bonus', () => {
+    expect(RECURRING_TOP_UP_BONUS_FACTOR).toBe(0.2);
     expect(DEFAULT_CREDIT_PACKS.map((p) => [p.eur, p.credits, p.bonus])).toEqual([
-      [25, 25_000, 0],
-      [50, 50_000, 0],
-      [100, 100_000, 0],
-      [250, 250_000, 0],
+      [25, 25_000, 5_000],
+      [50, 50_000, 10_000],
+      [100, 100_000, 20_000],
+      [250, 250_000, 50_000],
     ]);
+    // Each bonus is exactly 20% of the face-value credits.
+    for (const pack of DEFAULT_CREDIT_PACKS) {
+      expect(pack.bonus).toBe(pack.credits * RECURRING_TOP_UP_BONUS_FACTOR);
+    }
   });
 });
 
@@ -387,19 +394,24 @@ describe('Day-0 onboarding gate', () => {
 });
 
 // ---------------------------------------------------------------------------
-// (+) pricing rows — hidden Solo on churn
+// (+) Gen-B seat billing — free own seat + client-seat expansion
 // ---------------------------------------------------------------------------
 
-describe('buildPricingPlans — Solo is hidden unless a churn signal', () => {
-  it('shows only Starter by default', () => {
-    const plans = buildPricingPlans({ churnSignal: false });
-    expect(plans).toHaveLength(1);
-    expect(plans[0]).toEqual({ id: 'starter', priceEur: STARTER_PLAN_EUR, hidden: false });
+describe('buildSeatBillingStatus — Gen-B 0€-forever own seat + client-seat from 99€', () => {
+  it('the free tier is the 0€-forever own seat', () => {
+    const s = buildSeatBillingStatus({ tier: 'free' });
+    expect(s.isFreeOwnSeat).toBe(true);
+    expect(s.ownSeatEur).toBe(OWN_SEAT_EUR);
+    expect(s.ownSeatEur).toBe(0);
+    expect(s.clientSeatFromEur).toBe(CLIENT_SEAT_FROM_EUR);
+    expect(s.clientSeatFromEur).toBe(99);
   });
 
-  it('surfaces the hidden Solo plan when a churn signal is present', () => {
-    const plans = buildPricingPlans({ churnSignal: true });
-    expect(plans).toHaveLength(2);
-    expect(plans.find((p) => p.id === 'solo')).toEqual({ id: 'solo', priceEur: SOLO_PLAN_EUR, hidden: false });
+  it('a paid tier (starter/solo) is NOT the free own seat but still shows the 99€ client floor', () => {
+    for (const tier of ['starter', 'solo'] as const) {
+      const s = buildSeatBillingStatus({ tier });
+      expect(s.isFreeOwnSeat).toBe(false);
+      expect(s.clientSeatFromEur).toBe(99);
+    }
   });
 });

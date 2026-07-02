@@ -38,22 +38,32 @@ export interface VideoTierSpec {
   id: VideoQualityTier;
   resolution: VideoResolution;
   /**
-   * Credits per second of generated video at this tier — CALIBRATED to the
-   * backend's real Seedance per-second USD price (1 credit = 1 US-cent of
-   * at-cost spend, the credit-unit invariant from creditsCore). The preview MUST
-   * equal what the backend will actually debit, so these are NOT free-chosen
-   * "conservative" desktop figures — they are pinned to the registry:
+   * Credits per second of generated video at this tier — calibrated to the
+   * backend Seedance per-second USD price at 1 credit = 1 US-cent of AT-COST
+   * spend:
    *
    *   SSOT: eve-app `eve-model-registry` Seedance `usd_price` (per-second).
    *     - Seedance Fast 720p   ≈ $0.2419/s  →  ≈ 24 credits/s  (ceil(24.19)).
    *     - Seedance Standard 1080p ≈ $0.682/s →  ≈ 68 credits/s  (ceil(68.2)).
    *
-   * The prior desktop figures (8 / 20) UNDER-stated by ~3× — the wall showed far
-   * fewer credits than the backend would debit (DUX-2). These calibrated rates
-   * close that honesty gap. If the registry `usd_price` changes, update BOTH the
+   * ⚠️ KNOWN UNIT MISMATCH (M3.7, founder margin decision — NOT blindly changed):
+   * `creditsCore` defines the credit unit as 0.1 ct (CREDIT_UNIT_EUR = 0.001 €,
+   * 1000 credits/€), whereas THIS preview is pinned to 1 credit = 1 US-cent. At
+   * the 0.1ct unit the AT-COST figure would be ~10× higher (~242/682 cr/s), and
+   * WITH the per-tier consumption markup (2–8×) higher still. This preview is
+   * therefore an UNDER-STATE relative to the real 0.1ct-unit debit.
+   *
+   * These figures are deliberately LEFT as-is because the real video debit is
+   * NOT driven by this desktop preview — the server (eve-inference, per-token /
+   * per-second markup at consumption) is authoritative on every charge, and a
+   * blind ×10 here would over/under-state depending on whether the server debits
+   * video at cost or at markup (unverified from the sandbox). Recalibrating to
+   * ~240/680 cr/s + markup is a MARGIN decision that must be made against the
+   * live server contract — see the founder note in the M3+M4 report. If the
+   * registry `usd_price` OR the credit-unit calibration changes, update BOTH the
    * backend registry and these constants (the test pins them — see
-   * videoCostCore.test.ts). Per-second credits are rounded UP from the USD cents
-   * so the preview is a ceiling, never an under-state.
+   * videoCostCore.test.ts). Per-second credits are rounded UP so the preview is
+   * a ceiling of the 1cr=1ct calibration, never an under-state of THAT unit.
    */
   creditsPerSecond: number;
   /** True for the cheaper DEFAULT tier (Fast/720p). Exactly one tier is default. */
@@ -66,11 +76,12 @@ export interface VideoTierSpec {
  * The two video tiers (spec / war-game guardrail). Fast/720p is the resting
  * default; HD/1080p is the explicit upgrade.
  *
- * `creditsPerSecond` is CALIBRATED to the backend Seedance `usd_price` (1 credit
- * = 1 US-cent), so the wall preview equals the real debit:
- *   - Fast/720p:   $0.2419/s → 24 credits/s.
- *   - HD/1080p:    $0.682/s  → 68 credits/s.
- * SSOT = eve-app `eve-model-registry`. Do not hand-tune these in isolation.
+ * `creditsPerSecond` is pinned to the backend Seedance `usd_price` at 1 credit =
+ * 1 US-cent (Fast/720p $0.2419/s → 24; HD/1080p $0.682/s → 68). NOTE (M3.7): this
+ * calibration is a factor ~10 BELOW the creditsCore 0.1ct credit unit and is
+ * LEFT unchanged pending a founder margin decision against the live server debit
+ * — see the creditsPerSecond doc above. SSOT = eve-app `eve-model-registry`. Do
+ * not hand-tune these in isolation.
  */
 export const VIDEO_TIERS: readonly VideoTierSpec[] = [
   { id: 'fast', resolution: '720p', creditsPerSecond: 24, isDefault: true, isUpgrade: false },

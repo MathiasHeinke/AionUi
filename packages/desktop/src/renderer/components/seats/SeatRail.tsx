@@ -90,7 +90,10 @@ export function seatInitials(name: string): string {
   return (words[0][0] + words[words.length - 1][0]).toUpperCase();
 }
 
-const ACCOUNT_URL = 'https://command-eve.com/account';
+// The "+" chip adds a CLIENT seat (the +99€/seat expansion). Deep-link to the LIVE
+// Gen-B consumer on /account (?intent=add_seat scrolls + highlights the add-seat
+// section) so the click lands the operator exactly where they buy a seat.
+const ACCOUNT_URL = 'https://command-eve.com/account?intent=add_seat';
 
 // Reason-code → human German string for a failed/rolled-back switch. A switch is the
 // most consequential rail action (it re-homes the whole app to another client), so a

@@ -56,7 +56,8 @@
   "eveRuntime": "EVE-Runtime",
   "runtime": "Runtime",
   "connectors": "Connectoren",
-  "byokPaidSeatOnly": "Eigene Modelle/API-Keys nur im Pro-Tarif (99€/Monat)",
+  "billing": "Abrechnung",
+  "byokPaidSeatOnly": "Eigene Modelle/API-Keys nur im Kunden-Seat (ab 99 €/Monat)",
   "skillState": {
     "all": "Alle",
     "executable": "Ausführbar",

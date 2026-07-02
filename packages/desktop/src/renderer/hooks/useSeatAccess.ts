@@ -103,6 +103,40 @@ export function useSeatAccess(): SeatAccessState {
     void refresh();
   }, [refresh]);
 
+  // M4 — pick up a seat bought on the web WITHOUT an app restart. A new client
+  // seat (the +99€/seat expansion, added on command-eve.com/account) only lands
+  // in this hook's `access.seats` when the my-seats contract is re-read. Re-read
+  // on window FOCUS (the operator tabs back from the browser after buying) and on
+  // a slow BACKSTOP poll (a long-lived window that never blurs), mirroring
+  // useEntitlementGate's off-band reconcile. Desktop only; refresh() is
+  // fail-closed and idempotent.
+  //
+  // Race-guard: a switch is a real backend STOP + RE-SPAWN whose terminal seat
+  // only MAIN knows; the switch flow drives its OWN authoritative refresh() at
+  // settle. A focus/poll refresh mid-switch could sample a NON-terminal seat, so
+  // we SKIP while switching (read via a ref so the listener never re-subscribes
+  // on each switching toggle). Post-switch focus/poll reconciles normally.
+  const switchingRef = useRef(switching);
+  useEffect(() => {
+    switchingRef.current = switching;
+  }, [switching]);
+  useEffect(() => {
+    if (!isElectronDesktop()) return;
+    const reconcile = (): void => {
+      // Never race a live switch — its own settle path re-reads authoritatively.
+      if (switchingRef.current) return;
+      void refresh();
+    };
+    window.addEventListener('focus', reconcile);
+    // Slow backstop (60s) for a window that stays focused for a long time.
+    const SEAT_RECONCILE_POLL_MS = 60 * 1000;
+    const timer = window.setInterval(reconcile, SEAT_RECONCILE_POLL_MS);
+    return () => {
+      window.removeEventListener('focus', reconcile);
+      window.clearInterval(timer);
+    };
+  }, [refresh]);
+
   const switchTo = useCallback(
     async (seatId: string): Promise<boolean> => {
       setLastSwitchError(null);

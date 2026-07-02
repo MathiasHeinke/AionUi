@@ -1,6 +1,6 @@
 {
   "settings": {
-    "freeActions": "{{used}} / {{cap}} Gratis-Aktionen genutzt",
+    "freeActions": "{{used}} / {{cap}} Gratis-Aktionen heute",
     "allowanceUsed": "{{pct}}% des Guthabens genutzt · {{rem}} Credits übrig",
     "purchasedRemaining": "{{n}} gekaufte Credits",
     "noStatus": "Dein Credit-Status erscheint, sobald du angemeldet bist.",
@@ -10,14 +10,13 @@
     "capInvalid": "Gib ein gültiges Ausgabe-Limit ein (0 = unbegrenzt).",
     "capSaved": "Ausgabe-Limit gespeichert.",
     "capFailed": "Ausgabe-Limit konnte nicht gespeichert werden.",
-    "plansTitle": "Tarife",
-    "starter": "Starter",
-    "solo": "Solo",
-    "churnOnly": "Spar-Angebot",
-    "starterIncludes": "Starter ({{eur}}€) enthält ein monatliches Action-Credit-Guthaben + dein Company Brain.",
-    "startTrial": "Kostenlos starten — keine Karte",
+    "seatTitle": "Dein Seat",
+    "ownSeatFree": "Dein eigener Seat: 0 € — für immer",
+    "ownSeatPaid": "Dein Seat ist aktiv (bezahlter Kunden-Seat)",
+    "clientSeatHint": "Wachse mit KUNDEN-Seats — ab {{eur}} €/Monat, inkl. 60.000 Credits pro Seat. Dein eigener Seat bleibt immer kostenlos.",
+    "addClientSeat": "Kunden-Seat hinzufügen — ab {{eur}} €/Monat",
     "packsTitle": "Credit-Pakete",
-    "packsHint": "Guthaben aufgebraucht? Lade nach. Mehr Bedarf = größeres Paket, nie ein höherer Tarif.",
+    "packsHint": "Guthaben aufgebraucht? Wiederkehrende Top-ups geben +20 % Credits extra. Mehr Bedarf = größeres Paket, nie ein höherer Tarif.",
     "packBonus": "+{{n}} Bonus",
     "brandTitle": "Report-Branding",
     "brandHint": "Dein Name, Logo und Footer auf jedem Report, den EVE liefert — liefere unter deiner Marke, nicht unserer.",
@@ -31,10 +30,21 @@
     "brandSaved": "Branding gespeichert — es erscheint auf jedem Report, den EVE liefert."
   },
   "meter": {
-    "freeActions": "{{used}} / {{cap}} Aktionen",
+    "freeActions": "{{used}} / {{cap}} Gratis-Aktionen heute",
+    "freeForever": "0 € — für immer",
     "allowanceUsed": "{{pct}}% des Guthabens genutzt",
     "allowanceRemaining": "Guthaben: {{n}} Credits übrig",
     "purchasedRemaining": "Gekauft: {{n}} Credits übrig",
     "spendCap": "Ausgabe-Limit: {{eur}}€"
+  },
+  "wall": {
+    "title": "Diesen Auftrag zu Ende bringen",
+    "jobCost": "Dieser Auftrag braucht noch ≈ {{n}} Credits.",
+    "bonus": "+{{n}} Bonus",
+    "recommended": "empfohlen",
+    "moreJobs": "≈ {{n}} weitere Aufträge wie dieser",
+    "autoReload": "Automatisch nachladen, wenn die Credits knapp werden",
+    "buy": "Weiter — {{eur}}€ Credits hinzufügen",
+    "later": "Jetzt nicht"
   }
 }

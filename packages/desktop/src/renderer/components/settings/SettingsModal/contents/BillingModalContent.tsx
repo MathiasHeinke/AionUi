@@ -5,45 +5,51 @@
  */
 
 /**
- * Billing settings tab (Lane 3, spec §3 + §6).
+ * Billing settings tab (Lane 3, Gen-B money surface).
  *
  * - Live credit meter (full readout).
  * - User SPEND-CAP setting (writes spend_cap_eur_cents via the bridge).
- * - Pricing UI: 79€ Starter + the credit packs; no-card trial entry. The hidden
- *   Solo-49 row surfaces ONLY on a churn signal (config `commandEve.churnSignal`),
- *   never in the default list (a visible cheaper tier anchors converters DOWN).
+ * - GEN-B pricing: the operator's OWN seat is 0 € for ever (EVE Solo); CLIENT
+ *   seats start at 99 €/mo (inkl. 60.000 Credits) and are added on the web
+ *   (/account?intent=add_seat); recurring credit packs (+20 %) deep-link to
+ *   /account?pack_eur=<n>. The legacy 79€ Starter / hidden 49€ Solo "plan" UI was
+ *   removed with the Gen-B pricing switch (the desktop no longer sells a plan).
  *
- * The euro/credit MATH + the visible-plan decision live in the PURE `creditsCore`
+ * The euro/credit MATH + the seat-status decision live in the PURE `creditsCore`
  * (unit-tested); this component is the settings presentation + the bridge wiring.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, Input, InputNumber, Message, Progress, Tag } from '@arco-design/web-react';
+import { Alert, Button, Card, Input, InputNumber, Message, Progress } from '@arco-design/web-react';
 import { useTranslation } from 'react-i18next';
 import { openExternalUrl } from '@renderer/utils/platform';
 import { configService } from '@/common/config/configService';
 import { useCreditsStatus } from '@renderer/hooks/useCreditsStatus';
 import {
-  buildPricingPlans,
+  buildSeatBillingStatus,
+  CLIENT_SEAT_FROM_EUR,
   DEFAULT_CREDIT_PACKS,
-  STARTER_PLAN_EUR,
   validateSpendCapEur,
 } from '@/common/config/creditsCore';
 
-/** The Lane-2 no-card trial entry + checkout destinations (desktop holds no card). */
-const TRIAL_ENTRY_URL = 'https://command-eve.com/account';
-// INTERIM (1.1.8): /account/credits 404s today (the pack-buy page is 1.1.9 web work) and a
-// 404 falls through to the homepage at peak purchase intent. Point at the real /account route
-// so the operator lands somewhere they can act. Restore /account/credits once that page ships.
-const PACK_CHECKOUT_URL = 'https://command-eve.com/account';
+// The Gen-B web money surface. The desktop holds no card; it opens the web account
+// where the free own-seat lives and client seats / credit packs are bought. The
+// ?intent=add_seat and ?pack_eur=<n> consumers are LIVE on command-eve.com/account
+// (Gen B: scroll + highlight the relevant section).
+const ACCOUNT_URL = 'https://command-eve.com/account';
+const ADD_SEAT_URL = `${ACCOUNT_URL}?intent=add_seat`;
 
 const BillingModalContent: React.FC = () => {
   const { t } = useTranslation();
   const { meter, status, setSpendCap } = useCreditsStatus();
 
-  // Churn signal gates the hidden Solo-49 plan into the pricing list (spec §6).
-  const churnSignal = configService.get('commandEve.churnSignal') ?? false;
-  const plans = useMemo(() => buildPricingPlans({ churnSignal }), [churnSignal]);
+  // Gen-B seat status: is this the free own seat (0 € for ever) or a paid seat?
+  // Drives the status line + the client-seat CTA copy. Defaults to the free own
+  // seat until a status is read (the honest resting state for a fresh install).
+  const seatBilling = useMemo(
+    () => buildSeatBillingStatus({ tier: meter?.tier ?? 'free' }),
+    [meter?.tier]
+  );
 
   // Spend-cap form state (euros). Seeded from the current status.
   const [capEur, setCapEur] = useState<number | undefined>(undefined);
@@ -111,11 +117,11 @@ const BillingModalContent: React.FC = () => {
     }
   };
 
-  const openTrial = () => {
-    void openExternalUrl(TRIAL_ENTRY_URL).catch((): undefined => undefined);
+  const openAddSeat = () => {
+    void openExternalUrl(ADD_SEAT_URL).catch((): undefined => undefined);
   };
   const openPackCheckout = (eur: number) => {
-    void openExternalUrl(`${PACK_CHECKOUT_URL}?pack_eur=${eur}`).catch((): undefined => undefined);
+    void openExternalUrl(`${ACCOUNT_URL}?pack_eur=${eur}`).catch((): undefined => undefined);
   };
 
   return (
@@ -186,37 +192,37 @@ const BillingModalContent: React.FC = () => {
         </div>
       </Card>
 
-      {/* Pricing UI: Starter (+ hidden Solo on churn signal) */}
-      <Card className='billing-settings__plans' title={t('credits.settings.plansTitle', { defaultValue: 'Plans' })}>
-        {plans.map((plan) => (
-          <div key={plan.id} className='billing-settings__plan-row' data-testid={`billing-plan-${plan.id}`}>
-            <span className='billing-settings__plan-name'>
-              {plan.id === 'starter'
-                ? t('credits.settings.starter', { defaultValue: 'Starter' })
-                : t('credits.settings.solo', { defaultValue: 'Solo' })}
-            </span>
-            <span className='billing-settings__plan-price'>{plan.priceEur}€/mo</span>
-            {plan.id === 'solo' && (
-              <Tag color='gray'>{t('credits.settings.churnOnly', { defaultValue: 'save offer' })}</Tag>
-            )}
-          </div>
-        ))}
+      {/* Gen-B seat status + client-seat expansion CTA. No "plan" is sold here:
+          the operator's OWN seat is 0 € for ever; growth = paid CLIENT seats. */}
+      <Card className='billing-settings__plans' title={t('credits.settings.seatTitle', { defaultValue: 'Your seat' })}>
+        <div className='billing-settings__plan-row' data-testid='billing-own-seat'>
+          <span className='billing-settings__plan-name'>
+            {seatBilling.isFreeOwnSeat
+              ? t('credits.settings.ownSeatFree', { defaultValue: 'Your own seat: 0 € — forever' })
+              : t('credits.settings.ownSeatPaid', { defaultValue: 'Your seat is active (paid client seat)' })}
+          </span>
+        </div>
         <p className='billing-settings__hint'>
-          {t('credits.settings.starterIncludes', {
-            defaultValue: 'Starter ({{eur}}€) includes a monthly Action-Credit allowance + your Company Brain.',
-            eur: STARTER_PLAN_EUR,
+          {t('credits.settings.clientSeatHint', {
+            defaultValue:
+              'Grow by adding CLIENT seats — from {{eur}} €/month, incl. 60,000 credits each. Your own seat always stays free.',
+            eur: CLIENT_SEAT_FROM_EUR,
           })}
         </p>
-        <Button long shape='round' onClick={openTrial} data-testid='billing-trial-entry'>
-          {t('credits.settings.startTrial', { defaultValue: 'Start free — no card' })}
+        <Button type='primary' long shape='round' onClick={openAddSeat} data-testid='billing-add-seat'>
+          {t('credits.settings.addClientSeat', {
+            defaultValue: 'Add a client seat — from {{eur}} €/month',
+            eur: CLIENT_SEAT_FROM_EUR,
+          })}
         </Button>
       </Card>
 
-      {/* Credit packs */}
+      {/* Credit packs — the RECURRING top-up packs (+20 % each), matching the
+          Gen-B website and the server TOP_UP_BONUS_FACTOR=1.2. */}
       <Card className='billing-settings__packs' title={t('credits.settings.packsTitle', { defaultValue: 'Credit packs' })}>
         <p className='billing-settings__hint'>
           {t('credits.settings.packsHint', {
-            defaultValue: 'Out of allowance? Top up. Going big = a bigger pack, never a higher plan.',
+            defaultValue: 'Out of allowance? Recurring top-ups add +20 % credits. Going big = a bigger pack, never a higher plan.',
           })}
         </p>
         <div className='billing-settings__pack-grid'>

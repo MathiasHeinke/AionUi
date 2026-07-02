@@ -117,11 +117,13 @@ describe('SeatRail', () => {
     expect(container.querySelector('[data-testid="seat-rail"]')).toBeNull();
   });
 
-  it('the "+" routes to the web account (no dead button)', () => {
+  it('the "+" routes to the web account add-seat deep-link (no dead button)', () => {
     mockAccess();
     render(<SeatRail />);
     fireEvent.click(screen.getByTestId('seat-rail-add'));
-    expect(openExternalMock).toHaveBeenCalledWith('https://command-eve.com/account');
+    // Gen-B: the "+" adds a CLIENT seat → deep-link to the LIVE ?intent=add_seat
+    // consumer on /account (scroll + highlight the add-seat section).
+    expect(openExternalMock).toHaveBeenCalledWith('https://command-eve.com/account?intent=add_seat');
   });
 
   it('toggle collapses/expands the rail', () => {

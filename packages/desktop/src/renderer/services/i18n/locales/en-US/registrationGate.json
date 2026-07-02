@@ -85,13 +85,13 @@
     }
   },
   "curtain": {
-    "title": "Your trial has ended",
-    "lede": "Welcome back. Your 14-day Command EVE trial has ended. You can pick up right where you left off.",
+    "title": "Welcome back",
+    "lede": "Your old trial has ended — but your own seat is now free, forever. Sign in and pick up right where you left off. Client seats are available from 99 €.",
     "preservedTitle": "Your setup is preserved",
     "preservedBody": "Your Company OS, memory, connections and SOPs are still saved and waiting for you. Nothing is deleted or reset.",
-    "price": "Continue for 79 €/month",
-    "continue": "Continue now",
-    "hint": "This opens the secure checkout page in your browser. Once your subscription is active, unlock Command EVE again with your new license code."
+    "price": "Your own seat: 0 € — forever",
+    "continue": "Sign in and continue",
+    "hint": "This opens your account in your browser. Sign in to reactivate your free own seat; add paid client seats whenever you're ready."
   },
   "unconfigured": {
     "title": "Activation unavailable",

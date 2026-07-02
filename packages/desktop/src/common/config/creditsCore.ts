@@ -42,7 +42,13 @@
 export const CREDITS_STATUS_FUNCTION_URL =
   'https://unvbeothoimlzlolxucl.supabase.co/functions/v1/credits-status';
 
-/** The visible billing tiers (spec §1). Solo is hidden unless a churn signal surfaces it. */
+/**
+ * The credits tiers the credits-status contract can report. `free` is the Gen-B
+ * 0€-forever own seat; `starter` maps to a paid CLIENT seat's allowance. `solo`
+ * is a LEGACY tier the server may still report for a grandfathered 49€ sub — the
+ * desktop keeps it in the union so an old status parses, but no Gen-B surface
+ * SELLS it (the legacy 79€/49€ plan UI was removed).
+ */
 export type CreditsTier = 'free' | 'solo' | 'starter';
 
 /**
@@ -74,11 +80,11 @@ export interface CreditPack {
   /** Base credits the pack is worth at our calibration constant. */
   credits: number;
   /**
-   * Bonus credits. The NEW server billing model (per-token markup at consumption,
-   * credit unit = 0.1ct) ships packs at FACE VALUE with NO purchase-time bonus —
-   * margin lives at consumption via tier factors, not in the pack. Kept on the
-   * shape (always 0) so the 402 wall / transparent-math code stays unchanged and
-   * the server can re-introduce a bonus later without a desktop shape change.
+   * Bonus credits granted on top of the face-value `credits`. Gen-B RECURRING
+   * top-ups grant +20% (server `TOP_UP_BONUS_FACTOR = 1.2`), so the resting
+   * catalog carries a 20% bonus per pack (see DEFAULT_CREDIT_PACKS). A one-time
+   * pack would be 0; the desktop only advertises the recurring +20% packs. The
+   * server is authoritative on the actual grant — the 402 body may override.
    */
   bonus: number;
 }
@@ -115,24 +121,42 @@ export const CREDIT_UNIT_EUR = 0.001;
 export const CREDITS_PER_EUR = 1000;
 
 /**
+ * The recurring top-up bonus the SERVER grants on a RECURRING credit pack. This
+ * mirrors the backend `TOP_UP_BONUS_FACTOR = 1.2` (a recurring top-up delivers
+ * +20% credits over face value). One-time packs get NO bonus server-side, so the
+ * desktop advertises ONLY the recurring 20% packs to stay consistent with the
+ * Gen-B website (command-eve.com/account) AND the server code. This is a DISPLAY
+ * constant; the server is authoritative on every actual grant.
+ */
+export const RECURRING_TOP_UP_BONUS_FACTOR = 0.2;
+
+/**
  * Default catalog the pricing UI shows when offline / before the first 402.
- * NEW server billing model (per-token markup billing): packs are FACE VALUE with
- * NO purchase-time bonus — 25€=25,000 cr · 50€=50,000 cr · 100€=100,000 cr ·
- * 250€=250,000 cr (1 credit = 0.1 ct). Margin is taken at CONSUMPTION via the
- * tier factors, never as a pack bonus. The LIVE numbers always come from the 402
- * body — this is only the resting UI.
+ * GEN-B ALIGNMENT: these mirror the RECURRING credit packs sold on the Gen-B
+ * website (25/50/100/250 €/month) which the server grants at +20% (recurring
+ * `TOP_UP_BONUS_FACTOR = 1.2`). So each pack's `bonus` is 20% of the face-value
+ * credits: 25€ → 25,000 + 5,000 = 30,000 cr, etc. (1 credit = 0.1 ct). One-time
+ * packs (server: 0% bonus) are deliberately NOT advertised here — advertising a
+ * bonus the server would not honour on a one-time buy would be dishonest. The
+ * LIVE numbers always come from the 402 body; this is only the resting UI.
  */
 export const DEFAULT_CREDIT_PACKS: readonly CreditPack[] = [
-  { eur: 25, credits: 25_000, bonus: 0 },
-  { eur: 50, credits: 50_000, bonus: 0 },
-  { eur: 100, credits: 100_000, bonus: 0 },
-  { eur: 250, credits: 250_000, bonus: 0 },
+  { eur: 25, credits: 25_000, bonus: 5_000 },
+  { eur: 50, credits: 50_000, bonus: 10_000 },
+  { eur: 100, credits: 100_000, bonus: 20_000 },
+  { eur: 250, credits: 250_000, bonus: 50_000 },
 ] as const;
 
-/** The visible Starter plan (spec §1). The ONE plan shown at the curtain. */
-export const STARTER_PLAN_EUR = 79;
-/** The hidden Solo floor (spec §1) — surfaced ONLY on a churn signal, never at the curtain. */
-export const SOLO_PLAN_EUR = 49;
+/**
+ * The Gen-B CLIENT-SEAT floor. The operator's OWN seat is 0 € forever (EVE Solo);
+ * a paid CLIENT seat (the reseller expansion) starts at 99 €/month and ships a
+ * 60,000-credit monthly allowance. The legacy 79€ Starter / hidden 49€ Solo plans
+ * (and `buildPricingPlans`) were removed with the Gen-B pricing switch — the
+ * desktop no longer sells a "plan"; it sells the free own-seat + paid client-seats.
+ */
+export const CLIENT_SEAT_FROM_EUR = 99;
+/** The always-free own-seat price (Gen-B: EVE Solo is 0 € for ever). */
+export const OWN_SEAT_EUR = 0;
 
 /**
  * Effective €/credit a buyer actually pays for a pack: total price divided by
@@ -525,27 +549,31 @@ export function shouldForceDayZeroOnboarding(args: {
 }
 
 // ---------------------------------------------------------------------------
-// Pricing UI model (spec §6: 79€ Starter + packs; hidden Solo on churn signal)
+// Gen-B seat-pricing model (0€-forever own seat + client-seat expansion)
 // ---------------------------------------------------------------------------
 
-export interface PricingPlanRow {
-  id: 'starter' | 'solo';
-  priceEur: number;
-  /** Hidden plans are NOT shown in the default list (spec §6). */
-  hidden: boolean;
+/** The desktop billing-status view a Gen-B money surface renders. */
+export interface SeatBillingStatus {
+  /** True for the free own-seat (EVE Solo, 0 € for ever). */
+  isFreeOwnSeat: boolean;
+  /** The own-seat monthly price in € (0 for the free own seat). */
+  ownSeatEur: number;
+  /** The price a NEW client seat starts at (the +99€/seat expansion). */
+  clientSeatFromEur: number;
 }
 
 /**
- * Build the pricing rows. Starter is always shown; Solo is ONLY included when a
- * churn signal is present (spec §1, §6: "a visible cheaper tier anchors
- * converters DOWN"). The packs are a separate display (DEFAULT_CREDIT_PACKS).
+ * Build the Gen-B billing status the desktop money surfaces render. Replaces the
+ * legacy `buildPricingPlans` (79€ Starter + hidden 49€ Solo) which sold a "plan".
+ * Gen-B sells the operator's OWN seat FREE for ever and CLIENT seats from 99 €;
+ * `isFreeOwnSeat` is true when the current tier is the free own seat.
  */
-export function buildPricingPlans(args: { churnSignal: boolean }): PricingPlanRow[] {
-  const rows: PricingPlanRow[] = [{ id: 'starter', priceEur: STARTER_PLAN_EUR, hidden: false }];
-  if (args.churnSignal) {
-    rows.push({ id: 'solo', priceEur: SOLO_PLAN_EUR, hidden: false });
-  }
-  return rows;
+export function buildSeatBillingStatus(args: { tier: CreditsTier }): SeatBillingStatus {
+  return {
+    isFreeOwnSeat: args.tier === 'free',
+    ownSeatEur: OWN_SEAT_EUR,
+    clientSeatFromEur: CLIENT_SEAT_FROM_EUR,
+  };
 }
 
 // ---------------------------------------------------------------------------
