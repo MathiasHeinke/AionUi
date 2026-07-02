@@ -16,13 +16,17 @@ declare global {
 
 function resolveRendererBackendPort(): number | undefined {
   if (typeof window === 'undefined') return undefined;
+  // LIVE port FIRST (seat-switch correctness — mirrors httpBridge): the seat
+  // switch respawns the backend on a FRESH ephemeral port, while
+  // window.__backendPort is contextBridge-frozen at the BOOT value. Preferring
+  // the frozen value pointed every post-switch settings GET/PUT at the dead old
+  // port — the PII-toggle "bounces back to ON" live bug: the PUT died with
+  // ECONNREFUSED, the .catch reverted the switch. getPort() is a synchronous IPC
+  // returning backendManager.port (current after any respawn).
+  const dynamicPort = (window as Window).__aionBackend?.getPort?.();
+  if (typeof dynamicPort === 'number' && dynamicPort > 0) return dynamicPort;
   const exposedPort = (window as Window).__backendPort;
   if (typeof exposedPort === 'number' && exposedPort > 0) return exposedPort;
-  const dynamicPort = (window as Window).__aionBackend?.getPort?.();
-  if (typeof dynamicPort === 'number' && dynamicPort > 0) {
-    (window as Window).__backendPort = dynamicPort;
-    return dynamicPort;
-  }
   return undefined;
 }
 

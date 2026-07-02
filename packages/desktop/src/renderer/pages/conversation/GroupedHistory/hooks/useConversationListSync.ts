@@ -5,6 +5,7 @@
  */
 
 import { ipcBridge } from '@/common';
+import { configService } from '@/common/config/configService';
 import type { TChatConversation } from '@/common/config/storage';
 import { addEventListener } from '@/renderer/utils/emitter';
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
@@ -142,10 +143,24 @@ const subscribeConversationListSync = (listener: () => void) => {
 
 const getConversationListSyncSnapshot = (): ConversationListSyncSnapshot => snapshotState;
 
+/**
+ * SEAT EPOCH (stale-write guard): every fetch captures the epoch at ISSUE time
+ * and drops its result if a seat switch happened while it was in flight — the
+ * async sibling of useDayZeroOnboarding's `loadForSeat ===
+ * getCurrentSeatId()` guard. Without it, a slow fetch (or a queued seat-switch
+ * retry) issued under seat A can resolve AFTER a switch to seat B and clobber
+ * B's list with A's rows — the exact cross-seat leak this store must prevent.
+ * Bumped in the onSeatRebind handler below; a monotonic counter (not the seat
+ * id) so even A→B→A rapid flips invalidate every in-flight read.
+ */
+let seatEpoch = 0;
+
 const refreshConversations = () => {
+  const issuedAtEpoch = seatEpoch;
   void ipcBridge.database.getUserConversations
     .invoke({ limit: 10000 })
     .then((result) => {
+      if (issuedAtEpoch !== seatEpoch) return; // seat switched mid-flight — stale result, drop
       const items = result?.items;
       if (items && Array.isArray(items)) {
         const filteredData = items.filter((conv) => {
@@ -168,7 +183,77 @@ const refreshConversations = () => {
       emitStoreChange();
     })
     .catch((error) => {
+      if (issuedAtEpoch !== seatEpoch) return; // stale failure from a superseded seat — drop
       console.error('[WorkspaceGroupedHistory] Failed to load conversations:', error);
+      conversationsState = [];
+      conversation_idsState = new Set();
+      emitStoreChange();
+    });
+};
+
+/**
+ * SEAT ISOLATION (the live 1.3 bug): this store is a MODULE-LEVEL singleton that
+ * initialises ONCE (isStoreInitialized) and only refreshes on chat-lifecycle
+ * events — NONE of which fire on a seat switch. The backend genuinely re-homes to
+ * the new seat's conversation DB (distinct --data-dir + a fresh __backendPort),
+ * but without this reset the sidebar kept rendering the PRIOR seat's cached list,
+ * so a switch looked like "all chats stayed the same / no separate sessions".
+ *
+ * Hard-reset EVERY piece of module state so the prior seat's conversations AND its
+ * per-row resting flags (generating/unread/error/attention dots) and open
+ * conversation cannot bleed across the boundary (an isolation leak, not just a
+ * stale list).
+ */
+const resetConversationListForSeatSwitch = () => {
+  conversationsState = [];
+  conversation_idsState = new Set();
+  generatingConversationIdsState = new Set();
+  completionUnreadConversationIdsState = new Set();
+  completedConversationIdsState = new Set();
+  attentionConversationIdsState = new Set();
+  errorConversationIdsState = new Set();
+  activeConversationIdState = null;
+  emitStoreChange();
+};
+
+/**
+ * Re-fetch the new seat's conversation list after a switch. The switch STOP+RE-
+ * SPAWNs the backend and republishes __backendPort; rebindSeat fires onSeatRebind
+ * only AFTER the switch IPC (which awaits restartBackend) settles, so the new port
+ * is normally live by now — but the respawn completes asynchronously and can even
+ * roll back, so a transient boot-window error must NOT leave the new seat's list
+ * empty. Retry a bounded number of times on ERROR only (a genuinely fresh seat
+ * legitimately returns zero conversations — that is success, not a retry trigger).
+ */
+const refreshConversationsForSeatSwitch = (issuedAtEpoch: number, retriesRemaining = 4) => {
+  if (issuedAtEpoch !== seatEpoch) return; // a newer switch superseded this chain — stop
+  void ipcBridge.database.getUserConversations
+    .invoke({ limit: 10000 })
+    .then((result) => {
+      if (issuedAtEpoch !== seatEpoch) return; // switched again mid-flight — stale, drop
+      const items = result?.items;
+      if (items && Array.isArray(items)) {
+        const filteredData = items.filter((conv) => {
+          const extra = conv.extra as { is_health_check?: boolean; team_id?: string; teamId?: string } | undefined;
+          return extra?.is_health_check !== true && !extra?.team_id && !extra?.teamId;
+        });
+        conversationsState = filteredData;
+        conversation_idsState = new Set(items.map((conversation) => conversation.id));
+        emitStoreChange();
+        return;
+      }
+      conversationsState = [];
+      conversation_idsState = new Set();
+      emitStoreChange();
+    })
+    .catch((error) => {
+      if (issuedAtEpoch !== seatEpoch) return; // superseded chain — its retries die with it
+      if (retriesRemaining > 0) {
+        // Backend still settling on the new seat's port — retry, don't give up.
+        setTimeout(() => refreshConversationsForSeatSwitch(issuedAtEpoch, retriesRemaining - 1), 400);
+        return;
+      }
+      console.error('[WorkspaceGroupedHistory] seat-switch conversation refresh failed:', error);
       conversationsState = [];
       conversation_idsState = new Set();
       emitStoreChange();
@@ -300,6 +385,23 @@ const initializeConversationListSyncStore = () => {
 
   isStoreInitialized = true;
   refreshConversations();
+
+  // SEAT ISOLATION: the singleton survives across seat switches (and even a host
+  // remount), so subscribe ONCE to the seat-rebind signal — fired by rebindSeat
+  // AFTER the config cache has re-homed and the switch IPC (which awaits the
+  // backend respawn) has settled. Reset the prior seat's cached list + flags
+  // immediately (so the old chats vanish at once), then re-fetch the new seat's
+  // list from its freshly-respawned backend. On a single-seat/legacy install the
+  // signal never fires (rebindSeat early-returns on a no-op) — byte-identical.
+  configService.onSeatRebind(() => {
+    // Bump the epoch FIRST: every in-flight fetch/retry issued under the prior
+    // seat (including a responseStream-triggered refreshConversations racing the
+    // reset below) is invalidated at write-time and cannot clobber the new
+    // seat's list.
+    seatEpoch += 1;
+    resetConversationListForSeatSwitch();
+    refreshConversationsForSeatSwitch(seatEpoch);
+  });
 
   addEventListener('chat.history.refresh', refreshConversations);
   ipcBridge.conversation.listChanged.on((event) => {

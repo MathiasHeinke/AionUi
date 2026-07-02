@@ -43,19 +43,49 @@ vi.mock('@/renderer/components/settings/SettingsModal/contents/SystemModalConten
   default: () => <div>DevSettings</div>,
 }));
 
-const { configGetMock, configSetMock, configSetLocalMock } = vi.hoisted(() => ({
-  configGetMock: vi.fn(() => undefined as unknown),
-  configSetMock: vi.fn(() => Promise.resolve()),
-  configSetLocalMock: vi.fn(),
-}));
+// Honest mini-store mock: SystemModalContent now reads the PII toggle REACTIVELY
+// via useConfig (configService.subscribe + get through useSyncExternalStore) and
+// awaits whenReady() — so the mock must behave like the real service: get serves
+// a backing map, set/setLocal write it AND notify per-key subscribers (else the
+// derived toggle never re-renders and every toggle test deadlocks on stale UI).
+const { configGetMock, configSetMock, configSetLocalMock, configSubscribeMock, notifyConfigKey } = vi.hoisted(() => {
+  const store = new Map<string, unknown>();
+  const subscribers = new Map<string, Set<() => void>>();
+  const notify = (key: string) => {
+    for (const cb of subscribers.get(key) ?? []) cb();
+  };
+  return {
+    configGetMock: vi.fn((key: string) => store.get(key)),
+    configSetMock: vi.fn((key: string, value: unknown) => {
+      store.set(key, value);
+      notify(key);
+      return Promise.resolve();
+    }),
+    configSetLocalMock: vi.fn((key: string, value: unknown) => {
+      store.set(key, value);
+      notify(key);
+    }),
+    configSubscribeMock: vi.fn((key: string, cb: () => void) => {
+      if (!subscribers.has(key)) subscribers.set(key, new Set());
+      subscribers.get(key)!.add(cb);
+      return () => subscribers.get(key)?.delete(cb);
+    }),
+    notifyConfigKey: notify,
+  };
+});
 
 vi.mock('@/common/config/configService', () => ({
   configService: {
     get: configGetMock,
     set: configSetMock,
     setLocal: configSetLocalMock,
+    subscribe: configSubscribeMock,
+    whenReady: vi.fn(() => Promise.resolve()),
+    getCurrentSeatId: vi.fn(() => 'seat-1'),
+    onSeatRebind: vi.fn(() => () => {}),
   },
 }));
+void notifyConfigKey;
 
 vi.mock('@/common', () => ({
   ipcBridge: {

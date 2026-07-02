@@ -7,6 +7,7 @@
 import { ipcBridge } from '@/common';
 import type { IGpuStatus, IStartOnBootStatus } from '@/common/adapter/ipcBridge';
 import { configService } from '@/common/config/configService';
+import { useConfig } from '@/renderer/hooks/config/useConfig';
 import AionScrollArea from '@/renderer/components/base/AionScrollArea';
 import FeedbackButton from '@/renderer/components/base/FeedbackButton';
 import LanguageSwitcher from '@/renderer/components/settings/LanguageSwitcher';
@@ -55,10 +56,35 @@ const SystemModalContent: React.FC = () => {
   const [autoPreviewOfficeFiles, setAutoPreviewOfficeFiles] = useState(true);
   const [runtimeStatusVisible, setRuntimeStatusVisible] = useState(true);
   const [egressStatusVisible, setEgressStatusVisible] = useState(true);
-  // S11 — PER-SEAT PII/DSGVO egress redaction switch. `true` = filter ON (redact),
-  // the fail-safe default; `false` = operator turned it OFF for this seat.
-  const [egressRedactionOn, setEgressRedactionOn] = useState(true);
+  // S11 — PER-SEAT PII/DSGVO egress redaction switch. Read REACTIVELY via useConfig
+  // (mirrors the useDayZeroOnboarding fix for the sibling seat-scoped key
+  // commandEve.clientSeedDismissed): the per-key re-notify that rebindSeat fires on
+  // a seat switch — and every configService.set — reaches this control, instead of
+  // a one-shot mount-once configService.get that survived a switch/boot and showed
+  // the prior seat's (or the pre-init fail-safe) state. THIS was the live bug where
+  // the toggle "couldn't be turned off": the mount-once useState never reflected
+  // the written value. `true` = filter ON (redact), the fail-safe default
+  // (absent / anything but the exact string 'off' ⇒ on).
+  const [egressRedactionMode] = useConfig('commandEve.egressRedactionMode');
+  const egressRedactionOn = egressRedactionMode !== 'off';
   const [modelWarmupEnabled, setModelWarmupEnabled] = useState(true);
+
+  // BOOT READINESS (same guarantee as useDayZeroOnboarding): useConfig's first
+  // snapshot is a synchronous configService.get that can run BEFORE the config
+  // cache has finished loading, and initialize() does NOT notify per key. Force one
+  // re-read after whenReady() resolves so useSyncExternalStore re-pulls a persisted
+  // 'off' from a prior launch. No-op once ready; the seat-rebind re-notify covers
+  // every subsequent switch.
+  const [, setEgressReadyTick] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    void configService.whenReady().then(() => {
+      if (!cancelled) setEgressReadyTick((t) => t + 1);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!isDesktop) {
@@ -101,8 +127,9 @@ const SystemModalContent: React.FC = () => {
     setAutoPreviewOfficeFiles(configService.get('system.autoPreviewOfficeFiles') ?? true);
     setRuntimeStatusVisible(configService.get('commandEve.runtimeStatusVisible') ?? true);
     setEgressStatusVisible(configService.get('commandEve.egressStatusVisible') ?? true);
-    // Absent ⇒ 'on' (redact) — fail-safe default. ON iff not explicitly 'off'.
-    setEgressRedactionOn(configService.get('commandEve.egressRedactionMode') !== 'off');
+    // egressRedactionMode (S11) is read reactively via useConfig above — no
+    // mount-once seed here (that one-shot get was the bug: it never re-read on a
+    // seat switch or after a late backend load, so the toggle looked stuck).
     setModelWarmupEnabled(configService.get('commandEve.modelWarmupEnabled') ?? true);
     const pt = configService.get('acp.promptTimeout');
     if (pt && pt > 0) setPromptTimeout(pt);
@@ -271,15 +298,33 @@ const SystemModalContent: React.FC = () => {
   // (spec §5). Turning it back ON is immediate (the safe direction). The persisted
   // value is the string mode 'on'|'off' (seat-scoped); the fail-safe main-process
   // resolver treats absent/error as 'on'.
-  const applyEgressRedactionMode = useCallback((on: boolean) => {
-    const mode = on ? 'on' : 'off';
-    const previous = !on;
-    setEgressRedactionOn(on);
-    configService.set('commandEve.egressRedactionMode', mode).catch(() => {
-      setEgressRedactionOn(previous);
-      configService.setLocal('commandEve.egressRedactionMode', previous ? 'on' : 'off');
-    });
-  }, []);
+  const applyEgressRedactionMode = useCallback(
+    (on: boolean) => {
+      const mode = on ? 'on' : 'off';
+      const previousMode = on ? 'off' : 'on';
+      // configService.set optimistically updates the cache + notifies, so the
+      // useConfig-derived toggle flips immediately. If the backend PUT rejects,
+      // roll the cache back to the prior value AND surface it LOUDLY — a DSGVO
+      // control that silently fails to persist is worse than the bug (founder
+      // self-detection standard): never a mystery bounce, never a false "off".
+      const issuedForSeat = configService.getCurrentSeatId();
+      configService.set('commandEve.egressRedactionMode', mode).catch((error) => {
+        // Rollback ONLY if we are still on the seat the write was issued for — a
+        // rebind mid-flight re-homed the cache, and seat A's rollback must not
+        // land in seat B's namespace (the new seat's own value is authoritative).
+        if (configService.getCurrentSeatId() === issuedForSeat) {
+          configService.setLocal('commandEve.egressRedactionMode', previousMode);
+        }
+        console.error('[SystemSettings] Failed to persist PII egress redaction mode:', error);
+        Message.error(
+          t('settings.commandEvePiiProtectionSaveFailed', {
+            defaultValue: 'PII-Schutz konnte nicht gespeichert werden — Änderung nicht übernommen. Bitte erneut versuchen.',
+          })
+        );
+      });
+    },
+    [t]
+  );
 
   const handleEgressRedactionChange = useCallback(
     (checked: boolean) => {
