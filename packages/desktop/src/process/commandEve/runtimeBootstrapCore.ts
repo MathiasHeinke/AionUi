@@ -1736,6 +1736,63 @@ function writeCommandEveOnboardingSkill(paths: RuntimeBootstrapPaths): void {
   fs.writeFileSync(path.join(skillDir, 'SKILL.md'), commandEveOnboardingSkillMarkdown(), { mode: 0o600 });
 }
 
+// v1.6 Beat 2 ("Session-1-Artefakt", D6-merge) — the APP-OWNED artifact-menu
+// skill. Same app-owned managed-skill pattern as eve-onboarding-awareness above
+// (not in the strategy allowlist, not in the capability pack). It teaches EVE
+// the OPT-IN second beat after the brief mirror: offer ONE small first artifact
+// through an honest, capability-gated menu — with the fabrication kill-switch
+// and budget honesty as hard rules. Craft lives HERE (a skill), not in SOUL.md
+// (voice-only, slim gate) — ops belong in skills.
+const COMMAND_EVE_ARTIFACT_MENU_SKILL_ID = 'session-1-artefakt';
+
+// Pure builder so tests can assert on the exact contract without running the
+// side-effecting bootstrap (same pattern as commandEveOnboardingSkillMarkdown).
+export function commandEveArtifactMenuSkillMarkdown(): string {
+  return [
+    `---`,
+    `name: ${COMMAND_EVE_ARTIFACT_MENU_SKILL_ID}`,
+    `description: After mirroring an operator's brief, offer ONE small opt-in first artifact through an honest capability-gated menu — posts from the brief, an audit of pasted text, or a search-only market mini-scan — with a hard fabrication kill-switch and honest cost framing. App-owned managed skill (v1.6 Beat 2).`,
+    `---`,
+    ``,
+    `# Session-1 artifact (the opt-in second beat)`,
+    ``,
+    `After you have mirrored an operator's brief back (or when they ask what you can do for them), offer ONE small, concrete first artifact. Opt-in only: name the options and the rough cost, then WAIT — never auto-start, never queue a second artifact without a fresh yes.`,
+    ``,
+    `## The honest menu (offer only what will actually work)`,
+    ``,
+    `1. **3 Post-Entwürfe aus deinem Brief** — the default. Grounded ONLY in their brief (company-brain/brief.md or what they just told you). No web access needed, works always.`,
+    `2. **Audit deiner Startseite — aus eingefügtem Text**: ask them to PASTE the text of their page ("kopier mir den Text deiner Startseite rein"). You audit only what they pasted.`,
+    `3. **Markt-Mini-Scan** via web search — offer this ONLY if a quick silent web_search actually returns results first; if the search fails or comes back empty, do not offer or attempt it. You cannot EXTRACT/fetch full pages on this setup — never offer a "website audit" from a bare URL.`,
+    ``,
+    `If no brief exists yet, run a 3-question mini-interview FIRST (what the business is, who the customer is, what they are working on) — that CREATES the brief — then generate from it.`,
+    ``,
+    `## Fabrication kill-switch (hard rule)`,
+    ``,
+    `Never audit, quote, or describe content you did not actually read. An audit must embed the actually-provided text; every claim ties to a line from it. If a search returned nothing, say exactly that. "Ich habe deine Website analysiert" without the content in hand is forbidden — a fabricated artifact destroys the operator's trust in front of THEIR clients.`,
+    ``,
+    `## Fixed audit shape`,
+    ``,
+    `Audits use the fixed template: 3 Stärken · 3 Schwächen · 3 konkrete nächste Schritte — short, concrete, each point anchored in the provided text. Quality bar before you hand anything over: würdest du es einem Kunden schicken? If not, say what input you need instead of delivering filler.`,
+    ``,
+    `## Budget honesty`,
+    ``,
+    `The free day allowance is 100 actions per day. BEFORE starting, state a bounded rough cost in their units ("kostet dich grob 3–8 deiner 100 Gratis-Aktionen heute"). Never claim their exact remaining count — you cannot see it; the app shows it to them. Keep one artifact to a handful of steps: no loops, no retries without asking. If they hit their daily limit mid-artifact, stop cleanly, keep what exists, and say it continues free tomorrow.`,
+    ``,
+    `## Honesty for this lane`,
+    ``,
+    `This skill is a menu and a discipline, not a capability claim: it does not add web extraction, connectors, or scheduled work. One artifact, then hand over and stop.`,
+    ``,
+  ].join('\n');
+}
+
+// Write the app-owned artifact-menu skill (ADDITIVE, same contract as the
+// onboarding skill writer above).
+function writeCommandEveArtifactMenuSkill(paths: RuntimeBootstrapPaths): void {
+  const skillDir = path.join(paths.managedSkillsRoot, COMMAND_EVE_ARTIFACT_MENU_SKILL_ID);
+  ensureDir(skillDir);
+  fs.writeFileSync(path.join(skillDir, 'SKILL.md'), commandEveArtifactMenuSkillMarkdown(), { mode: 0o600 });
+}
+
 // Recursively copy a directory tree from src into dest (whole-tree so
 // marketing-outbound's 17 nested sub-skills + READMEs travel and Hermes' os.walk
 // discovers every nested SKILL.md). Files land 0o600 (consistent with the rest of
@@ -1873,6 +1930,7 @@ function writeCommandEveManagedSkills(
   // ADDITIVE (S1): the app-owned config-awareness onboarding skill. Its id is in
   // neither the capability pack nor the strategy allowlist, so it cannot collide.
   writeCommandEveOnboardingSkill(paths);
+  writeCommandEveArtifactMenuSkill(paths);
   return { executableSkillIds, bundledSkillFailures };
 }
 

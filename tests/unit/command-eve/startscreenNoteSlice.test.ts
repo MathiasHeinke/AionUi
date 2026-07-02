@@ -185,3 +185,43 @@ describe('v1.6 Slice 4 — Day-Zero-Soft-Fold', () => {
     expect(buildOnboardingGreeting(model, 'en-US').subline).toContain('Tell me in 2–3 sentences');
   });
 });
+
+describe('v1.6 Beat 2 — Session-1-Artefakt-Skill (D6-Merge)', () => {
+  it('carries the honest menu, the fabrication kill-switch, and budget honesty', async () => {
+    const { commandEveArtifactMenuSkillMarkdown } = await import(
+      '@/process/commandEve/runtimeBootstrapCore'
+    );
+    const md = commandEveArtifactMenuSkillMarkdown();
+    // Opt-in discipline: one artifact, never auto-start.
+    expect(md).toContain('never auto-start');
+    expect(md).toContain('One artifact, then hand over and stop');
+    // The honest degradation chain: posts-from-brief default, paste-audit,
+    // search-only mini-scan gated on a real silent probe — and NEVER a bare-URL
+    // website audit (web extract is keyless-dead on a cold install).
+    expect(md).toContain('3 Post-Entwürfe aus deinem Brief');
+    expect(md).toContain('kopier mir den Text deiner Startseite rein');
+    expect(md).toContain('silent web_search actually returns results');
+    expect(md).toContain('never offer a "website audit" from a bare URL');
+    // Fabrication kill-switch is a HARD rule with the trust rationale.
+    expect(md).toContain('Never audit, quote, or describe content you did not actually read');
+    // Fixed audit template.
+    expect(md).toContain('3 Stärken · 3 Schwächen · 3 konkrete nächste Schritte');
+    // Budget honesty: verified 100/day, bounded range, never their exact count.
+    expect(md).toContain('100 actions per day');
+    expect(md).toContain('grob 3–8 deiner 100 Gratis-Aktionen heute');
+    expect(md).toContain('Never claim their exact remaining count');
+    // No capability over-claim.
+    expect(md).toContain('not a capability claim');
+  });
+
+  it('is WIRED as an app-owned managed skill next to eve-onboarding-awareness (source tripwire)', () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../../../packages/desktop/src/process/commandEve/runtimeBootstrapCore.ts'),
+      'utf8'
+    );
+    expect(source).toContain("COMMAND_EVE_ARTIFACT_MENU_SKILL_ID = 'session-1-artefakt'");
+    // The writer must be CALLED in the bootstrap, right where the onboarding
+    // skill is written — a builder without a call site is a dead skill.
+    expect(source).toContain('writeCommandEveOnboardingSkill(paths);\n  writeCommandEveArtifactMenuSkill(paths);');
+  });
+});
