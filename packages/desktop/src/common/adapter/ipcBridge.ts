@@ -1338,6 +1338,18 @@ export interface ICommandEveCompanyBrainRemoveResult {
   removed?: boolean;
 }
 
+/**
+ * v1.4 T3: lazy single-body read (company-brain-read). LIST stays index-only (no
+ * bodies); the UI fetches ONE body on demand (open/edit) via this handler rather
+ * than fattening the list payload. `body` is null for a missing/unreadable body
+ * (an index entry whose .md was lost reads as null — never throws).
+ */
+export interface ICommandEveCompanyBrainReadResult {
+  ok: boolean;
+  reason_code?: string;
+  body: string | null;
+}
+
 export interface ICommandEveResolveInferenceProviderResult {
   /** The resolved conversation `model` provider (local-runtime or EVE cloud). */
   provider: TProviderWithModel;
@@ -1646,12 +1658,16 @@ export const commandEve = {
   companyBrainStatus: bridge.buildProvider<IBridgeResponse<ICommandEveCompanyBrainSeedState>, void>(
     'command-eve.company-brain-status'
   ),
-  // v1.4 T2: multi-entry Company-Brain store (brain.json v2), active-seat-resolved.
-  // list = index only (no bodies); write = upsert (user/settings, append-first);
-  // remove = delete an entry + its body. Bodies are read by the agent via read_file,
-  // not pulled through IPC.
+  // v1.4 T2/T3: multi-entry Company-Brain store (brain.json v2), active-seat-resolved.
+  // list = index only (no bodies); read = ONE body on demand (T3 lazy load — open/
+  // edit); write = upsert (user/settings, append-first); remove = delete an entry +
+  // its body. The agent still reads bodies via read_file in its own home; this read
+  // IPC only serves the Settings UI so the list stays lean.
   companyBrainList: bridge.buildProvider<IBridgeResponse<ICommandEveCompanyBrainListResult>, void>(
     'command-eve.company-brain-list'
+  ),
+  companyBrainRead: bridge.buildProvider<IBridgeResponse<ICommandEveCompanyBrainReadResult>, { id: string }>(
+    'command-eve.company-brain-read'
   ),
   companyBrainWrite: bridge.buildProvider<
     IBridgeResponse<ICommandEveCompanyBrainWriteResult>,

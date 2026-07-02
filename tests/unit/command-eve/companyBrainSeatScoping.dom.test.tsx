@@ -66,6 +66,12 @@ vi.mock('@/common/adapter/ipcBridge', () => ({
         return { success: true, data: { ok: true } };
       }),
     },
+    // T3: the panel now also lists entries — this test only asserts the seeded Tag,
+    // so the list stays empty and read/write/remove are inert stubs.
+    companyBrainList: { invoke: vi.fn(async () => ({ success: true, data: { ok: true, entries: [] } })) },
+    companyBrainRead: { invoke: vi.fn(async () => ({ success: true, data: { ok: true, body: '' } })) },
+    companyBrainWrite: { invoke: vi.fn(async () => ({ success: true, data: { ok: true, created: true } })) },
+    companyBrainRemove: { invoke: vi.fn(async () => ({ success: true, data: { ok: true, removed: true } })) },
   },
 }));
 

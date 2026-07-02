@@ -89,7 +89,7 @@ import { getActiveSeatId, resolveActiveSeatHome, sanitizeSeatId } from '@process
 import { isSeatSwitchAuthorized, parseMySeats, resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
 import { readMySeatsWire as readMySeatsWireCore } from '@process/commandEve/seatWireFetchCore';
 import { readCompanyBrainSeedState, writeCompanyBrainSeed } from '@process/commandEve/companyBrainSeedCore';
-import { listEntries, removeEntry, upsertEntry, type CompanyBrainWriteKind } from '@process/commandEve/companyBrainStoreCore';
+import { listEntries, readEntryBody, removeEntry, upsertEntry, type CompanyBrainWriteKind } from '@process/commandEve/companyBrainStoreCore';
 import {
   createElectronPdfRenderer,
   exportReport,
@@ -665,6 +665,28 @@ export function initCommandEveBridge(): void {
         success: false,
         msg: error instanceof Error ? error.message : 'Command EVE company-brain list failed.',
         data: { ok: false, reason_code: 'COMPANY_BRAIN_LIST_FAILED', entries: [] } as unknown,
+      };
+    }
+  });
+
+  // v1.4 T3: lazy single-body read. LIST stays index-only; the Settings UI pulls
+  // ONE body on demand (open/edit) through here — the id is re-asserted inside the
+  // store (readEntryBody → assertEntryId path-traversal guard) before it touches
+  // disk. A missing/unreadable body reads as { ok:true, body:null } (an index slot
+  // whose .md was lost is not an error); a crafted id throws → { ok:false }.
+  bridge.buildProvider('command-eve.company-brain-read').provider(async (request?: { id?: string }) => {
+    try {
+      if (!request || typeof request.id !== 'string') {
+        return { success: false, msg: 'COMPANY_BRAIN_READ_BAD_REQUEST', data: { ok: false, reason_code: 'COMPANY_BRAIN_READ_BAD_REQUEST', body: null } as unknown };
+      }
+      const home = resolveActiveSeatHome(getDataPath()).hermesHome;
+      const body = readEntryBody(home, request.id);
+      return { success: true, data: { ok: true, body } as unknown };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : 'Command EVE company-brain read failed.',
+        data: { ok: false, reason_code: 'COMPANY_BRAIN_READ_FAILED', body: null } as unknown,
       };
     }
   });

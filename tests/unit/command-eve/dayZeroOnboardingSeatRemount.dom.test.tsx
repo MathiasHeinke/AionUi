@@ -46,6 +46,13 @@ vi.mock('@/common/adapter/ipcBridge', () => ({
   commandEve: {
     companyBrainStatus: { invoke: () => companyBrainStatusInvoke() },
     companyBrainSeed: { invoke: (req: unknown) => companyBrainSeedInvoke(req) },
+    // T3: the panel also lists entries — inert empty stubs (this test asserts the
+    // status re-read count on a no-op remount, not the list). The list uses its own
+    // IPC, so it does not perturb companyBrainStatusInvoke's call count.
+    companyBrainList: { invoke: async () => ({ success: true, data: { ok: true, entries: [] } }) },
+    companyBrainRead: { invoke: async () => ({ success: true, data: { ok: true, body: '' } }) },
+    companyBrainWrite: { invoke: async () => ({ success: true, data: { ok: true, created: true } }) },
+    companyBrainRemove: { invoke: async () => ({ success: true, data: { ok: true, removed: true } }) },
   },
 }));
 

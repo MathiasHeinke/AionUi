@@ -51,7 +51,7 @@ import { __resetActiveSeatForTests, resolveSeatHome, setActiveSeatId } from '@pr
 import { COMPANY_BRAIN_DIR } from '@process/commandEve/companyBrainSeedCore';
 import { initCommandEveBridge } from '@process/bridge/commandEveBridge';
 
-type Envelope<T = { ok?: boolean; reason_code?: string; entries?: Array<{ id: string; title: string; kind: string }>; entry?: { id: string; title: string }; created?: boolean; removed?: boolean }> = {
+type Envelope<T = { ok?: boolean; reason_code?: string; entries?: Array<{ id: string; title: string; kind: string }>; entry?: { id: string; title: string }; created?: boolean; removed?: boolean; body?: string | null }> = {
   success: boolean;
   msg?: string;
   data?: T;
@@ -83,8 +83,9 @@ afterEach(() => {
 });
 
 describe('company-brain store providers (real bridge seam)', () => {
-  it('registers list / write / remove providers', () => {
+  it('registers list / read / write / remove providers', () => {
     expect(registered.has('command-eve.company-brain-list')).toBe(true);
+    expect(registered.has('command-eve.company-brain-read')).toBe(true);
     expect(registered.has('command-eve.company-brain-write')).toBe(true);
     expect(registered.has('command-eve.company-brain-remove')).toBe(true);
   });
@@ -120,6 +121,35 @@ describe('company-brain store providers (real bridge seam)', () => {
     expect(removed.data?.removed).toBe(true);
     const afterRemove = await call('command-eve.company-brain-list');
     expect(afterRemove.data?.entries).toEqual([]);
+  });
+
+  it('read returns the body for an entry written through the seam (lazy single-body read)', async () => {
+    const written = await call('command-eve.company-brain-write', { kind: 'note', title: 'My note', body: 'the body text' });
+    const id = written.data?.entry?.id as string;
+
+    const read = await call('command-eve.company-brain-read', { id });
+    expect(read.success).toBe(true);
+    expect(read.data?.ok).toBe(true);
+    expect(read.data?.body).toBe('the body text\n');
+  });
+
+  it('read of a missing id is { ok:true, body:null } (not an error — a lost body reads as null)', async () => {
+    const read = await call('command-eve.company-brain-read', { id: 'note-does-not-exist' });
+    expect(read.success).toBe(true);
+    expect(read.data?.ok).toBe(true);
+    expect(read.data?.body).toBeNull();
+  });
+
+  it('read with a missing id returns COMPANY_BRAIN_READ_BAD_REQUEST', async () => {
+    const read = await call('command-eve.company-brain-read', {});
+    expect(read.success).toBe(false);
+    expect(read.data?.reason_code).toBe('COMPANY_BRAIN_READ_BAD_REQUEST');
+  });
+
+  it('read with a crafted id surfaces as { ok:false } (traversal guard fires inside the store)', async () => {
+    const read = await call('command-eve.company-brain-read', { id: '../../etc/passwd' });
+    expect(read.success).toBe(false);
+    expect(read.data?.ok).toBe(false);
   });
 
   it('write with an unknown kind fails as { ok:false } (allowlist enforced through the seam)', async () => {
