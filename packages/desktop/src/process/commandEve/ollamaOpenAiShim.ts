@@ -363,14 +363,19 @@ function classifyPromptMarker(promptText: string): CommandEvePromptProof['marker
   // T4 YOU-ARE-HERE: the wheel appends `agent.environment_hint` VERBATIM to the
   // system prompt's environment-hints block (FACT hermes prompt_builder.py:989-1000
   // build_environment_hints). We anchor on the FIXED marker phrase both hint
-  // variants carry (COMMAND_EVE_YOU_ARE_HERE_MARKER = "Company Brain: company-brain/
-  // (Index: brain.json)") — it names the LIVE brain path + index file, so it can
-  // only come from OUR hint (never from SOUL.md, the operating rule, or a user
-  // turn). Checked FIRST as the most-specific signal: a missing hint is now
-  // self-detected (the marker downgrades to eve_soul), matching the founder
-  // self-detection standard. A SOUL-only prompt (no hint) does NOT contain this
-  // phrase, so it still falls through to eve_soul below (backward-compatible).
-  if (/Company Brain: company-brain\/ \(Index: brain\.json\)/.test(promptText)) {
+  // variants carry (COMMAND_EVE_YOU_ARE_HERE_MARKER = "Company Brain (Index:
+  // brain.json)") — it names the LIVE index file, so it can only come from OUR hint
+  // (never from SOUL.md, the operating rule, or a user turn). Checked FIRST as the
+  // most-specific signal: a missing hint is now self-detected (the marker downgrades
+  // to eve_soul), matching the founder self-detection standard. A SOUL-only prompt
+  // (no hint) does NOT contain this phrase, so it still falls through to eve_soul
+  // below (backward-compatible).
+  //
+  // T7 (2026-07-02): the marker is now PATH-FREE (was "…: company-brain/ (Index…"),
+  // because the relative `company-brain/` mis-anchored the agent to its workspace
+  // cwd. The absolute brain path now rides in a separate hint clause; this anchor
+  // only matches the fixed index-file phrase.
+  if (/Company Brain \(Index: brain\.json\)/.test(promptText)) {
     return 'eve_you_are_here';
   }
   // SOUL.md now carries the doctrine voice (FACT runtimeBootstrapCore.ts:183

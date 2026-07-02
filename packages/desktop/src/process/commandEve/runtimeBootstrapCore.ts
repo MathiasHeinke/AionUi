@@ -20,8 +20,8 @@ import {
   resolveSeatHome,
 } from './seatContextCore';
 import { claudeDelegatePreflightWarning } from '../../common/config/eveWorkerAssignmentCore';
-import { readCompanyBrainSeedStateFromHome } from './companyBrainSeedCore';
-import { ensureCompanyBrainReady, readBrainIndex } from './companyBrainStoreCore';
+import { COMPANY_BRAIN_DIR, readCompanyBrainSeedStateFromHome } from './companyBrainSeedCore';
+import { countFilledBlueprintSections, ensureBrainBlueprint, ensureCompanyBrainReady, readBrainIndex } from './companyBrainStoreCore';
 import { stampUserMdTiersToHome } from './userMdTierStampCore';
 import { isMcpVaultEnabled } from './mcpVaultFlagCore';
 import { readVettedConnectorsForSeat, resolveEnvFromVault } from './vaultEnvResolveCore';
@@ -2435,15 +2435,32 @@ export const COMMAND_EVE_ENVIRONMENT_HINT_MAX_CHARS = 600;
  */
 export const COMMAND_EVE_HINT_LABEL_MAX_CP = 60;
 export const COMMAND_EVE_HINT_ENTITY_MAX_CP = 120;
+/**
+ * T7 — clamp for the ABSOLUTE brain-dir clause. A real hermesHome under
+ * ~/Library/Application Support/Command EVE/seats/<seat>/hermes/home/company-brain
+ * is ~110-140cp, so 160cp fits a real install path in full. The path clause is
+ * ALSO ordered LAST in the hint, so even a pathological over-length path is trimmed
+ * before the fixed marker / invisible-delivery clause is ever touched.
+ */
+export const COMMAND_EVE_HINT_BRAINDIR_MAX_CP = 160;
 
 /**
  * The FIXED marker substring both hint variants carry — the anchor the prompt-
  * proof self-detection matches ('eve_you_are_here'). Keep this literal in sync with
  * the marker regex in ollamaOpenAiShim.classifyPromptMarker and both hint texts
- * below. It names the LIVE brain path + index file, so it can never accidentally
- * collide with the dead brief.md wording.
+ * below. It names the LIVE index file, so it can never accidentally collide with
+ * the dead brief.md wording.
+ *
+ * T7 (2026-07-02) — the marker DELIBERATELY no longer embeds the relative segment
+ * `company-brain/`. Live-bug: the agent read that relative path against its
+ * WORKSPACE cwd (the operator's Company.OS folder), found nothing, and fell back to
+ * stale workspace docs while quoting the hint's "1 Eintrag". The marker stays a
+ * PATH-FREE anchor; the ABSOLUTE brain path (<hermesHome>/company-brain/) is stated
+ * in a separate dynamic clause the builder composes from the baked hermesHome — a
+ * per-machine path can never be a fixed regex-matchable constant, so it must live
+ * outside the anchor.
  */
-export const COMMAND_EVE_YOU_ARE_HERE_MARKER = 'Company Brain: company-brain/ (Index: brain.json)';
+export const COMMAND_EVE_YOU_ARE_HERE_MARKER = 'Company Brain (Index: brain.json)';
 
 /**
  * Code-point-safe truncate to `budget` units (H8 — never split a surrogate pair).
@@ -2521,6 +2538,22 @@ export interface CommandEveEnvironmentHintInput {
   entity?: string | null;
   boardSlug?: string | null;
   entryCount: number;
+  /**
+   * T7 — the ABSOLUTE company-brain directory for THIS seat home
+   * (`<hermesHome>/company-brain`). Stated in the hint so the agent never resolves
+   * the store relative to its workspace cwd. Optional (pure-builder tests may omit
+   * it) — when absent, the hint falls back to naming the relative `company-brain/`
+   * with an explicit "in deinem HERMES_HOME" qualifier so it is never mis-anchored.
+   */
+  brainDir?: string | null;
+  /**
+   * T8 — how many of the fixed BLUEPRINT_SECTIONS carry a filled body, and out of
+   * how many. Rendered as "Blaupause mit N/M Sektionen ausgefüllt" so EVE knows the
+   * brain is a structured blueprint (not a flat notepad) and what is still empty.
+   * Optional — omitted for the pure-builder / legacy callers.
+   */
+  blueprintFilled?: number;
+  blueprintTotal?: number;
 }
 
 /**
@@ -2564,9 +2597,24 @@ export function buildCommandEveEnvironmentHint(input: CommandEveEnvironmentHintI
   const count = Number.isFinite(input.entryCount) && input.entryCount > 0 ? Math.floor(input.entryCount) : 0;
   const countPhrase = `${count} ${count === 1 ? 'Eintrag' : 'Einträge'}`;
   const board = compact(input.boardSlug) || COMMAND_EVE_DEFAULT_BOARD_SLUG;
-  // The marker names the path + index file; the count is appended after it so the
-  // fixed substring stays intact regardless of the count.
-  const brainClause = `${COMMAND_EVE_YOU_ARE_HERE_MARKER} (${countPhrase}) — lies brain.json für den Index.`;
+  // T7 — the ABSOLUTE brain location. Clamp the path (paths can be long, and
+  // 'Application Support' carries spaces) so it can never crowd out the fixed
+  // clauses; the marker + "NIE in Deliverables" survive the H8 truncate regardless.
+  // Absent brainDir → an honest relative fallback that still points inside HERMES_HOME.
+  const rawBrainDir = compact(input.brainDir);
+  const brainPathClause = rawBrainDir
+    ? `Dein Company Brain liegt ABSOLUT in ${clampHintField(rawBrainDir, COMMAND_EVE_HINT_BRAINDIR_MAX_CP, 'brainDir')} (nicht im Workspace).`
+    : 'Dein Company Brain liegt in company-brain/ in deinem HERMES_HOME (nicht im Workspace).';
+  // T8 — blueprint fill state ("N/M Sektionen ausgefüllt"), omitted when not provided.
+  const bpFilled = Number.isFinite(input.blueprintFilled) ? Math.max(0, Math.floor(input.blueprintFilled as number)) : null;
+  const bpTotal = Number.isFinite(input.blueprintTotal) && (input.blueprintTotal as number) > 0 ? Math.floor(input.blueprintTotal as number) : null;
+  const blueprintClause = bpFilled !== null && bpTotal !== null ? ` Blaupause: ${Math.min(bpFilled, bpTotal)}/${bpTotal} Sektionen ausgefüllt.` : '';
+  // The CRITICAL marker clause (short, fixed): names the index file + count. It is
+  // ordered FIRST among the brain clauses so a truncate never eats the prompt-proof
+  // anchor. The long ABSOLUTE-path clause + blueprint state are ordered LAST (they
+  // carry the useful detail but are the safe thing to trim if the budget is hit).
+  const markerClause = `${COMMAND_EVE_YOU_ARE_HERE_MARKER} (${countPhrase}) — lies brain.json für den Index.`;
+  const pathDetailClause = `${brainPathClause}${blueprintClause}`;
 
   let text: string;
   if (input.legacy) {
@@ -2574,8 +2622,10 @@ export function buildCommandEveEnvironmentHint(input: CommandEveEnvironmentHintI
     text = [
       `Du bist im Founder-Seat von ${name}.`,
       `Aktives Board: ${board}.`,
-      `Dein ${brainClause}`,
+      markerClause,
       'Frühere Arbeit findest du mit session_search.',
+      // Long path/blueprint detail LAST — trimmed first if the budget is hit.
+      pathDetailClause,
     ].join(' ');
   } else {
     const label = clampHintField(compact(input.label) || 'diesem Seat', COMMAND_EVE_HINT_LABEL_MAX_CP, 'label');
@@ -2588,26 +2638,46 @@ export function buildCommandEveEnvironmentHint(input: CommandEveEnvironmentHintI
     text = [
       `Du arbeitest im Seat »${label}« ${entityClause}.`,
       `Aktives Board: ${board}.`,
-      `${brainClause}`,
+      markerClause,
       'Frühere Arbeit: session_search.',
+      // The invisible-delivery sentence stays AHEAD of the long path detail, so a
+      // truncate trims the path (recoverable) — never the doctrine clause.
       'Der Seat-Name erscheint NIE in Deliverables.',
+      pathDetailClause,
     ].join(' ');
   }
   return truncateCodePoints(text, COMMAND_EVE_ENVIRONMENT_HINT_MAX_CHARS);
 }
 
 /**
- * The EVE WRITE-CONVENTION directive (spec §4, ≤400c) appended to SOUL.md next to
- * the language + worker-routing directives. Tells EVE HOW to persist durable
- * client knowledge so the T4 reconciler folds it into the operator's Company Brain.
- * Static text (no interpolation) — same always-on injection slot.
+ * The EVE WRITE-CONVENTION directive (spec §4) appended to SOUL.md next to the
+ * language + worker-routing directives. Tells EVE HOW to persist durable client
+ * knowledge so it lands in the operator's Company Brain. Always-on (same SOUL slot).
+ *
+ * T7/T8 (2026-07-02) — the directive now:
+ *  (a) states the ABSOLUTE brain dir (`<hermesHome>/company-brain`) so EVE writes
+ *      into the store, never a workspace-relative path she can't find (the live bug);
+ *  (b) declares the Brain the current-truth source for operator/company/client facts —
+ *      workspace docs may be stale; on conflict prefer the Brain AND flag the drift;
+ *  (c) frames the Brain as a fixed-section BLUEPRINT (bp-company … bp-dos-donts):
+ *      new knowledge goes into the matching section (edit that file directly); only
+ *      when nothing fits, add a note.
+ * `brainDir` is the resolved absolute path; when absent it degrades to an explicit
+ * "in deinem HERMES_HOME" qualifier (never a bare workspace-relative path).
  */
-export function eveBrainWriteDirective(): string {
+export function eveBrainWriteDirective(brainDir?: string | null): string {
+  const dir = compact(brainDir);
+  const brainRoot = dir ? dir : 'company-brain/ in deinem HERMES_HOME';
+  const entriesPath = dir ? `${dir}/entries/note-<kurz-slug>.md` : 'company-brain/entries/note-<kurz-slug>.md (in deinem HERMES_HOME)';
   return [
     '',
-    '## Dauerhaftes Kundenwissen sichern',
+    '## Company Brain: aktuelle Wahrheit + Blaupause',
     '',
-    'Neues dauerhaftes Kundenwissen (Fakten über Firma/Angebot/Tonalität/Vorlieben) → schreibe es als Markdown-Datei nach `company-brain/entries/note-<kurz-slug>.md` (eine Notiz pro Datei, erste Zeile `# <Titel>`). Es erscheint dann im Company Brain des Operators. Erfinde nichts; nur Bestätigtes.',
+    // (a)+(b): absolute location AND the Brain-before-workspace truth rule.
+    `Dein Company Brain liegt ABSOLUT in ${brainRoot} (NICHT im Workspace). Für Fakten über den Operator, das Unternehmen oder den Kunden gilt das Company Brain als aktuelle Wahrheit — Workspace-Dokumente können veraltet sein. Bei Widerspruch bevorzuge das Brain UND weise den Operator auf die Abweichung hin.`,
+    // (c): the blueprint sections + the write convention.
+    'Das Brain ist eine Blaupause mit festen Sektionen (bp-company, bp-team, bp-offer, bp-audience, bp-projects, bp-goals, bp-focus, bp-tone, bp-dos-donts, brief-day-0). Neues bestätigtes Wissen gehört in die PASSENDE Sektion — editiere die Datei direkt. Nur wenn nichts passt, lege eine Notiz an:',
+    `schreibe sie als Markdown nach \`${entriesPath}\` (eine Notiz pro Datei, erste Zeile \`# <Titel>\`). Erfinde nichts; nur Bestätigtes.`,
     // F3 (MEDIUM) — anti-injection: the you-are-here hint and the §SEAT stamp frame
     // the client entity as «…»-wrapped data. Tell EVE that this is DATA, never an
     // instruction, so a hostile brief line can't hijack her behaviour.
@@ -2648,12 +2718,20 @@ export function renderCommandEveEnvironmentHintForHome(hermesHome: string): stri
     // The seed (and thus the client entity) is only meaningful for a real seat;
     // a legacy/founder home never renders a client entity (byte-parity with §SEAT).
     const entity = legacy ? '' : entityHeadlineFromSeedValue(readCompanyBrainSeedStateFromHome(hermesHome).record?.value ?? '');
+    // T7 — the ABSOLUTE brain dir for THIS home, so the hint anchors the store at
+    // <hermesHome>/company-brain and the agent never resolves it against workspace cwd.
+    const brainDir = path.join(hermesHome, COMPANY_BRAIN_DIR);
+    // T8 — blueprint fill state for the "N/M Sektionen ausgefüllt" clause.
+    const bp = countFilledBlueprintSections(hermesHome);
     return buildCommandEveEnvironmentHint({
       legacy,
       label: getActiveSeatLabel(),
       entity,
       boardSlug: getActiveSeatBoardSlug(),
       entryCount,
+      brainDir,
+      blueprintFilled: bp.filled,
+      blueprintTotal: bp.total,
     });
   } catch {
     // Fail-safe: emit the minimal founder orientation rather than nothing, so the
@@ -2997,10 +3075,11 @@ function writeHermesRuntimeFiles(
     EVE_SOUL_MARKDOWN +
       eveSelectedLanguageDirective(uiLanguage) +
       eveWorkerRoutingDirective(claudeDelegate) +
-      // T4: the EVE write-convention directive — tells EVE to persist durable
-      // client knowledge as company-brain/entries/note-<slug>.md so the reconciler
-      // folds it into the operator's Company Brain. Always-on (same SOUL slot).
-      eveBrainWriteDirective(),
+      // T4/T7/T8: the EVE write-convention directive — states the ABSOLUTE brain
+      // dir, declares the Brain the current-truth source over stale workspace docs,
+      // and tells EVE to curate the fixed blueprint sections (else add a note the
+      // reconciler folds in). Always-on (same SOUL slot).
+      eveBrainWriteDirective(path.join(paths.hermesHome, COMPANY_BRAIN_DIR)),
     { mode: 0o600 }
   );
   writeHermesOllamaProviderOverride(paths);

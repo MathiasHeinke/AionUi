@@ -63,11 +63,29 @@ export const COMMAND_EVE_COMPANY_BRAIN_SCHEMA = 'command-eve-company-brain/v2';
 export const ENTRIES_SUBDIR = 'entries';
 
 /**
- * The kinds the DESKTOP writes today (v1.4). Read tolerates any string kind (a
- * later slice may introduce 'project'/'session_digest'); write rejects anything
- * outside this allowlist so the store can only grow deliberately.
+ * The kinds the DESKTOP writes today. Read tolerates any string kind (session_digest
+ * arrives via the system writer); write rejects anything outside this allowlist so
+ * the store can only grow deliberately.
+ *
+ * T8 (v1.4, 2026-07-02) — WIDENED by four ADDITIVE blueprint kinds: 'team', 'goals',
+ * 'focus', 'projects'. These carry the fixed-section blueprint (Team / Ziele & Zukunft
+ * / Fokus / Aktuelle Projekte) so EVE + the UI can update a section by its stable id.
+ * No migration: read already tolerated foreign kinds, and existing entries/digests are
+ * untouched. session_digest stays OUT of the user allowlist (system-writer only).
  */
-export const COMPANY_BRAIN_WRITE_KINDS = ['company', 'offer', 'audience', 'tone', 'dos_donts', 'brief', 'note'] as const;
+export const COMPANY_BRAIN_WRITE_KINDS = [
+  'company',
+  'team',
+  'offer',
+  'audience',
+  'projects',
+  'goals',
+  'focus',
+  'tone',
+  'dos_donts',
+  'brief',
+  'note',
+] as const;
 
 /** A kind the desktop is allowed to WRITE today. */
 export type CompanyBrainWriteKind = (typeof COMPANY_BRAIN_WRITE_KINDS)[number];
@@ -793,14 +811,222 @@ export function pruneSessionDigests(hermesHome: string, max: number = SESSION_DI
 }
 
 /**
+ * T8 — a fixed BLUEPRINT SECTION. The store scaffolds exactly one entry per section
+ * (if absent) so every seat carries a structured blueprint from second one. Each has
+ * a STABLE `id` (bp-…) EVE + the UI update section-precisely, a `kind` (an allowlisted
+ * write-kind), a German `title`, and a `placeholder` body of Leitfragen (Markdown
+ * comments/bullets) so the operator KNOWS what belongs in each section.
+ */
+export interface BlueprintSection {
+  /** Stable id (bp-<kind>) — never derived, so a section is addressable forever. */
+  id: string;
+  kind: CompanyBrainWriteKind;
+  title: string;
+  /** Empty-default body: Leitfragen as Markdown so the section is self-documenting. */
+  placeholder: string;
+}
+
+/**
+ * T8 — the blueprint, in DISPLAY ORDER (Founder design, wörtlich): Unternehmen · Team
+ * · Angebot · Zielgruppe · Aktuelle Projekte · Ziele & Zukunft · Fokus · Tonalität ·
+ * Dos & Don'ts · Briefing. Ten sections. The Briefing section REUSES the day-0 brief
+ * id (COMMAND_EVE_DAY_ZERO_BRIEF_ID = 'brief-day-0') so the seed→entry path (T4.5-F5)
+ * and the blueprint converge on ONE 'brief' entry — the rückwärtskompatible choice
+ * (no bp-brief alias; the stable seed id IS the Briefing section's id).
+ */
+export const BLUEPRINT_SECTIONS: readonly BlueprintSection[] = [
+  {
+    id: 'bp-company',
+    kind: 'company',
+    title: 'Unternehmen',
+    placeholder: ['### Unternehmen', '- Name: …', '- Größe / Mitarbeiter: …', '- Branche: …', '- Standort: …'].join('\n'),
+  },
+  {
+    id: 'bp-team',
+    kind: 'team',
+    title: 'Team',
+    placeholder: ['### Team', '- Wer gehört zum Team (Rollen)?', '- Ansprechpartner: …', '- Externe Partner: …'].join('\n'),
+  },
+  {
+    id: 'bp-offer',
+    kind: 'offer',
+    title: 'Angebot',
+    placeholder: ['### Angebot', '- Was wird verkauft?', '- Preis / Pakete: …', '- Nutzenversprechen: …'].join('\n'),
+  },
+  {
+    id: 'bp-audience',
+    kind: 'audience',
+    title: 'Zielgruppe',
+    placeholder: ['### Zielgruppe', '- Wer ist der ideale Kunde?', '- Probleme / Bedürfnisse: …', '- Kanäle, wo sie sind: …'].join('\n'),
+  },
+  {
+    id: 'bp-projects',
+    kind: 'projects',
+    title: 'Aktuelle Projekte',
+    placeholder: ['### Aktuelle Projekte', '- Woran wird gerade gearbeitet?', '- Status / Deadline: …'].join('\n'),
+  },
+  {
+    id: 'bp-goals',
+    kind: 'goals',
+    title: 'Ziele & Zukunft',
+    placeholder: ['### Ziele & Zukunft', '- Ziel für die nächsten 3–12 Monate?', '- Vision / wohin soll es gehen?'].join('\n'),
+  },
+  {
+    id: 'bp-focus',
+    kind: 'focus',
+    title: 'Fokus',
+    placeholder: ['### Fokus', '- Was ist gerade am wichtigsten?', '- Woran NICHT arbeiten (bewusst weglassen)?'].join('\n'),
+  },
+  {
+    id: 'bp-tone',
+    kind: 'tone',
+    title: 'Tonalität',
+    placeholder: ['### Tonalität', '- Wie klingt die Marke (Stil, Ansprache)?', '- Lieblingsphrasen / was NIE gesagt wird: …'].join('\n'),
+  },
+  {
+    // NOTE: the entry id uses a HYPHEN (bp-dos-donts) — assertEntryId's [a-z0-9-]
+    // slug rule forbids the underscore that the 'dos_donts' KIND carries.
+    id: 'bp-dos-donts',
+    kind: 'dos_donts',
+    title: "Dos & Don'ts",
+    placeholder: ['### Dos & Don\'ts', '- Dos: …', '- Don\'ts: …'].join('\n'),
+  },
+  {
+    // Briefing REUSES the stable day-0 brief id so seed↔blueprint converge (F5).
+    id: COMMAND_EVE_DAY_ZERO_BRIEF_ID,
+    kind: 'brief',
+    title: 'Briefing',
+    placeholder: ['### Briefing', '- Kurzbriefing / Kontext für EVE: …'].join('\n'),
+  },
+] as const;
+
+/** How many blueprint sections there are (for the "N/M ausgefüllt" hint clause). */
+export const BLUEPRINT_SECTION_COUNT = BLUEPRINT_SECTIONS.length;
+
+/** The set of blueprint section ids (fast membership tests: UI "kann nicht löschen"). */
+export const BLUEPRINT_SECTION_IDS: ReadonlySet<string> = new Set(BLUEPRINT_SECTIONS.map((s) => s.id));
+
+/** Is `id` a fixed blueprint section (never user-deletable)? */
+export function isBlueprintSectionId(id: string): boolean {
+  return BLUEPRINT_SECTION_IDS.has(id);
+}
+
+/**
+ * A blueprint entry is "filled" iff its body has real content beyond the scaffolded
+ * placeholder (any non-empty, non-comment, non-heading line that is not the bare
+ * "- Frage: …" Leitfrage). We treat a body equal (after trim) to its section's
+ * placeholder — OR empty — as UNFILLED. This drives the hint's N/M count so an
+ * untouched seat honestly reads 0/10.
+ */
+function isBlueprintBodyFilled(body: string | null, placeholder: string): boolean {
+  const trimmed = (body ?? '').trim();
+  if (trimmed.length === 0) return false;
+  if (trimmed === placeholder.trim()) return false;
+  // Any line that is NOT a heading and NOT an empty-value Leitfrage ("- X: …" / "- X?")
+  // counts as filled content the operator or EVE actually added.
+  for (const rawLine of trimmed.split('\n')) {
+    const line = rawLine.trim();
+    if (line.length === 0) continue;
+    if (line.startsWith('#')) continue; // heading
+    // Leitfrage patterns: "- Label: …" (ellipsis unfilled) or "- Frage?" (bare prompt).
+    if (/^[-*]\s.*:\s*…\s*$/.test(line)) continue;
+    if (/^[-*]\s.*\?\s*$/.test(line)) continue;
+    return true;
+  }
+  return false;
+}
+
+export interface BlueprintResult {
+  ok: boolean;
+  /** Number of sections newly created this pass (absent → scaffolded empty). */
+  created: number;
+  /** The section ids created this pass (audit/test). */
+  createdIds: string[];
+  index: CompanyBrainIndex;
+}
+
+/**
+ * T8 DAY-ZERO BLUEPRINT (idempotent, best-effort). Ensure EXACTLY ONE entry exists
+ * per BLUEPRINT_SECTIONS id. A section that is ABSENT is created with its placeholder
+ * body (Leitfragen) via upsertSystemEntry (author:'user', source:'settings') so the
+ * operator sees the structure to fill. A section that ALREADY EXISTS (by id) is left
+ * UNTOUCHED — never clobber operator/EVE content, never rewrite a filled body. Never
+ * throws — any fs error degrades to a no-op so it can't block boot / a seat switch.
+ *
+ * Runs AFTER migrateSeedToBrain, so if the seed produced the day-0 'brief-day-0'
+ * entry the Briefing section already exists and is skipped (convergence, not a
+ * duplicate). Only scaffolds the sections still missing.
+ */
+export function ensureBrainBlueprint(hermesHome: string, opts?: { now?: () => Date }): BlueprintResult {
+  let index: CompanyBrainIndex;
+  try {
+    assertAbsoluteHome(hermesHome);
+    // Make sure company-brain/ + brain.json exist before we upsert sections.
+    ensureCompanyBrainScaffold(hermesHome);
+    index = readBrainIndex(hermesHome);
+  } catch {
+    return { ok: false, created: 0, createdIds: [], index: emptyIndex() };
+  }
+
+  const existing = new Set(index.entries.map((e) => e.id));
+  const createdIds: string[] = [];
+  for (const section of BLUEPRINT_SECTIONS) {
+    if (existing.has(section.id)) continue; // never clobber an existing section
+    try {
+      const res = upsertSystemEntry(hermesHome, {
+        id: section.id,
+        kind: section.kind,
+        title: section.title,
+        body: section.placeholder,
+        author: 'user',
+        source: 'settings',
+        now: opts?.now,
+      });
+      if (res.ok) {
+        createdIds.push(section.id);
+        existing.add(section.id);
+        index = res.index;
+      }
+    } catch {
+      // Best-effort per section: a failed section never aborts the rest.
+    }
+  }
+  return { ok: true, created: createdIds.length, createdIds, index: readBrainIndex(hermesHome) };
+}
+
+/**
+ * T8 — how many blueprint sections carry a filled body, out of BLUEPRINT_SECTION_COUNT.
+ * Best-effort (never throws): a bad home / read failure reads as 0 filled. Drives the
+ * you-are-here hint's "Blaupause: N/M Sektionen ausgefüllt" clause.
+ */
+export function countFilledBlueprintSections(hermesHome: string): { filled: number; total: number } {
+  const total = BLUEPRINT_SECTION_COUNT;
+  try {
+    assertAbsoluteHome(hermesHome);
+  } catch {
+    return { filled: 0, total };
+  }
+  let filled = 0;
+  for (const section of BLUEPRINT_SECTIONS) {
+    const body = readEntryBody(hermesHome, section.id);
+    if (isBlueprintBodyFilled(body, section.placeholder)) filled += 1;
+  }
+  return { filled, total };
+}
+
+/**
  * Day-Zero convenience for the boot / seat-switch hooks: migrate a v1 seed if one
- * exists (creating brain.json), else scaffold an empty brain — THEN fold in any
- * EVE-written .md files that are not yet in the index (T4 reconciler). Idempotent +
- * best-effort — the single call the lifecycle hooks make so every seat ends up with
- * a functional brain.json (and EVE's fresh notes visible) exactly once.
+ * exists (creating brain.json), else scaffold an empty brain — THEN ensure the fixed
+ * blueprint sections exist (T8) — THEN fold in any EVE-written .md files that are not
+ * yet in the index (T4 reconciler). Idempotent + best-effort — the single call the
+ * lifecycle hooks make so every seat ends up with a functional brain.json (the
+ * structured blueprint + EVE's fresh notes visible) exactly once.
  */
 export function ensureCompanyBrainReady(hermesHome: string, opts?: { now?: () => Date }): CompanyBrainIndex {
   const migration = migrateSeedToBrain(hermesHome, opts);
+  // T8: scaffold the fixed blueprint sections (Day-Zero) AFTER the seed migration so
+  // the day-0 brief converges on the Briefing section rather than duplicating it.
+  ensureBrainBlueprint(hermesHome, opts);
   const reconciled = reconcileUnindexedEntries(hermesHome, opts);
   // reconcileUnindexedEntries returns the live index on ok; on a best-effort
   // failure it may return the migration index — prefer whichever is authoritative.

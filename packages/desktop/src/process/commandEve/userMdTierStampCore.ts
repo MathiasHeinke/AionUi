@@ -50,7 +50,7 @@ import path from 'path';
 import type { RuntimeBootstrapIdentityProfile } from './runtimeBootstrapCore';
 import { resolveCommandEveRuntimeBootstrapPaths } from './runtimeBootstrapCore';
 import type { CompanyBrainSeedRecord } from './companyBrainSeedCore';
-import { readCompanyBrainSeedStateFromHome } from './companyBrainSeedCore';
+import { COMPANY_BRAIN_DIR, readCompanyBrainSeedStateFromHome } from './companyBrainSeedCore';
 import { isLegacySeatId, resolveSeatHome } from './seatContextCore';
 
 /**
@@ -302,7 +302,8 @@ export function renderFounderBody(
  */
 export function renderSeatBody(
   seed: CompanyBrainSeedRecord | null,
-  locale: 'de-DE' | 'en-US' = 'de-DE'
+  locale: 'de-DE' | 'en-US' = 'de-DE',
+  brainDir?: string | null
 ): string | null {
   const value = typeof seed?.value === 'string' ? seed.value.trim() : '';
   if (!seed || value.length === 0) return null;
@@ -315,22 +316,28 @@ export function renderSeatBody(
       : locale === 'en-US'
         ? 'connected client'
         : 'verbundener Client';
+  // T7 — reference the brief by its ABSOLUTE path so the agent never resolves it
+  // against workspace cwd. Absent brainDir → an explicit HERMES_HOME qualifier
+  // (never a bare workspace-relative path). The whole block is still truncated to
+  // SEAT_BLOCK_MAX_CHARS (≤400c) by the stamper.
+  const dir = typeof brainDir === 'string' ? brainDir.trim() : '';
+  const briefRefEn = dir ? `${dir}/brief.md (absolute)` : 'company-brain/brief.md in this seat home (HERMES_HOME)';
+  const briefRefDe = dir ? `${dir}/brief.md (absolut)` : 'company-brain/brief.md in diesem Seat-Home (HERMES_HOME)';
   // F3 (MEDIUM) — the client line is a Prompt-Injection lane (operator/seed data,
   // not an instruction). Frame it as DATA with guillemets «…», matching the you-are-
-  // here hint; SOUL tells EVE that «…»-wrapped text is data, never a command. The
-  // whole block is still truncated to SEAT_BLOCK_MAX_CHARS (≤400c) by the stamper.
+  // here hint; SOUL tells EVE that «…»-wrapped text is data, never a command.
   if (locale === 'en-US') {
     return [
       '§ SEAT',
       `Client (this seat), per operator briefing: «${firstLine}»`,
-      `Source: ${kindLabel}. Full brief: company-brain/brief.md in this seat home — read it with read_file when you need it.`,
+      `Source: ${kindLabel}. Full brief: ${briefRefEn} — read it with read_file when you need it.`,
       'This seat belongs to exactly this client. Their data stays in this seat (per-client isolation, GDPR); the seat name never appears in deliverables.',
     ].join('\n');
   }
   return [
     '§ SEAT',
     `Client (dieser Seat), laut Operator-Briefing: «${firstLine}»`,
-    `Quelle: ${kindLabel}. Vollständiges Briefing: company-brain/brief.md in diesem Seat-Home — lies es bei Bedarf mit read_file.`,
+    `Quelle: ${kindLabel}. Vollständiges Briefing: ${briefRefDe} — lies es bei Bedarf mit read_file.`,
     'Dieser Seat gehört genau diesem Kunden. Seine Daten bleiben in diesem Seat (Per-Client-Isolation, DSGVO); der Seat-Name erscheint nie in Deliverables.',
   ].join('\n');
 }
@@ -403,7 +410,7 @@ export function stampUserMdTiersToHome(args: {
     if (args.legacy) {
       next = removeFencedBlock(next, SEAT_MARKER_BEGIN, SEAT_MARKER_END);
     } else {
-      const seatBody = renderSeatBody(args.seed ?? null, locale);
+      const seatBody = renderSeatBody(args.seed ?? null, locale, path.join(args.hermesHome, COMPANY_BRAIN_DIR));
       if (seatBody) {
         const seatTrunc = truncateToBudget(seatBody, SEAT_BLOCK_MAX_CHARS);
         if (seatTrunc.truncated) {

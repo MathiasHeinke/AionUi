@@ -347,16 +347,17 @@ describe('EVE soul-wiring: prompt-proof shim covers the soul (self-detection sta
     expect(proof.ok).toBe(false);
   });
 
-  it('T4: classifies the you-are-here environment_hint as "eve_you_are_here" (most-specific signal)', () => {
-    // The wheel appends agent.environment_hint verbatim; the fixed marker phrase
-    // "Company Brain: company-brain/ (Index: brain.json)" is present in the prompt.
+  it('T4/T7: classifies the you-are-here environment_hint as "eve_you_are_here" (most-specific signal)', () => {
+    // The wheel appends agent.environment_hint verbatim; the fixed PATH-FREE marker
+    // phrase "Company Brain (Index: brain.json)" is present in the prompt. The
+    // absolute brain path rides a separate clause (not part of the anchor).
     const proof = buildCommandEvePromptProof({
       messages: [
         { role: 'system', content: SOUL_MARKDOWN },
         {
           role: 'system',
           content:
-            'Du bist im Founder-Seat von Mathias. Aktives Board: default. Dein Company Brain: company-brain/ (Index: brain.json) (3 Einträge) — lies brain.json für den Index. Frühere Arbeit findest du mit session_search.',
+            'Du bist im Founder-Seat von Mathias. Aktives Board: default. Dein Company Brain liegt ABSOLUT in /Users/x/Library/Application Support/Command EVE/hermes/home/company-brain (nicht im Workspace). Company Brain (Index: brain.json) (3 Einträge) — lies brain.json für den Index. Frühere Arbeit findest du mit session_search.',
         },
         { role: 'user', content: 'where are we?' },
       ],

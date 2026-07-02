@@ -21,12 +21,17 @@ import os from 'os';
 import path from 'path';
 
 import {
+  BLUEPRINT_SECTIONS,
+  BLUEPRINT_SECTION_COUNT,
   COMMAND_EVE_COMPANY_BRAIN_SCHEMA,
   COMMAND_EVE_DAY_ZERO_BRIEF_ID,
   ENTRIES_SUBDIR,
   assertEntryId,
+  countFilledBlueprintSections,
+  ensureBrainBlueprint,
   ensureCompanyBrainReady,
   ensureCompanyBrainScaffold,
+  isBlueprintSectionId,
   isWritableKind,
   listEntries,
   migrateSeedToBrain,
@@ -36,6 +41,7 @@ import {
   reconcileUnindexedEntries,
   removeEntry,
   upsertEntry,
+  upsertSystemEntry,
 } from '@process/commandEve/companyBrainStoreCore';
 import { COMPANY_BRAIN_DIR, writeCompanyBrainSeedToHome } from '@process/commandEve/companyBrainSeedCore';
 
@@ -191,10 +197,11 @@ describe('id sanitizer — path-traversal fail-closed', () => {
 });
 
 describe('kind allowlist — read-tolerate, write-reject', () => {
-  it('isWritableKind only accepts the v1.4 write kinds', () => {
-    for (const k of ['company', 'offer', 'audience', 'tone', 'dos_donts', 'brief', 'note']) {
+  it('isWritableKind accepts the v1.4 write kinds + the T8 blueprint kinds (team/projects/goals/focus)', () => {
+    for (const k of ['company', 'team', 'offer', 'audience', 'projects', 'goals', 'focus', 'tone', 'dos_donts', 'brief', 'note']) {
       expect(isWritableKind(k)).toBe(true);
     }
+    // session_digest stays SYSTEM-only; 'project' (singular) is NOT the T8 'projects'.
     for (const k of ['project', 'session_digest', 'random', '']) {
       expect(isWritableKind(k)).toBe(false);
     }
@@ -302,15 +309,18 @@ describe('migration v1 seed.json → v2 brain.json', () => {
     expect(res.index.entries).toEqual([]);
   });
 
-  it('ensureCompanyBrainReady is the single idempotent Day-Zero call (migrate-or-scaffold)', () => {
+  it('ensureCompanyBrainReady is the single idempotent Day-Zero call (migrate + blueprint + reconcile)', () => {
     const home = makeHome();
     writeCompanyBrainSeedToHome({ hermesHome: home, seed: { kind: 'paste_brief', value: 'ready brief' } });
     const idx1 = ensureCompanyBrainReady(home);
-    expect(idx1.entries).toHaveLength(1);
-    // A second call after the operator added an entry keeps everything.
+    // T8: the seed converges onto the Briefing section, and the other 9 blueprint
+    // sections are scaffolded → exactly 10 entries (no duplicate brief).
+    expect(idx1.entries).toHaveLength(10);
+    expect(idx1.entries.filter((e) => e.kind === 'brief')).toHaveLength(1);
+    // A second call after the operator added a note keeps everything (idempotent).
     upsertEntry(home, { kind: 'note', title: 'Added later', body: 'x' });
     const idx2 = ensureCompanyBrainReady(home);
-    expect(idx2.entries).toHaveLength(2);
+    expect(idx2.entries).toHaveLength(11);
   });
 });
 
@@ -546,5 +556,108 @@ describe('T4.5 audit hotfixes — F5 / F6 / F8', () => {
 
   it('F8: mirrorBriefBodyToFile never throws on a bad home (returns false)', () => {
     expect(mirrorBriefBodyToFile('relative/not/absolute', 'x')).toBe(false);
+  });
+});
+
+// ── T8 — blueprint sections (fixed-section scaffold + fill count) ───────────────
+describe('T8 blueprint — ensureBrainBlueprint scaffolds the fixed sections', () => {
+  const EXPECTED_IDS = ['bp-company', 'bp-team', 'bp-offer', 'bp-audience', 'bp-projects', 'bp-goals', 'bp-focus', 'bp-tone', 'bp-dos-donts', COMMAND_EVE_DAY_ZERO_BRIEF_ID];
+
+  it('creates exactly 10 blueprint entries with stable ids in DISPLAY order', () => {
+    const home = makeHome();
+    const res = ensureBrainBlueprint(home, fixedClock('2026-07-02T10:00:00.000Z'));
+    expect(res.ok).toBe(true);
+    expect(res.created).toBe(BLUEPRINT_SECTION_COUNT);
+    expect(BLUEPRINT_SECTION_COUNT).toBe(10);
+    // Stable ids + order preserved.
+    expect(BLUEPRINT_SECTIONS.map((s) => s.id)).toEqual(EXPECTED_IDS);
+    const ids = listEntries(home).map((e) => e.id);
+    for (const id of EXPECTED_IDS) expect(ids).toContain(id);
+    // Every section carries a self-documenting placeholder body (Leitfragen).
+    expect(readEntryBody(home, 'bp-company')).toContain('- Name: …');
+    expect(readEntryBody(home, 'bp-team')).toContain('### Team');
+  });
+
+  it('is IDEMPOTENT — a second pass creates nothing and re-writes no existing section', () => {
+    const home = makeHome();
+    ensureBrainBlueprint(home);
+    // Fill one section with real content.
+    upsertEntry(home, { id: 'bp-company', kind: 'company', title: 'Unternehmen', body: '### Unternehmen\n- Name: Bäckerei Müller GmbH' });
+    const before = readEntryBody(home, 'bp-company');
+    const res2 = ensureBrainBlueprint(home);
+    expect(res2.created).toBe(0);
+    // The filled section is UNTOUCHED (never clobbered back to the placeholder).
+    expect(readEntryBody(home, 'bp-company')).toBe(before);
+  });
+
+  it('never clobbers existing entries or session digests', () => {
+    const home = makeHome();
+    // A pre-existing free note + a system session_digest.
+    upsertEntry(home, { id: 'note-keep', kind: 'note', title: 'Behalten', body: 'wichtig' });
+    upsertSystemEntry(home, { id: 'sd-conv-1', kind: 'session_digest', title: 'Digest', body: 'zusammenfassung' });
+    ensureBrainBlueprint(home);
+    const ids = listEntries(home).map((e) => e.id);
+    // Blueprint added, but the pre-existing entries survive untouched.
+    expect(ids).toContain('note-keep');
+    expect(ids).toContain('sd-conv-1');
+    expect(readEntryBody(home, 'note-keep')).toBe('wichtig\n');
+    expect(readEntryBody(home, 'sd-conv-1')).toBe('zusammenfassung\n');
+    // Total = 10 blueprint + note-keep + sd-conv-1.
+    expect(listEntries(home)).toHaveLength(BLUEPRINT_SECTION_COUNT + 2);
+  });
+
+  it('converges the day-0 seed brief onto the Briefing section (no duplicate brief entry)', () => {
+    const home = makeHome();
+    // A v1 seed → migrateSeedToBrain produces the brief-day-0 entry FIRST.
+    writeCompanyBrainSeedToHome({ hermesHome: home, seed: { kind: 'paste_brief', value: 'Kunde: Bäckerei Müller — lokale Sichtbarkeit' } });
+    ensureCompanyBrainReady(home); // migrate → blueprint → reconcile
+    const briefEntries = listEntries(home).filter((e) => e.kind === 'brief');
+    // Exactly ONE brief entry (the day-0 id doubles as the Briefing section id).
+    expect(briefEntries).toHaveLength(1);
+    expect(briefEntries[0].id).toBe(COMMAND_EVE_DAY_ZERO_BRIEF_ID);
+    // The seed value survived (blueprint did not overwrite the migrated brief body).
+    expect(readEntryBody(home, COMMAND_EVE_DAY_ZERO_BRIEF_ID)).toContain('Bäckerei Müller');
+  });
+
+  it('isBlueprintSectionId recognises the fixed ids and rejects free notes', () => {
+    expect(isBlueprintSectionId('bp-company')).toBe(true);
+    expect(isBlueprintSectionId(COMMAND_EVE_DAY_ZERO_BRIEF_ID)).toBe(true);
+    expect(isBlueprintSectionId('note-abc')).toBe(false);
+  });
+
+  it('the new blueprint kinds (team/projects/goals/focus) are user-writable', () => {
+    const home = makeHome();
+    for (const kind of ['team', 'projects', 'goals', 'focus'] as const) {
+      const res = upsertEntry(home, { kind, title: kind, body: `# ${kind}` });
+      expect(res.ok).toBe(true);
+      expect(res.entry.kind).toBe(kind);
+    }
+    // session_digest remains SYSTEM-only through the user path.
+    expect(() => upsertEntry(home, { kind: 'session_digest' as never, title: 'x', body: 'y' })).toThrow(/unknown kind/);
+  });
+});
+
+describe('T8 countFilledBlueprintSections', () => {
+  it('a freshly scaffolded blueprint reads 0 filled (placeholders are UNfilled)', () => {
+    const home = makeHome();
+    ensureBrainBlueprint(home);
+    const bp = countFilledBlueprintSections(home);
+    expect(bp.total).toBe(BLUEPRINT_SECTION_COUNT);
+    expect(bp.filled).toBe(0);
+  });
+
+  it('counts a section as filled once real content is added beyond the Leitfragen', () => {
+    const home = makeHome();
+    ensureBrainBlueprint(home);
+    upsertEntry(home, { id: 'bp-company', kind: 'company', title: 'Unternehmen', body: '### Unternehmen\n- Name: Bäckerei Müller GmbH\n- Branche: Handwerk' });
+    upsertEntry(home, { id: 'bp-offer', kind: 'offer', title: 'Angebot', body: '### Angebot\n- Was: Vollsortiment-Bäckerei' });
+    const bp = countFilledBlueprintSections(home);
+    expect(bp.filled).toBe(2);
+  });
+
+  it('a bad home reads as 0 filled (never throws)', () => {
+    const bp = countFilledBlueprintSections('relative/not/absolute');
+    expect(bp.filled).toBe(0);
+    expect(bp.total).toBe(BLUEPRINT_SECTION_COUNT);
   });
 });
