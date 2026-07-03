@@ -4170,12 +4170,17 @@ export async function ensureCommandEveRuntimeBootstrap(
 
     // Preferred: stream /api/pull for live byte progress (throttled writes).
     let lastWriteAt = 0;
+    // Ollama reports total/completed PER LAYER; the denominator (total) jumps
+    // between layers, so the raw percent can snap backward. Clamp the SURFACED
+    // percent to be non-decreasing so the download bar never runs backwards.
+    let maxPercent = 0;
     const streamed = await streamOllamaPull(manifest.local_runtime.base_url, tier.model_ref, ({ total, completed }) => {
       const now = Date.now();
       if (now - lastWriteAt < 250) return; // throttle (updateBridge precedent)
       lastWriteAt = now;
-      const percent = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
-      writeProgress({ status: 'pulling', total, completed, percent });
+      const raw = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
+      if (raw > maxPercent) maxPercent = raw;
+      writeProgress({ status: 'pulling', total, completed, percent: maxPercent });
     });
 
     // Fallback: if the stream did not confirm success, do the proven CLI pull.

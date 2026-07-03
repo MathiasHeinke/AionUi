@@ -59,7 +59,10 @@ export interface CommandEveHandoverNote {
  */
 export function parseHandoverNote(raw: string): CommandEveHandoverNote {
   const text = (raw || '').slice(0, HANDOVER_NOTE_MAX_RAW_CHARS);
-  const trimmed = text.replace(/^﻿/, '');
+  // Normalize CRLF/CR → LF: a model authoring note.md may emit Windows line
+  // endings, and the `$`-anchored item regex below fails on a trailing \r,
+  // which would silently drop EVERY next:-chip (the note body still renders).
+  const trimmed = text.replace(/^﻿/, '').replace(/\r\n?/g, '\n');
   if (!trimmed.startsWith('---')) return { body_md: trimmed.trim(), next: [] };
 
   const end = trimmed.indexOf('\n---', 3);

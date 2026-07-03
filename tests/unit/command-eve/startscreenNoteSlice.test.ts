@@ -225,3 +225,17 @@ describe('v1.6 Beat 2 — Session-1-Artefakt-Skill (D6-Merge)', () => {
     expect(source).toContain('writeCommandEveOnboardingSkill(paths);\n  writeCommandEveArtifactMenuSkill(paths);');
   });
 });
+
+describe('parseHandoverNote — CRLF hotfix (1.6.1)', () => {
+  it('CRLF line endings keep the next: chips (was: silently dropped ALL of them)', () => {
+    const raw = ['---', 'next:', '  - Schritt eins', '  - Schritt zwei', '---', 'Heute erledigt.'].join('\r\n');
+    const note = parseHandoverNote(raw);
+    expect(note.next).toEqual(['Schritt eins', 'Schritt zwei']);
+    expect(note.body_md).toBe('Heute erledigt.');
+  });
+
+  it('bare CR line endings also work', () => {
+    const note = parseHandoverNote('---\rnext:\r  - Nur einer\r---\rBody.');
+    expect(note.next).toEqual(['Nur einer']);
+  });
+});
