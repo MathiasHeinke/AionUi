@@ -34,7 +34,11 @@ import {
   isBlueprintSectionId,
   isWritableKind,
   listEntries,
+  isPristineBlueprintScaffold,
+  listEntriesWithState,
+  migrateCompanyBrainFromHome,
   migrateSeedToBrain,
+  quarantineCorruptBrainIndex,
   mirrorBriefBodyToFile,
   readBrainIndex,
   readEntryBody,
@@ -659,5 +663,196 @@ describe('T8 countFilledBlueprintSections', () => {
     const bp = countFilledBlueprintSections('relative/not/absolute');
     expect(bp.filled).toBe(0);
     expect(bp.total).toBe(BLUEPRINT_SECTION_COUNT);
+  });
+});
+
+describe('1.6.2 — listEntriesWithState (disk fill truth for the list surface)', () => {
+  it('reports filled=false for a freshly scaffolded (placeholder) section and true after real content', () => {
+    const home = makeHome();
+    ensureBrainBlueprint(home, { now: fixedClock('2026-07-03T10:00:00.000Z') });
+
+    const before = listEntriesWithState(home);
+    const company = before.find((e) => e.id === 'bp-company');
+    expect(company).toBeDefined();
+    expect(company!.filled).toBe(false);
+    expect(typeof company!.body_mtime_ms).toBe('number');
+
+    upsertEntry(home, { id: 'bp-company', kind: 'company', title: 'Unternehmen', body: '### Unternehmen\n- Name: Bäckerei Müller GmbH' });
+    const after = listEntriesWithState(home);
+    expect(after.find((e) => e.id === 'bp-company')!.filled).toBe(true);
+  });
+
+  it('EVE writing a section body DIRECTLY (no index write) flips filled without touching updated_at', () => {
+    const home = makeHome();
+    ensureBrainBlueprint(home, { now: fixedClock('2026-07-02T09:50:00.000Z') });
+    // EVE's write path: write_file straight into entries/<id>.md — the reconciler
+    // deliberately skips already-indexed ids, so the index stays stale.
+    fs.writeFileSync(bodyOf(home, 'bp-team'), '### Team\n- Mathias (Founder), Alois (Pilot)\n');
+    const rows = listEntriesWithState(home);
+    const team = rows.find((e) => e.id === 'bp-team')!;
+    expect(team.filled).toBe(true);
+    expect(team.updated_at).toBe('2026-07-02T09:50:00.000Z'); // index untouched…
+    expect(team.body_mtime_ms).toBeGreaterThan(Date.parse('2026-07-02T09:50:00.000Z')); // …mtime carries the truth
+  });
+
+  it('a non-blueprint note counts as filled iff its body is non-empty', () => {
+    const home = makeHome();
+    upsertEntry(home, { kind: 'note', title: 'Wichtige Notiz', body: 'Alois will Dienstag anrufen.' });
+    const rows = listEntriesWithState(home);
+    const note = rows.find((e) => e.kind === 'note')!;
+    expect(note.filled).toBe(true);
+  });
+});
+
+describe('1.6.2 — blueprint adopt-guard (never stage a placeholder over an existing body)', () => {
+  it('an on-disk section body missing from the index is ADOPTED, byte-identical', () => {
+    const home = makeHome();
+    ensureCompanyBrainScaffold(home); // empty index
+    const real = '### Unternehmen\n- Name: FYN Labs LLC\n- Branche: Software\n';
+    fs.mkdirSync(path.dirname(bodyOf(home, 'bp-company')), { recursive: true });
+    fs.writeFileSync(bodyOf(home, 'bp-company'), real);
+
+    const res = ensureBrainBlueprint(home, { now: fixedClock('2026-07-03T11:00:00.000Z') });
+    expect(res.ok).toBe(true);
+    // The body was NOT overwritten with the placeholder…
+    expect(fs.readFileSync(bodyOf(home, 'bp-company'), 'utf8')).toBe(real);
+    // …and the section IS in the index now (adopted, not created).
+    expect(res.createdIds).not.toContain('bp-company');
+    expect(readBrainIndex(home).entries.some((e) => e.id === 'bp-company')).toBe(true);
+    // Every OTHER section was scaffolded normally.
+    expect(readBrainIndex(home).entries.filter((e) => isBlueprintSectionId(e.id)).length).toBe(BLUEPRINT_SECTION_COUNT);
+  });
+});
+
+describe('1.6.2 — corrupt brain.json quarantine (the total-clobber window)', () => {
+  it('quarantines an unparseable index and the ready-pass rebuilds WITHOUT losing bodies', () => {
+    const home = makeHome();
+    ensureBrainBlueprint(home, { now: fixedClock('2026-07-02T09:50:00.000Z') });
+    upsertEntry(home, { id: 'bp-company', kind: 'company', title: 'Unternehmen', body: '### Unternehmen\n- Name: FYN Labs LLC' });
+    upsertEntry(home, { kind: 'note', title: 'Wichtige Notiz', body: 'Alois anrufen.' });
+    const noteId = readBrainIndex(home).entries.find((e) => e.kind === 'note')!.id;
+
+    // Truncate the index mid-file — the pre-guard behaviour read this as EMPTY
+    // and re-scaffolded placeholders OVER the real bodies.
+    fs.writeFileSync(brainJson(home), '{"schema_version":"command-eve-company-brain/v2","entr');
+
+    const index = ensureCompanyBrainReady(home, { now: fixedClock('2026-07-03T12:00:00.000Z') });
+
+    // The corrupt file is preserved for forensics…
+    const quarantined = fs.readdirSync(path.dirname(brainJson(home))).filter((f) => f.startsWith('brain.json.corrupt-'));
+    expect(quarantined.length).toBe(1);
+    // …the filled body SURVIVED byte-identical…
+    expect(fs.readFileSync(bodyOf(home, 'bp-company'), 'utf8')).toContain('FYN Labs LLC');
+    // …and both the section and the note are back in the rebuilt index.
+    expect(index.entries.some((e) => e.id === 'bp-company')).toBe(true);
+    expect(index.entries.some((e) => e.id === noteId)).toBe(true);
+    // The rebuilt store still reads as filled where it was filled.
+    expect(countFilledBlueprintSections(home).filled).toBeGreaterThanOrEqual(1);
+  });
+
+  it('a VALID index is never quarantined (no-op)', () => {
+    const home = makeHome();
+    ensureBrainBlueprint(home);
+    const before = fs.readFileSync(brainJson(home), 'utf8');
+    const res = quarantineCorruptBrainIndex(home);
+    expect(res.quarantined).toBe(false);
+    expect(fs.readFileSync(brainJson(home), 'utf8')).toBe(before);
+  });
+});
+
+describe('1.6.2 — migrateCompanyBrainFromHome (own-seat first provisioning)', () => {
+  it('carries index + bodies + companions into a brainless target', () => {
+    const source = makeHome();
+    const target = makeHome();
+    ensureBrainBlueprint(source, { now: fixedClock('2026-07-02T09:50:00.000Z') });
+    upsertEntry(source, { id: 'bp-company', kind: 'company', title: 'Unternehmen', body: '### Unternehmen\n- Name: FYN Labs LLC' });
+    fs.writeFileSync(path.join(source, COMPANY_BRAIN_DIR, 'brief.md'), 'FYN Labs LLC - baut Command EVE.');
+
+    const res = migrateCompanyBrainFromHome(source, target);
+    expect(res.ok).toBe(true);
+    expect(res.migrated).toBe(true);
+    expect(fs.readFileSync(bodyOf(target, 'bp-company'), 'utf8')).toContain('FYN Labs LLC');
+    expect(readBrainIndex(target).entries.length).toBe(readBrainIndex(source).entries.length);
+    expect(fs.readFileSync(path.join(target, COMPANY_BRAIN_DIR, 'brief.md'), 'utf8')).toContain('Command EVE');
+  });
+
+  it('NEVER touches a target that carries REAL content (filled section → hard no-op)', () => {
+    const source = makeHome();
+    const target = makeHome();
+    ensureBrainBlueprint(source);
+    upsertEntry(source, { id: 'bp-company', kind: 'company', title: 'Unternehmen', body: 'source content' });
+    ensureBrainBlueprint(target);
+    upsertEntry(target, { id: 'bp-company', kind: 'company', title: 'Unternehmen', body: 'target content — filled by the seat' });
+    const before = fs.readFileSync(bodyOf(target, 'bp-company'), 'utf8');
+
+    const res = migrateCompanyBrainFromHome(source, target);
+    expect(res.migrated).toBe(false);
+    expect(fs.readFileSync(bodyOf(target, 'bp-company'), 'utf8')).toBe(before);
+  });
+
+  it('NEVER touches a target with a note/custom entry (not pristine → hard no-op)', () => {
+    const source = makeHome();
+    const target = makeHome();
+    ensureBrainBlueprint(source);
+    ensureBrainBlueprint(target);
+    upsertEntry(target, { kind: 'note', title: 'Kundennotiz', body: 'client-seat knowledge' });
+
+    const res = migrateCompanyBrainFromHome(source, target);
+    expect(res.migrated).toBe(false);
+  });
+
+  it('HEALS a pristine ≤1.6.1 placeholder scaffold: sets it aside and inherits (the incident seat)', () => {
+    const source = makeHome();
+    const target = makeHome();
+    ensureBrainBlueprint(source, { now: fixedClock('2026-07-02T10:06:00.000Z') });
+    upsertEntry(source, { id: 'bp-company', kind: 'company', title: 'Unternehmen', body: '### Unternehmen\n- Name: FYN Labs LLC' });
+    // The 2026-07-02 state: the seat was empty-seeded (placeholder-only scaffold).
+    ensureBrainBlueprint(target, { now: fixedClock('2026-07-02T10:09:00.000Z') });
+    expect(isPristineBlueprintScaffold(target)).toBe(true);
+
+    const res = migrateCompanyBrainFromHome(source, target);
+    expect(res.migrated).toBe(true);
+    expect(fs.readFileSync(bodyOf(target, 'bp-company'), 'utf8')).toContain('FYN Labs LLC');
+    // The set-aside scaffold is preserved for forensics.
+    const brainParent = path.dirname(path.dirname(brainJson(target)));
+    expect(fs.readdirSync(brainParent).some((n) => n.startsWith('company-brain.pre-inherit-'))).toBe(true);
+  });
+
+  it('no index but bodies on disk (quarantine crash window) → hard no-op, ready-pass adopts instead', () => {
+    const source = makeHome();
+    const target = makeHome();
+    ensureBrainBlueprint(source);
+    upsertEntry(source, { id: 'bp-company', kind: 'company', title: 'Unternehmen', body: 'source version' });
+    // Target: body exists, index gone (death between quarantine rename and rebuild).
+    fs.mkdirSync(path.dirname(bodyOf(target, 'bp-company')), { recursive: true });
+    fs.writeFileSync(bodyOf(target, 'bp-company'), 'seat version — diverged');
+
+    const res = migrateCompanyBrainFromHome(source, target);
+    expect(res.migrated).toBe(false);
+    expect(fs.readFileSync(bodyOf(target, 'bp-company'), 'utf8')).toBe('seat version — diverged');
+  });
+
+  it('brief-day-0 filled DIRECTLY (no mirror) survives an index quarantine + ready rebuild', () => {
+    const home = makeHome();
+    ensureBrainBlueprint(home, { now: fixedClock('2026-07-02T09:50:00.000Z') });
+    // EVE's direct write into the Briefing body — brief.md mirror NOT refreshed.
+    fs.writeFileSync(bodyOf(home, 'brief-day-0'), 'EVEs frisches Briefing — direkt geschrieben.\n');
+    // A v1 seed + stale mirror exist (the re-migration source that used to win).
+    writeCompanyBrainSeedToHome({ hermesHome: home, seed: { kind: 'paste_brief', value: 'ALTER Seed-Text' } });
+    fs.writeFileSync(path.join(home, COMPANY_BRAIN_DIR, 'brief.md'), 'ALTER Spiegel-Text');
+
+    fs.writeFileSync(brainJson(home), '{"schema_version":"command-eve-company-brain/v2","entr');
+    ensureCompanyBrainReady(home, { now: fixedClock('2026-07-03T12:00:00.000Z') });
+
+    expect(fs.readFileSync(bodyOf(home, 'brief-day-0'), 'utf8')).toContain('EVEs frisches Briefing');
+    expect(fs.readFileSync(bodyOf(home, 'brief-day-0'), 'utf8')).not.toContain('ALTER');
+  });
+
+  it('no-ops on a brainless source and on source === target', () => {
+    const source = makeHome();
+    const target = makeHome();
+    expect(migrateCompanyBrainFromHome(source, target).migrated).toBe(false);
+    ensureBrainBlueprint(source);
+    expect(migrateCompanyBrainFromHome(source, source).migrated).toBe(false);
   });
 });

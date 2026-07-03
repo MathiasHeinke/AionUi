@@ -31,7 +31,7 @@ import { useTranslation } from 'react-i18next';
 import type { TokenUsageData } from '@/common/config/storage';
 import { resolveEffectiveContextLimit } from '@/renderer/utils/model/modelContextLimits';
 import { useCreditsStatus } from '@renderer/hooks/useCreditsStatus';
-import { CREDIT_UNIT_EUR, isNearAllowanceWall, TIER_ALLOWANCE_CREDITS } from '@/common/config/creditsCore';
+import { CREDIT_UNIT_EUR, isNearAllowanceWall, showsFreeActionMeter, TIER_ALLOWANCE_CREDITS } from '@/common/config/creditsCore';
 import { openExternalUrl } from '@renderer/utils/platform';
 // REUSE the 402-wall checkout destination so "Nachkaufen" and the in-job wall
 // land on the exact same Lane-2 page — no second source of truth for the URL.
@@ -94,7 +94,10 @@ const ContextCreditsPopover: React.FC<ContextCreditsPopoverProps> = ({ tokenUsag
   // cap (isNearAllowanceWall is free-tier-aware) — with no buy upsell.
   const credits = useMemo(() => {
     if (!meter) return null;
-    if (meter.isFree) {
+    // 1.6.2: a FREE seat holding a credit balance (M6 pack without client seat /
+    // manual grant) renders the TANK below — only the credit-less free seat gets
+    // the daily-action view (showsFreeActionMeter owns that decision).
+    if (showsFreeActionMeter(meter)) {
       const cap = meter.freeCap > 0 ? meter.freeCap : 0;
       const used = Math.min(meter.freeActionsUsed, cap || meter.freeActionsUsed);
       const remainingPct = cap > 0 ? clampPct(((cap - used) / cap) * 100) : 0;

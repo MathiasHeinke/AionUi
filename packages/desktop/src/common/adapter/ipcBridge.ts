@@ -1328,6 +1328,15 @@ export interface ICommandEveCompanyBrainEntry {
   author: 'user' | 'eve';
   source: 'settings' | 'chat' | 'seed-migration';
   body_file: string;
+  /**
+   * 1.6.2 (additive): the body carries real content (blueprint sections: beyond
+   * the scaffolded placeholder). Computed MAIN-side from the disk — this is the
+   * fill truth the "leer / N von 10"-chips render; the old renderer-cache guess
+   * showed 0/10 for a fully filled brain until every section was clicked.
+   */
+  filled?: boolean;
+  /** 1.6.2 (additive): body-file mtime (ms) — fresher than updated_at when EVE writes bodies directly. */
+  body_mtime_ms?: number | null;
 }
 
 /** v1.4 T2: the company-brain-list payload — index only, NO bodies. */

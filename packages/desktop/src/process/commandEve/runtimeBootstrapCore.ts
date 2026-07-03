@@ -18,12 +18,13 @@ import {
   getActiveSeatKind,
   getActiveSeatLabel,
   isActiveSeatLegacy,
+  isLegacySeatId,
   resolveSeatHome,
   type SeatKind,
 } from './seatContextCore';
 import { claudeDelegatePreflightWarning } from '../../common/config/eveWorkerAssignmentCore';
 import { COMPANY_BRAIN_DIR, readCompanyBrainSeedStateFromHome } from './companyBrainSeedCore';
-import { countFilledBlueprintSections, ensureBrainBlueprint, ensureCompanyBrainReady, readBrainIndex } from './companyBrainStoreCore';
+import { countFilledBlueprintSections, ensureBrainBlueprint, ensureCompanyBrainReady, migrateCompanyBrainFromHome, readBrainIndex } from './companyBrainStoreCore';
 import { stampUserMdTiersToHome } from './userMdTierStampCore';
 import { isMcpVaultEnabled } from './mcpVaultFlagCore';
 import { readVettedConnectorsForSeat, resolveEnvFromVault } from './vaultEnvResolveCore';
@@ -3621,6 +3622,19 @@ export function provisionSeatRuntimeFiles(
     const founderOpsSkillsDir = resolveFounderOpsSkillsDir(env);
 
     ensureDir(paths.hermesHome);
+    // 1.6.2: the operator's OWN seat inherits the legacy root home's brain ONCE,
+    // at first provisioning (or over a pristine placeholder scaffold — the seats
+    // empty-seeded under ≤1.6.1). Before this, the hook seeded an empty blueprint
+    // right next to the operator's FILLED root brain (2026-07-02: root filled
+    // 12:06, seat empty-seeded 12:09) and the first switch looked like data loss.
+    // Client seats NEVER inherit (ISO-6). getActiveSeatKind() describes the
+    // ACTIVE seat, but options.seatId can provision ANY seat — on divergence the
+    // kind gate would judge the wrong seat, so inherit is fail-closed to the
+    // active-seat call (the switch hook, where applySeatSwitch set both).
+    if (seatId === getActiveSeatId() && getActiveSeatKind() === 'own_company' && !isLegacySeatId(seatId)) {
+      const legacyHome = resolveSeatHome(options.userDataPath, null).hermesHome;
+      migrateCompanyBrainFromHome(legacyHome, paths.hermesHome);
+    }
     // Day-Zero (v1.4 T2): the SWITCH/seat-anlage hook — scaffold (or migrate a v1
     // seed into) the TARGET seat's Company-Brain so a client seat has a functional
     // brain.json from the moment it becomes active, not only after a full boot.

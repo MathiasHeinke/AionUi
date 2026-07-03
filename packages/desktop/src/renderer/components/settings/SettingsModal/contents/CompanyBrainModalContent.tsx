@@ -416,17 +416,29 @@ const CompanyBrainModalContent: React.FC = () => {
 
   const isCreatingNote = editor !== null && editor.id === undefined;
 
+  // The fill decision for ONE section. The session-local bodyCache wins once a
+  // body has been opened/edited (live while typing); before that the MAIN-side
+  // `filled` flag from the list payload is the truth — it is computed from the
+  // files on disk. The old cache-only guess rendered a fully filled brain as
+  // "leer / 0 von 10" on every dialog open until each section was clicked
+  // (live incident 2026-07-03).
+  const isSectionFilled = useCallback(
+    (section: (typeof BLUEPRINT_SECTIONS)[number]): boolean => {
+      const cached = bodyCache[section.id];
+      if (cached !== undefined) return isBlueprintFilled(cached, section.placeholder);
+      return entryById.get(section.id)?.filled === true;
+    },
+    [bodyCache, entryById]
+  );
+
   // The fill count for the outline header (leer/ausgefüllt indicator + N/M summary).
   const filledCount = useMemo(() => {
     let n = 0;
     for (const s of BLUEPRINT_SECTIONS) {
-      const cached = bodyCache[s.id];
-      // Prefer the cached body (post-open/edit); else infer from the index: an
-      // existing entry is treated as "possibly filled" only when we've seen its body.
-      if (isBlueprintFilled(cached, s.placeholder)) n += 1;
+      if (isSectionFilled(s)) n += 1;
     }
     return n;
-  }, [bodyCache]);
+  }, [isSectionFilled]);
 
   return (
     <div className='company-brain-settings' data-testid='company-brain-settings'>
@@ -464,8 +476,15 @@ const CompanyBrainModalContent: React.FC = () => {
           {BLUEPRINT_SECTIONS.map((section) => {
             const isOpen = expandedId === section.id;
             const entry = entryById.get(section.id);
-            const cached = bodyCache[section.id];
-            const filled = isBlueprintFilled(cached, section.placeholder);
+            const filled = isSectionFilled(section);
+            // Freshness: EVE edits section bodies DIRECTLY (index updated_at goes
+            // stale the moment she writes) — prefer the body mtime when newer.
+            const bodyMtime = typeof entry?.body_mtime_ms === 'number' ? entry.body_mtime_ms : null;
+            const indexMs = entry?.updated_at ? Date.parse(entry.updated_at) : NaN;
+            const freshestIso =
+              bodyMtime !== null && (!Number.isFinite(indexMs) || bodyMtime > indexMs)
+                ? new Date(bodyMtime).toISOString()
+                : entry?.updated_at;
             return (
               <li
                 key={section.id}
@@ -492,8 +511,8 @@ const CompanyBrainModalContent: React.FC = () => {
                         {t('credits.companyBrain.authorEve', { defaultValue: 'von EVE' })}
                       </Tag>
                     )}
-                    {entry?.updated_at && (
-                      <span className='company-brain-settings__item-time'>{relativeTime(entry.updated_at)}</span>
+                    {freshestIso && (
+                      <span className='company-brain-settings__item-time'>{relativeTime(freshestIso)}</span>
                     )}
                   </button>
                   {/* Blueprint sections are NEVER deletable — only "Leeren". */}

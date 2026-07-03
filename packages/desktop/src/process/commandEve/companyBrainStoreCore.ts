@@ -293,6 +293,45 @@ export function listEntries(hermesHome: string): CompanyBrainEntry[] {
   return readBrainIndex(hermesHome).entries;
 }
 
+/** An index entry enriched with the DISK truth the list surfaces need (1.6.2). */
+export interface CompanyBrainEntryWithState extends CompanyBrainEntry {
+  /**
+   * Blueprint sections: the body carries real content beyond the scaffolded
+   * placeholder (isBlueprintBodyFilled). Other kinds: the body is non-empty.
+   */
+  filled: boolean;
+  /**
+   * Body-file mtime (ms epoch), null when the body is missing. This is the
+   * freshness truth: EVE edits section bodies DIRECTLY (SOUL directive) and the
+   * reconciler deliberately skips already-indexed ids, so index `updated_at`
+   * goes stale the moment she writes — the mtime never does.
+   */
+  body_mtime_ms: number | null;
+}
+
+/**
+ * 1.6.2 — list entries WITH per-entry fill state read from the BODIES on disk.
+ * The settings dialog previously derived "leer / N von 10 ausgefüllt" from a
+ * renderer-local body cache that starts empty on every open, so a fully filled
+ * brain rendered as 0/10 until each section was clicked (live incident
+ * 2026-07-03). The fill decision belongs HERE, next to the files.
+ */
+export function listEntriesWithState(hermesHome: string): CompanyBrainEntryWithState[] {
+  const placeholders = new Map<string, string>(BLUEPRINT_SECTIONS.map((s) => [s.id, s.placeholder]));
+  return listEntries(hermesHome).map((entry) => {
+    const body = readEntryBody(hermesHome, entry.id);
+    const placeholder = placeholders.get(entry.id);
+    const filled = placeholder !== undefined ? isBlueprintBodyFilled(body, placeholder) : (body ?? '').trim().length > 0;
+    let bodyMtimeMs: number | null = null;
+    try {
+      bodyMtimeMs = fs.statSync(path.join(entriesDirOf(hermesHome), `${entry.id}.md`)).mtimeMs;
+    } catch {
+      // missing/unreadable body — null keeps the index timestamp authoritative
+    }
+    return { ...entry, filled, body_mtime_ms: bodyMtimeMs };
+  });
+}
+
 const writeIndex = (hermesHome: string, index: CompanyBrainIndex): void => {
   writeFileAtomic(brainJsonOf(hermesHome), `${JSON.stringify(index, null, 2)}\n`);
 };
@@ -503,6 +542,13 @@ export function migrateSeedToBrain(hermesHome: string, opts?: { now?: () => Date
   } catch {
     /* no brief.md → use the seed value */
   }
+  // 1.6.2 ADOPT-GUARD (review finding): after an index QUARANTINE this migration
+  // re-runs (brain.json is gone) — but EVE writes the Briefing body DIRECTLY, so
+  // entries/brief-day-0.md can be NEWER than the brief.md mirror (which only the
+  // settings upsert refreshes). An existing on-disk Briefing body always wins;
+  // re-staging the stale mirror over it would clobber her content.
+  const existingBriefBody = readEntryBody(hermesHome, COMMAND_EVE_DAY_ZERO_BRIEF_ID);
+  if (existingBriefBody !== null && existingBriefBody.trim().length > 0) body = existingBriefBody;
 
   const result = upsertEntry(hermesHome, {
     // F5: STABLE day-0 id so a legacy migration converges with a later seed IPC
@@ -973,6 +1019,36 @@ export function ensureBrainBlueprint(hermesHome: string, opts?: { now?: () => Da
   for (const section of BLUEPRINT_SECTIONS) {
     if (existing.has(section.id)) continue; // never clobber an existing section
     try {
+      // 1.6.2 CLOBBER-GUARD. "Absent from the index" does NOT mean absent from
+      // disk: after a corrupt-index quarantine (or any index/body divergence)
+      // the section BODY can still exist with real operator/EVE content, and
+      // upsertSystemEntry's created=true staging-rename would overwrite it with
+      // the placeholder. An existing body is ADOPTED into the index untouched.
+      const bodyOnDisk = readEntryBody(hermesHome, section.id);
+      if (bodyOnDisk !== null) {
+        let adoptedAt = (opts?.now?.() ?? new Date()).toISOString();
+        try {
+          adoptedAt = fs.statSync(path.join(entriesDirOf(hermesHome), `${section.id}.md`)).mtime.toISOString();
+        } catch {
+          // stat raced away — keep now()
+        }
+        const adopted: CompanyBrainEntry = {
+          id: section.id,
+          kind: section.kind,
+          title: section.title,
+          updated_at: adoptedAt,
+          author: 'user',
+          source: 'settings',
+          body_file: path.posix.join(ENTRIES_SUBDIR, `${section.id}.md`),
+        };
+        const live = readBrainIndex(hermesHome);
+        writeIndex(hermesHome, {
+          schema_version: COMMAND_EVE_COMPANY_BRAIN_SCHEMA,
+          entries: [...live.entries.filter((e) => e.id !== section.id), adopted],
+        });
+        existing.add(section.id);
+        continue;
+      }
       const res = upsertSystemEntry(hermesHome, {
         id: section.id,
         kind: section.kind,
@@ -1023,6 +1099,10 @@ export function countFilledBlueprintSections(hermesHome: string): { filled: numb
  * structured blueprint + EVE's fresh notes visible) exactly once.
  */
 export function ensureCompanyBrainReady(hermesHome: string, opts?: { now?: () => Date }): CompanyBrainIndex {
+  // 1.6.2: a corrupt brain.json must be quarantined BEFORE anything reads it as
+  // an empty index — the rebuild below (blueprint adopt-guard + reconciler)
+  // restores the index from the surviving files instead of clobbering them.
+  quarantineCorruptBrainIndex(hermesHome, opts);
   const migration = migrateSeedToBrain(hermesHome, opts);
   // T8: scaffold the fixed blueprint sections (Day-Zero) AFTER the seed migration so
   // the day-0 brief converges on the Briefing section rather than duplicating it.
@@ -1031,4 +1111,127 @@ export function ensureCompanyBrainReady(hermesHome: string, opts?: { now?: () =>
   // reconcileUnindexedEntries returns the live index on ok; on a best-effort
   // failure it may return the migration index — prefer whichever is authoritative.
   return reconciled.ok ? reconciled.index : migration.index;
+}
+
+export interface QuarantineIndexResult {
+  quarantined: boolean;
+  /** The rename target (brain.json.corrupt-<ts>), kept on disk for forensics. */
+  corruptFile?: string;
+}
+
+/**
+ * 1.6.2 — QUARANTINE a corrupt brain.json instead of letting readBrainIndex
+ * coerce it to an EMPTY index. Before this guard, a truncated/unparseable index
+ * made ensureBrainBlueprint see every section as "absent" and stage placeholders
+ * OVER the real body files (total clobber, latent since T8). The unreadable file
+ * is renamed aside and the ready-pipeline rebuilds the index from the surviving
+ * files (blueprint adopt-guard + T4 reconciler). Never throws; a missing or
+ * parseable brain.json is a no-op.
+ */
+export function quarantineCorruptBrainIndex(hermesHome: string, opts?: { now?: () => Date }): QuarantineIndexResult {
+  try {
+    assertAbsoluteHome(hermesHome);
+    const file = brainJsonOf(hermesHome);
+    if (!fs.existsSync(file)) return { quarantined: false };
+    try {
+      JSON.parse(fs.readFileSync(file, 'utf8'));
+      return { quarantined: false };
+    } catch {
+      const stamp = (opts?.now?.() ?? new Date()).toISOString().replace(/[:.]/g, '-');
+      const target = `${file}.corrupt-${stamp}`;
+      fs.renameSync(file, target);
+      return { quarantined: true, corruptFile: target };
+    }
+  } catch {
+    return { quarantined: false };
+  }
+}
+
+export interface MigrateBrainHomeResult {
+  ok: boolean;
+  /** True iff this call carried a brain over (target had none, source had one). */
+  migrated: boolean;
+  /** Files copied (bodies + companions + index). */
+  copied: number;
+}
+
+/**
+ * 1.6.2 — OWN-SEAT PROVISIONING: carry the legacy/root home's company-brain into
+ * a seat home being provisioned for the FIRST time. Before this, the switch hook
+ * seeded an empty blueprint right next to the operator's filled root brain
+ * (2026-07-02: root filled 12:06, seat empty-seeded 12:09) — the first switch to
+ * the own seat then looked like total data loss. STRICT preconditions, each
+ * degrading to a no-op: the TARGET must not have a brain.json yet (never merge,
+ * never clobber) and the SOURCE must have one. The CALLER gates on seat kind
+ * 'own_company' — client seats NEVER inherit the operator's brain (ISO-6).
+ */
+export function migrateCompanyBrainFromHome(sourceHome: string, targetHome: string): MigrateBrainHomeResult {
+  try {
+    assertAbsoluteHome(sourceHome);
+    assertAbsoluteHome(targetHome);
+    if (path.resolve(sourceHome) === path.resolve(targetHome)) return { ok: true, migrated: false, copied: 0 };
+    if (!fs.existsSync(brainJsonOf(sourceHome))) return { ok: true, migrated: false, copied: 0 };
+
+    if (fs.existsSync(brainJsonOf(targetHome))) {
+      // HEAL LANE (review finding): every own-seat provisioned under ≤1.6.1 was
+      // ALREADY empty-seeded (a placeholder-only scaffold — exactly the live
+      // incident this migration exists for), and a bare existence check would
+      // lock those seats out of inheriting forever. A PRISTINE scaffold — only
+      // blueprint-section ids, not one filled, no notes/digests/user entries —
+      // carries zero information, so it is set aside (forensics rename, same
+      // discipline as the index quarantine) and the inherit proceeds. ANY sign
+      // of real content keeps the hard no-op (never merge, never clobber).
+      if (!isPristineBlueprintScaffold(targetHome)) return { ok: true, migrated: false, copied: 0 };
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      fs.renameSync(brainDirOf(targetHome), `${brainDirOf(targetHome)}.pre-inherit-${stamp}`);
+    } else if (fs.existsSync(entriesDirOf(targetHome)) && fs.readdirSync(entriesDirOf(targetHome)).some((n) => n.endsWith('.md') && !n.startsWith('.'))) {
+      // No index but bodies on disk (e.g. death inside a quarantine rebuild):
+      // that is REAL content awaiting adoption by ensureCompanyBrainReady —
+      // overwriting same-named section bodies here would be one-shot data loss
+      // (review finding). Hard no-op; the ready-pass heals the index instead.
+      return { ok: true, migrated: false, copied: 0 };
+    }
+
+    let copied = 0;
+    const copyFile = (from: string, to: string): void => {
+      writeFileAtomic(to, fs.readFileSync(from, 'utf8'));
+      copied += 1;
+    };
+    // Bodies FIRST, index LAST — the same crash ordering as upsertSystemEntry: an
+    // interrupted copy leaves body files a later ready-pass can adopt, never an
+    // index pointing at bodies that were never written.
+    const srcEntries = entriesDirOf(sourceHome);
+    if (fs.existsSync(srcEntries)) {
+      for (const name of fs.readdirSync(srcEntries)) {
+        if (!name.endsWith('.md') || name.startsWith('.')) continue;
+        copyFile(path.join(srcEntries, name), path.join(entriesDirOf(targetHome), name));
+      }
+    }
+    for (const companion of ['brief.md', 'seed.json']) {
+      const from = path.join(brainDirOf(sourceHome), companion);
+      if (fs.existsSync(from)) copyFile(from, path.join(brainDirOf(targetHome), companion));
+    }
+    copyFile(brainJsonOf(sourceHome), brainJsonOf(targetHome));
+    return { ok: true, migrated: true, copied };
+  } catch {
+    return { ok: false, migrated: false, copied: 0 };
+  }
+}
+
+/**
+ * True iff a home's company-brain is an UNTOUCHED blueprint scaffold: a valid
+ * index whose entries are ALL fixed blueprint sections, with not one section
+ * filled. Any note/digest/custom entry, any filled section, or an unparseable
+ * index reads as NOT pristine (fail-closed — pristine grants a takeover).
+ */
+export function isPristineBlueprintScaffold(hermesHome: string): boolean {
+  try {
+    assertAbsoluteHome(hermesHome);
+    const raw = fs.readFileSync(brainJsonOf(hermesHome), 'utf8');
+    const index = coerceIndex(JSON.parse(raw));
+    if (!index.entries.every((e) => isBlueprintSectionId(e.id) || e.id === COMMAND_EVE_DAY_ZERO_BRIEF_ID)) return false;
+    return countFilledBlueprintSections(hermesHome).filled === 0;
+  } catch {
+    return false;
+  }
 }

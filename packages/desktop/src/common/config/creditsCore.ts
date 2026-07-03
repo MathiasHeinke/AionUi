@@ -240,7 +240,16 @@ export function buildCreditMeterModel(status: CreditsStatus): CreditMeterModel {
   const purchasedRemaining = Math.max(0, status.purchased_credits_remaining);
 
   let allowanceUsedFraction: number;
-  if (isFree) {
+  const totalRemaining = allowanceRemaining + purchasedRemaining;
+  if (isFree && totalRemaining > 0) {
+    // 1.6.2: a FREE seat WITH a credit balance renders the TANK (showsFreeActionMeter
+    // routes it into the paid branches) — so the fraction MUST be tank-referenced
+    // too. Metering it on daily actions painted "100% of allowance used" in warn-red
+    // next to a full tank (review finding). Reference = the starter grant, the same
+    // fallback the popover uses for an unknown grant size.
+    const reference = TIER_ALLOWANCE_CREDITS.starter;
+    allowanceUsedFraction = clamp01((reference - totalRemaining) / reference);
+  } else if (isFree) {
     // Free tier meters ACTIONS against the free cap, not credits.
     const cap = status.free_cap > 0 ? status.free_cap : 1;
     allowanceUsedFraction = clamp01(status.free_actions_used_this_period / cap);
@@ -264,12 +273,27 @@ export function buildCreditMeterModel(status: CreditsStatus): CreditMeterModel {
   };
 }
 
+/**
+ * Whether a meter surface should render the FREE daily-action view. A free-tier
+ * seat that HOLDS a credit balance (a recurring pack without a client seat — the
+ * M6 free-seat ladder — or a manual grant) must render the credit TANK instead:
+ * hiding a paid-for balance behind the action meter made it invisible on every
+ * surface at once (live incident 2026-07-03, founder account). The free view
+ * belongs only to the genuinely credit-less seat.
+ */
+export function showsFreeActionMeter(model: CreditMeterModel): boolean {
+  return model.isFree && model.totalRemaining <= 0;
+}
+
 /** Spec §3 wall trigger: the allowance has crossed ~85% used. */
 export const WALL_THRESHOLD_FRACTION = 0.85;
 
 /** True iff the balance has crossed the ~85% wall threshold (display hint). */
 export function isNearAllowanceWall(model: CreditMeterModel): boolean {
-  if (model.isFree) {
+  // 1.6.2: the free ACTION wall only owns the credit-less free seat — a free seat
+  // rendering the tank (balance > 0) must warn on the TANK fraction, or a spent
+  // daily allowance would flag "Tank fast leer" beside a full tank.
+  if (showsFreeActionMeter(model)) {
     if (model.freeCap <= 0) return false;
     return model.freeActionsUsed / model.freeCap >= WALL_THRESHOLD_FRACTION;
   }

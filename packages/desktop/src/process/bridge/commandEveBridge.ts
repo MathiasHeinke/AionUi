@@ -104,7 +104,7 @@ import { readMySeatsWire as readMySeatsWireCore } from '@process/commandEve/seat
 import { readCompanyBrainSeedState, writeCompanyBrainSeed } from '@process/commandEve/companyBrainSeedCore';
 import { COMMAND_EVE_HANDOVER_NOTE_RELPATH, HANDOVER_NOTE_MAX_RAW_CHARS } from '@/common/config/startscreenNoteCore';
 import nodePath from 'node:path';
-import { COMMAND_EVE_DAY_ZERO_BRIEF_ID, listEntries, mirrorBriefBodyToFile, pruneSessionDigests, readEntryBody, reconcileUnindexedEntries, removeEntry, SESSION_DIGEST_KIND, upsertEntry, upsertSystemEntry, type CompanyBrainWriteKind } from '@process/commandEve/companyBrainStoreCore';
+import { COMMAND_EVE_DAY_ZERO_BRIEF_ID, listEntriesWithState, mirrorBriefBodyToFile, pruneSessionDigests, readEntryBody, reconcileUnindexedEntries, removeEntry, SESSION_DIGEST_KIND, upsertEntry, upsertSystemEntry, type CompanyBrainWriteKind } from '@process/commandEve/companyBrainStoreCore';
 import { runSessionDigest, type SessionDigestDeps } from '@process/commandEve/sessionDigestCore';
 import {
   createElectronPdfRenderer,
@@ -926,7 +926,12 @@ export function initCommandEveBridge(): void {
       if (!commandEveSwitchSeatInFlight) {
         reconcileUnindexedEntries(home);
       }
-      const entries = listEntries(home);
+      // 1.6.2: list WITH per-entry fill state read from the bodies (filled +
+      // body_mtime_ms, additive fields). The dialog's "leer / N von 10" chips
+      // previously guessed from a renderer cache that starts empty on every
+      // open — a fully filled brain rendered as 0/10 until each section was
+      // clicked. The disk owns the fill truth, so it is computed here.
+      const entries = listEntriesWithState(home);
       return { success: true, data: { ok: true, entries } as unknown };
     } catch (error) {
       return {

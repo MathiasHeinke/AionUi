@@ -20,7 +20,7 @@
  */
 
 import { useCallback, useState } from 'react';
-import { detectDailyCapReached, detectQuotaExhausted, type QuotaExhaustedBody } from '@/common/config/creditsCore';
+import { detectDailyCapReached, detectQuotaExhausted, showsFreeActionMeter, type QuotaExhaustedBody } from '@/common/config/creditsCore';
 import { useCreditsStatus } from '@renderer/hooks/useCreditsStatus';
 
 export interface QuotaWallState {
@@ -59,8 +59,12 @@ export function useQuotaWall(): QuotaWallState {
   // free-cap WALL must only surface for a CONFIRMED free user; a paid user who
   // hits a transient provider 429 must fall through to the normal error path,
   // never a "your free daily quota is spent, come back tomorrow" modal.
+  // 1.6.2: "confirmed free" means the CREDIT-LESS free seat (showsFreeActionMeter),
+  // not tier==='free' — a free seat holding a purchased balance renders the tank
+  // on every meter surface and consumes credits server-side, so a 429 reaching it
+  // is a transient throttle, not the daily cap.
   const { meter } = useCreditsStatus();
-  const isFree = meter?.isFree === true;
+  const isFree = meter ? showsFreeActionMeter(meter) : false;
 
   const reportInferenceError = useCallback(
     (error: unknown, opts: { jobInFlight: boolean }): boolean => {

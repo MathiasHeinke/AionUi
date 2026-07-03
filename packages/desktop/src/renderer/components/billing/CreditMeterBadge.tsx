@@ -19,7 +19,7 @@ import React, { useMemo } from 'react';
 import { Progress, Tooltip } from '@arco-design/web-react';
 import { useTranslation } from 'react-i18next';
 import { useCreditsStatus } from '@renderer/hooks/useCreditsStatus';
-import { CREDIT_UNIT_EUR, isNearAllowanceWall, type CreditMeterModel } from '@/common/config/creditsCore';
+import { CREDIT_UNIT_EUR, isNearAllowanceWall, showsFreeActionMeter, type CreditMeterModel } from '@/common/config/creditsCore';
 import './billing.css';
 
 export interface CreditMeterBadgeProps {
@@ -29,7 +29,8 @@ export interface CreditMeterBadgeProps {
 
 /** Human-readable label for the meter, derived from the pure meter model. */
 function meterLabel(meter: CreditMeterModel, t: (k: string, o?: Record<string, unknown>) => string): string {
-  if (meter.isFree) {
+  // 1.6.2: free WITH balance reads as a tank (showsFreeActionMeter, creditsCore).
+  if (showsFreeActionMeter(meter)) {
     return t('credits.meter.freeActions', {
       defaultValue: '{{used}} / {{cap}} actions',
       used: meter.freeActionsUsed,
@@ -52,7 +53,7 @@ const CreditMeterBadge: React.FC<CreditMeterBadgeProps> = ({ onOpenBilling }) =>
   // Quiet by default: no status yet / non-desktop / read failed.
   if (!meter) return null;
 
-  const percent = meter.isFree
+  const percent = showsFreeActionMeter(meter)
     ? meter.freeCap > 0
       ? Math.round((meter.freeActionsUsed / meter.freeCap) * 100)
       : 0
@@ -61,7 +62,7 @@ const CreditMeterBadge: React.FC<CreditMeterBadgeProps> = ({ onOpenBilling }) =>
   const tooltipContent = (
     <div className='credit-meter-badge__tooltip'>
       <div>{meterLabel(meter, t)}</div>
-      {!meter.isFree && (
+      {!showsFreeActionMeter(meter) && (
         <>
           <div>
             {t('credits.meter.allowanceRemainingEur', {

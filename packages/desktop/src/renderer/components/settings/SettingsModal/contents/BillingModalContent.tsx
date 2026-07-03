@@ -33,6 +33,7 @@ import {
   CLIENT_SEAT_FROM_EUR,
   CREDIT_UNIT_EUR,
   DEFAULT_CREDIT_PACKS,
+  showsFreeActionMeter,
   validateSpendCapEur,
 } from '@/common/config/creditsCore';
 import {
@@ -165,7 +166,8 @@ const BillingModalContent: React.FC = () => {
       {/* Live meter readout */}
       {meter ? (
         <Card className='billing-settings__meter' data-testid='billing-settings-meter'>
-          {meter.isFree ? (
+          {/* 1.6.2: free WITH balance renders the tank (showsFreeActionMeter). */}
+          {showsFreeActionMeter(meter) ? (
             <>
               <div className='billing-settings__meter-label'>
                 {t('credits.settings.freeActions', {

@@ -37,6 +37,7 @@ import {
   selectDefaultPackIndex,
   shouldForceDayZeroOnboarding,
   shouldSurfaceQuotaWall,
+  showsFreeActionMeter,
   validateSpendCapEur,
   type CreditPack,
   type CreditsStatus,
@@ -83,7 +84,9 @@ describe('buildCreditMeterModel — allowance used fraction', () => {
   });
 
   it('free tier meters ACTIONS against the free cap, not credits', () => {
-    const m = buildCreditMeterModel(status({ tier: 'free', free_actions_used_this_period: 34, free_cap: 40 }));
+    // 1.6.2: the action metering owns the CREDIT-LESS free seat (a free seat
+    // holding a balance is tank-referenced now) — zero the balances explicitly.
+    const m = buildCreditMeterModel(status({ tier: 'free', included_allowance_credits_remaining: 0, purchased_credits_remaining: 0, free_actions_used_this_period: 34, free_cap: 40 }));
     expect(m.isFree).toBe(true);
     expect(m.allowanceUsedFraction).toBeCloseTo(34 / 40, 5);
   });
@@ -110,7 +113,7 @@ describe('isNearAllowanceWall — the ~85% trigger', () => {
   });
 
   it('respects the free-tier action cap', () => {
-    const near = buildCreditMeterModel(status({ tier: 'free', free_actions_used_this_period: 38, free_cap: 40 }));
+    const near = buildCreditMeterModel(status({ tier: 'free', included_allowance_credits_remaining: 0, purchased_credits_remaining: 0, free_actions_used_this_period: 38, free_cap: 40 }));
     expect(isNearAllowanceWall(near)).toBe(true);
   });
 });
@@ -436,5 +439,52 @@ describe('detectDailyCapReached — the free 429 daily-cap wall (v1.6.x)', () =>
     expect(detectDailyCapReached({ status: 429, message: 'too many requests' })).toBeNull();
     expect(detectDailyCapReached(null)).toBeNull();
     expect(detectDailyCapReached('')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 1.6.2 — showsFreeActionMeter: free WITH balance renders the TANK
+// ---------------------------------------------------------------------------
+
+describe('1.6.2 — showsFreeActionMeter (free seat with a balance shows the tank)', () => {
+  it('genuinely credit-less free seat → free action view', () => {
+    const m = buildCreditMeterModel(status({ tier: 'free', included_allowance_credits_remaining: 0, purchased_credits_remaining: 0, free_actions_used_this_period: 3, free_cap: 100 }));
+    expect(m.isFree).toBe(true);
+    expect(showsFreeActionMeter(m)).toBe(true);
+  });
+
+  it('free seat HOLDING purchased credits (M6 pack / manual grant) → tank view, never the action meter', () => {
+    // The live incident 2026-07-03: tier resolved 'free' while 35k purchased
+    // credits were on the balance — every surface hid the paid-for tank.
+    const m = buildCreditMeterModel(status({ tier: 'free', included_allowance_credits_remaining: 0, purchased_credits_remaining: 35_516 }));
+    expect(m.isFree).toBe(true);
+    expect(showsFreeActionMeter(m)).toBe(false);
+  });
+
+  it('paid tiers never show the free action view', () => {
+    const m = buildCreditMeterModel(status({ tier: 'starter' }));
+    expect(showsFreeActionMeter(m)).toBe(false);
+  });
+});
+
+describe('1.6.2 — tank-referenced fraction + wall for free WITH balance (review finding)', () => {
+  it('free seat with a balance meters the TANK, not the daily actions', () => {
+    // Incident shape: daily actions AT the cap, 35k credits in the tank — the
+    // badge must NOT read "100% used"/warn-red beside a full tank.
+    const m = buildCreditMeterModel(status({ tier: 'free', included_allowance_credits_remaining: 0, purchased_credits_remaining: 35_516, free_actions_used_this_period: 100, free_cap: 100 }));
+    expect(m.allowanceUsedFraction).toBeLessThan(0.85); // tank-referenced (starter grant)
+    expect(isNearAllowanceWall(m)).toBe(false);
+  });
+
+  it('credit-less free seat keeps the action-based fraction + wall', () => {
+    const m = buildCreditMeterModel(status({ tier: 'free', included_allowance_credits_remaining: 0, purchased_credits_remaining: 0, free_actions_used_this_period: 90, free_cap: 100 }));
+    expect(m.allowanceUsedFraction).toBeCloseTo(0.9, 5);
+    expect(isNearAllowanceWall(m)).toBe(true);
+  });
+
+  it('free seat with a NEARLY DRAINED tank warns on the tank fraction', () => {
+    const m = buildCreditMeterModel(status({ tier: 'free', included_allowance_credits_remaining: 0, purchased_credits_remaining: 3_000, free_actions_used_this_period: 0, free_cap: 100 }));
+    expect(m.allowanceUsedFraction).toBeGreaterThanOrEqual(0.85);
+    expect(isNearAllowanceWall(m)).toBe(true);
   });
 });
