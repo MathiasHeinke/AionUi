@@ -141,6 +141,11 @@ export const EVE_STRATEGY_SKILL_IDS = [
   // leave the Mac). See scripts/fetch-bundled-skills.mjs for provenance + the
   // open model-license gate.
   'local-vision-qa',
+  // 4 further EVE-authored field skills harvested + hardened (2026-07-03).
+  'ai-coding-delegation',
+  'lead-magnet-pdf',
+  'skill-authoring',
+  'legal-enforcement-dach',
 ] as const;
 const COMMAND_EVE_CAPABILITIES_FILE = 'command-eve-capabilities.json';
 const COMMAND_EVE_MANAGED_SKILLS_DIR = 'skills-command-eve';
@@ -772,6 +777,34 @@ export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
       name: 'Local vision QA (lokale Bildsicht — images never leave the Mac)',
       tier: 'department',
       source: 'Command EVE local toolbelt (EVE-authored, harvested 2026-07-03)',
+      default_state: 'active',
+    },
+    {
+      id: 'ai-coding-delegation',
+      name: 'AI coding delegation (subscription-safe tmux lane, composes with delegate_task)',
+      tier: 'department',
+      source: 'Command EVE local toolbelt (EVE-authored, harvested 2026-07-03)',
+      default_state: 'active',
+    },
+    {
+      id: 'lead-magnet-pdf',
+      name: 'Lead-Magnet PDF (gated brand-matched asset, real-data-only)',
+      tier: 'department',
+      source: 'Command EVE marketing toolbelt (EVE-authored, harvested 2026-07-03)',
+      default_state: 'active',
+    },
+    {
+      id: 'skill-authoring',
+      name: 'Skill authoring (the curator — with the safety guard + human-gate)',
+      tier: 'department',
+      source: 'Command EVE meta toolbelt (EVE-authored, harvested 2026-07-03)',
+      default_state: 'active',
+    },
+    {
+      id: 'legal-enforcement-dach',
+      name: 'DACH Abmahnung (ENTWURF only — lawyer signs, human-gated)',
+      tier: 'department',
+      source: 'Command EVE legal toolbelt (EVE-authored, harvested 2026-07-03)',
       default_state: 'active',
     },
   ],

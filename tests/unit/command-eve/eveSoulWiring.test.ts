@@ -243,7 +243,7 @@ describe('EVE soul-wiring: bundled strategy skills copy (real, additive, fail-cl
     return { root, bundledSkillsDir, paths };
   };
 
-  it('lands all 27 allowlisted strategy skills with real (non-stub) content', () => {
+  it('lands all 31 allowlisted strategy skills with real (non-stub) content', () => {
     const { root, bundledSkillsDir, paths } = makeFixture();
     try {
       const failures = copyBundledStrategySkills(paths, bundledSkillsDir);
@@ -422,8 +422,8 @@ describe('EVE soul-wiring: internal Operating Rule reconciled to defer to SOUL.m
 describe('EVE onboarding S1: app-owned config-awareness skill (separate from the strategy allowlist)', () => {
   const SKILL_MD = commandEveOnboardingSkillMarkdown();
 
-  it('is its own app-owned skill, NOT in EVE_STRATEGY_SKILL_IDS (allowlist is 27: 15 strategy + blog-writer + founder-voice + client-report + 6 operator content/ops/CRM + challenge-engine + brainstorm-divergent + local-vision-qa)', () => {
-    expect(EVE_STRATEGY_SKILL_IDS).toHaveLength(27);
+  it('is its own app-owned skill, NOT in EVE_STRATEGY_SKILL_IDS (allowlist is 31: … + local-vision-qa + 4 harvested EVE-authored)', () => {
+    expect(EVE_STRATEGY_SKILL_IDS).toHaveLength(31);
     expect(EVE_STRATEGY_SKILL_IDS as readonly string[]).not.toContain('eve-onboarding-awareness');
   });
 

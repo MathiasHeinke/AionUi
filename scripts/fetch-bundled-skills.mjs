@@ -103,6 +103,17 @@ export const EVE_STRATEGY_SKILLS = Object.freeze([
   // for commercial bundling contexts; the skill already prefers the installed
   // bundled Gemma model when it accepts image input.
   { id: 'local-vision-qa' },
+  // 4 weitere EVE-authored Feld-Skills geerntet (2026-07-03, Founder-Go), jeweils
+  // gehärtet vor Public (Details: docs/strategy/command-eve-eve-authored-skills-harvest-2026-07-03.md):
+  // ai-coding-delegation (tmux-Subscription-Lane, composes mit delegate_task; ToS-Caveat),
+  // lead-magnet-pdf (real-data-only + Voice-Guard-Pflicht), skill-authoring (Curator-GUARD:
+  // kein Guardrail-/PII-/ToS-Bypass, Human-Gate; unlock-als-Feature explizit erlaubt),
+  // legal-enforcement-dach (ENTWURF-only, PII-Redaktions-Bypass ENTFERNT, Anwalt-zeichnet-
+  // Human-Gate, „kein Rechtsrat"-Disclaimer).
+  { id: 'ai-coding-delegation' },
+  { id: 'lead-magnet-pdf' },
+  { id: 'skill-authoring' },
+  { id: 'legal-enforcement-dach' },
 ]);
 
 /** Just the ids, for callers that want the flat allowlist. */
