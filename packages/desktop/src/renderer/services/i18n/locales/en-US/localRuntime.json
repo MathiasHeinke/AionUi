@@ -26,7 +26,8 @@
       "bodyFailed": "The local model download was interrupted. Once you're back online it can start again.",
       "pollingLabel": "Status refreshes automatically …",
       "pollAttempt": "Refresh {{count}}/12",
-      "explainer": "MODEL_NOT_FETCHED / MODEL_PULL_FAILED: the model weights are being fetched locally."
+      "explainer": "MODEL_NOT_FETCHED / MODEL_PULL_FAILED: the model weights are being fetched locally.",
+      "progress": "{{percent}}% · {{done}} / {{total}}"
     },
     "cloud-redirect": {
       "titleRam": "Not enough memory for the local AI",

@@ -147,6 +147,22 @@ export type CommandEveLocalRuntimeStatusModel = {
     error?: string;
   };
   /**
+   * Live model-pull progress (v1.6.x). Read from the side file the bootstrap
+   * writes during `ollama pull` — the receipt canon is silent mid-pull, so this
+   * is what lets the RemediationCard show real bytes/percent instead of a
+   * frozen spinner. Absent when no pull has run.
+   */
+  model_pull?: {
+    path: string;
+    status: 'pulling' | 'done' | 'failed';
+    model: string;
+    total: number;
+    completed: number;
+    percent: number;
+    updated_at: string;
+    error?: string;
+  };
+  /**
    * The first blocked/failed bootstrap stage, with its reason code mapped to a
    * remediation kind — drives the S4 RemediationCard. Absent when no local
    * stage is blocked (cloud stays the default regardless).
@@ -177,6 +193,7 @@ export type CommandEveLocalRuntimeStatusOptions = {
   manifestPath?: string;
   receiptPath?: string;
   modelWarmupReceiptPath?: string;
+  modelPullProgressPath?: string;
   now?: () => Date;
 };
 
@@ -239,6 +256,70 @@ function parseModelWarmupReceipt(receiptPath: string): {
   } catch {
     return { warning: 'model_warmup_receipt_json_invalid' };
   }
+}
+
+function parseModelPullProgress(progressPath: string): {
+  progress?: NonNullable<CommandEveLocalRuntimeStatusModel['model_pull']>;
+  warning?: string;
+} {
+  if (!fs.existsSync(progressPath)) return {};
+  try {
+    const raw = readJsonFile(progressPath);
+    if (
+      !isRecord(raw) ||
+      raw.version !== 'command-eve-model-pull/v0' ||
+      !['pulling', 'done', 'failed'].includes(String(raw.status || '')) ||
+      typeof raw.model !== 'string'
+    ) {
+      return { warning: 'model_pull_progress_schema_mismatch' };
+    }
+    const num = (v: unknown): number => (typeof v === 'number' && v >= 0 ? v : 0);
+    return {
+      progress: {
+        path: progressPath,
+        status: raw.status as 'pulling' | 'done' | 'failed',
+        model: raw.model,
+        total: num(raw.total),
+        completed: num(raw.completed),
+        percent: num(raw.percent),
+        updated_at: typeof raw.updated_at === 'string' ? raw.updated_at : '',
+        error: typeof raw.error === 'string' ? raw.error : undefined,
+      },
+    };
+  } catch {
+    return { warning: 'model_pull_progress_json_invalid' };
+  }
+}
+
+/**
+ * A live pull is invisible to the receipt (only written per completed stage), so
+ * synthesize the `model`/`pull-progress` blocked stage from the progress side
+ * file — but ONLY while genuinely pulling and only if the receipt did not
+ * already surface a real block (a real block wins). Stale ('pulling' but the
+ * file hasn't advanced for a while) is treated as not-pulling by the caller via
+ * updated_at, so this never freezes the card on a dead pull.
+ */
+/** A 'pulling' file older than this (no throttled write in that window) is a
+ *  dead/abandoned pull — do not keep the card (and its poll loop) alive on it. */
+const MODEL_PULL_STALE_MS = 120_000;
+
+function syntheticPullBlockedStage(
+  progress: NonNullable<CommandEveLocalRuntimeStatusModel['model_pull']> | undefined,
+  existing: CommandEveLocalRuntimeBlockedStage | undefined,
+  nowMs: number
+): CommandEveLocalRuntimeBlockedStage | undefined {
+  if (existing) return existing;
+  if (!progress || progress.status !== 'pulling') return undefined;
+  // Stale 'pulling' (crashed/killed pull) must not freeze the card forever.
+  const updatedMs = progress.updated_at ? Date.parse(progress.updated_at) : NaN;
+  if (Number.isFinite(updatedMs) && nowMs - updatedMs > MODEL_PULL_STALE_MS) return undefined;
+  return {
+    stage_id: 'model',
+    stage_status: 'blocked',
+    reason_code: 'MODEL_NOT_FETCHED',
+    remediation_kind: 'pull-progress',
+    detail: `Pulling ${progress.model} (${progress.percent}%).`,
+  };
 }
 
 function tierContextLength(tier: RuntimeBootstrapTier): number {
@@ -321,10 +402,12 @@ export function buildLocalRuntimeStatus(
     const warnings: string[] = [];
     const parsedReceipt = parseReceipt(receiptPath);
     const parsedModelWarmupReceipt = parseModelWarmupReceipt(modelWarmupReceiptPath);
+    const parsedModelPull = parseModelPullProgress(options.modelPullProgressPath || paths.modelPullProgressPath);
     if (parsedReceipt.warning) warnings.push(parsedReceipt.warning);
     if (!parsedReceipt.receipt) warnings.push('runtime_receipt_missing');
     if (parsedModelWarmupReceipt.warning) warnings.push(parsedModelWarmupReceipt.warning);
     if (!parsedModelWarmupReceipt.receipt) warnings.push('model_warmup_receipt_missing');
+    if (parsedModelPull.warning) warnings.push(parsedModelPull.warning);
 
     const selectedTier = inferSelectedTier(manifest, parsedReceipt.receipt);
     const manifestFailures = validateRuntimeBootstrapManifest(manifest, selectedTier);
@@ -363,8 +446,13 @@ export function buildLocalRuntimeStatus(
               completed_at: parsedReceipt.receipt.completed_at,
             }
           : undefined,
-        blocked_stage: buildBlockedStage(parsedReceipt.receipt),
+        blocked_stage: syntheticPullBlockedStage(
+          parsedModelPull.progress,
+          buildBlockedStage(parsedReceipt.receipt),
+          (options.now ?? (() => new Date()))().getTime()
+        ),
         model_warmup: parsedModelWarmupReceipt.receipt,
+        model_pull: parsedModelPull.progress,
         tiers,
         warnings,
       },

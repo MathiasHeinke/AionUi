@@ -26,7 +26,8 @@
       "bodyFailed": "Der Download des lokalen Modells ist abgebrochen. Sobald wieder Netz da ist, kann er erneut starten.",
       "pollingLabel": "Status wird automatisch aktualisiert …",
       "pollAttempt": "Aktualisierung {{count}}/12",
-      "explainer": "MODEL_NOT_FETCHED / MODEL_PULL_FAILED: die Modell-Gewichte werden lokal nachgeladen."
+      "explainer": "MODEL_NOT_FETCHED / MODEL_PULL_FAILED: die Modell-Gewichte werden lokal nachgeladen.",
+      "progress": "{{percent}}% · {{done}} / {{total}}"
     },
     "cloud-redirect": {
       "titleRam": "Für die lokale KI reicht der Arbeitsspeicher nicht",

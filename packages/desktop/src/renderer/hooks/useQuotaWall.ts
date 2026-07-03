@@ -20,7 +20,7 @@
  */
 
 import { useCallback, useState } from 'react';
-import { detectQuotaExhausted, type QuotaExhaustedBody } from '@/common/config/creditsCore';
+import { detectDailyCapReached, detectQuotaExhausted, type QuotaExhaustedBody } from '@/common/config/creditsCore';
 
 export interface QuotaWallState {
   /** The parsed 402 body, or null when no quota signal is active. */
@@ -30,13 +30,19 @@ export interface QuotaWallState {
   /** The persisted auto-reload preference (passed to the wall toggle). */
   autoReload: boolean;
   /**
+   * True when the FREE daily allowance was just spent (429 → 'eve_daily_cap').
+   * Distinct from `body` (402 credits): the free cap resets tomorrow, so its
+   * wall never sells anything — it just reassures. Surfaces only when in-flight.
+   */
+  dailyCapReached: boolean;
+  /**
    * Feed a caught inference error. If it is a 402 quota_exhausted, the wall body
-   * is set (and surfaces only when `jobInFlight`); otherwise it is a no-op so
-   * non-quota errors fall through to the existing error handling. Returns true
-   * iff it was a quota signal (so the caller can suppress its own error toast).
+   * is set; else if it is the free daily cap, the warm cap wall is set;
+   * otherwise it is a no-op so non-quota errors fall through. Returns true iff a
+   * quota/cap signal was recognized (so the caller can suppress its own toast).
    */
   reportInferenceError: (error: unknown, opts: { jobInFlight: boolean }) => boolean;
-  /** Dismiss the wall. */
+  /** Dismiss the wall (both the 402 and the daily-cap variant). */
   closeWall: () => void;
   /** Persist the auto-reload toggle. */
   setAutoReload: (enabled: boolean) => void;
@@ -45,18 +51,29 @@ export interface QuotaWallState {
 export function useQuotaWall(): QuotaWallState {
   const [body, setBody] = useState<QuotaExhaustedBody | null>(null);
   const [jobInFlight, setJobInFlight] = useState(false);
+  const [dailyCapReached, setDailyCapReached] = useState(false);
   const [autoReload, setAutoReloadState] = useState<boolean>(false);
 
   const reportInferenceError = useCallback((error: unknown, opts: { jobInFlight: boolean }): boolean => {
+    // 402 credits-exhaust wins (it is the paid path); only if it is NOT that do
+    // we check the free daily cap.
     const parsed = detectQuotaExhausted(error);
-    if (!parsed) return false;
-    setBody(parsed);
-    setJobInFlight(opts.jobInFlight);
-    return true;
+    if (parsed) {
+      setBody(parsed);
+      setJobInFlight(opts.jobInFlight);
+      return true;
+    }
+    if (detectDailyCapReached(error)) {
+      setDailyCapReached(true);
+      setJobInFlight(opts.jobInFlight);
+      return true;
+    }
+    return false;
   }, []);
 
   const closeWall = useCallback(() => {
     setBody(null);
+    setDailyCapReached(false);
     setJobInFlight(false);
   }, []);
 
@@ -67,5 +84,5 @@ export function useQuotaWall(): QuotaWallState {
     setAutoReloadState(enabled);
   }, []);
 
-  return { body, jobInFlight, autoReload, reportInferenceError, closeWall, setAutoReload };
+  return { body, jobInFlight, dailyCapReached, autoReload, reportInferenceError, closeWall, setAutoReload };
 }

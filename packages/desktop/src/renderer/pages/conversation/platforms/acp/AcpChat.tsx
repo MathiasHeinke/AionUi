@@ -18,6 +18,7 @@ import {
 import { usePendingConfirmationsRecovery } from '@renderer/pages/conversation/Messages/usePendingConfirmationsRecovery';
 import HOC from '@renderer/utils/ui/HOC';
 import QuotaExhaustedWall from '@renderer/components/billing/QuotaExhaustedWall';
+import DailyCapWall from '@renderer/components/billing/DailyCapWall';
 import React from 'react';
 import AcpE2EStreamInjector from './AcpE2EStreamInjector';
 import AcpRuntimeStatus from './AcpRuntimeStatus';
@@ -103,6 +104,13 @@ const AcpChat: React.FC<{
             jobInFlight={messageState.quotaWall.jobInFlight}
             autoReloadDefault={messageState.quotaWall.autoReload}
             onAutoReloadChange={messageState.quotaWall.setAutoReload}
+            onClose={messageState.quotaWall.closeWall}
+          />
+          {/* v1.6.x — the free-tier DAILY-cap wall (429 → 'eve_daily_cap'). Same
+              idle-suppression, but it never sells: the allowance resets tomorrow. */}
+          <DailyCapWall
+            reached={messageState.quotaWall.dailyCapReached}
+            jobInFlight={messageState.quotaWall.jobInFlight}
             onClose={messageState.quotaWall.closeWall}
           />
           {!hideSendBox && (

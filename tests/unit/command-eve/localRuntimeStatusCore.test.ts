@@ -307,3 +307,84 @@ describe('Command EVE local runtime status core', () => {
     expect(result.message).toContain('manifest.ollama_url_not_loopback');
   });
 });
+
+describe('buildLocalRuntimeStatus — live model-pull progress (v1.6.x)', () => {
+  const writeManifest = (root: string): string => {
+    const manifestPath = path.join(root, 'command-eve-runtime-bootstrap.json');
+    writeJson(manifestPath, manifest);
+    return manifestPath;
+  };
+
+  it('surfaces model_pull + synthesizes the pull-progress card during a FRESH pull (no receipt block)', () => {
+    const root = makeRoot();
+    const manifestPath = writeManifest(root);
+    const modelPullProgressPath = path.join(root, 'pull.json');
+    writeJson(modelPullProgressPath, {
+      version: 'command-eve-model-pull/v0',
+      model: 'gemma4:e4b',
+      status: 'pulling',
+      total: 1000,
+      completed: 400,
+      percent: 40,
+      updated_at: '2026-06-11T02:00:00.000Z',
+    });
+
+    const result = buildLocalRuntimeStatus({
+      userDataPath: root,
+      manifestPath,
+      modelPullProgressPath,
+      now: () => new Date('2026-06-11T02:00:05.000Z'), // 5s later — fresh
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.model?.model_pull?.percent).toBe(40);
+    expect(result.model?.model_pull?.status).toBe('pulling');
+    // The receipt is silent mid-pull, so the card is synthesized.
+    expect(result.model?.blocked_stage?.remediation_kind).toBe('pull-progress');
+    expect(result.model?.blocked_stage?.reason_code).toBe('MODEL_NOT_FETCHED');
+  });
+
+  it('does NOT synthesize a card for a STALE pulling file (crashed pull never freezes the card)', () => {
+    const root = makeRoot();
+    const manifestPath = writeManifest(root);
+    const modelPullProgressPath = path.join(root, 'pull.json');
+    writeJson(modelPullProgressPath, {
+      version: 'command-eve-model-pull/v0',
+      model: 'gemma4:e4b',
+      status: 'pulling',
+      total: 1000,
+      completed: 400,
+      percent: 40,
+      updated_at: '2026-06-11T02:00:00.000Z',
+    });
+
+    const result = buildLocalRuntimeStatus({
+      userDataPath: root,
+      manifestPath,
+      modelPullProgressPath,
+      now: () => new Date('2026-06-11T02:05:00.000Z'), // 5 min later — stale
+    });
+
+    expect(result.model?.model_pull?.status).toBe('pulling'); // still reported
+    expect(result.model?.blocked_stage).toBeUndefined(); // but no frozen card
+  });
+
+  it('a done pull reports model_pull without a blocked card', () => {
+    const root = makeRoot();
+    const manifestPath = writeManifest(root);
+    const modelPullProgressPath = path.join(root, 'pull.json');
+    writeJson(modelPullProgressPath, {
+      version: 'command-eve-model-pull/v0',
+      model: 'gemma4:e4b',
+      status: 'done',
+      total: 1000,
+      completed: 1000,
+      percent: 100,
+      updated_at: '2026-06-11T02:00:00.000Z',
+    });
+
+    const result = buildLocalRuntimeStatus({ userDataPath: root, manifestPath, modelPullProgressPath });
+    expect(result.model?.model_pull?.status).toBe('done');
+    expect(result.model?.blocked_stage).toBeUndefined();
+  });
+});

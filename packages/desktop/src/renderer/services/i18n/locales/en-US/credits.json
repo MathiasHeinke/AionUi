@@ -62,5 +62,10 @@
     "tankLow": "Tank almost empty",
     "topUp": "Top up",
     "explainer": "1,000 credits ≈ €1 (pack price)"
+  },
+  "dailyCap": {
+    "title": "Free daily limit reached",
+    "body": "Your free daily allowance is used up for today — it resets for free tomorrow. You can use the local AI any time.",
+    "close": "Got it"
   }
 }

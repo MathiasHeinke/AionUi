@@ -62,5 +62,10 @@
     "tankLow": "Tank fast leer",
     "topUp": "Nachkaufen",
     "explainer": "1.000 Credits ≈ 1 € (Pack-Preis)"
+  },
+  "dailyCap": {
+    "title": "Kostenloses Tageskontingent erreicht",
+    "body": "Dein kostenloses Tageskontingent ist für heute aufgebraucht — morgen geht es kostenlos weiter. Du kannst jederzeit die lokale KI nutzen.",
+    "close": "Alles klar"
   }
 }

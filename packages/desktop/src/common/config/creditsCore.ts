@@ -360,6 +360,48 @@ export function detectQuotaExhausted(error: unknown): QuotaExhaustedBody | null 
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// The 429 free-DAILY-cap wall (v1.6.x). NOT the 402 credits wall: the free tier
+// has no credit tank — it has a per-day action allowance. When it is spent, the
+// shim rewrites the upstream 429 into a friendly chat error (type
+// 'eve_daily_cap'). Today that lands as a COLD chat bubble; this detector lets
+// the renderer surface a WARM wall instead. Founder doctrine (free tier): NEVER
+// a buy link — the allowance simply resets tomorrow.
+// ---------------------------------------------------------------------------
+
+/**
+ * Detect the free-tier daily-cap signal from a thrown/relayed inference error.
+ * Prefers the structured `type: 'eve_daily_cap'` the shim sets; falls back to a
+ * string sniff (the ACP layers can flatten the structured error to a string).
+ * Returns null for anything else (a 402 credits-exhaust is handled by
+ * detectQuotaExhausted and must win — call this AFTER it).
+ */
+export function detectDailyCapReached(error: unknown): { reached: true } | null {
+  if (!error) return null;
+  const e = error as Record<string, unknown>;
+  // Structured: the shim sets error.type = 'eve_daily_cap' (also check nested).
+  const typeOf = (o: unknown): string =>
+    o && typeof o === 'object' && typeof (o as Record<string, unknown>).type === 'string'
+      ? ((o as Record<string, unknown>).type as string)
+      : '';
+  if (
+    typeOf(e) === 'eve_daily_cap' ||
+    typeOf(e.error) === 'eve_daily_cap' ||
+    typeOf((e.response as Record<string, unknown> | undefined)?.data) === 'eve_daily_cap' ||
+    typeOf(e.data) === 'eve_daily_cap'
+  ) {
+    return { reached: true };
+  }
+  // String sniff: explicit marker, or a 429 paired with the German cap wording.
+  const status = typeof e.status === 'number' ? e.status : typeof e.statusCode === 'number' ? e.statusCode : undefined;
+  const message = typeof e.message === 'string' ? e.message : typeof error === 'string' ? error : '';
+  if (/eve_daily_cap/i.test(message)) return { reached: true };
+  const looks429 = status === 429 || /\b429\b/.test(message);
+  const looksCap = /tageskontingent|tageslimit|daily (cap|limit|allowance)/i.test(message);
+  if (looks429 && looksCap) return { reached: true };
+  return null;
+}
+
 export interface WallPack extends CreditPack {
   /** Total credits delivered (base + bonus). */
   totalCredits: number;

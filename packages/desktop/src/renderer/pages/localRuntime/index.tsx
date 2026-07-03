@@ -76,10 +76,22 @@ type LocalRuntimeModel = {
     elapsed_ms: number;
     error?: string;
   };
+  model_pull?: {
+    path: string;
+    status: 'pulling' | 'done' | 'failed';
+    model: string;
+    total: number;
+    completed: number;
+    percent: number;
+    updated_at: string;
+    error?: string;
+  };
   blocked_stage?: BlockedStage;
   tiers: LocalRuntimeTier[];
   warnings: string[];
 };
+
+const formatMb = (bytes: number): string => `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
 
 type LocalRuntimeResult = {
   version: 'command-eve-local-runtime-status/v0';
@@ -197,9 +209,10 @@ const TierCard: React.FC<{ tier: LocalRuntimeTier }> = ({ tier }) => {
  * mutates runtime state and never shows a shell command. Cloud stays the default
  * lane, so every card reassures the operator that the cloud still works.
  */
-const RemediationCard: React.FC<{ blocked: BlockedStage; warmupPollCount: number }> = ({
+const RemediationCard: React.FC<{ blocked: BlockedStage; warmupPollCount: number; pull?: LocalRuntimeModel['model_pull'] }> = ({
   blocked,
   warmupPollCount,
+  pull,
 }) => {
   const { t } = useTranslation();
   const kind = blocked.remediation_kind;
@@ -242,13 +255,36 @@ const RemediationCard: React.FC<{ blocked: BlockedStage; warmupPollCount: number
       ) : null}
 
       {kind === 'pull-progress' ? (
-        <div className='mt-12px flex items-center gap-8px text-12px leading-18px text-t-tertiary'>
-          <Spin size={14} />
-          <span>{t('localRuntime.remediation.pull-progress.pollingLabel')}</span>
-          {warmupPollCount > 0 ? (
-            <Tag color='blue'>
-              {t('localRuntime.remediation.pull-progress.pollAttempt', { count: warmupPollCount })}
-            </Tag>
+        <div className='mt-12px flex flex-col gap-6px'>
+          <div className='flex items-center gap-8px text-12px leading-18px text-t-tertiary'>
+            <Spin size={14} />
+            <span>{t('localRuntime.remediation.pull-progress.pollingLabel')}</span>
+            {pull && pull.status === 'pulling' && pull.total > 0 ? (
+              <Tag color='blue' data-testid='pull-progress-percent'>
+                {t('localRuntime.remediation.pull-progress.progress', {
+                  defaultValue: '{{percent}}% · {{done}} / {{total}}',
+                  percent: pull.percent,
+                  done: formatMb(pull.completed),
+                  total: formatMb(pull.total),
+                })}
+              </Tag>
+            ) : warmupPollCount > 0 ? (
+              <Tag color='blue'>
+                {t('localRuntime.remediation.pull-progress.pollAttempt', { count: warmupPollCount })}
+              </Tag>
+            ) : null}
+          </div>
+          {pull && pull.status === 'pulling' && pull.total > 0 ? (
+            <div style={{ height: 6, borderRadius: 3, overflow: 'hidden', backgroundColor: 'var(--color-fill-3)' }}>
+              <div
+                style={{
+                  width: `${Math.min(100, Math.max(0, pull.percent))}%`,
+                  height: '100%',
+                  backgroundColor: 'rgb(var(--primary-6))',
+                  transition: 'width 0.3s ease',
+                }}
+              />
+            </div>
           ) : null}
         </div>
       ) : null}
@@ -336,7 +372,10 @@ const LocalRuntimePage: React.FC = () => {
       setWarmupPollCount(0);
       return undefined;
     }
-    if (warmupPollCount >= 12) return undefined;
+    // A LIVE model pull keeps advancing (the core only surfaces pull-progress
+    // while the side file is fresh; a stale/dead pull drops it, ending the loop),
+    // so don't freeze it at the 12x warmup cap — poll on while genuinely pulling.
+    if (!pullInProgress && warmupPollCount >= 12) return undefined;
     const timer = setTimeout(() => {
       setWarmupPollCount((count) => count + 1);
       void load();
@@ -389,7 +428,7 @@ const LocalRuntimePage: React.FC = () => {
             ) : null}
 
             {model.blocked_stage ? (
-              <RemediationCard blocked={model.blocked_stage} warmupPollCount={warmupPollCount} />
+              <RemediationCard blocked={model.blocked_stage} warmupPollCount={warmupPollCount} pull={model.model_pull} />
             ) : null}
 
             <section className='rounded-16px border border-solid border-[var(--color-border-2)] bg-bg-2 px-18px py-16px'>

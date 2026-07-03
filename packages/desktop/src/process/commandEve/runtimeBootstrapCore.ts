@@ -540,6 +540,7 @@ export type RuntimeBootstrapPaths = {
   runtimeRoot: string;
   receiptPath: string;
   modelWarmupReceiptPath: string;
+  modelPullProgressPath: string;
   capabilitiesRoot: string;
   capabilityPack: string;
   hermesRoot: string;
@@ -1447,6 +1448,10 @@ export function resolveCommandEveRuntimeBootstrapPaths(
     runtimeRoot,
     receiptPath: path.join(runtimeRoot, 'runtime-bootstrap-receipt.json'),
     modelWarmupReceiptPath: path.join(runtimeRoot, 'model-warmup-receipt.json'),
+    // v1.6.x — live model-pull progress, a side file OUTSIDE the receipt canon
+    // (the receipt is only written per completed stage, so a live first pull
+    // would otherwise show nothing). Shared across seats like the model itself.
+    modelPullProgressPath: path.join(runtimeRoot, 'model-pull-progress.json'),
     capabilitiesRoot,
     capabilityPack: path.join(capabilitiesRoot, COMMAND_EVE_CAPABILITIES_FILE),
     hermesRoot,
@@ -3342,6 +3347,106 @@ async function waitForOllama(baseUrl: string, attempts = 20): Promise<boolean> {
   return attempt(attempts);
 }
 
+/** The live model-pull progress side file (v1.6.x). Written OUTSIDE the receipt
+ *  canon so a live first pull is visible; terminal states are always written. */
+export interface CommandEveModelPullProgress {
+  version: 'command-eve-model-pull/v0';
+  model: string;
+  status: 'pulling' | 'done' | 'failed';
+  total: number;
+  completed: number;
+  percent: number;
+  updated_at: string;
+  error?: string;
+}
+
+function writeModelPullProgress(file: string, data: CommandEveModelPullProgress): void {
+  try {
+    writeJsonAtomic(file, data);
+  } catch {
+    /* best-effort: progress is a nicety, never fatal to the pull */
+  }
+}
+
+/**
+ * Pull an Ollama model via the streaming HTTP API (POST /api/pull, NDJSON with
+ * {status,total,completed}), invoking onProgress with monotonic byte counts.
+ * The server is already up (this runs after the ollamaReady gate). Returns
+ * ok:true on the terminal success line; on ANY transport/parse problem returns
+ * ok:false so the caller falls back to the CLI pull (identical failure codes).
+ */
+function streamOllamaPull(
+  baseUrl: string,
+  modelRef: string,
+  onProgress: (p: { total: number; completed: number }) => void
+): Promise<{ ok: boolean }> {
+  return new Promise((resolve) => {
+    let url: URL;
+    try {
+      url = new URL('/api/pull', baseUrl);
+    } catch {
+      resolve({ ok: false });
+      return;
+    }
+    const payload = JSON.stringify({ model: modelRef, stream: true });
+    const req = http.request(
+      url,
+      { method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }, timeout: DEFAULT_LONG_STAGE_TIMEOUT_MS },
+      (res) => {
+        if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
+          res.resume();
+          resolve({ ok: false });
+          return;
+        }
+        let buffer = '';
+        let maxCompleted = 0;
+        let lastTotal = 0;
+        let sawSuccess = false;
+        const handleLine = (line: string): void => {
+          const trimmed = line.trim();
+          if (!trimmed) return;
+          let obj: Record<string, unknown>;
+          try {
+            obj = JSON.parse(trimmed) as Record<string, unknown>;
+          } catch {
+            return;
+          }
+          if (typeof obj.error === 'string') return; // terminal error handled on 'end'
+          const total = typeof obj.total === 'number' ? obj.total : lastTotal;
+          const completed = typeof obj.completed === 'number' ? obj.completed : 0;
+          if (total > 0) lastTotal = total;
+          // Monotonic: /api/pull reports per-layer, so completed can dip on a new
+          // layer — never let the surfaced number go backwards.
+          if (completed > maxCompleted) maxCompleted = completed;
+          const status = typeof obj.status === 'string' ? obj.status : '';
+          if (/^success$/i.test(status)) sawSuccess = true;
+          if (lastTotal > 0) onProgress({ total: lastTotal, completed: Math.min(maxCompleted, lastTotal) });
+        };
+        res.on('data', (chunk: Buffer) => {
+          buffer += chunk.toString('utf8');
+          let idx: number;
+          while ((idx = buffer.indexOf('\n')) >= 0) {
+            handleLine(buffer.slice(0, idx));
+            buffer = buffer.slice(idx + 1);
+          }
+        });
+        res.on('end', () => {
+          if (buffer) handleLine(buffer);
+          resolve({ ok: sawSuccess });
+        });
+        res.on('error', () => resolve({ ok: false }));
+      }
+    );
+    req.on('timeout', () => {
+      req.destroy();
+      resolve({ ok: false });
+    });
+    req.on('error', () => resolve({ ok: false }));
+    req.write(payload);
+    req.end();
+  });
+}
+
 async function pingOllama(baseUrl: string): Promise<boolean> {
   return new Promise((resolve) => {
     const url = new URL('/api/tags', baseUrl);
@@ -4050,18 +4155,51 @@ export async function ensureCommandEveRuntimeBootstrap(
     env.COMMAND_EVE_SKIP_MODEL_PULL !== '1'
   ) {
     const started = Date.now();
-    const pull = await runner(ollama.path, ['pull', tier.model_ref], { env, timeoutMs: DEFAULT_LONG_STAGE_TIMEOUT_MS });
-    if (!pull.ok) {
+    const progressPath = paths.modelPullProgressPath;
+    const writeProgress = (patch: Partial<CommandEveModelPullProgress> & Pick<CommandEveModelPullProgress, 'status'>): void =>
+      writeModelPullProgress(progressPath, {
+        version: 'command-eve-model-pull/v0',
+        model: tier.model_ref,
+        total: 0,
+        completed: 0,
+        percent: 0,
+        ...patch,
+        updated_at: new Date().toISOString(),
+      });
+    writeProgress({ status: 'pulling' });
+
+    // Preferred: stream /api/pull for live byte progress (throttled writes).
+    let lastWriteAt = 0;
+    const streamed = await streamOllamaPull(manifest.local_runtime.base_url, tier.model_ref, ({ total, completed }) => {
+      const now = Date.now();
+      if (now - lastWriteAt < 250) return; // throttle (updateBridge precedent)
+      lastWriteAt = now;
+      const percent = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
+      writeProgress({ status: 'pulling', total, completed, percent });
+    });
+
+    // Fallback: if the stream did not confirm success, do the proven CLI pull.
+    let pullOk = streamed.ok;
+    let pullErr = '';
+    if (!pullOk) {
+      const pull = await runner(ollama.path, ['pull', tier.model_ref], { env, timeoutMs: DEFAULT_LONG_STAGE_TIMEOUT_MS });
+      pullOk = pull.ok;
+      pullErr = scrubOutput(pull.stderr || pull.error);
+    }
+
+    if (!pullOk) {
+      writeProgress({ status: 'failed', error: pullErr });
       pushStage(
         makeStage('model', 'failed', {
           code: 'MODEL_PULL_FAILED',
-          detail: `Could not pull ${tier.model_ref}: ${scrubOutput(pull.stderr || pull.error)}`,
+          detail: `Could not pull ${tier.model_ref}: ${pullErr}`,
           command: `ollama pull ${tier.model_ref}`,
           duration_ms: Date.now() - started,
         })
       );
       return finishReceipt();
     }
+    writeProgress({ status: 'done', percent: 100 });
     const listAfter = await runner(ollama.path, ['list'], { env, timeoutMs: DEFAULT_STAGE_TIMEOUT_MS });
     hasBaseModel = listAfter.ok && parseOllamaListHasModel(listAfter.stdout || '', tier.model_ref);
   }

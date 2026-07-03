@@ -25,6 +25,7 @@ import {
   buildWallModel,
   CLIENT_SEAT_FROM_EUR,
   detectQuotaExhausted,
+  detectDailyCapReached,
   DEFAULT_CREDIT_PACKS,
   isClientSeedSatisfied,
   isNearAllowanceWall,
@@ -413,5 +414,27 @@ describe('buildSeatBillingStatus — Gen-B 0€-forever own seat + client-seat f
       expect(s.isFreeOwnSeat).toBe(false);
       expect(s.clientSeatFromEur).toBe(99);
     }
+  });
+});
+
+describe('detectDailyCapReached — the free 429 daily-cap wall (v1.6.x)', () => {
+  it('matches the structured shim type eve_daily_cap (flat + nested)', () => {
+    expect(detectDailyCapReached({ type: 'eve_daily_cap' })).toEqual({ reached: true });
+    expect(detectDailyCapReached({ error: { type: 'eve_daily_cap' } })).toEqual({ reached: true });
+    expect(detectDailyCapReached({ response: { data: { type: 'eve_daily_cap' } } })).toEqual({ reached: true });
+  });
+
+  it('matches a flattened string carrying the marker or a 429 + cap wording', () => {
+    expect(detectDailyCapReached('error type eve_daily_cap')).toEqual({ reached: true });
+    expect(detectDailyCapReached({ status: 429, message: 'Tageskontingent erreicht' })).toEqual({ reached: true });
+    expect(detectDailyCapReached({ message: '429 daily limit hit' })).toEqual({ reached: true });
+  });
+
+  it('does NOT match a 402 credits exhaust (detectQuotaExhausted owns that) or generic errors', () => {
+    expect(detectDailyCapReached({ status: 402, message: 'quota_exhausted' })).toBeNull();
+    expect(detectDailyCapReached({ status: 500, message: 'boom' })).toBeNull();
+    expect(detectDailyCapReached({ status: 429, message: 'too many requests' })).toBeNull();
+    expect(detectDailyCapReached(null)).toBeNull();
+    expect(detectDailyCapReached('')).toBeNull();
   });
 });
