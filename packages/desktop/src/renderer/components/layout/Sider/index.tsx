@@ -81,7 +81,9 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
         console.error('Navigation failed:', error);
       });
     } else {
-      Promise.resolve(navigate('/settings/model')).catch((error) => {
+      // v1.6.x — the gear lands on "Erste Schritte" (readiness), not the thin
+      // Model tab. The provider deep-link (useDeepLink) still targets /settings/model.
+      Promise.resolve(navigate('/settings/erste-schritte')).catch((error) => {
         console.error('Navigation failed:', error);
       });
     }

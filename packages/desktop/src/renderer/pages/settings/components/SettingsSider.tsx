@@ -9,6 +9,7 @@ import {
   Communication,
   Computer,
   Earth,
+  Flag,
   Info,
   Lightning,
   LinkCloud,
@@ -31,6 +32,7 @@ import { getSiderTooltipProps } from '@/renderer/utils/ui/siderTooltip';
 export const BUILTIN_TAB_IDS = [
   // 1.2.18 — 'agent' + 'assistants' merged into the single 'eveRuntime' tab; the
   // formerly-main-sidebar 'runtime' + 'connectors' surfaces moved in here too.
+  'ersteSchritte',
   'model',
   'eveRuntime',
   'capabilities',
@@ -97,6 +99,12 @@ const SettingsSider: React.FC<{ collapsed?: boolean; tooltipEnabled?: boolean }>
   const { menus, groupHeaderAt } = useMemo(() => {
     // Build builtin items
     const builtinMap: Record<string, SiderItem> = {
+      ersteSchritte: {
+        id: 'ersteSchritte',
+        label: t('settings.ersteSchritte', { defaultValue: 'Erste Schritte' }),
+        icon: <Flag />,
+        path: 'erste-schritte',
+      },
       model: { id: 'model', label: t('settings.model'), icon: <LinkCloud />, path: 'model' },
       // 1.2.18 — merged Agenten + Assistenten + Dein Team. The operator is the
       // conductor; EVE orchestrates. Backend multi-agent capability stays intact.

@@ -1057,5 +1057,6 @@
     "pendingCancel": "Abbrechen",
     "pendingTimeRemaining": "Verbleibende Zeit: {{time}}"
   },
-  "eveNoConfiguredModelsHint": "EVE Cloud und die lokale KI sind fest eingebaut — hier musst du nichts einrichten. Eigene Modelle kannst du später als Profi-Option ergänzen."
+  "eveNoConfiguredModelsHint": "EVE Cloud und die lokale KI sind fest eingebaut — hier musst du nichts einrichten. Eigene Modelle kannst du später als Profi-Option ergänzen.",
+  "ersteSchritte": "Erste Schritte"
 }

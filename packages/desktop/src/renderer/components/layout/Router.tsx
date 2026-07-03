@@ -16,6 +16,7 @@ const EveRuntimeSettings = React.lazy(() => import('@renderer/pages/settings/Eve
 const CapabilitiesSettings = React.lazy(() => import('@renderer/pages/settings/CapabilitiesSettings'));
 const AppearanceSettings = React.lazy(() => import('@renderer/pages/settings/AppearanceSettings'));
 const ModeSettings = React.lazy(() => import('@renderer/pages/settings/ModeSettings'));
+const ErsteSchritteSettings = React.lazy(() => import('@renderer/pages/settings/ErsteSchritteSettings'));
 const SystemSettings = React.lazy(() => import('@renderer/pages/settings/SystemSettings'));
 const BillingSettings = React.lazy(() => import('@renderer/pages/settings/BillingSettings'));
 const CompanyBrainSettings = React.lazy(() => import('@renderer/pages/settings/CompanyBrainSettings'));
@@ -128,6 +129,7 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
             path='/team/:id'
             element={TEAM_MODE_ENABLED ? withRouteFallback(TeamIndex) : <Navigate to='/guid' replace />}
           />
+          <Route path='/settings/erste-schritte' element={withRouteFallback(ErsteSchritteSettings)} />
           <Route path='/settings/model' element={withRouteFallback(ModeSettings)} />
           <Route path='/settings/eve-runtime' element={withRouteFallback(EveRuntimeSettings)} />
           {/* 1.2.18 — Agenten + Assistenten merged into EVE-Runtime; redirect old deep-links/bookmarks. */}
@@ -151,7 +153,7 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           <Route path='/settings/about' element={withRouteFallback(SystemSettings)} />
           <Route path='/settings/privacy' element={withRouteFallback(PrivacySettings)} />
           <Route path='/settings/ext/:tabId' element={withRouteFallback(ExtensionSettingsPage)} />
-          <Route path='/settings' element={<Navigate to='/settings/model' replace />} />
+          <Route path='/settings' element={<Navigate to='/settings/erste-schritte' replace />} />
           <Route path='/test/components' element={withRouteFallback(ComponentsShowcase)} />
           <Route path='/scheduled' element={withRouteFallback(ScheduledTasksPage)} />
           <Route path='/scheduled/:job_id' element={withRouteFallback(TaskDetailPage)} />

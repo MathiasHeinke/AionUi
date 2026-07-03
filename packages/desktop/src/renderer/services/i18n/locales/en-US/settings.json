@@ -1096,5 +1096,6 @@
   "skippedCount": "{{count}} skipped",
   "allSkillsExist": "All found skills already exist",
   "noExternalSources": "No external skill sources discovered",
-  "eveNoConfiguredModelsHint": "EVE Cloud and the local AI are built in — nothing to set up here. You can add your own models later as a pro option."
+  "eveNoConfiguredModelsHint": "EVE Cloud and the local AI are built in — nothing to set up here. You can add your own models later as a pro option.",
+  "ersteSchritte": "Getting started"
 }

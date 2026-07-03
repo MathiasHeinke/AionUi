@@ -11,6 +11,7 @@ import {
   Communication,
   Computer,
   Earth,
+  Flag,
   Info,
   Lightning,
   LinkCloud,
@@ -40,6 +41,12 @@ type TranslateFn = (key: string, options?: { defaultValue?: string }) => string;
 
 export function getBuiltinSettingsNavItems(isDesktop: boolean, t: TranslateFn): NavItem[] {
   const builtinMap: Record<string, NavItem> = {
+    ersteSchritte: {
+      id: 'ersteSchritte',
+      label: t('settings.ersteSchritte', { defaultValue: 'Erste Schritte' }),
+      icon: <Flag theme='outline' size='16' />,
+      path: 'erste-schritte',
+    },
     model: { id: 'model', label: t('settings.model'), icon: <LinkCloud theme='outline' size='16' />, path: 'model' },
     // 1.2.18 — 'agent' + 'assistants' merged into the single 'eveRuntime' tab; the
     // formerly-main-sidebar 'runtime' + 'connectors' surfaces moved in here too.
