@@ -72,7 +72,13 @@ import {
 import { buildSkillLibrary } from '@process/commandEve/skillLibraryCore';
 import { readSkillContent } from '@process/commandEve/skillContentCore';
 import { listLearnedSkills } from '@process/commandEve/learnedSkillsCore';
-import { resolveCommandEveRuntimeBootstrapPaths } from '@process/commandEve/runtimeBootstrapCore';
+import { listAuthoredSkills, COMMAND_EVE_AUTHORED_SKILLS_DIR } from '@process/commandEve/authoredSkillsCore';
+import {
+  resolveCommandEveRuntimeBootstrapPaths,
+  EVE_STRATEGY_SKILL_IDS,
+  COMMAND_EVE_ONBOARDING_SKILL_ID,
+  COMMAND_EVE_ARTIFACT_MENU_SKILL_ID,
+} from '@process/commandEve/runtimeBootstrapCore';
 import { buildCommandEveStatusSurface } from '@process/commandEve/statusSurfaceCore';
 import { clearLicenseWire, hasLicenseWire, readLicenseWire, storeLicenseWire } from '@/common/config/licenseWireAtRest';
 import {
@@ -709,6 +715,34 @@ export function initCommandEveBridge(): void {
         return {
           success: false,
           msg: error instanceof Error ? error.message : 'Command EVE learned-skills bridge failed.',
+          data: { ok: false as const, skills: [] },
+        };
+      }
+    });
+
+  // v1.6 — EVE-AUTHORED skills ("der User soll SEHEN, dass EVE sich erweitert
+  // hat"). EVE writes her own field skills into the per-seat Hermes default dir
+  // {hermesHome}/skills (separate from the app bundle in skills-command-eve), so
+  // location IS the honest provenance. Pure read-only scan, per active seat;
+  // app-owned ids are excluded as a safety net. Feeds the "Von EVE erstellt"
+  // badge + description + mtime "neu"-marker on the Skill Library surface.
+  bridge
+    .buildProvider('command-eve.authored-skills')
+    .provider(async () => {
+      try {
+        const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
+        const authoredDir = nodePath.join(paths.hermesHome, COMMAND_EVE_AUTHORED_SKILLS_DIR);
+        const appOwned = new Set<string>([
+          ...EVE_STRATEGY_SKILL_IDS,
+          COMMAND_EVE_ONBOARDING_SKILL_ID,
+          COMMAND_EVE_ARTIFACT_MENU_SKILL_ID,
+        ]);
+        const cards = listAuthoredSkills(authoredDir, appOwned);
+        return { success: true, data: { ok: true as const, skills: cards } };
+      } catch (error) {
+        return {
+          success: false,
+          msg: error instanceof Error ? error.message : 'Command EVE authored-skills bridge failed.',
           data: { ok: false as const, skills: [] },
         };
       }

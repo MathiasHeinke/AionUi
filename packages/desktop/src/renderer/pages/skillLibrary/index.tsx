@@ -67,6 +67,27 @@ const skillLibraryBridge = bridge.buildProvider<
   { runtimeReconciliationPath?: string; capabilityPackPath?: string } | undefined
 >('command-eve.skill-library');
 
+// v1.6 — EVE-authored skills (her own field skills, provenance = disk location).
+type AuthoredSkillCard = {
+  id: string;
+  name: string;
+  description: string;
+  path: string;
+  authored_at_ms: number;
+  source: 'authored';
+};
+
+const authoredSkillsBridge = bridge.buildProvider<
+  BridgeResponse<{ ok: boolean; skills: AuthoredSkillCard[] }>,
+  void
+>('command-eve.authored-skills');
+
+// A skill counts as "neu" for 14 days after EVE wrote it — the same honest mtime
+// horizon the v1.6 handover note uses. Pure; the caller passes now.
+const AUTHORED_NEW_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+const isAuthoredNew = (authoredAtMs: number, nowMs: number): boolean =>
+  authoredAtMs > 0 && nowMs - authoredAtMs <= AUTHORED_NEW_WINDOW_MS;
+
 const stateColor = (state: SkillState): 'green' | 'orange' | 'purple' | 'red' => {
   if (state === 'executable') return 'green';
   if (state === 'prompt_label') return 'purple';
@@ -112,12 +133,41 @@ const SkillCard: React.FC<{ skill: SkillLibraryCard }> = ({ skill }) => {
   );
 };
 
+// v1.6 — a skill EVE wrote herself in the field. Shows the "Von EVE erstellt"
+// badge, its description (what it does), a "Neu"-chip when recent, and the id.
+const AuthoredSkillCardView: React.FC<{ skill: AuthoredSkillCard; nowMs: number }> = ({ skill, nowMs }) => {
+  const { t } = useTranslation();
+  return (
+    <article
+      data-testid={`authored-skill-${skill.id}`}
+      className='flex flex-col gap-8px rounded-14px border border-solid border-[var(--color-primary-light-3)] bg-fill-1 px-16px py-14px'
+    >
+      <div className='flex items-start justify-between gap-12px'>
+        <div className='min-w-0'>
+          <div className='truncate text-15px font-700 leading-22px text-t-primary'>{skill.name}</div>
+          <div className='mt-2px truncate text-12px leading-18px text-t-tertiary'>{skill.id}</div>
+        </div>
+        <div className='flex shrink-0 items-center gap-6px'>
+          {isAuthoredNew(skill.authored_at_ms, nowMs) ? (
+            <Tag color='arcoblue'>{t('skillLibrary.authored.new')}</Tag>
+          ) : null}
+          <Tag color='purple'>{t('skillLibrary.authored.badge')}</Tag>
+        </div>
+      </div>
+      {skill.description ? (
+        <p className='m-0 text-13px leading-20px text-t-secondary'>{skill.description}</p>
+      ) : null}
+    </article>
+  );
+};
+
 const SkillLibraryPage: React.FC = () => {
   const { t } = useTranslation();
   const layout = useLayoutContext();
   const isMobile = layout?.isMobile ?? false;
   const [loading, setLoading] = useState(true);
   const [result, setResult] = useState<SkillLibraryResult | null>(null);
+  const [authored, setAuthored] = useState<AuthoredSkillCard[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -143,6 +193,16 @@ const SkillLibraryPage: React.FC = () => {
       setResult(data ?? null);
       if (!response.success) {
         setError(response.msg || data?.message || t('skillLibrary.errors.loadFailed'));
+      }
+      // EVE-authored skills load independently — their absence/failure must never
+      // block the main library, and a failure here just hides the section.
+      try {
+        const authoredResponse = await authoredSkillsBridge.invoke();
+        setAuthored(
+          authoredResponse.success && authoredResponse.data?.ok ? authoredResponse.data.skills : []
+        );
+      } catch {
+        setAuthored([]);
       }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : t('skillLibrary.errors.loadFailed'));
@@ -241,6 +301,25 @@ const SkillLibraryPage: React.FC = () => {
                     <li key={warning}>{warning}</li>
                   ))}
                 </ul>
+              </section>
+            ) : null}
+
+            {authored.length ? (
+              <section data-testid='authored-skills-section'>
+                <div className='mb-4px flex items-center justify-between gap-12px'>
+                  <h2 className='m-0 text-18px font-700 leading-26px text-t-primary'>
+                    {t('skillLibrary.sections.authored')}
+                  </h2>
+                  <Tag color='purple'>{authored.length}</Tag>
+                </div>
+                <p className='m-0 mb-12px max-w-820px text-13px leading-20px text-t-secondary'>
+                  {t('skillLibrary.authored.intro')}
+                </p>
+                <div className='grid gap-12px xl:grid-cols-2'>
+                  {authored.map((skill) => (
+                    <AuthoredSkillCardView key={`authored:${skill.id}`} skill={skill} nowMs={Date.now()} />
+                  ))}
+                </div>
               </section>
             ) : null}
 

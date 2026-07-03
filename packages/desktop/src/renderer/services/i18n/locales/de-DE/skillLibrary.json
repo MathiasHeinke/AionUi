@@ -15,7 +15,8 @@
   "sections": {
     "runtimeTruth": "Runtime-Wahrheit",
     "skills": "Skills",
-    "warnings": "Hinweise"
+    "warnings": "Hinweise",
+    "authored": "Von EVE erstellt"
   },
   "labels": {
     "autoDecompose": "Auto-Decompose",
@@ -39,5 +40,10 @@
   "empty": {
     "noModel": "Keine Skill-Library-Daten verfügbar.",
     "noSkills": "Keine Skills in der lokalen Runtime-Reconciliation."
+  },
+  "authored": {
+    "badge": "Von EVE erstellt",
+    "new": "Neu",
+    "intro": "Diese Fähigkeiten hat EVE sich selbst erarbeitet — sie waren vorher nicht dabei. So kannst du sehen, wie sie mitwächst."
   }
 }

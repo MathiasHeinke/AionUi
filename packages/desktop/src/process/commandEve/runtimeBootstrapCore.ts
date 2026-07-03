@@ -1630,7 +1630,7 @@ function commandEveManagedSkillMarkdown(skill: CommandEveCapabilityPack['skills'
 // reason codes to plain German + the right artifact, default the user to the cloud
 // lane, and NEVER ask for an API key/secret. It claims NOTHING that is not wired in
 // this lane (no seed-memory learning, no connector wiring).
-const COMMAND_EVE_ONBOARDING_SKILL_ID = 'eve-onboarding-awareness';
+export const COMMAND_EVE_ONBOARDING_SKILL_ID = 'eve-onboarding-awareness';
 
 // Build the SKILL.md body for the app-owned config-awareness skill. Kept as a pure
 // builder so the S1 test can assert on it without running the side-effecting bootstrap.
@@ -1755,7 +1755,7 @@ function writeCommandEveOnboardingSkill(paths: RuntimeBootstrapPaths): void {
 // through an honest, capability-gated menu — with the fabrication kill-switch
 // and budget honesty as hard rules. Craft lives HERE (a skill), not in SOUL.md
 // (voice-only, slim gate) — ops belong in skills.
-const COMMAND_EVE_ARTIFACT_MENU_SKILL_ID = 'session-1-artefakt';
+export const COMMAND_EVE_ARTIFACT_MENU_SKILL_ID = 'session-1-artefakt';
 
 // Pure builder so tests can assert on the exact contract without running the
 // side-effecting bootstrap (same pattern as commandEveOnboardingSkillMarkdown).
