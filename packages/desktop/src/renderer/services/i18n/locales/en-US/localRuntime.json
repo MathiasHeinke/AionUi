@@ -43,7 +43,7 @@
   },
   "labels": {
     "release": "Release",
-    "hermes": "EVE Runtime",
+    "hermes": "EVE Runtime (Hermes)",
     "provider": "Provider",
     "ollamaUrl": "Ollama URL",
     "egressProxy": "Egress proxy",
@@ -111,7 +111,8 @@
     "kanban_board_read_failed": "Kanban board could not be read read-only",
     "kanban_optional_dashboard_api_unavailable": "Optional EVE Runtime dashboard API is not importable; core Kanban remains usable",
     "kanban_board_db_missing_read_only_no_mutation": "Kanban DB is not present yet; the preflight intentionally did not create it",
-    "kanban_python_probe_nonzero_exit": "Kanban Python probe exited non-zero"
+    "kanban_python_probe_nonzero_exit": "Kanban Python probe exited non-zero",
+    "ollama_probe_unavailable": "Ollama unreachable — model install status unknown"
   },
   "errors": {
     "loadFailed": "Runtime status could not be loaded.",

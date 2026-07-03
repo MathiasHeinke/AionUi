@@ -28,7 +28,42 @@ import { consumePendingDeepLink } from '@/renderer/hooks/system/useDeepLink';
 import { useEntitlementGate } from '@/renderer/hooks/useEntitlementGate';
 import { useCreditsStatus } from '@renderer/hooks/useCreditsStatus';
 import { isModelByokAllowed } from '@/common/config/eveInferenceCore';
+import { bridge as platformBridge } from '@office-ai/platform';
 import '../model-provider.css';
+
+/** 1.6.3 — the per-tier disk truth the status bridge injects (see localRuntimeStatusCore). */
+type CommandEveLocalTierProbe = {
+  installed: boolean;
+  installed_size_bytes?: number;
+  ram_fit: boolean;
+  disk_fit: boolean;
+  recommended: boolean;
+  runtime_model_ref?: string;
+  model_ref?: string;
+};
+
+const localRuntimeStatusBridge = platformBridge.buildProvider<
+  {
+    success: boolean;
+    data?: {
+      model?: {
+        tiers?: Array<{
+          id: string;
+          installed?: boolean;
+          installed_size_bytes?: number;
+          ram_fit?: boolean;
+          disk_fit?: boolean;
+          recommended?: boolean;
+          runtime_model_ref?: string;
+          model_ref?: string;
+        }>;
+        warnings?: string[];
+        model_pull?: { model: string; percent: number; status: string };
+      };
+    };
+  },
+  { manifestPath?: string } | undefined
+>('command-eve.local-runtime-status');
 
 /**
  * 获取协议显示标签颜色
@@ -189,6 +224,85 @@ const ModelModalContent: React.FC = () => {
         );
         message.error(t('settings.saveModelConfigFailed'));
       });
+  };
+
+  // ── 1.6.3: the model cards tell the TRUTH (audit wf_9db95fb2: "Auswählen"
+  // only wrote a config key + toasted "gespeichert" — no install check, no
+  // download, no hardware fit). The status bridge injects installed/fits/
+  // recommended per tier; the (previously caller-less) ensureLocalModelTier IPC
+  // finally powers a real download button; pull progress streams via the poll.
+  const [localTiers, setLocalTiers] = useState<Record<string, CommandEveLocalTierProbe>>({});
+  const [localPull, setLocalPull] = useState<{ model: string; percent: number; status: string } | null>(null);
+  const [localProbeUnavailable, setLocalProbeUnavailable] = useState(false);
+  const [ensuringTierId, setEnsuringTierId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!COMMAND_EVE_SHELL_ENABLED) return;
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const load = async () => {
+      let pulling = false;
+      try {
+        const res = await localRuntimeStatusBridge.invoke({});
+        const model = res?.data?.model;
+        if (alive && model) {
+          const byId: Record<string, CommandEveLocalTierProbe> = {};
+          for (const tier of model.tiers ?? []) {
+            byId[tier.id] = {
+              installed: tier.installed === true,
+              installed_size_bytes: typeof tier.installed_size_bytes === 'number' ? tier.installed_size_bytes : undefined,
+              ram_fit: tier.ram_fit !== false,
+              disk_fit: tier.disk_fit !== false,
+              recommended: tier.recommended === true,
+              runtime_model_ref: tier.runtime_model_ref,
+              model_ref: tier.model_ref,
+            };
+          }
+          setLocalTiers(byId);
+          setLocalProbeUnavailable((model.warnings ?? []).includes('ollama_probe_unavailable'));
+          const pull = model.model_pull;
+          if (pull && pull.status === 'pulling') {
+            pulling = true;
+            setLocalPull({ model: pull.model, percent: pull.percent, status: pull.status });
+          } else {
+            setLocalPull(null);
+          }
+        }
+      } catch {
+        /* fail-soft: cards keep their last honest state */
+      }
+      if (alive) timer = setTimeout(() => void load(), pulling ? 2500 : 10000);
+    };
+    void load();
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
+
+  // Download & activate: persist the tier choice (unchanged select path), then
+  // fire the full ensure pass (bootstrap re-run → streamOllamaPull with the
+  // live progress side-file → warm-up). NOT awaited to completion for UI state —
+  // progress arrives via the status poll; a blocked result surfaces honestly.
+  const downloadCommandEveLocalModelTier = (tierId: string) => {
+    const normalizedTierId = normalizeCommandEveLocalModelTierId(tierId);
+    selectCommandEveLocalModelTier(normalizedTierId);
+    setEnsuringTierId(normalizedTierId);
+    ipcBridge.commandEve.ensureLocalModelTier
+      .invoke({ tierId: normalizedTierId })
+      .then((res) => {
+        const status = res?.data?.status;
+        if (status && status !== 'ready') {
+          message.warning(
+            t('settings.commandEveLocalRuntimeEnsureBlocked', {
+              reason: res?.data?.next_action || status,
+            })
+          );
+        }
+      })
+      .catch((error) => {
+        console.error('Command EVE local model ensure failed:', error);
+      })
+      .finally(() => setEnsuringTierId(null));
   };
 
   // 切换供应商启用状态（全选 ↔ 全不选）
@@ -468,6 +582,23 @@ const ModelModalContent: React.FC = () => {
             <div className='mt-14px grid gap-10px lg:grid-cols-3'>
               {COMMAND_EVE_LOCAL_MODEL_TIERS.map((tier) => {
                 const selected = selectedLocalModelTierId === tier.id;
+                // 1.6.3 — the card's honest state, from the injected probe:
+                // installed ✓ / lädt X % / nicht geladen / läuft nicht auf
+                // diesem Mac / Status unbekannt (Ollama down). No probe row
+                // yet (first render) keeps the old claim-free card.
+                const probe = localTiers[tier.id];
+                const fits = !probe || (probe.ram_fit && probe.disk_fit);
+                // Percent is only ever THIS tier's pull (review fix: a click on
+                // tier B must not display a foreign/stale tier-A percent).
+                const pullingThis =
+                  localPull !== null &&
+                  probe !== undefined &&
+                  (localPull.model === probe.runtime_model_ref || localPull.model === probe.model_ref);
+                const ensuringThis = ensuringTierId === tier.id;
+                // Review fixes: the download affordance ALSO covers the SELECTED
+                // tier (the most common broken state) and the Ollama-down case —
+                // ensureLocalModelTier starts the runtime itself (idempotent).
+                const showDownload = probe !== undefined && !probe.installed && fits;
                 return (
                   <div
                     key={tier.id}
@@ -476,12 +607,27 @@ const ModelModalContent: React.FC = () => {
                   >
                     <div className='flex items-start justify-between gap-8px'>
                       <div className='min-w-0'>
-                        <div className='text-15px font-700 leading-22px text-t-primary'>{tier.label}</div>
+                        <div className='flex items-center gap-6px flex-wrap'>
+                          <div className='text-15px font-700 leading-22px text-t-primary'>{tier.label}</div>
+                          {probe?.recommended && <Tag color='arcoblue'>{t('settings.commandEveLocalRuntimeRecommended')}</Tag>}
+                        </div>
                         {/* Offline/local models are named transparently (founder 2026-06-28) — the
                             concrete model ref is the user's own on-device model, not a secret. */}
                         <div className='mt-4px break-all text-12px leading-18px text-t-secondary'>{tier.modelId}</div>
                       </div>
                       {selected && <Tag color='green'>{t('settings.commandEveLocalRuntimeCurrent')}</Tag>}
+                    </div>
+                    <div className='mt-6px flex items-center gap-6px flex-wrap' data-testid={`command-eve-model-tier-state-${tier.id}`}>
+                      {pullingThis ? (
+                        <Tag color='blue'>{t('settings.commandEveLocalRuntimeDownloading', { percent: localPull?.percent ?? 0 })}</Tag>
+                      ) : probe?.installed ? (
+                        <Tag color='green'>{t('settings.commandEveLocalRuntimeInstalled')}</Tag>
+                      ) : localProbeUnavailable ? (
+                        <Tag color='gray'>{t('settings.commandEveLocalRuntimeStatusUnknown')}</Tag>
+                      ) : probe ? (
+                        <Tag color='gray'>{t('settings.commandEveLocalRuntimeNotInstalled')}</Tag>
+                      ) : null}
+                      {probe && !fits && <Tag color='orange'>{t('settings.commandEveLocalRuntimeNotOnThisMac')}</Tag>}
                     </div>
                     <div className='mt-10px text-12px leading-18px text-t-secondary'>
                       {t('settings.commandEveLocalRuntimeMeta', {
@@ -489,18 +635,31 @@ const ModelModalContent: React.FC = () => {
                         memory: tier.memoryGb,
                         disk: tier.diskGb,
                       })}
+                      {probe?.installed && typeof probe.installed_size_bytes === 'number'
+                        ? ` · ${t('settings.commandEveLocalRuntimeInstalledSize', { gb: (probe.installed_size_bytes / 1024 ** 3).toFixed(1) })}`
+                        : ''}
                     </div>
                     <Button
                       data-testid={`command-eve-model-tier-select-${tier.id}`}
                       className='mt-12px'
-                      type={selected ? 'primary' : 'outline'}
+                      type={selected || showDownload ? 'primary' : 'outline'}
                       size='small'
                       shape='round'
-                      onClick={() => selectCommandEveLocalModelTier(tier.id)}
+                      loading={ensuringThis || pullingThis}
+                      disabled={Boolean(probe && !fits && !probe.installed)}
+                      onClick={() =>
+                        showDownload ? downloadCommandEveLocalModelTier(tier.id) : selectCommandEveLocalModelTier(tier.id)
+                      }
                     >
-                      {selected
-                        ? t('settings.commandEveLocalRuntimeCurrent')
-                        : t('settings.commandEveLocalRuntimeSelect')}
+                      {probe && !fits && !probe.installed
+                        ? t('settings.commandEveLocalRuntimeNotOnThisMac')
+                        : showDownload
+                          ? localProbeUnavailable
+                            ? t('settings.commandEveLocalRuntimeStartAndEnsure')
+                            : t('settings.commandEveLocalRuntimeDownload')
+                          : selected
+                            ? t('settings.commandEveLocalRuntimeCurrent')
+                            : t('settings.commandEveLocalRuntimeSelect')}
                     </Button>
                   </div>
                 );

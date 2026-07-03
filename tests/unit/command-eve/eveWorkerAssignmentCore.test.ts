@@ -50,6 +50,7 @@ import {
   workerKindLabel,
   type EveWorkerAssignment,
   type EveWorkerAssignmentMap,
+  buildTeamDirectiveRoles,
 } from '@/common/config/eveWorkerAssignmentCore';
 
 // A real roster id (the namespace JOIN target). 'eval-research' is a curated role.
@@ -323,5 +324,48 @@ describe('eveWorkerAssignmentCore — (G) bunx/claude-agent-acp resolvability pr
       throw new Error('probe blew up');
     });
     expect(w).not.toBe('');
+  });
+});
+
+describe('1.6.3 — buildTeamDirectiveRoles (the SOUL team-directive input)', () => {
+  it('emits every roster role in order with live status + honest worker label', () => {
+    const assignments = {
+      'growth-lead': { agent_id: 'growth-lead', kind: 'claude' as const },
+      'seo-lead': { agent_id: 'seo-lead', kind: 'codex' as const },
+    };
+    const statuses: EveTeamWorkerStatusMap = { 'content-writer': 'paused' };
+    const roles = buildTeamDirectiveRoles(assignments, statuses);
+    expect(roles.length).toBeGreaterThanOrEqual(8);
+    const byName = new Map(roles.map((r) => [r.display_name, r]));
+    expect(byName.get('Growth Lead')?.worker).toBe('Claude-CLI');
+    // Codex must be labelled as NOT dispatchable — EVE may not believe a facade.
+    expect(byName.get('SEO')?.worker).toContain('noch nicht');
+    expect(byName.get('Autor')?.status).toBe('paused');
+    // Unassigned roles run on the EVE-Runtime default (null worker).
+    expect(byName.get('EVE')?.worker).toBeNull();
+    for (const role of roles) {
+      expect(role.outcome.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('is deterministic for a given settings state (bootstrap byte-stability)', () => {
+    const a = JSON.stringify(buildTeamDirectiveRoles({}, {}));
+    const b = JSON.stringify(buildTeamDirectiveRoles({}, {}));
+    expect(a).toBe(b);
+  });
+});
+
+describe('1.6.3 review fix — team directive labels only the ROUTED Claude as plainly wired', () => {
+  it('second claude assignment reads assigned-but-not-routed (SOUL consistency)', () => {
+    const assignments = {
+      'growth-lead': { agent_id: 'growth-lead', kind: 'claude' as const },
+      'content-writer': { agent_id: 'content-writer', kind: 'claude' as const },
+    };
+    const roles = buildTeamDirectiveRoles(assignments, {});
+    const byName = new Map(roles.map((r) => [r.display_name, r]));
+    const workers = [byName.get('Growth Lead')?.worker, byName.get('Autor')?.worker];
+    // Exactly ONE of the two is the plainly routed delegate; the other is hedged.
+    expect(workers.filter((w) => w === 'Claude-CLI').length).toBe(1);
+    expect(workers.filter((w) => w?.includes('noch nicht geroutet')).length).toBe(1);
   });
 });

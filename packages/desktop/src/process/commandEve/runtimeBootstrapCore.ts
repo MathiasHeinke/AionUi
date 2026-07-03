@@ -644,6 +644,21 @@ export type RuntimeBootstrapOptions = {
     acpArgs: string[];
     provider: string;
   } | null;
+  /**
+   * 1.6.3 (Team-Realität): the operator-curated team roster with live status +
+   * assigned external worker, resolved by the main process (roster constant +
+   * `commandEve.teamWorkerStatus` + `commandEve.workerAssignments` via
+   * eveWorkerAssignmentCore.buildTeamDirectiveRoles). Emitted as a compact SOUL
+   * directive so EVE actually KNOWS the team the Orchestrierung page shows —
+   * before this, the cards existed only for the human (audit wf_9db95fb2).
+   * null/[] -> no directive (SOUL byte-identical to 1.6.2).
+   */
+  teamRoles?: ReadonlyArray<{
+    display_name: string;
+    outcome: string;
+    status: string;
+    worker: string | null;
+  }> | null;
 };
 
 export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
@@ -2545,6 +2560,35 @@ export function eveFirstBriefMirrorDirective(): string {
   ].join('\n');
 }
 
+/**
+ * 1.6.3 (Team-Realität Schritt 2) — EVE knows her team. The Orchestrierung page
+ * shows a curated roster the RUNTIME never learned about (audit wf_9db95fb2:
+ * zero roster emit in SOUL/config/hints) — the cards existed only for the human.
+ * This emits a compact, deterministic team block into the always-on SOUL slot:
+ * role, plain-German outcome, live status, and the assigned external worker.
+ * HONESTY WALL: knowing the roster is NOT a grant — delegation still runs
+ * through the normal permission/human gates, a paused role gets no work, and
+ * EVE must never claim a role produced something it did not.
+ */
+export function eveTeamDirective(teamRoles?: RuntimeBootstrapOptions['teamRoles']): string {
+  const roles = (teamRoles ?? []).filter((r) => compact(r.display_name).length > 0);
+  if (roles.length === 0) return '';
+  const lines = roles.map((r) => {
+    const worker = r.worker ? ` · Worker: ${r.worker}` : '';
+    return `- ${r.display_name} (${r.status}${worker}): ${r.outcome}`;
+  });
+  return [
+    '',
+    '## Your team',
+    '',
+    'The operator curates this standing team in the app (statuses are live at boot):',
+    ...lines,
+    '',
+    'Delegate through the fitting role and say WHICH role handled it. A paused role gets no work. Knowing this roster is not a grant — permissions and human gates apply unchanged, and never claim a role produced something it did not.',
+    '',
+  ].join('\n');
+}
+
 export function eveWorkerRoutingDirective(
   claudeDelegate?: {
     agent_id: string;
@@ -3020,6 +3064,9 @@ function writeHermesRuntimeFiles(
   // and the claude-agent-acp adapter actually launches. null -> no directive
   // (SOUL.md byte-identical to today).
   claudeDelegate: RuntimeBootstrapOptions['claudeDelegate'] = null,
+  // 1.6.3 Team-Realität: the resolved roster (status + assigned worker) EVE
+  // learns via the SOUL team directive. null/[] -> no directive (byte-identical).
+  teamRoles: RuntimeBootstrapOptions['teamRoles'] = null,
   // S5-P2 MCP-vault feeder deps (arch §8). Threaded so the vetted-connector
   // emitter has the two vault roots + the manifest `mcp_invocation` resolver READY
   // for the GATE-NULL flip. Behind COMMAND_EVE_MCP_VAULT_ENABLED (default false),
@@ -3262,6 +3309,9 @@ function writeHermesRuntimeFiles(
     EVE_SOUL_MARKDOWN +
       eveSelectedLanguageDirective(uiLanguage) +
       eveWorkerRoutingDirective(claudeDelegate) +
+      // 1.6.3 Team-Realität: EVE knows the curated team (roles, live status,
+      // assigned workers) the Orchestrierung page shows the operator.
+      eveTeamDirective(teamRoles) +
       // T4/T7/T8: the EVE write-convention directive — states the ABSOLUTE brain
       // dir, declares the Brain the current-truth source over stale workspace docs,
       // and tells EVE to curate the fixed blueprint sections (else add a note the
@@ -3532,6 +3582,7 @@ export type ProvisionSeatRuntimeFilesOptions = {
   uiLanguage?: string;
   codexRuntime?: string;
   claudeDelegate?: RuntimeBootstrapOptions['claudeDelegate'];
+  teamRoles?: RuntimeBootstrapOptions['teamRoles'];
 };
 
 export type ProvisionSeatRuntimeFilesResult = {
@@ -3654,6 +3705,7 @@ export function provisionSeatRuntimeFiles(
       founderOpsSkillsDir,
       options.codexRuntime ?? '',
       options.claudeDelegate ?? null,
+      options.teamRoles ?? null,
       // MCP-vault feeder deps (arch §8) — READY for the GATE-NULL flip but INERT
       // today (COMMAND_EVE_MCP_VAULT_ENABLED default false), so the emitted
       // config.yaml stays byte-identical to the boot path's `mcp_servers: {}`.
@@ -4029,6 +4081,8 @@ export async function ensureCommandEveRuntimeBootstrap(
     // delegate (resolved by the main process via resolveAssignedClaudeDelegate).
     // When present, SOUL.md carries the delegate directive so EVE fires the worker.
     options.claudeDelegate ?? null,
+    // 1.6.3 Team-Realität: the resolved roster for the SOUL team directive.
+    options.teamRoles ?? null,
     // S5-P2 MCP-vault feeder deps (arch §8) — READY for the GATE-NULL flip but
     // INERT today: the feeder is gated by COMMAND_EVE_MCP_VAULT_ENABLED (default
     // false), so with the flag off it returns [] regardless of these and the

@@ -612,3 +612,28 @@ describe('EVE soul: CLI-Keystone Claude worker-routing directive (the LIVE deleg
     expect(eveWorkerRoutingDirective({ ...delegate, acpCommand: '' })).toBe('');
   });
 });
+
+describe('1.6.3 — eveTeamDirective (EVE knows her team)', () => {
+  it('emits a compact team block with statuses + workers and the honesty wall', async () => {
+    const { eveTeamDirective } = await import('@process/commandEve/runtimeBootstrapCore');
+    const out = eveTeamDirective([
+      { display_name: 'EVE', outcome: 'Setzt Prioritäten.', status: 'active', worker: null },
+      { display_name: 'Growth Lead', outcome: 'Bringt Reichweite.', status: 'active', worker: 'Claude-CLI' },
+      { display_name: 'Autor', outcome: 'Schreibt Posts.', status: 'paused', worker: null },
+    ]);
+    expect(out).toContain('## Your team');
+    expect(out).toContain('- EVE (active): Setzt Prioritäten.');
+    expect(out).toContain('- Growth Lead (active · Worker: Claude-CLI): Bringt Reichweite.');
+    expect(out).toContain('- Autor (paused): Schreibt Posts.');
+    // The honesty wall: knowledge ≠ grant, paused roles get nothing.
+    expect(out).toContain('not a grant');
+    expect(out).toContain('paused role gets no work');
+  });
+
+  it('null/empty roster ⇒ NO directive (SOUL byte-identical to 1.6.2)', async () => {
+    const { eveTeamDirective } = await import('@process/commandEve/runtimeBootstrapCore');
+    expect(eveTeamDirective(null)).toBe('');
+    expect(eveTeamDirective([])).toBe('');
+    expect(eveTeamDirective(undefined)).toBe('');
+  });
+});

@@ -323,7 +323,9 @@ const AssistantSelectionArea: React.FC<AssistantSelectionAreaProps> = ({
           <div
             data-testid='btn-add-preset'
             className={styles.assistantCardAdd}
-            onClick={() => navigate('/settings/assistants')}
+            // 1.6.3: EVE-Runtime is the honest target — /settings/assistants is a
+            // redirect whose CRUD tab is founder-gated in the public build.
+            onClick={() => navigate('/settings/eve-runtime')}
           >
             <Plus theme='outline' size={20} />
           </div>

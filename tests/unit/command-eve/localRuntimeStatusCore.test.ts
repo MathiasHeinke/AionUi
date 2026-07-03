@@ -148,7 +148,8 @@ describe('Command EVE local runtime status core', () => {
     expect(result.model?.receipt?.status).toBe('ready');
     expect(result.model?.model_warmup?.status).toBe('ready');
     expect(result.model?.model_warmup?.elapsed_ms).toBe(3000);
-    expect(result.model?.warnings).toEqual([]);
+    // 1.6.3: no injected Ollama probe ⇒ the core SAYS so (never a silent gap).
+    expect(result.model?.warnings).toEqual(['ollama_probe_unavailable']);
   });
 
   it('accepts a running warm-up receipt without a completed timestamp', () => {
@@ -365,8 +366,11 @@ describe('buildLocalRuntimeStatus — live model-pull progress (v1.6.x)', () => 
       now: () => new Date('2026-06-11T02:05:00.000Z'), // 5 min later — stale
     });
 
-    expect(result.model?.model_pull?.status).toBe('pulling'); // still reported
-    expect(result.model?.blocked_stage).toBeUndefined(); // but no frozen card
+    // 1.6.3 review fix: the RAW payload now applies the SAME staleness rule —
+    // a crashed pull froze the settings model card on "Lädt X %" forever.
+    expect(result.model?.model_pull).toBeUndefined();
+    expect(result.model?.warnings).toContain('model_pull_stale');
+    expect(result.model?.blocked_stage).toBeUndefined(); // and still no frozen card
   });
 
   it('a done pull reports model_pull without a blocked card', () => {
@@ -386,5 +390,131 @@ describe('buildLocalRuntimeStatus — live model-pull progress (v1.6.x)', () => 
     const result = buildLocalRuntimeStatus({ userDataPath: root, manifestPath, modelPullProgressPath });
     expect(result.model?.model_pull?.status).toBe('done');
     expect(result.model?.blocked_stage).toBeUndefined();
+  });
+});
+
+describe('1.6.3 — probe-enriched tier cards (installed / fits / recommended)', () => {
+  const setup = () => {
+    const root = makeRoot();
+    const manifestPath = path.join(root, 'command-eve-runtime-bootstrap.json');
+    writeJson(manifestPath, manifest);
+    return { root, manifestPath };
+  };
+
+  it('marks a tier installed via the runtime alias AND carries its on-disk size', () => {
+    const { root, manifestPath } = setup();
+    const result = buildLocalRuntimeStatus({
+      userDataPath: root,
+      manifestPath,
+      installedModels: [{ name: 'command-eve-gemma4-e4b-64k:latest', size: 9_500_000_000 }],
+      totalMemoryBytes: 16 * 1024 ** 3,
+      freeDiskGb: 100,
+    });
+    const [e4b, twelveB] = result.model!.tiers;
+    expect(e4b.installed).toBe(true);
+    expect(e4b.installed_size_bytes).toBe(9_500_000_000);
+    expect(twelveB.installed).toBe(false);
+    expect(result.model!.warnings).not.toContain('ollama_probe_unavailable');
+  });
+
+  it('matches installed by the RAW model_ref too (bare name implies :latest)', () => {
+    const { root, manifestPath } = setup();
+    const result = buildLocalRuntimeStatus({
+      userDataPath: root,
+      manifestPath,
+      installedModels: [{ name: 'gemma4:12b' }],
+    });
+    expect(result.model!.tiers[1].installed).toBe(true);
+  });
+
+  it('an UNAVAILABLE probe reads as installed:false + an honest warning, never a false claim', () => {
+    const { root, manifestPath } = setup();
+    const result = buildLocalRuntimeStatus({ userDataPath: root, manifestPath });
+    expect(result.model!.tiers.every((tier) => tier.installed === false)).toBe(true);
+    expect(result.model!.warnings).toContain('ollama_probe_unavailable');
+  });
+
+  it('computes RAM/disk fits from injected hardware; installed tiers need no fresh disk', () => {
+    const { root, manifestPath } = setup();
+    const result = buildLocalRuntimeStatus({
+      userDataPath: root,
+      manifestPath,
+      installedModels: [{ name: 'gemma4:12b' }],
+      totalMemoryBytes: 16 * 1024 ** 3,
+      freeDiskGb: 12, // enough for e4b (10) but NOT a fresh 12b pull (20)
+    });
+    const [e4b, twelveB] = result.model!.tiers;
+    expect(e4b.ram_fit).toBe(true);
+    expect(e4b.disk_fit).toBe(true);
+    // 12b is short on FRESH disk — but it is INSTALLED, so disk_fit stays true.
+    expect(twelveB.disk_fit).toBe(true);
+    expect(result.model!.hardware?.total_memory_gb).toBe(16);
+  });
+
+  it('unknown hardware NEVER invents a blocker (fits default true)', () => {
+    const { root, manifestPath } = setup();
+    const result = buildLocalRuntimeStatus({ userDataPath: root, manifestPath, installedModels: [] });
+    expect(result.model!.tiers.every((tier) => tier.ram_fit && tier.disk_fit)).toBe(true);
+    expect(result.model!.hardware).toBeUndefined();
+  });
+
+  it('recommendation policy: manifest default; a ≥64GB machine lifts to the 12B tier', () => {
+    const { root, manifestPath } = setup();
+    const small = buildLocalRuntimeStatus({ userDataPath: root, manifestPath, totalMemoryBytes: 16 * 1024 ** 3 });
+    expect(small.model!.tiers.find((tier) => tier.recommended)?.id).toBe('gemma-4-e4b-local-default');
+    const big = buildLocalRuntimeStatus({ userDataPath: root, manifestPath, totalMemoryBytes: 64 * 1024 ** 3 });
+    expect(big.model!.tiers.find((tier) => tier.recommended)?.id).toBe('gemma-4-12b-local-planning');
+  });
+});
+
+describe('1.6.3 review fix — stale pull rows never freeze the payload', () => {
+  it("drops a >120s-old 'pulling' row (crashed pull) and says so via warning", () => {
+    const root = makeRoot();
+    const manifestPath = path.join(root, 'command-eve-runtime-bootstrap.json');
+    writeJson(manifestPath, manifest);
+    const pullPath = path.join(root, 'command-eve-runtime', 'model-pull-progress.json');
+    writeJson(pullPath, {
+      version: 'command-eve-model-pull/v0',
+      model: 'gemma4:e4b',
+      status: 'pulling',
+      total: 1000,
+      completed: 430,
+      percent: 43,
+      updated_at: '2026-07-03T10:00:00.000Z',
+    });
+    const result = buildLocalRuntimeStatus({
+      userDataPath: root,
+      manifestPath,
+      modelPullProgressPath: pullPath,
+      now: () => new Date('2026-07-03T12:00:00.000Z'), // 2h later — long stale
+    });
+    expect(result.model?.model_pull).toBeUndefined();
+    expect(result.model?.warnings).toContain('model_pull_stale');
+  });
+
+  it("keeps a FRESH 'pulling' row and terminal done/failed rows untouched", () => {
+    const root = makeRoot();
+    const manifestPath = path.join(root, 'command-eve-runtime-bootstrap.json');
+    writeJson(manifestPath, manifest);
+    const pullPath = path.join(root, 'command-eve-runtime', 'model-pull-progress.json');
+    writeJson(pullPath, {
+      version: 'command-eve-model-pull/v0',
+      model: 'gemma4:e4b',
+      status: 'pulling',
+      total: 1000,
+      completed: 430,
+      percent: 43,
+      updated_at: '2026-07-03T11:59:30.000Z',
+    });
+    const fresh = buildLocalRuntimeStatus({
+      userDataPath: root,
+      manifestPath,
+      modelPullProgressPath: pullPath,
+      now: () => new Date('2026-07-03T12:00:00.000Z'),
+    });
+    expect(fresh.model?.model_pull?.percent).toBe(43);
+    writeJson(pullPath, { version: 'command-eve-model-pull/v0', model: 'gemma4:e4b', status: 'done', total: 1000, completed: 1000, percent: 100, updated_at: '2026-07-03T09:00:00.000Z' });
+    const done = buildLocalRuntimeStatus({ userDataPath: root, manifestPath, modelPullProgressPath: pullPath, now: () => new Date('2026-07-03T12:00:00.000Z') });
+    expect(done.model?.model_pull?.status).toBe('done');
   });
 });

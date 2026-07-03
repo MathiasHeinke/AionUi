@@ -65,11 +65,12 @@
 
 import {
   EVE_SYSTEM_AGENT_ID,
+  EVE_TEAM_ROSTER,
   findEveTeamRole,
   isEveTeamAgentId,
   type EveTeamRole,
 } from './eveTeamRoster';
-import { evaluateWorkerDispatch, type EveTeamWorkerStatusMap, type WorkerDispatchDecision } from './eveTeamControlsCore';
+import { evaluateWorkerDispatch, statusForRole, type EveTeamWorkerStatusMap, type WorkerDispatchDecision } from './eveTeamControlsCore';
 
 /**
  * The KIND of external runnable a roster role is bound to. This is the runtime
@@ -429,4 +430,53 @@ export function resolveDispatchableWorkerRouting(
     return { allowed: false, gate, reason: 'no-assignment' };
   }
   return { allowed: true, gate, routing: resolveWorkerRouting(assignment), reason: 'ok-dispatchable' };
+}
+
+/** One roster line for the SOUL team directive (1.6.3 Team-Realität). */
+export interface EveTeamDirectiveRole {
+  display_name: string;
+  /** Plain-German outcome the role owns (roster constant). */
+  outcome: string;
+  /** Live status at resolve time: active | paused | off. */
+  status: string;
+  /** Human label of the assigned EXTERNAL worker, or null = EVE-Runtime default. */
+  worker: string | null;
+}
+
+/**
+ * 1.6.3 (Team-Realität Schritt 2) — build the roster lines the SOUL team
+ * directive emits, from the SAME inputs the delegate resolver reads
+ * (`commandEve.workerAssignments` + `commandEve.teamWorkerStatus`). Pure and
+ * deterministic (roster order), so the bootstrap stays byte-stable for a given
+ * settings state. Codex is labelled honestly as deferred — the runtime cannot
+ * dispatch it yet, and EVE must not believe otherwise.
+ */
+export function buildTeamDirectiveRoles(
+  assignments: EveWorkerAssignmentMap,
+  statuses: EveTeamWorkerStatusMap,
+  roster: readonly EveTeamRole[] = EVE_TEAM_ROSTER
+): EveTeamDirectiveRole[] {
+  // Review fix (SOUL consistency): the routing directive carries exactly ONE
+  // dispatchable Claude delegate (resolveAssignedClaudeDelegate, first match) —
+  // so only THAT role may claim a plainly routed "Claude-CLI". Every other
+  // claude-assigned role is labelled honestly as assigned-but-not-yet-routed,
+  // or EVE's own world model would promise capability the runtime lacks.
+  const routedClaudeId = resolveAssignedClaudeDelegate(assignments, statuses)?.agent_id ?? null;
+  return roster.map((role) => {
+    const assignment = assignments[role.agent_id];
+    const worker =
+      assignment?.kind === 'claude'
+        ? role.agent_id === routedClaudeId
+          ? 'Claude-CLI'
+          : 'Claude-CLI (zugewiesen, noch nicht geroutet)'
+        : assignment?.kind === 'codex'
+          ? 'Codex-CLI (noch nicht ansteuerbar)'
+          : null;
+    return {
+      display_name: role.displayName,
+      outcome: role.outcome,
+      status: statusForRole(role, statuses),
+      worker,
+    };
+  });
 }

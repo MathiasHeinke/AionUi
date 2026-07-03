@@ -87,7 +87,7 @@ import {
   parseEveTierIdFromSelection,
   type EveInferenceTierId,
 } from '@/common/config/eveInferenceCore';
-import { getCommandEveLocalRuntimeProvider } from '@/common/config/commandEveShell';
+import { getCommandEveLocalRuntimeProvider, isCommandEveFounderBuild } from '@/common/config/commandEveShell';
 import { CREDITS_STATUS_FUNCTION_URL, type ClientSeedInput, type CreditsTier } from '@/common/config/creditsCore';
 import {
   SEAT_USAGE_FUNCTION_URL,
@@ -209,10 +209,12 @@ async function resolveCommandEveWorkerRuntimeInputsForSwitch(): Promise<{
   reachable: boolean;
   codexRuntime: string;
   claudeDelegate: import('@/common/config/eveWorkerAssignmentCore').ResolvedClaudeDelegate | null;
+  /** 1.6.3 Team-Realität: roster + live status + worker for the SOUL team directive. */
+  teamRoles: import('@/common/config/eveWorkerAssignmentCore').EveTeamDirectiveRole[];
 }> {
   try {
     const { readCommandEveSettingsFromBackend } = await import('@process/commandEve/commandEveBackendSettingsRead');
-    const { codexRuntimeForConfig, resolveAssignedClaudeDelegate } = await import('@/common/config/eveWorkerAssignmentCore');
+    const { buildTeamDirectiveRoles, codexRuntimeForConfig, resolveAssignedClaudeDelegate } = await import('@/common/config/eveWorkerAssignmentCore');
     type EveWorkerAssignmentMap = import('@/common/config/eveWorkerAssignmentCore').EveWorkerAssignmentMap;
     type EveTeamWorkerStatusMap = import('@/common/config/eveTeamControlsCore').EveTeamWorkerStatusMap;
     const bag = await readCommandEveSettingsFromBackend(['commandEve.workerAssignments', 'commandEve.teamWorkerStatus']);
@@ -232,12 +234,13 @@ async function resolveCommandEveWorkerRuntimeInputsForSwitch(): Promise<{
       reachable: true,
       codexRuntime: codexRuntimeForConfig(assignments),
       claudeDelegate: resolveAssignedClaudeDelegate(assignments, statuses),
+      teamRoles: buildTeamDirectiveRoles(assignments, statuses),
     };
   } catch (error) {
     // F7: the settings READ threw → backend unreachable. Report reachable:false so
     // the switch's prepareEnv does NOT re-provision on degraded (empty) inputs.
     console.warn('[Command EVE] seat-switch worker-runtime input read UNREACHABLE; last-known-good runtime files will be kept (no re-provision):', error);
-    return { reachable: false, codexRuntime: '', claudeDelegate: null };
+    return { reachable: false, codexRuntime: '', claudeDelegate: null, teamRoles: [] };
   }
 }
 
@@ -752,10 +755,51 @@ export function initCommandEveBridge(): void {
     .buildProvider('command-eve.local-runtime-status')
     .provider(async (request?: { manifestPath?: string; receiptPath?: string }) => {
       try {
+        // 1.6.3 probes (each fail-soft): Ollama /api/tags for per-model
+        // installed+size (2s cap — a down Ollama yields undefined ⇒ the core
+        // emits `ollama_probe_unavailable` instead of a false "not installed"),
+        // os.totalmem for the RAM fit, statfs at the runtime root for disk.
+        let installedModels: Array<{ name: string; size?: number }> | undefined;
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 2000);
+          try {
+            const res = await fetch(`${OLLAMA_BASE_URL}/api/tags`, { method: 'GET', signal: controller.signal });
+            if (res.ok) {
+              const json = (await res.json()) as { models?: Array<{ name?: string; size?: number }> };
+              installedModels = (json.models || [])
+                .map((m) => ({ name: String(m?.name || ''), ...(typeof m?.size === 'number' ? { size: m.size } : {}) }))
+                .filter((m) => m.name.length > 0);
+            }
+          } finally {
+            clearTimeout(timer);
+          }
+        } catch {
+          /* probe unavailable — the core says so honestly */
+        }
+        let totalMemoryBytes: number | undefined;
+        let freeDiskGb: number | undefined;
+        try {
+          const os = await import('node:os');
+          totalMemoryBytes = os.totalmem();
+        } catch {
+          /* fit defaults to true */
+        }
+        try {
+          const fsNode = await import('node:fs');
+          const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
+          const stats = fsNode.statfsSync(paths.runtimeRoot);
+          freeDiskGb = (stats.bavail * stats.bsize) / 1024 ** 3;
+        } catch {
+          /* fit defaults to true */
+        }
         const result = buildLocalRuntimeStatus({
           userDataPath: getDataPath(),
           manifestPath: request?.manifestPath,
           receiptPath: request?.receiptPath,
+          installedModels,
+          totalMemoryBytes,
+          freeDiskGb,
         });
         return {
           success: result.ok,
@@ -911,6 +955,18 @@ export function initCommandEveBridge(): void {
   // NO bodies); WRITE upserts a user/settings entry (append-first — "Weiteren
   // Client ergänzen" is honest now); REMOVE deletes an entry + its body. Errors
   // surface as { ok:false, reason_code } (the T3 UI reads that shape). No UI here.
+  // 1.6.3 — SHELL FLAGS (read-only). The renderer must not read process.env
+  // (commandEveShell doc), so build-scope gates cross this tiny bridge. Today:
+  // founder_build hides founder-only surfaces (the Assistenten-CRUD tab) from
+  // the public build. Fail-soft: any error reads as the PUBLIC shape.
+  bridge.buildProvider('command-eve.shell-flags').provider(async () => {
+    try {
+      return { success: true, data: { ok: true, founder_build: isCommandEveFounderBuild() } as unknown };
+    } catch {
+      return { success: true, data: { ok: true, founder_build: false } as unknown };
+    }
+  });
+
   bridge.buildProvider('command-eve.company-brain-list').provider(async () => {
     try {
       const home = resolveActiveSeatHome(getDataPath()).hermesHome;

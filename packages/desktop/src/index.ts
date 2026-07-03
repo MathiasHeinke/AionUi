@@ -39,8 +39,10 @@ import { EVE_INFERENCE_FUNCTION_URL, resolveCommandEveWarmupLane } from './commo
 import { readLicenseWire } from './common/config/licenseWireAtRest';
 import type { EveTeamWorkerStatusMap } from './common/config/eveTeamControlsCore';
 import {
+  buildTeamDirectiveRoles,
   codexRuntimeForConfig,
   resolveAssignedClaudeDelegate,
+  type EveTeamDirectiveRole,
   type EveWorkerAssignmentMap,
 } from './common/config/eveWorkerAssignmentCore';
 import type { CommandEveEveCloudRoute } from './process/commandEve/ollamaOpenAiShim';
@@ -567,6 +569,8 @@ function buildCommandEveShimActiveSeatIdResolver(): () => string {
 async function resolveCommandEveWorkerRuntimeInputs(): Promise<{
   codexRuntime: string;
   claudeDelegate: ReturnType<typeof resolveAssignedClaudeDelegate>;
+  /** 1.6.3 Team-Realität: roster + live status + worker for the SOUL team directive. */
+  teamRoles: EveTeamDirectiveRole[];
 }> {
   try {
     // S9 #3 store-split fix: worker assignments + team status are RENDERER-written
@@ -595,10 +599,13 @@ async function resolveCommandEveWorkerRuntimeInputs(): Promise<{
     return {
       codexRuntime: codexRuntimeForConfig(assignments),
       claudeDelegate: resolveAssignedClaudeDelegate(assignments, statuses),
+      teamRoles: buildTeamDirectiveRoles(assignments, statuses),
     };
   } catch (error) {
     console.warn('[Command EVE] worker-runtime input resolver failed; no external worker wired:', error);
-    return { codexRuntime: '', claudeDelegate: null };
+    // Fail-soft on the TEAM directive too: with no readable settings the roster
+    // defaults still describe the team truthfully (default statuses, no worker).
+    return { codexRuntime: '', claudeDelegate: null, teamRoles: buildTeamDirectiveRoles({}, {}) };
   }
 }
 

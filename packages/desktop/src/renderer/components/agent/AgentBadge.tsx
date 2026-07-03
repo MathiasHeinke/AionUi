@@ -58,7 +58,10 @@ const AgentBadge: React.FC<AgentBadgeProps> = ({ backend, agent_name, agentLogo,
   const navigate = useNavigate();
   const handleClick = useCallback(() => {
     if (!assistantId) return;
-    navigate(`/settings/assistants?highlight=${encodeURIComponent(assistantId)}`);
+    // 1.6.3: land on EVE-Runtime directly. The old /settings/assistants target
+    // (a redirect since 1.2.18) stranded on the default tab anyway — and in the
+    // public build the Assistenten-CRUD tab is hidden entirely.
+    navigate('/settings/eve-runtime');
   }, [assistantId, navigate]);
 
   return (

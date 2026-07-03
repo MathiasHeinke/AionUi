@@ -1339,6 +1339,13 @@ export interface ICommandEveCompanyBrainEntry {
   body_mtime_ms?: number | null;
 }
 
+/** 1.6.3: build-scope flags for the renderer (it may not read process.env). */
+export interface ICommandEveShellFlagsResult {
+  ok: boolean;
+  /** COMMAND_EVE_FOUNDER_BUILD=1 — gates founder-only surfaces (Assistenten-CRUD). */
+  founder_build: boolean;
+}
+
 /** v1.4 T2: the company-brain-list payload — index only, NO bodies. */
 export interface ICommandEveCompanyBrainListResult {
   ok: boolean;
@@ -1767,6 +1774,9 @@ export const commandEve = {
   companyBrainStatus: bridge.buildProvider<IBridgeResponse<ICommandEveCompanyBrainSeedState>, void>(
     'command-eve.company-brain-status'
   ),
+  // 1.6.3: build-scope flags the renderer may not derive itself (no process.env
+  // in the renderer). founder_build gates founder-only surfaces (Assistenten-CRUD).
+  shellFlags: bridge.buildProvider<IBridgeResponse<ICommandEveShellFlagsResult>, void>('command-eve.shell-flags'),
   // v1.4 T2/T3: multi-entry Company-Brain store (brain.json v2), active-seat-resolved.
   // list = index only (no bodies); read = ONE body on demand (T3 lazy load — open/
   // edit); write = upsert (user/settings, append-first); remove = delete an entry +

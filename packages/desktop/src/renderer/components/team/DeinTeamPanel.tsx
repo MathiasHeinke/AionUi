@@ -51,9 +51,10 @@ import {
   evaluateBudgetGate,
   projectMonthlySpend,
 } from '@/common/config/eveTeamBudgetCore';
+import { buildWorkerAssignment, type EveWorkerKind } from '@/common/config/eveWorkerAssignmentCore';
 import { useConfig } from '@renderer/hooks/config/useConfig';
 import ProjectedSpendMeter from '@renderer/components/team/ProjectedSpendMeter';
-import { Button, Card, Message, Popconfirm, Tag } from '@arco-design/web-react';
+import { Button, Card, Message, Popconfirm, Select, Tag } from '@arco-design/web-react';
 import { Pause, PlayOne, Power, UserPositioning } from '@icon-park/react';
 import React, { useCallback, useMemo } from 'react';
 
@@ -199,13 +200,19 @@ const RoleControls: React.FC<RoleControlsProps> = ({ role, status, statuses, onA
   );
 };
 
+/** The card's worker choice. 'eve' = the EVE-Runtime default (no assignment row). */
+type RoleWorkerChoice = 'eve' | EveWorkerKind;
+
 interface RoleCardProps {
   role: EveTeamRole;
   statuses: EveTeamWorkerStatusMap;
+  /** Persisted `commandEve.workerAssignments` value shape (agent_id is the key). */
+  workerKind: EveWorkerKind | null;
   onAction: (role: EveTeamRole, action: EveTeamControlAction) => void;
+  onWorkerChange: (role: EveTeamRole, choice: RoleWorkerChoice) => void;
 }
 
-const RoleCard: React.FC<RoleCardProps> = ({ role, statuses, onAction }) => {
+const RoleCard: React.FC<RoleCardProps> = ({ role, statuses, workerKind, onAction, onWorkerChange }) => {
   const consumesCredits = TIER_CONSUMES_CREDITS[role.tier];
   const status = statusForRole(role, statuses);
   const isFloor = isFreeFloorWorker(role);
@@ -245,6 +252,31 @@ const RoleCard: React.FC<RoleCardProps> = ({ role, statuses, onAction }) => {
             ))}
           </div>
           <RoleControls role={role} status={status} statuses={statuses} onAction={onAction} />
+          {/* 1.6.3 (Founder-UX): the worker binding lives ON the role card — the
+              separate "Agenten & Belegschaft" dialog stays as the expert view
+              (cli_path/version). Same persisted key, same validator; the image
+              lane is not offered here (a foreign persisted kind falls back to
+              the default display). GOVERNANCE seats carry no row (review fix:
+              "EVE nutzt jetzt Claude" on the EVE card claimed a main-turn swap
+              that never happens — the main turn always stays on EVE-Runtime). */}
+          {role.kind !== 'governance' && (
+            <div className='mt-2 flex items-center gap-2' data-testid='role-worker-row'>
+              <span className='text-xs text-t-secondary'>Worker:</span>
+              <Select
+                size='mini'
+                style={{ width: 210 }}
+                value={(workerKind === 'claude' || workerKind === 'codex' ? workerKind : 'eve') as RoleWorkerChoice}
+                onChange={(value) => onWorkerChange(role, value as RoleWorkerChoice)}
+                data-testid='role-worker-select'
+              >
+                <Select.Option value='eve'>EVE-Runtime (Standard)</Select.Option>
+                <Select.Option value='claude'>Claude-CLI</Select.Option>
+                <Select.Option value='codex' disabled>
+                  Codex-CLI — bald verfügbar
+                </Select.Option>
+              </Select>
+            </div>
+          )}
         </div>
       </div>
     </Card>
@@ -259,6 +291,37 @@ const RoleCard: React.FC<RoleCardProps> = ({ role, statuses, onAction }) => {
 const DeinTeamPanel: React.FC = () => {
   const [persisted, setPersisted] = useConfig('commandEve.teamWorkerStatus');
   const statuses: EveTeamWorkerStatusMap = useMemo(() => persisted ?? {}, [persisted]);
+  // 1.6.3: the SAME persisted map the expert dialog writes — one source of truth.
+  const [assignments, setAssignments] = useConfig('commandEve.workerAssignments');
+
+  const workerKindFor = useCallback(
+    (agentId: string): EveWorkerKind | null => {
+      const entry = (assignments ?? {})[agentId] as { kind?: EveWorkerKind } | undefined;
+      return entry?.kind ?? null;
+    },
+    [assignments]
+  );
+
+  const handleWorkerChange = useCallback(
+    (role: EveTeamRole, choice: RoleWorkerChoice) => {
+      const current = { ...((assignments ?? {}) as Record<string, { kind: EveWorkerKind; cli_path?: string; cli_version?: string }>) };
+      if (choice === 'eve') {
+        if (!(role.agent_id in current)) return;
+        delete current[role.agent_id];
+        void setAssignments(current);
+        Message.info(`${role.displayName} läuft wieder über die EVE-Runtime.`);
+        return;
+      }
+      const assignment = buildWorkerAssignment({ agent_id: role.agent_id, kind: choice });
+      if (!assignment) return; // validator refused (never persist an invented binding)
+      current[role.agent_id] = { kind: assignment.kind, ...(assignment.cli_path ? { cli_path: assignment.cli_path } : {}), ...(assignment.cli_version ? { cli_version: assignment.cli_version } : {}) };
+      void setAssignments(current);
+      // Precise claim (review fix): the binding affects DELEGATED tasks of this
+      // role — EVE's main turn always stays on the EVE-Runtime.
+      Message.success(`Delegierte Aufgaben von ${role.displayName} laufen jetzt über die ${choice === 'claude' ? 'Claude-CLI' : 'Codex-CLI'} — Einsatz bleibt über Status und Freigabe-Stufe gesteuert.`);
+    },
+    [assignments, setAssignments]
+  );
 
   const { governance, operators } = useMemo(() => {
     const governance: EveTeamRole[] = [];
@@ -306,7 +369,7 @@ const DeinTeamPanel: React.FC = () => {
         <div className='mb-3'>
           <div className='text-xs uppercase tracking-wide text-t-secondary mb-1'>Führung</div>
           {governance.map((role) => (
-            <RoleCard key={role.agent_id} role={role} statuses={statuses} onAction={handleAction} />
+            <RoleCard key={role.agent_id} role={role} statuses={statuses} workerKind={workerKindFor(role.agent_id)} onAction={handleAction} onWorkerChange={handleWorkerChange} />
           ))}
         </div>
       ) : null}
@@ -314,7 +377,7 @@ const DeinTeamPanel: React.FC = () => {
         <div>
           <div className='text-xs uppercase tracking-wide text-t-secondary mb-1'>Rollen</div>
           {operators.map((role) => (
-            <RoleCard key={role.agent_id} role={role} statuses={statuses} onAction={handleAction} />
+            <RoleCard key={role.agent_id} role={role} statuses={statuses} workerKind={workerKindFor(role.agent_id)} onAction={handleAction} onWorkerChange={handleWorkerChange} />
           ))}
         </div>
       ) : null}

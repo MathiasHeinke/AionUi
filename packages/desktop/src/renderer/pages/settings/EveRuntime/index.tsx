@@ -27,10 +27,11 @@
 
 import { Tabs } from '@arco-design/web-react';
 import classNames from 'classnames';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import DeinTeamPanel from '@renderer/components/team/DeinTeamPanel';
 import { useLayoutContext } from '@renderer/hooks/context/LayoutContext';
+import { commandEve } from '@/common/adapter/ipcBridge';
 import AgentModalContent from '@/renderer/components/settings/SettingsModal/contents/AgentModalContent';
 import { AssistantSettingsBody } from '@/renderer/pages/settings/AssistantSettings';
 import WorkerAssignmentCard from './WorkerAssignmentCard';
@@ -43,6 +44,26 @@ const EveRuntime: React.FC = () => {
   const layout = useLayoutContext();
   const isMobile = layout?.isMobile ?? false;
   const [activeTab, setActiveTab] = useState<EveRuntimeTab>('orchestration');
+  // 1.6.3: the Assistenten-CRUD tab is an upstream-AionUi surface that confuses
+  // the PUBLIC build (founder call, 2026-07-03) — it renders only on a founder
+  // build (COMMAND_EVE_FOUNDER_BUILD=1, read via the shell-flags bridge because
+  // the renderer may not touch process.env). Default false = public-safe; the
+  // assistant STORAGE + bootstrap/self-heal live main-side and stay untouched.
+  const [showAssistantsTab, setShowAssistantsTab] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    commandEve.shellFlags
+      .invoke()
+      .then((res) => {
+        if (alive && res?.data?.founder_build === true) setShowAssistantsTab(true);
+      })
+      .catch(() => {
+        /* fail-soft: public shape */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   return (
     <div className='flex flex-col h-full w-full'>
@@ -89,10 +110,12 @@ const EveRuntime: React.FC = () => {
           </div>
         </Tabs.TabPane>
 
-        <Tabs.TabPane key='assistants' title={t('eveRuntime.tab.assistants', { defaultValue: 'Assistenten' })}>
-          {/* Wrapper-less body — keeps full CRUD + drawer/modal portals + hooks. */}
-          <AssistantSettingsBody />
-        </Tabs.TabPane>
+        {showAssistantsTab && (
+          <Tabs.TabPane key='assistants' title={t('eveRuntime.tab.assistants', { defaultValue: 'Assistenten' })}>
+            {/* Wrapper-less body — keeps full CRUD + drawer/modal portals + hooks. */}
+            <AssistantSettingsBody />
+          </Tabs.TabPane>
+        )}
 
         <Tabs.TabPane
           key='agents'

@@ -110,6 +110,20 @@ export type CommandEveLocalRuntimeTierCard = {
   min_unified_memory_gb: number;
   min_free_disk_gb: number;
   status: CommandEveLocalRuntimeTierStatus;
+  /**
+   * 1.6.3 — the model is PRESENT in the local Ollama store (bridge-injected
+   * /api/tags probe). false also covers "Ollama unreachable" — the card must
+   * never claim an install it cannot see (a warning names the unreachable probe).
+   */
+  installed: boolean;
+  /** Bytes the installed model occupies on disk (Ollama /api/tags size). */
+  installed_size_bytes?: number;
+  /** This machine meets the tier's RAM floor (unknown hardware ⇒ true — never invent a blocker). */
+  ram_fit: boolean;
+  /** Enough free disk for a fresh pull OR already installed (installed needs no new space). */
+  disk_fit: boolean;
+  /** 1.6.3 recommendation policy (recommendedLocalTierId — founder-tunable). */
+  recommended: boolean;
 };
 
 export type CommandEveLocalRuntimeStatusModel = {
@@ -169,6 +183,11 @@ export type CommandEveLocalRuntimeStatusModel = {
    */
   blocked_stage?: CommandEveLocalRuntimeBlockedStage;
   tiers: CommandEveLocalRuntimeTierCard[];
+  /** 1.6.3 — the probed machine facts the per-tier fits were computed from. */
+  hardware?: {
+    total_memory_gb?: number;
+    free_disk_gb?: number;
+  };
   warnings: string[];
 };
 
@@ -195,6 +214,13 @@ export type CommandEveLocalRuntimeStatusOptions = {
   modelWarmupReceiptPath?: string;
   modelPullProgressPath?: string;
   now?: () => Date;
+  // ── 1.6.3 probe INJECTIONS (bridge-resolved; the core stays file-pure) ────
+  /** Ollama /api/tags models. undefined = probe failed/skipped (⇒ installed:false + `ollama_probe_unavailable` warning). */
+  installedModels?: Array<{ name: string; size?: number }>;
+  /** os.totalmem(). undefined ⇒ ram_fit true (never invent a blocker from a missing probe). */
+  totalMemoryBytes?: number;
+  /** Free disk at the runtime root (GB). undefined ⇒ disk_fit true. */
+  freeDiskGb?: number;
 };
 
 type JsonRecord = Record<string, unknown>;
@@ -341,17 +367,92 @@ function tierStatus(tier: RuntimeBootstrapTier, selectedTier: RuntimeBootstrapTi
   return 'opt_in';
 }
 
-function buildTierCard(tier: RuntimeBootstrapTier, selectedTier: RuntimeBootstrapTier): CommandEveLocalRuntimeTierCard {
+/**
+ * 1.6.3 — drop a STALE 'pulling' row from the emitted payload (same
+ * MODEL_PULL_STALE_MS rule as syntheticPullBlockedStage, so every consumer sees
+ * one truth). done/failed rows pass through untouched (they are terminal facts).
+ */
+function staleFilteredModelPull(
+  progress: CommandEveLocalRuntimeStatusModel['model_pull'],
+  nowMs: number,
+  warnings: string[]
+): CommandEveLocalRuntimeStatusModel['model_pull'] {
+  if (!progress || progress.status !== 'pulling') return progress;
+  const updatedMs = Date.parse(progress.updated_at);
+  if (Number.isFinite(updatedMs) && nowMs - updatedMs <= MODEL_PULL_STALE_MS) return progress;
+  warnings.push('model_pull_stale');
+  return undefined;
+}
+
+/** Normalize an Ollama model name/ref for equality (a bare name implies :latest). */
+function normalizeModelRef(ref: string): string {
+  const trimmed = (ref || '').trim();
+  return trimmed.endsWith(':latest') ? trimmed.slice(0, -':latest'.length) : trimmed;
+}
+
+/** 1.6.3 — find the tier's model in the injected /api/tags list (by model_ref OR runtime alias). */
+function findInstalledModel(
+  tier: RuntimeBootstrapTier,
+  runtimeModelRef: string,
+  installedModels?: Array<{ name: string; size?: number }>
+): { name: string; size?: number } | undefined {
+  if (!installedModels) return undefined;
+  const wanted = new Set([normalizeModelRef(tier.model_ref), normalizeModelRef(runtimeModelRef)]);
+  return installedModels.find((m) => wanted.has(normalizeModelRef(m.name)));
+}
+
+/**
+ * 1.6.3 RECOMMENDATION POLICY (deliberately one place, founder-tunable): the
+ * manifest default tier is recommended; a ≥64 GB machine is lifted to the 12B
+ * tier when the manifest ships one. A 'pro'-status tier is NEVER auto-recommended.
+ */
+export function recommendedLocalTierId(
+  tiers: readonly RuntimeBootstrapTier[],
+  defaultTierId: string,
+  totalMemoryBytes?: number
+): string {
+  const memGb = typeof totalMemoryBytes === 'number' && totalMemoryBytes > 0 ? totalMemoryBytes / 1024 ** 3 : 0;
+  const twelveB = tiers.find((t) => t.id.includes('12b') && !t.id.includes('31b'));
+  if (memGb >= 64 && twelveB) return twelveB.id;
+  return tiers.some((t) => t.id === defaultTierId) ? defaultTierId : (tiers[0]?.id ?? '');
+}
+
+function buildTierCard(
+  tier: RuntimeBootstrapTier,
+  selectedTier: RuntimeBootstrapTier,
+  probes: {
+    installedModels?: Array<{ name: string; size?: number }>;
+    totalMemoryBytes?: number;
+    freeDiskGb?: number;
+    recommendedTierId: string;
+  }
+): CommandEveLocalRuntimeTierCard {
+  const runtimeModelRef = commandEveOllamaContextModelRef(tier.model_ref, tierOllamaNumCtx(tier));
+  const installedModel = findInstalledModel(tier, runtimeModelRef, probes.installedModels);
+  const memGb =
+    typeof probes.totalMemoryBytes === 'number' && probes.totalMemoryBytes > 0
+      ? probes.totalMemoryBytes / 1024 ** 3
+      : undefined;
+  // Unknown hardware ⇒ fit (a missing probe must never invent a blocker);
+  // an INSTALLED model needs no fresh disk, so disk_fit is true for it.
+  const ramFit = memGb === undefined ? true : memGb + 0.5 >= tier.min_unified_memory_gb;
+  const diskFit =
+    installedModel !== undefined || probes.freeDiskGb === undefined || probes.freeDiskGb >= tier.min_free_disk_gb;
   return {
     id: tier.id,
     label: tier.label,
     model_ref: tier.model_ref,
-    runtime_model_ref: commandEveOllamaContextModelRef(tier.model_ref, tierOllamaNumCtx(tier)),
+    runtime_model_ref: runtimeModelRef,
     context_length: tierContextLength(tier),
     max_tokens: tierMaxTokens(tier),
     min_unified_memory_gb: tier.min_unified_memory_gb,
     min_free_disk_gb: tier.min_free_disk_gb,
     status: tierStatus(tier, selectedTier),
+    installed: installedModel !== undefined,
+    ...(installedModel && typeof installedModel.size === 'number' ? { installed_size_bytes: installedModel.size } : {}),
+    ram_fit: ramFit,
+    disk_fit: diskFit,
+    recommended: tier.id === probes.recommendedTierId,
   };
 }
 
@@ -414,7 +515,34 @@ export function buildLocalRuntimeStatus(
     if (manifestFailures.length) {
       throw new Error(manifestFailures.join(', '));
     }
-    const tiers = manifest.local_runtime.tiers.map((tier) => buildTierCard(tier, selectedTier));
+    // 1.6.3: enrich every card with the injected probes (installed / fits /
+    // recommendation). A missing Ollama probe is SAID, not hidden — the UI can
+    // then render "Status unbekannt" instead of a false "Nicht geladen".
+    if (options.installedModels === undefined) warnings.push('ollama_probe_unavailable');
+    const recommendedTierId = recommendedLocalTierId(
+      manifest.local_runtime.tiers,
+      manifest.local_runtime.default_tier_id,
+      options.totalMemoryBytes
+    );
+    const tiers = manifest.local_runtime.tiers.map((tier) =>
+      buildTierCard(tier, selectedTier, {
+        installedModels: options.installedModels,
+        totalMemoryBytes: options.totalMemoryBytes,
+        freeDiskGb: options.freeDiskGb,
+        recommendedTierId,
+      })
+    );
+    const memGbRounded =
+      typeof options.totalMemoryBytes === 'number' && options.totalMemoryBytes > 0
+        ? Math.round(options.totalMemoryBytes / 1024 ** 3)
+        : undefined;
+    const hardware =
+      memGbRounded !== undefined || options.freeDiskGb !== undefined
+        ? {
+            ...(memGbRounded !== undefined ? { total_memory_gb: memGbRounded } : {}),
+            ...(options.freeDiskGb !== undefined ? { free_disk_gb: Math.round(options.freeDiskGb * 10) / 10 } : {}),
+          }
+        : undefined;
 
     return {
       ...base,
@@ -452,8 +580,18 @@ export function buildLocalRuntimeStatus(
           (options.now ?? (() => new Date()))().getTime()
         ),
         model_warmup: parsedModelWarmupReceipt.receipt,
-        model_pull: parsedModelPull.progress,
+        // 1.6.3 review fix (HIGH): apply the SAME staleness rule the synthetic
+        // blocked-stage already has to the RAW payload — a crashed pull leaves
+        // status:'pulling' on disk forever, and an unfiltered emit froze the
+        // model card on "Lädt X %" with a locked button. A stale 'pulling' row
+        // is dropped (the card falls back to the installed/not-installed truth).
+        model_pull: staleFilteredModelPull(
+          parsedModelPull.progress,
+          (options.now ?? (() => new Date()))().getTime(),
+          warnings
+        ),
         tiers,
+        ...(hardware ? { hardware } : {}),
         warnings,
       },
     };
