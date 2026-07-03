@@ -29,7 +29,15 @@
     "brandSave": "Branding speichern",
     "brandSaved": "Branding gespeichert — es erscheint auf jedem Report, den EVE liefert.",
     "allowanceUsedEur": "{{pct}}% des Kontingents verbraucht · {{rem}} Credits übrig (≈ {{eur}} €)",
-    "explainer": "1.000 Credits ≈ 1 € (Pack-Preis)"
+    "explainer": "1.000 Credits ≈ 1 € (Pack-Preis)",
+    "usageTitle": "Verbrauch nach Kunde",
+    "usageMonthCurrent": "Aktueller Monat",
+    "usageMonthPrior": "Vormonat",
+    "usageHint": "Verbrauch diesen Monat je Seat ({{month}}).",
+    "usageFigures": "{{calls}} Calls · {{credits}} Credits · {{eur}} €",
+    "usageEmpty": "Noch keine Verbrauchsdaten (ab v1.5 erfasst).",
+    "usageUnavailable": "Verbrauchsdaten sind gerade nicht verfügbar.",
+    "usageFiguresLabel": "{{calls}} Calls · {{credits}} Credits · {{eur}} €"
   },
   "meter": {
     "freeActions": "{{used}} / {{cap}} Gratis-Aktionen heute",
@@ -67,5 +75,14 @@
     "title": "Kostenloses Tageskontingent erreicht",
     "body": "Dein kostenloses Tageskontingent ist für heute aufgebraucht — morgen geht es kostenlos weiter. Du kannst jederzeit die lokale KI nutzen.",
     "close": "Alles klar"
+  },
+  "video": {
+    "title": "Video erstellen",
+    "costPreview": "Dieses ~{{sec}}s-Video kostet ca. {{credits}} Credits — fortfahren?",
+    "upgrade1080p": "Auf 1080p hochstufen (teurer)",
+    "tierHd": "HD-Qualität",
+    "tierFast": "Fast (Standard)",
+    "confirm": "Fortfahren — {{credits}} Credits",
+    "cancel": "Abbrechen"
   }
 }

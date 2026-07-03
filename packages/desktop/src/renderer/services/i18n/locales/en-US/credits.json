@@ -29,7 +29,15 @@
     "brandSave": "Save branding",
     "brandSaved": "Branding saved — it appears on every report EVE delivers.",
     "allowanceUsedEur": "{{pct}}% of allowance used · {{rem}} credits left (≈ €{{eur}})",
-    "explainer": "1,000 credits ≈ €1 (pack price)"
+    "explainer": "1,000 credits ≈ €1 (pack price)",
+    "usageTitle": "Usage by client",
+    "usageMonthCurrent": "Current month",
+    "usageMonthPrior": "Previous month",
+    "usageHint": "Usage this month per seat ({{month}}).",
+    "usageFigures": "{{calls}} calls · {{credits}} credits · €{{eur}}",
+    "usageEmpty": "No usage data yet (tracked from v1.5).",
+    "usageUnavailable": "Usage data is currently unavailable.",
+    "usageFiguresLabel": "{{calls}} calls · {{credits}} credits · €{{eur}}"
   },
   "meter": {
     "freeActions": "{{used}} / {{cap}} free actions today",
@@ -67,5 +75,14 @@
     "title": "Free daily limit reached",
     "body": "Your free daily allowance is used up for today — it resets for free tomorrow. You can use the local AI any time.",
     "close": "Got it"
+  },
+  "video": {
+    "title": "Create video",
+    "costPreview": "This ~{{sec}}s video costs about {{credits}} credits — continue?",
+    "upgrade1080p": "Upgrade to 1080p (costs more)",
+    "tierHd": "HD quality",
+    "tierFast": "Fast (standard)",
+    "confirm": "Continue — {{credits}} credits",
+    "cancel": "Cancel"
   }
 }
