@@ -136,6 +136,11 @@ export const EVE_STRATEGY_SKILL_IDS = [
   // brainstorm-divergent = wide divergent idea generator that FEEDS option-tournament.
   'challenge-engine',
   'brainstorm-divergent',
+  // local-vision-qa (2026-07-03): HARVESTED FROM AN EVE-AUTHORED FIELD SKILL —
+  // local visual QA via Ollama vision model (opt-in download, images never
+  // leave the Mac). See scripts/fetch-bundled-skills.mjs for provenance + the
+  // open model-license gate.
+  'local-vision-qa',
 ] as const;
 const COMMAND_EVE_CAPABILITIES_FILE = 'command-eve-capabilities.json';
 const COMMAND_EVE_MANAGED_SKILLS_DIR = 'skills-command-eve';
@@ -760,6 +765,13 @@ export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
       name: 'Divergent brainstorm (wide idea generation)',
       tier: 'department',
       source: 'Command EVE reasoning toolbelt',
+      default_state: 'active',
+    },
+    {
+      id: 'local-vision-qa',
+      name: 'Local vision QA (lokale Bildsicht — images never leave the Mac)',
+      tier: 'department',
+      source: 'Command EVE local toolbelt (EVE-authored, harvested 2026-07-03)',
       default_state: 'active',
     },
   ],

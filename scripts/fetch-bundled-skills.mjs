@@ -94,6 +94,15 @@ export const EVE_STRATEGY_SKILLS = Object.freeze([
   // 'active' department capabilities, so the real bundled SKILL.md lands over the stub.
   { id: 'challenge-engine' },
   { id: 'brainstorm-divergent' },
+  // local-vision-qa (2026-07-03): HARVESTED FROM AN EVE-AUTHORED FIELD SKILL —
+  // she hit a 502 (active model has no image endpoint) during client-PDF QA,
+  // pulled minicpm-v:8b herself, calibrated it empirically and documented the
+  // craft; this is her method hardened (opt-in ~5.5GB download only after an
+  // explicit operator yes; images never leave the Mac — DSGVO-green).
+  // ⚠ OPEN GATE before marketing claims: verify the minicpm-v model license
+  // for commercial bundling contexts; the skill already prefers the installed
+  // bundled Gemma model when it accepts image input.
+  { id: 'local-vision-qa' },
 ]);
 
 /** Just the ids, for callers that want the flat allowlist. */
