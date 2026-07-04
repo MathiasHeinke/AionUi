@@ -48,9 +48,39 @@ export function ensureTeamManageBearer(): string {
   return bootBearer;
 }
 
+/** Path to the per-boot bearer FILE (audit H11 — bearer off process.env). */
+export function teamManageBearerFilePath(dataPath: string): string {
+  return path.join(dataPath, 'eve-team-manage', 'bearer');
+}
+
+/**
+ * FILE-deliver the bearer (audit H11): the bearer must NOT sit on process.env, which
+ * the backend + Hermes + every child (MCP subprocess, a delegated CLI) inherit
+ * automatically and model-visibly. Instead it lives in a 0600 file; only the FILE
+ * PATH goes into env (not a secret), and EVE reads the value on demand. On a client
+ * seat the file is removed (ISO-6). Returns the path, or '' when removed/unavailable.
+ */
+export function provisionTeamManageBearerFile(dataPath: string, isClientSeat: boolean): string {
+  const file = teamManageBearerFilePath(dataPath);
+  try {
+    if (isClientSeat) {
+      fs.rmSync(file, { force: true });
+      return '';
+    }
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, ensureTeamManageBearer(), { encoding: 'utf8', mode: 0o600 });
+    return file;
+  } catch (error) {
+    console.warn('[Command EVE] team_manage bearer file provisioning failed:', error);
+    return '';
+  }
+}
+
 /**
  * The bearer the shim route expects. '' on a client seat (ISO-6 — the route is inert
- * there). Read live per request (the shim outlives seat-switches).
+ * there). Read live per request (the shim outlives seat-switches). NOTE: the route
+ * validates against this in-memory bootBearer, NOT against env — so removing the
+ * bearer from env (H11) does not affect route auth.
  */
 export function resolveTeamManageBearer(): string {
   if (getActiveSeatKind() === 'client') return '';

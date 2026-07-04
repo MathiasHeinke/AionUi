@@ -87,7 +87,7 @@ fi
 #    so they are already absent from the child — we unset them anyway as defence in
 #    depth so no future refactor can leak the pause-gate's control-file path to the
 #    delegate. (The A4 lease token is delivered per-role, not a shared secret.)
-unset COMMAND_EVE_TEAM_MANAGE_BEARER STATUS_FILE TOKEN_FILE
+unset COMMAND_EVE_TEAM_MANAGE_BEARER COMMAND_EVE_TEAM_MANAGE_BEARER_FILE STATUS_FILE TOKEN_FILE
 
 # 4) Transparent stdio: `exec` replaces this process with the real adapter,
 #    inheriting fds 0/1/2 exactly — the wheel's JSON-RPC pipe is untouched.

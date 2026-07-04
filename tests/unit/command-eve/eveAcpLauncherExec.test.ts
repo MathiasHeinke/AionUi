@@ -48,7 +48,7 @@ function runLauncher(
   // env to a side file, then echoes each stdin line and exits on EOF. No timers.
   fs.writeFileSync(
     adapter,
-    `printf '{"EVE_AGENT_ID":"%s","EVE_LEASE_TOKEN":"%s","BEARER":"%s","STATUS_FILE":"%s","TOKEN_FILE":"%s"}' "$EVE_AGENT_ID" "$EVE_LEASE_TOKEN" "$COMMAND_EVE_TEAM_MANAGE_BEARER" "$STATUS_FILE" "$TOKEN_FILE" > "$PROOF_FILE"
+    `printf '{"EVE_AGENT_ID":"%s","EVE_LEASE_TOKEN":"%s","BEARER":"%s","BEARER_FILE":"%s","STATUS_FILE":"%s","TOKEN_FILE":"%s"}' "$EVE_AGENT_ID" "$EVE_LEASE_TOKEN" "$COMMAND_EVE_TEAM_MANAGE_BEARER" "$COMMAND_EVE_TEAM_MANAGE_BEARER_FILE" "$STATUS_FILE" "$TOKEN_FILE" > "$PROOF_FILE"
 while IFS= read -r l; do printf 'echo:%s\\n' "$l"; done`
   );
   const args = [LAUNCHER, '--role', 'growth-lead', '--status-file', statusFile, '--token-file', tokenFile, '--', '/bin/sh', adapter];
@@ -116,13 +116,20 @@ describe.skipIf(!isMac)('eve-acp-launcher.sh — CI exec proof (A3/A8)', () => {
   it('SCRUBS the bearer + control-file paths from the delegated worker env (review + EVE-audit fixes)', async () => {
     // The parent env carries the operator bearer (as EVE's runtime would); the
     // delegated adapter must NOT inherit it, nor the pause-gate control-file paths.
-    const r = await runLauncher(dir, 'active', 'tok', undefined, { COMMAND_EVE_TEAM_MANAGE_BEARER: 'operator-secret-bearer' });
+    const r = await runLauncher(dir, 'active', 'tok', undefined, {
+      COMMAND_EVE_TEAM_MANAGE_BEARER: 'operator-secret-bearer',
+      // H11: the runtime now delivers the bearer by FILE — only the PATH sits on env.
+      // That path must also be scrubbed so the delegate can't read the bearer file.
+      COMMAND_EVE_TEAM_MANAGE_BEARER_FILE: '/tmp/eve-operator-bearer',
+    });
     expect(r.code).toBe(0);
     expect(r.proof).not.toBeNull();
     // Injected role/token still arrive…
     expect(r.proof?.EVE_AGENT_ID).toBe('growth-lead');
-    // …but the operator bearer + the status/token file paths were scrubbed.
+    // …but the operator bearer (both the legacy value AND the H11 file path) + the
+    // status/token file paths were scrubbed.
     expect(r.proof?.BEARER ?? '').toBe('');
+    expect(r.proof?.BEARER_FILE ?? '').toBe('');
     expect(r.proof?.STATUS_FILE ?? '').toBe('');
     expect(r.proof?.TOKEN_FILE ?? '').toBe('');
   });

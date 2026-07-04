@@ -22,7 +22,7 @@ import {
   resolveSeatHome,
   type SeatKind,
 } from './seatContextCore';
-import { ensureTeamManageBearer } from './eveTeamManageMain';
+import { provisionTeamManageBearerFile } from './eveTeamManageMain';
 import { claudeDelegatePreflightWarning } from '../../common/config/eveWorkerAssignmentCore';
 import { COMPANY_BRAIN_DIR, readCompanyBrainSeedStateFromHome } from './companyBrainSeedCore';
 import { countFilledBlueprintSections, ensureBrainBlueprint, ensureCompanyBrainReady, migrateCompanyBrainFromHome, readBrainIndex } from './companyBrainStoreCore';
@@ -1571,17 +1571,17 @@ export function prepareCommandEveRuntimeProcessEnv(
   if (boardSlug) env.HERMES_KANBAN_BOARD = boardSlug;
   else delete env.HERMES_KANBAN_BOARD;
 
-  // SG-1 Design B — provision the team_manage bearer into EVE's runtime env so the
-  // `team-verwaltung` skill can authenticate to the local propose route. ISO-6
-  // (B5) via NON-PROVISIONING: on a CLIENT seat we DELETE it (symmetric clear, like
-  // the board pin above) so the client seat never inherits the operator's bearer
-  // and team_manage stays structurally unavailable there. `resolveTeamManageBearer`
-  // (the shim side) is gated the same way, so both ends agree.
-  if (getActiveSeatKind() === 'client') {
-    delete env.COMMAND_EVE_TEAM_MANAGE_BEARER;
-  } else {
-    env.COMMAND_EVE_TEAM_MANAGE_BEARER = ensureTeamManageBearer();
-  }
+  // SG-1 Design B — provision the team_manage bearer for EVE's runtime. Audit H11:
+  // the bearer is FILE-delivered, NOT put on process.env (which the backend + Hermes
+  // + every child — an MCP subprocess, a delegated CLI — would inherit automatically
+  // and model-visibly). Only the FILE PATH goes into env (a path is not a secret);
+  // EVE reads the value on demand. ISO-6 (B5) NON-PROVISIONING: on a CLIENT seat the
+  // file is removed and the path env is cleared, so team_manage stays unavailable.
+  // Legacy: always clear any bearer that a prior build put directly on env.
+  delete env.COMMAND_EVE_TEAM_MANAGE_BEARER;
+  const bearerFile = provisionTeamManageBearerFile(userDataPath, getActiveSeatKind() === 'client');
+  if (bearerFile) env.COMMAND_EVE_TEAM_MANAGE_BEARER_FILE = bearerFile;
+  else delete env.COMMAND_EVE_TEAM_MANAGE_BEARER_FILE;
 
   return paths;
 }
@@ -2593,11 +2593,11 @@ export function eveTeamDirective(teamRoles?: RuntimeBootstrapOptions['teamRoles'
   // SG-1 Design B — the propose clause is emitted ONLY when team_manage is
   // provisioned for this seat (the bearer is baked into env on operator seats, not
   // client seats — ISO-6). So on a client seat EVE is never even told the mechanism.
-  const canPropose = compact(process.env.COMMAND_EVE_TEAM_MANAGE_BEARER || '').length > 0;
+  const canPropose = compact(process.env.COMMAND_EVE_TEAM_MANAGE_BEARER_FILE || '').length > 0;
   const proposeClause = canPropose
     ? [
         '',
-        'You may PROPOSE a team status change (pause / resume / stop a role) when the operator asks or it clearly helps — you never apply it yourself. To propose, POST to `http://127.0.0.1:25811/eve/team/propose` with header `Authorization: Bearer $COMMAND_EVE_TEAM_MANAGE_BEARER` and JSON body `{"role_agent_id":"<id>","action":"pause|resume|stop","reason":"<short German reason>"}`. You get an `intent_id`; the operator then sees a confirm card and NOTHING changes until they click Übernehmen. Only a status change is allowed on this channel — never assignment, model, tier, or cost. Never say the change happened before the operator confirmed it.',
+        'You may PROPOSE a team status change (pause / resume / stop a role) when the operator asks or it clearly helps — you never apply it yourself. To propose, POST to `http://127.0.0.1:25811/eve/team/propose` with header `Authorization: Bearer $(cat "$COMMAND_EVE_TEAM_MANAGE_BEARER_FILE")` and JSON body `{"role_agent_id":"<id>","action":"pause|resume|stop","reason":"<short German reason>"}`. You get an `intent_id`; the operator then sees a confirm card and NOTHING changes until they click Übernehmen. Only a status change is allowed on this channel — never assignment, model, tier, or cost. Never say the change happened before the operator confirmed it.',
       ]
     : [];
   return [

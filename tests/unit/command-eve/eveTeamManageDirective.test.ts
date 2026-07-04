@@ -18,7 +18,7 @@ const ROLES = [
   { agent_id: 'growth-lead', display_name: 'Growth Lead', title: 'Growth Lead', status: 'active', worker: null, outcome: 'Mehr Reichweite' },
 ] as unknown as Parameters<typeof eveTeamDirective>[0];
 
-const KEY = 'COMMAND_EVE_TEAM_MANAGE_BEARER';
+const KEY = 'COMMAND_EVE_TEAM_MANAGE_BEARER_FILE';
 const original = process.env[KEY];
 afterEach(() => {
   if (original === undefined) delete process.env[KEY];
@@ -31,7 +31,10 @@ describe('eveTeamDirective — team_manage propose clause gating (B5)', () => {
     const out = eveTeamDirective(ROLES);
     expect(out).toMatch(/PROPOSE a team status change/i);
     expect(out).toContain('/eve/team/propose');
-    expect(out).toContain('$COMMAND_EVE_TEAM_MANAGE_BEARER');
+    // H11: the bearer is delivered by FILE (read on demand), never as a raw env value —
+    // so the directive reads it via $(cat "$…_FILE"), and the bare value form is absent.
+    expect(out).toContain('$(cat "$COMMAND_EVE_TEAM_MANAGE_BEARER_FILE")');
+    expect(out).not.toContain('Bearer $COMMAND_EVE_TEAM_MANAGE_BEARER`');
     // Honesty in the directive too: nothing changes before the operator confirms.
     expect(out).toMatch(/NOTHING changes until they click/i);
   });
