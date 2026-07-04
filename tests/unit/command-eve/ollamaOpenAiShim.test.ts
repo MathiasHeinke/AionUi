@@ -994,3 +994,91 @@ describe('Command EVE shim — per-seat usage attribution (A3)', () => {
     expect(JSON.stringify(fnSeen.body)).not.toContain(secretLabel);
   });
 });
+
+describe('Command EVE shim — A1 attribution spoof-close (SG-1)', () => {
+  const eveRoute = (fnUrl: string) => ({
+    active: true as const,
+    functionUrl: fnUrl,
+    license: FAKE_LICENSE,
+    tier: 'standard' as const,
+  });
+
+  it('IGNORES a client-sent body.agent_id — no header ⇒ never forwards agent_id (steady state)', async () => {
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      eveRouting: () => eveRoute(fnUrl),
+      // No attributionAgentId resolver ⇒ default 'eve' (1.7.0 steady state).
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'm',
+        messages: [{ role: 'user', content: 'hi' }],
+        stream: false,
+        // SPOOF ATTEMPT: a client stuffs a roster id into the body.
+        agent_id: 'growth-lead',
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    // The spoofed body.agent_id is dropped: attribution resolved to 'eve', which
+    // the outbound path never forwards. The ledger cannot be spoofed via the body.
+    expect(fnSeen.body).not.toHaveProperty('agent_id');
+  });
+
+  it('derives agent_id ONLY from the X-EVE-Dispatch header token — body.agent_id is ignored even when a valid token is present', async () => {
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      eveRouting: () => eveRoute(fnUrl),
+      // Stand-in for the registry: the token 'valid-tok' resolves to growth-lead.
+      attributionAgentId: (token) => (token === 'valid-tok' ? 'growth-lead' : 'eve'),
+    });
+
+    await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-eve-dispatch': 'valid-tok' },
+      body: JSON.stringify({
+        model: 'm',
+        messages: [{ role: 'user', content: 'hi' }],
+        stream: false,
+        // A DIFFERENT spoofed id in the body must be ignored.
+        agent_id: 'seo-lead',
+      }),
+    });
+
+    // The TOKEN's role wins; the body's spoof is ignored.
+    expect(fnSeen.body?.agent_id).toBe('growth-lead');
+  });
+
+  it('an unknown/absent token ⇒ agent_id omitted even if the body claims a role', async () => {
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      eveRouting: () => eveRoute(fnUrl),
+      attributionAgentId: (token) => (token === 'valid-tok' ? 'growth-lead' : 'eve'),
+    });
+
+    await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-eve-dispatch': 'bogus-token' },
+      body: JSON.stringify({
+        model: 'm',
+        messages: [{ role: 'user', content: 'hi' }],
+        stream: false,
+        agent_id: 'growth-lead',
+      }),
+    });
+
+    expect(fnSeen.body).not.toHaveProperty('agent_id');
+  });
+});

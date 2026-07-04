@@ -15,7 +15,6 @@ import {
   type CommandEveEgressPolicyAction,
   type CommandEveSensitivityClass,
 } from './egressBoundaryCore';
-import { resolveAttributionAgentId } from '../../common/config/eveTeamRoster';
 import {
   evaluateWorkerDispatch,
   type EveTeamWorkerStatusMap,
@@ -129,6 +128,21 @@ export type CommandEveEgressRedactionModeResolver = () =>
  */
 export type CommandEveActiveSeatIdResolver = () => string | Promise<string>;
 
+/**
+ * Optional dispatch-attribution resolver (SG-1 A1 — spoof-close). Maps the
+ * inbound `X-EVE-Dispatch` header token to a TRUSTED roster `agent_id`,
+ * seat-partitioned. The shim NEVER trusts a client-sent `body.agent_id` again:
+ * identity is carried by this CODE-minted token only (eveAgentTaskRegistry). When
+ * omitted, the default returns the system default `eve` — which is also the 1.7.0
+ * steady state, because the header PRODUCER (Hermes stamping the token on each
+ * model call) is the 1.8 wheel train. Fail-open by design: any token that does
+ * not resolve returns `eve` so the main lane never breaks.
+ */
+export type CommandEveDispatchAttributionResolver = (
+  dispatchToken: string | undefined,
+  seatId: string
+) => string | Promise<string>;
+
 export type CommandEveOllamaShimOptions = {
   port?: number;
   ollamaBaseUrl?: string;
@@ -164,6 +178,13 @@ export type CommandEveOllamaShimOptions = {
    * default resolver returns the legacy `'seat-1'` ⇒ byte-identical to before.
    */
   activeSeatId?: CommandEveActiveSeatIdResolver;
+  /**
+   * Optional dispatch-attribution resolver (SG-1 A1 spoof-close). Given the
+   * inbound `X-EVE-Dispatch` header token + the active seat, returns the TRUSTED
+   * roster `agent_id`. The old spoofable `body.agent_id` channel is closed — this
+   * is the ONLY attribution source now. Omitted ⇒ always `eve`.
+   */
+  attributionAgentId?: CommandEveDispatchAttributionResolver;
 };
 
 export type CommandEveModelWarmupOptions = {
@@ -292,6 +313,16 @@ function readBody(request: IncomingMessage): Promise<Record<string, unknown>> {
 
 function asMessages(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+// SG-1 A1: read the X-EVE-Dispatch header value as a single trimmed token. Node
+// lowercases header names and may give an array for repeated headers; take the
+// first. Empty/whitespace → undefined (treated as "no token" → attribution `eve`).
+function headerToken(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) return headerToken(value[0]);
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 function messageRole(message: unknown): string {
@@ -554,7 +585,8 @@ async function handleEveCloudCompletions(
   body: Record<string, unknown>,
   response: ServerResponse,
   options: Required<CommandEveOllamaShimOptions>,
-  route: CommandEveEveCloudRoute
+  route: CommandEveEveCloudRoute,
+  dispatchToken: string | undefined
 ): Promise<void> {
   const functionUrl = typeof route.functionUrl === 'string' ? route.functionUrl.trim() : '';
   const license = typeof route.license === 'string' ? route.license.trim() : '';
@@ -684,16 +716,17 @@ async function handleEveCloudCompletions(
   // function STRIPS model/models/user/license itself, so the local Gemma model
   // ref Hermes sent is harmless, but we omit it to keep the request clean.
   //
-  // agent_id (Dein Team attribution): when EVE delegated this call to a roster
-  // role, the inbound body carries that role's stable id. We resolve it to a
-  // KNOWN roster id (an unknown/absent value falls back to the system default
-  // `eve`) so the backend ledger `agent_id` column attributes the spend to the
-  // character. We only forward it for a delegated (non-default) role, so an
-  // un-delegated call's body keeps its prior shape and the backend default
-  // applies. The id is a kebab role string, never a secret — safe to forward.
-  const attributionAgentId = resolveAttributionAgentId(
-    typeof body.agent_id === 'string' ? body.agent_id : undefined
-  );
+  // agent_id (Dein Team attribution) — SG-1 A1 SPOOF-CLOSE. Identity is carried
+  // by CODE, never by the model: the trusted source is the X-EVE-Dispatch header
+  // TOKEN (minted per roster role by eveAgentTaskRegistry), resolved here to a
+  // known roster id, SEAT-PARTITIONED against the live seat. A client-sent
+  // `body.agent_id` is IGNORED entirely (the old spoof channel at :694). Anything
+  // that does not resolve — including the 1.7.0 steady state, where no header
+  // producer exists yet (that is the 1.8 wheel train) — degrades to the system
+  // default `eve` (fail-open; the main lane never breaks). We only forward the id
+  // for a delegated (non-default) role, so an un-delegated call's body keeps its
+  // prior shape. The id is a kebab role string, never a secret — safe to forward.
+  const attributionAgentId = await options.attributionAgentId(dispatchToken, seatId);
 
   // DUX-4 — ENFORCE the "Dein Team" pause/throttle/fire controls. The panel
   // WRITES `commandEve.teamWorkerStatus`; here is the ONE place the execution
@@ -842,7 +875,10 @@ async function handleChatCompletions(
   if (!isCommandEveWarmupRequest(body)) {
     const eveRoute = await options.eveRouting();
     if (eveRoute?.active) {
-      await handleEveCloudCompletions(body, response, options, eveRoute);
+      // SG-1 A1: the attribution token rides the X-EVE-Dispatch HEADER, never the
+      // body — so a client that stuffs `body.agent_id` cannot spoof a role.
+      const dispatchToken = headerToken(request.headers['x-eve-dispatch']);
+      await handleEveCloudCompletions(body, response, options, eveRoute, dispatchToken);
       return;
     }
   }
@@ -1000,6 +1036,9 @@ export async function startCommandEveOllamaOpenAiShim(shimOptions: CommandEveOll
     // Default resolver returns the legacy 'seat-1' ⇒ attribution is byte-stable
     // (server treats 'seat-1' and absent alike) until main injects getActiveSeatId.
     activeSeatId: shimOptions.activeSeatId || ((): string => 'seat-1'),
+    // SG-1 A1: default attribution is the system `eve` (no header producer until
+    // the 1.8 wheel train) ⇒ the un-delegated shape, byte-identical to before.
+    attributionAgentId: shimOptions.attributionAgentId || ((): string => 'eve'),
   };
   server = http.createServer((request, response) => {
     void (async () => {
