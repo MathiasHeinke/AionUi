@@ -1210,6 +1210,16 @@ export function migrateCompanyBrainFromHome(sourceHome: string, targetHome: stri
 
     let copied = 0;
     const copyFile = (from: string, to: string): void => {
+      // H10 (re-audit fix): symlink-safe at the SINGLE copy chokepoint. lstat (NOT
+      // stat/existsSync) the SOURCE and skip anything that is not a regular file, so
+      // a symlinked brief.md / seed.json / brain.json — or a symlinked entry — can
+      // never be FOLLOWED by readFileSync to copy a local secret into the
+      // model-visible target brain. The entries loop below also pre-filters with
+      // dirent.isFile() (lstat semantics); centralizing the guard here additionally
+      // covers the companion + index copies, which the first H10 pass left exposed
+      // (existsSync + readFileSync both follow symlinks).
+      const st = fs.lstatSync(from, { throwIfNoEntry: false });
+      if (!st || !st.isFile()) return;
       writeFileAtomic(to, fs.readFileSync(from, 'utf8'));
       copied += 1;
     };

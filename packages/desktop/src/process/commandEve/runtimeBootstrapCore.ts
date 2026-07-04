@@ -802,12 +802,18 @@ export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
       name: 'AI coding delegation (subscription-safe tmux lane, composes with delegate_task)',
       tier: 'department',
       source: 'Command EVE local toolbelt (EVE-authored, harvested 2026-07-03)',
-      // GATED, not active (Codex C2): this skill drives an external coding CLI with
-      // workspace + env context. It must NOT be an auto-live default capability that
-      // EVE can reach on any seat without an explicit operator unlock — that would
-      // let a client-seat delegation run a file-touching worker outside Human-Gates.
-      // The hardened SKILL.md also no longer teaches --dangerously-skip-permissions
-      // or auto-accepting the permission dialog; per-action approval is preserved.
+      // GATED, not active (Codex C2). HONEST SCOPE (re-audit): default_state is a
+      // capability-pack LABEL — it drives the stub-write skip (writeCommandEveManagedSkills)
+      // and the gated_skill_ids reconciliation list; it does NOT withhold the SKILL.md
+      // from Hermes discovery (the real SKILL.md is still copied into skills-command-eve /
+      // skills.external_dirs, per the doctrine "execution is gated by the permission
+      // modes, not by withholding the capability"). The ACTUAL protection against the
+      // original CRITICAL is the HARDENED SKILL.md: it no longer teaches
+      // --dangerously-skip-permissions or auto-accepting the permission dialog, opens
+      // with a required Human-Gate, and preserves per-action approval — so even when the
+      // agent discovers it, running it cannot touch files without operator approval.
+      // 'gated' additionally keeps it out of the auto-'active' set (no stub surfaced as
+      // a ready capability) — a signal, not the enforcement.
       default_state: 'gated',
     },
     {

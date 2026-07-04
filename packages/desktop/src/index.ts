@@ -603,7 +603,9 @@ async function resolveCommandEveWorkerRuntimeInputs(): Promise<{
       codexRuntime: codexRuntimeForConfig(assignments),
       // SG-1 A3: wrap the resolved delegate so delegate_task launches through the
       // eve-acp-launcher (real pause-gate + attribution env), and refresh the
-      // DERIVED per-role status/token mirror. Fail-open (unwrapped) if no launcher.
+      // DERIVED per-role status/token mirror. FAIL-CLOSED if no launcher (H13):
+      // applyLauncherWiring returns null and wires NO delegate rather than an
+      // unwrapped one (no pause-gate, no env scrub).
       claudeDelegate: applyLauncherWiring(
         resolveAssignedClaudeDelegate(assignments, statuses),
         assignments,

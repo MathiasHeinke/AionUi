@@ -51,9 +51,9 @@ function compact(value: string | undefined): string {
  *   1) explicit COMMAND_EVE_LAUNCHER_DIR env (dev / tests),
  *   2) packaged: <resourcesPath>/eve-acp-launcher/eve-acp-launcher.sh,
  *   3) dev: <cwd>/resources/eve-acp-launcher/eve-acp-launcher.sh.
- * Returns the FIRST existing ABSOLUTE candidate, or '' when none is found (callers
- * then fall back to the UNWRAPPED delegate — availability over the pause-gate,
- * which is defense-in-depth and only ever needed for a role active at boot).
+ * Returns the FIRST existing ABSOLUTE candidate, or '' when none is found. On '',
+ * the runtime entry (applyLauncherWiring) FAILS CLOSED — it returns null and wires
+ * NO delegate rather than an unwrapped one (H13); see applyLauncherWiring below.
  */
 export function resolveBundledLauncherPath(env: NodeJS.ProcessEnv, resourcesPath?: string): string {
   const explicitDir = compact(env[COMMAND_EVE_LAUNCHER_DIR_ENV]);
@@ -127,10 +127,13 @@ export const LAUNCHER_INTERPRETER = '/bin/sh';
 
 /**
  * Wrap a resolved Claude delegate so `delegate_task` launches the eve-acp-launcher
- * (via /bin/sh) in front of the real adapter. Returns the delegate UNCHANGED when
- * the launcher path is missing/non-absolute (fail-open availability — the same
- * guard the raw cli_path path applies). The token itself is NEVER placed in
- * acp_args (A4): only the token FILE PATH is, and acp_args are model-visible in SOUL.
+ * (via /bin/sh) in front of the real adapter. This is a PURE wrap helper: it returns
+ * the delegate UNCHANGED when the launcher path is missing/non-absolute. That branch
+ * is NOT the runtime fail-open — the sole runtime caller (applyLauncherWiring) checks
+ * the launcher path FIRST and FAILS CLOSED (returns null, wires no delegate) on a
+ * missing launcher (H13), so in production this unchanged-return is never reached with
+ * an absent launcher. The token itself is NEVER placed in acp_args (A4): only the
+ * token FILE PATH is, and acp_args are model-visible in SOUL.
  */
 export function wrapClaudeDelegateWithLauncher(
   delegate: ResolvedClaudeDelegate,

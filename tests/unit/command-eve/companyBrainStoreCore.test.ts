@@ -880,6 +880,43 @@ describe('1.6.2 — migrateCompanyBrainFromHome (own-seat first provisioning)', 
     }
   });
 
+  it('H10 re-audit: a symlinked COMPANION (brief.md / seed.json) or brain.json is NEVER copied (the gap the first H10 pass left)', () => {
+    const source = makeHome();
+    const target = makeHome();
+    ensureBrainBlueprint(source, { now: fixedClock('2026-07-02T09:50:00.000Z') });
+    upsertEntry(source, { id: 'bp-company', kind: 'company', title: 'Unternehmen', body: '### Unternehmen\n- Name: FYN Labs LLC' });
+    const secret = path.join(source, 'stolen.env');
+    fs.writeFileSync(secret, 'SUPABASE_SERVICE_ROLE_KEY=super-secret\nPRIVATE-KEY-BRIEF-SECRET');
+    // brief.md is model-visible (EVE's directive grounds ONLY in company-brain/brief.md).
+    // Symlink it — the source READ must not follow the link (copyFile lstat-skips it).
+    const srcBrainDir = path.join(source, COMPANY_BRAIN_DIR);
+    const briefLink = path.join(srcBrainDir, 'brief.md');
+    fs.rmSync(briefLink, { force: true });
+    fs.symlinkSync(secret, briefLink);
+    // Also symlink seed.json to the same secret.
+    fs.symlinkSync(secret, path.join(srcBrainDir, 'seed.json'));
+
+    const res = migrateCompanyBrainFromHome(source, target);
+    expect(res.ok).toBe(true);
+    // The symlinked companions were skipped, so they never reach the target…
+    const targetBrief = path.join(target, COMPANY_BRAIN_DIR, 'brief.md');
+    const targetSeed = path.join(target, COMPANY_BRAIN_DIR, 'seed.json');
+    if (fs.existsSync(targetBrief)) expect(fs.readFileSync(targetBrief, 'utf8')).not.toContain('SECRET');
+    if (fs.existsSync(targetSeed)) expect(fs.readFileSync(targetSeed, 'utf8')).not.toContain('SECRET');
+    // …and no target file anywhere in the brain carries the secret.
+    const brainDir = path.join(target, COMPANY_BRAIN_DIR);
+    if (fs.existsSync(brainDir)) {
+      const walk = (dir: string): void => {
+        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+          const full = path.join(dir, e.name);
+          if (e.isDirectory()) walk(full);
+          else if (e.isFile()) expect(fs.readFileSync(full, 'utf8')).not.toContain('SECRET');
+        }
+      };
+      walk(brainDir);
+    }
+  });
+
   it('1.6.2-M: a pristine index WITH a real unindexed body in entries/ is a hard no-op (never buries live content)', () => {
     const source = makeHome();
     const target = makeHome();
