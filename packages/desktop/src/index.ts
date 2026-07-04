@@ -46,6 +46,7 @@ import {
   type EveWorkerAssignmentMap,
 } from './common/config/eveWorkerAssignmentCore';
 import type { CommandEveEveCloudRoute } from './process/commandEve/ollamaOpenAiShim';
+import { applyLauncherWiring } from './process/commandEve/eveWorkerLauncherCore';
 import { getActiveSeatId } from './process/commandEve/seatContextCore';
 import {
   readInferenceSelectionFromBackend,
@@ -598,7 +599,15 @@ async function resolveCommandEveWorkerRuntimeInputs(): Promise<{
       statusesRaw && typeof statusesRaw === 'object' ? (statusesRaw as EveTeamWorkerStatusMap) : ({} as EveTeamWorkerStatusMap);
     return {
       codexRuntime: codexRuntimeForConfig(assignments),
-      claudeDelegate: resolveAssignedClaudeDelegate(assignments, statuses),
+      // SG-1 A3: wrap the resolved delegate so delegate_task launches through the
+      // eve-acp-launcher (real pause-gate + attribution env), and refresh the
+      // DERIVED per-role status/token mirror. Fail-open (unwrapped) if no launcher.
+      claudeDelegate: applyLauncherWiring(
+        resolveAssignedClaudeDelegate(assignments, statuses),
+        assignments,
+        statuses,
+        { dataPath: getDataPath(), seatId: getActiveSeatId(), resourcesPath: process.resourcesPath, env: process.env }
+      ),
       teamRoles: buildTeamDirectiveRoles(assignments, statuses),
     };
   } catch (error) {

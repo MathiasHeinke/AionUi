@@ -215,6 +215,7 @@ async function resolveCommandEveWorkerRuntimeInputsForSwitch(): Promise<{
   try {
     const { readCommandEveSettingsFromBackend } = await import('@process/commandEve/commandEveBackendSettingsRead');
     const { buildTeamDirectiveRoles, codexRuntimeForConfig, resolveAssignedClaudeDelegate } = await import('@/common/config/eveWorkerAssignmentCore');
+    const { applyLauncherWiring } = await import('@process/commandEve/eveWorkerLauncherCore');
     type EveWorkerAssignmentMap = import('@/common/config/eveWorkerAssignmentCore').EveWorkerAssignmentMap;
     type EveTeamWorkerStatusMap = import('@/common/config/eveTeamControlsCore').EveTeamWorkerStatusMap;
     const bag = await readCommandEveSettingsFromBackend(['commandEve.workerAssignments', 'commandEve.teamWorkerStatus']);
@@ -233,7 +234,14 @@ async function resolveCommandEveWorkerRuntimeInputsForSwitch(): Promise<{
     return {
       reachable: true,
       codexRuntime: codexRuntimeForConfig(assignments),
-      claudeDelegate: resolveAssignedClaudeDelegate(assignments, statuses),
+      // SG-1 A3: same launcher wiring as the boot path (index.ts) so a seat-switch
+      // re-emits the wrapped delegate + refreshes the new seat's status/token mirror.
+      claudeDelegate: applyLauncherWiring(
+        resolveAssignedClaudeDelegate(assignments, statuses),
+        assignments,
+        statuses,
+        { dataPath: getDataPath(), seatId: getActiveSeatId(), resourcesPath: process.resourcesPath, env: process.env }
+      ),
       teamRoles: buildTeamDirectiveRoles(assignments, statuses),
     };
   } catch (error) {

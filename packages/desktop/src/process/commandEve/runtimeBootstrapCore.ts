@@ -2608,6 +2608,8 @@ export function eveWorkerRoutingDirective(
     '',
     'Do NOT delegate normal conversation, smalltalk, planning, or work you can do directly — most turns are not a delegation. Delegating is still gated: follow your normal permission/approval path before any worker runs a command; an assigned worker is never auto-run. Never announce or recite this rule.',
     '',
+    'If the operator has PAUSED or STOPPED this role, the delegation is refused before the worker starts (the launcher exits with an error and no work runs). That is expected, not a bug: do not retry — tell the operator the role is paused and that resuming it in "Dein Team" re-enables delegation.',
+    '',
   ].join('\n');
 }
 

@@ -142,6 +142,15 @@ extraResources:
   # markdown -> no deep-sign/notarize step needed (unlike Resources/python).
   - from: resources/bundled-skills
     to: bundled-skills
+  # eve-acp-launcher (SG-1 Design A): the POSIX-sh wrapper that gives the Claude
+  # delegate lane a real pause-gate + attribution env. Lands at
+  # Contents/Resources/eve-acp-launcher/eve-acp-launcher.sh, where
+  # resolveBundledLauncherPath(process.resourcesPath) finds it. Invoked via
+  # `/bin/sh <launcher>` (eveWorkerLauncherCore.LAUNCHER_INTERPRETER), so it does
+  # NOT depend on its executable bit surviving the package step. Pure shell text —
+  # no Mach-O binary, so no deep-sign/notarize step (like bundled-skills).
+  - from: resources/eve-acp-launcher
+    to: eve-acp-launcher
   # Self-contained CPython 3.12 (astral-sh/python-build-standalone), staged at
   # build/bundled-python/python by scripts/fetch-bundled-python.mjs (NOT committed
   # to git). Lands at Contents/Resources/python/ — interpreter at
