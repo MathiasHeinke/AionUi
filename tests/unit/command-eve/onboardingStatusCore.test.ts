@@ -167,10 +167,10 @@ describe('S0 onboarding-status: model contract', () => {
     expect(m.schema_version).toContain('command-eve-onboarding-status');
   });
 
-  it('exposes exactly the five onboarding items', () => {
+  it('exposes exactly the six onboarding items (incl. the non-blocking memory-lane)', () => {
     const m = build({});
     expect(m.items.map((i) => i.id).sort()).toEqual(
-      ['cloud-lane', 'identity', 'license', 'local-lane', 'registration'].sort()
+      ['cloud-lane', 'identity', 'license', 'local-lane', 'memory-lane', 'registration'].sort()
     );
   });
 });

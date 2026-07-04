@@ -60,6 +60,7 @@ import { hasLicenseWire } from '@/common/config/licenseWireAtRest';
 import { resolveCommandEveSeatIdentity, type CommandEveSeatIdentity, type CommandEveSeatSeedRecord } from './assistantBootstrapCore';
 import { getActiveSeatId, isActiveSeatLegacy } from './seatContextCore';
 import { readCompanyBrainSeedState } from './companyBrainSeedCore';
+import { honchoReady, HONCHO_REASON_DECLINED, type HonchoReadinessState } from './honchoReadinessCore';
 
 export const COMMAND_EVE_ONBOARDING_STATUS_BRIDGE_VERSION = 'command-eve-onboarding-status/v0';
 
@@ -92,6 +93,7 @@ export type CommandEveOnboardingItemId =
   | 'license'
   | 'cloud-lane'
   | 'local-lane'
+  | 'memory-lane'
   | 'identity';
 
 export interface CommandEveOnboardingItem {
@@ -176,6 +178,13 @@ export interface CommandEveOnboardingStatusOptions {
    * Returns the seat's client-truth seed, or undefined when the seat is unseeded.
    */
   readActiveSeatSeed?: () => CommandEveSeatSeedRecord | undefined;
+  /**
+   * COMPA-624 Inc.3 — injectable per-seat Honcho readiness reader (the P6 bridge).
+   * Drives the NON-blocking 'memory-lane' item. Undefined ⇒ no snapshot ⇒ the lane
+   * is a soft skip (memory falls back to Company Brain). NEVER factors into
+   * first_value_ready.
+   */
+  readHonchoState?: () => HonchoReadinessState | undefined;
 }
 
 type JsonRecord = Record<string, unknown>;
@@ -406,6 +415,37 @@ function localLaneItem(receipt?: RuntimeBootstrapReceipt): CommandEveOnboardingI
 }
 
 /**
+ * COMPA-624 Inc.3 — the NON-blocking local-memory (Honcho) lane. It mirrors
+ * localLaneItem but is driven by the per-seat readiness snapshot, and it is
+ * DELIBERATELY never `blocked`: local memory is optional + best-effort, so a
+ * not-ready Honcho is a soft `skip` (EVE silently falls back to the Company Brain
+ * + MEMORY.md), never something the user must fix and never alarming. It NEVER
+ * affects first_value_ready. `ready` reads only through the two-fact honchoReady.
+ */
+function memoryLaneItem(state?: HonchoReadinessState): CommandEveOnboardingItem {
+  if (honchoReady(state)) {
+    return {
+      id: 'memory-lane',
+      state: 'ok',
+      plain_meaning: 'EVE merkt sich den Kontext lokal auf deinem Rechner — dein Company-Gedächtnis läuft immer zusätzlich.',
+      remediation_kind: 'none',
+    };
+  }
+  const reason = state && state.reasonCode ? state.reasonCode : undefined;
+  const meaning =
+    reason === HONCHO_REASON_DECLINED
+      ? 'Das lokale Gedächtnis ist aus. EVE nutzt dein Company-Gehirn — du kannst es jederzeit später einschalten.'
+      : 'Das lokale Gedächtnis wird noch vorbereitet oder ist gerade nicht aktiv. Solange nutzt EVE dein Company-Gehirn.';
+  return {
+    id: 'memory-lane',
+    state: 'skipped',
+    plain_meaning: meaning,
+    remediation_kind: 'none',
+    reason_code: reason,
+  };
+}
+
+/**
  * ISO-6 (2nd site) — derive the onboarding identity + item for a REAL active
  * seat from its ISO-3 Company-Brain seed. The global admin profile is NEVER
  * consulted here, so a client seat's onboarding greeting can never render the
@@ -535,6 +575,9 @@ export function buildCommandEveOnboardingStatus(
     const { registration, license } = entitlementItem(entitlement);
     const cloudLane = cloudLaneItem(cloudBearerAvailable, licensed);
     const localLane = localLaneItem(parsedReceipt.receipt);
+    // COMPA-624 Inc.3 — the non-blocking local-memory lane. Read-only; a miss is a
+    // soft skip, never a block, and it is NOT part of first_value_ready below.
+    const memoryLane = memoryLaneItem(options.readHonchoState ? options.readHonchoState() : undefined);
 
     // ISO-6 (2nd site): when a REAL (non-legacy) seat is active, the onboarding
     // identity + greeting must source from THAT seat's ISO-3 Company-Brain seed
@@ -576,7 +619,7 @@ export function buildCommandEveOnboardingStatus(
       entitlement_state: entitlement.state,
       cloud_bearer_available: cloudBearerAvailable,
       identity: identitySummary,
-      items: [registration, license, cloudLane, localLane, identity],
+      items: [registration, license, cloudLane, localLane, memoryLane, identity],
       warnings,
     };
 
