@@ -63,7 +63,16 @@ if [ -n "$TOKEN_FILE" ] && [ -r "$TOKEN_FILE" ]; then
   TOKEN="$(cat "$TOKEN_FILE" 2>/dev/null | tr -d '[:space:]')"
 fi
 
-# 3) Transparent stdio: `exec` replaces this process with the real adapter,
+# 3) SCRUB operator-only secrets from the delegated worker's env. This launcher is
+#    the boundary between EVE's runtime (which legitimately holds these) and a
+#    third-party autonomous CLI worker (which must not). The delegate inherits our
+#    full env via `exec`, so anything not unset here leaks to it. COMMAND_EVE_TEAM_
+#    MANAGE_BEARER gates the team_manage propose route — a delegated worker holding
+#    it could queue team-status-change intents EVE alone is meant to raise. (The A4
+#    lease token is delivered per-role above, not a shared operator secret.)
+unset COMMAND_EVE_TEAM_MANAGE_BEARER
+
+# 4) Transparent stdio: `exec` replaces this process with the real adapter,
 #    inheriting fds 0/1/2 exactly — the wheel's JSON-RPC pipe is untouched.
 export EVE_AGENT_ID="$ROLE"
 export EVE_LEASE_TOKEN="$TOKEN"

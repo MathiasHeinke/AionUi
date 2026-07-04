@@ -25,10 +25,10 @@ const isMac = process.platform === 'darwin' || process.platform === 'linux'; // 
 interface RunResult {
   code: number | null;
   stdout: string;
-  proof: { EVE_AGENT_ID?: string; EVE_LEASE_TOKEN?: string } | null;
+  proof: { EVE_AGENT_ID?: string; EVE_LEASE_TOKEN?: string; BEARER?: string } | null;
 }
 
-function runLauncher(dir: string, status: string, token: string, line?: string): Promise<RunResult> {
+function runLauncher(dir: string, status: string, token: string, line?: string, parentEnv?: Record<string, string>): Promise<RunResult> {
   const statusFile = path.join(dir, 'st');
   const tokenFile = path.join(dir, 'tok');
   const proofFile = path.join(dir, 'proof.json');
@@ -41,12 +41,12 @@ function runLauncher(dir: string, status: string, token: string, line?: string):
   // env to a side file, then echoes each stdin line and exits on EOF. No timers.
   fs.writeFileSync(
     adapter,
-    `printf '{"EVE_AGENT_ID":"%s","EVE_LEASE_TOKEN":"%s"}' "$EVE_AGENT_ID" "$EVE_LEASE_TOKEN" > "$PROOF_FILE"
+    `printf '{"EVE_AGENT_ID":"%s","EVE_LEASE_TOKEN":"%s","BEARER":"%s"}' "$EVE_AGENT_ID" "$EVE_LEASE_TOKEN" "$COMMAND_EVE_TEAM_MANAGE_BEARER" > "$PROOF_FILE"
 while IFS= read -r l; do printf 'echo:%s\\n' "$l"; done`
   );
   const args = [LAUNCHER, '--role', 'growth-lead', '--status-file', statusFile, '--token-file', tokenFile, '--', '/bin/sh', adapter];
   return new Promise((resolve, reject) => {
-    const child = spawn('/bin/sh', args, { env: { ...process.env, PROOF_FILE: proofFile }, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn('/bin/sh', args, { env: { ...process.env, ...parentEnv, PROOF_FILE: proofFile }, stdio: ['pipe', 'pipe', 'pipe'] });
     let stdout = '';
     child.stdout.on('data', (d) => (stdout += d.toString()));
     child.on('error', reject);
@@ -104,5 +104,17 @@ describe.skipIf(!isMac)('eve-acp-launcher.sh — CI exec proof (A3/A8)', () => {
   it('token is read whitespace-stripped (tr -d), matching the registry invariant', async () => {
     const r = await runLauncher(dir, 'active', '  tok-with-space  \n');
     expect(r.proof?.EVE_LEASE_TOKEN).toBe('tok-with-space');
+  });
+
+  it('SCRUBS COMMAND_EVE_TEAM_MANAGE_BEARER from the delegated worker env (review fix — no leak)', async () => {
+    // The parent env carries the operator bearer (as EVE's runtime would); the
+    // delegated adapter must NOT inherit it.
+    const r = await runLauncher(dir, 'active', 'tok', undefined, { COMMAND_EVE_TEAM_MANAGE_BEARER: 'operator-secret-bearer' });
+    expect(r.code).toBe(0);
+    expect(r.proof).not.toBeNull();
+    // Injected role/token still arrive…
+    expect(r.proof?.EVE_AGENT_ID).toBe('growth-lead');
+    // …but the operator bearer was scrubbed (empty in the child).
+    expect(r.proof?.BEARER ?? '').toBe('');
   });
 });

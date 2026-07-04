@@ -152,40 +152,66 @@ export async function applyTeamManageIntent(
     return { ok: false, reason };
   }
   const intent: TeamManageIntent = consumed.intent;
-  // Re-validate against the CURRENT backend state (race with a manual panel toggle):
-  // applyConsumedIntent re-runs the Floor-Guard via applyControlAction.
-  const { assignments, statuses } = await readTeam();
-  const { next, applied } = applyConsumedIntent(intent, statuses);
-  if (!applied) {
-    writeReceipt({ event: 'apply-noop', intent_id, seat_id: seatId, role: intent.role_agent_id, action: intent.action, ts: now });
-    return { ok: false, reason: 'not-applied' };
-  }
-  // The ONE write: PUT the new status map under the SAME seat-scoped key the panel
-  // uses (configService.set → PUT /api/settings/client with seatScopedKey). Same
-  // store, same key derivation — NOT a store-split.
-  await httpRequest<void>('PUT', '/api/settings/client', {
-    [seatScopedKey('commandEve.teamWorkerStatus', seatId)]: next,
-  });
-  // Refresh the derived launcher status files so the delegate-lane pause-gate is
-  // honest immediately (A3).
+  // The intent is now consumed (single-use — no double-apply). Everything past this
+  // point is wrapped: a throw after consume must NEVER silently drop the intent
+  // (review fix) — it writes a terminal apply-error receipt and reports failure so
+  // the card shows "couldn't apply" instead of the confirm vanishing without trace.
   try {
-    syncEveWorkerLauncherFiles(assignments, next, { dataPath: getDataPath(), seatId });
+    // Re-validate against the CURRENT backend state (race with a manual panel
+    // toggle): applyConsumedIntent re-runs the Floor-Guard via applyControlAction.
+    const { assignments, statuses } = await readTeam();
+    const { next, applied } = applyConsumedIntent(intent, statuses);
+    if (!applied) {
+      writeReceipt({ event: 'apply-noop', intent_id, seat_id: seatId, role: intent.role_agent_id, action: intent.action, ts: now });
+      return { ok: false, reason: 'not-applied' };
+    }
+    // The ONE write: PUT the new status map under the SAME seat-scoped key the panel
+    // uses (configService.set → PUT /api/settings/client with seatScopedKey). Same
+    // store, same key derivation — NOT a store-split.
+    await httpRequest<void>('PUT', '/api/settings/client', {
+      [seatScopedKey('commandEve.teamWorkerStatus', seatId)]: next,
+    });
+    // Refresh the derived launcher status files so the delegate-lane pause-gate is
+    // honest immediately (A3). Its success is recorded in the receipt — a throw here
+    // does NOT unwind the authoritative PUT (the shim reads teamWorkerStatus fresh,
+    // so the pause is already effective there; only the delegate-lane file may lag
+    // until the next boot/switch/panel-sync).
+    let launcherSynced = false;
+    try {
+      syncEveWorkerLauncherFiles(assignments, next, { dataPath: getDataPath(), seatId });
+      launcherSynced = true;
+    } catch (error) {
+      console.warn('[Command EVE] launcher sync after team_manage apply failed:', error);
+    }
+    writeReceipt({
+      event: 'applied',
+      intent_id,
+      seat_id: seatId,
+      role: intent.role_agent_id,
+      action: intent.action,
+      before: (statuses as Record<string, string>)[intent.role_agent_id] ?? 'active',
+      after: (next as Record<string, string>)[intent.role_agent_id] ?? 'active',
+      launcher_synced: launcherSynced,
+      decided_by: 'user-confirm',
+      source: intent.source,
+      ts: now,
+    });
+    return { ok: true, role_agent_id: intent.role_agent_id, action: intent.action };
   } catch (error) {
-    console.warn('[Command EVE] launcher sync after team_manage apply failed:', error);
+    // A failure AFTER the intent was consumed (readTeam or the PUT threw): no silent
+    // drop — terminal receipt + honest failure. No partial write happened (the PUT
+    // is a single atomic call; if it threw, nothing was persisted).
+    writeReceipt({
+      event: 'apply-error',
+      intent_id,
+      seat_id: seatId,
+      role: intent.role_agent_id,
+      action: intent.action,
+      error: error instanceof Error ? error.message : String(error),
+      ts: now,
+    });
+    return { ok: false, reason: 'error' };
   }
-  writeReceipt({
-    event: 'applied',
-    intent_id,
-    seat_id: seatId,
-    role: intent.role_agent_id,
-    action: intent.action,
-    before: (statuses as Record<string, string>)[intent.role_agent_id] ?? 'active',
-    after: (next as Record<string, string>)[intent.role_agent_id] ?? 'active',
-    decided_by: 'user-confirm',
-    source: intent.source,
-    ts: now,
-  });
-  return { ok: true, role_agent_id: intent.role_agent_id, action: intent.action };
 }
 
 /** Reject/dismiss the pending intent (the card's dismiss button). */
