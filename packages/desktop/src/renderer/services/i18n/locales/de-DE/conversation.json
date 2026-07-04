@@ -505,7 +505,9 @@
       "blocked": "EVE hat sensible Daten vor dem Modell blockiert ({{count}} Treffer).",
       "redacted": "EVE hat sensible Daten vor dem Modell bereinigt ({{count}} Treffer).",
       "clear": "Letzter Modellaufruf ohne sensible Treffer.",
-      "disabled": "PII-Schutz aus"
+      "disabled": "PII-Schutz aus",
+      "disabledFootnote": "* Datenschutz aus",
+      "disabledHint": "Datenschutz-Filter ist aus — hier klicken, um ihn in den Einstellungen wieder anzuschalten."
     }
   },
   "sendbox": {

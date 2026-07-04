@@ -821,6 +821,8 @@ export type I18nKey =
   | 'conversation.runtimeStatus.egress.blocked'
   | 'conversation.runtimeStatus.egress.clear'
   | 'conversation.runtimeStatus.egress.disabled'
+  | 'conversation.runtimeStatus.egress.disabledFootnote'
+  | 'conversation.runtimeStatus.egress.disabledHint'
   | 'conversation.runtimeStatus.egress.redacted'
   | 'conversation.runtimeStatus.logs'
   | 'conversation.runtimeStatus.logsOpenFailed'

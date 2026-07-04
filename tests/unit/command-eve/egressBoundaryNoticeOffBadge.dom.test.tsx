@@ -36,34 +36,43 @@ vi.mock('@/common', () => ({
   },
 }));
 
+// The unobtrusive off-footnote opens the privacy settings on click — stub the modal
+// hook so this DOM test does not pull in the heavy SettingsModal tree.
+vi.mock('@/renderer/components/settings/SettingsModal/useSettingsModal', () => ({
+  useSettingsModal: () => ({ openSettings: vi.fn(), closeSettings: vi.fn(), settingsModal: null, visible: false }),
+}));
+
 import EgressBoundaryNotice from '@/renderer/pages/conversation/platforms/acp/EgressBoundaryNotice';
 
-describe('EgressBoundaryNotice — persistent PII-Schutz-aus badge (S11)', () => {
+describe('EgressBoundaryNotice — unobtrusive "Datenschutz aus" footnote (S11)', () => {
   beforeEach(() => {
     cleanup();
     configValues.clear();
   });
   afterEach(() => cleanup());
 
-  it('renders the "PII-Schutz aus" badge while mode is off', async () => {
+  it('renders the unobtrusive off-footnote while mode is off', async () => {
     configValues.set('commandEve.egressStatusVisible', true);
     configValues.set('commandEve.egressRedactionMode', 'off');
     render(<EgressBoundaryNotice active={false} />);
-    expect(await screen.findByText('PII-Schutz aus')).toBeInTheDocument();
+    // Small muted footnote, not a prominent banner — and it is a clickable control.
+    const footnote = await screen.findByText('* Datenschutz aus');
+    expect(footnote).toBeInTheDocument();
+    expect(footnote.closest('button')).not.toBeNull();
   });
 
-  it('shows the off-badge EVEN when the data-boundary display signal is hidden (waiver can not be concealed)', async () => {
+  it('shows the off-footnote EVEN when the data-boundary display signal is hidden (waiver can not be concealed)', async () => {
     configValues.set('commandEve.egressStatusVisible', false); // display strip hidden
     configValues.set('commandEve.egressRedactionMode', 'off');
     render(<EgressBoundaryNotice active={false} />);
-    expect(await screen.findByText('PII-Schutz aus')).toBeInTheDocument();
+    expect(await screen.findByText('* Datenschutz aus')).toBeInTheDocument();
   });
 
-  it('does NOT render the off-badge when mode is on (absent ⇒ on)', () => {
+  it('does NOT render the off-footnote when mode is on (absent ⇒ on)', () => {
     configValues.set('commandEve.egressStatusVisible', true);
     // egressRedactionMode absent ⇒ on.
     const { container } = render(<EgressBoundaryNotice active={false} />);
-    expect(screen.queryByText('PII-Schutz aus')).toBeNull();
+    expect(screen.queryByText('* Datenschutz aus')).toBeNull();
     // With no redaction action and mode on, the component renders nothing.
     expect(container).toBeEmptyDOMElement();
   });

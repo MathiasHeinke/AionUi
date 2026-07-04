@@ -6,6 +6,7 @@
 
 import { ipcBridge } from '@/common';
 import { useConfig } from '@/renderer/hooks/config/useConfig';
+import { useSettingsModal } from '@/renderer/components/settings/SettingsModal/useSettingsModal';
 import { Shield } from '@icon-park/react';
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -31,6 +32,7 @@ type EgressBoundaryStatus = {
  */
 const EgressBoundaryNotice: React.FC<{ active?: boolean }> = ({ active = false }) => {
   const { t } = useTranslation();
+  const { openSettings, settingsModal } = useSettingsModal();
   const [egressVisibleSetting] = useConfig('commandEve.egressStatusVisible');
   const egressVisible = egressVisibleSetting ?? true;
   // S11 — PER-SEAT PII/DSGVO switch. When the operator turned the filter OFF for
@@ -61,14 +63,22 @@ const EgressBoundaryNotice: React.FC<{ active?: boolean }> = ({ active = false }
     };
   }, [egressVisible, active]);
 
-  // The persistent "PII-Schutz aus" badge is shown even when the data-boundary
-  // signal is hidden (`egressVisible` off): a DSGVO control-waiver must always be
-  // visible and cannot be dismissed via the display toggle.
+  // The persistent "Datenschutz aus" hint must stay VISIBLE while the filter is off
+  // (a DSGVO control-waiver is never invisible), but it must be UNOBTRUSIVE — a small,
+  // muted footnote, NOT a prominent red banner (founder 2026-07-04). One click opens
+  // the privacy settings to turn it back on.
   const offBadge = redactionDisabled ? (
-    <div className='mb-8px flex items-center gap-6px px-12px py-6px rd-12px border border-solid border-border-2 bg-fill-1 text-12px text-danger-6'>
-      <Shield theme='outline' size='13' />
-      <span>{t('conversation.runtimeStatus.egress.disabled', { defaultValue: 'PII-Schutz aus' })}</span>
-    </div>
+    <button
+      type='button'
+      onClick={() => openSettings('system')}
+      title={t('conversation.runtimeStatus.egress.disabledHint', {
+        defaultValue: 'Datenschutz-Filter ist aus — hier klicken, um ihn in den Einstellungen wieder anzuschalten.',
+      })}
+      className='mb-4px inline-flex items-center gap-4px border-none bg-transparent px-0 text-11px text-t-tertiary opacity-60 hover:opacity-100 hover:underline cursor-pointer'
+    >
+      <Shield theme='outline' size='11' />
+      <span>{t('conversation.runtimeStatus.egress.disabledFootnote', { defaultValue: '* Datenschutz aus' })}</span>
+    </button>
   ) : null;
 
   const egressDecision = egressBoundary?.decision;
@@ -103,6 +113,9 @@ const EgressBoundaryNotice: React.FC<{ active?: boolean }> = ({ active = false }
     <>
       {offBadge}
       {actionStrip}
+      {/* Mounted so the unobtrusive "Datenschutz aus" footnote can open the privacy
+          settings directly (system tab) — self-contained, no global settings owner. */}
+      {offBadge ? settingsModal : null}
     </>
   );
 };

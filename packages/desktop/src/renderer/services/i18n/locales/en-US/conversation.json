@@ -529,7 +529,9 @@
       "blocked": "EVE blocked sensitive data before model egress ({{count}} finding(s)).",
       "redacted": "EVE redacted sensitive data before model egress ({{count}} finding(s)).",
       "clear": "Last model call had no sensitive findings.",
-      "disabled": "PII protection off"
+      "disabled": "PII protection off",
+      "disabledFootnote": "* Privacy off",
+      "disabledHint": "The privacy filter is off — click to turn it back on in settings."
     }
   },
   "commandEveLocalMarketingIntent": {
