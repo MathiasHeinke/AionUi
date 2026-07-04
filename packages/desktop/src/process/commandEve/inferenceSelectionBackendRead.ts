@@ -72,9 +72,17 @@ export async function readInferenceSelectionFromBackend(): Promise<string | unde
 
   try {
     const settings = await httpRequest<Record<string, unknown>>('GET', '/api/settings/client');
-    // Prefer the seat-physical key; fall back to the un-prefixed key so a legacy
-    // holder (or a value written before seat scoping) is still found.
-    const raw = settings?.[physicalKey] ?? settings?.[INFERENCE_SELECTION_KEY];
+    // Read the seat-physical key ONLY — do NOT fall back to the un-prefixed key on a
+    // REAL seat (C1/C3 class, full-history re-audit). The un-prefixed value is the
+    // FOUNDER/legacy seat's selection; a real client seat that never picked a model
+    // would otherwise INHERIT the founder's tier (e.g. paid EVE Max) and silently
+    // route the client's chats to the metered cloud lane, while the renderer — which
+    // already refuses the un-prefixed read for a real seat — shows EVE Standard. An
+    // absent scoped value maps (via resolveEffectiveInferenceSelection at the call
+    // site) to the intended EVE-Standard default, matching the renderer. On the
+    // legacy seat physicalKey === INFERENCE_SELECTION_KEY (un-prefixed), so this
+    // still reads the founder's own value there; ditto for an unresolvable seat.
+    const raw = settings?.[physicalKey];
     return typeof raw === 'string' && raw.trim().length > 0 ? raw : undefined;
   } catch {
     return undefined;

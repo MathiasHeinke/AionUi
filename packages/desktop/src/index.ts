@@ -513,7 +513,10 @@ function setCommandEveCompanyOsRootEnv(): void {
  * side-channel. See teamWorkerStatusResolverCore.ts for the full rationale.
  */
 function buildCommandEveShimTeamStatusResolver(): () => Promise<EveTeamWorkerStatusMap | undefined> {
-  return createTeamWorkerStatusResolver(readCommandEveSettingsFromBackend, (error) =>
+  // Pass getActiveSeatId so the last-known-good roster is keyed PER SEAT (the shim is
+  // a seat-switch-surviving singleton; a single snapshot would let one seat's roster
+  // be served for another on a hiccup — full-history re-audit).
+  return createTeamWorkerStatusResolver(readCommandEveSettingsFromBackend, getActiveSeatId, (error) =>
     console.warn('[Command EVE] EVE shim team-status backend read failed; using last-known-good roster:', error)
   );
 }

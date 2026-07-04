@@ -42,11 +42,43 @@ describe('createTeamWorkerStatusResolver (fresh read + last-known-good)', () => 
       .mockResolvedValueOnce({ [KEY]: { ceo: 'off' } })
       .mockRejectedValueOnce(new Error('backend down'));
     const onError = vi.fn();
-    const resolver = createTeamWorkerStatusResolver(read, onError);
+    const resolver = createTeamWorkerStatusResolver(read, undefined, onError);
 
     expect(await resolver()).toEqual({ ceo: 'off' }); // seeds last-known-good
     expect(await resolver()).toEqual({ ceo: 'off' }); // hiccup → holds the line
     expect(onError).toHaveBeenCalledTimes(1);
+  });
+
+  it('SEAT-KEYED last-known-good: a hiccup on seat B never serves seat A\'s roster', async () => {
+    // Seat B fires a worker (off); switch to seat A (worker active); switch back to
+    // seat B and the read HICCUPS — the resolver must hold seat B's OWN 'off', never
+    // resurrect seat B's worker from seat A's 'active'.
+    let seat = 'seat-B';
+    const read = vi
+      .fn()
+      .mockResolvedValueOnce({ [KEY]: { worker: 'off' } }) // seat B read
+      .mockResolvedValueOnce({ [KEY]: { worker: 'active' } }) // seat A read
+      .mockRejectedValueOnce(new Error('backend hiccup')); // seat B read fails
+    const resolver = createTeamWorkerStatusResolver(read, () => seat);
+
+    expect(await resolver()).toEqual({ worker: 'off' }); // seat B — LKG[B] = off
+    seat = 'seat-A';
+    expect(await resolver()).toEqual({ worker: 'active' }); // seat A — LKG[A] = active
+    seat = 'seat-B';
+    // Seat B hiccup → returns seat B's own LKG ('off'), NOT seat A's 'active'.
+    expect(await resolver()).toEqual({ worker: 'off' });
+  });
+
+  it('SEAT-KEYED: a hiccup on a never-read seat returns undefined (no cross-seat gating leak)', async () => {
+    let seat = 'seat-A';
+    const read = vi
+      .fn()
+      .mockResolvedValueOnce({ [KEY]: { worker: 'off' } }) // seat A read
+      .mockRejectedValueOnce(new Error('backend hiccup')); // seat C read fails (never read)
+    const resolver = createTeamWorkerStatusResolver(read, () => seat);
+    expect(await resolver()).toEqual({ worker: 'off' }); // seat A
+    seat = 'seat-C';
+    expect(await resolver()).toBeUndefined(); // seat C never read → no roster, no gating
   });
 
   it('an error BEFORE any successful read returns undefined (fail-open, no gating)', async () => {

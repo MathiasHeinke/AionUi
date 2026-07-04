@@ -53,31 +53,46 @@ export type CommandEveSettingsBatchReader = (
  */
 export function createTeamWorkerStatusResolver(
   readSettings: CommandEveSettingsBatchReader,
+  // Sample the ACTIVE seat so the last-known-good snapshot is keyed PER SEAT. The
+  // shim is a singleton that survives seat switches; a single cross-seat snapshot
+  // would let seat A's roster be served for seat B on a hiccup (full-history
+  // re-audit): after seat B fired a worker ('off'), switching to seat A refreshes
+  // the snapshot to seat A's 'active', then a seat-B read hiccup returned seat A's
+  // 'active' → seat B's fired/paused worker resumes SPENDING. Keying by seat means a
+  // hiccup only ever returns THIS seat's own last-known-good (or undefined). Defaults
+  // to a single '' key (legacy/single-seat behaviour) when not provided.
+  getSeatId: () => string = () => '',
   onError?: (error: unknown) => void
 ): () => Promise<EveTeamWorkerStatusMap | undefined> {
-  let lastKnownGood: EveTeamWorkerStatusMap | undefined;
+  const lastKnownGoodBySeat = new Map<string, EveTeamWorkerStatusMap>();
 
   return async () => {
+    let seatId = '';
+    try {
+      seatId = getSeatId() || '';
+    } catch {
+      seatId = '';
+    }
     try {
       const bag = await readSettings([TEAM_WORKER_STATUS_KEY]);
       const statuses = bag[TEAM_WORKER_STATUS_KEY];
       if (statuses && typeof statuses === 'object') {
-        // Successful read → refresh last-known-good and return it.
-        lastKnownGood = statuses as EveTeamWorkerStatusMap;
-        return lastKnownGood;
+        // Successful read → refresh THIS seat's last-known-good and return it.
+        lastKnownGoodBySeat.set(seatId, statuses as EveTeamWorkerStatusMap);
+        return statuses as EveTeamWorkerStatusMap;
       }
       // Read succeeded but the key is absent (never configured) ⇒ a genuine "no
-      // status map" (every worker active). Seed the snapshot to the empty map so
-      // a later transient error cannot resurrect a stale roster; return undefined
+      // status map" (every worker active). Seed THIS seat's snapshot to the empty map
+      // so a later transient error cannot resurrect a stale roster; return undefined
       // to preserve the exact no-gating default the shim expects.
-      lastKnownGood = {};
+      lastKnownGoodBySeat.set(seatId, {});
       return undefined;
     } catch (error) {
-      // Backend hiccup: hold the line on the last-known-good roster (a worker
-      // fired before the hiccup stays fired), while a transient error never
-      // bricks every worker.
+      // Backend hiccup: hold the line on THIS SEAT's last-known-good roster ONLY (a
+      // worker fired before the hiccup stays fired), never another seat's. An unread
+      // seat ⇒ undefined (no gating — today's fail-open default).
       onError?.(error);
-      return lastKnownGood;
+      return lastKnownGoodBySeat.get(seatId);
     }
   };
 }
