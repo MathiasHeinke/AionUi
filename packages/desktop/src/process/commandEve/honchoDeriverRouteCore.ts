@@ -89,7 +89,15 @@ export function buildCommandEveShimHonchoDeriverRouteResolver(deps: {
       if (functionUrl.length === 0 || license.length === 0) return { active: false };
       return { active: true, functionUrl, license };
     } catch (error) {
-      if (typeof deps.onError === 'function') deps.onError(error);
+      // Fail-closed EVEN if the error sink itself throws (Codex #4) — the deriver
+      // must never egress because of a logging failure.
+      if (typeof deps.onError === 'function') {
+        try {
+          deps.onError(error);
+        } catch {
+          /* swallow — the route still fails closed below */
+        }
+      }
       return { active: false };
     }
   };

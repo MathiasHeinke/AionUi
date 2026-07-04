@@ -24,7 +24,7 @@
  */
 
 import { HONCHO_REASON_DECLINED, HONCHO_REASON_DEP_MISSING } from './honchoReadinessCore';
-import { HONCHO_DERIVER_BRANCH_CLOUD, type HonchoRuntimeConfig } from './honchoRuntimeConfigCore';
+import { HONCHO_DERIVER_BRANCH_LOCAL, type HonchoRuntimeConfig } from './honchoRuntimeConfigCore';
 
 /** Extra skip reasons specific to the provisioning decision (non-secret UI codes). */
 export const HONCHO_REASON_MODE_OFF = 'HONCHO_MODE_OFF';
@@ -123,8 +123,13 @@ export function buildHonchoProvisionPlan(input: {
 
   // The cloud-flash deriver authenticates with the CEVE license; without one it
   // could never derive, so provisioning Postgres would be dead weight. Fail-closed.
+  // DEFAULT-DENY on the branch (Codex #2): the RUNTIME default deriver is cloud-
+  // flash — local is chosen ONLY when explicitly opted-in+ready. So a missing /
+  // unknown branch is treated as CLOUD and MUST have a license; only an EXPLICIT
+  // local-ollama branch waives it.
   const branch = input.config && input.config.deriver ? input.config.deriver.branch : undefined;
-  if (branch === HONCHO_DERIVER_BRANCH_CLOUD && consent.hasLicense !== true) {
+  const isExplicitLocal = branch === HONCHO_DERIVER_BRANCH_LOCAL;
+  if (!isExplicitLocal && consent.hasLicense !== true) {
     return disabled(HONCHO_REASON_DEP_MISSING);
   }
 

@@ -46,6 +46,14 @@ export function honchoMcpServerForSeat(
 ): CommandEveHermesMcpServer | undefined {
   if (ready !== true) return undefined;
   if (!cfg || !cfg.dbUri || !cfg.workspaceId || !cfg.honchoHome) return undefined;
+  // Honor the config's OWN readiness too (Codex #5): a config that can not
+  // authenticate a deriver (cfg.ready === false) must never be advertised, even if
+  // the runtime `ready` flag was passed true at the shell seam.
+  if (cfg.ready === false) return undefined;
+  // Defense-in-depth (Codex #1): NEVER serialise a credential into the MCP env. The
+  // Inc.1 config produces a passwordless loopback dbUri (peer/socket auth); reject
+  // any dbUri carrying userinfo (`user:pass@host`) rather than leak it into env.
+  if (cfg.dbUri.includes('@')) return undefined;
   const command = launcher && typeof launcher.command === 'string' ? launcher.command.trim() : '';
   if (command.length === 0) return undefined;
   return {

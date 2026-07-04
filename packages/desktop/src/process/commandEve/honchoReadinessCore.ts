@@ -94,7 +94,10 @@ export function honchoReadyFromSnapshot(
   const maxAgeMs = opts && typeof opts.maxAgeMs === 'number' ? opts.maxAgeMs : HONCHO_READINESS_MAX_AGE_MS;
   const at = snapshot && snapshot.probedAt ? Date.parse(snapshot.probedAt) : NaN;
   if (!Number.isFinite(at)) return false; // no/invalid timestamp ⇒ deny
-  return now - at <= maxAgeMs;
+  const age = now - at;
+  // A FUTURE-dated probe (age < 0 — clock skew or a malformed/tampered snapshot)
+  // is not trustworthy and must NOT read fresh (Codex #3): require 0 <= age <= max.
+  return age >= 0 && age <= maxAgeMs;
 }
 
 /**

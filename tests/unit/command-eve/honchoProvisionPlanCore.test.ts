@@ -57,6 +57,15 @@ describe('honchoProvisionPlanCore — fail-safe gates (every miss disables, neve
     expect(p.honchoEnabled).toBe(true);
   });
 
+  it('MISSING/unknown branch defaults to CLOUD ⇒ requires a license (Codex #2)', () => {
+    // no config at all + no license ⇒ must NOT enable (default deriver is cloud-flash)
+    const p = buildHonchoProvisionPlan({ consent: { memoryOptedIn: true, hasLicense: false }, detection: ALL_PRESENT });
+    expect(p.honchoEnabled).toBe(false);
+    expect(p.skipReason).toBe(HONCHO_REASON_DEP_MISSING);
+    // with a license, missing branch (treated cloud) is fine
+    expect(buildHonchoProvisionPlan({ consent: { memoryOptedIn: true, hasLicense: true }, detection: ALL_PRESENT }).honchoEnabled).toBe(true);
+  });
+
   it('free disk below the floor ⇒ disabled / HONCHO_BLOCKED_DISK', () => {
     const p = buildHonchoProvisionPlan({ consent: OPTED, config: CLOUD, detection: { ...ALL_PRESENT, freeDiskGb: HONCHO_MIN_FREE_DISK_GB - 0.5 } });
     expect(p.honchoEnabled).toBe(false);

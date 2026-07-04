@@ -67,6 +67,10 @@ describe('honchoReadinessCore — honchoReadyFromSnapshot freshness guard', () =
   it('DENIES a non-ready snapshot regardless of freshness', () => {
     expect(honchoReadyFromSnapshot({ ...READY, deriverReachable: false }, { now })).toBe(false);
   });
+  it('DENIES a FUTURE-dated snapshot (clock skew / tampered receipt cannot read fresh)', () => {
+    const future = { ...READY, probedAt: '2999-01-01T00:00:00.000Z' };
+    expect(honchoReadyFromSnapshot(future, { now })).toBe(false);
+  });
 });
 
 describe('honchoReadinessCore — reduceHonchoReadiness (default-deny rows)', () => {

@@ -65,4 +65,16 @@ describe('honchoMcpServerCore — ready entry + per-seat isolation', () => {
     expect(json).not.toContain('@'); // no user:pass@ in the dbUri
     expect(json.toLowerCase()).not.toContain('password');
   });
+
+  it('REJECTS a passwordful dbUri rather than leak it into env (Codex #1)', () => {
+    const tainted = { dbUri: 'postgresql://u:secret@127.0.0.1:5432/honcho_a', workspaceId: 'ws_a', honchoHome: '/h' };
+    expect(honchoMcpServerForSeat(tainted, true, LAUNCHER)).toBeUndefined();
+  });
+
+  it('honors cfg.ready === false (does not advertise a config that can not authenticate — Codex #5)', () => {
+    // a cloud config without a license has ready:false
+    const notReadyCfg = buildHonchoRuntimeConfig({ seatId: SEAT_A, seatHome: resolveSeatHome(USER_DATA, SEAT_A), hasLicense: false });
+    expect(notReadyCfg.ready).toBe(false);
+    expect(honchoMcpServerForSeat(notReadyCfg, true, LAUNCHER)).toBeUndefined();
+  });
 });

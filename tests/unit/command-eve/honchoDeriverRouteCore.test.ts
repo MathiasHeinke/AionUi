@@ -105,6 +105,20 @@ describe('buildCommandEveShimHonchoDeriverRouteResolver — fail-closed resolver
     expect(onError).toHaveBeenCalledOnce();
   });
 
+  it('fail-closed even when onError ITSELF throws (Codex #4 — a logging failure must not egress)', () => {
+    const route = buildCommandEveShimHonchoDeriverRouteResolver({
+      ...baseDeps(),
+      readHonchoSeatReady: () => {
+        throw new Error('backend read failed');
+      },
+      onError: () => {
+        throw new Error('sink blew up too');
+      },
+    });
+    expect(() => route()).not.toThrow();
+    expect(route().active).toBe(false);
+  });
+
   it('when inactive, no license or url is present in the returned route', () => {
     const route = buildCommandEveShimHonchoDeriverRouteResolver({ ...baseDeps(), readHonchoSeatReady: () => undefined })();
     expect(JSON.stringify(route)).not.toContain('CEVE');
