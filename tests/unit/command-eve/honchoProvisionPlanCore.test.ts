@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest';
 import {
   HONCHO_MIN_FREE_DISK_GB,
   HONCHO_REASON_BLOCKED_DISK,
+  HONCHO_REASON_BLOCKED_RAM,
   HONCHO_REASON_MODE_OFF,
   HONCHO_STEP_DB,
   HONCHO_STEP_HOMEBREW,
@@ -77,6 +78,16 @@ describe('honchoProvisionPlanCore — fail-safe gates (every miss disables, neve
     const p = buildHonchoProvisionPlan({ consent: OPTED, config: CLOUD, detection: { ...ALL_PRESENT, freeDiskGb: HONCHO_MIN_FREE_DISK_GB - 0.5 } });
     expect(p.honchoEnabled).toBe(false);
     expect(p.skipReason).toBe(HONCHO_REASON_BLOCKED_DISK);
+  });
+
+  it('RAM below the floor (8GB Air) ⇒ disabled / HONCHO_BLOCKED_RAM; 16GB ⇒ enabled (perf audit)', () => {
+    const air = buildHonchoProvisionPlan({ consent: OPTED, config: CLOUD, detection: { ...ALL_PRESENT, totalMemoryGb: 8 } });
+    expect(air.honchoEnabled).toBe(false);
+    expect(air.skipReason).toBe(HONCHO_REASON_BLOCKED_RAM);
+    const pro = buildHonchoProvisionPlan({ consent: OPTED, config: CLOUD, detection: { ...ALL_PRESENT, totalMemoryGb: 16 } });
+    expect(pro.honchoEnabled).toBe(true);
+    // unknown RAM is not gated (the caller always supplies os.totalmem())
+    expect(buildHonchoProvisionPlan({ consent: OPTED, config: CLOUD, detection: ALL_PRESENT }).honchoEnabled).toBe(true);
   });
 
   it('a needed install the user DECLINED ⇒ disabled / HONCHO_DEP_MISSING (fail-safe)', () => {

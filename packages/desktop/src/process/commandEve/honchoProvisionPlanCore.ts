@@ -29,6 +29,7 @@ import { HONCHO_DERIVER_BRANCH_LOCAL, type HonchoRuntimeConfig } from './honchoR
 /** Extra skip reasons specific to the provisioning decision (non-secret UI codes). */
 export const HONCHO_REASON_MODE_OFF = 'HONCHO_MODE_OFF';
 export const HONCHO_REASON_BLOCKED_DISK = 'HONCHO_BLOCKED_DISK';
+export const HONCHO_REASON_BLOCKED_RAM = 'HONCHO_BLOCKED_RAM';
 
 /**
  * Free-disk floor for the Honcho stack itself (Postgres + pgvector + honcho-ai —
@@ -36,6 +37,17 @@ export const HONCHO_REASON_BLOCKED_DISK = 'HONCHO_BLOCKED_DISK';
  * modest so Honcho only skips on a genuinely full disk.
  */
 export const HONCHO_MIN_FREE_DISK_GB = 2;
+
+/**
+ * Unified-memory floor for running the LOCAL Honcho stack (Postgres + pgvector +
+ * a FastAPI server + a deriver worker ≈ +300-700MB PERMANENT). The perf deep-audit
+ * (Opus + Codex, both CRITICAL) showed an 8GB MacBook Air already sits ~4.5-5.5GB
+ * with EVE + one chat open, so adding Honcho tips it into swap for near-zero
+ * benefit (its deriver can only be the cloud lane on 8GB anyway). Below this floor
+ * Honcho stays OFF and memory falls back to the always-on, cheap Company Brain +
+ * MEMORY.md. 10 GB blocks an 8GB Air while allowing a 16GB machine.
+ */
+export const HONCHO_MIN_UNIFIED_MEMORY_GB = 10;
 
 /** The canonical ORDERED provisioning step ids. */
 export const HONCHO_STEP_HOMEBREW = 'honcho-homebrew';
@@ -58,6 +70,8 @@ export interface HonchoDepDetection {
   /** per-seat database + the `vector` extension already exist. */
   dbProvisioned?: boolean;
   freeDiskGb?: number;
+  /** Total unified memory (os.totalmem()/2^30). Gates the local Honcho stack. */
+  totalMemoryGb?: number;
 }
 
 /** User consent + entitlement state (flat + optional; absence ⇒ safe default). */
@@ -135,6 +149,15 @@ export function buildHonchoProvisionPlan(input: {
 
   if (typeof detection.freeDiskGb === 'number' && detection.freeDiskGb < HONCHO_MIN_FREE_DISK_GB) {
     return disabled(HONCHO_REASON_BLOCKED_DISK);
+  }
+
+  // RAM floor (perf audit — Opus + Codex CRITICAL): the local Honcho server stack
+  // (+300-700MB permanent) must not provision on a low-memory machine where it
+  // would push EVE into swap. Below the floor Honcho stays off; memory falls back
+  // to Company Brain + MEMORY.md. A missing value is not gated (the caller — the
+  // bootstrap — always passes os.totalmem()).
+  if (typeof detection.totalMemoryGb === 'number' && detection.totalMemoryGb < HONCHO_MIN_UNIFIED_MEMORY_GB) {
+    return disabled(HONCHO_REASON_BLOCKED_RAM);
   }
 
   // Python is satisfied when a supported interpreter exists (the package installs
