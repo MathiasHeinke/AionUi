@@ -655,17 +655,32 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     if (!activeFilePath) return;
 
-    const pollId = setInterval(() => {
+    const pollActive = () => {
       const current = activeTabRef.current;
       if (current) checkFileUpdate(current);
-    }, 1000);
+    };
+    // Perf (8GB audit): this is a per-SECOND IPC round-trip to main for external
+    // file-change detection. Suspend it while the window is hidden so a backgrounded
+    // window stops hammering main (macOS App Nap); run one immediate check when the
+    // window returns to the foreground so an edit made by an external CLI while
+    // backgrounded is picked up as soon as the operator comes back.
+    const tick = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      pollActive();
+    };
+    const pollId = setInterval(tick, 1000);
 
     // Check immediately on tab switch
-    const current = activeTabRef.current;
-    if (current) checkFileUpdate(current);
+    pollActive();
+
+    const onVisible = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') pollActive();
+    };
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible);
 
     return () => {
       clearInterval(pollId);
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible);
     };
   }, [activeFilePath, checkFileUpdate]);
 

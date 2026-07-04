@@ -56,10 +56,23 @@ const EgressBoundaryNotice: React.FC<{ active?: boolean }> = ({ active = false }
     };
     refresh();
     // Poll faster while a turn is in flight (egress actions happen during generation).
-    const timer = window.setInterval(refresh, active ? 2500 : 10000);
+    // Perf (8GB audit): gate the tick on window visibility so a backgrounded window
+    // stops the 2.5–10s IPC heartbeat (which otherwise keeps main + aioncore awake and
+    // defeats macOS App Nap). Catch up with one immediate refresh when it returns to
+    // the foreground so a redact/block that happened while hidden shows promptly.
+    const tick = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      refresh();
+    };
+    const timer = window.setInterval(tick, active ? 2500 : 10000);
+    const onVisible = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') refresh();
+    };
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible);
     };
   }, [egressVisible, active]);
 

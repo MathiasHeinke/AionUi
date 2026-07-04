@@ -365,6 +365,11 @@ let commandEveSessionDigestInFlight: Promise<unknown> | null = null;
 
 const OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
 const SESSION_DIGEST_TIMEOUT_MS = 12_000;
+// Perf (8GB audit): a session digest is a BACKGROUND nice-to-have. Below this unified-
+// memory floor we skip its local inference entirely so it can't compete with the
+// foreground turn for RAM on a low-memory machine (e.g. an 8GB Air). Matches the local-
+// runtime RAM floor; cloud-only machines already no-op via the Ollama tags probe.
+const SESSION_DIGEST_MIN_MEMORY_GB = 10;
 
 /** Resolve the local aioncore backend port the restart hook publishes (main-side). */
 function getCommandEveBackendPort(): number | undefined {
@@ -380,6 +385,16 @@ function getCommandEveBackendPort(): number | undefined {
  * — NEVER a raw-text fallback (privacy: no raw transcript in the brain).
  */
 async function generateLocalDigest(prompt: string): Promise<string | null> {
+  // Perf (8GB audit): skip the background digest inference on a low-RAM machine so it
+  // never competes with the foreground turn. Fail-quiet (return null = no digest, never
+  // a raw-text fallback), exactly like an Ollama-down probe. A RAM read failure falls
+  // through to the tags/model probes below, which still gate on Ollama being present.
+  try {
+    const os = await import('node:os');
+    if (os.totalmem() / 1024 ** 3 < SESSION_DIGEST_MIN_MEMORY_GB) return null;
+  } catch {
+    /* RAM unreadable — fall through; the Ollama tags probe still gates the cost */
+  }
   const withTimeout = async (input: string, init: RequestInit): Promise<Response> => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), SESSION_DIGEST_TIMEOUT_MS);
