@@ -2536,29 +2536,53 @@ export function initCommandEveBridge(): void {
     };
 
     try {
-      const { buildAccountWebUrl, COMMAND_EVE_WEB_ORIGIN } = await import('@process/commandEve/accountWebHandoffCore');
+      const { buildAccountWebUrl, buildAccountWebHandoffUrl, mintAccountWebHandoffCode, COMMAND_EVE_WEB_ORIGIN } = await import(
+        '@process/commandEve/accountWebHandoffCore'
+      );
       const path = typeof request?.path === 'string' && request.path.startsWith('/') ? request.path : '/account';
 
       // Read the session at rest (MAIN only). getFreshSession rotates a near-expiry
-      // access token; we only need the refresh_token, which the website exchanges.
+      // access token. We need the ACCESS token to mint the reverse-handoff code, and
+      // keep the refresh_token only for the legacy fallback during the rollout.
       let refreshToken: string | undefined;
+      let accessToken: string | undefined;
       try {
         const { getFreshSession } = await import('@process/commandEve/accountSessionAtRest');
         const fresh = await getFreshSession(getDataPath());
-        if (fresh.ok && fresh.session?.refresh_token) {
-          refreshToken = fresh.session.refresh_token;
+        if (fresh.ok && fresh.session) {
+          refreshToken = fresh.session.refresh_token || undefined;
+          accessToken = fresh.session.access_token || undefined;
         }
       } catch {
-        // No/failed session → carry no token; the naked URL below still opens.
+        // No/failed session → carry nothing; the naked URL below still opens.
         refreshToken = undefined;
+        accessToken = undefined;
       }
 
-      // Build the URL in MAIN (token stays here); origin is pinned to command-eve.com.
-      const url = buildAccountWebUrl(COMMAND_EVE_WEB_ORIGIN, path, refreshToken);
+      // H5/H7 (Codex): PREFER the reverse-handoff single-use CODE — the URL then
+      // carries NO token (`#hc=<code>`), and the website redeems it for a freshly-
+      // minted INDEPENDENT session (so the desktop's own refresh_token is never
+      // consumed/rotated). If minting fails (Edge Fn not deployed yet / offline / no
+      // session) fall back to the legacy `#h=<refresh_token>` URL so the buy path
+      // never breaks during the rollout. Once account-web-handoff is live, the code
+      // path wins automatically and the raw-token fallback is dead.
+      let handoffCode: string | null = null;
+      if (accessToken) {
+        const { resolveSupabaseAnonKey } = await import('@process/commandEve/desktopAuthLoopback');
+        handoffCode = await mintAccountWebHandoffCode({
+          getAccessToken: async () => accessToken ?? null,
+          anonKey: resolveSupabaseAnonKey(),
+        });
+      }
+
+      // Build the URL in MAIN (any secret stays here); origin is pinned to command-eve.com.
+      const url = handoffCode
+        ? buildAccountWebHandoffUrl(COMMAND_EVE_WEB_ORIGIN, path, handoffCode)
+        : buildAccountWebUrl(COMMAND_EVE_WEB_ORIGIN, path, refreshToken);
       await openExternal(url);
-      // NEVER return the url (it may carry the fragment token) — only ok + whether
-      // a session was carried (a boolean, not the token) for the renderer's UX.
-      return { success: true, data: { ok: true, carried_session: Boolean(refreshToken) } };
+      // NEVER return the url (it may carry the fragment code/token) — only ok + whether
+      // a session was carried (a boolean, never the secret) for the renderer's UX.
+      return { success: true, data: { ok: true, carried_session: Boolean(handoffCode || refreshToken) } };
     } catch (error) {
       // Even on a failure to read/build/open with the token, try the NAKED url so
       // the operator still reaches the site (logged out → /login). Never throw the

@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { COMMAND_EVE_SUPABASE_URL } from './desktopAuthLoopback';
+
 /**
  * APP→WEB AUTH HANDOFF — pure URL builder (money-critical).
  *
@@ -45,6 +47,15 @@ export const COMMAND_EVE_WEB_ORIGIN = 'https://command-eve.com';
 export const HANDOFF_FRAGMENT_KEY = 'h';
 
 /**
+ * The fragment key for the H5/H7 REVERSE-HANDOFF single-use code (`#hc=<code>`).
+ * Unlike `#h=`, this carries NO token — only a 90s single-use code the website
+ * exchanges (via the account-web-handoff Edge Fn REDEEM leg) for a freshly-minted,
+ * independent browser session. See
+ * docs/strategy/command-eve-account-web-handoff-code-spec-2026-07-04.md.
+ */
+export const HANDOFF_CODE_FRAGMENT_KEY = 'hc';
+
+/**
  * Build the account-web URL the MAIN process opens in the system browser.
  *
  *  - `baseOrigin` MUST be the pinned command-eve.com origin (any other value is
@@ -82,4 +93,66 @@ export function buildAccountWebUrl(baseOrigin: string, path: string, refreshToke
 
   // Fragment, NOT query: keeps the token out of server logs + the Referer header.
   return `${naked}#${HANDOFF_FRAGMENT_KEY}=${encodeURIComponent(token)}`;
+}
+
+/**
+ * Build the account-web URL for the H5/H7 REVERSE-HANDOFF: the fragment carries a
+ * single-use `handoffCode` (`#hc=<code>`), NEVER a token. Same origin-pin +
+ * path-validation as buildAccountWebUrl. When `handoffCode` is absent/empty this
+ * returns the NAKED url — the caller uses that as the signal to fall back to the
+ * legacy token path (or a logged-out open) during the rollout transition.
+ *
+ * The code is short-lived (90s) and single-use, so — unlike the raw refresh token —
+ * even if the fragment were observed it cannot re-establish a session after the
+ * first redeem. Still: the caller must never LOG the returned URL.
+ */
+export function buildAccountWebHandoffUrl(baseOrigin: string, path: string, handoffCode?: string): string {
+  if (typeof path !== 'string' || !path.startsWith('/')) {
+    throw new Error('accountWebHandoff: path must be an absolute app path beginning with "/"');
+  }
+  const origin = baseOrigin === COMMAND_EVE_WEB_ORIGIN ? baseOrigin : COMMAND_EVE_WEB_ORIGIN;
+  const naked = `${origin}${path}`;
+  const code = typeof handoffCode === 'string' ? handoffCode.trim() : '';
+  if (!code) return naked;
+  return `${naked}#${HANDOFF_CODE_FRAGMENT_KEY}=${encodeURIComponent(code)}`;
+}
+
+/** The account-web-handoff Edge Function URL (reverse-handoff ISSUE/REDEEM). */
+export const ACCOUNT_WEB_HANDOFF_FUNCTION_URL = `${COMMAND_EVE_SUPABASE_URL}/functions/v1/account-web-handoff`;
+
+/** Injected deps for the ISSUE call — keep the helper unit-testable off Electron. */
+export interface MintAccountWebHandoffDeps {
+  /** Returns the current Supabase ACCESS token, or null when there is no session. */
+  getAccessToken: () => Promise<string | null>;
+  /** The Supabase anon key (sent as `apikey`). */
+  anonKey: string;
+  fetch?: typeof fetch;
+  functionUrl?: string;
+}
+
+/**
+ * H5/H7 ISSUE leg (desktop side): exchange the desktop's OWN session for a
+ * single-use handoff CODE via the account-web-handoff Edge Fn. Returns the code, or
+ * `null` on ANY failure (no session, endpoint not deployed / 404, offline, bad body)
+ * — the caller then falls back to the legacy token URL during the rollout
+ * transition. The code is opaque and short-lived; NEVER log it or the response.
+ */
+export async function mintAccountWebHandoffCode(deps: MintAccountWebHandoffDeps): Promise<string | null> {
+  const access = await deps.getAccessToken().catch((): null => null);
+  if (!access) return null;
+  const fetchImpl = deps.fetch ?? (globalThis.fetch as typeof fetch);
+  const url = deps.functionUrl ?? ACCOUNT_WEB_HANDOFF_FUNCTION_URL;
+  try {
+    const res = await fetchImpl(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', apikey: deps.anonKey, Authorization: `Bearer ${access}` },
+      body: JSON.stringify({ action: 'issue' }),
+    });
+    if (!res.ok) return null;
+    const json = (await res.json().catch((): null => null)) as { ok?: boolean; handoff_code?: string } | null;
+    const code = json && json.ok === true && typeof json.handoff_code === 'string' ? json.handoff_code.trim() : '';
+    return code.length > 0 ? code : null;
+  } catch {
+    return null;
+  }
 }
