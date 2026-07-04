@@ -76,6 +76,7 @@ const useDebug = () => {
 };
 
 const UpdateModal = React.lazy(() => import('@/renderer/components/settings/UpdateModal'));
+const TeamManageConfirmCard = React.lazy(() => import('@/renderer/components/team/TeamManageConfirmCard'));
 
 const DEFAULT_SIDER_WIDTH = 260;
 const DESKTOP_COLLAPSED_WIDTH = 0;
@@ -394,6 +395,13 @@ const Layout: React.FC<{
               <Suspense fallback={null}>
                 <UpdateModal />
               </Suspense>
+              {/* SG-1 Design B: the team_manage confirm card polls for a pending
+                  EVE proposal and surfaces the button-only confirm gate globally. */}
+              {COMMAND_EVE_SHELL_ENABLED && (
+                <Suspense fallback={null}>
+                  <TeamManageConfirmCard />
+                </Suspense>
+              )}
             </ArcoLayout.Content>
           </ArcoLayout>
         </div>

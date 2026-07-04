@@ -33,6 +33,7 @@ import {
   applyConsumedIntent,
   buildProposeResponse,
   consumeIntent,
+  describeProposal,
   peekIntentForSeat,
   type TeamManageIntent,
 } from './eveTeamManageBridgeCore';
@@ -129,7 +130,9 @@ export function peekTeamManageForRenderer(): {
     intent_id: intent.intent_id,
     role_agent_id: intent.role_agent_id,
     action: intent.action,
-    summary: '',
+    // The human German diff, computed main-side so the renderer stays free of any
+    // process-module import.
+    summary: describeProposal(intent.role_agent_id, intent.action),
     reason: intent.reason,
     expires_ms: intent.expires_ms,
   };

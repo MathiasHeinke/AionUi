@@ -1788,7 +1788,10 @@ export const commandEve = {
   // (renderer renders a confirm card when present; recoverable after restart, B4);
   // apply = the confirmed write; reject = dismiss.
   teamManagePeek: bridge.buildProvider<
-    IBridgeResponse<{ ok: boolean; pending: { intent_id: string; role_agent_id: string; action: string; reason: string; expires_ms: number } | null }>,
+    IBridgeResponse<{
+      ok: boolean;
+      pending: { intent_id: string; role_agent_id: string; action: string; summary: string; reason: string; expires_ms: number } | null;
+    }>,
     void
   >('command-eve.team-manage-peek'),
   teamManageApply: bridge.buildProvider<
