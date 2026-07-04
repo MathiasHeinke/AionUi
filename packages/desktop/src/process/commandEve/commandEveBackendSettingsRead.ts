@@ -52,6 +52,22 @@ import { isSeatScopedConfigKey, seatScopedKey } from '@/common/config/seatConfig
 import { getActiveSeatId } from './seatContextCore';
 
 /**
+ * SECURITY (C1, full-history audit): seat-scoped keys that must NEVER legacy-inherit
+ * on a real seat. For a normal store-split key (teamWorkerStatus / workerAssignments /
+ * localModelTierId / modelWarmupEnabled) a real seat with no scoped value may fall
+ * back to the un-prefixed legacy value (a benign migration/convenience carry-over,
+ * and the renderer tolerates it for those). But for a PII/security SWITCH that
+ * fallback is fail-OPEN: a client seat that never toggled `egressRedactionMode` would
+ * inherit the FOUNDER seat's `'off'` and ship the client's emails/phones/addresses
+ * RAW to the EVE cloud, while the UI (which refuses the un-prefixed read for a real
+ * seat) still shows the seat as protected. For these keys a real seat reads ONLY its
+ * own scoped value; absent ⇒ omitted ⇒ the caller's SAFE default (the egress resolver
+ * fail-safes to 'on' = always redact). The legacy/founder seat is unaffected
+ * (physicalKeyFor returns the un-prefixed key verbatim there).
+ */
+const NO_LEGACY_INHERIT_KEYS: ReadonlySet<string> = new Set<string>(['commandEve.egressRedactionMode']);
+
+/**
  * Resolve the seat-physical key for a logical `commandEve.*` key (seat-scoped
  * keys get the active-seat prefix; install-global keys pass through unchanged).
  * Fail-soft: if the seat context is not resolvable yet, fall back to the
@@ -93,10 +109,16 @@ export async function readCommandEveSettingsFromBackend(
   const out: Record<string, unknown> = {};
   for (const logicalKey of logicalKeys) {
     const physicalKey = physicalKeyFor(logicalKey);
-    // Prefer the seat-physical key; fall back to the un-prefixed logical key so a
-    // legacy holder (or a value written before seat scoping) is still found —
-    // identical precedence to inferenceSelectionBackendRead.
-    const raw = settings[physicalKey] ?? settings[logicalKey];
+    // Prefer the seat-physical key. Fall back to the un-prefixed legacy key ONLY for
+    // non-security keys (migration/convenience carry-over) — NEVER for a
+    // NO_LEGACY_INHERIT_KEYS security switch, where inheriting the founder seat's
+    // value is fail-OPEN (see C1 above: a client seat inheriting egressRedactionMode
+    // 'off' → raw PII to the cloud). For those the fallback is dropped, so a real
+    // seat with no scoped value resolves to its caller's SAFE default. On the legacy
+    // seat physicalKey === logicalKey, so the fallback is a no-op there regardless.
+    const raw = NO_LEGACY_INHERIT_KEYS.has(logicalKey)
+      ? settings[physicalKey]
+      : settings[physicalKey] ?? settings[logicalKey];
     if (raw !== undefined && raw !== null) {
       out[logicalKey] = raw;
     }

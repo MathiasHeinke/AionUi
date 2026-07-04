@@ -101,6 +101,28 @@ describe('readCommandEveSettingsFromBackend (shared batch reader)', () => {
     expect(bag['commandEve.teamWorkerStatus']).toEqual({ ceo: 'off' });
   });
 
+  it('C1 SECURITY: a real seat NEVER inherits the un-prefixed egressRedactionMode (no fail-open PII waiver)', async () => {
+    const seatId = 'seat-acme-gmbh';
+    setActiveSeatId(seatId);
+    // The founder/legacy seat disabled redaction in HIS own brief (un-prefixed 'off').
+    // A real client seat with no scoped value must NOT inherit that waiver.
+    httpRequestMock.mockResolvedValue({ 'commandEve.egressRedactionMode': 'off' });
+    const bag = await readCommandEveSettingsFromBackend(['commandEve.egressRedactionMode']);
+    // The key is OMITTED (not inherited) → the egress resolver applies its safe default 'on'.
+    expect('commandEve.egressRedactionMode' in bag).toBe(false);
+  });
+
+  it('C1: a real seat DOES read its OWN scoped egressRedactionMode (an explicit per-seat off is still honored)', async () => {
+    const seatId = 'seat-acme-gmbh';
+    setActiveSeatId(seatId);
+    httpRequestMock.mockResolvedValue({
+      [seatScopedKey('commandEve.egressRedactionMode', seatId)]: 'off',
+      'commandEve.egressRedactionMode': 'on', // a stray legacy value must not interfere either way
+    });
+    const bag = await readCommandEveSettingsFromBackend(['commandEve.egressRedactionMode']);
+    expect(bag['commandEve.egressRedactionMode']).toBe('off');
+  });
+
   it('reads an INSTALL-GLOBAL key verbatim (no seat prefix even under a real seat)', async () => {
     setActiveSeatId('seat-acme-gmbh');
     // localModelTierId is NOT seat-scoped → read under the un-prefixed key.
