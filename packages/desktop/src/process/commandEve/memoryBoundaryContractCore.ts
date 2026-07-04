@@ -76,9 +76,13 @@ const KNOWN_STORES: MemoryBoundaryStore[] = ['company-brain', 'memory-md', 'user
  * is not gated here (0 = no cap).
  */
 export const MEMORY_BOUNDARY_MAX_CHARS: Record<MemoryBoundaryStore, number> = {
-  'company-brain': 8000,
-  'memory-md': 8000,
-  'user-md': 8000,
+  // Durable stores hold facts/briefs/summaries. A long client brief is legitimate
+  // (several thousand chars), so the cap only catches an EGREGIOUS raw-transcript dump
+  // — it must never false-reject a real brief. The session digest is genuinely short
+  // (the digest core caps its own output at ~600), so it gets a tight cap.
+  'company-brain': 40000,
+  'memory-md': 40000,
+  'user-md': 40000,
   'session-digest': 2000,
   honcho: 0,
 };

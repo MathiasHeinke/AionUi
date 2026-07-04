@@ -138,8 +138,12 @@ describe('memory-boundary — oversize raw-transcript smell', () => {
     expect(d.reasonCode).toBe(MEMORY_BOUNDARY_OVERSIZE);
   });
 
-  it('rejects a company-brain write past the 8000-char cap', () => {
-    expect(enforceMemoryBoundary({ operation: 'write', store: 'company-brain', activeSeatId: 's', targetSeatId: 's', payloadText: 'y'.repeat(8001) }).reasonCode).toBe(MEMORY_BOUNDARY_OVERSIZE);
+  it('allows a long-but-legitimate company-brain brief (no false-reject under the dump cap)', () => {
+    expect(enforceMemoryBoundary({ operation: 'write', store: 'company-brain', activeSeatId: 's', targetSeatId: 's', payloadText: 'y'.repeat(20000) }).ok).toBe(true);
+  });
+
+  it('rejects a company-brain write past the 40000-char dump cap', () => {
+    expect(enforceMemoryBoundary({ operation: 'write', store: 'company-brain', activeSeatId: 's', targetSeatId: 's', payloadText: 'y'.repeat(40001) }).reasonCode).toBe(MEMORY_BOUNDARY_OVERSIZE);
   });
 
   it('allows a digest write at the cap', () => {

@@ -109,6 +109,7 @@ import { COMMAND_EVE_HANDOVER_NOTE_RELPATH, HANDOVER_NOTE_MAX_RAW_CHARS } from '
 import nodePath from 'node:path';
 import { COMMAND_EVE_DAY_ZERO_BRIEF_ID, listEntriesWithState, mirrorBriefBodyToFile, pruneSessionDigests, readEntryBody, reconcileUnindexedEntries, removeEntry, SESSION_DIGEST_KIND, upsertEntry, upsertSystemEntry, type CompanyBrainWriteKind } from '@process/commandEve/companyBrainStoreCore';
 import { runSessionDigest, type SessionDigestDeps } from '@process/commandEve/sessionDigestCore';
+import { enforceMemoryBoundary } from '@process/commandEve/memoryBoundaryContractCore';
 import {
   createElectronPdfRenderer,
   exportReport,
@@ -929,14 +930,25 @@ export function initCommandEveBridge(): void {
         // the seed into an error, so it is logged and swallowed.
         if (result.ok) {
           try {
-            upsertEntry(result.hermesHome, {
-              id: COMMAND_EVE_DAY_ZERO_BRIEF_ID,
-              kind: 'brief',
-              title: 'Day-0 Briefing',
-              body: result.record.value,
-              author: 'user',
-              source: 'seed-migration',
-            });
+            // COMPA-625: the seed always writes to the ACTIVE seat (resolveActiveSeatHome),
+            // so active===target here; the boundary's real work at this site is the S3 hard
+            // floor — a day-0 brief carrying a raw secret/health/finance must not be
+            // persisted into the durable per-client brain. Best-effort: a rejected brief is
+            // logged + skipped (the seed write itself already succeeded), never an error.
+            const seatId = getActiveSeatId();
+            const guard = enforceMemoryBoundary({ operation: 'write', store: 'company-brain', activeSeatId: seatId, targetSeatId: seatId, payloadText: result.record.value });
+            if (!guard.ok) {
+              console.warn('[Command EVE] 625 memory-boundary skipped seed→brain brief:', guard.reasonCode);
+            } else {
+              upsertEntry(result.hermesHome, {
+                id: COMMAND_EVE_DAY_ZERO_BRIEF_ID,
+                kind: 'brief',
+                title: 'Day-0 Briefing',
+                body: result.record.value,
+                author: 'user',
+                source: 'seed-migration',
+              });
+            }
           } catch (error) {
             console.warn('[Command EVE] seed→brain brief entry upsert failed (seed itself succeeded):', error);
           }
@@ -1154,7 +1166,16 @@ export function initCommandEveBridge(): void {
         if (!request || typeof request.kind !== 'string' || typeof request.title !== 'string') {
           return { success: false, msg: 'COMPANY_BRAIN_WRITE_BAD_REQUEST', data: { ok: false, reason_code: 'COMPANY_BRAIN_WRITE_BAD_REQUEST' } as unknown };
         }
-        const home = resolveActiveSeatHome(getDataPath()).hermesHome;
+        const seatHome = resolveActiveSeatHome(getDataPath());
+        const home = seatHome.hermesHome;
+        // COMPA-625: enforce the memory-boundary contract before the durable write. This
+        // is a user-initiated write, so a rejection is surfaced (not silently skipped) —
+        // the S3 hard floor stops a raw secret/health/finance from being persisted into
+        // the per-client brain, and the seat check pins it to the active seat.
+        const guard = enforceMemoryBoundary({ operation: 'write', store: 'company-brain', activeSeatId: seatHome.seatId, targetSeatId: seatHome.seatId, payloadText: request.body ?? '' });
+        if (!guard.ok) {
+          return { success: false, msg: `COMPANY_BRAIN_WRITE_BOUNDARY_${guard.reasonCode}`, data: { ok: false, reason_code: `memory_boundary_${guard.reasonCode}` } as unknown };
+        }
         const result = upsertEntry(home, {
           id: request.id,
           kind: request.kind as CompanyBrainWriteKind, // upsertEntry re-validates against the write allowlist
@@ -1216,8 +1237,11 @@ export function initCommandEveBridge(): void {
     // even if a switch begins mid-run the write targets the home resolved at start; the
     // post-inference fence re-check then refuses the write if a switch is in flight.
     let home = '';
+    let seatId = '';
     try {
-      home = resolveActiveSeatHome(getDataPath()).hermesHome;
+      const seatHome = resolveActiveSeatHome(getDataPath());
+      home = seatHome.hermesHome;
+      seatId = seatHome.seatId;
     } catch {
       return { success: false, msg: 'SESSION_DIGEST_NO_SEAT', data: { ok: false, reason_code: 'SESSION_DIGEST_NO_SEAT', outcome: 'error' } as unknown };
     }
@@ -1227,6 +1251,15 @@ export function initCommandEveBridge(): void {
       resolveTitle: (id) => fetchConversationTitle(id),
       generateDigest: (prompt) => generateLocalDigest(prompt),
       writeDigestEntry: ({ id, title, body, now }) => {
+        // COMPA-625: a digest summarizes a transcript that could echo a raw secret the
+        // model repeated. Gate the durable write with the S3 hard floor + seat check
+        // before it lands in the per-seat brain. Best-effort — a rejected digest is
+        // logged + skipped (no digest is an honest, safe outcome).
+        const guard = enforceMemoryBoundary({ operation: 'write', store: 'session-digest', activeSeatId: seatId, targetSeatId: seatId, payloadText: body });
+        if (!guard.ok) {
+          console.warn('[Command EVE] 625 memory-boundary skipped session digest:', guard.reasonCode);
+          return;
+        }
         upsertSystemEntry(home, { id, kind: SESSION_DIGEST_KIND, title, body, author: 'eve', source: 'chat', now });
       },
       pruneDigests: () => pruneSessionDigests(home).pruned,
