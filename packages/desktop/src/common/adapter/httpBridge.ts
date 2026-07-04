@@ -181,7 +181,24 @@ export function isBackendHttpError(error: unknown): error is BackendHttpError {
  */
 export type HttpRequestOptions = {
   silentStatuses?: number[];
+  /**
+   * Abort the request after this many ms (perf audit — Codex). The aioncore
+   * backend is a LOCAL loopback service; a call that has not answered in seconds
+   * means it is stalled (e.g. paged out under memory pressure on an 8GB Air), and
+   * hanging forever makes EVE appear stuck before the first token. Callers already
+   * fail-safe on a thrown error (settings resolvers fall back to safe defaults), so
+   * a timeout degrades gracefully. Defaults to {@link DEFAULT_HTTP_TIMEOUT_MS};
+   * hot-path reads can pass a shorter value. `0` disables the timeout.
+   */
+  timeoutMs?: number;
 };
+
+/**
+ * Generous default so it only ever catches a genuinely stalled loopback backend,
+ * never a slow-but-valid call. 15s = "the backend is wedged", not "the backend is
+ * busy". Hot-path settings reads should override with ~2s.
+ */
+export const DEFAULT_HTTP_TIMEOUT_MS = 15000;
 
 const SENSITIVE_LOG_KEY_PATTERN =
   /api[_-]?key|authorization|auth[_-]?token|access[_-]?token|refresh[_-]?token|secret|password|passwd|pwd|credential/i;
@@ -220,11 +237,27 @@ export async function httpRequest<T>(
     body !== undefined ? JSON.stringify(redactForLog(body)).slice(0, 500) : '(no body)'
   );
 
-  const response = await fetch(url, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  // Bound the loopback call so a stalled aioncore can never hang EVE forever
+  // (perf audit). A timeout aborts → throws → the caller's existing fail-safe path.
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_HTTP_TIMEOUT_MS;
+  const controller = timeoutMs > 0 ? new AbortController() : undefined;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : undefined;
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: controller?.signal,
+    });
+  } catch (error) {
+    if (controller?.signal.aborted) {
+      throw new BackendHttpError({ method, path, status: 0, body: `Local backend did not respond within ${timeoutMs}ms (stalled).` });
+    }
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 
   if (!response.ok) {
     // Response body can only be consumed once — read as text, then try JSON

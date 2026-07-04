@@ -426,7 +426,18 @@ describe('httpBridge', () => {
         method: 'GET',
         headers: {},
         body: undefined,
+        // A default timeout AbortSignal is now attached so a stalled loopback
+        // backend can never hang EVE forever (perf audit).
+        signal: expect.any(AbortSignal),
       });
+    });
+
+    it('timeoutMs:0 disables the abort signal (opt-out)', async () => {
+      const fetchSpy = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: {} }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      vi.stubGlobal('fetch', fetchSpy);
+      vi.spyOn(console, 'debug').mockImplementation(() => {});
+      await httpRequest('GET', '/api/no-timeout', undefined, { timeoutMs: 0 });
+      expect(fetchSpy.mock.calls[0][1]?.signal).toBeUndefined();
     });
 
     it('sends JSON body for POST with content-type', async () => {
