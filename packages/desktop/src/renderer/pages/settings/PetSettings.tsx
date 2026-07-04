@@ -26,7 +26,12 @@ const PetSettings: React.FC = () => {
   const isDesktop = isElectronDesktop();
 
   useEffect(() => {
-    setEnabled(configService.get('pet.enabled') ?? true);
+    // Honest default: the MAIN-process spawn gate (index.ts) only creates the pet
+    // window when pet.enabled === true, so an absent value means the pet is OFF.
+    // The old `?? true` DISPLAY default lied — it showed the toggle ON while no pet
+    // ever spawned ("pets don't run") and implied an unasked ~100-250MB extra
+    // renderer on 8GB. OFF-by-default matches reality + the perf budget.
+    setEnabled(configService.get('pet.enabled') ?? false);
     setSize(configService.get('pet.size') ?? 280);
     setDnd(configService.get('pet.dnd') ?? false);
     setConfirmEnabled(configService.get('pet.confirmEnabled') ?? true);
