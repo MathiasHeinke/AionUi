@@ -21,6 +21,7 @@ import {
   type EveTeamWorkerStatusMap,
 } from '../../common/config/eveTeamControlsCore';
 import { EVE_INFERENCE_TIERS } from '../../common/config/eveInferenceCore';
+import { HONCHO_DERIVER_FORCED_TIER } from './honchoRuntimeConfigCore';
 
 /**
  * The known EVE wire tiers (registry SSOT) — derived from EVE_INFERENCE_TIERS so
@@ -163,6 +164,34 @@ export type CommandEveTeamManageProposeHandler = (
   proposal: unknown
 ) => Promise<{ status: number; payload: unknown }>;
 
+/**
+ * COMPA-624 — the Honcho DERIVER cloud lane route resolver. The local Honcho
+ * memory server's deriver LLM (the dialectical user-model reasoning, NOT the
+ * user's chat) rides a DEDICATED loopback ingress (`POST /honcho/deriver/...`)
+ * that is picker-INDEPENDENT and always the FREE Standard/Flash tier.
+ *
+ * This resolver returns ONLY the transport identity — the eve-inference function
+ * URL + the CEVE license bearer — and DELIBERATELY carries NO `tier`: the shim
+ * forces {@link HONCHO_DERIVER_FORCED_TIER} ('standard') itself, so no caller,
+ * picker, or future edit can make EVE's memory-derivation bill a paid tier
+ * (the money invariant, enforced server-side to match honchoRuntimeConfigCore).
+ *
+ * `active: false` / omitted ⇒ the deriver lane is INERT (503) — a build without
+ * Honcho provisioned behaves byte-identically to before this lane existed.
+ */
+export type CommandEveHonchoDeriverRoute = {
+  active: boolean;
+  /** Absolute https URL of the eve-inference Edge Function (same lane as chat). */
+  functionUrl?: string;
+  /** The CEVE license wire string used verbatim as the bearer credential. */
+  license?: string;
+};
+
+export type CommandEveHonchoDeriverRouteResolver = () =>
+  | CommandEveHonchoDeriverRoute
+  | undefined
+  | Promise<CommandEveHonchoDeriverRoute | undefined>;
+
 export type CommandEveOllamaShimOptions = {
   port?: number;
   ollamaBaseUrl?: string;
@@ -216,6 +245,13 @@ export type CommandEveOllamaShimOptions = {
    * inert. When provided (operator seat), it validates + stores the pending intent.
    */
   teamManagePropose?: CommandEveTeamManageProposeHandler;
+  /**
+   * Optional Honcho deriver cloud-lane route resolver (COMPA-624). Provides the
+   * eve-inference URL + license for the picker-independent `POST /honcho/deriver`
+   * lane. Omitted / `{ active: false }` ⇒ the deriver lane is inert (503), so the
+   * shim is byte-identical to before until Honcho is provisioned for the seat.
+   */
+  honchoDeriverRoute?: CommandEveHonchoDeriverRouteResolver;
 };
 
 export type CommandEveModelWarmupOptions = {
@@ -908,6 +944,57 @@ async function handleEveCloudCompletions(
   response.end(text || JSON.stringify({ error: { message: `EVE Inference request failed (${upstream.status}).` } }));
 }
 
+/**
+ * COMPA-624 — the Honcho DERIVER cloud lane. A DEDICATED ingress the local Honcho
+ * memory server points its deriver LLM at when it falls back to the FREE cloud
+ * lane (no local Gemma). It is deliberately SEPARATE from the chat lane:
+ *
+ *  - PICKER-INDEPENDENT: it NEVER calls options.eveRouting(), so it does not
+ *    matter what tier the operator picked for their chat — the deriver always
+ *    reaches the free lane (a local-tier picker would otherwise strand it).
+ *  - FREE-TIER FORCED: the wire tier is the literal HONCHO_DERIVER_FORCED_TIER
+ *    ('standard'), set HERE, never read from a selection. An operator on eve-max
+ *    can never make EVE's memory-derivation bill a paid tier (the money invariant).
+ *  - EGRESS-SAFE: it delegates to handleEveCloudCompletions, so the SAME S11/S13
+ *    egress boundary (PII redaction + receipt) runs before any byte leaves the
+ *    machine — identical guarantee to chat, per the founder DSGVO requirement.
+ *  - NOT A WARMUP: on its own path there is no isCommandEveWarmupRequest ambiguity
+ *    (a 'ping' deriver call is a real request here, never silently routed local).
+ *
+ * No dispatch token: the deriver is EVE's OWN memory reasoning, not a delegated
+ * team worker, so attribution defaults to `eve` (and team pause/fire gating,
+ * which only blocks positively-known delegated roles, is a no-op for it).
+ */
+async function handleHonchoDeriverCompletions(
+  request: IncomingMessage,
+  response: ServerResponse,
+  options: Required<CommandEveOllamaShimOptions>
+): Promise<void> {
+  const body = await readBody(request);
+  const deriverRoute = await options.honchoDeriverRoute();
+  const functionUrl = typeof deriverRoute?.functionUrl === 'string' ? deriverRoute.functionUrl.trim() : '';
+  const license = typeof deriverRoute?.license === 'string' ? deriverRoute.license.trim() : '';
+  // Fail CLOSED: without an active free-lane route + license the deriver has no
+  // way to authenticate — never egress half-configured. The config core's
+  // `ready` gate should already have kept the deriver from starting on this path.
+  if (!deriverRoute?.active || functionUrl.length === 0 || license.length === 0) {
+    jsonResponse(response, 503, {
+      error: { message: 'Honcho deriver cloud lane is unavailable (no free-tier route or license).' },
+    });
+    return;
+  }
+  // FORCE the free Standard/Flash tier — a literal from honchoRuntimeConfigCore,
+  // NEVER the user's picker tier. handleEveCloudCompletions validates it against
+  // KNOWN_EVE_WIRE_TIERS, so a future rename that broke the constant fails loud.
+  const forcedRoute: CommandEveEveCloudRoute = {
+    active: true,
+    functionUrl,
+    license,
+    tier: HONCHO_DERIVER_FORCED_TIER,
+  };
+  await handleEveCloudCompletions(body, response, options, forcedRoute, undefined);
+}
+
 async function handleChatCompletions(
   request: IncomingMessage,
   response: ServerResponse,
@@ -1131,6 +1218,9 @@ export async function startCommandEveOllamaOpenAiShim(shimOptions: CommandEveOll
         status: 404,
         payload: { error: { message: 'team_manage is not available on this seat.' } },
       })),
+    // COMPA-624: default is an INERT deriver lane (503) until main injects the
+    // free-tier route on a seat where Honcho is provisioned — purely additive.
+    honchoDeriverRoute: shimOptions.honchoDeriverRoute || ((): CommandEveHonchoDeriverRoute => ({ active: false })),
   };
   server = http.createServer((request, response) => {
     void (async () => {
@@ -1145,6 +1235,12 @@ export async function startCommandEveOllamaOpenAiShim(shimOptions: CommandEveOll
       }
       if (request.method === 'POST' && path === '/v1/chat/completions') {
         await handleChatCompletions(request, response, options);
+        return;
+      }
+      // COMPA-624 — the Honcho deriver's dedicated FREE cloud lane. Separate path
+      // so it is picker-independent + free-tier-forced + never a warmup-ping.
+      if (request.method === 'POST' && path === '/honcho/deriver/v1/chat/completions') {
+        await handleHonchoDeriverCompletions(request, response, options);
         return;
       }
       if (request.method === 'POST' && path === '/eve/team/propose') {
