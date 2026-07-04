@@ -4303,7 +4303,12 @@ export async function ensureCommandEveRuntimeBootstrap(
       lastWriteAt = now;
       const raw = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
       if (raw > maxPercent) maxPercent = raw;
-      writeProgress({ status: 'pulling', total, completed, percent: maxPercent });
+      // L-pull-progress (Codex): Ollama reports completed/total PER LAYER, so the
+      // first layer hits 100% while later layers are still to download — and the
+      // monotonic maxPercent would then stick at 100 for the rest of the pull. Clamp
+      // the SURFACED pulling percent to 99; only the terminal `status:'done'` write
+      // below shows 100, so the bar never claims completion mid-pull.
+      writeProgress({ status: 'pulling', total, completed, percent: Math.min(99, maxPercent) });
     });
 
     // Fallback: if the stream did not confirm success, do the proven CLI pull.
