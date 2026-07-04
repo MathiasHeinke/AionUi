@@ -141,6 +141,14 @@ describe('honchoReadinessCore — reduceHonchoReadiness (default-deny rows)', ()
     const b = reduceHonchoReadiness({ provisioned: true, serverProbe: P, deriverProbe: P, now: NOW });
     expect(a).toEqual(b);
   });
+
+  it('guards a non-finite clock: NaN/Infinity now does not throw and yields a valid ISO probedAt', () => {
+    for (const bad of [NaN, Infinity, -Infinity]) {
+      const s = reduceHonchoReadiness({ provisioned: true, serverProbe: P, deriverProbe: P, now: bad });
+      expect(Number.isFinite(Date.parse(s.probedAt as string))).toBe(true); // fell back to a real clock
+      expect(s.state).toBe(HONCHO_STATE_READY);
+    }
+  });
 });
 
 describe('honchoReadinessCore — honchoMissStatus source pin', () => {

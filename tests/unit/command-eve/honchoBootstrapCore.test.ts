@@ -146,13 +146,15 @@ describe('runHonchoBootstrap — a prerequisite failure stops the chain (never b
 });
 
 describe('runHonchoBootstrap — malformed input fail-safes (Codex O1 audit)', () => {
-  it('#1 an ENABLED but empty-steps plan never reads ready even if both probes pass', async () => {
-    const r = await runHonchoBootstrap(deps({
-      plan: { honchoEnabled: true, steps: [] },
-      probeServer: async () => true,
-      probeDeriver: async () => true,
-    }));
+  it('#1 an ENABLED but empty-steps plan never reads ready even if both probes pass — and probes are NOT called', async () => {
+    const probeServer = vi.fn(async () => true);
+    const probeDeriver = vi.fn(async () => true);
+    const r = await runHonchoBootstrap(deps({ plan: { honchoEnabled: true, steps: [] }, probeServer, probeDeriver }));
     expect(honchoReady(r.readiness)).toBe(false); // no server was started
+    // The probe must be short-circuited when nothing was provisioned — never a
+    // coincidental-loopback ready.
+    expect(probeServer).not.toHaveBeenCalled();
+    expect(probeDeriver).not.toHaveBeenCalled();
     assertNeverBlocked(r.stages);
   });
 
