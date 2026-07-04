@@ -88,6 +88,32 @@ const STATUS_COLOR: Record<EveTeamWorkerStatus, string> = {
   off: 'gray',
 };
 
+/**
+ * SG-1 A6 — the HONEST lane state of a work role. Three states, none claiming more
+ * than it knows: the free floor runs locally (its own green tag already says so);
+ * a Claude-CLI worker runs on the operator's SUBSCRIPTION (no metered per-role
+ * credits); everything else is EVE herself on the shared account. Per-role € metering
+ * (the "Metered, attribuiert" token lane) is deliberately NOT claimed here — it
+ * arrives with the 1.8 wheel train, so the card never promises attribution it can't
+ * yet deliver.
+ */
+function laneState(
+  workerKind: EveWorkerKind | null,
+  isFloor: boolean
+): { label: string; title: string } | null {
+  if (isFloor) return null; // the free-floor tag already communicates "Gratis · Lokal".
+  if (workerKind === 'claude') {
+    return {
+      label: 'Abo-Lane',
+      title: 'Läuft auf deinem eigenen Claude-Abo — keine Extra-Credits pro Rolle.',
+    };
+  }
+  return {
+    label: 'EVE-Konto',
+    title: 'EVE übernimmt das auf dem gemeinsamen Guthaben. Eine Kostenaufteilung pro Rolle kommt mit einem späteren Update.',
+  };
+}
+
 interface RoleControlsProps {
   role: EveTeamRole;
   status: EveTeamWorkerStatus;
@@ -243,6 +269,16 @@ const RoleCard: React.FC<RoleCardProps> = ({ role, statuses, workerKind, onActio
                 {STATUS_LABEL_DE[status]}
               </Tag>
             ) : null}
+            {role.kind === 'work'
+              ? (() => {
+                  const lane = laneState(workerKind, isFloor);
+                  return lane ? (
+                    <Tag size='small' color='gray' bordered title={lane.title} data-testid='role-lane-state'>
+                      {lane.label}
+                    </Tag>
+                  ) : null;
+                })()
+              : null}
           </div>
           <div className='text-sm text-t-primary mb-2'>{role.outcome}</div>
           <div className='flex items-center gap-1 flex-wrap mb-2'>
