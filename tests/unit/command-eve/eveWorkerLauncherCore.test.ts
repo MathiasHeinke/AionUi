@@ -174,5 +174,40 @@ describe('eveWorkerLauncherCore (SG-1 A3/A4)', () => {
       expect(res.tokensWritten).toHaveLength(0);
       expect(fs.existsSync(computeLauncherStatePaths(dataPath, 'seat-1', 'growth-lead').statusFile)).toBe(false);
     });
+
+    it('H12 revocation cleanup — a role switched OFF Claude gets its stale status/token REMOVED', () => {
+      syncEveWorkerLauncherFiles(
+        { 'growth-lead': { agent_id: 'growth-lead', kind: 'claude' } } as never,
+        { 'growth-lead': 'active' } as never,
+        { dataPath, seatId: 'seat-1' }
+      );
+      const p = computeLauncherStatePaths(dataPath, 'seat-1', 'growth-lead');
+      expect(fs.existsSync(p.statusFile)).toBe(true);
+      expect(fs.existsSync(p.tokenFile)).toBe(true);
+
+      // Revoked back to EVE-Runtime (no assignment) → files gone → the old launcher
+      // fail-closes (missing expected status file → exit 3).
+      syncEveWorkerLauncherFiles({} as never, {} as never, { dataPath, seatId: 'seat-1' });
+      expect(fs.existsSync(p.statusFile)).toBe(false);
+      expect(fs.existsSync(p.tokenFile)).toBe(false);
+    });
+
+    it('M1 paused/off — a previously-active token is REMOVED, status stays', () => {
+      syncEveWorkerLauncherFiles(
+        { 'growth-lead': { agent_id: 'growth-lead', kind: 'claude' } } as never,
+        { 'growth-lead': 'active' } as never,
+        { dataPath, seatId: 'seat-1' }
+      );
+      const p = computeLauncherStatePaths(dataPath, 'seat-1', 'growth-lead');
+      expect(fs.existsSync(p.tokenFile)).toBe(true);
+
+      syncEveWorkerLauncherFiles(
+        { 'growth-lead': { agent_id: 'growth-lead', kind: 'claude' } } as never,
+        { 'growth-lead': 'paused' } as never,
+        { dataPath, seatId: 'seat-1' }
+      );
+      expect(fs.readFileSync(p.statusFile, 'utf8')).toBe('paused');
+      expect(fs.existsSync(p.tokenFile)).toBe(false);
+    });
   });
 });

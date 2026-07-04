@@ -173,8 +173,23 @@ export function syncEveWorkerLauncherFiles(
 
   for (const role of roster) {
     const agentId = role.agent_id;
-    if (assignments[agentId]?.kind !== 'claude') continue;
     const paths = computeLauncherStatePaths(dataPath, seatId, agentId);
+
+    // H12 (revocation cleanup): a role that is NOT (or no longer) a Claude delegate
+    // must carry NO launcher state. Remove any stale status/token so a prior
+    // directive's launcher fail-CLOSES (a missing EXPECTED status file → exit 3, see
+    // eve-acp-launcher.sh) and no lease token lingers on disk — a role switched back
+    // to EVE-Runtime can never be silently re-run via its old launcher.
+    if (assignments[agentId]?.kind !== 'claude') {
+      try {
+        fs.rmSync(paths.statusFile, { force: true });
+        fs.rmSync(paths.tokenFile, { force: true });
+      } catch {
+        /* best-effort */
+      }
+      continue;
+    }
+
     try {
       fs.mkdirSync(paths.dir, { recursive: true });
       // Status file — bare word, no JSON (the sh launcher matches `paused`/`off`
@@ -183,8 +198,7 @@ export function syncEveWorkerLauncherFiles(
       fs.writeFileSync(paths.statusFile, status, { encoding: 'utf8', mode: 0o600 });
 
       // Token file — only for an ACTIVE, non-free, roster role (the registry
-      // enforces the free/system exclusion). Paused/off roles are not spawned, so
-      // they need no token; minting only for active keeps the token surface minimal.
+      // enforces the free/system exclusion).
       if (status === 'active') {
         const lease = currentLeaseFor(agentId, seatId) ?? mintLeaseToken(agentId, seatId);
         if (lease) {
@@ -197,6 +211,14 @@ export function syncEveWorkerLauncherFiles(
           } catch {
             /* best-effort */
           }
+        }
+      } else {
+        // M1: paused/off role is not spawned — remove any previously-active lease
+        // token so it never lingers at a SOUL-known path (minimal token surface).
+        try {
+          fs.rmSync(paths.tokenFile, { force: true });
+        } catch {
+          /* best-effort */
         }
       }
     } catch (error) {
@@ -211,10 +233,15 @@ export function syncEveWorkerLauncherFiles(
  * refresh the DERIVED status/token mirror for all Claude roles, then WRAP the
  * currently-resolved delegate (if any) so `delegate_task` launches through the
  * eve-acp-launcher. Pure over its inputs (takes resolved values — dataPath, seatId,
- * resourcesPath, env — so it stays unit-testable without electron `app`). Fail-open:
- * with no bundled launcher the delegate is returned UNWRAPPED (availability over the
- * pause-gate, which is defense-in-depth). Never throws — a state-write glitch must
- * not block delegation.
+ * resourcesPath, env — so it stays unit-testable without electron `app`).
+ *
+ * FAIL-CLOSED (audit H13): the launcher is the ONLY dynamic pause-gate + env
+ * boundary for the delegate lane. If the bundled launcher cannot be resolved (a
+ * packaging/resource failure), we do NOT wire an UNWRAPPED delegate that would run
+ * without the pause-gate + without the env scrub — we return null (no delegate this
+ * launch) and warn. A missing launcher in a shipped build is a packaging bug to fix,
+ * not a reason to silently drop the security boundary. Never throws — a state-write
+ * glitch must not block the whole resolve.
  */
 export function applyLauncherWiring(
   delegate: ResolvedClaudeDelegate | null,
@@ -229,7 +256,11 @@ export function applyLauncherWiring(
   }
   if (!delegate) return null;
   const launcherPath = resolveBundledLauncherPath(ctx.env, ctx.resourcesPath);
-  if (!launcherPath) return delegate;
+  if (!launcherPath) {
+    // H13 fail-closed: never wire an unwrapped delegate (no pause-gate, no env scrub).
+    console.warn('[Command EVE] eve-acp-launcher not found — refusing to wire an unwrapped delegate (fail-closed).');
+    return null;
+  }
   const paths = computeLauncherStatePaths(ctx.dataPath, ctx.seatId, delegate.agent_id);
   return wrapClaudeDelegateWithLauncher(delegate, {
     launcherPath,

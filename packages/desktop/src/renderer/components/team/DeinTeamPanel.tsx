@@ -342,20 +342,36 @@ const DeinTeamPanel: React.FC = () => {
   const handleWorkerChange = useCallback(
     (role: EveTeamRole, choice: RoleWorkerChoice) => {
       const current = { ...((assignments ?? {}) as Record<string, { kind: EveWorkerKind; cli_path?: string; cli_version?: string }>) };
-      if (choice === 'eve') {
-        if (!(role.agent_id in current)) return;
+      const isRevoke = choice === 'eve';
+      if (isRevoke && !(role.agent_id in current)) return;
+      if (isRevoke) {
         delete current[role.agent_id];
-        void setAssignments(current);
-        Message.info(`${role.displayName} läuft wieder über die EVE-Runtime.`);
-        return;
+      } else {
+        const assignment = buildWorkerAssignment({ agent_id: role.agent_id, kind: choice });
+        if (!assignment) return; // validator refused (never persist an invented binding)
+        current[role.agent_id] = { kind: assignment.kind, ...(assignment.cli_path ? { cli_path: assignment.cli_path } : {}), ...(assignment.cli_version ? { cli_version: assignment.cli_version } : {}) };
       }
-      const assignment = buildWorkerAssignment({ agent_id: role.agent_id, kind: choice });
-      if (!assignment) return; // validator refused (never persist an invented binding)
-      current[role.agent_id] = { kind: assignment.kind, ...(assignment.cli_path ? { cli_path: assignment.cli_path } : {}), ...(assignment.cli_version ? { cli_version: assignment.cli_version } : {}) };
-      void setAssignments(current);
-      // Precise claim (review fix): the binding affects DELEGATED tasks of this
-      // role — EVE's main turn always stays on the EVE-Runtime.
-      Message.success(`Delegierte Aufgaben von ${role.displayName} laufen jetzt über die ${choice === 'claude' ? 'Claude-CLI' : 'Codex-CLI'} — Einsatz bleibt über Status und Freigabe-Stufe gesteuert.`);
+      // M2 (audit): AWAIT the write — a backend failure must not show a false
+      // "now via …" success. H12 (audit): after the write lands, nudge main to
+      // rewrite the derived launcher state so a REVOKED role's stale .status/.token
+      // are removed (its old launcher then fail-closes) and a new binding is wired.
+      // Sequenced: the sync re-reads the backend, so it must run AFTER the PUT.
+      void (async () => {
+        try {
+          await Promise.resolve(setAssignments(current));
+        } catch {
+          Message.error('Die Zuweisung konnte nicht gespeichert werden.');
+          return;
+        }
+        if (isRevoke) {
+          Message.info(`${role.displayName} läuft wieder über die EVE-Runtime.`);
+        } else {
+          // Precise claim: the binding affects DELEGATED tasks of this role — EVE's
+          // main turn always stays on the EVE-Runtime.
+          Message.success(`Delegierte Aufgaben von ${role.displayName} laufen jetzt über die ${choice === 'claude' ? 'Claude-CLI' : 'Codex-CLI'} — Einsatz bleibt über Status und Freigabe-Stufe gesteuert.`);
+        }
+        void ipcBridge.commandEve.syncWorkerLauncherState.invoke().catch(() => {});
+      })();
     },
     [assignments, setAssignments]
   );
