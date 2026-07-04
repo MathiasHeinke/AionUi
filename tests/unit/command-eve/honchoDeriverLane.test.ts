@@ -211,7 +211,7 @@ describe('Honcho deriver cloud lane (COMPA-624)', () => {
     expect(forwarded).toContain('[REDACTED_SECRET]');
   });
 
-  it('EGRESS: STRIPS tools/tool_choice so a PII-carrying tool definition is never forwarded (Codex #2)', async () => {
+  it('EGRESS: ALLOWLISTS the outbound body — tools/tool_choice/parallel_tool_calls/response_format never forwarded (Codex #2 + re-audit)', async () => {
     const seen: EveFnSeen = { hits: 0 };
     const fnUrl = await startFakeEveFunction(seen);
     shimServerUrl = await startCommandEveOllamaOpenAiShim({
@@ -227,15 +227,22 @@ describe('Honcho deriver cloud lane (COMPA-624)', () => {
         { type: 'function', function: { name: 'crm', description: 'Kunde max@example.de IBAN DE89370400440532013000' } },
       ],
       tool_choice: 'auto',
+      parallel_tool_calls: true,
+      // an un-scanned passthrough field that could smuggle text past the messages-only egress scan
+      response_format: { type: 'json_schema', json_schema: { name: 's', description: 'secret sk-abcdefghijklmnopqrstuvwxyz123456' } },
       stream: false,
     });
 
     expect(response.status).toBe(200);
+    // Only the allowlisted fields survive.
     expect(seen.body).not.toHaveProperty('tools');
     expect(seen.body).not.toHaveProperty('tool_choice');
+    expect(seen.body).not.toHaveProperty('parallel_tool_calls');
+    expect(seen.body).not.toHaveProperty('response_format');
     const forwarded = JSON.stringify(seen.body);
     expect(forwarded).not.toContain('max@example.de');
     expect(forwarded).not.toContain('DE89370400440532013000');
+    expect(forwarded).not.toContain('abcdefghijklmnopqrstuvwxyz'); // the response_format secret never egresses
   });
 
   it('is picker-independent on the OTHER side too: reaches the cloud fn even when the chat picker is LOCAL', async () => {

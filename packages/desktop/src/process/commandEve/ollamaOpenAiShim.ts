@@ -976,14 +976,24 @@ async function handleHonchoDeriverCompletions(
   response: ServerResponse,
   options: Required<CommandEveOllamaShimOptions>
 ): Promise<void> {
-  const body = await readBody(request);
-  // The deriver is REASONING-ONLY — it never calls tools. STRIP any tools /
-  // tool_choice before forwarding: the egress boundary scans message CONTENT, not
-  // tool DEFINITIONS, so an (app-authored) tool description carrying PII would
-  // otherwise leave un-redacted on the cloud lane (Codex #2). Removing them closes
-  // that vector entirely and is semantically correct for a derivation call.
-  delete body.tools;
-  delete body.tool_choice;
+  const rawBody = await readBody(request);
+  // ALLOWLIST the outbound body (Codex #2 + re-audit HIGH). The deriver is
+  // REASONING-ONLY, so forward ONLY the fields it needs: `messages` — which the
+  // egress boundary scans + redacts (S11/S13) — plus `stream` and the harmless
+  // `model` ref. EVERY other field is dropped: tools / tool_choice /
+  // parallel_tool_calls / response_format (which handleEveCloudCompletions would
+  // otherwise pass through UN-scanned — the boundary only inspects `messages`), and
+  // any future OpenAI field. This is robust BY CONSTRUCTION, not a denylist, so no
+  // un-scanned field can ever egress on this lane.
+  //
+  // NOTE for the Inc.3 wiring: if Honcho's deriver requires `response_format` for
+  // structured output, DO NOT just re-add it here — either configure the deriver to
+  // parse free text, or extend the egress scan to cover the added field first.
+  const body: Record<string, unknown> = {
+    messages: rawBody.messages,
+    stream: rawBody.stream,
+    model: rawBody.model,
+  };
   const deriverRoute = await options.honchoDeriverRoute();
   const functionUrl = typeof deriverRoute?.functionUrl === 'string' ? deriverRoute.functionUrl.trim() : '';
   const license = typeof deriverRoute?.license === 'string' ? deriverRoute.license.trim() : '';
