@@ -102,6 +102,16 @@ describe('honchoRuntimeConfigCore — ISOLATION', () => {
     }
   });
 
+  it('C4 — buildHonchoRuntimeConfig THROWS on a seatId/seatHome mismatch (no cross-seat memory-FS merge)', () => {
+    const homeB = resolveSeatHome(USER_DATA, REAL_UUID_B);
+    // seatId A + seatHome resolved from B would give A's db/workspace but B's home.
+    expect(() => buildHonchoRuntimeConfig({ seatId: REAL_UUID_A, seatHome: homeB })).toThrow(/mismatch/i);
+    // A matching pair builds cleanly.
+    expect(() => buildHonchoRuntimeConfig({ seatId: REAL_UUID_A, seatHome: resolveSeatHome(USER_DATA, REAL_UUID_A) })).not.toThrow();
+    // Legacy id + legacy home also matches (both resolve to seat-1).
+    expect(() => buildHonchoRuntimeConfig({ seatId: undefined, seatHome: resolveSeatHome(USER_DATA, undefined) })).not.toThrow();
+  });
+
   it('4 — case-fold: ABC and abc produce IDENTICAL db, workspace and home (one seat identity)', () => {
     const upper = buildHonchoRuntimeConfig(inputFor('ABC'));
     const lower = buildHonchoRuntimeConfig(inputFor('abc'));
@@ -227,6 +237,17 @@ describe('honchoRuntimeConfigCore — DERIVER routing', () => {
     const spoofed = resolveHonchoDeriverConfig(spoofInput);
     expect(spoofed.forcedTier).toBe('standard');
     expect(spoofed).toEqual(clean);
+  });
+
+  it('C3 — the LOCAL branch REJECTS a non-loopback ollamaBaseUrl (no direct unredacted egress)', () => {
+    // A remote "local" base would emit behindEgressBoundary:false + egress un-redacted.
+    expect(() => resolveHonchoDeriverConfig({ localModelOptedIn: true, localModelReady: true, ollamaBaseUrl: EVE_INFERENCE_FUNCTION_URL })).toThrow();
+    expect(() => resolveHonchoDeriverConfig({ localModelOptedIn: true, localModelReady: true, ollamaBaseUrl: 'http://10.0.0.5:11434' })).toThrow();
+    expect(() => resolveHonchoDeriverConfig({ localModelOptedIn: true, localModelReady: true, ollamaBaseUrl: 'https://127.0.0.1:11434' })).toThrow();
+    // A genuine loopback Ollama base is accepted.
+    const ok = resolveHonchoDeriverConfig({ localModelOptedIn: true, localModelReady: true, ollamaBaseUrl: 'http://127.0.0.1:11434' });
+    expect(ok.baseUrl).toBe('http://127.0.0.1:11434/v1');
+    expect(ok.behindEgressBoundary).toBe(false);
   });
 
   it('17 — READY gate: cloud + no license ⇒ ready=false; cloud + license ⇒ true; local ⇒ true regardless', () => {

@@ -664,7 +664,13 @@ async function handleEveCloudCompletions(
   response: ServerResponse,
   options: Required<CommandEveOllamaShimOptions>,
   route: CommandEveEveCloudRoute,
-  dispatchToken: string | undefined
+  dispatchToken: string | undefined,
+  // COMPA-624 / Codex #1: when true (the Honcho deriver lane) the S3 secret HARD
+  // FLOOR is NEVER waived, even on the founder's own legacy seat. The chat lane's
+  // S13 waiver is a CONSCIOUS per-message founder choice; the deriver is AUTOMATIC
+  // background reasoning, so it must never auto-send raw secrets/finance/health to
+  // the cloud LLM. Omitted/false ⇒ chat behaviour is byte-identical.
+  neverWaiveSecretFloor = false
 ): Promise<void> {
   const functionUrl = typeof route.functionUrl === 'string' ? route.functionUrl.trim() : '';
   const license = typeof route.license === 'string' ? route.license.trim() : '';
@@ -751,7 +757,7 @@ async function handleEveCloudCompletions(
     // own (a founder posting their OWN api key to test is their choice), not a
     // client's. A real CLIENT seat has a uuid id (never legacy) ⇒ waivable=false ⇒
     // the Auftragsverarbeiter floor still protects the client's credentials.
-    secretFloorWaivable: isLegacySeatId(seatId),
+    secretFloorWaivable: isLegacySeatId(seatId) && neverWaiveSecretFloor !== true,
   });
   // Stamp the honest evidence onto the receipt when the operator turned the filter
   // off — this is the audit trail for a deliberate DSGVO control-waiver.
@@ -971,6 +977,13 @@ async function handleHonchoDeriverCompletions(
   options: Required<CommandEveOllamaShimOptions>
 ): Promise<void> {
   const body = await readBody(request);
+  // The deriver is REASONING-ONLY — it never calls tools. STRIP any tools /
+  // tool_choice before forwarding: the egress boundary scans message CONTENT, not
+  // tool DEFINITIONS, so an (app-authored) tool description carrying PII would
+  // otherwise leave un-redacted on the cloud lane (Codex #2). Removing them closes
+  // that vector entirely and is semantically correct for a derivation call.
+  delete body.tools;
+  delete body.tool_choice;
   const deriverRoute = await options.honchoDeriverRoute();
   const functionUrl = typeof deriverRoute?.functionUrl === 'string' ? deriverRoute.functionUrl.trim() : '';
   const license = typeof deriverRoute?.license === 'string' ? deriverRoute.license.trim() : '';
@@ -992,7 +1005,9 @@ async function handleHonchoDeriverCompletions(
     license,
     tier: HONCHO_DERIVER_FORCED_TIER,
   };
-  await handleEveCloudCompletions(body, response, options, forcedRoute, undefined);
+  // neverWaiveSecretFloor=true (Codex #1): the deriver is automatic background
+  // reasoning, so the S3 secret floor holds even on the founder's own legacy seat.
+  await handleEveCloudCompletions(body, response, options, forcedRoute, undefined, true);
 }
 
 async function handleChatCompletions(

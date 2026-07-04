@@ -234,23 +234,33 @@ export function honchoWorkspaceIdForSeat(sanitizedSeatId: string, legacy: boolea
  * ALWAYS the shim's canonical address, so anything exotic is a misconfig or an
  * attempt to slip past the egress boundary and must be refused outright.
  */
-const CANONICAL_LOOPBACK_SHIM_RE = /^http:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):\d{1,5}\/?$/i;
+const CANONICAL_LOOPBACK_BASE_RE = /^http:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):\d{1,5}\/?$/i;
 
 /**
- * Guard a candidate cloud-deriver shim base against {@link
- * CANONICAL_LOOPBACK_SHIM_RE}. THROWS on anything else — the raw eve-inference
- * edge URL (https, a remote host, no port), a `user@evil.com` userinfo trick, a
- * hex/decimal/mapped-IPv6 loopback encoding, a look-alike sub-domain — so the
- * deriver can never be pointed off the loopback shim and past the egress boundary
- * (invariant A). Returns the base with any trailing slash stripped.
+ * Guard a candidate deriver base URL against {@link CANONICAL_LOOPBACK_BASE_RE}:
+ * plain http, a CANONICAL loopback host, an explicit port, nothing else. THROWS
+ * on anything else — the raw eve-inference edge URL (https, a remote host, no
+ * port), a `user@evil.com` userinfo trick, a hex/decimal/mapped-IPv6 loopback
+ * encoding, a look-alike sub-domain. Used for BOTH deriver bases:
+ *  - the cloud fallback's loopback SHIM (so the cloud deriver rides the egress
+ *    boundary and never reaches the edge fn directly), AND
+ *  - the LOCAL branch's Ollama base (so `behindEgressBoundary: false` is only ever
+ *    emitted for a base that genuinely stays on the machine — a remote "local"
+ *    base would be a direct UNREDACTED egress; Codex HIGH #3).
+ * Returns the base with any trailing slash stripped.
  */
-export function requireLoopbackShimBase(value?: string): string {
+export function requireLoopbackBase(value: string | undefined, fallback: string): string {
   const raw = typeof value === 'string' ? value.trim() : '';
-  const candidate = raw.length > 0 ? raw : HONCHO_DEFAULT_SHIM_BASE_URL;
-  if (!CANONICAL_LOOPBACK_SHIM_RE.test(candidate)) {
-    throw new Error(`Honcho deriver must ride the canonical loopback shim (http://127.0.0.1:<port>); refused ${JSON.stringify(candidate)} — a non-loopback or exotic base would bypass the egress boundary`);
+  const candidate = raw.length > 0 ? raw : fallback;
+  if (!CANONICAL_LOOPBACK_BASE_RE.test(candidate)) {
+    throw new Error(`Honcho deriver base must be a canonical loopback (http://127.0.0.1:<port>); refused ${JSON.stringify(candidate)} — a non-loopback or exotic base would egress unredacted / bypass the egress boundary`);
   }
   return stripTrailingSlash(candidate);
+}
+
+/** Cloud-deriver SHIM base guard (back-compat name; defaults to the shim base). */
+export function requireLoopbackShimBase(value?: string): string {
+  return requireLoopbackBase(value, HONCHO_DEFAULT_SHIM_BASE_URL);
 }
 
 // ---------------------------------------------------------------------------
@@ -272,7 +282,10 @@ export function resolveHonchoDeriverConfig(input: HonchoDeriverInput): HonchoDer
   const useLocal = input.localModelOptedIn === true && input.localModelReady === true;
 
   if (useLocal) {
-    const base = stripTrailingSlash(input.ollamaBaseUrl || HONCHO_DEFAULT_OLLAMA_BASE_URL);
+    // The LOCAL branch emits behindEgressBoundary:false — that is ONLY safe if the
+    // base genuinely stays on the machine. Guard it to a canonical loopback so a
+    // remote "local" base can never become a direct UNREDACTED egress (Codex #3).
+    const base = requireLoopbackBase(input.ollamaBaseUrl, HONCHO_DEFAULT_OLLAMA_BASE_URL);
     return {
       branch: HONCHO_DERIVER_BRANCH_LOCAL,
       baseUrl: `${base}/v1`,
@@ -313,6 +326,15 @@ export function buildHonchoRuntimeConfig(input: HonchoRuntimeConfigInput): Honch
   const legacy = isLegacySeatId(input.seatId);
   // assertSeatId returns LEGACY_SEAT_ID for legacy ids and THROWS on unsafe ones.
   const sanitized = legacy ? LEGACY_SEAT_ID : assertSeatId(input.seatId);
+
+  // Defense-in-depth (Codex #4): the caller MUST pass a seatHome resolved from the
+  // SAME seat. A mismatch (e.g. seatId A + resolveSeatHome(B)) would give this seat
+  // A's db/workspace but B's on-disk honchoHome — a cross-seat memory-FS merge, the
+  // worst failure. resolveSeatHome always sets a sanitized `seatId`, so compare and
+  // fail LOUD rather than silently build a Frankenstein config.
+  if (input.seatHome && input.seatHome.seatId !== sanitized) {
+    throw new Error(`Honcho: seatId/seatHome mismatch (config seat ${JSON.stringify(sanitized)} vs seatHome seat ${JSON.stringify(input.seatHome.seatId)}) — refusing to build a cross-seat config`);
+  }
 
   const dbName = honchoDbNameForSeat(sanitized, legacy);
   const workspaceId = honchoWorkspaceIdForSeat(sanitized, legacy);

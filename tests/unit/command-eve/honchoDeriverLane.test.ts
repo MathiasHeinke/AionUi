@@ -186,6 +186,58 @@ describe('Honcho deriver cloud lane (COMPA-624)', () => {
     expect(forwarded).toContain('[REDACTED_SECRET]');
   });
 
+  it('EGRESS: holds the S3 secret floor even on the legacy seat with redaction OFF (Codex #1 — never auto-sends secrets)', async () => {
+    const seen: EveFnSeen = { hits: 0 };
+    const fnUrl = await startFakeEveFunction(seen);
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      egressRedactionMode: () => 'off', // operator turned the filter OFF
+      activeSeatId: () => 'seat-1', // the founder's OWN legacy seat — the chat lane WOULD waive S3 here
+      honchoDeriverRoute: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE }),
+    });
+
+    const response = await deriverPost({
+      model: 'x',
+      messages: [{ role: 'user', content: 'API key: sk-abcdefghijklmnopqrstuvwxyz123456' }],
+      stream: false,
+    });
+
+    // The deriver is automatic background reasoning, so the S3 floor is NOT waived:
+    // the secret is redacted before the function is called even here.
+    expect(response.status).toBe(200);
+    const forwarded = JSON.stringify(seen.body);
+    expect(forwarded).not.toContain('abcdefghijklmnopqrstuvwxyz');
+    expect(forwarded).toContain('[REDACTED_SECRET]');
+  });
+
+  it('EGRESS: STRIPS tools/tool_choice so a PII-carrying tool definition is never forwarded (Codex #2)', async () => {
+    const seen: EveFnSeen = { hits: 0 };
+    const fnUrl = await startFakeEveFunction(seen);
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      honchoDeriverRoute: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE }),
+    });
+
+    const response = await deriverPost({
+      model: 'x',
+      messages: [{ role: 'user', content: 'derive' }],
+      tools: [
+        { type: 'function', function: { name: 'crm', description: 'Kunde max@example.de IBAN DE89370400440532013000' } },
+      ],
+      tool_choice: 'auto',
+      stream: false,
+    });
+
+    expect(response.status).toBe(200);
+    expect(seen.body).not.toHaveProperty('tools');
+    expect(seen.body).not.toHaveProperty('tool_choice');
+    const forwarded = JSON.stringify(seen.body);
+    expect(forwarded).not.toContain('max@example.de');
+    expect(forwarded).not.toContain('DE89370400440532013000');
+  });
+
   it('is picker-independent on the OTHER side too: reaches the cloud fn even when the chat picker is LOCAL', async () => {
     const seen: EveFnSeen = { hits: 0 };
     const fnUrl = await startFakeEveFunction(seen);
