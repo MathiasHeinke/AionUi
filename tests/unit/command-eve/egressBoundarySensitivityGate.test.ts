@@ -198,6 +198,54 @@ describe('Sensitivity-Gate (S12) — the S3 HARD FLOOR (core of the brick)', () 
   it('S3_HARD_FLOOR ships true (the DSGVO-safe default)', () => {
     expect(S3_HARD_FLOOR).toBe(true);
   });
+
+  // ── S13: the founder's OWN (legacy) seat may waive even the S3 floor when OFF ──
+  it('S13 FOUNDER: S3 secret + OFF + secretFloorWaivable → ALLOW (off is truly off for the founder\'s OWN key)', async () => {
+    const result = await evaluateCommandEveEgressBoundary({
+      text: SECRET_S3,
+      provider: CLOUD_PROVIDER,
+      toggleMode: 'off',
+      secretFloorWaivable: true,
+    });
+    expect(result.decision).toBe('allow');
+    expect(result.allowedText).toContain('sk-abcdefghijklmnopqrstuvwxyz123456');
+    expect(result.receipt.s3_hard_floor_enforced).toBeUndefined();
+  });
+
+  it('S13 CLIENT: S3 secret + OFF + secretFloorWaivable:false → STILL redacted (client floor untouched)', async () => {
+    const result = await evaluateCommandEveEgressBoundary({
+      text: SECRET_S3,
+      provider: CLOUD_PROVIDER,
+      toggleMode: 'off',
+      secretFloorWaivable: false,
+    });
+    expect(result.decision).toBe('redact');
+    expect(result.allowedText).toContain('[REDACTED_SECRET]');
+    expect(result.receipt.s3_hard_floor_enforced).toBe(true);
+  });
+
+  it('S13: the waiver applies ONLY when OFF — toggle ON + secretFloorWaivable still redacts the secret', async () => {
+    const result = await evaluateCommandEveEgressBoundary({
+      text: SECRET_S3,
+      provider: CLOUD_PROVIDER,
+      toggleMode: 'on',
+      secretFloorWaivable: true,
+    });
+    expect(result.decision).toBe('redact');
+    expect(result.allowedText).toContain('[REDACTED_SECRET]');
+  });
+
+  it('S13: the floor-waiver also lifts a policyAction:block on the founder seat (off means off)', async () => {
+    const result = await evaluateCommandEveEgressBoundary({
+      text: SECRET_S3,
+      provider: CLOUD_PROVIDER,
+      toggleMode: 'off',
+      secretFloorWaivable: true,
+      policyAction: 'block',
+    });
+    expect(result.decision).toBe('allow');
+    expect(result.allowedText).toContain('sk-abcdefghijklmnopqrstuvwxyz123456');
+  });
 });
 
 describe('Sensitivity-Gate (S12) — receipt carries sensitivity_class', () => {

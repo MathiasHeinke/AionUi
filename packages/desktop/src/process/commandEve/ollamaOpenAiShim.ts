@@ -15,6 +15,7 @@ import {
   type CommandEveEgressPolicyAction,
   type CommandEveSensitivityClass,
 } from './egressBoundaryCore';
+import { isLegacySeatId } from './seatContextCore';
 import {
   evaluateWorkerDispatch,
   type EveTeamWorkerStatusMap,
@@ -709,6 +710,12 @@ async function handleEveCloudCompletions(
     },
     policyAction: options.egressPolicyAction,
     toggleMode: egressRedactionMode,
+    // S13 — on the FOUNDER's OWN (legacy) seat, `off` means truly OFF: the S3 hard
+    // floor (secrets/finance/health) is waivable because the data is the founder's
+    // own (a founder posting their OWN api key to test is their choice), not a
+    // client's. A real CLIENT seat has a uuid id (never legacy) ⇒ waivable=false ⇒
+    // the Auftragsverarbeiter floor still protects the client's credentials.
+    secretFloorWaivable: isLegacySeatId(seatId),
   });
   // Stamp the honest evidence onto the receipt when the operator turned the filter
   // off — this is the audit trail for a deliberate DSGVO control-waiver.

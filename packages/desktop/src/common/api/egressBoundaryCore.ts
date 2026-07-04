@@ -137,6 +137,17 @@ export type CommandEveEgressBoundaryInput = {
    *                 fields. Byte-identical to pre-S12 for every existing caller.
    */
   toggleMode?: CommandEveEgressToggleMode;
+  /**
+   * S13 — may the S3 hard floor (secret/financial/health) be WAIVED when the toggle
+   * is `'off'`? Default FALSE = the floor always holds (the DSGVO Auftragsverarbeiter
+   * protection on a CLIENT seat — an operator must never leak a CLIENT's credentials/
+   * finance/health, even with the toggle off). TRUE is passed ONLY for the FOUNDER's
+   * OWN (legacy) seat, where the data is the founder's own, not a client's: there
+   * `'off'` means truly off (a founder posting their OWN api key to test is their
+   * choice). On a real client seat this is always false, so the client floor is
+   * untouched. Only meaningful together with `toggleMode: 'off'`.
+   */
+  secretFloorWaivable?: boolean;
 };
 
 export type CommandEveEgressBoundaryResult = {
@@ -429,19 +440,26 @@ export async function evaluateCommandEveEgressBoundary(
   // The one rule (architecture §"Die Lücke"):
   //   shouldRedact = (maxSClass === 'S3' AND hard floor) OR (toggle 'on' AND ≥ S1)
   // Toggle OFF waives S1/S2 only; S3 is ALWAYS redacted (or blocked) by the floor.
-  const s3Enforced = hasS3 && S3_HARD_FLOOR;
+  // S13 — the founder's OWN (legacy) seat may waive even the S3 hard floor when the
+  // toggle is off (posting their OWN secret is their choice). On a CLIENT seat
+  // secretFloorWaivable is false, so the floor holds (client-data protection). Only
+  // ever waives when the toggle is explicitly off.
+  const floorWaived = toggleMode === 'off' && input.secretFloorWaivable === true;
+  const s3Enforced = hasS3 && S3_HARD_FLOOR && !floorWaived;
   const toggleWantsRedaction = toggleMode === 'on' && maxRank >= SENSITIVITY_CLASS_RANK.S1;
   const shouldRedact = s3Enforced || toggleWantsRedaction;
 
   // The redaction THRESHOLD is what makes the waiver selective:
   //   - toggle 'on'  → redact every S1+ finding.
   //   - toggle 'off' → redact ONLY S3 (waive S1/S2); lower matches pass through.
+  //     (Moot when floorWaived: shouldRedact is false, so nothing is redacted.)
   const redactThreshold: CommandEveSensitivityClass = toggleMode === 'on' ? 'S1' : 'S3';
 
   // S3 that cannot be safely redacted → hard BLOCK (strict opt-in preserved). A
   // block is only possible when the caller explicitly asked for strict mode AND an
-  // S3 finding is present; the default `policyAction` ('redact') never blocks.
-  const blockS3 = hasS3 && policyAction === 'block';
+  // S3 finding is present; the default `policyAction` ('redact') never blocks. A
+  // founder-seat floor-waiver (floorWaived) also lifts the block — off means off.
+  const blockS3 = hasS3 && policyAction === 'block' && !floorWaived;
 
   let decision: CommandEveEgressDecision;
   let outputText = text;

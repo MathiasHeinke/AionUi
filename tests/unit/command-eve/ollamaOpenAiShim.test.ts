@@ -709,7 +709,7 @@ describe('Command EVE shim — PER-SEAT PII/DSGVO egress switch (S11)', () => {
     fs.rmSync(receiptDir, { recursive: true, force: true });
   });
 
-  it('mode OFF + S3 (IBAN) → STILL redacted at the seam (hard floor) while a co-occurring phone (S1) is waived', async () => {
+  it('mode OFF + S3 (IBAN) on a CLIENT seat → STILL redacted at the seam (hard floor) while a co-occurring phone (S1) is waived', async () => {
     const fs = await import('fs');
     const os = await import('os');
     const path = await import('path');
@@ -724,6 +724,10 @@ describe('Command EVE shim — PER-SEAT PII/DSGVO egress switch (S11)', () => {
       egressReceiptPath: receiptPath,
       eveRouting: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE, tier: 'standard' }),
       egressRedactionMode: () => 'off',
+      // S13: on a real CLIENT seat (uuid, never legacy) the S3 hard floor is NOT
+      // waivable — the Auftragsverarbeiter protection of the client's secrets holds
+      // even with the toggle off.
+      activeSeatId: () => 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
     });
 
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
@@ -763,6 +767,37 @@ describe('Command EVE shim — PER-SEAT PII/DSGVO egress switch (S11)', () => {
     expect(receipt.operator_waived_s1).toBe(true);
     expect(receipt.redaction).toBe('disabled_by_operator');
     fs.rmSync(receiptDir, { recursive: true, force: true });
+  });
+
+  it('S13 mode OFF + S3 (IBAN) on the FOUNDER/legacy seat → off means truly OFF (the founder\'s OWN secret passes)', async () => {
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      eveRouting: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE, tier: 'standard' }),
+      egressRedactionMode: () => 'off',
+      // The founder's OWN legacy seat — off waives even the S3 floor for the founder's
+      // own data (they consciously posted their own key with the filter off).
+      activeSeatId: () => 'seat-1',
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [{ role: 'user', content: 'IBAN DE89 3704 0044 0532 0130 00 zum Testen.' }],
+        stream: false,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    // OFF on the founder's own seat = nothing redacted, not even the S3 IBAN.
+    expect(response.headers.get('x-command-eve-egress-decision')).toBe('allow');
+    const forwarded = JSON.stringify(fnSeen.body);
+    expect(forwarded).toContain('0532'); // the IBAN reaches the cloud, unredacted
+    expect(forwarded).not.toContain('[REDACTED_IBAN]');
   });
 
   it('mode ON → redacts as before (the fail-safe default is preserved)', async () => {
