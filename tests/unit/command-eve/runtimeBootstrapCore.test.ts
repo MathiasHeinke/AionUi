@@ -246,6 +246,35 @@ describe('Command EVE runtime bootstrap core', () => {
     expect(capabilityPack.connectors.some((connector) => connector.id === 'codex-cli')).toBe(true);
   });
 
+  it('LOW-RAM (8GB): downgrades to CLOUD-ONLY — writes config.yaml, skips only local model, finishes ready (perf audit #3)', async () => {
+    const harness = makeHarness();
+    const manifestPath = writeManifest(harness.root, 'http://127.0.0.1:11434');
+    const receipt = await ensureCommandEveRuntimeBootstrap({
+      userDataPath: harness.root,
+      manifestPath,
+      runner: harness.runner,
+      detachedSpawner: () => {},
+      statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+      totalMemoryBytes: 8 * 1024 ** 3, // Michaela's 8GB Air — below the 16GB local-model floor
+      ollamaBinaryCandidates: [],
+      env: { COMMAND_EVE_FOUNDER_NAME: 'Mathias', COMMAND_EVE_COMPANY_NAME: 'FYN Labs' },
+    });
+    const paths = resolveCommandEveRuntimeBootstrapPaths(harness.root);
+
+    // THE fix: EVE's cloud agent home IS written even on 8GB (was never written before).
+    expect(fs.existsSync(path.join(paths.hermesHome, 'config.yaml'))).toBe(true);
+    expect(fs.existsSync(paths.hermesShim)).toBe(true);
+    // The receipt still finishes 'ready' — the cloud lane is genuinely provisioned.
+    expect(receipt.status).toBe('ready');
+    // Only the LOCAL model was skipped, as a truthful 'skip' with BLOCKED_RAM (never a hard block).
+    const byId = Object.fromEntries(receipt.stages.map((s) => [s.id, s]));
+    expect(byId.capacity?.status).toBe('skip');
+    expect(byId.capacity?.code).toBe('BLOCKED_RAM');
+    expect(byId.model?.status).toBe('skip');
+    expect(byId.model?.code).toBe('BLOCKED_RAM');
+    expect(byId.ollama?.status).toBe('skip');
+  });
+
   it('installs Hermes, installs Ollama via Homebrew, pulls the default model, and writes receipts', async () => {
     const harness = makeHarness();
     await withOllamaServer(async (baseUrl) => {

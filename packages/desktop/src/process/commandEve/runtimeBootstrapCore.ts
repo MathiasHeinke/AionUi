@@ -3945,16 +3945,26 @@ export async function ensureCommandEveRuntimeBootstrap(
     );
     return finishReceipt();
   }
+  // The RAM floor gates ONLY the LOCAL MODEL (Ollama/Gemma), NOT the whole runtime.
+  // EVE runs through the Hermes agent on the CLOUD lane regardless of local memory,
+  // and that lane needs config.yaml/SOUL.md/venv written BELOW (writeHermesRuntimeFiles).
+  // A hard early-return here meant an 8GB Air was told "cloud runs immediately" while
+  // EVE was actually UNPROVISIONED (perf audit, Opus+Codex CRITICAL). So on a low-RAM
+  // machine we DOWNGRADE to cloud-only — mark the local model blocked (skip the Ollama +
+  // model stages later) and CONTINUE the bootstrap. 16GB+ machines are unaffected
+  // (localModelBlocked stays false → byte-identical to before).
+  let localModelBlocked = false;
   if (totalMemoryGb < tier.min_unified_memory_gb) {
+    localModelBlocked = true;
     pushStage(
-      makeStage('capacity', 'blocked', {
+      makeStage('capacity', 'skip', {
         code: 'BLOCKED_RAM',
-        detail: `Need ${tier.min_unified_memory_gb}GB unified memory for ${tier.label}; found ${totalMemoryGb}GB.`,
+        detail: `Local model needs ${tier.min_unified_memory_gb}GB unified memory (${tier.label}); found ${totalMemoryGb}GB — running CLOUD-ONLY, local model skipped.`,
       })
     );
-    return finishReceipt();
+  } else {
+    pushStage(makeStage('capacity', 'pass', { detail: `${freeGb}GB free disk, ${totalMemoryGb}GB memory` }));
   }
-  pushStage(makeStage('capacity', 'pass', { detail: `${freeGb}GB free disk, ${totalMemoryGb}GB memory` }));
 
   const bundledPython = resolveBundledPythonCandidate(env, options.resourcesPath);
   const python = await resolvePythonCommand(
@@ -4225,6 +4235,17 @@ export async function ensureCommandEveRuntimeBootstrap(
           : 'Tier-stamp skipped (best-effort).'),
     })
   );
+
+  // CLOUD-ONLY downgrade (perf audit): on a RAM-blocked machine every cloud-capable
+  // runtime file above (config.yaml/SOUL.md/venv/hermes) is already written, so EVE
+  // works on the cloud lane. Skip only the Ollama + local-model stages and finish
+  // 'ready' — never abort the bootstrap (which left EVE unprovisioned on an 8GB Air).
+  if (localModelBlocked) {
+    const cloudOnly = 'Local model skipped (insufficient RAM for the local tier); EVE runs on the cloud lane.';
+    pushStage(makeStage('ollama', 'skip', { code: 'BLOCKED_RAM', detail: cloudOnly }));
+    pushStage(makeStage('model', 'skip', { code: 'BLOCKED_RAM', detail: cloudOnly }));
+    return finishReceipt();
+  }
 
   let ollama = await resolveOllamaCommand(runner, env, options.ollamaBinaryCandidates);
   if (!ollama.ok && mode === 'auto' && manifest.installer_policy.allow_homebrew_install) {

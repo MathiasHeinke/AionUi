@@ -385,6 +385,21 @@ function localLaneItem(receipt?: RuntimeBootstrapReceipt): CommandEveOnboardingI
       remediation_kind: 'none',
     };
   }
+  // CLOUD-ONLY downgrade (perf): a RAM-blocked machine finishes 'ready' (the cloud
+  // runtime IS provisioned) but the local model was skipped — so the local lane is a
+  // truthful `skipped`, NOT `ok`. Detect the RAM-skipped model/ollama stage first so
+  // the greeting never claims the local KI is ready when it is cloud-only.
+  const ramSkipped = (receipt.stages || []).some(
+    (s) => (s.id === 'model' || s.id === 'ollama') && s.status === 'skip' && s.code === 'BLOCKED_RAM'
+  );
+  if (ramSkipped) {
+    return {
+      id: 'local-lane',
+      state: 'skipped',
+      plain_meaning: 'Für die lokale KI reicht der Arbeitsspeicher dieses Macs nicht — die Cloud-KI ist deine Standard-Spur und läuft sofort.',
+      remediation_kind: 'none',
+    };
+  }
   if (receipt.status === 'ready') {
     return {
       id: 'local-lane',
