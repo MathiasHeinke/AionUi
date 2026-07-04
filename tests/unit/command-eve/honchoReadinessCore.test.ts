@@ -71,6 +71,12 @@ describe('honchoReadinessCore — honchoReadyFromSnapshot freshness guard', () =
     const future = { ...READY, probedAt: '2999-01-01T00:00:00.000Z' };
     expect(honchoReadyFromSnapshot(future, { now })).toBe(false);
   });
+  it('boundary: age exactly 0 and exactly maxAgeMs are fresh; one ms past is not', () => {
+    const at = Date.parse(READY.probedAt as string);
+    expect(honchoReadyFromSnapshot(READY, { now: at, maxAgeMs: HONCHO_READINESS_MAX_AGE_MS })).toBe(true); // age 0
+    expect(honchoReadyFromSnapshot(READY, { now: at + HONCHO_READINESS_MAX_AGE_MS })).toBe(true); // age == max
+    expect(honchoReadyFromSnapshot(READY, { now: at + HONCHO_READINESS_MAX_AGE_MS + 1 })).toBe(false); // age max+1
+  });
 });
 
 describe('honchoReadinessCore — reduceHonchoReadiness (default-deny rows)', () => {

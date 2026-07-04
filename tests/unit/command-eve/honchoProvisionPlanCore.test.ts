@@ -66,6 +66,13 @@ describe('honchoProvisionPlanCore — fail-safe gates (every miss disables, neve
     expect(buildHonchoProvisionPlan({ consent: { memoryOptedIn: true, hasLicense: true }, detection: ALL_PRESENT }).honchoEnabled).toBe(true);
   });
 
+  it('an explicit UNKNOWN/garbage branch is treated as cloud ⇒ still requires a license', () => {
+    const garbage = { deriver: { branch: 'something-else' } };
+    const p = buildHonchoProvisionPlan({ consent: { memoryOptedIn: true, hasLicense: false }, config: garbage, detection: ALL_PRESENT });
+    expect(p.honchoEnabled).toBe(false);
+    expect(p.skipReason).toBe(HONCHO_REASON_DEP_MISSING);
+  });
+
   it('free disk below the floor ⇒ disabled / HONCHO_BLOCKED_DISK', () => {
     const p = buildHonchoProvisionPlan({ consent: OPTED, config: CLOUD, detection: { ...ALL_PRESENT, freeDiskGb: HONCHO_MIN_FREE_DISK_GB - 0.5 } });
     expect(p.honchoEnabled).toBe(false);

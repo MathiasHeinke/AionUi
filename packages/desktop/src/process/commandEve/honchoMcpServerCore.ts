@@ -28,6 +28,21 @@ import type { HonchoRuntimeConfig } from './honchoRuntimeConfigCore';
 /** The stable mcp_servers id for the per-seat Honcho memory server. */
 export const HONCHO_MCP_SERVER_ID = 'honcho';
 
+/**
+ * The ONLY dbUri shape allowed into the MCP env: `postgresql://<loopback>:<port>/
+ * <db>` — a canonical LOOPBACK host (127.0.0.1 / localhost / [::1]), an explicit
+ * port, a bare alphanumeric-underscore db name, and NOTHING else. A positive
+ * allowlist (not an `@` denylist) so NO credential can ride in — not via userinfo
+ * (`user:pass@`), not via a query (`?password=`), and not a non-loopback host that
+ * would break the local-only invariant (Codex re-audit). The Inc.1 config core
+ * produces exactly this shape.
+ */
+const CANONICAL_LOOPBACK_DB_URI_RE = /^postgresql:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):\d{1,5}\/[A-Za-z0-9_]+$/;
+
+export function isCanonicalLoopbackDbUri(uri?: string): boolean {
+  return typeof uri === 'string' && CANONICAL_LOOPBACK_DB_URI_RE.test(uri);
+}
+
 /** The resolved launcher invocation (from the seat's Honcho venv) — injected by O2. */
 export interface HonchoMcpLauncher {
   command?: string;
@@ -50,10 +65,11 @@ export function honchoMcpServerForSeat(
   // authenticate a deriver (cfg.ready === false) must never be advertised, even if
   // the runtime `ready` flag was passed true at the shell seam.
   if (cfg.ready === false) return undefined;
-  // Defense-in-depth (Codex #1): NEVER serialise a credential into the MCP env. The
-  // Inc.1 config produces a passwordless loopback dbUri (peer/socket auth); reject
-  // any dbUri carrying userinfo (`user:pass@host`) rather than leak it into env.
-  if (cfg.dbUri.includes('@')) return undefined;
+  // Defense-in-depth (Codex #1 + re-audit): NEVER serialise a credential or a
+  // non-loopback target into the MCP env. Enforce the canonical passwordless
+  // loopback dbUri shape POSITIVELY — this rejects userinfo (`user:pass@`), a
+  // `?password=` query, AND a remote host, closing all three at once.
+  if (!isCanonicalLoopbackDbUri(cfg.dbUri)) return undefined;
   const command = launcher && typeof launcher.command === 'string' ? launcher.command.trim() : '';
   if (command.length === 0) return undefined;
   return {

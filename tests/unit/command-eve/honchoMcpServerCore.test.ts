@@ -66,9 +66,24 @@ describe('honchoMcpServerCore — ready entry + per-seat isolation', () => {
     expect(json.toLowerCase()).not.toContain('password');
   });
 
-  it('REJECTS a passwordful dbUri rather than leak it into env (Codex #1)', () => {
-    const tainted = { dbUri: 'postgresql://u:secret@127.0.0.1:5432/honcho_a', workspaceId: 'ws_a', honchoHome: '/h' };
-    expect(honchoMcpServerForSeat(tainted, true, LAUNCHER)).toBeUndefined();
+  it('REJECTS any non-canonical dbUri — userinfo, query-credential, or a remote host (Codex #1 + re-audit)', () => {
+    const bad = [
+      'postgresql://u:secret@127.0.0.1:5432/honcho_a', // userinfo
+      'postgresql://127.0.0.1:5432/honcho_a?password=secret', // query credential
+      'postgresql://db.example.com:5432/honcho_a', // remote host
+      'postgres://127.0.0.1:5432/honcho_a', // wrong scheme
+      'postgresql://127.0.0.1/honcho_a', // no port
+    ];
+    for (const dbUri of bad) {
+      expect(honchoMcpServerForSeat({ dbUri, workspaceId: 'ws_a', honchoHome: '/h', ready: true }, true, LAUNCHER), dbUri).toBeUndefined();
+    }
+  });
+
+  it('ACCEPTS the canonical loopback forms (127.0.0.1 / localhost / [::1])', () => {
+    for (const host of ['127.0.0.1', 'localhost', '[::1]']) {
+      const cfg = { dbUri: `postgresql://${host}:5432/honcho_a`, workspaceId: 'ws_a', honchoHome: '/h', ready: true };
+      expect(honchoMcpServerForSeat(cfg, true, LAUNCHER)?.env?.HONCHO_DB_URI).toBe(cfg.dbUri);
+    }
   });
 
   it('honors cfg.ready === false (does not advertise a config that can not authenticate — Codex #5)', () => {
