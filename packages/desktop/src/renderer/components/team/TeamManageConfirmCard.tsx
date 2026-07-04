@@ -56,10 +56,24 @@ const TeamManageConfirmCard: React.FC = () => {
   useEffect(() => {
     mounted.current = true;
     void poll();
-    const id = setInterval(() => void poll(), POLL_MS);
+    // Perf (8GB audit): this card is mounted app-wide, so an UNCONDITIONAL 4s IPC
+    // heartbeat kept the main process + aioncore backend awake forever, defeating
+    // macOS App Nap. Gate the actual IPC on window visibility — while the window is
+    // hidden the tick is a no-op — and catch up with one immediate poll when it
+    // becomes visible again (so a proposal made while backgrounded shows promptly).
+    const tick = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      void poll();
+    };
+    const id = setInterval(tick, POLL_MS);
+    const onVisible = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') void poll();
+    };
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible);
     return () => {
       mounted.current = false;
       clearInterval(id);
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible);
     };
   }, [poll]);
 
