@@ -145,6 +145,60 @@ describe('runHonchoBootstrap — a prerequisite failure stops the chain (never b
   });
 });
 
+describe('runHonchoBootstrap — malformed input fail-safes (Codex O1 audit)', () => {
+  it('#1 an ENABLED but empty-steps plan never reads ready even if both probes pass', async () => {
+    const r = await runHonchoBootstrap(deps({
+      plan: { honchoEnabled: true, steps: [] },
+      probeServer: async () => true,
+      probeDeriver: async () => true,
+    }));
+    expect(honchoReady(r.readiness)).toBe(false); // no server was started
+    assertNeverBlocked(r.stages);
+  });
+
+  it('#1 an enabled plan with NO process step never reads ready', async () => {
+    const r = await runHonchoBootstrap(deps({
+      plan: { honchoEnabled: true, steps: [{ id: 'honcho-postgres', alreadySatisfied: true }] },
+      probeServer: async () => true,
+      probeDeriver: async () => true,
+    }));
+    expect(honchoReady(r.readiness)).toBe(false);
+  });
+
+  it('#2 a config with no honchoHome ⇒ clean not-ready', async () => {
+    const r = await runHonchoBootstrap(deps({ config: { seatId: SEAT, deriver: { branch: HONCHO_DERIVER_BRANCH_CLOUD } } }));
+    expect(honchoReady(r.readiness)).toBe(false);
+    assertNeverBlocked(r.stages);
+  });
+
+  it('#3 a THROWING injected now does not throw the bootstrap', async () => {
+    const r = await runHonchoBootstrap(deps({
+      now: () => {
+        throw new Error('clock dead');
+      },
+    }));
+    expect(r).toBeDefined();
+    expect(honchoReady(r.readiness)).toBe(false);
+    assertNeverBlocked(r.stages);
+  });
+
+  it('#3 a NaN now does not throw (reduce guards the clock)', async () => {
+    const r = await runHonchoBootstrap(deps({ now: () => NaN }));
+    expect(r).toBeDefined();
+    assertNeverBlocked(r.stages);
+  });
+
+  it('#4 after a failure, later already-satisfied steps SKIP (not pass)', async () => {
+    // homebrew missing (fails), then postgres present (already-satisfied) must still skip
+    const { runner } = fakeRunner(new Set(['ensure-brew']));
+    const plan = buildHonchoProvisionPlan({ consent: OPTED, config: cfg(), detection: { ...ALL_PRESENT, hasHomebrew: false } });
+    const r = await runHonchoBootstrap(deps({ plan, runner }));
+    const postgres = r.stages.find((s) => s.id === 'honcho-postgres');
+    expect(postgres?.status).toBe('skip'); // NOT pass, even though it was already satisfied
+    assertNeverBlocked(r.stages);
+  });
+});
+
 describe('runHonchoBootstrap — readiness probe outcomes', () => {
   it('server up but deriver unreachable ⇒ degraded, not ready', async () => {
     const r = await runHonchoBootstrap(deps({ probeServer: async () => true, probeDeriver: async () => false }));

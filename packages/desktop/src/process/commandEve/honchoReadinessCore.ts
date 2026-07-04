@@ -122,7 +122,10 @@ export function reduceHonchoReadiness(input: {
   branch?: string;
   now?: number;
 }): HonchoReadinessState {
-  const nowMs = typeof input.now === 'number' ? input.now : Date.now();
+  // Guard a non-finite injected clock (NaN/Infinity) — `new Date(NaN).toISOString()`
+  // throws, which would escape into the bootstrap. Fall back to the real clock.
+  const rawNow = typeof input.now === 'number' ? input.now : Date.now();
+  const nowMs = Number.isFinite(rawNow) ? rawNow : Date.now();
   const base: HonchoReadinessState = {
     seatId: input.seatId,
     branch: input.branch,
