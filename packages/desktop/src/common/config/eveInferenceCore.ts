@@ -136,15 +136,32 @@ export const EVE_INFERENCE_TIERS = [
     costBadge: 'mehr Credits',
   },
   {
+    id: 'eve-xhigh',
+    // STUFE: Sehr hoch — GLM 5.2 at HIGH reasoning effort. Same model as Maximum,
+    // one reasoning step below it (server injects reasoning.effort=high for `xhigh`).
+    label: 'Sehr hoch',
+    tier: 'xhigh',
+    paidOnly: true,
+    consumesCredits: true,
+    gated: false,
+    modelLabel: 'tiefes Reasoning',
+    costBadge: 'hohe Kosten',
+  },
+  {
     id: 'eve-max',
-    // STUFE: Max / "härteste Aufgabe" — GLM 5.2, paid, highest cost.
-    label: 'Max',
+    // STUFE: Maximum / "härteste Aufgabe" — GLM 5.2 at MAX reasoning effort, highest
+    // cost (server injects reasoning.effort=max for `max`).
+    label: 'Maximum',
     tier: 'max',
     paidOnly: true,
     consumesCredits: true,
+    // VESTIGIAL (founder 2026-07-04 "wozu gaten?"): `gated` gates NOTHING —
+    // isEveTierSelectable keys only on `paidOnly`, and the cost badges are toned
+    // down/not surfaced. Kept as a legacy cosmetic flag (and to keep the field a
+    // real boolean); there is no access gate on any tier.
     gated: true,
     modelLabel: 'höchste Intelligenz',
-    /** Highest-cost badge so the rate vs Hoch is obvious before picking. */
+    /** Highest-cost badge so the rate vs Sehr hoch is obvious before picking. */
     costBadge: 'höchste Kosten',
   },
 ] as const;
@@ -154,15 +171,17 @@ export type EveInferenceTierId = EveInferenceTier['id'];
 export type EveInferenceWireTier = EveInferenceTier['tier'];
 
 /**
- * User-facing cloud-row labels (founder mandate 1.2.13): the EVE Inference rows
- * read "EVE Standard / EVE High / EVE Max" in the picker. The raw `tier.label`
- * ("Standard" / "Hoch" / "Max") stays the wire-aligned internal label; this map
+ * User-facing cloud-row labels (founder 2026-07-04): the 4-STUFEN ladder reads
+ * "Standard / Hoch / Sehr hoch / Maximum" in the picker (the group header "EVE
+ * Inference (Cloud)" already conveys the lane, so the rows drop the "EVE" prefix).
+ * Sehr hoch = GLM 5.2 @ high reasoning, Maximum = GLM 5.2 @ max reasoning. This map
  * is presentation-only and does NOT change any selection value or wire `tier`.
  */
 export const EVE_INFERENCE_TIER_DISPLAY_LABELS: Record<EveInferenceWireTier, string> = {
-  standard: 'EVE Standard',
-  high: 'EVE High',
-  max: 'EVE Max',
+  standard: 'Standard',
+  high: 'Hoch',
+  xhigh: 'Sehr hoch',
+  max: 'Maximum',
 };
 
 export const EVE_INFERENCE_DEFAULT_TIER_ID: EveInferenceTierId = EVE_INFERENCE_TIERS[0].id;
@@ -445,9 +464,13 @@ const EVE_CLOUD_TIER_BLURB: Record<EveInferenceTierId, { de: string; en: string 
     de: 'höhere Qualität, größerer Kontext',
     en: 'higher quality, larger context',
   },
+  'eve-xhigh': {
+    de: 'tiefes Reasoning, große Aufgaben',
+    en: 'deep reasoning, hard tasks',
+  },
   'eve-max': {
-    de: 'großer Kontext, höchste Qualität',
-    en: 'large context, top quality',
+    de: 'maximales Reasoning, höchste Qualität',
+    en: 'maximum reasoning, top quality',
   },
 };
 

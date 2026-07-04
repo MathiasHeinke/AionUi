@@ -86,11 +86,11 @@ describe('eveInferenceCore — trial detection', () => {
 });
 
 describe('eveInferenceCore — STUFEN shape (requirement 0)', () => {
-  it('exposes EXACTLY the three EVE levels in order: EVE Standard, EVE High, EVE Max', () => {
+  it('exposes EXACTLY the four EVE levels in order: Standard, Hoch, Sehr hoch, Maximum', () => {
     const groups = buildEvePickerGroups(PAID_NULL);
     const eve = groups.find((g) => g.kind === 'eve')!;
     // Founder mandate 1.2.13: picker rows read "EVE Standard / EVE High / EVE Max".
-    expect(eve.items.map((i) => i.label)).toEqual(['EVE Standard', 'EVE High', 'EVE Max']);
+    expect(eve.items.map((i) => i.label)).toEqual(['Standard', 'Hoch', 'Sehr hoch', 'Maximum']);
   });
 
   it('Standard is the free-eligible default (DeepSeek V4 Flash); Hoch + Max are paid', () => {
@@ -107,7 +107,7 @@ describe('eveInferenceCore — STUFEN shape (requirement 0)', () => {
 
   it('EVE High is paid + consumes credits (DeepSeek V4 Pro), NOT gated; cost badge suppressed in picker', () => {
     const items = flat(buildEvePickerGroups(PAID_NULL));
-    const hoch = byLabel(items, 'eve', 'EVE High')!;
+    const hoch = byLabel(items, 'eve', 'Hoch')!;
     expect(hoch.consumesCredits).toBe(true);
     expect(hoch.gated).toBe(false);
     expect(hoch.sublabel).toBe('intelligenter');
@@ -117,7 +117,7 @@ describe('eveInferenceCore — STUFEN shape (requirement 0)', () => {
 
   it('EVE Max is paid + GATED (GLM 5.2); cost badge suppressed in picker', () => {
     const items = flat(buildEvePickerGroups(PAID_NULL));
-    const max = byLabel(items, 'eve', 'EVE Max')!;
+    const max = byLabel(items, 'eve', 'Maximum')!;
     expect(max.consumesCredits).toBe(true);
     expect(max.gated).toBe(true);
     expect(max.sublabel).toBe('höchste Intelligenz');
@@ -128,7 +128,7 @@ describe('eveInferenceCore — STUFEN shape (requirement 0)', () => {
     const items = flat(buildEvePickerGroups(PAID_NULL));
     const eve = items.filter((i) => i.group === 'eve');
     expect(eve.every((i) => i.costBadge === undefined)).toBe(true);
-    expect(byLabel(items, 'eve', 'EVE Standard')!.consumesCredits).toBe(false);
+    expect(byLabel(items, 'eve', 'Standard')!.consumesCredits).toBe(false);
   });
 });
 
@@ -139,15 +139,15 @@ describe('eveInferenceCore — free-tier greying (requirement 1)', () => {
     // Local: Standard + Hoch only (no 31B pro tier). EVE: the three STUFEN
     // (display labels "EVE Standard / EVE High / EVE Max").
     expect(groups[0].items.map((i) => i.label)).toEqual(['Standard', 'Hoch']);
-    expect(groups[1].items.map((i) => i.label)).toEqual(['EVE Standard', 'EVE High', 'EVE Max']);
+    expect(groups[1].items.map((i) => i.label)).toEqual(['Standard', 'Hoch', 'Sehr hoch', 'Maximum']);
   });
 
   it('greys the paid Pro rungs (EVE High + EVE Max) while trialing; EVE Standard + locals selectable', () => {
     const items = flat(buildEvePickerGroups(TRIAL));
 
     // The paid Pro rungs (EVE High + EVE Max) disabled with the paid hint.
-    const hoch = byLabel(items, 'eve', 'EVE High')!;
-    const max = byLabel(items, 'eve', 'EVE Max')!;
+    const hoch = byLabel(items, 'eve', 'Hoch')!;
+    const max = byLabel(items, 'eve', 'Maximum')!;
     expect(hoch.disabled).toBe(true);
     expect(hoch.disabledReasonCode).toBe('PAID_TIER_REQUIRED');
     expect(max.disabled).toBe(true);
@@ -159,7 +159,7 @@ describe('eveInferenceCore — free-tier greying (requirement 1)', () => {
     expect(max.costBadge).toBeUndefined();
 
     // EVE Standard (the free model) selectable on a trial.
-    expect(byLabel(items, 'eve', 'EVE Standard')!.disabled).toBe(false);
+    expect(byLabel(items, 'eve', 'Standard')!.disabled).toBe(false);
 
     // Both local tiers selectable.
     expect(byLabel(items, 'local', 'Standard')!.disabled).toBe(false);
@@ -173,9 +173,9 @@ describe('eveInferenceCore — free-tier greying (requirement 1)', () => {
   it('leaves ALL EVE levels selectable when paid (trial_ends_at null/absent)', () => {
     for (const ent of [PAID_NULL, PAID_ABSENT]) {
       const items = flat(buildEvePickerGroups(ent));
-      expect(byLabel(items, 'eve', 'EVE Standard')!.disabled).toBe(false);
-      expect(byLabel(items, 'eve', 'EVE High')!.disabled).toBe(false);
-      expect(byLabel(items, 'eve', 'EVE Max')!.disabled).toBe(false);
+      expect(byLabel(items, 'eve', 'Standard')!.disabled).toBe(false);
+      expect(byLabel(items, 'eve', 'Hoch')!.disabled).toBe(false);
+      expect(byLabel(items, 'eve', 'Maximum')!.disabled).toBe(false);
     }
   });
 
@@ -253,9 +253,9 @@ describe('eveInferenceCore — honest CLOUD labeling (audit #1)', () => {
 
   it('each EVE level names its concrete cloud model in the sublabel (level in the primary label, model in the secondary)', () => {
     const items = flat(buildEvePickerGroups(TRIAL));
-    expect(byLabel(items, 'eve', 'EVE Standard')!.sublabel).toBe('großer Kontext');
-    expect(byLabel(items, 'eve', 'EVE High')!.sublabel).toBe('intelligenter');
-    expect(byLabel(items, 'eve', 'EVE Max')!.sublabel).toBe('höchste Intelligenz');
+    expect(byLabel(items, 'eve', 'Standard')!.sublabel).toBe('großer Kontext');
+    expect(byLabel(items, 'eve', 'Hoch')!.sublabel).toBe('intelligenter');
+    expect(byLabel(items, 'eve', 'Maximum')!.sublabel).toBe('höchste Intelligenz');
   });
 
   it('cloud heading marks EVE as Cloud; rows show CAPABILITY, never a concrete model name', () => {
@@ -331,9 +331,9 @@ describe('eveInferenceCore — EVE Standard routing (requirement 2)', () => {
     expect(buildEveInferenceProvider({ tierId: 'eve-max', licenseWire: FAKE_WIRE }).use_model).toBe('max');
   });
 
-  it('the wire values are exactly the registry-accepted set (matches the server KNOWN_TIERS standard/high/max)', () => {
+  it('the wire values are exactly the registry-accepted set (matches the server KNOWN_TIERS standard/high/xhigh/max)', () => {
     const wires = EVE_INFERENCE_TIERS.map((t) => t.tier);
-    expect(wires).toEqual(['standard', 'high', 'max']);
+    expect(wires).toEqual(['standard', 'high', 'xhigh', 'max']);
     // The desktop never sends "DeepSeek V4 Pro" / "GLM 5.2" on the wire — only
     // the level; the backend resolves the model.
     for (const w of wires) {
@@ -518,7 +518,7 @@ describe('eveInferenceCore — honest active-lane self-description (Task #50 por
     expect(resolveCommandEveActiveLane(eveTierValue('eve-max'))).toEqual({
       kind: 'eve',
       tierId: 'eve-max',
-      tierLabel: 'Max',
+      tierLabel: 'Maximum',
       wireTier: 'max',
     });
   });
@@ -538,13 +538,13 @@ describe('eveInferenceCore — honest active-lane self-description (Task #50 por
 
   it('describes EVE Cloud Max as the active tier, never the shim model (DE + EN)', () => {
     const de = describeCommandEveActiveLane(eveTierValue('eve-max'), 'de-DE');
-    expect(de).toBe('EVE Cloud, Max-Stufe (großer Kontext, höchste Qualität)');
+    expect(de).toBe('EVE Cloud, Maximum-Stufe (maximales Reasoning, höchste Qualität)');
     expect(de).not.toContain(SHIM);
     expect(de.toLowerCase()).not.toContain('ollama');
     expect(de.toLowerCase()).not.toContain('lokal');
 
     const en = describeCommandEveActiveLane(eveTierValue('eve-max'), 'en-US');
-    expect(en).toBe('EVE Cloud, Max tier (large context, top quality)');
+    expect(en).toBe('EVE Cloud, Maximum tier (maximum reasoning, top quality)');
     expect(en).not.toContain(SHIM);
     expect(en.toLowerCase()).not.toContain('local');
   });
