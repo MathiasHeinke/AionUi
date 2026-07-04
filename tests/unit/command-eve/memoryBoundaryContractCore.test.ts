@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest';
 import {
   enforceMemoryBoundary,
   MEMORY_BOUNDARY_OK,
+  MEMORY_BOUNDARY_MALFORMED,
   MEMORY_BOUNDARY_SEAT_UNKNOWN,
   MEMORY_BOUNDARY_SEAT_MISMATCH,
   MEMORY_BOUNDARY_S3_FORBIDDEN,
@@ -28,6 +29,32 @@ const SECRET = 'Mein API key: sk-abcdefghijklmnopqrstuvwxyz123456';
 const FINANCIAL = 'Bitte überweise auf IBAN DE89 3704 0044 0532 0130 00, Karte 4111 1111 1111 1111.';
 const HEALTH = 'Versichertennummer: A123456789 — bitte vormerken.';
 const BENIGN = 'Kunde will bis Freitag die Landingpage-Texte.';
+
+describe('memory-boundary — MALFORMED fail-closed (Codex re-audit holes)', () => {
+  it('rejects undefined input (no silent allow)', () => {
+    expect(enforceMemoryBoundary(undefined as never).reasonCode).toBe(MEMORY_BOUNDARY_MALFORMED);
+  });
+
+  it('rejects a write with a missing store (nothing to scope/cap)', () => {
+    expect(enforceMemoryBoundary({ operation: 'write', payloadText: 'benign' }).reasonCode).toBe(MEMORY_BOUNDARY_MALFORMED);
+  });
+
+  it('rejects an unknown store instead of skipping seat isolation (the cross-seat bypass)', () => {
+    const d = enforceMemoryBoundary({ operation: 'write', store: 'made-up-store' as never, activeSeatId: 'seat-a', targetSeatId: 'seat-b', payloadText: BENIGN });
+    expect(d.ok).toBe(false);
+    expect(d.reasonCode).toBe(MEMORY_BOUNDARY_MALFORMED);
+  });
+
+  it('rejects a missing operation instead of defaulting to read (the S3-on-read bypass)', () => {
+    expect(enforceMemoryBoundary({ store: 'company-brain', payloadText: SECRET } as never).reasonCode).toBe(MEMORY_BOUNDARY_MALFORMED);
+  });
+
+  it('rejects an unknown operation instead of skipping the write oversize gate', () => {
+    const d = enforceMemoryBoundary({ operation: 'persist' as never, store: 'company-brain', activeSeatId: 's', targetSeatId: 's', payloadText: 'x'.repeat(100000) });
+    expect(d.ok).toBe(false);
+    expect(d.reasonCode).toBe(MEMORY_BOUNDARY_MALFORMED);
+  });
+});
 
 describe('memory-boundary — seat isolation (GATE-NULL extension)', () => {
   it('rejects a write whose target seat is not the active seat', () => {

@@ -56,11 +56,16 @@ export type MemoryBoundaryOperation = 'read' | 'write' | 'derive';
 export type MemoryBoundaryEgress = 'local-only' | 'redacted-cloud-deriver' | 'syncable-metadata';
 
 export const MEMORY_BOUNDARY_OK = 'ok';
+export const MEMORY_BOUNDARY_MALFORMED = 'malformed';
 export const MEMORY_BOUNDARY_SEAT_UNKNOWN = 'seat_unknown';
 export const MEMORY_BOUNDARY_SEAT_MISMATCH = 'seat_mismatch';
 export const MEMORY_BOUNDARY_S3_FORBIDDEN = 's3_forbidden';
 export const MEMORY_BOUNDARY_EGRESS_UNREDACTED = 'egress_unredacted';
 export const MEMORY_BOUNDARY_OVERSIZE = 'oversize';
+
+/** The recognized operations + stores. Anything else is a MALFORMED call (fail-closed). */
+const KNOWN_OPERATIONS: MemoryBoundaryOperation[] = ['read', 'write', 'derive'];
+const KNOWN_STORES: MemoryBoundaryStore[] = ['company-brain', 'memory-md', 'user-md', 'honcho', 'session-digest'];
 
 /**
  * Per-store hard cap on a single durable write (characters). A memory store holds
@@ -118,21 +123,19 @@ function maxClass(findings: CommandEveEgressFinding[]): CommandEveSensitivityCla
   return max;
 }
 
-/** True for the stores that are strictly per-seat / per-client (all of them, today). */
-function isSeatScoped(store: MemoryBoundaryStore | undefined): boolean {
-  return store === 'company-brain' || store === 'memory-md' || store === 'user-md' || store === 'honcho' || store === 'session-digest';
-}
-
 /**
  * Enforce the memory-boundary contract for ONE operation. Never throws — a malformed
- * input degrades to a rejection (fail-closed), never an allow. The ORDER is deliberate:
- * seat isolation first (cheapest + hardest), then the S3 hard floor, then egress class,
- * then the oversize smell — so the reason code names the FIRST + most important breach.
+ * input REJECTS (fail-closed), never allows. The ORDER is deliberate: reject malformed
+ * calls first (a valid operation + a known store are MANDATORY — no silent 'read'
+ * default that a forgotten `operation` could ride, and no unknown store/op that could
+ * skip a gate; Codex re-audit), then seat isolation, then the S3 hard floor, then egress
+ * class, then the oversize smell — so the reason code names the FIRST + most important
+ * breach. Every known store is per-seat, so a non-read to any of them is seat-checked.
  */
 export function enforceMemoryBoundary(input: MemoryBoundaryInput): MemoryBoundaryDecision {
   const inp: MemoryBoundaryInput = input || {};
   const store: MemoryBoundaryStore | undefined = inp.store;
-  const operation: MemoryBoundaryOperation = inp.operation || 'read';
+  const operation: MemoryBoundaryOperation | undefined = inp.operation;
   const egress: MemoryBoundaryEgress = inp.egress || 'local-only';
   const text = typeof inp.payloadText === 'string' ? inp.payloadText : '';
   const findings = text ? detectCommandEveSensitiveEgress(text) : [];
@@ -141,9 +144,18 @@ export function enforceMemoryBoundary(input: MemoryBoundaryInput): MemoryBoundar
 
   const deny = (reasonCode: string): MemoryBoundaryDecision => ({ ok: false, reasonCode, sensitivityClass: sClass, findings: findingKinds });
 
+  // (0) MALFORMED (fail-closed) — the operation MUST be an explicit known op (no silent
+  // 'read' default), any provided store MUST be known, and a non-read MUST name a known
+  // (therefore seat-scoped, per-client) store. This closes every "unknown op/store skips
+  // a gate" and "undefined input allows" bypass.
+  if (KNOWN_OPERATIONS.indexOf(operation) < 0) return deny(MEMORY_BOUNDARY_MALFORMED);
+  if (store !== undefined && KNOWN_STORES.indexOf(store) < 0) return deny(MEMORY_BOUNDARY_MALFORMED);
+  if (operation !== 'read' && KNOWN_STORES.indexOf(store) < 0) return deny(MEMORY_BOUNDARY_MALFORMED);
+
   // (1) SEAT ISOLATION — a read may be seatless (recall resolves its own seat), but any
-  // WRITE / DERIVE to a seat-scoped store must target the ACTIVE seat and no other.
-  if (isSeatScoped(store) && operation !== 'read') {
+  // WRITE / DERIVE (to a now-guaranteed known, per-seat store) must target the ACTIVE
+  // seat and no other.
+  if (operation !== 'read') {
     const active = typeof inp.activeSeatId === 'string' ? inp.activeSeatId.trim() : '';
     const target = typeof inp.targetSeatId === 'string' ? inp.targetSeatId.trim() : '';
     if (!active || !target) return deny(MEMORY_BOUNDARY_SEAT_UNKNOWN);
