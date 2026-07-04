@@ -1019,6 +1019,44 @@ export function initCommandEveBridge(): void {
     }
   });
 
+  // SG-1 Design B — team_manage confirm lane. The renderer POLLS -peek for a pending
+  // intent (recoverable after a restart; B4), renders a confirm card, and calls
+  // -apply (the ONLY settings write) or -reject. All authoritative logic + the
+  // receipt live main-side (eveTeamManageMain); these are thin IPC seams.
+  bridge.buildProvider('command-eve.team-manage-peek').provider(async () => {
+    try {
+      const { peekTeamManageForRenderer } = await import('@process/commandEve/eveTeamManageMain');
+      return { success: true, data: { ok: true, pending: peekTeamManageForRenderer() } as unknown };
+    } catch (error) {
+      console.warn('[Command EVE] team-manage-peek failed:', error);
+      return { success: true, data: { ok: false, pending: null } as unknown };
+    }
+  });
+
+  bridge.buildProvider('command-eve.team-manage-apply').provider(async (request?: { intent_id?: string }) => {
+    try {
+      const intentId = typeof request?.intent_id === 'string' ? request.intent_id : '';
+      if (!intentId) return { success: false, msg: 'intent_id required', data: { ok: false } as unknown };
+      const { applyTeamManageIntent } = await import('@process/commandEve/eveTeamManageMain');
+      const result = await applyTeamManageIntent(intentId);
+      return { success: true, data: result as unknown };
+    } catch (error) {
+      console.warn('[Command EVE] team-manage-apply failed:', error);
+      return { success: true, data: { ok: false, reason: 'error' } as unknown };
+    }
+  });
+
+  bridge.buildProvider('command-eve.team-manage-reject').provider(async (request?: { intent_id?: string }) => {
+    try {
+      const intentId = typeof request?.intent_id === 'string' ? request.intent_id : '';
+      const { rejectTeamManageIntent } = await import('@process/commandEve/eveTeamManageMain');
+      return { success: true, data: rejectTeamManageIntent(intentId) as unknown };
+    } catch (error) {
+      console.warn('[Command EVE] team-manage-reject failed:', error);
+      return { success: true, data: { ok: false } as unknown };
+    }
+  });
+
   bridge.buildProvider('command-eve.company-brain-list').provider(async () => {
     try {
       const home = resolveActiveSeatHome(getDataPath()).hermesHome;

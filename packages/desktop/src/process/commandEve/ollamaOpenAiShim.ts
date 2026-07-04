@@ -143,6 +143,25 @@ export type CommandEveDispatchAttributionResolver = (
   seatId: string
 ) => string | Promise<string>;
 
+/**
+ * SG-1 Design B — the per-boot bearer the `POST /eve/team/propose` route requires.
+ * Returns '' when team_manage is NOT provisioned for the active seat (a client seat
+ * — ISO-6 non-provisioning): an empty expected bearer makes the route INERT (404),
+ * so it never even reveals itself on a client seat. Read live per request (the shim
+ * is a singleton that outlives seat-switches).
+ */
+export type CommandEveTeamManageBearerResolver = () => string;
+
+/**
+ * SG-1 Design B — the main-side propose handler. The shim is a thin HTTP front:
+ * it authenticates, then hands the raw proposal to this injected callback, which
+ * validates + stores the pending intent + returns the HTTP status/payload. NO
+ * settings write happens here (B1 — the write is the confirm IPC handler's job).
+ */
+export type CommandEveTeamManageProposeHandler = (
+  proposal: unknown
+) => Promise<{ status: number; payload: unknown }>;
+
 export type CommandEveOllamaShimOptions = {
   port?: number;
   ollamaBaseUrl?: string;
@@ -185,6 +204,17 @@ export type CommandEveOllamaShimOptions = {
    * is the ONLY attribution source now. Omitted ⇒ always `eve`.
    */
   attributionAgentId?: CommandEveDispatchAttributionResolver;
+  /**
+   * Optional team_manage per-boot bearer resolver (SG-1 Design B). Omitted / '' ⇒
+   * the `POST /eve/team/propose` route is inert (404). Set by main only on an
+   * operator seat (ISO-6 non-provisioning).
+   */
+  teamManageBearer?: CommandEveTeamManageBearerResolver;
+  /**
+   * Optional team_manage propose handler (SG-1 Design B). Omitted ⇒ the route is
+   * inert. When provided (operator seat), it validates + stores the pending intent.
+   */
+  teamManagePropose?: CommandEveTeamManageProposeHandler;
 };
 
 export type CommandEveModelWarmupOptions = {
@@ -1013,6 +1043,40 @@ async function handleChatCompletions(
   response.end();
 }
 
+/**
+ * SG-1 Design B — `POST /eve/team/propose`. A THIN HTTP front: authenticate with
+ * the per-boot bearer, then hand the raw proposal to the injected main-side handler.
+ *
+ * ISO-6 + auth: an empty expected bearer (a client seat, or team_manage simply not
+ * provisioned) makes the route respond 404 — it does not even reveal itself, and no
+ * proposal is ever accepted. Only a request carrying the exact per-boot bearer
+ * reaches `options.teamManagePropose`. No settings write happens on this path (B1).
+ */
+async function handleTeamManagePropose(
+  request: IncomingMessage,
+  response: ServerResponse,
+  options: Required<CommandEveOllamaShimOptions>
+): Promise<void> {
+  const expected = options.teamManageBearer();
+  const authHeader = headerToken(request.headers['authorization']);
+  const match = authHeader ? /^bearer\s+(.+)$/i.exec(authHeader) : null;
+  const token = match ? match[1].trim() : authHeader;
+  // Empty expected ⇒ inert; a mismatch ⇒ inert. Never treat an empty token as a match.
+  if (!expected || !token || token !== expected) {
+    jsonResponse(response, 404, { error: { message: 'Unsupported Command EVE Ollama shim path: /eve/team/propose' } });
+    return;
+  }
+  let body: Record<string, unknown>;
+  try {
+    body = await readBody(request);
+  } catch {
+    jsonResponse(response, 400, { error: { message: 'Invalid JSON body.' } });
+    return;
+  }
+  const result = await options.teamManagePropose(body);
+  jsonResponse(response, result.status, result.payload);
+}
+
 export async function startCommandEveOllamaOpenAiShim(shimOptions: CommandEveOllamaShimOptions = {}): Promise<string> {
   if (server?.listening) return serverUrl || `http://127.0.0.1:${DEFAULT_SHIM_PORT}`;
   const options: Required<CommandEveOllamaShimOptions> = {
@@ -1039,6 +1103,15 @@ export async function startCommandEveOllamaOpenAiShim(shimOptions: CommandEveOll
     // SG-1 A1: default attribution is the system `eve` (no header producer until
     // the 1.8 wheel train) ⇒ the un-delegated shape, byte-identical to before.
     attributionAgentId: shimOptions.attributionAgentId || ((): string => 'eve'),
+    // SG-1 Design B: default team_manage is UNPROVISIONED — empty bearer + a 404
+    // handler, so the propose route is inert until main injects it on an operator seat.
+    teamManageBearer: shimOptions.teamManageBearer || ((): string => ''),
+    teamManagePropose:
+      shimOptions.teamManagePropose ||
+      (async (): Promise<{ status: number; payload: unknown }> => ({
+        status: 404,
+        payload: { error: { message: 'team_manage is not available on this seat.' } },
+      })),
   };
   server = http.createServer((request, response) => {
     void (async () => {
@@ -1053,6 +1126,10 @@ export async function startCommandEveOllamaOpenAiShim(shimOptions: CommandEveOll
       }
       if (request.method === 'POST' && path === '/v1/chat/completions') {
         await handleChatCompletions(request, response, options);
+        return;
+      }
+      if (request.method === 'POST' && path === '/eve/team/propose') {
+        await handleTeamManagePropose(request, response, options);
         return;
       }
       jsonResponse(response, 404, { error: { message: `Unsupported Command EVE Ollama shim path: ${path}` } });

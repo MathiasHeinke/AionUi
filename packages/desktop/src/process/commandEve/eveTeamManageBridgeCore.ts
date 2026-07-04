@@ -59,9 +59,20 @@ export type TeamManageRejectCode =
   | 'scope-violation'
   | 'would-empty-company';
 
-export type ProposalValidation =
-  | { ok: true; role_agent_id: string; action: EveTeamControlAction; reason: string }
-  | { ok: false; reject_code: TeamManageRejectCode; message: string };
+// NOTE: this project runs WITHOUT strictNullChecks, so TS does not narrow
+// discriminated unions on a boolean discriminant. These result types are therefore
+// flat interfaces with optional fields (the idiomatic shape here) — `ok` tells the
+// caller which fields are populated; the runtime logic + unit tests are the guarantee.
+export interface ProposalValidation {
+  ok: boolean;
+  /** present when ok */
+  role_agent_id?: string;
+  action?: EveTeamControlAction;
+  reason?: string;
+  /** present when !ok */
+  reject_code?: TeamManageRejectCode;
+  message?: string;
+}
 
 /**
  * Validate a raw proposal payload against the roster, the action scope, and the
@@ -180,9 +191,13 @@ export function peekIntent(now: number): TeamManageIntent | null {
   return pending;
 }
 
-export type ConsumeResult =
-  | { ok: true; intent: TeamManageIntent }
-  | { ok: false; reason: 'not-found' | 'expired' | 'wrong-intent' | 'wrong-seat' };
+export interface ConsumeResult {
+  ok: boolean;
+  /** present when ok */
+  intent?: TeamManageIntent;
+  /** present when !ok */
+  reason?: 'not-found' | 'expired' | 'wrong-intent' | 'wrong-seat';
+}
 
 /**
  * Atomically take the pending intent for confirmation. Refuses (and clears) an
@@ -206,6 +221,55 @@ export function consumeIntent(intent_id: string, currentSeatId: string, now: num
 /** Clear the pending intent (e.g. on seat-switch, or after a manual panel change). */
 export function clearPendingIntent(): void {
   pending = null;
+}
+
+/**
+ * The pending intent for the CURRENT seat, if live (not expired) — the peek the
+ * renderer polls to know whether to surface a confirm card. Seat-partitioned: a
+ * pending intent from another seat is invisible here (it can neither be shown nor
+ * confirmed on the wrong seat). B4: survives a renderer restart because the intent
+ * lives main-side, so the card re-appears on the next poll.
+ */
+export function peekIntentForSeat(currentSeatId: string, now: number): TeamManageIntent | null {
+  const live = peekIntent(now);
+  if (!live) return null;
+  const seat = typeof currentSeatId === 'string' ? currentSeatId.trim() : '';
+  return seat && live.seat_id === seat ? live : null;
+}
+
+export interface ProposeResponse {
+  ok: boolean;
+  status: 'proposed' | 'rejected';
+  /** present when ok */
+  intent_id?: string;
+  summary?: string;
+  /** present when !ok */
+  reject_code?: TeamManageRejectCode;
+  message?: string;
+}
+
+/**
+ * Compose validate → create for the async propose lane: EVE POSTs a proposal, gets
+ * an immediate `proposed` + intent_id (or a machine-readable `rejected` with a
+ * reason) and polls. NO write to settings happens here — only the pending intent is
+ * stored; the actual status write is the confirm handler's job (B1). Pure over its
+ * inputs (statuses/seat/now/randomId injected), so it is fully unit-testable.
+ */
+export function buildProposeResponse(
+  payload: unknown,
+  statuses: EveTeamWorkerStatusMap,
+  ctx: { seatId: string; now: number; ttlMs?: number; randomId?: () => string }
+): ProposeResponse {
+  const v = validateProposal(payload, statuses);
+  if (v.ok) {
+    const intent = createIntent(v.role_agent_id, v.action, ctx.seatId, 'skill', v.reason, {
+      now: ctx.now,
+      ttlMs: ctx.ttlMs,
+      randomId: ctx.randomId,
+    });
+    return { ok: true, intent_id: intent.intent_id, status: 'proposed', summary: describeProposal(v.role_agent_id, v.action) };
+  }
+  return { ok: false, status: 'rejected', reject_code: v.reject_code, message: v.message };
 }
 
 /** Test seam. */

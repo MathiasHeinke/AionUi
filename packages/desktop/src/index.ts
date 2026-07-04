@@ -48,6 +48,7 @@ import {
 import type { CommandEveEveCloudRoute } from './process/commandEve/ollamaOpenAiShim';
 import { applyLauncherWiring } from './process/commandEve/eveWorkerLauncherCore';
 import { resolveDispatchAgentId } from './process/commandEve/eveAgentTaskRegistry';
+import { resolveTeamManageBearer, teamManageProposeHandler } from './process/commandEve/eveTeamManageMain';
 import { getActiveSeatId } from './process/commandEve/seatContextCore';
 import {
   readInferenceSelectionFromBackend,
@@ -906,6 +907,10 @@ function registerCommandEveRuntimeBridge(): void {
           // SG-1 A1: the real seat-partitioned attribution resolver (still yields `eve`
           // in 1.7.0 until the 1.8 header producer, but now wired + testable end-to-end).
           attributionAgentId: (token, seatId) => resolveDispatchAgentId(token, seatId),
+          // SG-1 Design B: team_manage propose route — bearer + handler are ISO-6-gated
+          // (resolveTeamManageBearer returns "" on a client seat, making the route inert).
+          teamManageBearer: resolveTeamManageBearer,
+          teamManagePropose: teamManageProposeHandler,
         }));
       commandEveOllamaShimUrl = shimUrl;
       const warmupReceipt = shouldWarm
@@ -971,6 +976,10 @@ function registerCommandEveRuntimeBridge(): void {
           // SG-1 A1: the real seat-partitioned attribution resolver (still yields `eve`
           // in 1.7.0 until the 1.8 header producer, but now wired + testable end-to-end).
           attributionAgentId: (token, seatId) => resolveDispatchAgentId(token, seatId),
+          // SG-1 Design B: team_manage propose route — bearer + handler are ISO-6-gated
+          // (resolveTeamManageBearer returns "" on a client seat, making the route inert).
+          teamManageBearer: resolveTeamManageBearer,
+          teamManagePropose: teamManageProposeHandler,
         }));
       commandEveOllamaShimUrl = shimUrl;
       const warmupReceipt = await ensureCommandEveLocalModelWarmup(receipt, shimUrl, warmCommandEveLocalModel);
@@ -1431,6 +1440,10 @@ const handleAppReady = async (): Promise<void> => {
       // SG-1 A1: the real seat-partitioned attribution resolver (still yields `eve`
       // in 1.7.0 until the 1.8 header producer, but now wired + testable end-to-end).
       attributionAgentId: (token, seatId) => resolveDispatchAgentId(token, seatId),
+      // SG-1 Design B: team_manage propose route — bearer + handler are ISO-6-gated
+      // (resolveTeamManageBearer returns "" on a client seat, making the route inert).
+      teamManageBearer: resolveTeamManageBearer,
+      teamManagePropose: teamManageProposeHandler,
     });
     commandEveOllamaShimUrl = shimUrl;
     mark(`commandEveOllamaShim (${shimUrl})`);

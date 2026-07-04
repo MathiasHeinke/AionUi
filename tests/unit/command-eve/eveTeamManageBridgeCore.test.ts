@@ -10,10 +10,12 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   __resetTeamManageForTest,
   applyConsumedIntent,
+  buildProposeResponse,
   clearPendingIntent,
   consumeIntent,
   createIntent,
   peekIntent,
+  peekIntentForSeat,
   validateProposal,
 } from '../../../packages/desktop/src/process/commandEve/eveTeamManageBridgeCore';
 import { EVE_TEAM_ROSTER } from '../../../packages/desktop/src/common/config/eveTeamRoster';
@@ -122,6 +124,59 @@ describe('eveTeamManageBridgeCore — apply (delegates to the pure reducer)', ()
     const { next, applied } = applyConsumedIntent(intent, allActive());
     expect(applied).toBe(true);
     expect((next as Record<string, string>)['growth-lead']).toBe('paused');
+  });
+});
+
+describe('eveTeamManageBridgeCore — buildProposeResponse + peekIntentForSeat (async lane)', () => {
+  beforeEach(() => __resetTeamManageForTest());
+
+  it('a valid proposal → proposed + intent_id + a stored pending intent', () => {
+    const r = buildProposeResponse({ role_agent_id: 'growth-lead', action: 'pause', reason: 'test' }, allActive(), {
+      seatId: 'seat-1',
+      now: 1000,
+      randomId: () => 'INT-1',
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.intent_id).toBe('INT-1');
+      expect(r.status).toBe('proposed');
+      expect(r.summary).toContain('pausieren');
+    }
+    // The pending intent is now visible to a same-seat peek…
+    expect(peekIntentForSeat('seat-1', 1001)?.intent_id).toBe('INT-1');
+    // …but NOT to another seat (seat-partition).
+    expect(peekIntentForSeat('99999999-2222-3333-4444-555555555555', 1001)).toBeNull();
+  });
+
+  it('a scope-violating proposal → rejected + NO pending intent stored', () => {
+    const r = buildProposeResponse({ role_agent_id: 'growth-lead', action: 'pause', cli_path: '/x' }, allActive(), {
+      seatId: 'seat-1',
+      now: 1000,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reject_code).toBe('scope-violation');
+    expect(peekIntentForSeat('seat-1', 1001)).toBeNull();
+  });
+
+  it('a would-empty proposal → rejected + NO pending intent', () => {
+    const r = buildProposeResponse({ role_agent_id: 'growth-lead', action: 'pause' }, allOffExcept('growth-lead'), {
+      seatId: 'seat-1',
+      now: 1000,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reject_code).toBe('would-empty-company');
+    expect(peekIntentForSeat('seat-1', 1001)).toBeNull();
+  });
+
+  it('peekIntentForSeat hides an expired intent (B4)', () => {
+    buildProposeResponse({ role_agent_id: 'growth-lead', action: 'pause' }, allActive(), {
+      seatId: 'seat-1',
+      now: 0,
+      ttlMs: 100,
+      randomId: () => 'INT-TTL',
+    });
+    expect(peekIntentForSeat('seat-1', 50)?.intent_id).toBe('INT-TTL');
+    expect(peekIntentForSeat('seat-1', 150)).toBeNull();
   });
 });
 

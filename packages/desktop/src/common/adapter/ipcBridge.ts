@@ -1784,6 +1784,20 @@ export const commandEve = {
   syncWorkerLauncherState: bridge.buildProvider<IBridgeResponse<{ ok: boolean; tokensWritten?: number }>, void>(
     'command-eve.sync-worker-launcher-state'
   ),
+  // SG-1 Design B — team_manage confirm lane. peek = poll for a pending intent
+  // (renderer renders a confirm card when present; recoverable after restart, B4);
+  // apply = the confirmed write; reject = dismiss.
+  teamManagePeek: bridge.buildProvider<
+    IBridgeResponse<{ ok: boolean; pending: { intent_id: string; role_agent_id: string; action: string; reason: string; expires_ms: number } | null }>,
+    void
+  >('command-eve.team-manage-peek'),
+  teamManageApply: bridge.buildProvider<
+    IBridgeResponse<{ ok: boolean; reason?: string; role_agent_id?: string; action?: string }>,
+    { intent_id: string }
+  >('command-eve.team-manage-apply'),
+  teamManageReject: bridge.buildProvider<IBridgeResponse<{ ok: boolean }>, { intent_id: string }>(
+    'command-eve.team-manage-reject'
+  ),
   // v1.4 T2/T3: multi-entry Company-Brain store (brain.json v2), active-seat-resolved.
   // list = index only (no bodies); read = ONE body on demand (T3 lazy load — open/
   // edit); write = upsert (user/settings, append-first); remove = delete an entry +
