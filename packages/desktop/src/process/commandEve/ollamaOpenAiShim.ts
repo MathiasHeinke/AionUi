@@ -355,6 +355,17 @@ function headerToken(value: string | string[] | undefined): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+// Constant-time bearer comparison (SG-1 Design B, EVE-cloud audit secondary). The
+// route is loopback-only, but a length-independent, non-short-circuiting compare is
+// the correct hygiene for a secret. Length mismatch → false (a fixed-length hex
+// bearer only differs in length when clearly wrong); equal length → timingSafeEqual.
+function constantTimeEquals(a: string, b: string): boolean {
+  const ab = Buffer.from(a, 'utf8');
+  const bb = Buffer.from(b, 'utf8');
+  if (ab.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ab, bb);
+}
+
 function messageRole(message: unknown): string {
   if (!message || typeof message !== 'object') return 'unknown';
   const role = (message as Record<string, unknown>).role;
@@ -1061,8 +1072,9 @@ async function handleTeamManagePropose(
   const authHeader = headerToken(request.headers['authorization']);
   const match = authHeader ? /^bearer\s+(.+)$/i.exec(authHeader) : null;
   const token = match ? match[1].trim() : authHeader;
-  // Empty expected ⇒ inert; a mismatch ⇒ inert. Never treat an empty token as a match.
-  if (!expected || !token || token !== expected) {
+  // Empty expected ⇒ inert; a mismatch ⇒ inert. Never treat an empty token as a
+  // match. Constant-time compare (EVE-cloud audit): no early-exit timing oracle.
+  if (!expected || !token || !constantTimeEquals(token, expected)) {
     jsonResponse(response, 404, { error: { message: 'Unsupported Command EVE Ollama shim path: /eve/team/propose' } });
     return;
   }

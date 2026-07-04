@@ -25,15 +25,22 @@ const isMac = process.platform === 'darwin' || process.platform === 'linux'; // 
 interface RunResult {
   code: number | null;
   stdout: string;
-  proof: { EVE_AGENT_ID?: string; EVE_LEASE_TOKEN?: string; BEARER?: string } | null;
+  proof: { EVE_AGENT_ID?: string; EVE_LEASE_TOKEN?: string; BEARER?: string; STATUS_FILE?: string; TOKEN_FILE?: string } | null;
 }
 
-function runLauncher(dir: string, status: string, token: string, line?: string, parentEnv?: Record<string, string>): Promise<RunResult> {
+function runLauncher(
+  dir: string,
+  status: string,
+  token: string,
+  line?: string,
+  parentEnv?: Record<string, string>,
+  skipStatusFile = false
+): Promise<RunResult> {
   const statusFile = path.join(dir, 'st');
   const tokenFile = path.join(dir, 'tok');
   const proofFile = path.join(dir, 'proof.json');
   const adapter = path.join(dir, 'adapter.sh');
-  fs.writeFileSync(statusFile, status);
+  if (!skipStatusFile) fs.writeFileSync(statusFile, status);
   fs.writeFileSync(tokenFile, token, { mode: 0o600 });
   // Deterministic fake ACP adapter as a POSIX-sh script (NOT a node process — a
   // node/electron spawn per case is heavy enough to starve the rest of the suite
@@ -41,7 +48,7 @@ function runLauncher(dir: string, status: string, token: string, line?: string, 
   // env to a side file, then echoes each stdin line and exits on EOF. No timers.
   fs.writeFileSync(
     adapter,
-    `printf '{"EVE_AGENT_ID":"%s","EVE_LEASE_TOKEN":"%s","BEARER":"%s"}' "$EVE_AGENT_ID" "$EVE_LEASE_TOKEN" "$COMMAND_EVE_TEAM_MANAGE_BEARER" > "$PROOF_FILE"
+    `printf '{"EVE_AGENT_ID":"%s","EVE_LEASE_TOKEN":"%s","BEARER":"%s","STATUS_FILE":"%s","TOKEN_FILE":"%s"}' "$EVE_AGENT_ID" "$EVE_LEASE_TOKEN" "$COMMAND_EVE_TEAM_MANAGE_BEARER" "$STATUS_FILE" "$TOKEN_FILE" > "$PROOF_FILE"
 while IFS= read -r l; do printf 'echo:%s\\n' "$l"; done`
   );
   const args = [LAUNCHER, '--role', 'growth-lead', '--status-file', statusFile, '--token-file', tokenFile, '--', '/bin/sh', adapter];
@@ -106,15 +113,24 @@ describe.skipIf(!isMac)('eve-acp-launcher.sh — CI exec proof (A3/A8)', () => {
     expect(r.proof?.EVE_LEASE_TOKEN).toBe('tok-with-space');
   });
 
-  it('SCRUBS COMMAND_EVE_TEAM_MANAGE_BEARER from the delegated worker env (review fix — no leak)', async () => {
+  it('SCRUBS the bearer + control-file paths from the delegated worker env (review + EVE-audit fixes)', async () => {
     // The parent env carries the operator bearer (as EVE's runtime would); the
-    // delegated adapter must NOT inherit it.
+    // delegated adapter must NOT inherit it, nor the pause-gate control-file paths.
     const r = await runLauncher(dir, 'active', 'tok', undefined, { COMMAND_EVE_TEAM_MANAGE_BEARER: 'operator-secret-bearer' });
     expect(r.code).toBe(0);
     expect(r.proof).not.toBeNull();
     // Injected role/token still arrive…
     expect(r.proof?.EVE_AGENT_ID).toBe('growth-lead');
-    // …but the operator bearer was scrubbed (empty in the child).
+    // …but the operator bearer + the status/token file paths were scrubbed.
     expect(r.proof?.BEARER ?? '').toBe('');
+    expect(r.proof?.STATUS_FILE ?? '').toBe('');
+    expect(r.proof?.TOKEN_FILE ?? '').toBe('');
+  });
+
+  it('A3 fail-CLOSED: an EXPECTED status file that is missing refuses exec (exit 3) — a deleted control file cannot re-enable a paused role', async () => {
+    // --status-file is passed but the file does not exist (deleted / cleaned up).
+    const r = await runLauncher(dir, 'active', 'tok', undefined, undefined, /* skipStatusFile */ true);
+    expect(r.code).toBe(3);
+    expect(r.proof).toBeNull(); // adapter never spawned
   });
 });

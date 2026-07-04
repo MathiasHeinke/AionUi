@@ -44,13 +44,27 @@ if [ -z "$ROLE" ]; then echo "eve-acp-launcher: missing --role" >&2; exit 2; fi
 if [ $# -eq 0 ]; then echo "eve-acp-launcher: missing -- <realAdapterCmd>" >&2; exit 2; fi
 
 # 1) Pause-gate. The main process maintains a per-role status file (active|
-#    paused|off). Missing/unreadable → treat as active (fail-open for
-#    availability; the shim/ledger still attributes). Reading a file (not an
-#    HTTP call) removes any dependency on shim readiness at adapter-spawn time.
+#    paused|off) and ALWAYS writes it when it wires this launcher (--status-file).
+#    Reading a file (not an HTTP call) removes any dependency on shim readiness at
+#    adapter-spawn time.
+#
+#    FAIL-CLOSED when a status file is EXPECTED (--status-file given) but missing or
+#    unreadable: since main always writes it, an absent file here is anomalous — a
+#    crash, a stray cleanup, or a same-user process deleting the file to defeat the
+#    pause-gate (EVE-cloud audit: the status file lives at a discoverable path and
+#    the delegate runs as the same OS user; a naive fail-open would let a deleted
+#    file re-enable a paused role). A paused role must never be re-enabled by
+#    REMOVING its control file. Fail-OPEN (active) applies ONLY when no status file
+#    was configured at all (--status-file absent) — the availability default.
 STATUS="active"
-if [ -n "$STATUS_FILE" ] && [ -r "$STATUS_FILE" ]; then
-  STATUS="$(cat "$STATUS_FILE" 2>/dev/null | tr -d '[:space:]')"
-  [ -z "$STATUS" ] && STATUS="active"
+if [ -n "$STATUS_FILE" ]; then
+  if [ -r "$STATUS_FILE" ]; then
+    STATUS="$(cat "$STATUS_FILE" 2>/dev/null | tr -d '[:space:]')"
+    [ -z "$STATUS" ] && STATUS="active"
+  else
+    echo "eve-acp-launcher: status file expected but unreadable ($STATUS_FILE) — refusing" >&2
+    exit 3
+  fi
 fi
 if [ "$STATUS" = "paused" ] || [ "$STATUS" = "off" ]; then
   echo "eve-acp-launcher: role $ROLE is $STATUS — refusing to spawn worker" >&2
@@ -63,14 +77,17 @@ if [ -n "$TOKEN_FILE" ] && [ -r "$TOKEN_FILE" ]; then
   TOKEN="$(cat "$TOKEN_FILE" 2>/dev/null | tr -d '[:space:]')"
 fi
 
-# 3) SCRUB operator-only secrets from the delegated worker's env. This launcher is
+# 3) SCRUB operator-only state from the delegated worker's env. This launcher is
 #    the boundary between EVE's runtime (which legitimately holds these) and a
 #    third-party autonomous CLI worker (which must not). The delegate inherits our
 #    full env via `exec`, so anything not unset here leaks to it. COMMAND_EVE_TEAM_
 #    MANAGE_BEARER gates the team_manage propose route — a delegated worker holding
-#    it could queue team-status-change intents EVE alone is meant to raise. (The A4
-#    lease token is delivered per-role above, not a shared operator secret.)
-unset COMMAND_EVE_TEAM_MANAGE_BEARER
+#    it could queue team-status-change intents EVE alone is meant to raise. The
+#    status/token FILE PATHS are shell locals (not exported) and are consumed above,
+#    so they are already absent from the child — we unset them anyway as defence in
+#    depth so no future refactor can leak the pause-gate's control-file path to the
+#    delegate. (The A4 lease token is delivered per-role, not a shared secret.)
+unset COMMAND_EVE_TEAM_MANAGE_BEARER STATUS_FILE TOKEN_FILE
 
 # 4) Transparent stdio: `exec` replaces this process with the real adapter,
 #    inheriting fds 0/1/2 exactly — the wheel's JSON-RPC pipe is untouched.
