@@ -1106,5 +1106,9 @@
   "allSkillsExist": "All found skills already exist",
   "noExternalSources": "No external skill sources discovered",
   "eveNoConfiguredModelsHint": "EVE Cloud and the local AI are built in — nothing to set up here. You can add your own models later as a pro option.",
-  "ersteSchritte": "Getting started"
+  "ersteSchritte": "Getting started",
+  "ersteSchritteIntro": "Your starting point with EVE — here you can see whether everything is ready.",
+  "ersteSchritteRefresh": "Refresh",
+  "ersteSchritteWebui": "You'll find the first steps in the desktop app.",
+  "ersteSchritteUnavailable": "I couldn't read your setup status just now — you can keep going in the chat anyway."
 }

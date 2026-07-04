@@ -1067,5 +1067,9 @@
     "pendingTimeRemaining": "Verbleibende Zeit: {{time}}"
   },
   "eveNoConfiguredModelsHint": "EVE Cloud und die lokale KI sind fest eingebaut — hier musst du nichts einrichten. Eigene Modelle kannst du später als Profi-Option ergänzen.",
-  "ersteSchritte": "Erste Schritte"
+  "ersteSchritte": "Erste Schritte",
+  "ersteSchritteIntro": "Dein Startpunkt mit EVE — hier siehst du, ob alles bereit ist.",
+  "ersteSchritteRefresh": "Aktualisieren",
+  "ersteSchritteWebui": "Die Ersten Schritte siehst du in der Desktop-App.",
+  "ersteSchritteUnavailable": "Ich konnte deinen Einrichtungs-Status gerade nicht lesen — im Chat geht es trotzdem weiter."
 }

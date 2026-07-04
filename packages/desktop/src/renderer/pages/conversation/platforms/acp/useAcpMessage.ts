@@ -559,7 +559,15 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           // quota_exhausted surfaces <QuotaExhaustedWall/>; anything else is a
           // no-op so the existing error message rendering is untouched.
           const jobWasInFlight = runningRef.current || aiProcessingRef.current;
-          quotaWall.reportInferenceError(message.data, { jobInFlight: jobWasInFlight });
+          const quotaSignal = quotaWall.reportInferenceError(message.data, { jobInFlight: jobWasInFlight });
+          // M-quotawall-suppress (Codex): a recognized quota/daily-cap signal shows a
+          // full warm wall (QuotaExhaustedWall / DailyCapWall) — but ONLY when a turn
+          // was in-flight (both walls idle-suppress on jobInFlight). In that exact
+          // case the cold error bubble is redundant and contradicts the v1.6 warm-wall
+          // fix (Alois saw the warm wall AND the raw error bubble), so skip it.
+          // Otherwise (no signal, or not in-flight ⇒ no wall surfaces) fall through to
+          // the cold bubble so an error is NEVER silently swallowed.
+          const suppressColdError = quotaSignal && jobWasInFlight;
 
           // Stop all loading states when error occurs
           turnFinishedRef.current = true;
@@ -568,7 +576,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           setAiProcessing(false);
           aiProcessingRef.current = false;
           activeThinkingRef.current = null;
-          addOrUpdateMessage(transformedMessage);
+          if (!suppressColdError) addOrUpdateMessage(transformedMessage);
           // Log request error
           if (requestTraceRef.current) {
             const duration = Date.now() - requestTraceRef.current.startTime;

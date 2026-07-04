@@ -135,8 +135,15 @@ export const openAccountWeb = async (path: string): Promise<void> => {
   if (isElectronDesktop()) {
     try {
       const { ipcBridge } = await import('@/common');
-      await ipcBridge.commandEve.openAccountWeb.invoke({ path: safePath });
-      return;
+      const res = (await ipcBridge.commandEve.openAccountWeb.invoke({ path: safePath })) as
+        | { success?: boolean; data?: { ok?: boolean } }
+        | undefined;
+      // M-browser-open-masked (Codex): the MAIN handoff now reports success:false when
+      // it could open NEITHER the token URL nor the naked fallback. Only return early
+      // on a genuine success — otherwise fall through to this renderer's own
+      // openExternalUrl (a distinct shell.openExternal IPC), so a browser genuinely
+      // gets a second attempt instead of the buy path silently believing it opened.
+      if (res?.success !== false && res?.data?.ok !== false) return;
     } catch {
       // MAIN handoff unavailable → fall through to a naked external open (logged out).
     }

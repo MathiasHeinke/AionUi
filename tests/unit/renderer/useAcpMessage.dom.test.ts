@@ -9,17 +9,32 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAcpMessage } from '@/renderer/pages/conversation/platforms/acp/useAcpMessage';
 import type { IResponseMessage } from '@/common/adapter/ipcBridge';
 
-const { addOrUpdateMessageMock, responseStreamOnMock, responseStreamHandlerRef, conversationGetInvokeMock } = vi.hoisted(() => ({
+const { addOrUpdateMessageMock, responseStreamOnMock, responseStreamHandlerRef, conversationGetInvokeMock, reportInferenceErrorMock } = vi.hoisted(() => ({
   addOrUpdateMessageMock: vi.fn(),
   responseStreamOnMock: vi.fn(),
   responseStreamHandlerRef: {
     current: undefined as ((message: IResponseMessage) => void) | undefined,
   },
   conversationGetInvokeMock: vi.fn(),
+  // Default: NO quota/cap signal recognized → the error path renders the cold bubble
+  // exactly as before. Tests flip this to true to exercise the suppression (M-quotawall).
+  reportInferenceErrorMock: vi.fn((): boolean => false),
 }));
 
 vi.mock('@/renderer/pages/conversation/Messages/hooks', () => ({
   useAddOrUpdateMessage: () => addOrUpdateMessageMock,
+}));
+
+vi.mock('@renderer/hooks/useQuotaWall', () => ({
+  useQuotaWall: () => ({
+    body: null,
+    jobInFlight: false,
+    dailyCapReached: false,
+    autoReload: false,
+    reportInferenceError: reportInferenceErrorMock,
+    closeWall: vi.fn(),
+    setAutoReload: vi.fn(),
+  }),
 }));
 
 vi.mock('@/common', () => ({
@@ -50,6 +65,7 @@ describe('useAcpMessage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     responseStreamHandlerRef.current = undefined;
+    reportInferenceErrorMock.mockReturnValue(false);
   });
 
   it('completes hydration when the conversation lookup fails', async () => {
@@ -215,6 +231,41 @@ describe('useAcpMessage', () => {
           },
         },
       ]);
+    });
+  });
+
+  describe('M-quotawall-suppress — the cold error bubble yields to a recognized warm wall', () => {
+    const emitError = (): void => {
+      // A turn must be in-flight so the wall would actually surface (both walls
+      // idle-suppress on jobInFlight). A non-terminal message before the error sets
+      // running=true → jobWasInFlight=true.
+      responseStreamHandlerRef.current?.({ type: 'text', data: 'partial', msg_id: 'm-1', conversation_id: 'conv-1' });
+      responseStreamHandlerRef.current?.({ type: 'error', data: { code: 'eve_daily_cap' }, msg_id: 'm-1', conversation_id: 'conv-1' });
+    };
+
+    it('suppresses the cold error message when a quota/cap signal is recognized AND a turn was in-flight', async () => {
+      conversationGetInvokeMock.mockResolvedValue(null);
+      reportInferenceErrorMock.mockReturnValue(true); // wall takes over
+      renderHook(() => useAcpMessage('conv-1'));
+      expect(responseStreamHandlerRef.current).toBeTypeOf('function');
+
+      act(() => emitError());
+
+      expect(reportInferenceErrorMock).toHaveBeenCalledWith({ code: 'eve_daily_cap' }, { jobInFlight: true });
+      // Only the in-flight 'text' message reached the transcript; the error did NOT add
+      // a second (cold) bubble — the warm wall owns the surface.
+      expect(addOrUpdateMessageMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('STILL renders the cold error bubble when NO quota/cap signal is recognized (never swallow a real error)', async () => {
+      conversationGetInvokeMock.mockResolvedValue(null);
+      reportInferenceErrorMock.mockReturnValue(false); // ordinary error
+      renderHook(() => useAcpMessage('conv-1'));
+
+      act(() => emitError());
+
+      // Both the 'text' message AND the error bubble reached the transcript.
+      expect(addOrUpdateMessageMock).toHaveBeenCalledTimes(2);
     });
   });
 });

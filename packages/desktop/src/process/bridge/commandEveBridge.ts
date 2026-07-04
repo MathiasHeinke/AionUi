@@ -75,6 +75,8 @@ import { listLearnedSkills } from '@process/commandEve/learnedSkillsCore';
 import { listAuthoredSkills, COMMAND_EVE_AUTHORED_SKILLS_DIR } from '@process/commandEve/authoredSkillsCore';
 import {
   resolveCommandEveRuntimeBootstrapPaths,
+  resolveCommandEveRuntimeBootstrapManifestPath,
+  loadCommandEveRuntimeBootstrapManifest,
   EVE_STRATEGY_SKILL_IDS,
   COMMAND_EVE_ONBOARDING_SKILL_ID,
   COMMAND_EVE_ARTIFACT_MENU_SKILL_ID,
@@ -778,12 +780,27 @@ export function initCommandEveBridge(): void {
         // installed+size (2s cap — a down Ollama yields undefined ⇒ the core
         // emits `ollama_probe_unavailable` instead of a false "not installed"),
         // os.totalmem for the RAM fit, statfs at the runtime root for disk.
+        // M-modelcard-baseurl (Codex): probe the SAME loopback the bootstrap/pull
+        // path uses (manifest.local_runtime.base_url), not a hardcoded 127.0.0.1:11434.
+        // On a manifest with a non-default Ollama port the hardcoded probe reported
+        // "Status unbekannt" / a wrong install-state next to a working runtime.
+        let ollamaBaseUrl = OLLAMA_BASE_URL;
+        try {
+          const manifestPath = resolveCommandEveRuntimeBootstrapManifestPath({
+            manifestPath: request?.manifestPath,
+            resourcesPath: process.resourcesPath,
+          });
+          const configured = loadCommandEveRuntimeBootstrapManifest(manifestPath).local_runtime?.base_url;
+          if (typeof configured === 'string' && configured.trim().length > 0) ollamaBaseUrl = configured.trim();
+        } catch {
+          /* keep the default loopback */
+        }
         let installedModels: Array<{ name: string; size?: number }> | undefined;
         try {
           const controller = new AbortController();
           const timer = setTimeout(() => controller.abort(), 2000);
           try {
-            const res = await fetch(`${OLLAMA_BASE_URL}/api/tags`, { method: 'GET', signal: controller.signal });
+            const res = await fetch(`${ollamaBaseUrl}/api/tags`, { method: 'GET', signal: controller.signal });
             if (res.ok) {
               const json = (await res.json()) as { models?: Array<{ name?: string; size?: number }> };
               installedModels = (json.models || [])
@@ -2546,12 +2563,21 @@ export function initCommandEveBridge(): void {
       // Even on a failure to read/build/open with the token, try the NAKED url so
       // the operator still reaches the site (logged out → /login). Never throw the
       // chrome; never log the token (there is none to log on this path).
+      const fallbackPath = typeof request?.path === 'string' && request.path.startsWith('/') ? request.path : '/account';
+      const nakedUrl = `https://command-eve.com${fallbackPath}`;
       try {
-        const path = typeof request?.path === 'string' && request.path.startsWith('/') ? request.path : '/account';
-        await openExternal(`https://command-eve.com${path}`);
+        await openExternal(nakedUrl);
       } catch {
-        // opening the browser genuinely failed — still report ok:true so the buy
-        // path never hard-fails; the renderer keeps its own copy-link fallback.
+        // M-browser-open-masked (Codex): BOTH the token-URL and the naked fallback
+        // failed to open a browser. Do NOT mask it as success:true — that made the
+        // buy path look like it opened when nothing did and no fallback could fire.
+        // Report an honest failure + the (token-free, safe) naked url so the caller
+        // can retry its own open path or offer a copy-link.
+        return {
+          success: false,
+          msg: 'OPEN_ACCOUNT_WEB_FAILED',
+          data: { ok: false, carried_session: false, reason_code: 'OPEN_ACCOUNT_WEB_FAILED', fallback_url: nakedUrl },
+        };
       }
       return {
         success: true,
