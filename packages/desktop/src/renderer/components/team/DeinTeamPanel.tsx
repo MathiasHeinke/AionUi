@@ -384,12 +384,15 @@ const DeinTeamPanel: React.FC = () => {
       } else if (decision.resolution === 'restore-floor') {
         Message.info('Letzter bezahlter Mitarbeiter weg — der gratis Hauspförtner übernimmt den Empfang.');
       }
-      void setPersisted(next as Record<string, 'active' | 'paused' | 'off'>);
-      // SG-1 A3: nudge main to rewrite the eve-acp-launcher status files NOW, so a
-      // paused delegate role's pause-gate fires on the very next delegation instead
-      // of only after the next boot/seat-switch. Fire-and-forget: a failure here
-      // never blocks the (authoritative) status write above.
-      void ipcBridge.commandEve.syncWorkerLauncherState.invoke().catch(() => {});
+      // SG-1 A3: the authoritative status write MUST land BEFORE we nudge main to
+      // rewrite the derived launcher status files — the sync IPC re-reads the
+      // backend, so firing it un-sequenced races the PUT and can rewrite a STALE
+      // 'active' file (a just-paused delegate role would keep spawning). Await the
+      // write, THEN refresh. Both best-effort: neither blocks the UI.
+      void (async () => {
+        await Promise.resolve(setPersisted(next as Record<string, 'active' | 'paused' | 'off'>)).catch(() => {});
+        await ipcBridge.commandEve.syncWorkerLauncherState.invoke().catch(() => {});
+      })();
     },
     [statuses, setPersisted]
   );

@@ -216,6 +216,16 @@ async function resolveCommandEveWorkerRuntimeInputsForSwitch(): Promise<{
     const { readCommandEveSettingsFromBackend } = await import('@process/commandEve/commandEveBackendSettingsRead');
     const { buildTeamDirectiveRoles, codexRuntimeForConfig, resolveAssignedClaudeDelegate } = await import('@/common/config/eveWorkerAssignmentCore');
     const { applyLauncherWiring } = await import('@process/commandEve/eveWorkerLauncherCore');
+    // SG-1 isolation (review fix): the shim + registry + team_manage intent live on
+    // the MAIN-process singleton, which is NOT torn down on a seat-switch (only the
+    // backend child respawns). Drop the previous seat's leases + any pending intent
+    // NOW, so nothing accumulates across seats and the switch honours the documented
+    // regenerate contract. applyLauncherWiring below re-mints for the (now-active)
+    // new seat, so this only clears stale state — it never leaves the new seat bare.
+    const { regenerateLeases } = await import('@process/commandEve/eveAgentTaskRegistry');
+    const { clearPendingIntent } = await import('@process/commandEve/eveTeamManageBridgeCore');
+    regenerateLeases();
+    clearPendingIntent();
     type EveWorkerAssignmentMap = import('@/common/config/eveWorkerAssignmentCore').EveWorkerAssignmentMap;
     type EveTeamWorkerStatusMap = import('@/common/config/eveTeamControlsCore').EveTeamWorkerStatusMap;
     const bag = await readCommandEveSettingsFromBackend(['commandEve.workerAssignments', 'commandEve.teamWorkerStatus']);

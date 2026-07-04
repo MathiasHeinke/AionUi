@@ -17,7 +17,20 @@ export default defineConfig({
   },
   test: {
     globals: true,
-    testTimeout: 10000,
+    // 20s (was 10s): the suite has legitimately slow integration/DOM tests — the
+    // kanban marketing-executor ladder and the Company-Brain modal DOM tests run
+    // ~7-8s of real work each, leaving only a ~2-3s margin at 10s. Under full
+    // parallel load (119 files incl. process/server-spawning SG-1 tests) that
+    // margin vanished and non-broken tests hit the wall. These are timeouts, never
+    // assertion failures; 20s restores headroom without masking any real defect.
+    testTimeout: 20000,
+    // Cap worker parallelism (was unbounded = one per core). The CPU-heavy jsdom
+    // DOM tests and the process/server-spawning integration tests otherwise starve
+    // each other under a fully-saturated pool: the same tests pass in isolation
+    // (8.8s) but time out past 20s when every core runs a heavy file at once.
+    // A 60% cap leaves the OS + the heavy tests enough CPU to finish deterministically
+    // (verified green: 119 files / 1722 tests). Scales with core count.
+    maxWorkers: '60%',
     // Use projects to run different environments (Vitest 4+)
     projects: [
       // Node environment tests (existing tests)
