@@ -168,6 +168,45 @@ export function parseSeatUsageResponse(raw: unknown, requestedMonth: string): Se
   return { ok: true, month: isValidUsageMonth(month) ? month : currentUsageMonth(), seats, total };
 }
 
+/**
+ * Partition a parsed seat-usage response for the VIEWING seat — the main-side
+ * belt for the account-wide-leak finding (Codex C1). `parseSeatUsageResponse`
+ * returns EVERY seat's row + the account-wide total; the renderer alone used to
+ * filter for display, which means the raw sibling rows (seat ids, calls, tokens,
+ * retail/RAW cost) crossed the IPC wire to a client/delegate seat that must never
+ * see them.
+ *
+ * - `visibleSeatId === null` ⇒ the owner/all-seat summary is authorized (the
+ *   caller has already checked Founder/Admin-Legacy) — return the response
+ *   unchanged.
+ * - otherwise ⇒ keep ONLY the viewer's own row and RE-DERIVE `total` from the
+ *   visible rows, so neither sibling rows nor the account-wide aggregate leak.
+ *   A viewer with no attributed usage yet gets an empty seats list + zero total.
+ *
+ * Pure — no IO. The server-side seat-usage function should ALSO partition by the
+ * bearer's account/role (defense in depth); this is the local enforcement point.
+ */
+export function partitionSeatUsageForViewer(
+  response: SeatUsageResponse,
+  visibleSeatId: string | null
+): SeatUsageResponse {
+  if (visibleSeatId === null) return response;
+  const seats = response.seats.filter((r) => r.seat_id === visibleSeatId);
+  const total = seats.reduce(
+    (acc, r) => ({
+      calls: acc.calls + r.calls,
+      ok_calls: acc.ok_calls + r.ok_calls,
+      prompt_tokens: acc.prompt_tokens + r.prompt_tokens,
+      completion_tokens: acc.completion_tokens + r.completion_tokens,
+      retail_eur_cents: acc.retail_eur_cents + r.retail_eur_cents,
+      raw_eur_cents: acc.raw_eur_cents + r.raw_eur_cents,
+      credits: acc.credits + r.credits,
+    }),
+    { calls: 0, ok_calls: 0, prompt_tokens: 0, completion_tokens: 0, retail_eur_cents: 0, raw_eur_cents: 0, credits: 0 }
+  );
+  return { ok: response.ok, month: response.month, seats, total };
+}
+
 // ---------------------------------------------------------------------------
 // Display-model shaping (label join is the caller's; ordering + bucket is here)
 // ---------------------------------------------------------------------------

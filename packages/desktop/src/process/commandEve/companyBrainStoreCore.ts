@@ -1182,6 +1182,22 @@ export function migrateCompanyBrainFromHome(sourceHome: string, targetHome: stri
       // discipline as the index quarantine) and the inherit proceeds. ANY sign
       // of real content keeps the hard no-op (never merge, never clobber).
       if (!isPristineBlueprintScaffold(targetHome)) return { ok: true, migrated: false, copied: 0 };
+      // 1.6.2 MEDIUM (Codex): a brain.json can read as pristine (only blueprint
+      // section ids, none filled) while `entries/` ALREADY holds a REAL unindexed
+      // `.md` note (e.g. an EVE write not yet folded into the index). The bare
+      // pristine check would set the whole target brain aside and bury that live
+      // note behind the inherited source brain. Scan the target bodies for any
+      // non-dot `.md` that is NOT a blueprint section / day-zero brief body — those
+      // ARE the pristine scaffold's own placeholders (safe to take over); anything
+      // else is a real unindexed note ⇒ hard no-op, let the ready-pass reconcile.
+      if (fs.existsSync(entriesDirOf(targetHome))) {
+        const hasUnindexedNote = fs.readdirSync(entriesDirOf(targetHome)).some((n) => {
+          if (!n.endsWith('.md') || n.startsWith('.')) return false;
+          const base = n.slice(0, -'.md'.length);
+          return !isBlueprintSectionId(base) && base !== COMMAND_EVE_DAY_ZERO_BRIEF_ID;
+        });
+        if (hasUnindexedNote) return { ok: true, migrated: false, copied: 0 };
+      }
       const stamp = new Date().toISOString().replace(/[:.]/g, '-');
       fs.renameSync(brainDirOf(targetHome), `${brainDirOf(targetHome)}.pre-inherit-${stamp}`);
     } else if (fs.existsSync(entriesDirOf(targetHome)) && fs.readdirSync(entriesDirOf(targetHome)).some((n) => n.endsWith('.md') && !n.startsWith('.'))) {
@@ -1202,8 +1218,22 @@ export function migrateCompanyBrainFromHome(sourceHome: string, targetHome: stri
     // index pointing at bodies that were never written.
     const srcEntries = entriesDirOf(sourceHome);
     if (fs.existsSync(srcEntries)) {
-      for (const name of fs.readdirSync(srcEntries)) {
+      // H10 (Codex): mirror the reconciler's guard exactly — read with
+      // withFileTypes, copy ONLY DIRECT regular files (dirent.isFile() ⇒ a `.md`
+      // SYMLINK or a symlinked dir is skipped, never followed), and require the
+      // basename to be a safe entry id. Without this a `.md` symlink in a source
+      // brain could copy a locally-readable secret into the target company-brain
+      // and make it model-visible.
+      for (const dirent of fs.readdirSync(srcEntries, { withFileTypes: true })) {
+        if (!dirent.isFile()) continue;
+        const name = dirent.name;
         if (!name.endsWith('.md') || name.startsWith('.')) continue;
+        const base = name.slice(0, -'.md'.length);
+        try {
+          assertEntryId(base);
+        } catch {
+          continue; // crafted / unsafe basename → ignore, never copy
+        }
         copyFile(path.join(srcEntries, name), path.join(entriesDirOf(targetHome), name));
       }
     }

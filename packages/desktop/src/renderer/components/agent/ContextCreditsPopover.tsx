@@ -32,10 +32,9 @@ import type { TokenUsageData } from '@/common/config/storage';
 import { resolveEffectiveContextLimit } from '@/renderer/utils/model/modelContextLimits';
 import { useCreditsStatus } from '@renderer/hooks/useCreditsStatus';
 import { CREDIT_UNIT_EUR, isNearAllowanceWall, showsFreeActionMeter, TIER_ALLOWANCE_CREDITS } from '@/common/config/creditsCore';
-import { openExternalUrl } from '@renderer/utils/platform';
-// REUSE the 402-wall checkout destination so "Nachkaufen" and the in-job wall
-// land on the exact same Lane-2 page — no second source of truth for the URL.
-import { CREDIT_PACK_CHECKOUT_URL } from '@renderer/components/billing/QuotaExhaustedWall';
+// openAccountWeb pins the command-eve.com origin AND carries the desktop session
+// hand-off, so "Nachkaufen" lands on /account already logged in (H8).
+import { openAccountWeb } from '@renderer/utils/platform';
 
 import { formatTokenCount } from './ContextUsageIndicator';
 
@@ -121,7 +120,12 @@ const ContextCreditsPopover: React.FC<ContextCreditsPopoverProps> = ({ tokenUsag
   }, [meter]);
 
   const handleTopUp = (): void => {
-    void openExternalUrl(CREDIT_PACK_CHECKOUT_URL).catch((): undefined => undefined);
+    // H8 (Codex): this CTA used to open the raw CREDIT_PACK_CHECKOUT_URL via
+    // openExternalUrl — the browser landed on /account WITHOUT the desktop session,
+    // so a logged-out top-up stalled exactly like before the 1.5.1 fix. Use
+    // openAccountWeb, which pins the command-eve.com origin AND carries the desktop
+    // session hand-off, matching every other Command EVE purchase CTA.
+    void openAccountWeb('/account').catch((): undefined => undefined);
   };
 
   return (

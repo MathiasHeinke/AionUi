@@ -57,13 +57,29 @@ vi.mock('@process/commandEve/seatSwitchRuntime', () => ({
   restartCommandEveBackendForSeat: (...args: unknown[]) => restartBackendMock(...args),
 }));
 
+import fs from 'fs';
+import path from 'path';
 import { initCommandEveBridge } from '@process/bridge/commandEveBridge';
 import { parseMySeats, resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
-import { setActiveSeatId, __resetActiveSeatForTests } from '@process/commandEve/seatContextCore';
+import { setActiveSeatId, __resetActiveSeatForTests, resolveSeatHermesHome } from '@process/commandEve/seatContextCore';
 
 const SEAT_A = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const SEAT_B = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 const LEGACY = 'seat-1';
+const DATA_PATH = '/tmp/ce-rail-data';
+
+// H4 precondition: the switch now FAILS-CLOSED unless the target seat home already
+// holds a valid config.yaml + SOUL.md (never boot a seat on wheel defaults). These
+// tests exercise the switch MECHANICS (admin gate, label threading, rollback), not
+// the fresh-unprovisioned-seat case, so seed minimal valid runtime files for every
+// seat they land on. The backend is mocked unreachable, so no real provisioning
+// runs — this stands in for the last-known-good files a prior good pass would leave.
+const seedSeatRuntimeFiles = (seatId: string): void => {
+  const home = resolveSeatHermesHome(DATA_PATH, seatId);
+  fs.mkdirSync(home, { recursive: true });
+  fs.writeFileSync(path.join(home, 'config.yaml'), 'memory_enabled: true\n');
+  fs.writeFileSync(path.join(home, 'SOUL.md'), '# EVE\nVoice + values.\n');
+};
 
 const adminWire = () => ({
   ok: true,
@@ -92,11 +108,17 @@ beforeEach(() => {
   restartBackendMock.mockImplementation(async () => {});
   __resetActiveSeatForTests();
   setActiveSeatId(SEAT_A);
+  // Seed valid runtime files for every seat the (b) mirror switches to, so the H4
+  // fail-closed gate sees last-known-good files and the switch mechanics run.
+  seedSeatRuntimeFiles(SEAT_A);
+  seedSeatRuntimeFiles(SEAT_B);
+  seedSeatRuntimeFiles(LEGACY);
   initCommandEveBridge();
 });
 afterEach(() => {
   __resetActiveSeatForTests();
   vi.clearAllMocks();
+  fs.rmSync(DATA_PATH, { recursive: true, force: true });
 });
 
 const mySeats = () => (registered.get('command-eve.my-seats') as () => Promise<MySeatsEnvelope>)();
@@ -214,5 +236,24 @@ describe('mirror (b) — REAL switch-seat handler: admin gate + Founder chip + l
     expect(res.data?.active_seat_id).toBe(SEAT_A);
     // At most ONE rollback-restart (no infinite loop): forward + one rollback = 2.
     expect(restartBackendMock).toHaveBeenCalledTimes(2);
+  });
+
+  // H4 (Codex): a switch to a target with NO valid runtime files must FAIL-CLOSED —
+  // the seat would otherwise boot on wheel defaults (memory off, no SOUL). The gate
+  // throws in prepareEnv, so applySeatSwitch rolls back and the forward re-spawn for
+  // the target NEVER runs (only the rollback-restart for the prior seat does).
+  it('an authorized switch to a target with NO valid runtime files FAILS-CLOSED and rolls back (never boots on wheel defaults)', async () => {
+    wirePayload = adminWire(); // active = SEAT_A
+    // Strip SEAT_B's seeded files: a fresh, never-provisioned client seat.
+    fs.rmSync(resolveSeatHermesHome(DATA_PATH, SEAT_B), { recursive: true, force: true });
+    const res = await switchSeat(SEAT_B);
+
+    expect(res.success).toBe(false);
+    expect(res.data?.ok).toBe(false);
+    expect(res.data?.rolled_back).toBe(true);
+    // Pointer stayed on / returned to the prior seat — never landed on the degraded target.
+    expect(res.data?.active_seat_id).toBe(SEAT_A);
+    // The forward re-spawn for SEAT_B never ran; only the rollback-restart for SEAT_A did.
+    expect(restartBackendMock).toHaveBeenCalledTimes(1);
   });
 });

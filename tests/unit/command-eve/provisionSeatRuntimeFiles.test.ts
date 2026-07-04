@@ -35,6 +35,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import {
+  hasValidSeatRuntimeFiles,
   provisionSeatRuntimeFiles,
   resolveCommandEveRuntimeBootstrapPaths,
 } from '@/process/commandEve/runtimeBootstrapCore';
@@ -239,5 +240,55 @@ describe('(e) fail-safe — an unsafe seat id never escapes seats/', () => {
     };
     walk(runtimeRoot);
     expect(stray).toEqual([]);
+  });
+});
+
+describe('(H4) hasValidSeatRuntimeFiles — the seat-switch fail-closed gate', () => {
+  const makeHome = (): string => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'command-eve-h4-home-'));
+    tempRoots.push(home);
+    return home;
+  };
+
+  it('false for an empty/unresolved home path (never treat "" as valid)', () => {
+    expect(hasValidSeatRuntimeFiles('')).toBe(false);
+  });
+
+  it('false when config.yaml + SOUL.md are both absent (a fresh unprovisioned home ⇒ wheel defaults)', () => {
+    const home = makeHome();
+    expect(hasValidSeatRuntimeFiles(home)).toBe(false);
+  });
+
+  it('false when only ONE of config.yaml / SOUL.md is present', () => {
+    const home = makeHome();
+    fs.writeFileSync(path.join(home, 'config.yaml'), 'memory_enabled: true\n');
+    expect(hasValidSeatRuntimeFiles(home)).toBe(false); // SOUL.md still missing
+    fs.rmSync(path.join(home, 'config.yaml'));
+    fs.writeFileSync(path.join(home, 'SOUL.md'), '# EVE\n');
+    expect(hasValidSeatRuntimeFiles(home)).toBe(false); // config.yaml missing
+  });
+
+  it('false when a required file exists but is EMPTY (zero bytes is not a valid file)', () => {
+    const home = makeHome();
+    fs.writeFileSync(path.join(home, 'config.yaml'), '');
+    fs.writeFileSync(path.join(home, 'SOUL.md'), '');
+    expect(hasValidSeatRuntimeFiles(home)).toBe(false);
+  });
+
+  it('true only when BOTH config.yaml + SOUL.md exist and are non-empty (last-known-good ⇒ switch may proceed)', () => {
+    const home = makeHome();
+    fs.writeFileSync(path.join(home, 'config.yaml'), 'memory_enabled: true\n');
+    fs.writeFileSync(path.join(home, 'SOUL.md'), '# EVE\nVoice + values.\n');
+    expect(hasValidSeatRuntimeFiles(home)).toBe(true);
+  });
+
+  it('a REAL provisioned seat home passes the gate (end-to-end with provisionSeatRuntimeFiles)', () => {
+    const userData = makeUserData();
+    setActiveSeatId(REAL_UUID_A);
+    const seatHome = resolveCommandEveRuntimeBootstrapPaths(userData).hermesHome;
+    const res = provisionSeatRuntimeFiles({ userDataPath: userData, seatId: REAL_UUID_A });
+    expect(res.ok).toBe(true);
+    expect(hasValidSeatRuntimeFiles(seatHome)).toBe(true);
+    clearActiveSeat();
   });
 });

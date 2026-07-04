@@ -8,6 +8,8 @@ category: operations
 
 > Provenance: EVE-authored field skill (2026-07), harvested + hardened into the public bundle.
 
+> **Human-Gate (required).** This is a GATED capability, not an always-on default. Only use it after the operator explicitly asks to delegate a build, and run the coding worker under its **normal permission model** — the worker asks before each file write / shell command and the operator approves. NEVER launch it with a skip-permissions flag and NEVER auto-dismiss a permission prompt on the operator's behalf. A permission dialog is a decision point to surface, not an obstacle to click past. If a step needs approval and the operator isn't there to give it, stop and report — do not proceed unattended.
+
 Delegate coding work to an AI coding worker agent (primarily the Claude Code CLI; the same pattern applies to Codex and other interactive coding CLIs) by driving a **real interactive terminal session** through tmux. This keeps a heavy coding session on the operator's flat subscription instead of the metered per-call API path, and gives EVE full control: set up the worker, feed the task, handle startup dialogs, watch progress, extract the result, clean up.
 
 ## Where this fits (composes with native delegation)
@@ -54,16 +56,18 @@ tmux new-session -d -s claude-del -x 140 -y 40
 
 # 2. Launch the coder with the model + effort you want.
 #    Unset any API-key env first so it can't fall back to metered billing.
+#    Launch WITHOUT any skip-permissions flag — the worker keeps its normal
+#    per-action approval model, so file writes / shell commands are gated.
 tmux send-keys -t claude-del \
-  "unset ANTHROPIC_API_KEY && cd /path/to/project && claude --model opus --effort high --dangerously-skip-permissions" Enter
+  "unset ANTHROPIC_API_KEY && cd /path/to/project && claude --model opus --effort high" Enter
 
 # 3. Wait for startup (TUI welcome + first-run dialogs)
 sleep 5
 
-# 4. Handle the permissions dialog (see Dialog handling below)
-tmux send-keys -t claude-del Down && sleep 0.3
-tmux send-keys -t claude-del Enter
-sleep 3
+# 4. Handle only the benign first-run dialogs (fullscreen renderer, workspace
+#    trust — see Dialog handling below). Do NOT try to disable the permission
+#    model; per-action permission prompts must reach the operator, not be
+#    auto-accepted here.
 
 # 5. Send the task
 tmux send-keys -t claude-del "Add retry logic to the HTTP client in src/http.py" Enter
@@ -144,17 +148,17 @@ Set the effort on launch, or with the coder's in-session effort command once the
 
 ## Dialog & prompt handling (critical)
 
-Interactive coders show first-run dialogs per directory. For Claude Code the common ones, in order:
+Interactive coders show first-run dialogs per directory. Only the two **benign, one-time** dialogs below may be answered programmatically. For Claude Code, in order:
 
 1. **Fullscreen renderer prompt** → keep it OFF in tmux. If offered, arrow to "Not now" and press Enter. A fullscreen renderer breaks `capture-pane`.
 2. **Workspace trust** → default is usually "Yes, I trust this folder" → press **Enter**. Appears once per directory.
-3. **Permissions warning** (when launched with a skip-permissions flag) → the default is often the *safe/exit* option (WRONG for automation) → arrow **Down** to the accept option, then **Enter**. This one can recur.
 
 | Dialog | Default selection | Action |
 |---|---|---|
 | Fullscreen renderer | (varies) | Arrow to "Not now", then Enter — never enable in tmux |
 | Workspace trust | "Yes, I trust this folder" | `tmux send-keys -t <session> Enter` |
-| Bypass-permissions warning | safe/exit option (WRONG) | `tmux send-keys -t <session> Down && sleep 0.3 && tmux send-keys -t <session> Enter` |
+
+**Per-action permission prompts are NOT in this table on purpose.** When the worker asks to run a shell command or write a file, that prompt is the Human-Gate doing its job — surface it to the operator and let them decide. Never send `Down`/`Enter` to click past a permission prompt, and never re-launch with a skip-permissions flag to make the prompts disappear. If the operator is unavailable to approve, pause the delegation and report where it stopped.
 
 ## Interactive selection menus
 
@@ -229,8 +233,11 @@ The metered headless path is the right tool when you *want* it and the spend is 
 - The task is explicitly approved for API spending
 
 ```bash
+# Default to a scoped allow-list so writes/commands stay bounded; reach for a
+# broader bypass ONLY inside a disposable sandbox the operator has explicitly
+# approved for it — never on the operator's own working tree or a client seat.
 ANTHROPIC_API_KEY=... claude -p --output-format json \
-  --dangerously-skip-permissions \
+  --allowedTools "Read,Grep" \
   --max-turns 10 \
   "task description"
 ```

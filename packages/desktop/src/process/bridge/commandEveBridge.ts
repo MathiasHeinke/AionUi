@@ -95,10 +95,11 @@ import {
   emptySeatUsage,
   isValidUsageMonth,
   parseSeatUsageResponse,
+  partitionSeatUsageForViewer,
 } from '@/common/config/seatUsageCore';
 import { ProcessConfig, getSkillsDir, getCronSkillsDir } from '@process/utils/initStorage';
 import { getDataPath } from '@process/utils/utils';
-import { getActiveSeatId, getActiveSeatKind, resolveActiveSeatHome, sanitizeSeatId } from '@process/commandEve/seatContextCore';
+import { getActiveSeatId, getActiveSeatKind, isActiveSeatLegacy, resolveActiveSeatHome, resolveSeatHermesHome, sanitizeSeatId } from '@process/commandEve/seatContextCore';
 import { isSeatSwitchAuthorized, parseMySeats, resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
 import { readMySeatsWire as readMySeatsWireCore } from '@process/commandEve/seatWireFetchCore';
 import { readCompanyBrainSeedState, writeCompanyBrainSeed } from '@process/commandEve/companyBrainSeedCore';
@@ -2821,7 +2822,7 @@ export function initCommandEveBridge(): void {
 
       const { applySeatSwitch } = await import('@process/commandEve/seatSwitchCore');
       const { restartCommandEveBackendForSeat } = await import('@process/commandEve/seatSwitchRuntime');
-      const { prepareCommandEveRuntimeProcessEnv, provisionSeatRuntimeFiles } = await import('@process/commandEve/runtimeBootstrapCore');
+      const { prepareCommandEveRuntimeProcessEnv, provisionSeatRuntimeFiles, hasValidSeatRuntimeFiles } = await import('@process/commandEve/runtimeBootstrapCore');
       const { reconcileVaultConfigForSeatSwitch } = await import('@process/commandEve/reconcileHermesMcpConfigWiring');
 
       // Seat-Context-Bridge (B1): the target seat's DISPLAY LABEL comes from the
@@ -2876,7 +2877,7 @@ export function initCommandEveBridge(): void {
               });
               if (!provisioned.ok) {
                 console.warn(
-                  `[Command EVE] Seat-switch runtime provisioning failed for ${sanitizedTarget ?? targetSeatId} (${provisioned.hermes_home}); the switch proceeds on best-effort. Cause: ${provisioned.error ?? 'unknown'}`
+                  `[Command EVE] Seat-switch runtime provisioning failed for ${sanitizedTarget ?? targetSeatId} (${provisioned.hermes_home || 'no home'}); the target-file validity gate below decides fail-open vs fail-closed. Cause: ${provisioned.error ?? 'unknown'}`
                 );
               } else if (provisioned.bundled_skill_failures.length) {
                 console.warn(
@@ -2885,8 +2886,43 @@ export function initCommandEveBridge(): void {
               }
             }
           } catch (error) {
-            // Defensive: the resolver / import path itself failing must not fail the switch.
-            console.warn('[Command EVE] Seat-switch runtime provisioning threw; the switch proceeds on best-effort:', error);
+            // Defensive: the resolver / import path itself throwing is caught here so
+            // it does not crash the thunk — but it does NOT decide the switch outcome.
+            // The single fail-closed gate below validates the target's actual files
+            // regardless of HOW provisioning ended (unreachable-skip, ok:false, or a
+            // thrown resolver).
+            console.warn('[Command EVE] Seat-switch runtime provisioning threw; validating target files before proceeding:', error);
+          }
+          // H4 (Codex): SINGLE fail-closed gate, OUTSIDE the best-effort try/catch so
+          // its throw actually propagates to applySeatSwitch (whose documented
+          // FAIL-SAFE rolls the runtime back to the prior seat on a throwing
+          // prepareEnv). The invariant regardless of how provisioning ended above
+          // (unreachable-skip / ok:false / thrown resolver): a seat switch must NEVER
+          // leave the seat booting on WHEEL DEFAULTS (memory_enabled=FALSE, no
+          // SOUL.md, no EVE skills) — that silently drops the security / memory /
+          // invisible-delivery posture. If the home holds a valid config.yaml +
+          // SOUL.md (freshly written, or last-known-good from a prior good pass) the
+          // switch proceeds; otherwise it fails closed. The legacy/founder home is
+          // always provisioned at boot, so switching home never trips this.
+          //
+          // Validate getActiveSeatId(), NOT the captured target: applySeatSwitch runs
+          // this thunk AGAIN during rollback with the active seat set back to the
+          // PRIOR seat (and provisionSeatRuntimeFiles above already keys off the
+          // active seat). Using the active seat means the rollback pass validates the
+          // prior seat's (valid) files and proceeds to restart its backend — using the
+          // captured target here would re-throw on rollback and strand a dead backend.
+          const gateSeatId = getActiveSeatId();
+          let gateHome = '';
+          try {
+            gateHome = resolveSeatHermesHome(getDataPath(), gateSeatId);
+          } catch {
+            gateHome = '';
+          }
+          if (!hasValidSeatRuntimeFiles(gateHome)) {
+            console.warn(
+              `[Command EVE] Seat-switch FAIL-CLOSED for ${gateSeatId}: home (${gateHome || 'unresolved'}) has no valid config.yaml + SOUL.md — rolling back rather than booting on wheel defaults.`
+            );
+            throw new Error(`SEAT_SWITCH_PROVISION_FAILED: ${gateSeatId} has no valid runtime files`);
           }
           // S5-P2 vault reconcile (arch §7): refresh the TARGET seat's config.yaml
           // from the vault BEFORE applySeatSwitch's own restartBackend — so a seat's
@@ -3256,14 +3292,26 @@ export function initCommandEveBridge(): void {
           return { success: false, msg: 'SEAT_USAGE_BAD_BODY', data: quiet('SEAT_USAGE_BAD_BODY') };
         }
 
+        // C1 (Codex): the wire carries EVERY seat's row + the account-wide total, but
+        // only the Founder/Admin-Legacy seat may see the all-seat summary. Partition
+        // in MAIN so a client/delegate seat NEVER receives sibling seat ids, calls,
+        // tokens or retail/RAW cost over the IPC response — the renderer's own filter
+        // (BillingModalContent isFounderSummary) is display-only and cannot protect
+        // the wire. The all-seat view is authorized only on the legacy owner seat;
+        // any switched-in (client/own-company/department) seat is scoped to its own
+        // row. The server-side seat-usage function should ALSO partition by the
+        // bearer's account/role (defense in depth) — tracked for the server lane.
+        const visibleSeatId = isActiveSeatLegacy() ? null : getActiveSeatId();
+        const scoped = partitionSeatUsageForViewer(parsed, visibleSeatId);
+
         return {
           success: true,
           data: {
             version: 'command-eve-seat-usage/v0' as const,
             ok: true,
-            month: parsed.month,
-            seats: parsed.seats,
-            total: parsed.total,
+            month: scoped.month,
+            seats: scoped.seats,
+            total: scoped.total,
           },
         };
       } catch (error) {

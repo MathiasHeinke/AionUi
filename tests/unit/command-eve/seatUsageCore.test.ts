@@ -12,7 +12,9 @@ import {
   emptySeatUsage,
   isValidUsageMonth,
   parseSeatUsageResponse,
+  partitionSeatUsageForViewer,
   priorUsageMonth,
+  type SeatUsageResponse,
   type SeatUsageRow,
 } from '../../../packages/desktop/src/common/config/seatUsageCore';
 
@@ -128,5 +130,46 @@ describe('seatUsageCore — card-row shaping (label join + ordering + visibility
     expect(cards[0].label).toBe('Klinik Salem');
     // Its own bar is full when it is the only visible row.
     expect(cards[0].bar_fraction).toBe(1);
+  });
+});
+
+describe('seatUsageCore — partitionSeatUsageForViewer (C1: main-side wire partition)', () => {
+  const response: SeatUsageResponse = {
+    ok: true,
+    month: '2026-07',
+    seats: [
+      { seat_id: 'seat-1', calls: 10, ok_calls: 10, prompt_tokens: 100, completion_tokens: 40, retail_eur_cents: 1000, raw_eur_cents: 200, credits: 100 },
+      { seat_id: 'uuid-client', calls: 4, ok_calls: 4, prompt_tokens: 20, completion_tokens: 8, retail_eur_cents: 500, raw_eur_cents: 100, credits: 50 },
+      { seat_id: null, calls: 1, ok_calls: 1, prompt_tokens: 5, completion_tokens: 2, retail_eur_cents: 50, raw_eur_cents: 10, credits: 5 },
+    ],
+    total: { calls: 15, ok_calls: 15, prompt_tokens: 125, completion_tokens: 50, retail_eur_cents: 1550, raw_eur_cents: 310, credits: 155 },
+  };
+
+  it('owner/all-seat summary (visibleSeatId=null): returns the response UNCHANGED', () => {
+    const out = partitionSeatUsageForViewer(response, null);
+    expect(out).toBe(response); // same reference — no copy, no filter
+    expect(out.seats).toHaveLength(3);
+    expect(out.total.retail_eur_cents).toBe(1550);
+  });
+
+  it('client seat: keeps ONLY its own row and RE-DERIVES total — no sibling row, id, cost or account-wide aggregate leaks', () => {
+    const out = partitionSeatUsageForViewer(response, 'uuid-client');
+    expect(out.seats).toHaveLength(1);
+    expect(out.seats[0].seat_id).toBe('uuid-client');
+    // No sibling seat ids survive the partition.
+    expect(out.seats.some((r) => r.seat_id === 'seat-1' || r.seat_id === null)).toBe(false);
+    // The total reflects ONLY the viewer's own row — never the account-wide sum.
+    expect(out.total.retail_eur_cents).toBe(500);
+    expect(out.total.raw_eur_cents).toBe(100);
+    expect(out.total.calls).toBe(4);
+    expect(out.total.credits).toBe(50);
+  });
+
+  it('a viewer with no attributed usage: empty seats + zero total (never falls back to account-wide)', () => {
+    const out = partitionSeatUsageForViewer(response, 'uuid-unknown-seat');
+    expect(out.seats).toHaveLength(0);
+    expect(out.total.retail_eur_cents).toBe(0);
+    expect(out.total.calls).toBe(0);
+    expect(out.total.credits).toBe(0);
   });
 });

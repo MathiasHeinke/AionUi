@@ -802,7 +802,13 @@ export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
       name: 'AI coding delegation (subscription-safe tmux lane, composes with delegate_task)',
       tier: 'department',
       source: 'Command EVE local toolbelt (EVE-authored, harvested 2026-07-03)',
-      default_state: 'active',
+      // GATED, not active (Codex C2): this skill drives an external coding CLI with
+      // workspace + env context. It must NOT be an auto-live default capability that
+      // EVE can reach on any seat without an explicit operator unlock — that would
+      // let a client-seat delegation run a file-touching worker outside Human-Gates.
+      // The hardened SKILL.md also no longer teaches --dangerously-skip-permissions
+      // or auto-accepting the permission dialog; per-action approval is preserved.
+      default_state: 'gated',
     },
     {
       id: 'lead-magnet-pdf',
@@ -3650,10 +3656,33 @@ export type ProvisionSeatRuntimeFilesResult = {
  * done at boot — this pass is purely the seat-home FILE emit, so it is fast and
  * never blocks a switch.
  *
- * BEST-EFFORT: every failure is caught and returned in the result (ok:false +
- * error); the caller (the seat-switch prepareEnv thunk) logs it via console.warn
- * and proceeds — a provisioning error must NEVER fail the switch.
+ * BEST-EFFORT AT THIS LAYER: every failure is caught and returned in the result
+ * (ok:false + error) rather than thrown. The CALLER decides the switch outcome:
+ * since Codex H4, the seat-switch prepareEnv thunk fails-CLOSED on ok:false when
+ * the target home has no valid runtime files (see hasValidSeatRuntimeFiles) — a
+ * fresh seat with no config.yaml/SOUL.md must NOT boot on wheel defaults.
  */
+/**
+ * H4 (Codex): does a seat's Hermes home already hold VALID Desktop-owned runtime
+ * files — a non-empty `config.yaml` AND a non-empty `SOUL.md`? Used by the
+ * seat-switch to decide whether a FAILED provisioning attempt may proceed on
+ * last-known-good files (both present) or must fail-closed and roll back (either
+ * missing/empty ⇒ the agent would boot on wheel defaults: memory_enabled=FALSE,
+ * no SOUL, no EVE skills). An empty home path is never valid.
+ */
+export function hasValidSeatRuntimeFiles(hermesHome: string): boolean {
+  if (!hermesHome) return false;
+  try {
+    const configPath = path.join(hermesHome, 'config.yaml');
+    const soulPath = path.join(hermesHome, 'SOUL.md');
+    const configOk = fs.existsSync(configPath) && fs.statSync(configPath).size > 0;
+    const soulOk = fs.existsSync(soulPath) && fs.statSync(soulPath).size > 0;
+    return configOk && soulOk;
+  } catch {
+    return false;
+  }
+}
+
 export function provisionSeatRuntimeFiles(
   options: ProvisionSeatRuntimeFilesOptions
 ): ProvisionSeatRuntimeFilesResult {

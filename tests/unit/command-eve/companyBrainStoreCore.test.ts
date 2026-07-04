@@ -855,4 +855,49 @@ describe('1.6.2 — migrateCompanyBrainFromHome (own-seat first provisioning)', 
     ensureBrainBlueprint(source);
     expect(migrateCompanyBrainFromHome(source, source).migrated).toBe(false);
   });
+
+  it('H10: a `.md` SYMLINK in the source brain is NEVER copied (no secret exfil, no model-visibility)', () => {
+    const source = makeHome();
+    const target = makeHome();
+    ensureBrainBlueprint(source, { now: fixedClock('2026-07-02T09:50:00.000Z') });
+    upsertEntry(source, { id: 'bp-company', kind: 'company', title: 'Unternehmen', body: '### Unternehmen\n- Name: FYN Labs LLC' });
+    // A locally-readable secret, and a `.md` symlink to it planted in the source
+    // entries dir (the exfil vector: a symlink whose name looks like a brain note).
+    const secret = path.join(source, 'stolen.env');
+    fs.writeFileSync(secret, 'SUPABASE_SERVICE_ROLE_KEY=super-secret');
+    const srcEntries = path.join(source, COMPANY_BRAIN_DIR, ENTRIES_SUBDIR);
+    fs.symlinkSync(secret, path.join(srcEntries, 'note-evil.md'));
+
+    const res = migrateCompanyBrainFromHome(source, target);
+    expect(res.ok).toBe(true);
+    expect(res.migrated).toBe(true); // the real content still migrates…
+    // …but the symlinked secret does NOT land in the target brain, in any form.
+    expect(fs.existsSync(path.join(target, COMPANY_BRAIN_DIR, ENTRIES_SUBDIR, 'note-evil.md'))).toBe(false);
+    const targetEntries = fs.readdirSync(path.join(target, COMPANY_BRAIN_DIR, ENTRIES_SUBDIR));
+    for (const name of targetEntries) {
+      const body = fs.readFileSync(path.join(target, COMPANY_BRAIN_DIR, ENTRIES_SUBDIR, name), 'utf8');
+      expect(body).not.toContain('SERVICE_ROLE_KEY');
+    }
+  });
+
+  it('1.6.2-M: a pristine index WITH a real unindexed body in entries/ is a hard no-op (never buries live content)', () => {
+    const source = makeHome();
+    const target = makeHome();
+    ensureBrainBlueprint(source);
+    upsertEntry(source, { id: 'bp-company', kind: 'company', title: 'Unternehmen', body: 'source content' });
+    // Target: index reads pristine (blueprint-only, none filled) BUT a real EVE note
+    // already sits in entries/ un-indexed (a write not yet folded into brain.json).
+    ensureBrainBlueprint(target);
+    expect(isPristineBlueprintScaffold(target)).toBe(true);
+    const targetEntries = path.join(target, COMPANY_BRAIN_DIR, ENTRIES_SUBDIR);
+    fs.mkdirSync(targetEntries, { recursive: true });
+    fs.writeFileSync(path.join(targetEntries, 'note-live.md'), 'Kundennotiz — noch nicht indexiert.');
+
+    const res = migrateCompanyBrainFromHome(source, target);
+    expect(res.migrated).toBe(false); // takeover refused
+    // The live note survives, and the target brain was NOT set aside.
+    expect(fs.readFileSync(path.join(targetEntries, 'note-live.md'), 'utf8')).toContain('noch nicht indexiert');
+    const brainParent = path.dirname(path.dirname(brainJson(target)));
+    expect(fs.readdirSync(brainParent).some((n) => n.startsWith('company-brain.pre-inherit-'))).toBe(false);
+  });
 });
