@@ -1777,6 +1777,13 @@ export const commandEve = {
   // 1.6.3: build-scope flags the renderer may not derive itself (no process.env
   // in the renderer). founder_build gates founder-only surfaces (Assistenten-CRUD).
   shellFlags: bridge.buildProvider<IBridgeResponse<ICommandEveShellFlagsResult>, void>('command-eve.shell-flags'),
+  // SG-1 A3: fire-and-forget after a manual "Dein Team" pause/resume so main
+  // rewrites the DERIVED eve-acp-launcher status files immediately (there is no
+  // main-side push on a renderer settings write). Keeps the delegate-lane
+  // pause-gate honest mid-session.
+  syncWorkerLauncherState: bridge.buildProvider<IBridgeResponse<{ ok: boolean; tokensWritten?: number }>, void>(
+    'command-eve.sync-worker-launcher-state'
+  ),
   // v1.4 T2/T3: multi-entry Company-Brain store (brain.json v2), active-seat-resolved.
   // list = index only (no bodies); read = ONE body on demand (T3 lazy load — open/
   // edit); write = upsert (user/settings, append-first); remove = delete an entry +

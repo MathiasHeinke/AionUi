@@ -52,6 +52,7 @@ import {
   projectMonthlySpend,
 } from '@/common/config/eveTeamBudgetCore';
 import { buildWorkerAssignment, type EveWorkerKind } from '@/common/config/eveWorkerAssignmentCore';
+import { ipcBridge } from '@/common';
 import { useConfig } from '@renderer/hooks/config/useConfig';
 import ProjectedSpendMeter from '@renderer/components/team/ProjectedSpendMeter';
 import { Button, Card, Message, Popconfirm, Select, Tag } from '@arco-design/web-react';
@@ -348,6 +349,11 @@ const DeinTeamPanel: React.FC = () => {
         Message.info('Letzter bezahlter Mitarbeiter weg — der gratis Hauspförtner übernimmt den Empfang.');
       }
       void setPersisted(next as Record<string, 'active' | 'paused' | 'off'>);
+      // SG-1 A3: nudge main to rewrite the eve-acp-launcher status files NOW, so a
+      // paused delegate role's pause-gate fires on the very next delegation instead
+      // of only after the next boot/seat-switch. Fire-and-forget: a failure here
+      // never blocks the (authoritative) status write above.
+      void ipcBridge.commandEve.syncWorkerLauncherState.invoke().catch(() => {});
     },
     [statuses, setPersisted]
   );

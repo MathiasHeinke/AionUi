@@ -975,6 +975,40 @@ export function initCommandEveBridge(): void {
     }
   });
 
+  // SG-1 A3 — manual-panel freshness. There is no main-side push when the renderer
+  // writes commandEve.teamWorkerStatus (the panel PUTs it to the aioncore backend
+  // store). So after a manual pause/resume, the panel fires this fire-and-forget so
+  // main rewrites the DERIVED launcher status files RIGHT NOW — otherwise a role
+  // paused mid-session would keep its stale 'active' status file until the next
+  // boot/seat-switch, and the delegate lane's pause-gate (which reads that file)
+  // would not fire until then. The status file is a read-mirror, never a 2nd truth.
+  bridge.buildProvider('command-eve.sync-worker-launcher-state').provider(async () => {
+    try {
+      const { readCommandEveSettingsFromBackend } = await import('@process/commandEve/commandEveBackendSettingsRead');
+      const { syncEveWorkerLauncherFiles } = await import('@process/commandEve/eveWorkerLauncherCore');
+      type EveWorkerAssignmentMap = import('@/common/config/eveWorkerAssignmentCore').EveWorkerAssignmentMap;
+      type EveTeamWorkerStatusMap = import('@/common/config/eveTeamControlsCore').EveTeamWorkerStatusMap;
+      const bag = await readCommandEveSettingsFromBackend(['commandEve.workerAssignments', 'commandEve.teamWorkerStatus']);
+      const assignmentsRaw = bag['commandEve.workerAssignments'];
+      const statusesRaw = bag['commandEve.teamWorkerStatus'];
+      const assignments =
+        assignmentsRaw && typeof assignmentsRaw === 'object'
+          ? (Object.fromEntries(
+              Object.entries(assignmentsRaw as Record<string, { kind: string; cli_path?: string; cli_version?: string }>).map(
+                ([id, v]) => [id, { agent_id: id, ...v }]
+              )
+            ) as EveWorkerAssignmentMap)
+          : ({} as EveWorkerAssignmentMap);
+      const statuses =
+        statusesRaw && typeof statusesRaw === 'object' ? (statusesRaw as EveTeamWorkerStatusMap) : ({} as EveTeamWorkerStatusMap);
+      const res = syncEveWorkerLauncherFiles(assignments, statuses, { dataPath: getDataPath(), seatId: getActiveSeatId() });
+      return { success: true, data: { ok: true, tokensWritten: res.tokensWritten.length } as unknown };
+    } catch (error) {
+      console.warn('[Command EVE] sync-worker-launcher-state failed:', error);
+      return { success: true, data: { ok: false } as unknown };
+    }
+  });
+
   bridge.buildProvider('command-eve.company-brain-list').provider(async () => {
     try {
       const home = resolveActiveSeatHome(getDataPath()).hermesHome;
