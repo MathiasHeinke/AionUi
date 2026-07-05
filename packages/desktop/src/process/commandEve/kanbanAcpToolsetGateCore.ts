@@ -40,8 +40,10 @@ export const KANBAN_WHEEL_WRITE_TOOLS: readonly string[] = ['kanban_create', 'ka
 /** The raw wheel TOOLSET key that must never appear in the ACP agent's platform toolsets. */
 export const KANBAN_WHEEL_TOOLSET_KEY = 'kanban';
 
-/** Config markers that would turn on autonomous dispatch / worker-spawn — must stay off. */
-export const KANBAN_FORBIDDEN_DISPATCH_MARKERS: readonly string[] = ['HERMES_KANBAN_TASK', 'kanban.dispatch_in_gateway', 'kanban_swarm', 'kanban_decompose'];
+/** Config markers that would turn on autonomous dispatch / worker-spawn — must stay off.
+ * Matched as case-insensitive SUBSTRINGS (so `HERMES_KANBAN_TASK`, `kanban.dispatch_in_gateway`,
+ * a bare `dispatch_in_gateway`, `kanban.auto_decompose`, a bare `auto_decompose`, etc. all hit). */
+export const KANBAN_FORBIDDEN_DISPATCH_MARKERS: readonly string[] = ['kanban_task', 'dispatch_in_gateway', 'kanban_swarm', 'kanban_decompose', 'auto_decompose'];
 
 export const KANBAN_ACP_READ_TOOLS: readonly KanbanAcpTool[] = ['kanban.board.read'];
 export const KANBAN_ACP_WRITE_TOOLS: readonly KanbanAcpTool[] = ['kanban.card.create.plan', 'kanban.card.move.plan', 'kanban.card.action.plan', 'kanban.write.confirm'];
@@ -73,48 +75,79 @@ export interface KanbanAcpGateResult {
   policy: KanbanAcpGatePolicy;
 }
 
-const FIXED_POLICY: KanbanAcpGatePolicy = { writeRequiresConfirmCard: true, autoDispatchAllowed: false, workerSpawnAllowed: false, deleteAllowed: false };
+/** A FRESH frozen policy every call — never a shared mutable object a caller could
+ * poison for every future call (Codex re-audit). Frozen so an attempt to flip a bit
+ * fails instead of silently sticking. */
+function freshPolicy(): KanbanAcpGatePolicy {
+  return Object.freeze({ writeRequiresConfirmCard: true, autoDispatchAllowed: false, workerSpawnAllowed: false, deleteAllowed: false }) as KanbanAcpGatePolicy;
+}
+
+const denied = (): KanbanAcpGateResult => ({ visible: false, readTools: [], writeTools: [], blockedTools: [...KANBAN_WHEEL_WRITE_TOOLS], policy: freshPolicy() });
 
 /**
  * Resolve what EVE may do with the board this turn. DEFAULT-DENY: unless the preflight
  * is ready AND there is an active seat AND a board slug, NOTHING is exposed (not even
  * read). When exposed, reads are offered and writes are offered ONLY as proposals (the
  * apply step is gated by the Confirm-Card). The raw wheel write tools are always in
- * blockedTools — they are never handed to the agent. Never throws.
+ * blockedTools — never handed to the agent. NEVER throws: a hostile input (e.g. a
+ * throwing getter) fails CLOSED to a denied result.
  */
 export function resolveKanbanAcpToolsetGate(input: KanbanAcpGateInput): KanbanAcpGateResult {
-  const inp = input || {};
-  const seat = typeof inp.activeSeatId === 'string' ? inp.activeSeatId.trim() : '';
-  const board = typeof inp.boardSlug === 'string' ? inp.boardSlug.trim() : '';
-  const visible = inp.preflightReady === true && seat.length > 0 && board.length > 0;
-  if (!visible) {
-    return { visible: false, readTools: [], writeTools: [], blockedTools: [...KANBAN_WHEEL_WRITE_TOOLS], policy: FIXED_POLICY };
+  try {
+    const inp = input || {};
+    const seat = typeof inp.activeSeatId === 'string' ? inp.activeSeatId.trim() : '';
+    const board = typeof inp.boardSlug === 'string' ? inp.boardSlug.trim() : '';
+    if (inp.preflightReady !== true || seat.length === 0 || board.length === 0) return denied();
+    return {
+      visible: true,
+      readTools: [...KANBAN_ACP_READ_TOOLS],
+      writeTools: [...KANBAN_ACP_WRITE_TOOLS],
+      blockedTools: [...KANBAN_WHEEL_WRITE_TOOLS],
+      policy: freshPolicy(),
+    };
+  } catch {
+    return denied();
   }
-  return {
-    visible: true,
-    readTools: [...KANBAN_ACP_READ_TOOLS],
-    writeTools: [...KANBAN_ACP_WRITE_TOOLS],
-    blockedTools: [...KANBAN_WHEEL_WRITE_TOOLS],
-    policy: FIXED_POLICY,
-  };
+}
+
+/** Recursively collect every string LEAF from an arbitrary value (arrays + object
+ * values), tolerating hostile getters. Bounds recursion so a cyclic/huge object can not
+ * hang the guard. */
+function collectStringLeaves(value: unknown, out: string[], depth: number): void {
+  if (depth > 6 || out.length > 4096) return;
+  try {
+    if (typeof value === 'string') {
+      out.push(value);
+    } else if (Array.isArray(value)) {
+      for (const v of value) collectStringLeaves(v, out, depth + 1);
+    } else if (value && typeof value === 'object') {
+      for (const k of Object.keys(value)) collectStringLeaves((value as Record<string, unknown>)[k], out, depth + 1);
+    }
+  } catch {
+    /* hostile getter — a value we can not read is simply not collected */
+  }
 }
 
 /**
- * STRUCTURAL INVARIANT: the raw wheel "kanban" toolset (and any dispatch marker) must
- * NEVER be present in the ACP agent's emitted platform toolset list — otherwise EVE
- * would get the un-gated in-process write tools + dispatch, bypassing the Confirm-Card
- * entirely. Returns the offending entries (empty = clean). The config-render + a
- * regression test assert this stays empty for the acp platform.
+ * STRUCTURAL INVARIANT: the raw wheel "kanban" toolset, any raw kanban WRITE tool, and
+ * any dispatch/decompose/swarm marker must NEVER appear ANYWHERE in the ACP agent's
+ * emitted platform toolset config — otherwise EVE would get the un-gated in-process
+ * write tools + dispatch, bypassing the Confirm-Card. Scans recursively (arrays + object
+ * values), case-insensitively; exact match for the toolset key + write tools (so
+ * `kanban.board.read` is NOT flagged) and SUBSTRING match for the dispatch markers.
+ * Returns the offending original strings (empty = clean). Never throws.
  */
 export function findRawKanbanLeaks(acpPlatformToolsets: unknown): string[] {
-  if (!Array.isArray(acpPlatformToolsets)) return [];
+  const strings: string[] = [];
+  collectStringLeaves(acpPlatformToolsets, strings, 0);
+  const exactBlocked = new Set<string>([KANBAN_WHEEL_TOOLSET_KEY, ...KANBAN_WHEEL_WRITE_TOOLS].map((s) => s.toLowerCase()));
   const leaks: string[] = [];
-  for (const entry of acpPlatformToolsets) {
-    const s = typeof entry === 'string' ? entry.trim() : '';
+  for (const raw of strings) {
+    const s = raw.trim().toLowerCase();
     if (!s) continue;
-    if (s === KANBAN_WHEEL_TOOLSET_KEY) leaks.push(s);
-    else if (KANBAN_WHEEL_WRITE_TOOLS.indexOf(s) >= 0) leaks.push(s);
-    else if (KANBAN_FORBIDDEN_DISPATCH_MARKERS.indexOf(s) >= 0) leaks.push(s);
+    if (exactBlocked.has(s) || KANBAN_FORBIDDEN_DISPATCH_MARKERS.some((m) => s.indexOf(m) >= 0)) {
+      leaks.push(raw.trim());
+    }
   }
   return leaks;
 }

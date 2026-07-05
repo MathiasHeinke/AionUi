@@ -64,6 +64,46 @@ describe('kanban-acp gate — fixed non-negotiable policy', () => {
   });
 });
 
+describe('kanban-acp gate — hardening (Codex re-audit holes)', () => {
+  it('returns a FRESH policy each call — mutating one can never poison the next', () => {
+    const g1 = resolveKanbanAcpToolsetGate({ preflightReady: true, activeSeatId: 's', boardSlug: 'b' });
+    try {
+      (g1.policy as { writeRequiresConfirmCard: boolean }).writeRequiresConfirmCard = false;
+    } catch {
+      /* frozen — throwing on mutation is fine */
+    }
+    const g2 = resolveKanbanAcpToolsetGate({ preflightReady: true, activeSeatId: 's', boardSlug: 'b' });
+    expect(g2.policy.writeRequiresConfirmCard).toBe(true);
+  });
+
+  it('fails CLOSED (not visible) on a hostile throwing getter', () => {
+    const bad: Record<string, unknown> = { preflightReady: true, boardSlug: 'b' };
+    Object.defineProperty(bad, 'activeSeatId', {
+      get() {
+        throw new Error('boom');
+      },
+    });
+    expect(resolveKanbanAcpToolsetGate(bad as never).visible).toBe(false);
+  });
+
+  it('leak detector catches case variants, nested arrays, object values, and broadened markers', () => {
+    expect(findRawKanbanLeaks(['Kanban'])).toContain('Kanban');
+    expect(findRawKanbanLeaks(['KANBAN_CREATE'])).toContain('KANBAN_CREATE');
+    expect(findRawKanbanLeaks([['kanban_create']])).toContain('kanban_create');
+    expect(findRawKanbanLeaks([{ toolsets: ['kanban'] }])).toContain('kanban');
+    expect(findRawKanbanLeaks([{ name: 'kanban_create' }])).toContain('kanban_create');
+    expect(findRawKanbanLeaks(['dispatch_in_gateway']).length).toBeGreaterThan(0);
+    expect(findRawKanbanLeaks(['kanban.auto_decompose']).length).toBeGreaterThan(0);
+    expect(findRawKanbanLeaks(['auto_decompose']).length).toBeGreaterThan(0);
+    expect(findRawKanbanLeaks(['HERMES_KANBAN_TASK']).length).toBeGreaterThan(0);
+  });
+
+  it('does NOT flag the desktop-mediated read tool or a clean acp toolset', () => {
+    expect(findRawKanbanLeaks(['kanban.board.read', 'hermes-acp'])).toEqual([]);
+    expect(findRawKanbanLeaks(['kanban_show', 'kanban_list'])).toEqual([]);
+  });
+});
+
 describe('kanban-acp gate — raw-toolset leak detector (structural invariant)', () => {
   it('flags the raw wheel "kanban" toolset key in the ACP platform toolsets', () => {
     expect(findRawKanbanLeaks(['hermes-acp', KANBAN_WHEEL_TOOLSET_KEY])).toContain('kanban');
@@ -74,9 +114,14 @@ describe('kanban-acp gate — raw-toolset leak detector (structural invariant)',
     expect(findRawKanbanLeaks(['HERMES_KANBAN_TASK'])).toEqual(['HERMES_KANBAN_TASK']);
   });
 
-  it('returns empty for a clean ACP toolset list and for a non-array', () => {
+  it('returns empty for a clean toolset list / clean non-array / undefined', () => {
     expect(findRawKanbanLeaks(['hermes-acp', 'hermes-cli'])).toEqual([]);
     expect(findRawKanbanLeaks(undefined)).toEqual([]);
-    expect(findRawKanbanLeaks('kanban' as never)).toEqual([]);
+    expect(findRawKanbanLeaks('hermes-acp' as never)).toEqual([]);
+    expect(findRawKanbanLeaks(42 as never)).toEqual([]);
+  });
+
+  it('still catches a leak passed as a bare non-array value (fail-closed)', () => {
+    expect(findRawKanbanLeaks('kanban' as never)).toEqual(['kanban']);
   });
 });
