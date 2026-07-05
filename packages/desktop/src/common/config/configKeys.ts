@@ -80,6 +80,16 @@ export type ConfigKeyMap = {
   // COMPA-626 — EVE's kanban clearance: true ⇒ EVE's card proposals auto-apply (no
   // confirm card). Absent/false ⇒ the confirm-card gate (default).
   'commandEve.kanbanAutoApprove': boolean | undefined;
+  /**
+   * COMPA-624 Inc.3 — the operator's DURABLE LOCAL MEMORY (Honcho) opt-in. The
+   * consumption wiring (deriver cloud route + honcho MCP server + SOUL clause) is
+   * always present but INERT until a seat is provisioned + fresh-ready. This flag
+   * is the consent that GATES the (heavy, machine-dep-installing) provisioning from
+   * ever starting. Absent/false ⇒ Honcho stays off; memory falls back to Company
+   * Brain + MEMORY.md. Set true only via an explicit operator opt-in ("takes a
+   * bit; do it anyway"). The provisioning RUN itself (brew/pg/honcho) is a Mac step.
+   */
+  'commandEve.honchoMemoryOptIn': boolean | undefined;
   'commandEve.localModelTierId': string | undefined;
   /**
    * The single EVE inference picker selection (two-group picker). One of:

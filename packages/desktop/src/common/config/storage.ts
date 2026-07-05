@@ -113,6 +113,7 @@ export interface IConfigStorageRefer {
   // Pre-warm the local Command EVE model after runtime bootstrap
   'commandEve.modelWarmupEnabled'?: boolean;
   'commandEve.kanbanAutoApprove'?: boolean; // COMPA-626 — EVE's kanban auto-apply clearance
+  'commandEve.honchoMemoryOptIn'?: boolean; // COMPA-624 Inc.3 — durable local memory (Honcho) opt-in / provisioning consent
   // Selected local model tier for Command EVE's Hermes/Ollama runtime
   'commandEve.localModelTierId'?: string;
   // The single EVE inference picker selection (two-group picker). One of:
