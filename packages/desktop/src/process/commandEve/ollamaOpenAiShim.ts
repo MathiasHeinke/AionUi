@@ -408,15 +408,16 @@ function headerToken(value: string | string[] | undefined): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-// Constant-time bearer comparison (SG-1 Design B, EVE-cloud audit secondary). The
-// route is loopback-only, but a length-independent, non-short-circuiting compare is
-// the correct hygiene for a secret. Length mismatch → false (a fixed-length hex
-// bearer only differs in length when clearly wrong); equal length → timingSafeEqual.
+// Constant-time bearer comparison (SG-1 Design B, EVE-cloud audit secondary). The route
+// is loopback-only, but a length-INDEPENDENT, non-short-circuiting compare is the correct
+// hygiene for a secret. Codex re-audit: a raw length check short-circuits and leaks the
+// expected token's length via timing. Hash BOTH to a fixed 32-byte sha256 digest first,
+// then timingSafeEqual the digests — the compare time no longer depends on input length,
+// and sha256's collision resistance keeps it true iff a === b.
 function constantTimeEquals(a: string, b: string): boolean {
-  const ab = Buffer.from(a, 'utf8');
-  const bb = Buffer.from(b, 'utf8');
-  if (ab.length !== bb.length) return false;
-  return crypto.timingSafeEqual(ab, bb);
+  const ah = crypto.createHash('sha256').update(a, 'utf8').digest();
+  const bh = crypto.createHash('sha256').update(b, 'utf8').digest();
+  return crypto.timingSafeEqual(ah, bh);
 }
 
 function messageRole(message: unknown): string {

@@ -1598,6 +1598,8 @@ export function prepareCommandEveRuntimeProcessEnv(
 
   // COMPA-626: the same file-delivered bearer discipline for the kanban-ACP routes. On a
   // client seat the file is removed + the path env cleared, so the routes stay inert.
+  // Defensively clear any raw bearer a prior build / a caller put directly on env (H11).
+  delete env.COMMAND_EVE_KANBAN_ACP_BEARER;
   const kanbanBearerFile = provisionKanbanAcpBearerFile(userDataPath, getActiveSeatKind() === 'client');
   if (kanbanBearerFile) env.COMMAND_EVE_KANBAN_ACP_BEARER_FILE = kanbanBearerFile;
   else delete env.COMMAND_EVE_KANBAN_ACP_BEARER_FILE;

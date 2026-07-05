@@ -1460,6 +1460,11 @@ const handleAppReady = async (): Promise<void> => {
       // (resolveTeamManageBearer returns "" on a client seat, making the route inert).
       teamManageBearer: resolveTeamManageBearer,
       teamManagePropose: teamManageProposeHandler,
+      // COMPA-626 kanban-ACP (the cold-boot shim start — this is the normal path, so it
+      // MUST inject the kanban handlers or EVE's routes 404 despite the SOUL clause).
+      kanbanAcpBearer: resolveKanbanAcpBearer,
+      kanbanAcpPropose: kanbanAcpProposeHandler,
+      kanbanAcpRead: readKanbanAcpBoard,
     });
     commandEveOllamaShimUrl = shimUrl;
     mark(`commandEveOllamaShim (${shimUrl})`);

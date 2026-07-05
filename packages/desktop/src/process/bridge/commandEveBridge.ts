@@ -228,8 +228,13 @@ async function resolveCommandEveWorkerRuntimeInputsForSwitch(): Promise<{
     // new seat, so this only clears stale state — it never leaves the new seat bare.
     const { regenerateLeases } = await import('@process/commandEve/eveAgentTaskRegistry');
     const { clearPendingIntent } = await import('@process/commandEve/eveTeamManageBridgeCore');
+    // COMPA-626 (Codex re-audit): the kanban pending intent is seat-partitioned but lives
+    // on the singleton store, so it MUST also be cleared on a seat switch — otherwise a
+    // stale seat-A proposal could be confirmed after switching back to A within its TTL.
+    const { clearKanbanPendingIntent } = await import('@process/commandEve/kanbanAcpConfirmStore');
     regenerateLeases();
     clearPendingIntent();
+    clearKanbanPendingIntent();
     type EveWorkerAssignmentMap = import('@/common/config/eveWorkerAssignmentCore').EveWorkerAssignmentMap;
     type EveTeamWorkerStatusMap = import('@/common/config/eveTeamControlsCore').EveTeamWorkerStatusMap;
     const bag = await readCommandEveSettingsFromBackend(['commandEve.workerAssignments', 'commandEve.teamWorkerStatus']);
