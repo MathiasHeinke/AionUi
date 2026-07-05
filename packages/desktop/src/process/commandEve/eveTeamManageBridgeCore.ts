@@ -26,6 +26,7 @@
  * survives seat-switches — same isolation discipline as eveAgentTaskRegistry).
  */
 
+import * as crypto from 'node:crypto';
 import {
   applyControlAction,
   evaluateFloorGuard,
@@ -171,7 +172,13 @@ export function createIntent(
 ): TeamManageIntent {
   const ttl = deps.ttlMs ?? TEAM_MANAGE_DEFAULT_TTL_MS;
   const intent: TeamManageIntent = {
-    intent_id: (deps.randomId ?? (() => `intent-${deps.now}`))(),
+    // COLLISION-FREE (final-audit): the id carries a random uuid suffix, not just
+    // `intent-${now}`. Two proposals in the SAME millisecond used to share an id, so
+    // the confirm-card kept the OLD visible change while the pending intent was the
+    // NEW one — the operator could confirm A while B applied. With unique ids, a
+    // superseded card's id no longer matches the pending intent, so consumeIntent
+    // refuses the stale confirm ('wrong-intent') and the card updates to the live one.
+    intent_id: (deps.randomId ?? (() => `intent-${deps.now}-${crypto.randomUUID()}`))(),
     role_agent_id,
     action,
     seat_id: typeof seat_id === 'string' ? seat_id.trim() || 'seat-1' : 'seat-1',

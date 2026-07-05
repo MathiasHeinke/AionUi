@@ -195,3 +195,26 @@ describe('eveTeamManageBridgeCore — B1 structural (no write path)', () => {
     expect(code).not.toMatch(/configService|setPersisted|httpRequest|api\/settings\/client|fetch\(/);
   });
 });
+
+describe('collision-free intent id (final-audit confirm-integrity fix)', () => {
+  beforeEach(() => __resetTeamManageForTest());
+
+  it('two proposals in the SAME millisecond get DIFFERENT intent ids (no default `intent-${now}` collision)', () => {
+    const a = createIntent('growth-lead', 'pause', 'seat-1', 'skill', '', { now: 1700000000000 });
+    const b = createIntent('seo-lead', 'pause', 'seat-1', 'skill', '', { now: 1700000000000 });
+    expect(a.intent_id).not.toBe(b.intent_id);
+  });
+
+  it('confirming a SUPERSEDED (stale) proposal is refused wrong-intent; only the live one applies', () => {
+    const p1 = createIntent('growth-lead', 'pause', 'seat-1', 'skill', '', { now: 1700000000000 });
+    const p2 = createIntent('seo-lead', 'pause', 'seat-1', 'skill', '', { now: 1700000000000 });
+    // The operator confirms the STALE P1 card → refused (the pending is P2 now).
+    const stale = consumeIntent(p1.intent_id, 'seat-1', 1700000000001);
+    expect(stale.ok).toBe(false);
+    expect(stale.reason).toBe('wrong-intent');
+    // The live P2 confirm succeeds and yields P2's actual change (never P1's).
+    const live = consumeIntent(p2.intent_id, 'seat-1', 1700000000001);
+    expect(live.ok).toBe(true);
+    expect(live.intent?.role_agent_id).toBe('seo-lead');
+  });
+});
