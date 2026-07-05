@@ -19,6 +19,7 @@ import {
   KANBAN_WHEEL_TOOLSET_KEY,
   KANBAN_LEAK_SCAN_TRUNCATED,
 } from '@/process/commandEve/kanbanAcpToolsetGateCore';
+import { COMMAND_EVE_ACP_PLATFORM_TOOLSETS, COMMAND_EVE_CLI_PLATFORM_TOOLSETS } from '@/process/commandEve/runtimeBootstrapCore';
 
 describe('kanban-acp gate — default-deny visibility', () => {
   it('exposes nothing when the preflight is not ready', () => {
@@ -157,6 +158,18 @@ describe('kanban-acp gate — hardening (Codex re-audit holes)', () => {
     let deep: unknown = 'kanban_create';
     for (let i = 0; i < 8; i += 1) deep = [deep];
     expect(findRawKanbanLeaks(deep)).toContain(KANBAN_LEAK_SCAN_TRUNCATED);
+  });
+});
+
+describe('kanban-acp gate — the emitted config carries NO raw kanban leak (regression guard)', () => {
+  it('the ACP platform toolsets the desktop emits have no raw kanban toolset / write tool / dispatch marker', () => {
+    // This is the REAL consumer of findRawKanbanLeaks: if a future edit adds 'kanban'
+    // (or a raw write tool / dispatch marker) to the ACP agent's toolsets, this fails.
+    expect(findRawKanbanLeaks([...COMMAND_EVE_ACP_PLATFORM_TOOLSETS])).toEqual([]);
+  });
+
+  it('the CLI platform toolsets are likewise clean', () => {
+    expect(findRawKanbanLeaks([...COMMAND_EVE_CLI_PLATFORM_TOOLSETS])).toEqual([]);
   });
 });
 

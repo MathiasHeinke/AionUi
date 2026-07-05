@@ -2025,6 +2025,16 @@ function writeCommandEveManagedSkills(
   return { executableSkillIds, bundledSkillFailures };
 }
 
+/**
+ * The Hermes composite toolsets emitted per platform. COMPA-626: the ACP list must NEVER
+ * carry the raw wheel "kanban" toolset (which would give EVE the un-gated in-process
+ * kanban write tools + dispatch, bypassing the Confirm-Card). `hermes-acp` is a
+ * coding-focused composite with NO kanban tools (verified against the bundled wheel);
+ * a leak guard test asserts findRawKanbanLeaks stays empty over this list.
+ */
+export const COMMAND_EVE_CLI_PLATFORM_TOOLSETS: readonly string[] = Object.freeze(['hermes-cli']);
+export const COMMAND_EVE_ACP_PLATFORM_TOOLSETS: readonly string[] = Object.freeze(['hermes-acp']);
+
 function buildCommandEveRuntimeReconciliation(
   paths: RuntimeBootstrapPaths,
   capabilityPack: CommandEveCapabilityPack,
@@ -2046,7 +2056,7 @@ function buildCommandEveRuntimeReconciliation(
       mcp_servers: [],
       skills_external_dirs: [`\${HERMES_HOME}/${COMMAND_EVE_MANAGED_SKILLS_DIR}`],
       disabled_skills: COMMAND_EVE_HERMES_DISABLED_SKILLS,
-      platform_toolsets: { cli: ['hermes-cli'], acp: ['hermes-acp'] },
+      platform_toolsets: { cli: [...COMMAND_EVE_CLI_PLATFORM_TOOLSETS], acp: [...COMMAND_EVE_ACP_PLATFORM_TOOLSETS] },
       kanban_dispatch_in_gateway: false,
       kanban_auto_decompose: true,
     },
