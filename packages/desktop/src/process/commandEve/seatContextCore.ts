@@ -76,13 +76,23 @@ const SAFE_SLUG_RE = /^[A-Za-z0-9_-]{1,64}$/;
  * Returns true when the given id denotes the legacy single-seat (so the path
  * must omit the `seats/<id>/` segment entirely). `undefined` / `null` / '' all
  * count as legacy.
+ *
+ * CASE-FOLDED (final-audit fix, 2026-07-05): the alias check compares the
+ * LOWER-CASED trimmed id, because `sanitizeSeatId` folds case before it becomes a
+ * path segment. Without folding here, a crafted `SEAT-1` / `DEFAULT` would read as
+ * NON-legacy (raw, case-sensitive) yet sanitize to the legacy alias `seat-1` /
+ * `default` — a split-brain where the SAME seat routes to `seats/seat-1/` via one
+ * check and the founder's legacy `home/` via another. Folding makes legacy-ness
+ * consistent with the sanitizer everywhere. Real client seats are uuids, so no
+ * legitimate seat is affected; a reserved-alias case-variant simply IS the legacy
+ * seat, consistently.
  */
 export function isLegacySeatId(seatId?: string | null): boolean {
   if (seatId === undefined || seatId === null) return true;
   if (typeof seatId !== 'string') return true;
   const trimmed = seatId.trim();
   if (trimmed.length === 0) return true;
-  return LEGACY_SEAT_ALIASES.has(trimmed);
+  return LEGACY_SEAT_ALIASES.has(trimmed.toLowerCase());
 }
 
 /**
