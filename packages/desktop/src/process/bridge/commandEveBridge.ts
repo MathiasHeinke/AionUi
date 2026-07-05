@@ -278,6 +278,13 @@ async function resolveCommandEveWorkerRuntimeInputsForSwitch(): Promise<{
 // state is NOT a sufficient guard — this single main-process boolean is the real
 // serialization boundary (there is exactly one main process).
 let commandEveSwitchSeatInFlight = false;
+
+/** COMPA-626: read the seat-switch write fence from OUTSIDE the bridge (the kanban auto-
+ * approve path applies from the shim propose handler, not the confirm IPC, so it must
+ * consult the same fence to never write into the wrong seat during a switch). */
+export function isCommandEveSeatSwitchInFlight(): boolean {
+  return commandEveSwitchSeatInFlight;
+}
 // EPOCH for the lock. Bumped each time the lock is taken; a release only fires if its
 // epoch is still current. This stops a LATE-completing switch (one whose watchdog
 // already force-released the lock, after which a NEW switch took it) from clobbering

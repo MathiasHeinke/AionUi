@@ -271,6 +271,19 @@ export async function applyKanbanAcpIntent(intent_id: string, mutationHash: stri
     writeReceipt({ event: 'apply-refused', intent_id, seat_id: seatId, reason: 'client-seat', ts: now });
     return { ok: false, reason: 'client-seat' };
   }
+  // K15 (Codex auto-approve re-audit): the confirm IPC guards a seat-switch with the
+  // bridge fence, but the AUTO-APPROVE path applies straight from the shim propose
+  // handler and would bypass it — a write mid-switch could resolve the DB against the
+  // wrong seat. Consult the same fence here so BOTH paths refuse during a switch.
+  try {
+    const { isCommandEveSeatSwitchInFlight } = await import('../bridge/commandEveBridge');
+    if (isCommandEveSeatSwitchInFlight()) {
+      writeReceipt({ event: 'apply-refused', intent_id, seat_id: seatId, reason: 'seat-switch-in-flight', ts: now });
+      return { ok: false, reason: 'seat-switch-in-flight' };
+    }
+  } catch {
+    /* if the fence getter is unavailable the bridge IPC still guards the confirm path */
+  }
   const consumed = consumeKanbanIntent(intent_id, seatId, mutationHash, now);
   if (!consumed.ok) {
     writeReceipt({ event: 'apply-refused', intent_id, seat_id: seatId, reason: consumed.reason, ts: now });
