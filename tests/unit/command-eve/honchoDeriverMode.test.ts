@@ -71,11 +71,13 @@ describe('buildHonchoDeriverEnv — the serve deriver env overlay', () => {
     expect(env[HONCHO_DERIVER_ENV_KEYS.apiKey]).toBe('ollama');
   });
 
-  it('CLOUD branch ⇒ env points at the loopback shim, carries NO baked bearer', () => {
+  it('CLOUD branch ⇒ env points at the loopback shim, carries NO baked bearer AT ALL', () => {
     const d = resolveHonchoDeriverConfig({ deriverMode: 'cloud' });
     const env = buildHonchoDeriverEnv({ deriver: d } as never);
     expect(env[HONCHO_DERIVER_ENV_KEYS.baseUrl]).toContain('127.0.0.1:25811');
-    expect(env[HONCHO_DERIVER_ENV_KEYS.apiKey]).toBe(''); // the shim injects the Authorization header
+    // Defense-in-depth: the cloud lane emits NO api-key env key at all — the shim
+    // owns the bearer (Authorization header). Never a baked key on the egress lane.
+    expect(env[HONCHO_DERIVER_ENV_KEYS.apiKey]).toBeUndefined();
   });
 });
 

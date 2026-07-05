@@ -77,7 +77,11 @@ export function buildHonchoDeriverEnv(cfg: HonchoRuntimeConfig): NodeJS.ProcessE
   const d = cfg.deriver || {};
   const env: NodeJS.ProcessEnv = {};
   if (d.baseUrl) env[HONCHO_DERIVER_ENV_KEYS.baseUrl] = d.baseUrl;
-  if (typeof d.apiKey === 'string') env[HONCHO_DERIVER_ENV_KEYS.apiKey] = d.apiKey;
+  // DEFENSE-IN-DEPTH (Codex): NEVER bake a key on the CLOUD branch — the loopback
+  // shim owns the bearer (Authorization header only). Only the LOCAL branch carries
+  // its harmless 'ollama' placeholder. So even a future cfg that wrongly held a
+  // bearer in deriver.apiKey can not serialize it into a cloud-lane env.
+  if (d.behindEgressBoundary !== true && typeof d.apiKey === 'string') env[HONCHO_DERIVER_ENV_KEYS.apiKey] = d.apiKey;
   if (d.model) env[HONCHO_DERIVER_ENV_KEYS.model] = d.model;
   return env;
 }

@@ -36,8 +36,9 @@ import { EVE_TEAM_ROSTER } from '../../common/config/eveTeamRoster';
 import type { EveTeamWorkerStatusMap } from '../../common/config/eveTeamControlsCore';
 import type { EveWorkerAssignmentMap, ResolvedClaudeDelegate } from '../../common/config/eveWorkerAssignmentCore';
 import { currentLeaseFor, mintLeaseToken } from './eveAgentTaskRegistry';
-import { honchoMcpServerForSeat } from './honchoMcpServerCore';
+import { honchoMcpServerForSeat, isCanonicalLoopbackDbUri } from './honchoMcpServerCore';
 import type { HonchoRenderInput } from './honchoRuntimeRenderCore';
+import { assertSeatId, isLegacySeatId, LEGACY_SEAT_ID } from './seatContextCore';
 
 /**
  * COMPA-624 (2026-07-05) — the env var the Claude ACP adapter reads to load an
@@ -212,13 +213,35 @@ function removeDelegateHonchoMcpConfig(honchoMcpConfigFile: string): void {
  * not fresh-ready (or no launcher), the file is REMOVED (the delegate gets no honcho
  * tool that launch) — never a stale/half config.
  */
-function writeDelegateHonchoMcpConfig(honchoMcpConfigFile: string, honcho?: HonchoRenderInput): boolean {
-  const server = honchoMcpServerForSeat(honcho?.cfg, honcho?.ready === true, honcho?.launcher);
-  if (!server) {
-    removeDelegateHonchoMcpConfig(honchoMcpConfigFile);
-    return false;
-  }
+function writeDelegateHonchoMcpConfig(honchoMcpConfigFile: string, expectedSeatId: string, honcho?: HonchoRenderInput): boolean {
+  // FULLY self-contained + fail-soft (Codex): the WHOLE body (incl. honchoMcpServerForSeat
+  // + the seat-binding + secret checks) is guarded, so it can NEVER throw into the sync
+  // loop and any anomaly REMOVES the config rather than leaving a stale/wrong one.
   try {
+    // (a) SEAT BINDING (Codex cross-seat): the cfg's OWN seat must be the seat we are
+    // writing the path for — never write seat-B's memory config under seat-A's path.
+    // cfg.seatId is already the sanitized id; compare against the sanitized target.
+    const sanitizedTarget = isLegacySeatId(expectedSeatId) ? LEGACY_SEAT_ID : assertSeatId(expectedSeatId);
+    if (honcho?.cfg?.seatId && honcho.cfg.seatId !== sanitizedTarget) {
+      removeDelegateHonchoMcpConfig(honchoMcpConfigFile);
+      return false;
+    }
+
+    const server = honchoMcpServerForSeat(honcho?.cfg, honcho?.ready === true, honcho?.launcher);
+    if (!server) {
+      removeDelegateHonchoMcpConfig(honchoMcpConfigFile);
+      return false;
+    }
+
+    // (b) SECRET-FREE (Codex defense-in-depth): re-assert the dbUri is a passwordless
+    // canonical-loopback URI at the WRITE boundary too (honchoMcpServerForSeat already
+    // enforces it, but a delegate gets DIRECT db access — belt AND braces).
+    const env = (server.env || {}) as Record<string, string>;
+    if (!isCanonicalLoopbackDbUri(env.HONCHO_DB_URI)) {
+      removeDelegateHonchoMcpConfig(honchoMcpConfigFile);
+      return false;
+    }
+
     const config = { mcpServers: { [server.id]: { command: server.command, args: server.args, env: server.env } } };
     fs.writeFileSync(honchoMcpConfigFile, `${JSON.stringify(config, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
     return true;
@@ -261,11 +284,29 @@ export function syncEveWorkerLauncherFiles(
       continue;
     }
 
+    // Status is a PURE read of the map (no fs) — compute it up front so the honcho
+    // config can be resolved INDEPENDENTLY of the status/token writes below.
+    const status = renderLauncherStatus((statuses as Record<string, unknown>)[agentId]);
+
+    // COMPA-624 honcho config — handled BEFORE (and independent of) the throwing
+    // status/token writes (Codex: an fs throw there must never leave a stale honcho
+    // config for a now-paused/not-ready role). Active+ready ⇒ write; else ⇒ remove.
+    // writeDelegateHonchoMcpConfig is fully self-contained + never throws.
+    if (status === 'active') {
+      try {
+        fs.mkdirSync(paths.dir, { recursive: true });
+      } catch {
+        /* best-effort — writeDelegateHonchoMcpConfig fails soft if the dir is absent */
+      }
+      writeDelegateHonchoMcpConfig(paths.honchoMcpConfigFile, seatId, ctx.honcho);
+    } else {
+      removeDelegateHonchoMcpConfig(paths.honchoMcpConfigFile);
+    }
+
     try {
       fs.mkdirSync(paths.dir, { recursive: true });
       // Status file — bare word, no JSON (the sh launcher matches `paused`/`off`
       // exactly; a JSON blob would silently read as "active" = fail-open).
-      const status = renderLauncherStatus((statuses as Record<string, unknown>)[agentId]);
       fs.writeFileSync(paths.statusFile, status, { encoding: 'utf8', mode: 0o600 });
 
       // Token file — only for an ACTIVE, non-free, roster role (the registry
@@ -283,9 +324,6 @@ export function syncEveWorkerLauncherFiles(
             /* best-effort */
           }
         }
-        // COMPA-624: an ACTIVE Claude delegate gets the per-seat honcho memory (same
-        // dbUri/workspace EVE uses) when Honcho is fresh-ready; otherwise no config.
-        writeDelegateHonchoMcpConfig(paths.honchoMcpConfigFile, ctx.honcho);
       } else {
         // M1: paused/off role is not spawned — remove any previously-active lease
         // token so it never lingers at a SOUL-known path (minimal token surface).
@@ -294,8 +332,8 @@ export function syncEveWorkerLauncherFiles(
         } catch {
           /* best-effort */
         }
-        // A paused/off role must not keep a loadable honcho config either.
-        removeDelegateHonchoMcpConfig(paths.honchoMcpConfigFile);
+        // (the paused/off honcho config was already removed robustly above, before
+        // this throwing block — no duplicate cleanup here.)
       }
     } catch (error) {
       console.warn(`[Command EVE] launcher state write failed for role ${agentId}:`, error);

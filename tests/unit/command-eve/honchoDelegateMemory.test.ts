@@ -77,6 +77,13 @@ describe('delegate honcho MCP config — write + isolation + secret-free', () =>
     expect(a.mcpServers.honcho.env.HONCHO_DB_URI).not.toBe(b.mcpServers.honcho.env.HONCHO_DB_URI);
   });
 
+  it('a MISMATCHED cfg seat (seat B cfg under seat A path) is REFUSED (Codex cross-seat binding)', () => {
+    // Craft the drift Codex feared: write for seat A but hand it seat B's honcho cfg.
+    const mismatched = readyHoncho(SEAT_B); // cfg.seatId === SEAT_B
+    syncEveWorkerLauncherFiles(activeClaude as never, activeStatus as never, { dataPath: DATA, seatId: SEAT_A, honcho: mismatched }, ROSTER);
+    expect(fs.existsSync(jsonFor(SEAT_A))).toBe(false); // never wrote B's memory under A's path
+  });
+
   it('Honcho NOT ready ⇒ no delegate config written (byte-identical to before)', () => {
     syncEveWorkerLauncherFiles(activeClaude as never, activeStatus as never, { dataPath: DATA, seatId: SEAT_A, honcho: { ready: false } }, ROSTER);
     expect(fs.existsSync(jsonFor(SEAT_A))).toBe(false);
