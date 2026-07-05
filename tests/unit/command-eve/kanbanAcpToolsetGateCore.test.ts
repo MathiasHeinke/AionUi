@@ -146,6 +146,18 @@ describe('kanban-acp gate — hardening (Codex re-audit holes)', () => {
   it('the exported marker constants are frozen (cannot be poisoned at runtime)', () => {
     expect(Object.isFrozen(KANBAN_WHEEL_WRITE_TOOLS)).toBe(true);
   });
+
+  it('catches swarm / decompose dispatch markers in every form (bare, dotted, underscored)', () => {
+    for (const m of ['swarm', 'decompose', 'kanban.swarm', 'kanban.decompose', 'kanban_swarm', 'kanban_decompose', 'auto_decompose']) {
+      expect(findRawKanbanLeaks([m]).length).toBeGreaterThan(0);
+    }
+  });
+
+  it('a leak nested past the depth limit fails CLOSED (sentinel, not silent clean)', () => {
+    let deep: unknown = 'kanban_create';
+    for (let i = 0; i < 8; i += 1) deep = [deep];
+    expect(findRawKanbanLeaks(deep)).toContain(KANBAN_LEAK_SCAN_TRUNCATED);
+  });
 });
 
 describe('kanban-acp gate — raw-toolset leak detector (structural invariant)', () => {

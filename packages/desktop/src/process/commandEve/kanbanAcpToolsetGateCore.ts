@@ -47,7 +47,7 @@ export const KANBAN_LEAK_SCAN_TRUNCATED = '__kanban_scan_truncated__';
 /** Config markers that would turn on autonomous dispatch / worker-spawn — must stay off.
  * Matched as case-insensitive SUBSTRINGS (so `HERMES_KANBAN_TASK`, `kanban.dispatch_in_gateway`,
  * a bare `dispatch_in_gateway`, `kanban.auto_decompose`, a bare `auto_decompose`, etc. all hit). */
-export const KANBAN_FORBIDDEN_DISPATCH_MARKERS: readonly string[] = Object.freeze(['kanban_task', 'dispatch_in_gateway', 'kanban_swarm', 'kanban_decompose', 'auto_decompose']);
+export const KANBAN_FORBIDDEN_DISPATCH_MARKERS: readonly string[] = Object.freeze(['kanban_task', 'dispatch_in_gateway', 'swarm', 'decompose']);
 
 export const KANBAN_ACP_READ_TOOLS: readonly KanbanAcpTool[] = Object.freeze(['kanban.board.read']);
 export const KANBAN_ACP_WRITE_TOOLS: readonly KanbanAcpTool[] = Object.freeze(['kanban.card.create.plan', 'kanban.card.move.plan', 'kanban.card.action.plan', 'kanban.write.confirm']);
@@ -120,7 +120,10 @@ export function resolveKanbanAcpToolsetGate(input: KanbanAcpGateInput): KanbanAc
  * element/key is read in its OWN try/catch so ONE throwing getter can not hide the
  * siblings after it (Codex re-audit). `budget.n` is decremented per node visited. */
 function collectStringLeaves(value: unknown, out: string[], depth: number, budget: { n: number; exhausted: boolean }): void {
-  if (depth > 6) return;
+  if (depth > 6) {
+    budget.exhausted = true; // depth-truncated ⇒ incomplete scan, fail-closed (never silent-clean)
+    return;
+  }
   // The node budget is the SINGLE bound — it decrements once per node, so `out` can
   // never exceed the initial budget, and an exhausted budget is flagged (never a silent
   // truncation that reads as clean).
