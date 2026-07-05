@@ -58,16 +58,22 @@
   "setupStates": {
     "connected": "Connected",
     "preflight_required": "Preflight required",
-    "auth_required": "Auth required",
+    "auth_required": "Not connected yet",
     "humangate_required": "HumanGate required",
     "blocked": "Blocked"
   },
   "setupActions": {
     "view_receipt": "View receipt",
     "run_read_only_preflight": "Run read-only preflight",
-    "guided_auth_setup": "Prepare guided auth",
+    "guided_auth_setup": "Prepare connection",
     "request_humangate": "Request HumanGate",
     "inspect_blocker": "Inspect blocker"
+  },
+  "statusNote": {
+    "default": "No direct action needed here.",
+    "view_receipt": "Connected and preflight-proven. The receipt is stored locally — nothing to do here.",
+    "request_humangate": "Waiting on a HumanGate approval. This connector is enabled only after approval — no direct action here.",
+    "inspect_blocker": "The last preflight is blocked. The cause is in the preflight receipt / log."
   },
   "secretHandling": {
     "never_in_chat": "Never in chat; use Keychain, env file, or provider OAuth"

@@ -3166,6 +3166,25 @@ function readRuntimeReconciliation(filePath: string): {
   }
 }
 
+/**
+ * Kanban WRITE-governance lock (Founder decision 2026-07-05: auto_decompose stays ON).
+ *
+ * A kanban DB write is governed by two runtime invariants: the gateway dispatcher is
+ * OFF and no external MCP servers are enabled. It deliberately does NOT require
+ * `auto_decompose_disabled`: `kanban_auto_decompose` is intentionally ON so EVE can
+ * build the work-item tree (vision -> versions -> milestones -> child; see the intent
+ * note in runtimeBootstrapCore's writeCommandEveRuntimeReconciliation) — that is tree-
+ * BUILDING, not execution autonomy. Execution autonomy stays gated elsewhere: the
+ * dispatcher, cron and worker auto-spawn remain off (dispatcher_disabled), external MCP
+ * stays off (mcp_servers_disabled), and raw kanban tool access is closed by the
+ * COMPA-626 toolset gate (kanbanAcpToolsetGateCore). `auto_decompose_disabled` is still
+ * derived and reported for transparency; it is simply not part of the write predicate.
+ * Do NOT re-add it here — that would re-block every kanban write (regression 3d2a51b3b).
+ */
+function isKanbanWriteGovernanceLocked(governance: { dispatcher_disabled: boolean; mcp_servers_disabled: boolean }): boolean {
+  return governance.dispatcher_disabled && governance.mcp_servers_disabled;
+}
+
 function buildPythonProbe(): string {
   return String.raw`
 import importlib
@@ -3320,10 +3339,7 @@ export function runKanbanPreflight(options: CommandEveKanbanPreflightOptions): C
       probe.modules.length === KANBAN_MODULES.length &&
       probe.modules.filter((module) => module.required).every((module) => module.ok);
     const versionOk = compareSemver(probe.installedVersion, MIN_HERMES_KANBAN_VERSION) >= 0;
-    const governanceOk =
-      reconciliation.governance.dispatcher_disabled &&
-      reconciliation.governance.auto_decompose_disabled &&
-      reconciliation.governance.mcp_servers_disabled;
+    const governanceOk = isKanbanWriteGovernanceLocked(reconciliation.governance);
     const warnings = [
       ...reconciliation.warnings,
       ...probe.warnings,
@@ -3376,7 +3392,7 @@ export function runKanbanPreflight(options: CommandEveKanbanPreflightOptions): C
         status: 'blocked',
         reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
         message:
-          'Kanban dispatcher, auto-decompose, and external MCP execution must stay disabled for read-first adoption.',
+          'Kanban dispatcher and external MCP execution must stay disabled for read-first adoption.',
         model,
       };
     }
@@ -3506,17 +3522,14 @@ export function createKanbanMarketingProofCard(
   const paths = resolveCommandEveRuntimeBootstrapPaths(options.userDataPath);
   const base = marketingProofResultBase(paths.hermesHome);
   const reconciliation = readRuntimeReconciliation(paths.runtimeReconciliation);
-  const governanceOk =
-    reconciliation.governance.dispatcher_disabled &&
-    reconciliation.governance.auto_decompose_disabled &&
-    reconciliation.governance.mcp_servers_disabled;
+  const governanceOk = isKanbanWriteGovernanceLocked(reconciliation.governance);
   if (!governanceOk) {
     return {
       ...base,
       ok: false,
       status: 'blocked',
       reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
-      message: 'Proof-card writes require dispatcher, auto-decompose and external MCP execution to stay disabled.',
+      message: 'Proof-card writes require dispatcher and external MCP execution to stay disabled.',
     };
   }
 
@@ -3537,7 +3550,7 @@ export function createKanbanMarketingProofCard(
       db_path: dbPath,
       card_id: cardId,
       title: 'Command EVE Marketing Board proof card',
-      body: 'Governance proof card created from Command EVE UI. No dispatcher, no auto-decompose, no worker dispatch.',
+      body: 'Governance proof card created from Command EVE UI. No dispatcher, no external MCP, no worker dispatch.',
       assignee: 'cmo',
       priority: 10,
       created_at: createdAt,
@@ -3648,17 +3661,14 @@ export function createKanbanMarketingCard(
   }
 
   const reconciliation = readRuntimeReconciliation(paths.runtimeReconciliation);
-  const governanceOk =
-    reconciliation.governance.dispatcher_disabled &&
-    reconciliation.governance.auto_decompose_disabled &&
-    reconciliation.governance.mcp_servers_disabled;
+  const governanceOk = isKanbanWriteGovernanceLocked(reconciliation.governance);
   if (!governanceOk) {
     return {
       ...base,
       ok: false,
       status: 'blocked',
       reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
-      message: 'Card creation requires dispatcher, auto-decompose and external MCP execution to stay disabled.',
+      message: 'Card creation requires dispatcher and external MCP execution to stay disabled.',
       lane_key: laneKey,
     };
   }
@@ -3787,17 +3797,14 @@ export function moveKanbanMarketingCard(
   }
 
   const reconciliation = readRuntimeReconciliation(paths.runtimeReconciliation);
-  const governanceOk =
-    reconciliation.governance.dispatcher_disabled &&
-    reconciliation.governance.auto_decompose_disabled &&
-    reconciliation.governance.mcp_servers_disabled;
+  const governanceOk = isKanbanWriteGovernanceLocked(reconciliation.governance);
   if (!governanceOk) {
     return {
       ...base,
       ok: false,
       status: 'blocked',
       reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
-      message: 'Card moves require dispatcher, auto-decompose and external MCP execution to stay disabled.',
+      message: 'Card moves require dispatcher and external MCP execution to stay disabled.',
       to_lane_key: toLaneKey,
     };
   }
@@ -3977,17 +3984,14 @@ export function applyKanbanMarketingCardAction(
   }
 
   const reconciliation = readRuntimeReconciliation(paths.runtimeReconciliation);
-  const governanceOk =
-    reconciliation.governance.dispatcher_disabled &&
-    reconciliation.governance.auto_decompose_disabled &&
-    reconciliation.governance.mcp_servers_disabled;
+  const governanceOk = isKanbanWriteGovernanceLocked(reconciliation.governance);
   if (!governanceOk) {
     return {
       ...base,
       ok: false,
       status: 'blocked',
       reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
-      message: 'Card actions require dispatcher, auto-decompose and external MCP execution to stay disabled.',
+      message: 'Card actions require dispatcher and external MCP execution to stay disabled.',
       card_id: taskId,
       action,
     };
@@ -4134,10 +4138,7 @@ export function planKanbanMarketingCardDispatch(
   }
 
   const reconciliation = readRuntimeReconciliation(paths.runtimeReconciliation);
-  const governanceOk =
-    reconciliation.governance.dispatcher_disabled &&
-    reconciliation.governance.auto_decompose_disabled &&
-    reconciliation.governance.mcp_servers_disabled;
+  const governanceOk = isKanbanWriteGovernanceLocked(reconciliation.governance);
   if (!governanceOk) {
     return {
       ...base,
@@ -4145,7 +4146,7 @@ export function planKanbanMarketingCardDispatch(
       status: 'blocked',
       reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
       reason_codes: ['KANBAN_GOVERNANCE_NOT_LOCKED'],
-      message: 'Dispatch planning requires dispatcher, auto-decompose and external MCP execution to stay disabled.',
+      message: 'Dispatch planning requires dispatcher and external MCP execution to stay disabled.',
       card_id: taskId,
       command,
     };
@@ -4412,10 +4413,7 @@ export function recordKanbanMarketingDispatchApproval(
   }
 
   const reconciliation = readRuntimeReconciliation(paths.runtimeReconciliation);
-  const governanceOk =
-    reconciliation.governance.dispatcher_disabled &&
-    reconciliation.governance.auto_decompose_disabled &&
-    reconciliation.governance.mcp_servers_disabled;
+  const governanceOk = isKanbanWriteGovernanceLocked(reconciliation.governance);
   if (!governanceOk) {
     return {
       ...base,
@@ -4423,7 +4421,7 @@ export function recordKanbanMarketingDispatchApproval(
       status: 'blocked',
       reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
       message:
-        'Controller review receipts require dispatcher, auto-decompose and external MCP execution to stay disabled.',
+        'Controller review receipts require dispatcher and external MCP execution to stay disabled.',
       card_id: taskId,
       dispatch_handoff_packet: dispatchHandoffPacket,
     };
@@ -4568,10 +4566,7 @@ export function recordKanbanMarketingDispatchDecision(
   }
 
   const reconciliation = readRuntimeReconciliation(paths.runtimeReconciliation);
-  const governanceOk =
-    reconciliation.governance.dispatcher_disabled &&
-    reconciliation.governance.auto_decompose_disabled &&
-    reconciliation.governance.mcp_servers_disabled;
+  const governanceOk = isKanbanWriteGovernanceLocked(reconciliation.governance);
   if (!governanceOk) {
     return {
       ...base,
@@ -4579,7 +4574,7 @@ export function recordKanbanMarketingDispatchDecision(
       status: 'blocked',
       reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
       message:
-        'Controller decision receipts require dispatcher, auto-decompose and external MCP execution to stay disabled.',
+        'Controller decision receipts require dispatcher and external MCP execution to stay disabled.',
       card_id: taskId,
       controller_approval_status: decision,
       controller_approved: decision === 'approved',
@@ -4716,10 +4711,7 @@ export function generateKanbanMarketingDraft(
   }
 
   const reconciliation = readRuntimeReconciliation(paths.runtimeReconciliation);
-  const governanceOk =
-    reconciliation.governance.dispatcher_disabled &&
-    reconciliation.governance.auto_decompose_disabled &&
-    reconciliation.governance.mcp_servers_disabled;
+  const governanceOk = isKanbanWriteGovernanceLocked(reconciliation.governance);
   if (!governanceOk) {
     return {
       ...base,
@@ -4728,7 +4720,7 @@ export function generateKanbanMarketingDraft(
       reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
       reason_codes: ['KANBAN_GOVERNANCE_NOT_LOCKED'],
       message:
-        'Marketing draft generation requires dispatcher, auto-decompose and external MCP execution to stay disabled.',
+        'Marketing draft generation requires dispatcher and external MCP execution to stay disabled.',
       card_id: taskId,
     };
   }
@@ -7154,10 +7146,7 @@ export function approveKanbanMarketingOutput(
   }
 
   const reconciliation = readRuntimeReconciliation(paths.runtimeReconciliation);
-  const governanceOk =
-    reconciliation.governance.dispatcher_disabled &&
-    reconciliation.governance.auto_decompose_disabled &&
-    reconciliation.governance.mcp_servers_disabled;
+  const governanceOk = isKanbanWriteGovernanceLocked(reconciliation.governance);
   if (!governanceOk) {
     return {
       ...base,
@@ -7166,7 +7155,7 @@ export function approveKanbanMarketingOutput(
       reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
       reason_codes: ['KANBAN_GOVERNANCE_NOT_LOCKED'],
       message:
-        'Marketing output approval requires dispatcher, auto-decompose and external MCP execution to stay disabled.',
+        'Marketing output approval requires dispatcher and external MCP execution to stay disabled.',
       card_id: taskId,
     };
   }
@@ -7340,10 +7329,7 @@ export function requestKanbanMarketingWorkerDispatch(
   }
 
   const reconciliation = readRuntimeReconciliation(paths.runtimeReconciliation);
-  const governanceOk =
-    reconciliation.governance.dispatcher_disabled &&
-    reconciliation.governance.auto_decompose_disabled &&
-    reconciliation.governance.mcp_servers_disabled;
+  const governanceOk = isKanbanWriteGovernanceLocked(reconciliation.governance);
   if (!governanceOk) {
     return {
       ...base,
@@ -7352,7 +7338,7 @@ export function requestKanbanMarketingWorkerDispatch(
       reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
       reason_codes: ['KANBAN_GOVERNANCE_NOT_LOCKED'],
       message:
-        'Marketing worker dispatch requests require dispatcher, auto-decompose and external MCP execution to stay disabled.',
+        'Marketing worker dispatch requests require dispatcher and external MCP execution to stay disabled.',
       card_id: taskId,
     };
   }
@@ -7525,10 +7511,7 @@ export function runKanbanMarketingWorkerObserved(
   }
 
   const reconciliation = readRuntimeReconciliation(paths.runtimeReconciliation);
-  const governanceOk =
-    reconciliation.governance.dispatcher_disabled &&
-    reconciliation.governance.auto_decompose_disabled &&
-    reconciliation.governance.mcp_servers_disabled;
+  const governanceOk = isKanbanWriteGovernanceLocked(reconciliation.governance);
   if (!governanceOk) {
     return {
       ...base,
@@ -7537,7 +7520,7 @@ export function runKanbanMarketingWorkerObserved(
       reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
       reason_codes: ['KANBAN_GOVERNANCE_NOT_LOCKED'],
       message:
-        'Observed marketing worker runs require dispatcher, auto-decompose and external MCP execution to stay disabled.',
+        'Observed marketing worker runs require dispatcher and external MCP execution to stay disabled.',
       card_id: taskId,
     };
   }
@@ -7738,10 +7721,7 @@ export function checkKanbanMarketingWorkerStartGate(
   }
 
   const reconciliation = readRuntimeReconciliation(paths.runtimeReconciliation);
-  const governanceOk =
-    reconciliation.governance.dispatcher_disabled &&
-    reconciliation.governance.auto_decompose_disabled &&
-    reconciliation.governance.mcp_servers_disabled;
+  const governanceOk = isKanbanWriteGovernanceLocked(reconciliation.governance);
   if (!governanceOk) {
     return {
       ...base,
@@ -7750,7 +7730,7 @@ export function checkKanbanMarketingWorkerStartGate(
       reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
       reason_codes: ['KANBAN_GOVERNANCE_NOT_LOCKED'],
       message:
-        'Worker start gate checks require dispatcher, auto-decompose and external MCP execution to stay disabled.',
+        'Worker start gate checks require dispatcher and external MCP execution to stay disabled.',
       card_id: taskId,
       subprocess_spawned: false,
       external_calls: false,
@@ -8021,10 +8001,7 @@ export function prepareKanbanMarketingWorkerDispatcher(
   }
 
   const reconciliation = readRuntimeReconciliation(paths.runtimeReconciliation);
-  const governanceOk =
-    reconciliation.governance.dispatcher_disabled &&
-    reconciliation.governance.auto_decompose_disabled &&
-    reconciliation.governance.mcp_servers_disabled;
+  const governanceOk = isKanbanWriteGovernanceLocked(reconciliation.governance);
   if (!governanceOk) {
     return {
       ...base,
@@ -8033,7 +8010,7 @@ export function prepareKanbanMarketingWorkerDispatcher(
       reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
       reason_codes: ['KANBAN_GOVERNANCE_NOT_LOCKED'],
       message:
-        'Dispatcher preparation requires dispatcher, auto-decompose and external MCP execution to stay disabled.',
+        'Dispatcher preparation requires dispatcher and external MCP execution to stay disabled.',
       card_id: taskId,
       subprocess_spawned: false,
       external_calls: false,
@@ -8308,10 +8285,7 @@ export function promoteKanbanMarketingWorkerExecutor(
   }
 
   const reconciliation = readRuntimeReconciliation(paths.runtimeReconciliation);
-  const governanceOk =
-    reconciliation.governance.dispatcher_disabled &&
-    reconciliation.governance.auto_decompose_disabled &&
-    reconciliation.governance.mcp_servers_disabled;
+  const governanceOk = isKanbanWriteGovernanceLocked(reconciliation.governance);
   if (!governanceOk) {
     return {
       ...base,
@@ -8319,7 +8293,7 @@ export function promoteKanbanMarketingWorkerExecutor(
       status: 'blocked',
       reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
       reason_codes: ['KANBAN_GOVERNANCE_NOT_LOCKED'],
-      message: 'Executor promotion requires dispatcher, auto-decompose and external MCP execution to stay disabled.',
+      message: 'Executor promotion requires dispatcher and external MCP execution to stay disabled.',
       card_id: taskId,
     };
   }

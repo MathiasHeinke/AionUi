@@ -58,16 +58,22 @@
   "setupStates": {
     "connected": "Verbunden",
     "preflight_required": "Preflight nötig",
-    "auth_required": "Auth nötig",
+    "auth_required": "Noch nicht verbunden",
     "humangate_required": "HumanGate nötig",
     "blocked": "Blockiert"
   },
   "setupActions": {
     "view_receipt": "Receipt ansehen",
     "run_read_only_preflight": "Read-only Preflight ausführen",
-    "guided_auth_setup": "Geführte Auth vorbereiten",
+    "guided_auth_setup": "Verbinden vorbereiten",
     "request_humangate": "HumanGate anfordern",
     "inspect_blocker": "Blocker prüfen"
+  },
+  "statusNote": {
+    "default": "Kein direkter Schritt in der App nötig.",
+    "view_receipt": "Verbunden und per Preflight belegt. Das Receipt liegt lokal — kein weiterer Schritt nötig.",
+    "request_humangate": "Wartet auf eine HumanGate-Freigabe. Der Connector wird erst nach Freigabe aktiviert — hier ist kein direkter Schritt nötig.",
+    "inspect_blocker": "Der letzte Preflight ist blockiert. Die Ursache steht im Preflight-Receipt bzw. Log."
   },
   "secretHandling": {
     "never_in_chat": "Nie im Chat; nur Keychain, Env-Datei oder Provider-OAuth"
@@ -75,7 +81,7 @@
   "states": {
     "installed": "Installiert",
     "available": "Verfügbar",
-    "needs_auth": "Auth nötig",
+    "needs_auth": "Noch nicht verbunden",
     "unverified": "Unverifiziert",
     "gated": "Gated",
     "connected": "Verbunden",

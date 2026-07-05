@@ -501,8 +501,10 @@ const LocalRuntimePage: React.FC = () => {
                     </span>
                     <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.governance')}</span>
                     <span className='text-t-secondary'>
+                      {/* Write-governance lock = dispatcher off + external MCP off. auto_decompose
+                          is intentionally ON (tree-building, not execution) — see
+                          isKanbanWriteGovernanceLocked in kanbanPreflightCore (Founder 2026-07-05). */}
                       {kanbanResult.model.governance.dispatcher_disabled &&
-                      kanbanResult.model.governance.auto_decompose_disabled &&
                       kanbanResult.model.governance.mcp_servers_disabled
                         ? t('localRuntime.kanban.governanceLocked')
                         : t('localRuntime.kanban.governanceOpen')}

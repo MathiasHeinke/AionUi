@@ -6,7 +6,7 @@
 
 import { useConfig } from '@/renderer/hooks/config/useConfig';
 import { Shield } from '@icon-park/react';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 /**
@@ -31,6 +31,25 @@ const EgressRedactionTogglePill: React.FC = () => {
   // Absent/unknown ⇒ ON (fail-safe: privacy needs no last-known-good).
   const redactionDisabled = egressRedactionMode === 'off';
   const [confirming, setConfirming] = useState(false);
+  const rootRef = useRef<HTMLSpanElement>(null);
+
+  // Dismiss the confirm popover on outside-click / Escape (founder 2026-07-05:
+  // it previously stayed open when clicking elsewhere).
+  useEffect(() => {
+    if (!confirming) return;
+    const onDown = (event: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setConfirming(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setConfirming(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [confirming]);
 
   const turnOn = () => {
     setConfirming(false);
@@ -61,7 +80,7 @@ const EgressRedactionTogglePill: React.FC = () => {
   // ON — muted, unobtrusive affordance. Clicking asks a one-tap confirm before it
   // disables redaction (a deliberate DSGVO control-waiver).
   return (
-    <span className='relative inline-flex'>
+    <span ref={rootRef} className='relative inline-flex'>
       <button
         type='button'
         onClick={() => setConfirming((v) => !v)}

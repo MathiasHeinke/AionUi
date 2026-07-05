@@ -416,22 +416,36 @@ const ConnectorCard: React.FC<{
         </div>
       </div>
 
-      <Button
-        data-testid={`connector-preflight-button-${connector.id}`}
-        disabled={(!canRunPreflight && !isGuidedAuth) || running}
-        loading={running}
-        long
-        title={
-          canRunPreflight
-            ? t('connectorCatalog.actions.runPreflightTitle')
-            : isGuidedAuth
-              ? 'Connect this connector by pasting its API key (encrypted into the vault).'
-              : t('connectorCatalog.actions.guidedSetupDisabled')
-        }
-        onClick={() => (isGuidedAuth ? onGuidedAuthSetup(connector) : onRunPreflight(connector.id))}
-      >
-        {t(`connectorCatalog.setupActions.${connector.guided_setup.primary_action}`)}
-      </Button>
+      {/* Only the two LIVE actions render as a real button. request_humangate /
+          inspect_blocker / view_receipt have no in-app handler (no dead controls,
+          founder 2026-07-05) — they render as an honest status note instead. */}
+      {canRunPreflight || isGuidedAuth ? (
+        <Button
+          data-testid={`connector-preflight-button-${connector.id}`}
+          disabled={running}
+          loading={running}
+          long
+          title={
+            canRunPreflight
+              ? t('connectorCatalog.actions.runPreflightTitle')
+              : 'Connect this connector by pasting its API key (encrypted into the vault).'
+          }
+          onClick={() => (isGuidedAuth ? onGuidedAuthSetup(connector) : onRunPreflight(connector.id))}
+        >
+          {t(`connectorCatalog.setupActions.${connector.guided_setup.primary_action}`)}
+        </Button>
+      ) : (
+        <div
+          data-testid={`connector-status-note-${connector.id}`}
+          className='rounded-10px border border-solid border-[var(--color-border-2)] bg-fill-2 px-12px py-8px text-12px leading-18px text-t-tertiary'
+        >
+          {t(`connectorCatalog.statusNote.${connector.guided_setup.primary_action}`, {
+            defaultValue: t('connectorCatalog.statusNote.default', {
+              defaultValue: 'Kein direkter Schritt in der App nötig.',
+            }),
+          })}
+        </div>
+      )}
     </article>
   );
 };

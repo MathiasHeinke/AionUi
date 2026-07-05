@@ -278,7 +278,25 @@ describe('Command EVE Kanban preflight core', () => {
     expect(result.model?.hermes.version_ok).toBe(false);
   });
 
-  it('blocks when Kanban governance is not locked read-first', () => {
+  it('blocks when Kanban governance is not locked read-first (dispatcher on)', () => {
+    const root = makeRoot();
+    makePython(root);
+    writeLockedReconciliation(root, {
+      kanban_dispatch_in_gateway: true,
+    });
+
+    const result = runKanbanPreflight({
+      userDataPath: root,
+      commandRunner: runnerWithPayload(probePayload()),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe('blocked');
+    expect(result.reason_code).toBe('KANBAN_GOVERNANCE_NOT_LOCKED');
+    expect(result.model?.governance.dispatcher_disabled).toBe(false);
+  });
+
+  it('stays ready when auto_decompose is ON but dispatcher + external MCP are off (tree-building is not an execution gate; Founder 2026-07-05)', () => {
     const root = makeRoot();
     makePython(root);
     writeLockedReconciliation(root, {
@@ -290,10 +308,14 @@ describe('Command EVE Kanban preflight core', () => {
       commandRunner: runnerWithPayload(probePayload()),
     });
 
-    expect(result.ok).toBe(false);
-    expect(result.status).toBe('blocked');
-    expect(result.reason_code).toBe('KANBAN_GOVERNANCE_NOT_LOCKED');
+    // The regression (3d2a51b3b) blocked here; auto_decompose ON must NOT gate a write.
+    expect(result.reason_code).not.toBe('KANBAN_GOVERNANCE_NOT_LOCKED');
+    expect(result.ok).toBe(true);
+    expect(result.status).toBe('ready');
+    // auto_decompose is intentionally ON and still reported — just not part of the gate.
     expect(result.model?.governance.auto_decompose_disabled).toBe(false);
+    expect(result.model?.governance.dispatcher_disabled).toBe(true);
+    expect(result.model?.governance.mcp_servers_disabled).toBe(true);
   });
 
   it('blocks when the Hermes Python runtime is not installed', () => {
@@ -442,10 +464,10 @@ finally:
     expect(readAuditEvents(eventLedgerPath)).toHaveLength(1);
   });
 
-  it('blocks proof card writes unless Kanban governance stays locked', () => {
+  it('blocks proof card writes unless Kanban governance stays locked (dispatcher on)', () => {
     const root = makeRoot();
     writeLockedReconciliation(root, {
-      kanban_auto_decompose: true,
+      kanban_dispatch_in_gateway: true,
     });
 
     const result = createKanbanMarketingProofCard({
@@ -569,10 +591,10 @@ describe('Command EVE Kanban marketing-board mutations', () => {
     expect(fs.existsSync(marketingBoardPath(root))).toBe(false);
   });
 
-  it('blocks card creation fail-closed when governance is not locked', () => {
+  it('blocks card creation fail-closed when governance is not locked (dispatcher on)', () => {
     const root = makeRoot();
     writeLockedReconciliation(root, {
-      kanban_auto_decompose: true,
+      kanban_dispatch_in_gateway: true,
     });
 
     const result = createKanbanMarketingCard({

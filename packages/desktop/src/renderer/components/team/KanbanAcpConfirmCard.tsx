@@ -10,9 +10,12 @@
  * EVE PROPOSES a kanban card change, code applies. This card is the visible, button-only
  * gate between a proposal and the actual kanban.db write. It POLLS main for a pending
  * intent (so it re-appears after a renderer restart) and, when one exists, surfaces a
- * floating card with the German summary + EVE's reason + the honesty text. Only a button
- * click applies (there is NO auto-approve path; this is a governance gate above the
- * tool-permission "Nicht fragen", so YOLO never touches it). Apply carries the
+ * floating card with the German summary + EVE's reason + the honesty text. By default only
+ * a button click applies: the tool-permission "Nicht fragen" / YOLO never bypasses this
+ * card. The ONE exception is the explicit operator opt-in `commandEve.kanbanAutoApprove`
+ * (default false) — when the operator grants EVE direct clearance, proposals auto-apply
+ * through the SAME governed write path (see KANBAN_ACP_AUTO_APPROVE_KEY in kanbanAcpMain),
+ * scoped to create/move/action, never dispatch/spawn/delete. Apply carries the
  * mutation_hash so main can prove the confirmed change is the proposed one.
  */
 

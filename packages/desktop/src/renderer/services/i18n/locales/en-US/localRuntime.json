@@ -74,7 +74,7 @@
     "ready": "Ready",
     "notReady": "Not ready",
     "moduleCount": "{{ready}}/{{total}} modules ready",
-    "governanceLocked": "Dispatcher, auto-decompose, and external MCP servers are off",
+    "governanceLocked": "Dispatcher and external MCP servers are off",
     "governanceOpen": "Governance lock incomplete",
     "labels": {
       "board": "Board",
