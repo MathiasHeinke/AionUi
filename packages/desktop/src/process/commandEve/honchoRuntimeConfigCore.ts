@@ -28,6 +28,15 @@
  *          consent-gated) AND the model is READY. Local ⇒ nothing egresses.
  *        - ELSE the FREE "DeepSeek V4 Flash" lane (EVE Standard tier). The
  *          default fallback — "nicht mal Cent-Beträge".
+ *   3. (2026-07-05) The deriver is USER-SWITCHABLE via `deriverMode`:
+ *        - 'auto'  (default) ⇒ the founder-locked rule above (local when
+ *          opted-in+ready, else free cloud-Flash).
+ *        - 'local' ⇒ PRIVACY-LOCK: the deriver ALWAYS routes to loopback Ollama
+ *          and NEVER to the cloud shim, even when the model is cold. A cold model
+ *          means derivation simply does not succeed yet (the readiness probe keeps
+ *          Honcho un-advertised until warm) — memory falls back to Company Brain,
+ *          but NOTHING ever egresses. The switch is the explicit opt-in.
+ *        - 'cloud' ⇒ force the free cloud-Flash lane (convenience over locality).
  *
  * THE THREE INVARIANTS THIS CORE MAKES STRUCTURAL (not merely defaulted):
  *   A. NEVER A DIRECT EDGE CALL. The cloud-Flash deriver base is the LOOPBACK
@@ -172,12 +181,21 @@ export interface HonchoRuntimeConfigInput {
   pgHost?: string;
   /** Loopback Postgres port (default 5432). */
   pgPort?: number;
+  /**
+   * (2026-07-05) The USER-SWITCHABLE deriver mode. 'auto' (default) = the
+   * founder-locked local-when-ready-else-cloud rule; 'local' = privacy-lock (never
+   * cloud, even cold); 'cloud' = force free cloud-Flash. Absent ⇒ 'auto'.
+   */
+  deriverMode?: HonchoDeriverMode;
 }
+
+/** The user-facing deriver switch (config key `commandEve.honchoDeriverMode`). */
+export type HonchoDeriverMode = 'auto' | 'local' | 'cloud';
 
 /** The subset {@link resolveHonchoDeriverConfig} reads — NO selection/tier field by design. */
 export type HonchoDeriverInput = Pick<
   HonchoRuntimeConfigInput,
-  'localModelOptedIn' | 'localModelReady' | 'ollamaBaseUrl' | 'localModelRef' | 'shimBaseUrl'
+  'localModelOptedIn' | 'localModelReady' | 'ollamaBaseUrl' | 'localModelRef' | 'shimBaseUrl' | 'deriverMode'
 >;
 
 // ---------------------------------------------------------------------------
@@ -279,7 +297,10 @@ export function requireLoopbackShimBase(value?: string): string {
  * to the loopback shim (invariant A); the api key is empty (invariant C).
  */
 export function resolveHonchoDeriverConfig(input: HonchoDeriverInput): HonchoDeriverConfig {
-  const useLocal = input.localModelOptedIn === true && input.localModelReady === true;
+  const mode: HonchoDeriverMode = input.deriverMode || 'auto';
+  // 'local' ⇒ ALWAYS local (privacy-lock, even cold — never cloud). 'cloud' ⇒ never
+  // local. 'auto' ⇒ the founder-locked rule (local only when opted-in AND ready).
+  const useLocal = mode === 'local' || (mode === 'auto' && input.localModelOptedIn === true && input.localModelReady === true);
 
   if (useLocal) {
     // The LOCAL branch emits behindEgressBoundary:false — that is ONLY safe if the
@@ -293,7 +314,7 @@ export function resolveHonchoDeriverConfig(input: HonchoDeriverInput): HonchoDer
       apiKey: 'ollama', // Ollama ignores the key; a placeholder, never a real secret.
       forcedTier: undefined,
       behindEgressBoundary: false,
-      routeReason: 'local-opt-in-ready',
+      routeReason: mode === 'local' ? 'local-locked' : 'local-opt-in-ready',
     };
   }
 
@@ -306,7 +327,7 @@ export function resolveHonchoDeriverConfig(input: HonchoDeriverInput): HonchoDer
     apiKey: '', // bearer is the shim's job (Authorization header only) — NEVER baked here
     forcedTier: HONCHO_DERIVER_FORCED_TIER,
     behindEgressBoundary: true,
-    routeReason: input.localModelOptedIn === true ? 'opt-in-not-ready' : 'fallback-free-flash',
+    routeReason: mode === 'cloud' ? 'forced-cloud' : input.localModelOptedIn === true ? 'opt-in-not-ready' : 'fallback-free-flash',
   };
 }
 

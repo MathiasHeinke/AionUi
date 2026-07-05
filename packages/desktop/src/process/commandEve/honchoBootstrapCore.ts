@@ -50,6 +50,12 @@ export interface HonchoShellCommand {
   command?: string;
   args?: string[];
   timeoutMs?: number;
+  /**
+   * Per-step env OVERLAY, merged over deps.env for THIS step only (e.g. the honcho
+   * serve process carries the deriver LLM base_url/model so it derives against the
+   * LOCAL Ollama). Never a secret — the local deriver key is an Ollama placeholder.
+   */
+  env?: NodeJS.ProcessEnv;
 }
 
 /** The exact commands per step id (HONCHO_STEP_*), verified on the live machine. */
@@ -169,7 +175,7 @@ export async function runHonchoBootstrap(deps: HonchoBootstrapDeps): Promise<Hon
       if (id === HONCHO_STEP_PROCESS) {
         // The long-running server — detached spawn, no result to await.
         try {
-          deps.detachedSpawner(cmd.command, cmd.args || [], { env: deps.env });
+          deps.detachedSpawner(cmd.command, cmd.args || [], { env: { ...deps.env, ...(cmd.env || {}) } });
           serverStarted = true;
           stages.push({ id, status: 'pass', detail: 'honcho serve started', command: cmd.command, duration_ms: nowMs() - started });
         } catch (error) {
@@ -184,7 +190,7 @@ export async function runHonchoBootstrap(deps: HonchoBootstrapDeps): Promise<Hon
       let res;
       try {
         // eslint-disable-next-line no-await-in-loop -- steps are strictly ordered + dependent
-        res = await deps.runner(cmd.command, cmd.args || [], { env: deps.env, timeoutMs: cmd.timeoutMs || deps.defaultTimeoutMs || 120000 });
+        res = await deps.runner(cmd.command, cmd.args || [], { env: { ...deps.env, ...(cmd.env || {}) }, timeoutMs: cmd.timeoutMs || deps.defaultTimeoutMs || 120000 });
       } catch (error) {
         stages.push({ id, status: 'skip', code: HONCHO_REASON_DEP_MISSING, detail: `runner threw: ${errText(error)}`, command: cmd.command });
         ok = false;

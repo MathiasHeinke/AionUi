@@ -23,8 +23,10 @@
  * flip the opt-in", not "build the orchestration".
  */
 
+import fs from 'fs';
+import path from 'path';
 import { resolveSeatHome } from './seatContextCore';
-import { buildHonchoRuntimeConfig, HONCHO_DERIVER_BRANCH_LOCAL, type HonchoRuntimeConfig } from './honchoRuntimeConfigCore';
+import { buildHonchoRuntimeConfig, HONCHO_DEFAULT_LOCAL_MODEL_REF, HONCHO_DERIVER_BRANCH_LOCAL, type HonchoDeriverMode, type HonchoRuntimeConfig } from './honchoRuntimeConfigCore';
 import {
   HONCHO_STEP_DB,
   HONCHO_STEP_HOMEBREW,
@@ -51,6 +53,35 @@ import type { RuntimeBootstrapRunner, RuntimeBootstrapDetachedSpawner } from './
  * Until then a wrong string fails its step → the chain stops → Honcho stays not-ready
  * → memory falls back to Company Brain (never a crash, never a blocked boot).
  */
+/**
+ * MAC-VERIFY-PENDING — the env-var NAMES honcho-ai's deriver reads for its LLM
+ * route. The VALUES are FACT (cfg.deriver.baseUrl already resolves to the loopback
+ * Ollama /v1 for the local branch, the loopback shim /v1 for cloud); only these key
+ * names must be confirmed against the installed wheel (OpenAI-style is the guess).
+ * Gated behind one constant so the wheel-verified literal is a one-line correction.
+ */
+export const HONCHO_DERIVER_ENV_KEYS = {
+  baseUrl: 'OPENAI_BASE_URL',
+  apiKey: 'OPENAI_API_KEY',
+  model: 'HONCHO_DERIVER_MODEL',
+} as const;
+
+/**
+ * The deriver env OVERLAY for the honcho serve process, straight from cfg.deriver.
+ * For the LOCAL branch this points honcho at loopback Ollama (behindEgressBoundary:
+ * false — nothing leaves the machine); for CLOUD it points at the loopback shim
+ * (the shim owns the bearer). Never a real secret (local key = 'ollama' placeholder;
+ * cloud key = '' because the shim injects the Authorization header).
+ */
+export function buildHonchoDeriverEnv(cfg: HonchoRuntimeConfig): NodeJS.ProcessEnv {
+  const d = cfg.deriver || {};
+  const env: NodeJS.ProcessEnv = {};
+  if (d.baseUrl) env[HONCHO_DERIVER_ENV_KEYS.baseUrl] = d.baseUrl;
+  if (typeof d.apiKey === 'string') env[HONCHO_DERIVER_ENV_KEYS.apiKey] = d.apiKey;
+  if (d.model) env[HONCHO_DERIVER_ENV_KEYS.model] = d.model;
+  return env;
+}
+
 export function buildHonchoCommandSet(input: { cfg: HonchoRuntimeConfig; hermesVenv: string }): HonchoCommandSet {
   const venvPython = `${input.hermesVenv}/bin/python`;
   const venvPip = `${input.hermesVenv}/bin/pip`;
@@ -71,9 +102,35 @@ export function buildHonchoCommandSet(input: { cfg: HonchoRuntimeConfig; hermesV
     // detection marks dbProvisioned=true so this step is skipped as satisfied).
     [HONCHO_STEP_DB]: { command: 'createdb', args: [dbName], timeoutMs: 60000 },
     // The long-running local Honcho server (detached — no result awaited). The exact
-    // `honcho serve` flags (port, --db-url, deriver base) are MAC-VERIFY-PENDING.
-    [HONCHO_STEP_PROCESS]: { command: venvPython, args: ['-m', 'honcho', 'serve'], timeoutMs: 0 },
+    // `honcho serve` flags (port, --db-url) are MAC-VERIFY-PENDING; the deriver LLM
+    // route rides the per-step env overlay (buildHonchoDeriverEnv) so honcho derives
+    // against the LOCAL Ollama (local branch) and never the cloud unless mode=cloud.
+    [HONCHO_STEP_PROCESS]: { command: venvPython, args: ['-m', 'honcho', 'serve'], timeoutMs: 0, env: buildHonchoDeriverEnv(input.cfg) },
   };
+}
+
+/** Normalize a model ref for comparison (case/whitespace-insensitive). */
+function normalizeModelRef(ref?: string): string {
+  return typeof ref === 'string' ? ref.trim().toLowerCase() : '';
+}
+
+/**
+ * The REAL local-model-ready signal for the AUTO deriver mode: true ONLY when the
+ * machine's model-warmup receipt (`<runtimeRoot>/model-warmup-receipt.json`) has
+ * status:'ready' AND its model is the honcho local deriver ref (a genuine warm proof
+ * — the warmup posts a real 1-token completion through Ollama, index.ts:665-682).
+ * Fail-soft to false on any read/parse error (default-deny ⇒ AUTO falls to cloud).
+ * The receipt is machine-global (the model is), NOT per-seat — the caller must keep
+ * it distinct from per-seat serverUp/deriverReachable.
+ */
+export function resolveLocalModelReadyFromWarmupReceipt(runtimeRoot: string, localModelRef: string = HONCHO_DEFAULT_LOCAL_MODEL_REF): boolean {
+  try {
+    const raw = fs.readFileSync(path.join(runtimeRoot, 'model-warmup-receipt.json'), 'utf8');
+    const r = JSON.parse(raw) as { status?: string; model?: string } | null;
+    return !!r && r.status === 'ready' && normalizeModelRef(r.model) === normalizeModelRef(localModelRef) && normalizeModelRef(localModelRef).length > 0;
+  } catch {
+    return false;
+  }
 }
 
 /** What the seat's consent implies for the config's deriver branch + readiness. */
@@ -94,6 +151,8 @@ export interface RunHonchoProvisioningInput {
   hermesVenv: string;
   consent: HonchoConsentState;
   mode?: HonchoProvisionMode;
+  /** The user's deriver switch (auto|local|cloud). Absent ⇒ 'auto'. */
+  deriverMode?: HonchoDeriverMode;
 }
 
 export interface RunHonchoProvisioningDeps {
@@ -129,7 +188,7 @@ export async function runHonchoProvisioningForSeat(
   // Any setup error degrades to a not-ready off result — never an unhandled rejection.
   try {
     const seatHome = resolveSeatHome(input.userDataPath, input.seatId);
-    const cfg = buildHonchoRuntimeConfig({ seatId: input.seatId ?? undefined, seatHome, ...deriverInputsFromConsent(input.consent) });
+    const cfg = buildHonchoRuntimeConfig({ seatId: input.seatId ?? undefined, seatHome, ...deriverInputsFromConsent(input.consent), deriverMode: input.deriverMode });
     const detection = await deps.detectDeps();
     const plan = buildHonchoProvisionPlan({ detection, consent: input.consent, mode: input.mode, config: cfg });
     const buildCommands = deps.buildCommands || buildHonchoCommandSet;

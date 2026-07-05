@@ -90,6 +90,17 @@ export type ConfigKeyMap = {
    * bit; do it anyway"). The provisioning RUN itself (brew/pg/honcho) is a Mac step.
    */
   'commandEve.honchoMemoryOptIn': boolean | undefined;
+  /**
+   * COMPA-624 (2026-07-05) — the USER-FACING deriver switch. Honcho's fact-deriver
+   * LLM routes by this:
+   *   - 'auto'  (default) ⇒ local Gemma when warm, else the FREE cloud-Flash lane.
+   *   - 'local' ⇒ PRIVACY-LOCK: derive ONLY on the local model, NEVER the cloud —
+   *              a cold model just means derivation waits (memory falls back to
+   *              Company Brain), nothing egresses.
+   *   - 'cloud' ⇒ force the free cloud-Flash lane (convenience over locality).
+   * Absent ⇒ 'auto'. The memory STORE is always local per-seat Postgres regardless.
+   */
+  'commandEve.honchoDeriverMode': 'auto' | 'local' | 'cloud' | undefined;
   'commandEve.localModelTierId': string | undefined;
   /**
    * The single EVE inference picker selection (two-group picker). One of:
