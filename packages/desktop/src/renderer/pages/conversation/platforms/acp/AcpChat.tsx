@@ -23,7 +23,9 @@ import React from 'react';
 import AcpE2EStreamInjector from './AcpE2EStreamInjector';
 import AcpRuntimeStatus from './AcpRuntimeStatus';
 import EgressBoundaryNotice from './EgressBoundaryNotice';
+import EgressRedactionTogglePill from './EgressRedactionTogglePill';
 import AcpSendBox from './AcpSendBox';
+import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
 import { useAcpMessage } from './useAcpMessage';
 
 const AcpChat: React.FC<{
@@ -83,6 +85,14 @@ const AcpChat: React.FC<{
       <ConversationArtifactProvider conversation_id={conversation_id}>
         <div className='flex-1 flex flex-col px-20px min-h-0'>
           {headerSlot}
+          {/* DSGVO PII toggle — TOP-RIGHT of the chat window (founder 2026-07-05): a
+              one-click on/off pill in the session, replacing the old footnote that
+              floated at the text-field edge. Only on the Command EVE lane. */}
+          {isCommandEveAcpConversation(backend) ? (
+            <div className='flex justify-end pt-6px pb-2px'>
+              <EgressRedactionTogglePill />
+            </div>
+          ) : null}
           <FlexFullContainer>
             <MessageList className='flex-1' emptySlot={emptySlot} />
           </FlexFullContainer>

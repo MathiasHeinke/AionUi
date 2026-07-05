@@ -507,7 +507,13 @@
       "clear": "Letzter Modellaufruf ohne sensible Treffer.",
       "disabled": "PII-Schutz aus",
       "disabledFootnote": "* Datenschutz aus",
-      "disabledHint": "Datenschutz-Filter ist aus — hier klicken, um ihn in den Einstellungen wieder anzuschalten."
+      "disabledHint": "Datenschutz-Filter ist aus — hier klicken, um ihn in den Einstellungen wieder anzuschalten.",
+      "pillOff": "Datenschutz aus",
+      "pillOn": "Datenschutz an",
+      "pillOffHint": "Datenschutz-Filter ist AUS — sensible Daten gehen unredigiert ans Modell. Klicken zum Anschalten.",
+      "pillOnHint": "Datenschutz-Filter ist an. Klicken, um ihn für diesen Seat auszuschalten.",
+      "pillConfirm": "PII-Schutz für diesen Seat ausschalten? Sensible Daten (Adresse, IBAN, Gesundheit, Finanzen) gehen dann unredigiert ans Modell.",
+      "pillConfirmOff": "Ausschalten"
     }
   },
   "sendbox": {

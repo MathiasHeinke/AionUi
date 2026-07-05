@@ -6,7 +6,6 @@
 
 import { ipcBridge } from '@/common';
 import { useConfig } from '@/renderer/hooks/config/useConfig';
-import { useSettingsModal } from '@/renderer/components/settings/SettingsModal/useSettingsModal';
 import { Shield } from '@icon-park/react';
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -32,14 +31,11 @@ type EgressBoundaryStatus = {
  */
 const EgressBoundaryNotice: React.FC<{ active?: boolean }> = ({ active = false }) => {
   const { t } = useTranslation();
-  const { openSettings, settingsModal } = useSettingsModal();
   const [egressVisibleSetting] = useConfig('commandEve.egressStatusVisible');
   const egressVisible = egressVisibleSetting ?? true;
-  // S11 — PER-SEAT PII/DSGVO switch. When the operator turned the filter OFF for
-  // this seat, a DSGVO control-waiver is in effect and must NEVER be invisible: we
-  // show a persistent "PII-Schutz aus" badge for as long as it is off (absent ⇒ on).
-  const [egressRedactionMode] = useConfig('commandEve.egressRedactionMode');
-  const redactionDisabled = egressRedactionMode === 'off';
+  // NOTE: the persistent "Datenschutz aus" control-waiver indicator moved to the
+  // top-right chat-window toggle (EgressRedactionTogglePill, founder 2026-07-05).
+  // This component now only surfaces the TRANSIENT redact/block ACTION strip.
   const [egressBoundary, setEgressBoundary] = useState<EgressBoundaryStatus | null>(null);
 
   useEffect(() => {
@@ -76,24 +72,6 @@ const EgressBoundaryNotice: React.FC<{ active?: boolean }> = ({ active = false }
     };
   }, [egressVisible, active]);
 
-  // The persistent "Datenschutz aus" hint must stay VISIBLE while the filter is off
-  // (a DSGVO control-waiver is never invisible), but it must be UNOBTRUSIVE — a small,
-  // muted footnote, NOT a prominent red banner (founder 2026-07-04). One click opens
-  // the privacy settings to turn it back on.
-  const offBadge = redactionDisabled ? (
-    <button
-      type='button'
-      onClick={() => openSettings('system')}
-      title={t('conversation.runtimeStatus.egress.disabledHint', {
-        defaultValue: 'Datenschutz-Filter ist aus — hier klicken, um ihn in den Einstellungen wieder anzuschalten.',
-      })}
-      className='mb-4px inline-flex items-center gap-4px border-none bg-transparent px-0 text-11px text-t-tertiary opacity-60 hover:opacity-100 hover:underline cursor-pointer'
-    >
-      <Shield theme='outline' size='11' />
-      <span>{t('conversation.runtimeStatus.egress.disabledFootnote', { defaultValue: '* Datenschutz aus' })}</span>
-    </button>
-  ) : null;
-
   const egressDecision = egressBoundary?.decision;
   const egressLabel =
     egressDecision === 'block'
@@ -120,17 +98,9 @@ const EgressBoundaryNotice: React.FC<{ active?: boolean }> = ({ active = false }
       </div>
     ) : null;
 
-  if (!offBadge && !actionStrip) return null;
+  if (!actionStrip) return null;
 
-  return (
-    <>
-      {offBadge}
-      {actionStrip}
-      {/* Mounted so the unobtrusive "Datenschutz aus" footnote can open the privacy
-          settings directly (system tab) — self-contained, no global settings owner. */}
-      {offBadge ? settingsModal : null}
-    </>
-  );
+  return <>{actionStrip}</>;
 };
 
 export default EgressBoundaryNotice;

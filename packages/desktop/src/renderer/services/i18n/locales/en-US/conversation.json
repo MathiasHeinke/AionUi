@@ -531,7 +531,13 @@
       "clear": "Last model call had no sensitive findings.",
       "disabled": "PII protection off",
       "disabledFootnote": "* Privacy off",
-      "disabledHint": "The privacy filter is off — click to turn it back on in settings."
+      "disabledHint": "The privacy filter is off — click to turn it back on in settings.",
+      "pillOff": "Privacy off",
+      "pillOn": "Privacy on",
+      "pillOffHint": "Privacy filter is OFF — sensitive data goes to the model unredacted. Click to turn it on.",
+      "pillOnHint": "Privacy filter is on. Click to turn it off for this seat.",
+      "pillConfirm": "Turn off PII protection for this seat? Sensitive data (address, IBAN, health, finance) will then go to the model unredacted.",
+      "pillConfirmOff": "Turn off"
     }
   },
   "commandEveLocalMarketingIntent": {
