@@ -53,6 +53,8 @@ import { kanbanAcpProposeHandler, readKanbanAcpBoard, resolveKanbanAcpBearer, se
 import { isCommandEveSeatSwitchInFlight } from './process/bridge/commandEveBridge';
 import { buildCommandEveShimHonchoDeriverRouteResolver } from './process/commandEve/honchoDeriverRouteCore';
 import { resolveHonchoHomeForSeat } from './process/commandEve/honchoRuntimeConfigCore';
+import { resolveHonchoRenderForSeat, type HonchoRenderInput } from './process/commandEve/honchoRuntimeRenderCore';
+import { resolveCommandEveRuntimeBootstrapPaths } from './process/commandEve/runtimeBootstrapCore';
 import { readHonchoReadyState } from './process/commandEve/honchoReadyStateFile';
 import { getActiveSeatId } from './process/commandEve/seatContextCore';
 import {
@@ -486,6 +488,23 @@ function buildCommandEveShimHonchoDeriverRoute(): CommandEveHonchoDeriverRouteRe
 }
 
 /**
+ * COMPA-624 — resolve the ACTIVE seat's honcho render input for the launcher wiring
+ * (so an active Claude delegate gets the same per-seat memory EVE has). Fail-soft to
+ * { ready:false } on any error so the (synchronous) worker-runtime resolver never
+ * throws and a seat with no Honcho is byte-identical to before.
+ */
+function resolveActiveSeatHonchoRender(): HonchoRenderInput {
+  try {
+    const dataPath = getDataPath();
+    const seatId = getActiveSeatId();
+    const hermesVenv = resolveCommandEveRuntimeBootstrapPaths(dataPath, seatId).hermesVenv;
+    return resolveHonchoRenderForSeat({ userDataPath: dataPath, seatId, hermesVenv });
+  } catch {
+    return { ready: false };
+  }
+}
+
+/**
  * S10 — set `COMMAND_EVE_COMPANY_OS_ROOT` in the main-process env at startup so
  * the command-center / status-surface cores can find the Company.OS dev-monorepo
  * CLIs they invoke — BUT ONLY when a plausible checkout actually exists. On an
@@ -650,7 +669,7 @@ async function resolveCommandEveWorkerRuntimeInputs(): Promise<{
         resolveAssignedClaudeDelegate(assignments, statuses),
         assignments,
         statuses,
-        { dataPath: getDataPath(), seatId: getActiveSeatId(), resourcesPath: process.resourcesPath, env: process.env }
+        { dataPath: getDataPath(), seatId: getActiveSeatId(), resourcesPath: process.resourcesPath, env: process.env, honcho: resolveActiveSeatHonchoRender() }
       ),
       teamRoles: buildTeamDirectiveRoles(assignments, statuses),
     };

@@ -36,6 +36,20 @@ import { EVE_TEAM_ROSTER } from '../../common/config/eveTeamRoster';
 import type { EveTeamWorkerStatusMap } from '../../common/config/eveTeamControlsCore';
 import type { EveWorkerAssignmentMap, ResolvedClaudeDelegate } from '../../common/config/eveWorkerAssignmentCore';
 import { currentLeaseFor, mintLeaseToken } from './eveAgentTaskRegistry';
+import { honchoMcpServerForSeat } from './honchoMcpServerCore';
+import type { HonchoRenderInput } from './honchoRuntimeRenderCore';
+
+/**
+ * COMPA-624 (2026-07-05) — the env var the Claude ACP adapter reads to load an
+ * external MCP config file, so a delegated worker gets the per-seat `honcho` memory
+ * tool. MAC-VERIFY-PENDING: the exact name (Claude Code discovers `.mcp.json` in the
+ * cwd; the ACP adapter may honor a `CLAUDE_MCP_CONFIG`-style pointer instead) must be
+ * confirmed against the installed @agentclientprotocol/claude-agent-acp adapter. The
+ * launcher exports the PATH under this name; the HONCHO_* values stay in the 0600
+ * file, never in argv. A wrong name here = the delegate silently lacks the tool (a
+ * dead feature, not a crash), correctable in one line.
+ */
+export const CLAUDE_DELEGATE_MCP_CONFIG_ENV = 'CLAUDE_MCP_CONFIG';
 
 /** Env override so tests / dev boxes can point at the source launcher. */
 export const COMMAND_EVE_LAUNCHER_DIR_ENV = 'COMMAND_EVE_LAUNCHER_DIR';
@@ -87,6 +101,8 @@ export interface LauncherStatePaths {
   readonly dir: string;
   readonly statusFile: string;
   readonly tokenFile: string;
+  /** COMPA-624 — the per-(seat,role) honcho MCP config file the delegate loads. */
+  readonly honchoMcpConfigFile: string;
 }
 
 /**
@@ -101,6 +117,7 @@ export function computeLauncherStatePaths(dataPath: string, seatId: string, agen
     dir,
     statusFile: path.join(dir, `${fsSafe(agentId)}.status`),
     tokenFile: path.join(dir, `${fsSafe(agentId)}.token`),
+    honchoMcpConfigFile: path.join(dir, `${fsSafe(agentId)}.honcho.mcp.json`),
   };
 }
 
@@ -113,6 +130,12 @@ export interface LauncherWrapConfig {
   readonly launcherPath: string;
   readonly statusFile: string;
   readonly tokenFile: string;
+  /**
+   * COMPA-624 — when set, the launcher gets `--mcp-config <path>` so it exports the
+   * per-seat honcho MCP config pointer to the delegate adapter. A FILE PATH only
+   * (never a secret; A4-safe even though acp_args are model-visible in SOUL).
+   */
+  readonly honchoMcpConfigFile?: string;
 }
 
 /**
@@ -141,6 +164,7 @@ export function wrapClaudeDelegateWithLauncher(
 ): ResolvedClaudeDelegate {
   const launcherPath = compact(config.launcherPath);
   if (!launcherPath || !path.isAbsolute(launcherPath)) return delegate;
+  const honchoMcpConfigFile = compact(config.honchoMcpConfigFile);
   const wrappedArgs = [
     launcherPath,
     '--role',
@@ -149,6 +173,10 @@ export function wrapClaudeDelegateWithLauncher(
     config.statusFile,
     '--token-file',
     config.tokenFile,
+    // COMPA-624 — the per-seat honcho MCP config pointer (a PATH, not a secret). The
+    // launcher exports it to the delegate adapter; the launcher's own readability
+    // check makes an absent file a no-op, so this stays inert until Honcho is ready.
+    ...(honchoMcpConfigFile ? ['--mcp-config', honchoMcpConfigFile] : []),
     '--',
     delegate.acpCommand,
     ...delegate.acpArgs,
@@ -163,10 +191,48 @@ export function wrapClaudeDelegateWithLauncher(
  * roles, so those stay token-less = un-attributable, A7a). Best-effort per role:
  * one role's failure never blocks the others. Returns the roles it wrote tokens for.
  */
+/**
+ * Best-effort remove a per-role honcho MCP config (revocation). A missing file is
+ * fine; never throws — a stale honcho config for a paused/reassigned role must be
+ * gone so the delegate can not re-load a memory tool it should no longer have.
+ */
+function removeDelegateHonchoMcpConfig(honchoMcpConfigFile: string): void {
+  try {
+    fs.rmSync(honchoMcpConfigFile, { force: true });
+  } catch {
+    /* best-effort */
+  }
+}
+
+/**
+ * Write (or remove) the per-(seat,role) honcho MCP config a delegated Claude worker
+ * loads, so it reads/writes the SAME per-seat local memory EVE does. Built from the
+ * IDENTICAL honchoMcpServerForSeat tuple (per-seat dbUri/workspace/home, passwordless
+ * loopback — never a secret). Returns true when a config was written. When Honcho is
+ * not fresh-ready (or no launcher), the file is REMOVED (the delegate gets no honcho
+ * tool that launch) — never a stale/half config.
+ */
+function writeDelegateHonchoMcpConfig(honchoMcpConfigFile: string, honcho?: HonchoRenderInput): boolean {
+  const server = honchoMcpServerForSeat(honcho?.cfg, honcho?.ready === true, honcho?.launcher);
+  if (!server) {
+    removeDelegateHonchoMcpConfig(honchoMcpConfigFile);
+    return false;
+  }
+  try {
+    const config = { mcpServers: { [server.id]: { command: server.command, args: server.args, env: server.env } } };
+    fs.writeFileSync(honchoMcpConfigFile, `${JSON.stringify(config, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+    return true;
+  } catch (error) {
+    console.warn('[Command EVE] delegate honcho MCP config write failed:', error);
+    removeDelegateHonchoMcpConfig(honchoMcpConfigFile);
+    return false;
+  }
+}
+
 export function syncEveWorkerLauncherFiles(
   assignments: EveWorkerAssignmentMap,
   statuses: EveTeamWorkerStatusMap,
-  ctx: { dataPath: string; seatId: string },
+  ctx: { dataPath: string; seatId: string; honcho?: HonchoRenderInput },
   roster: readonly { agent_id: string }[] = EVE_TEAM_ROSTER
 ): { tokensWritten: string[] } {
   const tokensWritten: string[] = [];
@@ -190,6 +256,8 @@ export function syncEveWorkerLauncherFiles(
       } catch {
         /* best-effort */
       }
+      // A non-Claude role carries no honcho config either (revocation symmetry).
+      removeDelegateHonchoMcpConfig(paths.honchoMcpConfigFile);
       continue;
     }
 
@@ -215,6 +283,9 @@ export function syncEveWorkerLauncherFiles(
             /* best-effort */
           }
         }
+        // COMPA-624: an ACTIVE Claude delegate gets the per-seat honcho memory (same
+        // dbUri/workspace EVE uses) when Honcho is fresh-ready; otherwise no config.
+        writeDelegateHonchoMcpConfig(paths.honchoMcpConfigFile, ctx.honcho);
       } else {
         // M1: paused/off role is not spawned — remove any previously-active lease
         // token so it never lingers at a SOUL-known path (minimal token surface).
@@ -223,6 +294,8 @@ export function syncEveWorkerLauncherFiles(
         } catch {
           /* best-effort */
         }
+        // A paused/off role must not keep a loadable honcho config either.
+        removeDelegateHonchoMcpConfig(paths.honchoMcpConfigFile);
       }
     } catch (error) {
       console.warn(`[Command EVE] launcher state write failed for role ${agentId}:`, error);
@@ -250,10 +323,13 @@ export function applyLauncherWiring(
   delegate: ResolvedClaudeDelegate | null,
   assignments: EveWorkerAssignmentMap,
   statuses: EveTeamWorkerStatusMap,
-  ctx: { dataPath: string; seatId: string; resourcesPath?: string; env: NodeJS.ProcessEnv }
+  ctx: { dataPath: string; seatId: string; resourcesPath?: string; env: NodeJS.ProcessEnv; honcho?: HonchoRenderInput }
 ): ResolvedClaudeDelegate | null {
   try {
-    syncEveWorkerLauncherFiles(assignments, statuses, { dataPath: ctx.dataPath, seatId: ctx.seatId });
+    // Pass the per-seat honcho render input so ACTIVE Claude delegates get the SAME
+    // local memory EVE has (per-seat, revocation-symmetric). Absent/not-ready ⇒ no
+    // delegate honcho config (byte-identical to before this lane existed).
+    syncEveWorkerLauncherFiles(assignments, statuses, { dataPath: ctx.dataPath, seatId: ctx.seatId, honcho: ctx.honcho });
   } catch (error) {
     console.warn('[Command EVE] launcher state sync failed:', error);
   }
@@ -269,5 +345,9 @@ export function applyLauncherWiring(
     launcherPath,
     statusFile: paths.statusFile,
     tokenFile: paths.tokenFile,
+    // Only point at the honcho config when Honcho is fresh-ready for this seat (the
+    // config file was written for the active role in the sync above). The launcher
+    // re-checks readability, so a race that removes it degrades to no-honcho, not a fail.
+    honchoMcpConfigFile: ctx.honcho?.ready === true ? paths.honchoMcpConfigFile : undefined,
   });
 }

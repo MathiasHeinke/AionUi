@@ -27,12 +27,14 @@ set -eu
 ROLE=""
 STATUS_FILE=""
 TOKEN_FILE=""
+MCP_CONFIG=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --role) ROLE="${2:-}"; shift 2 ;;
     --status-file) STATUS_FILE="${2:-}"; shift 2 ;;
     --token-file) TOKEN_FILE="${2:-}"; shift 2 ;;
+    --mcp-config) MCP_CONFIG="${2:-}"; shift 2 ;;
     --) shift; break ;;
     *) echo "eve-acp-launcher: unexpected arg: $1" >&2; exit 2 ;;
   esac
@@ -93,4 +95,16 @@ unset COMMAND_EVE_TEAM_MANAGE_BEARER COMMAND_EVE_TEAM_MANAGE_BEARER_FILE STATUS_
 #    inheriting fds 0/1/2 exactly — the wheel's JSON-RPC pipe is untouched.
 export EVE_AGENT_ID="$ROLE"
 export EVE_LEASE_TOKEN="$TOKEN"
+
+# 5) COMPA-624 — hand the delegate the per-seat honcho MEMORY tool. --mcp-config is
+#    a FILE PATH (not a secret; the HONCHO_* values live inside the 0600 file, which
+#    holds only a passwordless-loopback dbUri/workspace/home). Export it under the
+#    adapter's MCP-config env var ONLY when the file is actually readable — an absent
+#    file (Honcho not provisioned/ready) is a silent no-op, so the delegate simply
+#    runs without a honcho tool. The env-var NAME is MAC-VERIFY-PENDING against the
+#    installed claude-agent-acp adapter (see CLAUDE_DELEGATE_MCP_CONFIG_ENV).
+if [ -n "$MCP_CONFIG" ] && [ -r "$MCP_CONFIG" ]; then
+  export CLAUDE_MCP_CONFIG="$MCP_CONFIG"
+fi
+
 exec "$@"

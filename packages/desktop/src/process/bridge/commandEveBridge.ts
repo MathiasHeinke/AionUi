@@ -82,6 +82,7 @@ import {
   COMMAND_EVE_ARTIFACT_MENU_SKILL_ID,
 } from '@process/commandEve/runtimeBootstrapCore';
 import { buildCommandEveStatusSurface } from '@process/commandEve/statusSurfaceCore';
+import { resolveHonchoRenderForSeat, type HonchoRenderInput } from '@process/commandEve/honchoRuntimeRenderCore';
 import { clearLicenseWire, hasLicenseWire, readLicenseWire, storeLicenseWire } from '@/common/config/licenseWireAtRest';
 import {
   buildEveInferenceProvider,
@@ -203,6 +204,22 @@ async function persistActiveSeatPointer(seatId: string): Promise<void> {
  * delegate directive — byte-identical to a seat with no assigned worker), and a
  * throw here is caught by the caller so it can never fail the switch.
  */
+/**
+ * COMPA-624 — the ACTIVE seat's honcho render input for the seat-switch launcher
+ * wiring (an active Claude delegate gets the same per-seat memory EVE has). Fail-soft
+ * to { ready:false } so a switch is never blocked by a Honcho resolution error.
+ */
+function resolveActiveSeatHonchoRenderForBridge(): HonchoRenderInput {
+  try {
+    const dataPath = getDataPath();
+    const seatId = getActiveSeatId();
+    const hermesVenv = resolveCommandEveRuntimeBootstrapPaths(dataPath, seatId).hermesVenv;
+    return resolveHonchoRenderForSeat({ userDataPath: dataPath, seatId, hermesVenv });
+  } catch {
+    return { ready: false };
+  }
+}
+
 async function resolveCommandEveWorkerRuntimeInputsForSwitch(): Promise<{
   /**
    * F7 (MEDIUM): FALSE when the settings read THREW (backend unreachable) — as
@@ -259,7 +276,7 @@ async function resolveCommandEveWorkerRuntimeInputsForSwitch(): Promise<{
         resolveAssignedClaudeDelegate(assignments, statuses),
         assignments,
         statuses,
-        { dataPath: getDataPath(), seatId: getActiveSeatId(), resourcesPath: process.resourcesPath, env: process.env }
+        { dataPath: getDataPath(), seatId: getActiveSeatId(), resourcesPath: process.resourcesPath, env: process.env, honcho: resolveActiveSeatHonchoRenderForBridge() }
       ),
       teamRoles: buildTeamDirectiveRoles(assignments, statuses),
     };
