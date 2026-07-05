@@ -52,3 +52,38 @@ fail-soft to a dead MCP server, gate the render on a live `/health` re-probe at 
 Until step 2's opt-in is set, `honchoMemoryOptIn` is absent ⇒ provisioning never runs ⇒ no
 readiness file ⇒ every seat is byte-identical to pre-Honcho. Shipping the consumption wiring in
 1.7.0 is therefore safe; the activation lights up only after this Mac run.
+
+---
+
+## Addendum (2026-07-05) — local-first toggle + shared delegate memory
+Founder direction: the deriver LLM may be cloud, BUT Honcho must ALSO run fully local with a
+local LLM, **toggle-switchable** — and the SAME per-seat memory must be reachable by the
+Claude/Codex **delegate** workers, not just EVE. Both threads are built + verified headless
+(byte-identical until Honcho is provisioned + ready). Extra Mac/wheel-verify items:
+
+### Deriver toggle (`commandEve.honchoDeriverMode`: auto | local | cloud)
+- Verify the deriver LLM env-var NAMES honcho-ai actually reads (`HONCHO_DERIVER_ENV_KEYS` in
+  honchoProvisioningRun.ts — currently the OpenAI-style guess `OPENAI_BASE_URL`/`OPENAI_API_KEY`).
+  The VALUES are FACT (local = `http://127.0.0.1:11434/v1` + gemma4:e4b; cloud = the loopback shim).
+- Confirm WHICH process runs the deriver worker (the `honcho serve` server vs `python -m honcho.mcp`
+  client) so the deriver env lands on the right process. Today it rides the serve PROCESS step.
+- `local` mode is a PRIVACY-LOCK: a cold model must never fall to cloud (verify the readiness probe
+  keeps it un-advertised, memory falls back to Company Brain, nothing egresses).
+
+### Shared delegate memory (Claude via the eve-acp-launcher)
+- Verify the env-var the installed `@agentclientprotocol/claude-agent-acp` adapter reads for an
+  external MCP config (`CLAUDE_DELEGATE_MCP_CONFIG_ENV` in eveWorkerLauncherCore.ts — currently
+  the guess `CLAUDE_MCP_CONFIG`). The launcher already exports the per-seat honcho json path there.
+- Prove a live delegated Claude worker calls `honcho` and reads/writes the SAME rows EVE wrote
+  (needs the provisioned honcho venv + local postgres running).
+- Measure RSS of a SECOND honcho client (the delegate's) alongside EVE's on the 8GB-Air ceiling.
+
+### Cloud-hostable memory (the "später" multi-device axis — DESIGN NOTE, not built)
+The current delegate/EVE honcho MCP env uses `HONCHO_DB_URI` (direct passwordless-loopback
+Postgres) — LOCAL-ONLY by design; it does NOT generalize to a cloud-hosted honcho (you never
+expose Postgres to the internet). For the browser/mobile future where Honcho is hosted in EVE's
+OWN cloud so the shared memory follows the user across devices/CLIs/inference, the access seam must
+become the honcho **HTTP base_url** (the honcho-ai client auto-skips the api-key on loopback; a
+cloud host adds a scoped key). That is an ADDITIVE axis (a `HONCHO_BASE_URL` alongside the local
+dbUri path), not a rewrite — the per-seat resolution + isolation already in place carry over. Build
+it when the cloud/mobile clients land, after the local path is Mac-verified.
