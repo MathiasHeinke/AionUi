@@ -45,12 +45,15 @@ import {
   type EveTeamDirectiveRole,
   type EveWorkerAssignmentMap,
 } from './common/config/eveWorkerAssignmentCore';
-import type { CommandEveEveCloudRoute } from './process/commandEve/ollamaOpenAiShim';
+import type { CommandEveEveCloudRoute, CommandEveHonchoDeriverRoute, CommandEveHonchoDeriverRouteResolver } from './process/commandEve/ollamaOpenAiShim';
 import { applyLauncherWiring } from './process/commandEve/eveWorkerLauncherCore';
 import { resolveDispatchAgentId } from './process/commandEve/eveAgentTaskRegistry';
 import { resolveTeamManageBearer, teamManageProposeHandler } from './process/commandEve/eveTeamManageMain';
 import { kanbanAcpProposeHandler, readKanbanAcpBoard, resolveKanbanAcpBearer, setKanbanAcpSeatSwitchResolver } from './process/commandEve/kanbanAcpMain';
 import { isCommandEveSeatSwitchInFlight } from './process/bridge/commandEveBridge';
+import { buildCommandEveShimHonchoDeriverRouteResolver } from './process/commandEve/honchoDeriverRouteCore';
+import { resolveHonchoHomeForSeat } from './process/commandEve/honchoRuntimeConfigCore';
+import { readHonchoReadyState } from './process/commandEve/honchoReadyStateFile';
 import { getActiveSeatId } from './process/commandEve/seatContextCore';
 import {
   readInferenceSelectionFromBackend,
@@ -447,6 +450,38 @@ function buildCommandEveShimRoutingResolver(): () => Promise<CommandEveEveCloudR
       console.warn('[Command EVE] EVE shim routing resolver failed; staying local:', error);
       return undefined;
     }
+  };
+}
+
+/**
+ * COMPA-624 Inc.3 / O3 — the shim `honchoDeriverRoute` resolver. Built ONCE and
+ * injected at EVERY shim start site (H-INT-1). It stays INERT (`{active:false}`,
+ * the shim's /honcho/deriver lane 503s) on every seat where Honcho is not
+ * provisioned — so a seat without a Honcho readiness file is byte-identical to
+ * before this lane existed (H-INT-3). Its per-seat readiness is read through the
+ * SAME `resolveHonchoHomeForSeat` the writer uses (H-INT-2, drift-proof by
+ * construction), and the CEVE license is read FRESH per call (header-only, never a
+ * body/log). The resolver core is fully fail-closed (buildCommandEveShimHoncho…).
+ */
+function buildCommandEveShimHonchoDeriverRoute(): CommandEveHonchoDeriverRouteResolver {
+  const resolve = buildCommandEveShimHonchoDeriverRouteResolver({
+    functionUrl: EVE_INFERENCE_FUNCTION_URL,
+    readLicenseWire: () => {
+      const wireResult = readLicenseWire(getDataPath());
+      return wireResult.ok ? wireResult.wire : '';
+    },
+    getActiveSeatId,
+    readHonchoSeatReady: (seatId: string) => {
+      const honchoHome = resolveHonchoHomeForSeat(getDataPath(), seatId);
+      return honchoHome ? readHonchoReadyState(honchoHome) : undefined;
+    },
+    onError: (error: unknown) => console.warn('[Command EVE] Honcho deriver route resolver error (staying inert):', error),
+  });
+  // Normalize to the shim's route shape (active is a guaranteed boolean; the core
+  // always sets it, but its result type keeps it optional). Fail-closed to inert.
+  return (): CommandEveHonchoDeriverRoute => {
+    const r = resolve();
+    return { active: r.active === true, functionUrl: r.functionUrl, license: r.license };
   };
 }
 
@@ -920,6 +955,7 @@ function registerCommandEveRuntimeBridge(): void {
           teamManagePropose: teamManageProposeHandler,
           // COMPA-626 kanban-ACP: bearer-gated propose + read-only board digest (inert on
           // a client seat — resolveKanbanAcpBearer returns "" there).
+          honchoDeriverRoute: buildCommandEveShimHonchoDeriverRoute(),
           kanbanAcpBearer: resolveKanbanAcpBearer,
           kanbanAcpPropose: kanbanAcpProposeHandler,
           kanbanAcpRead: readKanbanAcpBoard,
@@ -994,6 +1030,7 @@ function registerCommandEveRuntimeBridge(): void {
           teamManagePropose: teamManageProposeHandler,
           // COMPA-626 kanban-ACP: bearer-gated propose + read-only board digest (inert on
           // a client seat — resolveKanbanAcpBearer returns "" there).
+          honchoDeriverRoute: buildCommandEveShimHonchoDeriverRoute(),
           kanbanAcpBearer: resolveKanbanAcpBearer,
           kanbanAcpPropose: kanbanAcpProposeHandler,
           kanbanAcpRead: readKanbanAcpBoard,
@@ -1463,6 +1500,7 @@ const handleAppReady = async (): Promise<void> => {
       teamManagePropose: teamManageProposeHandler,
       // COMPA-626 kanban-ACP (the cold-boot shim start — this is the normal path, so it
       // MUST inject the kanban handlers or EVE's routes 404 despite the SOUL clause).
+      honchoDeriverRoute: buildCommandEveShimHonchoDeriverRoute(),
       kanbanAcpBearer: resolveKanbanAcpBearer,
       kanbanAcpPropose: kanbanAcpProposeHandler,
       kanbanAcpRead: readKanbanAcpBoard,

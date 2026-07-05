@@ -63,7 +63,7 @@
 
 import path from 'path';
 import crypto from 'crypto';
-import { assertSeatId, isLegacySeatId, LEGACY_SEAT_ID, type SeatHomePaths } from './seatContextCore';
+import { assertSeatId, isLegacySeatId, LEGACY_SEAT_ID, resolveSeatHome, type SeatHomePaths } from './seatContextCore';
 
 // ---------------------------------------------------------------------------
 // Constants (local to this module — do NOT import any edge-function URL here;
@@ -360,4 +360,26 @@ export function buildHonchoRuntimeConfig(input: HonchoRuntimeConfigInput): Honch
     deriver,
     ready,
   };
+}
+
+/**
+ * The ONE per-seat honchoHome resolver (COMPA-624 Inc.3, H-INT-2). BOTH the
+ * writer (runtimeBootstrapCore → runHonchoBootstrap/writeHonchoReadyState) and the
+ * reader (index.ts shim `readHonchoSeatReady` → readHonchoReadyState) MUST resolve
+ * a seat's honchoHome through THIS function so the readiness file the writer writes
+ * is byte-for-byte the file the reader reads. A divergence here = a permanently-inert
+ * deriver lane (a silent dead feature), which is exactly the drift H-INT-2 forbids —
+ * so there is a single source of truth for the path, not two derivations.
+ *
+ * Fail-soft: an unsafe/mismatched seat id (which buildHonchoRuntimeConfig throws on)
+ * or any resolution error yields `undefined` — the caller then treats the seat as
+ * not-provisioned (fail-closed), never crashing the shim/bootstrap.
+ */
+export function resolveHonchoHomeForSeat(userDataPath: string, seatId?: string | null): string | undefined {
+  try {
+    const seatHome = resolveSeatHome(userDataPath, seatId);
+    return buildHonchoRuntimeConfig({ seatId: seatId ?? undefined, seatHome }).honchoHome;
+  } catch {
+    return undefined;
+  }
 }
