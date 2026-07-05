@@ -24,6 +24,8 @@ import {
 } from './seatContextCore';
 import { provisionTeamManageBearerFile } from './eveTeamManageMain';
 import { provisionKanbanAcpBearerFile } from './kanbanAcpMain';
+import { honchoMcpServerForSeat } from './honchoMcpServerCore';
+import { eveHonchoMemoryDirective, resolveHonchoRenderForSeat, type HonchoRenderInput } from './honchoRuntimeRenderCore';
 import { claudeDelegatePreflightWarning } from '../../common/config/eveWorkerAssignmentCore';
 import { COMPANY_BRAIN_DIR, readCompanyBrainSeedStateFromHome } from './companyBrainSeedCore';
 import { countFilledBlueprintSections, ensureBrainBlueprint, ensureCompanyBrainReady, migrateCompanyBrainFromHome, readBrainIndex } from './companyBrainStoreCore';
@@ -3140,7 +3142,11 @@ function writeHermesRuntimeFiles(
   // for the GATE-NULL flip. Behind COMMAND_EVE_MCP_VAULT_ENABLED (default false),
   // so with the default `{}` (or the flag off) the feeder returns [] and the
   // emitted config.yaml stays byte-identical (`mcp_servers: {}`).
-  mcpVaultDeps: ResolveVettedMcpServersDeps = {}
+  mcpVaultDeps: ResolveVettedMcpServersDeps = {},
+  // COMPA-624 Inc.3 — the per-seat Honcho render input (resolveHonchoRenderForSeat),
+  // computed by BOTH cadence callers with the TARGET seatId. Default not-ready ⇒
+  // NOTHING Honcho is emitted and config.yaml + SOUL stay byte-identical to today.
+  honcho: HonchoRenderInput = { ready: false }
 ): string[] {
   ensureDir(paths.hermesHome);
   const { executableSkillIds, bundledSkillFailures } = writeCommandEveManagedSkills(
@@ -3164,6 +3170,11 @@ function writeHermesRuntimeFiles(
   // Vetted external MCP connectors (HumanGate-approved, vault-backed) — empty today;
   // v1.4 populates this via resolveVettedMcpServersForBootstrap. See WO write-slice.
   const vettedMcpServers = resolveVettedMcpServersForBootstrap(capabilityPack, getActiveSeatId(), mcpVaultDeps);
+  // COMPA-624 Inc.3 — the per-seat Honcho MCP server, or undefined when Honcho is
+  // not fresh-ready / has no venv launcher (the builder is fully fail-safe). When
+  // present it is prepended to the vetted set for THIS seat (the render input was
+  // resolved with the target seatId, so no active-seat drift).
+  const honchoMcpServer = honchoMcpServerForSeat(honcho.cfg, honcho.ready, honcho.launcher);
   // T4 YOU-ARE-HERE: build the environment_hint from PROCESS-LOCAL seat context for
   // THIS seat's home (paths.hermesHome already resolves to the active/target seat).
   // All sources are process-local (no network, no env) so the emitted file — which
@@ -3277,7 +3288,7 @@ function writeHermesRuntimeFiles(
     // boundary intact rather than force-wiring credentials at first run.
     // Connector emitter (v1.1.0 line): render the vetted EXTERNAL MCP servers
     // (catalog + guided preflight / HumanGate) instead of a hardcoded empty map.
-    ...renderHermesMcpServersYaml(vettedMcpServers),
+    ...renderHermesMcpServersYaml(honchoMcpServer ? [honchoMcpServer, ...vettedMcpServers] : vettedMcpServers),
     // The remember + self-optimize halves of the soul. Both default OFF in code
     // (FACT agent/agent_init.py:1076-1077 memory_enabled/user_profile_enabled
     // default False) so they MUST be emitted explicitly or MEMORY.md/USER.md
@@ -3388,7 +3399,11 @@ function writeHermesRuntimeFiles(
       // v1.6 Slice 2: the handover-note ritual (start surface renders only her
       // real left-behind words) + the first-brief mirror posture (Beat 1).
       eveHandoverNoteDirective(path.join(paths.hermesHome, COMPANY_BRAIN_DIR)) +
-      eveFirstBriefMirrorDirective(),
+      eveFirstBriefMirrorDirective() +
+      // COMPA-624 Inc.3 / O5 — only when Honcho is fresh-ready ('' otherwise, so SOUL
+      // is byte-identical on every un-provisioned seat; EVE never claims a memory she
+      // does not have).
+      eveHonchoMemoryDirective(honcho.ready),
     { mode: 0o600 }
   );
   writeHermesOllamaProviderOverride(paths);
@@ -3807,7 +3822,10 @@ export function provisionSeatRuntimeFiles(
           env,
           companyOsRoot: compact(env.COMMAND_EVE_COMPANY_OS_ROOT) || undefined,
         }),
-      }
+      },
+      // COMPA-624 Inc.3 — the Honcho render input for the TARGET seat (seatId,
+      // resolved above). Same seat as `paths`, so no active-seat drift on switch.
+      resolveHonchoRenderForSeat({ userDataPath: paths.userDataPath, seatId, hermesVenv: paths.hermesVenv })
     );
 
     return {
@@ -4193,7 +4211,11 @@ export async function ensureCommandEveRuntimeBootstrap(
       userDataPath: paths.userDataPath,
       configRoot: paths.hermesRoot,
       mcpInvocationFor: buildMcpInvocationResolver({ env, companyOsRoot: compact(env.COMMAND_EVE_COMPANY_OS_ROOT) || undefined }),
-    }
+    },
+    // COMPA-624 Inc.3 — the Honcho render input for the BOOT (legacy/founder) seat.
+    // Reads the seat's readiness snapshot; not-ready (no provisioning yet) ⇒ nothing
+    // Honcho is emitted (byte-identical). Same-seat: paths was resolved with no seatId.
+    resolveHonchoRenderForSeat({ userDataPath: paths.userDataPath, seatId: undefined, hermesVenv: paths.hermesVenv })
   );
   if (bundledSkillFailures.length) {
     // VISIBLE preflight break (founder-self-detection): a skip-status stage with a

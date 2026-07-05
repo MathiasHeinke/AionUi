@@ -51,19 +51,22 @@ With NO readiness file present, the injected resolver returns `{ active: false }
 *Test:* resolver returns `{active:false}` when `readHonchoSeatReady` yields undefined; existing
 deriver-lane test proves 503 when inactive.
 
-### H-INT-4 — memory.provider render is readiness-gated
-`config.yaml` emits `memory.provider: honcho` (+ the honcho.json pointer) ONLY when that seat's
-readiness snapshot is `ready`. Not-ready / absent ⇒ the memory block is omitted and the file is
-byte-identical to today.
-*Test:* render the seat config with readiness=ready → contains the honcho memory block; with
-readiness undefined/off → byte-identical to the pre-Honcho render (golden compare).
+### H-INT-4 — Honcho MCP-server render is readiness-gated
+CORRECTED (the built cores use an MCP-SERVER integration, NOT a `memory.provider: honcho` +
+`honcho.json` client config — that was a superseded wheel assumption). `config.yaml`'s
+`mcp_servers` gains the `honchoMcpServerForSeat(cfg, ready, launcher)` entry ONLY when the seat's
+readiness snapshot is fresh-`ready` AND a venv launcher command resolves. Not-ready / absent /
+no-launcher ⇒ nothing is emitted and the file is byte-identical to today.
+*Test:* render with readiness=ready + a launcher → mcp_servers contains the honcho entry; with
+readiness undefined/off OR no launcher → byte-identical to the pre-Honcho render (golden compare).
 
-### H-INT-5 — honcho.json is per-seat + loopback + no secret
-The written `$HERMES_HOME/honcho.json` carries baseUrl = the loopback shim/local base (so the
-honcho client auto-skips the API key), workspace = `ws_<seatId>` (opaque, never the human label),
-and contains NO license/secret literal. Mode 0600.
-*Test:* render honcho.json for a real seat → assert workspace id shape, loopback baseUrl, absence
-of any secret, and that two different seat ids produce different workspace ids.
+### H-INT-5 — the honcho MCP env is per-seat + loopback + no secret
+The emitted honcho MCP server env carries ONLY `HONCHO_DB_URI` (a passwordless loopback
+`postgresql://…` — peer/socket auth), `HONCHO_WORKSPACE_ID` (`ws_<seatId>`, opaque), and
+`HONCHO_HOME`. NO license/password/secret literal; a non-loopback or userinfo-bearing dbUri is
+refused (honchoMcpServerForSeat returns undefined).
+*Test:* the honchoMcpServerCore suite already asserts this; add a render-level test that two seats
+get disjoint workspace ids + dbUris and neither carries a secret.
 
 ### H-INT-6 — O1 bootstrap spliced with real runner/spawner, never throws into boot
 `runHonchoBootstrap` is called from the per-seat bootstrap entry with the in-scope
