@@ -17,6 +17,7 @@ import {
   findRawKanbanLeaks,
   KANBAN_WHEEL_WRITE_TOOLS,
   KANBAN_WHEEL_TOOLSET_KEY,
+  KANBAN_LEAK_SCAN_TRUNCATED,
 } from '@/process/commandEve/kanbanAcpToolsetGateCore';
 
 describe('kanban-acp gate — default-deny visibility', () => {
@@ -119,6 +120,31 @@ describe('kanban-acp gate — hardening (Codex re-audit holes)', () => {
     const huge = new Array(1_000_000).fill(0);
     huge[3] = 'kanban_create';
     expect(findRawKanbanLeaks(huge)).toContain('kanban_create');
+  });
+
+  it('a scan that exhausts the node budget fails CLOSED (truncation sentinel, never silently clean)', () => {
+    const huge = new Array(1_000_000).fill('x'); // all benign but far past the budget
+    const leaks = findRawKanbanLeaks(huge);
+    expect(leaks).toContain(KANBAN_LEAK_SCAN_TRUNCATED);
+    expect(leaks.length).toBeGreaterThan(0); // NOT reported as clean
+  });
+
+  it('never throws on a hostile top-level Proxy length trap — returns the sentinel', () => {
+    const evil = new Proxy([], {
+      get(_t, prop) {
+        if (prop === 'length') throw new Error('boom');
+        return undefined;
+      },
+    });
+    let result: string[] = [];
+    expect(() => {
+      result = findRawKanbanLeaks(evil);
+    }).not.toThrow();
+    expect(result).toContain(KANBAN_LEAK_SCAN_TRUNCATED);
+  });
+
+  it('the exported marker constants are frozen (cannot be poisoned at runtime)', () => {
+    expect(Object.isFrozen(KANBAN_WHEEL_WRITE_TOOLS)).toBe(true);
   });
 });
 

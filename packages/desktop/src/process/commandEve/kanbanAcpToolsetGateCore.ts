@@ -34,19 +34,23 @@ export type KanbanAcpTool =
 
 /** The raw wheel kanban tools. The reads are safe to mirror; the writes must NEVER be
  * exposed directly to the ACP agent (they mutate kanban.db in-process, un-gated). */
-export const KANBAN_WHEEL_READ_TOOLS: readonly string[] = ['kanban_show', 'kanban_list'];
-export const KANBAN_WHEEL_WRITE_TOOLS: readonly string[] = ['kanban_create', 'kanban_complete', 'kanban_block', 'kanban_unblock', 'kanban_comment', 'kanban_link', 'kanban_heartbeat'];
+export const KANBAN_WHEEL_READ_TOOLS: readonly string[] = Object.freeze(['kanban_show', 'kanban_list']);
+export const KANBAN_WHEEL_WRITE_TOOLS: readonly string[] = Object.freeze(['kanban_create', 'kanban_complete', 'kanban_block', 'kanban_unblock', 'kanban_comment', 'kanban_link', 'kanban_heartbeat']);
 
 /** The raw wheel TOOLSET key that must never appear in the ACP agent's platform toolsets. */
 export const KANBAN_WHEEL_TOOLSET_KEY = 'kanban';
 
+/** Sentinel leak: the scan could not complete (pathological/hostile input hit the node
+ * budget or threw). Reported so an incomplete scan is NEVER mistaken for "clean". */
+export const KANBAN_LEAK_SCAN_TRUNCATED = '__kanban_scan_truncated__';
+
 /** Config markers that would turn on autonomous dispatch / worker-spawn — must stay off.
  * Matched as case-insensitive SUBSTRINGS (so `HERMES_KANBAN_TASK`, `kanban.dispatch_in_gateway`,
  * a bare `dispatch_in_gateway`, `kanban.auto_decompose`, a bare `auto_decompose`, etc. all hit). */
-export const KANBAN_FORBIDDEN_DISPATCH_MARKERS: readonly string[] = ['kanban_task', 'dispatch_in_gateway', 'kanban_swarm', 'kanban_decompose', 'auto_decompose'];
+export const KANBAN_FORBIDDEN_DISPATCH_MARKERS: readonly string[] = Object.freeze(['kanban_task', 'dispatch_in_gateway', 'kanban_swarm', 'kanban_decompose', 'auto_decompose']);
 
-export const KANBAN_ACP_READ_TOOLS: readonly KanbanAcpTool[] = ['kanban.board.read'];
-export const KANBAN_ACP_WRITE_TOOLS: readonly KanbanAcpTool[] = ['kanban.card.create.plan', 'kanban.card.move.plan', 'kanban.card.action.plan', 'kanban.write.confirm'];
+export const KANBAN_ACP_READ_TOOLS: readonly KanbanAcpTool[] = Object.freeze(['kanban.board.read']);
+export const KANBAN_ACP_WRITE_TOOLS: readonly KanbanAcpTool[] = Object.freeze(['kanban.card.create.plan', 'kanban.card.move.plan', 'kanban.card.action.plan', 'kanban.write.confirm']);
 
 /** The fixed policy — these bits are structural, never negotiable per call. */
 export interface KanbanAcpGatePolicy {
@@ -115,20 +119,37 @@ export function resolveKanbanAcpToolsetGate(input: KanbanAcpGateInput): KanbanAc
  * a shared NODE budget (so a huge sparse array / huge object can not burn time), and each
  * element/key is read in its OWN try/catch so ONE throwing getter can not hide the
  * siblings after it (Codex re-audit). `budget.n` is decremented per node visited. */
-function collectStringLeaves(value: unknown, out: string[], depth: number, budget: { n: number }): void {
-  if (depth > 6 || out.length > 4096 || budget.n <= 0) return;
+function collectStringLeaves(value: unknown, out: string[], depth: number, budget: { n: number; exhausted: boolean }): void {
+  if (depth > 6) return;
+  // The node budget is the SINGLE bound — it decrements once per node, so `out` can
+  // never exceed the initial budget, and an exhausted budget is flagged (never a silent
+  // truncation that reads as clean).
+  if (budget.n <= 0) {
+    budget.exhausted = true;
+    return;
+  }
   budget.n -= 1;
   if (typeof value === 'string') {
     out.push(value);
     return;
   }
   if (Array.isArray(value)) {
-    for (let i = 0; i < value.length; i += 1) {
-      if (budget.n <= 0 || out.length > 4096) return;
+    let len = 0;
+    try {
+      len = value.length; // a Proxy length trap could throw — unscannable ⇒ fail-closed
+    } catch {
+      budget.exhausted = true;
+      return;
+    }
+    for (let i = 0; i < len; i += 1) {
+      if (budget.n <= 0) {
+        budget.exhausted = true;
+        return;
+      }
       try {
         collectStringLeaves(value[i], out, depth + 1, budget);
       } catch {
-        /* a throwing element getter — skip THIS element, keep scanning siblings */
+        budget.exhausted = true; // throwing element getter — skip it, keep siblings, flag incomplete
       }
     }
     return;
@@ -138,20 +159,25 @@ function collectStringLeaves(value: unknown, out: string[], depth: number, budge
     try {
       keys = Object.keys(value);
     } catch {
+      budget.exhausted = true;
       return;
     }
     for (const k of keys) {
-      if (budget.n <= 0 || out.length > 4096) return;
+      if (budget.n <= 0) {
+        budget.exhausted = true;
+        return;
+      }
       let child: unknown;
       try {
         child = (value as Record<string, unknown>)[k];
       } catch {
-        continue; // hostile getter on THIS key — keep scanning the other keys
+        budget.exhausted = true; // hostile getter on THIS key — keep scanning others, flag incomplete
+        continue;
       }
       try {
         collectStringLeaves(child, out, depth + 1, budget);
       } catch {
-        /* skip */
+        budget.exhausted = true;
       }
     }
   }
@@ -164,19 +190,34 @@ function collectStringLeaves(value: unknown, out: string[], depth: number, budge
  * write tools + dispatch, bypassing the Confirm-Card. Scans recursively (arrays + object
  * values), case-insensitively; exact match for the toolset key + write tools (so
  * `kanban.board.read` is NOT flagged) and SUBSTRING match for the dispatch markers.
- * Returns the offending original strings (empty = clean). Never throws.
+ * Returns the offending original strings (empty = clean).
+ *
+ * THREAT MODEL: the input is the desktop's OWN emitted ACP platform-toolset list — a
+ * small array of short strings — so this guards a config REGRESSION (did the render
+ * accidentally include a kanban write/dispatch entry?), not adversarial input. Even so
+ * it is hardened to never throw and to fail-CLOSED: a pathological input that exhausts
+ * the node budget or throws is reported as a KANBAN_LEAK_SCAN_TRUNCATED sentinel (a
+ * non-empty result ⇒ "not clean"), never a silent empty/clean.
  */
 export function findRawKanbanLeaks(acpPlatformToolsets: unknown): string[] {
-  const strings: string[] = [];
-  collectStringLeaves(acpPlatformToolsets, strings, 0, { n: 5000 });
-  const exactBlocked = new Set<string>([KANBAN_WHEEL_TOOLSET_KEY, ...KANBAN_WHEEL_WRITE_TOOLS].map((s) => s.toLowerCase()));
-  const leaks: string[] = [];
-  for (const raw of strings) {
-    const s = raw.trim().toLowerCase();
-    if (!s) continue;
-    if (exactBlocked.has(s) || KANBAN_FORBIDDEN_DISPATCH_MARKERS.some((m) => s.indexOf(m) >= 0)) {
-      leaks.push(raw.trim());
+  try {
+    const strings: string[] = [];
+    const budget = { n: 20000, exhausted: false };
+    collectStringLeaves(acpPlatformToolsets, strings, 0, budget);
+    const exactBlocked = new Set<string>([KANBAN_WHEEL_TOOLSET_KEY, ...KANBAN_WHEEL_WRITE_TOOLS].map((s) => s.toLowerCase()));
+    const leaks: string[] = [];
+    // Fail-closed: an incomplete scan must never read as clean.
+    if (budget.exhausted) leaks.push(KANBAN_LEAK_SCAN_TRUNCATED);
+    for (const raw of strings) {
+      const s = raw.trim().toLowerCase();
+      if (!s) continue;
+      if (exactBlocked.has(s) || KANBAN_FORBIDDEN_DISPATCH_MARKERS.some((m) => s.indexOf(m) >= 0)) {
+        leaks.push(raw.trim());
+      }
     }
+    return leaks;
+  } catch {
+    // A hostile top-level value (e.g. a Proxy length trap) is itself a not-clean signal.
+    return [KANBAN_LEAK_SCAN_TRUNCATED];
   }
-  return leaks;
 }
