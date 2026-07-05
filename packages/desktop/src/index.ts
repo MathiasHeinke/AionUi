@@ -49,7 +49,8 @@ import type { CommandEveEveCloudRoute } from './process/commandEve/ollamaOpenAiS
 import { applyLauncherWiring } from './process/commandEve/eveWorkerLauncherCore';
 import { resolveDispatchAgentId } from './process/commandEve/eveAgentTaskRegistry';
 import { resolveTeamManageBearer, teamManageProposeHandler } from './process/commandEve/eveTeamManageMain';
-import { kanbanAcpProposeHandler, readKanbanAcpBoard, resolveKanbanAcpBearer } from './process/commandEve/kanbanAcpMain';
+import { kanbanAcpProposeHandler, readKanbanAcpBoard, resolveKanbanAcpBearer, setKanbanAcpSeatSwitchResolver } from './process/commandEve/kanbanAcpMain';
+import { isCommandEveSeatSwitchInFlight } from './process/bridge/commandEveBridge';
 import { getActiveSeatId } from './process/commandEve/seatContextCore';
 import {
   readInferenceSelectionFromBackend,
@@ -1915,6 +1916,11 @@ app.on('open-url', (event, url) => {
 
 // 监听 GPU 子进程崩溃，连续多次后下次启动自动关闭硬件加速（参见 ELECTRON-9A / ELECTRON-9D）。
 installGpuCrashHandler();
+
+// COMPA-626 auto-approve fence: inject the seat-switch resolver so the kanban-ACP
+// write path (BOTH the confirm-IPC and the auto-approve shim path) refuses a write
+// mid seat-switch. Injected (not dynamic-imported) so there is no fail-open window.
+setKanbanAcpSeatSwitchResolver(isCommandEveSeatSwitchInFlight);
 
 // Ensure we don't miss the ready event when running in CLI/WebUI mode
 void app

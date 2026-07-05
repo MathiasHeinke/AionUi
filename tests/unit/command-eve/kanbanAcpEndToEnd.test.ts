@@ -35,7 +35,7 @@ vi.mock('@process/commandEve/commandEveBackendSettingsRead', () => ({
 
 // Imported AFTER the mock so the handlers capture the mocked getDataPath.
 import { __resetActiveSeatForTests, getActiveSeatKind, setActiveSeatKind } from '@/process/commandEve/seatContextCore';
-import { applyKanbanAcpIntent, kanbanAcpProposeHandler, peekKanbanAcpForRenderer, readKanbanAcpBoard } from '@/process/commandEve/kanbanAcpMain';
+import { applyKanbanAcpIntent, kanbanAcpProposeHandler, peekKanbanAcpForRenderer, readKanbanAcpBoard, setKanbanAcpSeatSwitchResolver } from '@/process/commandEve/kanbanAcpMain';
 import { __resetKanbanAcpForTest } from '@/process/commandEve/kanbanAcpConfirmStore';
 
 const marketingBoardPath = (root: string): string => path.join(root, 'command-eve-runtime', 'hermes', 'home', 'kanban', 'boards', 'marketing', 'kanban.db');
@@ -96,10 +96,12 @@ beforeEach(() => {
   setActiveSeatKind('own_company'); // an OPERATOR seat — the surface is operator-only
   __resetKanbanAcpForTest();
   AUTO_APPROVE = false; // default: the confirm-card gate
+  setKanbanAcpSeatSwitchResolver(() => false); // no seat switch in flight by default
 });
 afterEach(() => {
   for (const r of tempRoots) fs.rmSync(r, { recursive: true, force: true });
   tempRoots.length = 0;
+  setKanbanAcpSeatSwitchResolver(() => false);
   vi.clearAllMocks();
 });
 
@@ -169,5 +171,26 @@ describe('COMPA-626 K12 — real propose → confirm → kanban.db write', () =>
     // rejected (never applied), and a non-marketing move is refused (K16).
     const bad = await kanbanAcpProposeHandler({ op: 'move', task_id: 'not_a_real_card', to_lane_key: 'draft', reason: 'x' });
     expect(bad.status).not.toBe(200); // move to a non-existent card does not silently apply
+  });
+
+  it('DURING a seat switch, a propose is refused (503) and stores NO pending intent (Codex fence hole #2)', async () => {
+    setKanbanAcpSeatSwitchResolver(() => true);
+    const res = await kanbanAcpProposeHandler({ op: 'create', title: 'Mid-Switch Karte', reason: 'race' });
+    expect(res.status).toBe(503);
+    expect((res.payload as { reason?: string }).reason).toBe('seat-switch-in-flight');
+    // No intent lingers as a confirmable card once the switch settles.
+    expect(peekKanbanAcpForRenderer()).toBeNull();
+    // And nothing was written to the DB.
+    expect(readKanbanAcpBoard().cards.length).toBe(0);
+  });
+
+  it('AUTO-APPROVE cannot bypass the seat-switch fence — a mid-switch propose writes nothing (Codex fence hole #1)', async () => {
+    AUTO_APPROVE = true;
+    setKanbanAcpSeatSwitchResolver(() => true);
+    const res = await kanbanAcpProposeHandler({ op: 'create', title: 'Auto Mid-Switch', reason: 'race' });
+    // The fence refuses BEFORE the auto-apply path — no 200/'applied'.
+    expect(res.status).toBe(503);
+    expect(readKanbanAcpBoard().cards.length).toBe(0);
+    expect(peekKanbanAcpForRenderer()).toBeNull();
   });
 });

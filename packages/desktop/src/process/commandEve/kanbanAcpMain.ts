@@ -39,6 +39,14 @@ export const KANBAN_ACP_BOARD_SLUG = 'marketing';
  * false (the confirm-card gate stays the default). */
 export const KANBAN_ACP_AUTO_APPROVE_KEY = 'commandEve.kanbanAutoApprove';
 
+/** The seat-switch write fence, INJECTED at boot (index.ts) from the bridge's real
+ * commandEveSwitchSeatInFlight state. Default false, but index.ts always wires the real
+ * one — so there is no dynamic-import fail-open window (Codex re-audit). */
+let seatSwitchInFlight: () => boolean = () => false;
+export function setKanbanAcpSeatSwitchResolver(fn: () => boolean): void {
+  if (typeof fn === 'function') seatSwitchInFlight = fn;
+}
+
 /** Read the operator's kanban auto-approve preference (fail-safe → false = keep the gate). */
 async function resolveKanbanAutoApprove(): Promise<boolean> {
   try {
@@ -179,6 +187,12 @@ export async function kanbanAcpProposeHandler(proposal: unknown): Promise<{ stat
   }
   const seatId = getActiveSeatId();
   const now = Date.now();
+  // Codex re-audit: refuse a proposal DURING a seat switch BEFORE storing any intent —
+  // otherwise a proposal accepted mid-switch would linger as a confirmable card on the
+  // wrong seat (and the auto-approve path would race the DB resolution).
+  if (seatSwitchInFlight()) {
+    return { status: 503, payload: { ok: false, status: 'unavailable', reason: 'seat-switch-in-flight' } };
+  }
   const res = buildKanbanProposeResponse(proposal, {
     visible: resolveVisible(),
     boardSlug: KANBAN_ACP_BOARD_SLUG,
@@ -271,18 +285,13 @@ export async function applyKanbanAcpIntent(intent_id: string, mutationHash: stri
     writeReceipt({ event: 'apply-refused', intent_id, seat_id: seatId, reason: 'client-seat', ts: now });
     return { ok: false, reason: 'client-seat' };
   }
-  // K15 (Codex auto-approve re-audit): the confirm IPC guards a seat-switch with the
-  // bridge fence, but the AUTO-APPROVE path applies straight from the shim propose
-  // handler and would bypass it — a write mid-switch could resolve the DB against the
-  // wrong seat. Consult the same fence here so BOTH paths refuse during a switch.
-  try {
-    const { isCommandEveSeatSwitchInFlight } = await import('../bridge/commandEveBridge');
-    if (isCommandEveSeatSwitchInFlight()) {
-      writeReceipt({ event: 'apply-refused', intent_id, seat_id: seatId, reason: 'seat-switch-in-flight', ts: now });
-      return { ok: false, reason: 'seat-switch-in-flight' };
-    }
-  } catch {
-    /* if the fence getter is unavailable the bridge IPC still guards the confirm path */
+  // K15 (Codex re-audit): the AUTO-APPROVE path applies straight from the shim propose
+  // handler and would bypass the bridge confirm IPC's fence — a write mid-switch could
+  // resolve the DB against the wrong seat. The fence resolver is INJECTED at boot (no
+  // dynamic-import fail-open), so BOTH paths refuse during a switch.
+  if (seatSwitchInFlight()) {
+    writeReceipt({ event: 'apply-refused', intent_id, seat_id: seatId, reason: 'seat-switch-in-flight', ts: now });
+    return { ok: false, reason: 'seat-switch-in-flight' };
   }
   const consumed = consumeKanbanIntent(intent_id, seatId, mutationHash, now);
   if (!consumed.ok) {
