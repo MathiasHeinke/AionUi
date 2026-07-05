@@ -34,11 +34,21 @@ const KANBAN_FORBIDDEN_KEYS: readonly string[] = ['delete', 'dispatch', 'spawn',
 
 export const KANBAN_ACP_DEFAULT_TTL_MS = 5 * 60 * 1000;
 
+/** The sanitized, op-specific fields the apply path feeds to the real kanban write. */
+export interface KanbanAcpPayload {
+  title?: string; // create
+  lane?: string; // create (optional starting lane)
+  task_id?: string; // move / action
+  to_lane_key?: string; // move
+  comment?: string; // action
+}
+
 export interface KanbanAcpIntent {
   readonly intent_id: string;
   readonly board_slug: string;
   readonly op: string; // 'create' | 'move' | 'action'
   readonly action: string; // '' for create/move; the sub-action for 'action'
+  readonly payload: KanbanAcpPayload; // the sanitized fields apply executes
   readonly summary: string;
   readonly reason: string;
   readonly seat_id: string;
@@ -48,13 +58,14 @@ export interface KanbanAcpIntent {
   readonly expires_ms: number;
 }
 
-export type KanbanAcpRejectCode = 'bad-schema' | 'not-visible' | 'unknown-op' | 'unknown-action' | 'scope-violation' | 'no-board';
+export type KanbanAcpRejectCode = 'bad-schema' | 'not-visible' | 'unknown-op' | 'unknown-action' | 'scope-violation' | 'no-board' | 'missing-field';
 
 export interface KanbanProposalValidation {
   ok: boolean;
   op?: string;
   action?: string;
   board_slug?: string;
+  payload?: KanbanAcpPayload;
   summary?: string;
   reason?: string;
   mutation_hash?: string;
@@ -122,9 +133,33 @@ export function validateKanbanProposal(payload: unknown, ctx: { visible: boolean
       return { ok: false, reject_code: 'unknown-action', message: `Unbekannte Karten-Aktion: "${String(action)}".` };
     }
   }
+
+  // Extract + sanitize the op-specific fields the apply path executes. EVE may name the
+  // card as `task_id` or `card`, and the target lane as `to_lane_key` or `to`.
+  const str = (v: unknown, cap: number): string => (typeof v === 'string' ? v.trim().slice(0, cap) : '');
+  const fields: KanbanAcpPayload = {};
+  if (op === 'create') {
+    fields.title = str(p.title ?? p.card, 200);
+    if (!fields.title) return { ok: false, reject_code: 'missing-field', message: 'Für eine neue Karte fehlt der Titel.' };
+    const lane = str(p.lane ?? p.to ?? p.to_lane_key, 60);
+    if (lane) fields.lane = lane;
+  } else if (op === 'move') {
+    fields.task_id = str(p.task_id ?? p.card, 120);
+    fields.to_lane_key = str(p.to_lane_key ?? p.to, 60);
+    if (!fields.task_id || !fields.to_lane_key) return { ok: false, reject_code: 'missing-field', message: 'Zum Verschieben fehlt die Karte oder die Ziel-Spalte.' };
+  } else {
+    // action
+    fields.task_id = str(p.task_id ?? p.card, 120);
+    if (!fields.task_id) return { ok: false, reject_code: 'missing-field', message: 'Für die Karten-Aktion fehlt die Karte.' };
+    const comment = str(p.comment, 1000);
+    if (comment) fields.comment = comment;
+  }
+
   const reason = typeof p.reason === 'string' ? p.reason.slice(0, 500) : '';
   const summary = describeKanbanProposal(op, action, p);
-  return { ok: true, op, action, board_slug: board, summary, reason, mutation_hash: kanbanMutationHash(op, action, board, p) };
+  // The hash covers the op/action/board AND the sanitized fields, so the confirm can
+  // only apply the exact change that was proposed.
+  return { ok: true, op, action, board_slug: board, payload: fields, summary, reason, mutation_hash: kanbanMutationHash(op, action, board, { ...fields }) };
 }
 
 /** Human-readable German summary for the confirm card. Pure. */
@@ -155,6 +190,7 @@ export function createKanbanIntent(v: KanbanProposalValidation, seat_id: string,
     board_slug: v.board_slug || '',
     op: v.op || '',
     action: v.action || '',
+    payload: v.payload || {},
     summary: v.summary || '',
     reason: v.reason || '',
     seat_id: typeof seat_id === 'string' ? seat_id.trim() || 'seat-1' : 'seat-1',
