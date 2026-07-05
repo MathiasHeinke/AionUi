@@ -115,3 +115,18 @@ describe('(e) legacy detection', () => {
     expect(isLegacySeatId(SEAT_A)).toBe(false);
   });
 });
+
+describe('legacy-alias case-folding (final-audit config-key isolation fix)', () => {
+  it('a reserved-alias case-variant is legacy → an UN-prefixed key (no seat:seat-1: split-brain)', () => {
+    for (const id of ['SEAT-1', 'Seat-1', 'DEFAULT', 'Default']) {
+      expect(isLegacySeatId(id)).toBe(true);
+      expect(sanitizeSeatId(id)).toBe(LEGACY_SEAT_ID);
+      // the config key for a crafted SEAT-1 is the SAME un-prefixed key the real
+      // legacy seat uses — never a distinct `seat:seat-1:` namespace.
+      expect(seatScopedKey('commandEve.teamWorkerStatus', id)).toBe(seatScopedKey('commandEve.teamWorkerStatus', 'seat-1'));
+      expect(seatScopedKey('commandEve.teamWorkerStatus', id)).not.toContain(SEAT_KEY_PREFIX);
+    }
+    // a real uuid seat still gets its own namespaced key
+    expect(seatScopedKey('commandEve.teamWorkerStatus', SEAT_A)).toContain(`${SEAT_KEY_PREFIX}${SEAT_A}`);
+  });
+});

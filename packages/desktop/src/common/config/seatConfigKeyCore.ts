@@ -96,13 +96,20 @@ export function isSeatScopedConfigKey(key: string): boolean {
  * True when the given id denotes the legacy single-seat (so the key must NOT be
  * prefixed). `undefined` / `null` / '' / non-string all count as legacy.
  * Mirrors seatContextCore.isLegacySeatId.
+ *
+ * CASE-FOLDED (final-audit fix, 2026-07-05): the alias check compares the
+ * LOWER-CASED id — the SAME fold sanitizeSeatId (below) applies. Without it a
+ * crafted `SEAT-1` / `DEFAULT` would read NON-legacy here yet fold to the legacy
+ * alias in sanitizeSeatId, namespacing config keys under `seat:seat-1:` while the
+ * real legacy seat uses UN-prefixed keys — a config-key split-brain matching the
+ * seatContextCore path fix. Real client seats are uuids, so none is affected.
  */
 export function isLegacySeatId(seatId?: string | null): boolean {
   if (seatId === undefined || seatId === null) return true;
   if (typeof seatId !== 'string') return true;
   const trimmed = seatId.trim();
   if (trimmed.length === 0) return true;
-  return LEGACY_SEAT_ALIASES.has(trimmed);
+  return LEGACY_SEAT_ALIASES.has(trimmed.toLowerCase());
 }
 
 /**
