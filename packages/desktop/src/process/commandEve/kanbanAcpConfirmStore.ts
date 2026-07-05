@@ -25,6 +25,8 @@
  * free-form card payload does).
  */
 
+import * as crypto from 'node:crypto';
+
 /** The kanban write ops EVE may PROPOSE (nothing else is in scope). */
 export const KANBAN_ACP_ALLOWED_OPS: readonly string[] = ['create', 'move', 'action'];
 /** The card sub-actions the 'action' op may carry (dispatch/assign/delete are absent by design). */
@@ -73,9 +75,10 @@ export interface KanbanProposalValidation {
   message?: string;
 }
 
-/** A deterministic, dependency-free hash of the canonical proposal — used as the tamper
- * guard so the confirm can only apply the EXACT payload that was proposed. Not crypto;
- * a stable fingerprint is all the bait-and-switch guard needs (the store is main-side). */
+/** A COLLISION-RESISTANT sha256 hash of the canonical proposal — the tamper guard, so a
+ * confirm can only apply the EXACT payload that was proposed. Codex re-audit: the prior
+ * 32-bit polynomial hash collided (two different titles → same hash → a swapped payload
+ * passed the tamper check). sha256 over a stable (sorted-key) canonical closes that. */
 export function kanbanMutationHash(op: string, action: string, boardSlug: string, payload: unknown): string {
   let canonical = '';
   try {
@@ -83,11 +86,7 @@ export function kanbanMutationHash(op: string, action: string, boardSlug: string
   } catch {
     canonical = `${op}|${action}|${boardSlug}|<unserializable>`;
   }
-  let h = 0;
-  for (let i = 0; i < canonical.length; i += 1) {
-    h = (h * 31 + canonical.charCodeAt(i)) >>> 0;
-  }
-  return `k${h.toString(36)}_${canonical.length.toString(36)}`;
+  return `k_${crypto.createHash('sha256').update(canonical, 'utf8').digest('hex')}`;
 }
 
 /** Stable JSON: object keys sorted so the same logical payload always hashes identically. */

@@ -63,6 +63,14 @@ describe('kanban confirm store — mutation hash (tamper guard)', () => {
     expect(a).toBe(b);
     expect(a).not.toBe(c);
   });
+
+  it('does NOT collide on the titles that broke the old 32-bit hash (sha256 now)', () => {
+    // Codex re-audit: the prior polynomial hash mapped 'anaaaaaa' and 'c0aaaaaa' to the
+    // same value, so a swapped payload passed the tamper check. sha256 must separate them.
+    const a = kanbanMutationHash('create', '', 'm', { title: 'anaaaaaa' });
+    const b = kanbanMutationHash('create', '', 'm', { title: 'c0aaaaaa' });
+    expect(a).not.toBe(b);
+  });
 });
 
 describe('kanban confirm store — propose → peek → confirm flow', () => {

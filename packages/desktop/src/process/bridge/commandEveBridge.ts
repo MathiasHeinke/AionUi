@@ -1116,6 +1116,11 @@ export function initCommandEveBridge(): void {
   });
 
   bridge.buildProvider('command-eve.kanban-acp-apply').provider(async (request?: { intent_id?: string; mutation_hash?: string }) => {
+    // Codex re-audit: the confirmed write must be fenced during a seat switch, exactly
+    // like the direct marketing-card mutation IPC — otherwise a confirm click mid-switch
+    // could consume a seat-A intent and resolve getDataPath() against seat-B.
+    const fenced = guardKanbanMutationDuringSwitch('command-eve-kanban-acp-apply/v0');
+    if (fenced) return fenced;
     try {
       const intentId = typeof request?.intent_id === 'string' ? request.intent_id : '';
       const mutationHash = typeof request?.mutation_hash === 'string' ? request.mutation_hash : '';
