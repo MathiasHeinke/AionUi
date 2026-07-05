@@ -120,4 +120,25 @@ describe('runHonchoProvisioningForSeat — fail-safe wiring', () => {
     expect(honchoReady(res.readiness)).toBe(false);
     expect(f.spawnCalls).toEqual([]); // the chain stopped before the serve step
   });
+
+  it('a THROWING detectDeps does NOT escape (fully fail-soft) ⇒ not-ready off result', async () => {
+    const f = fakes();
+    f.deps.detectDeps = () => {
+      throw new Error('detection blew up');
+    };
+    const res = await runHonchoProvisioningForSeat(input({ memoryOptedIn: true, hasLicense: true }), f.deps as never);
+    expect(res.honchoEnabled).toBe(false);
+    expect(honchoReady(res.readiness)).toBe(false);
+    expect(f.runnerCalls).toEqual([]);
+  });
+
+  it('an unsafe seat id does NOT throw (buildHonchoRuntimeConfig would) ⇒ not-ready', async () => {
+    const f = fakes();
+    const res = await runHonchoProvisioningForSeat(
+      { userDataPath: '/tmp/x', seatId: '../../escape', hermesVenv: '/tmp/x/venv', consent: { memoryOptedIn: true, hasLicense: true } },
+      f.deps as never
+    );
+    expect(res.honchoEnabled).toBe(false);
+    expect(honchoReady(res.readiness)).toBe(false);
+  });
 });

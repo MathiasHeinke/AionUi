@@ -39,6 +39,7 @@ import {
   type HonchoProvisionMode,
 } from './honchoProvisionPlanCore';
 import { runHonchoBootstrap, type HonchoBootstrapResult, type HonchoCommandSet } from './honchoBootstrapCore';
+import { HONCHO_REASON_PROCESS_DOWN, reduceHonchoReadiness } from './honchoReadinessCore';
 import { writeHonchoReadyState } from './honchoReadyStateFile';
 import type { RuntimeBootstrapRunner, RuntimeBootstrapDetachedSpawner } from './runtimeBootstrapCore';
 
@@ -110,34 +111,49 @@ export interface RunHonchoProvisioningDeps {
 }
 
 /**
- * Provision Honcho for ONE seat. Never throws (runHonchoBootstrap is the ultimate
- * fail-safe), always writes a readiness snapshot, and is a NO-OP install when the
- * consent/mode/disk/RAM plan is disabled (buildHonchoProvisionPlan) — the runner is
- * never even reached in that case. The caller (a post-boot background trigger)
- * gates the WHOLE call on the operator opt-in.
+ * Provision Honcho for ONE seat. NEVER throws — the whole body (setup + bootstrap) is
+ * fail-soft, so a background trigger can fire-and-forget it without an unhandled
+ * rejection. It is a NO-OP install when the consent/mode/disk/RAM plan is disabled
+ * (buildHonchoProvisionPlan) — the runner is never even reached in that case. On the
+ * happy path runHonchoBootstrap writes the readiness snapshot; on a setup error it
+ * returns a not-ready off result (no file write when the home could not be resolved).
+ * The caller (a post-boot background trigger) gates the WHOLE call on the operator opt-in.
  */
 export async function runHonchoProvisioningForSeat(
   input: RunHonchoProvisioningInput,
   deps: RunHonchoProvisioningDeps
 ): Promise<HonchoBootstrapResult> {
-  const seatHome = resolveSeatHome(input.userDataPath, input.seatId);
-  const cfg = buildHonchoRuntimeConfig({ seatId: input.seatId ?? undefined, seatHome, ...deriverInputsFromConsent(input.consent) });
-  const detection = await deps.detectDeps();
-  const plan = buildHonchoProvisionPlan({ detection, consent: input.consent, mode: input.mode, config: cfg });
-  const buildCommands = deps.buildCommands || buildHonchoCommandSet;
-  const commands = buildCommands({ cfg, hermesVenv: input.hermesVenv });
-  return runHonchoBootstrap({
-    plan,
-    config: cfg,
-    commands,
-    runner: deps.runner,
-    detachedSpawner: deps.detachedSpawner,
-    probeServer: deps.probeServer,
-    probeDeriver: deps.probeDeriver,
-    writeReadiness: deps.writeReadiness || writeHonchoReadyState,
-    env: deps.env,
-    now: deps.now,
-  });
+  // FULLY fail-soft (Codex tight-audit): runHonchoBootstrap is the inner fail-safe, but the
+  // SETUP before it (resolveSeatHome/buildHonchoRuntimeConfig throw on an unsafe seat id;
+  // detectDeps/buildCommands may throw or reject) must NOT escape into the background trigger.
+  // Any setup error degrades to a not-ready off result — never an unhandled rejection.
+  try {
+    const seatHome = resolveSeatHome(input.userDataPath, input.seatId);
+    const cfg = buildHonchoRuntimeConfig({ seatId: input.seatId ?? undefined, seatHome, ...deriverInputsFromConsent(input.consent) });
+    const detection = await deps.detectDeps();
+    const plan = buildHonchoProvisionPlan({ detection, consent: input.consent, mode: input.mode, config: cfg });
+    const buildCommands = deps.buildCommands || buildHonchoCommandSet;
+    const commands = buildCommands({ cfg, hermesVenv: input.hermesVenv });
+    return await runHonchoBootstrap({
+      plan,
+      config: cfg,
+      commands,
+      runner: deps.runner,
+      detachedSpawner: deps.detachedSpawner,
+      probeServer: deps.probeServer,
+      probeDeriver: deps.probeDeriver,
+      writeReadiness: deps.writeReadiness || writeHonchoReadyState,
+      env: deps.env,
+      now: deps.now,
+    });
+  } catch (error) {
+    const now = typeof deps.now === 'function' ? deps.now() : undefined;
+    return {
+      stages: [{ id: 'honcho-provision', status: 'skip', code: HONCHO_REASON_PROCESS_DOWN, detail: `provisioning setup error: ${error instanceof Error ? error.message : String(error)}` }],
+      readiness: reduceHonchoReadiness({ provisioned: false, seatId: input.seatId ?? undefined, now }),
+      honchoEnabled: false,
+    };
+  }
 }
 
 /** Marker so the local-branch derivation stays legible at call sites. */
