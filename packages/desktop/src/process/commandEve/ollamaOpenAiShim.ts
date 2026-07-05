@@ -165,6 +165,13 @@ export type CommandEveTeamManageProposeHandler = (
 ) => Promise<{ status: number; payload: unknown }>;
 
 /**
+ * COMPA-626 — the main-side READ-ONLY board digest resolver for `GET /eve/kanban/read`.
+ * Returns the board EVE may SEE (cards/lanes, capped + sanitized, operator-only). Carries
+ * NO write path, no intent, no mutation hash — so exposing read can never grant write.
+ */
+export type CommandEveKanbanAcpReadResolver = () => unknown;
+
+/**
  * COMPA-624 — the Honcho DERIVER cloud lane route resolver. The local Honcho
  * memory server's deriver LLM (the dialectical user-model reasoning, NOT the
  * user's chat) rides a DEDICATED loopback ingress (`POST /honcho/deriver/...`)
@@ -245,6 +252,15 @@ export type CommandEveOllamaShimOptions = {
    * inert. When provided (operator seat), it validates + stores the pending intent.
    */
   teamManagePropose?: CommandEveTeamManageProposeHandler;
+  /**
+   * COMPA-626 kanban-ACP surface. bearer + propose mirror team_manage (bearer-gated
+   * `POST /eve/kanban/propose`, inert 404 without a bearer / on a client seat). read is
+   * the operator-only READ-ONLY board digest for `GET /eve/kanban/read` — no write path,
+   * no intent, no mutation hash. All omitted ⇒ inert until main injects them.
+   */
+  kanbanAcpBearer?: CommandEveTeamManageBearerResolver;
+  kanbanAcpPropose?: CommandEveTeamManageProposeHandler;
+  kanbanAcpRead?: CommandEveKanbanAcpReadResolver;
   /**
    * Optional Honcho deriver cloud-lane route resolver (COMPA-624). Provides the
    * eve-inference URL + license for the picker-independent `POST /honcho/deriver`
@@ -1208,6 +1224,48 @@ async function handleTeamManagePropose(
   jsonResponse(response, result.status, result.payload);
 }
 
+/**
+ * COMPA-626 — `POST /eve/kanban/propose`. Bearer-gated thin front (mirror of team_manage):
+ * authenticate with the per-boot kanban bearer, then hand the raw proposal to the injected
+ * main-side handler which validates + stores a pending intent. NO kanban.db write here (K1).
+ */
+async function handleKanbanAcpPropose(request: IncomingMessage, response: ServerResponse, options: Required<CommandEveOllamaShimOptions>): Promise<void> {
+  const expected = options.kanbanAcpBearer();
+  const authHeader = headerToken(request.headers['authorization']);
+  const match = authHeader ? /^bearer\s+(.+)$/i.exec(authHeader) : null;
+  const token = match ? match[1].trim() : authHeader;
+  if (!expected || !token || !constantTimeEquals(token, expected)) {
+    jsonResponse(response, 404, { error: { message: 'Unsupported Command EVE Ollama shim path: /eve/kanban/propose' } });
+    return;
+  }
+  let body: Record<string, unknown>;
+  try {
+    body = await readBody(request);
+  } catch {
+    jsonResponse(response, 400, { error: { message: 'Invalid JSON body.' } });
+    return;
+  }
+  const result = await options.kanbanAcpPropose(body);
+  jsonResponse(response, result.status, result.payload);
+}
+
+/**
+ * COMPA-626 — `GET /eve/kanban/read`. Bearer-gated (same per-boot kanban bearer, so it is
+ * inert on a client seat / when unprovisioned). Returns the READ-ONLY board digest. There
+ * is NO mutation handler on this path — reading the board can never grant a write.
+ */
+async function handleKanbanAcpRead(request: IncomingMessage, response: ServerResponse, options: Required<CommandEveOllamaShimOptions>): Promise<void> {
+  const expected = options.kanbanAcpBearer();
+  const authHeader = headerToken(request.headers['authorization']);
+  const match = authHeader ? /^bearer\s+(.+)$/i.exec(authHeader) : null;
+  const token = match ? match[1].trim() : authHeader;
+  if (!expected || !token || !constantTimeEquals(token, expected)) {
+    jsonResponse(response, 404, { error: { message: 'Unsupported Command EVE Ollama shim path: /eve/kanban/read' } });
+    return;
+  }
+  jsonResponse(response, 200, options.kanbanAcpRead());
+}
+
 export async function startCommandEveOllamaOpenAiShim(shimOptions: CommandEveOllamaShimOptions = {}): Promise<string> {
   if (server?.listening) return serverUrl || `http://127.0.0.1:${DEFAULT_SHIM_PORT}`;
   const options: Required<CommandEveOllamaShimOptions> = {
@@ -1243,6 +1301,16 @@ export async function startCommandEveOllamaOpenAiShim(shimOptions: CommandEveOll
         status: 404,
         payload: { error: { message: 'team_manage is not available on this seat.' } },
       })),
+    // COMPA-626: default kanban-ACP is UNPROVISIONED — empty bearer + inert propose/read,
+    // so the routes are 404 until main injects them on an operator seat.
+    kanbanAcpBearer: shimOptions.kanbanAcpBearer || ((): string => ''),
+    kanbanAcpPropose:
+      shimOptions.kanbanAcpPropose ||
+      (async (): Promise<{ status: number; payload: unknown }> => ({
+        status: 404,
+        payload: { error: { message: 'kanban_manage is not available on this seat.' } },
+      })),
+    kanbanAcpRead: shimOptions.kanbanAcpRead || ((): unknown => ({ ok: false, reason: 'not-available' })),
     // COMPA-624: default is an INERT deriver lane (503) until main injects the
     // free-tier route on a seat where Honcho is provisioned — purely additive.
     honchoDeriverRoute: shimOptions.honchoDeriverRoute || ((): CommandEveHonchoDeriverRoute => ({ active: false })),
@@ -1270,6 +1338,14 @@ export async function startCommandEveOllamaOpenAiShim(shimOptions: CommandEveOll
       }
       if (request.method === 'POST' && path === '/eve/team/propose') {
         await handleTeamManagePropose(request, response, options);
+        return;
+      }
+      if (request.method === 'POST' && path === '/eve/kanban/propose') {
+        await handleKanbanAcpPropose(request, response, options);
+        return;
+      }
+      if (request.method === 'GET' && path === '/eve/kanban/read') {
+        await handleKanbanAcpRead(request, response, options);
         return;
       }
       jsonResponse(response, 404, { error: { message: `Unsupported Command EVE Ollama shim path: ${path}` } });

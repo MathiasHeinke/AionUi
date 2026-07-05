@@ -23,6 +23,7 @@ import {
   type SeatKind,
 } from './seatContextCore';
 import { provisionTeamManageBearerFile } from './eveTeamManageMain';
+import { provisionKanbanAcpBearerFile } from './kanbanAcpMain';
 import { claudeDelegatePreflightWarning } from '../../common/config/eveWorkerAssignmentCore';
 import { COMPANY_BRAIN_DIR, readCompanyBrainSeedStateFromHome } from './companyBrainSeedCore';
 import { countFilledBlueprintSections, ensureBrainBlueprint, ensureCompanyBrainReady, migrateCompanyBrainFromHome, readBrainIndex } from './companyBrainStoreCore';
@@ -1595,6 +1596,12 @@ export function prepareCommandEveRuntimeProcessEnv(
   if (bearerFile) env.COMMAND_EVE_TEAM_MANAGE_BEARER_FILE = bearerFile;
   else delete env.COMMAND_EVE_TEAM_MANAGE_BEARER_FILE;
 
+  // COMPA-626: the same file-delivered bearer discipline for the kanban-ACP routes. On a
+  // client seat the file is removed + the path env cleared, so the routes stay inert.
+  const kanbanBearerFile = provisionKanbanAcpBearerFile(userDataPath, getActiveSeatKind() === 'client');
+  if (kanbanBearerFile) env.COMMAND_EVE_KANBAN_ACP_BEARER_FILE = kanbanBearerFile;
+  else delete env.COMMAND_EVE_KANBAN_ACP_BEARER_FILE;
+
   return paths;
 }
 
@@ -2622,6 +2629,16 @@ export function eveTeamDirective(teamRoles?: RuntimeBootstrapOptions['teamRoles'
         'You may PROPOSE a team status change (pause / resume / stop a role) when the operator asks or it clearly helps — you never apply it yourself. To propose, POST to `http://127.0.0.1:25811/eve/team/propose` with header `Authorization: Bearer $(cat "$COMMAND_EVE_TEAM_MANAGE_BEARER_FILE")` and JSON body `{"role_agent_id":"<id>","action":"pause|resume|stop","reason":"<short German reason>"}`. You get an `intent_id`; the operator then sees a confirm card and NOTHING changes until they click Übernehmen. Only a status change is allowed on this channel — never assignment, model, tier, or cost. Never say the change happened before the operator confirmed it.',
       ]
     : [];
+  // COMPA-626 — the kanban clause, emitted only when the kanban-ACP bearer is provisioned
+  // for this seat (operator-only). EVE may SEE the marketing board and PROPOSE card
+  // changes; it never writes a card itself (the operator confirms).
+  const canKanban = compact(process.env.COMMAND_EVE_KANBAN_ACP_BEARER_FILE || '').length > 0;
+  const kanbanClause = canKanban
+    ? [
+        '',
+        'You can SEE the marketing Kanban board and PROPOSE card changes — you never move or create a card yourself. To read it, GET `http://127.0.0.1:25811/eve/kanban/read` with header `Authorization: Bearer $(cat "$COMMAND_EVE_KANBAN_ACP_BEARER_FILE")` (returns the lanes + cards). To propose, POST to `http://127.0.0.1:25811/eve/kanban/propose` with the same bearer and a JSON body: create `{"op":"create","title":"…","lane":"research"}`, move `{"op":"move","task_id":"…","to_lane_key":"draft"}`, or a card action `{"op":"action","action":"comment|block|unblock|complete","task_id":"…","comment":"…"}`, each with a short German `reason`. You get an `intent_id`; the operator then sees a confirm card and NOTHING is written until they click Übernehmen. Never delete, dispatch, spawn a worker, or reassign on this channel. Never say a card changed before the operator confirmed it.',
+      ]
+    : [];
   return [
     '',
     '## Your team',
@@ -2631,6 +2648,7 @@ export function eveTeamDirective(teamRoles?: RuntimeBootstrapOptions['teamRoles'
     '',
     'Delegate through the fitting role and say WHICH role handled it. A paused role gets no work. Knowing this roster is not a grant — permissions and human gates apply unchanged, and never claim a role produced something it did not.',
     ...proposeClause,
+    ...kanbanClause,
     '',
   ].join('\n');
 }

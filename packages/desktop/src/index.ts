@@ -49,6 +49,7 @@ import type { CommandEveEveCloudRoute } from './process/commandEve/ollamaOpenAiS
 import { applyLauncherWiring } from './process/commandEve/eveWorkerLauncherCore';
 import { resolveDispatchAgentId } from './process/commandEve/eveAgentTaskRegistry';
 import { resolveTeamManageBearer, teamManageProposeHandler } from './process/commandEve/eveTeamManageMain';
+import { kanbanAcpProposeHandler, readKanbanAcpBoard, resolveKanbanAcpBearer } from './process/commandEve/kanbanAcpMain';
 import { getActiveSeatId } from './process/commandEve/seatContextCore';
 import {
   readInferenceSelectionFromBackend,
@@ -916,6 +917,11 @@ function registerCommandEveRuntimeBridge(): void {
           // (resolveTeamManageBearer returns "" on a client seat, making the route inert).
           teamManageBearer: resolveTeamManageBearer,
           teamManagePropose: teamManageProposeHandler,
+          // COMPA-626 kanban-ACP: bearer-gated propose + read-only board digest (inert on
+          // a client seat — resolveKanbanAcpBearer returns "" there).
+          kanbanAcpBearer: resolveKanbanAcpBearer,
+          kanbanAcpPropose: kanbanAcpProposeHandler,
+          kanbanAcpRead: readKanbanAcpBoard,
         }));
       commandEveOllamaShimUrl = shimUrl;
       const warmupReceipt = shouldWarm
@@ -985,6 +991,11 @@ function registerCommandEveRuntimeBridge(): void {
           // (resolveTeamManageBearer returns "" on a client seat, making the route inert).
           teamManageBearer: resolveTeamManageBearer,
           teamManagePropose: teamManageProposeHandler,
+          // COMPA-626 kanban-ACP: bearer-gated propose + read-only board digest (inert on
+          // a client seat — resolveKanbanAcpBearer returns "" there).
+          kanbanAcpBearer: resolveKanbanAcpBearer,
+          kanbanAcpPropose: kanbanAcpProposeHandler,
+          kanbanAcpRead: readKanbanAcpBoard,
         }));
       commandEveOllamaShimUrl = shimUrl;
       const warmupReceipt = await ensureCommandEveLocalModelWarmup(receipt, shimUrl, warmCommandEveLocalModel);
