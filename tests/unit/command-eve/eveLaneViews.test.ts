@@ -29,18 +29,19 @@ describe('buildEveLaneViews — lane axis (Lokal · EVE Free · EVE Pro)', () =>
     expect(v.free.items[0].sublabel).toContain('100/Tag');
 
     expect(v.pro.state).toBe('locked');
-    // EVE Pro = Standard · Hoch · Max (3 rungs), all greyed on a trial.
-    expect(v.pro.items).toHaveLength(3);
+    // EVE Pro = Standard · Hoch · Sehr hoch · Maximum (4 rungs, 4-Stufen-Leiter), all
+    // greyed on a trial.
+    expect(v.pro.items).toHaveLength(4);
     expect(v.pro.items.every((i) => i.disabled && i.disabledReasonCode === 'PAID_TIER_REQUIRED')).toBe(true);
-    expect(v.pro.items.map((i) => i.label)).toEqual(['Standard', 'Hoch', 'Max']);
+    expect(v.pro.items.map((i) => i.label)).toEqual(['Standard', 'Hoch', 'Sehr hoch', 'Maximum']);
   });
 
-  it('PAYING user (no trial_ends_at): EVE Free HIDDEN, EVE Pro = 3 rungs selectable', () => {
+  it('PAYING user (no trial_ends_at): EVE Free HIDDEN, EVE Pro = 4 rungs selectable', () => {
     const v = byLane(buildEveLaneViews({}));
     expect(v.local.state).toBe('available');
     expect(v.free.state).toBe('hidden');
     expect(v.pro.state).toBe('available');
-    expect(v.pro.items).toHaveLength(3);
+    expect(v.pro.items).toHaveLength(4);
     expect(v.pro.items.every((i) => !i.disabled)).toBe(true);
     // Increasing credit cost is surfaced as a badge on every Pro rung.
     expect(v.pro.items.every((i) => typeof i.costBadge === 'string')).toBe(true);

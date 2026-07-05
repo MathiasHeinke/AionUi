@@ -298,8 +298,8 @@ describe('Command EVE assistant bootstrap core', () => {
         'de-DE'
       );
 
-      expect(context).toContain('Aktive Inferenz-Lane: EVE Cloud, Max-Stufe');
-      expect(context).toContain('großer Kontext, höchste Qualität');
+      expect(context).toContain('Aktive Inferenz-Lane: EVE Cloud, Maximum-Stufe');
+      expect(context).toContain('maximales Reasoning, höchste Qualität');
       expect(context).not.toContain(`Aktive Inferenz-Lane: ${SHIM}`);
       // The local warm-up line is explicitly framed as the fallback, not "the model".
       expect(context).toContain('Lokale Runtime (Fallback-Warmup, nur auf der lokalen Lane aktiv)');
@@ -317,8 +317,8 @@ describe('Command EVE assistant bootstrap core', () => {
         'en-US'
       );
 
-      expect(context).toContain('Active inference lane: EVE Cloud, Max tier');
-      expect(context).toContain('large context, top quality');
+      expect(context).toContain('Active inference lane: EVE Cloud, Maximum tier');
+      expect(context).toContain('maximum reasoning, top quality');
       expect(context).not.toContain(`Active inference lane: ${SHIM}`);
       expect(context).toContain('Self-description:');
     });
