@@ -147,10 +147,13 @@ export async function runHonchoProvisioningForSeat(
       now: deps.now,
     });
   } catch (error) {
-    const now = typeof deps.now === 'function' ? deps.now() : undefined;
+    // The catch itself must NEVER throw (Codex confirm): do NOT call deps.now() here (a
+    // bad injected clock could throw), and read input defensively. reduceHonchoReadiness
+    // falls back to its own clock when no `now` is passed.
+    const detail = `provisioning setup error: ${error instanceof Error ? error.message : String(error)}`;
     return {
-      stages: [{ id: 'honcho-provision', status: 'skip', code: HONCHO_REASON_PROCESS_DOWN, detail: `provisioning setup error: ${error instanceof Error ? error.message : String(error)}` }],
-      readiness: reduceHonchoReadiness({ provisioned: false, seatId: input.seatId ?? undefined, now }),
+      stages: [{ id: 'honcho-provision', status: 'skip', code: HONCHO_REASON_PROCESS_DOWN, detail }],
+      readiness: reduceHonchoReadiness({ provisioned: false, seatId: input?.seatId ?? undefined }),
       honchoEnabled: false,
     };
   }
