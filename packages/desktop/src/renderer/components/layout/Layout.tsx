@@ -77,6 +77,7 @@ const useDebug = () => {
 
 const UpdateModal = React.lazy(() => import('@/renderer/components/settings/UpdateModal'));
 const TeamManageConfirmCard = React.lazy(() => import('@/renderer/components/team/TeamManageConfirmCard'));
+const KanbanAcpConfirmCard = React.lazy(() => import('@/renderer/components/team/KanbanAcpConfirmCard'));
 
 const DEFAULT_SIDER_WIDTH = 260;
 const DESKTOP_COLLAPSED_WIDTH = 0;
@@ -400,6 +401,13 @@ const Layout: React.FC<{
               {COMMAND_EVE_SHELL_ENABLED && (
                 <Suspense fallback={null}>
                   <TeamManageConfirmCard />
+                </Suspense>
+              )}
+              {/* COMPA-626: the kanban-ACP confirm card — same button-only governance
+                  gate for EVE's proposed card changes. */}
+              {COMMAND_EVE_SHELL_ENABLED && (
+                <Suspense fallback={null}>
+                  <KanbanAcpConfirmCard />
                 </Suspense>
               )}
             </ArcoLayout.Content>

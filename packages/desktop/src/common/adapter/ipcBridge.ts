@@ -1801,6 +1801,23 @@ export const commandEve = {
   teamManageReject: bridge.buildProvider<IBridgeResponse<{ ok: boolean }>, { intent_id: string }>(
     'command-eve.team-manage-reject'
   ),
+  // COMPA-626 Kanban-ACP confirm bridge (Design-B mirror). peek = poll pending kanban
+  // proposal; apply = the confirmed kanban.db write (carries the mutation_hash tamper
+  // token); reject = dismiss.
+  kanbanAcpPeek: bridge.buildProvider<
+    IBridgeResponse<{
+      ok: boolean;
+      pending: { intent_id: string; op: string; action: string; summary: string; reason: string; mutation_hash: string; expires_ms: number } | null;
+    }>,
+    void
+  >('command-eve.kanban-acp-peek'),
+  kanbanAcpApply: bridge.buildProvider<
+    IBridgeResponse<{ ok: boolean; reason?: string; op?: string }>,
+    { intent_id: string; mutation_hash: string }
+  >('command-eve.kanban-acp-apply'),
+  kanbanAcpReject: bridge.buildProvider<IBridgeResponse<{ ok: boolean }>, { intent_id: string }>(
+    'command-eve.kanban-acp-reject'
+  ),
   // v1.4 T2/T3: multi-entry Company-Brain store (brain.json v2), active-seat-resolved.
   // list = index only (no bodies); read = ONE body on demand (T3 lazy load — open/
   // edit); write = upsert (user/settings, append-first); remove = delete an entry +

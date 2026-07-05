@@ -1102,6 +1102,44 @@ export function initCommandEveBridge(): void {
     }
   });
 
+  // COMPA-626 — Kanban-ACP confirm bridge (Design-B mirror of team-manage). The renderer
+  // polls -peek for a pending kanban proposal, applies via -apply (the ONLY kanban.db
+  // write), or dismisses via -reject. No kanban write happens on peek/reject.
+  bridge.buildProvider('command-eve.kanban-acp-peek').provider(async () => {
+    try {
+      const { peekKanbanAcpForRenderer } = await import('@process/commandEve/kanbanAcpMain');
+      return { success: true, data: { ok: true, pending: peekKanbanAcpForRenderer() } as unknown };
+    } catch (error) {
+      console.warn('[Command EVE] kanban-acp-peek failed:', error);
+      return { success: true, data: { ok: false, pending: null } as unknown };
+    }
+  });
+
+  bridge.buildProvider('command-eve.kanban-acp-apply').provider(async (request?: { intent_id?: string; mutation_hash?: string }) => {
+    try {
+      const intentId = typeof request?.intent_id === 'string' ? request.intent_id : '';
+      const mutationHash = typeof request?.mutation_hash === 'string' ? request.mutation_hash : '';
+      if (!intentId) return { success: false, msg: 'intent_id required', data: { ok: false } as unknown };
+      const { applyKanbanAcpIntent } = await import('@process/commandEve/kanbanAcpMain');
+      const result = await applyKanbanAcpIntent(intentId, mutationHash);
+      return { success: true, data: result as unknown };
+    } catch (error) {
+      console.warn('[Command EVE] kanban-acp-apply failed:', error);
+      return { success: true, data: { ok: false, reason: 'error' } as unknown };
+    }
+  });
+
+  bridge.buildProvider('command-eve.kanban-acp-reject').provider(async (request?: { intent_id?: string }) => {
+    try {
+      const intentId = typeof request?.intent_id === 'string' ? request.intent_id : '';
+      const { rejectKanbanAcpIntent } = await import('@process/commandEve/kanbanAcpMain');
+      return { success: true, data: rejectKanbanAcpIntent(intentId) as unknown };
+    } catch (error) {
+      console.warn('[Command EVE] kanban-acp-reject failed:', error);
+      return { success: true, data: { ok: false } as unknown };
+    }
+  });
+
   bridge.buildProvider('command-eve.company-brain-list').provider(async () => {
     try {
       const home = resolveActiveSeatHome(getDataPath()).hermesHome;
