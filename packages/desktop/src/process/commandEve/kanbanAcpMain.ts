@@ -26,12 +26,28 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getDataPath } from '@process/utils/utils';
 import { getActiveSeatId, getActiveSeatKind } from './seatContextCore';
+import { readCommandEveSettingsFromBackend } from './commandEveBackendSettingsRead';
 import { applyKanbanMarketingCardAction, buildKanbanMarketingBoard, createKanbanMarketingCard, moveKanbanMarketingCard } from './kanbanPreflightCore';
 import { resolveKanbanAcpToolsetGate } from './kanbanAcpToolsetGateCore';
 import { buildKanbanProposeResponse, consumeKanbanIntent, peekKanbanIntentForSeat, type KanbanAcpIntent } from './kanbanAcpConfirmStore';
 
 /** The board EVE's ACP kanban surface operates on (the marketing board). */
 export const KANBAN_ACP_BOARD_SLUG = 'marketing';
+
+/** The operator opt-in config key: when true, EVE's kanban proposals AUTO-APPLY (no
+ * confirm card) — the operator has granted EVE direct clearance for kanban work. Default
+ * false (the confirm-card gate stays the default). */
+export const KANBAN_ACP_AUTO_APPROVE_KEY = 'commandEve.kanbanAutoApprove';
+
+/** Read the operator's kanban auto-approve preference (fail-safe → false = keep the gate). */
+async function resolveKanbanAutoApprove(): Promise<boolean> {
+  try {
+    const bag = await readCommandEveSettingsFromBackend([KANBAN_ACP_AUTO_APPROVE_KEY]);
+    return bag[KANBAN_ACP_AUTO_APPROVE_KEY] === true;
+  } catch {
+    return false; // any read failure keeps the safe default (human confirm required)
+  }
+}
 
 // --- per-boot bearer (ISO-6 gated) ---------------------------------------------
 
@@ -171,6 +187,22 @@ export async function kanbanAcpProposeHandler(proposal: unknown): Promise<{ stat
     randomId: () => `k_${crypto.randomBytes(12).toString('hex')}`,
   });
   if (res.ok) {
+    // AUTO-APPROVE (operator opt-in): the proposal is validated + stored as a pending
+    // intent; if the operator granted EVE direct clearance, apply it immediately (same
+    // K3/K16/K18/seat/tamper checks — just no human click) and report it as applied.
+    // Otherwise leave the pending intent for the confirm card. Default = confirm card.
+    if (await resolveKanbanAutoApprove()) {
+      const pending = peekKanbanIntentForSeat(seatId, now);
+      if (pending && pending.intent_id === res.intent_id) {
+        const applied = await applyKanbanAcpIntent(res.intent_id, pending.mutation_hash, 'auto-approve');
+        return {
+          status: applied.ok ? 200 : 202,
+          payload: applied.ok
+            ? { ok: true, status: 'applied', intent_id: res.intent_id, summary: res.summary, decided_by: 'auto-approve' }
+            : { ok: false, status: 'apply-failed', intent_id: res.intent_id, summary: res.summary, reason: applied.reason },
+        };
+      }
+    }
     writeReceipt({ event: 'proposed', intent_id: res.intent_id, seat_id: seatId, summary: res.summary, ts: now });
     return { status: 202, payload: res };
   }
@@ -231,7 +263,7 @@ function applyKanbanWrite(intent: KanbanAcpIntent): { ok: boolean } {
   return { ok: false };
 }
 
-export async function applyKanbanAcpIntent(intent_id: string, mutationHash: string): Promise<{ ok: boolean; reason?: string; op?: string }> {
+export async function applyKanbanAcpIntent(intent_id: string, mutationHash: string, decidedBy: 'user-confirm' | 'auto-approve' = 'user-confirm'): Promise<{ ok: boolean; reason?: string; op?: string }> {
   const seatId = getActiveSeatId();
   const now = Date.now();
   // K3 defense-in-depth: never apply on a client seat, even if an intent somehow exists.
@@ -247,12 +279,12 @@ export async function applyKanbanAcpIntent(intent_id: string, mutationHash: stri
   const intent = consumed.intent;
   // K18: prove the authoritative receipt is writable BEFORE the kanban write. If it is
   // not, refuse the write — a confirmed mutation must never happen without an audit row.
-  if (!writeReceipt({ event: 'applying', intent_id, seat_id: seatId, op: intent.op, action: intent.action, board: intent.board_slug, ts: now })) {
+  if (!writeReceipt({ event: 'applying', intent_id, seat_id: seatId, op: intent.op, action: intent.action, board: intent.board_slug, decided_by: decidedBy, ts: now })) {
     return { ok: false, reason: 'no-receipt' };
   }
   try {
     const { ok } = applyKanbanWrite(intent);
-    writeReceipt({ event: ok ? 'applied' : 'apply-noop', intent_id, seat_id: seatId, op: intent.op, action: intent.action, board: intent.board_slug, decided_by: 'user-confirm', ts: now });
+    writeReceipt({ event: ok ? 'applied' : 'apply-noop', intent_id, seat_id: seatId, op: intent.op, action: intent.action, board: intent.board_slug, decided_by: decidedBy, ts: now });
     return ok ? { ok: true, op: intent.op } : { ok: false, reason: 'not-applied' };
   } catch (error) {
     writeReceipt({ event: 'apply-error', intent_id, seat_id: seatId, op: intent.op, error: error instanceof Error ? error.message : String(error), ts: now });

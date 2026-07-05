@@ -77,6 +77,9 @@ export type ConfigKeyMap = {
    */
   'commandEve.egressRedactionMode': 'on' | 'off' | undefined;
   'commandEve.modelWarmupEnabled': boolean | undefined;
+  // COMPA-626 — EVE's kanban clearance: true ⇒ EVE's card proposals auto-apply (no
+  // confirm card). Absent/false ⇒ the confirm-card gate (default).
+  'commandEve.kanbanAutoApprove': boolean | undefined;
   'commandEve.localModelTierId': string | undefined;
   /**
    * The single EVE inference picker selection (two-group picker). One of:

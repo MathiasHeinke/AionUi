@@ -20,12 +20,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const tempRoots: string[] = [];
 let ROOT = '';
+let AUTO_APPROVE = false;
 
 // getDataPath drives every seat-home resolution in the handlers → point it at the temp.
 vi.mock('@process/utils/utils', async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return { ...actual, getDataPath: () => ROOT };
 });
+
+// The operator auto-approve preference — driven per-test via the AUTO_APPROVE flag.
+vi.mock('@process/commandEve/commandEveBackendSettingsRead', () => ({
+  readCommandEveSettingsFromBackend: async () => ({ 'commandEve.kanbanAutoApprove': AUTO_APPROVE }),
+}));
 
 // Imported AFTER the mock so the handlers capture the mocked getDataPath.
 import { __resetActiveSeatForTests, getActiveSeatKind, setActiveSeatKind } from '@/process/commandEve/seatContextCore';
@@ -89,6 +95,7 @@ beforeEach(() => {
   __resetActiveSeatForTests();
   setActiveSeatKind('own_company'); // an OPERATOR seat — the surface is operator-only
   __resetKanbanAcpForTest();
+  AUTO_APPROVE = false; // default: the confirm-card gate
 });
 afterEach(() => {
   for (const r of tempRoots) fs.rmSync(r, { recursive: true, force: true });
@@ -138,5 +145,29 @@ describe('COMPA-626 K12 — real propose → confirm → kanban.db write', () =>
     const receipt = path.join(ROOT, 'eve-kanban-acp', 'receipts.jsonl');
     expect(fs.existsSync(receipt)).toBe(true);
     expect(fs.readFileSync(receipt, 'utf8')).toContain('"event":"applied"');
+  });
+
+  it('with operator AUTO-APPROVE granted, a propose applies DIRECTLY (no confirm card) + audits it', async () => {
+    AUTO_APPROVE = true;
+    expect(readKanbanAcpBoard().cards.length).toBe(0);
+
+    const res = await kanbanAcpProposeHandler({ op: 'create', title: 'Freigabe Direktkarte', reason: 'auto' });
+    // Auto-approve → the proposal is APPLIED immediately (200 + status 'applied'), not a 202 pending.
+    expect(res.status).toBe(200);
+    expect((res.payload as { status?: string }).status).toBe('applied');
+    expect((res.payload as { decided_by?: string }).decided_by).toBe('auto-approve');
+
+    // The card is really in the DB, and NO pending intent is left for a card to show.
+    expect(readKanbanAcpBoard().cards.some((c) => c.title === 'Freigabe Direktkarte')).toBe(true);
+    expect(peekKanbanAcpForRenderer()).toBeNull();
+
+    // The audit trail marks it as auto-approve (honest: not a user confirm).
+    const receipt = fs.readFileSync(path.join(ROOT, 'eve-kanban-acp', 'receipts.jsonl'), 'utf8');
+    expect(receipt).toContain('"decided_by":"auto-approve"');
+
+    // Even under auto-approve, the safety checks still hold: an S-scope-escape / bad op is
+    // rejected (never applied), and a non-marketing move is refused (K16).
+    const bad = await kanbanAcpProposeHandler({ op: 'move', task_id: 'not_a_real_card', to_lane_key: 'draft', reason: 'x' });
+    expect(bad.status).not.toBe(200); // move to a non-existent card does not silently apply
   });
 });

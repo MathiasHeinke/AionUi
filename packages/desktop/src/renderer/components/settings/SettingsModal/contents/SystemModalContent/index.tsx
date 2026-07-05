@@ -67,6 +67,10 @@ const SystemModalContent: React.FC = () => {
   // (absent / anything but the exact string 'off' ⇒ on).
   const [egressRedactionMode] = useConfig('commandEve.egressRedactionMode');
   const egressRedactionOn = egressRedactionMode !== 'off';
+  // COMPA-626 — EVE's kanban clearance. OFF (default) ⇒ EVE's card proposals need a
+  // confirm-card click; ON ⇒ EVE applies its kanban card changes directly (no click).
+  const [kanbanAutoApprove] = useConfig('commandEve.kanbanAutoApprove');
+  const kanbanAutoApproveOn = kanbanAutoApprove === true;
   const [modelWarmupEnabled, setModelWarmupEnabled] = useState(true);
 
   // BOOT READINESS (same guarantee as useDayZeroOnboarding): useConfig's first
@@ -358,6 +362,16 @@ const SystemModalContent: React.FC = () => {
     });
   }, []);
 
+  // COMPA-626 — grant/revoke EVE's direct kanban clearance. useConfig reflects the value
+  // optimistically; on a backend reject, roll the cache back so the toggle never lies.
+  const handleKanbanAutoApproveChange = useCallback((checked: boolean) => {
+    const prior = !checked;
+    configService.set('commandEve.kanbanAutoApprove', checked).catch(() => {
+      configService.setLocal('commandEve.kanbanAutoApprove', prior);
+      Message.error(t('settings.commandEveKanbanAutoApproveError', { defaultValue: 'Konnte die Kanban-Freigabe nicht speichern.' }));
+    });
+  }, [t]);
+
   // Get system directory info
   const { data: systemInfo } = useSWR('system.dir.info', () => ipcBridge.application.systemInfo.invoke());
 
@@ -422,6 +436,17 @@ const SystemModalContent: React.FC = () => {
       label: t('settings.commandEveModelWarmup'),
       description: t('settings.commandEveModelWarmupDesc'),
       component: <Switch checked={modelWarmupEnabled} onChange={handleModelWarmupEnabledChange} />,
+    },
+    {
+      // COMPA-626 — EVE's kanban clearance. OFF (default) = EVE proposes, you confirm each
+      // card change with a click; ON = EVE applies its kanban card changes directly.
+      key: 'commandEveKanbanAutoApprove',
+      label: t('settings.commandEveKanbanAutoApprove', { defaultValue: 'EVE darf Kanban-Karten direkt bearbeiten' }),
+      description: t('settings.commandEveKanbanAutoApproveDesc', {
+        defaultValue:
+          'Aus (Standard): EVE schlägt Karten-Änderungen vor, du bestätigst jede mit einem Klick. An: EVE legt Karten an, verschiebt und bearbeitet sie direkt — ohne Bestätigung. Jede Änderung wird protokolliert. Löschen/Dispatch bleibt immer gesperrt.',
+      }),
+      component: <Switch checked={kanbanAutoApproveOn} onChange={handleKanbanAutoApproveChange} />,
     },
     ...(isDesktop && gpuStatus
       ? [
