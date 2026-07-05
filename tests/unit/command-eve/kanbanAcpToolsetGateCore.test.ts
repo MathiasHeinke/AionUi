@@ -102,6 +102,24 @@ describe('kanban-acp gate — hardening (Codex re-audit holes)', () => {
     expect(findRawKanbanLeaks(['kanban.board.read', 'hermes-acp'])).toEqual([]);
     expect(findRawKanbanLeaks(['kanban_show', 'kanban_list'])).toEqual([]);
   });
+
+  it('a throwing getter mid-object does not hide a sibling leak after it', () => {
+    const obj: Record<string, unknown> = {};
+    Object.defineProperty(obj, 'a', {
+      enumerable: true,
+      get() {
+        throw new Error('boom');
+      },
+    });
+    obj.b = 'kanban_create';
+    expect(findRawKanbanLeaks([obj])).toContain('kanban_create');
+  });
+
+  it('a huge input is node-budget bounded (finds a front leak, returns without hanging)', () => {
+    const huge = new Array(1_000_000).fill(0);
+    huge[3] = 'kanban_create';
+    expect(findRawKanbanLeaks(huge)).toContain('kanban_create');
+  });
 });
 
 describe('kanban-acp gate — raw-toolset leak detector (structural invariant)', () => {

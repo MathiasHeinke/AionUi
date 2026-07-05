@@ -111,20 +111,49 @@ export function resolveKanbanAcpToolsetGate(input: KanbanAcpGateInput): KanbanAc
 }
 
 /** Recursively collect every string LEAF from an arbitrary value (arrays + object
- * values), tolerating hostile getters. Bounds recursion so a cyclic/huge object can not
- * hang the guard. */
-function collectStringLeaves(value: unknown, out: string[], depth: number): void {
-  if (depth > 6 || out.length > 4096) return;
-  try {
-    if (typeof value === 'string') {
-      out.push(value);
-    } else if (Array.isArray(value)) {
-      for (const v of value) collectStringLeaves(v, out, depth + 1);
-    } else if (value && typeof value === 'object') {
-      for (const k of Object.keys(value)) collectStringLeaves((value as Record<string, unknown>)[k], out, depth + 1);
+ * values). Robust against hostile input: bounded by DEPTH, total collected strings, AND
+ * a shared NODE budget (so a huge sparse array / huge object can not burn time), and each
+ * element/key is read in its OWN try/catch so ONE throwing getter can not hide the
+ * siblings after it (Codex re-audit). `budget.n` is decremented per node visited. */
+function collectStringLeaves(value: unknown, out: string[], depth: number, budget: { n: number }): void {
+  if (depth > 6 || out.length > 4096 || budget.n <= 0) return;
+  budget.n -= 1;
+  if (typeof value === 'string') {
+    out.push(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i += 1) {
+      if (budget.n <= 0 || out.length > 4096) return;
+      try {
+        collectStringLeaves(value[i], out, depth + 1, budget);
+      } catch {
+        /* a throwing element getter — skip THIS element, keep scanning siblings */
+      }
     }
-  } catch {
-    /* hostile getter — a value we can not read is simply not collected */
+    return;
+  }
+  if (value && typeof value === 'object') {
+    let keys: string[] = [];
+    try {
+      keys = Object.keys(value);
+    } catch {
+      return;
+    }
+    for (const k of keys) {
+      if (budget.n <= 0 || out.length > 4096) return;
+      let child: unknown;
+      try {
+        child = (value as Record<string, unknown>)[k];
+      } catch {
+        continue; // hostile getter on THIS key — keep scanning the other keys
+      }
+      try {
+        collectStringLeaves(child, out, depth + 1, budget);
+      } catch {
+        /* skip */
+      }
+    }
   }
 }
 
@@ -139,7 +168,7 @@ function collectStringLeaves(value: unknown, out: string[], depth: number): void
  */
 export function findRawKanbanLeaks(acpPlatformToolsets: unknown): string[] {
   const strings: string[] = [];
-  collectStringLeaves(acpPlatformToolsets, strings, 0);
+  collectStringLeaves(acpPlatformToolsets, strings, 0, { n: 5000 });
   const exactBlocked = new Set<string>([KANBAN_WHEEL_TOOLSET_KEY, ...KANBAN_WHEEL_WRITE_TOOLS].map((s) => s.toLowerCase()));
   const leaks: string[] = [];
   for (const raw of strings) {
