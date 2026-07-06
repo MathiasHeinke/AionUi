@@ -1,6 +1,7 @@
 ---
 name: human-design-profile
 description: From a person's BIRTH DATE, exact BIRTH TIME, and BIRTH PLACE, produce their Human Design bodygraph profile (Type — Generator / Manifesting-Generator / Projector / Manifestor / Reflector · Strategy · Inner Authority · Profile lines e.g. 1/3 · defined vs. undefined Centers · Definition · key Gates/Channels), then translate it into practical ORIENTATION for private AND business decisions — how this person is designed to make decisions, where their energy and leadership actually work, what to lean into and what to avoid. Use when the user wants grounding or orientation for a private or business decision, says "give me my Human Design", "what's my type", "read my chart", wants to align decisions to how they're built, or asks how someone close to them is wired. For Command EVE: this is a core product capability — a confidant/orientation lens EVE offers the operator (and that the operator offers their own clients), grounding not woo, reflection not prediction.
+disable_model_invocation: true
 ---
 
 # Human Design Profile

@@ -1,6 +1,7 @@
 ---
 name: lead-magnet-pdf
 description: Build a high-conversion lead magnet as a downloadable PDF — structured HTML rendered via Chrome headless. Produces a self-contained, brand-matched asset with a forced-yes diagnostic hook, euro-quantified cost framing ("stille Steuer"), a self-assessment with scoring bands, the client's REAL framework, a real before/after case study, real social proof, and one focused CTA. Real client data only — every euro figure, case-study number and framework name comes from the scraped/provided client material or is marked [needs client input]; no fabricated testimonials, no invented "real" numbers. The euro-hook must pass the content-machine Founder-Voice guard before render. Use when the operator says "build a lead magnet", "create a PDF for lead gen", "make this a downloadable asset", or wants to turn a client's positioning into a gated PDF. NOT a blog post (→ content-machine derivatives), NOT a landing page (→ landing-copy), NOT a strategy report to an existing client. Shares conversion logic with landing-copy (diagnostic hook, value frame, proof, CTA) but delivers as a PDF artifact. Invisible delivery: the PDF carries the client's brand, never EVE's.
+disable_model_invocation: true
 ---
 
 # Lead Magnet PDF

@@ -1,6 +1,7 @@
 ---
 name: voice-first-run
 description: Structured onboarding interview that captures the operator's (or their client's) Founder Voice and Belief Model (FVBM) before any content is produced. Walks through M0 → M1 → M2 → M3 progression: core beliefs → audience intuition → writing style → voice samples → content principles. Produces a structured FVBM profile that feeds content-machine (step 1 checks FVBM status) and founder-voice (creates the voice profile from interview + samples). Use when the operator says "I'm new, set me up", "capture my voice from scratch", "I don't have writing samples yet", or when content-machine reports FVBM status = missing or M0.
+disable_model_invocation: true
 ---
 
 # Voice First Run (FVBM Onboarding)

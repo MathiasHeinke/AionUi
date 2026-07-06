@@ -7,15 +7,17 @@ import path from 'node:path';
 import {
   EVE_STRATEGY_SKILLS,
   EVE_STRATEGY_SKILL_IDS,
+  findSkillHygieneFailures,
   decideSkillSource,
   decideVerify,
+  SKILL_IDS_REQUIRING_DISABLE_MODEL_INVOCATION,
   stageBundledSkills,
 } from './fetch-bundled-skills.mjs';
 
 // --- allowlist shape -------------------------------------------------------
 
-test('the allowlist is exactly 26: 15 strategy + blog-writer + founder-voice + client-report + 6 operator content/ops/CRM + challenge-engine + brainstorm-divergent', () => {
-  assert.equal(EVE_STRATEGY_SKILL_IDS.length, 26);
+test('the allowlist is exactly 31: strategy + operator skills + local-vision + 4 harvested field skills', () => {
+  assert.equal(EVE_STRATEGY_SKILL_IDS.length, 31);
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('eve-doctrine'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('marketing-outbound'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('blog-writer'));
@@ -26,6 +28,11 @@ test('the allowlist is exactly 26: 15 strategy + blog-writer + founder-voice + c
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('voice-first-run'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('challenge-engine'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('brainstorm-divergent'));
+  assert.ok(EVE_STRATEGY_SKILL_IDS.includes('local-vision-qa'));
+  assert.ok(EVE_STRATEGY_SKILL_IDS.includes('ai-coding-delegation'));
+  assert.ok(EVE_STRATEGY_SKILL_IDS.includes('lead-magnet-pdf'));
+  assert.ok(EVE_STRATEGY_SKILL_IDS.includes('skill-authoring'));
+  assert.ok(EVE_STRATEGY_SKILL_IDS.includes('legal-enforcement-dach'));
   // gitnexus and other dev/IDE skills must NEVER be in the allowlist.
   assert.ok(!EVE_STRATEGY_SKILL_IDS.includes('gitnexus'));
 });
@@ -76,15 +83,24 @@ function makeFixtureSrc(root, { omit = [] } = {}) {
       fs.writeFileSync(path.join(dir, 'README.md'), '# bundle\n');
       const sub = path.join(dir, 'icp-definer');
       fs.mkdirSync(sub, { recursive: true });
-      fs.writeFileSync(path.join(sub, 'SKILL.md'), '# icp-definer\nreal\n');
+      fs.writeFileSync(
+        path.join(sub, 'SKILL.md'),
+        '---\nname: icp-definer\ndescription: Use when outbound needs an ICP definition.\n---\n# icp-definer\nreal\n'
+      );
     } else {
-      fs.writeFileSync(path.join(dir, 'SKILL.md'), `# ${skill.id}\nreal\n`);
+      const disableLine = SKILL_IDS_REQUIRING_DISABLE_MODEL_INVOCATION.includes(skill.id)
+        ? 'disable_model_invocation: true\n'
+        : '';
+      fs.writeFileSync(
+        path.join(dir, 'SKILL.md'),
+        `---\nname: ${skill.id}\ndescription: Use when ${skill.id} is explicitly needed.\n${disableLine}---\n# ${skill.id}\nreal\n`
+      );
     }
   }
   return srcRoot;
 }
 
-test('stageBundledSkills refreshes from source and verifies all 26 (no failures)', () => {
+test('stageBundledSkills refreshes from source and verifies all 31 (no failures)', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fbs-test-'));
   try {
     const srcRoot = makeFixtureSrc(root);
@@ -98,6 +114,20 @@ test('stageBundledSkills refreshes from source and verifies all 26 (no failures)
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('findSkillHygieneFailures requires disable_model_invocation for long-tail skills', () => {
+  const missing = [
+    '---',
+    'name: lead-magnet-pdf',
+    'description: Use when a lead magnet PDF is explicitly needed.',
+    '---',
+    '# Lead Magnet PDF',
+  ].join('\n');
+  assert.ok(findSkillHygieneFailures({ skillId: 'lead-magnet-pdf', text: missing }).includes('disable_model_invocation_missing'));
+
+  const present = missing.replace('description: Use when a lead magnet PDF is explicitly needed.', 'description: Use when a lead magnet PDF is explicitly needed.\ndisable_model_invocation: true');
+  assert.deepEqual(findSkillHygieneFailures({ skillId: 'lead-magnet-pdf', text: present }), []);
 });
 
 test('stageBundledSkills keeps the committed snapshot when source is absent', () => {

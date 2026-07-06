@@ -1,6 +1,7 @@
 ---
 name: legal-enforcement-dach
 description: Draft an ENTWURF (draft only) of a DACH cease-and-desist demand — the Abmahnung — for IP infringement, unauthorized use of videos/images/text/brand, or related civil business disputes under German, Austrian, and Swiss law. Produces a structured draft the operator reviews; a licensed lawyer MUST sign before anything is sent. Covers evidence preservation (screenshots + Wayback Machine for SPA sites), dual-jurisdiction handling, the standard Abmahnung structure (Unterlassung + Vertragsstrafe + Auskunft + Schadensersatz + Kostenerstattung), and a post-response decision matrix. NEVER sends, NEVER files with a court, NEVER gathers PII automatically, NEVER circumvents a privacy filter — every irreversible step is human-gated. Use when the operator says "mahne ab", "Abmahnung", "cease and desist", "Unterlassung", "unbefugte Nutzung", "Video/Bild ohne Freigabe", or any DACH IP-enforcement scenario — as a drafting aid, not as legal advice.
+disable_model_invocation: true
 ---
 
 # Legal Enforcement — DACH (Abmahnung / Cease-and-Desist)

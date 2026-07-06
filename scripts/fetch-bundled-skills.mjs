@@ -185,6 +185,54 @@ export function findForbiddenSkillContent(text) {
   return FORBIDDEN_SKILL_CONTENT.filter((f) => f.re.test(String(text || ''))).map((f) => f.id);
 }
 
+export const SKILL_IDS_REQUIRING_DISABLE_MODEL_INVOCATION = Object.freeze([
+  'lead-magnet-pdf',
+  'legal-enforcement-dach',
+  'human-design-profile',
+  'voice-first-run',
+]);
+
+function leadingFrontmatter(text) {
+  const body = String(text || '');
+  if (!body.startsWith('---\n')) return '';
+  const end = body.indexOf('\n---', 4);
+  return end === -1 ? '' : body.slice(4, end);
+}
+
+function frontmatterScalar(frontmatter, key) {
+  const re = new RegExp(`^${key}:\\s*(.+)$`, 'im');
+  const match = frontmatter.match(re);
+  return match ? match[1].trim().replace(/^['"]|['"]$/g, '') : '';
+}
+
+export function findSkillHygieneFailures({ skillId, text }) {
+  const failures = [];
+  const frontmatter = leadingFrontmatter(text);
+  if (!frontmatter) {
+    return ['missing_frontmatter'];
+  }
+
+  const name = frontmatterScalar(frontmatter, 'name');
+  const description = frontmatterScalar(frontmatter, 'description');
+  if (!name) failures.push('frontmatter_missing_name');
+  if (!description) failures.push('frontmatter_missing_description');
+  if (
+    description &&
+    !/\b(use when|when to use|when the user|when the operator|use for|trigger|nutze|verwende)\b/i.test(description)
+  ) {
+    failures.push('description_missing_trigger');
+  }
+
+  if (SKILL_IDS_REQUIRING_DISABLE_MODEL_INVOCATION.includes(skillId)) {
+    const disableModelInvocation = frontmatterScalar(frontmatter, 'disable_model_invocation').toLowerCase();
+    if (disableModelInvocation !== 'true') {
+      failures.push('disable_model_invocation_missing');
+    }
+  }
+
+  return failures;
+}
+
 // ---------------------------------------------------------------------------
 // fs helpers (side-effecting; small + dependency-free)
 // ---------------------------------------------------------------------------
@@ -329,6 +377,11 @@ export function stageBundledSkills({ srcRoot, snapshotRoot, skills = EVE_STRATEG
       if (forbidden.length) {
         failures.push(`bundled_skill_forbidden_content:${skill.id}:${forbidden.join(',')}`);
         log(`FORBIDDEN CONTENT ${skill.id} — ${forbidden.join(', ')} in ${path.relative(snapshotRoot, mdPath)}`);
+      }
+      const hygiene = findSkillHygieneFailures({ skillId: skill.id, text });
+      if (hygiene.length) {
+        failures.push(`bundled_skill_hygiene:${skill.id}:${hygiene.join(',')}`);
+        log(`HYGIENE ${skill.id} — ${hygiene.join(', ')} in ${path.relative(snapshotRoot, mdPath)}`);
       }
     }
   }
