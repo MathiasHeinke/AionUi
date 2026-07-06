@@ -1,4 +1,5 @@
 import type { GroupedHistoryResult } from '../types';
+import { getConversationFolderExpansionKey } from './groupingHelpers';
 
 type VisibleConversationOrderInput = GroupedHistoryResult & {
   expandedWorkspaces: string[];
@@ -7,6 +8,7 @@ type VisibleConversationOrderInput = GroupedHistoryResult & {
 
 export const buildVisibleConversationIds = ({
   pinnedConversations,
+  folderGroups,
   timelineSections,
   expandedWorkspaces,
   siderCollapsed,
@@ -16,6 +18,17 @@ export const buildVisibleConversationIds = ({
 
   pinnedConversations.forEach((conversation) => {
     visibleConversationIds.push(conversation.id);
+  });
+
+  folderGroups.forEach((folder) => {
+    const folderKey = getConversationFolderExpansionKey(folder.id);
+    if (!siderCollapsed && !expandedWorkspaceSet.has(folderKey)) {
+      return;
+    }
+
+    folder.conversations.forEach((conversation) => {
+      visibleConversationIds.push(conversation.id);
+    });
   });
 
   timelineSections.forEach((section) => {

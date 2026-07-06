@@ -14,7 +14,15 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 
-import { isConversationArchived, isConversationPinned } from '../utils/groupingHelpers';
+import {
+  buildConversationFolderExtra,
+  createConversationFolderId,
+  getConversationFolderId,
+  getConversationFolderName,
+  isConversationArchived,
+  isConversationPinned,
+  type ConversationFolderTarget,
+} from '../utils/groupingHelpers';
 import { setWorkspaceCustomName } from '@/renderer/utils/workspace/workspaceName';
 
 type UseConversationActionsParams = {
@@ -41,6 +49,9 @@ export const useConversationActions = ({
   const [renameModalId, setRenameModalId] = useState<string | null>(null);
   const [renameLoading, setRenameLoading] = useState(false);
   const [dropdownVisibleId, setDropdownVisibleId] = useState<string | null>(null);
+  const [moveTargetConversation, setMoveTargetConversation] = useState<TChatConversation | null>(null);
+  const [moveFolderName, setMoveFolderName] = useState('');
+  const [moveFolderLoading, setMoveFolderLoading] = useState(false);
   const { id } = useParams();
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -257,6 +268,69 @@ export const useConversationActions = ({
     [t]
   );
 
+  const handleMoveStart = useCallback((conversation: TChatConversation) => {
+    setMoveTargetConversation(conversation);
+    setMoveFolderName('');
+    setDropdownVisibleId(null);
+  }, []);
+
+  const handleMoveCancel = useCallback(() => {
+    if (moveFolderLoading) return;
+    setMoveTargetConversation(null);
+    setMoveFolderName('');
+  }, [moveFolderLoading]);
+
+  const handleMoveToFolder = useCallback(
+    async (target: ConversationFolderTarget | null) => {
+      if (!moveTargetConversation) return;
+
+      const currentFolderId = getConversationFolderId(moveTargetConversation);
+      const currentFolderName = getConversationFolderName(moveTargetConversation);
+      if (target?.id === currentFolderId && target.name === currentFolderName) {
+        handleMoveCancel();
+        return;
+      }
+
+      setMoveFolderLoading(true);
+      try {
+        const success = await ipcBridge.conversation.update.invoke({
+          id: moveTargetConversation.id,
+          updates: {
+            extra: buildConversationFolderExtra(target),
+          } as Partial<TChatConversation>,
+          merge_extra: true,
+        });
+
+        if (success) {
+          await refreshConversationCache(moveTargetConversation.id);
+          emitter.emit('chat.history.refresh');
+          Message.success(
+            t(target ? 'conversation.history.moveToFolderSuccess' : 'conversation.history.removeFromFolderSuccess')
+          );
+          setMoveTargetConversation(null);
+          setMoveFolderName('');
+        } else {
+          Message.error(t('conversation.history.moveToFolderFailed'));
+        }
+      } catch (error) {
+        console.error('Failed to move conversation to folder:', error);
+        Message.error(t('conversation.history.moveToFolderFailed'));
+      } finally {
+        setMoveFolderLoading(false);
+      }
+    },
+    [handleMoveCancel, moveTargetConversation, t]
+  );
+
+  const handleMoveToNewFolder = useCallback(async () => {
+    const name = moveFolderName.trim();
+    if (!name) return;
+    await handleMoveToFolder({
+      id: createConversationFolderId(name),
+      name,
+    });
+  }, [handleMoveToFolder, moveFolderName]);
+
   const handleMenuVisibleChange = useCallback((conversation_id: string, visible: boolean) => {
     setDropdownVisibleId(visible ? conversation_id : null);
   }, []);
@@ -360,6 +434,14 @@ export const useConversationActions = ({
     handleRenameCancel,
     handleTogglePin,
     handleToggleArchive,
+    moveTargetConversation,
+    moveFolderName,
+    setMoveFolderName,
+    moveFolderLoading,
+    handleMoveStart,
+    handleMoveCancel,
+    handleMoveToFolder,
+    handleMoveToNewFolder,
     handleMenuVisibleChange,
     handleOpenMenu,
     handleRemoveProject,

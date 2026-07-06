@@ -12,6 +12,7 @@ import {
   readExpandedWorkspaces,
   WORKSPACE_EXPANSION_STORAGE_KEY,
 } from './useWorkspaceExpansionState';
+import { getConversationFolderExpansionKey } from '../utils/groupingHelpers';
 
 export const useConversations = () => {
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<string[]>(() => readExpandedWorkspaces());
@@ -72,7 +73,7 @@ export const useConversations = () => {
     dispatchWorkspaceExpansionChange(expandedWorkspaces);
   }, [expandedWorkspaces]);
 
-  const { pinnedConversations, archivedConversations, timelineSections } = groupedHistory;
+  const { pinnedConversations, folderGroups, archivedConversations, timelineSections } = groupedHistory;
 
   // Auto-expand all workspaces on first load only (#1156)
   useEffect(() => {
@@ -81,7 +82,7 @@ export const useConversations = () => {
       hasAutoExpandedRef.current = true;
       return;
     }
-    const allWorkspaces: string[] = [];
+    const allWorkspaces: string[] = folderGroups.map((folder) => getConversationFolderExpansionKey(folder.id));
     timelineSections.forEach((section) => {
       section.items.forEach((item) => {
         if (item.type === 'workspace' && item.workspaceGroup) {
@@ -93,11 +94,11 @@ export const useConversations = () => {
       setExpandedWorkspaces(allWorkspaces);
       hasAutoExpandedRef.current = true;
     }
-  }, [timelineSections]);
+  }, [folderGroups, timelineSections]);
 
   // Remove stale workspace entries that no longer exist in the data
   useEffect(() => {
-    const currentWorkspaces = new Set<string>();
+    const currentWorkspaces = new Set<string>(folderGroups.map((folder) => getConversationFolderExpansionKey(folder.id)));
     timelineSections.forEach((section) => {
       section.items.forEach((item) => {
         if (item.type === 'workspace' && item.workspaceGroup) {
@@ -110,7 +111,7 @@ export const useConversations = () => {
       const filtered = prev.filter((ws) => currentWorkspaces.has(ws));
       return filtered.length === prev.length ? prev : filtered;
     });
-  }, [timelineSections]);
+  }, [folderGroups, timelineSections]);
 
   const handleToggleWorkspace = useCallback((workspace: string) => {
     setExpandedWorkspaces((prev) => {
@@ -129,6 +130,7 @@ export const useConversations = () => {
     hasConversationError,
     expandedWorkspaces,
     pinnedConversations,
+    folderGroups,
     archivedConversations,
     timelineSections,
     handleToggleWorkspace,

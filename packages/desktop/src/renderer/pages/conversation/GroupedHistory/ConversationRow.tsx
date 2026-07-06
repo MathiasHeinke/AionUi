@@ -11,7 +11,7 @@ import { usePresetAssistantInfo } from '@/renderer/hooks/agent/usePresetAssistan
 import { cleanupSiderTooltips, getSiderTooltipProps } from '@/renderer/utils/ui/siderTooltip';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { Checkbox, Dropdown, Menu, Spin, Tooltip } from '@arco-design/web-react';
-import { Box, DeleteOne, EditOne, Export, MessageOne, MoreOne, Pushpin } from '@icon-park/react';
+import { Box, DeleteOne, EditOne, Export, FolderOpen, MessageOne, MoreOne, Pushpin } from '@icon-park/react';
 import classNames from 'classnames';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
@@ -87,6 +87,7 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
     onExport,
     onTogglePin,
     onToggleArchive,
+    onMoveStart,
     getJobStatus,
   } = props;
   const { t } = useTranslation();
@@ -306,6 +307,10 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
                       onToggleArchive?.(conversation);
                       return;
                     }
+                    if (key === 'move') {
+                      onMoveStart?.(conversation);
+                      return;
+                    }
                     if (key === 'rename') {
                       onEditStart(conversation);
                       return;
@@ -332,6 +337,14 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
                         <span>
                           {isArchived ? t('conversation.history.restore') : t('conversation.history.archive')}
                         </span>
+                      </div>
+                    </Menu.Item>
+                  )}
+                  {onMoveStart && (
+                    <Menu.Item key='move'>
+                      <div className='flex items-center gap-8px'>
+                        <FolderOpen theme='outline' size='14' />
+                        <span>{t('conversation.history.moveToFolder')}</span>
                       </div>
                     </Menu.Item>
                   )}

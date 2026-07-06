@@ -13,6 +13,13 @@ export type WorkspaceGroup = {
   conversations: TChatConversation[];
 };
 
+export type ConversationFolderGroup = {
+  id: string;
+  display_name: string;
+  conversations: TChatConversation[];
+  time: number;
+};
+
 export type TimelineItem = {
   type: 'workspace' | 'conversation';
   time: number;
@@ -27,6 +34,7 @@ export type TimelineSection = {
 
 export type GroupedHistoryResult = {
   pinnedConversations: TChatConversation[];
+  folderGroups: ConversationFolderGroup[];
   // 1.7.4a — soft-archived conversations, newest-archived first. Rendered in the
   // collapsible Archive section, never in pinned/timeline.
   archivedConversations: TChatConversation[];
@@ -65,6 +73,7 @@ export type ConversationRowProps = {
   onExport?: (conversation: TChatConversation) => void;
   onTogglePin: (conversation: TChatConversation) => void;
   onToggleArchive?: (conversation: TChatConversation) => void;
+  onMoveStart?: (conversation: TChatConversation) => void;
   getJobStatus: (conversation_id: string) => 'none' | 'active' | 'paused' | 'error' | 'unread';
   /** When true, the agent icon is dimmed by default and only shows full color on hover. Used inside project folders to reduce visual weight. */
   dimIcon?: boolean;

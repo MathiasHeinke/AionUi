@@ -10,8 +10,18 @@ import { getWorkspaceDisplayName } from '@/renderer/utils/workspace/workspace';
 import { getWorkspaceUpdateTime } from '@/renderer/utils/workspace/workspaceHistory';
 import { getWorkspaceCustomName } from '@/renderer/utils/workspace/workspaceName';
 
-import type { GroupedHistoryResult, TimelineItem, TimelineSection } from '../types';
+import type { ConversationFolderGroup, GroupedHistoryResult, TimelineItem, TimelineSection } from '../types';
 import { getConversationSortOrder } from './sortOrderHelpers';
+
+export type ConversationFolderTarget = {
+  id: string;
+  name: string;
+};
+
+type ConversationFolderExtra = {
+  group_id?: string;
+  group_name?: string;
+};
 
 export const isConversationPinned = (conversation: TChatConversation): boolean => {
   const extra = conversation.extra as { pinned?: boolean } | undefined;
@@ -43,6 +53,40 @@ export const getConversationPinnedAt = (conversation: TChatConversation): number
   }
   return 0;
 };
+
+const normalizeFolderText = (value: unknown): string | null => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
+
+export const getConversationFolderId = (conversation: TChatConversation): string | null => {
+  const extra = conversation.extra as ConversationFolderExtra | undefined;
+  return normalizeFolderText(extra?.group_id);
+};
+
+export const getConversationFolderName = (conversation: TChatConversation): string | null => {
+  const extra = conversation.extra as ConversationFolderExtra | undefined;
+  return normalizeFolderText(extra?.group_name);
+};
+
+export const getConversationFolderExpansionKey = (folderId: string): string => `folder:${folderId}`;
+
+export const createConversationFolderId = (name: string, now = Date.now()): string => {
+  const slug = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return `folder-${slug || 'folder'}-${now.toString(36)}`;
+};
+
+export const buildConversationFolderExtra = (
+  target: ConversationFolderTarget | null
+): Partial<TChatConversation['extra']> & ConversationFolderExtra => ({
+  group_id: target?.id,
+  group_name: target?.name,
+});
 
 export const groupConversationsByWorkspace = (
   conversations: TChatConversation[],
@@ -109,6 +153,45 @@ export const groupConversationsByWorkspace = (
   ];
 };
 
+const splitConversationsByUserFolder = (
+  conversations: TChatConversation[],
+  t: (key: string) => string
+): { folderGroups: ConversationFolderGroup[]; ungroupedConversations: TChatConversation[] } => {
+  const folderMap = new Map<string, TChatConversation[]>();
+  const ungroupedConversations: TChatConversation[] = [];
+
+  conversations.forEach((conversation) => {
+    const folderId = getConversationFolderId(conversation);
+    if (!folderId) {
+      ungroupedConversations.push(conversation);
+      return;
+    }
+
+    if (!folderMap.has(folderId)) {
+      folderMap.set(folderId, []);
+    }
+    folderMap.get(folderId)!.push(conversation);
+  });
+
+  const folderGroups = [...folderMap.entries()]
+    .map(([folderId, folderConversations]) => {
+      const sortedConversations = [...folderConversations].toSorted((a, b) => getActivityTime(b) - getActivityTime(a));
+      const displayName =
+        sortedConversations.map(getConversationFolderName).find((name): name is string => Boolean(name)) ??
+        t('conversation.history.untitledFolder');
+
+      return {
+        id: folderId,
+        display_name: displayName,
+        conversations: sortedConversations,
+        time: getActivityTime(sortedConversations[0]),
+      };
+    })
+    .toSorted((a, b) => b.time - a.time);
+
+  return { folderGroups, ungroupedConversations };
+};
+
 /** Check whether a conversation belongs to a team (should be hidden from sidebar). */
 const isTeamConversation = (conversation: TChatConversation): boolean => {
   const extra = conversation.extra as { team_id?: string; teamId?: string } | undefined;
@@ -142,10 +225,12 @@ export const buildGroupedHistory = (
   const normalConversations = visibleConversations.filter(
     (conversation) => !isConversationPinned(conversation) && !isCronJobConversation(conversation)
   );
+  const { folderGroups, ungroupedConversations } = splitConversationsByUserFolder(normalConversations, t);
 
   return {
     pinnedConversations,
+    folderGroups,
     archivedConversations,
-    timelineSections: groupConversationsByWorkspace(normalConversations, t),
+    timelineSections: groupConversationsByWorkspace(ungroupedConversations, t),
   };
 };

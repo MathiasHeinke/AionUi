@@ -132,4 +132,13 @@ describe('ConversationRow archive UI', () => {
     expect(screen.queryByText('conversation.history.archive')).toBeNull();
     expect(screen.queryByText('conversation.history.restore')).toBeNull();
   });
+
+  it('shows the move action only when the parent wires it', () => {
+    renderRow({ onMoveStart: vi.fn() });
+    expect(screen.getByText('conversation.history.moveToFolder')).toBeTruthy();
+
+    cleanup();
+    renderRow({ onMoveStart: undefined });
+    expect(screen.queryByText('conversation.history.moveToFolder')).toBeNull();
+  });
 });

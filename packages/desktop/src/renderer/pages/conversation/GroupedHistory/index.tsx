@@ -27,7 +27,8 @@ import { useConversationActions } from './hooks/useConversationActions';
 import { useConversations } from './hooks/useConversations';
 import { useDragAndDrop } from './hooks/useDragAndDrop';
 import { useExport } from './hooks/useExport';
-import type { ConversationRowProps, WorkspaceGroupedHistoryProps } from './types';
+import type { ConversationFolderGroup, ConversationRowProps, WorkspaceGroupedHistoryProps } from './types';
+import { getConversationFolderExpansionKey, getConversationFolderId } from './utils/groupingHelpers';
 
 const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
   onSessionClick,
@@ -115,6 +116,7 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
     hasConversationError,
     expandedWorkspaces,
     pinnedConversations,
+    folderGroups,
     archivedConversations,
     timelineSections,
     handleToggleWorkspace,
@@ -143,6 +145,14 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
     handleRenameCancel,
     handleTogglePin,
     handleToggleArchive,
+    moveTargetConversation,
+    moveFolderName,
+    setMoveFolderName,
+    moveFolderLoading,
+    handleMoveStart,
+    handleMoveCancel,
+    handleMoveToFolder,
+    handleMoveToNewFolder,
     handleMenuVisibleChange,
     handleOpenMenu,
     handleRemoveProject,
@@ -219,6 +229,7 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
       // future per-platform re-enable.
       onTogglePin: handleTogglePin,
       onToggleArchive: handleToggleArchive,
+      onMoveStart: handleMoveStart,
       getJobStatus,
     }),
     [
@@ -240,6 +251,7 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
       handleDeleteClick,
       handleTogglePin,
       handleToggleArchive,
+      handleMoveStart,
       getJobStatus,
     ]
   );
@@ -284,7 +296,32 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
     [timelineSections]
   );
 
-  if (timelineSections.length === 0 && pinnedConversations.length === 0 && archivedConversations.length === 0) {
+  const moveTargetFolderId = moveTargetConversation ? getConversationFolderId(moveTargetConversation) : null;
+
+  const renderFolderGroup = (group: ConversationFolderGroup) => {
+    const folderKey = getConversationFolderExpansionKey(group.id);
+    return (
+      <div key={group.id} className='min-w-0'>
+        <WorkspaceCollapse
+          expanded={expandedWorkspaces.includes(folderKey)}
+          onToggle={() => handleToggleWorkspace(folderKey)}
+          siderCollapsed={collapsed}
+          header={<span className='text-14px font-[500] truncate flex-1 text-t-primary min-w-0'>{group.display_name}</span>}
+        >
+          <div className={classNames('flex flex-col min-w-0', { 'mt-1px': !collapsed })}>
+            {group.conversations.map((conversation) => renderConversation(conversation, true))}
+          </div>
+        </WorkspaceCollapse>
+      </div>
+    );
+  };
+
+  if (
+    timelineSections.length === 0 &&
+    pinnedConversations.length === 0 &&
+    folderGroups.length === 0 &&
+    archivedConversations.length === 0
+  ) {
     return (
       <>
         {afterPinnedContent}
@@ -342,6 +379,82 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
           placeholder={t('conversation.history.renameProjectPlaceholder')}
           allowClear
         />
+      </Modal>
+
+      <Modal
+        title={t('conversation.history.moveToFolderTitle')}
+        visible={moveTargetConversation !== null}
+        onCancel={handleMoveCancel}
+        footer={null}
+        style={{ borderRadius: '12px' }}
+        alignCenter
+        getPopupContainer={() => document.body}
+      >
+        <div className='flex flex-col gap-14px min-w-0'>
+          <div className='text-14px leading-20px text-t-secondary truncate'>
+            {moveTargetConversation?.name ?? t('conversation.welcome.newConversation')}
+          </div>
+
+          {folderGroups.length > 0 && (
+            <div className='flex flex-col gap-8px min-w-0'>
+              <div className='text-12px leading-18px text-t-tertiary font-[500]'>
+                {t('conversation.history.moveToExistingFolder')}
+              </div>
+              <div className='flex flex-col gap-6px min-w-0'>
+                {folderGroups.map((folder) => (
+                  <Button
+                    key={folder.id}
+                    className='!h-34px !justify-start !px-10px !min-w-0'
+                    type={folder.id === moveTargetFolderId ? 'primary' : 'secondary'}
+                    disabled={moveFolderLoading}
+                    onClick={() => void handleMoveToFolder({ id: folder.id, name: folder.display_name })}
+                  >
+                    <span className='flex items-center gap-8px min-w-0'>
+                      <FolderOpen theme='outline' size='16' />
+                      <span className='truncate'>{folder.display_name}</span>
+                    </span>
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className='flex flex-col gap-8px min-w-0'>
+            <div className='text-12px leading-18px text-t-tertiary font-[500]'>
+              {t('conversation.history.moveToNewFolder')}
+            </div>
+            <div className='flex items-center gap-8px min-w-0'>
+              <Input
+                value={moveFolderName}
+                onChange={setMoveFolderName}
+                onPressEnter={() => void handleMoveToNewFolder()}
+                placeholder={t('conversation.history.newFolderPlaceholder')}
+                disabled={moveFolderLoading}
+                allowClear
+              />
+              <Button
+                type='primary'
+                disabled={!moveFolderName.trim()}
+                loading={moveFolderLoading}
+                onClick={() => void handleMoveToNewFolder()}
+              >
+                {t('conversation.history.createFolder')}
+              </Button>
+            </div>
+          </div>
+
+          {moveTargetFolderId && (
+            <Button
+              className='!justify-start'
+              type='secondary'
+              status='warning'
+              disabled={moveFolderLoading}
+              onClick={() => void handleMoveToFolder(null)}
+            >
+              {t('conversation.history.removeFromFolder')}
+            </Button>
+          )}
+        </div>
       </Modal>
 
       <Modal
@@ -577,6 +690,14 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
 
         {/* Slot 由父级（Sider）填入：例如 Team / CronJob sections，位于「置顶」之后、「项目」之前 */}
         {afterPinnedContent}
+
+        {/* L1: User folders — lightweight chat grouping, distinct from workspace projects. */}
+        {folderGroups.length > 0 && (
+          <div className='min-w-0'>
+            {!collapsed && <SectionLabel sectionKey='folders' label={t('conversation.history.foldersSection')} />}
+            {!collapsedSections.has('folders') && folderGroups.map(renderFolderGroup)}
+          </div>
+        )}
 
         {/* L1: Projects section — workspace folders, peer to conversations */}
         {projectGroups.length > 0 && (
