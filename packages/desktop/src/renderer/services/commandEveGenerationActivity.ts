@@ -114,6 +114,19 @@ export function ensureAcpGenerationTracking(): void {
   }
 }
 
+/**
+ * Clear ALL tracked generation because the backend is about to be (re)spawned —
+ * a seat switch SIGKILLs the single aioncore backend, so every in-flight turn on
+ * the leaving seat dies WITHOUT a terminal stream event (Codex 1.7.3 convergence
+ * #1). Without this, a confirmed "switch anyway" would leave the killed
+ * conversation stuck in the set and nag on every future switch. Call it at the
+ * moment a switch is committed; a genuine new turn on the new seat re-populates
+ * the set from the stream.
+ */
+export function clearGenerationForBackendRespawn(): void {
+  generatingConversations.clear();
+}
+
 /** Test-only reset. */
 export function clearAllGenerating(): void {
   generatingConversations.clear();

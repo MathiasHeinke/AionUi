@@ -32,6 +32,7 @@ import { ipcBridge } from '@/common';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
 import { useOnboardingStatus } from '@renderer/hooks/useOnboardingStatus';
 import { useStartscreenNote } from '@renderer/hooks/useStartscreenNote';
+import { markConversationGenerating, clearConversationGenerating } from '@renderer/services/commandEveGenerationActivity';
 import { buildFallbackGreeting } from '@/common/config/onboardingGreetingCore';
 import { buildNoteFrame } from '@/common/config/startscreenNoteCore';
 import type {
@@ -115,6 +116,9 @@ const HandoverNoteBlock: React.FC<{
       const conversationId = conversation?.conversation_id;
       if (!conversationId || sending) return;
       setSending(true);
+      // 1.7.3 (Codex #2): this send bypasses AcpSendBox, so mark generation here too
+      // for the seat-switch guard's submit→start window.
+      markConversationGenerating(conversationId);
       try {
         // Sends HER suggestion as the operator's visible message — the reply is
         // a real agent turn; the emptySlot disappears when the message lands.
@@ -123,6 +127,7 @@ const HandoverNoteBlock: React.FC<{
           conversation_id: conversationId,
         });
       } catch (error) {
+        clearConversationGenerating(conversationId);
         console.error('Handover-note suggestion send failed:', error);
         setSending(false);
       }

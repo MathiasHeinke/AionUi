@@ -20,6 +20,7 @@ import {
   applyAcpStreamActivity,
   clearAllGenerating,
   clearConversationGenerating,
+  clearGenerationForBackendRespawn,
   isAnyGenerating,
   markConversationGenerating,
 } from '@renderer/services/commandEveGenerationActivity';
@@ -83,6 +84,16 @@ describe('commandEveGenerationActivity — the seat-switch guard signal (1.7.3)'
     expect(isAnyGenerating()).toBe(false);
     applyAcpStreamActivity({ type: 'thinking', conversation_id: 'c', data: {} });
     expect(isAnyGenerating()).toBe(true);
+  });
+
+  it('#1 convergence: a committed seat switch empties the set (backend respawn kills all in-flight turns, no terminal event)', () => {
+    applyAcpStreamActivity({ type: 'start', conversation_id: 'a' });
+    markConversationGenerating('b');
+    expect(isAnyGenerating()).toBe(true);
+    // Confirmed "switch anyway": the killed turns will never emit finish/error, so
+    // without this clear they would linger and nag on every future switch.
+    clearGenerationForBackendRespawn();
+    expect(isAnyGenerating()).toBe(false);
   });
 
   it('ignores an empty/invalid conversation id (never a stuck ghost flag)', () => {

@@ -14,6 +14,7 @@ import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getConversationRuntimeWorkspaceErrorMessage } from '../../utils/conversationCreateError';
 import { buildSendFailureError } from './buildSendFailureError';
+import { markConversationGenerating, clearConversationGenerating } from '@renderer/services/commandEveGenerationActivity';
 
 type UseAcpInitialMessageParams = {
   conversation_id: string;
@@ -63,6 +64,10 @@ export const useAcpInitialMessage = ({
         const displayMessage = buildDisplayMessage(input, files, workspacePath || '');
 
         markSendStarted?.();
+        // 1.7.3 (Codex #2): the seat-switch guard must see the submit→start window
+        // for this send path too, not only AcpSendBox. Cleared in the catch if it
+        // never becomes a running turn; the stream's finish/error clears it otherwise.
+        markConversationGenerating(conversation_id);
         setAiProcessing(true);
 
         void checkAndUpdateTitle(conversation_id, input);
@@ -79,6 +84,7 @@ export const useAcpInitialMessage = ({
         const errorMessageText =
           getConversationRuntimeWorkspaceErrorMessage(error, t) || parseError(error) || t('common.unknownError');
         markSendFailed?.(errorMessageText);
+        clearConversationGenerating(conversation_id);
         console.error('[useAcpInitialMessage] Error sending initial message:', error);
         console.error('[useAcpInitialMessage] Error details:', {
           name: (error as Error)?.name,

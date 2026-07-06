@@ -22,7 +22,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Message, Modal, Tooltip } from '@arco-design/web-react';
-import { isAnyGenerating, ensureAcpGenerationTracking } from '@renderer/services/commandEveGenerationActivity';
+import { isAnyGenerating, ensureAcpGenerationTracking, clearGenerationForBackendRespawn } from '@renderer/services/commandEveGenerationActivity';
 import { useTranslation } from 'react-i18next';
 import { useSeatAccess } from '@renderer/hooks/useSeatAccess';
 import { openAccountWeb } from '@renderer/utils/platform';
@@ -220,10 +220,16 @@ const SeatRail: React.FC = () => {
                 aria-disabled={switching || undefined}
                 onClick={() => {
                   if (active || switching) return;
-                  // 1.7.3: a seat switch respawns the single backend, killing any in-flight
-                  // turn (a half-streamed answer would be lost + "Agent killed"). If a
-                  // response is currently streaming, confirm before interrupting it — default
-                  // is to STAY (protect the answer); the operator can still choose to switch.
+                  // A committed switch respawns the single backend, which SIGKILLs every
+                  // in-flight turn on this seat WITHOUT a terminal stream event. Clear the
+                  // generation set at commit time so a killed turn never lingers as a
+                  // stuck flag that would nag on every future switch (Codex 1.7.3 #1).
+                  const commitSwitch = () => {
+                    clearGenerationForBackendRespawn();
+                    void switchTo(seat.seat_id);
+                  };
+                  // 1.7.3: if a response is currently streaming, confirm before interrupting
+                  // it — default is to STAY (protect the answer); the operator can still switch.
                   if (isAnyGenerating()) {
                     Modal.confirm({
                       title: t('commandEve.seatRail.switchWhileGeneratingTitle', 'Antwort läuft noch'),
@@ -233,13 +239,11 @@ const SeatRail: React.FC = () => {
                       ),
                       okText: t('commandEve.seatRail.switchAnyway', 'Trotzdem wechseln'),
                       cancelText: t('common.cancel', 'Abbrechen'),
-                      onOk: () => {
-                        void switchTo(seat.seat_id);
-                      },
+                      onOk: commitSwitch,
                     });
                     return;
                   }
-                  void switchTo(seat.seat_id);
+                  commitSwitch();
                 }}
               >
                 <span
