@@ -14,6 +14,8 @@
  * operator-opt-in autonomy language.
  */
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 // The build-gate logic is exported from the plain build script (ESM .mjs).
 import { findForbiddenSkillContent, FORBIDDEN_SKILL_CONTENT } from '../../../scripts/fetch-bundled-skills.mjs';
@@ -45,5 +47,22 @@ describe('bundled-skills build content gate', () => {
     expect(findForbiddenSkillContent('')).toEqual([]);
     expect(findForbiddenSkillContent(undefined)).toEqual([]);
     expect(FORBIDDEN_SKILL_CONTENT.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('the actually-shipped bundled ai-coding-delegation SKILL.md passes the gate (end-to-end)', () => {
+    const body = fs.readFileSync(
+      path.resolve(__dirname, '../../../resources/bundled-skills/ai-coding-delegation/SKILL.md'),
+      'utf8'
+    );
+    expect(findForbiddenSkillContent(body)).toEqual([]);
+  });
+
+  it('does NOT false-positive on a doc that DESCRIBES the anti-pattern in order to forbid it', () => {
+    // The safe skill names the rubber-stamp to forbid it — the exact-pattern gate is
+    // chosen deliberately so that describing the anti-pattern does not trip it. (The
+    // semantic layer — "the governance model must be PRESENT" — is the C2 test.)
+    const describesAntiPattern =
+      'The anti-pattern to never fall into: blindly sending Down/Enter to accept every permission or bypass warning — that is rubber-stamping, not judgment, and it turns the gate off.';
+    expect(findForbiddenSkillContent(describesAntiPattern)).toEqual([]);
   });
 });

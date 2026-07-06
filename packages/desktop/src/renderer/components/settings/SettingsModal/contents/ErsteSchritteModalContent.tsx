@@ -26,7 +26,7 @@
  */
 
 import React, { useCallback } from 'react';
-import { Button, Tag } from '@arco-design/web-react';
+import { Button, Card, Tag } from '@arco-design/web-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { isElectronDesktop, openAccountWeb } from '@renderer/utils/platform';
@@ -185,26 +185,29 @@ const ErsteSchritteModalContent: React.FC = () => {
         </h3>
         <div className='grid gap-8px sm:grid-cols-2'>
           {hubSteps.map((step) => (
-            <button
+            <Card
               key={step.id}
-              type='button'
+              hoverable
               data-testid={`erste-schritte-step-${step.id}`}
               data-status={step.status}
               onClick={() => onStepClick(step)}
-              className='flex flex-col gap-4px rounded-12px border border-solid border-[var(--color-border-2)] bg-fill-1 px-14px py-12px text-left cursor-pointer hover:bg-fill-2'
+              className='cursor-pointer rounded-12px'
+              bodyStyle={{ padding: '12px 14px' }}
             >
-              <div className='flex items-start justify-between gap-8px'>
-                <span className='text-13px font-600 leading-20px text-t-primary'>
-                  {t(`settings.ersteSchritteStep.${step.id}.title`, { defaultValue: STEP_COPY[step.id]?.title ?? step.id })}
+              <div className='flex flex-col gap-4px'>
+                <div className='flex items-start justify-between gap-8px'>
+                  <span className='text-13px font-600 leading-20px text-t-primary'>
+                    {t(`settings.ersteSchritteStep.${step.id}.title`, { defaultValue: STEP_COPY[step.id]?.title ?? step.id })}
+                  </span>
+                  <Tag color={STATUS_TAG_COLOR[step.status]} size='small'>
+                    {t(`settings.ersteSchritteStatus.${step.status}`, { defaultValue: STATUS_LABEL[step.status] })}
+                  </Tag>
+                </div>
+                <span className='text-12px leading-18px text-t-secondary'>
+                  {t(`settings.ersteSchritteStep.${step.id}.desc`, { defaultValue: STEP_COPY[step.id]?.desc ?? '' })}
                 </span>
-                <Tag color={STATUS_TAG_COLOR[step.status]} size='small'>
-                  {t(`settings.ersteSchritteStatus.${step.status}`, { defaultValue: STATUS_LABEL[step.status] })}
-                </Tag>
               </div>
-              <span className='text-12px leading-18px text-t-secondary'>
-                {t(`settings.ersteSchritteStep.${step.id}.desc`, { defaultValue: STEP_COPY[step.id]?.desc ?? '' })}
-              </span>
-            </button>
+            </Card>
           ))}
         </div>
       </div>
