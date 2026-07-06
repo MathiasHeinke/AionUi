@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildLocalTitlePrompt,
+  evaluateLocalTitleSmokeGate,
   pickLocalTitleModel,
   sanitizeGeneratedTitle,
 } from '@/process/commandEve/commandEveTitleCore';
@@ -93,5 +94,56 @@ describe('commandEveTitleCore — sanitizeGeneratedTitle', () => {
     expect(sanitizeGeneratedTitle(null)).toBeNull();
     expect(sanitizeGeneratedTitle(undefined)).toBeNull();
     expect(sanitizeGeneratedTitle('"."')).toBeNull();
+  });
+});
+
+describe('commandEveTitleCore — evaluateLocalTitleSmokeGate', () => {
+  it('passes a short on-topic local title', () => {
+    expect(evaluateLocalTitleSmokeGate('KI-Automation Landingpage', ['landingpage', 'steuerberater'])).toEqual({
+      ok: true,
+      title: 'KI-Automation Landingpage',
+    });
+  });
+
+  it('fails loud on empty or unusable local output', () => {
+    expect(evaluateLocalTitleSmokeGate('', ['landingpage'])).toEqual({
+      ok: false,
+      title: null,
+      reason_code: 'TITLE_SMOKE_EMPTY',
+    });
+  });
+
+  it('fails loud when the model echoes the prompt contract', () => {
+    expect(evaluateLocalTitleSmokeGate('Aufgabe: Landingpage bauen', ['landingpage'])).toEqual({
+      ok: false,
+      title: 'Aufgabe: Landingpage bauen',
+      reason_code: 'TITLE_SMOKE_ECHOED_PROMPT',
+    });
+  });
+
+  it('fails loud when the title misses the expected topic terms', () => {
+    expect(evaluateLocalTitleSmokeGate('Allgemeinen Plan erstellen', ['landingpage', 'steuerberater'])).toEqual({
+      ok: false,
+      title: 'Allgemeinen Plan erstellen',
+      reason_code: 'TITLE_SMOKE_OFF_TOPIC',
+    });
+  });
+
+  it('fails loud when the title is too short for the smoke contract', () => {
+    expect(evaluateLocalTitleSmokeGate('Plan', ['plan'])).toEqual({
+      ok: false,
+      title: 'Plan',
+      reason_code: 'TITLE_SMOKE_TOO_SHORT',
+    });
+  });
+
+  it('fails loud on rambly raw output before sanitizer trimming can hide it', () => {
+    const raw =
+      'Landingpage für Steuerberater KI Automation mit ausführlicher Erklärung warum diese Überschrift gut funktionieren könnte';
+    expect(evaluateLocalTitleSmokeGate(raw, ['landingpage'])).toEqual({
+      ok: false,
+      title: 'Landingpage für Steuerberater KI Automation mit',
+      reason_code: 'TITLE_SMOKE_TOO_LONG',
+    });
   });
 });

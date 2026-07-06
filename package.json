@@ -70,7 +70,8 @@
     "test:bun": "bun test packages/desktop/src/process/services/database/drivers/*.bun.test.ts",
     "build-mac:notarized": "cross-env NOTARYTOOL_KEYCHAIN_PROFILE=command-eve-notary APPLE_DMG_SIGN_IDENTITY=\"Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)\" node scripts/build-with-builder.js auto --mac --arm64 --x64",
     "build-mac:arm64:notarized": "cross-env NOTARYTOOL_KEYCHAIN_PROFILE=command-eve-notary APPLE_DMG_SIGN_IDENTITY=\"Developer ID Application: FYN Labs LLC (NHNQ7Q5H28)\" node scripts/build-with-builder.js arm64 --mac --arm64",
-    "command-eve:bench:models": "tsx scripts/command-eve-model-latency-benchmark.ts"
+    "command-eve:bench:models": "tsx scripts/command-eve-model-latency-benchmark.ts",
+    "command-eve:smoke:gemma-title": "tsx scripts/command-eve-gemma-title-smoke-gate.ts"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.18.2",

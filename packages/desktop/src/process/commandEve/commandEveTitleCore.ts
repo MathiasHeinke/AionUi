@@ -25,12 +25,27 @@ export const COMMAND_EVE_TITLE_MAX_CHARS = 48;
 /** Hard cap on how much of the user's first message we feed the title prompt. */
 const TITLE_INPUT_MAX_CHARS = 1200;
 
+export type CommandEveTitleLocale = 'de-DE' | 'en-US';
+
+export type CommandEveTitleSmokeReason =
+  | 'TITLE_SMOKE_EMPTY'
+  | 'TITLE_SMOKE_TOO_SHORT'
+  | 'TITLE_SMOKE_TOO_LONG'
+  | 'TITLE_SMOKE_ECHOED_PROMPT'
+  | 'TITLE_SMOKE_OFF_TOPIC';
+
+export interface CommandEveTitleSmokeGateResult {
+  ok: boolean;
+  title: string | null;
+  reason_code?: CommandEveTitleSmokeReason;
+}
+
 /**
  * Build the tight title prompt. Locale-aware so a German task gets a German
  * title and an English task gets an English one. The instruction forbids end
  * punctuation and asks for 3-6 words so the sanitizer rarely has to trim.
  */
-export function buildLocalTitlePrompt(taskText: string, locale: 'de-DE' | 'en-US' = 'de-DE'): string {
+export function buildLocalTitlePrompt(taskText: string, locale: CommandEveTitleLocale = 'de-DE'): string {
   const task = String(taskText || '').replace(/\s+/g, ' ').trim().slice(0, TITLE_INPUT_MAX_CHARS);
   if (locale === 'en-US') {
     return [
@@ -111,4 +126,60 @@ export function sanitizeGeneratedTitle(raw: string | null | undefined): string |
   // Too short to be a real title → let the caller keep the fallback.
   if (title.length < 2) return null;
   return title;
+}
+
+function normalizeSmokeText(text: string): string {
+  return text
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function firstRawSmokeLine(raw: string | null | undefined): string {
+  return String(raw ?? '')
+    .replace(/<think>[\s\S]*?<\/think>/gi, ' ')
+    .replace(/\r/g, '')
+    .split('\n')
+    .map((line) => line.trim())
+    .find(Boolean) ?? '';
+}
+
+/**
+ * Evaluate a real local Gemma title answer for the release smoke gate.
+ *
+ * The runtime title path remains best-effort and fail-quiet for users, but the
+ * gate must be fail-loud: if Gemma returns empty output, prompt echo, an
+ * overlong rambly answer, or a title that misses every expected topic token,
+ * the release operator gets a hard reason code instead of silent degradation.
+ */
+export function evaluateLocalTitleSmokeGate(
+  raw: string | null | undefined,
+  expectedTerms: readonly string[] = []
+): CommandEveTitleSmokeGateResult {
+  const firstLine = firstRawSmokeLine(raw);
+  const title = sanitizeGeneratedTitle(raw);
+  if (!title) return { ok: false, title: null, reason_code: 'TITLE_SMOKE_EMPTY' };
+
+  const rawWords = firstLine.split(/\s+/).filter(Boolean);
+  if (rawWords.length > 12 || firstLine.length > 96) {
+    return { ok: false, title, reason_code: 'TITLE_SMOKE_TOO_LONG' };
+  }
+
+  const words = title.split(/\s+/).filter(Boolean);
+  if (words.length < 2) return { ok: false, title, reason_code: 'TITLE_SMOKE_TOO_SHORT' };
+  if (words.length > 8 || title.length > COMMAND_EVE_TITLE_MAX_CHARS) {
+    return { ok: false, title, reason_code: 'TITLE_SMOKE_TOO_LONG' };
+  }
+
+  const normalizedTitle = normalizeSmokeText(title);
+  if (/\b(task|aufgabe|user|eve|summarize|fasse|antworte)\b/i.test(title)) {
+    return { ok: false, title, reason_code: 'TITLE_SMOKE_ECHOED_PROMPT' };
+  }
+
+  const terms = expectedTerms.map((term) => normalizeSmokeText(String(term || '').trim())).filter(Boolean);
+  if (terms.length > 0 && !terms.some((term) => normalizedTitle.includes(term))) {
+    return { ok: false, title, reason_code: 'TITLE_SMOKE_OFF_TOPIC' };
+  }
+
+  return { ok: true, title };
 }

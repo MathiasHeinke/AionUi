@@ -138,6 +138,23 @@ Acceptance:
 - Any switch to MLX, cloud, or a quick lane is backed by measured first-token
   and total latency.
 
+### K7: Local Gemma Title Smoke Gate
+
+Run the local title smoke gate before trusting Gemma for auto-title fallback or
+release notes. This gate is intentionally fail-loud: user-facing auto-title may
+keep the truncated fallback quietly, but release validation must show whether
+local Gemma can follow the short-title contract.
+
+Acceptance:
+
+- `npm run command-eve:smoke:gemma-title` writes a JSON receipt.
+- The gate picks a local `command-eve-*` model from Ollama or uses the explicit
+  `--model` argument.
+- The returned title is short, non-empty, non-rambly, not a prompt echo, and
+  contains at least one expected topic term.
+- A missing Ollama server/model, timeout, empty output, prompt echo, or
+  off-topic title exits nonzero with a `TITLE_SMOKE_*` reason code.
+
 ## Speed Strategy
 
 The default Hermes ACP lane stays 64k until a safer path is proven. Speed work
