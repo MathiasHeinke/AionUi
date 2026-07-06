@@ -14,7 +14,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
 
-import { isConversationPinned } from '../utils/groupingHelpers';
+import { isConversationArchived, isConversationPinned } from '../utils/groupingHelpers';
 import { setWorkspaceCustomName } from '@/renderer/utils/workspace/workspaceName';
 
 type UseConversationActionsParams = {
@@ -224,6 +224,39 @@ export const useConversationActions = ({
     [t]
   );
 
+  // 1.7.4a — archive is the REVERSIBLE alternative to hard delete: it soft-hides
+  // the conversation (extra.archived) into the Archive section, from where it can
+  // be restored. No data loss — important for per-client work.
+  const handleToggleArchive = useCallback(
+    async (conversation: TChatConversation) => {
+      const archived = isConversationArchived(conversation);
+      try {
+        const success = await ipcBridge.conversation.update.invoke({
+          id: conversation.id,
+          updates: {
+            extra: {
+              archived: !archived,
+              archived_at: archived ? undefined : Date.now(),
+            } as Partial<TChatConversation['extra']>,
+          } as Partial<TChatConversation>,
+          merge_extra: true,
+        });
+
+        if (success) {
+          await refreshConversationCache(conversation.id);
+          emitter.emit('chat.history.refresh');
+          Message.success(t(archived ? 'conversation.history.restoreSuccess' : 'conversation.history.archiveSuccess'));
+        } else {
+          Message.error(t('conversation.history.archiveFailed'));
+        }
+      } catch (error) {
+        console.error('Failed to toggle archive conversation:', error);
+        Message.error(t('conversation.history.archiveFailed'));
+      }
+    },
+    [t]
+  );
+
   const handleMenuVisibleChange = useCallback((conversation_id: string, visible: boolean) => {
     setDropdownVisibleId(visible ? conversation_id : null);
   }, []);
@@ -326,6 +359,7 @@ export const useConversationActions = ({
     handleRenameConfirm,
     handleRenameCancel,
     handleTogglePin,
+    handleToggleArchive,
     handleMenuVisibleChange,
     handleOpenMenu,
     handleRemoveProject,

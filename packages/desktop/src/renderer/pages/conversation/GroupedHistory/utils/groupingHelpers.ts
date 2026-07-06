@@ -18,6 +18,19 @@ export const isConversationPinned = (conversation: TChatConversation): boolean =
   return Boolean(extra?.pinned);
 };
 
+// 1.7.4a — archive is a REVERSIBLE soft-hide (vs the irreversible hard delete):
+// an archived conversation leaves the main list but is fully restorable from the
+// Archive section. Per-client work is never silently lost.
+export const isConversationArchived = (conversation: TChatConversation): boolean => {
+  const extra = conversation.extra as { archived?: boolean } | undefined;
+  return Boolean(extra?.archived);
+};
+
+export const getConversationArchivedAt = (conversation: TChatConversation): number => {
+  const extra = conversation.extra as { archived_at?: number } | undefined;
+  return typeof extra?.archived_at === 'number' ? extra.archived_at : 0;
+};
+
 export const isCronJobConversation = (conversation: TChatConversation): boolean => {
   const extra = conversation.extra as { cron_job_id?: string } | undefined;
   return Boolean(extra?.cron_job_id);
@@ -106,8 +119,14 @@ export const buildGroupedHistory = (
   conversations: TChatConversation[],
   t: (key: string) => string
 ): GroupedHistoryResult => {
-  // Filter out team-owned conversations; they are only visible via the Teams panel
-  const visibleConversations = conversations.filter((conv) => !isTeamConversation(conv));
+  // Filter out team-owned conversations; they are only visible via the Teams panel.
+  // Archived conversations (1.7.4a) leave the main list entirely and live only in
+  // the collapsible Archive section — so pinned/timeline never show an archived row.
+  const visibleConversations = conversations.filter((conv) => !isTeamConversation(conv) && !isConversationArchived(conv));
+
+  const archivedConversations = conversations
+    .filter((conversation) => !isTeamConversation(conversation) && isConversationArchived(conversation))
+    .toSorted((a, b) => getConversationArchivedAt(b) - getConversationArchivedAt(a));
 
   const pinnedConversations = visibleConversations
     .filter((conversation) => isConversationPinned(conversation))
@@ -126,6 +145,7 @@ export const buildGroupedHistory = (
 
   return {
     pinnedConversations,
+    archivedConversations,
     timelineSections: groupConversationsByWorkspace(normalConversations, t),
   };
 };

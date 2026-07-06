@@ -27,6 +27,9 @@ export type TimelineSection = {
 
 export type GroupedHistoryResult = {
   pinnedConversations: TChatConversation[];
+  // 1.7.4a — soft-archived conversations, newest-archived first. Rendered in the
+  // collapsible Archive section, never in pinned/timeline.
+  archivedConversations: TChatConversation[];
   timelineSections: TimelineSection[];
 };
 
