@@ -35,6 +35,12 @@ type UseConversationActionsParams = {
   markAsRead: (conversation_id: string) => void;
 };
 
+type FolderBatchTarget = {
+  id: string;
+  display_name: string;
+  conversations: TChatConversation[];
+};
+
 export const useConversationActions = ({
   batchMode,
   onSessionClick,
@@ -52,6 +58,9 @@ export const useConversationActions = ({
   const [moveTargetConversation, setMoveTargetConversation] = useState<TChatConversation | null>(null);
   const [moveFolderName, setMoveFolderName] = useState('');
   const [moveFolderLoading, setMoveFolderLoading] = useState(false);
+  const [renameFolderTarget, setRenameFolderTarget] = useState<FolderBatchTarget | null>(null);
+  const [renameFolderName, setRenameFolderName] = useState('');
+  const [renameFolderLoading, setRenameFolderLoading] = useState(false);
   const { id } = useParams();
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -331,6 +340,113 @@ export const useConversationActions = ({
     });
   }, [handleMoveToFolder, moveFolderName]);
 
+  const updateFolderForConversations = useCallback(
+    async (conversations: TChatConversation[], target: ConversationFolderTarget | null) => {
+      const results = await Promise.all(
+        conversations.map(async (conversation) => {
+          const success = await ipcBridge.conversation.update.invoke({
+            id: conversation.id,
+            updates: {
+              extra: buildConversationFolderExtra(target),
+            } as Partial<TChatConversation>,
+            merge_extra: true,
+          });
+          if (success) {
+            await refreshConversationCache(conversation.id);
+          }
+          return success;
+        })
+      );
+      return {
+        successCount: results.filter(Boolean).length,
+        allSucceeded: results.every(Boolean),
+      };
+    },
+    []
+  );
+
+  const handleRenameFolderStart = useCallback((folder: FolderBatchTarget) => {
+    setRenameFolderTarget(folder);
+    setRenameFolderName(folder.display_name);
+    setDropdownVisibleId(null);
+  }, []);
+
+  const handleRenameFolderCancel = useCallback(() => {
+    if (renameFolderLoading) return;
+    setRenameFolderTarget(null);
+    setRenameFolderName('');
+  }, [renameFolderLoading]);
+
+  const handleRenameFolderConfirm = useCallback(async () => {
+    if (!renameFolderTarget) return;
+    const next = renameFolderName.trim();
+    if (!next) return;
+    if (next === renameFolderTarget.display_name.trim()) {
+      handleRenameFolderCancel();
+      return;
+    }
+
+    setRenameFolderLoading(true);
+    try {
+      const result = await updateFolderForConversations(renameFolderTarget.conversations, {
+        id: renameFolderTarget.id,
+        name: next,
+      });
+      if (result.successCount > 0) {
+        emitter.emit('chat.history.refresh');
+      }
+      if (result.allSucceeded) {
+        Message.success(t('conversation.history.renameFolderSuccess'));
+        setRenameFolderTarget(null);
+        setRenameFolderName('');
+      } else {
+        Message.error(t('conversation.history.renameFolderFailed'));
+      }
+    } catch (error) {
+      console.error('Failed to rename conversation folder:', error);
+      Message.error(t('conversation.history.renameFolderFailed'));
+    } finally {
+      setRenameFolderLoading(false);
+    }
+  }, [handleRenameFolderCancel, renameFolderName, renameFolderTarget, t, updateFolderForConversations]);
+
+  const handleRemoveFolder = useCallback(
+    (folder: FolderBatchTarget) => {
+      if (folder.conversations.length === 0) return;
+
+      Modal.confirm({
+        title: t('conversation.history.removeFolderTitle'),
+        content: t('conversation.history.removeFolderConfirm', {
+          name: folder.display_name,
+          count: folder.conversations.length,
+        }),
+        okText: t('conversation.history.removeFolder'),
+        cancelText: t('conversation.history.cancelEdit'),
+        okButtonProps: { status: 'warning' },
+        onOk: async () => {
+          try {
+            const result = await updateFolderForConversations(folder.conversations, null);
+            if (result.successCount > 0) {
+              emitter.emit('chat.history.refresh');
+            }
+            if (result.allSucceeded) {
+              Message.success(t('conversation.history.removeFolderSuccess'));
+            } else {
+              Message.error(t('conversation.history.removeFolderFailed'));
+            }
+          } catch (error) {
+            console.error('Failed to remove conversation folder:', error);
+            Message.error(t('conversation.history.removeFolderFailed'));
+          }
+        },
+        style: { borderRadius: '12px' },
+        alignCenter: true,
+        getPopupContainer: () => document.body,
+      });
+    },
+    [t, updateFolderForConversations]
+  );
+
   const handleMenuVisibleChange = useCallback((conversation_id: string, visible: boolean) => {
     setDropdownVisibleId(visible ? conversation_id : null);
   }, []);
@@ -442,6 +558,14 @@ export const useConversationActions = ({
     handleMoveCancel,
     handleMoveToFolder,
     handleMoveToNewFolder,
+    renameFolderTarget,
+    renameFolderName,
+    setRenameFolderName,
+    renameFolderLoading,
+    handleRenameFolderStart,
+    handleRenameFolderCancel,
+    handleRenameFolderConfirm,
+    handleRemoveFolder,
     handleMenuVisibleChange,
     handleOpenMenu,
     handleRemoveProject,

@@ -153,6 +153,14 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
     handleMoveCancel,
     handleMoveToFolder,
     handleMoveToNewFolder,
+    renameFolderTarget,
+    renameFolderName,
+    setRenameFolderName,
+    renameFolderLoading,
+    handleRenameFolderStart,
+    handleRenameFolderCancel,
+    handleRenameFolderConfirm,
+    handleRemoveFolder,
     handleMenuVisibleChange,
     handleOpenMenu,
     handleRemoveProject,
@@ -300,6 +308,32 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
 
   const renderFolderGroup = (group: ConversationFolderGroup) => {
     const folderKey = getConversationFolderExpansionKey(group.id);
+    const folderMenu = (
+      <Menu
+        onClickMenuItem={(key) => {
+          if (key === 'rename') {
+            handleRenameFolderStart(group);
+            return;
+          }
+          if (key === 'remove') {
+            handleRemoveFolder(group);
+          }
+        }}
+      >
+        <Menu.Item key='rename'>
+          <span className='flex items-center gap-8px'>
+            <EditOne theme='outline' size='14' />
+            {t('conversation.history.renameFolder')}
+          </span>
+        </Menu.Item>
+        <Menu.Item key='remove' className='!text-[rgb(var(--warning-6))]'>
+          <span className='flex items-center gap-8px'>
+            <Delete theme='outline' size='14' />
+            {t('conversation.history.removeFolder')}
+          </span>
+        </Menu.Item>
+      </Menu>
+    );
     return (
       <div key={group.id} className='min-w-0'>
         <WorkspaceCollapse
@@ -307,6 +341,26 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
           onToggle={() => handleToggleWorkspace(folderKey)}
           siderCollapsed={collapsed}
           header={<span className='text-14px font-[500] truncate flex-1 text-t-primary min-w-0'>{group.display_name}</span>}
+          trailing={
+            <Dropdown
+              droplist={folderMenu}
+              trigger='click'
+              position='br'
+              getPopupContainer={() => document.body}
+              unmountOnExit={false}
+            >
+              <span
+                aria-label={t('conversation.history.folderActions')}
+                className={classNames(
+                  'flex-center cursor-pointer transition-colors text-t-secondary hover:text-t-primary size-20px rd-4px sider-action-btn',
+                  isMobile ? 'flex' : 'hidden group-hover:flex'
+                )}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <MoreOne theme='outline' size='14' fill='currentColor' className='block leading-none' />
+              </span>
+            </Dropdown>
+          }
         >
           <div className={classNames('flex flex-col min-w-0', { 'mt-1px': !collapsed })}>
             {group.conversations.map((conversation) => renderConversation(conversation, true))}
@@ -377,6 +431,29 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
           onChange={setRenameProjectName}
           onPressEnter={handleRenameProjectConfirm}
           placeholder={t('conversation.history.renameProjectPlaceholder')}
+          allowClear
+        />
+      </Modal>
+
+      <Modal
+        title={t('conversation.history.renameFolderTitle')}
+        visible={renameFolderTarget !== null}
+        onOk={handleRenameFolderConfirm}
+        onCancel={handleRenameFolderCancel}
+        okText={t('conversation.history.saveName')}
+        cancelText={t('conversation.history.cancelEdit')}
+        confirmLoading={renameFolderLoading}
+        okButtonProps={{ disabled: !renameFolderName.trim() }}
+        style={{ borderRadius: '12px' }}
+        alignCenter
+        getPopupContainer={() => document.body}
+      >
+        <Input
+          autoFocus
+          value={renameFolderName}
+          onChange={setRenameFolderName}
+          onPressEnter={handleRenameFolderConfirm}
+          placeholder={t('conversation.history.renameFolderPlaceholder')}
           allowClear
         />
       </Modal>
@@ -776,7 +853,7 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
                             unmountOnExit={false}
                           >
                             <span
-                              aria-label='Project actions'
+                              aria-label={t('conversation.history.projectActions')}
                               className={classNames(
                                 'flex-center cursor-pointer transition-colors text-t-secondary hover:text-t-primary size-20px rd-4px sider-action-btn',
                                 isMobile ? 'flex' : 'hidden group-hover:flex'
