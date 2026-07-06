@@ -1,0 +1,12 @@
+{
+  "seatRail": {
+    "label": "Kunden",
+    "add": "Kunde hinzufügen",
+    "collapse": "Leiste einklappen",
+    "expand": "Leiste ausklappen",
+    "activeSeat": "{{name}} (aktiv)",
+    "switchWhileGeneratingTitle": "Antwort läuft noch",
+    "switchWhileGeneratingBody": "Beim Seat-Wechsel wird die laufende Antwort abgebrochen und verworfen. Trotzdem wechseln?",
+    "switchAnyway": "Trotzdem wechseln"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "seatRail": {
+    "label": "Clients",
+    "add": "Add client",
+    "collapse": "Collapse rail",
+    "expand": "Expand rail",
+    "activeSeat": "{{name}} (active)",
+    "switchWhileGeneratingTitle": "A response is still running",
+    "switchWhileGeneratingBody": "Switching seats aborts and discards the running response. Switch anyway?",
+    "switchAnyway": "Switch anyway"
+  }
+}
