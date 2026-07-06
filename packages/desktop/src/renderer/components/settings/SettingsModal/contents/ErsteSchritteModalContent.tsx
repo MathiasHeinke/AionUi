@@ -5,30 +5,69 @@
  */
 
 /**
- * v1.6.x — the "Erste Schritte" settings surface (F3). Settings used to open on
- * the Model tab, which is thin/empty for a cloud user; this gives them a
- * meaningful first screen: their readiness ("startklar" or the real remaining
- * gaps) with click-through links.
+ * v1.6.x → 1.7.2 — the "Erste Schritte" settings surface (F3).
+ *
+ * v1.6 shipped this as a status MIRROR (the same readiness card the chat greeting
+ * shows). 1.7.2 turns it into a real Day-0 HUB: the readiness block stays on top,
+ * and below it a "Nächste Schritte" grid lists the concrete first steps, each
+ * deep-linking to the (already existing) page that does it — the Day-0 actions
+ * that previously were only discoverable by hunting (model/local, Company-Brain,
+ * client seat, connectors, team, skills, privacy, budget, name).
  *
  * It REUSES the S0 onboarding-status data path via useOnboardingStatus (the same
- * aggregator the chat greeting uses) — no new IPC, no new data path. refresh-on-
- * focus so a gap the operator just closed (e.g. re-activated in the browser)
- * clears without a restart. Honesty: on a failed/unknown status it renders a
- * claim-free line, never a false "ready".
+ * aggregator the chat greeting uses) — no new IPC, no new cloud call. refresh-on-
+ * focus so a gap the operator just closed clears without a restart.
+ *
+ * HONESTY (founder 2026-07-06): the step chips are 'erledigt' ONLY where a real
+ * signal proves it (first-value readiness, the identity item). Everything we can't
+ * cheaply prove is a neutral 'öffnen' — never a fake green check, never a red
+ * "you failed". On a failed/unknown status the readiness block renders a claim-
+ * free line, never a false "ready"; the hub steps still work (all neutral).
  */
 
 import React, { useCallback } from 'react';
-import { Button } from '@arco-design/web-react';
+import { Button, Tag } from '@arco-design/web-react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { isElectronDesktop } from '@renderer/utils/platform';
+import { isElectronDesktop, openAccountWeb } from '@renderer/utils/platform';
 import { useOnboardingStatus } from '@renderer/hooks/useOnboardingStatus';
 import { targetToRoute } from '@renderer/pages/conversation/components/OnboardingReadinessGreeting';
+import {
+  buildErsteSchritteHubSteps,
+  type ErsteSchritteItemState,
+  type ErsteSchritteStep,
+  type ErsteSchritteStepStatus,
+} from '@/common/config/ersteSchritteHubCore';
+
+const STATUS_TAG_COLOR: Record<ErsteSchritteStepStatus, 'green' | 'orange' | 'gray'> = {
+  done: 'green',
+  attention: 'orange',
+  optional: 'gray',
+};
+
+/** German fallback copy per step (the i18n locale files override these keys). */
+const STEP_COPY: Record<string, { title: string; desc: string }> = {
+  'ki-spur': { title: 'KI-Spur wählen', desc: 'Die Cloud-KI antwortet sofort. Optional: die lokale KI (Smart Local) laden.' },
+  'company-brain': { title: 'Company-Brain füllen', desc: 'Erzähl EVE dein Geschäft — sie merkt es sich und arbeitet damit.' },
+  kunde: { title: 'Ersten Kunden anlegen', desc: 'Als Agentur einen Kunden-Seat hinzufügen (öffnet dein Konto im Browser).' },
+  connectors: { title: 'Integration verbinden', desc: 'Geprüfte Connectoren freischalten — Schlüssel bleiben im Vault, nie im Chat.' },
+  team: { title: 'Dein Team', desc: 'Rollen, Budget und Worker (z. B. deine Claude-CLI) steuern.' },
+  skills: { title: 'Was EVE kann', desc: 'Die Fähigkeiten-Bibliothek — inklusive von EVE selbst erstellter Skills.' },
+  privacy: { title: 'Datenschutz', desc: 'Telemetrie ist standardmäßig aus. Hier prüfen und steuern.' },
+  budget: { title: 'Budget & Guthaben', desc: 'Ausgabe-Limit, Guthaben und Pakete verwalten.' },
+  name: { title: 'Wie EVE dich nennt', desc: 'Bestätige, wie EVE dich ansprechen soll.' },
+};
+
+const STATUS_LABEL: Record<ErsteSchritteStepStatus, string> = {
+  done: 'erledigt',
+  attention: 'offen',
+  optional: 'öffnen',
+};
 
 const ErsteSchritteModalContent: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { loading, greeting, error, refresh } = useOnboardingStatus({ refreshOnFocus: true });
+  const { loading, model, greeting, refresh } = useOnboardingStatus({ refreshOnFocus: true });
 
   const onNavigate = useCallback(
     (route: string) => {
@@ -37,6 +76,17 @@ const ErsteSchritteModalContent: React.FC = () => {
       });
     },
     [navigate]
+  );
+
+  const onStepClick = useCallback(
+    (step: ErsteSchritteStep) => {
+      if (step.isWebIntent) {
+        void openAccountWeb(step.route);
+        return;
+      }
+      onNavigate(step.route);
+    },
+    [onNavigate]
   );
 
   // WebUI / non-desktop: no onboarding data — render a neutral, claim-free note.
@@ -49,6 +99,14 @@ const ErsteSchritteModalContent: React.FC = () => {
       </div>
     );
   }
+
+  // Honest inputs to the hub: 'done' only where a real signal proves it; a null
+  // model (loading/failed read) yields all-neutral steps, never false claims.
+  const identityItem = model?.items.find((item) => item.id === 'identity');
+  const hubSteps = buildErsteSchritteHubSteps({
+    firstValueReady: model?.first_value_ready === true,
+    identityState: (identityItem?.state ?? 'unknown') as ErsteSchritteItemState,
+  });
 
   return (
     <div className='flex flex-col gap-16px p-4px' data-testid='erste-schritte-content'>
@@ -118,7 +176,38 @@ const ErsteSchritteModalContent: React.FC = () => {
           })}
         </div>
       )}
-      {error ? null : null}
+
+      {/* 1.7.2 — the real Day-0 hub: concrete next steps, each deep-linking to the
+          existing page that does it. Honest chips ('erledigt' only where proven). */}
+      <div className='flex flex-col gap-8px' data-testid='erste-schritte-hub'>
+        <h3 className='m-0 text-14px font-700 leading-22px text-t-primary'>
+          {t('settings.ersteSchritteNextSteps', { defaultValue: 'Nächste Schritte' })}
+        </h3>
+        <div className='grid gap-8px sm:grid-cols-2'>
+          {hubSteps.map((step) => (
+            <button
+              key={step.id}
+              type='button'
+              data-testid={`erste-schritte-step-${step.id}`}
+              data-status={step.status}
+              onClick={() => onStepClick(step)}
+              className='flex flex-col gap-4px rounded-12px border border-solid border-[var(--color-border-2)] bg-fill-1 px-14px py-12px text-left cursor-pointer hover:bg-fill-2'
+            >
+              <div className='flex items-start justify-between gap-8px'>
+                <span className='text-13px font-600 leading-20px text-t-primary'>
+                  {t(`settings.ersteSchritteStep.${step.id}.title`, { defaultValue: STEP_COPY[step.id]?.title ?? step.id })}
+                </span>
+                <Tag color={STATUS_TAG_COLOR[step.status]} size='small'>
+                  {t(`settings.ersteSchritteStatus.${step.status}`, { defaultValue: STATUS_LABEL[step.status] })}
+                </Tag>
+              </div>
+              <span className='text-12px leading-18px text-t-secondary'>
+                {t(`settings.ersteSchritteStep.${step.id}.desc`, { defaultValue: STEP_COPY[step.id]?.desc ?? '' })}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 };

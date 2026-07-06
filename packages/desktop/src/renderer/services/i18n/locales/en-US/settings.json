@@ -1110,5 +1110,22 @@
   "ersteSchritteIntro": "Your starting point with EVE — here you can see whether everything is ready.",
   "ersteSchritteRefresh": "Refresh",
   "ersteSchritteWebui": "You'll find the first steps in the desktop app.",
-  "ersteSchritteUnavailable": "I couldn't read your setup status just now — you can keep going in the chat anyway."
+  "ersteSchritteUnavailable": "I couldn't read your setup status just now — you can keep going in the chat anyway.",
+  "ersteSchritteNextSteps": "Next steps",
+  "ersteSchritteStatus": {
+    "done": "done",
+    "attention": "to do",
+    "optional": "open"
+  },
+  "ersteSchritteStep": {
+    "ki-spur": { "title": "Choose your AI lane", "desc": "The cloud AI answers right away. Optional: load the local AI (Smart Local)." },
+    "company-brain": { "title": "Fill the Company Brain", "desc": "Tell EVE about your business — she remembers it and works from it." },
+    "kunde": { "title": "Add your first client", "desc": "As an agency, add a client seat (opens your account in the browser)." },
+    "connectors": { "title": "Connect an integration", "desc": "Enable vetted connectors — keys stay in the vault, never in chat." },
+    "team": { "title": "Your team", "desc": "Manage roles, budget and workers (e.g. your Claude CLI)." },
+    "skills": { "title": "What EVE can do", "desc": "The skills library — including skills EVE authored herself." },
+    "privacy": { "title": "Privacy", "desc": "Telemetry is off by default. Review and control it here." },
+    "budget": { "title": "Budget & credits", "desc": "Manage your spend cap, credits and packs." },
+    "name": { "title": "How EVE addresses you", "desc": "Confirm how EVE should address you." }
+  }
 }

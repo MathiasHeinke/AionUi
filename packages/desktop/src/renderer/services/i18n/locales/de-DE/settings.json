@@ -1071,5 +1071,22 @@
   "ersteSchritteIntro": "Dein Startpunkt mit EVE — hier siehst du, ob alles bereit ist.",
   "ersteSchritteRefresh": "Aktualisieren",
   "ersteSchritteWebui": "Die Ersten Schritte siehst du in der Desktop-App.",
-  "ersteSchritteUnavailable": "Ich konnte deinen Einrichtungs-Status gerade nicht lesen — im Chat geht es trotzdem weiter."
+  "ersteSchritteUnavailable": "Ich konnte deinen Einrichtungs-Status gerade nicht lesen — im Chat geht es trotzdem weiter.",
+  "ersteSchritteNextSteps": "Nächste Schritte",
+  "ersteSchritteStatus": {
+    "done": "erledigt",
+    "attention": "offen",
+    "optional": "öffnen"
+  },
+  "ersteSchritteStep": {
+    "ki-spur": { "title": "KI-Spur wählen", "desc": "Die Cloud-KI antwortet sofort. Optional: die lokale KI (Smart Local) laden." },
+    "company-brain": { "title": "Company-Brain füllen", "desc": "Erzähl EVE dein Geschäft — sie merkt es sich und arbeitet damit." },
+    "kunde": { "title": "Ersten Kunden anlegen", "desc": "Als Agentur einen Kunden-Seat hinzufügen (öffnet dein Konto im Browser)." },
+    "connectors": { "title": "Integration verbinden", "desc": "Geprüfte Connectoren freischalten — Schlüssel bleiben im Vault, nie im Chat." },
+    "team": { "title": "Dein Team", "desc": "Rollen, Budget und Worker (z. B. deine Claude-CLI) steuern." },
+    "skills": { "title": "Was EVE kann", "desc": "Die Fähigkeiten-Bibliothek — inklusive von EVE selbst erstellter Skills." },
+    "privacy": { "title": "Datenschutz", "desc": "Telemetrie ist standardmäßig aus. Hier prüfen und steuern." },
+    "budget": { "title": "Budget & Guthaben", "desc": "Ausgabe-Limit, Guthaben und Pakete verwalten." },
+    "name": { "title": "Wie EVE dich nennt", "desc": "Bestätige, wie EVE dich ansprechen soll." }
+  }
 }

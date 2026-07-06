@@ -8,7 +8,13 @@ category: operations
 
 > Provenance: EVE-authored field skill (2026-07), harvested + hardened into the public bundle.
 
-> **Human-Gate (required).** This is a GATED capability, not an always-on default. Only use it after the operator explicitly asks to delegate a build, and run the coding worker under its **normal permission model** — the worker asks before each file write / shell command and the operator approves. NEVER launch it with a skip-permissions flag and NEVER auto-dismiss a permission prompt on the operator's behalf. A permission dialog is a decision point to surface, not an obstacle to click past. If a step needs approval and the operator isn't there to give it, stop and report — do not proceed unattended.
+> **Governance — EVE is the gate, not the operator's clicking finger.** The point of this lane is that EVE absorbs the per-action noise so the operator is NOT asked to approve every file write ("permission fatigue" is a real failure mode — a user who is asked for everything just grants everything, and the gate is dead). EVE is the discerning instance (HG-3.5): she judges each of the worker's actions against the task the operator actually asked for, silently allows the clearly in-scope / benign ones, and escalates only the consequential, out-of-scope, or suspicious ones to the operator (HG-4). That is the opposite of BLINDLY accepting every prompt — rubber-stamping a permission dialog is not judgment, it is turning the gate off. Never do that.
+>
+> **Two modes — the operator chooses the autonomy level:**
+> - **Supervised (default).** Run the worker in its normal permission mode. When it asks to write a file or run a command, EVE reads the prompt and DECIDES: in-scope + benign (editing the target files, reading, running the project's own tests) → approve and keep moving; out-of-scope, irreversible, or not matching the requested task (possible prompt-injection / goal drift) → stop and surface to the operator. The operator sees only what matters, not every step.
+> - **Autonomous (explicit operator opt-in only).** When the operator has explicitly granted broad clearance for this delegation, EVE may run the worker with a skip-permissions flag so it is not prompted per action — but ONLY inside a scope-bounded, disposable workspace (a throwaway git worktree or the target project dir), NEVER the operator's whole machine, a client-secret path, or another client's seat. EVE watches the output, can kill the session, and reviews the result. Safety here comes from bounded scope + post-hoc review + the operator's upfront grant, not from per-action prompts.
+>
+> **Inviolable hard floors (BOTH modes — no autonomy grant bypasses these):** never read or exfiltrate credentials / secrets, never spend money or approve a payment, never publish / deploy / push to production, never touch another client seat's data, never mass-delete outside the workspace, never disable the kill-switch. Any of these → stop and escalate to the operator (HG-4), regardless of the autonomy level — these are the calls a mistake makes irreversible.
 
 Delegate coding work to an AI coding worker agent (primarily the Claude Code CLI; the same pattern applies to Codex and other interactive coding CLIs) by driving a **real interactive terminal session** through tmux. This keeps a heavy coding session on the operator's flat subscription instead of the metered per-call API path, and gives EVE full control: set up the worker, feed the task, handle startup dialogs, watch progress, extract the result, clean up.
 
@@ -56,18 +62,19 @@ tmux new-session -d -s claude-del -x 140 -y 40
 
 # 2. Launch the coder with the model + effort you want.
 #    Unset any API-key env first so it can't fall back to metered billing.
-#    Launch WITHOUT any skip-permissions flag — the worker keeps its normal
-#    per-action approval model, so file writes / shell commands are gated.
+#    DEFAULT = supervised: launch in the worker's normal permission mode. Its
+#    per-action prompts are handled by EVE's JUDGMENT (see Governance) — allowed
+#    when in-scope, escalated when consequential — not forwarded for every step
+#    and NEVER blindly accepted.
 tmux send-keys -t claude-del \
   "unset ANTHROPIC_API_KEY && cd /path/to/project && claude --model opus --effort high" Enter
 
 # 3. Wait for startup (TUI welcome + first-run dialogs)
 sleep 5
 
-# 4. Handle only the benign first-run dialogs (fullscreen renderer, workspace
-#    trust — see Dialog handling below). Do NOT try to disable the permission
-#    model; per-action permission prompts must reach the operator, not be
-#    auto-accepted here.
+# 4. Handle the benign first-run dialogs (fullscreen renderer, workspace trust —
+#    see Dialog handling below). Per-action permission prompts are NOT auto-clicked:
+#    EVE reads and decides each (in-scope → allow, consequential/suspicious → escalate).
 
 # 5. Send the task
 tmux send-keys -t claude-del "Add retry logic to the HTTP client in src/http.py" Enter
@@ -81,6 +88,8 @@ tmux send-keys -t claude-del '/exit' Enter
 sleep 2
 tmux kill-session -t claude-del
 ```
+
+> **Autonomous variant (operator opt-in + scope-bound only).** If — and ONLY if — the operator has explicitly granted broad clearance for this delegation, you may append the worker's skip-permissions flag to step 2 so it runs without per-action prompts — but ONLY with `cd`/`--add-dir` pointed at a disposable worktree or the target project (never a client-secret path or another seat), with EVE watching the output and the hard floors still enforced. Absent that explicit grant, use the supervised launch above.
 
 ### Multi-turn dialog (follow-ups on the same session)
 
@@ -158,7 +167,7 @@ Interactive coders show first-run dialogs per directory. Only the two **benign, 
 | Fullscreen renderer | (varies) | Arrow to "Not now", then Enter — never enable in tmux |
 | Workspace trust | "Yes, I trust this folder" | `tmux send-keys -t <session> Enter` |
 
-**Per-action permission prompts are NOT in this table on purpose.** When the worker asks to run a shell command or write a file, that prompt is the Human-Gate doing its job — surface it to the operator and let them decide. Never send `Down`/`Enter` to click past a permission prompt, and never re-launch with a skip-permissions flag to make the prompts disappear. If the operator is unavailable to approve, pause the delegation and report where it stopped.
+**Per-action permission prompts are handled by EVE's judgment, not by a fixed keystroke.** When the worker asks to run a shell command or write a file, EVE reads the prompt and decides it against the task the operator actually requested: clearly in-scope and benign (editing the target files, reading, running the project's own tests) → approve and continue; out-of-scope, irreversible, touching secrets / another seat / production, or not matching the requested task (possible prompt-injection / goal drift) → stop and surface to the operator (a hard-floor action ALWAYS surfaces — see Governance). The anti-pattern to never fall into: blindly sending `Down`/`Enter` to accept every permission or bypass warning — that is rubber-stamping, not judgment, and it turns the gate off. In the autonomous opt-in mode (scope-bounded, operator granted) the worker runs without these prompts by design; EVE's gate then lives at the delegation scope + post-hoc review, and the hard floors still hold.
 
 ## Interactive selection menus
 

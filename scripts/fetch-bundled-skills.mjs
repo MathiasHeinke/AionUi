@@ -163,6 +163,28 @@ export function decideVerify({ bundle, hasOwnSkillMd, nestedSkillMdCount }) {
   return { ok: false, reason: 'missing SKILL.md' };
 }
 
+/**
+ * Fail-closed CONTENT gate (2026-07-06). A bundled skill must never teach the
+ * permission RUBBER-STAMP anti-pattern — blindly accepting / clicking past a
+ * coding worker's permission or bypass warning (the Codex C2 finding). This runs at
+ * BUILD time, on what actually LANDED after the source-refresh: the suite test
+ * (aiCodingDelegationGate) checks the committed snapshot, but the build refreshes
+ * the snapshot FROM the canonical source, so if that source ever reverts to the
+ * dangerous framing the build itself must REFUSE to ship it (that exact gap shipped
+ * once — hardened commit, but the build re-pulled a dangerous source). Note this
+ * forbids the blind rubber-stamp, NOT the legitimate operator-opt-in autonomy mode.
+ * Pure: returns the list of forbidden pattern ids found in `text`.
+ */
+export const FORBIDDEN_SKILL_CONTENT = [
+  { id: 'wrong-for-automation', re: /WRONG for automation/i },
+  { id: 'bypass-permissions-warning-row', re: /Bypass-permissions warning/i },
+  { id: 'auto-accept-permission-warning', re: /arrow\s+\**Down\**\s+to the accept option/i },
+];
+
+export function findForbiddenSkillContent(text) {
+  return FORBIDDEN_SKILL_CONTENT.filter((f) => f.re.test(String(text || ''))).map((f) => f.id);
+}
+
 // ---------------------------------------------------------------------------
 // fs helpers (side-effecting; small + dependency-free)
 // ---------------------------------------------------------------------------
@@ -195,6 +217,23 @@ function countNestedSkillMd(dir) {
     }
   }
   return count;
+}
+
+/** Collect every SKILL.md path under `dir` (recursive) — for the content gate. */
+function collectSkillMdPaths(dir) {
+  const out = [];
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const ent of entries) {
+    const full = path.join(dir, ent.name);
+    if (ent.isDirectory()) out.push(...collectSkillMdPaths(full));
+    else if (ent.isFile() && ent.name === 'SKILL.md') out.push(full);
+  }
+  return out;
 }
 
 /** Recursively copy a directory tree (markdown only; preserves layout). */
@@ -276,6 +315,21 @@ export function stageBundledSkills({ srcRoot, snapshotRoot, skills = EVE_STRATEG
     if (!verify.ok) {
       failures.push(`bundled_skill_invalid:${skill.id}`);
       log(`INVALID ${skill.id} — ${verify.reason}`);
+    }
+
+    // FAIL-CLOSED content gate: no landed SKILL.md may teach the permission rubber-stamp.
+    for (const mdPath of collectSkillMdPaths(destDir)) {
+      let text = '';
+      try {
+        text = fs.readFileSync(mdPath, 'utf8');
+      } catch {
+        continue;
+      }
+      const forbidden = findForbiddenSkillContent(text);
+      if (forbidden.length) {
+        failures.push(`bundled_skill_forbidden_content:${skill.id}:${forbidden.join(',')}`);
+        log(`FORBIDDEN CONTENT ${skill.id} — ${forbidden.join(', ')} in ${path.relative(snapshotRoot, mdPath)}`);
+      }
     }
   }
   return failures;
