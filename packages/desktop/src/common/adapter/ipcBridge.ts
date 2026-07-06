@@ -45,6 +45,10 @@ import type {
 } from '../types/provider/providerApi';
 import type { CommandEveLocalSttRequest, SpeechToTextRequest, SpeechToTextResult } from '../types/provider/speech';
 import type {
+  CommandEveCloudTitleRequest,
+  CommandEveCloudTitleResult,
+} from '../config/eveTitleCore';
+import type {
   ITeamAgentRemovedEvent,
   ITeamAgentRenamedEvent,
   ITeamAgentSpawnedEvent,
@@ -1637,6 +1641,12 @@ export const commandEve = {
     IBridgeResponse<ICommandEveLocalTitleResult>,
     { text: string; locale?: 'de-DE' | 'en-US' }
   >('command-eve.generate-local-title'),
+  // Auto session-title cloud lane: MAIN calls the app-billed eve-title Edge
+  // Function with the CEVE bearer. Renderer never sees the bearer or org key.
+  generateCloudTitle: bridge.buildProvider<
+    IBridgeResponse<CommandEveCloudTitleResult>,
+    CommandEveCloudTitleRequest
+  >('command-eve.generate-cloud-title'),
   evaluateGateDecision: bridge.buildProvider<
     IBridgeResponse<ICommandEveGateDecision>,
     { action: ICommandEveGateAction }
