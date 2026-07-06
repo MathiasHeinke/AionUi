@@ -17,7 +17,44 @@
   "emptyColumn": "Keine Karten",
   "card": {
     "owner": "Owner",
-    "audit": "Audit"
+    "audit": "Audit",
+    "detail": {
+      "show": "Details anzeigen ▾",
+      "hide": "Details ausblenden ▴",
+      "provenanceTitle": "Herkunft",
+      "owner": "Owner",
+      "source": "Quelle",
+      "run": "Run",
+      "created": "Erstellt",
+      "updated": "Aktualisiert",
+      "draftTitle": "Entwurf",
+      "at": "Am",
+      "auditTitle": "Governance & Audit",
+      "governance": "Governance",
+      "auditEvent": "Audit-Event",
+      "draftAudit": "Entwurf-Audit",
+      "controllerReview": "Controller-Review",
+      "controllerDecision": "Controller-Entscheidung",
+      "noAudit": "Noch keine Audit-Belege verknüpft.",
+      "ladderTitle": "Fortschritt",
+      "highestStage": "Höchste Stufe",
+      "executorPromoted": "Executor freigegeben",
+      "yes": "Ja",
+      "no": "Nein"
+    }
+  },
+  "governance": {
+    "read_only": "Nur lesen",
+    "proof_write_recorded": "Proof geschrieben",
+    "unknown": "Unbekannt"
+  },
+  "ladder": {
+    "output_approved": "Output freigegeben",
+    "dispatch_requested": "Dispatch angefragt",
+    "observed_run": "Run beobachtet",
+    "start_gate": "Start-Gate",
+    "dispatcher_prepared": "Dispatcher vorbereitet",
+    "executor_promoted": "Executor promoted"
   },
   "actions": {
     "comment": "Kommentar",

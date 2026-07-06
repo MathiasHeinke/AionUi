@@ -17,7 +17,44 @@
   "emptyColumn": "No cards",
   "card": {
     "owner": "Owner",
-    "audit": "Audit"
+    "audit": "Audit",
+    "detail": {
+      "show": "Show details ▾",
+      "hide": "Hide details ▴",
+      "provenanceTitle": "Origin",
+      "owner": "Owner",
+      "source": "Source",
+      "run": "Run",
+      "created": "Created",
+      "updated": "Updated",
+      "draftTitle": "Draft",
+      "at": "At",
+      "auditTitle": "Governance & audit",
+      "governance": "Governance",
+      "auditEvent": "Audit event",
+      "draftAudit": "Draft audit",
+      "controllerReview": "Controller review",
+      "controllerDecision": "Controller decision",
+      "noAudit": "No audit records linked yet.",
+      "ladderTitle": "Progress",
+      "highestStage": "Highest stage",
+      "executorPromoted": "Executor promoted",
+      "yes": "Yes",
+      "no": "No"
+    }
+  },
+  "governance": {
+    "read_only": "Read-only",
+    "proof_write_recorded": "Proof recorded",
+    "unknown": "Unknown"
+  },
+  "ladder": {
+    "output_approved": "Output approved",
+    "dispatch_requested": "Dispatch requested",
+    "observed_run": "Observed run",
+    "start_gate": "Start gate",
+    "dispatcher_prepared": "Dispatcher prepared",
+    "executor_promoted": "Executor promoted"
   },
   "actions": {
     "comment": "Comment",

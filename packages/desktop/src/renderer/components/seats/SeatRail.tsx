@@ -22,7 +22,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { Message, Modal, Tooltip } from '@arco-design/web-react';
-import { isAnyGenerating } from '@renderer/services/commandEveGenerationActivity';
+import { isAnyGenerating, ensureAcpGenerationTracking } from '@renderer/services/commandEveGenerationActivity';
 import { useTranslation } from 'react-i18next';
 import { useSeatAccess } from '@renderer/hooks/useSeatAccess';
 import { openAccountWeb } from '@renderer/utils/platform';
@@ -129,6 +129,14 @@ const SeatRail: React.FC = () => {
   const [expanded, setExpanded] = useState(true);
 
   const visible = !loading && access.role === 'admin';
+
+  // 1.7.3 (Codex #1): make sure the global ACP generation tracker is attached from
+  // the moment the seat rail exists — BEFORE any switch — so isAnyGenerating() is
+  // correct even for a turn streaming under a conversation view that is not mounted.
+  // Idempotent; a no-op once the bridge-backed listener is live.
+  useEffect(() => {
+    ensureAcpGenerationTracking();
+  }, []);
 
   // Publish the rail's current width so the global toast offset (layout.css) keeps
   // content centered for admins. 0 when hidden/unmounted (non-admins unaffected).

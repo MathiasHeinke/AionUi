@@ -251,8 +251,13 @@ export function projectKanbanCardDetail(card: IKanbanBoardCard): IKanbanCardDeta
   const controllerDecisionAuditEventId = normalizeText(card.controller_decision_audit_event_id);
 
   const ladder = card.ladder;
-  const recordedStages = (ladder?.rungs ?? []).filter((rung) => rung.recorded).map((rung) => rung.stage);
-  const hasLadder = !!ladder && (ladder.highest_recorded_stage !== null || recordedStages.length > 0);
+  // Runtime-defensive (Codex 1.7.3 #4): a slim/malformed payload could carry a
+  // non-array `rungs`; treat anything but an array as no rungs so expanding a card
+  // never throws. A missing highest_recorded_stage is also tolerated.
+  const ladderRungs = Array.isArray(ladder?.rungs) ? ladder.rungs : [];
+  const recordedStages = ladderRungs.filter((rung) => rung && rung.recorded).map((rung) => rung.stage);
+  const highestStage = typeof ladder?.highest_recorded_stage === 'string' ? ladder.highest_recorded_stage : null;
+  const hasLadder = !!ladder && (highestStage !== null || recordedStages.length > 0);
 
   return {
     provenance: {
@@ -281,8 +286,8 @@ export function projectKanbanCardDetail(card: IKanbanBoardCard): IKanbanCardDeta
     },
     ladder: hasLadder
       ? {
-          highestStage: ladder!.highest_recorded_stage,
-          executorPromoted: ladder!.executor_promoted,
+          highestStage,
+          executorPromoted: ladder!.executor_promoted === true,
           recordedStages,
         }
       : null,

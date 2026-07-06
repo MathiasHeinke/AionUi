@@ -6,52 +6,90 @@
 
 /**
  * 1.7.3 — the generation-activity registry that backs the seat-switch guard.
- * The conversation marks itself generating while a turn streams; the seat rail
- * reads isAnyGenerating() to warn before a switch would kill the in-flight turn.
+ *
+ * The signal is driven by the GLOBAL ACP response stream (applyAcpStreamActivity)
+ * plus a send-time mark — NOT by any mounted component. The seat rail reads
+ * isAnyGenerating() to warn before a switch would kill an in-flight turn. These
+ * tests pin the two Codex 1.7.3 audit fixes: (#1) a turn stays tracked regardless
+ * of any view being mounted, cleared only on a terminal event; (#2) the send-time
+ * mark covers the window before the first `start` event.
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  applyAcpStreamActivity,
   clearAllGenerating,
+  clearConversationGenerating,
   isAnyGenerating,
-  setGenerating,
+  markConversationGenerating,
 } from '@renderer/services/commandEveGenerationActivity';
 
-describe('commandEveGenerationActivity — the seat-switch guard signal', () => {
+describe('commandEveGenerationActivity — the seat-switch guard signal (1.7.3)', () => {
   afterEach(() => clearAllGenerating());
 
   it('is empty by default', () => {
     expect(isAnyGenerating()).toBe(false);
   });
 
-  it('reflects a conversation that starts and finishes a turn', () => {
-    setGenerating('conv-a', true);
+  it('#2 marks generation at send time (before the first stream event) and clears on a failed send', () => {
+    markConversationGenerating('conv-a');
     expect(isAnyGenerating()).toBe(true);
-    setGenerating('conv-a', false);
+    // Send failed before it ever started streaming -> explicit clear.
+    clearConversationGenerating('conv-a');
+    expect(isAnyGenerating()).toBe(false);
+  });
+
+  it('tracks a full turn from the global stream: start → content → finish', () => {
+    applyAcpStreamActivity({ type: 'start', conversation_id: 'conv-a' });
+    expect(isAnyGenerating()).toBe(true);
+    applyAcpStreamActivity({ type: 'content', conversation_id: 'conv-a' });
+    expect(isAnyGenerating()).toBe(true);
+    applyAcpStreamActivity({ type: 'finish', conversation_id: 'conv-a' });
+    expect(isAnyGenerating()).toBe(false);
+  });
+
+  it('#1 stays tracked independent of any mounted view — only a terminal event clears it', () => {
+    // A turn starts and keeps streaming while the user navigates away. Nothing
+    // "unmounts" the flag now — unrelated events do not clear it.
+    applyAcpStreamActivity({ type: 'start', conversation_id: 'conv-bg' });
+    expect(isAnyGenerating()).toBe(true);
+    applyAcpStreamActivity({ type: 'acp_context_usage', conversation_id: 'conv-bg', data: { used: 1, size: 2 } });
+    expect(isAnyGenerating()).toBe(true);
+    // The real terminal signal (from the global stream) clears it.
+    applyAcpStreamActivity({ type: 'error', conversation_id: 'conv-bg' });
     expect(isAnyGenerating()).toBe(false);
   });
 
   it('stays true while ANY conversation is generating (multiple in flight)', () => {
-    setGenerating('conv-a', true);
-    setGenerating('conv-b', true);
+    applyAcpStreamActivity({ type: 'start', conversation_id: 'a' });
+    markConversationGenerating('b');
     expect(isAnyGenerating()).toBe(true);
-    setGenerating('conv-a', false);
-    // conv-b still streaming → switch would still interrupt.
+    applyAcpStreamActivity({ type: 'finish', conversation_id: 'a' });
+    // b is still marked → a switch would still interrupt it.
     expect(isAnyGenerating()).toBe(true);
-    setGenerating('conv-b', false);
+    clearConversationGenerating('b');
     expect(isAnyGenerating()).toBe(false);
   });
 
-  it('is idempotent and set-based (clearing one id twice is safe)', () => {
-    setGenerating('conv-a', true);
-    setGenerating('conv-a', true); // duplicate mark
-    setGenerating('conv-a', false);
-    setGenerating('conv-a', false); // duplicate clear
+  it('ignores bootstrap / non-turn events so warmup never registers a phantom turn', () => {
+    applyAcpStreamActivity({ type: 'agent_status', conversation_id: 'c', data: { status: 'session_active' } });
+    applyAcpStreamActivity({ type: 'acp_model_info', conversation_id: 'c' });
+    applyAcpStreamActivity({ type: 'acp_context_usage', conversation_id: 'c', data: { used: 1, size: 2 } });
     expect(isAnyGenerating()).toBe(false);
   });
 
-  it('ignores an empty conversation id (never a stuck ghost flag)', () => {
-    setGenerating('', true);
+  it('treats a done thinking block as not-activity, but an active thinking block as activity', () => {
+    applyAcpStreamActivity({ type: 'thinking', conversation_id: 'c', data: { status: 'done' } });
+    expect(isAnyGenerating()).toBe(false);
+    applyAcpStreamActivity({ type: 'thinking', conversation_id: 'c', data: {} });
+    expect(isAnyGenerating()).toBe(true);
+  });
+
+  it('ignores an empty/invalid conversation id (never a stuck ghost flag)', () => {
+    applyAcpStreamActivity({ type: 'start', conversation_id: '' });
+    markConversationGenerating('');
+    applyAcpStreamActivity(null);
+    applyAcpStreamActivity({ type: 'start' });
     expect(isAnyGenerating()).toBe(false);
   });
 });

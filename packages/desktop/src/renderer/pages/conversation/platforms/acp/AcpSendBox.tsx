@@ -27,6 +27,7 @@ import { createModeLabelFormatter } from '@/renderer/utils/model/agentModes';
 import { useEveInferenceSelection } from '@/renderer/hooks/agent/useEveInferenceSelection';
 import { isEveInferenceSelection } from '@/common/config/eveInferenceCore';
 import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
+import { markConversationGenerating, clearConversationGenerating } from '@renderer/services/commandEveGenerationActivity';
 import { savePreferredMode } from '@/renderer/pages/guid/hooks/agentSelectionUtils';
 import { useAutoTitle } from '@/renderer/hooks/chat/useAutoTitle';
 import { getSendBoxDraftHook, type FileOrFolderItem } from '@/renderer/hooks/chat/useSendBoxDraft';
@@ -323,6 +324,11 @@ const AcpSendBox: React.FC<{
       const displayMessage = buildDisplayMessage(input, files, workspacePath || '');
 
       runtimeView.markSendStarted();
+      // 1.7.3 (Codex #2): mark generation at SEND time so the seat-switch guard
+      // covers the window between submit and the first `start` stream event, during
+      // which the response stream is silent. The stream's finish/error clears it on
+      // a real turn; the catch below clears it if the send never starts.
+      markConversationGenerating(conversation_id);
       setAiProcessing(true);
 
       try {
@@ -339,6 +345,9 @@ const AcpSendBox: React.FC<{
         const errorMsg =
           getConversationRuntimeWorkspaceErrorMessage(error, t) || parseError(error) || t('common.unknownError');
         runtimeView.markSendFailed(errorMsg);
+        // 1.7.3: the send never became a running turn — clear the guard flag (the
+        // non-error failure path emits no terminal stream event to clear it).
+        clearConversationGenerating(conversation_id);
 
         // Archived conversation (e.g. legacy Gemini). Backend signals this
         // via HTTP 410 + code='CONVERSATION_ARCHIVED' — identified by code,
