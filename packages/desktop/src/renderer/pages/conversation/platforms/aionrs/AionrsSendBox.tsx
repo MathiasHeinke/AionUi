@@ -15,6 +15,7 @@ import MobileActionSheet, {
 } from '@/renderer/components/chat/MobileActionSheet';
 import SendBox from '@/renderer/components/chat/SendBox';
 import ThoughtDisplay from '@/renderer/components/chat/ThoughtDisplay';
+import { markConversationGenerating, clearConversationGenerating } from '@renderer/services/commandEveGenerationActivity';
 import FileAttachButton from '@/renderer/components/media/FileAttachButton';
 import FilePreview from '@/renderer/components/media/FilePreview';
 import HorizontalFileList from '@/renderer/components/media/HorizontalFileList';
@@ -227,6 +228,10 @@ const AionrsSendBox: React.FC<{
       }
 
       runtimeView.markSendStarted();
+      // 1.7.3 (Codex convergence-2): cover the aionrs submit→start window for the
+      // seat-switch guard too. Cleared in the catch; the stream's finish/error
+      // clears it on a real turn.
+      markConversationGenerating(conversation_id);
       setWaitingResponse(true);
 
       const displayMessage = buildDisplayMessage(input, files, workspacePath);
@@ -248,6 +253,7 @@ const AionrsSendBox: React.FC<{
           getConversationRuntimeWorkspaceErrorMessage(error, t) ||
           (error instanceof Error ? error.message : String(error));
         runtimeView.markSendFailed(errorMessage);
+        clearConversationGenerating(conversation_id);
         Message.error(errorMessage);
         throw error;
       }

@@ -16,15 +16,18 @@
  * streaming state, so this module is the shared signal the guard reads to warn
  * before it would interrupt.
  *
- * MOUNT-INDEPENDENT BY DESIGN (Codex 1.7.3 audit fix, findings #1 + #2): the
- * signal is driven by the GLOBAL ACP response stream (`ipcBridge.acpConversation.
- * responseStream`), not by any mounted conversation component. `start` adds a
+ * MOUNT-INDEPENDENT BY DESIGN (Codex 1.7.3 audit fixes #1 + #2): the signal is
+ * driven by the GLOBAL response streams — ACP (`ipcBridge.acpConversation.
+ * responseStream`, the EVE lane) AND native/aionrs (`ipcBridge.conversation.
+ * responseStream`) — not by any mounted conversation component. `start` adds a
  * conversation, `finish`/`error` remove it — and those events flow on the global
- * emitter regardless of which view (if any) is mounted. So a turn that keeps
+ * emitters regardless of which view (if any) is mounted. So a turn that keeps
  * streaming after the user navigates AWAY from its chat is still tracked (the old
  * per-component effect cleared on unmount → a switch silently killed it). The
  * send path also marks generation at submit time, closing the window between
  * "user sent" and the first `start` event (before which the stream is silent).
+ * A seat switch respawns the single backend and kills turns on EITHER platform,
+ * so both must be tracked (see ensureAcpGenerationTracking).
  *
  * A conversation is removed only on a genuine terminal event, so the flag never
  * gets stuck after a real finish — the same terminal signal the backend already
@@ -91,26 +94,37 @@ export function applyAcpStreamActivity(message: { type?: string; conversation_id
   }
 }
 
-let subscribed = false;
+let acpSubscribed = false;
+let nativeSubscribed = false;
+
+function attachResponseStream(stream: unknown): boolean {
+  const emitter = stream as { on?: (handler: (message: unknown) => void) => unknown } | undefined;
+  if (!emitter || typeof emitter.on !== 'function') return false;
+  emitter.on((message: unknown) => applyAcpStreamActivity(message as { type?: string; conversation_id?: string; data?: unknown }));
+  return true;
+}
 
 /**
- * Attach the global ACP response-stream listener exactly once. Idempotent and
- * best-effort: if the bridge is not ready yet the call is a no-op and a later
- * ensure retries. Call it from any long-lived host (the seat rail, a conversation
- * view) so tracking is live BEFORE any turn starts — a listener attached only at
- * click-time would miss the `start` of an already-running turn.
+ * Attach the global response-stream listeners exactly once each. Idempotent and
+ * best-effort: if a bridge stream is not ready yet the call is a no-op for it and
+ * a later ensure retries only the still-missing stream. Call it from any long-lived
+ * host (the seat rail, a conversation view) so tracking is live BEFORE any turn
+ * starts — a listener attached only at click-time would miss the `start` of an
+ * already-running turn.
+ *
+ * BOTH conversation platforms are tracked (Codex 1.7.3 convergence-2): EVE runs on
+ * the ACP stream (ipcBridge.acpConversation.responseStream), while native/aionrs
+ * chats run on ipcBridge.conversation.responseStream. Both share the same
+ * IResponseMessage shape (start/finish/error/content/…), and a seat switch respawns
+ * the SINGLE backend — killing turns on EITHER platform — so the guard must see both
+ * or it would silently kill an aionrs turn.
  */
 export function ensureAcpGenerationTracking(): void {
-  if (subscribed) return;
   try {
-    const stream = ipcBridge?.acpConversation?.responseStream as
-      | { on?: (handler: (message: unknown) => void) => unknown }
-      | undefined;
-    if (!stream || typeof stream.on !== 'function') return;
-    stream.on((message: unknown) => applyAcpStreamActivity(message as { type?: string; conversation_id?: string; data?: unknown }));
-    subscribed = true;
+    if (!acpSubscribed && attachResponseStream(ipcBridge?.acpConversation?.responseStream)) acpSubscribed = true;
+    if (!nativeSubscribed && attachResponseStream(ipcBridge?.conversation?.responseStream)) nativeSubscribed = true;
   } catch {
-    // Bridge not ready — a later ensure() from another mount will retry.
+    // A bridge stream not ready — a later ensure() from another mount retries it.
   }
 }
 
