@@ -41,6 +41,7 @@ import {
   KANBAN_LANE_ORDER,
   nextKanbanLane,
   projectKanbanBoardView,
+  projectKanbanCardDetail,
   type IKanbanBoardCard,
   type IKanbanBoardColumn,
   type IKanbanBoardModel,
@@ -146,6 +147,125 @@ const cardStatusColor = (status: string): 'blue' | 'green' | 'orange' | 'red' | 
   return 'gray';
 };
 
+// Class-2: format an epoch-ms timestamp for the detail panel, or a dash. Guards a
+// zero/NaN value (a synthetic or unset card) so the panel never renders "1970".
+const formatTimestamp = (ms?: number | null): string => {
+  if (typeof ms !== 'number' || !Number.isFinite(ms) || ms <= 0) return '-';
+  try {
+    return new Date(ms).toLocaleString();
+  } catch {
+    return '-';
+  }
+};
+
+const governanceColor = (state: 'read_only' | 'proof_write_recorded' | 'unknown'): 'green' | 'gray' => (state === 'proof_write_recorded' ? 'green' : 'gray');
+
+// ── Card detail (Class-2) ─────────────────────────────────────────────────────
+
+// A labeled row inside a detail `<dl>` grid. `value` breaks on any char so long
+// ids/run tokens wrap instead of overflowing the narrow card.
+const DetailRow: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
+  <>
+    <dt className='text-t-tertiary'>{label}</dt>
+    <dd className='m-0 break-all text-t-secondary'>{value}</dd>
+  </>
+);
+
+/**
+ * Class-2 (1.7.3) — the expandable, READ-ONLY card detail. Surfaces provenance
+ * (owner, draft source, run, timestamps), the generated draft (the quality
+ * signal), the governance + audit-event trail, and the marketing ladder. It
+ * renders a pure projection of fields already on the card and mutates nothing —
+ * no bridge call, no gate. Everything unavailable simply does not render.
+ */
+const KanbanCardDetailPanel: React.FC<{ card: IKanbanBoardCard }> = ({ card }) => {
+  const { t } = useTranslation();
+  const { provenance, draft, audit, ladder } = projectKanbanCardDetail(card);
+  const ladderStageLabel = (stage: string): string => t(`kanban.ladder.${stage}`, { defaultValue: stage });
+  return (
+    <div
+      data-testid={`kanban-card-detail-${card.card_id}`}
+      className='mt-8px rounded-8px border border-solid border-[var(--color-border-2)] bg-fill-1 px-10px py-8px'
+    >
+      {/* Herkunft / Provenance */}
+      <div className='text-11px font-600 leading-16px text-t-secondary'>{t('kanban.card.detail.provenanceTitle', { defaultValue: 'Herkunft' })}</div>
+      <dl className='mt-4px grid grid-cols-[auto_1fr] gap-x-8px gap-y-2px text-11px leading-16px'>
+        <DetailRow label={t('kanban.card.detail.owner', { defaultValue: 'Owner' })} value={textOrDash(provenance.assignee)} />
+        {provenance.draftSource ? <DetailRow label={t('kanban.card.detail.source', { defaultValue: 'Quelle' })} value={provenance.draftSource} /> : null}
+        {provenance.linkedRunId ? <DetailRow label={t('kanban.card.detail.run', { defaultValue: 'Run' })} value={provenance.linkedRunId} /> : null}
+        <DetailRow label={t('kanban.card.detail.created', { defaultValue: 'Erstellt' })} value={formatTimestamp(provenance.createdAt)} />
+        {provenance.updatedAt ? <DetailRow label={t('kanban.card.detail.updated', { defaultValue: 'Aktualisiert' })} value={formatTimestamp(provenance.updatedAt)} /> : null}
+      </dl>
+
+      {/* Entwurf / Qualität */}
+      {draft ? (
+        <div className='mt-8px'>
+          <div className='text-11px font-600 leading-16px text-t-secondary'>{t('kanban.card.detail.draftTitle', { defaultValue: 'Entwurf' })}</div>
+          <dl className='mt-4px grid grid-cols-[auto_1fr] gap-x-8px gap-y-2px text-11px leading-16px'>
+            {draft.source ? <DetailRow label={t('kanban.card.detail.source', { defaultValue: 'Quelle' })} value={draft.source} /> : null}
+            {draft.at ? <DetailRow label={t('kanban.card.detail.at', { defaultValue: 'Am' })} value={formatTimestamp(draft.at)} /> : null}
+          </dl>
+          {draft.text ? (
+            <pre
+              data-testid={`kanban-card-detail-draft-${card.card_id}`}
+              className='mt-4px max-h-160px overflow-auto whitespace-pre-wrap break-words rounded-6px bg-fill-2 px-8px py-6px text-11px leading-16px text-t-secondary'
+            >
+              {draft.text}
+            </pre>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* Governance & Audit */}
+      <div className='mt-8px'>
+        <div className='text-11px font-600 leading-16px text-t-secondary'>{t('kanban.card.detail.auditTitle', { defaultValue: 'Governance & Audit' })}</div>
+        <dl className='mt-4px grid grid-cols-[auto_1fr] gap-x-8px gap-y-2px text-11px leading-16px'>
+          <DetailRow
+            label={t('kanban.card.detail.governance', { defaultValue: 'Governance' })}
+            value={
+              <Tag color={governanceColor(audit.governanceState)} size='small'>
+                {t(`kanban.governance.${audit.governanceState}`, { defaultValue: audit.governanceState })}
+              </Tag>
+            }
+          />
+          {audit.linkedAuditEventId ? <DetailRow label={t('kanban.card.detail.auditEvent', { defaultValue: 'Audit-Event' })} value={audit.linkedAuditEventId} /> : null}
+          {audit.draftAuditEventId ? <DetailRow label={t('kanban.card.detail.draftAudit', { defaultValue: 'Entwurf-Audit' })} value={audit.draftAuditEventId} /> : null}
+          {audit.controllerReviewStatus ? (
+            <DetailRow label={t('kanban.card.detail.controllerReview', { defaultValue: 'Controller-Review' })} value={textOrDash(audit.controllerReviewAuditEventId || audit.controllerReviewStatus)} />
+          ) : null}
+          {audit.controllerDecisionStatus ? (
+            <DetailRow label={t('kanban.card.detail.controllerDecision', { defaultValue: 'Controller-Entscheidung' })} value={`${audit.controllerDecisionStatus}${audit.controllerDecisionAuditEventId ? ` · ${audit.controllerDecisionAuditEventId}` : ''}`} />
+          ) : null}
+        </dl>
+        {!audit.hasAnyAuditEvent ? <div className='mt-2px text-11px leading-16px text-t-tertiary'>{t('kanban.card.detail.noAudit', { defaultValue: 'Noch keine Audit-Belege verknüpft.' })}</div> : null}
+      </div>
+
+      {/* Fortschritt / Ladder */}
+      {ladder ? (
+        <div className='mt-8px'>
+          <div className='text-11px font-600 leading-16px text-t-secondary'>{t('kanban.card.detail.ladderTitle', { defaultValue: 'Fortschritt' })}</div>
+          <dl className='mt-4px grid grid-cols-[auto_1fr] gap-x-8px gap-y-2px text-11px leading-16px'>
+            <DetailRow label={t('kanban.card.detail.highestStage', { defaultValue: 'Höchste Stufe' })} value={ladder.highestStage ? ladderStageLabel(ladder.highestStage) : '-'} />
+            <DetailRow
+              label={t('kanban.card.detail.executorPromoted', { defaultValue: 'Executor freigegeben' })}
+              value={ladder.executorPromoted ? t('common.yes', { defaultValue: 'Ja' }) : t('common.no', { defaultValue: 'Nein' })}
+            />
+          </dl>
+          {ladder.recordedStages.length > 0 ? (
+            <div className='mt-4px flex flex-wrap gap-4px' data-testid={`kanban-card-detail-ladder-${card.card_id}`}>
+              {ladder.recordedStages.map((stage) => (
+                <Tag key={stage} color='blue' size='small'>
+                  {ladderStageLabel(stage)}
+                </Tag>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
 // ── Card ──────────────────────────────────────────────────────────────────────
 
 const KanbanCardView: React.FC<{
@@ -162,6 +282,9 @@ const KanbanCardView: React.FC<{
   const nextLane = nextKanbanLane(card.lane_key);
   const blocked = card.card_status === 'blocked';
   const completed = card.card_status === 'completed';
+  // Class-2: per-card expand state. Read-only detail — independent of `busy`/
+  // `locked` (viewing provenance/audit is always safe, even during a seat switch).
+  const [expanded, setExpanded] = useState(false);
   return (
     <article
       data-testid={`kanban-card-${card.card_id}`}
@@ -180,6 +303,18 @@ const KanbanCardView: React.FC<{
         <dt className='text-t-tertiary'>{t('kanban.card.audit', { defaultValue: 'Audit' })}</dt>
         <dd className='m-0 truncate text-t-secondary'>{textOrDash(card.linked_audit_event_id)}</dd>
       </dl>
+      <div className='mt-6px'>
+        <Button
+          size='mini'
+          type='text'
+          data-testid={`kanban-card-detail-toggle-${card.card_id}`}
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded ? t('kanban.card.detail.hide', { defaultValue: 'Details ausblenden ▴' }) : t('kanban.card.detail.show', { defaultValue: 'Details anzeigen ▾' })}
+        </Button>
+      </div>
+      {expanded ? <KanbanCardDetailPanel card={card} /> : null}
       <div className='mt-8px flex flex-wrap items-center justify-end gap-6px'>
         <Button
           size='mini'

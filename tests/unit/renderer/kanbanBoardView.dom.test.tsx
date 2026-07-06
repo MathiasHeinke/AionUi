@@ -30,7 +30,7 @@ vi.mock('react-i18next', () => ({
 import { KanbanColumnView } from '@renderer/pages/kanban/index';
 import type { IKanbanBoardCard, IKanbanBoardColumn, KanbanLaneKey } from '@renderer/pages/kanban/kanbanBoardModel';
 
-const makeCard = (id: string, lane: KanbanLaneKey, status = 'todo'): IKanbanBoardCard => ({
+const makeCard = (id: string, lane: KanbanLaneKey, status = 'todo', overrides: Partial<IKanbanBoardCard> = {}): IKanbanBoardCard => ({
   card_id: id,
   card_title: `Card ${id}`,
   card_status: status,
@@ -39,6 +39,7 @@ const makeCard = (id: string, lane: KanbanLaneKey, status = 'todo'): IKanbanBoar
   created_at: 1,
   updated_at: null,
   linked_audit_event_id: null,
+  ...overrides,
 });
 
 describe('KanbanColumnView (payload → cards)', () => {
@@ -155,6 +156,79 @@ describe('KanbanColumnView (payload → cards)', () => {
     );
     expect((screen.getByTestId('kanban-card-move-a') as HTMLButtonElement).disabled).toBe(false);
     expect((screen.getByTestId('kanban-card-comment-a') as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+// ── Class-2 (1.7.3): expandable, read-only card detail ───────────────────────
+describe('KanbanCardView detail panel (Class-2)', () => {
+  const renderCard = (card: IKanbanBoardCard, locked = false) =>
+    render(
+      <KanbanColumnView
+        column={{ key: card.lane_key, cards: [card] }}
+        busyCardId={null}
+        locked={locked}
+        onMoveNext={vi.fn()}
+        onOpenComment={vi.fn()}
+        onApplyAction={vi.fn()}
+      />
+    );
+
+  it('is collapsed by default and expands + collapses on toggle', () => {
+    renderCard(makeCard('a', 'research'));
+    // Collapsed: the toggle is present, the panel is not.
+    expect(screen.getByTestId('kanban-card-detail-toggle-a')).toBeTruthy();
+    expect(screen.queryByTestId('kanban-card-detail-a')).toBeNull();
+    // Expand.
+    fireEvent.click(screen.getByTestId('kanban-card-detail-toggle-a'));
+    expect(screen.getByTestId('kanban-card-detail-a')).toBeTruthy();
+    // Collapse again.
+    fireEvent.click(screen.getByTestId('kanban-card-detail-toggle-a'));
+    expect(screen.queryByTestId('kanban-card-detail-a')).toBeNull();
+  });
+
+  it('surfaces the generated draft text (the quality signal) when expanded', () => {
+    renderCard(
+      makeCard('b', 'draft', 'todo', {
+        generated_draft_status: 'generated',
+        generated_draft_source: 'eve-inference',
+        generated_draft_text: 'Erster Entwurf des Posts.',
+        generated_draft_at: 42,
+      })
+    );
+    fireEvent.click(screen.getByTestId('kanban-card-detail-toggle-b'));
+    const draft = screen.getByTestId('kanban-card-detail-draft-b');
+    expect(draft.textContent).toContain('Erster Entwurf des Posts.');
+  });
+
+  it('shows recorded ladder rungs and hides unrecorded ones when expanded', () => {
+    renderCard(
+      makeCard('c', 'readyToApprove', 'todo', {
+        ladder: {
+          highest_recorded_stage: 'observed_run',
+          executor_promoted: false,
+          rungs: [
+            { stage: 'output_approved', recorded: true, status: null, audit_event_id: 'e1', recorded_at: 1 },
+            { stage: 'observed_run', recorded: true, status: 'ok', audit_event_id: 'e2', recorded_at: 2 },
+            { stage: 'start_gate', recorded: false, status: null, audit_event_id: null, recorded_at: null },
+          ],
+        },
+      })
+    );
+    fireEvent.click(screen.getByTestId('kanban-card-detail-toggle-c'));
+    const ladder = screen.getByTestId('kanban-card-detail-ladder-c');
+    expect(ladder.textContent).toContain('output_approved');
+    expect(ladder.textContent).toContain('observed_run');
+    // Unrecorded rung must not render as a reached stage.
+    expect(ladder.textContent).not.toContain('start_gate');
+  });
+
+  it('detail remains viewable while locked (read-only view is always safe during a seat switch)', () => {
+    renderCard(makeCard('d', 'research'), true);
+    // The toggle is NOT a write control — it must stay enabled even when locked.
+    const toggle = screen.getByTestId('kanban-card-detail-toggle-d') as HTMLButtonElement;
+    expect(toggle.disabled).toBe(false);
+    fireEvent.click(toggle);
+    expect(screen.getByTestId('kanban-card-detail-d')).toBeTruthy();
   });
 });
 

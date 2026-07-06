@@ -21,7 +21,8 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Message, Tooltip } from '@arco-design/web-react';
+import { Message, Modal, Tooltip } from '@arco-design/web-react';
+import { isAnyGenerating } from '@renderer/services/commandEveGenerationActivity';
 import { useTranslation } from 'react-i18next';
 import { useSeatAccess } from '@renderer/hooks/useSeatAccess';
 import { openAccountWeb } from '@renderer/utils/platform';
@@ -210,7 +211,27 @@ const SeatRail: React.FC = () => {
                 // <body> mid-transition. The onClick guard below is the real no-op gate.
                 aria-disabled={switching || undefined}
                 onClick={() => {
-                  if (!active && !switching) void switchTo(seat.seat_id);
+                  if (active || switching) return;
+                  // 1.7.3: a seat switch respawns the single backend, killing any in-flight
+                  // turn (a half-streamed answer would be lost + "Agent killed"). If a
+                  // response is currently streaming, confirm before interrupting it — default
+                  // is to STAY (protect the answer); the operator can still choose to switch.
+                  if (isAnyGenerating()) {
+                    Modal.confirm({
+                      title: t('commandEve.seatRail.switchWhileGeneratingTitle', 'Antwort läuft noch'),
+                      content: t(
+                        'commandEve.seatRail.switchWhileGeneratingBody',
+                        'Beim Seat-Wechsel wird die laufende Antwort abgebrochen und verworfen. Trotzdem wechseln?'
+                      ),
+                      okText: t('commandEve.seatRail.switchAnyway', 'Trotzdem wechseln'),
+                      cancelText: t('common.cancel', 'Abbrechen'),
+                      onOk: () => {
+                        void switchTo(seat.seat_id);
+                      },
+                    });
+                    return;
+                  }
+                  void switchTo(seat.seat_id);
                 }}
               >
                 <span

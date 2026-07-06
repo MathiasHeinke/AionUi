@@ -18,6 +18,7 @@ import type { TokenUsageData } from '@/common/config/storage';
 import { useAddOrUpdateMessage } from '@/renderer/pages/conversation/Messages/hooks';
 import type { ThoughtData } from '@/renderer/components/chat/ThoughtDisplay';
 import { useQuotaWall, type QuotaWallState } from '@renderer/hooks/useQuotaWall';
+import { setGenerating } from '@renderer/services/commandEveGenerationActivity';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 export type UseAcpMessageReturn = {
@@ -119,6 +120,16 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
   // Track whether current turn has a thinking message in the conversation
   const hasThinkingMessageRef = useRef(false);
   const [hasThinkingMessage, setHasThinkingMessage] = useState(false);
+
+  // 1.7.3 — publish this conversation's live streaming state to the renderer-global
+  // generation-activity registry, so the far-away seat-switch guard can warn before
+  // it would kill an in-flight turn (a switch respawns the backend). Cleared on turn
+  // finish (running → false) AND on unmount, so a closed conversation never leaves a
+  // stuck flag that would nag on every future switch.
+  useEffect(() => {
+    setGenerating(conversation_id, running);
+    return () => setGenerating(conversation_id, false);
+  }, [conversation_id, running]);
   // Track the in-flight thinking block so a synthetic done update (with a
   // computed duration) can be emitted when the turn finishes or the first
   // non-thinking message arrives, even if the backend never sends a done.

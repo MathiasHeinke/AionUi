@@ -37,6 +37,39 @@ export interface IKanbanBoardCard {
   created_at: number;
   updated_at: number | null;
   linked_audit_event_id: string | null;
+  // Class-2 (1.7.3) — additive read-only provenance / quality / audit-trail
+  // fields the expandable card detail surfaces. Every one of these is ALREADY
+  // present at runtime in the `command-eve-kanban-marketing-board/v0` card the
+  // bridge returns (backend `parseMarketingCards`); they were simply not typed
+  // in this structural subset. Kept optional so slim/synthetic cards (tests,
+  // future defensive payloads) still satisfy the type — the detail projection
+  // treats a missing field as "not available", never as a hard error.
+  card_priority?: number;
+  linked_run_id?: string | null;
+  generated_draft_status?: 'generated' | null;
+  generated_draft_audit_event_id?: string | null;
+  generated_draft_source?: string | null;
+  generated_draft_text?: string | null;
+  generated_draft_at?: number | null;
+  governance_state?: 'read_only' | 'proof_write_recorded' | 'unknown';
+  controller_review_status?: 'pending' | null;
+  controller_review_audit_event_id?: string | null;
+  controller_decision_status?: string | null;
+  controller_decision_audit_event_id?: string | null;
+  ladder?: IKanbanBoardCardLadder;
+}
+
+// Structural subset of the backend ladder projection the bridge returns per card.
+export interface IKanbanBoardCardLadder {
+  highest_recorded_stage: string | null;
+  executor_promoted: boolean;
+  rungs: Array<{
+    stage: string;
+    recorded: boolean;
+    status: string | null;
+    audit_event_id: string | null;
+    recorded_at: number | null;
+  }>;
 }
 
 export interface IKanbanBoardColumn {
@@ -142,6 +175,118 @@ export function nextKanbanLane(lane: KanbanLaneKey): KanbanLaneKey | null {
   const index = KANBAN_LANE_ORDER.indexOf(lane);
   if (index < 0 || index >= KANBAN_LANE_ORDER.length - 1) return null;
   return KANBAN_LANE_ORDER[index + 1];
+}
+
+// ── Class-2 (1.7.3) — card detail projection ────────────────────────────────
+// The expandable card panel shows WHERE a card came from (provenance), WHAT was
+// produced (the generated draft = the quality signal), and the AUDIT trail
+// (governance state + linked audit-event ids + the marketing ladder). All of it
+// is a pure read of fields already on the card — the panel never mutates, never
+// dispatches, and touches no governance gate. Timestamp formatting + i18n labels
+// live in the component so this projection stays locale-free and unit-testable.
+
+/** Provenance: who owns it, what produced it, and when. */
+export interface IKanbanCardProvenance {
+  assignee: string | null;
+  draftSource: string | null;
+  linkedRunId: string | null;
+  createdAt: number;
+  updatedAt: number | null;
+}
+
+/** The generated draft (present only once the executor recorded one) = quality. */
+export interface IKanbanCardDraft {
+  source: string | null;
+  at: number | null;
+  text: string | null;
+}
+
+/** The audit trail: governance state + every linked audit-event id we hold. */
+export interface IKanbanCardAudit {
+  governanceState: 'read_only' | 'proof_write_recorded' | 'unknown';
+  linkedAuditEventId: string | null;
+  draftAuditEventId: string | null;
+  controllerReviewStatus: 'pending' | null;
+  controllerReviewAuditEventId: string | null;
+  controllerDecisionStatus: string | null;
+  controllerDecisionAuditEventId: string | null;
+  hasAnyAuditEvent: boolean;
+}
+
+/** The marketing ladder rungs the A1 backend recorded for this card. */
+export interface IKanbanCardLadderView {
+  highestStage: string | null;
+  executorPromoted: boolean;
+  recordedStages: string[];
+}
+
+export interface IKanbanCardDetail {
+  provenance: IKanbanCardProvenance;
+  // null when the executor has not recorded a generated draft yet.
+  draft: IKanbanCardDraft | null;
+  audit: IKanbanCardAudit;
+  // null when the card carries no ladder projection or no rung is recorded yet.
+  ladder: IKanbanCardLadderView | null;
+}
+
+function normalizeText(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+/**
+ * Project a board card into its read-only detail view. Pure: no time, no DOM, no
+ * bridge. A missing field is "not available" (null), never an error — so a slim
+ * or synthetic card projects cleanly with empty sections rather than throwing.
+ */
+export function projectKanbanCardDetail(card: IKanbanBoardCard): IKanbanCardDetail {
+  const draftSource = normalizeText(card.generated_draft_source);
+  const draftText = normalizeText(card.generated_draft_text);
+  const hasDraft = card.generated_draft_status === 'generated' || draftText !== null || draftSource !== null;
+
+  const linkedAuditEventId = normalizeText(card.linked_audit_event_id);
+  const draftAuditEventId = normalizeText(card.generated_draft_audit_event_id);
+  const controllerReviewAuditEventId = normalizeText(card.controller_review_audit_event_id);
+  const controllerDecisionAuditEventId = normalizeText(card.controller_decision_audit_event_id);
+
+  const ladder = card.ladder;
+  const recordedStages = (ladder?.rungs ?? []).filter((rung) => rung.recorded).map((rung) => rung.stage);
+  const hasLadder = !!ladder && (ladder.highest_recorded_stage !== null || recordedStages.length > 0);
+
+  return {
+    provenance: {
+      assignee: normalizeText(card.card_assignee),
+      draftSource,
+      linkedRunId: normalizeText(card.linked_run_id),
+      createdAt: card.created_at,
+      updatedAt: card.updated_at,
+    },
+    draft: hasDraft
+      ? {
+          source: draftSource,
+          at: typeof card.generated_draft_at === 'number' ? card.generated_draft_at : null,
+          text: draftText,
+        }
+      : null,
+    audit: {
+      governanceState: card.governance_state ?? 'unknown',
+      linkedAuditEventId,
+      draftAuditEventId,
+      controllerReviewStatus: card.controller_review_status ?? null,
+      controllerReviewAuditEventId,
+      controllerDecisionStatus: normalizeText(card.controller_decision_status),
+      controllerDecisionAuditEventId,
+      hasAnyAuditEvent: !!(linkedAuditEventId || draftAuditEventId || controllerReviewAuditEventId || controllerDecisionAuditEventId),
+    },
+    ladder: hasLadder
+      ? {
+          highestStage: ladder!.highest_recorded_stage,
+          executorPromoted: ladder!.executor_promoted,
+          recordedStages,
+        }
+      : null,
+  };
 }
 
 /** Stable per-intent idempotency token so a card create dedupes on retry. */
