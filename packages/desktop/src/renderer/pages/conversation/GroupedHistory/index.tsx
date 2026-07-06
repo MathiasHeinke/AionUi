@@ -115,6 +115,7 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
     hasConversationError,
     expandedWorkspaces,
     pinnedConversations,
+    archivedConversations,
     timelineSections,
     handleToggleWorkspace,
   } = useConversations();
@@ -141,6 +142,7 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
     handleRenameConfirm,
     handleRenameCancel,
     handleTogglePin,
+    handleToggleArchive,
     handleMenuVisibleChange,
     handleOpenMenu,
     handleRemoveProject,
@@ -216,6 +218,7 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
       // underlying handleExportConversation logic from useExport is kept for a
       // future per-platform re-enable.
       onTogglePin: handleTogglePin,
+      onToggleArchive: handleToggleArchive,
       getJobStatus,
     }),
     [
@@ -236,6 +239,7 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
       handleEditStart,
       handleDeleteClick,
       handleTogglePin,
+      handleToggleArchive,
       getJobStatus,
     ]
   );
@@ -280,7 +284,7 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
     [timelineSections]
   );
 
-  if (timelineSections.length === 0 && pinnedConversations.length === 0) {
+  if (timelineSections.length === 0 && pinnedConversations.length === 0 && archivedConversations.length === 0) {
     return (
       <>
         {afterPinnedContent}
@@ -693,6 +697,18 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
                   )}
                 </div>
               ))}
+          </div>
+        )}
+
+        {/* L1: Archive section — reversible restore area for soft-hidden conversations. */}
+        {archivedConversations.length > 0 && (
+          <div className='min-w-0'>
+            {!collapsed && <SectionLabel sectionKey='archive' label={t('conversation.history.archivedSection')} />}
+            {!collapsedSections.has('archive') && (
+              <div className={classNames('flex flex-col min-w-0', { 'mt-1px': !collapsed })}>
+                {archivedConversations.map((conversation) => renderConversation(conversation))}
+              </div>
+            )}
           </div>
         )}
       </div>

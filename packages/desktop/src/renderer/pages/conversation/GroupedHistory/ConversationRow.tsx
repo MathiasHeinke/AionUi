@@ -11,14 +11,15 @@ import { usePresetAssistantInfo } from '@/renderer/hooks/agent/usePresetAssistan
 import { cleanupSiderTooltips, getSiderTooltipProps } from '@/renderer/utils/ui/siderTooltip';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { Checkbox, Dropdown, Menu, Spin, Tooltip } from '@arco-design/web-react';
-import { DeleteOne, EditOne, Export, MessageOne, MoreOne, Pushpin } from '@icon-park/react';
+import { Box, DeleteOne, EditOne, Export, MessageOne, MoreOne, Pushpin } from '@icon-park/react';
 import classNames from 'classnames';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { ConversationRowProps } from './types';
 import { getBackendKeyFromConversation } from './utils/exportHelpers';
-import { isConversationPinned } from './utils/groupingHelpers';
+import { isConversationArchived, isConversationPinned } from './utils/groupingHelpers';
+import { getActivityTime } from '@/renderer/utils/chat/timeline';
 import SessionStatusDot from './SessionStatusDot';
 import { deriveSessionStatus } from './sessionStatus';
 
@@ -36,9 +37,27 @@ const RowLeadingImg: React.FC<{ src: string; alt: string; className: string }> =
       src={resolvedSrc}
       alt={alt}
       className={className}
-      onError={() => setResolvedSrc((cur) => (cur === COMMAND_EVE_ASSISTANT_AVATAR ? cur : COMMAND_EVE_ASSISTANT_AVATAR))}
+      onError={() =>
+        setResolvedSrc((cur) => (cur === COMMAND_EVE_ASSISTANT_AVATAR ? cur : COMMAND_EVE_ASSISTANT_AVATAR))
+      }
     />
   );
+};
+
+export const formatConversationActivityTime = (timestamp: number, now = Date.now()): string => {
+  if (!timestamp) return '';
+  const date = new Date(timestamp);
+  const today = new Date(now);
+  const sameDay =
+    date.getFullYear() === today.getFullYear() &&
+    date.getMonth() === today.getMonth() &&
+    date.getDate() === today.getDate();
+
+  return new Intl.DateTimeFormat(undefined, {
+    ...(sameDay ? {} : { month: '2-digit', day: '2-digit' }),
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
 };
 
 const ConversationRow: React.FC<ConversationRowProps> = (props) => {
@@ -67,14 +86,20 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
     onDelete,
     onExport,
     onTogglePin,
+    onToggleArchive,
     getJobStatus,
   } = props;
   const { t } = useTranslation();
   const { info: assistantInfo } = usePresetAssistantInfo(conversation);
   const isPinned = isConversationPinned(conversation);
+  const isArchived = isConversationArchived(conversation);
   const cronStatus = getJobStatus(conversation.id);
   const siderTooltipProps = getSiderTooltipProps(tooltipEnabled);
   const inlineNameTooltipEnabled = !collapsed && !isMobile && !!conversation.name;
+  const lastActiveLabel = React.useMemo(
+    () => formatConversationActivityTime(getActivityTime(conversation)),
+    [conversation]
+  );
 
   // ONE semantic status for the row (Variante B): the leading icon stays the
   // agent/⌘ avatar (identity), and a single colored dot — done=green,
@@ -83,7 +108,13 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
   // leading icon. The dots now fire for NORMAL chats too (waiting-input + errored
   // turns), not just scheduled/cron tasks. See sessionStatus.ts for the full
   // mapping + rationale.
-  const sessionStatus = deriveSessionStatus({ isGenerating, hasCompletionUnread, isWaitingInput, hasError, cronStatus });
+  const sessionStatus = deriveSessionStatus({
+    isGenerating,
+    hasCompletionUnread,
+    isWaitingInput,
+    hasError,
+    cronStatus,
+  });
 
   const renderLeadingIcon = () => {
     // When the row is pinned, hovering reveals a pushpin marker that overlays
@@ -208,10 +239,7 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
               instead of replacing the avatar with a bare spinner. */}
           {renderLeadingIcon()}
           {isGenerating && !batchMode && (
-            <span
-              className='absolute -bottom-2px -right-2px flex-center pointer-events-none'
-              style={{ lineHeight: 0 }}
-            >
+            <span className='absolute -bottom-2px -right-2px flex-center pointer-events-none' style={{ lineHeight: 0 }}>
               <Spin size={14} />
             </span>
           )}
@@ -229,7 +257,10 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
             </span>
           )}
         </span>
-        <FlexFullContainer className='h-24px min-w-0 flex-1 collapsed-hidden'>
+        <FlexFullContainer
+          className='h-24px min-w-0 flex-1 collapsed-hidden'
+          containerClassName='flex items-center min-w-0 pr-30px'
+        >
           <Tooltip
             content={conversation.name}
             disabled={!inlineNameTooltipEnabled}
@@ -239,10 +270,15 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
             popupHoverStay={false}
             position='top'
           >
-            <div className='chat-history__item-name overflow-hidden text-ellipsis block w-full text-14px font-[500] lh-24px whitespace-nowrap min-w-0 text-t-primary'>
+            <div className='chat-history__item-name overflow-hidden text-ellipsis block flex-1 text-14px font-[500] lh-24px whitespace-nowrap min-w-0 text-t-primary'>
               <span className='block overflow-hidden text-ellipsis whitespace-nowrap'>{conversation.name}</span>
             </div>
           </Tooltip>
+          {!isMobile && lastActiveLabel && (
+            <span className='ml-8px shrink-0 text-11px leading-24px text-t-tertiary tabular-nums'>
+              {lastActiveLabel}
+            </span>
+          )}
         </FlexFullContainer>
 
         {!batchMode && (
@@ -266,6 +302,10 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
                       onTogglePin(conversation);
                       return;
                     }
+                    if (key === 'archive') {
+                      onToggleArchive?.(conversation);
+                      return;
+                    }
                     if (key === 'rename') {
                       onEditStart(conversation);
                       return;
@@ -285,6 +325,16 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
                       <span>{isPinned ? t('conversation.history.unpin') : t('conversation.history.pin')}</span>
                     </div>
                   </Menu.Item>
+                  {onToggleArchive && (
+                    <Menu.Item key='archive'>
+                      <div className='flex items-center gap-8px'>
+                        <Box theme='outline' size='14' />
+                        <span>
+                          {isArchived ? t('conversation.history.restore') : t('conversation.history.archive')}
+                        </span>
+                      </div>
+                    </Menu.Item>
+                  )}
                   <Menu.Item key='rename'>
                     <div className='flex items-center gap-8px'>
                       <EditOne theme='outline' size='14' />
