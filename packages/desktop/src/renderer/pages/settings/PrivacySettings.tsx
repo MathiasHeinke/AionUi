@@ -5,7 +5,7 @@
  */
 
 /**
- * Privacy settings — telemetry opt-in toggle.
+ * Privacy settings — telemetry + Command EVE cloud voice opt-in toggles.
  *
  * Telemetry (crash reporting + capped log upload via Sentry) is OFF by default.
  * This page is the only place a user can turn it on, and it reads/writes the
@@ -32,8 +32,18 @@ import { useSettingsViewMode } from '@/renderer/components/settings/SettingsModa
 // telemetryConsentCore unit test for the disclosure content).
 const TELEMETRY_CONSENT_GET_CHANNEL = 'command-eve.telemetry-consent-get';
 const TELEMETRY_CONSENT_SET_CHANNEL = 'command-eve.telemetry-consent-set';
+const MULTIMODAL_TTS_CONSENT_GET_CHANNEL = 'command-eve.multimodal-tts-consent-get';
+const MULTIMODAL_TTS_CONSENT_SET_CHANNEL = 'command-eve.multimodal-tts-consent-set';
 
 type TelemetryConsentBridgeResult = { consent: boolean; updatedAt?: string };
+type MultimodalTtsConsentBridgeResult = {
+  version?: string;
+  consent: boolean;
+  privacyLane?: 'local_only' | 'cloud_auto' | 'cloud_us';
+  updatedAt?: string;
+  persisted?: boolean;
+};
+type BridgeResponse<T> = { success?: boolean; data?: T; msg?: string };
 
 const TELEMETRY_DISCLOSURE = [
   'Telemetry is OFF by default. Nothing is sent unless you turn it on here.',
@@ -45,12 +55,21 @@ const getConsent = bridge.buildProvider<TelemetryConsentBridgeResult, void>(TELE
 const setConsentRemote = bridge.buildProvider<TelemetryConsentBridgeResult, { consent: boolean }>(
   TELEMETRY_CONSENT_SET_CHANNEL
 ).invoke;
+const getMultimodalTtsConsent = bridge.buildProvider<BridgeResponse<MultimodalTtsConsentBridgeResult>, void>(
+  MULTIMODAL_TTS_CONSENT_GET_CHANNEL
+).invoke;
+const setMultimodalTtsConsent = bridge.buildProvider<
+  BridgeResponse<MultimodalTtsConsentBridgeResult>,
+  { consent: boolean; privacyLane?: 'cloud_us' }
+>(MULTIMODAL_TTS_CONSENT_SET_CHANNEL).invoke;
 
 const PrivacySettings: React.FC = () => {
   // Default OFF in the UI as well, so the toggle is never optimistically "on"
   // before we confirm the persisted state.
   const [consent, setConsentState] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [cloudVoiceConsent, setCloudVoiceConsentState] = useState(false);
+  const [cloudVoiceSaving, setCloudVoiceSaving] = useState(false);
   const { t } = useTranslation();
   const viewMode = useSettingsViewMode();
   const isPageMode = viewMode === 'page';
@@ -66,6 +85,14 @@ const PrivacySettings: React.FC = () => {
       .catch(() => {
         // Fail closed: if we can't read consent, show it as off.
         if (!cancelled) setConsentState(false);
+      });
+    getMultimodalTtsConsent()
+      .then((result) => {
+        if (!cancelled) setCloudVoiceConsentState(result?.success === true && result.data?.consent === true);
+      })
+      .catch(() => {
+        // Fail closed: if we can't read consent, show it as off.
+        if (!cancelled) setCloudVoiceConsentState(false);
       });
     return () => {
       cancelled = true;
@@ -90,6 +117,30 @@ const PrivacySettings: React.FC = () => {
         });
     },
     [consent]
+  );
+
+  const handleCloudVoiceConsentChange = useCallback(
+    (checked: boolean) => {
+      const previous = cloudVoiceConsent;
+      setCloudVoiceConsentState(checked);
+      setCloudVoiceSaving(true);
+      setMultimodalTtsConsent({ consent: checked, ...(checked ? { privacyLane: 'cloud_us' } : {}) })
+        .then((result) => {
+          if (result?.success !== true || result.data?.persisted !== true) {
+            setCloudVoiceConsentState(previous);
+            return;
+          }
+          setCloudVoiceConsentState(result.data.consent === true);
+        })
+        .catch(() => {
+          // Revert on failure so the toggle reflects the true persisted state.
+          setCloudVoiceConsentState(previous);
+        })
+        .finally(() => {
+          setCloudVoiceSaving(false);
+        });
+    },
+    [cloudVoiceConsent]
   );
 
   const disclosure = t('settings.privacy.disclosure', { defaultValue: TELEMETRY_DISCLOSURE });
@@ -124,6 +175,19 @@ const PrivacySettings: React.FC = () => {
                 })}
               >
                 <Switch checked={consent} disabled={saving} onChange={handleConsentChange} />
+              </PreferenceRow>
+              <PreferenceRow
+                label={t('settings.privacy.cloudVoiceLabel', { defaultValue: 'Allow cloud voice output' })}
+                description={t('settings.privacy.cloudVoiceDescription', {
+                  defaultValue:
+                    'Off by default. Stores consent in the desktop main process; voice calls still require the Command EVE server gateway and release gate.',
+                })}
+              >
+                <Switch
+                  checked={cloudVoiceConsent}
+                  disabled={cloudVoiceSaving}
+                  onChange={handleCloudVoiceConsentChange}
+                />
               </PreferenceRow>
             </div>
             <p className='m-0 text-12px text-t-secondary whitespace-pre-line leading-relaxed'>{disclosure}</p>

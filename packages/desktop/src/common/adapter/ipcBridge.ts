@@ -46,6 +46,8 @@ import type {
 import type { CommandEveLocalSttRequest, SpeechToTextRequest, SpeechToTextResult } from '../types/provider/speech';
 import type { CommandEveCloudTitleRequest, CommandEveCloudTitleResult } from '../config/eveTitleCore';
 import type {
+  CommandEveMultimodalTtsConsentBridgeResult,
+  CommandEveMultimodalTtsConsentSetRequest,
   CommandEveMultimodalTtsActivationStatus,
   CommandEveMultimodalTtsActivationStatusRequest,
   CommandEveMultimodalTtsRequest,
@@ -1654,6 +1656,13 @@ export const commandEve = {
     IBridgeResponse<CommandEveMultimodalTtsActivationStatus>,
     CommandEveMultimodalTtsActivationStatusRequest | undefined
   >('command-eve.multimodal-tts-status'),
+  multimodalTtsConsentGet: bridge.buildProvider<IBridgeResponse<CommandEveMultimodalTtsConsentBridgeResult>, void>(
+    'command-eve.multimodal-tts-consent-get'
+  ),
+  multimodalTtsConsentSet: bridge.buildProvider<
+    IBridgeResponse<CommandEveMultimodalTtsConsentBridgeResult>,
+    CommandEveMultimodalTtsConsentSetRequest
+  >('command-eve.multimodal-tts-consent-set'),
   evaluateGateDecision: bridge.buildProvider<
     IBridgeResponse<ICommandEveGateDecision>,
     { action: ICommandEveGateAction }

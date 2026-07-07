@@ -94,6 +94,9 @@ export type CommandEveMultimodalGateResult =
 
 export const COMMAND_EVE_MULTIMODAL_TTS_BRIDGE_VERSION = 'command-eve-multimodal-tts/v0' as const;
 export const COMMAND_EVE_MULTIMODAL_TTS_ACTIVATION_STATUS_VERSION = 'command-eve-multimodal-tts-activation/v0' as const;
+export const COMMAND_EVE_MULTIMODAL_TTS_CONSENT_VERSION = 'command-eve-multimodal-tts-consent/v0' as const;
+export const COMMAND_EVE_MULTIMODAL_TTS_CONSENT_GET_CHANNEL = 'command-eve.multimodal-tts-consent-get' as const;
+export const COMMAND_EVE_MULTIMODAL_TTS_CONSENT_SET_CHANNEL = 'command-eve.multimodal-tts-consent-set' as const;
 
 export const COMMAND_EVE_MULTIMODAL_TTS_MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 
@@ -181,6 +184,22 @@ export type BuildCommandEveMultimodalTtsRequestResult =
 
 export type CommandEveMultimodalTtsActivationStatusRequest = {
   privacyLane?: CommandEvePrivacyLane;
+};
+
+export type CommandEveMultimodalTtsConsentState = {
+  consent: boolean;
+  privacyLane: CommandEvePrivacyLane;
+  updatedAt?: string;
+};
+
+export type CommandEveMultimodalTtsConsentSetRequest = {
+  consent?: boolean;
+  privacyLane?: CommandEvePrivacyLane;
+};
+
+export type CommandEveMultimodalTtsConsentBridgeResult = CommandEveMultimodalTtsConsentState & {
+  version: typeof COMMAND_EVE_MULTIMODAL_TTS_CONSENT_VERSION;
+  persisted: boolean;
 };
 
 export type CommandEveMultimodalTtsActivationReason =

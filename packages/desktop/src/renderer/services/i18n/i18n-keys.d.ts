@@ -2457,6 +2457,8 @@ export type I18nKey =
   | 'settings.pleaseSelectSkillPath'
   | 'settings.preset'
   | 'settings.preset_agents'
+  | 'settings.privacy.cloudVoiceDescription'
+  | 'settings.privacy.cloudVoiceLabel'
   | 'settings.privacy.desktopOnly'
   | 'settings.privacy.disclosure'
   | 'settings.privacy.navLabel'

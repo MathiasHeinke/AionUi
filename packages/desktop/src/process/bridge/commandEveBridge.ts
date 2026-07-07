@@ -100,14 +100,23 @@ import {
 import {
   buildCommandEveMultimodalTtsRequest,
   commandEveMultimodalTtsFailure,
+  COMMAND_EVE_MULTIMODAL_TTS_CONSENT_GET_CHANNEL,
+  COMMAND_EVE_MULTIMODAL_TTS_CONSENT_SET_CHANNEL,
   COMMAND_EVE_MULTIMODAL_TTS_MAX_RESPONSE_BYTES,
   EVE_MULTIMODAL_FUNCTION_URL,
   parseCommandEveMultimodalTtsResponse,
   resolveCommandEveMultimodalGate,
   resolveCommandEveMultimodalTtsActivationStatus,
   type CommandEveMultimodalTtsActivationStatusRequest,
+  type CommandEveMultimodalTtsConsentSetRequest,
   type CommandEveMultimodalTtsRequest,
 } from '@/common/config/eveMultimodalGatewayCore';
+import {
+  evaluateCommandEveMultimodalTtsConsentAllowed,
+  readCommandEveMultimodalTtsConsent,
+  setCommandEveMultimodalTtsConsent,
+  toCommandEveMultimodalTtsConsentBridgeResult,
+} from '@process/commandEve/multimodalTtsConsentCore';
 import {
   SEAT_USAGE_FUNCTION_URL,
   currentUsageMonth,
@@ -137,7 +146,6 @@ import {
 /** Version tag mirrored onto every credits bridge result (ipcBridge contract). */
 const COMMAND_EVE_CREDITS_BRIDGE_VERSION = 'command-eve-credits/v0' as const;
 const COMMAND_EVE_MULTIMODAL_TTS_CLOUD_EGRESS_ENABLED = false;
-const COMMAND_EVE_MULTIMODAL_TTS_MAIN_PRIVACY_CONSENT_ENABLED = false;
 // Keep true only while the deployed eve-multimodal function returns a fail-closed
 // auth/provider response to no-secret smoke tests instead of 404.
 const COMMAND_EVE_MULTIMODAL_TTS_SERVER_GATEWAY_DEPLOYED = true;
@@ -1551,6 +1559,32 @@ export function initCommandEveBridge(): void {
   // eve-multimodal with the CEVE license bearer. The renderer gets a sanitized
   // audio artifact and never sees the bearer, raw provider keys, or provider
   // response fields outside the desktop contract.
+  bridge.buildProvider(COMMAND_EVE_MULTIMODAL_TTS_CONSENT_GET_CHANNEL).provider(async () => {
+    const data = toCommandEveMultimodalTtsConsentBridgeResult(
+      readCommandEveMultimodalTtsConsent(getDataPath()),
+      true
+    );
+    return { success: true, data };
+  });
+
+  bridge
+    .buildProvider(COMMAND_EVE_MULTIMODAL_TTS_CONSENT_SET_CHANNEL)
+    .provider(
+      async (
+        request?:
+          | CommandEveMultimodalTtsConsentSetRequest
+          | CommandEveBridgeEnvelope<CommandEveMultimodalTtsConsentSetRequest>
+      ) => {
+        const payload = unwrapBridgeRequest<CommandEveMultimodalTtsConsentSetRequest>(request);
+        const data = setCommandEveMultimodalTtsConsent(getDataPath(), payload);
+        return {
+          success: data.persisted === true,
+          ...(data.persisted === true ? {} : { msg: 'EVE_MULTIMODAL_TTS_CONSENT_PERSIST_FAILED' }),
+          data,
+        };
+      }
+    );
+
   bridge
     .buildProvider('command-eve.multimodal-tts-status')
     .provider(
@@ -1559,12 +1593,13 @@ export function initCommandEveBridge(): void {
           | CommandEveMultimodalTtsActivationStatusRequest
           | CommandEveBridgeEnvelope<CommandEveMultimodalTtsActivationStatusRequest>
       ) => {
-        const payload = unwrapBridgeRequest<CommandEveMultimodalTtsActivationStatusRequest>(request);
+        unwrapBridgeRequest<CommandEveMultimodalTtsActivationStatusRequest>(request);
+        const consentState = readCommandEveMultimodalTtsConsent(getDataPath());
         const wireResult = readLicenseWire(getDataPath());
         const data = resolveCommandEveMultimodalTtsActivationStatus({
-          privacyLane: payload?.privacyLane,
+          privacyLane: consentState.privacyLane,
           desktopCloudEgressEnabled: COMMAND_EVE_MULTIMODAL_TTS_CLOUD_EGRESS_ENABLED,
-          mainOwnedPrivacyConsentEnabled: COMMAND_EVE_MULTIMODAL_TTS_MAIN_PRIVACY_CONSENT_ENABLED,
+          mainOwnedPrivacyConsentEnabled: evaluateCommandEveMultimodalTtsConsentAllowed(consentState),
           hasServerGateway: Boolean(EVE_MULTIMODAL_FUNCTION_URL) && COMMAND_EVE_MULTIMODAL_TTS_SERVER_GATEWAY_DEPLOYED,
           hasLicense: Boolean(wireResult.ok && wireResult.wire),
         });
@@ -1592,7 +1627,16 @@ export function initCommandEveBridge(): void {
         }
 
         const payload = unwrapBridgeRequest<CommandEveMultimodalTtsRequest>(request);
-        const built = buildCommandEveMultimodalTtsRequest(payload);
+        const consentState = readCommandEveMultimodalTtsConsent(getDataPath());
+        if (!evaluateCommandEveMultimodalTtsConsentAllowed(consentState)) {
+          const data = commandEveMultimodalTtsFailure(
+            'EVE_MULTIMODAL_TTS_PRIVACY_CONSENT_REQUIRED',
+            'Command EVE cloud TTS requires explicit main-owned privacy consent.'
+          );
+          return { success: false, msg: data.reason_code, data };
+        }
+
+        const built = buildCommandEveMultimodalTtsRequest({ ...payload, privacyLane: consentState.privacyLane });
         if (built.ok === false) {
           return { success: false, msg: built.reason_code, data: built };
         }
