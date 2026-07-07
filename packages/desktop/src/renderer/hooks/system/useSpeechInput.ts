@@ -47,6 +47,7 @@ const SPEECH_WAVEFORM_SAMPLE_COUNT = 40;
 const SPEECH_WAVEFORM_MIN_LEVEL = 0.015;
 const SPEECH_WAVEFORM_MAX_LEVEL = 1;
 const SPEECH_VISUALIZER_INTERVAL_MS = 80;
+const SPEECH_STOP_TRANSCRIPTION_TIMEOUT_MS = 120_000;
 
 const createInitialWaveformLevels = (): number[] =>
   Array.from({ length: SPEECH_WAVEFORM_SAMPLE_COUNT }, (_, index) => ((index + 1) % 6 === 0 ? 0.04 : 0.015));
@@ -448,7 +449,14 @@ export const useSpeechInput = ({ locale, onTranscript }: UseSpeechInputOptions) 
       setStatus('transcribing');
       pendingStopOptionsRef.current = options;
       return new Promise((resolve) => {
-        pendingStopResolveRef.current = resolve;
+        const timeoutId = window.setTimeout(() => {
+          resolvePendingStop(null);
+          setStatus('error');
+        }, SPEECH_STOP_TRANSCRIPTION_TIMEOUT_MS);
+        pendingStopResolveRef.current = (transcript) => {
+          window.clearTimeout(timeoutId);
+          resolve(transcript);
+        };
         try {
           recorder.stop();
         } catch {
@@ -482,9 +490,10 @@ export const useSpeechInput = ({ locale, onTranscript }: UseSpeechInputOptions) 
           // Ignore teardown failures from partially started recording sessions.
         }
       }
+      resolvePendingStop(null);
       cleanupRecorder();
     };
-  }, [cleanupRecorder]);
+  }, [cleanupRecorder, resolvePendingStop]);
 
   return {
     availability,

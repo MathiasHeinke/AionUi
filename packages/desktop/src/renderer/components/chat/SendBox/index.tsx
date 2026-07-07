@@ -44,6 +44,7 @@ import { allSupportedExts } from '@renderer/services/FileService';
 import SpeechInputButton, { type SpeechInputButtonHandle } from '@/renderer/components/chat/SpeechInputButton';
 import { appendSpeechTranscript, type SpeechInputStatus } from '@/renderer/hooks/system/useSpeechInput';
 import { getConversationInputHistory, isCaretOnFirstLine } from '@/renderer/utils/chat/messageHistory';
+import { buildSpeechSendDraft, shouldAbortPendingSpeechSend, shouldTranscribeSpeechOnEnter } from './speechSendFlow';
 import './sendbox.css';
 
 const constVoid = (): void => undefined;
@@ -429,6 +430,22 @@ const SendBox: React.FC<{
       return internalSpeechInputRef.current?.transcribePendingAudio(options) ?? Promise.resolve(null);
     },
     [transcribePendingSpeechInput]
+  );
+  const transcribeSpeechInputWithGuard = useCallback(
+    async (options?: { emit?: boolean }) => {
+      if (speechSendPendingRef.current) {
+        return null;
+      }
+      speechSendPendingRef.current = true;
+      setIsSpeechSendPending(true);
+      try {
+        return await transcribeActiveSpeechInput(options);
+      } finally {
+        speechSendPendingRef.current = false;
+        setIsSpeechSendPending(false);
+      }
+    },
+    [transcribeActiveSpeechInput]
   );
   const activeAtFileQuery = useMemo(() => {
     if (!conversationContext?.workspace) {
@@ -1172,22 +1189,16 @@ const SendBox: React.FC<{
 
   const sendMessageHandler = async (options?: { includePendingSpeech?: boolean }) => {
     if (isUploading || speechSendPendingRef.current) return;
+    const inputAtSendStart = latestInputRef.current;
     const shouldTranscribePendingSpeech = options?.includePendingSpeech && hasActiveSpeechInput;
     let speechTranscript: string | null = null;
     if (shouldTranscribePendingSpeech) {
-      speechSendPendingRef.current = true;
-      setIsSpeechSendPending(true);
-      try {
-        speechTranscript = await transcribeActiveSpeechInput({ emit: false });
-      } finally {
-        speechSendPendingRef.current = false;
-        setIsSpeechSendPending(false);
-      }
-      if (speechTranscript === null) {
+      speechTranscript = await transcribeSpeechInputWithGuard({ emit: false });
+      if (speechTranscript === null && shouldAbortPendingSpeechSend(inputAtSendStart, domSnippets.length)) {
         return;
       }
     }
-    const draftInput = speechTranscript ? appendSpeechTranscript(latestInputRef.current, speechTranscript) : input;
+    const draftInput = buildSpeechSendDraft(inputAtSendStart, speechTranscript);
 
     // Cancel any pending warmup: once the user actually submits, the
     // forthcoming /messages request will build the agent on its own.
@@ -1670,9 +1681,9 @@ const SendBox: React.FC<{
               onKeyDown={createKeyDownHandler(
                 () => void sendMessageHandler(),
                 (event) => {
-                  if (event.key === 'Enter' && !event.shiftKey && hasActiveSpeechInput) {
+                  if (shouldTranscribeSpeechOnEnter(event.key, event.shiftKey, hasActiveSpeechInput)) {
                     event.preventDefault();
-                    void transcribeActiveSpeechInput({ emit: true });
+                    void transcribeSpeechInputWithGuard({ emit: true });
                     return true;
                   }
                   return handleAtFileMenuKeyDown(event) || handleOverlayKeyDown(event) || handleHistoryKeyDown(event);
