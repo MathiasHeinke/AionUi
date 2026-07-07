@@ -103,7 +103,7 @@ describe('Command EVE multimodal TTS status bridge', () => {
       requirements: {
         desktopCloudEgressGate: false,
         mainOwnedPrivacyConsent: false,
-        serverGateway: false,
+        serverGateway: true,
         licenseBearer: true,
         residencyAvailable: true,
       },
@@ -128,7 +128,7 @@ describe('Command EVE multimodal TTS status bridge', () => {
       requirements: {
         desktopCloudEgressGate: false,
         mainOwnedPrivacyConsent: false,
-        serverGateway: false,
+        serverGateway: true,
         licenseBearer: true,
         residencyAvailable: false,
       },

@@ -138,9 +138,9 @@ import {
 const COMMAND_EVE_CREDITS_BRIDGE_VERSION = 'command-eve-credits/v0' as const;
 const COMMAND_EVE_MULTIMODAL_TTS_CLOUD_EGRESS_ENABLED = false;
 const COMMAND_EVE_MULTIMODAL_TTS_MAIN_PRIVACY_CONSENT_ENABLED = false;
-// Flip only after the server-side eve-multimodal function is deployed and a
-// no-secret smoke returns a fail-closed auth/provider response instead of 404.
-const COMMAND_EVE_MULTIMODAL_TTS_SERVER_GATEWAY_DEPLOYED = false;
+// Keep true only while the deployed eve-multimodal function returns a fail-closed
+// auth/provider response to no-secret smoke tests instead of 404.
+const COMMAND_EVE_MULTIMODAL_TTS_SERVER_GATEWAY_DEPLOYED = true;
 
 /**
  * A SELF-QUIET zero-status returned when the credits-status backend is not
