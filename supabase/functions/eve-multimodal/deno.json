@@ -1,5 +1,5 @@
 {
-  "//": "eve-multimodal Edge Function config. CRITICAL DEPLOY NOTE: this function authenticates with the CEVE license WIRE (Bearer), NOT a Supabase JWT. Deploy with `supabase functions deploy eve-multimodal --no-verify-jwt`. Skeleton phase verifies license and request gates but deliberately returns provider-not-enabled before any xAI/OpenRouter/provider call. Required secret for this skeleton: COMMAND_EVE_LICENSE_SIGNING_KEY.",
+  "//": "eve-multimodal Edge Function config. CRITICAL DEPLOY NOTE: this function authenticates with the CEVE license WIRE (Bearer), NOT a Supabase JWT. Deploy with `supabase functions deploy eve-multimodal --no-verify-jwt`. Default behavior remains provider-not-enabled. TTS provider execution requires server-side EVE_MULTIMODAL_ENABLE_XAI_TTS=true plus XAI_API_KEY; never put provider keys in the desktop app or commits. Required skeleton secret: COMMAND_EVE_LICENSE_SIGNING_KEY.",
   "tasks": {
     "test": "deno test --allow-env"
   },

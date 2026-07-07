@@ -50,6 +50,13 @@ export type EveMultimodalArtifactEnvelope = {
   kind: EveMultimodalArtifactKind;
 };
 
+export type EveMultimodalTtsReceipt = {
+  voice_id: string;
+  language: string;
+  text_length: number;
+  output_format: { codec: "mp3" };
+};
+
 export type EveMultimodalSkeletonResponse = {
   ok: false;
   gateway: "eve-multimodal";
@@ -61,6 +68,7 @@ export type EveMultimodalSkeletonResponse = {
   capability?: EveMultimodalCapability;
   residency?: EveMultimodalResidencyReceipt;
   artifact?: EveMultimodalArtifactEnvelope;
+  tts?: EveMultimodalTtsReceipt;
   license?: { verified: true; edition: string };
 };
 
@@ -107,6 +115,8 @@ const ARTIFACT_BY_CAPABILITY: Record<
   stt: "text",
   realtime_voice: "audio",
 };
+
+export const EVE_MULTIMODAL_TTS_MAX_TEXT_CHARS = 15_000;
 
 const FORBIDDEN_PROVIDER_KEY_FIELDS = new Set([
   "apiKey",
@@ -158,7 +168,10 @@ function response(
   message: string,
   args: DecideEveMultimodalArgs,
   extra: Partial<
-    Pick<EveMultimodalSkeletonResponse, "capability" | "residency" | "artifact">
+    Pick<
+      EveMultimodalSkeletonResponse,
+      "capability" | "residency" | "artifact" | "tts"
+    >
   > = {},
 ): EveMultimodalDecision {
   return {
@@ -185,6 +198,43 @@ function residencyReceipt(
     confirmation: privacyLane === "cloud_auto"
       ? "server-must-confirm-us-cloud"
       : "explicit-us-cloud",
+  };
+}
+
+function ttsReceiptFromBody(
+  body: Record<string, unknown>,
+): { ok: true; receipt: EveMultimodalTtsReceipt; text: string } | {
+  ok: false;
+  message: string;
+} {
+  if (typeof body.text !== "string" || body.text.trim().length === 0) {
+    return { ok: false, message: "TTS requests require non-empty text." };
+  }
+  if (body.text.length > EVE_MULTIMODAL_TTS_MAX_TEXT_CHARS) {
+    return {
+      ok: false,
+      message:
+        `TTS text exceeds ${EVE_MULTIMODAL_TTS_MAX_TEXT_CHARS} characters.`,
+    };
+  }
+  const voiceId =
+    typeof body.voice_id === "string" && body.voice_id.trim().length > 0
+      ? body.voice_id.trim()
+      : "eve";
+  const language =
+    typeof body.language === "string" && body.language.trim().length > 0
+      ? body.language.trim()
+      : "en";
+
+  return {
+    ok: true,
+    text: body.text,
+    receipt: {
+      voice_id: voiceId,
+      language,
+      text_length: body.text.length,
+      output_format: { codec: "mp3" },
+    },
   };
 }
 
@@ -274,6 +324,11 @@ export function decideEveMultimodalSkeletonRequest(
     );
   }
 
+  const tts = capability === "tts" ? ttsReceiptFromBody(args.body) : null;
+  if (tts && !tts.ok) {
+    return response(400, "invalid-request", tts.message, args, base);
+  }
+
   return response(
     501,
     "provider-not-enabled",
@@ -282,6 +337,13 @@ export function decideEveMultimodalSkeletonRequest(
     {
       ...base,
       residency: residencyReceipt(privacyLane),
+      ...(tts?.ok ? { tts: tts.receipt } : {}),
     },
   );
+}
+
+export function extractEveMultimodalTtsText(body: unknown): string | null {
+  if (!isRecord(body)) return null;
+  const tts = ttsReceiptFromBody(body);
+  return tts.ok ? tts.text : null;
 }

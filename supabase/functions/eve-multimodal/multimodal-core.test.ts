@@ -95,6 +95,50 @@ Deno.test("rejects present but invalid privacy lanes instead of defaulting to cl
   assertEquals(result.body.reason, "invalid-request");
 });
 
+Deno.test("validates TTS text before provider enablement", () => {
+  const result = decide({
+    provider: "xai",
+    capability: "tts",
+    privacyLane: "cloud_us",
+    directProviderKeyPresentInDesktop: false,
+  });
+
+  assertEquals(result.status, 400);
+  assertEquals(result.body.reason, "invalid-request");
+});
+
+Deno.test("caps TTS text at 15000 characters", () => {
+  const result = decide({
+    provider: "xai",
+    capability: "tts",
+    privacyLane: "cloud_us",
+    directProviderKeyPresentInDesktop: false,
+    text: "x".repeat(15_001),
+  });
+
+  assertEquals(result.status, 400);
+  assertEquals(result.body.reason, "invalid-request");
+});
+
+Deno.test("returns a TTS receipt without echoing prompt text", () => {
+  const result = decide({
+    provider: "xai",
+    capability: "tts",
+    privacyLane: "cloud_us",
+    directProviderKeyPresentInDesktop: false,
+    text: "hello",
+    voice_id: "eve",
+    language: "en",
+  });
+
+  assertEquals(result.status, 501);
+  assertEquals(result.body.reason, "provider-not-enabled");
+  assertEquals(result.body.tts?.voice_id, "eve");
+  assertEquals(result.body.tts?.language, "en");
+  assertEquals(result.body.tts?.text_length, 5);
+  assertEquals(JSON.stringify(result.body).includes("hello"), false);
+});
+
 Deno.test("blocks local-only privacy before provider execution", () => {
   const result = decide({
     provider: "xai",
@@ -129,6 +173,7 @@ Deno.test("returns provider-not-enabled with a US residency receipt for cloud_us
     capability: "tts",
     privacyLane: "cloud_us",
     directProviderKeyPresentInDesktop: false,
+    text: "Hello",
   });
 
   assertEquals(result.status, 501);

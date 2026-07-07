@@ -69,6 +69,17 @@ function request(body: unknown, wire = licenseWire()): Request {
   );
 }
 
+function disableTtsProvider(): void {
+  Deno.env.delete("EVE_MULTIMODAL_ENABLE_XAI_TTS");
+  Deno.env.delete("XAI_API_KEY");
+  Deno.env.delete("EVE_MULTIMODAL_TTS_TIMEOUT_MS");
+}
+
+function enableTtsProvider(apiKey = "test-xai-key"): void {
+  Deno.env.set("EVE_MULTIMODAL_ENABLE_XAI_TTS", "true");
+  Deno.env.set("XAI_API_KEY", apiKey);
+}
+
 Deno.test("answers CORS preflight without license verification", async () => {
   const response = await handleEveMultimodal(
     new Request("https://example.supabase.co/functions/v1/eve-multimodal", {
@@ -179,12 +190,14 @@ Deno.test("rejects invalid JSON bodies after license verification", async () => 
 });
 
 Deno.test("verifies license auth but still refuses provider execution in the skeleton", async () => {
+  disableTtsProvider();
   const response = await handleEveMultimodal(
     request({
       provider: "xai",
       capability: "tts",
       privacyLane: "cloud_us",
       directProviderKeyPresentInDesktop: false,
+      text: "Hello from disabled TTS.",
       requestId: "req_handler",
     }),
   );
@@ -196,4 +209,298 @@ Deno.test("verifies license auth but still refuses provider execution in the ske
   assertEquals(body.license.verified, true);
   assertEquals(body.license.edition, "standard");
   assertEquals(body.artifact.kind, "audio");
+});
+
+Deno.test("requires server-side XAI_API_KEY before enabled TTS can run", async () => {
+  try {
+    Deno.env.set("EVE_MULTIMODAL_ENABLE_XAI_TTS", "true");
+    Deno.env.delete("XAI_API_KEY");
+    const response = await handleEveMultimodal(
+      request({
+        provider: "xai",
+        capability: "tts",
+        privacyLane: "cloud_us",
+        directProviderKeyPresentInDesktop: false,
+        text: "Hello.",
+      }),
+    );
+    const body = await response.json();
+
+    assertEquals(response.status, 503);
+    assertEquals(body.reason, "provider-not-configured");
+  } finally {
+    disableTtsProvider();
+  }
+});
+
+Deno.test("leaves non-TTS capabilities provider-disabled even when TTS is enabled", async () => {
+  try {
+    enableTtsProvider();
+    let fetchCalls = 0;
+    const fetchStub: typeof fetch = () => {
+      fetchCalls += 1;
+      return Promise.resolve(
+        new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "audio/mpeg" },
+        }),
+      );
+    };
+    const response = await handleEveMultimodal(
+      request({
+        provider: "xai",
+        capability: "realtime_voice",
+        privacyLane: "cloud_us",
+        directProviderKeyPresentInDesktop: false,
+      }),
+      { fetch: fetchStub },
+    );
+    const body = await response.json();
+
+    assertEquals(fetchCalls, 0);
+    assertEquals(response.status, 501);
+    assertEquals(body.reason, "provider-not-enabled");
+  } finally {
+    disableTtsProvider();
+  }
+});
+
+Deno.test("calls xAI TTS when enabled and returns an audio artifact without echoing text", async () => {
+  try {
+    enableTtsProvider();
+    const fetchCalls: Array<
+      { input: string | URL | Request; init?: RequestInit }
+    > = [];
+    const fetchStub: typeof fetch = (input, init) => {
+      fetchCalls.push({ input, init });
+      const payload = JSON.parse(String(init?.body));
+      const headers = init?.headers as Record<string, string>;
+
+      assertEquals(String(input), "https://api.x.ai/v1/tts");
+      assertEquals(headers.Authorization, "Bearer test-xai-key");
+      assertEquals(payload, {
+        text: "Hello from xAI TTS.",
+        voice_id: "eve",
+        language: "en",
+      });
+
+      return Promise.resolve(
+        new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "audio/mpeg" },
+        }),
+      );
+    };
+
+    const response = await handleEveMultimodal(
+      request({
+        provider: "xai",
+        capability: "tts",
+        privacyLane: "cloud_us",
+        directProviderKeyPresentInDesktop: false,
+        text: "Hello from xAI TTS.",
+        voice_id: "eve",
+        language: "en",
+        requestId: "req_tts",
+      }),
+      { fetch: fetchStub },
+    );
+    const body = await response.json();
+
+    assertEquals(fetchCalls.length, 1);
+    assertEquals(response.status, 200);
+    assertEquals(body.ok, true);
+    assertEquals(body.reason, "provider-complete");
+    assertEquals(body.request_id, "req_tts");
+    assertEquals(body.artifact, {
+      status: "created",
+      kind: "audio",
+      mime_type: "audio/mpeg",
+      encoding: "base64",
+      data_base64: "AQID",
+      bytes: 3,
+    });
+    assertEquals(JSON.stringify(body).includes("Hello from xAI TTS."), false);
+  } finally {
+    disableTtsProvider();
+  }
+});
+
+Deno.test("maps xAI TTS provider failures without echoing provider response bodies", async () => {
+  try {
+    enableTtsProvider();
+    const fetchStub: typeof fetch = () =>
+      Promise.resolve(new Response("provider-secret-detail", { status: 500 }));
+
+    const response = await handleEveMultimodal(
+      request({
+        provider: "xai",
+        capability: "tts",
+        privacyLane: "cloud_us",
+        directProviderKeyPresentInDesktop: false,
+        text: "Hello.",
+      }),
+      { fetch: fetchStub },
+    );
+    const body = await response.json();
+
+    assertEquals(response.status, 502);
+    assertEquals(body.reason, "provider-error");
+    assertEquals(
+      JSON.stringify(body).includes("provider-secret-detail"),
+      false,
+    );
+  } finally {
+    disableTtsProvider();
+  }
+});
+
+Deno.test("rejects HTTP 200 provider responses with non-audio content type", async () => {
+  try {
+    enableTtsProvider();
+    const fetchStub: typeof fetch = () =>
+      Promise.resolve(
+        new Response(JSON.stringify({ error: "provider detail" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+
+    const response = await handleEveMultimodal(
+      request({
+        provider: "xai",
+        capability: "tts",
+        privacyLane: "cloud_us",
+        directProviderKeyPresentInDesktop: false,
+        text: "Hello.",
+      }),
+      { fetch: fetchStub },
+    );
+    const body = await response.json();
+
+    assertEquals(response.status, 502);
+    assertEquals(body.reason, "provider-error");
+    assertEquals(JSON.stringify(body).includes("provider detail"), false);
+  } finally {
+    disableTtsProvider();
+  }
+});
+
+Deno.test("rejects HTTP 200 provider responses with missing content type", async () => {
+  try {
+    enableTtsProvider();
+    const fetchStub: typeof fetch = () =>
+      Promise.resolve(
+        new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+        }),
+      );
+
+    const response = await handleEveMultimodal(
+      request({
+        provider: "xai",
+        capability: "tts",
+        privacyLane: "cloud_us",
+        directProviderKeyPresentInDesktop: false,
+        text: "Hello.",
+      }),
+      { fetch: fetchStub },
+    );
+    const body = await response.json();
+
+    assertEquals(response.status, 502);
+    assertEquals(body.reason, "provider-error");
+  } finally {
+    disableTtsProvider();
+  }
+});
+
+Deno.test("rejects empty TTS audio bodies", async () => {
+  try {
+    enableTtsProvider();
+    const fetchStub: typeof fetch = () =>
+      Promise.resolve(
+        new Response(new Uint8Array(), {
+          status: 200,
+          headers: { "content-type": "audio/mpeg" },
+        }),
+      );
+
+    const response = await handleEveMultimodal(
+      request({
+        provider: "xai",
+        capability: "tts",
+        privacyLane: "cloud_us",
+        directProviderKeyPresentInDesktop: false,
+        text: "Hello.",
+      }),
+      { fetch: fetchStub },
+    );
+    const body = await response.json();
+
+    assertEquals(response.status, 502);
+    assertEquals(body.reason, "provider-empty-audio");
+  } finally {
+    disableTtsProvider();
+  }
+});
+
+Deno.test("rejects oversized TTS audio bodies", async () => {
+  try {
+    enableTtsProvider();
+    const fetchStub: typeof fetch = () =>
+      Promise.resolve(
+        new Response(new Uint8Array(10 * 1024 * 1024 + 1), {
+          status: 200,
+          headers: { "content-type": "audio/mpeg" },
+        }),
+      );
+
+    const response = await handleEveMultimodal(
+      request({
+        provider: "xai",
+        capability: "tts",
+        privacyLane: "cloud_us",
+        directProviderKeyPresentInDesktop: false,
+        text: "Hello.",
+      }),
+      { fetch: fetchStub },
+    );
+    const body = await response.json();
+
+    assertEquals(response.status, 502);
+    assertEquals(body.reason, "provider-audio-too-large");
+  } finally {
+    disableTtsProvider();
+  }
+});
+
+Deno.test("times out slow TTS provider requests", async () => {
+  try {
+    enableTtsProvider();
+    Deno.env.set("EVE_MULTIMODAL_TTS_TIMEOUT_MS", "1");
+    const fetchStub: typeof fetch = (_input, init) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(new DOMException("aborted", "AbortError"));
+        });
+      });
+
+    const response = await handleEveMultimodal(
+      request({
+        provider: "xai",
+        capability: "tts",
+        privacyLane: "cloud_us",
+        directProviderKeyPresentInDesktop: false,
+        text: "Hello.",
+      }),
+      { fetch: fetchStub },
+    );
+    const body = await response.json();
+
+    assertEquals(response.status, 504);
+    assertEquals(body.reason, "provider-timeout");
+  } finally {
+    disableTtsProvider();
+  }
 });
