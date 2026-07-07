@@ -1,9 +1,12 @@
 import type { TMessage } from '@/common/chat/chatLib';
-import { redactCommandEveSensitiveText } from '@/common/api/egressBoundaryCore';
+import {
+  COMMAND_EVE_CLOUD_TITLE_TEXT_MAX_CHARS,
+  prepareCommandEveCloudTitleText,
+} from '@/common/config/eveTitleCore';
 import { readMessageContent } from '@/renderer/utils/chat/conversationExport';
 import { hasThinkTags, stripThinkTags } from '@/renderer/utils/chat/thinkTagFilter';
 
-export const AUTO_TITLE_CLOUD_TEXT_MAX_CHARS = 1000;
+export const AUTO_TITLE_CLOUD_TEXT_MAX_CHARS = COMMAND_EVE_CLOUD_TITLE_TEXT_MAX_CHARS;
 
 export const buildAutoTitleFromContent = (content: string): string | null => {
   const withoutThinkTags = hasThinkTags(content) ? stripThinkTags(content) : content;
@@ -42,15 +45,7 @@ export const buildAutoTitleExchangeText = (userText: string, assistantText: stri
 };
 
 export const prepareCloudAutoTitleText = (exchangeText: string): string | null => {
-  const redacted = redactCommandEveSensitiveText(exchangeText)
-    .replace(/\r/g, '')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .join('\n')
-    .slice(0, AUTO_TITLE_CLOUD_TEXT_MAX_CHARS)
-    .trim();
-  return redacted || null;
+  return prepareCommandEveCloudTitleText(exchangeText);
 };
 
 /**

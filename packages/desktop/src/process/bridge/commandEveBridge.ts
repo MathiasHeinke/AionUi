@@ -93,6 +93,7 @@ import {
 import { getCommandEveLocalRuntimeProvider, isCommandEveFounderBuild } from '@/common/config/commandEveShell';
 import { CREDITS_STATUS_FUNCTION_URL, type ClientSeedInput, type CreditsTier } from '@/common/config/creditsCore';
 import {
+  prepareCommandEveCloudTitleText,
   EVE_TITLE_FUNCTION_URL,
   type CommandEveCloudTitleRequest,
 } from '@/common/config/eveTitleCore';
@@ -1442,7 +1443,7 @@ export function initCommandEveBridge(): void {
     .buildProvider('command-eve.generate-cloud-title')
     .provider(async (request?: CommandEveCloudTitleRequest) => {
       const TITLE_TIMEOUT_MS = 12_000;
-      const text = String(request?.text || '').trim();
+      const text = prepareCommandEveCloudTitleText(String(request?.text || ''));
       if (!text) return { success: false, msg: 'TITLE_NO_TEXT', data: { ok: false, reason_code: 'TITLE_NO_TEXT' } };
       if (!EVE_TITLE_FUNCTION_URL) {
         return { success: false, msg: 'TITLE_CLOUD_NO_URL', data: { ok: false, reason_code: 'TITLE_CLOUD_NO_URL' } };
