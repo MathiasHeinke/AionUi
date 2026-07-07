@@ -6,7 +6,7 @@
 
 import type { AcpPermissionRequest, PlanUpdate, ToolCallUpdate } from '@/common/types/platform/acpTypes';
 import type { AcpAvailableCommand } from '@/common/chat/slash/types';
-import type { IResponseMessage } from '../adapter/ipcBridge';
+import type { IGeneratedArtifactType, IResponseMessage } from '../adapter/ipcBridge';
 import { uuid } from '../utils';
 
 /**
@@ -201,6 +201,48 @@ type IMessageToolGroupConfirmationDetailsBase<Type, Extra extends Record<string,
   title: string;
 } & Extra;
 
+export type GeneratedArtifactToolResult = {
+  artifact_type?: IGeneratedArtifactType;
+  type?: IGeneratedArtifactType | 'media';
+  kind?: IGeneratedArtifactType | 'media';
+  title?: string;
+  name?: string;
+  description?: string;
+  prompt?: string;
+  url?: string;
+  file_url?: string;
+  fileUrl?: string;
+  href?: string;
+  src?: string;
+  path?: string;
+  file_path?: string;
+  filePath?: string;
+  absolute_path?: string;
+  absolutePath?: string;
+  relative_path?: string;
+  relativePath?: string;
+  file_name?: string;
+  fileName?: string;
+  img_url?: string;
+  image_url?: string;
+  video_url?: string;
+  audio_url?: string;
+  mime_type?: string;
+  media_type?: string;
+  mimeType?: string;
+  mediaType?: string;
+  size?: number;
+  bytes?: number;
+  hash?: string;
+  provider?: string;
+  model?: string;
+  html?: string;
+  content?: string;
+  text?: string;
+  error?: string;
+  [key: string]: unknown;
+};
+
 export type IMessageToolGroup = IMessage<
   'tool_group',
   Array<{
@@ -217,7 +259,8 @@ export type IMessageToolGroup = IMessage<
       | {
           img_url: string;
           relative_path: string;
-        };
+        }
+      | GeneratedArtifactToolResult;
     status: 'Executing' | 'Success' | 'Error' | 'Canceled' | 'Pending' | 'Confirming';
     confirmationDetails?:
       | IMessageToolGroupConfirmationDetailsBase<

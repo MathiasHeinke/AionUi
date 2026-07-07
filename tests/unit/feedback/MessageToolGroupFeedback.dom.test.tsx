@@ -51,6 +51,7 @@ import type { IMessageToolGroup } from '@/common/chat/chatLib';
 const buildToolGroup = (status: IMessageToolGroup['content'][number]['status']): IMessageToolGroup =>
   ({
     id: 'tg-1',
+    conversation_id: 'conversation-1',
     type: 'tool_group',
     content: [
       {
@@ -60,6 +61,31 @@ const buildToolGroup = (status: IMessageToolGroup['content'][number]['status']):
         render_output_as_markdown: false,
         status,
         result_display: 'ENOENT: no such file',
+      },
+    ],
+  }) as IMessageToolGroup;
+
+const buildGeneratedVideoToolGroup = (): IMessageToolGroup =>
+  ({
+    id: 'tg-video',
+    conversation_id: 'conversation-1',
+    created_at: 10,
+    type: 'tool_group',
+    content: [
+      {
+        call_id: 'c-video',
+        description: 'Generated video',
+        name: 'GrokVideo',
+        render_output_as_markdown: false,
+        status: 'Success',
+        result_display: {
+          artifact_type: 'video',
+          title: 'Launch clip',
+          url: 'https://cdn.example.com/launch.mp4',
+          mime_type: 'video/mp4',
+          provider: 'xAI',
+          model: 'grok-video',
+        },
       },
     ],
   }) as IMessageToolGroup;
@@ -76,6 +102,15 @@ describe('MessageToolGroup — FeedbackButton wiring', () => {
   it('does not render FeedbackButton on successful tool calls', () => {
     render(<MessageToolGroup message={buildToolGroup('Success')} />);
     expect(screen.queryByText('settings.oneClickFeedback')).not.toBeInTheDocument();
+  });
+
+  it('renders generic generated media tool results as artifact previews', () => {
+    render(<MessageToolGroup message={buildGeneratedVideoToolGroup()} />);
+
+    expect(screen.getByTestId('generated-artifact-card')).toBeInTheDocument();
+    expect(screen.getByTestId('generated-artifact-video')).toHaveAttribute('src', 'https://cdn.example.com/launch.mp4');
+    expect(screen.getByText('Launch clip')).toBeInTheDocument();
+    expect(screen.getByText('xAI · grok-video · video/mp4')).toBeInTheDocument();
   });
 
   it('does not render FeedbackButton on canceled tool calls', () => {

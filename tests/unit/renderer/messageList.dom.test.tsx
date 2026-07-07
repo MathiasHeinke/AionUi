@@ -11,6 +11,10 @@ import type { IConversationArtifact } from '@/common/adapter/ipcBridge';
 import type { IMessageText, IMessageToolGroup, TMessage } from '@/common/chat/chatLib';
 import { MessageListLoadingProvider, MessageListProvider } from '@/renderer/pages/conversation/Messages/hooks';
 import MessageList from '@/renderer/pages/conversation/Messages/MessageList';
+import {
+  buildGeneratedArtifactFromToolResult,
+  getToolResultArtifactSourceKeys,
+} from '@/renderer/pages/conversation/Messages/types';
 
 const artifactMock = vi.hoisted(() => ({
   artifacts: [] as IConversationArtifact[],
@@ -172,6 +176,34 @@ function createImageToolGroup(): IMessageToolGroup {
   };
 }
 
+function createVideoToolGroup(): IMessageToolGroup {
+  return {
+    id: 'tool-group-video',
+    msg_id: 'tool-msg-video',
+    conversation_id: 'conversation-1',
+    type: 'tool_group',
+    position: 'left',
+    content: [
+      {
+        call_id: 'call-video',
+        description: 'Generated video',
+        name: 'GrokVideo',
+        render_output_as_markdown: false,
+        result_display: {
+          artifact_type: 'video',
+          title: 'Launch clip',
+          url: 'https://cdn.example.com/launch.mp4',
+          mime_type: 'video/mp4',
+          provider: 'xAI',
+          model: 'grok-video',
+        },
+        status: 'Success',
+      },
+    ],
+    created_at: 1,
+  };
+}
+
 function Wrapper({
   children,
   messages = [createTextMessage()],
@@ -263,6 +295,15 @@ describe('MessageList', () => {
     expect(screen.queryByText('tool_summary')).not.toBeInTheDocument();
   });
 
+  it('keeps generic generated media tool results inline instead of collapsing them into the step summary', () => {
+    render(<MessageList />, {
+      wrapper: ({ children }) => <Wrapper messages={[createVideoToolGroup()]}>{children}</Wrapper>,
+    });
+
+    expect(screen.getByText('tool_group')).toBeInTheDocument();
+    expect(screen.queryByText('tool_summary')).not.toBeInTheDocument();
+  });
+
   it('does not render the same generated image twice when an artifact card already exists', () => {
     artifactMock.artifacts = [
       {
@@ -288,5 +329,78 @@ describe('MessageList', () => {
     expect(screen.getByTestId('generated-artifact-card')).toBeInTheDocument();
     expect(screen.queryByText('tool_group')).not.toBeInTheDocument();
     expect(screen.getByText('tool_summary')).toBeInTheDocument();
+  });
+
+  it('does not render the same generic generated media twice when an artifact card already exists', () => {
+    artifactMock.artifacts = [
+      {
+        id: 'artifact-video',
+        conversation_id: 'conversation-1',
+        kind: 'video',
+        status: 'active',
+        payload: {
+          artifact_type: 'video',
+          title: 'Launch clip',
+          url: 'https://cdn.example.com/launch.mp4',
+          mime_type: 'video/mp4',
+        },
+        created_at: 2,
+        updated_at: 2,
+      },
+    ];
+
+    render(<MessageList />, {
+      wrapper: ({ children }) => <Wrapper messages={[createVideoToolGroup()]}>{children}</Wrapper>,
+    });
+
+    expect(screen.getByTestId('generated-artifact-card')).toBeInTheDocument();
+    expect(screen.queryByText('tool_group')).not.toBeInTheDocument();
+    expect(screen.getByText('tool_summary')).toBeInTheDocument();
+  });
+
+  it('normalizes generic tool result media into the generated artifact contract', () => {
+    const resultDisplay = {
+      artifact_type: 'audio',
+      title: 'Voice readout',
+      url: 'https://cdn.example.com/readout.mp3',
+      mime_type: 'audio/mpeg',
+      provider: 'xAI',
+      model: 'grok-tts',
+    } as const;
+
+    const artifact = buildGeneratedArtifactFromToolResult({
+      conversation_id: 'conversation-1',
+      call_id: 'call-audio',
+      created_at: 10,
+      name: 'GrokTTS',
+      description: 'Read aloud',
+      result_display: resultDisplay,
+    });
+
+    expect(getToolResultArtifactSourceKeys(resultDisplay)).toEqual(['https://cdn.example.com/readout.mp3']);
+    expect(artifact?.kind).toBe('audio');
+    expect(artifact?.payload).toMatchObject({
+      artifact_type: 'audio',
+      title: 'Voice readout',
+      url: 'https://cdn.example.com/readout.mp3',
+      mime_type: 'audio/mpeg',
+      provider: 'xAI',
+      model: 'grok-tts',
+    });
+  });
+
+  it('does not treat arbitrary JSON tool output as a generated artifact', () => {
+    const resultDisplay = { count: 2, status: 'ok' };
+
+    expect(getToolResultArtifactSourceKeys(resultDisplay)).toEqual([]);
+    expect(
+      buildGeneratedArtifactFromToolResult({
+        conversation_id: 'conversation-1',
+        call_id: 'call-json',
+        created_at: 10,
+        name: 'Search',
+        result_display: resultDisplay,
+      })
+    ).toBeUndefined();
   });
 });

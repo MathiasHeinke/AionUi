@@ -36,7 +36,12 @@ import MessageGeneratedArtifact from './components/MessageGeneratedArtifact';
 import MessageSkillSuggest from './components/MessageSkillSuggest';
 import MessageText from './components/MessageText';
 import MessageThinking from './components/MessageThinking';
-import type { WriteFileResult } from './types';
+import {
+  getGeneratedArtifactPayloadSourceKeys,
+  getToolResultArtifactSourceKeys,
+  hasToolResultGeneratedArtifact,
+  type WriteFileResult,
+} from './types';
 import { useAutoScroll } from './useAutoScroll';
 import { useAutoPreviewOfficeFiles } from '@/renderer/hooks/file/useAutoPreviewOfficeFiles';
 import SelectionReplyButton from './components/SelectionReplyButton';
@@ -105,45 +110,16 @@ const isVisibleConversationArtifact = (artifact: IConversationArtifact): boolean
   return artifact.status !== 'dismissed';
 };
 
-const parseArtifactPayloadRecord = (payload: unknown): Record<string, unknown> => {
-  if (!payload) return {};
-  if (typeof payload !== 'string') {
-    return typeof payload === 'object' && !Array.isArray(payload) ? (payload as Record<string, unknown>) : {};
-  }
-  try {
-    const parsed = JSON.parse(payload) as unknown;
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
-  } catch {
-    return {};
-  }
-};
-
-const readArtifactString = (payload: Record<string, unknown>, keys: string[]): string | undefined => {
-  for (const key of keys) {
-    const value = payload[key];
-    if (typeof value === 'string' && value.trim()) return value.trim();
-  }
-  return undefined;
-};
-
-const getGeneratedArtifactSourceKey = (artifact: IConversationArtifact): string | undefined => {
-  if (artifact.kind === 'cron_trigger' || artifact.kind === 'skill_suggest') return undefined;
-  const payload = parseArtifactPayloadRecord(artifact.payload);
-  return readArtifactString(payload, ['url', 'file_url', 'href', 'src', 'path', 'file_path', 'absolute_path']);
+const getGeneratedArtifactSourceKeys = (artifact: IConversationArtifact): string[] => {
+  if (artifact.kind === 'cron_trigger' || artifact.kind === 'skill_suggest') return [];
+  return getGeneratedArtifactPayloadSourceKeys(artifact.payload);
 };
 
 const getInlineToolGroupArtifactSourceKeys = (message: IMessageToolGroup): string[] =>
-  message.content.flatMap((item) => {
-    if (item.name !== 'ImageGeneration') return [];
-    const result = item.result_display;
-    if (!result || typeof result !== 'object' || !('img_url' in result) || !result.img_url) return [];
-    const keys = [result.img_url];
-    if ('relative_path' in result && result.relative_path) keys.push(result.relative_path);
-    return keys;
-  });
+  message.content.flatMap((item) => getToolResultArtifactSourceKeys(item.result_display));
 
 const hasInlineToolGroupArtifact = (message: IMessageToolGroup): boolean =>
-  getInlineToolGroupArtifactSourceKeys(message).length > 0;
+  message.content.some((item) => hasToolResultGeneratedArtifact(item.result_display));
 
 const hasConversationArtifactDuplicate = (
   message: IMessageToolGroup,
@@ -300,7 +276,7 @@ const MessageList: React.FC<{ className?: string; emptySlot?: React.ReactNode }>
     const result: Array<IMessageVO> = [];
     const visibleArtifacts = artifacts.filter(isVisibleConversationArtifact);
     const generatedArtifactSourceKeys = new Set(
-      visibleArtifacts.map(getGeneratedArtifactSourceKey).filter((key): key is string => Boolean(key))
+      visibleArtifacts.flatMap(getGeneratedArtifactSourceKeys).filter((key): key is string => Boolean(key))
     );
     let diffsChanges: FileChangeInfo[] = [];
     let diffsSourceMessageIds: string[] = [];

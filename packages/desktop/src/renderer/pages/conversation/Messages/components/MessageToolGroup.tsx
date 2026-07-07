@@ -22,7 +22,8 @@ import MarkdownView from '@renderer/components/Markdown';
 import { ToolConfirmationOutcome } from '@renderer/utils/common';
 import { ImagePreviewContext } from '../MessageList';
 import { COLLAPSE_CONFIG, TEXT_CONFIG } from '../constants';
-import type { ImageGenerationResult, WriteFileResult } from '../types';
+import { buildGeneratedArtifactFromToolResult, type ImageGenerationResult, type WriteFileResult } from '../types';
+import MessageGeneratedArtifact from './MessageGeneratedArtifact';
 
 const CODE_STYLE = { marginTop: 4, marginBottom: 4 };
 
@@ -531,6 +532,18 @@ const MessageToolGroup: React.FC<IMessageToolGroupProps> = ({ message }) => {
           if (result.img_url) {
             return <ImageDisplay key={call_id} imgUrl={result.img_url} relativePath={result.relative_path} />;
           }
+        }
+
+        const generatedArtifact = buildGeneratedArtifactFromToolResult({
+          conversation_id: message.conversation_id,
+          call_id,
+          created_at: message.created_at,
+          name,
+          description,
+          result_display,
+        });
+        if (generatedArtifact) {
+          return <MessageGeneratedArtifact key={call_id} artifact={generatedArtifact} />;
         }
 
         // 通用工具调用展示 Generic tool call display
