@@ -475,7 +475,9 @@ describe('Command EVE runtime bootstrap core', () => {
       const bakedEnv: NodeJS.ProcessEnv = {};
       prepareCommandEveRuntimeProcessEnv(harness.root, bakedEnv);
       expect(bakedEnv.HERMES_ENVIRONMENT_HINT).toBeUndefined();
-      expect(Object.values(bakedEnv).some((v) => typeof v === 'string' && v.includes('Company Brain (Index: brain.json)'))).toBe(false);
+      expect(
+        Object.values(bakedEnv).some((v) => typeof v === 'string' && v.includes('Company Brain (Index: brain.json)'))
+      ).toBe(false);
       expect(fs.existsSync(path.join(paths.managedSkillsRoot, 'first-run-company-discovery', 'SKILL.md'))).toBe(true);
       // 1.2.14: content-machine flipped 'available'→'active' + bundled, so its real SKILL.md now lands.
       expect(fs.existsSync(path.join(paths.managedSkillsRoot, 'content-machine', 'SKILL.md'))).toBe(true);
@@ -518,6 +520,14 @@ describe('Command EVE runtime bootstrap core', () => {
         'utf8'
       );
       expect(providerOverride).toContain('top_level["reasoning_effort"] = "none"');
+      expect(providerOverride).toContain('Command EVE cloud-shim stop continuation patch');
+      expect(providerOverride).toContain('AIAgent._should_treat_stop_as_truncated');
+      expect(providerOverride).toContain('command-eve');
+      expect(providerOverride).toContain('command_eve_is_action_ack');
+      expect(providerOverride).toContain('from __future__ import annotations');
+      expect(providerOverride).toContain('command_eve_mark_stop_continuation');
+      expect(providerOverride).toContain('command_eve_has_recent_tool_result');
+      expect(providerOverride).toContain('urlparse');
       expect(fs.readFileSync(paths.firstRunProfile, 'utf8')).toContain('Mathias');
       expect(receipt.identity?.founder_name).toBe('Mathias');
       expect(receipt.identity?.company_name).toBe('FYN Labs');
@@ -1487,9 +1497,7 @@ describe('Command EVE bundled strategy skills (SLICE B2)', () => {
     fs.mkdirSync(path.join(resourcesDir, 'bundled-skills'), { recursive: true });
 
     // 1) explicit env override wins (when it exists).
-    expect(resolveBundledSkillsDir({ COMMAND_EVE_SKILLS_DIR: envDir } as NodeJS.ProcessEnv, resourcesDir)).toBe(
-      envDir
-    );
+    expect(resolveBundledSkillsDir({ COMMAND_EVE_SKILLS_DIR: envDir } as NodeJS.ProcessEnv, resourcesDir)).toBe(envDir);
     // 2) no env -> packaged resourcesPath/bundled-skills.
     expect(resolveBundledSkillsDir({} as NodeJS.ProcessEnv, resourcesDir)).toBe(
       path.join(resourcesDir, 'bundled-skills')
@@ -1592,7 +1600,9 @@ describe('T4 you-are-here environment_hint — pure builder', () => {
     });
     expect(hint).toContain('Seat »Bäckerei Müller«');
     // F3: the client entity is framed as DATA (guillemets + Operator-Briefing attribution).
-    expect(hint).toContain('für den Kunden laut Operator-Briefing: «Bäckerei Müller GmbH — Social-Media & lokale Sichtbarkeit»');
+    expect(hint).toContain(
+      'für den Kunden laut Operator-Briefing: «Bäckerei Müller GmbH — Social-Media & lokale Sichtbarkeit»'
+    );
     expect(hint).toContain('Aktives Board: kunde-mueller');
     expect(hint).toContain(COMMAND_EVE_YOU_ARE_HERE_MARKER);
     // Singular count phrasing.
@@ -1633,7 +1643,13 @@ describe('T4 you-are-here environment_hint — pure builder', () => {
   });
 
   it('CLIENT variant without a seed: still orients (no fabricated entity) + carries the marker', () => {
-    const hint = buildCommandEveEnvironmentHint({ legacy: false, label: 'Seat X', entity: '', boardSlug: '', entryCount: 0 });
+    const hint = buildCommandEveEnvironmentHint({
+      legacy: false,
+      label: 'Seat X',
+      entity: '',
+      boardSlug: '',
+      entryCount: 0,
+    });
     expect(hint).toContain('Seat »Seat X«');
     expect(hint).toContain('(noch nicht gebrieft)');
     expect(hint).toContain('(0 Einträge)');
@@ -1679,7 +1695,9 @@ describe('K3 environment_hint — kind-conditioned doctrine clauses', () => {
   const base = { legacy: false, label: 'Seat X', entity: 'Acme GmbH', boardSlug: 'b', entryCount: 1 } as const;
 
   it('client (default) is BYTE-IDENTICAL to an explicit client kind', () => {
-    expect(buildCommandEveEnvironmentHint({ ...base })).toBe(buildCommandEveEnvironmentHint({ ...base, kind: 'client' }));
+    expect(buildCommandEveEnvironmentHint({ ...base })).toBe(
+      buildCommandEveEnvironmentHint({ ...base, kind: 'client' })
+    );
   });
 
   it('own_company DROPS "NIE in Deliverables" AND "IM AUFTRAG des Kunden", uses own-project framing', () => {
@@ -1764,7 +1782,14 @@ describe('T7 buildCommandEveEnvironmentHint — absolute brain path + blueprint 
 
   it('FOUNDER + CLIENT variants state the ABSOLUTE brain dir (with spaces) and keep the path-free marker', () => {
     for (const legacy of [true, false]) {
-      const hint = buildCommandEveEnvironmentHint({ legacy, label: 'X', entity: legacy ? '' : 'Kunde X', boardSlug: 'b', entryCount: 2, brainDir: ABS });
+      const hint = buildCommandEveEnvironmentHint({
+        legacy,
+        label: 'X',
+        entity: legacy ? '' : 'Kunde X',
+        boardSlug: 'b',
+        entryCount: 2,
+        brainDir: ABS,
+      });
       expect(hint).toContain(ABS); // absolute, spaces intact ('Application Support')
       expect(hint).toContain('nicht im Workspace');
       // The fixed prompt-proof marker is path-free and always present.
@@ -1774,7 +1799,14 @@ describe('T7 buildCommandEveEnvironmentHint — absolute brain path + blueprint 
   });
 
   it('the absolute path round-trips through yamlDoubleQuote as one physical line despite the space in "Application Support"', () => {
-    const hint = buildCommandEveEnvironmentHint({ legacy: true, label: 'X', entity: '', boardSlug: '', entryCount: 1, brainDir: ABS });
+    const hint = buildCommandEveEnvironmentHint({
+      legacy: true,
+      label: 'X',
+      entity: '',
+      boardSlug: '',
+      entryCount: 1,
+      brainDir: ABS,
+    });
     const scalar = yamlDoubleQuote(hint);
     expect(scalar.includes('\n')).toBe(false);
     const decoded = JSON.parse(scalar) as string; // JSON-compatible double-quote subset
@@ -1783,7 +1815,16 @@ describe('T7 buildCommandEveEnvironmentHint — absolute brain path + blueprint 
   });
 
   it('T8: a blueprint fill count renders the "N/M Sektionen ausgefüllt" clause', () => {
-    const hint = buildCommandEveEnvironmentHint({ legacy: true, label: 'X', entity: '', boardSlug: '', entryCount: 3, brainDir: ABS, blueprintFilled: 4, blueprintTotal: 10 });
+    const hint = buildCommandEveEnvironmentHint({
+      legacy: true,
+      label: 'X',
+      entity: '',
+      boardSlug: '',
+      entryCount: 3,
+      brainDir: ABS,
+      blueprintFilled: 4,
+      blueprintTotal: 10,
+    });
     expect(hint).toContain('Blaupause: 4/10 Sektionen ausgefüllt');
   });
 
@@ -1795,7 +1836,14 @@ describe('T7 buildCommandEveEnvironmentHint — absolute brain path + blueprint 
 
   it('a very long absolute path is clamped so the marker still survives the 600cp budget', () => {
     const longAbs = `/Users/${'x'.repeat(400)}/company-brain`;
-    const hint = buildCommandEveEnvironmentHint({ legacy: false, label: 'L', entity: 'y'.repeat(200), boardSlug: 'b', entryCount: 5, brainDir: longAbs });
+    const hint = buildCommandEveEnvironmentHint({
+      legacy: false,
+      label: 'L',
+      entity: 'y'.repeat(200),
+      boardSlug: 'b',
+      entryCount: 5,
+      brainDir: longAbs,
+    });
     expect(Array.from(hint).length).toBeLessThanOrEqual(COMMAND_EVE_ENVIRONMENT_HINT_MAX_CHARS);
     expect(hint).toContain(COMMAND_EVE_YOU_ARE_HERE_MARKER);
     expect(hint).toContain('Der Seat-Name erscheint NIE in Deliverables.');

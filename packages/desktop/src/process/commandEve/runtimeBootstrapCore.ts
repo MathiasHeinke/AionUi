@@ -25,10 +25,20 @@ import {
 import { provisionTeamManageBearerFile } from './eveTeamManageMain';
 import { provisionKanbanAcpBearerFile } from './kanbanAcpMain';
 import { honchoMcpServerForSeat } from './honchoMcpServerCore';
-import { eveHonchoMemoryDirective, resolveHonchoRenderForSeat, type HonchoRenderInput } from './honchoRuntimeRenderCore';
+import {
+  eveHonchoMemoryDirective,
+  resolveHonchoRenderForSeat,
+  type HonchoRenderInput,
+} from './honchoRuntimeRenderCore';
 import { claudeDelegatePreflightWarning } from '../../common/config/eveWorkerAssignmentCore';
 import { COMPANY_BRAIN_DIR, readCompanyBrainSeedStateFromHome } from './companyBrainSeedCore';
-import { countFilledBlueprintSections, ensureBrainBlueprint, ensureCompanyBrainReady, migrateCompanyBrainFromHome, readBrainIndex } from './companyBrainStoreCore';
+import {
+  countFilledBlueprintSections,
+  ensureBrainBlueprint,
+  ensureCompanyBrainReady,
+  migrateCompanyBrainFromHome,
+  readBrainIndex,
+} from './companyBrainStoreCore';
 import { stampUserMdTiersToHome } from './userMdTierStampCore';
 import { isMcpVaultEnabled } from './mcpVaultFlagCore';
 import { readVettedConnectorsForSeat, resolveEnvFromVault } from './vaultEnvResolveCore';
@@ -167,9 +177,7 @@ const COMMAND_EVE_MANAGED_SKILLS_DIR = 'skills-command-eve';
 // operator config.yaml stays byte-identical to today.
 const COMMAND_EVE_FOUNDER_OPS_SKILLS_DIR = 'skills-founder-ops';
 const COMMAND_EVE_FOUNDER_OPS_SKILLS_DIR_ENV = 'COMMAND_EVE_FOUNDER_OPS_SKILLS_DIR';
-const FOUNDER_OPS_SKILLS_SOURCE_CANDIDATES = [
-  '/Users/mathiasheinke/Developer/Company.OS/.claude/founder-ops-skills',
-];
+const FOUNDER_OPS_SKILLS_SOURCE_CANDIDATES = ['/Users/mathiasheinke/Developer/Company.OS/.claude/founder-ops-skills'];
 const COMMAND_EVE_RUNTIME_RECONCILIATION_FILE = 'command-eve-runtime-reconciliation.json';
 const DEFAULT_STAGE_TIMEOUT_MS = 120_000;
 const DEFAULT_LONG_STAGE_TIMEOUT_MS = 2_700_000;
@@ -421,12 +429,7 @@ export type RuntimeBootstrapStageId =
   | 'identity'
   | 'memory-seed';
 
-export type RuntimeBootstrapIdentitySource =
-  | 'registration'
-  | 'env'
-  | 'macos_full_name'
-  | 'os_user'
-  | 'unverified';
+export type RuntimeBootstrapIdentitySource = 'registration' | 'env' | 'macos_full_name' | 'os_user' | 'unverified';
 
 export type RuntimeBootstrapIdentityConfidence = 'verified' | 'needs_confirmation' | 'placeholder';
 
@@ -781,7 +784,7 @@ export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
     },
     {
       id: 'challenge-engine',
-      name: 'Challenge engine (devil\'s-advocate / red-team)',
+      name: "Challenge engine (devil's-advocate / red-team)",
       tier: 'department',
       source: 'Command EVE reasoning toolbelt',
       default_state: 'active',
@@ -2469,10 +2472,244 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
   const initPy = [
     '"""Command EVE custom/Ollama provider override."""',
     '',
+    'from __future__ import annotations',
+    '',
+    'import inspect',
+    'import re',
     'from typing import Any',
+    'from urllib.parse import urlparse',
     '',
     'from providers import register_provider',
     'from providers.base import ProviderProfile',
+    '',
+    '',
+    '# Command EVE cloud-shim stop continuation patch.',
+    'def _install_command_eve_stop_continuation_patch() -> None:',
+    '    try:',
+    '        from run_agent import AIAgent',
+    '    except Exception:',
+    '        return',
+    '',
+    '    if getattr(AIAgent, "_command_eve_cloud_stop_patch_installed", False):',
+    '        return',
+    '',
+    '    original = getattr(AIAgent, "_should_treat_stop_as_truncated", None)',
+    '    if not callable(original):',
+    '        return',
+    '    try:',
+    '        original_params = len(inspect.signature(original).parameters)',
+    '    except Exception:',
+    '        original_params = 4',
+    '',
+    '    def command_eve_norm(text: Any) -> str:',
+    '        value = str(text or "").lower()',
+    '        return (',
+    '            value.replace("\\u00e4", "ae")',
+    '            .replace("\\u00f6", "oe")',
+    '            .replace("\\u00fc", "ue")',
+    '            .replace("\\u00df", "ss")',
+    '        )',
+    '',
+    '    def command_eve_to_text(value: Any) -> str:',
+    '        if isinstance(value, str):',
+    '            return value',
+    '        if isinstance(value, list):',
+    '            parts: list[str] = []',
+    '            for item in value:',
+    '                if isinstance(item, str):',
+    '                    parts.append(item)',
+    '                elif isinstance(item, dict):',
+    '                    text = item.get("text") or item.get("content")',
+    '                    if isinstance(text, str):',
+    '                        parts.append(text)',
+    '            return "\\n".join(parts)',
+    '        if isinstance(value, dict):',
+    '            text = value.get("text") or value.get("content")',
+    '            return text if isinstance(text, str) else ""',
+    '        return ""',
+    '',
+    '    def command_eve_msg_role(msg: Any) -> str:',
+    '        if isinstance(msg, dict):',
+    '            return str(msg.get("role") or "")',
+    '        return str(getattr(msg, "role", "") or "")',
+    '',
+    '    def command_eve_msg_content(msg: Any) -> str:',
+    '        if isinstance(msg, dict):',
+    '            return command_eve_to_text(msg.get("content"))',
+    '        return command_eve_to_text(getattr(msg, "content", ""))',
+    '',
+    '    def command_eve_last_user_message(messages: Any) -> str:',
+    '        for msg in reversed(messages or []):',
+    '            if command_eve_msg_role(msg) == "user":',
+    '                return command_eve_msg_content(msg)',
+    '        return ""',
+    '',
+    '    def command_eve_message_tool_calls(message: Any) -> Any:',
+    '        if isinstance(message, dict):',
+    '            return message.get("tool_calls")',
+    '        return getattr(message, "tool_calls", None)',
+    '',
+    '    def command_eve_has_recent_tool_result(messages: Any) -> bool:',
+    '        for msg in reversed(messages or []):',
+    '            role = command_eve_msg_role(msg)',
+    '            if role == "tool":',
+    '                return True',
+    '            if role == "user":',
+    '                return False',
+    '        return False',
+    '',
+    '    def command_eve_is_loopback_url(url_text: str) -> bool:',
+    '        try:',
+    '            host = (urlparse(url_text).hostname or "").lower()',
+    '        except Exception:',
+    '            return False',
+    '        return host in {"127.0.0.1", "localhost", "::1"}',
+    '',
+    '    def command_eve_is_cloud_shim(agent: Any) -> bool:',
+    '        if getattr(agent, "api_mode", "") != "chat_completions":',
+    '            return False',
+    '        model = str(getattr(agent, "model", "") or "").lower()',
+    '        if "command-eve" not in model:',
+    '            return False',
+    '        base_url = str(getattr(agent, "_base_url_lower", "") or getattr(agent, "base_url", "") or "").lower()',
+    '        return command_eve_is_loopback_url(base_url)',
+    '',
+    '    def command_eve_mark_stop_continuation(agent: Any, should_continue: bool) -> bool:',
+    '        key = "_command_eve_cloud_stop_continuation_attempts"',
+    '        if not should_continue:',
+    '            setattr(agent, key, 0)',
+    '            return False',
+    '        attempts = int(getattr(agent, key, 0) or 0)',
+    '        if attempts >= 2:',
+    '            setattr(agent, key, 0)',
+    '            return False',
+    '        setattr(agent, key, attempts + 1)',
+    '        return True',
+    '',
+    '    def command_eve_is_action_ack(user_text: str, assistant_text: str) -> bool:',
+    '        assistant = command_eve_norm(assistant_text)',
+    '        if not assistant or len(assistant) > 1200:',
+    '            return False',
+    '        complete_markers = (',
+    '            "done",',
+    '            "finished",',
+    '            "complete",',
+    '            "summary",',
+    '            "verification",',
+    '            "erledigt",',
+    '            "fertig",',
+    '            "zusammenfassung",',
+    '            "verifikation",',
+    '        )',
+    '        if any(marker in assistant[:240] for marker in complete_markers):',
+    '            return False',
+    '        future_ack = bool(',
+    '            re.search(',
+    '                r"^\\s*(ok|okay|klar|alles klar|verstanden|sure|got it)?[\\s,.:;-]*(i[\\\'\\u2019]ll|i will|let me|i am going to|i\\\'m going to|ich werde|lass mich|ich schaue|ich pruefe|ich lese|ich starte|ich teste|ich baue|ich aendere|ich mache|ich untersuche|ich analysiere|ich gehe|ich kuemmere|ich hole|ich oeffne)\\b",',
+    '                assistant,',
+    '            )',
+    '        )',
+    '        if not future_ack:',
+    '            return False',
+    '        action_markers = (',
+    '            "look",',
+    '            "inspect",',
+    '            "scan",',
+    '            "check",',
+    '            "analyz",',
+    '            "review",',
+    '            "read",',
+    '            "open",',
+    '            "run",',
+    '            "test",',
+    '            "fix",',
+    '            "debug",',
+    '            "search",',
+    '            "find",',
+    '            "report",',
+    '            "schaue",',
+    '            "pruef",',
+    '            "lese",',
+    '            "starte",',
+    '            "teste",',
+    '            "baue",',
+    '            "aendere",',
+    '            "mache",',
+    '            "untersuch",',
+    '            "analysier",',
+    '            "commit",',
+    '        )',
+    '        task_markers = (',
+    '            "repo",',
+    '            "repository",',
+    '            "code",',
+    '            "codebase",',
+    '            "file",',
+    '            "files",',
+    '            "path",',
+    '            "test",',
+    '            "build",',
+    '            "commit",',
+    '            "branch",',
+    '            "command eve",',
+    '            "hermes",',
+    '            "release",',
+    '            "version",',
+    '            "1.7",',
+    '            "datei",',
+    '            "ordner",',
+    '            "projekt",',
+    '            "untersuch",',
+    '            "pruef",',
+    '            "schau",',
+    '            "mach",',
+    '            "baue",',
+    '            "fix",',
+    '        )',
+    '        user = command_eve_norm(user_text)',
+    '        assistant_mentions_action = any(marker in assistant for marker in action_markers)',
+    '        user_targets_task = any(marker in user for marker in task_markers) or "/" in user or "~/" in user',
+    '        assistant_targets_task = any(marker in assistant for marker in task_markers) or "/" in assistant or "~/" in assistant',
+    '        return assistant_mentions_action and (user_targets_task or assistant_targets_task)',
+    '',
+    '    def command_eve_should_treat_stop_as_truncated(',
+    '        self: Any,',
+    '        finish_reason: str | None,',
+    '        assistant_message: Any,',
+    '        messages: Any = None,',
+    '    ) -> bool:',
+    '        try:',
+    '            if original_params >= 4:',
+    '                if original(self, finish_reason, assistant_message, messages):',
+    '                    return True',
+    '            else:',
+    '                if original(self, finish_reason, assistant_message):',
+    '                    return True',
+    '        except Exception:',
+    '            return False',
+    '        try:',
+    '            if finish_reason != "stop" or not command_eve_is_cloud_shim(self):',
+    '                command_eve_mark_stop_continuation(self, False)',
+    '                return False',
+    '            if assistant_message is None or command_eve_message_tool_calls(assistant_message):',
+    '                command_eve_mark_stop_continuation(self, False)',
+    '                return False',
+    '            content = command_eve_msg_content(assistant_message)',
+    '            visible_text = self._strip_think_blocks(command_eve_to_text(content)).strip()',
+    '            if not visible_text or len(visible_text) < 20 or not re.search(r"\\s", visible_text):',
+    '                command_eve_mark_stop_continuation(self, False)',
+    '                return False',
+    '            has_tool_results = command_eve_has_recent_tool_result(messages)',
+    '            has_natural_ending = self._has_natural_response_ending(visible_text)',
+    '            if has_tool_results and not has_natural_ending:',
+    '                return command_eve_mark_stop_continuation(self, True)',
+    '            user_text = command_eve_last_user_message(messages)',
+    '            return command_eve_mark_stop_continuation(self, command_eve_is_action_ack(user_text, visible_text))',
+    '        except Exception:',
+    '            return False',
+    '',
+    '    AIAgent._should_treat_stop_as_truncated = command_eve_should_treat_stop_as_truncated',
+    '    AIAgent._command_eve_cloud_stop_patch_installed = True',
     '',
     '',
     'class CommandEveCustomProfile(ProviderProfile):',
@@ -2485,6 +2722,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '        ollama_num_ctx: int | None = None,',
     '        **ctx: Any,',
     '    ) -> tuple[dict[str, Any], dict[str, Any]]:',
+    '        _install_command_eve_stop_continuation_patch()',
     '        extra_body: dict[str, Any] = {}',
     '        top_level: dict[str, Any] = {}',
     '',
@@ -2509,6 +2747,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '        base_url="",',
     '    )',
     ')',
+    '_install_command_eve_stop_continuation_patch()',
     '',
   ].join('\n');
   fs.writeFileSync(path.join(providerDir, '__init__.py'), initPy, { mode: 0o600 });
@@ -2877,9 +3116,17 @@ export function buildCommandEveEnvironmentHint(input: CommandEveEnvironmentHintI
     ? `Dein Company Brain liegt ABSOLUT in ${clampHintField(rawBrainDir, COMMAND_EVE_HINT_BRAINDIR_MAX_CP, 'brainDir')} (nicht im Workspace).`
     : 'Dein Company Brain liegt in company-brain/ in deinem HERMES_HOME (nicht im Workspace).';
   // T8 — blueprint fill state ("N/M Sektionen ausgefüllt"), omitted when not provided.
-  const bpFilled = Number.isFinite(input.blueprintFilled) ? Math.max(0, Math.floor(input.blueprintFilled as number)) : null;
-  const bpTotal = Number.isFinite(input.blueprintTotal) && (input.blueprintTotal as number) > 0 ? Math.floor(input.blueprintTotal as number) : null;
-  const blueprintClause = bpFilled !== null && bpTotal !== null ? ` Blaupause: ${Math.min(bpFilled, bpTotal)}/${bpTotal} Sektionen ausgefüllt.` : '';
+  const bpFilled = Number.isFinite(input.blueprintFilled)
+    ? Math.max(0, Math.floor(input.blueprintFilled as number))
+    : null;
+  const bpTotal =
+    Number.isFinite(input.blueprintTotal) && (input.blueprintTotal as number) > 0
+      ? Math.floor(input.blueprintTotal as number)
+      : null;
+  const blueprintClause =
+    bpFilled !== null && bpTotal !== null
+      ? ` Blaupause: ${Math.min(bpFilled, bpTotal)}/${bpTotal} Sektionen ausgefüllt.`
+      : '';
   // The CRITICAL marker clause (short, fixed): names the index file + count. It is
   // ordered FIRST among the brain clauses so a truncate never eats the prompt-proof
   // anchor. The long ABSOLUTE-path clause + blueprint state are ordered LAST (they
@@ -2917,14 +3164,18 @@ export function buildCommandEveEnvironmentHint(input: CommandEveEnvironmentHintI
         ? `für das eigene Projekt laut Briefing: «${clampedEntity}»`
         : 'für ein noch nicht gebrieftes eigenes Projekt (noch nicht gebrieft)';
       // own_company: NO invisible-delivery, NO "im Auftrag des Kunden".
-      doctrineClauses.push('Dieser Seat ist ein eigenes Projekt/eine eigene Firma des Operators — er ist hier selbst der Auftraggeber.');
+      doctrineClauses.push(
+        'Dieser Seat ist ein eigenes Projekt/eine eigene Firma des Operators — er ist hier selbst der Auftraggeber.'
+      );
     } else if (kind === 'department') {
       entityClause = clampedEntity
         ? `für den Bereich laut Briefing: «${clampedEntity}»`
         : 'für einen noch nicht gebrieften Bereich (noch nicht gebrieft)';
       // department: conservative — KEEP invisible-delivery; department role framing.
       doctrineClauses.push('Der Seat-Name erscheint NIE in Deliverables.');
-      doctrineClauses.push('Dieser Seat ist eine Abteilung/ein Bereich des Operators — Arbeit hier gehört zu genau diesem Bereich.');
+      doctrineClauses.push(
+        'Dieser Seat ist eine Abteilung/ein Bereich des Operators — Arbeit hier gehört zu genau diesem Bereich.'
+      );
     } else {
       entityClause = clampedEntity
         ? `für den Kunden laut Operator-Briefing: «${clampedEntity}»`
@@ -2966,7 +3217,9 @@ export function buildCommandEveEnvironmentHint(input: CommandEveEnvironmentHintI
 export function eveBrainWriteDirective(brainDir?: string | null): string {
   const dir = compact(brainDir);
   const brainRoot = dir ? dir : 'company-brain/ in deinem HERMES_HOME';
-  const entriesPath = dir ? `${dir}/entries/note-<kurz-slug>.md` : 'company-brain/entries/note-<kurz-slug>.md (in deinem HERMES_HOME)';
+  const entriesPath = dir
+    ? `${dir}/entries/note-<kurz-slug>.md`
+    : 'company-brain/entries/note-<kurz-slug>.md (in deinem HERMES_HOME)';
   return [
     '',
     '## Company Brain: aktuelle Wahrheit + Blaupause',
@@ -2993,7 +3246,11 @@ export function eveBrainWriteDirective(brainDir?: string | null): string {
 function entityHeadlineFromSeedValue(value: string): string {
   const trimmed = compact(value);
   if (trimmed.length === 0) return '';
-  const firstLine = trimmed.split('\n').map((l) => l.trim()).find((l) => l.length > 0) || trimmed;
+  const firstLine =
+    trimmed
+      .split('\n')
+      .map((l) => l.trim())
+      .find((l) => l.length > 0) || trimmed;
   // F1 defense-in-depth: strip YAML-unprintables AT THE SOURCE so a control char
   // in a seed value can never reach the hint (belt to yamlDoubleQuote's braces).
   return stripYamlUnprintables(firstLine);
@@ -3015,7 +3272,9 @@ export function renderCommandEveEnvironmentHintForHome(hermesHome: string): stri
     const entryCount = readBrainIndex(hermesHome).entries.length;
     // The seed (and thus the client entity) is only meaningful for a real seat;
     // a legacy/founder home never renders a client entity (byte-parity with §SEAT).
-    const entity = legacy ? '' : entityHeadlineFromSeedValue(readCompanyBrainSeedStateFromHome(hermesHome).record?.value ?? '');
+    const entity = legacy
+      ? ''
+      : entityHeadlineFromSeedValue(readCompanyBrainSeedStateFromHome(hermesHome).record?.value ?? '');
     // T7 — the ABSOLUTE brain dir for THIS home, so the hint anchors the store at
     // <hermesHome>/company-brain and the agent never resolves it against workspace cwd.
     const brainDir = path.join(hermesHome, COMPANY_BRAIN_DIR);
@@ -3525,7 +3784,11 @@ function streamOllamaPull(
     const payload = JSON.stringify({ model: modelRef, stream: true });
     const req = http.request(
       url,
-      { method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }, timeout: DEFAULT_LONG_STAGE_TIMEOUT_MS },
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) },
+        timeout: DEFAULT_LONG_STAGE_TIMEOUT_MS,
+      },
       (res) => {
         if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
           res.resume();
@@ -3734,9 +3997,7 @@ export function hasValidSeatRuntimeFiles(hermesHome: string): boolean {
   }
 }
 
-export function provisionSeatRuntimeFiles(
-  options: ProvisionSeatRuntimeFilesOptions
-): ProvisionSeatRuntimeFilesResult {
+export function provisionSeatRuntimeFiles(options: ProvisionSeatRuntimeFilesOptions): ProvisionSeatRuntimeFilesResult {
   const env = { ...process.env, ...options.env };
   const seatId = options.seatId === undefined ? getActiveSeatId() : options.seatId;
   // resolveCommandEveRuntimeBootstrapPaths THROWS on a crafted/unsafe seat id
@@ -4210,7 +4471,10 @@ export async function ensureCommandEveRuntimeBootstrap(
     {
       userDataPath: paths.userDataPath,
       configRoot: paths.hermesRoot,
-      mcpInvocationFor: buildMcpInvocationResolver({ env, companyOsRoot: compact(env.COMMAND_EVE_COMPANY_OS_ROOT) || undefined }),
+      mcpInvocationFor: buildMcpInvocationResolver({
+        env,
+        companyOsRoot: compact(env.COMMAND_EVE_COMPANY_OS_ROOT) || undefined,
+      }),
     },
     // COMPA-624 Inc.3 — the Honcho render input for the BOOT (legacy/founder) seat.
     // Reads the seat's readiness snapshot; not-ready (no provisioning yet) ⇒ nothing
@@ -4244,7 +4508,9 @@ export async function ensureCommandEveRuntimeBootstrap(
     }
     const preflightWarning = claudeDelegatePreflightWarning(options.claudeDelegate, () => resolvable);
     if (preflightWarning) {
-      pushStage(makeStage('capabilities', 'skip', { code: 'CLAUDE_DELEGATE_LAUNCHER_UNRESOLVED', detail: preflightWarning }));
+      pushStage(
+        makeStage('capabilities', 'skip', { code: 'CLAUDE_DELEGATE_LAUNCHER_UNRESOLVED', detail: preflightWarning })
+      );
     }
   }
 
@@ -4358,7 +4624,9 @@ export async function ensureCommandEveRuntimeBootstrap(
   ) {
     const started = Date.now();
     const progressPath = paths.modelPullProgressPath;
-    const writeProgress = (patch: Partial<CommandEveModelPullProgress> & Pick<CommandEveModelPullProgress, 'status'>): void =>
+    const writeProgress = (
+      patch: Partial<CommandEveModelPullProgress> & Pick<CommandEveModelPullProgress, 'status'>
+    ): void =>
       writeModelPullProgress(progressPath, {
         version: 'command-eve-model-pull/v0',
         model: tier.model_ref,
@@ -4394,7 +4662,10 @@ export async function ensureCommandEveRuntimeBootstrap(
     let pullOk = streamed.ok;
     let pullErr = '';
     if (!pullOk) {
-      const pull = await runner(ollama.path, ['pull', tier.model_ref], { env, timeoutMs: DEFAULT_LONG_STAGE_TIMEOUT_MS });
+      const pull = await runner(ollama.path, ['pull', tier.model_ref], {
+        env,
+        timeoutMs: DEFAULT_LONG_STAGE_TIMEOUT_MS,
+      });
       pullOk = pull.ok;
       pullErr = scrubOutput(pull.stderr || pull.error);
     }
