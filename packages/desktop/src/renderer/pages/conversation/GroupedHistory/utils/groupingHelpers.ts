@@ -19,8 +19,8 @@ export type ConversationFolderTarget = {
 };
 
 type ConversationFolderExtra = {
-  group_id?: string;
-  group_name?: string;
+  group_id?: string | null;
+  group_name?: string | null;
 };
 
 export const isConversationPinned = (conversation: TChatConversation): boolean => {
@@ -84,8 +84,8 @@ export const createConversationFolderId = (name: string, now = Date.now()): stri
 export const buildConversationFolderExtra = (
   target: ConversationFolderTarget | null
 ): Partial<TChatConversation['extra']> & ConversationFolderExtra => ({
-  group_id: target?.id,
-  group_name: target?.name,
+  group_id: target?.id ?? null,
+  group_name: target?.name ?? null,
 });
 
 export const groupConversationsByWorkspace = (
