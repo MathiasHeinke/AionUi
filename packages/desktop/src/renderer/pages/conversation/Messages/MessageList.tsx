@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { IConversationArtifact } from '@/common/adapter/ipcBridge';
+import type { IConversationArtifact, IGeneratedConversationArtifact } from '@/common/adapter/ipcBridge';
 import type { IMessageAcpToolCall, IMessageToolCall, IMessageToolGroup, TMessage } from '@/common/chat/chatLib';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
 import { iconColors } from '@/renderer/styles/colors';
@@ -32,6 +32,7 @@ import MessageToolCall from './components/MessageToolCall';
 import MessageToolGroup from './components/MessageToolGroup';
 import MessageToolGroupSummary from './components/MessageToolGroupSummary';
 import MessageCronTrigger from './components/MessageCronTrigger';
+import MessageGeneratedArtifact from './components/MessageGeneratedArtifact';
 import MessageSkillSuggest from './components/MessageSkillSuggest';
 import MessageText from './components/MessageText';
 import MessageThinking from './components/MessageThinking';
@@ -97,6 +98,19 @@ const highlightStyle: React.CSSProperties = {
 };
 
 const getUnhandledMessageType = (_message: never): string => 'unknown';
+
+const isVisibleConversationArtifact = (artifact: IConversationArtifact): boolean => {
+  if (artifact.kind === 'cron_trigger') return artifact.status === 'active';
+  if (artifact.kind === 'skill_suggest') return artifact.status === 'pending';
+  return artifact.status !== 'dismissed';
+};
+
+const hasInlineToolGroupArtifact = (message: IMessageToolGroup): boolean =>
+  message.content.some((item) => {
+    if (item.name !== 'ImageGeneration') return false;
+    const result = item.result_display;
+    return Boolean(result && typeof result === 'object' && 'img_url' in result && result.img_url);
+  });
 
 // Image preview context
 export const ImagePreviewContext = createContext<{ inPreviewGroup: boolean }>({ inPreviewGroup: false });
@@ -290,6 +304,14 @@ const MessageList: React.FC<{ className?: string; emptySlot?: React.ReactNode }>
       if (message.hidden) continue;
       if (message.type === 'available_commands') continue;
       if (message.type === 'tool_group') {
+        if (hasInlineToolGroupArtifact(message)) {
+          toolList = [];
+          toolSourceMessageIds = [];
+          diffsChanges = [];
+          diffsSourceMessageIds = [];
+          result.push(message);
+          continue;
+        }
         if (message.content.length === 1) {
           const writeFileResults = message.content
             .filter(
@@ -326,18 +348,12 @@ const MessageList: React.FC<{ className?: string; emptySlot?: React.ReactNode }>
       diffsSourceMessageIds = [];
       result.push(message);
     }
-    const visibleArtifacts = artifacts
-      .filter((artifact) => {
-        if (artifact.kind === 'cron_trigger') return artifact.status === 'active';
-        if (artifact.kind === 'skill_suggest') return artifact.status === 'pending';
-        return false;
-      })
-      .map<IArtifactVO>((artifact) => ({
-        type: 'artifact',
-        id: artifact.id,
-        artifact,
-        created_at: artifact.created_at,
-      }));
+    const visibleArtifacts = artifacts.filter(isVisibleConversationArtifact).map<IArtifactVO>((artifact) => ({
+      type: 'artifact',
+      id: artifact.id,
+      artifact,
+      created_at: artifact.created_at,
+    }));
 
     return [...result, ...visibleArtifacts].toSorted(
       (a, b) => getProcessedItemCreatedAt(a) - getProcessedItemCreatedAt(b)
@@ -454,8 +470,10 @@ const MessageList: React.FC<{ className?: string; emptySlot?: React.ReactNode }>
         >
           {item.artifact.kind === 'cron_trigger' ? (
             <MessageCronTrigger artifact={item.artifact} />
-          ) : (
+          ) : item.artifact.kind === 'skill_suggest' ? (
             <MessageSkillSuggest artifact={item.artifact} />
+          ) : (
+            <MessageGeneratedArtifact artifact={item.artifact as IGeneratedConversationArtifact} />
           )}
         </div>
       );

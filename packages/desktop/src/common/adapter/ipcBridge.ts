@@ -44,10 +44,7 @@ import type {
   UpdateProviderRequest,
 } from '../types/provider/providerApi';
 import type { CommandEveLocalSttRequest, SpeechToTextRequest, SpeechToTextResult } from '../types/provider/speech';
-import type {
-  CommandEveCloudTitleRequest,
-  CommandEveCloudTitleResult,
-} from '../config/eveTitleCore';
+import type { CommandEveCloudTitleRequest, CommandEveCloudTitleResult } from '../config/eveTitleCore';
 import type {
   ITeamAgentRemovedEvent,
   ITeamAgentRenamedEvent,
@@ -1475,12 +1472,7 @@ export type ICommandEveOnboardingRemediationKind =
   | 'cloud-redirect'
   | 'reinstall';
 
-export type ICommandEveOnboardingItemId =
-  | 'registration'
-  | 'license'
-  | 'cloud-lane'
-  | 'local-lane'
-  | 'identity';
+export type ICommandEveOnboardingItemId = 'registration' | 'license' | 'cloud-lane' | 'local-lane' | 'identity';
 
 export interface ICommandEveOnboardingItem {
   id: ICommandEveOnboardingItemId;
@@ -1643,10 +1635,9 @@ export const commandEve = {
   >('command-eve.generate-local-title'),
   // Auto session-title cloud lane: MAIN calls the app-billed eve-title Edge
   // Function with the CEVE bearer. Renderer never sees the bearer or org key.
-  generateCloudTitle: bridge.buildProvider<
-    IBridgeResponse<CommandEveCloudTitleResult>,
-    CommandEveCloudTitleRequest
-  >('command-eve.generate-cloud-title'),
+  generateCloudTitle: bridge.buildProvider<IBridgeResponse<CommandEveCloudTitleResult>, CommandEveCloudTitleRequest>(
+    'command-eve.generate-cloud-title'
+  ),
   evaluateGateDecision: bridge.buildProvider<
     IBridgeResponse<ICommandEveGateDecision>,
     { action: ICommandEveGateAction }
@@ -1711,10 +1702,9 @@ export const commandEve = {
     IBridgeResponse<ICommandEveCrmDraftCreateResult>,
     { eventLedgerPath?: string } | void
   >('command-eve.crm-draft-create'),
-  crmStageLocal: bridge.buildProvider<
-    IBridgeResponse<ICommandEveCrmStageLocalResult>,
-    ICommandEveCrmStageLocalRequest
-  >('command-eve.crm-stage-local'),
+  crmStageLocal: bridge.buildProvider<IBridgeResponse<ICommandEveCrmStageLocalResult>, ICommandEveCrmStageLocalRequest>(
+    'command-eve.crm-stage-local'
+  ),
   crmConsentLocal: bridge.buildProvider<
     IBridgeResponse<ICommandEveCrmConsentLocalResult>,
     ICommandEveCrmConsentLocalRequest
@@ -1800,7 +1790,14 @@ export const commandEve = {
   teamManagePeek: bridge.buildProvider<
     IBridgeResponse<{
       ok: boolean;
-      pending: { intent_id: string; role_agent_id: string; action: string; summary: string; reason: string; expires_ms: number } | null;
+      pending: {
+        intent_id: string;
+        role_agent_id: string;
+        action: string;
+        summary: string;
+        reason: string;
+        expires_ms: number;
+      } | null;
     }>,
     void
   >('command-eve.team-manage-peek'),
@@ -1817,7 +1814,15 @@ export const commandEve = {
   kanbanAcpPeek: bridge.buildProvider<
     IBridgeResponse<{
       ok: boolean;
-      pending: { intent_id: string; op: string; action: string; summary: string; reason: string; mutation_hash: string; expires_ms: number } | null;
+      pending: {
+        intent_id: string;
+        op: string;
+        action: string;
+        summary: string;
+        reason: string;
+        mutation_hash: string;
+        expires_ms: number;
+      } | null;
     }>,
     void
   >('command-eve.kanban-acp-peek'),
@@ -1848,10 +1853,9 @@ export const commandEve = {
   ),
   // v1.4 T5: L3 session-digest writer. Renderer relay → main (transcript fetch +
   // local Ollama summary + per-seat session_digest entry). Best-effort/fail-quiet.
-  sessionDigest: bridge.buildProvider<
-    IBridgeResponse<ICommandEveSessionDigestResult>,
-    ICommandEveSessionDigestRequest
-  >('command-eve.session-digest'),
+  sessionDigest: bridge.buildProvider<IBridgeResponse<ICommandEveSessionDigestResult>, ICommandEveSessionDigestRequest>(
+    'command-eve.session-digest'
+  ),
   // Resolve a picker selection into the full conversation `model` provider.
   // For an EVE tier the bearer (CEVE wire) is injected in the main process.
   resolveInferenceProvider: bridge.buildProvider<
@@ -2972,7 +2976,9 @@ export interface IResponseMessage {
   replace?: boolean;
 }
 
-export type IConversationArtifactKind = 'cron_trigger' | 'skill_suggest';
+export type IGeneratedArtifactKind = 'media' | 'image' | 'video' | 'audio' | 'html' | 'file';
+export type IGeneratedArtifactType = 'image' | 'video' | 'audio' | 'html' | 'file';
+export type IConversationArtifactKind = 'cron_trigger' | 'skill_suggest' | IGeneratedArtifactKind;
 export type IConversationArtifactStatus = 'active' | 'pending' | 'dismissed' | 'saved';
 
 export interface IConversationArtifactBase<
@@ -3009,7 +3015,35 @@ export type ISkillSuggestArtifact = IConversationArtifactBase<
   }
 >;
 
-export type IConversationArtifact = ICronTriggerArtifact | ISkillSuggestArtifact;
+export type IGeneratedConversationArtifact = IConversationArtifactBase<
+  IGeneratedArtifactKind,
+  {
+    artifact_type?: IGeneratedArtifactType;
+    title?: string;
+    name?: string;
+    description?: string;
+    url?: string;
+    file_url?: string;
+    href?: string;
+    src?: string;
+    path?: string;
+    file_path?: string;
+    absolute_path?: string;
+    relative_path?: string;
+    file_name?: string;
+    mime_type?: string;
+    media_type?: string;
+    size?: number;
+    hash?: string;
+    provider?: string;
+    model?: string;
+    html?: string;
+    content?: string;
+    error?: string;
+  }
+>;
+
+export type IConversationArtifact = ICronTriggerArtifact | ISkillSuggestArtifact | IGeneratedConversationArtifact;
 
 export interface IConversationTurnCompletedEvent {
   session_id: string;

@@ -6,14 +6,20 @@
 
 import React, { type PropsWithChildren } from 'react';
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
-import type { IMessageText } from '@/common/chat/chatLib';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { IConversationArtifact } from '@/common/adapter/ipcBridge';
+import type { IMessageText, IMessageToolGroup, TMessage } from '@/common/chat/chatLib';
 import { MessageListLoadingProvider, MessageListProvider } from '@/renderer/pages/conversation/Messages/hooks';
 import MessageList from '@/renderer/pages/conversation/Messages/MessageList';
 
+const artifactMock = vi.hoisted(() => ({
+  artifacts: [] as IConversationArtifact[],
+}));
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
-    t: (_key: string, options?: { defaultValue?: string }) => options?.defaultValue ?? _key,
+    t: (_key: string, options?: { defaultValue?: string; type?: string }) =>
+      options?.defaultValue ?? options?.type ?? _key,
   }),
 }));
 
@@ -25,6 +31,9 @@ vi.mock('react-router-dom', () => ({
 }));
 
 vi.mock('@arco-design/web-react', () => ({
+  Message: {
+    error: vi.fn(),
+  },
   Image: {
     PreviewGroup: ({ children }: PropsWithChildren) => <>{children}</>,
   },
@@ -39,7 +48,7 @@ vi.mock('@/renderer/hooks/file/useAutoPreviewOfficeFiles', () => ({
 }));
 
 vi.mock('@/renderer/pages/conversation/Messages/artifacts', () => ({
-  useConversationArtifacts: () => [],
+  useConversationArtifacts: () => artifactMock.artifacts,
 }));
 
 vi.mock('@/renderer/pages/conversation/Messages/useAutoScroll', () => ({
@@ -120,6 +129,9 @@ vi.mock('@/renderer/pages/conversation/Messages/components/SelectionReplyButton'
 
 vi.mock('@icon-park/react', () => ({
   Down: () => <span>down</span>,
+  FolderOpen: () => <span>folder-open</span>,
+  Paperclip: () => <span>paperclip</span>,
+  PreviewOpen: () => <span>preview-open</span>,
 }));
 
 function createTextMessage(): IMessageText {
@@ -136,11 +148,35 @@ function createTextMessage(): IMessageText {
   };
 }
 
+function createImageToolGroup(): IMessageToolGroup {
+  return {
+    id: 'tool-group-1',
+    msg_id: 'tool-msg-1',
+    conversation_id: 'conversation-1',
+    type: 'tool_group',
+    position: 'left',
+    content: [
+      {
+        call_id: 'call-1',
+        description: 'Generated image',
+        name: 'ImageGeneration',
+        render_output_as_markdown: false,
+        result_display: {
+          img_url: 'data:image/png;base64,iVBORw0KGgo=',
+          relative_path: 'hero.png',
+        },
+        status: 'Success',
+      },
+    ],
+    created_at: 1,
+  };
+}
+
 function Wrapper({
   children,
   messages = [createTextMessage()],
   loading = false,
-}: PropsWithChildren<{ messages?: IMessageText[]; loading?: boolean }>): JSX.Element {
+}: PropsWithChildren<{ messages?: TMessage[]; loading?: boolean }>): JSX.Element {
   return (
     <MessageListLoadingProvider value={loading}>
       <MessageListProvider value={messages}>{children}</MessageListProvider>
@@ -149,6 +185,10 @@ function Wrapper({
 }
 
 describe('MessageList', () => {
+  afterEach(() => {
+    artifactMock.artifacts = [];
+  });
+
   it('renders message rows with external margin spacing in the plain scroll list', () => {
     render(<MessageList />, {
       wrapper: ({ children }) => <Wrapper>{children}</Wrapper>,
@@ -181,5 +221,45 @@ describe('MessageList', () => {
 
     expect(screen.getByTestId('message-list-skeleton')).toBeInTheDocument();
     expect(screen.queryByText('empty state')).not.toBeInTheDocument();
+  });
+
+  it('renders generated media artifacts from the conversation artifact store', () => {
+    artifactMock.artifacts = [
+      {
+        id: 'artifact-1',
+        conversation_id: 'conversation-1',
+        kind: 'media',
+        status: 'active',
+        payload: {
+          artifact_type: 'image',
+          title: 'Hero render',
+          url: 'data:image/png;base64,iVBORw0KGgo=',
+          mime_type: 'image/png',
+          provider: 'xAI',
+          model: 'grok-image',
+        },
+        created_at: 2,
+        updated_at: 2,
+      },
+    ];
+
+    render(<MessageList />, {
+      wrapper: ({ children }) => <Wrapper>{children}</Wrapper>,
+    });
+
+    expect(screen.getByTestId('conversation-artifact-media')).toBeInTheDocument();
+    expect(screen.getByTestId('generated-artifact-card')).toBeInTheDocument();
+    expect(screen.getByTestId('generated-artifact-image')).toHaveAttribute('src', 'data:image/png;base64,iVBORw0KGgo=');
+    expect(screen.getByText('Hero render')).toBeInTheDocument();
+    expect(screen.getByText('xAI · grok-image · image/png')).toBeInTheDocument();
+  });
+
+  it('keeps image generation tool results inline instead of collapsing them into the step summary', () => {
+    render(<MessageList />, {
+      wrapper: ({ children }) => <Wrapper messages={[createImageToolGroup()]}>{children}</Wrapper>,
+    });
+
+    expect(screen.getByText('tool_group')).toBeInTheDocument();
+    expect(screen.queryByText('tool_summary')).not.toBeInTheDocument();
   });
 });
