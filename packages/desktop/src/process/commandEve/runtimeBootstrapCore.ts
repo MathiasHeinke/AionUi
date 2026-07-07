@@ -296,17 +296,18 @@ const LOCAL_OLLAMA_BINARY_CANDIDATES =
 const COMMAND_EVE_HERMES_DISABLED_SKILLS = ['red-teaming/godmode'];
 
 // Soul-wiring knobs.
-// creation_nudge_interval > 0 enables the self-improvement loop the soul promises
-// ("you keep wanting X -> I build myself a skill"): every N turns the agent forks a
-// background review that can write/refine a skill. It is READ ON THE ACP (chat) LANE
-// the user actually talks to — FACT: AIAgent.__init__ (run_agent.py:327) calls
-// init_agent (run_agent.py:420) which sets agent._skill_nudge_interval from
-// skills.creation_nudge_interval (agent_init.py:1190-1193, default 10), and the core
-// conversation_loop (conversation_loop.py:831,4553) spawns the background review when
-// _iters_since_skill >= the interval. So shipping 0 = the loop is OFF (the original
-// defect). DEFAULT IS ON (10 = Hermes' own default): the loop's whole point is that it
-// runs. It costs an aux-LLM fork per interval; tune higher for the free at-cost tier
-// via the index plumbing slice if cost requires, but never silently 0.
+// creation_nudge_interval > 0 enables Hermes' self-improvement background review:
+// every N turns the ACP chat lane can fork an auxiliary agent that reviews the
+// conversation and writes/refines skills. It is READ ON THE ACP lane the user
+// actually talks to — FACT: AIAgent.__init__ (run_agent.py:327) calls init_agent
+// (run_agent.py:420), which sets agent._skill_nudge_interval from
+// skills.creation_nudge_interval (agent_init.py:1190-1193, default 10), and the
+// conversation loop/finalizer spawns the background review once the interval is
+// reached. In Command EVE 1.7.x this must default OFF: otherwise the app silently
+// emits hidden 50k-token skill-review/model calls during real user work, can overlap
+// with the next prompt, and makes OpenRouter logs look like normal chat truncation.
+// Re-enable only behind an explicit settings/onboarding gate with a visible cost and
+// activity indicator.
 //
 // reasoning_effort: the config.yaml `agent.reasoning_effort` key is honored by the CLI
 // lane, but the ACP (chat) lane the user talks to inits AIAgent WITHOUT a reasoning_config
@@ -318,7 +319,7 @@ const COMMAND_EVE_HERMES_DISABLED_SKILLS = ['red-teaming/godmode'];
 // reasoning_config into the session.py kwargs) — flagged as a founder-gated follow-up.
 export type CommandEveReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
 const DEFAULT_COMMAND_EVE_REASONING_EFFORT: CommandEveReasoningEffort = 'low';
-const DEFAULT_COMMAND_EVE_CREATION_NUDGE_INTERVAL = 10;
+const DEFAULT_COMMAND_EVE_CREATION_NUDGE_INTERVAL = 0;
 
 // Tool-loop convergence backstop. Hermes' own default cap is 90 iterations
 // (agent_init.py max_iterations) with NO per-turn wall-clock guard, so on an
@@ -3353,13 +3354,10 @@ function writeHermesRuntimeFiles(
   capabilityPack: CommandEveCapabilityPack,
   runtimeModelRef = commandEveOllamaContextModelRef(tier.model_ref, tierOllamaNumCtx(tier)),
   // Tier-keyed soul-wiring knobs. Defaults keep the at-cost text fence intact
-  // for the single-tenant founder build: a real-but-cheap challenger ('low')
-  // and the skill-creation interval at its real default (10 =
-  // DEFAULT_COMMAND_EVE_CREATION_NUDGE_INTERVAL, matching Hermes' own default so
-  // the self-improvement loop is ON — DOC-ROT FIX: the prior comment claimed a
-  // free-tier default of 0, which was never the resolved value). A cost-driven
-  // per-tier override can be plumbed upstream via index.ts (separate slice), but
-  // it must never silently ship 0.
+  // for the single-tenant founder build: a real-but-cheap challenger ('low'),
+  // while Hermes' skill-review background fork is killed by default (0). A
+  // future user-visible skills/onboarding gate can pass a >0 interval here, but
+  // the default must not silently emit hidden model calls.
   reasoningEffort: CommandEveReasoningEffort = DEFAULT_COMMAND_EVE_REASONING_EFFORT,
   creationNudgeInterval = DEFAULT_COMMAND_EVE_CREATION_NUDGE_INTERVAL,
   // The resolved bundled-skills snapshot dir (Contents/Resources/bundled-skills in
@@ -3505,14 +3503,12 @@ function writeHermesRuntimeFiles(
     'compression:',
     '  threshold: 0.80',
     'skills:',
-    // creation_nudge_interval > 0 re-enables the background skill-review fork
-    // that creates/optimizes skills ("the user keeps wanting X, so EVE builds
-    // itself a skill"). 0 is an explicit kill-switch; Hermes' own default is 10
-    // (FACT agent/agent_init.py:1193). DOC-ROT FIX: the resolved default here is
-    // 10 (DEFAULT_COMMAND_EVE_CREATION_NUDGE_INTERVAL, :296), NOT a tier-gated
-    // free=0/paid>0 — there is no tier-gating wired at this call site today; a
-    // per-tier cost override would be plumbed upstream via index.ts (separate
-    // slice) and must never silently ship 0.
+    // creation_nudge_interval > 0 re-enables the background skill-review fork.
+    // 0 is an explicit kill-switch and overrides Hermes' own default 10 (FACT
+    // agent/agent_init.py:1224-1227). Keep it OFF by default in Command EVE:
+    // hidden background review calls showed up as repeated ~50k-token OpenRouter
+    // requests and can overlap with the next real prompt. A future skills hub can
+    // opt this back in with visible consent, cost, and progress UI.
     `  creation_nudge_interval: ${creationNudgeInterval}`,
     // external_dirs ADDS the EVE-managed skills on top of Hermes' own primary
     // skills dir (${HERMES_HOME}/skills). It does NOT replace or restrict the

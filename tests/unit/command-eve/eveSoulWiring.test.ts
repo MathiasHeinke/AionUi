@@ -164,7 +164,7 @@ describe('EVE soul-wiring: SOUL.md self-detection tripwire', () => {
     expect(SOUL_MARKDOWN).toMatch(/under-claim than oversell/i);
   });
 });
-describe('EVE soul-wiring: config.yaml emission self-detection (the loop-is-ON proof)', () => {
+describe('EVE soul-wiring: config.yaml emission self-detection', () => {
   // Assert on the emitted config array source (comments stripped) so a mention
   // inside a comment can never satisfy the gate.
   it('emits reasoning_effort that is NOT "none"', () => {
@@ -173,27 +173,20 @@ describe('EVE soul-wiring: config.yaml emission self-detection (the loop-is-ON p
     expect(RUNTIME_SOURCE_CODE).not.toContain("'  reasoning_effort: none'");
     expect(RUNTIME_SOURCE_CODE).not.toContain('`  reasoning_effort: none`');
     // The default the founder single-tenant build ships must still THINK.
-    expect(RUNTIME_SOURCE_CODE).toMatch(
-      /DEFAULT_COMMAND_EVE_REASONING_EFFORT[^=]*=\s*'(low|medium|high|xhigh)'/
-    );
+    expect(RUNTIME_SOURCE_CODE).toMatch(/DEFAULT_COMMAND_EVE_REASONING_EFFORT[^=]*=\s*'(low|medium|high|xhigh)'/);
   });
 
-  it('emits the creation_nudge_interval as the tier-keyed variable (not a hard 0 kill-switch)', () => {
+  it('emits the creation_nudge_interval as the tier-keyed variable', () => {
     expect(RUNTIME_SOURCE_CODE).toContain('`  creation_nudge_interval: ${creationNudgeInterval}`');
-    expect(RUNTIME_SOURCE_CODE).not.toContain("'  creation_nudge_interval: 0'");
   });
 
-  it('ships the self-improvement loop ON: the DEFAULT creation_nudge_interval is > 0', () => {
-    // The exact no-op the adversarial verify caught: the emission used the variable,
-    // but the variable's DEFAULT was 0 -> the loop shipped OFF (the original defect).
-    // creation_nudge_interval IS read on the ACP chat lane (AIAgent.__init__ ->
-    // init_agent -> agent._skill_nudge_interval, agent_init.py:1190-1193; spawned in
-    // conversation_loop.py:831,4553), so a 0 default = the soul lies. Lock it > 0.
-    const m = RUNTIME_SOURCE_CODE.match(
-      /DEFAULT_COMMAND_EVE_CREATION_NUDGE_INTERVAL\s*=\s*(\d+)/
-    );
+  it('ships Hermes background skill review OFF by default', () => {
+    // creation_nudge_interval IS read on the ACP chat lane and >0 spawns hidden
+    // background review model calls. Command EVE must not emit those calls without
+    // an explicit user-visible settings/onboarding gate.
+    const m = RUNTIME_SOURCE_CODE.match(/DEFAULT_COMMAND_EVE_CREATION_NUDGE_INTERVAL\s*=\s*(\d+)/);
     expect(m, 'DEFAULT_COMMAND_EVE_CREATION_NUDGE_INTERVAL must be a numeric literal').not.toBeNull();
-    expect(Number(m![1]), 'the self-improvement loop must ship ON (interval > 0)').toBeGreaterThan(0);
+    expect(Number(m![1]), 'background skill review must default OFF').toBe(0);
   });
 
   it('emits the memory block ON (memory_enabled + user_profile_enabled + nudge_interval)', () => {
@@ -445,7 +438,14 @@ describe('EVE onboarding S1: app-owned config-awareness skill (separate from the
   });
 
   it('maps the local block reason codes to plain steps, never a terminal command', () => {
-    for (const code of ['OLLAMA_MISSING', 'MODEL_NOT_FETCHED', 'MODEL_PULL_FAILED', 'BLOCKED_RAM', 'BLOCKED_DISK', 'PYTHON_UNSUPPORTED']) {
+    for (const code of [
+      'OLLAMA_MISSING',
+      'MODEL_NOT_FETCHED',
+      'MODEL_PULL_FAILED',
+      'BLOCKED_RAM',
+      'BLOCKED_DISK',
+      'PYTHON_UNSUPPORTED',
+    ]) {
       expect(SKILL_MD, `reason code ${code} must be mapped`).toContain(code);
     }
     expect(SKILL_MD).toMatch(/never (?:paste|hand them) a brew/i);
