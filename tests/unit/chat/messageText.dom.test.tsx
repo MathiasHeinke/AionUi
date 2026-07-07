@@ -5,15 +5,16 @@
  */
 
 import React from 'react';
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IMessageText } from '@/common/chat/chatLib';
 import { ConversationProvider } from '@/renderer/hooks/context/ConversationContext';
 import MessageText from '@/renderer/pages/conversation/Messages/components/MessageText';
 
-const { readAloudTextMock, isReadAloudAvailableMock } = vi.hoisted(() => ({
+const { readAloudTextMock, isReadAloudAvailableMock, stopReadAloudMock } = vi.hoisted(() => ({
   isReadAloudAvailableMock: vi.fn(() => true),
   readAloudTextMock: vi.fn(() => true),
+  stopReadAloudMock: vi.fn(),
 }));
 const mockFilePreview = vi.fn(({ path }: { path: string }) => <div data-testid='file-preview'>{path}</div>);
 
@@ -58,7 +59,7 @@ vi.mock('@/renderer/utils/ui/clipboard', () => ({
 vi.mock('@/renderer/services/ReadAloudService', () => ({
   isReadAloudAvailable: isReadAloudAvailableMock,
   readAloudText: readAloudTextMock,
-  stopReadAloud: vi.fn(),
+  stopReadAloud: stopReadAloudMock,
 }));
 
 vi.mock('@arco-design/web-react', () => ({
@@ -96,6 +97,12 @@ vi.mock('react-i18next', () => ({
 }));
 
 describe('MessageText attachment paths', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    isReadAloudAvailableMock.mockReturnValue(true);
+    readAloudTextMock.mockReturnValue(true);
+  });
+
   it('resolves relative attachment paths against the current workspace before previewing', () => {
     const message: IMessageText = {
       id: 'msg-1',
@@ -184,5 +191,61 @@ describe('MessageText attachment paths', () => {
     );
 
     expect(screen.queryByLabelText('conversation.chat.readAloudTooltip')).not.toBeInTheDocument();
+  });
+
+  it('toggles stop for active read-aloud playback', async () => {
+    const message: IMessageText = {
+      id: 'msg-5',
+      msg_id: 'msg-5',
+      conversation_id: 'conv-1',
+      type: 'text',
+      position: 'left',
+      createdAt: Date.now(),
+      content: {
+        content: 'Assistant answer',
+      },
+    };
+
+    render(
+      <ConversationProvider value={{ conversationId: 'conv-1', workspace: '/workspace/demo', type: 'acp' }}>
+        <MessageText message={message} />
+      </ConversationProvider>
+    );
+
+    fireEvent.click(screen.getByLabelText('conversation.chat.readAloudTooltip'));
+    await waitFor(() => {
+      expect(screen.getByLabelText('conversation.chat.stopReadAloudTooltip')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByLabelText('conversation.chat.stopReadAloudTooltip'));
+
+    expect(stopReadAloudMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops active read-aloud playback on unmount', async () => {
+    const message: IMessageText = {
+      id: 'msg-6',
+      msg_id: 'msg-6',
+      conversation_id: 'conv-1',
+      type: 'text',
+      position: 'left',
+      createdAt: Date.now(),
+      content: {
+        content: 'Assistant answer',
+      },
+    };
+
+    const { unmount } = render(
+      <ConversationProvider value={{ conversationId: 'conv-1', workspace: '/workspace/demo', type: 'acp' }}>
+        <MessageText message={message} />
+      </ConversationProvider>
+    );
+
+    fireEvent.click(screen.getByLabelText('conversation.chat.readAloudTooltip'));
+    await waitFor(() => {
+      expect(screen.getByLabelText('conversation.chat.stopReadAloudTooltip')).toBeInTheDocument();
+    });
+    unmount();
+
+    expect(stopReadAloudMock).toHaveBeenCalledTimes(1);
   });
 });

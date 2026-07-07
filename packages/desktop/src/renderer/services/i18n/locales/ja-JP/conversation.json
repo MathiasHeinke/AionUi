@@ -398,7 +398,11 @@
       "recordingUnsupported": "この環境では直接録音できません。音声ファイルをアップロードしてください",
       "transcriptionFailed": "音声の文字起こしに失敗しました",
       "genericError": "音声入力に失敗しました。もう一度お試しください"
-    }
+    },
+    "readAloudTooltip": "読み上げ",
+    "stopReadAloudTooltip": "読み上げを停止",
+    "readAloudUnavailable": "この環境では読み上げを利用できません",
+    "readAloudFailed": "このメッセージを読み上げられませんでした"
   },
   "sideQuestion": {
     "title": "ちょっと質問",

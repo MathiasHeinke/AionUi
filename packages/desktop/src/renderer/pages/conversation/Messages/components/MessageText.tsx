@@ -13,7 +13,7 @@ import { iconColors } from '@/renderer/styles/colors';
 import { Alert, Button, Message, Tooltip } from '@arco-design/web-react';
 import { Copy, PauseOne, VolumeNotice } from '@icon-park/react';
 import classNames from 'classnames';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { copyText } from '@/renderer/utils/ui/clipboard';
 import CollapsibleContent from '@renderer/components/chat/CollapsibleContent';
@@ -118,6 +118,7 @@ const MessageText: React.FC<{ message: IMessageText }> = ({ message }) => {
   const { i18n, t } = useTranslation();
   const [showCopyAlert, setShowCopyAlert] = useState(false);
   const [isReadingAloud, setIsReadingAloud] = useState(false);
+  const isReadingAloudRef = useRef(false);
   const isUserMessage = message.position === 'right';
   const isTeammateMessage = message.position === 'left' && message.content.teammateMessage === true;
   const shouldRenderPlainText = isUserMessage;
@@ -128,6 +129,16 @@ const MessageText: React.FC<{ message: IMessageText }> = ({ message }) => {
     () => files.map((file_path) => resolveMessageFilePath(file_path, conversationContext?.workspace)),
     [conversationContext?.workspace, files]
   );
+  useEffect(() => {
+    isReadingAloudRef.current = isReadingAloud;
+  }, [isReadingAloud]);
+  useEffect(() => {
+    return () => {
+      if (isReadingAloudRef.current) {
+        stopReadAloud();
+      }
+    };
+  }, []);
 
   // 过滤空内容，避免渲染空DOM
   if (!message.content.content || (typeof message.content.content === 'string' && !message.content.content.trim())) {
@@ -168,7 +179,9 @@ const MessageText: React.FC<{ message: IMessageText }> = ({ message }) => {
     });
     if (!didStart) {
       Message.error(t('conversation.chat.readAloudUnavailable'));
+      return;
     }
+    setIsReadingAloud(true);
   };
 
   const copyButton = (

@@ -398,7 +398,11 @@
       "recordingUnsupported": "目前環境不支援直接錄音，請改為上傳音訊檔案",
       "transcriptionFailed": "音訊轉寫失敗",
       "genericError": "語音輸入失敗，請再試一次"
-    }
+    },
+    "readAloudTooltip": "朗讀",
+    "stopReadAloudTooltip": "停止朗讀",
+    "readAloudUnavailable": "目前環境不支援朗讀",
+    "readAloudFailed": "無法朗讀此訊息"
   },
   "sideQuestion": {
     "title": "順便問一下",

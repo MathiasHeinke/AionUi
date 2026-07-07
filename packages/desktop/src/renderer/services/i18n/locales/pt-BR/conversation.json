@@ -404,7 +404,11 @@
       "recordingUnsupported": "Gravação ao vivo não é suportada aqui. Faça o upload de um arquivo de áudio no lugar.",
       "transcriptionFailed": "A transcrição de áudio falhou",
       "genericError": "Falha na entrada de voz. Por favor, tente novamente"
-    }
+    },
+    "readAloudTooltip": "Ler em voz alta",
+    "stopReadAloudTooltip": "Parar leitura",
+    "readAloudUnavailable": "Leitura em voz alta não está disponível neste ambiente",
+    "readAloudFailed": "Não foi possível ler esta mensagem em voz alta"
   },
   "sideQuestion": {
     "title": "Pergunta Paralela",

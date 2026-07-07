@@ -398,7 +398,11 @@
       "recordingUnsupported": "Запись в реальном времени не поддерживается. Загрузите аудиофайл",
       "transcriptionFailed": "Не удалось транскрибировать аудио",
       "genericError": "Ошибка голосового ввода. Попробуйте снова"
-    }
+    },
+    "readAloudTooltip": "Прочитать вслух",
+    "stopReadAloudTooltip": "Остановить чтение",
+    "readAloudUnavailable": "Озвучивание недоступно в этой среде",
+    "readAloudFailed": "Не удалось прочитать это сообщение вслух"
   },
   "sideQuestion": {
     "title": "Боковой вопрос",

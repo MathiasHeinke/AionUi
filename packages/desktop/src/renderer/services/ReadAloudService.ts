@@ -1,11 +1,12 @@
 type ReadAloudOptions = {
   lang?: string;
   onEnd?: () => void;
-  onError?: () => void;
+  onError?: (event: SpeechSynthesisErrorEvent) => void;
   onStart?: () => void;
 };
 
 let activeUtterance: SpeechSynthesisUtterance | null = null;
+const CANCELLED_READ_ALOUD_ERRORS = new Set(['canceled', 'cancelled', 'interrupted']);
 
 export const isReadAloudAvailable = () =>
   typeof window !== 'undefined' &&
@@ -44,11 +45,13 @@ export const readAloudText = (text: string, options?: ReadAloudOptions) => {
     }
     options?.onEnd?.();
   };
-  utterance.onerror = () => {
+  utterance.onerror = (event) => {
     if (activeUtterance === utterance) {
       activeUtterance = null;
     }
-    options?.onError?.();
+    if (!CANCELLED_READ_ALOUD_ERRORS.has(event.error)) {
+      options?.onError?.(event);
+    }
   };
 
   window.speechSynthesis.speak(utterance);

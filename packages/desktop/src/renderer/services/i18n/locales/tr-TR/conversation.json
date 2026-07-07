@@ -388,7 +388,11 @@
       "recordingUnsupported": "Bu ortamda doğrudan kayıt desteklenmiyor. Lütfen bir ses dosyası yükleyin",
       "transcriptionFailed": "Ses yazıya dönüştürülemedi",
       "genericError": "Sesli giriş başarısız oldu. Lütfen tekrar deneyin"
-    }
+    },
+    "readAloudTooltip": "Sesli oku",
+    "stopReadAloudTooltip": "Okumayı durdur",
+    "readAloudUnavailable": "Bu ortamda sesli okuma kullanılamıyor",
+    "readAloudFailed": "Bu mesaj sesli okunamadı"
   },
   "sideQuestion": {
     "title": "Kısa Soru",
