@@ -93,7 +93,6 @@ function inferGeneratedArtifactType(payload: Record<string, unknown>): IGenerate
   if (readString(payload, ['img_url', 'image_url'])) return 'image';
   if (readString(payload, ['video_url'])) return 'video';
   if (readString(payload, ['audio_url'])) return 'audio';
-  if (readString(payload, ['html'])) return 'html';
   return inferTypeFromMimeOrSource(payload);
 }
 
@@ -116,10 +115,10 @@ export function hasToolResultGeneratedArtifact(resultDisplay: ToolResultDisplay)
   if (!payload) return false;
   const type = inferGeneratedArtifactType(payload);
   if (!type) return false;
-  return (
-    getGeneratedArtifactPayloadSourceKeys(payload).length > 0 ||
-    Boolean(readString(payload, ['html', 'content', 'text', 'error']))
-  );
+  const hasSource = getGeneratedArtifactPayloadSourceKeys(payload).length > 0;
+  if (type === 'image' || type === 'video' || type === 'audio') return hasSource;
+  if (type === 'html') return hasSource || Boolean(readString(payload, ['html', 'content']));
+  return hasSource || Boolean(readString(payload, ['content', 'text']));
 }
 
 export function buildGeneratedArtifactFromToolResult(options: {

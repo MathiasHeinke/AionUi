@@ -402,5 +402,26 @@ describe('MessageList', () => {
         result_display: resultDisplay,
       })
     ).toBeUndefined();
+    expect(
+      buildGeneratedArtifactFromToolResult({
+        conversation_id: 'conversation-1',
+        call_id: 'call-html-field',
+        created_at: 10,
+        name: 'Search',
+        result_display: { html: '<p>plain tool field</p>' },
+      })
+    ).toBeUndefined();
+    expect(
+      buildGeneratedArtifactFromToolResult({
+        conversation_id: 'conversation-1',
+        call_id: 'call-image-without-source',
+        created_at: 10,
+        name: 'ImageMetadata',
+        result_display: {
+          mime_type: 'image/png',
+          content: 'metadata only',
+        },
+      })
+    ).toBeUndefined();
   });
 });

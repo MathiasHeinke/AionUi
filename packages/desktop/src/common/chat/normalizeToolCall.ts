@@ -49,9 +49,17 @@ const getResultDisplayText = (
   if (typeof result_display === 'string') return result_display;
   if ('file_diff' in result_display && typeof result_display.file_diff === 'string') return result_display.file_diff;
   if ('img_url' in result_display && typeof result_display.img_url === 'string') {
-    return typeof result_display.relative_path === 'string' ? result_display.relative_path : result_display.img_url;
+    const relativePath = typeof result_display.relative_path === 'string' ? result_display.relative_path.trim() : '';
+    return relativePath || result_display.img_url;
   }
   const resultRecord = result_display as Record<string, unknown>;
+  if (
+    !['artifact_type', 'type', 'kind', 'mime_type', 'media_type', 'mimeType', 'mediaType'].some(
+      (key) => key in resultRecord
+    )
+  ) {
+    return undefined;
+  }
   for (const key of ['file_name', 'fileName', 'title', 'relative_path', 'relativePath', 'url', 'file_url', 'path']) {
     const value = resultRecord[key];
     if (typeof value === 'string' && value.trim()) return value.trim();

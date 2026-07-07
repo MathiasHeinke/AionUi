@@ -534,16 +534,18 @@ const MessageToolGroup: React.FC<IMessageToolGroupProps> = ({ message }) => {
           }
         }
 
-        const generatedArtifact = buildGeneratedArtifactFromToolResult({
-          conversation_id: message.conversation_id,
-          call_id,
-          created_at: message.created_at,
-          name,
-          description,
-          result_display,
-        });
-        if (generatedArtifact) {
-          return <MessageGeneratedArtifact key={call_id} artifact={generatedArtifact} />;
+        if (name !== 'WriteFile' && name !== 'ImageGeneration') {
+          const generatedArtifact = buildGeneratedArtifactFromToolResult({
+            conversation_id: message.conversation_id,
+            call_id,
+            created_at: message.created_at,
+            name,
+            description,
+            result_display,
+          });
+          if (generatedArtifact) {
+            return <MessageGeneratedArtifact key={call_id} artifact={generatedArtifact} />;
+          }
         }
 
         // 通用工具调用展示 Generic tool call display

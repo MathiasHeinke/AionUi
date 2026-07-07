@@ -90,6 +90,29 @@ const buildGeneratedVideoToolGroup = (): IMessageToolGroup =>
     ],
   }) as IMessageToolGroup;
 
+const buildGeneratedHtmlToolGroup = (): IMessageToolGroup =>
+  ({
+    id: 'tg-html',
+    conversation_id: 'conversation-1',
+    created_at: 10,
+    type: 'tool_group',
+    content: [
+      {
+        call_id: 'c-html',
+        description: 'Generated page',
+        name: 'GrokHtml',
+        render_output_as_markdown: false,
+        status: 'Success',
+        result_display: {
+          artifact_type: 'html',
+          title: 'Landing page',
+          html: '<script>window.evePwned=true</script><main>Preview</main>',
+          mime_type: 'text/html',
+        },
+      },
+    ],
+  }) as IMessageToolGroup;
+
 describe('MessageToolGroup — FeedbackButton wiring', () => {
   beforeEach(() => {
     openFeedbackMock.mockClear();
@@ -111,6 +134,15 @@ describe('MessageToolGroup — FeedbackButton wiring', () => {
     expect(screen.getByTestId('generated-artifact-video')).toHaveAttribute('src', 'https://cdn.example.com/launch.mp4');
     expect(screen.getByText('Launch clip')).toBeInTheDocument();
     expect(screen.getByText('xAI · grok-video · video/mp4')).toBeInTheDocument();
+  });
+
+  it('renders generated html tool results in a sandboxed iframe', () => {
+    render(<MessageToolGroup message={buildGeneratedHtmlToolGroup()} />);
+
+    const frame = screen.getByTestId('generated-artifact-html');
+    expect(frame).toHaveAttribute('sandbox', '');
+    expect(frame).toHaveAttribute('srcdoc', '<script>window.evePwned=true</script><main>Preview</main>');
+    expect(document.querySelector('script')).toBeNull();
   });
 
   it('does not render FeedbackButton on canceled tool calls', () => {
