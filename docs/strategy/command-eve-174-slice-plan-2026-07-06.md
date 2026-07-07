@@ -8,7 +8,7 @@ Vier weitgehend unabhängige Stränge. Jeder Slice: build → tsc 0 → Suite gr
 **Existiert schon — NICHT neu bauen:** Volltext-Suche (Backend, Inhalt+Titel) · Live-Status-Dots (`sessionStatus.ts`: running/attention/error/done/idle) · Pin/Umbenennen/Löschen mit Bestätigung · Batch-Löschen · Per-Seat-Isolation (Epoch-Guard, `useConversationListSync.ts`) · Drag-Reorder (Pinned, `sortOrder`) · Auto-Titel (`useAutoTitle.ts` → `generateLocalTitle`, erste Nachricht, schützt manuelle Umbenennung — aber **lokal**).
 
 ## 1.7.4a — Chat-UX (Task #56)
-- **Auto-Titel Cloud-Swap.** Heute `generateLocalTitle` (lokal Gemma, **unzuverlässig** — Founder bestätigt). Cloud-Pfad: **schlankes Server-Endpoint** (`eve-title` o.ä.) mit App-Key server-seitig → DeepSeek V4 Flash → kurzer Titel. **KEIN Entitlement-Draw** = app-cost, nicht Seat-Credit (Titel ≠ Kundenverbrauch; Founder-Entscheid (a) OpenRouter-direkt realisiert als Server-Endpoint, weil **kein Key in die DMG**). Renderer: `generateCloudTitle`-Bridge, Fallback cloud→lokal→truncated; manuelle-Umbenennung-Schutz bleibt. Nuance: Titel nach erstem **Austausch** (User+EVE) statt nur erster User-Nachricht. **Edge-fn-Deploy = FOUNDER-GATED.**
+- **Auto-Titel Cloud-Swap.** Heute `generateLocalTitle` (lokal Gemma, **unzuverlässig** — Founder bestätigt). Cloud-Pfad: **schlankes Server-Endpoint** (`eve-title`) mit App-Key server-seitig → DeepSeek V4 Flash → kurzer Titel. **KEIN Entitlement-Draw** = app-cost, nicht Seat-Credit (Titel ≠ Kundenverbrauch; Founder-Entscheid (a) OpenRouter-direkt realisiert als Server-Endpoint, weil **kein Key in die DMG**). Renderer: `generateCloudTitle`-Bridge, Fallback cloud→lokal→truncated; manuelle-Umbenennung-Schutz bleibt. Nuance: Titel nach erstem **Austausch** (User+EVE) statt nur erster User-Nachricht. **Edge-fn-Deploy erledigt 2026-07-07** (`unvbeothoimlzlolxucl`, `verify_jwt=false`; live unauth call erreicht Handler und antwortet `license_missing`).
 - **Archiv statt Hart-Löschen.** Löschen ist heute irreversibel (`conversation.remove`) → Kundenarbeit-Verlust-Risiko. `extra.archived`-Flag + `conversation.archive`-Bridge + Archiv-Filter/Section + Restore. Lokal (aioncore-DB), kein Deploy-Gate.
 - **Last-Active-Zeit** in `ConversationRow` (Daten schon da via `time`/`updated_at`).
 
@@ -27,6 +27,5 @@ Vier weitgehend unabhängige Stränge. Jeder Slice: build → tsc 0 → Suite gr
 Gemma lokal **unzuverlässig** (Founder). Post-pull streaming tool-call-Probe in `runtimeBootstrapCore.ts`; Tier-Readiness blocken + ehrlich in `localRuntimeStatusCore` melden bei Fail. Fasst runtimeBootstrap an → eigener Codex-Audit. Macht die Unzuverlässigkeit **sichtbar** statt still zu degradieren.
 
 ## Founder-Gates in 1.7.4
-1. `eve-title` Edge-fn-Deploy (Supabase prod) — für Auto-Titel-Cloud.
-2. Finaler Ganzrelease-Codex-Audit vor Version-Bump.
-3. R2-Flip (yml zuletzt).
+1. Finaler Ganzrelease-Codex-Audit vor Version-Bump.
+2. R2-Flip (yml zuletzt).
