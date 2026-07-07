@@ -9,7 +9,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAcpMessage } from '@/renderer/pages/conversation/platforms/acp/useAcpMessage';
 import type { IResponseMessage } from '@/common/adapter/ipcBridge';
 
-const { addOrUpdateMessageMock, responseStreamOnMock, responseStreamHandlerRef, conversationGetInvokeMock, reportInferenceErrorMock } = vi.hoisted(() => ({
+const {
+  addOrUpdateMessageMock,
+  responseStreamOnMock,
+  responseStreamHandlerRef,
+  conversationGetInvokeMock,
+  reportInferenceErrorMock,
+} = vi.hoisted(() => ({
   addOrUpdateMessageMock: vi.fn(),
   responseStreamOnMock: vi.fn(),
   responseStreamHandlerRef: {
@@ -184,6 +190,297 @@ describe('useAcpMessage', () => {
     );
   });
 
+  it('throttles active thinking stream updates so inference start cannot flood the transcript', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+
+    const { result } = renderHook(() => useAcpMessage('conv-1'));
+
+    await waitFor(() => {
+      expect(result.current.hasHydratedRunningState).toBe(true);
+    });
+
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        for (let i = 0; i < 20; i += 1) {
+          responseStreamHandlerRef.current?.({
+            type: 'thinking',
+            data: {
+              content: `chunk-${i} `,
+              status: 'thinking',
+            },
+            msg_id: 'msg-1',
+            conversation_id: 'conv-1',
+            created_at: 1_000 + i,
+          });
+        }
+      });
+
+      expect(addOrUpdateMessageMock).toHaveBeenCalledTimes(1);
+
+      act(() => {
+        vi.advanceTimersByTime(49);
+      });
+      expect(addOrUpdateMessageMock).toHaveBeenCalledTimes(1);
+
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(addOrUpdateMessageMock).toHaveBeenCalledTimes(2);
+      expect(addOrUpdateMessageMock.mock.calls[0]?.[0]).toEqual(
+        expect.objectContaining({
+          type: 'thinking',
+          msg_id: 'msg-1',
+          content: expect.objectContaining({
+            content: 'chunk-0 ',
+          }),
+        })
+      );
+      expect(addOrUpdateMessageMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          type: 'thinking',
+          msg_id: 'msg-1',
+          content: expect.objectContaining({
+            content: Array.from({ length: 19 }, (_, index) => `chunk-${index + 1} `).join(''),
+          }),
+        })
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('flushes pending thinking before the synthetic done update when final content arrives', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+
+    const { result } = renderHook(() => useAcpMessage('conv-1'));
+
+    await waitFor(() => {
+      expect(result.current.hasHydratedRunningState).toBe(true);
+    });
+
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        for (let i = 0; i < 3; i += 1) {
+          responseStreamHandlerRef.current?.({
+            type: 'thinking',
+            data: {
+              content: `chunk-${i} `,
+              status: 'thinking',
+            },
+            msg_id: 'msg-1',
+            conversation_id: 'conv-1',
+            created_at: 1_000 + i,
+          });
+        }
+      });
+
+      expect(addOrUpdateMessageMock).toHaveBeenCalledTimes(1);
+
+      act(() => {
+        responseStreamHandlerRef.current?.({
+          type: 'text',
+          data: 'final',
+          msg_id: 'msg-1',
+          conversation_id: 'conv-1',
+          created_at: 2_000,
+        });
+      });
+
+      expect(addOrUpdateMessageMock).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          type: 'thinking',
+          msg_id: 'msg-1',
+          content: expect.objectContaining({
+            content: 'chunk-1 chunk-2 ',
+            status: 'thinking',
+          }),
+        })
+      );
+      expect(addOrUpdateMessageMock).toHaveBeenNthCalledWith(
+        3,
+        expect.objectContaining({
+          type: 'thinking',
+          msg_id: 'msg-1',
+          content: expect.objectContaining({
+            status: 'done',
+            duration: 1000,
+          }),
+        })
+      );
+      expect(addOrUpdateMessageMock).toHaveBeenNthCalledWith(
+        4,
+        expect.objectContaining({
+          type: 'text',
+          msg_id: 'msg-1',
+        })
+      );
+
+      act(() => {
+        vi.advanceTimersByTime(50);
+      });
+      expect(addOrUpdateMessageMock).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('flushes pending thinking before an error message', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+
+    const { result } = renderHook(() => useAcpMessage('conv-1'));
+
+    await waitFor(() => {
+      expect(result.current.hasHydratedRunningState).toBe(true);
+    });
+
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        for (let i = 0; i < 3; i += 1) {
+          responseStreamHandlerRef.current?.({
+            type: 'thinking',
+            data: {
+              content: `chunk-${i} `,
+              status: 'thinking',
+            },
+            msg_id: 'msg-1',
+            conversation_id: 'conv-1',
+            created_at: 1_000 + i,
+          });
+        }
+      });
+
+      expect(addOrUpdateMessageMock).toHaveBeenCalledTimes(1);
+
+      act(() => {
+        responseStreamHandlerRef.current?.({
+          type: 'error',
+          data: 'boom',
+          msg_id: 'msg-1',
+          conversation_id: 'conv-1',
+          created_at: 2_000,
+        });
+      });
+
+      expect(addOrUpdateMessageMock).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          type: 'thinking',
+          msg_id: 'msg-1',
+          content: expect.objectContaining({
+            content: 'chunk-1 chunk-2 ',
+            status: 'thinking',
+          }),
+        })
+      );
+      expect(addOrUpdateMessageMock).toHaveBeenNthCalledWith(
+        3,
+        expect.objectContaining({
+          type: 'thinking',
+          msg_id: 'msg-1',
+          content: expect.objectContaining({
+            status: 'done',
+            duration: 1000,
+          }),
+        })
+      );
+      expect(addOrUpdateMessageMock).toHaveBeenNthCalledWith(
+        4,
+        expect.objectContaining({
+          type: 'tips',
+          msg_id: 'msg-1',
+        })
+      );
+
+      act(() => {
+        vi.advanceTimersByTime(50);
+      });
+      expect(addOrUpdateMessageMock).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('flushes pending thinking before starting a new thinking message id', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+
+    const { result } = renderHook(() => useAcpMessage('conv-1'));
+
+    await waitFor(() => {
+      expect(result.current.hasHydratedRunningState).toBe(true);
+    });
+
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        for (let i = 0; i < 3; i += 1) {
+          responseStreamHandlerRef.current?.({
+            type: 'thinking',
+            data: {
+              content: `chunk-${i} `,
+              status: 'thinking',
+            },
+            msg_id: 'msg-1',
+            conversation_id: 'conv-1',
+            created_at: 1_000 + i,
+          });
+        }
+
+        responseStreamHandlerRef.current?.({
+          type: 'thinking',
+          data: {
+            content: 'next-0 ',
+            status: 'thinking',
+          },
+          msg_id: 'msg-2',
+          conversation_id: 'conv-1',
+          created_at: 2_000,
+        });
+      });
+
+      expect(addOrUpdateMessageMock).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          type: 'thinking',
+          msg_id: 'msg-1',
+          content: expect.objectContaining({
+            content: 'chunk-0 ',
+          }),
+        })
+      );
+      expect(addOrUpdateMessageMock).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          type: 'thinking',
+          msg_id: 'msg-1',
+          content: expect.objectContaining({
+            content: 'chunk-1 chunk-2 ',
+          }),
+        })
+      );
+      expect(addOrUpdateMessageMock).toHaveBeenNthCalledWith(
+        3,
+        expect.objectContaining({
+          type: 'thinking',
+          msg_id: 'msg-2',
+          content: expect.objectContaining({
+            content: 'next-0 ',
+          }),
+        })
+      );
+
+      act(() => {
+        vi.advanceTimersByTime(50);
+      });
+      expect(addOrUpdateMessageMock).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('preserves slash-command metadata from available_commands stream updates', async () => {
     conversationGetInvokeMock.mockResolvedValue(null);
 
@@ -240,7 +537,12 @@ describe('useAcpMessage', () => {
       // idle-suppress on jobInFlight). A non-terminal message before the error sets
       // running=true → jobWasInFlight=true.
       responseStreamHandlerRef.current?.({ type: 'text', data: 'partial', msg_id: 'm-1', conversation_id: 'conv-1' });
-      responseStreamHandlerRef.current?.({ type: 'error', data: { code: 'eve_daily_cap' }, msg_id: 'm-1', conversation_id: 'conv-1' });
+      responseStreamHandlerRef.current?.({
+        type: 'error',
+        data: { code: 'eve_daily_cap' },
+        msg_id: 'm-1',
+        conversation_id: 'conv-1',
+      });
     };
 
     it('suppresses the cold error message when a quota/cap signal is recognized AND a turn was in-flight', async () => {
