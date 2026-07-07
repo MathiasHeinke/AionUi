@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ipcBridge } from '@/common';
-import { deriveAutoTitleExchangeFromMessages, deriveAutoTitleFromMessages } from '@/renderer/utils/chat/autoTitle';
+import { deriveAutoTitleExchangeFromMessages, deriveAutoTitleFromMessages, prepareCloudAutoTitleText } from '@/renderer/utils/chat/autoTitle';
 import { emitter } from '@/renderer/utils/emitter';
 import { getConversationOrNull } from '@/renderer/pages/conversation/utils/conversationCache';
 
@@ -52,7 +52,8 @@ export const useAutoTitle = () => {
         // bilingual). resolveLocaleKey never yields de-DE, so detect German off the
         // raw i18n language tag.
         const locale = (i18n.language || '').toLowerCase().startsWith('de') ? 'de-DE' : 'en-US';
-        const cloud = await ipcBridge.commandEve.generateCloudTitle.invoke({ text, locale });
+        const cloudText = prepareCloudAutoTitleText(text);
+        const cloud = cloudText ? await ipcBridge.commandEve.generateCloudTitle.invoke({ text: cloudText, locale }) : undefined;
         let generated = cloud?.data?.ok ? cloud.data.title?.trim() : undefined;
         if (!generated) {
           const local = await ipcBridge.commandEve.generateLocalTitle.invoke({ text, locale });

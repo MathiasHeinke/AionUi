@@ -6,10 +6,12 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import {
+  AUTO_TITLE_CLOUD_TEXT_MAX_CHARS,
   buildAutoTitleExchangeText,
   buildAutoTitleFromContent,
   deriveAutoTitleExchangeFromMessages,
   deriveAutoTitleFromMessages,
+  prepareCloudAutoTitleText,
 } from '@/renderer/utils/chat/autoTitle';
 import type { TMessage } from '@/common/chat/chatLib';
 
@@ -159,6 +161,19 @@ describe('autoTitle', () => {
     it('returns null until both sides exist', () => {
       expect(buildAutoTitleExchangeText('Task', '')).toBeNull();
       expect(buildAutoTitleExchangeText('', 'Answer')).toBeNull();
+    });
+
+    it('redacts and caps the cloud title payload before egress', () => {
+      const raw = buildAutoTitleExchangeText(
+        'api_key=sk-test-1234567890 und ' + 'x'.repeat(1200),
+        'Ich plane den naechsten Schritt.'
+      );
+      expect(raw).toBeTruthy();
+
+      const prepared = prepareCloudAutoTitleText(raw!);
+      expect(prepared).toContain('[REDACTED_SECRET_ASSIGNMENT]');
+      expect(prepared).not.toContain('sk-test-1234567890');
+      expect(prepared!.length).toBeLessThanOrEqual(AUTO_TITLE_CLOUD_TEXT_MAX_CHARS);
     });
   });
 
