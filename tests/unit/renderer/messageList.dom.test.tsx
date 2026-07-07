@@ -262,4 +262,31 @@ describe('MessageList', () => {
     expect(screen.getByText('tool_group')).toBeInTheDocument();
     expect(screen.queryByText('tool_summary')).not.toBeInTheDocument();
   });
+
+  it('does not render the same generated image twice when an artifact card already exists', () => {
+    artifactMock.artifacts = [
+      {
+        id: 'artifact-1',
+        conversation_id: 'conversation-1',
+        kind: 'media',
+        status: 'active',
+        payload: {
+          artifact_type: 'image',
+          title: 'Hero render',
+          url: 'data:image/png;base64,iVBORw0KGgo=',
+          mime_type: 'image/png',
+        },
+        created_at: 2,
+        updated_at: 2,
+      },
+    ];
+
+    render(<MessageList />, {
+      wrapper: ({ children }) => <Wrapper messages={[createImageToolGroup()]}>{children}</Wrapper>,
+    });
+
+    expect(screen.getByTestId('generated-artifact-card')).toBeInTheDocument();
+    expect(screen.queryByText('tool_group')).not.toBeInTheDocument();
+    expect(screen.getByText('tool_summary')).toBeInTheDocument();
+  });
 });

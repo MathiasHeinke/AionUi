@@ -105,12 +105,50 @@ const isVisibleConversationArtifact = (artifact: IConversationArtifact): boolean
   return artifact.status !== 'dismissed';
 };
 
-const hasInlineToolGroupArtifact = (message: IMessageToolGroup): boolean =>
-  message.content.some((item) => {
-    if (item.name !== 'ImageGeneration') return false;
+const parseArtifactPayloadRecord = (payload: unknown): Record<string, unknown> => {
+  if (!payload) return {};
+  if (typeof payload !== 'string') {
+    return typeof payload === 'object' && !Array.isArray(payload) ? (payload as Record<string, unknown>) : {};
+  }
+  try {
+    const parsed = JSON.parse(payload) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+};
+
+const readArtifactString = (payload: Record<string, unknown>, keys: string[]): string | undefined => {
+  for (const key of keys) {
+    const value = payload[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return undefined;
+};
+
+const getGeneratedArtifactSourceKey = (artifact: IConversationArtifact): string | undefined => {
+  if (artifact.kind === 'cron_trigger' || artifact.kind === 'skill_suggest') return undefined;
+  const payload = parseArtifactPayloadRecord(artifact.payload);
+  return readArtifactString(payload, ['url', 'file_url', 'href', 'src', 'path', 'file_path', 'absolute_path']);
+};
+
+const getInlineToolGroupArtifactSourceKeys = (message: IMessageToolGroup): string[] =>
+  message.content.flatMap((item) => {
+    if (item.name !== 'ImageGeneration') return [];
     const result = item.result_display;
-    return Boolean(result && typeof result === 'object' && 'img_url' in result && result.img_url);
+    if (!result || typeof result !== 'object' || !('img_url' in result) || !result.img_url) return [];
+    const keys = [result.img_url];
+    if ('relative_path' in result && result.relative_path) keys.push(result.relative_path);
+    return keys;
   });
+
+const hasInlineToolGroupArtifact = (message: IMessageToolGroup): boolean =>
+  getInlineToolGroupArtifactSourceKeys(message).length > 0;
+
+const hasConversationArtifactDuplicate = (
+  message: IMessageToolGroup,
+  generatedArtifactSourceKeys: ReadonlySet<string>
+): boolean => getInlineToolGroupArtifactSourceKeys(message).some((key) => generatedArtifactSourceKeys.has(key));
 
 // Image preview context
 export const ImagePreviewContext = createContext<{ inPreviewGroup: boolean }>({ inPreviewGroup: false });
@@ -260,6 +298,10 @@ const MessageList: React.FC<{ className?: string; emptySlot?: React.ReactNode }>
   // Pre-process message list to group tool outputs into summary cards
   const processedList = useMemo(() => {
     const result: Array<IMessageVO> = [];
+    const visibleArtifacts = artifacts.filter(isVisibleConversationArtifact);
+    const generatedArtifactSourceKeys = new Set(
+      visibleArtifacts.map(getGeneratedArtifactSourceKey).filter((key): key is string => Boolean(key))
+    );
     let diffsChanges: FileChangeInfo[] = [];
     let diffsSourceMessageIds: string[] = [];
     let toolList: Array<IMessageToolGroup | IMessageAcpToolCall | IMessageToolCall> = [];
@@ -304,7 +346,10 @@ const MessageList: React.FC<{ className?: string; emptySlot?: React.ReactNode }>
       if (message.hidden) continue;
       if (message.type === 'available_commands') continue;
       if (message.type === 'tool_group') {
-        if (hasInlineToolGroupArtifact(message)) {
+        if (
+          hasInlineToolGroupArtifact(message) &&
+          !hasConversationArtifactDuplicate(message, generatedArtifactSourceKeys)
+        ) {
           toolList = [];
           toolSourceMessageIds = [];
           diffsChanges = [];
@@ -348,14 +393,14 @@ const MessageList: React.FC<{ className?: string; emptySlot?: React.ReactNode }>
       diffsSourceMessageIds = [];
       result.push(message);
     }
-    const visibleArtifacts = artifacts.filter(isVisibleConversationArtifact).map<IArtifactVO>((artifact) => ({
+    const visibleArtifactItems = visibleArtifacts.map<IArtifactVO>((artifact) => ({
       type: 'artifact',
       id: artifact.id,
       artifact,
       created_at: artifact.created_at,
     }));
 
-    return [...result, ...visibleArtifacts].toSorted(
+    return [...result, ...visibleArtifactItems].toSorted(
       (a, b) => getProcessedItemCreatedAt(a) - getProcessedItemCreatedAt(b)
     );
   }, [artifacts, list]);
