@@ -8,8 +8,8 @@ import AcpModelSelector from '@/renderer/components/agent/AcpModelSelector';
 import EveInferencePicker from '@/renderer/components/agent/EveInferencePicker';
 import ContextUsageIndicator from '@/renderer/components/agent/ContextUsageIndicator';
 import UnifiedSendBar from '@/renderer/components/chat/UnifiedSendBar';
-import SpeechInputButton from '@/renderer/components/chat/SpeechInputButton';
-import { appendSpeechTranscript } from '@/renderer/hooks/system/useSpeechInput';
+import SpeechInputButton, { type SpeechInputButtonHandle } from '@/renderer/components/chat/SpeechInputButton';
+import { appendSpeechTranscript, type SpeechInputStatus } from '@/renderer/hooks/system/useSpeechInput';
 import CommandQueuePanel from '@/renderer/components/chat/CommandQueuePanel';
 import MobileActionSheet, {
   type MobileActionSheetEntry,
@@ -60,7 +60,7 @@ import { mergeFileSelectionItems } from '@/renderer/utils/file/fileSelection';
 import { buildDisplayMessage } from '@/renderer/utils/file/messageFiles';
 import { Message, Tag } from '@arco-design/web-react';
 import { Brain, MagicHat, Shield } from '@icon-park/react';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { buildSendFailureError } from './buildSendFailureError';
 import { useAcpInitialMessage } from './useAcpInitialMessage';
@@ -138,6 +138,8 @@ const AcpSendBox: React.FC<{
   const isLeaderInTeam = teamPermission && conversation_id === teamPermission.leaderConversationId;
   const { checkAndUpdateTitle } = useAutoTitle();
   const { atPath, uploadFile, setAtPath, setUploadFile, content, setContent } = useSendBoxDraft(conversation_id);
+  const speechInputRef = useRef<SpeechInputButtonHandle | null>(null);
+  const [speechInputStatus, setSpeechInputStatus] = useState<SpeechInputStatus>('idle');
   const layout = useLayoutContext();
   const isMobile = Boolean(layout?.isMobile);
   const conversationContext = useConversationContextSafe();
@@ -277,6 +279,10 @@ const AcpSendBox: React.FC<{
       setContentRef.current(appendSpeechTranscript(contentRef.current, transcript));
     },
     [setContentRef, contentRef]
+  );
+  const transcribePendingSpeechInput = useCallback(
+    (options?: { emit?: boolean }) => speechInputRef.current?.transcribePendingAudio(options) ?? Promise.resolve(null),
+    []
   );
 
   const addOrUpdateMessage = useAddOrUpdateMessage(); // Move this here so it's available in useEffect
@@ -792,6 +798,8 @@ Please check your local CLI tool authentication status`,
         }}
         loading={isBusy}
         disabled={false}
+        hasPendingSpeechInput={speechInputStatus === 'recording'}
+        transcribePendingSpeechInput={transcribePendingSpeechInput}
         placeholder={t('acp.sendbox.placeholder', {
           backend: agent_name || backend,
           defaultValue: `Send message to {{backend}}...`,
@@ -854,9 +862,11 @@ Please check your local CLI tool authentication status`,
             }
             micSlot={
               <SpeechInputButton
+                ref={speechInputRef}
                 disabled={isBusy}
                 locale={i18n?.language || 'en-US'}
                 onTranscript={handleSpeechTranscript}
+                onStatusChange={setSpeechInputStatus}
               />
             }
           />

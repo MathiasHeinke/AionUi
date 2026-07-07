@@ -12,12 +12,20 @@ import {
   useSpeechInput,
   type SpeechInputAvailability,
   type SpeechInputErrorCode,
+  type SpeechInputStatus,
+  type SpeechTranscriptionRequestOptions,
 } from '@/renderer/hooks/system/useSpeechInput';
 
 type SpeechInputButtonProps = {
   disabled?: boolean;
   locale?: string;
   onTranscript: (transcript: string) => void;
+  onStatusChange?: (status: SpeechInputStatus) => void;
+};
+
+export type SpeechInputButtonHandle = {
+  hasPendingAudio: () => boolean;
+  transcribePendingAudio: (options?: SpeechTranscriptionRequestOptions) => Promise<string | null>;
 };
 
 const SpeechMicIcon = () => (
@@ -117,208 +125,228 @@ const getTooltipKey = (availability: SpeechInputAvailability, isListening: boole
   return getAvailabilityMessageKey(availability);
 };
 
-const SpeechInputButton: React.FC<SpeechInputButtonProps> = ({ disabled, locale, onTranscript }) => {
-  const { t } = useTranslation();
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [isSpeechToTextEnabled, setIsSpeechToTextEnabled] = useState(false);
-  const [isConfigLoaded, setIsConfigLoaded] = useState(false);
-  const {
-    availability,
-    canRetry,
-    clearError,
-    errorCode,
-    errorMessage,
-    recordingDurationMs,
-    recordingLevels,
-    retryTranscription,
-    startRecording,
-    status,
-    stopRecording,
-    transcribeFile,
-  } = useSpeechInput({
-    locale,
-    onTranscript,
-  });
+const SpeechInputButton = React.forwardRef<SpeechInputButtonHandle, SpeechInputButtonProps>(
+  ({ disabled, locale, onStatusChange, onTranscript }, ref) => {
+    const { t } = useTranslation();
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const [isSpeechToTextEnabled, setIsSpeechToTextEnabled] = useState(false);
+    const [isConfigLoaded, setIsConfigLoaded] = useState(false);
+    const {
+      availability,
+      canRetry,
+      clearError,
+      errorCode,
+      errorMessage,
+      recordingDurationMs,
+      recordingLevels,
+      retryTranscription,
+      startRecording,
+      status,
+      stopRecording,
+      transcribeFile,
+    } = useSpeechInput({
+      locale,
+      onTranscript,
+    });
 
-  const isRecording = status === 'recording';
-  const isProcessing = status === 'transcribing';
-  const showSpeechFeedback = isRecording || isProcessing;
-  const displayedWaveformLevels = useMemo(() => {
-    if (recordingLevels.length > 0) {
-      return recordingLevels;
-    }
-    return [0.08, 0.12, 0.1, 0.16, 0.09, 0.14];
-  }, [recordingLevels]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const syncSpeechToTextEnabled = async () => {
-      try {
-        const config = configService.get('tools.speechToText');
-        if (cancelled) {
-          return;
-        }
-        // S9 #4 store-split fix — CONSUMER-DEFAULT flip. See
-        // resolveSpeechInputEnabledDefault: absent config ⇒ ON (the seed
-        // intention); explicit `enabled:false` ⇒ hidden.
-        setIsSpeechToTextEnabled(resolveSpeechInputEnabledDefault(config));
-      } catch {
-        if (cancelled) {
-          return;
-        }
-        setIsSpeechToTextEnabled(false);
-      } finally {
-        if (!cancelled) {
-          setIsConfigLoaded(true);
-        }
+    const isRecording = status === 'recording';
+    const isProcessing = status === 'transcribing';
+    const showSpeechFeedback = isRecording || isProcessing;
+    const displayedWaveformLevels = useMemo(() => {
+      if (recordingLevels.length > 0) {
+        return recordingLevels;
       }
-    };
+      return [0.08, 0.12, 0.1, 0.16, 0.09, 0.14];
+    }, [recordingLevels]);
 
-    const handleConfigChanged = () => {
+    useEffect(() => {
+      onStatusChange?.(status);
+    }, [onStatusChange, status]);
+
+    React.useImperativeHandle(
+      ref,
+      () => ({
+        hasPendingAudio: () => status === 'recording',
+        transcribePendingAudio: (options?: SpeechTranscriptionRequestOptions) => {
+          if (status !== 'recording') return Promise.resolve(null);
+          return stopRecording(options);
+        },
+      }),
+      [status, stopRecording]
+    );
+
+    useEffect(() => {
+      let cancelled = false;
+
+      const syncSpeechToTextEnabled = async () => {
+        try {
+          const config = configService.get('tools.speechToText');
+          if (cancelled) {
+            return;
+          }
+          // S9 #4 store-split fix — CONSUMER-DEFAULT flip. See
+          // resolveSpeechInputEnabledDefault: absent config ⇒ ON (the seed
+          // intention); explicit `enabled:false` ⇒ hidden.
+          setIsSpeechToTextEnabled(resolveSpeechInputEnabledDefault(config));
+        } catch {
+          if (cancelled) {
+            return;
+          }
+          setIsSpeechToTextEnabled(false);
+        } finally {
+          if (!cancelled) {
+            setIsConfigLoaded(true);
+          }
+        }
+      };
+
+      const handleConfigChanged = () => {
+        void syncSpeechToTextEnabled();
+      };
+
       void syncSpeechToTextEnabled();
+      window.addEventListener(SPEECH_TO_TEXT_CONFIG_CHANGED_EVENT, handleConfigChanged);
+
+      return () => {
+        cancelled = true;
+        window.removeEventListener(SPEECH_TO_TEXT_CONFIG_CHANGED_EVENT, handleConfigChanged);
+      };
+    }, []);
+
+    useEffect(() => {
+      if (!errorCode) {
+        return;
+      }
+
+      const baseMessage = t(getErrorMessageKey(errorCode));
+      const detail = errorMessage?.trim();
+      if (errorCode === 'empty-transcript') {
+        Message.warning(baseMessage);
+        clearError();
+        return;
+      }
+      Message.error(detail ? `${baseMessage}: ${detail}` : baseMessage);
+      // When the audio is still intact (canRetry), DON'T clearError — keep the
+      // error state so the inline Retry button stays visible and the preserved
+      // recording isn't dropped. Otherwise reset immediately as before.
+      if (!canRetry) {
+        clearError();
+      }
+    }, [canRetry, clearError, errorCode, errorMessage, t]);
+
+    const handleRetry = () => {
+      if (disabled) return;
+      retryTranscription();
     };
 
-    void syncSpeechToTextEnabled();
-    window.addEventListener(SPEECH_TO_TEXT_CONFIG_CHANGED_EVENT, handleConfigChanged);
+    const handleClick = () => {
+      if (disabled) {
+        return;
+      }
 
-    return () => {
-      cancelled = true;
-      window.removeEventListener(SPEECH_TO_TEXT_CONFIG_CHANGED_EVENT, handleConfigChanged);
+      if (availability === 'unsupported') {
+        Message.warning(t(getAvailabilityMessageKey(availability)));
+        return;
+      }
+
+      if (isRecording) {
+        void stopRecording();
+        return;
+      }
+
+      if (availability === 'file') {
+        fileInputRef.current?.click();
+        return;
+      }
+
+      void startRecording();
     };
-  }, []);
 
-  useEffect(() => {
-    if (!errorCode) {
-      return;
+    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = '';
+      if (!file) {
+        return;
+      }
+      void transcribeFile(file);
+    };
+
+    if (!isConfigLoaded || !isSpeechToTextEnabled) {
+      return null;
     }
 
-    const baseMessage = t(getErrorMessageKey(errorCode));
-    const detail = errorMessage?.trim();
-    if (errorCode === 'empty-transcript') {
-      Message.warning(baseMessage);
-      clearError();
-      return;
-    }
-    Message.error(detail ? `${baseMessage}: ${detail}` : baseMessage);
-    // When the audio is still intact (canRetry), DON'T clearError — keep the
-    // error state so the inline Retry button stays visible and the preserved
-    // recording isn't dropped. Otherwise reset immediately as before.
-    if (!canRetry) {
-      clearError();
-    }
-  }, [canRetry, clearError, errorCode, errorMessage, t]);
+    const tooltipKey = getTooltipKey(availability, isRecording, isProcessing);
+    const ariaLabel = t(tooltipKey);
+    const icon = isRecording ? <SpeechStopIcon /> : isProcessing ? <SpeechLoaderIcon /> : <SpeechMicIcon />;
 
-  const handleRetry = () => {
-    if (disabled) return;
-    retryTranscription();
-  };
-
-  const handleClick = () => {
-    if (disabled) {
-      return;
-    }
-
-    if (availability === 'unsupported') {
-      Message.warning(t(getAvailabilityMessageKey(availability)));
-      return;
-    }
-
-    if (isRecording) {
-      stopRecording();
-      return;
-    }
-
-    if (availability === 'file') {
-      fileInputRef.current?.click();
-      return;
-    }
-
-    void startRecording();
-  };
-
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) {
-      return;
-    }
-    void transcribeFile(file);
-  };
-
-  if (!isConfigLoaded || !isSpeechToTextEnabled) {
-    return null;
-  }
-
-  const tooltipKey = getTooltipKey(availability, isRecording, isProcessing);
-  const ariaLabel = t(tooltipKey);
-  const icon = isRecording ? <SpeechStopIcon /> : isProcessing ? <SpeechLoaderIcon /> : <SpeechMicIcon />;
-
-  return (
-    <>
-      <input
-        ref={fileInputRef}
-        type='file'
-        accept='audio/*'
-        capture='user'
-        className='hidden'
-        onChange={handleFileChange}
-      />
-      <div className={`speech-input-control ${showSpeechFeedback ? 'speech-input-control--active' : ''}`}>
-        {showSpeechFeedback && (
-          <div
-            className={`speech-input-feedback ${isProcessing ? 'speech-input-feedback--processing' : ''}`}
-            role='status'
-            aria-live='polite'
-          >
-            <div className='speech-input-feedback__waveform' aria-hidden='true'>
-              {displayedWaveformLevels.map((level, index) => (
-                <span
-                  key={`speech-wave-${index}`}
-                  className='speech-input-feedback__bar'
-                  style={{
-                    height: `${Math.max(1.5, 1 + level * 18)}px`,
-                    animationDelay: `${index * 40}ms`,
-                  }}
-                />
-              ))}
+    return (
+      <>
+        <input
+          ref={fileInputRef}
+          type='file'
+          accept='audio/*'
+          capture='user'
+          className='hidden'
+          onChange={handleFileChange}
+        />
+        <div className={`speech-input-control ${showSpeechFeedback ? 'speech-input-control--active' : ''}`}>
+          {showSpeechFeedback && (
+            <div
+              className={`speech-input-feedback ${isProcessing ? 'speech-input-feedback--processing' : ''}`}
+              role='status'
+              aria-live='polite'
+            >
+              <div className='speech-input-feedback__waveform' aria-hidden='true'>
+                {displayedWaveformLevels.map((level, index) => (
+                  <span
+                    key={`speech-wave-${index}`}
+                    className='speech-input-feedback__bar'
+                    style={{
+                      height: `${Math.max(1.5, 1 + level * 18)}px`,
+                      animationDelay: `${index * 40}ms`,
+                    }}
+                  />
+                ))}
+              </div>
+              <span className='speech-input-feedback__label'>
+                {isProcessing
+                  ? t('conversation.chat.speech.transcribingShort')
+                  : formatSpeechDuration(recordingDurationMs)}
+              </span>
             </div>
-            <span className='speech-input-feedback__label'>
-              {isProcessing
-                ? t('conversation.chat.speech.transcribingShort')
-                : formatSpeechDuration(recordingDurationMs)}
-            </span>
-          </div>
-        )}
-        {canRetry && !showSpeechFeedback && (
-          <Tooltip content={t('conversation.chat.speech.retryTooltip')} mini>
+          )}
+          {canRetry && !showSpeechFeedback && (
+            <Tooltip content={t('conversation.chat.speech.retryTooltip')} mini>
+              <Button
+                type='text'
+                size='small'
+                shape='circle'
+                className='speech-input-button speech-input-button--retry'
+                disabled={disabled}
+                onClick={handleRetry}
+                aria-label={t('conversation.chat.speech.retryTooltip')}
+                icon={<SpeechRetryIcon />}
+              />
+            </Tooltip>
+          )}
+          <Tooltip content={ariaLabel} mini>
             <Button
               type='text'
               size='small'
               shape='circle'
-              className='speech-input-button speech-input-button--retry'
-              disabled={disabled}
-              onClick={handleRetry}
-              aria-label={t('conversation.chat.speech.retryTooltip')}
-              icon={<SpeechRetryIcon />}
+              className={`speech-input-button ${isRecording ? 'speech-input-button--listening' : ''} ${isProcessing ? 'speech-input-button--processing' : ''}`}
+              disabled={disabled || isProcessing}
+              onClick={handleClick}
+              aria-label={ariaLabel}
+              icon={icon}
             />
           </Tooltip>
-        )}
-        <Tooltip content={ariaLabel} mini>
-          <Button
-            type='text'
-            size='small'
-            shape='circle'
-            className={`speech-input-button ${isRecording ? 'speech-input-button--listening' : ''} ${isProcessing ? 'speech-input-button--processing' : ''}`}
-            disabled={disabled || isProcessing}
-            onClick={handleClick}
-            aria-label={ariaLabel}
-            icon={icon}
-          />
-        </Tooltip>
-      </div>
-    </>
-  );
-};
+        </div>
+      </>
+    );
+  }
+);
+
+SpeechInputButton.displayName = 'SpeechInputButton';
 
 export default SpeechInputButton;

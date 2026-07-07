@@ -37,6 +37,10 @@ type UseSpeechInputOptions = {
   onTranscript: (transcript: string) => void;
 };
 
+export type SpeechTranscriptionRequestOptions = {
+  emit?: boolean;
+};
+
 const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1']);
 const RECORDING_MIME_TYPES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
 const SPEECH_WAVEFORM_SAMPLE_COUNT = 40;
@@ -180,6 +184,8 @@ export const useSpeechInput = ({ locale, onTranscript }: UseSpeechInputOptions) 
   // fresh recording, and on clearError.
   const [canRetry, setCanRetry] = useState(false);
   const lastAudioBlobRef = useRef<Blob | null>(null);
+  const pendingStopResolveRef = useRef<((transcript: string | null) => void) | null>(null);
+  const pendingStopOptionsRef = useRef<SpeechTranscriptionRequestOptions | undefined>(undefined);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -193,6 +199,13 @@ export const useSpeechInput = ({ locale, onTranscript }: UseSpeechInputOptions) 
   const availability = useMemo(() => getSpeechInputAvailability(), []);
 
   const recognitionLocale = locale?.trim() || 'en-US';
+
+  const resolvePendingStop = useCallback((transcript: string | null) => {
+    const resolver = pendingStopResolveRef.current;
+    pendingStopResolveRef.current = null;
+    pendingStopOptionsRef.current = undefined;
+    resolver?.(transcript);
+  }, []);
 
   const pauseSpeechVisualizer = useCallback(() => {
     if (visualizerIntervalRef.current !== null) {
@@ -317,7 +330,7 @@ export const useSpeechInput = ({ locale, onTranscript }: UseSpeechInputOptions) 
   }, [resetSpeechVisualizer]);
 
   const transcribeBlob = useCallback(
-    async (blob: Blob) => {
+    async (blob: Blob, options?: SpeechTranscriptionRequestOptions): Promise<string | null> => {
       // Preserve the audio so a failed transcription can be retried without
       // re-recording. Only dropped on success / clearError / a fresh recording.
       lastAudioBlobRef.current = blob;
@@ -335,12 +348,15 @@ export const useSpeechInput = ({ locale, onTranscript }: UseSpeechInputOptions) 
           setErrorMessage(null);
           setStatus('error');
           resetSpeechVisualizer();
-          return;
+          return null;
         }
         lastAudioBlobRef.current = null;
-        onTranscriptRef.current(transcript);
+        if (options?.emit !== false) {
+          onTranscriptRef.current(transcript);
+        }
         setStatus('idle');
         resetSpeechVisualizer();
+        return transcript;
       } catch (error) {
         const code = mapSpeechInputError(error);
         setErrorCode(code);
@@ -355,6 +371,7 @@ export const useSpeechInput = ({ locale, onTranscript }: UseSpeechInputOptions) 
         setCanRetry(retryable && lastAudioBlobRef.current !== null);
         setStatus('error');
         resetSpeechVisualizer();
+        return null;
       }
     },
     [onTranscriptRef, recognitionLocale, resetSpeechVisualizer]
@@ -394,6 +411,7 @@ export const useSpeechInput = ({ locale, onTranscript }: UseSpeechInputOptions) 
 
       recorder.onerror = () => {
         cleanupRecorder();
+        resolvePendingStop(null);
         setErrorCode('unknown');
         setStatus('error');
       };
@@ -402,8 +420,9 @@ export const useSpeechInput = ({ locale, onTranscript }: UseSpeechInputOptions) 
         const audioBlob = new Blob(chunksRef.current, {
           type: recorder.mimeType || mimeType || 'audio/webm',
         });
+        const pendingStopOptions = pendingStopOptionsRef.current;
         cleanupRecorder();
-        void transcribeBlob(audioBlob);
+        void transcribeBlob(audioBlob, pendingStopOptions).then(resolvePendingStop);
       };
 
       setErrorCode(null);
@@ -417,17 +436,29 @@ export const useSpeechInput = ({ locale, onTranscript }: UseSpeechInputOptions) 
       setStatus('error');
       resetSpeechVisualizer();
     }
-  }, [availability, cleanupRecorder, resetSpeechVisualizer, startSpeechVisualizer, transcribeBlob]);
+  }, [availability, cleanupRecorder, resetSpeechVisualizer, resolvePendingStop, startSpeechVisualizer, transcribeBlob]);
 
-  const stopRecording = useCallback(() => {
-    const recorder = recorderRef.current;
-    if (!recorder || status !== 'recording') {
-      return;
-    }
+  const stopRecording = useCallback(
+    (options?: SpeechTranscriptionRequestOptions): Promise<string | null> => {
+      const recorder = recorderRef.current;
+      if (!recorder || status !== 'recording') {
+        return Promise.resolve(null);
+      }
 
-    setStatus('transcribing');
-    recorder.stop();
-  }, [status]);
+      setStatus('transcribing');
+      pendingStopOptionsRef.current = options;
+      return new Promise((resolve) => {
+        pendingStopResolveRef.current = resolve;
+        try {
+          recorder.stop();
+        } catch {
+          resolvePendingStop(null);
+          setStatus('error');
+        }
+      });
+    },
+    [resolvePendingStop, status]
+  );
 
   const transcribeFile = useCallback(
     async (file: Blob) => {

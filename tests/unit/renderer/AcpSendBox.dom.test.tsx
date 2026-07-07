@@ -11,14 +11,23 @@ import { BackendHttpError } from '@/common/adapter/httpBridge';
 import AcpSendBox from '@/renderer/pages/conversation/platforms/acp/AcpSendBox';
 import type { UseAcpMessageReturn } from '@/renderer/pages/conversation/platforms/acp/useAcpMessage';
 
-const { sendMessageInvokeMock, addOrUpdateMessageMock, resetStateMock, emitterEmitMock, setSendBoxHandlerMock } =
-  vi.hoisted(() => ({
-    sendMessageInvokeMock: vi.fn(),
-    addOrUpdateMessageMock: vi.fn(),
-    resetStateMock: vi.fn(),
-    emitterEmitMock: vi.fn(),
-    setSendBoxHandlerMock: vi.fn(),
-  }));
+const {
+  sendMessageInvokeMock,
+  addOrUpdateMessageMock,
+  resetStateMock,
+  emitterEmitMock,
+  setSendBoxHandlerMock,
+  sendBoxPropsMock,
+  speechTranscribePendingMock,
+} = vi.hoisted(() => ({
+  sendMessageInvokeMock: vi.fn(),
+  addOrUpdateMessageMock: vi.fn(),
+  resetStateMock: vi.fn(),
+  emitterEmitMock: vi.fn(),
+  setSendBoxHandlerMock: vi.fn(),
+  sendBoxPropsMock: { current: null as Record<string, unknown> | null },
+  speechTranscribePendingMock: vi.fn().mockResolvedValue('spoken prompt'),
+}));
 
 vi.mock('@/common', () => ({
   ipcBridge: {
@@ -36,16 +45,22 @@ vi.mock('@/common', () => ({
 }));
 
 vi.mock('@/renderer/components/chat/SendBox', () => ({
-  default: ({ onSend }: { onSend: (message: string) => Promise<void> }) => (
-    <button
-      type='button'
-      onClick={() => {
-        void onSend('Hello').catch(() => {});
-      }}
-    >
-      send
-    </button>
-  ),
+  default: (props: { onSend: (message: string) => Promise<void>; rightTools?: React.ReactNode }) => {
+    sendBoxPropsMock.current = props as unknown as Record<string, unknown>;
+    return (
+      <>
+        {props.rightTools}
+        <button
+          type='button'
+          onClick={() => {
+            void props.onSend('Hello').catch(() => {});
+          }}
+        >
+          send
+        </button>
+      </>
+    );
+  },
 }));
 
 vi.mock('@/renderer/components/agent/AgentModeSelector', () => ({ default: () => null }));
@@ -54,6 +69,29 @@ vi.mock('@/renderer/components/agent/AgentModeSelector', () => ({ default: () =>
 // test stays focused on the send/reset path, mirroring the AgentModeSelector stub.
 vi.mock('@/renderer/components/agent/AcpModelSelector', () => ({ default: () => null }));
 vi.mock('@/renderer/components/agent/EveInferencePicker', () => ({ default: () => null }));
+vi.mock('@/renderer/components/chat/SpeechInputButton', async () => {
+  const ReactActual = await vi.importActual<typeof import('react')>('react');
+  return {
+    default: ReactActual.forwardRef(
+      (
+        props: { onStatusChange?: (status: string) => void },
+        ref: React.ForwardedRef<{
+          hasPendingAudio: () => boolean;
+          transcribePendingAudio: (options?: { emit?: boolean }) => Promise<string | null>;
+        }>
+      ) => {
+        ReactActual.useImperativeHandle(ref, () => ({
+          hasPendingAudio: () => true,
+          transcribePendingAudio: speechTranscribePendingMock,
+        }));
+        ReactActual.useEffect(() => {
+          props.onStatusChange?.('recording');
+        }, [props.onStatusChange]);
+        return <button type='button'>mic</button>;
+      }
+    ),
+  };
+});
 vi.mock('@/renderer/components/chat/CommandQueuePanel', () => ({ default: () => null }));
 vi.mock('@/renderer/components/chat/MobileActionSheet', () => ({
   default: () => null,
@@ -202,6 +240,7 @@ const makeMessageState = (): UseAcpMessageReturn =>
 describe('AcpSendBox', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    sendBoxPropsMock.current = null;
   });
 
   it('resets ACP loading state when sendMessage fails before any stream error arrives', async () => {
@@ -235,5 +274,26 @@ describe('AcpSendBox', () => {
     await waitFor(() => {
       expect(resetStateMock).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('passes external speech recording state and transcription control into SendBox', async () => {
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='claude'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(sendBoxPropsMock.current?.hasPendingSpeechInput).toBe(true);
+    });
+
+    const transcribePendingSpeechInput = sendBoxPropsMock.current?.transcribePendingSpeechInput as
+      | ((options?: { emit?: boolean }) => Promise<string | null>)
+      | undefined;
+    await expect(transcribePendingSpeechInput?.({ emit: false })).resolves.toBe('spoken prompt');
+    expect(speechTranscribePendingMock).toHaveBeenCalledWith({ emit: false });
   });
 });

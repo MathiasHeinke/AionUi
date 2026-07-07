@@ -41,8 +41,8 @@ import { useUploadState } from '@renderer/hooks/file/useUploadState';
 import { useAbortUploadsOnConversationChange } from '@renderer/hooks/file/useAbortUploadsOnConversationChange';
 import UploadProgressBar from '@renderer/components/media/UploadProgressBar';
 import { allSupportedExts } from '@renderer/services/FileService';
-import SpeechInputButton from '@/renderer/components/chat/SpeechInputButton';
-import { appendSpeechTranscript } from '@/renderer/hooks/system/useSpeechInput';
+import SpeechInputButton, { type SpeechInputButtonHandle } from '@/renderer/components/chat/SpeechInputButton';
+import { appendSpeechTranscript, type SpeechInputStatus } from '@/renderer/hooks/system/useSpeechInput';
 import { getConversationInputHistory, isCaretOnFirstLine } from '@/renderer/utils/chat/messageHistory';
 import './sendbox.css';
 
@@ -201,6 +201,8 @@ const SendBox: React.FC<{
    * stays the single source of the control row and there is no double mic.
    */
   hideSpeechButton?: boolean;
+  hasPendingSpeechInput?: boolean;
+  transcribePendingSpeechInput?: (options?: { emit?: boolean }) => Promise<string | null>;
 }> = ({
   onSend,
   onStop,
@@ -230,6 +232,8 @@ const SendBox: React.FC<{
   bottomHint,
   onMobilePlusClick,
   hideSpeechButton = false,
+  hasPendingSpeechInput,
+  transcribePendingSpeechInput,
 }) => {
   // Typing must NEVER be blocked by the running task (Issue B). When a composer
   // opts into the queue-while-busy path (allowSendWhileLoading), the textarea
@@ -257,8 +261,12 @@ const SendBox: React.FC<{
   const mobileUserFocusIntentUntilRef = useRef(0);
   const warmedConversationRef = useRef<string | undefined>(undefined);
   const warmupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const internalSpeechInputRef = useRef<SpeechInputButtonHandle | null>(null);
+  const speechSendPendingRef = useRef(false);
   const latestInputRef = useLatestRef(input);
   const setInputRef = useLatestRef(setInput);
+  const [internalSpeechStatus, setInternalSpeechStatus] = useState<SpeechInputStatus>('idle');
+  const [isSpeechSendPending, setIsSpeechSendPending] = useState(false);
   const messageList = useMessageList();
   const [historyNavigationIndex, setHistoryNavigationIndex] = useState<number | null>(null);
   const historyDraftRef = useRef<string | null>(null);
@@ -412,6 +420,16 @@ const SendBox: React.FC<{
   });
   const btwCommand = useBtwCommand(conversationContext?.conversation_id, enableBtw);
   const btwQuestion = useMemo(() => extractBtwQuestion(input), [input]);
+  const hasActiveSpeechInput = hasPendingSpeechInput ?? internalSpeechStatus === 'recording';
+  const transcribeActiveSpeechInput = useCallback(
+    (options?: { emit?: boolean }) => {
+      if (transcribePendingSpeechInput) {
+        return transcribePendingSpeechInput(options);
+      }
+      return internalSpeechInputRef.current?.transcribePendingAudio(options) ?? Promise.resolve(null);
+    },
+    [transcribePendingSpeechInput]
+  );
   const activeAtFileQuery = useMemo(() => {
     if (!conversationContext?.workspace) {
       return null;
@@ -1152,8 +1170,25 @@ const SendBox: React.FC<{
     [activeAtFileTokenKey, atFileMenuActiveIndex, insertSelectedAtFile, isAtFileMenuOpen, visibleAtFileMenuItems]
   );
 
-  const sendMessageHandler = () => {
-    if (isUploading) return;
+  const sendMessageHandler = async (options?: { includePendingSpeech?: boolean }) => {
+    if (isUploading || speechSendPendingRef.current) return;
+    const shouldTranscribePendingSpeech = options?.includePendingSpeech && hasActiveSpeechInput;
+    let speechTranscript: string | null = null;
+    if (shouldTranscribePendingSpeech) {
+      speechSendPendingRef.current = true;
+      setIsSpeechSendPending(true);
+      try {
+        speechTranscript = await transcribeActiveSpeechInput({ emit: false });
+      } finally {
+        speechSendPendingRef.current = false;
+        setIsSpeechSendPending(false);
+      }
+      if (speechTranscript === null) {
+        return;
+      }
+    }
+    const draftInput = speechTranscript ? appendSpeechTranscript(latestInputRef.current, speechTranscript) : input;
+
     // Cancel any pending warmup: once the user actually submits, the
     // forthcoming /messages request will build the agent on its own.
     // Without this, a focus-triggered warmup timer still fires ~1s later
@@ -1197,7 +1232,7 @@ const SendBox: React.FC<{
       message.warning(t('messages.conversationInProgress'));
       return;
     }
-    if (!input.trim() && domSnippets.length === 0) {
+    if (!draftInput.trim() && domSnippets.length === 0) {
       return;
     }
     console.info('[sendbox]', {
@@ -1205,7 +1240,7 @@ const SendBox: React.FC<{
       allowSendWhileLoading,
       isLoading,
       loading,
-      inputLength: input.length,
+      inputLength: draftInput.length,
       domSnippetCount: domSnippets.length,
     });
     setIsLoading(true);
@@ -1213,7 +1248,7 @@ const SendBox: React.FC<{
     setHistoryNavigationIndex(null);
 
     // 构建消息内容 / Build message content
-    let finalMessage = input;
+    let finalMessage = draftInput;
 
     // Prepend reply quote as blockquote
     if (replyQuote) {
@@ -1229,7 +1264,7 @@ const SendBox: React.FC<{
       const snippetsHtml = domSnippets
         .map((s) => `\n\n---\nDOM Snippet (${s.tag}):\n\`\`\`html\n${s.html}\n\`\`\``)
         .join('');
-      finalMessage = input + snippetsHtml;
+      finalMessage = draftInput + snippetsHtml;
     }
 
     // 立即清空输入框，避免异步 onSend 完成后覆盖用户新输入
@@ -1263,10 +1298,14 @@ const SendBox: React.FC<{
   );
   const speechLocale = i18n?.language || 'en-US';
 
-  const hasDraftToSend = input.trim().length > 0 || domSnippets.length > 0;
+  const hasDraftToSend = input.trim().length > 0 || domSnippets.length > 0 || hasActiveSpeechInput;
 
   // Calculate button disabled state
-  const isButtonDisabled = disabled || isUploading || (!input.trim() && domSnippets.length === 0);
+  const isButtonDisabled =
+    disabled ||
+    isUploading ||
+    isSpeechSendPending ||
+    (!input.trim() && domSnippets.length === 0 && !hasActiveSpeechInput);
 
   // Reusable send button component
   const sendButton = (
@@ -1277,7 +1316,7 @@ const SendBox: React.FC<{
       className='send-button-custom'
       icon={<ArrowUp theme='filled' size='14' fill='white' strokeWidth={5} />}
       onClick={() => {
-        sendMessageHandler();
+        void sendMessageHandler({ includePendingSpeech: true });
       }}
       data-testid='sendbox-send-btn'
     />
@@ -1333,9 +1372,11 @@ const SendBox: React.FC<{
   const renderedSpeechButton =
     isMobileCompact || hideSpeechButton ? null : (
       <SpeechInputButton
+        ref={internalSpeechInputRef}
         disabled={disabled || isLoading || loading || isUploading}
         locale={speechLocale}
         onTranscript={handleSpeechTranscript}
+        onStatusChange={setInternalSpeechStatus}
       />
     );
 
@@ -1626,9 +1667,17 @@ const SendBox: React.FC<{
               }}
               {...compositionHandlers}
               autoSize={isSingleLine ? false : { minRows: 1, maxRows: 10 }}
-              onKeyDown={createKeyDownHandler(sendMessageHandler, (event) => {
-                return handleAtFileMenuKeyDown(event) || handleOverlayKeyDown(event) || handleHistoryKeyDown(event);
-              })}
+              onKeyDown={createKeyDownHandler(
+                () => void sendMessageHandler(),
+                (event) => {
+                  if (event.key === 'Enter' && !event.shiftKey && hasActiveSpeechInput) {
+                    event.preventDefault();
+                    void transcribeActiveSpeechInput({ emit: true });
+                    return true;
+                  }
+                  return handleAtFileMenuKeyDown(event) || handleOverlayKeyDown(event) || handleHistoryKeyDown(event);
+                }
+              )}
             ></Input.TextArea>
           </div>
           {isSingleLine && (
