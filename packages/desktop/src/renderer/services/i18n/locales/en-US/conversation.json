@@ -465,7 +465,12 @@
     "queueFull": "Queue is full. Remove a command before adding more.",
     "inputTooLong": "This queued command is too long. Shorten it before sending.",
     "tooManyFiles": "Too many files are attached to this queued command.",
-    "queueTooLarge": "Queue data is too large to persist safely. Remove some queued commands first."
+    "queueTooLarge": "Queue data is too large to persist safely. Remove some queued commands first.",
+    "busyModeAria": "Busy send mode",
+    "busyModeQueue": "Afterwards",
+    "busyModeQueueTooltip": "Send after the current run finishes.",
+    "busyModeSteer": "Correction",
+    "busyModeSteerTooltip": "Push into the current run after the next tool step."
   },
   "contextUsage": {
     "contextUsed": "context used"

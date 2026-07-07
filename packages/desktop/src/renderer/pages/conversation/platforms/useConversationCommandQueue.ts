@@ -338,6 +338,29 @@ export const resolveConversationBusyControlCommand = (input: string): Conversati
   };
 };
 
+export const buildConversationBusyControlCommand = ({
+  input,
+  mode,
+}: {
+  input: string;
+  mode: ConversationBusyControlMode;
+}): ConversationBusyControlCommand | null => {
+  const explicitCommand = resolveConversationBusyControlCommand(input);
+  if (explicitCommand) {
+    return explicitCommand;
+  }
+
+  const trimmedInput = input.trim();
+  if (!trimmedInput || mode !== 'steer') {
+    return null;
+  }
+
+  return {
+    mode: 'steer',
+    input: `/steer ${trimmedInput}`,
+  };
+};
+
 export type ConversationCommandQueueRuntimeGate = {
   hydrated: boolean;
   canSendMessage: boolean;

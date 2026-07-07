@@ -32,11 +32,13 @@ import { useOpenFileSelector } from '@/renderer/hooks/file/useOpenFileSelector';
 import { useLatestRef } from '@/renderer/hooks/ui/useLatestRef';
 import { savePreferredMode } from '@/renderer/pages/guid/hooks/agentSelectionUtils';
 import {
-  resolveConversationBusyControlCommand,
+  buildConversationBusyControlCommand,
   shouldEnqueueConversationCommand,
   useConversationCommandQueue,
+  type ConversationBusyControlMode,
   type ConversationCommandQueueItem,
 } from '@/renderer/pages/conversation/platforms/useConversationCommandQueue';
+import ConversationBusyModeControl from '@/renderer/pages/conversation/platforms/ConversationBusyModeControl';
 import { useConversationRuntimeView } from '@/renderer/pages/conversation/runtime/useConversationRuntimeView';
 import { getConversationOrNull } from '@/renderer/pages/conversation/utils/conversationCache';
 import { getConversationRuntimeWorkspaceErrorMessage } from '@/renderer/pages/conversation/utils/conversationCreateError';
@@ -115,6 +117,7 @@ const AionrsSendBox: React.FC<{
   const [dynamicModes, setDynamicModes] = useState<AgentModeOption[]>([]);
   const [currentMode, setCurrentMode] = useState<string | undefined>(session_mode);
   const [isMobileSheetOpen, setIsMobileSheetOpen] = useState(false);
+  const [busySendMode, setBusySendMode] = useState<ConversationBusyControlMode>('queue');
   const layout = useLayoutContext();
   const isMobile = Boolean(layout?.isMobile);
   // In the Command EVE shell the mobile sheet surfaces the EVE Inference tier
@@ -146,6 +149,12 @@ const AionrsSendBox: React.FC<{
     },
   });
   const runtimeView = useConversationRuntimeView(conversation_id);
+
+  useEffect(() => {
+    if (!runtimeView.isProcessing) {
+      setBusySendMode('queue');
+    }
+  }, [runtimeView.isProcessing]);
 
   const { atPath, uploadFile, setAtPath, setUploadFile, content, setContent } = useSendBoxDraft(conversation_id);
 
@@ -425,7 +434,9 @@ const AionrsSendBox: React.FC<{
     emitter.emit('aionrs.selected.file.clear');
 
     const busyControlCommand =
-      runtimeView.isProcessing && filesToSend.length === 0 ? resolveConversationBusyControlCommand(message) : null;
+      runtimeView.isProcessing && filesToSend.length === 0
+        ? buildConversationBusyControlCommand({ input: message, mode: busySendMode })
+        : null;
     if (busyControlCommand) {
       await ipcBridge.conversation.sendMessage.invoke({
         input: busyControlCommand.input,
@@ -787,6 +798,11 @@ const AionrsSendBox: React.FC<{
         }
         prefix={
           <>
+            <ConversationBusyModeControl
+              visible={runtimeView.isProcessing}
+              value={busySendMode}
+              onChange={setBusySendMode}
+            />
             {uploadFile.length > 0 && (
               <HorizontalFileList>
                 {uploadFile.map((path) => (

@@ -466,7 +466,12 @@
     "queueFull": "Die Warteschlange ist voll. Entferne einen Befehl, bevor du weitere hinzufügst.",
     "inputTooLong": "Dieser Befehl in der Warteschlange ist zu lang. Kürze ihn vor dem Senden.",
     "tooManyFiles": "An diesen Befehl in der Warteschlange sind zu viele Dateien angehängt.",
-    "queueTooLarge": "Die Warteschlangendaten sind zu groß, um sie sicher zu speichern. Entferne zuerst einige Befehle aus der Warteschlange."
+    "queueTooLarge": "Die Warteschlangendaten sind zu groß, um sie sicher zu speichern. Entferne zuerst einige Befehle aus der Warteschlange.",
+    "busyModeAria": "Sendemodus während EVE arbeitet",
+    "busyModeQueue": "Nachher",
+    "busyModeQueueTooltip": "Nach dem aktuellen Lauf senden.",
+    "busyModeSteer": "Korrektur",
+    "busyModeSteerTooltip": "Nach dem nächsten Tool-Schritt in den aktuellen Lauf einschieben."
   },
   "contextUsage": {
     "contextUsed": "Kontext verwendet"

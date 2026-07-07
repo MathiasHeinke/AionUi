@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  buildConversationBusyControlCommand,
   getCommandQueueExecutionGate,
   resolveConversationBusyControlCommand,
 } from '@/renderer/pages/conversation/platforms/useConversationCommandQueue';
@@ -33,6 +34,28 @@ describe('resolveConversationBusyControlCommand', () => {
     expect(resolveConversationBusyControlCommand('mach danach weiter')).toBeNull();
     expect(resolveConversationBusyControlCommand('/queue')).toBeNull();
     expect(resolveConversationBusyControlCommand('/steer   ')).toBeNull();
+  });
+});
+
+describe('buildConversationBusyControlCommand', () => {
+  it('turns normal prompts into steer commands when correction mode is selected', () => {
+    expect(
+      buildConversationBusyControlCommand({ input: 'nimm die neue Datei statt der alten', mode: 'steer' })
+    ).toEqual({
+      mode: 'steer',
+      input: '/steer nimm die neue Datei statt der alten',
+    });
+  });
+
+  it('keeps normal queue-mode prompts on the local queue path', () => {
+    expect(buildConversationBusyControlCommand({ input: 'mach danach weiter', mode: 'queue' })).toBeNull();
+  });
+
+  it('lets explicit Hermes control commands override the selected UI mode', () => {
+    expect(buildConversationBusyControlCommand({ input: '/q danach testen', mode: 'steer' })).toEqual({
+      mode: 'queue',
+      input: '/queue danach testen',
+    });
   });
 });
 

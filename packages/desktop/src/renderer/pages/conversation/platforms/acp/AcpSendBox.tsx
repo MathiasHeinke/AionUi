@@ -41,11 +41,13 @@ import { useOpenFileSelector } from '@/renderer/hooks/file/useOpenFileSelector';
 import { useLatestRef } from '@/renderer/hooks/ui/useLatestRef';
 import { useAddOrUpdateMessage } from '@/renderer/pages/conversation/Messages/hooks';
 import {
-  resolveConversationBusyControlCommand,
+  buildConversationBusyControlCommand,
   shouldEnqueueConversationCommand,
   useConversationCommandQueue,
+  type ConversationBusyControlMode,
   type ConversationCommandQueueItem,
 } from '@/renderer/pages/conversation/platforms/useConversationCommandQueue';
+import ConversationBusyModeControl from '@/renderer/pages/conversation/platforms/ConversationBusyModeControl';
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
 import { useConversationRuntimeView } from '@/renderer/pages/conversation/runtime/useConversationRuntimeView';
 import { getConversationRuntimeWorkspaceErrorMessage } from '@/renderer/pages/conversation/utils/conversationCreateError';
@@ -149,6 +151,7 @@ const AcpSendBox: React.FC<{
     }));
   const [isMobileSheetOpen, setIsMobileSheetOpen] = useState(false);
   const [currentMode, setCurrentMode] = useState<string | undefined>(session_mode);
+  const [busySendMode, setBusySendMode] = useState<ConversationBusyControlMode>('queue');
   const prepareRuntimeSync = useCallback(async () => {
     if (teamPermission) {
       await teamPermission.warmupSession();
@@ -288,6 +291,12 @@ const AcpSendBox: React.FC<{
     setUploadFile,
   });
   const isBusy = runtimeView.isProcessing || !runtimeView.canSendMessage;
+
+  useEffect(() => {
+    if (!runtimeView.isProcessing) {
+      setBusySendMode('queue');
+    }
+  }, [runtimeView.isProcessing]);
 
   // Register handler for adding text from preview panel to sendbox
   useEffect(() => {
@@ -458,7 +467,9 @@ Please check your local CLI tool authentication status`,
   const dispatchMessage = useCallback(
     async (message: string, allFiles: string[]) => {
       const busyControlCommand =
-        runtimeView.isProcessing && allFiles.length === 0 ? resolveConversationBusyControlCommand(message) : null;
+        runtimeView.isProcessing && allFiles.length === 0
+          ? buildConversationBusyControlCommand({ input: message, mode: busySendMode })
+          : null;
       if (busyControlCommand) {
         await ipcBridge.acpConversation.sendMessage.invoke({
           input: busyControlCommand.input,
@@ -481,7 +492,7 @@ Please check your local CLI tool authentication status`,
       }
       await executeCommand({ input: message, files: allFiles });
     },
-    [conversation_id, enqueue, executeCommand, hasPendingCommands, isBusy, runtimeView.isProcessing]
+    [busySendMode, conversation_id, enqueue, executeCommand, hasPendingCommands, isBusy, runtimeView.isProcessing]
   );
 
   const onSendHandler = async (message: string) => {
@@ -852,6 +863,11 @@ Please check your local CLI tool authentication status`,
         }
         prefix={
           <>
+            <ConversationBusyModeControl
+              visible={runtimeView.isProcessing}
+              value={busySendMode}
+              onChange={setBusySendMode}
+            />
             {uploadFile.length > 0 && (
               <HorizontalFileList>
                 {uploadFile.map((path) => (
