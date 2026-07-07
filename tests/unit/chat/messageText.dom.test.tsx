@@ -13,7 +13,7 @@ import MessageText from '@/renderer/pages/conversation/Messages/components/Messa
 
 const { readAloudTextMock, isReadAloudAvailableMock, stopReadAloudMock } = vi.hoisted(() => ({
   isReadAloudAvailableMock: vi.fn(() => true),
-  readAloudTextMock: vi.fn(() => true),
+  readAloudTextMock: vi.fn(() => Promise.resolve(true)),
   stopReadAloudMock: vi.fn(),
 }));
 const mockFilePreview = vi.fn(({ path }: { path: string }) => <div data-testid='file-preview'>{path}</div>);
@@ -100,7 +100,7 @@ describe('MessageText attachment paths', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     isReadAloudAvailableMock.mockReturnValue(true);
-    readAloudTextMock.mockReturnValue(true);
+    readAloudTextMock.mockResolvedValue(true);
   });
 
   it('resolves relative attachment paths against the current workspace before previewing', () => {

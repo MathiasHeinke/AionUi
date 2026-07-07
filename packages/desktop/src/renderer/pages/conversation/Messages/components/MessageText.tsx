@@ -168,7 +168,8 @@ const MessageText: React.FC<{ message: IMessageText }> = ({ message }) => {
       setIsReadingAloud(false);
       return;
     }
-    const didStart = readAloudText(readAloudTextValue, {
+    setIsReadingAloud(true);
+    void readAloudText(readAloudTextValue, {
       lang: i18n.language,
       onEnd: () => setIsReadingAloud(false),
       onError: () => {
@@ -176,12 +177,17 @@ const MessageText: React.FC<{ message: IMessageText }> = ({ message }) => {
         Message.error(t('conversation.chat.readAloudFailed'));
       },
       onStart: () => setIsReadingAloud(true),
-    });
-    if (!didStart) {
-      Message.error(t('conversation.chat.readAloudUnavailable'));
-      return;
-    }
-    setIsReadingAloud(true);
+    })
+      .then((didStart) => {
+        if (!didStart) {
+          setIsReadingAloud(false);
+          Message.error(t('conversation.chat.readAloudUnavailable'));
+        }
+      })
+      .catch(() => {
+        setIsReadingAloud(false);
+        Message.error(t('conversation.chat.readAloudFailed'));
+      });
   };
 
   const copyButton = (
