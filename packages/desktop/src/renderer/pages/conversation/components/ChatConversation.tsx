@@ -20,6 +20,7 @@ import { useNavigate } from 'react-router-dom';
 import useSWR from 'swr';
 import { emitter } from '../../../utils/emitter';
 import AcpChat from '../platforms/acp/AcpChat';
+import EgressRedactionTogglePill from '../platforms/acp/EgressRedactionTogglePill';
 import ChatLayout from './ChatLayout';
 import ChatSlider from './ChatSlider.tsx';
 import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
@@ -225,6 +226,7 @@ const ChatConversation: React.FC<{
 
   const isAionrsConversation = conversation?.type === 'aionrs';
   const isLegacyReadOnlyConversation = isLegacyReadOnlyConversationType(conversation?.type);
+  const isCommandEveAcp = conversation?.type === 'acp' && isCommandEveAcpConversation(conversation.extra?.backend);
   const resolvedHideSendBox = hideSendBox || isLegacyReadOnlyConversationType(conversation?.type);
 
   // 使用统一的 Hook 获取预设助手信息（ACP/Codex 会话）
@@ -250,7 +252,6 @@ const ChatConversation: React.FC<{
         // (v1.6 Slice 1 — genuine first-value blockers stay visible after the
         // greeting is gone). Both are scoped to EVE conversations so no other
         // backend is affected.
-        const isCommandEve = isCommandEveAcpConversation(conversation.extra?.backend);
         return (
           <AcpChat
             key={conversation.id}
@@ -261,8 +262,8 @@ const ChatConversation: React.FC<{
             agent_name={assistantDisplayName}
             cron_job_id={(conversation.extra as { cron_job_id?: string })?.cron_job_id}
             hideSendBox={resolvedHideSendBox}
-            emptySlot={isCommandEve ? <OnboardingReadinessGreeting /> : undefined}
-            headerSlot={isCommandEve ? <OnboardingWaitingBanner /> : undefined}
+            emptySlot={isCommandEveAcp ? <OnboardingReadinessGreeting /> : undefined}
+            headerSlot={isCommandEveAcp ? <OnboardingWaitingBanner /> : undefined}
             loadedSkills={(conversation.extra as { skills?: string[] } | undefined)?.skills}
             loadedMcpServers={(conversation.extra as { mcp_servers?: string[] } | undefined)?.mcp_servers}
             loadedMcpStatuses={
@@ -274,7 +275,14 @@ const ChatConversation: React.FC<{
       default:
         return null;
     }
-  }, [conversation, isAionrsConversation, isLegacyReadOnlyConversation, assistantDisplayName, resolvedHideSendBox]);
+  }, [
+    conversation,
+    isAionrsConversation,
+    isLegacyReadOnlyConversation,
+    isCommandEveAcp,
+    assistantDisplayName,
+    resolvedHideSendBox,
+  ]);
 
   const sliderTitle = useMemo(() => {
     return (
@@ -334,6 +342,11 @@ const ChatConversation: React.FC<{
 
   const headerExtraNode = (
     <div className='flex items-center gap-8px'>
+      {conversation && isCommandEveAcp && (
+        <div className='shrink-0'>
+          <EgressRedactionTogglePill />
+        </div>
+      )}
       {conversation && (
         <div className='shrink-0'>
           <CronJobManager

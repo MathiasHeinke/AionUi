@@ -11,12 +11,12 @@ import { useTranslation } from 'react-i18next';
 
 /**
  * EgressRedactionTogglePill — the DSGVO PII/data-boundary control, surfaced in the
- * TOP-RIGHT of the chat window (above the message list) as a direct on/off toggle.
+ * chat header's top-right action area as a direct on/off toggle.
  *
  * Founder 2026-07-05: the old "* Datenschutz aus" footnote floated at the edge of
- * the TEXT FIELD (ugly, wrong anchor). This moves the control to the chat-window
- * corner AND makes it a one-click pill so the operator can flip PII protection right
- * in the session — no settings detour.
+ * the TEXT FIELD (ugly, wrong anchor). This keeps the control in the session
+ * header AND makes it a one-click pill so the operator can flip PII protection
+ * right in the session — no settings detour.
  *
  * Honesty rules kept: this is a CONTROL-STATE label (the filter is on/off), NOT an
  * "all data is safe" claim (founder 2026-06-26 — we never assert a negative). The
@@ -67,7 +67,8 @@ const EgressRedactionTogglePill: React.FC = () => {
         type='button'
         onClick={turnOn}
         title={t('conversation.runtimeStatus.egress.pillOffHint', {
-          defaultValue: 'Datenschutz-Filter ist AUS — sensible Daten gehen unredigiert ans Modell. Klicken zum Anschalten.',
+          defaultValue:
+            'Datenschutz-Filter ist AUS — sensible Daten gehen unredigiert ans Modell. Klicken zum Anschalten.',
         })}
         className='inline-flex items-center gap-4px rd-999px border border-solid border-warning-4 bg-warning-1 px-8px py-3px text-11px text-warning-6 cursor-pointer hover:bg-warning-2'
       >
@@ -96,14 +97,23 @@ const EgressRedactionTogglePill: React.FC = () => {
         <div className='absolute right-0 top-[calc(100%+6px)] z-10 w-260px rd-12px border border-solid border-border-2 bg-fill-1 p-12px text-12px shadow-md'>
           <div className='mb-8px text-t-secondary'>
             {t('conversation.runtimeStatus.egress.pillConfirm', {
-              defaultValue: 'PII-Schutz für diesen Seat ausschalten? Sensible Daten (Adresse, IBAN, Gesundheit, Finanzen) gehen dann unredigiert ans Modell.',
+              defaultValue:
+                'PII-Schutz für diesen Seat ausschalten? Sensible Daten (Adresse, IBAN, Gesundheit, Finanzen) gehen dann unredigiert ans Modell.',
             })}
           </div>
           <div className='flex justify-end gap-8px'>
-            <button type='button' onClick={() => setConfirming(false)} className='rd-8px border border-solid border-border-2 bg-transparent px-10px py-4px text-t-secondary cursor-pointer hover:bg-fill-2'>
+            <button
+              type='button'
+              onClick={() => setConfirming(false)}
+              className='rd-8px border border-solid border-border-2 bg-transparent px-10px py-4px text-t-secondary cursor-pointer hover:bg-fill-2'
+            >
               {t('common.cancel', { defaultValue: 'Abbrechen' })}
             </button>
-            <button type='button' onClick={turnOff} className='rd-8px border-none bg-warning-6 px-10px py-4px text-white cursor-pointer hover:bg-warning-5'>
+            <button
+              type='button'
+              onClick={turnOff}
+              className='rd-8px border-none bg-warning-6 px-10px py-4px text-white cursor-pointer hover:bg-warning-5'
+            >
               {t('conversation.runtimeStatus.egress.pillConfirmOff', { defaultValue: 'Ausschalten' })}
             </button>
           </div>
