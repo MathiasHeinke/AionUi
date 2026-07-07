@@ -93,6 +93,7 @@ export type CommandEveMultimodalGateResult =
     };
 
 export const COMMAND_EVE_MULTIMODAL_TTS_BRIDGE_VERSION = 'command-eve-multimodal-tts/v0' as const;
+export const COMMAND_EVE_MULTIMODAL_TTS_ACTIVATION_STATUS_VERSION = 'command-eve-multimodal-tts-activation/v0' as const;
 
 export const COMMAND_EVE_MULTIMODAL_TTS_MAX_AUDIO_BYTES = 10 * 1024 * 1024;
 
@@ -177,6 +178,47 @@ export type BuildCommandEveMultimodalTtsRequestResult =
       privacyLane: CommandEvePrivacyLane;
     }
   | CommandEveMultimodalTtsFailureResult;
+
+export type CommandEveMultimodalTtsActivationStatusRequest = {
+  privacyLane?: CommandEvePrivacyLane;
+};
+
+export type CommandEveMultimodalTtsActivationReason =
+  | 'EVE_MULTIMODAL_TTS_READY'
+  | 'EVE_MULTIMODAL_TTS_NOT_ENABLED'
+  | 'EVE_MULTIMODAL_TTS_PRIVACY_CONSENT_REQUIRED'
+  | 'EVE_MULTIMODAL_TTS_MISSING_SERVER_GATEWAY'
+  | 'EVE_MULTIMODAL_TTS_MISSING_LICENSE'
+  | 'EVE_MULTIMODAL_TTS_LOCAL_ONLY_PRIVACY'
+  | 'EVE_MULTIMODAL_TTS_RESIDENCY_UNAVAILABLE'
+  | 'EVE_MULTIMODAL_TTS_INVALID_PRIVACY_LANE';
+
+export type CommandEveMultimodalTtsActivationStatus = {
+  version: typeof COMMAND_EVE_MULTIMODAL_TTS_ACTIVATION_STATUS_VERSION;
+  ok: true;
+  enabled: boolean;
+  reason_code: CommandEveMultimodalTtsActivationReason;
+  message: string;
+  provider: 'xai';
+  capability: 'tts';
+  privacyLane: CommandEvePrivacyLane;
+  residencyLane: 'us_cloud' | 'blocked';
+  requirements: {
+    desktopCloudEgressGate: boolean;
+    mainOwnedPrivacyConsent: boolean;
+    serverGateway: boolean;
+    licenseBearer: boolean;
+    residencyAvailable: boolean;
+  };
+};
+
+export type CommandEveMultimodalTtsActivationInput = {
+  privacyLane?: unknown;
+  desktopCloudEgressEnabled: boolean;
+  mainOwnedPrivacyConsentEnabled: boolean;
+  hasServerGateway: boolean;
+  hasLicense: boolean;
+};
 
 export type CommandEveGrokSmartPlusProfile = {
   id: 'grok-smart-plus-discussion';
@@ -296,6 +338,10 @@ function isPrivacyLane(value: unknown): value is CommandEvePrivacyLane {
   return typeof value === 'string' && MULTIMODAL_PRIVACY_LANES.includes(value as CommandEvePrivacyLane);
 }
 
+export function isCommandEveMultimodalUsCloudLaneAvailable(privacyLane: CommandEvePrivacyLane): boolean {
+  return privacyLane === 'cloud_auto' || privacyLane === 'cloud_us';
+}
+
 function cleanShortToken(value: unknown, fallback: string, maxChars = 64): string {
   if (typeof value !== 'string') return fallback;
   const cleaned = value.trim().replace(/\s+/g, '-');
@@ -360,7 +406,7 @@ export function buildCommandEveMultimodalTtsRequest(
       'Command EVE cloud TTS is blocked while local-only privacy mode is active.'
     );
   }
-  if (request?.privacyLane === 'cloud_eu' || request?.privacyLane === 'cloud_de') {
+  if (request?.privacyLane !== undefined && !isCommandEveMultimodalUsCloudLaneAvailable(request.privacyLane)) {
     return failure(
       'EVE_MULTIMODAL_TTS_RESIDENCY_UNAVAILABLE',
       'Command EVE cloud TTS is currently available only through the US cloud lane.'
@@ -386,6 +432,130 @@ export function buildCommandEveMultimodalTtsRequest(
       ...(requestId ? { requestId } : {}),
     },
   };
+}
+
+function buildTtsActivationStatus(input: {
+  enabled: boolean;
+  reasonCode: CommandEveMultimodalTtsActivationReason;
+  message: string;
+  privacyLane: CommandEvePrivacyLane;
+  residencyAvailable: boolean;
+  requirements: CommandEveMultimodalTtsActivationStatus['requirements'];
+}): CommandEveMultimodalTtsActivationStatus {
+  return {
+    version: COMMAND_EVE_MULTIMODAL_TTS_ACTIVATION_STATUS_VERSION,
+    ok: true,
+    enabled: input.enabled,
+    reason_code: input.reasonCode,
+    message: input.message,
+    provider: 'xai',
+    capability: 'tts',
+    privacyLane: input.privacyLane,
+    residencyLane: input.residencyAvailable ? 'us_cloud' : 'blocked',
+    requirements: input.requirements,
+  };
+}
+
+export function resolveCommandEveMultimodalTtsActivationStatus(
+  input: CommandEveMultimodalTtsActivationInput
+): CommandEveMultimodalTtsActivationStatus {
+  const hasValidPrivacyLane = input.privacyLane === undefined || isPrivacyLane(input.privacyLane);
+  const privacyLane: CommandEvePrivacyLane =
+    hasValidPrivacyLane && isPrivacyLane(input.privacyLane) ? input.privacyLane : 'cloud_auto';
+  const residencyAvailable = isCommandEveMultimodalUsCloudLaneAvailable(privacyLane);
+  const requirements = {
+    desktopCloudEgressGate: input.desktopCloudEgressEnabled === true,
+    mainOwnedPrivacyConsent: input.mainOwnedPrivacyConsentEnabled === true,
+    serverGateway: input.hasServerGateway === true,
+    licenseBearer: input.hasLicense === true,
+    residencyAvailable,
+  };
+
+  if (!hasValidPrivacyLane) {
+    return buildTtsActivationStatus({
+      enabled: false,
+      reasonCode: 'EVE_MULTIMODAL_TTS_INVALID_PRIVACY_LANE',
+      message: 'Command EVE TTS received an invalid privacy lane.',
+      privacyLane,
+      residencyAvailable: false,
+      requirements: { ...requirements, residencyAvailable: false },
+    });
+  }
+
+  if (privacyLane === 'local_only') {
+    return buildTtsActivationStatus({
+      enabled: false,
+      reasonCode: 'EVE_MULTIMODAL_TTS_LOCAL_ONLY_PRIVACY',
+      message: 'Command EVE cloud TTS is blocked while local-only privacy mode is active.',
+      privacyLane,
+      residencyAvailable: false,
+      requirements: { ...requirements, residencyAvailable: false },
+    });
+  }
+
+  if (!residencyAvailable) {
+    return buildTtsActivationStatus({
+      enabled: false,
+      reasonCode: 'EVE_MULTIMODAL_TTS_RESIDENCY_UNAVAILABLE',
+      message: 'Command EVE cloud TTS is currently available only through the US cloud lane.',
+      privacyLane,
+      residencyAvailable: false,
+      requirements,
+    });
+  }
+
+  if (!requirements.desktopCloudEgressGate) {
+    return buildTtsActivationStatus({
+      enabled: false,
+      reasonCode: 'EVE_MULTIMODAL_TTS_NOT_ENABLED',
+      message: 'Command EVE cloud TTS is disabled until the desktop release enables the main-owned egress gate.',
+      privacyLane,
+      residencyAvailable,
+      requirements,
+    });
+  }
+
+  if (!requirements.mainOwnedPrivacyConsent) {
+    return buildTtsActivationStatus({
+      enabled: false,
+      reasonCode: 'EVE_MULTIMODAL_TTS_PRIVACY_CONSENT_REQUIRED',
+      message: 'Command EVE cloud TTS requires an explicit main-owned privacy consent gate.',
+      privacyLane,
+      residencyAvailable,
+      requirements,
+    });
+  }
+
+  if (!requirements.serverGateway) {
+    return buildTtsActivationStatus({
+      enabled: false,
+      reasonCode: 'EVE_MULTIMODAL_TTS_MISSING_SERVER_GATEWAY',
+      message: 'Command EVE cloud TTS requires the server-side eve-multimodal gateway.',
+      privacyLane,
+      residencyAvailable,
+      requirements,
+    });
+  }
+
+  if (!requirements.licenseBearer) {
+    return buildTtsActivationStatus({
+      enabled: false,
+      reasonCode: 'EVE_MULTIMODAL_TTS_MISSING_LICENSE',
+      message: 'Command EVE cloud TTS requires the CEVE license bearer; provider keys stay server-side.',
+      privacyLane,
+      residencyAvailable,
+      requirements,
+    });
+  }
+
+  return buildTtsActivationStatus({
+    enabled: true,
+    reasonCode: 'EVE_MULTIMODAL_TTS_READY',
+    message: 'Command EVE cloud TTS is ready through the main-owned server gateway.',
+    privacyLane,
+    residencyAvailable,
+    requirements,
+  });
 }
 
 function stringField(record: Record<string, unknown>, key: string): string | undefined {
@@ -585,7 +755,7 @@ export function resolveCommandEveMultimodalGate(input: CommandEveMultimodalGateI
     };
   }
 
-  if (input.privacyLane === 'cloud_eu' || input.privacyLane === 'cloud_de') {
+  if (!isCommandEveMultimodalUsCloudLaneAvailable(input.privacyLane)) {
     return {
       ok: false,
       reason: 'residency-unavailable',

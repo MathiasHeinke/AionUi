@@ -45,7 +45,12 @@ import type {
 } from '../types/provider/providerApi';
 import type { CommandEveLocalSttRequest, SpeechToTextRequest, SpeechToTextResult } from '../types/provider/speech';
 import type { CommandEveCloudTitleRequest, CommandEveCloudTitleResult } from '../config/eveTitleCore';
-import type { CommandEveMultimodalTtsRequest, CommandEveMultimodalTtsResult } from '../config/eveMultimodalGatewayCore';
+import type {
+  CommandEveMultimodalTtsActivationStatus,
+  CommandEveMultimodalTtsActivationStatusRequest,
+  CommandEveMultimodalTtsRequest,
+  CommandEveMultimodalTtsResult,
+} from '../config/eveMultimodalGatewayCore';
 import type {
   ITeamAgentRemovedEvent,
   ITeamAgentRenamedEvent,
@@ -1645,6 +1650,10 @@ export const commandEve = {
   multimodalTts: bridge.buildProvider<IBridgeResponse<CommandEveMultimodalTtsResult>, CommandEveMultimodalTtsRequest>(
     'command-eve.multimodal-tts'
   ),
+  multimodalTtsStatus: bridge.buildProvider<
+    IBridgeResponse<CommandEveMultimodalTtsActivationStatus>,
+    CommandEveMultimodalTtsActivationStatusRequest | undefined
+  >('command-eve.multimodal-tts-status'),
   evaluateGateDecision: bridge.buildProvider<
     IBridgeResponse<ICommandEveGateDecision>,
     { action: ICommandEveGateAction }

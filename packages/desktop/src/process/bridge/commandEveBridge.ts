@@ -104,6 +104,8 @@ import {
   EVE_MULTIMODAL_FUNCTION_URL,
   parseCommandEveMultimodalTtsResponse,
   resolveCommandEveMultimodalGate,
+  resolveCommandEveMultimodalTtsActivationStatus,
+  type CommandEveMultimodalTtsActivationStatusRequest,
   type CommandEveMultimodalTtsRequest,
 } from '@/common/config/eveMultimodalGatewayCore';
 import {
@@ -135,6 +137,10 @@ import {
 /** Version tag mirrored onto every credits bridge result (ipcBridge contract). */
 const COMMAND_EVE_CREDITS_BRIDGE_VERSION = 'command-eve-credits/v0' as const;
 const COMMAND_EVE_MULTIMODAL_TTS_CLOUD_EGRESS_ENABLED = false;
+const COMMAND_EVE_MULTIMODAL_TTS_MAIN_PRIVACY_CONSENT_ENABLED = false;
+// Flip only after the server-side eve-multimodal function is deployed and a
+// no-secret smoke returns a fail-closed auth/provider response instead of 404.
+const COMMAND_EVE_MULTIMODAL_TTS_SERVER_GATEWAY_DEPLOYED = false;
 
 /**
  * A SELF-QUIET zero-status returned when the credits-status backend is not
@@ -1546,6 +1552,31 @@ export function initCommandEveBridge(): void {
   // audio artifact and never sees the bearer, raw provider keys, or provider
   // response fields outside the desktop contract.
   bridge
+    .buildProvider('command-eve.multimodal-tts-status')
+    .provider(
+      async (
+        request?:
+          | CommandEveMultimodalTtsActivationStatusRequest
+          | CommandEveBridgeEnvelope<CommandEveMultimodalTtsActivationStatusRequest>
+      ) => {
+        const payload = unwrapBridgeRequest<CommandEveMultimodalTtsActivationStatusRequest>(request);
+        const wireResult = readLicenseWire(getDataPath());
+        const data = resolveCommandEveMultimodalTtsActivationStatus({
+          privacyLane: payload?.privacyLane,
+          desktopCloudEgressEnabled: COMMAND_EVE_MULTIMODAL_TTS_CLOUD_EGRESS_ENABLED,
+          mainOwnedPrivacyConsentEnabled: COMMAND_EVE_MULTIMODAL_TTS_MAIN_PRIVACY_CONSENT_ENABLED,
+          hasServerGateway: Boolean(EVE_MULTIMODAL_FUNCTION_URL) && COMMAND_EVE_MULTIMODAL_TTS_SERVER_GATEWAY_DEPLOYED,
+          hasLicense: Boolean(wireResult.ok && wireResult.wire),
+        });
+
+        return {
+          success: true,
+          data,
+        };
+      }
+    );
+
+  bridge
     .buildProvider('command-eve.multimodal-tts')
     .provider(
       async (
@@ -1571,7 +1602,7 @@ export function initCommandEveBridge(): void {
           provider: 'xai',
           capability: 'tts',
           privacyLane: built.privacyLane,
-          hasServerGateway: Boolean(EVE_MULTIMODAL_FUNCTION_URL),
+          hasServerGateway: Boolean(EVE_MULTIMODAL_FUNCTION_URL) && COMMAND_EVE_MULTIMODAL_TTS_SERVER_GATEWAY_DEPLOYED,
           hasLicense: Boolean(wireResult.ok && wireResult.wire),
           directProviderKeyPresentInDesktop: false,
         });

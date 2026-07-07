@@ -8,9 +8,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildCommandEveMultimodalTtsRequest,
+  COMMAND_EVE_MULTIMODAL_TTS_ACTIVATION_STATUS_VERSION,
   COMMAND_EVE_MULTIMODAL_TTS_BRIDGE_VERSION,
   parseCommandEveMultimodalTtsResponse,
   prepareCommandEveMultimodalTtsText,
+  resolveCommandEveMultimodalTtsActivationStatus,
   type CommandEveMultimodalTtsRequest,
 } from '@/common/config/eveMultimodalGatewayCore';
 
@@ -271,13 +273,19 @@ describe('Command EVE multimodal TTS desktop client core', () => {
     expect(
       parseCommandEveMultimodalTtsResponse({
         ...VALID_EDGE_RESPONSE,
-        residency: { requestedPrivacyLane: 'cloud_us', effectiveResidency: 'eu_cloud', confirmation: 'explicit-us-cloud' },
+        residency: {
+          requestedPrivacyLane: 'cloud_us',
+          effectiveResidency: 'eu_cloud',
+          confirmation: 'explicit-us-cloud',
+        },
       })
     ).toMatchObject({
       ok: false,
       reason_code: 'EVE_MULTIMODAL_TTS_BAD_BODY',
     });
-    expect(parseCommandEveMultimodalTtsResponse(VALID_EDGE_RESPONSE, 'EVE_MULTIMODAL_TTS_BAD_BODY', 'cloud_eu')).toMatchObject({
+    expect(
+      parseCommandEveMultimodalTtsResponse(VALID_EDGE_RESPONSE, 'EVE_MULTIMODAL_TTS_BAD_BODY', 'cloud_eu')
+    ).toMatchObject({
       ok: false,
       reason_code: 'EVE_MULTIMODAL_TTS_BAD_BODY',
     });
@@ -297,6 +305,164 @@ describe('Command EVE multimodal TTS desktop client core', () => {
     ).toMatchObject({
       ok: false,
       reason_code: 'EVE_MULTIMODAL_TTS_BAD_BODY',
+    });
+  });
+
+  it('reports cloud TTS as disabled until the desktop egress gate is enabled', () => {
+    const status = resolveCommandEveMultimodalTtsActivationStatus({
+      desktopCloudEgressEnabled: false,
+      mainOwnedPrivacyConsentEnabled: true,
+      hasServerGateway: true,
+      hasLicense: true,
+    });
+
+    expect(status).toEqual({
+      version: COMMAND_EVE_MULTIMODAL_TTS_ACTIVATION_STATUS_VERSION,
+      ok: true,
+      enabled: false,
+      reason_code: 'EVE_MULTIMODAL_TTS_NOT_ENABLED',
+      message: 'Command EVE cloud TTS is disabled until the desktop release enables the main-owned egress gate.',
+      provider: 'xai',
+      capability: 'tts',
+      privacyLane: 'cloud_auto',
+      residencyLane: 'us_cloud',
+      requirements: {
+        desktopCloudEgressGate: false,
+        mainOwnedPrivacyConsent: true,
+        serverGateway: true,
+        licenseBearer: true,
+        residencyAvailable: true,
+      },
+    });
+  });
+
+  it('keeps privacy and residency blocks visible even when the desktop gate is closed', () => {
+    expect(
+      resolveCommandEveMultimodalTtsActivationStatus({
+        privacyLane: 'local_only',
+        desktopCloudEgressEnabled: false,
+        mainOwnedPrivacyConsentEnabled: false,
+        hasServerGateway: true,
+        hasLicense: true,
+      })
+    ).toMatchObject({
+      enabled: false,
+      reason_code: 'EVE_MULTIMODAL_TTS_LOCAL_ONLY_PRIVACY',
+      privacyLane: 'local_only',
+      residencyLane: 'blocked',
+      requirements: { residencyAvailable: false },
+    });
+
+    expect(
+      resolveCommandEveMultimodalTtsActivationStatus({
+        privacyLane: 'cloud_eu',
+        desktopCloudEgressEnabled: true,
+        mainOwnedPrivacyConsentEnabled: true,
+        hasServerGateway: true,
+        hasLicense: true,
+      })
+    ).toMatchObject({
+      enabled: false,
+      reason_code: 'EVE_MULTIMODAL_TTS_RESIDENCY_UNAVAILABLE',
+      privacyLane: 'cloud_eu',
+      residencyLane: 'blocked',
+      requirements: { residencyAvailable: false },
+    });
+
+    expect(
+      resolveCommandEveMultimodalTtsActivationStatus({
+        privacyLane: 'cloud_de',
+        desktopCloudEgressEnabled: true,
+        mainOwnedPrivacyConsentEnabled: true,
+        hasServerGateway: true,
+        hasLicense: true,
+      })
+    ).toMatchObject({
+      enabled: false,
+      reason_code: 'EVE_MULTIMODAL_TTS_RESIDENCY_UNAVAILABLE',
+      privacyLane: 'cloud_de',
+      residencyLane: 'blocked',
+      requirements: { residencyAvailable: false },
+    });
+  });
+
+  it('requires privacy consent, server gateway, and license after the desktop egress gate opens', () => {
+    expect(
+      resolveCommandEveMultimodalTtsActivationStatus({
+        desktopCloudEgressEnabled: true,
+        mainOwnedPrivacyConsentEnabled: false,
+        hasServerGateway: true,
+        hasLicense: true,
+      })
+    ).toMatchObject({
+      enabled: false,
+      reason_code: 'EVE_MULTIMODAL_TTS_PRIVACY_CONSENT_REQUIRED',
+    });
+
+    expect(
+      resolveCommandEveMultimodalTtsActivationStatus({
+        desktopCloudEgressEnabled: true,
+        mainOwnedPrivacyConsentEnabled: true,
+        hasServerGateway: false,
+        hasLicense: true,
+      })
+    ).toMatchObject({
+      enabled: false,
+      reason_code: 'EVE_MULTIMODAL_TTS_MISSING_SERVER_GATEWAY',
+    });
+
+    expect(
+      resolveCommandEveMultimodalTtsActivationStatus({
+        desktopCloudEgressEnabled: true,
+        mainOwnedPrivacyConsentEnabled: true,
+        hasServerGateway: true,
+        hasLicense: false,
+      })
+    ).toMatchObject({
+      enabled: false,
+      reason_code: 'EVE_MULTIMODAL_TTS_MISSING_LICENSE',
+    });
+  });
+
+  it('marks cloud TTS ready only when every main-owned gate is satisfied', () => {
+    expect(
+      resolveCommandEveMultimodalTtsActivationStatus({
+        privacyLane: 'cloud_us',
+        desktopCloudEgressEnabled: true,
+        mainOwnedPrivacyConsentEnabled: true,
+        hasServerGateway: true,
+        hasLicense: true,
+      })
+    ).toMatchObject({
+      enabled: true,
+      reason_code: 'EVE_MULTIMODAL_TTS_READY',
+      privacyLane: 'cloud_us',
+      residencyLane: 'us_cloud',
+      requirements: {
+        desktopCloudEgressGate: true,
+        mainOwnedPrivacyConsent: true,
+        serverGateway: true,
+        licenseBearer: true,
+        residencyAvailable: true,
+      },
+    });
+  });
+
+  it('rejects invalid privacy lanes in the activation status path', () => {
+    expect(
+      resolveCommandEveMultimodalTtsActivationStatus({
+        privacyLane: 'cloud_mars',
+        desktopCloudEgressEnabled: true,
+        mainOwnedPrivacyConsentEnabled: true,
+        hasServerGateway: true,
+        hasLicense: true,
+      })
+    ).toMatchObject({
+      enabled: false,
+      reason_code: 'EVE_MULTIMODAL_TTS_INVALID_PRIVACY_LANE',
+      privacyLane: 'cloud_auto',
+      residencyLane: 'blocked',
+      requirements: { residencyAvailable: false },
     });
   });
 });
