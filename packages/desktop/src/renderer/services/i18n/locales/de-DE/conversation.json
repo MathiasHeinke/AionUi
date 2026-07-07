@@ -515,6 +515,10 @@
       "unsupported": "Nicht unterstützt"
     }
   },
+  "eveInference": {
+    "offlineUnavailable": "EVE Cloud benötigt eine Internetverbindung.",
+    "activationUnavailable": "EVE Cloud ist erst nach Aktivierung verfügbar."
+  },
   "runtimeStatus": {
     "phase": {
       "idle": "EVE bereit",

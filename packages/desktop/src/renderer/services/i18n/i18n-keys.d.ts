@@ -747,6 +747,8 @@ export type I18nKey =
   | 'conversation.createFailed'
   | 'conversation.dropdown.cliAgents'
   | 'conversation.dropdown.presetAssistants'
+  | 'conversation.eveInference.activationUnavailable'
+  | 'conversation.eveInference.offlineUnavailable'
   | 'conversation.history.archive'
   | 'conversation.history.archiveFailed'
   | 'conversation.history.archiveSuccess'

@@ -95,6 +95,19 @@ export const commandEveWarmupReadyForModel = (
   runtimeModelId: string
 ): boolean => Boolean(warmup && warmup.model === runtimeModelId && warmup.status === 'ready');
 
+export type CommandEveCloudUnavailableReason = 'offline' | 'activation';
+
+export const resolveCommandEveCloudUnavailableReason = ({
+  isOffline,
+  hasResolvedProvider,
+}: {
+  isOffline: boolean;
+  hasResolvedProvider: boolean;
+}): CommandEveCloudUnavailableReason | null => {
+  if (isOffline) return 'offline';
+  return hasResolvedProvider ? null : 'activation';
+};
+
 /**
  * Hook that manages the send logic for all conversation types (openclaw/nanobot/acp).
  */
@@ -155,71 +168,69 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
       // the existing warmup path below.
       // Default a fresh chat (no persisted selection) to EVE Standard (cloud);
       // local Gemma is opt-in. Mirrors the picker's default.
-      const inferenceSelection = resolveEffectiveInferenceSelection(
-        configService.get('commandEve.inferenceSelection')
-      );
-      // GRACEFUL FALLBACK (audit #3): EVE Standard is the default + always
-      // selectable, but it is an EXTERNAL cloud lane that needs (a) an activated
-      // license (the CEVE bearer) and (b) network. A fresh/offline/non-activated
-      // user would otherwise default to EVE-cloud and hit a SILENT dead send.
-      // So if EVE is selected but the bearer cannot be resolved OR the device is
-      // offline, we DON'T dead-return — we surface a clear, actionable message
-      // and fall back to the local Gemma lane. `useEveCloud` gates which lane runs.
-      let useEveCloud = isEveInferenceSelection(inferenceSelection);
+      const inferenceSelection = resolveEffectiveInferenceSelection(configService.get('commandEve.inferenceSelection'));
+      // EVE cloud is an explicit cloud lane. If it cannot be resolved, do not
+      // silently fall back to local Gemma: that starts a hidden local inference /
+      // warm-up job and can freeze small machines right as the user expects cloud
+      // work to begin. Explicit local selections still take the local branch below.
+      const useEveCloud = isEveInferenceSelection(inferenceSelection);
       if (useEveCloud) {
         const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
         const resolved = isOffline
           ? undefined
-          : await ipcBridge.commandEve.resolveInferenceProvider.invoke({ selection: inferenceSelection as string }).catch((): undefined => undefined);
-        if (isOffline || !resolved?.success || !resolved.data?.provider) {
-          // Clear, actionable notice — then fall through to the local lane rather
-          // than a silent dead send.
-          Message.warning(
-            isOffline
-              ? t('conversation.eveInference.offlineFallback', 'EVE Cloud benötigt eine Internetverbindung — wechsle auf das lokale Modell.')
-              : t('conversation.eveInference.activationFallback', 'EVE Cloud ist erst nach Aktivierung verfügbar — wechsle auf das lokale Modell.')
-          );
-          useEveCloud = false;
-        } else {
-          commandEveRuntimeModel = resolved.data.provider;
-          commandEveRuntimeModelId = resolved.data.provider.use_model;
-          // Skip local warmup: this is the cloud lane.
-        }
-      }
-      if (!useEveCloud) {
-      const tierId = normalizeCommandEveLocalModelTierId(configService.get('commandEve.localModelTierId'));
-      const expectedModel = getCommandEveAcpModelIdForTier(tierId);
-      const expectedRuntimeModel = toCommandEveRuntimeModelId(expectedModel);
-      commandEveRuntimeModel = getCommandEveLocalRuntimeProvider(tierId);
-      commandEveRuntimeModelId = expectedModel;
-      const currentStatus = await ipcBridge.commandEve.runtimeStatus.invoke().catch((): undefined => undefined);
-      const isRuntimeReady =
-        currentStatus?.success &&
-        currentStatus.data?.status === 'ready' &&
-        currentStatus.data.default_model === expectedRuntimeModel;
-      const isWarm = commandEveWarmupReadyForModel(currentStatus?.data?.model_warmup, expectedRuntimeModel);
-      if (!isRuntimeReady || !isWarm) {
-        Message.info(t('conversation.commandEveRuntimePreparing'));
-        const ensureResult = await ipcBridge.commandEve.warmLocalModel.invoke({ tierId });
-        const warmedStatus = ensureResult.data;
-        const warmedReady =
-          ensureResult.success &&
-          warmedStatus?.status === 'ready' &&
-          warmedStatus.default_model === expectedRuntimeModel &&
-          commandEveWarmupReadyForModel(warmedStatus.model_warmup, expectedRuntimeModel);
-        if (!warmedReady) {
+          : await ipcBridge.commandEve.resolveInferenceProvider
+              .invoke({ selection: inferenceSelection as string })
+              .catch((): undefined => undefined);
+        const unavailableReason = resolveCommandEveCloudUnavailableReason({
+          isOffline,
+          hasResolvedProvider: Boolean(resolved?.success && resolved.data?.provider),
+        });
+        if (unavailableReason) {
           Message.error(
-            t('conversation.commandEveRuntimeNotReady', {
-              reason:
-                ensureResult?.msg ||
-                warmedStatus?.model_warmup?.error ||
-                warmedStatus?.next_action ||
-                'runtime not ready',
-            })
+            unavailableReason === 'offline'
+              ? t('conversation.eveInference.offlineUnavailable', 'EVE Cloud benötigt eine Internetverbindung.')
+              : t('conversation.eveInference.activationUnavailable', 'EVE Cloud ist erst nach Aktivierung verfügbar.')
           );
           return;
         }
+        commandEveRuntimeModel = resolved?.data?.provider;
+        commandEveRuntimeModelId = commandEveRuntimeModel?.use_model;
+        // Skip local warmup: this is the cloud lane.
       }
+      if (!useEveCloud) {
+        const tierId = normalizeCommandEveLocalModelTierId(configService.get('commandEve.localModelTierId'));
+        const expectedModel = getCommandEveAcpModelIdForTier(tierId);
+        const expectedRuntimeModel = toCommandEveRuntimeModelId(expectedModel);
+        commandEveRuntimeModel = getCommandEveLocalRuntimeProvider(tierId);
+        commandEveRuntimeModelId = expectedModel;
+        const currentStatus = await ipcBridge.commandEve.runtimeStatus.invoke().catch((): undefined => undefined);
+        const isRuntimeReady =
+          currentStatus?.success &&
+          currentStatus.data?.status === 'ready' &&
+          currentStatus.data.default_model === expectedRuntimeModel;
+        const isWarm = commandEveWarmupReadyForModel(currentStatus?.data?.model_warmup, expectedRuntimeModel);
+        if (!isRuntimeReady || !isWarm) {
+          Message.info(t('conversation.commandEveRuntimePreparing'));
+          const ensureResult = await ipcBridge.commandEve.warmLocalModel.invoke({ tierId });
+          const warmedStatus = ensureResult.data;
+          const warmedReady =
+            ensureResult.success &&
+            warmedStatus?.status === 'ready' &&
+            warmedStatus.default_model === expectedRuntimeModel &&
+            commandEveWarmupReadyForModel(warmedStatus.model_warmup, expectedRuntimeModel);
+          if (!warmedReady) {
+            Message.error(
+              t('conversation.commandEveRuntimeNotReady', {
+                reason:
+                  ensureResult?.msg ||
+                  warmedStatus?.model_warmup?.error ||
+                  warmedStatus?.next_action ||
+                  'runtime not ready',
+              })
+            );
+            return;
+          }
+        }
       }
     }
     const effectiveCurrentModel = commandEveRuntimeModel ?? current_model;

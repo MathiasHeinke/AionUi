@@ -539,6 +539,10 @@
   "notFound": "Conversation not found or has been deleted",
   "commandEveRuntimePreparing": "EVE is preparing the local runtime. First start or model switches can take a moment.",
   "commandEveRuntimeNotReady": "EVE cannot send yet: {{reason}}",
+  "eveInference": {
+    "offlineUnavailable": "EVE Cloud needs an internet connection.",
+    "activationUnavailable": "EVE Cloud is available after activation."
+  },
   "runtimeStatus": {
     "phase": {
       "idle": "EVE ready",
