@@ -15,7 +15,10 @@ import MobileActionSheet, {
 } from '@/renderer/components/chat/MobileActionSheet';
 import SendBox from '@/renderer/components/chat/SendBox';
 import ThoughtDisplay from '@/renderer/components/chat/ThoughtDisplay';
-import { markConversationGenerating, clearConversationGenerating } from '@renderer/services/commandEveGenerationActivity';
+import {
+  markConversationGenerating,
+  clearConversationGenerating,
+} from '@renderer/services/commandEveGenerationActivity';
 import FileAttachButton from '@/renderer/components/media/FileAttachButton';
 import FilePreview from '@/renderer/components/media/FilePreview';
 import HorizontalFileList from '@/renderer/components/media/HorizontalFileList';
@@ -29,6 +32,7 @@ import { useOpenFileSelector } from '@/renderer/hooks/file/useOpenFileSelector';
 import { useLatestRef } from '@/renderer/hooks/ui/useLatestRef';
 import { savePreferredMode } from '@/renderer/pages/guid/hooks/agentSelectionUtils';
 import {
+  resolveConversationBusyControlCommand,
   shouldEnqueueConversationCommand,
   useConversationCommandQueue,
   type ConversationCommandQueueItem,
@@ -392,13 +396,9 @@ const AionrsSendBox: React.FC<{
           dispatchPlan.data_boundary_checked &&
           dispatchPlan.subprocess_spawned === false
         ) {
-          Message.success(
-            t('conversation.commandEveLocalMarketingIntent.createdChecked', { title: intent.title })
-          );
+          Message.success(t('conversation.commandEveLocalMarketingIntent.createdChecked', { title: intent.title }));
         } else {
-          Message.success(
-            t('conversation.commandEveLocalMarketingIntent.createdUnchecked', { title: intent.title })
-          );
+          Message.success(t('conversation.commandEveLocalMarketingIntent.createdUnchecked', { title: intent.title }));
         }
       } catch (intentError) {
         const detail = intentError instanceof Error ? intentError.message : String(intentError);
@@ -423,6 +423,18 @@ const AionrsSendBox: React.FC<{
     const filesToSend = collectSelectedFiles(uploadFile, atPath);
     clearFiles();
     emitter.emit('aionrs.selected.file.clear');
+
+    const busyControlCommand =
+      runtimeView.isProcessing && filesToSend.length === 0 ? resolveConversationBusyControlCommand(message) : null;
+    if (busyControlCommand) {
+      await ipcBridge.conversation.sendMessage.invoke({
+        input: busyControlCommand.input,
+        conversation_id,
+        files: [],
+      });
+      emitter.emit('chat.history.refresh');
+      return;
+    }
 
     if (
       shouldEnqueueConversationCommand({
@@ -685,7 +697,8 @@ const AionrsSendBox: React.FC<{
   // Stop conversation handler
   const handleStop = async (): Promise<void> => {
     // Best-effort cancel: swallow rejections so they don't bubble up as
-    // unhandled rejections. UI state is still reset via finally.
+    // unhandled rejections. UI state resets immediately; the backend
+    // acknowledgement is applied when it arrives.
     const turnId = runtimeView.activeTurnId;
     if (!turnId) {
       resetState();
@@ -693,16 +706,17 @@ const AionrsSendBox: React.FC<{
       return;
     }
     runtimeView.markStopRequested(turnId);
-    try {
-      const result = await ipcBridge.conversation.stop.invoke({ conversation_id, turn_id: turnId });
-      runtimeView.markStopAcknowledged(turnId, result.runtime);
-    } catch (error) {
-      console.warn('[AionrsSendBox] stop request failed', error);
-      runtimeView.resetLocalGate('stop_failed');
-    } finally {
-      resetState();
-      resetActiveExecution('stop');
-    }
+    resetState();
+    resetActiveExecution('stop');
+    void ipcBridge.conversation.stop
+      .invoke({ conversation_id, turn_id: turnId })
+      .then((result) => {
+        runtimeView.markStopAcknowledged(turnId, result.runtime);
+      })
+      .catch((error) => {
+        console.warn('[AionrsSendBox] stop request failed', error);
+        runtimeView.resetLocalGate('stop_failed');
+      });
   };
 
   return (

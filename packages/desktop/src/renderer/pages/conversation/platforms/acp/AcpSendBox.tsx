@@ -27,7 +27,10 @@ import { createModeLabelFormatter } from '@/renderer/utils/model/agentModes';
 import { useEveInferenceSelection } from '@/renderer/hooks/agent/useEveInferenceSelection';
 import { isEveInferenceSelection } from '@/common/config/eveInferenceCore';
 import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
-import { markConversationGenerating, clearConversationGenerating } from '@renderer/services/commandEveGenerationActivity';
+import {
+  markConversationGenerating,
+  clearConversationGenerating,
+} from '@renderer/services/commandEveGenerationActivity';
 import { savePreferredMode } from '@/renderer/pages/guid/hooks/agentSelectionUtils';
 import { useAutoTitle } from '@/renderer/hooks/chat/useAutoTitle';
 import { getSendBoxDraftHook, type FileOrFolderItem } from '@/renderer/hooks/chat/useSendBoxDraft';
@@ -38,6 +41,7 @@ import { useOpenFileSelector } from '@/renderer/hooks/file/useOpenFileSelector';
 import { useLatestRef } from '@/renderer/hooks/ui/useLatestRef';
 import { useAddOrUpdateMessage } from '@/renderer/pages/conversation/Messages/hooks';
 import {
+  resolveConversationBusyControlCommand,
   shouldEnqueueConversationCommand,
   useConversationCommandQueue,
   type ConversationCommandQueueItem,
@@ -453,6 +457,18 @@ Please check your local CLI tool authentication status`,
   // queue/in-flight semantics are identical.
   const dispatchMessage = useCallback(
     async (message: string, allFiles: string[]) => {
+      const busyControlCommand =
+        runtimeView.isProcessing && allFiles.length === 0 ? resolveConversationBusyControlCommand(message) : null;
+      if (busyControlCommand) {
+        await ipcBridge.acpConversation.sendMessage.invoke({
+          input: busyControlCommand.input,
+          conversation_id,
+          files: [],
+        });
+        emitter.emit('chat.history.refresh');
+        return;
+      }
+
       if (
         shouldEnqueueConversationCommand({
           enabled: true,
@@ -465,7 +481,7 @@ Please check your local CLI tool authentication status`,
       }
       await executeCommand({ input: message, files: allFiles });
     },
-    [enqueue, executeCommand, hasPendingCommands, isBusy]
+    [conversation_id, enqueue, executeCommand, hasPendingCommands, isBusy, runtimeView.isProcessing]
   );
 
   const onSendHandler = async (message: string) => {
@@ -481,7 +497,8 @@ Please check your local CLI tool authentication status`,
     // message addresses the videomarketer worker by name/role (and, where a
     // resolver surfaces it, the resolved video capability). A regex false-negative
     // can no longer silently bypass the most expensive lane.
-    const routesToVideo = isEveConversation &&
+    const routesToVideo =
+      isEveConversation &&
       isVideoLaneRequest({
         message,
         // The videomarketer is addressed in-prompt today; surface that as a
@@ -566,7 +583,10 @@ Please check your local CLI tool authentication status`,
       const eveOptions: MobileActionSheetOption[] = eveInference.groups.flatMap((group) =>
         group.items.map((item) => ({
           key: item.value,
-          label: group.kind === 'eve' ? `EVE Cloud · ${item.label}` : `${t('common.localModel', { defaultValue: 'Lokal' })} · ${item.label}`,
+          label:
+            group.kind === 'eve'
+              ? `EVE Cloud · ${item.label}`
+              : `${t('common.localModel', { defaultValue: 'Lokal' })} · ${item.label}`,
           description: item.costBadge ? `${item.sublabel} · ${item.costBadge}` : item.sublabel,
           active: item.value === eveInference.selection && !item.disabled,
           disabled: item.disabled,
@@ -702,7 +722,8 @@ Please check your local CLI tool authentication status`,
   const handleStop = async (): Promise<void> => {
     // Cancelling is best-effort: swallow errors (e.g. backend WS not yet
     // connected → 409) so they don't bubble up as unhandled rejections.
-    // UI state is still reset via finally.
+    // UI state resets immediately; the backend acknowledgement is applied when
+    // it arrives so a stalled cancel request does not freeze the composer.
     const turnId = runtimeView.activeTurnId;
     if (!turnId) {
       resetState();
@@ -710,16 +731,17 @@ Please check your local CLI tool authentication status`,
       return;
     }
     runtimeView.markStopRequested(turnId);
-    try {
-      const result = await ipcBridge.conversation.stop.invoke({ conversation_id, turn_id: turnId });
-      runtimeView.markStopAcknowledged(turnId, result.runtime);
-    } catch (error) {
-      console.warn('[AcpSendBox] stop request failed', error);
-      runtimeView.resetLocalGate('stop_failed');
-    } finally {
-      resetState();
-      resetActiveExecution('stop');
-    }
+    resetState();
+    resetActiveExecution('stop');
+    void ipcBridge.conversation.stop
+      .invoke({ conversation_id, turn_id: turnId })
+      .then((result) => {
+        runtimeView.markStopAcknowledged(turnId, result.runtime);
+      })
+      .catch((error) => {
+        console.warn('[AcpSendBox] stop request failed', error);
+        runtimeView.resetLocalGate('stop_failed');
+      });
   };
 
   return (
@@ -817,11 +839,7 @@ Please check your local CLI tool authentication status`,
               /* Consumed-context ring + credits popover (Claude-Code-style). Quiet
                  until the first acp_context_usage frame arrives (renders null with no
                  tokenUsage). Model-sensitive window via the live request_trace model. */
-              <ContextUsageIndicator
-                tokenUsage={tokenUsage}
-                context_limit={context_limit}
-                modelId={indicatorModelId}
-              />
+              <ContextUsageIndicator tokenUsage={tokenUsage} context_limit={context_limit} modelId={indicatorModelId} />
             }
             micSlot={
               <SpeechInputButton

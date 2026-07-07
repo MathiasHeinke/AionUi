@@ -305,6 +305,39 @@ export const shouldEnqueueConversationCommand = ({
   hasPendingCommands: boolean;
 }): boolean => enabled && (isBusy || hasPendingCommands);
 
+export type ConversationBusyControlMode = 'queue' | 'steer';
+
+export type ConversationBusyControlCommand = {
+  mode: ConversationBusyControlMode;
+  input: string;
+};
+
+const BUSY_CONTROL_COMMAND_RE = /^\/(queue|q|steer)\b([\s\S]*)$/i;
+
+export const resolveConversationBusyControlCommand = (input: string): ConversationBusyControlCommand | null => {
+  const trimmedInput = input.trim();
+  if (!trimmedInput) {
+    return null;
+  }
+
+  const match = trimmedInput.match(BUSY_CONTROL_COMMAND_RE);
+  if (!match) {
+    return null;
+  }
+
+  const command = match[1].toLowerCase();
+  const args = match[2].trim();
+  if (!args) {
+    return null;
+  }
+
+  const mode: ConversationBusyControlMode = command === 'steer' ? 'steer' : 'queue';
+  return {
+    mode,
+    input: `/${mode} ${args}`,
+  };
+};
+
 export type ConversationCommandQueueRuntimeGate = {
   hydrated: boolean;
   canSendMessage: boolean;

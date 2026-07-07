@@ -5,7 +5,36 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { getCommandQueueExecutionGate } from '@/renderer/pages/conversation/platforms/useConversationCommandQueue';
+import {
+  getCommandQueueExecutionGate,
+  resolveConversationBusyControlCommand,
+} from '@/renderer/pages/conversation/platforms/useConversationCommandQueue';
+
+describe('resolveConversationBusyControlCommand', () => {
+  it('canonicalizes Hermes queue commands for busy conversations', () => {
+    expect(resolveConversationBusyControlCommand('/queue mach danach weiter')).toEqual({
+      mode: 'queue',
+      input: '/queue mach danach weiter',
+    });
+    expect(resolveConversationBusyControlCommand('/q  zweiter Schritt')).toEqual({
+      mode: 'queue',
+      input: '/queue zweiter Schritt',
+    });
+  });
+
+  it('canonicalizes Hermes steer commands for mid-run corrections', () => {
+    expect(resolveConversationBusyControlCommand('/steer nimm stattdessen den anderen Ansatz')).toEqual({
+      mode: 'steer',
+      input: '/steer nimm stattdessen den anderen Ansatz',
+    });
+  });
+
+  it('ignores normal prompts and empty control payloads', () => {
+    expect(resolveConversationBusyControlCommand('mach danach weiter')).toBeNull();
+    expect(resolveConversationBusyControlCommand('/queue')).toBeNull();
+    expect(resolveConversationBusyControlCommand('/steer   ')).toBeNull();
+  });
+});
 
 describe('getCommandQueueExecutionGate', () => {
   it('keeps the legacy path gated by hydration and busy state', () => {
