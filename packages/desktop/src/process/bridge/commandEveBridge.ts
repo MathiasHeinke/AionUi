@@ -98,6 +98,15 @@ import {
   type CommandEveCloudTitleRequest,
 } from '@/common/config/eveTitleCore';
 import {
+  buildCommandEveMultimodalTtsRequest,
+  commandEveMultimodalTtsFailure,
+  COMMAND_EVE_MULTIMODAL_TTS_MAX_RESPONSE_BYTES,
+  EVE_MULTIMODAL_FUNCTION_URL,
+  parseCommandEveMultimodalTtsResponse,
+  resolveCommandEveMultimodalGate,
+  type CommandEveMultimodalTtsRequest,
+} from '@/common/config/eveMultimodalGatewayCore';
+import {
   SEAT_USAGE_FUNCTION_URL,
   currentUsageMonth,
   emptySeatUsage,
@@ -125,6 +134,7 @@ import {
 
 /** Version tag mirrored onto every credits bridge result (ipcBridge contract). */
 const COMMAND_EVE_CREDITS_BRIDGE_VERSION = 'command-eve-credits/v0' as const;
+const COMMAND_EVE_MULTIMODAL_TTS_CLOUD_EGRESS_ENABLED = false;
 
 /**
  * A SELF-QUIET zero-status returned when the credits-status backend is not
@@ -160,6 +170,43 @@ function unwrapBridgeRequest<T>(request?: T | CommandEveBridgeEnvelope<T>): T | 
     return (request as CommandEveBridgeEnvelope<T>).data;
   }
   return request as T | undefined;
+}
+
+async function readCommandEveLimitedResponseText(
+  response: Response,
+  maxBytes: number
+): Promise<{ ok: true; text: string } | { ok: false; reason_code: 'EVE_MULTIMODAL_TTS_RESPONSE_TOO_LARGE' }> {
+  const contentLength = Number(response.headers.get('content-length') || 0);
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    return { ok: false, reason_code: 'EVE_MULTIMODAL_TTS_RESPONSE_TOO_LARGE' };
+  }
+
+  if (!response.body) {
+    const text = await response.text();
+    const bytes = new TextEncoder().encode(text).byteLength;
+    return bytes > maxBytes ? { ok: false, reason_code: 'EVE_MULTIMODAL_TTS_RESPONSE_TOO_LARGE' } : { ok: true, text };
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let text = '';
+  let bytesRead = 0;
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      bytesRead += chunk.value.byteLength;
+      if (bytesRead > maxBytes) {
+        await reader.cancel().catch((): undefined => undefined);
+        return { ok: false, reason_code: 'EVE_MULTIMODAL_TTS_RESPONSE_TOO_LARGE' };
+      }
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+    text += decoder.decode();
+    return { ok: true, text };
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 /**
@@ -1493,6 +1540,135 @@ export function initCommandEveBridge(): void {
         clearTimeout(timer);
       }
     });
+
+  // Cloud TTS (1.7.x multimodal seam): MAIN is the only process allowed to call
+  // eve-multimodal with the CEVE license bearer. The renderer gets a sanitized
+  // audio artifact and never sees the bearer, raw provider keys, or provider
+  // response fields outside the desktop contract.
+  bridge
+    .buildProvider('command-eve.multimodal-tts')
+    .provider(
+      async (
+        request?: CommandEveMultimodalTtsRequest | CommandEveBridgeEnvelope<CommandEveMultimodalTtsRequest>
+      ) => {
+        const TTS_TIMEOUT_MS = 35_000;
+        if (!COMMAND_EVE_MULTIMODAL_TTS_CLOUD_EGRESS_ENABLED) {
+          const data = commandEveMultimodalTtsFailure(
+            'EVE_MULTIMODAL_TTS_NOT_ENABLED',
+            'Command EVE cloud TTS is disabled until a dedicated main-owned privacy gate enables it.'
+          );
+          return { success: false, msg: data.reason_code, data };
+        }
+
+        const payload = unwrapBridgeRequest<CommandEveMultimodalTtsRequest>(request);
+        const built = buildCommandEveMultimodalTtsRequest(payload);
+        if (built.ok === false) {
+          return { success: false, msg: built.reason_code, data: built };
+        }
+
+        const wireResult = readLicenseWire(getDataPath());
+        const gate = resolveCommandEveMultimodalGate({
+          provider: 'xai',
+          capability: 'tts',
+          privacyLane: built.privacyLane,
+          hasServerGateway: Boolean(EVE_MULTIMODAL_FUNCTION_URL),
+          hasLicense: Boolean(wireResult.ok && wireResult.wire),
+          directProviderKeyPresentInDesktop: false,
+        });
+
+        if (gate.ok === false) {
+          const data = commandEveMultimodalTtsFailure(gate.reason, gate.message);
+          return { success: false, msg: gate.reason, data };
+        }
+
+        if (!wireResult.ok || !wireResult.wire) {
+          const reason = wireResult.reason_code || 'EVE_MULTIMODAL_TTS_NO_BEARER';
+          const data = commandEveMultimodalTtsFailure(reason);
+          return { success: false, msg: reason, data };
+        }
+
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), TTS_TIMEOUT_MS);
+        try {
+          const response = await fetch(gate.functionUrl, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${wireResult.wire}`,
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+            },
+            redirect: 'error',
+            cache: 'no-store',
+            body: JSON.stringify(built.body),
+            signal: controller.signal,
+          });
+          const responseText = await readCommandEveLimitedResponseText(
+            response,
+            COMMAND_EVE_MULTIMODAL_TTS_MAX_RESPONSE_BYTES
+          );
+          if (responseText.ok === false) {
+            const data = commandEveMultimodalTtsFailure(responseText.reason_code);
+            return { success: false, msg: data.reason_code, data };
+          }
+
+          let raw: unknown = null;
+          try {
+            raw = JSON.parse(responseText.text);
+          } catch {
+            raw = null;
+          }
+          if (!response.ok) {
+            const parsed = parseCommandEveMultimodalTtsResponse(
+              raw,
+              `EVE_MULTIMODAL_TTS_HTTP_${response.status}`,
+              built.privacyLane
+            );
+            if (parsed.ok === false) {
+              return {
+                success: false,
+                msg: parsed.reason_code,
+                data: parsed,
+              };
+            }
+            const data = commandEveMultimodalTtsFailure(`EVE_MULTIMODAL_TTS_HTTP_${response.status}`);
+            return { success: false, msg: data.reason_code, data };
+          }
+
+          const parsed = parseCommandEveMultimodalTtsResponse(
+            raw,
+            'EVE_MULTIMODAL_TTS_BAD_BODY',
+            built.privacyLane
+          );
+
+          if (parsed.ok === true) {
+            return {
+              success: true,
+              data: parsed,
+            };
+          }
+
+          return {
+            success: false,
+            msg: parsed.reason_code,
+            data: parsed,
+          };
+        } catch (error) {
+          const errorName =
+            error && typeof error === 'object' && 'name' in error ? String((error as { name?: unknown }).name) : '';
+          const reason = errorName === 'AbortError'
+            ? 'EVE_MULTIMODAL_TTS_TIMEOUT'
+            : 'EVE_MULTIMODAL_TTS_FAILED';
+          const data = commandEveMultimodalTtsFailure(reason);
+          return {
+            success: false,
+            msg: reason,
+            data,
+          };
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+    );
 
   bridge.buildProvider('command-eve.kanban-preflight').provider(async (request?: { boardSlug?: string }) => {
     try {

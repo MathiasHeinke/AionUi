@@ -45,6 +45,7 @@ import type {
 } from '../types/provider/providerApi';
 import type { CommandEveLocalSttRequest, SpeechToTextRequest, SpeechToTextResult } from '../types/provider/speech';
 import type { CommandEveCloudTitleRequest, CommandEveCloudTitleResult } from '../config/eveTitleCore';
+import type { CommandEveMultimodalTtsRequest, CommandEveMultimodalTtsResult } from '../config/eveMultimodalGatewayCore';
 import type {
   ITeamAgentRemovedEvent,
   ITeamAgentRenamedEvent,
@@ -1637,6 +1638,12 @@ export const commandEve = {
   // Function with the CEVE bearer. Renderer never sees the bearer or org key.
   generateCloudTitle: bridge.buildProvider<IBridgeResponse<CommandEveCloudTitleResult>, CommandEveCloudTitleRequest>(
     'command-eve.generate-cloud-title'
+  ),
+  // Command EVE cloud TTS: MAIN proxies to eve-multimodal with the CEVE bearer.
+  // Renderer receives only a validated audio artifact, never the license wire or
+  // a provider key. This is a prepared seam; UI activation remains privacy-gated.
+  multimodalTts: bridge.buildProvider<IBridgeResponse<CommandEveMultimodalTtsResult>, CommandEveMultimodalTtsRequest>(
+    'command-eve.multimodal-tts'
   ),
   evaluateGateDecision: bridge.buildProvider<
     IBridgeResponse<ICommandEveGateDecision>,
