@@ -8,9 +8,10 @@ import type { IMessageText } from '@/common/chat/chatLib';
 import { AIONUI_FILES_MARKER } from '@/common/config/constants';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
+import { isReadAloudAvailable, readAloudText, stopReadAloud } from '@/renderer/services/ReadAloudService';
 import { iconColors } from '@/renderer/styles/colors';
-import { Alert, Message, Tooltip } from '@arco-design/web-react';
-import { Copy } from '@icon-park/react';
+import { Alert, Button, Message, Tooltip } from '@arco-design/web-react';
+import { Copy, PauseOne, VolumeNotice } from '@icon-park/react';
 import classNames from 'classnames';
 import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -114,8 +115,9 @@ const MessageText: React.FC<{ message: IMessageText }> = ({ message }) => {
 
   const { text, files } = parseFileMarker(contentToRender);
   const { data, json } = useFormatContent(text);
-  const { t } = useTranslation();
+  const { i18n, t } = useTranslation();
   const [showCopyAlert, setShowCopyAlert] = useState(false);
+  const [isReadingAloud, setIsReadingAloud] = useState(false);
   const isUserMessage = message.position === 'right';
   const isTeammateMessage = message.position === 'left' && message.content.teammateMessage === true;
   const shouldRenderPlainText = isUserMessage;
@@ -146,6 +148,29 @@ const MessageText: React.FC<{ message: IMessageText }> = ({ message }) => {
       });
   };
 
+  const readAloudTextValue = shouldRenderPlainText ? text : json ? JSON.stringify(data, null, 2) : text;
+  const canReadAloud = !isUserMessage && readAloudTextValue.trim().length > 0 && isReadAloudAvailable();
+
+  const handleReadAloud = () => {
+    if (isReadingAloud) {
+      stopReadAloud();
+      setIsReadingAloud(false);
+      return;
+    }
+    const didStart = readAloudText(readAloudTextValue, {
+      lang: i18n.language,
+      onEnd: () => setIsReadingAloud(false),
+      onError: () => {
+        setIsReadingAloud(false);
+        Message.error(t('conversation.chat.readAloudFailed'));
+      },
+      onStart: () => setIsReadingAloud(true),
+    });
+    if (!didStart) {
+      Message.error(t('conversation.chat.readAloudUnavailable'));
+    }
+  };
+
   const copyButton = (
     <Tooltip content={t('common.copy', { defaultValue: 'Copy' })}>
       <div
@@ -157,6 +182,29 @@ const MessageText: React.FC<{ message: IMessageText }> = ({ message }) => {
       </div>
     </Tooltip>
   );
+  const readAloudButton = canReadAloud ? (
+    <Tooltip
+      content={isReadingAloud ? t('conversation.chat.stopReadAloudTooltip') : t('conversation.chat.readAloudTooltip')}
+    >
+      <Button
+        type='text'
+        size='mini'
+        shape='circle'
+        className='opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-within:opacity-100 focus-within:pointer-events-auto'
+        onClick={handleReadAloud}
+        aria-label={
+          isReadingAloud ? t('conversation.chat.stopReadAloudTooltip') : t('conversation.chat.readAloudTooltip')
+        }
+        icon={
+          isReadingAloud ? (
+            <PauseOne theme='outline' size='16' fill={iconColors.secondary} />
+          ) : (
+            <VolumeNotice theme='outline' size='16' fill={iconColors.secondary} />
+          )
+        }
+      />
+    </Tooltip>
+  ) : null;
 
   const cronMeta = message.content.cronMeta;
   const senderName = message.content.senderName;
@@ -235,6 +283,7 @@ const MessageText: React.FC<{ message: IMessageText }> = ({ message }) => {
             })}
           >
             {copyButton}
+            {readAloudButton}
             {message.created_at && (
               <span className='text-12px text-t-secondary opacity-0 group-hover:opacity-100 transition-opacity select-none'>
                 {formatMessageTime(message.created_at)}

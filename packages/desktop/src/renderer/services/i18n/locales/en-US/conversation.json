@@ -411,6 +411,10 @@
     "tryAnotherAgent": "Try another agent:",
     "switchedToAgent": "Switched to {{agent}}",
     "switchAgentFailed": "Failed to switch agent",
+    "readAloudTooltip": "Read aloud",
+    "stopReadAloudTooltip": "Stop reading",
+    "readAloudUnavailable": "Read aloud is not available in this environment",
+    "readAloudFailed": "Failed to read this message aloud",
     "speech": {
       "recordTooltip": "Start voice input",
       "pickFileTooltip": "Select an audio file",

@@ -412,6 +412,10 @@
     "tryAnotherAgent": "Anderen Agenten versuchen:",
     "switchedToAgent": "Zu {{agent}} gewechselt",
     "switchAgentFailed": "Agentenwechsel fehlgeschlagen",
+    "readAloudTooltip": "Vorlesen",
+    "stopReadAloudTooltip": "Vorlesen stoppen",
+    "readAloudUnavailable": "Vorlesen ist in dieser Umgebung nicht verfügbar",
+    "readAloudFailed": "Diese Nachricht konnte nicht vorgelesen werden",
     "speech": {
       "recordTooltip": "Spracheingabe starten",
       "pickFileTooltip": "Audiodatei auswählen",
