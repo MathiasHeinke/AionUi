@@ -44,7 +44,12 @@ import { allSupportedExts } from '@renderer/services/FileService';
 import SpeechInputButton, { type SpeechInputButtonHandle } from '@/renderer/components/chat/SpeechInputButton';
 import { appendSpeechTranscript, type SpeechInputStatus } from '@/renderer/hooks/system/useSpeechInput';
 import { getConversationInputHistory, isCaretOnFirstLine } from '@/renderer/utils/chat/messageHistory';
-import { buildSpeechSendDraft, shouldAbortPendingSpeechSend, shouldTranscribeSpeechOnEnter } from './speechSendFlow';
+import {
+  buildInputAfterSpeechSend,
+  buildSpeechSendDraft,
+  shouldAbortPendingSpeechSend,
+  shouldTranscribeSpeechOnEnter,
+} from './speechSendFlow';
 import './sendbox.css';
 
 const constVoid = (): void => undefined;
@@ -1280,7 +1285,7 @@ const SendBox: React.FC<{
 
     // 立即清空输入框，避免异步 onSend 完成后覆盖用户新输入
     // Clear input immediately to prevent async onSend completion from overwriting new user input
-    setInput('');
+    setInput(buildInputAfterSpeechSend(inputAtSendStart, latestInputRef.current));
     clearDomSnippets();
     setReplyQuote(null);
 

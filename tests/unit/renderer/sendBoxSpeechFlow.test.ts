@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildInputAfterSpeechSend,
   buildSpeechSendDraft,
   shouldAbortPendingSpeechSend,
   shouldTranscribeSpeechOnEnter,
@@ -24,5 +25,11 @@ describe('SendBox speech send flow', () => {
     expect(buildSpeechSendDraft('typed prompt', 'spoken prompt')).toBe('typed prompt\nspoken prompt');
     expect(buildSpeechSendDraft('', 'spoken prompt')).toBe('spoken prompt');
     expect(buildSpeechSendDraft('typed prompt', null)).toBe('typed prompt');
+  });
+
+  it('preserves text typed while speech transcription is pending', () => {
+    expect(buildInputAfterSpeechSend('typed prompt', 'typed prompt')).toBe('');
+    expect(buildInputAfterSpeechSend('typed prompt', 'typed prompt next draft')).toBe(' next draft');
+    expect(buildInputAfterSpeechSend('typed prompt', 'rewritten next draft')).toBe('rewritten next draft');
   });
 });
