@@ -1,6 +1,6 @@
 ---
 name: plan-system
-description: Turn a vision, strategy, campaign, app, or big goal into a versioned, navigable PLAN that lives on the native kanban + SQL board — a SUPERGOAL broken into VERSION milestones (v1.1, v1.2, v2.0 …) with concrete child Worker Contracts hanging under each. Use when the user wants to plan/structure/organize a goal, "make a plan", "break this down", "set up a roadmap", "track this across versions", "where are we / what's next", or whenever loose intent needs an executable structure the user can keep steering even as they re-decide mid-flight. For Command EVE this is a core product capability — EVE co-builds the plan WITH the operator on the same board-shape we run in Plane externally, so the operator (and their clients) always keep orientation toward where they want to go (v1 → v2 → v3) even when the work changes.
+description: Turn a vision, strategy, campaign, app, or big goal into a versioned, navigable PLAN that lives on the native kanban + SQL board — a SUPERGOAL broken into VERSION milestones (v1.1, v1.2, v2.0 …) with concrete child Worker Contracts hanging under each. Use when the user wants to plan/structure/organize a goal, "make a plan", "break this down", "set up a roadmap", "track this across versions", "where are we / what's next", or whenever loose intent needs an executable structure the user can keep steering even as they re-decide mid-flight.
 ---
 
 # Plan System
@@ -51,7 +51,9 @@ same board-shape Company.OS runs in Plane externally — here it runs natively o
 - A current-state read: what's done, in progress, and next — and the remaining path to each version's exit criteria.
 - The plan stays doc-linked (points at source-of-truth, no duplication) and **human-gated**: a worker may move items into progress/review, but **Done is a founder/CEO transition, never the worker's.**
 
-## For Command EVE
+## EVE Runtime Link
+
+Shared Command EVE posture lives in `eve-doctrine`; this section only explains how this skill plugs into the runtime.
 This is how the operator **"Alois"** turns intent into a steerable system, and how **EVE** makes it
 real on the board:
 - **EVE creates the asset.** When Alois names a goal ("launch the spring campaign", "ship the app

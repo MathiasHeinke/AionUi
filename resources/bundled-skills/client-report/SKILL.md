@@ -93,7 +93,9 @@ Follow `report-template.md`. Lead with the bottom line; a client reads the first
 - **Every number traceable or marked unknown** — fabrication is the one unforgivable error in a client deliverable.
 - **Operator brand only; engine never named** — invisible delivery lives or dies in this document.
 
-## For Command EVE
+## EVE Runtime Link
+
+Shared Command EVE posture lives in `eve-doctrine`; this section only explains how this skill plugs into the runtime.
 This is where the operator's invisible-delivery promise becomes a thing they can send. Inside an isolated client seat,
 EVE has done the marketing/strategy work; this skill turns that seat's accumulated truth into the **client-facing
 deliverable** — the document the operator reviews and hands out under their own brand, to a client who never logs in.

@@ -1,6 +1,6 @@
 ---
 name: challenge-engine
-description: Fire a deliberate adversarial pass at ONE concrete claim, plan, decision, or assumption — the devil's-advocate / red-team tool the operator points at a specific thing to find out whether it actually holds. Runs the strongest counter-arguments, surfaces the hidden assumptions it rests on, chains "and then what?" 3–4 levels, names the failure modes and who-loses, asks what-would-have-to-be-true, and checks it against base-rates and disconfirming evidence — then returns a VERDICT (survives / weakened / refuted) plus the 1–2 changes that would most strengthen it. Use when the user says "challenge this", "poke holes in this", "steelman the other side", "am I wrong", "stress-test this claim", "is this actually true", or before betting on an assumption no one has attacked yet. DISTINCT from pre-mortem (which assumes the plan already FAILED and works backward) — challenge-engine attacks the claim NOW, on its merits. For Command EVE this is a core product capability — EVE is the operator's challenger, and this is the tool that makes the challenge invocable at a specific claim instead of only ambient in EVE's voice.
+description: Fire a deliberate adversarial pass at ONE concrete claim, plan, decision, or assumption — the devil's-advocate / red-team tool the operator points at a specific thing to find out whether it actually holds. Runs the strongest counter-arguments, surfaces the hidden assumptions it rests on, chains "and then what?" 3–4 levels, names the failure modes and who-loses, asks what-would-have-to-be-true, and checks it against base-rates and disconfirming evidence — then returns a VERDICT (survives / weakened / refuted) plus the 1–2 changes that would most strengthen it. Use when the user says "challenge this", "poke holes in this", "steelman the other side", "am I wrong", "stress-test this claim", "is this actually true", or before betting on an assumption no one has attacked yet. DISTINCT from pre-mortem (which assumes the plan already FAILED and works backward) — challenge-engine attacks the claim NOW, on its merits.
 ---
 
 # Challenge Engine
@@ -59,7 +59,9 @@ script to recite — skip the ones that don't apply, but do them honestly.
 - **Ground it in the SPECIFIC claim** — read the actual claim/context first; never generic objections.
 - **EVE challenges, it does not decide.** It names the holes and the verdict and trusts the operator to make the call; it does not overrule them and does not move money. (When the question is legal/financial/medical, say so and point to a professional.)
 
-## For Command EVE
+## EVE Runtime Link
+
+Shared Command EVE posture lives in `eve-doctrine`; this section only explains how this skill plugs into the runtime.
 This is the invocable form of EVE's challenger character (`eve-doctrine`) — the operator (**"Alois"**) points it
 at a specific claim instead of relying on EVE to challenge ambiently.
 

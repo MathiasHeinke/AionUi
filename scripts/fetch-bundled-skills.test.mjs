@@ -11,6 +11,7 @@ import {
   decideSkillSource,
   decideVerify,
   SKILL_IDS_REQUIRING_DISABLE_MODEL_INVOCATION,
+  SKILL_IDS_REQUIRING_LINKED_FILES,
   stageBundledSkills,
 } from './fetch-bundled-skills.mjs';
 
@@ -91,9 +92,16 @@ function makeFixtureSrc(root, { omit = [] } = {}) {
       const disableLine = SKILL_IDS_REQUIRING_DISABLE_MODEL_INVOCATION.includes(skill.id)
         ? 'disable_model_invocation: true\n'
         : '';
+      const linkedFiles = SKILL_IDS_REQUIRING_LINKED_FILES.includes(skill.id)
+        ? 'linked_files:\n  - references/detail.md\n'
+        : '';
+      if (SKILL_IDS_REQUIRING_LINKED_FILES.includes(skill.id)) {
+        fs.mkdirSync(path.join(dir, 'references'), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'references', 'detail.md'), `# ${skill.id} detail\n`);
+      }
       fs.writeFileSync(
         path.join(dir, 'SKILL.md'),
-        `---\nname: ${skill.id}\ndescription: Use when ${skill.id} is explicitly needed.\n${disableLine}---\n# ${skill.id}\nreal\n`
+        `---\nname: ${skill.id}\ndescription: Use when ${skill.id} is explicitly needed.\n${disableLine}${linkedFiles}---\n# ${skill.id}\nreal\n`
       );
     }
   }
@@ -128,6 +136,43 @@ test('findSkillHygieneFailures requires disable_model_invocation for long-tail s
 
   const present = missing.replace('description: Use when a lead magnet PDF is explicitly needed.', 'description: Use when a lead magnet PDF is explicitly needed.\ndisable_model_invocation: true');
   assert.deepEqual(findSkillHygieneFailures({ skillId: 'lead-magnet-pdf', text: present }), []);
+});
+
+test('findSkillHygieneFailures rejects duplicated EVE doctrine surfaces and missing linked files', () => {
+  const duplicated = [
+    '---',
+    'name: plan-system',
+    'description: Use when planning is needed. For Command EVE this is copied doctrine.',
+    '---',
+    '# Plan System',
+    '',
+    '## For Command EVE',
+  ].join('\n');
+  const failures = findSkillHygieneFailures({ skillId: 'plan-system', text: duplicated });
+  assert.ok(failures.includes('description_embeds_eve_doctrine'));
+  assert.ok(failures.includes('duplicate_eve_doctrine_section'));
+
+  const missingLinkedFiles = [
+    '---',
+    'name: content-machine',
+    'description: Use when a content operating system is needed.',
+    '---',
+    '# Content Machine',
+  ].join('\n');
+  assert.ok(findSkillHygieneFailures({ skillId: 'content-machine', text: missingLinkedFiles }).includes('linked_files_missing'));
+});
+
+test('stageBundledSkills fails when a linked_files entry does not resolve inside the skill tree', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fbs-test-'));
+  try {
+    const srcRoot = makeFixtureSrc(root);
+    fs.rmSync(path.join(srcRoot, 'content-machine', 'references'), { recursive: true, force: true });
+    const snapshotRoot = path.join(root, 'snapshot');
+    const failures = stageBundledSkills({ srcRoot, snapshotRoot });
+    assert.ok(failures.includes('bundled_skill_linked_file_missing:content-machine:references/detail.md'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('stageBundledSkills keeps the committed snapshot when source is absent', () => {

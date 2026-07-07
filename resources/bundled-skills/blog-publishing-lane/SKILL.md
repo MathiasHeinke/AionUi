@@ -179,7 +179,9 @@ Deliver:
 5. **Morning-after audit** — live URL check + formatting + indexing status
 6. **Metrics report** — known numbers + blocked-metric ledger
 
-## Hard Rules (EVE Doctrine)
+## Skill-Specific Safety Rules
+
+Shared non-negotiables live in `eve-doctrine`; this section only lists skill-specific boundaries.
 
 - **Never publish without explicit operator approval.** A "we should publish this"
   is not approval. Wait for "yes, publish" or a release card.

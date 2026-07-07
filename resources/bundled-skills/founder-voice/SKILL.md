@@ -49,7 +49,9 @@ Read the voice profile from USER.md, score the draft against it (tonality · sen
 violations · POV), name the 2–3 specific things that are off, and rewrite those — don't rewrite the whole
 thing if only the opening is off. If USER.md has no voice yet, run the bootstrap first; don't guess.
 
-## Hard rules (EVE doctrine)
+## Skill-Specific Safety Rules
+
+Shared non-negotiables live in `eve-doctrine`; this section only lists skill-specific boundaries.
 - **Never invent a voice.** Capture from real samples or what the operator tells you; flag interview-based or
   low-confidence profiles explicitly. A guessed voice presented as theirs is a trust failure.
 - **Per-client isolation.** A client's voice profile lives in that client's seat and is used ONLY for that

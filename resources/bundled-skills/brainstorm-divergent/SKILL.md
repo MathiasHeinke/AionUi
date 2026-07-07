@@ -1,6 +1,6 @@
 ---
 name: brainstorm-divergent
-description: COLD, open-ended divergent idea generation — produce MANY genuinely-different ideas, angles, or approaches for a goal (not minor variations on one), then cluster the field and hand the best candidates downstream for selection. Forces real divergence with multiple lenses (different customers, channels, business models, analogies from other industries, constraints-removed, first-principles, inversion), runs quantity-then-quality with judgment deferred, then clusters and feeds the strong clusters to option-tournament / decision-brief. Use when the user says "give me ideas", "brainstorm this", "what are all the ways", "I'm stuck / out of angles", "blue-sky this", or before any selection step when the option field doesn't exist yet. DISTINCT from option-tournament (which SELECTS a winner from a bounded fork) — brainstorm-divergent GENERATES the wide field that option-tournament then judges. For Command EVE this is a core product capability — the upstream feeder that opens the solution space before EVE narrows it, so the operator isn't choosing from three options he thought of in the shower.
+description: COLD, open-ended divergent idea generation — produce MANY genuinely-different ideas, angles, or approaches for a goal (not minor variations on one), then cluster the field and hand the best candidates downstream for selection. Forces real divergence with multiple lenses (different customers, channels, business models, analogies from other industries, constraints-removed, first-principles, inversion), runs quantity-then-quality with judgment deferred, then clusters and feeds the strong clusters to option-tournament / decision-brief. Use when the user says "give me ideas", "brainstorm this", "what are all the ways", "I'm stuck / out of angles", "blue-sky this", or before any selection step when the option field doesn't exist yet. DISTINCT from option-tournament (which SELECTS a winner from a bounded fork) — brainstorm-divergent GENERATES the wide field that option-tournament then judges.
 ---
 
 # Brainstorm Divergent
@@ -59,7 +59,9 @@ that becomes the best one. Generate first, sort later.
 - **Quantity is a means, not the point.** Go wide *so that* the selection downstream is real — a wide field of junk still needs the clustering pass to earn its keep.
 - **Generate, don't select.** This is the upstream feeder. The moment you start picking a winner, you've left this skill — hand the shortlist to `option-tournament`.
 
-## For Command EVE
+## EVE Runtime Link
+
+Shared Command EVE posture lives in `eve-doctrine`; this section only explains how this skill plugs into the runtime.
 This is the **upstream feeder** to `option-tournament` — it opens the solution space so EVE narrows from a wide,
 honestly-divergent field instead of from the operator's first three ideas.
 

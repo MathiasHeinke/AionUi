@@ -1,6 +1,8 @@
 ---
 name: blog-writer
 description: Write a real, structured, SEO-aware BLOG or LONG-FORM article in the operator's OWN voice — not a generic AI essay. Produces the full piece with a deliberate shape: ONE search-or-pain intent locked first, a hook that earns the scroll, a skimmable H2/H3 outline, an evidence-grounded draft (claims SHOWN with specifics, never invented), an SEO scaffold (title tag, meta description, slug, internal-link slots, primary keyword used naturally), a claim-safety / UWG-DSGVO pass, and a single close-CTA. Pulls the operator's writing voice from USER.md (or runs founder-voice capture first) so it sounds like THEM. Use when the user says "write a blog post / article / LinkedIn long-form", "draft this week's post", "turn this into an article", "write the next piece in the content plan", or wants recurring blog/newsletter content. For a landing/sales PAGE use landing-copy; for cold outreach use marketing-outbound; for the content CALENDAR use plan-system. NEVER publishes — it produces a draft for the operator to approve; any publish goes through the human-gated upload-post.com flow.
+linked_files:
+  - references/seo-claim-safety.md
 ---
 
 # Blog Writer
@@ -34,13 +36,10 @@ Build it as layers. Do not write a single sentence of the post until the intent 
    before/after, a mechanism. If you cannot ground it, cut it or mark it `[needs a real example from the operator]` —
    you may use web_search/deep-research to source a real, cited fact, but you NEVER invent a statistic, a quote, or a
    case study. Short paragraphs. The operator's cadence from step 2 throughout.
-6. **SEO scaffold (for search-intent pieces).** Title tag (≤60 chars, primary keyword front-loaded, human not stuffed),
-   meta description (≤155 chars, a reason to click), URL slug, the primary keyword used NATURALLY 3–5× + real synonyms,
-   2–3 internal-link slots marked `[link: …]`, and the H-structure already does the on-page SEO. Never keyword-stuff —
-   readability beats density.
-7. **CLAIM-SAFETY pass (UWG / DSGVO / honesty).** No unverifiable superlatives ("the best", "#1") without proof, no
-   invented testimonials, no health/financial/legal promises, no competitor disparagement. For a German audience this is
-   a UWG surface — flag anything that would need a source or a disclaimer rather than shipping it.
+6. **SEO scaffold.** For search-intent pieces, use `references/seo-claim-safety.md` for the exact title/meta/slug,
+   keyword, H-structure and internal-link checklist. Never keyword-stuff.
+7. **CLAIM-SAFETY pass (UWG / DSGVO / honesty).** Use `references/seo-claim-safety.md` for the legal/claims checklist.
+   Flag anything that needs a source, disclaimer or operator decision rather than shipping it.
 8. **CLOSE — one CTA.** A single next step that matches the intent (subscribe · book · read-the-next · reply). One CTA,
    not a menu.
 
@@ -49,7 +48,9 @@ Deliver: the **title** + the **full post body** (H2/H3 + paragraphs), then a sho
 primary keyword) and a **publish note** (suggested channel + that it needs the operator's approval). If a voice was
 unavailable, say so at the top so the operator knows to tune it.
 
-## Hard rules (EVE doctrine)
+## Skill-Specific Safety Rules
+
+Shared non-negotiables live in `eve-doctrine`; this section only lists skill-specific boundaries.
 - **On-voice or honest about it.** Use USER.md's voice; if you couldn't, flag it — never pretend a generic draft is theirs.
 - **Never invent facts, numbers, quotes, or testimonials.** Ground or cut. Cite real sources when you pull them.
 - **Never publish.** This produces a DRAFT. Publishing is a separate, human-gated step (upload-post.com flow) — the

@@ -1,6 +1,6 @@
 ---
 name: deep-research
-description: Run fan-out, evidence-driven, adversarially-verified research with three modes — MARKET (size, dynamics, regulation, timing), COMPETITOR (positioning, who they target, copy/headline mechanic, pricing, and the GAP they leave unserved), and ICP/TARGET-GROUP (who needs it most NOW, solvency, reachability, the "tried-AI-and-got-stuck" signal, per market). Use when entering a market, sizing an opportunity, studying competitors before positioning, or finding/validating a target group, and whenever the user asks "is there a market for this", "who are the competitors", "who should we sell to", "research X", "size this", or "find the gap". Decompose into parallel sub-searches, fan out blind web-search/fetch agents, collect claims WITH sources + recency, then refute-by-default before trusting any load-bearing number. For Command EVE: this is a core product capability — EVE does the research a marketing/strategy hire would, and the operator "Alois" uses it to scope his own business before he builds, then to scope each client he takes on.
+description: Run fan-out, evidence-driven, adversarially-verified research with three modes — MARKET (size, dynamics, regulation, timing), COMPETITOR (positioning, who they target, copy/headline mechanic, pricing, and the GAP they leave unserved), and ICP/TARGET-GROUP (who needs it most NOW, solvency, reachability, the "tried-AI-and-got-stuck" signal, per market). Use when entering a market, sizing an opportunity, studying competitors before positioning, or finding/validating a target group, and whenever the user asks "is there a market for this", "who are the competitors", "who should we sell to", "research X", "size this", or "find the gap". Decompose into parallel sub-searches, fan out blind web-search/fetch agents, collect claims WITH sources + recency, then refute-by-default before trusting any load-bearing number.
 ---
 
 # Deep Research
@@ -54,7 +54,9 @@ number) is theater.
 - State the date on every claim; current evidence beats authoritative-sounding stale evidence.
 - Honesty over completeness — label weak evidence weak; a hedged true answer beats a confident wrong one.
 
-## For Command EVE
+## EVE Runtime Link
+
+Shared Command EVE posture lives in `eve-doctrine`; this section only explains how this skill plugs into the runtime.
 This is a native product capability — EVE does the market/competitor/ICP research a marketing or strategy
 hire would do, on demand, cited and stress-tested. The operator **Alois** uses it in two passes:
 

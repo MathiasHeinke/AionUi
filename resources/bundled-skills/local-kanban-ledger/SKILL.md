@@ -167,7 +167,9 @@ threshold. Archived items stay readable but don't appear in daily summaries.
 
 **Weekly summary:** Items completed, blockers resolved, velocity, focus recommendation.
 
-## Hard Rules (EVE Doctrine)
+## Skill-Specific Safety Rules
+
+Shared non-negotiables live in `eve-doctrine`; this section only lists skill-specific boundaries.
 
 - **Per-client isolation.** Each client seat gets its own `local-kanban/`. Never
   mix. If no client context, use `internal` as the client name.

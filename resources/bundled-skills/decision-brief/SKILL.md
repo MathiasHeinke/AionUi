@@ -1,6 +1,6 @@
 ---
 name: decision-brief
-description: Turn a messy question plus a pile of evidence/inputs into a sharp, DECISION-GRADE brief the operator can act on. The repeatable shape — BOTTOM-LINE up front · the answer to each sub-question (evidence-cited, confidence-marked) · a decisive VERDICT/recommendation (not a menu) · the honest RESIDUAL risk that perfect execution can't fix · the explicit DECISION asked of the user. Use when the user must DECIDE and there's a lot of input, when they say "make this decision-ready", "what should I do", "give it to me straight", or to compress a research / persona-panel / pre-mortem run into one action. For Command EVE this is a core product capability — EVE is the operator's confidant who, after the analysis runs, hands back ONE clear call instead of a wall of options, so the operator (and their clients) can bet with eyes open.
+description: Turn a messy question plus a pile of evidence/inputs into a sharp, DECISION-GRADE brief the operator can act on. The repeatable shape — BOTTOM-LINE up front · the answer to each sub-question (evidence-cited, confidence-marked) · a decisive VERDICT/recommendation (not a menu) · the honest RESIDUAL risk that perfect execution can't fix · the explicit DECISION asked of the user. Use when the user must DECIDE and there's a lot of input, when they say "make this decision-ready", "what should I do", "give it to me straight", or to compress a research / persona-panel / pre-mortem run into one action.
 ---
 
 # Decision Brief
@@ -53,7 +53,9 @@ Run it as ordered moves — restate, marshal, answer, recommend, residual, ask. 
 - **Honesty over smoothing.** Surface the inconvenient number, the soft "yes", the residual that doesn't go away. A brief that flatters the plan is worthless (same standard as icp-persona-panel's honesty rule).
 - **Date and grade every load-bearing claim.** Stale or vendor-sourced numbers get flagged loudly; FACT / INFERENCE / HYPOTHESIS is mandatory, not decoration.
 
-## For Command EVE
+## EVE Runtime Link
+
+Shared Command EVE posture lives in `eve-doctrine`; this section only explains how this skill plugs into the runtime.
 This is the seam where EVE stops being a search engine and starts being a **confidant who hands back a decision**.
 EVE runs the heavy lifting — deep-research, the icp-persona-panel, a pre-mortem, the plan-system board — then a final
 decision-brief pass turns all of it into ONE call the operator can act on, instead of leaving them to re-read the analysis.

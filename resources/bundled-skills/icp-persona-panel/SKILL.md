@@ -1,6 +1,6 @@
 ---
 name: icp-persona-panel
-description: Use when the operator needs to stress-test ANY assumption — a product, feature, ad, landing page, headline, offer, or pricing model — by spawning 12–30 agents that each fully inhabit a distinct, realistic person from the target group (varied across sub-segments AND markets), having them react brutally honestly (most should NOT convert), then adversarial judges, then a decision-grade synthesis. This is the "30 agents that ARE your target group test it" panel — the engine behind a war-game. Use BEFORE committing to an offer/price/ad/headline/feature, when the user asks "would my target group actually buy this / click this / pay this", when validating a campaign, or whenever a message "tests well in the room" (that's when monoculture hides). For Command EVE this is a core product capability — EVE runs the panel WITH the operator on their own offer before they spend, then the operator runs it on their clients' offers.
+description: Use when the operator needs to stress-test ANY assumption — a product, feature, ad, landing page, headline, offer, or pricing model — by spawning 12–30 agents that each fully inhabit a distinct, realistic person from the target group (varied across sub-segments AND markets), having them react brutally honestly (most should NOT convert), then adversarial judges, then a decision-grade synthesis. This is the "30 agents that ARE your target group test it" panel — the engine behind a war-game. Use BEFORE committing to an offer/price/ad/headline/feature, when the user asks "would my target group actually buy this / click this / pay this", when validating a campaign, or whenever a message "tests well in the room" (that's when monoculture hides).
 ---
 
 # ICP Persona Panel
@@ -61,7 +61,9 @@ Run it as phases — fan-out, react, attack, synthesize. Do NOT collapse them; t
   explicitly and report their verdict separately from the crowd's.
 - **Ground it in the SPECIFIC thing.** Paste the real ad/offer/price; never run the panel on a sanitized summary.
 
-## For Command EVE
+## EVE Runtime Link
+
+Shared Command EVE posture lives in `eve-doctrine`; this section only explains how this skill plugs into the runtime.
 This is a native EVE capability, run as a multi-agent panel through Hermes (one sub-agent per persona, a skeptic
 sub-agent as judge, a synthesis pass) — the same fan-out the war-game already uses.
 

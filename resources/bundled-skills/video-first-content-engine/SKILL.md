@@ -119,7 +119,9 @@ approval chain), the **folder surface** (created or planned), a **first dry-run
 package** (transcript + segments + risk report + editorial drafts), and the
 **next step** (CAO review or CEO decision).
 
-## Hard Rules (EVE Doctrine)
+## Skill-Specific Safety Rules
+
+Shared non-negotiables live in `eve-doctrine`; this section only lists skill-specific boundaries.
 
 - **Media integrity.** Never mutate the raw file. All processing works on local
   copies inside `02_processing/`.

@@ -260,7 +260,9 @@ Deliver: the **PDF artifact** (ready for the operator to review and gate), the *
 written from the client's positioning vs. what is still `[needs client input]`. The operator
 approves before distribution.
 
-## Hard rules (EVE doctrine)
+## Skill-Specific Safety Rules
+
+Shared non-negotiables live in `eve-doctrine`; this section only lists skill-specific boundaries.
 - **Real data only — fabrication is a violation, not a style slip.** Every euro figure,
   case-study number and framework name must come from the scraped/provided client material or be
   marked `[needs client input]`. Never fabricate testimonials, case study numbers, or framework

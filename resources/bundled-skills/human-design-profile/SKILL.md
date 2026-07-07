@@ -1,6 +1,6 @@
 ---
 name: human-design-profile
-description: From a person's BIRTH DATE, exact BIRTH TIME, and BIRTH PLACE, produce their Human Design bodygraph profile (Type — Generator / Manifesting-Generator / Projector / Manifestor / Reflector · Strategy · Inner Authority · Profile lines e.g. 1/3 · defined vs. undefined Centers · Definition · key Gates/Channels), then translate it into practical ORIENTATION for private AND business decisions — how this person is designed to make decisions, where their energy and leadership actually work, what to lean into and what to avoid. Use when the user wants grounding or orientation for a private or business decision, says "give me my Human Design", "what's my type", "read my chart", wants to align decisions to how they're built, or asks how someone close to them is wired. For Command EVE: this is a core product capability — a confidant/orientation lens EVE offers the operator (and that the operator offers their own clients), grounding not woo, reflection not prediction.
+description: From a person's BIRTH DATE, exact BIRTH TIME, and BIRTH PLACE, produce their Human Design bodygraph profile (Type — Generator / Manifesting-Generator / Projector / Manifestor / Reflector · Strategy · Inner Authority · Profile lines e.g. 1/3 · defined vs. undefined Centers · Definition · key Gates/Channels), then translate it into practical ORIENTATION for private AND business decisions — how this person is designed to make decisions, where their energy and leadership actually work, what to lean into and what to avoid. Use when the user wants grounding or orientation for a private or business decision, says "give me my Human Design", "what's my type", "read my chart", wants to align decisions to how they're built, or asks how someone close to them is wired.
 disable_model_invocation: true
 ---
 
@@ -55,7 +55,9 @@ question on the table.**
 - The **decision-orientation** applied to the user's actual question: how they're designed to decide here, what to lean into, what to avoid, and the one practical move that follows.
 - A short, honest **framing line**: this is an orientation/reflection lens for grounding, not a prediction.
 
-## For Command EVE
+## EVE Runtime Link
+
+Shared Command EVE posture lives in `eve-doctrine`; this section only explains how this skill plugs into the runtime.
 EVE offers this natively as a confidant/orientation capability for the operator ("Alois") — and as something Alois can
 in turn offer the people he creates in the product.
 

@@ -1,6 +1,6 @@
 ---
 name: option-tournament
-description: Make a wide-open creative or strategic CHOICE well — a headline, product name, tagline, design direction, positioning angle, GTM approach, CTA, or hook — by GENERATING many genuinely different candidates in parallel, JUDGING them with independent panels, picking the single winner, and GRAFTING the strongest lines from the runners-up into it. This is the "give me real options and pick the best, don't just iterate on one idea" engine. Use when the user asks "give me options", "name this", "what should the headline/tagline be", "which positioning", "pick the best", or whenever a choice has a wide solution space and one-shot-then-iterate would settle too early on a local maximum. DISTINCT from icp-persona-panel (which tests ONE thing against the audience) — this GENERATES and SELECTS among MANY options, then hands the runner-ups to a panel/A-B test. For Command EVE this is a core product capability — EVE runs the tournament WITH the operator on their own naming/copy/positioning, then the operator runs it on each client's campaign before spend.
+description: Make a wide-open creative or strategic CHOICE well — a headline, product name, tagline, design direction, positioning angle, GTM approach, CTA, or hook — by GENERATING many genuinely different candidates in parallel, JUDGING them with independent panels, picking the single winner, and GRAFTING the strongest lines from the runners-up into it. This is the "give me real options and pick the best, don't just iterate on one idea" engine. Use when the user asks "give me options", "name this", "what should the headline/tagline be", "which positioning", "pick the best", or whenever a choice has a wide solution space and one-shot-then-iterate would settle too early on a local maximum. DISTINCT from icp-persona-panel (which tests ONE thing against the audience) — this GENERATES and SELECTS among MANY options, then hands the runner-ups to a panel/A-B test.
 ---
 
 # Option Tournament
@@ -39,7 +39,9 @@ Run it as phases — frame, generate, judge, synthesize. The value is in the **s
 - **Judges must discriminate.** A panel that scores everything 8/10 taught you nothing; force a real top-3 and a real bottom. Blind them to authorship so craft, not allegiance, wins.
 - **The winner is usually a graft.** Treat runners-up as a parts bin — the best headline often borrows a verb from #2 and a frame from #3.
 
-## For Command EVE
+## EVE Runtime Link
+
+Shared Command EVE posture lives in `eve-doctrine`; this section only explains how this skill plugs into the runtime.
 This is a native EVE capability, run as a multi-agent tournament through Hermes (one sub-agent per angle-writer, independent judge sub-agents, a synthesis pass) — the same fan-out shape as `icp-persona-panel`, but pointed at *generation+selection* instead of audience reaction.
 
 - **EVE runs the tournament.** EVE frames the choice and lenses, spawns the blind angle-writers, runs the blind judges, and returns the winner + grafts + test-stack as a saved artifact the operator can re-run when the brief changes.

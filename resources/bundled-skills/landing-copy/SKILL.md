@@ -55,7 +55,9 @@ Build it as layers — frame, hero, sections, discipline-pass. Lock the frame be
 - **No price in the headline; one price on the page.** Headline sells the outcome; the visible price is the floor, the
   rest stay behind a quiet link so the page never reads as a pricing table.
 
-## For Command EVE
+## EVE Runtime Link
+
+Shared Command EVE posture lives in `eve-doctrine`; this section only explains how this skill plugs into the runtime.
 This is a native EVE capability — EVE writes the operator's own page, then writes each client's page as an inbound asset.
 
 - **EVE locks the frame first.** EVE pulls the ICP's real incumbent and "tried-AI-and-got-stuck" signal from

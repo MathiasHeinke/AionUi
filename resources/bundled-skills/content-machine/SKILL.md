@@ -1,6 +1,8 @@
 ---
 name: content-machine
 description: Turn founder context, source material and market signals into a safe content operating system that feeds social, blog, video and campaign lanes — without defaulting to AI slop. Produces the shared CMO substrate before any format-specific content pack runs: source inventory → founder voice → vault → research → raw brief → anchor draft → writer council → derivatives → release packet → learning loop. Setup command creates the full local folder surface in draft-only mode. Use when the operator says "set up my marketing pipeline", "I want to produce content regularly", "build a founder content system", or needs a repeatable content workflow for themselves or a client.
+linked_files:
+  - references/folder-surface.md
 ---
 
 # Content Machine
@@ -121,35 +123,9 @@ Compare the first draft with the founder-approved final. Propose updates to
 
 ## Folder Surface
 
-The setup command creates:
-
-```
-content/content-machine/
-  00_intake/
-  01_source_inventory/
-  02_vault/
-  03_research/
-  04_founder_interviews/
-  05_raw_briefs/
-  06_anchor_drafts/
-  07_council_reviews/
-  08_derivatives/
-  09_release_packets/
-  10_performance/
-  11_lessons/
-  RUNBOOK.md
-  content-machine.config.json
-```
-
-Setup command (dry-run first):
-
-```bash
-node scripts/content/content-machine-start.mjs \
-  --root ${CLIENT_ROOT} \
-  --company "Client Name" \
-  --approval-owner "Founder" \
-  --write
-```
+See `references/folder-surface.md` for the exact local folder tree and setup
+command. Keep this main file focused on when to run the skill and how to judge
+its output.
 
 ## Output Shape
 
@@ -161,7 +137,9 @@ anchor draft if intake is complete).
 For a full run: deliver the anchor draft + council scores + derivative packages
 as local artifacts in the folder surface.
 
-## Hard Rules (EVE Doctrine)
+## Skill-Specific Safety Rules
+
+Shared non-negotiables live in `eve-doctrine`; this section only lists skill-specific boundaries.
 
 - **Real founder context before drafting.** No strong-voice piece without a
   captured FVBM or raw brief. Flag low confidence honestly.

@@ -192,6 +192,8 @@ export const SKILL_IDS_REQUIRING_DISABLE_MODEL_INVOCATION = Object.freeze([
   'voice-first-run',
 ]);
 
+export const SKILL_IDS_REQUIRING_LINKED_FILES = Object.freeze(['content-machine', 'blog-writer']);
+
 function leadingFrontmatter(text) {
   const body = String(text || '');
   if (!body.startsWith('---\n')) return '';
@@ -203,6 +205,32 @@ function frontmatterScalar(frontmatter, key) {
   const re = new RegExp(`^${key}:\\s*(.+)$`, 'im');
   const match = frontmatter.match(re);
   return match ? match[1].trim().replace(/^['"]|['"]$/g, '') : '';
+}
+
+function frontmatterLinkedFiles(frontmatter) {
+  const linkedFiles = [];
+  const lines = String(frontmatter || '').split('\n');
+  let inLinkedFiles = false;
+  for (const line of lines) {
+    const keyMatch = line.match(/^linked_files:\s*(.*)$/);
+    if (keyMatch) {
+      inLinkedFiles = true;
+      const inline = keyMatch[1].trim();
+      if (inline) linkedFiles.push(inline.replace(/^['"]|['"]$/g, ''));
+      continue;
+    }
+
+    if (!inLinkedFiles) continue;
+    const itemMatch = line.match(/^\s*-\s*(.+)$/);
+    if (itemMatch) {
+      linkedFiles.push(itemMatch[1].trim().replace(/^['"]|['"]$/g, ''));
+      continue;
+    }
+    if (line.trim() && !/^\s/.test(line)) {
+      inLinkedFiles = false;
+    }
+  }
+  return linkedFiles.filter(Boolean);
 }
 
 export function findSkillHygieneFailures({ skillId, text }) {
@@ -222,6 +250,13 @@ export function findSkillHygieneFailures({ skillId, text }) {
   ) {
     failures.push('description_missing_trigger');
   }
+  if (skillId !== 'eve-doctrine' && /\bFor Command EVE\b/i.test(description)) {
+    failures.push('description_embeds_eve_doctrine');
+  }
+
+  if (skillId !== 'eve-doctrine' && /^## (?:For Command EVE|Hard [Rr]ules \(EVE [Dd]octrine\))$/m.test(String(text || ''))) {
+    failures.push('duplicate_eve_doctrine_section');
+  }
 
   if (SKILL_IDS_REQUIRING_DISABLE_MODEL_INVOCATION.includes(skillId)) {
     const disableModelInvocation = frontmatterScalar(frontmatter, 'disable_model_invocation').toLowerCase();
@@ -230,7 +265,16 @@ export function findSkillHygieneFailures({ skillId, text }) {
     }
   }
 
+  if (SKILL_IDS_REQUIRING_LINKED_FILES.includes(skillId) && frontmatterLinkedFiles(frontmatter).length === 0) {
+    failures.push('linked_files_missing');
+  }
+
   return failures;
+}
+
+function isSafeRelativeSkillLink(linkedFile) {
+  if (!linkedFile || path.isAbsolute(linkedFile)) return false;
+  return !linkedFile.split(/[\\/]+/).includes('..');
 }
 
 // ---------------------------------------------------------------------------
@@ -382,6 +426,19 @@ export function stageBundledSkills({ srcRoot, snapshotRoot, skills = EVE_STRATEG
       if (hygiene.length) {
         failures.push(`bundled_skill_hygiene:${skill.id}:${hygiene.join(',')}`);
         log(`HYGIENE ${skill.id} — ${hygiene.join(', ')} in ${path.relative(snapshotRoot, mdPath)}`);
+      }
+
+      const linkedFiles = frontmatterLinkedFiles(leadingFrontmatter(text));
+      for (const linkedFile of linkedFiles) {
+        if (!isSafeRelativeSkillLink(linkedFile)) {
+          failures.push(`bundled_skill_linked_file_invalid:${skill.id}:${linkedFile}`);
+          log(`LINKED FILE INVALID ${skill.id} — ${linkedFile} in ${path.relative(snapshotRoot, mdPath)}`);
+          continue;
+        }
+        if (!isNonEmptyFile(path.join(path.dirname(mdPath), linkedFile))) {
+          failures.push(`bundled_skill_linked_file_missing:${skill.id}:${linkedFile}`);
+          log(`LINKED FILE MISSING ${skill.id} — ${linkedFile} in ${path.relative(snapshotRoot, mdPath)}`);
+        }
       }
     }
   }

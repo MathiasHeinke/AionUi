@@ -1,6 +1,6 @@
 ---
 name: pre-mortem
-description: Run a pre-mortem — assume a plan, goal, launch, sales/marketing strategy, or big decision has FAILED at a chosen future date, work the failure-chain backward, and convert it into concrete changes to make TODAY. Use when stress-testing a strategy before committing, when a plan "feels right" (that's when blind spots hide), or when the user asks "what could go wrong", "will this work", "poke holes in this", "stress-test this", "pre-mortem". For Command EVE: this is also a core product capability — EVE reflects WITH the user on their business/marketing/sales plan and asks the hard questions before they commit.
+description: Run a pre-mortem — assume a plan, goal, launch, sales/marketing strategy, or big decision has FAILED at a chosen future date, work the failure-chain backward, and convert it into concrete changes to make TODAY. Use when stress-testing a strategy before committing, when a plan "feels right" (that's when blind spots hide), or when the user asks "what could go wrong", "will this work", "poke holes in this", "stress-test this", "pre-mortem".
 ---
 
 # Pre-Mortem

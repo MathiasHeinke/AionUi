@@ -144,7 +144,9 @@ with the caveat that everything needs a tone-check").
 **On later check-ins:** Report current FVBM level and what's needed to advance
 (e.g. "M0 → M1 needs 2–3 writing samples").
 
-## Hard Rules (EVE Doctrine)
+## Skill-Specific Safety Rules
+
+Shared non-negotiables live in `eve-doctrine`; this section only lists skill-specific boundaries.
 
 - **Never invent a voice.** Without M0 interview + M1 samples, flag
   `sample_confidence: interview_only`. Content can still be produced with this

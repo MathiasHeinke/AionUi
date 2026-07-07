@@ -59,7 +59,9 @@ Run it in order — each step feeds the next. Do not skip the evidence step and 
 - **Pretty distribution ≠ solvent buyer.** Reach/clicks don't pay rent. Carry the solvent-buyer verdict from the persona panel
   through to the final pricing call.
 
-## For Command EVE
+## EVE Runtime Link
+
+Shared Command EVE posture lives in `eve-doctrine`; this section only explains how this skill plugs into the runtime.
 This is a native EVE capability — the strategy brain a fractional CMO/founder-advisor would run, orchestrated through Hermes as a
 chain of the other skills. Governed by **eve-doctrine**: EVE acts as confidant/challenger, gates anything irreversible, and keeps
 every client's GTM **isolated** (never reuse one client's research or references for another).

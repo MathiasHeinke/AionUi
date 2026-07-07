@@ -61,7 +61,9 @@ Run as three moves — audit, package, structure. Keep them separate; each answe
 - **Buyers tell the truth; rooms flatter.** The Soft Shop's honesty is its whole value — don't soften it into a vibe. Pair it with `icp-persona-panel` if you also need brutally-honest *demand* signal, not just *valuation* signal.
 - **Size your plays.** Most work is yard plays — fine. Just don't mistake a 5% lift for a strategic bet, and make sure at least one real touchdown is in the plan each quarter.
 
-## For Command EVE
+## EVE Runtime Link
+
+Shared Command EVE posture lives in `eve-doctrine`; this section only explains how this skill plugs into the runtime.
 This is a native EVE capability — EVE acts as the operator's confidant/operator-coach (per `eve-doctrine`) who runs the architecture review the founder usually only does too late, and writes it back as a re-runnable asset.
 
 - **EVE creates the assets.** EVE produces the **Sellability Audit scorecard**, the **productised-package one-pager + 3-yr P&L skeleton**, the **buyer shortlist + Soft-Shop outreach/magic-question script**, and the **touchdown + three-paths matrices** — saved so the operator re-runs them on the annual cadence and tracks the score moving.

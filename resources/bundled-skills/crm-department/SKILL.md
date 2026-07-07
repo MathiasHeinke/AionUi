@@ -231,7 +231,9 @@ follow-up notifications for any deal with approaching dates.
 **Weekly report:** Pipeline value, active deals, expected closes, stale deals,
 this week's focus items.
 
-## Hard Rules (EVE Doctrine)
+## Skill-Specific Safety Rules
+
+Shared non-negotiables live in `eve-doctrine`; this section only lists skill-specific boundaries.
 
 - **Local-first.** No external CRM dependency in v0. Filesystem is source of truth.
   Optional sync to external CRM (Plane, HubSpot, etc.) requires HG-2.5 approval.

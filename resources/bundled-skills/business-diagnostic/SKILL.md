@@ -1,6 +1,6 @@
 ---
 name: business-diagnostic
-description: Find where a business is ACTUALLY stuck and what to fix FIRST — before scaling, spending, or onboarding. Runs three stacked diagnostics from the AI Business Blueprint / Chiron-Framework — the TSS audit (Traffic / Systems / Skills — which of the three is the real constraint), the 1-1-1 Framework (one avatar / one channel / one offer — are you scattered across variants?), and the Bottleneck-Finder ("assume success" — solve the presumed problem in your head, then ask if the rest keeps up). Enforces "Plumbing before Water" — fix the system before pouring more traffic. Use when the user asks "where is my business stuck", "what should I fix first", "why am I not growing", when onboarding an operator or a client, or BEFORE any decision to scale, spend on ads, or add a channel. Bilingual (DE/EN operators). Outputs the ONE constraint that matters first — which then becomes the next milestone in plan-system. For Command EVE this is a core product capability — EVE runs the diagnostic WITH the operator on their own business, then the operator runs it on each client he takes on.
+description: Find where a business is ACTUALLY stuck and what to fix FIRST — before scaling, spending, or onboarding. Runs three stacked diagnostics from the AI Business Blueprint / Chiron-Framework — the TSS audit (Traffic / Systems / Skills — which of the three is the real constraint), the 1-1-1 Framework (one avatar / one channel / one offer — are you scattered across variants?), and the Bottleneck-Finder ("assume success" — solve the presumed problem in your head, then ask if the rest keeps up). Enforces "Plumbing before Water" — fix the system before pouring more traffic. Use when the user asks "where is my business stuck", "what should I fix first", "why am I not growing", when onboarding an operator or a client, or BEFORE any decision to scale, spend on ads, or add a channel. Bilingual (DE/EN operators). Outputs the ONE constraint that matters first — which then becomes the next milestone in plan-system.
 ---
 
 # Business Diagnostic
@@ -62,7 +62,9 @@ Run all three lenses, then converge on ONE priority. Do NOT hand back a menu —
   lesson there is — paid at full price. This is the hard gate.
 - **Smallest viable, not perfect.** The fix only needs to hold the next 3 months, then re-assess.
 
-## For Command EVE
+## EVE Runtime Link
+
+Shared Command EVE posture lives in `eve-doctrine`; this section only explains how this skill plugs into the runtime.
 This is a native EVE capability — the **first thing EVE runs with a new operator**, and the lens EVE returns to before
 any consequential growth move (see `eve-doctrine`: pre-mortem and validate before the operator bets).
 

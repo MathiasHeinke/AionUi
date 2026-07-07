@@ -1,6 +1,6 @@
 ---
 name: hiring
-description: Recruit and keep A-players — humans, or by direct analogy the AI workers/departments an EVE operator "hires" next. Built on the AI Business Blueprint people-and-talent canon: hire against a named GAP (today's pain or tomorrow's growth), write an A-player job description that reads as if written FOR one specific person (outcome-language, a self-selection filter, a "you don't fit if" list), structure incentives that create owner-feeling without owner-complication (phantom equity, vesting, trigger), run the 10-10 Forever inventory and the Allies-vs-Energy-Drainers audit so your orbit compounds instead of drains, and use Asking-for-Help as the cheapest acceleration there is. Use when hiring, writing or fixing a job description, building or pruning a team, choosing who to bring into your orbit, or asking "who do I bring on / which role next". For Command EVE this is ALSO the lens for which AI worker or department the operator should hire next — same GAP → A-player-JD → fit logic, applied to EVE's KI-Belegschaft. Bilingual (DE/EN). Source: AI Business Blueprint (FYN Labs, public) + Chiron-Framework (DE).
+description: Recruit and keep A-players — humans, or by direct analogy the AI workers/departments an EVE operator "hires" next. Built on the AI Business Blueprint people-and-talent canon: hire against a named GAP (today's pain or tomorrow's growth), write an A-player job description that reads as if written FOR one specific person (outcome-language, a self-selection filter, a "you don't fit if" list), structure incentives that create owner-feeling without owner-complication (phantom equity, vesting, trigger), run the 10-10 Forever inventory and the Allies-vs-Energy-Drainers audit so your orbit compounds instead of drains, and use Asking-for-Help as the cheapest acceleration there is. Use when hiring, writing or fixing a job description, building or pruning a team, choosing who to bring into your orbit, or asking "who do I bring on / which role next". Bilingual (DE/EN). Source: AI Business Blueprint (FYN Labs, public) + Chiron-Framework (DE).
 ---
 
 # Hiring — Recruit and Keep A-Players
@@ -73,7 +73,9 @@ Run the relevant parts; they are modular, not a strict sequence. The discipline 
 - **Orbit compounds or drains — there is no neutral.** Allies and the 10-10 are an asset class; bandwidth is the currency.
 - **Asking is efficiency, not weakness.** Solving alone is romantic and expensive; a precise ask is a gift to the right person.
 
-## For Command EVE
+## EVE Runtime Link
+
+Shared Command EVE posture lives in `eve-doctrine`; this section only explains how this skill plugs into the runtime.
 This skill has two layers: it helps the operator hire **humans**, and it is the lens for hiring **AI workers** in EVE's
 KI-Belegschaft — the operator's "KI-firm" where hire/fire on the 79€-plan is *curation* of Hermes worker profiles.
 

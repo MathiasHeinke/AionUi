@@ -1,6 +1,6 @@
 ---
 name: customer-discovery
-description: Find out what customers REALLY buy — not what you assume they value — by talking to real ones with two ruthlessly concrete questions, then distilling the pattern into ONE validated value-prop sentence. Built on the Two Magic Questions (what would you NOT give up · what would make you stay forever), a short interview script that forces prioritization, the discipline of listening-not-explaining, and pattern-condensing 10 calls into one filterable promise. Use when validating an offer or positioning, when the user asks "what do my customers actually want / would they pay for this / why do they really stay", BEFORE writing the landing page, or when an offer is built on guesses about value. Distinct from icp-persona-panel (simulated reactions) — this is REAL-customer signal. Feeds icp-persona-panel (seeds personas with what real buyers said) and landing-copy (hands over the validated value-frame). For Command EVE this is a core product capability — EVE generates the script, guides the operator through real interviews, condenses the verbatims into the one-sentence value prop, then runs it on each of the operator's clients.
+description: Find out what customers REALLY buy — not what you assume they value — by talking to real ones with two ruthlessly concrete questions, then distilling the pattern into ONE validated value-prop sentence. Built on the Two Magic Questions (what would you NOT give up · what would make you stay forever), a short interview script that forces prioritization, the discipline of listening-not-explaining, and pattern-condensing 10 calls into one filterable promise. Use when validating an offer or positioning, when the user asks "what do my customers actually want / would they pay for this / why do they really stay", BEFORE writing the landing page, or when an offer is built on guesses about value. Distinct from icp-persona-panel (simulated reactions) — this is REAL-customer signal. Feeds icp-persona-panel (seeds personas with what real buyers said) and landing-copy (hands over the validated value-frame).
 ---
 
 # Customer Discovery
@@ -66,7 +66,9 @@ Run it as phases — generate the script, run the interviews, pattern-analyse, d
 - **Real customers, including former ones.** Exit interviews carry the sharpest signal about what was actually missing.
 - **A value prop that filters nothing is too vague.** If you can't decide spend/hires/cuts with it, it isn't done.
 
-## For Command EVE
+## EVE Runtime Link
+
+Shared Command EVE posture lives in `eve-doctrine`; this section only explains how this skill plugs into the runtime.
 This is a native EVE capability — EVE acts as the customer-research hire the operator (Alois) doesn't have time to be.
 
 - **EVE creates the asset.** EVE generates the tailored interview script, holds the verbatim log as the operator runs the
