@@ -1,0 +1,11 @@
+{
+  "//": "eve-multimodal Edge Function config. CRITICAL DEPLOY NOTE: this function authenticates with the CEVE license WIRE (Bearer), NOT a Supabase JWT. Deploy with `supabase functions deploy eve-multimodal --no-verify-jwt`. Skeleton phase verifies license and request gates but deliberately returns provider-not-enabled before any xAI/OpenRouter/provider call. Required secret for this skeleton: COMMAND_EVE_LICENSE_SIGNING_KEY.",
+  "tasks": {
+    "test": "deno test --allow-env"
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    }
+  }
+}
