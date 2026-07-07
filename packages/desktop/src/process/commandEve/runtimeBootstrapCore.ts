@@ -3466,6 +3466,11 @@ function writeHermesRuntimeFiles(
     // can never run away for ~30 min on an unreadable target. Hermes reads it from
     // here (cli.py:3257 -> max_iterations) — its own default is 90.
     `  max_turns: ${DEFAULT_COMMAND_EVE_MAX_TURNS}`,
+    // Disable Hermes' implicit vision pre-analysis path. `text`/`auto` can call
+    // vision_analyze before the main agent even starts; with the current cloud shim
+    // that hard-502s and burns hidden model calls. Native image parts are stripped
+    // fail-closed by the AionUI shim until a vetted Command EVE vision lane exists.
+    '  image_input_mode: native',
     // T4 YOU-ARE-HERE: `agent.environment_hint` is appended VERBATIM to the system
     // prompt's environment-hints block (FACT prompt_builder.py:989-1000
     // build_environment_hints reads agent.environment_hint via load_config, then

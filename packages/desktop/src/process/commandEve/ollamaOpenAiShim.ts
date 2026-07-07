@@ -16,10 +16,7 @@ import {
   type CommandEveSensitivityClass,
 } from './egressBoundaryCore';
 import { isLegacySeatId } from './seatContextCore';
-import {
-  evaluateWorkerDispatch,
-  type EveTeamWorkerStatusMap,
-} from '../../common/config/eveTeamControlsCore';
+import { evaluateWorkerDispatch, type EveTeamWorkerStatusMap } from '../../common/config/eveTeamControlsCore';
 import { EVE_INFERENCE_TIERS } from '../../common/config/eveInferenceCore';
 import { HONCHO_DERIVER_FORCED_TIER } from './honchoRuntimeConfigCore';
 
@@ -110,10 +107,7 @@ export type CommandEveTeamStatusResolver = () =>
  * existed: it always redacts (the default resolver returns `'on'`), so the toggle
  * is purely additive and fail-SAFE by construction.
  */
-export type CommandEveEgressRedactionModeResolver = () =>
-  | 'on'
-  | 'off'
-  | Promise<'on' | 'off'>;
+export type CommandEveEgressRedactionModeResolver = () => 'on' | 'off' | Promise<'on' | 'off'>;
 
 /**
  * Per-request resolver for the OPAQUE active-seat id (A3 per-seat usage
@@ -160,9 +154,7 @@ export type CommandEveTeamManageBearerResolver = () => string;
  * validates + stores the pending intent + returns the HTTP status/payload. NO
  * settings write happens here (B1 — the write is the confirm IPC handler's job).
  */
-export type CommandEveTeamManageProposeHandler = (
-  proposal: unknown
-) => Promise<{ status: number; payload: unknown }>;
+export type CommandEveTeamManageProposeHandler = (proposal: unknown) => Promise<{ status: number; payload: unknown }>;
 
 /**
  * COMPA-626 — the main-side READ-ONLY board digest resolver for `GET /eve/kanban/read`.
@@ -464,6 +456,40 @@ function messageText(message: unknown): string {
   return [contentText, argsText].filter(Boolean).join('\n');
 }
 
+const COMMAND_EVE_IMAGE_OMITTED_TEXT =
+  '[Image attachment omitted: Command EVE vision is disabled until a vetted vision lane is configured.]';
+
+function stripNativeImageHintText(text: string): string {
+  return text.replace(/\n?\[Image attached(?: at)?: [^\]\n]+\]/g, '').trim();
+}
+
+function isNativeImageContentPart(part: Record<string, unknown>): boolean {
+  return part.type === 'image_url' || Object.prototype.hasOwnProperty.call(part, 'image_url');
+}
+
+function stripUnsupportedImageContent(message: unknown): unknown {
+  if (!message || typeof message !== 'object') return message;
+  const nextMessage = { ...(message as Record<string, unknown>) };
+  const content = nextMessage.content;
+  if (typeof content === 'string') {
+    nextMessage.content = stripNativeImageHintText(content) || content;
+    return nextMessage;
+  }
+  if (!Array.isArray(content)) return nextMessage;
+  nextMessage.content = content.map((part) => {
+    if (!part || typeof part !== 'object') return part;
+    const nextPart = { ...(part as Record<string, unknown>) };
+    if (isNativeImageContentPart(nextPart)) {
+      return { type: 'text', text: COMMAND_EVE_IMAGE_OMITTED_TEXT };
+    }
+    if (typeof nextPart.text === 'string') {
+      nextPart.text = stripNativeImageHintText(nextPart.text) || nextPart.text;
+    }
+    return nextPart;
+  });
+  return nextMessage;
+}
+
 /**
  * Redact PII from a message. `minClass` (S12) selects the class THRESHOLD:
  * `'S1'` (default) redacts everything (legacy / toggle-on behaviour); `'S3'`
@@ -471,8 +497,9 @@ function messageText(message: unknown): string {
  * turn still strips credentials while passing waived S1/S2 through.
  */
 function redactMessageContent(message: unknown, minClass: CommandEveSensitivityClass = 'S1'): unknown {
-  if (!message || typeof message !== 'object') return message;
-  const nextMessage = { ...(message as Record<string, unknown>) };
+  const safeMessage = stripUnsupportedImageContent(message);
+  if (!safeMessage || typeof safeMessage !== 'object') return safeMessage;
+  const nextMessage = { ...(safeMessage as Record<string, unknown>) };
   // Redact tool-call arguments too (the model can echo PII into a tool call it makes).
   const toolCalls = nextMessage.tool_calls;
   if (Array.isArray(toolCalls)) {
@@ -759,8 +786,9 @@ async function handleEveCloudCompletions(
   // credentials/health/finance — the DSGVO grantee the operator cannot switch off.
   // S11's structure (fresh per-request read, receipt stamp, off-badge header) is
   // untouched; only the wholesale 'allow' is replaced by the gate.
+  let outboundMessages = asMessages(body.messages).map((message) => stripUnsupportedImageContent(message));
   const egressBoundary = await evaluateCommandEveEgressBoundary({
-    text: asMessages(body.messages).map(messageText).join('\n\n'),
+    text: outboundMessages.map(messageText).join('\n\n'),
     provider: {
       kind: 'cloud',
       name: 'EVE Inference',
@@ -800,7 +828,6 @@ async function handleEveCloudCompletions(
     });
     return;
   }
-  let outboundMessages = asMessages(body.messages);
   if (egressBoundary.decision === 'redact') {
     // S12: redact the OUTBOUND messages at the SAME class threshold the boundary
     // used. Toggle 'off' + S3 hard floor ⇒ redact ONLY S3 here (S1/S2 waived);
@@ -1060,9 +1087,12 @@ async function handleChatCompletions(
     }
   }
 
+  let localMessages = asMessages(body.messages).map((message) => stripUnsupportedImageContent(message));
+  body.messages = localMessages;
+
   if (!isCommandEveWarmupRequest(body)) {
     const egressBoundary = await evaluateCommandEveEgressBoundary({
-      text: asMessages(body.messages).map(messageText).join('\n\n'),
+      text: localMessages.map(messageText).join('\n\n'),
       provider: {
         kind: 'local',
         name: 'ollama',
@@ -1091,7 +1121,8 @@ async function handleChatCompletions(
       // Local lane never egresses and never carries a toggle context, so it always
       // redacts at the full S1 threshold (legacy behaviour). Wrap so Array.map's
       // (value,index,array) never leaks the index into the minClass parameter.
-      body.messages = asMessages(body.messages).map((message) => redactMessageContent(message));
+      localMessages = localMessages.map((message) => redactMessageContent(message));
+      body.messages = localMessages;
     }
 
     const proof = buildCommandEvePromptProof(body);
@@ -1230,13 +1261,19 @@ async function handleTeamManagePropose(
  * authenticate with the per-boot kanban bearer, then hand the raw proposal to the injected
  * main-side handler which validates + stores a pending intent. NO kanban.db write here (K1).
  */
-async function handleKanbanAcpPropose(request: IncomingMessage, response: ServerResponse, options: Required<CommandEveOllamaShimOptions>): Promise<void> {
+async function handleKanbanAcpPropose(
+  request: IncomingMessage,
+  response: ServerResponse,
+  options: Required<CommandEveOllamaShimOptions>
+): Promise<void> {
   const expected = options.kanbanAcpBearer();
   const authHeader = headerToken(request.headers['authorization']);
   const match = authHeader ? /^bearer\s+(.+)$/i.exec(authHeader) : null;
   const token = match ? match[1].trim() : authHeader;
   if (!expected || !token || !constantTimeEquals(token, expected)) {
-    jsonResponse(response, 404, { error: { message: 'Unsupported Command EVE Ollama shim path: /eve/kanban/propose' } });
+    jsonResponse(response, 404, {
+      error: { message: 'Unsupported Command EVE Ollama shim path: /eve/kanban/propose' },
+    });
     return;
   }
   let body: Record<string, unknown>;
@@ -1255,7 +1292,11 @@ async function handleKanbanAcpPropose(request: IncomingMessage, response: Server
  * inert on a client seat / when unprovisioned). Returns the READ-ONLY board digest. There
  * is NO mutation handler on this path — reading the board can never grant a write.
  */
-async function handleKanbanAcpRead(request: IncomingMessage, response: ServerResponse, options: Required<CommandEveOllamaShimOptions>): Promise<void> {
+async function handleKanbanAcpRead(
+  request: IncomingMessage,
+  response: ServerResponse,
+  options: Required<CommandEveOllamaShimOptions>
+): Promise<void> {
   const expected = options.kanbanAcpBearer();
   const authHeader = headerToken(request.headers['authorization']);
   const match = authHeader ? /^bearer\s+(.+)$/i.exec(authHeader) : null;

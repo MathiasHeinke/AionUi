@@ -339,6 +339,7 @@ describe('Command EVE runtime bootstrap core', () => {
       // finishes" hang on internet-bound calls.
       expect(configYaml).toMatch(/max_turns: \d+/);
       expect(configYaml).toMatch(/max_turns: ([1-9]\d?)\b/); // bounded well under Hermes' 90 default
+      expect(configYaml).toContain('image_input_mode: native');
       expect(configYaml).toContain('disabled_toolsets:');
       expect(configYaml).toMatch(/disabled_toolsets:\s*\n\s*- vision/);
       // Context auto-compaction threshold (Claude-Code-style: compact LATER).

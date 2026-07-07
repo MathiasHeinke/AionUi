@@ -207,6 +207,45 @@ describe('Command EVE Ollama OpenAI shim warm-up', () => {
     expect(forwarded).not.toContain('abcdefghijklmnopqrstuvwxyz');
     expect(forwarded).toContain('[REDACTED_SECRET]');
   });
+
+  it('strips native image_url parts before the local Ollama lane sees them', async () => {
+    let upstreamBody: Record<string, unknown> | undefined;
+    const baseUrl = await startFakeOpenAiServer((bodySeen) => {
+      upstreamBody = bodySeen;
+    });
+
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: baseUrl,
+      eveRouting: () => buildEveCloudRoute({ isEveSelection: false }),
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'what is on this screenshot?\n\n[Image attached at: /Users/mathias/private.png]' },
+              { type: 'image_url', image_url: { url: 'data:image/png;base64,SECRET_IMAGE_BYTES' } },
+            ],
+          },
+        ],
+        stream: false,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const forwarded = JSON.stringify(upstreamBody?.messages);
+    expect(forwarded).toContain('what is on this screenshot?');
+    expect(forwarded).toContain('Image attachment omitted');
+    expect(forwarded).not.toContain('image_url');
+    expect(forwarded).not.toContain('SECRET_IMAGE_BYTES');
+    expect(forwarded).not.toContain('/Users/mathias/private.png');
+  });
 });
 
 describe('buildEveCloudRoute (pure)', () => {
@@ -265,6 +304,44 @@ describe('Command EVE shim — EVE cloud routing', () => {
     expect(fnSeen.body?.messages).toEqual([{ role: 'user', content: 'plan my week' }]);
     expect(fnSeen.body?.license).toBeUndefined();
     expect(fnSeen.body).not.toHaveProperty('model');
+  });
+
+  it('strips native image_url parts before the EVE cloud lane sees them', async () => {
+    const ollamaBaseUrl = await startFakeOpenAiServer(() => {});
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl,
+      eveRouting: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE, tier: 'standard' }),
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'what is on this screenshot?\n\n[Image attached at: /Users/mathias/private.png]' },
+              { type: 'image_url', image_url: { url: 'data:image/png;base64,SECRET_IMAGE_BYTES' } },
+            ],
+          },
+        ],
+        stream: false,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const forwarded = JSON.stringify(fnSeen.body?.messages);
+    expect(forwarded).toContain('what is on this screenshot?');
+    expect(forwarded).toContain('Image attachment omitted');
+    expect(forwarded).not.toContain('image_url');
+    expect(forwarded).not.toContain('SECRET_IMAGE_BYTES');
+    expect(forwarded).not.toContain('/Users/mathias/private.png');
   });
 
   it('rewrites a 429 daily-cap into a friendly German message, not a cold rate-limit error', async () => {
@@ -769,7 +846,7 @@ describe('Command EVE shim — PER-SEAT PII/DSGVO egress switch (S11)', () => {
     fs.rmSync(receiptDir, { recursive: true, force: true });
   });
 
-  it('S13 mode OFF + S3 (IBAN) on the FOUNDER/legacy seat → off means truly OFF (the founder\'s OWN secret passes)', async () => {
+  it("S13 mode OFF + S3 (IBAN) on the FOUNDER/legacy seat → off means truly OFF (the founder's OWN secret passes)", async () => {
     const fnSeen: EveFnSeen = {};
     const fnUrl = await startFakeEveFunction(fnSeen);
     shimServerUrl = await startCommandEveOllamaOpenAiShim({
@@ -941,7 +1018,12 @@ describe('warmCommandEveEveLane — EVE cloud preflight', () => {
 });
 
 describe('Command EVE shim — per-seat usage attribution (A3)', () => {
-  const eveRoute = (fnUrl: string) => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE, tier: 'standard' as const });
+  const eveRoute = (fnUrl: string) => ({
+    active: true,
+    functionUrl: fnUrl,
+    license: FAKE_LICENSE,
+    tier: 'standard' as const,
+  });
 
   it('spreads the OPAQUE active-seat id into the cloud body as seat_id (a real UUID seat)', async () => {
     const seatUuid = '11111111-2222-3333-4444-555555555555';
