@@ -28,10 +28,33 @@ type ToolResultItem = IMessageToolGroup['content'][number];
 type ToolResultDisplay = ToolResultItem['result_display'];
 
 const GENERATED_ARTIFACT_TYPES: IGeneratedArtifactType[] = ['image', 'video', 'audio', 'html', 'file'];
-const URL_KEYS = ['url', 'file_url', 'fileUrl', 'href', 'src', 'img_url', 'image_url', 'video_url', 'audio_url'];
+const URL_KEYS = [
+  'url',
+  'file_url',
+  'fileUrl',
+  'href',
+  'src',
+  'data_url',
+  'download_url',
+  'output_url',
+  'preview_url',
+  'thumbnail_url',
+  'img_url',
+  'image_url',
+  'video_url',
+  'audio_url',
+];
 const PATH_KEYS = ['path', 'file_path', 'filePath', 'absolute_path', 'absolutePath'];
 const RELATIVE_PATH_KEYS = ['relative_path', 'relativePath'];
-const SOURCE_KEYS = [...URL_KEYS, ...PATH_KEYS, ...RELATIVE_PATH_KEYS];
+const ARTIFACT_ID_KEYS = ['artifact_id', 'artifactId'];
+const REQUEST_ID_KEYS = ['request_id', 'requestId'];
+const RECEIPT_KEYS = ['receipt', 'safety_receipt', 'data_boundary_receipt', 'egress_receipt'];
+const RECEIPT_PATH_KEYS = ['receipt_path', 'receiptPath'];
+const SOURCE_KEYS = [...URL_KEYS, ...PATH_KEYS, ...RELATIVE_PATH_KEYS, ...ARTIFACT_ID_KEYS, ...REQUEST_ID_KEYS];
+const SECRET_OR_RAW_RECEIPT_KEY =
+  /^(?:authorization|bearer|api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|data[_-]?base64|base64|prompt|text|content|html|src|url|.*[_-]url|.*uri)$/i;
+const SECRET_OR_RAW_RECEIPT_VALUE =
+  /^(?:data:)|\b(?:Bearer\s+[A-Za-z0-9._~+/=-]{6,}|sk-or-v1-[A-Za-z0-9._-]+|sk-[A-Za-z0-9._-]+|xai-[A-Za-z0-9._-]{16,})\b/i;
 
 function parseRecord(value: unknown): Record<string, unknown> | undefined {
   if (!value) return undefined;
@@ -63,6 +86,14 @@ function readNumber(payload: Record<string, unknown>, keys: string[]): number | 
   return undefined;
 }
 
+function readRecord(payload: Record<string, unknown>, keys: string[]): Record<string, unknown> | undefined {
+  for (const key of keys) {
+    const value = payload[key];
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+  }
+  return undefined;
+}
+
 function normalizeArtifactType(value?: string): IGeneratedArtifactType | undefined {
   if (!value) return undefined;
   const normalized = value.toLowerCase();
@@ -78,7 +109,7 @@ function inferTypeFromMimeOrSource(payload: Record<string, unknown>): IGenerated
   if (mimeType?.startsWith('audio/')) return 'audio';
   if (mimeType?.includes('html')) return 'html';
 
-  const source = readString(payload, SOURCE_KEYS);
+  const source = readString(payload, [...URL_KEYS, ...PATH_KEYS, ...RELATIVE_PATH_KEYS]);
   const extension = source?.split('?')[0].split('#')[0].split('.').pop()?.toLowerCase();
   if (extension && ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'svg', 'bmp'].includes(extension)) return 'image';
   if (extension && ['mp4', 'mov', 'webm', 'm4v'].includes(extension)) return 'video';
@@ -100,6 +131,60 @@ function dedupeStrings(values: Array<string | undefined>): string[] {
   return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
 }
 
+function sanitizeReceiptValue(value: unknown, depth = 0): unknown {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed || SECRET_OR_RAW_RECEIPT_VALUE.test(trimmed)) return undefined;
+    return trimmed.length > 240 ? `${trimmed.slice(0, 240)}...` : trimmed;
+  }
+  if (depth >= 3) return undefined;
+  if (Array.isArray(value)) {
+    const items = value
+      .slice(0, 20)
+      .map((item) => sanitizeReceiptValue(item, depth + 1))
+      .filter((item) => item !== undefined);
+    return items.length ? items : undefined;
+  }
+  if (typeof value === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, nested] of Object.entries(value as Record<string, unknown>).slice(0, 32)) {
+      if (SECRET_OR_RAW_RECEIPT_KEY.test(key)) continue;
+      const sanitized = sanitizeReceiptValue(nested, depth + 1);
+      if (sanitized !== undefined) result[key] = sanitized;
+    }
+    return Object.keys(result).length ? result : undefined;
+  }
+  return undefined;
+}
+
+function normalizeArtifactReceipt(payload: Record<string, unknown>): Record<string, unknown> | undefined {
+  const explicitReceipt = readRecord(payload, RECEIPT_KEYS);
+  const receipt = sanitizeReceiptValue(explicitReceipt);
+  const residency = sanitizeReceiptValue(readRecord(payload, ['residency']));
+  const tts = sanitizeReceiptValue(readRecord(payload, ['tts']));
+  const artifactId = readString(payload, ARTIFACT_ID_KEYS);
+  const requestId = readString(payload, REQUEST_ID_KEYS);
+  const receiptPath = readString(payload, RECEIPT_PATH_KEYS);
+  const result: Record<string, unknown> = {
+    ...(typeof receipt === 'object' && receipt ? (receipt as Record<string, unknown>) : {}),
+    ...(typeof residency === 'object' && residency ? { residency } : {}),
+    ...(typeof tts === 'object' && tts ? { tts } : {}),
+    ...(artifactId ? { artifact_id: artifactId } : {}),
+    ...(requestId ? { request_id: requestId } : {}),
+    ...(receiptPath ? { receipt_path: receiptPath } : {}),
+  };
+  return Object.keys(result).length ? result : undefined;
+}
+
+function getGeneratedArtifactPreviewSourceKeys(payload: unknown): string[] {
+  const record = parseRecord(payload);
+  if (!record) return [];
+  return dedupeStrings([...URL_KEYS, ...PATH_KEYS, ...RELATIVE_PATH_KEYS].map((key) => readString(record, [key])));
+}
+
 export function getGeneratedArtifactPayloadSourceKeys(payload: unknown): string[] {
   const record = parseRecord(payload);
   if (!record) return [];
@@ -115,7 +200,7 @@ export function hasToolResultGeneratedArtifact(resultDisplay: ToolResultDisplay)
   if (!payload) return false;
   const type = inferGeneratedArtifactType(payload);
   if (!type) return false;
-  const hasSource = getGeneratedArtifactPayloadSourceKeys(payload).length > 0;
+  const hasSource = getGeneratedArtifactPreviewSourceKeys(payload).length > 0;
   if (type === 'image' || type === 'video' || type === 'audio') return hasSource;
   if (type === 'html') return hasSource || Boolean(readString(payload, ['html', 'content']));
   return hasSource || Boolean(readString(payload, ['content', 'text']));
@@ -149,6 +234,11 @@ export function buildGeneratedArtifactFromToolResult(options: {
   const size = readNumber(payload, ['size', 'bytes']);
   const html = readString(payload, ['html']);
   const content = readString(payload, ['content', 'text']);
+  const artifactId = readString(payload, ARTIFACT_ID_KEYS);
+  const requestId = readString(payload, REQUEST_ID_KEYS);
+  const receiptPath = readString(payload, RECEIPT_PATH_KEYS);
+  const sourceTool = readString(payload, ['source_tool', 'sourceTool']) || options.name;
+  const receipt = normalizeArtifactReceipt(payload);
 
   return {
     id: `tool-artifact-${options.call_id}`,
@@ -168,6 +258,11 @@ export function buildGeneratedArtifactFromToolResult(options: {
       hash: readString(payload, ['hash']),
       provider: readString(payload, ['provider']),
       model: readString(payload, ['model']),
+      artifact_id: artifactId,
+      request_id: requestId,
+      source_tool: sourceTool,
+      receipt_path: receiptPath,
+      receipt,
       html,
       content,
       error: readString(payload, ['error']),

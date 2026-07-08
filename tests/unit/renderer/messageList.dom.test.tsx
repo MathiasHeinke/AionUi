@@ -269,6 +269,12 @@ describe('MessageList', () => {
           mime_type: 'image/png',
           provider: 'xAI',
           model: 'grok-image',
+          artifact_id: 'img-artifact-1',
+          request_id: 'img-request-1',
+          receipt_path: '/tmp/eve-receipts/img-artifact-1.json',
+          receipt: {
+            provider_response_id: 'xai-response-1',
+          },
         },
         created_at: 2,
         updated_at: 2,
@@ -284,6 +290,8 @@ describe('MessageList', () => {
     expect(screen.getByTestId('generated-artifact-image')).toHaveAttribute('src', 'data:image/png;base64,iVBORw0KGgo=');
     expect(screen.getByText('Hero render')).toBeInTheDocument();
     expect(screen.getByText('xAI · grok-image · image/png')).toBeInTheDocument();
+    expect(screen.getByTestId('generated-artifact-receipt')).toHaveTextContent('/tmp/eve-receipts/img-artifact-1.json');
+    expect(screen.getByTestId('generated-artifact-receipt')).toHaveTextContent('img-artifact-1');
   });
 
   it('keeps image generation tool results inline instead of collapsing them into the step summary', () => {
@@ -366,6 +374,25 @@ describe('MessageList', () => {
       mime_type: 'audio/mpeg',
       provider: 'xAI',
       model: 'grok-tts',
+      artifact_id: 'audio-artifact-1',
+      request_id: 'tts-request-1',
+      receipt_path: '/tmp/eve-receipts/tts-request-1.json',
+      receipt: {
+        provider_response_id: 'xai-audio-response',
+        data_base64: 'AAECAw==',
+        download_url: 'https://private.example.com/raw-audio.mp3',
+        preview: 'data:audio/mpeg;base64,AAECAw==',
+        authorization: 'Bearer CEVE.v2.secret.secret',
+        prompt: 'private prompt text',
+      },
+      residency: {
+        requestedPrivacyLane: 'cloud_us',
+        effectiveResidency: 'us_cloud',
+      },
+      tts: {
+        voice_id: 'eve',
+        text_length: 42,
+      },
     } as const;
 
     const artifact = buildGeneratedArtifactFromToolResult({
@@ -377,7 +404,11 @@ describe('MessageList', () => {
       result_display: resultDisplay,
     });
 
-    expect(getToolResultArtifactSourceKeys(resultDisplay)).toEqual(['https://cdn.example.com/readout.mp3']);
+    expect(getToolResultArtifactSourceKeys(resultDisplay)).toEqual([
+      'https://cdn.example.com/readout.mp3',
+      'audio-artifact-1',
+      'tts-request-1',
+    ]);
     expect(artifact?.kind).toBe('audio');
     expect(artifact?.payload).toMatchObject({
       artifact_type: 'audio',
@@ -386,7 +417,29 @@ describe('MessageList', () => {
       mime_type: 'audio/mpeg',
       provider: 'xAI',
       model: 'grok-tts',
+      artifact_id: 'audio-artifact-1',
+      request_id: 'tts-request-1',
+      receipt_path: '/tmp/eve-receipts/tts-request-1.json',
+      receipt: {
+        provider_response_id: 'xai-audio-response',
+        residency: {
+          requestedPrivacyLane: 'cloud_us',
+          effectiveResidency: 'us_cloud',
+        },
+        tts: {
+          voice_id: 'eve',
+          text_length: 42,
+        },
+        artifact_id: 'audio-artifact-1',
+        request_id: 'tts-request-1',
+        receipt_path: '/tmp/eve-receipts/tts-request-1.json',
+      },
     });
+    expect(JSON.stringify(artifact?.payload)).not.toContain('AAECAw==');
+    expect(JSON.stringify(artifact?.payload)).not.toContain('private.example.com');
+    expect(JSON.stringify(artifact?.payload)).not.toContain('data:audio');
+    expect(JSON.stringify(artifact?.payload)).not.toContain('Bearer CEVE');
+    expect(JSON.stringify(artifact?.payload)).not.toContain('private prompt text');
   });
 
   it('does not treat arbitrary JSON tool output as a generated artifact', () => {

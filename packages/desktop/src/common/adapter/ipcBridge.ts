@@ -3051,6 +3051,11 @@ export type IGeneratedConversationArtifact = IConversationArtifactBase<
     file_url?: string;
     href?: string;
     src?: string;
+    data_url?: string;
+    download_url?: string;
+    output_url?: string;
+    preview_url?: string;
+    thumbnail_url?: string;
     path?: string;
     file_path?: string;
     absolute_path?: string;
@@ -3062,6 +3067,13 @@ export type IGeneratedConversationArtifact = IConversationArtifactBase<
     hash?: string;
     provider?: string;
     model?: string;
+    artifact_id?: string;
+    request_id?: string;
+    source_tool?: string;
+    receipt_path?: string;
+    receipt?: Record<string, unknown>;
+    residency?: Record<string, unknown>;
+    tts?: Record<string, unknown>;
     html?: string;
     content?: string;
     error?: string;
