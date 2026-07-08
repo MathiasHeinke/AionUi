@@ -14,7 +14,6 @@
  */
 
 import {
-  EVE_MULTIMODAL_FUNCTION_URL,
   resolveCommandEveMultimodalGate,
   type CommandEveMultimodalArtifactKind,
   type CommandEveMultimodalCapability,

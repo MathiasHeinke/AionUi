@@ -14,6 +14,24 @@ import {
 } from '@/process/commandEve/actionPolicyMemoryProvenanceCore';
 
 describe('Command EVE action policy and memory provenance core', () => {
+  it('blocks local actions until the local tool smoke is active', () => {
+    expect(
+      decideLocalActionPolicy({
+        action: 'browser.open',
+        privacyMode: 'cloud_balanced',
+        sensitivity: 'S1-internal-low',
+        userConsent: true,
+        smokeActive: false,
+        targetUrl: 'https://example.com',
+        allowedHosts: ['example.com'],
+      })
+    ).toMatchObject({
+      ok: false,
+      reasonCode: 'local-action.smoke-not-active',
+      humanGate: 'HG-1',
+    });
+  });
+
   it('allows browser reads only after smoke, consent, and host allowlist pass', () => {
     expect(
       decideLocalActionPolicy({
@@ -64,6 +82,54 @@ describe('Command EVE action policy and memory provenance core', () => {
     });
   });
 
+  it('applies the host allowlist to browser open and browser-rendered computer actions', () => {
+    expect(
+      decideLocalActionPolicy({
+        action: 'browser.open',
+        privacyMode: 'cloud_balanced',
+        sensitivity: 'S1-internal-low',
+        userConsent: true,
+        smokeActive: true,
+        targetUrl: 'https://example.com/start',
+        allowedHosts: ['example.com'],
+      })
+    ).toMatchObject({
+      ok: true,
+      reasonCode: 'local-action.pass',
+    });
+
+    expect(
+      decideLocalActionPolicy({
+        action: 'computer.click',
+        privacyMode: 'cloud_balanced',
+        sensitivity: 'S1-internal-low',
+        userConsent: true,
+        smokeActive: true,
+        targetSurface: 'browser',
+        targetUrl: 'https://evil.test/button',
+        allowedHosts: ['example.com'],
+      })
+    ).toMatchObject({
+      ok: false,
+      reasonCode: 'local-action.host-blocked',
+      humanGate: 'HG-2',
+    });
+
+    expect(
+      decideLocalActionPolicy({
+        action: 'computer.click',
+        privacyMode: 'cloud_balanced',
+        sensitivity: 'S1-internal-low',
+        userConsent: true,
+        smokeActive: true,
+        targetSurface: 'desktop',
+      })
+    ).toMatchObject({
+      ok: true,
+      reasonCode: 'local-action.pass',
+    });
+  });
+
   it('blocks browser credential fill unless a scoped credential mode is confirmed', () => {
     expect(
       decideLocalActionPolicy({
@@ -97,6 +163,45 @@ describe('Command EVE action policy and memory provenance core', () => {
       ok: true,
       reasonCode: 'local-action.pass',
       receipt: { credentialMode: 'vault_scoped' },
+    });
+  });
+
+  it('blocks computer clicks that touch credential fields without scoped credential consent', () => {
+    expect(
+      decideLocalActionPolicy({
+        action: 'computer.click',
+        privacyMode: 'cloud_balanced',
+        sensitivity: 'S2-confidential',
+        userConsent: true,
+        smokeActive: true,
+        targetSurface: 'browser',
+        targetUrl: 'https://login.example.com',
+        allowedHosts: ['example.com'],
+        touchesCredentialField: true,
+        credentialMode: 'forbidden',
+      })
+    ).toMatchObject({
+      ok: false,
+      reasonCode: 'local-action.credential-blocked',
+      humanGate: 'HG-3',
+    });
+
+    expect(
+      decideLocalActionPolicy({
+        action: 'computer.click',
+        privacyMode: 'cloud_balanced',
+        sensitivity: 'S2-confidential',
+        userConsent: true,
+        smokeActive: true,
+        targetSurface: 'browser',
+        targetUrl: 'https://login.example.com',
+        allowedHosts: ['example.com'],
+        touchesCredentialField: true,
+        credentialMode: 'user_confirmed',
+      })
+    ).toMatchObject({
+      ok: true,
+      reasonCode: 'local-action.pass',
     });
   });
 
@@ -148,7 +253,7 @@ describe('Command EVE action policy and memory provenance core', () => {
       })
     ).toMatchObject({
       ok: false,
-      reasonCode: 'local-action.runtime-gate-blocked',
+      reasonCode: 'local-action.screenshot-restricted',
       humanGate: 'HG-3',
     });
   });

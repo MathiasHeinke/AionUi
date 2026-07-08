@@ -134,6 +134,87 @@ describe('Command EVE skill scout loop core', () => {
     });
   });
 
+  it('blocks guard-failed, untrusted, and unapproved transitions explicitly', () => {
+    expect(
+      decideSkillLoopTransition({
+        currentState: 'candidate',
+        action: 'stage',
+        guardStatus: 'fail',
+        sourceTrust: 'trusted_local',
+        requestedBy: 'human',
+        profileScope: 'current_profile',
+      })
+    ).toMatchObject({
+      ok: false,
+      reasonCode: 'skill.transition.guard-failed',
+      humanGate: 'HG-3',
+    });
+
+    expect(
+      decideSkillLoopTransition({
+        currentState: 'candidate',
+        action: 'stage',
+        guardStatus: 'review',
+        sourceTrust: 'untrusted_remote',
+        requestedBy: 'human',
+        profileScope: 'current_profile',
+      })
+    ).toMatchObject({
+      ok: false,
+      reasonCode: 'skill.transition.untrusted-source',
+      humanGate: 'HG-2',
+    });
+
+    expect(
+      decideSkillLoopTransition({
+        currentState: 'staged',
+        action: 'approve',
+        guardStatus: 'review',
+        sourceTrust: 'trusted_local',
+        requestedBy: 'human',
+        profileScope: 'current_profile',
+      })
+    ).toMatchObject({
+      ok: false,
+      reasonCode: 'skill.transition.cao-required',
+      humanGate: 'HG-2',
+    });
+  });
+
+  it('does not let model output reject or quarantine skills without approval', () => {
+    expect(
+      decideSkillLoopTransition({
+        currentState: 'active',
+        action: 'quarantine',
+        guardStatus: 'review',
+        sourceTrust: 'trusted_local',
+        requestedBy: 'model',
+        profileScope: 'current_profile',
+      })
+    ).toMatchObject({
+      ok: false,
+      reasonCode: 'skill.transition.human-required',
+      humanGate: 'HG-2',
+    });
+
+    expect(
+      decideSkillLoopTransition({
+        currentState: 'active',
+        action: 'reject',
+        guardStatus: 'review',
+        sourceTrust: 'trusted_local',
+        requestedBy: 'human',
+        profileScope: 'current_profile',
+      })
+    ).toEqual({
+      ok: true,
+      from: 'active',
+      to: 'rejected',
+      reasonCode: 'skill.transition.pass',
+      humanGate: 'HG-0',
+    });
+  });
+
   it('blocks model-direct activation and cross-profile persistence', () => {
     expect(
       decideSkillLoopTransition({

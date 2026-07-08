@@ -47,9 +47,11 @@ export type EveLocalActionPolicyInput = {
   sensitivity: SensitivityClass;
   userConsent: boolean;
   smokeActive: boolean;
+  targetSurface?: 'browser' | 'desktop';
   allowedHosts?: string[];
   targetUrl?: string;
   credentialMode?: EveCredentialMode;
+  touchesCredentialField?: boolean;
   downloadPath?: string;
   allowedDownloadDirs?: string[];
 };
@@ -132,19 +134,34 @@ function hostAllowed(host: string | undefined, allowedHosts: readonly string[] |
   });
 }
 
+/**
+ * Pure string containment only. The fs-owning caller must enforce realpath
+ * containment before any actual write so symlinked directories cannot escape.
+ */
 function isUnderDir(candidate: string, dir: string): boolean {
   const resolvedCandidate = path.resolve(candidate);
   const resolvedDir = path.resolve(dir);
   return resolvedCandidate === resolvedDir || resolvedCandidate.startsWith(`${resolvedDir}${path.sep}`);
 }
 
-function blocksCredentialUse(action: EveLocalActionKind, credentialMode: EveCredentialMode): boolean {
-  if (action !== 'browser.form_fill') return false;
+function blocksCredentialUse(
+  action: EveLocalActionKind,
+  credentialMode: EveCredentialMode,
+  touchesCredentialField: boolean
+): boolean {
+  if (action !== 'browser.form_fill' && !(action === 'computer.click' && touchesCredentialField)) return false;
   return credentialMode !== 'user_confirmed' && credentialMode !== 'vault_scoped';
 }
 
 function runtimeActionFor(action: EveLocalActionKind): 'browser' | 'computer_use' {
   return action.startsWith('browser.') || action === 'download.write' ? 'browser' : 'computer_use';
+}
+
+function requiresHostAllowlist(input: EveLocalActionPolicyInput): boolean {
+  if (input.action.startsWith('browser.') || input.action === 'download.write') return true;
+  return (
+    (input.action === 'computer.click' || input.action === 'computer.screenshot') && input.targetSurface === 'browser'
+  );
 }
 
 function decision(
@@ -173,6 +190,10 @@ export function decideLocalActionPolicy(input: EveLocalActionPolicyInput): EveLo
     return decision(input, false, 'local-action.smoke-not-active', 'HG-1');
   }
 
+  if (input.action === 'computer.screenshot' && input.sensitivity === 'S3-restricted') {
+    return decision(input, false, 'local-action.screenshot-restricted', 'HG-3');
+  }
+
   const runtimeGate = decideRuntimeGate({
     capabilityId: `local-action:${input.action}`,
     requestedAction: runtimeActionFor(input.action),
@@ -191,14 +212,11 @@ export function decideLocalActionPolicy(input: EveLocalActionPolicyInput): EveLo
     return decision(input, false, reasonCode, runtimeGate.humanGate);
   }
 
-  if (
-    (input.action.startsWith('browser.') || input.action === 'download.write') &&
-    !hostAllowed(hostFromUrl(input.targetUrl), input.allowedHosts)
-  ) {
+  if (requiresHostAllowlist(input) && !hostAllowed(hostFromUrl(input.targetUrl), input.allowedHosts)) {
     return decision(input, false, 'local-action.host-blocked', 'HG-2');
   }
 
-  if (blocksCredentialUse(input.action, input.credentialMode || 'none')) {
+  if (blocksCredentialUse(input.action, input.credentialMode || 'none', input.touchesCredentialField === true)) {
     return decision(input, false, 'local-action.credential-blocked', 'HG-3');
   }
 
@@ -208,10 +226,6 @@ export function decideLocalActionPolicy(input: EveLocalActionPolicyInput): EveLo
     if (!candidate || !allowed) {
       return decision(input, false, 'local-action.download-path-blocked', 'HG-2');
     }
-  }
-
-  if (input.action === 'computer.screenshot' && input.sensitivity === 'S3-restricted') {
-    return decision(input, false, 'local-action.screenshot-restricted', 'HG-3');
   }
 
   return decision(input, true, 'local-action.pass', 'HG-0');
@@ -237,7 +251,7 @@ export function resolveMemoryFact(facts: readonly MemoryFact[], key: string): Me
   if (matching.length === 0) {
     return { conflictCount: 0, reasonCode: 'memory.fact-missing' };
   }
-  const sorted = [...matching].sort((a, b) => factScore(b) - factScore(a) || a.source.localeCompare(b.source));
+  const sorted = matching.toSorted((a, b) => factScore(b) - factScore(a) || a.source.localeCompare(b.source));
   const fact = sorted[0];
   return {
     fact,

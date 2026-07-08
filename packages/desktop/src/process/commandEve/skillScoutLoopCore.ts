@@ -108,7 +108,7 @@ function compact(value: unknown): string {
 }
 
 function normalizedList(values: readonly string[] | undefined): string[] {
-  return Array.from(new Set((values || []).map((value) => value.trim()).filter(Boolean))).sort((a, b) =>
+  return Array.from(new Set((values || []).map((value) => value.trim()).filter(Boolean))).toSorted((a, b) =>
     a.localeCompare(b)
   );
 }
@@ -236,8 +236,15 @@ export function decideSkillLoopTransition(input: {
   humanApproved?: boolean;
   caoApproved?: boolean;
 }): EveSkillTransitionDecision {
-  if (input.action === 'reject') return pass(input.currentState, 'rejected');
-  if (input.action === 'quarantine') return pass(input.currentState, 'quarantined');
+  if (input.action === 'reject' || input.action === 'quarantine') {
+    if (input.requestedBy === 'model' && input.humanApproved !== true && input.caoApproved !== true) {
+      return block(input.currentState, input.action, 'skill.transition.human-required', 'HG-2');
+    }
+    if (input.profileScope === 'cross_profile' && input.humanApproved !== true && input.caoApproved !== true) {
+      return block(input.currentState, input.action, 'skill.transition.cross-profile-blocked', 'HG-3');
+    }
+    return pass(input.currentState, input.action === 'reject' ? 'rejected' : 'quarantined');
+  }
 
   if (input.guardStatus === 'fail') {
     return block(input.currentState, input.action, 'skill.transition.guard-failed', 'HG-3');

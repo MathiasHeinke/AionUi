@@ -129,6 +129,22 @@ describe('Command EVE worker registry core', () => {
     });
   });
 
+  it('allows active S0/S1 workers only through the final delegation gate', () => {
+    expect(
+      decideEveWorkerDelegation({
+        registry: registryWithActive(['claude']),
+        workerId: 'claude',
+        sensitivity: 'S0-public',
+        privacyMode: 'cloud_balanced',
+        userConsent: true,
+      })
+    ).toMatchObject({
+      ok: true,
+      reasonCode: 'worker.delegate-pass',
+      humanGate: 'HG-0',
+    });
+  });
+
   it('keeps cloud-billed workers out of local-only privacy mode', () => {
     expect(
       decideEveWorkerDelegation({
@@ -174,6 +190,21 @@ describe('Command EVE worker registry core', () => {
       ok: false,
       reasonCode: 'worker.fable-effort-cap',
       humanGate: 'HG-2.5',
+    });
+
+    expect(
+      decideEveWorkerDelegation({
+        registry: registryWithActive(['fable']),
+        workerId: 'fable',
+        sensitivity: 'S1-internal-low',
+        privacyMode: 'cloud_balanced',
+        userConsent: true,
+        requestedReasoningEffort: 'high',
+      })
+    ).toMatchObject({
+      ok: true,
+      reasonCode: 'worker.delegate-pass',
+      humanGate: 'HG-0',
     });
   });
 });
