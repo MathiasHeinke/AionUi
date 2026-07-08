@@ -60,7 +60,7 @@ const AcpChat: React.FC<{
   loadedMcpStatuses,
   waitForWarmup,
 }) => {
-  useMessageLstCache(conversation_id);
+  const historyPagination = useMessageLstCache(conversation_id);
   usePendingConfirmationsRecovery(conversation_id);
   const teamPermission = useTeamPermission();
   const messageState = useAcpMessage(conversation_id, {
@@ -84,7 +84,7 @@ const AcpChat: React.FC<{
         <div className='flex-1 flex flex-col px-20px min-h-0'>
           {headerSlot}
           <FlexFullContainer>
-            <MessageList className='flex-1' emptySlot={emptySlot} />
+            <MessageList className='flex-1' emptySlot={emptySlot} historyPagination={historyPagination} />
           </FlexFullContainer>
           <AcpE2EStreamInjector conversationId={conversation_id} />
           {/* DSGVO egress notice — PRODUCTION-VISIBLE for all users: when EVE redacts

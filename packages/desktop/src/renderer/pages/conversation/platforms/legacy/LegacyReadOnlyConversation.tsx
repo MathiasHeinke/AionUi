@@ -21,7 +21,7 @@ const LegacyReadOnlyConversation: React.FC<{
   conversation: TChatConversation;
   emptySlot?: React.ReactNode;
 }> = ({ conversation, emptySlot }) => {
-  useMessageLstCache(conversation.id);
+  const historyPagination = useMessageLstCache(conversation.id);
 
   return (
     <ConversationProvider
@@ -37,7 +37,7 @@ const LegacyReadOnlyConversation: React.FC<{
       <ConversationArtifactProvider conversation_id={conversation.id}>
         <div className='flex-1 flex flex-col px-20px min-h-0'>
           <FlexFullContainer>
-            <MessageList className='flex-1' emptySlot={emptySlot} />
+            <MessageList className='flex-1' emptySlot={emptySlot} historyPagination={historyPagination} />
           </FlexFullContainer>
         </div>
       </ConversationArtifactProvider>

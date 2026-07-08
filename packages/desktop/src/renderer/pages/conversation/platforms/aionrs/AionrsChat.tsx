@@ -45,7 +45,7 @@ const AionrsChat: React.FC<{
   loadedMcpStatuses,
   agent_name,
 }) => {
-  useMessageLstCache(conversation_id);
+  const historyPagination = useMessageLstCache(conversation_id);
   usePendingConfirmationsRecovery(conversation_id);
   const updateLocalImage = LocalImageView.useUpdateLocalImage();
   useEffect(() => {
@@ -68,7 +68,7 @@ const AionrsChat: React.FC<{
       <ConversationArtifactProvider conversation_id={conversation_id}>
         <div className='flex-1 flex flex-col px-20px min-h-0'>
           <FlexFullContainer>
-            <MessageList className='flex-1' emptySlot={emptySlot} />
+            <MessageList className='flex-1' emptySlot={emptySlot} historyPagination={historyPagination} />
           </FlexFullContainer>
           <AionrsSendBox
             conversation_id={conversation_id}

@@ -33,13 +33,14 @@ vi.mock('@/common', () => ({
 }));
 
 const CONVERSATION_ID = 'conversation-1';
+const SECOND_CONVERSATION_ID = 'conversation-2';
 
-function createTextMessage(msgId: string, content: string): IMessageText {
+function createTextMessage(msgId: string, content: string, conversation_id = CONVERSATION_ID): IMessageText {
   return {
     id: `text-${msgId}-${content}`,
     type: 'text',
     msg_id: msgId,
-    conversation_id: CONVERSATION_ID,
+    conversation_id,
     position: 'left',
     content: {
       content,
@@ -113,6 +114,23 @@ function useMessageHarness() {
     addOrUpdateMessage: useAddOrUpdateMessage(),
     messages: useMessageList(),
   };
+}
+
+function useMessageCacheHarness(conversation_id = CONVERSATION_ID) {
+  return {
+    pagination: useMessageLstCache(conversation_id),
+    messages: useMessageList(),
+  };
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 async function flushMessageQueue(): Promise<void> {
@@ -228,9 +246,155 @@ describe('message merging', () => {
 
     expect(invoke).toHaveBeenCalledWith({
       conversation_id: CONVERSATION_ID,
-      page: 0,
-      page_size: 10000,
+      page: 1,
+      page_size: 250,
+      order: 'DESC',
       content_mode: 'compact',
     });
+  });
+
+  it('hydrates the newest history page chronologically and exposes older-page state', async () => {
+    const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
+    invoke.mockClear();
+    invoke.mockResolvedValue({
+      items: [createTextMessage('msg-3', 'newest'), createTextMessage('msg-2', 'middle')],
+      total: 3,
+      has_more: true,
+    });
+
+    const { result } = renderHook(() => useMessageCacheHarness(), {
+      wrapper: CacheWrapper,
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(result.current.messages.map((message) => message.msg_id)).toEqual(['msg-2', 'msg-3']);
+    expect(result.current.pagination.hasOlderMessages).toBe(true);
+    expect(result.current.pagination.loadedHistoricalMessages).toBe(2);
+    expect(result.current.pagination.totalHistoricalMessages).toBe(3);
+  });
+
+  it('prepends older pages without duplicating overlap from offset pagination', async () => {
+    const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
+    invoke.mockClear();
+    invoke
+      .mockResolvedValueOnce({
+        items: [createTextMessage('msg-3', 'newest'), createTextMessage('msg-2', 'middle')],
+        total: 3,
+        has_more: true,
+      })
+      .mockResolvedValueOnce({
+        items: [createTextMessage('msg-2', 'middle'), createTextMessage('msg-1', 'oldest')],
+        total: 3,
+        has_more: false,
+      });
+
+    const { result } = renderHook(() => useMessageCacheHarness(), {
+      wrapper: CacheWrapper,
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await result.current.pagination.loadOlderMessages();
+    });
+
+    expect(invoke).toHaveBeenNthCalledWith(2, {
+      conversation_id: CONVERSATION_ID,
+      page: 2,
+      page_size: 250,
+      order: 'DESC',
+      content_mode: 'compact',
+    });
+    expect(result.current.messages.map((message) => message.msg_id)).toEqual(['msg-1', 'msg-2', 'msg-3']);
+    expect(result.current.pagination.hasOlderMessages).toBe(false);
+  });
+
+  it('does not replace the current conversation with a stale initial history response', async () => {
+    const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
+    const firstConversation = createDeferred<{ items: IMessageText[]; total: number; has_more: boolean }>();
+    invoke.mockClear();
+    invoke.mockReturnValueOnce(firstConversation.promise).mockResolvedValueOnce({
+      items: [createTextMessage('msg-b', 'current', SECOND_CONVERSATION_ID)],
+      total: 1,
+      has_more: false,
+    });
+
+    const { result, rerender } = renderHook(({ conversationId }) => useMessageCacheHarness(conversationId), {
+      initialProps: { conversationId: CONVERSATION_ID },
+      wrapper: CacheWrapper,
+    });
+
+    rerender({ conversationId: SECOND_CONVERSATION_ID });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    firstConversation.resolve({
+      items: [createTextMessage('msg-a', 'stale', CONVERSATION_ID)],
+      total: 1,
+      has_more: false,
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result.current.messages.map((message) => message.conversation_id)).toEqual([SECOND_CONVERSATION_ID]);
+    expect((result.current.messages[0] as IMessageText).content.content).toBe('current');
+  });
+
+  it('does not prepend a stale older page after switching conversations', async () => {
+    const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
+    const olderConversationPage = createDeferred<{ items: IMessageText[]; total: number; has_more: boolean }>();
+    invoke.mockClear();
+    invoke
+      .mockResolvedValueOnce({
+        items: [createTextMessage('msg-3', 'newest'), createTextMessage('msg-2', 'middle')],
+        total: 3,
+        has_more: true,
+      })
+      .mockReturnValueOnce(olderConversationPage.promise)
+      .mockResolvedValueOnce({
+        items: [createTextMessage('msg-b', 'current', SECOND_CONVERSATION_ID)],
+        total: 1,
+        has_more: false,
+      });
+
+    const { result, rerender } = renderHook(({ conversationId }) => useMessageCacheHarness(conversationId), {
+      initialProps: { conversationId: CONVERSATION_ID },
+      wrapper: CacheWrapper,
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => {
+      void result.current.pagination.loadOlderMessages();
+    });
+    rerender({ conversationId: SECOND_CONVERSATION_ID });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    olderConversationPage.resolve({
+      items: [createTextMessage('msg-1', 'oldest', CONVERSATION_ID)],
+      total: 3,
+      has_more: false,
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result.current.messages.map((message) => message.conversation_id)).toEqual([SECOND_CONVERSATION_ID]);
+    expect((result.current.messages[0] as IMessageText).content.content).toBe('current');
   });
 });

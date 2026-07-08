@@ -13,8 +13,10 @@ import {
   normalizeAgentStreamError,
   preferTextMessageVersion,
 } from '@/common/chat/chatLib';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createContext } from '@renderer/utils/ui/createContext';
+
+const MESSAGE_HISTORY_PAGE_SIZE = 250;
 
 const [useMessageList, MessageListProvider, useUpdateMessageList] = createContext([] as TMessage[]);
 const [useMessageListLoading, MessageListLoadingProvider, useUpdateMessageListLoading] = createContext(false);
@@ -22,6 +24,22 @@ const [useMessageListLoading, MessageListLoadingProvider, useUpdateMessageListLo
 const [useChatKey, ChatKeyProvider] = createContext('');
 
 const beforeUpdateMessageListStack: Array<(list: TMessage[]) => TMessage[]> = [];
+
+export type MessageHistoryPagination = {
+  hasOlderMessages: boolean;
+  isLoadingOlderMessages: boolean;
+  loadedHistoricalMessages: number;
+  totalHistoricalMessages: number;
+  loadOlderMessages: () => Promise<void>;
+};
+
+export const emptyMessageHistoryPagination: MessageHistoryPagination = {
+  hasOlderMessages: false,
+  isLoadingOlderMessages: false,
+  loadedHistoricalMessages: 0,
+  totalHistoricalMessages: 0,
+  loadOlderMessages: async () => {},
+};
 
 // 消息索引缓存类型定义
 // Message index cache type definitions
@@ -602,56 +620,174 @@ export function normalizeDbMessage(msg: TMessage): TMessage {
   }
 }
 
+export function buildConversationHistoryPageRequest(conversation_id: string, page: number) {
+  return {
+    conversation_id,
+    page,
+    page_size: MESSAGE_HISTORY_PAGE_SIZE,
+    order: 'DESC',
+    content_mode: 'compact' as const,
+  };
+}
+
+export function toChronologicalHistoryPage(messages: TMessage[]): TMessage[] {
+  return messages.toReversed();
+}
+
+function getMessageIdentity(message: TMessage): string {
+  return message.msg_id ? `msg:${message.msg_id}:${message.type}` : `id:${message.id}`;
+}
+
+export function mergeInitialHistoryMessages(
+  currentList: TMessage[],
+  historyMessages: TMessage[],
+  conversation_id: string
+): TMessage[] {
+  if (!currentList.length) return historyMessages;
+  const sameConversation = currentList.filter((message) => message.conversation_id === conversation_id);
+  if (!sameConversation.length) return historyMessages;
+  const dbIds = new Set(historyMessages.map((message) => message.id));
+  const dbMsgIds = new Set(historyMessages.map((message) => message.msg_id).filter(Boolean));
+
+  const streamingByMsgId = new Map<string, IMessageText>();
+  for (const message of sameConversation) {
+    if (message.msg_id && message.type === 'text' && dbMsgIds.has(message.msg_id)) {
+      streamingByMsgId.set(message.msg_id, message);
+    }
+  }
+
+  const mergedMessages = historyMessages.map((dbMsg) => {
+    if (!dbMsg.msg_id || dbMsg.type !== 'text') return dbMsg;
+    const streamMsg = streamingByMsgId.get(dbMsg.msg_id);
+    if (!streamMsg) return dbMsg;
+    return preferTextMessageVersion(dbMsg, streamMsg);
+  });
+
+  const streamingOnly = sameConversation.filter(
+    (message) => !dbIds.has(message.id) && !(message.msg_id && dbMsgIds.has(message.msg_id))
+  );
+  if (!streamingOnly.length && !streamingByMsgId.size) return historyMessages;
+  return [...mergedMessages, ...streamingOnly];
+}
+
+export function prependOlderHistoryMessages(
+  currentList: TMessage[],
+  olderMessages: TMessage[],
+  conversation_id: string
+): TMessage[] {
+  const conversationMessages = olderMessages.filter((message) => message.conversation_id === conversation_id);
+  if (!conversationMessages.length) return currentList;
+  if (!currentList.length) return conversationMessages;
+
+  const existingIds = new Set(currentList.map((message) => message.id));
+  const existingIdentities = new Set(currentList.map(getMessageIdentity));
+  const olderUnique = conversationMessages.filter(
+    (message) => !existingIds.has(message.id) && !existingIdentities.has(getMessageIdentity(message))
+  );
+  if (!olderUnique.length) return currentList;
+  return [...olderUnique, ...currentList];
+}
+
+export function shouldLoadOlderConversationMessages(input: {
+  scrollTop: number;
+  hasOlderMessages: boolean;
+  isLoadingOlderMessages: boolean;
+  visibleMessageCount: number;
+}): boolean {
+  return (
+    input.hasOlderMessages && !input.isLoadingOlderMessages && input.visibleMessageCount > 0 && input.scrollTop <= 160
+  );
+}
+
 export const useMessageLstCache = (key: string) => {
   const update = useUpdateMessageList();
   const setLoading = useUpdateMessageListLoading();
+  const [hasOlderMessages, setHasOlderMessages] = useState(false);
+  const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
+  const [loadedHistoricalMessages, setLoadedHistoricalMessages] = useState(0);
+  const [totalHistoricalMessages, setTotalHistoricalMessages] = useState(0);
+  const currentPageRef = useRef(0);
+  const hasOlderMessagesRef = useRef(false);
+  const isLoadingOlderMessagesRef = useRef(false);
+  const loadedHistoricalMessagesRef = useRef(0);
+  const loadGenerationRef = useRef(0);
+
+  const setOlderAvailability = useCallback((value: boolean) => {
+    hasOlderMessagesRef.current = value;
+    setHasOlderMessages(value);
+  }, []);
+
   const loadMessages = useCallback(async (): Promise<TMessage[]> => {
-    const result = await ipcBridge.database.getConversationMessages.invoke({
-      conversation_id: key,
-      page: 0,
-      page_size: 10000,
-      content_mode: 'compact',
-    });
-    const messages = result?.items?.map(normalizeDbMessage);
+    const generation = loadGenerationRef.current;
+    const result = await ipcBridge.database.getConversationMessages.invoke(buildConversationHistoryPageRequest(key, 1));
+    if (generation !== loadGenerationRef.current) return [];
+    const messages = toChronologicalHistoryPage(result?.items?.map(normalizeDbMessage) ?? []);
     if (messages && Array.isArray(messages)) {
       update((currentList) => {
-        if (!currentList.length) return messages;
-        const sameConversation = currentList.filter((m) => m.conversation_id === key);
-        if (!sameConversation.length) return messages;
-        const dbIds = new Set(messages.map((m) => m.id));
-        const dbMsgIds = new Set(messages.map((m) => m.msg_id).filter(Boolean));
-
-        // Build a map of streaming messages by msg_id for content-length comparison.
-        // During streaming, the DB may have an older snapshot (due to 2000ms save debounce),
-        // so we keep whichever version has more content to avoid losing streamed data.
-        const streamingByMsgId = new Map<string, IMessageText>();
-        for (const m of sameConversation) {
-          if (m.msg_id && m.type === 'text' && dbMsgIds.has(m.msg_id)) {
-            streamingByMsgId.set(m.msg_id, m);
-          }
-        }
-
-        // Replace DB messages with streaming versions when streaming has more content
-        const mergedMessages = messages.map((dbMsg) => {
-          if (!dbMsg.msg_id || dbMsg.type !== 'text') return dbMsg;
-          const streamMsg = streamingByMsgId.get(dbMsg.msg_id);
-          if (!streamMsg) return dbMsg;
-          return preferTextMessageVersion(dbMsg, streamMsg);
-        });
-
-        const streamingOnly = sameConversation.filter((m) => !dbIds.has(m.id) && !(m.msg_id && dbMsgIds.has(m.msg_id)));
-        if (!streamingOnly.length && !streamingByMsgId.size) return messages;
-        return [...mergedMessages, ...streamingOnly];
+        return mergeInitialHistoryMessages(currentList, messages, key);
       });
+      currentPageRef.current = 1;
+      loadedHistoricalMessagesRef.current = messages.length;
+      setLoadedHistoricalMessages(messages.length);
+      setTotalHistoricalMessages(result?.total ?? messages.length);
+      setOlderAvailability(Boolean(result?.has_more) || messages.length < (result?.total ?? messages.length));
       return messages;
     }
     return [];
-  }, [key, update]);
+  }, [key, setOlderAvailability, update]);
+
+  const loadOlderMessages = useCallback(async (): Promise<void> => {
+    if (!key || isLoadingOlderMessagesRef.current || !hasOlderMessagesRef.current) return;
+
+    const nextPage = currentPageRef.current + 1;
+    const generation = loadGenerationRef.current;
+    isLoadingOlderMessagesRef.current = true;
+    setIsLoadingOlderMessages(true);
+    try {
+      const result = await ipcBridge.database.getConversationMessages.invoke(
+        buildConversationHistoryPageRequest(key, nextPage)
+      );
+      if (generation !== loadGenerationRef.current) return;
+      const olderMessages = toChronologicalHistoryPage(result?.items?.map(normalizeDbMessage) ?? []);
+      if (!olderMessages.length) {
+        setOlderAvailability(false);
+        return;
+      }
+
+      update((currentList) => prependOlderHistoryMessages(currentList, olderMessages, key));
+      currentPageRef.current = nextPage;
+      loadedHistoricalMessagesRef.current = Math.min(
+        result?.total ?? loadedHistoricalMessagesRef.current + olderMessages.length,
+        loadedHistoricalMessagesRef.current + olderMessages.length
+      );
+      setLoadedHistoricalMessages(loadedHistoricalMessagesRef.current);
+      setTotalHistoricalMessages(result?.total ?? loadedHistoricalMessagesRef.current);
+      setOlderAvailability(
+        Boolean(result?.has_more) ||
+          loadedHistoricalMessagesRef.current < (result?.total ?? loadedHistoricalMessagesRef.current)
+      );
+    } catch (error) {
+      console.error('[useMessageLstCache] Failed to load older messages from database:', error);
+    } finally {
+      if (generation === loadGenerationRef.current) {
+        isLoadingOlderMessagesRef.current = false;
+        setIsLoadingOlderMessages(false);
+      }
+    }
+  }, [key, setOlderAvailability, update]);
 
   useEffect(() => {
     if (!key) return;
     let cancelled = false;
+    loadGenerationRef.current += 1;
+    isLoadingOlderMessagesRef.current = false;
     setLoading(true);
+    setIsLoadingOlderMessages(false);
+    currentPageRef.current = 0;
+    loadedHistoricalMessagesRef.current = 0;
+    setLoadedHistoricalMessages(0);
+    setTotalHistoricalMessages(0);
+    setOlderAvailability(false);
     void loadMessages()
       .catch((error) => {
         console.error('[useMessageLstCache] Failed to load messages from database:', error);
@@ -664,7 +800,7 @@ export const useMessageLstCache = (key: string) => {
     return () => {
       cancelled = true;
     };
-  }, [key, loadMessages, setLoading]);
+  }, [key, loadMessages, setLoading, setOlderAvailability]);
 
   useEffect(() => {
     if (!key) {
@@ -698,6 +834,17 @@ export const useMessageLstCache = (key: string) => {
       });
     });
   }, [key, update]);
+
+  return useMemo<MessageHistoryPagination>(
+    () => ({
+      hasOlderMessages,
+      isLoadingOlderMessages,
+      loadedHistoricalMessages,
+      totalHistoricalMessages,
+      loadOlderMessages,
+    }),
+    [hasOlderMessages, isLoadingOlderMessages, loadOlderMessages, loadedHistoricalMessages, totalHistoricalMessages]
+  );
 };
 
 export const beforeUpdateMessageList = (fn: (list: TMessage[]) => TMessage[]) => {

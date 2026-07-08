@@ -15,7 +15,7 @@ import MessageAcpPermission from '@renderer/pages/conversation/Messages/acp/Mess
 import MessagePermission from './components/MessagePermission';
 import MessageAcpToolCall from '@renderer/pages/conversation/Messages/acp/MessageAcpToolCall';
 import classNames from 'classnames';
-import React, { createContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router-dom';
 import { uuid } from '@renderer/utils/common';
@@ -24,7 +24,13 @@ import HOC from '@renderer/utils/ui/HOC';
 import type { FileChangeInfo } from './MessageFileChanges';
 import MessageFileChanges, { parseDiff } from './MessageFileChanges';
 import { useConversationArtifacts } from './artifacts';
-import { useMessageList, useMessageListLoading } from './hooks';
+import {
+  emptyMessageHistoryPagination,
+  shouldLoadOlderConversationMessages,
+  useMessageList,
+  useMessageListLoading,
+  type MessageHistoryPagination,
+} from './hooks';
 import MessageAgentStatus from './components/MessageAgentStatus';
 import MessagePlan from './components/MessagePlan';
 import MessageTips from './components/MessageTips';
@@ -258,7 +264,11 @@ const MessageItem: React.FC<{ message: TMessage; highlighted?: boolean }> = Reac
     prev.highlighted === next.highlighted
 );
 
-const MessageList: React.FC<{ className?: string; emptySlot?: React.ReactNode }> = ({ emptySlot }) => {
+const MessageList: React.FC<{
+  className?: string;
+  emptySlot?: React.ReactNode;
+  historyPagination?: MessageHistoryPagination;
+}> = ({ className, emptySlot, historyPagination = emptyMessageHistoryPagination }) => {
   const list = useMessageList();
   const isMessageListLoading = useMessageListLoading();
   const artifacts = useConversationArtifacts();
@@ -270,6 +280,14 @@ const MessageList: React.FC<{ className?: string; emptySlot?: React.ReactNode }>
   const targetMessageId = locationState.targetMessageId;
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | undefined>();
   const handledTargetKeyRef = useRef<string>('');
+  const scrollerElementRef = useRef<HTMLDivElement | null>(null);
+  const contentElementRef = useRef<HTMLDivElement | null>(null);
+  const pendingOlderScrollRef = useRef<{
+    scroller: HTMLDivElement;
+    scrollHeight: number;
+    scrollTop: number;
+  } | null>(null);
+  const olderLoadInFlightRef = useRef(false);
 
   // Pre-process message list to group tool outputs into summary cards
   const processedList = useMemo(() => {
@@ -383,8 +401,8 @@ const MessageList: React.FC<{ className?: string; emptySlot?: React.ReactNode }>
 
   // Use auto-scroll hook
   const {
-    handleScrollerRef,
-    handleContentRef,
+    handleScrollerRef: handleAutoScrollerRef,
+    handleContentRef: handleAutoContentRef,
     handleScroll,
     handleWheel,
     handlePointerDown,
@@ -396,6 +414,22 @@ const MessageList: React.FC<{ className?: string; emptySlot?: React.ReactNode }>
     messages: list,
     itemCount: processedList.length,
   });
+
+  const handleScrollerRef = useCallback(
+    (ref: HTMLDivElement | null) => {
+      scrollerElementRef.current = ref;
+      handleAutoScrollerRef(ref);
+    },
+    [handleAutoScrollerRef]
+  );
+
+  const handleContentRef = useCallback(
+    (ref: HTMLDivElement | null) => {
+      contentElementRef.current = ref;
+      handleAutoContentRef(ref);
+    },
+    [handleAutoContentRef]
+  );
 
   useEffect(() => {
     if (!targetMessageId || processedList.length === 0) {
@@ -477,6 +511,78 @@ const MessageList: React.FC<{ className?: string; emptySlot?: React.ReactNode }>
     scrollToBottom('smooth');
   };
 
+  const restoreOlderScrollPosition = useCallback(() => {
+    const pending = pendingOlderScrollRef.current;
+    if (!pending) return false;
+
+    pendingOlderScrollRef.current = null;
+    olderLoadInFlightRef.current = false;
+    const heightDelta = pending.scroller.scrollHeight - pending.scrollHeight;
+    if (heightDelta > 0) {
+      pending.scroller.scrollTop = pending.scrollTop + heightDelta;
+      return true;
+    }
+    return false;
+  }, []);
+
+  const startOlderHistoryLoad = useCallback(
+    (scroller: HTMLDivElement) => {
+      if (olderLoadInFlightRef.current) return false;
+      if (
+        !shouldLoadOlderConversationMessages({
+          scrollTop: scroller.scrollTop,
+          hasOlderMessages: historyPagination.hasOlderMessages,
+          isLoadingOlderMessages: historyPagination.isLoadingOlderMessages,
+          visibleMessageCount: list.length,
+        })
+      ) {
+        return false;
+      }
+
+      olderLoadInFlightRef.current = true;
+      pendingOlderScrollRef.current = {
+        scroller,
+        scrollHeight: scroller.scrollHeight,
+        scrollTop: scroller.scrollTop,
+      };
+      void historyPagination.loadOlderMessages().finally(() => {
+        requestAnimationFrame(() => {
+          if (!restoreOlderScrollPosition()) {
+            olderLoadInFlightRef.current = false;
+          }
+        });
+      });
+      return true;
+    },
+    [historyPagination, list.length, restoreOlderScrollPosition]
+  );
+
+  useLayoutEffect(() => {
+    restoreOlderScrollPosition();
+  }, [list.length, restoreOlderScrollPosition]);
+
+  useEffect(() => {
+    const scroller = scrollerElementRef.current;
+    const content = contentElementRef.current;
+    if (!scroller || !content || scroller.clientHeight <= 0 || scroller.scrollHeight > scroller.clientHeight + 24)
+      return;
+    startOlderHistoryLoad(scroller);
+  }, [
+    historyPagination.hasOlderMessages,
+    historyPagination.isLoadingOlderMessages,
+    list.length,
+    processedList.length,
+    startOlderHistoryLoad,
+  ]);
+
+  const handleMessageListScroll = useCallback(
+    (event: React.UIEvent<HTMLDivElement>) => {
+      handleScroll(event);
+      startOlderHistoryLoad(event.currentTarget);
+    },
+    [handleScroll, startOlderHistoryLoad]
+  );
+
   const renderItem = (_index: number, item: (typeof processedList)[0]) => {
     const highlighted = matchesTargetMessage(item, highlightedMessageId);
     if ('type' in item && item.type === 'artifact') {
@@ -524,7 +630,7 @@ const MessageList: React.FC<{ className?: string; emptySlot?: React.ReactNode }>
   }
 
   return (
-    <div className='relative flex-1 h-full'>
+    <div className={classNames('relative flex-1 h-full', className)}>
       {/* Use PreviewGroup to wrap all messages for cross-message image preview */}
       <Image.PreviewGroup actionsLayout={['zoomIn', 'zoomOut', 'originalSize', 'rotateLeft', 'rotateRight']}>
         <ImagePreviewContext.Provider value={{ inPreviewGroup: true }}>
@@ -536,10 +642,15 @@ const MessageList: React.FC<{ className?: string; emptySlot?: React.ReactNode }>
             className='flex-1 h-full overflow-y-auto pb-10px box-border -mx-20px px-20px'
             style={{ overflowAnchor: 'none' }}
             onPointerDown={handlePointerDown}
-            onScroll={handleScroll}
+            onScroll={handleMessageListScroll}
             onWheel={handleWheel}
           >
             <div ref={handleContentRef} data-testid='message-list-content' style={{ overflowAnchor: 'none' }}>
+              {historyPagination.isLoadingOlderMessages && (
+                <div data-testid='message-history-loading-older' className='h-28px flex items-center justify-center'>
+                  <div className='w-14px h-14px rd-full border-2 border-solid border-3 border-t-primary animate-spin' />
+                </div>
+              )}
               <div className='h-10px' />
               {processedList.map((item, index) => (
                 <React.Fragment key={getProcessedItemAnchorId(item) || index}>{renderItem(index, item)}</React.Fragment>

@@ -5,10 +5,11 @@
  */
 
 import React, { type PropsWithChildren } from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { IConversationArtifact } from '@/common/adapter/ipcBridge';
 import type { IMessageText, IMessageToolGroup, TMessage } from '@/common/chat/chatLib';
+import type { MessageHistoryPagination } from '@/renderer/pages/conversation/Messages/hooks';
 import { MessageListLoadingProvider, MessageListProvider } from '@/renderer/pages/conversation/Messages/hooks';
 import MessageList from '@/renderer/pages/conversation/Messages/MessageList';
 import {
@@ -216,6 +217,46 @@ function Wrapper({
   );
 }
 
+function createHistoryPagination(overrides: Partial<MessageHistoryPagination> = {}): MessageHistoryPagination {
+  return {
+    hasOlderMessages: false,
+    isLoadingOlderMessages: false,
+    loadedHistoricalMessages: 1,
+    totalHistoricalMessages: 1,
+    loadOlderMessages: vi.fn().mockResolvedValue(undefined),
+    ...overrides,
+  };
+}
+
+function createDeferred<T = void>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function mockScrollerGeometry(
+  scroller: HTMLElement,
+  geometry: { scrollTop: number; scrollHeight: number; clientHeight: number }
+) {
+  Object.defineProperty(scroller, 'scrollTop', {
+    configurable: true,
+    writable: true,
+    value: geometry.scrollTop,
+  });
+  Object.defineProperty(scroller, 'scrollHeight', {
+    configurable: true,
+    value: geometry.scrollHeight,
+  });
+  Object.defineProperty(scroller, 'clientHeight', {
+    configurable: true,
+    value: geometry.clientHeight,
+  });
+}
+
 describe('MessageList', () => {
   afterEach(() => {
     artifactMock.artifacts = [];
@@ -253,6 +294,77 @@ describe('MessageList', () => {
 
     expect(screen.getByTestId('message-list-skeleton')).toBeInTheDocument();
     expect(screen.queryByText('empty state')).not.toBeInTheDocument();
+  });
+
+  it('loads older history when the user scrolls to the top of a long conversation', () => {
+    const loadOlderMessages = vi.fn().mockResolvedValue(undefined);
+    render(
+      <MessageList
+        historyPagination={createHistoryPagination({
+          hasOlderMessages: true,
+          totalHistoricalMessages: 2,
+          loadOlderMessages,
+        })}
+      />,
+      {
+        wrapper: ({ children }) => <Wrapper>{children}</Wrapper>,
+      }
+    );
+
+    const scroller = screen.getByTestId('message-list-scroller');
+    mockScrollerGeometry(scroller, {
+      scrollTop: 0,
+      scrollHeight: 1200,
+      clientHeight: 600,
+    });
+    fireEvent.scroll(scroller);
+
+    expect(loadOlderMessages).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not request older history when no older page exists', () => {
+    const loadOlderMessages = vi.fn().mockResolvedValue(undefined);
+    render(<MessageList historyPagination={createHistoryPagination({ loadOlderMessages })} />, {
+      wrapper: ({ children }) => <Wrapper>{children}</Wrapper>,
+    });
+
+    const scroller = screen.getByTestId('message-list-scroller');
+    mockScrollerGeometry(scroller, {
+      scrollTop: 0,
+      scrollHeight: 1200,
+      clientHeight: 600,
+    });
+    fireEvent.scroll(scroller);
+
+    expect(loadOlderMessages).not.toHaveBeenCalled();
+  });
+
+  it('keeps one older-page load active during rapid top scroll events', () => {
+    const olderLoad = createDeferred<void>();
+    const loadOlderMessages = vi.fn().mockReturnValue(olderLoad.promise);
+    render(
+      <MessageList
+        historyPagination={createHistoryPagination({
+          hasOlderMessages: true,
+          totalHistoricalMessages: 2,
+          loadOlderMessages,
+        })}
+      />,
+      {
+        wrapper: ({ children }) => <Wrapper>{children}</Wrapper>,
+      }
+    );
+
+    const scroller = screen.getByTestId('message-list-scroller');
+    mockScrollerGeometry(scroller, {
+      scrollTop: 0,
+      scrollHeight: 1200,
+      clientHeight: 600,
+    });
+    fireEvent.scroll(scroller);
+    fireEvent.scroll(scroller);
+
+    expect(loadOlderMessages).toHaveBeenCalledTimes(1);
   });
 
   it('renders generated media artifacts from the conversation artifact store', () => {
