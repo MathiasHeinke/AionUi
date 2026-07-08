@@ -145,6 +145,9 @@ import {
 
 /** Version tag mirrored onto every credits bridge result (ipcBridge contract). */
 const COMMAND_EVE_CREDITS_BRIDGE_VERSION = 'command-eve-credits/v0' as const;
+// Keep this true only while the deployed eve-multimodal gateway is live,
+// fail-closed on no-secret smoke, and cloud voice output remains protected by
+// MAIN-owned consent, license, and residency gates.
 const COMMAND_EVE_MULTIMODAL_TTS_CLOUD_EGRESS_ENABLED = true;
 // Keep true only while the deployed eve-multimodal function returns a fail-closed
 // auth/provider response to no-secret smoke tests instead of 404.

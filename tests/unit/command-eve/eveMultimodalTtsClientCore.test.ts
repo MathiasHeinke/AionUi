@@ -206,7 +206,7 @@ describe('Command EVE multimodal TTS desktop client core', () => {
       ok: false,
       reason: 'bad reason with spaces',
       reason_code: 'provider-not-enabled',
-      message: `line 1\n${'x'.repeat(500)}`,
+      message: `line 1\n${'long '.repeat(120)}`,
     });
 
     expect(parsed).toMatchObject({
@@ -215,6 +215,26 @@ describe('Command EVE multimodal TTS desktop client core', () => {
     });
     expect(parsed.ok === false ? parsed.message?.length : 0).toBe(300);
     expect(parsed.ok === false ? parsed.message : '').not.toContain('\n');
+  });
+
+  it('redacts token-shaped server-controlled failure messages before returning them', () => {
+    const parsed = parseCommandEveMultimodalTtsResponse({
+      ok: false,
+      reason: 'provider-error',
+      message:
+        'debug Bearer test-license-wire and xai-secret1234567890 and sk-or-v1-secret1234567890 abcdefghijklmnopqrstuvwxyz123456',
+    });
+
+    expect(parsed).toMatchObject({
+      ok: false,
+      reason_code: 'provider-error',
+    });
+    const message = parsed.ok === false ? parsed.message || '' : '';
+    expect(message).toContain('[REDACTED]');
+    expect(message).not.toContain('test-license-wire');
+    expect(message).not.toContain('xai-secret1234567890');
+    expect(message).not.toContain('sk-or-v1-secret1234567890');
+    expect(message).not.toContain('abcdefghijklmnopqrstuvwxyz123456');
   });
 
   it('rejects success bodies that are not audio artifacts', () => {

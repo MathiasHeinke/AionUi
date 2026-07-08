@@ -69,6 +69,31 @@ const call = (channel: string, req?: unknown) =>
 const dataPath = '/tmp/ce-tts-status-bridge';
 const consentPath = path.join(dataPath, 'command-eve-multimodal-tts-consent.json');
 
+const successfulTtsResponse = () =>
+  new Response(
+    JSON.stringify({
+      ok: true,
+      provider: 'xai',
+      capability: 'tts',
+      reason: 'provider-complete',
+      artifact: {
+        status: 'created',
+        kind: 'audio',
+        mime_type: 'audio/mpeg',
+        encoding: 'base64',
+        data_base64: Buffer.from('tone').toString('base64'),
+        bytes: 4,
+      },
+      residency: {
+        requestedPrivacyLane: 'cloud_auto',
+        effectiveResidency: 'us_cloud',
+        confirmation: 'server-must-confirm-us-cloud',
+      },
+      tts: { voice_id: 'eve', language: 'de-DE', text_length: 16 },
+    }),
+    { status: 200, headers: { 'content-type': 'application/json' } }
+  );
+
 describe('Command EVE multimodal TTS status bridge', () => {
   beforeEach(() => {
     fs.rmSync(consentPath, { force: true });
@@ -170,31 +195,7 @@ describe('Command EVE multimodal TTS status bridge', () => {
 
   it('egresses to the server gateway only after consent, license, deploy, and residency gates pass', async () => {
     const fetchSpy = vi.mocked(globalThis.fetch);
-    fetchSpy.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          ok: true,
-          provider: 'xai',
-          capability: 'tts',
-          reason: 'provider-complete',
-          artifact: {
-            status: 'created',
-            kind: 'audio',
-            mime_type: 'audio/mpeg',
-            encoding: 'base64',
-            data_base64: Buffer.from('tone').toString('base64'),
-            bytes: 4,
-          },
-          residency: {
-            requestedPrivacyLane: 'cloud_auto',
-            effectiveResidency: 'us_cloud',
-            confirmation: 'server-must-confirm-us-cloud',
-          },
-          tts: { voice_id: 'eve', language: 'de-DE', text_length: 16 },
-        }),
-        { status: 200, headers: { 'content-type': 'application/json' } }
-      )
-    );
+    fetchSpy.mockResolvedValueOnce(successfulTtsResponse());
     const setResult = await call('command-eve.multimodal-tts-consent-set', {
       data: { consent: true, privacyLane: 'cloud_auto' },
     });
@@ -217,6 +218,7 @@ describe('Command EVE multimodal TTS status bridge', () => {
       },
     });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toMatch(/^https:\/\//);
     const fetchInit = fetchSpy.mock.calls[0]?.[1] as RequestInit;
     const headers = fetchInit.headers as Record<string, string>;
     expect(headers.Authorization).toBe('Bearer test-license-wire');
@@ -225,5 +227,91 @@ describe('Command EVE multimodal TTS status bridge', () => {
     expect(String(fetchInit.body)).toContain('"directProviderKeyPresentInDesktop":false');
     expect(String(fetchInit.body)).not.toContain('apiKey');
     expect(JSON.stringify(result.data)).not.toContain('test-license-wire');
+  });
+
+  it('blocks egress again after cloud voice consent is revoked', async () => {
+    const fetchSpy = vi.mocked(globalThis.fetch);
+    fetchSpy.mockResolvedValueOnce(successfulTtsResponse());
+
+    await call('command-eve.multimodal-tts-consent-set', {
+      data: { consent: true, privacyLane: 'cloud_auto' },
+    });
+    const firstResult = await call('command-eve.multimodal-tts', {
+      data: { text: 'Assistant answer', language: 'de-DE' },
+    });
+    expect(firstResult.success).toBe(true);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    fetchSpy.mockClear();
+    readLicenseWireMock.mockClear();
+    const revokeResult = await call('command-eve.multimodal-tts-consent-set', {
+      data: { consent: false, privacyLane: 'cloud_auto' },
+    });
+    expect(revokeResult).toMatchObject({ success: true, data: { consent: false, privacyLane: 'cloud_auto' } });
+
+    const blockedResult = await call('command-eve.multimodal-tts', {
+      data: { text: 'Assistant answer', language: 'de-DE' },
+    });
+
+    expect(blockedResult.success).toBe(false);
+    expect(blockedResult.data).toMatchObject({
+      ok: false,
+      reason_code: 'EVE_MULTIMODAL_TTS_PRIVACY_CONSENT_REQUIRED',
+    });
+    expect(readLicenseWireMock).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not egress when consent is open but the license wire is missing', async () => {
+    const fetchSpy = vi.mocked(globalThis.fetch);
+    await call('command-eve.multimodal-tts-consent-set', {
+      data: { consent: true, privacyLane: 'cloud_auto' },
+    });
+    readLicenseWireMock.mockReturnValueOnce({ ok: false, reason_code: 'LICENSE_WIRE_MISSING' });
+
+    const result = await call('command-eve.multimodal-tts', {
+      data: { text: 'Assistant answer', language: 'de-DE' },
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.data).toMatchObject({
+      ok: false,
+      reason_code: 'missing-license',
+    });
+    expect(readLicenseWireMock).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(JSON.stringify(result.data)).not.toContain('test-license-wire');
+  });
+
+  it('does not leak bearer or provider-key shaped data from server error responses', async () => {
+    const fetchSpy = vi.mocked(globalThis.fetch);
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: false,
+          reason: 'missing-license',
+          message: 'debug Bearer test-license-wire and xai-secret1234567890',
+        }),
+        { status: 401, headers: { 'content-type': 'application/json' } }
+      )
+    );
+    await call('command-eve.multimodal-tts-consent-set', {
+      data: { consent: true, privacyLane: 'cloud_auto' },
+    });
+
+    const result = await call('command-eve.multimodal-tts', {
+      data: { text: 'Assistant answer', language: 'de-DE' },
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.data).toMatchObject({
+      ok: false,
+      reason_code: 'missing-license',
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const serialized = JSON.stringify(result.data);
+    expect(serialized).toContain('[REDACTED]');
+    expect(serialized).not.toContain('test-license-wire');
+    expect(serialized).not.toContain('xai-secret1234567890');
   });
 });

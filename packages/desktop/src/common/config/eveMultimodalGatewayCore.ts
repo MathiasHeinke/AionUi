@@ -582,9 +582,16 @@ function stringField(record: Record<string, unknown>, key: string): string | und
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+function redactServerControlledMessage(value: string): string {
+  return value
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{6,}/gi, 'Bearer [REDACTED]')
+    .replace(/\b(?:sk-or-v1|sk|xai)-[A-Za-z0-9._-]{6,}\b/g, '[REDACTED]')
+    .replace(/\b[A-Za-z0-9._~+/=-]{32,}\b/g, '[REDACTED]');
+}
+
 function messageField(record: Record<string, unknown>, key: string): string | undefined {
   const value = stringField(record, key);
-  return value ? value.replace(/\s+/g, ' ').slice(0, 300) : undefined;
+  return value ? redactServerControlledMessage(value.replace(/\s+/g, ' ').slice(0, 300)) : undefined;
 }
 
 function reasonCodeField(record: Record<string, unknown>, key: string, fallback: string): string {
