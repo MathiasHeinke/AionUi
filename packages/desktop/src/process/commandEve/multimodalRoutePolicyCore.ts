@@ -33,12 +33,18 @@ import {
   type RuntimeGatePrivacyMode,
   type SensitivityClass,
 } from './runtimeGateCore';
+import {
+  decidePrivacyRoute,
+  type PrivacyLaneConfig,
+  type PrivacyLaneId,
+} from './privacyLaneConfigCore';
 
 export type CommandEveMultimodalSmokeStatus = 'pass' | 'fail' | 'not_run';
 
 export type CommandEveMultimodalRouteReasonCode =
   | 'multimodal.route-pass'
   | 'multimodal.provider-blocked'
+  | 'multimodal.privacy-lane-blocked'
   | 'multimodal.runtime-blocked';
 
 export type CommandEveMultimodalRouteArtifactContract = {
@@ -89,6 +95,7 @@ export type CommandEveMultimodalRouteInput = {
   providerSmoke: CommandEveMultimodalSmokeStatus;
   dataClass: SensitivityClass;
   userConsent: boolean;
+  privacyConfig?: PrivacyLaneConfig;
 };
 
 export type CommandEveSpikeDecision =
@@ -124,6 +131,24 @@ function smokeStateForProvider(status: CommandEveMultimodalSmokeStatus): Capabil
   if (status === 'pass') return 'active';
   if (status === 'fail') return 'smoke_failed';
   return 'deferred';
+}
+
+export function privacyLaneIdForMultimodalCapability(
+  capability: CommandEveMultimodalCapability
+): Extract<PrivacyLaneId, 'vision_cloud' | 'image_cloud' | 'video_cloud' | 'tts_cloud' | 'stt_cloud'> {
+  switch (capability) {
+    case 'vision':
+      return 'vision_cloud';
+    case 'image_generation':
+      return 'image_cloud';
+    case 'video_generation':
+      return 'video_cloud';
+    case 'tts':
+    case 'realtime_voice':
+      return 'tts_cloud';
+    case 'stt':
+      return 'stt_cloud';
+  }
 }
 
 function titleForCapability(capability: CommandEveMultimodalCapability): string {
@@ -229,6 +254,31 @@ export function decideCommandEveMultimodalRoute(
         model: gate.contract?.model,
       }),
     };
+  }
+
+  if (input.privacyConfig) {
+    const privacyDecision = decidePrivacyRoute(
+      input.privacyConfig,
+      privacyLaneIdForMultimodalCapability(input.capability),
+      input.dataClass
+    );
+    if (!privacyDecision.ok) {
+      return {
+        ok: false,
+        reasonCode: 'multimodal.privacy-lane-blocked',
+        providerReasonCode: privacyDecision.reasonCode,
+        humanGate: privacyDecision.humanGate,
+        failureArtifact: buildBlockedMultimodalArtifact({
+          requestId: input.requestId,
+          title: `${titleForCapability(input.capability)} blocked`,
+          error: `Privacy lane blocked multimodal execution: ${privacyDecision.reasonCode}`,
+          dataClass: input.dataClass,
+          humanGate: privacyDecision.humanGate,
+          provider: gate.contract.provider,
+          model: gate.contract.model,
+        }),
+      };
+    }
   }
 
   const runtimeGate = decideRuntimeGate({
