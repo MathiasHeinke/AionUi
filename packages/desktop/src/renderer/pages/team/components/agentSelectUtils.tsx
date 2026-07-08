@@ -4,6 +4,12 @@ import { getAgentLogo } from '@renderer/utils/model/agentLogo';
 import { CUSTOM_AVATAR_IMAGE_MAP } from '@renderer/pages/guid/constants';
 import type { AgentMetadata } from '@renderer/utils/model/agentTypes';
 import type { Assistant } from '@/common/types/agent/assistantTypes';
+import {
+  COMMAND_EVE_APP_NAME,
+  COMMAND_EVE_ASSISTANT_AVATAR,
+  COMMAND_EVE_ASSISTANT_ID,
+  COMMAND_EVE_DEFAULT_ACP_BACKEND,
+} from '@/common/config/commandEveShell';
 import { resolveBackendAssetUrl } from '@renderer/utils/platform';
 import {
   isDeprecatedRuntimeAgentType,
@@ -26,6 +32,8 @@ export type TeamAgentOption = {
   /** Icon / avatar token — an SVG filename, emoji, or key into
    *  `CUSTOM_AVATAR_IMAGE_MAP`. */
   icon?: string;
+  /** User-facing label when a raw backend is intentionally masked behind a product surface. */
+  displayName?: string;
   /** Whether this agent supports team mode. Sourced from backend `team_capable` field. */
   team_capable?: boolean;
 };
@@ -68,11 +76,37 @@ export function filterTeamSupportedAgents(agents: TeamAgentOption[]): TeamAgentO
   return agents.filter((a) => a.team_capable && !isDeprecatedRuntimeAgentType(a.agent_type));
 }
 
+function asCommandEveTeamLeader(agent: TeamAgentOption): TeamAgentOption {
+  return {
+    ...agent,
+    displayName: COMMAND_EVE_APP_NAME,
+    icon: agent.icon || COMMAND_EVE_ASSISTANT_AVATAR,
+  };
+}
+
+function isCommandEveAssistant(agent: TeamAgentOption): boolean {
+  return agent.id === COMMAND_EVE_ASSISTANT_ID;
+}
+
+function isHermesCommandEveBackend(agent: TeamAgentOption): boolean {
+  return agent.backend === COMMAND_EVE_DEFAULT_ACP_BACKEND || agent.id === COMMAND_EVE_DEFAULT_ACP_BACKEND;
+}
+
+export function filterUserVisibleTeamLeaderAgents(agents: TeamAgentOption[]): TeamAgentOption[] {
+  const supported = filterTeamSupportedAgents(agents);
+  const commandEveAssistant = supported.find(isCommandEveAssistant);
+  if (commandEveAssistant) return [asCommandEveTeamLeader(commandEveAssistant)];
+
+  const hermesFallback = supported.find(isHermesCommandEveBackend);
+  return hermesFallback ? [asCommandEveTeamLeader(hermesFallback)] : [];
+}
+
 export function resolveConversationType(backend: string): 'acp' | 'aionrs' {
   return resolveSupportedConversationType(backend);
 }
 
 export const AgentOptionLabel: React.FC<{ agent: TeamAgentOption }> = ({ agent }) => {
+  const label = agent.displayName || agent.name;
   const logo = getAgentLogo(agent.backend);
   const avatarImage = agent.icon ? CUSTOM_AVATAR_IMAGE_MAP[agent.icon] : undefined;
   const directIcon =
@@ -85,17 +119,17 @@ export const AgentOptionLabel: React.FC<{ agent: TeamAgentOption }> = ({ agent }
   return (
     <div className='flex items-center gap-8px'>
       {avatarImage ? (
-        <img src={avatarImage} alt={agent.name} style={{ width: 16, height: 16, objectFit: 'contain' }} />
+        <img src={avatarImage} alt={label} style={{ width: 16, height: 16, objectFit: 'contain' }} />
       ) : isEmoji ? (
         <span style={{ fontSize: 14, lineHeight: '16px' }}>{agent.icon}</span>
       ) : directIcon ? (
-        <img src={directIcon} alt={agent.name} style={{ width: 16, height: 16, objectFit: 'contain' }} />
+        <img src={directIcon} alt={label} style={{ width: 16, height: 16, objectFit: 'contain' }} />
       ) : logo ? (
-        <img src={logo} alt={agent.name} style={{ width: 16, height: 16, objectFit: 'contain' }} />
+        <img src={logo} alt={label} style={{ width: 16, height: 16, objectFit: 'contain' }} />
       ) : (
         <Robot size='16' />
       )}
-      <span>{agent.name}</span>
+      <span>{label}</span>
     </div>
   );
 };

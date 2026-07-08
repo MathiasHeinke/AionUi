@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Form, Input, Message, Tooltip } from '@arco-design/web-react';
+import { Button, Form, Input, Message } from '@arco-design/web-react';
 import type { RefInputType } from '@arco-design/web-react/es/Input/interface';
-import { Close, Search, CloseSmall } from '@icon-park/react';
+import { Close } from '@icon-park/react';
 import { useTranslation } from 'react-i18next';
 import { ipcBridge } from '@/common';
 import type { TTeam, TeamAgent } from '@/common/types/team/teamTypes';
@@ -15,7 +15,7 @@ import {
   agentFromKey,
   resolveConversationType,
   resolveTeamAgentType,
-  filterTeamSupportedAgents,
+  filterUserVisibleTeamLeaderAgents,
   AgentOptionLabel,
   cliAgentToOption,
   assistantToOption,
@@ -68,20 +68,7 @@ const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
   const [dispatchAgentKey, setDispatchAgentKey] = useState<string | undefined>(undefined);
   const [workspace, setWorkspace] = useState('');
   const [loading, setLoading] = useState(false);
-  const [search, setSearch] = useState('');
-  const [searchExpanded, setSearchExpanded] = useState(false);
   const nameInputRef = useRef<RefInputType | null>(null);
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
-
-  const handleToggleSearch = () => {
-    if (searchExpanded) {
-      setSearch('');
-      setSearchExpanded(false);
-    } else {
-      setSearchExpanded(true);
-      setTimeout(() => searchInputRef.current?.focus(), 50);
-    }
-  };
 
   const cliAgentOptions = useMemo(() => cliAgents.map(cliAgentToOption), [cliAgents]);
   const teamCapableKeys = useMemo(
@@ -97,28 +84,10 @@ const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
     () => presetAssistants.map((a) => assistantToOption(a, teamCapableKeys)),
     [presetAssistants, teamCapableKeys]
   );
-  const allAgents = filterTeamSupportedAgents([...cliAgentOptions, ...presetAssistantOptions]);
-
-  const { supportedCliAgents, supportedPresetAssistants } = useMemo(() => {
-    const supportedKeys = new Set(allAgents.map(agentKey));
-    return {
-      supportedCliAgents: cliAgentOptions.filter((a) => supportedKeys.has(agentKey(a))),
-      supportedPresetAssistants: presetAssistantOptions.filter((a) => supportedKeys.has(agentKey(a))),
-    };
-  }, [allAgents, cliAgentOptions, presetAssistantOptions]);
-
-  const { filteredCliAgents, filteredPresetAssistants } = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) {
-      return { filteredCliAgents: supportedCliAgents, filteredPresetAssistants: supportedPresetAssistants };
-    }
-    return {
-      filteredCliAgents: supportedCliAgents.filter((a) => a.name.toLowerCase().includes(q)),
-      filteredPresetAssistants: supportedPresetAssistants.filter((a) => a.name.toLowerCase().includes(q)),
-    };
-  }, [supportedCliAgents, supportedPresetAssistants, search]);
-
-  const hasSearchResults = filteredCliAgents.length > 0 || filteredPresetAssistants.length > 0;
+  const allAgents = useMemo(
+    () => filterUserVisibleTeamLeaderAgents([...cliAgentOptions, ...presetAssistantOptions]),
+    [cliAgentOptions, presetAssistantOptions]
+  );
 
   useEffect(() => {
     if (visible) {
@@ -126,12 +95,18 @@ const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
     }
   }, [visible]);
 
+  useEffect(() => {
+    if (!visible) return;
+    const nextAgentKey = allAgents[0] ? agentKey(allAgents[0]) : undefined;
+    setDispatchAgentKey((current) =>
+      current && allAgents.some((agent) => agentKey(agent) === current) ? current : nextAgentKey
+    );
+  }, [visible, allAgents]);
+
   const handleClose = () => {
     setName('');
     setDispatchAgentKey(undefined);
     setWorkspace('');
-    setSearch('');
-    setSearchExpanded(false);
     onClose();
   };
 
@@ -286,40 +261,21 @@ const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
               </div>
             ) : (
               <div className='relative flex flex-col gap-8px'>
-                {/* 搜索框（点搜索图标后展开） */}
-                {searchExpanded && (
-                  <div className='flex items-center gap-8px rounded-8px border border-border-2 bg-bg-2 px-12px py-8px focus-within:border-primary-6'>
-                    <Search size='14' fill='currentColor' className='flex-shrink-0 text-t-tertiary' />
-                    <input
-                      ref={searchInputRef}
-                      className='flex-1 border-none bg-transparent text-13px text-t-primary outline-none placeholder:text-t-tertiary'
-                      placeholder={t('team.create.searchPlaceholder', { defaultValue: 'Search agents...' })}
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      data-testid='team-create-leader-search'
-                    />
-                  </div>
-                )}
-
-                {/* 列表 —— 根据 agent 数量自适应，最大 320px */}
-                <div className='max-h-320px overflow-y-auto rounded-12px border border-border-2 bg-fill-1 p-6px'>
-                  {!hasSearchResults ? (
-                    <div className='flex items-center justify-center py-20px text-12px text-t-tertiary'>
-                      {t('team.create.noSearchResults', { defaultValue: 'No results found' })}
-                    </div>
-                  ) : (
-                    [...filteredCliAgents, ...filteredPresetAssistants].map((agent) => {
-                      const key = agentKey(agent);
-                      return (
-                        <AgentRadioRow
-                          key={key}
-                          agent={agent}
-                          isSelected={dispatchAgentKey === key}
-                          onClick={() => handleSelectLeader(key)}
-                        />
-                      );
-                    })
-                  )}
+                <div
+                  className='max-h-320px overflow-y-auto rounded-12px border border-border-2 bg-fill-1 p-6px'
+                  data-testid='team-create-leader-select'
+                >
+                  {allAgents.map((agent) => {
+                    const key = agentKey(agent);
+                    return (
+                      <AgentRadioRow
+                        key={key}
+                        agent={agent}
+                        isSelected={dispatchAgentKey === key}
+                        onClick={() => handleSelectLeader(key)}
+                      />
+                    );
+                  })}
                 </div>
               </div>
             )}
