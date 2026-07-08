@@ -38,6 +38,8 @@ const originalCreateObjectUrl = Object.getOwnPropertyDescriptor(URL, 'createObje
 const originalRevokeObjectUrl = Object.getOwnPropertyDescriptor(URL, 'revokeObjectURL');
 const spokenUtterances: FakeSpeechSynthesisUtterance[] = [];
 const playedAudios: FakeAudio[] = [];
+let deferredAudioPlay: Promise<void> | null = null;
+let rejectNextAudioPlay = false;
 
 class FakeAudio {
   onended: (() => void) | null = null;
@@ -47,6 +49,13 @@ class FakeAudio {
   removeAttribute = vi.fn();
   load = vi.fn();
   play = vi.fn(async () => {
+    if (rejectNextAudioPlay) {
+      rejectNextAudioPlay = false;
+      throw new Error('blocked');
+    }
+    if (deferredAudioPlay) {
+      await deferredAudioPlay;
+    }
     this.onplay?.();
   });
 
@@ -78,6 +87,7 @@ function installElectronSurface() {
 
 function installCloudAudioSurface() {
   playedAudios.length = 0;
+  deferredAudioPlay = null;
   vi.stubGlobal('Audio', FakeAudio);
   vi.stubGlobal('atob', (value: string) => Buffer.from(value, 'base64').toString('binary'));
   Object.defineProperty(URL, 'createObjectURL', {
@@ -122,6 +132,8 @@ function restoreObjectUrl() {
 describe('ReadAloudService', () => {
   afterEach(() => {
     stopReadAloud();
+    deferredAudioPlay = null;
+    rejectNextAudioPlay = false;
     restoreSpeechSynthesis();
     restoreElectronSurface();
     restoreObjectUrl();
@@ -153,6 +165,7 @@ describe('ReadAloudService', () => {
     installElectronSurface();
     installCloudAudioSurface();
     installSpeechSynthesis();
+    const onCloudArtifact = vi.fn();
     const onEnd = vi.fn();
     const onStart = vi.fn();
     multimodalTtsStatusInvokeMock.mockResolvedValue({
@@ -165,7 +178,10 @@ describe('ReadAloudService', () => {
     multimodalTtsInvokeMock.mockResolvedValue({
       success: true,
       data: {
+        capability: 'tts',
         ok: true,
+        provider: 'xai',
+        reason: 'provider-complete',
         artifact: {
           bytes: 4,
           data_base64: Buffer.from('tone').toString('base64'),
@@ -174,10 +190,20 @@ describe('ReadAloudService', () => {
           mime_type: 'audio/mpeg',
           status: 'created',
         },
+        residency: {
+          confirmation: 'explicit-us-cloud',
+          effectiveResidency: 'us_cloud',
+          requestedPrivacyLane: 'cloud_us',
+        },
+        tts: {
+          language: 'de-DE',
+          text_length: 16,
+          voice_id: 'eve',
+        },
       },
     });
 
-    expect(await readAloudText('Assistant answer', { lang: 'de-DE', onEnd, onStart })).toBe(true);
+    expect(await readAloudText('Assistant answer', { lang: 'de-DE', onCloudArtifact, onEnd, onStart })).toBe(true);
 
     expect(multimodalTtsInvokeMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -188,9 +214,109 @@ describe('ReadAloudService', () => {
     );
     expect(window.speechSynthesis.speak).not.toHaveBeenCalled();
     expect(onStart).toHaveBeenCalledTimes(1);
+    expect(onCloudArtifact).toHaveBeenCalledWith(
+      expect.objectContaining({
+        artifact: expect.objectContaining({ bytes: 4, mime_type: 'audio/mpeg' }),
+        provider: 'xai',
+        requestId: expect.stringMatching(/^read-aloud-/),
+        sourceUrl: `data:audio/mpeg;base64,${Buffer.from('tone').toString('base64')}`,
+      })
+    );
     playedAudios[0].onended?.();
     expect(onEnd).toHaveBeenCalledTimes(1);
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:read-aloud');
+  });
+
+  it('does not publish a cloud artifact when playback fails and local speech handles the text', async () => {
+    installElectronSurface();
+    installCloudAudioSurface();
+    installSpeechSynthesis();
+    const onCloudArtifact = vi.fn();
+    rejectNextAudioPlay = true;
+    multimodalTtsStatusInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        enabled: true,
+        reason_code: 'EVE_MULTIMODAL_TTS_READY',
+      },
+    });
+    multimodalTtsInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        capability: 'tts',
+        ok: true,
+        provider: 'xai',
+        reason: 'provider-complete',
+        artifact: {
+          bytes: 4,
+          data_base64: Buffer.from('tone').toString('base64'),
+          encoding: 'base64',
+          kind: 'audio',
+          mime_type: 'audio/mpeg',
+          status: 'created',
+        },
+        residency: {
+          confirmation: 'explicit-us-cloud',
+          effectiveResidency: 'us_cloud',
+          requestedPrivacyLane: 'cloud_us',
+        },
+      },
+    });
+
+    expect(await readAloudText('Assistant answer', { onCloudArtifact })).toBe(true);
+
+    expect(onCloudArtifact).not.toHaveBeenCalled();
+    expect(window.speechSynthesis.speak).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not publish a cloud artifact from a superseded read-aloud run', async () => {
+    installElectronSurface();
+    installCloudAudioSurface();
+    installSpeechSynthesis();
+    const onCloudArtifact = vi.fn();
+    let releasePlayback!: () => void;
+    deferredAudioPlay = new Promise<void>((resolve) => {
+      releasePlayback = resolve;
+    });
+    multimodalTtsStatusInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        enabled: true,
+        reason_code: 'EVE_MULTIMODAL_TTS_READY',
+      },
+    });
+    multimodalTtsInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        capability: 'tts',
+        ok: true,
+        provider: 'xai',
+        reason: 'provider-complete',
+        artifact: {
+          bytes: 4,
+          data_base64: Buffer.from('tone').toString('base64'),
+          encoding: 'base64',
+          kind: 'audio',
+          mime_type: 'audio/mpeg',
+          status: 'created',
+        },
+        residency: {
+          confirmation: 'explicit-us-cloud',
+          effectiveResidency: 'us_cloud',
+          requestedPrivacyLane: 'cloud_us',
+        },
+      },
+    });
+
+    const firstRead = readAloudText('Assistant answer', { onCloudArtifact });
+    await vi.waitFor(() => {
+      expect(playedAudios).toHaveLength(1);
+    });
+    stopReadAloud();
+    releasePlayback();
+
+    expect(await firstRead).toBe(true);
+    expect(onCloudArtifact).not.toHaveBeenCalled();
   });
 
   it('falls back to local speech when cloud TTS is not ready', async () => {
@@ -224,7 +350,10 @@ describe('ReadAloudService', () => {
     multimodalTtsInvokeMock.mockResolvedValue({
       success: true,
       data: {
+        capability: 'tts',
         ok: true,
+        provider: 'xai',
+        reason: 'provider-complete',
         artifact: {
           bytes: 4,
           data_base64: Buffer.from('tone').toString('base64'),
@@ -232,6 +361,11 @@ describe('ReadAloudService', () => {
           kind: 'audio',
           mime_type: 'audio/mpeg',
           status: 'created',
+        },
+        residency: {
+          confirmation: 'explicit-us-cloud',
+          effectiveResidency: 'us_cloud',
+          requestedPrivacyLane: 'cloud_us',
         },
       },
     });

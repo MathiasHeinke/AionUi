@@ -1,9 +1,24 @@
 import { ipcBridge } from '@/common';
-import type { CommandEveMultimodalTtsArtifact } from '@/common/config/eveMultimodalGatewayCore';
+import type {
+  CommandEveMultimodalTtsArtifact,
+  CommandEveMultimodalTtsReceipt,
+  CommandEveMultimodalTtsResidency,
+} from '@/common/config/eveMultimodalGatewayCore';
 import { isElectronDesktop } from '@/renderer/utils/platform';
+
+export type ReadAloudCloudArtifact = {
+  requestId: string;
+  sourceUrl: string;
+  artifact: CommandEveMultimodalTtsArtifact;
+  provider: 'xai';
+  residency: CommandEveMultimodalTtsResidency;
+  tts?: CommandEveMultimodalTtsReceipt;
+  createdAt: number;
+};
 
 type ReadAloudOptions = {
   lang?: string;
+  onCloudArtifact?: (artifact: ReadAloudCloudArtifact) => void;
   onEnd?: () => void;
   onError?: (event: SpeechSynthesisErrorEvent) => void;
   onStart?: () => void;
@@ -73,6 +88,9 @@ const buildAudioBlobFromArtifact = (artifact: CommandEveMultimodalTtsArtifact) =
   return new Blob([bytes], { type: artifact.mime_type });
 };
 
+const buildAudioDataUrlFromArtifact = (artifact: CommandEveMultimodalTtsArtifact) =>
+  `data:${artifact.mime_type};base64,${artifact.data_base64}`;
+
 const playCloudAudioArtifact = async (
   artifact: CommandEveMultimodalTtsArtifact,
   options: ReadAloudOptions | undefined,
@@ -134,9 +152,10 @@ const tryCloudReadAloud = async (text: string, options: ReadAloudOptions | undef
       return runId !== activeReadAloudRunId;
     }
 
+    const requestId = createReadAloudRequestId();
     const response = await ipcBridge.commandEve.multimodalTts.invoke({
       language: options?.lang,
-      requestId: createReadAloudRequestId(),
+      requestId,
       text,
       voiceId: COMMAND_EVE_READ_ALOUD_VOICE_ID,
     });
@@ -146,7 +165,19 @@ const tryCloudReadAloud = async (text: string, options: ReadAloudOptions | undef
     if (!response.success || !response.data?.ok) {
       return false;
     }
-    return playCloudAudioArtifact(response.data.artifact, options, runId);
+    const didPlay = await playCloudAudioArtifact(response.data.artifact, options, runId);
+    if (didPlay && runId === activeReadAloudRunId) {
+      options?.onCloudArtifact?.({
+        requestId,
+        sourceUrl: buildAudioDataUrlFromArtifact(response.data.artifact),
+        artifact: response.data.artifact,
+        provider: response.data.provider,
+        residency: response.data.residency,
+        tts: response.data.tts,
+        createdAt: Date.now(),
+      });
+    }
+    return didPlay;
   } catch {
     return false;
   }

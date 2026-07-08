@@ -5,10 +5,16 @@
  */
 
 import type { IMessageText } from '@/common/chat/chatLib';
+import type { IGeneratedConversationArtifact } from '@/common/adapter/ipcBridge';
 import { AIONUI_FILES_MARKER } from '@/common/config/constants';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
-import { isReadAloudAvailable, readAloudText, stopReadAloud } from '@/renderer/services/ReadAloudService';
+import {
+  isReadAloudAvailable,
+  readAloudText,
+  stopReadAloud,
+  type ReadAloudCloudArtifact,
+} from '@/renderer/services/ReadAloudService';
 import { iconColors } from '@/renderer/styles/colors';
 import { Alert, Button, Message, Tooltip } from '@arco-design/web-react';
 import { Copy, PauseOne, VolumeNotice } from '@icon-park/react';
@@ -22,6 +28,7 @@ import HorizontalFileList from '@renderer/components/media/HorizontalFileList';
 import MarkdownView from '@renderer/components/Markdown';
 import { stripThinkTags, hasThinkTags } from '@renderer/utils/chat/thinkTagFilter';
 import { stripSkillSuggest, hasSkillSuggest } from '@renderer/utils/chat/skillSuggestParser';
+import { useUpsertConversationArtifact } from '@renderer/pages/conversation/Messages/artifacts';
 
 /**
  * Format a timestamp for message display.
@@ -123,6 +130,7 @@ const MessageText: React.FC<{ message: IMessageText }> = ({ message }) => {
   const isTeammateMessage = message.position === 'left' && message.content.teammateMessage === true;
   const shouldRenderPlainText = isUserMessage;
   const conversationContext = useConversationContextSafe();
+  const upsertConversationArtifact = useUpsertConversationArtifact();
   const layout = useLayoutContext();
   const isMobile = layout?.isMobile ?? false;
   const resolvedFiles = useMemo(
@@ -161,6 +169,30 @@ const MessageText: React.FC<{ message: IMessageText }> = ({ message }) => {
 
   const readAloudTextValue = shouldRenderPlainText ? text : json ? JSON.stringify(data, null, 2) : text;
   const canReadAloud = !isUserMessage && readAloudTextValue.trim().length > 0 && isReadAloudAvailable();
+  const createReadAloudArtifact = (cloudArtifact: ReadAloudCloudArtifact): IGeneratedConversationArtifact | null => {
+    if (!conversationContext?.conversation_id) {
+      return null;
+    }
+    const createdAt = cloudArtifact.createdAt;
+    return {
+      id: `read-aloud-artifact-${message.id}`,
+      conversation_id: conversationContext.conversation_id,
+      kind: 'audio',
+      status: 'active',
+      payload: {
+        artifact_type: 'audio',
+        title: t('messages.artifact.generated', { type: t('messages.artifact.audio') }),
+        // Ephemeral React-context preview only. Persisted artifacts must switch to hosted URLs.
+        src: cloudArtifact.sourceUrl,
+        mime_type: cloudArtifact.artifact.mime_type,
+        size: cloudArtifact.artifact.bytes,
+        provider: cloudArtifact.provider,
+        model: cloudArtifact.tts?.voice_id,
+      },
+      created_at: createdAt,
+      updated_at: createdAt,
+    };
+  };
 
   const handleReadAloud = () => {
     if (isReadingAloud) {
@@ -171,6 +203,12 @@ const MessageText: React.FC<{ message: IMessageText }> = ({ message }) => {
     setIsReadingAloud(true);
     void readAloudText(readAloudTextValue, {
       lang: i18n.language,
+      onCloudArtifact: (cloudArtifact) => {
+        const artifact = createReadAloudArtifact(cloudArtifact);
+        if (artifact) {
+          upsertConversationArtifact(artifact);
+        }
+      },
       onEnd: () => setIsReadingAloud(false),
       onError: () => {
         setIsReadingAloud(false);

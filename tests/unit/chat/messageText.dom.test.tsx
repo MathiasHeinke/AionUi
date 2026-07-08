@@ -11,11 +11,14 @@ import type { IMessageText } from '@/common/chat/chatLib';
 import { ConversationProvider } from '@/renderer/hooks/context/ConversationContext';
 import MessageText from '@/renderer/pages/conversation/Messages/components/MessageText';
 
-const { readAloudTextMock, isReadAloudAvailableMock, stopReadAloudMock } = vi.hoisted(() => ({
-  isReadAloudAvailableMock: vi.fn(() => true),
-  readAloudTextMock: vi.fn(() => Promise.resolve(true)),
-  stopReadAloudMock: vi.fn(),
-}));
+const { readAloudTextMock, isReadAloudAvailableMock, stopReadAloudMock, upsertConversationArtifactMock } = vi.hoisted(
+  () => ({
+    isReadAloudAvailableMock: vi.fn(() => true),
+    readAloudTextMock: vi.fn(() => Promise.resolve(true)),
+    stopReadAloudMock: vi.fn(),
+    upsertConversationArtifactMock: vi.fn(),
+  })
+);
 const mockFilePreview = vi.fn(({ path }: { path: string }) => <div data-testid='file-preview'>{path}</div>);
 
 vi.mock('@/renderer/components/chat/CollapsibleContent', () => ({
@@ -62,6 +65,10 @@ vi.mock('@/renderer/services/ReadAloudService', () => ({
   stopReadAloud: stopReadAloudMock,
 }));
 
+vi.mock('@renderer/pages/conversation/Messages/artifacts', () => ({
+  useUpsertConversationArtifact: () => upsertConversationArtifactMock,
+}));
+
 vi.mock('@arco-design/web-react', () => ({
   Alert: () => null,
   Button: ({
@@ -101,6 +108,7 @@ describe('MessageText attachment paths', () => {
     vi.clearAllMocks();
     isReadAloudAvailableMock.mockReturnValue(true);
     readAloudTextMock.mockResolvedValue(true);
+    upsertConversationArtifactMock.mockReset();
   });
 
   it('resolves relative attachment paths against the current workspace before previewing', () => {
@@ -117,7 +125,7 @@ describe('MessageText attachment paths', () => {
     };
 
     render(
-      <ConversationProvider value={{ conversationId: 'conv-1', workspace: '/workspace/demo', type: 'acp' }}>
+      <ConversationProvider value={{ conversation_id: 'conv-1', workspace: '/workspace/demo', type: 'acp' }}>
         <MessageText message={message} />
       </ConversationProvider>
     );
@@ -139,7 +147,7 @@ describe('MessageText attachment paths', () => {
     };
 
     render(
-      <ConversationProvider value={{ conversationId: 'conv-1', workspace: '/workspace/demo', type: 'acp' }}>
+      <ConversationProvider value={{ conversation_id: 'conv-1', workspace: '/workspace/demo', type: 'acp' }}>
         <MessageText message={message} />
       </ConversationProvider>
     );
@@ -161,7 +169,7 @@ describe('MessageText attachment paths', () => {
     };
 
     render(
-      <ConversationProvider value={{ conversationId: 'conv-1', workspace: '/workspace/demo', type: 'acp' }}>
+      <ConversationProvider value={{ conversation_id: 'conv-1', workspace: '/workspace/demo', type: 'acp' }}>
         <MessageText message={message} />
       </ConversationProvider>
     );
@@ -169,6 +177,150 @@ describe('MessageText attachment paths', () => {
     screen.getByLabelText('conversation.chat.readAloudTooltip').click();
 
     expect(readAloudTextMock).toHaveBeenCalledWith('Assistant answer', expect.objectContaining({ lang: 'en-US' }));
+  });
+
+  it('adds successful cloud read-aloud audio to the conversation artifact timeline', () => {
+    const message: IMessageText = {
+      id: 'msg-voice',
+      msg_id: 'msg-voice',
+      conversation_id: 'conv-1',
+      type: 'text',
+      position: 'left',
+      createdAt: Date.now(),
+      content: {
+        content: 'Assistant answer',
+      },
+    };
+
+    render(
+      <ConversationProvider value={{ conversation_id: 'conv-1', workspace: '/workspace/demo', type: 'acp' }}>
+        <MessageText message={message} />
+      </ConversationProvider>
+    );
+
+    fireEvent.click(screen.getByLabelText('conversation.chat.readAloudTooltip'));
+    const options = readAloudTextMock.mock.calls[0]?.[1];
+    options.onCloudArtifact({
+      artifact: {
+        bytes: 4,
+        data_base64: 'dG9uZQ==',
+        encoding: 'base64',
+        kind: 'audio',
+        mime_type: 'audio/mpeg',
+        status: 'created',
+      },
+      createdAt: 1234,
+      provider: 'xai',
+      requestId: 'read-aloud-request',
+      residency: {
+        confirmation: 'explicit-us-cloud',
+        effectiveResidency: 'us_cloud',
+        requestedPrivacyLane: 'cloud_us',
+      },
+      sourceUrl: 'data:audio/mpeg;base64,dG9uZQ==',
+      tts: {
+        language: 'en-US',
+        text_length: 16,
+        voice_id: 'eve',
+      },
+    });
+
+    expect(upsertConversationArtifactMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversation_id: 'conv-1',
+        created_at: 1234,
+        id: 'read-aloud-artifact-msg-voice',
+        kind: 'audio',
+        payload: expect.objectContaining({
+          artifact_type: 'audio',
+          mime_type: 'audio/mpeg',
+          model: 'eve',
+          provider: 'xai',
+          size: 4,
+          src: 'data:audio/mpeg;base64,dG9uZQ==',
+          title: 'messages.artifact.generated',
+        }),
+        status: 'active',
+        updated_at: 1234,
+      })
+    );
+  });
+
+  it('replaces the read-aloud artifact for the same message on repeated cloud playback', () => {
+    const message: IMessageText = {
+      id: 'msg-repeat',
+      msg_id: 'msg-repeat',
+      conversation_id: 'conv-1',
+      type: 'text',
+      position: 'left',
+      createdAt: Date.now(),
+      content: {
+        content: 'Assistant answer',
+      },
+    };
+
+    render(
+      <ConversationProvider value={{ conversation_id: 'conv-1', workspace: '/workspace/demo', type: 'acp' }}>
+        <MessageText message={message} />
+      </ConversationProvider>
+    );
+
+    fireEvent.click(screen.getByLabelText('conversation.chat.readAloudTooltip'));
+    const options = readAloudTextMock.mock.calls[0]?.[1];
+    options.onCloudArtifact({
+      artifact: {
+        bytes: 4,
+        data_base64: 'dG9uZQ==',
+        encoding: 'base64',
+        kind: 'audio',
+        mime_type: 'audio/mpeg',
+        status: 'created',
+      },
+      createdAt: 1234,
+      provider: 'xai',
+      requestId: 'first-request',
+      residency: {
+        confirmation: 'explicit-us-cloud',
+        effectiveResidency: 'us_cloud',
+        requestedPrivacyLane: 'cloud_us',
+      },
+      sourceUrl: 'data:audio/mpeg;base64,dG9uZQ==',
+    });
+    options.onCloudArtifact({
+      artifact: {
+        bytes: 5,
+        data_base64: 'dm9pY2U=',
+        encoding: 'base64',
+        kind: 'audio',
+        mime_type: 'audio/mpeg',
+        status: 'created',
+      },
+      createdAt: 2345,
+      provider: 'xai',
+      requestId: 'second-request',
+      residency: {
+        confirmation: 'explicit-us-cloud',
+        effectiveResidency: 'us_cloud',
+        requestedPrivacyLane: 'cloud_us',
+      },
+      sourceUrl: 'data:audio/mpeg;base64,dm9pY2U=',
+    });
+
+    expect(upsertConversationArtifactMock).toHaveBeenCalledTimes(2);
+    expect(upsertConversationArtifactMock.mock.calls.map(([artifact]) => artifact.id)).toEqual([
+      'read-aloud-artifact-msg-repeat',
+      'read-aloud-artifact-msg-repeat',
+    ]);
+    expect(upsertConversationArtifactMock.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        created_at: 2345,
+        payload: expect.objectContaining({
+          size: 5,
+          src: 'data:audio/mpeg;base64,dm9pY2U=',
+        }),
+        updated_at: 2345,
+      })
+    );
   });
 
   it('does not show read-aloud controls on user messages', () => {
@@ -185,7 +337,7 @@ describe('MessageText attachment paths', () => {
     };
 
     render(
-      <ConversationProvider value={{ conversationId: 'conv-1', workspace: '/workspace/demo', type: 'acp' }}>
+      <ConversationProvider value={{ conversation_id: 'conv-1', workspace: '/workspace/demo', type: 'acp' }}>
         <MessageText message={message} />
       </ConversationProvider>
     );
@@ -207,7 +359,7 @@ describe('MessageText attachment paths', () => {
     };
 
     render(
-      <ConversationProvider value={{ conversationId: 'conv-1', workspace: '/workspace/demo', type: 'acp' }}>
+      <ConversationProvider value={{ conversation_id: 'conv-1', workspace: '/workspace/demo', type: 'acp' }}>
         <MessageText message={message} />
       </ConversationProvider>
     );
@@ -235,7 +387,7 @@ describe('MessageText attachment paths', () => {
     };
 
     const { unmount } = render(
-      <ConversationProvider value={{ conversationId: 'conv-1', workspace: '/workspace/demo', type: 'acp' }}>
+      <ConversationProvider value={{ conversation_id: 'conv-1', workspace: '/workspace/demo', type: 'acp' }}>
         <MessageText message={message} />
       </ConversationProvider>
     );
