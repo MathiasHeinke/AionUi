@@ -598,7 +598,10 @@ function reasonCodeField(record: Record<string, unknown>, key: string, fallback:
   const value = stringField(record, key);
   if (!value) return fallback;
   const cleaned = value.slice(0, 128);
-  return /^[A-Za-z0-9_.-]+$/.test(cleaned) ? cleaned : fallback;
+  if (!/^[A-Za-z0-9_.-]+$/.test(cleaned)) return fallback;
+  if (cleaned.length > 64) return fallback;
+  if (/^(?:sk-or-v1|sk|xai)-/i.test(cleaned)) return fallback;
+  return cleaned;
 }
 
 function positiveNumberField(record: Record<string, unknown>, key: string): number | undefined {

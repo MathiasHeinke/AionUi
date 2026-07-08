@@ -237,6 +237,32 @@ describe('Command EVE multimodal TTS desktop client core', () => {
     expect(message).not.toContain('abcdefghijklmnopqrstuvwxyz123456');
   });
 
+  it('rejects key-shaped server-controlled reason codes before returning them', () => {
+    expect(
+      parseCommandEveMultimodalTtsResponse({
+        ok: false,
+        reason: 'xai-secret1234567890',
+        reason_code: 'provider-error',
+        message: 'Provider failed.',
+      })
+    ).toMatchObject({
+      ok: false,
+      reason_code: 'provider-error',
+    });
+
+    expect(
+      parseCommandEveMultimodalTtsResponse({
+        ok: false,
+        reason: 'a'.repeat(80),
+        reason_code: 'provider-error',
+        message: 'Provider failed.',
+      })
+    ).toMatchObject({
+      ok: false,
+      reason_code: 'provider-error',
+    });
+  });
+
   it('rejects success bodies that are not audio artifacts', () => {
     expect(
       parseCommandEveMultimodalTtsResponse({
