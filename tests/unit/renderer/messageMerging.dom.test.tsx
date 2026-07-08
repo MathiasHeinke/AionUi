@@ -314,6 +314,62 @@ describe('message merging', () => {
     expect(result.current.pagination.hasOlderMessages).toBe(false);
   });
 
+  it('loads repeated older pages to the beginning without losing offset-overlapped turns', async () => {
+    const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
+    invoke.mockClear();
+    invoke
+      .mockResolvedValueOnce({
+        items: [createTextMessage('msg-6', 'newest'), createTextMessage('msg-5', 'recent')],
+        total: 6,
+        has_more: true,
+      })
+      .mockResolvedValueOnce({
+        items: [
+          createTextMessage('msg-5', 'recent'),
+          createTextMessage('msg-4', 'middle'),
+          createTextMessage('msg-3', 'older'),
+        ],
+        total: 6,
+        has_more: true,
+      })
+      .mockResolvedValueOnce({
+        items: [
+          createTextMessage('msg-3', 'older'),
+          createTextMessage('msg-2', 'early'),
+          createTextMessage('msg-1', 'oldest'),
+        ],
+        total: 6,
+        has_more: false,
+      });
+
+    const { result } = renderHook(() => useMessageCacheHarness(), {
+      wrapper: CacheWrapper,
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await result.current.pagination.loadOlderMessages();
+    });
+    await act(async () => {
+      await result.current.pagination.loadOlderMessages();
+    });
+
+    expect(result.current.messages.map((message) => message.msg_id)).toEqual([
+      'msg-1',
+      'msg-2',
+      'msg-3',
+      'msg-4',
+      'msg-5',
+      'msg-6',
+    ]);
+    expect(result.current.pagination.loadedHistoricalMessages).toBe(6);
+    expect(result.current.pagination.totalHistoricalMessages).toBe(6);
+    expect(result.current.pagination.hasOlderMessages).toBe(false);
+  });
+
   it('does not replace the current conversation with a stale initial history response', async () => {
     const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
     const firstConversation = createDeferred<{ items: IMessageText[]; total: number; has_more: boolean }>();

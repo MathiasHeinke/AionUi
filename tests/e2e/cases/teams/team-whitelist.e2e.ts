@@ -6,12 +6,14 @@
  * lanes, not selectable public team leaders.
  */
 import { test, expect } from '../../fixtures';
+import { ensureSiderExpanded } from '../../helpers';
 
 const RAW_WORKER_LABELS = /Claude|Codex|Gemini|Hermes|AionUi|Aion CLI|aionrs/i;
 
 test.describe('Team Agent Public Boundary', () => {
   test('Create Team exposes only Command EVE as the user-visible leader', async ({ page }) => {
     await page.goto(page.url().split('#')[0] + '#/guid');
+    await ensureSiderExpanded(page);
 
     const existingModal = page.locator('.team-create-modal .arco-btn-text');
     if (await existingModal.isVisible({ timeout: 1000 }).catch(() => false)) {

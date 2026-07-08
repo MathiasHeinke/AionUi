@@ -525,6 +525,9 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(providerOverride).toContain('command_eve_is_action_ack');
       expect(providerOverride).toContain('from __future__ import annotations');
       expect(providerOverride).toContain('command_eve_mark_stop_continuation');
+      expect(providerOverride).toMatch(
+        /normalized_finish_reason in \{"length", "max_tokens"\} and command_eve_is_cloud_shim\(self\):\n\s+return command_eve_mark_stop_continuation\(self, True\)/
+      );
       expect(providerOverride).toContain('command_eve_has_recent_tool_result');
       expect(providerOverride).toContain('urlparse');
       expect(fs.readFileSync(paths.firstRunProfile, 'utf8')).toContain('Mathias');
