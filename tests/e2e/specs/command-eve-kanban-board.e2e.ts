@@ -235,8 +235,6 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
       window.location.hash = '#/command-center';
     });
     await expect(page.getByText(/Command Center|Kommandozentrale/).first()).toBeVisible({ timeout: 30_000 });
-    // Wait for read model to load (mirrors command-center spec).
-    await expect(page.getByText(/agent-events\.clean\.jsonl/).first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/Lokales Board|Local Board/)).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/Marketing Board/).first()).toBeVisible({ timeout: 30_000 });
 

@@ -6,6 +6,7 @@
 
 import { ipcBridge } from '@/common';
 import type { IGeneratedArtifactType, IGeneratedConversationArtifact } from '@/common/adapter/ipcBridge';
+import MarkdownView from '@/renderer/components/Markdown';
 import { iconColors } from '@/renderer/styles/colors';
 import { Message } from '@arco-design/web-react';
 import { FolderOpen, Paperclip, PreviewOpen } from '@icon-park/react';
@@ -287,14 +288,16 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
               />
             )}
             {type === 'file' && textContent && (
-              <pre
+              <div
                 data-testid='generated-artifact-text'
-                className='m-0 max-h-260px overflow-auto whitespace-pre-wrap text-12px rd-6px bg-bg-2 p-10px'
+                className='max-h-260px overflow-auto text-12px rd-6px bg-bg-2 p-10px'
               >
-                {textContent.length > TEXT_PREVIEW_MAX
-                  ? `${textContent.slice(0, TEXT_PREVIEW_MAX).trimEnd()}\n...`
-                  : textContent}
-              </pre>
+                <MarkdownView hiddenCodeCopyButton>
+                  {textContent.length > TEXT_PREVIEW_MAX
+                    ? `${textContent.slice(0, TEXT_PREVIEW_MAX).trimEnd()}\n...`
+                    : textContent}
+                </MarkdownView>
+              </div>
             )}
             {!source && !htmlContent && !textContent && (
               <div data-testid='generated-artifact-empty' className='text-12px text-t-secondary'>

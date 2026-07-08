@@ -5,7 +5,7 @@
  */
 
 import React, { type PropsWithChildren } from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { IConversationArtifact } from '@/common/adapter/ipcBridge';
 import type { IMessageText, IMessageToolGroup, TMessage } from '@/common/chat/chatLib';
@@ -41,6 +41,20 @@ vi.mock('@arco-design/web-react', () => ({
   },
   Image: {
     PreviewGroup: ({ children }: PropsWithChildren) => <>{children}</>,
+  },
+}));
+
+vi.mock('@/common', () => ({
+  ipcBridge: {
+    shell: {
+      openFile: { invoke: vi.fn() },
+      openExternal: { invoke: vi.fn() },
+      showItemInFolder: { invoke: vi.fn() },
+    },
+    theme: {
+      requestCurrent: { invoke: vi.fn().mockResolvedValue(null) },
+      changed: { on: vi.fn(() => vi.fn()) },
+    },
   },
 }));
 
@@ -133,6 +147,7 @@ vi.mock('@/renderer/pages/conversation/Messages/components/SelectionReplyButton'
 }));
 
 vi.mock('@icon-park/react', () => ({
+  Copy: () => <span>copy</span>,
   Down: () => <span>down</span>,
   FolderOpen: () => <span>folder-open</span>,
   Paperclip: () => <span>paperclip</span>,
@@ -367,7 +382,7 @@ describe('MessageList', () => {
     expect(loadOlderMessages).toHaveBeenCalledTimes(1);
   });
 
-  it('renders generated media artifacts from the conversation artifact store', () => {
+  it('renders generated media, html, and markdown report artifacts from the conversation artifact store', async () => {
     artifactMock.artifacts = [
       {
         id: 'artifact-1',
@@ -391,6 +406,64 @@ describe('MessageList', () => {
         created_at: 2,
         updated_at: 2,
       },
+      {
+        id: 'artifact-2',
+        conversation_id: 'conversation-1',
+        kind: 'video',
+        status: 'active',
+        payload: {
+          artifact_type: 'video',
+          title: 'Launch clip',
+          url: 'https://cdn.example.com/launch.mp4',
+          mime_type: 'video/mp4',
+        },
+        created_at: 3,
+        updated_at: 3,
+      },
+      {
+        id: 'artifact-3',
+        conversation_id: 'conversation-1',
+        kind: 'audio',
+        status: 'active',
+        payload: {
+          artifact_type: 'audio',
+          title: 'Voice readout',
+          url: 'https://cdn.example.com/readout.mp3',
+          mime_type: 'audio/mpeg',
+        },
+        created_at: 4,
+        updated_at: 4,
+      },
+      {
+        id: 'artifact-4',
+        conversation_id: 'conversation-1',
+        kind: 'html',
+        status: 'active',
+        payload: {
+          artifact_type: 'html',
+          title: 'Landing page',
+          html: '<main><h1>Offer</h1></main>',
+          mime_type: 'text/html',
+        },
+        created_at: 5,
+        updated_at: 5,
+      },
+      {
+        id: 'artifact-5',
+        conversation_id: 'conversation-1',
+        kind: 'file',
+        status: 'active',
+        payload: {
+          artifact_type: 'file',
+          title: 'Campaign report',
+          mime_type: 'text/markdown',
+          content: ['| Channel | Next step |', '| --- | --- |', '| Email | Draft |', '', '```ts', 'const ready = true;', '```'].join(
+            '\n'
+          ),
+        },
+        created_at: 6,
+        updated_at: 6,
+      },
     ];
 
     render(<MessageList />, {
@@ -398,12 +471,22 @@ describe('MessageList', () => {
     });
 
     expect(screen.getByTestId('conversation-artifact-media')).toBeInTheDocument();
-    expect(screen.getByTestId('generated-artifact-card')).toBeInTheDocument();
+    expect(screen.getAllByTestId('generated-artifact-card')).toHaveLength(5);
     expect(screen.getByTestId('generated-artifact-image')).toHaveAttribute('src', 'data:image/png;base64,iVBORw0KGgo=');
     expect(screen.getByText('Hero render')).toBeInTheDocument();
     expect(screen.getByText('xAI · grok-image · image/png')).toBeInTheDocument();
     expect(screen.getByTestId('generated-artifact-receipt')).toHaveTextContent('/tmp/eve-receipts/img-artifact-1.json');
     expect(screen.getByTestId('generated-artifact-receipt')).toHaveTextContent('img-artifact-1');
+    expect(screen.getByTestId('generated-artifact-video')).toHaveAttribute('src', 'https://cdn.example.com/launch.mp4');
+    expect(screen.getByTestId('generated-artifact-audio')).toHaveAttribute('src', 'https://cdn.example.com/readout.mp3');
+    expect(screen.getByTestId('generated-artifact-html')).toHaveAttribute('srcdoc', '<main><h1>Offer</h1></main>');
+
+    const markdownArtifact = screen.getByTestId('generated-artifact-text');
+    await waitFor(() => {
+      const shadowRoot = markdownArtifact.querySelector('.markdown-shadow')?.shadowRoot;
+      expect(shadowRoot?.querySelector('table')).not.toBeNull();
+      expect(shadowRoot?.querySelector('code')?.textContent).toContain('const ready = true;');
+    });
   });
 
   it('keeps image generation tool results inline instead of collapsing them into the step summary', () => {

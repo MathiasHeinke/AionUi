@@ -187,11 +187,28 @@ describe('v1.6 Slice 4 — Day-Zero-Soft-Fold', () => {
 });
 
 describe('v1.6 Beat 2 — Session-1-Artefakt-Skill (D6-Merge)', () => {
+  it('ships the always-on artifact-first contract as its own managed skill', async () => {
+    const { commandEveArtifactFirstSkillMarkdown } = await import(
+      '@/process/commandEve/runtimeBootstrapCore'
+    );
+    const md = commandEveArtifactFirstSkillMarkdown();
+    expect(md).toContain('Artifact-first contract (all sessions)');
+    expect(md).toContain('default runtime rule, not an optional feature');
+    expect(md).toContain('even if the operator did not explicitly ask for an artifact');
+    expect(md).toContain('images, videos, audio clips, HTML screens, reports, files, markdown tables, code snippets');
+    expect(md).toContain('return a visible failure artifact instead of silently stopping');
+    expect(md).toContain('Do not paste a bare file path as the only answer');
+    expect(md).toContain('Do this proactively');
+  });
+
   it('carries the honest menu, the fabrication kill-switch, and budget honesty', async () => {
     const { commandEveArtifactMenuSkillMarkdown } = await import(
       '@/process/commandEve/runtimeBootstrapCore'
     );
     const md = commandEveArtifactMenuSkillMarkdown();
+    // Artifact-first lives in a separate always-on contract; this skill remains
+    // the opt-in first-session menu.
+    expect(md).toContain('eve-artifact-first-contract');
     // Opt-in discipline: one artifact, never auto-start.
     expect(md).toContain('never auto-start');
     expect(md).toContain('One artifact, then hand over and stop');
@@ -219,10 +236,13 @@ describe('v1.6 Beat 2 — Session-1-Artefakt-Skill (D6-Merge)', () => {
       path.resolve(__dirname, '../../../packages/desktop/src/process/commandEve/runtimeBootstrapCore.ts'),
       'utf8'
     );
+    expect(source).toContain("COMMAND_EVE_ARTIFACT_FIRST_SKILL_ID = 'eve-artifact-first-contract'");
     expect(source).toContain("COMMAND_EVE_ARTIFACT_MENU_SKILL_ID = 'session-1-artefakt'");
     // The writer must be CALLED in the bootstrap, right where the onboarding
     // skill is written — a builder without a call site is a dead skill.
-    expect(source).toContain('writeCommandEveOnboardingSkill(paths);\n  writeCommandEveArtifactMenuSkill(paths);');
+    expect(source).toContain(
+      'writeCommandEveOnboardingSkill(paths);\n  writeCommandEveArtifactFirstSkill(paths);\n  writeCommandEveArtifactMenuSkill(paths);'
+    );
   });
 });
 

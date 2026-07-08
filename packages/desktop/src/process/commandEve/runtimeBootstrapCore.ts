@@ -1842,6 +1842,53 @@ function writeCommandEveOnboardingSkill(paths: RuntimeBootstrapPaths): void {
   fs.writeFileSync(path.join(skillDir, 'SKILL.md'), commandEveOnboardingSkillMarkdown(), { mode: 0o600 });
 }
 
+// v1.7.8 ("Artifact-first default") — the APP-OWNED always-on contract skill.
+// This is intentionally separate from the Session-1 artifact menu below: the menu
+// is opt-in sales/briefing posture; this contract is a runtime invariant. If EVE
+// or a tool creates a work product, the result must be modeled as a visible chat
+// artifact even when the operator never used the word "artifact".
+export const COMMAND_EVE_ARTIFACT_FIRST_SKILL_ID = 'eve-artifact-first-contract';
+
+export function commandEveArtifactFirstSkillMarkdown(): string {
+  return [
+    `---`,
+    `name: ${COMMAND_EVE_ARTIFACT_FIRST_SKILL_ID}`,
+    `description: Always turn generated work products into visible Command EVE chat artifacts — images, video, audio, HTML, reports, files, markdown tables, code, and generated documents — even when the operator did not explicitly ask for an artifact. App-owned managed runtime contract.`,
+    `---`,
+    ``,
+    `# Artifact-first contract (all sessions)`,
+    ``,
+    `This is a default runtime rule, not an optional feature. When the operator asks for, or a tool produces, a work product, you must make the result visible as a chat artifact even if the operator did not explicitly ask for an artifact. Plain conversation can stay plain conversation; work products cannot disappear into prose.`,
+    ``,
+    `## Work products covered`,
+    ``,
+    `Create a visible artifact for images, videos, audio clips, HTML screens, reports, files, markdown tables, code snippets, generated documents, decks, spreadsheets, PDFs, exports, previews, and any multimodal output.`,
+    ``,
+    `## Success contract`,
+    ``,
+    `If generation succeeds, return an artifact payload the app can render: artifact_type, title, one preview source (url, path, html or content), mime_type when known, provider/model when known, and a compact receipt with request_id, status, route, data class, privacy lane, and human gate.`,
+    ``,
+    `## Failure contract`,
+    ``,
+    `If generation fails, is blocked by privacy, requires payment, needs a missing connector, or is waiting for a human gate, return a visible failure artifact instead of silently stopping or only explaining in prose.`,
+    ``,
+    `## Tables and code`,
+    ``,
+    `For tables and code, prefer markdown content inside a file/report artifact or a sandboxed HTML artifact. Do not paste a bare file path as the only answer. Say where it was saved only after the visible artifact card exists.`,
+    ``,
+    `## Autonomy`,
+    ``,
+    `Do this proactively. The operator should not need to ask "show me the file", "post the image", "where is the video", or "make an artifact" after you already created one.`,
+    ``,
+  ].join('\n');
+}
+
+function writeCommandEveArtifactFirstSkill(paths: RuntimeBootstrapPaths): void {
+  const skillDir = path.join(paths.managedSkillsRoot, COMMAND_EVE_ARTIFACT_FIRST_SKILL_ID);
+  ensureDir(skillDir);
+  fs.writeFileSync(path.join(skillDir, 'SKILL.md'), commandEveArtifactFirstSkillMarkdown(), { mode: 0o600 });
+}
+
 // v1.6 Beat 2 ("Session-1-Artefakt", D6-merge) — the APP-OWNED artifact-menu
 // skill. Same app-owned managed-skill pattern as eve-onboarding-awareness above
 // (not in the strategy allowlist, not in the capability pack). It teaches EVE
@@ -1863,6 +1910,8 @@ export function commandEveArtifactMenuSkillMarkdown(): string {
     `# Session-1 artifact (the opt-in second beat)`,
     ``,
     `After you have mirrored an operator's brief back (or when they ask what you can do for them), offer ONE small, concrete first artifact. Opt-in only: name the options and the rough cost, then WAIT — never auto-start, never queue a second artifact without a fresh yes.`,
+    ``,
+    `The always-on work-product rendering rule lives in the managed skill \`${COMMAND_EVE_ARTIFACT_FIRST_SKILL_ID}\`. Obey that contract for every generated work product, even when this opt-in menu was not used.`,
     ``,
     `## The honest menu (offer only what will actually work)`,
     ``,
@@ -2036,6 +2085,7 @@ function writeCommandEveManagedSkills(
   // ADDITIVE (S1): the app-owned config-awareness onboarding skill. Its id is in
   // neither the capability pack nor the strategy allowlist, so it cannot collide.
   writeCommandEveOnboardingSkill(paths);
+  writeCommandEveArtifactFirstSkill(paths);
   writeCommandEveArtifactMenuSkill(paths);
   return { executableSkillIds, bundledSkillFailures };
 }

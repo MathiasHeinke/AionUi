@@ -39,6 +39,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { closeSharedElectronAppForIsolatedSpec } from '../fixtures';
 
 // ── CEVE.v1 in-test signer (mirror of license-code-core.mjs wire format) ──────
 
@@ -233,6 +234,14 @@ function findFileUnder(root: string, fileName: string): string | null {
 
 test.describe.serial('Command EVE registration + license gate', () => {
   test.setTimeout(180_000);
+
+  test.beforeAll(async () => {
+    // Other Command EVE E2E specs keep a shared app alive with the registration
+    // gate disabled. This proof intentionally launches its own gated app; on
+    // macOS both dev apps would otherwise race over the same CLI-safe
+    // `.command-eve-dev-2` symlink and leak an unlocked store into this test.
+    await closeSharedElectronAppForIsolatedSpec();
+  });
 
   test('blocks main surfaces, rejects bad input, unlocks on a valid code, and stays unlocked on relaunch', async () => {
     // ── Launch 1: fresh userData → gate must block everything ────────────────

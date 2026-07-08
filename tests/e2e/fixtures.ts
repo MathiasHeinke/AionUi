@@ -30,6 +30,23 @@ let mainPage: Page | null = null;
 const e2eStateSandboxDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aionui-e2e-state-'));
 const e2eStateFile = path.join(e2eStateSandboxDir, 'extension-states.json');
 
+export async function closeSharedElectronAppForIsolatedSpec(): Promise<void> {
+  if (!app) {
+    mainPage = null;
+    return;
+  }
+  try {
+    await app.evaluate(async ({ app: electronApp }) => {
+      electronApp.exit(0);
+    });
+  } catch {
+    // ignore: app may already be closed
+  }
+  await app.close().catch(() => {});
+  app = null;
+  mainPage = null;
+}
+
 function isDevToolsWindow(page: Page): boolean {
   return page.url().startsWith('devtools://');
 }
@@ -258,18 +275,7 @@ function registerCleanup(): void {
 
   // Async cleanup before the worker process exits
   process.on('beforeExit', async () => {
-    if (app) {
-      try {
-        await app.evaluate(async ({ app: electronApp }) => {
-          electronApp.exit(0);
-        });
-      } catch {
-        // ignore: app may already be closed
-      }
-      await app.close().catch(() => {});
-      app = null;
-      mainPage = null;
-    }
+    await closeSharedElectronAppForIsolatedSpec();
     fs.rmSync(e2eStateSandboxDir, { recursive: true, force: true });
   });
 
