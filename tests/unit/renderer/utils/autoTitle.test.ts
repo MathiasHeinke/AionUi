@@ -155,7 +155,9 @@ describe('autoTitle', () => {
     });
 
     it('strips think tags from exchange content', () => {
-      expect(buildAutoTitleExchangeText('Task', '<think>hidden</think>Real answer')).toBe('User: Task\nEVE: Real answer');
+      expect(buildAutoTitleExchangeText('Task', '<think>hidden</think>Real answer')).toBe(
+        'User: Task\nEVE: Real answer'
+      );
     });
 
     it('returns null until both sides exist', () => {
@@ -215,7 +217,10 @@ describe('autoTitle', () => {
     });
 
     it('uses fallback content as the user side when history has only the assistant response', () => {
-      const exchange = deriveAutoTitleExchangeFromMessages([mockAssistantMessage('First EVE answer')], 'Fresh user task');
+      const exchange = deriveAutoTitleExchangeFromMessages(
+        [mockAssistantMessage('First EVE answer')],
+        'Fresh user task'
+      );
       expect(exchange?.text).toBe('User: Fresh user task\nEVE: First EVE answer');
     });
   });

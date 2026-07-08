@@ -70,7 +70,7 @@ const textMessage = (position: 'left' | 'right', content: string): TMessage =>
 describe('useAutoTitle', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    getConversationOrNullMock.mockResolvedValue({ id: 'conv-title-cloud-only', name: 'Fallback title' });
+    getConversationOrNullMock.mockResolvedValue({ id: 'conv-title-cloud-only', name: 'Bitte plane den Launch' });
     getConversationMessagesMock.mockResolvedValue({
       items: [textMessage('right', 'Bitte plane den Launch'), textMessage('left', 'Ich erstelle einen Launchplan.')],
     });
@@ -91,5 +91,69 @@ describe('useAutoTitle', () => {
     });
     expect(generateLocalTitleMock).not.toHaveBeenCalled();
     expect(conversationUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it('uses the one-based ascending message page for cloud title exchange detection', async () => {
+    generateCloudTitleMock.mockResolvedValue({ data: { ok: true, title: 'Launchplan erstellen' } });
+
+    const { result } = renderHook(() => useAutoTitle());
+
+    await act(async () => {
+      await result.current.checkAndUpdateTitle('conv-title-query-shape', 'Bitte plane den Launch');
+    });
+
+    await waitFor(() => {
+      expect(generateCloudTitleMock).toHaveBeenCalledTimes(1);
+    });
+    expect(getConversationMessagesMock).toHaveBeenCalledWith({
+      conversation_id: 'conv-title-query-shape',
+      page: 1,
+      page_size: 1000,
+      order: 'ASC',
+    });
+    expect(conversationUpdateMock).toHaveBeenCalledWith({
+      id: 'conv-title-query-shape',
+      updates: { name: 'Launchplan erstellen' },
+    });
+  });
+
+  it('does not overwrite a manually renamed conversation title', async () => {
+    getConversationOrNullMock.mockResolvedValue({ id: 'conv-manual-title', name: 'Manueller Kundentitel' });
+    generateCloudTitleMock.mockResolvedValue({ data: { ok: true, title: 'Launchplan erstellen' } });
+
+    const { result } = renderHook(() => useAutoTitle());
+
+    await act(async () => {
+      await result.current.checkAndUpdateTitle('conv-manual-title', 'Bitte plane den Launch');
+    });
+
+    expect(generateCloudTitleMock).not.toHaveBeenCalled();
+    expect(conversationUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it('upgrades a default conversation after setting the heuristic baseline title', async () => {
+    getConversationOrNullMock
+      .mockResolvedValueOnce({ id: 'conv-default-title', name: 'New Conversation' })
+      .mockResolvedValue({ id: 'conv-default-title', name: 'Bitte plane den Launch' });
+    generateCloudTitleMock.mockResolvedValue({ data: { ok: true, title: 'Launchplan erstellen' } });
+
+    const { result } = renderHook(() => useAutoTitle());
+
+    await act(async () => {
+      await result.current.checkAndUpdateTitle('conv-default-title', 'Bitte plane den Launch');
+    });
+
+    await waitFor(() => {
+      expect(conversationUpdateMock).toHaveBeenCalledTimes(2);
+    });
+    expect(conversationUpdateMock).toHaveBeenNthCalledWith(1, {
+      id: 'conv-default-title',
+      updates: { name: 'Bitte plane den Launch' },
+    });
+    expect(conversationUpdateMock).toHaveBeenNthCalledWith(2, {
+      id: 'conv-default-title',
+      updates: { name: 'Launchplan erstellen' },
+    });
+    expect(emitterEmitMock).toHaveBeenCalledWith('chat.history.refresh');
   });
 });

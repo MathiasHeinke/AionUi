@@ -1,0 +1,11 @@
+{
+  "//": "eve-title Edge Function config. CRITICAL DEPLOY NOTE: authenticates with the raw CEVE license WIRE (Bearer), not a Supabase JWT. Deploy with `supabase functions deploy eve-title --no-verify-jwt`. Provider execution requires server-side OPENROUTER_API_KEY. Never put provider keys in the desktop app or commits.",
+  "tasks": {
+    "test": "deno test --allow-env"
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    }
+  }
+}

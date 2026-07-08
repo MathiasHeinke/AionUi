@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ipcBridge } from '@/common';
 import {
+  buildAutoTitleFromContent,
   deriveAutoTitleExchangeFromMessages,
   deriveAutoTitleFromMessages,
   prepareCloudAutoTitleText,
@@ -14,8 +15,8 @@ import { getConversationOrNull } from '@/renderer/pages/conversation/utils/conve
 // a second cloud/local call and title overwrite on later turns.
 const modelTitleAttempted = new Set<string>();
 
-const FIRST_EXCHANGE_POLL_INTERVAL_MS = 1500;
-const FIRST_EXCHANGE_MAX_WAIT_MS = 60_000;
+const FIRST_EXCHANGE_POLL_INTERVAL_MS = 10_000;
+const FIRST_EXCHANGE_MAX_WAIT_MS = 30 * 60_000;
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -39,8 +40,9 @@ export const useAutoTitle = () => {
         while (Date.now() - startedAt < FIRST_EXCHANGE_MAX_WAIT_MS) {
           const messagesResult = await ipcBridge.database.getConversationMessages.invoke({
             conversation_id,
-            page: 0,
+            page: 1,
             page_size: 1000,
+            order: 'ASC',
           });
           const exchange = deriveAutoTitleExchangeFromMessages(messagesResult.items, fallbackContent);
           if (exchange?.text) {
@@ -54,7 +56,7 @@ export const useAutoTitle = () => {
         const beforeCall = await getConversationOrNull(conversation_id);
         if (!beforeCall || beforeCall.name !== expectedTitle) return;
 
-        // German task ⇒ German title, otherwise English. resolveLocaleKey never
+        // German task -> German title, otherwise English. resolveLocaleKey never
         // yields de-DE, so detect German off the raw i18n language tag.
         const locale = (i18n.language || '').toLowerCase().startsWith('de') ? 'de-DE' : 'en-US';
         const cloudText = prepareCloudAutoTitleText(text);
@@ -85,22 +87,23 @@ export const useAutoTitle = () => {
   );
 
   const syncTitleFromHistory = useCallback(
-    async (conversation_id: string, fallbackContent?: string) => {
+    async (conversation_id: string, fallbackContent?: string): Promise<string | null> => {
       const defaultTitle = t('conversation.welcome.newConversation');
       try {
         const conversation = await getConversationOrNull(conversation_id);
         if (!conversation || conversation.name !== defaultTitle) {
-          return;
+          return null;
         }
 
         const messagesResult = await ipcBridge.database.getConversationMessages.invoke({
           conversation_id: conversation_id,
-          page: 0,
+          page: 1,
           page_size: 1000,
+          order: 'ASC',
         });
         const newTitle = deriveAutoTitleFromMessages(messagesResult.items, fallbackContent);
         if (!newTitle) {
-          return;
+          return null;
         }
 
         const success = await ipcBridge.conversation.update.invoke({
@@ -108,12 +111,14 @@ export const useAutoTitle = () => {
           updates: { name: newTitle },
         });
         if (!success) {
-          return;
+          return null;
         }
 
         emitter.emit('chat.history.refresh');
+        return newTitle;
       } catch (error) {
         console.error('Failed to auto-update conversation title:', error);
+        return null;
       }
     },
     [t]
@@ -124,23 +129,28 @@ export const useAutoTitle = () => {
       // 1) Instant fallback: set the truncated heuristic title (for a
       //    default-named new conversation). No-ops if the conversation already
       //    carries the user's first message as its name.
-      await syncTitleFromHistory(conversation_id, messageContent);
+      const syncedTitle = await syncTitleFromHistory(conversation_id, messageContent);
 
       // 2) Background upgrade: wait for the first user->EVE exchange, then replace
       //    whatever auto title is now showing with a short model summary. Runs on
       //    the FIRST message of a new conversation. The upgrade ONLY overwrites if
       //    the name is STILL the captured auto baseline, so a manual rename made
-      //    meanwhile is never clobbered. Fully non-blocking — the chat/response is
+      //    meanwhile is never clobbered. Fully non-blocking; the chat/response is
       //    already in flight.
       try {
         // Once per conversation only (first message). checkAndUpdateTitle fires on
         // every send; this guard stops a re-generate on later turns.
         if (modelTitleAttempted.has(conversation_id)) return;
-        const current = await getConversationOrNull(conversation_id);
-        const currentName = current?.name?.trim();
-        if (!currentName) return;
+        let expectedTitle = syncedTitle?.trim() || '';
+        if (!expectedTitle) {
+          const current = await getConversationOrNull(conversation_id);
+          const currentName = current?.name?.trim();
+          const heuristicTitle = buildAutoTitleFromContent(messageContent)?.trim();
+          expectedTitle = currentName && heuristicTitle && currentName === heuristicTitle ? currentName : '';
+        }
+        if (!expectedTitle) return;
         modelTitleAttempted.add(conversation_id);
-        void upgradeTitleWithModel(conversation_id, messageContent, currentName);
+        void upgradeTitleWithModel(conversation_id, messageContent, expectedTitle);
       } catch (error) {
         console.warn('Auto-title upgrade scheduling skipped:', error);
       }
