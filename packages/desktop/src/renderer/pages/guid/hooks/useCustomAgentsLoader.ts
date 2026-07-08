@@ -5,6 +5,10 @@
  */
 
 import { ipcBridge } from '@/common';
+import {
+  COMMAND_EVE_ASSISTANT_ID,
+  COMMAND_EVE_SHELL_ENABLED,
+} from '@/common/config/commandEveShell';
 import type { Assistant } from '@/common/types/agent/assistantTypes';
 import type { AgentMetadata } from '@/renderer/utils/model/agentTypes';
 import { useAgents } from '@/renderer/hooks/agent/useAgents';
@@ -68,7 +72,25 @@ export const useCustomAgentsLoader = ({
   // all see the same list without duplicate HTTP calls.
   const { data: assistantList } = useSWR('assistants.list', async () => {
     try {
-      return await ipcBridge.assistants.list.invoke();
+      const list = await ipcBridge.assistants.list.invoke();
+      if (!COMMAND_EVE_SHELL_ENABLED) return list;
+
+      const readiness = await ipcBridge.commandEve.ensureAssistant.invoke().catch((): undefined => undefined);
+      const skills = readiness?.success ? readiness.data?.enabled_skills || [] : [];
+      if (!skills.length) return list;
+
+      return list.map((assistant) =>
+        assistant.id === COMMAND_EVE_ASSISTANT_ID
+          ? {
+              ...assistant,
+              preset_agent_type: readiness?.data?.preset_agent_type || assistant.preset_agent_type,
+              enabled_skills: skills,
+              custom_skill_names: readiness?.data?.custom_skill_names?.length
+                ? readiness.data.custom_skill_names
+                : assistant.custom_skill_names,
+            }
+          : assistant
+      );
     } catch (error) {
       console.error('Failed to load assistants:', error);
       return [] as Assistant[];

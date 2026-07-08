@@ -684,6 +684,7 @@ function runPythonJson(
   cwd: string
 ): { ok: boolean; data?: JsonRecord; error?: string } {
   fs.mkdirSync(cwd, { recursive: true });
+  const maxOutputBufferBytes = 16 * 1024 * 1024;
   const result = spawnSync(pythonPath, ['-c', script], {
     cwd,
     env: { ...process.env, PYTHONNOUSERSITE: '1' },
@@ -692,7 +693,7 @@ function runPythonJson(
     shell: false,
     timeout: 15_000,
     windowsHide: true,
-    maxBuffer: 512 * 1024,
+    maxBuffer: maxOutputBufferBytes,
   });
   if (result.error) {
     return { ok: false, error: result.error.message };
@@ -8494,4 +8495,3 @@ export function promoteKanbanMarketingWorkerExecutor(
     model: board.model,
   };
 }
-

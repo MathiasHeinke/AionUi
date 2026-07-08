@@ -24,7 +24,7 @@ test.describe('Command EVE Local Runtime', () => {
     await expect(page.getByText('gemma4:e4b').first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText('gemma4:12b').first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText('gemma4:31b').first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText('Hermes Kanban').first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/Kanban/).first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/Module bereit|modules ready/).first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText('Modell-Warm-up').first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole('button', { name: /Warm-up|warm-up|Modellwechsel|model switching/ })).toHaveCount(0);

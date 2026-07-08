@@ -94,6 +94,61 @@ function agentIdOf(dataDir: string, defId: string): string | null {
   return row ? row.agent_id : null;
 }
 
+function seedDbWithRichAgentRegistry(dataDir: string, seed: (db: DatabaseSync) => void): void {
+  const db = new DatabaseSync(path.join(dataDir, 'aionui-backend.db'));
+  db.exec(
+    `CREATE TABLE assistants (id TEXT PRIMARY KEY, name TEXT);
+     CREATE TABLE assistant_definitions (id TEXT PRIMARY KEY, assistant_id TEXT NOT NULL, source TEXT NOT NULL, agent_id TEXT, deleted_at INTEGER);
+     CREATE TABLE agent_metadata (
+       id TEXT PRIMARY KEY,
+       name TEXT,
+       agent_type TEXT,
+       backend TEXT,
+       command TEXT,
+       args TEXT,
+       command_override TEXT,
+       last_check_status TEXT,
+       last_check_kind TEXT,
+       last_check_error_code TEXT,
+       last_check_error_message TEXT,
+       last_check_guidance TEXT,
+       last_failure_at INTEGER,
+       updated_at INTEGER
+     );`
+  );
+  seed(db);
+  db.close();
+}
+
+function hermesRegistryOf(dataDir: string): {
+  command: string | null;
+  args: string | null;
+  command_override: string | null;
+  last_check_status: string | null;
+  last_check_error_message: string | null;
+  last_failure_at: number | null;
+  updated_at: number | null;
+} | null {
+  const db = new DatabaseSync(path.join(dataDir, 'aionui-backend.db'));
+  const row = db
+    .prepare(
+      "SELECT command, args, command_override, last_check_status, last_check_error_message, last_failure_at, updated_at FROM agent_metadata WHERE lower(coalesce(backend,'')) = 'hermes' LIMIT 1"
+    )
+    .get() as
+    | {
+      command: string | null;
+      args: string | null;
+      command_override: string | null;
+      last_check_status: string | null;
+      last_check_error_message: string | null;
+      last_failure_at: number | null;
+      updated_at: number | null;
+    }
+    | undefined;
+  db.close();
+  return row ?? null;
+}
+
 afterEach(() => {
   for (const root of tempRoots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
@@ -233,6 +288,79 @@ describe('repairCommandEveAssistantStorage — re-binds EVE aionrs → hermes (B
     const result = await repairCommandEveAssistantStorage(dir);
     expect(result.rebound).toBe(0);
     expect(agentIdOf(dir, 'def-eve')).toBe('aionrs-1');
+  });
+});
+
+describe('repairCommandEveAssistantStorage — pins Hermes registry command to the app shim', () => {
+  it('updates the Hermes agent_metadata row and clears stale launch health errors', async () => {
+    const dir = makeDataDir();
+    const shim = '/abs/command-eve-runtime/hermes/hermes';
+    seedDbWithRichAgentRegistry(dir, (db) => {
+      db
+        .prepare(
+          'INSERT INTO agent_metadata (id, name, agent_type, backend, command, args, command_override, last_check_status, last_check_error_message, last_failure_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+        )
+        .run(
+          'hermes-1',
+          'Hermes',
+          'acp',
+          'hermes',
+          'hermes',
+          '[]',
+          null,
+          'offline',
+          "command 'hermes' not found in PATH",
+          1782510337017,
+          111
+        );
+    });
+
+    const result = await repairCommandEveAssistantStorage(dir, { hermesCommandPath: shim });
+    const row = hermesRegistryOf(dir);
+
+    expect(result.registryRebound).toBe(1);
+    expect(row?.command).toBe(shim);
+    expect(row?.command_override).toBe(shim);
+    expect(row?.args).toBe('["acp"]');
+    expect(row?.last_check_status).toBeNull();
+    expect(row?.last_check_error_message).toBeNull();
+    expect(row?.last_failure_at).toBeNull();
+    expect(row?.updated_at).not.toBe(111);
+
+    const second = await repairCommandEveAssistantStorage(dir, { hermesCommandPath: shim });
+    expect(second.registryRebound).toBe(0);
+  });
+
+  it('leaves the Hermes registry untouched when no shim path is provided', async () => {
+    const dir = makeDataDir();
+    seedDbWithRichAgentRegistry(dir, (db) => {
+      db
+        .prepare(
+          'INSERT INTO agent_metadata (id, name, agent_type, backend, command, args, command_override, last_check_status, last_check_error_message, last_failure_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+        )
+        .run(
+          'hermes-1',
+          'Hermes',
+          'acp',
+          'hermes',
+          'hermes',
+          '[]',
+          null,
+          'offline',
+          'bad path',
+          123,
+          111
+        );
+    });
+
+    const result = await repairCommandEveAssistantStorage(dir);
+    const row = hermesRegistryOf(dir);
+
+    expect(result.registryRebound).toBe(0);
+    expect(row?.command).toBe('hermes');
+    expect(row?.command_override).toBeNull();
+    expect(row?.args).toBe('[]');
+    expect(row?.last_check_status).toBe('offline');
   });
 });
 

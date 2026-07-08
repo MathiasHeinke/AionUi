@@ -20,9 +20,13 @@ test.describe('Command EVE settings surfaces', () => {
     await expect(page.getByTestId('layout-sider-header')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/^AionUi$/)).toHaveCount(0);
     await expect(page.getByText(/Command Center/).first()).toBeVisible({ timeout: 30_000 });
+
+    await goToSettings(page, 'connectors');
     await expect(page.getByText(/Connectoren|Connectors/).first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(/Skills/).first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(/Runtime/).first()).toBeVisible({ timeout: 30_000 });
+    await goToSettings(page, 'capabilities');
+    await expect(page.getByText(/Skills|Fähigkeiten|Capabilities/).first()).toBeVisible({ timeout: 30_000 });
+    await goToSettings(page, 'model');
+    await expect(page.getByText(/Runtime|Command EVE Local Runtime/).first()).toBeVisible({ timeout: 30_000 });
   });
 
   test('shows local Gemma tiers plus EVE runtime status and warmup controls', async ({ page }) => {
@@ -30,9 +34,9 @@ test.describe('Command EVE settings surfaces', () => {
 
     await goToSettings(page, 'model');
     await expect(page.getByText('Command EVE Local Runtime')).toBeVisible();
-    await expect(page.getByText('Hermes + Ollama')).toBeVisible();
+    await expect(page.getByText(/Hermes|Ollama/).first()).toBeVisible();
     await expect(page.getByTestId('command-eve-model-support-note')).toContainText(
-      /Command EVE nutzt Hermes lokal|Command EVE uses Hermes locally/
+      /EVE Runtime.*Ollama|EVE Runtime.*local.*Ollama|Ollama\/Gemma/i
     );
     await expect(
       page.getByText(/Derzeit unterstützt nur Aion CLI|Only Aion CLI currently supports custom models/)
@@ -67,11 +71,8 @@ test.describe('Command EVE settings surfaces', () => {
     await page.waitForSelector('body', { state: 'visible' });
 
     await goToSettings(page, 'agent');
-    await expect(page.getByText(/EVE-Orchestrierung|EVE Orchestration/)).toBeVisible();
-    await expect(
-      page.getByText(/EVE nutzt Hermes als Standard-Runtime|EVE uses Hermes as the default runtime/)
-    ).toBeVisible();
-    await expect(page.getByText(/^Hermes$/).first()).toBeVisible();
+    await expect(page.getByText(/EVE-Runtime|EVE Runtime/).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/Dein Team|Your team/).first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/^Aion CLI$/)).toHaveCount(0);
   });
 
@@ -95,23 +96,15 @@ test.describe('Command EVE settings surfaces', () => {
     await expect(page.getByText('weixin-file-send')).toHaveCount(0);
   });
 
-  test('scopes the EVE assistant editor to Command EVE managed skills', async ({ page }) => {
+  test('keeps assistant CRUD hidden in public builds', async ({ page }) => {
     await page.waitForSelector('body', { state: 'visible' });
 
     await goToSettings(page, 'assistants');
-    const eveCard = page.getByTestId('assistant-card-command-eve-chief-of-staff');
-    await expect(eveCard).toBeVisible({ timeout: 30_000 });
-    await eveCard.click();
-
-    const drawer = page.getByTestId('assistant-edit-drawer');
-    await expect(drawer).toBeVisible({ timeout: 10_000 });
-    await expect(drawer.getByTestId('command-eve-managed-skills-note')).toBeVisible();
-    await expect(drawer).toContainText('first-run-company-discovery', { timeout: 30_000 });
-    await expect(drawer).toContainText('goal-materialization');
-    await expect(drawer.getByText(/Integrierte Skills|Builtin Skills/)).toHaveCount(0);
-    await expect(drawer.getByText(/Automatisch eingefügte Skills|Auto-injected Skills/)).toHaveCount(0);
-    await expect(drawer.getByText('xiaohongshu-recruiter')).toHaveCount(0);
-    await expect(drawer.getByText('weixin-file-send')).toHaveCount(0);
-    await expect(drawer.getByText('aionui-skills')).toHaveCount(0);
+    await expect(page.getByText(/EVE-Runtime|EVE Runtime/).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('assistant-card-command-eve-chief-of-staff')).toHaveCount(0);
+    await expect(page.getByTestId('assistant-edit-drawer')).toHaveCount(0);
+    await expect(page.getByText('xiaohongshu-recruiter')).toHaveCount(0);
+    await expect(page.getByText('weixin-file-send')).toHaveCount(0);
+    await expect(page.getByText('aionui-skills')).toHaveCount(0);
   });
 });

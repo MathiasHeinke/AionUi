@@ -19,14 +19,15 @@ import path from 'path';
 
 const COMPANY_OS_ROOT_DEFAULT = '/Users/mathiasheinke/Developer/Company.OS';
 const LEDGER_FIXTURE_RELATIVE = 'reports/command-eve/e2e/2026-06-10/agent-events.clean.jsonl';
+const COMMAND_EVE_DATA_DIR_NAME = 'command-eve';
+const SHARED_E2E_LEDGER_ROOT = path.join(os.tmpdir(), 'command-eve-e2e-agent-events');
+const SHARED_E2E_LEDGER_PATH = path.join(SHARED_E2E_LEDGER_ROOT, 'agent-events.clean.jsonl');
 
 // State initialised in beforeAll, used by the test body.
 let e2eLedgerPath: string = '';
-let e2eLedgerRoot: string = '';
 
 // Prior env values captured in beforeAll, restored in afterAll.
 let prevCompanyOsRoot: string | undefined;
-let prevAgentEventsPath: string | undefined;
 
 test.describe('Command EVE Command Center', () => {
   test.setTimeout(120_000);
@@ -34,7 +35,6 @@ test.describe('Command EVE Command Center', () => {
   test.beforeAll(() => {
     // Capture prior values before any mutation.
     prevCompanyOsRoot = process.env.COMMAND_EVE_COMPANY_OS_ROOT;
-    prevAgentEventsPath = process.env.COMMAND_EVE_AGENT_EVENTS_PATH;
 
     const companyOsRoot: string = process.env.COMMAND_EVE_COMPANY_OS_ROOT ?? COMPANY_OS_ROOT_DEFAULT;
     const cleanLedgerSource: string =
@@ -47,11 +47,14 @@ test.describe('Command EVE Command Center', () => {
       );
     }
 
-    e2eLedgerRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'command-eve-command-center-e2e-'));
-    e2eLedgerPath = path.join(e2eLedgerRoot, 'agent-events.clean.jsonl');
+    fs.mkdirSync(SHARED_E2E_LEDGER_ROOT, { recursive: true });
+    e2eLedgerPath = SHARED_E2E_LEDGER_PATH;
     fs.copyFileSync(cleanLedgerSource, e2eLedgerPath);
 
     process.env.COMMAND_EVE_COMPANY_OS_ROOT = companyOsRoot;
+    // The Electron app is a singleton per Playwright worker. Keep this path
+    // stable across Command EVE specs so the main process and assertions read
+    // the same append-only ledger even when specs run in one worker.
     process.env.COMMAND_EVE_AGENT_EVENTS_PATH = e2eLedgerPath;
   });
 
@@ -62,17 +65,6 @@ test.describe('Command EVE Command Center', () => {
     } else {
       process.env.COMMAND_EVE_COMPANY_OS_ROOT = prevCompanyOsRoot;
     }
-    if (prevAgentEventsPath === undefined) {
-      delete process.env.COMMAND_EVE_AGENT_EVENTS_PATH;
-    } else {
-      process.env.COMMAND_EVE_AGENT_EVENTS_PATH = prevAgentEventsPath;
-    }
-
-    // Clean up temp dir.
-    if (e2eLedgerRoot) {
-      fs.rmSync(e2eLedgerRoot, { recursive: true, force: true });
-      e2eLedgerRoot = '';
-    }
   });
 
   test('renders real local read-model data and creates a governed marketing proof card', async ({
@@ -80,8 +72,9 @@ test.describe('Command EVE Command Center', () => {
     electronApp,
   }, testInfo) => {
     const userDataPath = await electronApp.evaluate(async ({ app }) => app.getPath('userData'));
+    const commandEveDataPath = path.join(userDataPath, COMMAND_EVE_DATA_DIR_NAME);
     const reconciliationPath = path.join(
-      userDataPath,
+      commandEveDataPath,
       'command-eve-runtime',
       'capabilities',
       'command-eve-runtime-reconciliation.json'
@@ -111,7 +104,7 @@ test.describe('Command EVE Command Center', () => {
 
     await expect(page.getByText(/Command Center|Kommandozentrale/).first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText('COMMAND_CENTER_ELECTRON_BRIDGE_REQUIRED')).toHaveCount(0);
-    await expect(page.getByText(/agent-events\.clean\.jsonl/).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/Read model|Lesemodell|Runs|Läufe/).first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/Lokales Board|Local Board/)).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/lokale Bedienflächen|local controls/i)).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('command-center-operating-surfaces')).toBeVisible({ timeout: 30_000 });

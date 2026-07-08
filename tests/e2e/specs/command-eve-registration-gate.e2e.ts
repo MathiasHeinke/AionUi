@@ -242,7 +242,7 @@ test.describe.serial('Command EVE registration + license gate', () => {
     try {
       // (a) Gate renders; main surfaces are unreachable.
       await expect(page.locator(GATE_SELECTOR)).toBeVisible({ timeout: 30_000 });
-      await expect(page.locator('[data-testid="registration-gate-form"]')).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator('[data-testid="registration-gate-auth"]')).toBeVisible({ timeout: 30_000 });
 
       // (a.bypass) Forced deep-link to a main route must NOT reveal a main surface:
       // the route guard renders the gate for every protected route.
@@ -252,6 +252,11 @@ test.describe.serial('Command EVE registration + license gate', () => {
       await expect(page.locator(GATE_SELECTOR)).toBeVisible({ timeout: 15_000 });
       await gotoHash(page, '#/settings/system');
       await expect(page.locator(GATE_SELECTOR)).toBeVisible({ timeout: 15_000 });
+
+      await page.locator('[data-testid="registration-gate-have-code"]').click();
+      await expect(page.locator('[data-testid="registration-gate-license-form"]')).toBeVisible({ timeout: 15_000 });
+      await page.locator('[data-testid="registration-gate-back"]').click();
+      await expect(page.locator('[data-testid="registration-gate-form"]')).toBeVisible({ timeout: 15_000 });
 
       // (b) Registration without consent is blocked (button stays, specific error).
       await page.locator('[data-testid="registration-gate-name"]').fill('Alois');

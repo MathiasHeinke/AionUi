@@ -39,6 +39,9 @@ import { execFileSync } from 'child_process';
 
 const COMPANY_OS_ROOT_DEFAULT = '/Users/mathiasheinke/Developer/Company.OS';
 const LEDGER_FIXTURE_RELATIVE = 'reports/command-eve/e2e/2026-06-10/agent-events.clean.jsonl';
+const COMMAND_EVE_DATA_DIR_NAME = 'command-eve';
+const SHARED_E2E_LEDGER_ROOT = path.join(os.tmpdir(), 'command-eve-e2e-agent-events');
+const SHARED_E2E_LEDGER_PATH = path.join(SHARED_E2E_LEDGER_ROOT, 'agent-events.clean.jsonl');
 
 // State initialised in beforeAll, used by test bodies.
 let e2eLedgerPath: string = '';
@@ -46,7 +49,6 @@ let e2eLedgerRoot: string = '';
 
 // Prior env values captured in beforeAll, restored in afterAll.
 let prevCompanyOsRoot: string | undefined;
-let prevAgentEventsPath: string | undefined;
 let prevNl5CompanyOsRoot: string | undefined;
 let prevCommandEveNodeBinary: string | undefined;
 
@@ -71,6 +73,10 @@ function sqliteQuery(dbPath: string, sql: string): string[][] {
 
 function uniquePostTitle(): string {
   return `E2E Post ${Date.now().toString(36).toUpperCase()}`;
+}
+
+function commandEveDataPath(userDataPath: string): string {
+  return path.join(userDataPath, COMMAND_EVE_DATA_DIR_NAME);
 }
 
 /**
@@ -159,7 +165,6 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
   test.beforeAll(() => {
     // Capture prior values before any mutation.
     prevCompanyOsRoot = process.env.COMMAND_EVE_COMPANY_OS_ROOT;
-    prevAgentEventsPath = process.env.COMMAND_EVE_AGENT_EVENTS_PATH;
     prevNl5CompanyOsRoot = process.env.COMMAND_EVE_NL5_COMPANY_OS_ROOT;
     prevCommandEveNodeBinary = process.env.COMMAND_EVE_NODE_BINARY;
 
@@ -174,9 +179,11 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
       );
     }
 
-    // Isolated temp dir so the canonical evidence file is never mutated.
-    e2eLedgerRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'command-eve-kanban-board-e2e-'));
-    e2eLedgerPath = path.join(e2eLedgerRoot, 'agent-events.clean.jsonl');
+    // Stable per-worker ledger: the Electron app is a singleton, so the first
+    // Command EVE spec that launches it fixes process.env inside main.
+    e2eLedgerRoot = SHARED_E2E_LEDGER_ROOT;
+    fs.mkdirSync(e2eLedgerRoot, { recursive: true });
+    e2eLedgerPath = SHARED_E2E_LEDGER_PATH;
     fs.copyFileSync(cleanLedgerSource, e2eLedgerPath);
     const nl5CompanyOsRoot = path.join(e2eLedgerRoot, 'company-os-nl5-fixture');
     writeFakeNl5DispatchCli(nl5CompanyOsRoot);
@@ -195,11 +202,6 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     } else {
       process.env.COMMAND_EVE_COMPANY_OS_ROOT = prevCompanyOsRoot;
     }
-    if (prevAgentEventsPath === undefined) {
-      delete process.env.COMMAND_EVE_AGENT_EVENTS_PATH;
-    } else {
-      process.env.COMMAND_EVE_AGENT_EVENTS_PATH = prevAgentEventsPath;
-    }
     if (prevNl5CompanyOsRoot === undefined) {
       delete process.env.COMMAND_EVE_NL5_COMPANY_OS_ROOT;
     } else {
@@ -209,12 +211,6 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
       delete process.env.COMMAND_EVE_NODE_BINARY;
     } else {
       process.env.COMMAND_EVE_NODE_BINARY = prevCommandEveNodeBinary;
-    }
-
-    // Clean up temp dir.
-    if (e2eLedgerRoot) {
-      fs.rmSync(e2eLedgerRoot, { recursive: true, force: true });
-      e2eLedgerRoot = '';
     }
   });
 
@@ -226,7 +222,7 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     // ── Reconciliation lock ─────────────────────────────────────────────────
     const userDataPath = await electronApp.evaluate(async ({ app }) => app.getPath('userData'));
     const reconciliationPath = path.join(
-      userDataPath,
+      commandEveDataPath(userDataPath),
       'command-eve-runtime',
       'capabilities',
       'command-eve-runtime-reconciliation.json'
@@ -376,7 +372,7 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     // ── Reconciliation lock ─────────────────────────────────────────────────
     const userDataPath = await electronApp.evaluate(async ({ app }) => app.getPath('userData'));
     const reconciliationPath = path.join(
-      userDataPath,
+      commandEveDataPath(userDataPath),
       'command-eve-runtime',
       'capabilities',
       'command-eve-runtime-reconciliation.json'
@@ -477,7 +473,7 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
 
     const userDataPath = await electronApp.evaluate(async ({ app }) => app.getPath('userData'));
     const reconciliationPath = path.join(
-      userDataPath,
+      commandEveDataPath(userDataPath),
       'command-eve-runtime',
       'capabilities',
       'command-eve-runtime-reconciliation.json'
@@ -577,7 +573,7 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
   }, testInfo) => {
     const userDataPath = await electronApp.evaluate(async ({ app }) => app.getPath('userData'));
     const reconciliationPath = path.join(
-      userDataPath,
+      commandEveDataPath(userDataPath),
       'command-eve-runtime',
       'capabilities',
       'command-eve-runtime-reconciliation.json'
@@ -635,7 +631,7 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     await expect(page.getByTestId('marketing-card-dispatch-plan-reason')).toHaveText(
       /hermes\.pre_generation\.controller_approval_missing/
     );
-    await expect(dispatchResult.getByText(/Hermes: nicht gestartet|Hermes: not spawned/)).toBeVisible({
+    await expect(dispatchResult.getByText(/EVE Runtime:\s*nicht gestartet|EVE Runtime:\s*not spawned/)).toBeVisible({
       timeout: 30_000,
     });
     await expect(page.getByTestId('marketing-card-dispatch-controller-approval')).toContainText(
@@ -926,7 +922,7 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
 
     const userDataPath = await electronApp.evaluate(async ({ app }) => app.getPath('userData'));
     const reconciliationPath = path.join(
-      userDataPath,
+      commandEveDataPath(userDataPath),
       'command-eve-runtime',
       'capabilities',
       'command-eve-runtime-reconciliation.json'
@@ -989,7 +985,7 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     await expect(page.getByTestId('marketing-card-dispatch-plan-reason')).toHaveText(
       /hermes\.pre_generation\.controller_approval_missing/
     );
-    await expect(dispatchResult.getByText(/Hermes: nicht gestartet|Hermes: not spawned/)).toBeVisible({
+    await expect(dispatchResult.getByText(/EVE Runtime:\s*nicht gestartet|EVE Runtime:\s*not spawned/)).toBeVisible({
       timeout: 30_000,
     });
 
@@ -1070,7 +1066,7 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
     const userDataPath = await electronApp.evaluate(async ({ app }) => app.getPath('userData'));
     removeCrmOverlayDatabases(userDataPath);
     const reconciliationPath = path.join(
-      userDataPath,
+      commandEveDataPath(userDataPath),
       'command-eve-runtime',
       'capabilities',
       'command-eve-runtime-reconciliation.json'

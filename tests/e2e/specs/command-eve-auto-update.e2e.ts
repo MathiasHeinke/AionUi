@@ -298,6 +298,22 @@ async function waitForStatus(
   return last;
 }
 
+async function openUpdateModalViaRendererEvent(page: Page): Promise<void> {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await page.evaluate(() => {
+      window.dispatchEvent(new CustomEvent('aionui-open-update-modal', { detail: { source: 'e2e' } }));
+    });
+    const visible = await page
+      .getByText('Update verfügbar')
+      .waitFor({ state: 'visible', timeout: attempt === 3 ? 30_000 : 5_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (visible) return;
+    await page.waitForTimeout(500);
+  }
+  throw new Error('Update modal did not render the available-state signal after repeated renderer open events.');
+}
+
 // ── Suite A: feed configured → detect + broadcast + visible German signal ─────
 
 test.describe.serial('Command EVE auto-update – detect + signal against local feed', () => {
@@ -362,22 +378,11 @@ test.describe.serial('Command EVE auto-update – detect + signal against local 
 
   test('(b) renders the visible German "Update verfügbar" signal (de-DE is the Command EVE default)', async () => {
     // Command EVE's fallbackLanguage is de-DE (i18n-config.json), so a fresh
-    // instance renders German without any locale switch. Re-broadcast the real
-    // 'available' status from the main process over the production bridge channel
-    // (office-ai-bridge-adapter, envelope {name,data}); the UpdateModal listens on
-    // ipcBridge.autoUpdate.status and opens to the available state.
-    await electronApp.evaluate(
-      async ({ webContents }, payload) => {
-        const serialized = JSON.stringify({
-          name: 'auto-update.status',
-          data: { status: 'available', version: payload.version },
-        });
-        for (const wc of webContents.getAllWebContents()) {
-          if (!wc.isDestroyed()) wc.send('office-ai-bridge-adapter', serialized);
-        }
-      },
-      { version: FEED_VERSION }
-    );
+    // instance renders German without any locale switch. Drive the same
+    // renderer-side open signal used by tray/about; UpdateModal then calls the
+    // production autoUpdate.check bridge against the local feed configured for
+    // this suite.
+    await openUpdateModalViaRendererEvent(page);
 
     // The available-state header is the German signal copy "Update verfügbar"
     // (update.availableTitle in de-DE).

@@ -78,6 +78,9 @@ export function buildAgentConversationParams(input: BuildAgentConversationInput)
     extra.preset_context = preset_resources?.rules;
     if (type === 'acp') {
       extra.backend = effectivePresetType as string;
+      if (agent_id) extra.agent_id = agent_id;
+      if (agent_name) extra.agent_name = agent_name;
+      if (cli_path) extra.cli_path = cli_path;
     }
   } else if (type === 'acp') {
     extra.backend = backend as string;

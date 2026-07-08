@@ -264,6 +264,8 @@ describe('Command EVE assistant bootstrap', () => {
       status: 'ready',
       assistant_id: COMMAND_EVE_ASSISTANT_ID,
       preset_agent_type: 'hermes',
+      agent_id: 'agent-hermes-acp',
+      agent_name: 'Hermes',
     });
     expect(createdBody).toMatchObject({
       id: COMMAND_EVE_ASSISTANT_ID,
@@ -291,6 +293,110 @@ describe('Command EVE assistant bootstrap', () => {
         path: path.join(managedSkillDir, 'first-run-company-discovery'),
       },
     ]);
+  });
+
+  it('returns imported managed skills as effective readiness when backend PUT does not mirror them', async () => {
+    const root = makeRoot();
+    const paths = resolveCommandEveRuntimeBootstrapPaths(root);
+    const managedSkillDir = path.join(root, 'skills-command-eve');
+    fs.mkdirSync(path.join(managedSkillDir, 'first-run-company-discovery'), { recursive: true });
+    fs.writeFileSync(path.join(managedSkillDir, 'first-run-company-discovery', 'SKILL.md'), '# First run\n');
+    writeJson(paths.runtimeReconciliation, {
+      version: 'command-eve-runtime-reconciliation/v0',
+      managed_skill_dir: managedSkillDir,
+      executable_skill_ids: ['first-run-company-discovery'],
+    });
+
+    const staleAssistant = {
+      id: COMMAND_EVE_ASSISTANT_ID,
+      name: 'EVE',
+      preset_agent_type: 'hermes',
+      enabled_skills: [],
+      custom_skill_names: [],
+    };
+
+    const fetchMock = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = new URL(String(input));
+      const method = String(init?.method || 'GET').toUpperCase();
+
+      if (url.pathname === '/api/agents/management') {
+        return jsonResponse({ success: true, data: [{ backend: 'hermes', available: true }] });
+      }
+      if (url.pathname === '/api/assistants' && method === 'GET') {
+        return jsonResponse({ success: true, data: [staleAssistant] });
+      }
+      if (url.pathname === '/api/skills/import-symlink' && method === 'POST') {
+        return jsonResponse({ success: true, data: { skill_name: 'first-run-company-discovery' } });
+      }
+      if (url.pathname === `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}` && method === 'PUT') {
+        return jsonResponse({ success: true, data: staleAssistant });
+      }
+      if (url.pathname === `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}/state` && method === 'PATCH') {
+        return jsonResponse({ success: true, data: staleAssistant });
+      }
+      if (url.pathname.startsWith('/api/skills/assistant-') && method === 'POST') {
+        return jsonResponse({ success: true, data: true });
+      }
+      throw new Error(`Unexpected request ${method} ${url.pathname}`);
+    };
+
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    await expect(ensureCommandEveAssistant(25809, '1.7.9', { userDataPath: root })).resolves.toMatchObject({
+      enabled_skills: ['first-run-company-discovery'],
+      custom_skill_names: ['first-run-company-discovery'],
+      skill_count: 1,
+    });
+  });
+
+  it('self-heals missing managed-skill reconciliation before importing EVE skills', async () => {
+    const root = makeRoot();
+    const paths = resolveCommandEveRuntimeBootstrapPaths(root);
+    expect(fs.existsSync(paths.runtimeReconciliation)).toBe(false);
+
+    const staleAssistant = {
+      id: COMMAND_EVE_ASSISTANT_ID,
+      name: 'EVE',
+      preset_agent_type: 'hermes',
+      enabled_skills: [],
+      custom_skill_names: [],
+    };
+
+    const fetchMock = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = new URL(String(input));
+      const method = String(init?.method || 'GET').toUpperCase();
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+
+      if (url.pathname === '/api/agents/management') {
+        return jsonResponse({ success: true, data: [{ backend: 'hermes', available: true }] });
+      }
+      if (url.pathname === '/api/assistants' && method === 'GET') {
+        return jsonResponse({ success: true, data: [staleAssistant] });
+      }
+      if (url.pathname === '/api/skills/import-symlink' && method === 'POST') {
+        return jsonResponse({ success: true, data: { skill_name: path.basename(String(body?.skill_path || '')) } });
+      }
+      if (url.pathname === `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}` && method === 'PUT') {
+        return jsonResponse({ success: true, data: staleAssistant });
+      }
+      if (url.pathname === `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}/state` && method === 'PATCH') {
+        return jsonResponse({ success: true, data: staleAssistant });
+      }
+      if (url.pathname.startsWith('/api/skills/assistant-') && method === 'POST') {
+        return jsonResponse({ success: true, data: true });
+      }
+      throw new Error(`Unexpected request ${method} ${url.pathname}`);
+    };
+
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const readiness = await ensureCommandEveAssistant(25809, '1.7.9', { userDataPath: root });
+
+    expect(fs.existsSync(paths.runtimeReconciliation)).toBe(true);
+    expect(readiness.enabled_skills).toContain('first-run-company-discovery');
+    expect(readiness.enabled_skills).toContain('content-machine');
+    expect(readiness.custom_skill_names).toContain('first-run-company-discovery');
+    expect(readiness.skill_count).toBeGreaterThan(1);
   });
 
   it('does NOT destructively recreate (no DELETE+POST) when the PUT cannot reconcile the preset — keeps EVE present and still resolves', async () => {

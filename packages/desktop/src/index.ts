@@ -54,7 +54,7 @@ import { isCommandEveSeatSwitchInFlight } from './process/bridge/commandEveBridg
 import { buildCommandEveShimHonchoDeriverRouteResolver } from './process/commandEve/honchoDeriverRouteCore';
 import { resolveHonchoHomeForSeat } from './process/commandEve/honchoRuntimeConfigCore';
 import { resolveHonchoRenderForSeat, type HonchoRenderInput } from './process/commandEve/honchoRuntimeRenderCore';
-import { resolveCommandEveRuntimeBootstrapPaths } from './process/commandEve/runtimeBootstrapCore';
+import { resolveCommandEveRuntimeBootstrapPaths, type RuntimeBootstrapReceipt } from './process/commandEve/runtimeBootstrapCore';
 import { readHonchoReadyState } from './process/commandEve/honchoReadyStateFile';
 import { getActiveSeatId } from './process/commandEve/seatContextCore';
 import {
@@ -381,6 +381,7 @@ type CommandEveWarmup = (options: {
 
 let commandEveRuntimeBridgeRegistered = false;
 let commandEveOllamaShimUrl = '';
+let commandEveOllamaShimStartFailure: unknown;
 let commandEveWarmupInFlight: Promise<CommandEveModelWarmupReceipt> | undefined;
 let commandEveAssistantBootstrapInFlight: Promise<CommandEveAssistantEnsureResult> | undefined;
 
@@ -392,6 +393,17 @@ function readJsonFile<T>(filePath: string): T | undefined {
     console.warn(`[Command EVE] Failed to read ${filePath}:`, error);
     return undefined;
   }
+}
+
+function commandEveRuntimeBootstrapNeedsStartupWait(receiptPath: string, appVersion: string): boolean {
+  if (!app.isPackaged) return true;
+  const receipt = readJsonFile<RuntimeBootstrapReceipt>(receiptPath);
+  if (!receipt) return true;
+  if (receipt.status !== 'ready') return true;
+  if (receipt.app_release !== appVersion) return true;
+  const hermesStage = receipt.stages.find((stage) => stage.id === 'hermes');
+  if (!hermesStage || hermesStage.status !== 'pass') return true;
+  return false;
 }
 
 function commandEvePromptProofPath(runtimeRoot: string): string {
@@ -1500,6 +1512,7 @@ const handleAppReady = async (): Promise<void> => {
     const {
       ensureCommandEveRuntimeBootstrap,
       prepareCommandEveRuntimeProcessEnv,
+      provisionSeatRuntimeFiles,
       resolveCommandEveRuntimeBootstrapPaths,
     } = await import('./process/commandEve/runtimeBootstrapCore');
     const runtimePaths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
@@ -1525,6 +1538,7 @@ const handleAppReady = async (): Promise<void> => {
       kanbanAcpRead: readKanbanAcpBoard,
     });
     commandEveOllamaShimUrl = shimUrl;
+    commandEveOllamaShimStartFailure = undefined;
     mark(`commandEveOllamaShim (${shimUrl})`);
     // Seat-Context-Bridge (B1): this bakes the env trio (COMMAND_EVE_ACTIVE_SEAT /
     // _SEAT_LABEL / HERMES_KANBAN_BOARD) alongside HERMES_HOME. At BOOT the active
@@ -1551,6 +1565,23 @@ const handleAppReady = async (): Promise<void> => {
     // status-allowed Claude ACP delegate from commandEve.workerAssignments BEFORE the
     // bootstrap so SOUL.md carries the live delegate directive (the keystone fires).
     const workerRuntimeInputs = await resolveCommandEveWorkerRuntimeInputs();
+    const provisionedRuntimeFiles = provisionSeatRuntimeFiles({
+      userDataPath: getDataPath(),
+      appPath: app.getAppPath(),
+      resourcesPath: process.resourcesPath,
+      env: localModelTierId ? { COMMAND_EVE_LOCAL_MODEL_TIER: localModelTierId } : undefined,
+      uiLanguage: ProcessConfig.getSync('language'),
+      ...workerRuntimeInputs,
+    });
+    if (!provisionedRuntimeFiles.ok) {
+      console.warn(`[Command EVE] Runtime file provisioning skipped: ${provisionedRuntimeFiles.error || 'unknown error'}`);
+    } else if (provisionedRuntimeFiles.bundled_skill_failures.length > 0) {
+      console.warn(
+        `[Command EVE] Runtime file provisioning completed with ${provisionedRuntimeFiles.bundled_skill_failures.length} bundled skill warning(s).`
+      );
+    } else {
+      mark('commandEveRuntimeFilesProvisioned');
+    }
     const bootstrap = ensureCommandEveRuntimeBootstrap({
       userDataPath: getDataPath(),
       appPath: app.getAppPath(),
@@ -1562,7 +1593,10 @@ const handleAppReady = async (): Promise<void> => {
       uiLanguage: ProcessConfig.getSync('language'),
       ...workerRuntimeInputs,
     });
-    if (shouldBlockStartupForCommandEveRuntimeBootstrap) {
+    const mustWaitForRuntimeBootstrap =
+      shouldBlockStartupForCommandEveRuntimeBootstrap ||
+      commandEveRuntimeBootstrapNeedsStartupWait(runtimePaths.receiptPath, app.getVersion());
+    if (mustWaitForRuntimeBootstrap) {
       const receipt = await bootstrap;
       mark(`commandEveRuntimeBootstrap (${receipt.status})`);
       scheduleCommandEveLocalModelWarmup(receipt, shimUrl, warmCommandEveLocalModel, mark, warmCommandEveEveLane);
@@ -1578,6 +1612,9 @@ const handleAppReady = async (): Promise<void> => {
       mark('commandEveRuntimeBootstrap scheduled');
     }
   } catch (error) {
+    if (!commandEveOllamaShimUrl) {
+      commandEveOllamaShimStartFailure = error;
+    }
     console.error('[Command EVE] Runtime bootstrap could not be scheduled:', error);
   }
 
@@ -1587,6 +1624,15 @@ const handleAppReady = async (): Promise<void> => {
   try {
     const { getSystemDir, getBackendDataDir } = await import('./process/utils/initStorage');
     const sysDir = getSystemDir();
+    if (commandEveOllamaShimStartFailure) {
+      const detail =
+        commandEveOllamaShimStartFailure instanceof Error
+          ? commandEveOllamaShimStartFailure.message
+          : String(commandEveOllamaShimStartFailure);
+      throw new Error(
+        `Command EVE loopback shim failed to start; refusing to start Hermes backend because it would otherwise talk to a stale or foreign shim. ${detail}`
+      );
+    }
     // ISO-4 CRITICAL: the FIRST positional arg is the backend --data-dir (the
     // live conversation+message SQLite). It MUST be seat-scoped to the ACTIVE
     // seat — NOT the global getDataPath() — else seat B's renderer reads seat A's
@@ -1601,12 +1647,17 @@ const handleAppReady = async (): Promise<void> => {
     // every restart. Fail-open (never blocks the spawn). See assistantStorageRepair.ts.
     try {
       const { repairCommandEveAssistantStorage } = await import('./process/commandEve/assistantStorageRepair');
-      const repair = await repairCommandEveAssistantStorage(getBackendDataDir());
+      const repair = await repairCommandEveAssistantStorage(getBackendDataDir(), {
+        hermesCommandPath: resolveCommandEveRuntimeBootstrapPaths(getDataPath()).hermesShim,
+      });
       if (repair.repaired > 0) {
         console.warn(`[CommandEVE] Pre-flight assistant-storage repair: re-activated ${repair.repaired} orphaned definition(s).`);
       }
       if (repair.rebound && repair.rebound > 0) {
         console.warn(`[CommandEVE] Pre-flight assistant-storage repair: re-bound ${repair.rebound} EVE definition(s) aionrs→hermes.`);
+      }
+      if (repair.registryRebound && repair.registryRebound > 0) {
+        console.warn(`[CommandEVE] Pre-flight assistant-storage repair: pinned ${repair.registryRebound} Hermes registry row(s) to the app-managed shim.`);
       }
       if (repair.reseeded && repair.reseeded > 0) {
         console.warn(`[CommandEVE] Pre-flight assistant-storage repair: cleared ${repair.reseeded} orphaned EVE mirror row(s) with no live definition (will re-seed via POST).`);
@@ -1645,7 +1696,8 @@ const handleAppReady = async (): Promise<void> => {
       const myRespawnGen = ++commandEveRespawnGeneration;
       const { getDataPath: getDataPathForRestart } = await import('./process/utils/utils');
       const { getSystemDir: getSystemDirForRestart, getBackendDataDir: getBackendDataDirForRestart } = await import('./process/utils/initStorage');
-      const { prepareCommandEveRuntimeProcessEnv } = await import('./process/commandEve/runtimeBootstrapCore');
+      const { prepareCommandEveRuntimeProcessEnv, resolveCommandEveRuntimeBootstrapPaths } =
+        await import('./process/commandEve/runtimeBootstrapCore');
       // STOP first so there is no orphan / no in-flight request bleed: stop()
       // SIGTERMs (then SIGKILLs after 5s) the whole process tree and cleans up
       // registered agent processes before we re-spawn.
@@ -1653,18 +1705,24 @@ const handleAppReady = async (): Promise<void> => {
       // Re-bake the shim + re-home process.env.HERMES_HOME for the ACTIVE seat
       // (seatContextCore.getActiveSeatId — already set by applySeatSwitch step a).
       prepareCommandEveRuntimeProcessEnv(getDataPathForRestart());
+      const runtimePathsForRestart = resolveCommandEveRuntimeBootstrapPaths(getDataPathForRestart());
       const sysDirForRestart = getSystemDirForRestart();
       // Same pre-flight assistant-storage repair as boot, for the now-active seat's
       // DB (fail-open). Keeps a seat-switch respawn from hitting the orphaned-
       // definition bootstrap crash. See assistantStorageRepair.ts.
       try {
         const { repairCommandEveAssistantStorage } = await import('./process/commandEve/assistantStorageRepair');
-        const repair = await repairCommandEveAssistantStorage(getBackendDataDirForRestart());
+        const repair = await repairCommandEveAssistantStorage(getBackendDataDirForRestart(), {
+          hermesCommandPath: runtimePathsForRestart.hermesShim,
+        });
         if (repair.repaired > 0) {
           console.warn(`[CommandEVE] Pre-flight assistant-storage repair (respawn): re-activated ${repair.repaired} orphaned definition(s).`);
         }
         if (repair.rebound && repair.rebound > 0) {
           console.warn(`[CommandEVE] Pre-flight assistant-storage repair (respawn): re-bound ${repair.rebound} EVE definition(s) aionrs→hermes.`);
+        }
+        if (repair.registryRebound && repair.registryRebound > 0) {
+          console.warn(`[CommandEVE] Pre-flight assistant-storage repair (respawn): pinned ${repair.registryRebound} Hermes registry row(s) to the app-managed shim.`);
         }
         if (repair.reseeded && repair.reseeded > 0) {
           console.warn(`[CommandEVE] Pre-flight assistant-storage repair (respawn): cleared ${repair.reseeded} orphaned EVE mirror row(s) with no live definition (will re-seed via POST).`);

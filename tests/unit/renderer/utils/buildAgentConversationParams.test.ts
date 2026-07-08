@@ -63,4 +63,26 @@ describe('buildAgentConversationParams agent type policy', () => {
       expect(params.extra.remote_agent_id).toBeUndefined();
     }
   });
+
+  it('forwards cli_path for preset ACP assistants so bundled runtimes do not depend on PATH lookup', () => {
+    const params = buildAgentConversationParams({
+      backend: 'hermes',
+      name: 'EVE',
+      workspace: '',
+      model,
+      is_preset: true,
+      preset_agent_type: 'hermes',
+      agent_id: 'agent-hermes-acp',
+      agent_name: 'Hermes',
+      custom_agent_id: 'command-eve-chief-of-staff',
+      cli_path: '/Users/test/.command-eve/command-eve-runtime/hermes/hermes',
+    });
+
+    expect(params.type).toBe('acp');
+    expect(params.extra.backend).toBe('hermes');
+    expect(params.extra.agent_id).toBe('agent-hermes-acp');
+    expect(params.extra.agent_name).toBe('Hermes');
+    expect(params.extra.preset_assistant_id).toBe('command-eve-chief-of-staff');
+    expect(params.extra.cli_path).toBe('/Users/test/.command-eve/command-eve-runtime/hermes/hermes');
+  });
 });

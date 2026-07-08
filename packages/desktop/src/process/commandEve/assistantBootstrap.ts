@@ -22,7 +22,10 @@ import { resolveEffectiveInferenceSelection } from '@/common/config/eveInference
 import { readInferenceSelectionFromBackend } from './inferenceSelectionBackendRead';
 import fs from 'fs';
 import path from 'path';
-import { resolveCommandEveRuntimeBootstrapPaths } from './runtimeBootstrapCore';
+import {
+  ensureCommandEveManagedSkillsReconciliation,
+  resolveCommandEveRuntimeBootstrapPaths,
+} from './runtimeBootstrapCore';
 import {
   COMMAND_EVE_DEFAULT_BOARD_SLUG,
   getActiveSeatBoardSlug,
@@ -43,6 +46,9 @@ export type CommandEveAssistantEnsureResult = {
   status: 'ready';
   assistant_id: string;
   preset_agent_type: string;
+  agent_id?: string;
+  agent_name?: string;
+  cli_path?: string;
   enabled_skills: string[];
   custom_skill_names: string[];
   skill_count: number;
@@ -141,7 +147,19 @@ export function resolveCommandEveManagedSkillImportPaths(userDataPath?: string):
 }
 
 async function importCommandEveManagedSkills(backendPort: number, userDataPath?: string): Promise<string[]> {
-  const skillImports = resolveCommandEveManagedSkillImportPaths(userDataPath);
+  let skillImports = resolveCommandEveManagedSkillImportPaths(userDataPath);
+  if (!skillImports.length && userDataPath) {
+    try {
+      ensureCommandEveManagedSkillsReconciliation({ userDataPath });
+      skillImports = resolveCommandEveManagedSkillImportPaths(userDataPath);
+    } catch (error) {
+      console.warn(
+        `[CommandEVE] Could not self-heal managed skill reconciliation: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  }
   const skillNames: string[] = [];
   for (const skill of skillImports) {
     let skillName = skill.id;
@@ -360,6 +378,28 @@ function resolveCommandEveAssistantAgentId(
   return id || (target === 'hermes' ? 'hermes' : undefined);
 }
 
+function resolveCommandEveAssistantAgentName(
+  agents: CommandEveDetectedAgent[],
+  presetAgentType: string
+): string | undefined {
+  const target = presetAgentType.toLowerCase();
+  const agent = agents.find(
+    (candidate) =>
+      candidate.available !== false && (candidate.backend || candidate.agent_type || '').toLowerCase() === target
+  );
+  const name = typeof agent?.name === 'string' ? agent.name.trim() : '';
+  return name || (target === 'hermes' ? 'Hermes' : undefined);
+}
+
+function resolveCommandEveAssistantCliPath(userDataPath: string | undefined, presetAgentType: string): string | undefined {
+  if (!userDataPath || presetAgentType.toLowerCase() !== 'hermes') return undefined;
+  try {
+    return resolveCommandEveRuntimeBootstrapPaths(userDataPath).hermesShim;
+  } catch {
+    return undefined;
+  }
+}
+
 async function loadCommandEveDetectedAgents(backendPort: number): Promise<CommandEveDetectedAgent[]> {
   // aioncore v0.1.37 renamed the agent-list GET to /api/agents/management (plain
   // /api/agents now 404s). A 404 here threw and aborted the whole EVE re-seed.
@@ -472,6 +512,8 @@ export async function ensureCommandEveAssistant(
   const agents = await loadCommandEveDetectedAgents(backendPort);
   const presetAgentType = selectCommandEvePresetAgentType(agents);
   const agentId = resolveCommandEveAssistantAgentId(agents, presetAgentType);
+  const agentName = resolveCommandEveAssistantAgentName(agents, presetAgentType);
+  const cliPath = resolveCommandEveAssistantCliPath(options.userDataPath, presetAgentType);
   const customSkillNames = await importCommandEveManagedSkills(backendPort, options.userDataPath);
   const assistant = {
     ...buildCommandEveAssistantPayload(presetAgentType, customSkillNames, appVersion, isFounderBuild),
@@ -603,12 +645,22 @@ export async function ensureCommandEveAssistant(
     );
   }
 
+  const effectiveEnabledSkills = includesAll(readyAssistant?.enabled_skills, customSkillNames)
+    ? readyAssistant?.enabled_skills || []
+    : customSkillNames;
+  const effectiveCustomSkillNames = includesAll(readyAssistant?.custom_skill_names, customSkillNames)
+    ? readyAssistant?.custom_skill_names || []
+    : customSkillNames;
+
   return {
     status: 'ready',
     assistant_id: COMMAND_EVE_ASSISTANT_ID,
     preset_agent_type: presetAgentType,
-    enabled_skills: readyAssistant?.enabled_skills || [],
-    custom_skill_names: readyAssistant?.custom_skill_names || [],
+    ...(agentId ? { agent_id: agentId } : {}),
+    ...(agentName ? { agent_name: agentName } : {}),
+    ...(cliPath ? { cli_path: cliPath } : {}),
+    enabled_skills: effectiveEnabledSkills,
+    custom_skill_names: effectiveCustomSkillNames,
     skill_count: customSkillNames.length,
   };
 }

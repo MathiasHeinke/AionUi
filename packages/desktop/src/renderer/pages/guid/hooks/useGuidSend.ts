@@ -5,7 +5,7 @@
  */
 
 import { ipcBridge } from '@/common';
-import type { ICommandEveRuntimeStatus } from '@/common/adapter/ipcBridge';
+import type { ICommandEveAssistantReadiness, ICommandEveRuntimeStatus } from '@/common/adapter/ipcBridge';
 import {
   COMMAND_EVE_ASSISTANT_ID,
   COMMAND_EVE_ASSISTANT_KEY,
@@ -90,6 +90,14 @@ export type GuidSendResult = {
 
 const toCommandEveRuntimeModelId = (acpModelId: string): string => acpModelId.replace(/^custom:/, '');
 
+const navigateToConversation = async (navigate: NavigateFunction, conversationId: string): Promise<void> => {
+  const target = `/conversation/${conversationId}`;
+  await Promise.resolve(navigate(target));
+  if (typeof window !== 'undefined' && window.location.hash.startsWith('#/') && window.location.hash !== `#${target}`) {
+    window.location.hash = target;
+  }
+};
+
 export const commandEveWarmupReadyForModel = (
   warmup: ICommandEveRuntimeStatus['model_warmup'] | undefined,
   runtimeModelId: string
@@ -150,6 +158,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
   const handleSend = useCallback(async () => {
     let commandEveRuntimeModel: TProviderWithModel | undefined;
     let commandEveRuntimeModelId: string | undefined;
+    let commandEveAssistantReadiness: ICommandEveAssistantReadiness | undefined;
     const selectedCustomAgentId = selectedAgentInfo?.custom_agent_id?.replace(/^builtin-/, '');
     const isCommandEveAssistant =
       COMMAND_EVE_SHELL_ENABLED &&
@@ -159,6 +168,13 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
       await ipcBridge.commandEve.evaluateGateDecision.invoke({ action: 'truth_gate' }).catch((error) => {
         console.warn('[Command EVE] Failed to log truth-gate decision:', error);
       });
+      const readiness = await ipcBridge.commandEve.ensureAssistant.invoke().catch((error): undefined => {
+        console.warn('[Command EVE] Failed to refresh assistant readiness before send:', error);
+        return undefined;
+      });
+      if (readiness?.success && readiness.data?.status === 'ready') {
+        commandEveAssistantReadiness = readiness.data;
+      }
       await configService.whenReady().catch((): undefined => undefined);
 
       // EVE Inference (cloud) lane: when the picker selection is an EVE tier,
@@ -269,8 +285,11 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
     // agents we still forward the user's selection (the backend accepts
     // `preset_enabled_skills` regardless of `is_preset`).
     const presetEnabledSkillsDefault = resolveEnabledSkills(agentInfo);
-    const enabled_skills = guidEnabledSkills ?? presetEnabledSkillsDefault;
-    const enabled_skills_to_send = is_presetAgent
+    const commandEveEnabledSkills = commandEveAssistantReadiness?.enabled_skills?.length
+      ? commandEveAssistantReadiness.enabled_skills
+      : undefined;
+    const enabled_skills = guidEnabledSkills ?? commandEveEnabledSkills ?? presetEnabledSkillsDefault;
+    const enabled_skills_to_send = is_preset
       ? enabled_skills
       : guidEnabledSkills?.length
         ? guidEnabledSkills
@@ -327,7 +346,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         };
         sessionStorage.setItem(`openclaw_initial_message_${conversation.id}`, JSON.stringify(initialMessage));
 
-        await navigate(`/conversation/${conversation.id}`);
+        await navigateToConversation(navigate, conversation.id);
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         alert(`Failed to create OpenClaw conversation: ${errorMessage}`);
@@ -375,7 +394,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         };
         sessionStorage.setItem(`nanobot_initial_message_${conversation.id}`, JSON.stringify(initialMessage));
 
-        await navigate(`/conversation/${conversation.id}`);
+        await navigateToConversation(navigate, conversation.id);
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         alert(`Failed to create Nanobot conversation: ${errorMessage}`);
@@ -426,7 +445,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         };
         sessionStorage.setItem(`aionrs_initial_message_${conversation.id}`, JSON.stringify(initialMessage));
 
-        await navigate(`/conversation/${conversation.id}`);
+        await navigateToConversation(navigate, conversation.id);
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         const runtimeLabel = COMMAND_EVE_SHELL_ENABLED ? 'EVE/Hermes' : 'Aion CLI';
@@ -463,12 +482,21 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         // For row-scoped rows (custom ACP / remote) the backend factory
         // needs the actual catalog id — `backend` collapses to the `custom`
         // slot so it cannot discriminate between rows on its own.
-        agent_id: acpAgentInfo?.id,
-        agent_name: acpAgentInfo?.name,
+        agent_id:
+          isCommandEveAssistant && commandEveAssistantReadiness?.agent_id
+            ? commandEveAssistantReadiness.agent_id
+            : acpAgentInfo?.id,
+        agent_name:
+          isCommandEveAssistant && commandEveAssistantReadiness?.agent_name
+            ? commandEveAssistantReadiness.agent_name
+            : acpAgentInfo?.name,
         preset_assistant_id,
         workspace: finalWorkspace,
         model: effectiveCurrentModel!,
         cli_path: acpAgentInfo?.cli_path,
+        ...(isCommandEveAssistant && commandEveAssistantReadiness?.cli_path
+          ? { cli_path: commandEveAssistantReadiness.cli_path }
+          : {}),
         custom_agent_id: acpAgentInfo?.custom_agent_id,
         custom_workspace: isCustomWorkspace,
         is_preset,
@@ -511,7 +539,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         };
         sessionStorage.setItem(`acp_initial_message_${conversation.id}`, JSON.stringify(initialMessage));
 
-        await navigate(`/conversation/${conversation.id}`);
+        await navigateToConversation(navigate, conversation.id);
       } catch (error: unknown) {
         console.error('Failed to create ACP conversation:', error);
         throw error;

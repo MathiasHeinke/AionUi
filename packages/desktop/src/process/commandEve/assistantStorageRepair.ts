@@ -78,6 +78,12 @@ export interface AssistantStorageRepairResult {
   /** Number of EVE definitions re-bound from aionrs → hermes (BUG 2). */
   rebound?: number;
   /**
+   * Number of Hermes agent registry rows pinned to the absolute app-managed
+   * shim command. This prevents aioncore from falling back to `hermes` PATH
+   * lookup when its own agent launcher uses the `agent_metadata` catalog.
+   */
+  registryRebound?: number;
+  /**
    * Number of orphaned EVE legacy mirror rows cleared (BUG 3) — the EVE
    * `assistants` row was active with ZERO live definition rows, so it is removed
    * to let the backend re-seed a clean definition via its own POST path.
@@ -87,13 +93,19 @@ export interface AssistantStorageRepairResult {
   skipped?: string;
 }
 
+export interface AssistantStorageRepairOptions {
+  /** Absolute Command EVE Hermes shim path, e.g. <userData>/command-eve-runtime/hermes/hermes. */
+  hermesCommandPath?: string;
+}
+
 /**
  * Heal the active-assistant ↔ soft-deleted-definition inconsistency in the
  * aioncore conversation DB at `<backendDataDir>/aionui-backend.db`. Safe to call
  * unconditionally before every backend spawn (boot + seat-switch respawn).
  */
 export async function repairCommandEveAssistantStorage(
-  backendDataDir: string
+  backendDataDir: string,
+  options: AssistantStorageRepairOptions = {}
 ): Promise<AssistantStorageRepairResult> {
   try {
     if (!backendDataDir || typeof backendDataDir !== 'string') return { repaired: 0, skipped: 'no-dir' };
@@ -139,6 +151,7 @@ export async function repairCommandEveAssistantStorage(
       // clears deleted_at so the re-bound row is live in one shot. Idempotent:
       // once on hermes the aionrs subquery matches nothing → 0 changes.
       let rebound = 0;
+      let registryRebound = 0;
       try {
         const hasAgentMeta = db
           .prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='agent_metadata'")
@@ -160,6 +173,77 @@ export async function repairCommandEveAssistantStorage(
               )
               .run(hermes.id, COMMAND_EVE_ASSISTANT_ID);
             rebound = rebind.changes;
+          }
+
+          // BUG 4 — aioncore's ACP launcher resolves the agent command from
+          // `agent_metadata`, not from the conversation `extra.cli_path`.
+          // Existing installs can therefore have a healthy EVE assistant bound
+          // to the Hermes row while the row still says `command = 'hermes'`.
+          // If aioncore's spawn environment does not include the app-managed
+          // runtime directory, every EVE request fails with:
+          // "Agent 'Hermes' CLI unavailable: command 'hermes' not found in PATH".
+          //
+          // The runtime bootstrap already writes a stable Hermes shim; pin the
+          // registry row to that absolute shim and clear stale health errors.
+          // Schema-aware on purpose: older DBs/tests lack these richer columns,
+          // and repair must stay fail-open/idempotent.
+          const hermesCommandPath =
+            typeof options.hermesCommandPath === 'string' ? options.hermesCommandPath.trim() : '';
+          if (hermesCommandPath) {
+            const hasColumn = (column: string): boolean => {
+              const row = db
+                .prepare("SELECT COUNT(*) AS n FROM pragma_table_info('agent_metadata') WHERE name = ?")
+                .get(column) as { n: number } | undefined;
+              return Boolean(row && row.n > 0);
+            };
+            const assignments: string[] = [];
+            const setParams: unknown[] = [];
+            const mismatchChecks: string[] = [];
+            const mismatchParams: unknown[] = [];
+
+            if (hasColumn('command_override')) {
+              assignments.push('command_override = ?');
+              setParams.push(hermesCommandPath);
+              mismatchChecks.push("coalesce(command_override,'') <> ?");
+              mismatchParams.push(hermesCommandPath);
+            }
+            if (hasColumn('command')) {
+              assignments.push('command = ?');
+              setParams.push(hermesCommandPath);
+              mismatchChecks.push("coalesce(command,'') <> ?");
+              mismatchParams.push(hermesCommandPath);
+            }
+            if (hasColumn('args')) {
+              assignments.push('args = ?');
+              setParams.push('["acp"]');
+              mismatchChecks.push("coalesce(args,'') <> ?");
+              mismatchParams.push('["acp"]');
+            }
+            for (const column of [
+              'last_check_status',
+              'last_check_kind',
+              'last_check_error_code',
+              'last_check_error_message',
+              'last_check_guidance',
+              'last_failure_at',
+            ]) {
+              if (hasColumn(column)) assignments.push(`${column} = NULL`);
+            }
+            if (hasColumn('updated_at')) {
+              assignments.push('updated_at = ?');
+              setParams.push(Date.now());
+            }
+
+            if (assignments.length > 0 && mismatchChecks.length > 0) {
+              const registry = db
+                .prepare(
+                  `UPDATE agent_metadata SET ${assignments.join(', ')} ` +
+                    "WHERE (lower(coalesce(backend,'')) = 'hermes' OR lower(coalesce(agent_type,'')) = 'hermes') " +
+                    `AND (${mismatchChecks.join(' OR ')})`
+                )
+                .run(...setParams, ...mismatchParams);
+              registryRebound = registry.changes;
+            }
           }
         }
       } catch {
@@ -207,7 +291,7 @@ export async function repairCommandEveAssistantStorage(
       } catch {
         // best-effort; SQLite recovers the WAL on open anyway
       }
-      return { repaired: info.changes, rebound, reseeded };
+      return { repaired: info.changes, rebound, registryRebound, reseeded };
     } finally {
       db.close();
     }

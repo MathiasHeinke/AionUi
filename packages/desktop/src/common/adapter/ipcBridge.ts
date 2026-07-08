@@ -475,6 +475,9 @@ export interface ICommandEveAssistantReadiness {
   status: 'ready';
   assistant_id: string;
   preset_agent_type: string;
+  agent_id?: string;
+  agent_name?: string;
+  cli_path?: string;
   enabled_skills: string[];
   custom_skill_names: string[];
   skill_count: number;

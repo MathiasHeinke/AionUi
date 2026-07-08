@@ -2094,6 +2094,20 @@ function writeCommandEveRuntimeReconciliation(
   writeJsonAtomic(path.join(paths.hermesHome, COMMAND_EVE_RUNTIME_RECONCILIATION_FILE), reconciliation);
 }
 
+export function ensureCommandEveManagedSkillsReconciliation(options: {
+  userDataPath?: string;
+  bundledSkillsDir?: string;
+}): string[] {
+  if (!options.userDataPath) return [];
+  const paths = resolveCommandEveRuntimeBootstrapPaths(options.userDataPath);
+  ensureDir(paths.hermesHome);
+  const capabilityPack = loadCommandEveCapabilityPack(fs.existsSync(paths.capabilityPack) ? paths.capabilityPack : '');
+  writeCommandEveCapabilityPack(paths, capabilityPack);
+  const { executableSkillIds } = writeCommandEveManagedSkills(paths, capabilityPack, options.bundledSkillsDir || '');
+  writeCommandEveRuntimeReconciliation(paths, capabilityPack, executableSkillIds);
+  return executableSkillIds;
+}
+
 export function resolveCommandEveFirstRunProfile(options: {
   env: NodeJS.ProcessEnv;
   now: () => Date;

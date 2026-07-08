@@ -92,7 +92,8 @@ test.describe('Command EVE default surface inventory', () => {
     expectNoForbiddenSurface(await collectDefaultSurfaceLabels(page));
 
     await goToSettings(page, 'agent');
-    await expect(page.getByText(/EVE-Orchestrierung|EVE Orchestration/)).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('heading', { name: /EVE-Runtime|EVE Runtime/ })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('heading', { name: /Dein Team|Your team/ })).toBeVisible({ timeout: 30_000 });
     expectNoForbiddenSurface(await collectDefaultSurfaceLabels(page));
 
     await goToSettings(page, 'capabilities');

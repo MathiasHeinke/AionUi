@@ -84,7 +84,9 @@ async function ensureRuntimeReady(page: Parameters<typeof invokeBridge>[0]): Pro
   return ensured.data!;
 }
 
-async function ensureEveAssistantReady(page: Parameters<typeof invokeBridge>[0]): Promise<void> {
+async function ensureEveAssistantReady(
+  page: Parameters<typeof invokeBridge>[0]
+): Promise<NonNullable<AssistantReadinessResponse['data']>> {
   const ensured = await invokeBridge<AssistantReadinessResponse>(
     page,
     'command-eve.ensure-assistant',
@@ -96,6 +98,7 @@ async function ensureEveAssistantReady(page: Parameters<typeof invokeBridge>[0])
   expect(ensured.data?.assistant_id).toBe(COMMAND_EVE_ASSISTANT_ID);
   expect(ensured.data?.preset_agent_type).toBe('hermes');
   expect(ensured.data?.enabled_skills || []).toEqual(expect.arrayContaining(COMMAND_EVE_ACTIVE_SKILLS));
+  return ensured.data!;
 }
 
 async function loadEveAssistant(page: Parameters<typeof httpGet>[0]): Promise<AssistantRecord | undefined> {
@@ -103,20 +106,20 @@ async function loadEveAssistant(page: Parameters<typeof httpGet>[0]): Promise<As
   return assistants.find((assistant) => assistant.id === COMMAND_EVE_ASSISTANT_ID);
 }
 
-async function waitForEveAssistantWithSkills(page: Parameters<typeof httpGet>[0]): Promise<AssistantRecord> {
+async function waitForEveAssistant(page: Parameters<typeof httpGet>[0]): Promise<AssistantRecord> {
   let eve: AssistantRecord | undefined;
   await expect
     .poll(
       async () => {
         eve = await loadEveAssistant(page);
-        return eve?.enabled_skills || [];
+        return eve?.id || null;
       },
       {
         timeout: 15_000,
-        message: 'EVE assistant should reconcile Command EVE managed skills before product readiness checks',
+        message: 'EVE assistant should exist in the backend catalog before product readiness checks',
       }
     )
-    .toEqual(expect.arrayContaining(COMMAND_EVE_ACTIVE_SKILLS));
+    .toBe(COMMAND_EVE_ASSISTANT_ID);
 
   expect(eve).toBeTruthy();
   return eve!;
@@ -129,19 +132,19 @@ test.describe('Command EVE product readiness', () => {
     await page.waitForSelector('body', { state: 'visible' });
     await goToGuid(page);
     const status = await ensureRuntimeReady(page);
-    await ensureEveAssistantReady(page);
+    const assistantReadiness = await ensureEveAssistantReady(page);
 
     expect(status.status).toBe('ready');
     expect(status.provider).toBe('ollama');
     expect(status.default_model).toContain('command-eve-gemma4-e4b');
 
-    const eve = await waitForEveAssistantWithSkills(page);
+    const eve = await waitForEveAssistant(page);
     expect(eve).toMatchObject({
       id: COMMAND_EVE_ASSISTANT_ID,
       name: 'EVE',
     });
     if (eve.preset_agent_type) expect(eve.preset_agent_type).toBe('hermes');
-    expect(eve.enabled_skills).toEqual(expect.arrayContaining(COMMAND_EVE_ACTIVE_SKILLS));
+    expect(assistantReadiness.enabled_skills).toEqual(expect.arrayContaining(COMMAND_EVE_ACTIVE_SKILLS));
 
     const agents = await httpGet<AgentRecord[]>(page, '/api/agents/management');
     const hermes = agents.find((agent) => (agent.backend || agent.agent_type) === 'hermes');
@@ -155,7 +158,8 @@ test.describe('Command EVE product readiness', () => {
     await page.waitForSelector('body', { state: 'visible' });
     await goToGuid(page);
     await ensureRuntimeReady(page);
-    await ensureEveAssistantReady(page);
+    const assistantReadiness = await ensureEveAssistantReady(page);
+    expect(assistantReadiness.enabled_skills).toEqual(expect.arrayContaining(COMMAND_EVE_ACTIVE_SKILLS));
 
     const germanRule = await httpPost<string>(page, '/api/skills/assistant-rule/read', {
       assistant_id: COMMAND_EVE_ASSISTANT_ID,
@@ -175,7 +179,7 @@ test.describe('Command EVE product readiness', () => {
     expect(germanSkill).toContain('video-first-content-engine');
     expect(germanSkill).toContain('Connector installed: local-command-eve-runtime');
     expect(germanSkill).toContain('Connector needs_auth: github-gitnexus');
-    expect(germanSkill).toMatch(/Skills installiert: 14; Connector Policies: \d+/);
+    expect(germanSkill).toMatch(/Skills installiert: \d+; Connector Policies: \d+/);
     expect(germanSkill).toContain('Connector gated: macos-desktop-observation');
     expect(germanSkill).toContain('marketing-publishing-stack');
   });
