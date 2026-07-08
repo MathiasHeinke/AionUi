@@ -56,6 +56,20 @@ describe('Command EVE voice polish core', () => {
     });
   });
 
+  it('maps manual transcribe to transcribe-only without sending', () => {
+    expect(
+      decideVoiceComposerAction({
+        trigger: 'manual_transcribe',
+        hasPendingSpeech: true,
+        hasDraftText: true,
+      })
+    ).toEqual({
+      action: 'transcribe_only',
+      shouldSend: false,
+      shouldTranscribe: true,
+    });
+  });
+
   it('routes local-only TTS to local speech when available and blocks cloud when not', () => {
     expect(
       decideTtsReadAloudRoute({
@@ -81,7 +95,7 @@ describe('Command EVE voice polish core', () => {
 
     expect(blocked).toMatchObject({
       ok: false,
-      route: 'cloud_tts',
+      route: 'local_speech_synthesis',
       reasonCode: 'voice.tts.blocked-local-only',
       failureArtifact: {
         artifactType: 'failure',
@@ -89,7 +103,7 @@ describe('Command EVE voice polish core', () => {
         error: 'Cloud TTS is disabled while Datenschutz is local-only.',
         receipt: {
           requestId: 'tts-2',
-          route: 'xai',
+          route: 'local',
           status: 'blocked',
           humanGate: 'HG-2',
         },
@@ -134,6 +148,7 @@ describe('Command EVE voice polish core', () => {
         title: 'Read aloud failed',
         error: 'Provider timeout',
         privacyMode: 'cloud_balanced',
+        route: 'xai',
         provider: 'xai',
         model: 'grok-tts',
       })

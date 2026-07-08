@@ -63,6 +63,7 @@ export const CLOUD_PRIVACY_LANES: readonly PrivacyLaneId[] = [
   'vision_cloud',
   'image_cloud',
   'video_cloud',
+  'connectors',
 ];
 
 const ALL_LANES: readonly PrivacyLaneId[] = [
@@ -109,7 +110,15 @@ function defaultLaneState(mode: RuntimeGatePrivacyMode, lane: PrivacyLaneId): Pr
   }
 
   if (lane === 'send_spend_publish') return 'ask';
-  if (lane === 'vision_cloud' || lane === 'image_cloud' || lane === 'video_cloud' || lane === 'tts_cloud') return 'ask';
+  if (
+    lane === 'stt_cloud' ||
+    lane === 'vision_cloud' ||
+    lane === 'image_cloud' ||
+    lane === 'video_cloud' ||
+    lane === 'tts_cloud'
+  ) {
+    return 'ask';
+  }
   return 'allow';
 }
 

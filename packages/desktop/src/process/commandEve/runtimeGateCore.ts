@@ -61,7 +61,13 @@ export type RuntimeGateDecision = {
   humanGate: RuntimeGateHumanGate;
 };
 
-const CONSENT_REQUIRED_ACTIONS: RuntimeGateAction[] = ['delegate', 'cloud_inference', 'browser', 'computer_use'];
+const CONSENT_REQUIRED_ACTIONS: RuntimeGateAction[] = [
+  'delegate',
+  'cloud_inference',
+  'browser',
+  'computer_use',
+  'skill_write',
+];
 
 const NON_READ_ACTIONS: RuntimeGateAction[] = [
   'write',

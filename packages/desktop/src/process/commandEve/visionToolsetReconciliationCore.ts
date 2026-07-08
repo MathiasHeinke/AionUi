@@ -177,7 +177,7 @@ export function breakerOpen(breaker: CapabilityBreaker | undefined, now: Date | 
   const nowMs = dateFrom(now).getTime();
   if (safe.disabledUntil) {
     const disabledUntilMs = Date.parse(safe.disabledUntil);
-    return Number.isFinite(disabledUntilMs) && disabledUntilMs > nowMs;
+    if (Number.isFinite(disabledUntilMs)) return disabledUntilMs > nowMs;
   }
   return safe.failures >= safe.maxFailures;
 }

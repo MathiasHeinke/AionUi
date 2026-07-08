@@ -200,4 +200,44 @@ describe('Command EVE vision/toolset reconciliation core', () => {
       reasonCode: 'vision.route.breaker-open',
     });
   });
+
+  it('closes the breaker after cooldown expires so a probe can run', () => {
+    expect(breakerOpen({ failures: 3, maxFailures: 3, disabledUntil: '2026-07-08T09:59:59.000Z' }, NOW)).toBe(false);
+
+    expect(
+      reconcileVisionRoute({
+        id: 'vision-cloud',
+        kind: 'cloud',
+        requiredToolsets: ['vision'],
+        userConsent: true,
+        providerSmoke: { status: 'pass' },
+        breaker: { failures: 3, maxFailures: 3, disabledUntil: '2026-07-08T09:59:59.000Z' },
+        now: NOW,
+      })
+    ).toMatchObject({
+      state: 'active',
+      active: true,
+      reasonCode: 'vision.route.active',
+    });
+  });
+
+  it('keeps a max-failure breaker open when disabledUntil is corrupt', () => {
+    expect(breakerOpen({ failures: 3, maxFailures: 3, disabledUntil: 'corrupt' }, NOW)).toBe(true);
+
+    expect(
+      reconcileVisionRoute({
+        id: 'vision-cloud',
+        kind: 'cloud',
+        requiredToolsets: ['vision'],
+        userConsent: true,
+        providerSmoke: { status: 'pass' },
+        breaker: { failures: 3, maxFailures: 3, disabledUntil: 'corrupt' },
+        now: NOW,
+      })
+    ).toMatchObject({
+      state: 'smoke_failed',
+      active: false,
+      reasonCode: 'vision.route.breaker-open',
+    });
+  });
 });

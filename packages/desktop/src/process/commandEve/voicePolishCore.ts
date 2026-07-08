@@ -43,7 +43,7 @@ export type TtsReadAloudRouteDecision =
     }
   | {
       ok: false;
-      route: 'cloud_tts';
+      route: 'local_speech_synthesis' | 'cloud_tts';
       reasonCode: 'voice.tts.blocked-local-only' | 'voice.tts.consent-required' | 'voice.tts.gateway-not-ready';
       failureArtifact: GeneratedArtifactPayload;
     };
@@ -105,7 +105,7 @@ export function buildTtsFailureArtifact(input: TtsFailureArtifactInput): Generat
     error: input.error,
     dataClass: input.dataClass || 'S1-internal-low',
     humanGate: input.privacyMode === 'local_only' ? 'HG-2' : 'HG-1',
-    route: input.route || 'xai',
+    route: input.route || 'unknown',
     provider: input.provider,
     model: input.model,
     blocked: input.blocked,
@@ -129,13 +129,14 @@ export function decideTtsReadAloudRoute(input: {
     }
     return {
       ok: false,
-      route: 'cloud_tts',
+      route: 'local_speech_synthesis',
       reasonCode: 'voice.tts.blocked-local-only',
       failureArtifact: buildTtsFailureArtifact({
         requestId: input.requestId,
         title: 'Read aloud blocked',
         error: 'Cloud TTS is disabled while Datenschutz is local-only.',
         privacyMode: input.privacyMode,
+        route: 'local',
         blocked: true,
       }),
     };

@@ -17,7 +17,15 @@ describe('Command EVE privacy lane config core', () => {
   it('projects local-only into hard cloud-lane blocks', () => {
     const config = buildDefaultPrivacyLaneConfig('local_only');
 
-    for (const lane of ['text_cloud', 'vision_cloud', 'tts_cloud', 'image_cloud', 'video_cloud'] as const) {
+    for (const lane of [
+      'text_cloud',
+      'stt_cloud',
+      'vision_cloud',
+      'tts_cloud',
+      'image_cloud',
+      'video_cloud',
+      'connectors',
+    ] as const) {
       expect(decidePrivacyRoute(config, lane, 'S1-internal-low')).toMatchObject({
         ok: false,
         reasonCode: 'privacy.local-only-cloud-block',
@@ -87,10 +95,14 @@ describe('Command EVE privacy lane config core', () => {
     });
   });
 
-  it('cloud-balanced defaults keep text cloud allowed but high-impact lanes ask', () => {
+  it('cloud-balanced defaults keep text cloud allowed but voice and high-impact lanes ask', () => {
     const config = buildDefaultPrivacyLaneConfig('cloud_balanced');
 
     expect(routeAllowed(config, 'text_cloud', 'S0-public')).toBe(true);
+    expect(decidePrivacyRoute(config, 'stt_cloud', 'S0-public')).toMatchObject({
+      ok: false,
+      reasonCode: 'privacy.ask',
+    });
     expect(decidePrivacyRoute(config, 'image_cloud', 'S0-public')).toMatchObject({
       ok: false,
       reasonCode: 'privacy.ask',

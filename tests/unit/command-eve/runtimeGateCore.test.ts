@@ -86,8 +86,8 @@ describe('Command EVE runtime gate core', () => {
     });
   });
 
-  it('requires consent for delegate/cloud/browser/computer-use actions', () => {
-    for (const requestedAction of ['delegate', 'cloud_inference', 'browser', 'computer_use'] as const) {
+  it('requires consent for delegate/cloud/browser/computer-use/skill-write actions', () => {
+    for (const requestedAction of ['delegate', 'cloud_inference', 'browser', 'computer_use', 'skill_write'] as const) {
       expect(decide({ requestedAction, userConsent: false })).toMatchObject({
         ok: false,
         reasonCode: 'gate.needs-consent',
