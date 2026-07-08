@@ -60,8 +60,16 @@ export {
   runConversationCycle,
 } from './conversation';
 export { startAutoApprovePermissionMessages, waitForPermissionMessageCard } from './permissions';
-export { TEAM_SUPPORTED_BACKENDS } from './teamConfig';
-export { createTeam, ensureTeam, deleteTeam, cleanupTeamsByName } from './teamHelpers';
+export { RUN_TEAM_AGENT_LIVE, TEAM_PUBLIC_LEADER_TYPE, TEAM_SUPPORTED_BACKENDS } from './teamConfig';
+export {
+  createTeam,
+  ensureTeam,
+  deleteTeam,
+  cleanupTeamsByName,
+  ensureSiderExpanded,
+  ensureTeamSectionExpanded,
+  getTeamSiderRow,
+} from './teamHelpers';
 export {
   goToAssistantSettings,
   openAssistantDrawer,

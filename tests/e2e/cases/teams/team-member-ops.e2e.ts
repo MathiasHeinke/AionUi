@@ -25,11 +25,11 @@ test.describe('Team Member Ops', () => {
     await expect(tabBar).toBeVisible({ timeout: 15_000 });
 
     // Identify the leader tab — it is the first tab inside the bar
-    const firstTab = tabBar.locator('> div > div > div').first();
+    const firstTab = tabBar.locator('[data-testid^="team-tab-"]').first();
     await expect(firstTab).toBeVisible({ timeout: 10_000 });
 
     // Grab the original name text from the tab
-    const originalName = await firstTab.locator('span').last().textContent();
+    const originalName = await firstTab.textContent();
     expect(originalName?.trim()).toBeTruthy();
 
     await page.screenshot({ path: 'tests/e2e/results/member-ops-01-before-rename.png' });
@@ -78,7 +78,7 @@ test.describe('Team Member Ops', () => {
 
     // Reload team page so SWR picks up the new member
     await navigateTo(page, '#/team/' + teamId);
-    await page.waitForURL(/\/team\//, { timeout: 10_000 });
+    await page.waitForFunction((id) => window.location.hash.includes(`/team/${id}`), teamId, { timeout: 10_000 });
 
     const tabBar = page.locator('[data-testid="team-tab-bar"]');
     await expect(tabBar).toBeVisible({ timeout: 15_000 });
@@ -90,11 +90,11 @@ test.describe('Team Member Ops', () => {
     await page.screenshot({ path: 'tests/e2e/results/member-ops-04-member-added.png' });
 
     // Count tabs before removal
-    const tabsBefore = await tabBar.locator('> div > div > div').count();
+    const tabsBefore = await tabBar.locator('[data-testid^="team-tab-"]').count();
     expect(tabsBefore).toBeGreaterThanOrEqual(2);
 
     // Find the member tab's container div (has the close button)
-    const memberTabContainer = tabBar.locator('> div > div > div').filter({ hasText: memberName }).first();
+    const memberTabContainer = tabBar.locator('[data-testid^="team-tab-"]').filter({ hasText: memberName }).first();
     await expect(memberTabContainer).toBeVisible({ timeout: 5_000 });
 
     // Hover to reveal the close button
@@ -128,7 +128,7 @@ test.describe('Team Member Ops', () => {
     await expect(tabBar.locator('span').filter({ hasText: memberName })).toHaveCount(0, { timeout: 10_000 });
 
     // Tab count should have decreased
-    const tabsAfter = await tabBar.locator('> div > div > div').count();
+    const tabsAfter = await tabBar.locator('[data-testid^="team-tab-"]').count();
     expect(tabsAfter).toBeLessThan(tabsBefore);
   });
 });

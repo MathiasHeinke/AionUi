@@ -23,6 +23,7 @@ export type TeamAgent = {
   conversation_type: string;
   status: TeammateStatus;
   cli_path?: string;
+  /** aioncore calls this `assistant_id`; renderer code keeps the legacy custom-agent alias. */
   custom_agent_id?: string;
   model?: string;
   pending_confirmations?: number;

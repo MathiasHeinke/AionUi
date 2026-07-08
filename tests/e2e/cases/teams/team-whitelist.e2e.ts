@@ -13,16 +13,16 @@ test.describe('Team Agent Public Boundary', () => {
   test('Create Team exposes only Command EVE as the user-visible leader', async ({ page }) => {
     await page.goto(page.url().split('#')[0] + '#/guid');
 
-    const existingModal = page.locator('.arco-modal .arco-btn-text');
+    const existingModal = page.locator('.team-create-modal .arco-btn-text');
     if (await existingModal.isVisible({ timeout: 1000 }).catch(() => false)) {
       await existingModal.click({ force: true });
-      await expect(page.locator('.arco-modal')).toBeHidden({ timeout: 5000 });
+      await expect(page.locator('.team-create-modal')).toBeHidden({ timeout: 5000 });
     }
 
     await expect(page.locator('[data-testid="team-create-btn"]').first()).toBeVisible({ timeout: 10000 });
     await page.locator('[data-testid="team-create-btn"]').first().click();
 
-    const modal = page.locator('.arco-modal');
+    const modal = page.locator('.team-create-modal');
     const leaderSelect = modal.locator('[data-testid="team-create-leader-select"]');
     const hasLeaderSelect = await leaderSelect.isVisible({ timeout: 5000 }).catch(() => false);
 
@@ -44,7 +44,7 @@ test.describe('Team Agent Public Boundary', () => {
 
     await page.screenshot({ path: 'tests/e2e/results/team-whitelist-command-eve-only.png' });
 
-    await page.locator('.arco-modal .arco-btn-text').first().click();
-    await expect(page.locator('.arco-modal')).toBeHidden({ timeout: 5000 });
+    await modal.locator('.arco-btn-text').first().click();
+    await expect(modal).toBeHidden({ timeout: 5000 });
   });
 });

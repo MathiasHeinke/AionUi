@@ -2,10 +2,14 @@
  * E2E: Team rename + pin/unpin via sidebar context menu.
  */
 import { test, expect } from '../../fixtures';
-import { cleanupTeamsByName, createTeam } from '../../helpers';
+import { cleanupTeamsByName, createTeam, ensureTeamSectionExpanded, getTeamSiderRow } from '../../helpers';
 
 // 三点菜单触发按钮
 const MENU_TRIGGER = '[data-testid="sider-item-menu-trigger"]';
+const MENU_TEXT: Record<string, RegExp> = {
+  rename: /rename|重命名|Umbenennen/i,
+  pin: /pin|置顶|Anheften|Loslösen|Loesen/i,
+};
 
 /**
  * 在侧边栏找到指定 team，hover 后点三点菜单，再点指定菜单项
@@ -16,7 +20,7 @@ async function clickTeamMenuItem(
   menuKey: string
 ): Promise<void> {
   // 找到包含 team 名称的 SiderItem 行
-  const row = page.locator('.group').filter({ hasText: teamName }).first();
+  const row = await getTeamSiderRow(page, teamName);
   await expect(row).toBeVisible({ timeout: 10_000 });
 
   // hover 让三点菜单出现
@@ -29,7 +33,7 @@ async function clickTeamMenuItem(
   const item = page
     .locator('.arco-dropdown-menu-item')
     .or(page.locator('.arco-menu-item'))
-    .filter({ hasText: new RegExp(menuKey, 'i') })
+    .filter({ hasText: MENU_TEXT[menuKey] ?? new RegExp(menuKey, 'i') })
     .first();
   await expect(item).toBeVisible({ timeout: 3_000 });
   await item.click();
@@ -40,6 +44,7 @@ async function clickTeamMenuItem(
  */
 async function getSidebarTeamNames(page: import('@playwright/test').Page): Promise<string[]> {
   // 等 Teams section 加载
+  await ensureTeamSectionExpanded(page);
   const section = page.locator('text=Teams').or(page.locator('text=团队'));
   await expect(section.first()).toBeVisible({ timeout: 10_000 });
 

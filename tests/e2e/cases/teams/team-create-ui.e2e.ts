@@ -29,16 +29,16 @@ test.describe('Team Create - Full UI Flow', () => {
     await createBtn.click();
 
     // Step 3: Verify modal opened
-    const modal = page.locator('.arco-modal').last();
+    const modal = page.locator('.team-create-modal').last();
     await expect(modal).toBeVisible({ timeout: 5_000 });
 
-    const modalTitle = modal.locator('h3').filter({ hasText: /Create Team|创建团队/ });
+    const modalTitle = modal.locator('h3').filter({ hasText: /Create Team|创建团队|Team erstellen/ });
     await expect(modalTitle).toBeVisible({ timeout: 5_000 });
 
     await page.screenshot({ path: 'tests/e2e/results/team-ui-02-modal.png' });
 
     // Step 4: Fill team name
-    const nameInput = modal.getByRole('textbox').first();
+    const nameInput = modal.locator('[data-testid="team-create-name-input"]');
     await expect(nameInput).toBeVisible();
     await nameInput.fill(TEAM_NAME);
     await expect(nameInput).toHaveValue(TEAM_NAME);
@@ -77,7 +77,7 @@ test.describe('Team Create - Full UI Flow', () => {
     await confirmBtn.click();
 
     // Step 8: Wait for navigation to /team/{id}
-    await page.waitForURL(/\/team\//, { timeout: 15_000 });
+    await page.waitForFunction(() => /^#\/team\/[^/?#]+/.test(window.location.hash), undefined, { timeout: 15_000 });
 
     // Modal must be closed after navigation
     await expect(modal).toBeHidden({ timeout: 5_000 });

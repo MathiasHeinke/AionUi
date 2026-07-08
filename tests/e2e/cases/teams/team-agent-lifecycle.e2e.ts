@@ -12,7 +12,7 @@
  * Operations MUST go through leader chat input — invokeBridge is only for setup.
  */
 import { test, expect } from '../../fixtures';
-import { invokeBridge, navigateTo, TEAM_SUPPORTED_BACKENDS } from '../../helpers';
+import { invokeBridge, navigateTo, RUN_TEAM_AGENT_LIVE, TEAM_SUPPORTED_BACKENDS } from '../../helpers';
 
 /** Map leader type to backend + model values used in team.create */
 const AGENT_TYPE_MAP: Record<string, { backend: string; model: string }> = {
@@ -28,6 +28,7 @@ const LEADER_CONFIGS = [...TEAM_SUPPORTED_BACKENDS].map((leaderType) => ({
 
 for (const { leaderType, teamName } of LEADER_CONFIGS) {
   test(`team lifecycle: ${leaderType} leader`, async ({ page }) => {
+    test.skip(!RUN_TEAM_AGENT_LIVE, 'Live team-agent lifecycle is opt-in: set RUN_TEAM_AGENT_LIVE=1.');
     test.setTimeout(300_000); // LLM inference + MCP calls need ~2-3 min total
 
     // [setup] Find or create the team — self-contained, no cross-file dependency

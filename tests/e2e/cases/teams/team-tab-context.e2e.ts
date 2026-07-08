@@ -6,7 +6,7 @@
  * visible and has not been cleared.
  */
 import { test, expect } from '../../fixtures';
-import { invokeBridge, navigateTo, TEAM_SUPPORTED_BACKENDS } from '../../helpers';
+import { invokeBridge, navigateTo, RUN_TEAM_AGENT_LIVE, TEAM_SUPPORTED_BACKENDS } from '../../helpers';
 
 const AGENT_TYPE_MAP: Record<string, { backend: string; model: string }> = {
   gemini: { backend: 'gemini', model: 'gemini' },
@@ -15,6 +15,8 @@ const AGENT_TYPE_MAP: Record<string, { backend: string; model: string }> = {
 };
 
 test.describe('Team Tab Context Persistence', () => {
+  test.skip(!RUN_TEAM_AGENT_LIVE, 'Live team-agent tab context is opt-in: set RUN_TEAM_AGENT_LIVE=1.');
+
   test('switching tabs and back preserves leader conversation history', async ({ page }) => {
     test.setTimeout(300_000);
 

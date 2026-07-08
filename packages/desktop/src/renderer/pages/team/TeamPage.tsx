@@ -84,6 +84,7 @@ const AgentChatSlot: React.FC<{
       }
     >
       <div
+        data-testid='team-agent-slot-header'
         className='flex items-center justify-between gap-8px px-12px h-40px shrink-0 border-b border-solid border-[color:var(--border-base)] relative z-10'
         style={
           isLeader
@@ -129,6 +130,7 @@ const AgentChatSlot: React.FC<{
             </div>
           )}
           <div
+            data-testid='team-agent-fullscreen-toggle'
             className='shrink-0 cursor-pointer hover:bg-[var(--fill-3)] p-4px rd-4px text-[color:var(--color-text-3)] hover:text-[color:var(--color-text-1)] transition-colors'
             onClick={() => onToggleFullscreen?.()}
           >

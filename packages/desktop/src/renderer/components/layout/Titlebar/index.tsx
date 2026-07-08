@@ -276,6 +276,7 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
             className={classNames('app-titlebar__button', layout?.isMobile && 'app-titlebar__button--mobile')}
             onClick={handleSiderToggle}
             aria-label={siderTooltip}
+            data-testid='sider-toggle-btn'
           >
             <SidebarIcon size={iconSize} strokeWidth={desktopIconStroke} />
           </button>

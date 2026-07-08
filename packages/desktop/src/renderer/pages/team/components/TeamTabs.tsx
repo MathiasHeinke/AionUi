@@ -94,6 +94,7 @@ const TeamTabView: React.FC<TeamTabViewProps> = ({
   return (
     <div
       draggable={!isLeader}
+      data-testid={`team-tab-${slot_id}`}
       className={`relative group flex items-center gap-8px px-12px h-full max-w-240px cursor-pointer transition-all duration-200 shrink-0 border-r border-[color:var(--border-base)] ${
         isActive
           ? 'bg-[color:var(--color-primary-1)] text-[color:var(--color-text-1)] border-t-2 border-t-solid border-t-[color:var(--color-primary-6)]'

@@ -4,9 +4,11 @@
  * Scenario 4: Leader communication — user types in UI input and sends via UI button
  */
 import { test, expect } from '../../fixtures';
-import { invokeBridge, navigateTo } from '../../helpers';
+import { createTeam, invokeBridge, navigateTo, RUN_TEAM_AGENT_LIVE } from '../../helpers';
 
 test.describe('Team Communication', () => {
+  test.skip(!RUN_TEAM_AGENT_LIVE, 'Live team-agent communication is opt-in: set RUN_TEAM_AGENT_LIVE=1.');
+
   test('scenario 4: send message to leader via UI input', async ({ page }) => {
     test.setTimeout(120_000);
     // [setup] Find or create "E2E Test Team" — self-contained, no dependency on team-create.e2e.ts
@@ -18,22 +20,7 @@ test.describe('Team Communication', () => {
     if (existing) {
       teamId = existing.id;
     } else {
-      const created = await invokeBridge<{ id: string }>(page, 'team.create', {
-        name: 'E2E Test Team',
-        agents: [
-          {
-            name: 'Leader',
-            role: 'lead',
-            backend: 'gemini',
-            // Send a real gemini model alias. 'auto' maps to aioncli-core
-            // PREVIEW_GEMINI_MODEL_AUTO (gemini-3.1-pro-preview). Sending just
-            // "gemini" (the backend type) persists as use_model: null and
-            // disables the sendbox. See mnemo #297.
-            model: 'auto',
-          },
-        ],
-      });
-      teamId = created.id;
+      teamId = await createTeam(page, 'E2E Test Team');
     }
     expect(teamId).toBeTruthy();
 

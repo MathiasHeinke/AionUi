@@ -5,16 +5,12 @@
  *       confirm modal -> assert navigation away + IPC confirms removal.
  */
 import { test, expect } from '../../fixtures';
-import { invokeBridge, navigateTo, createTeam, cleanupTeamsByName } from '../../helpers';
+import { invokeBridge, navigateTo, createTeam, cleanupTeamsByName, getTeamSiderRow } from '../../helpers';
 
 async function deleteTeamBySiderMenu(page: Parameters<typeof createTeam>[0], teamName: string) {
   // Scope to the sidebar team row: a `.group` ancestor that contains the three-dot trigger AND
   // the exact team-name text. Exactness avoids "E2E Delete Team" matching "E2E Delete Sidebar Team".
-  const teamRow = page
-    .locator('div.group')
-    .filter({ has: page.locator('[data-testid="sider-item-menu-trigger"]') })
-    .filter({ has: page.getByText(teamName, { exact: true }) })
-    .first();
+  const teamRow = await getTeamSiderRow(page, teamName);
   await teamRow.waitFor({ state: 'visible', timeout: 10_000 });
   await teamRow.hover();
 
@@ -25,14 +21,14 @@ async function deleteTeamBySiderMenu(page: Parameters<typeof createTeam>[0], tea
 
   const deleteMenuItem = page
     .locator('.arco-dropdown-menu-item, [role="menuitem"]')
-    .filter({ hasText: /删除|Delete/i })
+    .filter({ hasText: /删除|Delete|Löschen|Loeschen/i })
     .first();
   await deleteMenuItem.waitFor({ state: 'visible', timeout: 5_000 });
   await deleteMenuItem.click();
 
   const confirmOkBtn = page
     .locator('.arco-modal .arco-btn-primary')
-    .filter({ hasText: /确定|OK|Delete|删除/i })
+    .filter({ hasText: /确定|OK|Delete|删除|Löschen|Loeschen/i })
     .first();
   await confirmOkBtn.waitFor({ state: 'visible', timeout: 5_000 });
   await confirmOkBtn.click();
@@ -55,7 +51,7 @@ test.describe('Team Delete', () => {
 
     // [navigate] Go to team page
     await navigateTo(page, '#/team/' + teamId);
-    await page.waitForURL(/\/team\//, { timeout: 10_000 });
+    await page.waitForFunction((id) => window.location.hash.includes(`/team/${id}`), teamId, { timeout: 10_000 });
 
     await page.screenshot({ path: 'tests/e2e/results/team-delete-01-before.png' });
 
@@ -89,7 +85,7 @@ test.describe('Team Delete', () => {
     }
 
     await navigateTo(page, '#/team/' + teamId);
-    await page.waitForURL(/\/team\//, { timeout: 10_000 });
+    await page.waitForFunction((id) => window.location.hash.includes(`/team/${id}`), teamId, { timeout: 10_000 });
 
     // [assert] Sidebar shows the team before deletion
     const sidebarEntry = page.getByText(teamName, { exact: true }).first();

@@ -73,7 +73,7 @@ test.describe('Team Member Init Failure UI', () => {
 
     // [action] Navigate to the team page
     await navigateTo(page, '#/team/' + teamId);
-    await page.waitForURL(/\/team\//, { timeout: 10_000 });
+    await page.waitForFunction((id) => window.location.hash.includes(`/team/${id}`), teamId, { timeout: 10_000 });
 
     await page.screenshot({ path: 'tests/e2e/results/team-member-fail-01.png' });
 

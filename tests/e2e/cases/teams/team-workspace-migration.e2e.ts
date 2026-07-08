@@ -14,7 +14,7 @@
  *   7. Cleanup: delete team + temp directory
  */
 import { test, expect } from '../../fixtures';
-import { invokeBridge, TEAM_SUPPORTED_BACKENDS } from '../../helpers';
+import { invokeBridge, RUN_TEAM_AGENT_LIVE, TEAM_SUPPORTED_BACKENDS } from '../../helpers';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -23,6 +23,8 @@ const TEAM_NAME = `E2E Migration ${Date.now()}`;
 const LEADER_BACKEND = [...TEAM_SUPPORTED_BACKENDS][0] ?? 'claude';
 
 test.describe('Team Workspace Migration', () => {
+  test.skip(!RUN_TEAM_AGENT_LIVE, 'Live team-agent workspace migration is opt-in: set RUN_TEAM_AGENT_LIVE=1.');
+
   let targetWorkspace: string;
   let team_id: string | undefined;
 

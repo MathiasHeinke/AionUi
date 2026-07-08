@@ -12,9 +12,11 @@
  *   8. Assert the member tab shows an active badge (member started processing).
  */
 import { test, expect } from '../../fixtures';
-import { navigateTo, ensureTeam, TEAM_SUPPORTED_BACKENDS } from '../../helpers';
+import { navigateTo, ensureTeam, RUN_TEAM_AGENT_LIVE, TEAM_SUPPORTED_BACKENDS } from '../../helpers';
 
 test.describe('Team Member Messaging', () => {
+  test.skip(!RUN_TEAM_AGENT_LIVE, 'Live team-agent member messaging is opt-in: set RUN_TEAM_AGENT_LIVE=1.');
+
   test('send message directly to member via member tab', async ({ page }) => {
     test.setTimeout(300_000);
 

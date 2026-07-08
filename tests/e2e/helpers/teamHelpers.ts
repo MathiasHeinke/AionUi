@@ -1,12 +1,13 @@
 import { expect, type Locator, type Page } from '@playwright/test';
 import { invokeBridge } from './bridge';
-import { TEAM_SUPPORTED_BACKENDS } from './teamConfig';
+import { TEAM_PUBLIC_LEADER_TYPE, TEAM_SUPPORTED_BACKENDS } from './teamConfig';
 
 type TeamAgent = { role: string; name: string };
 type TeamRecord = { id: string; name: string; agents: TeamAgent[] };
 
-/** UI label patterns for each backend leader type. */
+/** UI label patterns for public team leader types. */
 const BACKEND_UI_PATTERN: Record<string, RegExp> = {
+  'command-eve': /Command EVE/i,
   claude: /Claude Code/i,
   codex: /Codex/i,
   gemini: /Gemini/i,
@@ -27,14 +28,17 @@ export async function createTeam(page: Page, name: string, leaderType?: string):
     throw new Error('No supported team backends available — skip this test');
   }
 
+  await closeAnyVisibleCreateTeamModal(page);
+  await ensureSiderExpanded(page);
+
   const createBtn = page.locator('[data-testid="team-create-btn"]').first();
   await createBtn.waitFor({ state: 'visible', timeout: 10_000 });
   await createBtn.click();
 
-  const modal = page.locator('.arco-modal').last();
+  const modal = page.locator('.team-create-modal').last();
   await modal.waitFor({ state: 'visible', timeout: 5_000 });
 
-  const nameInput = modal.getByRole('textbox').first();
+  const nameInput = modal.locator('[data-testid="team-create-name-input"]');
   await nameInput.fill(name);
 
   const leaderSelect = modal.locator('[data-testid="team-create-leader-select"]');
@@ -43,9 +47,8 @@ export async function createTeam(page: Page, name: string, leaderType?: string):
     await closeModal(page, modal);
     throw new Error('No supported agents installed — skip this test');
   }
-  await leaderSelect.click();
 
-  const option = await pickLeaderOption(page, leaderType);
+  const option = await pickLeaderOption(page, leaderType ?? TEAM_PUBLIC_LEADER_TYPE);
   if (!option) {
     await page.keyboard.press('Escape').catch(() => {});
     await closeModal(page, modal);
@@ -57,7 +60,8 @@ export async function createTeam(page: Page, name: string, leaderType?: string):
   await expect(confirmBtn).toBeEnabled({ timeout: 5_000 });
   await confirmBtn.click();
 
-  await page.waitForURL(/\/team\//, { timeout: 15_000 });
+  await modal.waitFor({ state: 'hidden', timeout: 15_000 }).catch(() => {});
+  await page.waitForFunction(() => /^#\/team\/[^/?#]+/.test(window.location.hash), undefined, { timeout: 15_000 });
 
   const hash = await page.evaluate(() => window.location.hash);
   const match = hash.match(/#\/team\/([^/?#]+)/);
@@ -91,17 +95,64 @@ async function pickLeaderOption(page: Page, leaderType?: string): Promise<Locato
 
 async function closeModal(page: Page, modal: Locator): Promise<void> {
   const cancel = modal
-    .locator('.arco-btn')
-    .filter({ hasText: /Cancel|取消/i })
+    .locator('button')
+    .filter({ hasText: /Cancel|取消|Abbrechen/i })
     .first();
   if ((await cancel.count().catch(() => 0)) > 0) {
     await cancel.click({ force: true }).catch(() => {});
+  } else {
+    await page.keyboard.press('Escape').catch(() => {});
   }
   await page
-    .locator('.arco-modal')
+    .locator('.team-create-modal')
     .last()
     .waitFor({ state: 'hidden', timeout: 5_000 })
     .catch(() => {});
+}
+
+async function closeAnyVisibleCreateTeamModal(page: Page): Promise<void> {
+  const modal = page.locator('.team-create-modal').last();
+  if (await modal.isVisible({ timeout: 500 }).catch(() => false)) {
+    await closeModal(page, modal);
+  }
+}
+
+/**
+ * The team sidebar section persists its expanded state in localStorage. Tests
+ * that act on existing team rows must open it explicitly instead of depending
+ * on state leaked from a previous run.
+ */
+export async function ensureTeamSectionExpanded(page: Page): Promise<void> {
+  await ensureSiderExpanded(page);
+
+  const toggle = page.locator('[data-testid="team-section-toggle"]').first();
+  await toggle.waitFor({ state: 'visible', timeout: 10_000 });
+
+  const menuTriggerCount = await page.locator('[data-testid="sider-item-menu-trigger"]').count().catch(() => 0);
+  if (menuTriggerCount === 0) {
+    await toggle.click();
+  }
+}
+
+export async function ensureSiderExpanded(page: Page): Promise<void> {
+  const createBtn = page.locator('[data-testid="team-create-btn"]').first();
+  if (await createBtn.isVisible({ timeout: 500 }).catch(() => false)) {
+    return;
+  }
+
+  const toggle = page.locator('[data-testid="sider-toggle-btn"]').first();
+  await toggle.waitFor({ state: 'visible', timeout: 5_000 });
+  await toggle.click();
+  await createBtn.waitFor({ state: 'visible', timeout: 10_000 });
+}
+
+export async function getTeamSiderRow(page: Page, teamName: string): Promise<Locator> {
+  await ensureTeamSectionExpanded(page);
+  return page
+    .locator('div.group')
+    .filter({ has: page.locator('[data-testid="sider-item-menu-trigger"]') })
+    .filter({ has: page.getByText(teamName, { exact: true }) })
+    .first();
 }
 
 /**

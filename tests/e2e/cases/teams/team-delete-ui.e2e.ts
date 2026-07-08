@@ -6,7 +6,7 @@
  * No mocks, no UI shortcuts.
  */
 import { test, expect } from '../../fixtures';
-import { invokeBridge, navigateTo, cleanupTeamsByName, createTeam } from '../../helpers';
+import { invokeBridge, navigateTo, cleanupTeamsByName, createTeam, getTeamSiderRow } from '../../helpers';
 
 const TEAM_NAME = 'E2E Case5 Delete Team';
 
@@ -25,18 +25,14 @@ test.describe('Team Delete - Full UI Flow', () => {
 
     // Navigate to the team page so the sidebar shows the team in context
     await navigateTo(page, `#/team/${teamId}`);
-    await page.waitForURL(/\/team\//, { timeout: 10_000 });
+    await page.waitForFunction((id) => window.location.hash.includes(`/team/${id}`), teamId, { timeout: 10_000 });
   });
 
   test('delete team via sidebar context menu', async ({ page }) => {
     await page.screenshot({ path: 'tests/e2e/results/case5-01-before-delete.png' });
 
     // Step 1: Locate the team row in the Sider
-    const teamRow = page
-      .locator('div.group')
-      .filter({ has: page.locator('[data-testid="sider-item-menu-trigger"]') })
-      .filter({ has: page.getByText(TEAM_NAME, { exact: true }) })
-      .first();
+    const teamRow = await getTeamSiderRow(page, TEAM_NAME);
     await teamRow.waitFor({ state: 'visible', timeout: 10_000 });
 
     // Step 2: Hover to reveal the three-dot menu trigger, then click it
@@ -50,7 +46,7 @@ test.describe('Team Delete - Full UI Flow', () => {
     // Step 3: Click the Delete menu item
     const deleteMenuItem = page
       .locator('.arco-dropdown-menu-item, [role="menuitem"]')
-      .filter({ hasText: /删除|Delete/i })
+      .filter({ hasText: /删除|Delete|Löschen|Loeschen/i })
       .first();
     await deleteMenuItem.waitFor({ state: 'visible', timeout: 5_000 });
     await deleteMenuItem.click();
@@ -64,7 +60,7 @@ test.describe('Team Delete - Full UI Flow', () => {
     // Step 5: Click the confirm/OK button
     const confirmBtn = page
       .locator('.arco-modal .arco-btn-primary')
-      .filter({ hasText: /确定|OK|Delete|删除/i })
+      .filter({ hasText: /确定|OK|Delete|删除|Löschen|Loeschen/i })
       .first();
     await confirmBtn.waitFor({ state: 'visible', timeout: 5_000 });
     await confirmBtn.click();

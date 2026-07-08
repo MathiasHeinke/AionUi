@@ -1,5 +1,6 @@
 import { test, expect } from '../../fixtures';
-import { cleanupTeamsByName, createTeam } from '../../helpers';
+import { cleanupTeamsByName, createTeam, ensureSiderExpanded } from '../../helpers';
+import fs from 'node:fs';
 
 const TEAM_COLLAPSED = 'E2E Collapsed Team';
 const TEAM_WORKSPACE = 'E2E Workspace Team';
@@ -16,8 +17,8 @@ test.describe('Team UI Details', () => {
       return;
     }
 
-    const collapseBtn = page.locator('button[aria-label="Collapse sidebar"], button[aria-label="折叠侧边栏"]');
-    const expandBtn = page.locator('button[aria-label="Expand sidebar"], button[aria-label="展开侧边栏"]');
+    const collapseBtn = page.locator('[data-testid="sider-toggle-btn"]');
+    const expandBtn = page.locator('[data-testid="sider-toggle-btn"]');
 
     await collapseBtn.click({ timeout: 5_000 });
 
@@ -27,8 +28,15 @@ test.describe('Team UI Details', () => {
     const collapsedIcon = page.locator(`[data-testid="collapsed-team-icon-${teamId}"]`);
     await expect(collapsedIcon).toBeVisible();
 
-    await collapsedItem.click();
-    await page.waitForURL(new RegExp(`/team/${teamId}`), { timeout: 10_000 });
+    await page.evaluate(() => {
+      window.location.hash = '#/guid';
+    });
+    await page.waitForFunction(() => window.location.hash.includes('/guid'), undefined, { timeout: 5_000 });
+    await page.waitForTimeout(500);
+    await collapsedItem.evaluate((node) => {
+      (node as HTMLElement).click();
+    });
+    await page.waitForFunction((id) => window.location.hash.includes(`/team/${id}`), teamId, { timeout: 10_000 });
 
     const hash = await page.evaluate(() => window.location.hash);
     expect(hash).toContain(`/team/${teamId}`);
@@ -42,20 +50,20 @@ test.describe('Team UI Details', () => {
     await cleanupTeamsByName(page, TEAM_WORKSPACE);
 
     const tmpDir = `/tmp/e2e-workspace-${Date.now()}`;
+    fs.mkdirSync(tmpDir, { recursive: true });
     await electronApp.evaluate(async ({ dialog }, dir) => {
-      const fs = await import('fs');
-      fs.mkdirSync(dir, { recursive: true });
       dialog.showOpenDialog = () => Promise.resolve({ canceled: false, filePaths: [dir] });
     }, tmpDir);
 
+    await ensureSiderExpanded(page);
     const createBtn = page.locator('[data-testid="team-create-btn"]').first();
     await expect(createBtn).toBeVisible({ timeout: 10_000 });
     await createBtn.click();
 
-    const modal = page.locator('.arco-modal').last();
+    const modal = page.locator('.team-create-modal').last();
     await modal.waitFor({ state: 'visible', timeout: 5_000 });
 
-    const nameInput = modal.getByRole('textbox').first();
+    const nameInput = modal.locator('[data-testid="team-create-name-input"]');
     await nameInput.fill(TEAM_WORKSPACE);
 
     const leaderSelect = modal.locator('[data-testid="team-create-leader-select"]');
@@ -83,31 +91,26 @@ test.describe('Team UI Details', () => {
     const menuVisible = await menu.isVisible({ timeout: 3_000 }).catch(() => false);
 
     if (menuVisible) {
-      const browseOption = menu.locator('text=Choose a different folder').or(menu.locator('text=选择其他文件夹'));
+      const browseOption = menu.getByText(/Choose a different folder|Anderen Ordner auswählen|选择其他(?:目录|文件夹)/i);
       await browseOption.first().click();
     }
 
     await page.waitForTimeout(1_000);
 
-    const workspacePath = modal.locator(`text=${tmpDir.split('/').pop()}`);
+    const workspacePath = modal.getByText(tmpDir.split('/').pop() ?? '', { exact: true }).first();
     await expect(workspacePath).toBeVisible({ timeout: 5_000 });
 
     const confirmBtn = modal.locator('.arco-btn-primary');
     await expect(confirmBtn).toBeEnabled({ timeout: 5_000 });
     await confirmBtn.click();
 
-    await page.waitForURL(/\/team\//, { timeout: 15_000 });
+    await page.waitForFunction(() => /^#\/team\/[^/?#]+/.test(window.location.hash), undefined, { timeout: 15_000 });
 
     const wsTitle = page.locator('text=Workspace').or(page.locator('text=工作区'));
     await expect(wsTitle.first()).toBeVisible({ timeout: 10_000 });
 
     await cleanupTeamsByName(page, TEAM_WORKSPACE);
 
-    await electronApp.evaluate(async (_ctx, dir) => {
-      const fs = await import('fs');
-      try {
-        fs.rmSync(dir, { recursive: true, force: true });
-      } catch {}
-    }, tmpDir);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 });

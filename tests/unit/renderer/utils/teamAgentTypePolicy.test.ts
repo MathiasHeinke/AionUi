@@ -69,7 +69,7 @@ describe('team agent type policy', () => {
 
     expect(filterUserVisibleTeamLeaderAgents(options)).toEqual([
       expect.objectContaining({
-        id: COMMAND_EVE_DEFAULT_ACP_BACKEND,
+        id: COMMAND_EVE_ASSISTANT_ID,
         backend: COMMAND_EVE_DEFAULT_ACP_BACKEND,
         displayName: COMMAND_EVE_APP_NAME,
       }),
