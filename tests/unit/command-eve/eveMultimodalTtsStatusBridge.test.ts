@@ -7,7 +7,7 @@
 /**
  * Command EVE cloud TTS activation status IPC, tested through the REAL bridge
  * seam. The provider must expose only gate booleans/reasons and must not make a
- * cloud request while the main-owned egress/deploy gates are closed.
+ * cloud request while the main-owned consent/deploy/license gates are closed.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -99,7 +99,7 @@ describe('Command EVE multimodal TTS status bridge', () => {
     expect(registered.has('command-eve.multimodal-tts-consent-set')).toBe(true);
   });
 
-  it('reports closed main gates without calling the cloud gateway', async () => {
+  it('reports privacy consent as the first blocker after the release egress gate opens', async () => {
     const fetchSpy = vi.mocked(globalThis.fetch);
 
     const result = await call('command-eve.multimodal-tts-status');
@@ -108,11 +108,11 @@ describe('Command EVE multimodal TTS status bridge', () => {
     expect(result.data).toMatchObject({
       ok: true,
       enabled: false,
-      reason_code: 'EVE_MULTIMODAL_TTS_NOT_ENABLED',
+      reason_code: 'EVE_MULTIMODAL_TTS_PRIVACY_CONSENT_REQUIRED',
       privacyLane: 'cloud_auto',
       residencyLane: 'us_cloud',
       requirements: {
-        desktopCloudEgressGate: false,
+        desktopCloudEgressGate: true,
         mainOwnedPrivacyConsent: false,
         serverGateway: true,
         licenseBearer: true,
@@ -142,7 +142,7 @@ describe('Command EVE multimodal TTS status bridge', () => {
       privacyLane: 'local_only',
       residencyLane: 'blocked',
       requirements: {
-        desktopCloudEgressGate: false,
+        desktopCloudEgressGate: true,
         mainOwnedPrivacyConsent: true,
         serverGateway: true,
         licenseBearer: true,
@@ -150,6 +150,80 @@ describe('Command EVE multimodal TTS status bridge', () => {
       },
     });
     expect(fetchSpy).not.toHaveBeenCalled();
+    expect(JSON.stringify(result.data)).not.toContain('test-license-wire');
+  });
+
+  it('does not egress when the cloud voice consent gate is closed', async () => {
+    const fetchSpy = vi.mocked(globalThis.fetch);
+
+    const result = await call('command-eve.multimodal-tts', { data: { text: 'Assistant answer' } });
+
+    expect(result.success).toBe(false);
+    expect(result.data).toMatchObject({
+      ok: false,
+      reason_code: 'EVE_MULTIMODAL_TTS_PRIVACY_CONSENT_REQUIRED',
+    });
+    expect(readLicenseWireMock).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(JSON.stringify(result.data)).not.toContain('test-license-wire');
+  });
+
+  it('egresses to the server gateway only after consent, license, deploy, and residency gates pass', async () => {
+    const fetchSpy = vi.mocked(globalThis.fetch);
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          provider: 'xai',
+          capability: 'tts',
+          reason: 'provider-complete',
+          artifact: {
+            status: 'created',
+            kind: 'audio',
+            mime_type: 'audio/mpeg',
+            encoding: 'base64',
+            data_base64: Buffer.from('tone').toString('base64'),
+            bytes: 4,
+          },
+          residency: {
+            requestedPrivacyLane: 'cloud_auto',
+            effectiveResidency: 'us_cloud',
+            confirmation: 'server-must-confirm-us-cloud',
+          },
+          tts: { voice_id: 'eve', language: 'de-DE', text_length: 16 },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      )
+    );
+    const setResult = await call('command-eve.multimodal-tts-consent-set', {
+      data: { consent: true, privacyLane: 'cloud_auto' },
+    });
+    expect(setResult).toMatchObject({ success: true, data: { consent: true, privacyLane: 'cloud_auto' } });
+
+    const result = await call('command-eve.multimodal-tts', {
+      data: { text: 'Assistant answer', language: 'de-DE' },
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({
+      ok: true,
+      provider: 'xai',
+      capability: 'tts',
+      artifact: { kind: 'audio', mime_type: 'audio/mpeg', bytes: 4 },
+      residency: {
+        requestedPrivacyLane: 'cloud_auto',
+        effectiveResidency: 'us_cloud',
+        confirmation: 'server-must-confirm-us-cloud',
+      },
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const fetchInit = fetchSpy.mock.calls[0]?.[1] as RequestInit;
+    const headers = fetchInit.headers as Record<string, string>;
+    expect(headers.Authorization).toBe('Bearer test-license-wire');
+    expect(fetchInit.redirect).toBe('error');
+    expect(fetchInit.cache).toBe('no-store');
+    expect(String(fetchInit.body)).toContain('"directProviderKeyPresentInDesktop":false');
+    expect(String(fetchInit.body)).not.toContain('apiKey');
     expect(JSON.stringify(result.data)).not.toContain('test-license-wire');
   });
 });
