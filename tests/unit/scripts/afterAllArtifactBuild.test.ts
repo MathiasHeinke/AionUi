@@ -16,6 +16,10 @@ const {
   verifyNotarizationStapled,
   collectVersionMismatches,
   verifyBuiltVersionMatchesSource,
+  sha512Base64,
+  collectMacUpdateArtifactGroups,
+  buildMacUpdateYml,
+  writeMacUpdateFeedMetadata,
 } = require('../../../scripts/afterAllArtifactBuild.js');
 
 describe('afterAllArtifactBuild DMG notarization helpers', () => {
@@ -389,5 +393,101 @@ describe('afterAllArtifactBuild VERSION-TRUTH guard (fail-closed version consist
         }
       )
     ).not.toThrow();
+  });
+});
+
+describe('afterAllArtifactBuild UPDATE-FEED guard (post-hdiutil metadata)', () => {
+  const feedTempDirs: string[] = [];
+  const makeOutDir = (): string => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-update-feed-'));
+    feedTempDirs.push(dir);
+    return dir;
+  };
+
+  afterEach(() => {
+    while (feedTempDirs.length) fs.rmSync(feedTempDirs.pop() as string, { recursive: true, force: true });
+  });
+
+  it('collects only current-version macOS update artifacts and ignores stale release files', () => {
+    const outDir = makeOutDir();
+    const stale = path.join(outDir, 'Command-EVE-1.7.4-mac-arm64.dmg');
+    const dmg = path.join(outDir, 'Command-EVE-1.7.8-mac-arm64.dmg');
+    const zip = path.join(outDir, 'Command-EVE-1.7.8-mac-arm64.zip');
+    fs.writeFileSync(stale, 'old-dmg');
+    fs.writeFileSync(dmg, 'new-dmg');
+    fs.writeFileSync(zip, 'new-zip');
+
+    const result = collectMacUpdateArtifactGroups(
+      { outDir, artifactPaths: [stale, dmg, zip] },
+      { readRootVersion: () => '1.7.8' }
+    );
+
+    expect([...result.groups.keys()]).toEqual(['arm64']);
+    expect(result.groups.get('arm64')?.dmg.url).toBe('Command-EVE-1.7.8-mac-arm64.dmg');
+    expect(result.groups.get('arm64')?.zip.url).toBe('Command-EVE-1.7.8-mac-arm64.zip');
+  });
+
+  it('builds electron-updater mac metadata from final zip and dmg hashes', () => {
+    const yml = buildMacUpdateYml({
+      version: '1.7.8',
+      files: {
+        zip: { url: 'Command-EVE-1.7.8-mac-arm64.zip', sha512: 'ziphash', size: 10 },
+        dmg: { url: 'Command-EVE-1.7.8-mac-arm64.dmg', sha512: 'dmghash', size: 20 },
+      },
+      releaseDate: '2026-07-08T17:56:00Z',
+      releaseNotes: 'Command EVE 1.7.8',
+    });
+
+    expect(yml).toContain('version: 1.7.8');
+    expect(yml).toContain('url: Command-EVE-1.7.8-mac-arm64.zip');
+    expect(yml).toContain('url: Command-EVE-1.7.8-mac-arm64.dmg');
+    expect(yml).toContain('path: Command-EVE-1.7.8-mac-arm64.zip');
+    expect(yml).toContain("releaseDate: '2026-07-08T17:56:00Z'");
+  });
+
+  it('rewrites stale arm64 yml and version.json from the final artifact bytes', () => {
+    const outDir = makeOutDir();
+    const dmg = path.join(outDir, 'Command-EVE-1.7.8-mac-arm64.dmg');
+    const zip = path.join(outDir, 'Command-EVE-1.7.8-mac-arm64.zip');
+    fs.writeFileSync(path.join(outDir, 'latest-arm64-mac.yml'), 'version: 1.7.4\n');
+    fs.writeFileSync(path.join(outDir, 'version.json'), JSON.stringify({ version: '1.7.4' }));
+    fs.writeFileSync(dmg, 'final-dmg-bytes');
+    fs.writeFileSync(zip, 'final-zip-bytes');
+
+    const written = writeMacUpdateFeedMetadata(
+      { outDir, artifactPaths: [dmg, zip] },
+      {
+        readRootVersion: () => '1.7.8',
+        releaseDate: '2026-07-08T17:56:00Z',
+        releaseNotes: 'Command EVE 1.7.8',
+      }
+    );
+
+    expect(written.map((file: string) => path.basename(file))).toEqual(['latest-arm64-mac.yml', 'version.json']);
+    const yml = fs.readFileSync(path.join(outDir, 'latest-arm64-mac.yml'), 'utf8');
+    expect(yml).toContain('version: 1.7.8');
+    expect(yml).toContain(`sha512: ${sha512Base64(zip)}`);
+    expect(yml).toContain(`sha512: ${sha512Base64(dmg)}`);
+    expect(yml).not.toContain('1.7.4');
+
+    const versionJson = JSON.parse(fs.readFileSync(path.join(outDir, 'version.json'), 'utf8'));
+    expect(versionJson).toEqual({
+      version: '1.7.8',
+      released_at: '2026-07-08T17:56:00Z',
+      arm64: 'Command-EVE-1.7.8-mac-arm64.dmg',
+    });
+  });
+
+  it('blocks incomplete mac update feeds when the zip is missing', () => {
+    expect(() =>
+      buildMacUpdateYml({
+        version: '1.7.8',
+        files: {
+          dmg: { url: 'Command-EVE-1.7.8-mac-arm64.dmg', sha512: 'dmghash', size: 20 },
+        },
+        releaseDate: '2026-07-08T17:56:00Z',
+        releaseNotes: 'Command EVE 1.7.8',
+      })
+    ).toThrow(/missing macOS zip artifact/);
   });
 });

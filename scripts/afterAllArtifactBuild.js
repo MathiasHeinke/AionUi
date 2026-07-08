@@ -1,4 +1,5 @@
 const { execFileSync, spawnSync } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -415,6 +416,134 @@ function verifyBuiltVersionMatchesSource(context, deps = {}) {
   }
 }
 
+function sha512Base64(filePath, deps = {}) {
+  const readFile = deps.readFile || fs.readFileSync;
+  return crypto.createHash('sha512').update(readFile(filePath)).digest('base64');
+}
+
+function normalizeReleaseDate(date = new Date()) {
+  return date.toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+function parseMacArtifact(filePath) {
+  const fileName = path.basename(filePath);
+  const match = fileName.match(/^Command-EVE-(.+)-mac-(arm64|x64|universal)\.(dmg|zip)$/);
+  if (!match) return null;
+  return {
+    fileName,
+    version: match[1],
+    arch: match[2],
+    ext: match[3],
+  };
+}
+
+function collectMacUpdateArtifactGroups(context, deps = {}) {
+  const projectRoot = deps.projectRoot || process.cwd();
+  const outDir = (context && context.outDir) || path.join(projectRoot, 'out');
+  const expectedVersion = (deps.readRootVersion || readRootPackageVersion)(projectRoot);
+  const stat = deps.stat || fs.statSync;
+  const exists = deps.exists || fs.existsSync;
+  const readdir = deps.readdir || fs.readdirSync;
+
+  const candidates = new Set(Array.isArray(context?.artifactPaths) ? context.artifactPaths : []);
+  if (exists(outDir)) {
+    for (const entry of readdir(outDir)) {
+      if (entry.includes(`Command-EVE-${expectedVersion}-mac-`)) {
+        candidates.add(path.join(outDir, entry));
+      }
+    }
+  }
+
+  const groups = new Map();
+  for (const artifactPath of candidates) {
+    const parsed = parseMacArtifact(artifactPath);
+    if (!parsed || parsed.version !== expectedVersion || !exists(artifactPath)) continue;
+    const artifact = {
+      url: parsed.fileName,
+      sha512: sha512Base64(artifactPath, deps),
+      size: stat(artifactPath).size,
+    };
+    const current = groups.get(parsed.arch) || {};
+    current[parsed.ext] = artifact;
+    groups.set(parsed.arch, current);
+  }
+
+  return { outDir, version: expectedVersion, groups };
+}
+
+function indentBlock(text, spaces = 2) {
+  const indent = ' '.repeat(spaces);
+  return String(text || '')
+    .split(/\r?\n/)
+    .map((line) => `${indent}${line}`)
+    .join('\n');
+}
+
+function buildMacUpdateYml({ version, files, releaseDate, releaseNotes }) {
+  const zip = files.zip;
+  const dmg = files.dmg;
+  if (!zip) {
+    throw new Error(`UPDATE-FEED: missing macOS zip artifact for ${version}; electron-updater requires a zip path.`);
+  }
+  if (!dmg) {
+    throw new Error(`UPDATE-FEED: missing macOS dmg artifact for ${version}; release feed would be incomplete.`);
+  }
+
+  const entries = [zip, dmg];
+  const lines = [`version: ${version}`, 'files:'];
+  for (const entry of entries) {
+    lines.push(`  - url: ${entry.url}`);
+    lines.push(`    sha512: ${entry.sha512}`);
+    lines.push(`    size: ${entry.size}`);
+  }
+  lines.push(`path: ${zip.url}`);
+  lines.push(`sha512: ${zip.sha512}`);
+  lines.push(`releaseDate: '${releaseDate}'`);
+  lines.push('releaseNotes: |');
+  lines.push(indentBlock(releaseNotes || `Command EVE ${version}`, 2));
+  return `${lines.join('\n')}\n`;
+}
+
+function metadataFileNameForMacArch(arch) {
+  if (arch === 'x64' || arch === 'universal') return 'latest-mac.yml';
+  return `latest-${arch}-mac.yml`;
+}
+
+function writeMacUpdateFeedMetadata(context, deps = {}) {
+  const { outDir, version, groups } = collectMacUpdateArtifactGroups(context, deps);
+  if (groups.size === 0) {
+    console.log('UPDATE-FEED guard: no macOS update artifacts found — skipping metadata rewrite.');
+    return [];
+  }
+
+  const writeFile = deps.writeFile || fs.writeFileSync;
+  const releaseDate = deps.releaseDate || normalizeReleaseDate(deps.now || new Date());
+  const releaseNotes = deps.releaseNotes || `Command EVE ${version}`;
+  const written = [];
+  const versionJson = {
+    version,
+    released_at: releaseDate,
+  };
+
+  for (const [arch, files] of groups) {
+    const metadataName = metadataFileNameForMacArch(arch);
+    const yml = buildMacUpdateYml({ version, files, releaseDate, releaseNotes });
+    const metadataPath = path.join(outDir, metadataName);
+    writeFile(metadataPath, yml);
+    written.push(metadataPath);
+    if (files.dmg) versionJson[arch] = files.dmg.url;
+  }
+
+  const versionJsonPath = path.join(outDir, 'version.json');
+  writeFile(versionJsonPath, `${JSON.stringify(versionJson, null, 2)}\n`);
+  written.push(versionJsonPath);
+
+  console.log(
+    `✓ UPDATE-FEED guard: rewrote ${written.map((file) => path.basename(file)).join(', ')} for ${version}.`
+  );
+  return written;
+}
+
 // SECURITY (Teardown C2) — never ship PRIVATE signing-key material. The license
 // signing keys mint every license; one accidental bundle = total entitlement
 // bypass, only undone by rotating the trust root (which breaks issued licenses).
@@ -465,6 +594,11 @@ exports.default = async function afterAllArtifactBuild(context) {
     notarizeDmgArtifact(artifactPath);
   }
 
+  // The hdiutil rebuild replaces the DMG after electron-builder has emitted its
+  // generic updater metadata. Regenerate the feed from the FINAL zip/DMG bytes so
+  // stale yml/version.json files from prior releases cannot silently ship.
+  writeMacUpdateFeedMetadata(context);
+
   return artifactPaths;
 };
 
@@ -483,3 +617,9 @@ exports.readInfoPlistVersions = readInfoPlistVersions;
 exports.readAsarPackageVersion = readAsarPackageVersion;
 exports.collectVersionMismatches = collectVersionMismatches;
 exports.verifyBuiltVersionMatchesSource = verifyBuiltVersionMatchesSource;
+exports.sha512Base64 = sha512Base64;
+exports.parseMacArtifact = parseMacArtifact;
+exports.collectMacUpdateArtifactGroups = collectMacUpdateArtifactGroups;
+exports.buildMacUpdateYml = buildMacUpdateYml;
+exports.metadataFileNameForMacArch = metadataFileNameForMacArch;
+exports.writeMacUpdateFeedMetadata = writeMacUpdateFeedMetadata;
