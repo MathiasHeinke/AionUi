@@ -39,6 +39,19 @@ interface IMessageToolGroupProps {
   message: IMessageToolGroup;
 }
 
+function normalizeGeneratedToolResult(
+  name: string,
+  description: string | undefined,
+  resultDisplay: IMessageToolGroupProps['message']['content'][number]['result_display']
+): IMessageToolGroupProps['message']['content'][number]['result_display'] {
+  if (name !== 'ImageGeneration' || !resultDisplay || typeof resultDisplay !== 'object') return resultDisplay;
+  return {
+    artifact_type: 'image',
+    title: description || 'Generated image',
+    ...resultDisplay,
+  };
+}
+
 const useConfirmationButtons = (
   confirmationDetails: IMessageToolGroupProps['message']['content'][number]['confirmationDetails'],
   t: (key: string, options?: any) => string
@@ -526,25 +539,27 @@ const MessageToolGroup: React.FC<IMessageToolGroupProps> = ({ message }) => {
           }
         }
 
-        // ImageGeneration 特殊处理：单独展示图片，不用 Alert 包裹 Special handling for ImageGeneration: display image separately without Alert wrapper
-        if (name === 'ImageGeneration' && typeof result_display === 'object') {
-          const result = result_display as ImageGenerationResult;
-          if (result.img_url) {
-            return <ImageDisplay key={call_id} imgUrl={result.img_url} relativePath={result.relative_path} />;
-          }
-        }
-
-        if (name !== 'WriteFile' && name !== 'ImageGeneration') {
+        if (name !== 'WriteFile') {
+          const normalizedResultDisplay = normalizeGeneratedToolResult(name, description, result_display);
           const generatedArtifact = buildGeneratedArtifactFromToolResult({
             conversation_id: message.conversation_id,
             call_id,
             created_at: message.created_at,
             name,
             description,
-            result_display,
+            result_display: normalizedResultDisplay,
           });
           if (generatedArtifact) {
             return <MessageGeneratedArtifact key={call_id} artifact={generatedArtifact} />;
+          }
+        }
+
+        // Legacy fallback for pre-contract ImageGeneration payloads that only
+        // expose img_url. Contract-shaped successes/failures render above.
+        if (name === 'ImageGeneration' && typeof result_display === 'object') {
+          const result = result_display as ImageGenerationResult;
+          if (result.img_url) {
+            return <ImageDisplay key={call_id} imgUrl={result.img_url} relativePath={result.relative_path} />;
           }
         }
 

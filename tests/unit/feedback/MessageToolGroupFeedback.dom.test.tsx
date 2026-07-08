@@ -90,6 +90,55 @@ const buildGeneratedVideoToolGroup = (): IMessageToolGroup =>
     ],
   }) as IMessageToolGroup;
 
+const buildGeneratedImageToolGroup = (): IMessageToolGroup =>
+  ({
+    id: 'tg-image',
+    conversation_id: 'conversation-1',
+    created_at: 10,
+    type: 'tool_group',
+    content: [
+      {
+        call_id: 'c-image',
+        description: 'Generated image',
+        name: 'ImageGeneration',
+        render_output_as_markdown: false,
+        status: 'Success',
+        result_display: {
+          img_url: 'data:image/png;base64,iVBORw0KGgo=',
+          relative_path: 'hero.png',
+        },
+      },
+    ],
+  }) as IMessageToolGroup;
+
+const buildFailedImageToolGroup = (): IMessageToolGroup =>
+  ({
+    id: 'tg-image-failed',
+    conversation_id: 'conversation-1',
+    created_at: 10,
+    type: 'tool_group',
+    content: [
+      {
+        call_id: 'c-image-failed',
+        description: 'Generated image',
+        name: 'ImageGeneration',
+        render_output_as_markdown: false,
+        status: 'Error',
+        result_display: {
+          error: 'Provider returned 502',
+          request_id: 'img-request-failed',
+          receipt: {
+            status: 'failed',
+            provider: 'xAI',
+            model: 'grok-image',
+            dataClass: 'S1-internal-low',
+            humanGate: 'HG-2',
+          },
+        },
+      },
+    ],
+  }) as IMessageToolGroup;
+
 const buildGeneratedHtmlToolGroup = (): IMessageToolGroup =>
   ({
     id: 'tg-html',
@@ -134,6 +183,23 @@ describe('MessageToolGroup — FeedbackButton wiring', () => {
     expect(screen.getByTestId('generated-artifact-video')).toHaveAttribute('src', 'https://cdn.example.com/launch.mp4');
     expect(screen.getByText('Launch clip')).toBeInTheDocument();
     expect(screen.getByText('xAI · grok-video · video/mp4')).toBeInTheDocument();
+  });
+
+  it('renders ImageGeneration successes through the generated artifact contract', () => {
+    render(<MessageToolGroup message={buildGeneratedImageToolGroup()} />);
+
+    expect(screen.getByTestId('generated-artifact-card')).toBeInTheDocument();
+    expect(screen.getByTestId('generated-artifact-image')).toHaveAttribute('src', 'data:image/png;base64,iVBORw0KGgo=');
+    expect(screen.getByText('Generated image')).toBeInTheDocument();
+  });
+
+  it('renders ImageGeneration failures as visible failure artifacts', () => {
+    render(<MessageToolGroup message={buildFailedImageToolGroup()} />);
+
+    expect(screen.getByTestId('generated-artifact-card')).toBeInTheDocument();
+    expect(screen.getByTestId('generated-artifact-error')).toHaveTextContent('Provider returned 502');
+    expect(screen.getByTestId('generated-artifact-receipt')).toHaveTextContent('img-request-failed');
+    expect(screen.queryByText(/"error": "Provider returned 502"/)).not.toBeInTheDocument();
   });
 
   it('renders generated html tool results in a sandboxed iframe', () => {

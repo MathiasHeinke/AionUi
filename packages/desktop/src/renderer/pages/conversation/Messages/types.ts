@@ -127,6 +127,13 @@ function inferGeneratedArtifactType(payload: Record<string, unknown>): IGenerate
   return inferTypeFromMimeOrSource(payload);
 }
 
+function hasFailureReceipt(payload: Record<string, unknown>): boolean {
+  if (readString(payload, ['error'])) return true;
+  const receipt = readRecord(payload, RECEIPT_KEYS);
+  const status = receipt ? readString(receipt, ['status'])?.toLowerCase() : undefined;
+  return status === 'failed' || status === 'blocked';
+}
+
 function dedupeStrings(values: Array<string | undefined>): string[] {
   return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
 }
@@ -200,6 +207,7 @@ export function hasToolResultGeneratedArtifact(resultDisplay: ToolResultDisplay)
   if (!payload) return false;
   const type = inferGeneratedArtifactType(payload);
   if (!type) return false;
+  if (hasFailureReceipt(payload)) return true;
   const hasSource = getGeneratedArtifactPreviewSourceKeys(payload).length > 0;
   if (type === 'image' || type === 'video' || type === 'audio') return hasSource;
   if (type === 'html') return hasSource || Boolean(readString(payload, ['html', 'content']));
