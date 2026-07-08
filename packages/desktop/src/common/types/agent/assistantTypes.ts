@@ -33,6 +33,8 @@ export interface Assistant {
 
 export interface CreateAssistantRequest {
   id?: string;
+  /** Backend execution-engine row id. Required by current aioncore when no providers exist. */
+  agent_id?: string;
   name: string;
   description?: string;
   avatar?: string;

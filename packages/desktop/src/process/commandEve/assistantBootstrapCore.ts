@@ -8,6 +8,8 @@ import {
 import { commandEveActiveModeLabel, describeCommandEveActiveLane } from '@/common/config/eveInferenceCore';
 
 export type CommandEveDetectedAgent = {
+  id?: string;
+  name?: string;
   agent_type?: string;
   backend?: string;
   available?: boolean;
@@ -253,11 +255,15 @@ export function resolveCommandEveSeatIdentity(args: {
   // Lift a short entity headline from the seed value. A connector id / pasted
   // brief can be multi-line; the prompt only needs the entity headline (the
   // full brief is already MEMORY.md-resident per seat via ISO-3).
-  const firstLine = value.split('\n').map((line) => line.trim()).find((line) => line.length > 0) || value;
-  const clientEntity = firstLine.length > SEAT_ENTITY_MAX_LEN ? `${firstLine.slice(0, SEAT_ENTITY_MAX_LEN - 1)}…` : firstLine;
+  const firstLine =
+    value
+      .split('\n')
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) || value;
+  const clientEntity =
+    firstLine.length > SEAT_ENTITY_MAX_LEN ? `${firstLine.slice(0, SEAT_ENTITY_MAX_LEN - 1)}…` : firstLine;
 
-  const dsgvoPosture =
-    args.locale === 'de-DE' ? COMMAND_EVE_SEAT_DSGVO_POSTURE_DE : COMMAND_EVE_SEAT_DSGVO_POSTURE_EN;
+  const dsgvoPosture = args.locale === 'de-DE' ? COMMAND_EVE_SEAT_DSGVO_POSTURE_DE : COMMAND_EVE_SEAT_DSGVO_POSTURE_EN;
 
   return {
     seatId: args.seatId,
@@ -343,7 +349,8 @@ export function renderSeatContextBlock(input: RenderSeatContextBlockInput): stri
     // like client (keeps the clause) but with the department framing.
     const kind = input.seatKind ?? 'client';
     if (kind === 'own_company') {
-      const entity = (input.clientEntity && input.clientEntity.trim()) || (de ? 'dieses eigene Projekt' : 'this own project');
+      const entity =
+        (input.clientEntity && input.clientEntity.trim()) || (de ? 'dieses eigene Projekt' : 'this own project');
       if (de) {
         return [
           '## Seat-Kontext',
@@ -470,7 +477,7 @@ export async function resolveSeatContextBlock(deps: ResolveSeatContextBlockDeps)
     clientEntity: deps.clientEntity,
     boardSlug: deps.boardSlug,
     // K3: only meaningful for a real seat; default 'client' when the dep is omitted.
-    seatKind: legacy ? 'client' : deps.getActiveSeatKind?.() ?? 'client',
+    seatKind: legacy ? 'client' : (deps.getActiveSeatKind?.() ?? 'client'),
     roster: legacy ? roster : undefined,
     locale: deps.locale,
   });

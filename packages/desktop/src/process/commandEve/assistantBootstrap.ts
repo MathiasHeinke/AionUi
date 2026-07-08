@@ -59,6 +59,7 @@ type ImportedSkillResponse = {
 
 type CommandEveAssistantRecord = {
   id: string;
+  agent_id?: string;
   preset_agent_type?: string;
   enabled_skills?: string[];
   custom_skill_names?: string[];
@@ -346,6 +347,19 @@ function hasAvailableHermesAgent(agents: CommandEveDetectedAgent[]): boolean {
   );
 }
 
+function resolveCommandEveAssistantAgentId(
+  agents: CommandEveDetectedAgent[],
+  presetAgentType: string
+): string | undefined {
+  const target = presetAgentType.toLowerCase();
+  const agent = agents.find(
+    (candidate) =>
+      candidate.available !== false && (candidate.backend || candidate.agent_type || '').toLowerCase() === target
+  );
+  const id = typeof agent?.id === 'string' ? agent.id.trim() : '';
+  return id || (target === 'hermes' ? 'hermes' : undefined);
+}
+
 async function loadCommandEveDetectedAgents(backendPort: number): Promise<CommandEveDetectedAgent[]> {
   // aioncore v0.1.37 renamed the agent-list GET to /api/agents/management (plain
   // /api/agents now 404s). A 404 here threw and aborted the whole EVE re-seed.
@@ -457,8 +471,12 @@ export async function ensureCommandEveAssistant(
   const isFounderBuild = isCommandEveFounderBuild();
   const agents = await loadCommandEveDetectedAgents(backendPort);
   const presetAgentType = selectCommandEvePresetAgentType(agents);
+  const agentId = resolveCommandEveAssistantAgentId(agents, presetAgentType);
   const customSkillNames = await importCommandEveManagedSkills(backendPort, options.userDataPath);
-  const assistant = buildCommandEveAssistantPayload(presetAgentType, customSkillNames, appVersion, isFounderBuild);
+  const assistant = {
+    ...buildCommandEveAssistantPayload(presetAgentType, customSkillNames, appVersion, isFounderBuild),
+    ...(agentId ? { agent_id: agentId } : {}),
+  };
   const firstRunLoad = loadCommandEveFirstRunContext(appVersion, options.userDataPath);
   // The EFFECTIVE picker selection drives EVE's model-FREE "Betriebsmodus" line
   // so EVE describes its active lane instead of leaking the local model ref.
@@ -468,9 +486,7 @@ export async function ensureCommandEveAssistant(
   // "Standard" regardless of the picked level. Best-effort: undefined → the line
   // reads "nicht verifiziert" and the standing model-identity rule still forbids
   // naming a model.
-  const activeInferenceSelection = resolveEffectiveInferenceSelection(
-    await readInferenceSelectionFromBackend()
-  );
+  const activeInferenceSelection = resolveEffectiveInferenceSelection(await readInferenceSelectionFromBackend());
   const existingAssistant = await loadCommandEveAssistant(backendPort);
   const method = existingAssistant ? 'PUT' : 'POST';
   const path = method === 'PUT' ? `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}` : '/api/assistants';
@@ -490,6 +506,7 @@ export async function ensureCommandEveAssistant(
             ? assistant.avatar
             : existingAssistant.avatar,
         preset_agent_type: presetAgentType,
+        ...(agentId ? { agent_id: agentId } : {}),
         enabled_skills: assistant.enabled_skills,
         custom_skill_names: assistant.custom_skill_names,
         disabled_builtin_skills: assistant.disabled_builtin_skills,

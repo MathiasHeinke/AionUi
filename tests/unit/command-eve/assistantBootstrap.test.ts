@@ -61,16 +61,20 @@ async function captureAssistantSkills(userDataPath: string): Promise<Record<stri
     const url = new URL(String(input));
     const method = String(init?.method || 'GET').toUpperCase();
     const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
-    if (url.pathname === '/api/agents/management') return jsonResponse({ success: true, data: [{ backend: 'hermes', available: true }] });
+    if (url.pathname === '/api/agents/management')
+      return jsonResponse({ success: true, data: [{ backend: 'hermes', available: true }] });
     if (url.pathname === '/api/assistants' && method === 'GET') return jsonResponse({ success: true, data: [ready] });
     if (url.pathname === '/api/assistants' && method === 'POST') return jsonResponse({ success: true, data: ready });
-    if (url.pathname === `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}` && method === 'PUT') return jsonResponse({ success: true, data: ready });
-    if (url.pathname === `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}/state`) return jsonResponse({ success: true, data: ready });
+    if (url.pathname === `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}` && method === 'PUT')
+      return jsonResponse({ success: true, data: ready });
+    if (url.pathname === `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}/state`)
+      return jsonResponse({ success: true, data: ready });
     if (url.pathname === '/api/skills/assistant-skill/write' && method === 'POST') {
       skills[String(body?.locale)] = String(body?.content || '');
       return jsonResponse({ success: true, data: true });
     }
-    if (url.pathname.startsWith('/api/skills/assistant-') && method === 'POST') return jsonResponse({ success: true, data: true });
+    if (url.pathname.startsWith('/api/skills/assistant-') && method === 'POST')
+      return jsonResponse({ success: true, data: true });
     if (url.pathname === '/api/skills/import-symlink') return jsonResponse({ success: true, data: {} });
     throw new Error(`Unexpected request ${method} ${url.pathname}`);
   };
@@ -197,7 +201,77 @@ function jsonResponse(payload: unknown): Response {
   } as Response;
 }
 
+function errorResponse(status: number, message: string): Response {
+  return {
+    ok: false,
+    status,
+    json: async () => ({ success: false, error: message }),
+    text: async () => JSON.stringify({ success: false, error: message }),
+  } as Response;
+}
+
 describe('Command EVE assistant bootstrap', () => {
+  it('creates EVE with an explicit Hermes agent_id so providerless installs can seed the assistant', async () => {
+    let storedAssistant: Record<string, unknown> | undefined;
+    let createdBody: Record<string, unknown> | undefined;
+
+    const fetchMock = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = new URL(String(input));
+      const method = String(init?.method || 'GET').toUpperCase();
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+
+      if (url.pathname === '/api/agents/management') {
+        return jsonResponse({
+          success: true,
+          data: [{ id: 'agent-hermes-acp', backend: 'hermes', agent_type: 'acp', available: true }],
+        });
+      }
+
+      if (url.pathname === '/api/assistants' && method === 'GET') {
+        return jsonResponse({ success: true, data: storedAssistant ? [storedAssistant] : [] });
+      }
+
+      if (url.pathname === '/api/assistants' && method === 'POST') {
+        createdBody = body as Record<string, unknown>;
+        if (createdBody.agent_id !== 'agent-hermes-acp') {
+          return errorResponse(
+            400,
+            'Cannot create assistant: no providers configured. Add a provider before creating an assistant, or pass an explicit `agent_id` in the request body.'
+          );
+        }
+        storedAssistant = {
+          ...createdBody,
+          enabled_skills: [],
+          custom_skill_names: [],
+        };
+        return jsonResponse({ success: true, data: storedAssistant });
+      }
+
+      if (url.pathname === `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}/state` && method === 'PATCH') {
+        return jsonResponse({ success: true, data: storedAssistant });
+      }
+
+      if (url.pathname.startsWith('/api/skills/assistant-') && method === 'POST') {
+        return jsonResponse({ success: true, data: true });
+      }
+
+      throw new Error(`Unexpected request ${method} ${url.pathname}`);
+    };
+
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    await expect(ensureCommandEveAssistant(25809, '1.7.8')).resolves.toMatchObject({
+      status: 'ready',
+      assistant_id: COMMAND_EVE_ASSISTANT_ID,
+      preset_agent_type: 'hermes',
+    });
+    expect(createdBody).toMatchObject({
+      id: COMMAND_EVE_ASSISTANT_ID,
+      agent_id: 'agent-hermes-acp',
+      preset_agent_type: 'hermes',
+    });
+  });
+
   it('resolves only executable managed SKILL.md paths for AionUI custom-skill import', () => {
     const root = makeRoot();
     const paths = resolveCommandEveRuntimeBootstrapPaths(root);
@@ -275,9 +349,13 @@ describe('Command EVE assistant bootstrap', () => {
 
 describe('K3 rosterPurposeForKind — kind-aware founder roster purpose', () => {
   it('client (default) keeps the pre-K3 wording verbatim (regression-safe)', () => {
-    expect(rosterPurposeForKind('client', 'delegate', 'de-DE')).toBe('Client-Seat (invisible delivery, streng isoliert)');
+    expect(rosterPurposeForKind('client', 'delegate', 'de-DE')).toBe(
+      'Client-Seat (invisible delivery, streng isoliert)'
+    );
     expect(rosterPurposeForKind('client', 'admin', 'de-DE')).toBe('Client-Seat (Admin-Zugriff)');
-    expect(rosterPurposeForKind('client', 'delegate', 'en-US')).toBe('Client seat (invisible delivery, strictly isolated)');
+    expect(rosterPurposeForKind('client', 'delegate', 'en-US')).toBe(
+      'Client seat (invisible delivery, strictly isolated)'
+    );
     expect(rosterPurposeForKind('client', 'admin', 'en-US')).toBe('Client seat (admin access)');
   });
 
