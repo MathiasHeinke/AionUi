@@ -531,6 +531,9 @@
       "submitting": "Anfrage wird gesendet",
       "thinking": "EVE denkt",
       "streaming": "Antwort streamt",
+      "tool_wait": "Tool läuft",
+      "heartbeat_only": "EVE arbeitet weiter",
+      "ui_backlog": "Anzeige holt auf",
       "done": "Antwort fertig",
       "error": "Runtime-Fehler"
     },

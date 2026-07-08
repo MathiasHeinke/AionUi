@@ -555,6 +555,9 @@
       "submitting": "Sending request",
       "thinking": "EVE thinking",
       "streaming": "Response streaming",
+      "tool_wait": "Tool running",
+      "heartbeat_only": "EVE still working",
+      "ui_backlog": "Display catching up",
       "done": "Response complete",
       "error": "Runtime error"
     },

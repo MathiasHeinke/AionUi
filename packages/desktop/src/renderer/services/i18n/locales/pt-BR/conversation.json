@@ -516,5 +516,12 @@
     "error": "Erro",
     "done": "Concluído – não lido",
     "idle": "Pronto"
+  },
+  "runtimeStatus": {
+    "phase": {
+      "tool_wait": "Ferramenta em execução",
+      "heartbeat_only": "EVE ainda está trabalhando",
+      "ui_backlog": "A interface está atualizando"
+    }
   }
 }

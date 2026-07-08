@@ -510,5 +510,12 @@
     "error": "错误",
     "done": "已完成 · 未读",
     "idle": "就绪"
+  },
+  "runtimeStatus": {
+    "phase": {
+      "tool_wait": "工具运行中",
+      "heartbeat_only": "EVE 仍在工作",
+      "ui_backlog": "界面正在追上"
+    }
   }
 }

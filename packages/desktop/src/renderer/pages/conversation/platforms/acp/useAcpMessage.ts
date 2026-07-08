@@ -54,6 +54,9 @@ export type AcpRuntimeActivityPhase =
   | 'submitting'
   | 'thinking'
   | 'streaming'
+  | 'tool_wait'
+  | 'heartbeat_only'
+  | 'ui_backlog'
   | 'done'
   | 'error';
 
@@ -68,6 +71,70 @@ export type AcpRuntimeActivity = {
   elapsedMs?: number;
   detail?: string;
 };
+
+export type AcpStreamWatchdogStatus =
+  | 'idle'
+  | 'streaming'
+  | 'tool_wait'
+  | 'heartbeat_only'
+  | 'ui_backlog'
+  | 'stopped'
+  | 'failed';
+
+export function classifyAcpStreamWatchdog(input: {
+  now: number;
+  lastBackendEventAt?: number;
+  lastRendererCommitAt?: number;
+  pendingBufferedSinceAt?: number;
+  pendingBufferedEvents: number;
+  activeToolName?: string;
+  runStopped?: boolean;
+  runFailed?: boolean;
+}): AcpStreamWatchdogStatus {
+  if (input.pendingBufferedEvents > 0) {
+    const backlogBaselineCandidates = [input.lastRendererCommitAt, input.pendingBufferedSinceAt].filter(
+      (value): value is number => typeof value === 'number'
+    );
+    const backlogBaseline = backlogBaselineCandidates.length ? Math.max(...backlogBaselineCandidates) : undefined;
+    if (backlogBaseline !== undefined && input.now - backlogBaseline > 3000) return 'ui_backlog';
+  }
+  if (input.runStopped) return 'stopped';
+  if (input.runFailed) return 'failed';
+  if (input.activeToolName) return 'tool_wait';
+  if (input.lastBackendEventAt && input.now - input.lastBackendEventAt < 5000) return 'streaming';
+  if (input.lastBackendEventAt) return 'heartbeat_only';
+  return 'idle';
+}
+
+type AcpToolActivityWire = {
+  update?: {
+    sessionUpdate?: string;
+    session_update?: string;
+    tool_call_id?: string;
+    toolCallId?: string;
+    status?: string;
+    title?: string;
+    kind?: string;
+  };
+};
+
+function getFirstActiveToolName(activeTools: Map<string, string>): string | undefined {
+  return activeTools.values().next().value;
+}
+
+function extractAcpToolActivity(message: IResponseMessage): { callId: string; active: boolean; name?: string } | null {
+  if (message.type !== 'acp_tool_call') return null;
+  const update = (message.data as AcpToolActivityWire | undefined)?.update;
+  const sessionUpdate = update?.sessionUpdate ?? update?.session_update;
+  if (!update || (sessionUpdate !== 'tool_call' && sessionUpdate !== 'tool_call_update')) return null;
+  const callId = update.tool_call_id ?? update.toolCallId;
+  if (!callId) return null;
+  return {
+    callId,
+    active: update.status === 'pending' || update.status === 'in_progress' || update.status === 'running',
+    name: update.title || update.kind || callId,
+  };
+}
 
 export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: boolean }): UseAcpMessageReturn => {
   const addOrUpdateMessage = useAddOrUpdateMessage();
@@ -97,6 +164,10 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
   // Use refs to sync state for immediate access in event handlers
   const runningRef = useRef(running);
   const aiProcessingRef = useRef(aiProcessing);
+  const lastBackendEventAtRef = useRef<number | undefined>(undefined);
+  const lastRendererCommitAtRef = useRef<number | undefined>(undefined);
+  const lastPendingBufferedAtRef = useRef<number | undefined>(undefined);
+  const activeToolCallsRef = useRef<Map<string, string>>(new Map());
 
   // Live permission mode for THIS conversation, used by the acp_permission
   // auto-approve path. Seeded from conversation.get's extra.session_mode (on
@@ -206,7 +277,16 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
     ref.lastUpdate = Number.NEGATIVE_INFINITY;
     ref.pending = null;
     ref.timer = null;
+    lastPendingBufferedAtRef.current = undefined;
   }, []);
+
+  const commitMessage = useCallback(
+    (message: Parameters<typeof addOrUpdateMessage>[0]) => {
+      addOrUpdateMessage(message);
+      lastRendererCommitAtRef.current = Date.now();
+    },
+    [addOrUpdateMessage]
+  );
 
   const mergeThinkingMessage = useCallback(
     (pending: IMessageThinking, incoming: IMessageThinking): IMessageThinking => {
@@ -235,8 +315,9 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
     if (!pending) return;
     ref.pending = null;
     ref.lastUpdate = Date.now();
-    addOrUpdateMessage(pending);
-  }, [addOrUpdateMessage]);
+    lastPendingBufferedAtRef.current = undefined;
+    commitMessage(pending);
+  }, [commitMessage]);
 
   const enqueueThinkingMessage = useCallback(
     (message: IMessageThinking | undefined) => {
@@ -254,8 +335,11 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
       const canSendImmediately = now - ref.lastUpdate >= THINKING_MESSAGE_THROTTLE_MS && !ref.timer && !ref.pending;
       if (canSendImmediately) {
         ref.lastUpdate = now;
-        addOrUpdateMessage(message);
+        commitMessage(message);
         return;
+      }
+      if (!ref.pending) {
+        lastPendingBufferedAtRef.current = now;
       }
       ref.pending = ref.pending ? mergeThinkingMessage(ref.pending, message) : message;
 
@@ -264,7 +348,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
         ref.timer = setTimeout(flushPendingThinkingMessage, delay);
       }
     },
-    [addOrUpdateMessage, flushPendingThinkingMessage, mergeThinkingMessage]
+    [commitMessage, flushPendingThinkingMessage, mergeThinkingMessage]
   );
 
   useEffect(() => {
@@ -286,7 +370,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
       const endTime = boundaryMessage.created_at ?? Date.now();
       const duration = completeOptions?.duration ?? Math.max(0, endTime - activeThinking.startedAt);
 
-      addOrUpdateMessage({
+      commitMessage({
         id: `${activeThinking.msgId}-thinking-done`,
         type: 'thinking',
         msg_id: activeThinking.msgId,
@@ -302,13 +386,25 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
 
       activeThinkingRef.current = null;
     },
-    [addOrUpdateMessage, flushPendingThinkingMessage]
+    [commitMessage, flushPendingThinkingMessage]
   );
 
   const handleResponseMessage = useCallback(
     (message: IResponseMessage) => {
       if (conversation_id !== message.conversation_id) {
         return;
+      }
+
+      const now = Date.now();
+      lastBackendEventAtRef.current = now;
+
+      const toolActivity = extractAcpToolActivity(message);
+      if (toolActivity) {
+        if (toolActivity.active) {
+          activeToolCallsRef.current.set(toolActivity.callId, toolActivity.name ?? toolActivity.callId);
+        } else {
+          activeToolCallsRef.current.delete(toolActivity.callId);
+        }
       }
 
       if (message.type === 'skill_suggest' || message.type === 'cron_trigger') {
@@ -402,6 +498,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
             runningRef.current = false;
             setAiProcessing(false);
             aiProcessingRef.current = false;
+            activeToolCallsRef.current.clear();
             setThought({ subject: '', description: '' });
             hasContentInTurnRef.current = false;
             hasThinkingMessageRef.current = false;
@@ -449,7 +546,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           }
           // Clear thought when final answer arrives
           setThought({ subject: '', description: '' });
-          addOrUpdateMessage(transformedMessage);
+          commitMessage(transformedMessage);
           break;
         }
         case 'agent_status': {
@@ -492,13 +589,14 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
               runningRef.current = false;
               setAiProcessing(false);
               aiProcessingRef.current = false;
+              activeToolCallsRef.current.clear();
             }
           }
-          addOrUpdateMessage(transformedMessage);
+          commitMessage(transformedMessage);
           break;
         }
         case 'user_content':
-          addOrUpdateMessage(transformedMessage);
+          commitMessage(transformedMessage);
           break;
         case 'teammate_message': {
           const tmMsg = message.data as import('@/common/chat/chatLib').TMessage;
@@ -537,8 +635,25 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
                 }
               }
             }
-            addOrUpdateMessage(tmMsg);
+            commitMessage(tmMsg);
           }
+          break;
+        }
+        case 'acp_tool_call': {
+          const activeToolName = getFirstActiveToolName(activeToolCallsRef.current);
+          if (!runningRef.current && !turnFinishedRef.current) {
+            setRunning(true);
+            runningRef.current = true;
+          }
+          setRuntimeActivity((prev) => ({
+            phase: activeToolName ? 'tool_wait' : 'streaming',
+            backend: requestTraceRef.current?.backend ?? prev.backend,
+            modelId: requestTraceRef.current?.model_id ?? prev.modelId,
+            startedAt: requestTraceRef.current?.startTime ?? prev.startedAt ?? now,
+            updatedAt: now,
+            detail: activeToolName,
+          }));
+          commitMessage(transformedMessage);
           break;
         }
         case 'acp_permission': {
@@ -578,13 +693,13 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
                 // the user is never silently stuck waiting on an agent that asked.
                 autoApprovedCallIdsRef.current.delete(callId);
                 console.warn('[useAcpMessage] auto-approve failed, falling back to dialog:', error);
-                addOrUpdateMessage(transformedMessage);
+                commitMessage(transformedMessage);
               });
             // Do NOT render the gating dialog for an auto-approved request.
             break;
           }
 
-          addOrUpdateMessage(transformedMessage);
+          commitMessage(transformedMessage);
           break;
         }
         case 'acp_model_info':
@@ -668,8 +783,9 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           runningRef.current = false;
           setAiProcessing(false);
           aiProcessingRef.current = false;
+          activeToolCallsRef.current.clear();
           activeThinkingRef.current = null;
-          if (!suppressColdError) addOrUpdateMessage(transformedMessage);
+          if (!suppressColdError) commitMessage(transformedMessage);
           // Log request error
           if (requestTraceRef.current) {
             const duration = Date.now() - requestTraceRef.current.startTime;
@@ -698,13 +814,13 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
             setRunning(true);
             runningRef.current = true;
           }
-          addOrUpdateMessage(transformedMessage);
+          commitMessage(transformedMessage);
           break;
       }
     },
     [
       conversation_id,
-      addOrUpdateMessage,
+      commitMessage,
       completeActiveThinking,
       enqueueThinkingMessage,
       throttledSetThought,
@@ -719,6 +835,52 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
   useEffect(() => {
     return ipcBridge.acpConversation.responseStream.on(handleResponseMessage);
   }, [handleResponseMessage]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      const pendingBufferedEvents = thinkingMessageThrottleRef.current.pending ? 1 : 0;
+      const isActive = runningRef.current || aiProcessingRef.current || pendingBufferedEvents > 0;
+      if (!isActive) return;
+      const activeToolName = getFirstActiveToolName(activeToolCallsRef.current);
+
+      const status = classifyAcpStreamWatchdog({
+        now,
+        lastBackendEventAt: lastBackendEventAtRef.current,
+        lastRendererCommitAt: lastRendererCommitAtRef.current,
+        pendingBufferedSinceAt: lastPendingBufferedAtRef.current,
+        pendingBufferedEvents,
+        activeToolName,
+        runStopped: turnFinishedRef.current && !runningRef.current && !aiProcessingRef.current,
+      });
+
+      if (status === 'ui_backlog') {
+        flushPendingThinkingMessage();
+      }
+      if (status !== 'ui_backlog' && status !== 'heartbeat_only' && status !== 'tool_wait' && status !== 'streaming') {
+        return;
+      }
+
+      setRuntimeActivity((prev) => {
+        if (prev.phase === 'done' || prev.phase === 'error') return prev;
+        const nextDetail = status === 'tool_wait' ? activeToolName : undefined;
+        const shouldRecoverFromWatchdogState =
+          status === 'streaming' &&
+          (prev.phase === 'heartbeat_only' || prev.phase === 'ui_backlog' || prev.phase === 'tool_wait');
+        if (status === 'streaming' && !shouldRecoverFromWatchdogState) return prev;
+        if (prev.phase === status && prev.detail === nextDetail) return prev;
+        return {
+          ...prev,
+          phase: status,
+          startedAt: prev.startedAt ?? requestTraceRef.current?.startTime ?? now,
+          updatedAt: now,
+          detail: nextDetail,
+        };
+      });
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [flushPendingThinkingMessage]);
 
   // Keep the live permission mode current for the auto-approve path. The picker
   // (AgentModeSelector) broadcasts the effective mode on initial sync and on every
@@ -747,6 +909,10 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
     turnFinishedRef.current = false;
     hasThinkingMessageRef.current = false;
     activeThinkingRef.current = null;
+    lastBackendEventAtRef.current = undefined;
+    lastRendererCommitAtRef.current = undefined;
+    lastPendingBufferedAtRef.current = undefined;
+    activeToolCallsRef.current.clear();
     clearThinkingMessageThrottle();
     setHasThinkingMessage(false);
     setHasHydratedRunningState(false);
@@ -888,6 +1054,10 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
     hasContentInTurnRef.current = false;
     hasThinkingMessageRef.current = false;
     activeThinkingRef.current = null;
+    lastBackendEventAtRef.current = undefined;
+    lastRendererCommitAtRef.current = undefined;
+    lastPendingBufferedAtRef.current = undefined;
+    activeToolCallsRef.current.clear();
     clearThinkingMessageThrottle();
     setHasThinkingMessage(false);
   }, [clearThinkingMessageThrottle]);

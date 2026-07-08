@@ -6,7 +6,7 @@
 
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useAcpMessage } from '@/renderer/pages/conversation/platforms/acp/useAcpMessage';
+import { classifyAcpStreamWatchdog, useAcpMessage } from '@/renderer/pages/conversation/platforms/acp/useAcpMessage';
 import type { IResponseMessage } from '@/common/adapter/ipcBridge';
 
 const {
@@ -72,6 +72,269 @@ describe('useAcpMessage', () => {
     vi.clearAllMocks();
     responseStreamHandlerRef.current = undefined;
     reportInferenceErrorMock.mockReturnValue(false);
+  });
+
+  describe('ACP stream watchdog', () => {
+    it('classifies stale buffered renderer work as ui_backlog', () => {
+      expect(
+        classifyAcpStreamWatchdog({
+          now: 10_000,
+          lastBackendEventAt: 9_900,
+          lastRendererCommitAt: 1_000,
+          pendingBufferedEvents: 1,
+        })
+      ).toBe('ui_backlog');
+    });
+
+    it('does not classify a first buffered event as backlog before a baseline exists', () => {
+      expect(
+        classifyAcpStreamWatchdog({
+          now: 10_000,
+          lastBackendEventAt: 9_900,
+          pendingBufferedEvents: 1,
+        })
+      ).toBe('streaming');
+    });
+
+    it('uses the newer pending-buffer baseline instead of an old renderer commit', () => {
+      expect(
+        classifyAcpStreamWatchdog({
+          now: 10_000,
+          lastBackendEventAt: 9_900,
+          lastRendererCommitAt: 1_000,
+          pendingBufferedSinceAt: 9_900,
+          pendingBufferedEvents: 1,
+        })
+      ).toBe('streaming');
+    });
+
+    it('classifies active tools before heartbeat-only streams', () => {
+      expect(
+        classifyAcpStreamWatchdog({
+          now: 10_000,
+          lastBackendEventAt: 1_000,
+          lastRendererCommitAt: 1_000,
+          pendingBufferedEvents: 0,
+          activeToolName: 'Write file',
+        })
+      ).toBe('tool_wait');
+    });
+
+    it('distinguishes recent backend activity from heartbeat-only silence', () => {
+      expect(
+        classifyAcpStreamWatchdog({
+          now: 10_000,
+          lastBackendEventAt: 9_000,
+          lastRendererCommitAt: 8_500,
+          pendingBufferedEvents: 0,
+        })
+      ).toBe('streaming');
+
+      expect(
+        classifyAcpStreamWatchdog({
+          now: 10_000,
+          lastBackendEventAt: 4_000,
+          lastRendererCommitAt: 4_000,
+          pendingBufferedEvents: 0,
+        })
+      ).toBe('heartbeat_only');
+    });
+
+    it('surfaces heartbeat-only activity while a turn is still running', async () => {
+      conversationGetInvokeMock.mockResolvedValue(null);
+      vi.useFakeTimers();
+      try {
+        const { result } = renderHook(() => useAcpMessage('conv-1'));
+
+        await act(async () => {
+          await Promise.resolve();
+        });
+
+        act(() => {
+          responseStreamHandlerRef.current?.({
+            type: 'start',
+            data: null,
+            msg_id: 'msg-1',
+            conversation_id: 'conv-1',
+          });
+        });
+
+        act(() => {
+          vi.advanceTimersByTime(6_000);
+        });
+
+        expect(result.current.runtimeActivity.phase).toBe('heartbeat_only');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('recovers from heartbeat-only to streaming when backend thinking resumes', async () => {
+      conversationGetInvokeMock.mockResolvedValue(null);
+      vi.useFakeTimers();
+      try {
+        const { result } = renderHook(() => useAcpMessage('conv-1'));
+
+        await act(async () => {
+          await Promise.resolve();
+        });
+
+        act(() => {
+          responseStreamHandlerRef.current?.({
+            type: 'start',
+            data: null,
+            msg_id: 'msg-1',
+            conversation_id: 'conv-1',
+          });
+          vi.advanceTimersByTime(6_000);
+        });
+        expect(result.current.runtimeActivity.phase).toBe('heartbeat_only');
+
+        act(() => {
+          responseStreamHandlerRef.current?.({
+            type: 'thinking',
+            data: {
+              content: 'still working',
+              status: 'thinking',
+            },
+            msg_id: 'msg-1',
+            conversation_id: 'conv-1',
+          });
+          vi.advanceTimersByTime(1_000);
+        });
+
+        expect(result.current.runtimeActivity.phase).toBe('streaming');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not overwrite a specific thinking phase with generic streaming ticks', async () => {
+      conversationGetInvokeMock.mockResolvedValue(null);
+      vi.useFakeTimers();
+      try {
+        const { result } = renderHook(() => useAcpMessage('conv-1'));
+
+        await act(async () => {
+          await Promise.resolve();
+        });
+
+        act(() => {
+          responseStreamHandlerRef.current?.({
+            type: 'request_trace',
+            data: {
+              timestamp: Date.now(),
+              backend: 'hermes',
+              model_id: 'model-1',
+            },
+            msg_id: 'msg-1',
+            conversation_id: 'conv-1',
+          });
+          responseStreamHandlerRef.current?.({
+            type: 'thinking',
+            data: {
+              content: 'planning',
+              status: 'thinking',
+            },
+            msg_id: 'msg-1',
+            conversation_id: 'conv-1',
+          });
+        });
+
+        expect(result.current.runtimeActivity.phase).toBe('thinking');
+
+        act(() => {
+          vi.advanceTimersByTime(1_000);
+        });
+
+        expect(result.current.runtimeActivity.phase).toBe('thinking');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('keeps tool_wait active until all concurrent ACP tools finish', async () => {
+      conversationGetInvokeMock.mockResolvedValue(null);
+      const { result } = renderHook(() => useAcpMessage('conv-1'));
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      act(() => {
+        responseStreamHandlerRef.current?.({
+          type: 'acp_tool_call',
+          data: {
+            update: {
+              sessionUpdate: 'tool_call',
+              toolCallId: 'tool-a',
+              status: 'in_progress',
+              title: 'Tool A',
+              kind: 'execute',
+            },
+          },
+          msg_id: 'msg-1',
+          conversation_id: 'conv-1',
+        });
+        responseStreamHandlerRef.current?.({
+          type: 'acp_tool_call',
+          data: {
+            update: {
+              sessionUpdate: 'tool_call',
+              tool_call_id: 'tool-b',
+              status: 'in_progress',
+              title: 'Tool B',
+              kind: 'execute',
+            },
+          },
+          msg_id: 'msg-1',
+          conversation_id: 'conv-1',
+        });
+      });
+
+      expect(result.current.runtimeActivity.phase).toBe('tool_wait');
+      expect(result.current.runtimeActivity.detail).toBe('Tool A');
+
+      act(() => {
+        responseStreamHandlerRef.current?.({
+          type: 'acp_tool_call',
+          data: {
+            update: {
+              sessionUpdate: 'tool_call_update',
+              toolCallId: 'tool-a',
+              status: 'completed',
+              title: 'Tool A',
+              kind: 'execute',
+            },
+          },
+          msg_id: 'msg-1',
+          conversation_id: 'conv-1',
+        });
+      });
+
+      expect(result.current.runtimeActivity.phase).toBe('tool_wait');
+      expect(result.current.runtimeActivity.detail).toBe('Tool B');
+
+      act(() => {
+        responseStreamHandlerRef.current?.({
+          type: 'acp_tool_call',
+          data: {
+            update: {
+              session_update: 'tool_call_update',
+              tool_call_id: 'tool-b',
+              status: 'completed',
+              title: 'Tool B',
+              kind: 'execute',
+            },
+          },
+          msg_id: 'msg-1',
+          conversation_id: 'conv-1',
+        });
+      });
+
+      expect(result.current.runtimeActivity.phase).toBe('streaming');
+      expect(result.current.runtimeActivity.detail).toBeUndefined();
+    });
   });
 
   it('completes hydration when the conversation lookup fails', async () => {
