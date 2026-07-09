@@ -4,6 +4,15 @@ Date: 2026-07-09
 Branch: `houston/v16-onboarding`
 Status: plan-of-record
 
+> **Founder delta, 2026-07-09:** The approved light/dark direction is now the
+> global Command EVE meta-theme, not a chat-shell skin. Clauses below that keep
+> decorative AionUI presets in the public product or limit the redesign to a
+> small route subset are superseded by
+> `docs/strategy/command-eve-180-design.md` and
+> `docs/strategy/command-eve-180-implementation-plan-2026-07-09.md`. Existing
+> saved theme data is preserved, but legacy presets/custom CSS are migrated out
+> of the public default UI.
+
 ## Decision
 
 Command EVE 1.8.0 is a visual-design sprint only.
