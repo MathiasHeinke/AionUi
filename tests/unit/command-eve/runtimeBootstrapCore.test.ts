@@ -214,10 +214,23 @@ const writeManifest = (root: string, baseUrl: string, overrides = ''): string =>
 
 describe('Command EVE runtime bootstrap core', () => {
   it('keeps Command EVE release truth aligned across package, shell, bootstrap and capability manifests', () => {
+    const publicBrand = JSON.parse(
+      fs.readFileSync(path.resolve(__dirname, '../../../public/command-eve-brand.json'), 'utf8')
+    ) as { version?: string };
+    const publicRuntimeBootstrap = loadCommandEveRuntimeBootstrapManifest(
+      path.resolve(__dirname, '../../../public/command-eve-runtime-bootstrap.json')
+    );
+    const publicCapabilityPack = loadCommandEveCapabilityPack(
+      path.resolve(__dirname, '../../../public/command-eve-capabilities.json')
+    );
+
     expect(packageJson.version).toBe('1.7.91');
     expect(COMMAND_EVE_VERSION).toBe(packageJson.version);
     expect(DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST.release).toBe(packageJson.version);
     expect(DEFAULT_COMMAND_EVE_CAPABILITY_PACK.release).toBe(packageJson.version);
+    expect(publicBrand.version).toBe(`v${packageJson.version}`);
+    expect(publicRuntimeBootstrap.release).toBe(packageJson.version);
+    expect(publicCapabilityPack.release).toBe(packageJson.version);
   });
 
   it('parses exact Ollama model names from list output', () => {
