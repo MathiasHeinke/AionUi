@@ -166,7 +166,7 @@ const makeHarness = (
       const stdout = `${rows.join('\n')}\n`;
       return commandResult(command, args, true, stdout);
     }
-    if (isOllamaCommand && args[0] === 'pull' && /^gemma4:/.test(args[1] || '')) {
+    if (isOllamaCommand && args[0] === 'pull' && (args[1] || '').startsWith('gemma4:')) {
       pulledModels.add(args[1]);
       return commandResult(command, args);
     }

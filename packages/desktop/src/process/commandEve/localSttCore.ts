@@ -164,7 +164,7 @@ const defaultRunner: CommandEveSttRunner = (command, args, options) =>
       .filter(Boolean)
       .join(':');
     // extraEnv (e.g. GROQ_API_KEY) is scoped to THIS child process only.
-    const env = { ...process.env, PATH: augmentedPath, ...(options.extraEnv ?? {}) };
+    const env = { ...process.env, PATH: augmentedPath, ...options.extraEnv };
     execFile(command, args, { timeout: options.timeoutMs, maxBuffer: 8 * 1024 * 1024, env }, (error, stdout, stderr) => {
       resolve({
         ok: !error,

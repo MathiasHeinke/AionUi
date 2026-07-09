@@ -108,7 +108,7 @@ const EveRuntimeWorkerAssignmentCard: React.FC = () => {
       );
       return;
     }
-    const next = { ...(assignments ?? {}), [assignment.agent_id]: stripAssignment(assignment) };
+    const next = { ...assignments, [assignment.agent_id]: stripAssignment(assignment) };
     await setAssignments(next);
     Message.success(
       t('eveRuntime.workerAssignment.saved', {
@@ -120,7 +120,7 @@ const EveRuntimeWorkerAssignmentCard: React.FC = () => {
 
   const handleRemove = useCallback(
     async (id: string) => {
-      const next = { ...(assignments ?? {}) };
+      const next = { ...assignments };
       delete next[id];
       await setAssignments(next);
     },

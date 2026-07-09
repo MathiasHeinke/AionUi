@@ -524,7 +524,7 @@ const ensureBuiltinMcpServers = async (): Promise<void> => {
     // a stale keychain ref) from an env we are about to re-persist locally, so a
     // legacy on-disk value written by an older build is removed on this pass.
     const stripApiKeyFromEnv = (env: Record<string, string> | undefined): Record<string, string> => {
-      const next = { ...(env || {}) };
+      const next = { ...env };
       delete next[IMAGE_GEN_ENV_KEYS.apiKey];
       return next;
     };

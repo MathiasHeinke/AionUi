@@ -4223,7 +4223,7 @@ export function planKanbanMarketingCardDispatch(
       env: {
         ...process.env,
         ...nodeRuntime.env,
-        ...(options.env || {}),
+        ...options.env,
       },
       timeoutMs: 30_000,
       input: `${JSON.stringify(request)}\n`,
@@ -4801,7 +4801,7 @@ export function generateKanbanMarketingDraft(
       env: {
         ...process.env,
         ...nodeRuntime.env,
-        ...(options.env || {}),
+        ...options.env,
       },
       timeoutMs: 30_000,
       input: `${JSON.stringify(request)}\n`,

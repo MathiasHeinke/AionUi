@@ -175,7 +175,7 @@ export async function runHonchoBootstrap(deps: HonchoBootstrapDeps): Promise<Hon
       if (id === HONCHO_STEP_PROCESS) {
         // The long-running server — detached spawn, no result to await.
         try {
-          deps.detachedSpawner(cmd.command, cmd.args || [], { env: { ...deps.env, ...(cmd.env || {}) } });
+          deps.detachedSpawner(cmd.command, cmd.args || [], { env: { ...deps.env, ...cmd.env } });
           serverStarted = true;
           stages.push({ id, status: 'pass', detail: 'honcho serve started', command: cmd.command, duration_ms: nowMs() - started });
         } catch (error) {
@@ -190,7 +190,7 @@ export async function runHonchoBootstrap(deps: HonchoBootstrapDeps): Promise<Hon
       let res;
       try {
         // eslint-disable-next-line no-await-in-loop -- steps are strictly ordered + dependent
-        res = await deps.runner(cmd.command, cmd.args || [], { env: { ...deps.env, ...(cmd.env || {}) }, timeoutMs: cmd.timeoutMs || deps.defaultTimeoutMs || 120000 });
+        res = await deps.runner(cmd.command, cmd.args || [], { env: { ...deps.env, ...cmd.env }, timeoutMs: cmd.timeoutMs || deps.defaultTimeoutMs || 120000 });
       } catch (error) {
         stages.push({ id, status: 'skip', code: HONCHO_REASON_DEP_MISSING, detail: `runner threw: ${errText(error)}`, command: cmd.command });
         ok = false;

@@ -60,7 +60,8 @@ vi.mock('@process/commandEve/seatSwitchRuntime', () => ({
 import fs from 'fs';
 import path from 'path';
 import { initCommandEveBridge } from '@process/bridge/commandEveBridge';
-import { parseMySeats, resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
+import { resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
+import type { parseMySeats } from '@process/commandEve/seatSwitchCore';
 import { setActiveSeatId, __resetActiveSeatForTests, resolveSeatHermesHome } from '@process/commandEve/seatContextCore';
 
 const SEAT_A = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';

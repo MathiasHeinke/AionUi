@@ -267,7 +267,7 @@ const SENSITIVE_RULES: SensitiveRule[] = [
     // A bare NNN-NNN-NNNN run is indistinguishable from order/SKU/ref numbers, so it is NOT matched
     // (+1-prefixed bare numbers are caught by intl-phone above). The (?<![\w(]) anchors the parens form.
     ruleId: 'north-american-phone',
-    pattern: /(?<![\w(])(?:\+?1[\s.\-]?)?\(\d{3}\)[\s.\-]?\d{3}[\s.\-]?\d{4}\b/g,
+    pattern: /(?<![\w(])(?:\+?1[\s.-]?)?\(\d{3}\)[\s.-]?\d{3}[\s.-]?\d{4}\b/g,
     replacement: '[REDACTED_PHONE]',
   },
   {

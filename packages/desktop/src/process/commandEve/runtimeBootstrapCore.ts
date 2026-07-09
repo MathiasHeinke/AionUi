@@ -1094,6 +1094,7 @@ const scrubOutput = (value: unknown): string => compact(value).slice(0, 1200);
 
 const normalizeIdentityText = (value: unknown): string =>
   compact(value)
+    // eslint-disable-next-line no-control-regex -- identity input must strip C0 controls and DEL.
     .replace(/[\u0000-\u001f\u007f]/g, ' ')
     .replace(/\s+/g, ' ')
     .slice(0, 120);

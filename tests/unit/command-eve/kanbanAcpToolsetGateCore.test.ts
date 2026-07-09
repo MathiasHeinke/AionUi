@@ -118,13 +118,13 @@ describe('kanban-acp gate — hardening (Codex re-audit holes)', () => {
   });
 
   it('a huge input is node-budget bounded (finds a front leak, returns without hanging)', () => {
-    const huge = new Array(1_000_000).fill(0);
+    const huge = Array.from({ length: 1_000_000 }, () => 0);
     huge[3] = 'kanban_create';
     expect(findRawKanbanLeaks(huge)).toContain('kanban_create');
   });
 
   it('a scan that exhausts the node budget fails CLOSED (truncation sentinel, never silently clean)', () => {
-    const huge = new Array(1_000_000).fill('x'); // all benign but far past the budget
+    const huge = Array.from({ length: 1_000_000 }, () => 'x'); // all benign but far past the budget
     const leaks = findRawKanbanLeaks(huge);
     expect(leaks).toContain(KANBAN_LEAK_SCAN_TRUNCATED);
     expect(leaks.length).toBeGreaterThan(0); // NOT reported as clean
