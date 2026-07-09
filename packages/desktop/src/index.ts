@@ -26,7 +26,7 @@ if (isTelemetryAllowed()) {
 }
 
 import './process/utils/configureConsoleLog';
-import { app, BrowserWindow, ipcMain, nativeImage, powerMonitor } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeImage, powerMonitor, shell } from 'electron';
 import fixPath from 'fix-path';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -78,6 +78,12 @@ import { wasLaunchedAtLogin } from '@process/bridge/applicationBridge';
 import { onLanguageChanged } from './process/bridge/systemSettingsBridge';
 import { setInitialLanguage } from '@process/services/i18n';
 import { setupApplicationMenu } from './process/utils/appMenu';
+import {
+  hardenAttachedWebviewPreferences,
+  isAllowedWebviewSource,
+  isSafeExternalNavigationUrl,
+  isTrustedMainRendererUrl,
+} from './process/security/mainWindowSecurityCore';
 import { startWebHost } from '@aionui/web-host';
 import { initializeZoomFactor, setupZoomForWindow } from './process/utils/zoom';
 import {
@@ -1374,6 +1380,36 @@ const createWindow = ({ showOnReady = true }: { showOnReady?: boolean } = {}): v
   // Load the renderer: dev server URL in development, built HTML file in production
   const rendererUrl = process.env['ELECTRON_RENDERER_URL'];
   const fallbackFile = path.join(__dirname, '../renderer/index.html');
+  const rendererUrlPolicy = { isPackaged: app.isPackaged, rendererUrl, fallbackFile };
+  const openExternalNavigation = (targetUrl: string): void => {
+    if (!isSafeExternalNavigationUrl(targetUrl)) return;
+    void shell.openExternal(targetUrl).catch((error) => {
+      console.error('[CommandEVE] Failed to open external navigation:', error);
+    });
+  };
+
+  const guardMainFrameNavigation = (event: Electron.Event, targetUrl: string): void => {
+    if (isTrustedMainRendererUrl(targetUrl, rendererUrlPolicy)) return;
+    event.preventDefault();
+    openExternalNavigation(targetUrl);
+  };
+
+  mainWindow.webContents.on('will-navigate', guardMainFrameNavigation);
+  mainWindow.webContents.on('will-redirect', guardMainFrameNavigation);
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    openExternalNavigation(url);
+    return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    hardenAttachedWebviewPreferences(webPreferences as unknown as Record<string, unknown>);
+    if (!isAllowedWebviewSource(params.src)) event.preventDefault();
+  });
+  mainWindow.webContents.on('did-attach-webview', (_event, guest) => {
+    guest.setWindowOpenHandler(({ url }) => {
+      openExternalNavigation(url);
+      return { action: 'deny' };
+    });
+  });
 
   if (!app.isPackaged && rendererUrl) {
     console.log(`[CommandEVE] Loading renderer URL: ${rendererUrl}`);

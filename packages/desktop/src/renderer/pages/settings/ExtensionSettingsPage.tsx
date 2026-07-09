@@ -12,6 +12,7 @@ import { useExtI18n } from '@/renderer/hooks/system/useExtI18n';
 import { useExtensionSettingsTabs } from '@/renderer/hooks/system/useExtensionSettingsTabs';
 import WebviewHost from '@/renderer/components/media/WebviewHost';
 import { resolveExtensionAssetUrl } from '@/renderer/utils/platform';
+import { isTrustedFrameMessage, resolveTrustedFrameOrigin } from '@/renderer/utils/extensionMessageBoundary';
 import SettingsPageWrapper from './components/SettingsPageWrapper';
 
 const isExternalSettingsUrl = (url?: string): boolean => /^https?:\/\//i.test(url || '');
@@ -46,13 +47,14 @@ const ExtensionSettingsPage: React.FC = () => {
 
   const resolvedUrl = resolveExtensionAssetUrl(tab?.url) ?? tab?.url;
   const isExternalTab = isExternalSettingsUrl(resolvedUrl);
+  const messageOrigin = useMemo(() => resolveTrustedFrameOrigin(resolvedUrl, window.location.href), [resolvedUrl]);
 
   useEffect(() => {
     setLoading(true);
   }, [tab?.id, resolvedUrl]);
 
   const postLocaleInit = useCallback(async () => {
-    if (!tab || isExternalTab) return;
+    if (!tab || isExternalTab || !messageOrigin) return;
 
     const frameWindow = iframeRef.current?.contentWindow;
     if (!frameWindow) return;
@@ -68,19 +70,19 @@ const ExtensionSettingsPage: React.FC = () => {
           extensionName: tab.extensionName,
           translations,
         },
-        '*'
+        messageOrigin
       );
     } catch (err) {
       console.error('[ExtensionSettingsPage] Failed to post locale init:', err);
     }
-  }, [i18n.language, isExternalTab, tab]);
+  }, [i18n.language, isExternalTab, messageOrigin, tab]);
 
   useEffect(() => {
-    if (!tab || isExternalTab) return;
+    if (!tab || isExternalTab || !messageOrigin) return;
 
     const onMessage = async (event: MessageEvent) => {
       const frameWindow = iframeRef.current?.contentWindow;
-      if (!frameWindow || event.source !== frameWindow) return;
+      if (!isTrustedFrameMessage(event, frameWindow, messageOrigin)) return;
 
       const data = event.data as { type?: string; reqId?: string } | undefined;
       if (!data) return;
@@ -100,7 +102,7 @@ const ExtensionSettingsPage: React.FC = () => {
             reqId: data.reqId,
             snapshot,
           },
-          '*'
+          messageOrigin
         );
       } catch (err) {
         console.error('[ExtensionSettingsPage] Failed to get activity snapshot:', err);
@@ -109,7 +111,7 @@ const ExtensionSettingsPage: React.FC = () => {
 
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [isExternalTab, postLocaleInit, tab]);
+  }, [isExternalTab, messageOrigin, postLocaleInit, tab]);
 
   useEffect(() => {
     if (!loading) {

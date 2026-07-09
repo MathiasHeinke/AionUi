@@ -10,6 +10,7 @@
  *
  * Environment variables:
  *  - AIONUI_BACKEND_VERSION: override the pinned version
+ *  - AIONUI_BACKEND_SHA256: required archive SHA256 when overriding the pinned version
  *  - AIONUI_BACKEND_ARCH: target architecture (default: process.arch)
  *  - GH_TOKEN / GITHUB_TOKEN: GitHub API token (for rate limiting)
  */

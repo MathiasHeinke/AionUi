@@ -58,6 +58,12 @@ export const WEBUI_DEFAULT_PORT = (() => {
   return 25809;
 })();
 
+/**
+ * Remote WebUI stays disabled until the outer proxy authenticates HTTP and
+ * WebSocket traffic before forwarding it to the loopback-trusting backend.
+ */
+export const WEBUI_REMOTE_ACCESS_SUPPORTED = false;
+
 export const TEAM_MODE_ENABLED = true;
 
 // ===== AI Provider 相关常量 =====

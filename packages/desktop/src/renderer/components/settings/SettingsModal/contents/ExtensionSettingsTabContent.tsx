@@ -4,11 +4,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { extensions as extensionsIpc } from '@/common/adapter/ipcBridge';
 import WebviewHost from '@/renderer/components/media/WebviewHost';
 import { resolveExtensionAssetUrl } from '@/renderer/utils/platform';
+import { isTrustedFrameMessage, resolveTrustedFrameOrigin } from '@/renderer/utils/extensionMessageBoundary';
 
 const isExternalSettingsUrl = (url?: string): boolean => /^https?:\/\//i.test(url || '');
 
@@ -32,13 +33,14 @@ const ExtensionSettingsTabContent: React.FC<ExtensionSettingsTabContentProps> = 
   const [loading, setLoading] = useState(true);
   const resolvedUrl = resolveExtensionAssetUrl(url) ?? url;
   const isExternalTab = isExternalSettingsUrl(resolvedUrl);
+  const messageOrigin = useMemo(() => resolveTrustedFrameOrigin(resolvedUrl, window.location.href), [resolvedUrl]);
 
   useEffect(() => {
     setLoading(true);
   }, [resolvedUrl]);
 
   const postLocaleInit = useCallback(async () => {
-    if (isExternalTab) return;
+    if (isExternalTab || !messageOrigin) return;
 
     const frameWindow = iframeRef.current?.contentWindow;
     if (!frameWindow) return;
@@ -54,20 +56,20 @@ const ExtensionSettingsTabContent: React.FC<ExtensionSettingsTabContentProps> = 
           extensionName,
           translations,
         },
-        '*'
+        messageOrigin
       );
     } catch (err) {
       console.error('[ExtensionSettingsTabContent] Failed to post locale init:', err);
     }
-  }, [extensionName, i18n.language, isExternalTab]);
+  }, [extensionName, i18n.language, isExternalTab, messageOrigin]);
 
   // postMessage bridge for backend-served local iframe tabs
   useEffect(() => {
-    if (isExternalTab) return;
+    if (isExternalTab || !messageOrigin) return;
 
     const onMessage = async (event: MessageEvent) => {
       const frameWindow = iframeRef.current?.contentWindow;
-      if (!frameWindow || event.source !== frameWindow) return;
+      if (!isTrustedFrameMessage(event, frameWindow, messageOrigin)) return;
 
       const data = event.data as { type?: string; reqId?: string } | undefined;
       if (!data) return;
@@ -87,7 +89,7 @@ const ExtensionSettingsTabContent: React.FC<ExtensionSettingsTabContentProps> = 
             reqId: data.reqId,
             snapshot,
           },
-          '*'
+          messageOrigin
         );
       } catch (err) {
         console.error('[ExtensionSettingsTabContent] Failed to get activity snapshot:', err);
@@ -96,7 +98,7 @@ const ExtensionSettingsTabContent: React.FC<ExtensionSettingsTabContentProps> = 
 
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [isExternalTab, postLocaleInit]);
+  }, [isExternalTab, messageOrigin, postLocaleInit]);
 
   useEffect(() => {
     if (!loading) {

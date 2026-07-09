@@ -4,7 +4,7 @@
  * Order:
  *   1. AIONUI_BACKEND_VERSION env (ad-hoc override, e.g. CI dispatch input)
  *   2. "aioncoreVersion" field in repo-root package.json (the pin)
- *   3. 'latest' (GitHub API releases/latest; non-reproducible fallback)
+ *   3. Fail closed when no pin exists.
  *
  * Keep this file tiny and dependency-free — it's required from both
  * scripts/prepareAioncore.js and scripts/pack-web-cli.js before
@@ -14,8 +14,8 @@
 const fs = require('fs');
 const path = require('path');
 
-function resolveAioncoreVersion(projectRoot) {
-  const envOverride = process.env.AIONUI_BACKEND_VERSION;
+function resolveAioncoreVersion(projectRoot, env = process.env) {
+  const envOverride = env.AIONUI_BACKEND_VERSION;
   if (envOverride && envOverride.trim()) {
     return envOverride.trim();
   }
@@ -30,7 +30,7 @@ function resolveAioncoreVersion(projectRoot) {
     // fall through
   }
 
-  return 'latest';
+  throw new Error('Missing pinned aioncoreVersion in package.json (or explicit AIONUI_BACKEND_VERSION override)');
 }
 
 module.exports = { resolveAioncoreVersion };

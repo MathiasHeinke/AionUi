@@ -2,7 +2,7 @@
  * Prepare aioncore binary for packaging.
  *
  * Resolution order:
- *  1. GitHub release download (requires version or defaults to "latest")
+ *  1. Pinned GitHub release download (version + SHA256 are mandatory)
  *
  * Output: {projectRoot}/resources/bundled-aioncore/{platform}-{arch}/
  *   - aioncore[.exe]
@@ -12,7 +12,8 @@
  * @module prepare-aioncore
  */
 
-const { execSync, execFileSync } = require('child_process');
+const { execFileSync } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -60,6 +61,39 @@ function readJsonSafe(filePath) {
   }
 }
 
+function normalizeSha256(value) {
+  const sha = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return /^[0-9a-f]{64}$/.test(sha) ? sha : null;
+}
+
+function sha256File(filePath) {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}
+
+function resolveExpectedAioncoreSha256(projectRoot, runtimeKey, explicitSha256) {
+  const explicit = normalizeSha256(explicitSha256 || process.env.AIONUI_BACKEND_SHA256);
+  if (explicit) return explicit;
+
+  const pkg = readJsonSafe(path.join(projectRoot, 'package.json'));
+  const pinned = normalizeSha256(pkg?.aioncoreSha256?.[runtimeKey]);
+  if (pinned) return pinned;
+
+  throw new Error(
+    `Missing pinned AionCore SHA256 for ${runtimeKey}. Add package.json aioncoreSha256.${runtimeKey} ` +
+      'or set AIONUI_BACKEND_SHA256 for an explicit version override.'
+  );
+}
+
+function verifyFileSha256(filePath, expectedSha256) {
+  const expected = normalizeSha256(expectedSha256);
+  if (!expected) throw new Error('Expected AionCore SHA256 is missing or malformed');
+  const actual = sha256File(filePath);
+  if (actual !== expected) {
+    throw new Error(`AionCore SHA256 mismatch for ${path.basename(filePath)}: expected ${expected}, got ${actual}`);
+  }
+  return actual;
+}
+
 function getBinaryName(platform) {
   return platform === 'win32' ? 'aioncore.exe' : 'aioncore';
 }
@@ -97,39 +131,6 @@ function verifyPreparedBundle(projectRoot, platform, arch) {
 // ---------------------------------------------------------------------------
 // Source resolvers
 // ---------------------------------------------------------------------------
-
-/**
- * Resolve the actual version tag when "latest" is requested.
- * Uses GitHub API via `gh` CLI (needs GH_TOKEN in CI) or falls back to
- * `curl` with an optional Authorization header (GITHUB_TOKEN / GH_TOKEN).
- */
-function resolveLatestTag() {
-  const token = process.env.GH_TOKEN || process.env.GITHUB_TOKEN || '';
-
-  // 1. Try gh CLI (honours GH_TOKEN automatically)
-  try {
-    const out = execSync(`gh api repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest --jq .tag_name`, {
-      encoding: 'utf-8',
-      timeout: 15000,
-    }).trim();
-    if (out) return out;
-  } catch {
-    // gh CLI not available or no token — fall back to curl
-  }
-
-  // 2. Curl with optional token to avoid rate-limit 403
-  try {
-    const authArgs = token ? ['-H', `Authorization: token ${token}`] : [];
-    const args = ['-fsSL', ...authArgs, `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`];
-    const out = execFileSync('curl', args, { encoding: 'utf-8', timeout: 15000 });
-    const tag = JSON.parse(out).tag_name;
-    if (tag) return tag;
-  } catch {
-    // network issue or rate-limited
-  }
-
-  return null;
-}
 
 /**
  * Build the release asset filename for the given platform/arch/tag.
@@ -198,7 +199,7 @@ function findBinaryInDir(dir, binaryName) {
   return null;
 }
 
-function downloadAndExtract(platform, arch, tag) {
+function downloadAndExtract(platform, arch, tag, expectedSha256) {
   const assetName = getAssetName(platform, arch, tag);
   if (!assetName) {
     throw new Error(`Unsupported aioncore target: ${platform}-${arch}`);
@@ -213,6 +214,7 @@ function downloadAndExtract(platform, arch, tag) {
   ensureDirectory(tempDir);
 
   downloadFile(url, archivePath);
+  const archiveSha256 = verifyFileSha256(archivePath, expectedSha256);
   extractArchive(archivePath, extractDir, platform);
 
   const binaryName = getBinaryName(platform);
@@ -221,7 +223,7 @@ function downloadAndExtract(platform, arch, tag) {
     throw new Error(`Binary ${binaryName} not found in downloaded archive`);
   }
 
-  return { binaryPath, tempDir, url };
+  return { binaryPath, tempDir, url, archiveSha256 };
 }
 
 // ---------------------------------------------------------------------------
@@ -235,25 +237,19 @@ function downloadAndExtract(platform, arch, tag) {
  * @param {string} options.projectRoot - Project root directory
  * @param {string} options.platform - Target platform (process.platform)
  * @param {string} options.arch - Target architecture (process.arch)
- * @param {string} options.version - Backend version (default: 'latest')
+ * @param {string} options.version - Pinned backend version
  * @returns {{ prepared: true; dir: string; sourceType: string }}
  */
 function prepareAioncore(options) {
-  const { projectRoot, platform, arch, version = 'latest' } = options;
+  const { projectRoot, platform, arch, version, expectedSha256: explicitSha256 } = options;
   const runtimeKey = `${platform}-${arch}`;
+  const expectedSha256 = resolveExpectedAioncoreSha256(projectRoot, runtimeKey, explicitSha256);
 
-  // Resolve the actual version tag — asset filenames include the tag
-  let tag;
-  if (version === 'latest') {
-    const resolved = resolveLatestTag();
-    if (!resolved) {
-      throw new Error('Failed to resolve latest aioncore release tag from GitHub API');
-    }
-    tag = resolved;
-    console.log(`Resolved aioncore "latest" → ${tag}`);
-  } else {
-    tag = version.startsWith('v') ? version : `v${version}`;
+  if (typeof version !== 'string' || !version.trim() || version.trim() === 'latest') {
+    throw new Error('AionCore version must be pinned; mutable "latest" builds are disabled');
   }
+  const normalizedVersion = version.trim();
+  const tag = normalizedVersion.startsWith('v') ? normalizedVersion : `v${normalizedVersion}`;
 
   const targetDir = path.join(projectRoot, 'resources', 'bundled-aioncore', runtimeKey);
   const binaryName = getBinaryName(platform);
@@ -263,7 +259,13 @@ function prepareAioncore(options) {
   console.log(`Preparing aioncore for ${runtimeKey} (version: ${tag})`);
 
   const existingManifest = readJsonSafe(targetManifestPath);
-  if (fs.existsSync(targetBinaryPath) && existingManifest?.version === tag) {
+  const existingBinarySha256 = fs.existsSync(targetBinaryPath) ? sha256File(targetBinaryPath) : null;
+  if (
+    existingBinarySha256 &&
+    existingManifest?.version === tag &&
+    normalizeSha256(existingManifest?.archiveSha256) === expectedSha256 &&
+    normalizeSha256(existingManifest?.binarySha256) === existingBinarySha256
+  ) {
     ensureExecutableMode(targetBinaryPath);
     const verification = verifyPreparedBundle(projectRoot, platform, arch);
     if (verification.missing.length === 0) {
@@ -300,7 +302,7 @@ function prepareAioncore(options) {
   // 1. Download from GitHub releases
   if (!sourcePath) {
     try {
-      const result = downloadAndExtract(platform, arch, tag);
+      const result = downloadAndExtract(platform, arch, tag, expectedSha256);
       sourcePath = result.binaryPath;
       tempDir = result.tempDir;
       sourceType = 'download';
@@ -315,6 +317,7 @@ function prepareAioncore(options) {
   if (sourcePath) {
     copyFileSafe(sourcePath, targetBinaryPath);
     ensureExecutableMode(targetBinaryPath);
+    const binarySha256 = sha256File(targetBinaryPath);
     const bundledManagedResourcesDir = prepareManagedResources(targetBinaryPath, targetDir);
 
     // The release tag is the authoritative version — the aioncore
@@ -327,6 +330,8 @@ function prepareAioncore(options) {
       generatedAt: new Date().toISOString(),
       sourceType,
       source: sourceDetail,
+      archiveSha256: expectedSha256,
+      binarySha256,
       files: [binaryName, 'managed-resources/'],
     };
 
@@ -343,4 +348,10 @@ function prepareAioncore(options) {
   throw new Error(`aioncore binary not found for ${runtimeKey} (tag: ${tag})`);
 }
 
-module.exports = { prepareAioncore };
+module.exports = {
+  normalizeSha256,
+  prepareAioncore,
+  resolveExpectedAioncoreSha256,
+  sha256File,
+  verifyFileSha256,
+};

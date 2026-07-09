@@ -10,6 +10,7 @@ import * as path from 'path';
 import { networkInterfaces } from 'os';
 import { getSystemDir } from './initStorage';
 import { httpRequest } from '@/common/adapter/httpBridge';
+import { WEBUI_REMOTE_ACCESS_SUPPORTED } from '@/common/config/constants';
 import { startWebHost, type WebHostHandle } from '@aionui/web-host';
 import { getDataPath } from './utils';
 
@@ -52,6 +53,14 @@ async function writeWebUIDesktopEnabled(enabled: boolean): Promise<void> {
     await httpRequest<void>('PUT', '/api/settings/client', { [DESKTOP_WEBUI_ENABLED_KEY]: enabled });
   } catch (error) {
     console.error('[WebUI] Failed to reconcile webui.desktop.enabled on backend:', error);
+  }
+}
+
+async function writeWebUIDesktopAllowRemote(allowRemote: boolean): Promise<void> {
+  try {
+    await httpRequest<void>('PUT', '/api/settings/client', { [DESKTOP_WEBUI_ALLOW_REMOTE_KEY]: allowRemote });
+  } catch (error) {
+    console.error('[WebUI] Failed to reconcile webui.desktop.allowRemote on backend:', error);
   }
 }
 
@@ -216,12 +225,20 @@ const toDesktopHandle = (handle: WebHostHandle, allowRemote: boolean): DesktopWe
  * Settings → "Enable WebUI" IPC handler.
  */
 export async function startDesktopWebUI(opts: { port?: number; allowRemote?: boolean }): Promise<DesktopWebUIHandle> {
+  // Reject an unsafe mode before touching a healthy local server. In
+  // particular, a stale UI preference must never stop loopback WebUI first.
+  if (opts.allowRemote === true && !WEBUI_REMOTE_ACCESS_SUPPORTED) {
+    throw new Error(
+      'REMOTE_WEBUI_DISABLED: remote WebUI is unavailable until the proxy enforces authentication before forwarding to aioncore'
+    );
+  }
+
   // If already running, tear down first so we honour the new port / allowRemote.
   if (currentHandle) {
     await stopDesktopWebUI();
   }
 
-  const allowRemote = opts.allowRemote === true;
+  const allowRemote = WEBUI_REMOTE_ACCESS_SUPPORTED && opts.allowRemote === true;
   const preferredPort = parsePortValue(opts.port) ?? DEFAULT_WEBUI_PORT;
   const sysDir = getSystemDir();
 
@@ -320,9 +337,16 @@ export const restoreDesktopWebUIFromPreferences = async (): Promise<void> => {
   if (!enabled) return;
 
   const preferredPort = port ?? DEFAULT_WEBUI_PORT;
+  const effectiveAllowRemote = WEBUI_REMOTE_ACCESS_SUPPORTED && allowRemote;
+
+  // Existing installations may still carry the pre-hotfix LAN preference.
+  // Reconcile that one unsafe bit, then preserve WebUI itself in local mode.
+  if (allowRemote && !effectiveAllowRemote) {
+    await writeWebUIDesktopAllowRemote(false);
+  }
 
   try {
-    const handle = await startDesktopWebUI({ port: preferredPort, allowRemote });
+    const handle = await startDesktopWebUI({ port: preferredPort, allowRemote: effectiveAllowRemote });
     console.log(
       `[WebUI] Auto-restored from desktop preferences (port=${handle.port}, allowRemote=${handle.allowRemote})`
     );

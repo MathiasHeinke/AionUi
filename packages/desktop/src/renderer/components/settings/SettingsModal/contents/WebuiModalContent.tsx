@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { WEBUI_DEFAULT_PORT } from '@/common/config/constants';
+import { WEBUI_DEFAULT_PORT, WEBUI_REMOTE_ACCESS_SUPPORTED } from '@/common/config/constants';
 import { shell, webui, type IWebUIStatus } from '@/common/adapter/ipcBridge';
 import { isBackendHttpError } from '@/common/adapter/httpBridge';
 import { configService } from '@/common/config/configService';
@@ -107,7 +107,13 @@ const WebuiModalContent: React.FC = () => {
     setLoading(true);
     try {
       const savedAllowRemote = configService.get(DESKTOP_WEBUI_ALLOW_REMOTE_KEY) ?? false;
-      setAllowRemotePreference(savedAllowRemote === true);
+      const effectiveAllowRemote = WEBUI_REMOTE_ACCESS_SUPPORTED && savedAllowRemote === true;
+      setAllowRemotePreference(effectiveAllowRemote);
+      if (savedAllowRemote === true && !effectiveAllowRemote) {
+        void configService
+          .set(DESKTOP_WEBUI_ALLOW_REMOTE_KEY, false)
+          .catch((error) => console.error('[WebuiModal] Failed to reconcile remote preference:', error));
+      }
 
       // getStatus goes via IPC to the Electron main process which tracks the
       // WebUI lifecycle; backend does not know it's being wrapped.
@@ -180,7 +186,7 @@ const WebuiModalContent: React.FC = () => {
           ...(prev || { adminUsername: 'admin' }),
           running: true,
           port: data.port ?? prev?.port ?? WEBUI_DEFAULT_PORT,
-          allowRemote: prev?.allowRemote ?? false,
+          allowRemote: WEBUI_REMOTE_ACCESS_SUPPORTED && (prev?.allowRemote ?? false),
           localUrl: data.localUrl ?? `http://localhost:${data.port ?? WEBUI_DEFAULT_PORT}`,
           networkUrl: data.networkUrl,
           lanIP: prev?.lanIP,
@@ -226,7 +232,7 @@ const WebuiModalContent: React.FC = () => {
   const getDisplayUrl = useCallback(() => {
     const currentIP = getLocalIP();
     const currentPort = status?.port || port;
-    const useRemote = status?.running ? status.allowRemote : allowRemotePreference;
+    const useRemote = WEBUI_REMOTE_ACCESS_SUPPORTED && (status?.running ? status.allowRemote : allowRemotePreference);
     if (useRemote && currentIP) {
       return `http://${currentIP}:${currentPort}`;
     }
@@ -248,11 +254,12 @@ const WebuiModalContent: React.FC = () => {
     try {
       if (enabled) {
         const localUrl = `http://localhost:${port}`;
+        const allowRemote = WEBUI_REMOTE_ACCESS_SUPPORTED && allowRemotePreference;
 
         // Await the real result — Promise.race with a 3s fallback used to hide
         // backend failures behind a fake "started" toast while the server was
         // still RESOLVING or had crashed, leaving webui.desktop.enabled unset.
-        const startResult = await webui.start.invoke({ port, allowRemote: allowRemotePreference });
+        const startResult = await webui.start.invoke({ port, allowRemote });
 
         const responseIP = startResult.lanIP || currentIP;
         const responsePassword = startResult.initialPassword;
@@ -267,9 +274,9 @@ const WebuiModalContent: React.FC = () => {
           ...(prev || { adminUsername: 'admin' }),
           running: true,
           port,
-          allowRemote: allowRemotePreference,
+          allowRemote,
           localUrl,
-          networkUrl: allowRemotePreference && responseIP ? `http://${responseIP}:${port}` : undefined,
+          networkUrl: allowRemote && responseIP ? `http://${responseIP}:${port}` : undefined,
           lanIP: responseIP,
           initialPassword: responsePassword || cachedPassword || prev?.initialPassword,
         }));
@@ -576,12 +583,16 @@ const WebuiModalContent: React.FC = () => {
 
         {/* 描述说明 / Description */}
         <div className='space-y-6px'>
-          <p className='m-0 text-13px text-t-secondary leading-relaxed'>{t('settings.webui.description')}</p>
+          <p className='m-0 text-13px text-t-secondary leading-relaxed'>
+            {t(WEBUI_REMOTE_ACCESS_SUPPORTED ? 'settings.webui.description' : 'settings.webui.enableDesc')}
+          </p>
           <div className='flex flex-wrap gap-x-12px gap-y-6px'>
             {[
               t('settings.webui.enable', { defaultValue: 'Enable WebUI' }),
               t('settings.webui.accessUrl', { defaultValue: 'Access URL' }),
-              t('settings.webui.allowRemote', { defaultValue: 'Allow Remote Access' }),
+              ...(WEBUI_REMOTE_ACCESS_SUPPORTED
+                ? [t('settings.webui.allowRemote', { defaultValue: 'Allow Remote Access' })]
+                : []),
             ].map((stepLabel, idx) => (
               <div key={stepLabel} className='inline-flex items-center gap-6px'>
                 <span className='inline-flex items-center justify-center w-16px h-16px rd-50% text-10px font-600 bg-[rgba(var(--primary-6),0.12)] text-[rgb(var(--primary-6))]'>
@@ -612,10 +623,12 @@ const WebuiModalContent: React.FC = () => {
         {/* WebUI 服务卡片 / WebUI Service Card */}
         <div className='px-[12px] md:px-[28px] py-14px bg-2 rd-16px'>
           {/* WebUI 引导提示 / WebUI hint */}
-          <div className='mb-8px rd-10px border border-line bg-fill-1 px-10px py-8px flex items-start gap-6px'>
-            <Earth theme='outline' size='16' className='mt-1px text-[rgb(var(--primary-6))]' />
-            <div className='text-12px text-t-secondary leading-relaxed'>{t('settings.webui.featureRemoteDesc')}</div>
-          </div>
+          {WEBUI_REMOTE_ACCESS_SUPPORTED && (
+            <div className='mb-8px rd-10px border border-line bg-fill-1 px-10px py-8px flex items-start gap-6px'>
+              <Earth theme='outline' size='16' className='mt-1px text-[rgb(var(--primary-6))]' />
+              <div className='text-12px text-t-secondary leading-relaxed'>{t('settings.webui.featureRemoteDesc')}</div>
+            </div>
+          )}
 
           {/* 启用 WebUI / Enable WebUI */}
           <PreferenceRow
@@ -654,27 +667,29 @@ const WebuiModalContent: React.FC = () => {
           )}
 
           {/* 允许局域网访问 / Allow LAN Access */}
-          <PreferenceRow
-            label={t('settings.webui.allowRemote')}
-            description={
-              <span className='text-t-secondary'>
-                {t('settings.webui.allowRemoteDesc')}
-                {'  '}
-                <button
-                  className='text-primary hover:underline cursor-pointer bg-transparent border-none p-0 text-12px'
-                  onClick={() =>
-                    shell.openExternal
-                      .invoke('https://github.com/iOfficeAI/AionUi/wiki/Remote-Internet-Access-Guide')
-                      .catch(console.error)
-                  }
-                >
-                  {t('settings.webui.viewGuide')}
-                </button>
-              </span>
-            }
-          >
-            <Switch checked={allowRemotePreference} onChange={handleAllowRemoteChange} />
-          </PreferenceRow>
+          {WEBUI_REMOTE_ACCESS_SUPPORTED && (
+            <PreferenceRow
+              label={t('settings.webui.allowRemote')}
+              description={
+                <span className='text-t-secondary'>
+                  {t('settings.webui.allowRemoteDesc')}
+                  {'  '}
+                  <button
+                    className='text-primary hover:underline cursor-pointer bg-transparent border-none p-0 text-12px'
+                    onClick={() =>
+                      shell.openExternal
+                        .invoke('https://github.com/iOfficeAI/AionUi/wiki/Remote-Internet-Access-Guide')
+                        .catch(console.error)
+                    }
+                  >
+                    {t('settings.webui.viewGuide')}
+                  </button>
+                </span>
+              }
+            >
+              <Switch checked={allowRemotePreference} onChange={handleAllowRemoteChange} />
+            </PreferenceRow>
+          )}
         </div>
 
         {/* 登录信息卡片 / Login Info Card */}
@@ -728,7 +743,7 @@ const WebuiModalContent: React.FC = () => {
           </div>
 
           {/* 二维码登录（仅服务器运行且允许远程访问时显示）/ QR Code Login (only when server running and remote access allowed) */}
-          {status?.running && status.allowRemote && (
+          {WEBUI_REMOTE_ACCESS_SUPPORTED && status?.running && status.allowRemote && (
             <>
               <div className='border-t border-line my-12px' />
               <div className='text-14px font-500 mb-4px text-t-primary'>{t('settings.webui.qrLogin')}</div>

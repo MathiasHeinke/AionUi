@@ -267,6 +267,14 @@
   "engines": {
     "node": ">=22 <25"
   },
+  "aioncoreSha256": {
+    "darwin-arm64": "a7ddbeca2067f542535f103ca9d2412f19a29d8b2406f905c69952e84d7cfc46",
+    "darwin-x64": "206cdce093d0d01c4bb94ea22e4e0a82b711e05878e14d4e843ced70dba4af8a",
+    "linux-arm64": "40fedf5fadfb0ec925ffc1d440da372c06ca6b8628cfcc66fb98cc8669494e9e",
+    "linux-x64": "5af042b1f27e6a099ea6ee44cab54444479f9f25a34e8a07d1e327d12436239b",
+    "win32-arm64": "dbf2ba5a80e9d20a2302a51388cad88c63b5f6cbf3ecf0cf0b50d07b8a90b1c1",
+    "win32-x64": "b9fd31c27effc3c2a644aef2e218cd6951d63865e88f583cb08b62ebf547833d"
+  },
   "aioncoreVersion": "v0.1.37",
   "electronRebuild": {
     "electronVersion": "^37.3.1"

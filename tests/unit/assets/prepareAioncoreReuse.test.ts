@@ -6,6 +6,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -32,9 +33,17 @@ describe('prepareAioncore reuse guard', () => {
     mkdirSync(runtimeDir, { recursive: true });
     writeFileSync(join(runtimeDir, 'aioncore'), '', { flush: true });
     chmodSync(join(runtimeDir, 'aioncore'), 0o755);
+    const emptySha256 = createHash('sha256').update('').digest('hex');
     writeFileSync(
       join(runtimeDir, 'manifest.json'),
-      JSON.stringify({ platform: 'darwin', arch: 'arm64', version: 'v-test', sourceType: 'existing' }),
+      JSON.stringify({
+        platform: 'darwin',
+        arch: 'arm64',
+        version: 'v-test',
+        sourceType: 'existing',
+        archiveSha256: emptySha256,
+        binarySha256: emptySha256,
+      }),
       { flush: true }
     );
 
@@ -80,7 +89,13 @@ const { verifyBundledAioncoreResources } = require(path.join(${JSON.stringify(
       )}, 'packages/shared-scripts/src/verify-bundled-aioncore-resources.js'));
 
 const projectRoot = ${JSON.stringify(projectRoot)};
-prepareAioncore({ projectRoot, platform: 'darwin', arch: 'arm64', version: 'v-test' });
+prepareAioncore({
+  projectRoot,
+  platform: 'darwin',
+  arch: 'arm64',
+  version: 'v-test',
+  expectedSha256: ${JSON.stringify(emptySha256)},
+});
 const result = verifyBundledAioncoreResources({
   resourcesDir: path.join(projectRoot, 'resources'),
   electronPlatformName: 'darwin',
