@@ -40,9 +40,7 @@ export const useAutoTitle = () => {
         while (Date.now() - startedAt < FIRST_EXCHANGE_MAX_WAIT_MS) {
           const messagesResult = await ipcBridge.database.getConversationMessages.invoke({
             conversation_id,
-            page: 1,
-            page_size: 1000,
-            order: 'ASC',
+            limit: 200,
           });
           const exchange = deriveAutoTitleExchangeFromMessages(messagesResult.items, fallbackContent);
           if (exchange?.text) {
@@ -97,9 +95,7 @@ export const useAutoTitle = () => {
 
         const messagesResult = await ipcBridge.database.getConversationMessages.invoke({
           conversation_id: conversation_id,
-          page: 1,
-          page_size: 1000,
-          order: 'ASC',
+          limit: 200,
         });
         const newTitle = deriveAutoTitleFromMessages(messagesResult.items, fallbackContent);
         if (!newTitle) {

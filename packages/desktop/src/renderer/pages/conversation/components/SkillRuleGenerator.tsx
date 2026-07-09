@@ -182,13 +182,12 @@ const SkillRuleGenerator: React.FC<SkillRuleGeneratorProps> = ({ conversation_id
     setLoading(true);
     try {
       // 1. Fetch conversation history
-      const page_size = 50;
+      const pageLimit = 50;
       const MAX_CHARS = 30000;
 
       const messages = await ipcBridge.database.getConversationMessages.invoke({
         conversation_id: conversation_id,
-        page_size: page_size,
-        order: 'DESC',
+        limit: pageLimit,
       });
 
       if (!messages || messages.items.length === 0) {

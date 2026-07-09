@@ -12,6 +12,7 @@ import { Message } from '@arco-design/web-react';
 import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { formatTimestamp, joinFilePath, sanitizeFileName } from '@/renderer/utils/chat/conversationExport';
+import { fetchAllConversationMessages } from '@/renderer/utils/chat/messageHistory';
 
 import type { ExportTask, ExportZipFile } from '../types';
 import {
@@ -140,19 +141,10 @@ export const useExport = ({
 
   const fetchConversationMessages = useCallback(async (conversation_id: string): Promise<TMessage[]> => {
     try {
-      const result = await withTimeout(
-        ipcBridge.database.getConversationMessages.invoke({
-          conversation_id: conversation_id,
-          page: 0,
-          page_size: 10000,
-        }),
-        EXPORT_IO_TIMEOUT_MS,
-        `getConversationMessages:${conversation_id}`
-      );
-      return result.items;
+      return await fetchAllConversationMessages(conversation_id);
     } catch (error) {
-      console.warn('[WorkspaceGroupedHistory] Export message fetch timeout/failure:', conversation_id, error);
-      return [];
+      console.warn('[WorkspaceGroupedHistory] Export message fetch failure:', conversation_id, error);
+      throw error;
     }
   }, []);
 

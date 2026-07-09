@@ -539,7 +539,7 @@ async function generateLocalDigest(prompt: string): Promise<string | null> {
 /**
  * T5 — MAIN-side transcript fetch. Raw loopback GET against the local backend
  * (globalThis.__backendPort), the SAME pattern webuiBridge uses; content_mode=compact,
- * a bounded page_size window. The backend wraps the payload in { data: { items } };
+ * a bounded cursor-page window. The backend wraps the payload in { data: { items } };
  * we return the raw items array (sessionDigestCore's extractTranscriptText tolerates
  * the compact shape). No auth (loopback-only routes). Returns [] on any failure.
  */
@@ -549,7 +549,8 @@ async function fetchConversationTranscript(conversationId: string, window: numbe
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), SESSION_DIGEST_TIMEOUT_MS);
   try {
-    const url = `http://127.0.0.1:${port}/api/conversations/${encodeURIComponent(conversationId)}/messages?page=1&page_size=${Math.max(1, Math.floor(window))}&content_mode=compact`;
+    const limit = Math.min(200, Math.max(1, Math.floor(window)));
+    const url = `http://127.0.0.1:${port}/api/conversations/${encodeURIComponent(conversationId)}/messages?limit=${limit}&content_mode=compact`;
     const res = await fetch(url, { method: 'GET', signal: controller.signal });
     if (!res.ok) return [];
     const json = (await res.json()) as { data?: { items?: unknown } | null; items?: unknown };

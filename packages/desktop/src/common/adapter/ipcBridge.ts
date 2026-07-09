@@ -2506,13 +2506,37 @@ export type PaginatedResult<T> = {
   has_more: boolean;
 };
 
+export type ConversationMessagePageRequest = {
+  conversation_id: string;
+  limit?: number;
+  before?: string;
+  after?: string;
+  anchor_message_id?: string;
+  content_mode?: 'compact' | 'full';
+};
+
+export type ConversationMessagePage = {
+  items: import('@/common/chat/chatLib').TMessage[];
+  oldest_cursor: string | null;
+  newest_cursor: string | null;
+  has_more_before: boolean;
+  has_more_after: boolean;
+};
+
+export function buildConversationMessagesPath(params: ConversationMessagePageRequest): string {
+  const query = new URLSearchParams();
+  if (params.limit !== undefined) query.set('limit', String(params.limit));
+  if (params.before) query.set('before', params.before);
+  if (params.after) query.set('after', params.after);
+  if (params.anchor_message_id) query.set('anchor_message_id', params.anchor_message_id);
+  if (params.content_mode) query.set('content_mode', params.content_mode);
+  const search = query.toString();
+  return `/api/conversations/${encodeURIComponent(params.conversation_id)}/messages${search ? `?${search}` : ''}`;
+}
+
 export const database = {
-  getConversationMessages: httpGet<
-    PaginatedResult<import('@/common/chat/chatLib').TMessage>,
-    { conversation_id: string; page?: number; page_size?: number; order?: string; content_mode?: 'compact' | 'full' }
-  >(
-    (p) =>
-      `/api/conversations/${p.conversation_id}/messages?page=${p.page ?? 1}&page_size=${p.page_size ?? 50}${p.order ? `&order=${p.order}` : ''}${p.content_mode ? `&content_mode=${p.content_mode}` : ''}`
+  getConversationMessages: httpGet<ConversationMessagePage, ConversationMessagePageRequest>(
+    buildConversationMessagesPath
   ),
   getConversationMessage: httpGet<
     import('@/common/chat/chatLib').TMessage,

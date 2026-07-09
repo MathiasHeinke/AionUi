@@ -93,7 +93,7 @@ describe('useAutoTitle', () => {
     expect(conversationUpdateMock).not.toHaveBeenCalled();
   });
 
-  it('uses the one-based ascending message page for cloud title exchange detection', async () => {
+  it('uses the AionCore cursor-page contract for cloud title exchange detection', async () => {
     generateCloudTitleMock.mockResolvedValue({ data: { ok: true, title: 'Launchplan erstellen' } });
 
     const { result } = renderHook(() => useAutoTitle());
@@ -107,9 +107,7 @@ describe('useAutoTitle', () => {
     });
     expect(getConversationMessagesMock).toHaveBeenCalledWith({
       conversation_id: 'conv-title-query-shape',
-      page: 1,
-      page_size: 1000,
-      order: 'ASC',
+      limit: 200,
     });
     expect(conversationUpdateMock).toHaveBeenCalledWith({
       id: 'conv-title-query-shape',

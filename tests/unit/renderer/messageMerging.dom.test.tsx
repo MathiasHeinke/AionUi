@@ -8,6 +8,7 @@ import React, { type PropsWithChildren } from 'react';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ipcBridge } from '@/common';
+import { buildConversationMessagesPath } from '@/common/adapter/ipcBridge';
 import type { IMessageAcpToolCall, IMessageText, IMessageThinking } from '@/common/chat/chatLib';
 import {
   MessageListLoadingProvider,
@@ -16,6 +17,7 @@ import {
   useMessageLstCache,
   useMessageList,
 } from '@/renderer/pages/conversation/Messages/hooks';
+import { fetchAllConversationMessages } from '@/renderer/utils/chat/messageHistory';
 
 vi.mock('@/common', () => ({
   ipcBridge: {
@@ -149,6 +151,21 @@ describe('message merging', () => {
     vi.useRealTimers();
   });
 
+  it('builds the AionCore cursor URL without legacy page parameters', () => {
+    const path = buildConversationMessagesPath({
+      conversation_id: 'conversation/with space',
+      limit: 200,
+      before: 'v1.cursor-value',
+      content_mode: 'compact',
+    });
+
+    expect(path).toBe(
+      '/api/conversations/conversation%2Fwith%20space/messages?limit=200&before=v1.cursor-value&content_mode=compact'
+    );
+    expect(path).not.toContain('page=');
+    expect(path).not.toContain('page_size=');
+  });
+
   it('keeps text segments split when tool calls interrupt the same msg_id stream', async () => {
     const { result } = renderHook(() => useMessageHarness(), {
       wrapper: TestWrapper,
@@ -234,7 +251,13 @@ describe('message merging', () => {
   it('requests compact tool content when hydrating historical messages', async () => {
     const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
     invoke.mockClear();
-    invoke.mockResolvedValue({ items: [], total: 0, has_more: false });
+    invoke.mockResolvedValue({
+      items: [],
+      oldest_cursor: null,
+      newest_cursor: null,
+      has_more_before: false,
+      has_more_after: false,
+    });
 
     renderHook(() => useMessageLstCache(CONVERSATION_ID), {
       wrapper: CacheWrapper,
@@ -246,9 +269,7 @@ describe('message merging', () => {
 
     expect(invoke).toHaveBeenCalledWith({
       conversation_id: CONVERSATION_ID,
-      page: 1,
-      page_size: 250,
-      order: 'DESC',
+      limit: 200,
       content_mode: 'compact',
     });
   });
@@ -257,9 +278,11 @@ describe('message merging', () => {
     const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
     invoke.mockClear();
     invoke.mockResolvedValue({
-      items: [createTextMessage('msg-3', 'newest'), createTextMessage('msg-2', 'middle')],
-      total: 3,
-      has_more: true,
+      items: [createTextMessage('msg-2', 'middle'), createTextMessage('msg-3', 'newest')],
+      oldest_cursor: 'cursor-msg-2',
+      newest_cursor: 'cursor-msg-3',
+      has_more_before: true,
+      has_more_after: false,
     });
 
     const { result } = renderHook(() => useMessageCacheHarness(), {
@@ -273,22 +296,26 @@ describe('message merging', () => {
     expect(result.current.messages.map((message) => message.msg_id)).toEqual(['msg-2', 'msg-3']);
     expect(result.current.pagination.hasOlderMessages).toBe(true);
     expect(result.current.pagination.loadedHistoricalMessages).toBe(2);
-    expect(result.current.pagination.totalHistoricalMessages).toBe(3);
+    expect(result.current.pagination.totalHistoricalMessages).toBe(2);
   });
 
-  it('prepends older pages without duplicating overlap from offset pagination', async () => {
+  it('prepends older pages by cursor without duplicating overlap', async () => {
     const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
     invoke.mockClear();
     invoke
       .mockResolvedValueOnce({
-        items: [createTextMessage('msg-3', 'newest'), createTextMessage('msg-2', 'middle')],
-        total: 3,
-        has_more: true,
+        items: [createTextMessage('msg-2', 'middle'), createTextMessage('msg-3', 'newest')],
+        oldest_cursor: 'cursor-msg-2',
+        newest_cursor: 'cursor-msg-3',
+        has_more_before: true,
+        has_more_after: false,
       })
       .mockResolvedValueOnce({
-        items: [createTextMessage('msg-2', 'middle'), createTextMessage('msg-1', 'oldest')],
-        total: 3,
-        has_more: false,
+        items: [createTextMessage('msg-1', 'oldest'), createTextMessage('msg-2', 'middle')],
+        oldest_cursor: 'cursor-msg-1',
+        newest_cursor: 'cursor-msg-2',
+        has_more_before: false,
+        has_more_after: true,
       });
 
     const { result } = renderHook(() => useMessageCacheHarness(), {
@@ -305,41 +332,38 @@ describe('message merging', () => {
 
     expect(invoke).toHaveBeenNthCalledWith(2, {
       conversation_id: CONVERSATION_ID,
-      page: 2,
-      page_size: 250,
-      order: 'DESC',
+      limit: 200,
+      before: 'cursor-msg-2',
       content_mode: 'compact',
     });
     expect(result.current.messages.map((message) => message.msg_id)).toEqual(['msg-1', 'msg-2', 'msg-3']);
     expect(result.current.pagination.hasOlderMessages).toBe(false);
   });
 
-  it('loads repeated older pages to the beginning without losing offset-overlapped turns', async () => {
+  it('loads repeated older cursor pages to the beginning without losing turns', async () => {
     const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
     invoke.mockClear();
     invoke
       .mockResolvedValueOnce({
-        items: [createTextMessage('msg-6', 'newest'), createTextMessage('msg-5', 'recent')],
-        total: 6,
-        has_more: true,
+        items: [createTextMessage('msg-5', 'recent'), createTextMessage('msg-6', 'newest')],
+        oldest_cursor: 'cursor-msg-5',
+        newest_cursor: 'cursor-msg-6',
+        has_more_before: true,
+        has_more_after: false,
       })
       .mockResolvedValueOnce({
-        items: [
-          createTextMessage('msg-5', 'recent'),
-          createTextMessage('msg-4', 'middle'),
-          createTextMessage('msg-3', 'older'),
-        ],
-        total: 6,
-        has_more: true,
+        items: [createTextMessage('msg-3', 'older'), createTextMessage('msg-4', 'middle')],
+        oldest_cursor: 'cursor-msg-3',
+        newest_cursor: 'cursor-msg-4',
+        has_more_before: true,
+        has_more_after: true,
       })
       .mockResolvedValueOnce({
-        items: [
-          createTextMessage('msg-3', 'older'),
-          createTextMessage('msg-2', 'early'),
-          createTextMessage('msg-1', 'oldest'),
-        ],
-        total: 6,
-        has_more: false,
+        items: [createTextMessage('msg-1', 'oldest'), createTextMessage('msg-2', 'early')],
+        oldest_cursor: 'cursor-msg-1',
+        newest_cursor: 'cursor-msg-2',
+        has_more_before: false,
+        has_more_after: true,
       });
 
     const { result } = renderHook(() => useMessageCacheHarness(), {
@@ -372,12 +396,20 @@ describe('message merging', () => {
 
   it('does not replace the current conversation with a stale initial history response', async () => {
     const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
-    const firstConversation = createDeferred<{ items: IMessageText[]; total: number; has_more: boolean }>();
+    const firstConversation = createDeferred<{
+      items: IMessageText[];
+      oldest_cursor: string | null;
+      newest_cursor: string | null;
+      has_more_before: boolean;
+      has_more_after: boolean;
+    }>();
     invoke.mockClear();
     invoke.mockReturnValueOnce(firstConversation.promise).mockResolvedValueOnce({
       items: [createTextMessage('msg-b', 'current', SECOND_CONVERSATION_ID)],
-      total: 1,
-      has_more: false,
+      oldest_cursor: 'cursor-msg-b',
+      newest_cursor: 'cursor-msg-b',
+      has_more_before: false,
+      has_more_after: false,
     });
 
     const { result, rerender } = renderHook(({ conversationId }) => useMessageCacheHarness(conversationId), {
@@ -393,8 +425,10 @@ describe('message merging', () => {
 
     firstConversation.resolve({
       items: [createTextMessage('msg-a', 'stale', CONVERSATION_ID)],
-      total: 1,
-      has_more: false,
+      oldest_cursor: 'cursor-msg-a',
+      newest_cursor: 'cursor-msg-a',
+      has_more_before: false,
+      has_more_after: false,
     });
     await act(async () => {
       await Promise.resolve();
@@ -407,19 +441,29 @@ describe('message merging', () => {
 
   it('does not prepend a stale older page after switching conversations', async () => {
     const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
-    const olderConversationPage = createDeferred<{ items: IMessageText[]; total: number; has_more: boolean }>();
+    const olderConversationPage = createDeferred<{
+      items: IMessageText[];
+      oldest_cursor: string | null;
+      newest_cursor: string | null;
+      has_more_before: boolean;
+      has_more_after: boolean;
+    }>();
     invoke.mockClear();
     invoke
       .mockResolvedValueOnce({
-        items: [createTextMessage('msg-3', 'newest'), createTextMessage('msg-2', 'middle')],
-        total: 3,
-        has_more: true,
+        items: [createTextMessage('msg-2', 'middle'), createTextMessage('msg-3', 'newest')],
+        oldest_cursor: 'cursor-msg-2',
+        newest_cursor: 'cursor-msg-3',
+        has_more_before: true,
+        has_more_after: false,
       })
       .mockReturnValueOnce(olderConversationPage.promise)
       .mockResolvedValueOnce({
         items: [createTextMessage('msg-b', 'current', SECOND_CONVERSATION_ID)],
-        total: 1,
-        has_more: false,
+        oldest_cursor: 'cursor-msg-b',
+        newest_cursor: 'cursor-msg-b',
+        has_more_before: false,
+        has_more_after: false,
       });
 
     const { result, rerender } = renderHook(({ conversationId }) => useMessageCacheHarness(conversationId), {
@@ -442,8 +486,10 @@ describe('message merging', () => {
 
     olderConversationPage.resolve({
       items: [createTextMessage('msg-1', 'oldest', CONVERSATION_ID)],
-      total: 3,
-      has_more: false,
+      oldest_cursor: 'cursor-msg-1',
+      newest_cursor: 'cursor-msg-1',
+      has_more_before: false,
+      has_more_after: true,
     });
     await act(async () => {
       await Promise.resolve();
@@ -452,5 +498,63 @@ describe('message merging', () => {
 
     expect(result.current.messages.map((message) => message.conversation_id)).toEqual([SECOND_CONVERSATION_ID]);
     expect((result.current.messages[0] as IMessageText).content.content).toBe('current');
+  });
+
+  it('loads every cursor page for complete transcript exports', async () => {
+    const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
+    invoke.mockReset();
+    invoke
+      .mockResolvedValueOnce({
+        items: [createTextMessage('msg-5', 'recent'), createTextMessage('msg-6', 'newest')],
+        oldest_cursor: 'cursor-msg-5',
+        newest_cursor: 'cursor-msg-6',
+        has_more_before: true,
+        has_more_after: false,
+      })
+      .mockResolvedValueOnce({
+        items: [createTextMessage('msg-3', 'older'), createTextMessage('msg-4', 'middle')],
+        oldest_cursor: 'cursor-msg-3',
+        newest_cursor: 'cursor-msg-4',
+        has_more_before: true,
+        has_more_after: true,
+      })
+      .mockResolvedValueOnce({
+        items: [createTextMessage('msg-1', 'oldest'), createTextMessage('msg-2', 'early')],
+        oldest_cursor: 'cursor-msg-1',
+        newest_cursor: 'cursor-msg-2',
+        has_more_before: false,
+        has_more_after: true,
+      });
+
+    const messages = await fetchAllConversationMessages(CONVERSATION_ID, { contentMode: 'full' });
+
+    expect(messages.map((message) => message.msg_id)).toEqual(['msg-1', 'msg-2', 'msg-3', 'msg-4', 'msg-5', 'msg-6']);
+    expect(invoke).toHaveBeenNthCalledWith(2, {
+      conversation_id: CONVERSATION_ID,
+      limit: 200,
+      before: 'cursor-msg-5',
+      content_mode: 'full',
+    });
+    expect(invoke).toHaveBeenNthCalledWith(3, {
+      conversation_id: CONVERSATION_ID,
+      limit: 200,
+      before: 'cursor-msg-3',
+      content_mode: 'full',
+    });
+  });
+
+  it('fails a full transcript load instead of silently accepting a repeated cursor', async () => {
+    const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
+    invoke.mockReset();
+    invoke.mockResolvedValue({
+      items: [createTextMessage('msg-1', 'stuck')],
+      oldest_cursor: 'cursor-stuck',
+      newest_cursor: 'cursor-stuck',
+      has_more_before: true,
+      has_more_after: false,
+    });
+
+    await expect(fetchAllConversationMessages(CONVERSATION_ID)).rejects.toThrow('cursor did not advance');
+    expect(invoke).toHaveBeenCalledTimes(2);
   });
 });

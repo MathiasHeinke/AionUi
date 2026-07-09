@@ -16,7 +16,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createContext } from '@renderer/utils/ui/createContext';
 
-const MESSAGE_HISTORY_PAGE_SIZE = 250;
+const MESSAGE_HISTORY_PAGE_SIZE = 200;
 
 const [useMessageList, MessageListProvider, useUpdateMessageList] = createContext([] as TMessage[]);
 const [useMessageListLoading, MessageListLoadingProvider, useUpdateMessageListLoading] = createContext(false);
@@ -620,18 +620,17 @@ export function normalizeDbMessage(msg: TMessage): TMessage {
   }
 }
 
-export function buildConversationHistoryPageRequest(conversation_id: string, page: number) {
+export function buildConversationHistoryPageRequest(conversation_id: string, before?: string) {
   return {
     conversation_id,
-    page,
-    page_size: MESSAGE_HISTORY_PAGE_SIZE,
-    order: 'DESC',
+    limit: MESSAGE_HISTORY_PAGE_SIZE,
+    ...(before ? { before } : {}),
     content_mode: 'compact' as const,
   };
 }
 
 export function toChronologicalHistoryPage(messages: TMessage[]): TMessage[] {
-  return messages.toReversed();
+  return messages;
 }
 
 function getMessageIdentity(message: TMessage): string {
@@ -706,7 +705,7 @@ export const useMessageLstCache = (key: string) => {
   const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
   const [loadedHistoricalMessages, setLoadedHistoricalMessages] = useState(0);
   const [totalHistoricalMessages, setTotalHistoricalMessages] = useState(0);
-  const currentPageRef = useRef(0);
+  const oldestCursorRef = useRef<string | null>(null);
   const hasOlderMessagesRef = useRef(false);
   const isLoadingOlderMessagesRef = useRef(false);
   const loadedHistoricalMessagesRef = useRef(0);
@@ -719,18 +718,18 @@ export const useMessageLstCache = (key: string) => {
 
   const loadMessages = useCallback(async (): Promise<TMessage[]> => {
     const generation = loadGenerationRef.current;
-    const result = await ipcBridge.database.getConversationMessages.invoke(buildConversationHistoryPageRequest(key, 1));
+    const result = await ipcBridge.database.getConversationMessages.invoke(buildConversationHistoryPageRequest(key));
     if (generation !== loadGenerationRef.current) return [];
     const messages = toChronologicalHistoryPage(result?.items?.map(normalizeDbMessage) ?? []);
     if (messages && Array.isArray(messages)) {
       update((currentList) => {
         return mergeInitialHistoryMessages(currentList, messages, key);
       });
-      currentPageRef.current = 1;
+      oldestCursorRef.current = result.oldest_cursor;
       loadedHistoricalMessagesRef.current = messages.length;
       setLoadedHistoricalMessages(messages.length);
-      setTotalHistoricalMessages(result?.total ?? messages.length);
-      setOlderAvailability(Boolean(result?.has_more) || messages.length < (result?.total ?? messages.length));
+      setTotalHistoricalMessages(messages.length);
+      setOlderAvailability(result.has_more_before);
       return messages;
     }
     return [];
@@ -739,13 +738,17 @@ export const useMessageLstCache = (key: string) => {
   const loadOlderMessages = useCallback(async (): Promise<void> => {
     if (!key || isLoadingOlderMessagesRef.current || !hasOlderMessagesRef.current) return;
 
-    const nextPage = currentPageRef.current + 1;
+    const before = oldestCursorRef.current;
+    if (!before) {
+      setOlderAvailability(false);
+      return;
+    }
     const generation = loadGenerationRef.current;
     isLoadingOlderMessagesRef.current = true;
     setIsLoadingOlderMessages(true);
     try {
       const result = await ipcBridge.database.getConversationMessages.invoke(
-        buildConversationHistoryPageRequest(key, nextPage)
+        buildConversationHistoryPageRequest(key, before)
       );
       if (generation !== loadGenerationRef.current) return;
       const olderMessages = toChronologicalHistoryPage(result?.items?.map(normalizeDbMessage) ?? []);
@@ -755,17 +758,11 @@ export const useMessageLstCache = (key: string) => {
       }
 
       update((currentList) => prependOlderHistoryMessages(currentList, olderMessages, key));
-      currentPageRef.current = nextPage;
-      loadedHistoricalMessagesRef.current = Math.min(
-        result?.total ?? loadedHistoricalMessagesRef.current + olderMessages.length,
-        loadedHistoricalMessagesRef.current + olderMessages.length
-      );
+      oldestCursorRef.current = result.oldest_cursor;
+      loadedHistoricalMessagesRef.current += olderMessages.length;
       setLoadedHistoricalMessages(loadedHistoricalMessagesRef.current);
-      setTotalHistoricalMessages(result?.total ?? loadedHistoricalMessagesRef.current);
-      setOlderAvailability(
-        Boolean(result?.has_more) ||
-          loadedHistoricalMessagesRef.current < (result?.total ?? loadedHistoricalMessagesRef.current)
-      );
+      setTotalHistoricalMessages(loadedHistoricalMessagesRef.current);
+      setOlderAvailability(result.has_more_before);
     } catch (error) {
       console.error('[useMessageLstCache] Failed to load older messages from database:', error);
     } finally {
@@ -783,7 +780,7 @@ export const useMessageLstCache = (key: string) => {
     isLoadingOlderMessagesRef.current = false;
     setLoading(true);
     setIsLoadingOlderMessages(false);
-    currentPageRef.current = 0;
+    oldestCursorRef.current = null;
     loadedHistoricalMessagesRef.current = 0;
     setLoadedHistoricalMessages(0);
     setTotalHistoricalMessages(0);
