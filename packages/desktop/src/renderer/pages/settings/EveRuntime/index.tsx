@@ -44,18 +44,17 @@ const EveRuntime: React.FC = () => {
   const layout = useLayoutContext();
   const isMobile = layout?.isMobile ?? false;
   const [activeTab, setActiveTab] = useState<EveRuntimeTab>('orchestration');
-  // 1.6.3: the Assistenten-CRUD tab is an upstream-AionUi surface that confuses
-  // the PUBLIC build (founder call, 2026-07-03) — it renders only on a founder
-  // build (COMMAND_EVE_FOUNDER_BUILD=1, read via the shell-flags bridge because
-  // the renderer may not touch process.env). Default false = public-safe; the
-  // assistant STORAGE + bootstrap/self-heal live main-side and stay untouched.
-  const [showAssistantsTab, setShowAssistantsTab] = useState(false);
+  // 1.7.9 hotfix: raw assistant/agent/CLI runtime surfaces are founder-only.
+  // Public users see Command EVE as the only operator-facing runtime; Hermes may
+  // still orchestrate Claude/Codex/Gemini internally behind governed routes.
+  // The renderer may not touch process.env, so read the shell flag via MAIN.
+  const [showFounderRuntimeTabs, setShowFounderRuntimeTabs] = useState(false);
   useEffect(() => {
     let alive = true;
     commandEve.shellFlags
       .invoke()
       .then((res) => {
-        if (alive && res?.data?.founder_build === true) setShowAssistantsTab(true);
+        if (alive && res?.data?.founder_build === true) setShowFounderRuntimeTabs(true);
       })
       .catch(() => {
         /* fail-soft: public shape */
@@ -110,23 +109,25 @@ const EveRuntime: React.FC = () => {
           </div>
         </Tabs.TabPane>
 
-        {showAssistantsTab && (
+        {showFounderRuntimeTabs && (
           <Tabs.TabPane key='assistants' title={t('eveRuntime.tab.assistants', { defaultValue: 'Assistenten' })}>
             {/* Wrapper-less body — keeps full CRUD + drawer/modal portals + hooks. */}
             <AssistantSettingsBody />
           </Tabs.TabPane>
         )}
 
-        <Tabs.TabPane
-          key='agents'
-          title={t('eveRuntime.tab.agents', { defaultValue: 'Agenten & Belegschaft' })}
-        >
-          <div className='flex flex-col gap-18px pt-2'>
-            <AgentModalContent />
-            <WorkerAssignmentCard />
-            <HumanGateDisplay />
-          </div>
-        </Tabs.TabPane>
+        {showFounderRuntimeTabs && (
+          <Tabs.TabPane
+            key='agents'
+            title={t('eveRuntime.tab.agents', { defaultValue: 'Agenten & Belegschaft' })}
+          >
+            <div className='flex flex-col gap-18px pt-2'>
+              <AgentModalContent />
+              <WorkerAssignmentCard />
+              <HumanGateDisplay />
+            </div>
+          </Tabs.TabPane>
+        )}
       </Tabs>
     </div>
   );

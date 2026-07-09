@@ -74,6 +74,9 @@ test.describe('Command EVE settings surfaces', () => {
     await expect(page.getByText(/EVE-Runtime|EVE Runtime/).first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/Dein Team|Your team/).first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/^Aion CLI$/)).toHaveCount(0);
+    await expect(page.getByText(/Agenten & Belegschaft|Agents & workforce/)).toHaveCount(0);
+    await expect(page.getByText(/Externe Worker|External workers/)).toHaveCount(0);
+    await expect(page.getByText(/Claude Code CLI|Codex CLI|Google Gemini AI command line tool/)).toHaveCount(0);
   });
 
   test('shows Command EVE capability catalog and suppresses legacy/global skill-market sections', async ({ page }) => {
