@@ -27,10 +27,10 @@ The theme system separates light/dark mode from color schemes for better extensi
 
 ```
 styles/themes/
-├── index.css                 # Entry point 入口文件
-├── base.css                  # Theme-independent base styles 主题无关的基础样式
-└── color-schemes/            # Color scheme definitions 配色方案定义
-    └── default.css           # Default color scheme (AOU brand) 默认配色方案
+├── index.css                    # Entry point 入口文件
+├── base.css                     # Theme-independent base styles 主题无关的基础样式
+├── default-color-scheme.css     # Legacy token compatibility layer 兼容层
+└── command-eve-visual.css       # Command EVE semantic meta-theme / surface primitives
 ```
 
 ## How to Add a New Color Scheme 如何添加新配色方案
@@ -111,9 +111,20 @@ When you need to add a new color scheme in the future, follow these steps:
 5. **Keep background colors neutral** (grays) to maintain readability
    保持背景色中性（灰色系）以维持可读性
 
+6. **Use the Command EVE semantic layer for public product surfaces**
+   (`--eve-*`, `--glass-*`, and `.eve-*`). Do not add new public UI styling to
+   the legacy `--aou-*` palette.
+
+7. **Keep accessibility preferences independent**. Reduced motion must not be
+   used as a proxy for reduced transparency.
+
+8. **Route user controls through structured preferences**, not arbitrary public
+   CSS. `renderer/theme/visualPreferences.ts` owns validation and hard limits.
+
 ## Current Status 当前状态
 
 - ✅ Infrastructure ready 基础架构就绪
 - ✅ Default color scheme implemented 默认配色方案已实现
-- ⏸️ Additional color schemes pending designer input 其他配色方案等待设计师输入
-- 💡 UI selector commented out, ready to enable 界面选择器已注释，可随时启用
+- ✅ Command EVE light/dark meta-theme tokens and primitives available
+- ⏳ Existing surfaces migrate to the Command EVE primitives slice by slice
+- ⏳ Appearance UI wiring and legacy-theme migration ship in 1.8.0-e

@@ -5,3 +5,6 @@
 
 /* Color Schemes */
 @import './default-color-scheme.css';
+
+/* Command EVE global meta-theme and shared surface primitives */
+@import './command-eve-visual.css';

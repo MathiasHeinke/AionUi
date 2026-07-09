@@ -1,0 +1,282 @@
+/* Command EVE 1.8.0 global visual system.
+ *
+ * This layer is imported after the legacy default color scheme. It provides
+ * the semantic meta-theme contract without changing component geometry until
+ * a surface explicitly adopts an .eve-* primitive.
+ */
+
+:root,
+[data-color-scheme='default'] {
+  color-scheme: light;
+
+  /* Brand and shell */
+  --eve-brand-logo: #f97316;
+  --eve-brand-ui: #c2410c;
+  --eve-brand-soft: color-mix(in srgb, var(--eve-brand-logo) 14%, transparent);
+  --eve-accent: var(--primary);
+  --eve-shell-bg: #f7f8fb;
+  --eve-shell-surface: #ffffff;
+  --eve-shell-surface-secondary: #f4f6f8;
+  --eve-shell-text: #111827;
+  --eve-shell-text-secondary: #596273;
+
+  /* User-adjustable glass ceilings. Runtime preferences may lower effects. */
+  --eve-glass-chrome-opacity: 84%;
+  --eve-glass-panel-opacity: 90%;
+  --eve-glass-overlay-opacity: 88%;
+  --eve-glass-chrome-blur: 20px;
+  --eve-glass-panel-blur: 12px;
+  --eve-glass-overlay-blur: 18px;
+
+  /* Canonical glass tiers */
+  --glass-chrome-bg: color-mix(in srgb, var(--eve-shell-surface) var(--eve-glass-chrome-opacity), transparent);
+  --glass-chrome-bg-solid: var(--eve-shell-surface-secondary);
+  --glass-chrome-border: color-mix(in srgb, var(--border-base) 86%, transparent);
+  --glass-chrome-filter: blur(var(--eve-glass-chrome-blur)) saturate(150%);
+  --glass-panel-bg: color-mix(in srgb, var(--eve-shell-surface) var(--eve-glass-panel-opacity), transparent);
+  --glass-panel-bg-solid: var(--eve-shell-surface);
+  --glass-panel-border: color-mix(in srgb, var(--border-base) 88%, transparent);
+  --glass-panel-filter: blur(var(--eve-glass-panel-blur)) saturate(118%);
+  --glass-overlay-bg: color-mix(in srgb, var(--eve-shell-surface) var(--eve-glass-overlay-opacity), transparent);
+  --glass-overlay-bg-solid: var(--eve-shell-surface);
+  --glass-overlay-border: color-mix(in srgb, var(--border-base) 90%, transparent);
+  --glass-overlay-filter: blur(var(--eve-glass-overlay-blur)) saturate(125%);
+  --glass-overlay-scrim: color-mix(in srgb, var(--bg-10) 10%, transparent);
+  --glass-edge-highlight: color-mix(in srgb, #ffffff 64%, transparent);
+  --glass-shadow-soft: 0 16px 36px color-mix(in srgb, #0f172a 12%, transparent);
+
+  /* Rows and focus */
+  --eve-row-surface: transparent;
+  --eve-row-hover-bg: color-mix(in srgb, var(--eve-shell-text) 5%, transparent);
+  --eve-row-selected-bg: color-mix(in srgb, var(--eve-shell-text) 6%, transparent);
+  --eve-row-selected-hairline: var(--color-primary-6, var(--primary));
+  --eve-focus-ring: var(--color-primary-6, var(--primary));
+
+  /* Session state. Orange remains reserved for brand. */
+  --eve-status-running: var(--color-primary-6, var(--primary));
+  --eve-status-new: var(--color-primary-6, var(--primary));
+  --eve-status-error: var(--color-danger-6, var(--danger));
+  --eve-status-attention: #a16207;
+  --eve-status-completed: var(--color-success-6, var(--success));
+  --eve-status-ring: var(--eve-shell-surface-secondary);
+
+  /* Seat rail */
+  --eve-seat-bg: color-mix(in srgb, var(--eve-shell-text) 5%, transparent);
+  --eve-seat-border: color-mix(in srgb, var(--eve-shell-text) 14%, transparent);
+  --eve-seat-text: var(--eve-shell-text);
+  --eve-seat-active-ring: color-mix(in srgb, var(--eve-shell-text) 55%, transparent);
+  --eve-seat-online: var(--color-success-6, var(--success));
+
+  /* Composer spotlight */
+  --eve-composer-border: color-mix(in srgb, var(--border-base) 88%, transparent);
+  --eve-composer-focus-ring: var(--eve-focus-ring);
+  --eve-spotlight-color: var(--eve-brand-logo);
+  --eve-spotlight-radius: 220px;
+  --eve-spotlight-max: 0.5;
+
+  /* Local background-image readability */
+  --eve-bg-image-intensity: 100%;
+  --eve-bg-image-blur: 0px;
+  --eve-bg-image-dim: 0%;
+  --eve-bg-image-scrim: color-mix(in srgb, var(--eve-shell-surface) 62%, transparent);
+
+  /* Shared geometry */
+  --eve-surface-radius-sm: 6px;
+  --eve-surface-radius-md: 8px;
+  --eve-surface-radius-lg: 12px;
+  --eve-control-height: 32px;
+}
+
+:root[data-theme='dark'],
+[data-color-scheme='default'][data-theme='dark'] {
+  color-scheme: dark;
+
+  --eve-brand-ui: #fb923c;
+  --eve-shell-bg: #101214;
+  --eve-shell-surface: #171a1e;
+  --eve-shell-surface-secondary: #1c2025;
+  --eve-shell-text: #f7f8fa;
+  --eve-shell-text-secondary: #aab1bd;
+
+  --eve-glass-chrome-opacity: 78%;
+  --eve-glass-panel-opacity: 86%;
+  --eve-glass-overlay-opacity: 82%;
+
+  --glass-chrome-border: color-mix(in srgb, #ffffff 10%, transparent);
+  --glass-panel-border: color-mix(in srgb, #ffffff 9%, transparent);
+  --glass-overlay-border: color-mix(in srgb, #ffffff 12%, transparent);
+  --glass-overlay-scrim: color-mix(in srgb, #020617 52%, transparent);
+  --glass-edge-highlight: color-mix(in srgb, #ffffff 9%, transparent);
+  --glass-shadow-soft: 0 20px 44px color-mix(in srgb, #000000 38%, transparent);
+
+  --eve-row-hover-bg: color-mix(in srgb, #ffffff 5%, transparent);
+  --eve-row-selected-bg: color-mix(in srgb, #ffffff 7%, transparent);
+  --eve-status-attention: #eab308;
+  --eve-status-ring: var(--eve-shell-surface-secondary);
+
+  --eve-seat-bg: color-mix(in srgb, #ffffff 7%, transparent);
+  --eve-seat-border: color-mix(in srgb, #ffffff 17%, transparent);
+  --eve-seat-active-ring: color-mix(in srgb, #ffffff 64%, transparent);
+
+  --eve-composer-border: color-mix(in srgb, #ffffff 13%, transparent);
+  --eve-spotlight-max: 0.68;
+  --eve-bg-image-scrim: color-mix(in srgb, #101214 68%, transparent);
+}
+
+/* Reusable ownership primitives. They do not imply card composition. */
+.eve-chrome,
+.eve-panel,
+.eve-overlay,
+.eve-dialog {
+  isolation: isolate;
+  border-style: solid;
+  border-width: 1px;
+}
+
+.eve-chrome {
+  background: var(--glass-chrome-bg);
+  border-color: var(--glass-chrome-border);
+  box-shadow: var(--glass-shadow-soft);
+  -webkit-backdrop-filter: var(--glass-chrome-filter);
+  backdrop-filter: var(--glass-chrome-filter);
+}
+
+.eve-panel {
+  background: var(--glass-panel-bg);
+  border-color: var(--glass-panel-border);
+  border-radius: var(--eve-surface-radius-lg);
+  box-shadow: var(--glass-shadow-soft);
+  -webkit-backdrop-filter: var(--glass-panel-filter);
+  backdrop-filter: var(--glass-panel-filter);
+}
+
+.eve-panel--solid,
+.eve-artifact-frame,
+.eve-empty-state {
+  background: var(--glass-panel-bg-solid);
+  border: 1px solid var(--glass-panel-border);
+  border-radius: var(--eve-surface-radius-lg);
+}
+
+.eve-overlay,
+.eve-dialog {
+  background: var(--glass-overlay-bg);
+  border-color: var(--glass-overlay-border);
+  border-radius: var(--eve-surface-radius-md);
+  box-shadow: var(--glass-shadow-soft);
+  -webkit-backdrop-filter: var(--glass-overlay-filter);
+  backdrop-filter: var(--glass-overlay-filter);
+}
+
+.eve-row {
+  min-width: 0;
+  border-radius: var(--eve-surface-radius-md);
+  background: var(--eve-row-surface);
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.eve-row:hover {
+  background: var(--eve-row-hover-bg);
+}
+
+.eve-row[aria-current='page'],
+.eve-row--selected {
+  background: var(--eve-row-selected-bg);
+  box-shadow: inset 2px 0 0 var(--eve-row-selected-hairline);
+}
+
+.eve-pill {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--glass-overlay-border);
+  border-radius: 999px;
+  background: var(--glass-overlay-bg);
+  -webkit-backdrop-filter: var(--glass-overlay-filter);
+  backdrop-filter: var(--glass-overlay-filter);
+}
+
+.eve-focus-ring:focus-visible,
+.eve-row:focus-visible,
+.eve-pill:focus-visible {
+  outline: 2px solid var(--eve-focus-ring);
+  outline-offset: 2px;
+}
+
+/* A background image may never lower the default readability floor. */
+:root[data-eve-bg-image='true'] {
+  --eve-glass-chrome-opacity: 88%;
+  --eve-glass-panel-opacity: 92%;
+  --eve-glass-overlay-opacity: 90%;
+}
+
+/* User and OS accessibility switches are independent from reduced motion. */
+:root[data-eve-reduced-effects='true'] .eve-panel {
+  background: var(--glass-panel-bg-solid);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+:root[data-eve-reduced-effects='true'] .eve-chrome {
+  background: var(--glass-chrome-bg-solid);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+:root[data-eve-reduced-effects='true'] .eve-overlay,
+:root[data-eve-reduced-effects='true'] .eve-pill,
+:root[data-eve-reduced-effects='true'] .eve-dialog {
+  background: var(--glass-overlay-bg-solid);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .eve-chrome {
+    background: var(--glass-chrome-bg-solid);
+  }
+
+  .eve-panel {
+    background: var(--glass-panel-bg-solid);
+  }
+
+  .eve-overlay,
+  .eve-pill,
+  .eve-dialog {
+    background: var(--glass-overlay-bg-solid);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .eve-chrome,
+  .eve-panel,
+  .eve-overlay,
+  .eve-pill,
+  .eve-dialog {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .eve-chrome {
+    background: var(--glass-chrome-bg-solid);
+  }
+
+  .eve-panel {
+    background: var(--glass-panel-bg-solid);
+  }
+
+  .eve-overlay,
+  .eve-pill,
+  .eve-dialog {
+    background: var(--glass-overlay-bg-solid);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .eve-row {
+    transition: none;
+  }
+}
