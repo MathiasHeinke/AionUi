@@ -84,8 +84,8 @@ const BillingModalContent: React.FC = () => {
   // Drives the status line + the client-seat CTA copy. Defaults to the free own
   // seat until a status is read (the honest resting state for a fresh install).
   const seatBilling = useMemo(
-    () => buildSeatBillingStatus({ tier: meter?.tier ?? 'free' }),
-    [meter?.tier]
+    () => (meter ? buildSeatBillingStatus({ tier: meter.tier }) : null),
+    [meter]
   );
 
   // Spend-cap form state (euros). Seeded from the current status.
@@ -306,9 +306,13 @@ const BillingModalContent: React.FC = () => {
       <Card className='billing-settings__plans' title={t('credits.settings.seatTitle', { defaultValue: 'Your seat' })}>
         <div className='billing-settings__plan-row' data-testid='billing-own-seat'>
           <span className='billing-settings__plan-name'>
-            {seatBilling.isFreeOwnSeat
-              ? t('credits.settings.ownSeatFree', { defaultValue: 'Your own seat: 0 € — forever' })
-              : t('credits.settings.ownSeatPaid', { defaultValue: 'Your seat is active (paid client seat)' })}
+            {!seatBilling
+              ? t('credits.settings.seatStatusUnknown', {
+                  defaultValue: 'Seat status is not verifiable right now.',
+                })
+              : seatBilling.isFreeOwnSeat
+                ? t('credits.settings.ownSeatFree', { defaultValue: 'Your own seat: 0 € — forever' })
+                : t('credits.settings.ownSeatPaid', { defaultValue: 'Your seat is active (paid client seat)' })}
           </span>
         </div>
         <p className='billing-settings__hint'>

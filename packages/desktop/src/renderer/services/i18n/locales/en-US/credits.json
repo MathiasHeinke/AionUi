@@ -11,6 +11,7 @@
     "capSaved": "Spend cap saved.",
     "capFailed": "Could not save the spend cap.",
     "seatTitle": "Your seat",
+    "seatStatusUnknown": "Seat status is not verifiable right now.",
     "ownSeatFree": "Your own seat: 0 € — forever",
     "ownSeatPaid": "Your seat is active (paid client seat)",
     "clientSeatHint": "Grow by adding CLIENT seats — from {{eur}} €/month, incl. 60,000 credits each. Your own seat always stays free.",

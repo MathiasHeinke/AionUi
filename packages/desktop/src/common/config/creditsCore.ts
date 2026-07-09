@@ -234,14 +234,16 @@ export const TIER_ALLOWANCE_CREDITS: Record<CreditsTier, number> = {
  * grant after a top-up, or a negative) can never produce a broken bar.
  */
 export function buildCreditMeterModel(status: CreditsStatus): CreditMeterModel {
-  const isFree = status.tier === 'free';
-  const grant = TIER_ALLOWANCE_CREDITS[status.tier] ?? 0;
   const allowanceRemaining = Math.max(0, status.included_allowance_credits_remaining);
   const purchasedRemaining = Math.max(0, status.purchased_credits_remaining);
+  const totalRemaining = allowanceRemaining + purchasedRemaining;
+  const hasCreditTank = totalRemaining > 0;
+  const effectiveTier: CreditsTier = status.tier === 'free' && hasCreditTank ? 'starter' : status.tier;
+  const isFree = effectiveTier === 'free' && !hasCreditTank;
+  const grant = TIER_ALLOWANCE_CREDITS[effectiveTier] ?? 0;
 
   let allowanceUsedFraction: number;
-  const totalRemaining = allowanceRemaining + purchasedRemaining;
-  if (isFree && totalRemaining > 0) {
+  if (status.tier === 'free' && hasCreditTank) {
     // 1.6.2: a FREE seat WITH a credit balance renders the TANK (showsFreeActionMeter
     // routes it into the paid branches) — so the fraction MUST be tank-referenced
     // too. Metering it on daily actions painted "100% of allowance used" in warn-red
@@ -261,11 +263,11 @@ export function buildCreditMeterModel(status: CreditsStatus): CreditMeterModel {
   }
 
   return {
-    tier: status.tier,
+    tier: effectiveTier,
     isFree,
     allowanceRemaining,
     purchasedRemaining,
-    totalRemaining: allowanceRemaining + purchasedRemaining,
+    totalRemaining,
     allowanceUsedFraction,
     freeActionsUsed: Math.max(0, status.free_actions_used_this_period),
     freeCap: Math.max(0, status.free_cap),

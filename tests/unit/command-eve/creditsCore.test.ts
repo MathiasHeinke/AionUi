@@ -453,11 +453,12 @@ describe('1.6.2 — showsFreeActionMeter (free seat with a balance shows the tan
     expect(showsFreeActionMeter(m)).toBe(true);
   });
 
-  it('free seat HOLDING purchased credits (M6 pack / manual grant) → tank view, never the action meter', () => {
+  it('free seat HOLDING purchased credits (M6 pack / manual grant) → non-free tank view, never the action meter', () => {
     // The live incident 2026-07-03: tier resolved 'free' while 35k purchased
     // credits were on the balance — every surface hid the paid-for tank.
     const m = buildCreditMeterModel(status({ tier: 'free', included_allowance_credits_remaining: 0, purchased_credits_remaining: 35_516 }));
-    expect(m.isFree).toBe(true);
+    expect(m.tier).toBe('starter');
+    expect(m.isFree).toBe(false);
     expect(showsFreeActionMeter(m)).toBe(false);
   });
 

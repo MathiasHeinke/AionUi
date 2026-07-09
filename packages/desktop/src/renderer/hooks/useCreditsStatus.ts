@@ -60,6 +60,7 @@ function toCoreStatus(result: ICommandEveCreditsStatusResult): CreditsStatus {
     free_actions_used_this_period: result.free_actions_used_this_period,
     free_cap: result.free_cap,
     period_start: result.period_start,
+    has_active_topup: result.has_active_topup,
   };
 }
 

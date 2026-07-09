@@ -11,6 +11,7 @@
     "capSaved": "Ausgabe-Limit gespeichert.",
     "capFailed": "Ausgabe-Limit konnte nicht gespeichert werden.",
     "seatTitle": "Dein Seat",
+    "seatStatusUnknown": "Seat-Status gerade nicht verifizierbar.",
     "ownSeatFree": "Dein eigener Seat: 0 € — für immer",
     "ownSeatPaid": "Dein Seat ist aktiv (bezahlter Kunden-Seat)",
     "clientSeatHint": "Wachse mit KUNDEN-Seats — ab {{eur}} €/Monat, inkl. 60.000 Credits pro Seat. Dein eigener Seat bleibt immer kostenlos.",

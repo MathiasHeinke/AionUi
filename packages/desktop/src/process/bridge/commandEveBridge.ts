@@ -179,6 +179,10 @@ function quietCreditsStatus(spendCapEurCents: number, reasonCode: string, messag
   };
 }
 
+function finiteCreditNumber(value: unknown, fallback = 0): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
 type CommandEveStatusSurfaceRequest = { maxRuns?: number; companyOsRoot?: string; eventLedgerPath?: string };
 type CommandEveBridgeEnvelope<T> = { data?: T };
 
@@ -3682,11 +3686,12 @@ export function initCommandEveBridge(): void {
         return { success: false, msg: 'CREDITS_STATUS_BAD_BODY', data: quietCreditsStatus(spendCapEurCents, 'CREDITS_STATUS_BAD_BODY') };
       }
 
-      const num = (v: unknown, fallback = 0): number => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
-      const tier = (raw.tier === 'solo' || raw.tier === 'starter' ? raw.tier : 'free') as CreditsTier;
+      const purchasedCredits = finiteCreditNumber(raw.purchased_credits_remaining);
+      const rawTier = raw.tier === 'solo' || raw.tier === 'starter' ? raw.tier : 'free';
+      const tier = (rawTier === 'free' && purchasedCredits > 0 ? 'starter' : rawTier) as CreditsTier;
       // The user-set local cap takes precedence when present; otherwise honour
       // whatever the server reports.
-      const serverCap = num(raw.spend_cap_eur_cents, 0);
+      const serverCap = finiteCreditNumber(raw.spend_cap_eur_cents, 0);
       const effectiveCap = spendCapEurCents > 0 ? spendCapEurCents : serverCap;
 
       return {
@@ -3695,11 +3700,11 @@ export function initCommandEveBridge(): void {
           version: COMMAND_EVE_CREDITS_BRIDGE_VERSION,
           ok: true,
           tier,
-          included_allowance_credits_remaining: num(raw.included_allowance_credits_remaining),
-          purchased_credits_remaining: num(raw.purchased_credits_remaining),
+          included_allowance_credits_remaining: finiteCreditNumber(raw.included_allowance_credits_remaining),
+          purchased_credits_remaining: purchasedCredits,
           spend_cap_eur_cents: Math.max(0, effectiveCap),
-          free_actions_used_this_period: num(raw.free_actions_used_this_period),
-          free_cap: num(raw.free_cap),
+          free_actions_used_this_period: finiteCreditNumber(raw.free_actions_used_this_period),
+          free_cap: finiteCreditNumber(raw.free_cap),
           period_start: typeof raw.period_start === 'string' ? raw.period_start : '',
           // v1.5 M7: an active credit subscription (recurring top-up) also unlocks
           // Pro features. Additive: an absent field ⇒ false ⇒ today's behavior.
