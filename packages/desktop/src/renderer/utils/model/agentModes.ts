@@ -158,8 +158,8 @@ export function resolveModeForBackend(value: string | undefined, modes: AgentMod
  *
  * default      → "Fragen"        (ask before edits / sensitive actions)
  * accept_edits → "Auto-Edits"    (auto-allow workspace edits)
- * dont_ask     → "Nicht fragen"  (auto-allow edits this session)
- * (1.2.16 shortened the labels to keep the start screen and in-session pill identical.)
+ * dont_ask     → "Auto"          (auto-allow edits this session)
+ * (1.7.91 removed internal "YOLO" wording from the user-facing labels.)
  */
 const EVE_MODE_I18N_KEY: Record<string, string> = {
   default: 'agentMode.eve.ask',

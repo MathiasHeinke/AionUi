@@ -13,10 +13,10 @@ import { getAgentModes, mergeWithCapabilities, supportsModeSwitch } from '@/rend
 // _session_modes: default / accept_edits / dont_ask) so the desktop's static
 // labels line up with the live ACP capability list.
 describe('Command EVE / Hermes permission modes', () => {
-  it('exposes ask-every-time / semi-autonomous / YOLO for the hermes backend', () => {
+  it('exposes ask-every-time / semi-autonomous / Auto for the hermes backend', () => {
     const modes = getAgentModes('hermes');
     expect(modes.map((m) => m.value)).toEqual(['default', 'accept_edits', 'dont_ask']);
-    expect(modes.map((m) => m.label)).toEqual(['Ask every time', 'Semi-autonomous', 'YOLO']);
+    expect(modes.map((m) => m.label)).toEqual(['Ask every time', 'Semi-autonomous', 'Auto']);
   });
 
   it('reports that hermes supports mode switching (so the selector renders)', () => {

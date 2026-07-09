@@ -6,7 +6,7 @@
 
 /**
  * Proves the founder's EVE permission-mode labels actually RESOLVE through i18n
- * (the short 1.2.16 labels Fragen / Auto-Edits / Nicht fragen in DE) — not a
+ * (the short labels Fragen / Auto-Edits / Auto in DE) — not a
  * reasoning claim. Loads the real de-DE / en-US locale modules exactly as the app
  * does (addResourceBundle into the single 'translation' namespace, deep=true) and
  * asserts the agentMode.eve.* keys the createModeLabelFormatter uses resolve.
@@ -30,10 +30,10 @@ describe('EVE permission-mode labels resolve through i18n', () => {
 
   it('DE: the 3 honest EVE modes render the founder labels', () => {
     inst.changeLanguage('de-DE');
-    // 1.2.16 shortened + made start↔session identical: Fragen / Auto-Edits / Nicht fragen.
+    // 1.7.91 keeps start↔session identical and removes internal YOLO wording.
     expect(inst.t('agentMode.eve.ask')).toBe('Fragen');
     expect(inst.t('agentMode.eve.acceptEdits')).toBe('Auto-Edits');
-    expect(inst.t('agentMode.eve.yolo')).toBe('Nicht fragen');
+    expect(inst.t('agentMode.eve.yolo')).toBe('Auto');
     // Sanity: the existing dropdown header the founder's screenshot showed also resolves
     expect(inst.t('agentMode.switchMode')).toBe('Berechtigungsmodus');
     expect(inst.t('agentMode.permission')).toBe('Berechtigung');
@@ -41,10 +41,10 @@ describe('EVE permission-mode labels resolve through i18n', () => {
 
   it('EN: the same keys render English (no German-only hardcoding)', () => {
     inst.changeLanguage('en-US');
-    // 1.2.16 EN parity: Ask / Auto-edit / Don't ask.
+    // 1.7.91 EN parity: Ask / Auto-edit / Auto.
     expect(inst.t('agentMode.eve.ask')).toBe('Ask');
     expect(inst.t('agentMode.eve.acceptEdits')).toBe('Auto-edit');
-    expect(inst.t('agentMode.eve.yolo')).toBe("Don't ask");
+    expect(inst.t('agentMode.eve.yolo')).toBe('Auto');
   });
 
   it('the agentMode object is NOT clobbered by common.agentMode (the reviewer’s concern)', () => {

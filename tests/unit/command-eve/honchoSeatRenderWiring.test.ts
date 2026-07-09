@@ -97,7 +97,7 @@ describe('config.yaml + SOUL.md render through the REAL provisioning seam', () =
     const userData = makeUserData();
     const paths = resolveCommandEveRuntimeBootstrapPaths(userData, SEAT_A);
     const res = provisionSeatRuntimeFiles({ userDataPath: userData, seatId: SEAT_A });
-    expect(res.ok).toBe(true);
+    expect(res.ok, res.error).toBe(true);
     const config = fs.readFileSync(path.join(paths.hermesHome, 'config.yaml'), 'utf8');
     const soul = fs.readFileSync(path.join(paths.hermesHome, 'SOUL.md'), 'utf8');
     // The default mcp_servers is the empty map; no honcho server leaked.
@@ -115,7 +115,7 @@ describe('config.yaml + SOUL.md render through the REAL provisioning seam', () =
     writeReadySnapshot(paths.hermesHome, SEAT_A, HONCHO_DERIVER_BRANCH_CLOUD);
     makeVenvPython(paths.hermesVenv);
     const res = provisionSeatRuntimeFiles({ userDataPath: userData, seatId: SEAT_A });
-    expect(res.ok).toBe(true);
+    expect(res.ok, res.error).toBe(true);
 
     const config = fs.readFileSync(path.join(paths.hermesHome, 'config.yaml'), 'utf8');
     const soul = fs.readFileSync(path.join(paths.hermesHome, 'SOUL.md'), 'utf8');
@@ -140,7 +140,7 @@ describe('config.yaml + SOUL.md render through the REAL provisioning seam', () =
     makeVenvPython(pathsB.hermesVenv);
     // provision A — A has no readiness of its own
     const res = provisionSeatRuntimeFiles({ userDataPath: userData, seatId: SEAT_A });
-    expect(res.ok).toBe(true);
+    expect(res.ok, res.error).toBe(true);
     const configA = fs.readFileSync(path.join(pathsA.hermesHome, 'config.yaml'), 'utf8');
     expect(configA).toContain('mcp_servers: {}');
     expect(configA).not.toContain('"honcho":');
