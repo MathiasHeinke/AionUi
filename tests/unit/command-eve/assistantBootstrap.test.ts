@@ -342,7 +342,7 @@ describe('Command EVE assistant bootstrap', () => {
 
     globalThis.fetch = fetchMock as typeof fetch;
 
-    await expect(ensureCommandEveAssistant(25809, '1.7.9', { userDataPath: root })).resolves.toMatchObject({
+    await expect(ensureCommandEveAssistant(25809, '1.7.91', { userDataPath: root })).resolves.toMatchObject({
       enabled_skills: ['first-run-company-discovery'],
       custom_skill_names: ['first-run-company-discovery'],
       skill_count: 1,
@@ -390,7 +390,7 @@ describe('Command EVE assistant bootstrap', () => {
 
     globalThis.fetch = fetchMock as typeof fetch;
 
-    const readiness = await ensureCommandEveAssistant(25809, '1.7.9', { userDataPath: root });
+    const readiness = await ensureCommandEveAssistant(25809, '1.7.91', { userDataPath: root });
 
     expect(fs.existsSync(paths.runtimeReconciliation)).toBe(true);
     expect(readiness.enabled_skills).toContain('first-run-company-discovery');

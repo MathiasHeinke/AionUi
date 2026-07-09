@@ -24,6 +24,11 @@ export const REQUIRED_RELEASE_GATES = [
     runnerKey: 'notarizationStapled',
     description: 'Release DMG is stapler-valid and accepted by Gatekeeper (spctl)',
   },
+  {
+    id: 'mac-update-feed',
+    runnerKey: 'macUpdateFeed',
+    description: 'macOS updater metadata points to the final stapled DMG and ZIP bytes',
+  },
 ];
 
 function asText(value) {

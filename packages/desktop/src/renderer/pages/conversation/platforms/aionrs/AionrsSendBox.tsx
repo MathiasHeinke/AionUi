@@ -548,7 +548,7 @@ const AionrsSendBox: React.FC<{
         : [
             { value: 'default', label: 'Default' },
             { value: 'auto_edit', label: 'Auto-Accept Edits' },
-            { value: 'yolo', label: 'YOLO' },
+            { value: 'yolo', label: 'Auto' },
           ];
     const modeOptions: MobileActionSheetOption[] = availableModes.map((mode) => ({
       key: mode.value,

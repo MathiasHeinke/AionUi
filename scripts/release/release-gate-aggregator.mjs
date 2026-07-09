@@ -13,16 +13,19 @@ import {
   RELEASE_GATE_AGGREGATOR_VERSION,
   runReleaseGates,
 } from './release-gate-aggregator-core.mjs';
+import { evaluateMacUpdateFeed } from './verify-mac-update-feed-core.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const NOTARIZATION_GATE = path.join(HERE, 'verify-notarization-stapled.mjs');
 
 function parseArgs(argv) {
-  const args = { egressJsonReport: '', dmg: '', json: false, help: false };
+  const args = { egressJsonReport: '', dmg: '', outDir: '', metadata: '', json: false, help: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--egress-json-report') args.egressJsonReport = argv[++index] || '';
     else if (arg === '--dmg') args.dmg = argv[++index] || '';
+    else if (arg === '--out-dir') args.outDir = argv[++index] || '';
+    else if (arg === '--metadata') args.metadata = argv[++index] || '';
     else if (arg === '--json') args.json = true;
     else if (arg === '--help' || arg === '-h') args.help = true;
     else throw new Error(`Unknown argument: ${arg}`);
@@ -35,15 +38,18 @@ function usage() {
   node scripts/release/release-gate-aggregator.mjs \\
     --egress-json-report <playwright-report.json> \\
     --dmg <path-to.dmg> \\
+    [--out-dir <release-out-dir>] \\
+    [--metadata <latest-*-mac.yml>] \\
     [--json]
 
 Runs the REQUIRED, fail-closed release gates and blocks the release unless every
 one passes:
   - egress-keystone     (Command EVE egress-boundary Playwright proof)
   - notarization-stapled (DMG stapler-valid + accepted by Gatekeeper/spctl)
+  - mac-update-feed      (latest-*-mac.yml points to the final DMG/ZIP hashes)
 
 A non-stapled or spctl-rejected DMG, a missing/failed/skipped egress proof, or a
-missing input fails the whole gate closed.`;
+stale updater metadata fails the whole gate closed.`;
 }
 
 // Runner for the egress-keystone gate: reads the Playwright JSON report and
@@ -123,6 +129,15 @@ function makeNotarizationStapledRunner(dmgPath) {
   };
 }
 
+function makeMacUpdateFeedRunner({ dmgPath, outDir, metadataPath }) {
+  return () =>
+    evaluateMacUpdateFeed({
+      dmgPath,
+      outDir: outDir || undefined,
+      metadataPath: metadataPath || undefined,
+    });
+}
+
 function printResult(result, json) {
   if (json) {
     console.log(JSON.stringify(result, null, 2));
@@ -144,6 +159,11 @@ async function main() {
   const result = await runReleaseGates({
     egressKeystone: makeEgressKeystoneRunner(args.egressJsonReport),
     notarizationStapled: makeNotarizationStapledRunner(args.dmg),
+    macUpdateFeed: makeMacUpdateFeedRunner({
+      dmgPath: args.dmg,
+      outDir: args.outDir,
+      metadataPath: args.metadata,
+    }),
   });
   result.aggregator_version = RELEASE_GATE_AGGREGATOR_VERSION;
   printResult(result, args.json);

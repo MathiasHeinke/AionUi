@@ -3,6 +3,7 @@ import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
 import AppLoader from '@renderer/components/layout/AppLoader';
 import { useAuth } from '@renderer/hooks/context/AuthContext';
 import { useActiveSeatId } from '@renderer/hooks/useActiveSeatId';
+import { useCommandEveFounderBuild } from '@renderer/hooks/useCommandEveFounderBuild';
 import { useEntitlementGate } from '@renderer/hooks/useEntitlementGate';
 import { isElectronDesktop } from '@renderer/utils/platform';
 import { TEAM_MODE_ENABLED } from '@/common/config/constants';
@@ -42,6 +43,16 @@ const withRouteFallback = (Component: React.LazyExoticComponent<React.ComponentT
     <Component />
   </Suspense>
 );
+
+export const FounderOnlyCommandCenterRoute: React.FC = () => {
+  const { loading, founderBuild } = useCommandEveFounderBuild();
+
+  if (loading) {
+    return <AppLoader />;
+  }
+
+  return founderBuild ? withRouteFallback(CommandCenterPage) : <Navigate to='/guid' replace />;
+};
 
 export const ProtectedLayout: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
   const { status } = useAuth();
@@ -157,7 +168,7 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           <Route path='/test/components' element={withRouteFallback(ComponentsShowcase)} />
           <Route path='/scheduled' element={withRouteFallback(ScheduledTasksPage)} />
           <Route path='/scheduled/:job_id' element={withRouteFallback(TaskDetailPage)} />
-          <Route path='/command-center' element={withRouteFallback(CommandCenterPage)} />
+          <Route path='/command-center' element={<FounderOnlyCommandCenterRoute />} />
           <Route path='/kanban' element={withRouteFallback(KanbanBoardPage)} />
           {/* 1.2.18 — old standalone routes now redirect into Settings (bookmark-safe). */}
           <Route path='/connectors' element={<Navigate to='/settings/connectors' replace />} />

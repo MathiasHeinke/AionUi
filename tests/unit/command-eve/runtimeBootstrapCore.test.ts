@@ -11,6 +11,7 @@ import os from 'os';
 import path from 'path';
 import {
   DEFAULT_COMMAND_EVE_CAPABILITY_PACK,
+  DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST,
   commandEveOllamaContextModelRef,
   ensureCommandEveRuntimeBootstrap,
   loadCommandEveCapabilityPack,
@@ -36,6 +37,8 @@ import {
   type RuntimeBootstrapCommandResult,
   type RuntimeBootstrapRunner,
 } from '@/process/commandEve/runtimeBootstrapCore';
+import { COMMAND_EVE_VERSION } from '@/common/config/commandEveShell';
+import packageJson from '../../../package.json';
 import { registerTenant } from '@/process/commandEve/entitlementCore';
 
 type Harness = {
@@ -210,6 +213,13 @@ const writeManifest = (root: string, baseUrl: string, overrides = ''): string =>
 };
 
 describe('Command EVE runtime bootstrap core', () => {
+  it('keeps Command EVE release truth aligned across package, shell, bootstrap and capability manifests', () => {
+    expect(packageJson.version).toBe('1.7.91');
+    expect(COMMAND_EVE_VERSION).toBe(packageJson.version);
+    expect(DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST.release).toBe(packageJson.version);
+    expect(DEFAULT_COMMAND_EVE_CAPABILITY_PACK.release).toBe(packageJson.version);
+  });
+
   it('parses exact Ollama model names from list output', () => {
     expect(parseOllamaListHasModel('NAME ID SIZE MODIFIED\ngemma4:e4b abc 1 GB now\n', 'gemma4:e4b')).toBe(true);
     expect(parseOllamaListHasModel('NAME ID SIZE MODIFIED\ngemma4:12b abc 1 GB now\n', 'gemma4:e4b')).toBe(false);

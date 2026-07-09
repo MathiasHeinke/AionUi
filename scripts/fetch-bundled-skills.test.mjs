@@ -7,11 +7,13 @@ import path from 'node:path';
 import {
   EVE_STRATEGY_SKILLS,
   EVE_STRATEGY_SKILL_IDS,
+  findForbiddenUserFacingJsonContent,
   findSkillHygieneFailures,
   decideSkillSource,
   decideVerify,
   SKILL_IDS_REQUIRING_DISABLE_MODEL_INVOCATION,
   SKILL_IDS_REQUIRING_LINKED_FILES,
+  scanForbiddenLocaleContent,
   stageBundledSkills,
 } from './fetch-bundled-skills.mjs';
 
@@ -119,6 +121,47 @@ test('stageBundledSkills refreshes from source and verifies all 31 (no failures)
     assert.ok(fs.existsSync(path.join(snapshotRoot, 'eve-doctrine', 'SKILL.md')));
     // bundle's nested SKILL.md landed
     assert.ok(fs.existsSync(path.join(snapshotRoot, 'marketing-outbound', 'icp-definer', 'SKILL.md')));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('findForbiddenUserFacingJsonContent scans visible values, not technical keys', () => {
+  const safe = JSON.stringify({
+    bypassPermissions: 'Auto',
+    nested: { yolo: 'Guarded auto' },
+  });
+  assert.deepEqual(findForbiddenUserFacingJsonContent(safe), []);
+
+  const dangerous = JSON.stringify({
+    bypassPermissions: 'YOLO',
+    setting: 'Bypass all Claude Code permission checks (equivalent to --dangerously-skip-permissions).',
+  });
+  const findings = findForbiddenUserFacingJsonContent(dangerous);
+  assert.deepEqual(
+    findings.map((entry) => entry.path),
+    ['bypassPermissions', 'setting']
+  );
+  assert.ok(findings[0].ids.includes('yolo-copy'));
+  assert.ok(findings[1].ids.includes('dangerously-skip-permissions-copy'));
+  assert.ok(findings[1].ids.includes('bypass-permissions-copy'));
+});
+
+test('scanForbiddenLocaleContent fails closed on dangerous locale values', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fbs-locale-test-'));
+  try {
+    fs.mkdirSync(path.join(root, 'en-US'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'en-US', 'agentMode.json'), JSON.stringify({ bypassPermissions: 'Auto' }));
+    assert.deepEqual(scanForbiddenLocaleContent(root), []);
+
+    fs.writeFileSync(
+      path.join(root, 'en-US', 'settings.json'),
+      JSON.stringify({ claudeYoloModeDesc: 'Skip all permissions with --dangerously-skip-permissions.' })
+    );
+    const failures = scanForbiddenLocaleContent(root);
+    assert.equal(failures.length, 1);
+    assert.match(failures[0], /settings\.json:claudeYoloModeDesc/);
+    assert.match(failures[0], /dangerously-skip-permissions-copy/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

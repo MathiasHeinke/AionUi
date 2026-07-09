@@ -480,16 +480,16 @@ describe('afterAllArtifactBuild UPDATE-FEED guard (post-hdiutil metadata)', () =
 
   it('removes stale generic mac metadata for an arm64-only update feed', () => {
     const outDir = makeOutDir();
-    const dmg = path.join(outDir, 'Command-EVE-1.7.9-mac-arm64.dmg');
-    const zip = path.join(outDir, 'Command-EVE-1.7.9-mac-arm64.zip');
-    fs.writeFileSync(path.join(outDir, 'latest-mac.yml'), 'version: 1.7.9\nsha512: stale-pre-staple\n');
+    const dmg = path.join(outDir, 'Command-EVE-1.7.91-mac-arm64.dmg');
+    const zip = path.join(outDir, 'Command-EVE-1.7.91-mac-arm64.zip');
+    fs.writeFileSync(path.join(outDir, 'latest-mac.yml'), 'version: 1.7.91\nsha512: stale-pre-staple\n');
     fs.writeFileSync(dmg, 'final-arm64-dmg-bytes');
     fs.writeFileSync(zip, 'final-arm64-zip-bytes');
 
     const written = writeMacUpdateFeedMetadata(
       { outDir, artifactPaths: [dmg, zip] },
       {
-        readRootVersion: () => '1.7.9',
+        readRootVersion: () => '1.7.91',
         releaseDate: '2026-07-09T01:34:00Z',
       }
     );

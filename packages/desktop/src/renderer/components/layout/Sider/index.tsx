@@ -7,6 +7,7 @@ import { useAuth } from '@renderer/hooks/context/AuthContext';
 import { useLayoutContext } from '@renderer/hooks/context/LayoutContext';
 import { blurActiveElement } from '@renderer/utils/ui/focus';
 import { useThemeContext } from '@renderer/hooks/context/ThemeContext';
+import { useCommandEveFounderBuild } from '@renderer/hooks/useCommandEveFounderBuild';
 import { useAllCronJobs } from '@renderer/pages/cron/useCronJobs';
 import { useTeamCreatedRedirect } from '@renderer/pages/team/hooks/useTeamCreatedRedirect';
 import {
@@ -45,6 +46,7 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
   const { closePreview } = usePreviewContext();
   const { logout, status } = useAuth();
   const { theme, setTheme } = useThemeContext();
+  const { founderBuild } = useCommandEveFounderBuild();
   const [isBatchMode, setIsBatchMode] = useState(false);
   const { jobs: cronJobs } = useAllCronJobs();
   useTeamCreatedRedirect();
@@ -230,13 +232,15 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               siderTooltipProps={siderTooltipProps}
               onClick={handleScheduledClick}
             />
-            <SiderCommandCenterEntry
-              isMobile={isMobile}
-              isActive={pathname === '/command-center'}
-              collapsed={collapsed}
-              siderTooltipProps={siderTooltipProps}
-              onClick={handleCommandCenterClick}
-            />
+            {founderBuild ? (
+              <SiderCommandCenterEntry
+                isMobile={isMobile}
+                isActive={pathname === '/command-center'}
+                collapsed={collapsed}
+                siderTooltipProps={siderTooltipProps}
+                onClick={handleCommandCenterClick}
+              />
+            ) : null}
             <SiderKanbanEntry
               isMobile={isMobile}
               isActive={pathname === '/kanban'}

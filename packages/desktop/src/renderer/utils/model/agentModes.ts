@@ -31,7 +31,7 @@ export interface AgentModeOption {
  *
  * Note:
  * - Claude: supports session/set_mode via ACP
- *   - Modes: default, acceptEdits, plan, auto, bypassPermissions (YOLO), dontAsk
+ *   - Modes: default, acceptEdits, plan, auto, bypassPermissions, dontAsk
  * - Qwen: ACP session/set_mode returns success but does not enforce plan mode behavior.
  *   Plan mode disabled until upstream fix. See https://github.com/QwenLM/qwen-code/issues/1806
  * - OpenCode: plan/build modes via ACP session/set_mode (no yolo support)
@@ -51,14 +51,14 @@ export const AGENT_MODES: Record<string, AgentModeOption[]> = {
     { value: 'default', label: 'Default' },
     { value: 'acceptEdits', label: 'Accept Edits', description: 'Auto-approve file edits, prompt for commands' },
     { value: 'plan', label: 'Plan' },
-    { value: 'bypassPermissions', label: 'YOLO' },
+    { value: 'bypassPermissions', label: 'Auto' },
     { value: 'dontAsk', label: "Don't Ask", description: 'Block all actions except pre-approved rules' },
   ],
   // Qwen: ACP session/set_mode returns success but does not enforce plan mode behavior.
   // Plan mode disabled until upstream fix. See https://github.com/QwenLM/qwen-code/issues/1806
   qwen: [
     { value: 'default', label: 'Default' },
-    { value: 'yolo', label: 'YOLO' },
+    { value: 'yolo', label: 'Auto' },
   ],
   opencode: [
     { value: 'build', label: 'Build' },
@@ -76,19 +76,19 @@ export const AGENT_MODES: Record<string, AgentModeOption[]> = {
     },
     {
       value: 'dont_ask',
-      label: 'YOLO',
+      label: 'Auto',
       description: 'Auto-allow file edits for this session except sensitive paths.',
     },
   ],
   gemini: [
     { value: 'default', label: 'Default' },
     { value: 'autoEdit', label: 'Auto-Accept Edits' },
-    { value: 'yolo', label: 'YOLO' },
+    { value: 'yolo', label: 'Auto' },
   ],
   aionrs: [
     { value: 'default', label: 'Default' },
     { value: 'auto_edit', label: 'Auto-Accept Edits' },
-    { value: 'yolo', label: 'YOLO' },
+    { value: 'yolo', label: 'Auto' },
   ],
   codex: [
     { value: CODEX_MODE_READ_ONLY, label: 'Read Only' },
@@ -102,7 +102,7 @@ export const AGENT_MODES: Record<string, AgentModeOption[]> = {
   ],
   snow: [
     { value: 'default', label: 'Agent', description: 'Full agent mode with tool access' },
-    { value: 'yolo', label: 'YOLO', description: 'Auto-approve all operations without prompting' },
+    { value: 'yolo', label: 'Auto', description: 'Auto-approve permitted operations under configured guards' },
   ],
 };
 
@@ -125,10 +125,10 @@ export function getAgentModes(backend: string | undefined): AgentModeOption[] {
  * vs `auto_edit` (aionrs). A conversation created under one vocabulary (e.g. the
  * start screen saved `session_mode: 'yolo'`) must resolve to THIS backend's
  * equivalent instead of silently snapping back to the default — that mismatch is
- * exactly the "YOLO jumps to Standard after the first send" bug.
+ * exactly the "auto mode jumps to Standard after the first send" bug.
  */
 const MODE_SYNONYM_GROUPS: readonly (readonly string[])[] = [
-  ['yolo', 'dont_ask', 'bypassPermissions'], // auto-approve / YOLO
+  ['yolo', 'dont_ask', 'bypassPermissions'], // auto-approve
   ['default', 'ask'], // ask every time
   ['accept_edits', 'acceptEdits', 'auto_edit', 'autoEdit'], // semi-autonomous
 ];

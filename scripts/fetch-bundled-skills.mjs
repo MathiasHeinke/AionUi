@@ -185,6 +185,41 @@ export function findForbiddenSkillContent(text) {
   return FORBIDDEN_SKILL_CONTENT.filter((f) => f.re.test(String(text || ''))).map((f) => f.id);
 }
 
+export const FORBIDDEN_USER_FACING_CONTENT = [
+  { id: 'yolo-copy', re: /\bYOLO\b/i },
+  { id: 'dangerously-skip-permissions-copy', re: /--dangerously-skip-permissions/i },
+  { id: 'skip-permissions-copy', re: /\bskip\b[\s\w-]{0,80}\bpermissions?\b/i },
+  { id: 'bypass-permissions-copy', re: /\bbypass\b[\s\w-]{0,80}\bpermissions?\b/i },
+  { id: 'no-sandbox-copy', re: /\bno\s+sandbox\b/i },
+];
+
+function collectJsonStringValues(value, prefix = '') {
+  if (typeof value === 'string') return [{ path: prefix || '$', text: value }];
+  if (Array.isArray(value)) return value.flatMap((entry, index) => collectJsonStringValues(entry, `${prefix}[${index}]`));
+  if (value && typeof value === 'object') {
+    return Object.entries(value).flatMap(([key, entry]) =>
+      collectJsonStringValues(entry, prefix ? `${prefix}.${key}` : key)
+    );
+  }
+  return [];
+}
+
+export function findForbiddenUserFacingJsonContent(jsonText) {
+  let parsed;
+  try {
+    parsed = JSON.parse(String(jsonText || '{}'));
+  } catch {
+    return [{ path: '$', ids: ['json_parse_failed'] }];
+  }
+
+  return collectJsonStringValues(parsed)
+    .map((entry) => ({
+      path: entry.path,
+      ids: FORBIDDEN_USER_FACING_CONTENT.filter((f) => f.re.test(entry.text)).map((f) => f.id),
+    }))
+    .filter((entry) => entry.ids.length > 0);
+}
+
 export const SKILL_IDS_REQUIRING_DISABLE_MODEL_INVOCATION = Object.freeze([
   'lead-magnet-pdf',
   'legal-enforcement-dach',
@@ -328,6 +363,41 @@ function collectSkillMdPaths(dir) {
   return out;
 }
 
+function collectJsonPaths(dir) {
+  const out = [];
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const ent of entries) {
+    const full = path.join(dir, ent.name);
+    if (ent.isDirectory()) out.push(...collectJsonPaths(full));
+    else if (ent.isFile() && ent.name.endsWith('.json')) out.push(full);
+  }
+  return out;
+}
+
+export function scanForbiddenLocaleContent(localeRoot) {
+  const failures = [];
+  for (const jsonPath of collectJsonPaths(localeRoot)) {
+    let text = '';
+    try {
+      text = fs.readFileSync(jsonPath, 'utf8');
+    } catch {
+      continue;
+    }
+    const forbidden = findForbiddenUserFacingJsonContent(text);
+    for (const entry of forbidden) {
+      failures.push(
+        `${path.relative(localeRoot, jsonPath)}:${entry.path}:${entry.ids.join(',')}`
+      );
+    }
+  }
+  return failures;
+}
+
 /** Recursively copy a directory tree (markdown only; preserves layout). */
 function copyTree(srcDir, destDir) {
   fs.rmSync(destDir, { recursive: true, force: true });
@@ -447,10 +517,15 @@ export function stageBundledSkills({ srcRoot, snapshotRoot, skills = EVE_STRATEG
 
 function main() {
   const srcRoot = compactEnv(process.env[COMMAND_EVE_SKILLS_SRC_ENV]) || DEFAULT_SKILLS_SRC;
+  const localeRoot = path.join(REPO_ROOT, 'packages', 'desktop', 'src', 'renderer', 'services', 'i18n', 'locales');
   log(`source=${srcRoot}`);
   log(`snapshot=${path.relative(REPO_ROOT, SNAPSHOT_DIR)}`);
 
   const failures = stageBundledSkills({ srcRoot, snapshotRoot: SNAPSHOT_DIR });
+  for (const failure of scanForbiddenLocaleContent(localeRoot)) {
+    failures.push(`locale_forbidden_content:${failure}`);
+    log(`FORBIDDEN LOCALE CONTENT — ${failure}`);
+  }
   if (failures.length) {
     console.error(
       `[fetch-bundled-skills] FAIL-CLOSED: ${failures.length} skill(s) missing/invalid:\n  ` +

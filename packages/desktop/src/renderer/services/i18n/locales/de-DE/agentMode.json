@@ -5,16 +5,16 @@
   "eve": {
     "ask": "Fragen",
     "acceptEdits": "Auto-Edits",
-    "yolo": "Nicht fragen"
+    "yolo": "Auto"
   },
   "autoEdit": "Auto-Bearbeitung",
   "auto_edit": "Auto-Bearbeitung",
-  "yolo": "YOLO",
-  "yoloNoSandbox": "Voll-Auto (ohne Sandbox)",
+  "yolo": "Auto",
+  "yoloNoSandbox": "Geschützter Auto-Modus",
   "auto": "Auto",
-  "dontAsk": "Nicht fragen",
-  "bypass": "Bypass (YOLO)",
-  "bypassPermissions": "YOLO",
+  "dontAsk": "Vorab freigegeben",
+  "bypass": "Geschützter Auto-Modus",
+  "bypassPermissions": "Auto",
   "smart": "Smart",
   "build": "Build-Modus",
   "permission": "Berechtigung",

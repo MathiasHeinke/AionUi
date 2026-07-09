@@ -27,11 +27,11 @@
 
 import { Tabs } from '@arco-design/web-react';
 import classNames from 'classnames';
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import DeinTeamPanel from '@renderer/components/team/DeinTeamPanel';
 import { useLayoutContext } from '@renderer/hooks/context/LayoutContext';
-import { commandEve } from '@/common/adapter/ipcBridge';
+import { useCommandEveFounderBuild } from '@renderer/hooks/useCommandEveFounderBuild';
 import AgentModalContent from '@/renderer/components/settings/SettingsModal/contents/AgentModalContent';
 import { AssistantSettingsBody } from '@/renderer/pages/settings/AssistantSettings';
 import WorkerAssignmentCard from './WorkerAssignmentCard';
@@ -44,25 +44,10 @@ const EveRuntime: React.FC = () => {
   const layout = useLayoutContext();
   const isMobile = layout?.isMobile ?? false;
   const [activeTab, setActiveTab] = useState<EveRuntimeTab>('orchestration');
-  // 1.7.9 hotfix: raw assistant/agent/CLI runtime surfaces are founder-only.
+  // 1.7.91 hotfix: raw assistant/agent/CLI runtime surfaces are founder-only.
   // Public users see Command EVE as the only operator-facing runtime; Hermes may
   // still orchestrate Claude/Codex/Gemini internally behind governed routes.
-  // The renderer may not touch process.env, so read the shell flag via MAIN.
-  const [showFounderRuntimeTabs, setShowFounderRuntimeTabs] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    commandEve.shellFlags
-      .invoke()
-      .then((res) => {
-        if (alive && res?.data?.founder_build === true) setShowFounderRuntimeTabs(true);
-      })
-      .catch(() => {
-        /* fail-soft: public shape */
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
+  const { founderBuild: showFounderRuntimeTabs } = useCommandEveFounderBuild();
 
   return (
     <div className='flex flex-col h-full w-full'>
