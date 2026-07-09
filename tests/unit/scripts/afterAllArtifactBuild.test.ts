@@ -478,6 +478,27 @@ describe('afterAllArtifactBuild UPDATE-FEED guard (post-hdiutil metadata)', () =
     });
   });
 
+  it('removes stale generic mac metadata for an arm64-only update feed', () => {
+    const outDir = makeOutDir();
+    const dmg = path.join(outDir, 'Command-EVE-1.7.9-mac-arm64.dmg');
+    const zip = path.join(outDir, 'Command-EVE-1.7.9-mac-arm64.zip');
+    fs.writeFileSync(path.join(outDir, 'latest-mac.yml'), 'version: 1.7.9\nsha512: stale-pre-staple\n');
+    fs.writeFileSync(dmg, 'final-arm64-dmg-bytes');
+    fs.writeFileSync(zip, 'final-arm64-zip-bytes');
+
+    const written = writeMacUpdateFeedMetadata(
+      { outDir, artifactPaths: [dmg, zip] },
+      {
+        readRootVersion: () => '1.7.9',
+        releaseDate: '2026-07-09T01:34:00Z',
+      }
+    );
+
+    expect(written.map((file: string) => path.basename(file))).toEqual(['latest-arm64-mac.yml', 'version.json']);
+    expect(fs.existsSync(path.join(outDir, 'latest-mac.yml'))).toBe(false);
+    expect(fs.readFileSync(path.join(outDir, 'latest-arm64-mac.yml'), 'utf8')).toContain(`sha512: ${sha512Base64(dmg)}`);
+  });
+
   it('blocks incomplete mac update feeds when the zip is missing', () => {
     expect(() =>
       buildMacUpdateYml({

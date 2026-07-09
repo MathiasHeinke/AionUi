@@ -517,6 +517,8 @@ function writeMacUpdateFeedMetadata(context, deps = {}) {
   }
 
   const writeFile = deps.writeFile || fs.writeFileSync;
+  const exists = deps.exists || fs.existsSync;
+  const unlink = deps.unlink || fs.unlinkSync;
   const releaseDate = deps.releaseDate || normalizeReleaseDate(deps.now || new Date());
   const releaseNotes = deps.releaseNotes || `Command EVE ${version}`;
   const written = [];
@@ -524,6 +526,18 @@ function writeMacUpdateFeedMetadata(context, deps = {}) {
     version,
     released_at: releaseDate,
   };
+  const expectedMetadata = new Set([...groups.keys()].map(metadataFileNameForMacArch));
+
+  // electron-builder may emit a generic latest-mac.yml before the hdiutil rebuild.
+  // Arm64-only releases must not leave that stale x64/universal metadata beside
+  // latest-arm64-mac.yml; one broad upload glob would publish the wrong DMG hash.
+  for (const metadataName of ['latest-mac.yml', 'latest-arm64-mac.yml']) {
+    if (expectedMetadata.has(metadataName)) continue;
+    const stalePath = path.join(outDir, metadataName);
+    if (!exists(stalePath)) continue;
+    unlink(stalePath);
+    console.log(`✓ UPDATE-FEED guard: removed stale ${metadataName}.`);
+  }
 
   for (const [arch, files] of groups) {
     const metadataName = metadataFileNameForMacArch(arch);
