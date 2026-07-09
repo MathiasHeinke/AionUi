@@ -20,6 +20,11 @@ import { useTranslation } from 'react-i18next';
 import { usePreviewLauncher } from '@renderer/hooks/file/usePreviewLauncher';
 import CollapsibleContent from '@renderer/components/chat/CollapsibleContent';
 
+export function setDiffFileNameText(name: HTMLElement | null, title?: string): void {
+  if (!name || !title) return;
+  name.textContent = title;
+}
+
 const Diff2Html = ({
   diff,
   className,
@@ -138,10 +143,8 @@ const Diff2Html = ({
         header.appendChild(operatorRef.current);
       }
 
-      const name = header.querySelector('.d2h-file-name') as HTMLDivElement;
-      if (name && title) {
-        name.innerHTML = title;
-      }
+      const name = header.querySelector('.d2h-file-name') as HTMLDivElement | null;
+      setDiffFileNameText(name, title);
     } else {
       console.warn('[Diff2Html] Header or operatorRef missing', { hasHeader: !!header, hasRef: !!operatorRef.current });
     }

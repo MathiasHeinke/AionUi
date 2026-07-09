@@ -118,8 +118,13 @@ function peekWsRoute(buf: Buffer): boolean | null {
 
 export async function startStaticServer(opts: StaticServerOptions): Promise<StaticServerHandle> {
   const port = opts.port ?? DEFAULT_PORT;
-  const allowRemote = opts.allowRemote === true;
-  const host = allowRemote ? '0.0.0.0' : '127.0.0.1';
+  if (opts.allowRemote === true) {
+    throw new Error(
+      'REMOTE_WEBUI_DISABLED: remote WebUI is unavailable until the proxy enforces authentication before forwarding to aioncore'
+    );
+  }
+  const allowRemote = false;
+  const host = '127.0.0.1';
 
   // The HTTP server listens only on loopback — user traffic hits the outer
   // net.Server first. We route to this server for everything except WS
