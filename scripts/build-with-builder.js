@@ -231,6 +231,58 @@ function formatExecError(error) {
   return [error?.message, error?.stdout?.toString?.(), error?.stderr?.toString?.()].filter(Boolean).join('\n').trim();
 }
 
+function macArtifactPath(outDir, version, arch, ext) {
+  return path.join(outDir, `Command-EVE-${version}-mac-${arch}.${ext}`);
+}
+
+function hasMacUpdateArtifact(outDir, version, arch) {
+  return ['dmg', 'zip'].some((ext) => fs.existsSync(macArtifactPath(outDir, version, arch, ext)));
+}
+
+function removeStaleMacSiblingMetadata(outDir, version, targetArch) {
+  const removals = [];
+  const removeIfPresent = (metadataName) => {
+    const metadataPath = path.join(outDir, metadataName);
+    if (!fs.existsSync(metadataPath)) return;
+    fs.rmSync(metadataPath, { force: true });
+    removals.push(metadataName);
+  };
+
+  if (targetArch === 'arm64' && !hasMacUpdateArtifact(outDir, version, 'x64') && !hasMacUpdateArtifact(outDir, version, 'universal')) {
+    removeIfPresent('latest-mac.yml');
+  }
+  if ((targetArch === 'x64' || targetArch === 'universal') && !hasMacUpdateArtifact(outDir, version, 'arm64')) {
+    removeIfPresent('latest-arm64-mac.yml');
+  }
+
+  if (removals.length > 0) {
+    console.log(`✓ UPDATE-FEED guard: removed stale sibling metadata after build: ${removals.join(', ')}`);
+  }
+  return removals;
+}
+
+function verifyMacUpdateFeedAfterBuild(outDir, version, targetArch, builderArgs, isMultiArch) {
+  if (process.platform !== 'darwin' || isMultiArch) return;
+  if (!builderArgs.includes('--mac') && !builderArgs.includes('--all')) return;
+
+  removeStaleMacSiblingMetadata(outDir, version, targetArch);
+
+  const dmgPath = macArtifactPath(outDir, version, targetArch, 'dmg');
+  if (!fs.existsSync(dmgPath)) return;
+
+  const verifierPath = path.join(__dirname, 'release/verify-mac-update-feed.mjs');
+  const result = spawnSync(process.execPath, [verifierPath, '--dmg', dmgPath, '--out-dir', outDir, '--json'], {
+    stdio: 'inherit',
+    env: process.env,
+  });
+  if (result.error) {
+    throw new Error(`Mac update feed verifier could not start: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    throw new Error(`Mac update feed verifier failed after build (exit ${result.status}).`);
+  }
+}
+
 // Create DMG using electron-builder --prepackaged with .app path
 // This preserves DMG styling from electron-builder.yml (window size, icon positions, background)
 function createDmgWithPrepackaged(appDir, targetArch) {
@@ -514,6 +566,13 @@ try {
   if (process.env.BUILD_WITH_BUILDER_SELFTEST_FAIL === '1') {
     throw new Error('BUILD_WITH_BUILDER_SELFTEST_FAIL: simulated electron-builder failure');
   }
+  if (process.env.BUILD_WITH_BUILDER_SELFTEST_MAC_FEED_GUARD === '1') {
+    const selftestOutDir = process.env.BUILD_WITH_BUILDER_SELFTEST_OUT_DIR || path.resolve(__dirname, '../out');
+    const selftestVersion = process.env.BUILD_WITH_BUILDER_SELFTEST_VERSION || '1.7.91';
+    const selftestArch = process.env.BUILD_WITH_BUILDER_SELFTEST_ARCH || 'arm64';
+    removeStaleMacSiblingMetadata(selftestOutDir, selftestVersion, selftestArch);
+    return;
+  }
 
   // 1. Ensure package.json main entry is correct for electron-vite
   const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
@@ -733,6 +792,8 @@ try {
       );
     }
   }
+
+  verifyMacUpdateFeedAfterBuild(outDir, packageJson.version, targetArch, builderArgs, multiArch);
 
   console.log('✅ Build completed!');
 } catch (error) {

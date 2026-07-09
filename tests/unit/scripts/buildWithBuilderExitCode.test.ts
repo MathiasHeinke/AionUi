@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -28,5 +30,35 @@ describe('build-with-builder.js exit-code propagation (fail-closed)', () => {
     expect(result.status).toBe(1);
     const combined = `${result.stdout || ''}${result.stderr || ''}`;
     expect(combined).toMatch(/Build failed/);
+  });
+
+  it('removes stale generic mac metadata for arm64-only release artifacts', () => {
+    const tempDir = mkdtempSync(path.join(tmpdir(), 'aionui-mac-feed-'));
+    const version = '1.7.91';
+    try {
+      writeFileSync(path.join(tempDir, `Command-EVE-${version}-mac-arm64.dmg`), 'final-dmg');
+      writeFileSync(path.join(tempDir, `Command-EVE-${version}-mac-arm64.zip`), 'final-zip');
+      writeFileSync(path.join(tempDir, 'latest-mac.yml'), 'version: 1.7.91\nsha512: stale-pre-staple\n');
+      writeFileSync(path.join(tempDir, 'latest-arm64-mac.yml'), 'version: 1.7.91\nsha512: current\n');
+
+      const result = spawnSync(process.execPath, [scriptPath, '--pack-only'], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          BUILD_WITH_BUILDER_SELFTEST_MAC_FEED_GUARD: '1',
+          BUILD_WITH_BUILDER_SELFTEST_OUT_DIR: tempDir,
+          BUILD_WITH_BUILDER_SELFTEST_VERSION: version,
+          BUILD_WITH_BUILDER_SELFTEST_ARCH: 'arm64',
+        },
+        timeout: 30000,
+      });
+
+      expect(result.status, result.stderr || result.stdout).toBe(0);
+      expect(existsSync(path.join(tempDir, 'latest-mac.yml'))).toBe(false);
+      expect(existsSync(path.join(tempDir, 'latest-arm64-mac.yml'))).toBe(true);
+      expect(`${result.stdout || ''}${result.stderr || ''}`).toContain('removed stale sibling metadata');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });
