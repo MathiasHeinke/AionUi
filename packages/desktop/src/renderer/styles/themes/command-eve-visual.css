@@ -123,6 +123,33 @@
   --eve-bg-image-scrim: color-mix(in srgb, #101214 68%, transparent);
 }
 
+/* Transparent EVE identity. The square packaged-app asset never belongs here. */
+.command-eve-glyph {
+  width: 1em;
+  height: 1em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: var(--eve-brand-logo);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0;
+  text-shadow: none;
+  user-select: none;
+}
+
+.command-eve-glyph--muted {
+  color: var(--eve-shell-text-secondary);
+  opacity: 0.72;
+  text-shadow: none;
+}
+
+:root[data-theme='dark'] .command-eve-glyph:not(.command-eve-glyph--muted) {
+  text-shadow: 0 0 12px color-mix(in srgb, var(--eve-brand-logo) 28%, transparent);
+}
+
 /* Reusable ownership primitives. They do not imply card composition. */
 .eve-chrome,
 .eve-panel,

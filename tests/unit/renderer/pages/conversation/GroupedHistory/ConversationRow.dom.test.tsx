@@ -32,20 +32,8 @@ vi.mock('@arco-design/web-react', async () => {
   };
 });
 
-vi.mock('@/common/config/commandEveShell', () => ({
-  COMMAND_EVE_ASSISTANT_AVATAR: '/command-eve.svg',
-}));
-
-vi.mock('@/renderer/hooks/agent/usePresetAssistantInfo', () => ({
-  usePresetAssistantInfo: () => ({ info: null }),
-}));
-
 vi.mock('@/renderer/hooks/context/LayoutContext', () => ({
   useLayoutContext: () => ({ isMobile: false }),
-}));
-
-vi.mock('@/renderer/utils/model/agentLogo', () => ({
-  getAgentLogo: () => null,
 }));
 
 vi.mock('@/renderer/utils/ui/siderTooltip', () => ({
@@ -117,6 +105,13 @@ describe('ConversationRow archive UI', () => {
     expect(screen.getByText('conversation.history.archive')).toBeTruthy();
     expect(screen.queryByText('conversation.history.restore')).toBeNull();
     expect(screen.getByText(formatConversationActivityTime(conversation.modified_at, Date.now()))).toBeTruthy();
+  });
+
+  it('shows only the public EVE identity, never a runtime or assistant image', () => {
+    const { container } = renderRow();
+
+    expect(screen.getByTestId('command-eve-glyph').textContent).toBe('⌘');
+    expect(container.querySelector('img')).toBeNull();
   });
 
   it('shows Restore for archived conversations', () => {

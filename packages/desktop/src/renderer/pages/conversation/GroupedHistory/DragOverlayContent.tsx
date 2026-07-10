@@ -5,11 +5,8 @@
  */
 
 import type { TChatConversation } from '@/common/config/storage';
-import { getAgentLogo } from '@/renderer/utils/model/agentLogo';
-import { MessageOne } from '@icon-park/react';
+import CommandEveGlyph from '@/renderer/components/commandEve/CommandEveGlyph';
 import React from 'react';
-
-import { getBackendKeyFromConversation } from './utils/exportHelpers';
 
 type DragOverlayContentProps = {
   conversation?: TChatConversation;
@@ -17,9 +14,6 @@ type DragOverlayContentProps = {
 
 const DragOverlayContent: React.FC<DragOverlayContentProps> = ({ conversation }) => {
   if (!conversation) return null;
-
-  const backendKey = getBackendKeyFromConversation(conversation);
-  const logo = getAgentLogo(backendKey);
 
   return (
     <div
@@ -31,11 +25,7 @@ const DragOverlayContent: React.FC<DragOverlayContentProps> = ({ conversation })
         transform: 'scale(1.02)',
       }}
     >
-      {logo ? (
-        <img src={logo} alt={`${backendKey || 'agent'} logo`} className='w-18px h-18px rounded-50% flex-shrink-0' />
-      ) : (
-        <MessageOne theme='outline' size='20' className='line-height-0 flex-shrink-0' />
-      )}
+      <CommandEveGlyph size={18} className='flex-shrink-0' />
       <div className='text-14px lh-24px text-t-primary truncate flex-1'>{conversation.name}</div>
     </div>
   );

@@ -7,17 +7,15 @@
 import { ipcBridge } from '@/common';
 import type { IMessageSearchItem } from '@/common/types/team/database';
 import AionModal from '@/renderer/components/base/AionModal';
-import { usePresetAssistantInfo } from '@/renderer/hooks/agent/usePresetAssistantInfo';
-import { getAgentLogo } from '@/renderer/utils/model/agentLogo';
+import CommandEveGlyph from '@/renderer/components/commandEve/CommandEveGlyph';
 import { blockMobileInputFocus, blurActiveElement } from '@/renderer/utils/ui/focus';
 import { Empty, Spin, Typography } from '@arco-design/web-react';
-import { Close, CloseSmall, MessageOne, Search } from '@icon-park/react';
+import { Close, CloseSmall, Search } from '@icon-park/react';
 import classNames from 'classnames';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { getBackendKeyFromConversation } from './utils/exportHelpers';
 import './ConversationSearchPopover.css';
 
 const PAGE_SIZE = 20;
@@ -98,43 +96,9 @@ interface ConversationSearchPopoverProps {
   renderTrigger?: (props: { onClick: () => void; isActive: boolean }) => React.ReactNode;
 }
 
-const ConversationAgentMark: React.FC<{ conversation: IMessageSearchItem['conversation'] }> = ({ conversation }) => {
-  const { info: assistantInfo } = usePresetAssistantInfo(conversation);
-
-  if (assistantInfo) {
-    if (assistantInfo.isEmoji) {
-      return (
-        <span className='text-18px leading-none flex-shrink-0' title={assistantInfo.name}>
-          {assistantInfo.logo}
-        </span>
-      );
-    }
-
-    return (
-      <img
-        src={assistantInfo.logo}
-        alt={assistantInfo.name}
-        title={assistantInfo.name}
-        className='w-18px h-18px rounded-50% flex-shrink-0'
-      />
-    );
-  }
-
-  const backendKey = getBackendKeyFromConversation(conversation);
-  const logo = getAgentLogo(backendKey);
-  if (logo) {
-    return (
-      <img
-        src={logo}
-        alt={`${backendKey || 'agent'} logo`}
-        title={backendKey || 'agent'}
-        className='w-18px h-18px rounded-50% flex-shrink-0'
-      />
-    );
-  }
-
-  return <MessageOne theme='outline' size='18' className='line-height-0 flex-shrink-0 text-t-secondary' />;
-};
+const ConversationAgentMark: React.FC = () => (
+  <CommandEveGlyph size={18} className='command-eve-glyph--muted flex-shrink-0' />
+);
 
 const ConversationSearchPopover: React.FC<ConversationSearchPopoverProps> = ({
   onSessionClick,
@@ -399,7 +363,7 @@ const ConversationSearchPopover: React.FC<ConversationSearchPopoverProps> = ({
                 <div className='flex items-start justify-between gap-8px mb-6px'>
                   <div className='min-w-0 flex-1'>
                     <div className='conversation-search-modal__result-title-row'>
-                      <ConversationAgentMark conversation={item.conversation} />
+                      <ConversationAgentMark />
                       <div className='conversation-search-modal__result-title text-15px font-600 text-t-primary truncate'>
                         {item.conversation.name || t('conversation.historySearch.untitled')}
                       </div>

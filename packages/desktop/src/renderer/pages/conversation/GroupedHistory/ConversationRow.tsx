@@ -4,45 +4,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { COMMAND_EVE_ASSISTANT_AVATAR } from '@/common/config/commandEveShell';
-import { getAgentLogo } from '@/renderer/utils/model/agentLogo';
 import FlexFullContainer from '@/renderer/components/layout/FlexFullContainer';
-import { usePresetAssistantInfo } from '@/renderer/hooks/agent/usePresetAssistantInfo';
+import CommandEveGlyph from '@/renderer/components/commandEve/CommandEveGlyph';
 import { cleanupSiderTooltips, getSiderTooltipProps } from '@/renderer/utils/ui/siderTooltip';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { Checkbox, Dropdown, Menu, Spin, Tooltip } from '@arco-design/web-react';
-import { Box, DeleteOne, EditOne, Export, FolderOpen, MessageOne, MoreOne, Pushpin } from '@icon-park/react';
+import { Box, DeleteOne, EditOne, Export, FolderOpen, MoreOne, Pushpin } from '@icon-park/react';
 import classNames from 'classnames';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { ConversationRowProps } from './types';
-import { getBackendKeyFromConversation } from './utils/exportHelpers';
 import { isConversationArchived, isConversationPinned } from './utils/groupingHelpers';
 import { getActivityTime } from '@/renderer/utils/chat/timeline';
 import SessionStatusDot from './SessionStatusDot';
 import { deriveSessionStatus } from './sessionStatus';
-
-// State-driven avatar with a ⌘ fallback. Conversation avatars frequently resolve to a
-// runtime API URL (http://127.0.0.1:<port>/api/assistants/:id/avatar) that 404s. A plain
-// onError that mutates img.src is undone by React's controlled `src` on the next render
-// (and the broken cached URL won't re-fire onError), so the broken glyph returns — that
-// was the founder's "kaputte Symbole" across the sidebar. Driving the src from STATE
-// survives re-renders: on error we switch to the bundled ⌘ mark (which always loads).
-const RowLeadingImg: React.FC<{ src: string; alt: string; className: string }> = ({ src, alt, className }) => {
-  const [resolvedSrc, setResolvedSrc] = React.useState(src);
-  React.useEffect(() => setResolvedSrc(src), [src]);
-  return (
-    <img
-      src={resolvedSrc}
-      alt={alt}
-      className={className}
-      onError={() =>
-        setResolvedSrc((cur) => (cur === COMMAND_EVE_ASSISTANT_AVATAR ? cur : COMMAND_EVE_ASSISTANT_AVATAR))
-      }
-    />
-  );
-};
 
 export const formatConversationActivityTime = (timestamp: number, now = Date.now()): string => {
   if (!timestamp) return '';
@@ -91,7 +67,6 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
     getJobStatus,
   } = props;
   const { t } = useTranslation();
-  const { info: assistantInfo } = usePresetAssistantInfo(conversation);
   const isPinned = isConversationPinned(conversation);
   const isArchived = isConversationArchived(conversation);
   const cronStatus = getJobStatus(conversation.id);
@@ -102,8 +77,8 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
     [conversation]
   );
 
-  // ONE semantic status for the row (Variante B): the leading icon stays the
-  // agent/⌘ avatar (identity), and a single colored dot — done=green,
+  // ONE semantic status for the row: the public identity remains EVE regardless
+  // of which private runtime executes the work, and a single colored dot — done=green,
   // attention=orange, error=red, running=Spin overlay — replaces the old mix of a
   // separate unread dot + the cron alarm/pause/attention glyph swapped in as the
   // leading icon. The dots now fire for NORMAL chats too (waiting-input + errored
@@ -121,62 +96,14 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
     // When the row is pinned, hovering reveals a pushpin marker that overlays
     // the leading icon. We dim the resting icon on hover so the pin reads cleanly.
     const pinnedHoverFade = isPinned ? 'group-hover:opacity-0 transition-opacity' : '';
-    // Variante B: "erledigt"/idle rows render the brand mark in an ANTHRACITE
-    // (muted) treatment so they recede; pending states (running/attention/error/
-    // done) render it at full strength so they pop. grayscale + reduced opacity
-    // keeps it subtle and works for both the colored agent logos and the ⌘ mark.
-    const idleMuted = sessionStatus === 'idle' ? 'grayscale opacity-55' : '';
-    const composedClass = classNames(pinnedHoverFade, idleMuted, 'transition-all');
-
-    if (assistantInfo) {
-      if (assistantInfo.isEmoji) {
-        return (
-          <span className={classNames('text-16px leading-none flex-shrink-0', composedClass)}>
-            {assistantInfo.logo}
-          </span>
-        );
-      }
-      return (
-        <RowLeadingImg
-          src={assistantInfo.logo}
-          alt={assistantInfo.name}
-          className={classNames('w-16px h-16px rounded-50% flex-shrink-0', composedClass)}
-        />
-      );
-    }
-
-    const backendKey = getBackendKeyFromConversation(conversation);
-    const logo = getAgentLogo(backendKey);
-    if (logo) {
-      return (
-        <RowLeadingImg
-          src={logo}
-          alt={`${backendKey || 'agent'} logo`}
-          className={classNames('w-16px h-16px rounded-50% flex-shrink-0', composedClass)}
-        />
-      );
-    }
-
-    // GUARANTEED EVE fallback: when no preset assistant info and no backend logo
-    // resolves (EVE/hermes/aionrs lanes already map to the ⌘ mark via getAgentLogo,
-    // but this covers any lane that returns falsy), render the Command EVE ⌘ brand
-    // mark instead of the generic MessageOne glyph so an EVE row always reads as EVE.
-    const isEveLane = backendKey === 'hermes' || backendKey === 'aionrs';
-    if (isEveLane || !backendKey) {
-      return (
-        <img
-          src={COMMAND_EVE_ASSISTANT_AVATAR}
-          alt='Command EVE'
-          className={classNames('w-16px h-16px rounded-50% flex-shrink-0', composedClass)}
-        />
-      );
-    }
-
     return (
-      <MessageOne
-        theme='outline'
-        size='16'
-        className={classNames('line-height-0 flex-shrink-0 text-t-secondary', composedClass)}
+      <CommandEveGlyph
+        size={16}
+        className={classNames(
+          pinnedHoverFade,
+          'transition-all',
+          sessionStatus === 'idle' && !selected && 'command-eve-glyph--muted'
+        )}
       />
     );
   };
@@ -235,16 +162,16 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
           </span>
         )}
         <span className='size-22px flex items-center justify-center shrink-0 relative'>
-          {/* Variante B: the ⌘/agent avatar ALWAYS renders (identity stays put);
+          {/* The EVE glyph ALWAYS renders (public identity stays put);
               while a turn streams we overlay a small Spin on its bottom-right
-              instead of replacing the avatar with a bare spinner. */}
+              instead of replacing the glyph with a bare spinner. */}
           {renderLeadingIcon()}
           {isGenerating && !batchMode && (
             <span className='absolute -bottom-2px -right-2px flex-center pointer-events-none' style={{ lineHeight: 0 }}>
               <Spin size={14} />
             </span>
           )}
-          {/* ONE semantic status dot, overlaid on the avatar's bottom-right. Hidden
+          {/* ONE semantic status dot, overlaid on the glyph's bottom-right. Hidden
               in batch mode (the checkbox owns the row) and while generating (the
               Spin overlay already signals "running"). idle renders nothing. */}
           {!batchMode && !isGenerating && <SessionStatusDot status={sessionStatus} overlay />}
