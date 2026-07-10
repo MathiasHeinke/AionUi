@@ -5,6 +5,14 @@ const bridgeMocks = vi.hoisted(() => ({
   evaluateGateDecision: vi.fn(),
   ensureAssistant: vi.fn(),
   resolveInferenceProvider: vi.fn(),
+  runtimeStatus: vi.fn(),
+  warmLocalModel: vi.fn(),
+  conversationCreate: vi.fn(),
+}));
+
+const { configGetMock, messageErrorMock } = vi.hoisted(() => ({
+  configGetMock: vi.fn(),
+  messageErrorMock: vi.fn(),
 }));
 
 vi.mock('@/common', () => ({
@@ -13,6 +21,11 @@ vi.mock('@/common', () => ({
       evaluateGateDecision: { invoke: bridgeMocks.evaluateGateDecision },
       ensureAssistant: { invoke: bridgeMocks.ensureAssistant },
       resolveInferenceProvider: { invoke: bridgeMocks.resolveInferenceProvider },
+      runtimeStatus: { invoke: bridgeMocks.runtimeStatus },
+      warmLocalModel: { invoke: bridgeMocks.warmLocalModel },
+    },
+    conversation: {
+      create: { invoke: bridgeMocks.conversationCreate },
     },
   },
 }));
@@ -20,13 +33,13 @@ vi.mock('@/common', () => ({
 vi.mock('@/common/config/configService', () => ({
   configService: {
     whenReady: vi.fn().mockResolvedValue(undefined),
-    get: vi.fn().mockReturnValue(undefined),
+    get: configGetMock,
   },
 }));
 
 vi.mock('@arco-design/web-react', () => ({
   Message: {
-    error: vi.fn(),
+    error: messageErrorMock,
     info: vi.fn(),
     warning: vi.fn(),
   },
@@ -59,11 +72,17 @@ function createDeps(): GuidSendDeps {
     selectedAcpModel: null,
     currentAcpCachedModelInfo: null,
     current_model: undefined,
-    findAgentByKey: vi.fn(),
-    getEffectiveAgentType: vi.fn(),
-    resolvePresetRulesAndSkills: vi.fn(),
-    resolveEnabledSkills: vi.fn(),
-    resolveDisabledBuiltinSkills: vi.fn(),
+    findAgentByKey: vi.fn(() => ({
+      id: 'hermes-runtime',
+      agent_type: 'hermes',
+      backend: 'hermes',
+      name: 'EVE',
+      cli_path: '/runtime/hermes',
+    })),
+    getEffectiveAgentType: vi.fn(() => ({ agent_type: 'hermes', isAvailable: true })),
+    resolvePresetRulesAndSkills: vi.fn().mockResolvedValue({}),
+    resolveEnabledSkills: vi.fn(() => []),
+    resolveDisabledBuiltinSkills: vi.fn(() => []),
     guidDisabledBuiltinSkills: undefined,
     guidEnabledSkills: undefined,
     availableMcpServers: [],
@@ -75,7 +94,8 @@ function createDeps(): GuidSendDeps {
     setMentionSelectorOpen: vi.fn(),
     setMentionActiveIndex: vi.fn(),
     navigate: vi.fn(),
-    t: ((key: string, fallback?: string) => fallback || key) as GuidSendDeps['t'],
+    t: ((key: string, fallback?: string | { defaultValue?: string }) =>
+      typeof fallback === 'string' ? fallback : fallback?.defaultValue || key) as GuidSendDeps['t'],
   };
 }
 
@@ -85,6 +105,8 @@ describe('useGuidSend blocked cloud lane', () => {
     bridgeMocks.evaluateGateDecision.mockResolvedValue({ success: true });
     bridgeMocks.ensureAssistant.mockResolvedValue({ success: false });
     bridgeMocks.resolveInferenceProvider.mockResolvedValue({ success: false });
+    bridgeMocks.conversationCreate.mockReset();
+    configGetMock.mockReturnValue(undefined);
     Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: true });
   });
 
@@ -101,5 +123,46 @@ describe('useGuidSend blocked cloud lane', () => {
     expect(deps.setFiles).not.toHaveBeenCalled();
     expect(deps.setDir).not.toHaveBeenCalled();
     expect(deps.setMentionOpen).not.toHaveBeenCalled();
+  });
+
+  it('shows a neutral error and preserves the draft when the EVE ACP conversation cannot be created', async () => {
+    configGetMock.mockImplementation((key: string) =>
+      key === 'commandEve.inferenceSelection' ? 'command-eve-local:local-standard' : undefined
+    );
+    bridgeMocks.ensureAssistant.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        agent_id: 'hermes-runtime',
+        agent_name: 'EVE',
+        cli_path: '/runtime/hermes',
+        enabled_skills: [],
+      },
+    });
+    bridgeMocks.runtimeStatus.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        default_model: 'command-eve-gemma4-e4b-64k:latest',
+        model_warmup: {
+          status: 'ready',
+          model: 'command-eve-gemma4-e4b-64k:latest',
+        },
+      },
+    });
+    bridgeMocks.conversationCreate.mockResolvedValue(null);
+
+    const deps = createDeps();
+    const { result } = renderHook(() => useGuidSend(deps));
+
+    await act(async () => {
+      result.current.sendMessageHandler();
+    });
+
+    await waitFor(() => expect(deps.setLoading).toHaveBeenLastCalledWith(false));
+    expect(messageErrorMock).toHaveBeenCalledWith('Failed to create conversation');
+    expect(deps.setInput).not.toHaveBeenCalled();
+    expect(deps.setFiles).not.toHaveBeenCalled();
+    expect(deps.setDir).not.toHaveBeenCalled();
   });
 });

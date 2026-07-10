@@ -131,7 +131,7 @@ const AboutModalContent: React.FC = () => {
           >
             <div className='eve-settings-action-row eve-about-update-row'>
               <p>{t('settings.aboutUpdateActionDescription')}</p>
-              <Button type='primary' onClick={dispatchUpdateCheck}>
+              <Button type='primary' data-testid='about-check-updates' onClick={dispatchUpdateCheck}>
                 {t('settings.checkForUpdates')}
               </Button>
             </div>

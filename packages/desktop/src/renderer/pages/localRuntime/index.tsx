@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, Button, Empty, Spin, Tag } from '@arco-design/web-react';
 import { bridge } from '@office-ai/platform';
@@ -15,6 +15,17 @@ import { isElectronDesktop } from '@renderer/utils/platform';
 type TierStatus = 'selected' | 'available' | 'opt_in' | 'pro';
 
 type RemediationKind = 'external-link' | 'pull-progress' | 'cloud-redirect' | 'reinstall';
+
+export const LOCAL_RUNTIME_WARMUP_POLL_LIMIT = 12;
+export const LOCAL_RUNTIME_PULL_POLL_LIMIT = 1440;
+
+export const shouldScheduleLocalRuntimePoll = ({
+  pollCount,
+  pullInProgress,
+}: {
+  pollCount: number;
+  pullInProgress: boolean;
+}): boolean => pollCount < (pullInProgress ? LOCAL_RUNTIME_PULL_POLL_LIMIT : LOCAL_RUNTIME_WARMUP_POLL_LIMIT);
 
 type BlockedStage = {
   stage_id: string;
@@ -349,8 +360,17 @@ const LocalRuntimePage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [kanbanError, setKanbanError] = useState<string | null>(null);
   const [warmupPollCount, setWarmupPollCount] = useState(0);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const load = useCallback(async () => {
+    if (!mountedRef.current) return;
     if (!isElectronDesktop()) {
       setResult({
         version: 'command-eve-local-runtime-status/v0',
@@ -374,6 +394,7 @@ const LocalRuntimePage: React.FC = () => {
         localRuntimeBridge.invoke(undefined),
         kanbanPreflightBridge.invoke({ boardSlug: 'default' }),
       ]);
+      if (!mountedRef.current) return;
       const data = response.data;
       setResult(data ?? null);
       if (!response.success) {
@@ -385,9 +406,10 @@ const LocalRuntimePage: React.FC = () => {
         setKanbanError(kanbanResponse.msg || kanbanData?.message || t('localRuntime.errors.kanbanLoadFailed'));
       }
     } catch (loadError) {
+      if (!mountedRef.current) return;
       setError(loadError instanceof Error ? loadError.message : t('localRuntime.errors.loadFailed'));
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
     }
   }, [t]);
 
@@ -409,10 +431,10 @@ const LocalRuntimePage: React.FC = () => {
       setWarmupPollCount(0);
       return undefined;
     }
-    // A LIVE model pull keeps advancing (the core only surfaces pull-progress
-    // while the side file is fresh; a stale/dead pull drops it, ending the loop),
-    // so don't freeze it at the 12x warmup cap — poll on while genuinely pulling.
-    if (!pullInProgress && warmupPollCount >= 12) return undefined;
+    // A live pull may legitimately take 30+ minutes. Keep it observable, but
+    // cap renderer polling after one hour so a wedged backend cannot schedule
+    // IPC forever. Manual refresh remains available after the ceiling.
+    if (!shouldScheduleLocalRuntimePoll({ pollCount: warmupPollCount, pullInProgress })) return undefined;
     const timer = setTimeout(() => {
       setWarmupPollCount((count) => count + 1);
       void load();

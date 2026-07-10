@@ -68,7 +68,7 @@ describe('useEveVisualPreferences', () => {
     await waitFor(() => expect(screen.getByTestId('visual-consumer').getAttribute('data-loaded')).toBe('true'));
     expect(screen.getByTestId('visual-consumer').getAttribute('data-mode')).toBe('dark');
     expect(screen.getByTestId('visual-consumer').textContent).toBe('petrol');
-    expect(document.documentElement.style.getPropertyValue('--primary-6')).toBe('15, 118, 110');
+    await waitFor(() => expect(document.documentElement.style.getPropertyValue('--primary-6')).toBe('15, 118, 110'));
 
     fireEvent.click(screen.getByTestId('visual-consumer'));
     await waitFor(() => expect(configSetMock).toHaveBeenCalledTimes(1));

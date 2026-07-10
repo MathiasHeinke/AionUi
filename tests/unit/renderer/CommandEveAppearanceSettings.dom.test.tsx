@@ -63,11 +63,21 @@ vi.mock('@arco-design/web-react', () => ({
     checked,
     onChange,
     'data-testid': testId,
+    'aria-label': ariaLabel,
   }: {
     checked?: boolean;
     onChange?: (value: boolean) => void;
     'data-testid'?: string;
-  }) => <button type='button' data-testid={testId} aria-pressed={checked} onClick={() => onChange?.(!checked)} />,
+    'aria-label'?: string;
+  }) => (
+    <button
+      type='button'
+      data-testid={testId}
+      aria-label={ariaLabel}
+      aria-pressed={checked}
+      onClick={() => onChange?.(!checked)}
+    />
+  ),
   Tooltip: ({ children }: { children: React.ReactNode }) => children,
 }));
 
@@ -105,6 +115,17 @@ describe('CommandEveAppearanceSettings', () => {
     fireEvent.click(screen.getByTestId('eve-appearance-adaptive-tint'));
     const tintUpdater = setVisualPreferencesMock.mock.calls[1][0];
     expect(tintUpdater(preferences)).toMatchObject({ background: { adaptiveTint: false } });
+  });
+
+  it('gives every visual preference switch an accessible name', () => {
+    (preferences.background as typeof preferences.background & { assetId?: string }).assetId = 'bg-test';
+    localStorage.setItem('command-eve.visual-background.bg-test', 'data:image/png;base64,AAAA');
+
+    render(<CommandEveAppearanceSettings />);
+
+    expect(screen.getByRole('button', { name: 'settings.commandEveAppearance.reducedEffects' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'settings.commandEveAppearance.backgroundEnabled' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'settings.commandEveAppearance.adaptiveTint' })).toBeTruthy();
   });
 
   it('stores an uploaded image locally and persists only its opaque id', async () => {

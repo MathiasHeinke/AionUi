@@ -261,6 +261,7 @@ const CommandEveAppearanceSettings: React.FC = () => {
               </span>
             </span>
             <Switch
+              aria-label={t('settings.commandEveAppearance.reducedEffects')}
               checked={visualPreferences.reducedEffects}
               onChange={(checked) => update((current) => ({ ...current, reducedEffects: checked }))}
             />
@@ -306,6 +307,7 @@ const CommandEveAppearanceSettings: React.FC = () => {
                 {t('settings.commandEveAppearance.backgroundEnabled')}
               </span>
               <Switch
+                aria-label={t('settings.commandEveAppearance.backgroundEnabled')}
                 checked={visualPreferences.background.enabled}
                 onChange={(enabled) => updateBackground({ enabled })}
               />
@@ -345,6 +347,7 @@ const CommandEveAppearanceSettings: React.FC = () => {
                 </span>
               </span>
               <Switch
+                aria-label={t('settings.commandEveAppearance.adaptiveTint')}
                 checked={visualPreferences.background.adaptiveTint}
                 data-testid='eve-appearance-adaptive-tint'
                 onChange={(adaptiveTint) => updateBackground({ adaptiveTint })}

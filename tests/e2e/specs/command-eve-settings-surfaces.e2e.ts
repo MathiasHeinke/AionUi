@@ -36,6 +36,11 @@ test.describe('Command EVE settings surfaces', () => {
     await expect(page.getByText('Command EVE', { exact: true })).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/KI-Operatorin|AI operator/)).toBeVisible();
     await expect(page.getByText(/Gemini CLI|Hermes|AionUi/)).toHaveCount(0);
+
+    await page.getByTestId('about-check-updates').click();
+    const updateModal = page.locator('.arco-modal:visible').last();
+    await expect(updateModal).toContainText(/Software-Update|Software Update|Alles aktuell|Up to date/);
+    await page.keyboard.press('Escape');
   });
 
   test('shows humanized local EVE lanes plus runtime status and warmup controls', async ({ page }) => {

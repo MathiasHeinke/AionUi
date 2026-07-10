@@ -176,10 +176,22 @@ const DevSettings: React.FC = () => {
                 <div className='text-14px text-t-primary font-medium'>http://127.0.0.1:{status.port}</div>
               </div>
               <Tooltip content={t('settings.cdp.openInBrowser')}>
-                <Button type='text' size='small' icon={<Link theme='outline' size='16' />} onClick={openCdpUrl} />
+                <Button
+                  type='text'
+                  size='small'
+                  aria-label={t('settings.cdp.openInBrowser')}
+                  icon={<Link theme='outline' size='16' />}
+                  onClick={openCdpUrl}
+                />
               </Tooltip>
               <Tooltip content={t('common.copy')}>
-                <Button type='text' size='small' icon={<Copy theme='outline' size='16' />} onClick={copyCdpUrl} />
+                <Button
+                  type='text'
+                  size='small'
+                  aria-label={t('common.copy')}
+                  icon={<Copy theme='outline' size='16' />}
+                  onClick={copyCdpUrl}
+                />
               </Tooltip>
             </div>
             <div className='space-y-4px'>
@@ -202,6 +214,7 @@ const DevSettings: React.FC = () => {
                         <Button
                           type='text'
                           size='small'
+                          aria-label={t('settings.cdp.copyMcpConfig')}
                           icon={<Copy theme='outline' size='16' />}
                           onClick={(e) => {
                             e.stopPropagation();
@@ -246,6 +259,7 @@ const DevSettings: React.FC = () => {
                         <Button
                           type='text'
                           size='small'
+                          aria-label={t('settings.cdp.copyMcpConfig')}
                           icon={<Copy theme='outline' size='16' />}
                           onClick={(e) => {
                             e.stopPropagation();
