@@ -696,6 +696,272 @@
   text-align: left;
 }
 
+.eve-settings-tabs .arco-tabs-header-nav {
+  border-bottom: 1px solid var(--glass-panel-border);
+}
+
+.eve-settings-tabs .arco-tabs-header-title {
+  margin: 0 20px 0 0;
+  padding: 9px 0 11px;
+  color: var(--eve-shell-text-secondary);
+  font-size: 13px;
+}
+
+.eve-settings-tabs .arco-tabs-header-title-active,
+.eve-settings-tabs .arco-tabs-header-title:hover {
+  color: var(--eve-shell-text);
+}
+
+.eve-settings-tabs .arco-tabs-content {
+  padding-top: 10px;
+}
+
+.eve-settings-count {
+  min-width: 28px;
+  justify-content: center;
+  padding: 0 8px;
+  color: var(--eve-shell-text-secondary);
+  font-size: 12px;
+  line-height: 26px;
+}
+
+.eve-capability-summary {
+  display: grid;
+  grid-template-columns: minmax(130px, auto) minmax(130px, auto) minmax(240px, 1fr);
+  align-items: center;
+  gap: 24px;
+}
+
+.eve-capability-summary__metric {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.eve-capability-summary__metric strong {
+  color: var(--eve-shell-text);
+  font-size: 22px;
+  line-height: 28px;
+}
+
+.eve-capability-summary__metric span,
+.eve-capability-summary > p {
+  margin: 0;
+  color: var(--eve-shell-text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.eve-skills-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.eve-skills-search {
+  width: min(320px, 100%);
+}
+
+.eve-skill-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.eve-skill-filters .arco-btn {
+  border-radius: var(--eve-surface-radius-sm);
+}
+
+.eve-skills-storage {
+  margin-bottom: 10px;
+}
+
+.eve-skill-list {
+  border-top: 1px solid var(--glass-panel-border);
+}
+
+.eve-skill-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  border-bottom: 1px solid var(--glass-panel-border);
+  transition:
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.eve-skill-row:hover {
+  background: var(--eve-row-hover-bg);
+}
+
+.eve-skill-row--highlighted {
+  background: var(--eve-row-selected-bg);
+  box-shadow: inset 2px 0 0 var(--eve-row-selected-hairline);
+}
+
+.eve-skill-row__open.arco-btn {
+  height: auto;
+  min-height: 62px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 10px 8px;
+  border: 0;
+  border-radius: 0;
+  color: var(--eve-shell-text);
+  text-align: left;
+}
+
+.eve-skill-row__open.arco-btn:hover {
+  background: transparent;
+}
+
+.eve-skill-row__open .arco-btn-content {
+  width: 100%;
+  min-width: 0;
+}
+
+.eve-skill-row__content {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.eve-skill-row__icon {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--eve-focus-ring);
+}
+
+.eve-skill-row__copy {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.eve-skill-row__title-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.eve-skill-row__title-line strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--eve-shell-text);
+  font-size: 14px;
+  line-height: 21px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eve-skill-row__description {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--eve-shell-text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.eve-skill-row__delete {
+  flex: 0 0 auto;
+  margin-right: 6px;
+}
+
+.eve-skill-row--static {
+  min-height: 56px;
+  padding: 10px 8px;
+}
+
+.eve-skills-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 72px;
+  border-top: 1px solid var(--glass-panel-border);
+  border-left: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--eve-shell-text-secondary);
+  text-align: center;
+}
+
+.eve-skills-tip {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.eve-skills-tip > .i-icon {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--eve-focus-ring);
+}
+
+.eve-skills-tip strong {
+  color: var(--eve-shell-text);
+  font-size: 13px;
+}
+
+.eve-skills-tip p {
+  margin: 3px 0 0;
+  color: var(--eve-shell-text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.eve-tools-empty {
+  color: var(--eve-shell-text-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.eve-mcp-server-list {
+  border-top: 1px solid var(--glass-panel-border);
+}
+
+.eve-mcp-server-item {
+  margin: 0;
+  border: 0;
+  border-bottom: 1px solid var(--glass-panel-border);
+  border-radius: 0;
+  background: transparent;
+}
+
+.eve-mcp-server-item .arco-collapse-item,
+.eve-mcp-server-item .arco-collapse-item-header,
+.eve-mcp-server-item .arco-collapse-item-content {
+  border: 0;
+  background: transparent;
+}
+
+.eve-mcp-server-item .arco-collapse-item-header {
+  padding: 10px 4px;
+}
+
+.eve-mcp-server-item .arco-collapse-item-header-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.eve-mcp-server-item .arco-collapse-item-content-box {
+  padding: 4px 8px 12px;
+}
+
 .eve-account-settings {
   width: 100%;
 }
@@ -1442,6 +1708,34 @@
 
   .eve-settings-action-row > .arco-btn {
     align-self: flex-start;
+  }
+
+  .eve-about-summary {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .eve-about-summary__version {
+    grid-column: 1 / -1;
+    justify-self: flex-start;
+  }
+
+  .eve-capability-summary {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .eve-skills-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .eve-skills-search {
+    width: 100%;
+  }
+
+  .eve-skill-row__title-line strong {
+    flex-basis: 100%;
+    white-space: normal;
   }
 
   .eve-model-settings__actions {

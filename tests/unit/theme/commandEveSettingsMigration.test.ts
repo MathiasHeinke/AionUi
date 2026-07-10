@@ -25,6 +25,11 @@ const billingSettingsSource = read(
   'packages/desktop/src/renderer/components/settings/SettingsModal/contents/BillingModalContent.tsx'
 );
 const skillsSettingsSource = read('packages/desktop/src/renderer/pages/settings/SkillsHubSettings.tsx');
+const capabilitiesSettingsSource = read('packages/desktop/src/renderer/pages/settings/CapabilitiesSettings.tsx');
+const toolsSettingsSource = read(
+  'packages/desktop/src/renderer/components/settings/SettingsModal/contents/ToolsModalContent.tsx'
+);
+const mcpServerItemSource = read('packages/desktop/src/renderer/pages/settings/ToolsSettings/McpServerItem.tsx');
 const petSettingsSource = read('packages/desktop/src/renderer/pages/settings/PetSettings.tsx');
 const privacySettingsSource = read('packages/desktop/src/renderer/pages/settings/PrivacySettings.tsx');
 const accountSettingsSource = read(
@@ -180,7 +185,7 @@ describe('Command EVE settings migration contract', () => {
   it('centralizes settings semantics without purple or orange status colors', () => {
     expect(settingsSemanticsSource).toContain("attention: 'gold'");
     expect(settingsSemanticsSource).not.toMatch(/purple|pink/i);
-    expect(skillsSettingsSource).toContain('EVE_SETTINGS_IDENTITY_COLORS');
+    expect(skillsSettingsSource).toContain('EVE_SETTINGS_TAG_COLOR');
     expect(skillsSettingsSource).not.toMatch(/#722ED1|#F5319D|#F77234/);
     expect(visualThemeSource).toContain('--eve-static-white: #ffffff');
     expect(visualThemeSource).toContain(".eve-settings-page [class*='transition-']");
@@ -227,5 +232,41 @@ describe('Command EVE settings migration contract', () => {
     expect(aboutSettingsSource).toContain('SettingsPageHeader');
     expect(aboutSettingsSource).not.toContain('<Typography');
     expect(aboutSettingsSource).not.toMatch(/<div[^>]+onClick=/);
+  });
+
+  it('renders capabilities as an unframed EVE library without internal worker inventory', () => {
+    expect(capabilitiesSettingsSource).toContain('SettingsPageHeader');
+    expect(capabilitiesSettingsSource).toContain('eve-settings-tabs');
+    expect(skillsSettingsSource).toContain('SettingsSection');
+    expect(skillsSettingsSource).toContain('<Input');
+    expect(skillsSettingsSource).not.toContain('<button');
+    expect(skillsSettingsSource).not.toContain('<input');
+    expect(skillsSettingsSource).not.toContain('bg-base rd-16px');
+    expect(skillsSettingsSource).not.toContain('connector.name || connector.id');
+    expect(skillsSettingsSource).not.toContain('skill.name || skill.id');
+  });
+
+  it('flattens connected tools, image generation, and speech controls', () => {
+    expect(toolsSettingsSource).toContain('SettingsSection');
+    expect(toolsSettingsSource).toContain('toolsConnectedToolsTitle');
+    expect(toolsSettingsSource).toContain("navigate('/settings/connectors')");
+    expect(toolsSettingsSource).not.toContain('bg-2 rd-12px');
+    expect(toolsSettingsSource).not.toContain("shape='round'");
+    expect(mcpServerItemSource).toContain('eve-mcp-server-item');
+
+    for (const localeName of ['de-DE', 'en-US']) {
+      const locale = JSON.parse(
+        read(`packages/desktop/src/renderer/services/i18n/locales/${localeName}/settings.json`)
+      ) as Record<string, unknown>;
+      const publicCopy = collectStringValues({
+        capabilitiesPageDescription: locale.capabilitiesPageDescription,
+        skillsHub: locale.skillsHub,
+        speechToTextDescription: locale.speechToTextDescription,
+        speechToTextProviderGroqHint: locale.speechToTextProviderGroqHint,
+        toolsConnectedToolsTitle: locale.toolsConnectedToolsTitle,
+        toolsConnectedToolsDescription: locale.toolsConnectedToolsDescription,
+      }).join(' ');
+      expect(publicCopy).not.toMatch(/AionUI|AionUi|Hermes|Codex CLI|Claude Code CLI|~\//i);
+    }
   });
 });
