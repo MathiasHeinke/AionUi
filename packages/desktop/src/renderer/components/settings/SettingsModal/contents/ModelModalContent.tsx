@@ -249,7 +249,8 @@ const ModelModalContent: React.FC = () => {
           for (const tier of model.tiers ?? []) {
             byId[tier.id] = {
               installed: tier.installed === true,
-              installed_size_bytes: typeof tier.installed_size_bytes === 'number' ? tier.installed_size_bytes : undefined,
+              installed_size_bytes:
+                typeof tier.installed_size_bytes === 'number' ? tier.installed_size_bytes : undefined,
               ram_fit: tier.ram_fit !== false,
               disk_fit: tier.disk_fit !== false,
               recommended: tier.recommended === true,
@@ -458,7 +459,12 @@ const ModelModalContent: React.FC = () => {
       // today's paid-seat-only behavior.
       has_active_topup: creditsStatus?.ok === true && creditsStatus.has_active_topup === true,
     }),
-    [entitlementStatus?.trial_ends_at, entitlementStatus?.has_paid_seat, creditsStatus?.ok, creditsStatus?.has_active_topup]
+    [
+      entitlementStatus?.trial_ends_at,
+      entitlementStatus?.has_paid_seat,
+      creditsStatus?.ok,
+      creditsStatus?.has_active_topup,
+    ]
   );
   const byokDisabled = COMMAND_EVE_SHELL_ENABLED && !isModelByokAllowed(proFeatureView);
 
@@ -577,11 +583,23 @@ const ModelModalContent: React.FC = () => {
                   {t('settings.commandEveLocalRuntimeRestartNote')}
                 </p>
               </div>
-              <Tag color='orange'>{t('settings.commandEveLocalRuntimeBackend')}</Tag>
+              <Tag color='arcoblue'>{t('settings.commandEveLocalRuntimeBackend')}</Tag>
             </div>
             <div className='mt-14px grid gap-10px lg:grid-cols-3'>
               {COMMAND_EVE_LOCAL_MODEL_TIERS.map((tier) => {
                 const selected = selectedLocalModelTierId === tier.id;
+                const displayLabel =
+                  tier.state === 'default'
+                    ? t('settings.commandEveLocalRuntimeLane.fast')
+                    : tier.state === 'opt_in'
+                      ? t('settings.commandEveLocalRuntimeLane.balanced')
+                      : t('settings.commandEveLocalRuntimeLane.pro');
+                const displayDescription =
+                  tier.state === 'default'
+                    ? t('settings.commandEveLocalRuntimeLane.fastDescription')
+                    : tier.state === 'opt_in'
+                      ? t('settings.commandEveLocalRuntimeLane.balancedDescription')
+                      : t('settings.commandEveLocalRuntimeLane.proDescription');
                 // 1.6.3 — the card's honest state, from the injected probe:
                 // installed ✓ / lädt X % / nicht geladen / läuft nicht auf
                 // diesem Mac / Status unbekannt (Ollama down). No probe row
@@ -608,18 +626,23 @@ const ModelModalContent: React.FC = () => {
                     <div className='flex items-start justify-between gap-8px'>
                       <div className='min-w-0'>
                         <div className='flex items-center gap-6px flex-wrap'>
-                          <div className='text-15px font-700 leading-22px text-t-primary'>{tier.label}</div>
-                          {probe?.recommended && <Tag color='arcoblue'>{t('settings.commandEveLocalRuntimeRecommended')}</Tag>}
+                          <div className='text-15px font-700 leading-22px text-t-primary'>{displayLabel}</div>
+                          {probe?.recommended && (
+                            <Tag color='arcoblue'>{t('settings.commandEveLocalRuntimeRecommended')}</Tag>
+                          )}
                         </div>
-                        {/* Offline/local models are named transparently (founder 2026-06-28) — the
-                            concrete model ref is the user's own on-device model, not a secret. */}
-                        <div className='mt-4px break-all text-12px leading-18px text-t-secondary'>{tier.modelId}</div>
+                        <div className='mt-4px text-12px leading-18px text-t-secondary'>{displayDescription}</div>
                       </div>
                       {selected && <Tag color='green'>{t('settings.commandEveLocalRuntimeCurrent')}</Tag>}
                     </div>
-                    <div className='mt-6px flex items-center gap-6px flex-wrap' data-testid={`command-eve-model-tier-state-${tier.id}`}>
+                    <div
+                      className='mt-6px flex items-center gap-6px flex-wrap'
+                      data-testid={`command-eve-model-tier-state-${tier.id}`}
+                    >
                       {pullingThis ? (
-                        <Tag color='blue'>{t('settings.commandEveLocalRuntimeDownloading', { percent: localPull?.percent ?? 0 })}</Tag>
+                        <Tag color='blue'>
+                          {t('settings.commandEveLocalRuntimeDownloading', { percent: localPull?.percent ?? 0 })}
+                        </Tag>
                       ) : probe?.installed ? (
                         <Tag color='green'>{t('settings.commandEveLocalRuntimeInstalled')}</Tag>
                       ) : localProbeUnavailable ? (
@@ -627,7 +650,7 @@ const ModelModalContent: React.FC = () => {
                       ) : probe ? (
                         <Tag color='gray'>{t('settings.commandEveLocalRuntimeNotInstalled')}</Tag>
                       ) : null}
-                      {probe && !fits && <Tag color='orange'>{t('settings.commandEveLocalRuntimeNotOnThisMac')}</Tag>}
+                      {probe && !fits && <Tag color='gray'>{t('settings.commandEveLocalRuntimeNotOnThisMac')}</Tag>}
                     </div>
                     <div className='mt-10px text-12px leading-18px text-t-secondary'>
                       {t('settings.commandEveLocalRuntimeMeta', {
@@ -648,7 +671,9 @@ const ModelModalContent: React.FC = () => {
                       loading={ensuringThis || pullingThis}
                       disabled={Boolean(probe && !fits && !probe.installed)}
                       onClick={() =>
-                        showDownload ? downloadCommandEveLocalModelTier(tier.id) : selectCommandEveLocalModelTier(tier.id)
+                        showDownload
+                          ? downloadCommandEveLocalModelTier(tier.id)
+                          : selectCommandEveLocalModelTier(tier.id)
                       }
                     >
                       {probe && !fits && !probe.installed

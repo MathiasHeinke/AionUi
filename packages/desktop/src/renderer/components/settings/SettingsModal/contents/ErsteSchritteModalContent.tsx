@@ -39,19 +39,31 @@ import {
   type ErsteSchritteStepStatus,
 } from '@/common/config/ersteSchritteHubCore';
 
-const STATUS_TAG_COLOR: Record<ErsteSchritteStepStatus, 'green' | 'orange' | 'gray'> = {
+const STATUS_TAG_COLOR: Record<ErsteSchritteStepStatus, 'green' | 'gold' | 'gray'> = {
   done: 'green',
-  attention: 'orange',
+  attention: 'gold',
   optional: 'gray',
 };
 
 /** German fallback copy per step (the i18n locale files override these keys). */
 const STEP_COPY: Record<string, { title: string; desc: string }> = {
-  'ki-spur': { title: 'KI-Spur wählen', desc: 'Die Cloud-KI antwortet sofort. Optional: die lokale KI (Smart Local) laden.' },
-  'company-brain': { title: 'Company-Brain füllen', desc: 'Erzähl EVE dein Geschäft — sie merkt es sich und arbeitet damit.' },
-  kunde: { title: 'Ersten Kunden anlegen', desc: 'Als Agentur einen Kunden-Seat hinzufügen (öffnet dein Konto im Browser).' },
-  connectors: { title: 'Integration verbinden', desc: 'Geprüfte Connectoren freischalten — Schlüssel bleiben im Vault, nie im Chat.' },
-  team: { title: 'Dein Team', desc: 'Rollen, Budget und Worker (z. B. deine Claude-CLI) steuern.' },
+  'ki-spur': {
+    title: 'KI-Spur wählen',
+    desc: 'Die Cloud-KI antwortet sofort. Optional: die lokale KI (Smart Local) laden.',
+  },
+  'company-brain': {
+    title: 'Company-Brain füllen',
+    desc: 'Erzähl EVE dein Geschäft — sie merkt es sich und arbeitet damit.',
+  },
+  kunde: {
+    title: 'Ersten Kunden anlegen',
+    desc: 'Als Agentur einen Kunden-Seat hinzufügen (öffnet dein Konto im Browser).',
+  },
+  connectors: {
+    title: 'Integration verbinden',
+    desc: 'Geprüfte Connectoren freischalten — Schlüssel bleiben im Vault, nie im Chat.',
+  },
+  team: { title: 'Dein Team', desc: 'Rollen, Budget und deine angebundenen Werkzeuge steuern.' },
   skills: { title: 'Was EVE kann', desc: 'Die Fähigkeiten-Bibliothek — inklusive von EVE selbst erstellter Skills.' },
   privacy: { title: 'Datenschutz', desc: 'Telemetrie ist standardmäßig aus. Hier prüfen und steuern.' },
   budget: { title: 'Budget & Guthaben', desc: 'Ausgabe-Limit, Guthaben und Pakete verwalten.' },
@@ -60,7 +72,7 @@ const STEP_COPY: Record<string, { title: string; desc: string }> = {
 
 const STATUS_LABEL: Record<ErsteSchritteStepStatus, string> = {
   done: 'erledigt',
-  attention: 'offen',
+  attention: 'prüfen',
   optional: 'öffnen',
 };
 
@@ -197,7 +209,9 @@ const ErsteSchritteModalContent: React.FC = () => {
               <div className='flex flex-col gap-4px'>
                 <div className='flex items-start justify-between gap-8px'>
                   <span className='text-13px font-600 leading-20px text-t-primary'>
-                    {t(`settings.ersteSchritteStep.${step.id}.title`, { defaultValue: STEP_COPY[step.id]?.title ?? step.id })}
+                    {t(`settings.ersteSchritteStep.${step.id}.title`, {
+                      defaultValue: STEP_COPY[step.id]?.title ?? step.id,
+                    })}
                   </span>
                   <Tag color={STATUS_TAG_COLOR[step.status]} size='small'>
                     {t(`settings.ersteSchritteStatus.${step.status}`, { defaultValue: STATUS_LABEL[step.status] })}

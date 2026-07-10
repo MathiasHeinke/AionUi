@@ -15,6 +15,13 @@ const connectorSource = read('packages/desktop/src/renderer/pages/connectorCatal
 const runtimeSource = read('packages/desktop/src/renderer/pages/localRuntime/index.tsx');
 const teamSource = read('packages/desktop/src/renderer/components/team/DeinTeamPanel.tsx');
 const projectedSpendSource = read('packages/desktop/src/renderer/components/team/ProjectedSpendMeter.tsx');
+const modelSettingsSource = read(
+  'packages/desktop/src/renderer/components/settings/SettingsModal/contents/ModelModalContent.tsx'
+);
+const firstStepsSource = read(
+  'packages/desktop/src/renderer/components/settings/SettingsModal/contents/ErsteSchritteModalContent.tsx'
+);
+const skillsSettingsSource = read('packages/desktop/src/renderer/pages/settings/SkillsHubSettings.tsx');
 
 describe('Command EVE settings migration contract', () => {
   it('routes connectors and local AI through the shared settings shell', () => {
@@ -105,5 +112,36 @@ describe('Command EVE settings migration contract', () => {
     expect(runtimeSource).toContain('normalizeReceiptStatus(model.receipt.status)');
     expect(projectedSpendSource).toContain('shrink-0 whitespace-nowrap');
     expect(projectedSpendSource).toContain("t('deinTeam.budget.title')");
+  });
+
+  it('keeps public settings copy provider-neutral and local paths private', () => {
+    expect(modelSettingsSource).not.toContain('>{tier.label}</div>');
+    expect(modelSettingsSource).not.toContain('>{tier.modelId}</div>');
+    expect(modelSettingsSource).toContain("t('settings.commandEveLocalRuntimeLane.fast')");
+    expect(firstStepsSource).not.toContain('deine Claude-CLI');
+    expect(skillsSettingsSource).toContain("t('settings.commandEveSkillStorage'");
+    expect(skillsSettingsSource).toContain('COMMAND_EVE_SHELL_ENABLED ? undefined : skillPaths.user_skills_dir');
+
+    for (const localeName of ['de-DE', 'en-US']) {
+      const locale = JSON.parse(
+        read(`packages/desktop/src/renderer/services/i18n/locales/${localeName}/settings.json`)
+      ) as Record<string, unknown>;
+      const publicCopy = collectStringValues({
+        appDescription: locale.appDescription,
+        commandEveAppDescription: locale.commandEveAppDescription,
+        commandEveManagedSkillsNote: locale.commandEveManagedSkillsNote,
+        commandEveRuntimeStatusDesc: locale.commandEveRuntimeStatusDesc,
+        commandEveModelWarmupDesc: locale.commandEveModelWarmupDesc,
+        commandEveModelSupportNote: locale.commandEveModelSupportNote,
+        commandEveLocalRuntimeDesc: locale.commandEveLocalRuntimeDesc,
+        commandEveLocalRuntimeBackend: locale.commandEveLocalRuntimeBackend,
+        commandEveLocalRuntimeStatusUnknown: locale.commandEveLocalRuntimeStatusUnknown,
+        commandEveLocalRuntimeRestartNote: locale.commandEveLocalRuntimeRestartNote,
+        ersteSchritteStep: locale.ersteSchritteStep,
+      }).join(' ');
+      expect(publicCopy).not.toMatch(
+        /AionUI|AionUi|Hermes|Claude|Codex|Gemma|Gemini|Ollama|custom:command-eve|\/Users\//i
+      );
+    }
   });
 });

@@ -449,9 +449,7 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
       setReaderTitle(row.name);
       try {
         // Prefer the on-disk reader (custom / learned / managed strategy).
-        const response = await skillContentBridge.invoke(
-          row.path ? { skill_path: row.path } : { skill_id: row.name }
-        );
+        const response = await skillContentBridge.invoke(row.path ? { skill_path: row.path } : { skill_id: row.name });
         const data = response?.data;
         if (data?.ok && typeof data.markdown === 'string' && data.markdown.trim().length > 0) {
           setReaderMarkdown(data.markdown);
@@ -480,9 +478,7 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
           );
           return;
         }
-        setReaderError(
-          t('settings.skillsHub.readError', { defaultValue: 'Could not read this skill.' })
-        );
+        setReaderError(t('settings.skillsHub.readError', { defaultValue: 'Could not read this skill.' }));
       } catch (error) {
         console.error('Failed to read SKILL.md:', error);
         setReaderError(t('settings.skillsHub.readError', { defaultValue: 'Could not read this skill.' }));
@@ -729,8 +725,10 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
           {skillPaths && (
             <div className='flex items-center gap-8px text-12px text-t-tertiary font-mono bg-transparent py-4px mb-16px relative z-10 pt-4px border-t border-t-transparent'>
               <FolderOpen size={16} className='shrink-0' />
-              <span className='truncate' title={skillPaths.user_skills_dir}>
-                {skillPaths.user_skills_dir}
+              <span className='truncate' title={COMMAND_EVE_SHELL_ENABLED ? undefined : skillPaths.user_skills_dir}>
+                {COMMAND_EVE_SHELL_ENABLED
+                  ? t('settings.commandEveSkillStorage', { defaultValue: 'Lokal auf diesem Mac gespeichert' })
+                  : skillPaths.user_skills_dir}
               </span>
             </div>
           )}
@@ -912,9 +910,7 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
         }
         visible={readerOpen}
         onCancel={() => setReaderOpen(false)}
-        footer={
-          <Button onClick={() => setReaderOpen(false)}>{t('common.close', { defaultValue: 'Close' })}</Button>
-        }
+        footer={<Button onClick={() => setReaderOpen(false)}>{t('common.close', { defaultValue: 'Close' })}</Button>}
         style={{ width: 'min(820px, 92vw)' }}
         unmountOnExit
       >

@@ -110,7 +110,7 @@ const AboutModalContent: React.FC = () => {
               {COMMAND_EVE_SHELL_ENABLED ? COMMAND_EVE_APP_NAME : 'AionUi'}
             </Typography.Title>
             <Typography.Text className='text-14px text-t-secondary mb-12px text-center'>
-              {t('settings.appDescription')}
+              {t(COMMAND_EVE_SHELL_ENABLED ? 'settings.commandEveAppDescription' : 'settings.appDescription')}
             </Typography.Text>
             <div className='flex items-center justify-center gap-8px mb-16px'>
               <span className='px-10px py-4px rd-6px text-13px bg-fill-2 text-t-primary font-500'>
