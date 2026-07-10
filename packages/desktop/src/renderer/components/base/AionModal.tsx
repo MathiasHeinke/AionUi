@@ -84,6 +84,9 @@ export interface AionModalProps extends Omit<ModalProps, 'title' | 'footer'> {
   /** Footer 配置，可以是 ReactNode 或配置对象 */
   footer?: React.ReactNode | ModalFooterConfig | null;
 
+  /** Let a full-bleed custom footer own its spacing and border. */
+  footerUnpadded?: boolean;
+
   /** Modal 内容区域样式配置 */
   contentStyle?: ModalContentStyleConfig;
 
@@ -167,6 +170,7 @@ const AionModal: React.FC<AionModalProps> = ({
   size,
   header,
   footer,
+  footerUnpadded = false,
   contentStyle,
   // 向后兼容
   title,
@@ -289,7 +293,7 @@ const AionModal: React.FC<AionModalProps> = ({
       const okLabel = props.okText ?? t('common.confirm', { defaultValue: 'Confirm' });
       return {
         render: () => (
-          <div className='flex flex-wrap justify-end gap-10px px-24px pt-16px pb-20px'>
+          <div className='flex flex-wrap justify-end gap-10px'>
             {/* 默认按钮提供统一圆角，文案可通过 cancelText/okText 覆盖 */}
             {/* Default buttons ship with rounded corners; text can be overridden via cancelText/okText */}
             <Button onClick={onCancel} className='px-20px min-w-80px' style={{ borderRadius: 8 }}>
@@ -365,7 +369,11 @@ const AionModal: React.FC<AionModalProps> = ({
     }
 
     if (footerConfig.render) {
-      const footerClassName = classNames(FOOTER_BASE_CLASS, footerConfig.className);
+      const footerClassName = classNames(
+        FOOTER_BASE_CLASS,
+        !footerUnpadded && 'px-24px pt-16px pb-20px',
+        footerConfig.className
+      );
       return (
         <div className={footerClassName} style={footerConfig.style}>
           {footerConfig.render()}

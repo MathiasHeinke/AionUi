@@ -107,4 +107,34 @@ test.describe('Command EVE settings surfaces', () => {
     await expect(page.getByText('weixin-file-send')).toHaveCount(0);
     await expect(page.getByText('aionui-skills')).toHaveCount(0);
   });
+
+  test('keeps a deep-linked mobile settings route in the visible navigation strip', async ({ page }) => {
+    await page.waitForFunction(() => document.body.innerText.trim().length > 0, undefined, { timeout: 30_000 });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.evaluate(() => {
+      window.location.hash = '#/settings/about';
+      window.dispatchEvent(new Event('resize'));
+    });
+    await page.waitForFunction(() => window.location.hash.includes('/settings/about'));
+    await page.waitForSelector('.settings-page-wrapper', { state: 'visible', timeout: 30_000 });
+
+    const nav = page.locator('.settings-mobile-top-nav');
+    const activeItem = nav.locator('[aria-current="page"]');
+    await expect(nav).toBeVisible();
+    await expect(activeItem).toContainText(/Über|About/);
+
+    await expect
+      .poll(() =>
+        activeItem.evaluate((item) => {
+          const container = item.closest('.settings-mobile-top-nav');
+          if (!container) return false;
+          const itemRect = item.getBoundingClientRect();
+          const containerRect = container.getBoundingClientRect();
+          return itemRect.left >= containerRect.left - 1 && itemRect.right <= containerRect.right + 1;
+        })
+      )
+      .toBe(true);
+
+    await expect(page.locator('.settings-mobile-top-nav-shell')).toHaveClass(/settings-mobile-top-nav-shell--before/);
+  });
 });
