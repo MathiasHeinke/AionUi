@@ -3,6 +3,7 @@ export {
   goToGuid,
   goToSettings,
   goToExtensionSettings,
+  goToUnknownExtensionSettings,
   goToChannelsTab,
   resetChannelsTabCache,
   waitForSettle,

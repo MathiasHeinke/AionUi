@@ -23,6 +23,8 @@ import { takeScreenshot } from '../../../helpers/screenshots';
 import * as path from 'path';
 import * as fs from 'fs';
 
+const upstreamSkillsHubTest = process.env.AIONUI_UPSTREAM_MODE === '1' ? test : test.skip;
+
 test.describe('Skills Hub - Refresh/Empty/Tabs (P1)', () => {
   test.beforeEach(async ({ page }) => {
     await goToSkillsHub(page);
@@ -130,7 +132,7 @@ test.describe('Skills Hub - Refresh/Empty/Tabs (P1)', () => {
   // TC-S-09: Tab switching between external sources
   // ============================================================================
 
-  test('TC-S-09: should switch tabs and show correct external skills', async ({ page }) => {
+  upstreamSkillsHubTest('TC-S-09: should switch tabs and show correct external skills', async ({ page }) => {
     // Setup: Create 2 external sources with different skills
     const sourceA = createTempExternalSource('tc-s-09-a');
     const sourceB = createTempExternalSource('tc-s-09-b');

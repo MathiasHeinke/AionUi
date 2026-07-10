@@ -12,7 +12,12 @@ export type ResponseMapperKey =
   | 'snapshotCompare'
   | 'renameResult'
   | 'previewSnapshotInfo'
-  | 'previewSnapshotContent';
+  | 'previewSnapshotContent'
+  | 'extensionWebui'
+  | 'channelPluginStatus'
+  | 'teamAgent'
+  | 'teamRecord'
+  | 'teamList';
 
 type DirOrFileRaw = {
   name: string;
@@ -52,6 +57,75 @@ function mapFileChange(entry: Record<string, unknown>): Record<string, unknown> 
     filePath: (entry.file_path as string | undefined) ?? (entry.filePath as string | undefined),
     relativePath: (entry.relative_path as string | undefined) ?? (entry.relativePath as string | undefined),
   };
+}
+
+function mapTeamAgent(entry: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...entry,
+    backend: entry.backend ?? entry.assistant_backend,
+    agent_type: entry.agent_type ?? entry.backend ?? entry.assistant_backend,
+    custom_agent_id: entry.custom_agent_id ?? entry.assistant_id,
+  };
+}
+
+function mapTeamRecord(data: unknown): unknown {
+  if (!data || typeof data !== 'object') return data;
+  const raw = data as Record<string, unknown>;
+  const agents = Array.isArray(raw.agents) ? raw.agents : Array.isArray(raw.assistants) ? raw.assistants : [];
+  return {
+    ...raw,
+    agents: agents.map((entry) => mapTeamAgent(entry as Record<string, unknown>)),
+  };
+}
+
+function mapExtensionWebui(data: unknown): unknown {
+  if (!Array.isArray(data)) return data;
+
+  const grouped = new Map<
+    string,
+    {
+      extensionName: string;
+      apiRoutes: Array<Record<string, unknown>>;
+      staticAssets: Array<Record<string, unknown>>;
+    }
+  >();
+
+  for (const entry of data) {
+    if (!entry || typeof entry !== 'object') continue;
+    const raw = entry as Record<string, unknown>;
+    const extensionName = String(raw.extension_name ?? raw.extensionName ?? '').trim();
+    if (!extensionName) continue;
+
+    const aggregate = grouped.get(extensionName) ?? { extensionName, apiRoutes: [], staticAssets: [] };
+    const routes = Array.isArray(raw.routes) ? raw.routes : Array.isArray(raw.apiRoutes) ? raw.apiRoutes : [];
+    for (const route of routes) {
+      if (!route || typeof route !== 'object') continue;
+      const value = route as Record<string, unknown>;
+      aggregate.apiRoutes.push({
+        path: value.path,
+        method: value.method,
+        handler: value.handler ?? value.entryPoint,
+        ...(typeof value.auth === 'boolean' ? { auth: value.auth } : {}),
+      });
+    }
+
+    const assets = Array.isArray(raw.staticAssets) ? raw.staticAssets : [];
+    for (const asset of assets) {
+      if (asset && typeof asset === 'object') aggregate.staticAssets.push(asset as Record<string, unknown>);
+    }
+
+    if (routes.length === 0 && typeof raw.directory === 'string') {
+      const id = String(raw.id ?? '');
+      aggregate.staticAssets.push({
+        directory: raw.directory,
+        urlPrefix: id.endsWith('-assets') ? `/${extensionName}/assets` : `/${extensionName}/${id}`,
+      });
+    }
+
+    grouped.set(extensionName, aggregate);
+  }
+
+  return [...grouped.values()];
 }
 
 export const RESPONSE_MAPPERS: Record<ResponseMapperKey, (data: unknown) => unknown> = {
@@ -98,4 +172,28 @@ export const RESPONSE_MAPPERS: Record<ResponseMapperKey, (data: unknown) => unkn
         : snapshot,
     };
   },
+  extensionWebui: mapExtensionWebui,
+  teamAgent: (data) => (data && typeof data === 'object' ? mapTeamAgent(data as Record<string, unknown>) : data),
+  teamRecord: mapTeamRecord,
+  teamList: (data) => (Array.isArray(data) ? data.map(mapTeamRecord) : data),
+  channelPluginStatus: (data) =>
+    Array.isArray(data)
+      ? data.map((entry) => {
+          const raw = entry as Record<string, unknown>;
+          return {
+            id: (raw.plugin_id ?? raw.id) as string,
+            type: (raw.type ?? raw.plugin_type) as string,
+            name: raw.name as string,
+            enabled: raw.enabled as boolean,
+            connected: (raw.connected ?? false) as boolean,
+            status: raw.status as string | undefined,
+            last_connected: raw.last_connected as number | undefined,
+            activeUsers: (raw.active_users ?? 0) as number,
+            botUsername: raw.bot_username as string | undefined,
+            hasToken: (raw.has_token ?? false) as boolean,
+            isExtension: raw.is_extension as boolean | undefined,
+            extensionMeta: raw.extension_meta,
+          };
+        })
+      : data,
 };

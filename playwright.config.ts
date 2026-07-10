@@ -3,7 +3,10 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: './tests/e2e',
   testMatch: '**/*.e2e.ts',
-  timeout: 60_000,
+  // A fresh sandbox may spend up to three minutes installing the bundled
+  // Hermes runtime before creating its first window. Keep another minute for
+  // the actual assertion body; warm tests remain bounded by their own waits.
+  timeout: 240_000,
   expect: { timeout: 10_000 },
   fullyParallel: false, // Electron tests share one app instance
   retries: process.env.CI ? 1 : 0,

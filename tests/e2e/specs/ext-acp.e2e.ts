@@ -6,6 +6,7 @@
  */
 import { test, expect } from '../fixtures';
 import { goToGuid, goToSettings, expectBodyContainsAny, takeScreenshot, waitForSettle } from '../helpers';
+import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 
 test.describe('Extension: ACP Adapters', () => {
   test('agent settings page loads with extension agents', async ({ page }) => {
@@ -25,8 +26,14 @@ test.describe('Extension: ACP Adapters', () => {
   test('agent pill bar on guid page still works with extensions', async ({ page }) => {
     await goToGuid(page);
 
-    // At least one agent logo should appear (built-in backends)
     const logos = page.locator('img[alt$=" logo"]');
+    if (COMMAND_EVE_SHELL_ENABLED) {
+      await expect(logos).toHaveCount(0);
+      await expect(page.getByRole('textbox', { name: /EVE/ })).toBeVisible();
+      return;
+    }
+
+    // Upstream AionUI keeps its explicit backend picker.
     await expect(logos.first()).toBeVisible({ timeout: 5000 });
     const count = await logos.count();
     expect(count).toBeGreaterThanOrEqual(1);
@@ -36,6 +43,12 @@ test.describe('Extension: ACP Adapters', () => {
     await goToGuid(page);
 
     const logos = page.locator('img[alt$=" logo"]');
+    if (COMMAND_EVE_SHELL_ENABLED) {
+      await expect(logos).toHaveCount(0);
+      await expect(page.getByRole('textbox', { name: /EVE/ })).toBeVisible();
+      return;
+    }
+
     await expect(logos.first()).toBeVisible({ timeout: 5000 });
 
     // Click first available agent

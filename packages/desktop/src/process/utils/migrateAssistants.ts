@@ -164,6 +164,44 @@ export function legacyAssistantToCreateRequest(legacy: Record<string, unknown>):
   };
 }
 
+type MigrationAgentBinding = {
+  id?: unknown;
+  agent_type?: unknown;
+  backend?: unknown;
+};
+
+function resolveMigrationAgentId(
+  presetAgentType: string | undefined,
+  agents: MigrationAgentBinding[]
+): string | undefined {
+  const target = presetAgentType?.trim().toLowerCase();
+  if (!target) return undefined;
+  const match = agents.find((agent) =>
+    [agent.backend, agent.agent_type].some(
+      (value) => typeof value === 'string' && value.trim().toLowerCase() === target
+    )
+  );
+  return typeof match?.id === 'string' && match.id.trim() ? match.id.trim() : undefined;
+}
+
+async function buildLegacyAssistantImportRequests(
+  legacyAssistants: Record<string, unknown>[]
+): Promise<CreateAssistantRequest[]> {
+  const requests = legacyAssistants.map(legacyAssistantToCreateRequest);
+  let agents: MigrationAgentBinding[] = [];
+  try {
+    const detected = await ipcBridge.acpConversation.getAvailableAgents.invoke();
+    if (Array.isArray(detected)) agents = detected;
+  } catch {
+    // Older sidecars accepted preset_agent_type without an explicit agent_id.
+  }
+
+  return requests.map((request) => {
+    const agent_id = resolveMigrationAgentId(request.preset_agent_type, agents);
+    return agent_id ? { ...request, agent_id } : request;
+  });
+}
+
 type ConfigFile = typeof ProcessConfigType;
 
 type BuiltinOverride = { id: string; enabled: false };
@@ -572,8 +610,9 @@ export async function migrateAssistantsToBackend(configFile: ConfigFile): Promis
   // Phase 1: import user-authored assistants (if any).
   if (userAssistants.length > 0) {
     try {
+      const assistants = await buildLegacyAssistantImportRequests(userAssistants);
       const result = await ipcBridge.assistants.import.invoke({
-        assistants: userAssistants.map(legacyAssistantToCreateRequest),
+        assistants,
       });
       if (result.failed !== 0) {
         console.error(`[CommandEVE] Assistant migration partial: ${result.failed} failed`, result.errors);

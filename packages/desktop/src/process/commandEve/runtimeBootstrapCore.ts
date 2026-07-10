@@ -54,6 +54,7 @@ export const COMMAND_EVE_RUNTIME_BOOTSTRAP_VERSION = 'command-eve-runtime-bootst
 const ONE_GB = 1024 ** 3;
 const DEFAULT_OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
 const DEFAULT_EGRESS_PROXY_URL = 'http://127.0.0.1:25811';
+const COMMAND_EVE_EGRESS_PROXY_URL_ENV = 'COMMAND_EVE_EGRESS_PROXY_URL';
 const DEFAULT_MODEL_REF = 'gemma4:e4b';
 const DEFAULT_HERMES_VERSION = '0.17.0';
 const DEFAULT_HERMES_PACKAGE = 'hermes-agent';
@@ -610,6 +611,12 @@ export type RuntimeBootstrapOptions = {
   capabilityManifestPath?: string;
   mode?: RuntimeBootstrapMode;
   env?: NodeJS.ProcessEnv;
+  /**
+   * The loopback shim URL bound by this desktop process. Production normally
+   * uses the manifest default; isolated/multi-instance runtimes bind port 0 and
+   * must persist the actual port into Hermes config instead of a stale 25811.
+   */
+  egressProxyUrl?: string;
   runner?: RuntimeBootstrapRunner;
   detachedSpawner?: RuntimeBootstrapDetachedSpawner;
   now?: () => Date;
@@ -1141,6 +1148,29 @@ const isLoopbackHttpUrl = (urlText: string): boolean => {
   }
 };
 
+function withRuntimeEgressProxyUrl(
+  manifest: RuntimeBootstrapManifest,
+  explicitUrl: string | undefined,
+  env: NodeJS.ProcessEnv
+): RuntimeBootstrapManifest {
+  const override = compact(explicitUrl || env[COMMAND_EVE_EGRESS_PROXY_URL_ENV]);
+  if (!override) return manifest;
+  if (!isLoopbackHttpUrl(override)) {
+    throw new Error(`${COMMAND_EVE_EGRESS_PROXY_URL_ENV} must be a loopback HTTP URL.`);
+  }
+  const parsed = new URL(override);
+  if (parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new Error(`${COMMAND_EVE_EGRESS_PROXY_URL_ENV} must not contain credentials, query, or hash data.`);
+  }
+  return {
+    ...manifest,
+    local_runtime: {
+      ...manifest.local_runtime,
+      egress_proxy_url: parsed.toString().replace(/\/$/, ''),
+    },
+  };
+}
+
 function normalizeContextLength(value: unknown, fallback: number): number {
   const numeric = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(numeric)) return fallback;
@@ -1549,6 +1579,11 @@ export function prepareCommandEveRuntimeProcessEnv(
   // invocation in this process tree resolve the active seat without relying on
   // the bake.
   env.HERMES_HOME = paths.hermesHome;
+
+  // The venv is based on the bundled interpreter under the signed app bundle.
+  // Every Python descendant must keep bytecode out of Contents/Resources/python,
+  // otherwise a first launch mutates the bundle and invalidates its code seal.
+  env.PYTHONDONTWRITEBYTECODE = '1';
 
   // The predictable local inference port is bearer-protected. Hermes receives
   // only a 0600 token-file path; the CEVE/cloud credential never enters config.
@@ -2944,9 +2979,13 @@ export function eveFirstBriefMirrorDirective(): string {
  * through the normal permission/human gates, a paused role gets no work, and
  * EVE must never claim a role produced something it did not.
  */
-export function eveTeamDirective(teamRoles?: RuntimeBootstrapOptions['teamRoles']): string {
+export function eveTeamDirective(
+  teamRoles?: RuntimeBootstrapOptions['teamRoles'],
+  egressProxyUrl = DEFAULT_EGRESS_PROXY_URL
+): string {
   const roles = (teamRoles ?? []).filter((r) => compact(r.display_name).length > 0);
   if (roles.length === 0) return '';
+  const shimBaseUrl = isLoopbackHttpUrl(egressProxyUrl) ? new URL(egressProxyUrl).origin : DEFAULT_EGRESS_PROXY_URL;
   const lines = roles.map((r) => {
     const worker = r.worker ? ` · Worker: ${r.worker}` : '';
     return `- ${r.display_name} (${r.status}${worker}): ${r.outcome}`;
@@ -2958,7 +2997,7 @@ export function eveTeamDirective(teamRoles?: RuntimeBootstrapOptions['teamRoles'
   const proposeClause = canPropose
     ? [
         '',
-        'You may PROPOSE a team status change (pause / resume / stop a role) when the operator asks or it clearly helps — you never apply it yourself. To propose, POST to `http://127.0.0.1:25811/eve/team/propose` with header `Authorization: Bearer $(cat "$COMMAND_EVE_TEAM_MANAGE_BEARER_FILE")` and JSON body `{"role_agent_id":"<id>","action":"pause|resume|stop","reason":"<short German reason>"}`. You get an `intent_id`; the operator then sees a confirm card and NOTHING changes until they click Übernehmen. Only a status change is allowed on this channel — never assignment, model, tier, or cost. Never say the change happened before the operator confirmed it.',
+        `You may PROPOSE a team status change (pause / resume / stop a role) when the operator asks or it clearly helps — you never apply it yourself. To propose, POST to \`${shimBaseUrl}/eve/team/propose\` with header \`Authorization: Bearer $(cat "$COMMAND_EVE_TEAM_MANAGE_BEARER_FILE")\` and JSON body \`{"role_agent_id":"<id>","action":"pause|resume|stop","reason":"<short German reason>"}\`. You get an \`intent_id\`; the operator then sees a confirm card and NOTHING changes until they click Übernehmen. Only a status change is allowed on this channel — never assignment, model, tier, or cost. Never say the change happened before the operator confirmed it.`,
       ]
     : [];
   // COMPA-626 — the kanban clause, emitted only when the kanban-ACP bearer is provisioned
@@ -2968,7 +3007,7 @@ export function eveTeamDirective(teamRoles?: RuntimeBootstrapOptions['teamRoles'
   const kanbanClause = canKanban
     ? [
         '',
-        'You can SEE the marketing Kanban board and PROPOSE card changes — you never move or create a card yourself. To read it, GET `http://127.0.0.1:25811/eve/kanban/read` with header `Authorization: Bearer $(cat "$COMMAND_EVE_KANBAN_ACP_BEARER_FILE")` (returns the lanes + cards). To propose, POST to `http://127.0.0.1:25811/eve/kanban/propose` with the same bearer and a JSON body: create `{"op":"create","title":"…","lane":"research"}`, move `{"op":"move","task_id":"…","to_lane_key":"draft"}`, or a card action `{"op":"action","action":"comment|block|unblock|complete","task_id":"…","comment":"…"}`, each with a short German `reason`. You get an `intent_id`; the operator then sees a confirm card and NOTHING is written until they click Übernehmen. Never delete, dispatch, spawn a worker, or reassign on this channel. Never say a card changed before the operator confirmed it.',
+        `You can SEE the marketing Kanban board and PROPOSE card changes — you never move or create a card yourself. To read it, GET \`${shimBaseUrl}/eve/kanban/read\` with header \`Authorization: Bearer $(cat "$COMMAND_EVE_KANBAN_ACP_BEARER_FILE")\` (returns the lanes + cards). To propose, POST to \`${shimBaseUrl}/eve/kanban/propose\` with the same bearer and a JSON body: create \`{"op":"create","title":"…","lane":"research"}\`, move \`{"op":"move","task_id":"…","to_lane_key":"draft"}\`, or a card action \`{"op":"action","action":"comment|block|unblock|complete","task_id":"…","comment":"…"}\`, each with a short German \`reason\`. You get an \`intent_id\`; the operator then sees a confirm card and NOTHING is written until they click Übernehmen. Never delete, dispatch, spawn a worker, or reassign on this channel. Never say a card changed before the operator confirmed it.`,
       ]
     : [];
   return [
@@ -3738,7 +3777,7 @@ function writeHermesRuntimeFiles(
       eveWorkerRoutingDirective(claudeDelegate) +
       // 1.6.3 Team-Realität: EVE knows the curated team (roles, live status,
       // assigned workers) the Orchestrierung page shows the operator.
-      eveTeamDirective(teamRoles) +
+      eveTeamDirective(teamRoles, manifest.local_runtime.egress_proxy_url) +
       // T4/T7/T8: the EVE write-convention directive — states the ABSOLUTE brain
       // dir, declares the Brain the current-truth source over stale workspace docs,
       // and tells EVE to curate the fixed blueprint sections (else add a note the
@@ -4012,6 +4051,7 @@ export type ProvisionSeatRuntimeFilesOptions = {
   manifestPath?: string;
   capabilityManifestPath?: string;
   env?: NodeJS.ProcessEnv;
+  egressProxyUrl?: RuntimeBootstrapOptions['egressProxyUrl'];
   /** The seat whose home to provision. Defaults to the ACTIVE seat (getActiveSeatId). */
   seatId?: string | null;
   uiLanguage?: string;
@@ -4116,6 +4156,7 @@ export function provisionSeatRuntimeFiles(options: ProvisionSeatRuntimeFilesOpti
     } catch {
       manifest = DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST;
     }
+    manifest = withRuntimeEgressProxyUrl(manifest, options.egressProxyUrl, env);
     let capabilityPack = DEFAULT_COMMAND_EVE_CAPABILITY_PACK;
     try {
       capabilityPack = loadCommandEveCapabilityPack(capabilityManifestPath);
@@ -4198,7 +4239,7 @@ export function provisionSeatRuntimeFiles(options: ProvisionSeatRuntimeFilesOpti
 export async function ensureCommandEveRuntimeBootstrap(
   options: RuntimeBootstrapOptions
 ): Promise<RuntimeBootstrapReceipt> {
-  const env = { ...process.env, ...options.env };
+  const env: NodeJS.ProcessEnv = { ...process.env, ...options.env, PYTHONDONTWRITEBYTECODE: '1' };
   const mode = (env.COMMAND_EVE_RUNTIME_BOOTSTRAP as RuntimeBootstrapMode) || options.mode || 'auto';
   const now = options.now || (() => new Date());
   const runner = options.runner || defaultRunner;
@@ -4215,6 +4256,7 @@ export async function ensureCommandEveRuntimeBootstrap(
   let capabilityPackLoadFailure = '';
   try {
     manifest = loadCommandEveRuntimeBootstrapManifest(manifestPath);
+    manifest = withRuntimeEgressProxyUrl(manifest, options.egressProxyUrl, env);
   } catch (error) {
     manifestLoadFailure = error instanceof Error ? error.message : String(error);
   }

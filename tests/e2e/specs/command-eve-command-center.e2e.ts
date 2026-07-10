@@ -12,17 +12,14 @@
  *                                   Defaults to <companyOsRoot>/reports/command-eve/e2e/2026-06-10/agent-events.clean.jsonl.
  * If neither env nor fallback path exists on disk the test fails loudly (no silent skip).
  */
-import { test, expect } from '../fixtures';
+import { E2E_AGENT_EVENTS_PATH, test, expect } from '../fixtures';
+import { invokeBridge } from '../helpers';
 import fs from 'fs';
-import os from 'os';
 import path from 'path';
 
 const COMPANY_OS_ROOT_DEFAULT = '/Users/mathiasheinke/Developer/Company.OS';
 const LEDGER_FIXTURE_RELATIVE = 'reports/command-eve/e2e/2026-06-10/agent-events.clean.jsonl';
 const COMMAND_EVE_DATA_DIR_NAME = 'command-eve';
-const SHARED_E2E_LEDGER_ROOT = path.join(os.tmpdir(), 'command-eve-e2e-agent-events');
-const SHARED_E2E_LEDGER_PATH = path.join(SHARED_E2E_LEDGER_ROOT, 'agent-events.clean.jsonl');
-
 // State initialised in beforeAll, used by the test body.
 let e2eLedgerPath: string = '';
 
@@ -47,8 +44,8 @@ test.describe('Command EVE Command Center', () => {
       );
     }
 
-    fs.mkdirSync(SHARED_E2E_LEDGER_ROOT, { recursive: true });
-    e2eLedgerPath = SHARED_E2E_LEDGER_PATH;
+    fs.mkdirSync(path.dirname(E2E_AGENT_EVENTS_PATH), { recursive: true });
+    e2eLedgerPath = E2E_AGENT_EVENTS_PATH;
     fs.copyFileSync(cleanLedgerSource, e2eLedgerPath);
 
     process.env.COMMAND_EVE_COMPANY_OS_ROOT = companyOsRoot;
@@ -67,10 +64,10 @@ test.describe('Command EVE Command Center', () => {
     }
   });
 
-  test('renders real local read-model data and creates a governed marketing proof card', async ({
+  test('keeps the founder route private while its governed bridge remains operational', async ({
     page,
     electronApp,
-  }, testInfo) => {
+  }) => {
     const userDataPath = await electronApp.evaluate(async ({ app }) => app.getPath('userData'));
     const commandEveDataPath = path.join(userDataPath, COMMAND_EVE_DATA_DIR_NAME);
     const reconciliationPath = path.join(
@@ -102,45 +99,35 @@ test.describe('Command EVE Command Center', () => {
       window.location.hash = '#/command-center';
     });
 
-    await expect(page.getByText(/Command Center|Kommandozentrale/).first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText('COMMAND_CENTER_ELECTRON_BRIDGE_REQUIRED')).toHaveCount(0);
-    await expect(page.getByText(/Read model|Lesemodell|Runs|Läufe/).first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(/Lokales Board|Local Board/)).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(/lokale Bedienflächen|local controls/i)).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId('command-center-operating-surfaces')).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId('operating-surface-marketing')).toContainText(/Marketing Lane/);
-    await expect(page.getByTestId('operating-surface-crm')).toContainText(/CRM Lane/);
-    await expect(page.getByTestId('operating-surface-dispatch')).toContainText(/Dispatch Gate/);
-    await expect(page.getByTestId('operating-surface-dispatch')).toContainText(/NL-5/);
-    await expect(page.getByTestId('command-center-operating-readiness')).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId('operating-readiness-marketingReceipts')).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId('operating-readiness-workerAutonomyLocked')).toContainText(
-      /worker_dispatch|dispatcher_enabled=false/
+    await expect.poll(() => page.evaluate(() => window.location.hash), { timeout: 30_000 }).toBe('#/guid');
+    await expect(page.getByText(/Command Center|Kommandozentrale/)).toHaveCount(0);
+
+    const readModel = await invokeBridge<{
+      success: boolean;
+      data: { ok: boolean; status: string; model?: unknown; reason_code?: string };
+    }>(page, 'command-eve.command-center-read-model', { maxRuns: 50 }, 30_000);
+    expect(readModel.success, readModel.data.reason_code).toBe(true);
+    expect(readModel.data.ok).toBe(true);
+    expect(readModel.data.status).toBe('ready');
+    expect(readModel.data.model).toBeTruthy();
+
+    const proof = await invokeBridge<{
+      success: boolean;
+      data: { ok: boolean; status: string; reason_code?: string; card_id?: string; audit_event_path?: string };
+    }>(
+      page,
+      'command-eve.kanban-marketing-proof-card',
+      { boardSlug: 'marketing', eventLedgerPath: e2eLedgerPath },
+      30_000
     );
-    await expect(page.getByText(/Marketing Board/).first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText('morning-ceo-brief-20260610-0632')).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText('daily-improvement-dream-2026-06-10').first()).toBeVisible({
-      timeout: 30_000,
-    });
+    expect(proof.success, proof.data.reason_code).toBe(true);
+    expect(proof.data.ok).toBe(true);
+    expect(proof.data.status).toBe('ready');
+    expect(proof.data.reason_code).toMatch(/KANBAN_MARKETING_PROOF_CARD_(CREATED|EXISTS)/);
+    expect(proof.data.card_id).toBeTruthy();
+    expect(proof.data.audit_event_path).toBe(e2eLedgerPath);
 
-    await page.getByRole('button', { name: /Proof-Karte anlegen|Create proof card/ }).click();
-    await expect(page.getByText(/KANBAN_MARKETING_PROOF_CARD_CREATED|KANBAN_MARKETING_PROOF_CARD_EXISTS/)).toBeVisible({
-      timeout: 30_000,
-    });
-    await expect(page.getByText('Command EVE Marketing Board proof card')).toBeVisible({ timeout: 30_000 });
-
-    const screenshotPath = 'tests/e2e/results/command-eve-command-center-local-board.png';
-    await page.screenshot({ path: screenshotPath, fullPage: true });
-    await testInfo.attach('command-center-clean-ledger', {
-      path: screenshotPath,
-      contentType: 'image/png',
-    });
-
-    const marketingScreenshotPath = 'tests/e2e/results/command-eve-marketing-board-proof-card.png';
-    await page.screenshot({ path: marketingScreenshotPath, fullPage: true });
-    await testInfo.attach('command-eve-marketing-board-proof-card', {
-      path: marketingScreenshotPath,
-      contentType: 'image/png',
-    });
+    const ledger = fs.readFileSync(e2eLedgerPath, 'utf8');
+    expect(ledger).toContain('kanban.marketing_board_proof_card_');
   });
 });

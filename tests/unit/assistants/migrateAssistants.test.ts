@@ -19,6 +19,14 @@ vi.mock('@/common', () => ({
       update: { invoke: vi.fn() },
       list: { invoke: vi.fn(async () => []) },
     },
+    acpConversation: {
+      getAvailableAgents: {
+        invoke: vi.fn(async () => [
+          { id: 'agent-aionrs', agent_type: 'aionrs' },
+          { id: 'agent-codex', agent_type: 'acp', backend: 'codex' },
+        ]),
+      },
+    },
     fs: {
       writeAssistantRule: { invoke: vi.fn(async () => true) },
       readAssistantRule: { invoke: vi.fn(async () => '') },
@@ -138,6 +146,51 @@ describe('migrateAssistants', () => {
         store,
       };
     }
+
+    it('binds imported assistants to explicit backend agent ids', async () => {
+      const config = makeConfig({
+        assistants: [
+          { id: 'custom-default', name: 'Default' },
+          { id: 'custom-codex', name: 'Codex', presetAgentType: 'codex' },
+        ],
+      });
+      (ipcBridge.assistants.import.invoke as any).mockResolvedValue({
+        imported: 2,
+        skipped: 0,
+        failed: 0,
+        errors: [],
+      });
+
+      await expect(migrateAssistantsToBackend(config as any)).resolves.toBe(true);
+      expect(ipcBridge.assistants.import.invoke).toHaveBeenCalledWith({
+        assistants: [
+          expect.objectContaining({ id: 'custom-default', preset_agent_type: 'aionrs', agent_id: 'agent-aionrs' }),
+          expect.objectContaining({ id: 'custom-codex', preset_agent_type: 'codex', agent_id: 'agent-codex' }),
+        ],
+      });
+    });
+
+    it('lets AionCore resolve its default agent when detection is temporarily unavailable', async () => {
+      const config = makeConfig({
+        assistants: [{ id: 'custom-default', name: 'Default' }],
+      });
+      vi.mocked(ipcBridge.acpConversation.getAvailableAgents.invoke).mockRejectedValueOnce(
+        new Error('agent catalog still starting')
+      );
+      vi.mocked(ipcBridge.assistants.import.invoke).mockResolvedValue({
+        imported: 1,
+        skipped: 0,
+        failed: 0,
+        errors: [],
+      });
+
+      await expect(
+        migrateAssistantsToBackend(config as Parameters<typeof migrateAssistantsToBackend>[0])
+      ).resolves.toBe(true);
+      const request = vi.mocked(ipcBridge.assistants.import.invoke).mock.calls[0][0].assistants[0];
+      expect(request).toMatchObject({ id: 'custom-default', preset_agent_type: 'aionrs' });
+      expect(request).not.toHaveProperty('agent_id');
+    });
 
     it('treats 404 from retired built-in ids as skip, not failure', async () => {
       // User had two built-ins disabled: one still exists, one was retired from

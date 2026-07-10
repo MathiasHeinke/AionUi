@@ -19,6 +19,14 @@ test.describe('App Launch', () => {
     expect(body).toBeTruthy();
   });
 
+  test('main work surface loads instead of a startup failure shell', async ({ page }) => {
+    await expect(page.getByTestId('sider-footer-identity')).toBeVisible({ timeout: 15_000 });
+    const startupFailure = await page.evaluate(
+      () => (window as Window & { __backendStartupFailure?: unknown }).__backendStartupFailure
+    );
+    expect(startupFailure == null).toBe(true);
+  });
+
   test('no uncaught console errors on load', async ({ page }) => {
     const collector = createErrorCollector(page);
     await waitForSettle(page);

@@ -11,6 +11,7 @@ import { dispatchWorkspaceHasFilesEvent } from '@/renderer/utils/workspace/works
 import { useCallback, useRef, useState } from 'react';
 import type { SelectedNodeRef } from '../types';
 import { getFirstLevelKeys, mergeLoadedChildren } from '../utils/treeHelpers';
+import { searchWorkspaceRecursively } from '../utils/workspaceSearchCore';
 
 interface UseWorkspaceTreeOptions {
   workspace: string;
@@ -72,8 +73,23 @@ export function useWorkspaceTree({ workspace, conversation_id, eventPrefix }: Us
     (path: string, search?: string) => {
       const seq = ++loadSeqRef.current;
       setLoadingHandler(true);
-      return ipcBridge.conversation.getWorkspace
-        .invoke({ path, workspace, conversation_id, search: search || '' })
+      const loadLevel = (targetPath: string) =>
+        ipcBridge.conversation.getWorkspace.invoke({
+          path: targetPath,
+          workspace,
+          conversation_id,
+          search: '',
+        });
+      const request = search
+        ? searchWorkspaceRecursively({
+            rootPath: path,
+            query: search,
+            loadLevel,
+            shouldContinue: () => seq === loadSeqRef.current,
+          })
+        : loadLevel(path);
+
+      return request
         .then((res) => {
           // Ignore stale responses from aborted requests:
           // The backend aborts previous getWorkspace calls, returning [].
@@ -144,7 +160,7 @@ export function useWorkspaceTree({ workspace, conversation_id, eventPrefix }: Us
           return [] as IDirOrFile[];
         })
         .finally(() => {
-          setLoadingHandler(false);
+          if (seq === loadSeqRef.current) setLoadingHandler(false);
         });
     },
     [conversation_id, workspace, setLoadingHandler]

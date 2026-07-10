@@ -52,10 +52,9 @@ const EveInferencePicker: React.FC<{
   // picker, the in-session header and the mobile sheets never drift apart.
   const { selection, groups, selectedItem, commit, cloudBearerAvailable } = useEveInferenceSelection(onChange);
 
-  // An EVE (cloud) tier is selected but there is NO license wire at rest: a send
-  // silently falls back to local Gemma (useGuidSend), so the chip must NOT claim
-  // "EVE Cloud · Hoch". `=== false` only (a transient/unknown read stays honest
-  // by leaving the normal label).
+  // An EVE (cloud) tier is selected but there is NO license wire at rest. The
+  // send path fails loudly and keeps the draft, so the chip must not claim that
+  // the cloud tier is ready. `=== false` only: transient reads keep the normal label.
   const eveCloudNeedsActivation = selectedItem?.group === 'eve' && cloudBearerAvailable === false;
 
   const handleSelect = useCallback(
@@ -68,8 +67,8 @@ const EveInferencePicker: React.FC<{
 
   const displayLabel = useMemo(() => {
     if (selectedItem) {
-      // ...if the cloud lane has no bearer at rest, the send falls back to
-      // local — so say so instead of lying about the tier.
+      // If the cloud lane has no bearer at rest, say so instead of claiming the
+      // selected tier is ready.
       if (eveCloudNeedsActivation) {
         return `EVE Cloud · ${t('conversation.eveInference.needsActivation', 'Aktivierung nötig')}`;
       }
@@ -123,7 +122,10 @@ const EveInferencePicker: React.FC<{
                         }
                         title={
                           item.gated
-                            ? t('conversation.eveInference.highestCost', 'Höchste Kosten — nur für die härteste Aufgabe')
+                            ? t(
+                                'conversation.eveInference.highestCost',
+                                'Höchste Kosten — nur für die härteste Aufgabe'
+                              )
                             : t('conversation.eveInference.consumesCredits', 'Verbraucht Credits')
                         }
                       >

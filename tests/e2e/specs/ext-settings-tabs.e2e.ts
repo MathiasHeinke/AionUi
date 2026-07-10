@@ -3,6 +3,7 @@ import { test, expect } from '../fixtures';
 import {
   goToSettings,
   goToExtensionSettings,
+  goToUnknownExtensionSettings,
   waitForSettle,
   takeScreenshot,
   SETTINGS_SIDER_ITEM,
@@ -43,7 +44,7 @@ async function waitForExtensionSettingsTabs(page: Page, timeout = 10_000): Promi
 
 test.describe('Extension: Settings Tabs Discovery', () => {
   test('extension settings tabs appear in the sidebar', async ({ page }) => {
-    await goToSettings(page, 'gemini');
+    await goToSettings(page, 'model');
 
     const siderItemIds = await waitForExtensionSettingsTabs(page);
 
@@ -53,7 +54,7 @@ test.describe('Extension: Settings Tabs Discovery', () => {
   });
 
   test('multiple extension tabs from different extensions appear', async ({ page }) => {
-    await goToSettings(page, 'gemini');
+    await goToSettings(page, 'model');
 
     const siderItemIds = await waitForExtensionSettingsTabs(page);
 
@@ -93,18 +94,18 @@ test.describe('Extension: Settings Tabs Position Anchoring', () => {
     expect(beforeAboutIdx).toBeLessThan(aboutIdx);
   });
 
-  test('tab with anchor "display/after" appears after Display in sidebar', async ({ page }) => {
-    await goToSettings(page, 'display');
+  test('legacy anchor "display/after" appears after Appearance in sidebar', async ({ page }) => {
+    await goToSettings(page, 'appearance');
     await waitForExtensionSettingsTabs(page);
 
     const siderItemIds = await getSiderItemIds(page);
 
-    const displayIdx = siderItemIds.indexOf('display');
+    const appearanceIdx = siderItemIds.indexOf('appearance');
     const helloIdx = siderItemIds.indexOf(EXT_HELLO_SETTINGS_ID);
 
-    expect(displayIdx).toBeGreaterThanOrEqual(0);
+    expect(appearanceIdx).toBeGreaterThanOrEqual(0);
     expect(helloIdx).toBeGreaterThanOrEqual(0);
-    expect(helloIdx).toBeGreaterThan(displayIdx);
+    expect(helloIdx).toBeGreaterThan(appearanceIdx);
   });
 });
 
@@ -152,7 +153,7 @@ test.describe('Extension: Settings Tabs Navigation', () => {
 
 test.describe('Extension: Settings Tabs $file: Resolution', () => {
   test('e2e-full-extension with $file: settingsTabs resolves correctly', async ({ page }) => {
-    await goToSettings(page, 'gemini');
+    await goToSettings(page, 'model');
 
     const siderItemIds = await waitForExtensionSettingsTabs(page);
 
@@ -168,7 +169,7 @@ test.describe('Extension: Settings Tabs Stability', () => {
     await goToExtensionSettings(page, EXT_E2E_SETTINGS_ID);
     await waitForSettle(page);
 
-    await goToSettings(page, 'gemini');
+    await goToSettings(page, 'model');
     await waitForSettle(page);
 
     const extErrors = errors.filter(
@@ -182,7 +183,7 @@ test.describe('Extension: Settings Tabs Stability', () => {
   });
 
   test('navigating to nonexistent extension tab shows error gracefully', async ({ page }) => {
-    await goToExtensionSettings(page, 'ext-nonexistent-tab');
+    await goToUnknownExtensionSettings(page, 'ext-nonexistent-tab');
     await waitForSettle(page);
 
     const body = await page.locator('body').textContent();

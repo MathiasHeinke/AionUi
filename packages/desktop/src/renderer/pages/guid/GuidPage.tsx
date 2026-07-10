@@ -47,6 +47,10 @@ import { mutate as swrMutate } from 'swr';
 import type { Assistant } from '@/common/types/agent/assistantTypes';
 import styles from './index.module.css';
 
+// Public Command EVE never exposes the raw agent/CLI picker. EVE owns those
+// internal worker choices, including during the assistant bootstrap frame.
+const SHOW_RAW_AGENT_SELECTION = !COMMAND_EVE_SHELL_ENABLED;
+
 const GuidPage: React.FC = () => {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -739,52 +743,52 @@ const GuidPage: React.FC = () => {
                             );
                           }}
                         >
-                        {agentSwitcherItems.map((item) => (
-                          <Menu.Item key={item.key}>
-                            <div className='flex items-center justify-between gap-12px min-w-120px'>
-                              <span className='flex items-center gap-6px'>
-                                {item.logo ? (
-                                  <img
-                                    src={item.logo}
-                                    alt=''
-                                    width={16}
-                                    height={16}
-                                    style={{ objectFit: 'contain', flexShrink: 0 }}
-                                  />
-                                ) : (
-                                  <Robot theme='outline' size={16} fill='currentColor' style={{ flexShrink: 0 }} />
-                                )}
-                                {item.label}
-                                {item.isExtension ? (
-                                  <span className='text-11px px-4px py-1px rd-4px bg-[rgb(var(--arcoblue-1))] text-[rgb(var(--arcoblue-6))]'>
-                                    ext
-                                  </span>
-                                ) : null}
-                              </span>
-                              {item.isCurrent ? <span>✓</span> : null}
-                            </div>
-                          </Menu.Item>
-                        ))}
-                      </Menu>
-                    }
-                  >
-                    <Button size='mini' type='text' className={styles.heroAgentSwitchButton}>
-                      <span className='inline-flex items-center gap-4px'>
-                        {effectiveAgentLogo ? (
-                          <img
-                            src={effectiveAgentLogo}
-                            alt=''
-                            width={20}
-                            height={20}
-                            className={styles.heroAgentSwitchIcon}
-                          />
-                        ) : (
-                          <Robot theme='outline' size={20} fill='currentColor' />
-                        )}
-                        <Down theme='outline' size={16} fill='currentColor' />
-                      </span>
-                    </Button>
-                  </Dropdown>
+                          {agentSwitcherItems.map((item) => (
+                            <Menu.Item key={item.key}>
+                              <div className='flex items-center justify-between gap-12px min-w-120px'>
+                                <span className='flex items-center gap-6px'>
+                                  {item.logo ? (
+                                    <img
+                                      src={item.logo}
+                                      alt=''
+                                      width={16}
+                                      height={16}
+                                      style={{ objectFit: 'contain', flexShrink: 0 }}
+                                    />
+                                  ) : (
+                                    <Robot theme='outline' size={16} fill='currentColor' style={{ flexShrink: 0 }} />
+                                  )}
+                                  {item.label}
+                                  {item.isExtension ? (
+                                    <span className='text-11px px-4px py-1px rd-4px bg-[rgb(var(--arcoblue-1))] text-[rgb(var(--arcoblue-6))]'>
+                                      ext
+                                    </span>
+                                  ) : null}
+                                </span>
+                                {item.isCurrent ? <span>✓</span> : null}
+                              </div>
+                            </Menu.Item>
+                          ))}
+                        </Menu>
+                      }
+                    >
+                      <Button size='mini' type='text' className={styles.heroAgentSwitchButton}>
+                        <span className='inline-flex items-center gap-4px'>
+                          {effectiveAgentLogo ? (
+                            <img
+                              src={effectiveAgentLogo}
+                              alt=''
+                              width={20}
+                              height={20}
+                              className={styles.heroAgentSwitchIcon}
+                            />
+                          ) : (
+                            <Robot theme='outline' size={20} fill='currentColor' />
+                          )}
+                          <Down theme='outline' size={16} fill='currentColor' />
+                        </span>
+                      </Button>
+                    </Dropdown>
                   )}
                 </div>
               </div>
@@ -826,12 +830,7 @@ const GuidPage: React.FC = () => {
                 />
               ) : null}
             </div>
-          ) : isCommandEveAssistant ? (
-            // Founder mandate: EVE users never see the raw agent/CLI pill bar.
-            // The only runtime choices for EVE are the EVE Inference picker and
-            // the permission-mode selector in the action row below.
-            null
-          ) : agentSelection.availableAgents === undefined ? (
+          ) : !SHOW_RAW_AGENT_SELECTION ? null : agentSelection.availableAgents === undefined ? (
             <AgentPillBarSkeleton />
           ) : agentSelection.availableAgents.length > 0 ? (
             <AgentPillBar

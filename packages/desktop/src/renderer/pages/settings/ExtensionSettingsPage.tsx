@@ -12,10 +12,12 @@ import { useExtI18n } from '@/renderer/hooks/system/useExtI18n';
 import { useExtensionSettingsTabs } from '@/renderer/hooks/system/useExtensionSettingsTabs';
 import WebviewHost from '@/renderer/components/media/WebviewHost';
 import { resolveExtensionAssetUrl } from '@/renderer/utils/platform';
-import { isTrustedFrameMessage, resolveTrustedFrameOrigin } from '@/renderer/utils/extensionMessageBoundary';
+import {
+  isExternalExtensionSettingsUrl,
+  isTrustedFrameMessage,
+  resolveTrustedFrameOrigin,
+} from '@/renderer/utils/extensionMessageBoundary';
 import SettingsPageWrapper from './components/SettingsPageWrapper';
-
-const isExternalSettingsUrl = (url?: string): boolean => /^https?:\/\//i.test(url || '');
 
 /**
  * Route-based page for rendering extension-contributed settings tabs.
@@ -46,7 +48,9 @@ const ExtensionSettingsPage: React.FC = () => {
   }, [tabId, extensionTabs]);
 
   const resolvedUrl = resolveExtensionAssetUrl(tab?.url) ?? tab?.url;
-  const isExternalTab = isExternalSettingsUrl(resolvedUrl);
+  // Classify trust from the manifest URL, before Electron expands an internal
+  // `/api/extensions/...` path to the absolute loopback backend origin.
+  const isExternalTab = isExternalExtensionSettingsUrl(tab?.url);
   const messageOrigin = useMemo(() => resolveTrustedFrameOrigin(resolvedUrl, window.location.href), [resolvedUrl]);
 
   useEffect(() => {

@@ -75,6 +75,27 @@ describe('team agent type policy', () => {
       }),
     ]);
   });
+
+  it('keeps the EVE assistant visible while Hermes liveness detection is still pending', () => {
+    const options = [
+      {
+        id: COMMAND_EVE_ASSISTANT_ID,
+        name: 'EVE',
+        backend: COMMAND_EVE_DEFAULT_ACP_BACKEND,
+        team_capable: false,
+      },
+      cliAgentToOption(agent('acp', 'claude')),
+    ];
+
+    expect(filterUserVisibleTeamLeaderAgents(options)).toEqual([
+      expect.objectContaining({
+        id: COMMAND_EVE_ASSISTANT_ID,
+        backend: COMMAND_EVE_DEFAULT_ACP_BACKEND,
+        displayName: COMMAND_EVE_APP_NAME,
+        team_capable: true,
+      }),
+    ]);
+  });
 });
 
 function agent(agent_type: string, backend?: string): AgentMetadata {

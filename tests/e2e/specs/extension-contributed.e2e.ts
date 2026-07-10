@@ -25,18 +25,33 @@ import {
   saveAssistant,
   deleteAssistant,
 } from '../helpers';
+import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 
 const TS = Date.now();
+const upstreamExtensionSurfaceTest = COMMAND_EVE_SHELL_ENABLED ? test.skip : test;
 
 test.describe('Extension-Contributed Agents & Assistants', () => {
-  test('extension agent appears in agent settings', async ({ page }) => {
+  test('extension agents stay internal in Command EVE agent settings', async ({ page }) => {
     await goToSettings(page, 'agent');
     await waitForSettle(page, 5_000);
+
+    if (COMMAND_EVE_SHELL_ENABLED) {
+      const body = await page.locator('body').textContent();
+      expect(body).not.toMatch(/E2E CLI Agent|e2e-cli-agent|E2E HTTP Agent/);
+      return;
+    }
+
     // e2e-full-extension contributes "E2E CLI Agent" and "E2E HTTP Agent"
     await expectBodyContainsAny(page, ['E2E CLI Agent', 'e2e-cli-agent', 'E2E HTTP Agent']);
   });
 
-  test('extension assistant appears in assistant settings', async ({ page }) => {
+  test('extension assistants stay internal in Command EVE assistant settings', async ({ page }) => {
+    if (COMMAND_EVE_SHELL_ENABLED) {
+      await goToSettings(page, 'agent');
+      await expect(page.getByRole('tab', { name: /Assistenten|Assistants/i })).toHaveCount(0);
+      return;
+    }
+
     await goToAssistantSettings(page);
     await page.locator('[data-testid^="assistant-card-"]').first().waitFor({ state: 'visible', timeout: 10_000 });
 
@@ -48,18 +63,26 @@ test.describe('Extension-Contributed Agents & Assistants', () => {
       if (hasExtAssistant) break;
       await page.waitForTimeout(1_000);
     }
+
     // The e2e-full-extension contributes "ext-e2e-test-assistant"
     expect(hasExtAssistant).toBeTruthy();
   });
 
-  test('extension assistant appears on guid page', async ({ page }) => {
+  test('extension assistants stay internal on the Command EVE guid page', async ({ page }) => {
     await goToGuid(page);
     await waitForSettle(page, 5_000);
+
+    if (COMMAND_EVE_SHELL_ENABLED) {
+      await expect(page.locator('body')).not.toContainText('E2E Test Assistant');
+      await expect(page.getByRole('textbox', { name: /EVE/ })).toBeVisible();
+      return;
+    }
+
     // Look for the extension assistant name in the page
     await expectBodyContainsAny(page, ['E2E Test Assistant']);
   });
 
-  test('extension assistant edit is read-only', async ({ page }) => {
+  upstreamExtensionSurfaceTest('extension assistant edit is read-only', async ({ page }) => {
     await goToAssistantSettings(page);
     await waitForSettle(page, 3_000);
     const ids = await getVisibleAssistantIds(page);
@@ -80,7 +103,7 @@ test.describe('Extension-Contributed Agents & Assistants', () => {
     await closeDrawer(page);
   });
 
-  test('duplicate extension assistant to custom', async ({ page }) => {
+  upstreamExtensionSurfaceTest('duplicate extension assistant to custom', async ({ page }) => {
     await goToAssistantSettings(page);
     await waitForSettle(page, 3_000);
     const ids = await getVisibleAssistantIds(page);

@@ -40,6 +40,8 @@ const PREFERRED_PRESET_CUSTOM_AGENT_ID = 'builtin-cowork';
 const PREFERRED_PRESET_AGENT_TYPE = 'gemini';
 
 test.describe('Team Create - preset assistant leader', () => {
+  test.skip(process.env.AIONUI_UPSTREAM_MODE !== '1', 'Command EVE exposes only itself as the public team leader');
+
   test('can create a team with a preset assistant as leader', async ({ page }) => {
     test.setTimeout(120_000);
 

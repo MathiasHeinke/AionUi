@@ -11,14 +11,21 @@ import { Form, Input, Select, Message, TimePicker, Radio, Button } from '@arco-d
 import ModalWrapper from '@renderer/components/base/ModalWrapper';
 import { Down, Robot } from '@icon-park/react';
 import { ipcBridge } from '@/common';
-import type { ICreateCronJobParams, ICronAgentConfig, ICronJob } from '@/common/adapter/ipcBridge';
+import type { ICreateCronJobParams, ICronJob } from '@/common/adapter/ipcBridge';
 import { useConversationAgents } from '@renderer/pages/conversation/hooks/useConversationAgents';
 import { resolveAgentLogo } from '@renderer/utils/model/agentLogo';
 import { CUSTOM_AVATAR_IMAGE_MAP } from '@/renderer/pages/guid/constants';
 import dayjs from 'dayjs';
 import { getFullAutoMode } from '@renderer/utils/model/agentModes';
 import type { TProviderWithModel } from '@/common/config/storage';
-import { getCommandEveLocalAcpModelInfo } from '@/common/config/commandEveShell';
+import {
+  COMMAND_EVE_APP_NAME,
+  COMMAND_EVE_ASSISTANT_AVATAR,
+  COMMAND_EVE_ASSISTANT_ID,
+  COMMAND_EVE_DEFAULT_ACP_BACKEND,
+  COMMAND_EVE_SHELL_ENABLED,
+  getCommandEveLocalAcpModelInfo,
+} from '@/common/config/commandEveShell';
 import { type AcpModelInfo } from '@/common/types/platform/acpTypes';
 import { useModelProviderList } from '@renderer/hooks/agent/useModelProviderList';
 import GuidModelSelector from '@renderer/pages/guid/components/GuidModelSelector';
@@ -26,12 +33,13 @@ import { WorkspaceFolderSelect } from '@renderer/components/workspace';
 import { DETECTED_AGENTS_SWR_KEY, fetchDetectedAgents, type AgentMetadata } from '@renderer/utils/model/agentTypes';
 import { createCronSchedule } from '@renderer/pages/cron/cronUtils';
 import { getConversationCreateErrorMessage } from '@renderer/pages/conversation/utils/conversationCreateError';
-import { resolveSupportedConversationType } from '@renderer/utils/model/agentTypeSupportPolicy';
+import { buildCronAgentConfig, getBareAssistantId, resolveCronAgentSelectionKey } from './cronAgentContract';
 
 const FormItem = Form.Item;
 const TextArea = Input.TextArea;
 const Option = Select.Option;
 const OptGroup = Select.OptGroup;
+const COMMAND_EVE_CRON_AGENT_VALUE = `preset:${COMMAND_EVE_ASSISTANT_ID}`;
 
 interface CreateTaskDialogProps {
   visible: boolean;
@@ -40,7 +48,6 @@ interface CreateTaskDialogProps {
   editJob?: ICronJob;
   conversation_id?: string;
   conversation_title?: string;
-  agent_type?: string;
 }
 
 type FrequencyType = 'manual' | 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'custom';
@@ -121,16 +128,8 @@ function getDescriptionInitialValue(job: ICronJob): string {
  * Infer the agent selection key from an ICronJob's agent_config.
  */
 function getAgentKeyFromJob(job: ICronJob, cliAgents: { backend?: string; agent_type: string }[]): string | undefined {
-  const config = job.metadata.agent_config;
-  if (config) {
-    if (config.is_preset && config.custom_agent_id) return `preset:${config.custom_agent_id}`;
-    // For ACP agents config.backend is the vendor label (e.g. "claude");
-    // for aionrs it's a provider hash — match against the agent list to decide.
-    const matched = cliAgents.find((a) => (a.backend || a.agent_type) === config.backend);
-    if (matched) return `cli:${config.backend}`;
-  }
-  if (job.metadata.agent_type) return `cli:${job.metadata.agent_type}`;
-  return undefined;
+  if (COMMAND_EVE_SHELL_ENABLED) return COMMAND_EVE_CRON_AGENT_VALUE;
+  return resolveCronAgentSelectionKey(job, cliAgents);
 }
 
 const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
@@ -139,13 +138,12 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
   editJob,
   conversation_id: _conversation_id,
   conversation_title,
-  agent_type,
 }) => {
   const { t } = useTranslation();
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
   const { cliAgents, presetAssistants } = useConversationAgents();
-  const { providers, getAvailableModels, formatModelLabel } = useModelProviderList();
+  const { providers, getAvailableModels } = useModelProviderList();
   const [frequency, setFrequency] = useState<FrequencyType>('manual');
   const [time, setTime] = useState('09:00');
   const [weekday, setWeekday] = useState('MON');
@@ -192,7 +190,7 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
         agent: agentKey,
       });
       // Populate advanced settings from editJob
-      setModelId(editJob.metadata.agent_config?.model_id);
+      setModelId(editJob.metadata.agent_config?.model_id ?? editJob.metadata.agent_config?.model?.model);
       setConfigOptions(editJob.metadata.agent_config?.config_options);
       setWorkspace(editJob.metadata.agent_config?.workspace);
     } else {
@@ -206,7 +204,9 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
       setModelId(undefined);
       setConfigOptions(undefined);
       setWorkspace(undefined);
-      setSelectedAgent(undefined);
+      const defaultAgent = COMMAND_EVE_SHELL_ENABLED ? COMMAND_EVE_CRON_AGENT_VALUE : undefined;
+      setSelectedAgent(defaultAgent);
+      if (defaultAgent) form.setFieldsValue({ agent: defaultAgent });
     }
   }, [visible, editJob, form]);
 
@@ -218,6 +218,7 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
     const agentId = selectedAgent.substring(colonIdx + 1);
 
     if (agentKind === 'preset') {
+      if (agentId === COMMAND_EVE_ASSISTANT_ID) return COMMAND_EVE_DEFAULT_ACP_BACKEND;
       const assistant = presetAssistants.find((a) => a.id === agentId);
       return assistant?.preset_agent_type;
     }
@@ -248,7 +249,8 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
   const geminiCurrentModel = useMemo<TProviderWithModel | undefined>(() => {
     if (resolvedBackend !== 'aionrs' || !model_id) return undefined;
 
-    const editedProviderId = resolvedBackend === 'aionrs' ? editJob?.metadata.agent_config?.backend : undefined;
+    const editedProviderId =
+      resolvedBackend === 'aionrs' ? editJob?.metadata.agent_config?.model?.provider_id : undefined;
     if (editedProviderId) {
       const byId = filteredProviders.find((p) => p.id === editedProviderId);
       if (byId && getAvailableModels(byId).includes(model_id)) {
@@ -377,64 +379,61 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
     const agentKind = colonIdx >= 0 ? agentValue.substring(0, colonIdx) : 'cli';
     const agentId = colonIdx >= 0 ? agentValue.substring(colonIdx + 1) : agentValue;
 
-    let agent_config: ICronAgentConfig | undefined;
-    let resolvedAgentType: ICreateCronJobParams['agent_type'] = resolveSupportedConversationType(agent_type || 'acp');
+    if (agentKind === 'preset' && agentId === COMMAND_EVE_ASSISTANT_ID) {
+      return buildCronAgentConfig({
+        assistantId: COMMAND_EVE_ASSISTANT_ID,
+        name: COMMAND_EVE_APP_NAME,
+        mode: getFullAutoMode(COMMAND_EVE_DEFAULT_ACP_BACKEND),
+        modelId: model_id,
+        configOptions: config_options,
+        workspace,
+      });
+    }
 
     if (agentKind === 'cli') {
       const agent = cliAgents.find((a) => a.backend === agentId || a.agent_type === agentId);
+      if (!agent) throw new Error(t('cron.page.form.agentRequired'));
       const backend = (agent?.backend || agent?.agent_type || agentId) as string;
 
       if (backend === 'aionrs') {
-        // aionrs stores provider_id in `agent_config.backend` and the model
-        // name in `model_id` — different semantic from ACP, where backend is
-        // a vendor label. The executor looks up the provider row by this id.
         if (!geminiCurrentModel || !model_id) {
           throw new Error(t('cron.page.form.aionrsModelRequired'));
         }
-        resolvedAgentType = 'aionrs' as ICreateCronJobParams['agent_type'];
-        agent_config = {
-          backend: geminiCurrentModel.id as string,
-          name: geminiCurrentModel.name,
+        return buildCronAgentConfig({
+          assistantId: getBareAssistantId(agent.id),
+          name: agent.name,
           mode: getFullAutoMode('aionrs'),
-          model_id,
+          modelId: model_id,
+          providerId: geminiCurrentModel.id as string,
           workspace,
-        };
-      } else if (agent?.agent_type === 'acp') {
-        const capitalizedBackend = backend.charAt(0).toUpperCase() + backend.slice(1);
-        resolvedAgentType = 'acp';
-        agent_config = {
-          // cli_path is no longer sent from the frontend — the backend
-          // resolves it server-side from the `agent_metadata` catalog.
-          backend,
-          name: agent.name || capitalizedBackend,
-          mode: getFullAutoMode(backend),
-          model_id,
-          config_options,
-          workspace,
-        };
-      } else if (agent) {
-        resolvedAgentType = resolveSupportedConversationType(backend);
+        });
       }
-    } else if (agentKind === 'preset') {
-      const assistant = presetAssistants.find((a) => a.id === agentId);
-      if (assistant) {
-        const presetBackend = assistant.preset_agent_type;
-        resolvedAgentType = resolveSupportedConversationType(presetBackend);
-        agent_config = {
-          backend: presetBackend as string,
-          name: assistant.name,
-          is_preset: true,
-          custom_agent_id: assistant.id,
-          preset_agent_type: presetBackend,
-          mode: getFullAutoMode(presetBackend),
-          model_id,
-          config_options,
-          workspace,
-        };
-      }
+
+      return buildCronAgentConfig({
+        assistantId: getBareAssistantId(agent.id),
+        name: agent.name || backend.charAt(0).toUpperCase() + backend.slice(1),
+        mode: getFullAutoMode(backend),
+        modelId: model_id,
+        configOptions: config_options,
+        workspace,
+      });
     }
 
-    return { agent_config, resolvedAgentType };
+    if (agentKind === 'preset') {
+      const assistant = presetAssistants.find((a) => a.id === agentId);
+      if (!assistant) throw new Error(t('cron.page.form.agentRequired'));
+      const presetBackend = assistant.preset_agent_type;
+      return buildCronAgentConfig({
+        assistantId: assistant.id,
+        name: assistant.name,
+        mode: presetBackend ? getFullAutoMode(presetBackend) : undefined,
+        modelId: model_id,
+        configOptions: config_options,
+        workspace,
+      });
+    }
+
+    throw new Error(t('cron.page.form.agentRequired'));
   };
 
   const handleSubmit = async () => {
@@ -446,7 +445,7 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
       const scheduleDesc = scheduleInfo.description;
       const schedule = createCronSchedule(scheduleExpr, scheduleDesc);
 
-      const { agent_config, resolvedAgentType } = resolveAgentConfig(values.agent);
+      const agent_config = resolveAgentConfig(values.agent);
 
       if (isEditMode) {
         // Edit mode: update existing job
@@ -463,7 +462,6 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
             },
             metadata: {
               ...editJob!.metadata,
-              agent_type: resolvedAgentType,
               agent_config,
               updated_at: Date.now(),
             },
@@ -479,7 +477,6 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
           prompt: values.prompt,
           conversation_id: _conversation_id ?? '',
           conversation_title,
-          agent_type: resolvedAgentType,
           created_by: 'user',
           execution_mode,
           agent_config,
@@ -534,10 +531,24 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
             <Select
               placeholder={t('cron.page.form.agentPlaceholder')}
               onChange={handleAgentChange}
+              disabled={COMMAND_EVE_SHELL_ENABLED}
+              data-testid='command-eve-cron-agent'
               renderFormat={(_option, value) => {
                 // Find selected agent to render logo + name in the trigger
                 const strVal = value as unknown as string;
                 if (!strVal) return '';
+                if (strVal === COMMAND_EVE_CRON_AGENT_VALUE) {
+                  return (
+                    <div className='flex items-center gap-8px'>
+                      <img
+                        src={COMMAND_EVE_ASSISTANT_AVATAR}
+                        alt={COMMAND_EVE_APP_NAME}
+                        className='h-16px w-16px object-contain'
+                      />
+                      <span>{COMMAND_EVE_APP_NAME}</span>
+                    </div>
+                  );
+                }
                 const [type, id] = strVal.split(':');
                 let name = id;
                 let logo: React.ReactNode = <Robot size='16' />;
@@ -574,57 +585,74 @@ const CreateTaskDialog: React.FC<CreateTaskDialogProps> = ({
                 );
               }}
             >
-              {cliAgents.length > 0 && (
-                <OptGroup label={t('conversation.dropdown.cliAgents')}>
-                  {cliAgents.map((agent) => {
-                    const agentKey = agent.backend || agent.agent_type;
-                    const logo = resolveAgentLogo({
-                      icon: agent.icon,
-                      backend: agentKey,
-                    });
-                    const disabled = agentKey === 'aionrs' && !hasAionrsProvider;
-                    return (
-                      <Option key={`cli:${agentKey}`} value={`cli:${agentKey}`} disabled={disabled}>
-                        <div
-                          className='flex items-center gap-8px'
-                          title={disabled ? t('cron.page.form.aionrsNoProvider') : undefined}
-                        >
-                          {logo ? (
-                            <img src={logo} alt={agent.name} className='w-16px h-16px object-contain' />
-                          ) : (
-                            <Robot size='16' />
-                          )}
-                          <span>{agent.name}</span>
-                          {disabled && (
-                            <span className='text-12px text-t-tertiary'>{t('cron.page.form.aionrsNoProvider')}</span>
-                          )}
-                        </div>
-                      </Option>
-                    );
-                  })}
-                </OptGroup>
-              )}
-              {presetAssistants.length > 0 && (
-                <OptGroup label={t('conversation.dropdown.presetAssistants')}>
-                  {presetAssistants.map((assistant) => {
-                    const avatarImage = assistant.avatar ? CUSTOM_AVATAR_IMAGE_MAP[assistant.avatar] : undefined;
-                    const isEmoji = assistant.avatar && !avatarImage && !assistant.avatar.endsWith('.svg');
-                    return (
-                      <Option key={`preset:${assistant.id}`} value={`preset:${assistant.id}`}>
-                        <div className='flex items-center gap-8px'>
-                          {avatarImage ? (
-                            <img src={avatarImage} alt={assistant.name} className='w-16px h-16px object-contain' />
-                          ) : isEmoji ? (
-                            <span className='text-14px leading-16px'>{assistant.avatar}</span>
-                          ) : (
-                            <Robot size='16' />
-                          )}
-                          <span>{assistant.name}</span>
-                        </div>
-                      </Option>
-                    );
-                  })}
-                </OptGroup>
+              {COMMAND_EVE_SHELL_ENABLED ? (
+                <Option value={COMMAND_EVE_CRON_AGENT_VALUE}>
+                  <div className='flex items-center gap-8px'>
+                    <img
+                      src={COMMAND_EVE_ASSISTANT_AVATAR}
+                      alt={COMMAND_EVE_APP_NAME}
+                      className='h-16px w-16px object-contain'
+                    />
+                    <span>{COMMAND_EVE_APP_NAME}</span>
+                  </div>
+                </Option>
+              ) : (
+                <>
+                  {cliAgents.length > 0 && (
+                    <OptGroup label={t('conversation.dropdown.cliAgents')}>
+                      {cliAgents.map((agent) => {
+                        const agentKey = agent.backend || agent.agent_type;
+                        const logo = resolveAgentLogo({
+                          icon: agent.icon,
+                          backend: agentKey,
+                        });
+                        const disabled = agentKey === 'aionrs' && !hasAionrsProvider;
+                        return (
+                          <Option key={`cli:${agentKey}`} value={`cli:${agentKey}`} disabled={disabled}>
+                            <div
+                              className='flex items-center gap-8px'
+                              title={disabled ? t('cron.page.form.aionrsNoProvider') : undefined}
+                            >
+                              {logo ? (
+                                <img src={logo} alt={agent.name} className='w-16px h-16px object-contain' />
+                              ) : (
+                                <Robot size='16' />
+                              )}
+                              <span>{agent.name}</span>
+                              {disabled && (
+                                <span className='text-12px text-t-tertiary'>
+                                  {t('cron.page.form.aionrsNoProvider')}
+                                </span>
+                              )}
+                            </div>
+                          </Option>
+                        );
+                      })}
+                    </OptGroup>
+                  )}
+                  {presetAssistants.length > 0 && (
+                    <OptGroup label={t('conversation.dropdown.presetAssistants')}>
+                      {presetAssistants.map((assistant) => {
+                        const avatarImage = assistant.avatar ? CUSTOM_AVATAR_IMAGE_MAP[assistant.avatar] : undefined;
+                        const isEmoji = assistant.avatar && !avatarImage && !assistant.avatar.endsWith('.svg');
+                        return (
+                          <Option key={`preset:${assistant.id}`} value={`preset:${assistant.id}`}>
+                            <div className='flex items-center gap-8px'>
+                              {avatarImage ? (
+                                <img src={avatarImage} alt={assistant.name} className='w-16px h-16px object-contain' />
+                              ) : isEmoji ? (
+                                <span className='text-14px leading-16px'>{assistant.avatar}</span>
+                              ) : (
+                                <Robot size='16' />
+                              )}
+                              <span>{assistant.name}</span>
+                            </div>
+                          </Option>
+                        );
+                      })}
+                    </OptGroup>
+                  )}
+                </>
               )}
             </Select>
           </FormItem>

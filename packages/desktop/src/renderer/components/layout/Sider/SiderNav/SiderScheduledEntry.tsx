@@ -31,9 +31,12 @@ const SiderScheduledEntry: React.FC<SiderScheduledEntryProps> = ({
   if (collapsed) {
     return (
       <Tooltip {...siderTooltipProps} content={t('cron.scheduledTasks')} position='right'>
-        <div
+        <button
+          type='button'
+          aria-label={t('cron.scheduledTasks')}
+          aria-current={isActive ? 'page' : undefined}
           className={classNames(
-            'w-full h-34px flex items-center justify-center cursor-pointer transition-colors rd-8px text-t-primary',
+            'w-full h-34px flex items-center justify-center cursor-pointer border-0 bg-transparent p-0 transition-colors rd-8px text-t-primary',
             isActive ? 'bg-fill-3' : 'hover:bg-fill-3 active:bg-fill-4'
           )}
           onClick={onClick}
@@ -45,16 +48,18 @@ const SiderScheduledEntry: React.FC<SiderScheduledEntryProps> = ({
             className='block leading-none shrink-0'
             style={{ lineHeight: 0 }}
           />
-        </div>
+        </button>
       </Tooltip>
     );
   }
 
   return (
     <Tooltip {...siderTooltipProps} content={t('cron.scheduledTasks')} position='right'>
-      <div
+      <button
+        type='button'
+        aria-current={isActive ? 'page' : undefined}
         className={classNames(
-          'box-border group h-34px w-full flex items-center justify-start gap-8px pl-10px pr-8px rd-0.5rem cursor-pointer shrink-0 transition-all text-t-primary',
+          'box-border group h-34px w-full flex items-center justify-start gap-8px border-0 bg-transparent pl-10px pr-8px rd-0.5rem cursor-pointer shrink-0 transition-all text-left text-t-primary',
           isMobile && 'sider-action-btn-mobile',
           isActive ? 'bg-fill-3' : 'hover:bg-fill-3 active:bg-fill-4'
         )}
@@ -72,7 +77,7 @@ const SiderScheduledEntry: React.FC<SiderScheduledEntryProps> = ({
         <span className='collapsed-hidden text-t-primary text-14px font-[500] leading-24px'>
           {t('cron.scheduledTasks')}
         </span>
-      </div>
+      </button>
     </Tooltip>
   );
 };

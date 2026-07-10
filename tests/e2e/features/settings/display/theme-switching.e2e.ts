@@ -10,19 +10,20 @@ import { goToSettings } from '../../../helpers/navigation';
 
 test.describe('Theme Switching', () => {
   test.beforeEach(async ({ page }) => {
-    await goToSettings(page, 'display');
+    await goToSettings(page, 'appearance');
   });
 
   test('switches from current theme to the other and back', async ({ page }) => {
-    const themeGroup = page.locator('[role="radiogroup"]');
+    const themeGroup = page.locator('[aria-labelledby="eve-appearance-mode-title"]');
     await themeGroup.waitFor({ state: 'visible', timeout: 10_000 });
 
     const initialTheme = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
     expect(initialTheme).toBeTruthy();
+    const initialMode = await themeGroup.locator('[role="radio"][aria-checked="true"]').getAttribute('data-testid');
+    expect(initialMode).toBeTruthy();
 
     const targetTheme = initialTheme === 'light' ? 'dark' : 'light';
-
-    const targetButton = themeGroup.locator(`[role="radio"][aria-checked="false"]`);
+    const targetButton = page.getByTestId(`eve-appearance-mode-${targetTheme}`);
     await targetButton.click();
 
     await page.waitForFunction(
@@ -34,7 +35,7 @@ test.describe('Theme Switching', () => {
     const newTheme = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
     expect(newTheme).toBe(targetTheme);
 
-    const revertButton = themeGroup.locator(`[role="radio"][aria-checked="false"]`);
+    const revertButton = page.getByTestId(initialMode!);
     await revertButton.click();
 
     await page.waitForFunction(
@@ -48,10 +49,8 @@ test.describe('Theme Switching', () => {
   });
 
   test('dark button sets data-theme to dark', async ({ page }) => {
-    const themeGroup = page.locator('[role="radiogroup"]');
-    await themeGroup.waitFor({ state: 'visible', timeout: 10_000 });
-
-    const darkButton = themeGroup.locator('[role="radio"]').nth(1);
+    const darkButton = page.getByTestId('eve-appearance-mode-dark');
+    await darkButton.waitFor({ state: 'visible', timeout: 10_000 });
     await darkButton.click();
 
     await page.waitForFunction(() => document.documentElement.getAttribute('data-theme') === 'dark', {
@@ -66,10 +65,8 @@ test.describe('Theme Switching', () => {
   });
 
   test('light button sets data-theme to light', async ({ page }) => {
-    const themeGroup = page.locator('[role="radiogroup"]');
-    await themeGroup.waitFor({ state: 'visible', timeout: 10_000 });
-
-    const lightButton = themeGroup.locator('[role="radio"]').nth(0);
+    const lightButton = page.getByTestId('eve-appearance-mode-light');
+    await lightButton.waitFor({ state: 'visible', timeout: 10_000 });
     await lightButton.click();
 
     await page.waitForFunction(() => document.documentElement.getAttribute('data-theme') === 'light', {
@@ -84,12 +81,9 @@ test.describe('Theme Switching', () => {
   });
 
   test('aria-checked reflects active theme', async ({ page }) => {
-    const themeGroup = page.locator('[role="radiogroup"]');
-    await themeGroup.waitFor({ state: 'visible', timeout: 10_000 });
-
-    const radios = themeGroup.locator('[role="radio"]');
-
-    const lightRadio = radios.nth(0);
+    const lightRadio = page.getByTestId('eve-appearance-mode-light');
+    const darkRadio = page.getByTestId('eve-appearance-mode-dark');
+    await lightRadio.waitFor({ state: 'visible', timeout: 10_000 });
     await lightRadio.click();
 
     await page.waitForFunction(() => document.documentElement.getAttribute('data-theme') === 'light', {
@@ -97,15 +91,15 @@ test.describe('Theme Switching', () => {
     });
 
     await expect(lightRadio).toHaveAttribute('aria-checked', 'true');
-    await expect(radios.nth(1)).toHaveAttribute('aria-checked', 'false');
+    await expect(darkRadio).toHaveAttribute('aria-checked', 'false');
 
-    await radios.nth(1).click();
+    await darkRadio.click();
 
     await page.waitForFunction(() => document.documentElement.getAttribute('data-theme') === 'dark', {
       timeout: 5_000,
     });
 
-    await expect(radios.nth(1)).toHaveAttribute('aria-checked', 'true');
+    await expect(darkRadio).toHaveAttribute('aria-checked', 'true');
     await expect(lightRadio).toHaveAttribute('aria-checked', 'false');
 
     // Restore to light

@@ -34,10 +34,9 @@
  *   build under out/<mac>/Command EVE.app (the same artifact pattern the fixtures
  *   use in packaged mode), where app.isPackaged === true and the production
  *   startup auto-check runs the real detection against the feed. It launches its
- *   own instance WITHOUT AIONUI_E2E_TEST / AIONUI_DISABLE_AUTO_UPDATE so the
- *   startup wiring is active, and resolves COMMAND_EVE_UPDATE_FEED_URL from the
- *   environment exactly as it will on the Alois machine. AIONUI_MULTI_INSTANCE=1
- *   keeps it independent of any other running instance.
+ *   own instance with the dedicated AIONUI_AUTO_UPDATE_E2E override so the
+ *   updater stays active while E2E runtime ports remain isolated, and resolves
+ *   COMMAND_EVE_UPDATE_FEED_URL from the environment exactly as an installed app.
  *
  * The packaged build must be fresh (contain W8's feed wiring). Rebuild with:
  *   npx electron-vite build --config packages/desktop/electron.vite.config.ts
@@ -49,12 +48,14 @@
  * artifact is never downloaded (autoDownload is false in the service), so a tiny
  * dummy zip in the fixture feed is sufficient.
  */
-import { test, expect, type ElectronApplication, type Page, _electron as electron } from '@playwright/test';
+import { test, expect, chromium, type Browser, type Page } from '@playwright/test';
+import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createServer, type Server } from 'http';
 import { createHash } from 'crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { invokeBridge } from '../helpers';
 
 // ── Fixture feed (higher version → must be detected) ──────────────────────────
 
@@ -62,8 +63,28 @@ const FEED_VERSION = '9.9.9-test';
 const ZIP_NAME = `Command-EVE-${FEED_VERSION}-mac-arm64.zip`;
 const BLOCKMAP_NAME = `${ZIP_NAME}.blockmap`;
 const STATUS_CHANNEL = 'auto-update.status';
+const PACKAGED_USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'command-eve-auto-update-user-data-'));
+
+test.afterAll(() => {
+  try {
+    const packaged = resolvePackagedApp();
+    if (process.platform === 'darwin' && packaged) {
+      const appBundle = path.resolve(path.dirname(packaged.executablePath), '../..');
+      execFileSync('codesign', ['--verify', '--deep', '--strict', appBundle], {
+        stdio: 'pipe',
+      });
+    }
+  } finally {
+    fs.rmSync(PACKAGED_USER_DATA_DIR, { recursive: true, force: true });
+  }
+});
 
 type CapturedStatus = { status: string; version?: string; error?: string };
+type PackagedAppHandle = {
+  browser: Browser;
+  process: ChildProcessWithoutNullStreams;
+  close: () => Promise<void>;
+};
 
 /**
  * Build an isolated temp feed directory with a dummy artifact and the channel
@@ -141,21 +162,44 @@ function isDevToolsWindow(page: Page): boolean {
   return page.url().startsWith('devtools://');
 }
 
-async function resolveMainWindow(electronApp: ElectronApplication): Promise<Page> {
-  const existing = electronApp.windows().find((win) => !isDevToolsWindow(win));
-  if (existing) {
-    await existing.waitForLoadState('domcontentloaded');
-    return existing;
-  }
-  const deadline = Date.now() + 30_000;
+async function resolveMainWindow(browser: Browser): Promise<Page> {
+  const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
-    const win = await electronApp.waitForEvent('window', { timeout: 1_000 }).catch(() => null);
-    if (win && !isDevToolsWindow(win)) {
-      await win.waitForLoadState('domcontentloaded');
-      return win;
+    const page = browser
+      .contexts()
+      .flatMap((context) => context.pages())
+      .find((candidate) => candidate.url() !== 'about:blank' && !isDevToolsWindow(candidate));
+    if (page) {
+      await page.waitForLoadState('domcontentloaded');
+      return page;
     }
+    await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error('[auto-update e2e] Failed to resolve main renderer window.');
+}
+
+async function waitForProcessExit(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) return true;
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      child.removeListener('exit', onExit);
+      resolve(false);
+    }, timeoutMs);
+    const onExit = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    child.once('exit', onExit);
+  });
+}
+
+async function closePackagedApp(browser: Browser, child: ChildProcessWithoutNullStreams): Promise<void> {
+  await browser.close().catch(() => undefined);
+  if (await waitForProcessExit(child, 10_000)) return;
+  child.kill('SIGTERM');
+  if (await waitForProcessExit(child, 10_000)) return;
+  child.kill('SIGKILL');
+  await waitForProcessExit(child, 5_000);
 }
 
 /**
@@ -185,7 +229,10 @@ function resolvePackagedApp(): { executablePath: string; cwd: string } | null {
   const { dirs, names } =
     process.platform === 'win32'
       ? { dirs: ['win-unpacked', 'win-arm64-unpacked', 'win-x64-unpacked'], names: ['Command EVE.exe', 'AionUi.exe'] }
-      : { dirs: ['linux-unpacked', 'linux-arm64-unpacked', 'linux-x64-unpacked'], names: ['command-eve', 'Command EVE', 'aionui', 'AionUi'] };
+      : {
+          dirs: ['linux-unpacked', 'linux-arm64-unpacked', 'linux-x64-unpacked'],
+          names: ['command-eve', 'Command EVE', 'aionui', 'AionUi'],
+        };
   for (const dir of dirs) {
     const dirPath = path.join(outDir, dir);
     if (!fs.existsSync(dirPath)) continue;
@@ -199,12 +246,12 @@ function resolvePackagedApp(): { executablePath: string; cwd: string } | null {
 
 /**
  * Launch the PACKAGED Electron app with the given extra env. WITHOUT
- * AIONUI_E2E_TEST / AIONUI_DISABLE_AUTO_UPDATE so the production startup
- * auto-update wiring runs (initialize + delayed checkForUpdatesAndNotify) and
- * electron-updater is active (app.isPackaged === true). Fails loud if no
- * packaged app exists.
+ * AIONUI_DISABLE_AUTO_UPDATE so the production startup auto-update wiring runs
+ * (initialize + delayed checkForUpdatesAndNotify). AIONUI_E2E_TEST isolates the
+ * local runtime, while AIONUI_AUTO_UPDATE_E2E keeps only the updater enabled.
+ * Fails loud if no packaged app exists.
  */
-async function launchPackagedApp(extraEnv: Record<string, string>): Promise<ElectronApplication> {
+async function launchPackagedApp(extraEnv: Record<string, string>): Promise<PackagedAppHandle> {
   const packaged = resolvePackagedApp();
   if (!packaged) {
     throw new Error(
@@ -222,26 +269,65 @@ async function launchPackagedApp(extraEnv: Record<string, string>): Promise<Elec
     AIONUI_DISABLE_DEVTOOLS: '1',
     AIONUI_MULTI_INSTANCE: '1',
     AIONUI_CDP_PORT: '0',
+    AIONUI_E2E_TEST: '1',
+    AIONUI_AUTO_UPDATE_E2E: '1',
+    COMMAND_EVE_REGISTRATION_REQUIRED: '0',
     NODE_ENV: 'production',
     ...extraEnv,
   };
   // Ensure the gates that would disable the updater are NOT inherited from the
   // playwright runner environment.
-  delete env.AIONUI_E2E_TEST;
   delete env.AIONUI_DISABLE_AUTO_UPDATE;
   delete env.CI;
   delete env.GITHUB_ACTIONS;
 
-  const launchArgs: string[] = [];
+  const launchArgs: string[] = [`--user-data-dir=${PACKAGED_USER_DATA_DIR}`];
+  if (process.platform === 'darwin') launchArgs.push('--use-mock-keychain');
   if (process.platform === 'linux' && process.env.CI) launchArgs.push('--no-sandbox');
 
-  return electron.launch({
-    executablePath: packaged.executablePath,
-    args: launchArgs,
+  const child = spawn(packaged.executablePath, ['--remote-debugging-port=0', ...launchArgs], {
     cwd: packaged.cwd,
     env,
-    timeout: 60_000,
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
+
+  let diagnostics = '';
+  const endpoint = await new Promise<string>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error(`[auto-update e2e] CDP endpoint did not appear. Output:\n${diagnostics}`));
+    }, 60_000);
+    const consume = (chunk: Buffer) => {
+      diagnostics = `${diagnostics}${chunk.toString('utf8')}`.slice(-20_000);
+      const match = diagnostics.match(/DevTools listening on (ws:\/\/[^\s]+)/);
+      if (!match) return;
+      clearTimeout(timeout);
+      child.removeListener('exit', onExit);
+      resolve(match[1]);
+    };
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      clearTimeout(timeout);
+      reject(
+        new Error(
+          `[auto-update e2e] Packaged app exited before CDP was ready (code=${code}, signal=${signal}). Output:\n${diagnostics}`
+        )
+      );
+    };
+    child.stdout.on('data', consume);
+    child.stderr.on('data', consume);
+    child.once('exit', onExit);
+  });
+
+  try {
+    const browser = await chromium.connectOverCDP(endpoint, { timeout: 30_000 });
+    return {
+      browser,
+      process: child,
+      close: () => closePackagedApp(browser, child),
+    };
+  } catch (error) {
+    child.kill('SIGTERM');
+    throw error;
+  }
 }
 
 /**
@@ -259,7 +345,10 @@ async function installStatusCapture(page: Page): Promise<void> {
     if (!w.electronAPI) return;
     w.electronAPI.on((event) => {
       try {
-        const { name, data } = JSON.parse(event.value) as { name: string; data: { status: string; version?: string; error?: string } };
+        const { name, data } = JSON.parse(event.value) as {
+          name: string;
+          data: { status: string; version?: string; error?: string };
+        };
         if (name === channel && data && typeof data.status === 'string') {
           w.__autoUpdateStatuses!.push({ status: data.status, version: data.version, error: data.error });
         }
@@ -317,12 +406,12 @@ async function openUpdateModalViaRendererEvent(page: Page): Promise<void> {
 // ── Suite A: feed configured → detect + broadcast + visible German signal ─────
 
 test.describe.serial('Command EVE auto-update – detect + signal against local feed', () => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
 
   let feed: { dir: string; cleanup: () => void };
   let feedServer: Server;
   let feedUrl: string;
-  let electronApp: ElectronApplication;
+  let packagedApp: PackagedAppHandle;
   let page: Page;
 
   test.beforeAll(async () => {
@@ -330,8 +419,8 @@ test.describe.serial('Command EVE auto-update – detect + signal against local 
     const started = await startFeedServer(feed.dir);
     feedServer = started.server;
     feedUrl = started.url;
-    electronApp = await launchPackagedApp({ COMMAND_EVE_UPDATE_FEED_URL: feedUrl });
-    page = await resolveMainWindow(electronApp);
+    packagedApp = await launchPackagedApp({ COMMAND_EVE_UPDATE_FEED_URL: feedUrl });
+    page = await resolveMainWindow(packagedApp.browser);
     // Install the status capture as early as possible — ideally before the ~3s
     // startup auto-check broadcasts. The renderer-bridge backstop in test (a)
     // covers the case where the auto-check already fired.
@@ -339,7 +428,7 @@ test.describe.serial('Command EVE auto-update – detect + signal against local 
   });
 
   test.afterAll(async () => {
-    await electronApp?.close().catch(() => {});
+    await packagedApp?.close().catch(() => {});
     await new Promise<void>((resolve) => feedServer?.close(() => resolve()));
     feed?.cleanup();
   });
@@ -359,12 +448,7 @@ test.describe.serial('Command EVE auto-update – detect + signal against local 
     // startup auto-check has not yet produced a terminal status.
     let statuses = await waitForStatus(page, hasTerminalStatus, 12_000);
     if (!hasTerminalStatus(statuses)) {
-      // Mirror ipcBridge.autoUpdate.check.invoke({ includePrerelease:false }), which
-      // calls autoUpdaterService.checkForUpdates() → the same configureFeed path.
-      await page.evaluate(async () => {
-        const w = window as unknown as { electronAPI?: { emit: (name: string, data: unknown) => Promise<unknown> } };
-        await w.electronAPI?.emit('auto-update.check', { includePrerelease: false }).catch(() => undefined);
-      });
+      await invokeBridge(page, 'auto-update.check', { includePrerelease: false }, 30_000);
       statuses = await waitForStatus(page, hasTerminalStatus, 25_000);
     }
 
@@ -410,22 +494,22 @@ test.describe.serial('Command EVE auto-update – detect + signal against local 
  * (configureFeed → setFeedURL url === COMMAND_EVE_UPDATE_FEED_BASE_URL).
  */
 test.describe.serial('Command EVE auto-update – CE shell defaults to the R2 feed (no env override)', () => {
-  test.setTimeout(120_000);
+  test.setTimeout(300_000);
 
-  let electronApp: ElectronApplication;
+  let packagedApp: PackagedAppHandle;
   let page: Page;
 
   test.beforeAll(async () => {
     // Launch WITHOUT COMMAND_EVE_UPDATE_FEED_URL at all (delete any inherited
     // value) so the CE-scoped R2 default is the only feed source. This is the
     // Alois-machine condition.
-    electronApp = await launchPackagedApp({});
-    page = await resolveMainWindow(electronApp);
+    packagedApp = await launchPackagedApp({});
+    page = await resolveMainWindow(packagedApp.browser);
     await installStatusCapture(page);
   });
 
   test.afterAll(async () => {
-    await electronApp?.close().catch(() => {});
+    await packagedApp?.close().catch(() => {});
   });
 
   test('(d) startup check activates (broadcasts "checking") instead of the quiet no-op', async () => {
@@ -440,10 +524,7 @@ test.describe.serial('Command EVE auto-update – CE shell defaults to the R2 fe
     // Deterministic backstop: if the ~3s startup auto-check has not surfaced a
     // status yet, drive the same W8 configureFeed path via the renderer bridge.
     if (!sawAnyStatus(statuses)) {
-      await page.evaluate(async () => {
-        const w = window as unknown as { electronAPI?: { emit: (name: string, data: unknown) => Promise<unknown> } };
-        await w.electronAPI?.emit('auto-update.check', { includePrerelease: false }).catch(() => undefined);
-      });
+      await invokeBridge(page, 'auto-update.check', { includePrerelease: false }, 30_000);
       statuses = await waitForStatus(page, sawAnyStatus, 25_000);
     }
 
@@ -455,17 +536,22 @@ test.describe.serial('Command EVE auto-update – CE shell defaults to the R2 fe
     // If the check reached a terminal error, it must be a NETWORK/feed error from
     // actually contacting R2 — never the W8 "no feed configured" short-circuit
     // (which would mean the CE default failed to apply).
-    const noFeedError = statuses.find((s) => s.status === 'error' && /no feed|kein feed|feed configured/i.test(s.error || ''));
-    expect(noFeedError, `the CE default must apply — no "no feed configured" error allowed: ${noFeedError?.error ?? ''}`).toBeUndefined();
+    const noFeedError = statuses.find(
+      (s) => s.status === 'error' && /no feed|kein feed|feed configured/i.test(s.error || '')
+    );
+    expect(
+      noFeedError,
+      `the CE default must apply — no "no feed configured" error allowed: ${noFeedError?.error ?? ''}`
+    ).toBeUndefined();
   });
 });
 
 // ── Suite C: no feed → quiet no-op, no error dialog ───────────────────────────
 
 test.describe.serial('Command EVE auto-update – quiet no-op when no feed configured', () => {
-  test.setTimeout(120_000);
+  test.setTimeout(300_000);
 
-  let electronApp: ElectronApplication;
+  let packagedApp: PackagedAppHandle;
   let page: Page;
 
   test.beforeAll(async () => {
@@ -473,13 +559,13 @@ test.describe.serial('Command EVE auto-update – quiet no-op when no feed confi
     // After FIX 1 the packaged CE build (COMMAND_EVE_SHELL_ENABLED === true) would
     // otherwise fall back to the R2 default (see Suite B), so the empty-string env
     // is what pins this instance into the W8 quiet no-op state for the proof.
-    electronApp = await launchPackagedApp({ COMMAND_EVE_UPDATE_FEED_URL: '' });
-    page = await resolveMainWindow(electronApp);
+    packagedApp = await launchPackagedApp({ COMMAND_EVE_UPDATE_FEED_URL: '' });
+    page = await resolveMainWindow(packagedApp.browser);
     await installStatusCapture(page);
   });
 
   test.afterAll(async () => {
-    await electronApp?.close().catch(() => {});
+    await packagedApp?.close().catch(() => {});
   });
 
   test('(c) startup check resolves quietly, no available/error broadcast, no error dialog', async () => {
@@ -489,9 +575,18 @@ test.describe.serial('Command EVE auto-update – quiet no-op when no feed confi
 
     // Quiet no-op: the service short-circuits before electron-updater runs.
     // No 'checking', no 'available', no 'error' is broadcast.
-    expect(statuses.find((s) => s.status === 'available'), 'no update should be signalled without a feed').toBeUndefined();
-    expect(statuses.find((s) => s.status === 'error'), 'no error should be broadcast without a feed').toBeUndefined();
-    expect(statuses.find((s) => s.status === 'checking'), 'updater must not even start checking without a feed').toBeUndefined();
+    expect(
+      statuses.find((s) => s.status === 'available'),
+      'no update should be signalled without a feed'
+    ).toBeUndefined();
+    expect(
+      statuses.find((s) => s.status === 'error'),
+      'no error should be broadcast without a feed'
+    ).toBeUndefined();
+    expect(
+      statuses.find((s) => s.status === 'checking'),
+      'updater must not even start checking without a feed'
+    ).toBeUndefined();
 
     // No error dialog / modal surfaced to the user.
     await expect(page.getByText('Update verfügbar')).toHaveCount(0);

@@ -21,8 +21,8 @@ import { COMMAND_EVE_APP_NAME, COMMAND_EVE_SHELL_ENABLED } from '@/common/config
 declare const __APP_VERSION__: string;
 
 type LinkItem =
-  | { title: string; url: string; icon: React.ReactNode; onClick?: never }
-  | { title: string; onClick: () => void; icon: React.ReactNode; url?: never };
+  | { title: string; url: string; icon: React.ReactNode; testId?: string; onClick?: never }
+  | { title: string; onClick: () => void; icon: React.ReactNode; testId?: string; url?: never };
 
 const AboutModalContent: React.FC = () => {
   const { t } = useTranslation();
@@ -81,6 +81,7 @@ const AboutModalContent: React.FC = () => {
       title: t('settings.bugReport'),
       onClick: () => setShowFeedbackModal(true),
       icon: <Right theme='outline' size='16' />,
+      testId: 'about-bug-report',
     },
     {
       title: t('settings.contactMe'),
@@ -110,7 +111,7 @@ const AboutModalContent: React.FC = () => {
               {COMMAND_EVE_SHELL_ENABLED ? COMMAND_EVE_APP_NAME : 'AionUi'}
             </Typography.Title>
             <Typography.Text className='text-14px text-t-secondary mb-12px text-center'>
-              {t('settings.appDescription')}
+              {t(COMMAND_EVE_SHELL_ENABLED ? 'settings.commandEveAppDescription' : 'settings.appDescription')}
             </Typography.Text>
             <div className='flex items-center justify-center gap-8px mb-16px'>
               <span className='px-10px py-4px rd-6px text-13px bg-fill-2 text-t-primary font-500'>
@@ -150,9 +151,11 @@ const AboutModalContent: React.FC = () => {
           {/* Links Section */}
           <div className='flex flex-col gap-4px pt-8px'>
             {linkItems.map((item, index) => (
-              <div
+              <button
+                type='button'
                 key={index}
-                className='flex items-center justify-between px-16px py-12px rd-8px hover:bg-fill-2 transition-all cursor-pointer group'
+                data-testid={item.testId}
+                className='flex w-full items-center justify-between border-0 bg-transparent px-16px py-12px rd-8px hover:bg-fill-2 transition-all cursor-pointer group text-left'
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -165,7 +168,7 @@ const AboutModalContent: React.FC = () => {
               >
                 <Typography.Text className='text-14px text-t-primary'>{item.title}</Typography.Text>
                 <div className='text-t-secondary group-hover:text-t-primary transition-colors'>{item.icon}</div>
-              </div>
+              </button>
             ))}
           </div>
         </div>

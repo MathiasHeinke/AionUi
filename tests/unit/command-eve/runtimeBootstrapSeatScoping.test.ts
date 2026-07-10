@@ -178,9 +178,13 @@ const runShim = (home: string, env: NodeJS.ProcessEnv): string => {
     const script = path.join(tmp, 'shim.sh');
     fs.writeFileSync(
       script,
-      ['#!/usr/bin/env bash', 'set -euo pipefail', ...renderHermesHomeExport(home), 'printf %s "$HERMES_HOME"', ''].join(
-        '\n'
-      ),
+      [
+        '#!/usr/bin/env bash',
+        'set -euo pipefail',
+        ...renderHermesHomeExport(home),
+        'printf %s "$HERMES_HOME"',
+        '',
+      ].join('\n'),
       { mode: 0o700 }
     );
     return execFileSync('bash', [script], { env, encoding: 'utf8' });
@@ -217,7 +221,7 @@ describe('(e) shim/wrapper HERMES_HOME bake-leak fix — under REAL bash', () =>
     // only \ " ` $ but NOT a single-quote, { or }. The new single-quoted form
     // must survive ALL of: ' { } $ ` " \\ with no crash (unexpected EOF) and no
     // corruption. Run via the REAL source helper.
-    const trickyHome = "/tmp/eve $weird/`backtick`/\"quote\"/back\\slash/{brace}/it's/home";
+    const trickyHome = '/tmp/eve $weird/`backtick`/"quote"/back\\slash/{brace}/it\'s/home';
     expect(runShim(trickyHome, { PATH: process.env.PATH })).toBe(trickyHome);
   });
 
@@ -253,6 +257,12 @@ describe('(f) prepareCommandEveRuntimeProcessEnv pins HERMES_HOME onto the spawn
     const env: NodeJS.ProcessEnv = { PATH: '/usr/bin' };
     prepareCommandEveRuntimeProcessEnv(USER_DATA, env);
     expect((env.PATH || '').split(path.delimiter)[0]).toBe(hermesRoot);
+  });
+
+  it('prevents bundled Python descendants from mutating the signed app bundle', () => {
+    const env: NodeJS.ProcessEnv = { PATH: '/usr/bin', PYTHONDONTWRITEBYTECODE: '0' };
+    prepareCommandEveRuntimeProcessEnv(USER_DATA, env);
+    expect(env.PYTHONDONTWRITEBYTECODE).toBe('1');
   });
 });
 

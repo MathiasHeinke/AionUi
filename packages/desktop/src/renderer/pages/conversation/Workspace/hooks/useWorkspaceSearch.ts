@@ -22,6 +22,7 @@ export function useWorkspaceSearch({ workspace, loadWorkspace }: UseWorkspaceSea
   const [searchText, setSearchText] = useState('');
   const [showSearch, setShowSearch] = useState(true);
   const searchInputRef = useRef<RefInputType | null>(null);
+  const searchSeqRef = useRef(0);
 
   // Host file selector state (WebUI: use DirectorySelectionModal instead of native dialog)
   const [showHostFileSelector, setShowHostFileSelector] = useState(false);
@@ -49,10 +50,16 @@ export function useWorkspaceSearch({ workspace, loadWorkspace }: UseWorkspaceSea
     previousShowSearchRef.current = showSearch;
   }, [showSearch]);
 
+  useEffect(() => {
+    searchSeqRef.current += 1;
+  }, [workspace]);
+
   // Debounced search handler
   const onSearch = useDebounce(
     (value: string) => {
+      const seq = ++searchSeqRef.current;
       void loadWorkspace(workspace, value).then((files) => {
+        if (seq !== searchSeqRef.current) return;
         setShowSearch(files.length > 0 && files[0]?.children?.length > 0);
       });
     },

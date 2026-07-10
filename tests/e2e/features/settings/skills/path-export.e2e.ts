@@ -24,6 +24,8 @@ import { takeScreenshot } from '../../../helpers/screenshots';
 import * as path from 'path';
 import * as fs from 'fs';
 
+const upstreamSkillsHubTest = process.env.AIONUI_UPSTREAM_MODE === '1' ? test : test.skip;
+
 test.describe('Skills Hub - Path/Export (P1)', () => {
   test.beforeEach(async ({ page }) => {
     await goToSkillsHub(page);
@@ -42,7 +44,7 @@ test.describe('Skills Hub - Path/Export (P1)', () => {
   // TC-S-14: Refresh external skills list
   // ============================================================================
 
-  test('TC-S-14: should refresh external skills and show newly added skill', async ({ page }) => {
+  upstreamSkillsHubTest('TC-S-14: should refresh external skills and show newly added skill', async ({ page }) => {
     // Setup: Create external source with 1 skill
     const tempSource = createTempExternalSource('tc-s-14');
     try {
@@ -102,7 +104,7 @@ test.describe('Skills Hub - Path/Export (P1)', () => {
   // TC-S-17: Add custom path (duplicate scenario)
   // ============================================================================
 
-  test('TC-S-17: should show error when adding duplicate custom path', async ({ page }) => {
+  upstreamSkillsHubTest('TC-S-17: should show error when adding duplicate custom path', async ({ page }) => {
     // Setup: Create external source and add it as custom path
     const tempSource = createTempExternalSource('tc-s-17');
     try {
@@ -162,7 +164,7 @@ test.describe('Skills Hub - Path/Export (P1)', () => {
   // TC-S-18: Add custom path (validation scenario)
   // ============================================================================
 
-  test('TC-S-18: should disable Confirm button when required fields are empty', async ({ page }) => {
+  upstreamSkillsHubTest('TC-S-18: should disable Confirm button when required fields are empty', async ({ page }) => {
     // Screenshot 01: Initial state
     await takeScreenshot(page, 'skills-hub/tc-s-18/01-initial-state.png');
 
@@ -221,7 +223,7 @@ test.describe('Skills Hub - Path/Export (P1)', () => {
   // TC-S-20: Export skill (target already exists scenario)
   // ============================================================================
 
-  test('TC-S-20: should show error when exporting to target with existing skill', async ({ page }) => {
+  upstreamSkillsHubTest('TC-S-20: should show error when exporting to target with existing skill', async ({ page }) => {
     // Setup: Create skill and external target
     const tempSource = createTempExternalSource('tc-s-20-target');
     const skillTimestamp = Date.now();

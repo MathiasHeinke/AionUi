@@ -51,7 +51,7 @@ test.describe('Team Create - Full UI Flow', () => {
       // No supported agents installed — cancel and skip
       const cancelBtn = modal
         .locator('.arco-btn')
-        .filter({ hasText: /Cancel|取消/i })
+        .filter({ hasText: /Cancel|取消|Abbrechen/i })
         .first();
       await cancelBtn.click({ force: true }).catch(() => {});
       console.log('[E2E] No supported agent available for team creation — skipping');

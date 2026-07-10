@@ -12,7 +12,6 @@ import { channelItemById, webuiTabByKey } from './selectors';
 export const ROUTES = {
   guid: '#/guid',
   settings: {
-    gemini: '#/settings/gemini',
     model: '#/settings/model',
     agent: '#/settings/eve-runtime',
     assistants: '#/settings/eve-runtime',
@@ -20,7 +19,7 @@ export const ROUTES = {
     capabilities: '#/settings/capabilities',
     connectors: '#/settings/connectors',
     runtime: '#/settings/runtime',
-    display: '#/settings/display',
+    appearance: '#/settings/appearance',
     webui: '#/settings/webui',
     system: '#/settings/system',
     about: '#/settings/about',
@@ -74,7 +73,7 @@ export async function navigateTo(page: Page, hash: string): Promise<void> {
     // Target is non-settings (guid, conversation, etc.)
     if (isOnSettings) {
       // Click the sider back button to leave settings
-      const siderBtn = page.locator('.sider-footer div').first();
+      const siderBtn = page.getByTestId('sider-footer-identity');
       await siderBtn.waitFor({ state: 'visible', timeout: 10_000 });
       await siderBtn.click();
       // Wait for hash to change away from settings
@@ -96,7 +95,7 @@ export async function navigateTo(page: Page, hash: string): Promise<void> {
     // Target is a settings sub-page
     if (!isOnSettings) {
       // Click sider settings button to enter settings
-      const siderBtn = page.locator('.sider-footer div').first();
+      const siderBtn = page.getByTestId('sider-footer-identity');
       await siderBtn.waitFor({ state: 'visible', timeout: 10_000 });
       await siderBtn.click();
       await page
@@ -163,6 +162,13 @@ export async function goToAssistantSettings(page: Page): Promise<void> {
 /** Navigate to an extension-contributed settings tab by its ID. */
 export async function goToExtensionSettings(page: Page, tabId: string): Promise<void> {
   await navigateWithRetry(page, ROUTES.extensionSettings(tabId));
+}
+
+/** Navigate directly to an unknown extension route that has no sidebar item. */
+export async function goToUnknownExtensionSettings(page: Page, tabId: string): Promise<void> {
+  const hash = ROUTES.extensionSettings(tabId);
+  await page.evaluate((targetHash) => window.location.assign(targetHash), hash);
+  await page.waitForFunction((targetHash) => window.location.hash === targetHash, hash, { timeout: 10_000 });
 }
 
 /** Track whether we have already navigated to the channels tab in this session. */

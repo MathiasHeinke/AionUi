@@ -15,7 +15,14 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { eveTeamDirective } from '@/process/commandEve/runtimeBootstrapCore';
 
 const ROLES = [
-  { agent_id: 'growth-lead', display_name: 'Growth Lead', title: 'Growth Lead', status: 'active', worker: null, outcome: 'Mehr Reichweite' },
+  {
+    agent_id: 'growth-lead',
+    display_name: 'Growth Lead',
+    title: 'Growth Lead',
+    status: 'active',
+    worker: null,
+    outcome: 'Mehr Reichweite',
+  },
 ] as unknown as Parameters<typeof eveTeamDirective>[0];
 
 const KEY = 'COMMAND_EVE_TEAM_MANAGE_BEARER_FILE';
@@ -37,6 +44,13 @@ describe('eveTeamDirective — team_manage propose clause gating (B5)', () => {
     expect(out).not.toContain('Bearer $COMMAND_EVE_TEAM_MANAGE_BEARER`');
     // Honesty in the directive too: nothing changes before the operator confirms.
     expect(out).toMatch(/NOTHING changes until they click/i);
+  });
+
+  it('uses the process-bound loopback shim URL instead of the fixed default port', () => {
+    process.env[KEY] = 'boot-bearer-abc';
+    const out = eveTeamDirective(ROLES, 'http://127.0.0.1:45678');
+    expect(out).toContain('http://127.0.0.1:45678/eve/team/propose');
+    expect(out).not.toContain('http://127.0.0.1:25811/eve/team/propose');
   });
 
   it('OMITS the propose clause when the bearer is absent (client seat — ISO-6)', () => {

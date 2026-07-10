@@ -32,6 +32,10 @@ import {
 } from '../helpers';
 
 test.describe('Assistant Settings CRUD', () => {
+  test.skip(
+    process.env.COMMAND_EVE_FOUNDER_BUILD !== '1',
+    'Assistant administration is founder-only; public Command EVE users see the managed EVE runtime.'
+  );
   test.setTimeout(90_000);
 
   test('page loads with assistant list', async ({ page }) => {

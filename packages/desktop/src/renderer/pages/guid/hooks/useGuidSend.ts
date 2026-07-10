@@ -83,7 +83,7 @@ export type GuidSendDeps = {
 };
 
 export type GuidSendResult = {
-  handleSend: () => Promise<void>;
+  handleSend: () => Promise<boolean>;
   sendMessageHandler: () => void;
   isButtonDisabled: boolean;
 };
@@ -207,7 +207,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
               ? t('conversation.eveInference.offlineUnavailable', 'EVE Cloud benötigt eine Internetverbindung.')
               : t('conversation.eveInference.activationUnavailable', 'EVE Cloud ist erst nach Aktivierung verfügbar.')
           );
-          return;
+          return false;
         }
         commandEveRuntimeModel = resolved?.data?.provider;
         commandEveRuntimeModelId = commandEveRuntimeModel?.use_model;
@@ -244,7 +244,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
                   'runtime not ready',
               })
             );
-            return;
+            return false;
           }
         }
       }
@@ -331,7 +331,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
 
         if (!conversation || !conversation.id) {
           alert('Failed to create OpenClaw conversation. Please ensure the OpenClaw Gateway is running.');
-          return;
+          return false;
         }
 
         if (isCustomWorkspace) {
@@ -352,7 +352,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         alert(`Failed to create OpenClaw conversation: ${errorMessage}`);
         throw error;
       }
-      return;
+      return true;
     }
 
     // Nanobot path
@@ -379,7 +379,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
 
         if (!conversation || !conversation.id) {
           alert('Failed to create Nanobot conversation. Please ensure nanobot is installed.');
-          return;
+          return false;
         }
 
         if (isCustomWorkspace) {
@@ -400,14 +400,14 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         alert(`Failed to create Nanobot conversation: ${errorMessage}`);
         throw error;
       }
-      return;
+      return true;
     }
 
     // Aionrs path (direct selection or preset assistant with aionrs as main agent)
     if (selectedAgent === 'aionrs' || (is_preset && finalEffectiveAgentType === 'aionrs')) {
       if (!effectiveCurrentModel) {
         Message.warning(t('conversation.noModelConfigured'));
-        return;
+        return false;
       }
       try {
         const conversation = await ipcBridge.conversation.create.invoke({
@@ -430,7 +430,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
           const runtimeLabel = COMMAND_EVE_SHELL_ENABLED ? 'EVE' : 'Aion CLI';
           const installLabel = COMMAND_EVE_SHELL_ENABLED ? 'the local EVE runtime is ready' : 'aionrs is installed';
           alert(`Failed to create ${runtimeLabel} conversation. Please ensure ${installLabel}.`);
-          return;
+          return false;
         }
 
         if (isCustomWorkspace) {
@@ -452,7 +452,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         alert(`Failed to create ${runtimeLabel} conversation: ${errorMessage}`);
         throw error;
       }
-      return;
+      return true;
     }
 
     // Remaining agent path (ACP/remote/custom, including preset fallbacks)
@@ -524,7 +524,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         const conversation = await ipcBridge.conversation.create.invoke(agentConversationParams);
         if (!conversation || !conversation.id) {
           console.error('Failed to create ACP conversation - conversation object is null or missing id');
-          return;
+          return false;
         }
 
         if (isCustomWorkspace) {
@@ -544,6 +544,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         console.error('Failed to create ACP conversation:', error);
         throw error;
       }
+      return true;
     }
   }, [
     input,
@@ -573,7 +574,8 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
     sendingRef.current = true;
     setLoading(true);
     handleSend()
-      .then(() => {
+      .then((sent) => {
+        if (!sent) return;
         setInput('');
         setMentionOpen(false);
         setMentionQuery(null);

@@ -31,6 +31,7 @@ import {
 
 // Generous timeout for AI responses
 test.describe.configure({ timeout: 180_000 });
+const RUN_LIVE_AGENT_E2E = process.env.COMMAND_EVE_LIVE_AGENT_E2E === '1';
 
 /**
  * Pick the first available agent backend from the guid page pill bar.
@@ -446,6 +447,10 @@ async function removeConversationViaBridge(
 }
 
 test.describe('Conversation Full Cycle', () => {
+  test.skip(
+    !RUN_LIVE_AGENT_E2E,
+    'Live raw-agent conversation coverage is opt-in; the public Command EVE shell exposes EVE, not backend pills.'
+  );
   test('Gemini -- full conversation with AI reply', async ({ page }) => {
     await goToGuid(page);
     const pill = page.locator(agentPillByBackend('gemini'));

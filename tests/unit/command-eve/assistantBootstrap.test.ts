@@ -75,7 +75,7 @@ async function captureAssistantSkills(userDataPath: string): Promise<Record<stri
     }
     if (url.pathname.startsWith('/api/skills/assistant-') && method === 'POST')
       return jsonResponse({ success: true, data: true });
-    if (url.pathname === '/api/skills/import-symlink') return jsonResponse({ success: true, data: {} });
+    if (url.pathname === '/api/skills/import') return jsonResponse({ success: true, data: {} });
     throw new Error(`Unexpected request ${method} ${url.pathname}`);
   };
   globalThis.fetch = fetchMock as typeof fetch;
@@ -325,7 +325,7 @@ describe('Command EVE assistant bootstrap', () => {
       if (url.pathname === '/api/assistants' && method === 'GET') {
         return jsonResponse({ success: true, data: [staleAssistant] });
       }
-      if (url.pathname === '/api/skills/import-symlink' && method === 'POST') {
+      if (url.pathname === '/api/skills/import' && method === 'POST') {
         return jsonResponse({ success: true, data: { skill_name: 'first-run-company-discovery' } });
       }
       if (url.pathname === `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}` && method === 'PUT') {
@@ -373,7 +373,7 @@ describe('Command EVE assistant bootstrap', () => {
       if (url.pathname === '/api/assistants' && method === 'GET') {
         return jsonResponse({ success: true, data: [staleAssistant] });
       }
-      if (url.pathname === '/api/skills/import-symlink' && method === 'POST') {
+      if (url.pathname === '/api/skills/import' && method === 'POST') {
         return jsonResponse({ success: true, data: { skill_name: path.basename(String(body?.skill_path || '')) } });
       }
       if (url.pathname === `/api/assistants/${COMMAND_EVE_ASSISTANT_ID}` && method === 'PUT') {

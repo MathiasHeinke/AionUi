@@ -58,29 +58,25 @@ async function installWorkspaceOfficeWatchDebug(page: import('@playwright/test')
       throw new Error('window.__backendPort is not available');
     }
 
-    win.__previewAutoOpenDebug = { status: 'connecting', events: [] };
+    const debug = { status: 'connecting', events: [] as Array<{ name: string; data: unknown }> };
+    win.__previewAutoOpenDebug = debug;
 
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
     win.__previewAutoOpenDebugWs = ws;
 
     ws.addEventListener('open', () => {
-      if (!win.__previewAutoOpenDebug) return;
-      win.__previewAutoOpenDebug.status = 'open';
+      debug.status = 'open';
     });
 
     ws.addEventListener('close', () => {
-      if (!win.__previewAutoOpenDebug) return;
-      win.__previewAutoOpenDebug.status = 'closed';
+      debug.status = 'closed';
     });
 
     ws.addEventListener('error', () => {
-      if (!win.__previewAutoOpenDebug) return;
-      win.__previewAutoOpenDebug.status = 'error';
+      debug.status = 'error';
     });
 
     ws.addEventListener('message', (event) => {
-      if (!win.__previewAutoOpenDebug) return;
-
       try {
         const parsed = JSON.parse(String(event.data)) as {
           name?: string;
@@ -91,9 +87,9 @@ async function installWorkspaceOfficeWatchDebug(page: import('@playwright/test')
 
         const name = parsed.name ?? parsed.event ?? 'unknown';
         const data = parsed.data ?? parsed.payload;
-        win.__previewAutoOpenDebug.events.push({ name, data });
+        debug.events.push({ name, data });
       } catch {
-        win.__previewAutoOpenDebug.events.push({ name: 'non-json', data: String(event.data) });
+        debug.events.push({ name: 'non-json', data: String(event.data) });
       }
     });
   });

@@ -9,6 +9,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, Button, Empty, Spin, Tag } from '@arco-design/web-react';
 import { bridge } from '@office-ai/platform';
+import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import { useLayoutContext } from '@renderer/hooks/context/LayoutContext';
 import { isElectronDesktop } from '@renderer/utils/platform';
 
@@ -209,11 +210,11 @@ const TierCard: React.FC<{ tier: LocalRuntimeTier }> = ({ tier }) => {
  * mutates runtime state and never shows a shell command. Cloud stays the default
  * lane, so every card reassures the operator that the cloud still works.
  */
-const RemediationCard: React.FC<{ blocked: BlockedStage; warmupPollCount: number; pull?: LocalRuntimeModel['model_pull'] }> = ({
-  blocked,
-  warmupPollCount,
-  pull,
-}) => {
+const RemediationCard: React.FC<{
+  blocked: BlockedStage;
+  warmupPollCount: number;
+  pull?: LocalRuntimeModel['model_pull'];
+}> = ({ blocked, warmupPollCount, pull }) => {
   const { t } = useTranslation();
   const kind = blocked.remediation_kind;
 
@@ -241,9 +242,7 @@ const RemediationCard: React.FC<{ blocked: BlockedStage; warmupPollCount: number
   return (
     <section className='rounded-16px border border-solid border-[var(--color-border-2)] bg-bg-2 px-18px py-16px'>
       <div className='mb-12px flex flex-wrap items-center gap-8px'>
-        <span className='text-16px font-700 leading-24px text-t-primary'>
-          {t('localRuntime.remediation.title')}
-        </span>
+        <span className='text-16px font-700 leading-24px text-t-primary'>{t('localRuntime.remediation.title')}</span>
         <Tag color='gray'>{t('localRuntime.readOnly')}</Tag>
       </div>
       <Alert type={alertType} title={title} content={body} />
@@ -428,7 +427,11 @@ const LocalRuntimePage: React.FC = () => {
             ) : null}
 
             {model.blocked_stage ? (
-              <RemediationCard blocked={model.blocked_stage} warmupPollCount={warmupPollCount} pull={model.model_pull} />
+              <RemediationCard
+                blocked={model.blocked_stage}
+                warmupPollCount={warmupPollCount}
+                pull={model.model_pull}
+              />
             ) : null}
 
             <section className='rounded-16px border border-solid border-[var(--color-border-2)] bg-bg-2 px-18px py-16px'>
@@ -439,7 +442,11 @@ const LocalRuntimePage: React.FC = () => {
                 <span className='text-t-tertiary'>{t('localRuntime.labels.release')}</span>
                 <span className='text-t-secondary'>{model.release}</span>
                 <span className='text-t-tertiary'>{t('localRuntime.labels.hermes')}</span>
-                <span className='text-t-secondary'>{`${model.hermes.package} ${model.hermes.version}`}</span>
+                <span className='text-t-secondary'>
+                  {COMMAND_EVE_SHELL_ENABLED
+                    ? `v${model.hermes.version}`
+                    : `${model.hermes.package} ${model.hermes.version}`}
+                </span>
                 <span className='text-t-tertiary'>{t('localRuntime.labels.provider')}</span>
                 <span className='text-t-secondary'>{model.provider.type}</span>
                 <span className='text-t-tertiary'>{t('localRuntime.labels.ollamaUrl')}</span>

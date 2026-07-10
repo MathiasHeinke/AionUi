@@ -3,7 +3,7 @@
  *
  * Protects the product shell from regressing back into a generic AionUI setup:
  * local Gemma tiers must be visible, EVE runtime controls must be present,
- * Hermes must remain the primary runtime identity, and Command EVE capabilities
+ * EVE must remain the only public runtime identity, and Command EVE capabilities
  * must replace the legacy/global skill-market surface.
  */
 import { test, expect } from '../fixtures';
@@ -19,7 +19,8 @@ test.describe('Command EVE settings surfaces', () => {
     // macOS window title bar now); the sidebar header still mounts as a readiness gate.
     await expect(page.getByTestId('layout-sider-header')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/^AionUi$/)).toHaveCount(0);
-    await expect(page.getByText(/Command Center/).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/Command Center|Kommandozentrale/)).toHaveCount(0);
+    await expect(page.getByTestId('sider-kanban-entry')).toBeVisible({ timeout: 30_000 });
 
     await goToSettings(page, 'connectors');
     await expect(page.getByText(/Connectoren|Connectors/).first()).toBeVisible({ timeout: 30_000 });
@@ -29,12 +30,20 @@ test.describe('Command EVE settings surfaces', () => {
     await expect(page.getByText(/Runtime|Command EVE Local Runtime/).first()).toBeVisible({ timeout: 30_000 });
   });
 
+  test('keeps the About surface on the public Command EVE identity', async ({ page }) => {
+    await goToSettings(page, 'about');
+
+    await expect(page.getByText('Command EVE', { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/KI-Operatorin|AI operator/)).toBeVisible();
+    await expect(page.getByText(/Gemini CLI|Hermes|AionUi/)).toHaveCount(0);
+  });
+
   test('shows local Gemma tiers plus EVE runtime status and warmup controls', async ({ page }) => {
     await page.waitForSelector('body', { state: 'visible' });
 
     await goToSettings(page, 'model');
     await expect(page.getByText('Command EVE Local Runtime')).toBeVisible();
-    await expect(page.getByText(/Hermes|Ollama/).first()).toBeVisible();
+    await expect(page.getByText(/EVE Runtime|Ollama/).first()).toBeVisible();
     await expect(page.getByTestId('command-eve-model-support-note')).toContainText(
       /EVE Runtime.*Ollama|EVE Runtime.*local.*Ollama|Ollama\/Gemma/i
     );
@@ -67,7 +76,7 @@ test.describe('Command EVE settings surfaces', () => {
     await expect(warmupRow.locator('.arco-switch')).toBeVisible();
   });
 
-  test('keeps Hermes as EVE runtime identity and hides legacy Aion CLI cards', async ({ page }) => {
+  test('keeps EVE as the public runtime identity and hides internal agent cards', async ({ page }) => {
     await page.waitForSelector('body', { state: 'visible' });
 
     await goToSettings(page, 'agent');
@@ -77,6 +86,7 @@ test.describe('Command EVE settings surfaces', () => {
     await expect(page.getByText(/Agenten & Belegschaft|Agents & workforce/)).toHaveCount(0);
     await expect(page.getByText(/Externe Worker|External workers/)).toHaveCount(0);
     await expect(page.getByText(/Claude Code CLI|Codex CLI|Google Gemini AI command line tool/)).toHaveCount(0);
+    await expect(page.getByText(/Hermes/)).toHaveCount(0);
   });
 
   test('shows Command EVE capability catalog and suppresses legacy/global skill-market sections', async ({ page }) => {

@@ -166,7 +166,7 @@ async function importCommandEveManagedSkills(backendPort: number, userDataPath?:
     try {
       const imported = await requestJson<ImportedSkillResponse>(
         backendPort,
-        '/api/skills/import-symlink',
+        '/api/skills/import',
         {
           method: 'POST',
           body: JSON.stringify({ skill_path: skill.path }),
@@ -391,7 +391,10 @@ function resolveCommandEveAssistantAgentName(
   return name || (target === 'hermes' ? 'Hermes' : undefined);
 }
 
-function resolveCommandEveAssistantCliPath(userDataPath: string | undefined, presetAgentType: string): string | undefined {
+function resolveCommandEveAssistantCliPath(
+  userDataPath: string | undefined,
+  presetAgentType: string
+): string | undefined {
   if (!userDataPath || presetAgentType.toLowerCase() !== 'hermes') return undefined;
   try {
     return resolveCommandEveRuntimeBootstrapPaths(userDataPath).hermesShim;

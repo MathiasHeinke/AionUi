@@ -9,9 +9,11 @@ import { useTranslation } from 'react-i18next';
 import { extensions as extensionsIpc } from '@/common/adapter/ipcBridge';
 import WebviewHost from '@/renderer/components/media/WebviewHost';
 import { resolveExtensionAssetUrl } from '@/renderer/utils/platform';
-import { isTrustedFrameMessage, resolveTrustedFrameOrigin } from '@/renderer/utils/extensionMessageBoundary';
-
-const isExternalSettingsUrl = (url?: string): boolean => /^https?:\/\//i.test(url || '');
+import {
+  isExternalExtensionSettingsUrl,
+  isTrustedFrameMessage,
+  resolveTrustedFrameOrigin,
+} from '@/renderer/utils/extensionMessageBoundary';
 
 interface ExtensionSettingsTabContentProps {
   /** Backend-served local page URL or external https:// URL */
@@ -32,7 +34,9 @@ const ExtensionSettingsTabContent: React.FC<ExtensionSettingsTabContentProps> = 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [loading, setLoading] = useState(true);
   const resolvedUrl = resolveExtensionAssetUrl(url) ?? url;
-  const isExternalTab = isExternalSettingsUrl(resolvedUrl);
+  // Trust comes from the extension manifest. Desktop resolution expands a
+  // local `/api/extensions/...` URL to loopback HTTP, but it remains internal.
+  const isExternalTab = isExternalExtensionSettingsUrl(url);
   const messageOrigin = useMemo(() => resolveTrustedFrameOrigin(resolvedUrl, window.location.href), [resolvedUrl]);
 
   useEffect(() => {

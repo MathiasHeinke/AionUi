@@ -104,6 +104,7 @@ import {
   fromBackendWorkspaceList,
   type RawWorkspaceFlatFile,
 } from './workspaceMapper';
+import { fromAvailableSkillsToBuiltinAutoSkills, type RawAvailableSkill } from './skillMapper';
 
 // ---------------------------------------------------------------------------
 // Shell — routed to POST /api/shell/*
@@ -2092,19 +2093,10 @@ export const fs = {
   deleteAssistantSkill: httpDelete<boolean, { assistant_id: string }>(
     (p) => `/api/skills/assistant-skill/${p.assistant_id}`
   ),
-  listAvailableSkills: httpGet<
-    Array<{
-      name: string;
-      description: string;
-      location: string;
-      relative_location?: string;
-      is_custom: boolean;
-      source: 'builtin' | 'custom' | 'extension';
-    }>,
-    void
-  >('/api/skills'),
-  listBuiltinAutoSkills: httpGet<Array<{ name: string; description: string; location: string }>, void>(
-    '/api/skills/builtin-auto'
+  listAvailableSkills: httpGet<RawAvailableSkill[], void>('/api/skills'),
+  listBuiltinAutoSkills: withResponseMap(
+    httpGet<RawAvailableSkill[], void>('/api/skills'),
+    fromAvailableSkillsToBuiltinAutoSkills
   ),
   materializeSkillsForAgent: httpPost<
     { skills: Array<{ name: string; source_path: string }> },
@@ -2126,7 +2118,7 @@ export const fs = {
     void
   >('/api/skills/detect-external'),
   importSkillWithSymlink: httpPost<{ skill_name: string; skill_names?: string[] }, { skill_path: string }>(
-    '/api/skills/import-symlink'
+    '/api/skills/import'
   ),
   deleteSkill: httpDelete<void, { skill_name: string }>((p) => `/api/skills/${p.skill_name}`),
   getSkillPaths: httpGet<{ user_skills_dir: string; builtin_skills_dir: string }, void>('/api/skills/paths'),
@@ -2882,14 +2874,16 @@ export interface ICronJob {
 }
 
 export interface ICronAgentConfig {
-  backend: string;
   name: string;
+  assistant_id: string;
   cli_path?: string;
-  is_preset?: boolean;
-  custom_agent_id?: string;
-  preset_agent_type?: string;
   mode?: string;
   model_id?: string;
+  model?: {
+    provider_id: string;
+    model: string;
+    use_model: string;
+  };
   config_options?: Record<string, string>;
   workspace?: string;
 }
@@ -2902,7 +2896,6 @@ export interface ICreateCronJobParams {
   message?: string;
   conversation_id: string;
   conversation_title?: string;
-  agent_type: string;
   created_by: 'user' | 'agent';
   execution_mode?: 'existing' | 'new_conversation';
   agent_config?: ICronAgentConfig;
@@ -3189,11 +3182,20 @@ export interface IExtensionInfo {
   enabled: boolean;
 }
 
-export interface IExtensionPermissionSummary {
-  name: string;
+export interface IExtensionPermissionDetail {
+  permission: string;
   description: string;
-  level: 'safe' | 'moderate' | 'dangerous';
-  granted: boolean;
+  level: 'full' | 'limited' | 'none';
+}
+
+export interface IExtensionPermissionsResponse {
+  permissions: Record<string, boolean | string>;
+  risk_level: 'safe' | 'moderate' | 'dangerous';
+  details: IExtensionPermissionDetail[];
+}
+
+export interface IExtensionRiskLevelResponse {
+  riskLevel: 'safe' | 'moderate' | 'dangerous';
 }
 
 export interface IExtensionSettingsTab {
@@ -3256,8 +3258,8 @@ export const extensions = {
   getExtI18nForLocale: httpPost<Record<string, unknown>, { locale: string }>('/api/extensions/i18n'),
   enableExtension: httpPost<void, { name: string }>('/api/extensions/enable'),
   disableExtension: httpPost<void, { name: string; reason?: string }>('/api/extensions/disable'),
-  getPermissions: httpPost<IExtensionPermissionSummary[], { name: string }>('/api/extensions/permissions'),
-  getRiskLevel: httpPost<string, { name: string }>('/api/extensions/risk-level'),
+  getPermissions: httpPost<IExtensionPermissionsResponse, { name: string }>('/api/extensions/permissions'),
+  getRiskLevel: httpPost<IExtensionRiskLevelResponse, { name: string }>('/api/extensions/risk-level'),
   stateChanged: wsEmitter<{ name: string; enabled: boolean; reason?: string }>('extensions.state-changed'),
 };
 

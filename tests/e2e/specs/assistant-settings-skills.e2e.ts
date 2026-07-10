@@ -19,6 +19,10 @@ import {
 } from '../helpers';
 
 test.describe('Assistant Settings Skills', () => {
+  test.skip(
+    process.env.COMMAND_EVE_FOUNDER_BUILD !== '1',
+    'Assistant administration is founder-only; public Command EVE users see the managed EVE runtime.'
+  );
   test.setTimeout(60_000);
 
   test('skill panel shows builtin skills for custom assistant', async ({ page }) => {

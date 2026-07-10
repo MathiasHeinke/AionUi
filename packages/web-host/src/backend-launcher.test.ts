@@ -281,6 +281,8 @@ describe('BackendLifecycleManager.start (success path)', () => {
       '0',
       '--data-dir',
       '/db/path',
+      '--parent-pid',
+      String(process.pid),
       '--log-level',
       'info',
       '--app-version',
@@ -333,6 +335,8 @@ describe('BackendLifecycleManager.start (success path)', () => {
         '0',
         '--data-dir',
         '/db/path',
+        '--parent-pid',
+        String(process.pid),
         '--log-level',
         'info',
         '--app-version',
@@ -788,6 +792,16 @@ describe('BackendLifecycleManager.start (health timeout)', () => {
 });
 
 describe('BackendLifecycleManager.stop', () => {
+  it('cleans registered agent children even when no backend process remains', async () => {
+    const mgr = new BackendLifecycleManager(APP_META, () => '/x');
+    Object.assign(mgr, { _lastDbPath: '/db-with-orphaned-agents' });
+
+    await mgr.stop();
+
+    expect(cleanupRegisteredAgentProcesses).toHaveBeenCalledWith('/db-with-orphaned-agents');
+    expect(mgr.status).toBe('stopped');
+  });
+
   it('rejects startup as cancelled when stopped before health check passes', async () => {
     vi.mocked(createServer).mockImplementation(
       () => makeSyncFakeServer(22221) as unknown as ReturnType<typeof createServer>

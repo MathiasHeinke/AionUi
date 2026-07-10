@@ -8,7 +8,7 @@
  * integration suite (tests/integration).
  */
 import { test, expect } from '../../fixtures';
-import { cleanupTeamsByName, TEAM_SUPPORTED_BACKENDS } from '../../helpers';
+import { cleanupTeamsByName } from '../../helpers';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -33,11 +33,6 @@ test.describe('Workspace Files — UI panel', () => {
   test('workspace panel renders tree and search for a team workspace', async ({ page, electronApp }) => {
     test.setTimeout(120_000);
 
-    if (TEAM_SUPPORTED_BACKENDS.size === 0) {
-      test.skip(true, 'No supported team backends available');
-      return;
-    }
-
     // Mock native folder dialog → point at our seeded workspace so the team is
     // created with a user-specified workspace (not a temp one).
     await electronApp.evaluate(async ({ dialog }, target) => {
@@ -54,27 +49,23 @@ test.describe('Workspace Files — UI panel', () => {
     const modal = page.locator('.team-create-modal');
     await expect(modal).toBeVisible({ timeout: 10_000 });
 
-    const nameInput = modal.locator('input').first();
+    const nameInput = modal.locator('[data-testid="team-create-name-input"]');
     await nameInput.fill(TEAM_NAME);
 
-    const agentCard = modal.locator('[data-testid^="team-create-agent-card-"]').first();
-    if (!(await agentCard.isVisible().catch(() => false))) {
-      test.skip(true, 'No supported agents available');
-      return;
-    }
-    await agentCard.click();
+    const commandEveOption = modal.locator('[data-testid^="team-create-agent-option-"]').first();
+    await expect(commandEveOption).toBeVisible({ timeout: 5_000 });
+    await commandEveOption.click();
 
     // Pick workspace via the mocked native dialog trigger
     const wsTrigger = modal.locator('[data-testid="team-create-workspace-trigger"]');
-    if (await wsTrigger.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await wsTrigger.click();
-      const menu = page.locator('[data-testid="team-create-workspace-menu"]');
-      if (await menu.isVisible({ timeout: 3_000 }).catch(() => false)) {
-        const chooseDifferent = menu
-          .locator('text=/Choose a different folder|选择其他文件夹/i')
-          .or(menu.locator('.cursor-pointer').last());
-        await chooseDifferent.first().click();
-      }
+    await expect(wsTrigger).toBeVisible({ timeout: 5_000 });
+    await wsTrigger.click();
+    const menu = page.locator('[data-testid="team-create-workspace-menu"]');
+    if (await menu.isVisible({ timeout: 1_000 }).catch(() => false)) {
+      const chooseDifferent = menu
+        .locator('text=/Choose a different folder|Anderen Ordner auswählen|选择其他文件夹/i')
+        .or(menu.locator('.cursor-pointer').last());
+      await chooseDifferent.first().click();
     }
 
     const createConfirmBtn = modal.locator('.arco-btn-primary');
@@ -103,15 +94,14 @@ test.describe('Workspace Files — UI panel', () => {
 
     // ── Search input toggles + accepts a query ───────────────────────────
     const searchInput = panel.locator('.workspace-search-input input').first();
-    if (await searchInput.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await searchInput.fill('readme');
-      await expect(searchInput).toHaveValue('readme', { timeout: 3_000 });
+    await expect(searchInput).toBeVisible({ timeout: 5_000 });
+    await searchInput.fill('readme');
+    await expect(searchInput).toHaveValue('readme', { timeout: 3_000 });
 
-      // Search narrows the visible entries — readme.md stays visible
-      await expect(panel.getByText('readme.md').first()).toBeVisible({ timeout: 5_000 });
+    // Search narrows the visible entries — readme.md stays visible
+    await expect(panel.getByText('readme.md').first()).toBeVisible({ timeout: 5_000 });
 
-      await searchInput.fill('');
-    }
+    await searchInput.fill('');
 
     await page.screenshot({ path: 'tests/e2e/results/workspace-files-02-tree.png' });
 

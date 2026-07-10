@@ -423,6 +423,16 @@ let commandEveOllamaShimStartFailure: unknown;
 let commandEveWarmupInFlight: Promise<CommandEveModelWarmupReceipt> | undefined;
 let commandEveAssistantBootstrapInFlight: Promise<CommandEveAssistantEnsureResult> | undefined;
 
+function rememberCommandEveOllamaShimUrl(shimUrl: string): string {
+  const normalized = shimUrl.trim().replace(/\/$/, '');
+  commandEveOllamaShimUrl = normalized;
+  // The seat-switch provisioner lives in another module and may run long after
+  // boot. A non-secret process-local URL keeps every rewritten Hermes home on
+  // this process's actual shim instead of the manifest's fixed default port.
+  process.env.COMMAND_EVE_EGRESS_PROXY_URL = normalized;
+  return normalized;
+}
+
 function readJsonFile<T>(filePath: string): T | undefined {
   try {
     if (!fs.existsSync(filePath)) return undefined;
@@ -993,12 +1003,32 @@ function registerCommandEveRuntimeBridge(): void {
       const { startCommandEveOllamaOpenAiShim, warmCommandEveLocalModel } =
         await import('./process/commandEve/ollamaOpenAiShim');
       const tierId = typeof request?.tierId === 'string' ? request.tierId : '';
+      const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
+      const shimUrl = rememberCommandEveOllamaShimUrl(
+        commandEveOllamaShimUrl ||
+          (await startCommandEveOllamaOpenAiShim({
+            promptProofPath: commandEvePromptProofPath(paths.runtimeRoot),
+            egressReceiptPath: commandEveEgressBoundaryReceiptPath(paths.runtimeRoot),
+            eveRouting: buildCommandEveShimRoutingResolver(),
+            teamWorkerStatus: buildCommandEveShimTeamStatusResolver(),
+            egressRedactionMode: buildCommandEveShimEgressRedactionModeResolver(),
+            activeSeatId: buildCommandEveShimActiveSeatIdResolver(),
+            attributionAgentId: (token, seatId) => resolveDispatchAgentId(token, seatId),
+            teamManageBearer: resolveTeamManageBearer,
+            teamManagePropose: teamManageProposeHandler,
+            honchoDeriverRoute: buildCommandEveShimHonchoDeriverRoute(),
+            kanbanAcpBearer: resolveKanbanAcpBearer,
+            kanbanAcpPropose: kanbanAcpProposeHandler,
+            kanbanAcpRead: readKanbanAcpBoard,
+          }))
+      );
       const receipt = await ensureCommandEveRuntimeBootstrap({
         userDataPath: getDataPath(),
         appPath: app.getAppPath(),
         resourcesPath: process.resourcesPath,
         mode: 'auto',
         env: tierId ? { COMMAND_EVE_LOCAL_MODEL_TIER: tierId } : undefined,
+        egressProxyUrl: shimUrl,
         // Setting-driven language: thread the operator's selected UI language into
         // the soul so EVE defaults to it (bootstrap re-runs, so it self-corrects).
         uiLanguage: ProcessConfig.getSync('language'),
@@ -1007,33 +1037,8 @@ function registerCommandEveRuntimeBridge(): void {
         // delegate so the bootstrap writes the live delegate directive into SOUL.md.
         ...(await resolveCommandEveWorkerRuntimeInputs()),
       });
-      const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
       const existingWarmup = readJsonFile<CommandEveModelWarmupReceipt>(paths.modelWarmupReceiptPath);
       const shouldWarm = !commandEveWarmupReceiptReadyForModel(existingWarmup, receipt.default_model || '');
-      const shimUrl =
-        commandEveOllamaShimUrl ||
-        (await startCommandEveOllamaOpenAiShim({
-          promptProofPath: commandEvePromptProofPath(paths.runtimeRoot),
-          egressReceiptPath: commandEveEgressBoundaryReceiptPath(paths.runtimeRoot),
-          eveRouting: buildCommandEveShimRoutingResolver(),
-          teamWorkerStatus: buildCommandEveShimTeamStatusResolver(),
-          egressRedactionMode: buildCommandEveShimEgressRedactionModeResolver(),
-          activeSeatId: buildCommandEveShimActiveSeatIdResolver(),
-          // SG-1 A1: the real seat-partitioned attribution resolver (still yields `eve`
-          // in 1.7.0 until the 1.8 header producer, but now wired + testable end-to-end).
-          attributionAgentId: (token, seatId) => resolveDispatchAgentId(token, seatId),
-          // SG-1 Design B: team_manage propose route — bearer + handler are ISO-6-gated
-          // (resolveTeamManageBearer returns "" on a client seat, making the route inert).
-          teamManageBearer: resolveTeamManageBearer,
-          teamManagePropose: teamManageProposeHandler,
-          // COMPA-626 kanban-ACP: bearer-gated propose + read-only board digest (inert on
-          // a client seat — resolveKanbanAcpBearer returns "" there).
-          honchoDeriverRoute: buildCommandEveShimHonchoDeriverRoute(),
-          kanbanAcpBearer: resolveKanbanAcpBearer,
-          kanbanAcpPropose: kanbanAcpProposeHandler,
-          kanbanAcpRead: readKanbanAcpBoard,
-        }));
-      commandEveOllamaShimUrl = shimUrl;
       const warmupReceipt = shouldWarm
         ? await ensureCommandEveLocalModelWarmup(receipt, shimUrl, warmCommandEveLocalModel)
         : existingWarmup;
@@ -1062,12 +1067,32 @@ function registerCommandEveRuntimeBridge(): void {
       const { startCommandEveOllamaOpenAiShim, warmCommandEveLocalModel } =
         await import('./process/commandEve/ollamaOpenAiShim');
       const tierId = typeof request?.tierId === 'string' ? request.tierId : '';
+      const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
+      const shimUrl = rememberCommandEveOllamaShimUrl(
+        commandEveOllamaShimUrl ||
+          (await startCommandEveOllamaOpenAiShim({
+            promptProofPath: commandEvePromptProofPath(paths.runtimeRoot),
+            egressReceiptPath: commandEveEgressBoundaryReceiptPath(paths.runtimeRoot),
+            eveRouting: buildCommandEveShimRoutingResolver(),
+            teamWorkerStatus: buildCommandEveShimTeamStatusResolver(),
+            egressRedactionMode: buildCommandEveShimEgressRedactionModeResolver(),
+            activeSeatId: buildCommandEveShimActiveSeatIdResolver(),
+            attributionAgentId: (token, seatId) => resolveDispatchAgentId(token, seatId),
+            teamManageBearer: resolveTeamManageBearer,
+            teamManagePropose: teamManageProposeHandler,
+            honchoDeriverRoute: buildCommandEveShimHonchoDeriverRoute(),
+            kanbanAcpBearer: resolveKanbanAcpBearer,
+            kanbanAcpPropose: kanbanAcpProposeHandler,
+            kanbanAcpRead: readKanbanAcpBoard,
+          }))
+      );
       const receipt = await ensureCommandEveRuntimeBootstrap({
         userDataPath: getDataPath(),
         appPath: app.getAppPath(),
         resourcesPath: process.resourcesPath,
         mode: 'auto',
         env: tierId ? { COMMAND_EVE_LOCAL_MODEL_TIER: tierId } : undefined,
+        egressProxyUrl: shimUrl,
         // Setting-driven language: thread the operator's selected UI language into
         // the soul so EVE defaults to it (bootstrap re-runs, so it self-corrects).
         uiLanguage: ProcessConfig.getSync('language'),
@@ -1076,7 +1101,6 @@ function registerCommandEveRuntimeBridge(): void {
         // delegate so the bootstrap writes the live delegate directive into SOUL.md.
         ...(await resolveCommandEveWorkerRuntimeInputs()),
       });
-      const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
       const existingWarmup = readJsonFile<CommandEveModelWarmupReceipt>(paths.modelWarmupReceiptPath);
       if (commandEveWarmupReceiptReadyForModel(existingWarmup, receipt.default_model || '')) {
         return {
@@ -1085,30 +1109,6 @@ function registerCommandEveRuntimeBridge(): void {
         };
       }
 
-      const shimUrl =
-        commandEveOllamaShimUrl ||
-        (await startCommandEveOllamaOpenAiShim({
-          promptProofPath: commandEvePromptProofPath(paths.runtimeRoot),
-          egressReceiptPath: commandEveEgressBoundaryReceiptPath(paths.runtimeRoot),
-          eveRouting: buildCommandEveShimRoutingResolver(),
-          teamWorkerStatus: buildCommandEveShimTeamStatusResolver(),
-          egressRedactionMode: buildCommandEveShimEgressRedactionModeResolver(),
-          activeSeatId: buildCommandEveShimActiveSeatIdResolver(),
-          // SG-1 A1: the real seat-partitioned attribution resolver (still yields `eve`
-          // in 1.7.0 until the 1.8 header producer, but now wired + testable end-to-end).
-          attributionAgentId: (token, seatId) => resolveDispatchAgentId(token, seatId),
-          // SG-1 Design B: team_manage propose route — bearer + handler are ISO-6-gated
-          // (resolveTeamManageBearer returns "" on a client seat, making the route inert).
-          teamManageBearer: resolveTeamManageBearer,
-          teamManagePropose: teamManageProposeHandler,
-          // COMPA-626 kanban-ACP: bearer-gated propose + read-only board digest (inert on
-          // a client seat — resolveKanbanAcpBearer returns "" there).
-          honchoDeriverRoute: buildCommandEveShimHonchoDeriverRoute(),
-          kanbanAcpBearer: resolveKanbanAcpBearer,
-          kanbanAcpPropose: kanbanAcpProposeHandler,
-          kanbanAcpRead: readKanbanAcpBoard,
-        }));
-      commandEveOllamaShimUrl = shimUrl;
       const warmupReceipt = await ensureCommandEveLocalModelWarmup(receipt, shimUrl, warmCommandEveLocalModel);
       const warmupOk = ['ready', 'skipped'].includes(warmupReceipt.status);
       return {
@@ -1403,8 +1403,11 @@ const createWindow = ({ showOnReady = true }: { showOnReady?: boolean } = {}): v
   // Initialize auto-updater service (skip when disabled via env, e.g. E2E / CI)
   // 初始化自动更新服务（通过环境变量禁用时跳过，例如 E2E / CI 场景）
   const isCiRuntime = process.env.CI === 'true' || process.env.CI === '1' || process.env.GITHUB_ACTIONS === 'true';
+  const isAutoUpdateE2E = process.env.AIONUI_AUTO_UPDATE_E2E === '1';
   const disableAutoUpdater =
-    process.env.AIONUI_DISABLE_AUTO_UPDATE === '1' || process.env.AIONUI_E2E_TEST === '1' || isCiRuntime;
+    process.env.AIONUI_DISABLE_AUTO_UPDATE === '1' ||
+    (process.env.AIONUI_E2E_TEST === '1' && !isAutoUpdateE2E) ||
+    isCiRuntime;
   if (!disableAutoUpdater) {
     Promise.all([import('./process/services/autoUpdaterService'), import('./process/bridge/updateBridge')])
       .then(([{ autoUpdaterService }, { createAutoUpdateStatusBroadcast }]) => {
@@ -1545,14 +1548,18 @@ const handleAppReady = async (): Promise<void> => {
   setCommandEveCompanyOsRootEnv();
   mark('companyOsRootEnv');
 
-  if (!app.isPackaged) {
-    try {
-      const { default: installExtension, REACT_DEVELOPER_TOOLS } = await import('electron-devtools-installer');
-      await installExtension(REACT_DEVELOPER_TOOLS);
-      console.log('[DevTools] React Developer Tools installed');
-    } catch (e) {
-      console.warn('[DevTools] Failed to install React DevTools:', e);
-    }
+  if (!app.isPackaged && process.env.AIONUI_DISABLE_DEVTOOLS !== '1') {
+    // Developer tooling is optional. A slow or unavailable extension source must
+    // never hold the renderer and the rest of the runtime behind a network wait.
+    void (async () => {
+      try {
+        const { default: installExtension, REACT_DEVELOPER_TOOLS } = await import('electron-devtools-installer');
+        await installExtension(REACT_DEVELOPER_TOOLS);
+        console.log('[DevTools] React Developer Tools installed');
+      } catch (e) {
+        console.warn('[DevTools] Failed to install React DevTools:', e);
+      }
+    })();
   }
 
   // CLI mode: print app version and exit immediately (used by CI smoke tests)
@@ -1603,28 +1610,29 @@ const handleAppReady = async (): Promise<void> => {
       resolveCommandEveRuntimeBootstrapPaths,
     } = await import('./process/commandEve/runtimeBootstrapCore');
     const runtimePaths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
-    const shimUrl = await startCommandEveOllamaOpenAiShim({
-      promptProofPath: commandEvePromptProofPath(runtimePaths.runtimeRoot),
-      egressReceiptPath: commandEveEgressBoundaryReceiptPath(runtimePaths.runtimeRoot),
-      eveRouting: buildCommandEveShimRoutingResolver(),
-      teamWorkerStatus: buildCommandEveShimTeamStatusResolver(),
-      egressRedactionMode: buildCommandEveShimEgressRedactionModeResolver(),
-      activeSeatId: buildCommandEveShimActiveSeatIdResolver(),
-      // SG-1 A1: the real seat-partitioned attribution resolver (still yields `eve`
-      // in 1.7.0 until the 1.8 header producer, but now wired + testable end-to-end).
-      attributionAgentId: (token, seatId) => resolveDispatchAgentId(token, seatId),
-      // SG-1 Design B: team_manage propose route — bearer + handler are ISO-6-gated
-      // (resolveTeamManageBearer returns "" on a client seat, making the route inert).
-      teamManageBearer: resolveTeamManageBearer,
-      teamManagePropose: teamManageProposeHandler,
-      // COMPA-626 kanban-ACP (the cold-boot shim start — this is the normal path, so it
-      // MUST inject the kanban handlers or EVE's routes 404 despite the SOUL clause).
-      honchoDeriverRoute: buildCommandEveShimHonchoDeriverRoute(),
-      kanbanAcpBearer: resolveKanbanAcpBearer,
-      kanbanAcpPropose: kanbanAcpProposeHandler,
-      kanbanAcpRead: readKanbanAcpBoard,
-    });
-    commandEveOllamaShimUrl = shimUrl;
+    const shimUrl = rememberCommandEveOllamaShimUrl(
+      await startCommandEveOllamaOpenAiShim({
+        promptProofPath: commandEvePromptProofPath(runtimePaths.runtimeRoot),
+        egressReceiptPath: commandEveEgressBoundaryReceiptPath(runtimePaths.runtimeRoot),
+        eveRouting: buildCommandEveShimRoutingResolver(),
+        teamWorkerStatus: buildCommandEveShimTeamStatusResolver(),
+        egressRedactionMode: buildCommandEveShimEgressRedactionModeResolver(),
+        activeSeatId: buildCommandEveShimActiveSeatIdResolver(),
+        // SG-1 A1: the real seat-partitioned attribution resolver (still yields `eve`
+        // in 1.7.0 until the 1.8 header producer, but now wired + testable end-to-end).
+        attributionAgentId: (token, seatId) => resolveDispatchAgentId(token, seatId),
+        // SG-1 Design B: team_manage propose route — bearer + handler are ISO-6-gated
+        // (resolveTeamManageBearer returns "" on a client seat, making the route inert).
+        teamManageBearer: resolveTeamManageBearer,
+        teamManagePropose: teamManageProposeHandler,
+        // COMPA-626 kanban-ACP (the cold-boot shim start — this is the normal path, so it
+        // MUST inject the kanban handlers or EVE's routes 404 despite the SOUL clause).
+        honchoDeriverRoute: buildCommandEveShimHonchoDeriverRoute(),
+        kanbanAcpBearer: resolveKanbanAcpBearer,
+        kanbanAcpPropose: kanbanAcpProposeHandler,
+        kanbanAcpRead: readKanbanAcpBoard,
+      })
+    );
     commandEveOllamaShimStartFailure = undefined;
     mark(`commandEveOllamaShim (${shimUrl})`);
     // Seat-Context-Bridge (B1): this bakes the env trio (COMMAND_EVE_ACTIVE_SEAT /
@@ -1657,6 +1665,7 @@ const handleAppReady = async (): Promise<void> => {
       appPath: app.getAppPath(),
       resourcesPath: process.resourcesPath,
       env: localModelTierId ? { COMMAND_EVE_LOCAL_MODEL_TIER: localModelTierId } : undefined,
+      egressProxyUrl: shimUrl,
       uiLanguage: ProcessConfig.getSync('language'),
       ...workerRuntimeInputs,
     });
@@ -1677,6 +1686,7 @@ const handleAppReady = async (): Promise<void> => {
       resourcesPath: process.resourcesPath,
       mode: 'auto',
       env: localModelTierId ? { COMMAND_EVE_LOCAL_MODEL_TIER: localModelTierId } : undefined,
+      egressProxyUrl: shimUrl,
       // Setting-driven language: thread the operator's selected UI language into
       // the soul so EVE defaults to it (bootstrap re-runs, so it self-corrects).
       uiLanguage: ProcessConfig.getSync('language'),

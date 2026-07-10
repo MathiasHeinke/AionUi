@@ -55,7 +55,17 @@ async function openHubModal(page: import('@playwright/test').Page): Promise<void
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
+const commandEveHubBoundaryTest = process.env.AIONUI_UPSTREAM_MODE === '1' ? test.skip : test;
+
+commandEveHubBoundaryTest('Command EVE keeps the raw backend market internal', async ({ page }) => {
+  await goToSettings(page, 'agent');
+  await waitForSettle(page);
+  await expect(page.locator(MARKET_BUTTON)).toHaveCount(0);
+});
+
 test.describe('Hub Backend Install — E2E', () => {
+  test.skip(process.env.AIONUI_UPSTREAM_MODE !== '1', 'Raw backend market is internal to Command EVE');
+
   test.describe('Hub Modal — Open & List', () => {
     test('navigates to Agent settings and finds the Market button', async ({ page }) => {
       await goToSettings(page, 'agent');

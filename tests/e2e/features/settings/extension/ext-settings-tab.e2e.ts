@@ -46,7 +46,7 @@ async function waitForIframeLoaded(page: Page, timeoutMs = 15_000): Promise<void
 
 test.describe('Extension: Page-Route Entry', () => {
   test('page route sets correct hash', async ({ page }) => {
-    await goToSettings(page, 'gemini');
+    await goToSettings(page, 'model');
     const tabId = await waitForAnyExtTab(page);
     test.skip(!tabId, 'No extension tabs installed');
 
@@ -58,7 +58,7 @@ test.describe('Extension: Page-Route Entry', () => {
   });
 
   test('sider highlights the active extension tab', async ({ page }) => {
-    await goToSettings(page, 'gemini');
+    await goToSettings(page, 'model');
     const tabId = await waitForAnyExtTab(page);
     test.skip(!tabId, 'No extension tabs installed');
 
@@ -74,7 +74,7 @@ test.describe('Extension: Page-Route Entry', () => {
 
 test.describe('Extension: Iframe Content Rendering', () => {
   test('renders an iframe or webview with a valid src', async ({ page }) => {
-    await goToSettings(page, 'gemini');
+    await goToSettings(page, 'model');
     const tabId = await waitForAnyExtTab(page);
     test.skip(!tabId, 'No extension tabs installed');
 
@@ -93,7 +93,7 @@ test.describe('Extension: Iframe Content Rendering', () => {
   });
 
   test('iframe becomes fully visible after load', async ({ page }) => {
-    await goToSettings(page, 'gemini');
+    await goToSettings(page, 'model');
     const tabId = await waitForAnyExtTab(page);
     test.skip(!tabId, 'No extension tabs installed');
 
@@ -104,7 +104,7 @@ test.describe('Extension: Iframe Content Rendering', () => {
   });
 
   test('iframe has sandbox attributes for local tabs', async ({ page }) => {
-    await goToSettings(page, 'gemini');
+    await goToSettings(page, 'model');
     const tabId = await waitForAnyExtTab(page);
     test.skip(!tabId, 'No extension tabs installed');
 
@@ -121,7 +121,7 @@ test.describe('Extension: Iframe Content Rendering', () => {
 
 test.describe('Extension: Tab Switch Round-Trip', () => {
   test('switch to builtin tab and back preserves extension content', async ({ page }) => {
-    await goToSettings(page, 'gemini');
+    await goToSettings(page, 'model');
     const tabId = await waitForAnyExtTab(page);
     test.skip(!tabId, 'No extension tabs installed');
 
@@ -151,7 +151,7 @@ test.describe('Extension: Tab Switch Round-Trip', () => {
   });
 
   test('switch between two extension tabs loads each correctly', async ({ page }) => {
-    await goToSettings(page, 'gemini');
+    await goToSettings(page, 'model');
 
     let ids: string[] = [];
     try {

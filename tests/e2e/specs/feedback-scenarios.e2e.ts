@@ -17,9 +17,11 @@
  */
 import { test, expect, type Page } from '../fixtures';
 import { goToSettings } from '../helpers';
+import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 
 const FEEDBACK_PILL = 'button:has-text("问题上报"), button:has-text("Report issue")';
 const MODAL_BODY = '[data-testid="feedback-report-scroll-body"]';
+const upstreamAgentFeedbackTest = COMMAND_EVE_SHELL_ENABLED ? test.skip : test;
 
 /** Close the feedback modal (ModalWrapper sets closable=false so Escape is a no-op). */
 async function closeFeedbackModal(page: Page) {
@@ -47,10 +49,7 @@ async function closeAgentEditor(page: Page) {
 test('[1] About → Bug Report entry opens feedback modal', async ({ page }) => {
   await goToSettings(page, 'about');
 
-  const bugReportRow = page
-    .locator('div')
-    .filter({ hasText: /^Bug Report$|^问题报告$|^バグ報告$|^버그 보고$/ })
-    .first();
+  const bugReportRow = page.getByTestId('about-bug-report');
   await expect(bugReportRow).toBeVisible({ timeout: 10_000 });
   await bugReportRow.click();
 
@@ -106,42 +105,48 @@ async function openCustomAgentEditor(page: Page, command: string) {
 // Scenario 5: Agent test connection — fail_cli → agent-detection
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('[5] Agent fail_cli alert surfaces feedback pill (module=agent-detection)', async ({ page }) => {
-  await openCustomAgentEditor(page, 'aionui-e2e-missing-binary-xyz');
+upstreamAgentFeedbackTest(
+  '[5] Agent fail_cli alert surfaces feedback pill (module=agent-detection)',
+  async ({ page }) => {
+    await openCustomAgentEditor(page, 'aionui-e2e-missing-binary-xyz');
 
-  // Expect the fail_cli alert to appear with the feedback pill inside.
-  const alert = page.locator('.arco-alert-error').first();
-  await expect(alert).toBeVisible({ timeout: 15_000 });
+    // Expect the fail_cli alert to appear with the feedback pill inside.
+    const alert = page.locator('.arco-alert-error').first();
+    await expect(alert).toBeVisible({ timeout: 15_000 });
 
-  const pill = alert.locator(FEEDBACK_PILL).first();
-  await expect(pill).toBeVisible({ timeout: 5_000 });
-  await pill.click();
-  await expect(page.locator(MODAL_BODY)).toBeVisible({ timeout: 5_000 });
-  await expect(page.locator('.arco-select-view-value').first()).toContainText(/Agent|代理|权限|检测/, {
-    timeout: 3_000,
-  });
-  await closeFeedbackModal(page);
+    const pill = alert.locator(FEEDBACK_PILL).first();
+    await expect(pill).toBeVisible({ timeout: 5_000 });
+    await pill.click();
+    await expect(page.locator(MODAL_BODY)).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator('.arco-select-view-value').first()).toContainText(/Agent|代理|权限|检测/, {
+      timeout: 3_000,
+    });
+    await closeFeedbackModal(page);
 
-  // Close the agent editor modal so the next test starts fresh.
-  await closeAgentEditor(page);
-});
+    // Close the agent editor modal so the next test starts fresh.
+    await closeAgentEditor(page);
+  }
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Scenario 6: Agent test connection — fail_acp → agent-detection
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('[6] Agent fail_acp warning surfaces feedback pill (module=agent-detection)', async ({ page }) => {
-  await openCustomAgentEditor(page, '/bin/echo');
+upstreamAgentFeedbackTest(
+  '[6] Agent fail_acp warning surfaces feedback pill (module=agent-detection)',
+  async ({ page }) => {
+    await openCustomAgentEditor(page, '/bin/echo');
 
-  // Expect the fail_acp warning alert (warning, not error).
-  const alert = page.locator('.arco-alert-warning').first();
-  await expect(alert).toBeVisible({ timeout: 15_000 });
+    // Expect the fail_acp warning alert (warning, not error).
+    const alert = page.locator('.arco-alert-warning').first();
+    await expect(alert).toBeVisible({ timeout: 15_000 });
 
-  const pill = alert.locator(FEEDBACK_PILL).first();
-  await expect(pill).toBeVisible({ timeout: 5_000 });
-  await pill.click();
-  await expect(page.locator(MODAL_BODY)).toBeVisible({ timeout: 5_000 });
-  await closeFeedbackModal(page);
+    const pill = alert.locator(FEEDBACK_PILL).first();
+    await expect(pill).toBeVisible({ timeout: 5_000 });
+    await pill.click();
+    await expect(page.locator(MODAL_BODY)).toBeVisible({ timeout: 5_000 });
+    await closeFeedbackModal(page);
 
-  await closeAgentEditor(page);
-});
+    await closeAgentEditor(page);
+  }
+);

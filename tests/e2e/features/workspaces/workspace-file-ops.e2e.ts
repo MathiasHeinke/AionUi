@@ -13,7 +13,7 @@ import { goToGuid } from '../../helpers';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import type { Page, ElectronApplication, Locator } from '@playwright/test';
+import type { Locator } from '@playwright/test';
 
 test.describe.serial('Workspace — file operations', () => {
   let workspace: string;
@@ -33,44 +33,45 @@ test.describe.serial('Workspace — file operations', () => {
     fs.rmSync(workspace, { recursive: true, force: true });
   });
 
-  test('setup: create conversation with workspace panel', async ({ page, electronApp }) => {
+  test('setup: create conversation with workspace panel', async ({ page }) => {
     test.setTimeout(120_000);
 
-    await electronApp.evaluate(async ({ dialog }, target) => {
-      dialog.showOpenDialog = () => Promise.resolve({ canceled: false, filePaths: [target] });
+    await goToGuid(page);
+    const conversationId = await page.evaluate(async (workspacePath) => {
+      const port = (window as Window).__backendPort;
+      if (!port) throw new Error('window.__backendPort is not available');
+      const response = await fetch(`http://127.0.0.1:${port}/api/conversations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'acp',
+          name: `E2E workspace file operations ${Date.now()}`,
+          extra: {
+            workspace: workspacePath,
+            custom_workspace: true,
+            backend: 'codex',
+            session_mode: 'full-access',
+          },
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`Conversation create failed (${response.status}): ${await response.text()}`);
+      }
+      const result = (await response.json()) as { data?: { id?: string } };
+      const id = result.data?.id;
+      if (!id) throw new Error('Conversation create response did not include an id');
+      window.location.assign(`#/conversation/${id}`);
+      return id;
     }, workspace);
 
-    await goToGuid(page);
-
-    const agentPill = page.locator('[data-testid^="agent-pill-"]').first();
-    if (!(await agentPill.isVisible({ timeout: 10_000 }).catch(() => false))) {
-      test.skip(true, 'No agent pills available on guid page');
-      return;
-    }
-    await agentPill.click();
-
-    const wsBtn = page.locator('[data-testid="workspace-selector-btn"]');
-    if (await wsBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
-      await wsBtn.click();
-      await page.waitForTimeout(500);
-    }
-
-    const input = page.locator('[data-testid="guid-input"] textarea, [data-testid="guid-input"] input').first();
-    await input.fill('describe the project structure');
-    await page.locator('[data-testid="guid-send-btn"]').click();
     await page.waitForURL(/\/conversation\//, { timeout: 30_000 });
+    expect(page.url()).toContain(conversationId);
 
     const wsPanel = page.locator('.chat-workspace');
-    if (!(await wsPanel.isVisible({ timeout: 30_000 }).catch(() => false))) {
-      test.skip(true, 'Workspace panel did not appear');
-      return;
-    }
+    await expect(wsPanel).toBeVisible({ timeout: 45_000 });
 
     const tree = wsPanel.locator('.workspace-tree');
-    if (!(await tree.isVisible({ timeout: 15_000 }).catch(() => false))) {
-      test.skip(true, 'File tree not loaded');
-      return;
-    }
+    await expect(tree).toBeVisible({ timeout: 30_000 });
 
     panel = wsPanel;
   });
@@ -130,14 +131,15 @@ test.describe.serial('Workspace — file operations', () => {
     const ctxMenu = page.locator('.fixed.z-100').first();
     await expect(ctxMenu).toBeVisible({ timeout: 3_000 });
 
-    const addToChat = ctxMenu.getByText(/Add to Chat|添加到对话/i).first();
-    const openItem = ctxMenu.getByText(/^Open$|^打开$/i).first();
+    const addToChat = ctxMenu.getByText(/Add to Chat|Zum Chat hinzufügen|添加到对话/i).first();
+    const openItem = ctxMenu.getByText(/^(Open|Öffnen|打开)$/i).first();
     expect(
       (await addToChat.isVisible().catch(() => false)) || (await openItem.isVisible().catch(() => false))
     ).toBeTruthy();
 
     await page.screenshot({ path: 'tests/e2e/results/ws-ops-04-context-menu.png' });
 
-    await panel.click({ position: { x: 10, y: 10 } });
+    await page.keyboard.press('Escape');
+    await expect(ctxMenu).not.toBeVisible();
   });
 });

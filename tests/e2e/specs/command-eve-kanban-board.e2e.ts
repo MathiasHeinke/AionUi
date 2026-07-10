@@ -10,8 +10,8 @@
  *      (event_type = kanban.marketing_board_card_created /
  *       kanban.marketing_board_card_moved).
  *
- * No test.skip – fails loud if any precondition is missing (mirrors the
- * proof-card spec in command-eve-command-center.e2e.ts).
+ * This is a founder-only operator proof: the public Command EVE shell exposes
+ * the seat-scoped `/kanban` page, not the internal Marketing Command Center.
  *
  * Strategy:
  *   - The marketing board is created (if missing) by clicking the proof card
@@ -29,7 +29,7 @@
  *   COMMAND_EVE_E2E_EVENTS_LEDGER – absolute path to the clean ledger fixture.
  *                                   Defaults to <companyOsRoot>/reports/command-eve/e2e/2026-06-10/agent-events.clean.jsonl
  */
-import { test, expect } from '../fixtures';
+import { E2E_AGENT_EVENTS_PATH, test, expect } from '../fixtures';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -40,15 +40,13 @@ import { execFileSync } from 'child_process';
 const COMPANY_OS_ROOT_DEFAULT = '/Users/mathiasheinke/Developer/Company.OS';
 const LEDGER_FIXTURE_RELATIVE = 'reports/command-eve/e2e/2026-06-10/agent-events.clean.jsonl';
 const COMMAND_EVE_DATA_DIR_NAME = 'command-eve';
-const SHARED_E2E_LEDGER_ROOT = path.join(os.tmpdir(), 'command-eve-e2e-agent-events');
-const SHARED_E2E_LEDGER_PATH = path.join(SHARED_E2E_LEDGER_ROOT, 'agent-events.clean.jsonl');
-
 // State initialised in beforeAll, used by test bodies.
 let e2eLedgerPath: string = '';
 let e2eLedgerRoot: string = '';
 
 // Prior env values captured in beforeAll, restored in afterAll.
 let prevCompanyOsRoot: string | undefined;
+let prevAgentEventsPath: string | undefined;
 let prevNl5CompanyOsRoot: string | undefined;
 let prevCommandEveNodeBinary: string | undefined;
 
@@ -161,10 +159,15 @@ let boardDbPath: string | null = null;
 
 test.describe('Command EVE Kanban Board – mutation proof', () => {
   test.setTimeout(180_000);
+  test.skip(
+    process.env.COMMAND_EVE_FOUNDER_BUILD !== '1',
+    'Marketing, dispatch, and CRM Command Center proofs run only in founder builds.'
+  );
 
   test.beforeAll(() => {
     // Capture prior values before any mutation.
     prevCompanyOsRoot = process.env.COMMAND_EVE_COMPANY_OS_ROOT;
+    prevAgentEventsPath = process.env.COMMAND_EVE_AGENT_EVENTS_PATH;
     prevNl5CompanyOsRoot = process.env.COMMAND_EVE_NL5_COMPANY_OS_ROOT;
     prevCommandEveNodeBinary = process.env.COMMAND_EVE_NODE_BINARY;
 
@@ -181,9 +184,9 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
 
     // Stable per-worker ledger: the Electron app is a singleton, so the first
     // Command EVE spec that launches it fixes process.env inside main.
-    e2eLedgerRoot = SHARED_E2E_LEDGER_ROOT;
+    e2eLedgerRoot = path.dirname(E2E_AGENT_EVENTS_PATH);
     fs.mkdirSync(e2eLedgerRoot, { recursive: true });
-    e2eLedgerPath = SHARED_E2E_LEDGER_PATH;
+    e2eLedgerPath = E2E_AGENT_EVENTS_PATH;
     fs.copyFileSync(cleanLedgerSource, e2eLedgerPath);
     const nl5CompanyOsRoot = path.join(e2eLedgerRoot, 'company-os-nl5-fixture');
     writeFakeNl5DispatchCli(nl5CompanyOsRoot);
@@ -201,6 +204,11 @@ test.describe('Command EVE Kanban Board – mutation proof', () => {
       delete process.env.COMMAND_EVE_COMPANY_OS_ROOT;
     } else {
       process.env.COMMAND_EVE_COMPANY_OS_ROOT = prevCompanyOsRoot;
+    }
+    if (prevAgentEventsPath === undefined) {
+      delete process.env.COMMAND_EVE_AGENT_EVENTS_PATH;
+    } else {
+      process.env.COMMAND_EVE_AGENT_EVENTS_PATH = prevAgentEventsPath;
     }
     if (prevNl5CompanyOsRoot === undefined) {
       delete process.env.COMMAND_EVE_NL5_COMPANY_OS_ROOT;

@@ -1,36 +1,29 @@
 /**
  * Agent Settings Detection — E2E tests.
  *
- * Covers: LocalAgents component rendering, CLI agent detection,
- * Gemini presence, agent status, PresetManagement sync, refresh.
+ * Covers the public Command EVE runtime/orchestration settings. Raw CLI agent
+ * discovery remains an upstream-only surface.
  */
 import { test, expect } from '../fixtures';
-import { goToSettings, expectUrlContains, expectBodyContainsAny, settingsSiderItemById } from '../helpers';
+import { goToSettings, expectUrlContains, expectBodyContainsAny } from '../helpers';
+
+const upstreamAgentSettingsTest = process.env.AIONUI_UPSTREAM_MODE === '1' ? test : test.skip;
 
 test.describe('Agent Settings Detection', () => {
-  test('LocalAgents page renders', async ({ page }) => {
+  test('EVE runtime settings page renders', async ({ page }) => {
     await goToSettings(page, 'agent');
     await expectUrlContains(page, 'agent');
-    await expectBodyContainsAny(page, ['Agent', 'agent', '助手', '代理']);
+    await expect(page.getByRole('heading', { name: /EVE-Runtime/i })).toBeVisible({ timeout: 8_000 });
   });
 
-  test('detected CLI agents displayed', async ({ page }) => {
+  test('Command EVE settings expose only the managed EVE runtime', async ({ page }) => {
     await goToSettings(page, 'agent');
 
-    // At least one detected agent card should be visible
-    // Agent cards use AgentCard component in a grid
-    const agentGrid = page.locator('.grid');
-    await expect(agentGrid.first()).toBeVisible({ timeout: 8_000 });
-
-    // Check for known backend names
-    const body = await page.locator('body').textContent();
-    const hasKnownAgent = ['Claude', 'Codex', 'Gemini', 'Aion', 'OpenCode', 'Qwen'].some((name) =>
-      body?.includes(name)
-    );
-    expect(hasKnownAgent).toBeTruthy();
+    await expect(page.getByRole('heading', { name: /EVE-Runtime/i })).toBeVisible({ timeout: 8_000 });
+    await expect(page.getByText(/Claude Code|Codex|Gemini CLI/i)).toHaveCount(0);
   });
 
-  test('Gemini agent is present in detected list', async ({ page }) => {
+  upstreamAgentSettingsTest('upstream settings show detected Gemini or Aion agents', async ({ page }) => {
     await goToSettings(page, 'agent');
 
     // Gemini or Aion RS should be in the agent list
@@ -40,26 +33,14 @@ test.describe('Agent Settings Detection', () => {
   test('agent settings page has sidebar navigation item', async ({ page }) => {
     await goToSettings(page, 'agent');
 
-    const siderItem = page.locator(settingsSiderItemById('agent')).first();
-    await expect(siderItem).toBeVisible({ timeout: 8_000 });
+    await expect(page.getByRole('button', { name: /EVE-Runtime/i })).toBeVisible({ timeout: 8_000 });
   });
 
-  test('preset management section is visible', async ({ page }) => {
+  test('orchestration tab and curated team are visible', async ({ page }) => {
     await goToSettings(page, 'agent');
 
-    // The agent settings page includes preset management area
-    // Look for text indicating presets or assistants
-    await expectBodyContainsAny(page, [
-      'Preset',
-      'preset',
-      'Custom',
-      'custom',
-      '预设',
-      '自定义',
-      'Assistants',
-      'assistants',
-      '助手',
-    ]);
+    await expect(page.getByRole('tab', { name: /Orchestrierung|Orchestration/i })).toBeVisible({ timeout: 8_000 });
+    await expectBodyContainsAny(page, ['Dein Team', 'Your Team']);
   });
 
   test('detected agents section refreshes without error', async ({ page }) => {
@@ -70,8 +51,6 @@ test.describe('Agent Settings Detection', () => {
     await goToSettings(page, 'agent');
 
     // Page should still render correctly
-    await expectBodyContainsAny(page, ['Agent', 'agent', '助手', '代理']);
-    const agentGrid = page.locator('.grid');
-    await expect(agentGrid.first()).toBeVisible({ timeout: 8_000 });
+    await expect(page.getByRole('heading', { name: /EVE-Runtime/i })).toBeVisible({ timeout: 8_000 });
   });
 });

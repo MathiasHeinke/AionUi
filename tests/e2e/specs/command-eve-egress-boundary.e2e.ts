@@ -9,6 +9,11 @@
 import { test, expect } from '../fixtures';
 import { goToGuid, sendMessageFromGuid } from '../helpers';
 import { invokeBridge } from '../helpers/bridge/invoke';
+import {
+  forceLocalCommandEveInference,
+  restoreCommandEveInference,
+  type CommandEveInferenceSettingsSnapshot,
+} from '../helpers/commandEveInference';
 
 type RuntimeStatusResponse = {
   success?: boolean;
@@ -33,17 +38,6 @@ type RuntimeStatus = {
     receipt_path?: string;
   };
 };
-
-type ActiveSeatBridgeResponse =
-  | {
-      success?: boolean;
-      data?: {
-        seat_id?: string;
-      };
-    }
-  | {
-      seat_id?: string;
-    };
 
 async function commandEveRuntimeStatus(page: Parameters<typeof invokeBridge>[0]): Promise<RuntimeStatusResponse> {
   const response = await invokeBridge<RuntimeStatusResponse>(page, 'command-eve.runtime-status', undefined, 15_000);
@@ -99,58 +93,15 @@ async function ensureCommandEveRuntimeReady(page: Parameters<typeof invokeBridge
   throw new Error('unreachable after test.skip');
 }
 
-function isLegacySeatId(seatId: string | undefined): boolean {
-  const trimmed = (seatId || '').trim().toLowerCase();
-  return trimmed.length === 0 || trimmed === 'default' || trimmed === 'seat-1';
-}
-
-async function forceLocalInferenceLane(page: Parameters<typeof invokeBridge>[0]): Promise<void> {
-  const activeSeat = await invokeBridge<ActiveSeatBridgeResponse>(
-    page,
-    'command-eve.active-seat',
-    undefined,
-    10_000
-  ).catch(() => undefined);
-  const seatId =
-    (activeSeat && 'data' in activeSeat ? activeSeat.data?.seat_id : undefined) ||
-    (activeSeat && 'seat_id' in activeSeat ? activeSeat.seat_id : undefined) ||
-    'seat-1';
-  const inferenceSelectionKey = isLegacySeatId(seatId)
-    ? 'commandEve.inferenceSelection'
-    : `seat:${seatId.trim().toLowerCase()}:commandEve.inferenceSelection`;
-
-  await page.evaluate(async ({ selectionKey }) => {
-    const win = window as Window & {
-      __backendPort?: number;
-      __aionBackend?: { getPort?: () => number };
-    };
-    const dynamicPort = win.__aionBackend?.getPort?.();
-    const port = typeof dynamicPort === 'number' && dynamicPort > 0 ? dynamicPort : win.__backendPort;
-    if (!port) {
-      throw new Error('window.__backendPort is not available');
-    }
-
-    const response = await fetch(`http://127.0.0.1:${port}/api/settings/client`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        [selectionKey]: 'command-eve-local:local-standard',
-        'commandEve.localModelTierId': 'e4b',
-      }),
-    });
-
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(`PUT /api/settings/client failed (${response.status}): ${body}`);
-    }
-  }, { selectionKey: inferenceSelectionKey });
-
-  await page.reload();
-  await page.waitForSelector('body', { state: 'visible' });
-}
-
 test.describe('Command EVE egress boundary', () => {
   test.setTimeout(240_000);
+
+  let inferenceSettings: CommandEveInferenceSettingsSnapshot | undefined;
+
+  test.afterEach(async ({ page }) => {
+    if (inferenceSettings) await restoreCommandEveInference(page, inferenceSettings);
+    inferenceSettings = undefined;
+  });
 
   test('redacts sensitive data from the real EVE GUI chat path and writes a fresh receipt', async ({ page }) => {
     const rendererLogs: string[] = [];
@@ -171,7 +122,7 @@ test.describe('Command EVE egress boundary', () => {
     });
 
     await page.waitForSelector('body', { state: 'visible' });
-    await forceLocalInferenceLane(page);
+    inferenceSettings = await forceLocalCommandEveInference(page);
     const readyStatus = await ensureCommandEveRuntimeReady(page);
     const previousObservedAt = readyStatus.egress_boundary?.observed_at ?? '';
 

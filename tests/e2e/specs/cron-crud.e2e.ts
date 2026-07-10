@@ -22,6 +22,8 @@ import {
   startAutoApprovePermissionMessages,
 } from '../helpers';
 
+const RUN_LIVE_AGENT_E2E = process.env.COMMAND_EVE_LIVE_AGENT_E2E === '1';
+
 interface CronJob {
   id: string;
   name: string;
@@ -136,6 +138,10 @@ async function deleteTaskFromDetail(page: import('@playwright/test').Page, taskN
 
 test.describe('Cron via AI conversation', () => {
   test.describe.configure({ timeout: 300_000 });
+  test.skip(
+    !RUN_LIVE_AGENT_E2E,
+    'Live raw-agent cron coverage is opt-in; the public scheduler delegates through Command EVE.'
+  );
 
   let createdJobId: string | null = null;
   let conversationId: string | null = null;

@@ -10,6 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import os from 'os';
 import { getDevAppName } from '@/common/platform';
+import { resolveElectronUserDataPath } from '@/common/platform/userDataPath';
 import {
   COMMAND_EVE_CDP_REGISTRY_FILE,
   COMMAND_EVE_SHELL_ENABLED,
@@ -27,9 +28,9 @@ if (COMMAND_EVE_SHELL_ENABLED || !app.isPackaged) {
   const appName = COMMAND_EVE_SHELL_ENABLED ? getCommandEveAppName(app.isPackaged) : getDevAppName();
   app.setName(appName);
   // In Electron 28+, setName alone no longer updates userData path on macOS.
-  // Explicitly override userData to the product-specific directory.
-  const appSupportDir = path.dirname(app.getPath('userData'));
-  app.setPath('userData', path.join(appSupportDir, appName));
+  // Use the product-specific directory unless the operator explicitly requested
+  // an isolated --user-data-dir (recovery profiles and packaged E2E launches).
+  app.setPath('userData', resolveElectronUserDataPath(app.getPath('userData'), appName));
 }
 
 // app.disableHardwareAcceleration() must run before app is ready.

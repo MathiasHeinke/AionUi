@@ -12,7 +12,12 @@
 import { test, expect } from '../fixtures';
 import { invokeBridge, navigateTo, TEAM_SUPPORTED_BACKENDS } from '../helpers';
 
-const AGENT_TYPE_MAP: Record<string, { backend: string; model: string }> = {
+const AGENT_TYPE_MAP: Record<string, { backend: string; model: string; assistant_id?: string }> = {
+  'command-eve': {
+    backend: 'hermes',
+    model: 'default',
+    assistant_id: 'command-eve-chief-of-staff',
+  },
   gemini: { backend: 'gemini', model: 'gemini' },
   claude: { backend: 'acp', model: 'claude' },
   codex: { backend: 'acp', model: 'codex' },
@@ -20,7 +25,7 @@ const AGENT_TYPE_MAP: Record<string, { backend: string; model: string }> = {
 
 const SUGGESTION_KEYS = ['debate', 'interview', 'expert_review'] as const;
 const SUGGESTION_CLICK_KEY = 'debate';
-const EXPECTED_DEBATE_VALUE = /Organize a debate|组织.*辩论/;
+const EXPECTED_DEBATE_VALUE = /Organize a debate|Organisiere eine Debatte|Eine Debatte organisieren|组织.*辩论/;
 
 for (const leaderType of TEAM_SUPPORTED_BACKENDS) {
   const teamName = `E2E Empty State (${leaderType})`;
@@ -43,16 +48,22 @@ for (const leaderType of TEAM_SUPPORTED_BACKENDS) {
       await invokeBridge(page, 'team.remove', { id: stale.id }).catch(() => {});
     }
 
-    const created = await invokeBridge<{ id: string } | null>(page, 'team.create', {
-      name: teamName,
-      agents: [
-        {
+    const leaderAgent = meta.assistant_id
+      ? {
+          name: 'Leader',
+          role: 'lead',
+          assistant_id: meta.assistant_id,
+          model: meta.model,
+        }
+      : {
           name: 'Leader',
           role: 'lead',
           backend: meta.backend,
           model: meta.model,
-        },
-      ],
+        };
+    const created = await invokeBridge<{ id: string } | null>(page, 'team.create', {
+      name: teamName,
+      agents: [leaderAgent],
     });
     if (!created?.id) {
       test.skip(true, `team.create returned null for ${leaderType} — agent not installed`);
@@ -71,7 +82,7 @@ for (const leaderType of TEAM_SUPPORTED_BACKENDS) {
     await expect(emptyState).toBeVisible({ timeout: 15000 });
 
     await expect(emptyState.locator('[data-testid="team-chat-empty-state-subtitle"]')).toHaveText(
-      /Describe your goal.*team working|描述你的目标/
+      /Describe your goal.*team working|Beschreibe dein Ziel|描述你的目标/
     );
 
     await page.screenshot({ path: `tests/e2e/results/team-empty-${leaderType}-greeting.png` });
@@ -90,7 +101,11 @@ for (const leaderType of TEAM_SUPPORTED_BACKENDS) {
 
     // The chat send-box textarea placeholder starts with "Send message to" / "发送消息到".
     // We scope via this placeholder so the sidebar search textarea never matches first.
-    const chatInput = page.locator('textarea[placeholder^="Send message"], textarea[placeholder^="发送消息"]').first();
+    const chatInput = page
+      .locator(
+        'textarea[placeholder^="Send message"], textarea[placeholder^="Nachricht"], textarea[placeholder^="发送消息"]'
+      )
+      .first();
     await expect(chatInput).toBeVisible({ timeout: 5000 });
     await page.screenshot({ path: `tests/e2e/results/team-empty-${leaderType}-after-click.png` });
     await expect(chatInput).toHaveValue(EXPECTED_DEBATE_VALUE, { timeout: 5000 });

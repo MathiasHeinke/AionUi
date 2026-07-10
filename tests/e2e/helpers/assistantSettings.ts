@@ -9,7 +9,11 @@ import { navigateTo } from './navigation';
 
 /** Navigate to the assistant settings page via UI clicks. */
 export async function goToAssistantSettings(page: Page): Promise<void> {
-  await navigateTo(page, '#/settings/assistants');
+  await navigateTo(page, '#/settings/eve-runtime');
+
+  const assistantsTab = page.getByRole('tab', { name: /Assistenten|Assistants/i });
+  await assistantsTab.waitFor({ state: 'visible', timeout: 10_000 });
+  await assistantsTab.click();
 }
 
 /** Open the assistant edit drawer by clicking on an assistant card. */

@@ -43,7 +43,7 @@
   },
   "labels": {
     "release": "Release",
-    "hermes": "EVE Runtime (Hermes)",
+    "hermes": "EVE Runtime",
     "provider": "Provider",
     "ollamaUrl": "Ollama URL",
     "egressProxy": "Egress proxy",

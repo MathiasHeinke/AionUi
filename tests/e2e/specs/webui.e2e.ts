@@ -10,6 +10,7 @@
  */
 import { test, expect } from '../fixtures';
 import { goToSettings, expectBodyContainsAny, ARCO_SWITCH, takeScreenshot, waitForClassChange } from '../helpers';
+import { WEBUI_REMOTE_ACCESS_SUPPORTED } from '@/common/config/constants';
 
 test.describe('WebUI Service', () => {
   /** Navigate to the WebUI settings tab. */
@@ -60,13 +61,16 @@ test.describe('WebUI Service', () => {
 
   // ── Allow remote toggle ────────────────────────────────────────────────
 
-  test('allow-remote switch is present', async ({ page }) => {
+  test('allow-remote switch follows the hardened remote-access capability flag', async ({ page }) => {
     await goToWebui(page);
 
-    // There should be at least 2 switches: enable WebUI + allow remote
     const switches = page.locator(ARCO_SWITCH);
     const count = await switches.count();
-    expect(count).toBeGreaterThanOrEqual(2);
+    if (WEBUI_REMOTE_ACCESS_SUPPORTED) {
+      expect(count).toBeGreaterThanOrEqual(2);
+    } else {
+      expect(count).toBe(1);
+    }
   });
 
   // ── Start / Stop lifecycle ─────────────────────────────────────────────

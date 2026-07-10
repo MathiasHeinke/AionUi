@@ -116,7 +116,10 @@ async function resolveMainWindow(electronApp: ElectronApplication): Promise<Page
     await existing.waitForLoadState('domcontentloaded');
     return existing;
   }
-  const deadline = Date.now() + 30_000;
+  // A fresh profile installs/validates the bundled Hermes runtime before the
+  // first renderer. Under a serial full-suite load this legitimately exceeds
+  // 30 seconds, so mirror the bounded cold-start budget in fixtures.ts.
+  const deadline = Date.now() + 180_000;
   while (Date.now() < deadline) {
     const win = await electronApp.waitForEvent('window', { timeout: 1_000 }).catch(() => null);
     if (win && !isDevToolsWindow(win)) {
@@ -302,9 +305,10 @@ test.describe.serial('Command EVE registration + license gate', () => {
       await page.locator('[data-testid="registration-gate-license-submit"]').click();
       await expect(page.locator(GATE_SELECTOR)).toHaveCount(0, { timeout: 30_000 });
 
-      // Prove a real main surface renders (command center title in either locale).
-      await gotoHash(page, '#/command-center');
-      await expect(page.getByText(/Command Center|Kommandozentrale/).first()).toBeVisible({ timeout: 30_000 });
+      // Prove the public chat surface renders. The founder Command Center is
+      // intentionally not part of the customer shell.
+      await gotoHash(page, '#/guid');
+      await expect(page.locator('[data-testid="guid-input"]')).toBeVisible({ timeout: 30_000 });
 
       // Prove the entitlement + audit artifacts were written under userData (W11
       // store). The store path nests under getDataPath(), which is env-derived
@@ -349,8 +353,8 @@ test.describe.serial('Command EVE registration + license gate', () => {
     try {
       // (e) No gate on relaunch; a main surface is reachable directly without
       // re-entering name/company/email/code.
-      await gotoHash(page, '#/command-center');
-      await expect(page.getByText(/Command Center|Kommandozentrale/).first()).toBeVisible({ timeout: 30_000 });
+      await gotoHash(page, '#/guid');
+      await expect(page.locator('[data-testid="guid-input"]')).toBeVisible({ timeout: 30_000 });
       await expect(page.locator(GATE_SELECTOR)).toHaveCount(0);
     } finally {
       await closeApp(app);
@@ -368,8 +372,8 @@ test.describe.serial('Command EVE registration + license gate', () => {
     const app = await launchGateApp({ userDataDir: fallbackUserData, registrationRequired: '0', injectKey: false });
     const page = await resolveMainWindow(app);
     try {
-      await gotoHash(page, '#/command-center');
-      await expect(page.getByText(/Command Center|Kommandozentrale/).first()).toBeVisible({ timeout: 30_000 });
+      await gotoHash(page, '#/guid');
+      await expect(page.locator('[data-testid="guid-input"]')).toBeVisible({ timeout: 30_000 });
       await expect(page.locator(GATE_SELECTOR)).toHaveCount(0);
     } finally {
       await closeApp(app);

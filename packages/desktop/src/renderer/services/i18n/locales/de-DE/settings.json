@@ -687,6 +687,7 @@
   "googleCloudProjectPlaceholder": "Gib deine Google Cloud Project ID ein",
   "noAvailableModels": "Keine verfügbaren Modelle",
   "appDescription": "Ein Desktop. Deine KI-Agenten, die wirklich zusammenarbeiten.",
+  "commandEveAppDescription": "Deine KI-Operatorin für Planung, Umsetzung und tägliche Arbeit.",
   "helpDocumentation": "Hilfedokumentation",
   "updateLog": "Änderungsprotokoll",
   "feedback": "Feedback",

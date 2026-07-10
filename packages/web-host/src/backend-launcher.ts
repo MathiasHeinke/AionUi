@@ -740,10 +740,16 @@ export class BackendLifecycleManager {
   }
 
   async stop(): Promise<void> {
-    if (!this.childProcess) return;
-    const childProcess = this.childProcess;
-    this._status = 'stopped';
     const dataDir = this._lastDbPath;
+    this._status = 'stopped';
+    if (!this.childProcess) {
+      // AionCore may exit before Electron's before-quit cleanup runs. Its ACP
+      // children can outlive the backend, so the durable process registry must
+      // still be drained even when there is no backend wrapper left to signal.
+      await cleanupRegisteredAgentProcesses(dataDir);
+      return;
+    }
+    const childProcess = this.childProcess;
 
     killBackendProcessTree(childProcess, 'SIGTERM');
     await new Promise<void>((resolve) => {

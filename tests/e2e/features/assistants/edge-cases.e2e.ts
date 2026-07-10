@@ -14,6 +14,10 @@ import {
 } from '../../helpers';
 
 test.describe('Assistant Settings Edge Cases (P2)', () => {
+  test.skip(
+    process.env.AIONUI_UPSTREAM_MODE !== '1',
+    'The upstream assistant CRUD surface is intentionally not public in Command EVE.'
+  );
   test.setTimeout(90_000);
 
   test('P2-1: highlight animation cleanup on unmount', async ({ page }) => {

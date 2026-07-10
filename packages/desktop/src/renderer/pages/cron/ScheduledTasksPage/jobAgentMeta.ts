@@ -7,6 +7,12 @@
 import type { ICronJob } from '@/common/adapter/ipcBridge';
 import { getAgentLogo } from '@renderer/utils/model/agentLogo';
 import type { AgentMetadata } from '@renderer/utils/model/agentTypes';
+import {
+  COMMAND_EVE_APP_NAME,
+  COMMAND_EVE_ASSISTANT_AVATAR,
+  COMMAND_EVE_ASSISTANT_ID,
+  COMMAND_EVE_SHELL_ENABLED,
+} from '@/common/config/commandEveShell';
 
 function normalizeAgentBackend(agent: string | undefined): string | undefined {
   if (!agent) return undefined;
@@ -16,28 +22,32 @@ function normalizeAgentBackend(agent: string | undefined): string | undefined {
 /**
  * Resolve the display name and logo for a cron job's agent.
  *
- * ACP jobs store the literal string "acp" in `agent_type`; the real vendor id
- * (claude/gemini/codex/…) and the human-readable label live in `agent_config`.
- * Non-ACP agents (aionrs, remote, nanobot, openclaw-gateway, …) use
- * `agent_type` directly — aionrs in particular reuses `agent_config.backend`
- * for provider_id, so we must not fall back to it there.
+ * Current AionCore cron rows are assistant-first: `assistant_id` identifies a
+ * preset assistant or a generated `bare:<agent-row-id>` assistant. The backend
+ * derives `agent_type`; the renderer never infers execution identity from a
+ * provider id.
  */
 export function getJobAgentMeta(job: ICronJob, cliAgents: AgentMetadata[]): { name?: string; logo?: string | null } {
-  const rawType = normalizeAgentBackend(job.metadata.agent_type);
-  if (!rawType) return {};
-
-  if (rawType === 'acp') {
-    const backend = job.metadata.agent_config?.backend;
-    const detected = backend ? cliAgents.find((a) => (a.backend || a.agent_type) === backend) : undefined;
-    return {
-      name: detected?.name || job.metadata.agent_config?.name || backend || rawType,
-      logo: getAgentLogo(backend),
-    };
+  if (COMMAND_EVE_SHELL_ENABLED) {
+    return { name: COMMAND_EVE_APP_NAME, logo: COMMAND_EVE_ASSISTANT_AVATAR };
   }
 
-  const detected = cliAgents.find((a) => (a.backend || a.agent_type) === rawType);
+  const rawType = normalizeAgentBackend(job.metadata.agent_type);
+  const config = job.metadata.agent_config;
+  const assistantId = config?.assistant_id;
+
+  if (assistantId === COMMAND_EVE_ASSISTANT_ID) {
+    return { name: config?.name || 'Command EVE', logo: COMMAND_EVE_ASSISTANT_AVATAR };
+  }
+
+  const bareAgentId = assistantId?.startsWith('bare:') ? assistantId.slice('bare:'.length) : undefined;
+  const detected = bareAgentId
+    ? cliAgents.find((agent) => agent.id === bareAgentId)
+    : cliAgents.find((agent) => (agent.backend || agent.agent_type) === rawType);
+  const backend = detected?.backend || detected?.agent_type || rawType;
+
   return {
-    name: detected?.name || rawType,
-    logo: getAgentLogo(rawType),
+    name: config?.name || detected?.name || rawType,
+    logo: getAgentLogo(backend),
   };
 }

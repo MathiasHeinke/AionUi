@@ -1,3 +1,8 @@
+export function isExternalExtensionSettingsUrl(url: string | undefined): boolean {
+  const value = url?.trim() || '';
+  return /^https?:\/\//i.test(value) || value.startsWith('//');
+}
+
 export function resolveTrustedFrameOrigin(url: string | undefined, baseUrl?: string): string | null {
   if (!url) return null;
   try {

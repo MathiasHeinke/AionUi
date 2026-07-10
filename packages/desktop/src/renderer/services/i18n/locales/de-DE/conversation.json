@@ -565,6 +565,22 @@
   "sendbox": {
     "hint": "Tippe / für Befehle, @ um Dateien zu referenzieren"
   },
+  "agentTip": {
+    "codes": {
+      "ACP_EMPTY_TURN": {
+        "body": "Diese Anfrage hat keine sichtbare Antwort erzeugt."
+      },
+      "ACP_EMPTY_TURN_MAX_TOKENS": {
+        "body": "Diese Anfrage hat das Ausgabe-Tokenlimit des Modells erreicht, bevor eine sichtbare Antwort erzeugt wurde."
+      },
+      "ACP_EMPTY_TURN_MAX_TURN_REQUESTS": {
+        "body": "Diese Anfrage hat das Anfragelimit des Modells erreicht, bevor eine sichtbare Antwort erzeugt wurde."
+      },
+      "ACP_EMPTY_TURN_REFUSAL": {
+        "body": "Das Modell hat diese Anfrage abgelehnt, bevor eine sichtbare Antwort erzeugt wurde."
+      }
+    }
+  },
   "notFound": "Gespräch nicht gefunden oder wurde gelöscht",
   "commandEveLocalMarketingIntent": {
     "desktopRequired": "Der Command-EVE-Marketing-Loop ist nur in der Desktop-App verfügbar.",

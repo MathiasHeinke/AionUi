@@ -197,14 +197,15 @@ test.describe('Extension IPC: WebUI Contributions', () => {
     expect(assetPrefixes).toEqual(expect.arrayContaining(['/ext-feishu/assets']));
   });
 
-  test('wecom-bot webui has webhook route with auth disabled', async ({ page }) => {
+  test('wecom-bot webui registers its webhook handler', async ({ page }) => {
     const snapshot = await getExtensionSnapshot(page);
     const wecom = snapshot.webuiContributions.find((c) => c.extensionName === 'ext-wecom-bot');
     expect(wecom).toBeTruthy();
 
     const webhookRoute = wecom!.apiRoutes.find((r) => r.path.includes('webhook'));
     expect(webhookRoute).toBeTruthy();
-    expect(webhookRoute!.auth).toBe(false);
+    expect(webhookRoute!.handler).toBe('webui/webhook.js');
+    expect(webhookRoute!.method).toBe('GET');
   });
 });
 

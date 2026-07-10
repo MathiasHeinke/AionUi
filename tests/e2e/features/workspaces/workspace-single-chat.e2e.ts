@@ -7,13 +7,19 @@
  * tabs switch correctly.
  */
 import { test, expect } from '../../fixtures';
-import { goToGuid } from '../../helpers';
+import { goToGuid, sendMessageFromGuid } from '../../helpers';
+import {
+  forceLocalCommandEveInference,
+  restoreCommandEveInference,
+  type CommandEveInferenceSettingsSnapshot,
+} from '../../helpers/commandEveInference';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
 test.describe('Workspace — single chat', () => {
   let workspace: string;
+  let inferenceSettings: CommandEveInferenceSettingsSnapshot | undefined;
 
   test.beforeAll(() => {
     workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'aionui-e2e-ws-single-'));
@@ -27,45 +33,39 @@ test.describe('Workspace — single chat', () => {
     fs.rmSync(workspace, { recursive: true, force: true });
   });
 
+  test.afterEach(async ({ page }) => {
+    if (inferenceSettings) await restoreCommandEveInference(page, inferenceSettings);
+    inferenceSettings = undefined;
+  });
+
   test('user selects workspace folder, sends message, sees files in panel', async ({ page, electronApp }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(240_000);
 
     await electronApp.evaluate(async ({ dialog }, target) => {
       dialog.showOpenDialog = () => Promise.resolve({ canceled: false, filePaths: [target] });
     }, workspace);
 
     await goToGuid(page);
-
-    // Select an agent
-    const agentPill = page.locator('[data-testid^="agent-pill-"]').first();
-    if (!(await agentPill.isVisible({ timeout: 10_000 }).catch(() => false))) {
-      test.skip(true, 'No agent pills available on guid page');
-      return;
-    }
-    await agentPill.click();
+    inferenceSettings = await forceLocalCommandEveInference(page);
 
     // Click workspace selector → triggers mocked native dialog
     const wsBtn = page.locator('[data-testid="workspace-selector-btn"]');
-    if (await wsBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
-      await wsBtn.click();
-      await page.waitForTimeout(500);
+    await expect(wsBtn).toBeVisible({ timeout: 5_000 });
+    await wsBtn.click();
+    const chooseDifferent = page.getByText(/Choose a different folder|Anderen Ordner auswählen|选择其他文件夹/i);
+    if (await chooseDifferent.isVisible({ timeout: 1_000 }).catch(() => false)) {
+      await chooseDifferent.click();
     }
+    await expect(page.getByRole('button', { name: new RegExp(path.basename(workspace), 'i') })).toBeVisible({
+      timeout: 5_000,
+    });
 
     // Send a message to create the conversation
-    const guidInput = page.locator('[data-testid="guid-input"] textarea, [data-testid="guid-input"] input').first();
-    await expect(guidInput).toBeVisible({ timeout: 10_000 });
-    await guidInput.fill('list files in this project');
-    await page.locator('[data-testid="guid-send-btn"]').click();
-
-    await page.waitForURL(/\/conversation\//, { timeout: 30_000 });
+    await sendMessageFromGuid(page, 'list files in this project');
 
     // Workspace panel should mount with our seeded files
-    const panel = page.locator('.chat-workspace');
-    if (!(await panel.isVisible({ timeout: 30_000 }).catch(() => false))) {
-      await page.screenshot({ path: 'tests/e2e/results/ws-single-01-no-panel.png' });
-      test.skip(true, 'Workspace panel did not appear — backend may not support workspace browse yet');
-      return;
-    }
+    const panel = page.locator('.chat-workspace:visible').last();
+    await expect(panel).toBeVisible({ timeout: 30_000 });
 
     // Title label reflects the workspace directory name
     const title = panel.locator('.workspace-title-label').first();
@@ -81,30 +81,27 @@ test.describe('Workspace — single chat', () => {
 
     // Search for "index" → should find src/index.ts
     const searchInput = panel.locator('.workspace-search-input input').first();
-    if (await searchInput.isVisible({ timeout: 5_000 }).catch(() => false)) {
-      await searchInput.fill('index');
-      await expect(panel.getByText('index.ts').first()).toBeVisible({ timeout: 5_000 });
-      await page.screenshot({ path: 'tests/e2e/results/ws-single-03-search.png' });
-      await searchInput.fill('');
-    }
+    await expect(searchInput).toBeVisible({ timeout: 5_000 });
+    await searchInput.fill('index');
+    await expect(panel.getByText('index.ts').first()).toBeVisible({ timeout: 5_000 });
+    await page.screenshot({ path: 'tests/e2e/results/ws-single-03-search.png' });
+    await searchInput.fill('');
 
     // Switch to Changes tab and back
     const changesTab = panel
       .locator('.arco-tabs-header-title')
-      .filter({ hasText: /Changes|更改/ })
+      .filter({ hasText: /Changes|Änderungen|更改/ })
       .first();
-    if (await changesTab.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await changesTab.click();
-      await page.screenshot({ path: 'tests/e2e/results/ws-single-04-changes.png' });
-    }
+    await expect(changesTab).toBeVisible({ timeout: 5_000 });
+    await changesTab.click();
+    await page.screenshot({ path: 'tests/e2e/results/ws-single-04-changes.png' });
 
     const filesTab = panel
       .locator('.arco-tabs-header-title')
-      .filter({ hasText: /Files|文件/ })
+      .filter({ hasText: /Files|Dateien|文件/ })
       .first();
-    if (await filesTab.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await filesTab.click();
-      await expect(panel.getByText('readme.md').first()).toBeVisible({ timeout: 5_000 });
-    }
+    await expect(filesTab).toBeVisible({ timeout: 5_000 });
+    await filesTab.click();
+    await expect(panel.getByText('readme.md').first()).toBeVisible({ timeout: 5_000 });
   });
 });

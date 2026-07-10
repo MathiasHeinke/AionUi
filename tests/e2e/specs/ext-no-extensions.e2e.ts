@@ -7,6 +7,8 @@ import { getChannelPluginStatus, goToSettings, invokeBridge, settingsSiderItemBy
 const emptyExtensionsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aionui-e2e-no-extensions-'));
 const stateSandboxDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aionui-e2e-no-extensions-state-'));
 const extensionStatesFile = path.join(stateSandboxDir, 'extension-states.json');
+const agentEventsFile = path.join(stateSandboxDir, 'agent-events.jsonl');
+fs.writeFileSync(agentEventsFile, '');
 
 function isDevToolsWindow(page: Page): boolean {
   return page.url().startsWith('devtools://');
@@ -49,6 +51,8 @@ async function launchAppWithoutExtensions(): Promise<ElectronApplication> {
       AIONUI_DISABLE_DEVTOOLS: '1',
       AIONUI_E2E_TEST: '1',
       AIONUI_CDP_PORT: '0',
+      COMMAND_EVE_AGENT_EVENTS_PATH: agentEventsFile,
+      COMMAND_EVE_REGISTRATION_REQUIRED: '0',
       NODE_ENV: 'development',
     },
     timeout: 60_000,

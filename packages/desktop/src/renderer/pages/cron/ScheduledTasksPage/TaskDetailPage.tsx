@@ -213,6 +213,8 @@ const TaskDetailPage: React.FC = () => {
               </h1>
               <div className='flex shrink-0 items-center gap-8px'>
                 <Button
+                  aria-label={t('cron.page.editTask')}
+                  title={t('cron.page.editTask')}
                   size='mini'
                   type='text'
                   className='!h-20px !min-w-20px !w-20px !rounded-0 !border-none !bg-transparent !p-0 !text-t-secondary hover:!bg-transparent hover:!text-t-primary translate-y-1px'
@@ -221,6 +223,8 @@ const TaskDetailPage: React.FC = () => {
                 />
                 <Popconfirm title={t('cron.confirmDeleteWithConversations')} onOk={handleDelete}>
                   <Button
+                    aria-label={t('cron.actions.delete')}
+                    title={t('cron.actions.delete')}
                     size='mini'
                     type='text'
                     className='!h-20px !min-w-20px !w-20px !rounded-0 !border-none !bg-transparent !p-0 !text-t-secondary hover:!bg-transparent hover:!text-t-primary translate-y-1px'
@@ -341,11 +345,11 @@ const TaskDetailPage: React.FC = () => {
               </div>
             </section>
 
-            {job.metadata.agent_config?.model_id && (
+            {(job.metadata.agent_config?.model_id || job.metadata.agent_config?.model?.model) && (
               <section className='flex flex-col gap-10px'>
                 <h2 className='m-0 text-13px font-medium text-t-secondary'>{t('cron.page.form.model')}</h2>
                 <span className='break-words text-14px leading-22px text-t-primary'>
-                  {job.metadata.agent_config.model_id}
+                  {job.metadata.agent_config.model_id || job.metadata.agent_config.model?.model}
                 </span>
               </section>
             )}

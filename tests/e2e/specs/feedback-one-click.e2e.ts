@@ -59,10 +59,7 @@ test.describe('One-click feedback infrastructure', () => {
     // The about page lists a row whose title resolves from i18n key
     // `settings.bugReport`. We click the row text which triggers
     // setShowFeedbackModal(true) in AboutModalContent.
-    const bugReportRow = page
-      .locator('div')
-      .filter({ hasText: /^Bug Report$|^问题报告$|^バグ報告$|^버그 보고$/ })
-      .first();
+    const bugReportRow = page.getByTestId('about-bug-report');
     await expect(bugReportRow).toBeVisible({ timeout: 10_000 });
     await bugReportRow.click();
 

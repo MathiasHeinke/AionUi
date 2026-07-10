@@ -2,8 +2,9 @@
  * Built-in Skill Migration — E2E suite (Task 3 of
  * 2026-04-23-builtin-skill-migration-plan).
  *
- * Covers the 8 plan scenarios. Scenarios 1-5 drive the Electron app's
- * backend through `httpBridge` probes. Scenarios 6-8 exercise edge-cases
+ * Covers the migration invariants against the current AionCore contract.
+ * Scenarios 1-5 drive the Electron app's backend through `httpBridge` probes.
+ * Scenarios 6-8 exercise edge-cases
  * that require a fresh data-dir and a throw-away backend process:
  *   - S6 seeds an orphan `agent-skills/<convId>/` dir before the backend
  *     starts, then confirms the startup sweep removed it.
@@ -23,7 +24,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test, expect } from '../../fixtures';
-import { httpDelete, httpGet, httpPost } from '../../helpers';
+import { httpGet, httpPost } from '../../helpers';
 
 // ── Shared constants ────────────────────────────────────────────────────────
 
@@ -39,26 +40,12 @@ const SIBLING_BACKEND_PORT = 25903;
  * corpus. These come from the SKILL.md frontmatter, not the directory name
  * (e.g. `auto-inject/office-cli/SKILL.md` emits `name: officecli`).
  */
-const AUTO_INJECT_EXPECTED_NAMES = ['aionui-skills', 'cron', 'officecli', 'skill-creator'] as const;
-
-/**
- * Directory-name tokens used by the per-conversation materialize flow —
- * `materialize_skills_for_agent` writes one directory per skill, keyed off
- * the parent folder name, not the frontmatter name. The top-level flatten
- * of `auto-inject/cron/SKILL.md` lands at `{dir}/cron/SKILL.md`.
- */
-const AUTO_INJECT_DIR_NAMES = ['aionui-skills', 'cron', 'office-cli', 'skill-creator'] as const;
+const AUTO_INJECT_EXPECTED_NAMES = ['cron', 'officecli', 'skill-creator'] as const;
 
 /** An opt-in skill that lives at the top level of the embedded corpus. */
 const OPT_IN_PROBE_NAME = 'mermaid';
 
 // ── Backend response shapes ─────────────────────────────────────────────────
-
-interface BuiltinAutoSkill {
-  name: string;
-  description: string;
-  location: string;
-}
 
 interface SkillInfo {
   name: string;
@@ -70,19 +57,32 @@ interface SkillInfo {
 }
 
 interface MaterializeResponse {
-  dir_path: string;
+  skills: Array<{
+    name: string;
+    source_path: string;
+  }>;
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 function resolveBackendBinary(): string {
-  const candidates = [process.env.AIONUI_BACKEND_BINARY, path.join(os.homedir(), '.cargo', 'bin', 'aioncore')].filter(
-    (x): x is string => typeof x === 'string' && x.length > 0
-  );
+  const candidates = [
+    process.env.AIONUI_BACKEND_BINARY,
+    path.resolve(process.cwd(), 'resources', 'bundled-aioncore', `${process.platform}-${process.arch}`, 'aioncore'),
+    path.join(os.homedir(), '.cargo', 'bin', 'aioncore'),
+  ].filter((x): x is string => typeof x === 'string' && x.length > 0);
   for (const c of candidates) {
     if (fs.existsSync(c)) return c;
   }
-  throw new Error('aioncore binary not found. Set AIONUI_BACKEND_BINARY or install to ~/.cargo/bin/aioncore.');
+  throw new Error(
+    'aioncore binary not found. Prepare resources/bundled-aioncore, set AIONUI_BACKEND_BINARY, or install to ~/.cargo/bin/aioncore.'
+  );
+}
+
+function selectAutoInjectSkills(skills: SkillInfo[]): SkillInfo[] {
+  return skills.filter(
+    (skill) => skill.source === 'builtin' && skill.relative_location?.startsWith('auto-inject/') === true
+  );
 }
 
 // ── Suite ───────────────────────────────────────────────────────────────────
@@ -90,16 +90,15 @@ function resolveBackendBinary(): string {
 test.describe('Built-in Skill Migration (T3)', () => {
   test.setTimeout(120_000);
 
-  // ── Scenario 1 — `GET /api/skills/builtin-auto` is non-empty ──────────────
-  // The original packaging bug class: a packaged app previously shipped no
-  // `builtin-skills/` sibling dir, so this endpoint returned `[]`. With
-  // `include_dir!` embedding, the endpoint must always be non-empty.
+  // ── Scenario 1 — canonical skill catalog contains auto-inject skills ──────
+  // AionCore 0.1.37 removed `GET /api/skills/builtin-auto`; auto-injected
+  // entries are identified by `relative_location` in `GET /api/skills`.
   //
   // Dev-binary coverage today; T4 coordinator re-runs against a packaged
   // `.app` bundle to close the full loop (per plan §4.2).
 
-  test('S1: GET /api/skills/builtin-auto returns the embedded auto-inject corpus', async ({ page }) => {
-    const list = await httpGet<BuiltinAutoSkill[]>(page, '/api/skills/builtin-auto');
+  test('S1: GET /api/skills contains the embedded auto-inject corpus', async ({ page }) => {
+    const list = selectAutoInjectSkills(await httpGet<SkillInfo[]>(page, '/api/skills'));
     expect(Array.isArray(list)).toBe(true);
     expect(list.length).toBeGreaterThanOrEqual(AUTO_INJECT_EXPECTED_NAMES.length);
 
@@ -108,9 +107,11 @@ test.describe('Built-in Skill Migration (T3)', () => {
       expect(names).toContain(expected);
     }
 
-    // Each entry must carry a relative `location` pointing under auto-inject/.
+    // Each entry must carry an absolute source path and a relative path under
+    // auto-inject/ so the renderer can identify the implicit skill set.
     for (const entry of list) {
-      expect(entry.location).toMatch(/^auto-inject\/.+\/SKILL\.md$/);
+      expect(path.isAbsolute(entry.location)).toBe(true);
+      expect(entry.relative_location).toMatch(/^auto-inject\/.+\/SKILL\.md$/);
       expect(entry.description.length).toBeGreaterThan(0);
     }
 
@@ -119,7 +120,7 @@ test.describe('Built-in Skill Migration (T3)', () => {
     // AcpSkillManager relies on.
     const sample = list[0];
     const content = await httpPost<string>(page, '/api/skills/builtin-skill', {
-      file_name: sample.location,
+      file_name: sample.relative_location,
     });
     expect(typeof content).toBe('string');
     expect(content).toContain('---');
@@ -127,22 +128,19 @@ test.describe('Built-in Skill Migration (T3)', () => {
   });
 
   // ── Scenario 2 — ACP runtime auto-injects builtin auto-inject skills ──────
-  // Real ACP conversations boot the `AcpSkillManager` via
-  // `discoverAutoSkills`, which in the new architecture is the
-  // `/api/skills/builtin-auto` endpoint. If that endpoint returns a
-  // non-empty, well-formed list *and* individual bodies resolve, the
-  // manager can inject every skill it was handed. The manager itself
-  // is covered by Vitest (tests/unit/acpSkillManager.test.ts).
+  // Real conversations receive the auto-inject selection derived from the
+  // canonical skill catalog. If that list is non-empty and individual bodies
+  // resolve, the renderer can pass a complete exclusion list to AionCore.
 
   test('S2: AcpSkillManager data-source (auto-inject list + body round-trip)', async ({ page }) => {
-    const list = await httpGet<BuiltinAutoSkill[]>(page, '/api/skills/builtin-auto');
+    const list = selectAutoInjectSkills(await httpGet<SkillInfo[]>(page, '/api/skills'));
     expect(list.length).toBeGreaterThan(0);
 
     // Pull bodies for every entry — discovery failure for even one skill
     // would degrade ACP's "all conversations get these" contract.
     for (const entry of list) {
       const body = await httpPost<string>(page, '/api/skills/builtin-skill', {
-        file_name: entry.location,
+        file_name: entry.relative_location,
       });
       expect(body.length).toBeGreaterThan(0);
     }
@@ -150,34 +148,21 @@ test.describe('Built-in Skill Migration (T3)', () => {
 
   // ── Scenario 3 — Opt-in via `enabledSkills` is materialized ───────────────
 
-  test('S3: materialize-for-agent writes opt-in skills into the per-conversation dir', async ({ page }) => {
+  test('S3: materialize-for-agent resolves opt-in skills to readable source directories', async ({ page }) => {
     const conversationId = `e2e-s3-${Date.now()}`;
-    try {
-      const resp = await httpPost<MaterializeResponse>(page, '/api/skills/materialize-for-agent', {
-        conversation_id: conversationId,
-        enabled_skills: [OPT_IN_PROBE_NAME],
-      });
-      expect(resp.dir_path).toBeTruthy();
-      expect(path.isAbsolute(resp.dir_path)).toBe(true);
+    const resp = await httpPost<MaterializeResponse>(page, '/api/skills/materialize-for-agent', {
+      conversation_id: conversationId,
+      skills: [OPT_IN_PROBE_NAME],
+    });
+    expect(resp.skills).toHaveLength(1);
+    expect(resp.skills[0]?.name).toBe(OPT_IN_PROBE_NAME);
+    expect(path.isAbsolute(resp.skills[0]!.source_path)).toBe(true);
 
-      // The materialized dir must contain auto-inject skills *and* the
-      // opt-in probe, flattened at the top level (§6.2 of the backend
-      // spec: auto-inject/ is collapsed, one skill = one top-level dir).
-      const entries = fs.readdirSync(resp.dir_path);
-      for (const expected of AUTO_INJECT_DIR_NAMES) {
-        expect(entries).toContain(expected);
-      }
-      expect(entries).toContain(OPT_IN_PROBE_NAME);
-
-      // The opt-in skill must actually contain its SKILL.md content.
-      const skillMd = path.join(resp.dir_path, OPT_IN_PROBE_NAME, 'SKILL.md');
-      expect(fs.existsSync(skillMd)).toBe(true);
-      const body = fs.readFileSync(skillMd, 'utf-8');
-      expect(body).toContain('---');
-      expect(body).toContain(`name:`);
-    } finally {
-      await httpDelete(page, `/api/skills/materialize-for-agent/${conversationId}`).catch(() => {});
-    }
+    const skillMd = path.join(resp.skills[0]!.source_path, 'SKILL.md');
+    expect(fs.existsSync(skillMd)).toBe(true);
+    const body = fs.readFileSync(skillMd, 'utf-8');
+    expect(body).toContain('---');
+    expect(body).toContain('name:');
   });
 
   // ── Scenario 4 — Gemini conversation call path receives the dir ───────────
@@ -187,45 +172,30 @@ test.describe('Built-in Skill Migration (T3)', () => {
   // gives the same guarantee at a fraction of the wall-clock cost (a full
   // gemini conversation is a minutes-scale spawn in E2E).
 
-  test('S4: materialize-for-agent output is suitable for gemini --extensions', async ({ page }) => {
+  test('S4: resolved skill sources are suitable for agent extension loading', async ({ page }) => {
     const conversationId = `e2e-s4-${Date.now()}`;
-    try {
-      const resp = await httpPost<MaterializeResponse>(page, '/api/skills/materialize-for-agent', {
-        conversation_id: conversationId,
-        enabled_skills: [],
-      });
-      expect(fs.existsSync(resp.dir_path)).toBe(true);
-
-      // gemini's --extensions loader expects each subdir to be a skill
-      // with a SKILL.md. Verify that structure across every materialized
-      // entry.
-      const entries = fs.readdirSync(resp.dir_path, { withFileTypes: true });
-      expect(entries.length).toBeGreaterThan(0);
-      for (const entry of entries) {
-        expect(entry.isDirectory()).toBe(true);
-        const skillMd = path.join(resp.dir_path, entry.name, 'SKILL.md');
-        expect(fs.existsSync(skillMd)).toBe(true);
-      }
-    } finally {
-      await httpDelete(page, `/api/skills/materialize-for-agent/${conversationId}`).catch(() => {});
+    const resp = await httpPost<MaterializeResponse>(page, '/api/skills/materialize-for-agent', {
+      conversation_id: conversationId,
+      skills: [OPT_IN_PROBE_NAME],
+    });
+    expect(resp.skills.length).toBeGreaterThan(0);
+    for (const skill of resp.skills) {
+      expect(fs.statSync(skill.source_path).isDirectory()).toBe(true);
+      expect(fs.existsSync(path.join(skill.source_path, 'SKILL.md'))).toBe(true);
     }
   });
 
-  // ── Scenario 5 — DELETE cleanup removes the dir ───────────────────────────
+  // ── Scenario 5 — source resolution is stateless and retry-safe ────────────
 
-  test('S5: DELETE /api/skills/materialize-for-agent/:id removes the per-conversation dir', async ({ page }) => {
+  test('S5: materialize-for-agent is idempotent for a repeated conversation request', async ({ page }) => {
     const conversationId = `e2e-s5-${Date.now()}`;
-    const resp = await httpPost<MaterializeResponse>(page, '/api/skills/materialize-for-agent', {
+    const request = {
       conversation_id: conversationId,
-      enabled_skills: [],
-    });
-    expect(fs.existsSync(resp.dir_path)).toBe(true);
-
-    await httpDelete(page, `/api/skills/materialize-for-agent/${conversationId}`);
-    expect(fs.existsSync(resp.dir_path)).toBe(false);
-
-    // Idempotent — a second DELETE must still succeed (no 404).
-    await httpDelete(page, `/api/skills/materialize-for-agent/${conversationId}`);
+      skills: [OPT_IN_PROBE_NAME],
+    };
+    const first = await httpPost<MaterializeResponse>(page, '/api/skills/materialize-for-agent', request);
+    const second = await httpPost<MaterializeResponse>(page, '/api/skills/materialize-for-agent', request);
+    expect(second).toEqual(first);
   });
 
   // ── Scenario 7 — SkillsHub export for source=builtin still works ──────────
@@ -403,65 +373,38 @@ test.describe('Built-in Skill Migration (T3)', () => {
       expect(fs.existsSync(orphan1)).toBe(false);
       expect(fs.existsSync(orphan2)).toBe(false);
 
-      // The agent-skills/ parent must survive — only per-conversation
-      // subdirs are swept.
-      expect(fs.existsSync(agentSkillsDir)).toBe(true);
+      // Current AionCore may also remove the empty parent. If it keeps the
+      // parent, no unknown conversation directory may survive inside it.
+      if (fs.existsSync(agentSkillsDir)) {
+        expect(fs.readdirSync(agentSkillsDir)).toEqual([]);
+      }
 
-      // And `/api/skills/builtin-auto` still works (sweeping has no side
-      // effects on the embedded corpus).
-      const list = await httpJson<BuiltinAutoSkill[]>('GET', '/api/skills/builtin-auto');
+      // Skill discovery still works (sweeping has no side effects on the
+      // embedded corpus).
+      const list = selectAutoInjectSkills(await httpJson<SkillInfo[]>('GET', '/api/skills'));
       expect(list.length).toBeGreaterThan(0);
     });
 
     // ── Scenario 8 — Legacy `{cacheDir}/builtin-skills/` cleanup on upgrade ─
     //
-    // The frontend's `cleanupLegacyBuiltinSkillsDir` (initStorage.ts) runs
-    // every time the Electron main process boots. We cannot cold-restart
-    // the singleton Electron app from within this spec, so the assertion
-    // is two-fold:
-    //
-    //   (a) The helper exists, is exported through the main-process flow
-    //       (verified indirectly — no backend interaction), and
-    //   (b) The current live Electron instance has no lingering
-    //       `{cacheDir}/builtin-skills/` dir — the dev binary would have
-    //       removed it during its own boot.
-    //
-    // Closing the cold-restart gap fully is deferred to T4's packaging
-    // smoke; the Vitest unit suite
-    // (tests/unit/initStorageLegacyCleanup.test.ts if present) owns the
-    // direct path assertion.
+    // AionCore 0.1.37 owns `{data_dir}/builtin-skills/` and rematerializes the
+    // embedded corpus during cold start. A legacy marker must not survive.
 
-    test('S8: legacy {cacheDir}/builtin-skills/ is gone after the current Electron boot', async () => {
-      // We probe the live Electron backend's `/api/system/info` for its
-      // data-dir-ish path as a sanity check that the boot took the new
-      // code path; the helper itself is best-verified by the fact that
-      // the live backend exposes the new `/api/skills/builtin-auto` and
-      // a read of a builtin returns non-empty.
-      //
-      // Then, on the host side, we check the most likely cache locations
-      // for a leftover `builtin-skills/` directory under the canonical
-      // `~/.aionui-config` tree. Failing that we at least assert the
-      // helper is non-destructive when no legacy dir exists — we do so
-      // by seeding one under the sibling backend's data-dir and observing
-      // that it is ignored (the *backend* does not own this cleanup; it
-      // is a frontend-only concern). The presence of the dir under the
-      // sibling data-dir must persist, which is evidence that the
-      // cleanup is scoped correctly to the frontend's cache-dir only.
-
+    test('S8: cold start replaces legacy builtin-skills contents with the embedded corpus', async () => {
       const stray = path.join(dataDir, 'builtin-skills');
       fs.mkdirSync(stray, { recursive: true });
       fs.writeFileSync(path.join(stray, 'marker.txt'), 'persist', 'utf-8');
 
       await startBackend();
 
-      // Backend is healthy and serving the new endpoints.
-      const list = await httpJson<BuiltinAutoSkill[]>('GET', '/api/skills/builtin-auto');
+      // Backend is healthy and serving the rematerialized embedded corpus.
+      const list = selectAutoInjectSkills(await httpJson<SkillInfo[]>('GET', '/api/skills'));
       expect(list.length).toBeGreaterThan(0);
 
-      // Backend does NOT touch `{data_dir}/builtin-skills/` — that dir
-      // is exclusively the frontend's legacy concern.
+      // The stale marker is gone, while the current corpus has replaced it.
       expect(fs.existsSync(stray)).toBe(true);
-      expect(fs.existsSync(path.join(stray, 'marker.txt'))).toBe(true);
+      expect(fs.existsSync(path.join(stray, 'marker.txt'))).toBe(false);
+      expect(fs.existsSync(path.join(stray, 'auto-inject'))).toBe(true);
 
       // Sanity check — the live Electron-owned cache dir either has no
       // `builtin-skills/` or it is scheduled for async removal. We do

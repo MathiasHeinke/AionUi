@@ -30,6 +30,7 @@ export interface Skill {
   description?: string;
   source: SkillSource;
   location?: string;
+  relative_location?: string;
 }
 
 export interface ExternalSource {
@@ -82,6 +83,18 @@ export async function goToSkillsHub(page: Page): Promise<void> {
   const section = page.locator('[data-testid="my-skills-section"]');
   await section.waitFor({ state: 'visible', timeout: 15_000 });
 
+  // The Electron fixture intentionally reuses one renderer per worker. Reset
+  // view-local catalog state so a previous search/filter test cannot hide
+  // valid skills in the next scenario.
+  const searchInput = page.locator('[data-testid="input-search-my-skills"]');
+  if (await searchInput.isVisible().catch(() => false)) {
+    await searchInput.fill('');
+  }
+  const allFilter = page.locator('[data-testid="skill-filter-all"]');
+  if (await allFilter.isVisible().catch(() => false)) {
+    await allFilter.click();
+  }
+
   // Wait for backend skills API to respond. A 200 on /api/skills/paths
   // confirms the backend is up and the renderer can reach it.
   let bridgeReady = false;
@@ -133,11 +146,14 @@ export async function getExternalSources(page: Page): Promise<ExternalSource[]> 
 }
 
 /**
- * Get auto-injected builtin skills (GET /api/skills/builtin-auto).
+ * Get auto-injected builtin skills from the canonical GET /api/skills
+ * response. AionCore 0.1.37 no longer exposes /api/skills/builtin-auto.
  */
 export async function getAutoSkills(page: Page): Promise<Skill[]> {
-  const skills = await httpGet<Skill[]>(page, '/api/skills/builtin-auto');
-  return skills ?? [];
+  const skills = await httpGet<Skill[]>(page, '/api/skills');
+  return (skills ?? []).filter(
+    (skill) => skill.source === 'builtin' && skill.relative_location?.startsWith('auto-inject/') === true
+  );
 }
 
 /**
@@ -191,11 +207,11 @@ export async function createTempExternalSourceDir(): Promise<{ path: string; cle
 }
 
 /**
- * Import a skill via HTTP bridge (POST /api/skills/import-symlink) for test setup.
+ * Import a skill via the canonical HTTP bridge route for test setup.
  */
 export async function importSkillViaBridge(page: Page, skillPath: string): Promise<{ success: boolean; msg?: string }> {
   try {
-    await httpPost(page, '/api/skills/import-symlink', { skillPath });
+    await httpPost(page, '/api/skills/import', { skill_path: skillPath });
     return { success: true };
   } catch (err) {
     return { success: false, msg: err instanceof Error ? err.message : String(err) };

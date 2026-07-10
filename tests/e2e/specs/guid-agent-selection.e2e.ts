@@ -13,17 +13,26 @@ import {
   agentPillByBackend,
   selectAgent,
 } from '../helpers';
+import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
+
+const upstreamAgentSelectionTest = COMMAND_EVE_SHELL_ENABLED ? test.skip : test;
 
 test.describe('Guid Agent Selection', () => {
   test('agent pill bar renders on guid page', async ({ page }) => {
     await goToGuid(page);
 
     const pills = page.locator(AGENT_PILL);
+    if (COMMAND_EVE_SHELL_ENABLED) {
+      await expect(pills).toHaveCount(0);
+      await expect(page.getByRole('textbox', { name: /EVE/ })).toBeVisible();
+      return;
+    }
+
     await expect(pills.first()).toBeVisible({ timeout: 8_000 });
     expect(await pills.count()).toBeGreaterThanOrEqual(1);
   });
 
-  test('select Gemini agent via pill', async ({ page }) => {
+  upstreamAgentSelectionTest('select Gemini agent via pill', async ({ page }) => {
     await goToGuid(page);
 
     const geminiPill = page.locator(agentPillByBackend('gemini'));
@@ -41,7 +50,7 @@ test.describe('Guid Agent Selection', () => {
     await expect(targetPill).toHaveAttribute('data-agent-selected', 'true');
   });
 
-  test('select Claude agent via pill', async ({ page }) => {
+  upstreamAgentSelectionTest('select Claude agent via pill', async ({ page }) => {
     await goToGuid(page);
 
     const pill = page.locator(agentPillByBackend('claude'));
@@ -63,7 +72,7 @@ test.describe('Guid Agent Selection', () => {
     await expect(pill).toHaveAttribute('data-agent-selected', 'true');
   });
 
-  test('select Codex agent via pill', async ({ page }) => {
+  upstreamAgentSelectionTest('select Codex agent via pill', async ({ page }) => {
     await goToGuid(page);
 
     const pill = page.locator(agentPillByBackend('codex'));
@@ -85,7 +94,7 @@ test.describe('Guid Agent Selection', () => {
     await expect(pill).toHaveAttribute('data-agent-selected', 'true');
   });
 
-  test('switching agent deselects previous', async ({ page }) => {
+  upstreamAgentSelectionTest('switching agent deselects previous', async ({ page }) => {
     await goToGuid(page);
 
     const pills = page.locator(AGENT_PILL);
@@ -107,7 +116,7 @@ test.describe('Guid Agent Selection', () => {
     await expect(pills.nth(0)).toHaveAttribute('data-agent-selected', 'false');
   });
 
-  test('preset assistants visible in selection area', async ({ page }) => {
+  upstreamAgentSelectionTest('preset assistants visible in selection area', async ({ page }) => {
     await goToGuid(page);
 
     // Preset assistant pills use data-testid="preset-pill-{id}"
@@ -123,7 +132,7 @@ test.describe('Guid Agent Selection', () => {
     }
   });
 
-  test('select preset assistant changes selection state', async ({ page }) => {
+  upstreamAgentSelectionTest('select preset assistant changes selection state', async ({ page }) => {
     await goToGuid(page);
     await page.locator(AGENT_PILL).first().waitFor({ state: 'visible', timeout: 8_000 });
 
@@ -149,7 +158,7 @@ test.describe('Guid Agent Selection', () => {
     expect(hasSelection || hasInput).toBeTruthy();
   });
 
-  test('switch between two presets', async ({ page }) => {
+  upstreamAgentSelectionTest('switch between two presets', async ({ page }) => {
     // Force navigate to guid with a fresh state by reloading
     await page.evaluate(() => window.location.assign('#/guid'));
     await page.waitForFunction(() => window.location.hash === '#/guid', { timeout: 10_000 }).catch(() => {});
@@ -190,7 +199,7 @@ test.describe('Guid Agent Selection', () => {
     expect(body!.length).toBeGreaterThan(10);
   });
 
-  test('agent pill bar shows backend data attribute', async ({ page }) => {
+  upstreamAgentSelectionTest('agent pill bar shows backend data attribute', async ({ page }) => {
     // Reload to reset any preset-selection state from previous tests
     await page.evaluate(() => window.location.assign('#/guid'));
     await page.reload();
@@ -209,7 +218,7 @@ test.describe('Guid Agent Selection', () => {
     }
   });
 
-  test('newly created assistant appears on guid page', async ({ page }) => {
+  upstreamAgentSelectionTest('newly created assistant appears on guid page', async ({ page }) => {
     // This test requires creating an assistant first
     // Navigate to settings, create, then check guid
     // We'll verify the cross-page sync by navigating
@@ -228,7 +237,7 @@ test.describe('Guid Agent Selection', () => {
     expect(body!.length).toBeGreaterThan(10);
   });
 
-  test('unavailable agent pill is not rendered or shows unavailable state', async ({ page }) => {
+  upstreamAgentSelectionTest('unavailable agent pill is not rendered or shows unavailable state', async ({ page }) => {
     // Reload to reset any preset-selection state from previous tests
     await page.evaluate(() => window.location.assign('#/guid'));
     await page.reload();
@@ -247,7 +256,7 @@ test.describe('Guid Agent Selection', () => {
     }
   });
 
-  test('agent pill has data-agent-key attribute', async ({ page }) => {
+  upstreamAgentSelectionTest('agent pill has data-agent-key attribute', async ({ page }) => {
     await goToGuid(page);
 
     const pills = page.locator(AGENT_PILL);

@@ -31,6 +31,16 @@ let mainPage: Page | null = null;
 const e2eStateSandboxDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aionui-e2e-state-'));
 const e2eStateFile = path.join(e2eStateSandboxDir, 'extension-states.json');
 const e2eUserDataDir = path.join(e2eStateSandboxDir, 'user-data');
+export const E2E_AGENT_EVENTS_PATH = path.join(e2eStateSandboxDir, 'agent-events.jsonl');
+const e2eLedgerSource = [
+  process.env.COMMAND_EVE_E2E_EVENTS_LEDGER,
+  process.env.COMMAND_EVE_COMPANY_OS_ROOT
+    ? path.join(process.env.COMMAND_EVE_COMPANY_OS_ROOT, 'reports/command-eve/e2e/2026-06-10/agent-events.clean.jsonl')
+    : undefined,
+].find((candidate): candidate is string => Boolean(candidate && fs.existsSync(candidate)));
+
+if (e2eLedgerSource) fs.copyFileSync(e2eLedgerSource, E2E_AGENT_EVENTS_PATH);
+else fs.writeFileSync(E2E_AGENT_EVENTS_PATH, '');
 
 export async function closeSharedElectronAppForIsolatedSpec(): Promise<void> {
   if (!app) {
@@ -74,7 +84,10 @@ async function resolveMainWindow(electronApp: ElectronApplication): Promise<Page
     return resolveWindowBefore(deadline);
   };
 
-  return resolveWindowBefore(Date.now() + 30_000);
+  // A fresh Command EVE sandbox installs the bundled Hermes runtime before the
+  // first window. Verified cold boots take about 60s on this machine and can be
+  // slower under load, so keep a bounded three-minute window budget.
+  return resolveWindowBefore(Date.now() + 180_000);
 }
 
 /**
@@ -143,6 +156,9 @@ async function launchApp(): Promise<ElectronApplication> {
     AIONUI_E2E_TEST: '1',
     AIONUI_MULTI_INSTANCE: '1',
     AIONUI_CDP_PORT: '0',
+    // Every bridge mutation must stay inside the disposable E2E sandbox even
+    // when the dev app auto-detects a real Company.OS checkout.
+    COMMAND_EVE_AGENT_EVENTS_PATH: E2E_AGENT_EVENTS_PATH,
     // Command EVE registration/license gate (W12) defaults ON in pilot builds.
     // The shared singleton fixtures app is a test harness, not a pilot build, and
     // every other spec drives main surfaces directly — so the gate must not block

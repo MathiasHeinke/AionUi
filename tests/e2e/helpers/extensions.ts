@@ -12,7 +12,7 @@ export type ExtensionSnapshot = {
   settingsTabs: Array<{ id: string; label: string; url: string; extensionName: string }>;
   webuiContributions: Array<{
     extensionName: string;
-    apiRoutes: Array<{ path: string; auth: boolean }>;
+    apiRoutes: Array<{ path: string; auth?: boolean; method?: string; handler?: string }>;
     staticAssets: Array<{ urlPrefix: string; directory: string }>;
   }>;
 };
@@ -81,10 +81,11 @@ export async function getExtensionSnapshot(page: Page): Promise<ExtensionSnapsho
 }
 
 export async function getChannelPluginStatus(page: Page): Promise<ChannelPluginStatus[]> {
-  const result = (await invokeBridge(page, 'channel.get-plugin-status')) as {
-    success?: boolean;
-    data?: ChannelPluginStatus[];
-  };
+  const result = (await invokeBridge(page, 'channel.get-plugin-status')) as
+    | ChannelPluginStatus[]
+    | { success?: boolean; data?: ChannelPluginStatus[] };
+
+  if (Array.isArray(result)) return result;
 
   if (!result?.success || !Array.isArray(result.data)) {
     return [];

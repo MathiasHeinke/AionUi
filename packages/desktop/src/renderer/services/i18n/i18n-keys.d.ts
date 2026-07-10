@@ -2067,6 +2067,7 @@ export type I18nKey =
   | 'settings.closeDevTools'
   | 'settings.closeToTray'
   | 'settings.command'
+  | 'settings.commandEveAppDescription'
   | 'settings.commandEveAppearance.accent'
   | 'settings.commandEveAppearance.accentDescription'
   | 'settings.commandEveAppearance.accent_blue'

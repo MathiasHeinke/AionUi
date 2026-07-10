@@ -6,11 +6,20 @@ import {
   buildEveCloudRoute,
   ensureCommandEveShimAuthToken,
   isCommandEveWarmupRequest,
+  resolveCommandEveShimListenPort,
   startCommandEveOllamaOpenAiShim,
   stopCommandEveOllamaOpenAiShimForTest,
   warmCommandEveEveLane,
   warmCommandEveLocalModel,
 } from '@/process/commandEve/ollamaOpenAiShim';
+
+describe('resolveCommandEveShimListenPort', () => {
+  it('keeps production pinned while isolating explicit E2E launches', () => {
+    expect(resolveCommandEveShimListenPort(undefined, {})).toBe(25811);
+    expect(resolveCommandEveShimListenPort(undefined, { AIONUI_E2E_TEST: '1' })).toBe(0);
+    expect(resolveCommandEveShimListenPort(31000, { AIONUI_E2E_TEST: '1' })).toBe(31000);
+  });
+});
 
 /** Synthetic CEVE wire string — NOT a real license. */
 const FAKE_LICENSE = 'CEVE.v2.FAKE-payload-TESTONLY.FAKE-sig-TESTONLY';
@@ -136,6 +145,19 @@ afterEach(async () => {
 });
 
 describe('Command EVE Ollama OpenAI shim warm-up', () => {
+  it('coalesces concurrent first-start calls into one loopback server', async () => {
+    const starts = [
+      startCommandEveOllamaOpenAiShim({ port: 0, ollamaBaseUrl: 'http://127.0.0.1:1' }),
+      startCommandEveOllamaOpenAiShim({ port: 0, ollamaBaseUrl: 'http://127.0.0.1:1' }),
+    ];
+
+    const [firstUrl, secondUrl] = await Promise.all(starts);
+    shimServerUrl = firstUrl;
+
+    expect(secondUrl).toBe(firstUrl);
+    await expect(fetch(`${firstUrl}/health`).then((response) => response.json())).resolves.toEqual({ ok: true });
+  });
+
   it('detects EVE persona markers without storing prompt text', () => {
     const proof = buildCommandEvePromptProof({
       model: 'custom:command-eve-gemma4-e4b-64k:latest',

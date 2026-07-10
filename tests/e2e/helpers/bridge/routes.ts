@@ -27,6 +27,64 @@ function mapPreviewHistoryTarget(target: Record<string, unknown> | undefined): R
  * to the legacy IPC bridge.
  */
 export const HTTP_ROUTES: Record<string, HttpRoute> = {
+  'extensions.get-loaded-extensions': {
+    method: 'GET',
+    path: '/api/extensions',
+  },
+  'extensions.get-acp-adapters': {
+    method: 'GET',
+    path: '/api/extensions/acp-adapters',
+  },
+  'extensions.get-mcp-servers': {
+    method: 'GET',
+    path: '/api/extensions/mcp-servers',
+  },
+  'extensions.get-assistants': {
+    method: 'GET',
+    path: '/api/extensions/assistants',
+  },
+  'extensions.get-agents': {
+    method: 'GET',
+    path: '/api/extensions/agents',
+  },
+  'extensions.get-skills': {
+    method: 'GET',
+    path: '/api/extensions/skills',
+  },
+  'extensions.get-themes': {
+    method: 'GET',
+    path: '/api/extensions/themes',
+  },
+  'extensions.get-settings-tabs': {
+    method: 'GET',
+    path: '/api/extensions/settings-tabs',
+  },
+  'extensions.get-webui-contributions': {
+    method: 'GET',
+    path: '/api/extensions/webui',
+    mapResponse: 'extensionWebui',
+  },
+  'extensions.enable': {
+    method: 'POST',
+    path: '/api/extensions/enable',
+  },
+  'extensions.disable': {
+    method: 'POST',
+    path: '/api/extensions/disable',
+  },
+  'extensions.get-permissions': {
+    method: 'POST',
+    path: '/api/extensions/permissions',
+  },
+  'extensions.get-risk-level': {
+    method: 'POST',
+    path: '/api/extensions/risk-level',
+  },
+  'channel.get-plugin-status': {
+    method: 'GET',
+    path: '/api/channel/plugins',
+    mapResponse: 'channelPluginStatus',
+  },
   'cron.list-jobs': {
     method: 'GET',
     path: '/api/cron/jobs',
@@ -46,11 +104,13 @@ export const HTTP_ROUTES: Record<string, HttpRoute> = {
   'team.list': {
     method: 'GET',
     path: (p) => `/api/teams?user_id=${encodeURIComponent(String(p.user_id ?? ''))}`,
+    mapResponse: 'teamList',
   },
-  'team.create': { method: 'POST', path: '/api/teams' },
+  'team.create': { method: 'POST', path: '/api/teams', mapResponse: 'teamRecord' },
   'team.get': {
     method: 'GET',
     path: (p) => `/api/teams/${encodeURIComponent(String(p.id))}`,
+    mapResponse: 'teamRecord',
   },
   'team.remove': {
     method: 'DELETE',
@@ -60,10 +120,15 @@ export const HTTP_ROUTES: Record<string, HttpRoute> = {
     method: 'POST',
     path: (p) => `/api/teams/${encodeURIComponent(String(p.team_id))}/agents`,
     mapBody: (p) => p.agent,
+    mapResponse: 'teamAgent',
   },
   'team.ensure-session': {
     method: 'POST',
     path: (p) => `/api/teams/${encodeURIComponent(String(p.team_id))}/session`,
+  },
+  'get-conversation': {
+    method: 'GET',
+    path: (p) => `/api/conversations/${encodeURIComponent(String(p.id))}`,
   },
   'database.get-conversation-messages': {
     method: 'GET',

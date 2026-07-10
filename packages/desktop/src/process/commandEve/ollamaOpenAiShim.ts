@@ -36,6 +36,14 @@ const DEFAULT_UPSTREAM_FIRST_BYTE_TIMEOUT_MS = 10 * 60_000;
 const DEFAULT_UPSTREAM_IDLE_TIMEOUT_MS = 5 * 60_000;
 let bootShimAuthToken = '';
 
+export function resolveCommandEveShimListenPort(
+  requestedPort: number | undefined,
+  env: NodeJS.ProcessEnv = process.env
+): number {
+  if (requestedPort !== undefined) return requestedPort;
+  return env.AIONUI_E2E_TEST === '1' ? 0 : DEFAULT_SHIM_PORT;
+}
+
 /** A process-local nonce that protects the predictable loopback inference port. */
 export function ensureCommandEveShimAuthToken(): string {
   if (!bootShimAuthToken) bootShimAuthToken = crypto.randomBytes(32).toString('hex');
@@ -380,6 +388,7 @@ export function buildEveCloudRoute(args: {
 
 let server: http.Server | undefined;
 let serverUrl = '';
+let serverStartInFlight: Promise<string> | undefined;
 
 function isLoopbackHttpUrl(value: string): boolean {
   try {
@@ -1455,10 +1464,25 @@ async function handleKanbanAcpRead(
   jsonResponse(response, 200, options.kanbanAcpRead());
 }
 
-export async function startCommandEveOllamaOpenAiShim(shimOptions: CommandEveOllamaShimOptions = {}): Promise<string> {
-  if (server?.listening) return serverUrl || `http://127.0.0.1:${DEFAULT_SHIM_PORT}`;
+export function startCommandEveOllamaOpenAiShim(shimOptions: CommandEveOllamaShimOptions = {}): Promise<string> {
+  if (server?.listening) return Promise.resolve(serverUrl || `http://127.0.0.1:${DEFAULT_SHIM_PORT}`);
+  if (serverStartInFlight) return serverStartInFlight;
+
+  const startPromise = startCommandEveOllamaOpenAiShimOnce(shimOptions);
+  serverStartInFlight = startPromise;
+  const clearStart = () => {
+    if (serverStartInFlight === startPromise) serverStartInFlight = undefined;
+  };
+  void startPromise.then(clearStart, clearStart);
+  return startPromise;
+}
+
+async function startCommandEveOllamaOpenAiShimOnce(shimOptions: CommandEveOllamaShimOptions): Promise<string> {
   const options: Required<CommandEveOllamaShimOptions> = {
-    port: shimOptions.port ?? DEFAULT_SHIM_PORT,
+    // Parallel E2E workers must not mistake another test/dev instance for a
+    // production port conflict. Port 0 is limited to the explicit test mode;
+    // normal desktop launches remain pinned to the documented 25811 endpoint.
+    port: resolveCommandEveShimListenPort(shimOptions.port),
     authToken: shimOptions.authToken?.trim() || ensureCommandEveShimAuthToken(),
     ollamaBaseUrl: shimOptions.ollamaBaseUrl || DEFAULT_OLLAMA_BASE_URL,
     numCtx: shimOptions.numCtx || DEFAULT_NUM_CTX,
@@ -1507,7 +1531,7 @@ export async function startCommandEveOllamaOpenAiShim(shimOptions: CommandEveOll
     // free-tier route on a seat where Honcho is provisioned — purely additive.
     honchoDeriverRoute: shimOptions.honchoDeriverRoute || ((): CommandEveHonchoDeriverRoute => ({ active: false })),
   };
-  server = http.createServer((request, response) => {
+  const nextServer = http.createServer((request, response) => {
     void (async () => {
       const path = new URL(request.url || '/', `http://${request.headers.host || '127.0.0.1'}`).pathname;
       if (request.method === 'GET' && path === '/health') {
@@ -1549,22 +1573,36 @@ export async function startCommandEveOllamaOpenAiShim(shimOptions: CommandEveOll
     });
   });
   await new Promise<void>((resolve, reject) => {
-    server?.once('error', reject);
-    server?.listen(options.port, '127.0.0.1', resolve);
+    const onError = (error: Error) => {
+      nextServer.off('listening', onListening);
+      reject(error);
+    };
+    const onListening = () => {
+      nextServer.off('error', onError);
+      resolve();
+    };
+    nextServer.once('error', onError);
+    nextServer.once('listening', onListening);
+    nextServer.listen(options.port, '127.0.0.1');
   });
-  const address = server.address();
+  const address = nextServer.address();
   const port = address && typeof address !== 'string' ? address.port : options.port;
+  server = nextServer;
   serverUrl = `http://127.0.0.1:${port}`;
   return serverUrl;
 }
 
 export async function stopCommandEveOllamaOpenAiShimForTest(): Promise<void> {
-  if (!server) return;
+  await serverStartInFlight?.catch((): undefined => undefined);
+  const activeServer = server;
+  if (!activeServer) return;
   await new Promise<void>((resolve, reject) => {
-    server?.close((error) => (error ? reject(error) : resolve()));
+    activeServer.close((error) => (error ? reject(error) : resolve()));
   });
-  server = undefined;
-  serverUrl = '';
+  if (server === activeServer) {
+    server = undefined;
+    serverUrl = '';
+  }
 }
 
 export async function warmCommandEveLocalModel(

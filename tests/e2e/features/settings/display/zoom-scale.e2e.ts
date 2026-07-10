@@ -44,7 +44,7 @@ async function currentPercent(page: import('@playwright/test').Page): Promise<nu
 
 test.describe('Zoom scale (FontSizeControl)', () => {
   test.beforeEach(async ({ page }) => {
-    await goToSettings(page, 'display');
+    await goToSettings(page, 'appearance');
     await waitForSettle(page);
   });
 

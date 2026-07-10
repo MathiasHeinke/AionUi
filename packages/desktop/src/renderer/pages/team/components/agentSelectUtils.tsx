@@ -94,10 +94,15 @@ function isHermesCommandEveBackend(agent: TeamAgentOption): boolean {
 }
 
 export function filterUserVisibleTeamLeaderAgents(agents: TeamAgentOption[]): TeamAgentOption[] {
-  const supported = filterTeamSupportedAgents(agents);
-  const commandEveAssistant = supported.find(isCommandEveAssistant);
-  if (commandEveAssistant) return [asCommandEveTeamLeader(commandEveAssistant)];
+  // EVE's assistant bootstrap binds durably to Hermes even while the runtime's
+  // liveness entry is still starting. Do not hide the only public team leader
+  // during that transient detection window.
+  const commandEveAssistant = agents.find(isCommandEveAssistant);
+  if (commandEveAssistant && !isDeprecatedRuntimeAgentType(commandEveAssistant.agent_type)) {
+    return [asCommandEveTeamLeader({ ...commandEveAssistant, team_capable: true })];
+  }
 
+  const supported = filterTeamSupportedAgents(agents);
   const hermesFallback = supported.find(isHermesCommandEveBackend);
   return hermesFallback ? [asCommandEveTeamLeader(hermesFallback)] : [];
 }

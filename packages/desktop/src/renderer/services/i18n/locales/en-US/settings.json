@@ -653,6 +653,7 @@
   "googleCloudProjectPlaceholder": "Enter your Google Cloud Project ID",
   "noAvailableModels": "No available models",
   "appDescription": "Free, local, open-source GUI app for Gemini CLI",
+  "commandEveAppDescription": "Your AI operator for planning, creating, and getting work done.",
   "helpDocumentation": "Help Documentation",
   "updateLog": "Update Log",
   "feedback": "Feedback",

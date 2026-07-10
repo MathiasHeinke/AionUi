@@ -39,34 +39,29 @@ async function currentPercent(page: import('@playwright/test').Page): Promise<nu
 async function reloadAndGoToDisplay(page: import('@playwright/test').Page): Promise<void> {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => (document.body.textContent?.length ?? 0) > 50, { timeout: 15_000 });
-  await goToSettings(page, 'display');
+  await goToSettings(page, 'appearance');
   await waitForSettle(page);
-}
-
-async function activeThemeCardIndex(page: import('@playwright/test').Page): Promise<number> {
-  return page.evaluate(() => {
-    const cards = Array.from(document.querySelectorAll<HTMLDivElement>('.grid > div.cursor-pointer'));
-    return cards.findIndex((card) => card.className.includes('border-[var(--color-primary)]'));
-  });
 }
 
 test.describe('Display settings persistence across reload', () => {
   test.setTimeout(60_000);
 
   test.beforeEach(async ({ page }) => {
-    await goToSettings(page, 'display');
+    await goToSettings(page, 'appearance');
     await waitForSettle(page);
   });
 
   test('theme persists after reload', async ({ page }) => {
-    const themeGroup = page.locator('[role="radiogroup"]');
+    const themeGroup = page.locator('[aria-labelledby="eve-appearance-mode-title"]');
     await themeGroup.waitFor({ state: 'visible', timeout: 10_000 });
 
     const initialTheme = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
     expect(initialTheme).toBeTruthy();
+    const initialMode = await themeGroup.locator('[role="radio"][aria-checked="true"]').getAttribute('data-testid');
+    expect(initialMode).toBeTruthy();
 
     const targetTheme = initialTheme === 'light' ? 'dark' : 'light';
-    const targetButton = themeGroup.locator('[role="radio"][aria-checked="false"]');
+    const targetButton = page.getByTestId(`eve-appearance-mode-${targetTheme}`);
     await targetButton.click();
 
     await page.waitForFunction(
@@ -81,9 +76,7 @@ test.describe('Display settings persistence across reload', () => {
     expect(afterReload).toBe(targetTheme);
 
     // Restore original theme
-    const revertGroup = page.locator('[role="radiogroup"]');
-    await revertGroup.waitFor({ state: 'visible', timeout: 10_000 });
-    const revertButton = revertGroup.locator('[role="radio"][aria-checked="false"]');
+    const revertButton = page.getByTestId(initialMode!);
     await revertButton.click();
     await page.waitForFunction(
       (expected) => document.documentElement.getAttribute('data-theme') === expected,
@@ -123,50 +116,20 @@ test.describe('Display settings persistence across reload', () => {
     }
   });
 
-  test('CSS theme selection persists after reload', async ({ page }) => {
-    const cards = page.locator('.grid > div.cursor-pointer');
-    await cards.first().waitFor({ state: 'visible', timeout: 15_000 });
+  test('accent selection persists after reload', async ({ page }) => {
+    const active = page.locator('[data-testid^="eve-appearance-accent-"][aria-checked="true"]');
+    const initialTestId = await active.getAttribute('data-testid');
+    expect(initialTestId).toBeTruthy();
+    const targetAccent = initialTestId === 'eve-appearance-accent-emerald' ? 'petrol' : 'emerald';
+    const targetTestId = `eve-appearance-accent-${targetAccent}`;
 
-    const cardCount = await cards.count();
-    if (cardCount < 2) {
-      test.skip(true, 'fewer than 2 CSS theme presets — cannot switch');
-      return;
-    }
-
-    // Find current active card index
-    const activeIndex = await activeThemeCardIndex(page);
-
-    const targetIndex = activeIndex <= 0 ? 1 : 0;
-    const targetCard = cards.nth(targetIndex);
-    await targetCard.click();
-
-    await page.locator('.arco-message-success').first().waitFor({ state: 'visible', timeout: 5_000 });
-
-    // Confirm selection took effect before reload
-    await page.waitForFunction(
-      (idx) => {
-        const card = document.querySelectorAll('.grid > div.cursor-pointer')[idx];
-        return card?.className.includes('border-[var(--color-primary)]');
-      },
-      targetIndex,
-      { timeout: 5_000 }
-    );
+    await page.getByTestId(targetTestId).click();
+    await expect(page.getByTestId(targetTestId)).toHaveAttribute('aria-checked', 'true');
 
     await reloadAndGoToDisplay(page);
+    await expect(page.getByTestId(targetTestId)).toHaveAttribute('aria-checked', 'true');
 
-    // Verify the same card is still active after reload
-    await cards.first().waitFor({ state: 'visible', timeout: 15_000 });
-    const afterReloadCls = await cards.nth(targetIndex).getAttribute('class');
-    expect(afterReloadCls).toContain('border-[var(--color-primary)]');
-
-    // Restore original active theme
-    if (activeIndex >= 0) {
-      await cards.nth(activeIndex).click();
-      await page
-        .locator('.arco-message-success')
-        .first()
-        .waitFor({ state: 'visible', timeout: 5_000 })
-        .catch(() => {});
-    }
+    await page.getByTestId(initialTestId!).click();
+    await expect(page.getByTestId(initialTestId!)).toHaveAttribute('aria-checked', 'true');
   });
 });

@@ -2,6 +2,7 @@ import path from 'path';
 import type { IPlatformServices } from './IPlatformServices';
 import { NodePlatformServices } from './NodePlatformServices';
 import { COMMAND_EVE_SHELL_ENABLED, getCommandEveAppName } from '@/common/config/commandEveShell';
+import { resolveElectronUserDataPath } from './userDataPath';
 
 let _services: IPlatformServices | null = null;
 
@@ -44,7 +45,7 @@ export function getPlatformServices(): IPlatformServices {
         if (COMMAND_EVE_SHELL_ENABLED || !app.isPackaged) {
           const appName = COMMAND_EVE_SHELL_ENABLED ? getCommandEveAppName(app.isPackaged) : getDevAppName();
           app.setName(appName);
-          app.setPath('userData', path.join(path.dirname(app.getPath('userData')), appName));
+          app.setPath('userData', resolveElectronUserDataPath(app.getPath('userData'), appName));
         }
         // Typed as IPlatformPaths so tsc enforces completeness: any new method
         // added to the interface will cause a compile error here if omitted below.

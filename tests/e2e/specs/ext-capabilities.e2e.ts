@@ -1,5 +1,5 @@
 import { test, expect } from '../fixtures';
-import { getChannelPluginStatus, getExtensionSnapshot, goToExtensionSettings, waitForSettle } from '../helpers';
+import { getChannelPluginStatus, getExtensionSnapshot, goToExtensionSettings } from '../helpers';
 
 test.describe('Extension: Complete Capabilities', () => {
   test('all extension contribution categories are loaded and queryable', async ({ page }) => {
@@ -62,14 +62,10 @@ test.describe('Extension: Complete Capabilities', () => {
 
     for (const tabId of tabIds) {
       await goToExtensionSettings(page, tabId);
-      await waitForSettle(page, 4_000);
-
-      const bodyText = await page.locator('body').textContent();
-      expect((bodyText || '').length).toBeGreaterThan(30);
+      const frame = page.locator('iframe[title^="Extension settings:"]');
+      await expect(frame).toHaveCount(1, { timeout: 10_000 });
+      await expect(frame).toHaveAttribute('src', /\/api\/extensions\//);
     }
-
-    const iframeCount = await page.locator('iframe[title*="Extension settings"]').count();
-    expect(iframeCount).toBeGreaterThan(0);
   });
 
   test('extension channel plugins expose expected metadata schema', async ({ page }) => {

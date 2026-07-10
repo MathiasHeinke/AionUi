@@ -25,6 +25,8 @@ import {
 import { takeScreenshot } from '../../../helpers/screenshots';
 import * as path from 'path';
 
+const upstreamSkillsHubTest = process.env.AIONUI_UPSTREAM_MODE === '1' ? test : test.skip;
+
 test.describe('Skills Hub - Search (P1)', () => {
   test.beforeEach(async ({ page }) => {
     await goToSkillsHub(page);
@@ -141,7 +143,7 @@ test.describe('Skills Hub - Search (P1)', () => {
   // TC-S-12: Search external skills (match scenario)
   // ============================================================================
 
-  test('TC-S-12: should filter external skills list by search keyword', async ({ page }) => {
+  upstreamSkillsHubTest('TC-S-12: should filter external skills list by search keyword', async ({ page }) => {
     // Setup: Create external source with 3 skills
     const tempSource = createTempExternalSource('tc-s-12');
     try {
@@ -193,7 +195,7 @@ test.describe('Skills Hub - Search (P1)', () => {
   // TC-S-13: Search external skills (no match scenario)
   // ============================================================================
 
-  test('TC-S-13: should show empty state when external search has no match', async ({ page }) => {
+  upstreamSkillsHubTest('TC-S-13: should show empty state when external search has no match', async ({ page }) => {
     // Setup: Create external source with 1 skill
     const tempSource = createTempExternalSource('tc-s-13');
     try {

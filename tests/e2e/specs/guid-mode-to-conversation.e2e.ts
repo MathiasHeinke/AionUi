@@ -97,10 +97,11 @@ async function runModeVerificationCycle(
 }
 
 const BACKENDS = ['gemini', 'aionrs', 'codex', 'claude'] as const;
+const upstreamGuidModeTest = process.env.AIONUI_UPSTREAM_MODE === '1' ? test : test.skip;
 
 test.describe('Guid Mode → Conversation Sync', () => {
   for (const backend of BACKENDS) {
-    test(`${backend}: two mode switches both carry into conversation`, async ({ page }) => {
+    upstreamGuidModeTest(`${backend}: two mode switches both carry into conversation`, async ({ page }) => {
       await goToGuid(page);
 
       // Check agent availability

@@ -119,6 +119,21 @@ describe('(a) provisioning a fresh TARGET seat home', () => {
     expect(configMode).toBe(0o600);
     expect(soulMode).toBe(0o600);
   });
+
+  it('pins config.yaml to the actual loopback shim URL for this process', () => {
+    const userData = makeUserData();
+    setActiveSeatId(REAL_UUID_A);
+    const seatHome = resolveCommandEveRuntimeBootstrapPaths(userData).hermesHome;
+    const result = provisionSeatRuntimeFiles({
+      userDataPath: userData,
+      egressProxyUrl: 'http://127.0.0.1:45678',
+    });
+
+    expect(result.ok).toBe(true);
+    const config = fs.readFileSync(path.join(seatHome, 'config.yaml'), 'utf8');
+    expect(config).toContain('base_url: http://127.0.0.1:45678/v1');
+    expect(config).not.toContain('base_url: http://127.0.0.1:25811/v1');
+  });
 });
 
 describe('(b) idempotency — a second switch is byte-identical', () => {
@@ -240,6 +255,20 @@ describe('(e) fail-safe — an unsafe seat id never escapes seats/', () => {
     };
     walk(runtimeRoot);
     expect(stray).toEqual([]);
+  });
+
+  it('rejects a non-loopback shim override instead of writing an unsafe config', () => {
+    const userData = makeUserData();
+    setActiveSeatId(REAL_UUID_A);
+    const seatHome = resolveCommandEveRuntimeBootstrapPaths(userData).hermesHome;
+    const result = provisionSeatRuntimeFiles({
+      userDataPath: userData,
+      egressProxyUrl: 'https://example.com/not-local',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('loopback HTTP URL');
+    expect(fs.existsSync(path.join(seatHome, 'config.yaml'))).toBe(false);
   });
 });
 

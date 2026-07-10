@@ -42,6 +42,7 @@ const BUILTIN_PROBE_ID = 'word-creator';
 
 /** Port used by the sibling backend for migration scenarios (8-10). */
 const MIGRATION_BACKEND_PORT = 25902;
+const upstreamAssistantTest = process.env.AIONUI_UPSTREAM_MODE === '1' ? test : test.skip;
 
 /**
  * Query the sibling backend's SQLite database via the `sqlite3` CLI.
@@ -49,7 +50,10 @@ const MIGRATION_BACKEND_PORT = 25902;
  * Node version used at install time (Electron vs. Playwright worker mismatch).
  */
 function querySqliteIds(dataDir: string, sql: string): string[] {
-  const dbPath = path.join(dataDir, 'aionui.db');
+  const dbPath = ['aionui-backend.db', 'aionui.db']
+    .map((name) => path.join(dataDir, name))
+    .find((candidate) => fs.existsSync(candidate));
+  if (!dbPath) throw new Error(`No aioncore SQLite database found in ${dataDir}`);
   const out = execFileSync('sqlite3', ['-readonly', dbPath, sql], { encoding: 'utf8' });
   return out
     .split('\n')
@@ -59,9 +63,14 @@ function querySqliteIds(dataDir: string, sql: string): string[] {
 
 /** Backend binary resolved from PATH / cargo bin. */
 function resolveBackendBinary(): string {
-  const candidates = [process.env.AIONUI_BACKEND_BINARY, path.join(os.homedir(), '.cargo', 'bin', 'aioncore')].filter(
-    (x): x is string => typeof x === 'string' && x.length > 0
-  );
+  const platform = process.platform === 'win32' ? 'windows' : process.platform;
+  const arch = process.arch === 'arm64' ? 'arm64' : process.arch === 'x64' ? 'x64' : process.arch;
+  const executable = process.platform === 'win32' ? 'aioncore.exe' : 'aioncore';
+  const candidates = [
+    process.env.AIONUI_BACKEND_BINARY,
+    path.join(process.cwd(), 'resources', 'bundled-aioncore', `${platform}-${arch}`, executable),
+    path.join(os.homedir(), '.cargo', 'bin', executable),
+  ].filter((x): x is string => typeof x === 'string' && x.length > 0);
   for (const c of candidates) {
     if (fs.existsSync(c)) return c;
   }
@@ -100,7 +109,7 @@ test.describe('Assistant User Data Migration (T5)', () => {
 
   // ── Scenario 1 — First-launch list has at least the built-ins ─────────────
 
-  test('S1: list returns built-ins (no regressions from first-launch baseline)', async ({ page }) => {
+  upstreamAssistantTest('S1: list returns built-ins (no regressions from first-launch baseline)', async ({ page }) => {
     await goToAssistantSettings(page);
     const list = await httpGet<Assistant[]>(page, '/api/assistants');
     expect(list.length).toBeGreaterThanOrEqual(20);
@@ -119,7 +128,7 @@ test.describe('Assistant User Data Migration (T5)', () => {
 
   // ── Scenario 2 — Create user assistant via UI, verify backend row ─────────
 
-  test('S2: create user assistant via UI, backend row present', async ({ page }) => {
+  upstreamAssistantTest('S2: create user assistant via UI, backend row present', async ({ page }) => {
     await goToAssistantSettings(page);
 
     const stamp = Date.now();
@@ -145,7 +154,7 @@ test.describe('Assistant User Data Migration (T5)', () => {
 
   // ── Scenario 3 — Edit name + rule md, verify persistence ──────────────────
 
-  test('S3: update user assistant name + rule md, verify backend state', async ({ page }) => {
+  upstreamAssistantTest('S3: update user assistant name + rule md, verify backend state', async ({ page }) => {
     await goToAssistantSettings(page);
 
     const stamp = Date.now();
@@ -185,7 +194,7 @@ test.describe('Assistant User Data Migration (T5)', () => {
 
   // ── Scenario 4 — Delete user assistant; backend row absent + rule gone ────
 
-  test('S4: delete user assistant clears backend row and rule md', async ({ page }) => {
+  upstreamAssistantTest('S4: delete user assistant clears backend row and rule md', async ({ page }) => {
     await goToAssistantSettings(page);
 
     const stamp = Date.now();
@@ -224,7 +233,7 @@ test.describe('Assistant User Data Migration (T5)', () => {
 
   // ── Scenario 5 — Built-in edit rejected (PUT returns 4xx) ─────────────────
 
-  test('S5: built-in assistant edit rejected at backend and UI', async ({ page }) => {
+  upstreamAssistantTest('S5: built-in assistant edit rejected at backend and UI', async ({ page }) => {
     await goToAssistantSettings(page);
 
     // Backend-level: creating a row with a built-in id returns 400.
@@ -266,7 +275,7 @@ test.describe('Assistant User Data Migration (T5)', () => {
 
   // ── Scenario 6 — Extension assistant edit rejected ─────────────────────────
 
-  test('S6: extension assistant edit rejected at backend', async ({ page }) => {
+  upstreamAssistantTest('S6: extension assistant edit rejected at backend', async ({ page }) => {
     await goToAssistantSettings(page);
 
     // Discover an extension-sourced assistant if any are loaded. If none are
@@ -300,7 +309,7 @@ test.describe('Assistant User Data Migration (T5)', () => {
 
   // ── Scenario 7 — Toggle built-in enabled via UI and confirm persistence ───
 
-  test('S7: toggle built-in enabled persists via assistant_overrides', async ({ page }) => {
+  upstreamAssistantTest('S7: toggle built-in enabled persists via assistant_overrides', async ({ page }) => {
     await goToAssistantSettings(page);
 
     // Read current enabled value via backend.
@@ -341,6 +350,7 @@ test.describe('Assistant User Data Migration (T5)', () => {
   test.describe('Migration contract (sibling backend)', () => {
     let backend: ChildProcess | null = null;
     let dataDir: string = '';
+    let defaultAgentId = '';
 
     const baseUrl = `http://127.0.0.1:${MIGRATION_BACKEND_PORT}`;
 
@@ -416,6 +426,9 @@ test.describe('Assistant User Data Migration (T5)', () => {
     test.beforeEach(async () => {
       dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aionui-e2e-migrate-'));
       await startBackend();
+      const agents = await httpJson<Array<{ id: string; agent_type?: string }>>('GET', '/api/agents/management');
+      defaultAgentId = agents.find((agent) => agent.agent_type === 'aionrs')?.id ?? '';
+      if (!defaultAgentId) throw new Error('Sibling backend did not expose an Aion agent id');
     });
 
     test.afterEach(async () => {
@@ -433,9 +446,9 @@ test.describe('Assistant User Data Migration (T5)', () => {
       // filtering that migrateAssistants.ts does.
       const legacyPayload = {
         assistants: [
-          { id: 'custom-s8-alpha', name: 'Alpha' },
-          { id: 'custom-s8-beta', name: 'Beta' },
-          { id: 'custom-s8-gamma', name: 'Gamma' },
+          { id: 'custom-s8-alpha', name: 'Alpha', preset_agent_type: 'aionrs', agent_id: defaultAgentId },
+          { id: 'custom-s8-beta', name: 'Beta', preset_agent_type: 'aionrs', agent_id: defaultAgentId },
+          { id: 'custom-s8-gamma', name: 'Gamma', preset_agent_type: 'aionrs', agent_id: defaultAgentId },
           // Built-in rows are filtered by the hook itself, so no payload
           // entry for them here (the hook strips `builtin-*` before import).
         ],
@@ -461,8 +474,8 @@ test.describe('Assistant User Data Migration (T5)', () => {
     test('S9: retry import is idempotent (skips existing, no duplicates)', async () => {
       const payload = {
         assistants: [
-          { id: 'custom-s9-retry', name: 'Retry' },
-          { id: 'custom-s9-other', name: 'Other' },
+          { id: 'custom-s9-retry', name: 'Retry', preset_agent_type: 'aionrs', agent_id: defaultAgentId },
+          { id: 'custom-s9-other', name: 'Other', preset_agent_type: 'aionrs', agent_id: defaultAgentId },
         ],
       };
       const first = await httpJson<ImportResult>('POST', '/api/assistants/import', payload);
@@ -488,8 +501,13 @@ test.describe('Assistant User Data Migration (T5)', () => {
       // endpoint (spec §8.1); the renamed row then imports cleanly.
       const collisionPayload = {
         assistants: [
-          { id: BUILTIN_PROBE_ID, name: 'Hijacked' }, // hook would have renamed
-          { id: `custom-migrated-1700000000000-abcd`, name: 'Hijacked' }, // post-rename form
+          { id: BUILTIN_PROBE_ID, name: 'Hijacked', preset_agent_type: 'aionrs', agent_id: defaultAgentId }, // hook would have renamed
+          {
+            id: `custom-migrated-1700000000000-abcd`,
+            name: 'Hijacked',
+            preset_agent_type: 'aionrs',
+            agent_id: defaultAgentId,
+          }, // post-rename form
         ],
       };
       const result = await httpJson<ImportResult>('POST', '/api/assistants/import', collisionPayload);

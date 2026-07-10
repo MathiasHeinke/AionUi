@@ -41,11 +41,10 @@ test.describe('Guid Page', () => {
 
 test.describe('Settings Pages', () => {
   const tabs: { tab: SettingsTab; name: string }[] = [
-    { tab: 'gemini', name: 'Gemini Settings' },
     { tab: 'model', name: 'Model Settings' },
     { tab: 'agent', name: 'Agent/ACP Settings' },
-    { tab: 'tools', name: 'Tools/MCP Settings' },
-    { tab: 'display', name: 'Display Settings' },
+    { tab: 'capabilities', name: 'Capabilities Settings' },
+    { tab: 'appearance', name: 'Appearance Settings' },
     { tab: 'webui', name: 'WebUI Settings' },
     { tab: 'system', name: 'System Settings' },
     { tab: 'about', name: 'About Page' },

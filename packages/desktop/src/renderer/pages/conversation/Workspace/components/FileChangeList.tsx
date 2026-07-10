@@ -156,7 +156,14 @@ const ActionBtn: React.FC<{
   onClick: () => void;
 }> = ({ tooltip, icon, onClick }) => (
   <Tooltip mini content={tooltip}>
-    <Button size='mini' type='text' className='!p-2px !h-20px !w-20px' icon={icon} onClick={onClick} />
+    <Button
+      size='mini'
+      type='text'
+      className='!p-2px !h-20px !w-20px'
+      icon={icon}
+      onClick={onClick}
+      aria-label={tooltip}
+    />
   </Tooltip>
 );
 

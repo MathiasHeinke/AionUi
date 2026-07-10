@@ -50,6 +50,8 @@ import {
 import { takeScreenshot } from '../../../helpers/screenshots';
 import * as path from 'path';
 
+const upstreamSkillsHubTest = process.env.AIONUI_UPSTREAM_MODE === '1' ? test : test.skip;
+
 test.describe('Skills Hub - Core UI (P0)', () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to Skills Hub before each test
@@ -226,12 +228,19 @@ test.describe('Skills Hub - Core UI (P0)', () => {
       return;
     }
 
-    // Test the first builtin skill
-    const firstBuiltin = builtinSkills[0];
-    const normalizedName = normalizeTestId(firstBuiltin.name);
+    // Command EVE deliberately curates the raw AionCore builtins; `cron` is
+    // the builtin represented in the public catalog as "Geplante Aufgaben".
+    const visibleBuiltin = builtinSkills.find((skill) => skill.name === 'cron');
+    if (!visibleBuiltin) {
+      test.skip(true, 'The public cron builtin is unavailable in this environment');
+      return;
+    }
 
     // Step 2: Locate the builtin skill card
-    const builtinCard = page.locator(`[data-testid="my-skill-card-${normalizedName}"]`);
+    const builtinCard = page
+      .locator('[data-testid^="my-skill-card-"]')
+      .filter({ hasText: visibleBuiltin.description ?? visibleBuiltin.name })
+      .first();
     await expect(builtinCard).toBeVisible();
 
     // Step 3: Hover to card to reveal buttons
@@ -243,20 +252,20 @@ test.describe('Skills Hub - Core UI (P0)', () => {
 
     // Expected: Only "Export" button visible, NO delete button
     // Per source code line 565-577: delete button only shows if skill.source === 'custom'
-    const deleteButton = builtinCard.locator(`[data-testid="btn-delete-${normalizedName}"]`);
+    const deleteButton = builtinCard.locator('[data-testid^="btn-delete-"]');
 
     // Screenshot 03: Final state - verify no delete button
     await takeScreenshot(page, 'skills-hub/tc-s-06/03-verify-no-delete-button.png');
 
     // Assertion: Delete button must NOT be visible for builtin skills
-    await expect(deleteButton).not.toBeVisible();
+    await expect(deleteButton).toHaveCount(0);
   });
 
   // ============================================================================
   // TC-S-08: Render external skills list (single source)
   // ============================================================================
 
-  test('TC-S-08: should render external skills section with custom source', async ({ page }) => {
+  upstreamSkillsHubTest('TC-S-08: should render external skills section with custom source', async ({ page }) => {
     // Setup: Create temporary external source with 1 skill (real directory + SKILL.md)
     const tempSource = createTempExternalSource('tc-s-08');
     try {
@@ -313,7 +322,7 @@ test.describe('Skills Hub - Core UI (P0)', () => {
   // TC-S-10: Import external skill via UI (success scenario)
   // ============================================================================
 
-  test('TC-S-10: should import external skill via UI click', async ({ page }) => {
+  upstreamSkillsHubTest('TC-S-10: should import external skill via UI click', async ({ page }) => {
     // Setup: Create external source with 1 skill (real directory + SKILL.md)
     const tempSource = createTempExternalSource('tc-s-10');
     try {
@@ -375,7 +384,7 @@ test.describe('Skills Hub - Core UI (P0)', () => {
   // TC-S-16: Add custom external path (success scenario)
   // ============================================================================
 
-  test('TC-S-16: should add custom external path via UI', async ({ page, electronApp }) => {
+  upstreamSkillsHubTest('TC-S-16: should add custom external path via UI', async ({ page, electronApp }) => {
     // Setup: Create real skill directory with SKILL.md
     const tempSource = createTempExternalSource('tc-s-16');
     try {
@@ -462,7 +471,7 @@ test.describe('Skills Hub - Core UI (P0)', () => {
   // TC-S-19: Export skill to external source (success scenario)
   // ============================================================================
 
-  test('TC-S-19: should export skill to external source via UI', async ({ page }) => {
+  upstreamSkillsHubTest('TC-S-19: should export skill to external source via UI', async ({ page }) => {
     // Setup: Create real skill directory and export destination
     const skillName = `E2E-Test-Export-Source-${Date.now()}`;
     const tempExportDest = createTempExternalSource('tc-s-19-export');

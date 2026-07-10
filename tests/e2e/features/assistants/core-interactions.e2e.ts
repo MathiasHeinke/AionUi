@@ -17,6 +17,10 @@ import {
 } from '../../helpers';
 
 test.describe('Assistant Settings Core Interactions (P0)', () => {
+  test.skip(
+    process.env.AIONUI_UPSTREAM_MODE !== '1',
+    'The upstream assistant CRUD surface is intentionally not public in Command EVE.'
+  );
   test.setTimeout(90_000);
 
   test('P0-1: search toggle — expand/collapse with icon change', async ({ page }) => {

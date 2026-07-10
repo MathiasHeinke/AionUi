@@ -20,6 +20,8 @@ import {
   settingsSiderItemById,
 } from '../helpers';
 
+const upstreamAgentSurfaceTest = process.env.AIONUI_UPSTREAM_MODE === '1' ? test : test.skip;
+
 test.describe('ACP Agent', () => {
   test('agent settings page has management UI', async ({ page }) => {
     await goToSettings(page, 'agent');
@@ -33,15 +35,15 @@ test.describe('ACP Agent', () => {
     await takeScreenshot(page, 'agent-settings');
   });
 
-  test('agent pill bar renders on guid page', async ({ page }) => {
+  test('Command EVE never exposes raw agent backend pills on the guid page', async ({ page }) => {
     await goToGuid(page);
 
     const pills = page.locator(AGENT_PILL);
-    await expect(pills.first()).toBeVisible({ timeout: 8_000 });
-    expect(await pills.count()).toBeGreaterThanOrEqual(1);
+    await expect(pills).toHaveCount(0, { timeout: 8_000 });
+    await expect(page.locator('.sendbox-model-btn').first()).toBeVisible({ timeout: 8_000 });
   });
 
-  test('can see agent backend names', async ({ page }) => {
+  upstreamAgentSurfaceTest('upstream shell can see agent backend names', async ({ page }) => {
     await goToGuid(page);
 
     const knownBackends = new Set(['claude', 'gemini', 'qwen', 'opencode', 'codex']);
@@ -58,7 +60,7 @@ test.describe('ACP Agent', () => {
     expect(backends.some((backend) => knownBackends.has(backend))).toBeTruthy();
   });
 
-  test('clicking an agent pill selects it', async ({ page }) => {
+  upstreamAgentSurfaceTest('upstream shell can select an agent pill', async ({ page }) => {
     await goToGuid(page);
 
     const pills = page.locator(AGENT_PILL);
@@ -79,7 +81,7 @@ test.describe('ACP Agent', () => {
     }
   });
 
-  test('screenshot: agent pill bar', async ({ page }) => {
+  upstreamAgentSurfaceTest('screenshot: upstream agent pill bar', async ({ page }) => {
     test.skip(!process.env.E2E_SCREENSHOTS, 'screenshots disabled');
     await goToGuid(page);
     await expect(page.locator(AGENT_PILL).first()).toBeVisible({ timeout: 8_000 });

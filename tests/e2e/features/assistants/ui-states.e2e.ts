@@ -23,6 +23,10 @@ import {
 } from '../../helpers';
 
 test.describe('Assistant Settings UI States (P1)', () => {
+  test.skip(
+    process.env.AIONUI_UPSTREAM_MODE !== '1',
+    'The upstream assistant CRUD surface is intentionally not public in Command EVE.'
+  );
   test.setTimeout(90_000);
 
   test('P1-1: search input auto-focuses on expand', async ({ page }) => {
