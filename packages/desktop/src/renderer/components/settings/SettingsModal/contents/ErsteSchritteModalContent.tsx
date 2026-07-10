@@ -38,11 +38,12 @@ import {
   type ErsteSchritteStep,
   type ErsteSchritteStepStatus,
 } from '@/common/config/ersteSchritteHubCore';
+import { EVE_SETTINGS_TAG_COLOR } from '@/renderer/components/settings/settingsSemantics';
 
 const STATUS_TAG_COLOR: Record<ErsteSchritteStepStatus, 'green' | 'gold' | 'gray'> = {
-  done: 'green',
-  attention: 'gold',
-  optional: 'gray',
+  done: EVE_SETTINGS_TAG_COLOR.success,
+  attention: EVE_SETTINGS_TAG_COLOR.attention,
+  optional: EVE_SETTINGS_TAG_COLOR.neutral,
 };
 
 /** German fallback copy per step (the i18n locale files override these keys). */

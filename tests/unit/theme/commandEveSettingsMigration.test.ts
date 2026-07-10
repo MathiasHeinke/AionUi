@@ -22,6 +22,8 @@ const firstStepsSource = read(
   'packages/desktop/src/renderer/components/settings/SettingsModal/contents/ErsteSchritteModalContent.tsx'
 );
 const skillsSettingsSource = read('packages/desktop/src/renderer/pages/settings/SkillsHubSettings.tsx');
+const settingsSemanticsSource = read('packages/desktop/src/renderer/components/settings/settingsSemantics.ts');
+const visualThemeSource = read('packages/desktop/src/renderer/styles/themes/command-eve-visual.css');
 
 describe('Command EVE settings migration contract', () => {
   it('routes connectors and local AI through the shared settings shell', () => {
@@ -143,5 +145,14 @@ describe('Command EVE settings migration contract', () => {
         /AionUI|AionUi|Hermes|Claude|Codex|Gemma|Gemini|Ollama|custom:command-eve|\/Users\//i
       );
     }
+  });
+
+  it('centralizes settings semantics without purple or orange status colors', () => {
+    expect(settingsSemanticsSource).toContain("attention: 'gold'");
+    expect(settingsSemanticsSource).not.toMatch(/purple|pink/i);
+    expect(skillsSettingsSource).toContain('EVE_SETTINGS_IDENTITY_COLORS');
+    expect(skillsSettingsSource).not.toMatch(/#722ED1|#F5319D|#F77234/);
+    expect(visualThemeSource).toContain('--eve-static-white: #ffffff');
+    expect(visualThemeSource).toContain(".eve-settings-page [class*='transition-']");
   });
 });

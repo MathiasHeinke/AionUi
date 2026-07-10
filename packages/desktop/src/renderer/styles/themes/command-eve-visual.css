@@ -13,6 +13,7 @@
   --eve-brand-logo: #f97316;
   --eve-brand-ui: #c2410c;
   --eve-brand-soft: color-mix(in srgb, var(--eve-brand-logo) 14%, transparent);
+  --eve-static-white: #ffffff;
   --eve-accent: var(--primary);
   --eve-shell-bg: #f7f8fb;
   --eve-shell-surface: #ffffff;
@@ -351,6 +352,84 @@
   border-top: 0;
 }
 
+.eve-settings-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.eve-settings-section-header__copy {
+  min-width: 0;
+  max-width: 760px;
+}
+
+.eve-settings-section-title {
+  margin: 0;
+  color: var(--eve-shell-text);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 24px;
+  letter-spacing: 0;
+}
+
+.eve-settings-section-description {
+  margin: 4px 0 0;
+  color: var(--eve-shell-text-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.eve-settings-section-header__action {
+  flex: 0 0 auto;
+}
+
+.eve-settings-section-body {
+  min-width: 0;
+}
+
+.eve-settings-preference-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  min-width: 0;
+  padding: 12px 0;
+}
+
+.eve-settings-preference-row__copy {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.eve-settings-preference-row__label-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.eve-settings-preference-row__label {
+  color: var(--eve-shell-text);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.eve-settings-preference-row__description {
+  margin-top: 4px;
+  color: var(--eve-shell-text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.eve-settings-preference-row__control {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
 .eve-app-loader {
   width: 100%;
   min-height: 100%;
@@ -548,6 +627,16 @@
     transition: none;
   }
 
+  .eve-settings-page .animate-spin,
+  .settings-modal .animate-spin {
+    animation: none !important;
+  }
+
+  .eve-settings-page [class*='transition-'],
+  .settings-modal [class*='transition-'] {
+    transition: none !important;
+  }
+
   .eve-composer-surface::before {
     --eve-spotlight-position: 50% 0%;
     opacity: 0.3;
@@ -564,5 +653,22 @@
   .eve-page-header h1,
   .eve-page-title {
     font-size: 22px;
+  }
+
+  .eve-settings-section-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .eve-settings-preference-row--stack-mobile {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .eve-settings-preference-row--stack-mobile .eve-settings-preference-row__control {
+    width: 100%;
+    flex: 1 1 auto;
+    justify-content: flex-end;
   }
 }

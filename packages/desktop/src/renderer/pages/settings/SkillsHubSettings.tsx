@@ -8,6 +8,7 @@ import { useSearchParams } from 'react-router-dom';
 import MarkdownView from '@renderer/components/Markdown';
 import SettingsPageWrapper from './components/SettingsPageWrapper';
 import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
+import { EVE_SETTINGS_IDENTITY_COLORS, EVE_SETTINGS_TAG_COLOR } from '@/renderer/components/settings/settingsSemantics';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1.2.18 STEP 4 — Unified skill surface.
@@ -170,29 +171,20 @@ const normalizeTestId = (name: string): string => {
   return name.replace(/[:/\s<>"'|?*]/g, '-');
 };
 
-const getAvatarColorClass = (name: string) => {
-  if (!name) return 'bg-[#165DFF] text-white';
-  const colors = [
-    'bg-[#165DFF] text-white', // Blue
-    'bg-[#00B42A] text-white', // Green
-    'bg-[#722ED1] text-white', // Purple
-    'bg-[#F5319D] text-white', // Pink
-    'bg-[#F77234] text-white', // Orange
-    'bg-[#14C9C9] text-white', // Cyan
-  ];
+const getAvatarColor = (name: string): string => {
+  if (!name) return EVE_SETTINGS_IDENTITY_COLORS[0];
   let hash = 0;
   for (let i = 0; i < name.length; i++) {
     hash = name.charCodeAt(i) + ((hash << 5) - hash);
   }
-  return colors[Math.abs(hash) % colors.length];
+  return EVE_SETTINGS_IDENTITY_COLORS[Math.abs(hash) % EVE_SETTINGS_IDENTITY_COLORS.length];
 };
 
 // State badge color — maps to Arco Tag colors.
-const stateTagColor = (state: SkillState): 'green' | 'purple' | 'orange' | 'gray' => {
-  if (state === 'executable') return 'green';
-  if (state === 'prompt_label') return 'purple';
-  if (state === 'gated') return 'orange';
-  return 'gray';
+const stateTagColor = (state: SkillState): 'green' | 'arcoblue' | 'gray' => {
+  if (state === 'executable') return EVE_SETTINGS_TAG_COLOR.success;
+  if (state === 'prompt_label') return EVE_SETTINGS_TAG_COLOR.info;
+  return EVE_SETTINGS_TAG_COLOR.neutral;
 };
 
 interface SkillsHubSettingsProps {
@@ -757,7 +749,8 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
                   >
                     <div className='shrink-0 flex items-start sm:mt-2px'>
                       <div
-                        className={`w-40px h-40px rd-10px flex items-center justify-center font-bold text-16px shadow-sm text-transform-uppercase ${getAvatarColorClass(skill.name)}`}
+                        className='w-40px h-40px rd-10px flex items-center justify-center font-bold text-16px shadow-sm text-transform-uppercase text-white'
+                        style={{ backgroundColor: getAvatarColor(skill.name) }}
                       >
                         {skill.name.charAt(0).toUpperCase()}
                       </div>
