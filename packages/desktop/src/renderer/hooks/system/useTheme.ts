@@ -9,17 +9,34 @@ import { ipcBridge } from '@/common';
 import { resolveActiveTheme } from '@/common/theme/resolveTheme';
 import { applyTheme, setActiveTheme } from '@/renderer/utils/theme/applyTheme';
 import { BUILTIN_THEMES } from '@renderer/theme/builtinThemes';
-import { LIGHT_THEME_ID } from '@/common/theme/constants';
+import { DARK_THEME_ID, LIGHT_THEME_ID } from '@/common/theme/constants';
 import type { Theme } from '@/common/theme/types';
 import { useCallback, useEffect, useState } from 'react';
+import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
+import { normalizeEveVisualPreferences, resolveEveAppearance } from '@/renderer/theme/visualPreferences';
 
 const APPEARANCE_CACHE_KEY = '__aionui_theme';
 
 async function initActiveTheme(): Promise<Theme> {
   try {
     await configService.whenReady();
-    const activeId = (configService.get('theme.activeId') as string) || LIGHT_THEME_ID;
+    const storedActiveId = (configService.get('theme.activeId') as string) || LIGHT_THEME_ID;
     const userThemes = (configService.get('theme.userThemes') as Theme[]) ?? [];
+    const storedTheme = resolveActiveTheme(storedActiveId, [...BUILTIN_THEMES, ...userThemes]);
+    const rawVisualPreferences = configService.get('commandEve.visualPreferences');
+    const visualPreferences = normalizeEveVisualPreferences(
+      rawVisualPreferences === undefined ? { mode: storedTheme.appearance } : rawVisualPreferences
+    );
+    const systemPrefersDark =
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const resolvedAppearance = resolveEveAppearance(visualPreferences.mode, systemPrefersDark);
+    const activeId = COMMAND_EVE_SHELL_ENABLED
+      ? resolvedAppearance === 'dark'
+        ? DARK_THEME_ID
+        : LIGHT_THEME_ID
+      : storedActiveId;
     const resolved = resolveActiveTheme(activeId, [...BUILTIN_THEMES, ...userThemes]);
     applyTheme(resolved);
     try {

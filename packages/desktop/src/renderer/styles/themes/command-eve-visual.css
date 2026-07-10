@@ -78,6 +78,8 @@
   --eve-bg-image-intensity: 100%;
   --eve-bg-image-blur: 0px;
   --eve-bg-image-dim: 0%;
+  --eve-bg-image-url: none;
+  --eve-bg-image-fit: cover;
   --eve-bg-image-scrim: color-mix(in srgb, var(--eve-shell-surface) 62%, transparent);
 
   /* Shared geometry */
@@ -85,6 +87,45 @@
   --eve-surface-radius-md: 8px;
   --eve-surface-radius-lg: 12px;
   --eve-control-height: 32px;
+}
+
+:root[data-eve-bg-image='true'] .app-shell {
+  position: relative;
+  isolation: isolate;
+  background: transparent;
+}
+
+:root[data-eve-bg-image='true'] .app-shell::before,
+:root[data-eve-bg-image='true'] .app-shell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+:root[data-eve-bg-image='true'] .app-shell::before {
+  inset: -24px;
+  background-image: var(--eve-bg-image-url);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: var(--eve-bg-image-fit);
+  filter: blur(var(--eve-bg-image-blur));
+  opacity: var(--eve-bg-image-intensity);
+}
+
+:root[data-eve-bg-image='true'] .app-shell::after {
+  background: color-mix(in srgb, var(--eve-shell-bg) var(--eve-bg-image-dim), transparent);
+}
+
+:root[data-eve-bg-image='true'] .app-shell > * {
+  position: relative;
+  z-index: 1;
+}
+
+:root[data-eve-bg-image='true'] .layout,
+:root[data-eve-bg-image='true'] .layout-content {
+  background: transparent !important;
 }
 
 :root[data-theme='dark'],

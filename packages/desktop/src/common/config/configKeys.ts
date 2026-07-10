@@ -44,6 +44,8 @@ export type ConfigKeyMap = {
   'css.activeThemeId': string;
   'theme.activeId': string;
   'theme.userThemes': Theme[];
+  /** Normalized in the renderer before use; kept unknown at the storage boundary. */
+  'commandEve.visualPreferences': unknown;
   'aionrs.config': { preferredMode?: string } | undefined;
   'aionrs.defaultModel': { id: string; use_model: string } | undefined;
   'tools.imageGenerationModel': TProviderWithModel & { switch?: boolean };

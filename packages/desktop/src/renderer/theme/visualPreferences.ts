@@ -67,6 +67,9 @@ export const DEFAULT_EVE_VISUAL_PREFERENCES: EveVisualPreferences = {
   },
 };
 
+export const resolveEveAppearance = (mode: EveAppearanceMode, systemPrefersDark: boolean): EveResolvedAppearance =>
+  mode === 'system' ? (systemPrefersDark ? 'dark' : 'light') : mode;
+
 export const EVE_ACCENTS: Record<EveAccent, AccentPair> = {
   blue: {
     light: { base: '#2563eb', rgb: '37, 99, 235', strong: '#1d4ed8' },
@@ -260,4 +263,43 @@ export function eveVisualCssVariables(
     '--color-primary-light-4': lightAliases[3],
     '--color-primary-dark-1': accent.strong,
   };
+}
+
+export function applyEveVisualPreferences(
+  input: unknown,
+  appearance: EveResolvedAppearance,
+  options: { root?: Document; reducedTransparency?: boolean; backgroundDataUrl?: string } = {}
+): EveVisualPreferences {
+  const preferences = normalizeEveVisualPreferences(input);
+  const root = options.root ?? document;
+  const element = root.documentElement;
+  const variables = eveVisualCssVariables(preferences, appearance, {
+    reducedTransparency: options.reducedTransparency,
+  });
+
+  for (const [name, value] of Object.entries(variables)) {
+    element.style.setProperty(name, value);
+  }
+
+  if (preferences.reducedEffects || options.reducedTransparency) {
+    element.setAttribute('data-eve-reduced-effects', 'true');
+  } else {
+    element.removeAttribute('data-eve-reduced-effects');
+  }
+
+  const backgroundEnabled = preferences.background.enabled && Boolean(options.backgroundDataUrl);
+  if (backgroundEnabled) {
+    element.setAttribute('data-eve-bg-image', 'true');
+    element.style.setProperty('--eve-bg-image-url', `url("${options.backgroundDataUrl}")`);
+    element.style.setProperty(
+      '--eve-bg-image-fit',
+      preferences.background.fit === 'fill' ? '100% 100%' : preferences.background.fit
+    );
+  } else {
+    element.removeAttribute('data-eve-bg-image');
+    element.style.removeProperty('--eve-bg-image-url');
+    element.style.removeProperty('--eve-bg-image-fit');
+  }
+
+  return preferences;
 }
