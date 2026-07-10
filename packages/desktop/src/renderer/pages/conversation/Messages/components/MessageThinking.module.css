@@ -8,14 +8,14 @@
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: var(--aou-6);
+  color: var(--eve-shell-text-secondary);
   cursor: pointer;
   user-select: none;
   line-height: 1;
 }
 
 .header:hover {
-  color: var(--aou-7);
+  color: var(--eve-shell-text);
 }
 
 .headerIcon {
@@ -25,18 +25,18 @@
   flex-shrink: 0;
   width: 14px;
   height: 14px;
-  color: var(--aou-5);
+  color: var(--eve-shell-text-secondary);
 }
 
 .header:hover .headerIcon {
-  color: var(--aou-6);
+  color: var(--eve-shell-text);
 }
 
 .arrow {
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
-  color: var(--aou-4);
+  color: color-mix(in srgb, var(--eve-shell-text-secondary) 72%, transparent);
   transition: transform 0.2s ease;
 }
 
@@ -45,13 +45,13 @@
 }
 
 .body {
-  color: #86909c;
+  color: var(--eve-shell-text-secondary);
   font-size: 13px;
   line-height: 1.7;
   padding: 10px 14px;
   margin-top: 6px;
   margin-left: 20px;
-  background: color-mix(in srgb, var(--aou-1) 50%, #fff);
+  background: var(--eve-row-hover-bg);
   border-radius: 8px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -59,7 +59,7 @@
 }
 
 :global([data-theme='dark']) .body {
-  background: var(--aou-1);
+  background: var(--eve-row-hover-bg);
 }
 
 .collapsed {

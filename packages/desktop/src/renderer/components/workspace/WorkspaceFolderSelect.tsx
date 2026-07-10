@@ -220,15 +220,15 @@ const WorkspaceFolderSelect: React.FC<WorkspaceFolderSelectProps> = ({
                     key={path}
                     onClick={() => handleSelectRecent(path)}
                     className={`flex cursor-pointer items-center gap-10px rounded-8px px-10px py-6px transition-colors ${
-                      isSelected ? 'bg-aou-1' : 'hover:bg-fill-2'
+                      isSelected ? 'bg-[var(--eve-row-selected-bg)]' : 'hover:bg-fill-2'
                     }`}
-                    style={isSelected ? { boxShadow: 'inset 0 0 0 1px var(--aou-6)' } : undefined}
+                    style={isSelected ? { boxShadow: 'inset 0 0 0 1px var(--eve-focus-ring)' } : undefined}
                   >
                     <FolderClose
                       theme='outline'
                       size='16'
                       fill='currentColor'
-                      className={`block shrink-0 ${isSelected ? 'text-aou-6' : 'text-t-tertiary'}`}
+                      className={`block shrink-0 ${isSelected ? 'text-[var(--eve-focus-ring)]' : 'text-t-tertiary'}`}
                       style={{ transform: 'translateY(3px)' }}
                     />
                     <div className='min-w-0 flex-1'>

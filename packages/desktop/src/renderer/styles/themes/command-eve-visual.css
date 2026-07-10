@@ -60,6 +60,12 @@
   --eve-status-completed: var(--color-success-6, var(--success));
   --eve-status-ring: var(--eve-shell-surface-secondary);
 
+  /* Semantic surfaces stay distinct from the orange brand and blue action lane. */
+  --eve-semantic-info-surface: color-mix(in srgb, var(--eve-status-new) 10%, var(--eve-shell-surface));
+  --eve-semantic-success-surface: color-mix(in srgb, var(--eve-status-completed) 10%, var(--eve-shell-surface));
+  --eve-semantic-warning-surface: color-mix(in srgb, var(--eve-status-attention) 12%, var(--eve-shell-surface));
+  --eve-semantic-danger-surface: color-mix(in srgb, var(--eve-status-error) 10%, var(--eve-shell-surface));
+
   /* Seat rail */
   --eve-seat-bg: color-mix(in srgb, var(--eve-shell-text) 5%, transparent);
   --eve-seat-border: color-mix(in srgb, var(--eve-shell-text) 14%, transparent);
@@ -287,9 +293,77 @@
   gap: 6px;
   border: 1px solid var(--glass-overlay-border);
   border-radius: 999px;
-  background: var(--glass-overlay-bg);
-  -webkit-backdrop-filter: var(--glass-overlay-filter);
-  backdrop-filter: var(--glass-overlay-filter);
+  background: color-mix(in srgb, var(--eve-shell-surface) 90%, transparent);
+}
+
+/* Shared public-page contract. Pages own content; this layer owns rhythm. */
+.eve-page,
+.eve-settings-page {
+  color: var(--eve-shell-text);
+  background: transparent;
+}
+
+.eve-page__inner,
+.eve-settings-page .settings-page-content {
+  width: 100%;
+  min-width: 0;
+}
+
+.eve-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.eve-page-header__copy {
+  min-width: 0;
+  max-width: 760px;
+}
+
+.eve-page-header h1,
+.eve-page-title {
+  margin: 0;
+  color: var(--eve-shell-text);
+  font-size: 24px;
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+.eve-page-header p,
+.eve-page-subtitle {
+  margin: 6px 0 0;
+  color: var(--eve-shell-text-secondary);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.eve-settings-group {
+  padding: 18px 0;
+  border-top: 1px solid var(--glass-panel-border);
+  background: transparent;
+}
+
+.eve-settings-group:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.eve-app-loader {
+  width: 100%;
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  color: var(--eve-brand-logo);
+  background: color-mix(in srgb, var(--eve-shell-bg) 94%, transparent);
+}
+
+:root[data-eve-bg-image='true'] .eve-app-loader {
+  background: transparent;
 }
 
 /* Primary work surface shared by the start screen and live conversations. */
@@ -478,5 +552,17 @@
     --eve-spotlight-position: 50% 0%;
     opacity: 0.3;
     transition: none;
+  }
+}
+
+@media (max-width: 767px) {
+  .eve-page-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .eve-page-header h1,
+  .eve-page-title {
+    font-size: 22px;
   }
 }

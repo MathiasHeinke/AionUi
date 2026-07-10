@@ -1,7 +1,8 @@
 import type { ModalProps } from '@arco-design/web-react';
-import { Modal } from '@arco-design/web-react';
+import { Button, Modal } from '@arco-design/web-react';
 import { Close } from '@icon-park/react';
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface ModalWrapperProps extends Omit<ModalProps, 'title'> {
   children?: React.ReactNode;
@@ -17,15 +18,27 @@ const ModalWrapper: React.FC<ModalWrapperProps> = ({
   className = '',
   ...props
 }) => {
+  const { t } = useTranslation();
+
   return (
-    <Modal {...props} title={null} closable={false} onCancel={onCancel} className={`aionui-modal ${className}`}>
-      <div>
+    <Modal
+      {...props}
+      title={null}
+      closable={false}
+      onCancel={onCancel}
+      className={`aionui-modal aionui-modal--legacy ${className}`}
+    >
+      <div className='aionui-modal-wrapper'>
         {showCustomClose && title && (
           <div className='aionui-modal-header'>
             <h3 className='aionui-modal-title'>{title}</h3>
-            <button onClick={onCancel} className='aionui-modal-close-btn'>
-              <Close size={20} fill='#86909c' />
-            </button>
+            <Button
+              type='text'
+              onClick={onCancel}
+              className='aionui-modal-close-btn eve-focus-ring'
+              aria-label={t('common.close', { defaultValue: 'Close' })}
+              icon={<Close size={18} fill='currentColor' />}
+            />
           </div>
         )}
         {children}

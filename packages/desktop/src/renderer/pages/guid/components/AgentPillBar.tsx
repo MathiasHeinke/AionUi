@@ -50,7 +50,7 @@ const AgentPillBar: React.FC<AgentPillBarProps> = ({
           marginBottom: 20,
           padding: '6px',
           borderRadius: '30px',
-          backgroundColor: 'var(--color-guid-agent-bar, var(--aou-2))',
+          backgroundColor: 'var(--color-guid-agent-bar, var(--eve-row-selected-bg))',
           transition: 'background-color 0.35s ease',
           width: isMobile ? 'calc(100% + 28px)' : 'fit-content',
           maxWidth: isMobile ? 'none' : '100%',

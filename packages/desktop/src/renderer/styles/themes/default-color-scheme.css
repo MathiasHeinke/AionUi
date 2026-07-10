@@ -77,7 +77,7 @@
   /* AOU Brand Colors - Dark Mode */
   --aou-1: #2a2a2a;
   --aou-2: #3d4150;
-  --color-guid-agent-bar: var(--aou-2); /* 首页 Agent 选择条背景 - 暗色沿用 aou-2 */
+  --color-guid-agent-bar: var(--eve-row-selected-bg, #262626);
   --aou-3: #525a77;
   --aou-4: #6a749b;
   --aou-5: #838fba;

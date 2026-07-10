@@ -99,7 +99,7 @@ export interface AionModalProps extends Omit<ModalProps, 'title' | 'footer'> {
 const HEADER_BASE_CLASS = 'flex items-center justify-between pb-20px';
 const TITLE_BASE_CLASS = 'text-18px font-500 text-t-primary m-0';
 const CLOSE_BUTTON_CLASS =
-  'w-32px h-32px flex items-center justify-center rd-8px transition-colors duration-200 cursor-pointer border-0 bg-transparent p-0 hover:bg-2 focus:outline-none';
+  'eve-modal__close eve-focus-ring !w-32px !h-32px !min-w-32px !p-0 !rd-8px !border-0 !bg-transparent !text-t-secondary hover:!bg-fill-2 hover:!text-t-primary';
 const FOOTER_BASE_CLASS = 'flex-shrink-0 bg-transparent';
 
 /**
@@ -179,8 +179,8 @@ const AionModal: React.FC<AionModalProps> = ({
   const { fontScale } = useThemeContext();
   const { t } = useTranslation();
   // 处理 contentStyle 配置，转换为 CSS 变量
-  const contentBg = contentStyle?.background || 'var(--dialog-fill-0)';
-  const contentBorderRadius = contentStyle?.borderRadius || '16px';
+  const contentBg = contentStyle?.background || 'transparent';
+  const contentBorderRadius = contentStyle?.borderRadius || 'var(--eve-surface-radius-md)';
   const contentPadding = contentStyle?.padding || '0';
   const contentOverflow = contentStyle?.overflow || 'auto';
 
@@ -236,23 +236,24 @@ const AionModal: React.FC<AionModalProps> = ({
 
   const finalStyle: CSSProperties = {
     ...mergedStyle,
-    borderRadius: mergedStyle.borderRadius ?? '16px',
+    borderRadius: mergedStyle.borderRadius ?? 'var(--eve-surface-radius-md)',
   };
 
   const bodyInlineStyle = React.useMemo<CSSProperties>(() => {
-    const style: CSSProperties = {
+    const nextStyle: CSSProperties = {
       background: contentBg,
       overflow: contentOverflow,
+      padding: paddingVal,
     };
 
     (['height', 'minHeight', 'maxHeight'] as const).forEach((key) => {
       const value = contentStyle?.[key];
       if (value !== undefined) {
-        style[key] = formatDimensionValue(value);
+        nextStyle[key] = formatDimensionValue(value);
       }
     });
 
-    return style;
+    return nextStyle;
   }, [contentBg, paddingVal, contentOverflow, contentStyle?.height, contentStyle?.maxHeight, contentStyle?.minHeight]);
 
   // 处理 Header 配置（向后兼容）
@@ -337,7 +338,7 @@ const AionModal: React.FC<AionModalProps> = ({
     const headerClassName = classNames(HEADER_BASE_CLASS, headerConfig.className);
 
     const headerStyle: CSSProperties = {
-      borderBottom: '1px solid var(--bg-3)',
+      borderBottom: '1px solid var(--glass-overlay-border)',
       ...headerConfig.style,
     };
 
@@ -345,9 +346,13 @@ const AionModal: React.FC<AionModalProps> = ({
       <div className={headerClassName} style={headerStyle}>
         {headerConfig.title && <h3 className={TITLE_BASE_CLASS}>{headerConfig.title}</h3>}
         {headerConfig.showClose && (
-          <button onClick={onCancel} className={CLOSE_BUTTON_CLASS} aria-label='Close'>
-            {headerConfig.closeIcon || <Close size={20} fill='#86909c' />}
-          </button>
+          <Button
+            type='text'
+            onClick={onCancel}
+            className={CLOSE_BUTTON_CLASS}
+            aria-label={t('common.close', { defaultValue: 'Close' })}
+            icon={headerConfig.closeIcon || <Close size={18} fill='currentColor' />}
+          />
         )}
       </div>
     );
@@ -378,11 +383,11 @@ const AionModal: React.FC<AionModalProps> = ({
       closable={false}
       footer={null}
       onCancel={onCancel}
-      className={`aionui-modal ${className}`}
+      className={`aionui-modal aionui-modal--composed ${className}`}
       style={finalStyle}
       getPopupContainer={() => document.body}
     >
-      <div className='aionui-modal-wrapper' style={{ borderRadius: borderRadiusVal }}>
+      <div className='aionui-modal-wrapper eve-dialog' style={{ borderRadius: borderRadiusVal }}>
         {renderHeader()}
         <div className='aionui-modal-body-content' style={bodyInlineStyle}>
           {children}

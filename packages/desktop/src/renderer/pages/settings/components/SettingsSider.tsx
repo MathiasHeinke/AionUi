@@ -27,6 +27,7 @@ import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Tooltip } from '@arco-design/web-react';
 import { getSiderTooltipProps } from '@/renderer/utils/ui/siderTooltip';
+import './settings.css';
 
 /** Builtin settings tab IDs in display order (must match router paths). */
 export const BUILTIN_TAB_IDS = [
@@ -266,16 +267,15 @@ const SettingsSider: React.FC<{ collapsed?: boolean; tooltipEnabled?: boolean }>
           <React.Fragment key={item.id}>
             {groupHeader}
             <Tooltip {...siderTooltipProps} content={item.label} position='right'>
-              <div
+              <button
+                type='button'
                 data-settings-id={item.id}
                 data-settings-path={item.path}
+                aria-current={isSelected ? 'page' : undefined}
                 className={classNames(
-                  'settings-sider__item h-34px rd-8px flex items-center gap-8px group cursor-pointer relative overflow-hidden shrink-0 conversation-item [&.conversation-item+&.conversation-item]:mt-2px transition-colors',
+                  'settings-sider__item eve-row eve-focus-ring h-34px rd-8px flex items-center gap-8px group cursor-pointer relative overflow-hidden shrink-0 border-0 bg-transparent text-left [&+.settings-sider__item]:mt-2px transition-colors',
                   collapsed ? 'w-full justify-center px-0' : 'justify-start px-10px',
-                  {
-                    'hover:bg-fill-3': !isSelected,
-                    '!bg-fill-3': isSelected,
-                  }
+                  { 'eve-row--selected': isSelected }
                 )}
                 onClick={() => {
                   Promise.resolve(navigate(`/settings/${item.path}`, { replace: true })).catch((error) => {
@@ -309,7 +309,7 @@ const SettingsSider: React.FC<{ collapsed?: boolean; tooltipEnabled?: boolean }>
                     {item.label}
                   </div>
                 </FlexFullContainer>
-              </div>
+              </button>
             </Tooltip>
           </React.Fragment>
         );

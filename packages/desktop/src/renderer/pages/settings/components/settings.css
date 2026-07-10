@@ -1,3 +1,50 @@
+.settings-page-wrapper {
+  background: transparent;
+  scrollbar-gutter: stable;
+}
+
+.settings-page-content {
+  padding-bottom: 32px;
+}
+
+.settings-sider {
+  width: 100%;
+  padding: 4px 0 10px;
+  scrollbar-width: thin;
+}
+
+.settings-sider__group-header {
+  color: var(--eve-shell-text-secondary) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  line-height: 16px !important;
+  text-transform: uppercase;
+}
+
+.settings-sider__item {
+  width: 100%;
+  box-sizing: border-box;
+  color: var(--eve-shell-text-secondary);
+  font: inherit;
+}
+
+.settings-sider__item:hover {
+  color: var(--eve-shell-text);
+}
+
+.settings-sider__item[aria-current='page'] {
+  color: var(--eve-shell-text);
+}
+
+.settings-sider__item[aria-current='page'] .settings-sider__item-label {
+  font-weight: 600;
+}
+
+.settings-sider__item .i-icon,
+.settings-sider__item svg {
+  color: currentColor;
+}
+
 /* Settings mobile top nav */
 @media (max-width: 767px) {
   .settings-mobile-top-nav {
@@ -23,17 +70,17 @@
     height: 36px;
     padding: 0 12px;
     border-radius: 999px;
-    border: 1px solid var(--border-base);
-    background: var(--bg-1);
-    color: var(--text-secondary);
+    border: 1px solid var(--glass-overlay-border) !important;
+    background: color-mix(in srgb, var(--eve-shell-surface) 90%, transparent) !important;
+    color: var(--eve-shell-text-secondary) !important;
     font-size: 14px;
     line-height: 20px;
   }
 
   .settings-mobile-top-nav__item--active {
-    background: var(--bg-active);
-    color: var(--text-primary);
-    border-color: var(--border-base);
+    background: var(--eve-row-selected-bg) !important;
+    color: var(--eve-shell-text) !important;
+    border-color: var(--eve-focus-ring) !important;
   }
 
   .settings-mobile-top-nav__icon {

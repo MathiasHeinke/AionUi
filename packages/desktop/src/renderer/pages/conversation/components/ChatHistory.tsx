@@ -234,8 +234,8 @@ const ChatHistory: React.FC<{ onSessionClick?: () => void; collapsed?: boolean }
               )}
               style={{
                 backgroundImage: isSelected
-                  ? `linear-gradient(to right, transparent, var(--aou-2) 50%)`
-                  : `linear-gradient(to right, transparent, var(--aou-1) 50%)`,
+                  ? `linear-gradient(to right, transparent, color-mix(in srgb, var(--eve-row-selected-bg) 18%, var(--eve-shell-surface-secondary)) 50%)`
+                  : `linear-gradient(to right, transparent, var(--eve-shell-surface-secondary) 50%)`,
               }}
               onClick={(event) => {
                 event.stopPropagation();

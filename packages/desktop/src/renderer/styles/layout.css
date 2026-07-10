@@ -43,12 +43,24 @@
    themes. CSS-level translucency (a refined layered panel); for true native
    macOS desktop-blur, pair with BrowserWindow vibrancy='sidebar' (follow-up). */
 .layout-sider > .arco-layout-sider-children {
-  background: rgba(249, 250, 252, 0.72) !important; /* light: translucent paper */
-  -webkit-backdrop-filter: blur(20px) saturate(150%);
-  backdrop-filter: blur(20px) saturate(150%);
+  background: var(--glass-chrome-bg) !important;
+  -webkit-backdrop-filter: var(--glass-chrome-filter);
+  backdrop-filter: var(--glass-chrome-filter);
+  box-shadow: 1px 0 0 var(--glass-edge-highlight) inset;
 }
-[data-theme='dark'] .layout-sider > .arco-layout-sider-children {
-  background: rgba(14, 20, 34, 0.6) !important; /* dark: translucent night-navy */
+
+:root[data-eve-reduced-effects='true'] .layout-sider > .arco-layout-sider-children {
+  background: var(--glass-chrome-bg-solid) !important;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .layout-sider > .arco-layout-sider-children {
+    background: var(--glass-chrome-bg-solid) !important;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
 /* Arco Layout inner container needs flex layout so Header + Content + Footer

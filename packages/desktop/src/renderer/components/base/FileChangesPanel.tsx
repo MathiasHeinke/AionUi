@@ -67,7 +67,7 @@ const FileChangesPanel: React.FC<FileChangesPanelProps> = ({
   return (
     <div
       className={classNames(
-        'w-full box-border rounded-8px overflow-hidden border border-solid border-[var(--aou-2)]',
+        'w-full box-border rounded-8px overflow-hidden border border-solid border-[var(--glass-panel-border)]',
         className
       )}
       style={{ width: '100%' }}

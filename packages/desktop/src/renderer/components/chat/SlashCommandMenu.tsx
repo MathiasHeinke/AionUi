@@ -95,7 +95,7 @@ const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
               )}
               style={{
                 minHeight: '38px',
-                background: index === activeIndex ? 'color-mix(in srgb, var(--aou-2) 88%, transparent)' : 'transparent',
+                background: index === activeIndex ? 'var(--eve-row-selected-bg)' : 'transparent',
                 boxShadow: undefined,
               }}
               onMouseEnter={() => onHoverItem(index)}

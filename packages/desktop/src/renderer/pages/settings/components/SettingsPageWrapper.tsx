@@ -27,6 +27,7 @@ import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useExtI18n } from '@/renderer/hooks/system/useExtI18n';
 import { BUILTIN_TAB_IDS, LEGACY_ANCHOR_REMAP } from './SettingsSider';
+import { Button } from '@arco-design/web-react';
 import './settings.css';
 
 interface SettingsPageWrapperProps {
@@ -196,7 +197,7 @@ const SettingsPageWrapper: React.FC<SettingsPageWrapperProps> = ({ children, cla
   }, [isDesktop, t, extensionTabs, resolveExtTabName]);
 
   const containerClass = classNames(
-    'settings-page-wrapper w-full min-h-full box-border overflow-y-auto',
+    'settings-page-wrapper eve-settings-page w-full min-h-full box-border overflow-y-auto',
     isMobile ? 'px-16px py-14px' : 'px-12px md:px-40px py-32px',
     className
   );
@@ -211,19 +212,21 @@ const SettingsPageWrapper: React.FC<SettingsPageWrapperProps> = ({ children, cla
             {menuItems.map((item) => {
               const active = pathname.includes(`/settings/${item.path}`);
               return (
-                <button
+                <Button
                   key={item.path}
-                  type='button'
+                  type='text'
+                  size='small'
                   className={classNames('settings-mobile-top-nav__item', {
                     'settings-mobile-top-nav__item--active': active,
                   })}
+                  aria-current={active ? 'page' : undefined}
                   onClick={() => {
                     void navigate(`/settings/${item.path}`, { replace: true });
                   }}
                 >
                   <span className='settings-mobile-top-nav__icon'>{item.icon}</span>
                   <span className='settings-mobile-top-nav__label'>{item.label}</span>
-                </button>
+                </Button>
               );
             })}
           </div>
