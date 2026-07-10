@@ -487,6 +487,7 @@ export type I18nKey =
   | 'common.show'
   | 'common.skills'
   | 'common.status'
+  | 'common.stop'
   | 'common.success'
   | 'common.system'
   | 'common.technical_details'

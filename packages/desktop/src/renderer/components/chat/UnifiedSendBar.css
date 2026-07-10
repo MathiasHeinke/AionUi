@@ -1,0 +1,82 @@
+.unified-send-bar {
+  min-height: var(--eve-control-height, 32px);
+  align-items: center;
+}
+
+.unified-send-bar__left,
+.unified-send-bar__right {
+  min-height: var(--eve-control-height, 32px);
+  align-items: center;
+}
+
+.unified-send-bar :where(.arco-btn-shape-circle, .speech-input-button) {
+  width: var(--eve-control-height, 32px) !important;
+  min-width: var(--eve-control-height, 32px) !important;
+  height: var(--eve-control-height, 32px) !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 var(--eve-control-height, 32px) !important;
+}
+
+.unified-send-bar .sendbox-model-btn {
+  min-height: var(--eve-control-height, 32px) !important;
+  height: var(--eve-control-height, 32px) !important;
+}
+
+.unified-send-bar :where(.arco-btn-icon, .arco-icon) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.unified-send-bar .eve-composer-icon-button,
+.unified-send-bar .eve-composer-icon-button.arco-btn,
+.unified-send-bar .eve-composer-icon-button.arco-btn-secondary {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--color-text-3) !important;
+}
+
+.unified-send-bar .eve-composer-icon-button:hover,
+.unified-send-bar .eve-composer-icon-button:focus-visible,
+.unified-send-bar .eve-composer-icon-button.arco-btn:hover,
+.unified-send-bar .eve-composer-icon-button.arco-btn:focus-visible {
+  background: color-mix(in srgb, var(--color-fill-2) 82%, transparent) !important;
+  color: var(--color-text-1) !important;
+}
+
+.unified-send-bar .send-button-custom:not(:disabled),
+.unified-send-bar .send-button-custom.arco-btn-primary:not(:disabled) {
+  background: rgb(var(--primary-6)) !important;
+  border-color: rgb(var(--primary-6)) !important;
+  color: #ffffff !important;
+}
+
+.unified-send-bar .send-button-custom:not(:disabled):hover,
+.unified-send-bar .send-button-custom.arco-btn-primary:not(:disabled):hover {
+  background: rgb(var(--primary-7)) !important;
+  border-color: rgb(var(--primary-7)) !important;
+}
+
+.unified-send-bar .send-button-custom:disabled,
+.unified-send-bar .send-button-custom.arco-btn:disabled,
+.unified-send-bar .send-button-custom.arco-btn-primary:disabled {
+  background: var(--color-fill-3) !important;
+  border-color: var(--color-fill-3) !important;
+  color: var(--color-text-4) !important;
+  opacity: 1 !important;
+}
+
+@media (max-width: 767px) {
+  .unified-send-bar {
+    gap: 6px;
+  }
+
+  .unified-send-bar__right {
+    gap: 4px !important;
+  }
+}

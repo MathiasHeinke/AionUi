@@ -9,7 +9,11 @@ import type { IMcpServer } from '@/common/config/storage';
 import AgentModeSelector from '@/renderer/components/agent/AgentModeSelector';
 import UnifiedSendBar from '@/renderer/components/chat/UnifiedSendBar';
 import { createModeLabelFormatter, supportsModeSwitch } from '@/renderer/utils/model/agentModes';
-import { COMMAND_EVE_DEFAULT_ACP_BACKEND, COMMAND_EVE_SHELL_ENABLED, isCommandEveAcpConversation } from '@/common/config/commandEveShell';
+import {
+  COMMAND_EVE_DEFAULT_ACP_BACKEND,
+  COMMAND_EVE_SHELL_ENABLED,
+  isCommandEveAcpConversation,
+} from '@/common/config/commandEveShell';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { getCleanFileNames, FileService } from '@/renderer/services/FileService';
 import { iconColors } from '@/renderer/styles/colors';
@@ -18,7 +22,7 @@ import type { AvailableAgent } from '../types';
 import type { Assistant } from '@/common/types/agent/assistantTypes';
 import PresetAgentTag, { type AgentSwitcherItem } from './PresetAgentTag';
 import { Button, Checkbox, Dropdown, Menu, Message, Tooltip } from '@arco-design/web-react';
-import { ArrowUp, Lightning, Plus, Shield, UploadOne } from '@icon-park/react';
+import { ArrowUp, Lightning, Paperclip, Shield, UploadOne } from '@icon-park/react';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import styles from '../index.module.css';
@@ -110,7 +114,6 @@ const GuidActionRow: React.FC<GuidActionRowProps> = ({
   const { t } = useTranslation();
   const layout = useLayoutContext();
   const isMobile = layout?.isMobile ?? false;
-  const [isPlusDropdownOpen, setIsPlusDropdownOpen] = useState(false);
   // In the Command-EVE shell every conversation runs on the hermes ACP backend, so the
   // START-screen mode selector must use hermes' modes + EVE labels (Fragen / Auto-Edits /
   // Nicht fragen) — IDENTICAL to in-session. Otherwise modeBackend fell back to the agent's
@@ -287,16 +290,17 @@ const GuidActionRow: React.FC<GuidActionRowProps> = ({
   // Left cluster: the [+ file] dropdown (with skills/MCP submenus) + file-count tag.
   const fileAttachSlot = (
     <div className={styles.actionEntry}>
-      <Dropdown trigger='hover' onVisibleChange={setIsPlusDropdownOpen} droplist={menuContent}>
+      <Dropdown trigger='click' droplist={menuContent}>
         <span className='flex items-center gap-4px cursor-pointer lh-[1]'>
           <Button
             type='secondary'
             shape='circle'
-            className={isPlusDropdownOpen ? styles.plusButtonRotate : ''}
-            icon={<Plus theme='outline' size='14' strokeWidth={2} fill={iconColors.primary} />}
+            className='eve-composer-icon-button'
+            icon={<Paperclip theme='outline' size='17' strokeWidth={2} fill='currentColor' />}
             loading={uploading}
             disabled={uploading}
             data-testid='file-upload-btn'
+            aria-label={t('common.fileAttach.addFiles')}
           />
           {files.length > 0 && (
             <Tooltip
@@ -365,13 +369,10 @@ const GuidActionRow: React.FC<GuidActionRowProps> = ({
       loading={loading}
       disabled={isButtonDisabled}
       className='send-button-custom'
-      style={{
-        backgroundColor: isButtonDisabled ? undefined : '#000000',
-        borderColor: isButtonDisabled ? undefined : '#000000',
-      }}
       icon={<ArrowUp theme='filled' size='14' fill='white' strokeWidth={5} />}
       onClick={onSend}
       data-testid='guid-send-btn'
+      aria-label={t('common.send')}
     />
   );
 

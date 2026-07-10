@@ -5,11 +5,9 @@
  */
 
 import type { IConversationMcpStatus, IConversationMcpStatusKind } from '@/common/config/storage';
-import { ipcBridge } from '@/common';
 import { Button, Message, Trigger } from '@arco-design/web-react';
-import { FolderOpen, Lightning, Paperclip, Plus, Right, Shield } from '@icon-park/react';
+import { FolderOpen, Lightning, Paperclip, Right, Shield } from '@icon-park/react';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
-import { iconColors } from '@/renderer/styles/colors';
 import { isElectronDesktop } from '@/renderer/utils/platform';
 import { FileService } from '@/renderer/services/FileService';
 import type { FileMetadata } from '@/renderer/services/FileService';
@@ -17,7 +15,6 @@ import { emitter } from '@/renderer/utils/emitter';
 import React, { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import useSWR from 'swr';
 import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 
 interface FileAttachButtonProps {
@@ -93,11 +90,6 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
     loadedMcpStatuses ?? conversationContext?.loadedMcpStatuses,
     conversationContext?.loadedMcpServers
   );
-  const { data: skillIndex } = useSWR(skillNames.length > 0 ? 'skills-index' : null, () =>
-    ipcBridge.fs.listAvailableSkills.invoke()
-  );
-  const descriptionByName = new Map((skillIndex ?? []).map((s) => [s.name, s.description]));
-
   const handleSkillClick = useCallback((name: string) => {
     setOpen(false);
     emitter.emit('sendbox.fill', `/${name} `);
@@ -131,16 +123,18 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
   const isDesktop = isElectronDesktop();
   const hasSkills = skillNames.length > 0;
   const hasMcpServers = mcpStatuses.length > 0;
-  const plusIcon = <Plus theme='outline' size='14' strokeWidth={2} fill={iconColors.primary} />;
+  const attachIcon = <Paperclip theme='outline' size='17' strokeWidth={2} fill='currentColor' />;
 
   if (isDesktop && !hasSkills && !hasMcpServers) {
     return (
       <Button
         type='secondary'
         shape='circle'
-        icon={plusIcon}
+        className='eve-composer-icon-button'
+        icon={attachIcon}
         onClick={openFileSelector}
         data-testid='aionrs-attach-folder-btn'
+        aria-label={t('common.fileAttach.addFiles')}
       />
     );
   }
@@ -311,10 +305,12 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
         <Button
           type='secondary'
           shape='circle'
-          icon={plusIcon}
+          className='eve-composer-icon-button'
+          icon={attachIcon}
           loading={uploading}
           disabled={uploading}
           data-testid='aionrs-attach-folder-btn'
+          aria-label={t('common.fileAttach.addFiles')}
         />
       </Trigger>
       <input

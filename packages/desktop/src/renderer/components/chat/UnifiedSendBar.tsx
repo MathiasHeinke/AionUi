@@ -16,7 +16,7 @@
  * The bar only arranges the controls so both surfaces read identically:
  *
  *   left:  [ + file ]
- *   right: [ model/inference picker · mic · permission mode · context+credits · send ]
+ *   right: [ model/inference picker · permission mode · context+credits · mic · send ]
  *
  * Every piece is passed in as a slot, so the EXISTING components are reused:
  *   - modelSlot       → EveInferencePicker (EVE) | Acp/Guid model selector (else)
@@ -30,6 +30,7 @@
  */
 
 import React from 'react';
+import './UnifiedSendBar.css';
 
 export interface UnifiedSendBarProps {
   /** Left cluster — the [+ file] attach control. */
@@ -71,7 +72,7 @@ const UnifiedSendBar: React.FC<UnifiedSendBarProps> = ({
 }) => {
   return (
     <div
-      className={`unified-send-bar flex items-end justify-between w-full gap-8px ${className ?? ''}`}
+      className={`unified-send-bar flex items-center justify-between w-full gap-8px ${className ?? ''}`}
       data-testid='unified-send-bar'
     >
       {/* Left cluster: [+ file]. flex-shrink so a long preset tag can compress it. */}

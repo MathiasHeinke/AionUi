@@ -14,8 +14,8 @@ import { CUSTOM_AVATAR_IMAGE_MAP } from '../constants';
 import styles from '../index.module.css';
 import type { AvailableAgent, EffectiveAgentInfo } from '../types';
 import type { Assistant } from '@/common/types/agent/assistantTypes';
-import { Message } from '@arco-design/web-react';
-import { Plus, Robot } from '@icon-park/react';
+import { Button, Message } from '@arco-design/web-react';
+import { ChartLine, ListNumbers, MessageOne, Plus, Right, Robot } from '@icon-park/react';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { resolveExtensionAssetUrl } from '@/renderer/utils/platform';
 import { useTranslation } from 'react-i18next';
@@ -240,19 +240,31 @@ const AssistantSelectionArea: React.FC<AssistantSelectionAreaProps> = ({
                   <div className={styles.assistantPromptHint}>
                     {t('guid.promptExamplesHint', { defaultValue: 'Try these example prompts:' })}
                   </div>
-                  <div className='flex flex-wrap gap-8px mt-12px'>
-                    {prompts.map((prompt: string, index: number) => (
-                      <div
-                        key={index}
-                        className={`${styles.assistantPromptChip} px-12px py-6px text-2 text-13px rd-16px cursor-pointer transition-colors shadow-sm`}
-                        onClick={() => {
-                          onSetInput(prompt);
-                          onFocusInput();
-                        }}
-                      >
-                        {prompt}
-                      </div>
-                    ))}
+                  <div className={styles.assistantPromptPanel}>
+                    {prompts.map((prompt: string, index: number) => {
+                      const PromptIcon = [MessageOne, ListNumbers, ChartLine][index % 3];
+                      return (
+                        <Button
+                          key={`${index}-${prompt}`}
+                          type='text'
+                          htmlType='button'
+                          long
+                          className={styles.assistantPromptRow}
+                          onClick={() => {
+                            onSetInput(prompt);
+                            onFocusInput();
+                          }}
+                        >
+                          <span className={styles.assistantPromptRowIcon} aria-hidden='true'>
+                            <PromptIcon theme='outline' size={17} />
+                          </span>
+                          <span className={styles.assistantPromptRowText}>{prompt}</span>
+                          <span className={styles.assistantPromptRowChevron} aria-hidden='true'>
+                            <Right theme='outline' size={16} />
+                          </span>
+                        </Button>
+                      );
+                    })}
                   </div>
                 </div>
               );

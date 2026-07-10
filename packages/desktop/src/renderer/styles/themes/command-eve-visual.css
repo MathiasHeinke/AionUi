@@ -71,8 +71,13 @@
   --eve-composer-border: color-mix(in srgb, var(--border-base) 88%, transparent);
   --eve-composer-focus-ring: var(--eve-focus-ring);
   --eve-spotlight-color: var(--eve-brand-logo);
+  --eve-spotlight-x: 50%;
+  --eve-spotlight-y: 0%;
+  --eve-spotlight-position: var(--eve-spotlight-x) var(--eve-spotlight-y);
   --eve-spotlight-radius: 220px;
-  --eve-spotlight-max: 0.5;
+  --eve-spotlight-opacity-light: 0.5;
+  --eve-spotlight-opacity-dark: 0.68;
+  --eve-spotlight-max: var(--eve-spotlight-opacity-light);
 
   /* Local background-image readability */
   --eve-bg-image-intensity: 100%;
@@ -87,6 +92,7 @@
   --eve-surface-radius-sm: 6px;
   --eve-surface-radius-md: 8px;
   --eve-surface-radius-lg: 12px;
+  --eve-composer-radius: 20px;
   --eve-control-height: 32px;
 }
 
@@ -161,7 +167,7 @@
   --eve-seat-active-ring: color-mix(in srgb, #ffffff 64%, transparent);
 
   --eve-composer-border: color-mix(in srgb, #ffffff 13%, transparent);
-  --eve-spotlight-max: 0.68;
+  --eve-spotlight-max: var(--eve-spotlight-opacity-dark);
   --eve-bg-image-scrim: color-mix(in srgb, #101214 68%, transparent);
 }
 
@@ -286,6 +292,102 @@
   backdrop-filter: var(--glass-overlay-filter);
 }
 
+/* Primary work surface shared by the start screen and live conversations. */
+.eve-composer-surface {
+  position: relative;
+  isolation: isolate;
+  border: 1px solid var(--eve-composer-border) !important;
+  border-radius: var(--eve-composer-radius) !important;
+  background: var(--glass-panel-bg) !important;
+  box-shadow:
+    0 1px 0 var(--glass-edge-highlight) inset,
+    0 14px 34px color-mix(in srgb, #0f172a 10%, transparent);
+  -webkit-backdrop-filter: var(--glass-panel-filter);
+  backdrop-filter: var(--glass-panel-filter);
+}
+
+.eve-composer-surface::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  padding: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(
+    circle var(--eve-spotlight-radius) at var(--eve-spotlight-position),
+    var(--eve-spotlight-color) 0%,
+    color-mix(in srgb, var(--eve-spotlight-color) 72%, transparent) 24%,
+    transparent 62%
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  filter: drop-shadow(0 0 7px color-mix(in srgb, var(--eve-spotlight-color) 54%, transparent));
+  opacity: 0;
+  transition: opacity 210ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .eve-composer-surface:hover::before {
+    opacity: var(--eve-spotlight-max);
+  }
+}
+
+.eve-composer-surface[data-keyboard-focus='true'] {
+  outline: 2px solid var(--eve-composer-focus-ring);
+  outline-offset: 2px;
+}
+
+.eve-composer-surface[data-keyboard-focus='true']::before {
+  opacity: 0;
+}
+
+.eve-composer-surface--dragging {
+  border-color: rgb(var(--primary-4)) !important;
+  border-style: dashed !important;
+  background: var(--color-primary-light-1) !important;
+}
+
+:root[data-eve-reduced-effects='true'] .eve-composer-surface {
+  background: var(--glass-panel-bg-solid) !important;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+:root[data-eve-reduced-effects='true'] .eve-composer-surface::before {
+  --eve-spotlight-position: 50% 0%;
+  opacity: 0.3;
+  transition: none;
+}
+
+@media (hover: none), (pointer: coarse) {
+  .eve-composer-surface {
+    border-color: color-mix(in srgb, var(--eve-spotlight-color) 30%, var(--eve-composer-border)) !important;
+  }
+
+  .eve-composer-surface::before {
+    opacity: 0.3;
+  }
+}
+
+@supports not ((-webkit-mask-composite: xor) or (mask-composite: exclude)) {
+  .eve-composer-surface::before {
+    display: none;
+  }
+
+  .eve-composer-surface:hover {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--eve-spotlight-color) 28%, transparent),
+      0 14px 34px color-mix(in srgb, #0f172a 10%, transparent);
+  }
+}
+
 .eve-focus-ring:focus-visible,
 .eve-row:focus-visible,
 .eve-pill:focus-visible {
@@ -323,6 +425,12 @@
     background: var(--glass-panel-bg-solid);
   }
 
+  .eve-composer-surface {
+    background: var(--glass-panel-bg-solid) !important;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
   .eve-overlay,
   .eve-pill,
   .eve-dialog {
@@ -353,10 +461,22 @@
   .eve-dialog {
     background: var(--glass-overlay-bg-solid);
   }
+
+  .eve-composer-surface {
+    background: var(--glass-panel-bg-solid) !important;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .eve-row {
+    transition: none;
+  }
+
+  .eve-composer-surface::before {
+    --eve-spotlight-position: 50% 0%;
+    opacity: 0.3;
     transition: none;
   }
 }

@@ -4,21 +4,29 @@
 .send-button-custom:disabled,
 .send-button-custom.arco-btn:disabled,
 .send-button-custom.arco-btn-primary:disabled {
-  background-color: #d3d4d9 !important;
-  border-color: #d3d4d9 !important;
+  background-color: var(--color-fill-3) !important;
+  border-color: var(--color-fill-3) !important;
+  color: var(--color-text-4) !important;
   opacity: 1 !important;
+}
+
+.send-button-custom:not(:disabled),
+.send-button-custom.arco-btn-primary:not(:disabled) {
+  background-color: rgb(var(--primary-6)) !important;
+  border-color: rgb(var(--primary-6)) !important;
+  color: #ffffff !important;
+}
+
+.send-button-custom:not(:disabled):hover,
+.send-button-custom.arco-btn-primary:not(:disabled):hover {
+  background-color: rgb(var(--primary-7)) !important;
+  border-color: rgb(var(--primary-7)) !important;
 }
 
 /* Make arrow icon thicker */
 .send-button-custom .arco-icon > svg {
   stroke-width: 5 !important;
   filter: drop-shadow(0 0 0.5px currentColor);
-}
-
-/* Dark mode: adjust send button brightness */
-[data-theme='dark'] .send-button-custom:not(:disabled) {
-  background-color: var(--aou-4) !important;
-  border-color: var(--aou-4) !important;
 }
 
 [data-theme='dark'] .send-button-custom:disabled,
@@ -31,14 +39,10 @@
 .sendbox-stop-button,
 .sendbox-stop-button.arco-btn,
 .sendbox-stop-button.arco-btn-secondary {
-  border: none !important;
+  background: rgb(var(--primary-6)) !important;
+  border: 1px solid rgb(var(--primary-6)) !important;
+  color: #ffffff !important;
   box-shadow: none !important;
-}
-
-[data-theme='dark'] .sendbox-stop-button,
-[data-theme='dark'] .sendbox-stop-button.arco-btn,
-[data-theme='dark'] .sendbox-stop-button.arco-btn-secondary {
-  border: 1px solid color-mix(in srgb, var(--color-fill-4) 94%, var(--color-bg-2)) !important;
 }
 
 .sendbox-stop-button.bg-animate,
@@ -47,16 +51,18 @@
   animation: sendbox-stop-breathe 1.4s ease-in-out infinite alternate;
 }
 
-[data-theme='dark'] .sendbox-stop-button.bg-animate,
-[data-theme='dark'] .sendbox-stop-button.arco-btn.bg-animate,
-[data-theme='dark'] .sendbox-stop-button.arco-btn-secondary.bg-animate {
-  animation: sendbox-stop-breathe-dark 1.4s ease-in-out infinite alternate;
-}
-
 .sendbox-stop-button.bg-animate .arco-icon,
 .sendbox-stop-button.bg-animate svg {
   color: #fff !important;
   fill: #fff !important;
+}
+
+.sendbox-stop-icon {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  background: #ffffff;
 }
 
 /* Breathe via color + a soft glow ring only — NO transform: scale(). On narrow
@@ -67,35 +73,34 @@
    footprint inside the panel at every common width. */
 @keyframes sendbox-stop-breathe {
   0% {
-    background-color: var(--aou-2) !important;
-    border-color: var(--aou-2) !important;
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--aou-6-brand) 0%, transparent);
+    box-shadow: 0 0 0 0 rgba(var(--primary-6), 0);
   }
 
   100% {
-    background-color: var(--aou-5) !important;
-    border-color: var(--aou-5) !important;
-    box-shadow: 0 0 0 6px color-mix(in srgb, var(--aou-6-brand) 22%, transparent);
-  }
-}
-
-@keyframes sendbox-stop-breathe-dark {
-  0% {
-    background-color: var(--aou-2) !important;
-    border-color: var(--aou-2) !important;
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--aou-5) 0%, transparent);
-  }
-
-  100% {
-    background-color: var(--aou-5) !important;
-    border-color: var(--aou-5) !important;
-    box-shadow: 0 0 0 6px color-mix(in srgb, var(--aou-5) 28%, transparent);
+    box-shadow: 0 0 0 5px rgba(var(--primary-6), 0.2);
   }
 }
 
 /* Input placeholder color */
-::placeholder {
-  color: #a1a2aa !important;
+.sendbox-panel ::placeholder {
+  color: var(--color-text-4) !important;
+}
+
+.eve-composer-icon-button,
+.eve-composer-icon-button.arco-btn,
+.eve-composer-icon-button.arco-btn-secondary {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--color-text-3) !important;
+}
+
+.eve-composer-icon-button:hover,
+.eve-composer-icon-button:focus-visible,
+.eve-composer-icon-button.arco-btn:hover,
+.eve-composer-icon-button.arco-btn:focus-visible {
+  background: color-mix(in srgb, var(--color-fill-2) 82%, transparent) !important;
+  color: var(--color-text-1) !important;
 }
 
 /* Sendbox tools buttons - prevent layout jitter from theme hover transforms (#1075) */
@@ -134,182 +139,6 @@
   color: var(--text-primary) !important;
 }
 
-.speech-input-control {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  flex-shrink: 0;
-}
-
-.speech-input-feedback {
-  height: 32px;
-  display: grid;
-  grid-template-columns: clamp(72px, 16vw, 136px) auto;
-  align-items: center;
-  gap: 10px;
-  color: var(--color-text-2);
-  min-width: 0;
-  background: transparent;
-  border: none;
-  padding: 0;
-}
-
-.speech-input-feedback--processing {
-  color: var(--color-text-3);
-}
-
-.speech-input-feedback__waveform {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 2px;
-  min-width: 0;
-  width: 100%;
-  height: 16px;
-  overflow: hidden;
-}
-
-.speech-input-feedback__bar {
-  width: 2px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--color-text-2) 72%, transparent);
-  flex: 0 0 auto;
-  transition:
-    height 120ms ease,
-    background-color 120ms ease;
-}
-
-.speech-input-feedback--processing .speech-input-feedback__bar {
-  animation: speech-processing-pulse 1.2s ease-in-out infinite;
-  background: color-mix(in srgb, var(--color-text-3) 72%, transparent);
-}
-
-.speech-input-feedback__label {
-  flex: 0 0 auto;
-  font-size: 12px;
-  line-height: 16px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  color: var(--color-text-2);
-  text-align: right;
-  min-width: 34px;
-  padding-left: 2px;
-}
-
-.speech-input-button {
-  width: 32px;
-  min-width: 32px;
-  height: 32px;
-  padding: 0 !important;
-  border: none !important;
-  box-shadow: none !important;
-  background: transparent !important;
-  color: var(--color-text-3) !important;
-  border-radius: 999px !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-}
-
-.speech-input-button .arco-btn-icon,
-.speech-input-button .arco-icon {
-  margin: 0 !important;
-  width: 18px !important;
-  height: 18px !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  line-height: 1 !important;
-}
-
-.speech-input-button svg {
-  display: block;
-}
-
-.speech-loader-spinner {
-  width: 16px;
-  height: 16px;
-  border-radius: 999px;
-  border: 1.75px solid color-mix(in srgb, currentColor 22%, transparent);
-  border-top-color: currentColor;
-  display: block;
-  box-sizing: border-box;
-  animation: speech-loader-spin 0.9s linear infinite;
-}
-
-.speech-input-button:disabled,
-.speech-input-button:disabled:hover,
-.speech-input-button:disabled:active,
-.speech-input-button:disabled:focus,
-.speech-input-button:disabled:focus-visible {
-  opacity: 1 !important;
-  background: transparent !important;
-  color: var(--color-text-3) !important;
-  cursor: not-allowed !important;
-}
-
-.speech-input-button--processing svg {
-  width: 18px !important;
-  height: 18px !important;
-  transform-origin: center center !important;
-}
-
-.speech-input-button--processing .speech-loader-spinner {
-  margin: 0 auto;
-}
-
-.speech-input-button:hover,
-.speech-input-button:active,
-.speech-input-button:focus,
-.speech-input-button:focus-visible {
-  border: none !important;
-  box-shadow: none !important;
-  background: color-mix(in srgb, var(--color-fill-2) 78%, transparent) !important;
-  color: var(--color-text-1) !important;
-}
-
-.speech-input-button--listening,
-.speech-input-button--listening:hover,
-.speech-input-button--listening:active,
-.speech-input-button--listening:focus,
-.speech-input-button--listening:focus-visible {
-  background: color-mix(in srgb, rgb(var(--danger-1)) 70%, transparent) !important;
-  color: rgb(var(--danger-6)) !important;
-  border-radius: 999px !important;
-}
-
-.speech-input-button--processing,
-.speech-input-button--processing:hover,
-.speech-input-button--processing:active,
-.speech-input-button--processing:focus,
-.speech-input-button--processing:focus-visible {
-  border: none !important;
-  box-shadow: none !important;
-  background: color-mix(in srgb, var(--color-fill-2) 86%, transparent) !important;
-  color: var(--color-text-2) !important;
-}
-
-@keyframes speech-processing-pulse {
-  0%,
-  100% {
-    opacity: 0.4;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-@keyframes speech-loader-spin {
-  from {
-    transform: rotate(0deg);
-  }
-
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 /* Allow sendbox tools area to shrink so the send button stays visible */
 .sendbox-tools {
   min-width: 0;
@@ -318,6 +147,14 @@
 /* Circle / icon-only buttons must not shrink */
 .sendbox-tools .arco-btn-shape-circle {
   flex-shrink: 0 !important;
+}
+
+.sendbox-actions > .arco-btn-shape-circle {
+  width: var(--eve-control-height, 32px) !important;
+  min-width: var(--eve-control-height, 32px) !important;
+  height: var(--eve-control-height, 32px) !important;
+  padding: 0 !important;
+  flex: 0 0 var(--eve-control-height, 32px) !important;
 }
 
 /* Only pill buttons shrink; file-attach / other fixed buttons stay rigid.
@@ -401,8 +238,8 @@
 }
 
 .sendbox-highlight-textarea::placeholder {
-  color: #a1a2aa !important;
-  -webkit-text-fill-color: #a1a2aa !important;
+  color: var(--color-text-4) !important;
+  -webkit-text-fill-color: var(--color-text-4) !important;
 }
 
 /* Mobile compact: `+` launcher button replaces inline tools when the
@@ -419,6 +256,19 @@
   background: var(--color-fill-2) !important;
   color: var(--color-text-1) !important;
   flex-shrink: 0 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sendbox-stop-button.bg-animate,
+  .sendbox-stop-button.arco-btn.bg-animate,
+  .sendbox-stop-button.arco-btn-secondary.bg-animate {
+    animation: none;
+  }
+
+  .pill-marquee-track {
+    animation: none;
+    transform: none !important;
+  }
 }
 
 .sendbox-mobile-plus-btn:hover,
@@ -493,22 +343,5 @@
   .sendbox-panel {
     padding: 8px 10px !important;
     border-radius: 16px !important;
-  }
-
-  .speech-input-feedback {
-    grid-template-columns: clamp(56px, 20vw, 92px) auto;
-    gap: 8px;
-  }
-
-  .speech-input-feedback__waveform {
-    gap: 2px;
-  }
-
-  .speech-input-feedback__bar {
-    width: 1.5px;
-  }
-
-  .speech-input-feedback__label {
-    min-width: 28px;
   }
 }

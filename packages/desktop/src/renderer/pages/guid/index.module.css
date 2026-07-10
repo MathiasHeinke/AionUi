@@ -365,19 +365,83 @@
 .guidInputCardWrap {
   width: 100%;
   box-sizing: border-box;
-  background: var(--bg-2);
+  background: transparent;
 }
 
 .guidInputInner {
-  background: var(--bg-base, #fff);
-  border: 1px solid var(--color-border-3);
-  border-radius: 24px;
+  min-height: 150px;
+  background: transparent;
+  border: 0;
+  border-radius: 23px 23px 0 0;
   box-sizing: border-box;
 }
 
-:global([data-theme='dark']) .guidInputInner {
-  background: #262626;
-  border-color: #3a3a3a;
+.assistantPromptPanel {
+  margin-top: 12px;
+  overflow: hidden;
+  border: 1px solid var(--glass-panel-border);
+  border-radius: var(--eve-surface-radius-lg);
+  background: var(--glass-panel-bg-solid);
+}
+
+.assistantPromptRow {
+  width: 100% !important;
+  min-height: 48px !important;
+  height: auto !important;
+  display: block !important;
+  padding: 10px 14px !important;
+  border: 0 !important;
+  border-top: 1px solid var(--glass-panel-border) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: var(--color-text-1) !important;
+  text-align: left;
+  font: inherit;
+  transition:
+    background-color 140ms ease,
+    color 140ms ease;
+}
+
+.assistantPromptRow :global(.arco-btn-content) {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+}
+
+.assistantPromptRow:first-child {
+  border-top: 0 !important;
+}
+
+.assistantPromptRow:hover {
+  background: var(--eve-row-hover-bg) !important;
+}
+
+.assistantPromptRow:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--eve-focus-ring);
+  outline-offset: -2px;
+}
+
+.assistantPromptRowIcon,
+.assistantPromptRowChevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-3);
+}
+
+.assistantPromptRowText {
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .actionRow {
@@ -565,12 +629,12 @@
 }
 
 .wsDropdownItemActive {
-  color: var(--aou-7);
+  color: rgb(var(--primary-6));
   font-weight: 600;
 }
 
 .wsDropdownItemAccent {
-  color: var(--aou-7);
+  color: rgb(var(--primary-6));
 }
 
 .wsDropdownItemMuted {
@@ -594,21 +658,8 @@
 }
 
 .lightPlaceholder::placeholder {
-  color: #b4b5bc;
+  color: var(--color-text-4);
   opacity: 1;
-}
-
-.plusButtonRotate {
-  animation: rotate-animation 0.3s ease-in-out;
-}
-
-@keyframes rotate-animation {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(45deg);
-  }
 }
 
 /* Skeleton shimmer animation */
@@ -777,8 +828,19 @@
 
 /* 浅色占位符 */
 .lightPlaceholder :global(textarea::placeholder) {
-  color: #b4b5bc !important;
+  color: var(--color-text-4) !important;
   opacity: 1 !important;
+}
+
+@media (max-width: 768px) {
+  .guidInputInner {
+    min-height: 118px;
+  }
+
+  .assistantPromptRow {
+    min-height: 44px;
+    padding-inline: 12px !important;
+  }
 }
 
 /* 助手卡片网格（首页 list view） */

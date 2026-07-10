@@ -8,8 +8,9 @@ import FilePreview from '@/renderer/components/media/FilePreview';
 import UploadProgressBar from '@/renderer/components/media/UploadProgressBar';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { useCompositionInput } from '@/renderer/hooks/chat/useCompositionInput';
+import { useComposerSpotlight } from '@/renderer/hooks/ui/useComposerSpotlight';
 import { Input } from '@arco-design/web-react';
-import React from 'react';
+import React, { useRef } from 'react';
 import styles from '../index.module.css';
 import GuidWorkspaceFootnote from './GuidWorkspaceFootnote';
 
@@ -24,11 +25,7 @@ type GuidInputCardProps = {
   placeholder: string;
 
   // Styling
-  isInputActive: boolean;
   isFileDragging: boolean;
-  activeBorderColor: string;
-  inactiveBorderColor: string;
-  activeShadow: string;
   dragHandlers: React.HTMLAttributes<HTMLDivElement>;
 
   // Mention state
@@ -57,11 +54,7 @@ const GuidInputCard: React.FC<GuidInputCardProps> = ({
   onFocus,
   onBlur,
   placeholder,
-  isInputActive,
   isFileDragging,
-  activeBorderColor,
-  inactiveBorderColor,
-  activeShadow,
   dragHandlers,
   mentionOpen,
   mentionSelectorBadge,
@@ -76,6 +69,8 @@ const GuidInputCard: React.FC<GuidInputCardProps> = ({
   const layout = useLayoutContext();
   const isMobile = layout?.isMobile ?? false;
   const { compositionHandlers, isComposing } = useCompositionInput();
+  const composerRef = useRef<HTMLDivElement>(null);
+  const composerSpotlightHandlers = useComposerSpotlight(composerRef);
   const textareaAutoSize = isMobile ? { minRows: 2, maxRows: 8 } : { minRows: 2, maxRows: 20 };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -83,42 +78,18 @@ const GuidInputCard: React.FC<GuidInputCardProps> = ({
     onKeyDown(e);
   };
 
-  const borderColor = isFileDragging
-    ? 'rgb(var(--primary-3))'
-    : isInputActive
-      ? activeBorderColor
-      : inactiveBorderColor;
-
   return (
     <div
-      className={`${styles.guidInputCardWrap} guid-input-card-shell relative rd-24px flex flex-col ${mentionOpen ? 'overflow-visible' : 'overflow-hidden'} transition-all duration-200 ${isFileDragging ? 'b b-solid border-dashed guid-input-card-shell--dragging' : ''}`}
+      ref={composerRef}
+      className={`${styles.guidInputCardWrap} guid-input-card-shell eve-panel eve-composer-surface relative flex flex-col ${mentionOpen ? 'overflow-visible' : 'overflow-hidden'} transition-all duration-200 ${isFileDragging ? 'b b-solid border-dashed guid-input-card-shell--dragging eve-composer-surface--dragging' : ''}`}
       style={{
         zIndex: 1,
         transition: 'box-shadow 0.25s ease',
-        width: isMobile ? 'calc(100% + 28px)' : undefined,
-        marginLeft: isMobile ? -14 : undefined,
-        marginRight: isMobile ? -14 : undefined,
-        ...(isFileDragging
-          ? {
-              backgroundColor: 'var(--color-primary-light-1)',
-              borderColor: 'rgb(var(--primary-3))',
-              borderWidth: '1px',
-            }
-          : {
-              boxShadow: isInputActive ? activeShadow : 'none',
-            }),
       }}
+      {...composerSpotlightHandlers}
       {...dragHandlers}
     >
-      {/* inner white card — narrower than outer wrap */}
-      <div
-        className={`${styles.guidInputInner} p-12px flex flex-col bg-dialog-fill-0`}
-        style={{
-          transition: 'box-shadow 0.25s ease, border-color 0.25s ease',
-          borderColor: isFileDragging ? 'rgb(var(--primary-3))' : borderColor,
-          boxShadow: isInputActive && !isFileDragging ? activeShadow : 'none',
-        }}
-      >
+      <div className={`${styles.guidInputInner} p-12px flex flex-col`}>
         {mentionSelectorBadge}
         <Input.TextArea
           autoSize={textareaAutoSize}

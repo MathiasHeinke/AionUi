@@ -15,6 +15,7 @@ import {
   type SpeechInputStatus,
   type SpeechTranscriptionRequestOptions,
 } from '@/renderer/hooks/system/useSpeechInput';
+import './SpeechInputButton.css';
 
 type SpeechInputButtonProps = {
   disabled?: boolean;
