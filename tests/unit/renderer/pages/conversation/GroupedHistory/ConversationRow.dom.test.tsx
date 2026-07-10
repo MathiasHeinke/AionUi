@@ -114,6 +114,16 @@ describe('ConversationRow archive UI', () => {
     expect(container.querySelector('img')).toBeNull();
   });
 
+  it('uses the restrained EVE selected-row treatment and current-page semantics', () => {
+    const { container } = renderRow({ selected: true, hasError: true });
+    const row = container.querySelector('#c-conv-1');
+
+    expect(row?.getAttribute('aria-current')).toBe('page');
+    expect(row?.classList.contains('eve-row')).toBe(true);
+    expect(row?.classList.contains('eve-row--selected')).toBe(true);
+    expect(row?.classList.contains('!bg-fill-3')).toBe(false);
+  });
+
   it('shows Restore for archived conversations', () => {
     renderRow({ conversation: makeConversation({ archived: true, archived_at: Date.now() }) });
 

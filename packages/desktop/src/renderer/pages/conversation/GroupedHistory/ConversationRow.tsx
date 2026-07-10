@@ -136,14 +136,14 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
     >
       <div
         id={'c-' + conversation.id}
+        aria-current={selected ? 'page' : undefined}
         className={classNames(
-          'chat-history__item h-34px rd-8px flex items-center group cursor-pointer relative overflow-hidden shrink-0 conversation-item [&.conversation-item+&.conversation-item]:mt-2px min-w-0 transition-colors',
+          'chat-history__item eve-row h-34px rd-8px flex items-center group cursor-pointer relative overflow-hidden shrink-0 conversation-item [&.conversation-item+&.conversation-item]:mt-2px min-w-0',
           collapsed ? 'justify-center px-0' : 'justify-start gap-8px pr-16px',
           // dimIcon means this row sits inside a project/cron parent — visually indent the row content while keeping the bg full-width
           !collapsed && (dimIcon ? 'pl-34px' : 'pl-10px'),
           {
-            'hover:bg-fill-3': !batchMode && !selected,
-            '!bg-fill-3': selected,
+            'eve-row--selected': selected,
             'bg-[rgba(var(--primary-6),0.08)]': batchMode && checked,
           }
         )}
