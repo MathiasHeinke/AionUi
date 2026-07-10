@@ -20,7 +20,8 @@ import { useTranslation } from 'react-i18next';
 import { bridge } from '@office-ai/platform';
 import { isElectronDesktop } from '@/renderer/utils/platform';
 import SettingsPageWrapper from './components/SettingsPageWrapper';
-import PreferenceRow from '@/renderer/components/settings/SettingsModal/contents/SystemModalContent/PreferenceRow';
+import PreferenceRow from '@/renderer/components/settings/PreferenceRow';
+import SettingsSection, { SettingsPageHeader } from '@/renderer/components/settings/SettingsSection';
 import AionScrollArea from '@/renderer/components/base/AionScrollArea';
 import { useSettingsViewMode } from '@/renderer/components/settings/SettingsModal/settingsViewContext';
 
@@ -149,13 +150,19 @@ const PrivacySettings: React.FC = () => {
     return (
       <SettingsPageWrapper>
         <AionScrollArea className='flex-1 min-h-0 pb-16px' disableOverflow={isPageMode}>
-          <div className='space-y-16px'>
-            <div className='px-[12px] md:px-[32px] py-16px bg-2 rd-16px'>
+          <SettingsPageHeader
+            title={t('settings.privacy.title', { defaultValue: 'Datenschutz' })}
+            description={t('settings.privacy.pageDescription', {
+              defaultValue: 'Steuere transparent, welche Diagnosedaten und Cloud-Funktionen du freigibst.',
+            })}
+          />
+          <SettingsSection title={t('settings.privacy.availabilityTitle', { defaultValue: 'Verfügbarkeit' })}>
+            <div className='eve-settings-notice'>
               <p className='m-0 text-13px text-t-secondary'>
                 {t('settings.privacy.desktopOnly', { defaultValue: 'Telemetry is only collected by the desktop app.' })}
               </p>
             </div>
-          </div>
+          </SettingsSection>
         </AionScrollArea>
       </SettingsPageWrapper>
     );
@@ -164,35 +171,48 @@ const PrivacySettings: React.FC = () => {
   return (
     <SettingsPageWrapper>
       <AionScrollArea className='flex-1 min-h-0 pb-16px' disableOverflow={isPageMode}>
-        <div className='space-y-16px'>
-          <div className='px-[12px] md:px-[32px] py-16px bg-2 rd-16px space-y-12px'>
-            <div className='w-full flex flex-col divide-y divide-border-2'>
-              <PreferenceRow
-                label={t('settings.privacy.telemetryLabel', { defaultValue: 'Send anonymous crash reports' })}
-                description={t('settings.privacy.telemetryDescription', {
-                  defaultValue:
-                    'Off by default. Help diagnose failures by sending anonymous crash reports and recent logs.',
-                })}
-              >
-                <Switch checked={consent} disabled={saving} onChange={handleConsentChange} />
-              </PreferenceRow>
-              <PreferenceRow
-                label={t('settings.privacy.cloudVoiceLabel', { defaultValue: 'Allow cloud voice output' })}
-                description={t('settings.privacy.cloudVoiceDescription', {
-                  defaultValue:
-                    'Off by default. Stores consent in the desktop main process; voice calls still require the Command EVE server gateway and release gate.',
-                })}
-              >
-                <Switch
-                  checked={cloudVoiceConsent}
-                  disabled={cloudVoiceSaving}
-                  onChange={handleCloudVoiceConsentChange}
-                />
-              </PreferenceRow>
-            </div>
-            <p className='m-0 text-12px text-t-secondary whitespace-pre-line leading-relaxed'>{disclosure}</p>
-          </div>
-        </div>
+        <SettingsPageHeader
+          title={t('settings.privacy.title', { defaultValue: 'Datenschutz' })}
+          description={t('settings.privacy.pageDescription', {
+            defaultValue: 'Steuere transparent, welche Diagnosedaten und Cloud-Funktionen du freigibst.',
+          })}
+        />
+        <SettingsSection
+          title={t('settings.privacy.permissionsTitle', { defaultValue: 'Datenfreigaben' })}
+          description={t('settings.privacy.permissionsDescription', {
+            defaultValue: 'Beide Freigaben sind standardmäßig deaktiviert und können jederzeit widerrufen werden.',
+          })}
+          bodyClassName='eve-settings-list'
+        >
+          <PreferenceRow
+            testId='preference-row'
+            label={t('settings.privacy.telemetryLabel', { defaultValue: 'Send anonymous crash reports' })}
+            description={t('settings.privacy.telemetryDescription', {
+              defaultValue:
+                'Off by default. Help diagnose failures by sending anonymous crash reports and recent logs.',
+            })}
+          >
+            <Switch checked={consent} disabled={saving} onChange={handleConsentChange} />
+          </PreferenceRow>
+          <PreferenceRow
+            testId='preference-row'
+            label={t('settings.privacy.cloudVoiceLabel', { defaultValue: 'Allow cloud voice output' })}
+            description={t('settings.privacy.cloudVoiceDescription', {
+              defaultValue:
+                'Off by default. Your choice is stored locally; voice output is only processed through EVE Cloud after you allow it.',
+            })}
+          >
+            <Switch checked={cloudVoiceConsent} disabled={cloudVoiceSaving} onChange={handleCloudVoiceConsentChange} />
+          </PreferenceRow>
+        </SettingsSection>
+        <SettingsSection
+          title={t('settings.privacy.disclosureTitle', { defaultValue: 'Was bei Telemetrie gesendet wird' })}
+          description={t('settings.privacy.disclosureDescription', {
+            defaultValue: 'Die technische Offenlegung gilt ausschließlich, wenn du die Freigabe oben aktivierst.',
+          })}
+        >
+          <p className='eve-settings-disclosure'>{disclosure}</p>
+        </SettingsSection>
       </AionScrollArea>
     </SettingsPageWrapper>
   );

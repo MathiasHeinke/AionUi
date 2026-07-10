@@ -26,20 +26,34 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Card, Input, Message, Popconfirm, Select, Space, Tag } from '@arco-design/web-react';
+import { Button, Input, Message, Popconfirm, Select, Space, Tag } from '@arco-design/web-react';
+import { Right } from '@icon-park/react';
 import { useTranslation } from 'react-i18next';
 import { commandEve, type ICommandEveCompanyBrainEntry } from '@/common/adapter/ipcBridge';
 import { configService } from '@/common/config/configService';
 import { useActiveSeatId } from '@renderer/hooks/useActiveSeatId';
 import { persistCompanyBrainSeed, useDayZeroOnboarding } from '@renderer/hooks/useDayZeroOnboarding';
 import DayZeroOnboardingModal from '@renderer/components/billing/DayZeroOnboardingModal';
+import SettingsSection, { SettingsPageHeader } from '@/renderer/components/settings/SettingsSection';
 
 /**
  * The writable kinds + German labels (T8 widened by team/projects/goals/focus). Kept
  * as a small renderer mirror; the process-side allowlist (COMPANY_BRAIN_WRITE_KINDS)
  * is the SoT — a note's kind picker only offers 'note'.
  */
-const KIND_ORDER = ['company', 'team', 'offer', 'audience', 'projects', 'goals', 'focus', 'tone', 'dos_donts', 'brief', 'note'] as const;
+const KIND_ORDER = [
+  'company',
+  'team',
+  'offer',
+  'audience',
+  'projects',
+  'goals',
+  'focus',
+  'tone',
+  'dos_donts',
+  'brief',
+  'note',
+] as const;
 type WriteKind = (typeof KIND_ORDER)[number];
 
 /**
@@ -58,19 +72,87 @@ interface BlueprintSectionView {
   placeholder: string;
 }
 const BLUEPRINT_SECTIONS: readonly BlueprintSectionView[] = [
-  { id: 'bp-company', kind: 'company', title: 'Unternehmen', placeholder: ['### Unternehmen', '- Name: …', '- Größe / Mitarbeiter: …', '- Branche: …', '- Standort: …'].join('\n') },
-  { id: 'bp-team', kind: 'team', title: 'Team', placeholder: ['### Team', '- Wer gehört zum Team (Rollen)?', '- Ansprechpartner: …', '- Externe Partner: …'].join('\n') },
-  { id: 'bp-offer', kind: 'offer', title: 'Angebot', placeholder: ['### Angebot', '- Was wird verkauft?', '- Preis / Pakete: …', '- Nutzenversprechen: …'].join('\n') },
-  { id: 'bp-audience', kind: 'audience', title: 'Zielgruppe', placeholder: ['### Zielgruppe', '- Wer ist der ideale Kunde?', '- Probleme / Bedürfnisse: …', '- Kanäle, wo sie sind: …'].join('\n') },
-  { id: 'bp-projects', kind: 'projects', title: 'Aktuelle Projekte', placeholder: ['### Aktuelle Projekte', '- Woran wird gerade gearbeitet?', '- Status / Deadline: …'].join('\n') },
-  { id: 'bp-goals', kind: 'goals', title: 'Ziele & Zukunft', placeholder: ['### Ziele & Zukunft', '- Ziel für die nächsten 3–12 Monate?', '- Vision / wohin soll es gehen?'].join('\n') },
-  { id: 'bp-focus', kind: 'focus', title: 'Fokus', placeholder: ['### Fokus', '- Was ist gerade am wichtigsten?', '- Woran NICHT arbeiten (bewusst weglassen)?'].join('\n') },
-  { id: 'bp-tone', kind: 'tone', title: 'Tonalität', placeholder: ['### Tonalität', '- Wie klingt die Marke (Stil, Ansprache)?', '- Lieblingsphrasen / was NIE gesagt wird: …'].join('\n') },
-  { id: 'bp-dos-donts', kind: 'dos_donts', title: "Dos & Don'ts", placeholder: ['### Dos & Don\'ts', '- Dos: …', '- Don\'ts: …'].join('\n') },
-  { id: BLUEPRINT_DAY_ZERO_BRIEF_ID, kind: 'brief', title: 'Briefing', placeholder: ['### Briefing', '- Kurzbriefing / Kontext für EVE: …'].join('\n') },
+  {
+    id: 'bp-company',
+    kind: 'company',
+    title: 'Unternehmen',
+    placeholder: ['### Unternehmen', '- Name: …', '- Größe / Mitarbeiter: …', '- Branche: …', '- Standort: …'].join(
+      '\n'
+    ),
+  },
+  {
+    id: 'bp-team',
+    kind: 'team',
+    title: 'Team',
+    placeholder: ['### Team', '- Wer gehört zum Team (Rollen)?', '- Ansprechpartner: …', '- Externe Partner: …'].join(
+      '\n'
+    ),
+  },
+  {
+    id: 'bp-offer',
+    kind: 'offer',
+    title: 'Angebot',
+    placeholder: ['### Angebot', '- Was wird verkauft?', '- Preis / Pakete: …', '- Nutzenversprechen: …'].join('\n'),
+  },
+  {
+    id: 'bp-audience',
+    kind: 'audience',
+    title: 'Zielgruppe',
+    placeholder: [
+      '### Zielgruppe',
+      '- Wer ist der ideale Kunde?',
+      '- Probleme / Bedürfnisse: …',
+      '- Kanäle, wo sie sind: …',
+    ].join('\n'),
+  },
+  {
+    id: 'bp-projects',
+    kind: 'projects',
+    title: 'Aktuelle Projekte',
+    placeholder: ['### Aktuelle Projekte', '- Woran wird gerade gearbeitet?', '- Status / Deadline: …'].join('\n'),
+  },
+  {
+    id: 'bp-goals',
+    kind: 'goals',
+    title: 'Ziele & Zukunft',
+    placeholder: [
+      '### Ziele & Zukunft',
+      '- Ziel für die nächsten 3–12 Monate?',
+      '- Vision / wohin soll es gehen?',
+    ].join('\n'),
+  },
+  {
+    id: 'bp-focus',
+    kind: 'focus',
+    title: 'Fokus',
+    placeholder: ['### Fokus', '- Was ist gerade am wichtigsten?', '- Woran NICHT arbeiten (bewusst weglassen)?'].join(
+      '\n'
+    ),
+  },
+  {
+    id: 'bp-tone',
+    kind: 'tone',
+    title: 'Tonalität',
+    placeholder: [
+      '### Tonalität',
+      '- Wie klingt die Marke (Stil, Ansprache)?',
+      '- Lieblingsphrasen / was NIE gesagt wird: …',
+    ].join('\n'),
+  },
+  {
+    id: 'bp-dos-donts',
+    kind: 'dos_donts',
+    title: "Dos & Don'ts",
+    placeholder: ["### Dos & Don'ts", '- Dos: …', "- Don'ts: …"].join('\n'),
+  },
+  {
+    id: BLUEPRINT_DAY_ZERO_BRIEF_ID,
+    kind: 'brief',
+    title: 'Briefing',
+    placeholder: ['### Briefing', '- Kurzbriefing / Kontext für EVE: …'].join('\n'),
+  },
 ];
 const BLUEPRINT_SECTION_IDS = new Set(BLUEPRINT_SECTIONS.map((s) => s.id));
-const placeholderById = new Map(BLUEPRINT_SECTIONS.map((s) => [s.id, s.placeholder]));
 
 /**
  * A blueprint body counts as "filled" iff it has real content beyond the scaffolded
@@ -111,26 +193,24 @@ const kindLabel = (t: ReturnType<typeof useTranslation>['t'], kind: string): str
   return t(entry[0], { defaultValue: entry[1] });
 };
 
-/**
- * Small, dependency-free relative-time formatter (German). An empty/invalid
- * timestamp degrades to "".
- */
-const relativeTime = (iso: string): string => {
+/** Small, dependency-free relative-time formatter. Invalid timestamps degrade to an empty label. */
+const relativeTime = (iso: string, locale: string): string => {
   if (!iso) return '';
   const then = Date.parse(iso);
   if (Number.isNaN(then)) return '';
+  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
   const diffMs = Date.now() - then;
   const sec = Math.max(0, Math.floor(diffMs / 1000));
-  if (sec < 60) return 'gerade eben';
+  if (sec < 60) return formatter.format(-sec, 'second');
   const min = Math.floor(sec / 60);
-  if (min < 60) return `vor ${min} Min.`;
+  if (min < 60) return formatter.format(-min, 'minute');
   const hr = Math.floor(min / 60);
-  if (hr < 24) return `vor ${hr} Std.`;
+  if (hr < 24) return formatter.format(-hr, 'hour');
   const day = Math.floor(hr / 24);
-  if (day < 30) return `vor ${day} T.`;
+  if (day < 30) return formatter.format(-day, 'day');
   const mon = Math.floor(day / 30);
-  if (mon < 12) return `vor ${mon} Mon.`;
-  return `vor ${Math.floor(mon / 12)} J.`;
+  if (mon < 12) return formatter.format(-mon, 'month');
+  return formatter.format(-Math.floor(mon / 12), 'year');
 };
 
 interface EditorState {
@@ -146,7 +226,7 @@ interface EditorState {
 const emptyNoteEditor = (): EditorState => ({ kind: 'note', title: '', body: '' });
 
 const CompanyBrainModalContent: React.FC = () => {
-  const { t } = useTranslation();
+  const { i18n, t } = useTranslation();
   // Stable handle to the latest `t` for use inside callbacks (t's identity may not
   // be stable across renders — reading via ref keeps translations current without
   // destabilizing the memoized callbacks).
@@ -265,7 +345,7 @@ const CompanyBrainModalContent: React.FC = () => {
         return;
       }
       const existing = entryById.get(section.id);
-      const body = existing ? (await fetchBody(section.id)) ?? '' : section.placeholder;
+      const body = existing ? ((await fetchBody(section.id)) ?? '') : section.placeholder;
       setEditor({ id: section.id, kind: section.kind, title: section.title, body, blueprint: true });
       setExpandedId(section.id);
     },
@@ -304,12 +384,19 @@ const CompanyBrainModalContent: React.FC = () => {
     if (!editor) return;
     const title = editor.title.trim();
     if (title.length === 0) {
-      Message.error(tRef.current('credits.companyBrain.titleRequired', { defaultValue: 'Bitte gib dem Eintrag einen Titel.' }));
+      Message.error(
+        tRef.current('credits.companyBrain.titleRequired', { defaultValue: 'Bitte gib dem Eintrag einen Titel.' })
+      );
       return;
     }
     setSaving(true);
     try {
-      const res = await commandEve.companyBrainWrite.invoke({ id: editor.id, kind: editor.kind, title, body: editor.body });
+      const res = await commandEve.companyBrainWrite.invoke({
+        id: editor.id,
+        kind: editor.kind,
+        title,
+        body: editor.body,
+      });
       if (!res?.success || !res.data?.ok) {
         Message.error(
           tRef.current('credits.companyBrain.writeFailed', {
@@ -342,7 +429,12 @@ const CompanyBrainModalContent: React.FC = () => {
     async (section: BlueprintSectionView) => {
       setBusyRemoveId(section.id);
       try {
-        const res = await commandEve.companyBrainWrite.invoke({ id: section.id, kind: section.kind, title: section.title, body: section.placeholder });
+        const res = await commandEve.companyBrainWrite.invoke({
+          id: section.id,
+          kind: section.kind,
+          title: section.title,
+          body: section.placeholder,
+        });
         if (!res?.success || !res.data?.ok) {
           Message.error(
             tRef.current('credits.companyBrain.writeFailed', {
@@ -442,9 +534,18 @@ const CompanyBrainModalContent: React.FC = () => {
 
   return (
     <div className='company-brain-settings' data-testid='company-brain-settings'>
-      <Card
-        className='company-brain-settings__status'
+      <SettingsPageHeader
         title={t('credits.companyBrain.title', { defaultValue: 'Company Brain' })}
+        description={t('credits.companyBrain.pageDescription', {
+          defaultValue: 'Das dauerhaft verfügbare Unternehmenswissen, mit dem EVE deine Arbeit einordnet.',
+        })}
+      />
+
+      <SettingsSection
+        title={t('credits.companyBrain.statusTitle', { defaultValue: 'Status' })}
+        description={t('credits.companyBrain.statusDescription', {
+          defaultValue: 'Die Blaupause gilt nur für den aktuell ausgewählten Seat.',
+        })}
       >
         <div className='company-brain-settings__status-row' data-testid='company-brain-status'>
           {seeded ? (
@@ -470,8 +571,15 @@ const CompanyBrainModalContent: React.FC = () => {
         <p className='company-brain-settings__seat-note'>
           {t('credits.companyBrain.seatNote', { defaultValue: 'Gilt nur für diesen Seat.' })}
         </p>
+      </SettingsSection>
 
-        {/* ── BLUEPRINT OUTLINE (fixed sections, never deletable) ──────────────── */}
+      {/* Fixed blueprint sections are never deletable; clearing restores the scaffold. */}
+      <SettingsSection
+        title={t('credits.companyBrain.blueprintTitle', { defaultValue: 'Wissensprofil' })}
+        description={t('credits.companyBrain.blueprintDescription', {
+          defaultValue: 'Öffne eine Sektion, ergänze verlässlichen Kontext und halte EVEs Arbeitsgrundlage aktuell.',
+        })}
+      >
         <ul className='company-brain-settings__outline' data-testid='company-brain-outline'>
           {BLUEPRINT_SECTIONS.map((section) => {
             const isOpen = expandedId === section.id;
@@ -494,27 +602,43 @@ const CompanyBrainModalContent: React.FC = () => {
                 data-filled={filled ? 'true' : 'false'}
               >
                 <div className='company-brain-settings__item-head'>
-                  <button
-                    type='button'
+                  <Button
+                    type='text'
+                    long
                     className='company-brain-settings__item-title'
                     onClick={() => openSection(section)}
                     data-testid='company-brain-section-open'
                   >
-                    <span className='company-brain-settings__item-title-text'>{section.title}</span>
-                    <Tag size='small' color={filled ? 'green' : 'gray'} data-fill-indicator={filled ? 'filled' : 'empty'}>
+                    <Right
+                      theme='outline'
+                      size={14}
+                      className={
+                        isOpen
+                          ? 'company-brain-settings__disclosure-icon company-brain-settings__disclosure-icon--open'
+                          : 'company-brain-settings__disclosure-icon'
+                      }
+                    />
+                    <span className='company-brain-settings__item-title-text'>{kindLabel(t, section.kind)}</span>
+                    <Tag
+                      size='small'
+                      color={filled ? 'green' : 'gray'}
+                      data-fill-indicator={filled ? 'filled' : 'empty'}
+                    >
                       {filled
                         ? t('credits.companyBrain.filled', { defaultValue: 'ausgefüllt' })
                         : t('credits.companyBrain.emptySection', { defaultValue: 'leer' })}
                     </Tag>
                     {entry?.author === 'eve' && (
-                      <Tag size='small' color='purple' data-author-badge='eve'>
+                      <Tag size='small' color='arcoblue' data-author-badge='eve'>
                         {t('credits.companyBrain.authorEve', { defaultValue: 'von EVE' })}
                       </Tag>
                     )}
                     {freshestIso && (
-                      <span className='company-brain-settings__item-time'>{relativeTime(freshestIso)}</span>
+                      <span className='company-brain-settings__item-time'>
+                        {relativeTime(freshestIso, i18n.language)}
+                      </span>
                     )}
-                  </button>
+                  </Button>
                   {/* Blueprint sections are NEVER deletable — only "Leeren". */}
                   <Popconfirm
                     title={t('credits.companyBrain.clearConfirm', { defaultValue: 'Diese Sektion wirklich leeren?' })}
@@ -543,10 +667,17 @@ const CompanyBrainModalContent: React.FC = () => {
                       data-testid='company-brain-section-body-input'
                     />
                     <Space>
-                      <Button type='primary' loading={saving} onClick={saveEditor} data-testid='company-brain-section-save'>
+                      <Button
+                        type='primary'
+                        loading={saving}
+                        onClick={saveEditor}
+                        data-testid='company-brain-section-save'
+                      >
                         {t('credits.companyBrain.save', { defaultValue: 'Speichern' })}
                       </Button>
-                      <Button onClick={cancelEditor}>{t('credits.companyBrain.cancel', { defaultValue: 'Abbrechen' })}</Button>
+                      <Button onClick={cancelEditor}>
+                        {t('credits.companyBrain.cancel', { defaultValue: 'Abbrechen' })}
+                      </Button>
                     </Space>
                   </div>
                 )}
@@ -554,29 +685,25 @@ const CompanyBrainModalContent: React.FC = () => {
             );
           })}
         </ul>
+      </SettingsSection>
 
-        {/* ── NOTIZEN & GELERNTES (free entries, add/edit/delete) ──────────────── */}
+      <SettingsSection
+        title={t('credits.companyBrain.notesTitle', { defaultValue: 'Notizen & Gelerntes' })}
+        description={t('credits.companyBrain.notesDescription', {
+          defaultValue: 'Freie Notizen ergänzen die feste Blaupause um Beobachtungen, Entscheidungen und Briefings.',
+        })}
+        action={
+          <Space className='company-brain-settings__actions'>
+            <Button type='primary' onClick={startAddNote} disabled={isCreatingNote} data-testid='company-brain-add'>
+              {t('credits.companyBrain.addEntry', { defaultValue: 'Eintrag hinzufügen' })}
+            </Button>
+            <Button onClick={() => setSeedOpen(true)} data-testid='company-brain-seed-open'>
+              {t('credits.companyBrain.insertBriefing', { defaultValue: 'Briefing einfügen' })}
+            </Button>
+          </Space>
+        }
+      >
         <div className='company-brain-settings__notes' data-testid='company-brain-notes'>
-          <div className='company-brain-settings__notes-head'>
-            <h4 className='company-brain-settings__notes-title'>
-              {t('credits.companyBrain.notesTitle', { defaultValue: 'Notizen & Gelerntes' })}
-            </h4>
-            <Space className='company-brain-settings__actions'>
-              <Button
-                type='primary'
-                shape='round'
-                onClick={startAddNote}
-                disabled={isCreatingNote}
-                data-testid='company-brain-add'
-              >
-                {t('credits.companyBrain.addEntry', { defaultValue: 'Eintrag hinzufügen' })}
-              </Button>
-              <Button shape='round' onClick={() => setSeedOpen(true)} data-testid='company-brain-seed-open'>
-                {t('credits.companyBrain.insertBriefing', { defaultValue: 'Briefing einfügen' })}
-              </Button>
-            </Space>
-          </div>
-
           {/* NEW-note editor (create). */}
           {isCreatingNote && editor && (
             <div className='company-brain-settings__editor' data-testid='company-brain-editor-new'>
@@ -604,7 +731,9 @@ const CompanyBrainModalContent: React.FC = () => {
                 <Button type='primary' loading={saving} onClick={saveEditor} data-testid='company-brain-save'>
                   {t('credits.companyBrain.save', { defaultValue: 'Speichern' })}
                 </Button>
-                <Button onClick={cancelEditor}>{t('credits.companyBrain.cancel', { defaultValue: 'Abbrechen' })}</Button>
+                <Button onClick={cancelEditor}>
+                  {t('credits.companyBrain.cancel', { defaultValue: 'Abbrechen' })}
+                </Button>
               </Space>
             </div>
           )}
@@ -633,25 +762,39 @@ const CompanyBrainModalContent: React.FC = () => {
                     data-author={entry.author}
                   >
                     <div className='company-brain-settings__item-head'>
-                      <button
-                        type='button'
+                      <Button
+                        type='text'
+                        long
                         className='company-brain-settings__item-title'
                         onClick={() => openNote(entry)}
                         data-testid='company-brain-item-open'
                       >
+                        <Right
+                          theme='outline'
+                          size={14}
+                          className={
+                            isOpen
+                              ? 'company-brain-settings__disclosure-icon company-brain-settings__disclosure-icon--open'
+                              : 'company-brain-settings__disclosure-icon'
+                          }
+                        />
                         <span className='company-brain-settings__item-title-text'>{entry.title}</span>
                         <Tag size='small' color='arcoblue'>
                           {kindLabel(t, entry.kind)}
                         </Tag>
-                        <Tag size='small' color={isEve ? 'purple' : 'gray'} data-author-badge={entry.author}>
+                        <Tag size='small' color={isEve ? 'arcoblue' : 'gray'} data-author-badge={entry.author}>
                           {isEve
                             ? t('credits.companyBrain.authorEve', { defaultValue: 'von EVE' })
                             : t('credits.companyBrain.authorUser', { defaultValue: 'von dir' })}
                         </Tag>
-                        <span className='company-brain-settings__item-time'>{relativeTime(entry.updated_at)}</span>
-                      </button>
+                        <span className='company-brain-settings__item-time'>
+                          {relativeTime(entry.updated_at, i18n.language)}
+                        </span>
+                      </Button>
                       <Popconfirm
-                        title={t('credits.companyBrain.deleteConfirm', { defaultValue: 'Diesen Eintrag wirklich löschen?' })}
+                        title={t('credits.companyBrain.deleteConfirm', {
+                          defaultValue: 'Diesen Eintrag wirklich löschen?',
+                        })}
                         okText={t('credits.companyBrain.deleteOk', { defaultValue: 'Löschen' })}
                         cancelText={t('credits.companyBrain.cancel', { defaultValue: 'Abbrechen' })}
                         onOk={() => removeNote(entry.id)}
@@ -683,10 +826,17 @@ const CompanyBrainModalContent: React.FC = () => {
                           data-testid='company-brain-edit-body-input'
                         />
                         <Space>
-                          <Button type='primary' loading={saving} onClick={saveEditor} data-testid='company-brain-edit-save'>
+                          <Button
+                            type='primary'
+                            loading={saving}
+                            onClick={saveEditor}
+                            data-testid='company-brain-edit-save'
+                          >
                             {t('credits.companyBrain.save', { defaultValue: 'Speichern' })}
                           </Button>
-                          <Button onClick={cancelEditor}>{t('credits.companyBrain.cancel', { defaultValue: 'Abbrechen' })}</Button>
+                          <Button onClick={cancelEditor}>
+                            {t('credits.companyBrain.cancel', { defaultValue: 'Abbrechen' })}
+                          </Button>
                         </Space>
                       </div>
                     )}
@@ -696,7 +846,7 @@ const CompanyBrainModalContent: React.FC = () => {
             </ul>
           )}
         </div>
-      </Card>
+      </SettingsSection>
 
       <DayZeroOnboardingModal open={seedOpen} onSeed={handleSeed} onSkip={() => setSeedOpen(false)} />
     </div>

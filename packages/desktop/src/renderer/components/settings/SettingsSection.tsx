@@ -1,6 +1,24 @@
 import classNames from 'classnames';
 import React from 'react';
 
+export interface SettingsPageHeaderProps {
+  title: React.ReactNode;
+  description?: React.ReactNode;
+  action?: React.ReactNode;
+  className?: string;
+}
+
+/** Shared route heading for the public Command EVE settings surface. */
+export const SettingsPageHeader: React.FC<SettingsPageHeaderProps> = ({ title, description, action, className }) => (
+  <header className={classNames('eve-page-header', className)}>
+    <div className='eve-page-header__copy'>
+      <h1>{title}</h1>
+      {description && <p>{description}</p>}
+    </div>
+    {action && <div className='eve-page-header__action'>{action}</div>}
+  </header>
+);
+
 export interface SettingsSectionHeaderProps {
   title: React.ReactNode;
   description?: React.ReactNode;

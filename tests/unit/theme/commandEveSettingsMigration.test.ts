@@ -22,6 +22,14 @@ const firstStepsSource = read(
   'packages/desktop/src/renderer/components/settings/SettingsModal/contents/ErsteSchritteModalContent.tsx'
 );
 const skillsSettingsSource = read('packages/desktop/src/renderer/pages/settings/SkillsHubSettings.tsx');
+const petSettingsSource = read('packages/desktop/src/renderer/pages/settings/PetSettings.tsx');
+const privacySettingsSource = read('packages/desktop/src/renderer/pages/settings/PrivacySettings.tsx');
+const accountSettingsSource = read(
+  'packages/desktop/src/renderer/components/settings/SettingsModal/contents/AccountModalContent.tsx'
+);
+const companyBrainSettingsSource = read(
+  'packages/desktop/src/renderer/components/settings/SettingsModal/contents/CompanyBrainModalContent.tsx'
+);
 const settingsSemanticsSource = read('packages/desktop/src/renderer/components/settings/settingsSemantics.ts');
 const visualThemeSource = read('packages/desktop/src/renderer/styles/themes/command-eve-visual.css');
 
@@ -154,5 +162,22 @@ describe('Command EVE settings migration contract', () => {
     expect(skillsSettingsSource).not.toMatch(/#722ED1|#F5319D|#F77234/);
     expect(visualThemeSource).toContain('--eve-static-white: #ffffff');
     expect(visualThemeSource).toContain(".eve-settings-page [class*='transition-']");
+  });
+
+  it('keeps the simple settings routes on one unframed EVE section level', () => {
+    for (const source of [
+      petSettingsSource,
+      privacySettingsSource,
+      accountSettingsSource,
+      companyBrainSettingsSource,
+    ]) {
+      expect(source).toContain('SettingsPageHeader');
+      expect(source).toContain('SettingsSection');
+      expect(source).not.toContain('<Card');
+      expect(source).not.toContain('bg-2 rd-16px');
+    }
+
+    expect(companyBrainSettingsSource).not.toContain("color='purple'");
+    expect(companyBrainSettingsSource).not.toContain('<button');
   });
 });

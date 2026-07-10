@@ -207,6 +207,13 @@
   "account": "Konto",
   "accountPanel": {
     "title": "Konto",
+    "pageDescription": "Verwalte dein lokales Profil, deine Anmeldung und den Zugriff auf EVE Cloud.",
+    "profileTitle": "Profil",
+    "profileDescription": "Deine Identität für Command EVE auf diesem Gerät.",
+    "sessionTitle": "Anmeldung auf diesem Mac",
+    "sessionStatus": "Dieses Gerät ist angemeldet.",
+    "deviceResetTitle": "Gerät zurücksetzen",
+    "deviceResetWarning": "Diese Aktion entfernt alle lokalen Vertrauensnachweise von diesem Mac.",
     "signedInAs": "Angemeldet als",
     "notSignedIn": "Du bist nicht angemeldet.",
     "name": "Name",
@@ -233,7 +240,19 @@
     "saveError": "Speichern fehlgeschlagen.",
     "fieldsRequired": "Name und Firma dürfen nicht leer sein.",
     "emailLocked": "E-Mail-Adresse ändern ist eine separate Anmelde-Funktion (folgt).",
-    "logoutSoft": "Von diesem Mac abmelden"
+    "logoutSoft": "Von diesem Mac abmelden",
+    "eveCloud": {
+      "title": "EVE Cloud",
+      "activeStatus": "Aktiv",
+      "inactiveStatus": "Nicht aktiviert",
+      "activeBody": "EVE Cloud ist aktiviert — die Cloud-Modelle stehen zur Verfügung.",
+      "inactiveBody": "EVE Cloud ist nicht aktiviert — Anfragen laufen aktuell lokal und privat auf deinem Gerät. Hinterlege deinen Lizenzcode erneut, um EVE Cloud zu nutzen. Dein Gerät wird dabei nicht zurückgesetzt.",
+      "codePlaceholder": "Lizenzcode einfügen …",
+      "activate": "EVE Cloud aktivieren",
+      "activating": "Wird aktiviert …",
+      "activated": "EVE Cloud aktiviert.",
+      "activateError": "Aktivierung fehlgeschlagen — prüfe den Lizenzcode."
+    }
   },
   "advancedSettings": "Erweiterte Einstellungen",
   "addModel": "Modell hinzufügen",
@@ -351,10 +370,17 @@
   },
   "privacy": {
     "navLabel": "Datenschutz",
+    "title": "Datenschutz",
+    "pageDescription": "Steuere transparent, welche Diagnosedaten und Cloud-Funktionen du freigibst.",
+    "availabilityTitle": "Verfügbarkeit",
+    "permissionsTitle": "Datenfreigaben",
+    "permissionsDescription": "Beide Freigaben sind standardmäßig deaktiviert und können jederzeit widerrufen werden.",
+    "disclosureTitle": "Was bei Telemetrie gesendet wird",
+    "disclosureDescription": "Die technische Offenlegung gilt ausschließlich, wenn du die Freigabe oben aktivierst.",
     "telemetryLabel": "Anonyme Absturzberichte senden",
     "telemetryDescription": "Standardmäßig deaktiviert. Hilf bei der Fehlerdiagnose, indem du anonyme Absturzberichte und aktuelle Logs sendest.",
     "cloudVoiceLabel": "Cloud-Sprachausgabe erlauben",
-    "cloudVoiceDescription": "Standardmäßig aus. Speichert deine Zustimmung im Desktop-Main-Prozess; echte Voice-Aufrufe brauchen weiterhin das Command-EVE-Server-Gateway und das Release-Gate.",
+    "cloudVoiceDescription": "Standardmäßig aus. Deine Zustimmung wird lokal gespeichert; Sprachausgabe wird nur nach deiner Freigabe über EVE Cloud verarbeitet.",
     "disclosure": "Telemetrie ist standardmäßig DEAKTIVIERT. Es wird nichts gesendet, solange du sie hier nicht aktivierst.\n\nWenn aktiviert, sendet Command EVE anonyme Absturzberichte sowie einen begrenzten, gzip-komprimierten Ausschnitt der letzten App-Logs an unseren Fehler-Tracking-Dienst (Sentry), um Fehler zu diagnostizieren. Dabei werden eine anonyme zufällige Installations-ID, App-Version, Betriebssystem und CPU-Architektur übermittelt. Es werden keine Kontodaten, Dateiinhalte, Prompts, API-Schlüssel oder personenbezogenen Daten erfasst.\n\nDu kannst dies jederzeit wieder deaktivieren; beim Deaktivieren werden alle Absturzberichte und Log-Uploads sofort gestoppt.",
     "desktopOnly": "Telemetrie wird nur von der Desktop-App erfasst."
   },

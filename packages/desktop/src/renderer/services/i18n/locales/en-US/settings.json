@@ -197,6 +197,13 @@
   "account": "Account",
   "accountPanel": {
     "title": "Account",
+    "pageDescription": "Manage your local profile, sign-in state, and access to EVE Cloud.",
+    "profileTitle": "Profile",
+    "profileDescription": "Your identity for Command EVE on this device.",
+    "sessionTitle": "Sign-in on this Mac",
+    "sessionStatus": "This device is signed in.",
+    "deviceResetTitle": "Reset device",
+    "deviceResetWarning": "This action removes all local trust records from this Mac.",
     "signedInAs": "Signed in as",
     "notSignedIn": "You are not signed in.",
     "name": "Name",
@@ -223,7 +230,19 @@
     "saveError": "Save failed.",
     "fieldsRequired": "Name and company must not be empty.",
     "emailLocked": "Changing your email is a separate sign-in flow (coming soon).",
-    "logoutSoft": "Sign out on this Mac"
+    "logoutSoft": "Sign out on this Mac",
+    "eveCloud": {
+      "title": "EVE Cloud",
+      "activeStatus": "Active",
+      "inactiveStatus": "Not activated",
+      "activeBody": "EVE Cloud is active — cloud models are available.",
+      "inactiveBody": "EVE Cloud is not active, so requests currently stay local and private on this device. Enter your license code again to use EVE Cloud. This does not reset your device.",
+      "codePlaceholder": "Enter license code …",
+      "activate": "Activate EVE Cloud",
+      "activating": "Activating …",
+      "activated": "EVE Cloud activated.",
+      "activateError": "Activation failed — check the license code."
+    }
   },
   "advancedSettings": "Advanced Settings",
   "addModel": "Add Model",
@@ -310,10 +329,17 @@
   },
   "privacy": {
     "navLabel": "Privacy",
+    "title": "Privacy",
+    "pageDescription": "Control exactly which diagnostics and cloud features you choose to enable.",
+    "availabilityTitle": "Availability",
+    "permissionsTitle": "Data permissions",
+    "permissionsDescription": "Both permissions are off by default and can be withdrawn at any time.",
+    "disclosureTitle": "What telemetry sends",
+    "disclosureDescription": "This technical disclosure only applies when you enable the permission above.",
     "telemetryLabel": "Send anonymous crash reports",
     "telemetryDescription": "Off by default. Help diagnose failures by sending anonymous crash reports and recent logs.",
     "cloudVoiceLabel": "Allow cloud voice output",
-    "cloudVoiceDescription": "Off by default. Stores consent in the desktop main process; voice calls still require the Command EVE server gateway and release gate.",
+    "cloudVoiceDescription": "Off by default. Your choice is stored locally; voice output is only processed through EVE Cloud after you allow it.",
     "disclosure": "Telemetry is OFF by default. Nothing is sent unless you turn it on here.\n\nWhen enabled, Command EVE sends anonymous crash reports and a capped, gzipped slice of recent app logs to our error-tracking service (Sentry) to help diagnose failures, tagged with an anonymous random installation id, app version, OS and CPU architecture. No account details, file contents, prompts, API keys or personal data are collected.\n\nYou can turn this off again at any time; turning it off stops all crash reporting and log uploads immediately.",
     "desktopOnly": "Telemetry is only collected by the desktop app."
   },

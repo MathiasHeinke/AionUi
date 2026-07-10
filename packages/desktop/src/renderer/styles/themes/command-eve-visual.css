@@ -323,6 +323,10 @@
   max-width: 760px;
 }
 
+.eve-page-header__action {
+  flex: 0 0 auto;
+}
+
 .eve-page-header h1,
 .eve-page-title {
   margin: 0;
@@ -389,6 +393,10 @@
   min-width: 0;
 }
 
+.eve-settings-list > * + * {
+  border-top: 1px solid var(--glass-panel-border);
+}
+
 .eve-settings-preference-row {
   display: flex;
   align-items: center;
@@ -428,6 +436,222 @@
   align-items: center;
   min-width: 0;
   flex: 0 0 auto;
+}
+
+.eve-settings-notice {
+  padding: 14px 16px;
+  border-left: 2px solid var(--eve-focus-ring);
+  border-radius: 0 var(--eve-surface-radius-sm) var(--eve-surface-radius-sm) 0;
+  background: var(--eve-semantic-info-surface);
+}
+
+.eve-settings-disclosure,
+.eve-settings-muted {
+  margin: 0;
+  color: var(--eve-shell-text-secondary);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.eve-settings-disclosure {
+  max-width: 820px;
+  white-space: pre-line;
+}
+
+.eve-settings-value {
+  max-width: 100%;
+  color: var(--eve-shell-text);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 22px;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.eve-settings-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-width: 0;
+}
+
+.eve-settings-action-row p {
+  margin: 0;
+  color: var(--eve-shell-text-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.eve-settings-action-row > .arco-btn,
+.eve-settings-action-row > .arco-popconfirm,
+.eve-settings-action-row > span:last-child {
+  flex: 0 0 auto;
+}
+
+.eve-settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 680px;
+}
+
+.eve-settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--eve-shell-text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.eve-settings-field small {
+  color: var(--eve-shell-text-secondary);
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.eve-settings-form-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.eve-account-settings {
+  width: 100%;
+}
+
+/* Company Brain is an outline and editor, not a stack of nested cards. */
+.company-brain-settings {
+  width: 100%;
+  gap: 0;
+}
+
+.company-brain-settings__status-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0;
+}
+
+.company-brain-settings__blueprint-count,
+.company-brain-settings__seat-note,
+.company-brain-settings__item-time,
+.company-brain-settings__loading,
+.company-brain-settings__empty {
+  color: var(--eve-shell-text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.company-brain-settings__seat-note {
+  margin: 8px 0 0;
+}
+
+.company-brain-settings__outline,
+.company-brain-settings__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.company-brain-settings__section,
+.company-brain-settings__item {
+  border-top: 1px solid var(--glass-panel-border);
+}
+
+.company-brain-settings__section:first-child,
+.company-brain-settings__item:first-child {
+  border-top: 0;
+}
+
+.company-brain-settings__item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.company-brain-settings__item-title.arco-btn {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 44px;
+  height: auto;
+  flex: 1 1 auto;
+  justify-content: flex-start;
+  padding: 10px 0;
+  border-radius: var(--eve-surface-radius-sm);
+  color: var(--eve-shell-text);
+  text-align: left;
+  white-space: normal;
+}
+
+.company-brain-settings__item-title.arco-btn:hover {
+  background: var(--eve-row-hover-bg);
+}
+
+.company-brain-settings__item-title .arco-btn-content {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  text-align: left;
+}
+
+.company-brain-settings__item-title-text {
+  min-width: 120px;
+  color: var(--eve-shell-text);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.company-brain-settings__disclosure-icon {
+  flex: 0 0 auto;
+  color: var(--eve-shell-text-secondary);
+  transition: transform 160ms ease;
+}
+
+.company-brain-settings__disclosure-icon--open {
+  transform: rotate(90deg);
+}
+
+.company-brain-settings__item-time {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.company-brain-settings__editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 14px;
+  border-radius: var(--eve-surface-radius-md);
+  background: var(--eve-row-hover-bg);
+}
+
+.company-brain-settings__notes {
+  min-width: 0;
+}
+
+.company-brain-settings__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.company-brain-settings__loading,
+.company-brain-settings__empty {
+  margin: 0;
+  padding: 12px 0;
 }
 
 .eve-app-loader {
@@ -642,6 +866,10 @@
     opacity: 0.3;
     transition: none;
   }
+
+  .company-brain-settings__disclosure-icon {
+    transition: none;
+  }
 }
 
 @media (max-width: 767px) {
@@ -660,6 +888,11 @@
     flex-direction: column;
   }
 
+  .eve-page-header__action,
+  .eve-settings-section-header__action {
+    width: 100%;
+  }
+
   .eve-settings-preference-row--stack-mobile {
     align-items: stretch;
     flex-direction: column;
@@ -670,5 +903,36 @@
     width: 100%;
     flex: 1 1 auto;
     justify-content: flex-end;
+  }
+
+  .eve-settings-preference-row--stack-mobile .eve-settings-value {
+    text-align: left;
+  }
+
+  .eve-settings-action-row {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .eve-settings-action-row > .arco-btn {
+    align-self: flex-start;
+  }
+
+  .company-brain-settings__actions {
+    justify-content: flex-start;
+  }
+
+  .company-brain-settings__item-head {
+    align-items: flex-start;
+  }
+
+  .company-brain-settings__item-title .arco-btn-content {
+    align-items: flex-start;
+  }
+
+  .company-brain-settings__item-time {
+    width: 100%;
+    margin-left: 0;
   }
 }
