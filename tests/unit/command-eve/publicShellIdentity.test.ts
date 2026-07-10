@@ -13,5 +13,7 @@ describe('Command EVE public shell identity', () => {
     expect(guidPage).toContain('const isCommandEveAssistant = COMMAND_EVE_SHELL_ENABLED;');
     expect(guidSend).toContain('const isCommandEveAssistant = COMMAND_EVE_SHELL_ENABLED;');
     expect(guidPage).toContain('isCommandEveAssistant ? COMMAND_EVE_DISPLAY_NAME : mention.selectedAgentLabel');
+    expect(guidSend).not.toContain('EVE/Hermes');
+    expect(guidSend).toContain("Message.error(t('conversation.createFailed'");
   });
 });

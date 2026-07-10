@@ -19,6 +19,7 @@ import { configService } from '@/common/config/configService';
 import { isEveInferenceSelection, resolveEffectiveInferenceSelection } from '@/common/config/eveInferenceCore';
 import type { IMcpServer, TProviderWithModel } from '@/common/config/storage';
 import { buildAgentConversationParams } from '@/common/utils/buildAgentConversationParams';
+import { getConversationCreateErrorMessage } from '@/renderer/pages/conversation/utils/conversationCreateError';
 import { emitter } from '@/renderer/utils/emitter';
 import { buildDisplayMessage } from '@/renderer/utils/file/messageFiles';
 import { updateWorkspaceTime } from '@/renderer/utils/workspace/workspaceHistory';
@@ -427,9 +428,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         });
 
         if (!conversation || !conversation.id) {
-          const runtimeLabel = COMMAND_EVE_SHELL_ENABLED ? 'EVE' : 'Aion CLI';
-          const installLabel = COMMAND_EVE_SHELL_ENABLED ? 'the local EVE runtime is ready' : 'aionrs is installed';
-          alert(`Failed to create ${runtimeLabel} conversation. Please ensure ${installLabel}.`);
+          Message.error(t('conversation.createFailed', { defaultValue: 'Failed to create conversation' }));
           return;
         }
 
@@ -447,9 +446,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
 
         await navigateToConversation(navigate, conversation.id);
       } catch (error: unknown) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        const runtimeLabel = COMMAND_EVE_SHELL_ENABLED ? 'EVE/Hermes' : 'Aion CLI';
-        alert(`Failed to create ${runtimeLabel} conversation: ${errorMessage}`);
+        Message.error(getConversationCreateErrorMessage(error, t));
         throw error;
       }
       return;
