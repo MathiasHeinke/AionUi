@@ -7,10 +7,12 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Tooltip } from '@arco-design/web-react';
-import { ArrowCircleLeft, CloseOne, Moon, SettingTwo, SunOne } from '@icon-park/react';
+import { ArrowCircleLeft, CloseOne, Download, Moon, SunOne } from '@icon-park/react';
 import classNames from 'classnames';
-import { iconColors } from '@renderer/styles/colors';
+import CommandEveGlyph from '@renderer/components/commandEve/CommandEveGlyph';
+import { initialsFromName, useCommandEveProfile } from '@renderer/components/account/useCommandEveProfile';
 import type { SiderTooltipProps } from '@renderer/utils/ui/siderTooltip';
+import './SiderFooter.css';
 
 interface SiderFooterProps {
   isMobile: boolean;
@@ -24,6 +26,10 @@ interface SiderFooterProps {
   onLogoutClick?: () => void;
 }
 
+const openUpdateModal = () => {
+  window.dispatchEvent(new Event('aionui-open-update-modal'));
+};
+
 const SiderFooter: React.FC<SiderFooterProps> = ({
   isMobile,
   isSettings,
@@ -36,97 +42,84 @@ const SiderFooter: React.FC<SiderFooterProps> = ({
   onLogoutClick,
 }) => {
   const { t } = useTranslation();
-
-  const settingsIcon = isSettings ? (
-    <ArrowCircleLeft
-      theme='outline'
-      size='16'
-      fill='currentColor'
-      className='block leading-none'
-      style={{ lineHeight: 0 }}
-    />
-  ) : (
-    <SettingTwo
-      theme='outline'
-      size='16'
-      fill='currentColor'
-      className='block leading-none'
-      style={{ lineHeight: 0 }}
-    />
-  );
+  const { name, email } = useCommandEveProfile();
+  const displayName = name || email || 'Command EVE';
+  const initials = initialsFromName(name);
+  const identityLabel = isSettings ? t('common.back') : displayName;
+  const settingsTooltip = isSettings ? t('common.back') : `${displayName} · ${t('common.settings')}`;
+  const updateLabel = t('update.modalTitle');
+  const updateHint = t('settings.checkForUpdates');
   const showThemeToggle = isSettings && !collapsed;
   const themeTooltip = theme === 'dark' ? t('settings.lightMode') : t('settings.darkMode');
 
   return (
-    <div className='shrink-0 sider-footer mt-auto pt-8px pb-8px border-t border-solid border-[var(--color-border-2)] border-l-0 border-r-0 border-b-0'>
-      <div className={classNames('flex', collapsed ? 'flex-col gap-2px' : 'items-center gap-2px')}>
-        <Tooltip {...siderTooltipProps} content={isSettings ? t('common.back') : t('common.settings')} position='right'>
-          <div
+    <footer className='sider-footer'>
+      <div className={classNames('sider-footer__row', collapsed && 'sider-footer__row--collapsed')}>
+        <Tooltip {...siderTooltipProps} content={settingsTooltip} position='right'>
+          <button
+            type='button'
             onClick={onSettingsClick}
             className={classNames(
-              'group h-34px flex items-center rd-0.5rem cursor-pointer transition-colors',
-              collapsed ? 'w-full justify-center' : 'flex-1 min-w-0 justify-start gap-8px pl-10px pr-8px',
-              isMobile && 'sider-footer-btn-mobile',
-              {
-                'bg-fill-3': isSettings,
-                'hover:bg-fill-3 active:bg-fill-4': !isSettings,
-              }
+              'sider-footer__identity',
+              isSettings && 'sider-footer__identity--active',
+              isMobile && 'sider-footer-btn-mobile'
             )}
+            aria-label={settingsTooltip}
+            data-testid='sider-footer-identity'
           >
-            <span className='size-22px flex items-center justify-center shrink-0 text-t-secondary'>{settingsIcon}</span>
-            <span className='collapsed-hidden text-t-primary text-14px font-[500] leading-24px truncate'>
-              {isSettings ? t('common.back') : t('common.settings')}
+            <span className='sider-footer__avatar' aria-hidden='true'>
+              {isSettings ? <ArrowCircleLeft size={16} /> : initials ? initials : <CommandEveGlyph size={15} />}
             </span>
-          </div>
+            <span className='sider-footer__identity-label collapsed-hidden'>{identityLabel}</span>
+          </button>
         </Tooltip>
-        {showLogout && onLogoutClick && (
-          <Tooltip {...siderTooltipProps} content={t('settings.googleLogout')} position='right'>
-            <div
-              onClick={onLogoutClick}
+
+        <div className='sider-footer__controls'>
+          {showLogout && onLogoutClick && (
+            <Tooltip {...siderTooltipProps} content={t('settings.googleLogout')} position='right'>
+              <button
+                type='button'
+                onClick={onLogoutClick}
+                className={classNames('sider-footer__icon-button', isMobile && 'sider-footer-btn-mobile')}
+                aria-label={t('settings.googleLogout')}
+              >
+                <CloseOne size={16} />
+              </button>
+            </Tooltip>
+          )}
+
+          {showThemeToggle && (
+            <Tooltip {...siderTooltipProps} content={themeTooltip} position='right'>
+              <button
+                type='button'
+                onClick={onThemeToggle}
+                className={classNames('sider-footer__icon-button', isMobile && 'sider-footer-btn-mobile')}
+                aria-label={themeTooltip}
+              >
+                {theme === 'dark' ? <SunOne size={17} /> : <Moon size={17} />}
+              </button>
+            </Tooltip>
+          )}
+
+          <Tooltip {...siderTooltipProps} content={updateHint} position='right'>
+            <button
+              type='button'
+              onClick={openUpdateModal}
               className={classNames(
-                'h-32px flex items-center rd-0.5rem cursor-pointer transition-colors hover:bg-[rgba(var(--primary-6),0.14)] active:bg-fill-2',
-                collapsed ? 'w-full justify-center' : 'flex-1 min-w-0 justify-start gap-10px px-14px',
+                'sider-footer__update',
+                (collapsed || isSettings) && 'sider-footer__update--compact',
                 isMobile && 'sider-footer-btn-mobile'
               )}
+              aria-label={updateHint}
+              data-testid='sider-footer-update'
             >
-              <span className='size-20px flex items-center justify-center shrink-0'>
-                <CloseOne
-                  theme='outline'
-                  size='16'
-                  fill={iconColors.primary}
-                  className='block leading-none'
-                  style={{ lineHeight: 0 }}
-                />
-              </span>
-              <span className='collapsed-hidden text-t-primary text-14px font-[500] leading-24px truncate'>
-                {t('settings.googleLogout')}
-              </span>
-            </div>
+              <Download size={16} className='sider-footer__update-icon' />
+              <span className='sider-footer__update-label'>{updateLabel}</span>
+            </button>
           </Tooltip>
-        )}
-        {/* Theme toggle — lightweight icon button, only while inside Settings page (not in collapsed mode) */}
-        {showThemeToggle && (
-          <Tooltip {...siderTooltipProps} content={themeTooltip} position='right'>
-            <div
-              onClick={onThemeToggle}
-              className={classNames(
-                'h-32px w-40px shrink-0 flex items-center justify-center cursor-pointer rd-0.5rem transition-colors text-t-secondary hover:bg-fill-2 hover:text-t-primary active:bg-fill-3',
-                isMobile && 'sider-footer-btn-mobile'
-              )}
-              aria-label={themeTooltip}
-            >
-              <span className='w-28px h-28px flex items-center justify-center shrink-0'>
-                {theme === 'dark' ? (
-                  <SunOne theme='outline' size='18' fill='currentColor' className='block leading-none' />
-                ) : (
-                  <Moon theme='outline' size='18' fill='currentColor' className='block leading-none' />
-                )}
-              </span>
-            </div>
-          </Tooltip>
-        )}
+        </div>
       </div>
-    </div>
+    </footer>
   );
 };
 

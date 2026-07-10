@@ -1,0 +1,169 @@
+.sider-footer {
+  flex: 0 0 auto;
+  margin-top: auto;
+  padding: 8px;
+  border-top: 1px solid var(--glass-chrome-border, var(--color-border-2));
+  background: color-mix(in srgb, var(--glass-chrome-bg) 82%, transparent);
+}
+
+.sider-footer__row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sider-footer__row--collapsed {
+  flex-direction: column;
+}
+
+.sider-footer__identity,
+.sider-footer__icon-button,
+.sider-footer__update {
+  height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--eve-shell-text-secondary, var(--color-text-2));
+  cursor: pointer;
+}
+
+.sider-footer__identity {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px 0 6px;
+  text-align: left;
+  transition:
+    color 140ms ease,
+    background-color 140ms ease;
+}
+
+.sider-footer__identity:hover,
+.sider-footer__identity--active {
+  color: var(--eve-shell-text, var(--color-text-1));
+  background: var(--eve-row-hover-bg, var(--color-fill-2));
+}
+
+.sider-footer__avatar {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--eve-seat-border, var(--color-border-2));
+  border-radius: 999px;
+  background: var(--eve-seat-bg, var(--color-fill-2));
+  color: var(--eve-shell-text, var(--color-text-1));
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.sider-footer__identity-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.sider-footer__controls {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.sider-footer__row--collapsed .sider-footer__controls {
+  flex-direction: column;
+}
+
+.sider-footer__icon-button {
+  width: 32px;
+  flex: 0 0 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sider-footer__update {
+  min-width: 32px;
+  max-width: 32px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  overflow: hidden;
+  color: var(--eve-shell-text, var(--color-text-1));
+  background: color-mix(in srgb, var(--eve-accent) 12%, transparent);
+  transition:
+    max-width 180ms ease,
+    color 140ms ease,
+    background-color 140ms ease;
+}
+
+.sider-footer__update:hover,
+.sider-footer__update:focus-visible {
+  max-width: 160px;
+  color: #ffffff;
+  background: var(--eve-accent, var(--color-primary-6));
+}
+
+.sider-footer__update-icon {
+  flex: 0 0 16px;
+}
+
+.sider-footer__update-label {
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  transition:
+    max-width 180ms ease,
+    opacity 120ms ease;
+}
+
+.sider-footer__update:hover .sider-footer__update-label,
+.sider-footer__update:focus-visible .sider-footer__update-label {
+  max-width: 122px;
+  opacity: 1;
+}
+
+.sider-footer__update--compact:hover,
+.sider-footer__update--compact:focus-visible {
+  max-width: 32px;
+}
+
+.sider-footer__update--compact .sider-footer__update-label {
+  display: none;
+}
+
+.sider-footer__identity:focus-visible,
+.sider-footer__icon-button:focus-visible,
+.sider-footer__update:focus-visible {
+  outline: 2px solid var(--eve-focus-ring, var(--color-primary-6));
+  outline-offset: 1px;
+}
+
+.sider-footer__icon-button:hover {
+  color: var(--eve-shell-text, var(--color-text-1));
+  background: var(--eve-row-hover-bg, var(--color-fill-2));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sider-footer__identity,
+  .sider-footer__update,
+  .sider-footer__update-label {
+    transition: none;
+  }
+}

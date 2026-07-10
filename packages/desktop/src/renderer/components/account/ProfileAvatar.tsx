@@ -14,49 +14,24 @@
  * local — only this chrome reads it.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React from 'react';
 import { Tooltip } from '@arco-design/web-react';
 import { User } from '@icon-park/react';
 import { useTranslation } from 'react-i18next';
-import { commandEve } from '@/common/adapter/ipcBridge';
+import CommandEveGlyph from '@/renderer/components/commandEve/CommandEveGlyph';
+import { initialsFromName, useCommandEveProfile } from './useCommandEveProfile';
 import './profileAvatar.css';
+
+export { initialsFromName } from './useCommandEveProfile';
 
 export interface ProfileAvatarProps {
   /** Open the account settings panel. */
   onOpenAccount?: () => void;
 }
 
-/** Derive up-to-2-char uppercase initials from a display name. */
-export function initialsFromName(name?: string): string {
-  const trimmed = (name || '').trim();
-  if (!trimmed) return '';
-  const parts = trimmed.split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
 const ProfileAvatar: React.FC<ProfileAvatarProps> = ({ onOpenAccount }) => {
   const { t } = useTranslation();
-  const [name, setName] = useState<string | undefined>(undefined);
-  const [email, setEmail] = useState<string | undefined>(undefined);
-
-  const refresh = useCallback(async () => {
-    try {
-      const response = await commandEve.registrationStatus.invoke();
-      const data = response.data;
-      if (data?.ok) {
-        setName(data.name);
-        setEmail(data.email);
-      }
-    } catch {
-      // Self-quiet: leave the glyph fallback in place.
-    }
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  const { name, email } = useCommandEveProfile();
 
   const initials = initialsFromName(name);
   // Tooltip makes the "this opens your profile" intent explicit on hover.
@@ -86,8 +61,8 @@ const ProfileAvatar: React.FC<ProfileAvatarProps> = ({ onOpenAccount }) => {
         {initials ? (
           <span className='profile-avatar__initials'>{initials}</span>
         ) : (
-          <span className='profile-avatar__glyph' aria-hidden='true'>
-            ⌘
+          <span className='profile-avatar__glyph'>
+            <CommandEveGlyph size={14} />
           </span>
         )}
       </button>
