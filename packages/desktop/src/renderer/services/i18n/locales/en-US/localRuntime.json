@@ -1,22 +1,22 @@
 {
   "sider": "Runtime",
-  "title": "Local Runtime",
-  "readOnly": "Read-only",
-  "subtitle": "Local truth for EVE Runtime, Ollama, Gemma tiers, and the latest bootstrap receipt. No model switching or warm-up action is exposed on this screen.",
+  "title": "Local AI",
+  "readOnly": "Status",
+  "subtitle": "See whether EVE's local AI is ready on this Mac. EVE manages it automatically and uses the cloud whenever something is missing locally.",
   "refresh": "Refresh",
   "sections": {
-    "runtimeTruth": "Runtime Truth",
-    "receipt": "Bootstrap Receipt",
-    "warmup": "Model warm-up",
-    "kanban": "EVE Runtime Kanban"
+    "runtimeTruth": "Local execution",
+    "receipt": "Setup status",
+    "warmup": "Startup check",
+    "kanban": "Local tasks"
   },
   "remediation": {
-    "title": "Set up the local lane",
-    "cloudReassurance": "The cloud AI is and stays your default lane — it runs immediately, no matter what this screen says.",
+    "title": "Prepare local AI",
+    "cloudReassurance": "EVE keeps working in the cloud until local AI is ready.",
     "reasonLabel": "Reason",
     "external-link": {
-      "title": "The local AI needs Ollama",
-      "body": "For the local AI to run on this Mac, Ollama must be installed. You can install it in one step — or simply keep working in the cloud.",
+      "title": "A local component is missing",
+      "body": "For the local AI to run on this Mac, a runtime component must be installed. EVE can guide you through setup — or simply keep working in the cloud.",
       "actionHint": "EVE can open a step-by-step walkthrough as a page for you.",
       "explainer": "OLLAMA_MISSING / OLLAMA_NOT_RUNNING: the local runtime is missing or not running."
     },
@@ -50,7 +50,7 @@
     "selectedModel": "Selected model",
     "runtimeModel": "Runtime model",
     "context": "Context",
-    "requirements": "Requirements",
+    "requirements": "Requires",
     "status": "Status",
     "model": "Model",
     "baseUrl": "Base URL",
@@ -60,7 +60,13 @@
     "error": "Error",
     "baseModel": "Base model",
     "nextAction": "Next action",
-    "receiptPath": "Receipt file"
+    "receiptPath": "Receipt file",
+    "localLane": "Management",
+    "storage": "Storage"
+  },
+  "values": {
+    "managedByEve": "Managed automatically by EVE",
+    "storedLocally": "Stored securely on this Mac"
   },
   "requirements": "{{memory}} GB RAM · {{disk}} GB disk",
   "elapsedMs": "{{elapsed}} ms",
@@ -74,8 +80,8 @@
     "ready": "Ready",
     "notReady": "Not ready",
     "moduleCount": "{{ready}}/{{total}} modules ready",
-    "governanceLocked": "Dispatcher and external MCP servers are off",
-    "governanceOpen": "Governance lock incomplete",
+    "governanceLocked": "Automatic external changes are switched off",
+    "governanceOpen": "Some protection rules are not active yet",
     "labels": {
       "board": "Board",
       "db": "Kanban DB",
@@ -83,11 +89,13 @@
       "tasks": "Tasks",
       "modules": "Modules",
       "governance": "Governance",
-      "reconciliation": "Reconciliation"
+      "protection": "Autonomy protection",
+      "reconciliation": "Reconciliation",
+      "localData": "Local data"
     },
     "dbPresent": {
-      "yes": "Present, opened read-only",
-      "no": "Not present yet, no mutation executed"
+      "yes": "Present",
+      "no": "Not set up yet"
     }
   },
   "tierStatus": {
@@ -96,8 +104,35 @@
     "opt_in": "Optional",
     "pro": "Pro"
   },
+  "tierNames": {
+    "gemma-4-e4b-local-default": "Fast and efficient",
+    "gemma-4-12b-local-planning": "Planning and analysis",
+    "gemma-4-31b-local-pro": "Local Pro performance"
+  },
+  "tierDescriptions": {
+    "gemma-4-e4b-local-default": "For quick everyday tasks and short answers.",
+    "gemma-4-12b-local-planning": "For broader planning and structured analysis.",
+    "gemma-4-31b-local-pro": "For demanding local work on high-performance Macs.",
+    "unknown": "For local tasks on this Mac."
+  },
+  "receiptStatus": {
+    "ready": "Ready",
+    "blocked": "Not ready yet",
+    "failed": "Setup failed",
+    "skipped": "Not set up yet",
+    "unknown": "Checking status"
+  },
+  "receiptNextAction": {
+    "ready": "EVE can use local AI automatically.",
+    "blocked": "EVE keeps working in the cloud and leaves local AI switched off.",
+    "failed": "EVE keeps working in the cloud. Local setup can be checked again later.",
+    "skipped": "Nothing to do. EVE sets up local AI when needed.",
+    "unknown": "EVE checks the next safe step automatically."
+  },
   "warnings": {
     "title": "Status note",
+    "publicSummary": "Local AI is not fully prepared yet. EVE keeps working reliably in the cloud in the meantime.",
+    "publicTaskSummary": "Some local task data is not available yet. Core functions remain usable.",
     "runtime_receipt_missing": "No runtime receipt has been written yet",
     "runtime_receipt_schema_mismatch": "Runtime receipt has an unexpected schema",
     "runtime_receipt_json_invalid": "Runtime receipt is not valid JSON",
@@ -107,26 +142,28 @@
     "runtime_reconciliation_missing": "Runtime reconciliation is missing",
     "runtime_reconciliation_schema_mismatch": "Runtime reconciliation has an unexpected schema",
     "runtime_reconciliation_json_invalid": "Runtime reconciliation is not valid JSON",
-    "hermes_version_lookup_failed": "EVE Runtime version could not be read",
-    "kanban_board_read_failed": "Kanban board could not be read read-only",
-    "kanban_optional_dashboard_api_unavailable": "Optional EVE Runtime dashboard API is not importable; core Kanban remains usable",
-    "kanban_board_db_missing_read_only_no_mutation": "Kanban DB is not present yet; the preflight intentionally did not create it",
-    "kanban_python_probe_nonzero_exit": "Kanban Python probe exited non-zero",
-    "ollama_probe_unavailable": "Ollama unreachable — model install status unknown"
+    "hermes_version_lookup_failed": "The local runtime version could not be read",
+    "kanban_board_read_failed": "Local task data could not be read",
+    "kanban_optional_dashboard_api_unavailable": "An optional local view is unavailable; core functions remain usable",
+    "kanban_board_db_missing_read_only_no_mutation": "Local task data is not present yet; the safety check changed nothing",
+    "kanban_python_probe_nonzero_exit": "The local task check did not complete successfully",
+    "ollama_probe_unavailable": "The local AI is unavailable — its installation status is unknown"
   },
   "errors": {
     "loadFailed": "Runtime status could not be loaded.",
-    "kanbanLoadFailed": "Kanban preflight could not be loaded."
+    "loadFailedDescription": "EVE could not read the local AI status right now. Cloud AI remains available.",
+    "kanbanLoadFailed": "Local tasks could not be checked.",
+    "kanbanLoadFailedDescription": "EVE could not read local task data right now. Your saved tasks remain unchanged."
   },
   "blocked": {
-    "title": "Runtime status blocked",
-    "description": "Local runtime truth is unavailable.",
+    "title": "Local AI unavailable",
+    "description": "EVE could not check local AI right now. Cloud AI remains available.",
     "electronBridgeRequired": "Runtime status requires the Electron bridge."
   },
   "empty": {
-    "noReceipt": "No bootstrap receipt yet.",
-    "noWarmup": "No model warm-up receipt yet.",
-    "noKanban": "No Kanban preflight yet.",
-    "noRuntime": "No runtime data found."
+    "noReceipt": "Local AI has not been set up yet.",
+    "noWarmup": "Local AI has not been started yet.",
+    "noKanban": "No local task data yet.",
+    "noRuntime": "No local AI information yet."
   }
 }

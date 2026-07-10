@@ -4,13 +4,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import classNames from 'classnames';
 import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, Button, Empty, Spin, Tag } from '@arco-design/web-react';
 import { bridge } from '@office-ai/platform';
-import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
-import { useLayoutContext } from '@renderer/hooks/context/LayoutContext';
+import SettingsPageWrapper from '@renderer/pages/settings/components/SettingsPageWrapper';
+import { useCommandEveFounderBuild } from '@renderer/hooks/useCommandEveFounderBuild';
 import { isElectronDesktop } from '@renderer/utils/platform';
 
 type TierStatus = 'selected' | 'available' | 'opt_in' | 'pro';
@@ -163,11 +162,10 @@ const kanbanPreflightBridge = bridge.buildProvider<
   { boardSlug?: string } | undefined
 >('command-eve.kanban-preflight');
 
-const tierColor = (status: TierStatus): 'green' | 'blue' | 'orange' | 'purple' => {
+const tierColor = (status: TierStatus): 'green' | 'blue' | 'gray' => {
   if (status === 'selected') return 'green';
-  if (status === 'available') return 'blue';
-  if (status === 'pro') return 'purple';
-  return 'orange';
+  if (status === 'available' || status === 'pro') return 'blue';
+  return 'gray';
 };
 
 const formatNumber = (value: number): string => new Intl.NumberFormat().format(value);
@@ -177,22 +175,60 @@ const textOrDash = (value?: string | null): string => {
   return text || '-';
 };
 
-const TierCard: React.FC<{ tier: LocalRuntimeTier }> = ({ tier }) => {
+const formatTimestamp = (value: string | undefined, locale: string): string => {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
+};
+
+type PublicReceiptStatus = NonNullable<LocalRuntimeModel['receipt']>['status'] | 'unknown';
+
+const normalizeReceiptStatus = (status: string): PublicReceiptStatus => {
+  if (status === 'ready' || status === 'blocked' || status === 'failed' || status === 'skipped') return status;
+  return 'unknown';
+};
+
+const TierCard: React.FC<{ tier: LocalRuntimeTier; showTechnicalDetails: boolean }> = ({
+  tier,
+  showTechnicalDetails,
+}) => {
   const { t } = useTranslation();
+  const publicLabel = t(`localRuntime.tierNames.${tier.id}`, {
+    defaultValue: t(`localRuntime.tierStatus.${tier.status}`),
+  });
   return (
     <article className='rounded-14px border border-solid border-[var(--color-border-2)] bg-fill-1 px-16px py-14px'>
       <div className='flex items-start justify-between gap-12px'>
         <div className='min-w-0'>
-          <div className='truncate text-16px font-700 leading-24px text-t-primary'>{tier.label}</div>
-          <div className='mt-2px truncate text-12px leading-18px text-t-tertiary'>{tier.model_ref}</div>
+          <div className='truncate text-16px font-700 leading-24px text-t-primary'>
+            {showTechnicalDetails ? tier.label : publicLabel}
+          </div>
+          {showTechnicalDetails ? (
+            <div className='mt-2px truncate text-12px leading-18px text-t-tertiary'>{tier.model_ref}</div>
+          ) : null}
         </div>
         <Tag color={tierColor(tier.status)}>{t(`localRuntime.tierStatus.${tier.status}`)}</Tag>
       </div>
+      {!showTechnicalDetails ? (
+        <p className='m-0 mt-8px text-13px leading-20px text-t-secondary'>
+          {t(`localRuntime.tierDescriptions.${tier.id}`, {
+            defaultValue: t('localRuntime.tierDescriptions.unknown'),
+          })}
+        </p>
+      ) : null}
       <dl className='mt-12px grid gap-x-12px gap-y-7px text-12px leading-18px sm:grid-cols-[145px_minmax(0,1fr)]'>
-        <dt className='text-t-tertiary'>{t('localRuntime.labels.runtimeModel')}</dt>
-        <dd className='m-0 break-words text-t-secondary'>{tier.runtime_model_ref}</dd>
-        <dt className='text-t-tertiary'>{t('localRuntime.labels.context')}</dt>
-        <dd className='m-0 text-t-secondary'>{formatNumber(tier.context_length)}</dd>
+        {showTechnicalDetails ? (
+          <>
+            <dt className='text-t-tertiary'>{t('localRuntime.labels.runtimeModel')}</dt>
+            <dd className='m-0 break-words text-t-secondary'>{tier.runtime_model_ref}</dd>
+            <dt className='text-t-tertiary'>{t('localRuntime.labels.context')}</dt>
+            <dd className='m-0 text-t-secondary'>{formatNumber(tier.context_length)}</dd>
+          </>
+        ) : null}
         <dt className='text-t-tertiary'>{t('localRuntime.labels.requirements')}</dt>
         <dd className='m-0 text-t-secondary'>
           {t('localRuntime.requirements', {
@@ -214,7 +250,8 @@ const RemediationCard: React.FC<{
   blocked: BlockedStage;
   warmupPollCount: number;
   pull?: LocalRuntimeModel['model_pull'];
-}> = ({ blocked, warmupPollCount, pull }) => {
+  showTechnicalDetails: boolean;
+}> = ({ blocked, warmupPollCount, pull, showTechnicalDetails }) => {
   const { t } = useTranslation();
   const kind = blocked.remediation_kind;
 
@@ -240,7 +277,7 @@ const RemediationCard: React.FC<{
   const alertType = kind === 'cloud-redirect' ? 'info' : 'warning';
 
   return (
-    <section className='rounded-16px border border-solid border-[var(--color-border-2)] bg-bg-2 px-18px py-16px'>
+    <section className='eve-settings-group'>
       <div className='mb-12px flex flex-wrap items-center gap-8px'>
         <span className='text-16px font-700 leading-24px text-t-primary'>{t('localRuntime.remediation.title')}</span>
         <Tag color='gray'>{t('localRuntime.readOnly')}</Tag>
@@ -291,20 +328,21 @@ const RemediationCard: React.FC<{
       <p className='m-0 mt-12px text-12px leading-18px text-t-secondary'>
         {t('localRuntime.remediation.cloudReassurance')}
       </p>
-      <div className='mt-10px grid gap-x-12px gap-y-6px text-12px leading-18px lg:grid-cols-[180px_minmax(0,1fr)]'>
-        <span className='text-t-tertiary'>{t('localRuntime.remediation.reasonLabel')}</span>
-        <span className='break-words text-t-secondary'>
-          {`${blocked.reason_code} · ${t(`localRuntime.remediation.${kind}.explainer`)}`}
-        </span>
-      </div>
+      {showTechnicalDetails ? (
+        <div className='mt-10px grid gap-x-12px gap-y-6px text-12px leading-18px lg:grid-cols-[180px_minmax(0,1fr)]'>
+          <span className='text-t-tertiary'>{t('localRuntime.remediation.reasonLabel')}</span>
+          <span className='break-words text-t-secondary'>
+            {`${blocked.reason_code} · ${t(`localRuntime.remediation.${kind}.explainer`)}`}
+          </span>
+        </div>
+      ) : null}
     </section>
   );
 };
 
 const LocalRuntimePage: React.FC = () => {
-  const { t } = useTranslation();
-  const layout = useLayoutContext();
-  const isMobile = layout?.isMobile ?? false;
+  const { t, i18n } = useTranslation();
+  const { founderBuild: showTechnicalDetails } = useCommandEveFounderBuild();
   const [loading, setLoading] = useState(true);
   const [result, setResult] = useState<LocalRuntimeResult | null>(null);
   const [kanbanResult, setKanbanResult] = useState<KanbanPreflightResult | null>(null);
@@ -383,32 +421,44 @@ const LocalRuntimePage: React.FC = () => {
   }, [load, loading, model, pullInProgress, warmupMissing, warmupPollCount, warmupStatus]);
 
   return (
-    <div className='size-full overflow-y-auto bg-bg-1'>
-      <div className={classNames('mx-auto flex max-w-1280px flex-col gap-18px px-24px py-28px', isMobile && 'px-16px')}>
-        <header className='flex flex-wrap items-start justify-between gap-12px'>
-          <div className='min-w-0'>
+    <SettingsPageWrapper contentClassName='max-w-1280px'>
+      <div className='flex w-full flex-col gap-18px'>
+        <header className='eve-page-header'>
+          <div className='eve-page-header__copy'>
             <div className='flex items-center gap-8px'>
-              <h1 className='m-0 text-28px font-700 leading-34px text-t-primary'>{t('localRuntime.title')}</h1>
+              <h1>{t('localRuntime.title')}</h1>
               <Tag color='gray'>{t('localRuntime.readOnly')}</Tag>
             </div>
-            <p className='m-0 mt-8px max-w-820px text-14px leading-22px text-t-secondary'>
-              {t('localRuntime.subtitle')}
-            </p>
+            <p>{t('localRuntime.subtitle')}</p>
           </div>
           <Button type='secondary' loading={loading} onClick={() => void load()}>
             {t('localRuntime.refresh')}
           </Button>
         </header>
 
-        {error ? <Alert type='warning' title={t('localRuntime.errors.loadFailed')} content={error} /> : null}
+        {error ? (
+          <Alert
+            type='warning'
+            title={t('localRuntime.errors.loadFailed')}
+            content={showTechnicalDetails ? error : t('localRuntime.errors.loadFailedDescription')}
+          />
+        ) : null}
         {kanbanError ? (
-          <Alert type='warning' title={t('localRuntime.errors.kanbanLoadFailed')} content={kanbanError} />
+          <Alert
+            type='warning'
+            title={t('localRuntime.errors.kanbanLoadFailed')}
+            content={showTechnicalDetails ? kanbanError : t('localRuntime.errors.kanbanLoadFailedDescription')}
+          />
         ) : null}
         {result && !result.ok ? (
           <Alert
             type={result.status === 'blocked' ? 'warning' : 'error'}
             title={t('localRuntime.blocked.title')}
-            content={`${result.reason_code || 'LOCAL_RUNTIME_UNAVAILABLE'}: ${result.message || t('localRuntime.blocked.description')}`}
+            content={
+              showTechnicalDetails
+                ? `${result.reason_code || 'LOCAL_RUNTIME_UNAVAILABLE'}: ${result.message || t('localRuntime.blocked.description')}`
+                : t('localRuntime.blocked.description')
+            }
           />
         ) : null}
 
@@ -419,11 +469,18 @@ const LocalRuntimePage: React.FC = () => {
         ) : model ? (
           <>
             {model.warnings.length ? (
-              <Alert
-                type='info'
-                title={t('localRuntime.warnings.title')}
-                content={model.warnings.map((warning) => t(`localRuntime.warnings.${warning}`, warning)).join(' · ')}
-              />
+              showTechnicalDetails ? (
+                <Alert
+                  type='info'
+                  title={t('localRuntime.warnings.title')}
+                  content={model.warnings.map((warning) => t(`localRuntime.warnings.${warning}`, warning)).join(' · ')}
+                />
+              ) : (
+                <div className='flex items-start gap-8px text-13px leading-20px text-t-secondary'>
+                  <Tag color='gray'>{t('localRuntime.warnings.title')}</Tag>
+                  <span>{t('localRuntime.warnings.publicSummary')}</span>
+                </div>
+              )
             ) : null}
 
             {model.blocked_stage ? (
@@ -431,63 +488,58 @@ const LocalRuntimePage: React.FC = () => {
                 blocked={model.blocked_stage}
                 warmupPollCount={warmupPollCount}
                 pull={model.model_pull}
+                showTechnicalDetails={showTechnicalDetails}
               />
             ) : null}
 
-            <section className='rounded-16px border border-solid border-[var(--color-border-2)] bg-bg-2 px-18px py-16px'>
+            <section className='eve-settings-group'>
               <div className='mb-12px text-16px font-700 leading-24px text-t-primary'>
                 {t('localRuntime.sections.runtimeTruth')}
               </div>
               <div className='grid gap-x-12px gap-y-8px text-12px leading-18px lg:grid-cols-[180px_minmax(0,1fr)]'>
                 <span className='text-t-tertiary'>{t('localRuntime.labels.release')}</span>
                 <span className='text-t-secondary'>{model.release}</span>
-                <span className='text-t-tertiary'>{t('localRuntime.labels.hermes')}</span>
-                <span className='text-t-secondary'>
-                  {COMMAND_EVE_SHELL_ENABLED
-                    ? `v${model.hermes.version}`
-                    : `${model.hermes.package} ${model.hermes.version}`}
-                </span>
-                <span className='text-t-tertiary'>{t('localRuntime.labels.provider')}</span>
-                <span className='text-t-secondary'>{model.provider.type}</span>
-                <span className='text-t-tertiary'>{t('localRuntime.labels.ollamaUrl')}</span>
-                <span className='break-words text-t-secondary'>{model.provider.base_url}</span>
-                <span className='text-t-tertiary'>{t('localRuntime.labels.egressProxy')}</span>
-                <span className='break-words text-t-secondary'>{model.provider.egress_proxy_url}</span>
-                <span className='text-t-tertiary'>{t('localRuntime.labels.selectedModel')}</span>
-                <span className='break-words text-t-secondary'>{model.selected_model_ref}</span>
+                <span className='text-t-tertiary'>{t('localRuntime.labels.localLane')}</span>
+                <span className='text-t-secondary'>{t('localRuntime.values.managedByEve')}</span>
+                {showTechnicalDetails ? (
+                  <>
+                    <span className='text-t-tertiary'>{t('localRuntime.labels.hermes')}</span>
+                    <span className='text-t-secondary'>{`${model.hermes.package} ${model.hermes.version}`}</span>
+                    <span className='text-t-tertiary'>{t('localRuntime.labels.provider')}</span>
+                    <span className='text-t-secondary'>{model.provider.type}</span>
+                    <span className='text-t-tertiary'>{t('localRuntime.labels.ollamaUrl')}</span>
+                    <span className='break-words text-t-secondary'>{model.provider.base_url}</span>
+                    <span className='text-t-tertiary'>{t('localRuntime.labels.egressProxy')}</span>
+                    <span className='break-words text-t-secondary'>{model.provider.egress_proxy_url}</span>
+                    <span className='text-t-tertiary'>{t('localRuntime.labels.selectedModel')}</span>
+                    <span className='break-words text-t-secondary'>{model.selected_model_ref}</span>
+                  </>
+                ) : null}
               </div>
             </section>
 
             <section className='grid gap-12px lg:grid-cols-3'>
               {model.tiers.map((tier) => (
-                <TierCard key={tier.id} tier={tier} />
+                <TierCard key={tier.id} tier={tier} showTechnicalDetails={showTechnicalDetails} />
               ))}
             </section>
 
-            <section className='rounded-16px border border-solid border-[var(--color-border-2)] bg-bg-2 px-18px py-16px'>
+            <section className='eve-settings-group'>
               <div className='mb-12px flex flex-wrap items-center gap-8px'>
                 <span className='text-16px font-700 leading-24px text-t-primary'>
                   {t('localRuntime.sections.kanban')}
                 </span>
                 {kanbanResult ? (
-                  <Tag color={kanbanResult.ok ? 'green' : kanbanResult.status === 'blocked' ? 'orange' : 'red'}>
+                  <Tag color={kanbanResult.ok ? 'green' : kanbanResult.status === 'blocked' ? 'gray' : 'red'}>
                     {kanbanResult.ok ? t('localRuntime.kanban.ready') : t('localRuntime.kanban.notReady')}
                   </Tag>
                 ) : null}
-                <Tag color='gray'>{t('localRuntime.readOnly')}</Tag>
+                {showTechnicalDetails ? <Tag color='gray'>{t('localRuntime.readOnly')}</Tag> : null}
               </div>
               {kanbanResult?.model ? (
                 <>
                   <div className='grid gap-x-12px gap-y-8px text-12px leading-18px lg:grid-cols-[180px_minmax(0,1fr)]'>
-                    <span className='text-t-tertiary'>{t('localRuntime.labels.hermes')}</span>
-                    <span className='text-t-secondary'>
-                      {`${kanbanResult.model.hermes.installed_version} / ${kanbanResult.model.hermes.min_required_version}`}
-                    </span>
-                    <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.board')}</span>
-                    <span className='text-t-secondary'>{kanbanResult.model.board.slug}</span>
-                    <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.db')}</span>
-                    <span className='break-words text-t-secondary'>{kanbanResult.model.board.db_path}</span>
-                    <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.dbState')}</span>
+                    <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.localData')}</span>
                     <span className='text-t-secondary'>
                       {kanbanResult.model.board.db_exists
                         ? t('localRuntime.kanban.dbPresent.yes')
@@ -506,7 +558,7 @@ const LocalRuntimePage: React.FC = () => {
                         total: kanbanResult.model.modules.length,
                       })}
                     </span>
-                    <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.governance')}</span>
+                    <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.protection')}</span>
                     <span className='text-t-secondary'>
                       {/* Write-governance lock = dispatcher off + external MCP off. auto_decompose
                           is intentionally ON (tree-building, not execution) — see
@@ -516,20 +568,39 @@ const LocalRuntimePage: React.FC = () => {
                         ? t('localRuntime.kanban.governanceLocked')
                         : t('localRuntime.kanban.governanceOpen')}
                     </span>
-                    <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.reconciliation')}</span>
-                    <span className='break-words text-t-secondary'>
-                      {kanbanResult.model.governance.runtime_reconciliation_path}
-                    </span>
+                    {showTechnicalDetails ? (
+                      <>
+                        <span className='text-t-tertiary'>{t('localRuntime.labels.hermes')}</span>
+                        <span className='text-t-secondary'>
+                          {`${kanbanResult.model.hermes.installed_version} / ${kanbanResult.model.hermes.min_required_version}`}
+                        </span>
+                        <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.board')}</span>
+                        <span className='text-t-secondary'>{kanbanResult.model.board.slug}</span>
+                        <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.db')}</span>
+                        <span className='break-words text-t-secondary'>{kanbanResult.model.board.db_path}</span>
+                        <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.reconciliation')}</span>
+                        <span className='break-words text-t-secondary'>
+                          {kanbanResult.model.governance.runtime_reconciliation_path}
+                        </span>
+                      </>
+                    ) : null}
                   </div>
                   {kanbanResult.model.warnings.length ? (
-                    <Alert
-                      className='mt-12px'
-                      type='info'
-                      title={t('localRuntime.warnings.title')}
-                      content={kanbanResult.model.warnings
-                        .map((warning) => t(`localRuntime.warnings.${warning}`, warning))
-                        .join(' · ')}
-                    />
+                    showTechnicalDetails ? (
+                      <Alert
+                        className='mt-12px'
+                        type='info'
+                        title={t('localRuntime.warnings.title')}
+                        content={kanbanResult.model.warnings
+                          .map((warning) => t(`localRuntime.warnings.${warning}`, warning))
+                          .join(' · ')}
+                      />
+                    ) : (
+                      <div className='mt-12px flex items-start gap-8px text-13px leading-20px text-t-secondary'>
+                        <Tag color='gray'>{t('localRuntime.warnings.title')}</Tag>
+                        <span>{t('localRuntime.warnings.publicTaskSummary')}</span>
+                      </div>
+                    )
                   ) : null}
                 </>
               ) : (
@@ -537,27 +608,43 @@ const LocalRuntimePage: React.FC = () => {
               )}
             </section>
 
-            <section className='rounded-16px border border-solid border-[var(--color-border-2)] bg-bg-2 px-18px py-16px'>
+            <section className='eve-settings-group'>
               <div className='mb-12px text-16px font-700 leading-24px text-t-primary'>
                 {t('localRuntime.sections.receipt')}
               </div>
               {model.receipt ? (
                 <div className='grid gap-x-12px gap-y-8px text-12px leading-18px lg:grid-cols-[180px_minmax(0,1fr)]'>
                   <span className='text-t-tertiary'>{t('localRuntime.labels.status')}</span>
-                  <span className='text-t-secondary'>{model.receipt.status}</span>
-                  <span className='text-t-tertiary'>{t('localRuntime.labels.baseModel')}</span>
-                  <span className='text-t-secondary'>{textOrDash(model.receipt.base_model)}</span>
+                  <span className='text-t-secondary'>
+                    {t(`localRuntime.receiptStatus.${normalizeReceiptStatus(model.receipt.status)}`, {
+                      defaultValue: t('localRuntime.receiptStatus.unknown'),
+                    })}
+                  </span>
                   <span className='text-t-tertiary'>{t('localRuntime.labels.nextAction')}</span>
-                  <span className='text-t-secondary'>{model.receipt.next_action}</span>
-                  <span className='text-t-tertiary'>{t('localRuntime.labels.receiptPath')}</span>
-                  <span className='break-words text-t-secondary'>{model.receipt.path}</span>
+                  <span className='text-t-secondary'>
+                    {showTechnicalDetails
+                      ? model.receipt.next_action
+                      : t(`localRuntime.receiptNextAction.${normalizeReceiptStatus(model.receipt.status)}`, {
+                          defaultValue: t('localRuntime.receiptNextAction.unknown'),
+                        })}
+                  </span>
+                  <span className='text-t-tertiary'>{t('localRuntime.labels.storage')}</span>
+                  <span className='text-t-secondary'>{t('localRuntime.values.storedLocally')}</span>
+                  {showTechnicalDetails ? (
+                    <>
+                      <span className='text-t-tertiary'>{t('localRuntime.labels.baseModel')}</span>
+                      <span className='text-t-secondary'>{textOrDash(model.receipt.base_model)}</span>
+                      <span className='text-t-tertiary'>{t('localRuntime.labels.receiptPath')}</span>
+                      <span className='break-words text-t-secondary'>{model.receipt.path}</span>
+                    </>
+                  ) : null}
                 </div>
               ) : (
                 <Empty description={t('localRuntime.empty.noReceipt')} />
               )}
             </section>
 
-            <section className='rounded-16px border border-solid border-[var(--color-border-2)] bg-bg-2 px-18px py-16px'>
+            <section className='eve-settings-group'>
               <div className='mb-12px flex items-center gap-8px'>
                 <span className='text-16px font-700 leading-24px text-t-primary'>
                   {t('localRuntime.sections.warmup')}
@@ -580,30 +667,42 @@ const LocalRuntimePage: React.FC = () => {
               </div>
               {model.model_warmup ? (
                 <div className='grid gap-x-12px gap-y-8px text-12px leading-18px lg:grid-cols-[180px_minmax(0,1fr)]'>
-                  <span className='text-t-tertiary'>{t('localRuntime.labels.model')}</span>
-                  <span className='break-words text-t-secondary'>{model.model_warmup.model}</span>
-                  <span className='text-t-tertiary'>{t('localRuntime.labels.baseUrl')}</span>
-                  <span className='break-words text-t-secondary'>{model.model_warmup.base_url}</span>
                   <span className='text-t-tertiary'>{t('localRuntime.labels.elapsed')}</span>
                   <span className='text-t-secondary'>
                     {t('localRuntime.elapsedMs', { elapsed: model.model_warmup.elapsed_ms })}
                   </span>
-                  <span className='text-t-tertiary'>{t('localRuntime.labels.startedAt')}</span>
-                  <span className='text-t-secondary'>{model.model_warmup.started_at}</span>
-                  {model.model_warmup.completed_at ? (
+                  {showTechnicalDetails ? (
                     <>
-                      <span className='text-t-tertiary'>{t('localRuntime.labels.completedAt')}</span>
-                      <span className='text-t-secondary'>{model.model_warmup.completed_at}</span>
+                      <span className='text-t-tertiary'>{t('localRuntime.labels.startedAt')}</span>
+                      <span className='text-t-secondary'>
+                        {formatTimestamp(model.model_warmup.started_at, i18n.language)}
+                      </span>
+                      {model.model_warmup.completed_at ? (
+                        <>
+                          <span className='text-t-tertiary'>{t('localRuntime.labels.completedAt')}</span>
+                          <span className='text-t-secondary'>
+                            {formatTimestamp(model.model_warmup.completed_at, i18n.language)}
+                          </span>
+                        </>
+                      ) : null}
                     </>
                   ) : null}
-                  {model.model_warmup.error ? (
+                  {showTechnicalDetails && model.model_warmup.error ? (
                     <>
                       <span className='text-t-tertiary'>{t('localRuntime.labels.error')}</span>
                       <span className='break-words text-t-secondary'>{model.model_warmup.error}</span>
                     </>
                   ) : null}
-                  <span className='text-t-tertiary'>{t('localRuntime.labels.receiptPath')}</span>
-                  <span className='break-words text-t-secondary'>{model.model_warmup.path}</span>
+                  {showTechnicalDetails ? (
+                    <>
+                      <span className='text-t-tertiary'>{t('localRuntime.labels.model')}</span>
+                      <span className='break-words text-t-secondary'>{model.model_warmup.model}</span>
+                      <span className='text-t-tertiary'>{t('localRuntime.labels.baseUrl')}</span>
+                      <span className='break-words text-t-secondary'>{model.model_warmup.base_url}</span>
+                      <span className='text-t-tertiary'>{t('localRuntime.labels.receiptPath')}</span>
+                      <span className='break-words text-t-secondary'>{model.model_warmup.path}</span>
+                    </>
+                  ) : null}
                 </div>
               ) : (
                 <Empty description={t('localRuntime.empty.noWarmup')} />
@@ -614,7 +713,7 @@ const LocalRuntimePage: React.FC = () => {
           <Empty description={t('localRuntime.empty.noRuntime')} />
         )}
       </div>
-    </div>
+    </SettingsPageWrapper>
   );
 };
 

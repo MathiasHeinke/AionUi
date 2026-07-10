@@ -99,6 +99,29 @@ html body .arco-popconfirm-arrow.arco-trigger-arrow {
   }
 }
 
+/* Arco 2.66 renders icon-prop buttons without the historical
+   `.arco-btn-content` wrapper. Restore a real icon/label rhythm on the button
+   itself so icons never sit flush against copy. Specialized compound layouts
+   own their own grid/gap and are excluded here. */
+.arco-btn:not(.arco-btn-icon-only):not(.company-brain-settings__item-title):has(> .i-icon:first-child:not(:last-child)),
+.arco-btn:not(.arco-btn-icon-only):not(.company-brain-settings__item-title):has(
+    > .arco-icon:first-child:not(:last-child)
+  ) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  column-gap: 8px;
+}
+
+.arco-btn-size-mini:not(.arco-btn-icon-only):has(> .i-icon:first-child:not(:last-child)),
+.arco-btn-size-mini:not(.arco-btn-icon-only):has(> .arco-icon:first-child:not(:last-child)) {
+  column-gap: 6px;
+}
+
+.agent-mode-compact-pill > span {
+  gap: 8px !important;
+}
+
 .arco-btn-primary.arco-btn-disabled {
   background-color: var(--eve-row-selected-bg) !important;
   border-color: var(--glass-panel-border) !important;
@@ -182,13 +205,70 @@ body[arco-theme='dark'] .arco-tag-checked.arco-tag-gray {
   overflow: hidden;
 }
 
-.arco-modal:not(.aionui-modal) .arco-modal-content {
+.arco-modal:not(.aionui-modal):not(.arco-modal-simple) .arco-modal-content,
+.arco-modal.arco-modal-simple {
   background: var(--glass-overlay-bg) !important;
   border: 1px solid var(--glass-overlay-border) !important;
   border-radius: var(--eve-surface-radius-md) !important;
   box-shadow: var(--glass-shadow-soft) !important;
   -webkit-backdrop-filter: var(--glass-overlay-filter);
   backdrop-filter: var(--glass-overlay-filter);
+}
+
+.arco-modal.arco-modal-simple {
+  width: min(464px, calc(100vw - 32px));
+  padding: 24px;
+  color: var(--eve-shell-text);
+}
+
+.arco-modal.arco-modal-simple .arco-modal-header {
+  padding: 0;
+  border: 0;
+}
+
+.arco-modal.arco-modal-simple .arco-modal-title {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
+}
+
+.arco-modal.arco-modal-simple .arco-modal-title > span {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.arco-modal.arco-modal-simple .arco-modal-title .arco-icon {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin-top: 3px;
+  color: var(--eve-status-attention);
+}
+
+.arco-modal.arco-modal-simple .arco-modal-content {
+  margin-top: 12px;
+  padding: 0;
+  color: var(--eve-shell-text-secondary) !important;
+  font-size: 13px;
+  line-height: 20px;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.arco-modal.arco-modal-simple .arco-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 24px;
+  padding: 0;
+  border: 0;
 }
 
 .arco-modal-header,
@@ -229,7 +309,8 @@ body[arco-theme='dark'] .arco-tag-checked.arco-tag-gray {
   background: var(--glass-overlay-scrim) !important;
 }
 
-:root[data-eve-reduced-effects='true'] .arco-modal:not(.aionui-modal) .arco-modal-content,
+:root[data-eve-reduced-effects='true'] .arco-modal:not(.aionui-modal):not(.arco-modal-simple) .arco-modal-content,
+:root[data-eve-reduced-effects='true'] .arco-modal.arco-modal-simple,
 :root[data-eve-reduced-effects='true'] .arco-modal.aionui-modal--legacy,
 :root[data-eve-reduced-effects='true'] .aionui-modal-wrapper.eve-dialog {
   background: var(--glass-overlay-bg-solid) !important;
@@ -238,12 +319,23 @@ body[arco-theme='dark'] .arco-tag-checked.arco-tag-gray {
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  .arco-modal:not(.aionui-modal) .arco-modal-content,
+  .arco-modal:not(.aionui-modal):not(.arco-modal-simple) .arco-modal-content,
+  .arco-modal.arco-modal-simple,
   .arco-modal.aionui-modal--legacy,
   .aionui-modal-wrapper.eve-dialog {
     background: var(--glass-overlay-bg-solid) !important;
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
+  }
+}
+
+@media (max-width: 479px) {
+  .arco-modal.arco-modal-simple {
+    padding: 20px;
+  }
+
+  .arco-modal.arco-modal-simple .arco-modal-footer .arco-btn {
+    flex: 1 1 auto;
   }
 }
 

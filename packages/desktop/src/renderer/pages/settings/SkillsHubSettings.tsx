@@ -1,5 +1,5 @@
 import { ipcBridge } from '@/common';
-import { Button, Message, Modal, Spin, Tag, Typography } from '@arco-design/web-react';
+import { Button, Input, Message, Modal, Spin, Tag, Tooltip } from '@arco-design/web-react';
 import { Delete, FolderOpen, Info, Lightning, Puzzle, Search, Refresh } from '@icon-park/react';
 import { bridge } from '@office-ai/platform';
 import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react';
@@ -8,6 +8,8 @@ import { useSearchParams } from 'react-router-dom';
 import MarkdownView from '@renderer/components/Markdown';
 import SettingsPageWrapper from './components/SettingsPageWrapper';
 import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
+import { EVE_SETTINGS_TAG_COLOR } from '@/renderer/components/settings/settingsSemantics';
+import SettingsSection from '@/renderer/components/settings/SettingsSection';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1.2.18 STEP 4 — Unified skill surface.
@@ -170,29 +172,11 @@ const normalizeTestId = (name: string): string => {
   return name.replace(/[:/\s<>"'|?*]/g, '-');
 };
 
-const getAvatarColorClass = (name: string) => {
-  if (!name) return 'bg-[#165DFF] text-white';
-  const colors = [
-    'bg-[#165DFF] text-white', // Blue
-    'bg-[#00B42A] text-white', // Green
-    'bg-[#722ED1] text-white', // Purple
-    'bg-[#F5319D] text-white', // Pink
-    'bg-[#F77234] text-white', // Orange
-    'bg-[#14C9C9] text-white', // Cyan
-  ];
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return colors[Math.abs(hash) % colors.length];
-};
-
 // State badge color — maps to Arco Tag colors.
-const stateTagColor = (state: SkillState): 'green' | 'purple' | 'orange' | 'gray' => {
-  if (state === 'executable') return 'green';
-  if (state === 'prompt_label') return 'purple';
-  if (state === 'gated') return 'orange';
-  return 'gray';
+const stateTagColor = (state: SkillState): 'green' | 'arcoblue' | 'gray' => {
+  if (state === 'executable') return EVE_SETTINGS_TAG_COLOR.success;
+  if (state === 'prompt_label') return EVE_SETTINGS_TAG_COLOR.info;
+  return EVE_SETTINGS_TAG_COLOR.neutral;
 };
 
 interface SkillsHubSettingsProps {
@@ -319,14 +303,15 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
     // Curate aioncore's own backend builtins: hide the ones that don't serve
     // Command EVE, rename the few we keep. Our curated `library` cards + custom +
     // learned + extensions always pass through untouched.
-    return Array.from(byKey.values())
-      .filter((row) => row.source !== 'builtin' || row.key in AIONCORE_BUILTIN_KEEP)
-      .map((row) =>
-        row.source === 'builtin' && AIONCORE_BUILTIN_KEEP[row.key]
-          ? { ...row, name: AIONCORE_BUILTIN_KEEP[row.key] }
-          : row
-      )
-      .sort((a, b) => a.name.localeCompare(b.name));
+    const rows = Array.from(byKey.values()).filter(
+      (row) => row.source !== 'builtin' || row.key in AIONCORE_BUILTIN_KEEP
+    );
+    for (const row of rows) {
+      if (row.source === 'builtin' && AIONCORE_BUILTIN_KEEP[row.key]) {
+        row.name = AIONCORE_BUILTIN_KEEP[row.key];
+      }
+    }
+    return rows.toSorted((a, b) => a.name.localeCompare(b.name));
   }, [libraryModel, availableSkills, learnedSkills]);
 
   // Filter-chip counts: prefer the reconciliation summary; fall back to deriving
@@ -449,9 +434,7 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
       setReaderTitle(row.name);
       try {
         // Prefer the on-disk reader (custom / learned / managed strategy).
-        const response = await skillContentBridge.invoke(
-          row.path ? { skill_path: row.path } : { skill_id: row.name }
-        );
+        const response = await skillContentBridge.invoke(row.path ? { skill_path: row.path } : { skill_id: row.name });
         const data = response?.data;
         if (data?.ok && typeof data.markdown === 'string' && data.markdown.trim().length > 0) {
           setReaderMarkdown(data.markdown);
@@ -480,9 +463,7 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
           );
           return;
         }
-        setReaderError(
-          t('settings.skillsHub.readError', { defaultValue: 'Could not read this skill.' })
-        );
+        setReaderError(t('settings.skillsHub.readError', { defaultValue: 'Could not read this skill.' }));
       } catch (error) {
         console.error('Failed to read SKILL.md:', error);
         setReaderError(t('settings.skillsHub.readError', { defaultValue: 'Could not read this skill.' }));
@@ -545,31 +526,20 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
 
   // ── Source badge per row. ──────────────────────────────────────────────────
   const renderSourceBadge = (source: SkillSource) => {
-    if (source === 'learned') {
-      return (
-        <span className='bg-[rgba(var(--purple-6),0.08)] text-purple-6 border border-[rgba(var(--purple-6),0.2)] text-11px px-6px py-1px rd-4px font-medium'>
-          {t('settings.skillsHub.learnedBadge', { defaultValue: 'Von EVE gelernt' })}
-        </span>
-      );
-    }
-    if (source === 'custom') {
-      return (
-        <span className='bg-[rgba(var(--orange-6),0.08)] text-orange-6 border border-[rgba(var(--orange-6),0.2)] text-11px px-6px py-1px rd-4px font-medium'>
-          {t('settings.skillsHub.custom', { defaultValue: 'Custom' })}
-        </span>
-      );
-    }
-    if (source === 'extension') {
-      return (
-        <span className='bg-[rgba(var(--primary-6),0.08)] text-primary-6 border border-[rgba(var(--primary-6),0.2)] text-11px px-6px py-1px rd-4px font-medium'>
-          {t('settings.extensionSkillsBadge', { defaultValue: 'Extension' })}
-        </span>
-      );
-    }
+    const label =
+      source === 'learned'
+        ? t('settings.skillsHub.learnedBadge', { defaultValue: 'Von EVE gelernt' })
+        : source === 'custom'
+          ? t('settings.skillsHub.custom', { defaultValue: 'Custom' })
+          : source === 'extension'
+            ? t('settings.extensionSkillsBadge', { defaultValue: 'Extension' })
+            : t('settings.skillsHub.builtin', { defaultValue: 'Built-in' });
+    const color = source === 'learned' ? EVE_SETTINGS_TAG_COLOR.success : source === 'builtin' ? 'gray' : 'arcoblue';
+
     return (
-      <span className='bg-[rgba(var(--blue-6),0.08)] text-blue-6 border border-[rgba(var(--blue-6),0.2)] text-11px px-6px py-1px rd-4px font-medium'>
-        {t('settings.skillsHub.builtin', { defaultValue: 'Built-in' })}
-      </span>
+      <Tag color={color} size='small' className='eve-skill-source-tag'>
+        {label}
+      </Tag>
     );
   };
 
@@ -598,308 +568,222 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
   ];
 
   const mainContent = (
-    <div className='flex flex-col h-full w-full'>
-      <div className='space-y-16px pb-24px'>
-        {COMMAND_EVE_SHELL_ENABLED && commandEveCapabilityPack && (
-          <div
-            data-testid='command-eve-capability-section'
-            className='px-[16px] md:px-[32px] py-32px bg-base rd-16px md:rd-24px shadow-sm border border-b-base relative overflow-hidden transition-all'
-          >
-            <div className='flex flex-col gap-6px mb-20px'>
-              <span className='text-16px md:text-18px text-t-primary font-bold tracking-tight'>
-                {t('settings.skillsHub.commandEveCapabilitiesTitle')}
-              </span>
-              <span className='text-13px text-t-secondary leading-relaxed'>
-                {t('settings.skillsHub.commandEveCapabilitiesDesc')}
-              </span>
-            </div>
-
-            <div className='grid grid-cols-1 lg:grid-cols-2 gap-10px'>
-              {(commandEveCapabilityPack.skills || []).map((skill) => (
-                <div
-                  key={skill.id}
-                  className='rd-12px bg-fill-1 border border-solid border-border-1 p-14px flex flex-col gap-6px'
-                >
-                  <div className='flex items-center justify-between gap-8px'>
-                    <span className='text-14px font-semibold text-t-primary truncate'>{skill.name || skill.id}</span>
-                    <span className='text-10px uppercase text-primary-6 bg-[rgba(var(--primary-6),0.08)] px-8px py-2px rd-999px'>
-                      {skill.default_state || t('settings.skillsHub.commandEveCapabilityAvailable')}
-                    </span>
-                  </div>
-                  <span className='text-12px text-t-secondary'>
-                    {skill.tier || t('settings.skillsHub.commandEveCapabilityTier')}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            <div className='mt-18px pt-18px border-t border-solid border-border-1'>
-              <div className='text-13px font-semibold text-t-primary mb-10px'>
-                {t('settings.skillsHub.commandEveConnectorsTitle')}
-              </div>
-              <div className='flex flex-wrap gap-8px'>
-                {(commandEveCapabilityPack.connectors || []).map((connector) => (
-                  <span
-                    key={connector.id}
-                    className='text-12px text-t-secondary bg-fill-1 border border-solid border-border-1 px-10px py-5px rd-999px'
-                  >
-                    {connector.name || connector.id}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ======== Unified skill list ======== */}
-        <div
-          data-testid='my-skills-section'
-          className='px-[16px] md:px-[32px] py-32px bg-base rd-16px md:rd-24px shadow-sm border border-b-base relative overflow-hidden transition-all'
+    <div className='eve-skills-settings flex flex-col h-full w-full'>
+      {COMMAND_EVE_SHELL_ENABLED && commandEveCapabilityPack && (
+        <SettingsSection
+          title={t('settings.skillsHub.commandEveCapabilitiesTitle')}
+          description={t('settings.skillsHub.commandEveCapabilitiesDesc')}
+          testId='command-eve-capability-section'
+          bodyClassName='eve-capability-summary'
         >
-          {/* Toolbar */}
-          <div className='flex flex-col lg:flex-row lg:items-center justify-between gap-16px mb-16px relative z-10'>
-            <div className='flex items-center gap-10px shrink-0'>
-              <span className='text-16px md:text-18px text-t-primary font-bold tracking-tight'>
-                {t('settings.skillsHub.allSkillsTitle', { defaultValue: 'Fähigkeiten' })}
-              </span>
-              <span className='bg-[rgba(var(--primary-6),0.08)] text-primary-6 text-12px px-10px py-2px rd-[100px] font-medium ml-4px'>
-                {mergedSkills.length}
-              </span>
-              <button
+          <div className='eve-capability-summary__metric'>
+            <strong>{commandEveCapabilityPack.skills?.length ?? 0}</strong>
+            <span>{t('settings.skillsHub.commandEveCapabilityCount')}</span>
+          </div>
+          <div className='eve-capability-summary__metric'>
+            <strong>{commandEveCapabilityPack.connectors?.length ?? 0}</strong>
+            <span>{t('settings.skillsHub.commandEveConnectorCount')}</span>
+          </div>
+          <p>{t('settings.skillsHub.commandEveCapabilitiesAutomatic')}</p>
+        </SettingsSection>
+      )}
+
+      <SettingsSection
+        title={t('settings.skillsHub.allSkillsTitle', { defaultValue: 'Fähigkeiten' })}
+        description={t('settings.skillsHub.allSkillsDescription')}
+        action={<span className='eve-pill eve-settings-count'>{mergedSkills.length}</span>}
+        testId='my-skills-section'
+      >
+        <div className='eve-skills-toolbar'>
+          <Input
+            data-testid='input-search-my-skills'
+            className='eve-skills-search'
+            prefix={<Search size={15} />}
+            allowClear
+            placeholder={t('settings.skillsHub.searchPlaceholder', { defaultValue: 'Search skills...' })}
+            value={search_query}
+            onChange={setSearchQuery}
+          />
+          <div className='eve-settings-form-actions'>
+            <Tooltip content={t('common.refresh', { defaultValue: 'Refresh' })}>
+              <Button
                 data-testid='btn-refresh-my-skills'
-                className='outline-none border-none bg-transparent cursor-pointer p-6px text-t-tertiary hover:text-primary-6 transition-colors rd-full hover:bg-fill-2 ml-4px'
+                type='text'
+                icon={<Refresh theme='outline' size={16} className={loading ? 'animate-spin' : ''} />}
+                aria-label={t('common.refresh', { defaultValue: 'Refresh' })}
                 onClick={async () => {
                   await fetchData();
                   Message.success(t('common.refreshSuccess', { defaultValue: 'Refreshed' }));
                 }}
-                title={t('common.refresh', { defaultValue: 'Refresh' })}
-              >
-                <Refresh theme='outline' size={16} className={loading ? 'animate-spin' : ''} />
-              </button>
-            </div>
-
-            <div className='flex flex-col sm:flex-row items-stretch sm:items-center gap-12px w-full lg:w-auto shrink-0'>
-              <div className='relative group shrink-0 w-full sm:w-[200px] lg:w-[240px]'>
-                <div className='absolute left-12px top-1/2 -translate-y-1/2 text-t-tertiary group-focus-within:text-primary-6 flex pointer-events-none transition-colors'>
-                  <Search size={15} />
-                </div>
-                <input
-                  data-testid='input-search-my-skills'
-                  type='text'
-                  className='w-full bg-fill-1 hover:bg-fill-2 border border-border-1 focus:border-primary-5 focus:bg-base outline-none rd-8px py-6px pl-36px pr-12px text-13px text-t-primary placeholder:text-t-tertiary transition-all shadow-sm box-border m-0'
-                  placeholder={t('settings.skillsHub.searchPlaceholder', { defaultValue: 'Search skills...' })}
-                  value={search_query}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </div>
-
-              <button
-                data-testid='btn-manual-import'
-                className='flex items-center justify-center gap-6px px-16px py-6px bg-base border border-border-1 hover:border-border-2 hover:bg-fill-1 text-t-primary rd-8px shadow-sm transition-all focus:outline-none shrink-0 cursor-pointer whitespace-nowrap'
-                onClick={handleManualImport}
-              >
-                <FolderOpen size={15} className='text-t-secondary' />
-                <span className='text-13px font-medium'>
-                  {t('settings.skillsHub.manualImport', { defaultValue: 'Import Skills' })}
-                </span>
-              </button>
-            </div>
+              />
+            </Tooltip>
+            <Button
+              data-testid='btn-manual-import'
+              type='secondary'
+              icon={<FolderOpen size={15} />}
+              onClick={handleManualImport}
+            >
+              {t('settings.skillsHub.manualImport', { defaultValue: 'Import Skills' })}
+            </Button>
           </div>
-
-          {/* Filter chips (driven by the reconciliation summary) */}
-          <div className='flex flex-wrap items-center gap-8px mb-16px relative z-10' data-testid='skill-filter-chips'>
-            {filterChips.map((chip) => (
-              <button
-                key={chip.id}
-                data-testid={`skill-filter-${chip.id}`}
-                onClick={() => setActiveFilter(chip.id)}
-                className={`text-12px px-12px py-4px rd-999px border cursor-pointer transition-all ${
-                  activeFilter === chip.id
-                    ? 'bg-primary-6 text-white border-primary-6'
-                    : 'bg-fill-1 text-t-secondary border-border-1 hover:border-border-2 hover:bg-fill-2'
-                }`}
-              >
-                {chip.label}
-                {typeof chip.count === 'number' ? ` (${chip.count})` : ''}
-              </button>
-            ))}
-          </div>
-
-          {/* Path Display */}
-          {skillPaths && (
-            <div className='flex items-center gap-8px text-12px text-t-tertiary font-mono bg-transparent py-4px mb-16px relative z-10 pt-4px border-t border-t-transparent'>
-              <FolderOpen size={16} className='shrink-0' />
-              <span className='truncate' title={skillPaths.user_skills_dir}>
-                {skillPaths.user_skills_dir}
-              </span>
-            </div>
-          )}
-
-          {mergedSkills.length > 0 ? (
-            <div className='w-full flex flex-col gap-6px relative z-10'>
-              {filteredSkills.map((skill) => {
-                const deletable = skill.source === 'custom' || skill.source === 'learned';
-                return (
-                  <div
-                    key={skill.key}
-                    data-testid={`my-skill-card-${normalizeTestId(skill.name)}`}
-                    ref={(el) => {
-                      skillRefs.current[skill.name] = el;
-                    }}
-                    role='button'
-                    tabIndex={0}
-                    onClick={() => void openReader(skill)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        void openReader(skill);
-                      }
-                    }}
-                    className={`group flex flex-col sm:flex-row gap-16px p-16px bg-base border hover:border-border-1 hover:bg-fill-1 hover:shadow-sm rd-12px transition-all duration-200 cursor-pointer ${highlightedSkill === skill.name ? 'border-primary-5 bg-primary-1' : 'border-transparent'}`}
-                  >
-                    <div className='shrink-0 flex items-start sm:mt-2px'>
-                      <div
-                        className={`w-40px h-40px rd-10px flex items-center justify-center font-bold text-16px shadow-sm text-transform-uppercase ${getAvatarColorClass(skill.name)}`}
-                      >
-                        {skill.name.charAt(0).toUpperCase()}
-                      </div>
-                    </div>
-
-                    <div className='flex-1 min-w-0 flex flex-col justify-center gap-6px'>
-                      <div className='flex items-center gap-10px flex-wrap'>
-                        <h3 className='text-14px font-semibold text-t-primary/90 truncate m-0'>{skill.name}</h3>
-                        {skill.state && (
-                          <Tag color={stateTagColor(skill.state)} size='small'>
-                            {t(`settings.skillState.${skill.state === 'prompt_label' ? 'promptLabel' : skill.state}`, {
-                              defaultValue:
-                                skill.state === 'executable'
-                                  ? 'Ausführbar'
-                                  : skill.state === 'prompt_label'
-                                    ? 'Prompt-Label'
-                                    : skill.state === 'gated'
-                                      ? 'Gated'
-                                      : 'Deaktiviert',
-                            })}
-                          </Tag>
-                        )}
-                        {renderSourceBadge(skill.source)}
-                      </div>
-                      {skill.description && (
-                        <p
-                          className='text-13px text-t-secondary leading-relaxed line-clamp-2 m-0'
-                          title={skill.description}
-                        >
-                          {skill.description}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className='shrink-0 sm:self-center flex items-center justify-end gap-6px mt-12px sm:mt-0 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity pl-4px'>
-                      {deletable && (
-                        <button
-                          data-testid={`btn-delete-${normalizeTestId(skill.name)}`}
-                          className='p-8px hover:bg-danger-1 hover:text-danger-6 text-t-tertiary rd-6px outline-none flex items-center justify-center border border-transparent cursor-pointer transition-colors shadow-sm bg-base sm:bg-transparent sm:shadow-none'
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            Modal.confirm({
-                              title: t('settings.skillsHub.deleteConfirmTitle', { defaultValue: 'Delete Skill' }),
-                              content: t('settings.skillsHub.deleteConfirmContent', {
-                                name: skill.name,
-                                defaultValue: `Are you sure you want to delete "${skill.name}"?`,
-                              }),
-                              okButtonProps: { status: 'danger' },
-                              okText: t('common.delete', { defaultValue: 'Delete' }),
-                              onOk: () => void handleDelete(skill.name),
-                              wrapClassName: 'modal-delete-skill',
-                            });
-                          }}
-                          title={t('common.delete', { defaultValue: 'Delete' })}
-                        >
-                          <Delete size={16} />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-              {filteredSkills.length === 0 && (
-                <div className='text-center text-t-secondary text-13px py-24px bg-fill-1 rd-12px border border-b-base border-dashed'>
-                  {t('settings.skillsHub.noSkillsForFilter', {
-                    defaultValue: 'No skills match this filter.',
-                  })}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className='text-center text-t-secondary text-13px py-40px bg-fill-1 rd-12px border border-b-base border-dashed relative z-10'>
-              {loading
-                ? t('common.loading', { defaultValue: 'Please wait...' })
-                : t('settings.skillsHub.noSkills', {
-                    defaultValue: 'No skills found. Import some to get started.',
-                  })}
-            </div>
-          )}
         </div>
 
-        {/* ======== Builtin Auto-injected Skills (informational) ======== */}
-        {visibleBuiltinAutoSkills.length > 0 && (
-          <div
-            data-testid='auto-skills-section'
-            className='px-[16px] md:px-[32px] py-32px bg-base rd-16px md:rd-24px shadow-sm border border-b-base relative overflow-hidden transition-all'
-          >
-            <div className='flex items-center gap-10px mb-24px'>
-              <Lightning theme='filled' size={20} fill='var(--color-primary-6)' />
-              <span className='text-16px md:text-18px text-t-primary font-bold tracking-tight'>
-                {t('settings.autoInjectedSkills')}
-              </span>
-              <span className='bg-[rgba(var(--success-6),0.08)] text-[rgb(var(--success-6))] text-12px px-10px py-2px rd-[100px] font-medium ml-4px'>
-                {visibleBuiltinAutoSkills.length}
-              </span>
-            </div>
-            <div className='w-full flex flex-col gap-6px'>
-              {visibleBuiltinAutoSkills.map((skill) => (
-                <div
-                  key={skill.name}
-                  ref={(el) => {
-                    skillRefs.current[skill.name] = el;
-                  }}
-                  className={`flex flex-col sm:flex-row gap-16px p-16px bg-base border hover:border-border-1 hover:bg-fill-1 rd-12px transition-all duration-200 ${highlightedSkill === skill.name ? 'border-primary-5 bg-primary-1' : 'border-transparent'}`}
-                >
-                  <div className='shrink-0 flex items-start sm:mt-2px'>
-                    <div className='w-40px h-40px rd-10px bg-[rgba(var(--success-6),0.08)] flex items-center justify-center shadow-sm'>
-                      <Lightning theme='filled' size={20} fill='rgb(var(--success-6))' />
-                    </div>
-                  </div>
-                  <div className='flex-1 min-w-0 flex flex-col justify-center gap-4px'>
-                    <div className='flex items-center gap-10px'>
-                      <h3 className='text-14px font-semibold text-t-primary/90 truncate m-0'>{skill.name}</h3>
-                      <span className='bg-[rgba(var(--success-6),0.08)] text-[rgb(var(--success-6))] border border-[rgba(var(--success-6),0.2)] text-10px px-6px py-1px rd-4px font-medium uppercase'>
-                        {t('settings.autoInjectedSkillsBadge')}
-                      </span>
-                    </div>
-                    {skill.description && (
-                      <p className='text-13px text-t-secondary leading-relaxed line-clamp-2 m-0'>{skill.description}</p>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
+        <div
+          className='eve-skill-filters'
+          data-testid='skill-filter-chips'
+          role='group'
+          aria-label={t('settings.skillsHub.filterLabel')}
+        >
+          {filterChips.map((chip) => (
+            <Button
+              key={chip.id}
+              data-testid={`skill-filter-${chip.id}`}
+              type={activeFilter === chip.id ? 'primary' : 'text'}
+              size='small'
+              onClick={() => setActiveFilter(chip.id)}
+            >
+              {chip.label}
+              {typeof chip.count === 'number' ? ` (${chip.count})` : ''}
+            </Button>
+          ))}
+        </div>
+
+        {skillPaths && (
+          <div className='eve-settings-inline-notice eve-skills-storage'>
+            <FolderOpen size={16} />
+            <span title={COMMAND_EVE_SHELL_ENABLED ? undefined : skillPaths.user_skills_dir}>
+              {COMMAND_EVE_SHELL_ENABLED
+                ? t('settings.commandEveSkillStorage', { defaultValue: 'Lokal auf diesem Mac gespeichert' })
+                : skillPaths.user_skills_dir}
+            </span>
           </div>
         )}
 
-        {/* ======== Usage Tip ======== */}
-        <div className='px-16px md:px-[24px] py-20px bg-base border border-b-base shadow-sm rd-16px flex items-start gap-12px text-t-secondary'>
-          <Info size={18} className='text-primary-6 mt-2px shrink-0' />
-          <div className='flex flex-col gap-4px'>
-            <span className='font-bold text-t-primary text-14px'>
-              {t('settings.skillsHub.tipTitle', { defaultValue: 'Usage Tip:' })}
-            </span>
-            <span className='text-13px leading-relaxed'>{t('settings.skillsHub.tipContent')}</span>
+        {mergedSkills.length > 0 ? (
+          <div className='eve-skill-list'>
+            {filteredSkills.map((skill) => {
+              const deletable = skill.source === 'custom' || skill.source === 'learned';
+              return (
+                <div
+                  key={skill.key}
+                  data-testid={`my-skill-card-${normalizeTestId(skill.name)}`}
+                  ref={(element) => {
+                    skillRefs.current[skill.name] = element;
+                  }}
+                  className={`eve-skill-row ${highlightedSkill === skill.name ? 'eve-skill-row--highlighted' : ''}`}
+                >
+                  <Button type='text' long className='eve-skill-row__open' onClick={() => void openReader(skill)}>
+                    <span className='eve-skill-row__content'>
+                      <Puzzle theme='outline' size={19} className='eve-skill-row__icon' />
+                      <span className='eve-skill-row__copy'>
+                        <span className='eve-skill-row__title-line'>
+                          <strong>{skill.name}</strong>
+                          {skill.state && (
+                            <Tag color={stateTagColor(skill.state)} size='small'>
+                              {t(
+                                `settings.skillState.${skill.state === 'prompt_label' ? 'promptLabel' : skill.state}`,
+                                {
+                                  defaultValue:
+                                    skill.state === 'executable'
+                                      ? 'Ausführbar'
+                                      : skill.state === 'prompt_label'
+                                        ? 'Prompt-Label'
+                                        : skill.state === 'gated'
+                                          ? 'Gated'
+                                          : 'Deaktiviert',
+                                }
+                              )}
+                            </Tag>
+                          )}
+                          {renderSourceBadge(skill.source)}
+                        </span>
+                        {skill.description && <span className='eve-skill-row__description'>{skill.description}</span>}
+                      </span>
+                    </span>
+                  </Button>
+                  {deletable && (
+                    <Tooltip content={t('common.delete', { defaultValue: 'Delete' })}>
+                      <Button
+                        data-testid={`btn-delete-${normalizeTestId(skill.name)}`}
+                        type='text'
+                        status='danger'
+                        className='eve-skill-row__delete'
+                        icon={<Delete size={16} />}
+                        aria-label={t('common.delete', { defaultValue: 'Delete' })}
+                        onClick={() => {
+                          Modal.confirm({
+                            title: t('settings.skillsHub.deleteConfirmTitle', { defaultValue: 'Delete Skill' }),
+                            content: t('settings.skillsHub.deleteConfirmContent', {
+                              name: skill.name,
+                              defaultValue: `Are you sure you want to delete "${skill.name}"?`,
+                            }),
+                            okButtonProps: { status: 'danger' },
+                            okText: t('common.delete', { defaultValue: 'Delete' }),
+                            onOk: () => void handleDelete(skill.name),
+                            wrapClassName: 'modal-delete-skill eve-settings-dialog',
+                          });
+                        }}
+                      />
+                    </Tooltip>
+                  )}
+                </div>
+              );
+            })}
+            {filteredSkills.length === 0 && (
+              <div className='eve-settings-notice eve-skills-empty'>
+                {t('settings.skillsHub.noSkillsForFilter', { defaultValue: 'No skills match this filter.' })}
+              </div>
+            )}
           </div>
+        ) : (
+          <div className='eve-settings-notice eve-skills-empty'>
+            {loading ? (
+              <Spin size={18} />
+            ) : (
+              t('settings.skillsHub.noSkills', { defaultValue: 'No skills found. Import some to get started.' })
+            )}
+          </div>
+        )}
+      </SettingsSection>
+
+      {visibleBuiltinAutoSkills.length > 0 && (
+        <SettingsSection
+          title={t('settings.autoInjectedSkills')}
+          action={<span className='eve-pill eve-settings-count'>{visibleBuiltinAutoSkills.length}</span>}
+          testId='auto-skills-section'
+          bodyClassName='eve-skill-list'
+        >
+          {visibleBuiltinAutoSkills.map((skill) => (
+            <div
+              key={skill.name}
+              ref={(element) => {
+                skillRefs.current[skill.name] = element;
+              }}
+              className={`eve-skill-row eve-skill-row--static ${highlightedSkill === skill.name ? 'eve-skill-row--highlighted' : ''}`}
+            >
+              <Lightning theme='outline' size={19} className='eve-skill-row__icon' />
+              <span className='eve-skill-row__copy'>
+                <span className='eve-skill-row__title-line'>
+                  <strong>{skill.name}</strong>
+                  <Tag color='green' size='small'>
+                    {t('settings.autoInjectedSkillsBadge')}
+                  </Tag>
+                </span>
+                {skill.description && <span className='eve-skill-row__description'>{skill.description}</span>}
+              </span>
+            </div>
+          ))}
+        </SettingsSection>
+      )}
+
+      <div className='eve-settings-notice eve-skills-tip'>
+        <Info size={18} />
+        <div>
+          <strong>{t('settings.skillsHub.tipTitle', { defaultValue: 'Usage Tip:' })}</strong>
+          <p>{t('settings.skillsHub.tipContent')}</p>
         </div>
       </div>
 
-      {/* ======== Click-to-read SKILL.md modal (read-only) ======== */}
       <Modal
         title={
           <div className='flex items-center gap-8px'>
@@ -912,10 +796,9 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
         }
         visible={readerOpen}
         onCancel={() => setReaderOpen(false)}
-        footer={
-          <Button onClick={() => setReaderOpen(false)}>{t('common.close', { defaultValue: 'Close' })}</Button>
-        }
+        footer={<Button onClick={() => setReaderOpen(false)}>{t('common.close', { defaultValue: 'Close' })}</Button>}
         style={{ width: 'min(820px, 92vw)' }}
+        wrapClassName='eve-settings-dialog eve-settings-reader-modal'
         unmountOnExit
       >
         <div className='max-h-[60vh] overflow-y-auto'>
@@ -924,7 +807,7 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
               <Spin />
             </div>
           ) : readerError ? (
-            <Typography.Text type='secondary'>{readerError}</Typography.Text>
+            <p className='eve-settings-muted'>{readerError}</p>
           ) : (
             <MarkdownView hiddenCodeCopyButton>{readerMarkdown}</MarkdownView>
           )}

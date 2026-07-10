@@ -40,21 +40,30 @@ const ChannelHeader: React.FC<ChannelHeaderProps> = ({ channel, onToggleEnabled 
   const isDisabled = channel.status === 'coming_soon' || channel.disabled;
 
   return (
-    <div className='flex items-center justify-between group' data-channel-header={channel.id}>
-      <div className='flex items-center gap-8px flex-1 min-w-0'>
-        {logoSrc && <img src={logoSrc} alt={logoAlt} className='w-14px h-14px object-contain shrink-0' />}
-        <span className='text-14px text-t-primary'>{channel.title}</span>
-        {channel.status === 'coming_soon' && (
-          <Tag size='small' color='gray'>
-            {t('settings.channels.comingSoon', 'Coming Soon')}
-          </Tag>
-        )}
+    <div className='eve-channel-header' data-channel-header={channel.id}>
+      <div className='eve-channel-header__identity'>
+        {logoSrc && <img src={logoSrc} alt={logoAlt} className='eve-channel-header__logo' />}
+        <div className='eve-channel-header__copy'>
+          <div className='eve-channel-header__title-line'>
+            <span className='eve-channel-header__title'>{channel.title}</span>
+            {channel.status === 'coming_soon' && (
+              <Tag size='small' color='gray'>
+                {t('settings.channels.comingSoon', 'Coming Soon')}
+              </Tag>
+            )}
+          </div>
+          <div className='eve-channel-header__description'>{channel.description}</div>
+        </div>
       </div>
-      <div className='flex items-center gap-2' onClick={(e) => e.stopPropagation()}>
+      <div className='eve-channel-header__control' onClick={(e) => e.stopPropagation()}>
         <Switch
           data-channel-switch-for={channel.id}
           data-channel-switch-disabled={isDisabled ? 'true' : 'false'}
           aria-disabled={isDisabled ? 'true' : undefined}
+          aria-label={t('settings.channels.enableChannel', {
+            channel: channel.title,
+            defaultValue: `Enable ${channel.title}`,
+          })}
           checked={channel.enabled}
           onChange={onToggleEnabled}
           size='small'

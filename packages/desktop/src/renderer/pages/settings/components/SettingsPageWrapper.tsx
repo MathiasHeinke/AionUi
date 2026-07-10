@@ -26,7 +26,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useExtI18n } from '@/renderer/hooks/system/useExtI18n';
-import { BUILTIN_TAB_IDS, LEGACY_ANCHOR_REMAP } from './SettingsSider';
+import { BUILTIN_TAB_IDS, isSettingsPathActive, LEGACY_ANCHOR_REMAP } from './SettingsSider';
 import { Button } from '@arco-design/web-react';
 import './settings.css';
 
@@ -135,6 +135,8 @@ const SettingsPageWrapper: React.FC<SettingsPageWrapperProps> = ({ children, cla
   const extensionTabs = useExtensionSettingsTabs();
 
   const { resolveExtTabName } = useExtI18n();
+  const mobileNavRef = React.useRef<HTMLDivElement>(null);
+  const [mobileNavOverflow, setMobileNavOverflow] = React.useState({ before: false, after: false });
 
   const menuItems = React.useMemo(() => {
     const builtins = getBuiltinSettingsNavItems(isDesktop, t);
@@ -196,6 +198,45 @@ const SettingsPageWrapper: React.FC<SettingsPageWrapperProps> = ({ children, cla
     return result;
   }, [isDesktop, t, extensionTabs, resolveExtTabName]);
 
+  const syncMobileNavOverflow = React.useCallback(() => {
+    const nav = mobileNavRef.current;
+    if (!nav) return;
+
+    const maxScrollLeft = Math.max(0, nav.scrollWidth - nav.clientWidth);
+    const next = {
+      before: nav.scrollLeft > 2,
+      after: nav.scrollLeft < maxScrollLeft - 2,
+    };
+    setMobileNavOverflow((current) =>
+      current.before === next.before && current.after === next.after ? current : next
+    );
+  }, []);
+
+  React.useLayoutEffect(() => {
+    if (!isMobile) return;
+
+    const nav = mobileNavRef.current;
+    if (!nav) return;
+
+    nav.querySelector<HTMLElement>("[aria-current='page']")?.scrollIntoView?.({
+      behavior: 'auto',
+      block: 'nearest',
+      inline: 'center',
+    });
+
+    const frame = window.requestAnimationFrame(syncMobileNavOverflow);
+    const resizeObserver =
+      typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(syncMobileNavOverflow);
+    resizeObserver?.observe(nav);
+    window.addEventListener('resize', syncMobileNavOverflow);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', syncMobileNavOverflow);
+    };
+  }, [isMobile, menuItems, pathname, syncMobileNavOverflow]);
+
   const containerClass = classNames(
     'settings-page-wrapper eve-settings-page w-full min-h-full box-border overflow-y-auto',
     isMobile ? 'px-16px py-14px' : 'px-12px md:px-40px py-32px',
@@ -208,27 +249,34 @@ const SettingsPageWrapper: React.FC<SettingsPageWrapperProps> = ({ children, cla
     <SettingsViewModeProvider value='page'>
       <div className={containerClass}>
         {isMobile && (
-          <div className='settings-mobile-top-nav'>
-            {menuItems.map((item) => {
-              const active = pathname.includes(`/settings/${item.path}`);
-              return (
-                <Button
-                  key={item.path}
-                  type='text'
-                  size='small'
-                  className={classNames('settings-mobile-top-nav__item', {
-                    'settings-mobile-top-nav__item--active': active,
-                  })}
-                  aria-current={active ? 'page' : undefined}
-                  onClick={() => {
-                    void navigate(`/settings/${item.path}`, { replace: true });
-                  }}
-                >
-                  <span className='settings-mobile-top-nav__icon'>{item.icon}</span>
-                  <span className='settings-mobile-top-nav__label'>{item.label}</span>
-                </Button>
-              );
+          <div
+            className={classNames('settings-mobile-top-nav-shell', {
+              'settings-mobile-top-nav-shell--before': mobileNavOverflow.before,
+              'settings-mobile-top-nav-shell--after': mobileNavOverflow.after,
             })}
+          >
+            <div ref={mobileNavRef} className='settings-mobile-top-nav' onScroll={syncMobileNavOverflow}>
+              {menuItems.map((item) => {
+                const active = isSettingsPathActive(pathname, item.path);
+                return (
+                  <Button
+                    key={item.path}
+                    type='text'
+                    size='small'
+                    className={classNames('settings-mobile-top-nav__item', {
+                      'settings-mobile-top-nav__item--active': active,
+                    })}
+                    aria-current={active ? 'page' : undefined}
+                    onClick={() => {
+                      void navigate(`/settings/${item.path}`, { replace: true });
+                    }}
+                  >
+                    <span className='settings-mobile-top-nav__icon'>{item.icon}</span>
+                    <span className='settings-mobile-top-nav__label'>{item.label}</span>
+                  </Button>
+                );
+              })}
+            </div>
           </div>
         )}
         <div className={contentClass}>{children}</div>

@@ -20,7 +20,9 @@
   font-weight: 600;
   line-height: 1;
   letter-spacing: 0.02em;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
   -webkit-app-region: no-drag;
   app-region: no-drag;
   user-select: none;
@@ -32,7 +34,7 @@
   width: auto;
   height: 26px;
   border-radius: 9999px;
-  gap: 5px;
+  gap: 7px;
   padding: 0 9px 0 7px;
 }
 

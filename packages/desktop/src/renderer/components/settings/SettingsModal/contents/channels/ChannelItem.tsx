@@ -19,6 +19,7 @@ interface ChannelItemProps {
 const ChannelItem: React.FC<ChannelItemProps> = ({ channel, isCollapsed, onToggleCollapse, onToggleEnabled }) => {
   return (
     <div
+      className='eve-channel-item'
       data-channel-id={channel.id}
       data-channel-status={channel.status}
       data-channel-extension={channel.isExtension ? 'true' : 'false'}
@@ -26,12 +27,12 @@ const ChannelItem: React.FC<ChannelItemProps> = ({ channel, isCollapsed, onToggl
       <Collapse
         activeKey={isCollapsed ? [] : ['1']}
         onChange={onToggleCollapse}
-        className='[&_div.arco-collapse-item-header-title]:flex-1'
+        className='eve-channel-item__collapse [&_div.arco-collapse-item-header-title]:flex-1'
       >
         <Collapse.Item
           header={<ChannelHeader channel={channel} onToggleEnabled={onToggleEnabled} />}
           name='1'
-          className='[&_div.arco-collapse-item-content-box]:py-3'
+          className='eve-channel-item__panel'
         >
           {channel.content}
         </Collapse.Item>

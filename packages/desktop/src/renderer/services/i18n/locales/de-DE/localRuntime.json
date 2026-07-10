@@ -1,22 +1,22 @@
 {
   "sider": "Runtime",
-  "title": "Local Runtime",
-  "readOnly": "Read-only",
-  "subtitle": "Lokale Wahrheit für EVE Runtime, Ollama, Gemma-Tiers und das letzte Bootstrap-Receipt. Kein Modellwechsel und kein Warm-up in diesem Bildschirm.",
+  "title": "Lokale KI",
+  "readOnly": "Status",
+  "subtitle": "Hier siehst du, ob EVEs lokale KI auf diesem Mac bereit ist. EVE verwaltet sie automatisch und nutzt die Cloud, wenn lokal etwas fehlt.",
   "refresh": "Aktualisieren",
   "sections": {
-    "runtimeTruth": "Runtime-Wahrheit",
-    "receipt": "Bootstrap-Receipt",
-    "warmup": "Modell-Warm-up",
-    "kanban": "EVE Runtime Kanban"
+    "runtimeTruth": "Lokale Ausführung",
+    "receipt": "Einrichtungsstatus",
+    "warmup": "Startprüfung",
+    "kanban": "Lokale Aufgaben"
   },
   "remediation": {
-    "title": "Lokale Spur einrichten",
-    "cloudReassurance": "Die Cloud-KI ist und bleibt deine Standard-Spur — sie läuft sofort, egal was hier steht.",
+    "title": "Lokale KI vorbereiten",
+    "cloudReassurance": "EVE arbeitet in der Cloud weiter, bis die lokale KI bereit ist.",
     "reasonLabel": "Grund",
     "external-link": {
-      "title": "Lokale KI braucht Ollama",
-      "body": "Damit die lokale KI auf diesem Mac laufen kann, muss Ollama installiert sein. Du kannst es in einem Schritt installieren — oder einfach in der Cloud weiterarbeiten.",
+      "title": "Eine lokale Komponente fehlt",
+      "body": "Damit die lokale KI auf diesem Mac laufen kann, muss eine Laufzeit-Komponente installiert sein. EVE kann dich durch die Einrichtung führen — oder einfach in der Cloud weiterarbeiten.",
       "actionHint": "EVE kann dir eine Schritt-für-Schritt-Anleitung als Seite öffnen.",
       "explainer": "OLLAMA_MISSING / OLLAMA_NOT_RUNNING: die lokale Laufzeit fehlt oder läuft nicht."
     },
@@ -50,7 +50,7 @@
     "selectedModel": "Ausgewähltes Modell",
     "runtimeModel": "Runtime-Modell",
     "context": "Kontext",
-    "requirements": "Anforderung",
+    "requirements": "Benötigt",
     "status": "Status",
     "model": "Modell",
     "baseUrl": "Base URL",
@@ -60,7 +60,13 @@
     "error": "Fehler",
     "baseModel": "Base Model",
     "nextAction": "Nächster Schritt",
-    "receiptPath": "Receipt-Datei"
+    "receiptPath": "Receipt-Datei",
+    "localLane": "Verwaltung",
+    "storage": "Speicherort"
+  },
+  "values": {
+    "managedByEve": "Wird automatisch von EVE verwaltet",
+    "storedLocally": "Sicher auf diesem Mac gespeichert"
   },
   "requirements": "{{memory}} GB RAM · {{disk}} GB Disk",
   "elapsedMs": "{{elapsed}} ms",
@@ -74,20 +80,22 @@
     "ready": "Bereit",
     "notReady": "Nicht bereit",
     "moduleCount": "{{ready}}/{{total}} Module bereit",
-    "governanceLocked": "Dispatcher und externe MCP-Server sind aus",
-    "governanceOpen": "Governance-Lock unvollständig",
+    "governanceLocked": "Automatische externe Änderungen sind ausgeschaltet",
+    "governanceOpen": "Ein Teil der Schutzregeln ist noch nicht aktiv",
     "labels": {
       "board": "Board",
       "db": "Kanban DB",
       "dbState": "DB-Status",
-      "tasks": "Tasks",
+      "tasks": "Aufgaben",
       "modules": "Module",
       "governance": "Governance",
-      "reconciliation": "Reconciliation"
+      "protection": "Autonomie-Schutz",
+      "reconciliation": "Reconciliation",
+      "localData": "Lokale Daten"
     },
     "dbPresent": {
-      "yes": "Vorhanden, read-only geöffnet",
-      "no": "Noch nicht vorhanden, keine Mutation ausgeführt"
+      "yes": "Vorhanden",
+      "no": "Noch nicht angelegt"
     }
   },
   "tierStatus": {
@@ -96,8 +104,35 @@
     "opt_in": "Optional",
     "pro": "Pro"
   },
+  "tierNames": {
+    "gemma-4-e4b-local-default": "Schnell und effizient",
+    "gemma-4-12b-local-planning": "Planung und Analyse",
+    "gemma-4-31b-local-pro": "Lokale Pro-Leistung"
+  },
+  "tierDescriptions": {
+    "gemma-4-e4b-local-default": "Für schnelle Alltagsaufgaben und kurze Antworten.",
+    "gemma-4-12b-local-planning": "Für umfangreichere Planung und strukturierte Analysen.",
+    "gemma-4-31b-local-pro": "Für anspruchsvolle lokale Arbeit auf leistungsstarken Macs.",
+    "unknown": "Für lokale Aufgaben auf diesem Mac."
+  },
+  "receiptStatus": {
+    "ready": "Bereit",
+    "blocked": "Noch nicht bereit",
+    "failed": "Einrichtung fehlgeschlagen",
+    "skipped": "Noch nicht eingerichtet",
+    "unknown": "Status wird geprüft"
+  },
+  "receiptNextAction": {
+    "ready": "EVE kann die lokale KI automatisch verwenden.",
+    "blocked": "EVE arbeitet weiter in der Cloud und hält die lokale KI ausgeschaltet.",
+    "failed": "EVE arbeitet weiter in der Cloud. Die lokale Einrichtung kann später erneut geprüft werden.",
+    "skipped": "Kein Schritt nötig. EVE richtet die lokale KI bei Bedarf ein.",
+    "unknown": "EVE prüft den nächsten sicheren Schritt automatisch."
+  },
   "warnings": {
     "title": "Status-Hinweis",
+    "publicSummary": "Die lokale KI ist noch nicht vollständig vorbereitet. EVE arbeitet währenddessen zuverlässig in der Cloud weiter.",
+    "publicTaskSummary": "Ein Teil der lokalen Aufgabendaten ist noch nicht verfügbar. Die Kernfunktionen bleiben nutzbar.",
     "runtime_receipt_missing": "Noch kein Runtime-Receipt geschrieben",
     "runtime_receipt_schema_mismatch": "Runtime-Receipt hat ein unerwartetes Schema",
     "runtime_receipt_json_invalid": "Runtime-Receipt ist kein gültiges JSON",
@@ -107,26 +142,28 @@
     "runtime_reconciliation_missing": "Runtime-Reconciliation fehlt",
     "runtime_reconciliation_schema_mismatch": "Runtime-Reconciliation hat ein unerwartetes Schema",
     "runtime_reconciliation_json_invalid": "Runtime-Reconciliation ist kein gültiges JSON",
-    "hermes_version_lookup_failed": "EVE Runtime-Version konnte nicht gelesen werden",
-    "kanban_board_read_failed": "Kanban-Board konnte nicht read-only gelesen werden",
-    "kanban_optional_dashboard_api_unavailable": "Optionale EVE Runtime-Dashboard-API ist nicht importierbar; Core-Kanban bleibt nutzbar",
-    "kanban_board_db_missing_read_only_no_mutation": "Kanban-DB fehlt noch; der Preflight hat sie bewusst nicht angelegt",
-    "kanban_python_probe_nonzero_exit": "Kanban-Python-Probe endete mit einem Nicht-Null-Code",
-    "ollama_probe_unavailable": "Ollama nicht erreichbar — Installationsstatus der Modelle unbekannt"
+    "hermes_version_lookup_failed": "Die lokale Laufzeit-Version konnte nicht gelesen werden",
+    "kanban_board_read_failed": "Lokale Aufgabendaten konnten nicht gelesen werden",
+    "kanban_optional_dashboard_api_unavailable": "Eine optionale lokale Ansicht ist nicht verfügbar; die Kernfunktionen bleiben nutzbar",
+    "kanban_board_db_missing_read_only_no_mutation": "Lokale Aufgabendaten fehlen noch; die Sicherheitsprüfung hat nichts verändert",
+    "kanban_python_probe_nonzero_exit": "Die lokale Aufgabenprüfung wurde nicht erfolgreich abgeschlossen",
+    "ollama_probe_unavailable": "Die lokale KI ist nicht erreichbar — der Installationsstatus ist unbekannt"
   },
   "errors": {
     "loadFailed": "Runtime-Status konnte nicht geladen werden.",
-    "kanbanLoadFailed": "Kanban-Preflight konnte nicht geladen werden."
+    "loadFailedDescription": "EVE konnte den Status der lokalen KI gerade nicht lesen. Die Cloud-KI bleibt verfügbar.",
+    "kanbanLoadFailed": "Lokale Aufgaben konnten nicht geprüft werden.",
+    "kanbanLoadFailedDescription": "EVE konnte die lokalen Aufgabendaten gerade nicht lesen. Deine gespeicherten Aufgaben bleiben unverändert."
   },
   "blocked": {
-    "title": "Runtime-Status blockiert",
-    "description": "Die lokale Runtime-Wahrheit ist nicht verfügbar.",
+    "title": "Lokale KI nicht verfügbar",
+    "description": "EVE konnte die lokale KI gerade nicht prüfen. Die Cloud-KI bleibt verfügbar.",
     "electronBridgeRequired": "Der Runtime-Status benötigt die Electron Bridge."
   },
   "empty": {
-    "noReceipt": "Noch kein Bootstrap-Receipt vorhanden.",
-    "noWarmup": "Noch kein Modell-Warm-up-Receipt vorhanden.",
-    "noKanban": "Noch kein Kanban-Preflight vorhanden.",
-    "noRuntime": "Keine Runtime-Daten gefunden."
+    "noReceipt": "Die lokale KI wurde noch nicht eingerichtet.",
+    "noWarmup": "Die lokale KI wurde noch nicht gestartet.",
+    "noKanban": "Noch keine lokalen Aufgabendaten vorhanden.",
+    "noRuntime": "Noch keine Informationen zur lokalen KI vorhanden."
   }
 }

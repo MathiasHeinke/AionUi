@@ -8,7 +8,6 @@ import { ipcBridge } from '@/common';
 import type { ICommandEveAssistantReadiness, ICommandEveRuntimeStatus } from '@/common/adapter/ipcBridge';
 import {
   COMMAND_EVE_ASSISTANT_ID,
-  COMMAND_EVE_ASSISTANT_KEY,
   COMMAND_EVE_DEFAULT_ACP_BACKEND,
   COMMAND_EVE_DISPLAY_NAME,
   COMMAND_EVE_SHELL_ENABLED,
@@ -20,6 +19,7 @@ import { configService } from '@/common/config/configService';
 import { isEveInferenceSelection, resolveEffectiveInferenceSelection } from '@/common/config/eveInferenceCore';
 import type { IMcpServer, TProviderWithModel } from '@/common/config/storage';
 import { buildAgentConversationParams } from '@/common/utils/buildAgentConversationParams';
+import { getConversationCreateErrorMessage } from '@/renderer/pages/conversation/utils/conversationCreateError';
 import { emitter } from '@/renderer/utils/emitter';
 import { buildDisplayMessage } from '@/renderer/utils/file/messageFiles';
 import { updateWorkspaceTime } from '@/renderer/utils/workspace/workspaceHistory';
@@ -159,10 +159,11 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
     let commandEveRuntimeModel: TProviderWithModel | undefined;
     let commandEveRuntimeModelId: string | undefined;
     let commandEveAssistantReadiness: ICommandEveAssistantReadiness | undefined;
-    const selectedCustomAgentId = selectedAgentInfo?.custom_agent_id?.replace(/^builtin-/, '');
-    const isCommandEveAssistant =
-      COMMAND_EVE_SHELL_ENABLED &&
-      (selectedAgentKey === COMMAND_EVE_ASSISTANT_KEY || selectedCustomAgentId === COMMAND_EVE_ASSISTANT_ID);
+    // The branded shell must stay on EVE even when its persisted assistant seed
+    // is temporarily unavailable. The readiness call below repairs/loads the
+    // assistant; falling back to the selected raw CLI would leak internals and
+    // route the user's first message through the wrong public contract.
+    const isCommandEveAssistant = COMMAND_EVE_SHELL_ENABLED;
 
     if (isCommandEveAssistant) {
       await ipcBridge.commandEve.evaluateGateDecision.invoke({ action: 'truth_gate' }).catch((error) => {
@@ -427,9 +428,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         });
 
         if (!conversation || !conversation.id) {
-          const runtimeLabel = COMMAND_EVE_SHELL_ENABLED ? 'EVE' : 'Aion CLI';
-          const installLabel = COMMAND_EVE_SHELL_ENABLED ? 'the local EVE runtime is ready' : 'aionrs is installed';
-          alert(`Failed to create ${runtimeLabel} conversation. Please ensure ${installLabel}.`);
+          Message.error(t('conversation.createFailed', { defaultValue: 'Failed to create conversation' }));
           return false;
         }
 
@@ -447,9 +446,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
 
         await navigateToConversation(navigate, conversation.id);
       } catch (error: unknown) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        const runtimeLabel = COMMAND_EVE_SHELL_ENABLED ? 'EVE/Hermes' : 'Aion CLI';
-        alert(`Failed to create ${runtimeLabel} conversation: ${errorMessage}`);
+        Message.error(getConversationCreateErrorMessage(error, t));
         throw error;
       }
       return true;

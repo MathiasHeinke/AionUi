@@ -14,7 +14,7 @@ import {
 } from '@/common/config/commandEveShell';
 import type { IProvider } from '@/common/config/storage';
 import { Button, Divider, Message, Popconfirm, Collapse, Tag, Switch, Tooltip } from '@arco-design/web-react';
-import { DeleteFour, Info, Minus, Plus, Write, Heartbeat } from '@icon-park/react';
+import { CheckOne, CloseOne, DeleteFour, Heartbeat, Info, Minus, Plus, Refresh, Write } from '@icon-park/react';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import AddModelModal from '@/renderer/pages/settings/components/AddModelModal';
@@ -29,6 +29,7 @@ import { useEntitlementGate } from '@/renderer/hooks/useEntitlementGate';
 import { useCreditsStatus } from '@renderer/hooks/useCreditsStatus';
 import { isModelByokAllowed } from '@/common/config/eveInferenceCore';
 import { bridge as platformBridge } from '@office-ai/platform';
+import SettingsSection, { SettingsPageHeader } from '@/renderer/components/settings/SettingsSection';
 import '../model-provider.css';
 
 /** 1.6.3 — the per-tier disk truth the status bridge injects (see localRuntimeStatusCore). */
@@ -74,7 +75,7 @@ const getProtocolColor = (protocol: string): string => {
     case 'gemini':
       return 'blue';
     case 'anthropic':
-      return 'orange';
+      return 'gold';
     case 'openai':
     default:
       return 'green';
@@ -249,7 +250,8 @@ const ModelModalContent: React.FC = () => {
           for (const tier of model.tiers ?? []) {
             byId[tier.id] = {
               installed: tier.installed === true,
-              installed_size_bytes: typeof tier.installed_size_bytes === 'number' ? tier.installed_size_bytes : undefined,
+              installed_size_bytes:
+                typeof tier.installed_size_bytes === 'number' ? tier.installed_size_bytes : undefined,
               ram_fit: tier.ram_fit !== false,
               disk_fit: tier.disk_fit !== false,
               recommended: tier.recommended === true,
@@ -458,7 +460,12 @@ const ModelModalContent: React.FC = () => {
       // today's paid-seat-only behavior.
       has_active_topup: creditsStatus?.ok === true && creditsStatus.has_active_topup === true,
     }),
-    [entitlementStatus?.trial_ends_at, entitlementStatus?.has_paid_seat, creditsStatus?.ok, creditsStatus?.has_active_topup]
+    [
+      entitlementStatus?.trial_ends_at,
+      entitlementStatus?.has_paid_seat,
+      creditsStatus?.ok,
+      creditsStatus?.has_active_topup,
+    ]
   );
   const byokDisabled = COMMAND_EVE_SHELL_ENABLED && !isModelByokAllowed(proFeatureView);
 
@@ -495,160 +502,126 @@ const ModelModalContent: React.FC = () => {
   });
 
   return (
-    <div className='flex flex-col bg-2 rd-16px px-16px md:px-24px lg:px-28px py-16px md:py-18px'>
+    <div className='eve-model-settings'>
       {messageContext}
       {addPlatformModalContext}
       {editModalContext}
       {addModelModalContext}
 
-      {/* Header with Add Button */}
-      <div className='flex-shrink-0 border-b border-[var(--color-border-2)] pb-12px mb-14px flex flex-col gap-10px'>
-        <div className='flex items-center justify-between gap-8px flex-wrap'>
-          <div className='text-20px font-600 text-t-primary leading-34px'>{t('settings.model')}</div>
-          <div className='flex items-center gap-8px flex-wrap'>
-            <Button
-              type='outline'
-              shape='round'
-              size='small'
-              onClick={clearAllHealthData}
-              className='rd-100px border-1 border-solid border-[var(--color-border-2)] h-34px px-14px text-t-secondary hover:text-t-primary'
-            >
-              {t('settings.clearStatus')}
-            </Button>
-            <Tooltip
-              content={t('settings.byokPaidSeatOnly', 'Freigeschaltet mit Kunden-Seat ODER Credit-Abo (ab 25 €/Monat)')}
-              disabled={!byokDisabled}
-            >
-              <Button
-                type='outline'
-                shape='round'
-                disabled={byokDisabled}
-                icon={<Plus size='16' />}
-                onClick={() => {
-                  if (byokDisabled) return;
-                  addPlatformModalCtrl.open();
-                }}
-                className='rd-100px border-1 border-solid border-[var(--color-border-2)] h-34px px-14px text-t-secondary hover:text-t-primary'
-              >
-                {t('settings.addModel')}
-              </Button>
-            </Tooltip>
-          </div>
-        </div>
-        {COMMAND_EVE_SHELL_ENABLED ? (
-          <div
-            data-testid='command-eve-model-support-note'
-            className='rd-8px px-12px py-8px text-12px leading-5 border border-solid'
-            style={{
-              borderColor: 'rgba(var(--primary-6),0.32)',
-              backgroundColor: 'rgba(var(--primary-6),0.08)',
-              color: 'rgb(var(--primary-6))',
-            }}
-          >
-            {t('settings.commandEveLocalRuntimeDesc')}
-          </div>
-        ) : (
-          <div
-            className='rd-8px px-12px py-8px text-12px leading-5 border border-solid'
-            style={{
-              borderColor: 'rgba(var(--primary-6),0.32)',
-              backgroundColor: 'rgba(var(--primary-6),0.08)',
-              color: 'rgb(var(--primary-6))',
-            }}
-          >
-            {t('settings.customModelSupportNote')}
-          </div>
-        )}
-      </div>
+      <SettingsPageHeader
+        title={t('settings.model')}
+        description={
+          COMMAND_EVE_SHELL_ENABLED
+            ? t('settings.modelPageDescription', {
+                defaultValue: 'Wähle EVEs lokale Verarbeitungsspur und verwalte optionale eigene Modelle.',
+              })
+            : t('settings.customModelSupportNote')
+        }
+      />
 
       {/* Content Area */}
       <AionScrollArea className='flex-1 min-h-0' disableOverflow={isPageMode}>
         {COMMAND_EVE_SHELL_ENABLED && (
-          <section
-            data-testid='command-eve-local-runtime-section'
-            className='mb-18px rounded-14px border border-solid border-[var(--color-border-2)] bg-fill-1 px-14px py-14px'
+          <SettingsSection
+            testId='command-eve-local-runtime-section'
+            title={t('settings.commandEveLocalRuntime')}
+            description={t('settings.commandEveLocalRuntimeRestartNote')}
+            action={<Tag color='arcoblue'>{t('settings.commandEveLocalRuntimeBackend')}</Tag>}
+            bodyClassName='eve-model-tier-list'
           >
-            <div className='flex flex-wrap items-start justify-between gap-10px'>
-              <div className='min-w-0 flex-1'>
-                <h2 className='m-0 text-16px font-700 leading-24px text-t-primary'>
-                  {t('settings.commandEveLocalRuntime')}
-                </h2>
-                <p className='m-0 mt-6px text-13px leading-20px text-t-secondary'>
-                  {t('settings.commandEveLocalRuntimeRestartNote')}
-                </p>
-              </div>
-              <Tag color='orange'>{t('settings.commandEveLocalRuntimeBackend')}</Tag>
-            </div>
-            <div className='mt-14px grid gap-10px lg:grid-cols-3'>
-              {COMMAND_EVE_LOCAL_MODEL_TIERS.map((tier) => {
-                const selected = selectedLocalModelTierId === tier.id;
-                // 1.6.3 — the card's honest state, from the injected probe:
-                // installed ✓ / lädt X % / nicht geladen / läuft nicht auf
-                // diesem Mac / Status unbekannt (Ollama down). No probe row
-                // yet (first render) keeps the old claim-free card.
-                const probe = localTiers[tier.id];
-                const fits = !probe || (probe.ram_fit && probe.disk_fit);
-                // Percent is only ever THIS tier's pull (review fix: a click on
-                // tier B must not display a foreign/stale tier-A percent).
-                const pullingThis =
-                  localPull !== null &&
-                  probe !== undefined &&
-                  (localPull.model === probe.runtime_model_ref || localPull.model === probe.model_ref);
-                const ensuringThis = ensuringTierId === tier.id;
-                // Review fixes: the download affordance ALSO covers the SELECTED
-                // tier (the most common broken state) and the Ollama-down case —
-                // ensureLocalModelTier starts the runtime itself (idempotent).
-                const showDownload = probe !== undefined && !probe.installed && fits;
-                return (
-                  <div
-                    key={tier.id}
-                    data-testid={`command-eve-model-tier-${tier.id}`}
-                    className='rounded-12px border border-solid border-[var(--color-border-2)] bg-[var(--color-bg-2)] px-12px py-12px'
-                  >
-                    <div className='flex items-start justify-between gap-8px'>
-                      <div className='min-w-0'>
-                        <div className='flex items-center gap-6px flex-wrap'>
-                          <div className='text-15px font-700 leading-22px text-t-primary'>{tier.label}</div>
-                          {probe?.recommended && <Tag color='arcoblue'>{t('settings.commandEveLocalRuntimeRecommended')}</Tag>}
-                        </div>
-                        {/* Offline/local models are named transparently (founder 2026-06-28) — the
-                            concrete model ref is the user's own on-device model, not a secret. */}
-                        <div className='mt-4px break-all text-12px leading-18px text-t-secondary'>{tier.modelId}</div>
+            {COMMAND_EVE_LOCAL_MODEL_TIERS.map((tier) => {
+              const selected = selectedLocalModelTierId === tier.id;
+              const displayLabel =
+                tier.state === 'default'
+                  ? t('settings.commandEveLocalRuntimeLane.fast')
+                  : tier.state === 'opt_in'
+                    ? t('settings.commandEveLocalRuntimeLane.balanced')
+                    : t('settings.commandEveLocalRuntimeLane.pro');
+              const displayDescription =
+                tier.state === 'default'
+                  ? t('settings.commandEveLocalRuntimeLane.fastDescription')
+                  : tier.state === 'opt_in'
+                    ? t('settings.commandEveLocalRuntimeLane.balancedDescription')
+                    : t('settings.commandEveLocalRuntimeLane.proDescription');
+              // 1.6.3 — the card's honest state, from the injected probe:
+              // installed ✓ / lädt X % / nicht geladen / läuft nicht auf
+              // diesem Mac / Status unbekannt (Ollama down). No probe row
+              // yet (first render) keeps the old claim-free card.
+              const probe = localTiers[tier.id];
+              const fits = !probe || (probe.ram_fit && probe.disk_fit);
+              // Percent is only ever THIS tier's pull (review fix: a click on
+              // tier B must not display a foreign/stale tier-A percent).
+              const pullingThis =
+                localPull !== null &&
+                probe !== undefined &&
+                (localPull.model === probe.runtime_model_ref || localPull.model === probe.model_ref);
+              const ensuringThis = ensuringTierId === tier.id;
+              // Review fixes: the download affordance ALSO covers the SELECTED
+              // tier (the most common broken state) and the Ollama-down case —
+              // ensureLocalModelTier starts the runtime itself (idempotent).
+              const showDownload = probe !== undefined && !probe.installed && fits;
+              return (
+                <div
+                  key={tier.id}
+                  data-testid={`command-eve-model-tier-${tier.id}`}
+                  className='eve-model-tier'
+                  data-selected={selected ? 'true' : 'false'}
+                >
+                  <div className='eve-model-tier__header'>
+                    <div className='eve-model-tier__copy'>
+                      <div className='eve-model-tier__title-line'>
+                        <strong>{displayLabel}</strong>
+                        {probe?.recommended && (
+                          <Tag color='arcoblue'>{t('settings.commandEveLocalRuntimeRecommended')}</Tag>
+                        )}
                       </div>
-                      {selected && <Tag color='green'>{t('settings.commandEveLocalRuntimeCurrent')}</Tag>}
+                      <span>{displayDescription}</span>
                     </div>
-                    <div className='mt-6px flex items-center gap-6px flex-wrap' data-testid={`command-eve-model-tier-state-${tier.id}`}>
-                      {pullingThis ? (
-                        <Tag color='blue'>{t('settings.commandEveLocalRuntimeDownloading', { percent: localPull?.percent ?? 0 })}</Tag>
-                      ) : probe?.installed ? (
-                        <Tag color='green'>{t('settings.commandEveLocalRuntimeInstalled')}</Tag>
-                      ) : localProbeUnavailable ? (
-                        <Tag color='gray'>{t('settings.commandEveLocalRuntimeStatusUnknown')}</Tag>
-                      ) : probe ? (
-                        <Tag color='gray'>{t('settings.commandEveLocalRuntimeNotInstalled')}</Tag>
-                      ) : null}
-                      {probe && !fits && <Tag color='orange'>{t('settings.commandEveLocalRuntimeNotOnThisMac')}</Tag>}
-                    </div>
-                    <div className='mt-10px text-12px leading-18px text-t-secondary'>
-                      {t('settings.commandEveLocalRuntimeMeta', {
-                        context: `${Math.round(tier.contextLength / 1024)}k`,
-                        memory: tier.memoryGb,
-                        disk: tier.diskGb,
-                      })}
-                      {probe?.installed && typeof probe.installed_size_bytes === 'number'
-                        ? ` · ${t('settings.commandEveLocalRuntimeInstalledSize', { gb: (probe.installed_size_bytes / 1024 ** 3).toFixed(1) })}`
-                        : ''}
-                    </div>
+                  </div>
+                  <div className='eve-model-tier__state' data-testid={`command-eve-model-tier-state-${tier.id}`}>
+                    {pullingThis ? (
+                      <Tag color='blue'>
+                        {t('settings.commandEveLocalRuntimeDownloading', { percent: localPull?.percent ?? 0 })}
+                      </Tag>
+                    ) : probe?.installed ? (
+                      <Tag color='green'>{t('settings.commandEveLocalRuntimeInstalled')}</Tag>
+                    ) : localProbeUnavailable ? (
+                      <Tag color='gray'>{t('settings.commandEveLocalRuntimeStatusUnknown')}</Tag>
+                    ) : probe ? (
+                      <Tag color='gray'>{t('settings.commandEveLocalRuntimeNotInstalled')}</Tag>
+                    ) : null}
+                    {probe && !fits && <Tag color='gray'>{t('settings.commandEveLocalRuntimeNotOnThisMac')}</Tag>}
+                  </div>
+                  <div className='eve-model-tier__meta'>
+                    {t('settings.commandEveLocalRuntimeMeta', {
+                      context: `${Math.round(tier.contextLength / 1024)}k`,
+                      memory: tier.memoryGb,
+                      disk: tier.diskGb,
+                    })}
+                    {probe?.installed && typeof probe.installed_size_bytes === 'number'
+                      ? ` · ${t('settings.commandEveLocalRuntimeInstalledSize', { gb: (probe.installed_size_bytes / 1024 ** 3).toFixed(1) })}`
+                      : ''}
+                  </div>
+                  {selected && !showDownload ? (
+                    <Tag
+                      className='eve-model-tier__action'
+                      color='green'
+                      data-testid={`command-eve-model-tier-select-${tier.id}`}
+                    >
+                      {t('settings.commandEveLocalRuntimeCurrent')}
+                    </Tag>
+                  ) : (
                     <Button
                       data-testid={`command-eve-model-tier-select-${tier.id}`}
-                      className='mt-12px'
-                      type={selected || showDownload ? 'primary' : 'outline'}
+                      className='eve-model-tier__action'
+                      type={showDownload ? 'primary' : 'outline'}
                       size='small'
-                      shape='round'
                       loading={ensuringThis || pullingThis}
                       disabled={Boolean(probe && !fits && !probe.installed)}
                       onClick={() =>
-                        showDownload ? downloadCommandEveLocalModelTier(tier.id) : selectCommandEveLocalModelTier(tier.id)
+                        showDownload
+                          ? downloadCommandEveLocalModelTier(tier.id)
+                          : selectCommandEveLocalModelTier(tier.id)
                       }
                     >
                       {probe && !fits && !probe.installed
@@ -657,248 +630,288 @@ const ModelModalContent: React.FC = () => {
                           ? localProbeUnavailable
                             ? t('settings.commandEveLocalRuntimeStartAndEnsure')
                             : t('settings.commandEveLocalRuntimeDownload')
-                          : selected
-                            ? t('settings.commandEveLocalRuntimeCurrent')
-                            : t('settings.commandEveLocalRuntimeSelect')}
+                          : t('settings.commandEveLocalRuntimeSelect')}
                     </Button>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
+                  )}
+                </div>
+              );
+            })}
+          </SettingsSection>
         )}
-        {!data || data.length === 0 ? (
-          <div className='flex flex-col items-center justify-center py-40px'>
-            <Info theme='outline' size='48' className='text-t-secondary mb-16px' />
-            <h3 className='text-16px font-500 text-t-primary mb-8px'>{t('settings.noConfiguredModels')}</h3>
-            {/* v1.6 Slice 3 — brand fix: this empty state used to deep-link the
-                upstream AionUi GitHub wiki (foreign brand). EVE Cloud + local are
-                built in; the empty state stays product-neutral, no external link. */}
-            <p className='text-14px text-t-secondary text-center max-w-400px'>
-              {t('settings.eveNoConfiguredModelsHint', {
-                defaultValue:
-                  'EVE Cloud und die lokale KI sind fest eingebaut — hier musst du nichts einrichten. Eigene Modelle kannst du später als Profi-Option ergänzen.',
-              })}
-            </p>
-          </div>
-        ) : (
-          <div className='space-y-16px'>
-            {(data || []).map((platform: IProvider) => {
-              const key = platform.id;
-              const isExpanded = collapseKey[platform.id] ?? false;
-              return (
-                <Collapse
-                  activeKey={isExpanded ? ['image-generation'] : []}
-                  onChange={(_, activeKeys) => {
-                    const expanded = activeKeys.includes('image-generation');
-                    setCollapseKey((prev) => ({ ...prev, [platform.id]: expanded }));
+        <SettingsSection
+          title={t('settings.customModelsTitle', { defaultValue: 'Eigene Modelle' })}
+          description={
+            <span data-testid='command-eve-model-support-note'>
+              {COMMAND_EVE_SHELL_ENABLED
+                ? t('settings.customModelsDescription', {
+                    defaultValue:
+                      'Optionale Pro-Einstellungen für eigene Modellzugänge. EVE funktioniert auch ohne sie.',
+                  })
+                : t('settings.customModelSupportNote')}
+            </span>
+          }
+          action={
+            <div className='eve-model-settings__actions'>
+              <Button size='small' icon={<Refresh size={15} />} onClick={clearAllHealthData}>
+                {t('settings.clearStatus')}
+              </Button>
+              <Tooltip
+                content={t(
+                  'settings.byokPaidSeatOnly',
+                  'Freigeschaltet mit Kunden-Seat ODER Credit-Abo (ab 25 €/Monat)'
+                )}
+                disabled={!byokDisabled}
+              >
+                <Button
+                  type='primary'
+                  size='small'
+                  disabled={byokDisabled}
+                  icon={<Plus size='16' />}
+                  onClick={() => {
+                    if (byokDisabled) return;
+                    addPlatformModalCtrl.open();
                   }}
-                  key={key}
-                  bordered
-                  expandIconPosition='left'
-                  className={`[&_.arco-collapse-item]:!border-0 [&_.arco-collapse-item]:!rounded-12px [&_.arco-collapse-item]:!overflow-hidden [&_.arco-collapse-item]:!bg-[var(--color-bg-2)] [&_.arco-collapse-item-header]:!bg-[var(--fill-0)] [&_.arco-collapse-item-header]:!pl-36px [&_.arco-collapse-item-header]:!pr-12px [&_.arco-collapse-item-header]:!py-8px [&_.arco-collapse-item-header]:transition-colors [&_.arco-collapse-item-header]:hover:!bg-[var(--color-bg-2)] [&_.arco-collapse-item-header]:!gap-8px [&_.arco-collapse-item-header-title]:!min-w-0 [&_.arco-collapse-item-header-icon]:!text-2 [&_.arco-collapse-item-header:hover_.arco-collapse-item-header-icon]:!text-1 [&_.arco-collapse-item-content]:!bg-fill-1 [&_.arco-collapse-item-content-box]:!px-10px [&_.arco-collapse-item-content-box]:!py-8px [&_.arco-collapse-item-content]:!border-t [&_.arco-collapse-item-content]:!border-[var(--color-border-2)] ${
-                    isExpanded
-                      ? '[&_.arco-collapse-item-header]:!rounded-t-12px [&_.arco-collapse-item-header]:!rounded-b-0 [&_.arco-collapse-item-content]:!rounded-b-12px'
-                      : '[&_.arco-collapse-item-header]:!rounded-12px'
-                  }`}
                 >
-                  <Collapse.Item
-                    name='image-generation'
-                    className='[&_.arco-collapse-item-header-title]:flex-1 group'
-                    header={
-                      <div className='group flex items-center justify-between w-full min-h-32px gap-8px min-w-0'>
-                        <span
-                          className={`text-14px font-500 truncate min-w-0 transition-colors ${isExpanded ? 'text-t-primary' : 'text-2 group-hover:text-1'}`}
-                        >
-                          {platform.name}
-                        </span>
-                        <div
-                          className='flex items-center gap-8px shrink-0'
-                          onClick={(e) => {
-                            e.stopPropagation();
-                          }}
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                          }}
-                        >
-                          <span className='text-12px text-t-secondary whitespace-nowrap hidden md:inline-flex items-center overflow-hidden max-w-0 opacity-0 group-hover:max-w-320px group-hover:opacity-100 transition-all duration-180'>
-                            <span
-                              className='cursor-pointer hover:text-t-primary transition-colors'
-                              onClick={() => setCollapseKey((prev) => ({ ...prev, [platform.id]: !isExpanded }))}
-                            >
-                              {t('settings.modelCount')}（{(platform.models ?? []).length}）
-                            </span>
-                            <span className='mx-6px'>|</span>
-                            <span
-                              className='cursor-pointer hover:text-t-primary transition-colors'
-                              onClick={() => editModalCtrl.open({ data: platform, disabled: byokDisabled })}
-                            >
-                              {t('settings.apiKeyCount')}（{getApiKeyCount(platform.api_key)}）
-                            </span>
+                  {t('settings.addModel')}
+                </Button>
+              </Tooltip>
+            </div>
+          }
+        >
+          {!data || data.length === 0 ? (
+            <div className='eve-settings-notice eve-settings-inline-notice'>
+              <Info theme='outline' size={15} />
+              <span>
+                <strong className='eve-model-settings__empty-title'>{t('settings.noConfiguredModels')}</strong>
+                <span>
+                  {t('settings.eveNoConfiguredModelsHint', {
+                    defaultValue:
+                      'EVE Cloud und die lokale KI sind fest eingebaut — hier musst du nichts einrichten. Eigene Modelle kannst du später als Profi-Option ergänzen.',
+                  })}
+                </span>
+              </span>
+            </div>
+          ) : (
+            <div className='eve-model-provider-list'>
+              {(data || []).map((platform: IProvider) => {
+                const key = platform.id;
+                const isExpanded = collapseKey[platform.id] ?? false;
+                return (
+                  <Collapse
+                    activeKey={isExpanded ? ['image-generation'] : []}
+                    onChange={(_, activeKeys) => {
+                      const expanded = activeKeys.includes('image-generation');
+                      setCollapseKey((prev) => ({ ...prev, [platform.id]: expanded }));
+                    }}
+                    key={key}
+                    bordered={false}
+                    expandIconPosition='left'
+                    className='eve-model-provider-collapse'
+                  >
+                    <Collapse.Item
+                      name='image-generation'
+                      className='eve-model-provider-collapse__item group'
+                      header={
+                        <div className='group flex items-center justify-between w-full min-h-32px gap-8px min-w-0'>
+                          <span
+                            className={`text-14px font-500 truncate min-w-0 transition-colors ${isExpanded ? 'text-t-primary' : 'text-2 group-hover:text-1'}`}
+                          >
+                            {platform.name}
                           </span>
-                          <span className='text-12px text-t-secondary whitespace-nowrap md:hidden'>
-                            {(platform.models ?? []).length} / {getApiKeyCount(platform.api_key)}
-                          </span>
-                          {/* 供应商启用开关 / Provider enable switch */}
-                          <Switch
-                            size='small'
-                            checked={getProviderState(platform).checked}
-                            onChange={() => toggleProviderEnabled(platform)}
-                          />
-                          <div className='flex items-center gap-4px'>
-                            <Button
-                              size='mini'
-                              className='model-provider-action-btn !w-28px !h-28px !min-w-28px text-t-secondary hover:text-t-primary'
-                              icon={<Plus size='14' />}
-                              onClick={() => addModelModalCtrl.open({ data: platform })}
+                          <div
+                            className='flex items-center gap-8px shrink-0'
+                            onClick={(e) => {
+                              e.stopPropagation();
+                            }}
+                            onMouseDown={(e) => {
+                              e.stopPropagation();
+                            }}
+                          >
+                            <span className='text-12px text-t-secondary whitespace-nowrap hidden md:inline-flex items-center overflow-hidden max-w-0 opacity-0 group-hover:max-w-320px group-hover:opacity-100 transition-all duration-180'>
+                              <span
+                                className='cursor-pointer hover:text-t-primary transition-colors'
+                                onClick={() => setCollapseKey((prev) => ({ ...prev, [platform.id]: !isExpanded }))}
+                              >
+                                {t('settings.modelCount')}（{(platform.models ?? []).length}）
+                              </span>
+                              <span className='mx-6px'>|</span>
+                              <span
+                                className='cursor-pointer hover:text-t-primary transition-colors'
+                                onClick={() => editModalCtrl.open({ data: platform, disabled: byokDisabled })}
+                              >
+                                {t('settings.apiKeyCount')}（{getApiKeyCount(platform.api_key)}）
+                              </span>
+                            </span>
+                            <span className='text-12px text-t-secondary whitespace-nowrap md:hidden'>
+                              {(platform.models ?? []).length} / {getApiKeyCount(platform.api_key)}
+                            </span>
+                            {/* 供应商启用开关 / Provider enable switch */}
+                            <Switch
+                              size='small'
+                              checked={getProviderState(platform).checked}
+                              onChange={() => toggleProviderEnabled(platform)}
                             />
-                            <Popconfirm
-                              title={t('settings.deleteAllModelConfirm')}
-                              onOk={() => removePlatform(platform.id)}
-                            >
+                            <div className='flex items-center gap-4px'>
                               <Button
                                 size='mini'
                                 className='model-provider-action-btn !w-28px !h-28px !min-w-28px text-t-secondary hover:text-t-primary'
-                                icon={<Minus size='14' />}
+                                icon={<Plus size='14' />}
+                                onClick={() => addModelModalCtrl.open({ data: platform })}
                               />
-                            </Popconfirm>
-                            <Button
-                              size='mini'
-                              className='model-provider-action-btn !w-28px !h-28px !min-w-28px text-t-secondary hover:text-t-primary'
-                              icon={<Write size='14' />}
-                              onClick={() => editModalCtrl.open({ data: platform, disabled: byokDisabled })}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    }
-                  >
-                    {(platform.models ?? []).map((model: string, index: number, arr: string[]) => {
-                      const isNewApiProvider = isNewApiPlatform(platform.platform);
-                      const modelProtocol = platform.model_protocols?.[model] || 'openai';
-                      const model_health = platform.model_health?.[model];
-                      const healthStatus = model_health?.status || 'unknown';
-
-                      return (
-                        <div key={model}>
-                          <div className='flex items-center justify-between px-8px py-12px transition-colors hover:bg-[var(--fill-0)]'>
-                            <div className='flex items-center gap-8px'>
-                              {/* 健康状态指示器 / Health status indicator */}
-                              {healthStatus !== 'unknown' && (
-                                <Tooltip
-                                  content={
-                                    <div>
-                                      <div className='flex items-center gap-4px'>
-                                        <span>{healthStatus === 'healthy' ? '✅' : '❌'}</span>
-                                        <span>
-                                          {healthStatus === 'healthy' ? t('common.success') : t('common.failed')}
-                                        </span>
-                                      </div>
-                                      {model_health?.latency && (
-                                        <div className='text-12px mt-4px'>
-                                          {t('settings.latency')}: {model_health.latency}ms
-                                        </div>
-                                      )}
-                                      {model_health?.error && (
-                                        <div className='text-12px mt-4px'>{model_health.error}</div>
-                                      )}
-                                      {model_health?.last_check && (
-                                        <div className='text-12px mt-4px'>
-                                          {t('mcp.lastCheck')}: {new Date(model_health.last_check).toLocaleString()}
-                                        </div>
-                                      )}
-                                    </div>
-                                  }
-                                >
-                                  <div
-                                    className={`w-8px h-8px rounded-full ${healthStatus === 'healthy' ? 'bg-green-500' : 'bg-red-500'}`}
-                                  />
-                                </Tooltip>
-                              )}
-
-                              <span className='text-14px text-t-primary'>{model}</span>
-
-                              {/* New API 协议标签（点击循环切换）/ New API protocol badge (click to cycle) */}
-                              {isNewApiProvider && (
-                                <Tag
-                                  size='small'
-                                  color={getProtocolColor(modelProtocol)}
-                                  className='cursor-pointer select-none'
-                                  onClick={() => {
-                                    const nextProtocol = getNextProtocol(modelProtocol);
-                                    const newProtocols = { ...platform.model_protocols };
-                                    newProtocols[model] = nextProtocol;
-                                    updatePlatform({ ...platform, model_protocols: newProtocols }, () => {});
-                                  }}
-                                >
-                                  {getProtocolLabel(modelProtocol)}
-                                </Tag>
-                              )}
-
-                              {/* 模型启用开关 / Model enable switch */}
-                              <Switch
-                                size='small'
-                                checked={isModelEnabled(platform, model)}
-                                onChange={(checked) => toggleModelEnabled(platform, model, checked)}
-                              />
-                            </div>
-
-                            <div className='flex items-center gap-6px shrink-0'>
-                              {/* 心跳检测按钮 / Health check button */}
-                              <Tooltip content={t('settings.healthCheck')}>
-                                <Button
-                                  size='mini'
-                                  className='!w-28px !h-28px !min-w-28px !bg-[var(--color-bg-1)] text-t-secondary hover:text-t-primary hover:!bg-[var(--fill-0)]'
-                                  icon={<Heartbeat theme='outline' size='16' />}
-                                  loading={healthCheckLoading[`${platform.id}-${model}`]}
-                                  onClick={() => performHealthCheck(platform, model)}
-                                />
-                              </Tooltip>
-
                               <Popconfirm
-                                title={t('settings.deleteModelConfirm')}
-                                onOk={() => {
-                                  const newModels = platform.models.filter((item: string) => item !== model);
-                                  // 同时清理模型相关状态，避免删除后重加模型时复用脏状态
-                                  // Clean all per-model state to avoid stale state on re-add.
-                                  const newProtocols = { ...platform.model_protocols };
-                                  const newModelEnabled = { ...platform.model_enabled };
-                                  const newModelHealth = { ...platform.model_health };
-                                  delete newProtocols[model];
-                                  delete newModelEnabled[model];
-                                  delete newModelHealth[model];
-
-                                  updatePlatform(
-                                    {
-                                      ...platform,
-                                      models: newModels,
-                                      model_protocols: Object.keys(newProtocols).length > 0 ? newProtocols : undefined,
-                                      model_enabled:
-                                        Object.keys(newModelEnabled).length > 0 ? newModelEnabled : undefined,
-                                      model_health: Object.keys(newModelHealth).length > 0 ? newModelHealth : undefined,
-                                    },
-                                    () => {}
-                                  );
-                                }}
+                                title={t('settings.deleteAllModelConfirm')}
+                                onOk={() => removePlatform(platform.id)}
                               >
                                 <Button
                                   size='mini'
-                                  className='!w-28px !h-28px !min-w-28px !bg-[var(--color-bg-1)] text-t-secondary hover:text-t-primary hover:!bg-[var(--fill-0)]'
-                                  icon={<DeleteFour theme='outline' size='18' strokeWidth={2} />}
+                                  className='model-provider-action-btn !w-28px !h-28px !min-w-28px text-t-secondary hover:text-t-primary'
+                                  icon={<Minus size='14' />}
                                 />
                               </Popconfirm>
+                              <Button
+                                size='mini'
+                                className='model-provider-action-btn !w-28px !h-28px !min-w-28px text-t-secondary hover:text-t-primary'
+                                icon={<Write size='14' />}
+                                onClick={() => editModalCtrl.open({ data: platform, disabled: byokDisabled })}
+                              />
                             </div>
                           </div>
-                          {index < arr.length - 1 && <Divider className='!my-0 !border-[var(--color-border-2)]/70' />}
                         </div>
-                      );
-                    })}
-                  </Collapse.Item>
-                </Collapse>
-              );
-            })}
-          </div>
-        )}
+                      }
+                    >
+                      {(platform.models ?? []).map((model: string, index: number, arr: string[]) => {
+                        const isNewApiProvider = isNewApiPlatform(platform.platform);
+                        const modelProtocol = platform.model_protocols?.[model] || 'openai';
+                        const model_health = platform.model_health?.[model];
+                        const healthStatus = model_health?.status || 'unknown';
+
+                        return (
+                          <div key={model}>
+                            <div className='flex items-center justify-between px-8px py-12px transition-colors hover:bg-[var(--fill-0)]'>
+                              <div className='flex items-center gap-8px'>
+                                {/* 健康状态指示器 / Health status indicator */}
+                                {healthStatus !== 'unknown' && (
+                                  <Tooltip
+                                    content={
+                                      <div>
+                                        <div className='flex items-center gap-4px'>
+                                          {healthStatus === 'healthy' ? (
+                                            <CheckOne theme='filled' size={14} className='text-success' />
+                                          ) : (
+                                            <CloseOne theme='filled' size={14} className='text-danger' />
+                                          )}
+                                          <span>
+                                            {healthStatus === 'healthy' ? t('common.success') : t('common.failed')}
+                                          </span>
+                                        </div>
+                                        {model_health?.latency && (
+                                          <div className='text-12px mt-4px'>
+                                            {t('settings.latency')}: {model_health.latency}ms
+                                          </div>
+                                        )}
+                                        {model_health?.error && (
+                                          <div className='text-12px mt-4px'>{model_health.error}</div>
+                                        )}
+                                        {model_health?.last_check && (
+                                          <div className='text-12px mt-4px'>
+                                            {t('mcp.lastCheck')}: {new Date(model_health.last_check).toLocaleString()}
+                                          </div>
+                                        )}
+                                      </div>
+                                    }
+                                  >
+                                    <div
+                                      className={`w-8px h-8px rounded-full ${healthStatus === 'healthy' ? 'bg-green-500' : 'bg-red-500'}`}
+                                    />
+                                  </Tooltip>
+                                )}
+
+                                <span className='text-14px text-t-primary'>{model}</span>
+
+                                {/* New API 协议标签（点击循环切换）/ New API protocol badge (click to cycle) */}
+                                {isNewApiProvider && (
+                                  <Tag
+                                    size='small'
+                                    color={getProtocolColor(modelProtocol)}
+                                    className='cursor-pointer select-none'
+                                    onClick={() => {
+                                      const nextProtocol = getNextProtocol(modelProtocol);
+                                      const newProtocols = { ...platform.model_protocols };
+                                      newProtocols[model] = nextProtocol;
+                                      updatePlatform({ ...platform, model_protocols: newProtocols }, () => {});
+                                    }}
+                                  >
+                                    {getProtocolLabel(modelProtocol)}
+                                  </Tag>
+                                )}
+
+                                {/* 模型启用开关 / Model enable switch */}
+                                <Switch
+                                  size='small'
+                                  checked={isModelEnabled(platform, model)}
+                                  onChange={(checked) => toggleModelEnabled(platform, model, checked)}
+                                />
+                              </div>
+
+                              <div className='flex items-center gap-6px shrink-0'>
+                                {/* 心跳检测按钮 / Health check button */}
+                                <Tooltip content={t('settings.healthCheck')}>
+                                  <Button
+                                    size='mini'
+                                    className='!w-28px !h-28px !min-w-28px !bg-[var(--color-bg-1)] text-t-secondary hover:text-t-primary hover:!bg-[var(--fill-0)]'
+                                    icon={<Heartbeat theme='outline' size='16' />}
+                                    loading={healthCheckLoading[`${platform.id}-${model}`]}
+                                    onClick={() => performHealthCheck(platform, model)}
+                                  />
+                                </Tooltip>
+
+                                <Popconfirm
+                                  title={t('settings.deleteModelConfirm')}
+                                  onOk={() => {
+                                    const newModels = platform.models.filter((item: string) => item !== model);
+                                    // 同时清理模型相关状态，避免删除后重加模型时复用脏状态
+                                    // Clean all per-model state to avoid stale state on re-add.
+                                    const newProtocols = { ...platform.model_protocols };
+                                    const newModelEnabled = { ...platform.model_enabled };
+                                    const newModelHealth = { ...platform.model_health };
+                                    delete newProtocols[model];
+                                    delete newModelEnabled[model];
+                                    delete newModelHealth[model];
+
+                                    updatePlatform(
+                                      {
+                                        ...platform,
+                                        models: newModels,
+                                        model_protocols:
+                                          Object.keys(newProtocols).length > 0 ? newProtocols : undefined,
+                                        model_enabled:
+                                          Object.keys(newModelEnabled).length > 0 ? newModelEnabled : undefined,
+                                        model_health:
+                                          Object.keys(newModelHealth).length > 0 ? newModelHealth : undefined,
+                                      },
+                                      () => {}
+                                    );
+                                  }}
+                                >
+                                  <Button
+                                    size='mini'
+                                    className='!w-28px !h-28px !min-w-28px !bg-[var(--color-bg-1)] text-t-secondary hover:text-t-primary hover:!bg-[var(--fill-0)]'
+                                    icon={<DeleteFour theme='outline' size='18' strokeWidth={2} />}
+                                  />
+                                </Popconfirm>
+                              </div>
+                            </div>
+                            {index < arr.length - 1 && <Divider className='!my-0 !border-[var(--color-border-2)]/70' />}
+                          </div>
+                        );
+                      })}
+                    </Collapse.Item>
+                  </Collapse>
+                );
+              })}
+            </div>
+          )}
+        </SettingsSection>
       </AionScrollArea>
     </div>
   );

@@ -63,7 +63,10 @@ describe('team agent type policy', () => {
   it('uses Hermes as a Command EVE fallback without exposing other CLI agents', () => {
     const options = [
       cliAgentToOption(agent('acp', 'claude')),
-      cliAgentToOption(agent('acp', COMMAND_EVE_DEFAULT_ACP_BACKEND)),
+      {
+        ...cliAgentToOption(agent('acp', COMMAND_EVE_DEFAULT_ACP_BACKEND)),
+        icon: 'backend-runtime.svg',
+      },
       cliAgentToOption(agent('aionrs')),
     ];
 
@@ -72,6 +75,7 @@ describe('team agent type policy', () => {
         id: COMMAND_EVE_ASSISTANT_ID,
         backend: COMMAND_EVE_DEFAULT_ACP_BACKEND,
         displayName: COMMAND_EVE_APP_NAME,
+        icon: COMMAND_EVE_ASSISTANT_AVATAR,
       }),
     ]);
   });

@@ -81,7 +81,7 @@ function asCommandEveTeamLeader(agent: TeamAgentOption): TeamAgentOption {
     ...agent,
     id: COMMAND_EVE_ASSISTANT_ID,
     displayName: COMMAND_EVE_APP_NAME,
-    icon: agent.icon || COMMAND_EVE_ASSISTANT_AVATAR,
+    icon: COMMAND_EVE_ASSISTANT_AVATAR,
   };
 }
 

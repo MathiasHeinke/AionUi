@@ -5,56 +5,20 @@
  */
 
 import { WEBUI_DEFAULT_PORT, WEBUI_REMOTE_ACCESS_SUPPORTED } from '@/common/config/constants';
+import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import { shell, webui, type IWebUIStatus } from '@/common/adapter/ipcBridge';
 import { isBackendHttpError } from '@/common/adapter/httpBridge';
 import { configService } from '@/common/config/configService';
 import AionModal from '@/renderer/components/base/AionModal';
 import AionScrollArea from '@/renderer/components/base/AionScrollArea';
-import ChannelDingTalkLogo from '@/renderer/assets/channel-logos/dingtalk.svg';
-import ChannelDiscordLogo from '@/renderer/assets/channel-logos/discord.svg';
-import ChannelLarkLogo from '@/renderer/assets/channel-logos/lark.svg';
-import ChannelSlackLogo from '@/renderer/assets/channel-logos/slack.svg';
-import ChannelTelegramLogo from '@/renderer/assets/channel-logos/telegram.svg';
-import ChannelWecomLogo from '@/renderer/assets/channel-logos/wecom.svg';
-import ChannelWeixinLogo from '@/renderer/assets/channel-logos/weixin.svg';
+import PreferenceRow from '@/renderer/components/settings/PreferenceRow';
+import SettingsSection, { SettingsPageHeader } from '@/renderer/components/settings/SettingsSection';
 import { isElectronDesktop } from '@/renderer/utils/platform';
 import { Button, Form, Input, Message, Switch, Tabs, Tooltip } from '@arco-design/web-react';
-import { CheckOne, Communication, Copy, Earth, EditTwo, Refresh } from '@icon-park/react';
+import { Communication, Copy, Earth, EditTwo, Refresh } from '@icon-park/react';
 import React, { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSettingsViewMode } from '../settingsViewContext';
-
-/**
- * 偏好设置行组件
- * Preference row component
- */
-const PreferenceRow: React.FC<{
-  label: string;
-  description?: React.ReactNode;
-  extra?: React.ReactNode;
-  children: React.ReactNode;
-}> = ({ label, description, extra, children }) => (
-  <div className='flex items-center justify-between gap-12px py-12px'>
-    <div className='min-w-0 flex-1'>
-      <div className='flex items-center gap-8px'>
-        <span className='text-14px text-t-primary'>{label}</span>
-        {extra}
-      </div>
-      {description && <div className='text-12px text-t-tertiary mt-2px'>{description}</div>}
-    </div>
-    <div className='flex items-center shrink-0'>{children}</div>
-  </div>
-);
-
-const CHANNEL_LOGOS = [
-  { src: ChannelTelegramLogo, alt: 'Telegram' },
-  { src: ChannelLarkLogo, alt: 'Lark' },
-  { src: ChannelDingTalkLogo, alt: 'DingTalk' },
-  { src: ChannelWeixinLogo, alt: 'WeChat' },
-  { src: ChannelWecomLogo, alt: 'WeCom' },
-  { src: ChannelSlackLogo, alt: 'Slack' },
-  { src: ChannelDiscordLogo, alt: 'Discord' },
-] as const;
 
 const ChannelModalContentLazy = React.lazy(() => import('./channels/ChannelModalContent'));
 const QRCodeSVGLazy = React.lazy(async () => {
@@ -562,150 +526,109 @@ const WebuiModalContent: React.FC = () => {
   // 浏览器端只显示 Channels 配置，不显示 WebUI 服务配置 / In browser mode, only show Channels config, not WebUI service config
   if (!isDesktop) {
     return (
-      <div className='flex flex-col h-full w-full'>
-        <AionScrollArea className='flex-1 min-h-0 pb-16px' disableOverflow={isPageMode}>
-          <div className='space-y-16px'>
-            <h2 className='text-20px font-500 text-t-primary m-0'>Channels</h2>
-            <Suspense fallback={<div className='text-13px text-t-secondary'>{t('common.loading')}</div>}>
-              <ChannelModalContentLazy />
-            </Suspense>
-          </div>
-        </AionScrollArea>
+      <div className='eve-remote-settings flex h-full w-full flex-col'>
+        <div className='px-[12px] md:px-[28px]'>
+          <SettingsPageHeader title={t('settings.remotePageTitle')} description={t('settings.remotePageDescription')} />
+        </div>
+        <div className='min-h-0 flex-1'>
+          <Suspense fallback={<div className='px-[12px] text-13px text-t-secondary'>{t('common.loading')}</div>}>
+            <ChannelModalContentLazy />
+          </Suspense>
+        </div>
       </div>
     );
   }
 
   const webuiPanel = (
     <AionScrollArea className='flex-1 min-h-0 pb-16px' disableOverflow={isPageMode}>
-      <div className='space-y-12px px-[12px] md:px-[28px]'>
-        {/* 标题 / Title */}
-        <h2 className='text-20px font-500 text-t-primary m-0'>WebUI</h2>
-
-        {/* 描述说明 / Description */}
-        <div className='space-y-6px'>
-          <p className='m-0 text-13px text-t-secondary leading-relaxed'>
-            {t(WEBUI_REMOTE_ACCESS_SUPPORTED ? 'settings.webui.description' : 'settings.webui.enableDesc')}
-          </p>
-          <div className='flex flex-wrap gap-x-12px gap-y-6px'>
-            {[
-              t('settings.webui.enable', { defaultValue: 'Enable WebUI' }),
-              t('settings.webui.accessUrl', { defaultValue: 'Access URL' }),
-              ...(WEBUI_REMOTE_ACCESS_SUPPORTED
-                ? [t('settings.webui.allowRemote', { defaultValue: 'Allow Remote Access' })]
-                : []),
-            ].map((stepLabel, idx) => (
-              <div key={stepLabel} className='inline-flex items-center gap-6px'>
-                <span className='inline-flex items-center justify-center w-16px h-16px rd-50% text-10px font-600 bg-[rgba(var(--primary-6),0.12)] text-[rgb(var(--primary-6))]'>
-                  {idx + 1}
-                </span>
-                <CheckOne theme='outline' size='12' className='text-[rgb(var(--primary-6))]' />
-                <span className='text-12px text-t-secondary'>{stepLabel}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Messaging 强引导入口 / Messaging primary entry — disabled, kept for future use
-        <div className='rd-12px border border-line bg-2 px-12px py-10px flex items-center justify-between gap-10px'>
-            <div className='min-w-0 flex items-center gap-8px'>
-              <Communication theme='outline' size='18' className='text-[rgb(var(--primary-6))] shrink-0' />
-              <div className='min-w-0'>
-                <div className='text-13px text-t-primary font-500'>{t('settings.webui.featureChannelsTitle')}</div>
-                <div className='text-12px text-t-secondary truncate'>{t('settings.webui.featureChannelsDesc')}</div>
-              </div>
-            </div>
-            <Button type='primary' size='small' className='rd-100px' onClick={() => setActiveTab('channels')}>
-              {t('settings.webui.goToChannels')}
-            </Button>
-          </div>
-        */}
-
-        {/* WebUI 服务卡片 / WebUI Service Card */}
-        <div className='px-[12px] md:px-[28px] py-14px bg-2 rd-16px'>
-          {/* WebUI 引导提示 / WebUI hint */}
-          {WEBUI_REMOTE_ACCESS_SUPPORTED && (
-            <div className='mb-8px rd-10px border border-line bg-fill-1 px-10px py-8px flex items-start gap-6px'>
-              <Earth theme='outline' size='16' className='mt-1px text-[rgb(var(--primary-6))]' />
-              <div className='text-12px text-t-secondary leading-relaxed'>{t('settings.webui.featureRemoteDesc')}</div>
-            </div>
-          )}
-
-          {/* 启用 WebUI / Enable WebUI */}
+      <div className='eve-remote-settings__content px-[12px] md:px-[28px]'>
+        <SettingsSection
+          title={t('settings.remoteAccessTitle')}
+          description={t('settings.remoteAccessDescription')}
+          bodyClassName='eve-settings-list'
+        >
           <PreferenceRow
             label={t('settings.webui.enable')}
+            description={t('settings.webui.enableDesc')}
             extra={
               startLoading ? (
-                <span className='text-12px text-warning'>{t('settings.webui.starting')}</span>
+                <span className='eve-settings-state eve-settings-state--attention'>{t('settings.webui.starting')}</span>
               ) : status?.running ? (
-                <span className='text-12px text-success'>✓ {t('settings.webui.running')}</span>
+                <span className='eve-settings-state eve-settings-state--success'>{t('settings.webui.running')}</span>
               ) : null
             }
           >
             <Switch checked={webuiEnabled} loading={startLoading} onChange={handleToggle} />
           </PreferenceRow>
 
-          {/* 访问地址（启用 WebUI 后即显示，不依赖后端 running 状态）/ Access URL (shown whenever WebUI is enabled, not tied to backend running state) */}
           {webuiEnabled && (
-            <PreferenceRow label={t('settings.webui.accessUrl')}>
-              <div className='flex items-center gap-8px min-w-0'>
-                <button
-                  className='text-14px text-primary font-mono hover:underline cursor-pointer bg-transparent border-none p-0 truncate'
+            <PreferenceRow label={t('settings.webui.accessUrl')} stackOnMobile>
+              <div className='eve-webui-value-actions'>
+                <Button
+                  type='text'
+                  size='small'
+                  className='eve-webui-link'
                   onClick={() => shell.openExternal.invoke(getDisplayUrl()).catch(console.error)}
                 >
                   {getDisplayUrl()}
-                </button>
+                </Button>
                 <Tooltip content={t('common.copy')}>
-                  <button
-                    className='p-4px text-t-tertiary hover:text-t-primary cursor-pointer bg-transparent border-none'
+                  <Button
+                    type='text'
+                    size='mini'
+                    aria-label={t('common.copy')}
+                    className='eve-icon-button'
                     onClick={() => handleCopy(getDisplayUrl())}
                   >
                     <Copy size={16} />
-                  </button>
+                  </Button>
                 </Tooltip>
               </div>
             </PreferenceRow>
           )}
 
-          {/* 允许局域网访问 / Allow LAN Access */}
           {WEBUI_REMOTE_ACCESS_SUPPORTED && (
             <PreferenceRow
               label={t('settings.webui.allowRemote')}
               description={
-                <span className='text-t-secondary'>
+                <span>
                   {t('settings.webui.allowRemoteDesc')}
-                  {'  '}
-                  <button
-                    className='text-primary hover:underline cursor-pointer bg-transparent border-none p-0 text-12px'
-                    onClick={() =>
-                      shell.openExternal
-                        .invoke('https://github.com/iOfficeAI/AionUi/wiki/Remote-Internet-Access-Guide')
-                        .catch(console.error)
-                    }
-                  >
-                    {t('settings.webui.viewGuide')}
-                  </button>
+                  {!COMMAND_EVE_SHELL_ENABLED && (
+                    <Button
+                      type='text'
+                      size='mini'
+                      className='eve-inline-link'
+                      onClick={() =>
+                        shell.openExternal
+                          .invoke('https://github.com/iOfficeAI/AionUi/wiki/Remote-Internet-Access-Guide')
+                          .catch(console.error)
+                      }
+                    >
+                      {t('settings.webui.viewGuide')}
+                    </Button>
+                  )}
                 </span>
               }
             >
               <Switch checked={allowRemotePreference} onChange={handleAllowRemoteChange} />
             </PreferenceRow>
           )}
-        </div>
+        </SettingsSection>
 
-        {/* 登录信息卡片 / Login Info Card */}
-        <div className='px-[12px] md:px-[28px] py-14px bg-2 rd-16px'>
-          <div className='text-14px font-500 mb-8px text-t-primary'>{t('settings.webui.loginInfo')}</div>
-
-          {/* 账号 / Account */}
-          <div className='flex items-center justify-between gap-12px py-12px'>
-            <span className='text-14px text-t-secondary shrink-0'>{t('settings.webui.username')}:</span>
-            <div className='inline-flex items-center gap-8px rd-100px border border-line bg-fill-1 px-10px py-4px min-w-0'>
-              <span className='text-14px text-t-primary truncate'>{displayUsername}</span>
+        <SettingsSection
+          title={t('settings.remoteLoginTitle')}
+          description={t('settings.remoteLoginDescription')}
+          bodyClassName='eve-settings-list'
+        >
+          <PreferenceRow label={t('settings.webui.username')} stackOnMobile>
+            <div className='eve-webui-value-actions'>
+              <span className='eve-settings-value'>{displayUsername}</span>
               <Tooltip content={t('common.copy')}>
                 <Button
                   type='text'
                   size='mini'
-                  className='rd-100px !px-6px inline-flex items-center !h-24px'
+                  aria-label={t('common.copy')}
+                  className='eve-icon-button'
                   onClick={() => handleCopy(displayUsername)}
                 >
                   <Copy size={14} />
@@ -715,68 +638,62 @@ const WebuiModalContent: React.FC = () => {
                 <Button
                   type='text'
                   size='mini'
-                  className='rd-100px !px-6px inline-flex items-center !h-24px'
+                  aria-label={t('settings.webui.editUsernameTooltip')}
+                  className='eve-icon-button'
                   onClick={handleResetUsername}
                 >
                   <EditTwo size={14} />
                 </Button>
               </Tooltip>
             </div>
-          </div>
+          </PreferenceRow>
 
-          {/* 密码 / Password */}
-          <div className='flex items-center justify-between gap-12px py-12px'>
-            <span className='text-14px text-t-secondary shrink-0'>{t('settings.webui.initialPassword')}:</span>
-            <div className='inline-flex items-center gap-8px rd-100px border border-line bg-fill-1 px-10px py-4px min-w-0'>
-              <span className='text-14px text-t-primary truncate'>{displayPassword}</span>
+          <PreferenceRow label={t('settings.webui.initialPassword')} stackOnMobile>
+            <div className='eve-webui-value-actions'>
+              <span className='eve-settings-value eve-webui-password'>{displayPassword}</span>
               <Tooltip content={t('settings.webui.resetPasswordTooltip')}>
                 <Button
                   type='text'
                   size='mini'
-                  className='rd-100px !px-6px inline-flex items-center !h-24px'
+                  aria-label={t('settings.webui.resetPasswordTooltip')}
+                  className='eve-icon-button'
                   onClick={handleResetPassword}
                 >
                   <EditTwo size={14} />
                 </Button>
               </Tooltip>
             </div>
-          </div>
+          </PreferenceRow>
 
-          {/* 二维码登录（仅服务器运行且允许远程访问时显示）/ QR Code Login (only when server running and remote access allowed) */}
           {WEBUI_REMOTE_ACCESS_SUPPORTED && status?.running && status.allowRemote && (
-            <>
-              <div className='border-t border-line my-12px' />
-              <div className='text-14px font-500 mb-4px text-t-primary'>{t('settings.webui.qrLogin')}</div>
-              <div className='text-12px text-t-tertiary mb-12px'>{t('settings.webui.qrLoginHint')}</div>
-
-              <div className='flex flex-col items-center gap-12px'>
-                {/* 二维码显示区域 / QR Code display area */}
-                <div className='p-12px bg-fill-1 border border-line rd-10px'>
+            <div className='eve-webui-qr'>
+              <div className='eve-webui-qr__copy'>
+                <div className='eve-webui-qr__title'>{t('settings.webui.qrLogin')}</div>
+                <div className='eve-webui-qr__description'>{t('settings.webui.qrLoginHint')}</div>
+              </div>
+              <div className='eve-webui-qr__content'>
+                <div className='eve-webui-qr-frame' role='img' aria-label={t('settings.webui.qrLoginTitle')}>
                   {qrLoading ? (
                     <div className='w-140px h-140px flex items-center justify-center'>
                       <span className='text-14px text-t-tertiary'>{t('common.loading')}</span>
                     </div>
                   ) : qrUrl ? (
-                    <div className='p-8px bg-white rd-8px'>
-                      <Suspense
-                        fallback={
-                          <div className='w-140px h-140px flex items-center justify-center'>
-                            <span className='text-14px text-t-tertiary'>{t('common.loading')}</span>
-                          </div>
-                        }
-                      >
-                        <QRCodeSVGLazy value={qrUrl} size={140} level='M' />
-                      </Suspense>
-                    </div>
+                    <Suspense
+                      fallback={
+                        <div className='w-140px h-140px flex items-center justify-center'>
+                          <span className='text-14px text-t-tertiary'>{t('common.loading')}</span>
+                        </div>
+                      }
+                    >
+                      <QRCodeSVGLazy value={qrUrl} size={140} level='M' marginSize={4} />
+                    </Suspense>
                   ) : (
                     <div className='w-140px h-140px flex items-center justify-center'>
                       <span className='text-14px text-t-tertiary'>{t('settings.webui.qrGenerateFailed')}</span>
                     </div>
                   )}
                 </div>
-
-                {/* 过期时间、复制链接和刷新按钮 / Expiration time, copy link and refresh button */}
-                <div className='flex items-center gap-8px'>
+                <div className='eve-webui-qr__actions'>
                   {qrExpiresAt && (
                     <span className='text-12px text-t-tertiary'>
                       {t('settings.webui.qrExpires', { time: formatExpiresAt(qrExpiresAt) })}
@@ -784,77 +701,68 @@ const WebuiModalContent: React.FC = () => {
                   )}
                   {qrUrl && (
                     <Tooltip content={t('settings.webui.copyQrLink')}>
-                      <button
-                        className='p-4px bg-transparent border-none text-t-tertiary hover:text-t-primary cursor-pointer'
+                      <Button
+                        type='text'
+                        size='mini'
+                        aria-label={t('settings.webui.copyQrLink')}
+                        className='eve-icon-button'
                         onClick={() => handleCopy(qrUrl)}
                       >
                         <Copy size={16} />
-                      </button>
+                      </Button>
                     </Tooltip>
                   )}
                   <Tooltip content={t('settings.webui.refreshQr')}>
-                    <button
-                      className='p-4px bg-transparent border-none text-t-tertiary hover:text-t-primary cursor-pointer'
+                    <Button
+                      type='text'
+                      size='mini'
+                      aria-label={t('settings.webui.refreshQr')}
+                      className='eve-icon-button'
                       onClick={() => void generateQRCode()}
                       disabled={qrLoading}
                     >
                       <Refresh size={16} className={qrLoading ? 'animate-spin' : ''} />
-                    </button>
+                    </Button>
                   </Tooltip>
                 </div>
               </div>
-            </>
+            </div>
           )}
-        </div>
+        </SettingsSection>
       </div>
     </AionScrollArea>
   );
 
   return (
-    <div className='flex flex-col h-full w-full'>
-      <Tabs
-        activeTab={activeTab}
-        onChange={(key) => setActiveTab((key as 'webui' | 'channels') || 'webui')}
-        type='line'
-        className='mb-12px settings-remote-tabs'
-      >
-        <Tabs.TabPane
-          key='webui'
-          title={
-            <span
-              data-webui-tab='webui'
-              className={`inline-flex items-center gap-6px transition-colors ${activeTab === 'webui' ? 'text-t-primary font-600' : 'text-t-secondary'}`}
-            >
-              <Earth theme='outline' size='15' />
-              <span>WebUI</span>
-            </span>
-          }
-        />
-        <Tabs.TabPane
-          key='channels'
-          title={
-            <span
-              data-webui-tab='channels'
-              className={`inline-flex items-center gap-6px transition-colors ${activeTab === 'channels' ? 'text-t-primary font-600' : 'text-t-secondary'}`}
-            >
-              <Communication theme='outline' size='15' />
-              <span>Channels</span>
-              <span className='inline-flex items-center gap-4px ml-2px'>
-                {CHANNEL_LOGOS.map((item) => (
-                  <span
-                    key={item.alt}
-                    className='inline-flex items-center justify-center w-16px h-16px rd-50% border border-line bg-fill-1'
-                    title={item.alt}
-                    aria-label={item.alt}
-                  >
-                    <img src={item.src} alt={item.alt} className='w-14px h-14px object-contain' />
-                  </span>
-                ))}
+    <div className='eve-remote-settings flex h-full w-full flex-col'>
+      <div className='px-[12px] md:px-[28px]'>
+        <SettingsPageHeader title={t('settings.remotePageTitle')} description={t('settings.remotePageDescription')} />
+        <Tabs
+          activeTab={activeTab}
+          onChange={(key) => setActiveTab((key as 'webui' | 'channels') || 'webui')}
+          type='line'
+          className='eve-settings-tabs eve-remote-tabs'
+        >
+          <Tabs.TabPane
+            key='webui'
+            title={
+              <span data-webui-tab='webui' className='inline-flex items-center gap-6px'>
+                <Earth theme='outline' size='15' />
+                <span>{t('settings.remoteBrowserTab')}</span>
               </span>
-            </span>
-          }
-        />
-      </Tabs>
+            }
+          />
+          <Tabs.TabPane
+            key='channels'
+            title={
+              <span data-webui-tab='channels' className='inline-flex items-center gap-6px'>
+                <Communication theme='outline' size='15' />
+                <span>{t('settings.remoteChannelsTab')}</span>
+              </span>
+            }
+          />
+        </Tabs>
+      </div>
 
       {activeTab === 'webui' ? (
         webuiPanel

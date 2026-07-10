@@ -53,6 +53,51 @@ describe('Command EVE visual rails', () => {
     expect(overrideCss).toContain('background: var(--glass-overlay-bg) !important;');
   });
 
+  it('keeps confirm and composed dialogs on the shared glass spacing contract', () => {
+    const aionModal = read('components/base/AionModal.tsx');
+    const overrideCss = read('styles/arco-override.css');
+
+    expect(overrideCss).toContain('.arco-modal.arco-modal-simple {');
+    expect(overrideCss).toContain('.arco-modal.arco-modal-simple .arco-modal-content {');
+    expect(aionModal).toContain('px-24px pt-20px pb-16px');
+    expect(aionModal).toContain("contentStyle?.padding ?? '4px 24px 20px'");
+    expect(aionModal).toContain("!footerUnpadded && 'px-24px pt-16px pb-20px'");
+    expect(aionModal).toContain("<div className='flex flex-wrap justify-end gap-10px'>");
+  });
+
+  it('keeps prompt icons in a stable column with breathing room', () => {
+    const guidCss = read('pages/guid/index.module.css');
+    const overrideCss = read('styles/arco-override.css');
+    const visualCss = read('styles/themes/command-eve-visual.css');
+    const rowBlock = guidCss.match(/\.assistantPromptRow \{([\s\S]*?)\n\}/)?.[1] ?? '';
+
+    expect(rowBlock).toContain('display: grid !important;');
+    expect(rowBlock).toContain('grid-template-columns: 24px minmax(0, 1fr) 20px;');
+    expect(rowBlock).toContain('column-gap: 12px;');
+    expect(guidCss).toContain('display: contents;');
+    expect(guidCss).toContain('gap: 10px;');
+    expect(overrideCss).toContain('column-gap: 8px;');
+    expect(overrideCss).toContain('.agent-mode-compact-pill > span');
+    expect(visualCss).toMatch(/\.company-brain-settings__item-title\.arco-btn \{[\s\S]*?gap: 10px;/);
+  });
+
+  it('keeps keyboard focus visible when component event bookkeeping is unavailable', () => {
+    const visualCss = read('styles/themes/command-eve-visual.css');
+
+    expect(visualCss).toContain('.eve-composer-surface:has(:focus-visible)');
+  });
+
+  it('keeps deep-linked mobile settings routes visible and signals hidden navigation', () => {
+    const settingsWrapper = read('pages/settings/components/SettingsPageWrapper.tsx');
+    const settingsCss = read('pages/settings/components/settings.css');
+
+    expect(settingsWrapper).toContain(`querySelector<HTMLElement>("[aria-current='page']")?.scrollIntoView?.({`);
+    expect(settingsWrapper).toContain('syncMobileNavOverflow');
+    expect(settingsCss).toContain('.settings-mobile-top-nav-shell--before .settings-mobile-top-nav');
+    expect(settingsCss).toContain('.settings-mobile-top-nav-shell--after .settings-mobile-top-nav');
+    expect(settingsCss).toContain('-webkit-mask-image: linear-gradient');
+  });
+
   it('skins toasts with semantic hairlines instead of fixed gradients', () => {
     const overrideCss = read('styles/arco-override.css');
     const messageBlock = overrideCss.slice(overrideCss.indexOf('/* Arco Message custom styles */'));

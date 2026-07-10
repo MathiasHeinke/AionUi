@@ -21,6 +21,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import SkillsHubSettings from './SkillsHubSettings';
 import ToolsModalContent from '@/renderer/components/settings/SettingsModal/contents/ToolsModalContent';
+import { SettingsPageHeader } from '@/renderer/components/settings/SettingsSection';
 import SettingsPageWrapper from './components/SettingsPageWrapper';
 
 type CapabilitiesTab = 'skills' | 'tools';
@@ -55,12 +56,13 @@ const CapabilitiesSettings: React.FC = () => {
   };
 
   return (
-    <SettingsPageWrapper contentClassName='max-w-1200px'>
+    <SettingsPageWrapper contentClassName='md:!max-w-1200px'>
+      <SettingsPageHeader title={t('settings.capabilities')} description={t('settings.capabilitiesPageDescription')} />
       <Tabs
         activeTab={activeTab}
         onChange={handleTabChange}
         type='line'
-        className='flex flex-col flex-1 min-h-0 [&>.arco-tabs-content]:pt-0'
+        className='eve-settings-tabs flex flex-col flex-1 min-h-0'
       >
         <Tabs.TabPane key='skills' title={t('settings.capabilitiesTab.skills', { defaultValue: 'Skills' })}>
           <SkillsHubSettings withWrapper={false} />

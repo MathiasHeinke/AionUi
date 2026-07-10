@@ -181,6 +181,7 @@ const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
       maskStyle={{ zIndex: 9999 }}
       autoFocus={false}
       unmountOnExit={false}
+      footerUnpadded
       contentStyle={{
         background: 'var(--dialog-fill-0)',
         padding: 0,

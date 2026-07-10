@@ -1,5 +1,9 @@
 {
   "desktopPet": "Desktop Pet",
+  "pageDescription": "Customize EVE's small desktop companion or turn it off completely.",
+  "behaviorTitle": "Behavior",
+  "behaviorDescription": "These preferences only affect the desktop companion on this Mac.",
+  "availabilityTitle": "Availability",
   "enable": "Enable Desktop Pet",
   "size": "Pet Size",
   "sizeSmall": "Small ({{px}}px)",

@@ -5,7 +5,6 @@
  */
 
 import { ipcBridge } from '@/common';
-import { iconColors } from '@/renderer/styles/colors';
 import { Button, Form, Tooltip } from '@arco-design/web-react';
 import { FolderOpen } from '@icon-park/react';
 import React from 'react';
@@ -22,7 +21,7 @@ const DirInputItem: React.FC<{
   const { t } = useTranslation();
   return (
     <Form.Item label={label} field={field}>
-      {(value, form) => {
+      {(_value, form) => {
         const current_value = form.getFieldValue(field) || '';
         const actionTooltip = field === 'workDir' ? t('settings.changeWorkDir') : t('settings.changeLogDir');
 
@@ -42,37 +41,13 @@ const DirInputItem: React.FC<{
             });
         };
 
-        const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-          if (event.key !== 'Enter' && event.key !== ' ') return;
-          event.preventDefault();
-          handlePick();
-        };
-
         return (
-          <div
-            className='aion-dir-input h-[32px] flex items-center rounded-8px border border-solid border-transparent pl-14px bg-[var(--fill-0)] cursor-pointer'
-            tabIndex={0}
-            onClick={handlePick}
-            onKeyDown={handleKeyDown}
-          >
-            <Tooltip content={current_value || t('settings.dirNotConfigured')} position='top'>
-              <div className='flex-1 min-w-0 text-13px text-t-primary truncate '>
-                {current_value || t('settings.dirNotConfigured')}
-              </div>
-            </Tooltip>
-            <Tooltip content={actionTooltip} position='top'>
-              <Button
-                type='text'
-                aria-label={actionTooltip}
-                style={{ borderLeft: '1px solid var(--color-border-2)', borderRadius: '0 8px 8px 0' }}
-                icon={<FolderOpen theme='outline' size='18' fill={iconColors.primary} />}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handlePick();
-                }}
-              />
-            </Tooltip>
-          </div>
+          <Tooltip content={actionTooltip} position='top'>
+            <Button type='secondary' long className='eve-dir-input' aria-label={actionTooltip} onClick={handlePick}>
+              <span className='eve-dir-input__value'>{current_value || t('settings.dirNotConfigured')}</span>
+              <FolderOpen theme='outline' size='17' />
+            </Button>
+          </Tooltip>
         );
       }}
     </Form.Item>

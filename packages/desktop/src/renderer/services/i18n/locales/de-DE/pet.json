@@ -1,5 +1,9 @@
 {
   "desktopPet": "Desktop-Pet",
+  "pageDescription": "Passe EVEs kleinen Desktop-Begleiter an oder schalte ihn vollständig aus.",
+  "behaviorTitle": "Verhalten",
+  "behaviorDescription": "Diese Einstellungen gelten nur für den Desktop-Begleiter auf diesem Mac.",
+  "availabilityTitle": "Verfügbarkeit",
   "enable": "Desktop-Pet aktivieren",
   "size": "Pet-Größe",
   "sizeSmall": "Klein ({{px}}px)",

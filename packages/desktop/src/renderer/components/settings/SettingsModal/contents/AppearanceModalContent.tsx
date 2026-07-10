@@ -15,6 +15,7 @@ import { useThemeContext } from '@renderer/hooks/context/ThemeContext';
 import { useSettingsViewMode } from '../settingsViewContext';
 import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import CommandEveAppearanceSettings from '@/renderer/components/settings/CommandEveAppearanceSettings';
+import PreferenceRow from '@/renderer/components/settings/PreferenceRow';
 
 /** Map each configurable font-size region to its row label i18n key. */
 const FONT_SIZE_LABEL_KEY: Record<FontSizeKey, string> = {
@@ -22,22 +23,6 @@ const FONT_SIZE_LABEL_KEY: Record<FontSizeKey, string> = {
   markdown: 'settings.fontSizeMarkdown',
   code: 'settings.fontSizeCode',
 };
-
-/**
- * 偏好设置行组件 / Preference row component
- * 用于显示标签和对应的控件，统一的水平布局 / Used for displaying labels and corresponding controls in a unified horizontal layout
- */
-const PreferenceRow: React.FC<{
-  /** 标签文本 / Label text */
-  label: string;
-  /** 控件元素 / Control element */
-  children: React.ReactNode;
-}> = ({ label, children }) => (
-  <div className='flex flex-col items-stretch gap-10px py-12px md:flex-row md:items-center md:justify-between md:gap-24px'>
-    <div className='text-14px text-t-primary leading-22px'>{label}</div>
-    <div className='w-full flex md:flex-1 md:justify-end'>{children}</div>
-  </div>
-);
 
 /**
  * 外观设置内容组件 / Appearance settings content component
@@ -78,7 +63,7 @@ const AppearanceModalContent: React.FC = () => {
           <div className={secondarySectionClass}>
             <div className='w-full flex flex-col divide-y divide-border-2'>
               {FONT_SIZE_KEYS.map((key) => (
-                <PreferenceRow key={key} label={t(FONT_SIZE_LABEL_KEY[key])}>
+                <PreferenceRow key={key} label={t(FONT_SIZE_LABEL_KEY[key])} stackOnMobile>
                   <FontSizeStepper
                     value={fontSizes[key]}
                     min={FONT_SIZE_SPECS[key].min}
@@ -96,7 +81,7 @@ const AppearanceModalContent: React.FC = () => {
           {/* 缩放控制 / Scale Control */}
           <div className={secondarySectionClass}>
             <div className='w-full flex flex-col divide-y divide-border-2'>
-              <PreferenceRow label={t('settings.scale')}>
+              <PreferenceRow label={t('settings.scale')} stackOnMobile>
                 <ScaleControl />
               </PreferenceRow>
             </div>

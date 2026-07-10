@@ -26,7 +26,8 @@
  */
 
 import React, { useCallback } from 'react';
-import { Button, Card, Tag } from '@arco-design/web-react';
+import { Button, Tag } from '@arco-design/web-react';
+import { Right } from '@icon-park/react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { isElectronDesktop, openAccountWeb } from '@renderer/utils/platform';
@@ -38,20 +39,34 @@ import {
   type ErsteSchritteStep,
   type ErsteSchritteStepStatus,
 } from '@/common/config/ersteSchritteHubCore';
+import { EVE_SETTINGS_TAG_COLOR } from '@/renderer/components/settings/settingsSemantics';
+import SettingsSection, { SettingsPageHeader } from '@/renderer/components/settings/SettingsSection';
 
-const STATUS_TAG_COLOR: Record<ErsteSchritteStepStatus, 'green' | 'orange' | 'gray'> = {
-  done: 'green',
-  attention: 'orange',
-  optional: 'gray',
+const STATUS_TAG_COLOR: Record<ErsteSchritteStepStatus, 'green' | 'gold' | 'gray'> = {
+  done: EVE_SETTINGS_TAG_COLOR.success,
+  attention: EVE_SETTINGS_TAG_COLOR.attention,
+  optional: EVE_SETTINGS_TAG_COLOR.neutral,
 };
 
 /** German fallback copy per step (the i18n locale files override these keys). */
 const STEP_COPY: Record<string, { title: string; desc: string }> = {
-  'ki-spur': { title: 'KI-Spur wählen', desc: 'Die Cloud-KI antwortet sofort. Optional: die lokale KI (Smart Local) laden.' },
-  'company-brain': { title: 'Company-Brain füllen', desc: 'Erzähl EVE dein Geschäft — sie merkt es sich und arbeitet damit.' },
-  kunde: { title: 'Ersten Kunden anlegen', desc: 'Als Agentur einen Kunden-Seat hinzufügen (öffnet dein Konto im Browser).' },
-  connectors: { title: 'Integration verbinden', desc: 'Geprüfte Connectoren freischalten — Schlüssel bleiben im Vault, nie im Chat.' },
-  team: { title: 'Dein Team', desc: 'Rollen, Budget und Worker (z. B. deine Claude-CLI) steuern.' },
+  'ki-spur': {
+    title: 'KI-Spur wählen',
+    desc: 'Die Cloud-KI antwortet sofort. Optional: die lokale KI (Smart Local) laden.',
+  },
+  'company-brain': {
+    title: 'Company-Brain füllen',
+    desc: 'Erzähl EVE dein Geschäft — sie merkt es sich und arbeitet damit.',
+  },
+  kunde: {
+    title: 'Ersten Kunden anlegen',
+    desc: 'Als Agentur einen Kunden-Seat hinzufügen (öffnet dein Konto im Browser).',
+  },
+  connectors: {
+    title: 'Integration verbinden',
+    desc: 'Geprüfte Connectoren freischalten — Schlüssel bleiben im Vault, nie im Chat.',
+  },
+  team: { title: 'Dein Team', desc: 'Rollen, Budget und deine angebundenen Werkzeuge steuern.' },
   skills: { title: 'Was EVE kann', desc: 'Die Fähigkeiten-Bibliothek — inklusive von EVE selbst erstellter Skills.' },
   privacy: { title: 'Datenschutz', desc: 'Telemetrie ist standardmäßig aus. Hier prüfen und steuern.' },
   budget: { title: 'Budget & Guthaben', desc: 'Ausgabe-Limit, Guthaben und Pakete verwalten.' },
@@ -60,7 +75,7 @@ const STEP_COPY: Record<string, { title: string; desc: string }> = {
 
 const STATUS_LABEL: Record<ErsteSchritteStepStatus, string> = {
   done: 'erledigt',
-  attention: 'offen',
+  attention: 'prüfen',
   optional: 'öffnen',
 };
 
@@ -92,10 +107,20 @@ const ErsteSchritteModalContent: React.FC = () => {
   // WebUI / non-desktop: no onboarding data — render a neutral, claim-free note.
   if (!isElectronDesktop()) {
     return (
-      <div className='p-4px text-14px leading-22px text-t-secondary' data-testid='erste-schritte-webui'>
-        {t('settings.ersteSchritteWebui', {
-          defaultValue: 'Die Ersten Schritte siehst du in der Desktop-App.',
-        })}
+      <div className='erste-schritte-settings' data-testid='erste-schritte-webui'>
+        <SettingsPageHeader
+          title={t('settings.ersteSchritte', { defaultValue: 'Erste Schritte' })}
+          description={t('settings.ersteSchritteIntro', {
+            defaultValue: 'Dein Startpunkt mit EVE — hier siehst du, ob alles bereit ist.',
+          })}
+        />
+        <SettingsSection title={t('settings.ersteSchritteAvailabilityTitle', { defaultValue: 'Verfügbarkeit' })}>
+          <div className='eve-settings-notice'>
+            {t('settings.ersteSchritteWebui', {
+              defaultValue: 'Die Ersten Schritte siehst du in der Desktop-App.',
+            })}
+          </div>
+        </SettingsSection>
       </div>
     );
   }
@@ -109,108 +134,109 @@ const ErsteSchritteModalContent: React.FC = () => {
   });
 
   return (
-    <div className='flex flex-col gap-16px p-4px' data-testid='erste-schritte-content'>
-      <div className='flex items-start justify-between gap-12px'>
-        <div className='min-w-0'>
-          <h2 className='m-0 text-18px font-700 leading-26px text-t-primary'>
-            {t('settings.ersteSchritte', { defaultValue: 'Erste Schritte' })}
-          </h2>
-          <p className='m-0 mt-4px max-w-620px text-13px leading-20px text-t-secondary'>
-            {t('settings.ersteSchritteIntro', {
-              defaultValue: 'Dein Startpunkt mit EVE — hier siehst du, ob alles bereit ist.',
-            })}
-          </p>
-        </div>
-        <Button size='small' loading={loading} onClick={() => void refresh()}>
-          {t('settings.ersteSchritteRefresh', { defaultValue: 'Aktualisieren' })}
-        </Button>
-      </div>
+    <div className='erste-schritte-settings' data-testid='erste-schritte-content'>
+      <SettingsPageHeader
+        title={t('settings.ersteSchritte', { defaultValue: 'Erste Schritte' })}
+        description={t('settings.ersteSchritteIntro', {
+          defaultValue: 'Dein Startpunkt mit EVE — hier siehst du, ob alles bereit ist.',
+        })}
+        action={
+          <Button size='small' loading={loading} onClick={() => void refresh()}>
+            {t('settings.ersteSchritteRefresh', { defaultValue: 'Aktualisieren' })}
+          </Button>
+        }
+      />
 
-      {loading ? null : greeting ? (
-        <div
-          data-testid='erste-schritte-status'
-          data-ready={greeting.ready ? 'true' : 'false'}
-          className='flex flex-col gap-12px rounded-14px border border-solid border-[var(--color-border-2)] bg-fill-1 px-16px py-14px'
-        >
-          <div className='flex flex-col gap-4px'>
-            <span className='text-15px font-600 text-t-primary'>{greeting.headline}</span>
-            <span className='text-13px text-t-secondary'>{greeting.subline}</span>
+      <SettingsSection
+        title={t('settings.ersteSchritteStatusTitle', { defaultValue: 'Einrichtungsstatus' })}
+        description={t('settings.ersteSchritteStatusDescription', {
+          defaultValue: 'EVE zeigt nur bestätigte Lücken und behauptet keinen Status, den sie nicht prüfen konnte.',
+        })}
+      >
+        {loading ? (
+          <div className='erste-schritte-settings__status' data-loading='true'>
+            {t('settings.ersteSchritteLoading', { defaultValue: 'Status wird geprüft …' })}
           </div>
-          {!greeting.ready && greeting.gaps.length > 0 ? (
-            <div className='flex flex-col gap-8px'>
-              {greeting.gaps.map((gap) => {
-                const route = targetToRoute(gap.link_target);
-                return (
-                  <div
-                    key={gap.id}
-                    data-testid={`erste-schritte-gap-${gap.id}`}
-                    className='flex items-start gap-8px rounded-10px bg-fill-2 px-12px py-10px text-13px leading-20px text-t-secondary'
-                  >
-                    <span aria-hidden>•</span>
-                    <span>
-                      {gap.text}
-                      {route && gap.link_label ? (
-                        <>
-                          {' '}
-                          <a
-                            data-testid={`erste-schritte-link-${gap.id}`}
-                            className='text-primary hover:underline cursor-pointer'
-                            onClick={() => onNavigate(route)}
-                          >
-                            {gap.link_label}
-                          </a>
-                        </>
-                      ) : null}
-                    </span>
-                  </div>
-                );
-              })}
+        ) : greeting ? (
+          <div
+            data-testid='erste-schritte-status'
+            data-ready={greeting.ready ? 'true' : 'false'}
+            className='erste-schritte-settings__status'
+          >
+            <div className='erste-schritte-settings__status-copy'>
+              <strong>{greeting.headline}</strong>
+              <span>{greeting.subline}</span>
             </div>
-          ) : null}
-        </div>
-      ) : (
-        // Failed/unknown read — claim-free, never a false "ready".
-        <div className='rounded-14px border border-solid border-[var(--color-border-2)] bg-fill-1 px-16px py-14px text-13px leading-20px text-t-secondary'>
-          {t('settings.ersteSchritteUnavailable', {
-            defaultValue: 'Ich konnte deinen Einrichtungs-Status gerade nicht lesen — im Chat geht es trotzdem weiter.',
-          })}
-        </div>
-      )}
+            {!greeting.ready && greeting.gaps.length > 0 ? (
+              <ul className='erste-schritte-settings__gaps'>
+                {greeting.gaps.map((gap) => {
+                  const route = targetToRoute(gap.link_target);
+                  return (
+                    <li key={gap.id} data-testid={`erste-schritte-gap-${gap.id}`}>
+                      <span>{gap.text}</span>
+                      {route && gap.link_label ? (
+                        <Button
+                          type='text'
+                          size='small'
+                          data-testid={`erste-schritte-link-${gap.id}`}
+                          onClick={() => onNavigate(route)}
+                        >
+                          {gap.link_label}
+                        </Button>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
+          </div>
+        ) : (
+          <div className='erste-schritte-settings__status'>
+            {t('settings.ersteSchritteUnavailable', {
+              defaultValue:
+                'Ich konnte deinen Einrichtungs-Status gerade nicht lesen — im Chat geht es trotzdem weiter.',
+            })}
+          </div>
+        )}
+      </SettingsSection>
 
-      {/* 1.7.2 — the real Day-0 hub: concrete next steps, each deep-linking to the
-          existing page that does it. Honest chips ('erledigt' only where proven). */}
-      <div className='flex flex-col gap-8px' data-testid='erste-schritte-hub'>
-        <h3 className='m-0 text-14px font-700 leading-22px text-t-primary'>
-          {t('settings.ersteSchritteNextSteps', { defaultValue: 'Nächste Schritte' })}
-        </h3>
-        <div className='grid gap-8px sm:grid-cols-2'>
-          {hubSteps.map((step) => (
-            <Card
-              key={step.id}
-              hoverable
-              data-testid={`erste-schritte-step-${step.id}`}
-              data-status={step.status}
-              onClick={() => onStepClick(step)}
-              className='cursor-pointer rounded-12px'
-              bodyStyle={{ padding: '12px 14px' }}
-            >
-              <div className='flex flex-col gap-4px'>
-                <div className='flex items-start justify-between gap-8px'>
-                  <span className='text-13px font-600 leading-20px text-t-primary'>
-                    {t(`settings.ersteSchritteStep.${step.id}.title`, { defaultValue: STEP_COPY[step.id]?.title ?? step.id })}
-                  </span>
-                  <Tag color={STATUS_TAG_COLOR[step.status]} size='small'>
-                    {t(`settings.ersteSchritteStatus.${step.status}`, { defaultValue: STATUS_LABEL[step.status] })}
-                  </Tag>
-                </div>
-                <span className='text-12px leading-18px text-t-secondary'>
-                  {t(`settings.ersteSchritteStep.${step.id}.desc`, { defaultValue: STEP_COPY[step.id]?.desc ?? '' })}
-                </span>
-              </div>
-            </Card>
-          ))}
-        </div>
-      </div>
+      <SettingsSection
+        title={t('settings.ersteSchritteNextSteps', { defaultValue: 'Nächste Schritte' })}
+        description={t('settings.ersteSchritteNextStepsDescription', {
+          defaultValue: 'Öffne genau den Bereich, den du als Nächstes einrichten oder prüfen möchtest.',
+        })}
+        testId='erste-schritte-hub'
+        bodyClassName='erste-schritte-settings__steps'
+      >
+        {hubSteps.map((step) => (
+          <Button
+            key={step.id}
+            type='text'
+            long
+            data-testid={`erste-schritte-step-${step.id}`}
+            data-status={step.status}
+            onClick={() => onStepClick(step)}
+            className='erste-schritte-settings__step'
+          >
+            <span className='erste-schritte-settings__step-copy'>
+              <strong>
+                {t(`settings.ersteSchritteStep.${step.id}.title`, {
+                  defaultValue: STEP_COPY[step.id]?.title ?? step.id,
+                })}
+              </strong>
+              <span>
+                {t(`settings.ersteSchritteStep.${step.id}.desc`, { defaultValue: STEP_COPY[step.id]?.desc ?? '' })}
+              </span>
+            </span>
+            <span className='erste-schritte-settings__step-state'>
+              <Tag color={STATUS_TAG_COLOR[step.status]} size='small'>
+                {t(`settings.ersteSchritteStatus.${step.status}`, { defaultValue: STATUS_LABEL[step.status] })}
+              </Tag>
+              <Right theme='outline' size={14} />
+            </span>
+          </Button>
+        ))}
+      </SettingsSection>
     </div>
   );
 };

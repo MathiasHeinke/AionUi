@@ -12,8 +12,8 @@ import { type IMcpServer, BUILTIN_IMAGE_GEN_ID, BUILTIN_IMAGE_GEN_NAME } from '@
 import { isImageGenSupported } from '@/common/utils/imageModelAllowlist';
 import type { SpeechToTextConfig, SpeechToTextProvider } from '@/common/types/provider/speech';
 import { getAgents } from '@/renderer/hooks/agent/useAgents';
-import { Divider, Form, Tooltip, Message, Button, Dropdown, Menu, Modal, Switch, Input } from '@arco-design/web-react';
-import { Help, Down, Plus } from '@icon-park/react';
+import { Form, Tooltip, Message, Button, Dropdown, Menu, Modal, Switch, Input } from '@arco-design/web-react';
+import { Down, Help, LinkCloud, Plus } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import useConfigModelListWithImage from '@/renderer/hooks/agent/useConfigModelListWithImage';
@@ -24,6 +24,9 @@ import McpServerItem from '@/renderer/pages/settings/ToolsSettings/McpServerItem
 import { useMcpServers, useMcpConnection, useMcpModal, useMcpServerCRUD, useMcpOAuth } from '@/renderer/hooks/mcp';
 import classNames from 'classnames';
 import { useSettingsViewMode } from '../settingsViewContext';
+import SettingsSection from '@/renderer/components/settings/SettingsSection';
+import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
+import { useNavigate } from 'react-router-dom';
 
 type MessageInstance = ReturnType<typeof Message.useMessage>[0];
 
@@ -170,133 +173,124 @@ const SpeechToTextSettingsSection: React.FC<{
   );
 
   return (
-    <div className='px-[12px] md:px-[32px] py-[24px] bg-2 rd-12px md:rd-16px border border-border-2'>
-      <div className='flex items-center justify-between gap-12px mb-8px'>
-        <div className='flex flex-col gap-4px'>
-          <span className='text-14px text-t-primary'>{t('settings.speechToText')}</span>
-          <span className='text-13px text-t-secondary'>{t('settings.speechToTextDescription')}</span>
-        </div>
+    <SettingsSection
+      title={t('settings.speechToText')}
+      description={t('settings.speechToTextDescription')}
+      action={
         <Switch
           checked={config.enabled}
           onChange={(checked) => {
-            onChange((current) => ({
-              ...current,
-              enabled: checked,
-            }));
+            onChange((current) => ({ ...current, enabled: checked }));
           }}
         />
-      </div>
-
+      }
+    >
       {config.enabled && (
-        <>
-          <Divider className='mt-0px mb-20px' />
+        <Form layout='vertical' className='eve-settings-form'>
+          <Form.Item label={t('settings.speechToTextProvider')}>
+            <AionSelect value={config.provider} onChange={handleProviderChange}>
+              <AionSelect.Option value='local'>{t('settings.speechToTextProviderLocal')}</AionSelect.Option>
+              <AionSelect.Option value='groq'>{t('settings.speechToTextProviderGroq')}</AionSelect.Option>
+              <AionSelect.Option value='openai'>{t('settings.speechToTextProviderOpenAI')}</AionSelect.Option>
+              <AionSelect.Option value='deepgram'>{t('settings.speechToTextProviderDeepgram')}</AionSelect.Option>
+            </AionSelect>
+          </Form.Item>
 
-          <Form layout='horizontal' labelAlign='left' className='space-y-12px'>
-            <Form.Item label={t('settings.speechToTextProvider')}>
-              <AionSelect value={config.provider} onChange={handleProviderChange}>
-                <AionSelect.Option value='local'>{t('settings.speechToTextProviderLocal')}</AionSelect.Option>
-                <AionSelect.Option value='groq'>{t('settings.speechToTextProviderGroq')}</AionSelect.Option>
-                <AionSelect.Option value='openai'>{t('settings.speechToTextProviderOpenAI')}</AionSelect.Option>
-                <AionSelect.Option value='deepgram'>{t('settings.speechToTextProviderDeepgram')}</AionSelect.Option>
-              </AionSelect>
-            </Form.Item>
-
-            {config.provider === 'local' ? (
-              <>
-                <div className='text-13px text-t-secondary mb-4px'>{t('settings.speechToTextProviderLocalHint')}</div>
-                <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextModel', 'optional')}>
-                  <AionSelect
-                    value={config.local?.model || 'base'}
-                    onChange={(value) => handleLocalChange('model', value)}
-                  >
-                    <AionSelect.Option value='tiny'>tiny (~75 MB)</AionSelect.Option>
-                    <AionSelect.Option value='base'>base (~150 MB)</AionSelect.Option>
-                    <AionSelect.Option value='small'>small (~500 MB)</AionSelect.Option>
-                    <AionSelect.Option value='medium'>medium (~1.5 GB)</AionSelect.Option>
-                    <AionSelect.Option value='large-v3'>large-v3 (~3 GB)</AionSelect.Option>
-                  </AionSelect>
-                </Form.Item>
-                <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextLanguage', 'optional')}>
-                  <Input value={config.local?.language} onChange={(value) => handleLocalChange('language', value)} />
-                </Form.Item>
-              </>
-            ) : config.provider === 'groq' ? (
-              <>
-                <div className='text-13px text-t-secondary mb-4px'>{t('settings.speechToTextProviderGroqHint')}</div>
-                <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextModel', 'optional')}>
-                  <Input value={config.groq?.model} onChange={(value) => handleGroqChange('model', value)} />
-                </Form.Item>
-                <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextLanguage', 'optional')}>
-                  <Input value={config.groq?.language} onChange={(value) => handleGroqChange('language', value)} />
-                </Form.Item>
-              </>
-            ) : config.provider === 'openai' ? (
-              <>
-                <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextApiKey', 'required')}>
-                  <Input.Password
-                    value={config.openai?.api_key}
-                    visibilityToggle
-                    onChange={(value) => handleOpenAIChange('api_key', value)}
-                  />
-                </Form.Item>
-                <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextBaseUrl', 'optional')}>
-                  <Input value={config.openai?.base_url} onChange={(value) => handleOpenAIChange('base_url', value)} />
-                </Form.Item>
-                <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextModel', 'optional')}>
-                  <Input value={config.openai?.model} onChange={(value) => handleOpenAIChange('model', value)} />
-                </Form.Item>
-                <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextLanguage', 'optional')}>
-                  <Input value={config.openai?.language} onChange={(value) => handleOpenAIChange('language', value)} />
-                </Form.Item>
-              </>
-            ) : (
-              <>
-                <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextApiKey', 'required')}>
-                  <Input.Password
-                    value={config.deepgram?.api_key}
-                    visibilityToggle
-                    onChange={(value) => handleDeepgramChange('api_key', value)}
-                  />
-                </Form.Item>
-                <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextBaseUrl', 'optional')}>
-                  <Input
-                    value={config.deepgram?.base_url}
-                    onChange={(value) => handleDeepgramChange('base_url', value)}
-                  />
-                </Form.Item>
-                <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextModel', 'optional')}>
-                  <Input value={config.deepgram?.model} onChange={(value) => handleDeepgramChange('model', value)} />
-                </Form.Item>
-                <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextLanguage', 'optional')}>
-                  <Input
-                    value={config.deepgram?.language}
-                    onChange={(value) => handleDeepgramChange('language', value)}
-                  />
-                </Form.Item>
-                <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextDetectLanguage', 'optional')}>
-                  <Switch
-                    checked={config.deepgram?.detectLanguage !== false}
-                    onChange={(checked) => handleDeepgramChange('detectLanguage', checked)}
-                  />
-                </Form.Item>
-                <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextPunctuate', 'optional')}>
-                  <Switch
-                    checked={config.deepgram?.punctuate !== false}
-                    onChange={(checked) => handleDeepgramChange('punctuate', checked)}
-                  />
-                </Form.Item>
-                <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextSmartFormat', 'optional')}>
-                  <Switch
-                    checked={config.deepgram?.smartFormat !== false}
-                    onChange={(checked) => handleDeepgramChange('smartFormat', checked)}
-                  />
-                </Form.Item>
-              </>
-            )}
-          </Form>
-        </>
+          {config.provider === 'local' ? (
+            <>
+              <div className='text-13px text-t-secondary mb-4px'>{t('settings.speechToTextProviderLocalHint')}</div>
+              <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextModel', 'optional')}>
+                <AionSelect
+                  value={config.local?.model || 'base'}
+                  onChange={(value) => handleLocalChange('model', value)}
+                >
+                  <AionSelect.Option value='tiny'>tiny (~75 MB)</AionSelect.Option>
+                  <AionSelect.Option value='base'>base (~150 MB)</AionSelect.Option>
+                  <AionSelect.Option value='small'>small (~500 MB)</AionSelect.Option>
+                  <AionSelect.Option value='medium'>medium (~1.5 GB)</AionSelect.Option>
+                  <AionSelect.Option value='large-v3'>large-v3 (~3 GB)</AionSelect.Option>
+                </AionSelect>
+              </Form.Item>
+              <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextLanguage', 'optional')}>
+                <Input value={config.local?.language} onChange={(value) => handleLocalChange('language', value)} />
+              </Form.Item>
+            </>
+          ) : config.provider === 'groq' ? (
+            <>
+              <div className='text-13px text-t-secondary mb-4px'>{t('settings.speechToTextProviderGroqHint')}</div>
+              <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextModel', 'optional')}>
+                <Input value={config.groq?.model} onChange={(value) => handleGroqChange('model', value)} />
+              </Form.Item>
+              <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextLanguage', 'optional')}>
+                <Input value={config.groq?.language} onChange={(value) => handleGroqChange('language', value)} />
+              </Form.Item>
+            </>
+          ) : config.provider === 'openai' ? (
+            <>
+              <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextApiKey', 'required')}>
+                <Input.Password
+                  value={config.openai?.api_key}
+                  visibilityToggle
+                  onChange={(value) => handleOpenAIChange('api_key', value)}
+                />
+              </Form.Item>
+              <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextBaseUrl', 'optional')}>
+                <Input value={config.openai?.base_url} onChange={(value) => handleOpenAIChange('base_url', value)} />
+              </Form.Item>
+              <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextModel', 'optional')}>
+                <Input value={config.openai?.model} onChange={(value) => handleOpenAIChange('model', value)} />
+              </Form.Item>
+              <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextLanguage', 'optional')}>
+                <Input value={config.openai?.language} onChange={(value) => handleOpenAIChange('language', value)} />
+              </Form.Item>
+            </>
+          ) : (
+            <>
+              <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextApiKey', 'required')}>
+                <Input.Password
+                  value={config.deepgram?.api_key}
+                  visibilityToggle
+                  onChange={(value) => handleDeepgramChange('api_key', value)}
+                />
+              </Form.Item>
+              <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextBaseUrl', 'optional')}>
+                <Input
+                  value={config.deepgram?.base_url}
+                  onChange={(value) => handleDeepgramChange('base_url', value)}
+                />
+              </Form.Item>
+              <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextModel', 'optional')}>
+                <Input value={config.deepgram?.model} onChange={(value) => handleDeepgramChange('model', value)} />
+              </Form.Item>
+              <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextLanguage', 'optional')}>
+                <Input
+                  value={config.deepgram?.language}
+                  onChange={(value) => handleDeepgramChange('language', value)}
+                />
+              </Form.Item>
+              <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextDetectLanguage', 'optional')}>
+                <Switch
+                  checked={config.deepgram?.detectLanguage !== false}
+                  onChange={(checked) => handleDeepgramChange('detectLanguage', checked)}
+                />
+              </Form.Item>
+              <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextPunctuate', 'optional')}>
+                <Switch
+                  checked={config.deepgram?.punctuate !== false}
+                  onChange={(checked) => handleDeepgramChange('punctuate', checked)}
+                />
+              </Form.Item>
+              <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextSmartFormat', 'optional')}>
+                <Switch
+                  checked={config.deepgram?.smartFormat !== false}
+                  onChange={(checked) => handleDeepgramChange('smartFormat', checked)}
+                />
+              </Form.Item>
+            </>
+          )}
+        </Form>
       )}
-    </div>
+    </SettingsSection>
   );
 };
 
@@ -309,6 +303,7 @@ const ModalMcpManagementSection: React.FC<{
   isPageMode?: boolean;
 }> = ({ message, mcpServers, extensionMcpServers, setMcpServers, saveMcpServers, isPageMode }) => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { oauthStatus, loggingIn, checkOAuthStatus, markLoginRequired, clearLoginRequired, login } = useMcpOAuth();
   const visibleMcpServers = useMemo(
     () => mcpServers.filter((server) => !isBuiltinImageGenServer(server)),
@@ -399,6 +394,8 @@ const ModalMcpManagementSection: React.FC<{
   const [importMode, setImportMode] = useState<'json' | 'oneclick'>('json');
 
   useEffect(() => {
+    if (COMMAND_EVE_SHELL_ENABLED) return;
+
     const loadAgents = async () => {
       try {
         const agents = await getAgents();
@@ -433,6 +430,20 @@ const ModalMcpManagementSection: React.FC<{
   }, [serverToDelete, hideDeleteConfirm, handleDeleteMcpServer]);
 
   const renderAddButton = () => {
+    if (COMMAND_EVE_SHELL_ENABLED) {
+      return (
+        <Button
+          type='secondary'
+          icon={<LinkCloud size='16' />}
+          onClick={() => {
+            void navigate('/settings/connectors');
+          }}
+        >
+          {t('settings.toolsManageConnections')}
+        </Button>
+      );
+    }
+
     if (detectedAgents.length > 0) {
       return (
         <Dropdown
@@ -462,7 +473,7 @@ const ModalMcpManagementSection: React.FC<{
             </Menu>
           }
         >
-          <Button type='outline' icon={<Plus size={'16'} />} shape='round' onClick={(e) => e.stopPropagation()}>
+          <Button type='outline' icon={<Plus size='16' />} onClick={(e) => e.stopPropagation()}>
             {t('settings.mcpAddServer')} <Down size='12' />
           </Button>
         </Dropdown>
@@ -472,8 +483,7 @@ const ModalMcpManagementSection: React.FC<{
     return (
       <Button
         type='outline'
-        icon={<Plus size={'16'} />}
-        shape='round'
+        icon={<Plus size='16' />}
         onClick={() => {
           setImportMode('json');
           showAddMcpModal();
@@ -485,23 +495,22 @@ const ModalMcpManagementSection: React.FC<{
   };
 
   return (
-    <div className='flex flex-col gap-16px min-h-0'>
-      <div className='flex gap-8px items-center justify-between'>
-        <div className='text-14px text-t-primary'>{t('settings.mcpSettings')}</div>
-        <div>{renderAddButton()}</div>
-      </div>
-
-      <div className='flex-1 min-h-0'>
+    <SettingsSection
+      title={COMMAND_EVE_SHELL_ENABLED ? t('settings.toolsConnectedToolsTitle') : t('settings.mcpSettings')}
+      description={COMMAND_EVE_SHELL_ENABLED ? t('settings.toolsConnectedToolsDescription') : undefined}
+      action={renderAddButton()}
+    >
+      <div className='min-h-0'>
         {visibleMcpServers.length === 0 && extensionMcpServers.length === 0 ? (
-          <div className='py-24px text-center text-t-secondary text-14px border border-dashed border-border-2 rd-12px'>
-            {t('settings.mcpNoServersFound')}
+          <div className='eve-settings-notice eve-tools-empty'>
+            {COMMAND_EVE_SHELL_ENABLED ? t('settings.toolsNoConnections') : t('settings.mcpNoServersFound')}
           </div>
         ) : (
           <AionScrollArea
             className={classNames('max-h-360px', isPageMode && 'max-h-none')}
             disableOverflow={isPageMode}
           >
-            <div className='space-y-12px'>
+            <div className='eve-mcp-server-list'>
               {visibleMcpServers.map((server) => (
                 <McpServerItem
                   key={server.id}
@@ -557,10 +566,11 @@ const ModalMcpManagementSection: React.FC<{
         okButtonProps={{ status: 'danger' }}
         okText={t('common.confirm')}
         cancelText={t('common.cancel')}
+        wrapClassName='eve-settings-dialog'
       >
         <p>{t('settings.mcpDeleteConfirm')}</p>
       </Modal>
-    </div>
+    </SettingsSection>
   );
 };
 
@@ -580,10 +590,11 @@ const ToolsModalContent: React.FC = () => {
   const imageGenerationModelList = useMemo(() => {
     if (!data) return [];
     return (data || [])
-      .map((provider) => ({
-        ...provider,
-        models: provider.models.filter((modelName) => isImageGenSupported(provider, modelName)),
-      }))
+      .map((provider) =>
+        Object.assign({}, provider, {
+          models: provider.models.filter((modelName) => isImageGenSupported(provider, modelName)),
+        })
+      )
       .filter((provider) => provider.models.length > 0);
   }, [data]);
 
@@ -796,53 +807,43 @@ const ToolsModalContent: React.FC = () => {
   const isImageGenerationModelUnavailable = !imageGenerationModelList.length || !imageGenerationModel?.use_model;
 
   return (
-    <div className='flex flex-col h-full w-full'>
+    <div className='eve-tools-settings flex flex-col h-full w-full'>
       {mcpMessageContext}
 
-      {/* Content Area */}
       <AionScrollArea className='flex-1 min-h-0 pb-16px' disableOverflow={isPageMode}>
-        <div className='space-y-16px'>
-          {/* MCP 工具配置 */}
-          <div className='px-[12px] md:px-[32px] py-[24px] bg-2 rd-12px md:rd-16px flex flex-col min-h-0 border border-border-2'>
-            <div className='flex-1 min-h-0'>
-              <AionScrollArea
-                className={classNames('h-full', isPageMode && 'overflow-visible')}
-                disableOverflow={isPageMode}
-              >
-                <ModalMcpManagementSection
-                  message={mcpMessage}
-                  mcpServers={mcpServers}
-                  extensionMcpServers={extensionMcpServers}
-                  setMcpServers={setMcpServers}
-                  saveMcpServers={saveMcpServers}
-                  isPageMode={isPageMode}
-                />
-              </AionScrollArea>
-            </div>
-          </div>
-          {/* 图像生成 */}
-          <div className='px-[12px] md:px-[32px] py-[24px] bg-2 rd-12px md:rd-16px border border-border-2'>
-            <div className='flex items-center justify-between mb-16px'>
-              <span className='text-14px text-t-primary'>{t('settings.imageGeneration')}</span>
-              <Switch
-                disabled={
-                  isUpdatingImageGeneration ||
-                  isImageGenerationServerLoading ||
-                  !builtinImageGenServer ||
-                  (!builtinImageGenServer.enabled && isImageGenerationModelUnavailable)
-                }
-                checked={Boolean(builtinImageGenServer?.enabled) && !isImageGenerationServerLoading}
-                loading={isImageGenerationServerLoading}
-                onChange={handleImageGenerationToggle}
-              />
-            </div>
+        <ModalMcpManagementSection
+          message={mcpMessage}
+          mcpServers={mcpServers}
+          extensionMcpServers={extensionMcpServers}
+          setMcpServers={setMcpServers}
+          saveMcpServers={saveMcpServers}
+          isPageMode={isPageMode}
+        />
 
-            <Divider className='mt-0px mb-20px' />
-
-            <Form layout='horizontal' labelAlign='left' className='space-y-12px'>
-              <Form.Item
-                label={t('settings.imageGenerationModel')}
-                tooltip={
+        <SettingsSection
+          title={t('settings.imageGeneration')}
+          description={t('settings.imageGenerationDescription')}
+          action={
+            <Switch
+              disabled={
+                isUpdatingImageGeneration ||
+                isImageGenerationServerLoading ||
+                !builtinImageGenServer ||
+                (!builtinImageGenServer.enabled && isImageGenerationModelUnavailable)
+              }
+              checked={Boolean(builtinImageGenServer?.enabled) && !isImageGenerationServerLoading}
+              loading={isImageGenerationServerLoading}
+              onChange={handleImageGenerationToggle}
+            />
+          }
+        >
+          <Form layout='vertical' className='eve-settings-form'>
+            <Form.Item
+              label={t('settings.imageGenerationModel')}
+              tooltip={
+                COMMAND_EVE_SHELL_ENABLED ? (
+                  t('settings.imageGenerationModelDescription')
+                ) : (
                   <div className='space-y-4px'>
                     <div>{t('settings.imageGenSupportedTooltipTitle')}</div>
                     <ul className='list-disc pl-16px m-0'>
@@ -852,72 +853,79 @@ const ToolsModalContent: React.FC = () => {
                     </ul>
                     <div>{t('settings.imageGenUnsupportedTooltip')}</div>
                   </div>
-                }
-              >
-                {imageGenerationModelList.length > 0 ? (
-                  <AionSelect
-                    value={
-                      imageGenerationModel?.id && imageGenerationModel?.use_model
-                        ? `${imageGenerationModel.id}|${imageGenerationModel.use_model}`
-                        : undefined
+                )
+              }
+            >
+              {imageGenerationModelList.length > 0 ? (
+                <AionSelect
+                  value={
+                    imageGenerationModel?.id && imageGenerationModel?.use_model
+                      ? `${imageGenerationModel.id}|${imageGenerationModel.use_model}`
+                      : undefined
+                  }
+                  onChange={(value) => {
+                    const [platformId, modelName] = value.split('|');
+                    const platform = imageGenerationModelList.find((p) => p.id === platformId);
+                    if (platform) {
+                      handleImageGenerationModelChange({
+                        ...platform,
+                        use_model: modelName,
+                      });
                     }
-                    onChange={(value) => {
-                      const [platformId, modelName] = value.split('|');
-                      const platform = imageGenerationModelList.find((p) => p.id === platformId);
-                      if (platform) {
-                        handleImageGenerationModelChange({
-                          ...platform,
-                          use_model: modelName,
-                        });
-                      }
-                    }}
-                  >
-                    {imageGenerationModelList.map(({ models, ...platform }) => (
-                      <AionSelect.OptGroup label={platform.name} key={platform.id}>
-                        {models.map((modelName) => (
-                          <AionSelect.Option key={platform.id + modelName} value={platform.id + '|' + modelName}>
-                            {modelName}
-                          </AionSelect.Option>
-                        ))}
-                      </AionSelect.OptGroup>
-                    ))}
-                  </AionSelect>
-                ) : (
-                  <div className='text-t-secondary flex items-center'>
-                    {t('settings.noAvailable')}
-                    <Tooltip
-                      content={
-                        <div>
-                          {t('settings.needHelpTooltip')}
-                          <a
-                            href='https://github.com/iOfficeAI/AionUi/wiki/AionUi-Image-Generation-Tool-Model-Configuration-Guide'
-                            target='_blank'
-                            rel='noopener noreferrer'
-                            className='text-[rgb(var(--primary-6))] hover:text-[rgb(var(--primary-5))] underline ml-4px'
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            {t('settings.configGuide')}
-                          </a>
-                        </div>
-                      }
-                    >
-                      <a
-                        href='https://github.com/iOfficeAI/AionUi/wiki/AionUi-Image-Generation-Tool-Model-Configuration-Guide'
-                        target='_blank'
-                        rel='noopener noreferrer'
-                        className='ml-8px text-[rgb(var(--primary-6))] hover:text-[rgb(var(--primary-5))] cursor-pointer'
-                        onClick={(e) => e.stopPropagation()}
+                  }}
+                >
+                  {imageGenerationModelList.map(({ models, ...platform }) => (
+                    <AionSelect.OptGroup label={platform.name} key={platform.id}>
+                      {models.map((modelName) => (
+                        <AionSelect.Option key={platform.id + modelName} value={platform.id + '|' + modelName}>
+                          {modelName}
+                        </AionSelect.Option>
+                      ))}
+                    </AionSelect.OptGroup>
+                  ))}
+                </AionSelect>
+              ) : (
+                <div className='eve-settings-inline-notice'>
+                  {COMMAND_EVE_SHELL_ENABLED ? (
+                    t('settings.imageGenerationUnavailable')
+                  ) : (
+                    <>
+                      {t('settings.noAvailable')}
+                      <Tooltip
+                        content={
+                          <div>
+                            {t('settings.needHelpTooltip')}
+                            <a
+                              href='https://github.com/iOfficeAI/AionUi/wiki/AionUi-Image-Generation-Tool-Model-Configuration-Guide'
+                              target='_blank'
+                              rel='noopener noreferrer'
+                              className='text-[rgb(var(--primary-6))] hover:text-[rgb(var(--primary-5))] underline ml-4px'
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {t('settings.configGuide')}
+                            </a>
+                          </div>
+                        }
                       >
-                        <Help theme='outline' size='14' />
-                      </a>
-                    </Tooltip>
-                  </div>
-                )}
-              </Form.Item>
-            </Form>
-          </div>
-          <SpeechToTextSettingsSection config={speechToTextConfig} onChange={updateSpeechToTextConfig} />
-        </div>
+                        <a
+                          href='https://github.com/iOfficeAI/AionUi/wiki/AionUi-Image-Generation-Tool-Model-Configuration-Guide'
+                          target='_blank'
+                          rel='noopener noreferrer'
+                          className='ml-8px text-[rgb(var(--primary-6))] hover:text-[rgb(var(--primary-5))] cursor-pointer'
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Help theme='outline' size='14' />
+                        </a>
+                      </Tooltip>
+                    </>
+                  )}
+                </div>
+              )}
+            </Form.Item>
+          </Form>
+        </SettingsSection>
+
+        <SpeechToTextSettingsSection config={speechToTextConfig} onChange={updateSpeechToTextConfig} />
       </AionScrollArea>
     </div>
   );

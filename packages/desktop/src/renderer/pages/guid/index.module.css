@@ -388,7 +388,10 @@
   width: 100% !important;
   min-height: 48px !important;
   height: auto !important;
-  display: block !important;
+  display: grid !important;
+  grid-template-columns: 24px minmax(0, 1fr) 20px;
+  align-items: center;
+  column-gap: 12px;
   padding: 10px 14px !important;
   border: 0 !important;
   border-top: 1px solid var(--glass-panel-border) !important;
@@ -403,12 +406,7 @@
 }
 
 .assistantPromptRow :global(.arco-btn-content) {
-  width: 100%;
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) 20px;
-  align-items: center;
-  gap: 10px;
-  text-align: left;
+  display: contents;
 }
 
 .assistantPromptRow:first-child {
@@ -431,6 +429,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 100%;
   color: var(--color-text-3);
 }
 
@@ -488,7 +487,7 @@
 .workspaceEmptyBtn {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 10px;
   font-size: 14px;
   font-weight: 500;
   color: var(--color-text-3);

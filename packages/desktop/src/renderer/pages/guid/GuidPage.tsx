@@ -9,8 +9,7 @@ import type { IMcpServer } from '@/common/config/storage';
 import { resolveLocaleKey } from '@/common/utils';
 import {
   COMMAND_EVE_ASSISTANT_AVATAR,
-  COMMAND_EVE_ASSISTANT_ID,
-  COMMAND_EVE_ASSISTANT_KEY,
+  COMMAND_EVE_DISPLAY_NAME,
   COMMAND_EVE_SHELL_ENABLED,
 } from '@/common/config/commandEveShell';
 import EveInferencePicker from '@/renderer/components/agent/EveInferencePicker';
@@ -568,11 +567,10 @@ const GuidPage: React.FC = () => {
   // For the Command EVE Assistant we replace the raw model/agent selector with
   // the clean two-group EVE Inference picker (Privat lokal + EVE Inference).
   // Founder mandate: nothing confusing — no raw CLI/agent/model list here.
-  const selectedCommandEveAgentId = agentSelection.selectedAgentInfo?.custom_agent_id?.replace(/^builtin-/, '');
-  const isCommandEveAssistant =
-    COMMAND_EVE_SHELL_ENABLED &&
-    (agentSelection.selectedAgentKey === COMMAND_EVE_ASSISTANT_KEY ||
-      selectedCommandEveAgentId === COMMAND_EVE_ASSISTANT_ID);
+  // Command EVE is the only public assistant identity in the branded shell.
+  // Keep this true even while the assistant seed is missing or still loading;
+  // otherwise the fallback state exposes the internal CLI/agent catalog.
+  const isCommandEveAssistant = COMMAND_EVE_SHELL_ENABLED;
 
   // Build the model selector node
   const modelSelectorNode = isCommandEveAssistant ? (
@@ -849,7 +847,9 @@ const GuidPage: React.FC = () => {
             onPaste={guidInput.onPaste}
             onFocus={guidInput.handleTextareaFocus}
             onBlur={guidInput.handleTextareaBlur}
-            placeholder={`${mention.selectedAgentLabel}, ${typewriterPlaceholder || t('conversation.welcome.placeholder')}`}
+            placeholder={`${isCommandEveAssistant ? COMMAND_EVE_DISPLAY_NAME : mention.selectedAgentLabel}, ${
+              typewriterPlaceholder || t('conversation.welcome.placeholder')
+            }`}
             isFileDragging={guidInput.isFileDragging}
             dragHandlers={guidInput.dragHandlers}
             mentionOpen={mention.mentionOpen}
