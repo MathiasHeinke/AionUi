@@ -8,59 +8,69 @@ import { describe, expect, it } from 'vitest';
 import {
   deriveSessionStatus,
   sessionStatusColor,
+  sessionStatusShape,
   type SessionStatus,
+  type SessionStatusInput,
 } from '@/renderer/pages/conversation/GroupedHistory/sessionStatus';
+
+const statusInput = (overrides: Partial<SessionStatusInput> = {}): SessionStatusInput => ({
+  isGenerating: false,
+  hasCompletionUnread: false,
+  isWaitingInput: false,
+  hasError: false,
+  cronStatus: 'none',
+  ...overrides,
+});
 
 describe('deriveSessionStatus', () => {
   it('running dominates everything', () => {
     expect(
-      deriveSessionStatus({ isGenerating: true, hasCompletionUnread: true, cronStatus: 'error' })
+      deriveSessionStatus(statusInput({ isGenerating: true, hasCompletionUnread: true, cronStatus: 'error' }))
     ).toBe('running');
   });
 
   it('cron error → error (loudest resting state)', () => {
-    expect(
-      deriveSessionStatus({ isGenerating: false, hasCompletionUnread: true, cronStatus: 'error' })
-    ).toBe('error');
+    expect(deriveSessionStatus(statusInput({ hasCompletionUnread: true, cronStatus: 'error' }))).toBe('error');
+  });
+
+  it('chat error dominates waiting-input and unread completion', () => {
+    expect(deriveSessionStatus(statusInput({ hasError: true, isWaitingInput: true, hasCompletionUnread: true }))).toBe(
+      'error'
+    );
   });
 
   it('cron paused → attention', () => {
-    expect(
-      deriveSessionStatus({ isGenerating: false, hasCompletionUnread: false, cronStatus: 'paused' })
-    ).toBe('attention');
+    expect(deriveSessionStatus(statusInput({ cronStatus: 'paused' }))).toBe('attention');
+  });
+
+  it('waiting-input → attention', () => {
+    expect(deriveSessionStatus(statusInput({ isWaitingInput: true }))).toBe('attention');
   });
 
   it('chat completion unread → done', () => {
-    expect(
-      deriveSessionStatus({ isGenerating: false, hasCompletionUnread: true, cronStatus: 'none' })
-    ).toBe('done');
+    expect(deriveSessionStatus(statusInput({ hasCompletionUnread: true }))).toBe('done');
   });
 
   it('cron unread execution → done', () => {
-    expect(
-      deriveSessionStatus({ isGenerating: false, hasCompletionUnread: false, cronStatus: 'unread' })
-    ).toBe('done');
+    expect(deriveSessionStatus(statusInput({ cronStatus: 'unread' }))).toBe('done');
   });
 
   it('quiet active cron / nothing flagged → idle', () => {
-    expect(
-      deriveSessionStatus({ isGenerating: false, hasCompletionUnread: false, cronStatus: 'active' })
-    ).toBe('idle');
-    expect(
-      deriveSessionStatus({ isGenerating: false, hasCompletionUnread: false, cronStatus: 'none' })
-    ).toBe('idle');
+    expect(deriveSessionStatus(statusInput({ cronStatus: 'active' }))).toBe('idle');
+    expect(deriveSessionStatus(statusInput())).toBe('idle');
   });
 });
 
-describe('sessionStatusColor (Claude-Code semantics)', () => {
-  const cases: Array<[SessionStatus, string | null]> = [
-    ['running', 'rgb(var(--primary-6))'],
-    ['attention', 'rgb(var(--warning-6))'],
-    ['error', 'rgb(var(--danger-6))'],
-    ['done', 'rgb(var(--success-6))'],
-    ['idle', null],
+describe('session status presentation', () => {
+  const cases: Array<[SessionStatus, string | null, string]> = [
+    ['running', 'var(--eve-status-running)', 'ring'],
+    ['attention', 'var(--eve-status-attention)', 'diamond'],
+    ['error', 'var(--eve-status-error)', 'square'],
+    ['done', 'var(--eve-status-completed)', 'circle'],
+    ['idle', null, 'none'],
   ];
-  it.each(cases)('%s → %s', (status, color) => {
+  it.each(cases)('%s → %s + %s', (status, color, shape) => {
     expect(sessionStatusColor(status)).toBe(color);
+    expect(sessionStatusShape(status)).toBe(shape);
   });
 });

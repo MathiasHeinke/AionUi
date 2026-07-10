@@ -122,6 +122,8 @@ describe('ConversationRow archive UI', () => {
     expect(row?.classList.contains('eve-row')).toBe(true);
     expect(row?.classList.contains('eve-row--selected')).toBe(true);
     expect(row?.classList.contains('!bg-fill-3')).toBe(false);
+    expect(screen.getByTestId('session-status-dot').getAttribute('data-shape')).toBe('square');
+    expect(screen.getByTestId('session-status-dot').getAttribute('data-status')).toBe('error');
   });
 
   it('shows Restore for archived conversations', () => {

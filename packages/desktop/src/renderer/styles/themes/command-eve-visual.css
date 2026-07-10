@@ -150,6 +150,24 @@
   text-shadow: 0 0 12px color-mix(in srgb, var(--eve-brand-logo) 28%, transparent);
 }
 
+.session-status-dot {
+  border-radius: 999px;
+  transform-origin: center;
+}
+
+.session-status-dot[data-shape='diamond'] {
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+
+.session-status-dot[data-shape='square'] {
+  border-radius: 2px;
+}
+
+.session-status-dot[data-shape='circle'] {
+  border-radius: 999px;
+}
+
 /* Reusable ownership primitives. They do not imply card composition. */
 .eve-chrome,
 .eve-panel,

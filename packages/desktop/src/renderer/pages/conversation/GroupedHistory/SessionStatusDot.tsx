@@ -9,7 +9,7 @@ import classNames from 'classnames';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { sessionStatusColor, sessionStatusLabelKey, type SessionStatus } from './sessionStatus';
+import { sessionStatusColor, sessionStatusLabelKey, sessionStatusShape, type SessionStatus } from './sessionStatus';
 
 interface SessionStatusDotProps {
   status: SessionStatus;
@@ -31,6 +31,7 @@ interface SessionStatusDotProps {
 const SessionStatusDot: React.FC<SessionStatusDotProps> = ({ status, overlay = false, className = '' }) => {
   const { t } = useTranslation();
   const color = sessionStatusColor(status);
+  const shape = sessionStatusShape(status);
 
   // `idle` (and `running`, surfaced as the row Spin) render no dot.
   if (!color || status === 'running') {
@@ -41,18 +42,16 @@ const SessionStatusDot: React.FC<SessionStatusDotProps> = ({ status, overlay = f
     <span
       data-testid='session-status-dot'
       data-status={status}
+      data-shape={shape}
       aria-label={t(sessionStatusLabelKey(status))}
       className={classNames(
-        'block rounded-full w-8px h-8px',
+        'session-status-dot block w-8px h-8px',
         overlay ? 'absolute -bottom-1px -right-1px' : '',
         className
       )}
       style={{
         backgroundColor: color,
-        // A 2px ring in the row background color so the dot reads cleanly on top
-        // of the avatar (matches the old completion-dot's box-shadow approach;
-        // UnoCSS-safe inline style rather than a ring-* utility).
-        ...(overlay ? { boxShadow: '0 0 0 2px var(--color-bg-2)' } : {}),
+        ...(overlay ? { boxShadow: '0 0 0 2px var(--eve-status-ring, var(--color-bg-2))' } : {}),
       }}
     />
   );

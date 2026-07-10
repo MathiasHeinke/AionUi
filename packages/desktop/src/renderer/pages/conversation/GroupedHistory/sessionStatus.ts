@@ -5,7 +5,7 @@
  */
 
 /**
- * Session-list status, Claude-Code-style.
+ * Session-list status for the public EVE shell.
  *
  * The sidebar conversation rows used to carry a confusing MIX of leading marks:
  * the agent avatar, a separate blue "completion unread" dot pinned to the right
@@ -15,22 +15,22 @@
  * like a git-branch mark) — exactly the "broken symbol mix" the founder flagged.
  *
  * This module collapses all of that into ONE semantic status with a fixed
- * color, rendered as a single small dot overlaid on the (kept) agent avatar —
- * the same presence-dot pattern Claude Code / chat apps use. The avatar still
- * tells you WHICH agent; the dot tells you the STATE, consistently:
+ * color and shape, rendered as a single small mark overlaid on the EVE glyph.
+ * Runtime identity stays private; the mark communicates state consistently:
  *
- *   running   → blue   (a turn is in flight)            -> rgb(var(--primary-6))
- *   attention → orange (needs you: a question/clarify,  -> rgb(var(--warning-6))
+ *   running   → blue ring (a turn is in flight)
+ *   attention → yellow diamond (needs you: a question/clarify,
  *                       or a paused scheduled task)
- *   error     → red    (the last run failed/was missed) -> rgb(var(--danger-6))
- *   done      → green  (a completed run you haven't read)-> rgb(var(--success-6))
- *   idle      → none   (nothing to flag)
+ *   error     → red square (the last run failed/was missed)
+ *   done      → green circle (a completed run you haven't read)
+ *   idle      → none (nothing to flag)
  *
  * `running` is intentionally NOT shown as a dot here — the row already renders a
  * Spin in place of the avatar while generating, which is a clearer "busy" signal
  * than a dot. It is still modeled so callers can branch on it.
  */
 export type SessionStatus = 'running' | 'attention' | 'error' | 'done' | 'idle';
+export type SessionStatusShape = 'ring' | 'diamond' | 'square' | 'circle' | 'none';
 
 /** The cron job status a conversation may carry (subset used by the row). */
 export type SessionCronStatus = 'none' | 'active' | 'paused' | 'error' | 'unread';
@@ -75,16 +75,33 @@ export function deriveSessionStatus(input: SessionStatusInput): SessionStatus {
 export function sessionStatusColor(status: SessionStatus): string | null {
   switch (status) {
     case 'running':
-      return 'rgb(var(--primary-6))';
+      return 'var(--eve-status-running)';
     case 'attention':
-      return 'rgb(var(--warning-6))';
+      return 'var(--eve-status-attention)';
     case 'error':
-      return 'rgb(var(--danger-6))';
+      return 'var(--eve-status-error)';
     case 'done':
-      return 'rgb(var(--success-6))';
+      return 'var(--eve-status-completed)';
     case 'idle':
     default:
       return null;
+  }
+}
+
+/** Non-color cue used alongside each status color. */
+export function sessionStatusShape(status: SessionStatus): SessionStatusShape {
+  switch (status) {
+    case 'running':
+      return 'ring';
+    case 'attention':
+      return 'diamond';
+    case 'error':
+      return 'square';
+    case 'done':
+      return 'circle';
+    case 'idle':
+    default:
+      return 'none';
   }
 }
 
