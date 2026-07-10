@@ -9,8 +9,7 @@ import type { IMcpServer } from '@/common/config/storage';
 import { resolveLocaleKey } from '@/common/utils';
 import {
   COMMAND_EVE_ASSISTANT_AVATAR,
-  COMMAND_EVE_ASSISTANT_ID,
-  COMMAND_EVE_ASSISTANT_KEY,
+  COMMAND_EVE_DISPLAY_NAME,
   COMMAND_EVE_SHELL_ENABLED,
 } from '@/common/config/commandEveShell';
 import EveInferencePicker from '@/renderer/components/agent/EveInferencePicker';
@@ -564,11 +563,10 @@ const GuidPage: React.FC = () => {
   // For the Command EVE Assistant we replace the raw model/agent selector with
   // the clean two-group EVE Inference picker (Privat lokal + EVE Inference).
   // Founder mandate: nothing confusing — no raw CLI/agent/model list here.
-  const selectedCommandEveAgentId = agentSelection.selectedAgentInfo?.custom_agent_id?.replace(/^builtin-/, '');
-  const isCommandEveAssistant =
-    COMMAND_EVE_SHELL_ENABLED &&
-    (agentSelection.selectedAgentKey === COMMAND_EVE_ASSISTANT_KEY ||
-      selectedCommandEveAgentId === COMMAND_EVE_ASSISTANT_ID);
+  // Command EVE is the only public assistant identity in the branded shell.
+  // Keep this true even while the assistant seed is missing or still loading;
+  // otherwise the fallback state exposes the internal CLI/agent catalog.
+  const isCommandEveAssistant = COMMAND_EVE_SHELL_ENABLED;
 
   // Build the model selector node
   const modelSelectorNode = isCommandEveAssistant ? (
@@ -739,52 +737,52 @@ const GuidPage: React.FC = () => {
                             );
                           }}
                         >
-                        {agentSwitcherItems.map((item) => (
-                          <Menu.Item key={item.key}>
-                            <div className='flex items-center justify-between gap-12px min-w-120px'>
-                              <span className='flex items-center gap-6px'>
-                                {item.logo ? (
-                                  <img
-                                    src={item.logo}
-                                    alt=''
-                                    width={16}
-                                    height={16}
-                                    style={{ objectFit: 'contain', flexShrink: 0 }}
-                                  />
-                                ) : (
-                                  <Robot theme='outline' size={16} fill='currentColor' style={{ flexShrink: 0 }} />
-                                )}
-                                {item.label}
-                                {item.isExtension ? (
-                                  <span className='text-11px px-4px py-1px rd-4px bg-[rgb(var(--arcoblue-1))] text-[rgb(var(--arcoblue-6))]'>
-                                    ext
-                                  </span>
-                                ) : null}
-                              </span>
-                              {item.isCurrent ? <span>✓</span> : null}
-                            </div>
-                          </Menu.Item>
-                        ))}
-                      </Menu>
-                    }
-                  >
-                    <Button size='mini' type='text' className={styles.heroAgentSwitchButton}>
-                      <span className='inline-flex items-center gap-4px'>
-                        {effectiveAgentLogo ? (
-                          <img
-                            src={effectiveAgentLogo}
-                            alt=''
-                            width={20}
-                            height={20}
-                            className={styles.heroAgentSwitchIcon}
-                          />
-                        ) : (
-                          <Robot theme='outline' size={20} fill='currentColor' />
-                        )}
-                        <Down theme='outline' size={16} fill='currentColor' />
-                      </span>
-                    </Button>
-                  </Dropdown>
+                          {agentSwitcherItems.map((item) => (
+                            <Menu.Item key={item.key}>
+                              <div className='flex items-center justify-between gap-12px min-w-120px'>
+                                <span className='flex items-center gap-6px'>
+                                  {item.logo ? (
+                                    <img
+                                      src={item.logo}
+                                      alt=''
+                                      width={16}
+                                      height={16}
+                                      style={{ objectFit: 'contain', flexShrink: 0 }}
+                                    />
+                                  ) : (
+                                    <Robot theme='outline' size={16} fill='currentColor' style={{ flexShrink: 0 }} />
+                                  )}
+                                  {item.label}
+                                  {item.isExtension ? (
+                                    <span className='text-11px px-4px py-1px rd-4px bg-[rgb(var(--arcoblue-1))] text-[rgb(var(--arcoblue-6))]'>
+                                      ext
+                                    </span>
+                                  ) : null}
+                                </span>
+                                {item.isCurrent ? <span>✓</span> : null}
+                              </div>
+                            </Menu.Item>
+                          ))}
+                        </Menu>
+                      }
+                    >
+                      <Button size='mini' type='text' className={styles.heroAgentSwitchButton}>
+                        <span className='inline-flex items-center gap-4px'>
+                          {effectiveAgentLogo ? (
+                            <img
+                              src={effectiveAgentLogo}
+                              alt=''
+                              width={20}
+                              height={20}
+                              className={styles.heroAgentSwitchIcon}
+                            />
+                          ) : (
+                            <Robot theme='outline' size={20} fill='currentColor' />
+                          )}
+                          <Down theme='outline' size={16} fill='currentColor' />
+                        </span>
+                      </Button>
+                    </Dropdown>
                   )}
                 </div>
               </div>
@@ -826,12 +824,7 @@ const GuidPage: React.FC = () => {
                 />
               ) : null}
             </div>
-          ) : isCommandEveAssistant ? (
-            // Founder mandate: EVE users never see the raw agent/CLI pill bar.
-            // The only runtime choices for EVE are the EVE Inference picker and
-            // the permission-mode selector in the action row below.
-            null
-          ) : agentSelection.availableAgents === undefined ? (
+          ) : isCommandEveAssistant ? null : agentSelection.availableAgents === undefined ? (
             <AgentPillBarSkeleton />
           ) : agentSelection.availableAgents.length > 0 ? (
             <AgentPillBar
@@ -850,7 +843,9 @@ const GuidPage: React.FC = () => {
             onPaste={guidInput.onPaste}
             onFocus={guidInput.handleTextareaFocus}
             onBlur={guidInput.handleTextareaBlur}
-            placeholder={`${mention.selectedAgentLabel}, ${typewriterPlaceholder || t('conversation.welcome.placeholder')}`}
+            placeholder={`${isCommandEveAssistant ? COMMAND_EVE_DISPLAY_NAME : mention.selectedAgentLabel}, ${
+              typewriterPlaceholder || t('conversation.welcome.placeholder')
+            }`}
             isFileDragging={guidInput.isFileDragging}
             dragHandlers={guidInput.dragHandlers}
             mentionOpen={mention.mentionOpen}

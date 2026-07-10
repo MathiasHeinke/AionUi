@@ -8,7 +8,6 @@ import { ipcBridge } from '@/common';
 import type { ICommandEveAssistantReadiness, ICommandEveRuntimeStatus } from '@/common/adapter/ipcBridge';
 import {
   COMMAND_EVE_ASSISTANT_ID,
-  COMMAND_EVE_ASSISTANT_KEY,
   COMMAND_EVE_DEFAULT_ACP_BACKEND,
   COMMAND_EVE_DISPLAY_NAME,
   COMMAND_EVE_SHELL_ENABLED,
@@ -159,10 +158,11 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
     let commandEveRuntimeModel: TProviderWithModel | undefined;
     let commandEveRuntimeModelId: string | undefined;
     let commandEveAssistantReadiness: ICommandEveAssistantReadiness | undefined;
-    const selectedCustomAgentId = selectedAgentInfo?.custom_agent_id?.replace(/^builtin-/, '');
-    const isCommandEveAssistant =
-      COMMAND_EVE_SHELL_ENABLED &&
-      (selectedAgentKey === COMMAND_EVE_ASSISTANT_KEY || selectedCustomAgentId === COMMAND_EVE_ASSISTANT_ID);
+    // The branded shell must stay on EVE even when its persisted assistant seed
+    // is temporarily unavailable. The readiness call below repairs/loads the
+    // assistant; falling back to the selected raw CLI would leak internals and
+    // route the user's first message through the wrong public contract.
+    const isCommandEveAssistant = COMMAND_EVE_SHELL_ENABLED;
 
     if (isCommandEveAssistant) {
       await ipcBridge.commandEve.evaluateGateDecision.invoke({ action: 'truth_gate' }).catch((error) => {
