@@ -51,16 +51,16 @@ const EveRuntime: React.FC = () => {
 
   return (
     <div className='flex flex-col h-full w-full'>
-      <header className='min-w-0 mb-4'>
-        <h1 className='m-0 text-24px font-700 leading-30px text-t-primary'>
-          {t('eveRuntime.title', { defaultValue: 'EVE-Runtime' })}
-        </h1>
-        <p className='m-0 mt-6px max-w-820px text-14px leading-22px text-t-secondary'>
-          {t('eveRuntime.subtitle', {
-            defaultValue:
-              'Du bist der Dirigent — EVE orchestriert. Hier laufen Team, Assistenten und Agenten zusammen: ein Ort statt drei.',
-          })}
-        </p>
+      <header className='eve-page-header'>
+        <div className='eve-page-header__copy'>
+          <h1>{t('eveRuntime.title', { defaultValue: 'EVE-Runtime' })}</h1>
+          <p>
+            {t('eveRuntime.subtitle', {
+              defaultValue:
+                'Du bist der Dirigent — EVE orchestriert. Hier laufen Team, Assistenten und Agenten zusammen: ein Ort statt drei.',
+            })}
+          </p>
+        </div>
       </header>
 
       <Tabs
@@ -69,10 +69,7 @@ const EveRuntime: React.FC = () => {
         type='line'
         className='flex flex-col flex-1 min-h-0 [&>.arco-tabs-content]:pt-0'
       >
-        <Tabs.TabPane
-          key='orchestration'
-          title={t('eveRuntime.tab.orchestration', { defaultValue: 'Orchestrierung' })}
-        >
+        <Tabs.TabPane key='orchestration' title={t('eveRuntime.tab.orchestration', { defaultValue: 'Orchestrierung' })}>
           {/* Header + section-card chrome for the curated Dein-Team panel (the old
               standalone pages/deinTeam route was deleted in S9 cleanup; the panel
               lives here under EveRuntime settings now). */}
@@ -88,9 +85,7 @@ const EveRuntime: React.FC = () => {
                 })}
               </p>
             </header>
-            <section className='rounded-16px border border-solid border-[var(--color-border-2)] bg-bg-2 px-18px py-16px'>
-              <DeinTeamPanel />
-            </section>
+            <DeinTeamPanel />
           </div>
         </Tabs.TabPane>
 
@@ -102,10 +97,7 @@ const EveRuntime: React.FC = () => {
         )}
 
         {showFounderRuntimeTabs && (
-          <Tabs.TabPane
-            key='agents'
-            title={t('eveRuntime.tab.agents', { defaultValue: 'Agenten & Belegschaft' })}
-          >
+          <Tabs.TabPane key='agents' title={t('eveRuntime.tab.agents', { defaultValue: 'Agenten & Belegschaft' })}>
             <div className='flex flex-col gap-18px pt-2'>
               <AgentModalContent />
               <WorkerAssignmentCard />

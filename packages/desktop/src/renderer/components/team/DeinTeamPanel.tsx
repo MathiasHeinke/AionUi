@@ -32,11 +32,7 @@
  * worker actually stops it being used on the cloud lane — not just a label.
  */
 
-import {
-  EVE_TEAM_ROSTER,
-  type EveTeamRole,
-  type EveTeamRoleTier,
-} from '@/common/config/eveTeamRoster';
+import { EVE_TEAM_ROSTER, type EveTeamRole, type EveTeamRoleTier } from '@/common/config/eveTeamRoster';
 import {
   applyControlAction,
   controlKindForRole,
@@ -47,15 +43,11 @@ import {
   type EveTeamWorkerStatus,
   type EveTeamWorkerStatusMap,
 } from '@/common/config/eveTeamControlsCore';
-import {
-  evaluateBudgetGate,
-  projectMonthlySpend,
-} from '@/common/config/eveTeamBudgetCore';
-import { buildWorkerAssignment, type EveWorkerKind } from '@/common/config/eveWorkerAssignmentCore';
+import { evaluateBudgetGate, projectMonthlySpend } from '@/common/config/eveTeamBudgetCore';
 import { ipcBridge } from '@/common';
 import { useConfig } from '@renderer/hooks/config/useConfig';
 import ProjectedSpendMeter from '@renderer/components/team/ProjectedSpendMeter';
-import { Button, Card, Message, Popconfirm, Select, Tag } from '@arco-design/web-react';
+import { Button, Message, Popconfirm, Tag } from '@arco-design/web-react';
 import { Pause, PlayOne, Power, UserPositioning } from '@icon-park/react';
 import React, { useCallback, useMemo } from 'react';
 
@@ -84,35 +76,9 @@ const STATUS_LABEL_DE: Record<EveTeamWorkerStatus, string> = {
 
 const STATUS_COLOR: Record<EveTeamWorkerStatus, string> = {
   active: 'green',
-  paused: 'orange',
+  paused: 'gray',
   off: 'gray',
 };
-
-/**
- * SG-1 A6 — the HONEST lane state of a work role. Three states, none claiming more
- * than it knows: the free floor runs locally (its own green tag already says so);
- * a Claude-CLI worker runs on the operator's SUBSCRIPTION (no metered per-role
- * credits); everything else is EVE herself on the shared account. Per-role € metering
- * (the "Metered, attribuiert" token lane) is deliberately NOT claimed here — it
- * arrives with the 1.8 wheel train, so the card never promises attribution it can't
- * yet deliver.
- */
-function laneState(
-  workerKind: EveWorkerKind | null,
-  isFloor: boolean
-): { label: string; title: string } | null {
-  if (isFloor) return null; // the free-floor tag already communicates "Gratis · Lokal".
-  if (workerKind === 'claude') {
-    return {
-      label: 'Abo-Lane',
-      title: 'Läuft auf deinem eigenen Claude-Abo — keine Extra-Credits pro Rolle.',
-    };
-  }
-  return {
-    label: 'EVE-Konto',
-    title: 'EVE übernimmt das auf dem gemeinsamen Guthaben. Eine Kostenaufteilung pro Rolle kommt mit einem späteren Update.',
-  };
-}
 
 interface RoleControlsProps {
   role: EveTeamRole;
@@ -171,7 +137,7 @@ const RoleControls: React.FC<RoleControlsProps> = ({ role, status, statuses, onA
   const renderDeactivate = (action: EveTeamControlAction, label: string, icon: React.ReactNode) => {
     const decision = evaluateFloorGuard(role, action, statuses);
     const button = (
-      <Button size='mini' status={action === 'stop' || action === 'release' ? 'warning' : 'default'} icon={icon}>
+      <Button size='mini' status='default' icon={icon}>
         {label}
       </Button>
     );
@@ -227,24 +193,18 @@ const RoleControls: React.FC<RoleControlsProps> = ({ role, status, statuses, onA
   );
 };
 
-/** The card's worker choice. 'eve' = the EVE-Runtime default (no assignment row). */
-type RoleWorkerChoice = 'eve' | EveWorkerKind;
-
 interface RoleCardProps {
   role: EveTeamRole;
   statuses: EveTeamWorkerStatusMap;
-  /** Persisted `commandEve.workerAssignments` value shape (agent_id is the key). */
-  workerKind: EveWorkerKind | null;
   onAction: (role: EveTeamRole, action: EveTeamControlAction) => void;
-  onWorkerChange: (role: EveTeamRole, choice: RoleWorkerChoice) => void;
 }
 
-const RoleCard: React.FC<RoleCardProps> = ({ role, statuses, workerKind, onAction, onWorkerChange }) => {
+const RoleCard: React.FC<RoleCardProps> = ({ role, statuses, onAction }) => {
   const consumesCredits = TIER_CONSUMES_CREDITS[role.tier];
   const status = statusForRole(role, statuses);
   const isFloor = isFreeFloorWorker(role);
   return (
-    <Card className='w-full mb-2' size='small' bordered data-agent-id={role.agent_id}>
+    <div className='eve-settings-group w-full' data-agent-id={role.agent_id}>
       <div className='flex items-start gap-3'>
         <div className='flex-1 min-w-0'>
           <div className='flex items-center gap-2 mb-1 flex-wrap'>
@@ -260,7 +220,7 @@ const RoleCard: React.FC<RoleCardProps> = ({ role, statuses, workerKind, onActio
                 Gratis · Lokal · Immer da
               </Tag>
             ) : null}
-            <Tag size='small' color={consumesCredits ? 'orange' : 'gray'}>
+            <Tag size='small' color='gray'>
               {TIER_LABEL_DE[role.tier]}
               {consumesCredits ? ' · verbraucht Credits' : ''}
             </Tag>
@@ -269,16 +229,6 @@ const RoleCard: React.FC<RoleCardProps> = ({ role, statuses, workerKind, onActio
                 {STATUS_LABEL_DE[status]}
               </Tag>
             ) : null}
-            {role.kind === 'work'
-              ? (() => {
-                  const lane = laneState(workerKind, isFloor);
-                  return lane ? (
-                    <Tag size='small' color='gray' bordered title={lane.title} data-testid='role-lane-state'>
-                      {lane.label}
-                    </Tag>
-                  ) : null;
-                })()
-              : null}
           </div>
           <div className='text-sm text-t-primary mb-2'>{role.outcome}</div>
           <div className='flex items-center gap-1 flex-wrap mb-2'>
@@ -289,34 +239,9 @@ const RoleCard: React.FC<RoleCardProps> = ({ role, statuses, workerKind, onActio
             ))}
           </div>
           <RoleControls role={role} status={status} statuses={statuses} onAction={onAction} />
-          {/* 1.6.3 (Founder-UX): the worker binding lives ON the role card — the
-              separate "Agenten & Belegschaft" dialog stays as the expert view
-              (cli_path/version). Same persisted key, same validator; the image
-              lane is not offered here (a foreign persisted kind falls back to
-              the default display). GOVERNANCE seats carry no row (review fix:
-              "EVE nutzt jetzt Claude" on the EVE card claimed a main-turn swap
-              that never happens — the main turn always stays on EVE-Runtime). */}
-          {role.kind !== 'governance' && (
-            <div className='mt-2 flex items-center gap-2' data-testid='role-worker-row'>
-              <span className='text-xs text-t-secondary'>Worker:</span>
-              <Select
-                size='mini'
-                style={{ width: 210 }}
-                value={(workerKind === 'claude' || workerKind === 'codex' ? workerKind : 'eve') as RoleWorkerChoice}
-                onChange={(value) => onWorkerChange(role, value as RoleWorkerChoice)}
-                data-testid='role-worker-select'
-              >
-                <Select.Option value='eve'>EVE-Runtime (Standard)</Select.Option>
-                <Select.Option value='claude'>Claude-CLI</Select.Option>
-                <Select.Option value='codex' disabled>
-                  Codex-CLI — bald verfügbar
-                </Select.Option>
-              </Select>
-            </div>
-          )}
         </div>
       </div>
-    </Card>
+    </div>
   );
 };
 
@@ -328,61 +253,14 @@ const RoleCard: React.FC<RoleCardProps> = ({ role, statuses, workerKind, onActio
 const DeinTeamPanel: React.FC = () => {
   const [persisted, setPersisted] = useConfig('commandEve.teamWorkerStatus');
   const statuses: EveTeamWorkerStatusMap = useMemo(() => persisted ?? {}, [persisted]);
-  // 1.6.3: the SAME persisted map the expert dialog writes — one source of truth.
-  const [assignments, setAssignments] = useConfig('commandEve.workerAssignments');
-
-  const workerKindFor = useCallback(
-    (agentId: string): EveWorkerKind | null => {
-      const entry = (assignments ?? {})[agentId] as { kind?: EveWorkerKind } | undefined;
-      return entry?.kind ?? null;
-    },
-    [assignments]
-  );
-
-  const handleWorkerChange = useCallback(
-    (role: EveTeamRole, choice: RoleWorkerChoice) => {
-      const current = { ...((assignments ?? {}) as Record<string, { kind: EveWorkerKind; cli_path?: string; cli_version?: string }>) };
-      const isRevoke = choice === 'eve';
-      if (isRevoke && !(role.agent_id in current)) return;
-      if (isRevoke) {
-        delete current[role.agent_id];
-      } else {
-        const assignment = buildWorkerAssignment({ agent_id: role.agent_id, kind: choice });
-        if (!assignment) return; // validator refused (never persist an invented binding)
-        current[role.agent_id] = { kind: assignment.kind, ...(assignment.cli_path ? { cli_path: assignment.cli_path } : {}), ...(assignment.cli_version ? { cli_version: assignment.cli_version } : {}) };
-      }
-      // M2 (audit): AWAIT the write — a backend failure must not show a false
-      // "now via …" success. H12 (audit): after the write lands, nudge main to
-      // rewrite the derived launcher state so a REVOKED role's stale .status/.token
-      // are removed (its old launcher then fail-closes) and a new binding is wired.
-      // Sequenced: the sync re-reads the backend, so it must run AFTER the PUT.
-      void (async () => {
-        try {
-          await Promise.resolve(setAssignments(current));
-        } catch {
-          Message.error('Die Zuweisung konnte nicht gespeichert werden.');
-          return;
-        }
-        if (isRevoke) {
-          Message.info(`${role.displayName} läuft wieder über die EVE-Runtime.`);
-        } else {
-          // Precise claim: the binding affects DELEGATED tasks of this role — EVE's
-          // main turn always stays on the EVE-Runtime.
-          Message.success(`Delegierte Aufgaben von ${role.displayName} laufen jetzt über die ${choice === 'claude' ? 'Claude-CLI' : 'Codex-CLI'} — Einsatz bleibt über Status und Freigabe-Stufe gesteuert.`);
-        }
-        void ipcBridge.commandEve.syncWorkerLauncherState.invoke().catch(() => {});
-      })();
-    },
-    [assignments, setAssignments]
-  );
 
   const { governance, operators } = useMemo(() => {
-    const governance: EveTeamRole[] = [];
-    const operators: EveTeamRole[] = [];
+    const governanceRoles: EveTeamRole[] = [];
+    const operatorRoles: EveTeamRole[] = [];
     for (const role of EVE_TEAM_ROSTER) {
-      (role.kind === 'governance' ? governance : operators).push(role);
+      (role.kind === 'governance' ? governanceRoles : operatorRoles).push(role);
     }
-    return { governance, operators };
+    return { governance: governanceRoles, operators: operatorRoles };
   }, []);
 
   // Live PRE-VISIBLE projection (P0 #1): the running month-end spend = sum of the
@@ -415,14 +293,6 @@ const DeinTeamPanel: React.FC = () => {
 
   return (
     <div className='w-full'>
-      <div className='mb-3'>
-        <div className='text-base font-medium text-t-primary'>Dein Team</div>
-        <div className='text-sm text-t-secondary'>
-          Ein festes, kuratiertes Team. EVE verteilt die Arbeit an die passende Rolle. Dauer-Mitarbeiter kannst du
-          drosseln oder pausieren; Sprint-Kräfte für einen Push einstellen und wieder entlassen. Ein gratis lokaler
-          Mitarbeiter bleibt immer an — deine Firma ist nie leer.
-        </div>
-      </div>
       {/* PRE-VISIBLE projected-budget meter (P0 #1): always-on running total of
           what the active team will cost this month vs the included base hull. */}
       <ProjectedSpendMeter projection={projection} />
@@ -430,7 +300,7 @@ const DeinTeamPanel: React.FC = () => {
         <div className='mb-3'>
           <div className='text-xs uppercase tracking-wide text-t-secondary mb-1'>Führung</div>
           {governance.map((role) => (
-            <RoleCard key={role.agent_id} role={role} statuses={statuses} workerKind={workerKindFor(role.agent_id)} onAction={handleAction} onWorkerChange={handleWorkerChange} />
+            <RoleCard key={role.agent_id} role={role} statuses={statuses} onAction={handleAction} />
           ))}
         </div>
       ) : null}
@@ -438,7 +308,7 @@ const DeinTeamPanel: React.FC = () => {
         <div>
           <div className='text-xs uppercase tracking-wide text-t-secondary mb-1'>Rollen</div>
           {operators.map((role) => (
-            <RoleCard key={role.agent_id} role={role} statuses={statuses} workerKind={workerKindFor(role.agent_id)} onAction={handleAction} onWorkerChange={handleWorkerChange} />
+            <RoleCard key={role.agent_id} role={role} statuses={statuses} onAction={handleAction} />
           ))}
         </div>
       ) : null}

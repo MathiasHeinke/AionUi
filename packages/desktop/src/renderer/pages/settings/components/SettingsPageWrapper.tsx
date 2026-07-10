@@ -26,7 +26,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useExtI18n } from '@/renderer/hooks/system/useExtI18n';
-import { BUILTIN_TAB_IDS, LEGACY_ANCHOR_REMAP } from './SettingsSider';
+import { BUILTIN_TAB_IDS, isSettingsPathActive, LEGACY_ANCHOR_REMAP } from './SettingsSider';
 import { Button } from '@arco-design/web-react';
 import './settings.css';
 
@@ -210,7 +210,7 @@ const SettingsPageWrapper: React.FC<SettingsPageWrapperProps> = ({ children, cla
         {isMobile && (
           <div className='settings-mobile-top-nav'>
             {menuItems.map((item) => {
-              const active = pathname.includes(`/settings/${item.path}`);
+              const active = isSettingsPathActive(pathname, item.path);
               return (
                 <Button
                   key={item.path}

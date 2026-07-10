@@ -1,13 +1,13 @@
 {
   "sider": "Connectoren",
-  "title": "Connector Catalog",
-  "subtitle": "Geführte Sicht auf EVEs geprüfte Connectoren und MCP-Fähigkeiten. Keine rohen Tokens, kein raw MCP-add, keine verdeckten Write-Pfade.",
-  "readOnly": "Read-only",
+  "title": "Connectoren",
+  "subtitle": "Verbinde EVE kontrolliert mit den Diensten, die sie für deine Arbeit nutzen darf. Zugangsdaten bleiben geschützt und Änderungen brauchen deine Freigabe.",
+  "readOnly": "Sicherer Modus",
   "refresh": "Aktualisieren",
   "blocked": {
     "title": "Connector Catalog nicht verfügbar",
-    "description": "Setze den Company.OS Root oder den Connector-Manifest-Pfad, damit EVE die lokale Connector-Wahrheit lesen kann.",
-    "electronBridgeRequired": "Der Connector Catalog liest lokale Company.OS-Dateien über den Electron-App-Prozess. Im Browser-WebUI-Modus ist dieser lokale Bridge-Pfad nicht verfügbar."
+    "description": "Die lokale Connector-Konfiguration ist noch nicht verfügbar. Starte Command EVE neu oder prüfe die Installation.",
+    "electronBridgeRequired": "Lokale Connectoren können nur in der Command-EVE-Desktop-App verwaltet werden."
   },
   "errors": {
     "loadFailed": "Connector Catalog konnte nicht geladen werden.",
@@ -15,20 +15,22 @@
   },
   "actions": {
     "guidedSetup": "Geführtes Setup folgt",
-    "guidedSetupDisabled": "Noch read-only. EVE führt keine Connector- oder MCP-Änderung ohne Preflight und HumanGate aus.",
-    "runPreflightTitle": "Read-only Preflight ausführen und Receipt schreiben."
+    "guidedSetupDisabled": "EVE ändert keine Verbindung ohne Sicherheitsprüfung und deine Freigabe.",
+    "runPreflightTitle": "Verbindung sicher prüfen."
   },
   "preflight": {
-    "successTitle": "Preflight-Receipt geschrieben",
-    "blockedTitle": "Preflight blockiert"
+    "successTitle": "Verbindung geprüft",
+    "successDescription": "Die Prüfung wurde lokal gespeichert. EVE kann den geprüften Status jetzt verwenden.",
+    "blockedTitle": "Prüfung nicht abgeschlossen",
+    "blockedDescription": "EVE hat die Verbindung nicht aktiviert. Prüfe den angezeigten nächsten Schritt."
   },
   "sections": {
     "allowed": "Erlaubt",
     "blocked": "Blockiert",
     "connectors": "Connectoren",
-    "globalBlocked": "Global blockierte Rohaktionen",
-    "guidedSetup": "Geführter Setup-Pfad",
-    "latestPreflight": "Letzter Preflight"
+    "globalBlocked": "Geschützte Aktionen",
+    "guidedSetup": "Nächster Schritt",
+    "latestPreflight": "Letzte Prüfung"
   },
   "labels": {
     "auth": "Auth",
@@ -41,55 +43,84 @@
     "manifest": "Manifest",
     "mcpEnable": "MCP Enable",
     "nextAction": "Nächster Schritt",
-    "noHumanGate": "kein HumanGate",
+    "noHumanGate": "keine Freigabe nötig",
+    "approvalRequired": "Freigabe nötig",
+    "noApprovalRequired": "Keine Freigabe nötig",
     "ok": "OK",
-    "preflight": "Preflight-Datei",
+    "preflight": "Sicherheitsprüfung",
     "reason": "Reason",
-    "requiredHumanGate": "Benötigtes HumanGate",
-    "secrets": "Secrets",
+    "requiredHumanGate": "Benötigte Freigabe",
+    "secrets": "Zugangsdaten",
     "setupUnknown": "setup unbekannt",
     "surface": "Surface",
-    "tierUnknown": "tier unbekannt"
+    "tierUnknown": "Stufe unbekannt",
+    "technicalSource": "Technische Quelle",
+    "systemChanges": "Technische Änderungen"
   },
   "values": {
     "allowed": "Erlaubt",
-    "blocked": "Blockiert"
+    "blocked": "Blockiert",
+    "receiptAvailable": "Prüfung vorhanden",
+    "receiptPending": "Noch nicht geprüft"
   },
   "setupStates": {
     "connected": "Verbunden",
     "preflight_required": "Preflight nötig",
     "auth_required": "Noch nicht verbunden",
-    "humangate_required": "HumanGate nötig",
+    "humangate_required": "Freigabe nötig",
     "blocked": "Blockiert"
   },
   "setupActions": {
     "view_receipt": "Receipt ansehen",
     "run_read_only_preflight": "Read-only Preflight ausführen",
     "guided_auth_setup": "Verbinden vorbereiten",
-    "request_humangate": "HumanGate anfordern",
+    "request_humangate": "Freigabe anfordern",
     "inspect_blocker": "Blocker prüfen"
   },
   "statusNote": {
     "default": "Kein direkter Schritt in der App nötig.",
     "view_receipt": "Verbunden und per Preflight belegt. Das Receipt liegt lokal — kein weiterer Schritt nötig.",
-    "request_humangate": "Wartet auf eine HumanGate-Freigabe. Der Connector wird erst nach Freigabe aktiviert — hier ist kein direkter Schritt nötig.",
+    "request_humangate": "Wartet auf deine Freigabe. Die Verbindung wird erst danach aktiviert.",
     "inspect_blocker": "Der letzte Preflight ist blockiert. Die Ursache steht im Preflight-Receipt bzw. Log."
   },
   "secretHandling": {
-    "never_in_chat": "Nie im Chat; nur Keychain, Env-Datei oder Provider-OAuth"
+    "never_in_chat": "Geschützt gespeichert und nie im Chat angezeigt"
   },
   "states": {
     "installed": "Installiert",
     "available": "Verfügbar",
     "needs_auth": "Noch nicht verbunden",
     "unverified": "Unverifiziert",
-    "gated": "Gated",
+    "gated": "Freigabe nötig",
     "connected": "Verbunden",
     "blocked": "Blockiert"
   },
   "empty": {
-    "noConnectors": "Keine Connectoren im lokalen Manifest.",
-    "preflightMissing": "Noch kein Preflight-Receipt. EVE behandelt diesen Connector nicht als verbunden."
+    "noConnectors": "Keine Connectoren verfügbar.",
+    "preflightMissing": "Noch nicht geprüft. EVE behandelt diese Verbindung nicht als aktiv."
+  },
+  "publicNames": {
+    "commandEveRuntime": "Command EVE Runtime",
+    "commandEveService": "Command EVE Dienst",
+    "workspace": "Command EVE Workspace",
+    "commandCenter": "Command Center",
+    "tasks": "Aufgaben und Projekte",
+    "memory": "Langzeitgedächtnis"
+  },
+  "cardDescriptions": {
+    "installed": "Diese Fähigkeit ist lokal vorhanden und bereit für die sichere Prüfung.",
+    "available": "Diese Fähigkeit kann bei Bedarf eingerichtet werden.",
+    "needs_auth": "Für diese Verbindung fehlen noch geschützte Zugangsdaten.",
+    "unverified": "Diese Verbindung wurde noch nicht geprüft.",
+    "gated": "Diese Fähigkeit braucht vor der Aktivierung deine Freigabe.",
+    "connected": "EVE kann diese geprüfte Verbindung verwenden.",
+    "blocked": "Diese Verbindung bleibt aus Sicherheitsgründen deaktiviert."
+  },
+  "security": {
+    "summary": "Zugangsdaten werden nie im Chat oder in sichtbaren Einstellungen gespeichert.",
+    "approval": "EVE aktiviert keine Verbindung ohne erfolgreiche Prüfung und erforderliche Freigabe.",
+    "minimumAccess": "EVE erhält nur die notwendigen Rechte. Empfindliche Änderungen bleiben gesperrt.",
+    "protectedActions": "Direkte Änderungen an Zugangsdaten, Verbindungen und Automationen bleiben ohne Sicherheitsprüfung und Freigabe blockiert."
   },
   "blockedActions": {
     "raw_mcp_add": "Rohes MCP-Setup",

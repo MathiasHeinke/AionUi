@@ -1,13 +1,13 @@
 {
   "sider": "Connectors",
-  "title": "Connector Catalog",
-  "subtitle": "Guided view of EVE's reviewed connectors and MCP capabilities. No raw tokens, no raw MCP-add, no hidden write path.",
-  "readOnly": "Read-only",
+  "title": "Connectors",
+  "subtitle": "Connect EVE to the services she may use for your work. Credentials stay protected and changes require your approval.",
+  "readOnly": "Safe mode",
   "refresh": "Refresh",
   "blocked": {
     "title": "Connector Catalog unavailable",
-    "description": "Set the Company.OS root or connector manifest path so EVE can read the local connector truth.",
-    "electronBridgeRequired": "Connector Catalog reads local Company.OS files through the Electron app process. This local bridge path is not available in browser WebUI mode."
+    "description": "The local connector configuration is not available yet. Restart Command EVE or check the installation.",
+    "electronBridgeRequired": "Local connectors can only be managed in the Command EVE desktop app."
   },
   "errors": {
     "loadFailed": "Connector Catalog could not be loaded.",
@@ -15,20 +15,22 @@
   },
   "actions": {
     "guidedSetup": "Guided setup coming next",
-    "guidedSetupDisabled": "Still read-only. EVE performs no connector or MCP changes without preflight and HumanGate.",
-    "runPreflightTitle": "Run read-only preflight and write a receipt."
+    "guidedSetupDisabled": "EVE does not change a connection without a safety check and your approval.",
+    "runPreflightTitle": "Check the connection safely."
   },
   "preflight": {
-    "successTitle": "Preflight receipt written",
-    "blockedTitle": "Preflight blocked"
+    "successTitle": "Connection checked",
+    "successDescription": "The check was stored locally. EVE can now use the verified status.",
+    "blockedTitle": "Check not completed",
+    "blockedDescription": "EVE did not activate the connection. Review the next step shown here."
   },
   "sections": {
     "allowed": "Allowed",
     "blocked": "Blocked",
     "connectors": "Connectors",
-    "globalBlocked": "Globally blocked raw actions",
-    "guidedSetup": "Guided setup path",
-    "latestPreflight": "Latest preflight"
+    "globalBlocked": "Protected actions",
+    "guidedSetup": "Next step",
+    "latestPreflight": "Latest check"
   },
   "labels": {
     "auth": "Auth",
@@ -41,55 +43,84 @@
     "manifest": "Manifest",
     "mcpEnable": "MCP enable",
     "nextAction": "Next step",
-    "noHumanGate": "no HumanGate",
+    "noHumanGate": "no approval required",
+    "approvalRequired": "Approval required",
+    "noApprovalRequired": "No approval required",
     "ok": "OK",
-    "preflight": "Preflight file",
+    "preflight": "Safety check",
     "reason": "Reason",
-    "requiredHumanGate": "Required HumanGate",
-    "secrets": "Secrets",
+    "requiredHumanGate": "Required approval",
+    "secrets": "Credentials",
     "setupUnknown": "setup unknown",
     "surface": "Surface",
-    "tierUnknown": "tier unknown"
+    "tierUnknown": "tier unknown",
+    "technicalSource": "Technical source",
+    "systemChanges": "Technical changes"
   },
   "values": {
     "allowed": "Allowed",
-    "blocked": "Blocked"
+    "blocked": "Blocked",
+    "receiptAvailable": "Check available",
+    "receiptPending": "Not checked yet"
   },
   "setupStates": {
     "connected": "Connected",
     "preflight_required": "Preflight required",
     "auth_required": "Not connected yet",
-    "humangate_required": "HumanGate required",
+    "humangate_required": "Approval required",
     "blocked": "Blocked"
   },
   "setupActions": {
     "view_receipt": "View receipt",
     "run_read_only_preflight": "Run read-only preflight",
     "guided_auth_setup": "Prepare connection",
-    "request_humangate": "Request HumanGate",
+    "request_humangate": "Request approval",
     "inspect_blocker": "Inspect blocker"
   },
   "statusNote": {
     "default": "No direct action needed here.",
     "view_receipt": "Connected and preflight-proven. The receipt is stored locally — nothing to do here.",
-    "request_humangate": "Waiting on a HumanGate approval. This connector is enabled only after approval — no direct action here.",
+    "request_humangate": "Waiting for your approval. The connection is enabled only after that.",
     "inspect_blocker": "The last preflight is blocked. The cause is in the preflight receipt / log."
   },
   "secretHandling": {
-    "never_in_chat": "Never in chat; use Keychain, env file, or provider OAuth"
+    "never_in_chat": "Stored securely and never shown in chat"
   },
   "states": {
     "installed": "Installed",
     "available": "Available",
     "needs_auth": "Needs auth",
     "unverified": "Unverified",
-    "gated": "Gated",
+    "gated": "Approval required",
     "connected": "Connected",
     "blocked": "Blocked"
   },
   "empty": {
-    "noConnectors": "No connectors in the local manifest.",
-    "preflightMissing": "No preflight receipt yet. EVE does not treat this connector as connected."
+    "noConnectors": "No connectors available.",
+    "preflightMissing": "Not checked yet. EVE does not treat this connection as active."
+  },
+  "publicNames": {
+    "commandEveRuntime": "Command EVE Runtime",
+    "commandEveService": "Command EVE service",
+    "workspace": "Command EVE workspace",
+    "commandCenter": "Command Center",
+    "tasks": "Tasks and projects",
+    "memory": "Long-term memory"
+  },
+  "cardDescriptions": {
+    "installed": "This capability is available locally and ready for a safe check.",
+    "available": "This capability can be set up when needed.",
+    "needs_auth": "Protected credentials are still required for this connection.",
+    "unverified": "This connection has not been checked yet.",
+    "gated": "This capability requires your approval before activation.",
+    "connected": "EVE can use this verified connection.",
+    "blocked": "This connection remains disabled for safety."
+  },
+  "security": {
+    "summary": "Credentials are never stored in chat or visible settings.",
+    "approval": "EVE activates no connection without a successful check and any required approval.",
+    "minimumAccess": "EVE receives only the access she needs. Sensitive changes remain blocked.",
+    "protectedActions": "Direct changes to credentials, connections, and automations stay blocked without a safety check and approval."
   },
   "blockedActions": {
     "raw_mcp_add": "Raw MCP setup",

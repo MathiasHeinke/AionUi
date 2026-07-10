@@ -4,12 +4,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import classNames from 'classnames';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Alert, Button, Empty, Input, Message, Modal, Spin, Tag } from '@arco-design/web-react';
 import { bridge } from '@office-ai/platform';
-import { useLayoutContext } from '@renderer/hooks/context/LayoutContext';
+import SettingsPageWrapper from '@renderer/pages/settings/components/SettingsPageWrapper';
+import { useCommandEveFounderBuild } from '@renderer/hooks/useCommandEveFounderBuild';
 import { isElectronDesktop } from '@renderer/utils/platform';
 
 type ConnectorEvidenceState =
@@ -175,19 +175,16 @@ const guidedAuthSetupBridge = bridge.buildProvider<
   }
 >('command-eve.guided-auth-setup');
 
-const stateColor = (state: ConnectorEvidenceState): 'blue' | 'green' | 'orange' | 'red' | 'gray' | 'purple' => {
+const stateColor = (state: ConnectorEvidenceState): 'blue' | 'green' | 'red' | 'gray' => {
   if (state === 'connected') return 'green';
   if (state === 'blocked') return 'red';
-  if (state === 'gated' || state === 'needs_auth') return 'orange';
-  if (state === 'installed') return 'blue';
-  if (state === 'available') return 'purple';
+  if (state === 'installed' || state === 'available') return 'blue';
   return 'gray';
 };
 
-const setupStateColor = (state: ConnectorGuidedSetupState): 'blue' | 'green' | 'orange' | 'red' | 'gray' => {
+const setupStateColor = (state: ConnectorGuidedSetupState): 'blue' | 'green' | 'red' | 'gray' => {
   if (state === 'connected') return 'green';
   if (state === 'blocked') return 'red';
-  if (state === 'auth_required' || state === 'humangate_required') return 'orange';
   if (state === 'preflight_required') return 'blue';
   return 'gray';
 };
@@ -299,12 +296,24 @@ const GuidedAuthSetupModal: React.FC<{
 const ConnectorCard: React.FC<{
   connector: ConnectorCatalogCard;
   running: boolean;
+  showTechnicalDetails: boolean;
   onRunPreflight: (connectorId: string) => void;
   onGuidedAuthSetup: (connector: ConnectorCatalogCard) => void;
-}> = ({ connector, running, onRunPreflight, onGuidedAuthSetup }) => {
+}> = ({ connector, running, showTechnicalDetails, onRunPreflight, onGuidedAuthSetup }) => {
   const { t } = useTranslation();
   const latestPreflight = connector.latest_preflight;
   const stateLabel = t(`connectorCatalog.states.${connector.evidence_state}`);
+  const displayName = (() => {
+    if (/Local Company\.OS Workspace/i.test(connector.name)) return t('connectorCatalog.publicNames.workspace');
+    if (/Command EVE Command Center/i.test(connector.name)) return t('connectorCatalog.publicNames.commandCenter');
+    if (/Plane Execution Ledger/i.test(connector.name)) return t('connectorCatalog.publicNames.tasks');
+    if (/Honcho Memory/i.test(connector.name)) return t('connectorCatalog.publicNames.memory');
+    if (connector.id === 'aionui-hermes-runtime' || /^AionUI \+ Hermes Runtime$/i.test(connector.name)) {
+      return t('connectorCatalog.publicNames.commandEveRuntime');
+    }
+    if (/AionUI|Hermes|Company\.OS/i.test(connector.name)) return t('connectorCatalog.publicNames.commandEveService');
+    return connector.name;
+  })();
   const isGuidedAuth = connector.guided_setup.primary_action === 'guided_auth_setup';
   const canRunPreflight = connector.guided_setup.primary_action === 'run_read_only_preflight';
   return (
@@ -314,27 +323,53 @@ const ConnectorCard: React.FC<{
     >
       <div className='flex items-start justify-between gap-12px'>
         <div className='min-w-0'>
-          <div className='truncate text-15px font-700 leading-22px text-t-primary'>{connector.name}</div>
-          <div className='mt-2px truncate text-12px leading-18px text-t-tertiary'>{connector.id}</div>
+          <div className='truncate text-15px font-700 leading-22px text-t-primary'>{displayName}</div>
+          {showTechnicalDetails ? (
+            <div className='mt-2px truncate text-12px leading-18px text-t-tertiary'>{connector.id}</div>
+          ) : null}
         </div>
         <Tag color={stateColor(connector.evidence_state)}>{stateLabel}</Tag>
       </div>
 
-      <p className='m-0 text-13px leading-20px text-t-secondary'>{connector.purpose}</p>
+      <p className='m-0 text-13px leading-20px text-t-secondary'>
+        {showTechnicalDetails ? connector.purpose : t(`connectorCatalog.cardDescriptions.${connector.evidence_state}`)}
+      </p>
 
       <div className='flex flex-wrap gap-6px'>
-        <Tag color='gray'>{connector.tier || t('connectorCatalog.labels.tierUnknown')}</Tag>
-        <Tag color='blue'>{connector.setup_mode || t('connectorCatalog.labels.setupUnknown')}</Tag>
-        <Tag color='orange'>{connector.human_gate || t('connectorCatalog.labels.noHumanGate')}</Tag>
+        {showTechnicalDetails ? (
+          <>
+            <Tag color='gray'>{connector.tier || t('connectorCatalog.labels.tierUnknown')}</Tag>
+            <Tag color='blue'>{connector.setup_mode || t('connectorCatalog.labels.setupUnknown')}</Tag>
+          </>
+        ) : null}
+        <Tag color='gray'>
+          {connector.guided_setup.requires_human_gate
+            ? t('connectorCatalog.labels.approvalRequired')
+            : t('connectorCatalog.labels.noApprovalRequired')}
+        </Tag>
       </div>
 
       <dl className='grid gap-x-12px gap-y-6px text-12px leading-18px sm:grid-cols-[140px_minmax(0,1fr)]'>
-        <dt className='text-t-tertiary'>{t('connectorCatalog.labels.auth')}</dt>
-        <dd className='m-0 break-words text-t-secondary'>{textOrDash(connector.auth_method)}</dd>
-        <dt className='text-t-tertiary'>{t('connectorCatalog.labels.surface')}</dt>
-        <dd className='m-0 break-words text-t-secondary'>{textOrDash(connector.auth_surface)}</dd>
+        {showTechnicalDetails ? (
+          <>
+            <dt className='text-t-tertiary'>{t('connectorCatalog.labels.auth')}</dt>
+            <dd className='m-0 break-words text-t-secondary'>{textOrDash(connector.auth_method)}</dd>
+            <dt className='text-t-tertiary'>{t('connectorCatalog.labels.surface')}</dt>
+            <dd className='m-0 break-words text-t-secondary'>{textOrDash(connector.auth_surface)}</dd>
+          </>
+        ) : null}
         <dt className='text-t-tertiary'>{t('connectorCatalog.labels.preflight')}</dt>
-        <dd className='m-0 break-words text-t-secondary'>{textOrDash(connector.preflight_result_file)}</dd>
+        <dd className='m-0 break-words text-t-secondary'>
+          {latestPreflight
+            ? t('connectorCatalog.values.receiptAvailable')
+            : t('connectorCatalog.values.receiptPending')}
+        </dd>
+        {showTechnicalDetails ? (
+          <>
+            <dt className='text-t-tertiary'>{t('connectorCatalog.labels.technicalSource')}</dt>
+            <dd className='m-0 break-words text-t-secondary'>{textOrDash(connector.preflight_result_file)}</dd>
+          </>
+        ) : null}
       </dl>
 
       <div className='rounded-10px bg-fill-2 px-12px py-10px text-12px leading-18px text-t-secondary'>
@@ -343,10 +378,10 @@ const ConnectorCard: React.FC<{
           <div className='mt-6px flex flex-col gap-2px'>
             <span>{`${t('connectorCatalog.labels.ok')}: ${String(latestPreflight.ok)}`}</span>
             <span>{`${t('connectorCatalog.labels.checkedAt')}: ${textOrDash(latestPreflight.checked_at)}`}</span>
-            {latestPreflight.reason_code ? (
+            {showTechnicalDetails && latestPreflight.reason_code ? (
               <span>{`${t('connectorCatalog.labels.reason')}: ${latestPreflight.reason_code}`}</span>
             ) : null}
-            {latestPreflight.error ? (
+            {showTechnicalDetails && latestPreflight.error ? (
               <span className='text-danger-6'>{`${t('connectorCatalog.labels.error')}: ${latestPreflight.error}`}</span>
             ) : null}
           </div>
@@ -361,14 +396,16 @@ const ConnectorCard: React.FC<{
           <Tag color={setupStateColor(connector.guided_setup.state)}>
             {t(`connectorCatalog.setupStates.${connector.guided_setup.state}`)}
           </Tag>
-          <Tag color='gray'>{connector.guided_setup.reason_code}</Tag>
+          {showTechnicalDetails ? <Tag color='gray'>{connector.guided_setup.reason_code}</Tag> : null}
         </div>
         <dl className='mt-8px grid gap-x-12px gap-y-4px sm:grid-cols-[160px_minmax(0,1fr)]'>
           <dt className='text-t-tertiary'>{t('connectorCatalog.labels.nextAction')}</dt>
           <dd className='m-0 break-words text-t-secondary'>
             {t(`connectorCatalog.setupActions.${connector.guided_setup.primary_action}`)}
           </dd>
-          <dt className='text-t-tertiary'>{t('connectorCatalog.labels.mcpEnable')}</dt>
+          <dt className='text-t-tertiary'>
+            {t(showTechnicalDetails ? 'connectorCatalog.labels.mcpEnable' : 'connectorCatalog.labels.systemChanges')}
+          </dt>
           <dd className='m-0 break-words text-t-secondary'>
             {connector.guided_setup.mcp_enable_allowed
               ? t('connectorCatalog.values.allowed')
@@ -381,40 +418,48 @@ const ConnectorCard: React.FC<{
           {connector.guided_setup.requires_human_gate ? (
             <>
               <dt className='text-t-tertiary'>{t('connectorCatalog.labels.requiredHumanGate')}</dt>
-              <dd className='m-0 break-words text-t-secondary'>{connector.guided_setup.requires_human_gate}</dd>
+              <dd className='m-0 break-words text-t-secondary'>
+                {showTechnicalDetails
+                  ? connector.guided_setup.requires_human_gate
+                  : t('connectorCatalog.labels.approvalRequired')}
+              </dd>
             </>
           ) : null}
         </dl>
       </div>
 
-      <div className='grid gap-10px lg:grid-cols-2'>
-        <div>
-          <div className='mb-6px text-12px font-600 leading-18px text-t-primary'>
-            {t('connectorCatalog.sections.allowed')}
+      {showTechnicalDetails ? (
+        <div className='grid gap-10px lg:grid-cols-2'>
+          <div>
+            <div className='mb-6px text-12px font-600 leading-18px text-t-primary'>
+              {t('connectorCatalog.sections.allowed')}
+            </div>
+            <div className='flex flex-wrap gap-6px'>
+              {firstItems(connector.allowed_actions, 4).map((action) => (
+                <Tag key={action} color='green'>
+                  {action}
+                </Tag>
+              ))}
+              {connector.allowed_actions.length === 0 ? <Tag color='gray'>-</Tag> : null}
+            </div>
           </div>
-          <div className='flex flex-wrap gap-6px'>
-            {firstItems(connector.allowed_actions, 4).map((action) => (
-              <Tag key={action} color='green'>
-                {action}
-              </Tag>
-            ))}
-            {connector.allowed_actions.length === 0 ? <Tag color='gray'>-</Tag> : null}
+          <div>
+            <div className='mb-6px text-12px font-600 leading-18px text-t-primary'>
+              {t('connectorCatalog.sections.blocked')}
+            </div>
+            <div className='flex flex-wrap gap-6px'>
+              {firstItems(connector.blocked_actions, 4).map((action) => (
+                <Tag key={action} color='red'>
+                  {action}
+                </Tag>
+              ))}
+              {connector.blocked_actions.length === 0 ? <Tag color='gray'>-</Tag> : null}
+            </div>
           </div>
         </div>
-        <div>
-          <div className='mb-6px text-12px font-600 leading-18px text-t-primary'>
-            {t('connectorCatalog.sections.blocked')}
-          </div>
-          <div className='flex flex-wrap gap-6px'>
-            {firstItems(connector.blocked_actions, 4).map((action) => (
-              <Tag key={action} color='red'>
-                {action}
-              </Tag>
-            ))}
-            {connector.blocked_actions.length === 0 ? <Tag color='gray'>-</Tag> : null}
-          </div>
-        </div>
-      </div>
+      ) : (
+        <div className='text-12px leading-18px text-t-secondary'>{t('connectorCatalog.security.minimumAccess')}</div>
+      )}
 
       {/* Only the two LIVE actions render as a real button. request_humangate /
           inspect_blocker / view_receipt have no in-app handler (no dead controls,
@@ -452,8 +497,7 @@ const ConnectorCard: React.FC<{
 
 const ConnectorCatalogPage: React.FC = () => {
   const { t } = useTranslation();
-  const layout = useLayoutContext();
-  const isMobile = layout?.isMobile ?? false;
+  const { founderBuild: showTechnicalDetails } = useCommandEveFounderBuild();
   const [loading, setLoading] = useState(true);
   const [result, setResult] = useState<ConnectorCatalogResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -563,22 +607,15 @@ const ConnectorCatalogPage: React.FC = () => {
   );
 
   return (
-    <div
-      className={classNames(
-        'w-full min-h-full box-border overflow-y-auto',
-        isMobile ? 'px-16px py-14px' : 'px-12px py-24px md:px-40px md:py-32px'
-      )}
-    >
-      <div className='mx-auto flex w-full max-w-1120px flex-col gap-16px'>
-        <header className='flex flex-wrap items-start justify-between gap-12px'>
-          <div className='min-w-0 flex-1'>
+    <SettingsPageWrapper contentClassName='max-w-1120px'>
+      <div className='flex w-full flex-col gap-16px'>
+        <header className='eve-page-header'>
+          <div className='eve-page-header__copy'>
             <div className='flex items-center gap-8px'>
-              <h1 className='m-0 text-28px font-700 leading-34px text-t-primary'>{t('connectorCatalog.title')}</h1>
+              <h1>{t('connectorCatalog.title')}</h1>
               <Tag color='gray'>{t('connectorCatalog.readOnly')}</Tag>
             </div>
-            <p className='m-0 mt-8px max-w-760px text-14px leading-22px text-t-secondary'>
-              {t('connectorCatalog.subtitle')}
-            </p>
+            <p>{t('connectorCatalog.subtitle')}</p>
           </div>
           <Button shape='round' onClick={() => void refresh()} loading={loading}>
             {t('connectorCatalog.refresh')}
@@ -599,24 +636,38 @@ const ConnectorCatalogPage: React.FC = () => {
           />
         ) : (
           <>
-            <section className='rounded-14px border border-solid border-[var(--color-border-2)] bg-fill-1 px-16px py-14px'>
+            <section className='eve-settings-group'>
               <div className='grid gap-8px text-12px leading-18px text-t-secondary sm:grid-cols-2'>
-                <span className='min-w-0 truncate'>{`${t('connectorCatalog.labels.generatedAt')}: ${textOrDash(model.generated_at)}`}</span>
-                <span className='min-w-0 truncate'>{`${t('connectorCatalog.labels.manifest')}: ${textOrDash(model.source.manifest_path)}`}</span>
-                <span className='min-w-0 truncate'>{`${t('connectorCatalog.labels.companyRoot')}: ${textOrDash(model.source.company_os_root)}`}</span>
-                <span className='min-w-0 truncate'>{`${t('connectorCatalog.labels.authority')}: ${textOrDash(model.policy.state_authority)}`}</span>
+                <span>{`${t('connectorCatalog.labels.generatedAt')}: ${textOrDash(model.generated_at)}`}</span>
+                <span>{t('connectorCatalog.security.summary')}</span>
+                {showTechnicalDetails ? (
+                  <>
+                    <span className='min-w-0 truncate'>{`${t('connectorCatalog.labels.manifest')}: ${textOrDash(model.source.manifest_path)}`}</span>
+                    <span className='min-w-0 truncate'>{`${t('connectorCatalog.labels.companyRoot')}: ${textOrDash(model.source.company_os_root)}`}</span>
+                    <span className='min-w-0 truncate'>{`${t('connectorCatalog.labels.authority')}: ${textOrDash(model.policy.state_authority)}`}</span>
+                  </>
+                ) : null}
               </div>
-              <div className='mt-12px rounded-10px bg-fill-2 px-12px py-10px text-12px leading-18px text-t-secondary'>
-                <div>{textOrDash(model.policy.secret_rule)}</div>
-                <div className='mt-4px'>{textOrDash(model.policy.write_rule)}</div>
+              <div className='mt-12px text-12px leading-18px text-t-secondary'>
+                <div>{t('connectorCatalog.security.approval')}</div>
+                {showTechnicalDetails ? (
+                  <>
+                    <div className='mt-4px'>{textOrDash(model.policy.secret_rule)}</div>
+                    <div className='mt-4px'>{textOrDash(model.policy.write_rule)}</div>
+                  </>
+                ) : null}
                 <div className='mt-8px flex flex-wrap gap-6px'>
-                  <Tag color='red'>{`${t('connectorCatalog.labels.mcpEnable')}: ${t('connectorCatalog.values.blocked')}`}</Tag>
-                  <Tag color='orange'>{model.mcp_enable_policy.reason_code}</Tag>
-                  {model.mcp_enable_policy.blocked_transports.map((transport) => (
-                    <Tag key={transport} color='red'>
-                      {transport}
-                    </Tag>
-                  ))}
+                  <Tag color='red'>{`${t(
+                    showTechnicalDetails ? 'connectorCatalog.labels.mcpEnable' : 'connectorCatalog.labels.systemChanges'
+                  )}: ${t('connectorCatalog.values.blocked')}`}</Tag>
+                  {showTechnicalDetails ? <Tag color='gray'>{model.mcp_enable_policy.reason_code}</Tag> : null}
+                  {showTechnicalDetails
+                    ? model.mcp_enable_policy.blocked_transports.map((transport) => (
+                        <Tag key={transport} color='red'>
+                          {transport}
+                        </Tag>
+                      ))
+                    : null}
                 </div>
               </div>
             </section>
@@ -630,11 +681,19 @@ const ConnectorCatalogPage: React.FC = () => {
                       ? t('connectorCatalog.preflight.successTitle')
                       : t('connectorCatalog.preflight.blockedTitle')
                   }
-                  content={`${preflightStatus.reason_code || preflightStatus.status}: ${
-                    preflightStatus.receipt_path || preflightStatus.message || '-'
-                  }`}
+                  content={
+                    showTechnicalDetails
+                      ? `${preflightStatus.reason_code || preflightStatus.status}: ${
+                          preflightStatus.receipt_path || preflightStatus.message || '-'
+                        }`
+                      : t(
+                          preflightStatus.ok
+                            ? 'connectorCatalog.preflight.successDescription'
+                            : 'connectorCatalog.preflight.blockedDescription'
+                        )
+                  }
                 />
-                {preflightStatus.audit_event_path ? (
+                {showTechnicalDetails && preflightStatus.audit_event_path ? (
                   <div
                     data-testid='connector-preflight-audit-event-path'
                     className='rounded-12px border border-solid border-[var(--color-border-2)] bg-[var(--color-bg-2)] px-12px py-8px text-12px leading-18px text-t-secondary'
@@ -670,6 +729,7 @@ const ConnectorCatalogPage: React.FC = () => {
                       key={connector.id}
                       connector={connector}
                       running={runningPreflightId === connector.id}
+                      showTechnicalDetails={showTechnicalDetails}
                       onRunPreflight={runPreflight}
                       onGuidedAuthSetup={setAuthModalConnector}
                     />
@@ -680,17 +740,23 @@ const ConnectorCatalogPage: React.FC = () => {
               )}
             </section>
 
-            <section className='rounded-14px border border-solid border-[var(--color-border-2)] bg-fill-1 px-16px py-14px'>
+            <section className='eve-settings-group'>
               <h2 className='m-0 text-16px font-700 leading-24px text-t-primary'>
                 {t('connectorCatalog.sections.globalBlocked')}
               </h2>
-              <div className='mt-10px flex flex-wrap gap-6px'>
-                {model.blocked_actions.map((action) => (
-                  <Tag key={action} color='red'>
-                    {t(blockedActionLabelKey(action), { defaultValue: action })}
-                  </Tag>
-                ))}
-              </div>
+              {showTechnicalDetails ? (
+                <div className='mt-10px flex flex-wrap gap-6px'>
+                  {model.blocked_actions.map((action) => (
+                    <Tag key={action} color='red'>
+                      {t(blockedActionLabelKey(action), { defaultValue: action })}
+                    </Tag>
+                  ))}
+                </div>
+              ) : (
+                <p className='m-0 mt-8px text-13px leading-20px text-t-secondary'>
+                  {t('connectorCatalog.security.protectedActions')}
+                </p>
+              )}
             </section>
           </>
         )}
@@ -703,7 +769,7 @@ const ConnectorCatalogPage: React.FC = () => {
         onCancel={() => setAuthModalConnector(null)}
         onSubmit={submitGuidedAuth}
       />
-    </div>
+    </SettingsPageWrapper>
   );
 };
 

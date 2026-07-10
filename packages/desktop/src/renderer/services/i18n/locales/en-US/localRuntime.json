@@ -1,22 +1,22 @@
 {
   "sider": "Runtime",
-  "title": "Local Runtime",
-  "readOnly": "Read-only",
-  "subtitle": "Local truth for EVE Runtime, Ollama, Gemma tiers, and the latest bootstrap receipt. No model switching or warm-up action is exposed on this screen.",
+  "title": "Local AI",
+  "readOnly": "Status",
+  "subtitle": "See whether EVE's local AI is ready on this Mac. EVE manages the right lane and keeps using the cloud automatically whenever something is missing locally.",
   "refresh": "Refresh",
   "sections": {
-    "runtimeTruth": "Runtime Truth",
-    "receipt": "Bootstrap Receipt",
-    "warmup": "Model warm-up",
-    "kanban": "EVE Runtime Kanban"
+    "runtimeTruth": "Local execution",
+    "receipt": "Setup status",
+    "warmup": "Startup check",
+    "kanban": "Local tasks"
   },
   "remediation": {
     "title": "Set up the local lane",
     "cloudReassurance": "The cloud AI is and stays your default lane — it runs immediately, no matter what this screen says.",
     "reasonLabel": "Reason",
     "external-link": {
-      "title": "The local AI needs Ollama",
-      "body": "For the local AI to run on this Mac, Ollama must be installed. You can install it in one step — or simply keep working in the cloud.",
+      "title": "A local component is missing",
+      "body": "For the local AI to run on this Mac, a runtime component must be installed. EVE can guide you through setup — or simply keep working in the cloud.",
       "actionHint": "EVE can open a step-by-step walkthrough as a page for you.",
       "explainer": "OLLAMA_MISSING / OLLAMA_NOT_RUNNING: the local runtime is missing or not running."
     },
@@ -60,7 +60,13 @@
     "error": "Error",
     "baseModel": "Base model",
     "nextAction": "Next action",
-    "receiptPath": "Receipt file"
+    "receiptPath": "Receipt file",
+    "localLane": "Local lane",
+    "storage": "Storage"
+  },
+  "values": {
+    "managedByEve": "Managed automatically by EVE",
+    "storedLocally": "Stored securely on this Mac"
   },
   "requirements": "{{memory}} GB RAM · {{disk}} GB disk",
   "elapsedMs": "{{elapsed}} ms",
@@ -83,7 +89,8 @@
       "tasks": "Tasks",
       "modules": "Modules",
       "governance": "Governance",
-      "reconciliation": "Reconciliation"
+      "reconciliation": "Reconciliation",
+      "localData": "Local data"
     },
     "dbPresent": {
       "yes": "Present, opened read-only",
@@ -96,6 +103,11 @@
     "opt_in": "Optional",
     "pro": "Pro"
   },
+  "tierNames": {
+    "gemma-4-e4b-local-default": "Fast and efficient",
+    "gemma-4-12b-local-planning": "Planning and analysis",
+    "gemma-4-31b-local-pro": "Local Pro performance"
+  },
   "warnings": {
     "title": "Status note",
     "runtime_receipt_missing": "No runtime receipt has been written yet",
@@ -107,12 +119,12 @@
     "runtime_reconciliation_missing": "Runtime reconciliation is missing",
     "runtime_reconciliation_schema_mismatch": "Runtime reconciliation has an unexpected schema",
     "runtime_reconciliation_json_invalid": "Runtime reconciliation is not valid JSON",
-    "hermes_version_lookup_failed": "EVE Runtime version could not be read",
-    "kanban_board_read_failed": "Kanban board could not be read read-only",
-    "kanban_optional_dashboard_api_unavailable": "Optional EVE Runtime dashboard API is not importable; core Kanban remains usable",
-    "kanban_board_db_missing_read_only_no_mutation": "Kanban DB is not present yet; the preflight intentionally did not create it",
-    "kanban_python_probe_nonzero_exit": "Kanban Python probe exited non-zero",
-    "ollama_probe_unavailable": "Ollama unreachable — model install status unknown"
+    "hermes_version_lookup_failed": "The local runtime version could not be read",
+    "kanban_board_read_failed": "Local task data could not be read",
+    "kanban_optional_dashboard_api_unavailable": "An optional local view is unavailable; core functions remain usable",
+    "kanban_board_db_missing_read_only_no_mutation": "Local task data is not present yet; the safety check changed nothing",
+    "kanban_python_probe_nonzero_exit": "The local task check did not complete successfully",
+    "ollama_probe_unavailable": "The local AI is unavailable — its installation status is unknown"
   },
   "errors": {
     "loadFailed": "Runtime status could not be loaded.",

@@ -64,6 +64,11 @@ export const LEGACY_ANCHOR_REMAP: Record<string, string> = {
   assistants: 'eveRuntime',
 };
 
+export function isSettingsPathActive(pathname: string, path: string): boolean {
+  const route = `/settings/${path}`;
+  return pathname === route || pathname.startsWith(`${route}/`);
+}
+
 /**
  * Group headers displayed above specific builtin tabs.
  * The header is rendered once, immediately before the first item whose id matches.
@@ -255,7 +260,7 @@ const SettingsSider: React.FC<{ collapsed?: boolean; tooltipEnabled?: boolean }>
       })}
     >
       {menus.map((item, index) => {
-        const isSelected = pathname.includes(item.path);
+        const isSelected = isSettingsPathActive(pathname, item.path);
         const groupHeaderKey = groupHeaderAt.get(index);
         const groupHeader =
           groupHeaderKey && !collapsed ? (
