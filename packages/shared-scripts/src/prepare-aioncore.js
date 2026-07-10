@@ -2,7 +2,16 @@
  * Prepare aioncore binary for packaging.
  *
  * Resolution order:
- *  1. Pinned GitHub release download (version + SHA256 are mandatory)
+ *  1. Explicit local binary (binary SHA256 + source commit are mandatory)
+ *  2. Pinned GitHub release download (version + archive SHA256 are mandatory)
+ *
+ * Local build environment:
+ *  - AIONUI_BACKEND_LOCAL_BINARY: absolute path to the release binary
+ *  - AIONUI_BACKEND_SHA256: expected binary SHA256
+ *  - AIONUI_BACKEND_SOURCE_COMMIT: source commit (7-64 lowercase hex chars)
+ *
+ * Managed-resource preparation can legitimately run for 30+ minutes. Treat
+ * process activity as a heartbeat and do not start a duplicate preparation.
  *
  * Output: {projectRoot}/resources/bundled-aioncore/{platform}-{arch}/
  *   - aioncore[.exe]
@@ -66,6 +75,11 @@ function normalizeSha256(value) {
   return /^[0-9a-f]{64}$/.test(sha) ? sha : null;
 }
 
+function normalizeSourceCommit(value) {
+  const commit = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return /^[0-9a-f]{7,64}$/.test(commit) ? commit : null;
+}
+
 function sha256File(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
@@ -92,6 +106,27 @@ function verifyFileSha256(filePath, expectedSha256) {
     throw new Error(`AionCore SHA256 mismatch for ${path.basename(filePath)}: expected ${expected}, got ${actual}`);
   }
   return actual;
+}
+
+function resolveLocalAioncoreSource(localBinaryPath, explicitSha256, explicitSourceCommit) {
+  const configuredPath = localBinaryPath || process.env.AIONUI_BACKEND_LOCAL_BINARY;
+  if (!configuredPath) return null;
+
+  const expectedSha256 = normalizeSha256(explicitSha256 || process.env.AIONUI_BACKEND_SHA256);
+  if (!expectedSha256) {
+    throw new Error('AIONUI_BACKEND_SHA256 is required when AIONUI_BACKEND_LOCAL_BINARY is set');
+  }
+  const sourceCommit = normalizeSourceCommit(explicitSourceCommit || process.env.AIONUI_BACKEND_SOURCE_COMMIT);
+  if (!sourceCommit) {
+    throw new Error('AIONUI_BACKEND_SOURCE_COMMIT is required when AIONUI_BACKEND_LOCAL_BINARY is set');
+  }
+
+  const binaryPath = fs.realpathSync(path.resolve(configuredPath));
+  if (!fs.statSync(binaryPath).isFile()) {
+    throw new Error('AIONUI_BACKEND_LOCAL_BINARY must point to a regular file');
+  }
+  const binarySha256 = verifyFileSha256(binaryPath, expectedSha256);
+  return { binaryPath, binarySha256, sourceCommit };
 }
 
 function getBinaryName(platform) {
@@ -241,9 +276,20 @@ function downloadAndExtract(platform, arch, tag, expectedSha256) {
  * @returns {{ prepared: true; dir: string; sourceType: string }}
  */
 function prepareAioncore(options) {
-  const { projectRoot, platform, arch, version, expectedSha256: explicitSha256 } = options;
+  const {
+    projectRoot,
+    platform,
+    arch,
+    version,
+    expectedSha256: explicitSha256,
+    localBinaryPath,
+    sourceCommit,
+  } = options;
   const runtimeKey = `${platform}-${arch}`;
-  const expectedSha256 = resolveExpectedAioncoreSha256(projectRoot, runtimeKey, explicitSha256);
+  const localSource = resolveLocalAioncoreSource(localBinaryPath, explicitSha256, sourceCommit);
+  const expectedSha256 = localSource
+    ? localSource.binarySha256
+    : resolveExpectedAioncoreSha256(projectRoot, runtimeKey, explicitSha256);
 
   if (typeof version !== 'string' || !version.trim() || version.trim() === 'latest') {
     throw new Error('AionCore version must be pinned; mutable "latest" builds are disabled');
@@ -260,10 +306,21 @@ function prepareAioncore(options) {
 
   const existingManifest = readJsonSafe(targetManifestPath);
   const existingBinarySha256 = fs.existsSync(targetBinaryPath) ? sha256File(targetBinaryPath) : null;
+  const existingManifestHasPreSignScope =
+    existingManifest?.binarySha256Scope === 'pre-sign-input' &&
+    normalizeSha256(existingManifest?.preSignBinarySha256) === normalizeSha256(existingManifest?.binarySha256);
+  const existingSourceMatches =
+    existingManifestHasPreSignScope &&
+    (localSource
+      ? existingManifest?.sourceType === 'command-eve-local-build' &&
+        normalizeSha256(existingManifest?.sourceSha256) === localSource.binarySha256 &&
+        normalizeSha256(existingManifest?.binarySha256) === localSource.binarySha256 &&
+        normalizeSourceCommit(existingManifest?.source?.commit) === localSource.sourceCommit
+      : normalizeSha256(existingManifest?.archiveSha256) === expectedSha256);
   if (
     existingBinarySha256 &&
     existingManifest?.version === tag &&
-    normalizeSha256(existingManifest?.archiveSha256) === expectedSha256 &&
+    existingSourceMatches &&
     normalizeSha256(existingManifest?.binarySha256) === existingBinarySha256
   ) {
     ensureExecutableMode(targetBinaryPath);
@@ -299,7 +356,15 @@ function prepareAioncore(options) {
   let sourceDetail = {};
   let tempDir = null;
 
-  // 1. Download from GitHub releases
+  // 1. Use an explicitly verified local build.
+  if (localSource) {
+    sourcePath = localSource.binaryPath;
+    sourceType = 'command-eve-local-build';
+    sourceDetail = { commit: localSource.sourceCommit };
+    console.log(`  Using verified local AionCore build at commit ${localSource.sourceCommit}`);
+  }
+
+  // 2. Download from GitHub releases.
   if (!sourcePath) {
     try {
       const result = downloadAndExtract(platform, arch, tag, expectedSha256);
@@ -315,9 +380,10 @@ function prepareAioncore(options) {
 
   // Write result
   if (sourcePath) {
+    const sourceBinarySha256 = localSource ? localSource.binarySha256 : sha256File(sourcePath);
     copyFileSafe(sourcePath, targetBinaryPath);
     ensureExecutableMode(targetBinaryPath);
-    const binarySha256 = sha256File(targetBinaryPath);
+    const binarySha256 = verifyFileSha256(targetBinaryPath, sourceBinarySha256);
     const bundledManagedResourcesDir = prepareManagedResources(targetBinaryPath, targetDir);
 
     // The release tag is the authoritative version — the aioncore
@@ -330,8 +396,10 @@ function prepareAioncore(options) {
       generatedAt: new Date().toISOString(),
       sourceType,
       source: sourceDetail,
-      archiveSha256: expectedSha256,
       binarySha256,
+      preSignBinarySha256: binarySha256,
+      binarySha256Scope: 'pre-sign-input',
+      ...(sourceType === 'download' ? { archiveSha256: expectedSha256 } : { sourceSha256: localSource.binarySha256 }),
       files: [binaryName, 'managed-resources/'],
     };
 
@@ -350,7 +418,9 @@ function prepareAioncore(options) {
 
 module.exports = {
   normalizeSha256,
+  normalizeSourceCommit,
   prepareAioncore,
+  resolveLocalAioncoreSource,
   resolveExpectedAioncoreSha256,
   sha256File,
   verifyFileSha256,

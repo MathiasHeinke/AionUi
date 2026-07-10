@@ -1,6 +1,6 @@
 {
   "schema_version": "command-eve-brand-config/v0",
-  "version": "v1.7.91",
+  "version": "v1.7.92",
   "generated_at": "2026-07-03T00:00:00.000Z",
   "brand": {
     "product": "Command EVE",
@@ -10,10 +10,7 @@
   },
   "language_pack": {
     "default_language": "de-DE",
-    "supported_languages": [
-      "de-DE",
-      "en-US"
-    ],
+    "supported_languages": ["de-DE", "en-US"],
     "fallback_language": "de-DE",
     "coverage": "full-key-parity",
     "managed_locale": "de-DE",
@@ -57,13 +54,7 @@
     "fallback_lane": "local_only",
     "pre_send_hook_required": true,
     "provider_execution_without_gate": "blocked",
-    "approved_lanes": [
-      "eu_resident",
-      "self-host",
-      "local_only"
-    ],
-    "blocked_lanes_for_s2_plus": [
-      "us_cli"
-    ]
+    "approved_lanes": ["eu_resident", "self-host", "local_only"],
+    "blocked_lanes_for_s2_plus": ["us_cli"]
   }
 }

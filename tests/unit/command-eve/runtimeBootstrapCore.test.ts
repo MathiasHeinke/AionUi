@@ -12,6 +12,7 @@ import path from 'path';
 import {
   DEFAULT_COMMAND_EVE_CAPABILITY_PACK,
   DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST,
+  commandEveDelegationConcurrency,
   commandEveOllamaContextModelRef,
   ensureCommandEveRuntimeBootstrap,
   loadCommandEveCapabilityPack,
@@ -22,6 +23,7 @@ import {
   resolveCommandEveCapabilityManifestPath,
   resolveCommandEveRuntimeBootstrapPaths,
   resolveCommandEveRuntimeBootstrapManifestPath,
+  runtimeReceiptAllowsLocalModelWarmup,
   validateCommandEveCapabilityPack,
   copyBundledStrategySkills,
   resolveBundledSkillsDir,
@@ -146,13 +148,8 @@ const makeHarness = (
       }
       return commandResult(command, args);
     }
-    if (command.endsWith('/bin/hermes') && args[0] === '--version') {
-      return commandResult(
-        command,
-        args,
-        Boolean(hermesVersion),
-        hermesVersion ? `Hermes Agent v${hermesVersion}\n` : ''
-      );
+    if (command.endsWith('/bin/python') && args[0] === '-c' && args[1]?.includes("version('hermes-agent')")) {
+      return commandResult(command, args, Boolean(hermesVersion), hermesVersion ? `${hermesVersion}\n` : '');
     }
     if (command === '/opt/homebrew/bin/brew' && args.join(' ') === 'install ollama') {
       ollamaInstalled = true;
@@ -224,7 +221,7 @@ describe('Command EVE runtime bootstrap core', () => {
       path.resolve(__dirname, '../../../public/command-eve-capabilities.json')
     );
 
-    expect(packageJson.version).toBe('1.7.91');
+    expect(packageJson.version).toBe('1.7.92');
     expect(COMMAND_EVE_VERSION).toBe(packageJson.version);
     expect(DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST.release).toBe(packageJson.version);
     expect(DEFAULT_COMMAND_EVE_CAPABILITY_PACK.release).toBe(packageJson.version);
@@ -286,6 +283,8 @@ describe('Command EVE runtime bootstrap core', () => {
 
     // THE fix: EVE's cloud agent home IS written even on 8GB (was never written before).
     expect(fs.existsSync(path.join(paths.hermesHome, 'config.yaml'))).toBe(true);
+    const configYaml = fs.readFileSync(path.join(paths.hermesHome, 'config.yaml'), 'utf8');
+    expect(configYaml).toMatch(/delegation:\s*\n\s*max_concurrent_children: 1\s*\n\s*max_async_children: 1/);
     expect(fs.existsSync(paths.hermesShim)).toBe(true);
     // The receipt still finishes 'ready' — the cloud lane is genuinely provisioned.
     expect(receipt.status).toBe('ready');
@@ -296,6 +295,28 @@ describe('Command EVE runtime bootstrap core', () => {
     expect(byId.model?.status).toBe('skip');
     expect(byId.model?.code).toBe('BLOCKED_RAM');
     expect(byId.ollama?.status).toBe('skip');
+    expect(runtimeReceiptAllowsLocalModelWarmup(receipt)).toBe(false);
+  });
+
+  it('caps delegated workers at one only on low-memory Macs', () => {
+    expect(commandEveDelegationConcurrency(8 * 1024 ** 3)).toBe(1);
+    expect(commandEveDelegationConcurrency(10 * 1024 ** 3)).toBe(1);
+    expect(commandEveDelegationConcurrency(16 * 1024 ** 3)).toBe(3);
+  });
+
+  it('allows local warm-up only after both Ollama and model stages pass', () => {
+    const base = { status: 'ready', default_model: 'local-model' };
+
+    expect(runtimeReceiptAllowsLocalModelWarmup(base)).toBe(false);
+    expect(
+      runtimeReceiptAllowsLocalModelWarmup({
+        ...base,
+        stages: [
+          { id: 'ollama', status: 'pass' },
+          { id: 'model', status: 'pass' },
+        ],
+      })
+    ).toBe(true);
   });
 
   it('installs Hermes, installs Ollama via Homebrew, pulls the default model, and writes receipts', async () => {
@@ -371,6 +392,8 @@ describe('Command EVE runtime bootstrap core', () => {
       // the conversation. Config-only (deep-merged over wheel defaults).
       expect(configYaml).toMatch(/compression:\s*\n\s*threshold: 0\.80/);
       expect(configYaml).not.toContain('threshold: 0.50');
+      expect(configYaml).toMatch(/delegation:\s*\n\s*max_concurrent_children: 3\s*\n\s*max_async_children: 3/);
+      expect(configYaml).toContain('max_spawn_depth: 1');
       expect(configYaml).toMatch(/terminal:\s*\n\s*timeout: \d+/);
       // Keyless web backend pinned EXPLICITLY: web.search_backend + the shared
       // web.backend must both resolve to ddgs so search resolution is deterministic
@@ -752,7 +775,8 @@ describe('Command EVE runtime bootstrap core', () => {
 
       expect(receipt.status).toBe('ready');
       expect(receipt.stages.find((stage) => stage.id === 'hermes')?.detail).toContain('Updated hermes-agent 0.17.0');
-      expect(harness.commands.some((command) => command.includes('Hermes Agent v0.15.0'))).toBe(false);
+      expect(harness.commands.some((command) => command.endsWith('/bin/hermes --version'))).toBe(false);
+      expect(harness.commands.some((command) => command.includes("version('hermes-agent')"))).toBe(true);
       expect(harness.commands.some((command) => command.includes('0.17.0') && command.includes('pip install'))).toBe(
         true
       );

@@ -9,13 +9,17 @@
  */
 
 import { type ChildProcess, spawn } from 'node:child_process';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { chmodSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { connect, createServer, type Socket } from 'node:net';
+import { join } from 'node:path';
 import { cleanupRegisteredAgentProcesses } from './agent-process-registry.js';
 import type { AppMetadata, BackendBinaryResolver } from './types.js';
 
 type BackendStatus = 'stopped' | 'starting' | 'running' | 'error';
 type BackendStartupStage =
   | 'resolve_binary'
+  | 'provision_capability'
   | 'find_port'
   | 'spawn'
   | 'spawn_error'
@@ -69,6 +73,8 @@ type SpawnConfig = {
   workDir?: string;
   appVersion: string;
   isPackaged: boolean;
+  localCapabilityFile?: string;
+  localOrigins?: string[];
 };
 
 export type BackendDirConfig = {
@@ -93,6 +99,7 @@ export type BackendLaunchOptions = {
 
 export type BackendHandle = {
   port: number;
+  getLocalCapability: () => string;
   stop: () => Promise<void>;
 };
 
@@ -195,8 +202,36 @@ export function buildSpawnArgs(config: SpawnConfig): string[] {
   if (config.isPackaged) args.push('--managed-resources-mode', 'bundled');
   if (config.logDir) args.push('--log-dir', config.logDir);
   if (config.workDir) args.push('--work-dir', config.workDir);
-  if (config.local) args.push('--local');
+  if (config.local) {
+    if (!config.localCapabilityFile) {
+      throw new Error('local backend requires a capability file');
+    }
+    args.push('--local', '--local-capability-file', config.localCapabilityFile);
+    for (const origin of config.localOrigins?.length ? config.localOrigins : ['null']) {
+      args.push('--local-origin', origin);
+    }
+  }
   return args;
+}
+
+export function resolveLocalBackendOrigins(isPackaged: boolean, rendererUrl?: string): string[] {
+  const origins = ['null'];
+  if (isPackaged || !rendererUrl) return origins;
+
+  try {
+    const parsed = new URL(rendererUrl);
+    const isLoopback = ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname);
+    const hasExactOrigin =
+      ['http:', 'https:'].includes(parsed.protocol) &&
+      isLoopback &&
+      parsed.port.length > 0 &&
+      parsed.username.length === 0 &&
+      parsed.password.length === 0;
+    if (hasExactOrigin) origins.push(parsed.origin);
+  } catch {
+    // A malformed development URL must not widen the backend origin allowlist.
+  }
+  return origins;
 }
 
 /**
@@ -441,6 +476,8 @@ export class BackendLifecycleManager {
   private _lastLogDir?: string;
   private _lastDirs?: BackendDirConfig;
   private _lastOptions?: BackendStartOptions;
+  private _localCapability = '';
+  private _localCapabilityFile = '';
   private restartCount = 0;
   private restartWindowStart = 0;
   private readonly maxRestarts = 3;
@@ -457,6 +494,44 @@ export class BackendLifecycleManager {
 
   get status(): BackendStatus {
     return this._status;
+  }
+
+  get localCapability(): string {
+    return this._localCapability;
+  }
+
+  private markStartupErrorIfActive(): void {
+    if (this._status !== 'stopped') this._status = 'error';
+  }
+
+  private cleanupLocalCapabilityFile(): void {
+    if (this._localCapabilityFile) {
+      try {
+        rmSync(this._localCapabilityFile, { force: true });
+      } catch {
+        // Best effort. A fresh random path is used on every subsequent start.
+      }
+    }
+    this._localCapabilityFile = '';
+    this._localCapability = '';
+  }
+
+  private provisionLocalCapabilityFile(dbPath: string): string {
+    this.cleanupLocalCapabilityFile();
+    const runtimeDir = join(dbPath, 'runtime-security');
+    mkdirSync(runtimeDir, { recursive: true, mode: 0o700 });
+    if (process.platform !== 'win32') chmodSync(runtimeDir, 0o700);
+    for (const entry of readdirSync(runtimeDir)) {
+      if (entry.startsWith('local-capability-')) rmSync(join(runtimeDir, entry), { force: true });
+    }
+
+    const capability = randomBytes(32).toString('hex');
+    const capabilityFile = join(runtimeDir, `local-capability-${process.pid}-${randomUUID()}`);
+    this._localCapability = capability;
+    this._localCapabilityFile = capabilityFile;
+    writeFileSync(capabilityFile, capability, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+    if (process.platform !== 'win32') chmodSync(capabilityFile, 0o600);
+    return capabilityFile;
   }
 
   async start(
@@ -493,6 +568,26 @@ export class BackendLifecycleManager {
     this._lastLogDir = logDir;
     this._lastDirs = dirs;
     this._lastOptions = options;
+    let localCapabilityFile: string;
+    try {
+      localCapabilityFile = this.provisionLocalCapabilityFile(dbPath);
+    } catch (error) {
+      this._status = 'error';
+      this.cleanupLocalCapabilityFile();
+      throw new BackendStartupError(
+        'aioncore startup failed while provisioning local capability',
+        {
+          stage: 'provision_capability',
+          appVersion,
+          isPackaged: this.appMeta.isPackaged,
+          dataDir: dbPath,
+          logDir,
+          workDir: dirs?.workDir,
+          causeMessage: getErrorMessage(error),
+        },
+        error
+      );
+    }
     let stdoutTail = '';
     let stderrTail = '';
     let startupSettled = false;
@@ -543,6 +638,8 @@ export class BackendLifecycleManager {
       workDir: dirs?.workDir,
       appVersion,
       isPackaged: this.appMeta.isPackaged,
+      localCapabilityFile,
+      localOrigins: resolveLocalBackendOrigins(this.appMeta.isPackaged, process.env.ELECTRON_RENDERER_URL),
     });
     console.log(`[aioncore] starting: ${binaryPath} ${args.join(' ')}`);
 
@@ -554,6 +651,7 @@ export class BackendLifecycleManager {
       });
     } catch (error) {
       this._status = 'error';
+      this.cleanupLocalCapabilityFile();
       throw makeStartupError('spawn', 'aioncore process spawn threw before startup', error);
     }
 
@@ -696,15 +794,24 @@ export class BackendLifecycleManager {
     try {
       port = await Promise.race([reportedPort, startupFailure]);
     } catch (error) {
-      if (error instanceof BackendStartupError && error.details.stage === 'listen_timeout') {
-        startupSettled = true;
-        killBackendProcessTree(this.childProcess, 'SIGKILL');
-        this.childProcess = null;
-        this._status = 'error';
-      }
+      startupSettled = true;
+      killBackendProcessTree(this.childProcess, 'SIGKILL');
+      this.childProcess = null;
+      this.markStartupErrorIfActive();
+      this.cleanupLocalCapabilityFile();
       throw error;
     }
-    const health = await Promise.race([this.waitForHealth(port), startupFailure]);
+    let health: HealthCheckResult;
+    try {
+      health = await Promise.race([this.waitForHealth(port), startupFailure]);
+    } catch (error) {
+      startupSettled = true;
+      killBackendProcessTree(this.childProcess, 'SIGKILL');
+      this.childProcess = null;
+      this.markStartupErrorIfActive();
+      this.cleanupLocalCapabilityFile();
+      throw error;
+    }
     if (!health.ok) {
       const healthTimeoutError = makeStartupError(
         'health_timeout',
@@ -727,6 +834,7 @@ export class BackendLifecycleManager {
       killBackendProcessTree(this.childProcess, 'SIGKILL');
       this.childProcess = null;
       this._status = 'error';
+      this.cleanupLocalCapabilityFile();
       throw healthTimeoutError;
     }
 
@@ -747,6 +855,7 @@ export class BackendLifecycleManager {
       // children can outlive the backend, so the durable process registry must
       // still be drained even when there is no backend wrapper left to signal.
       await cleanupRegisteredAgentProcesses(dataDir);
+      this.cleanupLocalCapabilityFile();
       return;
     }
     const childProcess = this.childProcess;
@@ -764,6 +873,7 @@ export class BackendLifecycleManager {
     });
     await cleanupRegisteredAgentProcesses(dataDir);
     this.childProcess = null;
+    this.cleanupLocalCapabilityFile();
   }
 
   private async waitForHealth(
@@ -918,6 +1028,7 @@ export async function startBackend(opts: BackendLaunchOptions): Promise<BackendH
   const port = await manager.start(dataDir, opts.logDir, opts.dirs);
   return {
     port,
+    getLocalCapability: () => manager.localCapability,
     stop: () => manager.stop(),
   };
 }

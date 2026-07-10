@@ -1,6 +1,10 @@
 import path from 'path';
 import { describe, expect, it } from 'vitest';
-import { readExplicitUserDataDir, resolveElectronUserDataPath } from '@/common/platform/userDataPath';
+import {
+  readExplicitUserDataDir,
+  resolveElectronUserDataPath,
+  shouldUseGlobalCliSafeSymlink,
+} from '@/common/platform/userDataPath';
 
 describe('electron user-data path resolution', () => {
   it('keeps the product directory for normal launches', () => {
@@ -24,5 +28,12 @@ describe('electron user-data path resolution', () => {
   it('ignores missing or empty explicit profile values', () => {
     expect(readExplicitUserDataDir(['electron', '--user-data-dir='])).toBeUndefined();
     expect(readExplicitUserDataDir(['electron', '--user-data-dir', '--safe-mode'])).toBeUndefined();
+  });
+
+  it('uses the global CLI symlink only for normal launches', () => {
+    expect(shouldUseGlobalCliSafeSymlink(['electron'])).toBe(true);
+    expect(shouldUseGlobalCliSafeSymlink(['electron', '--user-data-dir=/tmp/eve-isolated'])).toBe(false);
+    expect(shouldUseGlobalCliSafeSymlink(['electron', '--user-data-dir', '/tmp/eve-recovery'])).toBe(false);
+    expect(shouldUseGlobalCliSafeSymlink(['electron', '--user-data-dir='])).toBe(true);
   });
 });

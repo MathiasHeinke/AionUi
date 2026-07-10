@@ -16,8 +16,17 @@ import {
   COMMAND_EVE_SHELL_ENABLED,
   getCommandEveAppName,
 } from '@/common/config/commandEveShell';
-import { shouldEnableCdpAtStartup } from '../security/cdpSecurityCore';
+import { hardenPackagedCdpCommandLine, shouldEnableCdpAtStartup } from '../security/cdpSecurityCore';
 import { applyGpuRecoveryFlags } from './gpuRecovery';
+
+const strippedPackagedCdpSwitches = hardenPackagedCdpCommandLine({
+  isPackaged: app.isPackaged,
+  argv: process.argv,
+  removeSwitch: (name) => app.commandLine.removeSwitch(name),
+});
+if (strippedPackagedCdpSwitches.length > 0) {
+  console.warn(`[CDP] Removed prohibited packaged switches: ${strippedPackagedCdpSwitches.join(', ')}`);
+}
 
 // ============ Environment Separation ============
 // Set app name before any getPath() call so userData is isolated from production.

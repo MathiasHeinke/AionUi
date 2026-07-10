@@ -15,6 +15,10 @@ export function readExplicitUserDataDir(argv: readonly string[]): string | undef
   return undefined;
 }
 
+export function shouldUseGlobalCliSafeSymlink(argv: readonly string[] = process.argv): boolean {
+  return readExplicitUserDataDir(argv) === undefined;
+}
+
 export function resolveElectronUserDataPath(
   currentUserDataPath: string,
   appName: string,

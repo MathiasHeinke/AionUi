@@ -321,6 +321,16 @@ const COMMAND_EVE_HERMES_DISABLED_SKILLS = ['red-teaming/godmode'];
 export type CommandEveReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh';
 const DEFAULT_COMMAND_EVE_REASONING_EFFORT: CommandEveReasoningEffort = 'low';
 const DEFAULT_COMMAND_EVE_CREATION_NUDGE_INTERVAL = 0;
+const DEFAULT_COMMAND_EVE_DELEGATION_CONCURRENCY = 3;
+const COMMAND_EVE_LOW_MEMORY_MAX_BYTES = 10 * 1024 ** 3;
+
+export function commandEveDelegationConcurrency(totalMemoryBytes: number): number {
+  return Number.isFinite(totalMemoryBytes) &&
+    totalMemoryBytes > 0 &&
+    totalMemoryBytes <= COMMAND_EVE_LOW_MEMORY_MAX_BYTES
+    ? 1
+    : DEFAULT_COMMAND_EVE_DELEGATION_CONCURRENCY;
+}
 
 // Tool-loop convergence backstop. Hermes' own default cap is 90 iterations
 // (agent_init.py max_iterations) with NO per-turn wall-clock guard, so on an
@@ -591,6 +601,17 @@ export type RuntimeBootstrapReceipt = {
   };
 };
 
+export function runtimeReceiptAllowsLocalModelWarmup(receipt: {
+  status?: string;
+  default_model?: string;
+  stages?: ReadonlyArray<Pick<RuntimeBootstrapStage, 'id' | 'status'>>;
+}): boolean {
+  if (receipt.status !== 'ready' || !receipt.default_model) return false;
+  const ollamaStage = receipt.stages?.find((stage) => stage.id === 'ollama');
+  const modelStage = receipt.stages?.find((stage) => stage.id === 'model');
+  return ollamaStage?.status === 'pass' && modelStage?.status === 'pass';
+}
+
 export type RuntimeBootstrapRunner = (
   command: string,
   args: string[],
@@ -678,7 +699,7 @@ export type RuntimeBootstrapOptions = {
 
 export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
   version: 'command-eve-capability-pack/v0',
-  release: '1.7.91',
+  release: '1.7.92',
   policy: {
     default_mode: 'proposal_only',
     secret_rule: 'Never ask for passwords, cookies, recovery codes, raw tokens or .env contents in chat.',
@@ -1042,7 +1063,7 @@ type PythonLookup = CommandLookup & {
 
 export const DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST: RuntimeBootstrapManifest = {
   version: 'command-eve-runtime-bootstrap-manifest/v0',
-  release: '1.7.91',
+  release: '1.7.92',
   hermes: {
     package: DEFAULT_HERMES_PACKAGE,
     version: DEFAULT_HERMES_VERSION,
@@ -2444,11 +2465,6 @@ function hermesConsoleBinary(paths: RuntimeBootstrapPaths): string {
     : path.join(paths.hermesVenv, 'bin', 'hermes');
 }
 
-function parseHermesVersion(output: string): string {
-  const match = compact(output).match(/Hermes Agent v([0-9]+(?:\.[0-9]+){1,3})/i);
-  return match?.[1] || '';
-}
-
 async function readInstalledHermesVersion(
   paths: RuntimeBootstrapPaths,
   runner: RuntimeBootstrapRunner,
@@ -2456,8 +2472,16 @@ async function readInstalledHermesVersion(
 ): Promise<string> {
   const binary = hermesConsoleBinary(paths);
   if (!fs.existsSync(binary)) return '';
-  const result = await runner(binary, ['--version'], { env, timeoutMs: 10_000 });
-  return result.ok ? parseHermesVersion(`${result.stdout || ''}\n${result.stderr || ''}`) : '';
+  // `hermes --version` imports the complete CLI and may perform a network-backed
+  // update check. That made every desktop launch pay seconds and cold launches
+  // occasionally wait for the network. Package metadata is local, deterministic,
+  // and available in the same venv whenever the console script exists.
+  const result = await runner(
+    pythonBinary(paths),
+    ['-c', "from importlib.metadata import version; print(version('hermes-agent'))"],
+    { env, timeoutMs: 3_000 }
+  );
+  return result.ok ? compact(result.stdout || '') : '';
 }
 
 function hermesExtrasSpecifier(manifest: RuntimeBootstrapManifest): string {
@@ -3530,7 +3554,8 @@ function writeHermesRuntimeFiles(
   // COMPA-624 Inc.3 — the per-seat Honcho render input (resolveHonchoRenderForSeat),
   // computed by BOTH cadence callers with the TARGET seatId. Default not-ready ⇒
   // NOTHING Honcho is emitted and config.yaml + SOUL stay byte-identical to today.
-  honcho: HonchoRenderInput = { ready: false }
+  honcho: HonchoRenderInput = { ready: false },
+  maxConcurrentDelegates = DEFAULT_COMMAND_EVE_DELEGATION_CONCURRENCY
 ): string[] {
   ensureDir(paths.hermesHome);
   const { executableSkillIds, bundledSkillFailures } = writeCommandEveManagedSkills(
@@ -3634,6 +3659,13 @@ function writeHermesRuntimeFiles(
     // defaults); it does NOT require a hermes wheel rebuild.
     'compression:',
     '  threshold: 0.80',
+    // Hermes enforces these caps atomically for both synchronous batches and
+    // background delegation. The bootstrap passes 1 on <=10GB machines so an
+    // 8GB Air cannot swap itself by launching several CLI workers at once.
+    'delegation:',
+    `  max_concurrent_children: ${maxConcurrentDelegates}`,
+    `  max_async_children: ${maxConcurrentDelegates}`,
+    '  max_spawn_depth: 1',
     'skills:',
     // creation_nudge_interval > 0 re-enables the background skill-review fork.
     // 0 is an explicit kill-switch and overrides Hermes' own default 10 (FACT
@@ -4058,6 +4090,8 @@ export type ProvisionSeatRuntimeFilesOptions = {
   codexRuntime?: string;
   claudeDelegate?: RuntimeBootstrapOptions['claudeDelegate'];
   teamRoles?: RuntimeBootstrapOptions['teamRoles'];
+  /** Test seam; production derives this from os.totalmem(). */
+  totalMemoryBytes?: number;
 };
 
 export type ProvisionSeatRuntimeFilesResult = {
@@ -4216,7 +4250,8 @@ export function provisionSeatRuntimeFiles(options: ProvisionSeatRuntimeFilesOpti
       },
       // COMPA-624 Inc.3 — the Honcho render input for the TARGET seat (seatId,
       // resolved above). Same seat as `paths`, so no active-seat drift on switch.
-      resolveHonchoRenderForSeat({ userDataPath: paths.userDataPath, seatId, hermesVenv: paths.hermesVenv })
+      resolveHonchoRenderForSeat({ userDataPath: paths.userDataPath, seatId, hermesVenv: paths.hermesVenv }),
+      commandEveDelegationConcurrency(options.totalMemoryBytes ?? os.totalmem())
     );
 
     return {
@@ -4375,7 +4410,8 @@ export async function ensureCommandEveRuntimeBootstrap(
   );
 
   const freeGb = freeDiskGb(paths.runtimeRoot, options.statfs);
-  const totalMemoryGb = roundGb(options.totalMemoryBytes ?? os.totalmem());
+  const totalMemoryBytes = options.totalMemoryBytes ?? os.totalmem();
+  const totalMemoryGb = roundGb(totalMemoryBytes);
   if (freeGb < tier.min_free_disk_gb) {
     pushStage(
       makeStage('capacity', 'blocked', {
@@ -4610,7 +4646,8 @@ export async function ensureCommandEveRuntimeBootstrap(
     // COMPA-624 Inc.3 — the Honcho render input for the BOOT (legacy/founder) seat.
     // Reads the seat's readiness snapshot; not-ready (no provisioning yet) ⇒ nothing
     // Honcho is emitted (byte-identical). Same-seat: paths was resolved with no seatId.
-    resolveHonchoRenderForSeat({ userDataPath: paths.userDataPath, seatId: undefined, hermesVenv: paths.hermesVenv })
+    resolveHonchoRenderForSeat({ userDataPath: paths.userDataPath, seatId: undefined, hermesVenv: paths.hermesVenv }),
+    commandEveDelegationConcurrency(totalMemoryBytes)
   );
   if (bundledSkillFailures.length) {
     // VISIBLE preflight break (founder-self-detection): a skip-status stage with a

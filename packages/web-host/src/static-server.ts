@@ -19,6 +19,7 @@ export type StaticServerOptions = {
   backendPort: number;
   port?: number;
   allowRemote?: boolean;
+  getBackendCapability?: () => string;
 };
 
 export type StaticServerHandle = {
@@ -31,6 +32,27 @@ export type StaticServerHandle = {
 };
 
 const DEFAULT_PORT = 25808;
+export const LOCAL_BACKEND_CAPABILITY_HEADER = 'x-aionui-local-capability';
+
+export function isAllowedWebUiProxyOrigin(origin: string | undefined, port: number): boolean {
+  if (!origin) return true;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return false;
+  try {
+    const parsed = new URL(origin);
+    return (
+      parsed.protocol === 'http:' &&
+      ['127.0.0.1', 'localhost'].includes(parsed.hostname) &&
+      parsed.port === String(port) &&
+      parsed.pathname === '/' &&
+      parsed.search === '' &&
+      parsed.hash === '' &&
+      parsed.username === '' &&
+      parsed.password === ''
+    );
+  } catch {
+    return false;
+  }
+}
 
 function getLanIP(): string | null {
   const nets = networkInterfaces();
@@ -42,13 +64,26 @@ function getLanIP(): string | null {
   return null;
 }
 
-function forwardToBackend(req: IncomingMessage, res: ServerResponse, backendPort: number): void {
+function forwardToBackend(
+  req: IncomingMessage,
+  res: ServerResponse,
+  backendPort: number,
+  getBackendCapability?: () => string
+): void {
+  const headers: http.OutgoingHttpHeaders = { ...req.headers, host: `127.0.0.1:${backendPort}` };
+  delete headers[LOCAL_BACKEND_CAPABILITY_HEADER];
+  // The outer proxy validates the browser origin against its live loopback
+  // port. AionCore receives no browser Origin because its per-launch allowlist
+  // is fixed before this optional WebUI is started.
+  delete headers.origin;
+  const capability = getBackendCapability?.();
+  if (capability) headers[LOCAL_BACKEND_CAPABILITY_HEADER] = capability;
   const options: http.RequestOptions = {
     hostname: '127.0.0.1',
     port: backendPort,
     path: req.url,
     method: req.method,
-    headers: { ...req.headers, host: `127.0.0.1:${backendPort}` },
+    headers,
   };
   const proxy = http.request(options, (proxyRes) => {
     res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
@@ -116,6 +151,53 @@ function peekWsRoute(buf: Buffer): boolean | null {
   return /^GET\s+\/ws(?:\?[^\s]*)?\s+HTTP\/1\.[01]\r?$/.test(firstLine);
 }
 
+function websocketHeaderEnd(buf: Buffer): number {
+  const crlf = buf.indexOf('\r\n\r\n');
+  if (crlf >= 0) return crlf + 4;
+  const lf = buf.indexOf('\n\n');
+  return lf >= 0 ? lf + 2 : -1;
+}
+
+function websocketHeaderValue(request: Buffer, name: string): string | undefined {
+  const headerEnd = websocketHeaderEnd(request);
+  if (headerEnd < 0) return undefined;
+  const prefix = `${name.toLowerCase()}:`;
+  for (const line of request.subarray(0, headerEnd).toString('latin1').split(/\r?\n/).slice(1)) {
+    if (line.toLowerCase().startsWith(prefix)) return line.slice(line.indexOf(':') + 1).trim();
+  }
+  return undefined;
+}
+
+function rejectRawHttpRequest(client: Socket, status: 403 | 401, code: string): void {
+  const body = JSON.stringify({ error: code });
+  client.end(
+    `HTTP/1.1 ${status} ${status === 403 ? 'Forbidden' : 'Unauthorized'}\r\n` +
+      'Content-Type: application/json\r\n' +
+      `Content-Length: ${Buffer.byteLength(body)}\r\n` +
+      'Connection: close\r\n\r\n' +
+      body
+  );
+}
+
+export function injectWebSocketCapabilityHeaders(request: Buffer, capability: string): Buffer {
+  const headerEnd = websocketHeaderEnd(request);
+  if (headerEnd < 0) return request;
+
+  const headerBlock = request.subarray(0, headerEnd).toString('latin1');
+  const newline = headerBlock.includes('\r\n') ? '\r\n' : '\n';
+  const lines = headerBlock
+    .split(/\r?\n/)
+    .filter(
+      (line, index) =>
+        index === 0 ||
+        (!/^origin\s*:/i.test(line) && !new RegExp(`^${LOCAL_BACKEND_CAPABILITY_HEADER}\\s*:`, 'i').test(line))
+    )
+    .filter((line) => line.length > 0);
+  const capabilityHeaders = capability ? [`${LOCAL_BACKEND_CAPABILITY_HEADER}: ${capability}`] : [];
+  const rewritten = Buffer.from([lines[0], ...capabilityHeaders, ...lines.slice(1), '', ''].join(newline), 'latin1');
+  return Buffer.concat([rewritten, request.subarray(headerEnd)]);
+}
+
 export async function startStaticServer(opts: StaticServerOptions): Promise<StaticServerHandle> {
   const port = opts.port ?? DEFAULT_PORT;
   if (opts.allowRemote === true) {
@@ -125,6 +207,7 @@ export async function startStaticServer(opts: StaticServerOptions): Promise<Stat
   }
   const allowRemote = false;
   const host = '127.0.0.1';
+  let publicPort = port;
 
   // The HTTP server listens only on loopback — user traffic hits the outer
   // net.Server first. We route to this server for everything except WS
@@ -146,7 +229,12 @@ export async function startStaticServer(opts: StaticServerOptions): Promise<Stat
       // /login and /logout are aionui-auth's top-level auth endpoints: proxy them too
       // so WebUI browser clients reach the backend without a path-rewrite.
       if (req.url.startsWith('/api/') || req.url.startsWith('/api?') || req.url === '/login' || req.url === '/logout') {
-        forwardToBackend(req, res, opts.backendPort);
+        if (!isAllowedWebUiProxyOrigin(req.headers.origin, publicPort)) {
+          res.writeHead(403, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: 'ORIGIN_NOT_ALLOWED' }));
+          return;
+        }
+        forwardToBackend(req, res, opts.backendPort, opts.getBackendCapability);
         return;
       }
 
@@ -196,9 +284,22 @@ export async function startStaticServer(opts: StaticServerOptions): Promise<Stat
       peeked = Buffer.concat([peeked, chunk]);
       const decision = peekWsRoute(peeked);
       if (decision === null && peeked.length < PEEK_LIMIT_BYTES) return;
+      if (decision === true && websocketHeaderEnd(peeked) < 0 && peeked.length < PEEK_LIMIT_BYTES) return;
+      if (decision === true && websocketHeaderEnd(peeked) < 0) {
+        cleanup();
+        client.destroy();
+        return;
+      }
+      if (decision === true && !isAllowedWebUiProxyOrigin(websocketHeaderValue(peeked, 'origin'), publicPort)) {
+        cleanup();
+        rejectRawHttpRequest(client, 403, 'ORIGIN_NOT_ALLOWED');
+        return;
+      }
       cleanup();
       const target = decision === true ? opts.backendPort : internalPort;
-      spliceToTcpEndpoint(client, target, peeked);
+      const capability = decision === true ? (opts.getBackendCapability?.() ?? '') : '';
+      const initialBytes = decision === true ? injectWebSocketCapabilityHeaders(peeked, capability) : peeked;
+      spliceToTcpEndpoint(client, target, initialBytes);
     };
     const onEarlyError = (): void => {
       cleanup();
@@ -223,6 +324,7 @@ export async function startStaticServer(opts: StaticServerOptions): Promise<Stat
   });
 
   const actualPort = (tcp_server.address() as { port: number } | null)?.port ?? port;
+  publicPort = actualPort;
   const lanIP = allowRemote ? (getLanIP() ?? undefined) : undefined;
   const localUrl = `http://127.0.0.1:${actualPort}`;
   const networkUrl = lanIP ? `http://${lanIP}:${actualPort}` : undefined;

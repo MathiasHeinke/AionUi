@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
 import type { ChildProcess } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
 import type { Socket } from 'node:net';
 
 // ---- Module-level mocks ----
@@ -19,6 +20,14 @@ vi.mock('node:net', () => ({
   connect: vi.fn(),
 }));
 
+vi.mock('node:fs', () => ({
+  chmodSync: vi.fn(),
+  mkdirSync: vi.fn(),
+  readdirSync: vi.fn(() => []),
+  rmSync: vi.fn(),
+  writeFileSync: vi.fn(),
+}));
+
 vi.mock('./agent-process-registry.js', () => ({
   cleanupRegisteredAgentProcesses: vi.fn().mockResolvedValue(undefined),
 }));
@@ -26,7 +35,13 @@ vi.mock('./agent-process-registry.js', () => ({
 import { spawn } from 'node:child_process';
 import { connect, createServer } from 'node:net';
 import { cleanupRegisteredAgentProcesses } from './agent-process-registry.js';
-import { buildSpawnArgs, buildSpawnEnv, findAvailablePort, BackendLifecycleManager } from './backend-launcher.js';
+import {
+  buildSpawnArgs,
+  buildSpawnEnv,
+  findAvailablePort,
+  BackendLifecycleManager,
+  resolveLocalBackendOrigins,
+} from './backend-launcher.js';
 import type { AppMetadata } from './types.js';
 
 const APP_META: AppMetadata = {
@@ -37,6 +52,7 @@ const APP_META: AppMetadata = {
 };
 
 const APP_META_PACKAGED: AppMetadata = { ...APP_META, isPackaged: true };
+let exitListenersBeforeTest = new Set(process.listeners('exit'));
 
 function makeFakeServer(port = 54321) {
   const server = new EventEmitter() as EventEmitter & {
@@ -89,10 +105,14 @@ function makeFakeSocket(): Socket {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  exitListenersBeforeTest = new Set(process.listeners('exit'));
 });
 
 afterEach(() => {
   // Do NOT call restoreAllMocks; it would remove vi.mock() module factories.
+  for (const listener of process.listeners('exit')) {
+    if (!exitListenersBeforeTest.has(listener)) process.removeListener('exit', listener);
+  }
   vi.useRealTimers();
 });
 
@@ -105,6 +125,7 @@ describe('buildSpawnArgs', () => {
       logDir: '/log/dir',
       appVersion: '9.9.9',
       isPackaged: true,
+      localCapabilityFile: '/run/capability',
     });
     expect(args).toEqual([
       '--port',
@@ -120,6 +141,10 @@ describe('buildSpawnArgs', () => {
       '--log-dir',
       '/log/dir',
       '--local',
+      '--local-capability-file',
+      '/run/capability',
+      '--local-origin',
+      'null',
     ]);
   });
 
@@ -135,6 +160,18 @@ describe('buildSpawnArgs', () => {
     expect(args).not.toContain('--managed-resources-mode');
     expect(args).not.toContain('--log-dir');
     expect(args).not.toContain('--local');
+  });
+
+  it('fails closed when local mode has no capability file', () => {
+    expect(() =>
+      buildSpawnArgs({
+        port: 1,
+        dbPath: '/d',
+        local: true,
+        appVersion: '0.0.1',
+        isPackaged: true,
+      })
+    ).toThrow('local backend requires a capability file');
   });
 
   it('passes bundled managed resources mode when packaged', () => {
@@ -179,6 +216,21 @@ describe('buildSpawnEnv', () => {
     expect(env.AIONUI_WORK_DIR).toBe('/w');
     expect(env.AIONUI_LOG_DIR).toBe('/l');
     expect(env.PATH).toBe(process.env.PATH); // inherits
+  });
+});
+
+describe('resolveLocalBackendOrigins', () => {
+  it('keeps packaged builds on the opaque file origin', () => {
+    expect(resolveLocalBackendOrigins(true, 'http://localhost:5173')).toEqual(['null']);
+  });
+
+  it('allows an exact loopback development origin', () => {
+    expect(resolveLocalBackendOrigins(false, 'http://127.0.0.1:5173/app')).toEqual(['null', 'http://127.0.0.1:5173']);
+  });
+
+  it('rejects non-loopback and malformed development origins', () => {
+    expect(resolveLocalBackendOrigins(false, 'https://example.com:5173')).toEqual(['null']);
+    expect(resolveLocalBackendOrigins(false, 'not a url')).toEqual(['null']);
   });
 });
 
@@ -275,6 +327,13 @@ describe('BackendLifecycleManager.start (success path)', () => {
     expect(port).toBe(55555);
     expect(mgr.port).toBe(55555);
     expect(createServer).not.toHaveBeenCalled();
+    expect(mgr.localCapability).toMatch(/^[a-f0-9]{64}$/);
+    expect(writeFileSync).toHaveBeenCalledWith(
+      expect.stringMatching(/^\/db\/path\/runtime-security\/local-capability-/),
+      mgr.localCapability,
+      expect.objectContaining({ flag: 'wx', mode: 0o600 })
+    );
+    expect(vi.mocked(spawn).mock.calls[0][1]).not.toContain(mgr.localCapability);
     expect(fetchSpy).toHaveBeenCalledWith('http://127.0.0.1:55555/health');
     expect(vi.mocked(spawn).mock.calls[0][1]).toEqual([
       '--port',
@@ -294,6 +353,10 @@ describe('BackendLifecycleManager.start (success path)', () => {
       '--work-dir',
       '/w',
       '--local',
+      '--local-capability-file',
+      expect.stringMatching(/^\/db\/path\/runtime-security\/local-capability-/),
+      '--local-origin',
+      'null',
     ]);
 
     fetchSpy.mockRestore();
@@ -348,6 +411,10 @@ describe('BackendLifecycleManager.start (success path)', () => {
         '--work-dir',
         '/w',
         '--local',
+        '--local-capability-file',
+        expect.stringMatching(/^\/db\/path\/runtime-security\/local-capability-/),
+        '--local-origin',
+        'null',
       ]);
       const opts = spawnCall[2] as { env: NodeJS.ProcessEnv };
       expect(opts.env.AIONUI_CACHE_DIR).toBe('/c');

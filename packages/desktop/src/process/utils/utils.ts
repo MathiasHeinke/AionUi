@@ -14,6 +14,7 @@ import {
   COMMAND_EVE_TEMP_DIR_NAME,
 } from '@/common/config/commandEveShell';
 import { getPlatformServices } from '@/common/platform';
+import { shouldUseGlobalCliSafeSymlink } from '@/common/platform/userDataPath';
 import { getEnvAwareName } from '@/common/config/appEnv';
 import { existsSync, lstatSync, mkdirSync, readlinkSync, realpathSync, symlinkSync, unlinkSync } from 'fs';
 import fs from 'fs/promises';
@@ -50,6 +51,11 @@ export const getTempPath = () => {
  * CLI 工具如 Qwen 无法正确处理路径中的空格。
  */
 const ensureCliSafeSymlink = (targetPath: string, symlinkName: string): string => {
+  // Explicit recovery/E2E profiles are already operator-scoped. Pointing the
+  // global CLI symlink at one would redirect a concurrently running production
+  // instance, so these profiles use their direct data/config paths.
+  if (!shouldUseGlobalCliSafeSymlink()) return targetPath;
+
   // Only needed when the platform explicitly requires CLI-safe symlinks
   // (Electron on macOS, where userData lives under "Application Support" which contains spaces)
   if (!getPlatformServices().paths.needsCliSafeSymlinks()) {

@@ -13,6 +13,7 @@ import { httpRequest } from '@/common/adapter/httpBridge';
 import { WEBUI_REMOTE_ACCESS_SUPPORTED } from '@/common/config/constants';
 import { startWebHost, type WebHostHandle } from '@aionui/web-host';
 import { getDataPath } from './utils';
+import { getMainProcessLocalBackendCapability } from '../security/localBackendCapabilityCore';
 
 const WEBUI_CONFIG_FILE = 'webui.config.json';
 const DESKTOP_WEBUI_ENABLED_KEY = 'webui.desktop.enabled';
@@ -276,6 +277,7 @@ export async function startDesktopWebUI(opts: { port?: number; allowRemote?: boo
     backend: {
       kind: 'useExistingBackend',
       port: backendPort,
+      getLocalCapability: getMainProcessLocalBackendCapability,
     },
   });
 

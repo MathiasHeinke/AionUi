@@ -22,7 +22,6 @@ type ConvertResponse = { to: string; result: { success?: boolean; data?: unknown
 type SnapshotInfo = { id: string; label: string; created_at: number; size: number; contentType: string };
 
 const OFFICECLI_MISSING = /officecli|not installed|install.?hint|ENOENT/i;
-const OFFICECLI_INSTALL_ERRORS = new Set(['OFFICECLI_NOT_FOUND', 'OFFICECLI_INSTALL_FAILED']);
 const EXTERNAL_WORKSPACE_ROOT = '/Users/Shared';
 
 /** Write a temp file we can feed to preview/convert APIs. */
@@ -98,22 +97,19 @@ test.describe('Preview panel & office documents', () => {
     expect(typeof response!.result).toBe('object');
   });
 
-  test('document.convert accepts workspace files outside the default sandbox', async ({ page }) => {
+  test('document.convert workspace cannot expand the backend sandbox', async ({ page }) => {
     await goToGuid(page);
     const { filePath, workspace } = makeExternalWorkspaceFile('md', '# Workspace\n\nPreview sandbox regression.\n');
 
     await expectBackendFailure(page, 'document.convert', { filePath, to: 'markdown' }, 403, 'PATH_OUTSIDE_SANDBOX');
 
-    const response = await invokeBridge<ConvertResponse>(
+    await expectBackendFailure(
       page,
       'document.convert',
       { filePath, to: 'markdown', workspace },
-      15_000
+      403,
+      'PATH_OUTSIDE_SANDBOX'
     );
-
-    expect(response).not.toBeNull();
-    expect(response!.to).toBe('markdown');
-    expect(typeof response!.result).toBe('object');
   });
 
   test('preview panel mounts on the right side of a conversation', async ({ page }) => {
@@ -156,29 +152,13 @@ test.describe('Preview panel & office documents', () => {
     await invokeBridge(page, 'word-preview.stop', { file_path: filePath }, 10_000).catch(() => {});
   });
 
-  test('word-preview.start accepts workspace files outside the default sandbox', async ({ page }) => {
+  test('word-preview.start workspace cannot expand the backend sandbox', async ({ page }) => {
     await goToGuid(page);
     const { filePath, workspace } = makeExternalWorkspaceFile('docx', 'stub');
 
     await expectBackendFailure(page, 'word-preview.start', { filePath }, 403, 'PATH_OUTSIDE_SANDBOX');
 
-    const started = await tryOfficeStart(page, 'word-preview.start', filePath, { workspace });
-    if (started === null) {
-      console.log('[E2E] officecli not installed — skipping workspace word preview');
-      test.skip();
-      return;
-    }
-
-    if (started?.error) {
-      expect(OFFICECLI_INSTALL_ERRORS.has(started.error)).toBeTruthy();
-      test.skip();
-      return;
-    }
-
-    expect(started?.url).toBeTruthy();
-    expect(started!.url!).toMatch(/^https?:\/\/|\/api\/(office-watch-proxy|ppt-proxy)\//);
-
-    await invokeBridge(page, 'word-preview.stop', { file_path: filePath }, 10_000).catch(() => {});
+    await expectBackendFailure(page, 'word-preview.start', { filePath, workspace }, 403, 'PATH_OUTSIDE_SANDBOX');
   });
 
   test('excel-preview + ppt-preview start endpoints respond (skip if officecli missing)', async ({ page }) => {

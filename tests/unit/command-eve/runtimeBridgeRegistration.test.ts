@@ -16,4 +16,24 @@ describe('Command EVE runtime bridge registration', () => {
       expect(source).toContain(`ipcBridge.commandEve.${provider}.provider`);
     }
   });
+
+  it('checks the completed runtime receipt before a new bootstrap can overwrite it', () => {
+    const source = fs.readFileSync(path.resolve(__dirname, '../../../packages/desktop/src/index.ts'), 'utf8');
+    const waitDecision = source.indexOf('const mustWaitForRuntimeBootstrap =');
+    const bootstrapStart = source.indexOf('const bootstrap = ensureCommandEveRuntimeBootstrap({', waitDecision);
+
+    expect(waitDecision).toBeGreaterThan(-1);
+    expect(bootstrapStart).toBeGreaterThan(waitDecision);
+  });
+
+  it('never falls back to loading a local model before backend settings are readable', () => {
+    const source = fs.readFileSync(path.resolve(__dirname, '../../../packages/desktop/src/index.ts'), 'utf8');
+    const warmupStart = source.indexOf('function scheduleCommandEveLocalModelWarmup(');
+    const warmupEnd = source.indexOf('function registerCronResumeBridge(', warmupStart);
+    const warmupSource = source.slice(warmupStart, warmupEnd);
+
+    expect(warmupSource).toContain('await waitForCommandEveBackendPort(30_000)');
+    expect(warmupSource).toContain('skipping speculative warm-up');
+    expect(warmupSource).not.toContain("lane = { lane: 'local' }");
+  });
 });

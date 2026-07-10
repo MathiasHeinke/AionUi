@@ -31,6 +31,7 @@ let mainPage: Page | null = null;
 const e2eStateSandboxDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aionui-e2e-state-'));
 const e2eStateFile = path.join(e2eStateSandboxDir, 'extension-states.json');
 const e2eUserDataDir = path.join(e2eStateSandboxDir, 'user-data');
+const e2eHomeDir = path.join(e2eStateSandboxDir, 'home');
 export const E2E_AGENT_EVENTS_PATH = path.join(e2eStateSandboxDir, 'agent-events.jsonl');
 const e2eLedgerSource = [
   process.env.COMMAND_EVE_E2E_EVENTS_LEDGER,
@@ -39,6 +40,7 @@ const e2eLedgerSource = [
     : undefined,
 ].find((candidate): candidate is string => Boolean(candidate && fs.existsSync(candidate)));
 
+fs.mkdirSync(e2eHomeDir, { recursive: true });
 if (e2eLedgerSource) fs.copyFileSync(e2eLedgerSource, E2E_AGENT_EVENTS_PATH);
 else fs.writeFileSync(E2E_AGENT_EVENTS_PATH, '');
 
@@ -149,6 +151,9 @@ async function launchApp(): Promise<ElectronApplication> {
 
   const commonEnv = {
     ...process.env,
+    HOME: e2eHomeDir,
+    XDG_CONFIG_HOME: path.join(e2eHomeDir, '.config'),
+    XDG_CACHE_HOME: path.join(e2eHomeDir, '.cache'),
     AIONUI_EXTENSIONS_PATH: process.env.AIONUI_EXTENSIONS_PATH || path.join(projectRoot, 'examples'),
     AIONUI_EXTENSION_STATES_FILE: process.env.AIONUI_EXTENSION_STATES_FILE || e2eStateFile,
     AIONUI_DISABLE_AUTO_UPDATE: '1',
@@ -180,6 +185,9 @@ async function launchApp(): Promise<ElectronApplication> {
     console.log(`[E2E] Launching PACKAGED app: ${packaged.executablePath}`);
 
     const launchArgs: string[] = [`--user-data-dir=${e2eUserDataDir}`];
+    if (process.platform === 'darwin') {
+      launchArgs.push('--use-mock-keychain');
+    }
     if (process.platform === 'linux' && process.env.CI) {
       launchArgs.push('--no-sandbox');
     }

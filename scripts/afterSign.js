@@ -8,6 +8,7 @@ const {
   buildAppResignArgs,
   resolvePythonRoot,
 } = require('./deepSignPython_core.js');
+const { writeFinalAioncoreArtifactReceipt } = require('./finalAioncoreArtifactReceipt.js');
 
 function firstEnv(env, names) {
   for (const name of names) {
@@ -134,7 +135,7 @@ function probeMachOWithCodesign(filePath) {
         magic === 0xcefaedfe || // Mach-O 32-bit byte-swapped
         magic === 0xcffaedfe || // Mach-O 64-bit byte-swapped
         magic === 0xcafebabe || // universal/fat
-        magic === 0xbebafeca    // universal/fat byte-swapped
+        magic === 0xbebafeca // universal/fat byte-swapped
       );
     } finally {
       fs.closeSync(fd);
@@ -204,7 +205,9 @@ function deepSignBundledPython(appPath, env = process.env, deps = {}) {
     }
   }
   if (skipped.length) {
-    console.warn(`Bundled-python deep-sign: skipped ${skipped.length} non-signable file(s); continuing to re-seal the .app.`);
+    console.warn(
+      `Bundled-python deep-sign: skipped ${skipped.length} non-signable file(s); continuing to re-seal the .app.`
+    );
   }
 
   // Re-seal the outer .app so its signature covers the re-signed python tree.
@@ -239,6 +242,12 @@ exports.default = async function afterSign(context) {
     } catch (adHocError) {
       console.error('Ad-hoc signing failed:', adHocError.message);
     }
+    writeFinalAioncoreArtifactReceipt({
+      appPath,
+      outDir: path.dirname(appOutDir),
+      version: context.packager.appInfo.version,
+      productName: appName,
+    });
     return;
   }
 
@@ -269,18 +278,27 @@ exports.default = async function afterSign(context) {
     console.log(
       'Skipping notarization - missing Apple notarization credentials. Set NOTARYTOOL_KEYCHAIN_PROFILE, Apple API key env vars, or APPLE_ID/APPLE_APP_SPECIFIC_PASSWORD.'
     );
-    return;
+  } else {
+    console.log(
+      `Starting notarization for ${appName} (${appBundleId}) using ${getNotarizeAuthMode(notarizeOptions)}...`
+    );
+
+    try {
+      await notarize(notarizeOptions);
+      console.log('Notarization completed successfully');
+    } catch (error) {
+      console.error('Notarization failed:', error);
+      throw error;
+    }
   }
 
-  console.log(`Starting notarization for ${appName} (${appBundleId}) using ${getNotarizeAuthMode(notarizeOptions)}...`);
-
-  try {
-    await notarize(notarizeOptions);
-    console.log('Notarization completed successfully');
-  } catch (error) {
-    console.error('Notarization failed:', error);
-    throw error;
-  }
+  const receiptPath = writeFinalAioncoreArtifactReceipt({
+    appPath,
+    outDir: path.dirname(appOutDir),
+    version: context.packager.appInfo.version,
+    productName: appName,
+  });
+  console.log(`Final AionCore artifact receipt verified: ${path.relative(process.cwd(), receiptPath)}`);
 };
 
 exports.getNotarizeOptions = getNotarizeOptions;

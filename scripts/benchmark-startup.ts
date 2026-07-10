@@ -8,16 +8,26 @@
  *
  * Optional `--with-memory` mode samples RSS / heap in the main and renderer
  * processes at three checkpoints (idle, afterConversation, afterClose) to
- * estimate per-conversation memory pressure and leaks.
+ * estimate per-conversation memory pressure and leaks. Packaged production
+ * builds keep CDP disabled, so their safe measurement lane uses lifecycle
+ * logs plus process-tree RSS and does not claim renderer heap samples.
  *
  * Usage:
  *   bunx tsx scripts/benchmark-startup.ts [--iterations 5] [--cooldown 2000]
  *   bunx tsx scripts/benchmark-startup.ts --with-memory
+ *   bunx tsx scripts/benchmark-startup.ts --packaged --warmup 1 --with-memory
  */
 import { _electron as electron, type ElectronApplication, type Page } from 'playwright';
+import { spawn, type ChildProcess } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
+import {
+  collectProcessTreePids,
+  readProcessTable,
+  rememberProcessTree,
+  terminateProcessTree,
+} from './benchmark-process-tree';
 
 // ── CLI args ────────────────────────────────────────────────────────────────
 
@@ -28,6 +38,10 @@ type Args = {
   interactiveTimeoutMs: number;
   outputJson: string | null;
   withMemory: boolean;
+  packaged: boolean;
+  userDataDir: string | null;
+  resetProfile: boolean;
+  warmupIterations: number;
 };
 
 function parseArgs(): Args {
@@ -39,6 +53,10 @@ function parseArgs(): Args {
     interactiveTimeoutMs: 60_000,
     outputJson: null,
     withMemory: false,
+    packaged: false,
+    userDataDir: null,
+    resetProfile: true,
+    warmupIterations: 0,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -61,10 +79,21 @@ function parseArgs(): Args {
       i++;
     } else if (flag === '--with-memory') {
       args.withMemory = true;
+    } else if (flag === '--packaged') {
+      args.packaged = true;
+    } else if (flag === '--user-data-dir' && next) {
+      args.userDataDir = path.resolve(next);
+      i++;
+    } else if (flag === '--keep-profile') {
+      args.resetProfile = false;
+    } else if (flag === '--warmup' && next) {
+      args.warmupIterations = parseInt(next, 10);
+      i++;
     }
   }
 
   if (!Number.isFinite(args.iterations) || args.iterations < 1) args.iterations = 5;
+  if (!Number.isFinite(args.warmupIterations) || args.warmupIterations < 0) args.warmupIterations = 0;
   return args;
 }
 
@@ -83,9 +112,16 @@ type RendererMemorySample = {
   totalSize: number;
 };
 
+type ProcessTreeMemorySample = {
+  rootRss: number;
+  totalRss: number;
+  processCount: number;
+};
+
 type MemorySnapshot = {
   main: MainMemorySample | null;
   renderer: RendererMemorySample | null;
+  processTree: ProcessTreeMemorySample | null;
   takenAt: string;
 };
 
@@ -96,14 +132,31 @@ type MemoryProfile = {
   // Leak estimate = afterClose - idle (main RSS + renderer usedSize)
   leakMainRssBytes: number;
   leakRendererUsedBytes: number;
+  leakProcessTreeRssBytes: number;
   // Convenience deltas (afterConversation - idle)
   openDeltaMainRssBytes: number;
   openDeltaRendererUsedBytes: number;
+  openDeltaProcessTreeRssBytes: number;
 };
+
+type BenchmarkApp =
+  | {
+      kind: 'electron';
+      app: ElectronApplication;
+      pid: number;
+    }
+  | {
+      kind: 'packaged';
+      process: ChildProcess;
+      pid: number;
+      knownProcessIds: Set<number>;
+      diagnostics: () => string;
+    };
 
 type StartupTiming = {
   iteration: number;
   timestamp: string;
+  measurementMode: 'playwright' | 'packaged-lifecycle';
   failed: boolean;
   failureReason: string | null;
   // Wall-clock measurements from Playwright side
@@ -137,19 +190,27 @@ const AGENT_PILL = '[data-agent-pill="true"]';
 
 // ── Log file helpers ────────────────────────────────────────────────────────
 
-function getLogFilePath(): string {
+function getLogFilePath(packaged: boolean, homeDir = os.homedir()): string {
   const today = new Date().toISOString().slice(0, 10);
   const candidates: string[] = [];
   if (process.platform === 'darwin') {
-    candidates.push(
-      path.join(os.homedir(), 'Library', 'Logs', 'AionUi-Dev', `${today}.log`),
-      path.join(os.homedir(), 'Library', 'Logs', 'AionUi', `${today}.log`)
-    );
+    const logRoot = path.join(homeDir, 'Library', 'Logs');
+    if (packaged) {
+      candidates.push(path.join(logRoot, 'Command EVE', `${today}.log`));
+    } else {
+      candidates.push(
+        path.join(logRoot, 'Command EVE-dev', `${today}.log`),
+        path.join(logRoot, 'Command EVE-dev-2', `${today}.log`),
+        path.join(logRoot, 'AionUi-Dev', `${today}.log`)
+      );
+    }
   } else if (process.platform === 'win32') {
     const appData = process.env.APPDATA ?? path.join(os.homedir(), 'AppData', 'Roaming');
-    candidates.push(path.join(appData, 'AionUi', 'logs', `${today}.log`));
+    candidates.push(path.join(appData, packaged ? 'Command EVE' : 'Command EVE-dev', 'logs', `${today}.log`));
   } else {
-    candidates.push(path.join(os.homedir(), '.config', 'AionUi', 'logs', `${today}.log`));
+    candidates.push(
+      path.join(homeDir, '.config', packaged ? 'Command EVE' : 'Command EVE-dev', 'logs', `${today}.log`)
+    );
   }
   return candidates.find((p) => fs.existsSync(p)) ?? candidates[0];
 }
@@ -181,7 +242,7 @@ function readNewLogLines(logPath: string, offset: number): string[] {
 // Matches: [AionUi:ready] <label> +<ms>ms
 // Matches: [AionUi:init]  <label> +<ms>ms
 // Matches: [AionUi:process] <label> +<ms>ms
-const MARK_REGEX = /\[AionUi:(ready|init|process)\]\s+([^+]+?)\s+\+(\d+)ms/;
+const MARK_REGEX = /\[(?:AionUi|CommandEVE):(ready|init|process)\]\s+([^+]+?)\s+\+(\d+)ms/;
 
 type ParsedMarks = {
   ready: Map<string, number>;
@@ -210,9 +271,9 @@ function parseStartupLog(lines: string[]): ParsedMarks {
       continue;
     }
 
-    if (line.includes('[AionUi] Renderer did-finish-load')) marks.logs.rendererDidFinishLoad = true;
-    else if (line.includes('[AionUi] Window ready-to-show')) marks.logs.windowReadyToShow = true;
-    else if (line.includes('[AionUi] Showing main window')) marks.logs.showingMainWindow = true;
+    if (line.includes('Renderer did-finish-load')) marks.logs.rendererDidFinishLoad = true;
+    else if (line.includes('Window ready-to-show')) marks.logs.windowReadyToShow = true;
+    else if (line.includes('Showing main window')) marks.logs.showingMainWindow = true;
   }
 
   return marks;
@@ -221,26 +282,103 @@ function parseStartupLog(lines: string[]): ParsedMarks {
 // ── App launch ──────────────────────────────────────────────────────────────
 
 function getProjectRoot(): string {
-  // In a git worktree, __dirname points to the worktree which has no build output.
-  // Resolve the main repo root via git's common dir so Electron can find out/main/index.js.
-  try {
-    const { execSync } = require('child_process');
-    const commonDir = execSync('git rev-parse --git-common-dir', {
-      encoding: 'utf-8',
-      cwd: path.resolve(__dirname, '..'),
-    }).trim();
-    const mainRoot = path.resolve(commonDir, '..');
-    if (fs.existsSync(path.join(mainRoot, 'out/main/index.js'))) {
-      return mainRoot;
-    }
-  } catch {
-    // not in a worktree or git not available
-  }
-  return path.resolve(__dirname, '..');
+  const requestedRoot = process.env.AIONUI_BENCH_PROJECT_ROOT?.trim();
+  return requestedRoot ? path.resolve(requestedRoot) : path.resolve(__dirname, '..');
 }
 
-async function launchApp(timeoutMs: number, withMemory: boolean): Promise<ElectronApplication> {
+function resolvePackagedApp(projectRoot: string): { executablePath: string; cwd: string } | null {
+  if (process.platform === 'darwin') {
+    for (const directory of ['mac-arm64', 'mac-x64', 'mac', 'mac-universal']) {
+      const cwd = path.join(projectRoot, 'out', directory);
+      if (!fs.existsSync(cwd)) continue;
+      const appBundle = fs.readdirSync(cwd).find((entry) => entry.endsWith('.app'));
+      if (!appBundle) continue;
+      for (const executable of ['Command EVE', 'AionUi']) {
+        const executablePath = path.join(cwd, appBundle, 'Contents', 'MacOS', executable);
+        if (fs.existsSync(executablePath)) return { executablePath, cwd };
+      }
+    }
+  }
+
+  if (process.platform === 'win32') {
+    for (const directory of ['win-unpacked', 'win-arm64-unpacked', 'win-x64-unpacked']) {
+      const cwd = path.join(projectRoot, 'out', directory);
+      for (const executable of ['Command EVE.exe', 'AionUi.exe']) {
+        const executablePath = path.join(cwd, executable);
+        if (fs.existsSync(executablePath)) return { executablePath, cwd };
+      }
+    }
+  }
+
+  for (const directory of ['linux-unpacked', 'linux-arm64-unpacked', 'linux-x64-unpacked']) {
+    const cwd = path.join(projectRoot, 'out', directory);
+    for (const executable of ['command-eve', 'Command EVE', 'aionui', 'AionUi']) {
+      const executablePath = path.join(cwd, executable);
+      if (fs.existsSync(executablePath)) return { executablePath, cwd };
+    }
+  }
+
+  return null;
+}
+
+function launchPackagedApp(
+  packaged: { executablePath: string; cwd: string },
+  launchArgs: string[],
+  env: NodeJS.ProcessEnv
+): BenchmarkApp {
+  const child = spawn(packaged.executablePath, launchArgs, {
+    cwd: packaged.cwd,
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let diagnostics = '';
+  const consume = (chunk: Buffer) => {
+    diagnostics = `${diagnostics}${chunk.toString('utf8')}`.slice(-20_000);
+  };
+  child.stdout?.on('data', consume);
+  child.stderr?.on('data', consume);
+  const pid = child.pid ?? 0;
+  return {
+    kind: 'packaged',
+    process: child,
+    pid,
+    knownProcessIds: new Set(pid > 1 ? [pid] : []),
+    diagnostics: () => diagnostics,
+  };
+}
+
+async function launchApp(args: Args): Promise<BenchmarkApp> {
   const projectRoot = getProjectRoot();
+  const isolatedHome = args.packaged && args.userDataDir ? path.join(args.userDataDir, 'home') : null;
+  if (isolatedHome) fs.mkdirSync(isolatedHome, { recursive: true });
+  const commonEnv = {
+    ...process.env,
+    ...(isolatedHome
+      ? {
+          HOME: isolatedHome,
+          XDG_CONFIG_HOME: path.join(isolatedHome, '.config'),
+          XDG_CACHE_HOME: path.join(isolatedHome, '.cache'),
+        }
+      : {}),
+    AIONUI_DISABLE_AUTO_UPDATE: '1',
+    AIONUI_E2E_TEST: '1',
+    AIONUI_DISABLE_DEVTOOLS: '1',
+    AIONUI_MULTI_INSTANCE: '1',
+    AIONUI_CDP_PORT: '0',
+    COMMAND_EVE_REGISTRATION_REQUIRED: '0',
+    NODE_ENV: 'production',
+  };
+
+  if (args.packaged) {
+    const packaged = resolvePackagedApp(projectRoot);
+    if (!packaged) {
+      throw new Error('No packaged app found under out/. Build the arm64 directory package before benchmarking.');
+    }
+    const launchArgs = args.userDataDir ? [`--user-data-dir=${args.userDataDir}`] : [];
+    if (process.platform === 'darwin') launchArgs.push('--use-mock-keychain');
+    if (args.withMemory) launchArgs.push('--js-flags=--expose-gc');
+    return launchPackagedApp(packaged, launchArgs, commonEnv);
+  }
 
   // Ensure production build exists
   const mainEntry = path.join(projectRoot, 'out/main/index.js');
@@ -250,24 +388,22 @@ async function launchApp(timeoutMs: number, withMemory: boolean): Promise<Electr
     execSync('npx electron-vite build', { cwd: projectRoot, stdio: 'inherit' });
   }
 
-  const launchArgs = withMemory ? [mainEntry, '--js-flags=--expose-gc'] : [mainEntry];
-  return electron.launch({
+  const launchArgs = args.withMemory ? [mainEntry, '--js-flags=--expose-gc'] : [mainEntry];
+  const app = await electron.launch({
     args: launchArgs,
     cwd: projectRoot,
-    env: {
-      ...process.env,
-      AIONUI_DISABLE_AUTO_UPDATE: '1',
-      AIONUI_E2E_TEST: '1',
-      AIONUI_DISABLE_DEVTOOLS: '1',
-      AIONUI_CDP_PORT: '0',
-      NODE_ENV: 'production',
-    },
-    timeout: timeoutMs,
+    env: commonEnv,
+    timeout: args.launchTimeoutMs,
   });
+  return { kind: 'electron', app, pid: app.process().pid ?? 0 };
 }
 
-async function resolveMainWindow(app: ElectronApplication, timeoutMs: number): Promise<Page> {
-  const existing = app.windows().find((w) => !w.url().startsWith('devtools://'));
+async function resolveMainWindow(handle: BenchmarkApp, timeoutMs: number): Promise<Page> {
+  if (handle.kind === 'packaged') {
+    throw new Error('Packaged production builds must use the CDP-free lifecycle benchmark path');
+  }
+
+  const existing = handle.app.windows().find((w) => !w.url().startsWith('devtools://'));
   if (existing) {
     await existing.waitForLoadState('domcontentloaded');
     return existing;
@@ -276,7 +412,7 @@ async function resolveMainWindow(app: ElectronApplication, timeoutMs: number): P
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const remaining = Math.max(250, deadline - Date.now());
-    const win = await app.waitForEvent('window', { timeout: Math.min(1_000, remaining) }).catch(() => null);
+    const win = await handle.app.waitForEvent('window', { timeout: Math.min(1_000, remaining) }).catch(() => null);
     if (win && !win.url().startsWith('devtools://')) {
       await win.waitForLoadState('domcontentloaded');
       return win;
@@ -285,11 +421,85 @@ async function resolveMainWindow(app: ElectronApplication, timeoutMs: number): P
   throw new Error('Failed to resolve main window within timeout');
 }
 
+type PackagedLifecycleTiming = {
+  rendererDidFinishLoadMs: number;
+  showingMainWindowMs: number;
+  windowReadyToShowMs: number;
+};
+
+function logLineElapsedMs(line: string, wallStart: number): number {
+  const match = /^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})\]/.exec(line);
+  if (!match) return Date.now() - wallStart;
+  const timestamp = Date.parse(match[1].replace(' ', 'T'));
+  return Number.isFinite(timestamp) ? Math.max(1, timestamp - wallStart) : Date.now() - wallStart;
+}
+
+async function waitForPackagedLifecycle(
+  handle: Extract<BenchmarkApp, { kind: 'packaged' }>,
+  logPath: string,
+  logOffset: number,
+  wallStart: number,
+  timeoutMs: number
+): Promise<PackagedLifecycleTiming> {
+  const deadline = wallStart + timeoutMs;
+  const timing: PackagedLifecycleTiming = {
+    rendererDidFinishLoadMs: 0,
+    showingMainWindowMs: 0,
+    windowReadyToShowMs: 0,
+  };
+
+  while (Date.now() < deadline) {
+    rememberProcessTree(handle.pid, handle.knownProcessIds);
+    if (handle.process.exitCode !== null) {
+      throw new Error(
+        `Packaged app exited before the main window was ready (code=${handle.process.exitCode}).\n${handle.diagnostics()}`
+      );
+    }
+
+    for (const line of readNewLogLines(logPath, logOffset)) {
+      if (!timing.rendererDidFinishLoadMs && line.includes('Renderer did-finish-load')) {
+        timing.rendererDidFinishLoadMs = logLineElapsedMs(line, wallStart);
+      } else if (!timing.showingMainWindowMs && line.includes('Showing main window')) {
+        timing.showingMainWindowMs = logLineElapsedMs(line, wallStart);
+      } else if (!timing.windowReadyToShowMs && line.includes('Window ready-to-show')) {
+        timing.windowReadyToShowMs = logLineElapsedMs(line, wallStart);
+      }
+    }
+
+    if (timing.rendererDidFinishLoadMs && timing.showingMainWindowMs) return timing;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+
+  throw new Error(
+    `Packaged lifecycle logs did not reach renderer-ready + window-shown within ${timeoutMs}ms. ` +
+      `log=${logPath}\n${handle.diagnostics()}`
+  );
+}
+
+async function closeApp(handle: BenchmarkApp): Promise<void> {
+  if (handle.kind === 'electron') {
+    try {
+      await handle.app.evaluate(async ({ app }) => app.exit(0));
+    } catch {
+      // The app may already have exited after a failed launch.
+    }
+    await handle.app.close().catch(() => {});
+    return;
+  }
+
+  rememberProcessTree(handle.pid, handle.knownProcessIds);
+  const cleanup = await terminateProcessTree(handle.pid, { knownProcessIds: handle.knownProcessIds });
+  if (cleanup.survivors.length > 0) {
+    throw new Error(`Packaged benchmark left process-tree survivors: ${cleanup.survivors.join(', ')}`);
+  }
+}
+
 // ── Memory sampling ─────────────────────────────────────────────────────────
 
-async function sampleMainMemory(app: ElectronApplication): Promise<MainMemorySample | null> {
+async function sampleMainMemory(handle: BenchmarkApp): Promise<MainMemorySample | null> {
+  if (handle.kind !== 'electron') return null;
   try {
-    return await app.evaluate(async () => {
+    return await handle.app.evaluate(async () => {
       const gc = (globalThis as { gc?: () => void }).gc;
       if (typeof gc === 'function') {
         gc();
@@ -309,6 +519,22 @@ async function sampleMainMemory(app: ElectronApplication): Promise<MainMemorySam
   }
 }
 
+function sampleProcessTreeMemory(handle: BenchmarkApp): ProcessTreeMemorySample | null {
+  if (!handle.pid || process.platform === 'win32') return null;
+  const rows = readProcessTable();
+  const byPid = new Map(rows.map((row) => [row.pid, row]));
+  const processIds = collectProcessTreePids(handle.pid, rows);
+  if (handle.kind === 'packaged') {
+    for (const pid of processIds) handle.knownProcessIds.add(pid);
+  }
+  if (processIds.length === 0) return null;
+  return {
+    rootRss: byPid.get(handle.pid)?.rssBytes ?? 0,
+    totalRss: processIds.reduce((sum, pid) => sum + (byPid.get(pid)?.rssBytes ?? 0), 0),
+    processCount: processIds.length,
+  };
+}
+
 async function sampleRendererMemory(page: Page): Promise<RendererMemorySample | null> {
   try {
     const client = await page.context().newCDPSession(page);
@@ -325,11 +551,19 @@ async function sampleRendererMemory(page: Page): Promise<RendererMemorySample | 
   }
 }
 
-async function takeSnapshot(app: ElectronApplication, page: Page): Promise<MemorySnapshot> {
+async function takeSnapshot(handle: BenchmarkApp, page: Page | null): Promise<MemorySnapshot> {
   // Let pending microtasks settle before sampling
   await new Promise((r) => setTimeout(r, 500));
-  const [main, renderer] = await Promise.all([sampleMainMemory(app), sampleRendererMemory(page)]);
-  return { main, renderer, takenAt: new Date().toISOString() };
+  const [main, renderer] = await Promise.all([
+    sampleMainMemory(handle),
+    page ? sampleRendererMemory(page) : Promise.resolve(null),
+  ]);
+  return {
+    main,
+    renderer,
+    processTree: sampleProcessTreeMemory(handle),
+    takenAt: new Date().toISOString(),
+  };
 }
 
 function computeMemoryDeltas(
@@ -338,7 +572,12 @@ function computeMemoryDeltas(
   afterClose: MemorySnapshot | null
 ): Pick<
   MemoryProfile,
-  'leakMainRssBytes' | 'leakRendererUsedBytes' | 'openDeltaMainRssBytes' | 'openDeltaRendererUsedBytes'
+  | 'leakMainRssBytes'
+  | 'leakRendererUsedBytes'
+  | 'leakProcessTreeRssBytes'
+  | 'openDeltaMainRssBytes'
+  | 'openDeltaRendererUsedBytes'
+  | 'openDeltaProcessTreeRssBytes'
 > {
   const idleRss = idle?.main?.rss ?? 0;
   const idleRenderer = idle?.renderer?.usedSize ?? 0;
@@ -346,12 +585,17 @@ function computeMemoryDeltas(
   const convRenderer = afterConversation?.renderer?.usedSize ?? 0;
   const closeRss = afterClose?.main?.rss ?? 0;
   const closeRenderer = afterClose?.renderer?.usedSize ?? 0;
+  const idleProcessTree = idle?.processTree?.totalRss ?? 0;
+  const convProcessTree = afterConversation?.processTree?.totalRss ?? 0;
+  const closeProcessTree = afterClose?.processTree?.totalRss ?? 0;
 
   return {
     leakMainRssBytes: closeRss > 0 && idleRss > 0 ? closeRss - idleRss : 0,
     leakRendererUsedBytes: closeRenderer > 0 && idleRenderer > 0 ? closeRenderer - idleRenderer : 0,
+    leakProcessTreeRssBytes: closeProcessTree > 0 && idleProcessTree > 0 ? closeProcessTree - idleProcessTree : 0,
     openDeltaMainRssBytes: convRss > 0 && idleRss > 0 ? convRss - idleRss : 0,
     openDeltaRendererUsedBytes: convRenderer > 0 && idleRenderer > 0 ? convRenderer - idleRenderer : 0,
+    openDeltaProcessTreeRssBytes: convProcessTree > 0 && idleProcessTree > 0 ? convProcessTree - idleProcessTree : 0,
   };
 }
 
@@ -394,13 +638,14 @@ async function closeConversation(page: Page): Promise<void> {
 // ── Single iteration ────────────────────────────────────────────────────────
 
 async function runOneIteration(iteration: number, args: Args): Promise<StartupTiming> {
-  const logPath = getLogFilePath();
+  const logHome = args.packaged && args.userDataDir ? path.join(args.userDataDir, 'home') : os.homedir();
+  const logPath = getLogFilePath(args.packaged, logHome);
   const logOffset = getLogFileSize(logPath);
   const timestamp = new Date().toISOString();
 
   let failed = false;
   let failureReason: string | null = null;
-  let app: ElectronApplication | null = null;
+  let app: BenchmarkApp | null = null;
   let memory: MemoryProfile | null = null;
 
   const wallStart = Date.now();
@@ -410,59 +655,74 @@ async function runOneIteration(iteration: number, args: Args): Promise<StartupTi
   let wallTotal = 0;
 
   try {
-    app = await launchApp(args.launchTimeoutMs, args.withMemory);
-    const page = await resolveMainWindow(app, args.launchTimeoutMs);
-    wallFirstWindow = Date.now() - wallStart;
+    app = await launchApp(args);
+    if (app.kind === 'packaged') {
+      const lifecycle = await waitForPackagedLifecycle(app, logPath, logOffset, wallStart, args.launchTimeoutMs);
+      wallFirstWindow = lifecycle.windowReadyToShowMs || lifecycle.showingMainWindowMs;
+      wallDomContentLoaded = lifecycle.rendererDidFinishLoadMs;
+      // Production CDP stays disabled. Renderer-loaded + window-shown is the
+      // strongest non-invasive usable-window proxy available in a signed app.
+      wallInteractive = Math.max(lifecycle.rendererDidFinishLoadMs, lifecycle.showingMainWindowMs);
+      await new Promise((r) => setTimeout(r, 1_000));
+      wallTotal = Date.now() - wallStart;
 
-    await page.waitForLoadState('domcontentloaded', { timeout: args.interactiveTimeoutMs });
-    wallDomContentLoaded = Date.now() - wallStart;
-
-    // Chat input visible = time-to-interactive (app is usable)
-    await page.locator(GUID_INPUT).first().waitFor({ state: 'visible', timeout: args.interactiveTimeoutMs });
-    wallInteractive = Date.now() - wallStart;
-
-    // Give async init (ACP detector, etc.) a brief window to finish and flush logs
-    await new Promise((r) => setTimeout(r, 1_000));
-    wallTotal = Date.now() - wallStart;
-
-    if (args.withMemory) {
-      // 1. Idle — wait longer so background tasks (ACP detection, tray, i18n) settle
-      await new Promise((r) => setTimeout(r, 5_000));
-      const idle = await takeSnapshot(app, page);
-
-      // 2. After opening a conversation (agent pill selected, no message sent)
-      let afterConversation: MemorySnapshot | null = null;
-      const opened = await openConversation(page, 15_000);
-      if (opened) {
-        await new Promise((r) => setTimeout(r, 2_000));
-        afterConversation = await takeSnapshot(app, page);
+      if (args.withMemory) {
+        await new Promise((r) => setTimeout(r, 5_000));
+        const idle = await takeSnapshot(app, null);
+        memory = {
+          idle,
+          afterConversation: null,
+          afterClose: null,
+          ...computeMemoryDeltas(idle, null, null),
+        };
       }
+    } else {
+      const page = await resolveMainWindow(app, args.launchTimeoutMs);
+      wallFirstWindow = Date.now() - wallStart;
 
-      // 3. After closing / navigating back to guid
-      await closeConversation(page);
-      await new Promise((r) => setTimeout(r, 2_000));
-      const afterClose = await takeSnapshot(app, page);
+      await page.waitForLoadState('domcontentloaded', { timeout: args.interactiveTimeoutMs });
+      wallDomContentLoaded = Date.now() - wallStart;
 
-      memory = {
-        idle,
-        afterConversation,
-        afterClose,
-        ...computeMemoryDeltas(idle, afterConversation, afterClose),
-      };
+      // Chat input visible = time-to-interactive (app is usable)
+      await page.locator(GUID_INPUT).first().waitFor({ state: 'visible', timeout: args.interactiveTimeoutMs });
+      wallInteractive = Date.now() - wallStart;
+
+      // Give async init (ACP detector, etc.) a brief window to finish and flush logs
+      await new Promise((r) => setTimeout(r, 1_000));
+      wallTotal = Date.now() - wallStart;
+
+      if (args.withMemory) {
+        // 1. Idle — wait longer so background tasks (ACP detection, tray, i18n) settle
+        await new Promise((r) => setTimeout(r, 5_000));
+        const idle = await takeSnapshot(app, page);
+
+        // 2. After opening a conversation (agent pill selected, no message sent)
+        let afterConversation: MemorySnapshot | null = null;
+        const opened = await openConversation(page, 15_000);
+        if (opened) {
+          await new Promise((r) => setTimeout(r, 2_000));
+          afterConversation = await takeSnapshot(app, page);
+        }
+
+        // 3. After closing / navigating back to guid
+        await closeConversation(page);
+        await new Promise((r) => setTimeout(r, 2_000));
+        const afterClose = await takeSnapshot(app, page);
+
+        memory = {
+          idle,
+          afterConversation,
+          afterClose,
+          ...computeMemoryDeltas(idle, afterConversation, afterClose),
+        };
+      }
     }
   } catch (err) {
     failed = true;
     failureReason = err instanceof Error ? err.message : String(err);
     wallTotal = Date.now() - wallStart;
   } finally {
-    if (app) {
-      try {
-        await app.evaluate(async ({ app: a }) => a.exit(0));
-      } catch {
-        // ignore
-      }
-      await app.close().catch(() => {});
-    }
+    if (app) await closeApp(app);
   }
 
   // Wait briefly for the log file to flush after process exit
@@ -473,6 +733,7 @@ async function runOneIteration(iteration: number, args: Args): Promise<StartupTi
   return {
     iteration,
     timestamp,
+    measurementMode: args.packaged ? 'packaged-lifecycle' : 'playwright',
     failed,
     failureReason,
     wallFirstWindowMs: wallFirstWindow,
@@ -514,14 +775,19 @@ type MemorySummary = {
   idleMainRss: Stats;
   idleMainHeapUsed: Stats;
   idleRendererUsed: Stats;
+  idleProcessTreeRss: Stats;
   afterConversationMainRss: Stats;
   afterConversationRendererUsed: Stats;
+  afterConversationProcessTreeRss: Stats;
   afterCloseMainRss: Stats;
   afterCloseRendererUsed: Stats;
+  afterCloseProcessTreeRss: Stats;
   leakMainRssBytes: Stats;
   leakRendererUsedBytes: Stats;
+  leakProcessTreeRssBytes: Stats;
   openDeltaMainRssBytes: Stats;
   openDeltaRendererUsedBytes: Stats;
+  openDeltaProcessTreeRssBytes: Stats;
 };
 
 function computeMemorySummary(results: StartupTiming[]): MemorySummary | null {
@@ -535,14 +801,19 @@ function computeMemorySummary(results: StartupTiming[]): MemorySummary | null {
     idleMainRss: pick((m) => m.idle?.main?.rss ?? 0),
     idleMainHeapUsed: pick((m) => m.idle?.main?.heapUsed ?? 0),
     idleRendererUsed: pick((m) => m.idle?.renderer?.usedSize ?? 0),
+    idleProcessTreeRss: pick((m) => m.idle?.processTree?.totalRss ?? 0),
     afterConversationMainRss: pick((m) => m.afterConversation?.main?.rss ?? 0),
     afterConversationRendererUsed: pick((m) => m.afterConversation?.renderer?.usedSize ?? 0),
+    afterConversationProcessTreeRss: pick((m) => m.afterConversation?.processTree?.totalRss ?? 0),
     afterCloseMainRss: pick((m) => m.afterClose?.main?.rss ?? 0),
     afterCloseRendererUsed: pick((m) => m.afterClose?.renderer?.usedSize ?? 0),
+    afterCloseProcessTreeRss: pick((m) => m.afterClose?.processTree?.totalRss ?? 0),
     leakMainRssBytes: pick((m) => m.leakMainRssBytes),
     leakRendererUsedBytes: pick((m) => m.leakRendererUsedBytes),
+    leakProcessTreeRssBytes: pick((m) => m.leakProcessTreeRssBytes),
     openDeltaMainRssBytes: pick((m) => m.openDeltaMainRssBytes),
     openDeltaRendererUsedBytes: pick((m) => m.openDeltaRendererUsedBytes),
+    openDeltaProcessTreeRssBytes: pick((m) => m.openDeltaProcessTreeRssBytes),
   };
 }
 
@@ -562,6 +833,7 @@ function printTerminalReport(results: StartupTiming[]): void {
   console.log('  Electron Cold Startup Benchmark — Summary');
   console.log('='.repeat(80));
   console.log(`  Iterations: ${results.length} (successful: ${successful.length}, failed: ${failed.length})`);
+  console.log(`  Measurement: ${results[0]?.measurementMode ?? 'unknown'}`);
   console.log('-'.repeat(80));
 
   const rows: [string, Stats][] = [
@@ -598,14 +870,19 @@ function printTerminalReport(results: StartupTiming[]): void {
       ['Idle — main RSS', memSummary.idleMainRss.median],
       ['Idle — main heapUsed', memSummary.idleMainHeapUsed.median],
       ['Idle — renderer used', memSummary.idleRendererUsed.median],
+      ['Idle — process tree', memSummary.idleProcessTreeRss.median],
       ['After conv — main RSS', memSummary.afterConversationMainRss.median],
       ['After conv — renderer', memSummary.afterConversationRendererUsed.median],
+      ['After conv — proc tree', memSummary.afterConversationProcessTreeRss.median],
       ['After close — main RSS', memSummary.afterCloseMainRss.median],
       ['After close — renderer', memSummary.afterCloseRendererUsed.median],
+      ['After close — proc tree', memSummary.afterCloseProcessTreeRss.median],
       ['Leak — main RSS', memSummary.leakMainRssBytes.median],
       ['Leak — renderer used', memSummary.leakRendererUsedBytes.median],
+      ['Leak — process tree', memSummary.leakProcessTreeRssBytes.median],
       ['Δopen — main RSS', memSummary.openDeltaMainRssBytes.median],
       ['Δopen — renderer used', memSummary.openDeltaRendererUsedBytes.median],
+      ['Δopen — process tree', memSummary.openDeltaProcessTreeRssBytes.median],
     ];
     for (const [label, bytes] of memRows) {
       console.log(`  ${label.padEnd(pad)} ${formatMb(bytes).padStart(10)}`);
@@ -632,6 +909,7 @@ function writeJsonReport(results: StartupTiming[], outputPath: string | null): s
   const successful = results.filter((r) => !r.failed);
   const summary = {
     generatedAt: new Date().toISOString(),
+    measurementMode: results[0]?.measurementMode ?? 'unknown',
     iterations: results.length,
     successful: successful.length,
     failed: results.length - successful.length,
@@ -658,9 +936,26 @@ function writeJsonReport(results: StartupTiming[], outputPath: string | null): s
 
 async function main(): Promise<void> {
   const args = parseArgs();
+  if (args.packaged && !args.userDataDir) {
+    args.userDataDir = path.join(os.tmpdir(), `command-eve-benchmark-${process.pid}`);
+  }
+  if (args.packaged && args.userDataDir && args.resetProfile) {
+    fs.rmSync(args.userDataDir, { recursive: true, force: true });
+  }
   console.log(
-    `[bench:startup] iterations=${args.iterations} cooldown=${args.cooldownMs}ms launchTimeout=${args.launchTimeoutMs}ms withMemory=${args.withMemory}`
+    `[bench:startup] iterations=${args.iterations} warmup=${args.warmupIterations} cooldown=${args.cooldownMs}ms ` +
+      `launchTimeout=${args.launchTimeoutMs}ms withMemory=${args.withMemory} packaged=${args.packaged}`
   );
+
+  const warmupArgs = { ...args, withMemory: false };
+  for (let i = 1; i <= args.warmupIterations; i++) {
+    console.log(`\n[bench:startup] --- warmup ${i}/${args.warmupIterations} (not measured) ---`);
+    const warmup = await runOneIteration(0, warmupArgs);
+    if (warmup.failed) {
+      throw new Error(`Startup warmup failed: ${warmup.failureReason ?? 'unknown error'}`);
+    }
+    if (args.cooldownMs > 0) await new Promise((resolve) => setTimeout(resolve, args.cooldownMs));
+  }
 
   const results: StartupTiming[] = [];
   for (let i = 1; i <= args.iterations; i++) {
@@ -672,7 +967,9 @@ async function main(): Promise<void> {
       console.log(`[bench:startup] #${i} FAILED: ${timing.failureReason}`);
     } else {
       const memSuffix = timing.memory
-        ? ` idleRss=${formatMb(timing.memory.idle?.main?.rss ?? 0)} leakRss=${formatMb(timing.memory.leakMainRssBytes)}`
+        ? ` idleRss=${formatMb(
+            timing.memory.idle?.main?.rss ?? timing.memory.idle?.processTree?.totalRss ?? 0
+          )} leakRss=${formatMb(timing.memory.leakMainRssBytes || timing.memory.leakProcessTreeRssBytes)}`
         : '';
       console.log(
         `[bench:startup] #${i} interactive=${timing.wallTimeToInteractiveMs}ms ` +

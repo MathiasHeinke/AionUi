@@ -32,7 +32,9 @@ export function isDayZeroForcePopEnabled(): boolean {
  * must receive it via config/IPC, not by reading process.env.
  */
 export const COMMAND_EVE_FOUNDER_BUILD_ENV = 'COMMAND_EVE_FOUNDER_BUILD';
-export function isCommandEveFounderBuild(env: NodeJS.ProcessEnv | undefined = typeof process === 'undefined' ? undefined : process.env): boolean {
+export function isCommandEveFounderBuild(
+  env: NodeJS.ProcessEnv | undefined = typeof process === 'undefined' ? undefined : process.env
+): boolean {
   const value = env?.[COMMAND_EVE_FOUNDER_BUILD_ENV];
   return value === '1' || value === 'true';
 }
@@ -40,7 +42,7 @@ export function isCommandEveFounderBuild(env: NodeJS.ProcessEnv | undefined = ty
 export const COMMAND_EVE_APP_NAME = 'Command EVE';
 export const COMMAND_EVE_DISPLAY_NAME = 'EVE';
 export const COMMAND_EVE_TITLE = '⌘ EVE';
-export const COMMAND_EVE_VERSION = '1.7.91';
+export const COMMAND_EVE_VERSION = '1.7.92';
 export const COMMAND_EVE_APP_ID = 'com.fynlabs.commandeve';
 /**
  * Generic (electron-updater) over-the-air update feed base URL for Command EVE.

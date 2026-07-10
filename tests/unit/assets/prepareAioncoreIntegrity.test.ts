@@ -4,9 +4,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-const { resolveExpectedAioncoreSha256, verifyFileSha256 } =
+const { resolveExpectedAioncoreSha256, resolveLocalAioncoreSource, verifyFileSha256 } =
   require('../../../packages/shared-scripts/src/prepare-aioncore.js') as {
     resolveExpectedAioncoreSha256: (projectRoot: string, runtimeKey: string, explicit?: string) => string;
+    resolveLocalAioncoreSource: (
+      localBinaryPath?: string,
+      explicitSha256?: string,
+      explicitSourceCommit?: string
+    ) => { binaryPath: string; binarySha256: string; sourceCommit: string } | null;
     verifyFileSha256: (filePath: string, expected: string) => string;
   };
 
@@ -44,5 +49,19 @@ describe('AionCore build integrity gate', () => {
 
     expect(verifyFileSha256(archive, expected)).toBe(expected);
     expect(() => verifyFileSha256(archive, 'b'.repeat(64))).toThrow(/SHA256 mismatch/);
+  });
+
+  it('requires an explicit hash and source commit for a local build', () => {
+    const root = makeRoot();
+    const binary = join(root, 'aioncore');
+    writeFileSync(binary, 'local build');
+    const expected = createHash('sha256').update('local build').digest('hex');
+
+    expect(() => resolveLocalAioncoreSource(binary)).toThrow(/AIONUI_BACKEND_SHA256/);
+    expect(() => resolveLocalAioncoreSource(binary, expected)).toThrow(/AIONUI_BACKEND_SOURCE_COMMIT/);
+    expect(resolveLocalAioncoreSource(binary, expected, 'abcdef1234567')).toMatchObject({
+      binarySha256: expected,
+      sourceCommit: 'abcdef1234567',
+    });
   });
 });

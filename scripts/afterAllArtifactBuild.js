@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 
 const { getNotarizeAuthMode, getNotarizeOptions } = require('./afterSign.js');
+const { verifyFinalAioncoreArtifactReceipts } = require('./finalAioncoreArtifactReceipt.js');
 
 // COMPA-591: electron-builder's dmg-builder (26.8.x) produces a DMG whose inner
 // Mach-O main binary Apple notarization rejects ("signature of the binary is
@@ -136,7 +137,11 @@ function stapleWithRetry(artifactPath, attempts = 6, delaySeconds = 15) {
       console.log(
         `stapler staple attempt ${attempt}/${attempts} failed (likely Error 68 ticket-propagation race); retrying in ${delaySeconds}s...`
       );
-      try { execFileSync('sleep', [String(delaySeconds)], { stdio: 'ignore' }); } catch (_) { /* sleep best-effort */ }
+      try {
+        execFileSync('sleep', [String(delaySeconds)], { stdio: 'ignore' });
+      } catch (_) {
+        /* sleep best-effort */
+      }
     }
   }
 }
@@ -189,7 +194,11 @@ function evaluateSpctlAssessment(exitCode, output) {
     return { ok: true, rejected: false, detail: 'spctl accepted the artifact (Notarized Developer ID)' };
   }
   if (exitCode !== 0) {
-    return { ok: false, rejected: false, detail: `spctl exited non-zero (${String(exitCode)}) without a reject verdict` };
+    return {
+      ok: false,
+      rejected: false,
+      detail: `spctl exited non-zero (${String(exitCode)}) without a reject verdict`,
+    };
   }
   return { ok: false, rejected: false, detail: 'spctl returned no verdict (deprecated on this macOS)' };
 }
@@ -235,8 +244,10 @@ function verifyNotarizationStapled(artifactPath, deps = {}) {
       return { status: result.status, output: `${result.stdout || ''}${result.stderr || ''}` };
     });
   const sleep = deps.sleep || sleepSyncMs;
-  const attempts = Number.isInteger(deps.spctlAttempts) && deps.spctlAttempts > 0 ? deps.spctlAttempts : SPCTL_RETRY_ATTEMPTS;
-  const delayMs = Number.isInteger(deps.spctlDelayMs) && deps.spctlDelayMs >= 0 ? deps.spctlDelayMs : SPCTL_RETRY_DELAY_MS;
+  const attempts =
+    Number.isInteger(deps.spctlAttempts) && deps.spctlAttempts > 0 ? deps.spctlAttempts : SPCTL_RETRY_ATTEMPTS;
+  const delayMs =
+    Number.isInteger(deps.spctlDelayMs) && deps.spctlDelayMs >= 0 ? deps.spctlDelayMs : SPCTL_RETRY_DELAY_MS;
 
   // stapler validate exits non-zero (and throws via execFileSync) when no ticket
   // is stapled, so a successful return is itself the staple proof. NOT retried:
@@ -371,8 +382,7 @@ function collectVersionMismatches(expected, { shortVersion, bundleVersion, asarV
   const mismatches = [];
   if (shortVersion !== expected)
     mismatches.push(`Info.plist CFBundleShortVersionString=${shortVersion} (expected ${expected})`);
-  if (bundleVersion !== expected)
-    mismatches.push(`Info.plist CFBundleVersion=${bundleVersion} (expected ${expected})`);
+  if (bundleVersion !== expected) mismatches.push(`Info.plist CFBundleVersion=${bundleVersion} (expected ${expected})`);
   if (asarVersion !== expected)
     mismatches.push(
       `app.asar package.json version=${asarVersion} (expected ${expected}) — drives app.getVersion()/electron-updater`
@@ -552,9 +562,7 @@ function writeMacUpdateFeedMetadata(context, deps = {}) {
   writeFile(versionJsonPath, `${JSON.stringify(versionJson, null, 2)}\n`);
   written.push(versionJsonPath);
 
-  console.log(
-    `✓ UPDATE-FEED guard: rewrote ${written.map((file) => path.basename(file)).join(', ')} for ${version}.`
-  );
+  console.log(`✓ UPDATE-FEED guard: rewrote ${written.map((file) => path.basename(file)).join(', ')} for ${version}.`);
   return written;
 }
 
@@ -612,6 +620,16 @@ exports.default = async function afterAllArtifactBuild(context) {
   // generic updater metadata. Regenerate the feed from the FINAL zip/DMG bytes so
   // stale yml/version.json files from prior releases cannot silently ship.
   writeMacUpdateFeedMetadata(context);
+
+  const receiptPaths = verifyFinalAioncoreArtifactReceipts({
+    outDir: context.outDir || path.join(process.cwd(), 'out'),
+    version: readRootPackageVersion(),
+  });
+  if (receiptPaths.length > 0) {
+    console.log(
+      `✓ FINAL-AIONCORE-ARTIFACT guard: verified ${receiptPaths.map((receiptPath) => path.basename(receiptPath)).join(', ')}.`
+    );
+  }
 
   return artifactPaths;
 };

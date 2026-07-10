@@ -65,6 +65,7 @@ import { resolveHonchoHomeForSeat } from './process/commandEve/honchoRuntimeConf
 import { resolveHonchoRenderForSeat, type HonchoRenderInput } from './process/commandEve/honchoRuntimeRenderCore';
 import {
   resolveCommandEveRuntimeBootstrapPaths,
+  runtimeReceiptAllowsLocalModelWarmup,
   type RuntimeBootstrapReceipt,
 } from './process/commandEve/runtimeBootstrapCore';
 import { readHonchoReadyState } from './process/commandEve/honchoReadyStateFile';
@@ -99,6 +100,10 @@ import {
   isTrustedMainRendererUrl,
 } from './process/security/mainWindowSecurityCore';
 import { configureMainRendererSessionPermissions } from './process/security/sessionPermissionCore';
+import {
+  configureMainRendererBackendCapability,
+  installMainProcessLocalBackendCapability,
+} from './process/security/localBackendCapabilityCore';
 import { classifyBackendStartupFailure } from './process/startup/backendStartupFailure';
 import { startWebHost } from '@aionui/web-host';
 import { initializeZoomFactor, setupZoomForWindow } from './process/utils/zoom';
@@ -280,6 +285,10 @@ const backendManager = new BackendLifecycleManager(
   },
   resolveBinaryPath
 );
+installMainProcessLocalBackendCapability({
+  getPort: () => backendManager.port,
+  getCapability: () => backendManager.localCapability,
+});
 let disposeCronResumeListener: (() => void) | null = null;
 
 // Flag tracking whether the backend subprocess started successfully. Read by
@@ -327,6 +336,7 @@ type CommandEveWarmupReceipt = {
   status?: string;
   default_model?: string;
   runtime_root?: string;
+  stages?: RuntimeBootstrapReceipt['stages'];
 };
 
 type CommandEveRuntimeStatusPayload = {
@@ -775,7 +785,7 @@ async function runCommandEveLocalModelWarmup(
   const runtimeRoot = receipt.runtime_root || '';
   const disabledNow = new Date().toISOString();
 
-  if (receipt.status !== 'ready' || !model) {
+  if (!runtimeReceiptAllowsLocalModelWarmup(receipt)) {
     const skipped: CommandEveModelWarmupReceipt = {
       version: 'command-eve-model-warmup/v0',
       status: 'skipped',
@@ -784,7 +794,7 @@ async function runCommandEveLocalModelWarmup(
       started_at: disabledNow,
       completed_at: disabledNow,
       elapsed_ms: 0,
-      error: 'runtime not ready',
+      error: 'local model runtime not ready',
     };
     writeCommandEveModelWarmupReceipt(runtimeRoot, skipped);
     return skipped;
@@ -1230,16 +1240,17 @@ function scheduleCommandEveLocalModelWarmup(
   // Resolve the warm-up lane from the LIVE picker selection in the BACKEND store
   // (same source the per-request routing resolver reads), not the main-process
   // ProcessConfig the renderer never writes to. Async + fire-and-forget so boot
-  // is not blocked; fail-soft to the local gate on any read error.
+  // is not blocked. Wait for the backend settings store before resolving; a
+  // speculative local fallback can load a multi-GB model even when the user
+  // selected cloud and can make low-memory Macs unresponsive.
   void (async () => {
     let lane: ReturnType<typeof resolveCommandEveWarmupLane>;
     try {
+      await waitForCommandEveBackendPort(30_000);
       lane = resolveCommandEveWarmupLane(await readInferenceSelectionFromBackend());
     } catch (error) {
-      // Fail-soft: if the selection cannot be read, fall back to the (safe) local
-      // warm-up gate rather than skipping warm-up entirely.
-      console.warn('[Command EVE] Could not resolve warm-up lane; defaulting to local gate:', error);
-      lane = { lane: 'local' };
+      console.warn('[Command EVE] Could not resolve warm-up lane; skipping speculative warm-up:', error);
+      return;
     }
 
     if (lane.lane === 'eve') {
@@ -1252,7 +1263,7 @@ function scheduleCommandEveLocalModelWarmup(
     }
 
     // Local lane: keep the existing bundled-model warm-up (receipt-gated).
-    if (receipt.status !== 'ready' || !receipt.default_model) return;
+    if (!runtimeReceiptAllowsLocalModelWarmup(receipt)) return;
     void ensureCommandEveLocalModelWarmup(receipt, shimUrl, warmup, mark);
   })();
 }
@@ -1359,6 +1370,10 @@ const createWindow = ({ showOnReady = true }: { showOnReady?: boolean } = {}): v
   });
   console.log(`[CommandEVE] Main window created (id=${mainWindow.id})`);
   configureMainRendererSessionPermissions(mainWindow);
+  configureMainRendererBackendCapability(mainWindow, {
+    getPort: () => backendManager.port,
+    getCapability: () => backendManager.localCapability,
+  });
 
   if (isTelemetryAllowed()) {
     scheduleStartupLogReport(mainWindow);
@@ -1680,6 +1695,13 @@ const handleAppReady = async (): Promise<void> => {
     } else {
       mark('commandEveRuntimeFilesProvisioned');
     }
+    // Inspect the last completed receipt before starting the next bootstrap.
+    // ensureCommandEveRuntimeBootstrap writes partial receipts synchronously up
+    // to its first await; checking afterwards made every warm launch look stale
+    // and forced the full Hermes/Ollama probe back onto the startup path.
+    const mustWaitForRuntimeBootstrap =
+      shouldBlockStartupForCommandEveRuntimeBootstrap ||
+      commandEveRuntimeBootstrapNeedsStartupWait(runtimePaths.receiptPath, app.getVersion());
     const bootstrap = ensureCommandEveRuntimeBootstrap({
       userDataPath: getDataPath(),
       appPath: app.getAppPath(),
@@ -1692,9 +1714,6 @@ const handleAppReady = async (): Promise<void> => {
       uiLanguage: ProcessConfig.getSync('language'),
       ...workerRuntimeInputs,
     });
-    const mustWaitForRuntimeBootstrap =
-      shouldBlockStartupForCommandEveRuntimeBootstrap ||
-      commandEveRuntimeBootstrapNeedsStartupWait(runtimePaths.receiptPath, app.getVersion());
     if (mustWaitForRuntimeBootstrap) {
       const receipt = await bootstrap;
       mark(`commandEveRuntimeBootstrap (${receipt.status})`);
@@ -2009,6 +2028,7 @@ const handleAppReady = async (): Promise<void> => {
         },
         backend: {
           kind: 'useExistingBackend',
+          getLocalCapability: () => backendManager.localCapability,
           port: (() => {
             // Reuse the backend already spawned by backendManager.start() above.
             // Spawning a second backend here would race the first on SQLite.

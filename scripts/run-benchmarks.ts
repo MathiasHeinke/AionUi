@@ -40,6 +40,7 @@ type PhaseStats = {
 
 type MemorySnapshot = {
   mainRssMb: number;
+  processTreeRssMb: number;
   rendererHeapMb: number;
 };
 
@@ -55,6 +56,7 @@ type StartupMemory = {
 // (see MemorySummaryRaw) that we adapt before filling this in.
 type StartupBenchReport = {
   generatedAt: string;
+  measurementMode: string;
   iterations: number;
   successful: number;
   failed: number;
@@ -68,14 +70,19 @@ type MemorySummaryRaw = {
   idleMainRss: PhaseStats;
   idleMainHeapUsed: PhaseStats;
   idleRendererUsed: PhaseStats;
+  idleProcessTreeRss: PhaseStats;
   afterConversationMainRss: PhaseStats;
   afterConversationRendererUsed: PhaseStats;
+  afterConversationProcessTreeRss: PhaseStats;
   afterCloseMainRss: PhaseStats;
   afterCloseRendererUsed: PhaseStats;
+  afterCloseProcessTreeRss: PhaseStats;
   leakMainRssBytes: PhaseStats;
   leakRendererUsedBytes: PhaseStats;
+  leakProcessTreeRssBytes: PhaseStats;
   openDeltaMainRssBytes: PhaseStats;
   openDeltaRendererUsedBytes: PhaseStats;
+  openDeltaProcessTreeRssBytes: PhaseStats;
 };
 
 // What the JSON file from benchmark-startup.ts actually contains on disk. It
@@ -123,9 +130,9 @@ type BenchReport = {
 // ── Red line thresholds (in ms / MB) ────────────────────────────────────────
 
 const THRESHOLDS = {
-  mainRssIdleMb: 400,
+  processTreeRssIdleMb: 600,
   rendererHeapIdleMb: 150,
-  leakAfterCloseMb: 5,
+  leakAfterCloseMb: 50,
   coldStartWindowMs: 3000,
   rendererTotalMb: 30,
   jsTotalMb: 25,
@@ -145,20 +152,31 @@ function parseArgs(): { startup: boolean } {
 function runBenchmarks(): string {
   console.log('\n  Running performance benchmarks...\n');
 
-  try {
-    const output = execSync('npx vitest bench', {
-      encoding: 'utf-8',
-      cwd: process.cwd(),
-      timeout: 300_000,
-      env: { ...process.env, FORCE_COLOR: '0' },
-    });
-    return output;
-  } catch (e) {
-    const err = e as { stdout?: string; status?: number };
-    if (err.stdout) return err.stdout;
-    console.error('  Benchmark run failed.');
+  const benchDir = path.resolve('tests/bench');
+  const hasBenchFiles =
+    fs.existsSync(benchDir) &&
+    fs.readdirSync(benchDir, { recursive: true }).some((entry) => String(entry).endsWith('.bench.ts'));
+  if (!hasBenchFiles) {
+    console.warn('  Vitest bench skipped: no tests/bench/**/*.bench.ts files exist in this checkout.');
+    return '';
+  }
+
+  const result = spawnSync('bunx', ['vitest', 'bench'], {
+    encoding: 'utf-8',
+    cwd: process.cwd(),
+    timeout: 300_000,
+    env: { ...process.env, FORCE_COLOR: '0' },
+  });
+  if (result.error) {
+    console.error(`  Benchmark run failed: ${result.error.message}`);
     process.exit(1);
   }
+  const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+  if (result.status !== 0 && output.trim().length === 0) {
+    console.error(`  Benchmark run failed with status ${result.status}.`);
+    process.exit(1);
+  }
+  return output;
 }
 
 // ── Run startup benchmark (Electron) ────────────────────────────────────────
@@ -173,20 +191,28 @@ function bytesToMb(bytes: number): number {
 // metric so a single slow run doesn't distort the report.
 function adaptMemorySummary(raw: MemorySummaryRaw | null | undefined): StartupMemory | undefined {
   if (!raw) return undefined;
+  const conversationMeasured = raw.afterConversationProcessTreeRss.count > 0;
   return {
     idle: {
       mainRssMb: bytesToMb(raw.idleMainRss.median),
+      processTreeRssMb: bytesToMb(raw.idleProcessTreeRss.median),
       rendererHeapMb: bytesToMb(raw.idleRendererUsed.median),
     },
-    afterConversation: {
-      mainRssMb: bytesToMb(raw.afterConversationMainRss.median),
-      rendererHeapMb: bytesToMb(raw.afterConversationRendererUsed.median),
-    },
-    afterClose: {
-      mainRssMb: bytesToMb(raw.afterCloseMainRss.median),
-      rendererHeapMb: bytesToMb(raw.afterCloseRendererUsed.median),
-    },
-    leakEstimateMb: bytesToMb(raw.leakMainRssBytes.median),
+    afterConversation: conversationMeasured
+      ? {
+          mainRssMb: bytesToMb(raw.afterConversationMainRss.median),
+          processTreeRssMb: bytesToMb(raw.afterConversationProcessTreeRss.median),
+          rendererHeapMb: bytesToMb(raw.afterConversationRendererUsed.median),
+        }
+      : undefined,
+    afterClose: conversationMeasured
+      ? {
+          mainRssMb: bytesToMb(raw.afterCloseMainRss.median),
+          processTreeRssMb: bytesToMb(raw.afterCloseProcessTreeRss.median),
+          rendererHeapMb: bytesToMb(raw.afterCloseRendererUsed.median),
+        }
+      : undefined,
+    leakEstimateMb: conversationMeasured ? bytesToMb(raw.leakProcessTreeRssBytes.median) : undefined,
   };
 }
 
@@ -199,13 +225,17 @@ function runStartupBenchmark(reportDir: string): StartupBenchReport | undefined 
   // --with-memory enables idle / afterConversation / afterClose memory
   // sampling in benchmark-startup.ts. Without it, memorySummary stays null
   // and bench:full produces no memory report.
-  const result = spawnSync('bunx', ['tsx', 'scripts/benchmark-startup.ts', '--with-memory', '--output', outputPath], {
-    cwd: process.cwd(),
-    encoding: 'utf-8',
-    timeout: 600_000,
-    stdio: 'inherit',
-    env: { ...process.env, FORCE_COLOR: '0' },
-  });
+  const result = spawnSync(
+    'bunx',
+    ['tsx', 'scripts/benchmark-startup.ts', '--packaged', '--warmup', '1', '--with-memory', '--output', outputPath],
+    {
+      cwd: process.cwd(),
+      encoding: 'utf-8',
+      timeout: 600_000,
+      stdio: 'inherit',
+      env: { ...process.env, FORCE_COLOR: '0' },
+    }
+  );
 
   if (result.error) {
     console.error(`  Startup bench could not launch: ${result.error.message}`);
@@ -224,6 +254,7 @@ function runStartupBenchmark(reportDir: string): StartupBenchReport | undefined 
     const raw = JSON.parse(fs.readFileSync(outputPath, 'utf-8')) as StartupBenchReportRaw;
     return {
       generatedAt: raw.generatedAt,
+      measurementMode: raw.measurementMode,
       iterations: raw.iterations,
       successful: raw.successful,
       failed: raw.failed,
@@ -241,6 +272,12 @@ function runStartupBenchmark(reportDir: string): StartupBenchReport | undefined 
 
 function runDbBench(): BenchResult[] {
   console.log('\n  Running DB large-dataset benchmark (bun:sqlite)...\n');
+
+  const benchFile = path.resolve('tests/bench/database.bench.bun.ts');
+  if (!fs.existsSync(benchFile)) {
+    console.warn('  DB bench skipped: tests/bench/database.bench.bun.ts does not exist.');
+    return [];
+  }
 
   const resultFile = path.resolve('scripts/benchmark-results/db-bench-latest.json');
   if (fs.existsSync(resultFile)) fs.rmSync(resultFile);
@@ -454,7 +491,12 @@ function printBundleSizeSection(bundle: BundleSizeReport): void {
 
 function printStartupSection(startup: StartupBenchReport): void {
   console.log('  ── Startup Performance ' + '─'.repeat(40));
-  console.log(`  Iterations: ${startup.iterations} (successful: ${startup.successful}, failed: ${startup.failed})\n`);
+  console.log(`  Iterations: ${startup.iterations} (successful: ${startup.successful}, failed: ${startup.failed})`);
+  console.log(`  Measurement: ${startup.measurementMode}`);
+  if (startup.measurementMode === 'packaged-lifecycle') {
+    console.log('  Wall interactive = renderer-loaded + visible-window proxy; production CDP stays disabled.');
+  }
+  console.log('');
   console.log(
     `    ${'Phase'.padEnd(30)} ${'Mean'.padStart(10)} ${'Median'.padStart(10)} ${'P95'.padStart(10)} ${'Min'.padStart(10)} ${'Max'.padStart(10)}`
   );
@@ -476,8 +518,8 @@ function printStartupSection(startup: StartupBenchReport): void {
 
 function printMemorySection(memory: StartupMemory): void {
   console.log('  ── Memory Profiling ' + '─'.repeat(43));
-  console.log(`    ${'Stage'.padEnd(26)} ${'Main RSS'.padStart(14)} ${'Renderer Heap'.padStart(18)}`);
-  console.log(`    ${'─'.repeat(60)}`);
+  console.log(`    ${'Stage'.padEnd(26)} ${'Process tree RSS'.padStart(18)} ${'Renderer Heap'.padStart(18)}`);
+  console.log(`    ${'─'.repeat(64)}`);
 
   const stages: Array<[string, MemorySnapshot | undefined, boolean]> = [
     ['Idle', memory.idle, true],
@@ -487,10 +529,10 @@ function printMemorySection(memory: StartupMemory): void {
 
   for (const [label, snap, isIdle] of stages) {
     if (!snap) continue;
-    const rssOver = isIdle && snap.mainRssMb > THRESHOLDS.mainRssIdleMb ? ' !!' : '';
+    const rssOver = isIdle && snap.processTreeRssMb > THRESHOLDS.processTreeRssIdleMb ? ' !!' : '';
     const heapOver = isIdle && snap.rendererHeapMb > THRESHOLDS.rendererHeapIdleMb ? ' !!' : '';
     console.log(
-      `    ${label.padEnd(26)} ${(snap.mainRssMb + 'MB' + rssOver).padStart(14)} ${(snap.rendererHeapMb + 'MB' + heapOver).padStart(18)}`
+      `    ${label.padEnd(26)} ${(snap.processTreeRssMb + 'MB' + rssOver).padStart(18)} ${(snap.rendererHeapMb + 'MB' + heapOver).padStart(18)}`
     );
   }
 
@@ -520,6 +562,10 @@ function formatTime(ms: number): string {
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 function renderStartupHtml(startup: StartupBenchReport): string {
+  const measurementNote =
+    startup.measurementMode === 'packaged-lifecycle'
+      ? ' Packaged lifecycle mode: wall interactive is a renderer-loaded plus visible-window proxy; production CDP remains disabled.'
+      : '';
   const rows = STARTUP_PHASES.map((phase) => {
     const s = startup.stats[phase.key];
     if (!s || s.count === 0) return '';
@@ -535,7 +581,7 @@ function renderStartupHtml(startup: StartupBenchReport): string {
 
   const startupTable = `
     <h2>Startup Performance</h2>
-    <p class="sub">Iterations: ${startup.iterations} (successful: ${startup.successful}${failedNote}). Rows in red exceed the cold-start red line (${THRESHOLDS.coldStartWindowMs}ms).</p>
+    <p class="sub">Iterations: ${startup.iterations} (successful: ${startup.successful}${failedNote}). Rows in red exceed the cold-start red line (${THRESHOLDS.coldStartWindowMs}ms).${measurementNote}</p>
     <table>
     <thead><tr><th>Phase</th><th>Mean</th><th>Median</th><th>P95</th><th>Min</th><th>Max</th><th>N</th></tr></thead>
     <tbody>
@@ -549,9 +595,9 @@ function renderStartupHtml(startup: StartupBenchReport): string {
   const memRows: string[] = [];
   const pushMemRow = (label: string, snap: MemorySnapshot | undefined, isIdle: boolean) => {
     if (!snap) return;
-    const rssOver = isIdle && snap.mainRssMb > THRESHOLDS.mainRssIdleMb;
+    const rssOver = isIdle && snap.processTreeRssMb > THRESHOLDS.processTreeRssIdleMb;
     const heapOver = isIdle && snap.rendererHeapMb > THRESHOLDS.rendererHeapIdleMb;
-    const rssCell = `<td${rssOver ? ' class="over-threshold"' : ''}>${snap.mainRssMb}MB${rssOver ? ` <span class="badge-red">&gt; ${THRESHOLDS.mainRssIdleMb}MB</span>` : ''}</td>`;
+    const rssCell = `<td${rssOver ? ' class="over-threshold"' : ''}>${snap.processTreeRssMb}MB${rssOver ? ` <span class="badge-red">&gt; ${THRESHOLDS.processTreeRssIdleMb}MB</span>` : ''}</td>`;
     const heapCell = `<td${heapOver ? ' class="over-threshold"' : ''}>${snap.rendererHeapMb}MB${heapOver ? ` <span class="badge-red">&gt; ${THRESHOLDS.rendererHeapIdleMb}MB</span>` : ''}</td>`;
     memRows.push(`<tr><td>${esc(label)}</td>${rssCell}${heapCell}</tr>`);
   };
@@ -569,9 +615,9 @@ function renderStartupHtml(startup: StartupBenchReport): string {
 
   const memTable = `
     <h2>Memory Profiling</h2>
-    <p class="sub">Red cells exceed the red line (main RSS idle &gt; ${THRESHOLDS.mainRssIdleMb}MB, renderer heap idle &gt; ${THRESHOLDS.rendererHeapIdleMb}MB, leak &gt; ${THRESHOLDS.leakAfterCloseMb}MB).</p>
+    <p class="sub">Red cells exceed the red line (process-tree RSS idle &gt; ${THRESHOLDS.processTreeRssIdleMb}MB, renderer heap idle &gt; ${THRESHOLDS.rendererHeapIdleMb}MB, leak &gt; ${THRESHOLDS.leakAfterCloseMb}MB).</p>
     <table>
-    <thead><tr><th>Stage</th><th>Main Process RSS</th><th>Renderer JS Heap</th></tr></thead>
+    <thead><tr><th>Stage</th><th>Full Process Tree RSS</th><th>Renderer JS Heap</th></tr></thead>
     <tbody>
     ${memRows.join('\n')}
     ${leakRow}
@@ -670,12 +716,6 @@ function main() {
   const output = runBenchmarks();
   const results = parseOutput(output);
 
-  if (results.length === 0) {
-    console.error('  No benchmark results parsed. Raw output:');
-    console.error(output.slice(0, 2000));
-    process.exit(1);
-  }
-
   let gitRef = 'unknown';
   try {
     gitRef = execSync('git rev-parse --short HEAD', { encoding: 'utf-8' }).trim();
@@ -695,6 +735,11 @@ function main() {
 
   const startupReport = startup ? runStartupBenchmark(reportDir) : undefined;
   const bundleSize = checkBundleSize();
+
+  if (allResults.length === 0 && !startupReport && !bundleSize) {
+    console.error('  No runnable benchmark suite or built bundle was found. Run `bun run package` first.');
+    process.exit(1);
+  }
 
   const report: BenchReport = {
     timestamp: new Date().toISOString(),

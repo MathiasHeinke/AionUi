@@ -4,7 +4,12 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
-import { startStaticServer, type StaticServerHandle } from './static-server.js';
+import {
+  injectWebSocketCapabilityHeaders,
+  LOCAL_BACKEND_CAPABILITY_HEADER,
+  startStaticServer,
+  type StaticServerHandle,
+} from './static-server.js';
 
 async function mkRendererFixture(): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ws-static-'));
@@ -86,6 +91,114 @@ describe('static-server', () => {
     expect(r.status).toBe(200);
     const json = (await r.json()) as { path: string };
     expect(json.path).toBe('/api/anything');
+  });
+
+  it('injects the backend capability server-side without replacing user auth', async () => {
+    const backend = await startMockBackend((req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          capability: req.headers[LOCAL_BACKEND_CAPABILITY_HEADER],
+          authorization: req.headers.authorization,
+          origin: req.headers.origin ?? null,
+        })
+      );
+    });
+    stopBackend = backend.close;
+    handle = await startStaticServer({
+      staticDir,
+      backendPort: backend.port,
+      port: 0,
+      getBackendCapability: () => 'process-capability',
+    });
+
+    const response = await fetch(`${handle.localUrl}/api/anything`, {
+      headers: { Authorization: 'Bearer user-jwt', Origin: handle.localUrl },
+    });
+    const json = (await response.json()) as Record<string, string | null>;
+
+    expect(json).toEqual({
+      capability: 'process-capability',
+      authorization: 'Bearer user-jwt',
+      origin: null,
+    });
+  });
+
+  it('rejects a foreign browser Origin before exposing the backend capability', async () => {
+    let backendCalls = 0;
+    const backend = await startMockBackend((_req, res) => {
+      backendCalls += 1;
+      res.end('unexpected');
+    });
+    stopBackend = backend.close;
+    handle = await startStaticServer({
+      staticDir,
+      backendPort: backend.port,
+      port: 0,
+      getBackendCapability: () => 'process-capability',
+    });
+
+    const response = await fetch(`${handle.localUrl}/api/anything`, {
+      headers: { Origin: 'https://attacker.example' },
+    });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: 'ORIGIN_NOT_ALLOWED' });
+    expect(backendCalls).toBe(0);
+  });
+
+  it('always strips a forged HTTP capability when no server capability is available', async () => {
+    const backend = await startMockBackend((req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ capability: req.headers[LOCAL_BACKEND_CAPABILITY_HEADER] ?? null }));
+    });
+    stopBackend = backend.close;
+    handle = await startStaticServer({
+      staticDir,
+      backendPort: backend.port,
+      port: 0,
+      getBackendCapability: () => '',
+    });
+
+    const response = await fetch(`${handle.localUrl}/api/anything`, {
+      headers: { 'X-AionUI-Local-Capability': 'forged' },
+    });
+
+    expect(await response.json()).toEqual({ capability: null });
+  });
+
+  it('rewrites WebSocket headers without leaking browser Origin or clobbering JWT auth', () => {
+    const request = Buffer.from(
+      'GET /ws HTTP/1.1\r\n' +
+        'Host: 127.0.0.1:1234\r\n' +
+        'Origin: https://attacker.example\r\n' +
+        'Authorization: Bearer user-jwt\r\n' +
+        'X-AionUI-Local-Capability: forged\r\n\r\n' +
+        'body'
+    );
+
+    const rewritten = injectWebSocketCapabilityHeaders(request, 'process-capability').toString('latin1');
+
+    expect(rewritten).toContain('Authorization: Bearer user-jwt');
+    expect(rewritten).toContain(`${LOCAL_BACKEND_CAPABILITY_HEADER}: process-capability`);
+    expect(rewritten.toLowerCase()).not.toContain('origin:');
+    expect(rewritten).not.toContain('forged');
+    expect(rewritten.endsWith('body')).toBe(true);
+  });
+
+  it('strips forged WebSocket capability and Origin even without a replacement capability', () => {
+    const request = Buffer.from(
+      'GET /ws HTTP/1.1\r\n' +
+        'Host: 127.0.0.1:1234\r\n' +
+        'Origin: http://127.0.0.1:1234\r\n' +
+        'X-AionUI-Local-Capability: forged\r\n\r\n'
+    );
+
+    const rewritten = injectWebSocketCapabilityHeaders(request, '').toString('latin1');
+
+    expect(rewritten.toLowerCase()).not.toContain('origin:');
+    expect(rewritten.toLowerCase()).not.toContain(LOCAL_BACKEND_CAPABILITY_HEADER);
+    expect(rewritten).not.toContain('forged');
   });
 
   it('/login reverse-proxies to backend (no local handler)', async () => {
@@ -172,7 +285,9 @@ describe('static-server', () => {
     const net = await import('node:net');
     const httpMod = await import('node:http');
     const backendServer = httpMod.createServer();
+    let observedCapability: string | undefined;
     backendServer.on('upgrade', (req, socket) => {
+      observedCapability = req.headers[LOCAL_BACKEND_CAPABILITY_HEADER] as string | undefined;
       const wsKey = (req.headers['sec-websocket-key'] as string) || '';
       const accept = createHash('sha1')
         .update(wsKey + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')
@@ -189,7 +304,12 @@ describe('static-server', () => {
     stopBackend = () => new Promise<void>((r) => backendServer.close(() => r()));
     const backendPort = (backendServer.address() as { port: number }).port;
 
-    handle = await startStaticServer({ staticDir, backendPort, port: 0 });
+    handle = await startStaticServer({
+      staticDir,
+      backendPort,
+      port: 0,
+      getBackendCapability: () => 'websocket-capability',
+    });
 
     // Speak raw HTTP/1.1 upgrade over a TCP socket against the public listener.
     const { port: publicPort } = handle;
@@ -222,6 +342,58 @@ describe('static-server', () => {
       }, 3000).unref();
     });
     expect(status).toMatch(/HTTP\/1\.1 101/i);
+    expect(observedCapability).toBe('websocket-capability');
+  });
+
+  it('rejects a foreign WebSocket Origin before the backend upgrade', async () => {
+    const net = await import('node:net');
+    const httpMod = await import('node:http');
+    const backendServer = httpMod.createServer();
+    let backendUpgrades = 0;
+    backendServer.on('upgrade', (_req, socket) => {
+      backendUpgrades += 1;
+      socket.destroy();
+    });
+    await new Promise<void>((resolve) => backendServer.listen(0, '127.0.0.1', () => resolve()));
+    stopBackend = () => new Promise<void>((resolve) => backendServer.close(() => resolve()));
+    const backendPort = (backendServer.address() as { port: number }).port;
+
+    handle = await startStaticServer({
+      staticDir,
+      backendPort,
+      port: 0,
+      getBackendCapability: () => 'websocket-capability',
+    });
+
+    const status = await new Promise<string>((resolve, reject) => {
+      const socket = net.connect({ host: '127.0.0.1', port: handle?.port }, () => {
+        socket.write(
+          'GET /ws HTTP/1.1\r\n' +
+            `Host: 127.0.0.1:${handle?.port}\r\n` +
+            'Origin: https://attacker.example\r\n' +
+            'Upgrade: websocket\r\n' +
+            'Connection: Upgrade\r\n' +
+            'Sec-WebSocket-Version: 13\r\n' +
+            'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n'
+        );
+      });
+      let response = '';
+      socket.on('data', (chunk) => {
+        response += chunk.toString('latin1');
+        if (response.includes('\r\n\r\n')) {
+          socket.destroy();
+          resolve(response.split('\r\n', 1)[0]);
+        }
+      });
+      socket.on('error', reject);
+      setTimeout(() => {
+        socket.destroy();
+        reject(new Error('timeout waiting for 403'));
+      }, 3000).unref();
+    });
+
+    expect(status).toMatch(/HTTP\/1\.1 403/i);
+    expect(backendUpgrades).toBe(0);
   });
 
   it('fails closed when remote access is requested', async () => {
