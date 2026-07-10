@@ -21,6 +21,9 @@ const modelSettingsSource = read(
 const firstStepsSource = read(
   'packages/desktop/src/renderer/components/settings/SettingsModal/contents/ErsteSchritteModalContent.tsx'
 );
+const billingSettingsSource = read(
+  'packages/desktop/src/renderer/components/settings/SettingsModal/contents/BillingModalContent.tsx'
+);
 const skillsSettingsSource = read('packages/desktop/src/renderer/pages/settings/SkillsHubSettings.tsx');
 const petSettingsSource = read('packages/desktop/src/renderer/pages/settings/PetSettings.tsx');
 const privacySettingsSource = read('packages/desktop/src/renderer/pages/settings/PrivacySettings.tsx');
@@ -179,5 +182,17 @@ describe('Command EVE settings migration contract', () => {
 
     expect(companyBrainSettingsSource).not.toContain("color='purple'");
     expect(companyBrainSettingsSource).not.toContain('<button');
+  });
+
+  it('flattens onboarding and billing without hiding native controls in labels', () => {
+    for (const source of [firstStepsSource, billingSettingsSource]) {
+      expect(source).toContain('SettingsPageHeader');
+      expect(source).toContain('SettingsSection');
+      expect(source).not.toContain('<Card');
+    }
+
+    expect(firstStepsSource).not.toContain('<a');
+    expect(billingSettingsSource).not.toContain("type='file'");
+    expect(billingSettingsSource).toContain('<Upload');
   });
 });

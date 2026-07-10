@@ -1,5 +1,8 @@
 {
   "settings": {
+    "pageDescription": "Keep track of credits, spending, seats, and report branding.",
+    "balanceTitle": "Credits",
+    "balanceDescription": "Your current usage and available credit balance.",
     "freeActions": "{{used}} / {{cap}} free actions today",
     "allowanceUsed": "{{pct}}% of allowance used · {{rem}} credits left",
     "purchasedRemaining": "{{n}} purchased credits",
@@ -25,6 +28,7 @@
     "brandFooterPlaceholder": "Footer line (contact, website, legal)",
     "brandLogoChange": "Change logo",
     "brandLogoPick": "Upload logo",
+    "brandLogoAlt": "Brand logo preview",
     "brandLogoRemove": "Remove",
     "brandLogoTooBig": "Logo must be under 512 KB.",
     "brandSave": "Save branding",

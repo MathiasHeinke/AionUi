@@ -1108,8 +1108,13 @@
   "ersteSchritteIntro": "Dein Startpunkt mit EVE — hier siehst du, ob alles bereit ist.",
   "ersteSchritteRefresh": "Aktualisieren",
   "ersteSchritteWebui": "Die Ersten Schritte siehst du in der Desktop-App.",
+  "ersteSchritteAvailabilityTitle": "Verfügbarkeit",
+  "ersteSchritteStatusTitle": "Einrichtungsstatus",
+  "ersteSchritteStatusDescription": "EVE zeigt nur bestätigte Lücken und behauptet keinen Status, den sie nicht prüfen konnte.",
+  "ersteSchritteLoading": "Status wird geprüft …",
   "ersteSchritteUnavailable": "Ich konnte deinen Einrichtungs-Status gerade nicht lesen — im Chat geht es trotzdem weiter.",
   "ersteSchritteNextSteps": "Nächste Schritte",
+  "ersteSchritteNextStepsDescription": "Öffne genau den Bereich, den du als Nächstes einrichten oder prüfen möchtest.",
   "ersteSchritteStatus": {
     "done": "erledigt",
     "attention": "offen",

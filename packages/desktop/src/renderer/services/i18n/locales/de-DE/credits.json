@@ -1,5 +1,8 @@
 {
   "settings": {
+    "pageDescription": "Behalte Guthaben, Ausgaben, Seats und das Branding deiner Reports im Blick.",
+    "balanceTitle": "Guthaben",
+    "balanceDescription": "Dein aktueller Verbrauch und das verfügbare Guthaben.",
     "freeActions": "{{used}} / {{cap}} Gratis-Aktionen heute",
     "allowanceUsed": "{{pct}}% des Guthabens genutzt · {{rem}} Credits übrig",
     "purchasedRemaining": "{{n}} gekaufte Credits",
@@ -25,6 +28,7 @@
     "brandFooterPlaceholder": "Footer-Zeile (Kontakt, Website, Rechtliches)",
     "brandLogoChange": "Logo ändern",
     "brandLogoPick": "Logo hochladen",
+    "brandLogoAlt": "Vorschau des Markenlogos",
     "brandLogoRemove": "Entfernen",
     "brandLogoTooBig": "Das Logo muss kleiner als 512 KB sein.",
     "brandSave": "Branding speichern",

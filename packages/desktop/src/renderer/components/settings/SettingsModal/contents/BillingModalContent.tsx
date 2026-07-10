@@ -20,7 +20,8 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, Input, InputNumber, Message, Progress } from '@arco-design/web-react';
+import { Button, Input, InputNumber, Message, Progress, Upload } from '@arco-design/web-react';
+import { Info, UploadOne } from '@icon-park/react';
 import { useTranslation } from 'react-i18next';
 import { openAccountWeb } from '@renderer/utils/platform';
 import { configService } from '@/common/config/configService';
@@ -36,11 +37,8 @@ import {
   showsFreeActionMeter,
   validateSpendCapEur,
 } from '@/common/config/creditsCore';
-import {
-  buildSeatUsageCardRows,
-  currentUsageMonth,
-  priorUsageMonth,
-} from '@/common/config/seatUsageCore';
+import { buildSeatUsageCardRows, currentUsageMonth, priorUsageMonth } from '@/common/config/seatUsageCore';
+import SettingsSection, { SettingsPageHeader } from '@/renderer/components/settings/SettingsSection';
 
 // The Gen-B web money surface. The desktop holds no card; it opens the web account
 // where the free own-seat lives and client seats / credit packs are bought. The
@@ -83,10 +81,7 @@ const BillingModalContent: React.FC = () => {
   // Gen-B seat status: is this the free own seat (0 € for ever) or a paid seat?
   // Drives the status line + the client-seat CTA copy. Defaults to the free own
   // seat until a status is read (the honest resting state for a fresh install).
-  const seatBilling = useMemo(
-    () => (meter ? buildSeatBillingStatus({ tier: meter.tier }) : null),
-    [meter]
-  );
+  const seatBilling = useMemo(() => (meter ? buildSeatBillingStatus({ tier: meter.tier }) : null), [meter]);
 
   // Spend-cap form state (euros). Seeded from the current status.
   const [capEur, setCapEur] = useState<number | undefined>(undefined);
@@ -129,16 +124,14 @@ const BillingModalContent: React.FC = () => {
       return;
     }
     const reader = new FileReader();
-    reader.onload = () => setBrand((b) => ({ ...b, logoDataUri: String(reader.result) }));
+    reader.addEventListener('load', () => setBrand((b) => ({ ...b, logoDataUri: String(reader.result) })));
     reader.readAsDataURL(file);
   };
 
   const handleSaveCap = async () => {
     const validation = validateSpendCapEur(capEur ?? 0);
     if (!validation.ok) {
-      Message.error(
-        t('credits.settings.capInvalid', { defaultValue: 'Enter a valid spend cap (0 = uncapped).' })
-      );
+      Message.error(t('credits.settings.capInvalid', { defaultValue: 'Enter a valid spend cap (0 = uncapped).' }));
       return;
     }
     setSaving(true);
@@ -163,65 +156,83 @@ const BillingModalContent: React.FC = () => {
 
   return (
     <div className='billing-settings' data-testid='billing-settings'>
+      <SettingsPageHeader
+        title={t('settings.billing', { defaultValue: 'Abrechnung' })}
+        description={t('credits.settings.pageDescription', {
+          defaultValue: 'Behalte Guthaben, Ausgaben, Seats und das Branding deiner Reports im Blick.',
+        })}
+      />
+
       {/* Live meter readout */}
-      {meter ? (
-        <Card className='billing-settings__meter' data-testid='billing-settings-meter'>
-          {/* 1.6.2: free WITH balance renders the tank (showsFreeActionMeter). */}
-          {showsFreeActionMeter(meter) ? (
-            <>
-              <div className='billing-settings__meter-label'>
-                {t('credits.settings.freeActions', {
-                  defaultValue: '{{used}} / {{cap}} free actions used',
-                  used: meter.freeActionsUsed,
-                  cap: meter.freeCap,
-                })}
-              </div>
-              <Progress
-                percent={meter.freeCap > 0 ? Math.round((meter.freeActionsUsed / meter.freeCap) * 100) : 0}
-                showText={false}
-              />
-            </>
-          ) : (
-            <>
-              <div className='billing-settings__meter-label'>
-                {t('credits.settings.allowanceUsedEur', {
-                  defaultValue: '{{pct}}% of allowance used · {{rem}} credits left (≈ {{eur}} €)',
-                  pct: Math.round(meter.allowanceUsedFraction * 100),
-                  rem: meter.totalRemaining,
-                  eur: (meter.totalRemaining * CREDIT_UNIT_EUR).toLocaleString('de-DE', { maximumFractionDigits: 2 }),
-                })}
-              </div>
-              <Progress percent={Math.round(meter.allowanceUsedFraction * 100)} showText={false} />
-              <div className='billing-settings__meter-detail'>
-                {t('credits.settings.purchasedRemaining', {
-                  defaultValue: '{{n}} purchased credits',
-                  n: meter.purchasedRemaining,
-                })}
-              </div>
-              {/* v1.6 Slice 3 — the "Was ist ein Credit?" explainer: the PACK
+      <SettingsSection
+        title={t('credits.settings.balanceTitle', { defaultValue: 'Guthaben' })}
+        description={t('credits.settings.balanceDescription', {
+          defaultValue: 'Dein aktueller Verbrauch und das verfügbare Guthaben.',
+        })}
+      >
+        {meter ? (
+          <div className='billing-settings__meter' data-testid='billing-settings-meter'>
+            {/* 1.6.2: free WITH balance renders the tank (showsFreeActionMeter). */}
+            {showsFreeActionMeter(meter) ? (
+              <>
+                <div className='billing-settings__meter-label'>
+                  {t('credits.settings.freeActions', {
+                    defaultValue: '{{used}} / {{cap}} free actions used',
+                    used: meter.freeActionsUsed,
+                    cap: meter.freeCap,
+                  })}
+                </div>
+                <Progress
+                  percent={meter.freeCap > 0 ? Math.round((meter.freeActionsUsed / meter.freeCap) * 100) : 0}
+                  showText={false}
+                />
+              </>
+            ) : (
+              <>
+                <div className='billing-settings__meter-label'>
+                  {t('credits.settings.allowanceUsedEur', {
+                    defaultValue: '{{pct}}% of allowance used · {{rem}} credits left (≈ {{eur}} €)',
+                    pct: Math.round(meter.allowanceUsedFraction * 100),
+                    rem: meter.totalRemaining,
+                    eur: (meter.totalRemaining * CREDIT_UNIT_EUR).toLocaleString('de-DE', { maximumFractionDigits: 2 }),
+                  })}
+                </div>
+                <Progress percent={Math.round(meter.allowanceUsedFraction * 100)} showText={false} />
+                <div className='billing-settings__meter-detail'>
+                  {t('credits.settings.purchasedRemaining', {
+                    defaultValue: '{{n}} purchased credits',
+                    n: meter.purchasedRemaining,
+                  })}
+                </div>
+                {/* v1.6 Slice 3 — the "Was ist ein Credit?" explainer: the PACK
                   price maps 1000:1 (model usage varies by tier factor ⇒ "≈"). */}
-              <div className='billing-settings__meter-detail' data-testid='billing-credit-explainer'>
-                {t('credits.settings.explainer', { defaultValue: '1.000 Credits ≈ 1 € (Pack-Preis)' })}
-              </div>
-            </>
-          )}
-        </Card>
-      ) : (
-        <Alert
-          type='info'
-          content={t('credits.settings.noStatus', { defaultValue: 'Credit status will appear once you are signed in.' })}
-        />
-      )}
+                <div className='billing-settings__meter-detail' data-testid='billing-credit-explainer'>
+                  {t('credits.settings.explainer', { defaultValue: '1.000 Credits ≈ 1 € (Pack-Preis)' })}
+                </div>
+              </>
+            )}
+          </div>
+        ) : (
+          <div className='eve-settings-notice eve-settings-inline-notice'>
+            <Info theme='outline' size={15} />
+            <span>
+              {t('credits.settings.noStatus', {
+                defaultValue: 'Credit status will appear once you are signed in.',
+              })}
+            </span>
+          </div>
+        )}
+      </SettingsSection>
 
       {/* v1.5 A3 — Verbrauch nach Kunde. Per-seat usage for the month, labels
           joined from the my-seats wire (never from the server). Founder sees a
           summary of ALL seats (Rail order); a client seat sees only its own row.
           Version-skew honest: no server data ⇒ the resting note. */}
-      <Card
+      <SettingsSection
         className='billing-settings__usage'
-        data-testid='billing-usage'
+        testId='billing-usage'
         title={t('credits.settings.usageTitle', { defaultValue: 'Verbrauch nach Kunde' })}
-        extra={
+        action={
           <Button
             size='mini'
             type='text'
@@ -264,27 +275,27 @@ const BillingModalContent: React.FC = () => {
             ))}
           </div>
         ) : (
-          <Alert
-            type='info'
-            data-testid='billing-usage-empty'
-            content={
-              usageAvailable
+          <div className='eve-settings-notice eve-settings-inline-notice' data-testid='billing-usage-empty'>
+            <Info theme='outline' size={15} />
+            <span>
+              {usageAvailable
                 ? t('credits.settings.usageEmpty', { defaultValue: 'Noch keine Verbrauchsdaten (ab v1.5 erfasst).' })
                 : t('credits.settings.usageUnavailable', {
                     defaultValue: 'Verbrauchsdaten ab dem nächsten Server-Update.',
-                  })
-            }
-          />
+                  })}
+            </span>
+          </div>
         )}
-      </Card>
+      </SettingsSection>
 
       {/* Spend-cap setting */}
-      <Card className='billing-settings__cap' title={t('credits.settings.spendCapTitle', { defaultValue: 'Spend cap' })}>
-        <p className='billing-settings__hint'>
-          {t('credits.settings.spendCapHint', {
-            defaultValue: 'Cap how much EVE may spend on credits per period. 0 = uncapped.',
-          })}
-        </p>
+      <SettingsSection
+        className='billing-settings__cap'
+        title={t('credits.settings.spendCapTitle', { defaultValue: 'Spend cap' })}
+        description={t('credits.settings.spendCapHint', {
+          defaultValue: 'Cap how much EVE may spend on credits per period. 0 = uncapped.',
+        })}
+      >
         <div className='billing-settings__cap-row'>
           <InputNumber
             min={0}
@@ -292,18 +303,26 @@ const BillingModalContent: React.FC = () => {
             onChange={(v) => setCapEur(typeof v === 'number' ? v : undefined)}
             suffix='€'
             placeholder='0'
-            style={{ width: 160 }}
+            className='billing-settings__cap-input'
             data-testid='billing-spend-cap-input'
           />
           <Button type='primary' loading={saving} onClick={handleSaveCap} data-testid='billing-spend-cap-save'>
             {t('credits.settings.save', { defaultValue: 'Save' })}
           </Button>
         </div>
-      </Card>
+      </SettingsSection>
 
       {/* Gen-B seat status + client-seat expansion CTA. No "plan" is sold here:
           the operator's OWN seat is 0 € for ever; growth = paid CLIENT seats. */}
-      <Card className='billing-settings__plans' title={t('credits.settings.seatTitle', { defaultValue: 'Your seat' })}>
+      <SettingsSection
+        className='billing-settings__plans'
+        title={t('credits.settings.seatTitle', { defaultValue: 'Your seat' })}
+        description={t('credits.settings.clientSeatHint', {
+          defaultValue:
+            'Grow by adding CLIENT seats — from {{eur}} €/month, incl. 60,000 credits each. Your own seat always stays free.',
+          eur: CLIENT_SEAT_FROM_EUR,
+        })}
+      >
         <div className='billing-settings__plan-row' data-testid='billing-own-seat'>
           <span className='billing-settings__plan-name'>
             {!seatBilling
@@ -315,29 +334,24 @@ const BillingModalContent: React.FC = () => {
                 : t('credits.settings.ownSeatPaid', { defaultValue: 'Your seat is active (paid client seat)' })}
           </span>
         </div>
-        <p className='billing-settings__hint'>
-          {t('credits.settings.clientSeatHint', {
-            defaultValue:
-              'Grow by adding CLIENT seats — from {{eur}} €/month, incl. 60,000 credits each. Your own seat always stays free.',
-            eur: CLIENT_SEAT_FROM_EUR,
-          })}
-        </p>
-        <Button type='primary' long shape='round' onClick={openAddSeat} data-testid='billing-add-seat'>
+        <Button type='primary' onClick={openAddSeat} data-testid='billing-add-seat'>
           {t('credits.settings.addClientSeat', {
             defaultValue: 'Add a client seat — from {{eur}} €/month',
             eur: CLIENT_SEAT_FROM_EUR,
           })}
         </Button>
-      </Card>
+      </SettingsSection>
 
       {/* Credit packs — the RECURRING top-up packs (+20 % each), matching the
           Gen-B website and the server TOP_UP_BONUS_FACTOR=1.2. */}
-      <Card className='billing-settings__packs' title={t('credits.settings.packsTitle', { defaultValue: 'Credit packs' })}>
-        <p className='billing-settings__hint'>
-          {t('credits.settings.packsHint', {
-            defaultValue: 'Out of allowance? Recurring top-ups add +20 % credits. Going big = a bigger pack, never a higher plan.',
-          })}
-        </p>
+      <SettingsSection
+        className='billing-settings__packs'
+        title={t('credits.settings.packsTitle', { defaultValue: 'Credit packs' })}
+        description={t('credits.settings.packsHint', {
+          defaultValue:
+            'Out of allowance? Recurring top-ups add +20 % credits. Going big = a bigger pack, never a higher plan.',
+        })}
+      >
         <div className='billing-settings__pack-grid'>
           {DEFAULT_CREDIT_PACKS.map((pack) => (
             <Button
@@ -355,18 +369,19 @@ const BillingModalContent: React.FC = () => {
             </Button>
           ))}
         </div>
-      </Card>
+      </SettingsSection>
 
       {/* Report branding — the operator's own name/logo/footer on every deliverable EVE
           exports. The reseller prop is "deliver under YOUR brand"; this is the setter that
           was missing (the value is already READ + rendered by the report PreviewPanel). */}
-      <Card className='billing-settings__brand' title={t('credits.settings.brandTitle', { defaultValue: 'Report branding' })}>
-        <p className='billing-settings__hint'>
-          {t('credits.settings.brandHint', {
-            defaultValue: 'Your name, logo and footer on every report EVE delivers — deliver under your brand, not ours.',
-          })}
-        </p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 440 }}>
+      <SettingsSection
+        className='billing-settings__brand'
+        title={t('credits.settings.brandTitle', { defaultValue: 'Report branding' })}
+        description={t('credits.settings.brandHint', {
+          defaultValue: 'Your name, logo and footer on every report EVE delivers — deliver under your brand, not ours.',
+        })}
+      >
+        <div className='billing-settings__brand-form'>
           <Input
             value={brand.displayName ?? ''}
             onChange={(v) => setBrand((b) => ({ ...b, displayName: v }))}
@@ -378,41 +393,49 @@ const BillingModalContent: React.FC = () => {
           <Input.TextArea
             value={brand.footer ?? ''}
             onChange={(v) => setBrand((b) => ({ ...b, footer: v }))}
-            placeholder={t('credits.settings.brandFooterPlaceholder', { defaultValue: 'Footer line (contact, website, legal)' })}
+            placeholder={t('credits.settings.brandFooterPlaceholder', {
+              defaultValue: 'Footer line (contact, website, legal)',
+            })}
             maxLength={200}
             autoSize={{ minRows: 2, maxRows: 4 }}
             data-testid='billing-brand-footer'
           />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div className='billing-settings__brand-logo-row'>
             {brand.logoDataUri ? (
-              <img src={brand.logoDataUri} alt='brand logo' style={{ height: 40, maxWidth: 160, objectFit: 'contain', borderRadius: 4 }} />
-            ) : null}
-            <label style={{ cursor: 'pointer' }}>
-              <input
-                type='file'
-                accept='image/png,image/jpeg,image/svg+xml'
-                style={{ display: 'none' }}
-                onChange={(e) => handleLogoFile(e.target.files?.[0] ?? undefined)}
+              <img
+                src={brand.logoDataUri}
+                alt={t('credits.settings.brandLogoAlt', { defaultValue: 'Brand logo preview' })}
+                className='billing-settings__brand-logo'
               />
-              <Button>
+            ) : null}
+            <Upload
+              accept='image/png,image/jpeg,image/svg+xml'
+              autoUpload={false}
+              showUploadList={false}
+              beforeUpload={(file) => {
+                handleLogoFile(file);
+                return false;
+              }}
+            >
+              <Button icon={<UploadOne theme='outline' size={15} />}>
                 {brand.logoDataUri
                   ? t('credits.settings.brandLogoChange', { defaultValue: 'Change logo' })
                   : t('credits.settings.brandLogoPick', { defaultValue: 'Upload logo' })}
               </Button>
-            </label>
+            </Upload>
             {brand.logoDataUri ? (
               <Button status='danger' type='text' onClick={() => setBrand((b) => ({ ...b, logoDataUri: undefined }))}>
                 {t('credits.settings.brandLogoRemove', { defaultValue: 'Remove' })}
               </Button>
             ) : null}
           </div>
-          <div>
+          <div className='eve-settings-form-actions'>
             <Button type='primary' loading={brandSaving} onClick={handleSaveBrand} data-testid='billing-brand-save'>
               {t('credits.settings.brandSave', { defaultValue: 'Save branding' })}
             </Button>
           </div>
         </div>
-      </Card>
+      </SettingsSection>
     </div>
   );
 };
