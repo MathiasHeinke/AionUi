@@ -96,8 +96,8 @@ export interface AionModalProps extends Omit<ModalProps, 'title' | 'footer'> {
 
 // ==================== 样式常量 / Style Constants ====================
 
-const HEADER_BASE_CLASS = 'flex items-center justify-between pb-20px';
-const TITLE_BASE_CLASS = 'text-18px font-500 text-t-primary m-0';
+const HEADER_BASE_CLASS = 'flex items-center justify-between gap-16px px-24px pt-20px pb-16px';
+const TITLE_BASE_CLASS = 'min-w-0 text-16px leading-24px font-600 text-t-primary m-0';
 const CLOSE_BUTTON_CLASS =
   'eve-modal__close eve-focus-ring !w-32px !h-32px !min-w-32px !p-0 !rd-8px !border-0 !bg-transparent !text-t-secondary hover:!bg-fill-2 hover:!text-t-primary';
 const FOOTER_BASE_CLASS = 'flex-shrink-0 bg-transparent';
@@ -181,7 +181,7 @@ const AionModal: React.FC<AionModalProps> = ({
   // 处理 contentStyle 配置，转换为 CSS 变量
   const contentBg = contentStyle?.background || 'transparent';
   const contentBorderRadius = contentStyle?.borderRadius || 'var(--eve-surface-radius-md)';
-  const contentPadding = contentStyle?.padding || '0';
+  const contentPadding = contentStyle?.padding ?? '4px 24px 20px';
   const contentOverflow = contentStyle?.overflow || 'auto';
 
   const borderRadiusVal = typeof contentBorderRadius === 'number' ? `${contentBorderRadius}px` : contentBorderRadius;
@@ -289,7 +289,7 @@ const AionModal: React.FC<AionModalProps> = ({
       const okLabel = props.okText ?? t('common.confirm', { defaultValue: 'Confirm' });
       return {
         render: () => (
-          <div className='flex justify-end gap-10px mt-10px'>
+          <div className='flex flex-wrap justify-end gap-10px px-24px pt-16px pb-20px'>
             {/* 默认按钮提供统一圆角，文案可通过 cancelText/okText 覆盖 */}
             {/* Default buttons ship with rounded corners; text can be overridden via cancelText/okText */}
             <Button onClick={onCancel} className='px-20px min-w-80px' style={{ borderRadius: 8 }}>

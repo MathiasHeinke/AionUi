@@ -548,6 +548,10 @@
 }
 
 .eve-dir-input.arco-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   height: 38px;
   padding: 0 12px;
   border-color: var(--glass-panel-border);
@@ -571,7 +575,13 @@
   min-width: 0;
 }
 
+.eve-dir-input > .i-icon {
+  flex: 0 0 auto;
+}
+
 .eve-dir-input__value {
+  display: block;
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -597,6 +607,17 @@
 
 .eve-settings-code-collapse .arco-collapse-item-header {
   padding: 10px 0;
+}
+
+.eve-settings-code-collapse .arco-collapse-item-header-title {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+}
+
+.eve-settings-code-collapse .arco-collapse-item-header-title > * {
+  width: 100%;
+  min-width: 0;
 }
 
 .eve-settings-code-collapse .arco-collapse-item-content-box {
@@ -1660,10 +1681,12 @@
 .company-brain-settings__item-title.arco-btn {
   display: flex;
   align-items: center;
+  gap: 10px;
   min-width: 0;
   min-height: 44px;
   height: auto;
   flex: 1 1 auto;
+  flex-wrap: wrap;
   justify-content: flex-start;
   padding: 10px 0;
   border-radius: var(--eve-surface-radius-sm);
@@ -2129,6 +2152,10 @@
   }
 
   .company-brain-settings__item-title .arco-btn-content {
+    align-items: flex-start;
+  }
+
+  .company-brain-settings__item-title.arco-btn {
     align-items: flex-start;
   }
 
