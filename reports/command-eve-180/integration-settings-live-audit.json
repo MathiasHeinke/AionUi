@@ -1,0 +1,187 @@
+{
+  "desktop": [
+    {
+      "route": "erste-schritte",
+      "active": "erste-schritte",
+      "overflowX": 0,
+      "forbidden": []
+    },
+    {
+      "route": "model",
+      "active": "model",
+      "overflowX": 0,
+      "forbidden": []
+    },
+    {
+      "route": "eve-runtime",
+      "active": "eve-runtime",
+      "overflowX": 0,
+      "forbidden": []
+    },
+    {
+      "route": "capabilities",
+      "active": "capabilities",
+      "overflowX": 0,
+      "forbidden": []
+    },
+    {
+      "route": "runtime",
+      "active": "runtime",
+      "overflowX": 0,
+      "forbidden": []
+    },
+    {
+      "route": "connectors",
+      "active": "connectors",
+      "overflowX": 0,
+      "forbidden": []
+    },
+    {
+      "route": "appearance",
+      "active": "appearance",
+      "overflowX": 0,
+      "forbidden": []
+    },
+    {
+      "route": "webui",
+      "active": "webui",
+      "overflowX": 0,
+      "forbidden": []
+    },
+    {
+      "route": "pet",
+      "active": "pet",
+      "overflowX": 0,
+      "forbidden": []
+    },
+    {
+      "route": "privacy",
+      "active": "privacy",
+      "overflowX": 0,
+      "forbidden": []
+    },
+    {
+      "route": "billing",
+      "active": "billing",
+      "overflowX": 0,
+      "forbidden": []
+    },
+    {
+      "route": "company-brain",
+      "active": "company-brain",
+      "overflowX": 0,
+      "forbidden": []
+    },
+    {
+      "route": "account",
+      "active": "account",
+      "overflowX": 0,
+      "forbidden": []
+    },
+    {
+      "route": "system",
+      "active": "system",
+      "overflowX": 0,
+      "forbidden": []
+    },
+    {
+      "route": "about",
+      "active": "about",
+      "overflowX": 0,
+      "forbidden": []
+    }
+  ],
+  "mobile": [
+    {
+      "route": "erste-schritte",
+      "active": null,
+      "activeFullyVisible": true,
+      "overflowX": 0
+    },
+    {
+      "route": "model",
+      "active": null,
+      "activeFullyVisible": true,
+      "overflowX": 0
+    },
+    {
+      "route": "eve-runtime",
+      "active": null,
+      "activeFullyVisible": true,
+      "overflowX": 0
+    },
+    {
+      "route": "capabilities",
+      "active": null,
+      "activeFullyVisible": true,
+      "overflowX": 0
+    },
+    {
+      "route": "runtime",
+      "active": null,
+      "activeFullyVisible": true,
+      "overflowX": 0
+    },
+    {
+      "route": "connectors",
+      "active": null,
+      "activeFullyVisible": true,
+      "overflowX": 0
+    },
+    {
+      "route": "appearance",
+      "active": null,
+      "activeFullyVisible": true,
+      "overflowX": 0
+    },
+    {
+      "route": "webui",
+      "active": null,
+      "activeFullyVisible": true,
+      "overflowX": 0
+    },
+    {
+      "route": "pet",
+      "active": null,
+      "activeFullyVisible": true,
+      "overflowX": 0
+    },
+    {
+      "route": "privacy",
+      "active": null,
+      "activeFullyVisible": true,
+      "overflowX": 0
+    },
+    {
+      "route": "billing",
+      "active": null,
+      "activeFullyVisible": true,
+      "overflowX": 0
+    },
+    {
+      "route": "company-brain",
+      "active": null,
+      "activeFullyVisible": true,
+      "overflowX": 0
+    },
+    {
+      "route": "account",
+      "active": null,
+      "activeFullyVisible": true,
+      "overflowX": 0
+    },
+    {
+      "route": "system",
+      "active": null,
+      "activeFullyVisible": true,
+      "overflowX": 0
+    },
+    {
+      "route": "about",
+      "active": null,
+      "activeFullyVisible": true,
+      "overflowX": 0
+    }
+  ],
+  "errors": []
+}
