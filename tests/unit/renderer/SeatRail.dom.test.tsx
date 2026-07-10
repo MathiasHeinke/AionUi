@@ -72,10 +72,12 @@ afterEach(() => {
 });
 
 describe('SeatRail', () => {
-  it('renders a circle per seat for an admin, active one marked + a "+"', () => {
+  it('renders the public EVE brand and one neutral identity tile per admin seat', () => {
     mockAccess();
-    render(<SeatRail />);
+    const { container } = render(<SeatRail />);
     expect(screen.getByTestId('seat-rail')).toBeTruthy();
+    expect(screen.getByTestId('seat-rail-brand').textContent).toBe('⌘');
+    expect(container.querySelector('img')).toBeNull();
     expect(screen.getByTestId('seat-rail-seat-s1')).toBeTruthy();
     expect(screen.getByTestId('seat-rail-seat-s2')).toBeTruthy();
     expect(screen.getByTestId('seat-rail-seat-s3')).toBeTruthy();
@@ -107,14 +109,27 @@ describe('SeatRail', () => {
       lastSwitchError: null,
       refresh: vi.fn(),
       switchTo: switchToMock,
-      access: { role: 'delegate', canSwitch: false, pinnedSeatId: 's1', activeSeatId: 's1', seats: [{ seat_id: 's1', name: 'X', role: 'delegate', is_active: true }] },
+      access: {
+        role: 'delegate',
+        canSwitch: false,
+        pinnedSeatId: 's1',
+        activeSeatId: 's1',
+        seats: [{ seat_id: 's1', name: 'X', role: 'delegate', is_active: true }],
+      },
     });
     const { container } = render(<SeatRail />);
     expect(container.querySelector('[data-testid="seat-rail"]')).toBeNull();
   });
 
   it('renders NOTHING while loading', () => {
-    useSeatAccessMock.mockReturnValue({ loading: true, switching: false, lastSwitchError: null, refresh: vi.fn(), switchTo: switchToMock, access: { role: 'admin', canSwitch: false, pinnedSeatId: 's1', activeSeatId: 's1', seats: [] } });
+    useSeatAccessMock.mockReturnValue({
+      loading: true,
+      switching: false,
+      lastSwitchError: null,
+      refresh: vi.fn(),
+      switchTo: switchToMock,
+      access: { role: 'admin', canSwitch: false, pinnedSeatId: 's1', activeSeatId: 's1', seats: [] },
+    });
     const { container } = render(<SeatRail />);
     expect(container.querySelector('[data-testid="seat-rail"]')).toBeNull();
   });

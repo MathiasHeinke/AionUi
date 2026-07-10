@@ -22,7 +22,13 @@
 
 import React, { useEffect, useState } from 'react';
 import { Message, Modal, Tooltip } from '@arco-design/web-react';
-import { isAnyGenerating, ensureAcpGenerationTracking, clearGenerationForBackendRespawn } from '@renderer/services/commandEveGenerationActivity';
+import { ExpandLeft, ExpandRight, Plus } from '@icon-park/react';
+import {
+  isAnyGenerating,
+  ensureAcpGenerationTracking,
+  clearGenerationForBackendRespawn,
+} from '@renderer/services/commandEveGenerationActivity';
+import CommandEveGlyph from '@renderer/components/commandEve/CommandEveGlyph';
 import { useTranslation } from 'react-i18next';
 import { useSeatAccess } from '@renderer/hooks/useSeatAccess';
 import { openAccountWeb } from '@renderer/utils/platform';
@@ -57,12 +63,13 @@ export function seatColor(key: string): string {
 }
 
 const DARK_INK = '#1d2129';
+const linearizeSrgb = (value: number): number =>
+  value <= 0.03928 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
 
 function relLuminance(hex: string): number {
   const c = hex.replace('#', '');
   const ch = (i: number) => parseInt(c.slice(i, i + 2), 16) / 255;
-  const lin = (v: number) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
-  return 0.2126 * lin(ch(0)) + 0.7152 * lin(ch(2)) + 0.0722 * lin(ch(4));
+  return 0.2126 * linearizeSrgb(ch(0)) + 0.7152 * linearizeSrgb(ch(2)) + 0.0722 * linearizeSrgb(ch(4));
 }
 
 // WCAG contrast ratio between two hex colors (1..21).
@@ -85,7 +92,10 @@ export function contrastText(hex: string): string {
 
 export function seatInitials(name: string): string {
   // Split on whitespace AND hyphen/underscore so "Müller-Bau" → "MB", not "MÜ".
-  const words = (name ?? '').trim().split(/[\s_-]+/).filter(Boolean);
+  const words = (name ?? '')
+    .trim()
+    .split(/[\s_-]+/)
+    .filter(Boolean);
   if (words.length === 0) return '?';
   if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
   return (words[0][0] + words[words.length - 1][0]).toUpperCase();
@@ -160,7 +170,9 @@ const SeatRail: React.FC = () => {
   // Admins only (see the security note above). Nothing renders otherwise.
   if (!visible) return null;
 
-  const toggleLabel = expanded ? t('commandEve.seatRail.collapse', 'Leiste einklappen') : t('commandEve.seatRail.expand', 'Leiste ausklappen');
+  const toggleLabel = expanded
+    ? t('commandEve.seatRail.collapse', 'Leiste einklappen')
+    : t('commandEve.seatRail.expand', 'Leiste ausklappen');
 
   return (
     <nav
@@ -184,6 +196,10 @@ const SeatRail: React.FC = () => {
         {lastSwitchError ? switchErrorMessage(lastSwitchError) : ''}
       </span>
 
+      <div className='seat-rail__brand' data-testid='seat-rail-brand' aria-hidden='true'>
+        <CommandEveGlyph size={22} />
+      </div>
+
       <Tooltip content={toggleLabel} position='right' trigger={['hover', 'focus']}>
         <button
           type='button'
@@ -193,9 +209,7 @@ const SeatRail: React.FC = () => {
           aria-expanded={expanded}
           onClick={() => setExpanded((e) => !e)}
         >
-          <svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2.5' strokeLinecap='round' strokeLinejoin='round' aria-hidden='true'>
-            {expanded ? <polyline points='15 18 9 12 15 6' /> : <polyline points='9 18 15 12 9 6' />}
-          </svg>
+          {expanded ? <ExpandLeft size={16} aria-hidden='true' /> : <ExpandRight size={16} aria-hidden='true' />}
         </button>
       </Tooltip>
 
@@ -212,7 +226,9 @@ const SeatRail: React.FC = () => {
                 type='button'
                 className={active ? 'seat-rail__seat seat-rail__seat--active' : 'seat-rail__seat'}
                 data-testid={`seat-rail-seat-${seat.seat_id}`}
-                aria-label={active ? t('commandEve.seatRail.activeSeat', '{{name}} (aktiv)', { name: seat.name }) : seat.name}
+                aria-label={
+                  active ? t('commandEve.seatRail.activeSeat', '{{name}} (aktiv)', { name: seat.name }) : seat.name
+                }
                 aria-current={active ? 'true' : undefined}
                 // aria-disabled (NOT the `disabled` attr) keeps the just-clicked seat in
                 // the tab order, so a keyboard-initiated switch does not drop focus to
@@ -267,7 +283,7 @@ const SeatRail: React.FC = () => {
           onClick={() => void openAccountWeb(ADD_SEAT_PATH)}
         >
           <span className='seat-rail__add-glyph' aria-hidden='true'>
-            +
+            <Plus size={16} />
           </span>
         </button>
       </Tooltip>
