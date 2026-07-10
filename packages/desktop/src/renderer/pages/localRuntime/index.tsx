@@ -175,6 +175,23 @@ const textOrDash = (value?: string | null): string => {
   return text || '-';
 };
 
+const formatTimestamp = (value: string | undefined, locale: string): string => {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
+};
+
+type PublicReceiptStatus = NonNullable<LocalRuntimeModel['receipt']>['status'] | 'unknown';
+
+const normalizeReceiptStatus = (status: string): PublicReceiptStatus => {
+  if (status === 'ready' || status === 'blocked' || status === 'failed' || status === 'skipped') return status;
+  return 'unknown';
+};
+
 const TierCard: React.FC<{ tier: LocalRuntimeTier; showTechnicalDetails: boolean }> = ({
   tier,
   showTechnicalDetails,
@@ -196,15 +213,22 @@ const TierCard: React.FC<{ tier: LocalRuntimeTier; showTechnicalDetails: boolean
         </div>
         <Tag color={tierColor(tier.status)}>{t(`localRuntime.tierStatus.${tier.status}`)}</Tag>
       </div>
+      {!showTechnicalDetails ? (
+        <p className='m-0 mt-8px text-13px leading-20px text-t-secondary'>
+          {t(`localRuntime.tierDescriptions.${tier.id}`, {
+            defaultValue: t('localRuntime.tierDescriptions.unknown'),
+          })}
+        </p>
+      ) : null}
       <dl className='mt-12px grid gap-x-12px gap-y-7px text-12px leading-18px sm:grid-cols-[145px_minmax(0,1fr)]'>
         {showTechnicalDetails ? (
           <>
             <dt className='text-t-tertiary'>{t('localRuntime.labels.runtimeModel')}</dt>
             <dd className='m-0 break-words text-t-secondary'>{tier.runtime_model_ref}</dd>
+            <dt className='text-t-tertiary'>{t('localRuntime.labels.context')}</dt>
+            <dd className='m-0 text-t-secondary'>{formatNumber(tier.context_length)}</dd>
           </>
         ) : null}
-        <dt className='text-t-tertiary'>{t('localRuntime.labels.context')}</dt>
-        <dd className='m-0 text-t-secondary'>{formatNumber(tier.context_length)}</dd>
         <dt className='text-t-tertiary'>{t('localRuntime.labels.requirements')}</dt>
         <dd className='m-0 text-t-secondary'>
           {t('localRuntime.requirements', {
@@ -253,7 +277,7 @@ const RemediationCard: React.FC<{
   const alertType = kind === 'cloud-redirect' ? 'info' : 'warning';
 
   return (
-    <section className='rounded-16px border border-solid border-[var(--color-border-2)] bg-bg-2 px-18px py-16px'>
+    <section className='eve-settings-group'>
       <div className='mb-12px flex flex-wrap items-center gap-8px'>
         <span className='text-16px font-700 leading-24px text-t-primary'>{t('localRuntime.remediation.title')}</span>
         <Tag color='gray'>{t('localRuntime.readOnly')}</Tag>
@@ -317,7 +341,7 @@ const RemediationCard: React.FC<{
 };
 
 const LocalRuntimePage: React.FC = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { founderBuild: showTechnicalDetails } = useCommandEveFounderBuild();
   const [loading, setLoading] = useState(true);
   const [result, setResult] = useState<LocalRuntimeResult | null>(null);
@@ -412,15 +436,29 @@ const LocalRuntimePage: React.FC = () => {
           </Button>
         </header>
 
-        {error ? <Alert type='warning' title={t('localRuntime.errors.loadFailed')} content={error} /> : null}
+        {error ? (
+          <Alert
+            type='warning'
+            title={t('localRuntime.errors.loadFailed')}
+            content={showTechnicalDetails ? error : t('localRuntime.errors.loadFailedDescription')}
+          />
+        ) : null}
         {kanbanError ? (
-          <Alert type='warning' title={t('localRuntime.errors.kanbanLoadFailed')} content={kanbanError} />
+          <Alert
+            type='warning'
+            title={t('localRuntime.errors.kanbanLoadFailed')}
+            content={showTechnicalDetails ? kanbanError : t('localRuntime.errors.kanbanLoadFailedDescription')}
+          />
         ) : null}
         {result && !result.ok ? (
           <Alert
             type={result.status === 'blocked' ? 'warning' : 'error'}
             title={t('localRuntime.blocked.title')}
-            content={`${result.reason_code || 'LOCAL_RUNTIME_UNAVAILABLE'}: ${result.message || t('localRuntime.blocked.description')}`}
+            content={
+              showTechnicalDetails
+                ? `${result.reason_code || 'LOCAL_RUNTIME_UNAVAILABLE'}: ${result.message || t('localRuntime.blocked.description')}`
+                : t('localRuntime.blocked.description')
+            }
           />
         ) : null}
 
@@ -431,11 +469,18 @@ const LocalRuntimePage: React.FC = () => {
         ) : model ? (
           <>
             {model.warnings.length ? (
-              <Alert
-                type='info'
-                title={t('localRuntime.warnings.title')}
-                content={model.warnings.map((warning) => t(`localRuntime.warnings.${warning}`, warning)).join(' · ')}
-              />
+              showTechnicalDetails ? (
+                <Alert
+                  type='info'
+                  title={t('localRuntime.warnings.title')}
+                  content={model.warnings.map((warning) => t(`localRuntime.warnings.${warning}`, warning)).join(' · ')}
+                />
+              ) : (
+                <div className='flex items-start gap-8px text-13px leading-20px text-t-secondary'>
+                  <Tag color='gray'>{t('localRuntime.warnings.title')}</Tag>
+                  <span>{t('localRuntime.warnings.publicSummary')}</span>
+                </div>
+              )
             ) : null}
 
             {model.blocked_stage ? (
@@ -489,7 +534,7 @@ const LocalRuntimePage: React.FC = () => {
                     {kanbanResult.ok ? t('localRuntime.kanban.ready') : t('localRuntime.kanban.notReady')}
                   </Tag>
                 ) : null}
-                <Tag color='gray'>{t('localRuntime.readOnly')}</Tag>
+                {showTechnicalDetails ? <Tag color='gray'>{t('localRuntime.readOnly')}</Tag> : null}
               </div>
               {kanbanResult?.model ? (
                 <>
@@ -513,7 +558,7 @@ const LocalRuntimePage: React.FC = () => {
                         total: kanbanResult.model.modules.length,
                       })}
                     </span>
-                    <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.governance')}</span>
+                    <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.protection')}</span>
                     <span className='text-t-secondary'>
                       {/* Write-governance lock = dispatcher off + external MCP off. auto_decompose
                           is intentionally ON (tree-building, not execution) — see
@@ -541,14 +586,21 @@ const LocalRuntimePage: React.FC = () => {
                     ) : null}
                   </div>
                   {kanbanResult.model.warnings.length ? (
-                    <Alert
-                      className='mt-12px'
-                      type='info'
-                      title={t('localRuntime.warnings.title')}
-                      content={kanbanResult.model.warnings
-                        .map((warning) => t(`localRuntime.warnings.${warning}`, warning))
-                        .join(' · ')}
-                    />
+                    showTechnicalDetails ? (
+                      <Alert
+                        className='mt-12px'
+                        type='info'
+                        title={t('localRuntime.warnings.title')}
+                        content={kanbanResult.model.warnings
+                          .map((warning) => t(`localRuntime.warnings.${warning}`, warning))
+                          .join(' · ')}
+                      />
+                    ) : (
+                      <div className='mt-12px flex items-start gap-8px text-13px leading-20px text-t-secondary'>
+                        <Tag color='gray'>{t('localRuntime.warnings.title')}</Tag>
+                        <span>{t('localRuntime.warnings.publicTaskSummary')}</span>
+                      </div>
+                    )
                   ) : null}
                 </>
               ) : (
@@ -563,9 +615,19 @@ const LocalRuntimePage: React.FC = () => {
               {model.receipt ? (
                 <div className='grid gap-x-12px gap-y-8px text-12px leading-18px lg:grid-cols-[180px_minmax(0,1fr)]'>
                   <span className='text-t-tertiary'>{t('localRuntime.labels.status')}</span>
-                  <span className='text-t-secondary'>{model.receipt.status}</span>
+                  <span className='text-t-secondary'>
+                    {t(`localRuntime.receiptStatus.${normalizeReceiptStatus(model.receipt.status)}`, {
+                      defaultValue: t('localRuntime.receiptStatus.unknown'),
+                    })}
+                  </span>
                   <span className='text-t-tertiary'>{t('localRuntime.labels.nextAction')}</span>
-                  <span className='text-t-secondary'>{model.receipt.next_action}</span>
+                  <span className='text-t-secondary'>
+                    {showTechnicalDetails
+                      ? model.receipt.next_action
+                      : t(`localRuntime.receiptNextAction.${normalizeReceiptStatus(model.receipt.status)}`, {
+                          defaultValue: t('localRuntime.receiptNextAction.unknown'),
+                        })}
+                  </span>
                   <span className='text-t-tertiary'>{t('localRuntime.labels.storage')}</span>
                   <span className='text-t-secondary'>{t('localRuntime.values.storedLocally')}</span>
                   {showTechnicalDetails ? (
@@ -609,12 +671,20 @@ const LocalRuntimePage: React.FC = () => {
                   <span className='text-t-secondary'>
                     {t('localRuntime.elapsedMs', { elapsed: model.model_warmup.elapsed_ms })}
                   </span>
-                  <span className='text-t-tertiary'>{t('localRuntime.labels.startedAt')}</span>
-                  <span className='text-t-secondary'>{model.model_warmup.started_at}</span>
-                  {model.model_warmup.completed_at ? (
+                  {showTechnicalDetails ? (
                     <>
-                      <span className='text-t-tertiary'>{t('localRuntime.labels.completedAt')}</span>
-                      <span className='text-t-secondary'>{model.model_warmup.completed_at}</span>
+                      <span className='text-t-tertiary'>{t('localRuntime.labels.startedAt')}</span>
+                      <span className='text-t-secondary'>
+                        {formatTimestamp(model.model_warmup.started_at, i18n.language)}
+                      </span>
+                      {model.model_warmup.completed_at ? (
+                        <>
+                          <span className='text-t-tertiary'>{t('localRuntime.labels.completedAt')}</span>
+                          <span className='text-t-secondary'>
+                            {formatTimestamp(model.model_warmup.completed_at, i18n.language)}
+                          </span>
+                        </>
+                      ) : null}
                     </>
                   ) : null}
                   {showTechnicalDetails && model.model_warmup.error ? (

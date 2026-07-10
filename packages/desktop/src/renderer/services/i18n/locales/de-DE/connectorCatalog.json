@@ -5,18 +5,20 @@
   "readOnly": "Sicherer Modus",
   "refresh": "Aktualisieren",
   "blocked": {
-    "title": "Connector Catalog nicht verfügbar",
+    "title": "Verbindungen nicht verfügbar",
     "description": "Die lokale Connector-Konfiguration ist noch nicht verfügbar. Starte Command EVE neu oder prüfe die Installation.",
     "electronBridgeRequired": "Lokale Connectoren können nur in der Command-EVE-Desktop-App verwaltet werden."
   },
   "errors": {
-    "loadFailed": "Connector Catalog konnte nicht geladen werden.",
-    "preflightFailed": "Connector-Preflight konnte nicht ausgeführt werden."
+    "loadFailed": "Verbindungen konnten nicht geladen werden.",
+    "loadFailedDescription": "EVE konnte den aktuellen Verbindungsstatus nicht lesen. Versuche es erneut oder starte Command EVE neu.",
+    "preflightFailed": "Verbindung konnte nicht geprüft werden."
   },
   "actions": {
     "guidedSetup": "Geführtes Setup folgt",
     "guidedSetupDisabled": "EVE ändert keine Verbindung ohne Sicherheitsprüfung und deine Freigabe.",
-    "runPreflightTitle": "Verbindung sicher prüfen."
+    "runPreflightTitle": "Verbindung sicher prüfen.",
+    "guidedAuthTitle": "Zugangsdaten geschützt speichern und die Verbindung vorbereiten."
   },
   "preflight": {
     "successTitle": "Verbindung geprüft",
@@ -30,7 +32,8 @@
     "connectors": "Connectoren",
     "globalBlocked": "Geschützte Aktionen",
     "guidedSetup": "Nächster Schritt",
-    "latestPreflight": "Letzte Prüfung"
+    "statusOverview": "Verbindungsstatus",
+    "technicalDetails": "Technische Details"
   },
   "labels": {
     "auth": "Auth",
@@ -55,33 +58,39 @@
     "surface": "Surface",
     "tierUnknown": "Stufe unbekannt",
     "technicalSource": "Technische Quelle",
-    "systemChanges": "Technische Änderungen"
+    "systemChanges": "Technische Änderungen",
+    "verification": "Sicherheitsprüfung",
+    "approval": "Freigabe"
   },
   "values": {
     "allowed": "Erlaubt",
     "blocked": "Blockiert",
-    "receiptAvailable": "Prüfung vorhanden",
-    "receiptPending": "Noch nicht geprüft"
+    "checkPassed": "Erfolgreich geprüft",
+    "checkFailed": "Prüfung nicht bestanden",
+    "checkPending": "Noch nicht geprüft",
+    "protectionActive": "Schutz aktiv"
   },
   "setupStates": {
     "connected": "Verbunden",
-    "preflight_required": "Preflight nötig",
+    "preflight_required": "Prüfung nötig",
     "auth_required": "Noch nicht verbunden",
     "humangate_required": "Freigabe nötig",
     "blocked": "Blockiert"
   },
   "setupActions": {
-    "view_receipt": "Receipt ansehen",
-    "run_read_only_preflight": "Read-only Preflight ausführen",
-    "guided_auth_setup": "Verbinden vorbereiten",
+    "view_receipt": "Kein weiterer Schritt nötig",
+    "run_read_only_preflight": "Verbindung prüfen",
+    "guided_auth_setup": "Sicher verbinden",
+    "guided_auth_setup_public": "Einrichtung mit Freigabe folgt",
     "request_humangate": "Freigabe anfordern",
-    "inspect_blocker": "Blocker prüfen"
+    "inspect_blocker": "Ursache prüfen"
   },
   "statusNote": {
     "default": "Kein direkter Schritt in der App nötig.",
-    "view_receipt": "Verbunden und per Preflight belegt. Das Receipt liegt lokal — kein weiterer Schritt nötig.",
+    "view_receipt": "Die Verbindung ist geprüft und einsatzbereit.",
+    "guided_auth_setup": "EVE hält diese Verbindung ausgeschaltet, bis die Freigabe vollständig in der App geführt werden kann.",
     "request_humangate": "Wartet auf deine Freigabe. Die Verbindung wird erst danach aktiviert.",
-    "inspect_blocker": "Der letzte Preflight ist blockiert. Die Ursache steht im Preflight-Receipt bzw. Log."
+    "inspect_blocker": "Die letzte Prüfung wurde nicht abgeschlossen. EVE hält die Verbindung sicher ausgeschaltet."
   },
   "secretHandling": {
     "never_in_chat": "Geschützt gespeichert und nie im Chat angezeigt"
@@ -96,8 +105,7 @@
     "blocked": "Blockiert"
   },
   "empty": {
-    "noConnectors": "Keine Connectoren verfügbar.",
-    "preflightMissing": "Noch nicht geprüft. EVE behandelt diese Verbindung nicht als aktiv."
+    "noConnectors": "Keine Connectoren verfügbar."
   },
   "publicNames": {
     "commandEveRuntime": "Command EVE Runtime",
@@ -117,10 +125,25 @@
     "blocked": "Diese Verbindung bleibt aus Sicherheitsgründen deaktiviert."
   },
   "security": {
+    "title": "Geschützte Verbindungen",
     "summary": "Zugangsdaten werden nie im Chat oder in sichtbaren Einstellungen gespeichert.",
     "approval": "EVE aktiviert keine Verbindung ohne erfolgreiche Prüfung und erforderliche Freigabe.",
     "minimumAccess": "EVE erhält nur die notwendigen Rechte. Empfindliche Änderungen bleiben gesperrt.",
     "protectedActions": "Direkte Änderungen an Zugangsdaten, Verbindungen und Automationen bleiben ohne Sicherheitsprüfung und Freigabe blockiert."
+  },
+  "setupModal": {
+    "title": "{{name}} verbinden",
+    "fallbackTitle": "Verbindung einrichten",
+    "confirm": "Geschützt verbinden",
+    "unavailable": "Diese Verbindung kann hier noch nicht eingerichtet werden. EVE hält sie bis dahin ausgeschaltet.",
+    "security": "Zugangsdaten werden verschlüsselt im System-Schlüsselbund gespeichert. Sie erscheinen nie im Chat oder in sichtbaren Einstellungen.",
+    "credential": "Zugangsdaten",
+    "credentialNumber": "Zugangsdaten {{number}}",
+    "credentialPlaceholder": "Geschützten Wert einfügen",
+    "approvalReceipt": "Freigabebeleg",
+    "approvalReceiptPlaceholder": "receipt://hg-3/<id>",
+    "storedSuccess": "Zugangsdaten wurden geschützt gespeichert.",
+    "setupFailed": "Die Verbindung konnte nicht eingerichtet werden."
   },
   "blockedActions": {
     "raw_mcp_add": "Rohes MCP-Setup",

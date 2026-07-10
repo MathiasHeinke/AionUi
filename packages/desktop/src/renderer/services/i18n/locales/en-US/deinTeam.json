@@ -1,5 +1,131 @@
 {
   "sider": "Your Team",
   "title": "Your Team",
-  "subtitle": "A fixed, curated team. EVE routes the work to the right role. Always-on members can be throttled or paused; burst hires can be engaged for a sprint and let go again. One free local worker is always on — your company is never empty."
+  "subtitle": "A fixed, curated team. EVE routes the work to the right role. Always-on members can be throttled or paused; burst hires can be engaged for a sprint and let go again. One free local worker is always on — your company is never empty.",
+  "sections": {
+    "leadership": "Leadership",
+    "roles": "Roles"
+  },
+  "labels": {
+    "leadership": "Leadership",
+    "freeLocalAlwaysOn": "Free · Local · Always on",
+    "consumesCredits": "uses credits"
+  },
+  "tiers": {
+    "standard": "Standard",
+    "high": "High",
+    "max": "Max",
+    "maximum": "Maximum"
+  },
+  "status": {
+    "active": "Active",
+    "paused": "Throttled",
+    "off": "Off"
+  },
+  "controls": {
+    "alwaysOn": "Always on duty",
+    "cancel": "Cancel",
+    "throttle": "Throttle",
+    "resume": "Resume",
+    "pause": "Pause",
+    "release": "Release",
+    "hireForSprint": "Hire for sprint"
+  },
+  "confirm": {
+    "budgetTitle": "Above the base budget",
+    "budgetBody": "Hiring {{role}} brings projected cost to €{{projected}}/month — €{{overage}} above the included base budget of €{{hull}}. Additional charges apply. Hire anyway?",
+    "hireAnyway": "Hire anyway",
+    "floorTitle": "Your last team member is leaving",
+    "floorBody": "Keep one free local team member? Your company stays available and the free front desk remains on.",
+    "keepFloor": "Keep free team member"
+  },
+  "messages": {
+    "floorKept": "The free front desk stays on, so your company is never empty.",
+    "floorRestored": "The last paid team member is off. The free front desk is handling reception."
+  },
+  "budget": {
+    "title": "Projected cost / month",
+    "activePaid": "Active paid team members: {{count}}",
+    "monthShort": "mo.",
+    "tooltipRemaining": "{{amount}} left in the base budget",
+    "tooltipOverage": "{{amount}} above the base budget",
+    "withinBudget": "Within the included base budget — {{amount}} left.",
+    "overBudget": "{{amount}} above the base budget — additional charges apply."
+  },
+  "skills": {
+    "strategy": "Strategy",
+    "planning": "Planning",
+    "decision-making": "Decision making",
+    "coordination": "Coordination",
+    "delegation": "Delegation",
+    "reporting": "Reporting",
+    "faq": "FAQ",
+    "triage": "Triage",
+    "local-chat": "Local chat",
+    "marketing-strategy": "Marketing strategy",
+    "campaign-planning": "Campaign planning",
+    "analytics": "Analytics",
+    "seo-audit": "SEO audit",
+    "keyword-research": "Keyword research",
+    "web-search": "Web search",
+    "content-creation": "Content creation",
+    "copywriting": "Copywriting",
+    "brand-voice": "Brand voice",
+    "community": "Community",
+    "social-listening": "Social listening",
+    "video-script": "Video script",
+    "storyboard": "Storyboard",
+    "social-video": "Social video",
+    "research": "Research",
+    "fact-check": "Fact check",
+    "evaluation": "Evaluation",
+    "unknown": "Capability"
+  },
+  "roles": {
+    "ceo": {
+      "name": "EVE",
+      "title": "CEO",
+      "outcome": "Sets priorities, makes decisions, and keeps the company on course."
+    },
+    "chief-of-staff": {
+      "name": "Chief of Staff",
+      "title": "Chief of Staff",
+      "outcome": "Coordinates work, delegates tasks, and summarizes outcomes."
+    },
+    "house-keeper": {
+      "name": "Front desk",
+      "title": "Reception / FAQ",
+      "outcome": "Answers simple questions around the clock — free and local, without credits."
+    },
+    "growth-lead": {
+      "name": "Growth Lead",
+      "title": "Growth Lead (CMO)",
+      "outcome": "Brings in new customers, plans campaigns, and measures what works."
+    },
+    "seo-lead": {
+      "name": "SEO",
+      "title": "SEO Lead",
+      "outcome": "Makes you visible on Google through keywords, on-page work, and content gaps."
+    },
+    "content-writer": {
+      "name": "Writer",
+      "title": "Content / Writer",
+      "outcome": "Writes blog posts, newsletters, and landing pages in your voice."
+    },
+    "reddit-lead": {
+      "name": "Reddit",
+      "title": "Reddit / Community",
+      "outcome": "Finds the right communities and responds without sounding promotional."
+    },
+    "video-marketer": {
+      "name": "Video",
+      "title": "Video Marketer",
+      "outcome": "Plans short videos and hooks for Shorts, Reels, and TikTok."
+    },
+    "eval-research": {
+      "name": "Research",
+      "title": "Evaluation / Research",
+      "outcome": "Checks claims, researches sources, and evaluates results."
+    }
+  }
 }

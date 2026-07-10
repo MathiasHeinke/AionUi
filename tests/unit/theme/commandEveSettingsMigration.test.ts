@@ -14,6 +14,7 @@ const collectStringValues = (value: unknown): string[] => {
 const connectorSource = read('packages/desktop/src/renderer/pages/connectorCatalog/index.tsx');
 const runtimeSource = read('packages/desktop/src/renderer/pages/localRuntime/index.tsx');
 const teamSource = read('packages/desktop/src/renderer/components/team/DeinTeamPanel.tsx');
+const projectedSpendSource = read('packages/desktop/src/renderer/components/team/ProjectedSpendMeter.tsx');
 
 describe('Command EVE settings migration contract', () => {
   it('routes connectors and local AI through the shared settings shell', () => {
@@ -44,6 +45,8 @@ describe('Command EVE settings migration contract', () => {
     expect(teamSource).not.toMatch(/Claude-CLI|Codex-CLI|role-worker-select|role-lane-state/);
     expect(teamSource).not.toContain("status='warning'");
     expect(teamSource).not.toContain('<Card');
+    expect(teamSource).toContain('deinTeam.skills.${skill}');
+    expect(teamSource).not.toContain('{skill}\n              </Tag>');
   });
 
   it('uses provider-neutral public connector and local-AI copy', () => {
@@ -65,8 +68,42 @@ describe('Command EVE settings migration contract', () => {
         publicNames: locale.publicNames,
         security: locale.security,
         secretHandling: locale.secretHandling,
+        setupStates: locale.setupStates,
+        setupActions: locale.setupActions,
+        statusNote: locale.statusNote,
+        setupModal: locale.setupModal,
+        tierDescriptions: locale.tierDescriptions,
+        receiptStatus: locale.receiptStatus,
+        receiptNextAction: locale.receiptNextAction,
+        errors: locale.errors,
+        empty: locale.empty,
       }).join(' ');
-      expect(publicCopy).not.toMatch(/AionUI|Company\.OS|Hermes|Gemma|Ollama|kanban\.db/i);
+      expect(publicCopy).not.toMatch(
+        /AionUI|Company\.OS|Hermes|Gemma|Ollama|kanban\.db|Preflight|HumanGate|MCP|Dispatcher/i
+      );
     }
+  });
+
+  it('keeps public connector and local-AI status copy out of raw runtime fields', () => {
+    expect(connectorSource).toContain('connectorCatalog.values.checkPassed');
+    expect(connectorSource).toContain('connectorCatalog.setupModal.security');
+    expect(runtimeSource).toContain('localRuntime.receiptStatus.${normalizeReceiptStatus(model.receipt.status)}');
+    expect(runtimeSource).toContain('localRuntime.receiptNextAction.${normalizeReceiptStatus(model.receipt.status)}');
+    expect(runtimeSource).not.toContain("<span className='text-t-secondary'>{model.receipt.status}</span>");
+  });
+
+  it('keeps founder-only connector setup gated and public errors translated', () => {
+    expect(connectorSource).toContain('const canUseGuidedAuth = isGuidedAuth && showTechnicalDetails');
+    expect(connectorSource).toContain('canRunPreflight || canUseGuidedAuth');
+    expect(connectorSource).toContain('connectorCatalog.setupModal.storedSuccess');
+    expect(connectorSource).toContain('connectorCatalog.setupModal.setupFailed');
+    expect(connectorSource).not.toContain("Message.success('Connector credential stored securely.')");
+  });
+
+  it('provides safe runtime fallbacks and preserves the full projected-cost value', () => {
+    expect(runtimeSource).toContain("defaultValue: t('localRuntime.tierDescriptions.unknown')");
+    expect(runtimeSource).toContain('normalizeReceiptStatus(model.receipt.status)');
+    expect(projectedSpendSource).toContain('shrink-0 whitespace-nowrap');
+    expect(projectedSpendSource).toContain("t('deinTeam.budget.title')");
   });
 });

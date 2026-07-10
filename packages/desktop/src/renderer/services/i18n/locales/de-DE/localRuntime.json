@@ -2,7 +2,7 @@
   "sider": "Runtime",
   "title": "Lokale KI",
   "readOnly": "Status",
-  "subtitle": "Hier siehst du, ob EVEs lokale KI auf diesem Mac bereit ist. EVE richtet die passende Spur ein und nutzt weiterhin automatisch die Cloud, wenn lokal etwas fehlt.",
+  "subtitle": "Hier siehst du, ob EVEs lokale KI auf diesem Mac bereit ist. EVE verwaltet sie automatisch und nutzt die Cloud, wenn lokal etwas fehlt.",
   "refresh": "Aktualisieren",
   "sections": {
     "runtimeTruth": "Lokale Ausführung",
@@ -11,8 +11,8 @@
     "kanban": "Lokale Aufgaben"
   },
   "remediation": {
-    "title": "Lokale Spur einrichten",
-    "cloudReassurance": "Die Cloud-KI ist und bleibt deine Standard-Spur — sie läuft sofort, egal was hier steht.",
+    "title": "Lokale KI vorbereiten",
+    "cloudReassurance": "EVE arbeitet in der Cloud weiter, bis die lokale KI bereit ist.",
     "reasonLabel": "Grund",
     "external-link": {
       "title": "Eine lokale Komponente fehlt",
@@ -50,7 +50,7 @@
     "selectedModel": "Ausgewähltes Modell",
     "runtimeModel": "Runtime-Modell",
     "context": "Kontext",
-    "requirements": "Anforderung",
+    "requirements": "Benötigt",
     "status": "Status",
     "model": "Modell",
     "baseUrl": "Base URL",
@@ -61,7 +61,7 @@
     "baseModel": "Base Model",
     "nextAction": "Nächster Schritt",
     "receiptPath": "Receipt-Datei",
-    "localLane": "Lokale Spur",
+    "localLane": "Verwaltung",
     "storage": "Speicherort"
   },
   "values": {
@@ -80,21 +80,22 @@
     "ready": "Bereit",
     "notReady": "Nicht bereit",
     "moduleCount": "{{ready}}/{{total}} Module bereit",
-    "governanceLocked": "Dispatcher und externe MCP-Server sind aus",
-    "governanceOpen": "Governance-Lock unvollständig",
+    "governanceLocked": "Automatische externe Änderungen sind ausgeschaltet",
+    "governanceOpen": "Ein Teil der Schutzregeln ist noch nicht aktiv",
     "labels": {
       "board": "Board",
       "db": "Kanban DB",
       "dbState": "DB-Status",
-      "tasks": "Tasks",
+      "tasks": "Aufgaben",
       "modules": "Module",
       "governance": "Governance",
+      "protection": "Autonomie-Schutz",
       "reconciliation": "Reconciliation",
       "localData": "Lokale Daten"
     },
     "dbPresent": {
-      "yes": "Vorhanden, read-only geöffnet",
-      "no": "Noch nicht vorhanden, keine Mutation ausgeführt"
+      "yes": "Vorhanden",
+      "no": "Noch nicht angelegt"
     }
   },
   "tierStatus": {
@@ -108,8 +109,30 @@
     "gemma-4-12b-local-planning": "Planung und Analyse",
     "gemma-4-31b-local-pro": "Lokale Pro-Leistung"
   },
+  "tierDescriptions": {
+    "gemma-4-e4b-local-default": "Für schnelle Alltagsaufgaben und kurze Antworten.",
+    "gemma-4-12b-local-planning": "Für umfangreichere Planung und strukturierte Analysen.",
+    "gemma-4-31b-local-pro": "Für anspruchsvolle lokale Arbeit auf leistungsstarken Macs.",
+    "unknown": "Für lokale Aufgaben auf diesem Mac."
+  },
+  "receiptStatus": {
+    "ready": "Bereit",
+    "blocked": "Noch nicht bereit",
+    "failed": "Einrichtung fehlgeschlagen",
+    "skipped": "Noch nicht eingerichtet",
+    "unknown": "Status wird geprüft"
+  },
+  "receiptNextAction": {
+    "ready": "EVE kann die lokale KI automatisch verwenden.",
+    "blocked": "EVE arbeitet weiter in der Cloud und hält die lokale KI ausgeschaltet.",
+    "failed": "EVE arbeitet weiter in der Cloud. Die lokale Einrichtung kann später erneut geprüft werden.",
+    "skipped": "Kein Schritt nötig. EVE richtet die lokale KI bei Bedarf ein.",
+    "unknown": "EVE prüft den nächsten sicheren Schritt automatisch."
+  },
   "warnings": {
     "title": "Status-Hinweis",
+    "publicSummary": "Die lokale KI ist noch nicht vollständig vorbereitet. EVE arbeitet währenddessen zuverlässig in der Cloud weiter.",
+    "publicTaskSummary": "Ein Teil der lokalen Aufgabendaten ist noch nicht verfügbar. Die Kernfunktionen bleiben nutzbar.",
     "runtime_receipt_missing": "Noch kein Runtime-Receipt geschrieben",
     "runtime_receipt_schema_mismatch": "Runtime-Receipt hat ein unerwartetes Schema",
     "runtime_receipt_json_invalid": "Runtime-Receipt ist kein gültiges JSON",
@@ -128,17 +151,19 @@
   },
   "errors": {
     "loadFailed": "Runtime-Status konnte nicht geladen werden.",
-    "kanbanLoadFailed": "Kanban-Preflight konnte nicht geladen werden."
+    "loadFailedDescription": "EVE konnte den Status der lokalen KI gerade nicht lesen. Die Cloud-KI bleibt verfügbar.",
+    "kanbanLoadFailed": "Lokale Aufgaben konnten nicht geprüft werden.",
+    "kanbanLoadFailedDescription": "EVE konnte die lokalen Aufgabendaten gerade nicht lesen. Deine gespeicherten Aufgaben bleiben unverändert."
   },
   "blocked": {
-    "title": "Runtime-Status blockiert",
-    "description": "Die lokale Runtime-Wahrheit ist nicht verfügbar.",
+    "title": "Lokale KI nicht verfügbar",
+    "description": "EVE konnte die lokale KI gerade nicht prüfen. Die Cloud-KI bleibt verfügbar.",
     "electronBridgeRequired": "Der Runtime-Status benötigt die Electron Bridge."
   },
   "empty": {
-    "noReceipt": "Noch kein Bootstrap-Receipt vorhanden.",
-    "noWarmup": "Noch kein Modell-Warm-up-Receipt vorhanden.",
-    "noKanban": "Noch kein Kanban-Preflight vorhanden.",
-    "noRuntime": "Keine Runtime-Daten gefunden."
+    "noReceipt": "Die lokale KI wurde noch nicht eingerichtet.",
+    "noWarmup": "Die lokale KI wurde noch nicht gestartet.",
+    "noKanban": "Noch keine lokalen Aufgabendaten vorhanden.",
+    "noRuntime": "Noch keine Informationen zur lokalen KI vorhanden."
   }
 }

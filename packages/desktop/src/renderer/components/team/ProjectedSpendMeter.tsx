@@ -22,6 +22,7 @@
 import { type ProjectedSpend } from '@/common/config/eveTeamBudgetCore';
 import { Progress, Tooltip } from '@arco-design/web-react';
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 
 export interface ProjectedSpendMeterProps {
   /** The pre-computed projection (from `projectMonthlySpend`). */
@@ -34,24 +35,24 @@ function eur(n: number): string {
 }
 
 const ProjectedSpendMeter: React.FC<ProjectedSpendMeterProps> = ({ projection }) => {
+  const { t } = useTranslation();
   const { totalEur, hullEur, fitsHull, remainingEur, overageEur, lines } = projection;
   const percent = hullEur > 0 ? Math.min(100, Math.round((totalEur / hullEur) * 100)) : 0;
   const activePaid = lines.filter((l) => l.active && l.salaryEur > 0);
 
   const tooltip = (
     <div>
-      <div>
-        Aktive Mitarbeiter (kostenpflichtig): {activePaid.length}
-      </div>
+      <div>{t('deinTeam.budget.activePaid', { count: activePaid.length })}</div>
       {activePaid.map((l) => (
         <div key={l.role.agent_id}>
-          {l.role.displayName} · {eur(l.salaryEur)}/Mon.
+          {t(`deinTeam.roles.${l.role.agent_id}.name`, { defaultValue: l.role.displayName })} · {eur(l.salaryEur)}/
+          {t('deinTeam.budget.monthShort')}
         </div>
       ))}
       <div style={{ marginTop: 4 }}>
         {fitsHull
-          ? `Noch ${eur(remainingEur)} im Basis-Budget frei`
-          : `${eur(overageEur)} über dem Basis-Budget`}
+          ? t('deinTeam.budget.tooltipRemaining', { amount: eur(remainingEur) })
+          : t('deinTeam.budget.tooltipOverage', { amount: eur(overageEur) })}
       </div>
     </div>
   );
@@ -59,31 +60,26 @@ const ProjectedSpendMeter: React.FC<ProjectedSpendMeterProps> = ({ projection })
   return (
     <Tooltip content={tooltip} position='bottom'>
       <div
-        className='w-full mb-3 p-2 rounded'
+        className='box-border w-full mb-3 p-2 rounded'
         data-testid='projected-spend-meter'
         data-fits-hull={fitsHull ? 'true' : 'false'}
         style={{ background: 'var(--color-fill-1)' }}
       >
-        <div className='flex items-center justify-between mb-1'>
-          <span className='text-sm font-medium text-t-primary'>Voraussichtliche Kosten / Monat</span>
+        <div className='flex items-start justify-between gap-12px mb-1'>
+          <span className='min-w-0 text-sm font-medium text-t-primary'>{t('deinTeam.budget.title')}</span>
           <span
-            className='text-sm font-medium'
+            className='shrink-0 whitespace-nowrap text-sm font-medium'
             data-testid='projected-spend-total'
             style={{ color: fitsHull ? 'var(--color-text-1)' : 'rgb(var(--danger-6))' }}
           >
             {eur(totalEur)} / {eur(hullEur)}
           </span>
         </div>
-        <Progress
-          percent={percent}
-          showText={false}
-          size='small'
-          status={fitsHull ? 'normal' : 'error'}
-        />
+        <Progress percent={percent} showText={false} size='small' status={fitsHull ? 'normal' : 'error'} />
         <div className='text-xs text-t-secondary mt-1' data-testid='projected-spend-hint'>
           {fitsHull
-            ? `Im enthaltenen Basis-Budget — noch ${eur(remainingEur)} frei.`
-            : `Über dem Basis-Budget um ${eur(overageEur)} — zusätzliche Kosten fallen an.`}
+            ? t('deinTeam.budget.withinBudget', { amount: eur(remainingEur) })
+            : t('deinTeam.budget.overBudget', { amount: eur(overageEur) })}
         </div>
       </div>
     </Tooltip>

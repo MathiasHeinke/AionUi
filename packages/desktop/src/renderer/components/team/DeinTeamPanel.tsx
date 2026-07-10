@@ -50,14 +50,7 @@ import ProjectedSpendMeter from '@renderer/components/team/ProjectedSpendMeter';
 import { Button, Message, Popconfirm, Tag } from '@arco-design/web-react';
 import { Pause, PlayOne, Power, UserPositioning } from '@icon-park/react';
 import React, { useCallback, useMemo } from 'react';
-
-/** German level label for an EVE tier (the user never sees a raw model id). */
-const TIER_LABEL_DE: Record<EveTeamRoleTier, string> = {
-  standard: 'Standard',
-  high: 'Hoch',
-  max: 'Max',
-  maximum: 'Maximum',
-};
+import { useTranslation } from 'react-i18next';
 
 /** Paid levels carry a subtle credit marker (mirrors the inference picker). */
 const TIER_CONSUMES_CREDITS: Record<EveTeamRoleTier, boolean> = {
@@ -65,13 +58,6 @@ const TIER_CONSUMES_CREDITS: Record<EveTeamRoleTier, boolean> = {
   high: false,
   max: true,
   maximum: true,
-};
-
-/** German label for a worker status badge. */
-const STATUS_LABEL_DE: Record<EveTeamWorkerStatus, string> = {
-  active: 'Aktiv',
-  paused: 'Gedrosselt',
-  off: 'Aus',
 };
 
 const STATUS_COLOR: Record<EveTeamWorkerStatus, string> = {
@@ -94,9 +80,11 @@ interface RoleControlsProps {
  * control.
  */
 const RoleControls: React.FC<RoleControlsProps> = ({ role, status, statuses, onAction }) => {
+  const { t } = useTranslation();
+  const roleName = t(`deinTeam.roles.${role.agent_id}.name`, { defaultValue: role.displayName });
   // Governance seats are permanent — no on/off control.
   if (role.kind === 'governance') {
-    return <Tag size='small'>Immer im Dienst</Tag>;
+    return <Tag size='small'>{t('deinTeam.controls.alwaysOn')}</Tag>;
   }
 
   const controlKind = controlKindForRole(role);
@@ -115,14 +103,15 @@ const RoleControls: React.FC<RoleControlsProps> = ({ role, status, statuses, onA
       return (
         <Popconfirm
           key={action}
-          title='Über dem Basis-Budget'
-          content={`${role.displayName} einstellen bringt deine voraussichtlichen Kosten auf ${Math.round(
-            budget.projectedEur
-          )}€/Mon. — ${Math.round(budget.overageEur)}€ über dem enthaltenen Basis-Budget (${Math.round(
-            budget.hullEur
-          )}€). Zusätzliche Kosten fallen an. Trotzdem einstellen?`}
-          okText='Trotzdem einstellen'
-          cancelText='Abbrechen'
+          title={t('deinTeam.confirm.budgetTitle')}
+          content={t('deinTeam.confirm.budgetBody', {
+            role: roleName,
+            projected: Math.round(budget.projectedEur),
+            overage: Math.round(budget.overageEur),
+            hull: Math.round(budget.hullEur),
+          })}
+          okText={t('deinTeam.confirm.hireAnyway')}
+          cancelText={t('deinTeam.controls.cancel')}
           onOk={() => onAction(role, action)}
         >
           {React.cloneElement(button, { key: action })}
@@ -146,10 +135,10 @@ const RoleControls: React.FC<RoleControlsProps> = ({ role, status, statuses, onA
       return (
         <Popconfirm
           key={action}
-          title='Dein letzter Mitarbeiter geht'
-          content='Einen kostenlosen Local-Worker behalten? Deine Firma bleibt nie ganz leer — der gratis Hauspförtner läuft weiter.'
-          okText='Trotzdem, Floor behalten'
-          cancelText='Abbrechen'
+          title={t('deinTeam.confirm.floorTitle')}
+          content={t('deinTeam.confirm.floorBody')}
+          okText={t('deinTeam.confirm.keepFloor')}
+          cancelText={t('deinTeam.controls.cancel')}
           onOk={() => onAction(role, action)}
         >
           {button}
@@ -164,15 +153,17 @@ const RoleControls: React.FC<RoleControlsProps> = ({ role, status, statuses, onA
     return (
       <div className='flex items-center gap-1 flex-wrap'>
         {status === 'active'
-          ? renderDeactivate('pause', 'Drosseln', <Pause theme='outline' size='12' />)
+          ? renderDeactivate('pause', t('deinTeam.controls.throttle'), <Pause theme='outline' size='12' />)
           : renderActivate(
               'resume',
-              'Fortsetzen',
+              t('deinTeam.controls.resume'),
               <Button size='mini' type='outline' icon={<PlayOne theme='outline' size='12' />}>
-                Fortsetzen
+                {t('deinTeam.controls.resume')}
               </Button>
             )}
-        {status !== 'off' ? renderDeactivate('stop', 'Pausieren', <Power theme='outline' size='12' />) : null}
+        {status !== 'off'
+          ? renderDeactivate('stop', t('deinTeam.controls.pause'), <Power theme='outline' size='12' />)
+          : null}
       </div>
     );
   }
@@ -181,12 +172,12 @@ const RoleControls: React.FC<RoleControlsProps> = ({ role, status, statuses, onA
   return (
     <div className='flex items-center gap-1 flex-wrap'>
       {status === 'active'
-        ? renderDeactivate('release', 'Entlassen', <Power theme='outline' size='12' />)
+        ? renderDeactivate('release', t('deinTeam.controls.release'), <Power theme='outline' size='12' />)
         : renderActivate(
             'hire',
-            'Für Sprint einstellen',
+            t('deinTeam.controls.hireForSprint'),
             <Button size='mini' type='primary' icon={<UserPositioning theme='outline' size='12' />}>
-              Für Sprint einstellen
+              {t('deinTeam.controls.hireForSprint')}
             </Button>
           )}
     </div>
@@ -200,41 +191,45 @@ interface RoleCardProps {
 }
 
 const RoleCard: React.FC<RoleCardProps> = ({ role, statuses, onAction }) => {
+  const { t } = useTranslation();
   const consumesCredits = TIER_CONSUMES_CREDITS[role.tier];
   const status = statusForRole(role, statuses);
   const isFloor = isFreeFloorWorker(role);
+  const roleName = t(`deinTeam.roles.${role.agent_id}.name`, { defaultValue: role.displayName });
+  const roleTitle = t(`deinTeam.roles.${role.agent_id}.title`, { defaultValue: role.title });
+  const roleOutcome = t(`deinTeam.roles.${role.agent_id}.outcome`, { defaultValue: role.outcome });
   return (
     <div className='eve-settings-group w-full' data-agent-id={role.agent_id}>
       <div className='flex items-start gap-3'>
         <div className='flex-1 min-w-0'>
           <div className='flex items-center gap-2 mb-1 flex-wrap'>
-            <span className='font-medium text-t-primary'>{role.displayName}</span>
-            <span className='text-xs text-t-secondary'>{role.title}</span>
+            <span className='font-medium text-t-primary'>{roleName}</span>
+            <span className='text-xs text-t-secondary'>{roleTitle}</span>
             {role.kind === 'governance' ? (
               <Tag color='arcoblue' size='small'>
-                Führung
+                {t('deinTeam.labels.leadership')}
               </Tag>
             ) : null}
             {isFloor ? (
               <Tag color='green' size='small'>
-                Gratis · Lokal · Immer da
+                {t('deinTeam.labels.freeLocalAlwaysOn')}
               </Tag>
             ) : null}
             <Tag size='small' color='gray'>
-              {TIER_LABEL_DE[role.tier]}
-              {consumesCredits ? ' · verbraucht Credits' : ''}
+              {t(`deinTeam.tiers.${role.tier}`)}
+              {consumesCredits ? ` · ${t('deinTeam.labels.consumesCredits')}` : ''}
             </Tag>
             {role.kind === 'work' ? (
               <Tag size='small' color={STATUS_COLOR[status]} bordered>
-                {STATUS_LABEL_DE[status]}
+                {t(`deinTeam.status.${status}`)}
               </Tag>
             ) : null}
           </div>
-          <div className='text-sm text-t-primary mb-2'>{role.outcome}</div>
+          <div className='text-sm text-t-primary mb-2'>{roleOutcome}</div>
           <div className='flex items-center gap-1 flex-wrap mb-2'>
             {role.skills.map((skill) => (
               <Tag key={skill} size='small' bordered>
-                {skill}
+                {t(`deinTeam.skills.${skill}`, { defaultValue: t('deinTeam.skills.unknown') })}
               </Tag>
             ))}
           </div>
@@ -251,6 +246,7 @@ const RoleCard: React.FC<RoleCardProps> = ({ role, statuses, onAction }) => {
  * guard is enforced by the pure reducer before anything is persisted.
  */
 const DeinTeamPanel: React.FC = () => {
+  const { t } = useTranslation();
   const [persisted, setPersisted] = useConfig('commandEve.teamWorkerStatus');
   const statuses: EveTeamWorkerStatusMap = useMemo(() => persisted ?? {}, [persisted]);
 
@@ -274,9 +270,9 @@ const DeinTeamPanel: React.FC = () => {
       // source of truth for the resulting state — it can never go empty.
       const { next, decision } = applyControlAction(role, action, statuses, { confirmedWarning: true });
       if (decision.resolution === 'keep-floor') {
-        Message.info('Der kostenlose Hauspförtner bleibt an — deine Firma ist nie ganz leer.');
+        Message.info(t('deinTeam.messages.floorKept'));
       } else if (decision.resolution === 'restore-floor') {
-        Message.info('Letzter bezahlter Mitarbeiter weg — der gratis Hauspförtner übernimmt den Empfang.');
+        Message.info(t('deinTeam.messages.floorRestored'));
       }
       // SG-1 A3: the authoritative status write MUST land BEFORE we nudge main to
       // rewrite the derived launcher status files — the sync IPC re-reads the
@@ -288,7 +284,7 @@ const DeinTeamPanel: React.FC = () => {
         await ipcBridge.commandEve.syncWorkerLauncherState.invoke().catch(() => {});
       })();
     },
-    [statuses, setPersisted]
+    [statuses, setPersisted, t]
   );
 
   return (
@@ -298,7 +294,9 @@ const DeinTeamPanel: React.FC = () => {
       <ProjectedSpendMeter projection={projection} />
       {governance.length > 0 ? (
         <div className='mb-3'>
-          <div className='text-xs uppercase tracking-wide text-t-secondary mb-1'>Führung</div>
+          <div className='text-xs uppercase tracking-wide text-t-secondary mb-1'>
+            {t('deinTeam.sections.leadership')}
+          </div>
           {governance.map((role) => (
             <RoleCard key={role.agent_id} role={role} statuses={statuses} onAction={handleAction} />
           ))}
@@ -306,7 +304,7 @@ const DeinTeamPanel: React.FC = () => {
       ) : null}
       {operators.length > 0 ? (
         <div>
-          <div className='text-xs uppercase tracking-wide text-t-secondary mb-1'>Rollen</div>
+          <div className='text-xs uppercase tracking-wide text-t-secondary mb-1'>{t('deinTeam.sections.roles')}</div>
           {operators.map((role) => (
             <RoleCard key={role.agent_id} role={role} statuses={statuses} onAction={handleAction} />
           ))}

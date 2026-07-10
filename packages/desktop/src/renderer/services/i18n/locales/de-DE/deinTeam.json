@@ -1,5 +1,131 @@
 {
   "sider": "Dein Team",
   "title": "Dein Team",
-  "subtitle": "Ein festes, kuratiertes Team. EVE verteilt die Arbeit an die passende Rolle. Dauer-Mitarbeiter kannst du drosseln oder pausieren; Sprint-Kräfte für einen Push einstellen und wieder entlassen. Ein gratis lokaler Mitarbeiter bleibt immer an — deine Firma ist nie leer."
+  "subtitle": "Ein festes, kuratiertes Team. EVE verteilt die Arbeit an die passende Rolle. Dauer-Mitarbeiter kannst du drosseln oder pausieren; Sprint-Kräfte für einen Push einstellen und wieder entlassen. Ein gratis lokaler Mitarbeiter bleibt immer an — deine Firma ist nie leer.",
+  "sections": {
+    "leadership": "Führung",
+    "roles": "Rollen"
+  },
+  "labels": {
+    "leadership": "Führung",
+    "freeLocalAlwaysOn": "Gratis · Lokal · Immer da",
+    "consumesCredits": "verbraucht Credits"
+  },
+  "tiers": {
+    "standard": "Standard",
+    "high": "Hoch",
+    "max": "Max",
+    "maximum": "Maximum"
+  },
+  "status": {
+    "active": "Aktiv",
+    "paused": "Gedrosselt",
+    "off": "Aus"
+  },
+  "controls": {
+    "alwaysOn": "Immer im Dienst",
+    "cancel": "Abbrechen",
+    "throttle": "Drosseln",
+    "resume": "Fortsetzen",
+    "pause": "Pausieren",
+    "release": "Entlassen",
+    "hireForSprint": "Für Sprint einstellen"
+  },
+  "confirm": {
+    "budgetTitle": "Über dem Basis-Budget",
+    "budgetBody": "{{role}} einstellen bringt deine voraussichtlichen Kosten auf {{projected}} €/Monat — {{overage}} € über dem enthaltenen Basis-Budget von {{hull}} €. Zusätzliche Kosten fallen an. Trotzdem einstellen?",
+    "hireAnyway": "Trotzdem einstellen",
+    "floorTitle": "Dein letzter Mitarbeiter geht",
+    "floorBody": "Einen kostenlosen lokalen Mitarbeiter behalten? Deine Firma bleibt nie ganz leer — der gratis Hauspförtner läuft weiter.",
+    "keepFloor": "Kostenlosen Mitarbeiter behalten"
+  },
+  "messages": {
+    "floorKept": "Der kostenlose Hauspförtner bleibt an — deine Firma ist nie ganz leer.",
+    "floorRestored": "Der letzte bezahlte Mitarbeiter ist aus. Der kostenlose Hauspförtner übernimmt den Empfang."
+  },
+  "budget": {
+    "title": "Voraussichtliche Kosten / Monat",
+    "activePaid": "Aktive kostenpflichtige Mitarbeiter: {{count}}",
+    "monthShort": "Mon.",
+    "tooltipRemaining": "Noch {{amount}} im Basis-Budget frei",
+    "tooltipOverage": "{{amount}} über dem Basis-Budget",
+    "withinBudget": "Im enthaltenen Basis-Budget — noch {{amount}} frei.",
+    "overBudget": "Über dem Basis-Budget um {{amount}} — zusätzliche Kosten fallen an."
+  },
+  "skills": {
+    "strategy": "Strategie",
+    "planning": "Planung",
+    "decision-making": "Entscheidungen",
+    "coordination": "Koordination",
+    "delegation": "Delegation",
+    "reporting": "Berichte",
+    "faq": "FAQ",
+    "triage": "Ersteinschätzung",
+    "local-chat": "Lokaler Chat",
+    "marketing-strategy": "Marketingstrategie",
+    "campaign-planning": "Kampagnenplanung",
+    "analytics": "Analyse",
+    "seo-audit": "SEO-Prüfung",
+    "keyword-research": "Keyword-Recherche",
+    "web-search": "Websuche",
+    "content-creation": "Content-Erstellung",
+    "copywriting": "Werbetexte",
+    "brand-voice": "Markenstimme",
+    "community": "Community",
+    "social-listening": "Social Listening",
+    "video-script": "Videoskript",
+    "storyboard": "Storyboard",
+    "social-video": "Social Video",
+    "research": "Recherche",
+    "fact-check": "Faktencheck",
+    "evaluation": "Bewertung",
+    "unknown": "Fähigkeit"
+  },
+  "roles": {
+    "ceo": {
+      "name": "EVE",
+      "title": "CEO",
+      "outcome": "Setzt Prioritäten, trifft Entscheidungen und hält den Kurs."
+    },
+    "chief-of-staff": {
+      "name": "Stabschef",
+      "title": "Chief of Staff",
+      "outcome": "Koordiniert die Arbeit, verteilt Aufgaben und fasst Ergebnisse zusammen."
+    },
+    "house-keeper": {
+      "name": "Hauspförtner",
+      "title": "Empfang / FAQ",
+      "outcome": "Beantwortet einfache Fragen rund um die Uhr — kostenlos und lokal, ohne Credits."
+    },
+    "growth-lead": {
+      "name": "Growth Lead",
+      "title": "Growth Lead (CMO)",
+      "outcome": "Bringt neue Kunden — plant Kampagnen und misst, was wirkt."
+    },
+    "seo-lead": {
+      "name": "SEO",
+      "title": "SEO Lead",
+      "outcome": "Macht dich bei Google sichtbar — Keywords, On-Page und Content-Lücken."
+    },
+    "content-writer": {
+      "name": "Autor",
+      "title": "Content / Writer",
+      "outcome": "Schreibt Blogposts, Newsletter und Landingpages in deiner Stimme."
+    },
+    "reddit-lead": {
+      "name": "Reddit",
+      "title": "Reddit / Community",
+      "outcome": "Findet die richtigen Subreddits und antwortet ohne Werbe-Geruch."
+    },
+    "video-marketer": {
+      "name": "Video",
+      "title": "Videomarketer",
+      "outcome": "Plant Kurzvideos und Hooks für Shorts, Reels und TikTok."
+    },
+    "eval-research": {
+      "name": "Recherche",
+      "title": "Eval / Research",
+      "outcome": "Prüft Behauptungen, recherchiert Quellen und bewertet Ergebnisse."
+    }
+  }
 }

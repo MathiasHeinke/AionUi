@@ -2,7 +2,7 @@
   "sider": "Runtime",
   "title": "Local AI",
   "readOnly": "Status",
-  "subtitle": "See whether EVE's local AI is ready on this Mac. EVE manages the right lane and keeps using the cloud automatically whenever something is missing locally.",
+  "subtitle": "See whether EVE's local AI is ready on this Mac. EVE manages it automatically and uses the cloud whenever something is missing locally.",
   "refresh": "Refresh",
   "sections": {
     "runtimeTruth": "Local execution",
@@ -11,8 +11,8 @@
     "kanban": "Local tasks"
   },
   "remediation": {
-    "title": "Set up the local lane",
-    "cloudReassurance": "The cloud AI is and stays your default lane — it runs immediately, no matter what this screen says.",
+    "title": "Prepare local AI",
+    "cloudReassurance": "EVE keeps working in the cloud until local AI is ready.",
     "reasonLabel": "Reason",
     "external-link": {
       "title": "A local component is missing",
@@ -50,7 +50,7 @@
     "selectedModel": "Selected model",
     "runtimeModel": "Runtime model",
     "context": "Context",
-    "requirements": "Requirements",
+    "requirements": "Requires",
     "status": "Status",
     "model": "Model",
     "baseUrl": "Base URL",
@@ -61,7 +61,7 @@
     "baseModel": "Base model",
     "nextAction": "Next action",
     "receiptPath": "Receipt file",
-    "localLane": "Local lane",
+    "localLane": "Management",
     "storage": "Storage"
   },
   "values": {
@@ -80,8 +80,8 @@
     "ready": "Ready",
     "notReady": "Not ready",
     "moduleCount": "{{ready}}/{{total}} modules ready",
-    "governanceLocked": "Dispatcher and external MCP servers are off",
-    "governanceOpen": "Governance lock incomplete",
+    "governanceLocked": "Automatic external changes are switched off",
+    "governanceOpen": "Some protection rules are not active yet",
     "labels": {
       "board": "Board",
       "db": "Kanban DB",
@@ -89,12 +89,13 @@
       "tasks": "Tasks",
       "modules": "Modules",
       "governance": "Governance",
+      "protection": "Autonomy protection",
       "reconciliation": "Reconciliation",
       "localData": "Local data"
     },
     "dbPresent": {
-      "yes": "Present, opened read-only",
-      "no": "Not present yet, no mutation executed"
+      "yes": "Present",
+      "no": "Not set up yet"
     }
   },
   "tierStatus": {
@@ -108,8 +109,30 @@
     "gemma-4-12b-local-planning": "Planning and analysis",
     "gemma-4-31b-local-pro": "Local Pro performance"
   },
+  "tierDescriptions": {
+    "gemma-4-e4b-local-default": "For quick everyday tasks and short answers.",
+    "gemma-4-12b-local-planning": "For broader planning and structured analysis.",
+    "gemma-4-31b-local-pro": "For demanding local work on high-performance Macs.",
+    "unknown": "For local tasks on this Mac."
+  },
+  "receiptStatus": {
+    "ready": "Ready",
+    "blocked": "Not ready yet",
+    "failed": "Setup failed",
+    "skipped": "Not set up yet",
+    "unknown": "Checking status"
+  },
+  "receiptNextAction": {
+    "ready": "EVE can use local AI automatically.",
+    "blocked": "EVE keeps working in the cloud and leaves local AI switched off.",
+    "failed": "EVE keeps working in the cloud. Local setup can be checked again later.",
+    "skipped": "Nothing to do. EVE sets up local AI when needed.",
+    "unknown": "EVE checks the next safe step automatically."
+  },
   "warnings": {
     "title": "Status note",
+    "publicSummary": "Local AI is not fully prepared yet. EVE keeps working reliably in the cloud in the meantime.",
+    "publicTaskSummary": "Some local task data is not available yet. Core functions remain usable.",
     "runtime_receipt_missing": "No runtime receipt has been written yet",
     "runtime_receipt_schema_mismatch": "Runtime receipt has an unexpected schema",
     "runtime_receipt_json_invalid": "Runtime receipt is not valid JSON",
@@ -128,17 +151,19 @@
   },
   "errors": {
     "loadFailed": "Runtime status could not be loaded.",
-    "kanbanLoadFailed": "Kanban preflight could not be loaded."
+    "loadFailedDescription": "EVE could not read the local AI status right now. Cloud AI remains available.",
+    "kanbanLoadFailed": "Local tasks could not be checked.",
+    "kanbanLoadFailedDescription": "EVE could not read local task data right now. Your saved tasks remain unchanged."
   },
   "blocked": {
-    "title": "Runtime status blocked",
-    "description": "Local runtime truth is unavailable.",
+    "title": "Local AI unavailable",
+    "description": "EVE could not check local AI right now. Cloud AI remains available.",
     "electronBridgeRequired": "Runtime status requires the Electron bridge."
   },
   "empty": {
-    "noReceipt": "No bootstrap receipt yet.",
-    "noWarmup": "No model warm-up receipt yet.",
-    "noKanban": "No Kanban preflight yet.",
-    "noRuntime": "No runtime data found."
+    "noReceipt": "Local AI has not been set up yet.",
+    "noWarmup": "Local AI has not been started yet.",
+    "noKanban": "No local task data yet.",
+    "noRuntime": "No local AI information yet."
   }
 }
