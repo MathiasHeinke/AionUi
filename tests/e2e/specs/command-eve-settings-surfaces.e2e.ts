@@ -2,9 +2,9 @@
  * Command EVE settings surfaces – packaged app E2E.
  *
  * Protects the product shell from regressing back into a generic AionUI setup:
- * local Gemma tiers must be visible, EVE runtime controls must be present,
- * Hermes must remain the primary runtime identity, and Command EVE capabilities
- * must replace the legacy/global skill-market surface.
+ * Humanized local EVE lanes must be visible, runtime controls must be present,
+ * Command EVE must remain the only public runtime identity, and Command EVE
+ * capabilities must replace the legacy/global skill-market surface.
  */
 import { test, expect } from '../fixtures';
 import { goToGuid, goToSettings } from '../helpers';
@@ -29,32 +29,29 @@ test.describe('Command EVE settings surfaces', () => {
     await expect(page.getByText(/Runtime|Command EVE Local Runtime/).first()).toBeVisible({ timeout: 30_000 });
   });
 
-  test('shows local Gemma tiers plus EVE runtime status and warmup controls', async ({ page }) => {
+  test('shows humanized local EVE lanes plus runtime status and warmup controls', async ({ page }) => {
     await page.waitForSelector('body', { state: 'visible' });
 
     await goToSettings(page, 'model');
     await expect(page.getByText('Command EVE Local Runtime')).toBeVisible();
-    await expect(page.getByText(/Hermes|Ollama/).first()).toBeVisible();
     await expect(page.getByTestId('command-eve-model-support-note')).toContainText(
-      /EVE Runtime.*Ollama|EVE Runtime.*local.*Ollama|Ollama\/Gemma/i
+      /Optionale Pro-Einstellungen|Optional pro settings/i
     );
     await expect(
       page.getByText(/Derzeit unterstützt nur Aion CLI|Only Aion CLI currently supports custom models/)
     ).toHaveCount(0);
+    await expect(page.getByText(/Gemma|Ollama|custom:command-eve/i)).toHaveCount(0);
 
     const e4b = page.getByTestId('command-eve-model-tier-gemma-4-e4b-local-default');
-    await expect(e4b).toContainText('E4B');
-    await expect(e4b).toContainText('custom:command-eve-gemma4-e4b-64k:latest');
+    await expect(e4b).toContainText(/Schnell & effizient|Fast & efficient/);
     await expect(e4b.getByTestId('command-eve-model-tier-select-gemma-4-e4b-local-default')).toBeVisible();
 
     const twelveB = page.getByTestId('command-eve-model-tier-gemma-4-12b-local-planning');
-    await expect(twelveB).toContainText('12B');
-    await expect(twelveB).toContainText('custom:command-eve-gemma4-12b-64k:latest');
+    await expect(twelveB).toContainText(/Planung & Analyse|Planning & analysis/);
     await expect(twelveB.getByTestId('command-eve-model-tier-select-gemma-4-12b-local-planning')).toBeVisible();
 
     const thirtyOneB = page.getByTestId('command-eve-model-tier-gemma-4-31b-local-pro');
-    await expect(thirtyOneB).toContainText('31B');
-    await expect(thirtyOneB).toContainText('custom:command-eve-gemma4-31b-64k:latest');
+    await expect(thirtyOneB).toContainText(/Lokale Pro-Leistung|Local pro performance/);
 
     await goToSettings(page, 'system');
     const statusRow = page.getByTestId('system-preference-commandEveRuntimeStatus');

@@ -158,6 +158,16 @@ describe('Command EVE settings migration contract', () => {
     }
   });
 
+  it('renders model settings as humanized EVE sections instead of nested legacy panels', () => {
+    expect(modelSettingsSource).toContain('SettingsPageHeader');
+    expect(modelSettingsSource).toContain('SettingsSection');
+    expect(modelSettingsSource).toContain("className='eve-model-tier'");
+    expect(modelSettingsSource).not.toContain("className='flex flex-col bg-2 rd-16px");
+    expect(modelSettingsSource).not.toContain('rounded-14px border border-solid');
+    expect(modelSettingsSource).not.toMatch(/color=['"]orange['"]/);
+    expect(modelSettingsSource).not.toMatch(/✅|❌/);
+  });
+
   it('centralizes settings semantics without purple or orange status colors', () => {
     expect(settingsSemanticsSource).toContain("attention: 'gold'");
     expect(settingsSemanticsSource).not.toMatch(/purple|pink/i);

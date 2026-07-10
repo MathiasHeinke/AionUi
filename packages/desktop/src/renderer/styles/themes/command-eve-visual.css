@@ -537,6 +537,131 @@
   width: 100%;
 }
 
+.eve-model-settings {
+  width: 100%;
+}
+
+.eve-model-settings__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.eve-model-tier-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.eve-model-tier {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 20px;
+  row-gap: 8px;
+  min-width: 0;
+  padding: 14px 0;
+}
+
+.eve-model-tier + .eve-model-tier {
+  border-top: 1px solid var(--glass-panel-border);
+}
+
+.eve-model-tier__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.eve-model-tier__copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.eve-model-tier__title-line,
+.eve-model-tier__state {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.eve-model-tier__title-line strong {
+  color: var(--eve-shell-text);
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.eve-model-tier__copy > span,
+.eve-model-tier__meta {
+  color: var(--eve-shell-text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.eve-model-tier__action {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  align-self: center;
+}
+
+.eve-model-settings__empty-title {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--eve-shell-text);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.eve-model-provider-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.eve-model-provider-collapse {
+  border-top: 1px solid var(--glass-panel-border);
+  background: transparent;
+}
+
+.eve-model-provider-collapse:first-child {
+  border-top: 0;
+}
+
+.eve-model-provider-collapse .arco-collapse-item,
+.eve-model-provider-collapse .arco-collapse-item-header,
+.eve-model-provider-collapse .arco-collapse-item-content {
+  border: 0;
+  background: transparent;
+}
+
+.eve-model-provider-collapse .arco-collapse-item-header {
+  min-height: 48px;
+  padding: 8px 8px 8px 34px;
+  border-radius: var(--eve-surface-radius-sm);
+}
+
+.eve-model-provider-collapse .arco-collapse-item-header:hover {
+  background: var(--eve-row-hover-bg);
+}
+
+.eve-model-provider-collapse .arco-collapse-item-header-title {
+  min-width: 0;
+}
+
+.eve-model-provider-collapse .arco-collapse-item-content {
+  border-top: 1px solid var(--glass-panel-border);
+  background: var(--eve-row-hover-bg);
+}
+
+.eve-model-provider-collapse .arco-collapse-item-content-box {
+  padding: 8px 10px;
+}
+
 .erste-schritte-settings {
   width: 100%;
 }
@@ -1154,6 +1279,20 @@
 
   .eve-settings-action-row > .arco-btn {
     align-self: flex-start;
+  }
+
+  .eve-model-settings__actions {
+    justify-content: flex-start;
+  }
+
+  .eve-model-tier {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .eve-model-tier__action {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: flex-start;
   }
 
   .erste-schritte-settings__gaps li {
