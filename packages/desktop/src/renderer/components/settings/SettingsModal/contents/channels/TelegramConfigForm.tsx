@@ -8,6 +8,7 @@ import type { IChannelPairingRequest, IChannelPluginStatus, IChannelUser } from 
 import { channel } from '@/common/adapter/ipcBridge';
 import { getAgents } from '@/renderer/hooks/agent/useAgents';
 import { configService } from '@/common/config/configService';
+import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import GoogleModelSelector from '@/renderer/pages/conversation/platforms/gemini/GoogleModelSelector';
 import type { GoogleModelSelection } from '@/renderer/pages/conversation/platforms/gemini/useGoogleModelSelection';
 import {
@@ -420,100 +421,105 @@ const TelegramConfigForm: React.FC<TelegramConfigFormProps> = ({
         </div>
       </PreferenceRow>
 
-      {/* Agent Selection */}
-      <div className='flex flex-col gap-8px'>
-        <PreferenceRow
-          label={t('settings.agent', 'Agent')}
-          description={t('settings.assistant.agentDescTelegram', 'Used for Telegram conversations')}
-        >
-          <Dropdown
-            trigger='click'
-            position='br'
-            droplist={
-              <Menu
-                selectedKeys={[
-                  selectedAgent.id
-                    ? `${selectedAgent.agent_type}|${selectedAgent.id}`
-                    : selectedAgent.backend || selectedAgent.agent_type,
-                ]}
-              >
-                {agentOptions.map((a) => {
-                  const key = a.id ? `${a.agent_type}|${a.id}` : a.backend || a.agent_type;
-                  return (
-                    <Menu.Item
-                      key={key}
-                      onClick={() => {
-                        const currentKey = selectedAgent.id
-                          ? `${selectedAgent.agent_type}|${selectedAgent.id}`
-                          : selectedAgent.backend || selectedAgent.agent_type;
-                        if (key === currentKey) return;
-                        const next = {
-                          agent_type: a.agent_type,
-                          backend: a.backend,
-                          id: a.id,
-                          name: a.name,
-                        };
-                        setSelectedAgent(next);
-                        void persistSelectedAgent(next);
-
-                        if (next.agent_type === 'aionrs') {
-                          const savedModel = configService.get('assistant.telegram.defaultModel');
-                          const providers = modelSelection.providers;
-                          const savedProviderExists = savedModel?.id && providers.some((p) => p.id === savedModel.id);
-                          if (!savedProviderExists && providers.length > 0) {
-                            const firstProvider = providers[0];
-                            if (firstProvider.id && firstProvider.models?.[0]) {
-                              void modelSelection.handleSelectModel(firstProvider, firstProvider.models[0]);
-                            }
-                          }
-                        }
-                      }}
-                    >
-                      {a.name}
-                    </Menu.Item>
-                  );
-                })}
-              </Menu>
-            }
-          >
-            <Button type='secondary' className='min-w-160px flex items-center justify-between gap-8px'>
-              <span className='truncate'>
-                {selectedAgent.name ||
-                  availableAgents.find(
-                    (a) =>
-                      (a.id ? `${a.agent_type}|${a.id}` : a.backend || a.agent_type) ===
-                      (selectedAgent.id
+      {!COMMAND_EVE_SHELL_ENABLED && (
+        <>
+          {/* Agent Selection */}
+          <div className='flex flex-col gap-8px'>
+            <PreferenceRow
+              label={t('settings.agent', 'Agent')}
+              description={t('settings.assistant.agentDescTelegram', 'Used for Telegram conversations')}
+            >
+              <Dropdown
+                trigger='click'
+                position='br'
+                droplist={
+                  <Menu
+                    selectedKeys={[
+                      selectedAgent.id
                         ? `${selectedAgent.agent_type}|${selectedAgent.id}`
-                        : selectedAgent.backend || selectedAgent.agent_type)
-                  )?.name ||
-                  selectedAgent.agent_type}
-              </span>
-              <Down theme='outline' size={14} />
-            </Button>
-          </Dropdown>
-        </PreferenceRow>
-      </div>
+                        : selectedAgent.backend || selectedAgent.agent_type,
+                    ]}
+                  >
+                    {agentOptions.map((a) => {
+                      const key = a.id ? `${a.agent_type}|${a.id}` : a.backend || a.agent_type;
+                      return (
+                        <Menu.Item
+                          key={key}
+                          onClick={() => {
+                            const currentKey = selectedAgent.id
+                              ? `${selectedAgent.agent_type}|${selectedAgent.id}`
+                              : selectedAgent.backend || selectedAgent.agent_type;
+                            if (key === currentKey) return;
+                            const next = {
+                              agent_type: a.agent_type,
+                              backend: a.backend,
+                              id: a.id,
+                              name: a.name,
+                            };
+                            setSelectedAgent(next);
+                            void persistSelectedAgent(next);
 
-      {/* Default Model Selection */}
-      <PreferenceRow
-        label={t('settings.assistant.defaultModel', 'Default Model')}
-        description={t('settings.assistant.defaultModelDesc', 'Model used for Telegram conversations')}
-      >
-        <GoogleModelSelector
-          selection={showModelSelector ? modelSelection : undefined}
-          disabled={!showModelSelector}
-          label={
-            !showModelSelector
-              ? t('settings.assistant.autoFollowCliModel', 'Automatically follow the model when CLI is running')
-              : undefined
-          }
-          variant='settings'
-        />
-      </PreferenceRow>
+                            if (next.agent_type === 'aionrs') {
+                              const savedModel = configService.get('assistant.telegram.defaultModel');
+                              const providers = modelSelection.providers;
+                              const savedProviderExists =
+                                savedModel?.id && providers.some((p) => p.id === savedModel.id);
+                              if (!savedProviderExists && providers.length > 0) {
+                                const firstProvider = providers[0];
+                                if (firstProvider.id && firstProvider.models?.[0]) {
+                                  void modelSelection.handleSelectModel(firstProvider, firstProvider.models[0]);
+                                }
+                              }
+                            }
+                          }}
+                        >
+                          {a.name}
+                        </Menu.Item>
+                      );
+                    })}
+                  </Menu>
+                }
+              >
+                <Button type='secondary' className='min-w-160px flex items-center justify-between gap-8px'>
+                  <span className='truncate'>
+                    {selectedAgent.name ||
+                      availableAgents.find(
+                        (a) =>
+                          (a.id ? `${a.agent_type}|${a.id}` : a.backend || a.agent_type) ===
+                          (selectedAgent.id
+                            ? `${selectedAgent.agent_type}|${selectedAgent.id}`
+                            : selectedAgent.backend || selectedAgent.agent_type)
+                      )?.name ||
+                      selectedAgent.agent_type}
+                  </span>
+                  <Down theme='outline' size={14} />
+                </Button>
+              </Dropdown>
+            </PreferenceRow>
+          </div>
+
+          {/* Default Model Selection */}
+          <PreferenceRow
+            label={t('settings.assistant.defaultModel', 'Default Model')}
+            description={t('settings.assistant.defaultModelDesc', 'Model used for Telegram conversations')}
+          >
+            <GoogleModelSelector
+              selection={showModelSelector ? modelSelection : undefined}
+              disabled={!showModelSelector}
+              label={
+                !showModelSelector
+                  ? t('settings.assistant.autoFollowCliModel', 'Automatically follow the model when CLI is running')
+                  : undefined
+              }
+              variant='settings'
+            />
+          </PreferenceRow>
+        </>
+      )}
 
       {/* Next Steps Guide - show when bot is enabled and no authorized users yet */}
       {pluginStatus?.enabled && pluginStatus?.connected && authorizedUsers.length === 0 && (
-        <div className='bg-blue-50 dark:bg-blue-900/20 rd-12px p-16px border border-blue-200 dark:border-blue-800'>
+        <div className='eve-settings-notice eve-channel-guide'>
           <SectionHeader title={t('settings.assistant.nextSteps', 'Next Steps')} />
           <div className='text-14px text-t-secondary space-y-8px'>
             <p className='m-0'>
@@ -545,7 +551,7 @@ const TelegramConfigForm: React.FC<TelegramConfigFormProps> = ({
 
       {/* Pending Pairings - show when bot is enabled and no authorized users yet */}
       {pluginStatus?.enabled && authorizedUsers.length === 0 && (
-        <div className='bg-fill-1 rd-12px pt-16px pr-16px pb-16px pl-0'>
+        <div className='eve-channel-subsection'>
           <SectionHeader
             title={t('settings.assistant.pendingPairings', 'Pending Pairing Requests')}
             action={
@@ -570,19 +576,22 @@ const TelegramConfigForm: React.FC<TelegramConfigFormProps> = ({
           ) : (
             <div className='flex flex-col gap-12px'>
               {pendingPairings.map((pairing) => (
-                <div key={pairing.code} className='flex items-center justify-between bg-fill-2 rd-8px p-12px'>
+                <div key={pairing.code} className='eve-channel-record'>
                   <div className='flex-1'>
                     <div className='flex items-center gap-8px'>
                       <span className='text-14px font-500 text-t-primary'>
                         {pairing.display_name || 'Unknown User'}
                       </span>
                       <Tooltip content={t('settings.assistant.copyCode', 'Copy pairing code')}>
-                        <button
-                          className='p-4px bg-transparent border-none text-t-tertiary hover:text-t-primary cursor-pointer'
+                        <Button
+                          type='text'
+                          size='mini'
+                          aria-label={t('settings.assistant.copyCode', 'Copy pairing code')}
+                          className='eve-icon-button'
                           onClick={() => copyToClipboard(pairing.code)}
                         >
                           <Copy size={14} />
-                        </button>
+                        </Button>
                       </Tooltip>
                     </div>
                     <div className='text-12px text-t-tertiary mt-4px'>
@@ -620,7 +629,7 @@ const TelegramConfigForm: React.FC<TelegramConfigFormProps> = ({
 
       {/* Authorized Users - show when there are authorized users */}
       {authorizedUsers.length > 0 && (
-        <div className='bg-fill-1 rd-12px pt-16px pr-16px pb-16px pl-0'>
+        <div className='eve-channel-subsection'>
           <SectionHeader
             title={t('settings.assistant.authorizedUsers', 'Authorized Users')}
             action={
@@ -645,7 +654,7 @@ const TelegramConfigForm: React.FC<TelegramConfigFormProps> = ({
           ) : (
             <div className='flex flex-col gap-12px'>
               {authorizedUsers.map((user) => (
-                <div key={user.id} className='flex items-center justify-between bg-fill-2 rd-8px p-12px'>
+                <div key={user.id} className='eve-channel-record'>
                   <div className='flex-1'>
                     <div className='text-14px font-500 text-t-primary'>{user.display_name || 'Unknown User'}</div>
                     <div className='text-12px text-t-tertiary mt-4px'>

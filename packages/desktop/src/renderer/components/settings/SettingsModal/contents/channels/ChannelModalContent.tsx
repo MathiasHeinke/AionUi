@@ -9,11 +9,11 @@ import type { IProvider, TProviderWithModel } from '@/common/config/storage';
 import { channel, webui, type IWebUIStatus } from '@/common/adapter/ipcBridge';
 import { configService } from '@/common/config/configService';
 import AionScrollArea from '@/renderer/components/base/AionScrollArea';
+import SettingsSection from '@/renderer/components/settings/SettingsSection';
 import { useModelProviderList } from '@/renderer/hooks/agent/useModelProviderList';
 import type { GoogleModelSelection } from '@/renderer/pages/conversation/platforms/gemini/useGoogleModelSelection';
 import { useGoogleModelSelection } from '@/renderer/pages/conversation/platforms/gemini/useGoogleModelSelection';
 import { Input, InputNumber, Message, Select, Switch } from '@arco-design/web-react';
-import { CheckOne } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSettingsViewMode } from '../../settingsViewContext';
@@ -563,15 +563,22 @@ const ChannelModalContent: React.FC = () => {
             <div className='text-13px text-t-secondary leading-relaxed'>{status.extensionMeta.description}</div>
           )}
           {pluginType === 'ext-wecom-bot' && (
-            <div className='text-12px leading-relaxed p-10px rd-8px bg-[rgba(var(--orange-6),0.08)] border border-[rgba(var(--orange-6),0.3)] text-t-secondary'>
-              <div className='font-500 text-t-primary mb-6px'>企微回调地址说明</div>
-              <div>本机 Callback URL: {localCallbackUrl}</div>
-              {lanCallbackUrl ? <div>局域网 Callback URL: {lanCallbackUrl}</div> : null}
-              {publicCallbackUrl ? <div>公网 Callback URL(配置值): {publicCallbackUrl}</div> : null}
-              <div className='mt-6px'>
-                仅开启 WebUI 远程访问（LAN）通常不能直接通过企微回调。企微服务器需要可访问的公网 HTTPS 地址。
+            <div className='eve-settings-notice'>
+              <div className='font-500 text-t-primary mb-6px'>{t('settings.channels.extension.callbackTitle')}</div>
+              <div>
+                {t('settings.channels.extension.localCallback')}: {localCallbackUrl}
               </div>
-              <div>建议：使用反向代理 + 证书，或 Cloudflare Tunnel / ngrok 映射到本机。</div>
+              {lanCallbackUrl ? (
+                <div>
+                  {t('settings.channels.extension.lanCallback')}: {lanCallbackUrl}
+                </div>
+              ) : null}
+              {publicCallbackUrl ? (
+                <div>
+                  {t('settings.channels.extension.publicCallback')}: {publicCallbackUrl}
+                </div>
+              ) : null}
+              <div className='mt-6px'>{t('settings.channels.extension.callbackRequirement')}</div>
             </div>
           )}
           {fields.map((field) => {
@@ -644,7 +651,7 @@ const ChannelModalContent: React.FC = () => {
     const telegramChannel: ChannelConfig = {
       id: 'telegram',
       title: t('settings.channels.telegramTitle', 'Telegram'),
-      description: t('settings.channels.telegramDesc', 'Chat with AionUi assistant via Telegram'),
+      description: t('settings.channels.telegramDesc', 'Chat with Command EVE via Telegram'),
       status: 'active',
       enabled: pluginStatus?.enabled || false,
       disabled: enableLoading,
@@ -666,7 +673,7 @@ const ChannelModalContent: React.FC = () => {
     const larkChannel: ChannelConfig = {
       id: 'lark',
       title: t('settings.channels.larkTitle', 'Lark / Feishu'),
-      description: t('settings.channels.larkDesc', 'Chat with AionUi assistant via Lark or Feishu'),
+      description: t('settings.channels.larkDesc', 'Chat with Command EVE via Lark or Feishu'),
       status: 'active',
       enabled: larkPluginStatus?.enabled || false,
       disabled: larkEnableLoading,
@@ -684,7 +691,7 @@ const ChannelModalContent: React.FC = () => {
     const dingtalkChannel: ChannelConfig = {
       id: 'dingtalk',
       title: t('settings.channels.dingtalkTitle', 'DingTalk'),
-      description: t('settings.channels.dingtalkDesc', 'Chat with AionUi assistant via DingTalk'),
+      description: t('settings.channels.dingtalkDesc', 'Chat with Command EVE via DingTalk'),
       status: 'active',
       enabled: dingtalkPluginStatus?.enabled || false,
       disabled: dingtalkEnableLoading,
@@ -702,7 +709,7 @@ const ChannelModalContent: React.FC = () => {
     const weixinChannel: ChannelConfig = {
       id: 'weixin',
       title: t('settings.channels.weixinTitle', 'WeChat'),
-      description: t('settings.channels.weixinDesc', 'Chat with AionUi assistant via WeChat'),
+      description: t('settings.channels.weixinDesc', 'Chat with Command EVE via WeChat'),
       status: 'active',
       enabled: weixinPluginStatus?.enabled || false,
       disabled: weixinEnableLoading,
@@ -720,7 +727,7 @@ const ChannelModalContent: React.FC = () => {
     const wecomChannel: ChannelConfig = {
       id: 'wecom',
       title: t('settings.channels.wecomTitle', 'WeCom'),
-      description: t('settings.channels.wecomDesc', 'Chat with AionUi assistant via WeCom (Enterprise WeChat)'),
+      description: t('settings.channels.wecomDesc', 'Chat with Command EVE via WeCom (Enterprise WeChat)'),
       status: 'coming_soon' as const,
       enabled: false,
       disabled: true,
@@ -757,7 +764,7 @@ const ChannelModalContent: React.FC = () => {
       {
         id: 'slack',
         title: t('settings.channels.slackTitle', 'Slack'),
-        description: t('settings.channels.slackDesc', 'Chat with AionUi assistant via Slack'),
+        description: t('settings.channels.slackDesc', 'Chat with Command EVE via Slack'),
         status: 'coming_soon' as const,
         enabled: false,
         disabled: true,
@@ -772,7 +779,7 @@ const ChannelModalContent: React.FC = () => {
       {
         id: 'discord',
         title: t('settings.channels.discordTitle', 'Discord'),
-        description: t('settings.channels.discordDesc', 'Chat with AionUi assistant via Discord'),
+        description: t('settings.channels.discordDesc', 'Chat with Command EVE via Discord'),
         status: 'coming_soon' as const,
         enabled: false,
         disabled: true,
@@ -832,38 +839,14 @@ const ChannelModalContent: React.FC = () => {
     }
     return undefined;
   };
-  const channelGuideText = t('settings.webui.featureChannelsDesc', {
-    defaultValue: 'Connect Telegram, Lark, and DingTalk to interact with AionUi from IM apps.',
-  });
-  const channelSetupSteps = [
-    t('settings.channels.selectFirst', {
-      defaultValue: 'Select a channel and configure credentials.',
-    }),
-    t('settings.channels.enableAfterConfig', {
-      defaultValue: 'Enable it and start chatting with your AI agent.',
-    }),
-  ];
-
   return (
     <AionScrollArea className={isPageMode ? 'h-full' : ''}>
       <div className='px-[12px] md:px-[28px]'>
-        <h2 className='text-20px font-500 text-t-primary m-0'>{t('settings.channels.title', 'Channels')}</h2>
-        <div className='space-y-8px mt-10px'>
-          <div className='text-13px text-t-secondary leading-relaxed'>{channelGuideText}</div>
-          <div className='flex flex-wrap gap-x-12px gap-y-6px'>
-            {channelSetupSteps.map((stepLabel, idx) => (
-              <div key={stepLabel} className='inline-flex items-center gap-6px'>
-                <span className='inline-flex items-center justify-center w-16px h-16px rd-50% text-10px font-600 bg-[rgba(var(--primary-6),0.12)] text-[rgb(var(--primary-6))]'>
-                  {idx + 1}
-                </span>
-                <CheckOne theme='outline' size='12' className='text-[rgb(var(--primary-6))]' />
-                <span className='text-12px text-t-secondary'>{stepLabel}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className='space-y-12px mt-12px'>
+        <SettingsSection
+          title={t('settings.channels.sectionTitle')}
+          description={t('settings.channels.sectionDescription')}
+          bodyClassName='eve-channel-list'
+        >
           {channels.map((channelConfig) => (
             <ChannelItem
               key={channelConfig.id}
@@ -873,7 +856,7 @@ const ChannelModalContent: React.FC = () => {
               onToggleEnabled={getToggleHandler(channelConfig.id)}
             />
           ))}
-        </div>
+        </SettingsSection>
       </div>
     </AionScrollArea>
   );

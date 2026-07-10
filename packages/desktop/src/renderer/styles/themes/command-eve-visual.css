@@ -716,6 +716,138 @@
   padding-top: 10px;
 }
 
+.eve-remote-tabs {
+  margin-bottom: 0;
+}
+
+.eve-remote-tabs .arco-tabs-content {
+  display: none;
+}
+
+.eve-remote-settings__content {
+  min-width: 0;
+}
+
+.eve-settings-state {
+  color: var(--eve-shell-text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.eve-settings-state--attention {
+  color: var(--eve-status-attention);
+}
+
+.eve-settings-state--success {
+  color: var(--eve-status-completed);
+}
+
+.eve-webui-value-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+  max-width: min(100%, 560px);
+}
+
+.eve-webui-link.arco-btn {
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  color: var(--eve-focus-ring);
+  background: transparent;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+}
+
+.eve-webui-link .arco-btn-content {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eve-icon-button.arco-btn {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--eve-shell-text-secondary);
+  background: transparent;
+  box-shadow: none;
+}
+
+.eve-icon-button.arco-btn:hover {
+  color: var(--eve-shell-text);
+  background: var(--eve-row-hover-bg);
+}
+
+.eve-inline-link.arco-btn {
+  height: auto;
+  margin-left: 4px;
+  padding: 0;
+  color: var(--eve-focus-ring);
+  font-size: inherit;
+  line-height: inherit;
+  vertical-align: baseline;
+}
+
+.eve-webui-password {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+  letter-spacing: 0;
+}
+
+.eve-webui-qr {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+  padding: 18px 0 4px;
+  border-top: 1px solid var(--glass-panel-border);
+}
+
+.eve-webui-qr__copy {
+  min-width: 0;
+}
+
+.eve-webui-qr__title {
+  color: var(--eve-shell-text);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 22px;
+}
+
+.eve-webui-qr__description {
+  max-width: 560px;
+  margin-top: 4px;
+  color: var(--eve-shell-text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.eve-webui-qr__content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.eve-webui-qr-frame,
+.eve-weixin-qr-frame {
+  display: inline-flex;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--eve-static-white);
+}
+
+.eve-webui-qr__actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
 .eve-settings-count {
   min-width: 28px;
   justify-content: center;
@@ -960,6 +1092,166 @@
 
 .eve-mcp-server-item .arco-collapse-item-content-box {
   padding: 4px 8px 12px;
+}
+
+.eve-channel-list {
+  border-top: 1px solid var(--glass-panel-border);
+}
+
+.eve-channel-item {
+  margin: 0;
+  border-bottom: 1px solid var(--glass-panel-border);
+}
+
+.eve-channel-item__collapse,
+.eve-channel-item__collapse .arco-collapse-item,
+.eve-channel-item__collapse .arco-collapse-item-header,
+.eve-channel-item__collapse .arco-collapse-item-content {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.eve-channel-item__collapse .arco-collapse-item-header {
+  min-height: 66px;
+  padding: 10px 4px;
+}
+
+.eve-channel-item__collapse .arco-collapse-item-header-title {
+  min-width: 0;
+  padding-left: 28px;
+}
+
+.eve-channel-item__collapse .arco-collapse-item-header-icon {
+  margin-right: 8px;
+  color: var(--eve-shell-text-secondary);
+}
+
+.eve-channel-item__collapse .arco-collapse-item-header:hover .arco-collapse-item-header-icon {
+  color: var(--eve-shell-text);
+}
+
+.eve-channel-item__collapse .arco-collapse-item-content-box {
+  padding: 6px 8px 20px 30px;
+}
+
+.eve-channel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+}
+
+.eve-channel-header__identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.eve-channel-header__logo {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  object-fit: contain;
+}
+
+.eve-channel-header__copy {
+  min-width: 0;
+}
+
+.eve-channel-header__title-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.eve-channel-header__title {
+  overflow: hidden;
+  color: var(--eve-shell-text);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eve-channel-header__description {
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--eve-shell-text-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eve-channel-header__control {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.eve-channel-guide {
+  max-width: 760px;
+}
+
+.eve-channel-status--success {
+  border-left-color: var(--eve-status-completed);
+  background: var(--eve-semantic-success-surface);
+}
+
+.eve-channel-status--error {
+  border-left-color: var(--eve-status-error);
+  background: var(--eve-semantic-danger-surface);
+}
+
+.eve-channel-status--attention {
+  border-left-color: var(--eve-status-attention);
+  background: var(--eve-semantic-warning-surface);
+}
+
+.eve-channel-status-label {
+  color: var(--eve-shell-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.eve-channel-status-label--success {
+  color: var(--eve-status-completed);
+}
+
+.eve-channel-status-label--error {
+  color: var(--eve-status-error);
+}
+
+.eve-channel-status-label--attention {
+  color: var(--eve-status-attention);
+}
+
+.eve-channel-subsection {
+  padding: 18px 0 4px;
+  border-top: 1px solid var(--glass-panel-border);
+}
+
+.eve-channel-record {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  padding: 12px 0;
+  border-top: 1px solid var(--glass-panel-border);
+}
+
+.eve-channel-record:first-child {
+  border-top: 0;
 }
 
 .eve-account-settings {
@@ -1698,6 +1990,43 @@
 
   .eve-settings-preference-row--stack-mobile .eve-settings-value {
     text-align: left;
+  }
+
+  .eve-webui-value-actions {
+    width: 100%;
+    max-width: 100%;
+    justify-content: flex-start;
+  }
+
+  .eve-webui-qr {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .eve-webui-qr__content {
+    align-items: flex-start;
+  }
+
+  .eve-webui-qr__actions {
+    justify-content: flex-start;
+  }
+
+  .eve-channel-item__collapse .arco-collapse-item-header {
+    padding-right: 0;
+    padding-left: 0;
+  }
+
+  .eve-channel-item__collapse .arco-collapse-item-content-box {
+    padding: 6px 0 18px;
+  }
+
+  .eve-channel-header__description {
+    max-width: 210px;
+  }
+
+  .eve-channel-record {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .eve-settings-action-row {

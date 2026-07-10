@@ -47,6 +47,21 @@ const systemDevSettingsSource = read(
 const aboutSettingsSource = read(
   'packages/desktop/src/renderer/components/settings/SettingsModal/contents/AboutModalContent.tsx'
 );
+const webuiSettingsSource = read(
+  'packages/desktop/src/renderer/components/settings/SettingsModal/contents/WebuiModalContent.tsx'
+);
+const channelSettingsSource = read(
+  'packages/desktop/src/renderer/components/settings/SettingsModal/contents/channels/ChannelModalContent.tsx'
+);
+const channelItemSource = read(
+  'packages/desktop/src/renderer/components/settings/SettingsModal/contents/channels/ChannelItem.tsx'
+);
+const channelHeaderSource = read(
+  'packages/desktop/src/renderer/components/settings/SettingsModal/contents/channels/ChannelHeader.tsx'
+);
+const channelFormSources = ['Telegram', 'Lark', 'DingTalk', 'Weixin', 'Wecom'].map((channelName) =>
+  read(`packages/desktop/src/renderer/components/settings/SettingsModal/contents/channels/${channelName}ConfigForm.tsx`)
+);
 const settingsSemanticsSource = read('packages/desktop/src/renderer/components/settings/settingsSemantics.ts');
 const visualThemeSource = read('packages/desktop/src/renderer/styles/themes/command-eve-visual.css');
 
@@ -268,5 +283,34 @@ describe('Command EVE settings migration contract', () => {
       }).join(' ');
       expect(publicCopy).not.toMatch(/AionUI|AionUi|Hermes|Codex CLI|Claude Code CLI|~\//i);
     }
+  });
+
+  it('renders Remote as an unframed EVE surface with accessible browser controls', () => {
+    expect(webuiSettingsSource).toContain('SettingsPageHeader');
+    expect(webuiSettingsSource).toContain('SettingsSection');
+    expect(webuiSettingsSource).toContain('eve-settings-tabs eve-remote-tabs');
+    expect(webuiSettingsSource).toContain('marginSize={4}');
+    expect(webuiSettingsSource).not.toContain('CHANNEL_LOGOS');
+    expect(webuiSettingsSource).not.toContain('bg-2 rd-16px');
+    expect(webuiSettingsSource).not.toContain('<button');
+    expect(webuiSettingsSource).not.toContain("<h2 className='text-20px");
+  });
+
+  it('keeps messaging channels public while EVE manages agent and model routing internally', () => {
+    expect(channelSettingsSource).toContain('SettingsSection');
+    expect(channelSettingsSource).toContain("bodyClassName='eve-channel-list'");
+    expect(channelSettingsSource).not.toContain('Chat with AionUi');
+    expect(channelSettingsSource).not.toContain('企微回调地址说明');
+    expect(channelItemSource).toContain("className='eve-channel-item'");
+    expect(channelHeaderSource).toContain('eve-channel-header__description');
+
+    for (const source of channelFormSources) {
+      expect(source).toContain('!COMMAND_EVE_SHELL_ENABLED');
+      expect(source).not.toContain('<button');
+      expect(source).not.toContain('bg-fill-1 rd-12px');
+      expect(source).not.toMatch(/bg-(?:blue|green|red|yellow)-(?:50|100)/);
+    }
+
+    expect(channelFormSources[3]).toContain('marginSize={4}');
   });
 });
