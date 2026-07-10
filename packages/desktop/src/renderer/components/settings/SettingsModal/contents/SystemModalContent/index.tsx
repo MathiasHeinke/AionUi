@@ -14,7 +14,9 @@ import LanguageSwitcher from '@/renderer/components/settings/LanguageSwitcher';
 import { useIsDevMode } from '@/renderer/hooks/useIsDevMode';
 import { notifyManualRestartRequired } from '@/renderer/utils/appRestart';
 import { isElectronDesktop } from '@/renderer/utils/platform';
-import { Alert, Collapse, Form, InputNumber, Message, Modal, Switch } from '@arco-design/web-react';
+import SettingsSection, { SettingsPageHeader } from '@/renderer/components/settings/SettingsSection';
+import { Form, InputNumber, Message, Modal, Switch } from '@arco-design/web-react';
+import { Caution } from '@icon-park/react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import useSWR from 'swr';
@@ -83,7 +85,7 @@ const SystemModalContent: React.FC = () => {
   useEffect(() => {
     let cancelled = false;
     void configService.whenReady().then(() => {
-      if (!cancelled) setEgressReadyTick((t) => t + 1);
+      if (!cancelled) setEgressReadyTick((tick) => tick + 1);
     });
     return () => {
       cancelled = true;
@@ -312,17 +314,18 @@ const SystemModalContent: React.FC = () => {
       // control that silently fails to persist is worse than the bug (founder
       // self-detection standard): never a mystery bounce, never a false "off".
       const issuedForSeat = configService.getCurrentSeatId();
-      configService.set('commandEve.egressRedactionMode', mode).catch((error) => {
+      configService.set('commandEve.egressRedactionMode', mode).catch((persistError) => {
         // Rollback ONLY if we are still on the seat the write was issued for — a
         // rebind mid-flight re-homed the cache, and seat A's rollback must not
         // land in seat B's namespace (the new seat's own value is authoritative).
         if (configService.getCurrentSeatId() === issuedForSeat) {
           configService.setLocal('commandEve.egressRedactionMode', previousMode);
         }
-        console.error('[SystemSettings] Failed to persist PII egress redaction mode:', error);
+        console.error('[SystemSettings] Failed to persist PII egress redaction mode:', persistError);
         Message.error(
           t('settings.commandEvePiiProtectionSaveFailed', {
-            defaultValue: 'PII-Schutz konnte nicht gespeichert werden — Änderung nicht übernommen. Bitte erneut versuchen.',
+            defaultValue:
+              'PII-Schutz konnte nicht gespeichert werden — Änderung nicht übernommen. Bitte erneut versuchen.',
           })
         );
       });
@@ -364,13 +367,20 @@ const SystemModalContent: React.FC = () => {
 
   // COMPA-626 — grant/revoke EVE's direct kanban clearance. useConfig reflects the value
   // optimistically; on a backend reject, roll the cache back so the toggle never lies.
-  const handleKanbanAutoApproveChange = useCallback((checked: boolean) => {
-    const prior = !checked;
-    configService.set('commandEve.kanbanAutoApprove', checked).catch(() => {
-      configService.setLocal('commandEve.kanbanAutoApprove', prior);
-      Message.error(t('settings.commandEveKanbanAutoApproveError', { defaultValue: 'Konnte die Kanban-Freigabe nicht speichern.' }));
-    });
-  }, [t]);
+  const handleKanbanAutoApproveChange = useCallback(
+    (checked: boolean) => {
+      const prior = !checked;
+      configService.set('commandEve.kanbanAutoApprove', checked).catch(() => {
+        configService.setLocal('commandEve.kanbanAutoApprove', prior);
+        Message.error(
+          t('settings.commandEveKanbanAutoApproveError', {
+            defaultValue: 'Konnte die Kanban-Freigabe nicht speichern.',
+          })
+        );
+      });
+    },
+    [t]
+  );
 
   // Get system directory info
   const { data: systemInfo } = useSWR('system.dir.info', () => ipcBridge.application.systemInfo.invoke());
@@ -509,6 +519,33 @@ const SystemModalContent: React.FC = () => {
     },
   ];
 
+  const preferenceGroups = {
+    application: ['language', 'startOnBoot', 'closeToTray'],
+    control: ['commandEvePiiProtection', 'commandEveEgressStatus', 'commandEveKanbanAutoApprove'],
+    performance: [
+      'commandEveRuntimeStatus',
+      'commandEveModelWarmup',
+      'hardwareAcceleration',
+      'promptTimeout',
+      'agentIdleTimeout',
+    ],
+    files: ['saveUploadToWorkspace', 'autoPreviewOfficeFiles'],
+  };
+
+  const renderPreferenceItems = (keys: string[]) =>
+    preferenceItems
+      .filter((item) => keys.includes(item.key))
+      .map((item) => (
+        <PreferenceRow
+          key={item.key}
+          label={item.label}
+          description={item.description}
+          testId={`system-preference-${item.key}`}
+        >
+          {item.component}
+        </PreferenceRow>
+      ));
+
   const saveDirConfigValidate = (_values: { workDir: string; logDir: string }): Promise<unknown> => {
     return new Promise((resolve, reject) => {
       modal.confirm({
@@ -552,84 +589,82 @@ const SystemModalContent: React.FC = () => {
   );
 
   return (
-    <div className='flex flex-col h-full w-full'>
+    <div className='eve-system-settings flex flex-col h-full w-full'>
       {modalContextHolder}
 
       <AionScrollArea className='flex-1 min-h-0 pb-16px' disableOverflow={isPageMode}>
-        <div className='space-y-16px'>
-          <div className='px-[12px] md:px-[32px] py-16px bg-2 rd-16px space-y-12px'>
-            <div className='w-full flex flex-col divide-y divide-border-2'>
-              {preferenceItems.map((item) => (
-                <PreferenceRow
-                  key={item.key}
-                  label={item.label}
-                  description={item.description}
-                  testId={`system-preference-${item.key}`}
-                >
-                  {item.component}
-                </PreferenceRow>
-              ))}
-            </div>
-            {/* Notification settings with collapsible sub-options */}
-            <Collapse
-              bordered={false}
-              activeKey={notificationEnabled ? ['notification'] : []}
-              onChange={(_, keys) => {
-                const shouldExpand = (keys as string[]).includes('notification');
-                if (shouldExpand && !notificationEnabled) {
-                  handleNotificationEnabledChange(true);
-                } else if (!shouldExpand && notificationEnabled) {
-                  handleNotificationEnabledChange(false);
-                }
-              }}
-              className='[&_.arco-collapse-item]:!border-none [&_.arco-collapse-item-header]:!px-0 [&_.arco-collapse-item-header-title]:!flex-1 [&_.arco-collapse-item-content-box]:!px-0 [&_.arco-collapse-item-content-box]:!pb-0'
-            >
-              <Collapse.Item
-                name='notification'
-                showExpandIcon={false}
-                header={
-                  <div className='flex flex-1 items-center justify-between w-full'>
-                    <span className='text-14px text-2 ml-12px'>{t('settings.notification')}</span>
-                    <Switch
-                      checked={notificationEnabled}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={handleNotificationEnabledChange}
-                    />
-                  </div>
-                }
-              >
-                <div className='pl-12px'>
-                  <PreferenceRow label={t('settings.cronNotificationEnabled')}>
-                    <Switch
-                      checked={cronNotificationEnabled}
-                      disabled={!notificationEnabled}
-                      onChange={handleCronNotificationEnabledChange}
-                    />
-                  </PreferenceRow>
-                </div>
-              </Collapse.Item>
-            </Collapse>
-            <Form form={form} layout='vertical' className='!mt-32px space-y-16px' onValuesChange={handleValuesChange}>
-              <DirInputItem label={t('settings.workDir')} field='workDir' />
-              <DirInputItem label={t('settings.logDir')} field='logDir' />
-              {error && (
-                <Alert
-                  className='mt-16px'
-                  type='error'
-                  content={
-                    <span>
-                      {typeof error === 'string' ? error : JSON.stringify(error)}
-                      <FeedbackButton module='system-settings' className='ml-6px' />
-                    </span>
-                  }
-                />
-              )}
-            </Form>
-          </div>
+        <SettingsPageHeader title={t('settings.system')} description={t('settings.systemPageDescription')} />
 
-          {/* Developer settings: DevTools + CDP (only visible in dev mode) */}
-          <DevSettings />
-        </div>
+        <SettingsSection
+          title={t('settings.systemApplicationSection')}
+          description={t('settings.systemApplicationSectionDescription')}
+          bodyClassName='eve-settings-list'
+        >
+          {renderPreferenceItems(preferenceGroups.application)}
+        </SettingsSection>
+
+        <SettingsSection
+          title={t('settings.systemControlSection')}
+          description={t('settings.systemControlSectionDescription')}
+          bodyClassName='eve-settings-list'
+        >
+          {renderPreferenceItems(preferenceGroups.control)}
+        </SettingsSection>
+
+        <SettingsSection
+          title={t('settings.systemPerformanceSection')}
+          description={t('settings.systemPerformanceSectionDescription')}
+          bodyClassName='eve-settings-list'
+        >
+          {renderPreferenceItems(preferenceGroups.performance)}
+        </SettingsSection>
+
+        <SettingsSection
+          title={t('settings.systemNotificationsSection')}
+          description={t('settings.systemNotificationsSectionDescription')}
+          bodyClassName='eve-settings-list'
+        >
+          <PreferenceRow label={t('settings.notification')}>
+            <Switch checked={notificationEnabled} onChange={handleNotificationEnabledChange} />
+          </PreferenceRow>
+          {notificationEnabled && (
+            <div className='eve-settings-sublist'>
+              <PreferenceRow label={t('settings.cronNotificationEnabled')}>
+                <Switch checked={cronNotificationEnabled} onChange={handleCronNotificationEnabledChange} />
+              </PreferenceRow>
+            </div>
+          )}
+        </SettingsSection>
+
+        <SettingsSection
+          title={t('settings.systemFilesSection')}
+          description={t('settings.systemFilesSectionDescription')}
+          bodyClassName='eve-settings-list'
+        >
+          {renderPreferenceItems(preferenceGroups.files)}
+        </SettingsSection>
+
+        <SettingsSection
+          title={t('settings.systemStorageSection')}
+          description={t('settings.systemStorageSectionDescription')}
+        >
+          <Form form={form} layout='vertical' className='eve-settings-form' onValuesChange={handleValuesChange}>
+            <DirInputItem label={t('settings.workDir')} field='workDir' />
+            <DirInputItem label={t('settings.logDir')} field='logDir' />
+            {error && (
+              <div className='eve-settings-inline-notice eve-settings-inline-notice--error' role='alert'>
+                <Caution theme='outline' size='16' />
+                <span>
+                  {typeof error === 'string' ? error : JSON.stringify(error)}
+                  <FeedbackButton module='system-settings' className='ml-6px' />
+                </span>
+              </div>
+            )}
+          </Form>
+        </SettingsSection>
+
+        {/* Developer settings: DevTools + CDP (only visible in dev mode) */}
+        <DevSettings />
       </AionScrollArea>
     </div>
   );

@@ -4,15 +4,20 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Divider, Typography, Button, Switch } from '@arco-design/web-react';
-import { Github, Right } from '@icon-park/react';
+import { Button, Switch } from '@arco-design/web-react';
+import { Right } from '@icon-park/react';
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import classNames from 'classnames';
 import { useSettingsViewMode } from '../settingsViewContext';
 import { isElectronDesktop, openExternalUrl } from '@/renderer/utils/platform';
 import FeedbackReportModal from './FeedbackReportModal';
-import { COMMAND_EVE_APP_NAME, COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
+import {
+  COMMAND_EVE_APP_NAME,
+  COMMAND_EVE_ASSISTANT_AVATAR,
+  COMMAND_EVE_SHELL_ENABLED,
+} from '@/common/config/commandEveShell';
+import SettingsSection, { SettingsPageHeader } from '@/renderer/components/settings/SettingsSection';
+import PreferenceRow from '@/renderer/components/settings/PreferenceRow';
 
 // __APP_VERSION__ is injected by electron.vite.config.ts `define:` from the
 // repo-root package.json. The previous `import packageJson from
@@ -20,9 +25,11 @@ import { COMMAND_EVE_APP_NAME, COMMAND_EVE_SHELL_ENABLED } from '@/common/config
 // which is a workspace placeholder permanently pinned at "0.0.0".
 declare const __APP_VERSION__: string;
 
-type LinkItem =
-  | { title: string; url: string; icon: React.ReactNode; onClick?: never }
-  | { title: string; onClick: () => void; icon: React.ReactNode; url?: never };
+const dispatchUpdateCheck = () => {
+  window.dispatchEvent(new CustomEvent('aionui-open-update-modal', { detail: { source: 'about' } }));
+};
+
+type LinkItem = { title: string; url: string; onClick?: never } | { title: string; onClick: () => void; url?: never };
 
 const AboutModalContent: React.FC = () => {
   const { t } = useTranslation();
@@ -51,124 +58,112 @@ const AboutModalContent: React.FC = () => {
     }
   };
 
-  const checkUpdate = () => {
-    // 使用 window 自定义事件在渲染进程内部通信（buildEmitter 只支持主进程->渲染进程）
-    // Use window custom event for renderer-side communication (buildEmitter only works main->renderer)
-    window.dispatchEvent(new CustomEvent('aionui-open-update-modal', { detail: { source: 'about' } }));
-  };
-
   const linkItems: LinkItem[] = [
     {
       title: t('settings.helpDocumentation'),
       url: COMMAND_EVE_SHELL_ENABLED ? 'https://command-eve.com' : 'https://github.com/iOfficeAI/AionUi/wiki',
-      icon: <Right theme='outline' size='16' />,
     },
     {
       title: t('settings.updateLog'),
       url: COMMAND_EVE_SHELL_ENABLED
         ? 'https://github.com/MathiasHeinke/company-os/releases'
         : 'https://github.com/iOfficeAI/AionUi/releases',
-      icon: <Right theme='outline' size='16' />,
     },
     {
       title: t('settings.feedback'),
       url: COMMAND_EVE_SHELL_ENABLED
         ? 'https://github.com/MathiasHeinke/company-os/issues'
         : 'https://github.com/iOfficeAI/AionUi/issues',
-      icon: <Right theme='outline' size='16' />,
     },
     {
       title: t('settings.bugReport'),
       onClick: () => setShowFeedbackModal(true),
-      icon: <Right theme='outline' size='16' />,
     },
     {
       title: t('settings.contactMe'),
       url: COMMAND_EVE_SHELL_ENABLED ? 'https://command-eve.com' : 'https://x.com/WailiVery',
-      icon: <Right theme='outline' size='16' />,
     },
     {
       title: t('settings.officialWebsite'),
       url: COMMAND_EVE_SHELL_ENABLED ? 'https://command-eve.com' : 'https://www.aionui.com',
-      icon: <Right theme='outline' size='16' />,
     },
   ];
 
   return (
     <div className='flex flex-col h-full w-full'>
-      {/* Content Area */}
-      <div
-        className={classNames(
-          'flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-24px',
-          isPageMode && 'px-0 overflow-visible'
-        )}
-      >
-        <div className='flex flex-col max-w-500px mx-auto'>
-          {/* App Info Section */}
-          <div className='flex flex-col items-center pb-24px'>
-            <Typography.Title heading={3} className='text-24px font-bold text-t-primary mb-8px'>
-              {COMMAND_EVE_SHELL_ENABLED ? COMMAND_EVE_APP_NAME : 'AionUi'}
-            </Typography.Title>
-            <Typography.Text className='text-14px text-t-secondary mb-12px text-center'>
-              {t(COMMAND_EVE_SHELL_ENABLED ? 'settings.commandEveAppDescription' : 'settings.appDescription')}
-            </Typography.Text>
-            <div className='flex items-center justify-center gap-8px mb-16px'>
-              <span className='px-10px py-4px rd-6px text-13px bg-fill-2 text-t-primary font-500'>
-                v{__APP_VERSION__}
-              </span>
-              <div
-                className='text-t-primary cursor-pointer hover:text-t-secondary transition-colors p-4px'
-                onClick={() =>
-                  openLink(
-                    COMMAND_EVE_SHELL_ENABLED ? 'https://command-eve.com' : 'https://github.com/iOfficeAI/AionUi'
-                  ).catch((error) => console.error('Failed to open link:', error))
-                }
-              >
-                <Github theme='outline' size='20' />
-              </div>
-            </div>
+      <div className={isPageMode ? 'flex-1 min-h-0 overflow-visible' : 'flex-1 min-h-0 overflow-y-auto px-24px'}>
+        <SettingsPageHeader title={t('settings.about')} description={t('settings.aboutPageDescription')} />
 
-            {/* Check Update Section */}
-            {isElectron && (
-              <div className='flex flex-col items-center gap-12px w-full max-w-300px bg-fill-2 p-16px rounded-lg'>
-                <Button type='primary' long onClick={checkUpdate}>
-                  {t('settings.checkForUpdates')}
-                </Button>
-                <div className='flex items-center justify-between w-full'>
-                  <Typography.Text className='text-12px text-t-secondary'>
-                    {t('settings.includePrereleaseUpdates')}
-                  </Typography.Text>
-                  <Switch size='small' checked={includePrerelease} onChange={handlePrereleaseChange} />
-                </div>
-              </div>
+        <SettingsSection
+          title={t('settings.aboutApplicationSection')}
+          description={t('settings.aboutApplicationSectionDescription')}
+        >
+          <div className='eve-about-summary'>
+            {COMMAND_EVE_SHELL_ENABLED && (
+              <img
+                src={COMMAND_EVE_ASSISTANT_AVATAR}
+                alt=''
+                width={40}
+                height={40}
+                className='eve-about-summary__logo'
+              />
             )}
+            <div className='eve-about-summary__copy'>
+              <strong>{COMMAND_EVE_SHELL_ENABLED ? COMMAND_EVE_APP_NAME : 'AionUi'}</strong>
+              <span>
+                {t(COMMAND_EVE_SHELL_ENABLED ? 'settings.commandEveAppDescription' : 'settings.appDescription')}
+              </span>
+            </div>
+            <span className='eve-pill eve-about-summary__version'>
+              {t('settings.currentVersion')} v{__APP_VERSION__}
+            </span>
           </div>
+        </SettingsSection>
 
-          {/* Divider */}
-          <Divider className='my-16px' />
+        {isElectron && (
+          <SettingsSection
+            title={t('settings.aboutUpdatesSection')}
+            description={t('settings.aboutUpdatesSectionDescription')}
+            bodyClassName='eve-settings-list'
+          >
+            <div className='eve-settings-action-row eve-about-update-row'>
+              <p>{t('settings.aboutUpdateActionDescription')}</p>
+              <Button type='primary' onClick={dispatchUpdateCheck}>
+                {t('settings.checkForUpdates')}
+              </Button>
+            </div>
+            <PreferenceRow label={t('settings.includePrereleaseUpdates')}>
+              <Switch size='small' checked={includePrerelease} onChange={handlePrereleaseChange} />
+            </PreferenceRow>
+          </SettingsSection>
+        )}
 
-          {/* Links Section */}
-          <div className='flex flex-col gap-4px pt-8px'>
-            {linkItems.map((item, index) => (
-              <div
-                key={index}
-                className='flex items-center justify-between px-16px py-12px rd-8px hover:bg-fill-2 transition-all cursor-pointer group'
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if ('url' in item) {
-                    openLink(item.url).catch((error) => console.error('Failed to open link:', error));
-                  } else {
-                    item.onClick();
-                  }
-                }}
-              >
-                <Typography.Text className='text-14px text-t-primary'>{item.title}</Typography.Text>
-                <div className='text-t-secondary group-hover:text-t-primary transition-colors'>{item.icon}</div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <SettingsSection
+          title={t('settings.aboutSupportSection')}
+          description={t('settings.aboutSupportSectionDescription')}
+          bodyClassName='eve-settings-link-list'
+        >
+          {linkItems.map((item, index) => (
+            <Button
+              key={index}
+              type='text'
+              long
+              className='eve-settings-link-row'
+              onClick={() => {
+                if ('url' in item) {
+                  openLink(item.url).catch((error) => console.error('Failed to open link:', error));
+                } else {
+                  item.onClick();
+                }
+              }}
+            >
+              <span className='eve-settings-link-row__content'>
+                <span>{item.title}</span>
+                <Right theme='outline' size='16' />
+              </span>
+            </Button>
+          ))}
+        </SettingsSection>
       </div>
       <FeedbackReportModal visible={showFeedbackModal} onCancel={() => setShowFeedbackModal(false)} />
     </div>

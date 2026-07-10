@@ -460,6 +460,20 @@
   color: var(--eve-focus-ring);
 }
 
+.eve-settings-inline-notice--error .i-icon {
+  color: var(--eve-status-error);
+}
+
+.eve-settings-notice--warning {
+  border-left-color: var(--eve-status-attention);
+  background: var(--eve-semantic-warning-surface);
+}
+
+.eve-settings-sublist {
+  padding-left: 16px;
+  border-left: 1px solid var(--glass-panel-border);
+}
+
 .eve-settings-disclosure,
 .eve-settings-muted {
   margin: 0;
@@ -531,6 +545,155 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.eve-dir-input.arco-btn {
+  height: 38px;
+  padding: 0 12px;
+  border-color: var(--glass-panel-border);
+  border-radius: var(--eve-surface-radius-sm);
+  background: color-mix(in srgb, var(--eve-shell-surface) 72%, transparent);
+  color: var(--eve-shell-text);
+  box-shadow: none;
+}
+
+.eve-dir-input.arco-btn:hover {
+  border-color: var(--eve-focus-ring);
+  background: var(--eve-row-hover-bg);
+}
+
+.eve-dir-input .arco-btn-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.eve-dir-input__value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.eve-settings-code-collapse {
+  border-top: 1px solid var(--glass-panel-border);
+}
+
+.eve-settings-code-collapse .arco-collapse-item,
+.eve-settings-code-collapse .arco-collapse-item-header,
+.eve-settings-code-collapse .arco-collapse-item-content {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.eve-settings-code-collapse .arco-collapse-item + .arco-collapse-item {
+  border-top: 1px solid var(--glass-panel-border);
+}
+
+.eve-settings-code-collapse .arco-collapse-item-header {
+  padding: 10px 0;
+}
+
+.eve-settings-code-collapse .arco-collapse-item-content-box {
+  padding: 0 0 12px;
+}
+
+.eve-settings-code-block {
+  margin: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  border: 1px solid var(--glass-panel-border);
+  border-radius: var(--eve-surface-radius-sm);
+  background: color-mix(in srgb, var(--eve-shell-surface-secondary) 78%, transparent);
+  color: var(--eve-shell-text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.eve-about-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  padding: 4px 0 8px;
+}
+
+.eve-about-summary__logo {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+}
+
+.eve-about-summary__copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.eve-about-summary__copy strong {
+  color: var(--eve-shell-text);
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.eve-about-summary__copy span {
+  color: var(--eve-shell-text-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.eve-about-summary__version {
+  padding: 3px 9px;
+  color: var(--eve-shell-text-secondary);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.eve-about-update-row {
+  padding: 4px 0 12px;
+}
+
+.eve-settings-link-list {
+  border-top: 1px solid var(--glass-panel-border);
+}
+
+.eve-settings-link-row.arco-btn {
+  height: auto;
+  min-height: 44px;
+  padding: 10px 0;
+  border: 0;
+  border-radius: 0;
+  color: var(--eve-shell-text);
+}
+
+.eve-settings-link-row.arco-btn + .eve-settings-link-row.arco-btn {
+  border-top: 1px solid var(--glass-panel-border);
+}
+
+.eve-settings-link-row.arco-btn:hover {
+  background: var(--eve-row-hover-bg);
+}
+
+.eve-settings-link-row .arco-btn-content {
+  width: 100%;
+}
+
+.eve-settings-link-row__content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
 }
 
 .eve-account-settings {

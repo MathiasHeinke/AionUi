@@ -33,6 +33,15 @@ const accountSettingsSource = read(
 const companyBrainSettingsSource = read(
   'packages/desktop/src/renderer/components/settings/SettingsModal/contents/CompanyBrainModalContent.tsx'
 );
+const systemSettingsSource = read(
+  'packages/desktop/src/renderer/components/settings/SettingsModal/contents/SystemModalContent/index.tsx'
+);
+const systemDevSettingsSource = read(
+  'packages/desktop/src/renderer/components/settings/SettingsModal/contents/SystemModalContent/DevSettings.tsx'
+);
+const aboutSettingsSource = read(
+  'packages/desktop/src/renderer/components/settings/SettingsModal/contents/AboutModalContent.tsx'
+);
 const settingsSemanticsSource = read('packages/desktop/src/renderer/components/settings/settingsSemantics.ts');
 const visualThemeSource = read('packages/desktop/src/renderer/styles/themes/command-eve-visual.css');
 
@@ -204,5 +213,19 @@ describe('Command EVE settings migration contract', () => {
     expect(firstStepsSource).not.toContain('<a');
     expect(billingSettingsSource).not.toContain("type='file'");
     expect(billingSettingsSource).toContain('<Upload');
+  });
+
+  it('keeps system and about routes on the shared unframed EVE contract', () => {
+    for (const source of [systemSettingsSource, systemDevSettingsSource, aboutSettingsSource]) {
+      expect(source).toContain('SettingsSection');
+      expect(source).not.toContain('bg-2 rd-16px');
+      expect(source).not.toContain('<Card');
+    }
+
+    expect(systemSettingsSource).toContain('SettingsPageHeader');
+    expect(systemSettingsSource).not.toContain('<Collapse');
+    expect(aboutSettingsSource).toContain('SettingsPageHeader');
+    expect(aboutSettingsSource).not.toContain('<Typography');
+    expect(aboutSettingsSource).not.toMatch(/<div[^>]+onClick=/);
   });
 });

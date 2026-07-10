@@ -50,11 +50,11 @@ describe('SystemSettings', () => {
     expect(screen.queryByTestId('system-modal-content')).not.toBeInTheDocument();
   });
 
-  it('applies max-w-640px contentClassName for about page', () => {
+  it('enforces the compact about-page content width above mobile', () => {
     mockUseLocation.mockReturnValue({ pathname: '/settings/about' });
     render(<SystemSettings />);
     const wrapper = screen.getByTestId('settings-page-wrapper');
-    expect(wrapper).toHaveAttribute('data-content-class', 'max-w-640px');
+    expect(wrapper).toHaveAttribute('data-content-class', 'md:!max-w-640px');
   });
 
   it('does not apply contentClassName for system page', () => {
