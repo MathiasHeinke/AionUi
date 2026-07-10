@@ -32,8 +32,6 @@ export type EveVisualPreferences = {
 type AccentTone = {
   base: string;
   rgb: string;
-  soft: string;
-  hover: string;
   strong: string;
 };
 
@@ -71,26 +69,57 @@ export const DEFAULT_EVE_VISUAL_PREFERENCES: EveVisualPreferences = {
 
 export const EVE_ACCENTS: Record<EveAccent, AccentPair> = {
   blue: {
-    light: { base: '#2563eb', rgb: '37, 99, 235', soft: '#dbeafe', hover: '#3b82f6', strong: '#1d4ed8' },
-    dark: { base: '#2563eb', rgb: '37, 99, 235', soft: '#172554', hover: '#1d4ed8', strong: '#1e40af' },
+    light: { base: '#2563eb', rgb: '37, 99, 235', strong: '#1d4ed8' },
+    dark: { base: '#2563eb', rgb: '37, 99, 235', strong: '#1e40af' },
   },
   petrol: {
-    light: { base: '#0f766e', rgb: '15, 118, 110', soft: '#ccfbf1', hover: '#0d9488', strong: '#115e59' },
-    dark: { base: '#0f766e', rgb: '15, 118, 110', soft: '#134e4a', hover: '#115e59', strong: '#134e4a' },
+    light: { base: '#0f766e', rgb: '15, 118, 110', strong: '#115e59' },
+    dark: { base: '#0f766e', rgb: '15, 118, 110', strong: '#134e4a' },
   },
   emerald: {
-    light: { base: '#15803d', rgb: '21, 128, 61', soft: '#dcfce7', hover: '#16a34a', strong: '#166534' },
-    dark: { base: '#15803d', rgb: '21, 128, 61', soft: '#14532d', hover: '#166534', strong: '#14532d' },
+    light: { base: '#15803d', rgb: '21, 128, 61', strong: '#166534' },
+    dark: { base: '#15803d', rgb: '21, 128, 61', strong: '#14532d' },
   },
   graphite: {
-    light: { base: '#475569', rgb: '71, 85, 105', soft: '#e2e8f0', hover: '#64748b', strong: '#334155' },
-    dark: { base: '#64748b', rgb: '100, 116, 139', soft: '#1e293b', hover: '#475569', strong: '#334155' },
+    light: { base: '#475569', rgb: '71, 85, 105', strong: '#334155' },
+    dark: { base: '#64748b', rgb: '100, 116, 139', strong: '#334155' },
   },
 };
 
 const APPEARANCE_MODES: EveAppearanceMode[] = ['system', 'light', 'dark'];
 const ACCENTS: EveAccent[] = ['blue', 'petrol', 'emerald', 'graphite'];
 const BACKGROUND_FITS: EveBackgroundFit[] = ['cover', 'contain', 'fill'];
+const OPAQUE_ASSET_ID = /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$/;
+const BACKGROUND_GLASS_OPACITY_FLOOR = 0.88;
+
+type Rgb = readonly [number, number, number];
+
+const WHITE: Rgb = [255, 255, 255];
+const BLACK: Rgb = [0, 0, 0];
+const LIGHT_RAMP_MIXES = [
+  [WHITE, 0.9],
+  [WHITE, 0.76],
+  [WHITE, 0.6],
+  [WHITE, 0.4],
+  [WHITE, 0.2],
+  [WHITE, 0],
+  [BLACK, 0.12],
+  [BLACK, 0.26],
+  [BLACK, 0.4],
+  [BLACK, 0.54],
+] as const;
+const DARK_RAMP_MIXES = [
+  [BLACK, 0.62],
+  [BLACK, 0.48],
+  [BLACK, 0.34],
+  [BLACK, 0.22],
+  [BLACK, 0.1],
+  [BLACK, 0],
+  [WHITE, 0.18],
+  [WHITE, 0.36],
+  [WHITE, 0.56],
+  [WHITE, 0.76],
+] as const;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -106,7 +135,27 @@ const clamp = (value: number, min: number, max: number): number => Math.min(max,
 const normalizedAssetId = (value: unknown): string | undefined => {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
-  return trimmed ? trimmed.slice(0, 512) : undefined;
+  return OPAQUE_ASSET_ID.test(trimmed) ? trimmed : undefined;
+};
+
+const hexToRgb = (hex: string): Rgb => [
+  Number.parseInt(hex.slice(1, 3), 16),
+  Number.parseInt(hex.slice(3, 5), 16),
+  Number.parseInt(hex.slice(5, 7), 16),
+];
+
+const mixRgb = (base: Rgb, target: Rgb, targetWeight: number): Rgb => [
+  Math.round(base[0] * (1 - targetWeight) + target[0] * targetWeight),
+  Math.round(base[1] * (1 - targetWeight) + target[1] * targetWeight),
+  Math.round(base[2] * (1 - targetWeight) + target[2] * targetWeight),
+];
+
+const rgbTriplet = (rgb: Rgb): string => rgb.join(', ');
+
+const accentRamp = (accent: AccentTone, appearance: EveResolvedAppearance): string[] => {
+  const base = hexToRgb(accent.base);
+  const mixes = appearance === 'light' ? LIGHT_RAMP_MIXES : DARK_RAMP_MIXES;
+  return mixes.map(([target, weight]) => rgbTriplet(mixRgb(base, target, weight)));
 };
 
 /**
@@ -174,7 +223,7 @@ export function eveVisualCssVariables(
 ): Record<string, string> {
   const preferences = normalizeEveVisualPreferences(input);
   const effectsDisabled = preferences.reducedEffects || options.reducedTransparency === true;
-  const backgroundFloor = preferences.background.enabled ? (appearance === 'dark' ? 0.82 : 0.88) : 0;
+  const backgroundFloor = preferences.background.enabled ? BACKGROUND_GLASS_OPACITY_FLOOR : 0;
   const chromeOpacity = effectsDisabled ? 1 : Math.max(preferences.glassOpacity, backgroundFloor);
   const panelOpacity = Math.min(1, chromeOpacity + 0.06);
   const overlayOpacity = Math.min(1, chromeOpacity + 0.04);
@@ -182,6 +231,12 @@ export function eveVisualCssVariables(
   const panelBlur = effectsDisabled ? 0 : Math.min(28, preferences.glassBlur * 0.6);
   const overlayBlur = effectsDisabled ? 0 : Math.min(28, preferences.glassBlur * 0.9);
   const accent = EVE_ACCENTS[preferences.accent][appearance];
+  const ramp = accentRamp(accent, appearance);
+  const lightAliases =
+    appearance === 'light'
+      ? ramp.slice(0, 4).map((value) => `rgb(${value})`)
+      : [0.2, 0.35, 0.5, 0.65].map((opacity) => `rgba(${accent.rgb}, ${opacity})`);
+  const primaryRamp = Object.fromEntries(ramp.map((value, index) => [`--primary-${index + 1}`, value]));
 
   return {
     '--eve-glass-chrome-opacity': percentage(chromeOpacity),
@@ -195,13 +250,14 @@ export function eveVisualCssVariables(
     '--eve-bg-image-dim': percentage(preferences.background.dim),
     '--eve-accent': accent.base,
     '--primary': accent.base,
-    '--primary-6': accent.rgb,
+    ...primaryRamp,
     '--primary-rgb': accent.rgb,
     '--color-primary': accent.base,
     '--color-primary-6': accent.base,
-    '--color-primary-light-1': accent.soft,
-    '--color-primary-light-2': accent.soft,
-    '--color-primary-light-3': accent.hover,
+    '--color-primary-light-1': lightAliases[0],
+    '--color-primary-light-2': lightAliases[1],
+    '--color-primary-light-3': lightAliases[2],
+    '--color-primary-light-4': lightAliases[3],
     '--color-primary-dark-1': accent.strong,
   };
 }

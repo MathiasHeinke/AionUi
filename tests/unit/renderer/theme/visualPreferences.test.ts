@@ -91,6 +91,12 @@ describe('normalizeEveVisualPreferences', () => {
       adaptiveTint: false,
     });
   });
+
+  it('rejects filesystem paths and other non-opaque background asset ids', () => {
+    for (const assetId of ['/Users/example/background.jpg', '../background.jpg', 'file:///tmp/background.jpg']) {
+      expect(normalizeEveVisualPreferences({ background: { assetId } }).background.assetId).toBeUndefined();
+    }
+  });
 });
 
 describe('eveVisualCssVariables', () => {
@@ -115,18 +121,41 @@ describe('eveVisualCssVariables', () => {
   it('enforces the background readability floor before values reach CSS', () => {
     const tokens = eveVisualCssVariables({ glassOpacity: 0.72, background: { enabled: true } }, 'dark');
 
-    expect(tokens['--eve-glass-chrome-opacity']).toBe('82%');
-    expect(tokens['--eve-glass-panel-opacity']).toBe('88%');
-    expect(tokens['--eve-glass-overlay-opacity']).toBe('86%');
+    expect(tokens['--eve-glass-chrome-opacity']).toBe('88%');
+    expect(tokens['--eve-glass-panel-opacity']).toBe('94%');
+    expect(tokens['--eve-glass-overlay-opacity']).toBe('92%');
   });
 
-  it('updates both hex and RGB aliases for the selected accent', () => {
+  it('updates the complete Arco RGB ramp and both legacy aliases for the selected accent', () => {
     const tokens = eveVisualCssVariables({ accent: 'graphite' }, 'dark');
 
     expect(tokens['--primary']).toBe('#64748b');
     expect(tokens['--color-primary-6']).toBe('#64748b');
     expect(tokens['--primary-6']).toBe('100, 116, 139');
     expect(tokens['--primary-rgb']).toBe('100, 116, 139');
+    for (let index = 1; index <= 10; index += 1) {
+      expect(tokens[`--primary-${index}`]).toMatch(/^\d{1,3}, \d{1,3}, \d{1,3}$/);
+    }
+  });
+
+  it('keeps Arco light aliases translucent or pale instead of mapping them to saturated hover colors', () => {
+    const lightTokens = eveVisualCssVariables({ accent: 'emerald' }, 'light');
+    const darkTokens = eveVisualCssVariables({ accent: 'emerald' }, 'dark');
+
+    expect(lightTokens['--color-primary-light-3']).toBe(`rgb(${lightTokens['--primary-3']})`);
+    expect(lightTokens['--color-primary-light-4']).toBe(`rgb(${lightTokens['--primary-4']})`);
+    expect(darkTokens['--color-primary-light-3']).toBe('rgba(21, 128, 61, 0.5)');
+    expect(darkTokens['--color-primary-light-4']).toBe('rgba(21, 128, 61, 0.65)');
+  });
+
+  it('pins Arco ramp direction independently for light and dark appearances', () => {
+    const lightTokens = eveVisualCssVariables({ accent: 'blue' }, 'light');
+    const darkTokens = eveVisualCssVariables({ accent: 'blue' }, 'dark');
+
+    expect(lightTokens['--primary-1']).toBe('233, 239, 253');
+    expect(lightTokens['--primary-10']).toBe('17, 46, 108');
+    expect(darkTokens['--primary-1']).toBe('14, 38, 89');
+    expect(darkTokens['--primary-10']).toBe('203, 218, 250');
   });
 
   it('treats the OS reduced-transparency preference as a hard ceiling', () => {

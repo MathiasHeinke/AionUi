@@ -233,13 +233,6 @@
   outline-offset: 2px;
 }
 
-/* A background image may never lower the default readability floor. */
-:root[data-eve-bg-image='true'] {
-  --eve-glass-chrome-opacity: 88%;
-  --eve-glass-panel-opacity: 92%;
-  --eve-glass-overlay-opacity: 90%;
-}
-
 /* User and OS accessibility switches are independent from reduced motion. */
 :root[data-eve-reduced-effects='true'] .eve-panel {
   background: var(--glass-panel-bg-solid);
