@@ -1081,14 +1081,67 @@
     "optional": "öffnen"
   },
   "ersteSchritteStep": {
-    "ki-spur": { "title": "KI-Spur wählen", "desc": "Die Cloud-KI antwortet sofort. Optional: die lokale KI (Smart Local) laden." },
-    "company-brain": { "title": "Company-Brain füllen", "desc": "Erzähl EVE dein Geschäft — sie merkt es sich und arbeitet damit." },
-    "kunde": { "title": "Ersten Kunden anlegen", "desc": "Als Agentur einen Kunden-Seat hinzufügen (öffnet dein Konto im Browser)." },
-    "connectors": { "title": "Integration verbinden", "desc": "Geprüfte Connectoren freischalten — Schlüssel bleiben im Vault, nie im Chat." },
+    "ki-spur": {
+      "title": "KI-Spur wählen",
+      "desc": "Die Cloud-KI antwortet sofort. Optional: die lokale KI (Smart Local) laden."
+    },
+    "company-brain": {
+      "title": "Company-Brain füllen",
+      "desc": "Erzähl EVE dein Geschäft — sie merkt es sich und arbeitet damit."
+    },
+    "kunde": {
+      "title": "Ersten Kunden anlegen",
+      "desc": "Als Agentur einen Kunden-Seat hinzufügen (öffnet dein Konto im Browser)."
+    },
+    "connectors": {
+      "title": "Integration verbinden",
+      "desc": "Geprüfte Connectoren freischalten — Schlüssel bleiben im Vault, nie im Chat."
+    },
     "team": { "title": "Dein Team", "desc": "Rollen, Budget und Worker (z. B. deine Claude-CLI) steuern." },
-    "skills": { "title": "Was EVE kann", "desc": "Die Fähigkeiten-Bibliothek — inklusive von EVE selbst erstellter Skills." },
+    "skills": {
+      "title": "Was EVE kann",
+      "desc": "Die Fähigkeiten-Bibliothek — inklusive von EVE selbst erstellter Skills."
+    },
     "privacy": { "title": "Datenschutz", "desc": "Telemetrie ist standardmäßig aus. Hier prüfen und steuern." },
     "budget": { "title": "Budget & Guthaben", "desc": "Ausgabe-Limit, Guthaben und Pakete verwalten." },
     "name": { "title": "Wie EVE dich nennt", "desc": "Bestätige, wie EVE dich ansprechen soll." }
+  },
+  "commandEveAppearance": {
+    "mode": "Darstellung",
+    "modeDescription": "Dem System folgen oder EVE dauerhaft hell beziehungsweise dunkel anzeigen.",
+    "mode_system": "System",
+    "mode_light": "Hell",
+    "mode_dark": "Dunkel",
+    "accent": "Highlight-Farbe",
+    "accentDescription": "Für Fokus, Auswahl und aktive Controls. Das EVE-Logo bleibt orange.",
+    "accent_blue": "Blau",
+    "accent_petrol": "Petrol",
+    "accent_emerald": "Smaragd",
+    "accent_graphite": "Graphit",
+    "glass": "Glass-Flächen",
+    "glassDescription": "Transparenz und Unschärfe steuern, ohne die Lesbarkeit zu schwächen.",
+    "opacity": "Deckkraft",
+    "blur": "Unschärfe",
+    "reducedEffects": "Transparenz reduzieren",
+    "reducedEffectsDescription": "Verwendet in der gesamten App solide Flächen ohne Unschärfe.",
+    "background": "Hintergrundbild",
+    "backgroundDescription": "Bleibt ausschließlich auf diesem Gerät. Die Oberfläche hält darüber eine feste Lesbarkeitsgrenze ein.",
+    "chooseBackground": "Bild auswählen",
+    "replaceBackground": "Bild ersetzen",
+    "removeBackground": "Bild entfernen",
+    "removeBackgroundTitle": "Hintergrundbild entfernen?",
+    "removeBackgroundBody": "Die von Command EVE verwendete lokale Kopie wird von diesem Gerät entfernt.",
+    "backgroundEnabled": "Hintergrundbild anzeigen",
+    "fit": "Bildanpassung",
+    "fit_cover": "Füllen",
+    "fit_contain": "Einpassen",
+    "fit_fill": "Strecken",
+    "intensity": "Bildintensität",
+    "backgroundBlur": "Bildunschärfe",
+    "dim": "Abdunklung",
+    "adaptiveTint": "Überlagerung an Darstellung anpassen",
+    "adaptiveTintDescription": "Verwendet eine helle oder dunkle Lesbarkeitsfläche passend zu EVEs Darstellung.",
+    "backgroundUploadFailed": "Das Hintergrundbild konnte nicht gespeichert werden. Wähle PNG, JPEG, WebP, GIF oder BMP unter 2 MB.",
+    "saveFailed": "Die Darstellungseinstellungen konnten nicht gespeichert werden."
   }
 }

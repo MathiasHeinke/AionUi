@@ -277,8 +277,12 @@ export function applyEveVisualPreferences(
     reducedTransparency: options.reducedTransparency,
   });
 
-  for (const [name, value] of Object.entries(variables)) {
-    element.style.setProperty(name, value);
+  // Arco declares its primary ramp directly on <body>. Projecting only onto
+  // <html> would therefore leave Arco controls on the default blue palette.
+  for (const target of [element, root.body].filter((candidate): candidate is HTMLElement => Boolean(candidate))) {
+    for (const [name, value] of Object.entries(variables)) {
+      target.style.setProperty(name, value);
+    }
   }
 
   if (preferences.reducedEffects || options.reducedTransparency) {
@@ -290,6 +294,11 @@ export function applyEveVisualPreferences(
   const backgroundEnabled = preferences.background.enabled && Boolean(options.backgroundDataUrl);
   if (backgroundEnabled) {
     element.setAttribute('data-eve-bg-image', 'true');
+    if (preferences.background.adaptiveTint) {
+      element.setAttribute('data-eve-bg-adaptive-tint', 'true');
+    } else {
+      element.removeAttribute('data-eve-bg-adaptive-tint');
+    }
     element.style.setProperty('--eve-bg-image-url', `url("${options.backgroundDataUrl}")`);
     element.style.setProperty(
       '--eve-bg-image-fit',
@@ -297,6 +306,7 @@ export function applyEveVisualPreferences(
     );
   } else {
     element.removeAttribute('data-eve-bg-image');
+    element.removeAttribute('data-eve-bg-adaptive-tint');
     element.style.removeProperty('--eve-bg-image-url');
     element.style.removeProperty('--eve-bg-image-fit');
   }

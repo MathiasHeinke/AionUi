@@ -1120,14 +1120,64 @@
     "optional": "open"
   },
   "ersteSchritteStep": {
-    "ki-spur": { "title": "Choose your AI lane", "desc": "The cloud AI answers right away. Optional: load the local AI (Smart Local)." },
-    "company-brain": { "title": "Fill the Company Brain", "desc": "Tell EVE about your business — she remembers it and works from it." },
-    "kunde": { "title": "Add your first client", "desc": "As an agency, add a client seat (opens your account in the browser)." },
-    "connectors": { "title": "Connect an integration", "desc": "Enable vetted connectors — keys stay in the vault, never in chat." },
+    "ki-spur": {
+      "title": "Choose your AI lane",
+      "desc": "The cloud AI answers right away. Optional: load the local AI (Smart Local)."
+    },
+    "company-brain": {
+      "title": "Fill the Company Brain",
+      "desc": "Tell EVE about your business — she remembers it and works from it."
+    },
+    "kunde": {
+      "title": "Add your first client",
+      "desc": "As an agency, add a client seat (opens your account in the browser)."
+    },
+    "connectors": {
+      "title": "Connect an integration",
+      "desc": "Enable vetted connectors — keys stay in the vault, never in chat."
+    },
     "team": { "title": "Your team", "desc": "Manage roles, budget and workers (e.g. your Claude CLI)." },
     "skills": { "title": "What EVE can do", "desc": "The skills library — including skills EVE authored herself." },
     "privacy": { "title": "Privacy", "desc": "Telemetry is off by default. Review and control it here." },
     "budget": { "title": "Budget & credits", "desc": "Manage your spend cap, credits and packs." },
     "name": { "title": "How EVE addresses you", "desc": "Confirm how EVE should address you." }
+  },
+  "commandEveAppearance": {
+    "mode": "Appearance",
+    "modeDescription": "Follow the system or keep EVE in a fixed light or dark appearance.",
+    "mode_system": "System",
+    "mode_light": "Light",
+    "mode_dark": "Dark",
+    "accent": "Highlight color",
+    "accentDescription": "Used for focus, selections and active controls. The EVE logo stays orange.",
+    "accent_blue": "Blue",
+    "accent_petrol": "Petrol",
+    "accent_emerald": "Emerald",
+    "accent_graphite": "Graphite",
+    "glass": "Glass surfaces",
+    "glassDescription": "Control transparency and blur without weakening text readability.",
+    "opacity": "Opacity",
+    "blur": "Blur",
+    "reducedEffects": "Reduce transparency",
+    "reducedEffectsDescription": "Uses solid, unblurred surfaces throughout the app.",
+    "background": "Background image",
+    "backgroundDescription": "Stored only on this device. The interface keeps a readability floor above it.",
+    "chooseBackground": "Choose image",
+    "replaceBackground": "Replace image",
+    "removeBackground": "Remove image",
+    "removeBackgroundTitle": "Remove background image?",
+    "removeBackgroundBody": "The local copy used by Command EVE will be removed from this device.",
+    "backgroundEnabled": "Show background image",
+    "fit": "Image fit",
+    "fit_cover": "Cover",
+    "fit_contain": "Contain",
+    "fit_fill": "Fill",
+    "intensity": "Image intensity",
+    "backgroundBlur": "Image blur",
+    "dim": "Dimming",
+    "adaptiveTint": "Adapt overlay to appearance",
+    "adaptiveTintDescription": "Uses a light or dark readability tint that follows EVE's appearance.",
+    "backgroundUploadFailed": "The background image could not be stored. Choose a PNG, JPEG, WebP, GIF or BMP below 2 MB.",
+    "saveFailed": "Appearance settings could not be saved."
   }
 }

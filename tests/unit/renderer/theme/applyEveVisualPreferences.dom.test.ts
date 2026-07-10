@@ -11,12 +11,16 @@ import {
   removeEveVisualBackground,
   resolveEveVisualBackground,
   storeEveVisualBackground,
+  swapEveVisualBackground,
 } from '@/renderer/theme/visualBackgroundAssets';
 
 afterEach(() => {
   document.documentElement.removeAttribute('data-eve-bg-image');
+  document.documentElement.removeAttribute('data-eve-bg-adaptive-tint');
   document.documentElement.removeAttribute('data-eve-reduced-effects');
   document.documentElement.removeAttribute('style');
+  document.body.removeAttribute('style');
+  document.body.replaceChildren();
   localStorage.clear();
 });
 
@@ -44,10 +48,13 @@ describe('Command EVE visual DOM projection', () => {
     expect(document.documentElement.getAttribute('data-eve-bg-image')).toBe('true');
     expect(document.documentElement.style.getPropertyValue('--eve-bg-image-fit')).toBe('100% 100%');
     expect(document.documentElement.style.getPropertyValue('--primary-6')).toBe('15, 118, 110');
+    expect(document.body.style.getPropertyValue('--primary-6')).toBe('15, 118, 110');
+    expect(document.documentElement.getAttribute('data-eve-bg-adaptive-tint')).toBe('true');
 
     applyEveVisualPreferences({ background: { enabled: false } }, 'light', { root: document });
     expect(document.documentElement.hasAttribute('data-eve-reduced-effects')).toBe(false);
     expect(document.documentElement.hasAttribute('data-eve-bg-image')).toBe(false);
+    expect(document.documentElement.hasAttribute('data-eve-bg-adaptive-tint')).toBe(false);
     expect(document.documentElement.style.getPropertyValue('--eve-bg-image-url')).toBe('');
   });
 });
@@ -62,5 +69,21 @@ describe('local visual background assets', () => {
     expect(resolveEveVisualBackground(assetId)).toBeUndefined();
     expect(() => storeEveVisualBackground('file:///tmp/background.png', 'bg-path')).toThrow();
     expect(resolveEveVisualBackground('/Users/example/background.png')).toBeUndefined();
+  });
+
+  it('swaps to a fresh opaque id without retaining two assets and can roll back', () => {
+    storeEveVisualBackground('data:image/png;base64,AAAA', 'bg-current');
+    const swap = swapEveVisualBackground('data:image/png;base64,BBBB', 'bg-current');
+
+    expect(swap.assetId).not.toBe('bg-current');
+    expect(resolveEveVisualBackground('bg-current')).toBeUndefined();
+    expect(resolveEveVisualBackground(swap.assetId)).toBe('data:image/png;base64,BBBB');
+    expect(Object.keys(localStorage).filter((key) => key.startsWith('command-eve.visual-background.'))).toEqual([
+      `command-eve.visual-background.${swap.assetId}`,
+    ]);
+
+    swap.rollback();
+    expect(resolveEveVisualBackground(swap.assetId)).toBeUndefined();
+    expect(resolveEveVisualBackground('bg-current')).toBe('data:image/png;base64,AAAA');
   });
 });
