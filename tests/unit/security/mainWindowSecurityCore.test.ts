@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 
 import {
   hardenAttachedWebviewPreferences,
+  isAllowedWebviewNavigation,
   isAllowedWebviewSource,
   isSafeExternalNavigationUrl,
   isTrustedMainRendererUrl,
@@ -45,6 +46,18 @@ describe('main window security boundary', () => {
     expect(isAllowedWebviewSource('javascript:alert(1)')).toBe(false);
   });
 
+  it('keeps guest navigation inside its preview boundary', () => {
+    expect(
+      isAllowedWebviewNavigation('http://127.0.0.1:4567/watch/index.html', 'http://127.0.0.1:4567/watch/page-2')
+    ).toBe(true);
+    expect(
+      isAllowedWebviewNavigation('http://127.0.0.1:4567/watch/index.html', 'http://127.0.0.1:9999/admin')
+    ).toBe(false);
+    expect(isAllowedWebviewNavigation('file:///tmp/report.html', 'file:///tmp/other.html')).toBe(false);
+    expect(isAllowedWebviewNavigation('data:text/html,hello', 'https://attacker.example/')).toBe(false);
+    expect(isAllowedWebviewNavigation('file:///tmp/report.html', 'javascript:alert(1)')).toBe(false);
+  });
+
   it('removes guest preloads and forces isolated web preferences', () => {
     const preferences: Record<string, unknown> = {
       preload: '/tmp/evil.js',
@@ -62,6 +75,9 @@ describe('main window security boundary', () => {
       sandbox: true,
       webSecurity: true,
       allowRunningInsecureContent: false,
+      safeDialogs: true,
+      navigateOnDragDrop: false,
+      enableWebSQL: false,
     });
   });
 });

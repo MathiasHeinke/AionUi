@@ -541,6 +541,8 @@ describe('Command EVE runtime bootstrap core', () => {
         path.join(paths.hermesHome, 'plugins', 'model-providers', 'custom', '__init__.py'),
         'utf8'
       );
+      expect(providerOverride).toContain('COMMAND_EVE_SHIM_AUTH_TOKEN_FILE');
+      expect(providerOverride).toContain('default_headers=_command_eve_shim_headers()');
       expect(providerOverride).toContain('top_level["reasoning_effort"] = "none"');
       expect(providerOverride).toContain('Command EVE cloud-shim stop continuation patch');
       expect(providerOverride).toContain('AIAgent._should_treat_stop_as_truncated');
@@ -1347,6 +1349,11 @@ describe('Command EVE runtime bootstrap core', () => {
     expect(prepared.hermesRoot).toBe(paths.hermesRoot);
     expect(fs.existsSync(paths.hermesShim)).toBe(true);
     expect(env.PATH?.split(path.delimiter)[0]).toBe(paths.hermesRoot);
+    const authTokenFile = env.COMMAND_EVE_SHIM_AUTH_TOKEN_FILE;
+    expect(authTokenFile).toBe(path.join(root, 'command-eve-runtime', 'shim-auth-token'));
+    expect(fs.readFileSync(authTokenFile!, 'utf8')).toMatch(/^[a-f0-9]{64}$/);
+    expect(fs.statSync(authTokenFile!).mode & 0o777).toBe(0o600);
+    expect(JSON.stringify(env)).not.toContain(fs.readFileSync(authTokenFile!, 'utf8'));
   });
 });
 

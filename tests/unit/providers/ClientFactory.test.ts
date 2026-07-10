@@ -9,7 +9,7 @@ import { ClientFactory, normalizeNewApiBaseUrl } from '@/common/api/ClientFactor
 import { OpenAIRotatingClient } from '@/common/api/OpenAIRotatingClient';
 import { GeminiRotatingClient } from '@/common/api/GeminiRotatingClient';
 import { AnthropicRotatingClient } from '@/common/api/AnthropicRotatingClient';
-import { AuthType } from '@office-ai/aioncli-core';
+import { AuthType } from '@/common/utils/platformAuthType';
 
 // Mock rotating clients
 vi.mock('@/common/api/OpenAIRotatingClient');
@@ -17,9 +17,16 @@ vi.mock('@/common/api/GeminiRotatingClient');
 vi.mock('@/common/api/AnthropicRotatingClient');
 
 // Mock utility functions
-vi.mock('@/common/utils/platformAuthType', () => ({
-  getProviderAuthType: vi.fn((provider) => provider.auth_type || provider.authType || AuthType.USE_OPENAI),
-}));
+vi.mock('@/common/utils/platformAuthType', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/common/utils/platformAuthType')>();
+  return {
+    ...actual,
+    getProviderAuthType: vi.fn(
+      (provider: { auth_type?: string; authType?: string }) =>
+        provider.auth_type || provider.authType || actual.AuthType.USE_OPENAI
+    ),
+  };
+});
 
 vi.mock('@/common/utils/platformConstants', () => ({
   isNewApiPlatform: vi.fn((platform) => platform === 'new-api'),

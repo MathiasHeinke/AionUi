@@ -12,6 +12,8 @@ import { Message } from '@arco-design/web-react';
 import { FolderOpen, Paperclip, PreviewOpen } from '@icon-park/react';
 import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { secureArtifactHtml } from '../../Preview/components/renderers/htmlArtifactSecurityCore';
+import { sanitizeArtifactPreviewSource } from './artifactPreviewSecurityCore';
 
 type ArtifactPayload = IGeneratedConversationArtifact['payload'] | Record<string, unknown> | string;
 
@@ -180,7 +182,8 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
   const type = inferType(artifact.kind, payload);
   const typeLabel = getTypeLabel(t, type);
   const path = readString(payload, SOURCE_PATH_KEYS);
-  const source = readString(payload, SOURCE_URL_KEYS) || (path ? pathToFileUrl(path) : undefined);
+  const rawSource = readString(payload, SOURCE_URL_KEYS) || (path ? pathToFileUrl(path) : undefined);
+  const source = sanitizeArtifactPreviewSource(rawSource, type);
   const title =
     readString(payload, ['title', 'name', 'file_name']) ||
     getFileName(path) ||
@@ -193,10 +196,15 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
   const sizeLabel = formatBytes(readNumber(payload, ['size', 'bytes']));
   const error = readString(payload, ['error']);
   const htmlContent = type === 'html' ? readString(payload, ['html', 'content']) : undefined;
+  const securedHtmlContent = htmlContent ? secureArtifactHtml(htmlContent) : undefined;
   const textContent = type === 'file' ? readString(payload, ['content', 'text']) : undefined;
   const receiptSummary = buildReceiptSummary(t, payload);
   const openPath = path || (source?.startsWith('file:') ? fileUrlToPath(source) : undefined);
   const canOpen = Boolean(openPath || (source && /^https?:/i.test(source)));
+  const hasPreview =
+    ((type === 'image' || type === 'video' || type === 'audio') && Boolean(source)) ||
+    (type === 'html' && Boolean(securedHtmlContent)) ||
+    (type === 'file' && Boolean(textContent));
 
   const handleOpen = async () => {
     try {
@@ -276,13 +284,12 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
             {type === 'audio' && source && (
               <audio data-testid='generated-artifact-audio' src={source} controls className='block w-full' />
             )}
-            {type === 'html' && (htmlContent || source) && (
+            {type === 'html' && securedHtmlContent && (
               <iframe
                 data-testid='generated-artifact-html'
                 title={title}
                 sandbox=''
-                src={htmlContent ? undefined : source}
-                srcDoc={htmlContent}
+                srcDoc={securedHtmlContent}
                 className='block w-full h-260px rd-6px bg-bg-2 b-1 b-solid'
                 style={{ borderColor: 'var(--color-border-2)' }}
               />
@@ -299,7 +306,7 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
                 </MarkdownView>
               </div>
             )}
-            {!source && !htmlContent && !textContent && (
+            {!hasPreview && (
               <div data-testid='generated-artifact-empty' className='text-12px text-t-secondary'>
                 {t('messages.artifact.noPreview')}
               </div>

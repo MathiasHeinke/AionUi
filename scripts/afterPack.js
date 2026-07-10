@@ -8,6 +8,7 @@ const {
   verifyModuleBinary,
   getModulesToRebuild,
 } = require('./rebuildNativeModules');
+const { applyPackagedElectronFusePolicy } = require('./electronFusePolicy');
 const { verifyBundledAioncoreResources } = require('../packages/shared-scripts/src/verify-bundled-aioncore-resources');
 
 /**
@@ -76,6 +77,11 @@ module.exports = async function afterPack(context) {
   } else {
     throw new Error(`resources directory not found: ${resourcesDir}`);
   }
+
+  // electron-builder currently configures only the original eight V1 fuses.
+  // Apply the complete policy here so Electron upgrades fail closed before the
+  // app is signed when a new fuse is added.
+  await applyPackagedElectronFusePolicy(context, targetArch);
 
   if (!isCrossCompile && !needsSameArchRebuild && !forceRebuild) {
     console.log(`   ✓ Same architecture, rebuild skipped (set FORCE_NATIVE_REBUILD=true to override)\n`);

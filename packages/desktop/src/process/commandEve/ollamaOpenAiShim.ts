@@ -32,6 +32,36 @@ const DEFAULT_SHIM_PORT = 25811;
 const DEFAULT_OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
 const DEFAULT_NUM_CTX = 32_768;
 const DEFAULT_MAX_TOKENS = 512;
+const DEFAULT_UPSTREAM_FIRST_BYTE_TIMEOUT_MS = 10 * 60_000;
+const DEFAULT_UPSTREAM_IDLE_TIMEOUT_MS = 5 * 60_000;
+let bootShimAuthToken = '';
+
+/** A process-local nonce that protects the predictable loopback inference port. */
+export function ensureCommandEveShimAuthToken(): string {
+  if (!bootShimAuthToken) bootShimAuthToken = crypto.randomBytes(32).toString('hex');
+  return bootShimAuthToken;
+}
+
+export function commandEveShimAuthTokenFilePath(dataPath: string): string {
+  return path.join(path.resolve(dataPath), 'command-eve-runtime', 'shim-auth-token');
+}
+
+/**
+ * File-deliver the local nonce to Hermes. Only the path enters the shared child
+ * environment; no cloud credential is stored or exposed here.
+ */
+export function provisionCommandEveShimAuthTokenFile(dataPath: string): string {
+  const file = commandEveShimAuthTokenFilePath(dataPath);
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, ensureCommandEveShimAuthToken(), { encoding: 'utf8', mode: 0o600 });
+    fs.chmodSync(file, 0o600);
+    return file;
+  } catch (error) {
+    console.warn('[Command EVE] shim auth token file provisioning failed:', error);
+    return '';
+  }
+}
 
 /**
  * Resolved EVE Inference (cloud) route for the CURRENT chat. The shim is the
@@ -193,9 +223,15 @@ export type CommandEveHonchoDeriverRouteResolver = () =>
 
 export type CommandEveOllamaShimOptions = {
   port?: number;
+  /** Override for tests. Production defaults to a random per-process nonce. */
+  authToken?: string;
   ollamaBaseUrl?: string;
   numCtx?: number;
   maxTokens?: number;
+  /** No total generation cap: only abort when the upstream produces no first byte. */
+  upstreamFirstByteTimeoutMs?: number;
+  /** Rolling inactivity watchdog; every upstream chunk resets it. */
+  upstreamIdleTimeoutMs?: number;
   promptProofPath?: string;
   egressReceiptPath?: string;
   egressPolicyAction?: CommandEveEgressPolicyAction;
@@ -264,6 +300,7 @@ export type CommandEveOllamaShimOptions = {
 
 export type CommandEveModelWarmupOptions = {
   baseUrl?: string;
+  authToken?: string;
   model: string;
   timeoutMs?: number;
   maxTokens?: number;
@@ -279,6 +316,7 @@ export type CommandEveModelWarmupResult = {
 export type CommandEveEveLaneWarmupOptions = {
   /** Loopback shim base URL the request is sent through (defaults to the running shim). */
   baseUrl?: string;
+  authToken?: string;
   /** Wire tier value (e.g. "standard") POSTed so the function routes correctly. */
   tier?: string;
   timeoutMs?: number;
@@ -360,6 +398,7 @@ function chatCompletionsUrl(baseUrl: string): string {
 }
 
 function jsonResponse(response: ServerResponse, status: number, payload: unknown): void {
+  if (response.destroyed || response.writableEnded) return;
   response.writeHead(status, { 'content-type': 'application/json' });
   response.end(JSON.stringify(payload));
 }
@@ -410,6 +449,85 @@ function constantTimeEquals(a: string, b: string): boolean {
   const ah = crypto.createHash('sha256').update(a, 'utf8').digest();
   const bh = crypto.createHash('sha256').update(b, 'utf8').digest();
   return crypto.timingSafeEqual(ah, bh);
+}
+
+function hasValidShimAuth(request: IncomingMessage, expectedToken: string): boolean {
+  const authHeader = headerToken(request.headers.authorization);
+  const match = authHeader ? /^bearer\s+(.+)$/i.exec(authHeader) : null;
+  const token = match ? match[1].trim() : '';
+  return Boolean(token && constantTimeEquals(token, expectedToken));
+}
+
+function requireShimAuth(request: IncomingMessage, response: ServerResponse, expectedToken: string): boolean {
+  if (hasValidShimAuth(request, expectedToken)) return true;
+  jsonResponse(response, 401, { error: { message: 'Unauthorized local Command EVE inference request.' } });
+  return false;
+}
+
+type UpstreamAbortReason = 'client_closed' | 'first_byte_timeout' | 'idle_timeout';
+
+type UpstreamRequestScope = {
+  signal: AbortSignal;
+  markActivity: () => void;
+  reason: () => UpstreamAbortReason | undefined;
+  dispose: () => void;
+};
+
+function createUpstreamRequestScope(
+  request: IncomingMessage,
+  response: ServerResponse,
+  options: Required<CommandEveOllamaShimOptions>
+): UpstreamRequestScope {
+  const controller = new AbortController();
+  let abortReason: UpstreamAbortReason | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  const abort = (reason: UpstreamAbortReason): void => {
+    if (controller.signal.aborted) return;
+    abortReason = reason;
+    controller.abort(new Error(reason));
+  };
+  const arm = (reason: UpstreamAbortReason, timeoutMs: number): void => {
+    if (timer) clearTimeout(timer);
+    timer = timeoutMs > 0 ? setTimeout(() => abort(reason), timeoutMs) : undefined;
+  };
+  const onClientClosed = (): void => abort('client_closed');
+  const onResponseClosed = (): void => {
+    if (!response.writableEnded) onClientClosed();
+  };
+
+  request.once('aborted', onClientClosed);
+  response.once('close', onResponseClosed);
+  // `IncomingMessage.destroyed` also becomes true after a completely normal,
+  // fully-consumed request body. Only `aborted` means the client actually cut
+  // the upload before completion; treating `destroyed` as cancellation leaves
+  // the downstream fetch aborted and the client waiting forever for a response.
+  if (request.aborted || response.destroyed) onClientClosed();
+  else arm('first_byte_timeout', options.upstreamFirstByteTimeoutMs);
+
+  return {
+    signal: controller.signal,
+    markActivity: () => arm('idle_timeout', options.upstreamIdleTimeoutMs),
+    reason: () => abortReason,
+    dispose: () => {
+      if (timer) clearTimeout(timer);
+      request.off('aborted', onClientClosed);
+      response.off('close', onResponseClosed);
+    },
+  };
+}
+
+function writeUpstreamAbortResponse(response: ServerResponse, reason: UpstreamAbortReason | undefined): void {
+  if (!reason || reason === 'client_closed') return;
+  if (response.headersSent) {
+    if (!response.writableEnded) response.end();
+    return;
+  }
+  const message =
+    reason === 'first_byte_timeout'
+      ? 'The model upstream did not produce a first byte before the inactivity limit.'
+      : 'The model upstream stopped producing data before the inactivity limit.';
+  jsonResponse(response, 504, { error: { message, type: reason } });
 }
 
 function messageRole(message: unknown): string {
@@ -704,6 +822,7 @@ function isAllowedEveFunctionUrl(value: string): boolean {
  * never logged) — the egress redactor scans message CONTENT, not headers.
  */
 async function handleEveCloudCompletions(
+  request: IncomingMessage,
   body: Record<string, unknown>,
   response: ServerResponse,
   options: Required<CommandEveOllamaShimOptions>,
@@ -728,7 +847,6 @@ async function handleEveCloudCompletions(
   // that made a paid EVE-Max user silently bill DeepSeek V4 Flash (OpenRouter
   // logs: 100% Flash, GLM 5.2 + V4 Pro never called).
   const tier = typeof route.tier === 'string' ? route.tier.trim() : '';
-  const model = String(body.model || '');
   const stream = Boolean(body.stream);
 
   // Fail closed: never make an unauthenticated request, never POST to a
@@ -924,9 +1042,9 @@ async function handleEveCloudCompletions(
     ...(body.response_format !== undefined ? { response_format: body.response_format } : {}),
   };
 
-  let upstream: Response;
+  const upstreamScope = createUpstreamRequestScope(request, response, options);
   try {
-    upstream = await fetch(functionUrl, {
+    const upstream = await fetch(functionUrl, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -934,64 +1052,74 @@ async function handleEveCloudCompletions(
         authorization: `Bearer ${license}`,
       },
       body: JSON.stringify(outboundBody),
+      signal: upstreamScope.signal,
     });
+    upstreamScope.markActivity();
+
+    // Stream passthrough: the function already emits OpenAI-compatible SSE.
+    if (stream && upstream.ok && upstream.body) {
+      response.writeHead(200, {
+        'content-type': upstream.headers.get('content-type') || 'text/event-stream',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive',
+      });
+      const reader = upstream.body.getReader();
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        upstreamScope.markActivity();
+        response.write(value);
+      }
+      response.end();
+      return;
+    }
+
+    // Non-streaming (or upstream error): passthrough the JSON verbatim. The
+    // function returns OpenAI-compatible completions on 200 and sanitized error
+    // bodies otherwise.
+    const text = await upstream.text();
+    upstreamScope.markActivity();
+
+    // Friendly daily-cap (429): the raw upstream body is a terse
+    // "rate_limit"/"daily cap reached" JSON that surfaces in chat as a cold
+    // error. Rewrite it to a warm, operator-facing message that names WHY (the
+    // free tier's daily fair-use budget) and the way forward, WITHOUT inventing a
+    // cap number — if the function reported a concrete reset/limit we keep its
+    // text, otherwise a generic friendly line. Stays OpenAI-error-shaped so the
+    // chat renders message verbatim.
+    if (upstream.status === 429) {
+      let upstreamMessage = '';
+      try {
+        const parsed = JSON.parse(text) as { error?: { message?: string }; message?: string };
+        upstreamMessage = (parsed?.error?.message || parsed?.message || '').trim();
+      } catch {
+        upstreamMessage = '';
+      }
+      const friendly =
+        'EVE hat ihr kostenloses Tageskontingent für heute erreicht. ' +
+        'Morgen läuft es automatisch wieder — oder du schaltest mehr Kontingent über die Credits frei.' +
+        (upstreamMessage ? ` (${upstreamMessage})` : '');
+      response.writeHead(429, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ error: { message: friendly, type: 'eve_daily_cap', code: 429 } }));
+      return;
+    }
+
+    response.writeHead(upstream.status || 502, {
+      'content-type': upstream.headers.get('content-type') || 'application/json',
+    });
+    response.end(text || JSON.stringify({ error: { message: `EVE Inference request failed (${upstream.status}).` } }));
   } catch {
-    // Generic 502 — never echo the error (could surface the bearer in some
-    // runtimes), matching the function's own upstream-failure discipline.
-    jsonResponse(response, 502, { error: { message: 'EVE Inference upstream unreachable.' } });
-    return;
-  }
-
-  // Stream passthrough: the function already emits OpenAI-compatible SSE.
-  if (stream && upstream.ok && upstream.body) {
-    response.writeHead(200, {
-      'content-type': upstream.headers.get('content-type') || 'text/event-stream',
-      'cache-control': 'no-cache',
-      connection: 'keep-alive',
-    });
-    const reader = upstream.body.getReader();
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      response.write(value);
+    const abortReason = upstreamScope.reason();
+    if (abortReason) {
+      writeUpstreamAbortResponse(response, abortReason);
+    } else {
+      // Generic 502 — never echo the error (could surface the bearer in some
+      // runtimes), matching the function's own upstream-failure discipline.
+      jsonResponse(response, 502, { error: { message: 'EVE Inference upstream unreachable.' } });
     }
-    response.end();
-    return;
+  } finally {
+    upstreamScope.dispose();
   }
-
-  // Non-streaming (or upstream error): passthrough the JSON verbatim. The
-  // function returns OpenAI-compatible completions on 200 and sanitized error
-  // bodies otherwise.
-  const text = await upstream.text().catch(() => '');
-
-  // Friendly daily-cap (429): the raw upstream body is a terse
-  // "rate_limit"/"daily cap reached" JSON that surfaces in chat as a cold
-  // error. Rewrite it to a warm, operator-facing message that names WHY (the
-  // free tier's daily fair-use budget) and the way forward, WITHOUT inventing a
-  // cap number — if the function reported a concrete reset/limit we keep its
-  // text, otherwise a generic friendly line. Stays OpenAI-error-shaped so the
-  // chat renders message verbatim.
-  if (upstream.status === 429) {
-    let upstreamMessage = '';
-    try {
-      const parsed = JSON.parse(text) as { error?: { message?: string }; message?: string };
-      upstreamMessage = (parsed?.error?.message || parsed?.message || '').trim();
-    } catch {
-      upstreamMessage = '';
-    }
-    const friendly =
-      'EVE hat ihr kostenloses Tageskontingent für heute erreicht. ' +
-      'Morgen läuft es automatisch wieder — oder du schaltest mehr Kontingent über die Credits frei.' +
-      (upstreamMessage ? ` (${upstreamMessage})` : '');
-    response.writeHead(429, { 'content-type': 'application/json' });
-    response.end(JSON.stringify({ error: { message: friendly, type: 'eve_daily_cap', code: 429 } }));
-    return;
-  }
-
-  response.writeHead(upstream.status || 502, {
-    'content-type': upstream.headers.get('content-type') || 'application/json',
-  });
-  response.end(text || JSON.stringify({ error: { message: `EVE Inference request failed (${upstream.status}).` } }));
 }
 
 /**
@@ -1061,7 +1189,7 @@ async function handleHonchoDeriverCompletions(
   };
   // neverWaiveSecretFloor=true (Codex #1): the deriver is automatic background
   // reasoning, so the S3 secret floor holds even on the founder's own legacy seat.
-  await handleEveCloudCompletions(body, response, options, forcedRoute, undefined, true);
+  await handleEveCloudCompletions(request, body, response, options, forcedRoute, undefined, true);
 }
 
 async function handleChatCompletions(
@@ -1082,7 +1210,7 @@ async function handleChatCompletions(
       // SG-1 A1: the attribution token rides the X-EVE-Dispatch HEADER, never the
       // body — so a client that stuffs `body.agent_id` cannot spoof a role.
       const dispatchToken = headerToken(request.headers['x-eve-dispatch']);
-      await handleEveCloudCompletions(body, response, options, eveRoute, dispatchToken);
+      await handleEveCloudCompletions(request, body, response, options, eveRoute, dispatchToken);
       return;
     }
   }
@@ -1136,89 +1264,108 @@ async function handleChatCompletions(
       console.warn(`[Command EVE] Prompt proof missing EVE marker for model ${model || 'unknown'}.`);
     }
   }
-  const upstream = await fetchOllama(
-    '/api/chat',
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(nativeChatPayload(body, options)),
-    },
-    options
-  );
+  const upstreamScope = createUpstreamRequestScope(request, response, options);
+  try {
+    const upstream = await fetchOllama(
+      '/api/chat',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(nativeChatPayload(body, options)),
+        signal: upstreamScope.signal,
+      },
+      options
+    );
+    upstreamScope.markActivity();
 
-  if (!upstream.ok || !upstream.body) {
-    const text = await upstream.text().catch(() => '');
-    jsonResponse(response, upstream.status || 502, { error: { message: text || 'Ollama request failed' } });
-    return;
-  }
+    if (!upstream.ok || !upstream.body) {
+      const text = await upstream.text();
+      upstreamScope.markActivity();
+      jsonResponse(response, upstream.status || 502, { error: { message: text || 'Ollama request failed' } });
+      return;
+    }
 
-  if (!stream) {
-    const data = (await upstream.json()) as {
-      message?: { content?: string; tool_calls?: unknown };
-      done_reason?: string;
-    };
-    jsonResponse(response, 200, {
-      id: `chatcmpl-${Date.now()}`,
-      object: 'chat.completion',
-      created: Math.floor(Date.now() / 1000),
-      model,
-      choices: [
-        {
-          index: 0,
-          message: {
-            role: 'assistant',
-            content: data.message?.content || '',
-            ...(data.message?.tool_calls ? { tool_calls: data.message.tool_calls } : {}),
-          },
-          finish_reason: data.done_reason === 'length' ? 'length' : 'stop',
-        },
-      ],
-    });
-    return;
-  }
-
-  response.writeHead(200, {
-    'content-type': 'text/event-stream',
-    'cache-control': 'no-cache',
-    connection: 'keep-alive',
-  });
-
-  const reader = upstream.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let finishReason = 'stop';
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split(/\r?\n/);
-    buffer = lines.pop() || '';
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      const chunk = JSON.parse(line) as {
+    if (!stream) {
+      const data = (await upstream.json()) as {
         message?: { content?: string; tool_calls?: unknown };
-        done?: boolean;
         done_reason?: string;
       };
-      if (chunk.done) {
-        finishReason = chunk.done_reason === 'length' ? 'length' : 'stop';
-        continue;
-      }
-      writeStreamChunk(response, model, chunk.message?.content || '', chunk.message?.tool_calls);
+      upstreamScope.markActivity();
+      jsonResponse(response, 200, {
+        id: `chatcmpl-${Date.now()}`,
+        object: 'chat.completion',
+        created: Math.floor(Date.now() / 1000),
+        model,
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: data.message?.content || '',
+              ...(data.message?.tool_calls ? { tool_calls: data.message.tool_calls } : {}),
+            },
+            finish_reason: data.done_reason === 'length' ? 'length' : 'stop',
+          },
+        ],
+      });
+      return;
     }
-  }
 
-  response.write(
-    `data: ${JSON.stringify({
-      id: `chatcmpl-${Date.now()}`,
-      object: 'chat.completion.chunk',
-      created: Math.floor(Date.now() / 1000),
-      model,
-      choices: [{ index: 0, delta: {}, finish_reason: finishReason }],
-    })}\n\n`
-  );
-  response.write('data: [DONE]\n\n');
-  response.end();
+    response.writeHead(200, {
+      'content-type': 'text/event-stream',
+      'cache-control': 'no-cache',
+      connection: 'keep-alive',
+    });
+
+    const reader = upstream.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let finishReason = 'stop';
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      upstreamScope.markActivity();
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const chunk = JSON.parse(line) as {
+          message?: { content?: string; tool_calls?: unknown };
+          done?: boolean;
+          done_reason?: string;
+        };
+        if (chunk.done) {
+          finishReason = chunk.done_reason === 'length' ? 'length' : 'stop';
+          continue;
+        }
+        writeStreamChunk(response, model, chunk.message?.content || '', chunk.message?.tool_calls);
+      }
+    }
+
+    response.write(
+      `data: ${JSON.stringify({
+        id: `chatcmpl-${Date.now()}`,
+        object: 'chat.completion.chunk',
+        created: Math.floor(Date.now() / 1000),
+        model,
+        choices: [{ index: 0, delta: {}, finish_reason: finishReason }],
+      })}\n\n`
+    );
+    response.write('data: [DONE]\n\n');
+    response.end();
+  } catch {
+    const abortReason = upstreamScope.reason();
+    if (abortReason) {
+      writeUpstreamAbortResponse(response, abortReason);
+    } else if (response.headersSent) {
+      if (!response.writableEnded) response.end();
+    } else {
+      jsonResponse(response, 502, { error: { message: 'Ollama upstream unreachable.' } });
+    }
+  } finally {
+    upstreamScope.dispose();
+  }
 }
 
 /**
@@ -1312,9 +1459,12 @@ export async function startCommandEveOllamaOpenAiShim(shimOptions: CommandEveOll
   if (server?.listening) return serverUrl || `http://127.0.0.1:${DEFAULT_SHIM_PORT}`;
   const options: Required<CommandEveOllamaShimOptions> = {
     port: shimOptions.port ?? DEFAULT_SHIM_PORT,
+    authToken: shimOptions.authToken?.trim() || ensureCommandEveShimAuthToken(),
     ollamaBaseUrl: shimOptions.ollamaBaseUrl || DEFAULT_OLLAMA_BASE_URL,
     numCtx: shimOptions.numCtx || DEFAULT_NUM_CTX,
     maxTokens: shimOptions.maxTokens || DEFAULT_MAX_TOKENS,
+    upstreamFirstByteTimeoutMs: shimOptions.upstreamFirstByteTimeoutMs ?? DEFAULT_UPSTREAM_FIRST_BYTE_TIMEOUT_MS,
+    upstreamIdleTimeoutMs: shimOptions.upstreamIdleTimeoutMs ?? DEFAULT_UPSTREAM_IDLE_TIMEOUT_MS,
     promptProofPath: shimOptions.promptProofPath || '',
     egressReceiptPath: shimOptions.egressReceiptPath || '',
     // Redact-and-continue by default (see egressBoundaryCore): a hard block 451s
@@ -1361,20 +1511,23 @@ export async function startCommandEveOllamaOpenAiShim(shimOptions: CommandEveOll
     void (async () => {
       const path = new URL(request.url || '/', `http://${request.headers.host || '127.0.0.1'}`).pathname;
       if (request.method === 'GET' && path === '/health') {
-        jsonResponse(response, 200, { ok: true, upstream: options.ollamaBaseUrl });
+        jsonResponse(response, 200, { ok: true });
         return;
       }
       if (request.method === 'GET' && path === '/v1/models') {
+        if (!requireShimAuth(request, response, options.authToken)) return;
         await handleModels(response, options);
         return;
       }
       if (request.method === 'POST' && path === '/v1/chat/completions') {
+        if (!requireShimAuth(request, response, options.authToken)) return;
         await handleChatCompletions(request, response, options);
         return;
       }
       // COMPA-624 — the Honcho deriver's dedicated FREE cloud lane. Separate path
       // so it is picker-independent + free-tier-forced + never a warmup-ping.
       if (request.method === 'POST' && path === '/honcho/deriver/v1/chat/completions') {
+        if (!requireShimAuth(request, response, options.authToken)) return;
         await handleHonchoDeriverCompletions(request, response, options);
         return;
       }
@@ -1442,7 +1595,10 @@ export async function warmCommandEveLocalModel(
   try {
     const response = await fetch(chatCompletionsUrl(baseUrl), {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${warmupOptions.authToken || ensureCommandEveShimAuthToken()}`,
+      },
       signal: abortController.signal,
       body: JSON.stringify({
         model: warmupOptions.model,
@@ -1521,7 +1677,10 @@ export async function warmCommandEveEveLane(
   try {
     const response = await fetch(chatCompletionsUrl(baseUrl), {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${warmupOptions.authToken || ensureCommandEveShimAuthToken()}`,
+      },
       signal: abortController.signal,
       body: JSON.stringify({
         // A tiny EVE-persona system message keeps the prompt-proof marker happy;

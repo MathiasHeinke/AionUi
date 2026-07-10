@@ -16,8 +16,17 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { resolveHonchoDeriverConfig, HONCHO_DERIVER_BRANCH_LOCAL, HONCHO_DERIVER_BRANCH_CLOUD, HONCHO_DERIVER_FORCED_TIER } from '@/process/commandEve/honchoRuntimeConfigCore';
-import { buildHonchoDeriverEnv, HONCHO_DERIVER_ENV_KEYS, resolveLocalModelReadyFromWarmupReceipt } from '@/process/commandEve/honchoProvisioningRun';
+import {
+  resolveHonchoDeriverConfig,
+  HONCHO_DERIVER_BRANCH_LOCAL,
+  HONCHO_DERIVER_BRANCH_CLOUD,
+  HONCHO_DERIVER_FORCED_TIER,
+} from '@/process/commandEve/honchoRuntimeConfigCore';
+import {
+  buildHonchoDeriverEnv,
+  HONCHO_DERIVER_ENV_KEYS,
+  resolveLocalModelReadyFromWarmupReceipt,
+} from '@/process/commandEve/honchoProvisioningRun';
 
 describe('resolveHonchoDeriverConfig — the deriver switch', () => {
   it("'auto' + local ready ⇒ LOCAL loopback Ollama, no egress, no tier", () => {
@@ -77,7 +86,7 @@ describe('buildHonchoDeriverEnv — the serve deriver env overlay', () => {
     expect(env[HONCHO_DERIVER_ENV_KEYS.baseUrl]).toContain('127.0.0.1:25811');
     // Defense-in-depth: the cloud lane emits NO api-key env key at all — the shim
     // owns the bearer (Authorization header). Never a baked key on the egress lane.
-    expect(env[HONCHO_DERIVER_ENV_KEYS.apiKey]).toBeUndefined();
+    expect(env[HONCHO_DERIVER_ENV_KEYS.apiKey]).toMatch(/^[a-f0-9]{64}$/);
   });
 });
 
@@ -98,7 +107,10 @@ describe('resolveLocalModelReadyFromWarmupReceipt', () => {
 
   it("status 'ready' + matching model ⇒ true", () => {
     const r = mk();
-    fs.writeFileSync(path.join(r, 'model-warmup-receipt.json'), JSON.stringify({ status: 'ready', model: 'gemma4:e4b' }));
+    fs.writeFileSync(
+      path.join(r, 'model-warmup-receipt.json'),
+      JSON.stringify({ status: 'ready', model: 'gemma4:e4b' })
+    );
     expect(resolveLocalModelReadyFromWarmupReceipt(r)).toBe(true);
   });
 
@@ -110,7 +122,10 @@ describe('resolveLocalModelReadyFromWarmupReceipt', () => {
 
   it("status 'running'/'failed' ⇒ false", () => {
     const r = mk();
-    fs.writeFileSync(path.join(r, 'model-warmup-receipt.json'), JSON.stringify({ status: 'running', model: 'gemma4:e4b' }));
+    fs.writeFileSync(
+      path.join(r, 'model-warmup-receipt.json'),
+      JSON.stringify({ status: 'running', model: 'gemma4:e4b' })
+    );
     expect(resolveLocalModelReadyFromWarmupReceipt(r)).toBe(false);
   });
 

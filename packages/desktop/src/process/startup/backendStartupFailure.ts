@@ -158,6 +158,12 @@ export function classifyBackendStartupFailure(error: unknown): BackendStartupFai
   if (incompleteInstallation) return incompleteInstallation;
 
   const text = collectBackendStartupText(error);
+  if (/\bEADDRINUSE\b|address already in use/i.test(text)) {
+    return {
+      reason: 'backend_instance_conflict',
+    };
+  }
+
   const requiredVersions = extractMissingGlibcVersions(text);
   if (requiredVersions.length > 0) {
     return {

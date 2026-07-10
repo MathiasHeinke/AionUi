@@ -42,6 +42,16 @@ export function isAllowedWebviewSource(targetUrl: string): boolean {
   return ['https:', 'http:', 'file:', 'data:', 'blob:'].includes(target.protocol);
 }
 
+export function isAllowedWebviewNavigation(currentUrl: string, targetUrl: string): boolean {
+  const current = parseUrl(currentUrl);
+  const target = parseUrl(targetUrl);
+  if (!current || !target || !isAllowedWebviewSource(targetUrl)) return false;
+  if (target.href === current.href) return true;
+
+  const currentIsNetworkViewer = current.protocol === 'https:' || current.protocol === 'http:';
+  return currentIsNetworkViewer && target.origin === current.origin;
+}
+
 export function hardenAttachedWebviewPreferences(webPreferences: Record<string, unknown>): void {
   delete webPreferences.preload;
   delete webPreferences.preloadURL;
@@ -51,4 +61,7 @@ export function hardenAttachedWebviewPreferences(webPreferences: Record<string, 
   webPreferences.sandbox = true;
   webPreferences.webSecurity = true;
   webPreferences.allowRunningInsecureContent = false;
+  webPreferences.safeDialogs = true;
+  webPreferences.navigateOnDragDrop = false;
+  webPreferences.enableWebSQL = false;
 }

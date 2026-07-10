@@ -20,6 +20,11 @@ interface BridgeEventData {
   data: unknown;
 }
 
+type AdapterIpcEvent = {
+  sender: Electron.WebContents;
+  senderFrame?: Electron.WebFrameMain | null;
+};
+
 const adapterWindowList: Array<BrowserWindow> = [];
 
 export { registerWebSocketBroadcaster, getBridgeEmitter };
@@ -35,6 +40,34 @@ export const setPetNotifyHook = (hook: ((name: string, data: unknown) => void) |
  * */
 /** Maximum IPC payload size (50 MB). Messages exceeding this are dropped with an error notification. */
 const MAX_IPC_PAYLOAD_SIZE = 50 * 1024 * 1024;
+const MAX_BRIDGE_EVENT_NAME_LENGTH = 256;
+
+export function isTrustedAdapterIpcSender(event: AdapterIpcEvent): boolean {
+  const sender = event.sender;
+  if (!sender || sender.isDestroyed()) return false;
+  if (event.senderFrame && event.senderFrame !== sender.mainFrame) return false;
+  return adapterWindowList.some(
+    (win) => !win.isDestroyed() && !win.webContents.isDestroyed() && win.webContents === sender
+  );
+}
+
+function parseBridgeEvent(info: unknown): BridgeEventData {
+  if (typeof info !== 'string') throw new Error('Invalid adapter bridge payload type.');
+  if (Buffer.byteLength(info, 'utf8') > MAX_IPC_PAYLOAD_SIZE) {
+    throw new Error('Adapter bridge payload exceeds the allowed size.');
+  }
+  const parsed = JSON.parse(info) as Partial<BridgeEventData> | null;
+  if (
+    !parsed ||
+    typeof parsed !== 'object' ||
+    typeof parsed.name !== 'string' ||
+    parsed.name.length === 0 ||
+    parsed.name.length > MAX_BRIDGE_EVENT_NAME_LENGTH
+  ) {
+    throw new Error('Invalid adapter bridge event shape.');
+  }
+  return { name: parsed.name, data: parsed.data };
+}
 
 bridge.adapter({
   emit(name, data) {
@@ -90,8 +123,9 @@ bridge.adapter({
     // 保存 emitter 引用供 WebSocket 处理使用 / Save emitter reference for WebSocket handling
     setBridgeEmitter(emitter);
 
-    ipcMain.handle(ADAPTER_BRIDGE_EVENT_KEY, (_event, info) => {
-      const { name, data } = JSON.parse(info) as BridgeEventData;
+    ipcMain.handle(ADAPTER_BRIDGE_EVENT_KEY, (event, info) => {
+      if (!isTrustedAdapterIpcSender(event)) throw new Error('Blocked untrusted adapter bridge sender.');
+      const { name, data } = parseBridgeEvent(info);
       return Promise.resolve(emitter.emit(name, data));
     });
   },

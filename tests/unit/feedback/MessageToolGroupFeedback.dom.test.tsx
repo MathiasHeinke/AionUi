@@ -207,7 +207,8 @@ describe('MessageToolGroup — FeedbackButton wiring', () => {
 
     const frame = screen.getByTestId('generated-artifact-html');
     expect(frame).toHaveAttribute('sandbox', '');
-    expect(frame).toHaveAttribute('srcdoc', '<script>window.evePwned=true</script><main>Preview</main>');
+    expect(frame.getAttribute('srcdoc')).toContain('Content-Security-Policy');
+    expect(frame.getAttribute('srcdoc')).toContain('<script>window.evePwned=true</script><main>Preview</main>');
     expect(document.querySelector('script')).toBeNull();
   });
 

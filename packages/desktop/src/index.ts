@@ -31,7 +31,7 @@ import fixPath from 'fix-path';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { initMainAdapterWithWindow } from './common/adapter/main';
+import { initMainAdapterWithWindow, isTrustedAdapterIpcSender } from './common/adapter/main';
 import { ipcBridge } from './common';
 import { initializeProcess } from './process';
 import { ProcessConfig } from './process/utils/initStorage';
@@ -45,16 +45,28 @@ import {
   type EveTeamDirectiveRole,
   type EveWorkerAssignmentMap,
 } from './common/config/eveWorkerAssignmentCore';
-import type { CommandEveEveCloudRoute, CommandEveHonchoDeriverRoute, CommandEveHonchoDeriverRouteResolver } from './process/commandEve/ollamaOpenAiShim';
+import type {
+  CommandEveEveCloudRoute,
+  CommandEveHonchoDeriverRoute,
+  CommandEveHonchoDeriverRouteResolver,
+} from './process/commandEve/ollamaOpenAiShim';
 import { applyLauncherWiring } from './process/commandEve/eveWorkerLauncherCore';
 import { resolveDispatchAgentId } from './process/commandEve/eveAgentTaskRegistry';
 import { resolveTeamManageBearer, teamManageProposeHandler } from './process/commandEve/eveTeamManageMain';
-import { kanbanAcpProposeHandler, readKanbanAcpBoard, resolveKanbanAcpBearer, setKanbanAcpSeatSwitchResolver } from './process/commandEve/kanbanAcpMain';
+import {
+  kanbanAcpProposeHandler,
+  readKanbanAcpBoard,
+  resolveKanbanAcpBearer,
+  setKanbanAcpSeatSwitchResolver,
+} from './process/commandEve/kanbanAcpMain';
 import { isCommandEveSeatSwitchInFlight } from './process/bridge/commandEveBridge';
 import { buildCommandEveShimHonchoDeriverRouteResolver } from './process/commandEve/honchoDeriverRouteCore';
 import { resolveHonchoHomeForSeat } from './process/commandEve/honchoRuntimeConfigCore';
 import { resolveHonchoRenderForSeat, type HonchoRenderInput } from './process/commandEve/honchoRuntimeRenderCore';
-import { resolveCommandEveRuntimeBootstrapPaths, type RuntimeBootstrapReceipt } from './process/commandEve/runtimeBootstrapCore';
+import {
+  resolveCommandEveRuntimeBootstrapPaths,
+  type RuntimeBootstrapReceipt,
+} from './process/commandEve/runtimeBootstrapCore';
 import { readHonchoReadyState } from './process/commandEve/honchoReadyStateFile';
 import { getActiveSeatId } from './process/commandEve/seatContextCore';
 import {
@@ -74,6 +86,7 @@ import { registerWindowMaximizeListeners } from '@process/bridge';
 import { BackendLifecycleManager } from '@aionui/web-host';
 import { resolveBinaryPath } from '@process/backend';
 import './process/bridge/feedbackBridge';
+import './process/bridge/desktopShellBridge';
 import { wasLaunchedAtLogin } from '@process/bridge/applicationBridge';
 import { onLanguageChanged } from './process/bridge/systemSettingsBridge';
 import { setInitialLanguage } from '@process/services/i18n';
@@ -81,9 +94,12 @@ import { setupApplicationMenu } from './process/utils/appMenu';
 import {
   hardenAttachedWebviewPreferences,
   isAllowedWebviewSource,
+  isAllowedWebviewNavigation,
   isSafeExternalNavigationUrl,
   isTrustedMainRendererUrl,
 } from './process/security/mainWindowSecurityCore';
+import { configureMainRendererSessionPermissions } from './process/security/sessionPermissionCore';
+import { classifyBackendStartupFailure } from './process/startup/backendStartupFailure';
 import { startWebHost } from '@aionui/web-host';
 import { initializeZoomFactor, setupZoomForWindow } from './process/utils/zoom';
 import {
@@ -93,12 +109,7 @@ import {
   loadSavedWindowBounds,
   resolveInitialBounds,
 } from './process/utils/windowBounds';
-import {
-  clearPendingDeepLinkUrl,
-  getPendingDeepLinkUrl,
-  handleDeepLinkUrl,
-  PROTOCOL_SCHEME,
-} from './process/utils/deepLink';
+import { deliverDeepLink, handleDeepLinkUrl, PROTOCOL_SCHEME, takePendingDeepLink } from './process/utils/deepLink';
 import {
   bindMainWindowReferences,
   showAndFocusMainWindow,
@@ -145,8 +156,13 @@ const shouldBlockStartupForCommandEveRuntimeBootstrap =
   process.env.COMMAND_EVE_RUNTIME_BOOTSTRAP_WAIT === '1' &&
   process.env.COMMAND_EVE_ALLOW_STARTUP_BLOCKING === '1' &&
   !isE2ETestMode;
-const deepLinkFromArgv = process.argv.find((arg) => arg.startsWith(`${PROTOCOL_SCHEME}://`));
-const gotTheLock = skipSingleInstanceLock ? true : app.requestSingleInstanceLock({ deepLinkUrl: deepLinkFromArgv });
+const deepLinkArgIndex = process.argv.findIndex((arg) => arg.startsWith(`${PROTOCOL_SCHEME}://`));
+let deepLinkFromArgv = deepLinkArgIndex >= 0 ? process.argv[deepLinkArgIndex] : undefined;
+const gotTheLock = skipSingleInstanceLock
+  ? true
+  : app.requestSingleInstanceLock(deepLinkFromArgv ? { deepLinkUrl: deepLinkFromArgv } : {});
+if (deepLinkArgIndex >= 0) process.argv[deepLinkArgIndex] = `${PROTOCOL_SCHEME}://redacted`;
+deepLinkFromArgv = undefined;
 if (!gotTheLock) {
   console.warn('[CommandEVE] Another instance is already running; current process will exit.');
   app.quit();
@@ -275,19 +291,35 @@ let backendStartupFailureInfo: unknown = null;
 let backendMigrationsScheduled = false;
 
 ipcMain.on('get-backend-port', (event) => {
+  if (!isTrustedAdapterIpcSender(event)) {
+    event.returnValue = 0;
+    return;
+  }
   const bootBackendPort = (globalThis as typeof globalThis & { __backendPort?: number }).__backendPort;
   event.returnValue = backendManager.port > 0 ? backendManager.port : (bootBackendPort ?? 0);
 });
 
 ipcMain.on('get-initial-language', (event) => {
+  if (!isTrustedAdapterIpcSender(event)) {
+    event.returnValue = null;
+    return;
+  }
   event.returnValue = rendererInitialLanguage;
 });
 
 ipcMain.on('get-backend-startup-failed', (event) => {
+  if (!isTrustedAdapterIpcSender(event)) {
+    event.returnValue = true;
+    return;
+  }
   event.returnValue = backendStartupFailed;
 });
 
 ipcMain.on('get-backend-startup-failure', (event) => {
+  if (!isTrustedAdapterIpcSender(event)) {
+    event.returnValue = null;
+    return;
+  }
   event.returnValue = backendStartupFailureInfo;
 });
 
@@ -495,7 +527,8 @@ function buildCommandEveShimHonchoDeriverRoute(): CommandEveHonchoDeriverRouteRe
       const honchoHome = resolveHonchoHomeForSeat(getDataPath(), seatId);
       return honchoHome ? readHonchoReadyState(honchoHome) : undefined;
     },
-    onError: (error: unknown) => console.warn('[Command EVE] Honcho deriver route resolver error (staying inert):', error),
+    onError: (error: unknown) =>
+      console.warn('[Command EVE] Honcho deriver route resolver error (staying inert):', error),
   });
   // Normalize to the shim's route shape (active is a guaranteed boolean; the core
   // always sets it, but its result type keeps it optional). Fail-closed to inert.
@@ -669,13 +702,15 @@ async function resolveCommandEveWorkerRuntimeInputs(): Promise<{
     const assignments =
       assignmentsRaw && typeof assignmentsRaw === 'object'
         ? (Object.fromEntries(
-            Object.entries(assignmentsRaw as Record<string, { kind: string; cli_path?: string; cli_version?: string }>).map(
-              ([id, v]) => [id, { agent_id: id, ...v }]
-            )
+            Object.entries(
+              assignmentsRaw as Record<string, { kind: string; cli_path?: string; cli_version?: string }>
+            ).map(([id, v]) => [id, { agent_id: id, ...v }])
           ) as EveWorkerAssignmentMap)
         : ({} as EveWorkerAssignmentMap);
     const statuses =
-      statusesRaw && typeof statusesRaw === 'object' ? (statusesRaw as EveTeamWorkerStatusMap) : ({} as EveTeamWorkerStatusMap);
+      statusesRaw && typeof statusesRaw === 'object'
+        ? (statusesRaw as EveTeamWorkerStatusMap)
+        : ({} as EveTeamWorkerStatusMap);
     return {
       codexRuntime: codexRuntimeForConfig(assignments),
       // SG-1 A3: wrap the resolved delegate so delegate_task launches through the
@@ -683,12 +718,13 @@ async function resolveCommandEveWorkerRuntimeInputs(): Promise<{
       // DERIVED per-role status/token mirror. FAIL-CLOSED if no launcher (H13):
       // applyLauncherWiring returns null and wires NO delegate rather than an
       // unwrapped one (no pause-gate, no env scrub).
-      claudeDelegate: applyLauncherWiring(
-        resolveAssignedClaudeDelegate(assignments, statuses),
-        assignments,
-        statuses,
-        { dataPath: getDataPath(), seatId: getActiveSeatId(), resourcesPath: process.resourcesPath, env: process.env, honcho: resolveActiveSeatHonchoRender() }
-      ),
+      claudeDelegate: applyLauncherWiring(resolveAssignedClaudeDelegate(assignments, statuses), assignments, statuses, {
+        dataPath: getDataPath(),
+        seatId: getActiveSeatId(),
+        resourcesPath: process.resourcesPath,
+        env: process.env,
+        honcho: resolveActiveSeatHonchoRender(),
+      }),
       teamRoles: buildTeamDirectiveRoles(assignments, statuses),
     };
   } catch (error) {
@@ -1308,10 +1344,21 @@ const createWindow = ({ showOnReady = true }: { showOnReady?: boolean } = {}): v
       : { frame: false }),
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
+      nodeIntegration: false,
+      nodeIntegrationInWorker: false,
+      nodeIntegrationInSubFrames: false,
+      contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      safeDialogs: true,
+      navigateOnDragDrop: false,
+      enableWebSQL: false,
       webviewTag: true, // 启用 webview 标签用于 HTML 预览 / Enable webview tag for HTML preview
     },
   });
   console.log(`[CommandEVE] Main window created (id=${mainWindow.id})`);
+  configureMainRendererSessionPermissions(mainWindow);
 
   if (isTelemetryAllowed()) {
     scheduleStartupLogReport(mainWindow);
@@ -1405,10 +1452,14 @@ const createWindow = ({ showOnReady = true }: { showOnReady?: boolean } = {}): v
     if (!isAllowedWebviewSource(params.src)) event.preventDefault();
   });
   mainWindow.webContents.on('did-attach-webview', (_event, guest) => {
-    guest.setWindowOpenHandler(({ url }) => {
-      openExternalNavigation(url);
-      return { action: 'deny' };
-    });
+    const guardGuestNavigation = (event: Electron.Event, targetUrl: string): void => {
+      if (isAllowedWebviewNavigation(guest.getURL(), targetUrl)) return;
+      event.preventDefault();
+    };
+
+    guest.on('will-navigate', (event) => guardGuestNavigation(event, event.url));
+    guest.on('will-redirect', (event) => guardGuestNavigation(event, event.url));
+    guest.setWindowOpenHandler(() => ({ action: 'deny' }));
   });
 
   if (!app.isPackaged && rendererUrl) {
@@ -1610,7 +1661,9 @@ const handleAppReady = async (): Promise<void> => {
       ...workerRuntimeInputs,
     });
     if (!provisionedRuntimeFiles.ok) {
-      console.warn(`[Command EVE] Runtime file provisioning skipped: ${provisionedRuntimeFiles.error || 'unknown error'}`);
+      console.warn(
+        `[Command EVE] Runtime file provisioning skipped: ${provisionedRuntimeFiles.error || 'unknown error'}`
+      );
     } else if (provisionedRuntimeFiles.bundled_skill_failures.length > 0) {
       console.warn(
         `[Command EVE] Runtime file provisioning completed with ${provisionedRuntimeFiles.bundled_skill_failures.length} bundled skill warning(s).`
@@ -1687,16 +1740,24 @@ const handleAppReady = async (): Promise<void> => {
         hermesCommandPath: resolveCommandEveRuntimeBootstrapPaths(getDataPath()).hermesShim,
       });
       if (repair.repaired > 0) {
-        console.warn(`[CommandEVE] Pre-flight assistant-storage repair: re-activated ${repair.repaired} orphaned definition(s).`);
+        console.warn(
+          `[CommandEVE] Pre-flight assistant-storage repair: re-activated ${repair.repaired} orphaned definition(s).`
+        );
       }
       if (repair.rebound && repair.rebound > 0) {
-        console.warn(`[CommandEVE] Pre-flight assistant-storage repair: re-bound ${repair.rebound} EVE definition(s) aionrs→hermes.`);
+        console.warn(
+          `[CommandEVE] Pre-flight assistant-storage repair: re-bound ${repair.rebound} EVE definition(s) aionrs→hermes.`
+        );
       }
       if (repair.registryRebound && repair.registryRebound > 0) {
-        console.warn(`[CommandEVE] Pre-flight assistant-storage repair: pinned ${repair.registryRebound} Hermes registry row(s) to the app-managed shim.`);
+        console.warn(
+          `[CommandEVE] Pre-flight assistant-storage repair: pinned ${repair.registryRebound} Hermes registry row(s) to the app-managed shim.`
+        );
       }
       if (repair.reseeded && repair.reseeded > 0) {
-        console.warn(`[CommandEVE] Pre-flight assistant-storage repair: cleared ${repair.reseeded} orphaned EVE mirror row(s) with no live definition (will re-seed via POST).`);
+        console.warn(
+          `[CommandEVE] Pre-flight assistant-storage repair: cleared ${repair.reseeded} orphaned EVE mirror row(s) with no live definition (will re-seed via POST).`
+        );
       }
     } catch (error) {
       console.warn('[CommandEVE] Pre-flight assistant-storage repair skipped:', error);
@@ -1731,7 +1792,8 @@ const handleAppReady = async (): Promise<void> => {
     setCommandEveBackendRestart(async () => {
       const myRespawnGen = ++commandEveRespawnGeneration;
       const { getDataPath: getDataPathForRestart } = await import('./process/utils/utils');
-      const { getSystemDir: getSystemDirForRestart, getBackendDataDir: getBackendDataDirForRestart } = await import('./process/utils/initStorage');
+      const { getSystemDir: getSystemDirForRestart, getBackendDataDir: getBackendDataDirForRestart } =
+        await import('./process/utils/initStorage');
       const { prepareCommandEveRuntimeProcessEnv, resolveCommandEveRuntimeBootstrapPaths } =
         await import('./process/commandEve/runtimeBootstrapCore');
       // STOP first so there is no orphan / no in-flight request bleed: stop()
@@ -1752,16 +1814,24 @@ const handleAppReady = async (): Promise<void> => {
           hermesCommandPath: runtimePathsForRestart.hermesShim,
         });
         if (repair.repaired > 0) {
-          console.warn(`[CommandEVE] Pre-flight assistant-storage repair (respawn): re-activated ${repair.repaired} orphaned definition(s).`);
+          console.warn(
+            `[CommandEVE] Pre-flight assistant-storage repair (respawn): re-activated ${repair.repaired} orphaned definition(s).`
+          );
         }
         if (repair.rebound && repair.rebound > 0) {
-          console.warn(`[CommandEVE] Pre-flight assistant-storage repair (respawn): re-bound ${repair.rebound} EVE definition(s) aionrs→hermes.`);
+          console.warn(
+            `[CommandEVE] Pre-flight assistant-storage repair (respawn): re-bound ${repair.rebound} EVE definition(s) aionrs→hermes.`
+          );
         }
         if (repair.registryRebound && repair.registryRebound > 0) {
-          console.warn(`[CommandEVE] Pre-flight assistant-storage repair (respawn): pinned ${repair.registryRebound} Hermes registry row(s) to the app-managed shim.`);
+          console.warn(
+            `[CommandEVE] Pre-flight assistant-storage repair (respawn): pinned ${repair.registryRebound} Hermes registry row(s) to the app-managed shim.`
+          );
         }
         if (repair.reseeded && repair.reseeded > 0) {
-          console.warn(`[CommandEVE] Pre-flight assistant-storage repair (respawn): cleared ${repair.reseeded} orphaned EVE mirror row(s) with no live definition (will re-seed via POST).`);
+          console.warn(
+            `[CommandEVE] Pre-flight assistant-storage repair (respawn): cleared ${repair.reseeded} orphaned EVE mirror row(s) with no live definition (will re-seed via POST).`
+          );
         }
       } catch (error) {
         console.warn('[CommandEVE] Pre-flight assistant-storage repair (respawn) skipped:', error);
@@ -1804,7 +1874,13 @@ const handleAppReady = async (): Promise<void> => {
       // assistant here would point cron resume + every __backendPort consumer at a dead
       // backend. The newer switch already published the live state.
       if (myRespawnGen !== commandEveRespawnGeneration) {
-        console.warn('[Command EVE] Superseded seat respawn (gen', myRespawnGen, 'of', commandEveRespawnGeneration, ') — skipping stale global-state publish.');
+        console.warn(
+          '[Command EVE] Superseded seat respawn (gen',
+          myRespawnGen,
+          'of',
+          commandEveRespawnGeneration,
+          ') — skipping stale global-state publish.'
+        );
         return;
       }
       (globalThis as typeof globalThis & { __backendPort?: number }).__backendPort = respawnPort;
@@ -1825,10 +1901,7 @@ const handleAppReady = async (): Promise<void> => {
   } catch (error) {
     console.error('[CommandEVE] Failed to start aioncore:', error);
     backendStartupFailed = true;
-    backendStartupFailureInfo = {
-      reason: 'backend_startup_failed',
-      message: error instanceof Error ? error.message : String(error),
-    };
+    backendStartupFailureInfo = classifyBackendStartupFailure(error);
   }
 
   // One-shot WebUI admin credential migration. Must run after the backend is
@@ -2021,11 +2094,10 @@ const handleAppReady = async (): Promise<void> => {
     }
 
     // Flush pending deep-link URL (received before window was ready)
-    const pendingUrl = getPendingDeepLinkUrl();
-    if (pendingUrl) {
-      clearPendingDeepLinkUrl();
+    const pendingDeepLink = takePendingDeepLink();
+    if (pendingDeepLink) {
       mainWindow.webContents.once('did-finish-load', () => {
-        handleDeepLinkUrl(pendingUrl);
+        deliverDeepLink(pendingDeepLink);
       });
     }
   }

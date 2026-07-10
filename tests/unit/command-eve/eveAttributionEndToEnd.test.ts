@@ -18,6 +18,7 @@
 import http, { type IncomingMessage, type ServerResponse } from 'http';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
+  ensureCommandEveShimAuthToken,
   startCommandEveOllamaOpenAiShim,
   stopCommandEveOllamaOpenAiShimForTest,
 } from '@/process/commandEve/ollamaOpenAiShim';
@@ -28,6 +29,7 @@ import {
 } from '@/process/commandEve/eveAgentTaskRegistry';
 
 const FAKE_LICENSE = 'CEVE.v2.FAKE-payload-TESTONLY.FAKE-sig-TESTONLY';
+const SHIM_AUTH_TOKEN = ensureCommandEveShimAuthToken();
 let eveFnServer: http.Server | undefined;
 let fnUrl = '';
 let shimUrl = '';
@@ -55,7 +57,9 @@ beforeAll(async () => {
     void (async () => {
       seen.body = await readBody(request);
       response.writeHead(200, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }] }));
+      response.end(
+        JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }] })
+      );
     })().catch(() => {
       response.writeHead(500);
       response.end('{}');
@@ -90,7 +94,11 @@ beforeEach(() => {
 async function send(header: string | undefined): Promise<Record<string, unknown>> {
   await fetch(`${shimUrl}/v1/chat/completions`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...(header ? { 'x-eve-dispatch': header } : {}) },
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${SHIM_AUTH_TOKEN}`,
+      ...(header ? { 'x-eve-dispatch': header } : {}),
+    },
     body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'hi' }], stream: false }),
   });
   return seen.body ?? {};

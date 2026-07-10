@@ -84,6 +84,14 @@
       "sendDiagnostics": "Send diagnostics",
       "runtimeComponentDescription": "This installation is missing required bundled runtime components, so {{resource}} cannot start. Reinstall the latest AionUi package. If it still happens after reinstalling, check whether security or antivirus software quarantined AionUi components."
     },
+    "instanceConflict": {
+      "title": "The local AI service is already in use",
+      "description": "Another Command EVE process is already using the local AI service. Close the other instance, then start Command EVE again. This will not delete your chats."
+    },
+    "startupFailed": {
+      "title": "The local AI service could not start",
+      "description": "AionCore could not start. Restart Command EVE. If the problem returns, review the diagnostics before reinstalling the app."
+    },
     "packageArchitectureMismatch": {
       "title": "AionUi package architecture mismatch",
       "description": "This AionUi package is for {{packageArch}}, but this Mac is {{deviceArch}}. You may have downloaded the wrong package. Please download and install the {{expectedArch}} package."

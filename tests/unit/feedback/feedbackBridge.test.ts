@@ -27,6 +27,11 @@ type FakeWindow = {
 };
 
 let currentWindow: FakeWindow | null = null;
+const adapterTrustMock = vi.hoisted(() => ({ trusted: true }));
+
+vi.mock('@/common/adapter/main', () => ({
+  isTrustedAdapterIpcSender: () => adapterTrustMock.trusted,
+}));
 
 vi.mock('electron', () => ({
   ipcMain: {
@@ -46,6 +51,7 @@ vi.mock('electron', () => ({
 beforeEach(async () => {
   handlers.clear();
   currentWindow = null;
+  adapterTrustMock.trusted = true;
   vi.resetModules();
   // Importing registers the ipcMain.handle callbacks into our map.
   await import('@/process/bridge/feedbackBridge');
@@ -58,6 +64,19 @@ afterEach(() => {
 describe('feedbackBridge — capture-screenshot', () => {
   it('registers the feedback:capture-screenshot channel on import', () => {
     expect(handlers.has('feedback:capture-screenshot')).toBe(true);
+  });
+
+  it('blocks screenshot capture from an untrusted renderer', async () => {
+    adapterTrustMock.trusted = false;
+    currentWindow = {
+      isDestroyed: () => false,
+      webContents: { capturePage: vi.fn() },
+    };
+
+    const result = await handlers.get('feedback:capture-screenshot')!({ sender: {} });
+
+    expect(result).toBeNull();
+    expect(currentWindow.webContents.capturePage).not.toHaveBeenCalled();
   });
 
   it('returns png bytes and a timestamped filename on success', async () => {

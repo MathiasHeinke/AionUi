@@ -303,6 +303,8 @@ const BackendStartupFailureDialog: React.FC<{ failure: BackendStartupFailureInfo
   const { t } = useTranslation();
 
   const isIncompatibleRuntime = failure.reason === 'backend_incompatible_runtime';
+  const isIncompleteInstallation = failure.reason === 'backend_incomplete_installation';
+  const isInstanceConflict = failure.reason === 'backend_instance_conflict';
   const isPackageArchitectureMismatch = failure.reason === 'backend_package_architecture_mismatch';
   const title = t('common.backendStartup.incompatibleRuntime.title');
   const description = isIncompatibleRuntime
@@ -313,13 +315,49 @@ const BackendStartupFailureDialog: React.FC<{ failure: BackendStartupFailureInfo
           deviceArch: failure.deviceArch ?? 'arm64',
           expectedArch: failure.expectedDownloadArch ?? 'arm64',
         })
-      : getBackendStartupInstallationDescription(t);
+      : isIncompleteInstallation
+        ? getBackendStartupInstallationDescription(t)
+        : t('common.backendStartup.startupFailed.description');
   const requiredVersions = failure.requiredVersions?.map((version) => `GLIBC_${version}`).join(', ');
+
+  if (isInstanceConflict) {
+    return (
+      <div className='min-h-screen bg-bg-1'>
+        <Modal
+          visible
+          closable={false}
+          maskClosable={false}
+          footer={null}
+          title={t('common.backendStartup.instanceConflict.title')}
+        >
+          <InstallationIntegrityContent description={t('common.backendStartup.instanceConflict.description')} />
+        </Modal>
+      </div>
+    );
+  }
+
+  if (isIncompleteInstallation) {
+    return (
+      <div className='min-h-screen bg-bg-1'>
+        <InstallationIntegrityModalHost description={description} />
+      </div>
+    );
+  }
 
   if (!isIncompatibleRuntime && !isPackageArchitectureMismatch) {
     return (
       <div className='min-h-screen bg-bg-1'>
-        <InstallationIntegrityModalHost description={description} />
+        <Modal
+          visible
+          closable={false}
+          maskClosable={false}
+          title={t('common.backendStartup.startupFailed.title')}
+          okText={t('settings.restartNow')}
+          cancelButtonProps={{ style: { display: 'none' } }}
+          onOk={() => void ipcBridge.application.restart.invoke()}
+        >
+          <InstallationIntegrityContent description={description} />
+        </Modal>
       </div>
     );
   }
@@ -363,6 +401,7 @@ const backendStartupFailure = window.__backendStartupFailure;
 const shouldShowBackendStartupFailureDialog =
   backendStartupFailure?.reason === 'backend_incompatible_runtime' ||
   backendStartupFailure?.reason === 'backend_incomplete_installation' ||
+  backendStartupFailure?.reason === 'backend_instance_conflict' ||
   backendStartupFailure?.reason === 'backend_package_architecture_mismatch' ||
   backendStartupFailure?.reason === 'backend_startup_failed';
 if (backendStartupFailure && shouldShowBackendStartupFailureDialog) {

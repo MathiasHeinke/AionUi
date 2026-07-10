@@ -26,7 +26,13 @@
 import fs from 'fs';
 import path from 'path';
 import { resolveSeatHome } from './seatContextCore';
-import { buildHonchoRuntimeConfig, HONCHO_DEFAULT_LOCAL_MODEL_REF, HONCHO_DERIVER_BRANCH_LOCAL, type HonchoDeriverMode, type HonchoRuntimeConfig } from './honchoRuntimeConfigCore';
+import {
+  buildHonchoRuntimeConfig,
+  HONCHO_DEFAULT_LOCAL_MODEL_REF,
+  HONCHO_DERIVER_BRANCH_LOCAL,
+  type HonchoDeriverMode,
+  type HonchoRuntimeConfig,
+} from './honchoRuntimeConfigCore';
 import {
   HONCHO_STEP_DB,
   HONCHO_STEP_HOMEBREW,
@@ -43,6 +49,7 @@ import {
 import { runHonchoBootstrap, type HonchoBootstrapResult, type HonchoCommandSet } from './honchoBootstrapCore';
 import { HONCHO_REASON_PROCESS_DOWN, reduceHonchoReadiness } from './honchoReadinessCore';
 import { writeHonchoReadyState } from './honchoReadyStateFile';
+import { ensureCommandEveShimAuthToken } from './ollamaOpenAiShim';
 import type { RuntimeBootstrapRunner, RuntimeBootstrapDetachedSpawner } from './runtimeBootstrapCore';
 
 /**
@@ -70,18 +77,20 @@ export const HONCHO_DERIVER_ENV_KEYS = {
  * The deriver env OVERLAY for the honcho serve process, straight from cfg.deriver.
  * For the LOCAL branch this points honcho at loopback Ollama (behindEgressBoundary:
  * false — nothing leaves the machine); for CLOUD it points at the loopback shim
- * (the shim owns the bearer). Never a real secret (local key = 'ollama' placeholder;
- * cloud key = '' because the shim injects the Authorization header).
+ * (the shim owns the cloud bearer). Never a real cloud secret: local uses the
+ * harmless 'ollama' placeholder; cloud uses only the process-local shim nonce.
  */
 export function buildHonchoDeriverEnv(cfg: HonchoRuntimeConfig): NodeJS.ProcessEnv {
   const d = cfg.deriver || {};
   const env: NodeJS.ProcessEnv = {};
   if (d.baseUrl) env[HONCHO_DERIVER_ENV_KEYS.baseUrl] = d.baseUrl;
-  // DEFENSE-IN-DEPTH (Codex): NEVER bake a key on the CLOUD branch — the loopback
-  // shim owns the bearer (Authorization header only). Only the LOCAL branch carries
-  // its harmless 'ollama' placeholder. So even a future cfg that wrongly held a
-  // bearer in deriver.apiKey can not serialize it into a cloud-lane env.
-  if (d.behindEgressBoundary !== true && typeof d.apiKey === 'string') env[HONCHO_DERIVER_ENV_KEYS.apiKey] = d.apiKey;
+  // The cloud branch receives only the random local shim nonce. The CEVE license
+  // remains inside the shim and can never be serialized into Honcho's environment.
+  if (d.behindEgressBoundary === true) {
+    env[HONCHO_DERIVER_ENV_KEYS.apiKey] = ensureCommandEveShimAuthToken();
+  } else if (typeof d.apiKey === 'string') {
+    env[HONCHO_DERIVER_ENV_KEYS.apiKey] = d.apiKey;
+  }
   if (d.model) env[HONCHO_DERIVER_ENV_KEYS.model] = d.model;
   return env;
 }
@@ -109,7 +118,12 @@ export function buildHonchoCommandSet(input: { cfg: HonchoRuntimeConfig; hermesV
     // `honcho serve` flags (port, --db-url) are MAC-VERIFY-PENDING; the deriver LLM
     // route rides the per-step env overlay (buildHonchoDeriverEnv) so honcho derives
     // against the LOCAL Ollama (local branch) and never the cloud unless mode=cloud.
-    [HONCHO_STEP_PROCESS]: { command: venvPython, args: ['-m', 'honcho', 'serve'], timeoutMs: 0, env: buildHonchoDeriverEnv(input.cfg) },
+    [HONCHO_STEP_PROCESS]: {
+      command: venvPython,
+      args: ['-m', 'honcho', 'serve'],
+      timeoutMs: 0,
+      env: buildHonchoDeriverEnv(input.cfg),
+    },
   };
 }
 
@@ -127,11 +141,19 @@ function normalizeModelRef(ref?: string): string {
  * The receipt is machine-global (the model is), NOT per-seat — the caller must keep
  * it distinct from per-seat serverUp/deriverReachable.
  */
-export function resolveLocalModelReadyFromWarmupReceipt(runtimeRoot: string, localModelRef: string = HONCHO_DEFAULT_LOCAL_MODEL_REF): boolean {
+export function resolveLocalModelReadyFromWarmupReceipt(
+  runtimeRoot: string,
+  localModelRef: string = HONCHO_DEFAULT_LOCAL_MODEL_REF
+): boolean {
   try {
     const raw = fs.readFileSync(path.join(runtimeRoot, 'model-warmup-receipt.json'), 'utf8');
     const r = JSON.parse(raw) as { status?: string; model?: string } | null;
-    return !!r && r.status === 'ready' && normalizeModelRef(r.model) === normalizeModelRef(localModelRef) && normalizeModelRef(localModelRef).length > 0;
+    return (
+      !!r &&
+      r.status === 'ready' &&
+      normalizeModelRef(r.model) === normalizeModelRef(localModelRef) &&
+      normalizeModelRef(localModelRef).length > 0
+    );
   } catch {
     return false;
   }
@@ -192,7 +214,12 @@ export async function runHonchoProvisioningForSeat(
   // Any setup error degrades to a not-ready off result — never an unhandled rejection.
   try {
     const seatHome = resolveSeatHome(input.userDataPath, input.seatId);
-    const cfg = buildHonchoRuntimeConfig({ seatId: input.seatId ?? undefined, seatHome, ...deriverInputsFromConsent(input.consent), deriverMode: input.deriverMode });
+    const cfg = buildHonchoRuntimeConfig({
+      seatId: input.seatId ?? undefined,
+      seatHome,
+      ...deriverInputsFromConsent(input.consent),
+      deriverMode: input.deriverMode,
+    });
     const detection = await deps.detectDeps();
     const plan = buildHonchoProvisionPlan({ detection, consent: input.consent, mode: input.mode, config: cfg });
     const buildCommands = deps.buildCommands || buildHonchoCommandSet;

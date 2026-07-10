@@ -9,6 +9,11 @@ import { useTypingAnimation } from '@/renderer/hooks/chat/useTypingAnimation';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useScrollSyncTarget } from '../../hooks/useScrollSyncHelpers';
 import { generateInspectScript } from './htmlInspectScript';
+import {
+  parseArtifactConsoleMessage,
+  resolveArtifactResourcePath,
+  secureArtifactHtml,
+} from './htmlArtifactSecurityCore';
 
 /** 选中元素的数据结构 / Selected element data structure */
 export interface InspectedElement {
@@ -37,43 +42,6 @@ interface ElectronWebView extends HTMLElement {
 }
 
 /**
- * 解析相对路径为绝对路径 / Resolve relative path to absolute path
- * @param basePath 基础文件路径 / Base file path
- * @param relativePath 相对路径 / Relative path
- * @returns 绝对路径 / Absolute path
- */
-function resolveRelativePath(basePath: string, relativePath: string): string {
-  // 去除协议前缀 / Remove protocol prefix
-  const cleanBasePath = basePath.replace(/^file:\/\//, '');
-  const baseDir =
-    cleanBasePath.substring(0, cleanBasePath.lastIndexOf('/') + 1) ||
-    cleanBasePath.substring(0, cleanBasePath.lastIndexOf('\\') + 1);
-
-  // 如果相对路径已经是绝对路径，直接返回 / If relative path is already absolute, return directly
-  if (relativePath.startsWith('/') || /^[a-zA-Z]:/.test(relativePath)) {
-    return relativePath;
-  }
-
-  // 处理 ./ 和 ../ / Handle ./ and ../
-  const parts = baseDir.replace(/\\/g, '/').split('/').filter(Boolean);
-  const relParts = relativePath.replace(/\\/g, '/').split('/');
-
-  for (const part of relParts) {
-    if (part === '..') {
-      parts.pop();
-    } else if (part !== '.') {
-      parts.push(part);
-    }
-  }
-
-  // 保留 Windows 盘符格式 / Preserve Windows drive letter format
-  if (/^[a-zA-Z]:/.test(baseDir)) {
-    return parts.join('/');
-  }
-  return '/' + parts.join('/');
-}
-
-/**
  * 内联化 HTML 中的相对资源（用于 browser iframe）
  * Inline relative resources in HTML (for browser iframe)
  *
@@ -95,7 +63,8 @@ async function inlineRelativeResources(html: string, basePath: string, workspace
   for (const match of imgMatches) {
     const [fullMatch, before, src, after] = match;
     try {
-      const absolutePath = resolveRelativePath(basePath, src);
+      const absolutePath = resolveArtifactResourcePath(basePath, src, workspace);
+      if (!absolutePath) continue;
       const dataUrl = await ipcBridge.fs.getImageBase64.invoke({ path: absolutePath, workspace });
       if (dataUrl) {
         // getImageBase64 已经返回完整的 data URL / getImageBase64 already returns complete data URL
@@ -117,7 +86,8 @@ async function inlineRelativeResources(html: string, basePath: string, workspace
     const isStylesheet = /rel=["']stylesheet["']/i.test(fullMatch) || href.endsWith('.css');
     if (isStylesheet) {
       try {
-        const absolutePath = resolveRelativePath(basePath, href);
+        const absolutePath = resolveArtifactResourcePath(basePath, href, workspace);
+        if (!absolutePath) continue;
         const cssContent = await ipcBridge.fs.readFile.invoke({ path: absolutePath, workspace });
         if (cssContent) {
           // 替换 CSS 中的相对 url() 引用为 base64 / Replace relative url() references in CSS with base64
@@ -130,7 +100,8 @@ async function inlineRelativeResources(html: string, basePath: string, workspace
             try {
               // CSS 文件的基础路径 / Base path for CSS file
               const cssBasePath = absolutePath;
-              const resourcePath = resolveRelativePath(cssBasePath, urlPath);
+              const resourcePath = resolveArtifactResourcePath(cssBasePath, urlPath, workspace);
+              if (!resourcePath) continue;
               const dataUrl = await ipcBridge.fs.getImageBase64.invoke({ path: resourcePath, workspace });
               if (dataUrl) {
                 // getImageBase64 已经返回完整的 data URL / getImageBase64 already returns complete data URL
@@ -157,7 +128,8 @@ async function inlineRelativeResources(html: string, basePath: string, workspace
   for (const match of scriptMatches) {
     const [fullMatch, before, src, after] = match;
     try {
-      const absolutePath = resolveRelativePath(basePath, src);
+      const absolutePath = resolveArtifactResourcePath(basePath, src, workspace);
+      if (!absolutePath) continue;
       const scriptContent = await ipcBridge.fs.readFile.invoke({ path: absolutePath, workspace });
       if (scriptContent) {
         // 保留其他属性（如 type, defer, async 等，但 async/defer 对 inline 无效）
@@ -221,18 +193,6 @@ const HTMLRenderer: React.FC<HTMLRendererProps> = ({
     return () => observer.disconnect();
   }, []);
 
-  // 判断是否应该直接从文件加载（支持相对资源）- 仅 Electron 环境
-  // Determine if should load directly from file (supports relative resources) - Electron only
-  const shouldLoadFromFile = useMemo(() => {
-    if (!isElectron || !file_path) return false;
-    // 检查 HTML 是否引用了相对资源 / Check if HTML references relative resources
-    const hasRelativeResources =
-      /<link[^>]+href=["'](?!https?:\/\/|data:|\/\/)[^"']+["']/i.test(content) ||
-      /<script[^>]+src=["'](?!https?:\/\/|data:|\/\/)[^"']+["']/i.test(content) ||
-      /<img[^>]+src=["'](?!https?:\/\/|data:|\/\/)[^"']+["']/i.test(content);
-    return hasRelativeResources;
-  }, [content, file_path, isElectron]);
-
   // 检查是否有相对资源（用于 browser inline 处理）
   // Check if has relative resources (for browser inline processing)
   const hasRelativeResources = useMemo(() => {
@@ -247,24 +207,13 @@ const HTMLRenderer: React.FC<HTMLRendererProps> = ({
   // Typing animation: provide streaming experience when rendering via data URL
   const { displayedContent } = useTypingAnimation({
     content,
-    enabled: !shouldLoadFromFile && !hasRelativeResources,
+    enabled: !hasRelativeResources,
     speed: 40,
   });
 
-  const htmlContent = useMemo(
-    () => (shouldLoadFromFile ? content : displayedContent),
-    [shouldLoadFromFile, content, displayedContent]
-  );
-
-  // 在 browser 环境下，当有相对资源时进行内联化处理
-  // In browser environment, inline relative resources when present
+  // Inline local resources before rendering in either browser or Electron.
+  // The preview must never load model-controlled file:// documents directly.
   useEffect(() => {
-    if (isElectron) {
-      // Electron 环境不需要内联化，使用 webview 加载
-      // Electron environment doesn't need inlining, uses webview loading
-      return;
-    }
-
     if (!hasRelativeResources || !file_path) {
       // 没有相对资源或没有文件路径，使用原始内容
       // No relative resources or no file path, use original content
@@ -291,50 +240,21 @@ const HTMLRenderer: React.FC<HTMLRendererProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [content, file_path, isElectron, hasRelativeResources, workspace]);
+  }, [content, file_path, hasRelativeResources, workspace]);
 
   // 用于 browser iframe 的最终 HTML 内容
   // Final HTML content for browser iframe
   const browserHtmlContent = useMemo(() => {
-    if (hasRelativeResources && file_path) {
-      return inlinedHtmlContent || content; // 在内联化完成前显示原始内容 / Show original content before inlining completes
-    }
-    return displayedContent;
+    const renderedContent = hasRelativeResources && file_path ? inlinedHtmlContent || content : displayedContent;
+    return secureArtifactHtml(renderedContent);
   }, [hasRelativeResources, file_path, inlinedHtmlContent, content, displayedContent]);
 
   // 计算 webview 的 src
   // Calculate webview src
   const webviewSrc = useMemo(() => {
-    // 如果有相对资源引用且有文件路径，直接用 file:// URL 加载
-    // If has relative resource references and has file path, load directly via file:// URL
-    if (shouldLoadFromFile && file_path) {
-      return `file://${file_path}`;
-    }
-
-    // 否则使用 data URL（适用于动态生成的 HTML 或没有外部资源的情况）
-    // Otherwise use data URL (for dynamically generated HTML or no external resources)
-    let html = htmlContent;
-
-    // 注入 base 标签支持相对路径 / Inject base tag for relative paths
-    if (file_path) {
-      const fileDir = file_path.substring(0, file_path.lastIndexOf('/') + 1);
-      const base_url = `file://${fileDir}`;
-
-      // 检查是否已有 base 标签 / Check if base tag exists
-      if (!html.match(/<base\s+href=/i)) {
-        if (html.match(/<head>/i)) {
-          html = html.replace(/<head>/i, `<head><base href="${base_url}">`);
-        } else if (html.match(/<html>/i)) {
-          html = html.replace(/<html>/i, `<html><head><base href="${base_url}"></head>`);
-        } else {
-          html = `<head><base href="${base_url}"></head>${html}`;
-        }
-      }
-    }
-
-    const encoded = encodeURIComponent(html);
+    const encoded = encodeURIComponent(browserHtmlContent);
     return `data:text/html;charset=utf-8,${encoded}`;
-  }, [htmlContent, file_path, shouldLoadFromFile]);
+  }, [browserHtmlContent]);
 
   // 当 webviewSrc 改变时重置加载状态 / Reset loading state when webviewSrc changes
   useEffect(() => {
@@ -420,41 +340,14 @@ const HTMLRenderer: React.FC<HTMLRendererProps> = ({
 
     const handleConsoleMessage = (event: Event) => {
       const consoleEvent = event as Event & { message?: string };
-      const message = consoleEvent.message;
-
-      if (typeof message === 'string') {
-        // 处理检查元素消息 / Handle inspect element message
-        if (message.startsWith('__INSPECT_ELEMENT__') && onElementSelected) {
-          try {
-            const jsonStr = message.slice('__INSPECT_ELEMENT__'.length);
-            const data = JSON.parse(jsonStr) as InspectedElement;
-            onElementSelected(data);
-          } catch (e) {
-            console.warn('[HTMLRenderer] Failed to parse inspect element message:', e);
-          }
-        }
-        // 处理滚动消息 / Handle scroll message
-        else if (message.startsWith('__SCROLL_SYNC__') && onScroll) {
-          if (isSyncingScrollRef.current) return; // 防止循环 / Prevent loop
-          try {
-            const jsonStr = message.slice('__SCROLL_SYNC__'.length);
-            const data = JSON.parse(jsonStr) as { scrollTop: number; scrollHeight: number; clientHeight: number };
-            onScroll(data.scrollTop, data.scrollHeight, data.clientHeight);
-          } catch (e) {
-            console.warn('[HTMLRenderer] Failed to parse scroll message:', e);
-          }
-        }
-        // 处理内容高度消息 / Handle content height message
-        else if (message.startsWith('__CONTENT_HEIGHT__')) {
-          try {
-            const height = parseInt(message.slice('__CONTENT_HEIGHT__'.length), 10);
-            if (!isNaN(height) && height > 0) {
-              setWebviewContentHeight(height);
-            }
-          } catch (e) {
-            console.warn('[HTMLRenderer] Failed to parse content height message:', e);
-          }
-        }
+      const message = parseArtifactConsoleMessage(consoleEvent.message);
+      if (!message) return;
+      if (message.kind === 'inspect' && inspectMode && onElementSelected) {
+        onElementSelected({ html: message.html, tag: message.tag });
+      } else if (message.kind === 'scroll' && onScroll && !isSyncingScrollRef.current) {
+        onScroll(message.scrollTop, message.scrollHeight, message.clientHeight);
+      } else if (message.kind === 'height') {
+        setWebviewContentHeight(message.height);
       }
     };
 
@@ -463,7 +356,7 @@ const HTMLRenderer: React.FC<HTMLRendererProps> = ({
     return () => {
       webview.removeEventListener('console-message', handleConsoleMessage);
     };
-  }, [onElementSelected, onScroll]);
+  }, [inspectMode, onElementSelected, onScroll]);
 
   // 注入滚动监听脚本 / Inject scroll listener script
   const scrollSyncScript = useMemo(
@@ -619,7 +512,7 @@ const HTMLRenderer: React.FC<HTMLRendererProps> = ({
             width: '100%',
             height: '100%',
           }}
-          sandbox='allow-scripts allow-forms allow-popups allow-modals'
+          sandbox='allow-scripts allow-modals'
         />
       )}
     </div>

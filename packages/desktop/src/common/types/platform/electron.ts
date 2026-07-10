@@ -10,6 +10,12 @@ export interface WebUIStatus {
   initialPassword?: string;
 }
 
+export interface ElectronDesktopShellAPI {
+  openExternal: (url: string) => Promise<void>;
+  openFile: (filePath: string) => Promise<void>;
+  showItemInFolder: (filePath: string) => Promise<void>;
+}
+
 export interface ElectronBridgeAPI {
   emit: (name: string, data: unknown) => Promise<unknown> | void;
   on: (callback: (event: { value: string }) => void) => void;
@@ -19,11 +25,14 @@ export interface ElectronBridgeAPI {
   collectFeedbackLogs?: () => Promise<{ filename: string; data: number[] } | null>;
   // Feedback screenshot capture / 反馈截图
   captureFeedbackScreenshot?: () => Promise<{ filename: string; data: number[] } | null>;
+  // Privileged desktop shell operations are validated in the main process.
+  desktopShell?: ElectronDesktopShellAPI;
 }
 
 export type BackendStartupFailureReason =
   | 'backend_incompatible_runtime'
   | 'backend_incomplete_installation'
+  | 'backend_instance_conflict'
   | 'backend_package_architecture_mismatch'
   | 'backend_startup_failed';
 

@@ -4,13 +4,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { AuthType } from '@office-ai/aioncli-core';
+import { AuthType, getProviderAuthType } from '../utils/platformAuthType';
 import type { TProviderWithModel } from '../config/storage';
 import { OpenAIRotatingClient, type OpenAIClientConfig } from './OpenAIRotatingClient';
 import { GeminiRotatingClient, type GeminiClientConfig } from './GeminiRotatingClient';
 import { AnthropicRotatingClient, type AnthropicClientConfig } from './AnthropicRotatingClient';
 import type { RotatingApiClientOptions } from './RotatingApiClient';
-import { getProviderAuthType } from '../utils/platformAuthType';
 import { isNewApiPlatform } from '../utils/platformConstants';
 import { COMMAND_EVE_APP_NAME, COMMAND_EVE_SHELL_ENABLED } from '../config/commandEveShell';
 

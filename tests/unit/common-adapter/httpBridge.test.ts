@@ -433,7 +433,11 @@ describe('httpBridge', () => {
     });
 
     it('timeoutMs:0 disables the abort signal (opt-out)', async () => {
-      const fetchSpy = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: {} }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+      const fetchSpy = vi
+        .fn()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ data: {} }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+        );
       vi.stubGlobal('fetch', fetchSpy);
       vi.spyOn(console, 'debug').mockImplementation(() => {});
       await httpRequest('GET', '/api/no-timeout', undefined, { timeoutMs: 0 });
@@ -454,6 +458,26 @@ describe('httpBridge', () => {
 
       expect(fetchSpy.mock.calls[0][1]?.body).toBe('{"key":"value"}');
       expect(fetchSpy.mock.calls[0][1]?.headers).toEqual({ 'Content-Type': 'application/json' });
+    });
+
+    it('never writes request or backend error content to console logs', async () => {
+      const secret = 'do-not-log-this-value';
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ error: secret }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        )
+      );
+      const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      await expect(httpRequest('POST', '/api/private', { prompt: secret })).rejects.toBeInstanceOf(BackendHttpError);
+
+      expect(JSON.stringify(debugSpy.mock.calls)).not.toContain(secret);
+      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain(secret);
     });
   });
 

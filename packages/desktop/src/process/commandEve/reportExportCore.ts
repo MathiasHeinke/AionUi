@@ -127,14 +127,23 @@ export class SeatTruthFenceError extends Error {
  * a pure equality assertion on data the caller already holds, so a seat-B leak is
  * impossible by construction (no seat-B data is ever in scope here).
  */
-export function assertSeatTruth(contentSeatId: string | undefined | null, activeSeatId: string | undefined | null): string {
+export function assertSeatTruth(
+  contentSeatId: string | undefined | null,
+  activeSeatId: string | undefined | null
+): string {
   const active = typeof activeSeatId === 'string' ? activeSeatId.trim() : '';
   if (active.length === 0) {
-    throw new SeatTruthFenceError('Report export refused: active seat is unresolved (fail-closed).', 'REPORT_EXPORT_NO_ACTIVE_SEAT');
+    throw new SeatTruthFenceError(
+      'Report export refused: active seat is unresolved (fail-closed).',
+      'REPORT_EXPORT_NO_ACTIVE_SEAT'
+    );
   }
   const origin = typeof contentSeatId === 'string' ? contentSeatId.trim() : '';
   if (origin.length === 0) {
-    throw new SeatTruthFenceError('Report export refused: content has no originating seat (fail-closed).', 'REPORT_EXPORT_NO_CONTENT_SEAT');
+    throw new SeatTruthFenceError(
+      'Report export refused: content has no originating seat (fail-closed).',
+      'REPORT_EXPORT_NO_CONTENT_SEAT'
+    );
   }
   if (origin !== active) {
     throw new SeatTruthFenceError(
@@ -446,7 +455,10 @@ export function exportReportToMarkdown(content: ReportContent, options?: ReportE
  * `DocumentConverter.markdownToWord`. This is its FIRST caller (RPT-1 wires the
  * orphan converter). Behind the seat-truth fence.
  */
-export async function exportReportToDocx(content: ReportContent, options?: ReportExportOptions): Promise<ReportExportArtifact> {
+export async function exportReportToDocx(
+  content: ReportContent,
+  options?: ReportExportOptions
+): Promise<ReportExportArtifact> {
   assertSeatTruth(content.seatId, resolveActiveSeatId(options));
   const buffer = await documentConverter.markdownToWord(content.markdown ?? '');
   return {
@@ -521,8 +533,17 @@ export function createElectronPdfRenderer(): PdfRenderer {
         nodeIntegration: false,
         contextIsolation: true,
         javascript: false,
+        webSecurity: true,
+        allowRunningInsecureContent: false,
+        safeDialogs: true,
+        navigateOnDragDrop: false,
+        webviewTag: false,
+        experimentalFeatures: false,
+        enableWebSQL: false,
       },
     });
+    win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    win.webContents.on('will-navigate', (event) => event.preventDefault());
     try {
       const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
       await win.loadURL(dataUrl);

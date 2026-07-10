@@ -11,6 +11,7 @@
 import '@sentry/electron/preload';
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { ADAPTER_BRIDGE_EVENT_KEY } from '../common/adapter/constant';
+import { DESKTOP_SHELL_CHANNELS } from '../common/config/desktopShellChannels';
 
 /**
  * @description 注入到renderer进程中, 用于与main进程通信
@@ -45,6 +46,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   collectFeedbackLogs: () => ipcRenderer.invoke('feedback:collect-logs'),
   // Feedback: capture a screenshot of the current window
   captureFeedbackScreenshot: () => ipcRenderer.invoke('feedback:capture-screenshot'),
+  desktopShell: {
+    openExternal: (url: string) => ipcRenderer.invoke(DESKTOP_SHELL_CHANNELS.openExternal, url),
+    openFile: (filePath: string) => ipcRenderer.invoke(DESKTOP_SHELL_CHANNELS.openFile, filePath),
+    showItemInFolder: (filePath: string) => ipcRenderer.invoke(DESKTOP_SHELL_CHANNELS.showItemInFolder, filePath),
+  },
 });
 
 // Synchronously fetch the aioncore port and expose it to the renderer

@@ -53,10 +53,10 @@
  *      resolveHonchoDeriverConfig} takes NO picker/selection parameter, so no code
  *      path can reach 'high'/'max'. An operator sitting on eve-max can not make
  *      the deriver bill a paid tier — it is unrepresentable, not defended.
- *   C. NO CREDENTIAL IN HONCHO'S HANDS. The deriver's api key is EMPTY on the
- *      cloud branch (the bearer is injected downstream by the shim, header-only) —
- *      a leaked honcho config therefore exposes no secret. `ready` is false when
- *      the cloud branch is chosen but no license exists (fail-closed).
+ *   C. NO CLOUD CREDENTIAL IN HONCHO'S HANDS. The config's api key stays EMPTY on
+ *      the cloud branch. At process launch Honcho receives only the random local
+ *      shim nonce; the CEVE bearer remains downstream inside the shim. `ready` is
+ *      false when the cloud branch is chosen but no license exists (fail-closed).
  *
  * DEVIATION FROM THE DESIGN SKETCH (deliberate, more correct): the per-seat
  * Postgres database name is an OPAQUE HASH of the sanitized seat id, not a
@@ -271,7 +271,9 @@ export function requireLoopbackBase(value: string | undefined, fallback: string)
   const raw = typeof value === 'string' ? value.trim() : '';
   const candidate = raw.length > 0 ? raw : fallback;
   if (!CANONICAL_LOOPBACK_BASE_RE.test(candidate)) {
-    throw new Error(`Honcho deriver base must be a canonical loopback (http://127.0.0.1:<port>); refused ${JSON.stringify(candidate)} — a non-loopback or exotic base would egress unredacted / bypass the egress boundary`);
+    throw new Error(
+      `Honcho deriver base must be a canonical loopback (http://127.0.0.1:<port>); refused ${JSON.stringify(candidate)} — a non-loopback or exotic base would egress unredacted / bypass the egress boundary`
+    );
   }
   return stripTrailingSlash(candidate);
 }
@@ -300,7 +302,8 @@ export function resolveHonchoDeriverConfig(input: HonchoDeriverInput): HonchoDer
   const mode: HonchoDeriverMode = input.deriverMode || 'auto';
   // 'local' ⇒ ALWAYS local (privacy-lock, even cold — never cloud). 'cloud' ⇒ never
   // local. 'auto' ⇒ the founder-locked rule (local only when opted-in AND ready).
-  const useLocal = mode === 'local' || (mode === 'auto' && input.localModelOptedIn === true && input.localModelReady === true);
+  const useLocal =
+    mode === 'local' || (mode === 'auto' && input.localModelOptedIn === true && input.localModelReady === true);
 
   if (useLocal) {
     // The LOCAL branch emits behindEgressBoundary:false — that is ONLY safe if the
@@ -327,7 +330,8 @@ export function resolveHonchoDeriverConfig(input: HonchoDeriverInput): HonchoDer
     apiKey: '', // bearer is the shim's job (Authorization header only) — NEVER baked here
     forcedTier: HONCHO_DERIVER_FORCED_TIER,
     behindEgressBoundary: true,
-    routeReason: mode === 'cloud' ? 'forced-cloud' : input.localModelOptedIn === true ? 'opt-in-not-ready' : 'fallback-free-flash',
+    routeReason:
+      mode === 'cloud' ? 'forced-cloud' : input.localModelOptedIn === true ? 'opt-in-not-ready' : 'fallback-free-flash',
   };
 }
 
@@ -354,7 +358,9 @@ export function buildHonchoRuntimeConfig(input: HonchoRuntimeConfigInput): Honch
   // worst failure. resolveSeatHome always sets a sanitized `seatId`, so compare and
   // fail LOUD rather than silently build a Frankenstein config.
   if (input.seatHome && input.seatHome.seatId !== sanitized) {
-    throw new Error(`Honcho: seatId/seatHome mismatch (config seat ${JSON.stringify(sanitized)} vs seatHome seat ${JSON.stringify(input.seatHome.seatId)}) — refusing to build a cross-seat config`);
+    throw new Error(
+      `Honcho: seatId/seatHome mismatch (config seat ${JSON.stringify(sanitized)} vs seatHome seat ${JSON.stringify(input.seatHome.seatId)}) — refusing to build a cross-seat config`
+    );
   }
 
   const dbName = honchoDbNameForSeat(sanitized, legacy);

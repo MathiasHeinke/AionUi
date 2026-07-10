@@ -4,8 +4,25 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { AuthType } from '@office-ai/aioncli-core';
 import { isNewApiPlatform } from './platformConstants';
+
+/**
+ * Provider authentication wire values persisted in provider configuration.
+ *
+ * AionUi previously imported these eight strings from the full aioncli runtime,
+ * pulling its CLI, telemetry, shell, and native dependency graph into the desktop
+ * app for an enum only. Keep the values byte-compatible with existing settings.
+ */
+export enum AuthType {
+  LOGIN_WITH_GOOGLE = 'oauth-personal',
+  USE_GEMINI = 'gemini-api-key',
+  USE_VERTEX_AI = 'vertex-ai',
+  LEGACY_CLOUD_SHELL = 'cloud-shell',
+  COMPUTE_ADC = 'compute-default-credentials',
+  USE_OPENAI = 'openai',
+  USE_ANTHROPIC = 'anthropic',
+  USE_BEDROCK = 'bedrock',
+}
 
 /**
  * 根据平台名称获取对应的认证类型

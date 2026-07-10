@@ -82,6 +82,14 @@
       "description": "Dieser Installation fehlen erforderliche lokale Ressourcen, daher kann AionCore nicht starten. Bitte laden Sie die neueste Version von Command EVE herunter und installieren Sie sie neu. Falls das Problem nach der Neuinstallation erneut auftritt, prüfen Sie, ob eine Sicherheits- oder Antivirensoftware AionCore in Quarantäne verschoben hat.",
       "downloadLatest": "Neueste Version herunterladen",
       "sendDiagnostics": "Diagnose senden"
+    },
+    "instanceConflict": {
+      "title": "Der lokale KI-Dienst wird bereits verwendet",
+      "description": "Ein anderer Command-EVE-Prozess verwendet bereits den lokalen KI-Dienst. Schließen Sie die andere Instanz und starten Sie Command EVE anschließend erneut. Ihre Chats werden dadurch nicht gelöscht."
+    },
+    "startupFailed": {
+      "title": "Der lokale KI-Dienst konnte nicht gestartet werden",
+      "description": "AionCore konnte nicht gestartet werden. Starten Sie Command EVE neu. Falls der Fehler erneut auftritt, prüfen Sie die Diagnose, bevor Sie die App neu installieren."
     }
   },
   "fileAttach.addFiles": "Dateien hinzufügen",

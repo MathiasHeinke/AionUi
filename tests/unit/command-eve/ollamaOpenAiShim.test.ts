@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   buildCommandEvePromptProof,
   buildEveCloudRoute,
+  ensureCommandEveShimAuthToken,
   isCommandEveWarmupRequest,
   startCommandEveOllamaOpenAiShim,
   stopCommandEveOllamaOpenAiShimForTest,
@@ -13,6 +14,11 @@ import {
 
 /** Synthetic CEVE wire string — NOT a real license. */
 const FAKE_LICENSE = 'CEVE.v2.FAKE-payload-TESTONLY.FAKE-sig-TESTONLY';
+const SHIM_AUTH_TOKEN = ensureCommandEveShimAuthToken();
+const SHIM_JSON_HEADERS = {
+  'content-type': 'application/json',
+  authorization: `Bearer ${SHIM_AUTH_TOKEN}`,
+};
 
 let eveFnServer: http.Server | undefined;
 
@@ -92,6 +98,22 @@ async function startFakeOpenAiServer(onBody: (body: Record<string, unknown>, pat
   if (!address || typeof address === 'string') {
     throw new Error('fake server did not expose a port');
   }
+  return `http://127.0.0.1:${address.port}`;
+}
+
+async function startHangingOllamaServer(
+  onRequest: (request: IncomingMessage, response: ServerResponse) => void
+): Promise<string> {
+  testServer = http.createServer((request, response) => {
+    request.resume();
+    onRequest(request, response);
+  });
+  await new Promise<void>((resolve, reject) => {
+    testServer?.once('error', reject);
+    testServer?.listen(0, '127.0.0.1', resolve);
+  });
+  const address = testServer.address();
+  if (!address || typeof address === 'string') throw new Error('hanging server did not expose a port');
   return `http://127.0.0.1:${address.port}`;
 }
 
@@ -178,6 +200,88 @@ describe('Command EVE Ollama OpenAI shim warm-up', () => {
     expect(result.error).toContain('local-only');
   });
 
+  it('rejects unauthenticated inference without touching the upstream model', async () => {
+    let upstreamHits = 0;
+    const baseUrl = await startFakeOpenAiServer(() => {
+      upstreamHits += 1;
+    });
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({ port: 0, ollamaBaseUrl: baseUrl });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'spend credits' }] }),
+    });
+
+    expect(response.status).toBe(401);
+    expect(upstreamHits).toBe(0);
+  });
+
+  it('returns a bounded first-byte timeout and closes the stalled upstream request', async () => {
+    let closeUpstream: (() => void) | undefined;
+    const upstreamClosed = new Promise<void>((resolve) => {
+      closeUpstream = resolve;
+    });
+    const baseUrl = await startHangingOllamaServer((_request, response) =>
+      response.once('close', () => closeUpstream?.())
+    );
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: baseUrl,
+      upstreamFirstByteTimeoutMs: 40,
+      upstreamIdleTimeoutMs: 40,
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: SHIM_JSON_HEADERS,
+      body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'wait' }], stream: false }),
+    });
+    const payload = (await response.json()) as { error?: { type?: string } };
+
+    expect(response.status).toBe(504);
+    expect(payload.error?.type).toBe('first_byte_timeout');
+    await expect(
+      Promise.race([
+        upstreamClosed,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('upstream remained open')), 1_000)),
+      ])
+    ).resolves.toBeUndefined();
+  });
+
+  it('propagates client cancellation to the upstream request', async () => {
+    let markSeen: (() => void) | undefined;
+    let markClosed: (() => void) | undefined;
+    const upstreamSeen = new Promise<void>((resolve) => {
+      markSeen = resolve;
+    });
+    const upstreamClosed = new Promise<void>((resolve) => {
+      markClosed = resolve;
+    });
+    const baseUrl = await startHangingOllamaServer((_request, response) => {
+      markSeen?.();
+      response.once('close', () => markClosed?.());
+    });
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({ port: 0, ollamaBaseUrl: baseUrl });
+    const controller = new AbortController();
+    const pending = fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: SHIM_JSON_HEADERS,
+      signal: controller.signal,
+      body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'cancel' }], stream: false }),
+    });
+
+    await upstreamSeen;
+    controller.abort();
+    await expect(pending).rejects.toThrow();
+    await expect(
+      Promise.race([
+        upstreamClosed,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('upstream remained open')), 1_000)),
+      ])
+    ).resolves.toBeUndefined();
+  });
+
   it('redacts sensitive data before the fake Ollama upstream sees it (never blocks/hangs)', async () => {
     let upstreamBody: Record<string, unknown> | undefined;
     const baseUrl = await startFakeOpenAiServer((bodySeen) => {
@@ -191,7 +295,7 @@ describe('Command EVE Ollama OpenAI shim warm-up', () => {
 
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'Hier ist ein API key: sk-abcdefghijklmnopqrstuvwxyz123456' }],
@@ -222,7 +326,7 @@ describe('Command EVE Ollama OpenAI shim warm-up', () => {
 
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [
@@ -284,7 +388,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
 
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'plan my week' }],
@@ -319,7 +423,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
 
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [
@@ -360,7 +464,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
 
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'plan my week' }],
@@ -398,7 +502,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
     ];
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'read the config' }],
@@ -427,7 +531,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
 
     await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'hi' }],
@@ -455,7 +559,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
 
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'local hello' }],
@@ -481,7 +585,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
 
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'API key: sk-abcdefghijklmnopqrstuvwxyz123456' }],
@@ -511,7 +615,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
 
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [
@@ -553,7 +657,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
 
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'hi' }],
@@ -580,7 +684,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
 
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'hi' }],
@@ -612,7 +716,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
 
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'hardest task' }],
@@ -639,7 +743,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
 
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'think harder' }],
@@ -673,7 +777,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
 
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'hi' }],
@@ -703,7 +807,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
 
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'ping' }],
@@ -736,7 +840,7 @@ describe('Command EVE shim — PER-SEAT PII/DSGVO egress switch (S11)', () => {
 
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: `Ruf ${PHONE} an.` }],
@@ -773,7 +877,7 @@ describe('Command EVE shim — PER-SEAT PII/DSGVO egress switch (S11)', () => {
 
     await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: `IBAN DE89 3704 0044 0532 0130 00` }],
@@ -809,7 +913,7 @@ describe('Command EVE shim — PER-SEAT PII/DSGVO egress switch (S11)', () => {
 
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: `IBAN DE89 3704 0044 0532 0130 00 und ruf ${PHONE} an.` }],
@@ -861,7 +965,7 @@ describe('Command EVE shim — PER-SEAT PII/DSGVO egress switch (S11)', () => {
 
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'IBAN DE89 3704 0044 0532 0130 00 zum Testen.' }],
@@ -889,7 +993,7 @@ describe('Command EVE shim — PER-SEAT PII/DSGVO egress switch (S11)', () => {
 
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: `Ruf ${PHONE} an.` }],
@@ -917,7 +1021,7 @@ describe('Command EVE shim — PER-SEAT PII/DSGVO egress switch (S11)', () => {
 
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: `Ruf ${PHONE} an.` }],
@@ -949,7 +1053,7 @@ describe('Command EVE shim — PER-SEAT PII/DSGVO egress switch (S11)', () => {
 
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: `Ruf ${PHONE} an.` }],
@@ -1039,7 +1143,7 @@ describe('Command EVE shim — per-seat usage attribution (A3)', () => {
 
     await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'hi' }], stream: false }),
     });
 
@@ -1059,7 +1163,7 @@ describe('Command EVE shim — per-seat usage attribution (A3)', () => {
 
     await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'hi' }], stream: false }),
     });
 
@@ -1079,7 +1183,7 @@ describe('Command EVE shim — per-seat usage attribution (A3)', () => {
 
     await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'hi' }], stream: false }),
     });
 
@@ -1102,7 +1206,7 @@ describe('Command EVE shim — per-seat usage attribution (A3)', () => {
 
     await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'hi' }], stream: false }),
     });
 
@@ -1132,7 +1236,7 @@ describe('Command EVE shim — A1 attribution spoof-close (SG-1)', () => {
 
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: SHIM_JSON_HEADERS,
       body: JSON.stringify({
         model: 'm',
         messages: [{ role: 'user', content: 'hi' }],
@@ -1161,7 +1265,7 @@ describe('Command EVE shim — A1 attribution spoof-close (SG-1)', () => {
 
     await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-eve-dispatch': 'valid-tok' },
+      headers: { ...SHIM_JSON_HEADERS, 'x-eve-dispatch': 'valid-tok' },
       body: JSON.stringify({
         model: 'm',
         messages: [{ role: 'user', content: 'hi' }],
@@ -1187,7 +1291,7 @@ describe('Command EVE shim — A1 attribution spoof-close (SG-1)', () => {
 
     await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-eve-dispatch': 'bogus-token' },
+      headers: { ...SHIM_JSON_HEADERS, 'x-eve-dispatch': 'bogus-token' },
       body: JSON.stringify({
         model: 'm',
         messages: [{ role: 'user', content: 'hi' }],

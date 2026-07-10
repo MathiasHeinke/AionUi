@@ -4,12 +4,13 @@
  * Launches the Electron app once and shares the window across tests.
  *
  * Two modes:
- *   1. **Packaged mode** (CI default): Launches from electron-builder's unpacked output
+ *   1. **Packaged mode** (explicit test build only): Launches from electron-builder's unpacked output
  *      (e.g. out/linux-unpacked/aionui, out/mac-arm64/AionUi.app, out/win-unpacked/AionUi.exe).
  *      Command EVE branded builds use the same layout with Command EVE executable names.
- *      This validates that packaged resources are intact.
- *   2. **Dev mode** (local default): Launches via `electron .` from project root with
- *      the Vite dev server (electron-vite dev).
+ *      The build must keep the Node CLI inspect fuse enabled because Playwright's
+ *      Electron driver attaches through `--inspect=0`. Production builds disable it.
+ *   2. **Instrumented mode** (default, including CI): Launches via `electron .`
+ *      from project root against the compiled Vite output.
  *
  * Set `E2E_PACKAGED=1` to force packaged mode, or `E2E_DEV=1` to force dev mode.
  */
@@ -29,6 +30,7 @@ let app: ElectronApplication | null = null;
 let mainPage: Page | null = null;
 const e2eStateSandboxDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aionui-e2e-state-'));
 const e2eStateFile = path.join(e2eStateSandboxDir, 'extension-states.json');
+const e2eUserDataDir = path.join(e2eStateSandboxDir, 'user-data');
 
 export async function closeSharedElectronAppForIsolatedSpec(): Promise<void> {
   if (!app) {
@@ -125,9 +127,7 @@ function resolvePackagedApp(): { executablePath: string; cwd: string } | null {
 
 function shouldUsePackagedMode(): boolean {
   if (process.env.E2E_PACKAGED === '1') return true;
-  if (process.env.E2E_DEV === '1') return false;
-  // Default: packaged in CI, dev locally
-  return !!process.env.CI;
+  return false;
 }
 
 async function launchApp(): Promise<ElectronApplication> {
@@ -163,7 +163,7 @@ async function launchApp(): Promise<ElectronApplication> {
 
     console.log(`[E2E] Launching PACKAGED app: ${packaged.executablePath}`);
 
-    const launchArgs: string[] = [];
+    const launchArgs: string[] = [`--user-data-dir=${e2eUserDataDir}`];
     if (process.platform === 'linux' && process.env.CI) {
       launchArgs.push('--no-sandbox');
     }
@@ -185,7 +185,7 @@ async function launchApp(): Promise<ElectronApplication> {
   // Dev mode: launch via electron .
   console.log(`[E2E] Launching DEV app from: ${projectRoot}`);
 
-  const launchArgs = ['.'];
+  const launchArgs = ['.', `--user-data-dir=${e2eUserDataDir}`];
   if (process.platform === 'linux' && process.env.CI) {
     launchArgs.push('--no-sandbox');
   }

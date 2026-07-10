@@ -20,12 +20,14 @@
 import http, { type IncomingMessage, type ServerResponse } from 'http';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  ensureCommandEveShimAuthToken,
   startCommandEveOllamaOpenAiShim,
   stopCommandEveOllamaOpenAiShimForTest,
 } from '@/process/commandEve/ollamaOpenAiShim';
 
 /** Synthetic CEVE wire string — NOT a real license. */
 const FAKE_LICENSE = 'CEVE.v2.FAKE-payload-TESTONLY.FAKE-sig-TESTONLY';
+const SHIM_AUTH_TOKEN = ensureCommandEveShimAuthToken();
 
 type EveFnSeen = { body?: Record<string, unknown>; authHeader?: string | null; path?: string; hits: number };
 
@@ -80,7 +82,7 @@ async function startFakeEveFunction(seen: EveFnSeen): Promise<string> {
 function deriverPost(body: Record<string, unknown>): Promise<Response> {
   return fetch(`${shimServerUrl}/honcho/deriver/v1/chat/completions`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${SHIM_AUTH_TOKEN}` },
     body: JSON.stringify(body),
   });
 }
@@ -224,12 +226,18 @@ describe('Honcho deriver cloud lane (COMPA-624)', () => {
       model: 'x',
       messages: [{ role: 'user', content: 'derive' }],
       tools: [
-        { type: 'function', function: { name: 'crm', description: 'Kunde max@example.de IBAN DE89370400440532013000' } },
+        {
+          type: 'function',
+          function: { name: 'crm', description: 'Kunde max@example.de IBAN DE89370400440532013000' },
+        },
       ],
       tool_choice: 'auto',
       parallel_tool_calls: true,
       // an un-scanned passthrough field that could smuggle text past the messages-only egress scan
-      response_format: { type: 'json_schema', json_schema: { name: 's', description: 'secret sk-abcdefghijklmnopqrstuvwxyz123456' } },
+      response_format: {
+        type: 'json_schema',
+        json_schema: { name: 's', description: 'secret sk-abcdefghijklmnopqrstuvwxyz123456' },
+      },
       stream: false,
     });
 

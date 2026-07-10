@@ -5,7 +5,7 @@
  */
 
 import Anthropic, { type ClientOptions as AnthropicClientOptions_ } from '@anthropic-ai/sdk';
-import { AuthType } from '@office-ai/aioncli-core';
+import { AuthType } from '../utils/platformAuthType';
 import type { RotatingApiClientOptions } from './RotatingApiClient';
 import { RotatingApiClient } from './RotatingApiClient';
 import {
@@ -83,7 +83,10 @@ export class AnthropicRotatingClient extends RotatingApiClient<Anthropic> {
       const content = block.content;
       if (typeof content === 'string') return content;
       if (Array.isArray(content)) {
-        return content.map((nestedBlock) => this.anthropicBlockText(nestedBlock as RedactableBlock)).filter(Boolean).join('\n');
+        return content
+          .map((nestedBlock) => this.anthropicBlockText(nestedBlock as RedactableBlock))
+          .filter(Boolean)
+          .join('\n');
       }
     }
     return '';
@@ -92,13 +95,13 @@ export class AnthropicRotatingClient extends RotatingApiClient<Anthropic> {
   private anthropicMessageText(message: Anthropic.MessageParam): string {
     const content = message.content;
     if (typeof content === 'string') return content;
-    return content.map((block) => this.anthropicBlockText(block)).filter(Boolean).join('\n');
+    return content
+      .map((block) => this.anthropicBlockText(block))
+      .filter(Boolean)
+      .join('\n');
   }
 
-  private async enforceCommandEveAnthropicEgressBoundary<T>(
-    request: T,
-    text: string
-  ): Promise<T> {
+  private async enforceCommandEveAnthropicEgressBoundary<T>(request: T, text: string): Promise<T> {
     const policyAction = this.config.commandEveEgressPolicyAction;
     if (!policyAction) return request;
     const boundary = await evaluateCommandEveEgressBoundary({
@@ -121,7 +124,9 @@ export class AnthropicRotatingClient extends RotatingApiClient<Anthropic> {
   }
 
   private requestModel(request: unknown): unknown {
-    return request && typeof request === 'object' && 'model' in request ? (request as { model?: unknown }).model : undefined;
+    return request && typeof request === 'object' && 'model' in request
+      ? (request as { model?: unknown }).model
+      : undefined;
   }
 
   private redactOpenAiRequest(params: OpenAIChatCompletionParams): OpenAIChatCompletionParams {

@@ -11,6 +11,22 @@ protocols:
 asar:
   smartUnpack: true
 
+# electron-builder repeats the original eight V1 settings after afterPack.
+# scripts/electronFusePolicy.js owns the complete, strict policy (including
+# newer fuses) and fails the build before signing if Electron adds another one.
+# The packaged app always ships from app.asar.
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  loadBrowserProcessSpecificV8Snapshot: false
+  # Required while the packaged main renderer is loaded from file://app.asar.
+  # Navigation, CSP, IPC and webview gates provide the compensating controls.
+  grantFileProtocolExtraPrivileges: true
+
 directories:
   app: .
   output: out

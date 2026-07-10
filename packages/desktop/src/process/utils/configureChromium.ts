@@ -15,6 +15,7 @@ import {
   COMMAND_EVE_SHELL_ENABLED,
   getCommandEveAppName,
 } from '@/common/config/commandEveShell';
+import { shouldEnableCdpAtStartup } from '../security/cdpSecurityCore';
 import { applyGpuRecoveryFlags } from './gpuRecovery';
 
 // ============ Environment Separation ============
@@ -270,19 +271,11 @@ function resolveCdpPortFromEnv(): number | null | undefined {
  * Priority: env variable > config file > default (dev mode: true, production: false)
  */
 function shouldEnableCdp(config: CdpConfig): boolean {
-  const envVal = process.env.AIONUI_CDP_PORT;
-  if (envVal === '0' || envVal === 'false') return false;
-  if (envVal) return true;
-
-  if (app.isPackaged) {
-    return false;
-  }
-
-  if (config.enabled !== undefined) {
-    return config.enabled;
-  }
-
-  return true;
+  return shouldEnableCdpAtStartup({
+    isPackaged: app.isPackaged,
+    envPort: process.env.AIONUI_CDP_PORT,
+    configEnabled: config.enabled,
+  });
 }
 
 /**

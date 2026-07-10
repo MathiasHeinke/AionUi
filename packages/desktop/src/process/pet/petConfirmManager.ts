@@ -5,11 +5,17 @@
  */
 
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { app, BrowserWindow, ipcMain, screen } from 'electron';
 import type { IConfirmation } from '@/common/chat/chatLib';
 import { ipcBridge } from '@/common';
 import i18n from '@process/services/i18n';
 import { getCachedTheme, onThemeChanged } from '@process/bridge/themeBridge';
+import {
+  hardenAuxiliaryWindowNavigation,
+  isTrustedAuxiliaryIpcSender,
+  resolvePetConfirmationResponse,
+} from '../security/auxiliaryWindowSecurityCore';
 
 // petConfirmManager is dynamically imported → rollup places it in out/main/chunks/,
 // so __dirname is out/main/chunks/ and we need '../..' to reach out/.
@@ -156,6 +162,14 @@ function createConfirmWindow(): void {
       preload: path.join(PRELOAD_DIR, 'petConfirmPreload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      nodeIntegrationInWorker: false,
+      nodeIntegrationInSubFrames: false,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      safeDialogs: true,
+      navigateOnDragDrop: false,
+      enableWebSQL: false,
     },
   });
 
@@ -223,11 +237,15 @@ function loadContent(): void {
   const rendererUrl = process.env['ELECTRON_RENDERER_URL'];
 
   if (!app.isPackaged && rendererUrl) {
-    confirmWindow.loadURL(`${rendererUrl}/pet/pet-confirm.html`).catch((error) => {
+    const confirmUrl = `${rendererUrl}/pet/pet-confirm.html`;
+    hardenAuxiliaryWindowNavigation(confirmWindow, confirmUrl);
+    confirmWindow.loadURL(confirmUrl).catch((error) => {
       console.error('[PetConfirm] loadURL failed:', error);
     });
   } else {
-    confirmWindow.loadFile(path.join(RENDERER_DIR, 'pet-confirm.html')).catch((error) => {
+    const confirmPath = path.join(RENDERER_DIR, 'pet-confirm.html');
+    hardenAuxiliaryWindowNavigation(confirmWindow, pathToFileURL(confirmPath).toString());
+    confirmWindow.loadFile(confirmPath).catch((error) => {
       console.error('[PetConfirm] loadFile failed:', error);
     });
   }
@@ -290,7 +308,8 @@ function registerIpcHandlers(): void {
   let confirmDragOffsetY = 0;
   let confirmDragTimer: ReturnType<typeof setInterval> | null = null;
 
-  ipcMain.on('pet:confirm-drag-start', () => {
+  ipcMain.on('pet:confirm-drag-start', (event) => {
+    if (!isTrustedAuxiliaryIpcSender(event, confirmWindow)) return;
     if (!confirmWindow || confirmWindow.isDestroyed()) return;
     // Clear any stale timer from a previous drag-start that missed its drag-end
     if (confirmDragTimer) {
@@ -313,7 +332,8 @@ function registerIpcHandlers(): void {
     }, 16);
   });
 
-  ipcMain.on('pet:confirm-drag-end', () => {
+  ipcMain.on('pet:confirm-drag-end', (event) => {
+    if (!isTrustedAuxiliaryIpcSender(event, confirmWindow)) return;
     if (confirmDragTimer) {
       clearInterval(confirmDragTimer);
       confirmDragTimer = null;
@@ -325,48 +345,49 @@ function registerIpcHandlers(): void {
     }
   });
 
-  ipcMain.on(
-    'pet:confirm-respond',
-    (_event, data: { conversation_id: string; msg_id: string; call_id: string; data: any }) => {
-      console.log('[PetConfirm] Received response:', JSON.stringify(data));
-
-      // Remove from local tracking
-      const confirmation = Array.from(currentConfirmations.values()).find(
-        (c) => c.call_id === data.call_id && c.conversation_id === data.conversation_id
-      );
-
-      if (confirmation) {
-        currentConfirmations.delete(confirmation.id);
-
-        // Announce removal on the WS channel so any renderer confirmation UI
-        // can drop the entry. NOTE: with the HTTP/WS adapter, emit() is a
-        // no-op in the main process (see httpBridge.ts wsEmitter); the
-        // authoritative remove event is broadcast by the backend itself when
-        // /confirmations/{call_id}/confirm is accepted.
-        ipcBridge.conversation.confirmation.remove.emit({
-          conversation_id: data.conversation_id,
-          id: confirmation.id,
-        });
-      }
-
-      // Forward response to backend via HTTP (aionui-conversation route)
-      ipcBridge.conversation.confirmation.confirm
-        .invoke({
-          conversation_id: data.conversation_id,
-          msg_id: data.msg_id,
-          call_id: data.call_id,
-          data: data.data,
-        })
-        .catch((error: unknown) => {
-          console.error('[PetConfirm] confirmation.confirm.invoke failed:', error);
-        });
-
-      // Close window if no confirmations left
-      if (currentConfirmations.size === 0) {
-        destroyConfirmWindow();
-      }
+  ipcMain.on('pet:confirm-respond', (event, input: unknown) => {
+    if (!isTrustedAuxiliaryIpcSender(event, confirmWindow)) return;
+    const data = resolvePetConfirmationResponse(input, currentConfirmations.values());
+    if (!data) {
+      console.warn('[PetConfirm] Rejected an invalid or stale confirmation response');
+      return;
     }
-  );
+    console.log('[PetConfirm] Received response for call:', data.call_id);
+
+    // Remove from local tracking
+    const confirmation = currentConfirmations.get(data.msg_id);
+
+    if (confirmation) {
+      currentConfirmations.delete(confirmation.id);
+
+      // Announce removal on the WS channel so any renderer confirmation UI
+      // can drop the entry. NOTE: with the HTTP/WS adapter, emit() is a
+      // no-op in the main process (see httpBridge.ts wsEmitter); the
+      // authoritative remove event is broadcast by the backend itself when
+      // /confirmations/{call_id}/confirm is accepted.
+      ipcBridge.conversation.confirmation.remove.emit({
+        conversation_id: data.conversation_id,
+        id: confirmation.id,
+      });
+    }
+
+    // Forward response to backend via HTTP (aionui-conversation route)
+    ipcBridge.conversation.confirmation.confirm
+      .invoke({
+        conversation_id: data.conversation_id,
+        msg_id: data.msg_id,
+        call_id: data.call_id,
+        data: data.data,
+      })
+      .catch((error: unknown) => {
+        console.error('[PetConfirm] confirmation.confirm.invoke failed:', error);
+      });
+
+    // Close window if no confirmations left
+    if (currentConfirmations.size === 0) {
+      destroyConfirmWindow();
+    }
+  });
 }
 
 /**

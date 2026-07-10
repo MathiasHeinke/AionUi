@@ -14,6 +14,7 @@ import { readAutoUpdateDiagnostics } from './process/services/autoUpdateDiagnost
 import { collectBackendInstallDiagnostics } from './process/startup/backendInstallDiagnostics';
 import { classifyBackendStartupFailure } from './process/startup/backendStartupFailure';
 import { isTelemetryAllowed } from './process/commandEve/telemetryConsentCore';
+import { redactCommandEveSensitiveText } from './common/api/egressBoundaryCore';
 
 // 抑制 Chromium GPU 崩溃噪声（参见 ELECTRON-9A / ELECTRON-9D）：
 // 自愈逻辑在 gpuRecovery 中处理，事件流量已无价值。
@@ -34,7 +35,76 @@ type SearchableEvent = {
   exception?: { values?: unknown[] };
   contexts?: Record<string, unknown>;
   extra?: Record<string, unknown>;
+  breadcrumbs?: unknown[];
+  request?: unknown;
 };
+
+const BACKEND_HTTP_ERROR_PAYLOAD_PATTERN = /(Backend [A-Z]+ \S+ failed \(\d+\)):\s*[^\n]*/g;
+const MAX_SENTRY_REDACTION_DEPTH = 12;
+const SENSITIVE_SENTRY_KEYS = new Set([
+  'authorization',
+  'cookie',
+  'credentials',
+  'password',
+  'passphrase',
+  'privatekey',
+  'proxyauthorization',
+  'setcookie',
+]);
+const SENSITIVE_SENTRY_KEY_SUFFIXES = ['apikey', 'credential', 'jwt', 'secret', 'sessionid', 'token'];
+const SENTRY_LOCAL_VARIABLE_KEYS = new Set(['locals', 'vars', 'variables']);
+
+export function redactSentryText(value: string): string {
+  return redactCommandEveSensitiveText(
+    value.replace(BACKEND_HTTP_ERROR_PAYLOAD_PATTERN, '$1: [BACKEND_RESPONSE_REDACTED]')
+  );
+}
+
+function normalizeSentryKey(key: string): string {
+  return key.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function isSensitiveSentryKey(key: string): boolean {
+  const normalized = normalizeSentryKey(key);
+  return (
+    SENSITIVE_SENTRY_KEYS.has(normalized) || SENSITIVE_SENTRY_KEY_SUFFIXES.some((suffix) => normalized.endsWith(suffix))
+  );
+}
+
+function redactStringLeavesInPlace(value: unknown, seen = new WeakSet<object>(), depth = 0): void {
+  if (!value || typeof value !== 'object' || seen.has(value)) return;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      if (typeof value[index] === 'string') value[index] = redactSentryText(value[index]);
+      else if (value[index] && typeof value[index] === 'object' && depth >= MAX_SENTRY_REDACTION_DEPTH) {
+        value[index] = '[NESTED_DATA_REDACTED]';
+      } else redactStringLeavesInPlace(value[index], seen, depth + 1);
+    }
+    return;
+  }
+  const record = value as Record<string, unknown>;
+  for (const [key, item] of Object.entries(record)) {
+    const normalizedKey = normalizeSentryKey(key);
+    if (isSensitiveSentryKey(key)) {
+      record[key] = '[SENSITIVE_VALUE_REDACTED]';
+    } else if (SENTRY_LOCAL_VARIABLE_KEYS.has(normalizedKey)) {
+      record[key] = '[LOCAL_VARIABLES_REDACTED]';
+    } else if (typeof item === 'string') record[key] = redactSentryText(item);
+    else if (item && typeof item === 'object' && depth >= MAX_SENTRY_REDACTION_DEPTH) {
+      record[key] = '[NESTED_DATA_REDACTED]';
+    } else redactStringLeavesInPlace(item, seen, depth + 1);
+  }
+}
+
+function redactSentryEventInPlace(event: SearchableEvent): void {
+  if (typeof event.message === 'string') event.message = redactSentryText(event.message);
+  redactStringLeavesInPlace(event.exception);
+  redactStringLeavesInPlace(event.contexts);
+  redactStringLeavesInPlace(event.extra);
+  redactStringLeavesInPlace(event.breadcrumbs);
+  redactStringLeavesInPlace(event.request);
+}
 
 function collectStringLeaves(value: unknown, haystacks: string[], seen = new WeakSet<object>(), depth = 0): void {
   if (typeof value === 'string') {
@@ -106,6 +176,11 @@ export function initSentry(): void {
     dsn: process.env.SENTRY_DSN,
     environment: app.isPackaged ? 'production' : 'development',
     beforeSend(event) {
+      // Consent can be revoked while the process is running. Sentry remains
+      // initialized, so the per-event gate is what makes "off" immediate.
+      if (!isTelemetryAllowed()) {
+        return null;
+      }
       const haystacks = collectEventSearchText(event);
       if (GPU_CRASH_DROP_PATTERNS.some((re) => haystacks.some((h) => re.test(h)))) {
         return null;
@@ -113,6 +188,7 @@ export function initSentry(): void {
       if (isBackendStartupSecondaryEvent(event, haystacks)) {
         return null;
       }
+      redactSentryEventInPlace(event);
       return event;
     },
   });
@@ -352,6 +428,18 @@ export type LogSegment = { name: string; mtime: number; content: string };
 export type PackResult = { gzipped: Buffer; truncated: boolean };
 
 /**
+ * Convert log-file metadata into a content-free diagnostic attachment.
+ * Original names, paths, and log lines are deliberately excluded.
+ */
+export function buildStructuralLogSegments(files: LogFileMeta[]): LogSegment[] {
+  return files.map((file, index) => ({
+    name: `log-${index + 1}.metadata.json`,
+    mtime: file.mtime,
+    content: `${JSON.stringify({ size_bytes: file.size })}\n`,
+  }));
+}
+
+/**
  * Concatenate segments with a per-file header, gzip them, and shrink-from-head
  * until the gzipped size fits `maxBytes`. The tail (newest content) survives
  * because Sentry users care most about recent activity around the crash.
@@ -390,7 +478,7 @@ export function packAndCap(segments: LogSegment[], maxBytes: number): PackResult
 }
 
 const STATE_FILE = 'sentry-log-report-state.json';
-const ATTACHMENT_CAP_BYTES = 19 * 1024 * 1024;
+const ATTACHMENT_CAP_BYTES = 64 * 1024;
 const STARTUP_DELAY_MS = 30_000;
 const THROTTLE_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -479,16 +567,7 @@ async function runStartupLogReport(): Promise<void> {
     throw new UnretryableError('no non-empty logs');
   }
 
-  let segments: LogSegment[];
-  try {
-    segments = selected.map((f) => ({
-      name: path.basename(f.path),
-      mtime: f.mtime,
-      content: fs.readFileSync(f.path, 'utf8'),
-    }));
-  } catch (err) {
-    throw new RetryableError(`read failed: ${(err as Error).message}`);
-  }
+  const segments = buildStructuralLogSegments(selected);
 
   let pack: PackResult;
   try {
@@ -499,7 +578,7 @@ async function runStartupLogReport(): Promise<void> {
 
   Sentry.withScope((scope) => {
     scope.addAttachment({
-      filename: 'aionui-logs.log.gz',
+      filename: 'aionui-log-metadata.json.gz',
       data: pack.gzipped,
       contentType: 'application/gzip',
     });
@@ -511,7 +590,7 @@ async function runStartupLogReport(): Promise<void> {
   writeState({ lastReportAt: now });
   const sizeKb = (pack.gzipped.length / 1024).toFixed(1);
   console.info(
-    `[sentry] startup log report sent (days=${REPORT_DAYS}, files=${selected.length}, gzipped=${sizeKb}KB, truncated=${pack.truncated})`
+    `[sentry] startup log metadata sent (days=${REPORT_DAYS}, files=${selected.length}, gzipped=${sizeKb}KB, truncated=${pack.truncated})`
   );
 }
 

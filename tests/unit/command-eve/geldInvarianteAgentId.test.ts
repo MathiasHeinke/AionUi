@@ -17,16 +17,18 @@
  *      to a role.
  */
 
-import http, { type IncomingMessage, type ServerResponse } from 'http';
+import http, { type IncomingMessage } from 'http';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  ensureCommandEveShimAuthToken,
   startCommandEveOllamaOpenAiShim,
   stopCommandEveOllamaOpenAiShimForTest,
 } from '@/process/commandEve/ollamaOpenAiShim';
 
 const FAKE_LICENSE = 'CEVE.v2.FAKE-payload-TESTONLY.FAKE-sig-TESTONLY';
+const SHIM_AUTH_TOKEN = ensureCommandEveShimAuthToken();
 
 let eveFnServer: http.Server | undefined;
 let shimServerUrl = '';
@@ -52,7 +54,9 @@ async function startFakeEveFunction(seen: { body?: Record<string, unknown> }): P
     void (async () => {
       seen.body = await readBody(request);
       response.writeHead(200, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }] }));
+      response.end(
+        JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }] })
+      );
     })().catch(() => {
       response.writeHead(500);
       response.end('{}');
@@ -91,7 +95,11 @@ describe('A2 Geld-Invariante — pricing tier ⊥ agent_id', () => {
     });
     await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-eve-dispatch': 'a-valid-token' },
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${SHIM_AUTH_TOKEN}`,
+        'x-eve-dispatch': 'a-valid-token',
+      },
       body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'hi' }], stream: false }),
     });
     return seen.body ?? {};
@@ -131,7 +139,9 @@ describe('A2 structural — attribution modules carry no pricing token', () => {
       // Strip line comments so a doctrine reference in prose doesn't trip the gate.
       const code = src
         .split('\n')
-        .filter((line) => !line.trim().startsWith('*') && !line.trim().startsWith('//') && !line.trim().startsWith('/*'))
+        .filter(
+          (line) => !line.trim().startsWith('*') && !line.trim().startsWith('//') && !line.trim().startsWith('/*')
+        )
         .join('\n');
       expect(PRICING_TOKENS.test(code)).toBe(false);
     });

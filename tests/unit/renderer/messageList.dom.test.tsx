@@ -457,9 +457,15 @@ describe('MessageList', () => {
           artifact_type: 'file',
           title: 'Campaign report',
           mime_type: 'text/markdown',
-          content: ['| Channel | Next step |', '| --- | --- |', '| Email | Draft |', '', '```ts', 'const ready = true;', '```'].join(
-            '\n'
-          ),
+          content: [
+            '| Channel | Next step |',
+            '| --- | --- |',
+            '| Email | Draft |',
+            '',
+            '```ts',
+            'const ready = true;',
+            '```',
+          ].join('\n'),
         },
         created_at: 6,
         updated_at: 6,
@@ -478,8 +484,13 @@ describe('MessageList', () => {
     expect(screen.getByTestId('generated-artifact-receipt')).toHaveTextContent('/tmp/eve-receipts/img-artifact-1.json');
     expect(screen.getByTestId('generated-artifact-receipt')).toHaveTextContent('img-artifact-1');
     expect(screen.getByTestId('generated-artifact-video')).toHaveAttribute('src', 'https://cdn.example.com/launch.mp4');
-    expect(screen.getByTestId('generated-artifact-audio')).toHaveAttribute('src', 'https://cdn.example.com/readout.mp3');
-    expect(screen.getByTestId('generated-artifact-html')).toHaveAttribute('srcdoc', '<main><h1>Offer</h1></main>');
+    expect(screen.getByTestId('generated-artifact-audio')).toHaveAttribute(
+      'src',
+      'https://cdn.example.com/readout.mp3'
+    );
+    const htmlArtifact = screen.getByTestId('generated-artifact-html');
+    expect(htmlArtifact.getAttribute('srcdoc')).toContain('Content-Security-Policy');
+    expect(htmlArtifact.getAttribute('srcdoc')).toContain('<main><h1>Offer</h1></main>');
 
     const markdownArtifact = screen.getByTestId('generated-artifact-text');
     await waitFor(() => {
@@ -487,6 +498,32 @@ describe('MessageList', () => {
       expect(shadowRoot?.querySelector('table')).not.toBeNull();
       expect(shadowRoot?.querySelector('code')?.textContent).toContain('const ready = true;');
     });
+  });
+
+  it('does not auto-frame source-only html artifacts', () => {
+    artifactMock.artifacts = [
+      {
+        id: 'artifact-source-html',
+        conversation_id: 'conversation-1',
+        kind: 'html',
+        status: 'active',
+        payload: {
+          artifact_type: 'html',
+          title: 'Local landing page',
+          path: '/tmp/generated-landing-page.html',
+          mime_type: 'text/html',
+        },
+        created_at: 7,
+        updated_at: 7,
+      },
+    ];
+
+    render(<MessageList />, {
+      wrapper: ({ children }) => <Wrapper>{children}</Wrapper>,
+    });
+
+    expect(screen.queryByTestId('generated-artifact-html')).not.toBeInTheDocument();
+    expect(screen.getByTestId('generated-artifact-empty')).toBeInTheDocument();
   });
 
   it('keeps image generation tool results inline instead of collapsing them into the step summary', () => {

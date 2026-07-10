@@ -36,6 +36,14 @@ describe('classifyBackendStartupFailure', () => {
     });
   });
 
+  it('classifies a busy loopback port as another local instance, not a broken installation', () => {
+    expect(
+      classifyBackendStartupFailure(new Error('listen EADDRINUSE: address already in use 127.0.0.1:25811'))
+    ).toEqual({
+      reason: 'backend_instance_conflict',
+    });
+  });
+
   it('preserves backend bootstrap code and stage for generic startup failures', () => {
     const error = new Error('aioncore exited before health check passed') as Error & {
       details?: Record<string, unknown>;

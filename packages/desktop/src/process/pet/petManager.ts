@@ -5,6 +5,7 @@
  */
 
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { app, BrowserWindow, ipcMain, Menu, screen } from 'electron';
 import i18n from '@process/services/i18n';
 import { PetStateMachine } from './petStateMachine';
@@ -18,6 +19,11 @@ import {
   unhookPetConfirm,
 } from './petConfirmManager';
 import type { PetSize, PetState } from './petTypes';
+import {
+  hardenAuxiliaryWindowNavigation,
+  isTrustedAuxiliaryIpcSender,
+  normalizePetClickData,
+} from '../security/auxiliaryWindowSecurityCore';
 
 /**
  * Check whether the current environment can support desktop pet windows.
@@ -123,6 +129,14 @@ export function createPetWindow(): void {
       preload: path.join(PRELOAD_DIR, 'petPreload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      nodeIntegrationInWorker: false,
+      nodeIntegrationInSubFrames: false,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      safeDialogs: true,
+      navigateOnDragDrop: false,
+      enableWebSQL: false,
     },
   });
 
@@ -154,6 +168,14 @@ export function createPetWindow(): void {
       preload: path.join(PRELOAD_DIR, 'petHitPreload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      nodeIntegrationInWorker: false,
+      nodeIntegrationInSubFrames: false,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      safeDialogs: true,
+      navigateOnDragDrop: false,
+      enableWebSQL: false,
     },
   });
 
@@ -342,17 +364,25 @@ function loadContent(): void {
   const rendererUrl = process.env['ELECTRON_RENDERER_URL'];
 
   if (!app.isPackaged && rendererUrl) {
-    petWindow.loadURL(`${rendererUrl}/pet/pet.html`).catch((error) => {
+    const petUrl = `${rendererUrl}/pet/pet.html`;
+    const hitUrl = `${rendererUrl}/pet/pet-hit.html`;
+    hardenAuxiliaryWindowNavigation(petWindow, petUrl);
+    hardenAuxiliaryWindowNavigation(petHitWindow, hitUrl);
+    petWindow.loadURL(petUrl).catch((error) => {
       console.error('[Pet] loadURL failed for pet window:', error);
     });
-    petHitWindow.loadURL(`${rendererUrl}/pet/pet-hit.html`).catch((error) => {
+    petHitWindow.loadURL(hitUrl).catch((error) => {
       console.error('[Pet] loadURL failed for pet-hit window:', error);
     });
   } else {
-    petWindow.loadFile(path.join(RENDERER_DIR, 'pet.html')).catch((error) => {
+    const petPath = path.join(RENDERER_DIR, 'pet.html');
+    const hitPath = path.join(RENDERER_DIR, 'pet-hit.html');
+    hardenAuxiliaryWindowNavigation(petWindow, pathToFileURL(petPath).toString());
+    hardenAuxiliaryWindowNavigation(petHitWindow, pathToFileURL(hitPath).toString());
+    petWindow.loadFile(petPath).catch((error) => {
       console.error('[Pet] loadFile failed for pet window:', error);
     });
-    petHitWindow.loadFile(path.join(RENDERER_DIR, 'pet-hit.html')).catch((error) => {
+    petHitWindow.loadFile(hitPath).catch((error) => {
       console.error('[Pet] loadFile failed for pet-hit window:', error);
     });
   }
@@ -363,7 +393,8 @@ function loadContent(): void {
 // ---------------------------------------------------------------------------
 
 function registerIpcHandlers(): void {
-  ipcMain.on('pet:drag-start', () => {
+  ipcMain.on('pet:drag-start', (event) => {
+    if (!isTrustedAuxiliaryIpcSender(event, petHitWindow)) return;
     if (!petWindow || petWindow.isDestroyed() || !petHitWindow || petHitWindow.isDestroyed()) return;
 
     // Defensive: if a previous drag never reached drag-end (e.g. dropped
@@ -414,11 +445,15 @@ function registerIpcHandlers(): void {
     }, DRAG_WATCHDOG_MS);
   });
 
-  ipcMain.on('pet:drag-end', () => {
+  ipcMain.on('pet:drag-end', (event) => {
+    if (!isTrustedAuxiliaryIpcSender(event, petHitWindow)) return;
     endDrag();
   });
 
-  ipcMain.on('pet:click', (_event, data: { side: string; count: number }) => {
+  ipcMain.on('pet:click', (event, input: unknown) => {
+    if (!isTrustedAuxiliaryIpcSender(event, petHitWindow)) return;
+    const data = normalizePetClickData(input);
+    if (!data) return;
     if (!stateMachine || !idleTicker) return;
 
     idleTicker.resetIdle();
@@ -439,7 +474,8 @@ function registerIpcHandlers(): void {
     }
   });
 
-  ipcMain.on('pet:context-menu', () => {
+  ipcMain.on('pet:context-menu', (event) => {
+    if (!isTrustedAuxiliaryIpcSender(event, petHitWindow)) return;
     if (!petHitWindow || petHitWindow.isDestroyed()) return;
 
     const sizeKeys = { 200: 'pet.sizeSmall', 280: 'pet.sizeMedium', 360: 'pet.sizeLarge' } as const;
@@ -486,9 +522,10 @@ function registerIpcHandlers(): void {
     menu.popup({ window: petHitWindow });
   });
 
-  ipcMain.on('pet:set-ignore-mouse-events', (_event, ignore: boolean, options?: { forward: boolean }) => {
+  ipcMain.on('pet:set-ignore-mouse-events', (event, ignore: unknown) => {
+    if (!isTrustedAuxiliaryIpcSender(event, petHitWindow) || typeof ignore !== 'boolean') return;
     if (!petHitWindow || petHitWindow.isDestroyed()) return;
-    petHitWindow.setIgnoreMouseEvents(ignore, options);
+    petHitWindow.setIgnoreMouseEvents(ignore, ignore ? { forward: true } : undefined);
     lastHitIgnoreState = ignore;
   });
 }

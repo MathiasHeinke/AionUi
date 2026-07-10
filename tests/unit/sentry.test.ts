@@ -47,9 +47,11 @@ vi.mock('@/process/utils/analyticsId', () => ({
 // Sentry surfaces below are no-ops without consent (covered separately in
 // telemetryConsentCore.test.ts). Force consent on so the existing behavioral
 // assertions for beforeSend / captureBackendStartupFailure remain meaningful.
-vi.mock('@/process/commandEve/telemetryConsentCore', () => ({
-  isTelemetryAllowed: () => true,
+const telemetryConsentMock = vi.hoisted(() => ({
+  isTelemetryAllowed: vi.fn(() => true),
 }));
+
+vi.mock('@/process/commandEve/telemetryConsentCore', () => telemetryConsentMock);
 
 const autoUpdateDiagnosticsMock = vi.hoisted(() => ({
   readAutoUpdateDiagnostics: vi.fn(),
@@ -60,7 +62,14 @@ vi.mock('@/process/services/autoUpdateDiagnostics', () => ({
 }));
 
 import * as Sentry from '@sentry/electron/main';
-import { selectRecentLogFiles, packAndCap, captureBackendStartupFailure, initSentry } from '@/sentry';
+import {
+  buildStructuralLogSegments,
+  selectRecentLogFiles,
+  packAndCap,
+  captureBackendStartupFailure,
+  initSentry,
+  redactSentryText,
+} from '@/sentry';
 
 describe('selectRecentLogFiles', () => {
   it('returns every file from the N most recent non-empty days', () => {
@@ -113,6 +122,18 @@ describe('packAndCap', () => {
     expect(out.truncated).toBe(true);
     const decompressed = gunzipSync(out.gzipped).toString('utf8');
     expect(decompressed).toContain('MARKER_TAIL');
+  });
+});
+
+describe('buildStructuralLogSegments', () => {
+  it('keeps diagnostic metadata without paths, filenames, or log content', () => {
+    const secret = 'prompt-with-private-data';
+    const segments = buildStructuralLogSegments([
+      { path: `/Users/alice/private-${secret}.log`, mtime: 123, size: 456 },
+    ]);
+
+    expect(segments).toEqual([{ name: 'log-1.metadata.json', mtime: 123, content: '{"size_bytes":456}\n' }]);
+    expect(JSON.stringify(segments)).not.toContain(secret);
   });
 });
 
@@ -239,6 +260,16 @@ describe('captureBackendStartupFailure', () => {
 });
 
 describe('initSentry beforeSend', () => {
+  it('drops events immediately after telemetry consent is revoked', () => {
+    telemetryConsentMock.isTelemetryAllowed.mockReturnValue(true);
+    initSentry();
+    telemetryConsentMock.isTelemetryAllowed.mockReturnValue(false);
+
+    expect(sentryInitOptions?.beforeSend?.({ message: 'must-not-leave-device' })).toBeNull();
+
+    telemetryConsentMock.isTelemetryAllowed.mockReturnValue(true);
+  });
+
   it('drops native GPU unusable crashes reported only through crashpad context', () => {
     initSentry();
 
@@ -251,6 +282,60 @@ describe('initSentry beforeSend', () => {
     };
 
     expect(sentryInitOptions?.beforeSend?.(event)).toBeNull();
+  });
+
+  it('removes backend payloads and redacts sensitive text before telemetry egress', () => {
+    initSentry();
+    const secret = 'sk-abcdefghijklmnopqrstuvwxyz123456';
+    const event = {
+      message: `Backend POST /api/private failed (500): {"error":"${secret}","email":"alice@example.com"}`,
+      exception: { values: [{ value: `Request failed for alice@example.com using ${secret}` }] },
+      extra: { operator: 'alice@example.com' },
+    };
+
+    expect(sentryInitOptions?.beforeSend?.(event)).toBe(event);
+    expect(event.message).toBe('Backend POST /api/private failed (500): [BACKEND_RESPONSE_REDACTED]');
+    expect(JSON.stringify(event)).not.toContain(secret);
+    expect(JSON.stringify(event)).not.toContain('alice@example.com');
+  });
+
+  it('redacts sensitive keys, local variables, and over-deep telemetry data fail-closed', () => {
+    initSentry();
+    const deepRoot: Record<string, unknown> = {};
+    let cursor = deepRoot;
+    for (let depth = 0; depth < 15; depth += 1) {
+      const child: Record<string, unknown> = {};
+      cursor.child = child;
+      cursor = child;
+    }
+    cursor.unclassified = 'opaque-deep-value';
+
+    const event = {
+      request: {
+        headers: {
+          Authorization: 'opaque-auth-value',
+          'x-api-key': 'opaque-api-key-value',
+        },
+      },
+      exception: {
+        values: [{ stacktrace: { frames: [{ vars: { customerInput: 'opaque-local-value' } }] } }],
+      },
+      extra: deepRoot,
+    };
+
+    expect(sentryInitOptions?.beforeSend?.(event)).toBe(event);
+    const serialized = JSON.stringify(event);
+    expect(serialized).not.toContain('opaque-auth-value');
+    expect(serialized).not.toContain('opaque-api-key-value');
+    expect(serialized).not.toContain('opaque-local-value');
+    expect(serialized).not.toContain('opaque-deep-value');
+    expect(serialized).toContain('[SENSITIVE_VALUE_REDACTED]');
+    expect(serialized).toContain('[LOCAL_VARIABLES_REDACTED]');
+    expect(serialized).toContain('[NESTED_DATA_REDACTED]');
+  });
+
+  it('redacts standalone telemetry text with the Command EVE egress rules', () => {
+    expect(redactSentryText('Contact alice@example.com')).not.toContain('alice@example.com');
   });
 
   it('keeps native shutdown fatal crashes while filtering GPU crashpad noise', () => {

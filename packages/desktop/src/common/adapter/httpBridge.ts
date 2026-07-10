@@ -200,25 +200,6 @@ export type HttpRequestOptions = {
  */
 export const DEFAULT_HTTP_TIMEOUT_MS = 15000;
 
-const SENSITIVE_LOG_KEY_PATTERN =
-  /api[_-]?key|authorization|auth[_-]?token|access[_-]?token|refresh[_-]?token|secret|password|passwd|pwd|credential/i;
-
-function redactForLog(value: unknown, depth = 0): unknown {
-  if (depth > 8 || value === null || typeof value !== 'object') {
-    return value;
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => redactForLog(item, depth + 1));
-  }
-
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
-      key,
-      SENSITIVE_LOG_KEY_PATTERN.test(key) ? '[REDACTED]' : redactForLog(entry, depth + 1),
-    ])
-  );
-}
-
 export async function httpRequest<T>(
   method: string,
   path: string,
@@ -232,10 +213,8 @@ export async function httpRequest<T>(
     headers['Content-Type'] = 'application/json';
   }
 
-  console.debug(
-    `[httpBridge] ${method} ${path}`,
-    body !== undefined ? JSON.stringify(redactForLog(body)).slice(0, 500) : '(no body)'
-  );
+  const serializedBody = body !== undefined ? JSON.stringify(body) : undefined;
+  console.debug(`[httpBridge] ${method} ${path} body_bytes=${serializedBody?.length ?? 0}`);
 
   // Bound the loopback call so a stalled aioncore can never hang EVE forever
   // (perf audit). A timeout aborts → throws → the caller's existing fail-safe path.
@@ -247,12 +226,17 @@ export async function httpRequest<T>(
     response = await fetch(url, {
       method,
       headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: serializedBody,
       signal: controller?.signal,
     });
   } catch (error) {
     if (controller?.signal.aborted) {
-      throw new BackendHttpError({ method, path, status: 0, body: `Local backend did not respond within ${timeoutMs}ms (stalled).` });
+      throw new BackendHttpError({
+        method,
+        path,
+        status: 0,
+        body: `Local backend did not respond within ${timeoutMs}ms (stalled).`,
+      });
     }
     throw error;
   } finally {
@@ -269,9 +253,9 @@ export async function httpRequest<T>(
       errorBody = rawText;
     }
     if (options?.silentStatuses?.includes(response.status)) {
-      console.debug(`[httpBridge] ${method} ${path} → ${response.status} (silenced)`, errorBody);
+      console.debug(`[httpBridge] ${method} ${path} → ${response.status} (silenced)`);
     } else {
-      console.error(`[httpBridge] ${method} ${path} → ${response.status}`, errorBody);
+      console.error(`[httpBridge] ${method} ${path} → ${response.status}`);
     }
     throw new BackendHttpError({ method, path, status: response.status, body: errorBody });
   }
@@ -452,7 +436,7 @@ function ensureWs(): void {
       };
       const eventName = msg.name ?? msg.event;
       const payload = msg.data ?? msg.payload;
-      console.debug('[WS:msg]', eventName, JSON.stringify(payload).slice(0, 200));
+      console.debug('[WS:msg]', eventName, payload === undefined ? 'no-payload' : 'payload-present');
       if (eventName) {
         const handlers = wsListeners.get(eventName);
         if (handlers) {

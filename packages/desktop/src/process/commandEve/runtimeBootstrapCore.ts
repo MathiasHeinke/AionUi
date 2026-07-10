@@ -24,6 +24,7 @@ import {
 } from './seatContextCore';
 import { provisionTeamManageBearerFile } from './eveTeamManageMain';
 import { provisionKanbanAcpBearerFile } from './kanbanAcpMain';
+import { provisionCommandEveShimAuthTokenFile } from './ollamaOpenAiShim';
 import { honchoMcpServerForSeat } from './honchoMcpServerCore';
 import {
   eveHonchoMemoryDirective,
@@ -34,7 +35,6 @@ import { claudeDelegatePreflightWarning } from '../../common/config/eveWorkerAss
 import { COMPANY_BRAIN_DIR, readCompanyBrainSeedStateFromHome } from './companyBrainSeedCore';
 import {
   countFilledBlueprintSections,
-  ensureBrainBlueprint,
   ensureCompanyBrainReady,
   migrateCompanyBrainFromHome,
   readBrainIndex,
@@ -1550,6 +1550,12 @@ export function prepareCommandEveRuntimeProcessEnv(
   // the bake.
   env.HERMES_HOME = paths.hermesHome;
 
+  // The predictable local inference port is bearer-protected. Hermes receives
+  // only a 0600 token-file path; the CEVE/cloud credential never enters config.
+  const shimAuthTokenFile = provisionCommandEveShimAuthTokenFile(userDataPath);
+  if (shimAuthTokenFile) env.COMMAND_EVE_SHIM_AUTH_TOKEN_FILE = shimAuthTokenFile;
+  else delete env.COMMAND_EVE_SHIM_AUTH_TOKEN_FILE;
+
   // Seat-Context-Bridge (S3 / spec B1): the agent's self-knowledge, baked with the
   // SAME env-inheritance pinning semantics as HERMES_HOME above — written BEFORE
   // spawn and re-baked on every seat-switch re-spawn, so a running agent can never
@@ -2541,12 +2547,25 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     'from __future__ import annotations',
     '',
     'import inspect',
+    'import os',
     'import re',
+    'from pathlib import Path',
     'from typing import Any',
     'from urllib.parse import urlparse',
     '',
     'from providers import register_provider',
     'from providers.base import ProviderProfile',
+    '',
+    '',
+    'def _command_eve_shim_headers() -> dict[str, str]:',
+    '    token_file = os.environ.get("COMMAND_EVE_SHIM_AUTH_TOKEN_FILE", "").strip()',
+    '    if not token_file:',
+    '        return {}',
+    '    try:',
+    '        token = Path(token_file).read_text(encoding="utf-8").strip()',
+    '    except Exception:',
+    '        return {}',
+    '    return {"Authorization": f"Bearer {token}"} if token else {}',
     '',
     '',
     '# Command EVE cloud-shim stop continuation patch.',
@@ -2814,6 +2833,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '        aliases=("ollama", "local", "vllm", "llamacpp", "llama.cpp", "llama-cpp"),',
     '        env_vars=(),',
     '        base_url="",',
+    '        default_headers=_command_eve_shim_headers(),',
     '    )',
     ')',
     '_install_command_eve_stop_continuation_patch()',

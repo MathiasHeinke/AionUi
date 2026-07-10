@@ -97,6 +97,7 @@ import {
   toBackendAgent,
 } from './teamMapper';
 import { fromBackendCompareResult, type RawCompareResult } from './fileSnapshotMapper';
+import { preferElectronDesktopShell } from './desktopShellAdapter';
 import {
   absoluteToRelativePath,
   fromBackendWorkspaceFlatFiles,
@@ -109,9 +110,18 @@ import {
 // ---------------------------------------------------------------------------
 
 export const shell = {
-  openFile: httpPost<void, string>('/api/shell/open-file', (file_path) => ({ file_path })),
-  showItemInFolder: httpPost<void, string>('/api/shell/show-item-in-folder', (file_path) => ({ file_path })),
-  openExternal: httpPost<void, string>('/api/shell/open-external', (url) => ({ url })),
+  openFile: preferElectronDesktopShell(
+    'openFile',
+    httpPost<void, string>('/api/shell/open-file', (file_path) => ({ file_path }))
+  ),
+  showItemInFolder: preferElectronDesktopShell(
+    'showItemInFolder',
+    httpPost<void, string>('/api/shell/show-item-in-folder', (file_path) => ({ file_path }))
+  ),
+  openExternal: preferElectronDesktopShell(
+    'openExternal',
+    httpPost<void, string>('/api/shell/open-external', (url) => ({ url }))
+  ),
   checkToolInstalled: httpPost<boolean, { tool: string }>('/api/shell/check-tool-installed'),
   openFolderWith: httpPost<void, { folder_path: string; tool: 'vscode' | 'terminal' | 'explorer' }>(
     '/api/shell/open-folder-with'

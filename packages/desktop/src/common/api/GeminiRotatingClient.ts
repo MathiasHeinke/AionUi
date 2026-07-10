@@ -5,7 +5,7 @@
  */
 
 import { GoogleGenAI, type GenerateContentParameters, type GoogleGenAIOptions } from '@google/genai';
-import { AuthType } from '@office-ai/aioncli-core';
+import { AuthType } from '../utils/platformAuthType';
 import type { RotatingApiClientOptions } from './RotatingApiClient';
 import { RotatingApiClient } from './RotatingApiClient';
 import {
@@ -126,7 +126,8 @@ export class GeminiRotatingClient extends RotatingApiClient<GoogleGenAI> {
   async generateContent(prompt: string, config?: GenerateContentParameters['config']): Promise<unknown> {
     const model = this.config.model || 'gemini-1.5-flash';
     await this.enforceCommandEveGeminiEgressBoundary(prompt, model);
-    const safePrompt = this.config.commandEveEgressPolicyAction === 'redact' ? redactCommandEveSensitiveText(prompt) : prompt;
+    const safePrompt =
+      this.config.commandEveEgressPolicyAction === 'redact' ? redactCommandEveSensitiveText(prompt) : prompt;
     return await this.executeWithRetry(async (client) => {
       const request: GenerateContentParameters = {
         model,
