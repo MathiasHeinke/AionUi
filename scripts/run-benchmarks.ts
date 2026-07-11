@@ -13,6 +13,7 @@
 import { execSync, spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { collectStartupGateFailures, STARTUP_GATE_THRESHOLDS } from './benchmark-gates';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -130,10 +131,10 @@ type BenchReport = {
 // ── Red line thresholds (in ms / MB) ────────────────────────────────────────
 
 const THRESHOLDS = {
-  processTreeRssIdleMb: 600,
-  rendererHeapIdleMb: 150,
-  leakAfterCloseMb: 50,
-  coldStartWindowMs: 3000,
+  processTreeRssIdleMb: STARTUP_GATE_THRESHOLDS.processTreeRssIdleMb,
+  rendererHeapIdleMb: STARTUP_GATE_THRESHOLDS.rendererHeapIdleMb,
+  leakAfterCloseMb: STARTUP_GATE_THRESHOLDS.leakAfterCloseMb,
+  coldStartWindowMs: STARTUP_GATE_THRESHOLDS.coldStartWindowMs,
   rendererTotalMb: 30,
   jsTotalMb: 25,
   singleChunkMb: 2,
@@ -227,7 +228,17 @@ function runStartupBenchmark(reportDir: string): StartupBenchReport | undefined 
   // and bench:full produces no memory report.
   const result = spawnSync(
     'bunx',
-    ['tsx', 'scripts/benchmark-startup.ts', '--packaged', '--warmup', '1', '--with-memory', '--output', outputPath],
+    [
+      'tsx',
+      'scripts/benchmark-startup.ts',
+      '--packaged',
+      '--warmup',
+      '1',
+      '--with-memory',
+      '--strict',
+      '--output',
+      outputPath,
+    ],
     {
       cwd: process.cwd(),
       encoding: 'utf-8',
@@ -758,6 +769,21 @@ function main() {
   const jsonPath = path.join(reportDir, 'latest.json');
   fs.writeFileSync(jsonPath, JSON.stringify(report, null, 2));
   console.log(`  JSON baseline: ${jsonPath}\n`);
+
+  if (report.startup) {
+    const gateFailures = collectStartupGateFailures(report.startup);
+    if (gateFailures.length > 0) {
+      console.error('  Startup gate failed:');
+      for (const failure of gateFailures) {
+        console.error(`    - ${failure}`);
+      }
+      process.exitCode = 1;
+    }
+  } else if (startup) {
+    console.error('  Startup gate failed:');
+    console.error('    - startup report is missing');
+    process.exitCode = 1;
+  }
 }
 
 main();

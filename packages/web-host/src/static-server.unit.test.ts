@@ -147,6 +147,29 @@ describe('static-server', () => {
     expect(backendCalls).toBe(0);
   });
 
+  it('rejects localhost Origin before exposing the backend capability', async () => {
+    let backendCalls = 0;
+    const backend = await startMockBackend((_req, res) => {
+      backendCalls += 1;
+      res.end('unexpected');
+    });
+    stopBackend = backend.close;
+    handle = await startStaticServer({
+      staticDir,
+      backendPort: backend.port,
+      port: 0,
+      getBackendCapability: () => 'process-capability',
+    });
+
+    const response = await fetch(`${handle.localUrl}/api/anything`, {
+      headers: { Origin: `http://localhost:${handle.port}` },
+    });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: 'ORIGIN_NOT_ALLOWED' });
+    expect(backendCalls).toBe(0);
+  });
+
   it('always strips a forged HTTP capability when no server capability is available', async () => {
     const backend = await startMockBackend((req, res) => {
       res.writeHead(200, { 'content-type': 'application/json' });

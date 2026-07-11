@@ -14,7 +14,6 @@
 
 export { default as DiffViewer } from './DiffViewer';
 export { default as MarkdownViewer } from './MarkdownViewer';
-export { default as HTMLViewer } from './HTMLViewer';
 export { default as PDFViewer } from './PDFViewer';
 export { default as ExcelViewer } from './ExcelViewer';
 export { default as OfficeDocViewer } from './OfficeDocViewer';

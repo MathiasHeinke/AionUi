@@ -41,7 +41,7 @@ export function isAllowedWebUiProxyOrigin(origin: string | undefined, port: numb
     const parsed = new URL(origin);
     return (
       parsed.protocol === 'http:' &&
-      ['127.0.0.1', 'localhost'].includes(parsed.hostname) &&
+      parsed.hostname === '127.0.0.1' &&
       parsed.port === String(port) &&
       parsed.pathname === '/' &&
       parsed.search === '' &&

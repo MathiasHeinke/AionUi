@@ -311,12 +311,11 @@ function prepareAioncore(options) {
     normalizeSha256(existingManifest?.preSignBinarySha256) === normalizeSha256(existingManifest?.binarySha256);
   const existingSourceMatches =
     existingManifestHasPreSignScope &&
-    (localSource
-      ? existingManifest?.sourceType === 'command-eve-local-build' &&
-        normalizeSha256(existingManifest?.sourceSha256) === localSource.binarySha256 &&
-        normalizeSha256(existingManifest?.binarySha256) === localSource.binarySha256 &&
-        normalizeSourceCommit(existingManifest?.source?.commit) === localSource.sourceCommit
-      : normalizeSha256(existingManifest?.archiveSha256) === expectedSha256);
+    localSource &&
+    existingManifest?.sourceType === 'command-eve-local-build' &&
+    normalizeSha256(existingManifest?.sourceSha256) === localSource.binarySha256 &&
+    normalizeSha256(existingManifest?.binarySha256) === localSource.binarySha256 &&
+    normalizeSourceCommit(existingManifest?.source?.commit) === localSource.sourceCommit;
   if (
     existingBinarySha256 &&
     existingManifest?.version === tag &&

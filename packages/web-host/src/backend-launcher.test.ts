@@ -7,7 +7,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
 import type { ChildProcess } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { rmSync, writeFileSync } from 'node:fs';
 import type { Socket } from 'node:net';
 
 // ---- Module-level mocks ----
@@ -333,6 +333,11 @@ describe('BackendLifecycleManager.start (success path)', () => {
       mgr.localCapability,
       expect.objectContaining({ flag: 'wx', mode: 0o600 })
     );
+    const capabilityPath = vi.mocked(writeFileSync).mock.calls.find((call) =>
+      String(call[0]).includes('/runtime-security/local-capability-')
+    )?.[0];
+    expect(capabilityPath).toEqual(expect.stringMatching(/^\/db\/path\/runtime-security\/local-capability-/));
+    expect(rmSync).toHaveBeenCalledWith(capabilityPath, { force: true });
     expect(vi.mocked(spawn).mock.calls[0][1]).not.toContain(mgr.localCapability);
     expect(fetchSpy).toHaveBeenCalledWith('http://127.0.0.1:55555/health');
     expect(vi.mocked(spawn).mock.calls[0][1]).toEqual([
@@ -429,6 +434,52 @@ describe('BackendLifecycleManager.start (success path)', () => {
     } finally {
       fetchSpy.mockRestore();
       infoSpy.mockRestore();
+    }
+  });
+
+  it('retries capability file cleanup on stop when post-bootstrap unlink fails', async () => {
+    const child = makeFakeChild();
+    vi.mocked(spawn).mockReturnValue(child as unknown as ChildProcess);
+    vi.mocked(rmSync).mockImplementationOnce(() => {
+      throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+    });
+
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('ok', { status: 200 }) as unknown as Response);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    const mgr = new BackendLifecycleManager(APP_META_PACKAGED, () => '/abs/path/aioncore');
+
+    try {
+      const startPromise = mgr.start('/db/path', '/log/dir', {
+        cacheDir: '/c',
+        workDir: '/w',
+        logDir: '/l',
+      });
+      await Promise.resolve();
+      emitListening(child, 55555);
+      await startPromise;
+
+      const capabilityPath = vi.mocked(writeFileSync).mock.calls.find((call) =>
+        String(call[0]).includes('/runtime-security/local-capability-')
+      )?.[0];
+      expect(capabilityPath).toEqual(expect.stringMatching(/^\/db\/path\/runtime-security\/local-capability-/));
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[aioncore] failed to unlink bootstrap capability file after startup; will retry on cleanup',
+        expect.objectContaining({ error: 'permission denied' })
+      );
+
+      const stopPromise = mgr.stop();
+      child.emit('exit', 0, null);
+      await stopPromise;
+
+      expect(rmSync).toHaveBeenCalledWith(capabilityPath, { force: true });
+      expect(rmSync).toHaveBeenCalledTimes(2);
+    } finally {
+      fetchSpy.mockRestore();
+      warnSpy.mockRestore();
+      killSpy.mockRestore();
     }
   });
 });

@@ -48,26 +48,30 @@ describe('prepareAioncore reuse guard', () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
-  it('repairs an existing matching bundle when managed resources are missing', () => {
+  it('repairs an existing verified local bundle when managed resources are missing', () => {
     const projectRoot = join(tmp, 'project');
     const runtimeDir = join(projectRoot, 'resources', 'bundled-aioncore', 'darwin-arm64');
+    const localBinary = join(tmp, 'private-build', 'aioncore');
+    const sourceCommit = 'abcdef1234567890';
     const hookPath = join(tmp, 'hook.cjs');
     const scriptPath = join(tmp, 'run.cjs');
 
     mkdirSync(runtimeDir, { recursive: true });
-    writeFileSync(join(runtimeDir, 'aioncore'), '', { flush: true });
+    writeManagedResourceLocalBinary(localBinary);
+    const expectedSha256 = createHash('sha256').update(readFileSync(localBinary)).digest('hex');
+    writeFileSync(join(runtimeDir, 'aioncore'), readFileSync(localBinary), { flush: true });
     chmodSync(join(runtimeDir, 'aioncore'), 0o755);
-    const emptySha256 = createHash('sha256').update('').digest('hex');
     writeFileSync(
       join(runtimeDir, 'manifest.json'),
       JSON.stringify({
         platform: 'darwin',
         arch: 'arm64',
         version: 'v-test',
-        sourceType: 'existing',
-        archiveSha256: emptySha256,
-        binarySha256: emptySha256,
-        preSignBinarySha256: emptySha256,
+        sourceType: 'command-eve-local-build',
+        source: { commit: sourceCommit },
+        sourceSha256: expectedSha256,
+        binarySha256: expectedSha256,
+        preSignBinarySha256: expectedSha256,
         binarySha256Scope: 'pre-sign-input',
       }),
       { flush: true }
@@ -120,7 +124,9 @@ prepareAioncore({
   platform: 'darwin',
   arch: 'arm64',
   version: 'v-test',
-  expectedSha256: ${JSON.stringify(emptySha256)},
+  localBinaryPath: ${JSON.stringify(localBinary)},
+  expectedSha256: ${JSON.stringify(expectedSha256)},
+  sourceCommit: ${JSON.stringify(sourceCommit)},
 });
 const result = verifyBundledAioncoreResources({
   resourcesDir: path.join(projectRoot, 'resources'),
@@ -141,6 +147,57 @@ if (result.missing.length > 0) {
 
     expect(result.status, result.stderr || result.stdout).toBe(0);
     expect(result.stdout).toContain('Repaired bundled managed resources');
+  });
+
+  it('does not reuse a downloaded bundle whose binary and manifest were changed after preparation', () => {
+    const projectRoot = join(tmp, 'project');
+    const runtimeDir = join(projectRoot, 'resources', 'bundled-aioncore', 'darwin-arm64');
+    const archiveSha256 = createHash('sha256').update('pinned archive').digest('hex');
+    const tamperedBinary = '#!/usr/bin/env node\nprocess.exit(99);\n';
+    const tamperedSha256 = createHash('sha256').update(tamperedBinary).digest('hex');
+    const scriptPath = join(tmp, 'prepare-download-tampered-reuse.cjs');
+
+    mkdirSync(runtimeDir, { recursive: true });
+    writeFileSync(join(runtimeDir, 'aioncore'), tamperedBinary, { flush: true });
+    chmodSync(join(runtimeDir, 'aioncore'), 0o755);
+    writeFileSync(
+      join(runtimeDir, 'manifest.json'),
+      JSON.stringify({
+        platform: 'darwin',
+        arch: 'arm64',
+        version: 'v-test',
+        sourceType: 'download',
+        source: { url: 'https://example.invalid/aioncore.tar.gz' },
+        archiveSha256,
+        binarySha256: tamperedSha256,
+        preSignBinarySha256: tamperedSha256,
+        binarySha256Scope: 'pre-sign-input',
+        files: ['aioncore', 'managed-resources/'],
+      }),
+      { flush: true }
+    );
+
+    writeFileSync(
+      scriptPath,
+      `
+const path = require('node:path');
+const { prepareAioncore } = require(path.join(${JSON.stringify(repoRoot)}, 'packages/shared-scripts/src/prepare-aioncore.js'));
+try {
+  prepareAioncore({
+    projectRoot: ${JSON.stringify(projectRoot)},
+    platform: 'darwin',
+    arch: 'arm64',
+    version: 'v-test',
+    expectedSha256: ${JSON.stringify(archiveSha256)},
+  });
+} catch {}
+`,
+      'utf8'
+    );
+
+    const result = spawnSync(process.execPath, [scriptPath], { cwd: repoRoot, encoding: 'utf8' });
+
+    expect(result.stdout).not.toContain('Reusing bundled aioncore');
   });
 
   it('packages a verified local build without leaking its source path', () => {

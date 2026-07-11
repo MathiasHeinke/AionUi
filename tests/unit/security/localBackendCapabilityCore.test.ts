@@ -30,12 +30,14 @@ describe('local backend capability transport', () => {
   });
 
   it('authorizes only requests owned by the main renderer webContents', () => {
-    const mainContents = { id: 7 };
+    const mainFrame = { routingId: 1 };
+    const mainContents = { id: 7, mainFrame };
     const mainWindow = { webContents: mainContents } as never;
     const authorized = authorizeRendererBackendRequest(
       {
         url: 'http://127.0.0.1:43123/api/settings',
         webContentsId: 7,
+        frame: mainFrame,
         requestHeaders: { Accept: 'application/json', 'X-AionUI-Local-Capability': 'forged' },
       },
       mainWindow,
@@ -51,6 +53,7 @@ describe('local backend capability transport', () => {
         {
           url: 'http://127.0.0.1:43123/api/settings',
           webContentsId: 8,
+          frame: mainFrame,
           requestHeaders: {},
         },
         mainWindow,
@@ -59,14 +62,74 @@ describe('local backend capability transport', () => {
     ).toBeUndefined();
   });
 
-  it('strips a forged renderer capability even while the server capability is unavailable', () => {
-    const mainWindow = { webContents: { id: 7 } } as never;
+  it('strips forged renderer capability from backend subframes without authorizing them', () => {
+    const mainFrame = { routingId: 1 };
+    const subFrame = { routingId: 2 };
+    const mainContents = { id: 7, mainFrame };
+    const mainWindow = { webContents: mainContents } as never;
 
     expect(
       authorizeRendererBackendRequest(
         {
           url: 'http://127.0.0.1:43123/api/settings',
           webContentsId: 7,
+          frame: subFrame,
+          requestHeaders: { Accept: 'application/json', 'X-AionUI-Local-Capability': 'forged' },
+        },
+        mainWindow,
+        resolver
+      )
+    ).toEqual({ Accept: 'application/json' });
+  });
+
+  it('strips forged renderer capability from null-frame backend requests without authorizing them', () => {
+    const mainFrame = { routingId: 1 };
+    const mainContents = { id: 7, mainFrame };
+    const mainWindow = { webContents: mainContents } as never;
+
+    expect(
+      authorizeRendererBackendRequest(
+        {
+          url: 'http://127.0.0.1:43123/api/settings',
+          webContentsId: 7,
+          frame: null,
+          requestHeaders: { Accept: 'application/json', 'X-AionUI-Local-Capability': 'forged' },
+        },
+        mainWindow,
+        resolver
+      )
+    ).toEqual({ Accept: 'application/json' });
+  });
+
+  it('strips forged renderer capability from foreign URLs', () => {
+    const mainFrame = { routingId: 1 };
+    const mainContents = { id: 7, mainFrame };
+    const mainWindow = { webContents: mainContents } as never;
+
+    expect(
+      authorizeRendererBackendRequest(
+        {
+          url: 'https://example.com/api',
+          webContentsId: 7,
+          frame: mainFrame,
+          requestHeaders: { Accept: 'application/json', 'X-AionUI-Local-Capability': 'forged' },
+        },
+        mainWindow,
+        resolver
+      )
+    ).toEqual({ Accept: 'application/json' });
+  });
+
+  it('strips a forged renderer capability even while the server capability is unavailable', () => {
+    const mainFrame = { routingId: 1 };
+    const mainWindow = { webContents: { id: 7, mainFrame } } as never;
+
+    expect(
+      authorizeRendererBackendRequest(
+        {
+          url: 'http://127.0.0.1:43123/api/settings',
+          webContentsId: 7,
+          frame: mainFrame,
           requestHeaders: { Accept: 'application/json', 'X-AionUI-Local-Capability': 'forged' },
         },
         mainWindow,
@@ -77,8 +140,10 @@ describe('local backend capability transport', () => {
 
   it('registers one Electron webRequest gate and leaves unrelated requests untouched', () => {
     let listener: ((details: never, callback: (result: unknown) => void) => void) | undefined;
+    const mainFrame = { routingId: 1 };
     const mainContents = {
       id: 7,
+      mainFrame,
       session: {
         webRequest: {
           onBeforeSendHeaders: (_filter: unknown, next: typeof listener) => {
@@ -94,6 +159,7 @@ describe('local backend capability transport', () => {
       {
         url: 'https://example.com/',
         webContentsId: 7,
+        frame: mainFrame,
         requestHeaders: {},
       } as never,
       callback

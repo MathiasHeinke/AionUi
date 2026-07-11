@@ -65,14 +65,13 @@ preview/
 │   │   ├── PDFViewer.tsx              # PDF viewer
 │   │   ├── OfficeDocViewer.tsx        # Office document viewer (Word, PPT)
 │   │   ├── ExcelViewer.tsx            # Excel viewer
-│   │   ├── HTMLViewer.tsx             # HTML rendering
 │   │   └── URLViewer.tsx              # URL web page viewer
 │   ├── editors/                       # Editor components
 │   │   ├── MarkdownEditor.tsx         # Markdown editor
 │   │   ├── CodeEditor.tsx             # Code editor (CodeMirror 6)
 │   │   └── HTMLEditor.tsx             # HTML editor
 │   └── renderers/                     # Special renderers
-│       ├── HTMLRenderer.tsx           # HTML iframe renderer
+│       ├── HTMLRenderer.tsx           # hardened HTML iframe renderer
 │       └── SelectionToolbar.tsx       # HTML selection toolbar
 ├── hooks/                             # Custom hooks
 │   ├── usePreviewHistory.ts           # Version history management

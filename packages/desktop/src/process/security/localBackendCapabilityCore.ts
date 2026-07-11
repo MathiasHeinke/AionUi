@@ -80,19 +80,27 @@ export function installMainProcessLocalBackendCapability(resolver: LocalBackendC
 }
 
 export function authorizeRendererBackendRequest(
-  details: Pick<OnBeforeSendHeadersListenerDetails, 'url' | 'webContentsId' | 'webContents' | 'requestHeaders'>,
+  details: Pick<OnBeforeSendHeadersListenerDetails, 'url' | 'webContentsId' | 'webContents' | 'frame' | 'requestHeaders'>,
   mainWindow: BrowserWindow,
   resolver: LocalBackendCapabilityResolver
 ): Record<string, string> | undefined {
   const mainContents = mainWindow.webContents;
-  if (details.webContentsId !== mainContents.id && details.webContents !== mainContents) return undefined;
-  if (!isCurrentLocalBackendUrl(details.url, resolver.getPort())) return undefined;
-  const capability = resolver.getCapability();
-
   const requestHeaders = { ...details.requestHeaders };
+  let strippedReservedCapability = false;
   for (const name of Object.keys(requestHeaders)) {
-    if (name.toLowerCase() === LOCAL_BACKEND_CAPABILITY_HEADER) delete requestHeaders[name];
+    if (name.toLowerCase() === LOCAL_BACKEND_CAPABILITY_HEADER) {
+      delete requestHeaders[name];
+      strippedReservedCapability = true;
+    }
   }
+
+  const ownsWebContents = details.webContentsId === mainContents.id || details.webContents === mainContents;
+  const ownsMainFrame = details.frame !== null && details.frame === mainContents.mainFrame;
+  if (!ownsWebContents || !isCurrentLocalBackendUrl(details.url, resolver.getPort()) || !ownsMainFrame) {
+    return strippedReservedCapability ? requestHeaders : undefined;
+  }
+
+  const capability = resolver.getCapability();
   if (capability) requestHeaders[LOCAL_BACKEND_CAPABILITY_HEADER] = capability;
   return requestHeaders;
 }

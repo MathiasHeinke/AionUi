@@ -52,7 +52,7 @@
     "bench:db": "bun test ./tests/bench/database.bench.bun.ts",
     "bench:report": "bunx tsx scripts/run-benchmarks.ts",
     "bench:startup": "bunx tsx scripts/benchmark-startup.ts",
-    "bench:startup:packaged": "bunx tsx scripts/benchmark-startup.ts --packaged --warmup 1 --with-memory",
+    "bench:startup:packaged": "bunx tsx scripts/benchmark-startup.ts --packaged --warmup 1 --with-memory --strict",
     "bench:full": "bunx tsx scripts/run-benchmarks.ts --startup",
     "debug:perf": "cross-env ACP_PERF=1 PERF_MONITOR=1 bun start",
     "debug:perf:report": "bun run bench:full",

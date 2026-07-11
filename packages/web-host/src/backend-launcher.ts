@@ -516,6 +516,23 @@ export class BackendLifecycleManager {
     this._localCapability = '';
   }
 
+  private unlinkLocalCapabilityFileAfterBootstrap(): void {
+    if (!this._localCapabilityFile) return;
+    const capabilityFile = this._localCapabilityFile;
+    try {
+      rmSync(capabilityFile, { force: true });
+      this._localCapabilityFile = '';
+    } catch (error) {
+      if (getErrorCode(error) === 'ENOENT') {
+        this._localCapabilityFile = '';
+        return;
+      }
+      console.warn('[aioncore] failed to unlink bootstrap capability file after startup; will retry on cleanup', {
+        error: getErrorMessage(error),
+      });
+    }
+  }
+
   private provisionLocalCapabilityFile(dbPath: string): string {
     this.cleanupLocalCapabilityFile();
     const runtimeDir = join(dbPath, 'runtime-security');
@@ -793,6 +810,7 @@ export class BackendLifecycleManager {
     let port: number;
     try {
       port = await Promise.race([reportedPort, startupFailure]);
+      this.unlinkLocalCapabilityFileAfterBootstrap();
     } catch (error) {
       startupSettled = true;
       killBackendProcessTree(this.childProcess, 'SIGKILL');

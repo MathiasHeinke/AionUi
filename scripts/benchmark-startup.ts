@@ -28,6 +28,7 @@ import {
   rememberProcessTree,
   terminateProcessTree,
 } from './benchmark-process-tree';
+import { collectStartupGateFailures } from './benchmark-gates';
 
 // ── CLI args ────────────────────────────────────────────────────────────────
 
@@ -42,6 +43,7 @@ type Args = {
   userDataDir: string | null;
   resetProfile: boolean;
   warmupIterations: number;
+  strict: boolean;
 };
 
 function parseArgs(): Args {
@@ -57,6 +59,7 @@ function parseArgs(): Args {
     userDataDir: null,
     resetProfile: true,
     warmupIterations: 0,
+    strict: false,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -89,6 +92,8 @@ function parseArgs(): Args {
     } else if (flag === '--warmup' && next) {
       args.warmupIterations = parseInt(next, 10);
       i++;
+    } else if (flag === '--strict') {
+      args.strict = true;
     }
   }
 
@@ -769,6 +774,16 @@ function computeStats(values: number[]): Stats {
   return { count: sorted.length, mean, median, p95, min: sorted[0], max: sorted[sorted.length - 1] };
 }
 
+function computeMemoryStats(values: number[]): Stats {
+  const sorted = [...values].filter((v) => Number.isFinite(v) && v >= 0).sort((a, b) => a - b);
+  if (sorted.length === 0) return { count: 0, mean: 0, median: 0, p95: 0, min: 0, max: 0 };
+  const sum = sorted.reduce((a, b) => a + b, 0);
+  const mean = Math.round(sum / sorted.length);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  const p95 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))];
+  return { count: sorted.length, mean, median, p95, min: sorted[0], max: sorted[sorted.length - 1] };
+}
+
 // ── Memory summary ──────────────────────────────────────────────────────────
 
 type MemorySummary = {
@@ -795,7 +810,7 @@ function computeMemorySummary(results: StartupTiming[]): MemorySummary | null {
   if (withMem.length === 0) return null;
 
   const pick = <T>(snapGet: (m: MemoryProfile) => number): Stats =>
-    computeStats(withMem.map((r) => (r.memory ? snapGet(r.memory) : 0)));
+    computeMemoryStats(withMem.map((r) => (r.memory ? snapGet(r.memory) : 0)));
 
   return {
     idleMainRss: pick((m) => m.idle?.main?.rss ?? 0),
@@ -989,6 +1004,18 @@ async function main(): Promise<void> {
   printTerminalReport(results);
   const reportPath = writeJsonReport(results, args.outputJson);
   console.log(`[bench:startup] JSON report: ${reportPath}`);
+
+  if (args.strict) {
+    const report = JSON.parse(fs.readFileSync(reportPath, 'utf-8'));
+    const gateFailures = collectStartupGateFailures(report);
+    if (gateFailures.length > 0) {
+      console.error('[bench:startup] Strict startup gate failed:');
+      for (const failure of gateFailures) {
+        console.error(`  - ${failure}`);
+      }
+      process.exitCode = 1;
+    }
+  }
 }
 
 main().catch((err) => {
