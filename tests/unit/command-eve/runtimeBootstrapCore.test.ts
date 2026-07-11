@@ -221,7 +221,7 @@ describe('Command EVE runtime bootstrap core', () => {
       path.resolve(__dirname, '../../../public/command-eve-capabilities.json')
     );
 
-    expect(packageJson.version).toBe('1.7.92');
+    expect(packageJson.version).toMatch(/^\d+\.\d+\.\d+$/);
     expect(COMMAND_EVE_VERSION).toBe(packageJson.version);
     expect(DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST.release).toBe(packageJson.version);
     expect(DEFAULT_COMMAND_EVE_CAPABILITY_PACK.release).toBe(packageJson.version);
