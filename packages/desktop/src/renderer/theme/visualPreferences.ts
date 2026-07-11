@@ -4,8 +4,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { COMMAND_EVE_DEFAULT_BACKGROUND_ASSET_ID } from './visualBackgroundAssets';
-
 export type EveAppearanceMode = 'system' | 'light' | 'dark';
 export type EveResolvedAppearance = Exclude<EveAppearanceMode, 'system'>;
 export type EveAccent = 'blue' | 'petrol' | 'emerald' | 'graphite';
@@ -60,8 +58,7 @@ export const DEFAULT_EVE_VISUAL_PREFERENCES: EveVisualPreferences = {
   glassBlur: 20,
   reducedEffects: false,
   background: {
-    enabled: true,
-    assetId: COMMAND_EVE_DEFAULT_BACKGROUND_ASSET_ID,
+    enabled: false,
     fit: 'cover',
     intensity: 0.82,
     blur: 0,
