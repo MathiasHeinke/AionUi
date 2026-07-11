@@ -20,10 +20,14 @@ describe('Command EVE runtime bridge registration', () => {
   it('checks the completed runtime receipt before a new bootstrap can overwrite it', () => {
     const source = fs.readFileSync(path.resolve(__dirname, '../../../packages/desktop/src/index.ts'), 'utf8');
     const waitDecision = source.indexOf('const mustWaitForRuntimeBootstrap =');
-    const bootstrapStart = source.indexOf('const bootstrap = ensureCommandEveRuntimeBootstrap({', waitDecision);
+    const bootstrapOptions = source.indexOf('const bootstrapOptions =', waitDecision);
+    const blockingBootstrapStart = source.indexOf('await ensureCommandEveRuntimeBootstrap(bootstrapOptions)', waitDecision);
+    const deferredBootstrapStart = source.indexOf('void ensureCommandEveRuntimeBootstrap(bootstrapOptions)', waitDecision);
 
     expect(waitDecision).toBeGreaterThan(-1);
-    expect(bootstrapStart).toBeGreaterThan(waitDecision);
+    expect(bootstrapOptions).toBeGreaterThan(waitDecision);
+    expect(blockingBootstrapStart).toBeGreaterThan(waitDecision);
+    expect(deferredBootstrapStart).toBeGreaterThan(waitDecision);
   });
 
   it('never falls back to loading a local model before backend settings are readable', () => {

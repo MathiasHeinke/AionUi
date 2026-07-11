@@ -298,6 +298,7 @@ let rendererInitialLanguage: string | null = null;
 let backendStartupFailed = false;
 let backendStartupFailureInfo: unknown = null;
 let backendMigrationsScheduled = false;
+let runDeferredCommandEveRuntimeBootstrap: (() => void) | undefined;
 
 ipcMain.on('get-backend-port', (event) => {
   if (!isTrustedAdapterIpcSender(event)) {
@@ -1699,10 +1700,13 @@ const handleAppReady = async (): Promise<void> => {
     // ensureCommandEveRuntimeBootstrap writes partial receipts synchronously up
     // to its first await; checking afterwards made every warm launch look stale
     // and forced the full Hermes/Ollama probe back onto the startup path.
+    // First-run runtime provisioning can legitimately spend a minute installing
+    // Hermes. Keep the app interactive and let the runtime status surface guide
+    // the user unless an operator explicitly opts into a blocking startup gate.
     const mustWaitForRuntimeBootstrap =
-      shouldBlockStartupForCommandEveRuntimeBootstrap ||
+      shouldBlockStartupForCommandEveRuntimeBootstrap &&
       commandEveRuntimeBootstrapNeedsStartupWait(runtimePaths.receiptPath, app.getVersion());
-    const bootstrap = ensureCommandEveRuntimeBootstrap({
+    const bootstrapOptions = {
       userDataPath: getDataPath(),
       appPath: app.getAppPath(),
       resourcesPath: process.resourcesPath,
@@ -1713,21 +1717,25 @@ const handleAppReady = async (): Promise<void> => {
       // the soul so EVE defaults to it (bootstrap re-runs, so it self-corrects).
       uiLanguage: ProcessConfig.getSync('language'),
       ...workerRuntimeInputs,
-    });
+    } satisfies Parameters<typeof ensureCommandEveRuntimeBootstrap>[0];
     if (mustWaitForRuntimeBootstrap) {
-      const receipt = await bootstrap;
+      const receipt = await ensureCommandEveRuntimeBootstrap(bootstrapOptions);
       mark(`commandEveRuntimeBootstrap (${receipt.status})`);
       scheduleCommandEveLocalModelWarmup(receipt, shimUrl, warmCommandEveLocalModel, mark, warmCommandEveEveLane);
     } else {
-      void bootstrap
-        .then((receipt) => {
-          console.info(`[Command EVE] Runtime bootstrap ${receipt.status}: ${receipt.next_action}`);
-          scheduleCommandEveLocalModelWarmup(receipt, shimUrl, warmCommandEveLocalModel, mark, warmCommandEveEveLane);
-        })
-        .catch((error) => {
-          console.error('[Command EVE] Runtime bootstrap failed:', error);
-        });
-      mark('commandEveRuntimeBootstrap scheduled');
+      runDeferredCommandEveRuntimeBootstrap = () => {
+        setTimeout(() => {
+          void ensureCommandEveRuntimeBootstrap(bootstrapOptions)
+            .then((receipt) => {
+              console.info(`[Command EVE] Runtime bootstrap ${receipt.status}: ${receipt.next_action}`);
+              scheduleCommandEveLocalModelWarmup(receipt, shimUrl, warmCommandEveLocalModel, mark, warmCommandEveEveLane);
+            })
+            .catch((error) => {
+              console.error('[Command EVE] Runtime bootstrap failed:', error);
+            });
+        }, 1000);
+      };
+      mark('commandEveRuntimeBootstrap deferred');
     }
   } catch (error) {
     if (!commandEveOllamaShimUrl) {
@@ -1944,13 +1952,6 @@ const handleAppReady = async (): Promise<void> => {
     } catch (err) {
       console.error('[WebUI] ensureAdminUser failed:', err);
     }
-
-    try {
-      await ensureCommandEveAssistantReadiness();
-      mark('commandEveAssistantBootstrap');
-    } catch (err) {
-      console.error('[Command EVE] Assistant bootstrap failed:', err);
-    }
   }
 
   // One-shot backend migrations are deferred until after the renderer finishes
@@ -1959,7 +1960,7 @@ const handleAppReady = async (): Promise<void> => {
   // deadlock because the renderer does not exist yet. See scheduleBackendMigrations().
 
   try {
-    initializeZoomFactor(await ProcessConfig.get('ui.zoomFactor'));
+    initializeZoomFactor(ProcessConfig.getSync('ui.zoomFactor'));
     mark('initializeZoomFactor');
   } catch (error) {
     console.error('[CommandEVE] Failed to restore zoom factor:', error);
@@ -2041,6 +2042,8 @@ const handleAppReady = async (): Promise<void> => {
         },
       });
       console.log(`[WebUI] Headless server started (port=${handle.port}, backendPort=${handle.backendPort})`);
+      runDeferredCommandEveRuntimeBootstrap?.();
+      runDeferredCommandEveRuntimeBootstrap = undefined;
     } catch (err) {
       console.error(`[WebUI] Failed to start server on port ${resolvedPort}:`, err);
       app.exit(1);
@@ -2079,6 +2082,20 @@ const handleAppReady = async (): Promise<void> => {
     createWindow({ showOnReady: showMainWindowOnReady });
     appReadyDone = true;
     mark('createWindow');
+    runDeferredCommandEveRuntimeBootstrap?.();
+    runDeferredCommandEveRuntimeBootstrap = undefined;
+
+    if (bootBackendPort) {
+      setTimeout(() => {
+        void ensureCommandEveAssistantReadiness()
+          .then(() => {
+            mark('commandEveAssistantBootstrap');
+          })
+          .catch((err) => {
+            console.error('[Command EVE] Assistant bootstrap failed:', err);
+          });
+      }, 3_000);
+    }
 
     // Initialize desktop pet (delayed to not block main window)
     setTimeout(() => {
