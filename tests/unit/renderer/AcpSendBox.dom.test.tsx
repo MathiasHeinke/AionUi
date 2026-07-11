@@ -206,6 +206,7 @@ vi.mock('@arco-design/web-react', () => ({
     success: vi.fn(),
     error: vi.fn(),
   },
+  Popover: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
   Tag: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
 }));
 

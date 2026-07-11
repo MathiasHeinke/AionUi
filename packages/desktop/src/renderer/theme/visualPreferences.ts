@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { COMMAND_EVE_DEFAULT_BACKGROUND_ASSET_ID } from './visualBackgroundAssets';
+
 export type EveAppearanceMode = 'system' | 'light' | 'dark';
 export type EveResolvedAppearance = Exclude<EveAppearanceMode, 'system'>;
 export type EveAccent = 'blue' | 'petrol' | 'emerald' | 'graphite';
@@ -58,11 +60,12 @@ export const DEFAULT_EVE_VISUAL_PREFERENCES: EveVisualPreferences = {
   glassBlur: 20,
   reducedEffects: false,
   background: {
-    enabled: false,
+    enabled: true,
+    assetId: COMMAND_EVE_DEFAULT_BACKGROUND_ASSET_ID,
     fit: 'cover',
-    intensity: 1,
+    intensity: 0.82,
     blur: 0,
-    dim: 0,
+    dim: 0.18,
     adaptiveTint: true,
   },
 };
@@ -168,7 +171,9 @@ const accentRamp = (accent: AccentTone, appearance: EveResolvedAppearance): stri
  */
 export function normalizeEveVisualPreferences(input: unknown): EveVisualPreferences {
   const root = isRecord(input) ? input : {};
-  const background = isRecord(root.background) ? root.background : {};
+  const rawBackground = root.background;
+  const hasBackground = isRecord(rawBackground);
+  const background: Record<string, unknown> = hasBackground ? rawBackground : {};
   const defaults = DEFAULT_EVE_VISUAL_PREFERENCES;
 
   return {
@@ -188,7 +193,7 @@ export function normalizeEveVisualPreferences(input: unknown): EveVisualPreferen
     reducedEffects: typeof root.reducedEffects === 'boolean' ? root.reducedEffects : defaults.reducedEffects,
     background: {
       enabled: typeof background.enabled === 'boolean' ? background.enabled : defaults.background.enabled,
-      assetId: normalizedAssetId(background.assetId),
+      assetId: hasBackground ? normalizedAssetId(background.assetId) : defaults.background.assetId,
       fit: isOneOf(background.fit, BACKGROUND_FITS, defaults.background.fit),
       intensity: clamp(
         finiteNumber(background.intensity, defaults.background.intensity),

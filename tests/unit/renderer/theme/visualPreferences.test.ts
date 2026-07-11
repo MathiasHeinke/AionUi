@@ -53,7 +53,7 @@ describe('normalizeEveVisualPreferences', () => {
     expect(normalized.mode).toBe('system');
     expect(normalized.accent).toBe('blue');
     expect(normalized.background.fit).toBe('cover');
-    expect(normalized.background.intensity).toBe(1);
+    expect(normalized.background.intensity).toBe(DEFAULT_EVE_VISUAL_PREFERENCES.background.intensity);
   });
 
   it('preserves valid values and normalizes the local asset id', () => {
@@ -100,12 +100,12 @@ describe('normalizeEveVisualPreferences', () => {
 });
 
 describe('eveVisualCssVariables', () => {
-  it('projects the default light glass tiers without exceeding their ceilings', () => {
+  it('projects the default light glass tiers with the background readability floor', () => {
     const tokens = eveVisualCssVariables(DEFAULT_EVE_VISUAL_PREFERENCES, 'light');
 
-    expect(tokens['--eve-glass-chrome-opacity']).toBe('84%');
-    expect(tokens['--eve-glass-panel-opacity']).toBe('90%');
-    expect(tokens['--eve-glass-overlay-opacity']).toBe('88%');
+    expect(tokens['--eve-glass-chrome-opacity']).toBe('88%');
+    expect(tokens['--eve-glass-panel-opacity']).toBe('94%');
+    expect(tokens['--eve-glass-overlay-opacity']).toBe('92%');
     expect(tokens['--eve-glass-chrome-blur']).toBe('20px');
   });
 

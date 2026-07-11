@@ -8,6 +8,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { applyEveVisualPreferences, resolveEveAppearance } from '@/renderer/theme/visualPreferences';
 import {
+  COMMAND_EVE_DEFAULT_BACKGROUND_ASSET_ID,
   removeEveVisualBackground,
   resolveEveVisualBackground,
   storeEveVisualBackground,
@@ -60,6 +61,13 @@ describe('Command EVE visual DOM projection', () => {
 });
 
 describe('local visual background assets', () => {
+  it('resolves the bundled Command EVE default background without local storage', () => {
+    const resolved = resolveEveVisualBackground(COMMAND_EVE_DEFAULT_BACKGROUND_ASSET_ID);
+
+    expect(resolved).toContain('gate-bg-alt.jpg');
+    expect(localStorage.length).toBe(0);
+  });
+
   it('stores only validated image data behind an opaque id', () => {
     const assetId = storeEveVisualBackground('data:image/webp;base64,AAAA', 'bg-test');
     expect(assetId).toBe('bg-test');

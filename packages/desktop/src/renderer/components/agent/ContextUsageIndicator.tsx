@@ -55,11 +55,6 @@ const ContextUsageIndicator: React.FC<ContextUsageIndicatorProps> = ({
     };
   }, [tokenUsage, effectiveLimit]);
 
-  // 如果没有 token 数据，不显示
-  if (!tokenUsage) {
-    return null;
-  }
-
   // 计算圆环参数
   const strokeWidth = 2.5;
   const radius = (size - strokeWidth) / 2;

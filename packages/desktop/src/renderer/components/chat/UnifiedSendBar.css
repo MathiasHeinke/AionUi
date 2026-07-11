@@ -1,6 +1,9 @@
 .unified-send-bar {
   min-height: var(--eve-control-height, 32px);
   align-items: center;
+  --eve-composer-control-color: color-mix(in srgb, var(--eve-shell-text, var(--color-text-1)) 68%, transparent);
+  --eve-composer-control-hover: color-mix(in srgb, var(--eve-shell-text, var(--color-text-1)) 7%, transparent);
+  --eve-composer-control-active: color-mix(in srgb, var(--eve-shell-text, var(--color-text-1)) 11%, transparent);
 }
 
 .unified-send-bar__left,
@@ -9,7 +12,8 @@
   align-items: center;
 }
 
-.unified-send-bar :where(.arco-btn-shape-circle, .speech-input-button) {
+.unified-send-bar :where(.arco-btn-shape-circle, .speech-input-button),
+.unified-send-bar :where(.sendbox-model-btn, .agent-mode-compact-pill) {
   width: var(--eve-control-height, 32px) !important;
   min-width: var(--eve-control-height, 32px) !important;
   height: var(--eve-control-height, 32px) !important;
@@ -18,11 +22,7 @@
   align-items: center !important;
   justify-content: center !important;
   flex: 0 0 var(--eve-control-height, 32px) !important;
-}
-
-.unified-send-bar .sendbox-model-btn {
-  min-height: var(--eve-control-height, 32px) !important;
-  height: var(--eve-control-height, 32px) !important;
+  border-radius: 999px !important;
 }
 
 .unified-send-bar :where(.arco-btn-icon, .arco-icon) {
@@ -32,34 +32,62 @@
   line-height: 1;
 }
 
+.unified-send-bar :where(.sendbox-model-btn, .agent-mode-compact-pill) .arco-btn-content {
+  width: var(--eve-control-height, 32px);
+  min-width: 0;
+  height: var(--eve-control-height, 32px);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.unified-send-bar :where(.sendbox-model-btn, .agent-mode-compact-pill) .arco-btn-content > span {
+  width: 100%;
+  height: 100%;
+  justify-content: center;
+}
+
+.unified-send-bar :where(.sendbox-model-btn, .agent-mode-compact-pill) .arco-btn-content :where(.truncate, .pill-marquee-track),
+.unified-send-bar .agent-mode-compact-pill .arco-btn-content .text-t-tertiary {
+  display: none !important;
+}
+
 .unified-send-bar .eve-composer-icon-button,
 .unified-send-bar .eve-composer-icon-button.arco-btn,
-.unified-send-bar .eve-composer-icon-button.arco-btn-secondary {
+.unified-send-bar .eve-composer-icon-button.arco-btn-secondary,
+.unified-send-bar :where(.sendbox-model-btn, .agent-mode-compact-pill, .speech-input-button) {
   border: none !important;
   background: transparent !important;
   box-shadow: none !important;
-  color: var(--color-text-3) !important;
+  color: var(--eve-composer-control-color) !important;
 }
 
 .unified-send-bar .eve-composer-icon-button:hover,
 .unified-send-bar .eve-composer-icon-button:focus-visible,
 .unified-send-bar .eve-composer-icon-button.arco-btn:hover,
-.unified-send-bar .eve-composer-icon-button.arco-btn:focus-visible {
-  background: color-mix(in srgb, var(--color-fill-2) 82%, transparent) !important;
-  color: var(--color-text-1) !important;
+.unified-send-bar .eve-composer-icon-button.arco-btn:focus-visible,
+.unified-send-bar :where(.sendbox-model-btn, .agent-mode-compact-pill, .speech-input-button):hover,
+.unified-send-bar :where(.sendbox-model-btn, .agent-mode-compact-pill, .speech-input-button):focus-visible {
+  background: var(--eve-composer-control-hover) !important;
+  color: var(--eve-shell-text, var(--color-text-1)) !important;
 }
 
 .unified-send-bar .send-button-custom:not(:disabled),
 .unified-send-bar .send-button-custom.arco-btn-primary:not(:disabled) {
   background: rgb(var(--primary-6)) !important;
-  border-color: rgb(var(--primary-6)) !important;
+  border-color: transparent !important;
   color: #ffffff !important;
+  box-shadow:
+    0 10px 22px color-mix(in srgb, rgb(var(--primary-6)) 22%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 28%, transparent) !important;
 }
 
 .unified-send-bar .send-button-custom:not(:disabled):hover,
 .unified-send-bar .send-button-custom.arco-btn-primary:not(:disabled):hover {
   background: rgb(var(--primary-7)) !important;
-  border-color: rgb(var(--primary-7)) !important;
+  border-color: transparent !important;
 }
 
 .unified-send-bar .send-button-custom:disabled,

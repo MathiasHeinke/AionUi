@@ -5,6 +5,7 @@
  */
 
 const STORAGE_PREFIX = 'command-eve.visual-background.';
+export const COMMAND_EVE_DEFAULT_BACKGROUND_ASSET_ID = 'builtin:command-eve-default';
 export const MAX_EVE_VISUAL_BACKGROUND_BYTES = 2_000_000;
 const MAX_BACKGROUND_DATA_URL_LENGTH = Math.ceil(MAX_EVE_VISUAL_BACKGROUND_BYTES / 3) * 4 + 64;
 const IMAGE_DATA_URL = /^data:image\/(?:png|jpe?g|webp|gif|bmp);base64,([A-Za-z0-9+/]+={0,2})$/;
@@ -32,6 +33,9 @@ export function storeEveVisualBackground(dataUrl: string, assetId = `bg-${crypto
 
 export function resolveEveVisualBackground(assetId?: string): string | undefined {
   if (!assetId || !OPAQUE_ASSET_ID.test(assetId)) return undefined;
+  if (assetId === COMMAND_EVE_DEFAULT_BACKGROUND_ASSET_ID) {
+    return new URL('../pages/registrationGate/assets/gate-bg-alt.jpg', import.meta.url).toString();
+  }
   try {
     const dataUrl = localStorage.getItem(storageKey(assetId)) || undefined;
     return dataUrl && validImageDataUrl(dataUrl) ? dataUrl : undefined;

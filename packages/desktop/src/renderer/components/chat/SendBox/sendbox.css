@@ -13,14 +13,17 @@
 .send-button-custom:not(:disabled),
 .send-button-custom.arco-btn-primary:not(:disabled) {
   background-color: rgb(var(--primary-6)) !important;
-  border-color: rgb(var(--primary-6)) !important;
+  border-color: transparent !important;
   color: #ffffff !important;
+  box-shadow:
+    0 10px 22px color-mix(in srgb, rgb(var(--primary-6)) 22%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 28%, transparent) !important;
 }
 
 .send-button-custom:not(:disabled):hover,
 .send-button-custom.arco-btn-primary:not(:disabled):hover {
   background-color: rgb(var(--primary-7)) !important;
-  border-color: rgb(var(--primary-7)) !important;
+  border-color: transparent !important;
 }
 
 /* Make arrow icon thicker */
@@ -86,21 +89,39 @@
   color: var(--color-text-4) !important;
 }
 
+.sendbox-panel.eve-composer-surface {
+  background: color-mix(in srgb, var(--eve-shell-surface, var(--color-bg-1)) 76%, transparent);
+  border-color: var(--eve-composer-border, var(--glass-panel-border)) !important;
+  box-shadow:
+    0 18px 42px color-mix(in srgb, #0f172a 12%, transparent),
+    inset 0 1px 0 var(--glass-edge-highlight, color-mix(in srgb, #fff 36%, transparent));
+  -webkit-backdrop-filter: blur(var(--eve-glass-panel-blur, 14px)) saturate(135%);
+  backdrop-filter: blur(var(--eve-glass-panel-blur, 14px)) saturate(135%);
+}
+
 .eve-composer-icon-button,
 .eve-composer-icon-button.arco-btn,
 .eve-composer-icon-button.arco-btn-secondary {
+  width: var(--eve-control-height, 32px) !important;
+  min-width: var(--eve-control-height, 32px) !important;
+  height: var(--eve-control-height, 32px) !important;
+  padding: 0 !important;
   border: none !important;
   background: transparent !important;
   box-shadow: none !important;
-  color: var(--color-text-3) !important;
+  color: color-mix(in srgb, var(--eve-shell-text, var(--color-text-1)) 68%, transparent) !important;
+  border-radius: 999px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
 }
 
 .eve-composer-icon-button:hover,
 .eve-composer-icon-button:focus-visible,
 .eve-composer-icon-button.arco-btn:hover,
 .eve-composer-icon-button.arco-btn:focus-visible {
-  background: color-mix(in srgb, var(--color-fill-2) 82%, transparent) !important;
-  color: var(--color-text-1) !important;
+  background: color-mix(in srgb, var(--eve-shell-text, var(--color-text-1)) 7%, transparent) !important;
+  color: var(--eve-shell-text, var(--color-text-1)) !important;
 }
 
 /* Sendbox tools buttons - prevent layout jitter from theme hover transforms (#1075) */
@@ -149,7 +170,8 @@
   flex-shrink: 0 !important;
 }
 
-.sendbox-actions > .arco-btn-shape-circle {
+.sendbox-actions > .arco-btn-shape-circle,
+.sendbox-tools > .arco-btn-shape-circle {
   width: var(--eve-control-height, 32px) !important;
   min-width: var(--eve-control-height, 32px) !important;
   height: var(--eve-control-height, 32px) !important;
