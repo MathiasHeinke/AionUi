@@ -306,7 +306,7 @@ describe('Command EVE settings migration contract', () => {
 
     for (const source of channelFormSources) {
       expect(source).toContain('!COMMAND_EVE_SHELL_ENABLED');
-      expect(source).not.toContain('<button');
+      expect(source).not.toMatch(/<(?:div|span)\b[^>]*role=['"]button['"]/);
       expect(source).not.toContain('bg-fill-1 rd-12px');
       expect(source).not.toMatch(/bg-(?:blue|green|red|yellow)-(?:50|100)/);
     }

@@ -12,7 +12,7 @@ import ConversationRow from './ConversationRow';
 import type { ConversationRowProps } from './types';
 
 const SortableConversationRow: React.FC<ConversationRowProps> = (props) => {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const { listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: props.conversation.id,
     disabled: props.batchMode,
     data: {
@@ -30,7 +30,7 @@ const SortableConversationRow: React.FC<ConversationRowProps> = (props) => {
   };
 
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+    <div ref={setNodeRef} style={style} {...listeners}>
       <ConversationRow {...props} />
     </div>
   );

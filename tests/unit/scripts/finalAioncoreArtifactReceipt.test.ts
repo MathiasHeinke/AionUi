@@ -50,6 +50,7 @@ describe('final AionCore artifact receipt', () => {
   const deps = {
     now: new Date('2026-07-10T21:30:00Z'),
     verifyCodeSignature: () => undefined,
+    verifyCliContract: () => undefined,
   };
 
   it('separates verified pre-sign provenance from the signed delivery hash outside the app seal', () => {
@@ -68,6 +69,10 @@ describe('final AionCore artifact receipt', () => {
       createHash('sha256').update(fs.readFileSync(fixture.binaryPath)).digest('hex')
     );
     expect(receipt.aioncore.finalArtifactSha256).not.toBe(receipt.aioncore.preSignBinarySha256);
+    expect(receipt.aioncore).toMatchObject({
+      cliContractVerified: true,
+      requiredCliArguments: ['--local-capability-file', '--local-origin'],
+    });
     expect(receipt.integrity).toEqual({
       manifestHashScope: 'pre-sign-input',
       finalArtifactHashScope: 'post-sign-delivery-artifact',
@@ -116,11 +121,29 @@ describe('final AionCore artifact receipt', () => {
         { appPath: fixture.appPath, outDir: fixture.outDir, version: '1.7.92', productName: 'Command EVE' },
         {
           now: deps.now,
+          verifyCliContract: deps.verifyCliContract,
           verifyCodeSignature: () => {
             throw new Error('invalid signature');
           },
         }
       )
     ).toThrow(/invalid signature/);
+  });
+
+  it('requires the signed artifact to expose the Command EVE capability CLI contract', () => {
+    const fixture = makeFixture();
+
+    expect(() =>
+      writeFinalAioncoreArtifactReceipt(
+        { appPath: fixture.appPath, outDir: fixture.outDir, version: '1.7.92', productName: 'Command EVE' },
+        {
+          now: deps.now,
+          verifyCodeSignature: deps.verifyCodeSignature,
+          verifyCliContract: () => {
+            throw new Error('missing --local-capability-file');
+          },
+        }
+      )
+    ).toThrow(/missing --local-capability-file/);
   });
 });

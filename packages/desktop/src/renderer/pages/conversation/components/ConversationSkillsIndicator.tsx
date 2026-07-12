@@ -48,14 +48,15 @@ const ConversationSkillsIndicator: React.FC<ConversationSkillsIndicatorProps> = 
       </div>
       <div className='flex flex-col gap-4px'>
         {names.map((name) => (
-          <div
+          <button
+            type='button'
             key={name}
-            className='flex items-center gap-8px py-4px px-8px rounded-4px hover:bg-2 cursor-pointer text-13px text-t-primary truncate'
+            className='w-full flex items-center gap-8px py-4px px-8px border-none bg-transparent text-left rounded-4px hover:bg-2 cursor-pointer text-13px text-t-primary truncate'
             onClick={() => handleSkillClick(name)}
             title={descriptionByName.get(name) ?? ''}
           >
             {name}
-          </div>
+          </button>
         ))}
       </div>
     </div>
@@ -63,15 +64,17 @@ const ConversationSkillsIndicator: React.FC<ConversationSkillsIndicatorProps> = 
 
   return (
     <Popover content={content} trigger='click' position='br'>
-      <span
-        className='inline-flex items-center gap-4px rounded-full px-8px py-2px bg-2 cursor-pointer'
+      <button
+        type='button'
+        aria-label={`${t('conversation.skills.loaded')} (${names.length})`}
+        className='eve-pill inline-flex items-center gap-4px px-8px py-2px border-none cursor-pointer'
         data-testid='skills-indicator'
       >
         <Lightning theme='filled' size={14} fill={iconColors.primary} strokeWidth={2} style={{ lineHeight: 0 }} />
         <span className='text-13px text-t-primary lh-[1]' data-testid='skills-indicator-count'>
           {names.length}
         </span>
-      </span>
+      </button>
     </Popover>
   );
 };

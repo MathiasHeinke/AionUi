@@ -8,8 +8,8 @@ import FlexFullContainer from '@/renderer/components/layout/FlexFullContainer';
 import CommandEveGlyph from '@/renderer/components/commandEve/CommandEveGlyph';
 import { cleanupSiderTooltips, getSiderTooltipProps } from '@/renderer/utils/ui/siderTooltip';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
-import { Checkbox, Dropdown, Menu, Spin, Tooltip } from '@arco-design/web-react';
-import { Box, DeleteOne, EditOne, Export, FolderOpen, MoreOne, Pushpin } from '@icon-park/react';
+import { Dropdown, Menu, Spin, Tooltip } from '@arco-design/web-react';
+import { Box, CheckSmall, DeleteOne, EditOne, Export, FolderOpen, MoreOne, Pushpin } from '@icon-park/react';
 import classNames from 'classnames';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
@@ -136,81 +136,96 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
     >
       <div
         id={'c-' + conversation.id}
-        aria-current={selected ? 'page' : undefined}
         className={classNames(
-          'chat-history__item eve-row h-34px rd-8px flex items-center group cursor-pointer relative overflow-hidden shrink-0 conversation-item [&.conversation-item+&.conversation-item]:mt-2px min-w-0',
-          collapsed ? 'justify-center px-0' : 'justify-start gap-8px pr-16px',
-          // dimIcon means this row sits inside a project/cron parent — visually indent the row content while keeping the bg full-width
-          !collapsed && (dimIcon ? 'pl-34px' : 'pl-10px'),
+          'chat-history__item eve-row h-34px rd-8px flex items-center group relative overflow-hidden shrink-0 conversation-item [&.conversation-item+&.conversation-item]:mt-2px min-w-0',
           {
             'eve-row--selected': selected,
             'bg-[rgba(var(--primary-6),0.08)]': batchMode && checked,
           }
         )}
-        onClick={handleRowClick}
         onContextMenu={handleRowContextMenu}
       >
-        {batchMode && (
-          <span
-            className='mr-8px flex-center'
-            onClick={(event) => {
-              event.stopPropagation();
-              onToggleChecked(conversation);
-            }}
-          >
-            <Checkbox checked={checked} />
-          </span>
-        )}
-        <span className='size-22px flex items-center justify-center shrink-0 relative'>
-          {/* The EVE glyph ALWAYS renders (public identity stays put);
+        <button
+          type='button'
+          role={batchMode ? 'checkbox' : undefined}
+          aria-label={conversation.name || t('conversation.welcome.newConversation')}
+          aria-checked={batchMode ? checked : undefined}
+          aria-current={selected ? 'page' : undefined}
+          className={classNames(
+            'flex h-full min-w-0 flex-1 cursor-pointer items-center border-none bg-transparent text-left',
+            collapsed ? 'justify-center px-0' : 'justify-start gap-8px pr-16px',
+            !collapsed && (dimIcon ? 'pl-34px' : 'pl-10px')
+          )}
+          onClick={handleRowClick}
+        >
+          {batchMode && (
+            <span
+              aria-hidden='true'
+              className={classNames(
+                'mr-8px flex size-14px shrink-0 items-center justify-center rounded-3px border border-solid',
+                checked
+                  ? 'border-[var(--eve-focus-ring)] bg-[var(--eve-focus-ring)] text-white'
+                  : 'border-[var(--glass-panel-border)] bg-transparent'
+              )}
+            >
+              {checked && <CheckSmall theme='outline' size={11} />}
+            </span>
+          )}
+          <span className='size-22px flex items-center justify-center shrink-0 relative'>
+            {/* The EVE glyph ALWAYS renders (public identity stays put);
               while a turn streams we overlay a small Spin on its bottom-right
               instead of replacing the glyph with a bare spinner. */}
-          {renderLeadingIcon()}
-          {isGenerating && !batchMode && (
-            <span className='absolute -bottom-2px -right-2px flex-center pointer-events-none' style={{ lineHeight: 0 }}>
-              <Spin size={14} />
-            </span>
-          )}
-          {/* ONE semantic status dot, overlaid on the glyph's bottom-right. Hidden
+            {renderLeadingIcon()}
+            {isGenerating && !batchMode && (
+              <span
+                className='absolute -bottom-2px -right-2px flex-center pointer-events-none'
+                style={{ lineHeight: 0 }}
+              >
+                <Spin size={14} />
+              </span>
+            )}
+            {/* ONE semantic status dot, overlaid on the glyph's bottom-right. Hidden
               in batch mode (the checkbox owns the row) and while generating (the
               Spin overlay already signals "running"). idle renders nothing. */}
-          {!batchMode && !isGenerating && <SessionStatusDot status={sessionStatus} overlay />}
-          {/* Pinned indicator: only visible when row is hovered, overlays leading icon */}
-          {!batchMode && isPinned && !isMobile && !isGenerating && (
-            <span
-              className='absolute inset-0 flex-center text-t-secondary pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity'
-              style={{ lineHeight: 0 }}
-            >
-              <Pushpin theme='outline' size='14' />
-            </span>
-          )}
-        </span>
-        <FlexFullContainer
-          className='h-24px min-w-0 flex-1 collapsed-hidden'
-          containerClassName='flex items-center min-w-0 pr-30px'
-        >
-          <Tooltip
-            content={conversation.name}
-            disabled={!inlineNameTooltipEnabled}
-            trigger='hover'
-            popupVisible={inlineNameTooltipEnabled ? undefined : false}
-            unmountOnExit
-            popupHoverStay={false}
-            position='top'
+            {!batchMode && !isGenerating && <SessionStatusDot status={sessionStatus} overlay />}
+            {/* Pinned indicator: only visible when row is hovered, overlays leading icon */}
+            {!batchMode && isPinned && !isMobile && !isGenerating && (
+              <span
+                className='absolute inset-0 flex-center text-t-secondary pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity'
+                style={{ lineHeight: 0 }}
+              >
+                <Pushpin theme='outline' size='14' />
+              </span>
+            )}
+          </span>
+          <FlexFullContainer
+            className='h-24px min-w-0 flex-1 collapsed-hidden'
+            containerClassName='flex items-center min-w-0 pr-30px'
           >
-            <div className='chat-history__item-name overflow-hidden text-ellipsis block flex-1 text-14px font-[500] lh-24px whitespace-nowrap min-w-0 text-t-primary'>
-              <span className='block overflow-hidden text-ellipsis whitespace-nowrap'>{conversation.name}</span>
-            </div>
-          </Tooltip>
-          {!isMobile && lastActiveLabel && (
-            <span className='ml-8px shrink-0 text-11px leading-24px text-t-tertiary tabular-nums'>
-              {lastActiveLabel}
-            </span>
-          )}
-        </FlexFullContainer>
+            <Tooltip
+              content={conversation.name}
+              disabled={!inlineNameTooltipEnabled}
+              trigger='hover'
+              popupVisible={inlineNameTooltipEnabled ? undefined : false}
+              unmountOnExit
+              popupHoverStay={false}
+              position='top'
+            >
+              <div className='chat-history__item-name overflow-hidden text-ellipsis block flex-1 text-14px font-[500] lh-24px whitespace-nowrap min-w-0 text-t-primary'>
+                <span className='block overflow-hidden text-ellipsis whitespace-nowrap'>{conversation.name}</span>
+              </div>
+            </Tooltip>
+            {!isMobile && lastActiveLabel && (
+              <span className='ml-8px shrink-0 text-11px leading-24px text-t-tertiary tabular-nums'>
+                {lastActiveLabel}
+              </span>
+            )}
+          </FlexFullContainer>
+        </button>
 
         {!batchMode && (
           <div
+            data-eve-interaction-role='event-boundary'
             className={classNames(
               'absolute right-8px top-1/2 -translate-y-1/2 items-center justify-end !collapsed-hidden',
               {
@@ -304,21 +319,25 @@ const ConversationRow: React.FC<ConversationRowProps> = (props) => {
               getPopupContainer={() => document.body}
               unmountOnExit={false}
             >
-              <span
+              <button
+                type='button'
                 className={classNames(
-                  'flex-center cursor-pointer transition-colors text-t-secondary hover:text-t-primary size-20px rd-4px sider-action-btn',
+                  'flex-center cursor-pointer border-none transition-colors text-t-secondary hover:text-t-primary size-20px rd-4px sider-action-btn',
                   {
                     flex: isMobile || menuVisible,
                     'hidden group-hover:flex': !isMobile && !menuVisible,
                   }
                 )}
+                aria-label={t('common.more')}
+                aria-haspopup='menu'
+                aria-expanded={menuVisible}
                 onClick={(event) => {
                   event.stopPropagation();
                   onOpenMenu(conversation);
                 }}
               >
                 <MoreOne theme='outline' size='14' fill='currentColor' className='block leading-none' />
-              </span>
+              </button>
             </Dropdown>
           </div>
         )}

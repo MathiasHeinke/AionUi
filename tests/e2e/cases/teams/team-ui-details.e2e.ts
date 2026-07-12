@@ -69,11 +69,7 @@ test.describe('Team UI Details', () => {
     const leaderSelect = modal.locator('[data-testid="team-create-leader-select"]');
     const hasSelect = await leaderSelect.isVisible({ timeout: 3_000 }).catch(() => false);
     if (!hasSelect) {
-      await modal
-        .locator('.arco-btn')
-        .filter({ hasText: /Cancel|取消/i })
-        .first()
-        .click({ force: true });
+      await modal.getByTestId('team-create-cancel').click({ force: true });
       test.skip();
       return;
     }
@@ -91,7 +87,9 @@ test.describe('Team UI Details', () => {
     const menuVisible = await menu.isVisible({ timeout: 3_000 }).catch(() => false);
 
     if (menuVisible) {
-      const browseOption = menu.getByText(/Choose a different folder|Anderen Ordner auswählen|选择其他(?:目录|文件夹)/i);
+      const browseOption = menu.getByText(
+        /Choose a different folder|Anderen Ordner auswählen|选择其他(?:目录|文件夹)/i
+      );
       await browseOption.first().click();
     }
 

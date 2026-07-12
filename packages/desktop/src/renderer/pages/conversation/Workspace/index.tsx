@@ -207,6 +207,7 @@ const ChatWorkspace: React.FC<WorkspaceProps> = ({
       <div
         className='chat-workspace size-full flex flex-col relative'
         tabIndex={0}
+        data-eve-interaction-role='focus-surface'
         onFocus={pasteHook.onFocusPaste}
         onClick={pasteHook.onFocusPaste}
         {...dragImportHook.dragHandlers}
@@ -375,6 +376,7 @@ const ChatWorkspace: React.FC<WorkspaceProps> = ({
 
                   return (
                     <div
+                      data-eve-interaction-role='composite-control'
                       className='flex items-center justify-between gap-6px min-w-0'
                       style={{ color: 'inherit' }}
                       onDoubleClick={() => {

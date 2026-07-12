@@ -198,16 +198,18 @@ const AssistantEditDrawer: React.FC<AssistantEditDrawerProps> = ({
               ? t('settings.createAssistant', { defaultValue: 'Create Assistant' })
               : t('settings.editAssistant', { defaultValue: 'Assistant Details' })}
           </span>
-          <div
+          <button
+            type='button'
+            aria-label={t('common.close')}
             onClick={(e) => {
               e.stopPropagation();
               setEditVisible(false);
             }}
-            className='absolute right-4 top-2 cursor-pointer text-t-secondary hover:text-t-primary transition-colors p-1'
+            className='absolute right-4 top-2 border-none bg-transparent cursor-pointer text-t-secondary hover:text-t-primary transition-colors p-1'
             style={{ zIndex: 10, WebkitAppRegion: 'no-drag' } as React.CSSProperties}
           >
             <Close size={18} />
-          </div>
+          </button>
         </>
       }
       closable={false}
@@ -411,19 +413,28 @@ const AssistantEditDrawer: React.FC<AssistantEditDrawerProps> = ({
               style={{ height: rulesContainerHeight }}
             >
               {isRuleEditable && (
-                <div className='flex items-center h-36px bg-fill-2 border-b border-border-2 flex-shrink-0'>
-                  <div
-                    className={`flex items-center h-full px-16px cursor-pointer transition-all text-13px font-medium ${promptViewMode === 'edit' ? 'text-primary border-b-2 border-primary bg-bg-1' : 'text-t-secondary hover:text-t-primary'}`}
+                <div
+                  className='eve-chrome flex items-center h-36px border-b border-border-2 flex-shrink-0'
+                  role='tablist'
+                >
+                  <button
+                    type='button'
+                    role='tab'
+                    aria-selected={promptViewMode === 'edit'}
+                    className={`flex items-center h-full border-x-0 border-t-0 bg-transparent px-16px cursor-pointer transition-all text-13px font-medium ${promptViewMode === 'edit' ? 'text-primary border-b-2 border-primary' : 'border-b-2 border-transparent text-t-secondary hover:text-t-primary'}`}
                     onClick={() => setPromptViewMode('edit')}
                   >
                     {t('settings.promptEdit', { defaultValue: 'Edit' })}
-                  </div>
-                  <div
-                    className={`flex items-center h-full px-16px cursor-pointer transition-all text-13px font-medium ${promptViewMode === 'preview' ? 'text-primary border-b-2 border-primary bg-bg-1' : 'text-t-secondary hover:text-t-primary'}`}
+                  </button>
+                  <button
+                    type='button'
+                    role='tab'
+                    aria-selected={promptViewMode === 'preview'}
+                    className={`flex items-center h-full border-x-0 border-t-0 bg-transparent px-16px cursor-pointer transition-all text-13px font-medium ${promptViewMode === 'preview' ? 'text-primary border-b-2 border-primary' : 'border-b-2 border-transparent text-t-secondary hover:text-t-primary'}`}
                     onClick={() => setPromptViewMode('preview')}
                   >
                     {t('settings.promptPreview', { defaultValue: 'Preview' })}
-                  </div>
+                  </button>
                 </div>
               )}
               <div
@@ -550,12 +561,14 @@ const AssistantEditDrawer: React.FC<AssistantEditDrawerProps> = ({
                           )}
                         </div>
                         <button
+                          type='button'
                           className='opacity-0 group-hover:opacity-100 transition-opacity p-4px hover:bg-fill-2 rounded-4px'
                           onClick={(e) => {
                             e.stopPropagation();
                             setDeletePendingSkillName(skill.name);
                           }}
                           title={t('settings.removeFromAssistant', { defaultValue: 'Remove from assistant' })}
+                          aria-label={t('settings.removeFromAssistant', { defaultValue: 'Remove from assistant' })}
                         >
                           <Delete size={16} fill='var(--color-text-3)' />
                         </button>
@@ -591,12 +604,14 @@ const AssistantEditDrawer: React.FC<AssistantEditDrawerProps> = ({
                           )}
                         </div>
                         <button
+                          type='button'
                           className='opacity-0 group-hover:opacity-100 transition-opacity p-4px hover:bg-fill-2 rounded-4px'
                           onClick={(e) => {
                             e.stopPropagation();
                             setDeleteCustomSkillName(skill.name);
                           }}
                           title={t('settings.removeFromAssistant', { defaultValue: 'Remove from assistant' })}
+                          aria-label={t('settings.removeFromAssistant', { defaultValue: 'Remove from assistant' })}
                         >
                           <Delete size={16} fill='var(--color-text-3)' />
                         </button>

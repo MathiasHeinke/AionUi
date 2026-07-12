@@ -62,20 +62,12 @@ const PreviewHistoryDropdown: React.FC<PreviewHistoryDropdownProps> = ({
   historyLoading,
   historyError,
   historyTarget,
-  currentTheme,
   onSnapshotSelect,
 }) => {
   const { t } = useTranslation();
 
   return (
-    <div
-      className='min-w-220px rd-6px shadow-lg'
-      style={{
-        backgroundColor: currentTheme === 'dark' ? '#1d1d1f' : '#ffffff',
-        border: '1px solid var(--border-base, #e5e6eb)',
-        zIndex: 9999,
-      }}
-    >
+    <div className='preview-toolbar__menu min-w-220px' style={{ zIndex: 9999 }}>
       {/* 头部：历史版本标题 + 文件名 / Header: History title + filename */}
       <div className='px-8px py-6px' style={{ borderColor: 'var(--border-base, #e5e6eb)' }}>
         <div className='text-12px text-t-secondary'>{t('preview.historyVersions')}</div>
@@ -96,14 +88,15 @@ const PreviewHistoryDropdown: React.FC<PreviewHistoryDropdownProps> = ({
           <div className='py-16px text-center text-12px text-t-secondary'>{t('preview.noHistory')}</div>
         ) : (
           historyVersions.map((snapshot) => (
-            <div
+            <button
+              type='button'
               key={snapshot.id}
-              className='px-12px py-8px cursor-pointer hover:bg-bg-2 transition-colors'
+              className='preview-toolbar__menu-item flex flex-col items-start'
               onClick={() => onSnapshotSelect(snapshot)}
             >
               <div className='text-12px text-t-primary'>{new Date(snapshot.created_at).toLocaleString()}</div>
               <div className='text-11px text-t-tertiary'>{(snapshot.size / 1024).toFixed(1)} KB</div>
-            </div>
+            </button>
           ))
         )}
       </div>

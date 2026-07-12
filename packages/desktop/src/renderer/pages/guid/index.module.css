@@ -182,12 +182,12 @@
   align-items: center;
   gap: 8px;
   box-sizing: border-box;
-  cursor: pointer;
+  cursor: default;
   transition: background-color 0.15s;
 }
 
 .heroSubtitle:hover {
-  background: var(--assistant-surface-bg-hover);
+  background: var(--assistant-surface-bg);
 }
 
 .heroSubtitleExpanded {
@@ -381,7 +381,9 @@
   overflow: hidden;
   border: 1px solid var(--glass-panel-border);
   border-radius: var(--eve-surface-radius-lg);
-  background: var(--glass-panel-bg-solid);
+  background: var(--glass-panel-bg);
+  -webkit-backdrop-filter: var(--glass-panel-filter);
+  backdrop-filter: var(--glass-panel-filter);
 }
 
 .assistantPromptRow {
@@ -505,7 +507,14 @@
 
 .workspaceEmptyBtn:hover {
   color: var(--color-text-2);
-  background: var(--color-fill-3);
+  background: var(--eve-row-hover-bg, var(--color-fill-3));
+}
+
+.workspaceEmptyBtn:focus-visible,
+.workspacePillMain:focus-visible,
+.workspacePillClose:focus-visible {
+  outline: 2px solid var(--eve-focus-ring, var(--color-primary-6));
+  outline-offset: 2px;
 }
 
 /* 选中态：和空状态同色系，不做颜色跳变 */
@@ -540,7 +549,7 @@
 }
 
 .workspacePillMain:hover {
-  background: var(--color-fill-3);
+  background: var(--eve-row-hover-bg, var(--color-fill-3));
   color: var(--color-text-1);
 }
 
@@ -569,19 +578,19 @@
 }
 
 .workspacePillClose:hover {
-  background: var(--color-fill-3);
+  background: var(--eve-row-hover-bg, var(--color-fill-3));
   color: var(--color-text-2);
 }
 
 /* workspace dropdown popup — portal-rendered, position set via JS */
 .wsDropdown {
-  background: var(--bg-base, #fff);
-  border: 1px solid var(--color-border-2);
-  border-radius: 12px;
+  background: var(--glass-overlay-bg, var(--bg-base, #fff));
+  border: 1px solid var(--glass-overlay-border, var(--color-border-2));
+  border-radius: var(--eve-surface-radius-md, 8px);
   padding: 6px;
-  box-shadow:
-    0 10px 32px rgba(0, 0, 0, 0.1),
-    0 2px 6px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--glass-shadow-soft, 0 10px 32px rgba(0, 0, 0, 0.12));
+  -webkit-backdrop-filter: var(--glass-overlay-filter, blur(18px) saturate(125%));
+  backdrop-filter: var(--glass-overlay-filter, blur(18px) saturate(125%));
   min-width: 230px;
   max-height: 360px;
   overflow-y: auto;
@@ -593,8 +602,10 @@
   gap: 6px;
   padding: 6px 10px;
   margin-bottom: 4px;
-  background: var(--color-fill-2);
-  border-radius: 8px;
+  border: 1px solid var(--glass-panel-border, var(--color-border-2));
+  border-radius: var(--eve-surface-radius-sm, 6px);
+  background: color-mix(in srgb, var(--eve-shell-surface, var(--color-fill-2)) 60%, transparent);
+  color: var(--eve-shell-text-secondary, var(--color-text-3));
 }
 
 .wsDropdownSearchInput {
@@ -616,15 +627,26 @@
   align-items: center;
   gap: 8px;
   padding: 7px 10px;
-  border-radius: 8px;
+  width: 100%;
+  border: 0;
+  border-radius: var(--eve-surface-radius-sm, 6px);
+  background: transparent;
   cursor: pointer;
+  font-family: inherit;
   font-size: 13px;
+  line-height: 20px;
+  text-align: left;
   color: var(--color-text-1);
   transition: background 0.1s;
 }
 
 .wsDropdownItem:hover {
-  background: var(--color-fill-2);
+  background: var(--eve-row-hover-bg, var(--color-fill-2));
+}
+
+.wsDropdownItem:focus-visible {
+  outline: 2px solid var(--eve-focus-ring, var(--color-primary-6));
+  outline-offset: -2px;
 }
 
 .wsDropdownItemActive {
@@ -638,7 +660,6 @@
 
 .wsDropdownItemMuted {
   color: var(--color-text-2);
-  font-style: italic;
 }
 
 .wsDropdownItemMuted:hover {
@@ -647,7 +668,17 @@
 
 .wsDropdownItemMutedDisabled {
   color: var(--color-text-3);
-  font-style: italic;
+  cursor: default;
+  opacity: 0.6;
+}
+
+.wsDropdownItemMutedDisabled:hover {
+  background: transparent;
+}
+
+.wsDropdownItemCheck {
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .wsDropdownSep {
@@ -809,6 +840,52 @@
 /* 底部快捷按钮：基础间距 + 安全区 */
 .guidQuickActions {
   bottom: calc(32px + env(safe-area-inset-bottom, 0px));
+}
+
+.guidQuickActionsToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+.guidQuickActionButton {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--eve-shell-text-secondary, var(--color-text-3));
+  box-shadow: none;
+  cursor: pointer;
+  transition:
+    color 140ms ease,
+    background-color 140ms ease,
+    transform 140ms ease;
+}
+
+.guidQuickActionButton:hover,
+.guidQuickActionButton:focus-visible {
+  color: var(--eve-shell-text, var(--color-text-1));
+  background: var(--eve-row-hover-bg, var(--color-fill-2));
+}
+
+.guidQuickActionButton:active {
+  transform: scale(0.96);
+}
+
+.guidQuickActionButton:focus-visible {
+  outline: 2px solid var(--eve-focus-ring, var(--color-primary-6));
+  outline-offset: 2px;
+}
+
+.guidQuickActionButton :global(svg) {
+  display: block;
 }
 
 @media (max-width: 768px) {

@@ -32,22 +32,41 @@ const MenuItem: React.FC<{
   onClick?: () => void;
   className?: string;
   title?: string;
-}> = ({ icon, label, description, suffix, onClick, className = '', title }) => (
-  <div
-    className={`flex items-center gap-10px px-12px py-9px rounded-8px cursor-pointer hover:bg-fill-2 transition-colors text-14px text-t-primary select-none ${className}`}
-    onClick={onClick}
-    title={title}
-  >
-    <span className='flex-shrink-0 inline-flex items-center justify-center color-#86909c w-18px leading-none'>
-      {icon}
-    </span>
-    <span className='min-w-0 flex-1'>
-      <span className='block leading-none'>{label}</span>
-      {description ? <span className='mt-4px block text-12px leading-16px text-t-secondary'>{description}</span> : null}
-    </span>
-    {suffix}
-  </div>
-);
+}> = ({ icon, label, description, suffix, onClick, className = '', title }) => {
+  const content = (
+    <>
+      <span className='flex-shrink-0 inline-flex items-center justify-center color-#86909c w-18px leading-none'>
+        {icon}
+      </span>
+      <span className='min-w-0 flex-1'>
+        <span className='block leading-none'>{label}</span>
+        {description ? (
+          <span className='mt-4px block text-12px leading-16px text-t-secondary'>{description}</span>
+        ) : null}
+      </span>
+      {suffix}
+    </>
+  );
+
+  return onClick ? (
+    <button
+      type='button'
+      role='menuitem'
+      className={`w-full flex items-center gap-10px px-12px py-9px rounded-8px border-none bg-transparent text-left cursor-pointer hover:bg-fill-2 transition-colors text-14px text-t-primary select-none ${className}`}
+      onClick={onClick}
+      title={title}
+    >
+      {content}
+    </button>
+  ) : (
+    <div
+      className={`flex items-center gap-10px px-12px py-9px rounded-8px text-14px text-t-primary ${className}`}
+      title={title}
+    >
+      {content}
+    </div>
+  );
+};
 
 const MCP_STATUS_CLASS_NAME: Record<IConversationMcpStatusKind, string> = {
   loaded: 'text-[var(--color-success-6)]',
@@ -140,17 +159,24 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
   }
 
   const cardStyle: React.CSSProperties = {
-    backgroundColor: 'var(--color-bg-2, #fff)',
-    borderRadius: 12,
-    boxShadow: '0 4px 24px rgba(0,0,0,0.13)',
-    border: '1px solid var(--color-border-1, #e5e6eb)',
+    background: 'var(--glass-overlay-bg)',
+    borderRadius: 8,
+    boxShadow: 'var(--glass-shadow-soft)',
+    border: '1px solid var(--glass-overlay-border)',
+    WebkitBackdropFilter: 'var(--glass-overlay-filter)',
+    backdropFilter: 'var(--glass-overlay-filter)',
     padding: '6px 0',
     minWidth: 220,
     zIndex: 1050,
   };
 
   const skillsPanel = (
-    <div style={{ ...cardStyle, minWidth: 180 }} onClick={(e) => e.stopPropagation()}>
+    <div
+      role='menu'
+      data-eve-interaction-role='event-boundary'
+      style={{ ...cardStyle, minWidth: 180 }}
+      onClick={(e) => e.stopPropagation()}
+    >
       {skillNames.map((name) => (
         <MenuItem
           key={name}
@@ -165,6 +191,8 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
 
   const mcpPanel = (
     <div
+      role='menu'
+      data-eve-interaction-role='event-boundary'
       style={{
         ...cardStyle,
         minWidth: 220,
@@ -217,7 +245,7 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
   );
 
   const menu = (
-    <div style={cardStyle} onClick={(e) => e.stopPropagation()}>
+    <div role='menu' data-eve-interaction-role='event-boundary' style={cardStyle} onClick={(e) => e.stopPropagation()}>
       {/* Loaded items stay above file actions so the session snapshot is visible */}
       {(hasMcpServers || hasSkills) && (
         <>

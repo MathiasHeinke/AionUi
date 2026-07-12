@@ -88,13 +88,16 @@ const AgentPillBar: React.FC<AgentPillBarProps> = ({
             return (
               <React.Fragment key={getAgentKey(agent)}>
                 {!isMobile && index > 0 && <div className='text-16px lh-1 p-2px select-none opacity-30'>|</div>}
-                <div
+                <button
+                  type='button'
+                  role='radio'
+                  aria-checked={isSelected}
                   data-testid={`agent-pill-${agent.backend}`}
                   data-agent-pill='true'
                   data-agent-key={getAgentKey(agent)}
                   data-agent-type={agent.agent_type}
                   data-agent-selected={isSelected ? 'true' : 'false'}
-                  className={`group relative flex items-center cursor-pointer whitespace-nowrap overflow-hidden ${isSelected ? `opacity-100 px-12px py-8px rd-20px mx-2px ${styles.agentItemSelected}` : isMobile ? 'opacity-70 p-4px' : 'opacity-60 p-4px hover:opacity-100'}`}
+                  className={`group relative flex items-center border-none bg-transparent cursor-pointer whitespace-nowrap overflow-hidden ${isSelected ? `opacity-100 px-12px py-8px rd-20px mx-2px ${styles.agentItemSelected}` : isMobile ? 'opacity-70 p-4px' : 'opacity-60 p-4px hover:opacity-100'}`}
                   style={
                     isSelected
                       ? {
@@ -131,19 +134,21 @@ const AgentPillBar: React.FC<AgentPillBarProps> = ({
                   >
                     {agent.name}
                   </span>
-                </div>
+                </button>
               </React.Fragment>
             );
           })}
         {!isMobile && <div className='text-16px lh-1 p-2px select-none opacity-30'>|</div>}
         <Tooltip content={t('settings.agentManagement.discoverMoreAgents', { defaultValue: '发现更多 Agent' })}>
-          <div
-            className='flex items-center justify-center cursor-pointer p-4px opacity-60 hover:opacity-100 self-center'
+          <button
+            type='button'
+            aria-label={t('settings.agentManagement.discoverMoreAgents', { defaultValue: 'Discover more agents' })}
+            className='flex items-center justify-center border-none bg-transparent cursor-pointer p-4px opacity-60 hover:opacity-100 self-center'
             style={{ transition: 'opacity 0.2s ease', flexShrink: 0, marginTop: 4 }}
             onClick={() => navigate('/settings/agent?tab=local')}
           >
             <Plus theme='outline' size={20} fill='currentColor' style={{ flexShrink: 0 }} />
-          </div>
+          </button>
         </Tooltip>
       </div>
     </div>

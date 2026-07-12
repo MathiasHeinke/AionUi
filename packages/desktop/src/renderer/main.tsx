@@ -59,7 +59,7 @@ import { ThemeProvider } from './hooks/context/ThemeContext';
 import { PreviewProvider } from './pages/conversation/Preview/context/PreviewContext';
 
 // Arco Design
-import { ConfigProvider, Modal, Typography } from '@arco-design/web-react';
+import { ConfigProvider, Modal } from '@arco-design/web-react';
 // Configure Arco Design to use React 18's createRoot, fixing Message component's CopyReactDOM.render error
 import '@arco-design/web-react/es/_util/react-19-adapter';
 import '@arco-design/web-react/dist/css/arco.css';
@@ -100,16 +100,13 @@ import Sider from './components/layout/Sider';
 import { useAuth } from './hooks/context/AuthContext';
 import { ConversationHistoryProvider } from './hooks/context/ConversationHistoryContext';
 import HOC from './utils/ui/HOC';
-import type { BackendStartupFailureInfo } from '@/common/types/platform/electron';
 import type { IRuntimeStatusEvent, RuntimeFailureKind } from '@/common/adapter/ipcBridge';
 import {
   InstallationIntegrityContent,
-  InstallationIntegrityModalHost,
-  getBackendStartupInstallationDescription,
-  getDownloadLatestModalActionProps,
   getRuntimeComponentInstallationDescription,
   showInstallationIntegrityModal,
 } from './components/layout/InstallationIntegrityDialog';
+import BackendStartupFailureScreen from './components/layout/BackendStartupFailureScreen';
 
 // Patch Korean locale with missing properties from English locale
 const koKRComplete = {
@@ -299,106 +296,12 @@ const Main = () => {
 
 const App = HOC.Wrapper(Config)(Main);
 
-const BackendStartupFailureDialog: React.FC<{ failure: BackendStartupFailureInfo }> = ({ failure }) => {
-  const { t } = useTranslation();
-
-  const isIncompatibleRuntime = failure.reason === 'backend_incompatible_runtime';
-  const isIncompleteInstallation = failure.reason === 'backend_incomplete_installation';
-  const isInstanceConflict = failure.reason === 'backend_instance_conflict';
-  const isPackageArchitectureMismatch = failure.reason === 'backend_package_architecture_mismatch';
-  const title = t('common.backendStartup.incompatibleRuntime.title');
-  const description = isIncompatibleRuntime
-    ? t('common.backendStartup.incompatibleRuntime.description')
-    : isPackageArchitectureMismatch
-      ? t('common.backendStartup.packageArchitectureMismatch.description', {
-          packageArch: failure.packageArch ?? 'x64',
-          deviceArch: failure.deviceArch ?? 'arm64',
-          expectedArch: failure.expectedDownloadArch ?? 'arm64',
-        })
-      : isIncompleteInstallation
-        ? getBackendStartupInstallationDescription(t)
-        : t('common.backendStartup.startupFailed.description');
-  const requiredVersions = failure.requiredVersions?.map((version) => `GLIBC_${version}`).join(', ');
-
-  if (isInstanceConflict) {
-    return (
-      <div className='min-h-screen bg-bg-1'>
-        <Modal
-          visible
-          closable={false}
-          maskClosable={false}
-          footer={null}
-          title={t('common.backendStartup.instanceConflict.title')}
-        >
-          <InstallationIntegrityContent description={t('common.backendStartup.instanceConflict.description')} />
-        </Modal>
-      </div>
-    );
-  }
-
-  if (isIncompleteInstallation) {
-    return (
-      <div className='min-h-screen bg-bg-1'>
-        <InstallationIntegrityModalHost description={description} />
-      </div>
-    );
-  }
-
-  if (!isIncompatibleRuntime && !isPackageArchitectureMismatch) {
-    return (
-      <div className='min-h-screen bg-bg-1'>
-        <Modal
-          visible
-          closable={false}
-          maskClosable={false}
-          title={t('common.backendStartup.startupFailed.title')}
-          okText={t('settings.restartNow')}
-          cancelButtonProps={{ style: { display: 'none' } }}
-          onOk={() => void ipcBridge.application.restart.invoke()}
-        >
-          <InstallationIntegrityContent description={description} />
-        </Modal>
-      </div>
-    );
-  }
-
-  if (isPackageArchitectureMismatch) {
-    return (
-      <div className='min-h-screen bg-bg-1'>
-        <Modal
-          visible
-          closable={false}
-          maskClosable={false}
-          title={t('common.backendStartup.packageArchitectureMismatch.title')}
-          {...getDownloadLatestModalActionProps(t)}
-        >
-          <InstallationIntegrityContent description={description} />
-        </Modal>
-      </div>
-    );
-  }
-
-  return (
-    <div className='min-h-screen bg-bg-1'>
-      <Modal visible closable={false} maskClosable={false} footer={null} title={title}>
-        <div className='text-t-1'>
-          <Typography.Paragraph className='mb-0 text-t-secondary'>{description}</Typography.Paragraph>
-          {requiredVersions ? (
-            <Typography.Paragraph className='mt-12px mb-0 text-12px text-t-tertiary'>
-              {t('common.backendStartup.incompatibleRuntime.requiredVersions', { versions: requiredVersions })}
-            </Typography.Paragraph>
-          ) : null}
-        </div>
-      </Modal>
-    </div>
-  );
-};
-
 void registerPwa();
 
 const root = createRoot(document.getElementById('root')!);
 const backendStartupFailure = window.__backendStartupFailure;
 const shouldShowBackendStartupFailureDialog =
+  backendStartupFailure?.reason === 'backend_component_mismatch' ||
   backendStartupFailure?.reason === 'backend_incompatible_runtime' ||
   backendStartupFailure?.reason === 'backend_incomplete_installation' ||
   backendStartupFailure?.reason === 'backend_instance_conflict' ||
@@ -408,7 +311,7 @@ if (backendStartupFailure && shouldShowBackendStartupFailureDialog) {
   root.render(
     <AppErrorBoundary>
       <Config>
-        <BackendStartupFailureDialog failure={backendStartupFailure} />
+        <BackendStartupFailureScreen failure={backendStartupFailure} />
       </Config>
     </AppErrorBoundary>
   );

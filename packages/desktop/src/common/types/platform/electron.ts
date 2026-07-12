@@ -30,6 +30,7 @@ export interface ElectronBridgeAPI {
 }
 
 export type BackendStartupFailureReason =
+  | 'backend_component_mismatch'
   | 'backend_incompatible_runtime'
   | 'backend_incomplete_installation'
   | 'backend_instance_conflict'
@@ -56,6 +57,7 @@ export interface BackendStartupFailureInfo {
   deviceArch?: string;
   expectedDownloadArch?: string;
   isRosettaTranslated?: boolean;
+  unsupportedArgument?: string;
 }
 
 declare global {

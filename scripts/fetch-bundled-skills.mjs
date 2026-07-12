@@ -195,7 +195,8 @@ export const FORBIDDEN_USER_FACING_CONTENT = [
 
 function collectJsonStringValues(value, prefix = '') {
   if (typeof value === 'string') return [{ path: prefix || '$', text: value }];
-  if (Array.isArray(value)) return value.flatMap((entry, index) => collectJsonStringValues(entry, `${prefix}[${index}]`));
+  if (Array.isArray(value))
+    return value.flatMap((entry, index) => collectJsonStringValues(entry, `${prefix}[${index}]`));
   if (value && typeof value === 'object') {
     return Object.entries(value).flatMap(([key, entry]) =>
       collectJsonStringValues(entry, prefix ? `${prefix}.${key}` : key)
@@ -289,7 +290,10 @@ export function findSkillHygieneFailures({ skillId, text }) {
     failures.push('description_embeds_eve_doctrine');
   }
 
-  if (skillId !== 'eve-doctrine' && /^## (?:For Command EVE|Hard [Rr]ules \(EVE [Dd]octrine\))$/m.test(String(text || ''))) {
+  if (
+    skillId !== 'eve-doctrine' &&
+    /^## (?:For Command EVE|Hard [Rr]ules \(EVE [Dd]octrine\))$/m.test(String(text || ''))
+  ) {
     failures.push('duplicate_eve_doctrine_section');
   }
 
@@ -390,27 +394,54 @@ export function scanForbiddenLocaleContent(localeRoot) {
     }
     const forbidden = findForbiddenUserFacingJsonContent(text);
     for (const entry of forbidden) {
-      failures.push(
-        `${path.relative(localeRoot, jsonPath)}:${entry.path}:${entry.ids.join(',')}`
-      );
+      failures.push(`${path.relative(localeRoot, jsonPath)}:${entry.path}:${entry.ids.join(',')}`);
     }
   }
   return failures;
 }
 
-/** Recursively copy a directory tree (markdown only; preserves layout). */
+/** Synchronize a directory tree without making the live snapshot disappear. */
 function copyTree(srcDir, destDir) {
-  fs.rmSync(destDir, { recursive: true, force: true });
   fs.mkdirSync(destDir, { recursive: true });
-  for (const ent of fs.readdirSync(srcDir, { withFileTypes: true })) {
+  const sourceEntries = fs.readdirSync(srcDir, { withFileTypes: true });
+  const sourceNames = new Set();
+
+  for (const ent of sourceEntries) {
+    if (!ent.isDirectory() && !ent.isFile()) continue;
+    sourceNames.add(ent.name);
     const from = path.join(srcDir, ent.name);
     const to = path.join(destDir, ent.name);
     if (ent.isDirectory()) {
+      try {
+        if (!fs.statSync(to).isDirectory()) fs.rmSync(to, { recursive: true, force: true });
+      } catch {
+        // Missing destination is created by the recursive call.
+      }
       copyTree(from, to);
     } else if (ent.isFile()) {
-      fs.copyFileSync(from, to);
+      try {
+        if (!fs.statSync(to).isFile()) fs.rmSync(to, { recursive: true, force: true });
+      } catch {
+        // Missing destination is replaced below.
+      }
+      const stagedFile = `${to}.command-eve-stage-${process.pid}`;
+      fs.copyFileSync(from, stagedFile);
+      try {
+        fs.renameSync(stagedFile, to);
+      } catch (error) {
+        if (!['EEXIST', 'EPERM'].includes(error?.code)) throw error;
+        fs.rmSync(to, { recursive: true, force: true });
+        fs.renameSync(stagedFile, to);
+      } finally {
+        fs.rmSync(stagedFile, { force: true });
+      }
     }
-    // symlinks / other entry types are intentionally skipped — skills are pure files.
+  }
+
+  for (const ent of fs.readdirSync(destDir, { withFileTypes: true })) {
+    if (!sourceNames.has(ent.name)) {
+      fs.rmSync(path.join(destDir, ent.name), { recursive: true, force: true });
+    }
   }
 }
 

@@ -125,11 +125,16 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({ open, onClose, ti
 
   return createPortal(
     <Fragment>
-      <div className={`${styles.mask} ${visible ? styles.visible : ''}`} onClick={onClose} />
+      <div
+        className={`${styles.mask} ${visible ? styles.visible : ''}`}
+        data-eve-interaction-role='dismiss-backdrop'
+        onClick={onClose}
+      />
       <div
         className={`${styles.sheet} ${visible ? styles.visible : ''}`}
         role='dialog'
         aria-modal='true'
+        data-eve-interaction-role='event-boundary'
         onClick={(e) => e.stopPropagation()}
       >
         <div className={styles.handle} />
@@ -143,7 +148,9 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({ open, onClose, ti
               {entries.map((entry, index) => (
                 <Fragment key={entry.key}>
                   {entry.dividerBefore && index !== 0 && <div className={styles.divider} />}
-                  <div
+                  <button
+                    type='button'
+                    disabled={entry.disabled}
                     className={`${styles.item} ${entry.disabled ? styles.disabled : ''}`}
                     onClick={() => handleEntryClick(entry)}
                     data-testid={`mobile-action-sheet-${entry.key}`}
@@ -165,7 +172,7 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({ open, onClose, ti
                         )}
                       </div>
                     )}
-                  </div>
+                  </button>
                 </Fragment>
               ))}
             </div>
@@ -190,7 +197,9 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({ open, onClose, ti
                   renderedSub.options.map((option) => {
                     const showRadio = renderedSub.selectable !== false;
                     return (
-                      <div
+                      <button
+                        type='button'
+                        disabled={option.disabled}
                         key={option.key}
                         className={`${styles.item} ${option.disabled ? styles.disabled : ''}`}
                         onClick={() => {
@@ -209,7 +218,7 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({ open, onClose, ti
                             aria-hidden='true'
                           />
                         )}
-                      </div>
+                      </button>
                     );
                   })
                 )}

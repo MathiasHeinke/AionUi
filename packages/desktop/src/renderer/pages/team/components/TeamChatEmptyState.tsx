@@ -1,5 +1,6 @@
 import React, { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Analysis, Microphone, TopicDiscussion } from '@icon-park/react';
 import useSWR from 'swr';
 import type { TChatConversation } from '@/common/config/storage';
 import { getConversationOrNull } from '@/renderer/pages/conversation/utils/conversationCache';
@@ -18,9 +19,9 @@ type Props = {
 };
 
 const SUGGESTIONS = [
-  { key: 'debate', icon: '🎭' },
-  { key: 'interview', icon: '🎙️' },
-  { key: 'expert_review', icon: '🧠' },
+  { key: 'debate', icon: TopicDiscussion },
+  { key: 'interview', icon: Microphone },
+  { key: 'expert_review', icon: Analysis },
 ];
 
 const SUGGESTION_DEFAULTS: Record<string, string> = {
@@ -144,16 +145,18 @@ const TeamChatEmptyState: React.FC<Props> = ({ conversation_id, icon, isLeader =
         <div className='flex flex-col gap-6px w-full'>
           {SUGGESTIONS.map((s) => {
             const label = t(`team.emptyState.suggestions.${s.key}`, { defaultValue: SUGGESTION_DEFAULTS[s.key] });
+            const SuggestionIcon = s.icon;
             return (
-              <div
+              <button
+                type='button'
                 key={s.key}
                 data-testid={`team-chat-empty-state-suggestion-${s.key}`}
                 onClick={() => fillDraft(label)}
-                className='flex items-center gap-10px px-14px py-10px rd-10px bg-fill-2 hover:bg-fill-3 cursor-pointer transition-colors text-left border border-transparent hover:border-[var(--color-border-2)]'
+                className='eve-panel flex w-full items-center gap-10px px-14px py-10px rd-8px hover:bg-fill-3 cursor-pointer transition-colors text-left border hover:border-[var(--color-border-2)]'
               >
-                <span className='text-15px shrink-0'>{s.icon}</span>
+                <SuggestionIcon size={15} className='shrink-0 text-t-secondary' />
                 <span className='text-13px text-t-secondary'>{label}</span>
-              </div>
+              </button>
             );
           })}
         </div>

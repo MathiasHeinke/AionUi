@@ -200,7 +200,11 @@ const McpServerHeader: React.FC<McpServerHeaderProps> = ({
         )}
       </div>
       {!isReadOnly && (
-        <div className='flex items-center gap-2 invisible group-hover:visible' onClick={(e) => e.stopPropagation()}>
+        <div
+          className='flex items-center gap-2 invisible group-hover:visible'
+          data-eve-interaction-role='event-boundary'
+          onClick={(e) => e.stopPropagation()}
+        >
           {!server.builtin && (
             <Dropdown
               trigger='hover'

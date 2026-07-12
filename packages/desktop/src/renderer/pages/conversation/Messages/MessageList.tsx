@@ -637,6 +637,7 @@ const MessageList: React.FC<{
           <div
             ref={handleScrollerRef}
             data-testid='message-list-scroller'
+            data-eve-interaction-role='selection-surface'
             // Break out of the parent's 20px horizontal padding so the scrollbar hugs the
             // window edge, while re-applying that padding inside to keep message content inset.
             className='flex-1 h-full overflow-y-auto pb-10px box-border -mx-20px px-20px'
@@ -667,14 +668,24 @@ const MessageList: React.FC<{
           <div className='absolute bottom-0 left-0 right-0 h-100px pointer-events-none' />
           {/* Scroll button */}
           <div className='absolute bottom-20px left-50% transform -translate-x-50% z-100'>
-            <div
-              className='flex items-center justify-center w-40px h-40px rd-full bg-base shadow-lg cursor-pointer hover:bg-1 transition-all hover:scale-110 border-1 border-solid border-3'
+            <button
+              type='button'
+              className='eve-focus-ring flex items-center justify-center w-40px h-40px p-0 rd-full cursor-pointer transition-all hover:scale-105 border-1 border-solid'
               onClick={handleScrollButtonClick}
               title={t('messages.scrollToBottom')}
-              style={{ lineHeight: 0 }}
+              aria-label={t('messages.scrollToBottom')}
+              style={{
+                lineHeight: 0,
+                color: 'var(--eve-shell-text-secondary)',
+                background: 'var(--glass-overlay-bg)',
+                borderColor: 'var(--glass-overlay-border)',
+                boxShadow: 'var(--glass-shadow-soft)',
+                backdropFilter: 'var(--glass-overlay-filter)',
+                WebkitBackdropFilter: 'var(--glass-overlay-filter)',
+              }}
             >
               <Down theme='filled' size='20' fill={iconColors.secondary} style={{ display: 'block' }} />
-            </div>
+            </button>
           </div>
         </>
       )}

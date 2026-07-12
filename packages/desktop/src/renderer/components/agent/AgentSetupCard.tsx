@@ -171,15 +171,22 @@ const AgentSetupCard: React.FC<AgentSetupCardProps> = ({
   }, [conversation_id]);
 
   // 是否有可用的 agent 且正在切换 / Has available agent and is switching
-  const hasAvailableAndSwitching = !isChecking && availableCount > 0 && (switching || (autoSwitch && bestAgent));
+  const hasAvailableAndSwitching = Boolean(
+    !isChecking && availableCount > 0 && (switching || (autoSwitch && bestAgent))
+  );
 
   return (
     <div className='mb-12px'>
       {/* Main Card - 主卡片 */}
-      <div className='relative rounded-12px p-16px bg-bg-2 border-1 border-solid border-border-2'>
+      <div className='eve-panel relative rounded-8px p-16px border-1 border-solid'>
         {/* Collapsed View - 收起状态：一行提示 + 展开按钮 */}
         {!expanded && !hasAvailableAndSwitching && (
-          <div className='flex items-center justify-between cursor-pointer' onClick={() => setExpanded(true)}>
+          <button
+            type='button'
+            aria-expanded={false}
+            className='w-full flex items-center justify-between border-none bg-transparent p-0 text-left cursor-pointer'
+            onClick={() => setExpanded(true)}
+          >
             <div className='flex items-center gap-8px'>
               <Loading theme='outline' size={16} className='animate-spin text-t-secondary' />
               <span className='text-13px text-t-primary'>
@@ -189,7 +196,7 @@ const AgentSetupCard: React.FC<AgentSetupCardProps> = ({
               </span>
             </div>
             <Down theme='outline' size={16} className='text-t-tertiary hover:text-t-secondary transition-colors' />
-          </div>
+          </button>
         )}
 
         {/* Expanded View - 展开状态 */}
@@ -218,8 +225,10 @@ const AgentSetupCard: React.FC<AgentSetupCardProps> = ({
                   )}
                 </div>
                 <button
+                  type='button'
                   onClick={() => setExpanded(false)}
                   className='p-4px rounded-4px hover:bg-fill-3 transition-colors cursor-pointer border-none bg-transparent'
+                  aria-label={t('common.collapse', { defaultValue: 'Collapse' })}
                 >
                   <Up theme='outline' size={16} className='text-t-tertiary' />
                 </button>
@@ -296,10 +305,12 @@ const AgentSetupCard: React.FC<AgentSetupCardProps> = ({
                       const logoSrc = getAgentLogo(result.backend as string);
 
                       return (
-                        <div
+                        <button
+                          type='button'
+                          disabled={!result.available || hasAvailableAndSwitching}
                           key={result.backend}
                           className={classNames(
-                            'rounded-10px p-12px transition-all min-w-120px flex-shrink-0',
+                            'rounded-8px border-none p-12px text-inherit transition-all min-w-120px flex-shrink-0',
                             cardStyle
                           )}
                           onClick={
@@ -329,7 +340,7 @@ const AgentSetupCard: React.FC<AgentSetupCardProps> = ({
                               <span>{statusText}</span>
                             </div>
                           </div>
-                        </div>
+                        </button>
                       );
                     })}
                 </div>

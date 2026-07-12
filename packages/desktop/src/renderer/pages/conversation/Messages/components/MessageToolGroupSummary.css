@@ -25,10 +25,41 @@
   cursor: pointer;
   user-select: none;
   line-height: 1;
+  padding: 4px 2px;
+  border: 0;
+  border-radius: var(--eve-surface-radius-sm, 6px);
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
 }
 
 .tool-group-summary__header:hover {
   color: var(--eve-shell-text);
+}
+
+.tool-group-summary__header:focus-visible,
+.tool-item-disclosure:focus-visible {
+  outline: 2px solid var(--eve-focus-ring, var(--color-primary-6));
+  outline-offset: 2px;
+}
+
+.tool-item-disclosure {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 2px;
+  border: 0;
+  border-radius: var(--eve-surface-radius-sm, 6px);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.tool-item-disclosure:hover {
+  color: var(--eve-shell-text, var(--color-text-1));
+  background: var(--eve-row-hover-bg, var(--color-fill-2));
 }
 
 .tool-group-summary__icon {
@@ -97,7 +128,8 @@
   font-size: 12px;
   line-height: 1.5;
   color: var(--color-text-2, #4e5969);
-  background: var(--color-fill-1, #f7f8fa);
+  background: var(--glass-panel-bg, var(--color-fill-1, #f7f8fa));
+  border: 1px solid var(--glass-panel-border, var(--color-border-2));
   border-radius: 4px;
   padding: 6px 8px;
   margin: 0;

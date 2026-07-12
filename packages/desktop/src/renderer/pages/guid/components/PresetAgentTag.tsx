@@ -10,6 +10,7 @@ import type { Assistant } from '@/common/types/agent/assistantTypes';
 import { IconClose } from '@arco-design/web-react/icon';
 import { Down, Robot } from '@icon-park/react';
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { resolveExtensionAssetUrl } from '@/renderer/utils/platform';
 import { Dropdown, Menu } from '@arco-design/web-react';
 import styles from '../index.module.css';
@@ -40,6 +41,7 @@ const PresetAgentTag: React.FC<PresetAgentTagProps> = ({
   agentSwitcherItems,
   onAgentSwitch,
 }) => {
+  const { t } = useTranslation();
   const avatarValue = agentInfo.avatar?.trim();
   const mappedAvatar = avatarValue ? CUSTOM_AVATAR_IMAGE_MAP[avatarValue] : undefined;
   const resolvedAvatar = avatarValue ? resolveExtensionAssetUrl(avatarValue) : undefined;
@@ -109,7 +111,9 @@ const PresetAgentTag: React.FC<PresetAgentTagProps> = ({
       <span className={styles.presetAgentTagDivider} aria-hidden='true' />
 
       {/* Right: always × to close */}
-      <div
+      <button
+        type='button'
+        aria-label={t('common.close')}
         className={styles.presetAgentTagClose}
         onClick={(e) => {
           e.stopPropagation();
@@ -117,7 +121,7 @@ const PresetAgentTag: React.FC<PresetAgentTagProps> = ({
         }}
       >
         <IconClose style={{ fontSize: 12, color: 'var(--color-text-3)' }} />
-      </div>
+      </button>
     </div>
   );
 };

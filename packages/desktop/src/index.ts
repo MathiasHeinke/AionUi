@@ -1245,6 +1245,8 @@ function scheduleCommandEveLocalModelWarmup(
   // speculative local fallback can load a multi-GB model even when the user
   // selected cloud and can make low-memory Macs unresponsive.
   void (async () => {
+    if (backendStartupFailed) return;
+
     let lane: ReturnType<typeof resolveCommandEveWarmupLane>;
     try {
       await waitForCommandEveBackendPort(30_000);
@@ -1728,7 +1730,13 @@ const handleAppReady = async (): Promise<void> => {
           void ensureCommandEveRuntimeBootstrap(bootstrapOptions)
             .then((receipt) => {
               console.info(`[Command EVE] Runtime bootstrap ${receipt.status}: ${receipt.next_action}`);
-              scheduleCommandEveLocalModelWarmup(receipt, shimUrl, warmCommandEveLocalModel, mark, warmCommandEveEveLane);
+              scheduleCommandEveLocalModelWarmup(
+                receipt,
+                shimUrl,
+                warmCommandEveLocalModel,
+                mark,
+                warmCommandEveEveLane
+              );
             })
             .catch((error) => {
               console.error('[Command EVE] Runtime bootstrap failed:', error);
@@ -1939,6 +1947,7 @@ const handleAppReady = async (): Promise<void> => {
     console.error('[CommandEVE] Failed to start aioncore:', error);
     backendStartupFailed = true;
     backendStartupFailureInfo = classifyBackendStartupFailure(error);
+    runDeferredCommandEveRuntimeBootstrap = undefined;
   }
 
   // One-shot WebUI admin credential migration. Must run after the backend is

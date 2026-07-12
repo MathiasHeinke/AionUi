@@ -21,6 +21,10 @@ function writeManagedResourceLocalBinary(localBinary: string): void {
 const fs = require('node:fs');
 const path = require('node:path');
 const args = process.argv.slice(2);
+if (args.includes('--help')) {
+  process.stdout.write('Usage: aioncore --local --local-capability-file <FILE> --local-origin <ORIGIN>\\n');
+  process.exit(0);
+}
 const bundleOut = args[args.indexOf('--bundle-out') + 1];
 if (!args.includes('prepare-managed-resources') || !bundleOut) process.exit(2);
 fs.mkdirSync(path.join(bundleOut, 'node', 'node-v-test-darwin-arm64', 'bin'), { recursive: true });

@@ -56,8 +56,10 @@
   "show": "Anzeigen",
   "hide": "Ausblenden",
   "goToSettings": "Zu den Einstellungen",
-  "forward": "Weiterleiten",
+  "forward": "Vorwärts",
   "historyBack": "Zurück",
+  "scrollFilesLeft": "Dateien nach links scrollen",
+  "scrollFilesRight": "Dateien nach rechts scrollen",
   "more": "Mehr",
   "refresh": "Aktualisieren",
   "tray.showWindow": "Command EVE anzeigen",
@@ -81,7 +83,12 @@
       "title": "Die Command-EVE-Installation ist unvollständig",
       "description": "Dieser Installation fehlen erforderliche lokale Ressourcen, daher kann AionCore nicht starten. Bitte laden Sie die neueste Version von Command EVE herunter und installieren Sie sie neu. Falls das Problem nach der Neuinstallation erneut auftritt, prüfen Sie, ob eine Sicherheits- oder Antivirensoftware AionCore in Quarantäne verschoben hat.",
       "downloadLatest": "Neueste Version herunterladen",
-      "sendDiagnostics": "Diagnose senden"
+      "sendDiagnostics": "Diagnose senden",
+      "runtimeComponentDescription": "Dieser Installation fehlen erforderliche lokale Runtime-Komponenten, daher kann {{resource}} nicht starten. Installieren Sie das neueste Command-EVE-Paket erneut. Falls der Fehler danach wieder auftritt, prüfen Sie, ob Sicherheitssoftware Komponenten von Command EVE blockiert hat."
+    },
+    "componentMismatch": {
+      "title": "Command EVE benötigt eine aktualisierte lokale Komponente",
+      "description": "Die installierte AionCore-Komponente ist nicht mit dieser Version von Command EVE kompatibel. Laden Sie die neueste Version herunter und installieren Sie sie. Ihre lokalen Daten bleiben erhalten."
     },
     "instanceConflict": {
       "title": "Der lokale KI-Dienst wird bereits verwendet",
@@ -90,6 +97,18 @@
     "startupFailed": {
       "title": "Der lokale KI-Dienst konnte nicht gestartet werden",
       "description": "AionCore konnte nicht gestartet werden. Starten Sie Command EVE neu. Falls der Fehler erneut auftritt, prüfen Sie die Diagnose, bevor Sie die App neu installieren."
+    },
+    "packageArchitectureMismatch": {
+      "title": "Das Command-EVE-Paket passt nicht zu diesem Mac",
+      "description": "Dieses Command-EVE-Paket ist für {{packageArch}}, dieser Mac verwendet jedoch {{deviceArch}}. Laden und installieren Sie das Paket für {{expectedArch}}."
+    },
+    "recovery": {
+      "eyebrow": "Command EVE Wiederherstellung",
+      "dataSafe": "Ihre lokalen Chats, Dateien und Einstellungen bleiben erhalten.",
+      "saveDiagnostics": "Diagnose speichern",
+      "diagnosticsSaved": "Die Diagnose wurde gespeichert.",
+      "diagnosticsFailed": "Die Diagnose konnte nicht gespeichert werden.",
+      "restart": "Command EVE neu starten"
     }
   },
   "fileAttach.addFiles": "Dateien hinzufügen",

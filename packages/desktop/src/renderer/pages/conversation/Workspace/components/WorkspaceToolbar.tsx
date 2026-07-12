@@ -95,8 +95,10 @@ const WorkspaceToolbar: React.FC<WorkspaceToolbarProps> = ({
 
       {/* Directory name with collapse and action icons */}
       <div className='workspace-toolbar-row flex items-center justify-between gap-8px'>
-        <div
-          className='flex items-center gap-8px cursor-pointer flex-1 min-w-0'
+        <button
+          type='button'
+          aria-expanded={!isWorkspaceCollapsed}
+          className='flex items-center gap-8px cursor-pointer flex-1 min-w-0 border-none bg-transparent p-0 text-left'
           onClick={() => setIsWorkspaceCollapsed(!isWorkspaceCollapsed)}
         >
           <Down
@@ -107,7 +109,7 @@ const WorkspaceToolbar: React.FC<WorkspaceToolbarProps> = ({
           <span className='workspace-title-label font-bold text-14px text-t-primary overflow-hidden text-ellipsis whitespace-nowrap'>
             {workspaceDisplayName}
           </span>
-        </div>
+        </button>
         <div className='workspace-toolbar-actions flex items-center gap-8px flex-shrink-0'>
           {!isElectronDesktop() && (
             <Dropdown droplist={workspaceUploadMenu} trigger='click' position='bl'>

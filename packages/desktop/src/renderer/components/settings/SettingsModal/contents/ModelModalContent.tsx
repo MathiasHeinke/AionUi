@@ -719,6 +719,7 @@ const ModelModalContent: React.FC = () => {
                             {platform.name}
                           </span>
                           <div
+                            data-eve-interaction-role='event-boundary'
                             className='flex items-center gap-8px shrink-0'
                             onClick={(e) => {
                               e.stopPropagation();
@@ -728,19 +729,21 @@ const ModelModalContent: React.FC = () => {
                             }}
                           >
                             <span className='text-12px text-t-secondary whitespace-nowrap hidden md:inline-flex items-center overflow-hidden max-w-0 opacity-0 group-hover:max-w-320px group-hover:opacity-100 transition-all duration-180'>
-                              <span
-                                className='cursor-pointer hover:text-t-primary transition-colors'
+                              <button
+                                type='button'
+                                className='border-none bg-transparent p-0 text-inherit cursor-pointer hover:text-t-primary transition-colors'
                                 onClick={() => setCollapseKey((prev) => ({ ...prev, [platform.id]: !isExpanded }))}
                               >
                                 {t('settings.modelCount')}（{(platform.models ?? []).length}）
-                              </span>
+                              </button>
                               <span className='mx-6px'>|</span>
-                              <span
-                                className='cursor-pointer hover:text-t-primary transition-colors'
+                              <button
+                                type='button'
+                                className='border-none bg-transparent p-0 text-inherit cursor-pointer hover:text-t-primary transition-colors'
                                 onClick={() => editModalCtrl.open({ data: platform, disabled: byokDisabled })}
                               >
                                 {t('settings.apiKeyCount')}（{getApiKeyCount(platform.api_key)}）
-                              </span>
+                              </button>
                             </span>
                             <span className='text-12px text-t-secondary whitespace-nowrap md:hidden'>
                               {(platform.models ?? []).length} / {getApiKeyCount(platform.api_key)}

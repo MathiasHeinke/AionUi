@@ -152,47 +152,60 @@ const ScheduledTasksPage: React.FC = () => {
                 <div
                   key={job.id}
                   className={classNames(
-                    'group flex cursor-pointer flex-col border border-solid border-[var(--color-border-2)] bg-fill-1 transition-colors duration-200 hover:border-[var(--color-border-3)] hover:shadow-sm',
-                    isMobile ? 'rounded-12px px-16px py-16px' : 'rounded-12px px-20px py-18px'
+                    'eve-panel group relative flex flex-col border border-solid transition-colors duration-200 hover:border-[var(--color-border-3)] hover:shadow-sm',
+                    isMobile ? 'rounded-8px px-16px py-16px' : 'rounded-8px px-20px py-18px'
                   )}
-                  onClick={() => handleGoToDetail(job)}
                 >
-                  <div className='mb-12px flex items-center justify-between gap-8px'>
+                  <button
+                    type='button'
+                    aria-label={job.name}
+                    className='flex w-full cursor-pointer flex-col border-none bg-transparent p-0 text-left'
+                    onClick={() => handleGoToDetail(job)}
+                  >
+                    <span className='mb-12px flex items-center justify-between gap-8px'>
+                      <span
+                        className={classNames(
+                          'mr-8px min-w-0 flex-1 font-medium text-t-primary',
+                          isMobile ? 'truncate text-14px leading-20px' : 'truncate text-15px leading-22px'
+                        )}
+                      >
+                        {job.name}
+                      </span>
+                      <CronStatusTag job={job} />
+                    </span>
+
                     <span
                       className={classNames(
-                        'mr-8px min-w-0 flex-1 font-medium text-t-primary',
-                        isMobile ? 'truncate text-14px leading-20px' : 'truncate text-15px leading-22px'
+                        'min-w-0 break-words text-t-secondary',
+                        isMobile ? 'text-13px leading-20px' : 'text-14px leading-22px'
+                      )}
+                      title={formatSchedule(job, t)}
+                    >
+                      {formatSchedule(job, t)}
+                    </span>
+
+                    <span
+                      className='mt-16px min-w-0 break-words text-t-secondary text-13px leading-20px'
+                      title={
+                        job.state.next_run_at_ms
+                          ? `${t('cron.nextRun')} ${formatNextRun(job.state.next_run_at_ms)}`
+                          : '-'
+                      }
+                    >
+                      {job.state.next_run_at_ms
+                        ? `${t('cron.nextRun')} ${formatNextRun(job.state.next_run_at_ms)}`
+                        : '-'}
+                    </span>
+
+                    <span
+                      className={classNames(
+                        'mt-14px flex min-w-0 items-center gap-6px text-12px leading-18px text-t-secondary',
+                        !isManualOnly && 'pr-42px'
                       )}
                     >
-                      {job.name}
-                    </span>
-                    <CronStatusTag job={job} />
-                  </div>
-
-                  <div
-                    className={classNames(
-                      'min-w-0 break-words text-t-secondary',
-                      isMobile ? 'text-13px leading-20px' : 'text-14px leading-22px'
-                    )}
-                    title={formatSchedule(job, t)}
-                  >
-                    {formatSchedule(job, t)}
-                  </div>
-
-                  <div
-                    className='mt-16px min-w-0 break-words text-t-secondary text-13px leading-20px'
-                    title={
-                      job.state.next_run_at_ms ? `${t('cron.nextRun')} ${formatNextRun(job.state.next_run_at_ms)}` : '-'
-                    }
-                  >
-                    {job.state.next_run_at_ms ? `${t('cron.nextRun')} ${formatNextRun(job.state.next_run_at_ms)}` : '-'}
-                  </div>
-
-                  <div className='mt-14px flex items-center justify-between gap-10px'>
-                    <div className='min-w-0 flex items-center gap-6px text-12px leading-18px text-t-secondary'>
                       {agentMeta.name ? (
                         <Tooltip content={agentMeta.name}>
-                          <div className='flex h-16px w-16px shrink-0 items-center justify-center text-t-secondary'>
+                          <span className='flex h-16px w-16px shrink-0 items-center justify-center text-t-secondary'>
                             {agentMeta.logo ? (
                               <img
                                 src={agentMeta.logo}
@@ -204,18 +217,25 @@ const ScheduledTasksPage: React.FC = () => {
                                 {agentMeta.name.slice(0, 1)}
                               </span>
                             )}
-                          </div>
+                          </span>
                         </Tooltip>
                       ) : null}
                       <span className='min-w-0 truncate'>{executionModeLabel}</span>
-                    </div>
+                    </span>
+                  </button>
 
-                    <div className='shrink-0' onClick={(e) => e.stopPropagation()}>
-                      {!isManualOnly && (
-                        <Switch size='small' checked={job.enabled} onChange={() => handleToggleEnabled(job)} />
-                      )}
+                  {!isManualOnly && (
+                    <div
+                      className={classNames('absolute', isMobile ? 'bottom-16px right-16px' : 'bottom-18px right-20px')}
+                    >
+                      <Switch
+                        size='small'
+                        aria-label={job.name}
+                        checked={job.enabled}
+                        onChange={() => handleToggleEnabled(job)}
+                      />
                     </div>
-                  </div>
+                  )}
                 </div>
               );
             })}

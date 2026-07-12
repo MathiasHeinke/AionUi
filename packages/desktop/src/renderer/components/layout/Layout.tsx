@@ -20,9 +20,7 @@ import { useDirectorySelection } from '@renderer/hooks/file/useDirectorySelectio
 import { cleanupSiderTooltips } from '@renderer/utils/ui/siderTooltip';
 import { useConversationShortcuts } from '@renderer/hooks/ui/useConversationShortcuts';
 import { isElectronDesktop } from '@renderer/utils/platform';
-import {
-  COMMAND_EVE_SHELL_ENABLED,
-} from '@/common/config/commandEveShell';
+import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import SeatRail from '@renderer/components/seats/SeatRail';
 import '@renderer/styles/layout.css';
 
@@ -310,7 +308,12 @@ const Layout: React.FC<{
           <Titlebar workspaceAvailable={workspaceAvailable} />
           {/* 移动端左侧边栏蒙板 / Mobile left sider backdrop */}
           {isMobile && !collapsed && (
-            <div className='fixed inset-0 bg-black/30 z-90' onClick={() => setCollapsed(true)} aria-hidden='true' />
+            <div
+              className='fixed inset-0 bg-black/30 z-90'
+              data-eve-interaction-role='dismiss-backdrop'
+              onClick={() => setCollapsed(true)}
+              aria-hidden='true'
+            />
           )}
 
           <ArcoLayout className={'size-full layout flex-1 min-h-0'}>
@@ -368,6 +371,7 @@ const Layout: React.FC<{
               {!isMobile && (
                 <div
                   className='absolute top-0 h-full w-8px z-20 cursor-col-resize group'
+                  data-eve-interaction-role='resize-handle'
                   style={{ right: '-4px' }}
                   onMouseDown={beginSiderResizeDrag}
                   aria-hidden='true'

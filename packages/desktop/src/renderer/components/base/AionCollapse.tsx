@@ -163,7 +163,9 @@ const AionCollapseComponent: React.FC<AionCollapseProps> & { Item: typeof AionCo
   }, []);
 
   return (
-    <div className={classNames('rounded-16px  flex flex-col gap-12px bg-2 py-18px px-[12px] md:px-[32px]', className)}>
+    <div
+      className={classNames('eve-panel rounded-8px flex flex-col gap-12px py-18px px-[12px] md:px-[32px]', className)}
+    >
       {items.map((child) => {
         const {
           name,
@@ -183,24 +185,27 @@ const AionCollapseComponent: React.FC<AionCollapseProps> & { Item: typeof AionCo
           <div
             key={name}
             className={classNames(
-              'overflow-hidden rounded-12px',
+              'overflow-hidden rounded-8px',
               itemBorderClass,
               itemClassName,
               disabled && 'opacity-50'
             )}
           >
             {/* 面板标题 / Panel header */}
-            <div
+            <button
+              type='button'
+              aria-expanded={isActive}
+              disabled={disabled}
               onClick={() => handleToggle(name, disabled)}
               className={classNames(
-                'flex items-center gap-3 text-left transition-colors py-5px cursor-pointer',
+                'w-full flex items-center gap-3 border-none bg-transparent p-0 text-left transition-colors py-5px cursor-pointer',
                 headerClassName
               )}
             >
               {expandIconPosition === 'left' && <span className='flex items-center'>{iconNode}</span>}
               <div className='flex-1 text-t-primary text-14px leading-22px'>{header}</div>
               {expandIconPosition === 'right' && <span className='flex items-center'>{iconNode}</span>}
-            </div>
+            </button>
             {/* 面板内容（使用 grid 实现平滑动画）/ Panel content (using grid for smooth animation) */}
             <div className='transition-all duration-300 ease-in-out'>
               {isActive && (

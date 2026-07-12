@@ -126,6 +126,29 @@ test('stageBundledSkills refreshes from source and verifies all 31 (no failures)
   }
 });
 
+test('stageBundledSkills keeps the live skill directory present while refreshing it', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fbs-test-'));
+  try {
+    const srcRoot = makeFixtureSrc(root);
+    const snapshotRoot = path.join(root, 'snapshot');
+    const skill = EVE_STRATEGY_SKILLS.find(({ id }) => id === 'eve-doctrine');
+    assert.ok(skill);
+    const destDir = path.join(snapshotRoot, skill.id);
+    fs.mkdirSync(destDir, { recursive: true });
+    fs.writeFileSync(path.join(destDir, 'stale.md'), 'stale\n');
+    const inodeBefore = fs.statSync(destDir).ino;
+
+    const failures = stageBundledSkills({ srcRoot, snapshotRoot, skills: [skill] });
+
+    assert.deepEqual(failures, []);
+    assert.equal(fs.statSync(destDir).ino, inodeBefore);
+    assert.ok(fs.existsSync(path.join(destDir, 'SKILL.md')));
+    assert.equal(fs.existsSync(path.join(destDir, 'stale.md')), false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('findForbiddenUserFacingJsonContent scans visible values, not technical keys', () => {
   const safe = JSON.stringify({
     bypassPermissions: 'Auto',
@@ -175,9 +198,14 @@ test('findSkillHygieneFailures requires disable_model_invocation for long-tail s
     '---',
     '# Lead Magnet PDF',
   ].join('\n');
-  assert.ok(findSkillHygieneFailures({ skillId: 'lead-magnet-pdf', text: missing }).includes('disable_model_invocation_missing'));
+  assert.ok(
+    findSkillHygieneFailures({ skillId: 'lead-magnet-pdf', text: missing }).includes('disable_model_invocation_missing')
+  );
 
-  const present = missing.replace('description: Use when a lead magnet PDF is explicitly needed.', 'description: Use when a lead magnet PDF is explicitly needed.\ndisable_model_invocation: true');
+  const present = missing.replace(
+    'description: Use when a lead magnet PDF is explicitly needed.',
+    'description: Use when a lead magnet PDF is explicitly needed.\ndisable_model_invocation: true'
+  );
   assert.deepEqual(findSkillHygieneFailures({ skillId: 'lead-magnet-pdf', text: present }), []);
 });
 
@@ -202,7 +230,9 @@ test('findSkillHygieneFailures rejects duplicated EVE doctrine surfaces and miss
     '---',
     '# Content Machine',
   ].join('\n');
-  assert.ok(findSkillHygieneFailures({ skillId: 'content-machine', text: missingLinkedFiles }).includes('linked_files_missing'));
+  assert.ok(
+    findSkillHygieneFailures({ skillId: 'content-machine', text: missingLinkedFiles }).includes('linked_files_missing')
+  );
 });
 
 test('stageBundledSkills fails when a linked_files entry does not resolve inside the skill tree', () => {

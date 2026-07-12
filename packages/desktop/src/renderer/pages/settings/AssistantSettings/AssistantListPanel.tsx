@@ -48,9 +48,9 @@ const AssistantListPanel: React.FC<AssistantListPanelProps> = ({
   const [activeFilter, setActiveFilter] = useState<AssistantListFilter>('all');
   const [searchExpanded, setSearchExpanded] = useState(false);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
-  const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const cardRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const cardRefSetter = useCallback(
-    (id: string) => (el: HTMLDivElement | null) => {
+    (id: string) => (el: HTMLButtonElement | null) => {
       cardRefs.current[id] = el;
     },
     []
@@ -123,15 +123,19 @@ const AssistantListPanel: React.FC<AssistantListPanelProps> = ({
     return (
       <div
         key={assistant.id}
-        ref={cardRefSetter(assistant.id)}
-        data-testid={`assistant-card-${assistant.id}`}
-        className={`group border border-solid rounded-16px px-16px py-14px flex items-center justify-between cursor-pointer transition-all duration-180 hover:border-[var(--color-primary-light-4)] hover:bg-bg-1 ${highlightedId === assistant.id ? 'border-primary-5 bg-primary-1' : 'border-[var(--color-neutral-3)] bg-fill-0'}`}
-        onClick={() => {
-          setActiveAssistantId(assistant.id);
-          onEdit(assistant);
-        }}
+        className={`eve-panel group flex items-center justify-between rounded-8px border border-solid transition-all duration-180 hover:border-[var(--color-primary-light-4)] ${highlightedId === assistant.id ? 'border-primary-5' : 'border-[var(--color-neutral-3)]'}`}
       >
-        <div className='flex items-center gap-12px min-w-0 flex-1'>
+        <button
+          type='button'
+          aria-label={assistant.name_i18n?.[localeKey] || assistant.name}
+          ref={cardRefSetter(assistant.id)}
+          data-testid={`assistant-card-${assistant.id}`}
+          className='flex min-w-0 flex-1 cursor-pointer items-center gap-12px border-none bg-transparent py-14px pl-16px text-left'
+          onClick={() => {
+            setActiveAssistantId(assistant.id);
+            onEdit(assistant);
+          }}
+        >
           <AssistantAvatar assistant={assistant} size={28} avatarImageMap={avatarImageMap} />
           <div className='min-w-0 flex-1'>
             <div className='font-medium text-t-primary min-w-0 flex items-center gap-10px'>
@@ -142,22 +146,21 @@ const AssistantListPanel: React.FC<AssistantListPanelProps> = ({
               {assistant.description_i18n?.[localeKey] || assistant.description || ''}
             </div>
           </div>
-        </div>
-        <div
-          className='flex items-center gap-10px text-t-secondary ml-12px flex-shrink-0'
-          onClick={(e) => e.stopPropagation()}
-        >
-          <span
-            className='invisible group-hover:visible text-12px text-primary cursor-pointer hover:underline transition-all'
+        </button>
+        <div className='ml-12px flex flex-shrink-0 items-center gap-10px pr-16px text-t-secondary'>
+          <button
+            type='button'
+            className='invisible group-hover:visible border-none bg-transparent p-0 text-12px text-primary cursor-pointer hover:underline transition-all'
             data-testid={`btn-duplicate-${assistant.id}`}
             onClick={() => {
               onDuplicate(assistant);
             }}
           >
             {t('settings.duplicateAssistant', { defaultValue: 'Duplicate' })}
-          </span>
+          </button>
           <Switch
             size='small'
+            aria-label={assistant.name_i18n?.[localeKey] || assistant.name}
             data-testid={`switch-enabled-${assistant.id}`}
             checked={assistantIsExtension ? true : assistant.enabled !== false}
             disabled={assistantIsExtension}
@@ -169,6 +172,7 @@ const AssistantListPanel: React.FC<AssistantListPanelProps> = ({
             type='text'
             size='small'
             icon={<SettingOne size={16} />}
+            aria-label={t('common.edit')}
             className='!rounded-10px'
             data-testid={`btn-edit-${assistant.id}`}
             onClick={() => {

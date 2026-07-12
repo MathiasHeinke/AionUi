@@ -128,7 +128,10 @@ export async function ensureTeamSectionExpanded(page: Page): Promise<void> {
   const toggle = page.locator('[data-testid="team-section-toggle"]').first();
   await toggle.waitFor({ state: 'visible', timeout: 10_000 });
 
-  const menuTriggerCount = await page.locator('[data-testid="sider-item-menu-trigger"]').count().catch(() => 0);
+  const menuTriggerCount = await page
+    .locator('[data-testid="sider-item-menu-trigger"]')
+    .count()
+    .catch(() => 0);
   if (menuTriggerCount === 0) {
     await toggle.click();
   }
@@ -140,9 +143,14 @@ export async function ensureSiderExpanded(page: Page): Promise<void> {
     return;
   }
 
-  const toggle = page.locator('[data-testid="sider-toggle-btn"]').first();
-  await toggle.waitFor({ state: 'visible', timeout: 5_000 });
-  await toggle.click();
+  const sider = page.locator('.layout-sider').first();
+  await sider.waitFor({ state: 'attached', timeout: 5_000 });
+  const isCollapsed = await sider.evaluate((element) => element.classList.contains('collapsed'));
+  if (isCollapsed) {
+    const toggle = page.locator('[data-testid="sider-toggle-btn"]').first();
+    await toggle.waitFor({ state: 'visible', timeout: 5_000 });
+    await toggle.click();
+  }
   await createBtn.waitFor({ state: 'visible', timeout: 10_000 });
 }
 

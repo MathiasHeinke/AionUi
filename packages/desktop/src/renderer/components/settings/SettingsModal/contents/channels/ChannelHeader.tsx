@@ -55,7 +55,11 @@ const ChannelHeader: React.FC<ChannelHeaderProps> = ({ channel, onToggleEnabled 
           <div className='eve-channel-header__description'>{channel.description}</div>
         </div>
       </div>
-      <div className='eve-channel-header__control' onClick={(e) => e.stopPropagation()}>
+      <div
+        className='eve-channel-header__control'
+        data-eve-interaction-role='event-boundary'
+        onClick={(e) => e.stopPropagation()}
+      >
         <Switch
           data-channel-switch-for={channel.id}
           data-channel-switch-disabled={isDisabled ? 'true' : 'false'}

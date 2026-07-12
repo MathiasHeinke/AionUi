@@ -120,6 +120,8 @@ test.describe('Team Create', () => {
     } else {
       // No supported agents installed — screenshot and skip
       await page.screenshot({ path: 'tests/e2e/results/team-03-no-agents.png' });
+      await modal.getByTestId('team-create-cancel').click();
+      await expect(modal).toBeHidden({ timeout: 5000 });
       console.log('[E2E] No supported agents available for team creation');
       test.skip();
     }
@@ -153,7 +155,16 @@ async function createTeamWithAgent(
 
   // Open the leader picker. The current UI renders a radio-list, not a dropdown.
   const leaderSelect = modal.locator('[data-testid="team-create-leader-select"]');
-  await expect(leaderSelect).toBeVisible({ timeout: 5000 });
+  const hasLeaderSelect = await leaderSelect.isVisible({ timeout: 3000 }).catch(() => false);
+  if (!hasLeaderSelect) {
+    const noAgentsMessage = modal.getByText(/No supported agents installed|没有支持的 agent|Keine.*Agent/i);
+    await expect(noAgentsMessage).toBeVisible({ timeout: 3000 });
+    await modal.getByTestId('team-create-cancel').click();
+    await expect(modal).toBeHidden({ timeout: 5000 });
+    console.log('[E2E] No supported agents available for whitelisted leader test — skipping');
+    test.skip();
+    return;
+  }
   await leaderSelect.click();
 
   await page.screenshot({ path: `tests/e2e/results/${screenshotPrefix}-dropdown.png` });
@@ -178,8 +189,8 @@ async function createTeamWithAgent(
   if (!matchingOption) {
     // Agent not installed — close dropdown and modal, skip test
     await page.keyboard.press('Escape').catch(() => {});
-    await page.locator('.team-create-modal .arco-btn-text').first().click({ force: true });
-    await expect(page.locator('.team-create-modal')).toBeHidden({ timeout: 5000 });
+    await modal.getByTestId('team-create-cancel').click({ force: true });
+    await expect(modal).toBeHidden({ timeout: 5000 });
     console.log(`[E2E] Agent matching ${agentTextPattern} not found — skipping`);
     test.skip();
     return;

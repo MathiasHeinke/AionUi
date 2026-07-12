@@ -90,13 +90,13 @@
 }
 
 .sendbox-panel.eve-composer-surface {
-  background: color-mix(in srgb, var(--eve-shell-surface, var(--color-bg-1)) 76%, transparent);
+  background: var(--glass-composer-bg);
   border-color: var(--eve-composer-border, var(--glass-panel-border)) !important;
   box-shadow:
     0 18px 42px color-mix(in srgb, #0f172a 12%, transparent),
     inset 0 1px 0 var(--glass-edge-highlight, color-mix(in srgb, #fff 36%, transparent));
-  -webkit-backdrop-filter: blur(var(--eve-glass-panel-blur, 14px)) saturate(135%);
-  backdrop-filter: blur(var(--eve-glass-panel-blur, 14px)) saturate(135%);
+  -webkit-backdrop-filter: var(--glass-composer-filter);
+  backdrop-filter: var(--glass-composer-filter);
 }
 
 .eve-composer-icon-button,

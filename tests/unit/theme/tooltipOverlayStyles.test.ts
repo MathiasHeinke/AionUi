@@ -25,9 +25,11 @@ describe('arco tooltip and popover overlay styles', () => {
     expect(css).toContain('.arco-tooltip-content,');
     expect(css).toContain('.arco-popover-content,');
     expect(css).toContain('.arco-popconfirm-content {');
-    expect(css).toContain('background: var(--aion-overlay-bg) !important;');
+    expect(css).toContain('background: var(--glass-overlay-bg, var(--aion-overlay-bg)) !important;');
     expect(css).toContain('color: var(--aion-overlay-text) !important;');
-    expect(css).toContain('border: 1px solid var(--aion-overlay-border) !important;');
+    expect(css).toContain('border: 1px solid var(--glass-overlay-border, var(--aion-overlay-border)) !important;');
+    expect(css).toContain('-webkit-backdrop-filter: var(--glass-overlay-filter, blur(18px) saturate(125%));');
+    expect(css).toContain('background: var(--glass-overlay-bg-solid, var(--aion-overlay-bg)) !important;');
     expect(css).toContain('.arco-trigger-arrow.arco-tooltip-arrow,');
     expect(css).toContain('.arco-popover-arrow.arco-trigger-arrow,');
     expect(css).toContain('.arco-popconfirm-arrow.arco-trigger-arrow {');

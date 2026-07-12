@@ -1,5 +1,6 @@
-import { CloseSmall, Edit } from '@icon-park/react';
+import { Attention, CloseSmall, Edit } from '@icon-park/react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { TeammateStatus } from '@/common/types/team/teamTypes';
 import AgentStatusBadge from './AgentStatusBadge';
 import TeamAgentIdentity from './TeamAgentIdentity';
@@ -47,6 +48,7 @@ const TeamTabView: React.FC<TeamTabViewProps> = ({
   onDrop,
   isDragOver,
 }) => {
+  const { t } = useTranslation();
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(agent_name);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -94,15 +96,12 @@ const TeamTabView: React.FC<TeamTabViewProps> = ({
   return (
     <div
       draggable={!isLeader}
-      data-testid={`team-tab-${slot_id}`}
-      className={`relative group flex items-center gap-8px px-12px h-full max-w-240px cursor-pointer transition-all duration-200 shrink-0 border-r border-[color:var(--border-base)] ${
+      className={`relative group flex items-center gap-8px px-12px h-full max-w-240px transition-all duration-200 shrink-0 border-r border-[color:var(--border-base)] ${
         isActive
           ? 'bg-[color:var(--color-primary-1)] text-[color:var(--color-text-1)] border-t-2 border-t-solid border-t-[color:var(--color-primary-6)]'
           : 'bg-2 text-[color:var(--color-text-3)] hover:text-[color:var(--color-text-2)] hover:bg-[color:var(--fill-2)] border-b border-[color:var(--border-base)]'
       } ${isDragOver ? DRAG_OVER_CLASS : ''}`}
       style={isRunning ? { animation: 'team-tab-breathe 2s ease-in-out infinite' } : undefined}
-      onClick={() => !editing && onSwitch(slot_id)}
-      onDoubleClick={onRename ? startEditing : undefined}
       onDragStart={(e) => {
         e.dataTransfer.effectAllowed = 'move';
         onDragStart(slot_id);
@@ -119,56 +118,74 @@ const TeamTabView: React.FC<TeamTabViewProps> = ({
       onDragEnd={() => onDrop()}
     >
       {editing ? (
-        <input
-          ref={inputRef}
-          className='text-15px flex-1 min-w-0 bg-transparent border-none outline-none text-[color:var(--color-text-1)] p-0'
-          value={editValue}
-          onChange={(e) => setEditValue(e.target.value)}
-          onBlur={commitRename}
-          onKeyDown={handleKeyDown}
-        />
-      ) : (
-        <div className='min-w-0 flex-1 flex items-center gap-4px'>
-          {pendingCount > 0 && (
-            <span
-              className='shrink-0 text-14px leading-none animate-wiggle'
-              title={`${pendingCount} pending permission request(s)`}
-            >
-              ‼️
-            </span>
-          )}
-          <TeamAgentIdentity
-            agent_name={agent_name}
-            agent_type={agent_type}
-            icon={icon}
-            conversation_id={conversation_id}
-            isLeader={isLeader}
-            className='min-w-0 flex-1'
-            logoClassName={`w-14px h-14px object-contain rounded-2px ${isActive ? 'opacity-100' : 'opacity-70'}`}
-            avatarClassName={`w-14px h-14px rounded-2px flex items-center justify-center text-11px leading-none bg-fill-2 shrink-0 ${isActive ? 'opacity-100' : 'opacity-80'}`}
-            nameClassName='text-15px whitespace-nowrap overflow-hidden text-ellipsis select-none'
+        <>
+          <input
+            ref={inputRef}
+            className='text-15px flex-1 min-w-0 bg-transparent border-none outline-none text-[color:var(--color-text-1)] p-0'
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onBlur={commitRename}
+            onKeyDown={handleKeyDown}
           />
-        </div>
+          <AgentStatusBadge status={status} />
+        </>
+      ) : (
+        <button
+          type='button'
+          role='tab'
+          data-eve-composite-owner='tablist'
+          aria-selected={isActive}
+          data-testid={`team-tab-${slot_id}`}
+          className='flex h-full min-w-0 flex-1 cursor-pointer items-center gap-8px border-none bg-transparent p-0 text-left text-inherit'
+          onClick={() => onSwitch(slot_id)}
+          onDoubleClick={onRename ? startEditing : undefined}
+        >
+          <span className='min-w-0 flex-1 flex items-center gap-4px'>
+            {pendingCount > 0 && (
+              <span
+                className='shrink-0 text-14px leading-none animate-wiggle'
+                title={`${pendingCount} pending permission request(s)`}
+              >
+                <Attention size={14} />
+              </span>
+            )}
+            <TeamAgentIdentity
+              agent_name={agent_name}
+              agent_type={agent_type}
+              icon={icon}
+              conversation_id={conversation_id}
+              isLeader={isLeader}
+              className='min-w-0 flex-1'
+              logoClassName={`w-14px h-14px object-contain rounded-2px ${isActive ? 'opacity-100' : 'opacity-70'}`}
+              avatarClassName={`w-14px h-14px rounded-2px flex items-center justify-center text-11px leading-none bg-fill-2 shrink-0 ${isActive ? 'opacity-100' : 'opacity-80'}`}
+              nameClassName='text-15px whitespace-nowrap overflow-hidden text-ellipsis select-none'
+            />
+          </span>
+          <AgentStatusBadge status={status} />
+        </button>
       )}
-      <AgentStatusBadge status={status} />
       {!editing && onRename && (
-        <span
-          className='opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity duration-150 shrink-0 flex items-center'
+        <button
+          type='button'
+          aria-label={t('team.tabs.renameAgent')}
+          className='opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity duration-150 shrink-0 flex items-center border-none bg-transparent p-0'
           onClick={startEditing}
         >
           <Edit theme='outline' size='12' fill='currentColor' />
-        </span>
+        </button>
       )}
       {!editing && !isLeader && onRemove && (
-        <span
-          className='opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity duration-150 shrink-0 flex items-center text-[color:var(--color-text-3)] hover:text-[color:var(--color-danger-6)]'
+        <button
+          type='button'
+          aria-label={t('team.tabs.removeAgent')}
+          className='opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity duration-150 shrink-0 flex items-center border-none bg-transparent p-0 text-[color:var(--color-text-3)] hover:text-[color:var(--color-danger-6)]'
           onClick={(e) => {
             e.stopPropagation();
             onRemove(slot_id);
           }}
         >
           <CloseSmall theme='outline' size='14' fill='currentColor' />
-        </span>
+        </button>
       )}
     </div>
   );
@@ -185,6 +202,7 @@ type TeamTabsProps = {
  * Supports scroll overflow with fade indicators and add-agent dropdown.
  */
 const TeamTabs: React.FC<TeamTabsProps> = ({ onTabClick, pendingCounts }) => {
+  const { t } = useTranslation();
   const { agents, activeSlotId, statusMap, switchTab, renameAgent, removeAgent, reorderAgents } = useTeamTabs();
   const tabsContainerRef = useRef<HTMLDivElement>(null);
   const [showLeftFade, setShowLeftFade] = useState(false);
@@ -246,6 +264,8 @@ const TeamTabs: React.FC<TeamTabsProps> = ({ onTabClick, pendingCounts }) => {
       <div className='relative flex items-center h-40px w-full border-t border-x border-solid border-[color:var(--border-base)]'>
         <div
           ref={tabsContainerRef}
+          role='tablist'
+          aria-label={t('team.tabs.label')}
           className='flex items-center h-full flex-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none]'
         >
           {agents.map((agent) => {

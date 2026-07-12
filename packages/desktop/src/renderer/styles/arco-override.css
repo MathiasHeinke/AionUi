@@ -35,10 +35,12 @@ body {
 html body .arco-tooltip-content,
 html body .arco-popover-content,
 html body .arco-popconfirm-content {
-  background: var(--aion-overlay-bg) !important;
+  background: var(--glass-overlay-bg, var(--aion-overlay-bg)) !important;
   color: var(--aion-overlay-text) !important;
-  border: 1px solid var(--aion-overlay-border) !important;
-  box-shadow: var(--aion-overlay-shadow) !important;
+  border: 1px solid var(--glass-overlay-border, var(--aion-overlay-border)) !important;
+  box-shadow: var(--glass-shadow-soft, var(--aion-overlay-shadow)) !important;
+  -webkit-backdrop-filter: var(--glass-overlay-filter, blur(18px) saturate(125%));
+  backdrop-filter: var(--glass-overlay-filter, blur(18px) saturate(125%));
 }
 
 html[data-theme='dark'] body .arco-tooltip-content,
@@ -47,10 +49,12 @@ html[data-theme='dark'] body .arco-popconfirm-content,
 body[arco-theme='dark'] .arco-tooltip-content,
 body[arco-theme='dark'] .arco-popover-content,
 body[arco-theme='dark'] .arco-popconfirm-content {
-  background: var(--aion-overlay-bg) !important;
+  background: var(--glass-overlay-bg, var(--aion-overlay-bg)) !important;
   color: var(--aion-overlay-text) !important;
-  border: 1px solid var(--aion-overlay-border) !important;
-  box-shadow: var(--aion-overlay-shadow) !important;
+  border: 1px solid var(--glass-overlay-border, var(--aion-overlay-border)) !important;
+  box-shadow: var(--glass-shadow-soft, var(--aion-overlay-shadow)) !important;
+  -webkit-backdrop-filter: var(--glass-overlay-filter, blur(18px) saturate(125%));
+  backdrop-filter: var(--glass-overlay-filter, blur(18px) saturate(125%));
 }
 
 html body .arco-tooltip-content-inner,
@@ -64,8 +68,48 @@ html body .arco-popconfirm-inner-content {
 html body .arco-trigger-arrow.arco-tooltip-arrow,
 html body .arco-popover-arrow.arco-trigger-arrow,
 html body .arco-popconfirm-arrow.arco-trigger-arrow {
-  background: var(--aion-overlay-bg) !important;
-  border: 1px solid var(--aion-overlay-border) !important;
+  background: var(--glass-overlay-bg, var(--aion-overlay-bg)) !important;
+  border: 1px solid var(--glass-overlay-border, var(--aion-overlay-border)) !important;
+}
+
+/* Menus and pickers are overlays, not nested opaque cards. Keep them more
+   covered than chrome so labels stay readable while the shared background
+   remains visibly present through the material. */
+html body .arco-dropdown-menu,
+html body .arco-select-popup,
+html body .arco-picker-container,
+html body .arco-menu-pop {
+  background: var(--glass-overlay-bg, var(--aion-overlay-bg)) !important;
+  border-color: var(--glass-overlay-border, var(--aion-overlay-border)) !important;
+  box-shadow: var(--glass-shadow-soft, var(--aion-overlay-shadow)) !important;
+  -webkit-backdrop-filter: var(--glass-overlay-filter, blur(18px) saturate(125%));
+  backdrop-filter: var(--glass-overlay-filter, blur(18px) saturate(125%));
+}
+
+:root[data-eve-reduced-effects='true'] body .arco-tooltip-content,
+:root[data-eve-reduced-effects='true'] body .arco-popover-content,
+:root[data-eve-reduced-effects='true'] body .arco-popconfirm-content,
+:root[data-eve-reduced-effects='true'] body .arco-dropdown-menu,
+:root[data-eve-reduced-effects='true'] body .arco-select-popup,
+:root[data-eve-reduced-effects='true'] body .arco-picker-container,
+:root[data-eve-reduced-effects='true'] body .arco-menu-pop {
+  background: var(--glass-overlay-bg-solid, var(--aion-overlay-bg)) !important;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  html body .arco-tooltip-content,
+  html body .arco-popover-content,
+  html body .arco-popconfirm-content,
+  html body .arco-dropdown-menu,
+  html body .arco-select-popup,
+  html body .arco-picker-container,
+  html body .arco-menu-pop {
+    background: var(--glass-overlay-bg-solid, var(--aion-overlay-bg)) !important;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
 /* Override Arco Design component backgrounds to white in light mode */

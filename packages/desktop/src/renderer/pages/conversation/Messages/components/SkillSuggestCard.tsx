@@ -64,11 +64,7 @@ const SkillSuggestCard: React.FC<SkillSuggestCardProps> = ({
   };
 
   return (
-    <div
-      data-testid='skill-suggest-card'
-      className='mt-8px p-12px rd-8px bg-fill-0 b-1 b-solid'
-      style={{ borderColor: 'color-mix(in srgb, var(--color-border-2) 70%, transparent)' }}
-    >
+    <div data-testid='skill-suggest-card' className='eve-panel mt-8px p-12px rd-8px'>
       <div className='flex items-center gap-6px mb-8px'>
         <Lightning theme='filled' size={16} fill={iconColors.warning} />
         <span className='font-500 text-14px'>{t('cron.skill.turnIntoSkill')}</span>
@@ -77,13 +73,15 @@ const SkillSuggestCard: React.FC<SkillSuggestCardProps> = ({
       <div className='text-t-secondary text-12px mb-8px'>{suggestion.description}</div>
 
       {/* Expandable preview */}
-      <div
-        className='flex items-center gap-4px text-12px text-t-secondary cursor-pointer hover:text-t-primary mb-8px select-none'
+      <button
+        type='button'
+        className='flex items-center gap-4px p-0 border-none bg-transparent text-12px text-t-secondary cursor-pointer hover:text-t-primary mb-8px select-none'
         onClick={() => setExpanded(!expanded)}
+        aria-expanded={expanded}
       >
         {expanded ? <Up size={12} /> : <Down size={12} />}
         <span>{t('cron.skill.preview')}</span>
-      </div>
+      </button>
       {expanded && (
         <div className='mb-12px p-8px rd-4px bg-bg-3 max-h-240px overflow-y-auto text-12px'>
           <MarkdownView codeStyle={CODE_STYLE}>{`\`\`\`markdown\n${suggestion.content}\n\`\`\``}</MarkdownView>

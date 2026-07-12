@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TChatConversation } from '@/common/config/storage';
 
@@ -117,13 +117,38 @@ describe('ConversationRow archive UI', () => {
   it('uses the restrained EVE selected-row treatment and current-page semantics', () => {
     const { container } = renderRow({ selected: true, hasError: true });
     const row = container.querySelector('#c-conv-1');
+    const primaryAction = screen.getByRole('button', { name: 'Client kickoff' });
 
-    expect(row?.getAttribute('aria-current')).toBe('page');
+    expect(primaryAction.getAttribute('aria-current')).toBe('page');
     expect(row?.classList.contains('eve-row')).toBe(true);
     expect(row?.classList.contains('eve-row--selected')).toBe(true);
     expect(row?.classList.contains('!bg-fill-3')).toBe(false);
     expect(screen.getByTestId('session-status-dot').getAttribute('data-shape')).toBe('square');
     expect(screen.getByTestId('session-status-dot').getAttribute('data-status')).toBe('error');
+  });
+
+  it('uses a native primary action and keeps the menu a separate button', () => {
+    const onConversationClick = vi.fn();
+    renderRow({ onConversationClick });
+
+    const row = screen.getByRole('button', { name: 'Client kickoff' });
+    fireEvent.click(row);
+
+    expect(row.tagName).toBe('BUTTON');
+    expect(onConversationClick).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'common.more' }).getAttribute('aria-haspopup')).toBe('menu');
+  });
+
+  it('uses checkbox semantics on a native batch action', () => {
+    const onToggleChecked = vi.fn();
+    renderRow({ batchMode: true, checked: true, onToggleChecked });
+
+    const row = screen.getByRole('checkbox', { name: 'Client kickoff' });
+    fireEvent.click(row);
+
+    expect(row.tagName).toBe('BUTTON');
+    expect(row.getAttribute('aria-checked')).toBe('true');
+    expect(onToggleChecked).toHaveBeenCalledTimes(1);
   });
 
   it('shows Restore for archived conversations', () => {

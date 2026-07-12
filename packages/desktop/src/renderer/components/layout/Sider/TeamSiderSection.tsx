@@ -115,10 +115,13 @@ const TeamSiderSection: React.FC<TeamSiderSectionProps> = ({
               const isActive = pathname.startsWith(`/team/${team.id}`);
               return (
                 <Tooltip key={team.id} {...siderTooltipProps} content={team.name} position='right'>
-                  <div
+                  <button
+                    type='button'
                     data-testid={`collapsed-team-item-${team.id}`}
+                    aria-label={team.name}
+                    aria-current={isActive ? 'page' : undefined}
                     className={classNames(
-                      'relative w-full h-40px flex items-center justify-center cursor-pointer transition-colors rd-8px',
+                      'relative w-full h-40px border-none bg-transparent flex items-center justify-center cursor-pointer transition-colors rd-8px',
                       isActive ? '!bg-active' : 'hover:bg-fill-3 active:bg-fill-4'
                     )}
                     onClick={() => handleTeamClick(team.id)}
@@ -139,7 +142,7 @@ const TeamSiderSection: React.FC<TeamSiderSectionProps> = ({
                         {(teamBadgeCounts.get(team.id) ?? 0) > 99 ? '99+' : teamBadgeCounts.get(team.id)}
                       </span>
                     )}
-                  </div>
+                  </button>
                 </Tooltip>
               );
             })}
@@ -148,30 +151,35 @@ const TeamSiderSection: React.FC<TeamSiderSectionProps> = ({
       ) : (
         <div className='shrink-0 flex flex-col gap-2px'>
           <div
-            className='group/label sider-section-label flex items-center px-12px h-28px select-none sticky top-0 z-10 mt-8px cursor-pointer'
+            className='group/label sider-section-label flex items-center h-28px select-none sticky top-0 z-10 mt-8px'
             data-testid='team-section-toggle'
-            onClick={() => setExpanded((v) => !v)}
           >
-            <span className='text-14px text-t-tertiary sider-section-title group-hover/label:text-t-primary transition-colors font-[500] leading-none'>
-              {t('team.sider.title')}
-            </span>
-            <span className='ml-2px flex items-center justify-center opacity-0 group-hover/label:opacity-100 transition-opacity text-t-tertiary shrink-0'>
-              <Right
-                theme='outline'
-                size={12}
-                className={classNames('transition-transform duration-150', { 'rotate-90': expanded })}
-              />
-            </span>
+            <button
+              type='button'
+              className='sider-section-toggle min-w-0 h-full flex-1 flex items-center px-12px border-none bg-transparent cursor-pointer text-left'
+              onClick={() => setExpanded((v) => !v)}
+              aria-expanded={expanded}
+            >
+              <span className='text-14px text-t-tertiary sider-section-title group-hover/label:text-t-primary transition-colors font-[500] leading-none'>
+                {t('team.sider.title')}
+              </span>
+              <span className='ml-2px flex items-center justify-center opacity-0 group-hover/label:opacity-100 group-focus-within/label:opacity-100 transition-opacity text-t-tertiary shrink-0'>
+                <Right
+                  theme='outline'
+                  size={12}
+                  className={classNames('transition-transform duration-150', { 'rotate-90': expanded })}
+                />
+              </span>
+            </button>
             {/* [E2E SYNC] data-testid="team-create-btn" 是 E2E 测试的入口 selector，不得删除或重命名。
                 如需修改，必须同步更新 tests/e2e/cases/teams/team-create.e2e.ts。 */}
             <Tooltip content={t('team.sider.createTeam')} position='top'>
-              <div
+              <button
+                type='button'
                 data-testid='team-create-btn'
-                className='ml-auto -mr-4px size-20px rd-4px flex items-center justify-center hover:bg-fill-4 transition-all shrink-0 cursor-pointer text-t-secondary hover:text-t-primary'
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setCreateTeamVisible(true);
-                }}
+                className='mr-6px size-20px p-0 border-none bg-transparent rd-4px flex items-center justify-center hover:bg-fill-4 transition-all shrink-0 cursor-pointer text-t-secondary hover:text-t-primary'
+                onClick={() => setCreateTeamVisible(true)}
+                aria-label={t('team.sider.createTeam')}
               >
                 <Plus
                   theme='outline'
@@ -180,7 +188,7 @@ const TeamSiderSection: React.FC<TeamSiderSectionProps> = ({
                   className='block leading-none'
                   style={{ lineHeight: 0 }}
                 />
-              </div>
+              </button>
             </Tooltip>
           </div>
           {expanded &&

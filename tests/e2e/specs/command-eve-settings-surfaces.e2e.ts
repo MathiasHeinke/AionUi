@@ -12,6 +12,10 @@ import { goToGuid, goToSettings } from '../helpers';
 test.describe('Command EVE settings surfaces', () => {
   test.setTimeout(120_000);
 
+  test.afterEach(async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+  });
+
   test('brands the shell sidebar and exposes governed Command EVE surfaces', async ({ page }) => {
     await goToGuid(page);
 
@@ -21,6 +25,14 @@ test.describe('Command EVE settings surfaces', () => {
     await expect(page.getByText(/^AionUi$/)).toHaveCount(0);
     await expect(page.getByText(/Command Center|Kommandozentrale/)).toHaveCount(0);
     await expect(page.getByTestId('sider-kanban-entry')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('sider-kanban-entry')).toHaveJSProperty('tagName', 'BUTTON');
+    await expect(page.getByTestId('workspace-selector-btn')).toHaveJSProperty('tagName', 'BUTTON');
+
+    for (const quickAction of ['feedback', 'website', 'webui']) {
+      const control = page.getByTestId(`guid-quick-action-${quickAction}`);
+      await expect(control).toHaveJSProperty('tagName', 'BUTTON');
+      await expect(control).toHaveAttribute('aria-label', /\S+/);
+    }
 
     await goToSettings(page, 'connectors');
     await expect(page.getByText(/Connectoren|Connectors/).first()).toBeVisible({ timeout: 30_000 });
@@ -33,7 +45,7 @@ test.describe('Command EVE settings surfaces', () => {
   test('keeps the About surface on the public Command EVE identity', async ({ page }) => {
     await goToSettings(page, 'about');
 
-    await expect(page.getByText('Command EVE', { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('heading', { name: 'Command EVE', exact: true })).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/KI-Operatorin|AI operator/)).toBeVisible();
     await expect(page.getByText(/Gemini CLI|Hermes|AionUi/)).toHaveCount(0);
 
@@ -74,7 +86,9 @@ test.describe('Command EVE settings surfaces', () => {
 
     const warmupRow = page.getByTestId('system-preference-commandEveModelWarmup');
     await expect(warmupRow).toContainText(/Lokales EVE-Modell vorwärmen|Pre-warm local EVE model/);
-    await expect(warmupRow).toContainText(/keine Cloud-Anbieter|cloud providers are not pinged/);
+    await expect(warmupRow).toContainText(
+      /Cloud-Modelle werden dabei nicht aufgerufen|Cloud models are not called|cloud providers are not pinged/
+    );
     await expect(warmupRow.locator('.arco-switch')).toBeVisible();
   });
 
@@ -89,6 +103,11 @@ test.describe('Command EVE settings surfaces', () => {
     await expect(page.getByText(/Externe Worker|External workers/)).toHaveCount(0);
     await expect(page.getByText(/Claude Code CLI|Codex CLI|Google Gemini AI command line tool/)).toHaveCount(0);
     await expect(page.getByText(/Hermes/)).toHaveCount(0);
+
+    await goToGuid(page);
+    await expect(page.locator('[data-testid^="preset-pill-"]')).toHaveCount(0);
+    await expect(page.getByTestId('btn-add-preset')).toHaveCount(0);
+    await expect(page.getByText(/Cowork|Aion CLI|Claude Code|Codex CLI|Gemini CLI/)).toHaveCount(0);
   });
 
   test('shows Command EVE capability catalog and suppresses legacy/global skill-market sections', async ({ page }) => {
@@ -98,12 +117,9 @@ test.describe('Command EVE settings surfaces', () => {
     const section = page.getByTestId('command-eve-capability-section');
     await expect(section).toBeVisible();
     await expect(section).toContainText(/Command-EVE-Fähigkeiten|Command EVE capabilities/);
-    await expect(section).toContainText('Content Machine');
-    await expect(section).toContainText('Video-first Content Engine');
-    await expect(section).toContainText(/Connector-Policies|Connector policies/);
-    await expect(section).toContainText(/Local Command EVE runtime/i);
-    await expect(section).toContainText('GitHub + GitNexus');
-    await expect(section).toContainText(/Desktop observation/i);
+    await expect(section).toContainText(/geprüfte Grundfähigkeiten|verified core capabilities/);
+    await expect(section).toContainText(/sicher verwaltete Verbindungen|safely managed connections/);
+    await expect(section).toContainText(/Geld ausgeben|Spend money|publishing|veröffentlichen/i);
 
     await expect(page.getByTestId('extension-skills-section')).toHaveCount(0);
     await expect(page.getByTestId('auto-skills-section')).toHaveCount(0);
@@ -121,6 +137,51 @@ test.describe('Command EVE settings surfaces', () => {
     await expect(page.getByText('xiaohongshu-recruiter')).toHaveCount(0);
     await expect(page.getByText('weixin-file-send')).toHaveCount(0);
     await expect(page.getByText('aionui-skills')).toHaveCount(0);
+  });
+
+  test('ships three local EVE backgrounds and projects the selected preset', async ({ page }) => {
+    await goToSettings(page, 'appearance');
+
+    const presets = page.locator('[data-testid^="eve-background-preset-"]');
+    await expect(presets).toHaveCount(3);
+    await expect(page.getByRole('radio', { name: 'Dawn Alloy' })).toBeChecked();
+    await expect(page.getByRole('radio', { name: 'Frosted Gallery' })).toBeVisible();
+    await expect(page.getByRole('radio', { name: 'Obsidian Atrium' })).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(() => ({
+          enabled: document.documentElement.getAttribute('data-eve-bg-image'),
+          image: document.documentElement.style.getPropertyValue('--eve-bg-image-url'),
+        }))
+      )
+      .toMatchObject({ enabled: 'true', image: expect.stringContaining('command-eve-dawn-alloy') });
+
+    const glassTiers = await page.evaluate(() => {
+      const rootStyle = getComputedStyle(document.documentElement);
+      const content = document.querySelector<HTMLElement>('.layout-content');
+      return {
+        chrome: Number.parseFloat(rootStyle.getPropertyValue('--eve-glass-chrome-opacity')),
+        composer: Number.parseFloat(rootStyle.getPropertyValue('--eve-glass-composer-opacity')),
+        reading: Number.parseFloat(rootStyle.getPropertyValue('--eve-glass-reading-opacity')),
+        panel: Number.parseFloat(rootStyle.getPropertyValue('--eve-glass-panel-opacity')),
+        overlay: Number.parseFloat(rootStyle.getPropertyValue('--eve-glass-overlay-opacity')),
+        contentBackgroundImage: content ? getComputedStyle(content).backgroundImage : 'missing',
+      };
+    });
+    expect(glassTiers.chrome).toBeLessThan(70);
+    expect(glassTiers.composer).toBeGreaterThan(glassTiers.chrome);
+    expect(glassTiers.composer).toBeLessThan(glassTiers.reading);
+    expect(glassTiers.reading).toBeGreaterThanOrEqual(66);
+    expect(glassTiers.panel).toBeGreaterThan(glassTiers.chrome);
+    expect(glassTiers.panel).toBeGreaterThan(glassTiers.reading);
+    expect(glassTiers.overlay).toBeGreaterThan(glassTiers.panel);
+    expect(glassTiers.contentBackgroundImage).toContain('radial-gradient');
+
+    await page.getByRole('radio', { name: 'Frosted Gallery' }).click();
+    await expect(page.getByRole('radio', { name: 'Frosted Gallery' })).toBeChecked();
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue('--eve-bg-image-url')))
+      .toContain('command-eve-frosted-gallery');
   });
 
   test('keeps a deep-linked mobile settings route in the visible navigation strip', async ({ page }) => {

@@ -67,14 +67,17 @@ const FileChangesPanel: React.FC<FileChangesPanelProps> = ({
   return (
     <div
       className={classNames(
+        'eve-panel',
         'w-full box-border rounded-8px overflow-hidden border border-solid border-[var(--glass-panel-border)]',
         className
       )}
       style={{ width: '100%' }}
     >
       {/* 标题栏 / Header */}
-      <div
-        className='flex items-center justify-between px-16px py-12px cursor-pointer select-none'
+      <button
+        type='button'
+        aria-expanded={expanded}
+        className='w-full flex items-center justify-between border-none bg-transparent px-16px py-12px text-left cursor-pointer select-none'
         onClick={() => setExpanded(!expanded)}
       >
         <div className='flex items-center gap-8px'>
@@ -90,11 +93,11 @@ const FileChangesPanel: React.FC<FileChangesPanelProps> = ({
           fill={iconColors.secondary}
           className={classNames('transition-transform duration-200', expanded && 'rotate-180')}
         />
-      </div>
+      </button>
 
       {/* 文件列表 / File list */}
       {expanded && (
-        <div className='w-full bg-2'>
+        <div className='w-full bg-transparent'>
           {files.map((file, index) => (
             <div
               key={`${file.fullPath}-${index}`}
@@ -110,9 +113,11 @@ const FileChangesPanel: React.FC<FileChangesPanelProps> = ({
               <div className='flex items-center gap-8px shrink-0'>
                 {/* 变更统计 - 点击打开 diff 对比 / Change stats - click to open diff view */}
                 {(file.insertions > 0 || file.deletions > 0) && (
-                  <span
+                  <button
+                    type='button'
+                    disabled={!onDiffClick}
                     className={classNames(
-                      'flex items-center gap-4px rd-4px px-4px py-2px',
+                      'flex items-center gap-4px border-none bg-transparent rd-4px px-4px py-2px',
                       onDiffClick && 'cursor-pointer hover:bg-4 transition-colors'
                     )}
                     onClick={(e) => {
@@ -130,11 +135,13 @@ const FileChangesPanel: React.FC<FileChangesPanelProps> = ({
                         -{file.deletions}
                       </span>
                     )}
-                  </span>
+                  </button>
                 )}
                 {/* 预览按钮 - 点击打开文件预览 / Preview button - click to open file preview */}
-                <span
-                  className='group-hover:opacity-100 transition-opacity shrink-0 ml-4px flex items-center gap-4px text-12px text-t-secondary cursor-pointer rd-4px px-4px py-2px hover:bg-4'
+                <button
+                  type='button'
+                  disabled={!onFileClick}
+                  className='group-hover:opacity-100 transition-opacity shrink-0 ml-4px flex items-center gap-4px border-none bg-transparent text-12px text-t-secondary cursor-pointer rd-4px px-4px py-2px hover:bg-4'
                   onClick={(e) => {
                     e.stopPropagation();
                     onFileClick?.(file);
@@ -142,7 +149,7 @@ const FileChangesPanel: React.FC<FileChangesPanelProps> = ({
                 >
                   <PreviewOpen className='line-height-8px' theme='outline' size='14' fill={iconColors.secondary} />
                   {t('preview.preview')}
-                </span>
+                </button>
               </div>
             </div>
           ))}

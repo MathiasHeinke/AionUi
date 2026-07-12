@@ -11,6 +11,7 @@ import {
   eveVisualCssVariables,
   normalizeEveVisualPreferences,
 } from '@/renderer/theme/visualPreferences';
+import { COMMAND_EVE_DEFAULT_BACKGROUND_ASSET_ID } from '@/renderer/theme/visualBackgroundAssets';
 
 const relativeLuminance = (hex: string): number => {
   const channels = [1, 3, 5].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16) / 255);
@@ -28,6 +29,10 @@ describe('normalizeEveVisualPreferences', () => {
   it('returns safe defaults for malformed input', () => {
     expect(normalizeEveVisualPreferences(null)).toEqual(DEFAULT_EVE_VISUAL_PREFERENCES);
     expect(normalizeEveVisualPreferences(['not', 'a', 'config'])).toEqual(DEFAULT_EVE_VISUAL_PREFERENCES);
+    expect(DEFAULT_EVE_VISUAL_PREFERENCES.background).toMatchObject({
+      enabled: true,
+      assetId: COMMAND_EVE_DEFAULT_BACKGROUND_ASSET_ID,
+    });
   });
 
   it('clamps every public numeric control to its readability bounds', () => {
@@ -100,30 +105,52 @@ describe('normalizeEveVisualPreferences', () => {
 });
 
 describe('eveVisualCssVariables', () => {
-  it('projects the default light glass tiers without forcing the background readability floor', () => {
+  it('projects distinct glass tiers for the first-start visual default', () => {
     const tokens = eveVisualCssVariables(DEFAULT_EVE_VISUAL_PREFERENCES, 'light');
 
+    expect(tokens['--eve-glass-chrome-opacity']).toBe('41.22%');
+    expect(tokens['--eve-glass-composer-opacity']).toBe('54.29%');
+    expect(tokens['--eve-glass-reading-opacity']).toBe('70.61%');
+    expect(tokens['--eve-glass-panel-opacity']).toBe('77.14%');
+    expect(tokens['--eve-glass-overlay-opacity']).toBe('83.67%');
+    expect(tokens['--eve-glass-chrome-blur']).toBe('20px');
+  });
+
+  it('keeps the lighter glass tiers when a user explicitly disables the background', () => {
+    const tokens = eveVisualCssVariables({ background: { enabled: false } }, 'light');
+
     expect(tokens['--eve-glass-chrome-opacity']).toBe('84%');
+    expect(tokens['--eve-glass-composer-opacity']).toBe('86%');
+    expect(tokens['--eve-glass-reading-opacity']).toBe('84%');
     expect(tokens['--eve-glass-panel-opacity']).toBe('90%');
     expect(tokens['--eve-glass-overlay-opacity']).toBe('88%');
-    expect(tokens['--eve-glass-chrome-blur']).toBe('20px');
   });
 
   it('forces solid unblurred surfaces when effects are reduced', () => {
     const tokens = eveVisualCssVariables({ reducedEffects: true }, 'dark');
 
     expect(tokens['--eve-glass-chrome-opacity']).toBe('100%');
+    expect(tokens['--eve-glass-composer-opacity']).toBe('100%');
+    expect(tokens['--eve-glass-reading-opacity']).toBe('100%');
     expect(tokens['--eve-glass-panel-opacity']).toBe('100%');
     expect(tokens['--eve-glass-overlay-opacity']).toBe('100%');
     expect(tokens['--eve-glass-chrome-blur']).toBe('0px');
   });
 
-  it('enforces the background readability floor before values reach CSS', () => {
-    const tokens = eveVisualCssVariables({ glassOpacity: 0.72, background: { enabled: true } }, 'dark');
+  it('enforces appearance-aware background tier floors before values reach CSS', () => {
+    const lightTokens = eveVisualCssVariables({ glassOpacity: 0.72, background: { enabled: true } }, 'light');
+    const darkTokens = eveVisualCssVariables({ glassOpacity: 0.72, background: { enabled: true } }, 'dark');
 
-    expect(tokens['--eve-glass-chrome-opacity']).toBe('88%');
-    expect(tokens['--eve-glass-panel-opacity']).toBe('94%');
-    expect(tokens['--eve-glass-overlay-opacity']).toBe('92%');
+    expect(lightTokens['--eve-glass-chrome-opacity']).toBe('28%');
+    expect(lightTokens['--eve-glass-composer-opacity']).toBe('44%');
+    expect(lightTokens['--eve-glass-reading-opacity']).toBe('64%');
+    expect(lightTokens['--eve-glass-panel-opacity']).toBe('72%');
+    expect(lightTokens['--eve-glass-overlay-opacity']).toBe('80%');
+    expect(darkTokens['--eve-glass-chrome-opacity']).toBe('42%');
+    expect(darkTokens['--eve-glass-composer-opacity']).toBe('48%');
+    expect(darkTokens['--eve-glass-reading-opacity']).toBe('66%');
+    expect(darkTokens['--eve-glass-panel-opacity']).toBe('72%');
+    expect(darkTokens['--eve-glass-overlay-opacity']).toBe('80%');
   });
 
   it('updates the complete Arco RGB ramp and both legacy aliases for the selected accent', () => {

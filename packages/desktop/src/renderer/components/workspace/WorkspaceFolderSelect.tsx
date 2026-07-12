@@ -9,6 +9,7 @@ import { Input } from '@arco-design/web-react';
 import { Check, Close, Down, FolderClose, FolderOpen } from '@icon-park/react';
 import { isElectronDesktop } from '@renderer/utils/platform';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { DEFAULT_RECENT_WS_KEY, addRecentWorkspace, getRecentWorkspaces } from './recentWorkspaces';
 
 const MENU_GAP = 4;
@@ -57,6 +58,7 @@ const WorkspaceFolderSelect: React.FC<WorkspaceFolderSelectProps> = ({
   menuTestId,
   menuZIndex = 10010,
 }) => {
+  const { t } = useTranslation();
   const [menuVisible, setMenuVisible] = useState(false);
   const [menuPos, setMenuPos] = useState<MenuPosition>({ top: 0, left: 0, width: 0, maxHeight: MAX_MENU_HEIGHT });
   const triggerRef = useRef<HTMLDivElement>(null);
@@ -140,56 +142,68 @@ const WorkspaceFolderSelect: React.FC<WorkspaceFolderSelectProps> = ({
   return (
     <div className='relative' ref={triggerRef}>
       <div
-        data-testid={triggerTestId}
-        onClick={() => {
-          if (recentWorkspaces.length === 0) {
-            void handleBrowse();
-            return;
-          }
-
-          if (!menuVisible) {
-            updateMenuPosition();
-          }
-          setMenuVisible((visible) => !visible);
-        }}
         className={`flex items-center gap-10px rounded-10px border px-12px py-10px transition-all ${
           menuVisible
             ? 'border-primary-5 bg-fill-2 shadow-sm'
             : 'border-border-2 bg-fill-1 hover:border-border-1 hover:bg-fill-2'
         }`}
       >
-        <FolderOpen
-          theme='outline'
-          size='16'
-          fill='currentColor'
-          className='block shrink-0 text-t-secondary'
-          style={{ transform: 'translateY(3px)' }}
-        />
+        <button
+          type='button'
+          data-testid={triggerTestId}
+          role='combobox'
+          aria-expanded={menuVisible}
+          aria-haspopup='listbox'
+          className='flex min-w-0 flex-1 cursor-pointer items-center gap-10px border-none bg-transparent p-0 text-left'
+          onClick={() => {
+            if (recentWorkspaces.length === 0) {
+              void handleBrowse();
+              return;
+            }
+
+            if (!menuVisible) {
+              updateMenuPosition();
+            }
+            setMenuVisible((visible) => !visible);
+          }}
+        >
+          <FolderOpen
+            theme='outline'
+            size='16'
+            fill='currentColor'
+            className='block shrink-0 text-t-secondary'
+            style={{ transform: 'translateY(3px)' }}
+          />
+          {value ? (
+            <span className='flex min-w-0 flex-1 flex-col justify-center'>
+              <span className='text-sm leading-20px text-t-primary'>{folderName}</span>
+              <span className='truncate text-11px leading-16px text-t-tertiary'>{value}</span>
+            </span>
+          ) : (
+            <span className='min-w-0 flex-1 truncate text-sm leading-20px text-t-secondary'>{placeholder}</span>
+          )}
+          {!value && (
+            <span className='flex h-20px w-20px shrink-0 items-center justify-center text-t-secondary'>
+              <Down size='14' fill='currentColor' />
+            </span>
+          )}
+        </button>
         {value ? (
-          <div className='flex min-w-0 flex-1 flex-col justify-center'>
-            <span className='text-sm leading-20px text-t-primary'>{folderName}</span>
-            <span className='truncate text-11px leading-16px text-t-tertiary'>{value}</span>
-          </div>
-        ) : (
-          <span className='min-w-0 flex-1 truncate text-sm leading-20px text-t-secondary'>{placeholder}</span>
-        )}
-        {value ? (
-          <span
+          <button
+            type='button'
+            aria-label={t('common.clear')}
             className='flex h-20px w-20px shrink-0 cursor-pointer items-center justify-center text-t-secondary transition-colors hover:text-t-primary'
             onClick={handleClear}
           >
             <Close theme='outline' size='14' fill='currentColor' />
-          </span>
-        ) : (
-          <span className='flex h-20px w-20px shrink-0 items-center justify-center text-t-secondary'>
-            <Down size='14' fill='currentColor' />
-          </span>
-        )}
+          </button>
+        ) : null}
       </div>
 
       {menuVisible && (
         <div
           data-testid={menuTestId}
+          role='listbox'
           style={{
             position: 'fixed',
             top: menuPos.top,
@@ -198,13 +212,12 @@ const WorkspaceFolderSelect: React.FC<WorkspaceFolderSelectProps> = ({
             width: menuPos.width,
             maxHeight: menuPos.maxHeight > 0 ? menuPos.maxHeight : undefined,
             zIndex: menuZIndex,
-            backgroundColor: 'var(--bg-2)',
-            opacity: 1,
-            backdropFilter: 'none',
-            WebkitBackdropFilter: 'none',
+            background: 'var(--glass-overlay-bg)',
+            backdropFilter: 'var(--glass-overlay-filter)',
+            WebkitBackdropFilter: 'var(--glass-overlay-filter)',
             isolation: 'isolate',
           }}
-          className='overflow-x-hidden overflow-y-auto rounded-12px border border-border-1 p-6px shadow-[0_18px_48px_rgba(0,0,0,0.42)]'
+          className='overflow-x-hidden overflow-y-auto rounded-8px border border-[var(--glass-overlay-border)] p-6px shadow-[0_18px_48px_rgba(0,0,0,0.42)]'
         >
           {recentWorkspaces.length > 0 && (
             <>
@@ -216,10 +229,13 @@ const WorkspaceFolderSelect: React.FC<WorkspaceFolderSelectProps> = ({
                 const isSelected = value === path;
 
                 return (
-                  <div
+                  <button
+                    type='button'
+                    role='option'
+                    aria-selected={isSelected}
                     key={path}
                     onClick={() => handleSelectRecent(path)}
-                    className={`flex cursor-pointer items-center gap-10px rounded-8px px-10px py-6px transition-colors ${
+                    className={`w-full flex cursor-pointer items-center gap-10px border-none bg-transparent text-left rounded-8px px-10px py-6px transition-colors ${
                       isSelected ? 'bg-[var(--eve-row-selected-bg)]' : 'hover:bg-fill-2'
                     }`}
                     style={isSelected ? { boxShadow: 'inset 0 0 0 1px var(--eve-focus-ring)' } : undefined}
@@ -240,16 +256,17 @@ const WorkspaceFolderSelect: React.FC<WorkspaceFolderSelectProps> = ({
                         <Check size='14' fill='currentColor' />
                       </span>
                     )}
-                  </div>
+                  </button>
                 );
               })}
               <div className='mx-2px my-4px h-1px bg-border-2' />
             </>
           )}
 
-          <div
+          <button
+            type='button'
             onClick={() => void handleBrowse()}
-            className='flex cursor-pointer items-center gap-10px rounded-8px px-10px py-6px transition-colors hover:bg-fill-2'
+            className='w-full flex cursor-pointer items-center gap-10px border-none bg-transparent text-left rounded-8px px-10px py-6px transition-colors hover:bg-fill-2'
           >
             <FolderOpen
               theme='outline'
@@ -259,7 +276,7 @@ const WorkspaceFolderSelect: React.FC<WorkspaceFolderSelectProps> = ({
               style={{ transform: 'translateY(3px)' }}
             />
             <span className='text-13px text-t-primary'>{chooseDifferentLabel}</span>
-          </div>
+          </button>
         </div>
       )}
     </div>

@@ -263,15 +263,16 @@ const TaskDetailPage: React.FC = () => {
                   <div className='h-1px w-full bg-[var(--color-border-2)]' />
                   {conversations.map((conv, index) => (
                     <React.Fragment key={conv.id}>
-                      <div
-                        className='flex cursor-pointer items-center justify-between gap-14px py-15px transition-colors hover:text-t-primary'
+                      <button
+                        type='button'
+                        className='eve-row w-full flex cursor-pointer items-center justify-between gap-14px border-none bg-transparent py-15px text-left transition-colors hover:text-t-primary'
                         onClick={() => navigate(`/conversation/${conv.id}`)}
                       >
                         <span className='min-w-0 flex-1 truncate text-14px text-t-primary'>{conv.name || conv.id}</span>
                         <span className='shrink-0 text-13px text-t-secondary'>
                           {formatNextRun(getActivityTime(conv))}
                         </span>
-                      </div>
+                      </button>
                       {index < conversations.length - 1 && <div className='h-1px w-full bg-[var(--color-border-2)]' />}
                     </React.Fragment>
                   ))}

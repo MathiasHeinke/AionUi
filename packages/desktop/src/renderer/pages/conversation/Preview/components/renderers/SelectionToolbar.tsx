@@ -71,14 +71,15 @@ const SelectionToolbar: React.FC<SelectionToolbarProps> = ({ selectedText, posit
 
   return (
     <div ref={refs.setFloating} style={{ ...floatingStyles, zIndex: 99999 }}>
-      <div
-        className='flex items-center px-12px py-8px bg-[var(--color-bg-2)] rd-8px shadow-lg border-1 border-solid border-[var(--color-border-2)] cursor-pointer hover:opacity-80 transition-opacity'
+      <button
+        type='button'
+        className='eve-overlay flex items-center px-12px py-8px rd-8px shadow-lg border-1 border-solid cursor-pointer hover:opacity-80 transition-opacity'
         onMouseDown={handleMouseDown}
       >
         <span className='text-13px text-t-primary font-medium whitespace-nowrap leading-16px'>
           {t('preview.addToChat')}
         </span>
-      </div>
+      </button>
     </div>
   );
 };

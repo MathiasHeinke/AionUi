@@ -82,7 +82,7 @@ const SelectionReplyButton: React.FC<{ messages: TMessage[] }> = ({ messages }) 
   const [pos, setPos] = useState<ReplyPos | null>(null);
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
-  const buttonRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     // Disable on mobile — conflicts with native text selection menu
@@ -152,16 +152,14 @@ const SelectionReplyButton: React.FC<{ messages: TMessage[] }> = ({ messages }) 
   if (!pos) return null;
 
   return (
-    <div
+    <button
+      type='button'
       ref={buttonRef}
-      className='fixed z-9999 flex items-center gap-4px px-10px py-6px rd-8px cursor-pointer transition-colors select-none'
+      className='eve-overlay fixed z-9999 flex items-center gap-4px px-10px py-6px rd-8px cursor-pointer transition-colors select-none'
       style={{
         top: pos.top,
         left: pos.left,
         transform: 'translateX(-50%)',
-        background: 'var(--brand-light)',
-        border: '1px solid var(--brand-hover)',
-        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
         color: 'var(--brand)',
       }}
       onMouseDown={(e) => {
@@ -177,7 +175,7 @@ const SelectionReplyButton: React.FC<{ messages: TMessage[] }> = ({ messages }) 
     >
       <Quote theme='outline' size='14' fill='currentColor' />
       <span className='text-12px font-medium whitespace-nowrap'>{t('common.reply', { defaultValue: 'Reply' })}</span>
-    </div>
+    </button>
   );
 };
 

@@ -129,14 +129,14 @@ Attention yellow must pass a measured 3:1 non-text contrast gate in light mode.
 
 Status is not encoded by color alone:
 
-| State | Color | Shape / motion | Meaning |
-|---|---|---|---|
-| `running` | blue | outlined ring, restrained pulse | EVE is working |
-| `error` | red | rounded square | failed or blocked |
-| `attention` | yellow | diamond | user action is required |
-| `completed` | green | filled circle with check at larger sizes | task completed |
-| `newResult` | blue | filled circle | unread result |
-| `idle` | none | none | nothing to surface |
+| State       | Color  | Shape / motion                           | Meaning                 |
+| ----------- | ------ | ---------------------------------------- | ----------------------- |
+| `running`   | blue   | outlined ring, restrained pulse          | EVE is working          |
+| `error`     | red    | rounded square                           | failed or blocked       |
+| `attention` | yellow | diamond                                  | user action is required |
+| `completed` | green  | filled circle with check at larger sizes | task completed          |
+| `newResult` | blue   | filled circle                            | unread result           |
+| `idle`      | none   | none                                     | nothing to surface      |
 
 Every indicator also has an i18n tooltip and accessible label.
 
@@ -147,8 +147,21 @@ components consume shared variables instead of inventing local translucency.
 
 ### Chrome
 
-Use for fixed shell structure: titlebar, sidebar, seat rail, footer, composer
-chrome. Medium blur, quiet border, low shadow.
+Use for fixed shell structure: titlebar, sidebar, seat rail, and footer. This is
+the lightest persistent material: high background visibility, medium blur,
+quiet border, and low shadow.
+
+### Composer
+
+Use only for the primary chat input. It is slightly more opaque than chrome so
+placeholder text, dictated text, attachments, and focus state stay readable,
+while the background remains visibly continuous through the surface.
+
+### Reading
+
+Use behind long-form chat and document text projected over a background image.
+It is more opaque than the composer and has no card border, hover state, or
+local shadow. This is a contrast plane, not a container users can click.
 
 ### Panel
 
@@ -162,11 +175,18 @@ compact geometry, and a solid reduced-transparency fallback.
 
 ### User-adjustable glass
 
-Appearance exposes **Glass opacity**, not unrestricted transparency:
+Appearance exposes **Glass opacity**, not unrestricted transparency. The
+stored 72%-100% setting is projected through role-specific safety floors rather
+than applied as one flat alpha value:
 
-- effective range: 72% to 100% opaque;
+- chrome: 34% light / 48% dark minimum; dark chrome uses a near-black tint so
+  it remains translucent without turning milky gray;
+- composer: 48% light / 52% dark minimum;
+- reading: 66% light / 70% dark minimum;
+- panel: 72% minimum;
+- overlay: 80% minimum;
 - light default: 84%;
-- dark default: 78%;
+- dark default: 84%;
 - background-image mode may raise the minimum automatically;
 - OS reduced-transparency or EVE reduced-effects forces 100% opaque;
 - blur range: 0 to 28px, default 20px;
@@ -174,6 +194,49 @@ Appearance exposes **Glass opacity**, not unrestricted transparency:
   blur ceiling.
 
 Text contrast, focus contrast, and scrim floors cannot be disabled.
+
+### 5.1 Functional material audit
+
+Glass is assigned by **role**, not by how decorative a component looks. Every
+public element must be classified before styling:
+
+| Role                 | Required primitive             | Resting material                                                 | Required state                                                            |
+| -------------------- | ------------------------------ | ---------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| command              | `button` / Arco `Button`       | transparent inside existing chrome; panel only when freestanding | hover, active, focus-visible, disabled, accessible name                   |
+| navigation           | link or navigation button      | transparent row                                                  | `aria-current`, keyboard activation, quiet selected hairline              |
+| disclosure           | button                         | transparent                                                      | `aria-expanded`, visible chevron, Enter/Space                             |
+| selection            | radio, checkbox, switch, tab   | control or segmented surface                                     | selected/checked state exposed to assistive tech                          |
+| status               | non-interactive text/indicator | no button treatment                                              | semantic shape and accessible label; live region only for error/attention |
+| reading surface      | non-interactive region         | reading tier                                                     | no pointer cursor or hover fill; contrast floor is mandatory              |
+| inspectable artifact | panel tier                     | panel or solid fallback                                          | toolbar commands remain separate from content                             |
+| transient choice     | menu, popover, dialog          | overlay tier                                                     | focus containment/return and escape behavior                              |
+| structure/divider    | semantic container             | transparent                                                      | never styled like a command                                               |
+
+Rules:
+
+- Clickable `div`/`span` elements are forbidden on public surfaces unless a
+  composite widget cannot legally use a native control; such exceptions need a
+  correct role, tab stop, keyboard handler, and test.
+- Static labels, status badges, and reading panels never gain hover fill merely
+  to look interactive.
+- Toolbar controls are icon-only when the symbol is familiar, with localized
+  tooltip and `aria-label`; mode switches and ambiguous business actions keep
+  text.
+- Chrome is the lightest persistent material. Reading and panel tiers are more
+  opaque. Overlay is the most opaque glass tier. Code, QR, video, and image
+  inspection may use a solid local backing when translucency harms fidelity.
+- A background-image work area uses a centered reading veil: the text column
+  keeps the full reading floor while outer edges reveal more of the image. It
+  must never become one flat opaque sheet or leave long-form text directly on
+  raw photography.
+- Do not stack a glass card inside another glass card. Child controls use
+  transparent resting states and borrow separation from their owning surface.
+- Reduced-transparency and reduced-effects always replace blur with the matching
+  solid tier without changing layout or interaction semantics.
+- `tests/unit/renderer/interactiveElementSemantics.test.ts` scans every renderer
+  TSX file. A clickable non-native element fails CI unless it is a valid
+  keyboard-operated composite control or a named structural interaction such
+  as a resize handle, dismiss backdrop, or event boundary.
 
 ## 6. Brand Mark
 
@@ -292,7 +355,7 @@ Spotlight contract:
 --eve-spotlight-x: 50%;
 --eve-spotlight-y: 0%;
 --eve-spotlight-radius: 220px;
---eve-spotlight-opacity-light: 0.50;
+--eve-spotlight-opacity-light: 0.5;
 --eve-spotlight-opacity-dark: 0.68;
 ```
 
@@ -323,14 +386,14 @@ Signed-out fallback: EVE glyph plus localized `Einstellungen` / `Settings`.
 The update control mirrors existing updater truth and opens `UpdateModal` for
 details and decisions. It does not duplicate check/download/install logic.
 
-| State | Rest | Expanded label | Action |
-|---|---|---|---|
-| current | quiet refresh icon | Check for updates | open modal/check |
-| checking | indeterminate ring | Checking... | open modal |
-| available | blue download button | Update | open modal/download |
-| downloading | progress ring | Loading... N% | open modal |
-| ready | blue install/restart button | Restart & install | open modal |
-| error | red retry icon | Update failed | open modal/retry |
+| State       | Rest                        | Expanded label    | Action              |
+| ----------- | --------------------------- | ----------------- | ------------------- |
+| current     | quiet refresh icon          | Check for updates | open modal/check    |
+| checking    | indeterminate ring          | Checking...       | open modal          |
+| available   | blue download button        | Update            | open modal/download |
+| downloading | progress ring               | Loading... N%     | open modal          |
+| ready       | blue install/restart button | Restart & install | open modal          |
+| error       | red retry icon              | Update failed     | open modal/retry    |
 
 Behavior:
 
@@ -491,21 +554,21 @@ Release-blocking:
 
 ## 17. Repo Surface Map
 
-| Surface | Primary files |
-|---|---|
-| Theme runtime | `hooks/context/ThemeContext.tsx`, `hooks/system/useTheme.ts`, `utils/theme/applyTheme.ts`, `common/theme/*` |
-| Tokens | `styles/themes/default-color-scheme.css`, new Command EVE visual token layer, `styles/arco-override.css` |
-| Shell | `components/layout/Layout.tsx`, `styles/layout.css`, `components/layout/Titlebar/*` |
-| Seat rail | `components/seats/SeatRail.tsx`, `styles/seatRail.css` |
-| Sidebar footer | `components/layout/Sider/SiderFooter.tsx`, `components/layout/Sider/index.tsx`, `components/account/ProfileAvatar.tsx` |
-| Updater | `components/settings/UpdateModal.tsx`, existing update IPC/types, new shared observer hook/context |
-| History rows | `pages/conversation/GroupedHistory/ConversationRow.tsx`, `SessionStatusDot.tsx`, `sessionStatus.ts`, sortable wrappers |
-| Composer | `components/chat/UnifiedSendBar.tsx`, `components/chat/SendBox/*`, `GuidInputCard.tsx`, visual class hooks in ACP send box |
-| Appearance | `AppearanceModalContent.tsx`, `AppearanceSettings/*`, `theme/builtinThemes.ts`, `customCssProcessor.ts` |
-| Settings | `pages/settings/*`, `SettingsPageWrapper`, `SettingsSider`, settings modal contents |
-| Artifacts | `MessageGeneratedArtifact.tsx`, `Messages/artifacts.tsx`, `media/WebviewHost.tsx` |
-| Global dialogs | `components/base/AionModal.tsx`, Arco override layer, route fallbacks |
-| i18n | `services/i18n/locales/*`, generated i18n key types |
+| Surface        | Primary files                                                                                                              |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Theme runtime  | `hooks/context/ThemeContext.tsx`, `hooks/system/useTheme.ts`, `utils/theme/applyTheme.ts`, `common/theme/*`                |
+| Tokens         | `styles/themes/default-color-scheme.css`, new Command EVE visual token layer, `styles/arco-override.css`                   |
+| Shell          | `components/layout/Layout.tsx`, `styles/layout.css`, `components/layout/Titlebar/*`                                        |
+| Seat rail      | `components/seats/SeatRail.tsx`, `styles/seatRail.css`                                                                     |
+| Sidebar footer | `components/layout/Sider/SiderFooter.tsx`, `components/layout/Sider/index.tsx`, `components/account/ProfileAvatar.tsx`     |
+| Updater        | `components/settings/UpdateModal.tsx`, existing update IPC/types, new shared observer hook/context                         |
+| History rows   | `pages/conversation/GroupedHistory/ConversationRow.tsx`, `SessionStatusDot.tsx`, `sessionStatus.ts`, sortable wrappers     |
+| Composer       | `components/chat/UnifiedSendBar.tsx`, `components/chat/SendBox/*`, `GuidInputCard.tsx`, visual class hooks in ACP send box |
+| Appearance     | `AppearanceModalContent.tsx`, `AppearanceSettings/*`, `theme/builtinThemes.ts`, `customCssProcessor.ts`                    |
+| Settings       | `pages/settings/*`, `SettingsPageWrapper`, `SettingsSider`, settings modal contents                                        |
+| Artifacts      | `MessageGeneratedArtifact.tsx`, `Messages/artifacts.tsx`, `media/WebviewHost.tsx`                                          |
+| Global dialogs | `components/base/AionModal.tsx`, Arco override layer, route fallbacks                                                      |
+| i18n           | `services/i18n/locales/*`, generated i18n key types                                                                        |
 
 Before implementation, use the architecture skill to choose new file locations.
 `GroupedHistory` is already at its direct-child limit.

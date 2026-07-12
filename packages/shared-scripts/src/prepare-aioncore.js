@@ -30,6 +30,7 @@ const { verifyBundledAioncoreResources } = require('./verify-bundled-aioncore-re
 
 const GITHUB_OWNER = 'iOfficeAI';
 const GITHUB_REPO = 'AionCore';
+const REQUIRED_AIONCORE_CLI_ARGUMENTS = Object.freeze(['--local-capability-file', '--local-origin']);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -106,6 +107,26 @@ function verifyFileSha256(filePath, expectedSha256) {
     throw new Error(`AionCore SHA256 mismatch for ${path.basename(filePath)}: expected ${expected}, got ${actual}`);
   }
   return actual;
+}
+
+function verifyAioncoreCliContract(binaryPath, deps = {}) {
+  const run = deps.execFileSync || execFileSync;
+  let helpText;
+  try {
+    helpText = String(run(binaryPath, ['--help'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
+  } catch (error) {
+    throw new Error(`AionCore CLI contract check failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  const missingArguments = REQUIRED_AIONCORE_CLI_ARGUMENTS.filter((argument) => !helpText.includes(argument));
+  if (missingArguments.length > 0) {
+    throw new Error(
+      `AionCore CLI contract mismatch: missing required argument(s) ${missingArguments.join(', ')}. ` +
+        'Build with the verified Command EVE AionCore source commit.'
+    );
+  }
+
+  return { requiredArguments: [...REQUIRED_AIONCORE_CLI_ARGUMENTS] };
 }
 
 function resolveLocalAioncoreSource(localBinaryPath, explicitSha256, explicitSourceCommit) {
@@ -323,6 +344,7 @@ function prepareAioncore(options) {
     normalizeSha256(existingManifest?.binarySha256) === existingBinarySha256
   ) {
     ensureExecutableMode(targetBinaryPath);
+    verifyAioncoreCliContract(targetBinaryPath);
     const verification = verifyPreparedBundle(projectRoot, platform, arch);
     if (verification.missing.length === 0) {
       console.log(`  Reusing bundled aioncore: resources/bundled-aioncore/${runtimeKey}/${binaryName}`);
@@ -383,6 +405,7 @@ function prepareAioncore(options) {
     copyFileSafe(sourcePath, targetBinaryPath);
     ensureExecutableMode(targetBinaryPath);
     const binarySha256 = verifyFileSha256(targetBinaryPath, sourceBinarySha256);
+    verifyAioncoreCliContract(targetBinaryPath);
     const bundledManagedResourcesDir = prepareManagedResources(targetBinaryPath, targetDir);
 
     // The release tag is the authoritative version — the aioncore
@@ -416,11 +439,13 @@ function prepareAioncore(options) {
 }
 
 module.exports = {
+  REQUIRED_AIONCORE_CLI_ARGUMENTS,
   normalizeSha256,
   normalizeSourceCommit,
   prepareAioncore,
   resolveLocalAioncoreSource,
   resolveExpectedAioncoreSha256,
   sha256File,
+  verifyAioncoreCliContract,
   verifyFileSha256,
 };

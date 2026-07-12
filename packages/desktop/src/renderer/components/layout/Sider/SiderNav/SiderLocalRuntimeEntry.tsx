@@ -31,24 +31,29 @@ const SiderLocalRuntimeEntry: React.FC<SiderLocalRuntimeEntryProps> = ({
   if (collapsed) {
     return (
       <Tooltip {...siderTooltipProps} content={t('localRuntime.sider')} position='right'>
-        <div
+        <button
+          type='button'
+          aria-current={isActive ? 'page' : undefined}
+          aria-label={t('localRuntime.sider')}
           className={classNames(
-            'w-full h-34px flex items-center justify-center cursor-pointer transition-colors rd-8px text-t-primary',
+            'w-full h-34px border-none bg-transparent flex items-center justify-center cursor-pointer transition-colors rd-8px text-t-primary',
             isActive ? 'bg-fill-3' : 'hover:bg-fill-3 active:bg-fill-4'
           )}
           onClick={onClick}
         >
           <Cpu theme='outline' size='20' fill='currentColor' className='block leading-none shrink-0' />
-        </div>
+        </button>
       </Tooltip>
     );
   }
 
   return (
     <Tooltip {...siderTooltipProps} content={t('localRuntime.sider')} position='right'>
-      <div
+      <button
+        type='button'
+        aria-current={isActive ? 'page' : undefined}
         className={classNames(
-          'box-border group h-34px w-full flex items-center justify-start gap-8px pl-10px pr-8px rd-0.5rem cursor-pointer shrink-0 transition-all text-t-primary',
+          'box-border group h-34px w-full border-none bg-transparent flex items-center justify-start gap-8px pl-10px pr-8px rd-0.5rem cursor-pointer shrink-0 transition-all text-t-primary',
           isMobile && 'sider-action-btn-mobile',
           isActive ? 'bg-fill-3' : 'hover:bg-fill-3 active:bg-fill-4'
         )}
@@ -60,7 +65,7 @@ const SiderLocalRuntimeEntry: React.FC<SiderLocalRuntimeEntryProps> = ({
         <span className='collapsed-hidden text-t-primary text-14px font-[500] leading-24px'>
           {t('localRuntime.sider')}
         </span>
-      </div>
+      </button>
     </Tooltip>
   );
 };

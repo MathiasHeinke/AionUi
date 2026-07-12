@@ -2,8 +2,24 @@ import { describe, expect, it } from 'vitest';
 import { classifyBackendStartupFailure } from '@/process/startup/backendStartupFailure';
 import { detectStartupArchitectureMismatch } from '@/process/startup/architectureCompatibility';
 import { getDownloadLatestModalActionProps } from '@/renderer/components/layout/InstallationIntegrityDialog';
+import { getBackendStartupRecoveryAction } from '@/renderer/components/layout/BackendStartupFailureScreen';
 
 describe('classifyBackendStartupFailure', () => {
+  it('classifies the 1.8.0 capability CLI mismatch as an updatable component mismatch', () => {
+    const error = new Error('aioncore exited before health check passed') as Error & {
+      details?: Record<string, unknown>;
+    };
+    error.details = {
+      stage: 'early_exit',
+      stderrTail: "error: unexpected argument '--local-capability-file' found\n\nUsage: aioncore [OPTIONS]",
+    };
+
+    expect(classifyBackendStartupFailure(error)).toEqual({
+      reason: 'backend_component_mismatch',
+      unsupportedArgument: '--local-capability-file',
+    });
+  });
+
   it('classifies missing GLIBC symbols as an incompatible backend runtime', () => {
     const error = new Error('aioncore exited before health check passed') as Error & {
       details?: Record<string, unknown>;
@@ -158,6 +174,20 @@ describe('classifyBackendStartupFailure', () => {
       expectedDownloadArch: 'arm64',
       isRosettaTranslated: true,
     });
+  });
+});
+
+describe('getBackendStartupRecoveryAction', () => {
+  it('downloads a compatible package for component and package mismatches', () => {
+    expect(getBackendStartupRecoveryAction({ reason: 'backend_component_mismatch' })).toBe('download');
+    expect(getBackendStartupRecoveryAction({ reason: 'backend_incomplete_installation' })).toBe('download');
+    expect(getBackendStartupRecoveryAction({ reason: 'backend_package_architecture_mismatch' })).toBe('download');
+  });
+
+  it('does not offer a restart loop for a component mismatch or unsupported runtime', () => {
+    expect(getBackendStartupRecoveryAction({ reason: 'backend_component_mismatch' })).not.toBe('restart');
+    expect(getBackendStartupRecoveryAction({ reason: 'backend_incompatible_runtime' })).toBe('none');
+    expect(getBackendStartupRecoveryAction({ reason: 'backend_startup_failed' })).toBe('restart');
   });
 });
 

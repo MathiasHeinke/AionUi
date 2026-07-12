@@ -30,6 +30,8 @@ type ErrorWithDetails = Error & {
 
 const GLIBC_VERSION_RE = /GLIBC_(\d+\.\d+)/g;
 const GLIBC_NOT_FOUND_RE = /GLIBC_\d+\.\d+[\s\S]{0,160}not found|not found[\s\S]{0,160}GLIBC_\d+\.\d+/i;
+const UNSUPPORTED_COMMAND_EVE_ARGUMENT_RE =
+  /unexpected argument ['"](--local-capability-file|--local-origin)['"] found/i;
 const PACKAGED_APP_MARKER_ENTRIES = new Set(['app.asar', 'app.asar.unpacked/']);
 const MAX_REPORTED_DIR_ENTRIES = 20;
 
@@ -158,6 +160,14 @@ export function classifyBackendStartupFailure(error: unknown): BackendStartupFai
   if (incompleteInstallation) return incompleteInstallation;
 
   const text = collectBackendStartupText(error);
+  const unsupportedArgument = UNSUPPORTED_COMMAND_EVE_ARGUMENT_RE.exec(text)?.[1];
+  if (unsupportedArgument) {
+    return {
+      reason: 'backend_component_mismatch',
+      unsupportedArgument,
+    };
+  }
+
   if (/\bEADDRINUSE\b|address already in use/i.test(text)) {
     return {
       reason: 'backend_instance_conflict',

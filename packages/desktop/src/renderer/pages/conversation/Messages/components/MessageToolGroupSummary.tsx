@@ -60,22 +60,27 @@ const ToolItemDetail: React.FC<{ item: NormalizedToolCall }> = ({ item }) => {
     <div className='flex flex-col'>
       <div className='flex flex-row color-#86909C gap-12px items-center'>
         <Badge status={statusToBadge(item.status)} className={item.status === 'running' ? 'badge-breathing' : ''} />
-        <span
-          className={
-            'flex-1 min-w-0' +
-            (expanded ? ' break-all' : ' truncate') +
-            (hasDetail ? ' cursor-pointer hover:color-#4E5969' : '')
-          }
-          onClick={hasDetail ? toggleExpanded : undefined}
-        >
-          <span className='font-medium text-13px'>{displayItem.name}</span>
-          {displayItem.description && displayItem.description !== displayItem.name && (
-            <span className='m-l-4px opacity-80 text-13px'>{displayItem.description}</span>
-          )}
-        </span>
-        {hasDetail && (
-          <span className='flex-shrink-0 cursor-pointer hover:color-#4E5969 transition-colors' onClick={toggleExpanded}>
+        {hasDetail ? (
+          <button
+            type='button'
+            className='tool-item-disclosure flex-1 min-w-0'
+            onClick={toggleExpanded}
+            aria-expanded={expanded}
+          >
+            <span className={expanded ? 'min-w-0 break-all text-left' : 'min-w-0 truncate text-left'}>
+              <span className='font-medium text-13px'>{displayItem.name}</span>
+              {displayItem.description && displayItem.description !== displayItem.name && (
+                <span className='m-l-4px opacity-80 text-13px'>{displayItem.description}</span>
+              )}
+            </span>
             {expanded ? <IconDown style={{ fontSize: 12 }} /> : <IconRight style={{ fontSize: 12 }} />}
+          </button>
+        ) : (
+          <span className='flex-1 min-w-0 truncate'>
+            <span className='font-medium text-13px'>{displayItem.name}</span>
+            {displayItem.description && displayItem.description !== displayItem.name && (
+              <span className='m-l-4px opacity-80 text-13px'>{displayItem.description}</span>
+            )}
           </span>
         )}
       </div>
@@ -113,7 +118,12 @@ const MessageToolGroupSummary: React.FC<{ messages: ToolMessage[] }> = ({ messag
 
   return (
     <div className='tool-group-summary'>
-      <div className='tool-group-summary__header' onClick={() => setShowMore(!showMore)}>
+      <button
+        type='button'
+        className='tool-group-summary__header'
+        onClick={() => setShowMore(!showMore)}
+        aria-expanded={showMore}
+      >
         <span className='tool-group-summary__icon'>
           {hasRunning ? <Spin size={12} /> : <Checklist theme='outline' size='14' />}
         </span>
@@ -121,7 +131,7 @@ const MessageToolGroupSummary: React.FC<{ messages: ToolMessage[] }> = ({ messag
         <span className={`tool-group-summary__arrow${showMore ? ' tool-group-summary__arrow--open' : ''}`}>
           <Right theme='outline' size='12' />
         </span>
-      </div>
+      </button>
       {showMore && (
         <div className='tool-group-summary__body'>
           {tools.map((item) => (

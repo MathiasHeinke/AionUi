@@ -12,7 +12,7 @@ import { useCronJobsMap } from '@/renderer/pages/cron';
 import { DndContext, DragOverlay, closestCenter } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { Button, Dropdown, Empty, Input, Menu, Modal, Tooltip } from '@arco-design/web-react';
-import { Delete, EditOne, FolderOpen, MoreOne, Plus, Right } from '@icon-park/react';
+import { Delete, EditOne, FolderOpen, Info, MoreOne, Plus, Right } from '@icon-park/react';
 import classNames from 'classnames';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -75,25 +75,25 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
     ({ sectionKey, label, trailing }: { sectionKey: string; label: string; trailing?: React.ReactNode }) => {
       const isCollapsed = collapsedSections.has(sectionKey);
       return (
-        <div
-          className='group/label sider-section-label flex items-center px-12px h-28px select-none sticky top-0 z-10 mt-8px cursor-pointer'
-          onClick={() => toggleSection(sectionKey)}
-        >
-          <span className='text-14px text-t-tertiary sider-section-title group-hover/label:text-t-primary transition-colors font-[500] leading-none'>
-            {label}
-          </span>
-          <span className='ml-2px flex items-center justify-center opacity-0 group-hover/label:opacity-100 transition-opacity text-t-tertiary shrink-0'>
-            <Right
-              theme='outline'
-              size={12}
-              className={classNames('transition-transform duration-150', { 'rotate-90': !isCollapsed })}
-            />
-          </span>
-          {trailing && (
-            <div className='ml-auto' onClick={(e) => e.stopPropagation()}>
-              {trailing}
-            </div>
-          )}
+        <div className='group/label sider-section-label flex items-center h-28px select-none sticky top-0 z-10 mt-8px'>
+          <button
+            type='button'
+            className='sider-section-toggle min-w-0 h-full flex-1 flex items-center px-12px border-none bg-transparent cursor-pointer text-left'
+            onClick={() => toggleSection(sectionKey)}
+            aria-expanded={!isCollapsed}
+          >
+            <span className='text-14px text-t-tertiary sider-section-title group-hover/label:text-t-primary transition-colors font-[500] leading-none'>
+              {label}
+            </span>
+            <span className='ml-2px flex items-center justify-center opacity-0 group-hover/label:opacity-100 group-focus-within/label:opacity-100 transition-opacity text-t-tertiary shrink-0'>
+              <Right
+                theme='outline'
+                size={12}
+                className={classNames('transition-transform duration-150', { 'rotate-90': !isCollapsed })}
+              />
+            </span>
+          </button>
+          {trailing && <div className='ml-auto pr-6px'>{trailing}</div>}
         </div>
       );
     },
@@ -340,7 +340,9 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
           expanded={expandedWorkspaces.includes(folderKey)}
           onToggle={() => handleToggleWorkspace(folderKey)}
           siderCollapsed={collapsed}
-          header={<span className='text-14px font-[500] truncate flex-1 text-t-primary min-w-0'>{group.display_name}</span>}
+          header={
+            <span className='text-14px font-[500] truncate flex-1 text-t-primary min-w-0'>{group.display_name}</span>
+          }
           trailing={
             <Dropdown
               droplist={folderMenu}
@@ -349,7 +351,8 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
               getPopupContainer={() => document.body}
               unmountOnExit={false}
             >
-              <span
+              <button
+                type='button'
                 aria-label={t('conversation.history.folderActions')}
                 className={classNames(
                   'flex-center cursor-pointer transition-colors text-t-secondary hover:text-t-primary size-20px rd-4px sider-action-btn',
@@ -358,7 +361,7 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
                 onClick={(event) => event.stopPropagation()}
               >
                 <MoreOne theme='outline' size='14' fill='currentColor' className='block leading-none' />
-              </span>
+              </button>
             </Dropdown>
           }
         >
@@ -551,16 +554,12 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
               : t('conversation.history.exportDialogSingleDescription')}
           </div>
 
-          <div className='mb-16px p-16px rounded-12px bg-fill-1'>
+          <div className='eve-panel mb-16px p-16px rounded-8px'>
             <div className='text-14px mb-8px text-t-primary'>{t('conversation.history.exportTargetFolder')}</div>
-            <div
-              className='flex items-center justify-between px-12px py-10px rounded-8px transition-colors'
-              style={{
-                backgroundColor: 'var(--color-bg-1)',
-                border: '1px solid var(--color-border-2)',
-                cursor: exportModalLoading ? 'not-allowed' : 'pointer',
-                opacity: exportModalLoading ? 0.55 : 1,
-              }}
+            <button
+              type='button'
+              disabled={exportModalLoading}
+              className='eve-row w-full flex items-center justify-between px-12px py-10px rounded-8px border border-solid border-[var(--glass-panel-border)] bg-transparent text-left transition-colors disabled:cursor-not-allowed disabled:opacity-55'
               onClick={() => {
                 void handleSelectExportFolder();
               }}
@@ -572,17 +571,18 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
                 {exportTargetPath || t('conversation.history.exportSelectFolder')}
               </span>
               <FolderOpen theme='outline' size='18' fill='var(--color-text-3)' />
-            </div>
+            </button>
           </div>
 
           <div className='flex items-center gap-8px mb-20px text-14px text-t-secondary'>
-            <span>💡</span>
+            <Info theme='outline' size='16' aria-hidden='true' />
             <span>{t('conversation.history.exportDialogHint')}</span>
           </div>
 
           <div className='flex gap-12px justify-end'>
             <button
-              className='px-24px py-8px rounded-20px text-14px font-medium transition-all'
+              type='button'
+              className='px-24px py-8px rounded-8px text-14px font-medium transition-all'
               style={{
                 border: '1px solid var(--color-border-2)',
                 backgroundColor: 'var(--color-fill-2)',
@@ -599,7 +599,8 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
               {t('common.cancel')}
             </button>
             <button
-              className='px-24px py-8px rounded-20px text-14px font-medium transition-all'
+              type='button'
+              className='px-24px py-8px rounded-8px text-14px font-medium transition-all'
               style={{
                 border: 'none',
                 backgroundColor: exportModalLoading ? 'var(--color-fill-3)' : 'var(--color-text-1)',
@@ -678,7 +679,7 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
           <div className='flex justify-end gap-12px pt-16px'>
             <button
               type='button'
-              className='px-24px py-8px rounded-20px text-14px font-medium transition-all'
+              className='px-24px py-8px rounded-8px text-14px font-medium transition-all'
               style={{
                 border: '1px solid var(--color-border-2)',
                 backgroundColor: 'var(--color-fill-2)',
@@ -699,7 +700,7 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
             </button>
             <button
               type='button'
-              className='px-24px py-8px rounded-20px text-14px font-medium transition-all'
+              className='px-24px py-8px rounded-8px text-14px font-medium transition-all'
               style={{
                 border: '1px solid rgb(var(--danger-6))',
                 backgroundColor: 'transparent',
@@ -822,9 +823,8 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
                       trailing={
                         <span className='flex items-center gap-6px'>
                           <Tooltip content={t('conversation.history.newConversationInProject')} position='top'>
-                            <span
-                              role='button'
-                              tabIndex={0}
+                            <button
+                              type='button'
                               aria-label={t('conversation.history.newConversationInProject')}
                               className={classNames(
                                 'flex-center cursor-pointer transition-colors text-t-secondary hover:text-t-primary size-20px rd-4px sider-action-btn',
@@ -834,16 +834,9 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
                                 e.stopPropagation();
                                 void navigate('/guid', { state: { workspace: group.workspace } });
                               }}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter' || e.key === ' ') {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  void navigate('/guid', { state: { workspace: group.workspace } });
-                                }
-                              }}
                             >
                               <Plus theme='outline' size='14' fill='currentColor' className='block leading-none' />
-                            </span>
+                            </button>
                           </Tooltip>
                           <Dropdown
                             droplist={projectMenu}
@@ -852,7 +845,8 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
                             getPopupContainer={() => document.body}
                             unmountOnExit={false}
                           >
-                            <span
+                            <button
+                              type='button'
                               aria-label={t('conversation.history.projectActions')}
                               className={classNames(
                                 'flex-center cursor-pointer transition-colors text-t-secondary hover:text-t-primary size-20px rd-4px sider-action-btn',
@@ -861,7 +855,7 @@ const WorkspaceGroupedHistory: React.FC<WorkspaceGroupedHistoryProps> = ({
                               onClick={(e) => e.stopPropagation()}
                             >
                               <MoreOne theme='outline' size='14' fill='currentColor' className='block leading-none' />
-                            </span>
+                            </button>
                           </Dropdown>
                         </span>
                       }

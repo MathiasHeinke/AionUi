@@ -3,7 +3,7 @@
   margin-top: auto;
   padding: 8px;
   border-top: 1px solid var(--glass-chrome-border, var(--color-border-2));
-  background: color-mix(in srgb, var(--glass-chrome-bg) 82%, transparent);
+  background: transparent;
 }
 
 .sider-footer__row {

@@ -7,15 +7,20 @@ const MessagePlan: React.FC<{ message: IMessagePlan }> = ({ message }) => {
   const [showMore, setShowMore] = useState(true);
   return (
     <div>
-      <div className='flex items-center gap-10px color-#86909C cursor-pointer' onClick={() => setShowMore(!showMore)}>
+      <button
+        type='button'
+        className='flex items-center gap-10px p-0 border-none bg-transparent color-#86909C cursor-pointer font-inherit'
+        onClick={() => setShowMore(!showMore)}
+        aria-expanded={showMore}
+      >
         <Badge status='default' text='To do list' className={'![&_span.arco-badge-status-text]:color-#86909C'}></Badge>
         {showMore ? <IconDown /> : <IconRight />}
-      </div>
+      </button>
       {showMore && (
         <div className='p-l-20px flex flex-col gap-8px pt-8px'>
           {message.content.entries.map((item, index) => {
             return (
-              <div className='flex flex-row items-center color-#86909C gap-8px'>
+              <div key={`${index}-${item.content}`} className='flex flex-row items-center color-#86909C gap-8px'>
                 {item.status === 'completed' ? (
                   <IconCheckCircle fontSize={22} strokeWidth={4} className='flex color-#00B42A' />
                 ) : (

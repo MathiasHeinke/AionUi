@@ -39,8 +39,11 @@ const AgentRadioRow: React.FC<{
   isSelected: boolean;
   onClick: () => void;
 }> = ({ agent, isSelected, onClick }) => (
-  <div
-    className={`flex cursor-pointer items-center gap-12px rounded-8px px-12px py-9px transition-colors ${
+  <button
+    type='button'
+    role='radio'
+    aria-checked={isSelected}
+    className={`flex w-full cursor-pointer items-center gap-12px border-none bg-transparent rounded-8px px-12px py-9px text-left transition-colors ${
       isSelected ? 'bg-[var(--eve-row-selected-bg)]' : 'hover:bg-fill-2'
     }`}
     style={isSelected ? { boxShadow: 'inset 0 0 0 1px var(--eve-focus-ring)' } : undefined}
@@ -57,7 +60,7 @@ const AgentRadioRow: React.FC<{
     <div className='flex-1 overflow-hidden'>
       <AgentOptionLabel agent={agent} />
     </div>
-  </div>
+  </button>
 );
 
 const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
@@ -183,13 +186,13 @@ const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
       unmountOnExit={false}
       footerUnpadded
       contentStyle={{
-        background: 'var(--dialog-fill-0)',
+        background: 'transparent',
         padding: 0,
         overflow: 'hidden',
       }}
       header={{
         render: () => (
-          <div className='flex items-center justify-between border-b border-border-2 bg-dialog-fill-0 px-24px py-18px'>
+          <div className='flex items-center justify-between border-b border-[var(--glass-overlay-border)] px-24px py-18px'>
             <h3 className='m-0 text-16px font-600 text-t-primary'>
               {t('team.create.title', { defaultValue: 'Create Team' })}
             </h3>
@@ -204,8 +207,13 @@ const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
         ),
       }}
       footer={
-        <div className='flex justify-end gap-10px border-t border-border-2 bg-dialog-fill-0 px-24px py-16px'>
-          <Button onClick={handleClose} className='min-w-80px' style={{ borderRadius: 8 }}>
+        <div className='flex justify-end gap-10px border-t border-[var(--glass-overlay-border)] px-24px py-16px'>
+          <Button
+            onClick={handleClose}
+            className='min-w-80px'
+            style={{ borderRadius: 8 }}
+            data-testid='team-create-cancel'
+          >
             {t('common.cancel', { defaultValue: 'Cancel' })}
           </Button>
           <Button
@@ -258,14 +266,15 @@ const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
             }
           >
             {allAgents.length === 0 ? (
-              <div className='flex items-center justify-center rounded-10px border border-dashed border-border-2 bg-fill-1 py-20px text-12px text-t-tertiary'>
+              <div className='flex items-center justify-center rounded-8px border border-dashed border-[var(--glass-overlay-border)] bg-transparent py-20px text-12px text-t-tertiary'>
                 {t('team.create.noSupportedAgents', { defaultValue: 'No supported agents installed' })}
               </div>
             ) : (
               <div className='relative flex flex-col gap-8px'>
                 <div
-                  className='max-h-320px overflow-y-auto rounded-12px border border-border-2 bg-fill-1 p-6px'
+                  className='max-h-320px overflow-y-auto rounded-8px border border-[var(--glass-overlay-border)] bg-transparent p-6px'
                   data-testid='team-create-leader-select'
+                  role='radiogroup'
                 >
                   {allAgents.map((agent) => {
                     const key = agentKey(agent);

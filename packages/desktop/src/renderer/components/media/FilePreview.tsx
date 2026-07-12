@@ -6,6 +6,7 @@
 
 import { Close } from '@icon-park/react';
 import React, { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { getFileExtension } from '@/renderer/services/FileService';
 import { ipcBridge } from '@/common';
 import { Image } from '@arco-design/web-react';
@@ -40,6 +41,7 @@ interface FilePreviewProps {
 }
 
 const FilePreview: React.FC<FilePreviewProps> = ({ path, onRemove, readonly = false }) => {
+  const { t } = useTranslation();
   // Defensive check: ensure path is a string
   if (typeof path !== 'string') {
     console.error('[FilePreview] Invalid path type:', typeof path, path);
@@ -127,12 +129,14 @@ const FilePreview: React.FC<FilePreviewProps> = ({ path, onRemove, readonly = fa
           {!imageUrl && <div className='w-60px h-60px bg-bg-3'></div>}
         </div>
         {!readonly && (
-          <div
-            className='absolute -top-4px -right-4px w-16px h-16px rd-50% bg-white dark:bg-gray-700 cursor-pointer flex items-center justify-center shadow-md hover:shadow-lg transition-all z-10 border-1 border-solid border-gray-200 dark:border-gray-600'
+          <button
+            type='button'
+            aria-label={t('common.remove')}
+            className='absolute -top-4px -right-4px w-20px h-20px p-0 rd-50% cursor-pointer flex items-center justify-center bg-[var(--glass-overlay-bg-solid)] border-1 border-solid border-[var(--glass-overlay-border)] shadow-sm hover:shadow-md transition-all z-10'
             onClick={handleRemove}
           >
             <Close theme='filled' size='10' fill='#666' />
-          </div>
+          </button>
         )}
       </div>
     );
@@ -140,10 +144,7 @@ const FilePreview: React.FC<FilePreviewProps> = ({ path, onRemove, readonly = fa
 
   return (
     <div className='relative inline-block mb-10px'>
-      <div
-        className='h-60px flex items-center gap-12px px-12px rd-8px bg-bg-2 border border-solid'
-        style={{ borderColor: 'var(--border-base)', boxShadow: '0 0 0 1px rgba(0,0,0,0.02)' }}
-      >
+      <div className='h-60px flex items-center gap-12px px-12px rd-8px border border-solid border-[var(--glass-panel-border)] bg-[var(--glass-panel-bg-solid)]'>
         <div className='w-40px h-40px rd-8px flex items-center justify-center flex-shrink-0'>
           <img className='w-full h-full object-contain' src={fileIcon} alt='File Icon' />
         </div>
@@ -155,12 +156,14 @@ const FilePreview: React.FC<FilePreviewProps> = ({ path, onRemove, readonly = fa
         </div>
       </div>
       {!readonly && (
-        <div
-          className='absolute -top-4px -right-4px w-16px h-16px rd-50% bg-white dark:bg-gray-700 cursor-pointer flex items-center justify-center shadow-md hover:shadow-lg transition-all z-10 border-1 border-solid border-gray-200 dark:border-gray-600'
+        <button
+          type='button'
+          aria-label={t('common.remove')}
+          className='absolute -top-4px -right-4px w-20px h-20px p-0 rd-50% cursor-pointer flex items-center justify-center bg-[var(--glass-overlay-bg-solid)] border-1 border-solid border-[var(--glass-overlay-border)] shadow-sm hover:shadow-md transition-all z-10'
           onClick={handleRemove}
         >
           <Close theme='filled' size='10' fill='#666' />
-        </div>
+        </button>
       )}
     </div>
   );

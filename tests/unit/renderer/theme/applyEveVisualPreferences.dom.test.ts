@@ -8,6 +8,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { applyEveVisualPreferences, resolveEveAppearance } from '@/renderer/theme/visualPreferences';
 import {
+  COMMAND_EVE_BUILTIN_BACKGROUNDS,
   COMMAND_EVE_DEFAULT_BACKGROUND_ASSET_ID,
   removeEveVisualBackground,
   resolveEveVisualBackground,
@@ -64,7 +65,10 @@ describe('local visual background assets', () => {
   it('resolves the bundled Command EVE default background without local storage', () => {
     const resolved = resolveEveVisualBackground(COMMAND_EVE_DEFAULT_BACKGROUND_ASSET_ID);
 
-    expect(resolved).toContain('gate-bg-alt.jpg');
+    expect(resolved).toContain('command-eve-dawn-alloy.png');
+    for (const background of COMMAND_EVE_BUILTIN_BACKGROUNDS) {
+      expect(resolveEveVisualBackground(background.id)).toBe(background.imageUrl);
+    }
     expect(localStorage.length).toBe(0);
   });
 
@@ -93,5 +97,17 @@ describe('local visual background assets', () => {
     swap.rollback();
     expect(resolveEveVisualBackground(swap.assetId)).toBeUndefined();
     expect(resolveEveVisualBackground('bg-current')).toBe('data:image/png;base64,AAAA');
+  });
+
+  it('can replace a bundled background and roll back without writing its URL to local storage', () => {
+    const swap = swapEveVisualBackground('data:image/png;base64,BBBB', COMMAND_EVE_DEFAULT_BACKGROUND_ASSET_ID);
+
+    expect(resolveEveVisualBackground(swap.assetId)).toBe('data:image/png;base64,BBBB');
+    expect(resolveEveVisualBackground(COMMAND_EVE_DEFAULT_BACKGROUND_ASSET_ID)).toContain('command-eve-dawn-alloy.png');
+
+    swap.rollback();
+    expect(resolveEveVisualBackground(swap.assetId)).toBeUndefined();
+    expect(resolveEveVisualBackground(COMMAND_EVE_DEFAULT_BACKGROUND_ASSET_ID)).toContain('command-eve-dawn-alloy.png');
+    expect(localStorage.length).toBe(0);
   });
 });

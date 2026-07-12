@@ -103,6 +103,7 @@ const PasteConfirmModal: React.FC<PasteConfirmModalProps> = ({
         {/* Button area */}
         <div className='flex gap-12px justify-end'>
           <button
+            type='button'
             className='px-16px py-8px rounded-6px text-14px font-medium transition-all'
             style={{
               border: '1px solid var(--color-border-2)',
@@ -122,6 +123,7 @@ const PasteConfirmModal: React.FC<PasteConfirmModalProps> = ({
             {t('conversation.workspace.pasteConfirm_cancel')}
           </button>
           <button
+            type='button'
             className='px-16px py-8px rounded-6px text-14px font-medium transition-all'
             style={{
               border: 'none',

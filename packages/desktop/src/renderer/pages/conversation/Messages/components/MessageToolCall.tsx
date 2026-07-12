@@ -76,23 +76,23 @@ const MessageToolCall: React.FC<{ message: IMessageToolCall }> = ({ message }) =
           status={statusToBadge(normalized.status)}
           className={normalized.status === 'running' ? 'badge-breathing' : ''}
         />
-        <span
-          className={
-            'flex-1 min-w-0' +
-            (expanded ? ' break-all' : ' truncate') +
-            (hasDetail ? ' cursor-pointer hover:color-#4E5969' : '')
-          }
-          onClick={hasDetail ? () => setExpanded(!expanded) : undefined}
-        >
-          <span className='font-medium text-13px'>{normalized.name}</span>
-          {normalized.description && <span className='m-l-4px opacity-80 text-13px'>{normalized.description}</span>}
-        </span>
-        {hasDetail && (
-          <span
-            className='flex-shrink-0 cursor-pointer hover:color-#4E5969 transition-colors'
+        {hasDetail ? (
+          <button
+            type='button'
+            className='tool-item-disclosure flex-1 min-w-0'
             onClick={() => setExpanded(!expanded)}
+            aria-expanded={expanded}
           >
+            <span className={expanded ? 'min-w-0 break-all text-left' : 'min-w-0 truncate text-left'}>
+              <span className='font-medium text-13px'>{normalized.name}</span>
+              {normalized.description && <span className='m-l-4px opacity-80 text-13px'>{normalized.description}</span>}
+            </span>
             {expanded ? <IconDown style={{ fontSize: 12 }} /> : <IconRight style={{ fontSize: 12 }} />}
+          </button>
+        ) : (
+          <span className='flex-1 min-w-0 truncate'>
+            <span className='font-medium text-13px'>{normalized.name}</span>
+            {normalized.description && <span className='m-l-4px opacity-80 text-13px'>{normalized.description}</span>}
           </span>
         )}
       </div>

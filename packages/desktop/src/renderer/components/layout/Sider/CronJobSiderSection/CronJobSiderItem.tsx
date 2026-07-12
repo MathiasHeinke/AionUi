@@ -50,8 +50,13 @@ const CronJobSiderItem: React.FC<CronJobSiderItemProps> = ({
   const isMobile = layout?.isMobile ?? false;
   // Always fetch all child conversations regardless of mode
   const { conversations } = useCronJobConversations(job.id);
-  const { isConversationGenerating, hasCompletionUnread, isConversationWaitingInput, hasConversationError, clearCompletionUnread } =
-    useConversationHistoryContext();
+  const {
+    isConversationGenerating,
+    hasCompletionUnread,
+    isConversationWaitingInput,
+    hasConversationError,
+    clearCompletionUnread,
+  } = useConversationHistoryContext();
 
   // Show all child conversations in both modes; include existingConversationProp as fallback
   const childConversations = useMemo(() => {
@@ -311,33 +316,39 @@ const CronJobSiderItem: React.FC<CronJobSiderItemProps> = ({
         )}
       >
         {/* Expand/collapse arrow — 22px slot to align with sibling rows' icons */}
-        <span className='size-22px flex items-center justify-center shrink-0 line-height-0 text-t-secondary'>
-          {hasChildren && (
+        {hasChildren ? (
+          <button
+            type='button'
+            className='size-22px p-0 border-none bg-transparent flex items-center justify-center shrink-0 line-height-0 text-t-secondary cursor-pointer rd-4px'
+            onClick={() => setExpanded((prev) => !prev)}
+            aria-label={expanded ? t('common.collapse') : t('common.expandMore')}
+            aria-expanded={expanded}
+          >
             <Down
               size={16}
               className={classNames(
-                'line-height-0 transition-transform duration-200 cursor-pointer',
+                'line-height-0 transition-transform duration-200',
                 expanded ? 'rotate-0' : '-rotate-90'
               )}
-              onClick={(e) => {
-                e.stopPropagation();
-                setExpanded((prev) => !prev);
-              }}
             />
-          )}
-        </span>
+          </button>
+        ) : (
+          <span className='size-22px shrink-0' aria-hidden='true' />
+        )}
 
         {/* Title - click to navigate to task detail */}
-        <div
-          className='flex-1 min-w-0 overflow-hidden cursor-pointer'
+        <button
+          type='button'
+          className='flex-1 min-w-0 overflow-hidden cursor-pointer border-none bg-transparent p-0 text-left'
           onClick={() => onNavigate(`/scheduled/${job.id}`)}
+          aria-current={pathname === `/scheduled/${job.id}` ? 'page' : undefined}
         >
           <div className='flex items-center gap-8px min-w-0'>
             <span className='cron-job-name text-14px truncate flex-1 text-[var(--color-text-2)] group-hover:text-t-primary transition-colors min-w-0 font-[500]'>
               {job.name}
             </span>
           </div>
-        </div>
+        </button>
       </div>
 
       {/* Child conversations — workspace groups + plain conversations */}

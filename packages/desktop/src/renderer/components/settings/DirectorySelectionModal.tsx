@@ -154,15 +154,20 @@ const DirectorySelectionModal: React.FC<DirectorySelectionModalProps> = ({
     >
       <Spin loading={loading} className='w-full'>
         <div className='w-full border border-b-base rd-4px overflow-hidden' style={{ height: 'min(400px, 60vh)' }}>
-          <div className='h-full overflow-y-auto'>
+          <div
+            className='h-full overflow-y-auto'
+            role='listbox'
+            aria-label={isFileMode ? t('fileSelection.pleaseSelectFile') : t('fileSelection.pleaseSelectDirectory')}
+          >
             {directoryData.canGoUp && (
-              <div
-                className='flex items-center p-10px border-b border-b-light cursor-pointer hover:bg-hover transition'
+              <button
+                type='button'
+                className='eve-row w-full flex items-center border-none bg-transparent p-10px border-b border-b-light text-left cursor-pointer hover:bg-hover transition'
                 onClick={handleGoUp}
               >
                 <IconUp className='mr-10px text-t-secondary' />
                 <span>..</span>
-              </div>
+              </button>
             )}
             {error && (
               <div className='p-16px text-center text-danger text-13px'>
@@ -172,22 +177,28 @@ const DirectorySelectionModal: React.FC<DirectorySelectionModalProps> = ({
                 </Button>
               </div>
             )}
-            {directoryData.items.map((item, index) => (
+            {directoryData.items.map((item) => (
               <div
-                key={index}
+                key={item.path}
+                role='presentation'
                 className='flex items-center justify-between p-10px border-b border-b-light cursor-pointer hover:bg-hover transition'
                 style={selectedPath === item.path ? { background: 'var(--brand-light)' } : {}}
-                onClick={() => handleItemClick(item)}
-                onDoubleClick={() => handleItemDoubleClick(item)}
               >
-                <div className='flex items-center flex-1 min-w-0'>
+                <button
+                  type='button'
+                  role='option'
+                  aria-selected={selectedPath === item.path}
+                  className='flex min-w-0 flex-1 cursor-pointer items-center border-none bg-transparent p-0 text-left'
+                  onClick={() => handleItemClick(item)}
+                  onDoubleClick={() => handleItemDoubleClick(item)}
+                >
                   {item.isDirectory ? (
                     <IconFolder className='mr-10px text-warning shrink-0' />
                   ) : (
                     <IconFile className='mr-10px text-primary shrink-0' />
                   )}
                   <span className='overflow-hidden text-ellipsis whitespace-nowrap'>{item.name}</span>
-                </div>
+                </button>
                 {canSelect(item) && (
                   <Button
                     type='primary'

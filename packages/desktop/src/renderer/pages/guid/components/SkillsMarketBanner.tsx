@@ -88,12 +88,13 @@ const SkillsMarketBanner: React.FC = () => {
           {hovered && (
             <div className='text-12px text-[var(--color-text-3)] mt-2px leading-tight animate-fade-in'>
               {t('conversation.welcome.skillsMarketDesc')}{' '}
-              <span
-                className='text-brand hover:text-brand-hover font-semibold cursor-pointer hover:underline transition-colors'
+              <button
+                type='button'
+                className='border-none bg-transparent p-0 text-brand hover:text-brand-hover font-semibold cursor-pointer hover:underline transition-colors'
                 onClick={handleOpenDetails}
               >
                 {t('conversation.welcome.skillsMarketDetails')}
-              </span>
+              </button>
             </div>
           )}
         </div>

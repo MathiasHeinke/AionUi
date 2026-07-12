@@ -49,6 +49,11 @@
     "confirmTitle": "Teammitglied entfernen",
     "confirmContent": "Dieses Mitglied ist gerade aktiv. Trotzdem entfernen?"
   },
+  "tabs": {
+    "label": "Team-Agenten",
+    "renameAgent": "Agent umbenennen",
+    "removeAgent": "Agent entfernen"
+  },
   "emptyState": {
     "subtitle": "Beschreibe dein Ziel und ich setze das Team darauf an",
     "suggestions": {

@@ -117,6 +117,23 @@ describe('CommandEveAppearanceSettings', () => {
     expect(tintUpdater(preferences)).toMatchObject({ background: { adaptiveTint: false } });
   });
 
+  it('selects bundled backgrounds with standard radio keyboard navigation', async () => {
+    render(<CommandEveAppearanceSettings />);
+
+    const firstPreset = screen.getByTestId('eve-background-preset-builtin-command-eve-default');
+    expect(firstPreset.getAttribute('tabindex')).toBe('0');
+    fireEvent.keyDown(firstPreset, { key: 'ArrowRight' });
+
+    await waitFor(() => expect(setVisualPreferencesMock).toHaveBeenCalledTimes(1));
+    const presetUpdater = setVisualPreferencesMock.mock.calls[0][0];
+    expect(presetUpdater(preferences)).toMatchObject({
+      background: {
+        enabled: true,
+        assetId: 'builtin:command-eve-frosted-gallery',
+      },
+    });
+  });
+
   it('gives every visual preference switch an accessible name', () => {
     (preferences.background as typeof preferences.background & { assetId?: string }).assetId = 'bg-test';
     localStorage.setItem('command-eve.visual-background.bg-test', 'data:image/png;base64,AAAA');

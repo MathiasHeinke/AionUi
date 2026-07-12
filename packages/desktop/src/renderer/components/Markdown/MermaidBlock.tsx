@@ -169,9 +169,15 @@ function MermaidBlock({ code, style, showOpenInPanelButton = true }: MermaidBloc
               {'<mermaid>'}
             </span>
             {svg && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <div
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }} role='tablist'>
+                <button
+                  type='button'
+                  role='tab'
+                  aria-selected={viewMode === 'preview'}
                   style={{
+                    border: 0,
+                    background: 'transparent',
+                    padding: 0,
                     cursor: 'pointer',
                     color: viewMode === 'preview' ? 'var(--text-primary)' : 'var(--text-secondary)',
                     fontSize: '12px',
@@ -186,10 +192,16 @@ function MermaidBlock({ code, style, showOpenInPanelButton = true }: MermaidBloc
                   }}
                 >
                   {t('preview.preview')}
-                </div>
+                </button>
                 <span style={{ color: 'var(--text-secondary)', fontSize: '12px', lineHeight: '20px' }}>/</span>
-                <div
+                <button
+                  type='button'
+                  role='tab'
+                  aria-selected={viewMode === 'source'}
                   style={{
+                    border: 0,
+                    background: 'transparent',
+                    padding: 0,
                     cursor: 'pointer',
                     color: viewMode === 'source' ? 'var(--text-primary)' : 'var(--text-secondary)',
                     fontSize: '12px',
@@ -204,7 +216,7 @@ function MermaidBlock({ code, style, showOpenInPanelButton = true }: MermaidBloc
                   }}
                 >
                   {t('preview.source')}
-                </div>
+                </button>
               </div>
             )}
           </div>

@@ -19,7 +19,10 @@
   right: 0;
   bottom: 0;
   max-height: min(72vh, 560px);
-  background: var(--color-bg-1, #ffffff);
+  background: var(--glass-overlay-bg, var(--color-bg-1, #ffffff));
+  border-top: 1px solid var(--glass-overlay-border, var(--color-border-2));
+  -webkit-backdrop-filter: var(--glass-overlay-filter, blur(18px));
+  backdrop-filter: var(--glass-overlay-filter, blur(18px));
   border-top-left-radius: 20px;
   border-top-right-radius: 20px;
   box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.12);
@@ -61,6 +64,11 @@
 }
 
 .item {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -80,6 +88,11 @@
 .item.disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.item:focus-visible {
+  outline: 2px solid var(--eve-focus-ring, var(--color-primary-6));
+  outline-offset: -2px;
 }
 
 .icon {

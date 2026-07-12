@@ -207,15 +207,14 @@ const ChatLayout: React.FC<{
           conversation_id={conversation_id}
           leading={
             props.headerLeading ??
-            (!isCommandEveAssistant &&
-              (backend || presetAssistant) && (
-                <AgentLogoIcon
-                  backend={backend}
-                  agent_name={display_name}
-                  agentLogo={presetAssistant?.logo}
-                  agentLogoIsEmoji={presetAssistant?.isEmoji}
-                />
-              ))
+            (!isCommandEveAssistant && (backend || presetAssistant) && (
+              <AgentLogoIcon
+                backend={backend}
+                agent_name={display_name}
+                agentLogo={presetAssistant?.logo}
+                agentLogoIsEmoji={presetAssistant?.isEmoji}
+              />
+            ))
           }
         />
       </FlexFullContainer>
@@ -265,6 +264,7 @@ const ChatLayout: React.FC<{
           <div className='flex flex-1 min-h-0 relative'>
             {/* Chat area - always mounted, never unmounted on preview toggle */}
             <div
+              data-eve-interaction-role='focus-surface'
               className='flex flex-col relative'
               style={{
                 flexGrow: isPreviewOpen && isDesktop ? 0 : 1,

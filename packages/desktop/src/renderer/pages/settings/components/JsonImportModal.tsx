@@ -384,7 +384,7 @@ const JsonImportModal: React.FC<JsonImportModalProps> = ({ visible, server, onCa
               <Button
                 size='mini'
                 type='outline'
-                className='absolute top-2 right-2 z-10'
+                className='absolute top-2 right-2 z-10 !bg-[var(--glass-overlay-bg-solid)] !border-[var(--glass-overlay-border)]'
                 onClick={() => {
                   const copyToClipboard = async () => {
                     try {
@@ -413,9 +413,6 @@ const JsonImportModal: React.FC<JsonImportModalProps> = ({ visible, server, onCa
                   };
 
                   void copyToClipboard();
-                }}
-                style={{
-                  backdropFilter: 'blur(4px)',
                 }}
               >
                 {copyStatus === 'success'

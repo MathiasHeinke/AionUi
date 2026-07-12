@@ -19,7 +19,9 @@ import {
   type EveVisualPreferences,
 } from '@renderer/theme/visualPreferences';
 import {
+  COMMAND_EVE_BUILTIN_BACKGROUNDS,
   garbageCollectEveVisualBackgrounds,
+  isEveBuiltinBackground,
   removeEveVisualBackground,
   resolveEveVisualBackground,
   swapEveVisualBackground,
@@ -31,6 +33,7 @@ const sliderNumber = (value: number | number[]): number => (typeof value === 'nu
 const MODE_OPTIONS: EveAppearanceMode[] = ['system', 'light', 'dark'];
 const ACCENT_OPTIONS: EveAccent[] = ['blue', 'petrol', 'emerald', 'graphite'];
 const FIT_OPTIONS: EveBackgroundFit[] = ['cover', 'contain', 'fill'];
+const BUILTIN_BACKGROUND_IDS = COMMAND_EVE_BUILTIN_BACKGROUNDS.map((background) => background.id);
 
 const moveRadioSelection = <T extends string>(
   event: React.KeyboardEvent<HTMLButtonElement>,
@@ -70,6 +73,10 @@ const CommandEveAppearanceSettings: React.FC = () => {
     () => resolveEveVisualBackground(visualPreferences.background.assetId),
     [visualPreferences.background.assetId]
   );
+  const selectedBuiltinBackgroundId =
+    visualPreferences.background.enabled && isEveBuiltinBackground(visualPreferences.background.assetId)
+      ? visualPreferences.background.assetId!
+      : BUILTIN_BACKGROUND_IDS[0];
 
   useEffect(() => setGlassOpacity(visualPreferences.glassOpacity), [visualPreferences.glassOpacity]);
   useEffect(() => setGlassBlur(visualPreferences.glassBlur), [visualPreferences.glassBlur]);
@@ -86,6 +93,20 @@ const CommandEveAppearanceSettings: React.FC = () => {
 
   const updateBackground = (patch: Partial<EveVisualPreferences['background']>) => {
     update((current) => ({ ...current, background: { ...current.background, ...patch } }));
+  };
+
+  const selectBuiltinBackground = async (assetId: string) => {
+    const previousAssetId = visualPreferencesRef.current.background.assetId;
+    try {
+      await setVisualPreferences((current) => ({
+        ...current,
+        background: { ...current.background, enabled: true, assetId },
+      }));
+      if (previousAssetId && !isEveBuiltinBackground(previousAssetId)) removeEveVisualBackground(previousAssetId);
+      garbageCollectEveVisualBackgrounds(assetId);
+    } catch {
+      Message.error(t('settings.commandEveAppearance.saveFailed'));
+    }
   };
 
   const uploadBackground = async () => {
@@ -286,119 +307,157 @@ const CommandEveAppearanceSettings: React.FC = () => {
           </Button>
         </div>
 
-        {backgroundDataUrl ? (
-          <div className='eve-background-editor'>
-            <div className='eve-background-preview'>
-              <img src={backgroundDataUrl} alt='' />
-              <Tooltip content={t('settings.commandEveAppearance.removeBackground')}>
+        <div className='eve-background-options'>
+          <div className='eve-background-options__label'>{t('settings.commandEveAppearance.builtInBackgrounds')}</div>
+          <div
+            className='eve-background-presets'
+            role='radiogroup'
+            aria-label={t('settings.commandEveAppearance.builtInBackgrounds')}
+          >
+            {COMMAND_EVE_BUILTIN_BACKGROUNDS.map((background) => {
+              const selected =
+                visualPreferences.background.enabled && visualPreferences.background.assetId === background.id;
+              const label = t(background.labelKey);
+              return (
                 <button
-                  type='button'
-                  className='eve-background-preview__remove'
-                  aria-label={t('settings.commandEveAppearance.removeBackground')}
-                  onClick={confirmRemoveBackground}
-                >
-                  <Delete size={16} />
-                </button>
-              </Tooltip>
-            </div>
-
-            <label className='eve-appearance-toggle'>
-              <span className='eve-appearance-toggle__title'>
-                {t('settings.commandEveAppearance.backgroundEnabled')}
-              </span>
-              <Switch
-                aria-label={t('settings.commandEveAppearance.backgroundEnabled')}
-                checked={visualPreferences.background.enabled}
-                onChange={(enabled) => updateBackground({ enabled })}
-              />
-            </label>
-
-            <div
-              className='eve-segmented-control'
-              role='radiogroup'
-              aria-label={t('settings.commandEveAppearance.fit')}
-              aria-orientation='horizontal'
-            >
-              {FIT_OPTIONS.map((fit) => (
-                <button
-                  key={fit}
+                  key={background.id}
                   type='button'
                   role='radio'
-                  aria-checked={visualPreferences.background.fit === fit}
-                  tabIndex={visualPreferences.background.fit === fit ? 0 : -1}
-                  className='eve-segmented-control__option'
-                  onClick={() => updateBackground({ fit })}
+                  aria-label={label}
+                  aria-checked={selected}
+                  tabIndex={selectedBuiltinBackgroundId === background.id ? 0 : -1}
+                  className='eve-background-preset'
+                  data-testid={`eve-background-preset-${background.id.replaceAll(':', '-')}`}
+                  onClick={() => void selectBuiltinBackground(background.id)}
                   onKeyDown={(event) =>
-                    moveRadioSelection(event, FIT_OPTIONS, visualPreferences.background.fit, (next) =>
-                      updateBackground({ fit: next })
-                    )
+                    moveRadioSelection(event, BUILTIN_BACKGROUND_IDS, selectedBuiltinBackgroundId, (next) => {
+                      void selectBuiltinBackground(next);
+                    })
                   }
                 >
-                  {t(`settings.commandEveAppearance.fit_${fit}`)}
+                  <img src={background.imageUrl} alt='' />
+                  <span>{label}</span>
                 </button>
-              ))}
-            </div>
-
-            <label className='eve-appearance-toggle'>
-              <span>
-                <span className='eve-appearance-toggle__title'>{t('settings.commandEveAppearance.adaptiveTint')}</span>
-                <span className='eve-appearance-toggle__description'>
-                  {t('settings.commandEveAppearance.adaptiveTintDescription')}
-                </span>
-              </span>
-              <Switch
-                aria-label={t('settings.commandEveAppearance.adaptiveTint')}
-                checked={visualPreferences.background.adaptiveTint}
-                data-testid='eve-appearance-adaptive-tint'
-                onChange={(adaptiveTint) => updateBackground({ adaptiveTint })}
-              />
-            </label>
-
-            <div className='eve-appearance-controls eve-appearance-controls--background'>
-              <label className='eve-appearance-control'>
-                <span>{t('settings.commandEveAppearance.intensity')}</span>
-                <span className='eve-appearance-control__value'>{Math.round(backgroundIntensity * 100)}%</span>
-                <Slider
-                  min={EVE_VISUAL_LIMITS.backgroundIntensity.min}
-                  max={EVE_VISUAL_LIMITS.backgroundIntensity.max}
-                  step={0.05}
-                  value={backgroundIntensity}
-                  onChange={(value) => setBackgroundIntensity(sliderNumber(value))}
-                  onAfterChange={(value) => updateBackground({ intensity: sliderNumber(value) })}
-                />
-              </label>
-              <label className='eve-appearance-control'>
-                <span>{t('settings.commandEveAppearance.backgroundBlur')}</span>
-                <span className='eve-appearance-control__value'>{Math.round(backgroundBlur)} px</span>
-                <Slider
-                  min={EVE_VISUAL_LIMITS.backgroundBlur.min}
-                  max={EVE_VISUAL_LIMITS.backgroundBlur.max}
-                  step={1}
-                  value={backgroundBlur}
-                  onChange={(value) => setBackgroundBlur(sliderNumber(value))}
-                  onAfterChange={(value) => updateBackground({ blur: sliderNumber(value) })}
-                />
-              </label>
-              <label className='eve-appearance-control'>
-                <span>{t('settings.commandEveAppearance.dim')}</span>
-                <span className='eve-appearance-control__value'>{Math.round(backgroundDim * 100)}%</span>
-                <Slider
-                  min={EVE_VISUAL_LIMITS.backgroundDim.min}
-                  max={EVE_VISUAL_LIMITS.backgroundDim.max}
-                  step={0.05}
-                  value={backgroundDim}
-                  onChange={(value) => setBackgroundDim(sliderNumber(value))}
-                  onAfterChange={(value) => updateBackground({ dim: sliderNumber(value) })}
-                />
-              </label>
-            </div>
+              );
+            })}
           </div>
-        ) : (
-          <button type='button' className='eve-background-empty' onClick={() => void uploadBackground()}>
-            <UploadOne size={20} />
-            <span>{t('settings.commandEveAppearance.chooseBackground')}</span>
-          </button>
-        )}
+
+          {backgroundDataUrl ? (
+            <div className='eve-background-editor'>
+              <div className='eve-background-preview'>
+                <img src={backgroundDataUrl} alt='' />
+                <Tooltip content={t('settings.commandEveAppearance.removeBackground')}>
+                  <button
+                    type='button'
+                    className='eve-background-preview__remove'
+                    aria-label={t('settings.commandEveAppearance.removeBackground')}
+                    onClick={confirmRemoveBackground}
+                  >
+                    <Delete size={16} />
+                  </button>
+                </Tooltip>
+              </div>
+
+              <label className='eve-appearance-toggle'>
+                <span className='eve-appearance-toggle__title'>
+                  {t('settings.commandEveAppearance.backgroundEnabled')}
+                </span>
+                <Switch
+                  aria-label={t('settings.commandEveAppearance.backgroundEnabled')}
+                  checked={visualPreferences.background.enabled}
+                  onChange={(enabled) => updateBackground({ enabled })}
+                />
+              </label>
+
+              <div
+                className='eve-segmented-control'
+                role='radiogroup'
+                aria-label={t('settings.commandEveAppearance.fit')}
+                aria-orientation='horizontal'
+              >
+                {FIT_OPTIONS.map((fit) => (
+                  <button
+                    key={fit}
+                    type='button'
+                    role='radio'
+                    aria-checked={visualPreferences.background.fit === fit}
+                    tabIndex={visualPreferences.background.fit === fit ? 0 : -1}
+                    className='eve-segmented-control__option'
+                    onClick={() => updateBackground({ fit })}
+                    onKeyDown={(event) =>
+                      moveRadioSelection(event, FIT_OPTIONS, visualPreferences.background.fit, (next) =>
+                        updateBackground({ fit: next })
+                      )
+                    }
+                  >
+                    {t(`settings.commandEveAppearance.fit_${fit}`)}
+                  </button>
+                ))}
+              </div>
+
+              <label className='eve-appearance-toggle'>
+                <span>
+                  <span className='eve-appearance-toggle__title'>
+                    {t('settings.commandEveAppearance.adaptiveTint')}
+                  </span>
+                  <span className='eve-appearance-toggle__description'>
+                    {t('settings.commandEveAppearance.adaptiveTintDescription')}
+                  </span>
+                </span>
+                <Switch
+                  aria-label={t('settings.commandEveAppearance.adaptiveTint')}
+                  checked={visualPreferences.background.adaptiveTint}
+                  data-testid='eve-appearance-adaptive-tint'
+                  onChange={(adaptiveTint) => updateBackground({ adaptiveTint })}
+                />
+              </label>
+
+              <div className='eve-appearance-controls eve-appearance-controls--background'>
+                <label className='eve-appearance-control'>
+                  <span>{t('settings.commandEveAppearance.intensity')}</span>
+                  <span className='eve-appearance-control__value'>{Math.round(backgroundIntensity * 100)}%</span>
+                  <Slider
+                    min={EVE_VISUAL_LIMITS.backgroundIntensity.min}
+                    max={EVE_VISUAL_LIMITS.backgroundIntensity.max}
+                    step={0.05}
+                    value={backgroundIntensity}
+                    onChange={(value) => setBackgroundIntensity(sliderNumber(value))}
+                    onAfterChange={(value) => updateBackground({ intensity: sliderNumber(value) })}
+                  />
+                </label>
+                <label className='eve-appearance-control'>
+                  <span>{t('settings.commandEveAppearance.backgroundBlur')}</span>
+                  <span className='eve-appearance-control__value'>{Math.round(backgroundBlur)} px</span>
+                  <Slider
+                    min={EVE_VISUAL_LIMITS.backgroundBlur.min}
+                    max={EVE_VISUAL_LIMITS.backgroundBlur.max}
+                    step={1}
+                    value={backgroundBlur}
+                    onChange={(value) => setBackgroundBlur(sliderNumber(value))}
+                    onAfterChange={(value) => updateBackground({ blur: sliderNumber(value) })}
+                  />
+                </label>
+                <label className='eve-appearance-control'>
+                  <span>{t('settings.commandEveAppearance.dim')}</span>
+                  <span className='eve-appearance-control__value'>{Math.round(backgroundDim * 100)}%</span>
+                  <Slider
+                    min={EVE_VISUAL_LIMITS.backgroundDim.min}
+                    max={EVE_VISUAL_LIMITS.backgroundDim.max}
+                    step={0.05}
+                    value={backgroundDim}
+                    onChange={(value) => setBackgroundDim(sliderNumber(value))}
+                    onAfterChange={(value) => updateBackground({ dim: sliderNumber(value) })}
+                  />
+                </label>
+              </div>
+            </div>
+          ) : (
+            <button type='button' className='eve-background-empty' onClick={() => void uploadBackground()}>
+              <UploadOne size={20} />
+              <span>{t('settings.commandEveAppearance.chooseBackground')}</span>
+            </button>
+          )}
+        </div>
       </section>
     </div>
   );

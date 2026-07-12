@@ -59,6 +59,7 @@ const AgentChatSlot: React.FC<{
   onToggleFullscreen?: () => void;
   onRemove?: () => void;
 }> = ({ agent, team_id, isLeader, isFullscreen = false, onToggleFullscreen, onRemove }) => {
+  const { t } = useTranslation();
   const layout = useLayoutContext();
   const isMobile = layout?.isMobile ?? false;
   const { data: conversation } = useSWR(
@@ -122,20 +123,24 @@ const AgentChatSlot: React.FC<{
             </div>
           )}
           {!isLeader && onRemove && (
-            <div
-              className='shrink-0 cursor-pointer hover:bg-[var(--fill-3)] p-4px rd-4px text-[color:var(--color-text-3)] hover:text-[color:var(--color-danger-6)] transition-colors'
+            <button
+              type='button'
+              aria-label={t('common.remove')}
+              className='shrink-0 cursor-pointer border-none bg-transparent hover:bg-[var(--fill-3)] p-4px rd-4px text-[color:var(--color-text-3)] hover:text-[color:var(--color-danger-6)] transition-colors'
               onClick={onRemove}
             >
               <CloseSmall size='16' fill='currentColor' />
-            </div>
+            </button>
           )}
-          <div
+          <button
+            type='button'
             data-testid='team-agent-fullscreen-toggle'
-            className='shrink-0 cursor-pointer hover:bg-[var(--fill-3)] p-4px rd-4px text-[color:var(--color-text-3)] hover:text-[color:var(--color-text-1)] transition-colors'
+            aria-label={isFullscreen ? t('common.close') : t('common.expand')}
+            className='shrink-0 cursor-pointer border-none bg-transparent hover:bg-[var(--fill-3)] p-4px rd-4px text-[color:var(--color-text-3)] hover:text-[color:var(--color-text-1)] transition-colors'
             onClick={() => onToggleFullscreen?.()}
           >
             {isFullscreen ? <OffScreen size='16' fill='currentColor' /> : <FullScreen size='16' fill='currentColor' />}
-          </div>
+          </button>
         </div>
       </div>
       <div className='relative flex flex-col flex-1 min-h-0'>
@@ -388,18 +393,20 @@ const TeamPageContent: React.FC<TeamPageContentProps> = ({ team, onRenameTeam })
           ) : (
             <>
               {showLeftArrow && (
-                <div
-                  className='absolute left-0 top-0 bottom-0 w-48px z-20 flex items-center justify-center cursor-pointer opacity-80 hover:opacity-100 transition-opacity'
+                <button
+                  type='button'
+                  aria-label={t('common.previous', { defaultValue: 'Previous agent' })}
+                  className='absolute left-0 top-0 bottom-0 w-48px z-20 flex items-center justify-center border-none cursor-pointer opacity-80 hover:opacity-100 transition-opacity'
                   style={{ background: 'linear-gradient(90deg, var(--color-bg-1) 40%, transparent)' }}
                   onClick={scrollToPrev}
                 >
-                  <div
-                    className='w-32px h-32px rd-full flex items-center justify-center'
-                    style={{ background: 'rgba(0,0,0,0.5)', lineHeight: 0 }}
+                  <span
+                    className='eve-overlay w-32px h-32px rd-full flex items-center justify-center'
+                    style={{ lineHeight: 0 }}
                   >
                     <Left size='24' fill='#fff' />
-                  </div>
-                </div>
+                  </span>
+                </button>
               )}
               <div
                 ref={scrollContainerRef}
@@ -441,18 +448,20 @@ const TeamPageContent: React.FC<TeamPageContentProps> = ({ team, onRenameTeam })
                 })}
               </div>
               {showRightArrow && (
-                <div
-                  className='absolute right-0 top-0 bottom-0 w-48px z-20 flex items-center justify-center cursor-pointer opacity-80 hover:opacity-100 transition-opacity'
+                <button
+                  type='button'
+                  aria-label={t('common.next', { defaultValue: 'Next agent' })}
+                  className='absolute right-0 top-0 bottom-0 w-48px z-20 flex items-center justify-center border-none cursor-pointer opacity-80 hover:opacity-100 transition-opacity'
                   style={{ background: 'linear-gradient(270deg, var(--color-bg-1) 40%, transparent)' }}
                   onClick={scrollToNext}
                 >
-                  <div
-                    className='w-32px h-32px rd-full flex items-center justify-center'
-                    style={{ background: 'rgba(0,0,0,0.5)', lineHeight: 0 }}
+                  <span
+                    className='eve-overlay w-32px h-32px rd-full flex items-center justify-center'
+                    style={{ lineHeight: 0 }}
                   >
                     <Right size='24' fill='#fff' />
-                  </div>
-                </div>
+                  </span>
+                </button>
               )}
             </>
           )}

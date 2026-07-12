@@ -24,13 +24,7 @@ const AtFileMenu: React.FC<AtFileMenuProps> = ({
 }) => {
   return (
     <div
-      className='rounded-14px border border-solid overflow-hidden p-6px flex flex-col gap-2px'
-      style={{
-        borderColor: 'var(--color-border-2)',
-        background: 'color-mix(in srgb, var(--color-bg-1) 94%, transparent)',
-        backdropFilter: 'blur(14px) saturate(1.05)',
-        WebkitBackdropFilter: 'blur(14px) saturate(1.05)',
-      }}
+      className='eve-overlay rounded-8px overflow-hidden p-6px flex flex-col gap-2px'
       role='listbox'
       aria-label={label}
     >
@@ -44,9 +38,9 @@ const AtFileMenu: React.FC<AtFileMenuProps> = ({
               key={item.path}
               role='option'
               aria-selected={isActive}
-              className='px-12px py-8px rounded-10px cursor-pointer transition-colors'
+              className='px-12px py-8px rounded-6px cursor-pointer transition-colors'
               style={{
-                background: isActive ? 'var(--color-fill-2)' : 'transparent',
+                background: isActive ? 'var(--eve-row-selected-bg)' : 'transparent',
               }}
               onMouseEnter={() => {
                 onHoverItem(index);

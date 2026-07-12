@@ -5,6 +5,17 @@
   background-color: var(--bg-2);
 }
 
+.sider-section-toggle {
+  color: inherit;
+  font: inherit;
+}
+
+.sider-section-toggle:focus-visible {
+  outline: 2px solid var(--eve-focus-ring, var(--color-primary-6));
+  outline-offset: -2px;
+  border-radius: var(--eve-surface-radius-sm, 6px);
+}
+
 /* Sidebar row action buttons (more / plus) — use opaque tokens so text
    underneath never bleeds through (Arco's fill tokens are semi-transparent
    in dark mode). Light tier stays lighter than the row hover fill-3;
@@ -35,7 +46,7 @@
 .layout-sider {
   overflow-x: hidden;
   box-shadow: none !important;
-  border-right: 1px solid var(--border-base);
+  border-right: 1px solid var(--glass-chrome-border);
   background: transparent !important; /* let the frosted children layer show */
 }
 
@@ -47,6 +58,12 @@
   -webkit-backdrop-filter: var(--glass-chrome-filter);
   backdrop-filter: var(--glass-chrome-filter);
   box-shadow: 1px 0 0 var(--glass-edge-highlight) inset;
+}
+
+:root[data-eve-bg-image='true'] .sider-section-label {
+  background-color: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 :root[data-eve-reduced-effects='true'] .layout-sider > .arco-layout-sider-children {
@@ -82,6 +99,20 @@
   flex: 1 !important;
   min-height: 0 !important;
   height: auto !important;
+}
+
+.layout-sider-content button {
+  font-family: inherit;
+}
+
+.layout-sider-content :where(button, [role='button'], [role='link']):focus-visible {
+  outline: 2px solid var(--eve-focus-ring, var(--color-primary-6));
+  outline-offset: -2px;
+}
+
+.layout-sider-content :where(button, [role='button'], [role='link'])[aria-current='page'] {
+  background: var(--eve-row-selected-bg) !important;
+  box-shadow: inset 2px 0 0 var(--eve-row-selected-hairline);
 }
 
 .layout-sider.collapsed .arco-layout-sider-children,
@@ -206,6 +237,36 @@
 .arco-select-suffix,
 .arco-input-group-addafter .arco-select .arco-select-view,
 .arco-input-group-addbefore .arco-select .arco-select-view {
+  background-color: transparent !important;
+}
+
+/* With an image behind the shell, form controls remain bounded reading tools,
+   but use the panel material instead of reverting to an opaque white tile. */
+:root[data-eve-bg-image='true']
+  :where(.settings-page-wrapper, .settings-modal)
+  :where(
+    .arco-select-view,
+    .arco-input,
+    .arco-input-inner-wrapper,
+    .arco-input-group-addafter,
+    .arco-input-group-addbefore,
+    .arco-textarea
+  ) {
+  background-color: var(--glass-panel-bg) !important;
+}
+
+:root[data-eve-bg-image='true'] :where(.settings-page-wrapper, .settings-modal) .arco-input-inner-wrapper > .arco-input,
+:root[data-eve-bg-image='true'] :where(.settings-page-wrapper, .settings-modal) .arco-input-group-addafter .arco-input,
+:root[data-eve-bg-image='true'] :where(.settings-page-wrapper, .settings-modal) .arco-input-group-addbefore .arco-input,
+:root[data-eve-bg-image='true']
+  :where(.settings-page-wrapper, .settings-modal)
+  .arco-input-inner-wrapper
+  .arco-input-group-prefix,
+:root[data-eve-bg-image='true']
+  :where(.settings-page-wrapper, .settings-modal)
+  .arco-input-inner-wrapper
+  .arco-input-group-suffix,
+:root[data-eve-bg-image='true'] :where(.settings-page-wrapper, .settings-modal) .arco-select-suffix {
   background-color: transparent !important;
 }
 

@@ -379,10 +379,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ visible, onCancel, defaul
     <AionScrollArea className='flex-shrink-0 b-color-border-2 scrollbar-hide' style={{ width: `${SIDEBAR_WIDTH}px` }}>
       <div className='flex flex-col gap-2px'>
         {menuItems.map((item) => (
-          <div
+          <button
+            type='button'
             key={item.key}
+            aria-current={activeTab === item.key ? 'page' : undefined}
             className={classNames(
-              'flex items-center px-14px py-10px rd-8px cursor-pointer transition-all duration-150 select-none',
+              'w-full flex items-center px-14px py-10px rd-8px border-none bg-transparent text-left cursor-pointer transition-all duration-150 select-none',
               {
                 'bg-aou-2 text-t-primary': activeTab === item.key,
                 'text-t-secondary hover:bg-fill-1': activeTab !== item.key,
@@ -392,7 +394,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ visible, onCancel, defaul
           >
             <span className='mr-12px text-16px line-height-[10px]'>{item.icon}</span>
             <span className='text-14px font-500 flex-1 lh-22px'>{item.label}</span>
-          </div>
+          </button>
         ))}
       </div>
     </AionScrollArea>

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-const { resolveExpectedAioncoreSha256, resolveLocalAioncoreSource, verifyFileSha256 } =
+const { resolveExpectedAioncoreSha256, resolveLocalAioncoreSource, verifyAioncoreCliContract, verifyFileSha256 } =
   require('../../../packages/shared-scripts/src/prepare-aioncore.js') as {
     resolveExpectedAioncoreSha256: (projectRoot: string, runtimeKey: string, explicit?: string) => string;
     resolveLocalAioncoreSource: (
@@ -12,6 +12,10 @@ const { resolveExpectedAioncoreSha256, resolveLocalAioncoreSource, verifyFileSha
       explicitSha256?: string,
       explicitSourceCommit?: string
     ) => { binaryPath: string; binarySha256: string; sourceCommit: string } | null;
+    verifyAioncoreCliContract: (
+      binaryPath: string,
+      deps?: { execFileSync?: () => string }
+    ) => { requiredArguments: string[] };
     verifyFileSha256: (filePath: string, expected: string) => string;
   };
 
@@ -63,5 +67,19 @@ describe('AionCore build integrity gate', () => {
       binarySha256: expected,
       sourceCommit: 'abcdef1234567',
     });
+  });
+
+  it('accepts only an AionCore binary that exposes the local capability contract', () => {
+    expect(
+      verifyAioncoreCliContract('/tmp/aioncore', {
+        execFileSync: () => 'Usage: aioncore --local-capability-file <FILE> --local-origin <ORIGIN>',
+      })
+    ).toEqual({ requiredArguments: ['--local-capability-file', '--local-origin'] });
+
+    expect(() =>
+      verifyAioncoreCliContract('/tmp/aioncore', {
+        execFileSync: () => 'Usage: aioncore --local',
+      })
+    ).toThrow(/CLI contract mismatch.*--local-capability-file, --local-origin/);
   });
 });

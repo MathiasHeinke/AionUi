@@ -18,10 +18,11 @@
 }
 
 .overlay {
-  backdrop-filter: blur(18px);
-  background: var(--color-bg-2);
-  border: 1px solid var(--color-border-2);
-  box-shadow: var(--shadow3-center);
+  -webkit-backdrop-filter: var(--glass-overlay-filter);
+  backdrop-filter: var(--glass-overlay-filter);
+  background: var(--glass-overlay-bg);
+  border: 1px solid var(--glass-overlay-border);
+  box-shadow: var(--glass-shadow-soft);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -40,6 +41,6 @@
 }
 
 .answerBubble {
-  background: var(--color-fill-1);
-  border: 1px solid var(--color-border-2);
+  background: var(--glass-panel-bg);
+  border: 1px solid var(--glass-panel-border);
 }

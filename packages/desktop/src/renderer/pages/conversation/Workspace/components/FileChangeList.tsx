@@ -85,6 +85,7 @@ const FileChangeItem: React.FC<{
         onClick={expandable ? onToggle : undefined}
         role={expandable ? 'button' : undefined}
         tabIndex={expandable ? 0 : undefined}
+        aria-expanded={expandable ? expanded : undefined}
         onKeyDown={
           expandable
             ? (e) => {
@@ -121,6 +122,7 @@ const FileChangeItem: React.FC<{
             <span className='text-12px text-t-quaternary'>...</span>
           ) : null}
           <div
+            data-eve-interaction-role='event-boundary'
             className='hidden group-hover:flex items-center gap-2px flex-shrink-0'
             onClick={(e) => e.stopPropagation()}
           >
@@ -138,12 +140,16 @@ const PanelHeader: React.FC<{
   count: number;
   actions?: React.ReactNode;
 }> = ({ title, count, actions }) => (
-  <div className='flex items-center justify-between px-8px py-4px bg-fill-2 border-b border-b-base select-none flex-shrink-0'>
+  <div className='eve-chrome flex items-center justify-between px-8px py-4px border-b border-b-base select-none flex-shrink-0'>
     <span className='text-12px font-medium text-t-secondary'>
       {title} ({count})
     </span>
     {actions && (
-      <div className='flex items-center gap-2px' onClick={(e) => e.stopPropagation()}>
+      <div
+        className='flex items-center gap-2px'
+        data-eve-interaction-role='event-boundary'
+        onClick={(e) => e.stopPropagation()}
+      >
         {actions}
       </div>
     )}

@@ -29,7 +29,12 @@ const MobileWorkspaceOverlay: React.FC<MobileWorkspaceOverlayProps> = ({
   <>
     {/* Backdrop */}
     {!rightSiderCollapsed && (
-      <div className='fixed inset-0 bg-black/30 z-90' onClick={() => setRightSiderCollapsed(true)} aria-hidden='true' />
+      <div
+        className='fixed inset-0 bg-black/30 z-90'
+        data-eve-interaction-role='dismiss-backdrop'
+        onClick={() => setRightSiderCollapsed(true)}
+        aria-hidden='true'
+      />
     )}
 
     {/* Fixed workspace panel */}

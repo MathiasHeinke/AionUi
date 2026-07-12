@@ -482,8 +482,10 @@ const LarkConfigForm: React.FC<LarkConfigFormProps> = ({ pluginStatus, modelSele
       </PreferenceRow>
 
       {/* Optional fields toggle */}
-      <div
-        className='flex items-center gap-4px text-12px text-t-tertiary cursor-pointer select-none'
+      <button
+        type='button'
+        aria-expanded={showOptional}
+        className='flex items-center gap-4px border-none bg-transparent p-0 text-12px text-t-tertiary cursor-pointer select-none'
         onClick={() => setShowOptional((prev) => !prev)}
       >
         <Down
@@ -496,7 +498,7 @@ const LarkConfigForm: React.FC<LarkConfigFormProps> = ({ pluginStatus, modelSele
             ? t('settings.lark.hideOptionalFields', 'Hide optional settings')
             : t('settings.lark.showOptionalFields', 'Show optional settings')}
         </span>
-      </div>
+      </button>
 
       {showOptional && (
         <>

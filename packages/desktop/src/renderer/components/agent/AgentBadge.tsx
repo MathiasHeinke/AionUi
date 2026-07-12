@@ -64,12 +64,8 @@ const AgentBadge: React.FC<AgentBadgeProps> = ({ backend, agent_name, agentLogo,
     navigate('/settings/eve-runtime');
   }, [assistantId, navigate]);
 
-  return (
-    <div
-      className={`flex items-center gap-2 bg-2 w-fit rounded-full px-[8px] py-[2px] ${assistantId ? 'cursor-pointer hover:bg-3' : ''}`}
-      data-testid='agent-badge'
-      onClick={handleClick}
-    >
+  const content = (
+    <>
       <AgentLogoIcon
         backend={backend}
         agent_name={agent_name}
@@ -77,7 +73,26 @@ const AgentBadge: React.FC<AgentBadgeProps> = ({ backend, agent_name, agentLogo,
         agentLogoIsEmoji={agentLogoIsEmoji}
       />
       <span className='text-sm text-t-primary'>{agent_name || backend}</span>
-    </div>
+    </>
+  );
+
+  if (!assistantId) {
+    return (
+      <span className='eve-pill inline-flex items-center gap-2 w-fit px-[8px] py-[2px]' data-testid='agent-badge'>
+        {content}
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type='button'
+      className='eve-pill inline-flex items-center gap-2 w-fit px-[8px] py-[2px] border-none cursor-pointer hover:bg-3'
+      data-testid='agent-badge'
+      onClick={handleClick}
+    >
+      {content}
+    </button>
   );
 };
 

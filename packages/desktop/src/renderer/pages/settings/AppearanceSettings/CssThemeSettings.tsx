@@ -426,6 +426,8 @@ const CssThemeSettings: React.FC = () => {
 
       {/* 主题卡片列表 / Theme card list */}
       <div
+        role='radiogroup'
+        aria-label={t('settings.cssTheme.title')}
         className='grid w-full gap-12px'
         style={{
           gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
@@ -447,33 +449,40 @@ const CssThemeSettings: React.FC = () => {
           return (
             <div
               key={theme.id}
-              className={`relative cursor-pointer rounded-12px overflow-hidden border-2 transition-all duration-200 h-112px w-full ${activeThemeId === theme.id ? 'border-[var(--color-primary)]' : 'border-transparent hover:border-border-2'}`}
+              className={`relative rounded-8px overflow-hidden border-2 transition-all duration-200 h-112px w-full ${activeThemeId === theme.id ? 'border-[var(--color-primary)]' : 'border-transparent hover:border-border-2'}`}
               style={cardStyle}
-              onClick={() => handleSelectTheme(theme)}
               onMouseEnter={() => setHoveredThemeId(theme.id)}
               onMouseLeave={() => setHoveredThemeId(null)}
             >
-              {!theme.cover && <ThemeLayoutPreview palette={previewPalette} />}
+              <button
+                type='button'
+                role='radio'
+                aria-checked={activeThemeId === theme.id}
+                className='absolute inset-0 h-full w-full cursor-pointer border-none bg-transparent p-0 text-left'
+                onClick={() => handleSelectTheme(theme)}
+              >
+                {!theme.cover && <ThemeLayoutPreview palette={previewPalette} />}
 
-              {/* 底部渐变遮罩与名称、编辑按钮 / Bottom gradient overlay with name and edit button */}
-              <div className='absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-black/60 to-transparent flex items-end justify-between p-8px'>
-                <span className='text-13px text-white truncate flex-1'>{theme.name}</span>
-                {/* 编辑按钮（仅用户主题） / Edit button (user themes only) */}
-                {hoveredThemeId === theme.id && !theme.builtin && (
-                  <div
-                    className='p-4px rounded-6px bg-white/20 cursor-pointer hover:bg-white/40 transition-colors ml-8px'
-                    onClick={(e) => handleEditTheme(theme, e)}
-                  >
-                    <EditTwo theme='outline' size='16' fill='#fff' />
-                  </div>
+                <span className='absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-black/60 to-transparent flex items-end p-8px'>
+                  <span className='text-13px text-white truncate flex-1 pr-28px'>{theme.name}</span>
+                </span>
+
+                {activeThemeId === theme.id && (
+                  <span className='absolute top-8px right-8px'>
+                    <CheckOne theme='filled' size='20' fill='var(--color-primary)' />
+                  </span>
                 )}
-              </div>
+              </button>
 
-              {/* 选中标记 / Selected indicator */}
-              {activeThemeId === theme.id && (
-                <div className='absolute top-8px right-8px'>
-                  <CheckOne theme='filled' size='20' fill='var(--color-primary)' />
-                </div>
+              {hoveredThemeId === theme.id && !theme.builtin && (
+                <button
+                  type='button'
+                  aria-label={t('common.edit')}
+                  className='absolute bottom-8px right-8px p-4px rounded-6px border-none bg-white/20 cursor-pointer hover:bg-white/40 transition-colors'
+                  onClick={(e) => handleEditTheme(theme, e)}
+                >
+                  <EditTwo theme='outline' size='16' fill='#fff' />
+                </button>
               )}
             </div>
           );

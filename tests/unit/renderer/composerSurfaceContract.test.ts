@@ -36,10 +36,10 @@ describe('EVE composer surface contract', () => {
 
   it('provides solid composer fallbacks when blur is unavailable or reduced', () => {
     expect(visualThemeCss).toMatch(
-      /@supports not[\s\S]*?\.eve-composer-surface\s*\{[\s\S]*?background:\s*var\(--glass-panel-bg-solid\) !important;/
+      /@supports not[\s\S]*?\.eve-composer-surface\s*\{[\s\S]*?background:\s*var\(--glass-composer-bg-solid\) !important;/
     );
     expect(visualThemeCss).toMatch(
-      /prefers-reduced-transparency:[\s\S]*?\.eve-composer-surface\s*\{[\s\S]*?background:\s*var\(--glass-panel-bg-solid\) !important;/
+      /prefers-reduced-transparency:[\s\S]*?\.eve-composer-surface\s*\{[\s\S]*?background:\s*var\(--glass-composer-bg-solid\) !important;/
     );
   });
 });

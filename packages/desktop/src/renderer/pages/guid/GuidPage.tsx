@@ -8,6 +8,7 @@ import { ipcBridge } from '@/common';
 import type { IMcpServer } from '@/common/config/storage';
 import { resolveLocaleKey } from '@/common/utils';
 import {
+  COMMAND_EVE_ASSISTANT_ID,
   COMMAND_EVE_ASSISTANT_AVATAR,
   COMMAND_EVE_DISPLAY_NAME,
   COMMAND_EVE_SHELL_ENABLED,
@@ -17,7 +18,6 @@ import ContextUsageIndicator from '@/renderer/components/agent/ContextUsageIndic
 import SpeechInputButton from '@/renderer/components/chat/SpeechInputButton';
 import { appendSpeechTranscript } from '@/renderer/hooks/system/useSpeechInput';
 
-import { useInputFocusRing } from '@/renderer/hooks/chat/useInputFocusRing';
 import { openExternalUrl, resolveExtensionAssetUrl } from '@/renderer/utils/platform';
 import { CUSTOM_AVATAR_IMAGE_MAP } from './constants';
 import AgentPillBar from './components/AgentPillBar';
@@ -57,7 +57,6 @@ const GuidPage: React.FC = () => {
   const guidContainerRef = useRef<HTMLDivElement>(null);
   const openAssistantDetailsRef = useRef<(() => void) | null>(null);
   const descriptionTextRef = useRef<HTMLDivElement>(null);
-  const { inactiveBorderColor, activeShadow } = useInputFocusRing();
 
   const localeKey = resolveLocaleKey(i18n.language);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
@@ -571,6 +570,8 @@ const GuidPage: React.FC = () => {
   // Keep this true even while the assistant seed is missing or still loading;
   // otherwise the fallback state exposes the internal CLI/agent catalog.
   const isCommandEveAssistant = COMMAND_EVE_SHELL_ENABLED;
+  const showAssistantSelectionArea =
+    !COMMAND_EVE_SHELL_ENABLED || agentSelection.selectedAgentInfo?.custom_agent_id === COMMAND_EVE_ASSISTANT_ID;
 
   // Build the model selector node
   const modelSelectorNode = isCommandEveAssistant ? (
@@ -796,13 +797,7 @@ const GuidPage: React.FC = () => {
           </div>
 
           {agentSelection.is_presetAgent && selectedAssistantDescription ? (
-            <div
-              className={`${styles.heroSubtitle} ${isDescriptionExpanded ? styles.heroSubtitleExpanded : ''}`}
-              onClick={() => {
-                if (!canExpandDescription) return;
-                setIsDescriptionExpanded((v) => !v);
-              }}
-            >
+            <div className={`${styles.heroSubtitle} ${isDescriptionExpanded ? styles.heroSubtitleExpanded : ''}`}>
               <div
                 ref={descriptionTextRef}
                 className={`${styles.heroSubtitleText} ${isDescriptionExpanded ? styles.heroSubtitleTextExpanded : ''}`}
@@ -872,27 +867,24 @@ const GuidPage: React.FC = () => {
             onClearWorkspace={() => guidInput.setDir('')}
           />
 
-          <AssistantSelectionArea
-            is_presetAgent={agentSelection.is_presetAgent}
-            selectedAgentInfo={agentSelection.selectedAgentInfo}
-            assistants={agentSelection.assistants}
-            localeKey={localeKey}
-            currentEffectiveAgentInfo={agentSelection.currentEffectiveAgentInfo}
-            onSelectAssistant={handleSelectAssistant}
-            onSetInput={guidInput.setInput}
-            onFocusInput={guidInput.handleTextareaFocus}
-            onRegisterOpenDetails={(openDetails) => {
-              openAssistantDetailsRef.current = openDetails;
-            }}
-          />
+          {showAssistantSelectionArea && (
+            <AssistantSelectionArea
+              is_presetAgent={agentSelection.is_presetAgent}
+              selectedAgentInfo={agentSelection.selectedAgentInfo}
+              assistants={agentSelection.assistants}
+              localeKey={localeKey}
+              currentEffectiveAgentInfo={agentSelection.currentEffectiveAgentInfo}
+              onSelectAssistant={handleSelectAssistant}
+              onSetInput={guidInput.setInput}
+              onFocusInput={guidInput.handleTextareaFocus}
+              onRegisterOpenDetails={(openDetails) => {
+                openAssistantDetailsRef.current = openDetails;
+              }}
+            />
+          )}
         </div>
 
-        <QuickActionButtons
-          onOpenLink={openLink}
-          onOpenBugReport={() => setShowFeedbackModal(true)}
-          inactiveBorderColor={inactiveBorderColor}
-          activeShadow={activeShadow}
-        />
+        <QuickActionButtons onOpenLink={openLink} onOpenBugReport={() => setShowFeedbackModal(true)} />
         <FeedbackReportModal visible={showFeedbackModal} onCancel={() => setShowFeedbackModal(false)} />
       </div>
     </ConfigProvider>

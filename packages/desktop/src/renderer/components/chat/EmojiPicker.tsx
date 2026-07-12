@@ -504,9 +504,11 @@ const EmojiPicker: React.FC<EmojiPickerProps> = ({ value, onChange, children, pl
         {categoryKeys.map((key) => (
           <button
             key={key}
+            type='button'
             className={`flex-shrink-0 w-28px h-28px flex items-center justify-center rounded-md text-16px cursor-pointer border-none bg-transparent hover:bg-fill-2 transition-colors ${activeCategory === key ? 'bg-fill-2' : ''}`}
             onClick={() => setActiveCategory(key)}
             title={EMOJI_CATEGORIES[key].label}
+            aria-label={EMOJI_CATEGORIES[key].label}
           >
             {EMOJI_CATEGORIES[key].icon}
           </button>
@@ -520,8 +522,10 @@ const EmojiPicker: React.FC<EmojiPickerProps> = ({ value, onChange, children, pl
             {currentEmojis.map((emoji: string, index: number) => (
               <button
                 key={`${emoji}-${index}`}
+                type='button'
                 className='w-32px h-32px flex items-center justify-center text-20px cursor-pointer border-none bg-transparent rounded-md hover:bg-fill-2 transition-colors'
                 onClick={() => handleSelectEmoji(emoji)}
+                aria-label={emoji}
               >
                 {emoji}
               </button>

@@ -230,13 +230,15 @@ const MessageText: React.FC<{ message: IMessageText }> = ({ message }) => {
 
   const copyButton = (
     <Tooltip content={t('common.copy', { defaultValue: 'Copy' })}>
-      <div
-        className='p-4px rd-4px cursor-pointer hover:bg-3 transition-colors opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-within:opacity-100 focus-within:pointer-events-auto'
+      <button
+        type='button'
+        className='p-4px border-none bg-transparent rd-4px cursor-pointer hover:bg-3 transition-colors opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus:opacity-100 focus:pointer-events-auto'
         onClick={handleCopy}
+        aria-label={t('common.copy', { defaultValue: 'Copy' })}
         style={{ lineHeight: 0 }}
       >
         <Copy theme='outline' size='16' fill={iconColors.secondary} />
-      </div>
+      </button>
     </Tooltip>
   );
   const readAloudButton = canReadAloud ? (

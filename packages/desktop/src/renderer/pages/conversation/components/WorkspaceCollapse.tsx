@@ -44,27 +44,27 @@ const WorkspaceCollapse: React.FC<WorkspaceCollapseProps> = ({
     <div className={classNames('workspace-collapse min-w-0', className)}>
       {/* 折叠头部 - 侧栏折叠时隐藏 */}
       {!siderCollapsed && (
-        <div
-          className='flex items-center gap-8px h-34px pl-10px pr-8px cursor-pointer hover:bg-fill-3 rd-8px transition-colors min-w-0 group'
-          onClick={onToggle}
-        >
-          <span className='size-22px flex items-center justify-center shrink-0 text-t-primary'>
-            {expanded ? (
-              <FolderOpen theme='outline' size={16} fill='currentColor' className='line-height-0' />
-            ) : (
-              <FolderClose theme='outline' size={16} fill='currentColor' className='line-height-0' />
-            )}
-          </span>
+        <div className='flex items-center h-34px pr-8px hover:bg-fill-3 rd-8px transition-colors min-w-0 group'>
+          <button
+            type='button'
+            aria-expanded={expanded}
+            className='flex flex-1 items-center gap-8px h-full pl-10px min-w-0 border-none bg-transparent p-0 text-left cursor-pointer'
+            onClick={onToggle}
+          >
+            <span className='size-22px flex items-center justify-center shrink-0 text-t-primary'>
+              {expanded ? (
+                <FolderOpen theme='outline' size={16} fill='currentColor' className='line-height-0' />
+              ) : (
+                <FolderClose theme='outline' size={16} fill='currentColor' className='line-height-0' />
+              )}
+            </span>
 
-          {/* 标题内容 — flex 容器让内部 header span 的 truncate 生效 */}
-          <div className='flex-1 min-w-0 flex items-center overflow-hidden'>{header}</div>
+            {/* 标题内容 — flex 容器让内部 header span 的 truncate 生效 */}
+            <span className='flex-1 min-w-0 flex items-center overflow-hidden'>{header}</span>
+          </button>
 
           {/* 尾部操作槽 — 固定宽度让文本提前截断；按钮 hover 才出现时允许左溢出到文本区覆盖最后 1-2 字 */}
-          {trailing && (
-            <div className='shrink-0 flex items-center justify-end w-22px' onClick={(e) => e.stopPropagation()}>
-              {trailing}
-            </div>
-          )}
+          {trailing && <div className='shrink-0 flex items-center justify-end w-22px'>{trailing}</div>}
         </div>
       )}
 

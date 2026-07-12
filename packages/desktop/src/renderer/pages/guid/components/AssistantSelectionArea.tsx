@@ -310,7 +310,8 @@ const AssistantSelectionArea: React.FC<AssistantSelectionAreaProps> = ({
                 assistant.description ||
                 '';
               return (
-                <div
+                <button
+                  type='button'
                   key={assistant.id}
                   data-testid={`preset-pill-${assistant.id}`}
                   className={styles.assistantCard}
@@ -329,10 +330,12 @@ const AssistantSelectionArea: React.FC<AssistantSelectionAreaProps> = ({
                     <div className={styles.assistantCardName}>{assistant.name_i18n?.[localeKey] || assistant.name}</div>
                     {description && <div className={styles.assistantCardDesc}>{description}</div>}
                   </div>
-                </div>
+                </button>
               );
             })}
-          <div
+          <button
+            type='button'
+            aria-label={t('settings.agentManagement.discoverMoreAgents', { defaultValue: 'Discover more agents' })}
             data-testid='btn-add-preset'
             className={styles.assistantCardAdd}
             // 1.6.3: EVE-Runtime is the honest target — /settings/assistants is a
@@ -340,7 +343,7 @@ const AssistantSelectionArea: React.FC<AssistantSelectionAreaProps> = ({
             onClick={() => navigate('/settings/eve-runtime')}
           >
             <Plus theme='outline' size={20} />
-          </div>
+          </button>
         </div>
       </div>
       {modalTree}

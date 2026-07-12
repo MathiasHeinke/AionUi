@@ -145,35 +145,29 @@ function CodeBlock(props: CodeBlockProps) {
             style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
           >
             {canCollapse && (
-              <span title={expanded ? t('common.collapse') : t('common.expand')} style={{ display: 'flex' }}>
+              <button
+                type='button'
+                aria-label={expanded ? t('common.collapse') : t('common.expand')}
+                title={expanded ? t('common.collapse') : t('common.expand')}
+                className='inline-flex items-center justify-center border-none bg-transparent p-0'
+                onClick={toggleExpanded}
+              >
                 {expanded ? (
-                  <Up
-                    theme='outline'
-                    size='14'
-                    style={{ cursor: 'pointer', display: 'block' }}
-                    fill={iconFill}
-                    onClick={toggleExpanded}
-                  />
+                  <Up theme='outline' size='14' style={{ display: 'block' }} fill={iconFill} />
                 ) : (
-                  <Down
-                    theme='outline'
-                    size='14'
-                    style={{ cursor: 'pointer', display: 'block' }}
-                    fill={iconFill}
-                    onClick={toggleExpanded}
-                  />
+                  <Down theme='outline' size='14' style={{ display: 'block' }} fill={iconFill} />
                 )}
-              </span>
+              </button>
             )}
-            <span title={t('common.copy')} style={{ display: 'flex' }}>
-              <Copy
-                theme='outline'
-                size='14'
-                style={{ cursor: 'pointer', display: 'block' }}
-                fill={iconFill}
-                onClick={handleCopy}
-              />
-            </span>
+            <button
+              type='button'
+              aria-label={t('common.copy')}
+              title={t('common.copy')}
+              className='inline-flex items-center justify-center border-none bg-transparent p-0'
+              onClick={handleCopy}
+            >
+              <Copy theme='outline' size='14' style={{ display: 'block' }} fill={iconFill} />
+            </button>
           </div>
         </div>
 
@@ -222,8 +216,11 @@ function CodeBlock(props: CodeBlockProps) {
 
         {/* Footer */}
         {canCollapse && (
-          <div
+          <button
+            type='button'
+            aria-expanded={expanded}
             style={{
+              width: '100%',
               display: 'flex',
               justifyContent: 'center',
               alignItems: 'center',
@@ -231,6 +228,10 @@ function CodeBlock(props: CodeBlockProps) {
               cursor: 'pointer',
               gap: '4px',
               borderTop: `1px solid ${borderColor}`,
+              borderRight: 0,
+              borderBottom: 0,
+              borderLeft: 0,
+              background: 'transparent',
             }}
             onClick={toggleExpanded}
           >
@@ -242,7 +243,7 @@ function CodeBlock(props: CodeBlockProps) {
             ) : (
               <Down theme='outline' size='12' fill={footerTextColor} />
             )}
-          </div>
+          </button>
         )}
       </div>
     </div>

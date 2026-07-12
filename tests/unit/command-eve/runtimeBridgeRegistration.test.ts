@@ -21,8 +21,14 @@ describe('Command EVE runtime bridge registration', () => {
     const source = fs.readFileSync(path.resolve(__dirname, '../../../packages/desktop/src/index.ts'), 'utf8');
     const waitDecision = source.indexOf('const mustWaitForRuntimeBootstrap =');
     const bootstrapOptions = source.indexOf('const bootstrapOptions =', waitDecision);
-    const blockingBootstrapStart = source.indexOf('await ensureCommandEveRuntimeBootstrap(bootstrapOptions)', waitDecision);
-    const deferredBootstrapStart = source.indexOf('void ensureCommandEveRuntimeBootstrap(bootstrapOptions)', waitDecision);
+    const blockingBootstrapStart = source.indexOf(
+      'await ensureCommandEveRuntimeBootstrap(bootstrapOptions)',
+      waitDecision
+    );
+    const deferredBootstrapStart = source.indexOf(
+      'void ensureCommandEveRuntimeBootstrap(bootstrapOptions)',
+      waitDecision
+    );
 
     expect(waitDecision).toBeGreaterThan(-1);
     expect(bootstrapOptions).toBeGreaterThan(waitDecision);
@@ -39,5 +45,18 @@ describe('Command EVE runtime bridge registration', () => {
     expect(warmupSource).toContain('await waitForCommandEveBackendPort(30_000)');
     expect(warmupSource).toContain('skipping speculative warm-up');
     expect(warmupSource).not.toContain("lane = { lane: 'local' }");
+  });
+
+  it('cancels deferred runtime work after a known backend startup failure', () => {
+    const source = fs.readFileSync(path.resolve(__dirname, '../../../packages/desktop/src/index.ts'), 'utf8');
+    const warmupStart = source.indexOf('function scheduleCommandEveLocalModelWarmup(');
+    const warmupEnd = source.indexOf('function registerCronResumeBridge(', warmupStart);
+    const warmupSource = source.slice(warmupStart, warmupEnd);
+    const backendFailureStart = source.indexOf("console.error('[CommandEVE] Failed to start aioncore:'");
+    const backendFailureEnd = source.indexOf('// One-shot WebUI admin credential migration', backendFailureStart);
+    const backendFailureSource = source.slice(backendFailureStart, backendFailureEnd);
+
+    expect(warmupSource).toContain('if (backendStartupFailed) return;');
+    expect(backendFailureSource).toContain('runDeferredCommandEveRuntimeBootstrap = undefined;');
   });
 });

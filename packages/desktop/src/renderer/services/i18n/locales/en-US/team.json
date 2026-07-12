@@ -49,6 +49,11 @@
     "confirmTitle": "Remove Team Member",
     "confirmContent": "This member is currently active. Force remove?"
   },
+  "tabs": {
+    "label": "Team agents",
+    "renameAgent": "Rename agent",
+    "removeAgent": "Remove agent"
+  },
   "emptyState": {
     "subtitle": "Describe your goal and I'll get the team working on it",
     "suggestions": {

@@ -5,9 +5,8 @@
  */
 
 import type { PreviewHistoryTarget } from '@/common/types/office/preview';
-import { iconColors } from '@/renderer/styles/colors';
-import { Dropdown } from '@arco-design/web-react';
-import { Close } from '@icon-park/react';
+import { Dropdown, Tooltip } from '@arco-design/web-react';
+import { Camera, Close, Download, FileText, History, Inspection, Open, Split } from '@icon-park/react';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { shouldShowDownload } from './previewToolbarUtils';
@@ -158,6 +157,29 @@ interface PreviewToolbarProps {
   rightExtra?: React.ReactNode;
 }
 
+type ToolbarIconButtonProps = {
+  label: string;
+  icon: React.ReactNode;
+  onClick?: () => void;
+  active?: boolean;
+  disabled?: boolean;
+};
+
+const renderIconButton = ({ label, icon, onClick, active = false, disabled = false }: ToolbarIconButtonProps) => (
+  <Tooltip content={label} position='bottom' trigger={['hover', 'focus']}>
+    <button
+      type='button'
+      className={`preview-toolbar__icon-button${active ? ' preview-toolbar__icon-button--active' : ''}`}
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      aria-pressed={active || undefined}
+    >
+      {icon}
+    </button>
+  </Tooltip>
+);
+
 /**
  * 预览面板工具栏组件
  * Preview panel toolbar component
@@ -196,11 +218,6 @@ const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
   // showOpenInSystemButton === Boolean(metadata.file_path) upstream — i.e. "file is on disk".
   const showDownload = shouldShowDownload(content_type, showOpenInSystemButton);
 
-  const toolbarBtn =
-    'flex items-center gap-2px px-8px py-3px rd-4px cursor-pointer transition-colors duration-150 text-12px font-medium text-t-secondary hover:text-t-primary hover:bg-bg-3';
-  const toolbarBtnActive = '!text-white bg-brand hover:!text-white hover:bg-brand-hover';
-  const toolbarIconSize = 12;
-
   // The branded report Export entry (RPT-1) only makes sense for text reports
   // (markdown / html) and only when the panel supplied an export handler.
   const showExport = Boolean(onExport) && (isMarkdown || isHTML);
@@ -208,17 +225,17 @@ const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
   // Reusable Export dropdown (PDF / Word / Markdown). Each item is fenced to the
   // active seat in the main process before any byte is produced.
   const renderExportDropdown = (): React.ReactNode => (
-    <div className='py-4px bg-bg-2 border border-border-1 rd-4px shadow-md min-w-120px'>
-      {(
-        [
-          { fmt: 'pdf' as const, label: t('preview.export.pdf', { defaultValue: 'PDF' }) },
-          { fmt: 'docx' as const, label: t('preview.export.word', { defaultValue: 'Word' }) },
-          { fmt: 'md' as const, label: t('preview.export.markdown', { defaultValue: 'Markdown' }) },
-        ]
-      ).map(({ fmt, label }) => (
-        <div
+    <div className='preview-toolbar__menu' role='menu'>
+      {[
+        { fmt: 'pdf' as const, label: t('preview.export.pdf', { defaultValue: 'PDF' }) },
+        { fmt: 'docx' as const, label: t('preview.export.word', { defaultValue: 'Word' }) },
+        { fmt: 'md' as const, label: t('preview.export.markdown', { defaultValue: 'Markdown' }) },
+      ].map(({ fmt, label }) => (
+        <button
+          type='button'
+          role='menuitem'
           key={fmt}
-          className='px-12px py-6px text-12px text-t-secondary hover:text-t-primary hover:bg-bg-3 cursor-pointer'
+          className='preview-toolbar__menu-item'
           onClick={() => {
             try {
               onExport?.(fmt);
@@ -228,43 +245,53 @@ const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
           }}
         >
           {label}
-        </div>
+        </button>
       ))}
     </div>
   );
 
   const exportEntry = showExport ? (
     <Dropdown droplist={renderExportDropdown()} trigger={['click']} position='br'>
-      <div className={toolbarBtn} title={t('preview.export.title', { defaultValue: 'Export report' })}>
-        <svg
-          width={toolbarIconSize}
-          height={toolbarIconSize}
-          viewBox='0 0 24 24'
-          fill='none'
-          stroke='currentColor'
-          strokeWidth='2'
-          className='text-t-secondary'
-        >
-          <path d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' />
-          <polyline points='14 2 14 8 20 8' />
-          <line x1='12' y1='18' x2='12' y2='12' />
-          <polyline points='9 15 12 18 15 15' />
-        </svg>
-        <span>{t('preview.export.title', { defaultValue: 'Export' })}</span>
-      </div>
+      <button
+        type='button'
+        className='preview-toolbar__icon-button'
+        title={t('preview.export.title', { defaultValue: 'Export report' })}
+        aria-label={t('preview.export.title', { defaultValue: 'Export report' })}
+        aria-haspopup='menu'
+      >
+        <FileText theme='outline' size={16} aria-hidden='true' />
+      </button>
     </Dropdown>
   ) : null;
 
+  const openInSystemEntry = showOpenInSystemButton
+    ? renderIconButton({
+        label: t('preview.openInSystemApp'),
+        icon: <Open theme='outline' size={16} aria-hidden='true' />,
+        onClick: onOpenInSystem,
+      })
+    : null;
+  const downloadEntry = showDownload
+    ? renderIconButton({
+        label: t('preview.downloadFile'),
+        icon: <Download theme='outline' size={16} aria-hidden='true' />,
+        onClick: () => void onDownload(),
+      })
+    : null;
+
   return (
-    <div className='flex items-center justify-between h-32px px-10px bg-bg-2 flex-shrink-0 border-b border-border-1 overflow-x-auto'>
+    <div className='preview-toolbar'>
       <div className='flex items-center justify-between gap-8px w-full' style={{ minWidth: 'max-content' }}>
         {/* 左侧：Tabs（Markdown/HTML）+ 文件名 / Left: Tabs (Markdown/HTML) + Filename */}
         <div className='flex items-center h-full gap-8px'>
           {(isMarkdown || isHTML || isDiff) && (
             <>
-              <div className='flex items-center h-full gap-0'>
-                <div
-                  className={`flex items-center h-full px-10px cursor-pointer transition-all duration-150 text-12px font-medium ${viewMode === 'source' ? 'text-brand bg-aou-2 border-b-4 border-brand' : 'text-t-secondary hover:text-t-primary hover:bg-bg-3'}`}
+              <div className='preview-toolbar__modes' role='tablist'>
+                <button
+                  type='button'
+                  role='tab'
+                  aria-selected={viewMode === 'source'}
+                  className={`preview-toolbar__mode${viewMode === 'source' ? ' preview-toolbar__mode--active' : ''}`}
                   onClick={() => {
                     try {
                       onViewModeChange('source');
@@ -274,9 +301,12 @@ const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
                   }}
                 >
                   {isHTML ? t('preview.code') : t('preview.source')}
-                </div>
-                <div
-                  className={`flex items-center h-full px-10px cursor-pointer transition-all duration-150 text-12px font-medium ${viewMode === 'preview' ? 'text-brand bg-aou-2 border-b-4 border-brand' : 'text-t-secondary hover:text-t-primary hover:bg-bg-3'}`}
+                </button>
+                <button
+                  type='button'
+                  role='tab'
+                  aria-selected={viewMode === 'preview'}
+                  className={`preview-toolbar__mode${viewMode === 'preview' ? ' preview-toolbar__mode--active' : ''}`}
                   onClick={() => {
                     try {
                       onViewModeChange('preview');
@@ -286,72 +316,27 @@ const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
                   }}
                 >
                   {t('preview.preview')}
-                </div>
+                </button>
               </div>
-              {!isDiff && (
-                <div
-                  className={`flex items-center px-8px py-3px rd-4px cursor-pointer transition-colors duration-150 ${isSplitScreenEnabled ? toolbarBtnActive : 'text-t-secondary hover:bg-bg-3'}`}
-                  onClick={() => {
+              {!isDiff &&
+                renderIconButton({
+                  label: isSplitScreenEnabled ? t('preview.closeSplitScreen') : t('preview.openSplitScreen'),
+                  icon: <Split theme='outline' size={16} aria-hidden='true' />,
+                  active: isSplitScreenEnabled,
+                  onClick: () => {
                     try {
                       onSplitScreenToggle();
                     } catch {
                       /* ignore */
                     }
-                  }}
-                  title={isSplitScreenEnabled ? t('preview.closeSplitScreen') : t('preview.openSplitScreen')}
-                >
-                  <svg
-                    width={toolbarIconSize}
-                    height={toolbarIconSize}
-                    viewBox='0 0 24 24'
-                    fill='none'
-                    stroke='currentColor'
-                    strokeWidth='2'
-                  >
-                    <rect x='3' y='3' width='18' height='18' rx='2' />
-                    <line x1='12' y1='3' x2='12' y2='21' />
-                  </svg>
-                </div>
-              )}
+                  },
+                })}
             </>
           )}
 
-          {preferActionButtonsInFront && showOpenInSystemButton && (
-            <div className={toolbarBtn} onClick={onOpenInSystem} title={t('preview.openInSystemApp')}>
-              <svg
-                width={toolbarIconSize}
-                height={toolbarIconSize}
-                viewBox='0 0 24 24'
-                fill='none'
-                stroke='currentColor'
-                strokeWidth='2'
-                className='text-t-secondary'
-              >
-                <path d='M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6' />
-                <polyline points='15 3 21 3 21 9' />
-                <line x1='10' y1='14' x2='21' y2='3' />
-              </svg>
-              <span>{t('preview.openInSystemApp')}</span>
-            </div>
-          )}
-          {preferActionButtonsInFront && showDownload && (
-            <div className={toolbarBtn} onClick={() => void onDownload()} title={t('preview.downloadFile')}>
-              <svg
-                width={toolbarIconSize}
-                height={toolbarIconSize}
-                viewBox='0 0 24 24'
-                fill='none'
-                stroke='currentColor'
-                strokeWidth='2'
-                className='text-t-secondary'
-              >
-                <path d='M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4' />
-                <polyline points='7 10 12 15 17 10' />
-                <line x1='12' y1='15' x2='12' y2='3' />
-              </svg>
-              <span>{t('common.download')}</span>
-            </div>
-          )}
+          {file_name && <span className='preview-toolbar__filename'>{file_name}</span>}
+          {preferActionButtonsInFront && openInSystemEntry}
+          {preferActionButtonsInFront && downloadEntry}
           {preferActionButtonsInFront && exportEntry}
           {leftExtra}
         </div>
@@ -363,25 +348,12 @@ const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
             ((content_type === 'markdown' && (viewMode === 'source' || isSplitScreenEnabled)) ||
               (content_type === 'html' && (viewMode === 'source' || isSplitScreenEnabled))) && (
               <>
-                <div
-                  className={`${toolbarBtn} ${historyTarget ? '' : '!cursor-not-allowed opacity-50'} ${snapshotSaving ? 'opacity-60' : ''}`}
-                  onClick={historyTarget && !snapshotSaving ? onSaveSnapshot : undefined}
-                  title={historyTarget ? t('preview.saveSnapshot') : t('preview.snapshotNotSupported')}
-                >
-                  <svg
-                    width={toolbarIconSize}
-                    height={toolbarIconSize}
-                    viewBox='0 0 24 24'
-                    fill='none'
-                    stroke='currentColor'
-                    strokeWidth='1.8'
-                    className='text-t-secondary'
-                  >
-                    <path d='M5 7h3l1-2h6l1 2h3a1 1 0 0 1 1 1v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a1 1 0 0 1 1-1Z' />
-                    <circle cx='12' cy='13' r='3' />
-                  </svg>
-                  <span>{t('preview.snapshot')}</span>
-                </div>
+                {renderIconButton({
+                  label: historyTarget ? t('preview.saveSnapshot') : t('preview.snapshotNotSupported'),
+                  icon: <Camera theme='outline' size={16} aria-hidden='true' />,
+                  onClick: historyTarget && !snapshotSaving ? onSaveSnapshot : undefined,
+                  disabled: !historyTarget || snapshotSaving,
+                })}
                 {historyTarget ? (
                   <Dropdown
                     droplist={renderHistoryDropdown()}
@@ -389,110 +361,44 @@ const PreviewToolbar: React.FC<PreviewToolbarProps> = ({
                     position='br'
                     onVisibleChange={(visible) => visible && onRefreshHistory()}
                   >
-                    <div className={toolbarBtn} title={t('preview.historyVersions')}>
-                      <svg
-                        width={toolbarIconSize}
-                        height={toolbarIconSize}
-                        viewBox='0 0 24 24'
-                        fill='none'
-                        stroke='currentColor'
-                        strokeWidth='1.8'
-                        className='text-t-secondary'
-                      >
-                        <path d='M12 8v5l3 2' />
-                        <path d='M12 3a9 9 0 1 0 9 9' />
-                        <polyline points='21 3 21 9 15 9' />
-                      </svg>
-                      <span>{t('preview.history')}</span>
-                    </div>
+                    <button
+                      type='button'
+                      className='preview-toolbar__icon-button'
+                      aria-label={t('preview.historyVersions')}
+                    >
+                      <History theme='outline' size={16} aria-hidden='true' />
+                    </button>
                   </Dropdown>
                 ) : (
-                  <div
-                    className={`${toolbarBtn} !cursor-not-allowed opacity-50`}
-                    title={t('preview.historyNotSupported')}
-                  >
-                    <svg
-                      width={toolbarIconSize}
-                      height={toolbarIconSize}
-                      viewBox='0 0 24 24'
-                      fill='none'
-                      stroke='currentColor'
-                      strokeWidth='1.8'
-                      className='text-t-secondary'
-                    >
-                      <path d='M12 8v5l3 2' />
-                      <path d='M12 3a9 9 0 1 0 9 9' />
-                      <polyline points='21 3 21 9 15 9' />
-                    </svg>
-                    <span>{t('preview.history')}</span>
-                  </div>
+                  renderIconButton({
+                    label: t('preview.historyNotSupported'),
+                    icon: <History theme='outline' size={16} aria-hidden='true' />,
+                    disabled: true,
+                  })
                 )}
               </>
             )}
 
-          {!preferActionButtonsInFront && showOpenInSystemButton && (
-            <div className={toolbarBtn} onClick={onOpenInSystem} title={t('preview.openInSystemApp')}>
-              <svg
-                width={toolbarIconSize}
-                height={toolbarIconSize}
-                viewBox='0 0 24 24'
-                fill='none'
-                stroke='currentColor'
-                strokeWidth='2'
-                className='text-t-secondary'
-              >
-                <path d='M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6' />
-                <polyline points='15 3 21 3 21 9' />
-                <line x1='10' y1='14' x2='21' y2='3' />
-              </svg>
-              <span>{t('preview.openInSystemApp')}</span>
-            </div>
-          )}
+          {!preferActionButtonsInFront && openInSystemEntry}
 
-          {!preferActionButtonsInFront && showDownload && (
-            <div className={toolbarBtn} onClick={() => void onDownload()} title={t('preview.downloadFile')}>
-              <svg
-                width={toolbarIconSize}
-                height={toolbarIconSize}
-                viewBox='0 0 24 24'
-                fill='none'
-                stroke='currentColor'
-                strokeWidth='2'
-                className='text-t-secondary'
-              >
-                <path d='M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4' />
-                <polyline points='7 10 12 15 17 10' />
-                <line x1='12' y1='15' x2='12' y2='3' />
-              </svg>
-              <span>{t('common.download')}</span>
-            </div>
-          )}
+          {!preferActionButtonsInFront && downloadEntry}
 
           {!preferActionButtonsInFront && exportEntry}
 
-          {isHTML && onInspectModeToggle && (
-            <div
-              className={`${toolbarBtn} ${inspectMode ? toolbarBtnActive : ''}`}
-              onClick={onInspectModeToggle}
-              title={inspectMode ? t('preview.html.inspectElementDisable') : t('preview.html.inspectElementEnable')}
-            >
-              <svg
-                width={toolbarIconSize}
-                height={toolbarIconSize}
-                viewBox='0 0 24 24'
-                fill='none'
-                stroke='currentColor'
-                strokeWidth='2'
-                strokeLinecap='round'
-                strokeLinejoin='round'
-                className={inspectMode ? 'text-white' : 'text-t-secondary'}
-              >
-                <path d='M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z' />
-                <path d='M13 13l6 6' />
-              </svg>
-              <span>{inspectMode ? t('preview.html.inspecting') : t('preview.html.inspectElement')}</span>
-            </div>
-          )}
+          {isHTML &&
+            onInspectModeToggle &&
+            renderIconButton({
+              label: inspectMode ? t('preview.html.inspectElementDisable') : t('preview.html.inspectElementEnable'),
+              icon: <Inspection theme='outline' size={16} aria-hidden='true' />,
+              active: inspectMode,
+              onClick: onInspectModeToggle,
+            })}
+
+          {renderIconButton({
+            label: t('common.close'),
+            icon: <Close theme='outline' size={16} aria-hidden='true' />,
+            onClick: onClose,
+          })}
         </div>
       </div>
     </div>

@@ -26,7 +26,7 @@ type WorkspaceContextMenuProps = {
 };
 
 const MENU_BUTTON_BASE =
-  'w-full flex items-center gap-8px px-14px py-6px text-13px text-left text-t-primary rounded-md transition-colors duration-150 hover:bg-2 border-none bg-transparent appearance-none focus:outline-none focus-visible:outline-none';
+  'w-full flex items-center gap-8px px-14px py-6px text-13px text-left text-t-primary rounded-md transition-colors duration-150 hover:bg-2 border-none bg-transparent appearance-none focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--eve-focus-ring)]';
 const MENU_BUTTON_DISABLED = 'opacity-40 cursor-not-allowed hover:bg-transparent';
 
 /** Right-click context menu with file/folder operations. */
@@ -52,7 +52,9 @@ const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
 
   return (
     <div
-      className='fixed z-100 min-w-200px max-w-240px rounded-12px bg-base/95 shadow-[0_12px_40px_rgba(15,23,42,0.16)] backdrop-blur-sm p-6px'
+      className='eve-overlay fixed z-100 min-w-200px max-w-240px rounded-8px p-6px'
+      data-eve-interaction-role='event-boundary'
+      role='menu'
       style={{ top: style.top, left: style.left }}
       onClick={(event) => event.stopPropagation()}
       onContextMenu={(event) => {
@@ -63,6 +65,7 @@ const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
       <div className='flex flex-col gap-4px'>
         <button
           type='button'
+          role='menuitem'
           className={MENU_BUTTON_BASE}
           onClick={() => {
             handleAddToChat(node);
@@ -72,6 +75,7 @@ const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
         </button>
         <button
           type='button'
+          role='menuitem'
           className={MENU_BUTTON_BASE}
           onClick={() => {
             void handleOpenNode(node);
@@ -82,6 +86,7 @@ const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
         </button>
         <button
           type='button'
+          role='menuitem'
           className={MENU_BUTTON_BASE}
           onClick={() => {
             void handleRevealNode(node);
@@ -93,6 +98,7 @@ const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
         {isFile && isPreviewSupported && (
           <button
             type='button'
+            role='menuitem'
             className={MENU_BUTTON_BASE}
             onClick={() => {
               void handlePreviewFile(node);
@@ -104,6 +110,7 @@ const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
         {isFile && (
           <button
             type='button'
+            role='menuitem'
             className={MENU_BUTTON_BASE}
             onClick={() => {
               void handleDownloadFile(node);
@@ -112,9 +119,10 @@ const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
             {t('conversation.workspace.contextMenu.download')}
           </button>
         )}
-        <div className='h-1px bg-3 my-2px'></div>
+        <div className='h-1px my-2px bg-[var(--glass-overlay-border)]' role='separator'></div>
         <button
           type='button'
+          role='menuitem'
           className={`${MENU_BUTTON_BASE} ${isRoot ? MENU_BUTTON_DISABLED : ''}`.trim()}
           disabled={isRoot}
           onClick={() => {
@@ -125,6 +133,7 @@ const WorkspaceContextMenu: React.FC<WorkspaceContextMenuProps> = ({
         </button>
         <button
           type='button'
+          role='menuitem'
           className={`${MENU_BUTTON_BASE} ${isRoot ? MENU_BUTTON_DISABLED : ''}`.trim()}
           disabled={isRoot}
           onClick={() => {

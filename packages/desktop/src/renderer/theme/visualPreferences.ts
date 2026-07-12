@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { COMMAND_EVE_DEFAULT_BACKGROUND_ASSET_ID } from './visualBackgroundAssets';
+
 export type EveAppearanceMode = 'system' | 'light' | 'dark';
 export type EveResolvedAppearance = Exclude<EveAppearanceMode, 'system'>;
 export type EveAccent = 'blue' | 'petrol' | 'emerald' | 'graphite';
@@ -58,11 +60,12 @@ export const DEFAULT_EVE_VISUAL_PREFERENCES: EveVisualPreferences = {
   glassBlur: 20,
   reducedEffects: false,
   background: {
-    enabled: false,
+    enabled: true,
+    assetId: COMMAND_EVE_DEFAULT_BACKGROUND_ASSET_ID,
     fit: 'cover',
-    intensity: 0.82,
+    intensity: 0.78,
     blur: 0,
-    dim: 0.18,
+    dim: 0.16,
     adaptiveTint: true,
   },
 };
@@ -93,7 +96,22 @@ const APPEARANCE_MODES: EveAppearanceMode[] = ['system', 'light', 'dark'];
 const ACCENTS: EveAccent[] = ['blue', 'petrol', 'emerald', 'graphite'];
 const BACKGROUND_FITS: EveBackgroundFit[] = ['cover', 'contain', 'fill'];
 const OPAQUE_ASSET_ID = /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$/;
-const BACKGROUND_GLASS_OPACITY_FLOOR = 0.88;
+const BACKGROUND_GLASS_TIER_FLOORS = {
+  light: {
+    chrome: 0.28,
+    composer: 0.44,
+    reading: 0.64,
+    panel: 0.72,
+    overlay: 0.8,
+  },
+  dark: {
+    chrome: 0.42,
+    composer: 0.48,
+    reading: 0.66,
+    panel: 0.72,
+    overlay: 0.8,
+  },
+} as const;
 
 type Rgb = readonly [number, number, number];
 
@@ -228,10 +246,36 @@ export function eveVisualCssVariables(
 ): Record<string, string> {
   const preferences = normalizeEveVisualPreferences(input);
   const effectsDisabled = preferences.reducedEffects || options.reducedTransparency === true;
-  const backgroundFloor = preferences.background.enabled ? BACKGROUND_GLASS_OPACITY_FLOOR : 0;
-  const chromeOpacity = effectsDisabled ? 1 : Math.max(preferences.glassOpacity, backgroundFloor);
-  const panelOpacity = Math.min(1, chromeOpacity + 0.06);
-  const overlayOpacity = Math.min(1, chromeOpacity + 0.04);
+  const opacityRange = EVE_VISUAL_LIMITS.glassOpacity.max - EVE_VISUAL_LIMITS.glassOpacity.min;
+  const opacityProgress = (preferences.glassOpacity - EVE_VISUAL_LIMITS.glassOpacity.min) / opacityRange;
+  const tierProgress = opacityProgress ** 2;
+  const tierFloors = BACKGROUND_GLASS_TIER_FLOORS[appearance];
+  const projectBackgroundTier = (floor: number): number => floor + (1 - floor) * tierProgress;
+  const chromeOpacity = effectsDisabled
+    ? 1
+    : preferences.background.enabled
+      ? projectBackgroundTier(tierFloors.chrome)
+      : preferences.glassOpacity;
+  const composerOpacity = effectsDisabled
+    ? 1
+    : preferences.background.enabled
+      ? projectBackgroundTier(tierFloors.composer)
+      : Math.min(1, preferences.glassOpacity + 0.02);
+  const readingOpacity = effectsDisabled
+    ? 1
+    : preferences.background.enabled
+      ? projectBackgroundTier(tierFloors.reading)
+      : preferences.glassOpacity;
+  const panelOpacity = effectsDisabled
+    ? 1
+    : preferences.background.enabled
+      ? projectBackgroundTier(tierFloors.panel)
+      : Math.min(1, preferences.glassOpacity + 0.06);
+  const overlayOpacity = effectsDisabled
+    ? 1
+    : preferences.background.enabled
+      ? projectBackgroundTier(tierFloors.overlay)
+      : Math.min(1, preferences.glassOpacity + 0.04);
   const chromeBlur = effectsDisabled ? 0 : preferences.glassBlur;
   const panelBlur = effectsDisabled ? 0 : Math.min(28, preferences.glassBlur * 0.6);
   const overlayBlur = effectsDisabled ? 0 : Math.min(28, preferences.glassBlur * 0.9);
@@ -245,6 +289,8 @@ export function eveVisualCssVariables(
 
   return {
     '--eve-glass-chrome-opacity': percentage(chromeOpacity),
+    '--eve-glass-composer-opacity': percentage(composerOpacity),
+    '--eve-glass-reading-opacity': percentage(readingOpacity),
     '--eve-glass-panel-opacity': percentage(panelOpacity),
     '--eve-glass-overlay-opacity': percentage(overlayOpacity),
     '--eve-glass-chrome-blur': pixels(chromeBlur),

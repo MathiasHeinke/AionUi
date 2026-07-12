@@ -670,15 +670,7 @@ const SendBox: React.FC<{
 
   const renderExportFileNamePanel = () => {
     return (
-      <div
-        className='rounded-14px border border-solid overflow-hidden p-12px flex flex-col gap-10px'
-        style={{
-          borderColor: 'var(--color-border-2)',
-          background: 'color-mix(in srgb, var(--color-bg-1) 88%, transparent)',
-          backdropFilter: 'blur(14px) saturate(1.1)',
-          WebkitBackdropFilter: 'blur(14px) saturate(1.1)',
-        }}
-      >
+      <div className='eve-overlay rounded-8px overflow-hidden p-12px flex flex-col gap-10px'>
         <div className='text-13px font-semibold text-t-primary'>{t('messages.export.file_nameLabel')}</div>
         <Input
           autoFocus
@@ -1518,20 +1510,22 @@ const SendBox: React.FC<{
           {context}
           {/* Reply quote preview */}
           {replyQuote && (
-            <div className='flex items-start gap-10px mb-8px px-12px py-10px rd-10px bg-fill-1 b-1 b-solid b-border-2'>
+            <div className='flex items-start gap-10px mb-8px px-12px py-10px rd-8px b-1 b-solid border-[var(--glass-panel-border)] bg-[var(--glass-panel-bg-solid)]'>
               <div className='flex-shrink-0 mt-2px' style={{ lineHeight: 0 }}>
                 <Quote theme='filled' size='16' fill='rgb(var(--primary-6))' />
               </div>
               <div className='flex-1 min-w-0 text-13px text-t-primary line-clamp-3 lh-20px whitespace-pre-wrap break-all'>
                 {replyQuote.content}
               </div>
-              <div
-                className='flex-shrink-0 mt-2px p-2px rd-full cursor-pointer hover:bg-fill-3 transition-colors'
+              <button
+                type='button'
+                aria-label={t('common.close')}
+                className='flex-shrink-0 mt-2px border-none bg-transparent p-2px rd-full cursor-pointer hover:bg-fill-3 transition-colors'
                 onClick={() => setReplyQuote(null)}
                 style={{ lineHeight: 0 }}
               >
                 <CloseSmall theme='outline' size='14' />
-              </div>
+              </button>
             </div>
           )}
           {/* DOM 片段标签 / DOM snippet tags */}

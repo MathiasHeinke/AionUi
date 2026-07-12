@@ -449,19 +449,17 @@ const ConversationSearchPopover: React.FC<ConversationSearchPopoverProps> = ({
         unmountOnExit
         className='conversation-search-modal'
         maskStyle={{
-          background: 'var(--conversation-search-mask-bg)',
-          backdropFilter: 'blur(1px)',
-          WebkitBackdropFilter: 'blur(1px)',
+          background: 'var(--glass-overlay-scrim)',
         }}
         style={{
           width: 'min(700px, calc(100vw - 56px))',
-          borderRadius: '24px',
+          borderRadius: '12px',
           background: 'transparent',
           boxShadow: 'none',
         }}
         contentStyle={{
           background: 'transparent',
-          borderRadius: '24px',
+          borderRadius: '12px',
           padding: '0',
           overflow: 'hidden',
           height: useCompactHeight ? 'auto' : 'min(70vh, 720px)',

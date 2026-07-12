@@ -12,10 +12,21 @@
   cursor: pointer;
   user-select: none;
   line-height: 1;
+  padding: 4px 2px;
+  border: 0;
+  border-radius: var(--eve-surface-radius-sm, 6px);
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
 }
 
 .header:hover {
   color: var(--eve-shell-text);
+}
+
+.header:focus-visible {
+  outline: 2px solid var(--eve-focus-ring, var(--color-primary-6));
+  outline-offset: 2px;
 }
 
 .headerIcon {

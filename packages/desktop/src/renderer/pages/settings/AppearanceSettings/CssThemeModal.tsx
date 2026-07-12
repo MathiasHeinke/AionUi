@@ -126,12 +126,13 @@ const CssThemeModal: React.FC<CssThemeModalProps> = ({ visible, theme, onClose, 
     >
       <div className='space-y-20px'>
         {/* 封面和名称行 / Cover and name row */}
-        <div className='flex gap-16px p-16px bg-[var(--fill-1)] rounded-12px'>
+        <div className='flex gap-16px'>
           {/* 封面上传 / Cover upload */}
           <div className='flex-shrink-0'>
             <div className='text-13px text-t-secondary mb-8px'>{t('settings.cssTheme.previewCover')}</div>
-            <div
-              className='w-120px h-80px rounded-8px border border-dashed border-border-2 flex flex-col items-center justify-center cursor-pointer hover:border-[var(--color-primary)] transition-colors overflow-hidden bg-[var(--fill-0)]'
+            <button
+              type='button'
+              className='w-120px h-80px rounded-8px border border-dashed border-border-2 bg-[var(--glass-panel-bg-solid)] flex flex-col items-center justify-center cursor-pointer hover:border-[var(--color-primary)] transition-colors overflow-hidden'
               onClick={handleCoverUpload}
             >
               {cover ? (
@@ -142,7 +143,7 @@ const CssThemeModal: React.FC<CssThemeModalProps> = ({ visible, theme, onClose, 
                   <span className='text-12px text-t-secondary mt-4px'>{t('common.upload')}</span>
                 </>
               )}
-            </div>
+            </button>
           </div>
 
           {/* 名称和外观 / Name and appearance */}

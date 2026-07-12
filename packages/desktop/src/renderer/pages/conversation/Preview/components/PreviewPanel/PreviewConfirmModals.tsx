@@ -87,19 +87,22 @@ const PreviewConfirmModals: React.FC<PreviewConfirmModalsProps> = ({
         footer={
           <div className='flex justify-end gap-8px'>
             <button
-              className='px-16px py-6px cursor-pointer border-none hover:bg-bg-3 transition-colors text-14px text-t-primary'
+              type='button'
+              className='px-16px py-6px rounded-6px cursor-pointer border-none bg-transparent hover:bg-bg-3 transition-colors text-14px text-t-primary'
               onClick={onCancelCloseTab}
             >
               {t('common.cancel')}
             </button>
             <button
-              className='px-16px py-6px cursor-pointer border-none hover:bg-bg-3 transition-colors text-14px text-t-primary'
+              type='button'
+              className='px-16px py-6px rounded-6px cursor-pointer border-none bg-transparent hover:bg-bg-3 transition-colors text-14px text-t-primary'
               onClick={onCloseWithoutSave}
             >
               {t('preview.closeWithoutSave')}
             </button>
             <button
-              className='px-16px py-6px cursor-pointer border-none bg-primary text-white hover:opacity-80 transition-opacity text-14px'
+              type='button'
+              className='px-16px py-6px rounded-6px cursor-pointer border-none bg-primary text-white hover:opacity-80 transition-opacity text-14px'
               onClick={onSaveAndCloseTab}
             >
               {t('preview.saveAndClose')}

@@ -1,4 +1,4 @@
-/* Command EVE 1.8.0 global visual system.
+/* Command EVE 1.8.1 global visual system.
  *
  * This layer is imported after the legacy default color scheme. It provides
  * the semantic meta-theme contract without changing component geometry until
@@ -20,20 +20,29 @@
   --eve-shell-surface-secondary: #f4f6f8;
   --eve-shell-text: #111827;
   --eve-shell-text-secondary: #596273;
+  --eve-shell-chrome-tint: #eef0f2;
 
   /* User-adjustable glass ceilings. Runtime preferences may lower effects. */
-  --eve-glass-chrome-opacity: 84%;
-  --eve-glass-panel-opacity: 90%;
-  --eve-glass-overlay-opacity: 88%;
+  --eve-glass-chrome-opacity: 41.22%;
+  --eve-glass-composer-opacity: 54.29%;
+  --eve-glass-reading-opacity: 70.61%;
+  --eve-glass-panel-opacity: 77%;
+  --eve-glass-overlay-opacity: 84%;
   --eve-glass-chrome-blur: 20px;
   --eve-glass-panel-blur: 12px;
   --eve-glass-overlay-blur: 18px;
 
   /* Canonical glass tiers */
-  --glass-chrome-bg: color-mix(in srgb, var(--eve-shell-surface) var(--eve-glass-chrome-opacity), transparent);
+  --glass-chrome-bg: color-mix(in srgb, var(--eve-shell-chrome-tint) var(--eve-glass-chrome-opacity), transparent);
   --glass-chrome-bg-solid: var(--eve-shell-surface-secondary);
   --glass-chrome-border: color-mix(in srgb, var(--border-base) 86%, transparent);
   --glass-chrome-filter: blur(var(--eve-glass-chrome-blur)) saturate(150%);
+  --glass-composer-bg: color-mix(in srgb, var(--eve-shell-surface) var(--eve-glass-composer-opacity), transparent);
+  --glass-composer-bg-solid: var(--eve-shell-surface);
+  --glass-composer-filter: blur(var(--eve-glass-chrome-blur)) saturate(132%);
+  --glass-reading-bg: color-mix(in srgb, var(--eve-shell-bg) var(--eve-glass-reading-opacity), transparent);
+  --glass-reading-edge-bg: color-mix(in srgb, var(--glass-reading-bg) 48%, transparent);
+  --glass-reading-bg-solid: var(--eve-shell-bg);
   --glass-panel-bg: color-mix(in srgb, var(--eve-shell-surface) var(--eve-glass-panel-opacity), transparent);
   --glass-panel-bg-solid: var(--eve-shell-surface);
   --glass-panel-border: color-mix(in srgb, var(--border-base) 88%, transparent);
@@ -137,9 +146,16 @@
   --eve-bg-image-dim-color: var(--eve-shell-bg);
 }
 
-:root[data-eve-bg-image='true'] .layout,
-:root[data-eve-bg-image='true'] .layout-content {
+:root[data-eve-bg-image='true'] .layout {
   background: transparent !important;
+}
+
+:root[data-eve-bg-image='true'] .layout-content {
+  background: radial-gradient(
+    ellipse 72% 104% at 50% 46%,
+    var(--glass-reading-bg) 0 56%,
+    var(--glass-reading-edge-bg) 100%
+  ) !important;
 }
 
 :root[data-theme='dark'],
@@ -152,10 +168,13 @@
   --eve-shell-surface-secondary: #1c2025;
   --eve-shell-text: #f7f8fa;
   --eve-shell-text-secondary: #aab1bd;
+  --eve-shell-chrome-tint: #0b0c0e;
 
-  --eve-glass-chrome-opacity: 78%;
-  --eve-glass-panel-opacity: 86%;
-  --eve-glass-overlay-opacity: 82%;
+  --eve-glass-chrome-opacity: 52.65%;
+  --eve-glass-composer-opacity: 57.55%;
+  --eve-glass-reading-opacity: 72.24%;
+  --eve-glass-panel-opacity: 77%;
+  --eve-glass-overlay-opacity: 84%;
 
   --glass-chrome-border: color-mix(in srgb, #ffffff 10%, transparent);
   --glass-panel-border: color-mix(in srgb, #ffffff 9%, transparent);
@@ -1781,12 +1800,12 @@
   isolation: isolate;
   border: 1px solid var(--eve-composer-border) !important;
   border-radius: var(--eve-composer-radius) !important;
-  background: var(--glass-panel-bg) !important;
+  background: var(--glass-composer-bg) !important;
   box-shadow:
     0 1px 0 var(--glass-edge-highlight) inset,
     0 14px 34px color-mix(in srgb, #0f172a 10%, transparent);
-  -webkit-backdrop-filter: var(--glass-panel-filter);
-  backdrop-filter: var(--glass-panel-filter);
+  -webkit-backdrop-filter: var(--glass-composer-filter);
+  backdrop-filter: var(--glass-composer-filter);
 }
 
 .eve-composer-surface::before {
@@ -1840,7 +1859,7 @@
 }
 
 :root[data-eve-reduced-effects='true'] .eve-composer-surface {
-  background: var(--glass-panel-bg-solid) !important;
+  background: var(--glass-composer-bg-solid) !important;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
@@ -1880,6 +1899,227 @@
   outline-offset: 2px;
 }
 
+/* Backend recovery is intentionally self-contained: it must remain polished
+ * even when the backend and persisted theme settings are unavailable. */
+.eve-backend-recovery {
+  --eve-recovery-background: none;
+  min-height: 100vh;
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  padding: clamp(24px, 5vw, 72px);
+  background: #eef2f5;
+  color: #111827;
+}
+
+.eve-backend-recovery::before,
+.eve-backend-recovery::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.eve-backend-recovery::before {
+  z-index: -2;
+  background-image: var(--eve-recovery-background);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+.eve-backend-recovery::after {
+  z-index: -1;
+  background: color-mix(in srgb, #f7f9fb 44%, transparent);
+}
+
+.eve-backend-recovery__panel {
+  width: min(100%, 720px);
+  min-width: 0;
+  padding: clamp(24px, 4vw, 44px);
+  border: 1px solid color-mix(in srgb, #ffffff 76%, #94a3b8);
+  border-radius: 8px;
+  background: color-mix(in srgb, #ffffff 84%, transparent);
+  box-shadow:
+    0 26px 70px color-mix(in srgb, #0f172a 16%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 86%, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  backdrop-filter: blur(24px) saturate(140%);
+}
+
+.eve-backend-recovery__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+  text-transform: uppercase;
+}
+
+.eve-backend-recovery__status-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  margin-top: 32px;
+  border: 1px solid color-mix(in srgb, #f97316 32%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, #f97316 10%, transparent);
+  color: #c2410c;
+}
+
+.eve-backend-recovery__copy {
+  max-width: 620px;
+  margin-top: 20px;
+}
+
+.eve-backend-recovery__copy h1 {
+  margin: 0;
+  color: #111827;
+  font-size: clamp(24px, 3vw, 34px);
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.eve-backend-recovery__copy p {
+  margin: 14px 0 0;
+  color: #4b5563;
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.eve-backend-recovery__copy .eve-backend-recovery__technical {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.eve-backend-recovery__technical code {
+  color: inherit;
+}
+
+.eve-backend-recovery__data-safe {
+  margin: 28px 0 0;
+  color: #475569;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.eve-backend-recovery__actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 32px;
+  padding-top: 20px;
+  border-top: 1px solid color-mix(in srgb, #64748b 18%, transparent);
+}
+
+.eve-backend-recovery__primary-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.eve-backend-recovery__diagnostics.arco-btn-text {
+  padding-inline: 0;
+  color: #475569;
+}
+
+.eve-backend-recovery__primary.arco-btn-primary {
+  min-height: 40px;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #ffffff;
+  box-shadow: 0 10px 24px color-mix(in srgb, #2563eb 24%, transparent);
+}
+
+.eve-backend-recovery__primary.arco-btn-primary:hover {
+  background: #1d4ed8;
+}
+
+.eve-backend-recovery__diagnostic-status {
+  min-height: 18px;
+  display: block;
+  margin-top: 12px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .eve-backend-recovery {
+    background: #0d1013;
+    color: #f8fafc;
+  }
+
+  .eve-backend-recovery::after {
+    background: color-mix(in srgb, #07090c 48%, transparent);
+  }
+
+  .eve-backend-recovery__panel {
+    border-color: color-mix(in srgb, #ffffff 12%, transparent);
+    background: color-mix(in srgb, #171a1e 82%, transparent);
+    box-shadow:
+      0 30px 80px color-mix(in srgb, #000000 48%, transparent),
+      inset 0 1px 0 color-mix(in srgb, #ffffff 10%, transparent);
+  }
+
+  .eve-backend-recovery__header,
+  .eve-backend-recovery__data-safe,
+  .eve-backend-recovery__diagnostics.arco-btn-text {
+    color: #b7bec9;
+  }
+
+  .eve-backend-recovery__status-icon {
+    color: #fb923c;
+  }
+
+  .eve-backend-recovery__copy h1 {
+    color: #f8fafc;
+  }
+
+  .eve-backend-recovery__copy p {
+    color: #c4cad3;
+  }
+
+  .eve-backend-recovery__copy .eve-backend-recovery__technical,
+  .eve-backend-recovery__diagnostic-status {
+    color: #9ca3af;
+  }
+
+  .eve-backend-recovery__actions {
+    border-top-color: color-mix(in srgb, #ffffff 12%, transparent);
+  }
+}
+
+@media (max-width: 620px) {
+  .eve-backend-recovery {
+    place-items: end stretch;
+    padding: 16px;
+  }
+
+  .eve-backend-recovery__panel {
+    padding: 24px;
+  }
+
+  .eve-backend-recovery__actions {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .eve-backend-recovery__primary-actions,
+  .eve-backend-recovery__primary {
+    width: 100%;
+  }
+}
+
 /* User and OS accessibility switches are independent from reduced motion. */
 :root[data-eve-reduced-effects='true'] .eve-panel {
   background: var(--glass-panel-bg-solid);
@@ -1891,6 +2131,10 @@
   background: var(--glass-chrome-bg-solid);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+}
+
+:root[data-eve-reduced-effects='true'][data-eve-bg-image='true'] .layout-content {
+  background: var(--glass-reading-bg-solid) !important;
 }
 
 :root[data-eve-reduced-effects='true'] .eve-overlay,
@@ -1911,7 +2155,7 @@
   }
 
   .eve-composer-surface {
-    background: var(--glass-panel-bg-solid) !important;
+    background: var(--glass-composer-bg-solid) !important;
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
@@ -1948,9 +2192,25 @@
   }
 
   .eve-composer-surface {
-    background: var(--glass-panel-bg-solid) !important;
+    background: var(--glass-composer-bg-solid) !important;
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
+  }
+
+  :root[data-eve-bg-image='true'] .layout-content {
+    background: var(--glass-reading-bg-solid) !important;
+  }
+
+  .eve-backend-recovery__panel {
+    background: #ffffff;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-color-scheme: dark) and (prefers-reduced-transparency: reduce) {
+  .eve-backend-recovery__panel {
+    background: #171a1e;
   }
 }
 

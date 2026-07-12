@@ -3,6 +3,10 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { isDeepStrictEqual } = require('node:util');
+const {
+  REQUIRED_AIONCORE_CLI_ARGUMENTS,
+  verifyAioncoreCliContract,
+} = require('../packages/shared-scripts/src/prepare-aioncore.js');
 
 const RECEIPT_SCHEMA_VERSION = 1;
 const RECEIPT_TYPE = 'command-eve-final-aioncore-artifact';
@@ -100,6 +104,8 @@ function inspectFinalAioncoreArtifact(options, deps = {}) {
   }
 
   verifyCodeSignature(binaryPath, deps);
+  const cliContractVerifier = deps.verifyCliContract || verifyAioncoreCliContract;
+  cliContractVerifier(binaryPath);
   const finalArtifactSha256 = sha256File(binaryPath, deps);
   const productName = options.productName || path.basename(appPath, '.app');
   const arch = manifest.arch || runtimeKey.replace(/^darwin-/, '');
@@ -122,6 +128,8 @@ function inspectFinalAioncoreArtifact(options, deps = {}) {
       preSignBinarySha256,
       finalArtifactSha256,
       codeSignatureVerified: true,
+      cliContractVerified: true,
+      requiredCliArguments: [...REQUIRED_AIONCORE_CLI_ARGUMENTS],
     },
     integrity: {
       manifestHashScope: PRE_SIGN_SCOPE,

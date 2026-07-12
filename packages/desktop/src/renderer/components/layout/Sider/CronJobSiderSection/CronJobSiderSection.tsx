@@ -10,7 +10,6 @@ import { Right } from '@icon-park/react';
 import classNames from 'classnames';
 import type { ICronJob } from '@/common/adapter/ipcBridge';
 import type { TChatConversation } from '@/common/config/storage';
-import { ipcBridge } from '@/common';
 import { getConversationOrNull } from '@/renderer/pages/conversation/utils/conversationCache';
 import { emitter } from '@/renderer/utils/emitter';
 import CronJobSiderItem from './CronJobSiderItem';
@@ -71,9 +70,11 @@ const CronJobSiderSection: React.FC<CronJobSiderSectionProps> = ({ jobs, pathnam
 
   return (
     <div className='min-w-0'>
-      <div
-        className='group/label sider-section-label flex items-center px-12px h-28px select-none sticky top-0 z-10 mt-8px cursor-pointer'
+      <button
+        type='button'
+        className='group/label sider-section-label sider-section-toggle w-full border-none flex items-center px-12px h-28px select-none sticky top-0 z-10 mt-8px cursor-pointer'
         onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
       >
         <span className='text-14px text-t-tertiary sider-section-title group-hover/label:text-t-primary transition-colors font-[500] leading-none'>
           {t('cron.scheduledTasks')}
@@ -85,7 +86,7 @@ const CronJobSiderSection: React.FC<CronJobSiderSectionProps> = ({ jobs, pathnam
             className={classNames('transition-transform duration-150', { 'rotate-90': expanded })}
           />
         </span>
-      </div>
+      </button>
       {expanded &&
         jobs.map((job) => (
           <CronJobSiderItem

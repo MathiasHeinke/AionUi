@@ -7,7 +7,7 @@
 import { ipcBridge } from '@/common';
 import { addRecentWorkspace, getRecentWorkspaces } from '@/renderer/components/workspace';
 import { Tooltip } from '@arco-design/web-react';
-import { Close, Down } from '@icon-park/react';
+import { Check, Close, Down, FolderBlock, FolderOpen, FolderPlus, Search } from '@icon-park/react';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
@@ -19,34 +19,6 @@ type GuidWorkspaceFootnoteProps = {
   onClearWorkspace: () => void;
 };
 
-const FolderIcon = ({ size = 12 }: { size?: number }) => (
-  <svg
-    width={size}
-    height={size}
-    fill='none'
-    stroke='currentColor'
-    strokeWidth='1.8'
-    viewBox='0 0 24 24'
-    style={{ lineHeight: 0, flexShrink: 0 }}
-  >
-    <path d='M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z' />
-  </svg>
-);
-
-const PlusIcon = () => (
-  <svg
-    width='13'
-    height='13'
-    fill='none'
-    stroke='currentColor'
-    strokeWidth='1.8'
-    viewBox='0 0 24 24'
-    style={{ flexShrink: 0 }}
-  >
-    <path d='M12 5v14M5 12h14' />
-  </svg>
-);
-
 const GuidWorkspaceFootnote: React.FC<GuidWorkspaceFootnoteProps> = ({
   workspaceDir,
   onSelectWorkspace,
@@ -57,7 +29,7 @@ const GuidWorkspaceFootnote: React.FC<GuidWorkspaceFootnoteProps> = ({
   const [open, setOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
-  const triggerRef = useRef<HTMLButtonElement | HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -142,24 +114,19 @@ const GuidWorkspaceFootnote: React.FC<GuidWorkspaceFootnoteProps> = ({
 
   const dropdownEl = open
     ? createPortal(
-        <div ref={dropdownRef} className={styles.wsDropdown} style={dropdownStyle}>
+        <div
+          ref={dropdownRef}
+          className={styles.wsDropdown}
+          style={dropdownStyle}
+          aria-label={t('guid.workspace.workInProject')}
+        >
           <div className={styles.wsDropdownSearch}>
-            <svg
-              width='12'
-              height='12'
-              fill='none'
-              stroke='currentColor'
-              strokeWidth='2'
-              viewBox='0 0 24 24'
-              style={{ flexShrink: 0, color: 'var(--color-text-3)' }}
-            >
-              <circle cx='11' cy='11' r='8' />
-              <path d='M21 21l-4.35-4.35' />
-            </svg>
+            <Search theme='outline' size={13} aria-hidden='true' />
             <input
               ref={searchRef}
               className={styles.wsDropdownSearchInput}
               placeholder={t('guid.workspace.searchPlaceholder')}
+              aria-label={t('guid.workspace.searchPlaceholder')}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -169,60 +136,47 @@ const GuidWorkspaceFootnote: React.FC<GuidWorkspaceFootnoteProps> = ({
             const name = path.split(/[\\/]/).pop() || path;
             const isActive = path === workspaceDir;
             return (
-              <div
+              <button
+                type='button'
                 key={path}
                 className={`${styles.wsDropdownItem} ${isActive ? styles.wsDropdownItemActive : ''}`}
                 onClick={() => handleSelectPath(path)}
+                aria-current={isActive ? 'true' : undefined}
               >
-                <FolderIcon size={13} />
+                <FolderOpen theme='outline' size={14} aria-hidden='true' />
                 <span className={styles.wsDropdownItemName}>{name}</span>
                 {isActive && (
-                  <svg
-                    width='12'
-                    height='12'
-                    fill='none'
-                    stroke='currentColor'
-                    strokeWidth='2.5'
-                    viewBox='0 0 24 24'
-                    style={{ marginLeft: 'auto', flexShrink: 0 }}
-                  >
-                    <path d='M20 6L9 17l-5-5' />
-                  </svg>
+                  <Check theme='outline' size={13} className={styles.wsDropdownItemCheck} aria-hidden='true' />
                 )}
-              </div>
+              </button>
             );
           })}
 
           {filteredRecent.length > 0 && <div className={styles.wsDropdownSep} />}
 
-          <div className={`${styles.wsDropdownItem} ${styles.wsDropdownItemAccent}`} onClick={handleBrowseWorkspace}>
-            <PlusIcon />
+          <button
+            type='button'
+            className={`${styles.wsDropdownItem} ${styles.wsDropdownItemAccent}`}
+            onClick={handleBrowseWorkspace}
+          >
+            <FolderPlus theme='outline' size={14} aria-hidden='true' />
             <span>{t('team.create.chooseDifferentFolder')}</span>
-          </div>
+          </button>
 
           <>
             <div className={styles.wsDropdownSep} />
-            <div
+            <button
+              type='button'
               className={`${styles.wsDropdownItem} ${workspaceDir ? styles.wsDropdownItemMuted : styles.wsDropdownItemMutedDisabled}`}
+              disabled={!workspaceDir}
               onClick={() => {
-                if (workspaceDir) onClearWorkspace();
+                onClearWorkspace();
                 closeDropdown();
               }}
             >
-              <svg
-                width='13'
-                height='13'
-                fill='none'
-                stroke='currentColor'
-                strokeWidth='1.8'
-                viewBox='0 0 24 24'
-                style={{ flexShrink: 0 }}
-              >
-                <path d='M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z' />
-                <line x1='2' y1='2' x2='22' y2='22' strokeWidth='1.5' />
-              </svg>
+              <FolderBlock theme='outline' size={14} aria-hidden='true' />
               <span>{t('guid.workspace.noProject')}</span>
-            </div>
+            </button>
           </>
         </div>,
         document.body
@@ -236,11 +190,14 @@ const GuidWorkspaceFootnote: React.FC<GuidWorkspaceFootnoteProps> = ({
           <Tooltip content={workspaceDir} position='top'>
             <div className={styles.workspacePill}>
               <button
-                ref={triggerRef as React.RefObject<HTMLButtonElement>}
+                ref={triggerRef}
+                type='button'
                 className={styles.workspacePillMain}
                 onClick={toggleOpen}
+                aria-haspopup='dialog'
+                aria-expanded={open}
               >
-                <FolderIcon size={14} />
+                <FolderOpen theme='outline' size={15} aria-hidden='true' />
                 <span className={styles.workspacePillName}>{workspaceName}</span>
                 <Down
                   theme='outline'
@@ -249,8 +206,8 @@ const GuidWorkspaceFootnote: React.FC<GuidWorkspaceFootnoteProps> = ({
                   style={{ flexShrink: 0, transform: 'translateY(1px)' }}
                 />
               </button>
-              <span
-                role='button'
+              <button
+                type='button'
                 aria-label={t('guid.workspace.clearWorkspace')}
                 className={styles.workspacePillClose}
                 onClick={(e) => {
@@ -258,8 +215,8 @@ const GuidWorkspaceFootnote: React.FC<GuidWorkspaceFootnoteProps> = ({
                   onClearWorkspace();
                 }}
               >
-                <Close theme='outline' size='10' fill='currentColor' />
-              </span>
+                <Close theme='outline' size='11' fill='currentColor' aria-hidden='true' />
+              </button>
             </div>
           </Tooltip>
           {dropdownEl}
@@ -267,12 +224,15 @@ const GuidWorkspaceFootnote: React.FC<GuidWorkspaceFootnoteProps> = ({
       ) : (
         <>
           <button
-            ref={triggerRef as React.RefObject<HTMLButtonElement>}
+            ref={triggerRef}
+            type='button'
             className={styles.workspaceEmptyBtn}
             data-testid='workspace-selector-btn'
             onClick={recentWorkspaces.length > 0 ? toggleOpen : handleBrowseWorkspace}
+            aria-haspopup={recentWorkspaces.length > 0 ? 'dialog' : undefined}
+            aria-expanded={recentWorkspaces.length > 0 ? open : undefined}
           >
-            <FolderIcon size={14} />
+            <FolderOpen theme='outline' size={15} aria-hidden='true' />
             <span>{t('guid.workspace.workInProject')}</span>
             {recentWorkspaces.length > 0 && (
               <Down

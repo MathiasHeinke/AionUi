@@ -58,6 +58,8 @@
   "goToSettings": "Go to Settings",
   "forward": "Forward",
   "historyBack": "Back",
+  "scrollFilesLeft": "Scroll files left",
+  "scrollFilesRight": "Scroll files right",
   "more": "More",
   "refresh": "Refresh",
   "tray.showWindow": "Show Command EVE",
@@ -78,11 +80,15 @@
       "requiredVersions": "Required runtime symbols: {{versions}}"
     },
     "incompleteInstallation": {
-      "title": "AionUi installation is incomplete",
-      "description": "This installation is missing required local resources, so AionCore cannot start. Please download and reinstall the latest AionUi. If the issue returns after reinstalling, check whether security or antivirus software quarantined AionCore.",
+      "title": "The Command EVE installation is incomplete",
+      "description": "This installation is missing required local resources, so AionCore cannot start. Download and reinstall the latest Command EVE. If the issue returns, check whether security software quarantined AionCore.",
       "downloadLatest": "Download latest",
       "sendDiagnostics": "Send diagnostics",
-      "runtimeComponentDescription": "This installation is missing required bundled runtime components, so {{resource}} cannot start. Reinstall the latest AionUi package. If it still happens after reinstalling, check whether security or antivirus software quarantined AionUi components."
+      "runtimeComponentDescription": "This installation is missing required bundled runtime components, so {{resource}} cannot start. Reinstall the latest Command EVE package. If it still happens, check whether security software quarantined Command EVE components."
+    },
+    "componentMismatch": {
+      "title": "Command EVE needs an updated local component",
+      "description": "The installed AionCore component is not compatible with this version of Command EVE. Download and install the latest version. Your local data will remain intact."
     },
     "instanceConflict": {
       "title": "The local AI service is already in use",
@@ -93,8 +99,16 @@
       "description": "AionCore could not start. Restart Command EVE. If the problem returns, review the diagnostics before reinstalling the app."
     },
     "packageArchitectureMismatch": {
-      "title": "AionUi package architecture mismatch",
-      "description": "This AionUi package is for {{packageArch}}, but this Mac is {{deviceArch}}. You may have downloaded the wrong package. Please download and install the {{expectedArch}} package."
+      "title": "This Command EVE package does not match your Mac",
+      "description": "This Command EVE package is for {{packageArch}}, but this Mac uses {{deviceArch}}. Download and install the {{expectedArch}} package."
+    },
+    "recovery": {
+      "eyebrow": "Command EVE recovery",
+      "dataSafe": "Your local chats, files, and settings will remain intact.",
+      "saveDiagnostics": "Save diagnostics",
+      "diagnosticsSaved": "Diagnostics were saved.",
+      "diagnosticsFailed": "Diagnostics could not be saved.",
+      "restart": "Restart Command EVE"
     }
   },
   "fileAttach.addFiles": "Add files",
