@@ -7,10 +7,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import React from 'react';
+import { MemoryRouter } from 'react-router-dom';
 
 // t() echoes the key so labels/prefixes are assertable.
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (k: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? k, i18n: { language: 'de' } }),
+  useTranslation: () => ({
+    t: (k: string, opts?: { defaultValue?: string }) => opts?.defaultValue ?? k,
+    i18n: { language: 'de' },
+  }),
 }));
 
 // Layout: desktop.
@@ -23,6 +27,17 @@ vi.mock('@/renderer/hooks/context/LayoutContext', () => ({
 vi.mock('@/renderer/components/agent/AgentModeSelector', () => ({
   default: ({ compactLabelPrefix }: { compactLabelPrefix?: string }) => (
     <div data-testid='mode-selector'>{compactLabelPrefix ?? 'mode'}</div>
+  ),
+}));
+vi.mock('@/renderer/components/agent/ContextUsageIndicator', () => ({
+  default: () => <span data-testid='eve-context-ring' />,
+}));
+vi.mock('@/renderer/hooks/agent/useEveInferenceSelection', () => ({
+  useEveInferenceSelection: () => ({ selectedItem: { group: 'local' }, cloudBearerAvailable: true }),
+}));
+vi.mock('@/renderer/components/workspace', () => ({
+  WorkspaceContextControl: ({ workspacePath }: { workspacePath?: string }) => (
+    <div data-testid='workspace-context-control'>{workspacePath}</div>
   ),
 }));
 vi.mock('@/renderer/pages/guid/components/PresetAgentTag', () => ({
@@ -52,6 +67,9 @@ import GuidActionRow from '@/renderer/pages/guid/components/GuidActionRow';
 const baseProps = {
   files: [] as string[],
   onFilesUploaded: vi.fn(),
+  workspaceDir: '/tmp/Produkt-Roadmap',
+  onSelectWorkspace: vi.fn(),
+  onClearWorkspace: vi.fn(),
   modelSelectorNode: <div data-testid='model-node' />,
   selectedAgent: 'hermes',
   effectiveModeAgent: 'hermes',
@@ -74,10 +92,12 @@ const baseProps = {
   onSend: vi.fn(),
 };
 
+const renderRow = (row: React.ReactElement) => render(<MemoryRouter>{row}</MemoryRouter>);
+
 describe('GuidActionRow (UnifiedSendBar integration)', () => {
-  it('renders the file-attach, model, mic, context and send slots in the shared bar', () => {
+  it('renders project, EVE control, mic and send while keeping advanced controls in the popover', async () => {
     const onSend = vi.fn();
-    render(
+    renderRow(
       <GuidActionRow
         {...baseProps}
         onSend={onSend}
@@ -89,22 +109,27 @@ describe('GuidActionRow (UnifiedSendBar integration)', () => {
     // The single shared bar hosts everything.
     expect(screen.getByTestId('unified-send-bar')).toBeTruthy();
     expect(screen.getByTestId('file-upload-btn')).toBeTruthy();
-    expect(screen.getByTestId('model-node')).toBeTruthy();
+    expect(screen.getByTestId('workspace-context-control').textContent).toContain('Produkt-Roadmap');
     expect(screen.getByTestId('guid-mic')).toBeTruthy();
-    expect(screen.getByTestId('guid-context')).toBeTruthy();
+    expect(screen.queryByTestId('guid-context')).toBeNull();
     expect(screen.getByTestId('guid-send-btn')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('eve-composer-control-trigger'));
+    expect(await screen.findByTestId('model-node')).toBeTruthy();
+    expect(screen.getByTestId('mode-selector')).toBeTruthy();
   });
 
   it('keeps the send handler wired through the bar', () => {
     const onSend = vi.fn();
-    render(<GuidActionRow {...baseProps} onSend={onSend} />);
+    renderRow(<GuidActionRow {...baseProps} onSend={onSend} />);
     fireEvent.click(screen.getByTestId('guid-send-btn'));
     expect(onSend).toHaveBeenCalledTimes(1);
   });
 
-  it('shows the EVE "Berechtigung" permission prefix for the EVE backend', () => {
-    render(<GuidActionRow {...baseProps} effectiveModeAgent='hermes' selectedAgent='hermes' />);
+  it('shows the EVE "Berechtigung" permission prefix for the EVE backend', async () => {
+    renderRow(<GuidActionRow {...baseProps} effectiveModeAgent='hermes' selectedAgent='hermes' />);
+    fireEvent.click(screen.getByTestId('eve-composer-control-trigger'));
     // The EVE start screen mirrors the in-chat pill prefix.
-    expect(screen.getByTestId('mode-selector').textContent).toContain('agentMode.permission');
+    expect((await screen.findByTestId('mode-selector')).textContent).toContain('agentMode.permission');
   });
 });

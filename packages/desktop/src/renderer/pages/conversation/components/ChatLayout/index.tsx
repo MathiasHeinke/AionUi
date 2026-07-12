@@ -5,6 +5,7 @@ import FlexFullContainer from '@/renderer/components/layout/FlexFullContainer';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { useResizableSplit } from '@/renderer/hooks/ui/useResizableSplit';
 import ChatTitleEditor from '@/renderer/pages/conversation/components/ChatTitleEditor';
+import ShellElementsRail from '@/renderer/components/layout/Titlebar/ShellElementsRail';
 import MobileWorkspaceOverlay from './MobileWorkspaceOverlay';
 import WorkspacePanelHeader, { DesktopWorkspaceToggle } from './WorkspacePanelHeader';
 import { useContainerWidth } from '@/renderer/pages/conversation/hooks/useContainerWidth';
@@ -72,13 +73,15 @@ const ChatLayout: React.FC<{
   const isWindowsRuntime = isWindowsEnvironment();
   const isDesktop = !layout?.isMobile;
   const isMobile = Boolean(layout?.isMobile);
+  const elementsRailEnabled = COMMAND_EVE_SHELL_ENABLED && isDesktop;
+  const desktopPanelEnabled = elementsRailEnabled || workspaceEnabled;
 
   // Preview panel state
   const { isOpen: isPreviewOpen } = usePreviewContext();
 
   // --- Hook A: workspace collapse ---
   const { rightSiderCollapsed, setRightSiderCollapsed } = useWorkspaceCollapse({
-    workspaceEnabled,
+    workspaceEnabled: isMobile ? workspaceEnabled : desktopPanelEnabled,
     isMobile,
     conversation_id,
     preferenceKey: workspacePreferenceKey ?? conversation_id,
@@ -119,13 +122,14 @@ const ChatLayout: React.FC<{
     maxWidth: MAX_WORKSPACE_PANEL_PX,
     storageKey: 'chat-workspace-width-px',
   });
+  const effectiveWorkspaceWidthPx = elementsRailEnabled ? 308 : workspaceWidthPxPref;
 
   // Pre-hook metrics: compute dynamic min/max for the chat-preview split hook
   const { dynamicChatMinRatio, dynamicChatMaxRatio } = calcLayoutMetrics({
     containerWidth,
-    workspaceWidthPx: workspaceWidthPxPref,
+    workspaceWidthPx: effectiveWorkspaceWidthPx,
     chatSplitRatio: 60, // placeholder; only dynamicChatMinRatio/dynamicChatMaxRatio are used here
-    workspaceEnabled,
+    workspaceEnabled: desktopPanelEnabled,
     isDesktop,
     isPreviewOpen,
     rightSiderCollapsed,
@@ -146,9 +150,9 @@ const ChatLayout: React.FC<{
   // Full metrics with real chatSplitRatio
   const { chatFlex, workspaceWidthPx, titleAreaMaxWidth, mobileWorkspaceHandleRight } = calcLayoutMetrics({
     containerWidth,
-    workspaceWidthPx: workspaceWidthPxPref,
+    workspaceWidthPx: effectiveWorkspaceWidthPx,
     chatSplitRatio,
-    workspaceEnabled,
+    workspaceEnabled: desktopPanelEnabled,
     isDesktop,
     isPreviewOpen,
     rightSiderCollapsed,
@@ -158,12 +162,12 @@ const ChatLayout: React.FC<{
   // --- Hook E: layout constraints ---
   useLayoutConstraints({
     containerWidth,
-    workspaceEnabled,
+    workspaceEnabled: desktopPanelEnabled,
     isDesktop,
     isPreviewOpen,
     rightSiderCollapsed,
     setRightSiderCollapsed,
-    workspaceWidthPx: workspaceWidthPxPref,
+    workspaceWidthPx: effectiveWorkspaceWidthPx,
     setWorkspaceWidthPx: setWorkspaceWidthPxPref,
     chatSplitRatio,
     setChatSplitRatio,
@@ -220,7 +224,7 @@ const ChatLayout: React.FC<{
       </FlexFullContainer>
       <div className='flex items-center gap-12px shrink-0'>
         {props.headerExtra}
-        {isWindowsRuntime && workspaceEnabled && (
+        {isWindowsRuntime && workspaceEnabled && !COMMAND_EVE_SHELL_ENABLED && (
           <button
             type='button'
             className='workspace-header__toggle'
@@ -314,9 +318,12 @@ const ChatLayout: React.FC<{
             )}
           </div>
         </div>
-        {workspaceEnabled && !layout?.isMobile && (
+        {desktopPanelEnabled && !layout?.isMobile && (
           <div
-            className={classNames('!bg-1 relative chat-layout-right-sider layout-sider')}
+            className={classNames(
+              '!bg-1 relative chat-layout-right-sider layout-sider',
+              elementsRailEnabled && 'chat-layout-right-sider--elements'
+            )}
             style={{
               flexGrow: 0,
               flexShrink: 0,
@@ -328,21 +335,34 @@ const ChatLayout: React.FC<{
             }}
           >
             {isDesktop &&
+              !elementsRailEnabled &&
               !rightSiderCollapsed &&
               createWorkspaceDragHandle({ className: 'absolute left-0 top-0 bottom-0', style: {}, reverse: true })}
-            <WorkspacePanelHeader
-              showToggle={!isMacRuntime && !isWindowsRuntime}
-              collapsed={rightSiderCollapsed}
-              onToggle={() => dispatchWorkspaceToggleEvent()}
-              togglePlacement={layout?.isMobile ? 'left' : 'right'}
-              workspacePath={workspacePath}
-              isTemporaryWorkspace={isTemporaryWorkspace}
-            >
-              {props.siderTitle}
-            </WorkspacePanelHeader>
-            <ArcoLayout.Content style={{ height: `calc(100% - ${WORKSPACE_HEADER_HEIGHT}px)` }}>
-              {props.sider}
-            </ArcoLayout.Content>
+            {elementsRailEnabled ? (
+              <ShellElementsRail
+                conversationId={conversation_id}
+                conversationTitle={props.title}
+                workspacePath={workspacePath}
+                contextContent={props.sider}
+                onRequestClose={() => setRightSiderCollapsed(true)}
+              />
+            ) : (
+              <>
+                <WorkspacePanelHeader
+                  showToggle={!isMacRuntime && !isWindowsRuntime}
+                  collapsed={rightSiderCollapsed}
+                  onToggle={() => dispatchWorkspaceToggleEvent()}
+                  togglePlacement={layout?.isMobile ? 'left' : 'right'}
+                  workspacePath={workspacePath}
+                  isTemporaryWorkspace={isTemporaryWorkspace}
+                >
+                  {props.siderTitle}
+                </WorkspacePanelHeader>
+                <ArcoLayout.Content style={{ height: `calc(100% - ${WORKSPACE_HEADER_HEIGHT}px)` }}>
+                  {props.sider}
+                </ArcoLayout.Content>
+              </>
+            )}
           </div>
         )}
 
@@ -361,9 +381,12 @@ const ChatLayout: React.FC<{
         )}
 
         {/* Desktop expand button when workspace is collapsed */}
-        {!isMacRuntime && !isWindowsRuntime && workspaceEnabled && rightSiderCollapsed && !layout?.isMobile && (
-          <DesktopWorkspaceToggle />
-        )}
+        {!COMMAND_EVE_SHELL_ENABLED &&
+          !isMacRuntime &&
+          !isWindowsRuntime &&
+          workspaceEnabled &&
+          rightSiderCollapsed &&
+          !layout?.isMobile && <DesktopWorkspaceToggle />}
       </div>
     </ArcoLayout>
   );

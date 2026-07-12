@@ -1,6 +1,12 @@
 {
   "welcome": {
     "title": "Hi, what's your plan for today?",
+    "greetingMorning": "Good morning, {{name}}.",
+    "greetingDay": "Good afternoon, {{name}}.",
+    "greetingEvening": "Good evening, {{name}}.",
+    "greetingWithoutName": "Hello.",
+    "subtitle": "What are we working on today?",
+    "evePlaceholder": "Tell EVE what you want to achieve ...",
     "placeholder": "Send a message, upload files, open a folder, or create a scheduled task...",
     "linkFolder": "Open Folder",
     "newConversation": "New Chat",
@@ -545,7 +551,41 @@
   "commandEveRuntimeNotReady": "EVE cannot send yet: {{reason}}",
   "eveInference": {
     "offlineUnavailable": "EVE Cloud needs an internet connection.",
-    "activationUnavailable": "EVE Cloud is available after activation."
+    "activationUnavailable": "EVE Cloud is available after activation.",
+    "needsActivation": "Activation required"
+  },
+  "eveControl": {
+    "open": "Open EVE controls",
+    "howEveWorks": "How EVE works",
+    "privacy": "Privacy",
+    "tools": "Tools",
+    "context": "Context",
+    "automatic": "Automatic",
+    "local": "Local",
+    "cloud": "Cloud",
+    "contextReady": "Ready",
+    "contextPercent": "{{percent}}%",
+    "advancedSettings": "Advanced settings"
+  },
+  "elementsRail": {
+    "toggle": "Toggle elements rail",
+    "activity": "Activity",
+    "artifacts": "Artifacts",
+    "context": "Context",
+    "working": "EVE is working",
+    "workingDetail": "The current task is still running.",
+    "needsInput": "Your decision is needed",
+    "needsInputDetail": "EVE is waiting for an approval or answer.",
+    "ready": "EVE is ready",
+    "readyDetail": "Start a task or open an existing chat.",
+    "noArtifacts": "No artifacts yet",
+    "noArtifactsDetail": "Documents, images, and other results appear here automatically.",
+    "openArtifact": "Open {{name}}",
+    "project": "Project",
+    "noProject": "No project selected",
+    "session": "Conversation",
+    "newSession": "New chat",
+    "projectFiles": "Project files"
   },
   "runtimeStatus": {
     "phase": {

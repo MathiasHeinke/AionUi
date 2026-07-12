@@ -2595,6 +2595,7 @@ export const preview = {
     metadata?: {
       title?: string;
       file_name?: string;
+      conversation_id?: string;
     };
   }>('preview.open'),
 };

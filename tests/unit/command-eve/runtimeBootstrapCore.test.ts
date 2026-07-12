@@ -1488,6 +1488,18 @@ describe('Command EVE bundled strategy skills (SLICE B2)', () => {
     expect(fs.existsSync(path.join(paths.managedSkillsRoot, 'marketing-outbound', 'README.md'))).toBe(true);
   });
 
+  it('ignores atomic snapshot stage files while copying bundled skills', () => {
+    const root = makeRoot();
+    const bundledSkillsDir = buildBundledSkillsFixture(root);
+    const stagedName = 'SKILL.md.command-eve-stage-12345';
+    fs.writeFileSync(path.join(bundledSkillsDir, 'eve-doctrine', stagedName), 'transient updater payload');
+    const paths = resolveCommandEveRuntimeBootstrapPaths(root);
+
+    expect(copyBundledStrategySkills(paths, bundledSkillsDir)).toEqual([]);
+    expect(fs.existsSync(path.join(paths.managedSkillsRoot, 'eve-doctrine', 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(paths.managedSkillsRoot, 'eve-doctrine', stagedName))).toBe(false);
+  });
+
   it('is ADDITIVE: the onboarding capability stubs coexist with the real strategy skills', () => {
     const root = makeRoot();
     const bundledSkillsDir = buildBundledSkillsFixture(root);

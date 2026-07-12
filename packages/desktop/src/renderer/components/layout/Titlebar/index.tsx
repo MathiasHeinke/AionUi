@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import classNames from 'classnames';
-import { ArrowCircleLeft, ArrowLeft, ArrowRight, ExpandLeft, ExpandRight, Peoples } from '@icon-park/react';
+import { ArrowCircleLeft, ArrowLeft, ArrowRight, ExpandLeft, ExpandRight, Peoples, RightBar } from '@icon-park/react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import { ipcBridge } from '@/common';
 import { TEAM_MODE_ENABLED } from '@/common/config/constants';
+import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import MobileConversationBrand from './MobileConversationBrand';
 import WindowControls from '../WindowControls';
 import CreditMeterBadge from '@renderer/components/billing/CreditMeterBadge';
@@ -87,11 +88,16 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
   // Windows/Linux 显示自定义窗口按钮；macOS 在标题栏给工作区一个切换入口
   const showWindowControls = isDesktopRuntime && !isMacRuntime;
   // WebUI 和 macOS 桌面都需要在标题栏放工作区开关
-  const showWorkspaceButton = workspaceAvailable && (!isDesktopRuntime || isMacRuntime);
+  const showWorkspaceButton =
+    workspaceAvailable &&
+    !(COMMAND_EVE_SHELL_ENABLED && layout?.isMobile && location.pathname === '/guid') &&
+    (COMMAND_EVE_SHELL_ENABLED || !isDesktopRuntime || isMacRuntime);
 
-  const workspaceTooltip = workspaceCollapsed
-    ? t('common.expandMore', { defaultValue: 'Expand workspace' })
-    : t('common.collapse', { defaultValue: 'Collapse workspace' });
+  const workspaceTooltip = COMMAND_EVE_SHELL_ENABLED
+    ? t('conversation.elementsRail.toggle')
+    : workspaceCollapsed
+      ? t('common.expandMore', { defaultValue: 'Expand workspace' })
+      : t('common.collapse', { defaultValue: 'Collapse workspace' });
   const backToChatTooltip = t('common.back', { defaultValue: 'Back to Chat' });
   const isSettingsRoute = location.pathname.startsWith('/settings');
   const iconSize = 18;
@@ -336,19 +342,30 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
       <div ref={toolbarRef} className='app-titlebar__toolbar'>
         {layout?.isMobile && <div id='app-titlebar-actions-slot' className='app-titlebar__actions-slot' />}
         {/* Live credit meter (Lane 3). Self-quiets before first read / non-desktop. */}
-        {!layout?.isMobile && <CreditMeterBadge onOpenBilling={() => void navigate('/settings/billing')} />}
+        {!COMMAND_EVE_SHELL_ENABLED && !layout?.isMobile && (
+          <CreditMeterBadge onOpenBilling={() => void navigate('/settings/billing')} />
+        )}
         {/* Account avatar (desktop only). Opens the Account settings panel. */}
-        {isDesktopRuntime && !layout?.isMobile && (
+        {!COMMAND_EVE_SHELL_ENABLED && isDesktopRuntime && !layout?.isMobile && (
           <ProfileAvatar onOpenAccount={() => void navigate('/settings/account')} />
         )}
         {showWorkspaceButton && (
           <button
             type='button'
-            className={classNames('app-titlebar__button', layout?.isMobile && 'app-titlebar__button--mobile')}
+            className={classNames(
+              'app-titlebar__button',
+              layout?.isMobile && 'app-titlebar__button--mobile',
+              COMMAND_EVE_SHELL_ENABLED && 'app-titlebar__button--elements',
+              COMMAND_EVE_SHELL_ENABLED && !workspaceCollapsed && 'app-titlebar__button--elements-active'
+            )}
             onClick={handleWorkspaceToggle}
             aria-label={workspaceTooltip}
+            aria-pressed={COMMAND_EVE_SHELL_ENABLED ? !workspaceCollapsed : undefined}
+            data-testid={COMMAND_EVE_SHELL_ENABLED ? 'elements-rail-toggle' : undefined}
           >
-            {workspaceCollapsed ? (
+            {COMMAND_EVE_SHELL_ENABLED ? (
+              <RightBar theme='outline' size={iconSize} fill='currentColor' />
+            ) : workspaceCollapsed ? (
               <ExpandRight theme='outline' size={iconSize} fill='currentColor' />
             ) : (
               <ExpandLeft theme='outline' size={iconSize} fill='currentColor' />

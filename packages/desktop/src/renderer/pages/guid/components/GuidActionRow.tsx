@@ -8,6 +8,7 @@ import { ipcBridge } from '@/common';
 import type { IMcpServer } from '@/common/config/storage';
 import AgentModeSelector from '@/renderer/components/agent/AgentModeSelector';
 import UnifiedSendBar from '@/renderer/components/chat/UnifiedSendBar';
+import { WorkspaceContextControl } from '@/renderer/components/workspace';
 import { createModeLabelFormatter, supportsModeSwitch } from '@/renderer/utils/model/agentModes';
 import {
   COMMAND_EVE_DEFAULT_ACP_BACKEND,
@@ -31,6 +32,9 @@ type GuidActionRowProps = {
   // File handling
   files: string[];
   onFilesUploaded: (paths: string[]) => void;
+  workspaceDir: string;
+  onSelectWorkspace: (dir: string) => void;
+  onClearWorkspace: () => void;
 
   // Model selector node (rendered by parent)
   modelSelectorNode: React.ReactNode;
@@ -83,6 +87,9 @@ type GuidActionRowProps = {
 const GuidActionRow: React.FC<GuidActionRowProps> = ({
   files,
   onFilesUploaded,
+  workspaceDir,
+  onSelectWorkspace,
+  onClearWorkspace,
   modelSelectorNode,
   selectedAgent,
   effectiveModeAgent,
@@ -121,7 +128,6 @@ const GuidActionRow: React.FC<GuidActionRowProps> = ({
   // AND made the start screen save a 'yolo' value hermes doesn't understand.
   const modeBackend = COMMAND_EVE_SHELL_ENABLED ? COMMAND_EVE_DEFAULT_ACP_BACKEND : effectiveModeAgent || selectedAgent;
   const showModeSwitch = !hideModeSwitch && supportsModeSwitch(modeBackend);
-  const configOptionCount = (modelSelectorNode ? 1 : 0) + (showModeSwitch ? 1 : 0);
 
   // Browser file picker ref (WebUI only)
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -323,27 +329,26 @@ const GuidActionRow: React.FC<GuidActionRowProps> = ({
   // The permission selector is the EVE 3-mode selector and stays a LOCAL callback
   // (onModeSelect) — pre-conversation, so the choice seeds the first message's
   // session_mode rather than calling ipcBridge.acpConversation.setMode.
-  const modelSlot =
-    configOptionCount > 0 ? (
-      <div className={styles.actionConfigGroup} data-mobile={isMobile ? 'true' : undefined}>
-        {modelSelectorNode}
+  const modelSlot = modelSelectorNode ? (
+    <div className={styles.actionConfigGroup} data-mobile={isMobile ? 'true' : undefined}>
+      {modelSelectorNode}
+    </div>
+  ) : null;
 
-        {showModeSwitch && (
-          <AgentModeSelector
-            backend={modeBackend}
-            compact
-            initialMode={selectedMode}
-            onModeSelect={onModeSelect}
-            compactLeadingIcon={<Shield theme='outline' size='14' fill={iconColors.secondary} />}
-            modeLabelFormatter={getModeDisplayLabel}
-            // EVE start screen mirrors the in-chat pill: "Berechtigung · <mode>".
-            // EVE-only so non-EVE start screens keep their bare mode label.
-            compactLabelPrefix={isCommandEveAcpConversation(modeBackend) ? t('agentMode.permission') : undefined}
-            hideCompactLabelPrefixOnMobile
-          />
-        )}
-      </div>
-    ) : null;
+  const permissionSlot = showModeSwitch ? (
+    <div className={styles.actionConfigGroup} data-mobile={isMobile ? 'true' : undefined}>
+      <AgentModeSelector
+        backend={modeBackend}
+        compact
+        initialMode={selectedMode}
+        onModeSelect={onModeSelect}
+        compactLeadingIcon={<Shield theme='outline' size='14' fill={iconColors.secondary} />}
+        modeLabelFormatter={getModeDisplayLabel}
+        compactLabelPrefix={isCommandEveAcpConversation(modeBackend) ? t('agentMode.permission') : undefined}
+        hideCompactLabelPrefixOnMobile
+      />
+    </div>
+  ) : null;
 
   // The preset-agent tag rides between the config group and the right controls,
   // exactly where it sat in the old actionSubmit row.
@@ -382,15 +387,23 @@ const GuidActionRow: React.FC<GuidActionRowProps> = ({
   return (
     <div className={styles.actionRow}>
       <UnifiedSendBar
-        leftSlot={fileAttachSlot}
-        modelSlot={
+        leftSlot={
           <>
-            {modelSlot}
-            {presetTagSlot}
+            {fileAttachSlot}
+            <WorkspaceContextControl
+              workspacePath={workspaceDir}
+              editable
+              disabled={loading}
+              onSelectWorkspace={onSelectWorkspace}
+              onClearWorkspace={onClearWorkspace}
+            />
           </>
         }
-        permissionSlot={null}
-        contextSlot={contextIndicatorNode}
+        centerSlot={presetTagSlot}
+        modelSlot={modelSlot}
+        permissionSlot={permissionSlot}
+        contextSlot={COMMAND_EVE_SHELL_ENABLED ? null : contextIndicatorNode}
+        eveControl={COMMAND_EVE_SHELL_ENABLED ? { tokenUsage: null, disabled: loading } : undefined}
         micSlot={speechInputNode}
         sendSlot={sendButton}
       />

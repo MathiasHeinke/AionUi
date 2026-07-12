@@ -1,6 +1,7 @@
 import { blurActiveElement } from '@/renderer/utils/ui/focus';
 import {
   WORKSPACE_HAS_FILES_EVENT,
+  WORKSPACE_OPEN_EVENT,
   WORKSPACE_TOGGLE_EVENT,
   dispatchWorkspaceStateEvent,
   type WorkspaceHasFilesDetail,
@@ -96,6 +97,28 @@ export function useWorkspaceCollapse({
     return () => {
       window.removeEventListener(WORKSPACE_TOGGLE_EVENT, handleWorkspaceToggle);
     };
+  }, [workspaceEnabled, preferenceKey]);
+
+  // Project/context affordances need idempotent "open" semantics. A plain
+  // toggle would close an already-visible rail when the user clicks its active
+  // project pill, which is surprising and makes the pill unreliable.
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+    const handleWorkspaceOpen = () => {
+      if (!workspaceEnabled) return;
+      setRightSiderCollapsed(false);
+      if (preferenceKey) {
+        try {
+          localStorage.setItem(`workspace-preference-${preferenceKey}`, 'expanded');
+        } catch {
+          // Ignore storage errors; the current open action still succeeds.
+        }
+      }
+    };
+    window.addEventListener(WORKSPACE_OPEN_EVENT, handleWorkspaceOpen);
+    return () => window.removeEventListener(WORKSPACE_OPEN_EVENT, handleWorkspaceOpen);
   }, [workspaceEnabled, preferenceKey]);
 
   // Auto expand/collapse workspace panel based on files state (user preference takes priority)

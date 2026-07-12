@@ -12,7 +12,9 @@ describe('Command EVE public shell identity', () => {
 
     expect(guidPage).toContain('const isCommandEveAssistant = COMMAND_EVE_SHELL_ENABLED;');
     expect(guidSend).toContain('const isCommandEveAssistant = COMMAND_EVE_SHELL_ENABLED;');
-    expect(guidPage).toContain('isCommandEveAssistant ? COMMAND_EVE_DISPLAY_NAME : mention.selectedAgentLabel');
+    expect(guidPage).toContain('const SHOW_RAW_AGENT_SELECTION = !COMMAND_EVE_SHELL_ENABLED;');
+    expect(guidPage).toContain("data-testid='eve-static-runtime-label'");
+    expect(guidPage).toContain("isCommandEveAssistant\n                  ? t('conversation.welcome.evePlaceholder')");
     expect(guidSend).not.toContain('EVE/Hermes');
     expect(guidSend).not.toContain('alert(');
     expect(guidSend).toContain("Message.error(t('conversation.createFailed'");

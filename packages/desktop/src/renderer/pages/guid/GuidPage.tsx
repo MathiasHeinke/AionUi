@@ -7,16 +7,19 @@
 import { ipcBridge } from '@/common';
 import type { IMcpServer } from '@/common/config/storage';
 import { resolveLocaleKey } from '@/common/utils';
-import {
-  COMMAND_EVE_ASSISTANT_ID,
-  COMMAND_EVE_ASSISTANT_AVATAR,
-  COMMAND_EVE_DISPLAY_NAME,
-  COMMAND_EVE_SHELL_ENABLED,
-} from '@/common/config/commandEveShell';
+import { COMMAND_EVE_ASSISTANT_AVATAR, COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import EveInferencePicker from '@/renderer/components/agent/EveInferencePicker';
 import ContextUsageIndicator from '@/renderer/components/agent/ContextUsageIndicator';
 import SpeechInputButton from '@/renderer/components/chat/SpeechInputButton';
 import { appendSpeechTranscript } from '@/renderer/hooks/system/useSpeechInput';
+import ShellElementsRail from '@/renderer/components/layout/Titlebar/ShellElementsRail';
+import { useCommandEveProfile } from '@/renderer/components/account/useCommandEveProfile';
+import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
+import {
+  WORKSPACE_OPEN_EVENT,
+  WORKSPACE_TOGGLE_EVENT,
+  dispatchWorkspaceStateEvent,
+} from '@/renderer/utils/workspace/workspaceEvents';
 
 import { openExternalUrl, resolveExtensionAssetUrl } from '@/renderer/utils/platform';
 import { CUSTOM_AVATAR_IMAGE_MAP } from './constants';
@@ -60,6 +63,27 @@ const GuidPage: React.FC = () => {
 
   const localeKey = resolveLocaleKey(i18n.language);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const layout = useLayoutContext();
+  const { name: profileName } = useCommandEveProfile();
+  const [elementsRailCollapsed, setElementsRailCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (!COMMAND_EVE_SHELL_ENABLED || layout?.isMobile) return undefined;
+    const toggle = () => setElementsRailCollapsed((collapsed) => !collapsed);
+    const open = () => setElementsRailCollapsed(false);
+    window.addEventListener(WORKSPACE_TOGGLE_EVENT, toggle);
+    window.addEventListener(WORKSPACE_OPEN_EVENT, open);
+    return () => {
+      window.removeEventListener(WORKSPACE_TOGGLE_EVENT, toggle);
+      window.removeEventListener(WORKSPACE_OPEN_EVENT, open);
+      dispatchWorkspaceStateEvent(true);
+    };
+  }, [layout?.isMobile]);
+
+  useEffect(() => {
+    if (!COMMAND_EVE_SHELL_ENABLED || layout?.isMobile) return;
+    dispatchWorkspaceStateEvent(elementsRailCollapsed);
+  }, [elementsRailCollapsed, layout?.isMobile]);
 
   // Open external link
   const openLink = useCallback(async (url: string) => {
@@ -570,8 +594,19 @@ const GuidPage: React.FC = () => {
   // Keep this true even while the assistant seed is missing or still loading;
   // otherwise the fallback state exposes the internal CLI/agent catalog.
   const isCommandEveAssistant = COMMAND_EVE_SHELL_ENABLED;
-  const showAssistantSelectionArea =
-    !COMMAND_EVE_SHELL_ENABLED || agentSelection.selectedAgentInfo?.custom_agent_id === COMMAND_EVE_ASSISTANT_ID;
+  const commandEveGreeting = useMemo(() => {
+    const firstName = profileName?.trim().split(/\s+/)[0];
+    if (!firstName) return t('conversation.welcome.greetingWithoutName');
+    const hour = new Date().getHours();
+    const greetingKey =
+      hour < 12
+        ? 'conversation.welcome.greetingMorning'
+        : hour < 18
+          ? 'conversation.welcome.greetingDay'
+          : 'conversation.welcome.greetingEvening';
+    return t(greetingKey, { name: firstName });
+  }, [profileName, t]);
+  const showAssistantSelectionArea = !COMMAND_EVE_SHELL_ENABLED;
 
   // Build the model selector node
   const modelSelectorNode = isCommandEveAssistant ? (
@@ -615,6 +650,9 @@ const GuidPage: React.FC = () => {
     <GuidActionRow
       files={guidInput.files}
       onFilesUploaded={guidInput.handleFilesUploaded}
+      workspaceDir={guidInput.dir}
+      onSelectWorkspace={(dir) => guidInput.setDir(dir)}
+      onClearWorkspace={() => guidInput.setDir('')}
       modelSelectorNode={modelSelectorNode}
       selectedAgent={agentSelection.selectedAgent}
       effectiveModeAgent={agentSelection.currentEffectiveAgentInfo.agent_type}
@@ -648,244 +686,264 @@ const GuidPage: React.FC = () => {
 
   return (
     <ConfigProvider getPopupContainer={() => guidContainerRef.current || document.body}>
-      <div ref={guidContainerRef} className={styles.guidContainer}>
-        <div className={styles.guidLayout}>
-          <div className={styles.heroHeader}>
-            {agentSelection.is_presetAgent ? (
-              <div className={styles.heroHeaderControls}>
-                <div className={styles.heroHeaderLeft}>
-                  <Button
-                    size='mini'
-                    type='text'
-                    shape='circle'
-                    icon={<Left theme='outline' size={18} fill='currentColor' />}
-                    className={styles.heroBackButton}
-                    onClick={() => {
-                      agentSelection.setSelectedAgentKey(agentSelection.defaultAgentKey);
-                      guidInput.setInput('');
-                      setIsDescriptionExpanded(false);
-                    }}
-                    aria-label={t('common.back')}
-                  />
-                  {/* Command EVE: the "EVE" name + logo here duplicates the macOS
-                      window title-bar brand, so it is suppressed for the EVE assistant.
-                      Non-EVE preset assistants still show their name/avatar (it is the
-                      only label identifying which assistant is active — not redundant). */}
-                  {isCommandEveAssistant ? null : (
-                    <p className={`${styles.heroTitle} text-2xl font-semibold mb-0 text-0`}>
-                      <span className={styles.heroTitleInlineIcon} aria-hidden='true'>
-                        {selectedAssistantAvatar?.kind === 'image' ? (
-                          <img
-                            src={selectedAssistantAvatar.value}
-                            alt=''
-                            width={28}
-                            height={28}
-                            style={{ objectFit: 'contain' }}
-                          />
-                        ) : selectedAssistantAvatar?.kind === 'emoji' ? (
-                          <span className={styles.heroTitleEmoji}>{selectedAssistantAvatar.value}</span>
-                        ) : (
-                          <Robot theme='outline' size={26} fill='currentColor' />
-                        )}
-                      </span>
-                      <span>{heroTitle}</span>
-                    </p>
-                  )}
-                  {/* Command EVE: the EVE assistant is not user-editable (its persona,
-                      skills and runtime are managed by the bootstrap), so the edit
-                      pencil is suppressed. Other preset assistants keep it. */}
-                  {isCommandEveAssistant ? null : (
+      <div className={styles.guidShell}>
+        <div ref={guidContainerRef} className={styles.guidContainer}>
+          <div className={styles.guidLayout}>
+            <div className={`${styles.heroHeader} ${isCommandEveAssistant ? styles.heroHeaderCommandEve : ''}`}>
+              {isCommandEveAssistant ? (
+                <div className={styles.commandEveHero}>
+                  <h1 className={styles.commandEveGreeting}>{commandEveGreeting}</h1>
+                  <p className={styles.commandEveSubtitle}>{t('conversation.welcome.subtitle')}</p>
+                </div>
+              ) : agentSelection.is_presetAgent ? (
+                <div className={styles.heroHeaderControls}>
+                  <div className={styles.heroHeaderLeft}>
                     <Button
                       size='mini'
                       type='text'
-                      icon={<Write theme='outline' size={16} fill='currentColor' />}
-                      className={styles.heroTitleEdit}
-                      onClick={() => openAssistantDetailsRef.current?.()}
-                      aria-label={t('settings.editAssistant', { defaultValue: 'Assistant Details' })}
+                      shape='circle'
+                      icon={<Left theme='outline' size={18} fill='currentColor' />}
+                      className={styles.heroBackButton}
+                      onClick={() => {
+                        agentSelection.setSelectedAgentKey(agentSelection.defaultAgentKey);
+                        guidInput.setInput('');
+                        setIsDescriptionExpanded(false);
+                      }}
+                      aria-label={t('common.back')}
                     />
-                  )}
-                </div>
-                <div className={styles.heroHeaderRight}>
-                  {isCommandEveAssistant ? (
-                    // Founder mandate: an EVE user must NEVER see a CLI/agent-type
-                    // switcher. Render a static, non-clickable runtime label instead
-                    // of the agent-type dropdown. The EVE Inference + permission-mode
-                    // selectors (in the action row) are the only choices that remain.
-                    <span
-                      data-testid='eve-static-runtime-label'
-                      className={styles.heroAgentSwitchButton}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, opacity: 0.85 }}
-                    >
-                      {/* Command EVE brand mark (the ⌘ logo). NOT effectiveAgentLogo —
+                    {/* Command EVE: the "EVE" name + logo here duplicates the macOS
+                      window title-bar brand, so it is suppressed for the EVE assistant.
+                      Non-EVE preset assistants still show their name/avatar (it is the
+                      only label identifying which assistant is active — not redundant). */}
+                    {isCommandEveAssistant ? null : (
+                      <p className={`${styles.heroTitle} text-2xl font-semibold mb-0 text-0`}>
+                        <span className={styles.heroTitleInlineIcon} aria-hidden='true'>
+                          {selectedAssistantAvatar?.kind === 'image' ? (
+                            <img
+                              src={selectedAssistantAvatar.value}
+                              alt=''
+                              width={28}
+                              height={28}
+                              style={{ objectFit: 'contain' }}
+                            />
+                          ) : selectedAssistantAvatar?.kind === 'emoji' ? (
+                            <span className={styles.heroTitleEmoji}>{selectedAssistantAvatar.value}</span>
+                          ) : (
+                            <Robot theme='outline' size={26} fill='currentColor' />
+                          )}
+                        </span>
+                        <span>{heroTitle}</span>
+                      </p>
+                    )}
+                    {/* Command EVE: the EVE assistant is not user-editable (its persona,
+                      skills and runtime are managed by the bootstrap), so the edit
+                      pencil is suppressed. Other preset assistants keep it. */}
+                    {isCommandEveAssistant ? null : (
+                      <Button
+                        size='mini'
+                        type='text'
+                        icon={<Write theme='outline' size={16} fill='currentColor' />}
+                        className={styles.heroTitleEdit}
+                        onClick={() => openAssistantDetailsRef.current?.()}
+                        aria-label={t('settings.editAssistant', { defaultValue: 'Assistant Details' })}
+                      />
+                    )}
+                  </div>
+                  <div className={styles.heroHeaderRight}>
+                    {isCommandEveAssistant ? (
+                      // Founder mandate: an EVE user must NEVER see a CLI/agent-type
+                      // switcher. Render a static, non-clickable runtime label instead
+                      // of the agent-type dropdown. The EVE Inference + permission-mode
+                      // selectors (in the action row) are the only choices that remain.
+                      <span
+                        data-testid='eve-static-runtime-label'
+                        className={styles.heroAgentSwitchButton}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, opacity: 0.85 }}
+                      >
+                        {/* Command EVE brand mark (the ⌘ logo). NOT effectiveAgentLogo —
                           when EVE is bound to a non-EVE execution backend (e.g. the
                           gemini ACP fallback), effectiveAgentLogo resolves to that
                           backend's rainbow sparkle, which mislabels the EVE assistant.
                           The clean ⌘ EVE mark is the assistant's identity here. */}
-                      <img
-                        src={COMMAND_EVE_ASSISTANT_AVATAR}
-                        alt=''
-                        width={20}
-                        height={20}
-                        className={styles.heroAgentSwitchIcon}
-                      />
-                      <span className='text-13px'>EVE</span>
-                    </span>
-                  ) : (
-                    <Dropdown
-                      trigger='click'
-                      position='bl'
-                      droplist={
-                        <Menu
-                          onClickMenuItem={(key) => {
-                            handlePresetAgentTypeSwitch(String(key)).catch((err) =>
-                              console.error('Failed to switch agent type:', err)
-                            );
-                          }}
-                        >
-                          {agentSwitcherItems.map((item) => (
-                            <Menu.Item key={item.key}>
-                              <div className='flex items-center justify-between gap-12px min-w-120px'>
-                                <span className='flex items-center gap-6px'>
-                                  {item.logo ? (
-                                    <img
-                                      src={item.logo}
-                                      alt=''
-                                      width={16}
-                                      height={16}
-                                      style={{ objectFit: 'contain', flexShrink: 0 }}
-                                    />
-                                  ) : (
-                                    <Robot theme='outline' size={16} fill='currentColor' style={{ flexShrink: 0 }} />
-                                  )}
-                                  {item.label}
-                                  {item.isExtension ? (
-                                    <span className='text-11px px-4px py-1px rd-4px bg-[rgb(var(--arcoblue-1))] text-[rgb(var(--arcoblue-6))]'>
-                                      ext
-                                    </span>
-                                  ) : null}
-                                </span>
-                                {item.isCurrent ? <span>✓</span> : null}
-                              </div>
-                            </Menu.Item>
-                          ))}
-                        </Menu>
-                      }
-                    >
-                      <Button size='mini' type='text' className={styles.heroAgentSwitchButton}>
-                        <span className='inline-flex items-center gap-4px'>
-                          {effectiveAgentLogo ? (
-                            <img
-                              src={effectiveAgentLogo}
-                              alt=''
-                              width={20}
-                              height={20}
-                              className={styles.heroAgentSwitchIcon}
-                            />
-                          ) : (
-                            <Robot theme='outline' size={20} fill='currentColor' />
-                          )}
-                          <Down theme='outline' size={16} fill='currentColor' />
-                        </span>
-                      </Button>
-                    </Dropdown>
-                  )}
+                        <img
+                          src={COMMAND_EVE_ASSISTANT_AVATAR}
+                          alt=''
+                          width={20}
+                          height={20}
+                          className={styles.heroAgentSwitchIcon}
+                        />
+                        <span className='text-13px'>EVE</span>
+                      </span>
+                    ) : (
+                      <Dropdown
+                        trigger='click'
+                        position='bl'
+                        droplist={
+                          <Menu
+                            onClickMenuItem={(key) => {
+                              handlePresetAgentTypeSwitch(String(key)).catch((err) =>
+                                console.error('Failed to switch agent type:', err)
+                              );
+                            }}
+                          >
+                            {agentSwitcherItems.map((item) => (
+                              <Menu.Item key={item.key}>
+                                <div className='flex items-center justify-between gap-12px min-w-120px'>
+                                  <span className='flex items-center gap-6px'>
+                                    {item.logo ? (
+                                      <img
+                                        src={item.logo}
+                                        alt=''
+                                        width={16}
+                                        height={16}
+                                        style={{ objectFit: 'contain', flexShrink: 0 }}
+                                      />
+                                    ) : (
+                                      <Robot theme='outline' size={16} fill='currentColor' style={{ flexShrink: 0 }} />
+                                    )}
+                                    {item.label}
+                                    {item.isExtension ? (
+                                      <span className='text-11px px-4px py-1px rd-4px bg-[rgb(var(--arcoblue-1))] text-[rgb(var(--arcoblue-6))]'>
+                                        ext
+                                      </span>
+                                    ) : null}
+                                  </span>
+                                  {item.isCurrent ? <span>✓</span> : null}
+                                </div>
+                              </Menu.Item>
+                            ))}
+                          </Menu>
+                        }
+                      >
+                        <Button size='mini' type='text' className={styles.heroAgentSwitchButton}>
+                          <span className='inline-flex items-center gap-4px'>
+                            {effectiveAgentLogo ? (
+                              <img
+                                src={effectiveAgentLogo}
+                                alt=''
+                                width={20}
+                                height={20}
+                                className={styles.heroAgentSwitchIcon}
+                              />
+                            ) : (
+                              <Robot theme='outline' size={20} fill='currentColor' />
+                            )}
+                            <Down theme='outline' size={16} fill='currentColor' />
+                          </span>
+                        </Button>
+                      </Dropdown>
+                    )}
+                  </div>
                 </div>
+              ) : (
+                <p className='text-2xl font-semibold mb-0 text-0 text-center'>{heroTitle}</p>
+              )}
+            </div>
+
+            {!isCommandEveAssistant && agentSelection.is_presetAgent && selectedAssistantDescription ? (
+              <div className={`${styles.heroSubtitle} ${isDescriptionExpanded ? styles.heroSubtitleExpanded : ''}`}>
+                <div
+                  ref={descriptionTextRef}
+                  className={`${styles.heroSubtitleText} ${isDescriptionExpanded ? styles.heroSubtitleTextExpanded : ''}`}
+                >
+                  {selectedAssistantDescription}
+                </div>
+                {canExpandDescription ? (
+                  <Button
+                    size='mini'
+                    type='secondary'
+                    shape='circle'
+                    icon={<Down theme='outline' size={12} fill='currentColor' />}
+                    className={`${styles.heroSubtitleToggle} ${isDescriptionExpanded ? styles.heroSubtitleToggleExpanded : ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsDescriptionExpanded((v) => !v);
+                    }}
+                    aria-label={
+                      isDescriptionExpanded
+                        ? t('common.collapse', { defaultValue: 'Collapse' })
+                        : t('common.expand', { defaultValue: 'Expand' })
+                    }
+                  />
+                ) : null}
               </div>
-            ) : (
-              <p className='text-2xl font-semibold mb-0 text-0 text-center'>{heroTitle}</p>
+            ) : !SHOW_RAW_AGENT_SELECTION ? null : agentSelection.availableAgents === undefined ? (
+              <AgentPillBarSkeleton />
+            ) : agentSelection.availableAgents.length > 0 ? (
+              <AgentPillBar
+                availableAgents={agentSelection.availableAgents}
+                selectedAgentKey={agentSelection.selectedAgentKey}
+                getAgentKey={agentSelection.getAgentKey}
+                onSelectAgent={handleSelectAgentFromPillBar}
+                suppressSelectionAnimation={resetAssistantRequested}
+              />
+            ) : null}
+
+            <GuidInputCard
+              input={guidInput.input}
+              onInputChange={handleInputChange}
+              onKeyDown={handleInputKeyDown}
+              onPaste={guidInput.onPaste}
+              onFocus={guidInput.handleTextareaFocus}
+              onBlur={guidInput.handleTextareaBlur}
+              placeholder={
+                isCommandEveAssistant
+                  ? t('conversation.welcome.evePlaceholder')
+                  : `${mention.selectedAgentLabel}, ${typewriterPlaceholder || t('conversation.welcome.placeholder')}`
+              }
+              isFileDragging={guidInput.isFileDragging}
+              dragHandlers={guidInput.dragHandlers}
+              mentionOpen={mention.mentionOpen}
+              mentionSelectorBadge={
+                <MentionSelectorBadge
+                  visible={mention.mentionSelectorVisible}
+                  open={mention.mentionSelectorOpen}
+                  onOpenChange={mention.setMentionSelectorOpen}
+                  agentLabel={mention.selectedAgentLabel}
+                  mentionMenu={mentionDropdownNode}
+                  onResetQuery={() => mention.setMentionQuery(null)}
+                />
+              }
+              mentionDropdown={mentionDropdownNode}
+              files={guidInput.files}
+              onRemoveFile={guidInput.handleRemoveFile}
+              actionRow={actionRowNode}
+            />
+
+            {showAssistantSelectionArea && (
+              <AssistantSelectionArea
+                is_presetAgent={agentSelection.is_presetAgent}
+                selectedAgentInfo={agentSelection.selectedAgentInfo}
+                assistants={agentSelection.assistants}
+                localeKey={localeKey}
+                currentEffectiveAgentInfo={agentSelection.currentEffectiveAgentInfo}
+                onSelectAssistant={handleSelectAssistant}
+                onSetInput={guidInput.setInput}
+                onFocusInput={guidInput.handleTextareaFocus}
+                onRegisterOpenDetails={(openDetails) => {
+                  openAssistantDetailsRef.current = openDetails;
+                }}
+              />
             )}
           </div>
 
-          {agentSelection.is_presetAgent && selectedAssistantDescription ? (
-            <div className={`${styles.heroSubtitle} ${isDescriptionExpanded ? styles.heroSubtitleExpanded : ''}`}>
-              <div
-                ref={descriptionTextRef}
-                className={`${styles.heroSubtitleText} ${isDescriptionExpanded ? styles.heroSubtitleTextExpanded : ''}`}
-              >
-                {selectedAssistantDescription}
-              </div>
-              {canExpandDescription ? (
-                <Button
-                  size='mini'
-                  type='secondary'
-                  shape='circle'
-                  icon={<Down theme='outline' size={12} fill='currentColor' />}
-                  className={`${styles.heroSubtitleToggle} ${isDescriptionExpanded ? styles.heroSubtitleToggleExpanded : ''}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setIsDescriptionExpanded((v) => !v);
-                  }}
-                  aria-label={
-                    isDescriptionExpanded
-                      ? t('common.collapse', { defaultValue: 'Collapse' })
-                      : t('common.expand', { defaultValue: 'Expand' })
-                  }
-                />
-              ) : null}
-            </div>
-          ) : !SHOW_RAW_AGENT_SELECTION ? null : agentSelection.availableAgents === undefined ? (
-            <AgentPillBarSkeleton />
-          ) : agentSelection.availableAgents.length > 0 ? (
-            <AgentPillBar
-              availableAgents={agentSelection.availableAgents}
-              selectedAgentKey={agentSelection.selectedAgentKey}
-              getAgentKey={agentSelection.getAgentKey}
-              onSelectAgent={handleSelectAgentFromPillBar}
-              suppressSelectionAnimation={resetAssistantRequested}
-            />
-          ) : null}
-
-          <GuidInputCard
-            input={guidInput.input}
-            onInputChange={handleInputChange}
-            onKeyDown={handleInputKeyDown}
-            onPaste={guidInput.onPaste}
-            onFocus={guidInput.handleTextareaFocus}
-            onBlur={guidInput.handleTextareaBlur}
-            placeholder={`${isCommandEveAssistant ? COMMAND_EVE_DISPLAY_NAME : mention.selectedAgentLabel}, ${
-              typewriterPlaceholder || t('conversation.welcome.placeholder')
-            }`}
-            isFileDragging={guidInput.isFileDragging}
-            dragHandlers={guidInput.dragHandlers}
-            mentionOpen={mention.mentionOpen}
-            mentionSelectorBadge={
-              <MentionSelectorBadge
-                visible={mention.mentionSelectorVisible}
-                open={mention.mentionSelectorOpen}
-                onOpenChange={mention.setMentionSelectorOpen}
-                agentLabel={mention.selectedAgentLabel}
-                mentionMenu={mentionDropdownNode}
-                onResetQuery={() => mention.setMentionQuery(null)}
-              />
-            }
-            mentionDropdown={mentionDropdownNode}
-            files={guidInput.files}
-            onRemoveFile={guidInput.handleRemoveFile}
-            actionRow={actionRowNode}
-            workspaceDir={guidInput.dir}
-            onSelectWorkspace={(dir) => guidInput.setDir(dir)}
-            onClearWorkspace={() => guidInput.setDir('')}
-          />
-
-          {showAssistantSelectionArea && (
-            <AssistantSelectionArea
-              is_presetAgent={agentSelection.is_presetAgent}
-              selectedAgentInfo={agentSelection.selectedAgentInfo}
-              assistants={agentSelection.assistants}
-              localeKey={localeKey}
-              currentEffectiveAgentInfo={agentSelection.currentEffectiveAgentInfo}
-              onSelectAssistant={handleSelectAssistant}
-              onSetInput={guidInput.setInput}
-              onFocusInput={guidInput.handleTextareaFocus}
-              onRegisterOpenDetails={(openDetails) => {
-                openAssistantDetailsRef.current = openDetails;
-              }}
-            />
+          {!COMMAND_EVE_SHELL_ENABLED && (
+            <QuickActionButtons onOpenLink={openLink} onOpenBugReport={() => setShowFeedbackModal(true)} />
           )}
+          <FeedbackReportModal visible={showFeedbackModal} onCancel={() => setShowFeedbackModal(false)} />
         </div>
-
-        <QuickActionButtons onOpenLink={openLink} onOpenBugReport={() => setShowFeedbackModal(true)} />
-        <FeedbackReportModal visible={showFeedbackModal} onCancel={() => setShowFeedbackModal(false)} />
+        {COMMAND_EVE_SHELL_ENABLED && !layout?.isMobile ? (
+          <div
+            className={`${styles.guidElementsRail} ${elementsRailCollapsed ? styles.guidElementsRailCollapsed : ''}`}
+            aria-hidden={elementsRailCollapsed}
+          >
+            <ShellElementsRail
+              conversationTitle={t('conversation.elementsRail.newSession')}
+              workspacePath={guidInput.dir}
+              onRequestClose={() => setElementsRailCollapsed(true)}
+            />
+          </div>
+        ) : null}
       </div>
     </ConfigProvider>
   );

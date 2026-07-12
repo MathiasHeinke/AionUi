@@ -41,7 +41,11 @@ interface EventTypes {
   'conversation.deleted': [string]; // conversation_id
   // 预览面板事件 / Preview panel events
   'preview.open': [
-    { content: string; contentType: PreviewContentType; metadata?: { title?: string; file_name?: string } },
+    {
+      content: string;
+      contentType: PreviewContentType;
+      metadata?: { title?: string; file_name?: string; conversation_id?: string };
+    },
   ];
   // 填充输入框事件 / Fill sendbox input event
   'sendbox.fill': [string]; // prompt text to fill

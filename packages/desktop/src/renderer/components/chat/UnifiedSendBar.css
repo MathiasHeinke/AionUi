@@ -49,7 +49,10 @@
   justify-content: center;
 }
 
-.unified-send-bar :where(.sendbox-model-btn, .agent-mode-compact-pill) .arco-btn-content :where(.truncate, .pill-marquee-track),
+.unified-send-bar
+  :where(.sendbox-model-btn, .agent-mode-compact-pill)
+  .arco-btn-content
+  :where(.truncate, .pill-marquee-track),
 .unified-send-bar .agent-mode-compact-pill .arco-btn-content .text-t-tertiary {
   display: none !important;
 }
@@ -76,17 +79,17 @@
 
 .unified-send-bar .send-button-custom:not(:disabled),
 .unified-send-bar .send-button-custom.arco-btn-primary:not(:disabled) {
-  background: rgb(var(--primary-6)) !important;
+  background: var(--eve-brand-logo) !important;
   border-color: transparent !important;
   color: #ffffff !important;
   box-shadow:
-    0 10px 22px color-mix(in srgb, rgb(var(--primary-6)) 22%, transparent),
+    0 10px 22px color-mix(in srgb, var(--eve-brand-logo) 26%, transparent),
     inset 0 1px 0 color-mix(in srgb, #ffffff 28%, transparent) !important;
 }
 
 .unified-send-bar .send-button-custom:not(:disabled):hover,
 .unified-send-bar .send-button-custom.arco-btn-primary:not(:disabled):hover {
-  background: rgb(var(--primary-7)) !important;
+  background: color-mix(in srgb, var(--eve-brand-logo) 88%, #ffffff) !important;
   border-color: transparent !important;
 }
 
@@ -97,6 +100,166 @@
   border-color: var(--color-fill-3) !important;
   color: var(--color-text-4) !important;
   opacity: 1 !important;
+}
+
+.eve-composer-control__trigger,
+.eve-composer-control__trigger.arco-btn {
+  position: relative;
+  width: 42px !important;
+  min-width: 42px !important;
+  height: 42px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: transparent !important;
+  color: var(--eve-brand-logo) !important;
+  box-shadow: none !important;
+}
+
+.eve-composer-control__trigger:hover,
+.eve-composer-control__trigger:focus-visible {
+  background: color-mix(in srgb, var(--eve-brand-logo) 9%, transparent) !important;
+}
+
+.eve-composer-control__trigger:focus-visible {
+  outline: 0;
+  box-shadow:
+    0 0 0 1.5px color-mix(in srgb, var(--eve-brand-logo) 60%, transparent),
+    0 0 14px color-mix(in srgb, var(--eve-brand-logo) 30%, transparent) !important;
+}
+
+.eve-composer-control__trigger-visual {
+  position: relative;
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  align-items: center;
+  justify-content: center;
+}
+
+.eve-composer-control__trigger-visual::before {
+  position: absolute;
+  inset: 2px;
+  border: 2px solid color-mix(in srgb, var(--eve-shell-text-secondary) 28%, transparent);
+  border-radius: 999px;
+  box-shadow: 0 0 14px color-mix(in srgb, var(--eve-brand-logo) 12%, transparent);
+  content: '';
+}
+
+.eve-composer-control__ring {
+  position: absolute;
+  inset: 1px;
+  pointer-events: none;
+}
+
+.eve-composer-control__ring + .command-eve-glyph {
+  position: relative;
+  z-index: 1;
+}
+
+.eve-composer-control-popover .arco-popover-content {
+  padding: 0 !important;
+  background: color-mix(in srgb, var(--eve-shell-surface) 94%, transparent) !important;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.eve-composer-control-popover .arco-popover-arrow {
+  background: color-mix(in srgb, var(--eve-shell-surface) 94%, transparent) !important;
+}
+
+.eve-composer-control__menu {
+  width: min(332px, calc(100vw - 32px));
+  padding: 8px;
+}
+
+.eve-composer-control__row,
+.eve-composer-control__row.arco-btn {
+  display: grid !important;
+  width: 100% !important;
+  min-height: 46px !important;
+  grid-template-columns: 22px minmax(112px, 1fr) minmax(0, auto) 14px;
+  align-items: center !important;
+  gap: 10px;
+  padding: 6px 10px !important;
+  border: 0 !important;
+  border-radius: 8px !important;
+  background: transparent !important;
+  color: var(--eve-shell-text, var(--color-text-1)) !important;
+  text-align: left !important;
+}
+
+.eve-composer-control__row:not(:last-child) {
+  border-bottom: 1px solid color-mix(in srgb, var(--glass-overlay-border) 62%, transparent) !important;
+  border-radius: 0 !important;
+}
+
+.eve-composer-control__row--button:hover,
+.eve-composer-control__row--button:focus-visible {
+  border-radius: 8px !important;
+  background: var(--eve-row-hover-bg) !important;
+}
+
+.eve-composer-control__row--button .arco-btn-content {
+  display: contents;
+}
+
+.eve-composer-control__label {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 560;
+  line-height: 20px;
+}
+
+.eve-composer-control__value {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 156px;
+  align-items: center;
+  justify-content: flex-end;
+  overflow: hidden;
+  color: var(--eve-shell-text-secondary, var(--color-text-3));
+  font-size: 12px;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eve-composer-control__value .sendbox-model-btn,
+.eve-composer-control__value .agent-mode-compact-pill {
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: 156px !important;
+  height: 30px !important;
+  padding: 0 6px !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: inherit !important;
+}
+
+.eve-composer-control__value .arco-btn-content,
+.eve-composer-control__value .arco-btn-content > span {
+  width: auto !important;
+  min-width: 0 !important;
+  overflow: hidden;
+}
+
+.eve-composer-control__advanced,
+.eve-composer-control__advanced.arco-btn {
+  width: 100% !important;
+  min-height: 34px !important;
+  justify-content: flex-start !important;
+  padding: 7px 10px 3px !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--eve-shell-text-secondary, var(--color-text-3)) !important;
+  font-size: 12px !important;
+}
+
+.eve-composer-control__advanced:hover,
+.eve-composer-control__advanced:focus-visible {
+  color: var(--eve-shell-text, var(--color-text-1)) !important;
 }
 
 @media (max-width: 767px) {

@@ -28,6 +28,7 @@ export interface PreviewMetadata {
   workspace?: string; // 工作空间根目录 / Workspace root directory
   editable?: boolean; // 是否可编辑 / Whether editable
   truncated?: boolean; // 预览内容是否被截断 / Whether preview content was truncated
+  conversation_id?: string; // Owning conversation when the preview was opened from chat
 }
 
 export interface PreviewTab {
@@ -96,6 +97,23 @@ const LEGACY_PREVIEW_STATE_KEY = 'aionui_preview_state';
 // Persist only lightweight text previews to avoid localStorage jank on large files
 const MAX_PERSISTED_TAB_CONTENT_LENGTH = 80_000;
 const PERSISTABLE_CONTENT_TYPES = new Set<PreviewContentType>(['markdown', 'html', 'code', 'diff']);
+
+const resolveCurrentConversationId = (): string | undefined => {
+  if (typeof window === 'undefined') return undefined;
+  const match = window.location.hash.match(/^#\/conversation\/([^/?#]+)/);
+  if (!match?.[1]) return undefined;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+};
+
+const scopePreviewMetadata = (meta?: PreviewMetadata): PreviewMetadata | undefined => {
+  if (meta?.conversation_id) return meta;
+  const conversationId = resolveCurrentConversationId();
+  return conversationId ? { ...meta, conversation_id: conversationId } : meta;
+};
 
 const sanitizeTabsForPersistence = (input: PreviewTab[]): PreviewTab[] => {
   return input
@@ -232,6 +250,7 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const normalizedFileName = normalize(meta?.file_name);
       const normalizedTitle = normalize(meta?.title);
       const normalizedFilePath = normalize(meta?.file_path);
+      const normalizedConversationId = normalize(meta?.conversation_id);
 
       return (
         tabList.find((tab) => {
@@ -239,6 +258,9 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const tabFileName = normalize(tab.metadata?.file_name);
           const tabTitle = normalize(tab.metadata?.title);
           const tabFilePath = normalize(tab.metadata?.file_path);
+          const tabConversationId = normalize(tab.metadata?.conversation_id);
+
+          if (normalizedConversationId && tabConversationId !== normalizedConversationId) return false;
 
           // 优先通过 file_path 匹配（最可靠）/ Prefer matching by file_path (most reliable)
           if (normalizedFilePath && tabFilePath && normalizedFilePath === tabFilePath) return true;
@@ -289,10 +311,11 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const openPreview = useCallback(
     (new_content: string, type: PreviewContentType, meta?: PreviewMetadata, options?: OpenPreviewOptions) => {
       let nextActiveTabId: string | null = null;
+      const scopedMeta = scopePreviewMetadata(meta);
 
       setTabs((prevTabs) => {
         // 如果同一个文件已经打开，则直接激活现有 tab，避免重复 / Focus existing tab when the same file is opened again
-        const existingTab = findPreviewTabInList(prevTabs, type, new_content, meta);
+        const existingTab = findPreviewTabInList(prevTabs, type, new_content, scopedMeta);
 
         if (existingTab) {
           nextActiveTabId = existingTab.id;
@@ -301,13 +324,13 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
             // 如果用户已编辑内容，则保留当前内容，仅更新元数据 / Keep edited content, only merge metadata
             if (tab.isDirty) {
-              return meta ? { ...tab, metadata: { ...tab.metadata, ...meta } } : tab;
+              return scopedMeta ? { ...tab, metadata: { ...tab.metadata, ...scopedMeta } } : tab;
             }
 
             return {
               ...tab,
               content: new_content,
-              metadata: meta ? { ...tab.metadata, ...meta } : tab.metadata,
+              metadata: scopedMeta ? { ...tab.metadata, ...scopedMeta } : tab.metadata,
               originalContent: new_content,
             };
           });
@@ -319,12 +342,12 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
           // 根据内容类型设置默认标题 / Set default title based on content type
           if (type === 'markdown') return 'Markdown';
           if (type === 'diff') return 'Diff';
-          if (type === 'code') return `${meta?.language || 'Code'}`;
+          if (type === 'code') return `${scopedMeta?.language || 'Code'}`;
           if (type === 'image') return 'Image'; // 图片预览默认标题 / Default title for image preview
           return 'Preview';
         })();
 
-        const title = extractFileName(meta?.file_name) || extractFileName(meta?.title) || fallbackTitle;
+        const title = extractFileName(scopedMeta?.file_name) || extractFileName(scopedMeta?.title) || fallbackTitle;
 
         // 生成唯一 ID / Generate unique ID
         const tabId = `${type}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
@@ -333,7 +356,7 @@ export const PreviewProvider: React.FC<{ children: React.ReactNode }> = ({ child
           id: tabId,
           content: new_content,
           content_type: type,
-          metadata: meta,
+          metadata: scopedMeta,
           title,
           isDirty: false,
           originalContent: new_content, // 保存原始内容 / Save original content

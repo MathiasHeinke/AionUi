@@ -40,7 +40,8 @@ test.describe('ACP Agent', () => {
 
     const pills = page.locator(AGENT_PILL);
     await expect(pills).toHaveCount(0, { timeout: 8_000 });
-    await expect(page.locator('.sendbox-model-btn').first()).toBeVisible({ timeout: 8_000 });
+    await expect(page.getByTestId('eve-composer-control-trigger')).toBeVisible({ timeout: 8_000 });
+    await expect(page.locator('.sendbox-model-btn')).toHaveCount(0);
   });
 
   upstreamAgentSurfaceTest('upstream shell can see agent backend names', async ({ page }) => {
@@ -88,10 +89,18 @@ test.describe('ACP Agent', () => {
     await takeScreenshot(page, 'agent-pill-bar');
   });
 
-  test('MCP tools page has server management UI', async ({ page }) => {
+  test('Command EVE capabilities page exposes the governed catalog', async ({ page }) => {
     await goToSettings(page, 'capabilities');
     await expectUrlContains(page, 'capabilities');
     await expect(page.locator(settingsSiderItemById('capabilities')).first()).toBeVisible({ timeout: 8_000 });
+    await expect(page.getByTestId('command-eve-capability-section')).toContainText(
+      /Command-EVE-Fähigkeiten|Command EVE capabilities/
+    );
+  });
+
+  upstreamAgentSurfaceTest('upstream MCP tools page has server management UI', async ({ page }) => {
+    await goToSettings(page, 'capabilities');
+    await expectUrlContains(page, 'capabilities');
     await expectBodyContainsAny(page, ['MCP', 'mcp', 'Server', 'server', '工具', '配置', '添加', 'Add']);
   });
 

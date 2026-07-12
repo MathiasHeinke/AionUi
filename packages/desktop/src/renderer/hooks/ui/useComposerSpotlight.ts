@@ -3,6 +3,7 @@ import {
   useEffect,
   useRef,
   type FocusEvent as ReactFocusEvent,
+  type FormEvent as ReactFormEvent,
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from 'react';
@@ -20,6 +21,8 @@ const canTrackPointer = (pointerType?: string): boolean => {
 export const useComposerSpotlight = <T extends HTMLElement>(elementRef: RefObject<T | null>) => {
   const trackerRef = useRef<ReturnType<typeof createComposerSpotlightTracker> | null>(null);
   const keyboardModalityRef = useRef(false);
+  const typingPulsePhaseRef = useRef(false);
+  const typingPulseTimerRef = useRef<number | null>(null);
 
   const getTracker = useCallback(() => {
     trackerRef.current ??= createComposerSpotlightTracker({
@@ -52,6 +55,7 @@ export const useComposerSpotlight = <T extends HTMLElement>(elementRef: RefObjec
       window.removeEventListener('keydown', markKeyboardModality, true);
       window.removeEventListener('pointerdown', markPointerModality, true);
       resizeObserver?.disconnect();
+      if (typingPulseTimerRef.current !== null) window.clearTimeout(typingPulseTimerRef.current);
       tracker.destroy();
       trackerRef.current = null;
     };
@@ -82,5 +86,23 @@ export const useComposerSpotlight = <T extends HTMLElement>(elementRef: RefObjec
     }
   }, []);
 
-  return { onPointerEnter, onPointerMove, onFocusCapture, onBlurCapture };
+  const onInputCapture = useCallback(
+    (event: ReactFormEvent<T>) => {
+      if (!canTrackPointer()) return;
+      if (!(event.target instanceof HTMLInputElement) && !(event.target instanceof HTMLTextAreaElement)) return;
+
+      const target = event.currentTarget;
+      typingPulsePhaseRef.current = !typingPulsePhaseRef.current;
+      target.dataset.typingPulse = typingPulsePhaseRef.current ? 'a' : 'b';
+
+      if (typingPulseTimerRef.current !== null) window.clearTimeout(typingPulseTimerRef.current);
+      typingPulseTimerRef.current = window.setTimeout(() => {
+        elementRef.current?.removeAttribute('data-typing-pulse');
+        typingPulseTimerRef.current = null;
+      }, 420);
+    },
+    [elementRef]
+  );
+
+  return { onPointerEnter, onPointerMove, onFocusCapture, onBlurCapture, onInputCapture };
 };

@@ -59,7 +59,7 @@
   --eve-row-surface: transparent;
   --eve-row-hover-bg: color-mix(in srgb, var(--eve-shell-text) 5%, transparent);
   --eve-row-selected-bg: color-mix(in srgb, var(--eve-shell-text) 6%, transparent);
-  --eve-row-selected-hairline: var(--color-primary-6, var(--primary));
+  --eve-row-selected-hairline: var(--eve-brand-logo);
   --eve-focus-ring: var(--color-primary-6, var(--primary));
 
   /* Session state. Orange remains reserved for brand. */
@@ -304,6 +304,32 @@
 .eve-row--selected {
   background: var(--eve-row-selected-bg);
   box-shadow: inset 2px 0 0 var(--eve-row-selected-hairline);
+}
+
+/* Sidebar chrome stays transparent even when the user disables the optional
+   background image. Sticky section labels and compact action icons must never
+   fall back to the legacy opaque bars. */
+.layout-sider .sider-section-label,
+.layout-sider .sider-action-btn,
+[data-theme='dark'] .layout-sider .sider-action-btn {
+  border: 0;
+  outline: 0;
+  background-color: transparent;
+  box-shadow: none;
+}
+
+.layout-sider .sider-action-btn:hover,
+[data-theme='dark'] .layout-sider .sider-action-btn:hover {
+  background-color: color-mix(in srgb, var(--eve-row-hover-bg) 68%, transparent);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--eve-brand-logo) 9%, transparent);
+}
+
+.layout-sider .sider-action-btn:focus-visible {
+  outline: 0;
+  background-color: color-mix(in srgb, var(--eve-row-hover-bg) 72%, transparent);
+  box-shadow:
+    0 0 0 1.5px color-mix(in srgb, var(--eve-brand-logo) 55%, transparent),
+    0 0 14px color-mix(in srgb, var(--eve-brand-logo) 20%, transparent);
 }
 
 .eve-pill {
@@ -1835,6 +1861,19 @@
   transition: opacity 210ms ease;
 }
 
+.eve-composer-surface::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  z-index: 2;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--eve-spotlight-color) 34%, transparent),
+    0 0 22px 3px color-mix(in srgb, var(--eve-spotlight-color) 22%, transparent);
+}
+
 @media (hover: hover) and (pointer: fine) {
   .eve-composer-surface:hover::before {
     opacity: var(--eve-spotlight-max);
@@ -1842,14 +1881,60 @@
 }
 
 .eve-composer-surface[data-keyboard-focus='true'],
+.eve-composer-surface:focus-within,
 .eve-composer-surface:has(:focus-visible) {
-  outline: 2px solid var(--eve-composer-focus-ring);
-  outline-offset: 2px;
+  outline: 0;
+  border-color: color-mix(in srgb, var(--eve-spotlight-color) 36%, var(--eve-composer-border)) !important;
+  box-shadow:
+    0 1px 0 var(--glass-edge-highlight) inset,
+    0 0 0 1px color-mix(in srgb, var(--eve-spotlight-color) 10%, transparent),
+    0 0 30px color-mix(in srgb, var(--eve-spotlight-color) 18%, transparent),
+    0 14px 34px color-mix(in srgb, #0f172a 10%, transparent);
 }
 
 .eve-composer-surface[data-keyboard-focus='true']::before,
+.eve-composer-surface:focus-within::before,
 .eve-composer-surface:has(:focus-visible)::before {
-  opacity: 0;
+  opacity: 0.72;
+}
+
+.eve-composer-surface[data-typing-pulse='a']::after {
+  animation: eve-composer-typing-pulse-a 420ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.eve-composer-surface[data-typing-pulse='b']::after {
+  animation: eve-composer-typing-pulse-b 420ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@keyframes eve-composer-typing-pulse-a {
+  0% {
+    opacity: 0.62;
+    transform: scale(0.997);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.008);
+  }
+}
+
+@keyframes eve-composer-typing-pulse-b {
+  0% {
+    opacity: 0.62;
+    transform: scale(0.997);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.008);
+  }
+}
+
+/* TTS can drive this contract later from its real audio envelope. */
+.eve-composer-surface[data-voice-active='true']::after {
+  opacity: var(--eve-voice-glow-opacity, 0.34);
+  transform: scale(var(--eve-voice-glow-scale, 1.003));
+  transition:
+    opacity 80ms linear,
+    transform 80ms linear;
 }
 
 .eve-composer-surface--dragging {
@@ -1867,6 +1952,13 @@
 :root[data-eve-reduced-effects='true'] .eve-composer-surface::before {
   --eve-spotlight-position: 50% 0%;
   opacity: 0.3;
+  transition: none;
+}
+
+:root[data-eve-reduced-effects='true'] .eve-composer-surface::after {
+  animation: none;
+  opacity: 0;
+  transform: none;
   transition: none;
 }
 

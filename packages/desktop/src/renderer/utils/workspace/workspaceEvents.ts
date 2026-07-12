@@ -1,6 +1,10 @@
 export const WORKSPACE_TOGGLE_EVENT = 'aionui-workspace-toggle';
+export const WORKSPACE_OPEN_EVENT = 'aionui-workspace-open';
 export const WORKSPACE_STATE_EVENT = 'aionui-workspace-state';
 export const WORKSPACE_HAS_FILES_EVENT = 'aionui-workspace-has-files';
+export const ELEMENTS_RAIL_SELECT_EVENT = 'command-eve-elements-rail-select';
+
+export type ElementsRailTab = 'activity' | 'artifacts' | 'context';
 
 export interface WorkspaceStateDetail {
   collapsed: boolean;
@@ -24,6 +28,16 @@ export interface WorkspaceHasFilesDetail {
 export function dispatchWorkspaceToggleEvent() {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent(WORKSPACE_TOGGLE_EVENT));
+}
+
+export function dispatchWorkspaceOpenEvent() {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(WORKSPACE_OPEN_EVENT));
+}
+
+export function dispatchElementsRailSelectEvent(tab: ElementsRailTab) {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent<ElementsRailTab>(ELEMENTS_RAIL_SELECT_EVENT, { detail: tab }));
 }
 
 export function dispatchWorkspaceStateEvent(collapsed: boolean) {

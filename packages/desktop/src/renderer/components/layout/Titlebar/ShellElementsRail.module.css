@@ -1,0 +1,238 @@
+.rail {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid color-mix(in srgb, var(--glass-panel-border) 80%, transparent);
+  background: color-mix(in srgb, var(--eve-shell-surface) 68%, transparent);
+  color: var(--eve-shell-text, var(--color-text-1));
+  -webkit-backdrop-filter: blur(calc(var(--eve-glass-chrome-blur) + 8px)) saturate(128%);
+  backdrop-filter: blur(calc(var(--eve-glass-chrome-blur) + 8px)) saturate(128%);
+}
+
+.tabs {
+  display: grid;
+  min-height: 56px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: end;
+  gap: 4px;
+  padding: 8px 10px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--glass-panel-border) 72%, transparent);
+}
+
+.tab,
+.tab.arco-btn {
+  position: relative;
+  min-width: 0 !important;
+  height: 40px !important;
+  padding: 0 4px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: var(--eve-shell-text-secondary, var(--color-text-3)) !important;
+  font-size: 12px !important;
+  font-weight: 540 !important;
+}
+
+.tab::after {
+  position: absolute;
+  right: 8px;
+  bottom: 0;
+  left: 8px;
+  height: 2px;
+  border-radius: 2px;
+  background: transparent;
+  content: '';
+}
+
+.tab:hover,
+.tab:focus-visible,
+.tabActive {
+  color: var(--eve-shell-text, var(--color-text-1)) !important;
+}
+
+.tabActive::after {
+  background: var(--eve-brand-logo);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--eve-brand-logo) 48%, transparent);
+}
+
+.content {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 16px 12px 20px;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.activityCard,
+.contextCard,
+.metaBlock {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--glass-panel-border) 78%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--eve-shell-surface) 36%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--eve-shell-text) 6%, transparent);
+}
+
+.activityIcon,
+.contextIcon,
+.artifactIcon {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+  color: var(--eve-shell-text-secondary, var(--color-text-3));
+}
+
+.activityCard_working .activityIcon {
+  color: var(--eve-accent);
+}
+
+.activityCard_attention .activityIcon {
+  color: rgb(var(--warning-6));
+}
+
+.activityCard_ready .activityIcon {
+  color: rgb(var(--success-6));
+}
+
+.activityCopy,
+.contextCopy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.activityCopy strong,
+.contextCopy strong,
+.emptyState strong {
+  overflow: hidden;
+  color: var(--eve-shell-text, var(--color-text-1));
+  font-size: 13px;
+  font-weight: 620;
+  line-height: 19px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activityCopy span,
+.emptyState span {
+  color: var(--eve-shell-text-secondary, var(--color-text-3));
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.metaBlock {
+  flex-direction: column;
+  gap: 5px;
+}
+
+.eyebrow {
+  color: var(--eve-shell-text-secondary, var(--color-text-3));
+  font-size: 10px;
+  font-weight: 620;
+  letter-spacing: 0;
+  line-height: 15px;
+  text-transform: uppercase;
+}
+
+.metaValue {
+  overflow: hidden;
+  color: var(--eve-shell-text, var(--color-text-1));
+  font-size: 13px;
+  line-height: 19px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.emptyState {
+  display: flex;
+  min-height: 180px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  padding: 24px;
+  color: var(--eve-shell-text-secondary, var(--color-text-3));
+  text-align: center;
+}
+
+.emptyState span {
+  max-width: 220px;
+}
+
+.artifactList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.artifactButton,
+.artifactButton.arco-btn {
+  display: grid !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  min-height: 54px !important;
+  grid-template-columns: 28px minmax(0, 1fr) 16px;
+  align-items: center !important;
+  gap: 10px;
+  padding: 10px 12px !important;
+  border: 1px solid color-mix(in srgb, var(--glass-panel-border) 72%, transparent) !important;
+  border-radius: 8px !important;
+  background: color-mix(in srgb, var(--eve-shell-surface) 34%, transparent) !important;
+  color: var(--eve-shell-text, var(--color-text-1)) !important;
+  text-align: left !important;
+}
+
+.artifactButton .arco-btn-content {
+  display: contents;
+}
+
+.artifactButton:hover,
+.artifactButton:focus-visible {
+  border-color: color-mix(in srgb, var(--eve-accent) 28%, var(--glass-panel-border)) !important;
+  background: color-mix(in srgb, var(--eve-shell-surface) 52%, transparent) !important;
+}
+
+.artifactName {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 560;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contextFiles {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.contextFilesContent {
+  min-height: 180px;
+  overflow: hidden;
+  border-top: 1px solid color-mix(in srgb, var(--glass-panel-border) 66%, transparent);
+  padding-top: 8px;
+}
+
+.contextFilesContent > * {
+  min-height: 0;
+}

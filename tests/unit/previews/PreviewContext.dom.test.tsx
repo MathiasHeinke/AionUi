@@ -46,6 +46,7 @@ describe('PreviewContext', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    window.location.hash = '#/guid';
   });
 
   afterEach(() => {
@@ -68,6 +69,30 @@ describe('PreviewContext', () => {
     expect(result.current.tabs).toHaveLength(1);
     expect(result.current.tabs[0].content).toBe('# Hello');
     expect(result.current.tabs[0].content_type).toBe('markdown');
+  });
+
+  it('scopes chat previews to the conversation active when they are opened', () => {
+    window.location.hash = '#/conversation/conv-1';
+    const { result } = renderHook(() => usePreviewContext(), { wrapper });
+    act(() => {
+      result.current.openPreview('# Hello', 'markdown', { title: 'test.md' });
+    });
+
+    expect(result.current.tabs[0].metadata).toMatchObject({
+      title: 'test.md',
+      conversation_id: 'conv-1',
+    });
+  });
+
+  it('does not reuse an identical preview across conversations', () => {
+    const { result } = renderHook(() => usePreviewContext(), { wrapper });
+    window.location.hash = '#/conversation/conv-1';
+    act(() => result.current.openPreview('# Same', 'markdown', { title: 'same.md' }));
+    window.location.hash = '#/conversation/conv-2';
+    act(() => result.current.openPreview('# Same', 'markdown', { title: 'same.md' }));
+
+    expect(result.current.tabs).toHaveLength(2);
+    expect(result.current.tabs.map((tab) => tab.metadata?.conversation_id)).toEqual(['conv-1', 'conv-2']);
   });
 
   it('closes preview and clears all tabs', () => {

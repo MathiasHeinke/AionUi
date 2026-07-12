@@ -2019,6 +2019,11 @@ function writeCommandEveArtifactMenuSkill(paths: RuntimeBootstrapPaths): void {
 function copyDirTreeMode600(srcDir: string, destDir: string): void {
   ensureDir(destDir);
   for (const entry of fs.readdirSync(srcDir, { withFileTypes: true })) {
+    // fetch-bundled-skills refreshes the committed snapshot atomically via
+    // same-directory stage files. A concurrent bootstrap may observe one in
+    // readdir after the refresher has already renamed/removed it; these are
+    // updater internals, never skill payloads.
+    if (entry.name.includes('.command-eve-stage-')) continue;
     const from = path.join(srcDir, entry.name);
     const to = path.join(destDir, entry.name);
     if (entry.isDirectory()) {

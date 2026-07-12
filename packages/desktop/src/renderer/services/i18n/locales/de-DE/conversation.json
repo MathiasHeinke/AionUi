@@ -1,6 +1,12 @@
 {
   "welcome": {
     "title": "Hi, was hast du heute vor?",
+    "greetingMorning": "Guten Morgen, {{name}}.",
+    "greetingDay": "Guten Tag, {{name}}.",
+    "greetingEvening": "Guten Abend, {{name}}.",
+    "greetingWithoutName": "Hallo.",
+    "subtitle": "Woran arbeiten wir heute?",
+    "evePlaceholder": "Schreib EVE, was du erreichen möchtest ...",
     "placeholder": "Nachricht senden, Dateien hochladen, Ordner öffnen oder geplante Aufgabe erstellen ...",
     "linkFolder": "Ordner öffnen",
     "newConversation": "Neuer Chat",
@@ -521,7 +527,41 @@
   },
   "eveInference": {
     "offlineUnavailable": "EVE Cloud benötigt eine Internetverbindung.",
-    "activationUnavailable": "EVE Cloud ist erst nach Aktivierung verfügbar."
+    "activationUnavailable": "EVE Cloud ist erst nach Aktivierung verfügbar.",
+    "needsActivation": "Aktivierung nötig"
+  },
+  "eveControl": {
+    "open": "EVE-Steuerung öffnen",
+    "howEveWorks": "Wie EVE arbeitet",
+    "privacy": "Datenschutz",
+    "tools": "Werkzeuge",
+    "context": "Kontext",
+    "automatic": "Automatisch",
+    "local": "Lokal",
+    "cloud": "Cloud",
+    "contextReady": "Bereit",
+    "contextPercent": "{{percent}} %",
+    "advancedSettings": "Erweiterte Einstellungen"
+  },
+  "elementsRail": {
+    "toggle": "Elemente-Leiste umschalten",
+    "activity": "Aktivität",
+    "artifacts": "Artefakte",
+    "context": "Kontext",
+    "working": "EVE arbeitet",
+    "workingDetail": "Der aktuelle Auftrag läuft weiter.",
+    "needsInput": "Deine Entscheidung wird benötigt",
+    "needsInputDetail": "EVE wartet auf eine Freigabe oder Rückfrage.",
+    "ready": "EVE ist bereit",
+    "readyDetail": "Starte einen Auftrag oder öffne einen bestehenden Chat.",
+    "noArtifacts": "Noch keine Artefakte",
+    "noArtifactsDetail": "Dokumente, Bilder und andere Ergebnisse erscheinen hier automatisch.",
+    "openArtifact": "{{name}} öffnen",
+    "project": "Projekt",
+    "noProject": "Noch kein Projekt gewählt",
+    "session": "Gespräch",
+    "newSession": "Neuer Chat",
+    "projectFiles": "Projektdateien"
   },
   "runtimeStatus": {
     "phase": {

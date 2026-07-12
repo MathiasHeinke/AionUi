@@ -7,9 +7,8 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Tooltip } from '@arco-design/web-react';
-import { ArrowCircleLeft, CloseOne, Download, Moon, SunOne } from '@icon-park/react';
+import { ArrowCircleLeft, CloseOne, Download, Moon, SunOne, User } from '@icon-park/react';
 import classNames from 'classnames';
-import CommandEveGlyph from '@renderer/components/commandEve/CommandEveGlyph';
 import { initialsFromName, useCommandEveProfile } from '@renderer/components/account/useCommandEveProfile';
 import type { SiderTooltipProps } from '@renderer/utils/ui/siderTooltip';
 import './SiderFooter.css';
@@ -43,7 +42,7 @@ const SiderFooter: React.FC<SiderFooterProps> = ({
 }) => {
   const { t } = useTranslation();
   const { name, email } = useCommandEveProfile();
-  const displayName = name || email || 'Command EVE';
+  const displayName = name || email || t('settings.accountPanel.title', { defaultValue: 'Konto' });
   const initials = initialsFromName(name);
   const identityLabel = isSettings ? t('common.back') : displayName;
   const settingsTooltip = isSettings ? t('common.back') : `${displayName} · ${t('common.settings')}`;
@@ -68,7 +67,7 @@ const SiderFooter: React.FC<SiderFooterProps> = ({
             data-testid='sider-footer-identity'
           >
             <span className='sider-footer__avatar' aria-hidden='true'>
-              {isSettings ? <ArrowCircleLeft size={16} /> : initials ? initials : <CommandEveGlyph size={15} />}
+              {isSettings ? <ArrowCircleLeft size={16} /> : initials ? initials : <User size={15} />}
             </span>
             <span className='sider-footer__identity-label collapsed-hidden'>{identityLabel}</span>
           </button>

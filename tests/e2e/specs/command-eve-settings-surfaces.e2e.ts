@@ -26,12 +26,15 @@ test.describe('Command EVE settings surfaces', () => {
     await expect(page.getByText(/Command Center|Kommandozentrale/)).toHaveCount(0);
     await expect(page.getByTestId('sider-kanban-entry')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('sider-kanban-entry')).toHaveJSProperty('tagName', 'BUTTON');
-    await expect(page.getByTestId('workspace-selector-btn')).toHaveJSProperty('tagName', 'BUTTON');
+    await expect(page.getByTestId('workspace-context-control')).toHaveJSProperty('tagName', 'BUTTON');
+    await expect(page.getByTestId('workspace-context-control')).toHaveAttribute('aria-label', /\S+/);
+    await expect(page.getByTestId('eve-composer-control-trigger')).toBeVisible();
 
+    // Legacy support/website/WebUI shortcuts no longer occupy the primary EVE
+    // work surface; they remain available through settings instead.
     for (const quickAction of ['feedback', 'website', 'webui']) {
       const control = page.getByTestId(`guid-quick-action-${quickAction}`);
-      await expect(control).toHaveJSProperty('tagName', 'BUTTON');
-      await expect(control).toHaveAttribute('aria-label', /\S+/);
+      await expect(control).toHaveCount(0);
     }
 
     await goToSettings(page, 'connectors');
@@ -186,31 +189,49 @@ test.describe('Command EVE settings surfaces', () => {
 
   test('keeps a deep-linked mobile settings route in the visible navigation strip', async ({ page }) => {
     await page.waitForFunction(() => document.body.innerText.trim().length > 0, undefined, { timeout: 30_000 });
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.evaluate(() => {
-      window.location.hash = '#/settings/about';
-      window.dispatchEvent(new Event('resize'));
-    });
-    await page.waitForFunction(() => window.location.hash.includes('/settings/about'));
-    await page.waitForSelector('.settings-page-wrapper', { state: 'visible', timeout: 30_000 });
+    const originalViewport = page.viewportSize() ?? { width: 1280, height: 800 };
 
-    const nav = page.locator('.settings-mobile-top-nav');
-    const activeItem = nav.locator('[aria-current="page"]');
-    await expect(nav).toBeVisible();
-    await expect(activeItem).toContainText(/Über|About/);
+    try {
+      await goToSettings(page, 'about');
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.evaluate(() => {
+        window.dispatchEvent(new Event('resize'));
+      });
+      await page.waitForSelector('.settings-page-wrapper', { state: 'visible', timeout: 30_000 });
 
-    await expect
-      .poll(() =>
-        activeItem.evaluate((item) => {
-          const container = item.closest('.settings-mobile-top-nav');
-          if (!container) return false;
-          const itemRect = item.getBoundingClientRect();
-          const containerRect = container.getBoundingClientRect();
-          return itemRect.left >= containerRect.left - 1 && itemRect.right <= containerRect.right + 1;
-        })
-      )
-      .toBe(true);
+      const nav = page.locator('.settings-mobile-top-nav');
+      const activeItem = nav.locator('[aria-current="page"]');
+      await expect(nav).toBeVisible();
+      await expect(activeItem).toContainText(/Über|About/);
 
-    await expect(page.locator('.settings-mobile-top-nav-shell')).toHaveClass(/settings-mobile-top-nav-shell--before/);
+      await expect
+        .poll(() =>
+          activeItem.evaluate((item) => {
+            const container = item.closest('.settings-mobile-top-nav');
+            if (!container) return false;
+            const itemRect = item.getBoundingClientRect();
+            const containerRect = container.getBoundingClientRect();
+            return itemRect.left >= containerRect.left - 1 && itemRect.right <= containerRect.right + 1;
+          })
+        )
+        .toBe(true);
+
+      await expect(page.locator('.settings-mobile-top-nav-shell')).toHaveClass(/settings-mobile-top-nav-shell--before/);
+
+      await page.evaluate(() => window.location.assign('#/guid'));
+      await page.waitForFunction(() => window.location.hash === '#/guid', undefined, { timeout: 10_000 });
+      await expect(page.getByTestId('elements-rail-toggle')).toHaveCount(0);
+    } finally {
+      await page.setViewportSize(originalViewport);
+      await page.evaluate(() => window.location.assign('#/guid'));
+      await page.waitForFunction(() => window.location.hash === '#/guid', undefined, { timeout: 10_000 });
+      const sider = page.locator('.layout-sider');
+      if (await sider.evaluate((element) => element.getBoundingClientRect().width < 100)) {
+        await page.getByTestId('sider-toggle-btn').click();
+        await expect
+          .poll(() => sider.evaluate((element) => element.getBoundingClientRect().width))
+          .toBeGreaterThan(100);
+      }
+    }
   });
 });

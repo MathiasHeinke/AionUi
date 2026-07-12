@@ -27,6 +27,11 @@
   background: linear-gradient(180deg, color-mix(in srgb, var(--bg-1) 68%, transparent) 0%, transparent 100%);
 }
 
+.chat-layout-right-sider--elements {
+  background: transparent !important;
+  border-left-color: var(--glass-panel-border) !important;
+}
+
 @supports ((-webkit-backdrop-filter: blur(6px)) or (backdrop-filter: blur(6px))) {
   .chat-layout-header--glass {
     -webkit-backdrop-filter: saturate(110%) blur(6px);

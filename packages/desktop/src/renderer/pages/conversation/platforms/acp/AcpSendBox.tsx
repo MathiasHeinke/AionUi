@@ -8,6 +8,7 @@ import AcpModelSelector from '@/renderer/components/agent/AcpModelSelector';
 import EveInferencePicker from '@/renderer/components/agent/EveInferencePicker';
 import ContextUsageIndicator from '@/renderer/components/agent/ContextUsageIndicator';
 import UnifiedSendBar from '@/renderer/components/chat/UnifiedSendBar';
+import { WorkspaceContextControl } from '@/renderer/components/workspace';
 import SpeechInputButton, { type SpeechInputButtonHandle } from '@/renderer/components/chat/SpeechInputButton';
 import { appendSpeechTranscript, type SpeechInputStatus } from '@/renderer/hooks/system/useSpeechInput';
 import CommandQueuePanel from '@/renderer/components/chat/CommandQueuePanel';
@@ -241,6 +242,14 @@ const AcpSendBox: React.FC<{
       }
     },
     [backend, conversation_id, currentMode, isLeaderInTeam, prepareRuntimeSync, t, teamPermission]
+  );
+
+  const handleDesktopModeChanged = useCallback(
+    (mode: string) => {
+      setCurrentMode(mode);
+      if (isLeaderInTeam) teamPermission?.propagateMode?.(mode);
+    },
+    [isLeaderInTeam, teamPermission]
   );
 
   // In team mode, warmup the agent then fetch slash commands
@@ -800,10 +809,14 @@ Please check your local CLI tool authentication status`,
         disabled={false}
         hasPendingSpeechInput={speechInputStatus === 'recording'}
         transcribePendingSpeechInput={transcribePendingSpeechInput}
-        placeholder={t('acp.sendbox.placeholder', {
-          backend: agent_name || backend,
-          defaultValue: `Send message to {{backend}}...`,
-        })}
+        placeholder={
+          isEveConversation
+            ? t('conversation.welcome.evePlaceholder')
+            : t('acp.sendbox.placeholder', {
+                backend: agent_name || backend,
+                defaultValue: `Send message to {{backend}}...`,
+              })
+        }
         onStop={handleStop}
         className='z-10'
         onFilesAdded={handleFilesAdded}
@@ -813,11 +826,14 @@ Please check your local CLI tool authentication status`,
         defaultMultiLine={!isMobile}
         lockMultiLine={!isMobile}
         tools={
-          <FileAttachButton
-            openFileSelector={openFileSelector}
-            onLocalFilesAdded={handleFilesAdded}
-            loadedMcpStatuses={loadedMcpStatuses}
-          />
+          <div className='flex min-w-0 items-center gap-6px'>
+            <FileAttachButton
+              openFileSelector={openFileSelector}
+              onLocalFilesAdded={handleFilesAdded}
+              loadedMcpStatuses={loadedMcpStatuses}
+            />
+            {!isMobile ? <WorkspaceContextControl workspacePath={workspacePath} /> : null}
+          </div>
         }
         hideSpeechButton
         rightTools={
@@ -849,7 +865,7 @@ Please check your local CLI tool authentication status`,
                   modeLabelFormatter={formatModeLabel}
                   compactLabelPrefix={t('agentMode.permission')}
                   hideCompactLabelPrefixOnMobile
-                  onModeChanged={isLeaderInTeam ? teamPermission?.propagateMode : undefined}
+                  onModeChanged={handleDesktopModeChanged}
                   beforeRuntimeSync={prepareRuntimeSync}
                 />
               ) : null
@@ -858,7 +874,23 @@ Please check your local CLI tool authentication status`,
               /* Consumed-context ring + credits popover (Claude-Code-style). Quiet
                  until the first acp_context_usage frame arrives (renders null with no
                  tokenUsage). Model-sensitive window via the live request_trace model. */
-              <ContextUsageIndicator tokenUsage={tokenUsage} context_limit={context_limit} modelId={indicatorModelId} />
+              isEveConversation ? null : (
+                <ContextUsageIndicator
+                  tokenUsage={tokenUsage}
+                  context_limit={context_limit}
+                  modelId={indicatorModelId}
+                />
+              )
+            }
+            eveControl={
+              !isMobile && isEveConversation
+                ? {
+                    tokenUsage,
+                    contextLimit: context_limit,
+                    modelId: indicatorModelId,
+                    disabled: isBusy,
+                  }
+                : undefined
             }
             micSlot={
               <SpeechInputButton

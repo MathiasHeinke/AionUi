@@ -77,7 +77,7 @@ const UpdateModal = React.lazy(() => import('@/renderer/components/settings/Upda
 const TeamManageConfirmCard = React.lazy(() => import('@/renderer/components/team/TeamManageConfirmCard'));
 const KanbanAcpConfirmCard = React.lazy(() => import('@/renderer/components/team/KanbanAcpConfirmCard'));
 
-const DEFAULT_SIDER_WIDTH = 260;
+const DEFAULT_SIDER_WIDTH = COMMAND_EVE_SHELL_ENABLED ? 324 : 260;
 const DESKTOP_COLLAPSED_WIDTH = 0;
 const SIDER_DRAG_SNAP_THRESHOLD = Math.round((DEFAULT_SIDER_WIDTH + DESKTOP_COLLAPSED_WIDTH) / 2);
 const SIDER_DRAG_HYSTERESIS = 6;
@@ -118,7 +118,9 @@ const Layout: React.FC<{
   useConversationShortcuts({ navigate });
   const location = useLocation();
   const workspaceAvailable =
-    location.pathname.startsWith('/conversation/') || (TEAM_MODE_ENABLED && location.pathname.startsWith('/team/'));
+    (COMMAND_EVE_SHELL_ENABLED && location.pathname === '/guid') ||
+    location.pathname.startsWith('/conversation/') ||
+    (TEAM_MODE_ENABLED && location.pathname.startsWith('/team/'));
   const collapsedRef = useRef(collapsed);
   const dragStateRef = useRef<{ active: boolean; startX: number; startWidth: number }>({
     active: false,

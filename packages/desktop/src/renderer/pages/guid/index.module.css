@@ -1,7 +1,7 @@
 .guidLayout {
   --assistant-surface-bg: color-mix(in srgb, var(--bg-2) 65%, transparent);
   --assistant-surface-bg-hover: color-mix(in srgb, var(--bg-2) 85%, transparent);
-  width: clamp(var(--app-min-width, 360px), calc(100% - 32px), 800px);
+  width: clamp(var(--app-min-width, 360px), calc(100% - 32px), 816px);
   max-width: 100%;
   padding: 0 16px;
   box-sizing: border-box;
@@ -15,13 +15,35 @@
   margin-bottom: 24px;
 }
 
+.heroHeaderCommandEve {
+  margin-bottom: 100px;
+}
+
 .commandEveHero {
   width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 18px;
+  gap: 8px;
   text-align: center;
+}
+
+.commandEveGreeting {
+  margin: 0;
+  color: var(--eve-shell-text, var(--color-text-1));
+  font-size: 34px;
+  font-weight: 680;
+  line-height: 42px;
+  letter-spacing: 0;
+  text-wrap: balance;
+}
+
+.commandEveSubtitle {
+  margin: 0;
+  color: var(--eve-shell-text-secondary, var(--color-text-3));
+  font-size: 19px;
+  font-weight: 430;
+  line-height: 28px;
 }
 
 .commandEveWaitVideo {
@@ -369,7 +391,7 @@
 }
 
 .guidInputInner {
-  min-height: 150px;
+  min-height: 270px;
   background: transparent;
   border: 0;
   border-radius: 23px 23px 0 0;
@@ -749,6 +771,16 @@
     line-height: 30px;
   }
 
+  .commandEveGreeting {
+    font-size: 27px;
+    line-height: 34px;
+  }
+
+  .commandEveSubtitle {
+    font-size: 16px;
+    line-height: 24px;
+  }
+
   .actionRow {
     flex-wrap: nowrap;
     gap: 8px;
@@ -803,6 +835,8 @@
 /* 移动端容器滚动支持 */
 .guidContainer {
   height: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -811,9 +845,45 @@
   position: relative;
 }
 
+.guidShell {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.guidElementsRail {
+  width: 308px;
+  min-width: 308px;
+  height: 100%;
+  overflow: hidden;
+  opacity: 1;
+  visibility: visible;
+  transition:
+    width 180ms ease,
+    min-width 180ms ease,
+    opacity 120ms ease,
+    visibility 0s linear;
+}
+
+.guidElementsRailCollapsed {
+  width: 0;
+  min-width: 0;
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transition:
+    width 180ms ease,
+    min-width 180ms ease,
+    opacity 120ms ease,
+    visibility 0s linear 180ms;
+}
+
 /* 整体内容块略往上移，减轻「重心偏下」的感觉 */
 .guidContainer .guidLayout {
-  margin-top: -5vh;
+  margin-top: -6vh;
 }
 
 /* Agent 选中时：先放大再回落至略大（pop 动效） */
