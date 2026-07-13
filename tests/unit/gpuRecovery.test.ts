@@ -53,7 +53,12 @@ describe('gpuRecovery', () => {
   it('disables hardware acceleration when persisted flag is set', async () => {
     fs.writeFileSync(
       configFile(),
-      JSON.stringify({ disableHardwareAcceleration: true, crashCount: 3, lastCrashAt: Date.now() })
+      JSON.stringify({
+        schemaVersion: 2,
+        disableHardwareAcceleration: true,
+        crashCount: 3,
+        lastCrashAt: Date.now(),
+      })
     );
     const { applyGpuRecoveryFlags } = await import('@/process/utils/gpuRecovery');
     applyGpuRecoveryFlags();
@@ -71,6 +76,7 @@ describe('gpuRecovery', () => {
     fs.writeFileSync(
       configFile(),
       JSON.stringify({
+        schemaVersion: 2,
         userOverride: 'force-on',
         disableHardwareAcceleration: true,
         crashCount: 5,
@@ -86,6 +92,7 @@ describe('gpuRecovery', () => {
     fs.writeFileSync(
       configFile(),
       JSON.stringify({
+        schemaVersion: 2,
         disableHardwareAcceleration: true,
         crashCount: 5,
         lastCrashAt: Date.now() - 25 * 60 * 60 * 1000,
@@ -97,6 +104,52 @@ describe('gpuRecovery', () => {
     const cfg = JSON.parse(fs.readFileSync(configFile(), 'utf-8'));
     expect(cfg.crashCount).toBe(0);
     expect(cfg.disableHardwareAcceleration).toBe(false);
+  });
+
+  it('clears legacy auto-disable state for the default policy', async () => {
+    fs.writeFileSync(
+      configFile(),
+      JSON.stringify({
+        disableHardwareAcceleration: true,
+        crashCount: 6,
+        lastCrashAt: Date.now(),
+      })
+    );
+    const { applyGpuRecoveryFlags } = await import('@/process/utils/gpuRecovery');
+    applyGpuRecoveryFlags();
+
+    expect(disableHardwareAcceleration).not.toHaveBeenCalled();
+    const cfg = JSON.parse(fs.readFileSync(configFile(), 'utf-8'));
+    expect(cfg).toMatchObject({
+      schemaVersion: 2,
+      crashCount: 0,
+      disableHardwareAcceleration: false,
+    });
+    expect(cfg.lastCrashAt).toBeUndefined();
+  });
+
+  it('preserves a user override while clearing legacy crash state', async () => {
+    fs.writeFileSync(
+      configFile(),
+      JSON.stringify({
+        userOverride: 'force-off',
+        disableHardwareAcceleration: true,
+        crashCount: 6,
+        lastCrashAt: Date.now(),
+      })
+    );
+    const { applyGpuRecoveryFlags } = await import('@/process/utils/gpuRecovery');
+    applyGpuRecoveryFlags();
+
+    expect(disableHardwareAcceleration).toHaveBeenCalledOnce();
+    const cfg = JSON.parse(fs.readFileSync(configFile(), 'utf-8'));
+    expect(cfg).toMatchObject({
+      schemaVersion: 2,
+      userOverride: 'force-off',
+      crashCount: 0,
+      disableHardwareAcceleration: false,
+    });
+    expect(cfg.lastCrashAt).toBeUndefined();
   });
 
   it('persists disableHardwareAcceleration after crashes reach the threshold', async () => {
@@ -125,6 +178,33 @@ describe('gpuRecovery', () => {
     crashListener!({}, { type: 'Utility', reason: 'crashed', exitCode: 1 });
     expect(fs.existsSync(configFile())).toBe(false);
   });
+
+  it.each(['clean-exit', 'killed', 'memory-eviction'])(
+    'ignores expected GPU process exit reason %s',
+    async (reason) => {
+      const { installGpuCrashHandler } = await import('@/process/utils/gpuRecovery');
+      installGpuCrashHandler();
+
+      crashListener!({}, { type: 'GPU', reason, exitCode: 0 });
+      crashListener!({}, { type: 'GPU', reason, exitCode: 0 });
+      crashListener!({}, { type: 'GPU', reason, exitCode: 0 });
+
+      expect(fs.existsSync(configFile())).toBe(false);
+    }
+  );
+
+  it.each(['abnormal-exit', 'crashed', 'oom', 'launch-failed', 'integrity-failure'])(
+    'counts genuine GPU failure reason %s',
+    async (reason) => {
+      const { installGpuCrashHandler } = await import('@/process/utils/gpuRecovery');
+      installGpuCrashHandler();
+
+      crashListener!({}, { type: 'GPU', reason, exitCode: 1 });
+
+      const cfg = JSON.parse(fs.readFileSync(configFile(), 'utf-8'));
+      expect(cfg).toMatchObject({ schemaVersion: 2, crashCount: 1 });
+    }
+  );
 
   it('respects user override force-on when handling crashes', async () => {
     fs.writeFileSync(configFile(), JSON.stringify({ userOverride: 'force-on' }));

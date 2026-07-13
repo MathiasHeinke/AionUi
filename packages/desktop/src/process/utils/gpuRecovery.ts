@@ -14,12 +14,24 @@ const GPU_CONFIG_FILE = 'gpu.config.json';
 // 连续 GPU 崩溃达到此阈值后，下次启动自动关闭硬件加速。
 const GPU_CRASH_THRESHOLD = 3;
 
+// Version 1 counted normal Electron shutdowns as GPU crashes.
+const GPU_CONFIG_SCHEMA_VERSION = 2;
+
+const GPU_FAILURE_REASONS: ReadonlySet<string> = new Set([
+  'abnormal-exit',
+  'crashed',
+  'oom',
+  'launch-failed',
+  'integrity-failure',
+]);
+
 // 距上次崩溃超过此时间后视作偶发，重置计数并尝试恢复硬件加速。
 const GPU_CRASH_RESET_MS = 24 * 60 * 60 * 1000;
 
 type GpuOverride = 'force-on' | 'force-off';
 
 interface GpuConfig {
+  schemaVersion?: number;
   disableHardwareAcceleration?: boolean;
   crashCount?: number;
   lastCrashAt?: number;
@@ -56,7 +68,24 @@ function writeConfig(cfg: GpuConfig): void {
  * Reads persisted gpu config and disables hardware acceleration if needed.
  */
 export function applyGpuRecoveryFlags(): void {
-  const cfg = readConfig();
+  let cfg = readConfig();
+
+  // Legacy counters are not trustworthy because expected shutdowns were counted.
+  if (
+    cfg.schemaVersion !== GPU_CONFIG_SCHEMA_VERSION &&
+    (cfg.disableHardwareAcceleration || (cfg.crashCount ?? 0) > 0 || cfg.lastCrashAt)
+  ) {
+    const migrated: GpuConfig = {
+      ...cfg,
+      schemaVersion: GPU_CONFIG_SCHEMA_VERSION,
+      crashCount: 0,
+      disableHardwareAcceleration: false,
+    };
+    delete migrated.lastCrashAt;
+    writeConfig(migrated);
+    cfg = migrated;
+    console.log('[GPU] reset legacy crash state after recovery-classifier upgrade');
+  }
 
   if (cfg.userOverride === 'force-off') {
     app.disableHardwareAcceleration();
@@ -111,7 +140,7 @@ export function getGpuStatus(): GpuStatus {
  */
 export function setGpuUserOverride(override: GpuOverride | null): GpuStatus {
   const cfg = readConfig();
-  const next: GpuConfig = { ...cfg };
+  const next: GpuConfig = { ...cfg, schemaVersion: GPU_CONFIG_SCHEMA_VERSION };
   if (override === null) {
     delete next.userOverride;
   } else {
@@ -132,11 +161,16 @@ export function setGpuUserOverride(override: GpuOverride | null): GpuStatus {
 export function installGpuCrashHandler(): void {
   app.on('child-process-gone', (_event, details) => {
     if (details.type !== 'GPU') return;
+    if (!GPU_FAILURE_REASONS.has(details.reason)) {
+      console.log(`[GPU] ignored non-crash process exit (reason=${details.reason}, exitCode=${details.exitCode})`);
+      return;
+    }
 
     const cfg = readConfig();
     const nextCount = (cfg.crashCount ?? 0) + 1;
     const next: GpuConfig = {
       ...cfg,
+      schemaVersion: GPU_CONFIG_SCHEMA_VERSION,
       crashCount: nextCount,
       lastCrashAt: Date.now(),
     };
