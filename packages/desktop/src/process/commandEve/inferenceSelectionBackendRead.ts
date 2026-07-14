@@ -35,8 +35,13 @@
  * the un-prefixed key verbatim. We resolve the SAME physical key here so we read
  * the value the renderer actually wrote for the active seat.
  *
- * Fail-soft: any read error returns `undefined`, so the caller falls back to the
- * EVE-Standard default (never throws inside the HTTP handler / warm-up).
+ * Two read contracts intentionally coexist:
+ *   - `readInferenceSelectionFromBackend` is best-effort for descriptive seed
+ *     generation where an absent/unreadable value may be rendered as unknown.
+ *   - `readInferenceSelectionFromBackendStrict` is mandatory for routing and
+ *     warm-up. A backend error must never look like an absent setting because
+ *     absence legitimately defaults to EVE Standard while unreadable state must
+ *     fail loud instead of silently changing the user's selected lane.
  */
 
 import { httpRequest } from '@/common/adapter/httpBridge';
@@ -61,7 +66,7 @@ const INFERENCE_SELECTION_KEY = 'commandEve.inferenceSelection';
  * at the call site so an absent value maps to the EVE-Standard default exactly as
  * the renderer's send path does.
  */
-export async function readInferenceSelectionFromBackend(): Promise<string | undefined> {
+async function fetchInferenceSelectionFromBackend(): Promise<string | undefined> {
   let physicalKey = INFERENCE_SELECTION_KEY;
   try {
     physicalKey = seatScopedKey(INFERENCE_SELECTION_KEY, getActiveSeatId());
@@ -70,22 +75,43 @@ export async function readInferenceSelectionFromBackend(): Promise<string | unde
     physicalKey = INFERENCE_SELECTION_KEY;
   }
 
+  const settings = await httpRequest<Record<string, unknown>>('GET', '/api/settings/client');
+  // Read the seat-physical key ONLY — do NOT fall back to the un-prefixed key on a
+  // REAL seat (C1/C3 class, full-history re-audit). The un-prefixed value is the
+  // FOUNDER/legacy seat's selection; a real client seat that never picked a model
+  // would otherwise INHERIT the founder's tier (e.g. paid EVE Max) and silently
+  // route the client's chats to the metered cloud lane, while the renderer — which
+  // already refuses the un-prefixed read for a real seat — shows EVE Standard. An
+  // absent scoped value maps (via resolveEffectiveInferenceSelection at the call
+  // site) to the intended EVE-Standard default, matching the renderer. On the
+  // legacy seat physicalKey === INFERENCE_SELECTION_KEY (un-prefixed), so this
+  // still reads the founder's own value there; ditto for an unresolvable seat.
+  const raw = settings?.[physicalKey];
+  return typeof raw === 'string' && raw.trim().length > 0 ? raw : undefined;
+}
+
+/**
+ * Best-effort read for non-routing metadata. An unreadable backend is represented
+ * as unknown; callers must not use this contract to choose an inference lane.
+ */
+export async function readInferenceSelectionFromBackend(): Promise<string | undefined> {
   try {
-    const settings = await httpRequest<Record<string, unknown>>('GET', '/api/settings/client');
-    // Read the seat-physical key ONLY — do NOT fall back to the un-prefixed key on a
-    // REAL seat (C1/C3 class, full-history re-audit). The un-prefixed value is the
-    // FOUNDER/legacy seat's selection; a real client seat that never picked a model
-    // would otherwise INHERIT the founder's tier (e.g. paid EVE Max) and silently
-    // route the client's chats to the metered cloud lane, while the renderer — which
-    // already refuses the un-prefixed read for a real seat — shows EVE Standard. An
-    // absent scoped value maps (via resolveEffectiveInferenceSelection at the call
-    // site) to the intended EVE-Standard default, matching the renderer. On the
-    // legacy seat physicalKey === INFERENCE_SELECTION_KEY (un-prefixed), so this
-    // still reads the founder's own value there; ditto for an unresolvable seat.
-    const raw = settings?.[physicalKey];
-    return typeof raw === 'string' && raw.trim().length > 0 ? raw : undefined;
+    return await fetchInferenceSelectionFromBackend();
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * Fail-loud read for routing and warm-up. A valid but absent setting still returns
+ * `undefined` (fresh-user EVE Standard); transport/backend failures reject with a
+ * stable public error so the shim returns 500 instead of silently changing lanes.
+ */
+export async function readInferenceSelectionFromBackendStrict(): Promise<string | undefined> {
+  try {
+    return await fetchInferenceSelectionFromBackend();
+  } catch {
+    throw new Error('Command EVE cloud route unavailable: inference selection could not be read.');
   }
 }
 
@@ -101,8 +127,9 @@ export async function readInferenceSelectionFromBackend(): Promise<string | unde
  *     → isEveInferenceSelection? → resolveWireTierFromSelection → buildEveCloudRoute
  *
  * A LOCAL selection returns `{ active: false }`. An EVE selection returns an
- * active route carrying the wire tier (standard/high/max) + license. Fail-soft:
- * if `readSelection` rejects, the caller's wrapper catches and stays local.
+ * active route carrying the wire tier (standard/high/max) + license. A rejected
+ * `readSelection` deliberately propagates: unreadable state is not equivalent to
+ * an absent setting and must never become an implicit Standard or local route.
  */
 export async function resolveEveCloudRouteFromBackend(deps: {
   /** Read the raw persisted picker selection (backend store). */

@@ -40,7 +40,6 @@ import {
   EVE_INFERENCE_FUNCTION_URL,
   EVE_INFERENCE_DEFAULT_TIER_ID,
   EVE_INFERENCE_GROUP_TITLE,
-  EVE_INFERENCE_TIER_SUBLABEL,
   EVE_INFERENCE_TIERS,
   eveTierValue,
   isByokDisabledForEntitlement,
@@ -55,6 +54,7 @@ import {
   resolveCommandEveWarmupLane,
   resolveEffectiveInferenceSelection,
   resolveWireTierFromSelection,
+  shouldDisableModelByok,
   type EvePickerItem,
 } from '@/common/config/eveInferenceCore';
 
@@ -229,15 +229,35 @@ describe('eveInferenceCore — Pro-feature unlock via active credit subscription
   });
 
   it('a trial NEVER unlocks, even with an active subscription (trial gate is absolute)', () => {
-    expect(
-      isModelByokAllowed({ trial_ends_at: '2026-07-01T00:00:00.000Z', has_active_topup: true })
-    ).toBe(false);
+    expect(isModelByokAllowed({ trial_ends_at: '2026-07-01T00:00:00.000Z', has_active_topup: true })).toBe(false);
   });
 
   it('an absent has_active_topup falls back to today: no seat + no subscription ⇒ locked', () => {
     // Version-skew: an old credits-status without the field ⇒ absent ⇒ false ⇒ locked.
     expect(isModelByokAllowed({ trial_ends_at: null, has_paid_seat: false })).toBe(false);
     expect(isModelByokAllowed({ trial_ends_at: null })).toBe(false);
+  });
+});
+
+describe('eveInferenceCore — transient credits status is not a free-tier verdict', () => {
+  it('keeps BYOK available when top-up truth is temporarily unavailable', () => {
+    expect(
+      shouldDisableModelByok({ trial_ends_at: null, has_paid_seat: false, has_active_topup: undefined }, false)
+    ).toBe(false);
+  });
+
+  it('locks only after an authoritative no-seat/no-top-up response', () => {
+    expect(shouldDisableModelByok({ trial_ends_at: null, has_paid_seat: false, has_active_topup: false }, true)).toBe(
+      true
+    );
+  });
+
+  it('keeps confirmed paid paths unlocked and confirmed trials locked', () => {
+    expect(shouldDisableModelByok({ trial_ends_at: null, has_paid_seat: true }, false)).toBe(false);
+    expect(shouldDisableModelByok({ trial_ends_at: null, has_active_topup: true }, true)).toBe(false);
+    expect(shouldDisableModelByok({ trial_ends_at: '2099-01-01T00:00:00.000Z', has_active_topup: true }, false)).toBe(
+      true
+    );
   });
 });
 

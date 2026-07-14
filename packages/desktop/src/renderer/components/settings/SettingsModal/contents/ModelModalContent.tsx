@@ -27,7 +27,7 @@ import { useSettingsViewMode } from '../settingsViewContext';
 import { consumePendingDeepLink } from '@/renderer/hooks/system/useDeepLink';
 import { useEntitlementGate } from '@/renderer/hooks/useEntitlementGate';
 import { useCreditsStatus } from '@renderer/hooks/useCreditsStatus';
-import { isModelByokAllowed } from '@/common/config/eveInferenceCore';
+import { shouldDisableModelByok } from '@/common/config/eveInferenceCore';
 import { bridge as platformBridge } from '@office-ai/platform';
 import SettingsSection, { SettingsPageHeader } from '@/renderer/components/settings/SettingsSection';
 import '../model-provider.css';
@@ -448,8 +448,8 @@ const ModelModalContent: React.FC = () => {
   // entitlements are greyed out. Both discriminants are main-process-derived
   // honest hints (has_paid_seat from the entitlement, has_active_topup from
   // credits-status); the server stays the binding gate for everything
-  // money-metered. Cancelling the subscription re-locks for free (has_active_topup
-  // flips off on the next status read).
+  // money-metered. A transient credits read is UNKNOWN, never a synthetic free
+  // result; only an authoritative `ok:true` response may confirm no top-up.
   const { status: entitlementStatus } = useEntitlementGate();
   const { status: creditsStatus } = useCreditsStatus();
   const proFeatureView = useMemo(
@@ -467,7 +467,7 @@ const ModelModalContent: React.FC = () => {
       creditsStatus?.has_active_topup,
     ]
   );
-  const byokDisabled = COMMAND_EVE_SHELL_ENABLED && !isModelByokAllowed(proFeatureView);
+  const byokDisabled = COMMAND_EVE_SHELL_ENABLED && shouldDisableModelByok(proFeatureView, creditsStatus?.ok === true);
 
   const [addPlatformModalCtrl, addPlatformModalContext] = AddPlatformModal.useModal({
     onSubmit(platform) {

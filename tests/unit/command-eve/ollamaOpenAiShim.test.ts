@@ -571,7 +571,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
       ollamaSeen = true;
     });
     const fnSeen: EveFnSeen = {};
-    const fnUrl = await startFakeEveFunction(fnSeen);
+    await startFakeEveFunction(fnSeen);
 
     shimServerUrl = await startCommandEveOllamaOpenAiShim({
       port: 0,
@@ -690,6 +690,30 @@ describe('Command EVE shim — EVE cloud routing', () => {
     expect(response.status).toBe(401);
     // No unauthenticated request was made.
     expect(fnSeen.body).toBeUndefined();
+  });
+
+  it('fail-closes with 500 when picker state is unreadable instead of falling through to local', async () => {
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      eveRouting: () =>
+        Promise.reject(new Error('Command EVE cloud route unavailable: inference selection could not be read.')),
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: SHIM_JSON_HEADERS,
+      body: JSON.stringify({
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [{ role: 'user', content: 'hi' }],
+        stream: false,
+      }),
+    });
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { message: 'Command EVE cloud route unavailable: inference selection could not be read.' },
+    });
   });
 
   it('rejects a cleartext-remote function URL (fail closed, 500)', async () => {

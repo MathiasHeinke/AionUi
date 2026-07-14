@@ -567,6 +567,21 @@ export function isModelByokAllowed(entitlement: EveEntitlementView | null | unde
 }
 
 /**
+ * UI-only BYOK lock decision with three-state credits truth. A confirmed trial
+ * always locks. Otherwise an authoritative credits response may confirm that no
+ * paid path exists; an unavailable response must stay unknown and cannot revoke
+ * an already-purchased unlock. The server remains the binding authorization gate.
+ */
+export function shouldDisableModelByok(
+  entitlement: EveEntitlementView | null | undefined,
+  creditsStatusAuthoritative: boolean
+): boolean {
+  if (isTrialingEntitlement(entitlement)) return true;
+  if (isModelByokAllowed(entitlement)) return false;
+  return creditsStatusAuthoritative;
+}
+
+/**
  * Whether a given EVE tier is selectable for the entitlement. Standard is
  * always selectable; High/Max are paid-only and disabled while trialing.
  */

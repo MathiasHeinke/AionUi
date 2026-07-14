@@ -154,11 +154,11 @@ const COMMAND_EVE_MULTIMODAL_TTS_CLOUD_EGRESS_ENABLED = true;
 const COMMAND_EVE_MULTIMODAL_TTS_SERVER_GATEWAY_DEPLOYED = true;
 
 /**
- * A SELF-QUIET zero-status returned when the credits-status backend is not
- * reachable pre-deploy (no license wire, or the Edge Function is absent / errors).
- * `ok:false` keeps the renderer meter quiet (it renders nothing) instead of
- * crashing the chrome. The persisted spend cap is still merged in so a cap the
- * user already set survives an offline read.
+ * A SELF-QUIET unavailable status returned when the credits backend cannot be
+ * reached. The numeric zeroes satisfy the versioned IPC shape only; `ok:false`
+ * makes every field non-authoritative. In particular, no `has_active_topup:false`
+ * is emitted: a transport failure must never masquerade as a confirmed free seat
+ * and re-lock a customer who already bought credits.
  */
 function quietCreditsStatus(spendCapEurCents: number, reasonCode: string, message?: string) {
   return {
@@ -173,9 +173,6 @@ function quietCreditsStatus(spendCapEurCents: number, reasonCode: string, messag
     free_actions_used_this_period: 0,
     free_cap: 0,
     period_start: '',
-    // v1.5 M7: quiet/pre-deploy read ⇒ no active subscription (fail-closed to
-    // locked; Pro features stay gated until a real status confirms an unlock).
-    has_active_topup: false,
   };
 }
 

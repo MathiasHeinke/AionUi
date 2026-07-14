@@ -58,11 +58,7 @@ vi.mock('@renderer/hooks/useEntitlementGate', () => ({
 
 import { useEveInferenceSelection } from '@renderer/hooks/agent/useEveInferenceSelection';
 import { configService } from '@/common/config/configService';
-import {
-  EVE_DEFAULT_INFERENCE_SELECTION,
-  eveTierValue,
-  localTierValue,
-} from '@/common/config/eveInferenceCore';
+import { EVE_DEFAULT_INFERENCE_SELECTION, eveTierValue, localTierValue } from '@/common/config/eveInferenceCore';
 
 describe('useEveInferenceSelection', () => {
   beforeEach(() => {
@@ -155,5 +151,20 @@ describe('useEveInferenceSelection', () => {
     expect(result.current.isSelectable(eveTierValue('eve-max'))).toBe(true);
     act(() => result.current.commit(eveTierValue('eve-max')));
     expect(result.current.selection).toBe(eveTierValue('eve-max'));
+  });
+
+  it('never auto-resets a persisted paid tier for a confirmed non-trial user', async () => {
+    const max = eveTierValue('eve-max');
+    store.set('commandEve.inferenceSelection', max);
+    entitlement.trial_ends_at = null;
+
+    const { result } = renderHook(() => useEveInferenceSelection());
+
+    await waitFor(() => expect(result.current.selection).toBe(max));
+    expect(store.get('commandEve.inferenceSelection')).toBe(max);
+    expect(configService.set).not.toHaveBeenCalledWith(
+      'commandEve.inferenceSelection',
+      EVE_DEFAULT_INFERENCE_SELECTION
+    );
   });
 });

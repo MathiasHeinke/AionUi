@@ -72,7 +72,7 @@ import { shouldRestartWindowsBackendAfterRuntimeBootstrap } from './process/comm
 import { readHonchoReadyState } from './process/commandEve/honchoReadyStateFile';
 import { getActiveSeatId } from './process/commandEve/seatContextCore';
 import {
-  readInferenceSelectionFromBackend,
+  readInferenceSelectionFromBackendStrict,
   resolveEveCloudRouteFromBackend,
 } from './process/commandEve/inferenceSelectionBackendRead';
 import { readCommandEveSettingsFromBackend } from './process/commandEve/commandEveBackendSettingsRead';
@@ -494,37 +494,24 @@ function commandEveGateAuditPath(runtimeRoot: string): string {
  * ASYNC: the selection lives in the backend SQLite store, so the resolver reads
  * it over HTTP per request. The shim awaits it.
  *
- * Fail-soft: any read error keeps the request on the local lane (returns
- * undefined), never throwing inside the HTTP handler. The shim itself
- * fail-closes (401/500) if an EVE route is active but the license/URL is
- * missing, so a dropped license never becomes a silent unauthenticated call.
+ * Fail-loud: an unreadable picker state rejects into the shim's HTTP boundary,
+ * which returns 500. It must not become local or EVE Standard because either
+ * fallback silently changes the lane the user selected. The shim likewise
+ * fail-closes (401/500) if the license/URL is missing.
  */
 function buildCommandEveShimRoutingResolver(): () => Promise<CommandEveEveCloudRoute | undefined> {
-  return async () => {
-    try {
-      // HONEST TIER ROUTING (1.2.19 + backend-store fix): the wire tier POSTed to
-      // eve-inference is the user's ACTUAL current picker selection — read from
-      // the BACKEND settings store (the only store the renderer writes it to) and
-      // mapped VERBATIM eve-standard→'standard' / eve-high→'high' / eve-max→'max'.
-      // The full chain lives in resolveEveCloudRouteFromBackend so the live path
-      // and its end-to-end regression test exercise the SAME code. (Previously the
-      // resolver read commandEve.inferenceSelection from ProcessConfig — a store
-      // the renderer never writes — so it ALWAYS saw undefined and defaulted EVE
-      // Max/High to Standard → DeepSeek V4 Flash: the OpenRouter "100% Flash,
-      // GLM/Pro never called" symptom.)
-      return await resolveEveCloudRouteFromBackend({
-        readSelection: readInferenceSelectionFromBackend,
-        readLicense: () => {
-          const wireResult = readLicenseWire(getDataPath());
-          return wireResult.ok ? wireResult.wire : undefined;
-        },
-        functionUrl: EVE_INFERENCE_FUNCTION_URL,
-      });
-    } catch (error) {
-      console.warn('[Command EVE] EVE shim routing resolver failed; staying local:', error);
-      return undefined;
-    }
-  };
+  return () =>
+    resolveEveCloudRouteFromBackend({
+      // HONEST TIER ROUTING (1.2.19 + backend-store fix): read the only store the
+      // renderer writes and reject on transport failure. A valid absent value may
+      // default to Standard; an unreadable value may not.
+      readSelection: readInferenceSelectionFromBackendStrict,
+      readLicense: () => {
+        const wireResult = readLicenseWire(getDataPath());
+        return wireResult.ok ? wireResult.wire : undefined;
+      },
+      functionUrl: EVE_INFERENCE_FUNCTION_URL,
+    });
 }
 
 /**
@@ -1251,7 +1238,7 @@ function scheduleCommandEveLocalModelWarmup(
     let lane: ReturnType<typeof resolveCommandEveWarmupLane>;
     try {
       await waitForCommandEveBackendPort(30_000);
-      lane = resolveCommandEveWarmupLane(await readInferenceSelectionFromBackend());
+      lane = resolveCommandEveWarmupLane(await readInferenceSelectionFromBackendStrict());
     } catch (error) {
       console.warn('[Command EVE] Could not resolve warm-up lane; skipping speculative warm-up:', error);
       return;

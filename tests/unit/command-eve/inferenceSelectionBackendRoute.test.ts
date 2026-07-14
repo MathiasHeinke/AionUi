@@ -40,13 +40,11 @@ vi.mock('@/common/adapter/httpBridge', () => ({
 
 import {
   readInferenceSelectionFromBackend,
+  readInferenceSelectionFromBackendStrict,
   resolveEveCloudRouteFromBackend,
 } from '@process/commandEve/inferenceSelectionBackendRead';
 import { eveTierValue, localTierValue } from '@/common/config/eveInferenceCore';
-import {
-  __resetActiveSeatForTests,
-  setActiveSeatId,
-} from '@process/commandEve/seatContextCore';
+import { __resetActiveSeatForTests, setActiveSeatId } from '@process/commandEve/seatContextCore';
 import { seatScopedKey } from '@/common/config/seatConfigKeyCore';
 
 const SELECTION_KEY = 'commandEve.inferenceSelection';
@@ -63,7 +61,7 @@ function settingsBagWithSelection(selectionValue: string, seatId: string | null)
 /** The full live chain: backend read → resolved EVE cloud route. */
 async function resolveRouteFromBackend() {
   return resolveEveCloudRouteFromBackend({
-    readSelection: readInferenceSelectionFromBackend,
+    readSelection: readInferenceSelectionFromBackendStrict,
     readLicense: () => FAKE_LICENSE,
     functionUrl: 'https://example.supabase.co/functions/v1/eve-inference',
   });
@@ -135,13 +133,16 @@ describe('EVE inference selection → backend store → route.tier (full chain)'
     expect(route?.tier).toBe('standard');
   });
 
-  it('a backend read error fails soft (selection undefined → EVE Standard default)', async () => {
+  it('a backend read error fails loud instead of becoming EVE Standard', async () => {
     httpRequestMock.mockRejectedValue(new Error('ECONNREFUSED'));
-    const route = await resolveRouteFromBackend();
-    // readInferenceSelectionFromBackend swallows the error → undefined →
-    // resolveEffectiveInferenceSelection → EVE Standard default.
-    expect(route?.active).toBe(true);
-    expect(route?.tier).toBe('standard');
+    await expect(resolveRouteFromBackend()).rejects.toThrow(
+      'Command EVE cloud route unavailable: inference selection could not be read.'
+    );
+  });
+
+  it('the descriptive best-effort reader still maps a backend error to unknown', async () => {
+    httpRequestMock.mockRejectedValue(new Error('ECONNREFUSED'));
+    await expect(readInferenceSelectionFromBackend()).resolves.toBeUndefined();
   });
 
   it('readInferenceSelectionFromBackend returns the raw persisted picker value', async () => {
