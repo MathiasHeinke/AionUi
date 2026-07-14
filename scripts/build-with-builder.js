@@ -14,6 +14,7 @@ const { execSync, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { PRODUCT_NAME, WINDOWS_EXECUTABLE_NAME } = require('./windows/productIdentity.cjs');
 
 // Fail-closed exit-code propagation. Historically a build failure could log
 // "❌ Build failed" yet leave the process exit code at 0 (e.g. an async
@@ -248,7 +249,11 @@ function removeStaleMacSiblingMetadata(outDir, version, targetArch) {
     removals.push(metadataName);
   };
 
-  if (targetArch === 'arm64' && !hasMacUpdateArtifact(outDir, version, 'x64') && !hasMacUpdateArtifact(outDir, version, 'universal')) {
+  if (
+    targetArch === 'arm64' &&
+    !hasMacUpdateArtifact(outDir, version, 'x64') &&
+    !hasMacUpdateArtifact(outDir, version, 'universal')
+  ) {
     removeIfPresent('latest-mac.yml');
   }
   if ((targetArch === 'x64' || targetArch === 'universal') && !hasMacUpdateArtifact(outDir, version, 'arm64')) {
@@ -324,7 +329,9 @@ function createDmgWithHdiutil(appDir, targetArch) {
     execSync(`ditto "${appPath}" "${path.join(stage, appName)}"`, { stdio: 'inherit' });
     fs.symlinkSync('/Applications', path.join(stage, 'Applications'));
     if (fs.existsSync(dmgPath)) fs.rmSync(dmgPath);
-    execSync(`hdiutil create -volname "${volName}" -srcfolder "${stage}" -ov -format UDZO "${dmgPath}"`, { stdio: 'inherit' });
+    execSync(`hdiutil create -volname "${volName}" -srcfolder "${stage}" -ov -format UDZO "${dmgPath}"`, {
+      stdio: 'inherit',
+    });
   } finally {
     fs.rmSync(stage, { recursive: true, force: true });
   }
@@ -371,7 +378,9 @@ function buildWithDmgRetry(cmd, targetArch) {
         console.log(`   ⚠️  DMG retry ${attempt}/${DMG_RETRY_MAX} failed`);
         cleanupDiskImages();
         if (attempt === DMG_RETRY_MAX) {
-          console.log(`   ❌ dmgbuild failed after ${DMG_RETRY_MAX} retries — falling back to hdiutil (plain DMG, signed+notarized when env is set)`);
+          console.log(
+            `   ❌ dmgbuild failed after ${DMG_RETRY_MAX} retries — falling back to hdiutil (plain DMG, signed+notarized when env is set)`
+          );
           cleanupDiskImages();
           createDmgWithHdiutil(appDir, targetArch);
           return;
@@ -730,14 +739,16 @@ try {
     const winUnpackedDir = path.join(outDir, 'win-unpacked');
     let cleaned = tryRemoveDir(winUnpackedDir);
     if (!cleaned) {
-      const aionRunning = isProcessRunningWindows('AionUi.exe');
+      const aionRunning = isProcessRunningWindows(WINDOWS_EXECUTABLE_NAME);
       const electronRunning = isProcessRunningWindows('electron.exe');
       if (aionRunning || electronRunning) {
-        console.log('⚠️  Detected running AionUi/Electron process. Attempting to close...');
-        killWindowsProcesses(['AionUi.exe', 'electron.exe']);
+        console.log(`⚠️  Detected running ${PRODUCT_NAME}/Electron process. Attempting to close...`);
+        killWindowsProcesses([WINDOWS_EXECUTABLE_NAME, 'electron.exe']);
         cleaned = tryRemoveDir(winUnpackedDir);
         if (!cleaned) {
-          console.log('⚠️  Directory still locked. Please close any running AionUi/Electron processes and retry.');
+          console.log(
+            `⚠️  Directory still locked. Please close any running ${PRODUCT_NAME}/Electron processes and retry.`
+          );
         }
       }
     }
@@ -752,7 +763,7 @@ try {
   try {
     buildWithDmgRetry(builderCommand, targetArch);
   } catch (error) {
-    const winExePath = path.join(outDir, 'win-unpacked', 'AionUi.exe');
+    const winExePath = path.join(outDir, 'win-unpacked', WINDOWS_EXECUTABLE_NAME);
     const firstError = formatExecError(error);
     const canRetryWithoutExecutableEdit =
       process.platform === 'win32' && isWindowsBuild && process.env.CI !== 'true' && fs.existsSync(winExePath);
@@ -761,7 +772,7 @@ try {
       throw error;
     }
 
-    console.log('⚠️  Windows local build failed after AionUi.exe was produced.');
+    console.log(`⚠️  Windows local build failed after ${WINDOWS_EXECUTABLE_NAME} was produced.`);
     if (firstError) {
       console.log('   First failure summary:');
       console.log(
@@ -774,7 +785,7 @@ try {
     }
     console.log('   Retrying local build with win.signAndEditExecutable=false...');
     console.log('   This fallback is intended for transient rcedit / file-lock failures on developer machines.');
-    killWindowsProcesses(['AionUi.exe', 'electron.exe']);
+    killWindowsProcesses([WINDOWS_EXECUTABLE_NAME, 'electron.exe']);
     cleanupWindowsPackOutput();
 
     try {

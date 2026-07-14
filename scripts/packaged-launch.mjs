@@ -4,6 +4,10 @@ import path from 'node:path';
 import process from 'node:process';
 import { spawn } from 'node:child_process';
 
+import productIdentity from './windows/productIdentity.cjs';
+
+const { WINDOWS_EXECUTABLE_NAME } = productIdentity;
+
 function parseArgs(argv) {
   const flags = new Set(argv.filter((x) => x.startsWith('--')));
   const values = argv.filter((x) => !x.startsWith('--'));
@@ -30,7 +34,7 @@ function resolvePackagedApp(projectRoot) {
 
   if (process.platform === 'win32') {
     for (const dir of ['win-unpacked', 'win-x64-unpacked', 'win-arm64-unpacked']) {
-      const exe = path.join(outDir, dir, 'AionUi.exe');
+      const exe = path.join(outDir, dir, WINDOWS_EXECUTABLE_NAME);
       if (fs.existsSync(exe)) return { executablePath: exe, cwd: path.join(outDir, dir) };
     }
   } else if (process.platform === 'darwin') {
@@ -70,10 +74,13 @@ async function main() {
   }
 
   if (shouldClean) {
-    await killProcessByName('AionUi.exe');
-    await killProcessByName('AionUi');
-    await killProcessByName('electron.exe');
-    await killProcessByName('electron');
+    if (isWindows()) {
+      await killProcessByName(WINDOWS_EXECUTABLE_NAME);
+      await killProcessByName('electron.exe');
+    } else {
+      await killProcessByName('AionUi');
+      await killProcessByName('electron');
+    }
   }
 
   const env = {

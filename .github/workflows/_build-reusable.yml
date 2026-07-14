@@ -314,6 +314,29 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Prove Windows build failures are fatal
+        if: matrix.platform == 'windows-x64'
+        shell: pwsh
+        run: |
+          $PreviousSelftestValue = $env:BUILD_WITH_BUILDER_SELFTEST_FAIL
+          $env:BUILD_WITH_BUILDER_SELFTEST_FAIL = '1'
+          try {
+            $Injected = Start-Process -FilePath node `
+              -ArgumentList @('scripts/build-with-builder.js', 'x64', '--win', '--x64') `
+              -NoNewWindow -Wait -PassThru
+          } finally {
+            if ($null -eq $PreviousSelftestValue) {
+              Remove-Item Env:BUILD_WITH_BUILDER_SELFTEST_FAIL -ErrorAction SilentlyContinue
+            } else {
+              $env:BUILD_WITH_BUILDER_SELFTEST_FAIL = $PreviousSelftestValue
+            }
+          }
+          $InjectedExitCode = $Injected.ExitCode
+          if ($InjectedExitCode -eq 0) {
+            throw 'False-green regression: injected Windows build failure returned exit code 0'
+          }
+          Write-Host "Injected build failed as required (exit $InjectedExitCode)"
+
       - name: Build with electron-builder (Windows)
         if: startsWith(matrix.platform, 'windows')
         id: windows-build
@@ -321,23 +344,13 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $Command = $env:WINDOWS_BUILD_COMMAND
-          $BuildFailed = $false
-
-          try {
-            Write-Host "Running Windows build command: $Command"
-            iex $Command
-            Write-Host "Windows build completed successfully"
-          } catch {
-            $BuildFailed = $true
-            Write-Warning "${{ matrix.platform }} build failed but will not block the workflow"
-            Write-Host "::notice title=Windows build skipped::${{ matrix.platform }} build failed (see logs above) but workflow is allowed to continue."
+          Write-Host "Running Windows build command: $Command"
+          Invoke-Expression $Command
+          if ($LASTEXITCODE -ne 0) {
+            throw "${{ matrix.platform }} build failed with exit code $LASTEXITCODE"
           }
-
-          if ($BuildFailed) {
-            "result=failure" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          } else {
-            "result=success" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          }
+          "result=success" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "Windows build completed successfully"
         env:
           WINDOWS_BUILD_COMMAND: ${{ matrix.command }}
           # Node.js memory limit for vite bundling (prevents OOM during build)
@@ -353,27 +366,16 @@ jobs:
           npm_config_cache: ${{ runner.temp }}/.npm
           ELECTRON_CACHE: ${{ runner.temp }}/.cache/electron
           ELECTRON_BUILDER_CACHE: ${{ runner.temp }}/.cache/electron-builder
-          # Signing & IDs / 签名与应用 ID 配置
-          APP_ID: ${{ secrets.APP_ID }}
-          appleId: ${{ secrets.APPLE_ID }}
-          appleIdPassword: ${{ secrets.APPLE_ID_PASSWORD }}
-          teamId: ${{ secrets.TEAM_ID }}
-          identity: ${{ secrets.IDENTITY }}
-          CSC_NAME: ${{ secrets.IDENTITY }}
+          # Phase A is unsigned. Never expose Apple or provider credentials to a Windows build.
           CSC_IDENTITY_AUTO_DISCOVERY: false
           # Windows build flags / Windows 构建参数
           MSVS_VERSION: 2022
           GYP_MSVS_VERSION: 2022
           WindowsTargetPlatformVersion: 10.0.19041.0
           _WIN32_WINNT: 0x0A00
-          # Sentry DSN (injected at build time via vite define)
-          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
           # CI flag & GitHub token / CI 标识与 GitHub Token
           CI: true
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Clean up any stale disk images before DMG creation (macOS only)
       # 清理可能残留的磁盘镜像，避免 hdiutil "Device not configured" 错误
@@ -539,6 +541,14 @@ jobs:
             echo "No out directory found!"
           fi
 
+      - name: Verify Command EVE Windows x64 package inventory
+        if: success() && matrix.platform == 'windows-x64'
+        shell: bash
+        run: |
+          node scripts/windows/verifyWindowsPackage.mjs \
+            --out out \
+            --report reports/windows/phase-a/gates/WIN-G05-package-inventory.json
+
       # Verify desktop asar does not contain packages/web-cli/ contamination
       # 验证桌面 asar 没有被 web-cli 代码污染
       - name: Verify desktop asar isolation
@@ -593,10 +603,11 @@ jobs:
             out/*.msi
             out/*.dmg
             out/*.deb
-            out/AionUi-*-win32-*.zip
-            out/AionUi-*-mac-*.zip
+            out/*-win-*.zip
+            out/*-mac-*.zip
             out/*.yml
-          if-no-files-found: warn
+            reports/windows/phase-a/gates/*.json
+          if-no-files-found: error
           retention-days: 7
 
   build-summary:
