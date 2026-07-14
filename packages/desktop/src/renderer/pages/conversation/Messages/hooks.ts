@@ -17,6 +17,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createContext } from '@renderer/utils/ui/createContext';
 
 const MESSAGE_HISTORY_PAGE_SIZE = 200;
+const TERMINAL_RECONCILE_DELAY_MS = 75;
+const TERMINAL_RECONCILE_RETRY_DELAY_MS = 600;
+const TERMINAL_RECONCILE_MAX_ATTEMPTS = 2;
 
 const [useMessageList, MessageListProvider, useUpdateMessageList] = createContext([] as TMessage[]);
 const [useMessageListLoading, MessageListLoadingProvider, useUpdateMessageListLoading] = createContext(false);
@@ -669,6 +672,75 @@ export function mergeInitialHistoryMessages(
   return [...mergedMessages, ...streamingOnly];
 }
 
+export function reconcileHistoryMessages(
+  currentList: TMessage[],
+  historyMessages: TMessage[],
+  conversation_id: string
+): TMessage[] {
+  const currentConversation = currentList.filter((message) => message.conversation_id === conversation_id);
+  const persistedConversation = historyMessages.filter((message) => message.conversation_id === conversation_id);
+  if (!currentConversation.length) return persistedConversation;
+  if (!persistedConversation.length) return currentConversation;
+
+  const persistedById = new Map(persistedConversation.map((message) => [message.id, message]));
+  const matches = new Map<TMessage, TMessage>();
+  const consumed = new Set<TMessage>();
+
+  for (const current of currentConversation) {
+    const persisted = persistedById.get(current.id);
+    if (!persisted || consumed.has(persisted)) continue;
+    matches.set(current, persisted);
+    consumed.add(persisted);
+  }
+
+  const currentByIdentity = new Map<string, TMessage[]>();
+  const persistedByIdentity = new Map<string, TMessage[]>();
+  for (const current of currentConversation) {
+    if (matches.has(current)) continue;
+    const identity = getMessageIdentity(current);
+    const candidates = currentByIdentity.get(identity) ?? [];
+    candidates.push(current);
+    currentByIdentity.set(identity, candidates);
+  }
+  for (const persisted of persistedConversation) {
+    if (consumed.has(persisted)) continue;
+    const identity = getMessageIdentity(persisted);
+    const candidates = persistedByIdentity.get(identity) ?? [];
+    candidates.push(persisted);
+    persistedByIdentity.set(identity, candidates);
+  }
+
+  for (const [identity, currentCandidates] of currentByIdentity) {
+    const persistedCandidates = persistedByIdentity.get(identity);
+    if (!persistedCandidates?.length) continue;
+    let currentIndex = currentCandidates.length - 1;
+    let persistedIndex = persistedCandidates.length - 1;
+    while (currentIndex >= 0 && persistedIndex >= 0) {
+      const current = currentCandidates[currentIndex--];
+      const persisted = persistedCandidates[persistedIndex--];
+      matches.set(current, persisted);
+      consumed.add(persisted);
+    }
+  }
+
+  let changed = currentConversation.length !== currentList.length;
+  const reconciled = currentConversation.map((current) => {
+    const persisted = matches.get(current);
+    if (!persisted || current.type !== 'text' || persisted.type !== 'text') return current;
+    const preferred = preferTextMessageVersion(persisted, current);
+    if (preferred !== current) changed = true;
+    return preferred;
+  });
+
+  for (const persisted of persistedConversation) {
+    if (consumed.has(persisted)) continue;
+    reconciled.push(persisted);
+    changed = true;
+  }
+
+  return changed ? reconciled : currentList;
+}
+
 export function prependOlderHistoryMessages(
   currentList: TMessage[],
   olderMessages: TMessage[],
@@ -734,6 +806,23 @@ export const useMessageLstCache = (key: string) => {
     }
     return [];
   }, [key, setOlderAvailability, update]);
+
+  const reconcileMessages = useCallback(
+    async (expectedTerminalMessageId: string): Promise<boolean> => {
+      const generation = loadGenerationRef.current;
+      const result = await ipcBridge.database.getConversationMessages.invoke(buildConversationHistoryPageRequest(key));
+      if (generation !== loadGenerationRef.current) return true;
+      const messages = toChronologicalHistoryPage(result?.items?.map(normalizeDbMessage) ?? []);
+      update((currentList) => reconcileHistoryMessages(currentList, messages, key));
+      return (
+        !expectedTerminalMessageId ||
+        messages.some(
+          (message) => message.id === expectedTerminalMessageId || message.msg_id === expectedTerminalMessageId
+        )
+      );
+    },
+    [key, update]
+  );
 
   const loadOlderMessages = useCallback(async (): Promise<void> => {
     if (!key || isLoadingOlderMessagesRef.current || !hasOlderMessagesRef.current) return;
@@ -831,6 +920,52 @@ export const useMessageLstCache = (key: string) => {
       });
     });
   }, [key, update]);
+
+  useEffect(() => {
+    if (!key) return;
+
+    let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconcileSequence = 0;
+
+    const scheduleReconcile = (sequence: number, terminalMessageId: string, attempt: number, delay: number) => {
+      reconcileTimer = setTimeout(() => {
+        reconcileTimer = null;
+        void reconcileMessages(terminalMessageId)
+          .then((foundTerminalMessage) => {
+            if (sequence !== reconcileSequence || foundTerminalMessage || attempt >= TERMINAL_RECONCILE_MAX_ATTEMPTS) {
+              return;
+            }
+            scheduleReconcile(sequence, terminalMessageId, attempt + 1, TERMINAL_RECONCILE_RETRY_DELAY_MS);
+          })
+          .catch((error) => {
+            if (sequence === reconcileSequence && attempt < TERMINAL_RECONCILE_MAX_ATTEMPTS) {
+              scheduleReconcile(sequence, terminalMessageId, attempt + 1, TERMINAL_RECONCILE_RETRY_DELAY_MS);
+              return;
+            }
+            console.error('[useMessageLstCache] Failed to reconcile completed turn:', error);
+          });
+      }, delay);
+    };
+
+    const unsubscribe = ipcBridge.conversation.responseStream.on((message) => {
+      if (message.conversation_id !== key || (message.type !== 'finish' && message.type !== 'error')) {
+        return;
+      }
+
+      if (reconcileTimer) clearTimeout(reconcileTimer);
+      reconcileSequence += 1;
+      // The WebSocket is the fast path; the persisted transcript is the durable
+      // truth. Reconcile shortly after a terminal frame so a transient renderer
+      // listener gap or reconnect cannot leave an active chat blank until remount.
+      scheduleReconcile(reconcileSequence, message.msg_id, 1, TERMINAL_RECONCILE_DELAY_MS);
+    });
+
+    return () => {
+      reconcileSequence += 1;
+      unsubscribe();
+      if (reconcileTimer) clearTimeout(reconcileTimer);
+    };
+  }, [key, reconcileMessages]);
 
   return useMemo<MessageHistoryPagination>(
     () => ({

@@ -42,8 +42,8 @@
 .sendbox-stop-button,
 .sendbox-stop-button.arco-btn,
 .sendbox-stop-button.arco-btn-secondary {
-  background: rgb(var(--primary-6)) !important;
-  border: 1px solid rgb(var(--primary-6)) !important;
+  background: var(--eve-brand-logo, rgb(var(--primary-6))) !important;
+  border: 1px solid var(--eve-brand-logo, rgb(var(--primary-6))) !important;
   color: #ffffff !important;
   box-shadow: none !important;
 }
@@ -61,11 +61,18 @@
 }
 
 .sendbox-stop-icon {
-  display: block;
-  width: 12px;
-  height: 12px;
-  border-radius: 2px;
-  background: #ffffff;
+  display: inline-flex;
+  width: 15px;
+  height: 15px;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+}
+
+.sendbox-stop-icon svg {
+  width: 15px;
+  height: 15px;
+  fill: currentColor;
 }
 
 /* Breathe via color + a soft glow ring only — NO transform: scale(). On narrow
@@ -80,7 +87,7 @@
   }
 
   100% {
-    box-shadow: 0 0 0 5px rgba(var(--primary-6), 0.2);
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--eve-brand-logo, rgb(var(--primary-6))) 20%, transparent);
   }
 }
 

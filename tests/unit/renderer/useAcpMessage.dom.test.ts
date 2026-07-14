@@ -74,6 +74,38 @@ describe('useAcpMessage', () => {
     reportInferenceErrorMock.mockReturnValue(false);
   });
 
+  it('keeps one response-stream subscription across stream-driven renders', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    renderHook(() => useAcpMessage('conv-1'));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(responseStreamOnMock).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: null,
+        msg_id: 'msg-1',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'text',
+        data: 'Visible without remount',
+        msg_id: 'msg-1',
+        conversation_id: 'conv-1',
+      });
+    });
+
+    expect(responseStreamOnMock).toHaveBeenCalledTimes(1);
+    expect(addOrUpdateMessageMock).toHaveBeenCalled();
+  });
+
   describe('ACP stream watchdog', () => {
     it('classifies stale buffered renderer work as ui_backlog', () => {
       expect(

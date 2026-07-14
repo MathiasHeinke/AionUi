@@ -28,8 +28,9 @@ describe('EVE composer surface contract', () => {
 
   it('keeps drag feedback, stop contrast and scoped placeholders intact', () => {
     expect(sendBoxSource).toContain("isFileDragging ? 'eve-composer-surface--dragging' : ''");
-    expect(sendBoxSource).toContain("className='sendbox-stop-icon'");
-    expect(sendBoxCss).toMatch(/\.sendbox-stop-icon\s*\{[\s\S]*?background:\s*#ffffff;/);
+    expect(sendBoxSource).toContain("SquareSmall className='sendbox-stop-icon'");
+    expect(sendBoxCss).toMatch(/\.sendbox-stop-icon\s*\{[\s\S]*?color:\s*#ffffff;/);
+    expect(sendBoxCss).toContain('var(--eve-brand-logo, rgb(var(--primary-6)))');
     expect(sendBoxCss).toContain('.sendbox-panel ::placeholder');
     expect(sendBoxCss).not.toMatch(/(?:^|\n)::placeholder\s*\{/);
   });

@@ -207,7 +207,11 @@ vi.mock('@arco-design/web-react', () => ({
     error: vi.fn(),
   },
   Popover: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+  Radio: Object.assign(({ children }: { children?: React.ReactNode }) => <>{children}</>, {
+    Group: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+  }),
   Tag: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+  Tooltip: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
 }));
 
 const makeMessageState = (): UseAcpMessageReturn =>

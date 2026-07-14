@@ -19,9 +19,29 @@ import {
 } from '@/renderer/pages/conversation/Messages/hooks';
 import { fetchAllConversationMessages } from '@/renderer/utils/chat/messageHistory';
 
+const { responseStreamHandlerRef } = vi.hoisted(() => ({
+  responseStreamHandlerRef: {
+    current: undefined as
+      | ((message: { type: string; conversation_id: string; msg_id: string; data: unknown }) => void)
+      | undefined,
+  },
+}));
+
 vi.mock('@/common', () => ({
   ipcBridge: {
     conversation: {
+      responseStream: {
+        on: vi
+          .fn()
+          .mockImplementation(
+            (handler: (message: { type: string; conversation_id: string; msg_id: string; data: unknown }) => void) => {
+              responseStreamHandlerRef.current = handler;
+              return () => {
+                if (responseStreamHandlerRef.current === handler) responseStreamHandlerRef.current = undefined;
+              };
+            }
+          ),
+      },
       userCreated: {
         on: vi.fn().mockReturnValue(() => {}),
       },
@@ -144,6 +164,7 @@ async function flushMessageQueue(): Promise<void> {
 describe('message merging', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    responseStreamHandlerRef.current = undefined;
   });
 
   afterEach(() => {
@@ -297,6 +318,175 @@ describe('message merging', () => {
     expect(result.current.pagination.hasOlderMessages).toBe(true);
     expect(result.current.pagination.loadedHistoricalMessages).toBe(2);
     expect(result.current.pagination.totalHistoricalMessages).toBe(2);
+  });
+
+  it('reconciles persisted messages after a terminal stream event without remounting the chat', async () => {
+    const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
+    invoke.mockClear();
+    invoke
+      .mockResolvedValueOnce({
+        items: [],
+        oldest_cursor: null,
+        newest_cursor: null,
+        has_more_before: false,
+        has_more_after: false,
+      })
+      .mockResolvedValueOnce({
+        items: [createTextMessage('msg-1', 'Visible without route re-entry')],
+        oldest_cursor: 'cursor-msg-1',
+        newest_cursor: 'cursor-msg-1',
+        has_more_before: false,
+        has_more_after: false,
+      });
+
+    const { result } = renderHook(() => useMessageCacheHarness(), {
+      wrapper: CacheWrapper,
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.messages).toEqual([]);
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'finish',
+        data: null,
+        msg_id: 'msg-1',
+        conversation_id: CONVERSATION_ID,
+      });
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(75);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect((result.current.messages[0] as IMessageText).content.content).toBe('Visible without route re-entry');
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves loaded history order and pagination when a terminal event reconciles the newest page', async () => {
+    const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
+    invoke.mockClear();
+    invoke
+      .mockResolvedValueOnce({
+        items: [createTextMessage('msg-2', 'middle'), createTextMessage('msg-3', 'recent')],
+        oldest_cursor: 'cursor-msg-2',
+        newest_cursor: 'cursor-msg-3',
+        has_more_before: true,
+        has_more_after: false,
+      })
+      .mockResolvedValueOnce({
+        items: [createTextMessage('msg-1', 'oldest'), createTextMessage('msg-2', 'middle')],
+        oldest_cursor: 'cursor-msg-1',
+        newest_cursor: 'cursor-msg-2',
+        has_more_before: false,
+        has_more_after: true,
+      })
+      .mockResolvedValueOnce({
+        items: [
+          createTextMessage('msg-2', 'middle'),
+          createTextMessage('msg-3', 'recent'),
+          createTextMessage('msg-4', 'newest'),
+        ],
+        oldest_cursor: 'cursor-msg-2',
+        newest_cursor: 'cursor-msg-4',
+        has_more_before: true,
+        has_more_after: false,
+      });
+
+    const { result } = renderHook(() => useMessageCacheHarness(), {
+      wrapper: CacheWrapper,
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await result.current.pagination.loadOlderMessages();
+    });
+    const loadedBeforeReconcile = result.current.pagination.loadedHistoricalMessages;
+    const totalBeforeReconcile = result.current.pagination.totalHistoricalMessages;
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'finish',
+        data: null,
+        msg_id: 'msg-4',
+        conversation_id: CONVERSATION_ID,
+      });
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(75);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result.current.messages.map((message) => message.msg_id)).toEqual(['msg-1', 'msg-2', 'msg-3', 'msg-4']);
+    expect(result.current.pagination.loadedHistoricalMessages).toBe(loadedBeforeReconcile);
+    expect(result.current.pagination.totalHistoricalMessages).toBe(totalBeforeReconcile);
+    expect(result.current.pagination.hasOlderMessages).toBe(false);
+  });
+
+  it('retries a terminal reconciliation when persistence trails the first read', async () => {
+    const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
+    invoke.mockClear();
+    invoke
+      .mockResolvedValueOnce({
+        items: [],
+        oldest_cursor: null,
+        newest_cursor: null,
+        has_more_before: false,
+        has_more_after: false,
+      })
+      .mockResolvedValueOnce({
+        items: [],
+        oldest_cursor: null,
+        newest_cursor: null,
+        has_more_before: false,
+        has_more_after: false,
+      })
+      .mockResolvedValueOnce({
+        items: [createTextMessage('msg-1', 'Persisted after the retry delay')],
+        oldest_cursor: 'cursor-msg-1',
+        newest_cursor: 'cursor-msg-1',
+        has_more_before: false,
+        has_more_after: false,
+      });
+
+    const { result } = renderHook(() => useMessageCacheHarness(), {
+      wrapper: CacheWrapper,
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'finish',
+        data: null,
+        msg_id: 'msg-1',
+        conversation_id: CONVERSATION_ID,
+      });
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(75);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.messages).toEqual([]);
+    expect(invoke).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect((result.current.messages[0] as IMessageText).content.content).toBe('Persisted after the retry delay');
+    expect(invoke).toHaveBeenCalledTimes(3);
   });
 
   it('prepends older pages by cursor without duplicating overlap', async () => {

@@ -19,7 +19,7 @@ import { useAddOrUpdateMessage } from '@/renderer/pages/conversation/Messages/ho
 import type { ThoughtData } from '@/renderer/components/chat/ThoughtDisplay';
 import { useQuotaWall, type QuotaWallState } from '@renderer/hooks/useQuotaWall';
 import { ensureAcpGenerationTracking } from '@renderer/services/commandEveGenerationActivity';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 const THINKING_MESSAGE_THROTTLE_MS = 50;
 
@@ -160,6 +160,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
   // (the 'error' case below) feeds it via reportInferenceError; the container
   // renders the wall from this state.
   const quotaWall = useQuotaWall();
+  const reportInferenceError = quotaWall.reportInferenceError;
 
   // Use refs to sync state for immediate access in event handlers
   const runningRef = useRef(running);
@@ -767,7 +768,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           // quota_exhausted surfaces <QuotaExhaustedWall/>; anything else is a
           // no-op so the existing error message rendering is untouched.
           const jobWasInFlight = runningRef.current || aiProcessingRef.current;
-          const quotaSignal = quotaWall.reportInferenceError(message.data, { jobInFlight: jobWasInFlight });
+          const quotaSignal = reportInferenceError(message.data, { jobInFlight: jobWasInFlight });
           // M-quotawall-suppress (Codex): a recognized quota/daily-cap signal shows a
           // full warm wall (QuotaExhaustedWall / DailyCapWall) — but ONLY when a turn
           // was in-flight (both walls idle-suppress on jobInFlight). In that exact
@@ -828,13 +829,25 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
       setRunning,
       setAiProcessing,
       setAcpStatus,
-      quotaWall,
+      reportInferenceError,
     ]
   );
 
-  useEffect(() => {
-    return ipcBridge.acpConversation.responseStream.on(handleResponseMessage);
+  const handleResponseMessageRef = useRef(handleResponseMessage);
+
+  useLayoutEffect(() => {
+    handleResponseMessageRef.current = handleResponseMessage;
   }, [handleResponseMessage]);
+
+  useEffect(() => {
+    // Keep one listener for the lifetime of the mounted chat. Re-subscribing on
+    // every stream-driven render creates a cleanup/setup gap in which fast text
+    // or finish frames can be lost while the global activity listener still sees
+    // them. The stable wrapper always dispatches to the latest handler instead.
+    return ipcBridge.acpConversation.responseStream.on((message) => {
+      handleResponseMessageRef.current(message);
+    });
+  }, []);
 
   useEffect(() => {
     const timer = window.setInterval(() => {

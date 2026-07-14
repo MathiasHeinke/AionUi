@@ -22,6 +22,7 @@
  * EVE combines inference, privacy, permission/tools and context into one
  * progressive-disclosure control. Non-EVE surfaces retain their direct slots.
  *   - micSlot         → SpeechInputButton (mounted for BOTH surfaces)
+ *   - busyModeSlot    → queue/correction mode while EVE is already working
  *   - permissionSlot  → AgentModeSelector (compact, Shield, 'Berechtigung' prefix)
  *   - contextSlot     → ContextUsageIndicator (the consumed-context + credits ring)
  *   - sendSlot        → each surface's own send/stop button (wired to its textarea)
@@ -62,6 +63,8 @@ export interface UnifiedSendBarProps {
   modelSlot?: React.ReactNode;
   /** Microphone — the shared SpeechInputButton, mounted for BOTH surfaces. */
   micSlot?: React.ReactNode;
+  /** Queue/correction mode shown only while the current turn is running. */
+  busyModeSlot?: React.ReactNode;
   /** Permission-mode selector (the 3 honest EVE modes; compact, Shield, prefix). */
   permissionSlot?: React.ReactNode;
   /** Context-usage + credits indicator (the consumed-context ring + popover). */
@@ -185,6 +188,7 @@ const UnifiedSendBar: React.FC<UnifiedSendBarProps> = ({
   centerSlot,
   modelSlot,
   micSlot,
+  busyModeSlot,
   permissionSlot,
   contextSlot,
   eveControl,
@@ -205,6 +209,7 @@ const UnifiedSendBar: React.FC<UnifiedSendBarProps> = ({
       {/* Right cluster: EVE control · mic · send. Stays on one
           row, never wraps under the send button. */}
       <div className='unified-send-bar__right flex items-center gap-6px flex-shrink-0 min-w-0 ml-auto'>
+        {busyModeSlot}
         {eveControl ? (
           <EveComposerControl config={eveControl} modelSlot={modelSlot} permissionSlot={permissionSlot} />
         ) : (

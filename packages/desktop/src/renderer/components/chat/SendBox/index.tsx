@@ -24,7 +24,7 @@ import { filterWorkspaceMentionItems } from '@/renderer/utils/file/workspaceMent
 import { copyText } from '@/renderer/utils/ui/clipboard';
 import { blurActiveElement, shouldBlockMobileInputFocus } from '@/renderer/utils/ui/focus';
 import { Button, Input, Message, Tag } from '@arco-design/web-react';
-import { ArrowUp, CloseSmall, Plus, Quote } from '@icon-park/react';
+import { ArrowUp, CloseSmall, Plus, Quote, SquareSmall } from '@icon-park/react';
 import type { SlashCommandItem } from '@/common/chat/slash/types';
 import { theme } from '@office-ai/platform';
 import React, { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -1335,7 +1335,7 @@ const SendBox: React.FC<{
       shape='circle'
       type='secondary'
       className='bg-animate sendbox-stop-button'
-      icon={<span className='sendbox-stop-icon' aria-hidden='true' />}
+      icon={<SquareSmall className='sendbox-stop-icon' theme='filled' size='15' aria-hidden='true' />}
       onClick={stopHandler}
       aria-label={t('common.stop')}
     ></Button>

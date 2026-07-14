@@ -60,7 +60,7 @@ import { emitter, useAddEventListener } from '@/renderer/utils/emitter';
 import { mergeFileSelectionItems } from '@/renderer/utils/file/fileSelection';
 import { buildDisplayMessage } from '@/renderer/utils/file/messageFiles';
 import { Message, Tag } from '@arco-design/web-react';
-import { Brain, MagicHat, Shield } from '@icon-park/react';
+import { Brain, EditOne, MagicHat, Shield, Time } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { buildSendFailureError } from './buildSendFailureError';
@@ -664,6 +664,42 @@ Please check your local CLI tool authentication status`,
       });
     }
 
+    if (runtimeView.isProcessing) {
+      entries.push({
+        key: 'busy-send-mode',
+        icon: busySendMode === 'steer' ? <EditOne theme='outline' size='16' /> : <Time theme='outline' size='16' />,
+        label: t('conversation.commandQueue.busyModeAria', { defaultValue: 'Busy send mode' }),
+        meta: t(
+          busySendMode === 'steer'
+            ? 'conversation.commandQueue.busyModeSteer'
+            : 'conversation.commandQueue.busyModeQueue',
+          { defaultValue: busySendMode === 'steer' ? 'Correction' : 'Afterwards' }
+        ),
+        submenu: {
+          title: t('conversation.commandQueue.busyModeAria', { defaultValue: 'Busy send mode' }),
+          options: [
+            {
+              key: 'queue',
+              label: t('conversation.commandQueue.busyModeQueue', { defaultValue: 'Afterwards' }),
+              description: t('conversation.commandQueue.busyModeQueueTooltip', {
+                defaultValue: 'Send after the current run finishes.',
+              }),
+              active: busySendMode === 'queue',
+            },
+            {
+              key: 'steer',
+              label: t('conversation.commandQueue.busyModeSteer', { defaultValue: 'Correction' }),
+              description: t('conversation.commandQueue.busyModeSteerTooltip', {
+                defaultValue: 'Push into the current run after the next tool step.',
+              }),
+              active: busySendMode === 'steer',
+            },
+          ],
+          onSelect: (mode) => setBusySendMode(mode as ConversationBusyControlMode),
+        },
+      });
+    }
+
     attachEntries.forEach((entry, idx) => {
       entries.push({
         ...entry,
@@ -723,6 +759,7 @@ Please check your local CLI tool authentication status`,
     availableAgentModes,
     canSwitchModel,
     currentMode,
+    busySendMode,
     eveInference,
     formatModeLabel,
     handleSheetModeChange,
@@ -731,6 +768,7 @@ Please check your local CLI tool authentication status`,
     loadedMcpStatuses,
     loadedSkills,
     model_info,
+    runtimeView.isProcessing,
     selectModel,
     setContent,
     t,
@@ -847,6 +885,15 @@ Please check your local CLI tool authentication status`,
           // modelSlot is left empty there to avoid a duplicate.
           // Order: [model · permission · context+credits · mic]. SendBox owns send.
           <UnifiedSendBar
+            busyModeSlot={
+              isMobile ? null : (
+                <ConversationBusyModeControl
+                  visible={runtimeView.isProcessing}
+                  value={busySendMode}
+                  onChange={setBusySendMode}
+                />
+              )
+            }
             modelSlot={
               isMobile ? null : isEveConversation ? (
                 <EveInferencePicker disabled={isBusy} />
@@ -905,11 +952,6 @@ Please check your local CLI tool authentication status`,
         }
         prefix={
           <>
-            <ConversationBusyModeControl
-              visible={runtimeView.isProcessing}
-              value={busySendMode}
-              onChange={setBusySendMode}
-            />
             {uploadFile.length > 0 && (
               <HorizontalFileList>
                 {uploadFile.map((path) => (
