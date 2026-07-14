@@ -809,7 +809,7 @@ Please check your local CLI tool authentication status`,
   };
 
   return (
-    <div className='max-w-800px w-full mx-auto flex flex-col mt-auto mb-16px'>
+    <div className='acp-send-box max-w-800px w-full mx-auto flex flex-col mt-auto mb-16px'>
       {/* Video PRE-SUBMIT cost-wall (alpha.9 OI#2): the wall opens for a pending
           video-generation request and requires an explicit confirm before the
           actual request is dispatched. Fast/720p default; 1080p explicit upgrade. */}

@@ -191,6 +191,7 @@ const AssistantEditDrawer: React.FC<AssistantEditDrawerProps> = ({
 
   return (
     <Drawer
+      className='eve-assistant-drawer eve-assistant-drawer--right'
       title={
         <>
           <span>

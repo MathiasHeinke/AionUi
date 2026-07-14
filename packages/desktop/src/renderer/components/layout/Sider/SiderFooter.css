@@ -1,5 +1,7 @@
 .sider-footer {
+  box-sizing: border-box;
   flex: 0 0 auto;
+  min-height: var(--eve-shell-footer-height, 51px);
   margin-top: auto;
   padding: 8px;
   border-top: 1px solid var(--glass-chrome-border, var(--color-border-2));

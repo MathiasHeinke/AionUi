@@ -81,7 +81,7 @@ const AcpChat: React.FC<{
       }}
     >
       <ConversationArtifactProvider conversation_id={conversation_id}>
-        <div className='flex-1 flex flex-col px-20px min-h-0'>
+        <div className='acp-chat flex-1 flex flex-col px-20px min-h-0'>
           {headerSlot}
           <FlexFullContainer>
             <MessageList className='flex-1' emptySlot={emptySlot} historyPagination={historyPagination} />
@@ -92,14 +92,6 @@ const AcpChat: React.FC<{
               N finding(s)" instead of it happening silently. Gated only by the operator
               off-switch (commandEve.egressStatusVisible), never by dev mode. */}
           <EgressBoundaryNotice active={messageState.running || messageState.aiProcessing} />
-          {/* Runtime log strip (phase / lane / duration / context / Logs) — FOUNDER/DEV
-              ONLY: hidden for operators in packaged builds (useIsDevMode gate inside).
-              The consumed-context number relocates to the unified send bar (STEP 4). */}
-          <AcpRuntimeStatus
-            activity={messageState.runtimeActivity}
-            running={messageState.running}
-            aiProcessing={messageState.aiProcessing}
-          />
           {/* Lane-3 402 quota-exhausted wall — fed by the LIVE stream-error path
               in useAcpMessage. The wall idle-suppresses itself: it renders only
               when a turn was in-flight AND a 402 quota_exhausted body arrived. */}
@@ -127,6 +119,15 @@ const AcpChat: React.FC<{
               messageState={messageState}
             ></AcpSendBox>
           )}
+          {/* Runtime status is supporting chrome, not a second composer. It sits
+              below the input as the chat-column footer and aligns with the
+              account footer in the left sidebar. Founder/dev only; the component
+              remains hidden for operators in packaged builds. */}
+          <AcpRuntimeStatus
+            activity={messageState.runtimeActivity}
+            running={messageState.running}
+            aiProcessing={messageState.aiProcessing}
+          />
         </div>
       </ConversationArtifactProvider>
     </ConversationProvider>

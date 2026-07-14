@@ -106,4 +106,69 @@ describe('Command EVE visual rails', () => {
     expect(messageBlock).toContain('border-left: 2px solid var(--eve-status-completed) !important;');
     expect(messageBlock).not.toContain('linear-gradient(270deg, #f9fff2');
   });
+
+  it('keeps live chat layers transparent above the shared background material', () => {
+    const chatLayout = read('pages/conversation/components/ChatLayout/index.tsx');
+    const chatCss = read('pages/conversation/components/ChatLayout/chat-layout.css');
+
+    expect(chatLayout).toContain("className='size-full color-black chat-layout-shell'");
+    expect(chatLayout).toContain("className='shrink-0 chat-layout-header-block'");
+    expect(chatLayout).toContain('chat-layout-content');
+    expect(chatLayout).not.toContain("className='shrink-0 !bg-1'");
+    expect(chatCss).toMatch(/\.chat-layout-content\s*\{[\s\S]*?background:\s*transparent !important;/);
+  });
+
+  it('uses semantic geometry tiers for controls, overlays and dialogs', () => {
+    const visualCss = read('styles/themes/command-eve-visual.css');
+    const overrideCss = read('styles/arco-override.css');
+    const loginCss = read('pages/registrationGate/RegistrationGatePage.css');
+    const aionModal = read('components/base/AionModal.tsx');
+    const assistantDrawer = read('pages/settings/AssistantSettings/AssistantEditDrawer.tsx');
+
+    expect(visualCss).toContain('--eve-control-radius: 10px;');
+    expect(visualCss).toContain('--eve-overlay-radius: 14px;');
+    expect(visualCss).toContain('--eve-dialog-radius: 20px;');
+    expect(overrideCss).toContain('border-radius: var(--eve-overlay-radius, 14px) !important;');
+    expect(overrideCss).toContain('border-radius: var(--eve-dialog-radius, 20px) !important;');
+    expect(aionModal).toContain("contentStyle?.borderRadius || 'var(--eve-dialog-radius)'");
+    expect(loginCss).toContain('--registration-control-radius: var(--eve-control-radius, 10px);');
+    expect(loginCss).toContain('.registration-gate__field > .arco-input,');
+    expect(loginCss).toContain('.registration-gate__field > .arco-input-inner-wrapper,');
+    expect(assistantDrawer).toContain("className='eve-assistant-drawer eve-assistant-drawer--right'");
+    expect(overrideCss).toContain('.arco-drawer.eve-assistant-drawer--right');
+  });
+
+  it('keeps first-step navigation rows transparent in idle and focus states', () => {
+    const visualCss = read('styles/themes/command-eve-visual.css');
+
+    expect(visualCss).toContain('--eve-focus-glow:');
+    expect(visualCss).toContain('.erste-schritte-settings__step.arco-btn:focus-visible');
+    expect(visualCss).toContain('.erste-schritte-settings__step-state .arco-tag');
+    expect(visualCss).toMatch(
+      /\.erste-schritte-settings__step\.arco-btn\s*\{[\s\S]*?background:\s*transparent !important;/
+    );
+    expect(visualCss).not.toContain(
+      '.erste-schritte-settings__step.arco-btn + .erste-schritte-settings__step.arco-btn'
+    );
+  });
+
+  it('renders runtime status as the borderless footer below the chat composer', () => {
+    const acpChat = read('pages/conversation/platforms/acp/AcpChat.tsx');
+    const runtimeStatus = read('pages/conversation/platforms/acp/AcpRuntimeStatus.tsx');
+    const visualCss = read('styles/themes/command-eve-visual.css');
+    const siderFooterCss = read('components/layout/Sider/SiderFooter.css');
+    const sendBoxPosition = acpChat.indexOf('<AcpSendBox');
+    const statusPosition = acpChat.indexOf('<AcpRuntimeStatus');
+
+    expect(sendBoxPosition).toBeGreaterThan(-1);
+    expect(statusPosition).toBeGreaterThan(sendBoxPosition);
+    expect(runtimeStatus).toContain("className='acp-runtime-status'");
+    expect(acpChat).toContain("className='acp-chat flex-1 flex flex-col px-20px min-h-0'");
+    expect(visualCss).toContain('--eve-shell-footer-height: 51px;');
+    expect(siderFooterCss).toContain('min-height: var(--eve-shell-footer-height, 51px);');
+    expect(visualCss).toMatch(/\.acp-chat\s*\{[\s\S]*?overflow-x:\s*clip;/);
+    expect(visualCss).toMatch(/\.acp-runtime-status\s*\{[\s\S]*?border:\s*0;/);
+    expect(visualCss).toMatch(/\.acp-runtime-status\s*\{[\s\S]*?border-radius:\s*0;/);
+    expect(visualCss).toMatch(/\.acp-runtime-status\s*\{[\s\S]*?background:\s*transparent;/);
+  });
 });

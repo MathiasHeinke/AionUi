@@ -194,7 +194,7 @@ const ChatLayout: React.FC<{
   const desktopHeader = (
     <ArcoLayout.Header
       className={classNames(
-        'min-h-44px flex items-center justify-between px-16px pt-8px pb-10px gap-16px !bg-1 chat-layout-header chat-layout-header--glass overflow-hidden'
+        'min-h-44px flex items-center justify-between px-16px pt-8px pb-10px gap-16px chat-layout-header chat-layout-header--glass overflow-hidden'
       )}
     >
       <FlexFullContainer className='h-full min-w-0' containerClassName='flex items-center'>
@@ -249,7 +249,7 @@ const ChatLayout: React.FC<{
 
   return (
     <ArcoLayout
-      className='size-full color-black '
+      className='size-full color-black chat-layout-shell'
       style={{
         // fontFamily: `cursive,"anthropicSans","anthropicSans Fallback",system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif`,
       }}
@@ -264,7 +264,7 @@ const ChatLayout: React.FC<{
             flexBasis: 0,
           }}
         >
-          <div className='shrink-0 !bg-1'>{headerBlock}</div>
+          <div className='shrink-0 chat-layout-header-block'>{headerBlock}</div>
           <div className='flex flex-1 min-h-0 relative'>
             {/* Chat area - always mounted, never unmounted on preview toggle */}
             <div
@@ -281,7 +281,7 @@ const ChatLayout: React.FC<{
                 if (window.innerWidth < 768 && !rightSiderCollapsed) setRightSiderCollapsed(true);
               }}
             >
-              <ArcoLayout.Content className='flex flex-col flex-1 bg-1 overflow-hidden'>
+              <ArcoLayout.Content className='flex flex-col flex-1 overflow-hidden chat-layout-content'>
                 {props.children}
               </ArcoLayout.Content>
             </div>
@@ -321,7 +321,7 @@ const ChatLayout: React.FC<{
         {desktopPanelEnabled && !layout?.isMobile && (
           <div
             className={classNames(
-              '!bg-1 relative chat-layout-right-sider layout-sider',
+              'relative chat-layout-right-sider layout-sider',
               elementsRailEnabled && 'chat-layout-right-sider--elements'
             )}
             style={{
