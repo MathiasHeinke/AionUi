@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import childProcess from 'child_process';
+import childProcess, { type ChildProcess } from 'child_process';
 import fs from 'fs';
 import http from 'http';
 import os from 'os';
@@ -48,6 +48,12 @@ import {
   type CommandEveConnectorCatalogOptions,
   type CommandEveConnectorMcpInvocation,
 } from './connectorCatalogCore';
+import {
+  parseResolvedPythonPackages,
+  readBundledPythonProvenance,
+  sha256FileIfPresent,
+  type BundledPythonProvenance,
+} from './windows/runtimeProvenanceCore';
 
 export const COMMAND_EVE_RUNTIME_BOOTSTRAP_VERSION = 'command-eve-runtime-bootstrap/v0';
 
@@ -182,7 +188,9 @@ const FOUNDER_OPS_SKILLS_SOURCE_CANDIDATES = ['/Users/mathiasheinke/Developer/Co
 const COMMAND_EVE_RUNTIME_RECONCILIATION_FILE = 'command-eve-runtime-reconciliation.json';
 const DEFAULT_STAGE_TIMEOUT_MS = 120_000;
 const DEFAULT_LONG_STAGE_TIMEOUT_MS = 2_700_000;
-const PYTHON_BINARY_CANDIDATES = ['python3.13', 'python3.12', 'python3.11', 'python3'];
+const MAX_BOOTSTRAP_OUTPUT_BYTES = 2 * 1024 * 1024;
+const UNIX_PYTHON_BINARY_CANDIDATES = ['python3.13', 'python3.12', 'python3.11', 'python3'];
+const WINDOWS_PYTHON_BINARY_CANDIDATES = ['python3.13', 'python3.12', 'python3.11', 'python3', 'python'];
 // Hermes 0.16 supports CPython 3.11, 3.12, 3.13. We probe newest-first.
 const SUPPORTED_PYTHON_MINORS = ['3.13', '3.12', '3.11'] as const;
 const COMMAND_EVE_PYTHON_PATH_ENV = 'COMMAND_EVE_PYTHON_PATH';
@@ -194,15 +202,16 @@ const COMMAND_EVE_BUNDLED_PYTHON_ENV = 'COMMAND_EVE_BUNDLED_PYTHON';
 // Layout S1 ships under Contents/Resources/python/bin/python3.12 — i.e.
 // <resourcesPath>/python/bin/python3.12. Kept as path segments so it composes
 // with whatever resourcesPath the main process reports.
-const BUNDLED_PYTHON_REL_SEGMENTS = ['python', 'bin', 'python3.12'] as const;
+const DARWIN_BUNDLED_PYTHON_REL_SEGMENTS = ['python', 'bin', 'python3.12'] as const;
+const WINDOWS_BUNDLED_PYTHON_REL_SEGMENTS = ['python', 'python.exe'] as const;
 // On a zsh-default Mac, `bash -lc 'command -v'` runs a bash login shell that
 // does NOT source ~/.zprofile, so Homebrew's /opt/homebrew/bin (added by
 // `brew shellenv` in ~/.zprofile) can be missing from that PATH even after
 // `brew install python@3.12`. Probe the well-known absolute install locations
 // directly (fs.existsSync, then `<abs> --version`) so a supported interpreter
 // is found regardless of the login-shell PATH.
-function commonAbsolutePythonCandidates(): string[] {
-  if (process.platform === 'win32') return [];
+function commonAbsolutePythonCandidates(platform: NodeJS.Platform = process.platform): string[] {
+  if (platform === 'win32') return [];
   const home = os.homedir();
   const candidates: string[] = [];
   for (const minor of SUPPORTED_PYTHON_MINORS) {
@@ -241,10 +250,18 @@ function commonAbsolutePythonCandidates(): string[] {
 // Resources); in dev an explicit COMMAND_EVE_BUNDLED_PYTHON env can point at a
 // staged build. Returns '' when no bundle location is known — callers must then
 // fall through to the system-search chain, never hard-fail on a missing bundle.
-function resolveBundledPythonCandidate(env: NodeJS.ProcessEnv, resourcesPath?: string): string {
+export function resolveBundledPythonCandidate(
+  env: NodeJS.ProcessEnv,
+  resourcesPath?: string,
+  platform: NodeJS.Platform = process.platform
+): string {
   const override = compact(env[COMMAND_EVE_BUNDLED_PYTHON_ENV]);
   if (override) return override;
-  if (resourcesPath) return path.join(resourcesPath, ...BUNDLED_PYTHON_REL_SEGMENTS);
+  if (resourcesPath) {
+    const relativeSegments =
+      platform === 'win32' ? WINDOWS_BUNDLED_PYTHON_REL_SEGMENTS : DARWIN_BUNDLED_PYTHON_REL_SEGMENTS;
+    return path.join(resourcesPath, ...relativeSegments);
+  }
   return '';
 }
 
@@ -425,6 +442,7 @@ Ask ONE sharp clarifying question, not five (assume they're underspecified, not 
 `;
 
 export type RuntimeBootstrapMode = 'auto' | 'check' | 'off';
+export type RuntimeBootstrapProfile = 'default' | 'cloud_turn_holder_only';
 
 export type RuntimeBootstrapStageStatus = 'pass' | 'skip' | 'blocked' | 'failed';
 
@@ -556,6 +574,7 @@ export type RuntimeBootstrapManifest = {
 };
 
 export type RuntimeBootstrapPaths = {
+  platform: NodeJS.Platform;
   userDataPath: string;
   runtimeRoot: string;
   receiptPath: string;
@@ -578,6 +597,7 @@ export type RuntimeBootstrapReceipt = {
   version: string;
   app_release: string;
   mode: RuntimeBootstrapMode;
+  runtime_profile: RuntimeBootstrapProfile;
   status: 'ready' | 'blocked' | 'failed' | 'skipped';
   started_at: string;
   completed_at: string;
@@ -591,6 +611,7 @@ export type RuntimeBootstrapReceipt = {
   stages: RuntimeBootstrapStage[];
   next_action: string;
   warnings: string[];
+  runtime_provenance: RuntimeBootstrapProvenance;
   capabilities: {
     skills: number;
     connectors: number;
@@ -598,6 +619,26 @@ export type RuntimeBootstrapReceipt = {
   };
   identity?: RuntimeBootstrapIdentityProfile & {
     profile_path: string;
+  };
+};
+
+export type RuntimeBootstrapProvenance = {
+  platform: NodeJS.Platform;
+  python?: {
+    executable: string;
+    version: string;
+    source: 'bundled' | 'environment_override' | 'system';
+    archive?: BundledPythonProvenance;
+  };
+  hermes?: {
+    package: string;
+    required_version: string;
+    installed_version: string;
+    install_source: 'bundled_wheel' | 'package_index';
+    wheel_sha256?: string;
+    dependency_resolution: 'pypi_tls_on_first_boot';
+    package_snapshot_status: 'pending' | 'captured' | 'unavailable';
+    resolved_packages: string[];
   };
 };
 
@@ -626,6 +667,10 @@ export type RuntimeBootstrapDetachedSpawner = (
 
 export type RuntimeBootstrapOptions = {
   userDataPath: string;
+  /** Test/build seam; production defaults to process.platform. */
+  platform?: NodeJS.Platform;
+  /** Phase A Windows runs Hermes/cloud only and must never initialize Ollama. */
+  runtimeProfile?: RuntimeBootstrapProfile;
   appPath?: string;
   resourcesPath?: string;
   manifestPath?: string;
@@ -1435,6 +1480,67 @@ const writeJsonAtomic = (file: string, data: unknown): void => {
   fs.renameSync(tempFile, file);
 };
 
+type RuntimeOutputTail = { chunks: Buffer[]; bytes: number; truncated: boolean };
+
+function appendRuntimeOutputTail(target: RuntimeOutputTail, chunk: Buffer): void {
+  const copy = Buffer.from(chunk);
+  target.chunks.push(copy);
+  target.bytes += copy.length;
+  while (target.bytes > MAX_BOOTSTRAP_OUTPUT_BYTES && target.chunks.length > 0) {
+    const overflow = target.bytes - MAX_BOOTSTRAP_OUTPUT_BYTES;
+    const first = target.chunks[0];
+    target.truncated = true;
+    if (first.length <= overflow) {
+      target.chunks.shift();
+      target.bytes -= first.length;
+    } else {
+      target.chunks[0] = first.subarray(overflow);
+      target.bytes -= overflow;
+    }
+  }
+}
+
+function runtimeOutputText(target: RuntimeOutputTail): string {
+  const text = Buffer.concat(target.chunks, target.bytes).toString('utf8');
+  return target.truncated ? `[earlier output truncated]\n${text}` : text;
+}
+
+export function windowsRuntimeTaskkillArgs(pid: number): string[] {
+  if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error('Windows process id must be a positive integer');
+  return ['/PID', String(pid), '/T', '/F'];
+}
+
+type RuntimeTaskkill = (
+  command: string,
+  args: string[],
+  options: { stdio: 'ignore'; windowsHide: true; timeout: number }
+) => { status: number | null; error?: Error };
+
+export function terminateRuntimeBootstrapProcessTree(
+  child: Pick<ChildProcess, 'pid' | 'kill'>,
+  platform: NodeJS.Platform = process.platform,
+  taskkill: RuntimeTaskkill = (command, args, options) => childProcess.spawnSync(command, args, options)
+): 'taskkill' | 'signal' {
+  if (platform === 'win32' && child.pid) {
+    try {
+      const result = taskkill('taskkill', windowsRuntimeTaskkillArgs(child.pid), {
+        stdio: 'ignore',
+        windowsHide: true,
+        timeout: 10_000,
+      });
+      if (!result.error && result.status === 0) return 'taskkill';
+    } catch {
+      // Fall through to the direct signal when taskkill itself cannot start.
+    }
+  }
+  try {
+    child.kill('SIGTERM');
+  } catch {
+    // The process may have exited between timeout and termination.
+  }
+  return 'signal';
+}
+
 const defaultRunner: RuntimeBootstrapRunner = async (command, args, options) =>
   new Promise((resolve) => {
     const started = Date.now();
@@ -1443,12 +1549,12 @@ const defaultRunner: RuntimeBootstrapRunner = async (command, args, options) =>
       env: { ...process.env, ...options.env },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-    const stdoutChunks: Buffer[] = [];
-    const stderrChunks: Buffer[] = [];
+    const stdoutTail: RuntimeOutputTail = { chunks: [], bytes: 0, truncated: false };
+    const stderrTail: RuntimeOutputTail = { chunks: [], bytes: 0, truncated: false };
     let settled = false;
     const timeout = setTimeout(() => {
       if (settled) return;
-      child.kill('SIGTERM');
+      terminateRuntimeBootstrapProcessTree(child);
       settled = true;
       resolve({
         command,
@@ -1456,14 +1562,14 @@ const defaultRunner: RuntimeBootstrapRunner = async (command, args, options) =>
         ok: false,
         status: null,
         signal: 'SIGTERM',
-        stdout: Buffer.concat(stdoutChunks).toString('utf8'),
-        stderr: Buffer.concat(stderrChunks).toString('utf8'),
+        stdout: runtimeOutputText(stdoutTail),
+        stderr: runtimeOutputText(stderrTail),
         error: `Command timed out after ${Date.now() - started}ms`,
       });
     }, options.timeoutMs ?? DEFAULT_STAGE_TIMEOUT_MS);
 
-    child.stdout?.on('data', (chunk: Buffer) => stdoutChunks.push(chunk));
-    child.stderr?.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
+    child.stdout?.on('data', (chunk: Buffer) => appendRuntimeOutputTail(stdoutTail, chunk));
+    child.stderr?.on('data', (chunk: Buffer) => appendRuntimeOutputTail(stderrTail, chunk));
     child.on('error', (error) => {
       if (settled) return;
       clearTimeout(timeout);
@@ -1480,8 +1586,8 @@ const defaultRunner: RuntimeBootstrapRunner = async (command, args, options) =>
         ok: status === 0,
         status,
         signal,
-        stdout: Buffer.concat(stdoutChunks).toString('utf8'),
-        stderr: Buffer.concat(stderrChunks).toString('utf8'),
+        stdout: runtimeOutputText(stdoutTail),
+        stderr: runtimeOutputText(stderrTail),
       });
     });
   });
@@ -1519,7 +1625,8 @@ const defaultDetachedSpawner: RuntimeBootstrapDetachedSpawner = (command, args, 
  */
 export function resolveCommandEveRuntimeBootstrapPaths(
   userDataPath: string,
-  seatId: string | null = getActiveSeatId()
+  seatId: string | null = getActiveSeatId(),
+  platform: NodeJS.Platform = process.platform
 ): RuntimeBootstrapPaths {
   const root = path.resolve(userDataPath || path.join(os.homedir(), '.command-eve'));
   const runtimeRoot = path.join(root, 'command-eve-runtime');
@@ -1531,7 +1638,9 @@ export function resolveCommandEveRuntimeBootstrapPaths(
   // 'home')`. A real seat yields `<hermesRoot>/seats/<sanitized-id>/home`.
   const seat = resolveSeatHome(userDataPath, seatId);
   const hermesHome = seat.hermesHome;
+  const hermesVenv = path.join(hermesRoot, 'venv');
   return {
+    platform,
     userDataPath: root,
     runtimeRoot,
     receiptPath: path.join(runtimeRoot, 'runtime-bootstrap-receipt.json'),
@@ -1544,9 +1653,11 @@ export function resolveCommandEveRuntimeBootstrapPaths(
     capabilityPack: path.join(capabilitiesRoot, COMMAND_EVE_CAPABILITIES_FILE),
     hermesRoot,
     hermesHome,
-    hermesVenv: path.join(hermesRoot, 'venv'),
+    hermesVenv,
     hermesWrapper: path.join(hermesRoot, 'hermes-command-eve'),
-    hermesShim: path.join(hermesRoot, 'hermes'),
+    // Windows cannot execute the Bash shim. Pin AionCore directly to the console
+    // entry point generated by pip inside the app-managed venv.
+    hermesShim: platform === 'win32' ? path.join(hermesVenv, 'Scripts', 'hermes.exe') : path.join(hermesRoot, 'hermes'),
     managedSkillsRoot: path.join(hermesHome, COMMAND_EVE_MANAGED_SKILLS_DIR),
     founderOpsSkillsRoot: path.join(hermesHome, COMMAND_EVE_FOUNDER_OPS_SKILLS_DIR),
     runtimeReconciliation: path.join(capabilitiesRoot, COMMAND_EVE_RUNTIME_RECONCILIATION_FILE),
@@ -1580,13 +1691,14 @@ function prependPathSegment(env: NodeJS.ProcessEnv, segment: string): void {
 
 export function prepareCommandEveRuntimeProcessEnv(
   userDataPath: string,
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform
 ): RuntimeBootstrapPaths {
-  const paths = resolveCommandEveRuntimeBootstrapPaths(userDataPath);
+  const paths = resolveCommandEveRuntimeBootstrapPaths(userDataPath, getActiveSeatId(), platform);
   ensureDir(paths.hermesRoot);
   ensureDir(paths.hermesHome);
   writeHermesCliShim(paths);
-  prependPathSegment(env, paths.hermesRoot);
+  prependPathSegment(env, platform === 'win32' ? path.join(paths.hermesVenv, 'Scripts') : paths.hermesRoot);
   // GATE-NULL seat-isolation crux: pin the ACTIVE seat's home onto the env the
   // backend (and therefore the hermes ACP agent + ALL its children) inherits.
   // index.ts calls this with env=process.env BEFORE backendManager.start (which
@@ -2333,11 +2445,19 @@ export function validateRuntimeBootstrapManifest(
 async function commandExists(
   command: string,
   runner: RuntimeBootstrapRunner,
-  env: NodeJS.ProcessEnv
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform
 ): Promise<CommandLookup> {
   if (!safeCommandName(command)) return { ok: false, path: '' };
-  const result = await runner('bash', ['-lc', 'command -v -- "$1"', 'bash', command], { env, timeoutMs: 10_000 });
-  return { ok: result.ok && Boolean(compact(result.stdout)), path: compact(result.stdout) };
+  const result =
+    platform === 'win32'
+      ? await runner('where.exe', [command], { env, timeoutMs: 10_000 })
+      : await runner('bash', ['-lc', 'command -v -- "$1"', 'bash', command], { env, timeoutMs: 10_000 });
+  const resolvedPath = compact(result.stdout)
+    .split(/\r?\n/)
+    .map((candidate) => compact(candidate))
+    .find(Boolean);
+  return { ok: result.ok && Boolean(resolvedPath), path: resolvedPath || '' };
 }
 
 function parsePythonVersion(output: string): { major: number; minor: number; patch: number; text: string } | null {
@@ -2380,9 +2500,10 @@ async function probePythonAt(
 async function resolvePythonCommand(
   runner: RuntimeBootstrapRunner,
   env: NodeJS.ProcessEnv,
-  candidates = PYTHON_BINARY_CANDIDATES,
-  absoluteCandidates: string[] = commonAbsolutePythonCandidates(),
-  bundledCandidate = ''
+  platform: NodeJS.Platform = process.platform,
+  bundledCandidate = '',
+  candidates = platform === 'win32' ? WINDOWS_PYTHON_BINARY_CANDIDATES : UNIX_PYTHON_BINARY_CANDIDATES,
+  absoluteCandidates: string[] = commonAbsolutePythonCandidates(platform)
 ): Promise<PythonLookup> {
   let foundUnsupported = '';
   const noteUnsupported = (detailText: string): void => {
@@ -2425,8 +2546,10 @@ async function resolvePythonCommand(
   // 2) Version-specific PATH names first, then bare python3 — via the login
   //    shell so a user's normal PATH (incl. pyenv/asdf shims) is honored.
   for (const candidate of candidates) {
-    const lookup = await commandExists(candidate, runner, env);
+    // oxlint-disable-next-line no-await-in-loop -- precedence is intentional and probing stops at the first supported interpreter
+    const lookup = await commandExists(candidate, runner, env, platform);
     if (!lookup.ok) continue;
+    // oxlint-disable-next-line no-await-in-loop -- version probe depends on the ordered lookup result
     const probe = await probePythonAt(lookup.path, runner, env);
     if (probe.supported) return { ...lookup, version: probe.supported.version };
     if (probe.unsupportedText) noteUnsupported(probe.unsupportedText);
@@ -2437,6 +2560,7 @@ async function resolvePythonCommand(
   //    gates the spawn so probing is cheap and safe.
   for (const candidate of absoluteCandidates) {
     if (!fs.existsSync(candidate)) continue;
+    // oxlint-disable-next-line no-await-in-loop -- absolute candidates preserve explicit newest-first precedence
     const probe = await probePythonAt(candidate, runner, env);
     if (probe.supported) return probe.supported;
     if (probe.unsupportedText) noteUnsupported(probe.unsupportedText);
@@ -2448,9 +2572,10 @@ async function resolvePythonCommand(
 async function resolveOllamaCommand(
   runner: RuntimeBootstrapRunner,
   env: NodeJS.ProcessEnv,
-  binaryCandidates: string[] = LOCAL_OLLAMA_BINARY_CANDIDATES
+  binaryCandidates: string[] = LOCAL_OLLAMA_BINARY_CANDIDATES,
+  platform: NodeJS.Platform = process.platform
 ): Promise<CommandLookup> {
-  const lookup = await commandExists('ollama', runner, env);
+  const lookup = await commandExists('ollama', runner, env, platform);
   if (lookup.ok) return lookup;
   for (const candidate of binaryCandidates) {
     if (fs.existsSync(candidate)) return { ok: true, path: candidate };
@@ -2459,13 +2584,13 @@ async function resolveOllamaCommand(
 }
 
 function pythonBinary(paths: RuntimeBootstrapPaths): string {
-  return process.platform === 'win32'
+  return paths.platform === 'win32'
     ? path.join(paths.hermesVenv, 'Scripts', 'python.exe')
     : path.join(paths.hermesVenv, 'bin', 'python');
 }
 
 function hermesConsoleBinary(paths: RuntimeBootstrapPaths): string {
-  return process.platform === 'win32'
+  return paths.platform === 'win32'
     ? path.join(paths.hermesVenv, 'Scripts', 'hermes.exe')
     : path.join(paths.hermesVenv, 'bin', 'hermes');
 }
@@ -2576,6 +2701,9 @@ export function renderHermesHomeExport(home: string): string[] {
 function writeHermesCliShim(paths: RuntimeBootstrapPaths): void {
   const consoleBinary = hermesConsoleBinary(paths);
   if (!fs.existsSync(consoleBinary)) return;
+  // On Windows the stable command path is the pip-generated console .exe itself.
+  // Writing a Bash shim at that path would overwrite the executable.
+  if (paths.platform === 'win32') return;
   const shim = [
     '#!/usr/bin/env bash',
     'set -euo pipefail',
@@ -3831,17 +3959,19 @@ function writeHermesRuntimeFiles(
     { mode: 0o600 }
   );
   writeHermesOllamaProviderOverride(paths);
-  const wrapper = [
-    '#!/usr/bin/env bash',
-    'set -euo pipefail',
-    // Per-seat HERMES_HOME injected by the spawning process WINS; baked value is
-    // the fallback for a bare invocation (legacy-equal for no-seat). Same
-    // env-inheritance-pinning contract as the shim — see renderHermesHomeExport.
-    ...renderHermesHomeExport(paths.hermesHome),
-    `exec ${shellQuote(hermesConsoleBinary(paths))} "$@"`,
-    '',
-  ].join('\n');
-  fs.writeFileSync(paths.hermesWrapper, wrapper, { mode: 0o700 });
+  if (paths.platform !== 'win32') {
+    const wrapper = [
+      '#!/usr/bin/env bash',
+      'set -euo pipefail',
+      // Per-seat HERMES_HOME injected by the spawning process WINS; baked value is
+      // the fallback for a bare invocation (legacy-equal for no-seat). Same
+      // env-inheritance-pinning contract as the shim — see renderHermesHomeExport.
+      ...renderHermesHomeExport(paths.hermesHome),
+      `exec ${shellQuote(hermesConsoleBinary(paths))} "$@"`,
+      '',
+    ].join('\n');
+    fs.writeFileSync(paths.hermesWrapper, wrapper, { mode: 0o700 });
+  }
   writeHermesCliShim(paths);
   // Surface any missing/invalid bundled strategy skill so the caller can make it
   // VISIBLE (founder-self-detection). Empty = all 15 landed (or no snapshot path).
@@ -4032,9 +4162,11 @@ function buildReceipt(options: {
   tier: RuntimeBootstrapTier;
   runtimeModelRef: string;
   mode: RuntimeBootstrapMode;
+  runtimeProfile: RuntimeBootstrapProfile;
   startedAt: string;
   completedAt: string;
   stages: RuntimeBootstrapStage[];
+  runtimeProvenance: RuntimeBootstrapProvenance;
 }): RuntimeBootstrapReceipt {
   const blocked = options.stages.some((stage) => stage.status === 'blocked');
   const failed = options.stages.some((stage) => stage.status === 'failed');
@@ -4045,6 +4177,7 @@ function buildReceipt(options: {
     version: COMMAND_EVE_RUNTIME_BOOTSTRAP_VERSION,
     app_release: options.manifest.release,
     mode: options.mode,
+    runtime_profile: options.runtimeProfile,
     status,
     started_at: options.startedAt,
     completed_at: options.completedAt,
@@ -4062,6 +4195,7 @@ function buildReceipt(options: {
     warnings: options.stages
       .filter((stage) => stage.status === 'skip' && stage.detail)
       .map((stage) => stage.detail as string),
+    runtime_provenance: options.runtimeProvenance,
     capabilities: {
       skills: options.capabilityPack?.skills.length ?? 0,
       connectors: options.capabilityPack?.connectors.length ?? 0,
@@ -4083,6 +4217,8 @@ function buildReceipt(options: {
  * consumes to shape the emitted config.yaml / SOUL.md / managed skills. */
 export type ProvisionSeatRuntimeFilesOptions = {
   userDataPath: string;
+  /** Test/build seam; production defaults to process.platform. */
+  platform?: NodeJS.Platform;
   appPath?: string;
   resourcesPath?: string;
   manifestPath?: string;
@@ -4173,7 +4309,7 @@ export function provisionSeatRuntimeFiles(options: ProvisionSeatRuntimeFilesOpti
   // as a best-effort failure so a bad target can never provision the wrong home.
   let paths: RuntimeBootstrapPaths;
   try {
-    paths = resolveCommandEveRuntimeBootstrapPaths(options.userDataPath, seatId);
+    paths = resolveCommandEveRuntimeBootstrapPaths(options.userDataPath, seatId, options.platform ?? process.platform);
   } catch (error) {
     return {
       ok: false,
@@ -4279,12 +4415,14 @@ export function provisionSeatRuntimeFiles(options: ProvisionSeatRuntimeFilesOpti
 export async function ensureCommandEveRuntimeBootstrap(
   options: RuntimeBootstrapOptions
 ): Promise<RuntimeBootstrapReceipt> {
+  const platform = options.platform ?? process.platform;
+  const runtimeProfile = options.runtimeProfile ?? (platform === 'win32' ? 'cloud_turn_holder_only' : 'default');
   const env: NodeJS.ProcessEnv = { ...process.env, ...options.env, PYTHONDONTWRITEBYTECODE: '1' };
   const mode = (env.COMMAND_EVE_RUNTIME_BOOTSTRAP as RuntimeBootstrapMode) || options.mode || 'auto';
   const now = options.now || (() => new Date());
   const runner = options.runner || defaultRunner;
   const detachedSpawner = options.detachedSpawner || defaultDetachedSpawner;
-  const paths = resolveCommandEveRuntimeBootstrapPaths(options.userDataPath);
+  const paths = resolveCommandEveRuntimeBootstrapPaths(options.userDataPath, getActiveSeatId(), platform);
   const manifestPath = resolveCommandEveRuntimeBootstrapManifestPath(options);
   const capabilityManifestPath = resolveCommandEveCapabilityManifestPath(options);
   ensureDir(paths.runtimeRoot);
@@ -4310,6 +4448,7 @@ export async function ensureCommandEveRuntimeBootstrap(
   const runtimeModelRef = commandEveOllamaContextModelRef(tier.model_ref, tierOllamaNumCtx(tier));
   const startedAt = now().toISOString();
   const stages: RuntimeBootstrapStage[] = [];
+  const runtimeProvenance: RuntimeBootstrapProvenance = { platform };
   const finishReceipt = (): RuntimeBootstrapReceipt =>
     buildReceipt({
       paths,
@@ -4319,9 +4458,11 @@ export async function ensureCommandEveRuntimeBootstrap(
       tier,
       runtimeModelRef,
       mode,
+      runtimeProfile,
       startedAt,
       completedAt: now().toISOString(),
       stages,
+      runtimeProvenance,
     });
   const pushStage = (stage: RuntimeBootstrapStage): void => {
     stages.push(stage);
@@ -4433,10 +4574,19 @@ export async function ensureCommandEveRuntimeBootstrap(
   // EVE was actually UNPROVISIONED (perf audit, Opus+Codex CRITICAL). So on a low-RAM
   // machine we DOWNGRADE to cloud-only — mark the local model blocked (skip the Ollama +
   // model stages later) and CONTINUE the bootstrap. 16GB+ machines are unaffected
-  // (localModelBlocked stays false → byte-identical to before).
-  let localModelBlocked = false;
+  // (localModelSkip stays null → byte-identical to before).
+  let localModelSkip: { code: string; detail: string } | null =
+    runtimeProfile === 'cloud_turn_holder_only'
+      ? {
+          code: 'CLOUD_TURN_HOLDER_ONLY',
+          detail: 'Phase A runtime profile: Hermes and managed cloud chat enabled; Ollama and local models disabled.',
+        }
+      : null;
   if (totalMemoryGb < tier.min_unified_memory_gb) {
-    localModelBlocked = true;
+    localModelSkip ??= {
+      code: 'BLOCKED_RAM',
+      detail: 'Local model skipped (insufficient RAM for the local tier); EVE runs on the cloud lane.',
+    };
     pushStage(
       makeStage('capacity', 'skip', {
         code: 'BLOCKED_RAM',
@@ -4447,14 +4597,8 @@ export async function ensureCommandEveRuntimeBootstrap(
     pushStage(makeStage('capacity', 'pass', { detail: `${freeGb}GB free disk, ${totalMemoryGb}GB memory` }));
   }
 
-  const bundledPython = resolveBundledPythonCandidate(env, options.resourcesPath);
-  const python = await resolvePythonCommand(
-    runner,
-    env,
-    PYTHON_BINARY_CANDIDATES,
-    commonAbsolutePythonCandidates(),
-    bundledPython
-  );
+  const bundledPython = resolveBundledPythonCandidate(env, options.resourcesPath, platform);
+  const python = await resolvePythonCommand(runner, env, platform, bundledPython);
   if (!python.ok) {
     pushStage(
       makeStage('python', 'blocked', {
@@ -4464,6 +4608,18 @@ export async function ensureCommandEveRuntimeBootstrap(
     );
     return finishReceipt();
   }
+  const pythonUsesBundledCandidate =
+    bundledPython.length > 0 && path.resolve(python.path) === path.resolve(bundledPython);
+  runtimeProvenance.python = {
+    executable: python.path,
+    version: python.version || 'unknown',
+    source: pythonUsesBundledCandidate
+      ? compact(env[COMMAND_EVE_BUNDLED_PYTHON_ENV])
+        ? 'environment_override'
+        : 'bundled'
+      : 'system',
+    ...(pythonUsesBundledCandidate ? { archive: readBundledPythonProvenance(options.resourcesPath) } : {}),
+  };
 
   if (mode === 'check') {
     pushStage(makeStage('python', 'pass', { detail: `${python.path} (${python.version || 'version checked'})` }));
@@ -4490,6 +4646,16 @@ export async function ensureCommandEveRuntimeBootstrap(
 
   const bundledHermesWheel = resolveBundledHermesWheel(manifest, env, options);
   const hermesSpec = buildHermesPackageSpec(manifest, bundledHermesWheel);
+  runtimeProvenance.hermes = {
+    package: manifest.hermes.package,
+    required_version: manifest.hermes.version,
+    installed_version: '',
+    install_source: bundledHermesWheel ? 'bundled_wheel' : 'package_index',
+    ...(bundledHermesWheel ? { wheel_sha256: sha256FileIfPresent(bundledHermesWheel) } : {}),
+    dependency_resolution: 'pypi_tls_on_first_boot',
+    package_snapshot_status: 'pending',
+    resolved_packages: [],
+  };
   const hermesInstalled = fs.existsSync(hermesConsoleBinary(paths));
   const installedHermesVersion = hermesInstalled ? await readInstalledHermesVersion(paths, runner, env) : '';
   const hermesVersionMatches = installedHermesVersion === manifest.hermes.version;
@@ -4541,6 +4707,20 @@ export async function ensureCommandEveRuntimeBootstrap(
   } else {
     pushStage(makeStage('hermes', 'pass', { detail: `Hermes ${installedHermesVersion} already installed.` }));
   }
+
+  const packageSnapshot =
+    platform === 'win32'
+      ? await runner(pythonBinary(paths), ['-m', 'pip', 'freeze', '--all'], {
+          env,
+          timeoutMs: 30_000,
+        })
+      : { command: '', args: [], ok: false };
+  runtimeProvenance.hermes = {
+    ...runtimeProvenance.hermes,
+    installed_version: hermesVersionMatches ? installedHermesVersion : manifest.hermes.version,
+    package_snapshot_status: packageSnapshot.ok ? 'captured' : 'unavailable',
+    resolved_packages: packageSnapshot.ok ? parseResolvedPythonPackages(packageSnapshot.stdout || '') : [],
+  };
 
   // KEYLESS WEB BACKEND (ddgs). The agent's web_search/web_extract tools are gated
   // OUT of the model's toolset by check_web_api_key() unless a web backend is
@@ -4673,9 +4853,10 @@ export async function ensureCommandEveRuntimeBootstrap(
     const launcher = compact(options.claudeDelegate.acpCommand);
     let resolvable = false;
     try {
-      resolvable = launcher.startsWith('/')
+      const launcherIsAbsolute = platform === 'win32' ? path.win32.isAbsolute(launcher) : path.isAbsolute(launcher);
+      resolvable = launcherIsAbsolute
         ? fs.existsSync(launcher) // operator-supplied absolute CLI path
-        : (await commandExists(launcher, runner, env)).ok; // default `bunx` on PATH
+        : (await commandExists(launcher, runner, env, platform)).ok; // default `bunx` on PATH
     } catch {
       resolvable = false; // unknown -> warn (fail-visible)
     }
@@ -4731,16 +4912,15 @@ export async function ensureCommandEveRuntimeBootstrap(
   // runtime file above (config.yaml/SOUL.md/venv/hermes) is already written, so EVE
   // works on the cloud lane. Skip only the Ollama + local-model stages and finish
   // 'ready' — never abort the bootstrap (which left EVE unprovisioned on an 8GB Air).
-  if (localModelBlocked) {
-    const cloudOnly = 'Local model skipped (insufficient RAM for the local tier); EVE runs on the cloud lane.';
-    pushStage(makeStage('ollama', 'skip', { code: 'BLOCKED_RAM', detail: cloudOnly }));
-    pushStage(makeStage('model', 'skip', { code: 'BLOCKED_RAM', detail: cloudOnly }));
+  if (localModelSkip) {
+    pushStage(makeStage('ollama', 'skip', localModelSkip));
+    pushStage(makeStage('model', 'skip', localModelSkip));
     return finishReceipt();
   }
 
-  let ollama = await resolveOllamaCommand(runner, env, options.ollamaBinaryCandidates);
+  let ollama = await resolveOllamaCommand(runner, env, options.ollamaBinaryCandidates, platform);
   if (!ollama.ok && mode === 'auto' && manifest.installer_policy.allow_homebrew_install) {
-    const brew = await commandExists('brew', runner, env);
+    const brew = await commandExists('brew', runner, env, platform);
     if (brew.ok) {
       const started = Date.now();
       const install = await runner(brew.path, ['install', 'ollama'], { env, timeoutMs: DEFAULT_LONG_STAGE_TIMEOUT_MS });
@@ -4757,7 +4937,7 @@ export async function ensureCommandEveRuntimeBootstrap(
       if (!install.ok) {
         return finishReceipt();
       }
-      ollama = await resolveOllamaCommand(runner, env, options.ollamaBinaryCandidates);
+      ollama = await resolveOllamaCommand(runner, env, options.ollamaBinaryCandidates, platform);
     }
   }
 
@@ -4818,9 +4998,9 @@ export async function ensureCommandEveRuntimeBootstrap(
     // percent to be non-decreasing so the download bar never runs backwards.
     let maxPercent = 0;
     const streamed = await streamOllamaPull(manifest.local_runtime.base_url, tier.model_ref, ({ total, completed }) => {
-      const now = Date.now();
-      if (now - lastWriteAt < 250) return; // throttle (updateBridge precedent)
-      lastWriteAt = now;
+      const sampledAt = Date.now();
+      if (sampledAt - lastWriteAt < 250) return; // throttle (updateBridge precedent)
+      lastWriteAt = sampledAt;
       const raw = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
       if (raw > maxPercent) maxPercent = raw;
       // L-pull-progress (Codex): Ollama reports completed/total PER LAYER, so the

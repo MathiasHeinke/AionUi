@@ -10,6 +10,9 @@ const {
   verifyBundledAioncoreResources,
 } = require('../../packages/shared-scripts/src/verify-bundled-aioncore-resources.js');
 
+const WINDOWS_X64_PYTHON_ARCHIVE_SHA256 = 'f5e4d9f856567493776f3d1e832c939fbaba5dcbcc5e0492a82ecfceea83b316';
+const BUNDLED_PYTHON_MANIFEST_FILE = 'command-eve-python-manifest.json';
+
 /**
  * @typedef {(input: { resourcesDir: string, electronPlatformName: string, targetArch: string }) => {
  *   runtimeKey: string,
@@ -60,6 +63,49 @@ function staleAionUiArtifacts(outDir) {
     .filter((entry) => entry.isFile() && /aionui/i.test(entry.name))
     .map((entry) => entry.name)
     .sort();
+}
+
+function inspectBundledPython(outDir, resourcesDir, required, errors) {
+  const interpreterRelativePath = path.join(productIdentity.WINDOWS_UNPACKED_DIR, 'resources', 'python', 'python.exe');
+  const manifestRelativePath = path.join(
+    productIdentity.WINDOWS_UNPACKED_DIR,
+    'resources',
+    'python',
+    BUNDLED_PYTHON_MANIFEST_FILE
+  );
+  const interpreter = fileReceipt(outDir, interpreterRelativePath);
+  const manifestReceipt = fileReceipt(outDir, manifestRelativePath);
+  let manifest = null;
+
+  if (required && !interpreter) errors.push('missing bundled Windows Python: resources/python/python.exe');
+  if (required && !manifestReceipt) {
+    errors.push(`missing bundled Python provenance: resources/python/${BUNDLED_PYTHON_MANIFEST_FILE}`);
+  }
+  if (manifestReceipt) {
+    try {
+      manifest = JSON.parse(fs.readFileSync(path.join(resourcesDir, 'python', BUNDLED_PYTHON_MANIFEST_FILE), 'utf8'));
+      const expected = {
+        schema_version: 'command-eve-bundled-python/v1',
+        platform: 'win32',
+        arch: 'x64',
+        triple: 'x86_64-pc-windows-msvc',
+        archive_sha256: WINDOWS_X64_PYTHON_ARCHIVE_SHA256,
+      };
+      for (const [key, value] of Object.entries(expected)) {
+        if (manifest?.[key] !== value) {
+          errors.push(
+            `bundled Python provenance ${key} mismatch: expected ${value}, got ${manifest?.[key] ?? 'missing'}`
+          );
+        }
+      }
+    } catch (error) {
+      errors.push(
+        `bundled Python provenance is invalid JSON: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  return { interpreter, manifest_receipt: manifestReceipt, manifest };
 }
 
 /**
@@ -136,9 +182,7 @@ export function inspectWindowsPackage(options) {
     errors.push(`missing bundled resource: ${missingPath}`);
   }
 
-  if (requirePython && !fs.existsSync(path.join(resourcesDir, 'python', 'python.exe'))) {
-    errors.push('missing bundled Windows Python: resources/python/python.exe');
-  }
+  const bundledPython = inspectBundledPython(outDir, resourcesDir, requirePython, errors);
 
   const metadataPath = path.join(outDir, expected.metadata);
   if (fs.existsSync(metadataPath)) {
@@ -163,6 +207,7 @@ export function inspectWindowsPackage(options) {
     artifacts,
     runtime_keys: runtimeKeys,
     bundled_resource_checks: bundledResult.checked,
+    bundled_python: bundledPython,
     errors,
     completion_sentinel: 'WIN_PACKAGE_INVENTORY_COMPLETE',
   };

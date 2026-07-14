@@ -29,6 +29,7 @@ describe('Command EVE Windows build workflow contract', () => {
     expect(reusable).toContain('out/*-win-*.zip');
     expect(reusable).toContain('reports/windows/phase-a/gates/*.json');
     expect(reusable).toContain('if-no-files-found: error');
+    expect(reusable).toContain('--require-python');
     expect(manual).toContain('upload_installers_only: false');
   });
 
@@ -47,5 +48,14 @@ describe('Command EVE Windows build workflow contract', () => {
     expect(builder).not.toContain('node_modules/bcrypt/');
     expect(builder).not.toContain('node_modules/node-pty/');
     expect(builder).toContain('node_modules/better-sqlite3/');
+  });
+
+  it('activates a freshly installed Windows Hermes runtime without requiring an app restart', () => {
+    const main = read('packages/desktop/src/index.ts');
+
+    expect(main).toContain('shouldRestartWindowsBackendAfterRuntimeBootstrap');
+    expect(main).toContain("surface: isWebUIMode ? 'webui' : 'desktop'");
+    expect(main).toContain('await restartCommandEveBackendForSeat()');
+    expect(main).toContain('commandEveBackendRestartAfterRuntimeBootstrap');
   });
 });

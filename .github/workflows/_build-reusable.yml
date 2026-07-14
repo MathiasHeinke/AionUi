@@ -547,6 +547,7 @@ jobs:
         run: |
           node scripts/windows/verifyWindowsPackage.mjs \
             --out out \
+            --require-python \
             --report reports/windows/phase-a/gates/WIN-G05-package-inventory.json
 
       # Verify desktop asar does not contain packages/web-cli/ contamination

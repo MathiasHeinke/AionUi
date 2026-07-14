@@ -68,6 +68,7 @@ import {
   runtimeReceiptAllowsLocalModelWarmup,
   type RuntimeBootstrapReceipt,
 } from './process/commandEve/runtimeBootstrapCore';
+import { shouldRestartWindowsBackendAfterRuntimeBootstrap } from './process/commandEve/windows/runtimeActivationCore';
 import { readHonchoReadyState } from './process/commandEve/honchoReadyStateFile';
 import { getActiveSeatId } from './process/commandEve/seatContextCore';
 import {
@@ -1725,11 +1726,26 @@ const handleAppReady = async (): Promise<void> => {
       mark(`commandEveRuntimeBootstrap (${receipt.status})`);
       scheduleCommandEveLocalModelWarmup(receipt, shimUrl, warmCommandEveLocalModel, mark, warmCommandEveEveLane);
     } else {
+      const hermesReadyBeforeBootstrap = fs.existsSync(runtimePaths.hermesShim);
       runDeferredCommandEveRuntimeBootstrap = () => {
         setTimeout(() => {
           void ensureCommandEveRuntimeBootstrap(bootstrapOptions)
-            .then((receipt) => {
+            .then(async (receipt) => {
               console.info(`[Command EVE] Runtime bootstrap ${receipt.status}: ${receipt.next_action}`);
+              if (
+                shouldRestartWindowsBackendAfterRuntimeBootstrap({
+                  platform: process.platform,
+                  surface: isWebUIMode ? 'webui' : 'desktop',
+                  runtimeProfile: receipt.runtime_profile,
+                  receiptStatus: receipt.status,
+                  hermesReadyBeforeBootstrap,
+                  hermesReadyAfterBootstrap: fs.existsSync(runtimePaths.hermesShim),
+                })
+              ) {
+                const { restartCommandEveBackendForSeat } = await import('./process/commandEve/seatSwitchRuntime');
+                await restartCommandEveBackendForSeat();
+                mark('commandEveBackendRestartAfterRuntimeBootstrap');
+              }
               scheduleCommandEveLocalModelWarmup(
                 receipt,
                 shimUrl,

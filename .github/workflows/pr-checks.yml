@@ -446,7 +446,7 @@ jobs:
 
           case "${{ matrix.platform }}" in
             windows-x64)
-              node scripts/windows/verifyWindowsPackage.mjs --out out
+              node scripts/windows/verifyWindowsPackage.mjs --out out --require-python
               ;;
             macos-*)
               ls out/*.dmg out/*.zip out/*latest*.yml >/dev/null

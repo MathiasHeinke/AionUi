@@ -48,6 +48,21 @@ function completeFixture(outDir: string): void {
     )
   );
   writeFile(path.join(resourcesDir, 'bundled-aioncore', 'win32-x64', 'aioncore.exe'));
+  writeFile(path.join(resourcesDir, 'python', 'python.exe'));
+  writeFile(
+    path.join(resourcesDir, 'python', 'command-eve-python-manifest.json'),
+    JSON.stringify({
+      schema_version: 'command-eve-bundled-python/v1',
+      platform: 'win32',
+      arch: 'x64',
+      triple: 'x86_64-pc-windows-msvc',
+      python_version: '3.12.13',
+      release_tag: '20260610',
+      archive_name: 'cpython-3.12.13+20260610-x86_64-pc-windows-msvc-install_only.tar.gz',
+      archive_sha256: 'f5e4d9f856567493776f3d1e832c939fbaba5dcbcc5e0492a82ecfceea83b316',
+      source_url: 'https://github.com/astral-sh/python-build-standalone/releases/download/20260610/fixture',
+    })
+  );
 }
 
 const passingVerifier: BundledResourceVerifier = () => ({
@@ -88,10 +103,16 @@ describe('Windows package inventory', () => {
     const outDir = makeRoot();
     completeFixture(outDir);
 
-    const result = inspectWindowsPackage({ outDir, version: VERSION, verifyBundledResources: passingVerifier });
+    const result = inspectWindowsPackage({
+      outDir,
+      version: VERSION,
+      requirePython: true,
+      verifyBundledResources: passingVerifier,
+    });
 
     expect(result.status).toBe('PASS');
     expect(result.errors).toEqual([]);
+    expect(result.bundled_python.manifest).toMatchObject({ platform: 'win32', arch: 'x64' });
     expect(result.artifacts).toHaveLength(3);
     expect(result.runtime_keys).toEqual(['win32-x64']);
   });
@@ -168,6 +189,7 @@ describe('Windows package inventory', () => {
   it('requires the staged Windows interpreter when the Phase A runtime gate is enabled', () => {
     const outDir = makeRoot();
     completeFixture(outDir);
+    fs.rmSync(path.join(outDir, 'win-unpacked', 'resources', 'python', 'python.exe'));
 
     const result = inspectWindowsPackage({
       outDir,
@@ -178,5 +200,45 @@ describe('Windows package inventory', () => {
 
     expect(result.status).toBe('REJECT');
     expect(result.errors).toContain('missing bundled Windows Python: resources/python/python.exe');
+  });
+
+  it('rejects a missing or forged bundled-Python provenance manifest', () => {
+    const outDir = makeRoot();
+    completeFixture(outDir);
+    const manifestPath = path.join(outDir, 'win-unpacked', 'resources', 'python', 'command-eve-python-manifest.json');
+    fs.writeFileSync(
+      manifestPath,
+      JSON.stringify({
+        schema_version: 'command-eve-bundled-python/v1',
+        platform: 'win32',
+        arch: 'x64',
+        triple: 'x86_64-pc-windows-msvc',
+        archive_sha256: '0'.repeat(64),
+      })
+    );
+
+    const forged = inspectWindowsPackage({
+      outDir,
+      version: VERSION,
+      requirePython: true,
+      verifyBundledResources: passingVerifier,
+    });
+    expect(forged.status).toBe('REJECT');
+    expect(forged.errors).toContain(
+      'bundled Python provenance archive_sha256 mismatch: expected f5e4d9f856567493776f3d1e832c939fbaba5dcbcc5e0492a82ecfceea83b316, got ' +
+        '0'.repeat(64)
+    );
+
+    fs.rmSync(manifestPath);
+    const missing = inspectWindowsPackage({
+      outDir,
+      version: VERSION,
+      requirePython: true,
+      verifyBundledResources: passingVerifier,
+    });
+    expect(missing.status).toBe('REJECT');
+    expect(missing.errors).toContain(
+      'missing bundled Python provenance: resources/python/command-eve-python-manifest.json'
+    );
   });
 });

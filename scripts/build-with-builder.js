@@ -419,19 +419,16 @@ function cleanupWindowsPackOutput() {
   }
 }
 
-// Stage the self-contained CPython 3.12 bundle BEFORE electron-builder runs so its
-// `extraResources` mapping (build/bundled-python/python -> python) has a tree to copy
-// into Contents/Resources/python, and afterSign can then deep-sign it before notarize.
-// (The durable Alois fix — see docs/bundled-python.md.) Mac builds only; arm64 is the
-// only pinned/shipped arch (x86_64 is intentionally unpinned and not yet bundled, so it
-// is NOT fetched here — fetching it would fail-closed and abort an --arm64 --x64 build).
+// Stage the target-specific CPython 3.12 bundle BEFORE electron-builder runs so its
+// `extraResources` mapping (build/bundled-python/python -> python) has a tree to copy.
+// macOS keeps the shipped arm64 bundle; Phase A adds the pinned Windows x64 bundle.
 // FAIL-CLOSED: a non-zero exit (download error / sha mismatch / unpinned) aborts the
 // build rather than packaging a missing/unverified bundle. IDEMPOTENT: the fetch script
 // re-verifies the staged tarball and skips download/extraction when already present.
-function fetchBundledPython() {
+function fetchBundledPython(platform, arch) {
   const fetchScript = path.join(__dirname, 'fetch-bundled-python.mjs');
-  console.log('🐍 Staging bundled CPython 3.12 (arm64) for extraResources...');
-  const result = spawnSync(process.execPath, [fetchScript, '--arch', 'arm64'], {
+  console.log(`🐍 Staging bundled CPython 3.12 (${platform}/${arch}) for extraResources...`);
+  const result = spawnSync(process.execPath, [fetchScript, '--platform', platform, '--arch', arch], {
     stdio: 'inherit',
     env: process.env,
   });
@@ -661,12 +658,21 @@ try {
   // 6. Prepare hub resources (index.json + extension zips for offline fallback)
   execSync('node scripts/prepareHubResources.js', { stdio: 'inherit', env: process.env });
 
-  // 6b. Stage the bundled CPython 3.12 for macOS builds, BEFORE electron-builder runs,
-  // so its extraResources mapping picks up build/bundled-python/python and afterSign can
-  // deep-sign it before notarize. Fail-closed (throws on fetch failure → caught below →
-  // exit 1). Guarded to mac builds only (the bundle is the macOS Alois runtime fix).
-  if (builderArgs.includes('--mac') || builderArgs.includes('--all')) {
-    fetchBundledPython();
+  // 6b. Stage exactly one target-specific bundled CPython tree. A shared staging
+  // directory cannot safely serve a cross-platform `--all` build, so reject that
+  // mode rather than silently packaging a Darwin interpreter into Windows.
+  const buildsMac = builderArgs.includes('--mac');
+  const buildsWindows = builderArgs.includes('--win');
+  if (builderArgs.includes('--all') || (buildsMac && buildsWindows)) {
+    throw new Error('Bundled Python requires one target platform per build; --all is unsupported.');
+  }
+  if (buildsMac) {
+    fetchBundledPython('darwin', 'arm64');
+  } else if (buildsWindows) {
+    if (multiArch || targetArch !== 'x64') {
+      throw new Error('Command EVE Phase A supports bundled Python on Windows x64 only.');
+    }
+    fetchBundledPython('win32', 'x64');
   }
 
   // 6c. Stage the EVE strategy skills for ALL platforms (cross-platform markdown,

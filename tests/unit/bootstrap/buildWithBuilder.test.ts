@@ -16,13 +16,13 @@ describe('build-with-builder', () => {
   it.each([
     {
       args: ['arm64', '--win', '--arm64'],
-      expectedArch: 'arm64',
+      expectedError: 'Command EVE Phase A supports bundled Python on Windows x64 only.',
     },
     {
       args: ['auto', '--mac', '--x64'],
       expectedArch: 'x64',
     },
-  ])('prepares bundled AionCore for $expectedArch with args $args', ({ args, expectedArch }) => {
+  ])('enforces the target contract for args $args', ({ args, expectedArch, expectedError }) => {
     const tempDir = mkdtempSync(join(tmpdir(), 'aionui-build-test-'));
     const hookPath = join(tempDir, 'hook.cjs');
     const callsPath = join(tempDir, 'prepare-calls.json');
@@ -85,6 +85,12 @@ childProcess.execSync = function mockedExecSync(command) {
           NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require=${hookPath}`].filter(Boolean).join(' '),
         },
       });
+
+      if (expectedError) {
+        expect(result.status).toBe(1);
+        expect(`${result.stderr}\n${result.stdout}`).toContain(expectedError);
+        return;
+      }
 
       expect(result.status, result.stderr || result.stdout).toBe(0);
 

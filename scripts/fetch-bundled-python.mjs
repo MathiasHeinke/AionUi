@@ -7,7 +7,8 @@
  * (FAIL-CLOSED on mismatch — never extract an unverified binary), and extracts it
  * into the build staging dir so the layout is:
  *
- *   build/bundled-python/python/bin/python3.12
+ *   macOS:  build/bundled-python/python/bin/python3.12
+ *   Windows: build/bundled-python/python/python.exe
  *
  * electron-builder then maps `build/bundled-python/python` -> `python` via
  * `extraResources`, landing it at `Contents/Resources/python/` in the packaged app.
@@ -21,9 +22,9 @@
  * .gitignore: build/bundled-python/). Fetch at build/CI time, cache locally.
  *
  * Usage:
- *   node scripts/fetch-bundled-python.mjs                 # default arm64 macOS
- *   node scripts/fetch-bundled-python.mjs --arch x86_64   # (when x64 build is wired)
- *   BUNDLED_PYTHON_ARCH=x86_64 node scripts/fetch-bundled-python.mjs
+ *   node scripts/fetch-bundled-python.mjs # default arm64 macOS
+ *   node scripts/fetch-bundled-python.mjs --platform win32 --arch x64
+ *   BUNDLED_PYTHON_PLATFORM=win32 BUNDLED_PYTHON_ARCH=x64 node scripts/fetch-bundled-python.mjs
  *
  * The pure logic (URL/arch construction + sha-verify decision) is exported for
  * unit testing; side effects (network/fs) run only when invoked directly.
@@ -58,6 +59,11 @@ export const ARCH_TRIPLES = Object.freeze({
   x64: 'x86_64-apple-darwin',
 });
 
+export const WINDOWS_ARCH_TRIPLES = Object.freeze({
+  x86_64: 'x86_64-pc-windows-msvc',
+  x64: 'x86_64-pc-windows-msvc',
+});
+
 // Published SHA256 per arch token. FAIL-CLOSED: an arch without a verified,
 // non-TODO sha here cannot be fetched.
 //
@@ -77,6 +83,14 @@ export const SHA256_BY_ARCH = Object.freeze({
   x64: null,
 });
 
+// Verified 2026-07-14 against the release's SHA256SUMS and a real download.
+export const WINDOWS_SHA256_BY_ARCH = Object.freeze({
+  x86_64: 'f5e4d9f856567493776f3d1e832c939fbaba5dcbcc5e0492a82ecfceea83b316',
+  x64: 'f5e4d9f856567493776f3d1e832c939fbaba5dcbcc5e0492a82ecfceea83b316',
+});
+
+export const BUNDLED_PYTHON_MANIFEST_FILE = 'command-eve-python-manifest.json';
+
 // Sentinel marking an unpinned (TODO) checksum — fail-closed until replaced.
 export const TODO_SHA = null;
 
@@ -85,42 +99,38 @@ export const TODO_SHA = null;
 // ---------------------------------------------------------------------------
 
 /** Normalize an arch token to a python-build-standalone triple. Throws on unknown. */
-export function resolveTriple(arch) {
-  const triple = ARCH_TRIPLES[arch];
+export function resolveTriple(arch, platform = 'darwin') {
+  const triples = platform === 'win32' ? WINDOWS_ARCH_TRIPLES : platform === 'darwin' ? ARCH_TRIPLES : null;
+  const triple = triples?.[arch];
   if (!triple) {
-    throw new Error(
-      `Unsupported arch "${arch}". Known: ${Object.keys(ARCH_TRIPLES).join(', ')}.`,
-    );
+    throw new Error(`Unsupported arch "${arch}" for bundled-Python platform=${platform} arch=${arch}.`);
   }
   return triple;
 }
 
 /** The install_only tarball filename for an arch. */
-export function buildAssetName(arch, { version = PY_VERSION, tag = RELEASE_TAG } = {}) {
-  const triple = resolveTriple(arch);
+export function buildAssetName(arch, { version = PY_VERSION, tag = RELEASE_TAG, platform = 'darwin' } = {}) {
+  const triple = resolveTriple(arch, platform);
   return `cpython-${version}+${tag}-${triple}-install_only.tar.gz`;
 }
 
 /** The GitHub release download URL for the tarball. */
 export function buildDownloadUrl(arch, opts = {}) {
   const tag = opts.tag ?? RELEASE_TAG;
-  return `https://github.com/astral-sh/python-build-standalone/releases/download/${tag}/${buildAssetName(
-    arch,
-    opts,
-  )}`;
+  return `https://github.com/astral-sh/python-build-standalone/releases/download/${tag}/${buildAssetName(arch, opts)}`;
 }
 
 /** The pinned, expected SHA256 for an arch, or null if unpinned (TODO). */
-export function expectedSha256(arch) {
+export function expectedSha256(arch, platform = 'darwin') {
   // Normalize via the triple map so unknown arches throw consistently.
-  resolveTriple(arch);
-  const sha = SHA256_BY_ARCH[arch];
+  resolveTriple(arch, platform);
+  const sha = platform === 'win32' ? WINDOWS_SHA256_BY_ARCH[arch] : SHA256_BY_ARCH[arch];
   return sha ?? TODO_SHA;
 }
 
 /** True iff this arch has a real (non-TODO) pinned checksum. */
-export function isArchPinned(arch) {
-  const sha = expectedSha256(arch);
+export function isArchPinned(arch, platform = 'darwin') {
+  const sha = expectedSha256(arch, platform);
   return typeof sha === 'string' && /^[0-9a-f]{64}$/i.test(sha);
 }
 
@@ -156,6 +166,20 @@ export function sha256Hex(buffer) {
   return createHash('sha256').update(buffer).digest('hex');
 }
 
+export function buildBundledPythonManifest({ platform, arch, triple, assetName, url, archiveSha256 }) {
+  return {
+    schema_version: 'command-eve-bundled-python/v1',
+    platform,
+    arch,
+    triple,
+    python_version: PY_VERSION,
+    release_tag: RELEASE_TAG,
+    archive_name: assetName,
+    archive_sha256: archiveSha256,
+    source_url: url,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // CLI / side-effecting runner
 // ---------------------------------------------------------------------------
@@ -166,10 +190,12 @@ const STAGE_DIR = path.join(REPO_ROOT, 'build', 'bundled-python');
 
 function parseArgs(argv) {
   let arch = process.env.BUNDLED_PYTHON_ARCH || 'arm64';
+  let platform = process.env.BUNDLED_PYTHON_PLATFORM || 'darwin';
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--arch') arch = argv[++i] || arch;
+    else if (argv[i] === '--platform') platform = argv[++i] || platform;
   }
-  return { arch };
+  return { arch, platform };
 }
 
 function log(...args) {
@@ -199,18 +225,19 @@ function extractTarball(tarballPath, intoDir) {
 }
 
 async function main() {
-  const { arch } = parseArgs(process.argv.slice(2));
-  const triple = resolveTriple(arch);
-  const assetName = buildAssetName(arch);
-  const url = buildDownloadUrl(arch);
-  const expected = expectedSha256(arch);
+  const { arch, platform } = parseArgs(process.argv.slice(2));
+  const triple = resolveTriple(arch, platform);
+  const assetOptions = { platform };
+  const assetName = buildAssetName(arch, assetOptions);
+  const url = buildDownloadUrl(arch, assetOptions);
+  const expected = expectedSha256(arch, platform);
 
-  log(`arch=${arch} triple=${triple} version=${PY_VERSION} tag=${RELEASE_TAG}`);
+  log(`platform=${platform} arch=${arch} triple=${triple} version=${PY_VERSION} tag=${RELEASE_TAG}`);
 
-  if (!isArchPinned(arch)) {
+  if (!isArchPinned(arch, platform)) {
     console.error(
-      `[fetch-bundled-python] FAIL-CLOSED: no pinned SHA256 for arch "${arch}".\n` +
-        `  Fill the checksum for ${assetName} from:\n  ${CHECKSUM_URL}`,
+      `[fetch-bundled-python] FAIL-CLOSED: no pinned SHA256 for platform=${platform} arch=${arch}.\n` +
+        `  Fill the checksum for ${assetName} from:\n  ${CHECKSUM_URL}`
     );
     process.exitCode = 2;
     return;
@@ -219,7 +246,8 @@ async function main() {
   fs.mkdirSync(STAGE_DIR, { recursive: true });
   const tarballPath = path.join(STAGE_DIR, assetName);
   const pythonDir = path.join(STAGE_DIR, 'python');
-  const interpreter = path.join(pythonDir, 'bin', 'python3.12');
+  const interpreter =
+    platform === 'win32' ? path.join(pythonDir, 'python.exe') : path.join(pythonDir, 'bin', 'python3.12');
 
   // Idempotency: if the staged tarball already verifies, skip the download.
   let buf = null;
@@ -261,6 +289,18 @@ async function main() {
     }
     log('extracted to', path.relative(REPO_ROOT, pythonDir));
   }
+
+  const manifestPath = path.join(pythonDir, BUNDLED_PYTHON_MANIFEST_FILE);
+  fs.writeFileSync(
+    manifestPath,
+    `${JSON.stringify(
+      buildBundledPythonManifest({ platform, arch, triple, assetName, url, archiveSha256: actual }),
+      null,
+      2
+    )}\n`,
+    'utf8'
+  );
+  log('provenance manifest:', path.relative(REPO_ROOT, manifestPath));
 
   log('done. interpreter:', path.relative(REPO_ROOT, interpreter));
 }
