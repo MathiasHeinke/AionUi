@@ -519,6 +519,22 @@ function metadataFileNameForMacArch(arch) {
   return `latest-${arch}-mac.yml`;
 }
 
+function resolveMacUpdateReleaseNotes(version, deps = {}) {
+  const env = deps.env || process.env;
+  const inlineNotes = firstEnv(env, ['COMMAND_EVE_RELEASE_NOTES']);
+  if (inlineNotes) return inlineNotes;
+
+  const releaseNotesFile = firstEnv(env, ['COMMAND_EVE_RELEASE_NOTES_FILE']);
+  if (!releaseNotesFile) return `Command EVE ${version}`;
+
+  const readFile = deps.readFile || fs.readFileSync;
+  const releaseNotes = String(readFile(releaseNotesFile, 'utf8')).trim();
+  if (!releaseNotes) {
+    throw new Error(`UPDATE-FEED: release notes file is empty: ${releaseNotesFile}`);
+  }
+  return releaseNotes;
+}
+
 function writeMacUpdateFeedMetadata(context, deps = {}) {
   const { outDir, version, groups } = collectMacUpdateArtifactGroups(context, deps);
   if (groups.size === 0) {
@@ -530,7 +546,7 @@ function writeMacUpdateFeedMetadata(context, deps = {}) {
   const exists = deps.exists || fs.existsSync;
   const unlink = deps.unlink || fs.unlinkSync;
   const releaseDate = deps.releaseDate || normalizeReleaseDate(deps.now || new Date());
-  const releaseNotes = deps.releaseNotes || `Command EVE ${version}`;
+  const releaseNotes = deps.releaseNotes || resolveMacUpdateReleaseNotes(version, deps);
   const written = [];
   const versionJson = {
     version,
@@ -654,4 +670,5 @@ exports.parseMacArtifact = parseMacArtifact;
 exports.collectMacUpdateArtifactGroups = collectMacUpdateArtifactGroups;
 exports.buildMacUpdateYml = buildMacUpdateYml;
 exports.metadataFileNameForMacArch = metadataFileNameForMacArch;
+exports.resolveMacUpdateReleaseNotes = resolveMacUpdateReleaseNotes;
 exports.writeMacUpdateFeedMetadata = writeMacUpdateFeedMetadata;

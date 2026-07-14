@@ -4,15 +4,23 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Progress, Message } from '@arco-design/web-react';
 import { CheckOne, Download, FolderOpen, Refresh, CloseOne, Install } from '@icon-park/react';
 import { ipcBridge } from '@/common';
 import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import AionModal from '@/renderer/components/base/AionModal';
 import MarkdownView from '@/renderer/components/Markdown';
-import type { UpdateDownloadProgressEvent, UpdateReleaseInfo, AutoUpdateStatus } from '@/common/update/updateTypes';
+import type { UpdateDownloadProgressEvent, UpdateReleaseInfo } from '@/common/update/updateTypes';
+import {
+  getAutoUpdateStatusSnapshot,
+  useAutoUpdateStatus,
+  type AutoUpdateUiSnapshot,
+} from '@/renderer/hooks/system/useAutoUpdateStatus';
 import { useTranslation } from 'react-i18next';
+
+declare const __APP_VERSION__: string;
+const APP_VERSION = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '0.0.0';
 
 type UpdateStatus =
   | 'checking'
@@ -26,12 +34,28 @@ type UpdateStatus =
 
 type UpdateInfo = UpdateReleaseInfo;
 
+const formatSpeed = (bytesPerSecond: number) => {
+  if (bytesPerSecond > 1024 * 1024) {
+    return `${(bytesPerSecond / (1024 * 1024)).toFixed(1)} MB/s`;
+  }
+  return `${(bytesPerSecond / 1024).toFixed(1)} KB/s`;
+};
+
+const formatSize = (bytes: number) => {
+  if (bytes > 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  return `${(bytes / 1024).toFixed(1)} KB`;
+};
+
 const UpdateModal: React.FC = () => {
   const { t } = useTranslation();
+  const downloadFailedLabel = t('update.downloadFailed');
+  const autoUpdateStatus = useAutoUpdateStatus();
   const [visible, setVisible] = useState(false);
   const [status, setStatus] = useState<UpdateStatus>('checking');
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
-  const [currentVersion, setCurrentVersion] = useState<string>('');
+  const [currentVersion, setCurrentVersion] = useState<string>(APP_VERSION);
   const [downloadId, setDownloadId] = useState<string | null>(null);
   const [progress, setProgress] = useState({ percent: 0, speed: '', total: 0, transferred: 0 });
   const [errorMsg, setErrorMsg] = useState('');
@@ -41,10 +65,10 @@ const UpdateModal: React.FC = () => {
   const [autoUpdateAvailable, setAutoUpdateAvailable] = useState(false);
   const [autoUpdateInfo, setAutoUpdateInfo] = useState<{ version: string; releaseNotes?: string } | null>(null);
 
-  const resetState = () => {
+  const resetState = useCallback(() => {
     setStatus('checking');
     setUpdateInfo(null);
-    setCurrentVersion('');
+    setCurrentVersion(APP_VERSION);
     setDownloadId(null);
     setProgress({ percent: 0, speed: '', total: 0, transferred: 0 });
     setErrorMsg('');
@@ -52,10 +76,14 @@ const UpdateModal: React.FC = () => {
     setReleasePageUrl('');
     setAutoUpdateAvailable(false);
     setAutoUpdateInfo(null);
-  };
+  }, []);
 
   const includePrerelease = useMemo(() => localStorage.getItem('update.includePrerelease') === 'true', [visible]);
   const hasCompatibleManualAsset = Boolean(updateInfo?.recommendedAsset);
+  const manualInfoMatchesAuto = !autoUpdateInfo || !updateInfo || autoUpdateInfo.version === updateInfo.version;
+  const displayedUpdateVersion = autoUpdateInfo?.version || updateInfo?.version;
+  const displayedReleaseName = manualInfoMatchesAuto ? updateInfo?.name : undefined;
+  const displayedReleaseNotes = autoUpdateInfo?.releaseNotes || (manualInfoMatchesAuto ? updateInfo?.body : undefined);
 
   const openReleasePage = () => {
     if (!releasePageUrl) return;
@@ -64,7 +92,7 @@ const UpdateModal: React.FC = () => {
     });
   };
 
-  const checkForUpdates = async () => {
+  const checkForUpdates = useCallback(async () => {
     setStatus('checking');
     try {
       // Try auto-update (electron-updater) first
@@ -124,7 +152,7 @@ const UpdateModal: React.FC = () => {
           setUpdateInfo(res.data.latest);
           setReleasePageUrl(res.data.latest.htmlUrl || '');
         }
-        setStatus('available');
+        setStatus(COMMAND_EVE_SHELL_ENABLED ? 'downloading' : 'available');
         return;
       }
 
@@ -158,7 +186,7 @@ const UpdateModal: React.FC = () => {
       setErrorMsg(msg);
       setStatus('error');
     }
-  };
+  }, [includePrerelease, t]);
 
   const startDownload = async () => {
     if (!updateInfo && !autoUpdateAvailable) return;
@@ -215,25 +243,60 @@ const UpdateModal: React.FC = () => {
     }
   };
 
-  const formatSpeed = (bytesPerSecond: number) => {
-    if (bytesPerSecond > 1024 * 1024) {
-      return `${(bytesPerSecond / (1024 * 1024)).toFixed(1)} MB/s`;
-    }
-    return `${(bytesPerSecond / 1024).toFixed(1)} KB/s`;
-  };
+  const applyAutoUpdateStatus = useCallback(
+    (snapshot: AutoUpdateUiSnapshot): boolean => {
+      if (snapshot.status === 'idle') return false;
+      setCurrentVersion(APP_VERSION);
 
-  const formatSize = (bytes: number) => {
-    if (bytes > 1024 * 1024) {
-      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    }
-    return `${(bytes / 1024).toFixed(1)} KB`;
-  };
+      if ('version' in snapshot && snapshot.version) {
+        setAutoUpdateAvailable(true);
+        setAutoUpdateInfo({
+          version: snapshot.version,
+          releaseNotes: snapshot.releaseNotes,
+        });
+      }
 
-  const handleOpenUpdateModal = () => {
+      switch (snapshot.status) {
+        case 'checking':
+          setStatus('checking');
+          return true;
+        case 'available':
+          setStatus(COMMAND_EVE_SHELL_ENABLED ? 'downloading' : 'available');
+          return true;
+        case 'downloading':
+          setStatus('downloading');
+          if (snapshot.progress) {
+            setProgress({
+              percent: Math.round(snapshot.progress.percent),
+              speed: formatSpeed(snapshot.progress.bytesPerSecond),
+              total: snapshot.progress.total,
+              transferred: snapshot.progress.transferred,
+            });
+          }
+          return true;
+        case 'downloaded':
+          setStatus('downloaded');
+          return true;
+        case 'error':
+        case 'cancelled':
+          setStatus('error');
+          setErrorMsg(snapshot.error || downloadFailedLabel);
+          return true;
+        case 'not-available':
+          setStatus('upToDate');
+          return false;
+      }
+    },
+    [downloadFailedLabel]
+  );
+
+  const handleOpenUpdateModal = useCallback(() => {
+    const durableStatus = getAutoUpdateStatusSnapshot();
     setVisible(true);
+    if (applyAutoUpdateStatus(durableStatus)) return;
     resetState();
     void checkForUpdates();
-  };
+  }, [applyAutoUpdateStatus, checkForUpdates, resetState]);
 
   useEffect(() => {
     const removeOpenListener = ipcBridge.update.open.on(handleOpenUpdateModal);
@@ -243,52 +306,12 @@ const UpdateModal: React.FC = () => {
       removeOpenListener();
       window.removeEventListener('aionui-open-update-modal', handleOpenUpdateModal);
     };
-  }, []);
+  }, [handleOpenUpdateModal]);
 
-  // Listen for auto-update status events (e.g. from startup check)
   useEffect(() => {
-    const removeListener = ipcBridge.autoUpdate.status.on((evt: AutoUpdateStatus) => {
-      if (!evt) return;
-
-      switch (evt.status) {
-        case 'checking':
-          break;
-        case 'available':
-          setAutoUpdateAvailable(true);
-          setAutoUpdateInfo({
-            version: evt.version || '',
-            releaseNotes: evt.releaseNotes,
-          });
-          setStatus('available');
-          setVisible(true);
-          break;
-        case 'not-available':
-          setStatus('upToDate');
-          break;
-        case 'downloading':
-          if (evt.progress) {
-            setProgress({
-              percent: Math.round(evt.progress.percent),
-              speed: formatSpeed(evt.progress.bytesPerSecond),
-              total: evt.progress.total,
-              transferred: evt.progress.transferred,
-            });
-          }
-          break;
-        case 'downloaded':
-          setStatus('downloaded');
-          break;
-        case 'error':
-          setStatus('error');
-          setErrorMsg(evt.error || t('update.downloadFailed'));
-          break;
-      }
-    });
-
-    return () => {
-      removeListener();
-    };
-  }, [t]);
+    if (!visible) return;
+    applyAutoUpdateStatus(autoUpdateStatus);
+  }, [applyAutoUpdateStatus, autoUpdateStatus, visible]);
 
   useEffect(() => {
     const removeProgressListener = ipcBridge.update.downloadProgress.on((evt: UpdateDownloadProgressEvent) => {
@@ -375,9 +398,7 @@ const UpdateModal: React.FC = () => {
                   <div className='text-15px font-600 text-t-primary'>{t('update.availableTitle')}</div>
                   <div className='text-12px text-t-tertiary mt-2px'>
                     {currentVersion} →{' '}
-                    <span className='text-[rgb(var(--primary-6))] font-500'>
-                      {updateInfo?.version || autoUpdateInfo?.version}
-                    </span>
+                    <span className='text-[rgb(var(--primary-6))] font-500'>{displayedUpdateVersion}</span>
                   </div>
                 </div>
               </div>
@@ -406,10 +427,12 @@ const UpdateModal: React.FC = () => {
 
             {/* Release notes content */}
             <div className='flex-1 min-h-0 overflow-y-auto px-24px py-16px custom-scrollbar'>
-              {updateInfo?.name && <div className='text-14px font-500 text-t-primary mb-12px'>{updateInfo.name}</div>}
-              {updateInfo?.body || autoUpdateInfo?.releaseNotes ? (
+              {displayedReleaseName && (
+                <div className='text-14px font-500 text-t-primary mb-12px'>{displayedReleaseName}</div>
+              )}
+              {displayedReleaseNotes ? (
                 <div className='text-13px text-t-secondary leading-relaxed'>
-                  <MarkdownView>{updateInfo?.body || autoUpdateInfo?.releaseNotes || ''}</MarkdownView>
+                  <MarkdownView>{displayedReleaseNotes}</MarkdownView>
                 </div>
               ) : (
                 <div className='text-13px text-t-tertiary italic'>{t('update.noReleaseNotes')}</div>
@@ -440,28 +463,63 @@ const UpdateModal: React.FC = () => {
                 <span className='text-[rgb(var(--primary-6))] font-500'>{progress.speed}</span>
               </div>
             </div>
+            <div className='mt-20px max-w-360px text-center text-12px leading-18px text-t-tertiary'>
+              {t('update.backgroundDownloadActive')}
+            </div>
           </div>
         );
 
       case 'downloaded':
         return (
-          <div className='flex flex-col items-center justify-center py-48px px-32px'>
-            <div className='w-56px h-56px bg-[rgb(var(--success-6))]/12 rounded-full flex items-center justify-center mb-20px'>
-              <CheckOne theme='filled' size='28' fill='rgb(var(--success-6))' />
+          <div className='flex h-full min-h-0 flex-col'>
+            <div className='flex items-start gap-14px px-24px py-18px'>
+              <div className='mt-1px flex h-42px w-42px flex-none items-center justify-center rounded-10px bg-[color-mix(in_srgb,var(--eve-accent)_14%,transparent)] text-[var(--eve-accent)]'>
+                <CheckOne theme='filled' size='22' fill='currentColor' />
+              </div>
+              <div className='min-w-0 flex-1'>
+                <div className='text-16px font-600 leading-22px text-t-primary'>{t('update.readyToInstall')}</div>
+                <div className='mt-4px text-13px leading-19px text-t-secondary'>
+                  {t('update.versionTransition', {
+                    currentVersion,
+                    targetVersion: displayedUpdateVersion || '-',
+                  })}
+                </div>
+                <div className='mt-4px text-12px leading-18px text-t-tertiary'>
+                  {t('update.includesSkippedUpdates')}
+                </div>
+              </div>
             </div>
-            <div className='text-16px text-t-primary font-600 mb-8px'>{t('update.readyToInstall')}</div>
-            <div className='mb-24px text-13px text-[rgb(var(--warning-6))] max-w-360px text-center'>
-              {t('update.installWarning')}
+
+            <div className='mx-24px border-t border-[var(--glass-overlay-border)]' />
+
+            <div className='min-h-0 flex-1 overflow-y-auto px-24px py-16px custom-scrollbar'>
+              <div className='mb-10px text-12px font-600 uppercase text-t-tertiary'>{t('update.whatsNew')}</div>
+              {displayedReleaseNotes ? (
+                <div className='text-13px leading-relaxed text-t-secondary'>
+                  <MarkdownView>{displayedReleaseNotes}</MarkdownView>
+                </div>
+              ) : (
+                <div className='text-13px text-t-tertiary'>{t('update.noReleaseNotes')}</div>
+              )}
             </div>
-            <Button
-              type='primary'
-              size='small'
-              onClick={quitAndInstall}
-              icon={<Install size='14' />}
-              className='!px-16px'
-            >
-              {t('update.installNow')}
-            </Button>
+
+            <div className='flex flex-wrap items-center justify-between gap-12px border-t border-[var(--glass-overlay-border)] px-24px py-16px'>
+              <div className='max-w-300px text-12px leading-18px text-t-tertiary'>{t('update.restartDescription')}</div>
+              <div className='flex items-center gap-10px'>
+                <Button type='text' size='small' onClick={handleClose} className='!px-12px'>
+                  {t('update.later')}
+                </Button>
+                <Button
+                  type='primary'
+                  size='small'
+                  onClick={quitAndInstall}
+                  icon={<Install size='14' />}
+                  className='!px-16px'
+                >
+                  {t('update.installNow')}
+                </Button>
+              </div>
+            </div>
           </div>
         );
 
@@ -524,14 +582,14 @@ const UpdateModal: React.FC = () => {
     <AionModal
       visible={visible}
       onCancel={handleClose}
-      size={status === 'available' ? 'medium' : 'small'}
+      size={status === 'available' || status === 'downloaded' ? 'medium' : 'small'}
       header={{
-        title: t('update.modalTitle'),
+        title: status === 'downloaded' ? t('update.readyTitle') : t('update.modalTitle'),
         showClose: true,
       }}
       footer={{ render: () => null }}
       contentStyle={{
-        height: status === 'available' ? '420px' : 'auto',
+        height: status === 'available' || status === 'downloaded' ? '420px' : 'auto',
         padding: 0,
         overflow: 'hidden',
       }}

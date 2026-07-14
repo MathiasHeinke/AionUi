@@ -94,58 +94,66 @@
 }
 
 .sider-footer__update {
+  position: relative;
+  width: 32px;
   min-width: 32px;
   max-width: 32px;
-  padding: 0 8px;
+  flex: 0 0 32px;
+  padding: 0 !important;
   display: inline-flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: 6px;
-  overflow: hidden;
-  color: var(--eve-shell-text, var(--color-text-1));
-  background: color-mix(in srgb, var(--eve-accent) 12%, transparent);
+  justify-content: center;
+  border: 0 !important;
+  color: var(--eve-shell-text-secondary, var(--color-text-2)) !important;
+  background: transparent !important;
+  box-shadow: none !important;
   transition:
-    max-width 180ms ease,
     color 140ms ease,
-    background-color 140ms ease;
+    filter 160ms ease,
+    transform 160ms ease;
 }
 
 .sider-footer__update:hover,
 .sider-footer__update:focus-visible {
-  max-width: 160px;
-  color: #ffffff;
-  background: var(--eve-accent, var(--color-primary-6));
+  color: var(--eve-accent, var(--color-primary-6)) !important;
+  background: transparent !important;
+  filter: drop-shadow(0 0 7px color-mix(in srgb, var(--eve-accent) 58%, transparent));
+  transform: translateY(-1px);
 }
 
 .sider-footer__update-icon {
-  flex: 0 0 16px;
+  flex: 0 0 17px;
 }
 
-.sider-footer__update-label {
-  max-width: 0;
-  overflow: hidden;
-  opacity: 0;
-  white-space: nowrap;
-  font-size: 12px;
-  font-weight: 600;
-  transition:
-    max-width 180ms ease,
-    opacity 120ms ease;
+.sider-footer__update--ready {
+  color: var(--eve-accent, var(--color-primary-6)) !important;
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--eve-accent) 44%, transparent));
 }
 
-.sider-footer__update:hover .sider-footer__update-label,
-.sider-footer__update:focus-visible .sider-footer__update-label {
-  max-width: 122px;
-  opacity: 1;
+.sider-footer__update--ready::after,
+.sider-footer__update--error::after {
+  position: absolute;
+  top: 4px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--eve-accent, var(--color-primary-6));
+  box-shadow: 0 0 7px color-mix(in srgb, var(--eve-accent) 72%, transparent);
+  content: '';
 }
 
-.sider-footer__update--compact:hover,
-.sider-footer__update--compact:focus-visible {
-  max-width: 32px;
+.sider-footer__update--downloading .sider-footer__update-icon {
+  animation: sider-footer-update-spin 1.8s linear infinite;
 }
 
-.sider-footer__update--compact .sider-footer__update-label {
-  display: none;
+.sider-footer__update--error {
+  color: rgb(var(--danger-6)) !important;
+}
+
+.sider-footer__update--error::after {
+  background: rgb(var(--danger-6));
+  box-shadow: 0 0 7px color-mix(in srgb, rgb(var(--danger-6)) 72%, transparent);
 }
 
 .sider-footer__identity:focus-visible,
@@ -162,8 +170,17 @@
 
 @media (prefers-reduced-motion: reduce) {
   .sider-footer__identity,
-  .sider-footer__update,
-  .sider-footer__update-label {
+  .sider-footer__update {
     transition: none;
+  }
+
+  .sider-footer__update--downloading .sider-footer__update-icon {
+    animation: none;
+  }
+}
+
+@keyframes sider-footer-update-spin {
+  to {
+    transform: rotate(360deg);
   }
 }

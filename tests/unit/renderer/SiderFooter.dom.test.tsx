@@ -8,12 +8,28 @@ import React from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+const updateState = vi.hoisted(() => ({ status: { status: 'idle' } as { status: string; version?: string } }));
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
 vi.mock('@arco-design/web-react', () => ({
   Tooltip: ({ children }: { children: React.ReactNode }) => children,
+  Button: ({
+    icon,
+    children,
+    ...props
+  }: React.ButtonHTMLAttributes<HTMLButtonElement> & { icon?: React.ReactNode }) => (
+    <button {...props}>
+      {icon}
+      {children}
+    </button>
+  ),
+}));
+
+vi.mock('@/renderer/hooks/system/useAutoUpdateStatus', () => ({
+  useAutoUpdateStatus: () => updateState.status,
 }));
 
 vi.mock('@/renderer/components/account/useCommandEveProfile', () => ({
@@ -26,6 +42,7 @@ import SiderFooter from '@/renderer/components/layout/Sider/SiderFooter';
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  updateState.status = { status: 'idle' };
 });
 
 describe('SiderFooter', () => {
@@ -66,5 +83,26 @@ describe('SiderFooter', () => {
     fireEvent.click(screen.getByTestId('sider-footer-update'));
     expect(openListener).toHaveBeenCalledTimes(1);
     window.removeEventListener('aionui-open-update-modal', openListener);
+  });
+
+  it('renders only the update icon and exposes state through accessible metadata', () => {
+    updateState.status = { status: 'downloaded', version: '1.8.12' };
+
+    render(
+      <SiderFooter
+        isMobile={false}
+        isSettings={false}
+        theme='dark'
+        siderTooltipProps={{}}
+        onSettingsClick={vi.fn()}
+        onThemeToggle={vi.fn()}
+      />
+    );
+
+    const updateButton = screen.getByTestId('sider-footer-update');
+    expect(updateButton.getAttribute('data-update-status')).toBe('downloaded');
+    expect(updateButton.getAttribute('aria-label')).toBe('update.readyTooltip');
+    expect(updateButton.textContent).toBe('');
+    expect(screen.queryByText('update.modalTitle')).toBeNull();
   });
 });

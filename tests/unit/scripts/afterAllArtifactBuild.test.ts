@@ -19,6 +19,7 @@ const {
   sha512Base64,
   collectMacUpdateArtifactGroups,
   buildMacUpdateYml,
+  resolveMacUpdateReleaseNotes,
   writeMacUpdateFeedMetadata,
 } = require('../../../scripts/afterAllArtifactBuild.js');
 
@@ -144,11 +145,7 @@ describe('afterAllArtifactBuild findAppForDmg (COMPA-591 hdiutil pipeline)', () 
 
 describe('afterAllArtifactBuild notarization self-verification (fail-closed)', () => {
   it('builds stapler validate args for the DMG', () => {
-    expect(buildStaplerValidateArgs('/tmp/Command EVE.dmg')).toEqual([
-      'stapler',
-      'validate',
-      '/tmp/Command EVE.dmg',
-    ]);
+    expect(buildStaplerValidateArgs('/tmp/Command EVE.dmg')).toEqual(['stapler', 'validate', '/tmp/Command EVE.dmg']);
   });
 
   it('builds spctl open-assessment args with the primary-signature context', () => {
@@ -445,6 +442,28 @@ describe('afterAllArtifactBuild UPDATE-FEED guard (post-hdiutil metadata)', () =
     expect(yml).toContain("releaseDate: '2026-07-08T17:56:00Z'");
   });
 
+  it('loads multiline release notes from the explicit release file', () => {
+    const notesPath = path.join(makeOutDir(), 'release-notes.md');
+    fs.writeFileSync(notesPath, '## Neu\n\n- Hintergrund-Updates\n- Ruhiger Neustart\n');
+
+    expect(
+      resolveMacUpdateReleaseNotes('1.8.12', {
+        env: { COMMAND_EVE_RELEASE_NOTES_FILE: notesPath },
+      })
+    ).toBe('## Neu\n\n- Hintergrund-Updates\n- Ruhiger Neustart');
+  });
+
+  it('fails closed when an explicit release notes file is empty', () => {
+    const notesPath = path.join(makeOutDir(), 'release-notes.md');
+    fs.writeFileSync(notesPath, '   \n');
+
+    expect(() =>
+      resolveMacUpdateReleaseNotes('1.8.12', {
+        env: { COMMAND_EVE_RELEASE_NOTES_FILE: notesPath },
+      })
+    ).toThrow(/release notes file is empty/);
+  });
+
   it('rewrites stale arm64 yml and version.json from the final artifact bytes', () => {
     const outDir = makeOutDir();
     const dmg = path.join(outDir, 'Command-EVE-1.7.8-mac-arm64.dmg');
@@ -496,7 +515,9 @@ describe('afterAllArtifactBuild UPDATE-FEED guard (post-hdiutil metadata)', () =
 
     expect(written.map((file: string) => path.basename(file))).toEqual(['latest-arm64-mac.yml', 'version.json']);
     expect(fs.existsSync(path.join(outDir, 'latest-mac.yml'))).toBe(false);
-    expect(fs.readFileSync(path.join(outDir, 'latest-arm64-mac.yml'), 'utf8')).toContain(`sha512: ${sha512Base64(dmg)}`);
+    expect(fs.readFileSync(path.join(outDir, 'latest-arm64-mac.yml'), 'utf8')).toContain(
+      `sha512: ${sha512Base64(dmg)}`
+    );
   });
 
   it('blocks incomplete mac update feeds when the zip is missing', () => {

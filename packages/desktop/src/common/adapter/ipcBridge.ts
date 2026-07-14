@@ -1959,6 +1959,7 @@ export const autoUpdate = {
     IBridgeResponse<{ updateInfo?: { version: string; releaseDate?: string; releaseNotes?: string } }>,
     { includePrerelease?: boolean }
   >('auto-update.check'),
+  getStatus: bridge.buildProvider<IBridgeResponse<{ status: AutoUpdateStatus | null }>, void>('auto-update.get-status'),
   download: bridge.buildProvider<IBridgeResponse, void>('auto-update.download'),
   quitAndInstall: bridge.buildProvider<void, void>('auto-update.quit-and-install'),
   status: bridge.buildEmitter<AutoUpdateStatus>('auto-update.status'),

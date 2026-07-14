@@ -10,8 +10,12 @@ import { app } from 'electron';
 import log from 'electron-log';
 import { EventEmitter } from 'events';
 import { COMMAND_EVE_SHELL_ENABLED, COMMAND_EVE_UPDATE_FEED_BASE_URL } from '@/common/config/commandEveShell';
+import { mergeAutoUpdateStatus } from '@/common/update/autoUpdateState';
+import type { AutoUpdateStatus } from '@/common/update/updateTypes';
 import { recordAutoUpdateQuitAndInstall, recordAutoUpdateStatus } from './autoUpdateDiagnostics';
 import { setIsQuitting } from '@process/utils/tray';
+
+export type { AutoUpdateStatus } from '@/common/update/updateTypes';
 
 /**
  * Environment variable that supplies the generic auto-update feed base URL.
@@ -26,6 +30,9 @@ export const UPDATE_FEED_URL_ENV = 'COMMAND_EVE_UPDATE_FEED_URL';
  * Lower priority than UPDATE_FEED_URL_ENV.
  */
 export const UPDATE_FEED_URL_CONFIG_KEY = 'update.feedUrl' as const;
+
+/** Re-check while the app remains open so deferred installs are superseded by the latest release. */
+export const COMMAND_EVE_BACKGROUND_UPDATE_INTERVAL_MS = 60 * 60 * 1000;
 
 /**
  * Resolve the configured generic-provider update feed base URL.
@@ -124,20 +131,6 @@ export function getUpdateChannel(): string | undefined {
   return undefined;
 }
 
-export interface AutoUpdateStatus {
-  status: 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error' | 'cancelled';
-  version?: string;
-  releaseDate?: string;
-  releaseNotes?: string;
-  progress?: {
-    bytesPerSecond: number;
-    percent: number;
-    transferred: number;
-    total: number;
-  };
-  error?: string;
-}
-
 /** Callback type for broadcasting update status */
 export type StatusBroadcastCallback = (status: AutoUpdateStatus) => void;
 
@@ -153,6 +146,8 @@ class AutoUpdaterService extends EventEmitter {
   /** True once a generic feed URL has been resolved and applied via setFeedURL */
   private _feedConfigured = false;
   private _statusBroadcastCallback: StatusBroadcastCallback | null = null;
+  private _lastStatus: AutoUpdateStatus | null = null;
+  private _recurringCheckTimer: ReturnType<typeof setTimeout> | null = null;
   /** Stores registered autoUpdater event handlers for cleanup and test access */
   private readonly _autoUpdaterHandlers = new Map<string, (...args: unknown[]) => void>();
 
@@ -162,9 +157,10 @@ class AutoUpdaterService extends EventEmitter {
     autoUpdater.logger = log;
     (autoUpdater.logger as typeof log).transports.file.level = 'info';
 
-    // Disable auto-download for manual control
-    autoUpdater.autoDownload = false;
-    autoUpdater.autoInstallOnAppQuit = true;
+    // Command EVE downloads quietly and waits for an explicit restart action.
+    // Upstream AionUi keeps its existing manual download/install-on-quit policy.
+    autoUpdater.autoDownload = COMMAND_EVE_SHELL_ENABLED;
+    autoUpdater.autoInstallOnAppQuit = !COMMAND_EVE_SHELL_ENABLED;
 
     // Set the correct update channel based on platform and architecture before
     // any update checks are performed
@@ -208,11 +204,13 @@ class AutoUpdaterService extends EventEmitter {
    * Reset the service state (for production use)
    */
   reset(): void {
+    this.clearRecurringCheck();
     this._isInitialized = false;
     // Note: _eventHandlersSetup is NOT reset to avoid duplicate handler registration
     this._allowPrerelease = false;
     this._feedConfigured = false;
     this._statusBroadcastCallback = null;
+    this._lastStatus = null;
   }
 
   /**
@@ -220,11 +218,13 @@ class AutoUpdaterService extends EventEmitter {
    * Use this only in tests where you need to reset handler state.
    */
   resetForTest(): void {
+    this.clearRecurringCheck();
     this._isInitialized = false;
     this._eventHandlersSetup = false;
     this._allowPrerelease = false;
     this._feedConfigured = false;
     this._statusBroadcastCallback = null;
+    this._lastStatus = null;
     // Remove listeners from this EventEmitter instance
     this.removeAllListeners();
     // Remove each registered handler from autoUpdater to prevent
@@ -280,6 +280,15 @@ class AutoUpdaterService extends EventEmitter {
     return this._feedConfigured;
   }
 
+  /** Last durable updater state, including metadata preserved across progress events. */
+  getStatusSnapshot(): AutoUpdateStatus | null {
+    if (!this._lastStatus) return null;
+    return {
+      ...this._lastStatus,
+      progress: this._lastStatus.progress ? { ...this._lastStatus.progress } : undefined,
+    };
+  }
+
   /**
    * Resolve and apply the generic-provider update feed.
    *
@@ -297,7 +306,9 @@ class AutoUpdaterService extends EventEmitter {
     const url = await resolveUpdateFeedUrl(readConfig);
     if (!url) {
       this._feedConfigured = false;
-      log.info(`No update feed configured (set ${UPDATE_FEED_URL_ENV} or ${UPDATE_FEED_URL_CONFIG_KEY}); skipping update checks.`);
+      log.info(
+        `No update feed configured (set ${UPDATE_FEED_URL_ENV} or ${UPDATE_FEED_URL_CONFIG_KEY}); skipping update checks.`
+      );
       return { configured: false };
     }
 
@@ -377,6 +388,7 @@ class AutoUpdaterService extends EventEmitter {
    * Broadcast status to both EventEmitter listeners and the registered callback
    */
   private broadcastStatus(status: AutoUpdateStatus): void {
+    this._lastStatus = mergeAutoUpdateStatus(this._lastStatus, status);
     recordAutoUpdateStatus(status, {
       currentAppVersion: app.getVersion(),
       userDataPath: app.getPath('userData'),
@@ -389,6 +401,22 @@ class AutoUpdaterService extends EventEmitter {
     if (this._statusBroadcastCallback) {
       this._statusBroadcastCallback(status);
     }
+  }
+
+  private clearRecurringCheck(): void {
+    if (!this._recurringCheckTimer) return;
+    clearTimeout(this._recurringCheckTimer);
+    this._recurringCheckTimer = null;
+  }
+
+  private scheduleRecurringCheck(): void {
+    if (!COMMAND_EVE_SHELL_ENABLED || !this._isInitialized) return;
+    this.clearRecurringCheck();
+    this._recurringCheckTimer = setTimeout(() => {
+      this._recurringCheckTimer = null;
+      void this.checkForUpdatesAndNotify();
+    }, COMMAND_EVE_BACKGROUND_UPDATE_INTERVAL_MS);
+    this._recurringCheckTimer.unref?.();
   }
 
   async checkForUpdates(
@@ -477,16 +505,14 @@ class AutoUpdaterService extends EventEmitter {
   }
 
   /**
-   * Check for updates and notify (for startup).
-   *
-   * Resolves the generic update feed first. When no feed URL is configured the
-   * check no-ops quietly (logged reason, no error dialog, no network call) —
-   * this is the supported "no feed source" state. The config reader is
-   * injectable for testing; production reads the persisted ProcessConfig value.
+   * Startup update check. Command EVE checks silently, lets electron-updater
+   * download in the background, and schedules another check while the app stays
+   * open. Upstream AionUi retains the native notification path.
    */
   async checkForUpdatesAndNotify(
     readConfig?: (key: typeof UPDATE_FEED_URL_CONFIG_KEY) => Promise<string | undefined>
   ): Promise<void> {
+    let shouldScheduleNextCheck = false;
     try {
       let reader = readConfig;
       if (!reader) {
@@ -499,11 +525,20 @@ class AutoUpdaterService extends EventEmitter {
         // electron-updater (which would otherwise error into the void).
         return;
       }
+      shouldScheduleNextCheck = COMMAND_EVE_SHELL_ENABLED;
       // Ensure clean state: prevent stale allowDowngrade=true from prior setAllowPrerelease(true) calls
       autoUpdater.allowDowngrade = false;
-      await autoUpdater.checkForUpdatesAndNotify();
+      if (COMMAND_EVE_SHELL_ENABLED) {
+        // Do not call checkForUpdatesAndNotify here: it creates a native popup.
+        // autoDownload=true starts the verified generic-feed download quietly.
+        await autoUpdater.checkForUpdates();
+      } else {
+        await autoUpdater.checkForUpdatesAndNotify();
+      }
     } catch (error) {
       log.error('Auto-update check failed:', error);
+    } finally {
+      if (shouldScheduleNextCheck) this.scheduleRecurringCheck();
     }
   }
 }

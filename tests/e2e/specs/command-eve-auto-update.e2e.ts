@@ -13,11 +13,11 @@
  * What is proven here (fail-loud, no test.skip):
  *   (a) With COMMAND_EVE_UPDATE_FEED_URL pointing at a local HTTP feed that
  *       advertises a HIGHER version (9.9.9-test), the real autoUpdaterService
- *       reaches status 'available' with version 9.9.9-test, broadcast on the
- *       production ipcBridge.autoUpdate.status channel.
- *   (b) The UI SIGNAL is visible: under locale de-DE the UpdateModal opens and
- *       renders the German signal copy "Update verfügbar" plus the 9.9.9-test
- *       version, driven by that same status broadcast.
+ *       reaches status 'available' and then 'downloaded' with version 9.9.9-test,
+ *       broadcast on the production ipcBridge.autoUpdate.status channel.
+ *   (b) The UI stays non-interruptive until the footer update icon is clicked;
+ *       it then renders the German "Bereit zur Installation" signal, version,
+ *       and release notes.
  *   (c) With the EXPLICIT empty-env opt-out (COMMAND_EVE_UPDATE_FEED_URL='') the
  *       startup check no-ops quietly — no 'available'/'error'/'checking' status is
  *       broadcast and no error dialog is shown (the W8 quiet "no feed source"
@@ -44,9 +44,9 @@
  *     --config packages/desktop/electron-builder.yml --mac dir --arm64 --publish=never
  * The spec fails loud (skips nothing) with a clear message if the .app is absent.
  *
- * Detection only fetches the channel yml and compares semver — the referenced
- * artifact is never downloaded (autoDownload is false in the service), so a tiny
- * dummy zip in the fixture feed is sufficient.
+ * The Command EVE shell downloads the referenced artifact in the background.
+ * A tiny checksum-valid dummy zip is sufficient because this spec never invokes
+ * quitAndInstall; the release-cycle receipt covers the real signed package swap.
  */
 import { test, expect, chromium, type Browser, type Page } from '@playwright/test';
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
@@ -96,8 +96,7 @@ type PackagedAppHandle = {
 function buildFeedDir(): { dir: string; cleanup: () => void } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'command-eve-update-feed-'));
 
-  // Dummy artifact + blockmap. Never downloaded during detection; present so the
-  // feed is internally consistent.
+  // Small checksum-valid artifact. It is downloaded but never installed.
   const zipBytes = Buffer.from(`command-eve dummy update artifact ${FEED_VERSION}\n`);
   fs.writeFileSync(path.join(dir, ZIP_NAME), zipBytes);
   fs.writeFileSync(path.join(dir, BLOCKMAP_NAME), Buffer.from('dummy-blockmap'));
@@ -112,7 +111,9 @@ function buildFeedDir(): { dir: string; cleanup: () => void } {
     `    size: ${zipBytes.length}\n` +
     `path: ${ZIP_NAME}\n` +
     `sha512: ${sha512}\n` +
-    `releaseDate: '${releaseDate}'\n`;
+    `releaseDate: '${releaseDate}'\n` +
+    `releaseNotes: |\n` +
+    `  Ruhige Hintergrund-Updates\n`;
 
   // Emit every channel-yml name the updater might request across mac arch/channel
   // permutations so the proof does not depend on the runner's exact arch.
@@ -387,20 +388,18 @@ async function waitForStatus(
   return last;
 }
 
-async function openUpdateModalViaRendererEvent(page: Page): Promise<void> {
+async function openUpdateModalViaFooter(page: Page): Promise<void> {
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    await page.evaluate(() => {
-      window.dispatchEvent(new CustomEvent('aionui-open-update-modal', { detail: { source: 'e2e' } }));
-    });
+    await page.getByTestId('sider-footer-update').click();
     const visible = await page
-      .getByText('Update verfügbar')
+      .getByText('Bereit zur Installation')
       .waitFor({ state: 'visible', timeout: attempt === 3 ? 30_000 : 5_000 })
       .then(() => true)
       .catch(() => false);
     if (visible) return;
     await page.waitForTimeout(500);
   }
-  throw new Error('Update modal did not render the available-state signal after repeated renderer open events.');
+  throw new Error('Update modal did not render the downloaded-state signal after repeated footer clicks.');
 }
 
 // ── Suite A: feed configured → detect + broadcast + visible German signal ─────
@@ -460,19 +459,21 @@ test.describe.serial('Command EVE auto-update – detect + signal against local 
     expect(available?.version, 'available version must equal the feed version').toBe(FEED_VERSION);
   });
 
-  test('(b) renders the visible German "Update verfügbar" signal (de-DE is the Command EVE default)', async () => {
-    // Command EVE's fallbackLanguage is de-DE (i18n-config.json), so a fresh
-    // instance renders German without any locale switch. Drive the same
-    // renderer-side open signal used by tray/about; UpdateModal then calls the
-    // production autoUpdate.check bridge against the local feed configured for
-    // this suite.
-    await openUpdateModalViaRendererEvent(page);
+  test('(b) stays quiet, then shows ready details only after the footer icon is clicked', async () => {
+    const statuses = await waitForStatus(page, (items) => items.some((item) => item.status === 'downloaded'), 30_000);
+    const errorStatus = statuses.find((item) => item.status === 'error');
+    expect(errorStatus, `background download failed: ${errorStatus?.error ?? ''}`).toBeUndefined();
+    expect(statuses.some((item) => item.status === 'downloaded' && item.version === FEED_VERSION)).toBe(true);
 
-    // The available-state header is the German signal copy "Update verfügbar"
-    // (update.availableTitle in de-DE).
-    await expect(page.getByText('Update verfügbar')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Bereit zur Installation')).toBeHidden();
+    await expect(page.getByTestId('sider-footer-update')).toHaveAttribute('data-update-status', 'downloaded');
+
+    await openUpdateModalViaFooter(page);
+
+    await expect(page.getByText('Bereit zur Installation')).toBeVisible({ timeout: 30_000 });
     // The version the user sees must be the feed version.
     await expect(page.getByText(FEED_VERSION).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText('Ruhige Hintergrund-Updates')).toBeVisible({ timeout: 10_000 });
   });
 });
 
