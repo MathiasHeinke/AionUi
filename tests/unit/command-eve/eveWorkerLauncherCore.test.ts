@@ -82,7 +82,7 @@ describe('eveWorkerLauncherCore (SG-1 A3/A4)', () => {
   describe('computeLauncherStatePaths (outside hermesHome)', () => {
     it('roots state under <dataPath>/eve-acp-launcher/<seat>/, not under seats/<seat>/hermes', () => {
       const p = computeLauncherStatePaths('/data', 'seat-1', 'growth-lead');
-      const stateRoot = path.resolve('/data', 'eve-acp-launcher', 'seat-1');
+      const stateRoot = path.join('/data', 'eve-acp-launcher', 'seat-1');
       expect(p.statusFile).toBe(path.join(stateRoot, 'growth-lead.status'));
       expect(p.tokenFile).toBe(path.join(stateRoot, 'growth-lead.token'));
       expect(p.statusFile).not.toContain(`${path.sep}hermes${path.sep}`);

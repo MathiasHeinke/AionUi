@@ -49,6 +49,8 @@ type Harness = {
   runner: RuntimeBootstrapRunner;
 };
 
+const itM = it.skipIf(process.platform === 'win32');
+
 type RuntimeBootstrapOptions = Parameters<typeof ensureCommandEveRuntimeBootstrapCore>[0];
 
 // This suite models the full macOS/Homebrew bootstrap. Windows has a dedicated
@@ -279,7 +281,8 @@ describe('Command EVE runtime bootstrap core', () => {
     expect(capabilityPack.connectors.some((connector) => connector.id === 'codex-cli')).toBe(true);
   });
 
-  it('LOW-RAM (8GB): downgrades to CLOUD-ONLY — writes config.yaml, skips only local model, finishes ready (perf audit #3)', async () => {
+  // prettier-ignore
+  itM('LOW-RAM (8GB): downgrades to CLOUD-ONLY — writes config.yaml, skips only local model, finishes ready (perf audit #3)', async () => {
     const harness = makeHarness();
     const manifestPath = writeManifest(harness.root, 'http://127.0.0.1:11434');
     const receipt = await ensureCommandEveRuntimeBootstrap({
@@ -332,7 +335,7 @@ describe('Command EVE runtime bootstrap core', () => {
     ).toBe(true);
   });
 
-  it('installs Hermes, installs Ollama via Homebrew, pulls the default model, and writes receipts', async () => {
+  itM('installs Hermes, installs Ollama via Homebrew, pulls the default model, and writes receipts', async () => {
     const harness = makeHarness();
     await withOllamaServer(async (baseUrl) => {
       const manifestPath = writeManifest(harness.root, baseUrl);
@@ -712,7 +715,7 @@ describe('Command EVE runtime bootstrap core', () => {
     });
   });
 
-  it('uses the packaged macOS Ollama binary when it exists outside PATH', async () => {
+  itM('uses the packaged macOS Ollama binary when it exists outside PATH', async () => {
     const harness = makeHarness({ modelInitiallyPulled: true });
     const bundledOllama = path.join(harness.root, 'Ollama.app', 'Contents', 'Resources', 'ollama');
     fs.mkdirSync(path.dirname(bundledOllama), { recursive: true });
@@ -1373,7 +1376,7 @@ describe('Command EVE runtime bootstrap core', () => {
     expect(harness.commands.some((command) => command.includes('pip install'))).toBe(false);
   });
 
-  it('prepares PATH for an existing Hermes runtime before aioncore scans agents', () => {
+  itM('prepares PATH for an existing Hermes runtime before aioncore scans agents', () => {
     const root = makeRoot();
     const paths = resolveCommandEveRuntimeBootstrapPaths(root);
     fs.mkdirSync(path.join(paths.hermesVenv, 'bin'), { recursive: true });

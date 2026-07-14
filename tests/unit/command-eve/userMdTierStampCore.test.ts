@@ -110,8 +110,9 @@ describe('B2 stamp — §FOUNDER present in every seat, §SEAT gating', () => {
     expect(body).toContain('Bäckerei Müller');
     // T1/T7: §SEAT v2 points at the LIVING brief.md by its ABSOLUTE path so the
     // agent never resolves it against workspace cwd (NOT the dead root MEMORY.md).
-    expect(body).toContain(path.join('company-brain', 'brief.md'));
-    expect(body).toContain(path.join(HOME, 'company-brain', 'brief.md'));
+    const portableBody = body.replaceAll('\\', '/');
+    expect(portableBody).toContain('company-brain/brief.md');
+    expect(portableBody).toContain(`${HOME}/company-brain/brief.md`);
     expect(body).not.toContain('MEMORY.md');
     // Budget: the §SEAT body stays within the hard ≤400c budget.
     const begin = body.indexOf(SEAT_MARKER_BEGIN) + SEAT_MARKER_BEGIN.length;
