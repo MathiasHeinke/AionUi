@@ -32,13 +32,13 @@ import { ipcBridge } from '@/common';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
 import { useOnboardingStatus } from '@renderer/hooks/useOnboardingStatus';
 import { useStartscreenNote } from '@renderer/hooks/useStartscreenNote';
-import { markConversationGenerating, clearConversationGenerating } from '@renderer/services/commandEveGenerationActivity';
+import {
+  markConversationGenerating,
+  clearConversationGenerating,
+} from '@renderer/services/commandEveGenerationActivity';
 import { buildFallbackGreeting } from '@/common/config/onboardingGreetingCore';
 import { buildNoteFrame } from '@/common/config/startscreenNoteCore';
-import type {
-  CommandEveGreetingGap,
-  CommandEveGreetingLinkTarget,
-} from '@/common/config/onboardingGreetingCore';
+import type { CommandEveGreetingGap, CommandEveGreetingLinkTarget } from '@/common/config/onboardingGreetingCore';
 
 /**
  * Map a pure-core link target onto an existing app hash-route. Exported for the
@@ -62,10 +62,7 @@ export function targetToRoute(target: CommandEveGreetingLinkTarget): string | nu
   }
 }
 
-const GapRow: React.FC<{ gap: CommandEveGreetingGap; onNavigate: (route: string) => void }> = ({
-  gap,
-  onNavigate,
-}) => {
+const GapRow: React.FC<{ gap: CommandEveGreetingGap; onNavigate: (route: string) => void }> = ({ gap, onNavigate }) => {
   const route = targetToRoute(gap.link_target);
   return (
     <div

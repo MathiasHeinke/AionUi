@@ -17,33 +17,39 @@ Audit of the uncommitted diff after bc58b27d (connectorCatalog + localRuntime pu
 ## Confirmed findings (P0/P1, ordered by severity)
 
 ### P0-1 — All light-mode evidence is invalid: captures show dark-Arco-on-light, so the light contrast gate is unverified
+
 - FACT(screenshot: settings-connectors-light-p1.png, settings-runtime-light-p1.png, settings-eve-runtime-light-p1.png; identical in p0 captures): gray Tags ("Sicherer Modus", "Status", "Status-Hinweis", "Optional", "Noch nicht verbunden", count "14"), default/secondary Buttons ("Aktualisieren", "Sicher verbinden", "Drosseln", "Pausieren") and role skill chips render near-white-on-white; colored tags show dark-palette values. Body text (`html[data-theme]` tokens) is correct → `body[arco-theme]` stayed `dark` while `html[data-theme]` was `light`.
 - Root-cause trace (read-only worker): every committed writer sets both attributes together — FACT(applyTheme.ts:39-40); the settings-footer quick toggle routes through `applyTheme` via ThemeContext reconciliation (ThemeContext.tsx:58-62); the boot scripts (index.html:21 html, :42 body) read the same localStorage key. No committed screenshot harness exists for these captures. INFERENCE: the ad-hoc capture step forced `data-theme='light'` (or seeded localStorage without reload) without `applyTheme` — a harness artifact, not an in-app code path.
 - Impact: none of the routes-r2 light screenshots (p0 or p1) certify light mode. If light mode really rendered like this it would be a hard blocker; as-is, the visual gate for light theme is simply unfulfilled — you cannot sign off contrast, semantic colors, or copy legibility for light from this evidence.
 - Bounded fix: re-capture the light matrix by switching through the real path (AppearanceSettings radio, or `applyTheme(...)`/both attributes in the harness), then re-review light contrast. Optional hardening: assert `body[arco-theme] === html[data-theme]` in the existing e2e (theme-switching.e2e.ts already checks this pattern) or a small runtime invariant.
 
 ### P1-1 — Raw English capability slugs on the public EVE-Runtime page
+
 - FACT(DeinTeamPanel.tsx:235-237) `role.skills.map((skill) => <Tag …>{skill}</Tag>)`; FACT(screenshot: settings-eve-runtime-dark-p1.png) "strategy", "planning", "decision-making", "coordination", "delegation", "reporting", "faq", "triage", "local-chat".
 - Impact: untranslated internal slugs on the flagship public surface; breaks G2-adjacent copy rules and German-locale polish.
 - Bounded fix: map via i18n (`deinTeam.skills.<slug>` with defaultValue = humanized slug), locales de-DE/en-US; extend migration test.
 
 ### P1-2 — Projected-cost value clipped at viewport edge on EVE-Runtime
+
 - FACT(screenshot: settings-eve-runtime-dark-p1.png + light): "200€ / 60…" cut mid-string, dividers touch the window edge → the Orchestrierung tab body has no right padding / overflows the wrapper column. FACT(ProjectedSpendMeter.tsx:70-76) renders `{eur(totalEur)} / {eur(hullEur)}`.
 - Impact: the budget ceiling — the one number the meter exists to show — is unreadable.
 - Bounded fix: restore right padding on the tab content (or `min-w-0` + `pr` on the meter row) in EveRuntime/index.tsx / DeinTeamPanel container; re-capture.
 
 ### P1-3 — Public guided-auth flow is a dead end (interaction truth)
+
 - FACT(connectorCatalog/index.tsx:254-258) `canSubmit` requires a non-empty HumanGate receipt; FACT(:435-437 comment) `request_humangate` has no in-app handler, so a public operator can never possess a "Freigabebeleg". The new public modal (this diff) invites the flow ("Sicher verbinden" button, "Freigabebeleg einfügen" placeholder) but cannot be completed; the format hint (`receipt://hg-3/<id>`) was also removed for founder mode.
 - Impact: public users hit a permanently disabled confirm with no explanation — violates the "no dead controls" rule the file itself cites.
 - Bounded fix: founder-gate the guided-auth button (public gets the existing status-note pattern), or in public mode hide the receipt field and route through the approval flow; keep the receipt-format placeholder in founder mode.
 
 ### P1-4 — Hardcoded English toasts + raw reason_code leak in the same flow
+
 - FACT(connectorCatalog/index.tsx:553) `Message.success('Connector credential stored securely.')`; FACT(:557) `Message.error(response.msg || response.data?.reason_code || 'Guided setup failed.')`; FACT(:560).
 - Impact: English strings on a German public UI and raw internal slugs (`reason_code`, bridge `msg`) surfaced publicly — the one unredacted outlet left in the flow this diff cleaned.
 - Bounded fix: new `connectorCatalog.setupModal.storedSuccess` / `setupFailed` keys (de/en); show raw `msg`/`reason_code` only when `showTechnicalDetails`.
 
 ### P1-5 — Manifest-driven i18n keys without defaultValue can leak raw keys
-- FACT(localRuntime/index.tsx:211) `t(\`localRuntime.tierDescriptions.${tier.id}\`)` — unlike `tierNames` (:193-195) there is no defaultValue; a new tier id in the on-disk manifest renders `localRuntime.tierDescriptions.gemma-…` verbatim (leaks "gemma", looks broken). Same class: `receiptStatus.${status}` / `receiptNextAction.${status}` (:609-614) trust unvalidated receipt JSON.
+
+- FACT(localRuntime/index.tsx:211) `t(\`localRuntime.tierDescriptions.${tier.id}\`)` — unlike `tierNames` (:193-195) there is no defaultValue; a new tier id in the on-disk manifest renders `localRuntime.tierDescriptions.gemma-…` verbatim (leaks "gemma", looks broken). Same class: `receiptStatus.${status}`/`receiptNextAction.${status}` (:609-614) trust unvalidated receipt JSON.
 - Bounded fix: add `defaultValue` fallbacks (generic public description / status dash); optional unit test asserting fallback.
 
 ## Optional polish (not blocking)

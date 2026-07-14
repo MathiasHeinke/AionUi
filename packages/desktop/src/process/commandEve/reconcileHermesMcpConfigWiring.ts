@@ -49,9 +49,13 @@ export interface ReconcileWiringDeps {
  * Only reached when the flag is ON.
  */
 async function defaultReRenderConfig(getDataPath: () => string): Promise<number> {
-  const { ensureCommandEveRuntimeBootstrap, countVettedMcpServersForSeat, buildMcpInvocationResolver, resolveCommandEveRuntimeBootstrapPaths, DEFAULT_COMMAND_EVE_CAPABILITY_PACK } = await import(
-    './runtimeBootstrapCore'
-  );
+  const {
+    ensureCommandEveRuntimeBootstrap,
+    countVettedMcpServersForSeat,
+    buildMcpInvocationResolver,
+    resolveCommandEveRuntimeBootstrapPaths,
+    DEFAULT_COMMAND_EVE_CAPABILITY_PACK,
+  } = await import('./runtimeBootstrapCore');
   const { getActiveSeatId } = await import('./seatContextCore');
   const userDataPath = getDataPath();
   // Re-run the bootstrap in check mode: idempotent, re-writes config.yaml from the

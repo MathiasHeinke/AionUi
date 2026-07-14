@@ -61,7 +61,10 @@ export function readGroqApiKeyFromHermesEnv(): string | null {
     if (key !== 'GROQ_API_KEY') continue;
     let value = trimmed.slice(eq + 1).trim();
     // Strip a single pair of surrounding quotes if present.
-    if (value.length >= 2 && ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))) {
+    if (
+      value.length >= 2 &&
+      ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))
+    ) {
       value = value.slice(1, -1);
     }
     return value || null;
@@ -165,14 +168,19 @@ const defaultRunner: CommandEveSttRunner = (command, args, options) =>
       .join(':');
     // extraEnv (e.g. GROQ_API_KEY) is scoped to THIS child process only.
     const env = { ...process.env, PATH: augmentedPath, ...options.extraEnv };
-    execFile(command, args, { timeout: options.timeoutMs, maxBuffer: 8 * 1024 * 1024, env }, (error, stdout, stderr) => {
-      resolve({
-        ok: !error,
-        stdout: stdout?.toString() ?? '',
-        stderr: stderr?.toString() ?? '',
-        error: error ? error.message : undefined,
-      });
-    });
+    execFile(
+      command,
+      args,
+      { timeout: options.timeoutMs, maxBuffer: 8 * 1024 * 1024, env },
+      (error, stdout, stderr) => {
+        resolve({
+          ok: !error,
+          stdout: stdout?.toString() ?? '',
+          stderr: stderr?.toString() ?? '',
+          error: error ? error.message : undefined,
+        });
+      }
+    );
   });
 
 type PythonSttResult = {
@@ -211,9 +219,7 @@ export async function transcribeLocalSpeech(
   const tmpDir = options.tmpDir ?? os.tmpdir();
   const provider = request.provider === 'groq' ? 'groq' : 'local';
   const model =
-    provider === 'groq'
-      ? request.groqModel || DEFAULT_GROQ_MODEL
-      : request.localModel || DEFAULT_LOCAL_MODEL;
+    provider === 'groq' ? request.groqModel || DEFAULT_GROQ_MODEL : request.localModel || DEFAULT_LOCAL_MODEL;
 
   // Groq: read the key from ~/.hermes/.env at runtime and pass it ONLY into the
   // child env. If it's missing, fail with an actionable code instead of letting

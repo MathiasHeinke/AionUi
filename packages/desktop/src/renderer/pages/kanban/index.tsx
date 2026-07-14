@@ -115,9 +115,10 @@ interface IKanbanMutationCarrier {
   source: { generated_by: 'command-eve-kanban-marketing-board-core'; hermes_home: string };
 }
 
-const kanbanBoardProvider = bridge.buildProvider<IBridgeResponse<IKanbanBoardEnvelope>, { boardSlug?: string } | undefined>(
-  'command-eve.kanban-marketing-board'
-);
+const kanbanBoardProvider = bridge.buildProvider<
+  IBridgeResponse<IKanbanBoardEnvelope>,
+  { boardSlug?: string } | undefined
+>('command-eve.kanban-marketing-board');
 
 const kanbanCardCreateProvider = bridge.buildProvider<
   IBridgeResponse<IKanbanCardCreateEnvelope>,
@@ -158,7 +159,8 @@ const formatTimestamp = (ms?: number | null): string => {
   }
 };
 
-const governanceColor = (state: 'read_only' | 'proof_write_recorded' | 'unknown'): 'green' | 'gray' => (state === 'proof_write_recorded' ? 'green' : 'gray');
+const governanceColor = (state: 'read_only' | 'proof_write_recorded' | 'unknown'): 'green' | 'gray' =>
+  state === 'proof_write_recorded' ? 'green' : 'gray';
 
 // ── Card detail (Class-2) ─────────────────────────────────────────────────────
 
@@ -188,22 +190,48 @@ const KanbanCardDetailPanel: React.FC<{ card: IKanbanBoardCard }> = ({ card }) =
       className='mt-8px rounded-8px border border-solid border-[var(--color-border-2)] bg-fill-1 px-10px py-8px'
     >
       {/* Provenance */}
-      <div className='text-11px font-600 leading-16px text-t-secondary'>{t('kanban.card.detail.provenanceTitle', { defaultValue: 'Origin' })}</div>
+      <div className='text-11px font-600 leading-16px text-t-secondary'>
+        {t('kanban.card.detail.provenanceTitle', { defaultValue: 'Origin' })}
+      </div>
       <dl className='mt-4px grid grid-cols-[auto_1fr] gap-x-8px gap-y-2px text-11px leading-16px'>
-        <DetailRow label={t('kanban.card.detail.owner', { defaultValue: 'Owner' })} value={textOrDash(provenance.assignee)} />
-        {provenance.draftSource ? <DetailRow label={t('kanban.card.detail.source', { defaultValue: 'Source' })} value={provenance.draftSource} /> : null}
-        {provenance.linkedRunId ? <DetailRow label={t('kanban.card.detail.run', { defaultValue: 'Run' })} value={provenance.linkedRunId} /> : null}
-        <DetailRow label={t('kanban.card.detail.created', { defaultValue: 'Created' })} value={formatTimestamp(provenance.createdAt)} />
-        {provenance.updatedAt ? <DetailRow label={t('kanban.card.detail.updated', { defaultValue: 'Updated' })} value={formatTimestamp(provenance.updatedAt)} /> : null}
+        <DetailRow
+          label={t('kanban.card.detail.owner', { defaultValue: 'Owner' })}
+          value={textOrDash(provenance.assignee)}
+        />
+        {provenance.draftSource ? (
+          <DetailRow
+            label={t('kanban.card.detail.source', { defaultValue: 'Source' })}
+            value={provenance.draftSource}
+          />
+        ) : null}
+        {provenance.linkedRunId ? (
+          <DetailRow label={t('kanban.card.detail.run', { defaultValue: 'Run' })} value={provenance.linkedRunId} />
+        ) : null}
+        <DetailRow
+          label={t('kanban.card.detail.created', { defaultValue: 'Created' })}
+          value={formatTimestamp(provenance.createdAt)}
+        />
+        {provenance.updatedAt ? (
+          <DetailRow
+            label={t('kanban.card.detail.updated', { defaultValue: 'Updated' })}
+            value={formatTimestamp(provenance.updatedAt)}
+          />
+        ) : null}
       </dl>
 
       {/* Draft = quality signal */}
       {draft ? (
         <div className='mt-8px'>
-          <div className='text-11px font-600 leading-16px text-t-secondary'>{t('kanban.card.detail.draftTitle', { defaultValue: 'Draft' })}</div>
+          <div className='text-11px font-600 leading-16px text-t-secondary'>
+            {t('kanban.card.detail.draftTitle', { defaultValue: 'Draft' })}
+          </div>
           <dl className='mt-4px grid grid-cols-[auto_1fr] gap-x-8px gap-y-2px text-11px leading-16px'>
-            {draft.source ? <DetailRow label={t('kanban.card.detail.source', { defaultValue: 'Source' })} value={draft.source} /> : null}
-            {draft.at ? <DetailRow label={t('kanban.card.detail.at', { defaultValue: 'At' })} value={formatTimestamp(draft.at)} /> : null}
+            {draft.source ? (
+              <DetailRow label={t('kanban.card.detail.source', { defaultValue: 'Source' })} value={draft.source} />
+            ) : null}
+            {draft.at ? (
+              <DetailRow label={t('kanban.card.detail.at', { defaultValue: 'At' })} value={formatTimestamp(draft.at)} />
+            ) : null}
           </dl>
           {draft.text ? (
             <pre
@@ -218,7 +246,9 @@ const KanbanCardDetailPanel: React.FC<{ card: IKanbanBoardCard }> = ({ card }) =
 
       {/* Governance & audit trail */}
       <div className='mt-8px'>
-        <div className='text-11px font-600 leading-16px text-t-secondary'>{t('kanban.card.detail.auditTitle', { defaultValue: 'Governance & audit' })}</div>
+        <div className='text-11px font-600 leading-16px text-t-secondary'>
+          {t('kanban.card.detail.auditTitle', { defaultValue: 'Governance & audit' })}
+        </div>
         <dl className='mt-4px grid grid-cols-[auto_1fr] gap-x-8px gap-y-2px text-11px leading-16px'>
           <DetailRow
             label={t('kanban.card.detail.governance', { defaultValue: 'Governance' })}
@@ -228,27 +258,56 @@ const KanbanCardDetailPanel: React.FC<{ card: IKanbanBoardCard }> = ({ card }) =
               </Tag>
             }
           />
-          {audit.linkedAuditEventId ? <DetailRow label={t('kanban.card.detail.auditEvent', { defaultValue: 'Audit event' })} value={audit.linkedAuditEventId} /> : null}
-          {audit.draftAuditEventId ? <DetailRow label={t('kanban.card.detail.draftAudit', { defaultValue: 'Draft audit' })} value={audit.draftAuditEventId} /> : null}
+          {audit.linkedAuditEventId ? (
+            <DetailRow
+              label={t('kanban.card.detail.auditEvent', { defaultValue: 'Audit event' })}
+              value={audit.linkedAuditEventId}
+            />
+          ) : null}
+          {audit.draftAuditEventId ? (
+            <DetailRow
+              label={t('kanban.card.detail.draftAudit', { defaultValue: 'Draft audit' })}
+              value={audit.draftAuditEventId}
+            />
+          ) : null}
           {audit.controllerReviewStatus ? (
-            <DetailRow label={t('kanban.card.detail.controllerReview', { defaultValue: 'Controller review' })} value={textOrDash(audit.controllerReviewAuditEventId || audit.controllerReviewStatus)} />
+            <DetailRow
+              label={t('kanban.card.detail.controllerReview', { defaultValue: 'Controller review' })}
+              value={textOrDash(audit.controllerReviewAuditEventId || audit.controllerReviewStatus)}
+            />
           ) : null}
           {audit.controllerDecisionStatus ? (
-            <DetailRow label={t('kanban.card.detail.controllerDecision', { defaultValue: 'Controller decision' })} value={`${audit.controllerDecisionStatus}${audit.controllerDecisionAuditEventId ? ` · ${audit.controllerDecisionAuditEventId}` : ''}`} />
+            <DetailRow
+              label={t('kanban.card.detail.controllerDecision', { defaultValue: 'Controller decision' })}
+              value={`${audit.controllerDecisionStatus}${audit.controllerDecisionAuditEventId ? ` · ${audit.controllerDecisionAuditEventId}` : ''}`}
+            />
           ) : null}
         </dl>
-        {!audit.hasAnyAuditEvent ? <div className='mt-2px text-11px leading-16px text-t-tertiary'>{t('kanban.card.detail.noAudit', { defaultValue: 'No audit records linked yet.' })}</div> : null}
+        {!audit.hasAnyAuditEvent ? (
+          <div className='mt-2px text-11px leading-16px text-t-tertiary'>
+            {t('kanban.card.detail.noAudit', { defaultValue: 'No audit records linked yet.' })}
+          </div>
+        ) : null}
       </div>
 
       {/* Progress / ladder */}
       {ladder ? (
         <div className='mt-8px'>
-          <div className='text-11px font-600 leading-16px text-t-secondary'>{t('kanban.card.detail.ladderTitle', { defaultValue: 'Progress' })}</div>
+          <div className='text-11px font-600 leading-16px text-t-secondary'>
+            {t('kanban.card.detail.ladderTitle', { defaultValue: 'Progress' })}
+          </div>
           <dl className='mt-4px grid grid-cols-[auto_1fr] gap-x-8px gap-y-2px text-11px leading-16px'>
-            <DetailRow label={t('kanban.card.detail.highestStage', { defaultValue: 'Highest stage' })} value={ladder.highestStage ? ladderStageLabel(ladder.highestStage) : '-'} />
+            <DetailRow
+              label={t('kanban.card.detail.highestStage', { defaultValue: 'Highest stage' })}
+              value={ladder.highestStage ? ladderStageLabel(ladder.highestStage) : '-'}
+            />
             <DetailRow
               label={t('kanban.card.detail.executorPromoted', { defaultValue: 'Executor promoted' })}
-              value={ladder.executorPromoted ? t('kanban.card.detail.yes', { defaultValue: 'Yes' }) : t('kanban.card.detail.no', { defaultValue: 'No' })}
+              value={
+                ladder.executorPromoted
+                  ? t('kanban.card.detail.yes', { defaultValue: 'Yes' })
+                  : t('kanban.card.detail.no', { defaultValue: 'No' })
+              }
             />
           </dl>
           {ladder.recordedStages.length > 0 ? (
@@ -311,7 +370,9 @@ const KanbanCardView: React.FC<{
           aria-expanded={expanded}
           onClick={() => setExpanded((value) => !value)}
         >
-          {expanded ? t('kanban.card.detail.hide', { defaultValue: 'Hide details ▴' }) : t('kanban.card.detail.show', { defaultValue: 'Show details ▾' })}
+          {expanded
+            ? t('kanban.card.detail.hide', { defaultValue: 'Hide details ▴' })
+            : t('kanban.card.detail.show', { defaultValue: 'Show details ▾' })}
         </Button>
       </div>
       {expanded ? <KanbanCardDetailPanel card={card} /> : null}
@@ -658,7 +719,10 @@ const KanbanBoardPage: React.FC = () => {
         ok: false,
         status: 'failed',
         reason_code: 'KANBAN_BOARD_UI_LOAD_FAILED',
-        message: loadError instanceof Error ? loadError.message : t('kanban.errors.loadFailed', { defaultValue: 'Load failed.' }),
+        message:
+          loadError instanceof Error
+            ? loadError.message
+            : t('kanban.errors.loadFailed', { defaultValue: 'Load failed.' }),
         source: { generated_by: 'command-eve-kanban-marketing-board-core', hermes_home: '' },
       });
     } finally {
@@ -715,7 +779,9 @@ const KanbanBoardPage: React.FC = () => {
         }
       } catch (createError) {
         Message.error(
-          createError instanceof Error ? createError.message : t('kanban.create.failed', { defaultValue: 'Create failed.' })
+          createError instanceof Error
+            ? createError.message
+            : t('kanban.create.failed', { defaultValue: 'Create failed.' })
         );
       } finally {
         setCreateSubmitting(false);
@@ -773,7 +839,9 @@ const KanbanBoardPage: React.FC = () => {
         return false;
       } catch (actionError) {
         Message.error(
-          actionError instanceof Error ? actionError.message : t('kanban.action.failed', { defaultValue: 'Action failed.' })
+          actionError instanceof Error
+            ? actionError.message
+            : t('kanban.action.failed', { defaultValue: 'Action failed.' })
         );
         return false;
       } finally {

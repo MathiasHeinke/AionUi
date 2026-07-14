@@ -51,7 +51,10 @@ function seatHomeFor(seatId?: string | null): SeatHomePaths {
 }
 
 /** A minimal input over a seat + deriver flags (deriver defaults to cloud fallback). */
-function inputFor(seatId: string | null | undefined, over: Partial<HonchoRuntimeConfigInput> = {}): HonchoRuntimeConfigInput {
+function inputFor(
+  seatId: string | null | undefined,
+  over: Partial<HonchoRuntimeConfigInput> = {}
+): HonchoRuntimeConfigInput {
   // For an unsafe id, seatHome can't be resolved — pass a legacy home; the core
   // throws on the raw seatId before it ever reads seatHome.
   let home: SeatHomePaths;
@@ -107,9 +110,13 @@ describe('honchoRuntimeConfigCore — ISOLATION', () => {
     // seatId A + seatHome resolved from B would give A's db/workspace but B's home.
     expect(() => buildHonchoRuntimeConfig({ seatId: REAL_UUID_A, seatHome: homeB })).toThrow(/mismatch/i);
     // A matching pair builds cleanly.
-    expect(() => buildHonchoRuntimeConfig({ seatId: REAL_UUID_A, seatHome: resolveSeatHome(USER_DATA, REAL_UUID_A) })).not.toThrow();
+    expect(() =>
+      buildHonchoRuntimeConfig({ seatId: REAL_UUID_A, seatHome: resolveSeatHome(USER_DATA, REAL_UUID_A) })
+    ).not.toThrow();
     // Legacy id + legacy home also matches (both resolve to seat-1).
-    expect(() => buildHonchoRuntimeConfig({ seatId: undefined, seatHome: resolveSeatHome(USER_DATA, undefined) })).not.toThrow();
+    expect(() =>
+      buildHonchoRuntimeConfig({ seatId: undefined, seatHome: resolveSeatHome(USER_DATA, undefined) })
+    ).not.toThrow();
   });
 
   it('4 — case-fold: ABC and abc produce IDENTICAL db, workspace and home (one seat identity)', () => {
@@ -213,7 +220,9 @@ describe('honchoRuntimeConfigCore — DERIVER routing', () => {
     for (const optedIn of [true, false, undefined] as const) {
       for (const ready of [true, false, undefined] as const) {
         for (const hasLicense of [true, false, undefined] as const) {
-          const cfg = buildHonchoRuntimeConfig(inputFor(REAL_UUID_A, { localModelOptedIn: optedIn, localModelReady: ready, hasLicense }));
+          const cfg = buildHonchoRuntimeConfig(
+            inputFor(REAL_UUID_A, { localModelOptedIn: optedIn, localModelReady: ready, hasLicense })
+          );
           const d = cfg.deriver || {};
           if (d.branch === HONCHO_DERIVER_BRANCH_CLOUD) {
             expect(d.forcedTier).toBe('standard');
@@ -233,7 +242,11 @@ describe('honchoRuntimeConfigCore — DERIVER routing', () => {
     // A hostile caller tries to smuggle a paid tier / picker selection in — the
     // function has no such parameter, so it is inert. Cast through unknown (there
     // is deliberately no typed slot for these fields).
-    const spoofInput = { localModelOptedIn: false, selection: 'command-eve-inference:eve-max', tier: 'max' } as unknown as Parameters<typeof resolveHonchoDeriverConfig>[0];
+    const spoofInput = {
+      localModelOptedIn: false,
+      selection: 'command-eve-inference:eve-max',
+      tier: 'max',
+    } as unknown as Parameters<typeof resolveHonchoDeriverConfig>[0];
     const spoofed = resolveHonchoDeriverConfig(spoofInput);
     expect(spoofed.forcedTier).toBe('standard');
     expect(spoofed).toEqual(clean);
@@ -241,19 +254,49 @@ describe('honchoRuntimeConfigCore — DERIVER routing', () => {
 
   it('C3 — the LOCAL branch REJECTS a non-loopback ollamaBaseUrl (no direct unredacted egress)', () => {
     // A remote "local" base would emit behindEgressBoundary:false + egress un-redacted.
-    expect(() => resolveHonchoDeriverConfig({ localModelOptedIn: true, localModelReady: true, ollamaBaseUrl: EVE_INFERENCE_FUNCTION_URL })).toThrow();
-    expect(() => resolveHonchoDeriverConfig({ localModelOptedIn: true, localModelReady: true, ollamaBaseUrl: 'http://10.0.0.5:11434' })).toThrow();
-    expect(() => resolveHonchoDeriverConfig({ localModelOptedIn: true, localModelReady: true, ollamaBaseUrl: 'https://127.0.0.1:11434' })).toThrow();
+    expect(() =>
+      resolveHonchoDeriverConfig({
+        localModelOptedIn: true,
+        localModelReady: true,
+        ollamaBaseUrl: EVE_INFERENCE_FUNCTION_URL,
+      })
+    ).toThrow();
+    expect(() =>
+      resolveHonchoDeriverConfig({
+        localModelOptedIn: true,
+        localModelReady: true,
+        ollamaBaseUrl: 'http://10.0.0.5:11434',
+      })
+    ).toThrow();
+    expect(() =>
+      resolveHonchoDeriverConfig({
+        localModelOptedIn: true,
+        localModelReady: true,
+        ollamaBaseUrl: 'https://127.0.0.1:11434',
+      })
+    ).toThrow();
     // A genuine loopback Ollama base is accepted.
-    const ok = resolveHonchoDeriverConfig({ localModelOptedIn: true, localModelReady: true, ollamaBaseUrl: 'http://127.0.0.1:11434' });
+    const ok = resolveHonchoDeriverConfig({
+      localModelOptedIn: true,
+      localModelReady: true,
+      ollamaBaseUrl: 'http://127.0.0.1:11434',
+    });
     expect(ok.baseUrl).toBe('http://127.0.0.1:11434/v1');
     expect(ok.behindEgressBoundary).toBe(false);
   });
 
   it('17 — READY gate: cloud + no license ⇒ ready=false; cloud + license ⇒ true; local ⇒ true regardless', () => {
-    expect(buildHonchoRuntimeConfig(inputFor(REAL_UUID_A, { localModelOptedIn: false, hasLicense: false })).ready).toBe(false);
-    expect(buildHonchoRuntimeConfig(inputFor(REAL_UUID_A, { localModelOptedIn: false, hasLicense: true })).ready).toBe(true);
-    expect(buildHonchoRuntimeConfig(inputFor(REAL_UUID_A, { localModelOptedIn: true, localModelReady: true, hasLicense: false })).ready).toBe(true);
+    expect(buildHonchoRuntimeConfig(inputFor(REAL_UUID_A, { localModelOptedIn: false, hasLicense: false })).ready).toBe(
+      false
+    );
+    expect(buildHonchoRuntimeConfig(inputFor(REAL_UUID_A, { localModelOptedIn: false, hasLicense: true })).ready).toBe(
+      true
+    );
+    expect(
+      buildHonchoRuntimeConfig(
+        inputFor(REAL_UUID_A, { localModelOptedIn: true, localModelReady: true, hasLicense: false })
+      ).ready
+    ).toBe(true);
   });
 });
 

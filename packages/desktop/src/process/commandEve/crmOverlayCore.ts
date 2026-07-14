@@ -1392,8 +1392,7 @@ export function changeCrmDealStageLocal(
     paths.hermesHome
   );
   if (!write.ok || write.data?.ok !== true) {
-    const reasonCode =
-      typeof write.data?.reason_code === 'string' ? write.data.reason_code : 'CRM_STAGE_LOCAL_FAILED';
+    const reasonCode = typeof write.data?.reason_code === 'string' ? write.data.reason_code : 'CRM_STAGE_LOCAL_FAILED';
     return {
       ...base,
       ok: false,

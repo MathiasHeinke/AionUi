@@ -49,7 +49,9 @@ export function hasCommandEveBackendRestart(): boolean {
  */
 export async function restartCommandEveBackendForSeat(): Promise<void> {
   if (!restartHook) {
-    throw new Error('Command EVE: no backend-restart hook registered; refusing to switch seats without re-spawning the agent (fail-closed).');
+    throw new Error(
+      'Command EVE: no backend-restart hook registered; refusing to switch seats without re-spawning the agent (fail-closed).'
+    );
   }
   await restartHook();
 }

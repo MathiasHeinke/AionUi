@@ -12,7 +12,10 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
-import { startCommandEveOllamaOpenAiShim, stopCommandEveOllamaOpenAiShimForTest } from '@/process/commandEve/ollamaOpenAiShim';
+import {
+  startCommandEveOllamaOpenAiShim,
+  stopCommandEveOllamaOpenAiShimForTest,
+} from '@/process/commandEve/ollamaOpenAiShim';
 
 const BEARER = 'kanban-boot-bearer-abc123';
 
@@ -31,7 +34,11 @@ describe('kanban-ACP shim routes — POST /eve/kanban/propose', () => {
         return { status: 202, payload: { ok: true } };
       },
     });
-    const res = await fetch(`${url}/eve/kanban/propose`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${BEARER}` }, body: '{"op":"create","title":"x"}' });
+    const res = await fetch(`${url}/eve/kanban/propose`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${BEARER}` },
+      body: '{"op":"create","title":"x"}',
+    });
     expect(res.status).toBe(404);
     expect(handlerCalled).toBe(false); // the handler is never reached without a provisioned bearer
   });
@@ -42,9 +49,17 @@ describe('kanban-ACP shim routes — POST /eve/kanban/propose', () => {
       kanbanAcpBearer: () => BEARER,
       kanbanAcpPropose: async () => ({ status: 202, payload: { ok: true, status: 'proposed', intent_id: 'k_abc' } }),
     });
-    const wrong = await fetch(`${url}/eve/kanban/propose`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer nope' }, body: '{"op":"create","title":"x"}' });
+    const wrong = await fetch(`${url}/eve/kanban/propose`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer nope' },
+      body: '{"op":"create","title":"x"}',
+    });
     expect(wrong.status).toBe(404);
-    const ok = await fetch(`${url}/eve/kanban/propose`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${BEARER}` }, body: '{"op":"create","title":"x"}' });
+    const ok = await fetch(`${url}/eve/kanban/propose`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${BEARER}` },
+      body: '{"op":"create","title":"x"}',
+    });
     expect(ok.status).toBe(202);
     expect((await ok.json()).intent_id).toBe('k_abc');
   });
@@ -52,7 +67,11 @@ describe('kanban-ACP shim routes — POST /eve/kanban/propose', () => {
 
 describe('kanban-ACP shim routes — GET /eve/kanban/read', () => {
   it('is 404-inert without a bearer', async () => {
-    const url = await startCommandEveOllamaOpenAiShim({ port: 0, kanbanAcpBearer: () => '', kanbanAcpRead: () => ({ ok: true, cards: [] }) });
+    const url = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      kanbanAcpBearer: () => '',
+      kanbanAcpRead: () => ({ ok: true, cards: [] }),
+    });
     const res = await fetch(`${url}/eve/kanban/read`, { headers: { authorization: `Bearer ${BEARER}` } });
     expect(res.status).toBe(404);
   });
@@ -61,7 +80,12 @@ describe('kanban-ACP shim routes — GET /eve/kanban/read', () => {
     const url = await startCommandEveOllamaOpenAiShim({
       port: 0,
       kanbanAcpBearer: () => BEARER,
-      kanbanAcpRead: () => ({ ok: true, board_slug: 'marketing', lanes: ['research'], cards: [{ card_id: 'c1', title: 'Launch', lane: 'research', status: 'todo' }] }),
+      kanbanAcpRead: () => ({
+        ok: true,
+        board_slug: 'marketing',
+        lanes: ['research'],
+        cards: [{ card_id: 'c1', title: 'Launch', lane: 'research', status: 'todo' }],
+      }),
     });
     const res = await fetch(`${url}/eve/kanban/read`, { headers: { authorization: `Bearer ${BEARER}` } });
     expect(res.status).toBe(200);

@@ -85,12 +85,15 @@ test('enumerateMachOFiles finds .so, .dylib and the bin interpreter; skips .py a
     [path.join(PY_ROOT, 'lib/libssl.3.dylib')]: { type: 'file', mode: 0o644 },
   };
   const found = enumerateMachOFiles(PY_ROOT, makeFakeFs(tree)).sort();
-  assert.deepEqual(found.sort(), [
-    path.join(PY_ROOT, 'bin/python3.12'),
-    path.join(PY_ROOT, 'lib/libpython3.12.dylib'),
-    path.join(PY_ROOT, 'lib/libssl.3.dylib'),
-    path.join(PY_ROOT, 'lib/python3.12/lib-dynload/_ssl.cpython-312-darwin.so'),
-  ].sort());
+  assert.deepEqual(
+    found.sort(),
+    [
+      path.join(PY_ROOT, 'bin/python3.12'),
+      path.join(PY_ROOT, 'lib/libpython3.12.dylib'),
+      path.join(PY_ROOT, 'lib/libssl.3.dylib'),
+      path.join(PY_ROOT, 'lib/python3.12/lib-dynload/_ssl.cpython-312-darwin.so'),
+    ].sort()
+  );
 });
 
 test('enumerateMachOFiles uses the probe fallback for extensionless framework binaries', () => {
@@ -133,15 +136,10 @@ test('orderInsideOut is deterministic for equal depths', () => {
 
 test('buildCodesignArgs gives leaf libs hardened-runtime + timestamp, NO entitlements', () => {
   const lib = path.join(PY_ROOT, 'lib/libssl.3.dylib');
-  assert.deepEqual(buildCodesignArgs(lib, { identity: IDENTITY, pythonRoot: PY_ROOT, entitlementsPlist: PY_ENTITLEMENTS }), [
-    '--force',
-    '--options',
-    'runtime',
-    '--timestamp',
-    '--sign',
-    IDENTITY,
-    lib,
-  ]);
+  assert.deepEqual(
+    buildCodesignArgs(lib, { identity: IDENTITY, pythonRoot: PY_ROOT, entitlementsPlist: PY_ENTITLEMENTS }),
+    ['--force', '--options', 'runtime', '--timestamp', '--sign', IDENTITY, lib]
+  );
 });
 
 test('buildCodesignArgs gives the interpreter the python entitlements plist', () => {

@@ -75,7 +75,10 @@ describe('honchoMcpServerCore — ready entry + per-seat isolation', () => {
       'postgresql://127.0.0.1/honcho_a', // no port
     ];
     for (const dbUri of bad) {
-      expect(honchoMcpServerForSeat({ dbUri, workspaceId: 'ws_a', honchoHome: '/h', ready: true }, true, LAUNCHER), dbUri).toBeUndefined();
+      expect(
+        honchoMcpServerForSeat({ dbUri, workspaceId: 'ws_a', honchoHome: '/h', ready: true }, true, LAUNCHER),
+        dbUri
+      ).toBeUndefined();
     }
   });
 
@@ -88,7 +91,11 @@ describe('honchoMcpServerCore — ready entry + per-seat isolation', () => {
 
   it('honors cfg.ready === false (does not advertise a config that can not authenticate — Codex #5)', () => {
     // a cloud config without a license has ready:false
-    const notReadyCfg = buildHonchoRuntimeConfig({ seatId: SEAT_A, seatHome: resolveSeatHome(USER_DATA, SEAT_A), hasLicense: false });
+    const notReadyCfg = buildHonchoRuntimeConfig({
+      seatId: SEAT_A,
+      seatHome: resolveSeatHome(USER_DATA, SEAT_A),
+      hasLicense: false,
+    });
     expect(notReadyCfg.ready).toBe(false);
     expect(honchoMcpServerForSeat(notReadyCfg, true, LAUNCHER)).toBeUndefined();
   });

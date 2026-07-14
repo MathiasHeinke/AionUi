@@ -64,9 +64,9 @@ describe('sensitivityClassCore — classifyMaxSensitivity (max across findings)'
   });
 
   it('returns S2 when the top finding is intl/address (no S3)', () => {
-    expect(
-      classifyMaxSensitivity([finding('email', 'email-address'), finding('intl_pii', 'intl-phone-number')])
-    ).toBe('S2');
+    expect(classifyMaxSensitivity([finding('email', 'email-address'), finding('intl_pii', 'intl-phone-number')])).toBe(
+      'S2'
+    );
   });
 
   it('returns S1 when only email + phone-only german_pii present', () => {

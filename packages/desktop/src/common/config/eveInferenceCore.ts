@@ -65,8 +65,7 @@ import { COMMAND_EVE_LOCAL_MODEL_TIERS, type CommandEveLocalModelTier } from './
  * The function (server side) resolves the actual upstream free/paid model — the
  * desktop never sees a provider key.
  */
-export const EVE_INFERENCE_FUNCTION_URL =
-  'https://unvbeothoimlzlolxucl.supabase.co/functions/v1/eve-inference';
+export const EVE_INFERENCE_FUNCTION_URL = 'https://unvbeothoimlzlolxucl.supabase.co/functions/v1/eve-inference';
 
 /** Synthetic provider id for the EVE Inference cloud lane (one per tier). */
 export const EVE_INFERENCE_PROVIDER_ID_PREFIX = 'command-eve-inference';
@@ -287,9 +286,7 @@ export const EVE_DEFAULT_INFERENCE_SELECTION: string = eveTierValue(EVE_INFERENC
  * at render time). Pure, so both the picker and the send path share one rule.
  */
 export function resolveEffectiveInferenceSelection(persisted: string | null | undefined): string {
-  return typeof persisted === 'string' && persisted.trim().length > 0
-    ? persisted
-    : EVE_DEFAULT_INFERENCE_SELECTION;
+  return typeof persisted === 'string' && persisted.trim().length > 0 ? persisted : EVE_DEFAULT_INFERENCE_SELECTION;
 }
 
 /** Stable selection value for a local picker tier. */
@@ -342,9 +339,7 @@ export function parseEveTierIdFromSelection(value: string | null | undefined): E
  * empty value. Centralizing + verbatim-mapping here makes "EVE Max → max" a
  * unit-tested contract instead of an inline expression nobody asserted.
  */
-export function resolveWireTierFromSelection(
-  selection: string | null | undefined
-): EveInferenceWireTier | undefined {
+export function resolveWireTierFromSelection(selection: string | null | undefined): EveInferenceWireTier | undefined {
   const tierId = parseEveTierIdFromSelection(selection);
   if (!tierId) return undefined;
   return findEveInferenceTier(tierId)?.tier;
@@ -483,10 +478,7 @@ const EVE_CLOUD_TIER_BLURB: Record<EveInferenceTierId, { de: string; en: string 
  * LOCAL: the real local model name (e.g. "Lokal · Gemma 4 E4B (privat, auf
  * deinem Mac)") — honest about running locally.
  */
-export function describeCommandEveActiveLane(
-  persisted: string | null | undefined,
-  locale: 'de-DE' | 'en-US'
-): string {
+export function describeCommandEveActiveLane(persisted: string | null | undefined, locale: 'de-DE' | 'en-US'): string {
   const lane = resolveCommandEveActiveLane(persisted);
   const de = locale === 'de-DE';
 
@@ -788,10 +780,7 @@ export function laneOfSelection(value: string | null | undefined): PickerLane {
  * EFFECTIVE selection (resolveEffectiveInferenceSelection) so an absent value
  * resolves to the EVE Cloud default rather than "not verified".
  */
-export function commandEveActiveModeLabel(
-  selection: string | null | undefined,
-  locale: 'de-DE' | 'en-US'
-): string {
+export function commandEveActiveModeLabel(selection: string | null | undefined, locale: 'de-DE' | 'en-US'): string {
   const de = locale === 'de-DE';
   if (isLocalSelection(selection)) {
     // Offline/local models ARE named (founder 2026-06-28) — they run openly on the

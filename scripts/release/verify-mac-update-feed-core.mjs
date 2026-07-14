@@ -116,7 +116,10 @@ export function evaluateMacUpdateFeed(options = {}, deps = {}) {
 
   const parsedDmg = parseMacReleaseArtifact(dmgPath);
   if (!parsedDmg || parsedDmg.ext !== 'dmg') {
-    return makeResult('BLOCKED_ARTIFACT_MISSING', `DMG name does not match Command EVE mac artifact format: ${dmgPath}`);
+    return makeResult(
+      'BLOCKED_ARTIFACT_MISSING',
+      `DMG name does not match Command EVE mac artifact format: ${dmgPath}`
+    );
   }
 
   const outDir = options.outDir || path.dirname(dmgPath);
@@ -132,9 +135,14 @@ export function evaluateMacUpdateFeed(options = {}, deps = {}) {
     return makeResult('BLOCKED_ARTIFACT_MISSING', `ZIP artifact not found for update feed: ${zipPath}`);
   }
 
-  const staleSiblingMetadataName = expectedMetadataName === 'latest-mac.yml' ? 'latest-arm64-mac.yml' : 'latest-mac.yml';
+  const staleSiblingMetadataName =
+    expectedMetadataName === 'latest-mac.yml' ? 'latest-arm64-mac.yml' : 'latest-mac.yml';
   const staleSiblingMetadataPath = path.join(outDir, staleSiblingMetadataName);
-  if (!options.allowSiblingMetadata && exists(staleSiblingMetadataPath) && !currentSiblingArchExists(outDir, version, arch, deps)) {
+  if (
+    !options.allowSiblingMetadata &&
+    exists(staleSiblingMetadataPath) &&
+    !currentSiblingArchExists(outDir, version, arch, deps)
+  ) {
     return makeResult(
       'BLOCKED_STALE_METADATA',
       `Stale ${staleSiblingMetadataName} exists without current sibling artifacts for ${version}`
@@ -150,7 +158,10 @@ export function evaluateMacUpdateFeed(options = {}, deps = {}) {
     return makeResult('BLOCKED_METADATA_MALFORMED', `Mac update metadata is incomplete: ${metadataPath}`);
   }
   if (parsedYml.version !== version) {
-    return makeResult('BLOCKED_STALE_METADATA', `Metadata version ${parsedYml.version} does not match artifact version ${version}`);
+    return makeResult(
+      'BLOCKED_STALE_METADATA',
+      `Metadata version ${parsedYml.version} does not match artifact version ${version}`
+    );
   }
   if (parsedYml.path !== zipName) {
     return makeResult('BLOCKED_STALE_METADATA', `Metadata path ${parsedYml.path} does not match ${zipName}`);

@@ -211,7 +211,9 @@ export function writeCompanyBrainSeedToHome(args: {
     throw new Error('Command EVE: refusing to write an empty Company-Brain seed.');
   }
   if (!hermesHome || !path.isAbsolute(hermesHome)) {
-    throw new Error(`Command EVE: company-brain seed requires an absolute hermesHome (got ${JSON.stringify(hermesHome)}).`);
+    throw new Error(
+      `Command EVE: company-brain seed requires an absolute hermesHome (got ${JSON.stringify(hermesHome)}).`
+    );
   }
 
   const seededAt = (args.now?.() ?? new Date()).toISOString();
@@ -294,7 +296,12 @@ export function readCompanyBrainSeedStateFromHome(hermesHome: string): CompanyBr
   try {
     const raw = fs.readFileSync(seedJsonPath, 'utf8');
     const parsed = JSON.parse(raw) as Partial<CompanyBrainSeedRecord>;
-    if (parsed && typeof parsed.value === 'string' && parsed.value.trim().length > 0 && (parsed.kind === 'connect_client' || parsed.kind === 'paste_brief')) {
+    if (
+      parsed &&
+      typeof parsed.value === 'string' &&
+      parsed.value.trim().length > 0 &&
+      (parsed.kind === 'connect_client' || parsed.kind === 'paste_brief')
+    ) {
       return {
         seeded: true,
         record: {

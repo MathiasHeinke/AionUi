@@ -9,7 +9,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { EVE_STRATEGY_SKILL_IDS, copyBundledStrategySkills, resolveCommandEveRuntimeBootstrapPaths } from '@/process/commandEve/runtimeBootstrapCore';
+import {
+  EVE_STRATEGY_SKILL_IDS,
+  copyBundledStrategySkills,
+  resolveCommandEveRuntimeBootstrapPaths,
+} from '@/process/commandEve/runtimeBootstrapCore';
 
 // =========================================================================
 // RPT-2 — client-report bundled skill (the in-seat client-deliverable generator).

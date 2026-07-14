@@ -11,10 +11,7 @@ import { describe, expect, it } from 'vitest';
 // it as a real subprocess and assert the process exit code, which is the actual
 // contract under test: a build failure MUST surface as a non-zero exit so CI /
 // founder / automation never sees a broken build as green (the alpha.6 masking).
-const scriptPath = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '../../../scripts/build-with-builder.js'
-);
+const scriptPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../scripts/build-with-builder.js');
 
 describe('build-with-builder.js exit-code propagation (fail-closed)', () => {
   it('exits non-zero when the build fails (synchronous throw path)', () => {

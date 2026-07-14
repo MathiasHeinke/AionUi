@@ -104,8 +104,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-const call = (channel: string, req?: unknown) =>
-  (registered.get(channel) as (r?: unknown) => Promise<Envelope>)(req);
+const call = (channel: string, req?: unknown) => (registered.get(channel) as (r?: unknown) => Promise<Envelope>)(req);
 
 describe('H1 mid-switch kanban write-fence (real bridge providers)', () => {
   it('registers the switch + kanban mutation providers', () => {

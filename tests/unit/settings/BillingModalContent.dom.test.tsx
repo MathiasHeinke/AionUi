@@ -192,7 +192,14 @@ describe('BillingModalContent — no legacy plan copy survives (Gen-B)', () => {
 describe('BillingModalContent — A3 per-seat usage card (v1.5)', () => {
   it('version-skew resting state: no server data ⇒ the honest "ab dem nächsten Server-Update" note', () => {
     stubStatus('free');
-    useSeatUsageMock.mockReturnValueOnce({ loading: false, month: '2026-07', usage: null, available: false, setMonth: vi.fn(), refresh: vi.fn() });
+    useSeatUsageMock.mockReturnValueOnce({
+      loading: false,
+      month: '2026-07',
+      usage: null,
+      available: false,
+      setMonth: vi.fn(),
+      refresh: vi.fn(),
+    });
     render(<BillingModalContent />);
     expect(screen.getByTestId('billing-usage')).toBeTruthy();
     expect(screen.getByTestId('billing-usage-empty').textContent).toContain('nächsten Server-Update');
@@ -227,10 +234,36 @@ describe('BillingModalContent — A3 per-seat usage card (v1.5)', () => {
         ok: true,
         month: '2026-07',
         seats: [
-          { seat_id: 'seat-1', calls: 10, ok_calls: 10, prompt_tokens: 0, completion_tokens: 0, retail_eur_cents: 1000, raw_eur_cents: 200, credits: 100 },
-          { seat_id: 'uuid-a', calls: 4, ok_calls: 4, prompt_tokens: 0, completion_tokens: 0, retail_eur_cents: 500, raw_eur_cents: 100, credits: 50 },
+          {
+            seat_id: 'seat-1',
+            calls: 10,
+            ok_calls: 10,
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            retail_eur_cents: 1000,
+            raw_eur_cents: 200,
+            credits: 100,
+          },
+          {
+            seat_id: 'uuid-a',
+            calls: 4,
+            ok_calls: 4,
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            retail_eur_cents: 500,
+            raw_eur_cents: 100,
+            credits: 50,
+          },
         ],
-        total: { calls: 14, ok_calls: 14, prompt_tokens: 0, completion_tokens: 0, retail_eur_cents: 1500, raw_eur_cents: 300, credits: 150 },
+        total: {
+          calls: 14,
+          ok_calls: 14,
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          retail_eur_cents: 1500,
+          raw_eur_cents: 300,
+          credits: 150,
+        },
       },
       setMonth: vi.fn(),
       refresh: vi.fn(),
@@ -267,10 +300,36 @@ describe('BillingModalContent — A3 per-seat usage card (v1.5)', () => {
         ok: true,
         month: '2026-07',
         seats: [
-          { seat_id: 'seat-1', calls: 10, ok_calls: 10, prompt_tokens: 0, completion_tokens: 0, retail_eur_cents: 1000, raw_eur_cents: 200, credits: 100 },
-          { seat_id: 'uuid-a', calls: 4, ok_calls: 4, prompt_tokens: 0, completion_tokens: 0, retail_eur_cents: 500, raw_eur_cents: 100, credits: 50 },
+          {
+            seat_id: 'seat-1',
+            calls: 10,
+            ok_calls: 10,
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            retail_eur_cents: 1000,
+            raw_eur_cents: 200,
+            credits: 100,
+          },
+          {
+            seat_id: 'uuid-a',
+            calls: 4,
+            ok_calls: 4,
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            retail_eur_cents: 500,
+            raw_eur_cents: 100,
+            credits: 50,
+          },
         ],
-        total: { calls: 14, ok_calls: 14, prompt_tokens: 0, completion_tokens: 0, retail_eur_cents: 1500, raw_eur_cents: 300, credits: 150 },
+        total: {
+          calls: 14,
+          ok_calls: 14,
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          retail_eur_cents: 1500,
+          raw_eur_cents: 300,
+          credits: 150,
+        },
       },
       setMonth: vi.fn(),
       refresh: vi.fn(),

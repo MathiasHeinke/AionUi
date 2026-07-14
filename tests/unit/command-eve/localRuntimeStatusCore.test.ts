@@ -513,8 +513,21 @@ describe('1.6.3 review fix — stale pull rows never freeze the payload', () => 
       now: () => new Date('2026-07-03T12:00:00.000Z'),
     });
     expect(fresh.model?.model_pull?.percent).toBe(43);
-    writeJson(pullPath, { version: 'command-eve-model-pull/v0', model: 'gemma4:e4b', status: 'done', total: 1000, completed: 1000, percent: 100, updated_at: '2026-07-03T09:00:00.000Z' });
-    const done = buildLocalRuntimeStatus({ userDataPath: root, manifestPath, modelPullProgressPath: pullPath, now: () => new Date('2026-07-03T12:00:00.000Z') });
+    writeJson(pullPath, {
+      version: 'command-eve-model-pull/v0',
+      model: 'gemma4:e4b',
+      status: 'done',
+      total: 1000,
+      completed: 1000,
+      percent: 100,
+      updated_at: '2026-07-03T09:00:00.000Z',
+    });
+    const done = buildLocalRuntimeStatus({
+      userDataPath: root,
+      manifestPath,
+      modelPullProgressPath: pullPath,
+      now: () => new Date('2026-07-03T12:00:00.000Z'),
+    });
     expect(done.model?.model_pull?.status).toBe('done');
   });
 });

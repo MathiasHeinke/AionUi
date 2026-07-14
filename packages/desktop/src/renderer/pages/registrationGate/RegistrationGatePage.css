@@ -25,7 +25,7 @@
   /* ONE static paint — soft brand glows over a nightblue fall-off. No animation,
      no animated blur. Cheap to composite. */
   background:
-    radial-gradient(48% 42% at 22% 24%, rgba(249, 115, 22, 0.20), transparent 62%),
+    radial-gradient(48% 42% at 22% 24%, rgba(249, 115, 22, 0.2), transparent 62%),
     radial-gradient(46% 42% at 80% 20%, rgba(56, 132, 246, 0.18), transparent 62%),
     radial-gradient(60% 55% at 64% 90%, rgba(139, 92, 246, 0.16), transparent 62%),
     radial-gradient(150% 120% at 50% -10%, #0e1a33 0%, #070d1b 52%, #04060e 100%);
@@ -63,7 +63,9 @@
 }
 /* Respect reduced-motion: hide the video, fall back to the static poster/image. */
 @media (prefers-reduced-motion: reduce) {
-  .registration-gate__bg-video { display: none; }
+  .registration-gate__bg-video {
+    display: none;
+  }
 }
 
 .registration-gate__card {
@@ -77,7 +79,7 @@
   -webkit-backdrop-filter: blur(28px) saturate(150%);
   backdrop-filter: blur(28px) saturate(150%);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.10) inset,
+    0 1px 0 rgba(255, 255, 255, 0.1) inset,
     0 24px 64px rgba(0, 0, 0, 0.55);
 }
 
@@ -99,16 +101,24 @@
   font-size: 12px;
   line-height: 16px;
   cursor: pointer;
-  transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease;
+  transition:
+    border-color 0.18s ease,
+    color 0.18s ease,
+    background 0.18s ease;
 }
-.registration-gate__lang-option:hover { background: rgba(255, 255, 255, 0.09); }
+.registration-gate__lang-option:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
 .registration-gate__lang-option--active {
   border-color: rgba(249, 115, 22, 0.6);
   background: rgba(249, 115, 22, 0.12);
   color: #fdba74;
 }
 
-.registration-gate__header { text-align: center; margin-bottom: 22px; }
+.registration-gate__header {
+  text-align: center;
+  margin-bottom: 22px;
+}
 .registration-gate__title {
   margin: 14px 0 6px;
   font-size: 27px;
@@ -117,8 +127,16 @@
   letter-spacing: -0.01em;
   color: #f4f8fd;
 }
-.registration-gate__title-command { margin-right: 6px; color: #f97316; }
-.registration-gate__subtitle { margin: 0; font-size: 14px; line-height: 21px; color: #9fb0c4; }
+.registration-gate__title-command {
+  margin-right: 6px;
+  color: #f97316;
+}
+.registration-gate__subtitle {
+  margin: 0;
+  font-size: 14px;
+  line-height: 21px;
+  color: #9fb0c4;
+}
 
 .registration-gate__steps {
   display: flex;
@@ -135,7 +153,10 @@
   line-height: 16px;
   color: #6b7a90;
 }
-.registration-gate__step--active { color: #fdba74; font-weight: 600; }
+.registration-gate__step--active {
+  color: #fdba74;
+  font-weight: 600;
+}
 .registration-gate__step-dot {
   display: inline-flex;
   align-items: center;
@@ -147,10 +168,22 @@
   font-size: 11px;
   font-weight: 600;
 }
-.registration-gate__step-sep { width: 22px; height: 1px; background: rgba(159, 176, 196, 0.35); }
+.registration-gate__step-sep {
+  width: 22px;
+  height: 1px;
+  background: rgba(159, 176, 196, 0.35);
+}
 
-.registration-gate__form { display: flex; flex-direction: column; gap: 16px; }
-.registration-gate__field { display: flex; flex-direction: column; gap: 6px; }
+.registration-gate__form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.registration-gate__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 
 .registration-gate .arco-input,
 .registration-gate input,
@@ -186,7 +219,9 @@
   background-color: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 11px;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
 }
 /* Input.Password renders `.arco-input-inner-wrapper` whose own Arco defaults paint a
    LIGHT fill (base `--color-fill-2`, hover `--color-fill-3`, focus white `--color-bg-2`)
@@ -207,8 +242,17 @@
   box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.18);
 }
 
-.registration-gate__label { font-size: 13px; font-weight: 600; line-height: 18px; color: #cdd8e6; }
-.registration-gate__hint { font-size: 11px; line-height: 16px; color: #7c8aa0; }
+.registration-gate__label {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  color: #cdd8e6;
+}
+.registration-gate__hint {
+  font-size: 11px;
+  line-height: 16px;
+  color: #7c8aa0;
+}
 
 .registration-gate__consent {
   display: flex;
@@ -219,17 +263,23 @@
   border-radius: 13px;
   background: rgba(255, 255, 255, 0.04);
 }
-.registration-gate__consent-text { font-size: 12px; line-height: 17px; color: #aebccd; }
+.registration-gate__consent-text {
+  font-size: 12px;
+  line-height: 17px;
+  color: #aebccd;
+}
 
 .registration-gate .arco-btn-primary {
   background: linear-gradient(180deg, #fb923c 0%, #f97316 100%) !important;
   border: none !important;
   color: #ffffff !important;
   font-weight: 600 !important;
-  box-shadow: 0 8px 20px rgba(249, 115, 22, 0.30) !important;
+  box-shadow: 0 8px 20px rgba(249, 115, 22, 0.3) !important;
   transition: filter 0.15s ease !important;
 }
-.registration-gate .arco-btn-primary:hover { filter: brightness(1.06) !important; }
+.registration-gate .arco-btn-primary:hover {
+  filter: brightness(1.06) !important;
+}
 
 .registration-gate .arco-btn-secondary,
 .registration-gate .arco-btn-default {
@@ -237,7 +287,9 @@
   border: 1px solid rgba(255, 255, 255, 0.18) !important;
   color: #e6edf6 !important;
   font-weight: 500 !important;
-  transition: background 0.15s ease, border-color 0.15s ease !important;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease !important;
 }
 .registration-gate .arco-btn-secondary:hover,
 .registration-gate .arco-btn-default:hover {
@@ -250,7 +302,11 @@
   border-color: rgba(255, 255, 255, 0.3);
 }
 
-.registration-gate__error { font-size: 12px; line-height: 17px; color: #fda4a4; }
+.registration-gate__error {
+  font-size: 12px;
+  line-height: 17px;
+  color: #fda4a4;
+}
 .registration-gate__back {
   align-self: center;
   padding: 4px 8px;
@@ -262,8 +318,15 @@
   cursor: pointer;
   transition: color 0.15s ease;
 }
-.registration-gate__back:hover { color: #cdd8e6; }
-.registration-gate__registered-as { font-size: 12px; line-height: 17px; color: #8a99ad; text-align: center; }
+.registration-gate__back:hover {
+  color: #cdd8e6;
+}
+.registration-gate__registered-as {
+  font-size: 12px;
+  line-height: 17px;
+  color: #8a99ad;
+  text-align: center;
+}
 
 /* LOGIN / REGISTER segmented toggle (auth step) — the active mode drives the single
    primary action + the password field semantics, so the two are never ambiguous. */
@@ -286,15 +349,22 @@
   font-weight: 600;
   line-height: 19px;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
 }
-.registration-gate__authmode-tab:hover:not(:disabled) { color: #cdd8e6; }
+.registration-gate__authmode-tab:hover:not(:disabled) {
+  color: #cdd8e6;
+}
 .registration-gate__authmode-tab--active {
   background: linear-gradient(180deg, rgba(251, 146, 60, 0.18) 0%, rgba(249, 115, 22, 0.18) 100%);
   color: #fdba74;
   box-shadow: inset 0 0 0 1px rgba(249, 115, 22, 0.35);
 }
-.registration-gate__authmode-tab:disabled { cursor: default; opacity: 0.6; }
+.registration-gate__authmode-tab:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
 
 /* "Sicheres Passwort vorschlagen" — a subtle accent link under the password field
    (register mode only). The reliable in-app path to a strong password in Electron. */
@@ -310,11 +380,23 @@
   cursor: pointer;
   transition: color 0.15s ease;
 }
-.registration-gate__suggest-pw:hover:not(:disabled) { color: #fed7aa; }
-.registration-gate__suggest-pw:disabled { cursor: default; opacity: 0.6; }
+.registration-gate__suggest-pw:hover:not(:disabled) {
+  color: #fed7aa;
+}
+.registration-gate__suggest-pw:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
 
-.registration-gate__card--curtain { border-color: rgba(249, 115, 22, 0.4); }
-.registration-gate__curtain-lede { margin: 0; font-size: 14px; line-height: 21px; color: #aebccd; }
+.registration-gate__card--curtain {
+  border-color: rgba(249, 115, 22, 0.4);
+}
+.registration-gate__curtain-lede {
+  margin: 0;
+  font-size: 14px;
+  line-height: 21px;
+  color: #aebccd;
+}
 .registration-gate__curtain-preserved {
   display: flex;
   flex-direction: column;
@@ -324,6 +406,24 @@
   border-radius: 13px;
   background: rgba(249, 115, 22, 0.08);
 }
-.registration-gate__curtain-preserved-title { margin: 0; font-size: 13px; font-weight: 600; line-height: 18px; color: #fdba74; }
-.registration-gate__curtain-preserved-body { margin: 0; font-size: 12px; line-height: 18px; color: #9fb0c4; }
-.registration-gate__curtain-price { margin: 0; font-size: 13px; font-weight: 600; line-height: 19px; color: #e6edf6; text-align: center; }
+.registration-gate__curtain-preserved-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  color: #fdba74;
+}
+.registration-gate__curtain-preserved-body {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: #9fb0c4;
+}
+.registration-gate__curtain-price {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 19px;
+  color: #e6edf6;
+  text-align: center;
+}

@@ -32,10 +32,17 @@ const SEAT_A = 'a1b2c3d4-e5f6-4789-aabb-ccddeeff0011';
 const SEAT_B = 'ffeeddcc-bbaa-4321-9988-776655443322';
 
 describe('(a) legacy byte-identity — un-namespaced key, zero migration', () => {
-  it.each([undefined, null, '', 'default', 'seat-1', LEGACY_SEAT_ID])('legacy seat %s returns the key UNCHANGED', (seat) => {
-    expect(seatScopedKey('commandEve.clientSeeded', seat as string | null | undefined)).toBe('commandEve.clientSeeded');
-    expect(seatScopedKey('commandEve.teamWorkerStatus', seat as string | null | undefined)).toBe('commandEve.teamWorkerStatus');
-  });
+  it.each([undefined, null, '', 'default', 'seat-1', LEGACY_SEAT_ID])(
+    'legacy seat %s returns the key UNCHANGED',
+    (seat) => {
+      expect(seatScopedKey('commandEve.clientSeeded', seat as string | null | undefined)).toBe(
+        'commandEve.clientSeeded'
+      );
+      expect(seatScopedKey('commandEve.teamWorkerStatus', seat as string | null | undefined)).toBe(
+        'commandEve.teamWorkerStatus'
+      );
+    }
+  );
 });
 
 describe('(b) cross-seat fence — two seats → two distinct keys', () => {
@@ -79,7 +86,13 @@ describe('(c) the allowlist is explicit + auditable', () => {
   });
 
   it('install-global keys are NOT seat-scoped', () => {
-    for (const key of ['theme.activeId', 'language', 'webui.desktop.enabled', 'css.activeThemeId', 'commandEve.spendCapEurCents']) {
+    for (const key of [
+      'theme.activeId',
+      'language',
+      'webui.desktop.enabled',
+      'css.activeThemeId',
+      'commandEve.spendCapEurCents',
+    ]) {
       expect(isSeatScopedConfigKey(key)).toBe(false);
     }
   });
@@ -92,14 +105,23 @@ describe('(c) the allowlist is explicit + auditable', () => {
 });
 
 describe('(d) path-traversal / injection — a crafted id can NEVER become a key prefix', () => {
-  it.each(['../../etc', '..', 'a/b', 'a\\b', '/abs', 'C:\\x', 'foo\0bar', '.hidden', ' lead', 'trail ', 'x'.repeat(65)])(
-    'rejects %s (sanitize→null, seatScopedKey→throws, assertSeatId→throws)',
-    (bad) => {
-      expect(sanitizeSeatId(bad)).toBeNull();
-      expect(() => seatScopedKey('commandEve.clientSeeded', bad)).toThrow();
-      expect(() => assertSeatId(bad)).toThrow();
-    }
-  );
+  it.each([
+    '../../etc',
+    '..',
+    'a/b',
+    'a\\b',
+    '/abs',
+    'C:\\x',
+    'foo\0bar',
+    '.hidden',
+    ' lead',
+    'trail ',
+    'x'.repeat(65),
+  ])('rejects %s (sanitize→null, seatScopedKey→throws, assertSeatId→throws)', (bad) => {
+    expect(sanitizeSeatId(bad)).toBeNull();
+    expect(() => seatScopedKey('commandEve.clientSeeded', bad)).toThrow();
+    expect(() => assertSeatId(bad)).toThrow();
+  });
 
   it('a valid slug / uuid is accepted and lower-cased', () => {
     expect(sanitizeSeatId('Client-Acme_01')).toBe('client-acme_01');
@@ -123,7 +145,9 @@ describe('legacy-alias case-folding (final-audit config-key isolation fix)', () 
       expect(sanitizeSeatId(id)).toBe(LEGACY_SEAT_ID);
       // the config key for a crafted SEAT-1 is the SAME un-prefixed key the real
       // legacy seat uses — never a distinct `seat:seat-1:` namespace.
-      expect(seatScopedKey('commandEve.teamWorkerStatus', id)).toBe(seatScopedKey('commandEve.teamWorkerStatus', 'seat-1'));
+      expect(seatScopedKey('commandEve.teamWorkerStatus', id)).toBe(
+        seatScopedKey('commandEve.teamWorkerStatus', 'seat-1')
+      );
       expect(seatScopedKey('commandEve.teamWorkerStatus', id)).not.toContain(SEAT_KEY_PREFIX);
     }
     // a real uuid seat still gets its own namespaced key

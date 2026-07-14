@@ -72,7 +72,10 @@ const CORPUS: OperatorBrief[] = [
       'Wir wollen die Terminvergabe für Notfälle automatisieren. ' +
       'Kunden erreichen uns unter +49 171 2345678 oder per Mail an notdienst@sanitaer-huber-beispiel.de. ' +
       'Im Schnitt fahren wir 60 Einsätze pro Monat.',
-    mustKeep: ['Wir wollen die Terminvergabe für Notfälle automatisieren.', 'Im Schnitt fahren wir 60 Einsätze pro Monat.'],
+    mustKeep: [
+      'Wir wollen die Terminvergabe für Notfälle automatisieren.',
+      'Im Schnitt fahren wir 60 Einsätze pro Monat.',
+    ],
     mustRedact: ['+49 171 2345678', 'notdienst@sanitaer-huber-beispiel.de'],
     expectPlaceholders: ['[REDACTED_PHONE]', '[REDACTED_EMAIL]'],
   },
@@ -84,7 +87,10 @@ const CORPUS: OperatorBrief[] = [
       'Mein Kennenlernpaket kostet 1.500 € und läuft über sechs Wochen. ' +
       'Rückfragen gern an mich direkt unter 0170-1234567. ' +
       'Ziel ist ein automatisierter Follow-up-Funnel nach jedem Erstgespräch.',
-    mustKeep: ['Mein Kennenlernpaket kostet 1.500 € und läuft über sechs Wochen.', 'Ziel ist ein automatisierter Follow-up-Funnel nach jedem Erstgespräch.'],
+    mustKeep: [
+      'Mein Kennenlernpaket kostet 1.500 € und läuft über sechs Wochen.',
+      'Ziel ist ein automatisierter Follow-up-Funnel nach jedem Erstgespräch.',
+    ],
     mustRedact: ['0170-1234567'],
     expectPlaceholders: ['[REDACTED_PHONE]'],
   },
@@ -117,7 +123,10 @@ const CORPUS: OperatorBrief[] = [
       'Mandanten überweisen Vorschüsse auf das Konto DE89 3704 0044 0532 0130 00, BIC: COBADEFFXXX. ' +
       'Bitte entwirf eine E-Mail-Vorlage, die Mandanten an fehlende Belege erinnert. ' +
       'Die Frist für den Jahresabschluss ist der 31.07.2026.',
-    mustKeep: ['Bitte entwirf eine E-Mail-Vorlage, die Mandanten an fehlende Belege erinnert.', 'Die Frist für den Jahresabschluss ist der 31.07.2026.'],
+    mustKeep: [
+      'Bitte entwirf eine E-Mail-Vorlage, die Mandanten an fehlende Belege erinnert.',
+      'Die Frist für den Jahresabschluss ist der 31.07.2026.',
+    ],
     mustRedact: ['DE89 3704 0044 0532 0130 00', 'COBADEFFXXX'],
     expectPlaceholders: ['[REDACTED_IBAN]', '[REDACTED_BIC]'],
   },
@@ -129,7 +138,11 @@ const CORPUS: OperatorBrief[] = [
       'Neue Anfragen warten aktuell drei Wochen auf einen Termin. ' +
       'Die Praxis liegt am Lindenweg 3, 04109 Leipzig, Rezeption: 03412345678. ' +
       'Ich möchte einen digitalen Warteliste-Workflow aufsetzen.',
-    mustKeep: ['Neue Anfragen warten aktuell drei Wochen auf einen Termin.', 'Ich möchte einen digitalen Warteliste-Workflow aufsetzen.', '04109 Leipzig'],
+    mustKeep: [
+      'Neue Anfragen warten aktuell drei Wochen auf einen Termin.',
+      'Ich möchte einen digitalen Warteliste-Workflow aufsetzen.',
+      '04109 Leipzig',
+    ],
     mustRedact: ['Lindenweg 3', '03412345678'],
     expectPlaceholders: ['[REDACTED_ADDRESS]', '[REDACTED_PHONE]'],
   },
@@ -141,7 +154,10 @@ const CORPUS: OperatorBrief[] = [
       'Reservierungen kommen aktuell chaotisch über drei Kanäle rein. ' +
       'Schick Vorschläge bitte an reservierung@trattoria-beispiel.de. ' +
       'Wir haben täglich von 11:30 bis 23:00 geöffnet.',
-    mustKeep: ['Unser Restaurant macht ab dem 01.09.2026 eine neue Mittagskarte.', 'Wir haben täglich von 11:30 bis 23:00 geöffnet.'],
+    mustKeep: [
+      'Unser Restaurant macht ab dem 01.09.2026 eine neue Mittagskarte.',
+      'Wir haben täglich von 11:30 bis 23:00 geöffnet.',
+    ],
     mustRedact: ['reservierung@trattoria-beispiel.de'],
     expectPlaceholders: ['[REDACTED_EMAIL]'],
   },
@@ -164,7 +180,11 @@ const CORPUS: OperatorBrief[] = [
       'Unsere Fahrschule hat 240 aktive Fahrschüler und eine Bestehensquote von 78 %. ' +
       'Die Theorieprüfung buchen wir über das Portal mit der Kundennummer 4711. ' +
       'Ich brauche eine automatische Erinnerung 48 Stunden vor jeder Fahrstunde.',
-    mustKeep: ['eine Bestehensquote von 78 %', 'mit der Kundennummer 4711', 'Erinnerung 48 Stunden vor jeder Fahrstunde'],
+    mustKeep: [
+      'eine Bestehensquote von 78 %',
+      'mit der Kundennummer 4711',
+      'Erinnerung 48 Stunden vor jeder Fahrstunde',
+    ],
     mustRedact: [],
     expectPlaceholders: [],
   },
@@ -200,7 +220,11 @@ const CORPUS: OperatorBrief[] = [
       'Bestellungen nehmen wir bis 16:00 Uhr unter 0821 4567890 an. ' +
       'Die Tourenplanung für die Fahrer kostet mich jeden Abend eine Stunde. ' +
       'Das will ich automatisieren.',
-    mustKeep: ['Unsere Bäckerei beliefert 17 Cafés im Umkreis von Augsburg.', 'Bestellungen nehmen wir bis 16:00 Uhr', 'Die Tourenplanung für die Fahrer kostet mich jeden Abend eine Stunde.'],
+    mustKeep: [
+      'Unsere Bäckerei beliefert 17 Cafés im Umkreis von Augsburg.',
+      'Bestellungen nehmen wir bis 16:00 Uhr',
+      'Die Tourenplanung für die Fahrer kostet mich jeden Abend eine Stunde.',
+    ],
     mustRedact: ['0821 4567890'],
     expectPlaceholders: ['[REDACTED_PHONE]'],
   },
@@ -211,7 +235,10 @@ const CORPUS: OperatorBrief[] = [
       'Unser Fitnessstudio hat 850 Mitglieder und drei Tarife: 29,90 €, 39,90 € und 49,90 € im Monat. ' +
       'Die Kündigungsquote liegt bei 3,2 % pro Quartal. ' +
       'Ich will einen Reaktivierungs-Funnel für ehemalige Mitglieder.',
-    mustKeep: ['drei Tarife: 29,90 €, 39,90 € und 49,90 € im Monat.', 'Die Kündigungsquote liegt bei 3,2 % pro Quartal.'],
+    mustKeep: [
+      'drei Tarife: 29,90 €, 39,90 € und 49,90 € im Monat.',
+      'Die Kündigungsquote liegt bei 3,2 % pro Quartal.',
+    ],
     mustRedact: [],
     expectPlaceholders: [],
   },
@@ -251,7 +278,10 @@ const CORPUS: OperatorBrief[] = [
       'Störungen melden Kunden über die Hotline +49 (0) 251 987654. ' +
       'Unser Ticketsystem erzeugt daraus bisher keine sauberen Berichte. ' +
       'Monatsreports für die fünf größten Kunden wären der Anfang.',
-    mustKeep: ['Unser Ticketsystem erzeugt daraus bisher keine sauberen Berichte.', 'Monatsreports für die fünf größten Kunden wären der Anfang.'],
+    mustKeep: [
+      'Unser Ticketsystem erzeugt daraus bisher keine sauberen Berichte.',
+      'Monatsreports für die fünf größten Kunden wären der Anfang.',
+    ],
     mustRedact: ['+49 (0) 251 987654'],
     expectPlaceholders: ['[REDACTED_PHONE]'],
   },
@@ -291,7 +321,10 @@ const CORPUS: OperatorBrief[] = [
       'Baue mir bitte eine Vorlage für Elternbriefe.',
     // IST contract: a German Steuernummer in 3/3/5 slash form is NOT covered by
     // any rule today and passes through (it does not fit the phone shapes).
-    mustKeep: ['Die Steuernummer 143/456/78901 brauche ich für die neue Rechnungsvorlage.', 'Im Schuljahr 2025/26 sind die Anmeldungen um 22 % gestiegen.'],
+    mustKeep: [
+      'Die Steuernummer 143/456/78901 brauche ich für die neue Rechnungsvorlage.',
+      'Im Schuljahr 2025/26 sind die Anmeldungen um 22 % gestiegen.',
+    ],
     mustRedact: [],
     expectPlaceholders: [],
   },

@@ -31,7 +31,15 @@ import { HONCHO_DERIVER_BRANCH_CLOUD, HONCHO_DERIVER_BRANCH_LOCAL } from '@/proc
 const CLOUD = { deriver: { branch: HONCHO_DERIVER_BRANCH_CLOUD } };
 const LOCAL = { deriver: { branch: HONCHO_DERIVER_BRANCH_LOCAL } };
 const OPTED: HonchoConsentState = { memoryOptedIn: true, hasLicense: true };
-const ALL_PRESENT: HonchoDepDetection = { hasHomebrew: true, hasPostgres: true, hasPgvector: true, pythonSupported: true, hasHonchoPkg: true, dbProvisioned: true, freeDiskGb: 50 };
+const ALL_PRESENT: HonchoDepDetection = {
+  hasHomebrew: true,
+  hasPostgres: true,
+  hasPgvector: true,
+  pythonSupported: true,
+  hasHonchoPkg: true,
+  dbProvisioned: true,
+  freeDiskGb: 50,
+};
 
 describe('honchoProvisionPlanCore — fail-safe gates (every miss disables, never errors)', () => {
   it('mode off ⇒ disabled / HONCHO_MODE_OFF, no steps', () => {
@@ -48,13 +56,21 @@ describe('honchoProvisionPlanCore — fail-safe gates (every miss disables, neve
   });
 
   it('cloud-flash deriver but no license ⇒ disabled / HONCHO_DEP_MISSING (no deriver auth)', () => {
-    const p = buildHonchoProvisionPlan({ consent: { memoryOptedIn: true, hasLicense: false }, config: CLOUD, detection: ALL_PRESENT });
+    const p = buildHonchoProvisionPlan({
+      consent: { memoryOptedIn: true, hasLicense: false },
+      config: CLOUD,
+      detection: ALL_PRESENT,
+    });
     expect(p.honchoEnabled).toBe(false);
     expect(p.skipReason).toBe(HONCHO_REASON_DEP_MISSING);
   });
 
   it('LOCAL deriver branch does NOT require a license (local Gemma needs no bearer)', () => {
-    const p = buildHonchoProvisionPlan({ consent: { memoryOptedIn: true, hasLicense: false }, config: LOCAL, detection: ALL_PRESENT });
+    const p = buildHonchoProvisionPlan({
+      consent: { memoryOptedIn: true, hasLicense: false },
+      config: LOCAL,
+      detection: ALL_PRESENT,
+    });
     expect(p.honchoEnabled).toBe(true);
   });
 
@@ -64,30 +80,51 @@ describe('honchoProvisionPlanCore — fail-safe gates (every miss disables, neve
     expect(p.honchoEnabled).toBe(false);
     expect(p.skipReason).toBe(HONCHO_REASON_DEP_MISSING);
     // with a license, missing branch (treated cloud) is fine
-    expect(buildHonchoProvisionPlan({ consent: { memoryOptedIn: true, hasLicense: true }, detection: ALL_PRESENT }).honchoEnabled).toBe(true);
+    expect(
+      buildHonchoProvisionPlan({ consent: { memoryOptedIn: true, hasLicense: true }, detection: ALL_PRESENT })
+        .honchoEnabled
+    ).toBe(true);
   });
 
   it('an explicit UNKNOWN/garbage branch is treated as cloud ⇒ still requires a license', () => {
     const garbage = { deriver: { branch: 'something-else' } };
-    const p = buildHonchoProvisionPlan({ consent: { memoryOptedIn: true, hasLicense: false }, config: garbage, detection: ALL_PRESENT });
+    const p = buildHonchoProvisionPlan({
+      consent: { memoryOptedIn: true, hasLicense: false },
+      config: garbage,
+      detection: ALL_PRESENT,
+    });
     expect(p.honchoEnabled).toBe(false);
     expect(p.skipReason).toBe(HONCHO_REASON_DEP_MISSING);
   });
 
   it('free disk below the floor ⇒ disabled / HONCHO_BLOCKED_DISK', () => {
-    const p = buildHonchoProvisionPlan({ consent: OPTED, config: CLOUD, detection: { ...ALL_PRESENT, freeDiskGb: HONCHO_MIN_FREE_DISK_GB - 0.5 } });
+    const p = buildHonchoProvisionPlan({
+      consent: OPTED,
+      config: CLOUD,
+      detection: { ...ALL_PRESENT, freeDiskGb: HONCHO_MIN_FREE_DISK_GB - 0.5 },
+    });
     expect(p.honchoEnabled).toBe(false);
     expect(p.skipReason).toBe(HONCHO_REASON_BLOCKED_DISK);
   });
 
   it('RAM below the floor (8GB Air) ⇒ disabled / HONCHO_BLOCKED_RAM; 16GB ⇒ enabled (perf audit)', () => {
-    const air = buildHonchoProvisionPlan({ consent: OPTED, config: CLOUD, detection: { ...ALL_PRESENT, totalMemoryGb: 8 } });
+    const air = buildHonchoProvisionPlan({
+      consent: OPTED,
+      config: CLOUD,
+      detection: { ...ALL_PRESENT, totalMemoryGb: 8 },
+    });
     expect(air.honchoEnabled).toBe(false);
     expect(air.skipReason).toBe(HONCHO_REASON_BLOCKED_RAM);
-    const pro = buildHonchoProvisionPlan({ consent: OPTED, config: CLOUD, detection: { ...ALL_PRESENT, totalMemoryGb: 16 } });
+    const pro = buildHonchoProvisionPlan({
+      consent: OPTED,
+      config: CLOUD,
+      detection: { ...ALL_PRESENT, totalMemoryGb: 16 },
+    });
     expect(pro.honchoEnabled).toBe(true);
     // unknown RAM is not gated (the caller always supplies os.totalmem())
-    expect(buildHonchoProvisionPlan({ consent: OPTED, config: CLOUD, detection: ALL_PRESENT }).honchoEnabled).toBe(true);
+    expect(buildHonchoProvisionPlan({ consent: OPTED, config: CLOUD, detection: ALL_PRESENT }).honchoEnabled).toBe(
+      true
+    );
   });
 
   it('a needed install the user DECLINED ⇒ disabled / HONCHO_DEP_MISSING (fail-safe)', () => {
@@ -108,7 +145,14 @@ describe('honchoProvisionPlanCore — enabled plan shape', () => {
     expect(p.honchoEnabled).toBe(true);
     expect(p.skipReason).toBeUndefined();
     expect((p.steps || []).map((s) => s.id)).toEqual([
-      HONCHO_STEP_HOMEBREW, HONCHO_STEP_POSTGRES, 'honcho-pgvector', 'honcho-python', 'honcho-package', HONCHO_STEP_DB, HONCHO_STEP_PROCESS, HONCHO_STEP_READY,
+      HONCHO_STEP_HOMEBREW,
+      HONCHO_STEP_POSTGRES,
+      'honcho-pgvector',
+      'honcho-python',
+      'honcho-package',
+      HONCHO_STEP_DB,
+      HONCHO_STEP_PROCESS,
+      HONCHO_STEP_READY,
     ]);
     // present deps are marked satisfied; process/ready always run.
     const byId = Object.fromEntries((p.steps || []).map((s) => [s.id, s]));

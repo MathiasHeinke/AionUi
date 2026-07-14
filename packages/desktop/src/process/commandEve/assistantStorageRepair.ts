@@ -115,7 +115,10 @@ export async function repairCommandEveAssistantStorage(
     // Lazy-load the native driver inside the guard so a module-load failure is
     // caught here rather than breaking the importing module.
     const mod = (await import('better-sqlite3')) as unknown as {
-      default: new (file: string, opts?: { timeout?: number }) => {
+      default: new (
+        file: string,
+        opts?: { timeout?: number }
+      ) => {
         prepare: (sql: string) => {
           get: (...params: unknown[]) => unknown;
           run: (...params: unknown[]) => { changes: number };
@@ -138,9 +141,9 @@ export async function repairCommandEveAssistantStorage(
       // BUG 1 — re-activate orphaned (soft-deleted) user definitions.
       const info = db
         .prepare(
-          "UPDATE assistant_definitions SET deleted_at = NULL " +
+          'UPDATE assistant_definitions SET deleted_at = NULL ' +
             "WHERE deleted_at IS NOT NULL AND source = 'user' " +
-            "AND assistant_id IN (SELECT id FROM assistants)"
+            'AND assistant_id IN (SELECT id FROM assistants)'
         )
         .run();
 
@@ -159,16 +162,16 @@ export async function repairCommandEveAssistantStorage(
         if (hasAgentMeta && hasAgentMeta.n > 0) {
           const hermes = db
             .prepare(
-              "SELECT id FROM agent_metadata " +
+              'SELECT id FROM agent_metadata ' +
                 "WHERE lower(coalesce(backend,'')) = 'hermes' OR lower(coalesce(agent_type,'')) = 'hermes' " +
-                "LIMIT 1"
+                'LIMIT 1'
             )
             .get() as { id: string } | undefined;
           if (hermes && hermes.id) {
             const rebind = db
               .prepare(
-                "UPDATE assistant_definitions SET agent_id = ?, deleted_at = NULL " +
-                  "WHERE assistant_id = ? " +
+                'UPDATE assistant_definitions SET agent_id = ?, deleted_at = NULL ' +
+                  'WHERE assistant_id = ? ' +
                   "AND agent_id IN (SELECT id FROM agent_metadata WHERE lower(coalesce(agent_type,'')) = 'aionrs')"
               )
               .run(hermes.id, COMMAND_EVE_ASSISTANT_ID);
@@ -268,14 +271,11 @@ export async function repairCommandEveAssistantStorage(
         if (eveActive && eveActive.n) {
           const liveDef = db
             .prepare(
-              'SELECT 1 AS n FROM assistant_definitions ' +
-                'WHERE assistant_id = ? AND deleted_at IS NULL LIMIT 1'
+              'SELECT 1 AS n FROM assistant_definitions ' + 'WHERE assistant_id = ? AND deleted_at IS NULL LIMIT 1'
             )
             .get(COMMAND_EVE_ASSISTANT_ID) as { n: number } | undefined;
           if (!liveDef) {
-            const cleared = db
-              .prepare('DELETE FROM assistants WHERE id = ?')
-              .run(COMMAND_EVE_ASSISTANT_ID);
+            const cleared = db.prepare('DELETE FROM assistants WHERE id = ?').run(COMMAND_EVE_ASSISTANT_ID);
             reseeded = cleared.changes;
           }
         }

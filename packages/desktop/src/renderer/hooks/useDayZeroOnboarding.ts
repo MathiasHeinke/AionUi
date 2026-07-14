@@ -29,11 +29,7 @@ import { commandEve } from '@/common/adapter/ipcBridge';
 import { configService } from '@/common/config/configService';
 import { useActiveSeatId } from '@renderer/hooks/useActiveSeatId';
 import { useConfig } from '@renderer/hooks/config/useConfig';
-import {
-  isClientSeedSatisfied,
-  shouldForceDayZeroOnboarding,
-  type ClientSeedInput,
-} from '@/common/config/creditsCore';
+import { isClientSeedSatisfied, shouldForceDayZeroOnboarding, type ClientSeedInput } from '@/common/config/creditsCore';
 
 /**
  * ISO-3 default seed sink: persist the seed into the ACTIVE seat's hermesHome via

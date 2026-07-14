@@ -29,36 +29,32 @@
 // emitting 'unknown' whenever we are unsure is the safe, no-lockout default here.
 //
 // deno-lint-ignore-file no-explicit-any
-import { createClient } from "jsr:@supabase/supabase-js@2";
-import crypto from "node:crypto";
-import {
-  decideEntitlementStatus,
-  type EntitlementRow,
-  type EntitlementStatusResponse,
-} from "./status-core.ts";
-import { verifyLicenseCode } from "../_shared/license-code-core.ts";
+import { createClient } from 'jsr:@supabase/supabase-js@2';
+import crypto from 'node:crypto';
+import { decideEntitlementStatus, type EntitlementRow, type EntitlementStatusResponse } from './status-core.ts';
+import { verifyLicenseCode } from '../_shared/license-code-core.ts';
 
 function corsHeaders(req: Request): Record<string, string> {
-  const origin = req.headers.get("Origin") ?? "*";
+  const origin = req.headers.get('Origin') ?? '*';
   return {
-    "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-    "Access-Control-Allow-Headers": "authorization, content-type, apikey, x-client-info",
-    "Access-Control-Max-Age": "86400",
-    "Vary": "Origin",
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
+    'Access-Control-Allow-Headers': 'authorization, content-type, apikey, x-client-info',
+    'Access-Control-Max-Age': '86400',
+    Vary: 'Origin',
   };
 }
 
 function jsonResponse(req: Request, body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json", ...corsHeaders(req) },
+    headers: { 'content-type': 'application/json', ...corsHeaders(req) },
   });
 }
 
 /** A non-conclusive 'unknown' verdict (the desktop leaves its state untouched). */
 function unknown(req: Request, now: string, status = 200): Response {
-  const body: EntitlementStatusResponse = { decision: "unknown", checked_at: now };
+  const body: EntitlementStatusResponse = { decision: 'unknown', checked_at: now };
   return jsonResponse(req, body, status);
 }
 
@@ -67,29 +63,27 @@ function unknown(req: Request, now: string, status = 200): Response {
 let cachedPublicKeyPem: string | null = null;
 function publicKeyPem(): string {
   if (cachedPublicKeyPem) return cachedPublicKeyPem;
-  const signingKeyPem = Deno.env.get("COMMAND_EVE_LICENSE_SIGNING_KEY");
+  const signingKeyPem = Deno.env.get('COMMAND_EVE_LICENSE_SIGNING_KEY');
   if (!signingKeyPem) {
-    throw new Error("signing_key_not_configured");
+    throw new Error('signing_key_not_configured');
   }
-  cachedPublicKeyPem = crypto
-    .createPublicKey(signingKeyPem)
-    .export({ type: "spki", format: "pem" }) as string;
+  cachedPublicKeyPem = crypto.createPublicKey(signingKeyPem).export({ type: 'spki', format: 'pem' }) as string;
   return cachedPublicKeyPem;
 }
 
 export async function handleEntitlementStatus(req: Request): Promise<Response> {
   const now = new Date().toISOString();
 
-  if (req.method === "OPTIONS") {
+  if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders(req) });
   }
-  if (req.method !== "POST" && req.method !== "GET") {
-    return jsonResponse(req, { decision: "unknown", checked_at: now, error: "method_not_allowed" }, 405);
+  if (req.method !== 'POST' && req.method !== 'GET') {
+    return jsonResponse(req, { decision: 'unknown', checked_at: now, error: 'method_not_allowed' }, 405);
   }
 
   // The Bearer credential is the raw CEVE WIRE (not a JWT).
-  const authHeader = req.headers.get("Authorization") ?? "";
-  const wire = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7).trim() : "";
+  const authHeader = req.headers.get('Authorization') ?? '';
+  const wire = authHeader.toLowerCase().startsWith('bearer ') ? authHeader.slice(7).trim() : '';
   if (!wire) {
     // No credential ⇒ nothing to decide ⇒ non-conclusive (401 so the desktop's
     // non-2xx path keeps it inert).
@@ -110,8 +104,8 @@ export async function handleEntitlementStatus(req: Request): Promise<Response> {
   if (!verify.ok) {
     // A signed-but-EXPIRED wire is conclusively expired; everything else
     // (malformed / bad signature / version) is non-conclusive ('unknown').
-    if (verify.reason_code === "LICENSE_EXPIRED") {
-      const body: EntitlementStatusResponse = { decision: "expired", checked_at: now };
+    if (verify.reason_code === 'LICENSE_EXPIRED') {
+      const body: EntitlementStatusResponse = { decision: 'expired', checked_at: now };
       return jsonResponse(req, body);
     }
     return unknown(req, now);
@@ -126,8 +120,8 @@ export async function handleEntitlementStatus(req: Request): Promise<Response> {
   };
 
   // 2) Look up the live entitlements row (service-role; clients can't read it).
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const supabaseUrl = Deno.env.get('SUPABASE_URL');
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   if (!supabaseUrl || !serviceRoleKey) {
     // Backend not configured ⇒ non-conclusive (never lock the user out on our gap).
     return unknown(req, now, 500);
@@ -141,11 +135,11 @@ export async function handleEntitlementStatus(req: Request): Promise<Response> {
   let row: EntitlementRow | null = null;
   try {
     const { data, error } = await admin
-      .from("entitlements")
-      .select("status, edition, expires_at, trial_ends_at, code_serial, tenant_id")
-      .eq("tenant_id", payload.tenant_serial)
-      .eq("code_serial", String(payload.serial))
-      .order("created_at", { ascending: false })
+      .from('entitlements')
+      .select('status, edition, expires_at, trial_ends_at, code_serial, tenant_id')
+      .eq('tenant_id', payload.tenant_serial)
+      .eq('code_serial', String(payload.serial))
+      .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
     if (error) {
@@ -171,6 +165,6 @@ export async function handleEntitlementStatus(req: Request): Promise<Response> {
   return jsonResponse(req, { ...decision, checked_at: now });
 }
 
-if (typeof Deno !== "undefined" && (import.meta as { main?: boolean }).main) {
+if (typeof Deno !== 'undefined' && (import.meta as { main?: boolean }).main) {
   Deno.serve(handleEntitlementStatus);
 }

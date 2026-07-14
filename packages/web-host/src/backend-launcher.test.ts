@@ -333,9 +333,9 @@ describe('BackendLifecycleManager.start (success path)', () => {
       mgr.localCapability,
       expect.objectContaining({ flag: 'wx', mode: 0o600 })
     );
-    const capabilityPath = vi.mocked(writeFileSync).mock.calls.find((call) =>
-      String(call[0]).includes('/runtime-security/local-capability-')
-    )?.[0];
+    const capabilityPath = vi
+      .mocked(writeFileSync)
+      .mock.calls.find((call) => String(call[0]).includes('/runtime-security/local-capability-'))?.[0];
     expect(capabilityPath).toEqual(expect.stringMatching(/^\/db\/path\/runtime-security\/local-capability-/));
     expect(rmSync).toHaveBeenCalledWith(capabilityPath, { force: true });
     expect(vi.mocked(spawn).mock.calls[0][1]).not.toContain(mgr.localCapability);
@@ -461,9 +461,9 @@ describe('BackendLifecycleManager.start (success path)', () => {
       emitListening(child, 55555);
       await startPromise;
 
-      const capabilityPath = vi.mocked(writeFileSync).mock.calls.find((call) =>
-        String(call[0]).includes('/runtime-security/local-capability-')
-      )?.[0];
+      const capabilityPath = vi
+        .mocked(writeFileSync)
+        .mock.calls.find((call) => String(call[0]).includes('/runtime-security/local-capability-'))?.[0];
       expect(capabilityPath).toEqual(expect.stringMatching(/^\/db\/path\/runtime-security\/local-capability-/));
       expect(warnSpy).toHaveBeenCalledWith(
         '[aioncore] failed to unlink bootstrap capability file after startup; will retry on cleanup',

@@ -146,7 +146,12 @@ export function enforceMemoryBoundary(input: MemoryBoundaryInput): MemoryBoundar
   const sClass = maxClass(findings);
   const findingKinds = Array.from(new Set(findings.map((f) => f.kind)));
 
-  const deny = (reasonCode: string): MemoryBoundaryDecision => ({ ok: false, reasonCode, sensitivityClass: sClass, findings: findingKinds });
+  const deny = (reasonCode: string): MemoryBoundaryDecision => ({
+    ok: false,
+    reasonCode,
+    sensitivityClass: sClass,
+    findings: findingKinds,
+  });
 
   // (0) MALFORMED (fail-closed) — the operation MUST be an explicit known op (no silent
   // 'read' default), any provided store MUST be known, and a non-read MUST name a known
@@ -187,7 +192,12 @@ export function enforceMemoryBoundary(input: MemoryBoundaryInput): MemoryBoundar
 
   // ALLOWED. For a redacted cloud derive, hand back the S1+-stripped text so the caller
   // sends the redacted form even before the shim's own pass (defense in depth).
-  const decision: MemoryBoundaryDecision = { ok: true, reasonCode: MEMORY_BOUNDARY_OK, sensitivityClass: sClass, findings: findingKinds };
+  const decision: MemoryBoundaryDecision = {
+    ok: true,
+    reasonCode: MEMORY_BOUNDARY_OK,
+    sensitivityClass: sClass,
+    findings: findingKinds,
+  };
   if (operation === 'derive' && egress === 'redacted-cloud-deriver' && sClass !== 'S0') {
     decision.redactedText = redactCommandEveSensitiveTextAtOrAbove(text, 'S1');
   }

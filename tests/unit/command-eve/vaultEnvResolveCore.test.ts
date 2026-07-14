@@ -147,7 +147,10 @@ describe('readVettedConnectorsForSeat — union + isolation', () => {
     const configRoot = makeTmpRoot();
 
     // Founder-vault: a founder connector.
-    writeVaultRecord(founderVaultDir(userData), record({ connector_id: 'linear-project-management', scope: 'founder' }));
+    writeVaultRecord(
+      founderVaultDir(userData),
+      record({ connector_id: 'linear-project-management', scope: 'founder' })
+    );
     // Seat-vault(seat-a): a seat connector.
     writeVaultRecord(
       seatVaultDir(configRoot, 'seat-a'),

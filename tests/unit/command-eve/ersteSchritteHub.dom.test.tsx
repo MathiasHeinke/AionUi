@@ -80,7 +80,13 @@ describe('ErsteSchritteModalContent — the 1.7.2 Day-0 hub', () => {
   });
 
   it("keeps a null-model read honest: no 'done' chip anywhere", () => {
-    statusState.current = { loading: false, model: null, greeting: null, error: true, refresh: vi.fn() } as unknown as typeof statusState.current;
+    statusState.current = {
+      loading: false,
+      model: null,
+      greeting: null,
+      error: true,
+      refresh: vi.fn(),
+    } as unknown as typeof statusState.current;
     const { container } = render(<ErsteSchritteModalContent />);
     expect(container.querySelectorAll('[data-status="done"]').length).toBe(0);
     // The hub still renders (directory works even when status is unknown).

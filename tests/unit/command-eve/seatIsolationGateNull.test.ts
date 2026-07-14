@@ -154,11 +154,7 @@ const captureActiveSeatSurface = (): SeatSurface => {
  * later feeds a broken surface into — so the gate's pass-condition and its
  * fail-condition are one and the same function.
  */
-const assertFullyDisjoint = (
-  a: SeatSurface,
-  b: SeatSurface,
-  tracers: { aToken: string; bToken: string }
-): void => {
+const assertFullyDisjoint = (a: SeatSurface, b: SeatSurface, tracers: { aToken: string; bToken: string }): void => {
   const underSeats = (p: string) => p.includes(`${path.sep}${SEATS_SUBDIR}${path.sep}`);
   const containedIn = (parent: string, child: string) => child.startsWith(parent + path.sep);
 
@@ -269,7 +265,7 @@ describe('ISO-8 GATE-NULL — seat A can never reach seat B across all 6 isolati
     expect(aSurfaceBlob).not.toContain(B_SCOPED_VALUE);
   });
 
-  it('(vi) ISO-6 — A\'s assembled prompt entity NEVER appears in B\'s prompt and vice-versa', () => {
+  it("(vi) ISO-6 — A's assembled prompt entity NEVER appears in B's prompt and vice-versa", () => {
     // Seat A's identity comes from A's seed; render A's first-run prompt.
     const idA = resolveCommandEveSeatIdentity({
       legacy: false,
@@ -281,14 +277,8 @@ describe('ISO-8 GATE-NULL — seat A can never reach seat B across all 6 isolati
       seatId: SEAT_B,
       seed: { kind: 'paste_brief', value: `${ENTITY_B}\nbrief tracer ${B_SCOPED_VALUE}` },
     });
-    const promptA = buildCommandEveAssistantFirstRunContext(
-      { appVersion: '1.1.1', seatIdentity: idA },
-      'de-DE'
-    );
-    const promptB = buildCommandEveAssistantFirstRunContext(
-      { appVersion: '1.1.1', seatIdentity: idB },
-      'de-DE'
-    );
+    const promptA = buildCommandEveAssistantFirstRunContext({ appVersion: '1.1.1', seatIdentity: idA }, 'de-DE');
+    const promptB = buildCommandEveAssistantFirstRunContext({ appVersion: '1.1.1', seatIdentity: idB }, 'de-DE');
 
     // A's prompt names A's client entity, never B's; and vice-versa.
     expect(promptA).toContain(ENTITY_A);
@@ -297,7 +287,7 @@ describe('ISO-8 GATE-NULL — seat A can never reach seat B across all 6 isolati
     expect(promptB).not.toContain(ENTITY_A);
   });
 
-  it('(vi) ISO-6 — the onboarding GREETING for seat B never carries seat A\'s entity', () => {
+  it("(vi) ISO-6 — the onboarding GREETING for seat B never carries seat A's entity", () => {
     // Drive the live greeting builder for seat B with B's seed injected; assert
     // the rendered identity carries B's client, never A's operator/other entity.
     setActiveSeatId(SEAT_B);
@@ -358,7 +348,7 @@ describe('ISO-8 self-test — the disjointness oracle FAILS RED when isolation i
     managedSkillsRoot: a.managedSkillsRoot,
   });
 
-  it('a broken resolver that returns A\'s roots under B makes assertFullyDisjoint THROW', () => {
+  it("a broken resolver that returns A's roots under B makes assertFullyDisjoint THROW", () => {
     setActiveSeatId(SEAT_A);
     writeCompanyBrainSeedToHome({
       hermesHome: resolveActiveSeatHome(USER_DATA).hermesHome,

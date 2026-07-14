@@ -81,9 +81,7 @@ describe('QuotaExhaustedWall — surfaced (in-flight + quota signal)', () => {
   it('opens the Lane-2 checkout deep-linked to the selected pack on buy', async () => {
     const openCheckout = vi.fn();
     const user = userEvent.setup();
-    render(
-      <QuotaExhaustedWall body={body} jobInFlight={true} onClose={() => {}} openCheckout={openCheckout} />
-    );
+    render(<QuotaExhaustedWall body={body} jobInFlight={true} onClose={() => {}} openCheckout={openCheckout} />);
     await user.click(screen.getByTestId('quota-wall-buy'));
     expect(openCheckout).toHaveBeenCalledTimes(1);
     expect(openCheckout.mock.calls[0][0]).toContain('pack_eur=100');

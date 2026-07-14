@@ -14,17 +14,19 @@ same engine answers a second question: **which AI worker or department do I hire
 A-player fit, and the JD all map cleanly onto EVE's hire/fire KI-Belegschaft.
 
 ## When to use
+
 - Hiring, writing or rewriting a **job description**, building or restructuring a team.
 - When the user asks "who do I bring on next", "is this the right hire", "fix this JD", "how do I keep my best person".
 - When auditing the **orbit** — who compounds your trajectory vs who drains it (allies vs energy-drainers, 10-10).
-- When stuck and solving alone — to surface the *ask* path (Do / Read / **Ask**) you keep skipping.
+- When stuck and solving alone — to surface the _ask_ path (Do / Read / **Ask**) you keep skipping.
 - For Command EVE: choosing **which AI worker / department to "hire" next** in the operator's KI-firm.
 
 ## The method
+
 Run the relevant parts; they are modular, not a strict sequence. The discipline lives in naming things RAW.
 
 1. **NAME the gap — pain of today OR growth of tomorrow.** Every hire solves one of two things: relief from a
-   pain that is drowning you *now*, or a new area you want to open *next*. Write it **unfiltered**, as raw as it
+   pain that is drowning you _now_, or a new area you want to open _next_. Write it **unfiltered**, as raw as it
    feels ("I lose deals because follow-ups fall through; I sleep badly over unanswered threads"). The raw pain IS
    the source material — do not pre-sanitize it into a tidy role title.
 2. **BUILD the A-player JD.** A-players read JDs slowly and care; B/C-players skim. Buzzwords filter out exactly
@@ -53,13 +55,14 @@ Run the relevant parts; they are modular, not a strict sequence. The discipline 
    dim your light, wear skepticism as identity, guilt-trip, distrust your growth. You can't cut all drainers (family,
    old friends) — but allies get bandwidth, drainers get minimum civility. The most important relationship to check
    is at home.
-7. **ASK FOR HELP — the cheapest accelerant.** On every problem run three questions: *What could I do? What could I
-   read? **Whom could I ask?*** — question 3 gets skipped ~80% of the time and is the biggest unlock. Asks are
+7. **ASK FOR HELP — the cheapest accelerant.** On every problem run three questions: \*What could I do? What could I
+   read? **Whom could I ask?\*** — question 3 gets skipped ~80% of the time and is the biggest unlock. Asks are
    precise and low-bar ("you took a similar funnel 4%→7%; could I have 15 focused minutes?"), not "got any tips?".
-   For a coach/mentor *recruit*, a low-bar high-clarity offer with a symbolic real investment converts ("no calls,
+   For a coach/mentor _recruit_, a low-bar high-clarity offer with a symbolic real investment converts ("no calls,
    no meetings — I'd just hope you prioritize my emails").
 
 ## Output
+
 - The **named gap** (pain-of-today or growth-of-tomorrow), written raw, then resolved into a role.
 - A complete **A-player JD** in the template structure — outcome-language, a self-selection filter, a "don't fit if" list, a real comp range.
 - Where relevant: an **incentive sketch** (phantom-equity terms — %, vesting, trigger, DE/EU tax flag) and an **active-sourcing list** (5–10 named profiles + an outreach line each).
@@ -67,6 +70,7 @@ Run the relevant parts; they are modular, not a strict sequence. The discipline 
 - A short **ask-list**: 3 problem zones × (Do / Read / Ask) with one specific person to email this week.
 
 ## Key discipline
+
 - **"A-player for YOU", not the best.** Fit beats résumé. The A-player reads the JD and thinks "I'm exactly what they need."
 - **Outcomes, not tasks; raw pain, not sanitized roles.** A JD of generic responsibilities attracts generic applicants.
 - **Pre-selection is the JD's whole job.** The self-selection question and the "don't fit if" list ARE the funnel — they save the interviews.
@@ -77,12 +81,12 @@ Run the relevant parts; they are modular, not a strict sequence. The discipline 
 
 Shared Command EVE posture lives in `eve-doctrine`; this section only explains how this skill plugs into the runtime.
 This skill has two layers: it helps the operator hire **humans**, and it is the lens for hiring **AI workers** in EVE's
-KI-Belegschaft — the operator's "KI-firm" where hire/fire on the 79€-plan is *curation* of Hermes worker profiles.
+KI-Belegschaft — the operator's "KI-firm" where hire/fire on the 79€-plan is _curation_ of Hermes worker profiles.
 
 - **Same engine, AI target.** The gap maps directly: pain-of-today → "I'm drowning in client emails / clips / research"
   → hire the matching **department** (Texter, Creative, Research, Video, Coder); growth-of-tomorrow → open a new
   capability. EVE writes the worker's "JD" as its **profile + capability scope + outcome** — outcome-language, not a
-  task list. "A-player for you" becomes the *cheapest sufficient* worker for THIS workload (don't put a Video worker on
+  task list. "A-player for you" becomes the _cheapest sufficient_ worker for THIS workload (don't put a Video worker on
   an email gap), and the **Gehaltsklasse** (per-class salary + hire-fee + at-cost starter-credits + outcome-overtime)
   is the phantom-equity analogue — owner-feeling economics, no cap table, with the at-cost-fence flagged so a hire
   doesn't quietly drain the included balance.

@@ -81,11 +81,7 @@ const HONEST_DEFAULT_STATES = new Set([
  * setup_modes that provide a REAL auth/setup surface. A needs_auth card MUST use
  * one of these — otherwise it is advertising an auth flow that does not exist.
  */
-const AUTH_CAPABLE_SETUP_MODES = new Set([
-  'guided_connector',
-  'optional_sync_connector',
-  'deferred_gated_connector',
-]);
+const AUTH_CAPABLE_SETUP_MODES = new Set(['guided_connector', 'optional_sync_connector', 'deferred_gated_connector']);
 
 /** Ids that must never reappear on any catalog surface (D5 removal). */
 const FORBIDDEN_CONNECTOR_IDS = new Set(['honcho-memory', 'memory-honcho']);

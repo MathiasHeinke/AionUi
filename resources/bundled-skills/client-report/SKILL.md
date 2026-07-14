@@ -14,15 +14,17 @@ It is a **deliverable**, not a chat reply: a structured document with an exec su
 recommendation, and the next steps — sized to be exported to PDF/Word/Markdown and sent to a client who never logs in.
 
 ## When to use
+
 - The operator asks for a **client report**, a **monthly / period update**, a **strategy deliverable**, or an **audit write-up**.
 - The operator says "write the report for <client>", "give me the client deliverable", "package this for the client".
 - **After** a deep-research, gtm-strategy, icp-persona-panel, pre-mortem, or plan-system run inside the seat — to turn the work performed into the document the client receives.
 
 ## Read fence — active seat ONLY (hard rule)
+
 This report is built from **one seat's truth and nothing else**. The seat you are running in IS the client.
 
 1. **Read ONLY the active seat's own context** — this seat's `MEMORY` / Company-Brain seed and this seat's workspace
-   artifacts (the documents, research, plans, and notes produced *in this seat*). Everything you need is already on
+   artifacts (the documents, research, plans, and notes produced _in this seat_). Everything you need is already on
    disk under the seat you are running in; you do not need to go looking elsewhere.
 2. **Never read across seats and never read a global/operator-wide profile.** Do not look for "other clients", a
    master client list, a shared knowledge base, or any path outside this seat. There is exactly one client in scope:
@@ -37,7 +39,8 @@ This fence is what makes per-client isolation real in the artifact: a seat-A rep
 because seat-A truth is the only thing in scope when you run here.
 
 ## Honesty wall (no false claims)
-- **Assemble, do not invent.** You are *assembling* a report from what is on disk in this seat. You do **not** "learn",
+
+- **Assemble, do not invent.** You are _assembling_ a report from what is on disk in this seat. You do **not** "learn",
   "remember across sessions", or "know" anything beyond the seat's recorded truth — make no such claim in the document
   or to the operator. If the work to back a section was not done in this seat, say so; do not imply it was.
 - **Never fabricate a number.** Every KPI / result you show must be **traceable to a seat artifact**. If a metric is not
@@ -51,6 +54,7 @@ because seat-A truth is the only thing in scope when you run here.
   artifacts show. Describe the work that was actually performed, cited to the seat.
 
 ## Brand & invisible delivery
+
 - The report carries the **OPERATOR's brand only** — their logo, their name, their footer. Leave the brand header and
   footer as a clearly-marked **brand slot** (see the template) for the operator's brand to fill; default to a neutral
   placeholder, never to Command EVE branding.
@@ -59,6 +63,7 @@ because seat-A truth is the only thing in scope when you run here.
   client's business — invisible delivery is preserved inside the artifact itself.
 
 ## Structure (exec-summary-first)
+
 Follow `report-template.md`. Lead with the bottom line; a client reads the first half-page and skims the rest.
 
 1. **Brand header** — operator brand slot (logo / operator name) + report title + client name + period. (Operator/seat
@@ -79,6 +84,7 @@ Follow `report-template.md`. Lead with the bottom line; a client reads the first
 9. **Brand footer** — operator brand slot (operator name / contact / footer line). Operator brand only.
 
 ## Output contract
+
 - Write a **single report artifact** into the **active seat's workspace** — `report.md` (and/or `report.html` when an
   HTML body is wanted) — following the template's section order and brand slots.
 - The artifact is **for review and export, not auto-delivery.** Producing it does NOT send it. The operator reviews it,
@@ -88,6 +94,7 @@ Follow `report-template.md`. Lead with the bottom line; a client reads the first
   report PDF / Word / Markdown export cleanly.
 
 ## Key discipline
+
 - **One seat, one client, on-disk truth only** — the read fence is the whole game; never reach outside the seat.
 - **Exec summary first; a recommendation, not a survey of options.**
 - **Every number traceable or marked unknown** — fabrication is the one unforgivable error in a client deliverable.

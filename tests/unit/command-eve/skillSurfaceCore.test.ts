@@ -68,7 +68,10 @@ describe('skillContentCore.readSkillContent — click-to-read', () => {
   });
 
   it('SECURITY: rejects a path-traversal escape with PATH_DENIED', () => {
-    const res = readSkillContent({ rootDirs: [userSkills], skillPath: path.join(userSkills, '..', '..', 'etc', 'passwd') });
+    const res = readSkillContent({
+      rootDirs: [userSkills],
+      skillPath: path.join(userSkills, '..', '..', 'etc', 'passwd'),
+    });
     expect(res.ok).toBe(false);
     expect(res.reason_code).toBe('PATH_DENIED');
   });
@@ -100,7 +103,12 @@ describe('learnedSkillsCore.listLearnedSkills — EVE-learned scan', () => {
     writeSkill(cronSkills, 'job-bbb', '---\nname: Reporting\n---\n# body');
     const cards = listLearnedSkills(cronSkills);
     expect(cards).toHaveLength(2);
-    expect(cards[0]).toMatchObject({ job_id: 'job-aaa', name: 'Wettbewerbsanalyse', description: 'gelernt aus Lauf', source: 'learned' });
+    expect(cards[0]).toMatchObject({
+      job_id: 'job-aaa',
+      name: 'Wettbewerbsanalyse',
+      description: 'gelernt aus Lauf',
+      source: 'learned',
+    });
     // missing description ⇒ ''
     expect(cards[1]).toMatchObject({ job_id: 'job-bbb', name: 'Reporting', description: '' });
     expect(cards[1].path.endsWith(path.join('job-bbb', 'SKILL.md'))).toBe(true);

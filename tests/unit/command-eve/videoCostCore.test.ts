@@ -241,7 +241,9 @@ describe('isVideoGenerationRequest — high-precision generation-intent detectio
 describe('requestRoutesToVideoLane — fail-safe gate on the resolved capability/worker', () => {
   it('fires when the resolver explicitly flags the video capability (regex irrelevant)', () => {
     // A message the NL regex would MISS, but the resolver classified as video.
-    expect(requestRoutesToVideoLane({ message: 'do the thing we talked about', resolvedVideoCapability: true })).toBe(true);
+    expect(requestRoutesToVideoLane({ message: 'do the thing we talked about', resolvedVideoCapability: true })).toBe(
+      true
+    );
   });
 
   it('fires when the request is addressed/resolved to the videomarketer agent', () => {

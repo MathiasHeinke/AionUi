@@ -55,7 +55,7 @@ MCP child (`imageGenServer.ts:24` reads `process.env.AIONUI_IMG_API_KEY`).
 
 For the same reason, the local `mcp.config` / backend-mirror env value for the
 image-gen child is left **functional plaintext-in-transit** (in memory / backend
-DB), and only the *local file* duplicate of the key was removed in this lane.
+DB), and only the _local file_ duplicate of the key was removed in this lane.
 The backend-DB-at-rest copy and the backend mirror via `PUT /api/settings/client`
 are part of the same AionCore-owned surface described here.
 

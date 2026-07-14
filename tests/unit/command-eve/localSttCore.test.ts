@@ -81,10 +81,10 @@ describe('transcribeLocalSpeech (on-device STT core)', () => {
       stdout: JSON.stringify({ success: true, transcript: 'hallo', provider: 'groq', language: 'de' }),
       stderr: '',
     });
-    const result = await transcribeLocalSpeech(
-      makeRequest({ provider: 'groq', groqModel: 'whisper-large-v3-turbo' }),
-      { ...options, readGroqApiKey: () => 'gsk_test_key' }
-    );
+    const result = await transcribeLocalSpeech(makeRequest({ provider: 'groq', groqModel: 'whisper-large-v3-turbo' }), {
+      ...options,
+      readGroqApiKey: () => 'gsk_test_key',
+    });
     expect(result.provider).toBe('groq');
     expect(result.text).toBe('hallo');
     const [, args, runOptions] = runner.mock.calls[0];
@@ -109,7 +109,11 @@ describe('transcribeLocalSpeech (on-device STT core)', () => {
   });
 
   it('throws STT_GROQ_KEY_MISSING when no key is found (and never runs the subprocess)', async () => {
-    const { runner, options } = harness({ ok: true, stdout: JSON.stringify({ success: true, transcript: 'x' }), stderr: '' });
+    const { runner, options } = harness({
+      ok: true,
+      stdout: JSON.stringify({ success: true, transcript: 'x' }),
+      stderr: '',
+    });
     await expect(
       transcribeLocalSpeech(makeRequest({ provider: 'groq' }), { ...options, readGroqApiKey: () => null })
     ).rejects.toThrow(/STT_GROQ_KEY_MISSING/);

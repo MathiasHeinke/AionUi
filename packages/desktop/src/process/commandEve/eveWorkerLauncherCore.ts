@@ -213,7 +213,11 @@ function removeDelegateHonchoMcpConfig(honchoMcpConfigFile: string): void {
  * not fresh-ready (or no launcher), the file is REMOVED (the delegate gets no honcho
  * tool that launch) — never a stale/half config.
  */
-function writeDelegateHonchoMcpConfig(honchoMcpConfigFile: string, expectedSeatId: string, honcho?: HonchoRenderInput): boolean {
+function writeDelegateHonchoMcpConfig(
+  honchoMcpConfigFile: string,
+  expectedSeatId: string,
+  honcho?: HonchoRenderInput
+): boolean {
   // FULLY self-contained + fail-soft (Codex): the WHOLE body (incl. honchoMcpServerForSeat
   // + the seat-binding + secret checks) is guarded, so it can NEVER throw into the sync
   // loop and any anomaly REMOVES the config rather than leaving a stale/wrong one.
@@ -367,7 +371,11 @@ export function applyLauncherWiring(
     // Pass the per-seat honcho render input so ACTIVE Claude delegates get the SAME
     // local memory EVE has (per-seat, revocation-symmetric). Absent/not-ready ⇒ no
     // delegate honcho config (byte-identical to before this lane existed).
-    syncEveWorkerLauncherFiles(assignments, statuses, { dataPath: ctx.dataPath, seatId: ctx.seatId, honcho: ctx.honcho });
+    syncEveWorkerLauncherFiles(assignments, statuses, {
+      dataPath: ctx.dataPath,
+      seatId: ctx.seatId,
+      honcho: ctx.honcho,
+    });
   } catch (error) {
     console.warn('[Command EVE] launcher state sync failed:', error);
   }

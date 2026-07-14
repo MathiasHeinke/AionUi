@@ -102,11 +102,19 @@ describe('B3 renderSeatContextBlock (pure) — real seat', () => {
 });
 
 describe('K3 renderSeatContextBlock — kind-conditioned real-seat orientation', () => {
-  const real = { seatLabel: 'FYN Labs', seatId: SEAT_A, legacy: false as const, clientEntity: 'FYN Labs GmbH', boardSlug: '' };
+  const real = {
+    seatLabel: 'FYN Labs',
+    seatId: SEAT_A,
+    legacy: false as const,
+    clientEntity: 'FYN Labs GmbH',
+    boardSlug: '',
+  };
 
   it('client (default) is BYTE-IDENTICAL to an explicit client kind (both locales)', () => {
     for (const locale of ['de-DE', 'en-US'] as const) {
-      expect(renderSeatContextBlock({ ...real, locale })).toBe(renderSeatContextBlock({ ...real, seatKind: 'client', locale }));
+      expect(renderSeatContextBlock({ ...real, locale })).toBe(
+        renderSeatContextBlock({ ...real, seatKind: 'client', locale })
+      );
     }
   });
 
@@ -153,9 +161,9 @@ describe('B3 resolveSeatContextBlock — isolation gate (roster unreachable from
 
   it('the FOUNDER seat DOES read the wire and renders the roster', async () => {
     const readMySeatsWire = vi.fn(async () => ({ ok: true }));
-    const parseRoster = vi.fn(
-      (): CommandEveSeatRosterEntry[] | null => [{ label: 'Acme GmbH', purpose: 'Client-Seat' }]
-    );
+    const parseRoster = vi.fn((): CommandEveSeatRosterEntry[] | null => [
+      { label: 'Acme GmbH', purpose: 'Client-Seat' },
+    ]);
     const block = await resolveSeatContextBlock({
       getActiveSeatId: () => LEGACY_SEAT_ID,
       getActiveSeatLabel: () => 'Founder',

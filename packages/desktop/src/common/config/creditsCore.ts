@@ -39,8 +39,7 @@
 // ---------------------------------------------------------------------------
 
 /** The Command EVE credits-status Edge Function. Same Supabase project as eve-inference. */
-export const CREDITS_STATUS_FUNCTION_URL =
-  'https://unvbeothoimlzlolxucl.supabase.co/functions/v1/credits-status';
+export const CREDITS_STATUS_FUNCTION_URL = 'https://unvbeothoimlzlolxucl.supabase.co/functions/v1/credits-status';
 
 /**
  * The credits tiers the credits-status contract can report. `free` is the Gen-B

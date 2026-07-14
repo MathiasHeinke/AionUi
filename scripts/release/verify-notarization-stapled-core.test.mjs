@@ -11,11 +11,7 @@ import {
 } from './verify-notarization-stapled-core.mjs';
 
 test('builds stapler validate args for a DMG path', () => {
-  assert.deepEqual(buildStaplerValidateArgs('/tmp/Command EVE.dmg'), [
-    'stapler',
-    'validate',
-    '/tmp/Command EVE.dmg',
-  ]);
+  assert.deepEqual(buildStaplerValidateArgs('/tmp/Command EVE.dmg'), ['stapler', 'validate', '/tmp/Command EVE.dmg']);
 });
 
 test('builds spctl open-assessment args with the primary-signature context', () => {

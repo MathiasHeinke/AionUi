@@ -50,11 +50,11 @@ gates.
 
 Mode matrix:
 
-| Mode | Meaning | Reversible work | Main merge | Irreversible work |
-|---|---|---|---|---|
-| `observed` | Founder watches live and can stop immediately. | allowed | founder click | HG-4 |
-| `delegated` | Founder authorized the run but does not watch every step. | allowed | HG-2.5 | HG-4 |
-| `autonomous` | Nobody watches; 14-day-offline path. | gated | HG-2.5 + CAO | HG-4 |
+| Mode         | Meaning                                                   | Reversible work | Main merge    | Irreversible work |
+| ------------ | --------------------------------------------------------- | --------------- | ------------- | ----------------- |
+| `observed`   | Founder watches live and can stop immediately.            | allowed         | founder click | HG-4              |
+| `delegated`  | Founder authorized the run but does not watch every step. | allowed         | HG-2.5        | HG-4              |
+| `autonomous` | Nobody watches; 14-day-offline path.                      | gated           | HG-2.5 + CAO  | HG-4              |
 
 Truth gates run in all modes. A red truth gate blocks promotion regardless of
 mode. The current implementation exposes the policy core in

@@ -97,7 +97,10 @@ describe('eveWorkerLauncherCore (SG-1 A3/A4)', () => {
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-launcher-'));
       fs.writeFileSync(path.join(dir, 'eve-acp-launcher.sh'), '#!/bin/sh\n');
       // Even with a bogus resourcesPath, the explicit env dir wins (precedence 1).
-      const resolved = resolveBundledLauncherPath({ COMMAND_EVE_LAUNCHER_DIR: dir } as NodeJS.ProcessEnv, '/bogus/resources');
+      const resolved = resolveBundledLauncherPath(
+        { COMMAND_EVE_LAUNCHER_DIR: dir } as NodeJS.ProcessEnv,
+        '/bogus/resources'
+      );
       expect(resolved).toBe(path.join(dir, 'eve-acp-launcher.sh'));
       expect(path.isAbsolute(resolved)).toBe(true);
       fs.rmSync(dir, { recursive: true, force: true });
@@ -105,7 +108,10 @@ describe('eveWorkerLauncherCore (SG-1 A3/A4)', () => {
     it('falls back to the committed dev snapshot (resources/eve-acp-launcher) when no env/resourcesPath resolves', () => {
       // The launcher IS committed in this repo, so the cwd dev-snapshot fallback
       // resolves it — this is the real dev-box behavior. It must be absolute + exist.
-      const resolved = resolveBundledLauncherPath({ COMMAND_EVE_LAUNCHER_DIR: '/no/such/dir/xyz' } as NodeJS.ProcessEnv, '/also/missing');
+      const resolved = resolveBundledLauncherPath(
+        { COMMAND_EVE_LAUNCHER_DIR: '/no/such/dir/xyz' } as NodeJS.ProcessEnv,
+        '/also/missing'
+      );
       expect(resolved.endsWith(path.join('resources', 'eve-acp-launcher', 'eve-acp-launcher.sh'))).toBe(true);
       expect(path.isAbsolute(resolved)).toBe(true);
       expect(fs.existsSync(resolved)).toBe(true);

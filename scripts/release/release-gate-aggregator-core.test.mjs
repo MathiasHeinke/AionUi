@@ -37,23 +37,27 @@ test('aggregate PASSes only when every required gate passes', async () => {
 
 test('aggregator invokes the notarization gate runner exactly once', async () => {
   let notarizationCalls = 0;
-  await runReleaseGates(passingRunners({
-    notarizationStapled: () => {
-      notarizationCalls += 1;
-      return PASS_NOTARIZATION;
-    },
-  }));
+  await runReleaseGates(
+    passingRunners({
+      notarizationStapled: () => {
+        notarizationCalls += 1;
+        return PASS_NOTARIZATION;
+      },
+    })
+  );
   assert.equal(notarizationCalls, 1, 'notarization gate must be invoked by the aggregator');
 });
 
 test('aggregate FAILS CLOSED when the notarization gate reports BLOCKED (spctl rejected)', async () => {
-  const result = await runReleaseGates(passingRunners({
-    notarizationStapled: () => ({
-      status: 'BLOCKED_SPCTL_REJECTED',
-      detail: 'spctl rejected the artifact (Gatekeeper would block it)',
-      exit_code: 4,
-    }),
-  }));
+  const result = await runReleaseGates(
+    passingRunners({
+      notarizationStapled: () => ({
+        status: 'BLOCKED_SPCTL_REJECTED',
+        detail: 'spctl rejected the artifact (Gatekeeper would block it)',
+        exit_code: 4,
+      }),
+    })
+  );
   assert.equal(result.status, 'BLOCKED');
   assert.equal(result.exit_code, RELEASE_GATE_AGGREGATOR_STATUS_EXIT_CODES.BLOCKED);
   assert.ok(
@@ -63,23 +67,27 @@ test('aggregate FAILS CLOSED when the notarization gate reports BLOCKED (spctl r
 });
 
 test('aggregate FAILS CLOSED when the notarization gate reports an unstapled DMG', async () => {
-  const result = await runReleaseGates(passingRunners({
-    notarizationStapled: () => ({
-      status: 'BLOCKED_STAPLE_INVALID',
-      detail: 'stapler validate did not confirm a stapled ticket',
-      exit_code: 3,
-    }),
-  }));
+  const result = await runReleaseGates(
+    passingRunners({
+      notarizationStapled: () => ({
+        status: 'BLOCKED_STAPLE_INVALID',
+        detail: 'stapler validate did not confirm a stapled ticket',
+        exit_code: 3,
+      }),
+    })
+  );
   assert.equal(result.status, 'BLOCKED');
   assert.ok(result.blocked_gates.includes('notarization-stapled'));
 });
 
 test('aggregate FAILS CLOSED when the notarization runner throws', async () => {
-  const result = await runReleaseGates(passingRunners({
-    notarizationStapled: () => {
-      throw new Error('xcrun missing');
-    },
-  }));
+  const result = await runReleaseGates(
+    passingRunners({
+      notarizationStapled: () => {
+        throw new Error('xcrun missing');
+      },
+    })
+  );
   assert.equal(result.status, 'BLOCKED');
   assert.ok(result.blocked_gates.includes('notarization-stapled'));
 });
@@ -102,21 +110,25 @@ test('a missing notarization runner is a fail-closed config error', async () => 
 });
 
 test('a blocked egress gate also blocks even when notarization passes', async () => {
-  const result = await runReleaseGates(passingRunners({
-    egressKeystone: () => ({ status: 'BLOCKED_TEST_SKIPPED', detail: 'egress proof skipped' }),
-  }));
+  const result = await runReleaseGates(
+    passingRunners({
+      egressKeystone: () => ({ status: 'BLOCKED_TEST_SKIPPED', detail: 'egress proof skipped' }),
+    })
+  );
   assert.equal(result.status, 'BLOCKED');
   assert.ok(result.blocked_gates.includes('egress-keystone'));
 });
 
 test('a blocked mac update feed gate blocks the release', async () => {
-  const result = await runReleaseGates(passingRunners({
-    macUpdateFeed: () => ({
-      status: 'BLOCKED_HASH_MISMATCH',
-      detail: 'latest-arm64-mac.yml points to pre-staple bytes',
-      exit_code: 5,
-    }),
-  }));
+  const result = await runReleaseGates(
+    passingRunners({
+      macUpdateFeed: () => ({
+        status: 'BLOCKED_HASH_MISMATCH',
+        detail: 'latest-arm64-mac.yml points to pre-staple bytes',
+        exit_code: 5,
+      }),
+    })
+  );
   assert.equal(result.status, 'BLOCKED');
   assert.ok(result.blocked_gates.includes('mac-update-feed'));
 });

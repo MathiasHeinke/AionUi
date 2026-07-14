@@ -29,7 +29,12 @@ import {
   type HonchoReadinessState,
 } from '@/process/commandEve/honchoReadinessCore';
 
-const READY: HonchoReadinessState = { state: HONCHO_STATE_READY, serverUp: true, deriverReachable: true, probedAt: '2026-07-04T12:00:00.000Z' };
+const READY: HonchoReadinessState = {
+  state: HONCHO_STATE_READY,
+  serverUp: true,
+  deriverReachable: true,
+  probedAt: '2026-07-04T12:00:00.000Z',
+};
 
 describe('honchoReadinessCore — honchoReady truth table (installed is never ready)', () => {
   it('is true ONLY when both facts hold AND state is ready', () => {
@@ -61,7 +66,9 @@ describe('honchoReadinessCore — honchoReadyFromSnapshot freshness guard', () =
     expect(honchoReadyFromSnapshot(READY, { now: stale })).toBe(false);
   });
   it('DENIES a ready snapshot with a missing or invalid probedAt', () => {
-    expect(honchoReadyFromSnapshot({ state: HONCHO_STATE_READY, serverUp: true, deriverReachable: true }, { now })).toBe(false);
+    expect(
+      honchoReadyFromSnapshot({ state: HONCHO_STATE_READY, serverUp: true, deriverReachable: true }, { now })
+    ).toBe(false);
     expect(honchoReadyFromSnapshot({ ...READY, probedAt: 'not-a-date' }, { now })).toBe(false);
   });
   it('DENIES a non-ready snapshot regardless of freshness', () => {
@@ -97,13 +104,24 @@ describe('honchoReadinessCore — reduceHonchoReadiness (default-deny rows)', ()
     expect(honchoReady(s)).toBe(false);
   });
   it('crashedSinceReady ⇒ crashed / HONCHO_PROCESS_DOWN', () => {
-    const s = reduceHonchoReadiness({ provisioned: true, crashedSinceReady: true, serverProbe: P, deriverProbe: P, now: NOW });
+    const s = reduceHonchoReadiness({
+      provisioned: true,
+      crashedSinceReady: true,
+      serverProbe: P,
+      deriverProbe: P,
+      now: NOW,
+    });
     expect(s.state).toBe(HONCHO_STATE_CRASHED);
     expect(s.reasonCode).toBe(HONCHO_REASON_PROCESS_DOWN);
     expect(honchoReady(s)).toBe(false);
   });
   it('server probe timed out ⇒ degraded / HONCHO_PROBE_TIMEOUT (serverUp false)', () => {
-    const s = reduceHonchoReadiness({ provisioned: true, serverProbe: { ok: false, timedOut: true }, deriverProbe: P, now: NOW });
+    const s = reduceHonchoReadiness({
+      provisioned: true,
+      serverProbe: { ok: false, timedOut: true },
+      deriverProbe: P,
+      now: NOW,
+    });
     expect(s.state).toBe(HONCHO_STATE_DEGRADED);
     expect(s.reasonCode).toBe(HONCHO_REASON_PROBE_TIMEOUT);
     expect(s.serverUp).toBe(false);
@@ -116,7 +134,14 @@ describe('honchoReadinessCore — reduceHonchoReadiness (default-deny rows)', ()
     expect(honchoReady(s)).toBe(false);
   });
   it('server up but deriver unreachable ⇒ degraded / HONCHO_DERIVER_UNREACHABLE (serverUp true, deriverReachable false)', () => {
-    const s = reduceHonchoReadiness({ provisioned: true, serverProbe: P, deriverProbe: F, seatId: 'seat-1', branch: 'cloud-flash-via-shim', now: NOW });
+    const s = reduceHonchoReadiness({
+      provisioned: true,
+      serverProbe: P,
+      deriverProbe: F,
+      seatId: 'seat-1',
+      branch: 'cloud-flash-via-shim',
+      now: NOW,
+    });
     expect(s.state).toBe(HONCHO_STATE_DEGRADED);
     expect(s.reasonCode).toBe(HONCHO_REASON_DERIVER_UNREACHABLE);
     expect(s.serverUp).toBe(true);
@@ -124,7 +149,14 @@ describe('honchoReadinessCore — reduceHonchoReadiness (default-deny rows)', ()
     expect(honchoReady(s)).toBe(false);
   });
   it('both probes ok ⇒ ready (serverUp + deriverReachable true), carries seat + branch + probedAt', () => {
-    const s = reduceHonchoReadiness({ provisioned: true, serverProbe: P, deriverProbe: P, seatId: 'a1b2', branch: 'local-ollama', now: NOW });
+    const s = reduceHonchoReadiness({
+      provisioned: true,
+      serverProbe: P,
+      deriverProbe: P,
+      seatId: 'a1b2',
+      branch: 'local-ollama',
+      now: NOW,
+    });
     expect(s.state).toBe(HONCHO_STATE_READY);
     expect(s.serverUp).toBe(true);
     expect(s.deriverReachable).toBe(true);

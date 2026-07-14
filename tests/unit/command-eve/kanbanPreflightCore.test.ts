@@ -1791,9 +1791,7 @@ describe('Command EVE Kanban marketing-executor LADDER (v15 gated, additive)', (
       'command_eve_marketing_worker_dispatcher_prepared',
       'command_eve_marketing_worker_executor_promoted',
     ]) {
-      expect(
-        readRows(marketingBoardPath(root), `SELECT id FROM task_events WHERE kind = '${kind}'`)
-      ).toHaveLength(0);
+      expect(readRows(marketingBoardPath(root), `SELECT id FROM task_events WHERE kind = '${kind}'`)).toHaveLength(0);
     }
   });
 
@@ -1853,7 +1851,10 @@ describe('Command EVE Kanban marketing-executor LADDER (v15 gated, additive)', (
     expect(promotionNoCao.release_blocked).toBe(true);
     expect(promotionNoCao.subprocess_spawned).toBe(false);
     expect(
-      readRows(marketingBoardPath(root), "SELECT id FROM task_events WHERE kind = 'command_eve_marketing_worker_executor_promoted'")
+      readRows(
+        marketingBoardPath(root),
+        "SELECT id FROM task_events WHERE kind = 'command_eve_marketing_worker_executor_promoted'"
+      )
     ).toHaveLength(0);
 
     // cao_gate_approved explicitly false -> still blocked.
@@ -1955,7 +1956,10 @@ describe('Command EVE Kanban marketing-executor LADDER (v15 gated, additive)', (
     expect(promotion.subprocess_spawned).toBe(false);
     expect(promotion.release_blocked).toBe(true);
     expect(
-      readRows(marketingBoardPath(root), "SELECT id FROM task_events WHERE kind = 'command_eve_marketing_worker_executor_promoted'")
+      readRows(
+        marketingBoardPath(root),
+        "SELECT id FROM task_events WHERE kind = 'command_eve_marketing_worker_executor_promoted'"
+      )
     ).toHaveLength(0);
   });
 });

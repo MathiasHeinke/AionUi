@@ -150,7 +150,9 @@ describe('Command EVE egress boundary core', () => {
     });
 
     expect(result.decision).toBe('redact');
-    expect(result.receipt.findings.some((finding) => finding.kind === 'financial' && finding.rule_id === 'iban')).toBe(true);
+    expect(result.receipt.findings.some((finding) => finding.kind === 'financial' && finding.rule_id === 'iban')).toBe(
+      true
+    );
     expect(result.receipt.findings.some((finding) => finding.rule_id === 'payment-card-number')).toBe(true);
     // No country/bank prefix or PAN digits leak — neither in the receipt nor the forwarded text.
     expect(JSON.stringify(result.receipt)).not.toContain('0532');

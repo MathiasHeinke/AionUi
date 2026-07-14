@@ -156,9 +156,7 @@ describe('useSeatAccess — M4 focus reconcile picks up a newly-bought seat', ()
     // for an admin, so access.seats = [founder-chip, ...contract seats]. We assert
     // on the NEW client seat's PRESENCE, not the raw count, to stay robust to that.
     let newSeatBought = false;
-    mySeatsInvoke.mockImplementation(() =>
-      Promise.resolve(newSeatBought ? contractWithNewSeat() : contract('admin'))
-    );
+    mySeatsInvoke.mockImplementation(() => Promise.resolve(newSeatBought ? contractWithNewSeat() : contract('admin')));
     const { latest } = await mountAndSettle();
     expect(latest().access.seats.some((s) => s.seat_id === SEAT_C)).toBe(false);
     const seatsBefore = latest().access.seats.length;
@@ -183,7 +181,10 @@ describe('useSeatAccess — M4 focus reconcile picks up a newly-bought seat', ()
     // Hold the switch IPC open so `switching` stays true across the focus event.
     let releaseSwitch: (v: { data: { ok: boolean; active_seat_id: string }; success: boolean }) => void = () => {};
     switchSeatInvoke.mockReset().mockImplementation(
-      () => new Promise((resolve) => { releaseSwitch = resolve; })
+      () =>
+        new Promise((resolve) => {
+          releaseSwitch = resolve;
+        })
     );
     const { latest } = await mountAndSettle();
     const readsBeforeSwitch = mySeatsInvoke.mock.calls.length;

@@ -36,21 +36,37 @@ describe('memory-boundary — MALFORMED fail-closed (Codex re-audit holes)', () 
   });
 
   it('rejects a write with a missing store (nothing to scope/cap)', () => {
-    expect(enforceMemoryBoundary({ operation: 'write', payloadText: 'benign' }).reasonCode).toBe(MEMORY_BOUNDARY_MALFORMED);
+    expect(enforceMemoryBoundary({ operation: 'write', payloadText: 'benign' }).reasonCode).toBe(
+      MEMORY_BOUNDARY_MALFORMED
+    );
   });
 
   it('rejects an unknown store instead of skipping seat isolation (the cross-seat bypass)', () => {
-    const d = enforceMemoryBoundary({ operation: 'write', store: 'made-up-store' as never, activeSeatId: 'seat-a', targetSeatId: 'seat-b', payloadText: BENIGN });
+    const d = enforceMemoryBoundary({
+      operation: 'write',
+      store: 'made-up-store' as never,
+      activeSeatId: 'seat-a',
+      targetSeatId: 'seat-b',
+      payloadText: BENIGN,
+    });
     expect(d.ok).toBe(false);
     expect(d.reasonCode).toBe(MEMORY_BOUNDARY_MALFORMED);
   });
 
   it('rejects a missing operation instead of defaulting to read (the S3-on-read bypass)', () => {
-    expect(enforceMemoryBoundary({ store: 'company-brain', payloadText: SECRET } as never).reasonCode).toBe(MEMORY_BOUNDARY_MALFORMED);
+    expect(enforceMemoryBoundary({ store: 'company-brain', payloadText: SECRET } as never).reasonCode).toBe(
+      MEMORY_BOUNDARY_MALFORMED
+    );
   });
 
   it('rejects an unknown operation instead of skipping the write oversize gate', () => {
-    const d = enforceMemoryBoundary({ operation: 'persist' as never, store: 'company-brain', activeSeatId: 's', targetSeatId: 's', payloadText: 'x'.repeat(100000) });
+    const d = enforceMemoryBoundary({
+      operation: 'persist' as never,
+      store: 'company-brain',
+      activeSeatId: 's',
+      targetSeatId: 's',
+      payloadText: 'x'.repeat(100000),
+    });
     expect(d.ok).toBe(false);
     expect(d.reasonCode).toBe(MEMORY_BOUNDARY_MALFORMED);
   });
@@ -58,18 +74,46 @@ describe('memory-boundary — MALFORMED fail-closed (Codex re-audit holes)', () 
 
 describe('memory-boundary — seat isolation (GATE-NULL extension)', () => {
   it('rejects a write whose target seat is not the active seat', () => {
-    const d = enforceMemoryBoundary({ operation: 'write', store: 'company-brain', activeSeatId: 'seat-a', targetSeatId: 'seat-b', payloadText: BENIGN });
+    const d = enforceMemoryBoundary({
+      operation: 'write',
+      store: 'company-brain',
+      activeSeatId: 'seat-a',
+      targetSeatId: 'seat-b',
+      payloadText: BENIGN,
+    });
     expect(d.ok).toBe(false);
     expect(d.reasonCode).toBe(MEMORY_BOUNDARY_SEAT_MISMATCH);
   });
 
   it('rejects a write with a missing/empty seat id (fail-closed)', () => {
-    expect(enforceMemoryBoundary({ operation: 'write', store: 'company-brain', activeSeatId: '', targetSeatId: 'seat-a', payloadText: BENIGN }).reasonCode).toBe(MEMORY_BOUNDARY_SEAT_UNKNOWN);
-    expect(enforceMemoryBoundary({ operation: 'write', store: 'honcho', activeSeatId: 'seat-a', targetSeatId: '  ', payloadText: BENIGN }).reasonCode).toBe(MEMORY_BOUNDARY_SEAT_UNKNOWN);
+    expect(
+      enforceMemoryBoundary({
+        operation: 'write',
+        store: 'company-brain',
+        activeSeatId: '',
+        targetSeatId: 'seat-a',
+        payloadText: BENIGN,
+      }).reasonCode
+    ).toBe(MEMORY_BOUNDARY_SEAT_UNKNOWN);
+    expect(
+      enforceMemoryBoundary({
+        operation: 'write',
+        store: 'honcho',
+        activeSeatId: 'seat-a',
+        targetSeatId: '  ',
+        payloadText: BENIGN,
+      }).reasonCode
+    ).toBe(MEMORY_BOUNDARY_SEAT_UNKNOWN);
   });
 
   it('allows a write when active === target', () => {
-    const d = enforceMemoryBoundary({ operation: 'write', store: 'company-brain', activeSeatId: 'seat-a', targetSeatId: 'seat-a', payloadText: BENIGN });
+    const d = enforceMemoryBoundary({
+      operation: 'write',
+      store: 'company-brain',
+      activeSeatId: 'seat-a',
+      targetSeatId: 'seat-a',
+      payloadText: BENIGN,
+    });
     expect(d.ok).toBe(true);
     expect(d.reasonCode).toBe(MEMORY_BOUNDARY_OK);
     expect(d.sensitivityClass).toBe('S0');
@@ -82,22 +126,53 @@ describe('memory-boundary — seat isolation (GATE-NULL extension)', () => {
 
 describe('memory-boundary — S3 hard floor (never persist/derive raw secret/financial/health)', () => {
   it('rejects a write carrying a raw secret', () => {
-    const d = enforceMemoryBoundary({ operation: 'write', store: 'company-brain', activeSeatId: 's', targetSeatId: 's', payloadText: SECRET });
+    const d = enforceMemoryBoundary({
+      operation: 'write',
+      store: 'company-brain',
+      activeSeatId: 's',
+      targetSeatId: 's',
+      payloadText: SECRET,
+    });
     expect(d.ok).toBe(false);
     expect(d.reasonCode).toBe(MEMORY_BOUNDARY_S3_FORBIDDEN);
     expect(d.sensitivityClass).toBe('S3');
   });
 
   it('rejects a write carrying financial data (IBAN/card)', () => {
-    expect(enforceMemoryBoundary({ operation: 'write', store: 'memory-md', activeSeatId: 's', targetSeatId: 's', payloadText: FINANCIAL }).reasonCode).toBe(MEMORY_BOUNDARY_S3_FORBIDDEN);
+    expect(
+      enforceMemoryBoundary({
+        operation: 'write',
+        store: 'memory-md',
+        activeSeatId: 's',
+        targetSeatId: 's',
+        payloadText: FINANCIAL,
+      }).reasonCode
+    ).toBe(MEMORY_BOUNDARY_S3_FORBIDDEN);
   });
 
   it('rejects a write carrying health data', () => {
-    expect(enforceMemoryBoundary({ operation: 'write', store: 'user-md', activeSeatId: 's', targetSeatId: 's', payloadText: HEALTH }).reasonCode).toBe(MEMORY_BOUNDARY_S3_FORBIDDEN);
+    expect(
+      enforceMemoryBoundary({
+        operation: 'write',
+        store: 'user-md',
+        activeSeatId: 's',
+        targetSeatId: 's',
+        payloadText: HEALTH,
+      }).reasonCode
+    ).toBe(MEMORY_BOUNDARY_S3_FORBIDDEN);
   });
 
   it('rejects an S3 payload on the derive path too (deriver never sees a raw secret)', () => {
-    expect(enforceMemoryBoundary({ operation: 'derive', store: 'honcho', activeSeatId: 's', targetSeatId: 's', payloadText: SECRET, egress: 'redacted-cloud-deriver' }).reasonCode).toBe(MEMORY_BOUNDARY_S3_FORBIDDEN);
+    expect(
+      enforceMemoryBoundary({
+        operation: 'derive',
+        store: 'honcho',
+        activeSeatId: 's',
+        targetSeatId: 's',
+        payloadText: SECRET,
+        egress: 'redacted-cloud-deriver',
+      }).reasonCode
+    ).toBe(MEMORY_BOUNDARY_S3_FORBIDDEN);
   });
 
   it('allows an S3 payload on a READ (recall is not a persist/derive)', () => {
@@ -107,25 +182,55 @@ describe('memory-boundary — S3 hard floor (never persist/derive raw secret/fin
 
 describe('memory-boundary — derive egress class (deriver only local or through the shim)', () => {
   it('rejects a derive that would egress as syncable-metadata (raw content off-device)', () => {
-    const d = enforceMemoryBoundary({ operation: 'derive', store: 'honcho', activeSeatId: 's', targetSeatId: 's', payloadText: BENIGN, egress: 'syncable-metadata' });
+    const d = enforceMemoryBoundary({
+      operation: 'derive',
+      store: 'honcho',
+      activeSeatId: 's',
+      targetSeatId: 's',
+      payloadText: BENIGN,
+      egress: 'syncable-metadata',
+    });
     expect(d.ok).toBe(false);
     expect(d.reasonCode).toBe(MEMORY_BOUNDARY_EGRESS_UNREDACTED);
   });
 
   it('allows a local-only derive (local Gemma)', () => {
-    expect(enforceMemoryBoundary({ operation: 'derive', store: 'honcho', activeSeatId: 's', targetSeatId: 's', payloadText: BENIGN, egress: 'local-only' }).ok).toBe(true);
+    expect(
+      enforceMemoryBoundary({
+        operation: 'derive',
+        store: 'honcho',
+        activeSeatId: 's',
+        targetSeatId: 's',
+        payloadText: BENIGN,
+        egress: 'local-only',
+      }).ok
+    ).toBe(true);
   });
 
   it('allows a redacted-cloud-deriver derive and hands back S1+-stripped text when PII present', () => {
     const withPhone = 'Ruf den Kunden unter 0151 23456789 an.';
-    const d = enforceMemoryBoundary({ operation: 'derive', store: 'honcho', activeSeatId: 's', targetSeatId: 's', payloadText: withPhone, egress: 'redacted-cloud-deriver' });
+    const d = enforceMemoryBoundary({
+      operation: 'derive',
+      store: 'honcho',
+      activeSeatId: 's',
+      targetSeatId: 's',
+      payloadText: withPhone,
+      egress: 'redacted-cloud-deriver',
+    });
     expect(d.ok).toBe(true);
     expect(typeof d.redactedText).toBe('string');
     expect(d.redactedText).not.toContain('23456789');
   });
 
   it('does not attach redactedText for a benign (S0) redacted derive', () => {
-    const d = enforceMemoryBoundary({ operation: 'derive', store: 'honcho', activeSeatId: 's', targetSeatId: 's', payloadText: BENIGN, egress: 'redacted-cloud-deriver' });
+    const d = enforceMemoryBoundary({
+      operation: 'derive',
+      store: 'honcho',
+      activeSeatId: 's',
+      targetSeatId: 's',
+      payloadText: BENIGN,
+      egress: 'redacted-cloud-deriver',
+    });
     expect(d.ok).toBe(true);
     expect(d.redactedText).toBeUndefined();
   });
@@ -133,20 +238,50 @@ describe('memory-boundary — derive egress class (deriver only local or through
 
 describe('memory-boundary — oversize raw-transcript smell', () => {
   it('rejects a session-digest write past the 2000-char cap', () => {
-    const d = enforceMemoryBoundary({ operation: 'write', store: 'session-digest', activeSeatId: 's', targetSeatId: 's', payloadText: 'x'.repeat(2001) });
+    const d = enforceMemoryBoundary({
+      operation: 'write',
+      store: 'session-digest',
+      activeSeatId: 's',
+      targetSeatId: 's',
+      payloadText: 'x'.repeat(2001),
+    });
     expect(d.ok).toBe(false);
     expect(d.reasonCode).toBe(MEMORY_BOUNDARY_OVERSIZE);
   });
 
   it('allows a long-but-legitimate company-brain brief (no false-reject under the dump cap)', () => {
-    expect(enforceMemoryBoundary({ operation: 'write', store: 'company-brain', activeSeatId: 's', targetSeatId: 's', payloadText: 'y'.repeat(20000) }).ok).toBe(true);
+    expect(
+      enforceMemoryBoundary({
+        operation: 'write',
+        store: 'company-brain',
+        activeSeatId: 's',
+        targetSeatId: 's',
+        payloadText: 'y'.repeat(20000),
+      }).ok
+    ).toBe(true);
   });
 
   it('rejects a company-brain write past the 40000-char dump cap', () => {
-    expect(enforceMemoryBoundary({ operation: 'write', store: 'company-brain', activeSeatId: 's', targetSeatId: 's', payloadText: 'y'.repeat(40001) }).reasonCode).toBe(MEMORY_BOUNDARY_OVERSIZE);
+    expect(
+      enforceMemoryBoundary({
+        operation: 'write',
+        store: 'company-brain',
+        activeSeatId: 's',
+        targetSeatId: 's',
+        payloadText: 'y'.repeat(40001),
+      }).reasonCode
+    ).toBe(MEMORY_BOUNDARY_OVERSIZE);
   });
 
   it('allows a digest write at the cap', () => {
-    expect(enforceMemoryBoundary({ operation: 'write', store: 'session-digest', activeSeatId: 's', targetSeatId: 's', payloadText: 'z'.repeat(2000) }).ok).toBe(true);
+    expect(
+      enforceMemoryBoundary({
+        operation: 'write',
+        store: 'session-digest',
+        activeSeatId: 's',
+        targetSeatId: 's',
+        payloadText: 'z'.repeat(2000),
+      }).ok
+    ).toBe(true);
   });
 });

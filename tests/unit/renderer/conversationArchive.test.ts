@@ -13,18 +13,23 @@
 
 import { describe, expect, it } from 'vitest';
 import type { TChatConversation } from '@/common/config/storage';
-import { buildGroupedHistory, isConversationArchived } from '@renderer/pages/conversation/GroupedHistory/utils/groupingHelpers';
+import {
+  buildGroupedHistory,
+  isConversationArchived,
+} from '@renderer/pages/conversation/GroupedHistory/utils/groupingHelpers';
 
 const t = (key: string) => key;
 
 const makeConv = (id: string, extra: Record<string, unknown> = {}): TChatConversation =>
-  ({ id, name: `Chat ${id}`, createdAt: 1000, updatedAt: 1000, extra } as unknown as TChatConversation);
+  ({ id, name: `Chat ${id}`, createdAt: 1000, updatedAt: 1000, extra }) as unknown as TChatConversation;
 
 const idsIn = (convs: TChatConversation[]) => convs.map((c) => c.id);
 
 const allTimelineIds = (result: ReturnType<typeof buildGroupedHistory>) =>
   result.timelineSections.flatMap((s) =>
-    s.items.flatMap((item) => (item.type === 'workspace' ? item.workspaceGroup!.conversations.map((c) => c.id) : [item.conversation!.id]))
+    s.items.flatMap((item) =>
+      item.type === 'workspace' ? item.workspaceGroup!.conversations.map((c) => c.id) : [item.conversation!.id]
+    )
   );
 
 describe('isConversationArchived', () => {
@@ -37,10 +42,7 @@ describe('isConversationArchived', () => {
 
 describe('buildGroupedHistory — archive filtering (1.7.4a)', () => {
   it('removes an archived conversation from pinned + timeline and puts it in archivedConversations', () => {
-    const result = buildGroupedHistory(
-      [makeConv('normal'), makeConv('arch', { archived: true, archived_at: 5 })],
-      t
-    );
+    const result = buildGroupedHistory([makeConv('normal'), makeConv('arch', { archived: true, archived_at: 5 })], t);
     expect(idsIn(result.archivedConversations)).toEqual(['arch']);
     expect(idsIn(result.pinnedConversations)).not.toContain('arch');
     expect(allTimelineIds(result)).not.toContain('arch');

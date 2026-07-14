@@ -110,7 +110,8 @@ export function extractTranscriptText(items: unknown): DigestMessage[] {
 }
 
 const resolveRole = (rec: Record<string, unknown>): 'user' | 'assistant' | null => {
-  const explicit = typeof rec.role === 'string' ? rec.role : typeof rec.sender === 'string' ? (rec.sender as string) : undefined;
+  const explicit =
+    typeof rec.role === 'string' ? rec.role : typeof rec.sender === 'string' ? (rec.sender as string) : undefined;
   if (explicit === 'user') return 'user';
   if (explicit === 'assistant' || explicit === 'ai' || explicit === 'agent') return 'assistant';
   const position = typeof rec.position === 'string' ? rec.position : undefined;
@@ -183,10 +184,15 @@ export function buildDigestPrompt(transcript: string): string {
  * no digest.
  */
 export function sanitizeDigest(raw: string | undefined | null, cap: number = DIGEST_OUTPUT_CHAR_CAP): string {
-  let text = String(raw ?? '').replace(/\r\n/g, '\n').trim();
+  let text = String(raw ?? '')
+    .replace(/\r\n/g, '\n')
+    .trim();
   if (!text) return '';
   // Strip a single wrapping pair of quotes/backticks/code-fence the model may add.
-  text = text.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
+  text = text
+    .replace(/^```[a-z]*\n?/i, '')
+    .replace(/\n?```$/i, '')
+    .trim();
   if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith('“') && text.endsWith('”'))) {
     text = text.slice(1, -1).trim();
   }
@@ -277,7 +283,10 @@ export interface SessionDigestInput {
  * Never throws — any unexpected error resolves as { ok:false, outcome:'error' } so a
  * failed digest can never break the turn or the seat-switch flush that awaits it.
  */
-export async function runSessionDigest(deps: SessionDigestDeps, input: SessionDigestInput): Promise<SessionDigestResult> {
+export async function runSessionDigest(
+  deps: SessionDigestDeps,
+  input: SessionDigestInput
+): Promise<SessionDigestResult> {
   try {
     const conversationId = String(input?.conversationId ?? '').trim();
     if (!conversationId) return { ok: false, outcome: 'no_conversation' };

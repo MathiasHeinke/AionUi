@@ -25,14 +25,9 @@ import {
   getGreetingBannerTitle,
   COMMAND_EVE_ONBOARDING_GREETING_VERSION,
 } from '@/common/config/onboardingGreetingCore';
-import type {
-  ICommandEveOnboardingItem,
-  ICommandEveOnboardingStatusModel,
-} from '@/common/adapter/ipcBridge';
+import type { ICommandEveOnboardingItem, ICommandEveOnboardingStatusModel } from '@/common/adapter/ipcBridge';
 
-function model(
-  overrides: Partial<ICommandEveOnboardingStatusModel> = {}
-): ICommandEveOnboardingStatusModel {
+function model(overrides: Partial<ICommandEveOnboardingStatusModel> = {}): ICommandEveOnboardingStatusModel {
   return {
     schema_version: 'command-eve-onboarding-status/v0',
     generated_at: '2026-06-21T00:00:00.000Z',
@@ -51,7 +46,9 @@ function model(
   };
 }
 
-function item(overrides: Partial<ICommandEveOnboardingItem> & Pick<ICommandEveOnboardingItem, 'id' | 'state'>): ICommandEveOnboardingItem {
+function item(
+  overrides: Partial<ICommandEveOnboardingItem> & Pick<ICommandEveOnboardingItem, 'id' | 'state'>
+): ICommandEveOnboardingItem {
   return {
     plain_meaning: 'x',
     remediation_kind: 'none',
@@ -66,10 +63,7 @@ describe('buildOnboardingGreeting', () => {
         first_value_ready: true,
         entitlement_state: 'entitled',
         cloud_bearer_available: true,
-        items: [
-          item({ id: 'cloud-lane', state: 'ok' }),
-          item({ id: 'local-lane', state: 'skipped' }),
-        ],
+        items: [item({ id: 'cloud-lane', state: 'ok' }), item({ id: 'local-lane', state: 'skipped' })],
       })
     );
     expect(greeting.schema_version).toBe(COMMAND_EVE_ONBOARDING_GREETING_VERSION);
@@ -201,18 +195,14 @@ describe('EVE greeting: setting-driven language (DE/EN)', () => {
     const g = buildOnboardingGreeting(blockedModel());
     expect(g.headline).toContain('fast geschafft');
     expect(g.gaps[0].link_label).toBe('klick hier');
-    expect(g.gaps.find((x) => x.id === 'registration')!.text).toBe(
-      'Lege kurz dein Konto an, damit ich dich kenne.'
-    );
+    expect(g.gaps.find((x) => x.id === 'registration')!.text).toBe('Lege kurz dein Konto an, damit ich dich kenne.');
   });
 
   it('renders English when the selected locale is en-US', () => {
     const g = buildOnboardingGreeting(blockedModel(), 'en-US');
     expect(g.headline).toContain('almost there');
     expect(g.gaps[0].link_label).toBe('click here');
-    expect(g.gaps.find((x) => x.id === 'registration')!.text).toBe(
-      'Set up your account so I know who you are.'
-    );
+    expect(g.gaps.find((x) => x.id === 'registration')!.text).toBe('Set up your account so I know who you are.');
     // No German leaks into the English greeting.
     expect(g.gaps.map((x) => x.text).join(' ')).not.toMatch(/klick hier|Konto|startklar/);
   });

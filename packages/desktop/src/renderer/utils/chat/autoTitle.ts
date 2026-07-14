@@ -1,8 +1,5 @@
 import type { TMessage } from '@/common/chat/chatLib';
-import {
-  COMMAND_EVE_CLOUD_TITLE_TEXT_MAX_CHARS,
-  prepareCommandEveCloudTitleText,
-} from '@/common/config/eveTitleCore';
+import { COMMAND_EVE_CLOUD_TITLE_TEXT_MAX_CHARS, prepareCommandEveCloudTitleText } from '@/common/config/eveTitleCore';
 import { readMessageContent } from '@/renderer/utils/chat/conversationExport';
 import { hasThinkTags, stripThinkTags } from '@/renderer/utils/chat/thinkTagFilter';
 

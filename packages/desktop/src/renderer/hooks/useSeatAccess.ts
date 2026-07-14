@@ -171,7 +171,12 @@ export function useSeatAccess(): SeatAccessState {
       // cache to whatever seat MAIN reports it ACTUALLY ended on, whenever it settles.
       const rebindWhenSettled = invokePromise
         .then(async (response) => {
-          const settled = typeof response?.data?.active_seat_id === 'string' && response.data.active_seat_id.length > 0 ? response.data.active_seat_id : response?.data?.ok === true ? seatId : access.activeSeatId;
+          const settled =
+            typeof response?.data?.active_seat_id === 'string' && response.data.active_seat_id.length > 0
+              ? response.data.active_seat_id
+              : response?.data?.ok === true
+                ? seatId
+                : access.activeSeatId;
           try {
             await configService.rebindSeat(settled);
           } catch (rebindError) {

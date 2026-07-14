@@ -142,7 +142,19 @@ describe('Command EVE assistant bootstrap core', () => {
       buildCommandEveAssistant('hermes').description_i18n?.['en-US'] ?? '',
       (buildCommandEveAssistant('hermes').prompts ?? []).join(' '),
     ].join('\n');
-    for (const token of ['Chief-of-Staff', 'Founder Intent', 'CEO Delegation', 'CEO-Delegation', 'Worker Contract', 'C-Level', 'C-level', 'Plane', 'Company.OS', 'Codex CLI', 'Claude Code CLI']) {
+    for (const token of [
+      'Chief-of-Staff',
+      'Founder Intent',
+      'CEO Delegation',
+      'CEO-Delegation',
+      'Worker Contract',
+      'C-Level',
+      'C-level',
+      'Plane',
+      'Company.OS',
+      'Codex CLI',
+      'Claude Code CLI',
+    ]) {
       expect(operatorSurfaces).not.toContain(token);
     }
     expect(operatorSurfaces).not.toMatch(/HG-[0-9]/);

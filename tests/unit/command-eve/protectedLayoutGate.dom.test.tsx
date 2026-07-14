@@ -12,8 +12,8 @@ const isElectronDesktopMock = vi.fn();
 vi.mock('@renderer/hooks/context/AuthContext', () => ({ useAuth: () => useAuthMock() }));
 vi.mock('@renderer/hooks/useEntitlementGate', () => ({ useEntitlementGate: () => useEntitlementGateMock() }));
 vi.mock('@renderer/utils/platform', () => ({ isElectronDesktop: () => isElectronDesktopMock() }));
-vi.mock('@renderer/components/layout/AppLoader', () => ({ default: () => <div data-testid="loader">loading</div> }));
-vi.mock('@renderer/pages/registrationGate', () => ({ default: () => <div data-testid="reg-gate">GATE</div> }));
+vi.mock('@renderer/components/layout/AppLoader', () => ({ default: () => <div data-testid='loader'>loading</div> }));
+vi.mock('@renderer/pages/registrationGate', () => ({ default: () => <div data-testid='reg-gate'>GATE</div> }));
 vi.mock('@renderer/components/billing/DayZeroOnboardingHost', () => ({ default: () => null }));
 
 import { ProtectedLayout } from '@renderer/components/layout/Router';

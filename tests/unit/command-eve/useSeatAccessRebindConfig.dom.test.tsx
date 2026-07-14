@@ -199,13 +199,19 @@ describe('useSeatAccess.switchTo — renderer config cache re-homes (CONFIRMED-H
     vi.useFakeTimers();
     try {
       let resolveInvoke!: (v: unknown) => void;
-      switchSeatInvoke.mockReturnValue(new Promise((res) => { resolveInvoke = res; }));
+      switchSeatInvoke.mockReturnValue(
+        new Promise((res) => {
+          resolveInvoke = res;
+        })
+      );
       const { latest } = await mountAndSettle();
 
       let result: boolean | undefined;
       const switchPromise = latest()
         .switchTo(SEAT_B)
-        .then((r) => { result = r; });
+        .then((r) => {
+          result = r;
+        });
 
       // Advance past the 45s UI timeout → switchTo returns false, the rail un-freezes,
       // and main has NOT settled, so there is NO authoritative rebind to the target yet.
@@ -217,7 +223,10 @@ describe('useSeatAccess.switchTo — renderer config cache re-homes (CONFIRMED-H
 
       // Main settles LATE with a ROLLBACK to the prior seat A.
       await act(async () => {
-        resolveInvoke({ data: { ok: false, reason_code: 'SEAT_SWITCH_RESPAWN_FAILED', active_seat_id: SEAT_A }, success: false });
+        resolveInvoke({
+          data: { ok: false, reason_code: 'SEAT_SWITCH_RESPAWN_FAILED', active_seat_id: SEAT_A },
+          success: false,
+        });
         await Promise.resolve();
         await Promise.resolve();
         await Promise.resolve();

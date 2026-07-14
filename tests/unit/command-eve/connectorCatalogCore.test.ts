@@ -229,8 +229,7 @@ describe('Command EVE connector catalog core', () => {
           human_gate: 'HG-3 before write-capable Linear changes',
           memory_policy: 'store issue metadata, not secrets',
           dsgvo_note: 'US SaaS (Linear) — confirm DPA.',
-          preflight_result_file:
-            '.company-os/operations/preflight-results/linear-project-management-latest.json',
+          preflight_result_file: '.company-os/operations/preflight-results/linear-project-management-latest.json',
         },
         {
           id: 'notion-workspace',

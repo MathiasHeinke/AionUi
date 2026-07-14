@@ -50,10 +50,36 @@ describe('seatUsageCore — defensive wire parse (version-skew safe)', () => {
       ok: true,
       month: '2026-07',
       seats: [
-        { seat_id: 'seat-1', calls: 10, ok_calls: 9, prompt_tokens: 100, completion_tokens: 50, retail_eur_cents: 12.5, raw_eur_cents: 3.1, credits: 125 },
-        { seat_id: null, calls: 2, ok_calls: 2, prompt_tokens: 20, completion_tokens: 10, retail_eur_cents: 2, raw_eur_cents: 0.5, credits: 20 },
+        {
+          seat_id: 'seat-1',
+          calls: 10,
+          ok_calls: 9,
+          prompt_tokens: 100,
+          completion_tokens: 50,
+          retail_eur_cents: 12.5,
+          raw_eur_cents: 3.1,
+          credits: 125,
+        },
+        {
+          seat_id: null,
+          calls: 2,
+          ok_calls: 2,
+          prompt_tokens: 20,
+          completion_tokens: 10,
+          retail_eur_cents: 2,
+          raw_eur_cents: 0.5,
+          credits: 20,
+        },
       ],
-      total: { calls: 12, ok_calls: 11, prompt_tokens: 120, completion_tokens: 60, retail_eur_cents: 14.5, raw_eur_cents: 3.6, credits: 145 },
+      total: {
+        calls: 12,
+        ok_calls: 11,
+        prompt_tokens: 120,
+        completion_tokens: 60,
+        retail_eur_cents: 14.5,
+        raw_eur_cents: 3.6,
+        credits: 145,
+      },
     };
     const parsed = parseSeatUsageResponse(raw, '2026-07');
     expect(parsed.ok).toBe(true);
@@ -94,10 +120,46 @@ describe('seatUsageCore — defensive wire parse (version-skew safe)', () => {
 
 describe('seatUsageCore — card-row shaping (label join + ordering + visibility)', () => {
   const rows: SeatUsageRow[] = [
-    { seat_id: 'uuid-client', calls: 4, ok_calls: 4, prompt_tokens: 0, completion_tokens: 0, retail_eur_cents: 500, raw_eur_cents: 100, credits: 50 },
-    { seat_id: 'seat-1', calls: 10, ok_calls: 10, prompt_tokens: 0, completion_tokens: 0, retail_eur_cents: 1000, raw_eur_cents: 200, credits: 100 },
-    { seat_id: null, calls: 1, ok_calls: 1, prompt_tokens: 0, completion_tokens: 0, retail_eur_cents: 50, raw_eur_cents: 10, credits: 5 },
-    { seat_id: 'uuid-usage-only', calls: 2, ok_calls: 2, prompt_tokens: 0, completion_tokens: 0, retail_eur_cents: 200, raw_eur_cents: 40, credits: 20 },
+    {
+      seat_id: 'uuid-client',
+      calls: 4,
+      ok_calls: 4,
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      retail_eur_cents: 500,
+      raw_eur_cents: 100,
+      credits: 50,
+    },
+    {
+      seat_id: 'seat-1',
+      calls: 10,
+      ok_calls: 10,
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      retail_eur_cents: 1000,
+      raw_eur_cents: 200,
+      credits: 100,
+    },
+    {
+      seat_id: null,
+      calls: 1,
+      ok_calls: 1,
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      retail_eur_cents: 50,
+      raw_eur_cents: 10,
+      credits: 5,
+    },
+    {
+      seat_id: 'uuid-usage-only',
+      calls: 2,
+      ok_calls: 2,
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      retail_eur_cents: 200,
+      raw_eur_cents: 40,
+      credits: 20,
+    },
   ];
   // Rail order: Founder (seat-1) first, then the client seat. uuid-usage-only is NOT listed.
   const seatOrder = ['seat-1', 'uuid-client'];
@@ -138,11 +200,46 @@ describe('seatUsageCore — partitionSeatUsageForViewer (C1: main-side wire part
     ok: true,
     month: '2026-07',
     seats: [
-      { seat_id: 'seat-1', calls: 10, ok_calls: 10, prompt_tokens: 100, completion_tokens: 40, retail_eur_cents: 1000, raw_eur_cents: 200, credits: 100 },
-      { seat_id: 'uuid-client', calls: 4, ok_calls: 4, prompt_tokens: 20, completion_tokens: 8, retail_eur_cents: 500, raw_eur_cents: 100, credits: 50 },
-      { seat_id: null, calls: 1, ok_calls: 1, prompt_tokens: 5, completion_tokens: 2, retail_eur_cents: 50, raw_eur_cents: 10, credits: 5 },
+      {
+        seat_id: 'seat-1',
+        calls: 10,
+        ok_calls: 10,
+        prompt_tokens: 100,
+        completion_tokens: 40,
+        retail_eur_cents: 1000,
+        raw_eur_cents: 200,
+        credits: 100,
+      },
+      {
+        seat_id: 'uuid-client',
+        calls: 4,
+        ok_calls: 4,
+        prompt_tokens: 20,
+        completion_tokens: 8,
+        retail_eur_cents: 500,
+        raw_eur_cents: 100,
+        credits: 50,
+      },
+      {
+        seat_id: null,
+        calls: 1,
+        ok_calls: 1,
+        prompt_tokens: 5,
+        completion_tokens: 2,
+        retail_eur_cents: 50,
+        raw_eur_cents: 10,
+        credits: 5,
+      },
     ],
-    total: { calls: 15, ok_calls: 15, prompt_tokens: 125, completion_tokens: 50, retail_eur_cents: 1550, raw_eur_cents: 310, credits: 155 },
+    total: {
+      calls: 15,
+      ok_calls: 15,
+      prompt_tokens: 125,
+      completion_tokens: 50,
+      retail_eur_cents: 1550,
+      raw_eur_cents: 310,
+      credits: 155,
+    },
   };
 
   it('owner/all-seat summary (visibleSeatId=null): returns the response UNCHANGED', () => {

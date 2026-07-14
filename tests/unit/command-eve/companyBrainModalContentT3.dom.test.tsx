@@ -81,14 +81,33 @@ vi.mock('@/common/config/configService', () => ({
 }));
 
 // ── commandEve bridge: an in-memory brain the handlers mutate. ──────────────────
-type Entry = { id: string; kind: string; title: string; updated_at: string; author: 'user' | 'eve'; source: string; body_file: string };
+type Entry = {
+  id: string;
+  kind: string;
+  title: string;
+  updated_at: string;
+  author: 'user' | 'eve';
+  source: string;
+  body_file: string;
+};
 const brain: { entries: Entry[]; bodies: Record<string, string> } = { entries: [], bodies: {} };
 const listMock = vi.fn(async () => ({ success: true, data: { ok: true, entries: brain.entries } }));
-const readMock = vi.fn(async ({ id }: { id: string }) => ({ success: true, data: { ok: true, body: brain.bodies[id] ?? null } }));
+const readMock = vi.fn(async ({ id }: { id: string }) => ({
+  success: true,
+  data: { ok: true, body: brain.bodies[id] ?? null },
+}));
 const writeMock = vi.fn(async (req: { id?: string; kind: string; title: string; body: string }) => {
   const id = req.id ?? `${req.kind}-${req.title.toLowerCase().replace(/\s+/g, '-')}-x`;
   const existing = brain.entries.find((e) => e.id === id);
-  const entry: Entry = { id, kind: req.kind, title: req.title, updated_at: new Date().toISOString(), author: 'user', source: 'settings', body_file: `entries/${id}.md` };
+  const entry: Entry = {
+    id,
+    kind: req.kind,
+    title: req.title,
+    updated_at: new Date().toISOString(),
+    author: 'user',
+    source: 'settings',
+    body_file: `entries/${id}.md`,
+  };
   if (existing) Object.assign(existing, entry);
   else brain.entries.push(entry);
   brain.bodies[id] = req.body;
@@ -102,7 +121,9 @@ const removeMock = vi.fn(async ({ id }: { id: string }) => {
 });
 vi.mock('@/common/adapter/ipcBridge', () => ({
   commandEve: {
-    companyBrainStatus: { invoke: vi.fn(async () => ({ success: true, data: { seeded: brain.entries.length > 0, record: null } })) },
+    companyBrainStatus: {
+      invoke: vi.fn(async () => ({ success: true, data: { seeded: brain.entries.length > 0, record: null } })),
+    },
     companyBrainSeed: { invoke: vi.fn(async () => ({ success: true, data: { ok: true } })) },
     companyBrainList: { invoke: (...a: unknown[]) => listMock(...(a as [])) },
     companyBrainRead: { invoke: (req: { id: string }) => readMock(req) },
@@ -128,7 +149,18 @@ const seed = (entries: Array<Partial<Entry> & { id: string; title: string }>, bo
   brain.bodies = bodies;
 };
 
-const BLUEPRINT_IDS = ['bp-company', 'bp-team', 'bp-offer', 'bp-audience', 'bp-projects', 'bp-goals', 'bp-focus', 'bp-tone', 'bp-dos-donts', 'brief-day-0'];
+const BLUEPRINT_IDS = [
+  'bp-company',
+  'bp-team',
+  'bp-offer',
+  'bp-audience',
+  'bp-projects',
+  'bp-goals',
+  'bp-focus',
+  'bp-tone',
+  'bp-dos-donts',
+  'brief-day-0',
+];
 
 beforeEach(() => {
   cleanup();
@@ -152,7 +184,9 @@ describe('CompanyBrainModalContent — T8 blueprint outline', () => {
     // Untouched seat: every section reads "leer".
     for (const s of sections) expect(s.getAttribute('data-filled')).toBe('false');
     // N/M summary reflects 0 filled.
-    expect(screen.getByTestId('company-brain-blueprint-count')).toHaveTextContent('Blaupause: 0/10 Sektionen ausgefüllt');
+    expect(screen.getByTestId('company-brain-blueprint-count')).toHaveTextContent(
+      'Blaupause: 0/10 Sektionen ausgefüllt'
+    );
   });
 
   it('opening a section reads its body; a filled body flips the indicator to ausgefüllt on save', async () => {
@@ -160,7 +194,9 @@ describe('CompanyBrainModalContent — T8 blueprint outline', () => {
     seed([{ id: 'bp-company', kind: 'company', title: 'Unternehmen', author: 'user' }], { 'bp-company': '- Name: …' });
     const user = userEvent.setup();
     render(<CompanyBrainModalContent />);
-    const section = (await screen.findAllByTestId('company-brain-section')).find((s) => s.getAttribute('data-section-id') === 'bp-company')!;
+    const section = (await screen.findAllByTestId('company-brain-section')).find(
+      (s) => s.getAttribute('data-section-id') === 'bp-company'
+    )!;
     expect(section.getAttribute('data-filled')).toBe('false');
     await user.click(within(section).getByTestId('company-brain-section-open'));
 
@@ -179,7 +215,9 @@ describe('CompanyBrainModalContent — T8 blueprint outline', () => {
     expect(writeMock.mock.calls[0][0]).toMatchObject({ id: 'bp-company', kind: 'company', title: 'Unternehmen' });
     // The indicator now reads "ausgefüllt".
     await waitFor(() => {
-      const s = screen.getAllByTestId('company-brain-section').find((x) => x.getAttribute('data-section-id') === 'bp-company')!;
+      const s = screen
+        .getAllByTestId('company-brain-section')
+        .find((x) => x.getAttribute('data-section-id') === 'bp-company')!;
       expect(s.getAttribute('data-filled')).toBe('true');
     });
   });
@@ -187,7 +225,9 @@ describe('CompanyBrainModalContent — T8 blueprint outline', () => {
   it('blueprint sections are NOT deletable — a "Leeren" reset writes the placeholder back (no remove IPC)', async () => {
     const user = userEvent.setup();
     render(<CompanyBrainModalContent />);
-    const section = (await screen.findAllByTestId('company-brain-section')).find((s) => s.getAttribute('data-section-id') === 'bp-offer')!;
+    const section = (await screen.findAllByTestId('company-brain-section')).find(
+      (s) => s.getAttribute('data-section-id') === 'bp-offer'
+    )!;
     // No delete control on a blueprint section.
     expect(within(section).queryByTestId('company-brain-item-delete')).toBeNull();
     // A "Leeren" control exists instead.
@@ -287,7 +327,10 @@ describe('CompanyBrainModalContent — T8 Notizen & Gelerntes (free entries)', (
   });
 
   it('a failed list IPC surfaces Message.error with the reason_code (never a silent bounce)', async () => {
-    listMock.mockResolvedValueOnce({ success: false, data: { ok: false, reason_code: 'COMPANY_BRAIN_LIST_FAILED', entries: [] } } as never);
+    listMock.mockResolvedValueOnce({
+      success: false,
+      data: { ok: false, reason_code: 'COMPANY_BRAIN_LIST_FAILED', entries: [] },
+    } as never);
     render(<CompanyBrainModalContent />);
     await waitFor(() => expect(messageErrorMock).toHaveBeenCalled());
     expect(messageErrorMock.mock.calls[0][0]).toContain('COMPANY_BRAIN_LIST_FAILED');

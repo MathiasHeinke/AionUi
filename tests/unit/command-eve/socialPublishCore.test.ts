@@ -71,7 +71,9 @@ describe('socialPublishCore — the human-gate (no auto-post)', () => {
   });
 
   it('approveSocialPost THROWS on an invalid approved draft (validation re-checked at the gate)', () => {
-    expect(() => approveSocialPost({ status: 'approved', draft: textDraft({ platforms: [] }) }, 'key')).toThrow(/INVALID/);
+    expect(() => approveSocialPost({ status: 'approved', draft: textDraft({ platforms: [] }) }, 'key')).toThrow(
+      /INVALID/
+    );
   });
 
   it('builds the upload-post.com request only for an approved, valid, keyed post', () => {

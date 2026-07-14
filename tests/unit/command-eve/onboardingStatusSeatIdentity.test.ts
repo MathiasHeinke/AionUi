@@ -110,7 +110,7 @@ describe('ISO-6 2nd-site (a) a real SEEDED seat shows THAT seat, not the admin',
   });
 });
 
-describe('ISO-6 2nd-site (a\') a real UNSEEDED seat greets NEUTRALLY, no admin', () => {
+describe("ISO-6 2nd-site (a') a real UNSEEDED seat greets NEUTRALLY, no admin", () => {
   it('no admin identity, neutral headline, soft identity item', () => {
     const m = buildModel({
       readActiveSeat: () => ({ legacy: false, seatId: SEAT_A }),

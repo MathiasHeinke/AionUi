@@ -135,7 +135,11 @@ export function projectKanbanBoardView(result: IKanbanBoardResult | null, loadin
 
   const model = result.model;
   if (!model) {
-    return { kind: 'unavailable', reasonCode: result.reason_code || 'KANBAN_BOARD_UNAVAILABLE', message: result.message || '' };
+    return {
+      kind: 'unavailable',
+      reasonCode: result.reason_code || 'KANBAN_BOARD_UNAVAILABLE',
+      message: result.message || '',
+    };
   }
 
   // A board slug can resolve to a directory with no kanban.db yet (seat never
@@ -282,7 +286,12 @@ export function projectKanbanCardDetail(card: IKanbanBoardCard): IKanbanCardDeta
       controllerReviewAuditEventId,
       controllerDecisionStatus: normalizeText(card.controller_decision_status),
       controllerDecisionAuditEventId,
-      hasAnyAuditEvent: !!(linkedAuditEventId || draftAuditEventId || controllerReviewAuditEventId || controllerDecisionAuditEventId),
+      hasAnyAuditEvent: !!(
+        linkedAuditEventId ||
+        draftAuditEventId ||
+        controllerReviewAuditEventId ||
+        controllerDecisionAuditEventId
+      ),
     },
     ladder: hasLadder
       ? {

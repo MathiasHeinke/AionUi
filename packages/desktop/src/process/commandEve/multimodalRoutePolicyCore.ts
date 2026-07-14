@@ -33,11 +33,7 @@ import {
   type RuntimeGatePrivacyMode,
   type SensitivityClass,
 } from './runtimeGateCore';
-import {
-  decidePrivacyRoute,
-  type PrivacyLaneConfig,
-  type PrivacyLaneId,
-} from './privacyLaneConfigCore';
+import { decidePrivacyRoute, type PrivacyLaneConfig, type PrivacyLaneId } from './privacyLaneConfigCore';
 
 export type CommandEveMultimodalSmokeStatus = 'pass' | 'fail' | 'not_run';
 

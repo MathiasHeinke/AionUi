@@ -19,10 +19,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  commandEve,
-  type ICommandEveCreditsStatusResult,
-} from '@/common/adapter/ipcBridge';
+import { commandEve, type ICommandEveCreditsStatusResult } from '@/common/adapter/ipcBridge';
 import { isElectronDesktop } from '@renderer/utils/platform';
 import {
   buildCreditMeterModel,

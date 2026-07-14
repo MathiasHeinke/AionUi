@@ -34,7 +34,9 @@ const allSatisfied: HonchoDepDetection = {
   totalMemoryGb: 16,
 };
 
-function fakes(over: { runnerOk?: boolean; serverOk?: boolean; deriverOk?: boolean; detection?: HonchoDepDetection } = {}) {
+function fakes(
+  over: { runnerOk?: boolean; serverOk?: boolean; deriverOk?: boolean; detection?: HonchoDepDetection } = {}
+) {
   const runnerCalls: string[] = [];
   const spawnCalls: string[] = [];
   let written: unknown;
@@ -135,7 +137,12 @@ describe('runHonchoProvisioningForSeat — fail-safe wiring', () => {
   it('an unsafe seat id does NOT throw (buildHonchoRuntimeConfig would) ⇒ not-ready', async () => {
     const f = fakes();
     const res = await runHonchoProvisioningForSeat(
-      { userDataPath: '/tmp/x', seatId: '../../escape', hermesVenv: '/tmp/x/venv', consent: { memoryOptedIn: true, hasLicense: true } },
+      {
+        userDataPath: '/tmp/x',
+        seatId: '../../escape',
+        hermesVenv: '/tmp/x/venv',
+        consent: { memoryOptedIn: true, hasLicense: true },
+      },
       f.deps as never
     );
     expect(res.honchoEnabled).toBe(false);

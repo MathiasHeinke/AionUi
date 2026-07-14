@@ -144,11 +144,7 @@ describe('afterAllArtifactBuild findAppForDmg (COMPA-591 hdiutil pipeline)', () 
 
 describe('afterAllArtifactBuild notarization self-verification (fail-closed)', () => {
   it('builds stapler validate args for the DMG', () => {
-    expect(buildStaplerValidateArgs('/tmp/Command EVE.dmg')).toEqual([
-      'stapler',
-      'validate',
-      '/tmp/Command EVE.dmg',
-    ]);
+    expect(buildStaplerValidateArgs('/tmp/Command EVE.dmg')).toEqual(['stapler', 'validate', '/tmp/Command EVE.dmg']);
   });
 
   it('builds spctl open-assessment args with the primary-signature context', () => {
@@ -496,7 +492,9 @@ describe('afterAllArtifactBuild UPDATE-FEED guard (post-hdiutil metadata)', () =
 
     expect(written.map((file: string) => path.basename(file))).toEqual(['latest-arm64-mac.yml', 'version.json']);
     expect(fs.existsSync(path.join(outDir, 'latest-mac.yml'))).toBe(false);
-    expect(fs.readFileSync(path.join(outDir, 'latest-arm64-mac.yml'), 'utf8')).toContain(`sha512: ${sha512Base64(dmg)}`);
+    expect(fs.readFileSync(path.join(outDir, 'latest-arm64-mac.yml'), 'utf8')).toContain(
+      `sha512: ${sha512Base64(dmg)}`
+    );
   });
 
   it('blocks incomplete mac update feeds when the zip is missing', () => {

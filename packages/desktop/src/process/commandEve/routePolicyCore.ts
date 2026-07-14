@@ -182,9 +182,7 @@ export function decideRoute(input: CommandEveRouteDecisionInput): CommandEveRout
   const recommendedLane: CommandEveRouteLane = prefersLocal ? 'local' : actualLane;
   const wouldReroute = recommendedLane !== actualLane;
 
-  const reason = prefersLocal
-    ? `shadow-prefers-local-for-${sensitivity}`
-    : `shadow-honors-actual-lane-${actualLane}`;
+  const reason = prefersLocal ? `shadow-prefers-local-for-${sensitivity}` : `shadow-honors-actual-lane-${actualLane}`;
 
   return {
     enforced: false,

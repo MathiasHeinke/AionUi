@@ -118,7 +118,7 @@ export async function readCommandEveSettingsFromBackend(
     // seat physicalKey === logicalKey, so the fallback is a no-op there regardless.
     const raw = NO_LEGACY_INHERIT_KEYS.has(logicalKey)
       ? settings[physicalKey]
-      : settings[physicalKey] ?? settings[logicalKey];
+      : (settings[physicalKey] ?? settings[logicalKey]);
     if (raw !== undefined && raw !== null) {
       out[logicalKey] = raw;
     }

@@ -72,12 +72,7 @@ import {
   readCompanyBrainSeedStateFromHome,
   writeCompanyBrainSeedToHome,
 } from '@/process/commandEve/companyBrainSeedCore';
-import {
-  listEntries,
-  readEntryBody,
-  removeEntry,
-  upsertEntry,
-} from '@/process/commandEve/companyBrainStoreCore';
+import { listEntries, readEntryBody, removeEntry, upsertEntry } from '@/process/commandEve/companyBrainStoreCore';
 import {
   provisionSeatRuntimeFiles,
   resolveCommandEveRuntimeBootstrapPaths,
@@ -271,7 +266,10 @@ describe('GATE-NULL FS Invariant 1 — Seat A cannot share any storage root with
         const b = clientRoots[j];
         for (const dim of dims) {
           expect(a[dim]).not.toBe(b[dim]);
-          expect(isPrefixPath(a[dim] as string, b[dim] as string), `${String(dim)}: client ${a.seatId} is a prefix of client ${b.seatId}`).toBe(false);
+          expect(
+            isPrefixPath(a[dim] as string, b[dim] as string),
+            `${String(dim)}: client ${a.seatId} is a prefix of client ${b.seatId}`
+          ).toBe(false);
           // Neither client's id ever appears in the other client's roots.
           expect(b[dim]).not.toContain(a.seatId);
         }
@@ -292,15 +290,24 @@ describe('GATE-NULL FS Invariant 1 — Seat A cannot share any storage root with
       for (const dim of homeLikeDims) {
         // Siblings under the shared hermesRoot: neither contains the other.
         expect(client[dim]).not.toBe(legacyRoots[dim]);
-        expect(isPrefixPath(legacyRoots[dim] as string, client[dim] as string), `${String(dim)}: legacy is a prefix of client ${client.seatId}`).toBe(false);
-        expect(isPrefixPath(client[dim] as string, legacyRoots[dim] as string), `${String(dim)}: client ${client.seatId} is a prefix of legacy`).toBe(false);
+        expect(
+          isPrefixPath(legacyRoots[dim] as string, client[dim] as string),
+          `${String(dim)}: legacy is a prefix of client ${client.seatId}`
+        ).toBe(false);
+        expect(
+          isPrefixPath(client[dim] as string, legacyRoots[dim] as string),
+          `${String(dim)}: client ${client.seatId} is a prefix of legacy`
+        ).toBe(false);
       }
       for (const dim of workspaceDims) {
         // Legacy base is an INTENTIONAL ancestor of the client subtree …
         expect(isPrefixPath(legacyRoots[dim] as string, client[dim] as string)).toBe(true);
         // … but a client is NEVER an ancestor of the legacy/founder root (the real leak
         // direction: a client reaching UP into the founder's workspace).
-        expect(isPrefixPath(client[dim] as string, legacyRoots[dim] as string), `${String(dim)}: client ${client.seatId} contains the founder root`).toBe(false);
+        expect(
+          isPrefixPath(client[dim] as string, legacyRoots[dim] as string),
+          `${String(dim)}: client ${client.seatId} contains the founder root`
+        ).toBe(false);
         // The legacy workspace root never carries a client's id.
         expect(legacyRoots[dim]).not.toContain(client.seatId);
       }
@@ -343,7 +350,10 @@ describe('GATE-NULL FS Invariant 2 — Seat A cannot craft a seat/entry id that 
 
   it('resolveSeatHome + resolveSeatScopedStorageRoots REJECT crafted ids (never emit a path outside seats/)', () => {
     const userData = makeUserData();
-    const expectedSeatsRoot = path.join(resolveCommandEveRuntimeBootstrapPaths(userData, SEAT_A).hermesRoot, SEATS_SUBDIR);
+    const expectedSeatsRoot = path.join(
+      resolveCommandEveRuntimeBootstrapPaths(userData, SEAT_A).hermesRoot,
+      SEATS_SUBDIR
+    );
     for (const { label, id } of HOSTILE_SEAT_IDS) {
       // Either it throws, OR (defensive belt) the produced home stays strictly under
       // the seats/ subtree. Both are acceptable; escaping is not.
@@ -397,7 +407,10 @@ describe('GATE-NULL FS Invariant 2 — Seat A cannot craft a seat/entry id that 
     const home = resolveSeatHome(userData, SEAT_A).hermesHome;
     fs.mkdirSync(home, { recursive: true });
     for (const { label, id } of HOSTILE_ENTRY_IDS) {
-      expect(() => upsertEntry(home, { id, kind: 'note', title: 't', body: 'b' }), `upsert accepted ${label}`).toThrow();
+      expect(
+        () => upsertEntry(home, { id, kind: 'note', title: 't', body: 'b' }),
+        `upsert accepted ${label}`
+      ).toThrow();
       expect(() => readEntryBody(home, id), `readEntryBody accepted ${label}`).toThrow();
       expect(() => removeEntry(home, id), `removeEntry accepted ${label}`).toThrow();
     }
@@ -426,7 +439,7 @@ describe('GATE-NULL FS Invariant 2 — Seat A cannot craft a seat/entry id that 
 // INVARIANT 3 — WRITE-CONTAINMENT
 // ============================================================================
 describe('GATE-NULL FS Invariant 3 — Seat A can never write into Seat B (a full write pass on A leaves B byte-identical)', () => {
-  it('provision + company-brain writes + seed write + USER.md stamp on seat A leave seat B\'s tree byte-identical', () => {
+  it("provision + company-brain writes + seed write + USER.md stamp on seat A leave seat B's tree byte-identical", () => {
     const userData = makeUserData();
     const homeA = resolveSeatHome(userData, SEAT_A).hermesHome;
     const homeB = resolveSeatHome(userData, SEAT_B).hermesHome;
@@ -467,7 +480,7 @@ describe('GATE-NULL FS Invariant 3 — Seat A can never write into Seat B (a ful
     expect(aBlob).not.toContain(ENTITY_B);
   });
 
-  it('a company-brain remove on seat A never removes or mutates seat B\'s entries', () => {
+  it("a company-brain remove on seat A never removes or mutates seat B's entries", () => {
     const userData = makeUserData();
     const homeA = resolveSeatHome(userData, SEAT_A).hermesHome;
     const homeB = resolveSeatHome(userData, SEAT_B).hermesHome;
@@ -493,14 +506,17 @@ describe('GATE-NULL FS Invariant 3 — Seat A can never write into Seat B (a ful
 // ============================================================================
 // INVARIANT 4 — READ-CONTAINMENT
 // ============================================================================
-describe('GATE-NULL FS Invariant 4 — Seat B can never read Seat A\'s knowledge (after A is populated, B sees nothing of A)', () => {
+describe("GATE-NULL FS Invariant 4 — Seat B can never read Seat A's knowledge (after A is populated, B sees nothing of A)", () => {
   it('company-brain list/read + seed read on seat B return NOTHING of seat A', () => {
     const userData = makeUserData();
     const homeA = resolveSeatHome(userData, SEAT_A).hermesHome;
     const homeB = resolveSeatHome(userData, SEAT_B).hermesHome;
 
     // Populate ONLY seat A with client knowledge.
-    writeCompanyBrainSeedToHome({ hermesHome: homeA, seed: { kind: 'paste_brief', value: `${ENTITY_A}\n${A_TRACER}` } });
+    writeCompanyBrainSeedToHome({
+      hermesHome: homeA,
+      seed: { kind: 'paste_brief', value: `${ENTITY_A}\n${A_TRACER}` },
+    });
     upsertEntry(homeA, { kind: 'brief', title: 'A brief', body: `${ENTITY_A} ${A_TRACER}` });
     upsertEntry(homeA, { kind: 'note', title: 'A note', body: `more ${A_TRACER}` });
 
@@ -523,15 +539,21 @@ describe('GATE-NULL FS Invariant 4 — Seat B can never read Seat A\'s knowledge
     expect(listEntries(homeA).length).toBeGreaterThan(0);
   });
 
-  it('the §SEAT USER.md stamp for seat B never contains seat A\'s client entity', () => {
+  it("the §SEAT USER.md stamp for seat B never contains seat A's client entity", () => {
     const userData = makeUserData();
     const homeA = resolveSeatHome(userData, SEAT_A).hermesHome;
     const homeB = resolveSeatHome(userData, SEAT_B).hermesHome;
 
     // Seed BOTH seats with their own client, then stamp each seat's USER.md from its
     // OWN home seed (the real stampUserMdTiers reads the per-seat seed).
-    writeCompanyBrainSeedToHome({ hermesHome: homeA, seed: { kind: 'paste_brief', value: `${ENTITY_A}\n${A_TRACER}` } });
-    writeCompanyBrainSeedToHome({ hermesHome: homeB, seed: { kind: 'paste_brief', value: `${ENTITY_B}\n${B_TRACER}` } });
+    writeCompanyBrainSeedToHome({
+      hermesHome: homeA,
+      seed: { kind: 'paste_brief', value: `${ENTITY_A}\n${A_TRACER}` },
+    });
+    writeCompanyBrainSeedToHome({
+      hermesHome: homeB,
+      seed: { kind: 'paste_brief', value: `${ENTITY_B}\n${B_TRACER}` },
+    });
 
     const resA = stampUserMdTiers({ userDataPath: userData, seatId: SEAT_A, profile: FALLBACK_PROFILE });
     const resB = stampUserMdTiers({ userDataPath: userData, seatId: SEAT_B, profile: FALLBACK_PROFILE });
@@ -553,7 +575,7 @@ describe('GATE-NULL FS Invariant 4 — Seat B can never read Seat A\'s knowledge
 // ============================================================================
 // INVARIANT 5 — CONFIG-NAMESPACE
 // ============================================================================
-describe('GATE-NULL FS Invariant 5 — Seat A cannot collide with or read Seat B\'s config keys (per-seat physical keys are disjoint)', () => {
+describe("GATE-NULL FS Invariant 5 — Seat A cannot collide with or read Seat B's config keys (per-seat physical keys are disjoint)", () => {
   it('seatScopedKey over the WHOLE SEAT_SCOPED_CONFIG_KEYS allowlist never collides between two seats', () => {
     expect(SEAT_SCOPED_CONFIG_KEYS.size).toBeGreaterThan(0); // non-vacuous
     const aKeys = new Set<string>();
@@ -591,7 +613,7 @@ describe('GATE-NULL FS Invariant 5 — Seat A cannot collide with or read Seat B
 // ============================================================================
 // INVARIANT 6 — ENV-HYGIENE (H3)
 // ============================================================================
-describe('GATE-NULL FS Invariant 6 — Seat A\'s client name can never reach a child process env (H3) — clear label out, board pin symmetrically cleared', () => {
+describe("GATE-NULL FS Invariant 6 — Seat A's client name can never reach a child process env (H3) — clear label out, board pin symmetrically cleared", () => {
   // Re-uses the exported prepareCommandEveRuntimeProcessEnv bake (no duplicate
   // logic). The exhaustive switch/rollback env matrix lives in
   // tests/unit/command-eve/seatContextBridgeEnvTrio.test.ts; here it is one bundled
@@ -610,7 +632,7 @@ describe('GATE-NULL FS Invariant 6 — Seat A\'s client name can never reach a c
     expect(env.HERMES_HOME).toContain(path.join(SEATS_SUBDIR, SEAT_A, 'home')); // per-seat pin
   });
 
-  it('a stale COMMAND_EVE_SEAT_LABEL + a prior seat\'s HERMES_KANBAN_BOARD are both scrubbed on the bake (no cross-seat carryover)', () => {
+  it("a stale COMMAND_EVE_SEAT_LABEL + a prior seat's HERMES_KANBAN_BOARD are both scrubbed on the bake (no cross-seat carryover)", () => {
     const userData = makeUserData();
     setActiveSeatId(SEAT_A);
     setActiveSeatLabel(CLIENT_NAME);
@@ -683,7 +705,10 @@ describe('GATE-NULL FS Invariant 7 — profile.kind is PROMPT-ONLY: it never rea
     // Establish the client seat as populated, then snapshot it.
     setActiveSeatId(SEAT_B);
     setActiveSeatKind('client');
-    writeCompanyBrainSeedToHome({ hermesHome: homeClient, seed: { kind: 'paste_brief', value: `${ENTITY_B}\n${B_TRACER}` } });
+    writeCompanyBrainSeedToHome({
+      hermesHome: homeClient,
+      seed: { kind: 'paste_brief', value: `${ENTITY_B}\n${B_TRACER}` },
+    });
     upsertEntry(homeClient, { kind: 'note', title: 'B note', body: `${ENTITY_B} ${B_TRACER}` });
     stampUserMdTiers({ userDataPath: userData, seatId: SEAT_B, profile: FALLBACK_PROFILE, kind: 'client' });
     const beforeClient = snapshotTree(homeClient);
@@ -692,9 +717,17 @@ describe('GATE-NULL FS Invariant 7 — profile.kind is PROMPT-ONLY: it never rea
     // Full write pass on the own_company seat.
     setActiveSeatId(SEAT_A);
     setActiveSeatKind('own_company');
-    writeCompanyBrainSeedToHome({ hermesHome: homeOwn, seed: { kind: 'paste_brief', value: `${ENTITY_A}\n${A_TRACER}` } });
+    writeCompanyBrainSeedToHome({
+      hermesHome: homeOwn,
+      seed: { kind: 'paste_brief', value: `${ENTITY_A}\n${A_TRACER}` },
+    });
     upsertEntry(homeOwn, { kind: 'brief', title: 'own brief', body: `${ENTITY_A} ${A_TRACER}` });
-    const resOwn = stampUserMdTiers({ userDataPath: userData, seatId: SEAT_A, profile: FALLBACK_PROFILE, kind: 'own_company' });
+    const resOwn = stampUserMdTiers({
+      userDataPath: userData,
+      seatId: SEAT_A,
+      profile: FALLBACK_PROFILE,
+      kind: 'own_company',
+    });
     expect(resOwn.seatStamped).toBe(true);
 
     // The client seat is byte-identical — the own_company pass touched nothing under it.

@@ -205,7 +205,9 @@ export const buildGroupedHistory = (
   // Filter out team-owned conversations; they are only visible via the Teams panel.
   // Archived conversations (1.7.4a) leave the main list entirely and live only in
   // the collapsible Archive section — so pinned/timeline never show an archived row.
-  const visibleConversations = conversations.filter((conv) => !isTeamConversation(conv) && !isConversationArchived(conv));
+  const visibleConversations = conversations.filter(
+    (conv) => !isTeamConversation(conv) && !isConversationArchived(conv)
+  );
 
   const archivedConversations = conversations
     .filter((conversation) => !isTeamConversation(conversation) && isConversationArchived(conversation))

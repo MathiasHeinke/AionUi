@@ -46,7 +46,10 @@ export interface CommandEveTitleSmokeGateResult {
  * punctuation and asks for 3-6 words so the sanitizer rarely has to trim.
  */
 export function buildLocalTitlePrompt(taskText: string, locale: CommandEveTitleLocale = 'de-DE'): string {
-  const task = String(taskText || '').replace(/\s+/g, ' ').trim().slice(0, TITLE_INPUT_MAX_CHARS);
+  const task = String(taskText || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, TITLE_INPUT_MAX_CHARS);
   if (locale === 'en-US') {
     return [
       'Summarize this task as a short, punchy session title (3-6 words, no trailing punctuation, no quotes).',
@@ -136,12 +139,14 @@ function normalizeSmokeText(text: string): string {
 }
 
 function firstRawSmokeLine(raw: string | null | undefined): string {
-  return String(raw ?? '')
-    .replace(/<think>[\s\S]*?<\/think>/gi, ' ')
-    .replace(/\r/g, '')
-    .split('\n')
-    .map((line) => line.trim())
-    .find(Boolean) ?? '';
+  return (
+    String(raw ?? '')
+      .replace(/<think>[\s\S]*?<\/think>/gi, ' ')
+      .replace(/\r/g, '')
+      .split('\n')
+      .map((line) => line.trim())
+      .find(Boolean) ?? ''
+  );
 }
 
 /**

@@ -53,7 +53,12 @@ const activeStatus = { [ROLE]: 'active' };
 
 describe('delegate honcho MCP config — write + isolation + secret-free', () => {
   it('an ACTIVE claude role on a ready seat gets a honcho MCP config with THAT seat env', () => {
-    syncEveWorkerLauncherFiles(activeClaude as never, activeStatus as never, { dataPath: DATA, seatId: SEAT_A, honcho: readyHoncho(SEAT_A) }, ROSTER);
+    syncEveWorkerLauncherFiles(
+      activeClaude as never,
+      activeStatus as never,
+      { dataPath: DATA, seatId: SEAT_A, honcho: readyHoncho(SEAT_A) },
+      ROSTER
+    );
     const file = jsonFor(SEAT_A);
     expect(fs.existsSync(file)).toBe(true);
     const cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -68,8 +73,18 @@ describe('delegate honcho MCP config — write + isolation + secret-free', () =>
   });
 
   it("seat A's delegate config carries A's workspace, NEVER seat B's (isolation)", () => {
-    syncEveWorkerLauncherFiles(activeClaude as never, activeStatus as never, { dataPath: DATA, seatId: SEAT_A, honcho: readyHoncho(SEAT_A) }, ROSTER);
-    syncEveWorkerLauncherFiles(activeClaude as never, activeStatus as never, { dataPath: DATA, seatId: SEAT_B, honcho: readyHoncho(SEAT_B) }, ROSTER);
+    syncEveWorkerLauncherFiles(
+      activeClaude as never,
+      activeStatus as never,
+      { dataPath: DATA, seatId: SEAT_A, honcho: readyHoncho(SEAT_A) },
+      ROSTER
+    );
+    syncEveWorkerLauncherFiles(
+      activeClaude as never,
+      activeStatus as never,
+      { dataPath: DATA, seatId: SEAT_B, honcho: readyHoncho(SEAT_B) },
+      ROSTER
+    );
     const a = JSON.parse(fs.readFileSync(jsonFor(SEAT_A), 'utf8'));
     const b = JSON.parse(fs.readFileSync(jsonFor(SEAT_B), 'utf8'));
     expect(a.mcpServers.honcho.env.HONCHO_WORKSPACE_ID).toBe(`ws_${SEAT_A}`);
@@ -80,41 +95,86 @@ describe('delegate honcho MCP config — write + isolation + secret-free', () =>
   it('a MISMATCHED cfg seat (seat B cfg under seat A path) is REFUSED (Codex cross-seat binding)', () => {
     // Craft the drift Codex feared: write for seat A but hand it seat B's honcho cfg.
     const mismatched = readyHoncho(SEAT_B); // cfg.seatId === SEAT_B
-    syncEveWorkerLauncherFiles(activeClaude as never, activeStatus as never, { dataPath: DATA, seatId: SEAT_A, honcho: mismatched }, ROSTER);
+    syncEveWorkerLauncherFiles(
+      activeClaude as never,
+      activeStatus as never,
+      { dataPath: DATA, seatId: SEAT_A, honcho: mismatched },
+      ROSTER
+    );
     expect(fs.existsSync(jsonFor(SEAT_A))).toBe(false); // never wrote B's memory under A's path
   });
 
   it('Honcho NOT ready ⇒ no delegate config written (byte-identical to before)', () => {
-    syncEveWorkerLauncherFiles(activeClaude as never, activeStatus as never, { dataPath: DATA, seatId: SEAT_A, honcho: { ready: false } }, ROSTER);
+    syncEveWorkerLauncherFiles(
+      activeClaude as never,
+      activeStatus as never,
+      { dataPath: DATA, seatId: SEAT_A, honcho: { ready: false } },
+      ROSTER
+    );
     expect(fs.existsSync(jsonFor(SEAT_A))).toBe(false);
   });
 
   it('no honcho input at all ⇒ no delegate config (Thread-2 inert until Honcho ready)', () => {
-    syncEveWorkerLauncherFiles(activeClaude as never, activeStatus as never, { dataPath: DATA, seatId: SEAT_A }, ROSTER);
+    syncEveWorkerLauncherFiles(
+      activeClaude as never,
+      activeStatus as never,
+      { dataPath: DATA, seatId: SEAT_A },
+      ROSTER
+    );
     expect(fs.existsSync(jsonFor(SEAT_A))).toBe(false);
   });
 });
 
 describe('revocation symmetry — the honcho config is removed when the role loses eligibility', () => {
   it('a role switched away from claude has its honcho config REMOVED', () => {
-    syncEveWorkerLauncherFiles(activeClaude as never, activeStatus as never, { dataPath: DATA, seatId: SEAT_A, honcho: readyHoncho(SEAT_A) }, ROSTER);
+    syncEveWorkerLauncherFiles(
+      activeClaude as never,
+      activeStatus as never,
+      { dataPath: DATA, seatId: SEAT_A, honcho: readyHoncho(SEAT_A) },
+      ROSTER
+    );
     expect(fs.existsSync(jsonFor(SEAT_A))).toBe(true);
     // Reassign to codex → the honcho config must be gone.
-    syncEveWorkerLauncherFiles({ [ROLE]: { agent_id: ROLE, kind: 'codex' } } as never, activeStatus as never, { dataPath: DATA, seatId: SEAT_A, honcho: readyHoncho(SEAT_A) }, ROSTER);
+    syncEveWorkerLauncherFiles(
+      { [ROLE]: { agent_id: ROLE, kind: 'codex' } } as never,
+      activeStatus as never,
+      { dataPath: DATA, seatId: SEAT_A, honcho: readyHoncho(SEAT_A) },
+      ROSTER
+    );
     expect(fs.existsSync(jsonFor(SEAT_A))).toBe(false);
   });
 
   it('a PAUSED claude role has no loadable honcho config', () => {
-    syncEveWorkerLauncherFiles(activeClaude as never, activeStatus as never, { dataPath: DATA, seatId: SEAT_A, honcho: readyHoncho(SEAT_A) }, ROSTER);
+    syncEveWorkerLauncherFiles(
+      activeClaude as never,
+      activeStatus as never,
+      { dataPath: DATA, seatId: SEAT_A, honcho: readyHoncho(SEAT_A) },
+      ROSTER
+    );
     expect(fs.existsSync(jsonFor(SEAT_A))).toBe(true);
-    syncEveWorkerLauncherFiles(activeClaude as never, { [ROLE]: 'paused' } as never, { dataPath: DATA, seatId: SEAT_A, honcho: readyHoncho(SEAT_A) }, ROSTER);
+    syncEveWorkerLauncherFiles(
+      activeClaude as never,
+      { [ROLE]: 'paused' } as never,
+      { dataPath: DATA, seatId: SEAT_A, honcho: readyHoncho(SEAT_A) },
+      ROSTER
+    );
     expect(fs.existsSync(jsonFor(SEAT_A))).toBe(false);
   });
 
   it('Honcho going not-ready on a still-active role REMOVES the stale config', () => {
-    syncEveWorkerLauncherFiles(activeClaude as never, activeStatus as never, { dataPath: DATA, seatId: SEAT_A, honcho: readyHoncho(SEAT_A) }, ROSTER);
+    syncEveWorkerLauncherFiles(
+      activeClaude as never,
+      activeStatus as never,
+      { dataPath: DATA, seatId: SEAT_A, honcho: readyHoncho(SEAT_A) },
+      ROSTER
+    );
     expect(fs.existsSync(jsonFor(SEAT_A))).toBe(true);
-    syncEveWorkerLauncherFiles(activeClaude as never, activeStatus as never, { dataPath: DATA, seatId: SEAT_A, honcho: { ready: false } }, ROSTER);
+    syncEveWorkerLauncherFiles(
+      activeClaude as never,
+      activeStatus as never,
+      { dataPath: DATA, seatId: SEAT_A, honcho: { ready: false } },
+      ROSTER
+    );
     expect(fs.existsSync(jsonFor(SEAT_A))).toBe(false);
   });
 });
@@ -138,7 +198,11 @@ describe('wrapClaudeDelegateWithLauncher — the --mcp-config pointer', () => {
   });
 
   it('omits --mcp-config when no honcho config file is given (byte-identical wrap)', () => {
-    const wrapped = wrapClaudeDelegateWithLauncher(delegate, { launcherPath: '/abs/eve-acp-launcher.sh', statusFile: '/s', tokenFile: '/t' });
+    const wrapped = wrapClaudeDelegateWithLauncher(delegate, {
+      launcherPath: '/abs/eve-acp-launcher.sh',
+      statusFile: '/s',
+      tokenFile: '/t',
+    });
     expect(wrapped.acpArgs).not.toContain('--mcp-config');
   });
 });

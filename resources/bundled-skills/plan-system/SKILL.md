@@ -15,14 +15,16 @@ toward where they want to go even when they re-decide, re-order, or add things m
 same board-shape Company.OS runs in Plane externally — here it runs natively on Hermes.
 
 ## When to use
+
 - Turning a vision, strategy, marketing campaign, app, or big goal into an executable, navigable plan.
 - Tracking a goal across versions/milestones (v1 → v2 → v3) where scope will change as you learn.
 - Whenever loose intent ("I want to launch X", "grow Y") needs a structure the user can steer.
 - Any time work needs a backbone that survives re-prioritization — add/re-parent without losing the why.
 
 ## The method
+
 1. **Capture the SUPERGOAL + its WHY.** State the übergeordnetes Ziel in one line as the top board
-   item (a campaign / app / vision). Record *why it matters* and the **definition of done** for the
+   item (a campaign / app / vision). Record _why it matters_ and the **definition of done** for the
    whole arc. **Link source-of-truth docs** (strategy notes, brief, spec) — the plan points AT the
    truth, it does not duplicate it. This item is the orientation the user steers by.
 2. **Break into VERSION milestones.** Decompose the supergoal into ordered version Teilschritte —
@@ -35,7 +37,7 @@ same board-shape Company.OS runs in Plane externally — here it runs natively o
    `gates` (command/review checks) · `human_gate` (HG level) · `reporting` (what worker.reported
    carries). One verifiable outcome per item; small enough to run, big enough to matter.
 4. **Operate it on the native board (kanban + SQL).** Hermes already HAS the kanban + DB — this skill
-   is EVE *understanding how to drive it under this doctrine*. Use it to: create items at the right
+   is EVE _understanding how to drive it under this doctrine_. Use it to: create items at the right
    tier, set parent/child links (supergoal→version→contract), apply **version labels/prefixes** so
    items sort by milestone, read the current state ("what's in progress, what's next, what's done"),
    and update states as work moves (Backlog → In Progress → In Review → Done). All operations are
@@ -46,6 +48,7 @@ same board-shape Company.OS runs in Plane externally — here it runs natively o
    move, re-read the board so the user sees the updated path from "now" to "where we want to go".
 
 ## Output
+
 - A live three-tier board: SUPERGOAL → VERSION milestones → child Worker Contracts, navigable by version.
 - Each child item is a parseable Worker Contract (role · source_of_truth · acceptance_criteria · gates · human_gate · reporting).
 - A current-state read: what's done, in progress, and next — and the remaining path to each version's exit criteria.
@@ -56,6 +59,7 @@ same board-shape Company.OS runs in Plane externally — here it runs natively o
 Shared Command EVE posture lives in `eve-doctrine`; this section only explains how this skill plugs into the runtime.
 This is how the operator **"Alois"** turns intent into a steerable system, and how **EVE** makes it
 real on the board:
+
 - **EVE creates the asset.** When Alois names a goal ("launch the spring campaign", "ship the app
   v2"), EVE provisions the plan-system: it writes the SUPERGOAL item, the version milestones, and the
   first child Worker Contracts on Hermes' native kanban + SQL board — then hands Alois a navigable
@@ -71,6 +75,7 @@ real on the board:
   founder/CEO gate.
 
 ## Rules
+
 - Three tiers, always: SUPERGOAL → VERSION → child Worker Contract. Don't flatten the ladder away.
 - Point at source-of-truth docs; never duplicate the strategy into the board.
 - Every child item is a real Worker Contract with verifiable acceptance_criteria — not a vague task.

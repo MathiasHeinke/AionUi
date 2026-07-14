@@ -57,7 +57,11 @@ import {
   type CommandEveEntitlementStatusResult,
 } from './entitlementCore';
 import { hasLicenseWire } from '@/common/config/licenseWireAtRest';
-import { resolveCommandEveSeatIdentity, type CommandEveSeatIdentity, type CommandEveSeatSeedRecord } from './assistantBootstrapCore';
+import {
+  resolveCommandEveSeatIdentity,
+  type CommandEveSeatIdentity,
+  type CommandEveSeatSeedRecord,
+} from './assistantBootstrapCore';
 import { getActiveSeatId, isActiveSeatLegacy } from './seatContextCore';
 import { readCompanyBrainSeedState } from './companyBrainSeedCore';
 import { honchoReady, HONCHO_REASON_DECLINED, type HonchoReadinessState } from './honchoReadinessCore';
@@ -198,13 +202,11 @@ function isRecord(value: unknown): value is JsonRecord {
  * stage, mapped to a remediation kind + a plain-German meaning. This is the
  * single source of truth the S3/S4 surfaces key off.
  */
-const LOCAL_BLOCK_REMEDIATION: Record<
-  string,
-  { kind: CommandEveOnboardingRemediationKind; meaning: string }
-> = {
+const LOCAL_BLOCK_REMEDIATION: Record<string, { kind: CommandEveOnboardingRemediationKind; meaning: string }> = {
   OLLAMA_MISSING: {
     kind: 'external-link',
-    meaning: 'Die lokale KI braucht Ollama. Du kannst es in einem Schritt installieren — oder einfach in der Cloud weiterarbeiten.',
+    meaning:
+      'Die lokale KI braucht Ollama. Du kannst es in einem Schritt installieren — oder einfach in der Cloud weiterarbeiten.',
   },
   OLLAMA_NOT_RUNNING: {
     kind: 'html-screen',
@@ -220,15 +222,18 @@ const LOCAL_BLOCK_REMEDIATION: Record<
   },
   BLOCKED_RAM: {
     kind: 'cloud-redirect',
-    meaning: 'Für die lokale KI reicht der Arbeitsspeicher dieses Macs nicht. Macht nichts — die Cloud-KI läuft sofort.',
+    meaning:
+      'Für die lokale KI reicht der Arbeitsspeicher dieses Macs nicht. Macht nichts — die Cloud-KI läuft sofort.',
   },
   BLOCKED_DISK: {
     kind: 'cloud-redirect',
-    meaning: 'Für das lokale Modell ist zu wenig Speicherplatz frei. Die Cloud-KI ist deine Standard-Spur und läuft sofort.',
+    meaning:
+      'Für das lokale Modell ist zu wenig Speicherplatz frei. Die Cloud-KI ist deine Standard-Spur und läuft sofort.',
   },
   PYTHON_UNSUPPORTED: {
     kind: 'reinstall',
-    meaning: 'Eine mitgelieferte Komponente passt nicht zu deinem System — das ist unser Fehler. Eine Neuinstallation behebt es.',
+    meaning:
+      'Eine mitgelieferte Komponente passt nicht zu deinem System — das ist unser Fehler. Eine Neuinstallation behebt es.',
   },
   PYTHON_MISSING: {
     kind: 'reinstall',
@@ -236,7 +241,8 @@ const LOCAL_BLOCK_REMEDIATION: Record<
   },
   PYTHON_VENV_FAILED: {
     kind: 'reinstall',
-    meaning: 'Die lokale Laufzeit konnte nicht eingerichtet werden — das ist unser Fehler. Eine Neuinstallation behebt es.',
+    meaning:
+      'Die lokale Laufzeit konnte nicht eingerichtet werden — das ist unser Fehler. Eine Neuinstallation behebt es.',
   },
   HERMES_MISSING: {
     kind: 'reinstall',
@@ -244,11 +250,13 @@ const LOCAL_BLOCK_REMEDIATION: Record<
   },
   HERMES_VERSION_MISMATCH: {
     kind: 'reinstall',
-    meaning: 'Die lokale Agent-Laufzeit hat die falsche Version — das ist unser Fehler. Eine Neuinstallation behebt es.',
+    meaning:
+      'Die lokale Agent-Laufzeit hat die falsche Version — das ist unser Fehler. Eine Neuinstallation behebt es.',
   },
   HERMES_INSTALL_FAILED: {
     kind: 'reinstall',
-    meaning: 'Die lokale Agent-Laufzeit ließ sich nicht installieren — das ist unser Fehler. Eine Neuinstallation behebt es.',
+    meaning:
+      'Die lokale Agent-Laufzeit ließ sich nicht installieren — das ist unser Fehler. Eine Neuinstallation behebt es.',
   },
 };
 
@@ -261,7 +269,8 @@ function defaultLocalRemediation(code: string): {
       // Unknown block code: surface it honestly as a "reinstall (our bug)" class
       // rather than inventing a brew command or pretending it is fine.
       kind: 'reinstall',
-      meaning: 'Die lokale KI konnte nicht vollständig vorbereitet werden. Die Cloud-KI läuft weiter; eine Neuinstallation kann die lokale Spur reparieren.',
+      meaning:
+        'Die lokale KI konnte nicht vollständig vorbereitet werden. Die Cloud-KI läuft weiter; eine Neuinstallation kann die lokale Spur reparieren.',
     }
   );
 }
@@ -309,8 +318,7 @@ function entitlementItem(entitlement: CommandEveEntitlementStatusResult): {
   license: CommandEveOnboardingItem;
 } {
   const state = entitlement.state;
-  const registered =
-    state === 'registered_unlicensed' || state === 'entitled' || state === 'expired';
+  const registered = state === 'registered_unlicensed' || state === 'entitled' || state === 'expired';
   const licensed = state === 'entitled';
 
   const registration: CommandEveOnboardingItem = registered
@@ -349,10 +357,7 @@ function entitlementItem(entitlement: CommandEveEntitlementStatusResult): {
   return { registration, license };
 }
 
-function cloudLaneItem(
-  cloudBearerAvailable: boolean,
-  licensed: boolean
-): CommandEveOnboardingItem {
+function cloudLaneItem(cloudBearerAvailable: boolean, licensed: boolean): CommandEveOnboardingItem {
   if (cloudBearerAvailable) {
     return {
       id: 'cloud-lane',
@@ -396,7 +401,8 @@ function localLaneItem(receipt?: RuntimeBootstrapReceipt): CommandEveOnboardingI
     return {
       id: 'local-lane',
       state: 'skipped',
-      plain_meaning: 'Für die lokale KI reicht der Arbeitsspeicher dieses Macs nicht — die Cloud-KI ist deine Standard-Spur und läuft sofort.',
+      plain_meaning:
+        'Für die lokale KI reicht der Arbeitsspeicher dieses Macs nicht — die Cloud-KI ist deine Standard-Spur und läuft sofort.',
       remediation_kind: 'none',
     };
   }
@@ -442,7 +448,8 @@ function memoryLaneItem(state?: HonchoReadinessState): CommandEveOnboardingItem 
     return {
       id: 'memory-lane',
       state: 'ok',
-      plain_meaning: 'EVE merkt sich den Kontext lokal auf deinem Rechner — dein Company-Gedächtnis läuft immer zusätzlich.',
+      plain_meaning:
+        'EVE merkt sich den Kontext lokal auf deinem Rechner — dein Company-Gedächtnis läuft immer zusätzlich.',
       remediation_kind: 'none',
     };
   }

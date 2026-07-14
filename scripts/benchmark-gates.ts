@@ -113,7 +113,8 @@ export function collectStartupGateFailures(
   }
 
   const leakStats = report.memorySummary?.leakProcessTreeRssBytes;
-  const leakEstimateMb = report.memory?.leakEstimateMb ?? (hasMetric(leakStats) ? bytesToMb(leakStats?.median) : undefined);
+  const leakEstimateMb =
+    report.memory?.leakEstimateMb ?? (hasMetric(leakStats) ? bytesToMb(leakStats?.median) : undefined);
   const leakRequired = report.measurementMode !== 'packaged-lifecycle';
   if (leakRequired && (leakEstimateMb === undefined || !Number.isFinite(leakEstimateMb))) {
     failures.push('post-close leak estimate is missing');

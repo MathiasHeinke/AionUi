@@ -38,7 +38,8 @@ interface PendingKanbanIntent {
 const POLL_MS = 4000;
 
 // The mandatory honesty text: the card never promises more than the gate enforces.
-const HONESTY_TEXT = 'EVE schlägt diese Änderung nur vor — sie wird erst geschrieben, wenn du auf „Übernehmen" klickst. EVE verschiebt oder erstellt nie selbst Karten.';
+const HONESTY_TEXT =
+  'EVE schlägt diese Änderung nur vor — sie wird erst geschrieben, wenn du auf „Übernehmen" klickst. EVE verschiebt oder erstellt nie selbst Karten.';
 
 const KanbanAcpConfirmCard: React.FC = () => {
   const [pending, setPending] = useState<PendingKanbanIntent | null>(null);
@@ -80,7 +81,10 @@ const KanbanAcpConfirmCard: React.FC = () => {
     if (!pending || busy) return;
     setBusy(true);
     try {
-      const res = await ipcBridge.commandEve.kanbanAcpApply.invoke({ intent_id: pending.intent_id, mutation_hash: pending.mutation_hash });
+      const res = await ipcBridge.commandEve.kanbanAcpApply.invoke({
+        intent_id: pending.intent_id,
+        mutation_hash: pending.mutation_hash,
+      });
       if (res?.data?.ok) {
         Message.success('Karten-Änderung übernommen.');
       } else {
@@ -114,7 +118,10 @@ const KanbanAcpConfirmCard: React.FC = () => {
   if (!pending) return null;
 
   return (
-    <div style={{ position: 'fixed', right: 20, bottom: 20, width: 380, zIndex: 1200, maxWidth: 'calc(100vw - 40px)' }} data-testid='kanban-acp-confirm-card'>
+    <div
+      style={{ position: 'fixed', right: 20, bottom: 20, width: 380, zIndex: 1200, maxWidth: 'calc(100vw - 40px)' }}
+      data-testid='kanban-acp-confirm-card'
+    >
       <Card
         bordered
         style={{ boxShadow: '0 8px 24px rgba(0,0,0,0.18)' }}
@@ -142,7 +149,13 @@ const KanbanAcpConfirmCard: React.FC = () => {
           <Button size='small' onClick={() => void onDismiss()} disabled={busy} data-testid='kanban-acp-dismiss'>
             Verwerfen
           </Button>
-          <Button size='small' type='primary' loading={busy} onClick={() => void onConfirm()} data-testid='kanban-acp-confirm'>
+          <Button
+            size='small'
+            type='primary'
+            loading={busy}
+            onClick={() => void onConfirm()}
+            data-testid='kanban-acp-confirm'
+          >
             Übernehmen
           </Button>
         </div>

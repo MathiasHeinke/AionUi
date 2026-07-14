@@ -25,7 +25,13 @@ const isMac = process.platform === 'darwin' || process.platform === 'linux'; // 
 interface RunResult {
   code: number | null;
   stdout: string;
-  proof: { EVE_AGENT_ID?: string; EVE_LEASE_TOKEN?: string; BEARER?: string; STATUS_FILE?: string; TOKEN_FILE?: string } | null;
+  proof: {
+    EVE_AGENT_ID?: string;
+    EVE_LEASE_TOKEN?: string;
+    BEARER?: string;
+    STATUS_FILE?: string;
+    TOKEN_FILE?: string;
+  } | null;
 }
 
 function runLauncher(
@@ -51,9 +57,23 @@ function runLauncher(
     `printf '{"EVE_AGENT_ID":"%s","EVE_LEASE_TOKEN":"%s","BEARER":"%s","BEARER_FILE":"%s","STATUS_FILE":"%s","TOKEN_FILE":"%s"}' "$EVE_AGENT_ID" "$EVE_LEASE_TOKEN" "$COMMAND_EVE_TEAM_MANAGE_BEARER" "$COMMAND_EVE_TEAM_MANAGE_BEARER_FILE" "$STATUS_FILE" "$TOKEN_FILE" > "$PROOF_FILE"
 while IFS= read -r l; do printf 'echo:%s\\n' "$l"; done`
   );
-  const args = [LAUNCHER, '--role', 'growth-lead', '--status-file', statusFile, '--token-file', tokenFile, '--', '/bin/sh', adapter];
+  const args = [
+    LAUNCHER,
+    '--role',
+    'growth-lead',
+    '--status-file',
+    statusFile,
+    '--token-file',
+    tokenFile,
+    '--',
+    '/bin/sh',
+    adapter,
+  ];
   return new Promise((resolve, reject) => {
-    const child = spawn('/bin/sh', args, { env: { ...process.env, ...parentEnv, PROOF_FILE: proofFile }, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn('/bin/sh', args, {
+      env: { ...process.env, ...parentEnv, PROOF_FILE: proofFile },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
     let stdout = '';
     child.stdout.on('data', (d) => (stdout += d.toString()));
     child.on('error', reject);
@@ -102,7 +122,7 @@ describe.skipIf(!isMac)('eve-acp-launcher.sh — CI exec proof (A3/A8)', () => {
     expect(r.proof?.EVE_LEASE_TOKEN).toBe('SECRET-LEASE-abc');
   });
 
-  it('A8 transparent stdio: a JSON line round-trips through the exec\'d adapter', async () => {
+  it("A8 transparent stdio: a JSON line round-trips through the exec'd adapter", async () => {
     const r = await runLauncher(dir, 'active', 'tok', '{"jsonrpc":"2.0","id":1}');
     expect(r.code).toBe(0);
     expect(r.stdout).toContain('echo:{"jsonrpc":"2.0","id":1}');

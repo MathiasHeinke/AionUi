@@ -20,7 +20,12 @@
  */
 
 import { useCallback, useState } from 'react';
-import { detectDailyCapReached, detectQuotaExhausted, showsFreeActionMeter, type QuotaExhaustedBody } from '@/common/config/creditsCore';
+import {
+  detectDailyCapReached,
+  detectQuotaExhausted,
+  showsFreeActionMeter,
+  type QuotaExhaustedBody,
+} from '@/common/config/creditsCore';
 import { useCreditsStatus } from '@renderer/hooks/useCreditsStatus';
 
 export interface QuotaWallState {

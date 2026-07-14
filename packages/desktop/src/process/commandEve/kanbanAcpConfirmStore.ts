@@ -32,7 +32,16 @@ export const KANBAN_ACP_ALLOWED_OPS: readonly string[] = ['create', 'move', 'act
 /** The card sub-actions the 'action' op may carry (dispatch/assign/delete are absent by design). */
 export const KANBAN_ACP_ALLOWED_ACTIONS: readonly string[] = ['comment', 'block', 'unblock', 'complete'];
 /** Keys that, if present on a proposal, mean it is trying to escape the propose scope. */
-const KANBAN_FORBIDDEN_KEYS: readonly string[] = ['delete', 'dispatch', 'spawn', 'assign', 'worker', 'swarm', 'decompose', 'heartbeat'];
+const KANBAN_FORBIDDEN_KEYS: readonly string[] = [
+  'delete',
+  'dispatch',
+  'spawn',
+  'assign',
+  'worker',
+  'swarm',
+  'decompose',
+  'heartbeat',
+];
 
 export const KANBAN_ACP_DEFAULT_TTL_MS = 5 * 60 * 1000;
 
@@ -60,7 +69,14 @@ export interface KanbanAcpIntent {
   readonly expires_ms: number;
 }
 
-export type KanbanAcpRejectCode = 'bad-schema' | 'not-visible' | 'unknown-op' | 'unknown-action' | 'scope-violation' | 'no-board' | 'missing-field';
+export type KanbanAcpRejectCode =
+  | 'bad-schema'
+  | 'not-visible'
+  | 'unknown-op'
+  | 'unknown-action'
+  | 'scope-violation'
+  | 'no-board'
+  | 'missing-field';
 
 export interface KanbanProposalValidation {
   ok: boolean;
@@ -104,9 +120,16 @@ function stableStringify(value: unknown, depth = 0): string {
  * `visible`), a known op, an allowed sub-action for 'action', a board, and no forbidden
  * escape key. Computes the mutation hash for the tamper guard.
  */
-export function validateKanbanProposal(payload: unknown, ctx: { visible: boolean; boardSlug: string }): KanbanProposalValidation {
+export function validateKanbanProposal(
+  payload: unknown,
+  ctx: { visible: boolean; boardSlug: string }
+): KanbanProposalValidation {
   if (!ctx || ctx.visible !== true) {
-    return { ok: false, reject_code: 'not-visible', message: 'Die Kanban-Lane ist gerade nicht verfügbar (kein Board / kein aktiver Seat).' };
+    return {
+      ok: false,
+      reject_code: 'not-visible',
+      message: 'Die Kanban-Lane ist gerade nicht verfügbar (kein Board / kein aktiver Seat).',
+    };
   }
   if (!payload || typeof payload !== 'object') {
     return { ok: false, reject_code: 'bad-schema', message: 'Vorschlag muss ein Objekt sein.' };
@@ -139,17 +162,24 @@ export function validateKanbanProposal(payload: unknown, ctx: { visible: boolean
   const fields: KanbanAcpPayload = {};
   if (op === 'create') {
     fields.title = str(p.title ?? p.card, 200);
-    if (!fields.title) return { ok: false, reject_code: 'missing-field', message: 'Für eine neue Karte fehlt der Titel.' };
+    if (!fields.title)
+      return { ok: false, reject_code: 'missing-field', message: 'Für eine neue Karte fehlt der Titel.' };
     const lane = str(p.lane ?? p.to ?? p.to_lane_key, 60);
     if (lane) fields.lane = lane;
   } else if (op === 'move') {
     fields.task_id = str(p.task_id ?? p.card, 120);
     fields.to_lane_key = str(p.to_lane_key ?? p.to, 60);
-    if (!fields.task_id || !fields.to_lane_key) return { ok: false, reject_code: 'missing-field', message: 'Zum Verschieben fehlt die Karte oder die Ziel-Spalte.' };
+    if (!fields.task_id || !fields.to_lane_key)
+      return {
+        ok: false,
+        reject_code: 'missing-field',
+        message: 'Zum Verschieben fehlt die Karte oder die Ziel-Spalte.',
+      };
   } else {
     // action
     fields.task_id = str(p.task_id ?? p.card, 120);
-    if (!fields.task_id) return { ok: false, reject_code: 'missing-field', message: 'Für die Karten-Aktion fehlt die Karte.' };
+    if (!fields.task_id)
+      return { ok: false, reject_code: 'missing-field', message: 'Für die Karten-Aktion fehlt die Karte.' };
     const comment = str(p.comment, 1000);
     if (comment) fields.comment = comment;
   }
@@ -158,14 +188,37 @@ export function validateKanbanProposal(payload: unknown, ctx: { visible: boolean
   const summary = describeKanbanProposal(op, action, p);
   // The hash covers the op/action/board AND the sanitized fields, so the confirm can
   // only apply the exact change that was proposed.
-  return { ok: true, op, action, board_slug: board, payload: fields, summary, reason, mutation_hash: kanbanMutationHash(op, action, board, { ...fields }) };
+  return {
+    ok: true,
+    op,
+    action,
+    board_slug: board,
+    payload: fields,
+    summary,
+    reason,
+    mutation_hash: kanbanMutationHash(op, action, board, { ...fields }),
+  };
 }
 
 /** Human-readable German summary for the confirm card. Pure. */
 export function describeKanbanProposal(op: string, action: string, payload: Record<string, unknown>): string {
-  const title = typeof payload.title === 'string' ? payload.title.slice(0, 80) : typeof payload.card === 'string' ? payload.card.slice(0, 80) : '';
-  const laneVerb: Record<string, string> = { create: 'Neue Karte anlegen', move: 'Karte verschieben', action: 'Karten-Aktion' };
-  const actionVerb: Record<string, string> = { comment: 'kommentieren', block: 'blockieren', unblock: 'entsperren', complete: 'abschließen' };
+  const title =
+    typeof payload.title === 'string'
+      ? payload.title.slice(0, 80)
+      : typeof payload.card === 'string'
+        ? payload.card.slice(0, 80)
+        : '';
+  const laneVerb: Record<string, string> = {
+    create: 'Neue Karte anlegen',
+    move: 'Karte verschieben',
+    action: 'Karten-Aktion',
+  };
+  const actionVerb: Record<string, string> = {
+    comment: 'kommentieren',
+    block: 'blockieren',
+    unblock: 'entsperren',
+    complete: 'abschließen',
+  };
   const head = laneVerb[op] || op;
   const tail = op === 'action' && actionVerb[action] ? ` — ${actionVerb[action]}` : '';
   return title ? `${head}${tail}: „${title}"` : `${head}${tail}`;
@@ -182,7 +235,12 @@ export interface CreateKanbanIntentDeps {
 }
 
 /** Store a NEW pending intent, replacing any existing one (max 1 pending). */
-export function createKanbanIntent(v: KanbanProposalValidation, seat_id: string, source: string, deps: CreateKanbanIntentDeps): KanbanAcpIntent {
+export function createKanbanIntent(
+  v: KanbanProposalValidation,
+  seat_id: string,
+  source: string,
+  deps: CreateKanbanIntentDeps
+): KanbanAcpIntent {
   const ttl = deps.ttlMs ?? KANBAN_ACP_DEFAULT_TTL_MS;
   const intent: KanbanAcpIntent = {
     intent_id: (deps.randomId ?? (() => `kintent-${deps.now}`))(),
@@ -229,7 +287,12 @@ export interface ConsumeKanbanResult {
  * confirmed change is not the proposed one — bait-and-switch). Success REMOVES it so it
  * can never be double-applied.
  */
-export function consumeKanbanIntent(intent_id: string, currentSeatId: string, mutationHash: string, now: number): ConsumeKanbanResult {
+export function consumeKanbanIntent(
+  intent_id: string,
+  currentSeatId: string,
+  mutationHash: string,
+  now: number
+): ConsumeKanbanResult {
   const current = pending;
   if (!current) return { ok: false, reason: 'not-found' };
   if (current.intent_id !== intent_id) return { ok: false, reason: 'wrong-intent' };
@@ -239,7 +302,8 @@ export function consumeKanbanIntent(intent_id: string, currentSeatId: string, mu
   }
   const seat = typeof currentSeatId === 'string' ? currentSeatId.trim() : '';
   if (!seat || current.seat_id !== seat) return { ok: false, reason: 'wrong-seat' };
-  if (typeof mutationHash !== 'string' || mutationHash !== current.mutation_hash) return { ok: false, reason: 'tampered' };
+  if (typeof mutationHash !== 'string' || mutationHash !== current.mutation_hash)
+    return { ok: false, reason: 'tampered' };
   pending = null;
   return { ok: true, intent: current };
 }
@@ -259,10 +323,17 @@ export interface KanbanProposeResponse {
 }
 
 /** Compose validate → create for the async propose lane. NO kanban.db write happens here. */
-export function buildKanbanProposeResponse(payload: unknown, ctx: { visible: boolean; boardSlug: string; seatId: string; now: number; ttlMs?: number; randomId?: () => string }): KanbanProposeResponse {
+export function buildKanbanProposeResponse(
+  payload: unknown,
+  ctx: { visible: boolean; boardSlug: string; seatId: string; now: number; ttlMs?: number; randomId?: () => string }
+): KanbanProposeResponse {
   const v = validateKanbanProposal(payload, { visible: ctx.visible, boardSlug: ctx.boardSlug });
   if (v.ok) {
-    const intent = createKanbanIntent(v, ctx.seatId, 'skill', { now: ctx.now, ttlMs: ctx.ttlMs, randomId: ctx.randomId });
+    const intent = createKanbanIntent(v, ctx.seatId, 'skill', {
+      now: ctx.now,
+      ttlMs: ctx.ttlMs,
+      randomId: ctx.randomId,
+    });
     return { ok: true, status: 'proposed', intent_id: intent.intent_id, summary: v.summary };
   }
   return { ok: false, status: 'rejected', reject_code: v.reject_code, message: v.message };

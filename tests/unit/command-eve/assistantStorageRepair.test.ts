@@ -136,14 +136,14 @@ function hermesRegistryOf(dataDir: string): {
     )
     .get() as
     | {
-      command: string | null;
-      args: string | null;
-      command_override: string | null;
-      last_check_status: string | null;
-      last_check_error_message: string | null;
-      last_failure_at: number | null;
-      updated_at: number | null;
-    }
+        command: string | null;
+        args: string | null;
+        command_override: string | null;
+        last_check_status: string | null;
+        last_check_error_message: string | null;
+        last_failure_at: number | null;
+        updated_at: number | null;
+      }
     | undefined;
   db.close();
   return row ?? null;
@@ -229,10 +229,16 @@ describe('repairCommandEveAssistantStorage — re-binds EVE aionrs → hermes (B
   it('re-binds the EVE definition from the aionrs agent to the hermes agent', async () => {
     const dir = makeDataDir();
     seedDbWithAgents(dir, (db) => {
-      db.prepare("INSERT INTO agent_metadata (id, name, agent_type, backend) VALUES ('hermes-1','Hermes','acp','hermes')").run();
-      db.prepare("INSERT INTO agent_metadata (id, name, agent_type, backend) VALUES ('aionrs-1','Aion CLI','aionrs',NULL)").run();
+      db.prepare(
+        "INSERT INTO agent_metadata (id, name, agent_type, backend) VALUES ('hermes-1','Hermes','acp','hermes')"
+      ).run();
+      db.prepare(
+        "INSERT INTO agent_metadata (id, name, agent_type, backend) VALUES ('aionrs-1','Aion CLI','aionrs',NULL)"
+      ).run();
       db.prepare(`INSERT INTO assistants (id, name) VALUES ('${EVE}','EVE')`).run();
-      db.prepare(`INSERT INTO assistant_definitions (id, assistant_id, source, agent_id, deleted_at) VALUES ('def-eve','${EVE}','user','aionrs-1',NULL)`).run();
+      db.prepare(
+        `INSERT INTO assistant_definitions (id, assistant_id, source, agent_id, deleted_at) VALUES ('def-eve','${EVE}','user','aionrs-1',NULL)`
+      ).run();
     });
     const result = await repairCommandEveAssistantStorage(dir);
     expect(result.rebound).toBe(1);
@@ -242,9 +248,13 @@ describe('repairCommandEveAssistantStorage — re-binds EVE aionrs → hermes (B
   it('is idempotent — no re-bind when EVE is already on hermes', async () => {
     const dir = makeDataDir();
     seedDbWithAgents(dir, (db) => {
-      db.prepare("INSERT INTO agent_metadata (id, name, agent_type, backend) VALUES ('hermes-1','Hermes','acp','hermes')").run();
+      db.prepare(
+        "INSERT INTO agent_metadata (id, name, agent_type, backend) VALUES ('hermes-1','Hermes','acp','hermes')"
+      ).run();
       db.prepare(`INSERT INTO assistants (id, name) VALUES ('${EVE}','EVE')`).run();
-      db.prepare(`INSERT INTO assistant_definitions (id, assistant_id, source, agent_id, deleted_at) VALUES ('def-eve','${EVE}','user','hermes-1',NULL)`).run();
+      db.prepare(
+        `INSERT INTO assistant_definitions (id, assistant_id, source, agent_id, deleted_at) VALUES ('def-eve','${EVE}','user','hermes-1',NULL)`
+      ).run();
     });
     const result = await repairCommandEveAssistantStorage(dir);
     expect(result.rebound).toBe(0);
@@ -254,10 +264,16 @@ describe('repairCommandEveAssistantStorage — re-binds EVE aionrs → hermes (B
   it('does NOT re-bind a NON-EVE assistant that legitimately runs on aionrs', async () => {
     const dir = makeDataDir();
     seedDbWithAgents(dir, (db) => {
-      db.prepare("INSERT INTO agent_metadata (id, name, agent_type, backend) VALUES ('hermes-1','Hermes','acp','hermes')").run();
-      db.prepare("INSERT INTO agent_metadata (id, name, agent_type, backend) VALUES ('aionrs-1','Aion CLI','aionrs',NULL)").run();
+      db.prepare(
+        "INSERT INTO agent_metadata (id, name, agent_type, backend) VALUES ('hermes-1','Hermes','acp','hermes')"
+      ).run();
+      db.prepare(
+        "INSERT INTO agent_metadata (id, name, agent_type, backend) VALUES ('aionrs-1','Aion CLI','aionrs',NULL)"
+      ).run();
       db.prepare("INSERT INTO assistants (id, name) VALUES ('excel-creator','Excel')").run();
-      db.prepare("INSERT INTO assistant_definitions (id, assistant_id, source, agent_id, deleted_at) VALUES ('def-x','excel-creator','user','aionrs-1',NULL)").run();
+      db.prepare(
+        "INSERT INTO assistant_definitions (id, assistant_id, source, agent_id, deleted_at) VALUES ('def-x','excel-creator','user','aionrs-1',NULL)"
+      ).run();
     });
     const result = await repairCommandEveAssistantStorage(dir);
     expect(result.rebound).toBe(0);
@@ -267,10 +283,16 @@ describe('repairCommandEveAssistantStorage — re-binds EVE aionrs → hermes (B
   it('re-binds AND un-soft-deletes the EVE definition in one shot (heals both bugs)', async () => {
     const dir = makeDataDir();
     seedDbWithAgents(dir, (db) => {
-      db.prepare("INSERT INTO agent_metadata (id, name, agent_type, backend) VALUES ('hermes-1','Hermes','acp','hermes')").run();
-      db.prepare("INSERT INTO agent_metadata (id, name, agent_type, backend) VALUES ('aionrs-1','Aion CLI','aionrs',NULL)").run();
+      db.prepare(
+        "INSERT INTO agent_metadata (id, name, agent_type, backend) VALUES ('hermes-1','Hermes','acp','hermes')"
+      ).run();
+      db.prepare(
+        "INSERT INTO agent_metadata (id, name, agent_type, backend) VALUES ('aionrs-1','Aion CLI','aionrs',NULL)"
+      ).run();
       db.prepare(`INSERT INTO assistants (id, name) VALUES ('${EVE}','EVE')`).run();
-      db.prepare(`INSERT INTO assistant_definitions (id, assistant_id, source, agent_id, deleted_at) VALUES ('def-eve','${EVE}','user','aionrs-1', 1782510337017)`).run();
+      db.prepare(
+        `INSERT INTO assistant_definitions (id, assistant_id, source, agent_id, deleted_at) VALUES ('def-eve','${EVE}','user','aionrs-1', 1782510337017)`
+      ).run();
     });
     const result = await repairCommandEveAssistantStorage(dir);
     expect(result.rebound).toBe(1);
@@ -281,9 +303,13 @@ describe('repairCommandEveAssistantStorage — re-binds EVE aionrs → hermes (B
   it('skips the re-bind (rebound 0) when no hermes agent exists yet', async () => {
     const dir = makeDataDir();
     seedDbWithAgents(dir, (db) => {
-      db.prepare("INSERT INTO agent_metadata (id, name, agent_type, backend) VALUES ('aionrs-1','Aion CLI','aionrs',NULL)").run();
+      db.prepare(
+        "INSERT INTO agent_metadata (id, name, agent_type, backend) VALUES ('aionrs-1','Aion CLI','aionrs',NULL)"
+      ).run();
       db.prepare(`INSERT INTO assistants (id, name) VALUES ('${EVE}','EVE')`).run();
-      db.prepare(`INSERT INTO assistant_definitions (id, assistant_id, source, agent_id, deleted_at) VALUES ('def-eve','${EVE}','user','aionrs-1',NULL)`).run();
+      db.prepare(
+        `INSERT INTO assistant_definitions (id, assistant_id, source, agent_id, deleted_at) VALUES ('def-eve','${EVE}','user','aionrs-1',NULL)`
+      ).run();
     });
     const result = await repairCommandEveAssistantStorage(dir);
     expect(result.rebound).toBe(0);
@@ -296,23 +322,21 @@ describe('repairCommandEveAssistantStorage — pins Hermes registry command to t
     const dir = makeDataDir();
     const shim = '/abs/command-eve-runtime/hermes/hermes';
     seedDbWithRichAgentRegistry(dir, (db) => {
-      db
-        .prepare(
-          'INSERT INTO agent_metadata (id, name, agent_type, backend, command, args, command_override, last_check_status, last_check_error_message, last_failure_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
-        )
-        .run(
-          'hermes-1',
-          'Hermes',
-          'acp',
-          'hermes',
-          'hermes',
-          '[]',
-          null,
-          'offline',
-          "command 'hermes' not found in PATH",
-          1782510337017,
-          111
-        );
+      db.prepare(
+        'INSERT INTO agent_metadata (id, name, agent_type, backend, command, args, command_override, last_check_status, last_check_error_message, last_failure_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+      ).run(
+        'hermes-1',
+        'Hermes',
+        'acp',
+        'hermes',
+        'hermes',
+        '[]',
+        null,
+        'offline',
+        "command 'hermes' not found in PATH",
+        1782510337017,
+        111
+      );
     });
 
     const result = await repairCommandEveAssistantStorage(dir, { hermesCommandPath: shim });
@@ -334,23 +358,9 @@ describe('repairCommandEveAssistantStorage — pins Hermes registry command to t
   it('leaves the Hermes registry untouched when no shim path is provided', async () => {
     const dir = makeDataDir();
     seedDbWithRichAgentRegistry(dir, (db) => {
-      db
-        .prepare(
-          'INSERT INTO agent_metadata (id, name, agent_type, backend, command, args, command_override, last_check_status, last_check_error_message, last_failure_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
-        )
-        .run(
-          'hermes-1',
-          'Hermes',
-          'acp',
-          'hermes',
-          'hermes',
-          '[]',
-          null,
-          'offline',
-          'bad path',
-          123,
-          111
-        );
+      db.prepare(
+        'INSERT INTO agent_metadata (id, name, agent_type, backend, command, args, command_override, last_check_status, last_check_error_message, last_failure_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)'
+      ).run('hermes-1', 'Hermes', 'acp', 'hermes', 'hermes', '[]', null, 'offline', 'bad path', 123, 111);
     });
 
     const result = await repairCommandEveAssistantStorage(dir);
@@ -366,9 +376,7 @@ describe('repairCommandEveAssistantStorage — pins Hermes registry command to t
 
 function eveExists(dataDir: string, assistantId: string): boolean {
   const db = new DatabaseSync(path.join(dataDir, 'aionui-backend.db'));
-  const row = db.prepare('SELECT 1 AS n FROM assistants WHERE id = ?').get(assistantId) as
-    | { n: number }
-    | undefined;
+  const row = db.prepare('SELECT 1 AS n FROM assistants WHERE id = ?').get(assistantId) as { n: number } | undefined;
   db.close();
   return Boolean(row && row.n);
 }

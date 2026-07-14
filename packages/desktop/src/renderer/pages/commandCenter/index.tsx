@@ -3440,7 +3440,11 @@ const CommandCenterPage: React.FC = () => {
   // confirmation. The handoff packet mirrors the recorded controller handoff so
   // the receipt is consistent.
   const buildLadderHandoff = useCallback(
-    (card: ICommandEveMarketingCard, status: string, humanGate: 'HG-2.5' | 'HG-3' | 'HG-3.5'): Record<string, unknown> => ({
+    (
+      card: ICommandEveMarketingCard,
+      status: string,
+      humanGate: 'HG-2.5' | 'HG-3' | 'HG-3.5'
+    ): Record<string, unknown> => ({
       version: 'command-eve-local-dispatch-handoff/v0',
       status,
       dispatch: card.controller_decision_handoff_dispatch || card.controller_review_handoff_dispatch || 'manual',

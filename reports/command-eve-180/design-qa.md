@@ -9,21 +9,21 @@ The composer slice is ready to commit. It does not claim that the full 1.8.0 she
 
 ## Live Matrix
 
-| Gate | Result | Evidence |
-| --- | --- | --- |
-| Start composer, dark pointer spotlight | PASS | `screenshots/dev/guid-composer-dark-hover-final.png` |
-| Start composer, light pointer spotlight | PASS | `screenshots/dev/guid-composer-light-hover.png` |
-| In-chat composer, dark | PASS | `screenshots/dev/chat-dark-hover.png` |
-| In-chat composer, light finished | PASS | `screenshots/dev/chat-light-finished.png` |
-| Mobile 390px | PASS, `scrollWidth === clientWidth === 390` | `screenshots/dev/guid-mobile-dark-390.png` |
-| Keyboard focus | PASS, blue 2px outline; spotlight suppressed | `screenshots/dev/guid-keyboard-focus-dark.png` |
-| Reduced effects | PASS, solid background; no blur; static 30% hotspot | `screenshots/dev/guid-reduced-effects-dark.png` |
-| Start drag feedback | PASS, dashed primary border + tint | `screenshots/dev/guid-drag-dark.png` |
-| In-chat drag feedback | PASS, dashed primary border + tint | `screenshots/dev/chat-drag-dark.png` |
-| Speech recording | PASS, timer and waveform visible | `screenshots/dev/guid-speech-recording-dark.png` |
-| Speech transcription | PASS, processing feedback visible; empty recording ended as `Keine Sprache erkannt` | `screenshots/dev/guid-speech-processing-dark.png` |
-| Running/stop state | PASS, blue stop + white square + neutral disabled mic | `screenshots/dev/chat-stop-dark.png` |
-| Draft while running | PASS, stop changes to enabled send without moving the row | `screenshots/dev/chat-queue-ready-dark.png` |
+| Gate                                    | Result                                                                              | Evidence                                             |
+| --------------------------------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Start composer, dark pointer spotlight  | PASS                                                                                | `screenshots/dev/guid-composer-dark-hover-final.png` |
+| Start composer, light pointer spotlight | PASS                                                                                | `screenshots/dev/guid-composer-light-hover.png`      |
+| In-chat composer, dark                  | PASS                                                                                | `screenshots/dev/chat-dark-hover.png`                |
+| In-chat composer, light finished        | PASS                                                                                | `screenshots/dev/chat-light-finished.png`            |
+| Mobile 390px                            | PASS, `scrollWidth === clientWidth === 390`                                         | `screenshots/dev/guid-mobile-dark-390.png`           |
+| Keyboard focus                          | PASS, blue 2px outline; spotlight suppressed                                        | `screenshots/dev/guid-keyboard-focus-dark.png`       |
+| Reduced effects                         | PASS, solid background; no blur; static 30% hotspot                                 | `screenshots/dev/guid-reduced-effects-dark.png`      |
+| Start drag feedback                     | PASS, dashed primary border + tint                                                  | `screenshots/dev/guid-drag-dark.png`                 |
+| In-chat drag feedback                   | PASS, dashed primary border + tint                                                  | `screenshots/dev/chat-drag-dark.png`                 |
+| Speech recording                        | PASS, timer and waveform visible                                                    | `screenshots/dev/guid-speech-recording-dark.png`     |
+| Speech transcription                    | PASS, processing feedback visible; empty recording ended as `Keine Sprache erkannt` | `screenshots/dev/guid-speech-processing-dark.png`    |
+| Running/stop state                      | PASS, blue stop + white square + neutral disabled mic                               | `screenshots/dev/chat-stop-dark.png`                 |
+| Draft while running                     | PASS, stop changes to enabled send without moving the row                           | `screenshots/dev/chat-queue-ready-dark.png`          |
 
 ## Runtime Evidence
 

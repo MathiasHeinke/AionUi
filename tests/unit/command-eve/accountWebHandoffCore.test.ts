@@ -31,7 +31,7 @@ describe('buildAccountWebUrl (app→web auth handoff)', () => {
     expect(url).toContain(`#${HANDOFF_FRAGMENT_KEY}=`);
   });
 
-  it('returns the NAKED url (today\'s fallback) when no token is present', () => {
+  it("returns the NAKED url (today's fallback) when no token is present", () => {
     expect(buildAccountWebUrl(COMMAND_EVE_WEB_ORIGIN, '/account?pack_eur=50')).toBe(
       `${COMMAND_EVE_WEB_ORIGIN}/account?pack_eur=50`
     );
@@ -83,11 +83,15 @@ describe('buildAccountWebHandoffUrl (H5/H7 reverse-handoff — CODE, never a tok
 
   it('returns the NAKED url when no code is present (the fallback signal)', () => {
     expect(buildAccountWebHandoffUrl(COMMAND_EVE_WEB_ORIGIN, '/account')).toBe(`${COMMAND_EVE_WEB_ORIGIN}/account`);
-    expect(buildAccountWebHandoffUrl(COMMAND_EVE_WEB_ORIGIN, '/account', '   ')).toBe(`${COMMAND_EVE_WEB_ORIGIN}/account`);
+    expect(buildAccountWebHandoffUrl(COMMAND_EVE_WEB_ORIGIN, '/account', '   ')).toBe(
+      `${COMMAND_EVE_WEB_ORIGIN}/account`
+    );
   });
 
   it('PINS the origin to command-eve.com and rejects a non-absolute path', () => {
-    expect(buildAccountWebHandoffUrl('https://evil.example.com', '/account', 'c').startsWith(COMMAND_EVE_WEB_ORIGIN)).toBe(true);
+    expect(
+      buildAccountWebHandoffUrl('https://evil.example.com', '/account', 'c').startsWith(COMMAND_EVE_WEB_ORIGIN)
+    ).toBe(true);
     expect(() => buildAccountWebHandoffUrl(COMMAND_EVE_WEB_ORIGIN, 'account', 'c')).toThrow();
   });
 });
@@ -96,7 +100,9 @@ describe('mintAccountWebHandoffCode (H5/H7 ISSUE leg — desktop side)', () => {
   const anonKey = 'anon-key';
 
   it('POSTs {action:issue} with the access token as Bearer + apikey, returns the code', async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true, handoff_code: 'hc-123' }), { status: 200 }));
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ ok: true, handoff_code: 'hc-123' }), { status: 200 })
+    );
     const code = await mintAccountWebHandoffCode({
       getAccessToken: async () => 'access-abc',
       anonKey,
@@ -114,21 +120,43 @@ describe('mintAccountWebHandoffCode (H5/H7 ISSUE leg — desktop side)', () => {
 
   it('returns null when there is NO session (no access token) — never calls the endpoint', async () => {
     const fetchMock = vi.fn();
-    const code = await mintAccountWebHandoffCode({ getAccessToken: async () => null, anonKey, fetch: fetchMock as unknown as typeof fetch });
+    const code = await mintAccountWebHandoffCode({
+      getAccessToken: async () => null,
+      anonKey,
+      fetch: fetchMock as unknown as typeof fetch,
+    });
     expect(code).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('returns null on a non-OK response (endpoint not deployed / 404) so the caller falls back', async () => {
     const fetchMock = vi.fn(async () => new Response('not found', { status: 404 }));
-    const code = await mintAccountWebHandoffCode({ getAccessToken: async () => 'a', anonKey, fetch: fetchMock as unknown as typeof fetch });
+    const code = await mintAccountWebHandoffCode({
+      getAccessToken: async () => 'a',
+      anonKey,
+      fetch: fetchMock as unknown as typeof fetch,
+    });
     expect(code).toBeNull();
   });
 
   it('returns null on a network throw and on a malformed body (fail-quiet)', async () => {
-    const throwFetch = vi.fn(async () => { throw new Error('offline'); });
-    expect(await mintAccountWebHandoffCode({ getAccessToken: async () => 'a', anonKey, fetch: throwFetch as unknown as typeof fetch })).toBeNull();
+    const throwFetch = vi.fn(async () => {
+      throw new Error('offline');
+    });
+    expect(
+      await mintAccountWebHandoffCode({
+        getAccessToken: async () => 'a',
+        anonKey,
+        fetch: throwFetch as unknown as typeof fetch,
+      })
+    ).toBeNull();
     const badBody = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 })); // no handoff_code
-    expect(await mintAccountWebHandoffCode({ getAccessToken: async () => 'a', anonKey, fetch: badBody as unknown as typeof fetch })).toBeNull();
+    expect(
+      await mintAccountWebHandoffCode({
+        getAccessToken: async () => 'a',
+        anonKey,
+        fetch: badBody as unknown as typeof fetch,
+      })
+    ).toBeNull();
   });
 });

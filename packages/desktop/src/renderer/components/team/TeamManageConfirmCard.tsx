@@ -146,7 +146,13 @@ const TeamManageConfirmCard: React.FC = () => {
           <Button size='small' onClick={() => void onDismiss()} disabled={busy} data-testid='team-manage-dismiss'>
             Verwerfen
           </Button>
-          <Button size='small' type='primary' loading={busy} onClick={() => void onConfirm()} data-testid='team-manage-confirm'>
+          <Button
+            size='small'
+            type='primary'
+            loading={busy}
+            onClick={() => void onConfirm()}
+            data-testid='team-manage-confirm'
+          >
             Übernehmen
           </Button>
         </div>

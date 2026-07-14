@@ -22,14 +22,14 @@ The plan is complete only when:
 
 ## 2. Execution Roles
 
-| Role | Responsibility |
-|---|---|
-| Mathias / Founder | visual direction, final screenshot approval, release gate |
+| Role               | Responsibility                                                            |
+| ------------------ | ------------------------------------------------------------------------- |
+| Mathias / Founder  | visual direction, final screenshot approval, release gate                 |
 | Codex / Controller | scope, impact analysis, implementation integration, tests, final judgment |
-| Fable 5 High | read-only design/system challenge before build and post-review after QA |
-| Image 2.0 | bitmap design references only; never implementation truth |
-| Playwright/E2E | repeatable interaction and screenshot evidence |
-| GitNexus | pre-edit impact and post-change scope verification |
+| Fable 5 High       | read-only design/system challenge before build and post-review after QA   |
+| Image 2.0          | bitmap design references only; never implementation truth                 |
+| Playwright/E2E     | repeatable interaction and screenshot evidence                            |
+| GitNexus           | pre-edit impact and post-change scope verification                        |
 
 External reviewers do not write source code in the active integration
 worktree. Codex owns final edits and conflict resolution.
@@ -110,13 +110,7 @@ variables are applied.
 ### 4.2 Session status
 
 ```ts
-type SessionStatus =
-  | 'running'
-  | 'error'
-  | 'attention'
-  | 'completed'
-  | 'newResult'
-  | 'idle';
+type SessionStatus = 'running' | 'error' | 'attention' | 'completed' | 'newResult' | 'idle';
 ```
 
 Selection is not a status. Do not add `selected` to this union.
@@ -145,11 +139,7 @@ type CommandEveGlyphProps = {
   decorative?: boolean;
 };
 
-export const CommandEveGlyph = ({
-  size = 20,
-  className,
-  decorative = true,
-}: CommandEveGlyphProps) => (
+export const CommandEveGlyph = ({ size = 20, className, decorative = true }: CommandEveGlyphProps) => (
   <span
     className={classNames('command-eve-glyph', className)}
     style={{ fontSize: size }}

@@ -42,7 +42,13 @@ const makeModel = (
   columns: Array<{ key: KanbanLaneKey; cards: IKanbanBoardCard[] }>,
   boardOverrides: Partial<IKanbanBoardModel['board']> = {}
 ): IKanbanBoardModel => ({
-  board: { slug: 'marketing', db_path: '/x/kanban/boards/marketing/kanban.db', db_exists: true, table_count: 5, ...boardOverrides },
+  board: {
+    slug: 'marketing',
+    db_path: '/x/kanban/boards/marketing/kanban.db',
+    db_exists: true,
+    table_count: 5,
+    ...boardOverrides,
+  },
   summary: { total_cards: columns.reduce((n, c) => n + c.cards.length, 0) },
   columns,
   warnings: [],
@@ -137,7 +143,9 @@ describe('nextKanbanLane', () => {
 
 describe('projectKanbanCardDetail (Class-2 read-only card detail)', () => {
   it('projects a slim card: provenance from owner+created, no draft, unknown governance, no ladder', () => {
-    const detail = projectKanbanCardDetail(makeCard('a', 'research', { card_assignee: 'eve', created_at: 100, updated_at: null }));
+    const detail = projectKanbanCardDetail(
+      makeCard('a', 'research', { card_assignee: 'eve', created_at: 100, updated_at: null })
+    );
     expect(detail.provenance.assignee).toBe('eve');
     expect(detail.provenance.createdAt).toBe(100);
     expect(detail.provenance.updatedAt).toBeNull();

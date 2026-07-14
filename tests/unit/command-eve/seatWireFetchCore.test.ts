@@ -21,7 +21,11 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { readMySeatsWire, MY_SEATS_FUNCTION_URL, type ReadMySeatsWireDeps } from '@process/commandEve/seatWireFetchCore';
+import {
+  readMySeatsWire,
+  MY_SEATS_FUNCTION_URL,
+  type ReadMySeatsWireDeps,
+} from '@process/commandEve/seatWireFetchCore';
 import type { CommandEveAccountSession } from '@process/commandEve/desktopAuthLoopback';
 
 const USER_DATA = '/tmp/command-eve-test-userdata';
@@ -75,7 +79,10 @@ afterEach(() => vi.restoreAllMocks());
 describe('readMySeatsWire — happy path', () => {
   it('returns the raw wire (feedable to parseMySeats) on a valid session + 2xx', async () => {
     const fetchMock = vi.fn(async () => okResponse(edgeBody()));
-    const wire = (await readMySeatsWire(USER_DATA, baseDeps({ fetch: fetchMock as unknown as typeof fetch }))) as Record<string, unknown>;
+    const wire = (await readMySeatsWire(
+      USER_DATA,
+      baseDeps({ fetch: fetchMock as unknown as typeof fetch })
+    )) as Record<string, unknown>;
 
     expect(wire).not.toBeNull();
     expect((wire.account as Record<string, unknown>).id).toBe('acc1');

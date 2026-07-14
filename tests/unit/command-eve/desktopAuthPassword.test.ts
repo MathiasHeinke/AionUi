@@ -60,7 +60,10 @@ describe('passwordGrant', () => {
 
   it('login posts the password grant with apikey + NO Authorization and returns a session', async () => {
     const fetchImpl = recordingFetch(() => jsonRes(200, SESSION_BODY));
-    const r = await passwordGrant('login', '  founder@firma.de  ', 'secret-pw', { fetch: fetchImpl, anonKey: 'anon-key' });
+    const r = await passwordGrant('login', '  founder@firma.de  ', 'secret-pw', {
+      fetch: fetchImpl,
+      anonKey: 'anon-key',
+    });
     expect(r.ok).toBe(true);
     expect(r.session?.user.email).toBe('founder@firma.de');
     expect(r.session?.access_token).toBe('synthetic-access');
@@ -90,16 +93,24 @@ describe('passwordGrant', () => {
 
   it('maps invalid credentials, taken email, weak password, and rate limit to safe codes', async () => {
     const bad = recordingFetch(() => jsonRes(400, { error_description: 'Invalid login credentials' }));
-    expect((await passwordGrant('login', 'a@b.de', 'x', { fetch: bad, anonKey: 'k' })).reason_code).toBe('invalid_credentials');
+    expect((await passwordGrant('login', 'a@b.de', 'x', { fetch: bad, anonKey: 'k' })).reason_code).toBe(
+      'invalid_credentials'
+    );
 
     const taken = recordingFetch(() => jsonRes(400, { msg: 'User already registered' }));
-    expect((await passwordGrant('register', 'a@b.de', 'x', { fetch: taken, anonKey: 'k' })).reason_code).toBe('email_taken');
+    expect((await passwordGrant('register', 'a@b.de', 'x', { fetch: taken, anonKey: 'k' })).reason_code).toBe(
+      'email_taken'
+    );
 
     const weak = recordingFetch(() => jsonRes(422, { msg: 'Password should be at least 6 characters' }));
-    expect((await passwordGrant('register', 'a@b.de', 'x', { fetch: weak, anonKey: 'k' })).reason_code).toBe('weak_password');
+    expect((await passwordGrant('register', 'a@b.de', 'x', { fetch: weak, anonKey: 'k' })).reason_code).toBe(
+      'weak_password'
+    );
 
     const limited = recordingFetch(() => jsonRes(429, { msg: 'rate limit exceeded' }));
-    expect((await passwordGrant('login', 'a@b.de', 'x', { fetch: limited, anonKey: 'k' })).reason_code).toBe('rate_limited');
+    expect((await passwordGrant('login', 'a@b.de', 'x', { fetch: limited, anonKey: 'k' })).reason_code).toBe(
+      'rate_limited'
+    );
   });
 
   it('returns AUTH_NETWORK when the fetch throws', async () => {

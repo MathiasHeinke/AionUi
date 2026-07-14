@@ -39,9 +39,7 @@ import type { EveTeamWorkerStatusMap } from '@/common/config/eveTeamControlsCore
 const TEAM_WORKER_STATUS_KEY = 'commandEve.teamWorkerStatus';
 
 /** Injected backend batch read (real one: readCommandEveSettingsFromBackend). */
-export type CommandEveSettingsBatchReader = (
-  logicalKeys: readonly string[]
-) => Promise<Record<string, unknown>>;
+export type CommandEveSettingsBatchReader = (logicalKeys: readonly string[]) => Promise<Record<string, unknown>>;
 
 /**
  * Build the per-dispatch team-worker-status resolver. Holds a private

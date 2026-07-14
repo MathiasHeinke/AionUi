@@ -77,10 +77,9 @@ type AuthoredSkillCard = {
   source: 'authored';
 };
 
-const authoredSkillsBridge = bridge.buildProvider<
-  BridgeResponse<{ ok: boolean; skills: AuthoredSkillCard[] }>,
-  void
->('command-eve.authored-skills');
+const authoredSkillsBridge = bridge.buildProvider<BridgeResponse<{ ok: boolean; skills: AuthoredSkillCard[] }>, void>(
+  'command-eve.authored-skills'
+);
 
 // A skill counts as "neu" for 14 days after EVE wrote it — the same honest mtime
 // horizon the v1.6 handover note uses. Pure; the caller passes now.
@@ -154,9 +153,7 @@ const AuthoredSkillCardView: React.FC<{ skill: AuthoredSkillCard; nowMs: number 
           <Tag color='purple'>{t('skillLibrary.authored.badge')}</Tag>
         </div>
       </div>
-      {skill.description ? (
-        <p className='m-0 text-13px leading-20px text-t-secondary'>{skill.description}</p>
-      ) : null}
+      {skill.description ? <p className='m-0 text-13px leading-20px text-t-secondary'>{skill.description}</p> : null}
     </article>
   );
 };
@@ -198,9 +195,7 @@ const SkillLibraryPage: React.FC = () => {
       // block the main library, and a failure here just hides the section.
       try {
         const authoredResponse = await authoredSkillsBridge.invoke();
-        setAuthored(
-          authoredResponse.success && authoredResponse.data?.ok ? authoredResponse.data.skills : []
-        );
+        setAuthored(authoredResponse.success && authoredResponse.data?.ok ? authoredResponse.data.skills : []);
       } catch {
         setAuthored([]);
       }

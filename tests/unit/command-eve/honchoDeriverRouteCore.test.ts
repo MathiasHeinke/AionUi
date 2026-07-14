@@ -40,7 +40,9 @@ describe('resolveHonchoDeriverRouteActive — default-deny gate', () => {
     expect(resolveHonchoDeriverRouteActive(readyCloud(), SEAT, { now: NOW + 1000 })).toBe(true);
   });
   it('false for a LOCAL branch (local talks to Ollama directly, not this route)', () => {
-    expect(resolveHonchoDeriverRouteActive({ ...readyCloud(), branch: HONCHO_DERIVER_BRANCH_LOCAL }, SEAT, { now: NOW })).toBe(false);
+    expect(
+      resolveHonchoDeriverRouteActive({ ...readyCloud(), branch: HONCHO_DERIVER_BRANCH_LOCAL }, SEAT, { now: NOW })
+    ).toBe(false);
   });
   it('false on a seat mismatch (snapshot for another seat can not activate here)', () => {
     expect(resolveHonchoDeriverRouteActive(readyCloud('other-seat'), SEAT, { now: NOW })).toBe(false);
@@ -51,7 +53,9 @@ describe('resolveHonchoDeriverRouteActive — default-deny gate', () => {
   });
   it('false when not ready (server down / deriver unreachable / cold)', () => {
     expect(resolveHonchoDeriverRouteActive({ ...readyCloud(), serverUp: false }, SEAT, { now: NOW })).toBe(false);
-    expect(resolveHonchoDeriverRouteActive({ ...readyCloud(), deriverReachable: false }, SEAT, { now: NOW })).toBe(false);
+    expect(resolveHonchoDeriverRouteActive({ ...readyCloud(), deriverReachable: false }, SEAT, { now: NOW })).toBe(
+      false
+    );
     expect(resolveHonchoDeriverRouteActive({ ...readyCloud(), state: 'degraded' }, SEAT, { now: NOW })).toBe(false);
   });
   it('false when the snapshot is stale (crash between probe and read)', () => {
@@ -86,9 +90,15 @@ describe('buildCommandEveShimHonchoDeriverRouteResolver — fail-closed resolver
   });
 
   it('fail-closed when the snapshot is not ready / seat mismatch', () => {
-    const notReady = buildCommandEveShimHonchoDeriverRouteResolver({ ...baseDeps(), readHonchoSeatReady: () => ({ ...readyCloud(), deriverReachable: false }) })();
+    const notReady = buildCommandEveShimHonchoDeriverRouteResolver({
+      ...baseDeps(),
+      readHonchoSeatReady: () => ({ ...readyCloud(), deriverReachable: false }),
+    })();
     expect(notReady.active).toBe(false);
-    const mismatch = buildCommandEveShimHonchoDeriverRouteResolver({ ...baseDeps(), readHonchoSeatReady: () => readyCloud('other') })();
+    const mismatch = buildCommandEveShimHonchoDeriverRouteResolver({
+      ...baseDeps(),
+      readHonchoSeatReady: () => readyCloud('other'),
+    })();
     expect(mismatch.active).toBe(false);
   });
 
@@ -120,7 +130,10 @@ describe('buildCommandEveShimHonchoDeriverRouteResolver — fail-closed resolver
   });
 
   it('when inactive, no license or url is present in the returned route', () => {
-    const route = buildCommandEveShimHonchoDeriverRouteResolver({ ...baseDeps(), readHonchoSeatReady: () => undefined })();
+    const route = buildCommandEveShimHonchoDeriverRouteResolver({
+      ...baseDeps(),
+      readHonchoSeatReady: () => undefined,
+    })();
     expect(JSON.stringify(route)).not.toContain('CEVE');
     expect(JSON.stringify(route)).not.toContain('unvbeothoimlzlolxucl');
   });

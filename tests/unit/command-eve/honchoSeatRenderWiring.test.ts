@@ -41,7 +41,17 @@ const makeUserData = (): string => {
 /** Write a fresh (probedAt=now) ready snapshot into the seat's OWN honcho home. */
 function writeReadySnapshot(hermesHome: string, seatId: string, branch: string): void {
   const honchoHome = path.join(hermesHome, 'honcho');
-  writeHonchoReadyState(honchoHome, reduceHonchoReadiness({ provisioned: true, serverProbe: { ok: true }, deriverProbe: { ok: true }, seatId, branch, now: Date.now() }));
+  writeHonchoReadyState(
+    honchoHome,
+    reduceHonchoReadiness({
+      provisioned: true,
+      serverProbe: { ok: true },
+      deriverProbe: { ok: true },
+      seatId,
+      branch,
+      now: Date.now(),
+    })
+  );
 }
 
 /** Create the fake venv python so the O2 launcher resolves. */
@@ -88,7 +98,9 @@ describe('resolveHonchoRenderForSeat', () => {
 
   it('an unsafe seat id ⇒ { ready: false } (fail-soft, no throw)', () => {
     const userData = makeUserData();
-    expect(resolveHonchoRenderForSeat({ userDataPath: userData, seatId: '../../escape', hermesVenv: '' }).ready).toBe(false);
+    expect(resolveHonchoRenderForSeat({ userDataPath: userData, seatId: '../../escape', hermesVenv: '' }).ready).toBe(
+      false
+    );
   });
 });
 
@@ -130,7 +142,7 @@ describe('config.yaml + SOUL.md render through the REAL provisioning seam', () =
     expect(soul).toContain('Dauerhaftes Gedächtnis');
   });
 
-  it('H-INT-10 — seat B\'s ready file can NOT make seat A advertise honcho', () => {
+  it("H-INT-10 — seat B's ready file can NOT make seat A advertise honcho", () => {
     const userData = makeUserData();
     const pathsA = resolveCommandEveRuntimeBootstrapPaths(userData, SEAT_A);
     const pathsB = resolveCommandEveRuntimeBootstrapPaths(userData, SEAT_B);

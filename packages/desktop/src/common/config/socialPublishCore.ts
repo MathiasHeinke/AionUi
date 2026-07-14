@@ -30,9 +30,41 @@ export const UPLOAD_POST_ENDPOINTS = {
 } as const;
 
 // Platforms upload-post.com supports for TEXT posts (the others are media-only).
-export const TEXT_CAPABLE_PLATFORMS = ['x', 'linkedin', 'facebook', 'threads', 'reddit', 'bluesky', 'discord', 'telegram'] as const;
-export const PHOTO_CAPABLE_PLATFORMS = ['linkedin', 'facebook', 'x', 'instagram', 'tiktok', 'threads', 'pinterest', 'bluesky', 'discord', 'telegram'] as const;
-export const VIDEO_CAPABLE_PLATFORMS = ['tiktok', 'instagram', 'linkedin', 'youtube', 'facebook', 'x', 'threads', 'pinterest', 'bluesky', 'discord', 'telegram'] as const;
+export const TEXT_CAPABLE_PLATFORMS = [
+  'x',
+  'linkedin',
+  'facebook',
+  'threads',
+  'reddit',
+  'bluesky',
+  'discord',
+  'telegram',
+] as const;
+export const PHOTO_CAPABLE_PLATFORMS = [
+  'linkedin',
+  'facebook',
+  'x',
+  'instagram',
+  'tiktok',
+  'threads',
+  'pinterest',
+  'bluesky',
+  'discord',
+  'telegram',
+] as const;
+export const VIDEO_CAPABLE_PLATFORMS = [
+  'tiktok',
+  'instagram',
+  'linkedin',
+  'youtube',
+  'facebook',
+  'x',
+  'threads',
+  'pinterest',
+  'bluesky',
+  'discord',
+  'telegram',
+] as const;
 
 export type SocialPlatform = (typeof VIDEO_CAPABLE_PLATFORMS)[number];
 export type SocialPostKind = 'text' | 'photos' | 'video';
@@ -90,7 +122,11 @@ export function validateSocialPostDraft(draft: SocialPostDraft): SocialPostValid
 }
 
 /** Create a draft in the pending_approval state. The ONLY way to a sendable payload is approve(). */
-export function buildSocialPostDraft(draft: SocialPostDraft): { status: SocialPostStatus; draft: SocialPostDraft; validation: SocialPostValidation } {
+export function buildSocialPostDraft(draft: SocialPostDraft): {
+  status: SocialPostStatus;
+  draft: SocialPostDraft;
+  validation: SocialPostValidation;
+} {
   return { status: 'pending_approval', draft, validation: validateSocialPostDraft(draft) };
 }
 
@@ -112,7 +148,9 @@ export function approveSocialPost(
   apiKey: string
 ): UploadPostRequest {
   if (approval.status !== 'approved') {
-    throw new Error('SOCIAL_POST_NOT_APPROVED: a post must be explicitly approved by the operator before it can be sent');
+    throw new Error(
+      'SOCIAL_POST_NOT_APPROVED: a post must be explicitly approved by the operator before it can be sent'
+    );
   }
   const v = validateSocialPostDraft(approval.draft);
   if (v.ok === false) {

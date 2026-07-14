@@ -40,11 +40,7 @@ import path from 'node:path';
 
 export const COMMAND_EVE_SKILL_FILE = 'SKILL.md';
 
-export type ReadSkillContentReason =
-  | 'INVALID_INPUT'
-  | 'PATH_DENIED'
-  | 'NOT_FOUND'
-  | 'READ_FAILED';
+export type ReadSkillContentReason = 'INVALID_INPUT' | 'PATH_DENIED' | 'NOT_FOUND' | 'READ_FAILED';
 
 export interface ReadSkillContentArgs {
   /** Allowed on-disk skills roots (user, cron, managed). Absolute paths. */

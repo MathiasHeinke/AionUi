@@ -73,7 +73,11 @@ export function evaluateSpctlAssessment({ exitCode, output = '' } = {}) {
     return { ok: true, rejected: false, detail: 'spctl accepted the artifact (Notarized Developer ID)' };
   }
   if (!codeOk) {
-    return { ok: false, rejected: false, detail: `spctl exited non-zero (${asText(exitCode)}) without a reject verdict` };
+    return {
+      ok: false,
+      rejected: false,
+      detail: `spctl exited non-zero (${asText(exitCode)}) without a reject verdict`,
+    };
   }
   return { ok: false, rejected: false, detail: 'spctl returned no verdict (deprecated for DMGs on this macOS)' };
 }

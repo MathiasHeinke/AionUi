@@ -103,7 +103,9 @@ async function readTeam(): Promise<{ assignments: EveWorkerAssignmentMap; status
         ) as EveWorkerAssignmentMap)
       : ({} as EveWorkerAssignmentMap);
   const statuses =
-    statusesRaw && typeof statusesRaw === 'object' ? (statusesRaw as EveTeamWorkerStatusMap) : ({} as EveTeamWorkerStatusMap);
+    statusesRaw && typeof statusesRaw === 'object'
+      ? (statusesRaw as EveTeamWorkerStatusMap)
+      : ({} as EveTeamWorkerStatusMap);
   return { assignments, statuses };
 }
 
@@ -192,7 +194,14 @@ export async function applyTeamManageIntent(
     const { assignments, statuses } = await readTeam();
     const { next, applied } = applyConsumedIntent(intent, statuses);
     if (!applied) {
-      writeReceipt({ event: 'apply-noop', intent_id, seat_id: seatId, role: intent.role_agent_id, action: intent.action, ts: now });
+      writeReceipt({
+        event: 'apply-noop',
+        intent_id,
+        seat_id: seatId,
+        role: intent.role_agent_id,
+        action: intent.action,
+        ts: now,
+      });
       return { ok: false, reason: 'not-applied' };
     }
     // The ONE write: PUT the new status map under the SAME seat-scoped key the panel

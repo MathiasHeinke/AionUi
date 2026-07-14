@@ -160,15 +160,15 @@ export function evaluateWorkerDispatch(
  * paused/off roster worker. Use {@link evaluateWorkerDispatch} when the reason
  * code is needed (e.g. to phrase the block message).
  */
-export function isWorkerDispatchable(
-  agentId: string | null | undefined,
-  statuses: EveTeamWorkerStatusMap
-): boolean {
+export function isWorkerDispatchable(agentId: string | null | undefined, statuses: EveTeamWorkerStatusMap): boolean {
   return evaluateWorkerDispatch(agentId, statuses).allowed;
 }
 
 /** Count ALL currently-active roles across the roster (operators + seats). */
-export function countActiveWorkers(statuses: EveTeamWorkerStatusMap, roster: readonly EveTeamRole[] = EVE_TEAM_ROSTER): number {
+export function countActiveWorkers(
+  statuses: EveTeamWorkerStatusMap,
+  roster: readonly EveTeamRole[] = EVE_TEAM_ROSTER
+): number {
   let n = 0;
   for (const role of roster) {
     if (isWorkerActive(role, statuses)) n += 1;
@@ -253,11 +253,7 @@ export interface FloorGuardDecision {
    */
   resolution: 'proceed' | 'keep-floor' | 'restore-floor';
   /** A stable reason code for the decision (UI copy + tests key off this). */
-  reason:
-    | 'ok'
-    | 'would-empty-company'
-    | 'is-free-floor-worker'
-    | 'last-active-is-floor';
+  reason: 'ok' | 'would-empty-company' | 'is-free-floor-worker' | 'last-active-is-floor';
 }
 
 /**

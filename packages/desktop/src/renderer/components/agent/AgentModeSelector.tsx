@@ -8,7 +8,12 @@ import { ipcBridge } from '@/common';
 import { configService } from '@/common/config/configService';
 import type { AcpSessionConfigOption } from '@/common/types/platform/acpTypes';
 import { savePreferredMode } from '@/renderer/pages/guid/hooks/agentSelectionUtils';
-import { getAgentModes, resolveModeForBackend, supportsModeSwitch, type AgentModeOption } from '@/renderer/utils/model/agentModes';
+import {
+  getAgentModes,
+  resolveModeForBackend,
+  supportsModeSwitch,
+  type AgentModeOption,
+} from '@/renderer/utils/model/agentModes';
 import { emitter } from '@/renderer/utils/emitter';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { AgentLogoIcon } from './AgentBadge';

@@ -37,9 +37,7 @@ describe('renderHermesMcpServersYaml', () => {
   });
 
   it('quote-escapes ids and values that contain special characters (no YAML injection)', () => {
-    const lines = renderHermesMcpServersYaml([
-      { id: 'evil: key', command: 'cmd', env: { 'A B': 'x: y # z' } },
-    ]);
+    const lines = renderHermesMcpServersYaml([{ id: 'evil: key', command: 'cmd', env: { 'A B': 'x: y # z' } }]);
     expect(lines).toContain('  "evil: key":');
     expect(lines).toContain('      "A B": "x: y # z"');
   });

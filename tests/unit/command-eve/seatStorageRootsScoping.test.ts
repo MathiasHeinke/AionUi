@@ -134,7 +134,18 @@ describe('ISO-4 active-seat resolver — a switch re-homes the roots', () => {
 });
 
 describe('ISO-4 resolveSeatScopedStorageRoots — crafted ids cannot escape seats/', () => {
-  const HOSTILE = ['../x', '..', 'a/b', 'a\\b', '/etc/passwd', 'C:\\x', 'foo\0bar', '.hidden', '  ws  ', '..%2f..%2fetc'];
+  const HOSTILE = [
+    '../x',
+    '..',
+    'a/b',
+    'a\\b',
+    '/etc/passwd',
+    'C:\\x',
+    'foo\0bar',
+    '.hidden',
+    '  ws  ',
+    '..%2f..%2fetc',
+  ];
   it('rejects every traversal / separator / NUL / absolute / dotfile id', () => {
     for (const bad of HOSTILE) {
       expect(() => resolveSeatScopedStorageRoots(CFG, DATA, bad)).toThrow();
@@ -178,7 +189,10 @@ describe('ISO-4 stripSeatScopeFromRoot — inverse (no double-nest on persist)',
     expect(stripActiveSeatScopeFromRoot(scoped.workRoot)).toBe(DATA);
     // Re-scoping the STRIPPED base must equal the original scoped root (proves no
     // double-nest on the next boot).
-    const reScoped = resolveActiveSeatScopedStorageRoots(stripActiveSeatScopeFromRoot(scoped.cacheRoot), stripActiveSeatScopeFromRoot(scoped.workRoot));
+    const reScoped = resolveActiveSeatScopedStorageRoots(
+      stripActiveSeatScopeFromRoot(scoped.cacheRoot),
+      stripActiveSeatScopeFromRoot(scoped.workRoot)
+    );
     expect(reScoped.cacheRoot).toBe(scoped.cacheRoot);
     expect(reScoped.workRoot).toBe(scoped.workRoot);
   });

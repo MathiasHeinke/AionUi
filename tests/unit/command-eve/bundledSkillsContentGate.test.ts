@@ -26,12 +26,12 @@ describe('bundled-skills build content gate', () => {
   });
 
   it('flags auto-accepting a permission/bypass warning', () => {
-    expect(findForbiddenSkillContent('Permissions warning → arrow **Down** to the accept option, then Enter')).toContain(
-      'auto-accept-permission-warning'
-    );
-    expect(findForbiddenSkillContent('| Bypass-permissions warning | safe/exit (WRONG) | send Down + Enter |')).toContain(
-      'bypass-permissions-warning-row'
-    );
+    expect(
+      findForbiddenSkillContent('Permissions warning → arrow **Down** to the accept option, then Enter')
+    ).toContain('auto-accept-permission-warning');
+    expect(
+      findForbiddenSkillContent('| Bypass-permissions warning | safe/exit (WRONG) | send Down + Enter |')
+    ).toContain('bypass-permissions-warning-row');
   });
 
   it('does NOT flag the legitimate governance / opt-in autonomy language', () => {

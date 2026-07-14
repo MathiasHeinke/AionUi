@@ -10,7 +10,7 @@
 // definite, and 'valid' only when the row is active/trialing AND not past its
 // time bound.
 
-export type Decision = "valid" | "revoked" | "expired" | "unknown";
+export type Decision = 'valid' | 'revoked' | 'expired' | 'unknown';
 
 export interface EntitlementStatusResponse {
   decision: Decision;
@@ -42,9 +42,9 @@ export interface DecideArgs {
 }
 
 /** Active server statuses that can still be valid (vs hard-revoked). */
-const LIVE_STATUSES = new Set(["active", "trialing"]);
+const LIVE_STATUSES = new Set(['active', 'trialing']);
 /** Statuses that are a definitive server NO. */
-const REVOKED_STATUSES = new Set(["canceled", "past_due", "incomplete"]);
+const REVOKED_STATUSES = new Set(['canceled', 'past_due', 'incomplete']);
 
 function isPastBound(boundIso: string | null | undefined, nowIso: string): boolean {
   if (!boundIso) return false; // null/absent ⇒ perpetual (never past).
@@ -74,13 +74,13 @@ export function decideEntitlementStatus(args: DecideArgs): EntitlementStatusResp
   // No live row for a code that DID verify ⇒ the server no longer recognizes this
   // entitlement (refund hard-delete / tenant removed) ⇒ a definitive revoke.
   if (!row) {
-    return { decision: "revoked" };
+    return { decision: 'revoked' };
   }
 
-  const status = (row.status ?? "").toLowerCase();
+  const status = (row.status ?? '').toLowerCase();
 
   if (REVOKED_STATUSES.has(status)) {
-    return { decision: "revoked" };
+    return { decision: 'revoked' };
   }
 
   if (LIVE_STATUSES.has(status)) {
@@ -93,17 +93,17 @@ export function decideEntitlementStatus(args: DecideArgs): EntitlementStatusResp
     // trial_ends_at; otherwise by expires_at.
     if (trialEndsAt) {
       if (isPastBound(trialEndsAt, now)) {
-        return { decision: "expired", ...(edition ? { edition } : {}), trial_ends_at: trialEndsAt };
+        return { decision: 'expired', ...(edition ? { edition } : {}), trial_ends_at: trialEndsAt };
       }
-      return { decision: "valid", ...(edition ? { edition } : {}), trial_ends_at: trialEndsAt, expires_at: expiresAt };
+      return { decision: 'valid', ...(edition ? { edition } : {}), trial_ends_at: trialEndsAt, expires_at: expiresAt };
     }
 
     if (isPastBound(expiresAt, now)) {
-      return { decision: "expired", ...(edition ? { edition } : {}), expires_at: expiresAt };
+      return { decision: 'expired', ...(edition ? { edition } : {}), expires_at: expiresAt };
     }
-    return { decision: "valid", ...(edition ? { edition } : {}), expires_at: expiresAt };
+    return { decision: 'valid', ...(edition ? { edition } : {}), expires_at: expiresAt };
   }
 
   // An unrecognized status ⇒ do NOT guess; non-conclusive.
-  return { decision: "unknown" };
+  return { decision: 'unknown' };
 }

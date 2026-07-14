@@ -206,7 +206,8 @@ const SENSITIVE_RULES: SensitiveRule[] = [
     kind: 'health',
     // Label-anchored, allowing a small filler window ("...nummer IST A123...") between label and value.
     ruleId: 'health-identifier',
-    pattern: /\b(?:versichertennummer|insurance\s*(?:no\.?|number|id)|patient\s*(?:id|no\.?|number)|medical\s*record\s*(?:no\.?|number)|kranken(?:versicherung|kasse))\b(?:\s+\w+){0,3}\s*[:=#]?\s*[A-Z0-9][A-Z0-9-]{4,}\b/gi,
+    pattern:
+      /\b(?:versichertennummer|insurance\s*(?:no\.?|number|id)|patient\s*(?:id|no\.?|number)|medical\s*record\s*(?:no\.?|number)|kranken(?:versicherung|kasse))\b(?:\s+\w+){0,3}\s*[:=#]?\s*[A-Z0-9][A-Z0-9-]{4,}\b/gi,
     replacement: '[REDACTED_HEALTH_ID]',
   },
   {
@@ -275,7 +276,8 @@ const SENSITIVE_RULES: SensitiveRule[] = [
     // Trailing lookahead requires the street suffix to end a clause (comma/period/newline/end) or be
     // followed by a Capitalised city token — kills "Top 10 Marketing Avenue strategies"-style FPs.
     ruleId: 'intl-street-address',
-    pattern: /\b\d{1,5}\s+[A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3}\s+(?:Street|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Drive|Court|Place|Square|Terrace|Parkway|Pkwy|Highway|Hwy|Crescent|Close)\b(?=[,.\n]|\s+[A-Z]|$)/g,
+    pattern:
+      /\b\d{1,5}\s+[A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){0,3}\s+(?:Street|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Drive|Court|Place|Square|Terrace|Parkway|Pkwy|Highway|Hwy|Crescent|Close)\b(?=[,.\n]|\s+[A-Z]|$)/g,
     replacement: '[REDACTED_ADDRESS]',
   },
   {

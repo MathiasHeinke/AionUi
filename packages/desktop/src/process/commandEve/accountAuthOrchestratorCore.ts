@@ -189,7 +189,11 @@ export async function postMyLicenseOnce(
       body: JSON.stringify({}),
     });
   } catch (err) {
-    return { ok: false, pending: false, reason_code: err instanceof Error ? 'MY_LICENSE_NETWORK' : 'MY_LICENSE_NETWORK' };
+    return {
+      ok: false,
+      pending: false,
+      reason_code: err instanceof Error ? 'MY_LICENSE_NETWORK' : 'MY_LICENSE_NETWORK',
+    };
   }
   if (!response.ok) {
     return { ok: false, pending: false, reason_code: `MY_LICENSE_HTTP_${response.status}` };
@@ -283,10 +287,7 @@ export async function activateEntitlementFromSession(
       name: session.user.name,
       company: session.user.company,
     });
-    registerTenant(
-      { name: profile.name, company: profile.company, email: session.user.email, consent: true },
-      options
-    );
+    registerTenant({ name: profile.name, company: profile.company, email: session.user.email, consent: true }, options);
   }
   const registration = readRegistration(userDataPath);
   if (!registration) {

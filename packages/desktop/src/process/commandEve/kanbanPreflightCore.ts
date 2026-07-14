@@ -3182,7 +3182,10 @@ function readRuntimeReconciliation(filePath: string): {
  * derived and reported for transparency; it is simply not part of the write predicate.
  * Do NOT re-add it here — that would re-block every kanban write (regression 3d2a51b3b).
  */
-function isKanbanWriteGovernanceLocked(governance: { dispatcher_disabled: boolean; mcp_servers_disabled: boolean }): boolean {
+function isKanbanWriteGovernanceLocked(governance: {
+  dispatcher_disabled: boolean;
+  mcp_servers_disabled: boolean;
+}): boolean {
   return governance.dispatcher_disabled && governance.mcp_servers_disabled;
 }
 
@@ -3392,8 +3395,7 @@ export function runKanbanPreflight(options: CommandEveKanbanPreflightOptions): C
         ok: false,
         status: 'blocked',
         reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
-        message:
-          'Kanban dispatcher and external MCP execution must stay disabled for read-first adoption.',
+        message: 'Kanban dispatcher and external MCP execution must stay disabled for read-first adoption.',
         model,
       };
     }
@@ -4421,8 +4423,7 @@ export function recordKanbanMarketingDispatchApproval(
       ok: false,
       status: 'blocked',
       reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
-      message:
-        'Controller review receipts require dispatcher and external MCP execution to stay disabled.',
+      message: 'Controller review receipts require dispatcher and external MCP execution to stay disabled.',
       card_id: taskId,
       dispatch_handoff_packet: dispatchHandoffPacket,
     };
@@ -4574,8 +4575,7 @@ export function recordKanbanMarketingDispatchDecision(
       ok: false,
       status: 'blocked',
       reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
-      message:
-        'Controller decision receipts require dispatcher and external MCP execution to stay disabled.',
+      message: 'Controller decision receipts require dispatcher and external MCP execution to stay disabled.',
       card_id: taskId,
       controller_approval_status: decision,
       controller_approved: decision === 'approved',
@@ -4720,8 +4720,7 @@ export function generateKanbanMarketingDraft(
       status: 'blocked',
       reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
       reason_codes: ['KANBAN_GOVERNANCE_NOT_LOCKED'],
-      message:
-        'Marketing draft generation requires dispatcher and external MCP execution to stay disabled.',
+      message: 'Marketing draft generation requires dispatcher and external MCP execution to stay disabled.',
       card_id: taskId,
     };
   }
@@ -5461,7 +5460,6 @@ function marketingWorkerObservedRunResultBase(
   };
 }
 
-
 // --- ladder audit-event appenders (6 net-new) ---
 function appendMarketingOutputApprovedAuditEvent({
   eventId,
@@ -6147,7 +6145,6 @@ finally:
 `;
 }
 
-
 function buildMarketingWorkerDispatchRequestScript(): string {
   return String.raw`
 import json
@@ -6265,7 +6262,6 @@ finally:
     conn.close()
 `;
 }
-
 
 function buildMarketingWorkerObservedRunScript(): string {
   return String.raw`
@@ -6414,7 +6410,6 @@ finally:
     conn.close()
 `;
 }
-
 
 function buildMarketingWorkerStartGateScript(): string {
   return String.raw`
@@ -6706,7 +6701,6 @@ finally:
 `;
 }
 
-
 function buildMarketingWorkerDispatcherPrepareScript(): string {
   return String.raw`
 import json
@@ -6902,7 +6896,6 @@ finally:
     conn.close()
 `;
 }
-
 
 function buildMarketingWorkerExecutorPromotionScript(): string {
   return String.raw`
@@ -7155,8 +7148,7 @@ export function approveKanbanMarketingOutput(
       status: 'blocked',
       reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
       reason_codes: ['KANBAN_GOVERNANCE_NOT_LOCKED'],
-      message:
-        'Marketing output approval requires dispatcher and external MCP execution to stay disabled.',
+      message: 'Marketing output approval requires dispatcher and external MCP execution to stay disabled.',
       card_id: taskId,
     };
   }
@@ -7338,8 +7330,7 @@ export function requestKanbanMarketingWorkerDispatch(
       status: 'blocked',
       reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
       reason_codes: ['KANBAN_GOVERNANCE_NOT_LOCKED'],
-      message:
-        'Marketing worker dispatch requests require dispatcher and external MCP execution to stay disabled.',
+      message: 'Marketing worker dispatch requests require dispatcher and external MCP execution to stay disabled.',
       card_id: taskId,
     };
   }
@@ -7520,8 +7511,7 @@ export function runKanbanMarketingWorkerObserved(
       status: 'blocked',
       reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
       reason_codes: ['KANBAN_GOVERNANCE_NOT_LOCKED'],
-      message:
-        'Observed marketing worker runs require dispatcher and external MCP execution to stay disabled.',
+      message: 'Observed marketing worker runs require dispatcher and external MCP execution to stay disabled.',
       card_id: taskId,
     };
   }
@@ -7730,8 +7720,7 @@ export function checkKanbanMarketingWorkerStartGate(
       status: 'blocked',
       reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
       reason_codes: ['KANBAN_GOVERNANCE_NOT_LOCKED'],
-      message:
-        'Worker start gate checks require dispatcher and external MCP execution to stay disabled.',
+      message: 'Worker start gate checks require dispatcher and external MCP execution to stay disabled.',
       card_id: taskId,
       subprocess_spawned: false,
       external_calls: false,
@@ -8010,8 +7999,7 @@ export function prepareKanbanMarketingWorkerDispatcher(
       status: 'blocked',
       reason_code: 'KANBAN_GOVERNANCE_NOT_LOCKED',
       reason_codes: ['KANBAN_GOVERNANCE_NOT_LOCKED'],
-      message:
-        'Dispatcher preparation requires dispatcher and external MCP execution to stay disabled.',
+      message: 'Dispatcher preparation requires dispatcher and external MCP execution to stay disabled.',
       card_id: taskId,
       subprocess_spawned: false,
       external_calls: false,

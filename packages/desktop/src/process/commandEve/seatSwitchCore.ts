@@ -194,7 +194,12 @@ export async function applySeatSwitch(
         persistFailed = true;
       }
     }
-    return { ok: true, active_seat_id: targetSeatId, rolled_back: false, ...(persistFailed ? { persist_failed: true } : {}) };
+    return {
+      ok: true,
+      active_seat_id: targetSeatId,
+      rolled_back: false,
+      ...(persistFailed ? { persist_failed: true } : {}),
+    };
   }
 
   // Roll the runtime back to the prior seat on a structural failure. Re-bake the
@@ -307,7 +312,12 @@ export async function applySeatSwitch(
     }
   }
 
-  return { ok: true, active_seat_id: targetSeatId, rolled_back: false, ...(persistFailed ? { persist_failed: true } : {}) };
+  return {
+    ok: true,
+    active_seat_id: targetSeatId,
+    rolled_back: false,
+    ...(persistFailed ? { persist_failed: true } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -487,7 +497,7 @@ export function resolveSeatAccess(contract: MySeatsContract | null): SeatAccess 
   // The delegate's pinned seat: prefer the active seat IF it is one of theirs;
   // else the first seat they can see; else the legacy fallback.
   const activeInList = seats.some((s) => s.seat_id === activeSeatId);
-  const pinnedSeatId = activeInList ? activeSeatId : seats[0]?.seat_id ?? LEGACY_SEAT_ID;
+  const pinnedSeatId = activeInList ? activeSeatId : (seats[0]?.seat_id ?? LEGACY_SEAT_ID);
 
   // canSwitch ONLY for an admin with a real choice (>1 seat). Default-deny.
   const canSwitch = role === 'admin' && seats.length > 1;

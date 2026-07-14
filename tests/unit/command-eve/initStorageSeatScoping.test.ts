@@ -21,9 +21,20 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 import path from 'path';
-import { getSystemDir, getAssistantsDir, getSkillsDir, getCronSkillsDir, getBackendDataDir } from '@/process/utils/initStorage';
+import {
+  getSystemDir,
+  getAssistantsDir,
+  getSkillsDir,
+  getCronSkillsDir,
+  getBackendDataDir,
+} from '@/process/utils/initStorage';
 import { getDataPath } from '@/process/utils/utils';
-import { SEATS_SUBDIR, __resetActiveSeatForTests, setActiveSeatId, clearActiveSeat } from '@/process/commandEve/seatContextCore';
+import {
+  SEATS_SUBDIR,
+  __resetActiveSeatForTests,
+  setActiveSeatId,
+  clearActiveSeat,
+} from '@/process/commandEve/seatContextCore';
 
 const SEAT_A = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const SEAT_B = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';

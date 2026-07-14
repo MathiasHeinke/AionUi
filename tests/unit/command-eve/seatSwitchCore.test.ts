@@ -406,7 +406,14 @@ describe('SeatGuard — fail-closed classification', () => {
 
   it('unknown / missing role defaults to delegate, NOT admin', () => {
     const access = resolveSeatAccess(
-      parseMySeats({ account: { id: 'acc1' }, active_seat_id: SEAT_A, seats: [{ tenant_id: SEAT_A, name: 'A', role: 'wat' }, { tenant_id: SEAT_B, name: 'B' }] })
+      parseMySeats({
+        account: { id: 'acc1' },
+        active_seat_id: SEAT_A,
+        seats: [
+          { tenant_id: SEAT_A, name: 'A', role: 'wat' },
+          { tenant_id: SEAT_B, name: 'B' },
+        ],
+      })
     );
     expect(access.role).toBe('delegate');
     expect(access.canSwitch).toBe(false);
@@ -414,7 +421,14 @@ describe('SeatGuard — fail-closed classification', () => {
 
   it('an admin with >1 seat ⇒ canSwitch=true; admin with ONE client seat now also canSwitch=true (Founder chip adds home, spec B4.2)', () => {
     const multi = resolveSeatAccess(
-      parseMySeats({ account: { id: 'acc1', role: 'admin' }, active_seat_id: SEAT_A, seats: [{ tenant_id: SEAT_A, name: 'A', is_active: true }, { tenant_id: SEAT_B, name: 'B' }] })
+      parseMySeats({
+        account: { id: 'acc1', role: 'admin' },
+        active_seat_id: SEAT_A,
+        seats: [
+          { tenant_id: SEAT_A, name: 'A', is_active: true },
+          { tenant_id: SEAT_B, name: 'B' },
+        ],
+      })
     );
     expect(multi.role).toBe('admin');
     expect(multi.canSwitch).toBe(true);
@@ -424,7 +438,11 @@ describe('SeatGuard — fail-closed classification', () => {
     // and CAN switch (they must be able to return home). The old "single seat admin ⇒
     // canSwitch=false" only holds now when the client-seat list is EMPTY (below).
     const single = resolveSeatAccess(
-      parseMySeats({ account: { id: 'acc1', role: 'admin' }, active_seat_id: SEAT_A, seats: [{ tenant_id: SEAT_A, name: 'A', is_active: true }] })
+      parseMySeats({
+        account: { id: 'acc1', role: 'admin' },
+        active_seat_id: SEAT_A,
+        seats: [{ tenant_id: SEAT_A, name: 'A', is_active: true }],
+      })
     );
     expect(single.canSwitch).toBe(true);
     expect(single.seats.map((s) => s.seat_id)).toEqual([LEGACY_SEAT_ID, SEAT_A]);
@@ -440,17 +458,31 @@ describe('SeatGuard — fail-closed classification', () => {
   it('the Founder chip is prepended FIRST for an admin, absent for a delegate, and rings when active (spec B4.2)', () => {
     // Admin: Founder chip is seat[0], named 'Founder', role 'admin'.
     const adminHome = resolveSeatAccess(
-      parseMySeats({ account: { id: 'acc1', role: 'admin' }, active_seat_id: LEGACY_SEAT_ID, seats: [{ tenant_id: SEAT_A, name: 'A' }] })
+      parseMySeats({
+        account: { id: 'acc1', role: 'admin' },
+        active_seat_id: LEGACY_SEAT_ID,
+        seats: [{ tenant_id: SEAT_A, name: 'A' }],
+      })
     );
     // K2: the Founder chip is cosmetically 'own_company' (the founder home is the operator's own).
-    expect(adminHome.seats[0]).toEqual({ seat_id: LEGACY_SEAT_ID, name: 'Founder', kind: 'own_company', role: 'admin', is_active: true });
+    expect(adminHome.seats[0]).toEqual({
+      seat_id: LEGACY_SEAT_ID,
+      name: 'Founder',
+      kind: 'own_company',
+      role: 'admin',
+      is_active: true,
+    });
     expect(adminHome.activeSeatId).toBe(LEGACY_SEAT_ID);
     // The ring follows active_seat_id: at home the Founder chip is active, a client is not.
     expect(adminHome.seats.find((s) => s.seat_id === SEAT_A)?.is_active).toBe(false);
 
     // Admin sitting on a client seat: the Founder chip exists but does NOT ring.
     const adminOnClient = resolveSeatAccess(
-      parseMySeats({ account: { id: 'acc1', role: 'admin' }, active_seat_id: SEAT_A, seats: [{ tenant_id: SEAT_A, name: 'A' }] })
+      parseMySeats({
+        account: { id: 'acc1', role: 'admin' },
+        active_seat_id: SEAT_A,
+        seats: [{ tenant_id: SEAT_A, name: 'A' }],
+      })
     );
     expect(adminOnClient.seats[0].seat_id).toBe(LEGACY_SEAT_ID);
     expect(adminOnClient.seats[0].is_active).toBe(false);
@@ -458,14 +490,25 @@ describe('SeatGuard — fail-closed classification', () => {
 
     // Delegate: NO Founder chip — they can never reach the founder home.
     const delegate = resolveSeatAccess(
-      parseMySeats({ account: { id: 'acc1', role: 'delegate' }, active_seat_id: SEAT_A, seats: [{ tenant_id: SEAT_A, name: 'A' }] })
+      parseMySeats({
+        account: { id: 'acc1', role: 'delegate' },
+        active_seat_id: SEAT_A,
+        seats: [{ tenant_id: SEAT_A, name: 'A' }],
+      })
     );
     expect(delegate.seats.some((s) => s.seat_id === LEGACY_SEAT_ID)).toBe(false);
   });
 
   it('a delegate is pinned even with multiple visible seats (over-scope guard)', () => {
     const access = resolveSeatAccess(
-      parseMySeats({ account: { id: 'acc1', role: 'delegate' }, active_seat_id: SEAT_A, seats: [{ tenant_id: SEAT_A, name: 'A', is_active: true }, { tenant_id: SEAT_B, name: 'B' }] })
+      parseMySeats({
+        account: { id: 'acc1', role: 'delegate' },
+        active_seat_id: SEAT_A,
+        seats: [
+          { tenant_id: SEAT_A, name: 'A', is_active: true },
+          { tenant_id: SEAT_B, name: 'B' },
+        ],
+      })
     );
     expect(access.role).toBe('delegate');
     expect(access.canSwitch).toBe(false);
@@ -488,7 +531,14 @@ describe('SeatGuard — fail-closed classification', () => {
 
 describe('SeatGuard — isSeatSwitchAuthorized (the IPC-level gate)', () => {
   const adminAccess = resolveSeatAccess(
-    parseMySeats({ account: { id: 'acc1', role: 'admin' }, active_seat_id: SEAT_A, seats: [{ tenant_id: SEAT_A, name: 'A', is_active: true }, { tenant_id: SEAT_B, name: 'B' }] })
+    parseMySeats({
+      account: { id: 'acc1', role: 'admin' },
+      active_seat_id: SEAT_A,
+      seats: [
+        { tenant_id: SEAT_A, name: 'A', is_active: true },
+        { tenant_id: SEAT_B, name: 'B' },
+      ],
+    })
   );
 
   it('an admin may switch to a seat IN their authorized list', () => {
@@ -501,7 +551,14 @@ describe('SeatGuard — isSeatSwitchAuthorized (the IPC-level gate)', () => {
 
   it('a DELEGATE can NEVER be authorized to switch, even to a seat in their list OR the legacy home', () => {
     const delegateAccess = resolveSeatAccess(
-      parseMySeats({ account: { id: 'acc1', role: 'delegate' }, active_seat_id: SEAT_A, seats: [{ tenant_id: SEAT_A, name: 'A' }, { tenant_id: SEAT_B, name: 'B' }] })
+      parseMySeats({
+        account: { id: 'acc1', role: 'delegate' },
+        active_seat_id: SEAT_A,
+        seats: [
+          { tenant_id: SEAT_A, name: 'A' },
+          { tenant_id: SEAT_B, name: 'B' },
+        ],
+      })
     );
     expect(isSeatSwitchAuthorized(delegateAccess, SEAT_B)).toBe(false);
     expect(isSeatSwitchAuthorized(delegateAccess, SEAT_A)).toBe(false);

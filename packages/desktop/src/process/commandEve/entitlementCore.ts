@@ -101,10 +101,7 @@ export type CommandEveLicenseEdition = (typeof COMMAND_EVE_LICENSE_EDITIONS)[num
  *   - edition:     the signed edition string
  * Paid ⇔ trial_ends_at is null/undefined AND edition !== 'free'.
  */
-export function isPaidSeatEdition(
-  trialEndsAt: string | null | undefined,
-  edition: string | null | undefined,
-): boolean {
+export function isPaidSeatEdition(trialEndsAt: string | null | undefined, edition: string | null | undefined): boolean {
   return (trialEndsAt === null || trialEndsAt === undefined) && edition !== 'free';
 }
 
@@ -326,9 +323,7 @@ export function verifyLicenseCodeTs(args: {
     return { ok: false, reason_code: COMMAND_EVE_LICENSE_REASON_CODES.VERSION_UNSUPPORTED };
   }
   const isV2Wire = wireVersion === COMMAND_EVE_LICENSE_CODE_WIRE_VERSION_V2;
-  const expectedPayloadVersion = isV2Wire
-    ? COMMAND_EVE_LICENSE_CODE_VERSION_V2
-    : COMMAND_EVE_LICENSE_CODE_VERSION;
+  const expectedPayloadVersion = isV2Wire ? COMMAND_EVE_LICENSE_CODE_VERSION_V2 : COMMAND_EVE_LICENSE_CODE_VERSION;
 
   const payloadBytes = fromBase64Url(payloadB64);
   const signature = fromBase64Url(sigB64);
@@ -429,8 +424,7 @@ export function verifyLicenseCodeTs(args: {
     ...(isV2Wire
       ? {
           trial_ends_at: (payload.trial_ends_at as string | null | undefined) ?? null,
-          seat_count:
-            typeof payload.seat_count === 'number' ? (payload.seat_count as number) : 1,
+          seat_count: typeof payload.seat_count === 'number' ? (payload.seat_count as number) : 1,
         }
       : {}),
   };
@@ -720,10 +714,7 @@ function splitPemBlocks(blob: string): string[] {
 function resolveBundledKeyPath(options: CommandEveEntitlementOptions, fileName: string): string {
   if (isNonEmptyString(options.bundledPublicKeyPath)) {
     // Founder file + the override points at an existing file ⇒ use it verbatim.
-    if (
-      fileName === BUNDLED_PUBLIC_KEY_FILE &&
-      fs.existsSync(options.bundledPublicKeyPath)
-    ) {
+    if (fileName === BUNDLED_PUBLIC_KEY_FILE && fs.existsSync(options.bundledPublicKeyPath)) {
       return options.bundledPublicKeyPath;
     }
     // Otherwise the override's directory anchors the real bundled filenames.
@@ -764,9 +755,7 @@ function readPemFileBlocks(filePath: string): string[] {
  *
  * Returns [] when no key is resolvable anywhere ⇒ gate is 'unconfigured'.
  */
-export function resolveLicensePublicKeyEntries(
-  options: CommandEveEntitlementOptions
-): CommandEveLicenseKeyEntry[] {
+export function resolveLicensePublicKeyEntries(options: CommandEveEntitlementOptions): CommandEveLicenseKeyEntry[] {
   const env = options.env ?? process.env;
   const fromEnv = env[PUBLIC_KEY_ENV];
 
@@ -819,7 +808,9 @@ function sanitizeEventIdPart(value: string): string {
 
 function activationAuditEventId(tenantId: string, codeSerial: string): string {
   // Stable per (tenant, code_serial) so idempotent re-activation never double-writes.
-  return ['command-eve-entitlement-activated', sanitizeEventIdPart(tenantId), sanitizeEventIdPart(codeSerial)].join('-');
+  return ['command-eve-entitlement-activated', sanitizeEventIdPart(tenantId), sanitizeEventIdPart(codeSerial)].join(
+    '-'
+  );
 }
 
 function appendActivationAuditEvent(args: {
@@ -1097,9 +1088,7 @@ export function activateEntitlement(
     issuer,
     // CEVE.v2: carry trial/seat through only when the verified payload supplied
     // them (a v2 code). A v1 code leaves these absent ⇒ record shape unchanged.
-    ...(verify.payload.trial_ends_at !== undefined
-      ? { trial_ends_at: verify.payload.trial_ends_at }
-      : {}),
+    ...(verify.payload.trial_ends_at !== undefined ? { trial_ends_at: verify.payload.trial_ends_at } : {}),
     ...(verify.payload.seat_count !== undefined ? { seat_count: verify.payload.seat_count } : {}),
   };
 
@@ -1246,8 +1235,7 @@ export function getEntitlementStatus(options: CommandEveEntitlementOptions): Com
     // there is no trustworthy license at all ⇒ registered_unlicensed.
     const reason = verify.reason_code;
     const expired =
-      reason === COMMAND_EVE_LICENSE_REASON_CODES.EXPIRED ||
-      reason === COMMAND_EVE_LICENSE_REASON_CODES.NOT_YET_VALID;
+      reason === COMMAND_EVE_LICENSE_REASON_CODES.EXPIRED || reason === COMMAND_EVE_LICENSE_REASON_CODES.NOT_YET_VALID;
     return {
       version: COMMAND_EVE_ENTITLEMENT_BRIDGE_VERSION,
       ok: false,

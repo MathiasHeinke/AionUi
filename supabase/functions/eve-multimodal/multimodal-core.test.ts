@@ -2,199 +2,196 @@
 //
 // Run: deno test supabase/functions/eve-multimodal/multimodal-core.test.ts
 
-import { assertEquals } from "jsr:@std/assert@1";
-import { decideEveMultimodalSkeletonRequest } from "./multimodal-core.ts";
+import { assertEquals } from 'jsr:@std/assert@1';
+import { decideEveMultimodalSkeletonRequest } from './multimodal-core.ts';
 
-const NOW = "2026-07-07T12:00:00.000Z";
+const NOW = '2026-07-07T12:00:00.000Z';
 
 function decide(body: unknown) {
   return decideEveMultimodalSkeletonRequest({
     body,
     now: NOW,
-    requestId: "req_test",
+    requestId: 'req_test',
   });
 }
 
-Deno.test("rejects non-object request bodies", () => {
+Deno.test('rejects non-object request bodies', () => {
   const result = decide(null);
 
   assertEquals(result.status, 400);
-  assertEquals(result.body.reason, "invalid-request");
+  assertEquals(result.body.reason, 'invalid-request');
 });
 
-Deno.test("rejects provider key fields anywhere in the request body", () => {
+Deno.test('rejects provider key fields anywhere in the request body', () => {
   const result = decide({
-    provider: "xai",
-    capability: "tts",
-    privacyLane: "cloud_us",
+    provider: 'xai',
+    capability: 'tts',
+    privacyLane: 'cloud_us',
     directProviderKeyPresentInDesktop: false,
-    metadata: { xai_api_key: "redacted" },
+    metadata: { xai_api_key: 'redacted' },
   });
 
   assertEquals(result.status, 400);
-  assertEquals(result.body.reason, "provider-key-field");
+  assertEquals(result.body.reason, 'provider-key-field');
 });
 
-Deno.test("rejects provider key fields regardless of casing or separator style", () => {
+Deno.test('rejects provider key fields regardless of casing or separator style', () => {
   const result = decide({
-    provider: "xai",
-    capability: "tts",
-    privacyLane: "cloud_us",
+    provider: 'xai',
+    capability: 'tts',
+    privacyLane: 'cloud_us',
     directProviderKeyPresentInDesktop: false,
-    metadata: { XAI_API_KEY: "redacted", "openrouter-api-key": "redacted" },
+    metadata: { XAI_API_KEY: 'redacted', 'openrouter-api-key': 'redacted' },
   });
 
   assertEquals(result.status, 400);
-  assertEquals(result.body.reason, "provider-key-field");
+  assertEquals(result.body.reason, 'provider-key-field');
 });
 
-Deno.test("requires explicit no-desktop-provider-key attestation", () => {
+Deno.test('requires explicit no-desktop-provider-key attestation', () => {
   const result = decide({
-    provider: "xai",
-    capability: "tts",
-    privacyLane: "cloud_us",
+    provider: 'xai',
+    capability: 'tts',
+    privacyLane: 'cloud_us',
   });
 
   assertEquals(result.status, 400);
-  assertEquals(result.body.reason, "desktop-provider-key-present");
+  assertEquals(result.body.reason, 'desktop-provider-key-present');
 });
 
-Deno.test("rejects explicit desktop provider key presence", () => {
+Deno.test('rejects explicit desktop provider key presence', () => {
   const result = decide({
-    provider: "xai",
-    capability: "tts",
-    privacyLane: "cloud_us",
+    provider: 'xai',
+    capability: 'tts',
+    privacyLane: 'cloud_us',
     directProviderKeyPresentInDesktop: true,
   });
 
   assertEquals(result.status, 400);
-  assertEquals(result.body.reason, "desktop-provider-key-present");
+  assertEquals(result.body.reason, 'desktop-provider-key-present');
 });
 
-Deno.test("rejects unsupported providers and capabilities", () => {
+Deno.test('rejects unsupported providers and capabilities', () => {
   const result = decide({
-    provider: "openrouter",
-    capability: "tts",
-    privacyLane: "cloud_us",
+    provider: 'openrouter',
+    capability: 'tts',
+    privacyLane: 'cloud_us',
     directProviderKeyPresentInDesktop: false,
   });
 
   assertEquals(result.status, 400);
-  assertEquals(result.body.reason, "unsupported-capability");
+  assertEquals(result.body.reason, 'unsupported-capability');
 });
 
-Deno.test("rejects present but invalid privacy lanes instead of defaulting to cloud_auto", () => {
+Deno.test('rejects present but invalid privacy lanes instead of defaulting to cloud_auto', () => {
   const result = decide({
-    provider: "xai",
-    capability: "tts",
-    privacyLane: "cloud_china",
+    provider: 'xai',
+    capability: 'tts',
+    privacyLane: 'cloud_china',
     directProviderKeyPresentInDesktop: false,
   });
 
   assertEquals(result.status, 400);
-  assertEquals(result.body.reason, "invalid-request");
+  assertEquals(result.body.reason, 'invalid-request');
 });
 
-Deno.test("validates TTS text before provider enablement", () => {
+Deno.test('validates TTS text before provider enablement', () => {
   const result = decide({
-    provider: "xai",
-    capability: "tts",
-    privacyLane: "cloud_us",
+    provider: 'xai',
+    capability: 'tts',
+    privacyLane: 'cloud_us',
     directProviderKeyPresentInDesktop: false,
   });
 
   assertEquals(result.status, 400);
-  assertEquals(result.body.reason, "invalid-request");
+  assertEquals(result.body.reason, 'invalid-request');
 });
 
-Deno.test("caps TTS text at 15000 characters", () => {
+Deno.test('caps TTS text at 15000 characters', () => {
   const result = decide({
-    provider: "xai",
-    capability: "tts",
-    privacyLane: "cloud_us",
+    provider: 'xai',
+    capability: 'tts',
+    privacyLane: 'cloud_us',
     directProviderKeyPresentInDesktop: false,
-    text: "x".repeat(15_001),
+    text: 'x'.repeat(15_001),
   });
 
   assertEquals(result.status, 400);
-  assertEquals(result.body.reason, "invalid-request");
+  assertEquals(result.body.reason, 'invalid-request');
 });
 
-Deno.test("returns a TTS receipt without echoing prompt text", () => {
+Deno.test('returns a TTS receipt without echoing prompt text', () => {
   const result = decide({
-    provider: "xai",
-    capability: "tts",
-    privacyLane: "cloud_us",
+    provider: 'xai',
+    capability: 'tts',
+    privacyLane: 'cloud_us',
     directProviderKeyPresentInDesktop: false,
-    text: "hello",
-    voice_id: "eve",
-    language: "en",
+    text: 'hello',
+    voice_id: 'eve',
+    language: 'en',
   });
 
   assertEquals(result.status, 501);
-  assertEquals(result.body.reason, "provider-not-enabled");
-  assertEquals(result.body.tts?.voice_id, "eve");
-  assertEquals(result.body.tts?.language, "en");
+  assertEquals(result.body.reason, 'provider-not-enabled');
+  assertEquals(result.body.tts?.voice_id, 'eve');
+  assertEquals(result.body.tts?.language, 'en');
   assertEquals(result.body.tts?.text_length, 5);
-  assertEquals(JSON.stringify(result.body).includes("hello"), false);
+  assertEquals(JSON.stringify(result.body).includes('hello'), false);
 });
 
-Deno.test("blocks local-only privacy before provider execution", () => {
+Deno.test('blocks local-only privacy before provider execution', () => {
   const result = decide({
-    provider: "xai",
-    capability: "video_generation",
-    privacyLane: "local_only",
+    provider: 'xai',
+    capability: 'video_generation',
+    privacyLane: 'local_only',
     directProviderKeyPresentInDesktop: false,
   });
 
   assertEquals(result.status, 403);
-  assertEquals(result.body.reason, "local-only-privacy");
-  assertEquals(result.body.artifact?.kind, "video");
+  assertEquals(result.body.reason, 'local-only-privacy');
+  assertEquals(result.body.artifact?.kind, 'video');
 });
 
-Deno.test("blocks EU and DE residency lanes until matching provider routes exist", () => {
-  for (const privacyLane of ["cloud_eu", "cloud_de"]) {
+Deno.test('blocks EU and DE residency lanes until matching provider routes exist', () => {
+  for (const privacyLane of ['cloud_eu', 'cloud_de']) {
     const result = decide({
-      provider: "xai",
-      capability: "vision",
+      provider: 'xai',
+      capability: 'vision',
       privacyLane,
       directProviderKeyPresentInDesktop: false,
     });
 
     assertEquals(result.status, 403);
-    assertEquals(result.body.reason, "residency-unavailable");
-    assertEquals(result.body.artifact?.kind, "text");
+    assertEquals(result.body.reason, 'residency-unavailable');
+    assertEquals(result.body.artifact?.kind, 'text');
   }
 });
 
-Deno.test("returns provider-not-enabled with a US residency receipt for cloud_us", () => {
+Deno.test('returns provider-not-enabled with a US residency receipt for cloud_us', () => {
   const result = decide({
-    provider: "xai",
-    capability: "tts",
-    privacyLane: "cloud_us",
+    provider: 'xai',
+    capability: 'tts',
+    privacyLane: 'cloud_us',
     directProviderKeyPresentInDesktop: false,
-    text: "Hello",
+    text: 'Hello',
   });
 
   assertEquals(result.status, 501);
-  assertEquals(result.body.reason, "provider-not-enabled");
-  assertEquals(result.body.residency?.confirmation, "explicit-us-cloud");
-  assertEquals(result.body.artifact?.kind, "audio");
+  assertEquals(result.body.reason, 'provider-not-enabled');
+  assertEquals(result.body.residency?.confirmation, 'explicit-us-cloud');
+  assertEquals(result.body.artifact?.kind, 'audio');
 });
 
-Deno.test("requires server confirmation semantics for cloud_auto", () => {
+Deno.test('requires server confirmation semantics for cloud_auto', () => {
   const result = decide({
-    provider: "xai",
-    capability: "image_generation",
-    privacyLane: "cloud_auto",
+    provider: 'xai',
+    capability: 'image_generation',
+    privacyLane: 'cloud_auto',
     directProviderKeyPresentInDesktop: false,
   });
 
   assertEquals(result.status, 501);
-  assertEquals(result.body.reason, "provider-not-enabled");
-  assertEquals(
-    result.body.residency?.confirmation,
-    "server-must-confirm-us-cloud",
-  );
-  assertEquals(result.body.artifact?.kind, "image");
+  assertEquals(result.body.reason, 'provider-not-enabled');
+  assertEquals(result.body.residency?.confirmation, 'server-must-confirm-us-cloud');
+  assertEquals(result.body.artifact?.kind, 'image');
 });

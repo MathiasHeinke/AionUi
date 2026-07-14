@@ -22,8 +22,7 @@ import {
 // =========================================================================
 
 type Ent = ReturnType<NonNullable<CommandEveOnboardingStatusOptions['readEntitlement']>>;
-const ent = (state: string, reason_code?: string): Ent =>
-  ({ state, reason_code }) as unknown as Ent;
+const ent = (state: string, reason_code?: string): Ent => ({ state, reason_code }) as unknown as Ent;
 
 let tmp: string;
 beforeAll(() => {
@@ -59,8 +58,7 @@ function build(opts: Partial<CommandEveOnboardingStatusOptions>): CommandEveOnbo
   expect(res.model).toBeDefined();
   return res.model!;
 }
-const item = (m: CommandEveOnboardingStatusModel, id: CommandEveOnboardingItemId) =>
-  m.items.find((i) => i.id === id)!;
+const item = (m: CommandEveOnboardingStatusModel, id: CommandEveOnboardingItemId) => m.items.find((i) => i.id === id)!;
 
 describe('S0 onboarding-status: the first_value_ready gate (honesty keystone)', () => {
   it('a licensed cloud user (entitled + bearer) is first_value_ready', () => {
@@ -122,7 +120,10 @@ describe('S0 onboarding-status: local reason-code -> remediation mapping', () =>
   }
 
   it('an UNKNOWN block code falls through honestly (reinstall class, never an invented terminal command)', () => {
-    const receiptPath = writeReceipt({ status: 'failed', stages: [{ id: 's', status: 'failed', code: 'TOTALLY_NEW_CODE' }] });
+    const receiptPath = writeReceipt({
+      status: 'failed',
+      stages: [{ id: 's', status: 'failed', code: 'TOTALLY_NEW_CODE' }],
+    });
     const m = build({ receiptPath });
     const local = item(m, 'local-lane');
     expect(local.state).toBe('blocked');

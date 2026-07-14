@@ -274,7 +274,12 @@ export function buildProposeResponse(
       ttlMs: ctx.ttlMs,
       randomId: ctx.randomId,
     });
-    return { ok: true, intent_id: intent.intent_id, status: 'proposed', summary: describeProposal(v.role_agent_id, v.action) };
+    return {
+      ok: true,
+      intent_id: intent.intent_id,
+      status: 'proposed',
+      summary: describeProposal(v.role_agent_id, v.action),
+    };
   }
   return { ok: false, status: 'rejected', reject_code: v.reject_code, message: v.message };
 }

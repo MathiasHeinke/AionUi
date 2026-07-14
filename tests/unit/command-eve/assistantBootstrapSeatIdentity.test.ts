@@ -209,10 +209,7 @@ describe('ISO-6 (c) legacy / no-seat is BYTE-IDENTICAL to the pre-ISO-6 assemble
 
   it('an explicitly-legacy resolver result is undefined → same legacy prompt', () => {
     const legacyIdentity = resolveCommandEveSeatIdentity({ legacy: true, seatId: 'seat-1' });
-    const withLegacy = buildCommandEveAssistantFirstRunContext(
-      baseContext({ seatIdentity: legacyIdentity }),
-      'en-US'
-    );
+    const withLegacy = buildCommandEveAssistantFirstRunContext(baseContext({ seatIdentity: legacyIdentity }), 'en-US');
     const noField = buildCommandEveAssistantFirstRunContext(baseContext(), 'en-US');
     expect(withLegacy).toBe(noField);
   });

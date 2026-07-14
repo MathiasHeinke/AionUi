@@ -63,10 +63,10 @@ sha512: ziphash
   assert.equal(parsed.version, '1.7.91');
   assert.equal(parsed.path, 'Command-EVE-1.7.91-mac-arm64.zip');
   assert.equal(parsed.sha512, 'ziphash');
-  assert.deepEqual(parsed.files.map((file) => file.url), [
-    'Command-EVE-1.7.91-mac-arm64.zip',
-    'Command-EVE-1.7.91-mac-arm64.dmg',
-  ]);
+  assert.deepEqual(
+    parsed.files.map((file) => file.url),
+    ['Command-EVE-1.7.91-mac-arm64.zip', 'Command-EVE-1.7.91-mac-arm64.dmg']
+  );
 });
 
 test('passes when arm64 metadata matches final DMG and ZIP bytes', () =>

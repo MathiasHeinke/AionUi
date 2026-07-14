@@ -119,7 +119,13 @@ describe('checkEntitlementOnline — NO-LOCKOUT / inert by default', () => {
 
     const badBody = (async () =>
       new Response('not json', { status: 200, headers: { 'content-type': 'text/plain' } })) as unknown as typeof fetch;
-    const badR = await checkEntitlementOnline({ wire: FAKE_WIRE, baseUrl: TEST_URL, mode: 'on', fetchImpl: badBody, now });
+    const badR = await checkEntitlementOnline({
+      wire: FAKE_WIRE,
+      baseUrl: TEST_URL,
+      mode: 'on',
+      fetchImpl: badBody,
+      now,
+    });
     expect(badR.action).toBe('none');
     expect(badR.reason_code).toBe('bad-body');
   });
@@ -177,7 +183,12 @@ describe('checkEntitlementOnline — conclusive verdicts', () => {
       wire: FAKE_WIRE,
       baseUrl: TEST_URL,
       mode: 'on',
-      fetchImpl: fetchJson({ decision: 'valid', edition: 'standard', expires_at: null, checked_at: FIXED_NOW.toISOString() }),
+      fetchImpl: fetchJson({
+        decision: 'valid',
+        edition: 'standard',
+        expires_at: null,
+        checked_at: FIXED_NOW.toISOString(),
+      }),
       now,
       userDataPath: root,
     });
@@ -239,7 +250,10 @@ describe('offline grace', () => {
 describe('reconcileEntitlementOnline — boot reconcile', () => {
   function seedEntitlement(root: string): { clearCalls: string[]; clearLicenseWire: (p: string) => void } {
     fs.mkdirSync(ENT_DIR(root), { recursive: true });
-    fs.writeFileSync(entFile(root), JSON.stringify({ version: 'command-eve-entitlement-record/v0', tenant_id: 't', code_serial: 's' }));
+    fs.writeFileSync(
+      entFile(root),
+      JSON.stringify({ version: 'command-eve-entitlement-record/v0', tenant_id: 't', code_serial: 's' })
+    );
     const clearCalls: string[] = [];
     return { clearCalls, clearLicenseWire: (p: string) => clearCalls.push(p) };
   }

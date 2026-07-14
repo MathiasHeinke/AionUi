@@ -43,7 +43,9 @@ vi.mock('@arco-design/web-react', () => ({
       {children}
     </button>
   ),
-  Checkbox: ({ onChange, ...rest }: any) => <input type='checkbox' onChange={(e) => onChange?.(e.target.checked)} {...rest} />,
+  Checkbox: ({ onChange, ...rest }: any) => (
+    <input type='checkbox' onChange={(e) => onChange?.(e.target.checked)} {...rest} />
+  ),
   Input: Object.assign(
     ({ onChange, ...rest }: any) => <input onChange={(e) => onChange?.(e.target.value)} {...rest} />,
     {

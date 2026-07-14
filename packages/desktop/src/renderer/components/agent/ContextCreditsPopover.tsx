@@ -31,7 +31,12 @@ import { useTranslation } from 'react-i18next';
 import type { TokenUsageData } from '@/common/config/storage';
 import { resolveEffectiveContextLimit } from '@/renderer/utils/model/modelContextLimits';
 import { useCreditsStatus } from '@renderer/hooks/useCreditsStatus';
-import { CREDIT_UNIT_EUR, isNearAllowanceWall, showsFreeActionMeter, TIER_ALLOWANCE_CREDITS } from '@/common/config/creditsCore';
+import {
+  CREDIT_UNIT_EUR,
+  isNearAllowanceWall,
+  showsFreeActionMeter,
+  TIER_ALLOWANCE_CREDITS,
+} from '@/common/config/creditsCore';
 // openAccountWeb pins the command-eve.com origin AND carries the desktop session
 // hand-off, so "Nachkaufen" lands on /account already logged in (H8).
 import { openAccountWeb } from '@renderer/utils/platform';
@@ -129,7 +134,10 @@ const ContextCreditsPopover: React.FC<ContextCreditsPopoverProps> = ({ tokenUsag
   };
 
   return (
-    <div className='context-credits-popover p-12px min-w-240px flex flex-col gap-16px' data-testid='context-credits-popover'>
+    <div
+      className='context-credits-popover p-12px min-w-240px flex flex-col gap-16px'
+      data-testid='context-credits-popover'
+    >
       {/* (a) Kontextfenster */}
       <section className='context-credits-popover__section'>
         <div className='flex items-center justify-between mb-6px'>
@@ -199,7 +207,10 @@ const ContextCreditsPopover: React.FC<ContextCreditsPopoverProps> = ({ tokenUsag
             standing primary CTA pushing the user to spend. FREE tier: the daily
             allowance resets tomorrow — a near-cap warning, never a buy link. */}
         {credits?.low && credits.isFree && (
-          <div className='context-credits-popover__warning flex items-center gap-6px mt-8px' data-testid='context-credits-free-low'>
+          <div
+            className='context-credits-popover__warning flex items-center gap-6px mt-8px'
+            data-testid='context-credits-free-low'
+          >
             <Caution theme='outline' size='14' fill='rgb(var(--warning-6))' />
             <span className='text-12px' style={{ color: 'rgb(var(--warning-6))' }}>
               {t('credits.context.freeNearCap', {
@@ -209,7 +220,10 @@ const ContextCreditsPopover: React.FC<ContextCreditsPopoverProps> = ({ tokenUsag
           </div>
         )}
         {credits?.low && !credits.isFree && (
-          <div className='context-credits-popover__warning flex items-center gap-6px mt-8px' data-testid='context-credits-low'>
+          <div
+            className='context-credits-popover__warning flex items-center gap-6px mt-8px'
+            data-testid='context-credits-low'
+          >
             <Caution theme='outline' size='14' fill='rgb(var(--warning-6))' />
             <span className='text-12px' style={{ color: 'rgb(var(--warning-6))' }}>
               {t('credits.context.tankLow', { defaultValue: 'Tank fast leer' })}

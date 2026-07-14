@@ -60,7 +60,13 @@ function build(opts: Partial<CommandEveOnboardingStatusOptions>): CommandEveOnbo
 }
 const memoryItem = (m: CommandEveOnboardingStatusModel) => m.items.find((i) => i.id === 'memory-lane');
 
-const READY: HonchoReadinessState = { seatId: 'a1', state: HONCHO_STATE_READY, serverUp: true, deriverReachable: true, probedAt: '2026-07-04T00:00:00.000Z' };
+const READY: HonchoReadinessState = {
+  seatId: 'a1',
+  state: HONCHO_STATE_READY,
+  serverUp: true,
+  deriverReachable: true,
+  probedAt: '2026-07-04T00:00:00.000Z',
+};
 
 describe('onboarding memory-lane (P5) — present + non-blocking', () => {
   it('is always present in the items list', () => {
@@ -79,13 +85,32 @@ describe('onboarding memory-lane (P5) — present + non-blocking', () => {
   });
 
   it('declined ⇒ skip with the declined reason (not blocked)', () => {
-    const it0 = memoryItem(build({ readHonchoState: () => ({ ...READY, state: 'off', serverUp: false, deriverReachable: false, reasonCode: HONCHO_REASON_DECLINED }) }));
+    const it0 = memoryItem(
+      build({
+        readHonchoState: () => ({
+          ...READY,
+          state: 'off',
+          serverUp: false,
+          deriverReachable: false,
+          reasonCode: HONCHO_REASON_DECLINED,
+        }),
+      })
+    );
     expect(it0?.state).toBe('skipped');
     expect(it0?.reason_code).toBe(HONCHO_REASON_DECLINED);
   });
 
   it('degraded/unreachable ⇒ soft skip, NEVER blocked', () => {
-    const it0 = memoryItem(build({ readHonchoState: () => ({ ...READY, state: HONCHO_STATE_DEGRADED, deriverReachable: false, reasonCode: HONCHO_REASON_DERIVER_UNREACHABLE }) }));
+    const it0 = memoryItem(
+      build({
+        readHonchoState: () => ({
+          ...READY,
+          state: HONCHO_STATE_DEGRADED,
+          deriverReachable: false,
+          reasonCode: HONCHO_REASON_DERIVER_UNREACHABLE,
+        }),
+      })
+    );
     expect(it0?.state).toBe('skipped');
     expect(it0?.state).not.toBe('blocked');
   });
@@ -97,7 +122,11 @@ describe('onboarding memory-lane (P5) — first_value_ready is untouched', () =>
     expect(m.first_value_ready).toBe(true);
   });
   it('a READY Honcho does not raise first_value_ready for an unlicensed user', () => {
-    const m = build({ readEntitlement: () => ent('registered_unlicensed'), readLicenseWirePresence: () => false, readHonchoState: () => READY });
+    const m = build({
+      readEntitlement: () => ent('registered_unlicensed'),
+      readLicenseWirePresence: () => false,
+      readHonchoState: () => READY,
+    });
     expect(m.first_value_ready).toBe(false);
   });
 });

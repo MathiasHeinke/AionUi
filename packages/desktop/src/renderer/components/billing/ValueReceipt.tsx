@@ -17,10 +17,7 @@
 import React, { useMemo } from 'react';
 import { Card } from '@arco-design/web-react';
 import { configService } from '@/common/config/configService';
-import {
-  buildValueReceiptModel,
-  DEFAULT_VALUE_RECEIPT_HOURLY_EUR,
-} from '@/common/config/creditsCore';
+import { buildValueReceiptModel, DEFAULT_VALUE_RECEIPT_HOURLY_EUR } from '@/common/config/creditsCore';
 import './billing.css';
 
 export interface ValueReceiptProps {

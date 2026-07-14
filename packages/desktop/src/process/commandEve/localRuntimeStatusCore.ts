@@ -35,11 +35,7 @@ export type CommandEveLocalRuntimeTierStatus = 'selected' | 'available' | 'opt_i
  *   - `cloud-redirect` → this Mac can't run local (RAM/disk); stay on cloud.
  *   - `reinstall`      → our-bug class (Python/Hermes); reinstall, never brew.
  */
-export type CommandEveLocalRuntimeRemediationKind =
-  | 'external-link'
-  | 'pull-progress'
-  | 'cloud-redirect'
-  | 'reinstall';
+export type CommandEveLocalRuntimeRemediationKind = 'external-link' | 'pull-progress' | 'cloud-redirect' | 'reinstall';
 
 export type CommandEveLocalRuntimeBlockedStage = {
   /** The bootstrap stage that blocked (e.g. `ollama`, `model`, `python`). */
@@ -81,9 +77,7 @@ function remediationKindForCode(code: string): CommandEveLocalRuntimeRemediation
   return LOCAL_RUNTIME_REMEDIATION_KIND[code] || 'reinstall';
 }
 
-function buildBlockedStage(
-  receipt?: RuntimeBootstrapReceipt
-): CommandEveLocalRuntimeBlockedStage | undefined {
+function buildBlockedStage(receipt?: RuntimeBootstrapReceipt): CommandEveLocalRuntimeBlockedStage | undefined {
   const stages = receipt?.stages;
   if (!Array.isArray(stages)) return undefined;
   // The bootstrap returns the receipt the moment a stage blocks, so at most one

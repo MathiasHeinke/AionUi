@@ -87,23 +87,23 @@ actually governs** — EVE proposes, the lawyer decides.
 
 Draft with these as a scaffold; the signing lawyer verifies every citation.
 
-| Topic | Austria (öUrhG) | Germany (UrhG) |
-|-------|-----------------|----------------|
-| Work protection | § 1 | § 2 |
-| Distribution right | § 18 | § 17 |
-| Right of communication to public | § 18a | § 19a |
-| Claim for injunction | § 81 | § 97 |
-| Damages | § 87 | § 97 |
-| Warning cost reimbursement | § 81 Abs. 1 | § 97 Abs. 1 |
+| Topic                            | Austria (öUrhG) | Germany (UrhG) |
+| -------------------------------- | --------------- | -------------- |
+| Work protection                  | § 1             | § 2            |
+| Distribution right               | § 18            | § 17           |
+| Right of communication to public | § 18a           | § 19a          |
+| Claim for injunction             | § 81            | § 97           |
+| Damages                          | § 87            | § 97           |
+| Warning cost reimbursement       | § 81 Abs. 1     | § 97 Abs. 1    |
 
 ## Abmahnung structure (standard drafting scaffold)
 
 1. **Absender + Empfänger** — full addresses, names, company, USt-ID
-   *(contact data entered manually by the operator — see human-gates)*
+   _(contact data entered manually by the operator — see human-gates)_
 2. **Sachverhalt** — what happened, where, since when, what was used without
    authorization
-3. **Rechtsverletzung** — which law, which rights, which paragraphs *(lawyer
-   verifies)*
+3. **Rechtsverletzung** — which law, which rights, which paragraphs _(lawyer
+   verifies)_
 4. **Forderung** — broken into:
    - 4.1 Unterlassung (stop + remove, with deadline)
    - 4.2 Unterlassungsverpflichtungserklärung (signed declaration with
@@ -113,7 +113,7 @@ Draft with these as a scaffold; the signing lawyer verifies every citation.
    - 4.5 Kostenerstattung (cost reimbursement for the Abmahnung)
 5. **Fristsetzung** — concrete deadline (date + time + timezone)
 6. **Folgen bei Fristablauf** — what happens next (einstweilige Verfügung, court,
-   etc.) *(described only; filing is a lawyer/operator step)*
+   etc.) _(described only; filing is a lawyer/operator step)_
 7. **Unterschrift + Anlagen** — the **lawyer's** signature; evidence
    (screenshots, URLs, timestamps)
 
@@ -158,8 +158,8 @@ captures only the empty HTML shell, not the rendered content. A plain `curl` or
    ```javascript
    var html = document.documentElement.innerHTML;
    JSON.stringify({
-       hasTarget: html.includes('TARGET_ID'),
-       title: document.title
+     hasTarget: html.includes('TARGET_ID'),
+     title: document.title,
    });
    ```
 4. If the archived page loads the Wayback toolbar wrapper, use the `id_` suffix
@@ -225,6 +225,7 @@ tree. This helps the operator see the full path and reduces uncertainty — it i
 **planning aid**, and each escalation branch still runs through the lawyer.
 
 **Technique — Graphviz decision tree:**
+
 1. Install: `brew install graphviz`
 2. Write a `.dot` file with all scenarios (video removed/not, Unterlassung
    signed/not, Auskunft correct/not, payment yes/no)
@@ -265,7 +266,7 @@ Typical parallel tracks: Unterlassung, Auskunft, Schadensersatz.
 2. **Identify the operator's interest** — which IP, which rights, since when
    unauthorized
 3. **Determine jurisdictions** — operator's country + counterparty's country →
-   primary/secondary law *(lawyer confirms)*
+   primary/secondary law _(lawyer confirms)_
 4. **Draft the Abmahnung** using `templates/abmahnung-urheberrecht.md` as scaffold
 5. **Fill placeholders** — operator supplies their own and the counterparty's
    contact data by hand; mark everything unverified

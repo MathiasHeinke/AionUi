@@ -37,8 +37,7 @@
 // ---------------------------------------------------------------------------
 
 /** The Command EVE seat-usage Edge Function. Same Supabase project as eve-inference. */
-export const SEAT_USAGE_FUNCTION_URL =
-  'https://unvbeothoimlzlolxucl.supabase.co/functions/v1/seat-usage';
+export const SEAT_USAGE_FUNCTION_URL = 'https://unvbeothoimlzlolxucl.supabase.co/functions/v1/seat-usage';
 
 /** One seat's aggregated usage for the queried month (opaque id only). */
 export interface SeatUsageRow {

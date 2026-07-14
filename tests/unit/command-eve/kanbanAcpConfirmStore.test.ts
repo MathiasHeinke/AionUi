@@ -29,12 +29,16 @@ afterEach(() => __resetKanbanAcpForTest());
 
 describe('kanban confirm store — validation scope-lock', () => {
   it('rejects when the surface is not visible', () => {
-    expect(validateKanbanProposal({ op: 'create', title: 'x' }, { visible: false, boardSlug: 'm' }).reject_code).toBe('not-visible');
+    expect(validateKanbanProposal({ op: 'create', title: 'x' }, { visible: false, boardSlug: 'm' }).reject_code).toBe(
+      'not-visible'
+    );
   });
 
   it('rejects a scope-escape key (delete/dispatch/spawn/assign/swarm/decompose)', () => {
     for (const key of ['delete', 'dispatch', 'spawn', 'assign', 'swarm', 'decompose', 'worker', 'heartbeat']) {
-      expect(validateKanbanProposal({ op: 'action', action: 'comment', [key]: true }, VIS).reject_code).toBe('scope-violation');
+      expect(validateKanbanProposal({ op: 'action', action: 'comment', [key]: true }, VIS).reject_code).toBe(
+        'scope-violation'
+      );
     }
   });
 
@@ -75,7 +79,13 @@ describe('kanban confirm store — mutation hash (tamper guard)', () => {
 
 describe('kanban confirm store — propose → peek → confirm flow', () => {
   const propose = (payload: unknown, seatId = 'seat-a', now = NOW) =>
-    buildKanbanProposeResponse(payload, { visible: true, boardSlug: 'marketing', seatId, now, randomId: () => 'kintent-1' });
+    buildKanbanProposeResponse(payload, {
+      visible: true,
+      boardSlug: 'marketing',
+      seatId,
+      now,
+      randomId: () => 'kintent-1',
+    });
 
   it('proposes (no write), the renderer peeks it for the same seat, confirm with the right hash applies once', () => {
     const r = propose({ op: 'create', title: 'Landingpage' });
@@ -112,8 +122,14 @@ describe('kanban confirm store — propose → peek → confirm flow', () => {
   });
 
   it('keeps at most one pending intent (a new proposal supersedes the old)', () => {
-    buildKanbanProposeResponse({ op: 'create', title: 'first' }, { visible: true, boardSlug: 'marketing', seatId: 'seat-a', now: NOW, randomId: () => 'k1' });
-    buildKanbanProposeResponse({ op: 'create', title: 'second' }, { visible: true, boardSlug: 'marketing', seatId: 'seat-a', now: NOW, randomId: () => 'k2' });
+    buildKanbanProposeResponse(
+      { op: 'create', title: 'first' },
+      { visible: true, boardSlug: 'marketing', seatId: 'seat-a', now: NOW, randomId: () => 'k1' }
+    );
+    buildKanbanProposeResponse(
+      { op: 'create', title: 'second' },
+      { visible: true, boardSlug: 'marketing', seatId: 'seat-a', now: NOW, randomId: () => 'k2' }
+    );
     const live = peekKanbanIntentForSeat('seat-a', NOW + 1000);
     expect(live?.intent_id).toBe('k2');
     // the superseded k1 can no longer be confirmed

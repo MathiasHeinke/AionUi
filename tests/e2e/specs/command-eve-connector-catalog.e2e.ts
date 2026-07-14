@@ -197,9 +197,12 @@ test.describe('Command EVE Connector Catalog', () => {
       timeout: 30_000,
     });
     await expect
-      .poll(async () => page.getByRole('button', { name: /Read-only Preflight ausführen|Run read-only preflight/ }).count(), {
-        timeout: 30_000,
-      })
+      .poll(
+        async () => page.getByRole('button', { name: /Read-only Preflight ausführen|Run read-only preflight/ }).count(),
+        {
+          timeout: 30_000,
+        }
+      )
       .toBeGreaterThanOrEqual(2);
 
     await expect(page.getByTestId('connector-card-local-company-os-workspace')).toBeVisible({ timeout: 30_000 });

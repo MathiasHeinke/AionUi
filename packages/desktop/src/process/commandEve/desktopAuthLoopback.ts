@@ -98,10 +98,7 @@ function base64url(buf: Buffer): string {
  * window (32–64 bytes ⇒ a 43–86 char base64url verifier). `randomBytes` is
  * injectable for deterministic tests.
  */
-export function createPkcePair(
-  verifierBytes = 48,
-  randomBytes: (n: number) => Buffer = crypto.randomBytes
-): PkcePair {
+export function createPkcePair(verifierBytes = 48, randomBytes: (n: number) => Buffer = crypto.randomBytes): PkcePair {
   const n = Math.max(32, Math.min(64, Math.floor(verifierBytes)));
   const verifier = base64url(randomBytes(n));
   const challenge = base64url(crypto.createHash('sha256').update(verifier).digest());
@@ -428,10 +425,9 @@ export async function exchangeCodeForSession(args: {
  */
 export function parseSession(raw: Record<string, unknown> | null | undefined): CommandEveAccountSession | null {
   if (!raw || typeof raw !== 'object') return null;
-  const root = (raw.session && typeof raw.session === 'object' ? (raw.session as Record<string, unknown>) : raw) as Record<
-    string,
-    unknown
-  >;
+  const root = (
+    raw.session && typeof raw.session === 'object' ? (raw.session as Record<string, unknown>) : raw
+  ) as Record<string, unknown>;
 
   const access_token = typeof root.access_token === 'string' ? root.access_token : '';
   const refresh_token = typeof root.refresh_token === 'string' ? root.refresh_token : '';
@@ -449,9 +445,11 @@ export function parseSession(raw: Record<string, unknown> | null | undefined): C
     string,
     unknown
   >;
-  const metaRaw = (userRaw.user_metadata && typeof userRaw.user_metadata === 'object'
-    ? (userRaw.user_metadata as Record<string, unknown>)
-    : {}) as Record<string, unknown>;
+  const metaRaw = (
+    userRaw.user_metadata && typeof userRaw.user_metadata === 'object'
+      ? (userRaw.user_metadata as Record<string, unknown>)
+      : {}
+  ) as Record<string, unknown>;
 
   const id = typeof userRaw.id === 'string' ? userRaw.id : '';
   const email = typeof userRaw.email === 'string' ? userRaw.email : '';

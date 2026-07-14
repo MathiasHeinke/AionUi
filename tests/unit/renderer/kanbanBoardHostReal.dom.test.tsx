@@ -87,7 +87,9 @@ beforeEach(() => {
   activeSeatId = 'seat-a';
   switching = false;
   useActiveSeatIdMock.mockClear();
-  boardInvoke.mockReset().mockImplementation((req: { boardSlug?: string }) => Promise.resolve(boardEnvelope(req?.boardSlug ?? 'default')));
+  boardInvoke
+    .mockReset()
+    .mockImplementation((req: { boardSlug?: string }) => Promise.resolve(boardEnvelope(req?.boardSlug ?? 'default')));
 });
 afterEach(() => vi.clearAllMocks());
 

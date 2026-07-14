@@ -271,7 +271,11 @@ export type SeatScopedStorageRoots = {
   workRoot: string;
 };
 
-export function resolveSeatScopedStorageRoots(configRoot: string, dataRoot: string, seatId?: string | null): SeatScopedStorageRoots {
+export function resolveSeatScopedStorageRoots(
+  configRoot: string,
+  dataRoot: string,
+  seatId?: string | null
+): SeatScopedStorageRoots {
   if (isLegacySeatId(seatId)) {
     return {
       seatId: LEGACY_SEAT_ID,

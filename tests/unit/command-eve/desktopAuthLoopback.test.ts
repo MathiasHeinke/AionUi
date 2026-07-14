@@ -211,8 +211,9 @@ describe('desktopAuthLoopback — (2) state mismatch + (3) loopback binding', ()
 
   it('happy callback: matches state, captures code, exchanges, and the server is single-use', async () => {
     const session = futureSession();
-    const fetchSpy = vi.fn(async () =>
-      new Response(JSON.stringify({ session }), { status: 200, headers: { 'content-type': 'application/json' } })
+    const fetchSpy = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ session }), { status: 200, headers: { 'content-type': 'application/json' } })
     );
 
     let redirectUri = '';

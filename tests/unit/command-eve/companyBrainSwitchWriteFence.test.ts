@@ -64,7 +64,11 @@ import { __resetActiveSeatForTests, resolveSeatHome, setActiveSeatId } from '@pr
 import { COMPANY_BRAIN_DIR } from '@process/commandEve/companyBrainSeedCore';
 import { initCommandEveBridge } from '@process/bridge/commandEveBridge';
 
-type Envelope = { success: boolean; msg?: string; data?: { reason_code?: string; ok?: boolean; entries?: Array<{ id: string }> } };
+type Envelope = {
+  success: boolean;
+  msg?: string;
+  data?: { reason_code?: string; ok?: boolean; entries?: Array<{ id: string }> };
+};
 
 const SEAT = 'aabbccdd-1122-4333-8444-556677889900';
 const tempRoots: string[] = [];

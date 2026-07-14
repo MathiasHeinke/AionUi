@@ -30,11 +30,7 @@
  * locked grade table). This module never re-prices a role — it only sums.
  */
 
-import {
-  EVE_TEAM_ROSTER,
-  roleSalaryEur,
-  type EveTeamRole,
-} from './eveTeamRoster';
+import { EVE_TEAM_ROSTER, roleSalaryEur, type EveTeamRole } from './eveTeamRoster';
 import {
   isWorkerActive,
   targetStatusForAction,

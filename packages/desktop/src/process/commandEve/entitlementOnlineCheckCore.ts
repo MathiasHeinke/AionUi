@@ -284,9 +284,12 @@ export async function checkEntitlementOnline(args: CheckEntitlementOnlineArgs): 
 
   const decisionRaw = typeof raw.decision === 'string' ? raw.decision.toLowerCase() : '';
   const edition = typeof raw.edition === 'string' ? raw.edition : undefined;
-  const expiresAt = raw.expires_at === null || typeof raw.expires_at === 'string' ? (raw.expires_at as string | null) : undefined;
+  const expiresAt =
+    raw.expires_at === null || typeof raw.expires_at === 'string' ? (raw.expires_at as string | null) : undefined;
   const trialEndsAt =
-    raw.trial_ends_at === null || typeof raw.trial_ends_at === 'string' ? (raw.trial_ends_at as string | null) : undefined;
+    raw.trial_ends_at === null || typeof raw.trial_ends_at === 'string'
+      ? (raw.trial_ends_at as string | null)
+      : undefined;
 
   if (decisionRaw === 'valid') {
     if (args.userDataPath) {

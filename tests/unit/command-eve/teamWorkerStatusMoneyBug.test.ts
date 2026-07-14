@@ -40,10 +40,7 @@ import { createTeamWorkerStatusResolver } from '@process/commandEve/teamWorkerSt
 import { evaluateWorkerDispatch } from '@/common/config/eveTeamControlsCore';
 import { EVE_TEAM_ROSTER, findEveTeamRole } from '@/common/config/eveTeamRoster';
 import { seatScopedKey } from '@/common/config/seatConfigKeyCore';
-import {
-  __resetActiveSeatForTests,
-  setActiveSeatId,
-} from '@process/commandEve/seatContextCore';
+import { __resetActiveSeatForTests, setActiveSeatId } from '@process/commandEve/seatContextCore';
 
 const STATUS_KEY = 'commandEve.teamWorkerStatus';
 

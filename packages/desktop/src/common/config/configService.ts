@@ -1,5 +1,11 @@
 import type { ConfigKey, ConfigKeyMap } from './configKeys';
-import { LEGACY_SEAT_ID, SEAT_KEY_PREFIX, assertSeatId, isSeatScopedConfigKey, seatScopedKey } from './seatConfigKeyCore';
+import {
+  LEGACY_SEAT_ID,
+  SEAT_KEY_PREFIX,
+  assertSeatId,
+  isSeatScopedConfigKey,
+  seatScopedKey,
+} from './seatConfigKeyCore';
 
 type Subscriber = (value: unknown) => void;
 /** Fired with the NEW active seat id after the config cache re-homes (rebindSeat). */

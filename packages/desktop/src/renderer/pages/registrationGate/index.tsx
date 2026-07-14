@@ -79,11 +79,7 @@ const BROWSER_LOGIN_ENABLED = true;
  * Router.tsx keeps every main surface blocked while `state !== 'entitled'`).
  */
 function isTrialExpired(status: ICommandEveEntitlementStatusResult | null): boolean {
-  return (
-    status?.state === 'expired' &&
-    typeof status.trial_ends_at === 'string' &&
-    status.trial_ends_at.length > 0
-  );
+  return status?.state === 'expired' && typeof status.trial_ends_at === 'string' && status.trial_ends_at.length > 0;
 }
 
 const SUPPORTED_LANGUAGES: Array<{ code: string; short: string; flag: string; label: string }> = [
@@ -132,7 +128,12 @@ function generateStrongPassword(): string {
   const special = '!@#$%^&*-_=+';
   const all = upper + lower + digit + special;
   const length = 18;
-  const chars: string[] = [upper[randomInt(upper.length)], lower[randomInt(lower.length)], digit[randomInt(digit.length)], special[randomInt(special.length)]];
+  const chars: string[] = [
+    upper[randomInt(upper.length)],
+    lower[randomInt(lower.length)],
+    digit[randomInt(digit.length)],
+    special[randomInt(special.length)],
+  ];
   while (chars.length < length) chars.push(all[randomInt(all.length)]);
   // Fisher–Yates so the four guaranteed glyphs are not always the first four.
   for (let i = chars.length - 1; i > 0; i -= 1) {
@@ -169,8 +170,7 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
   // *paid* license starts on the manual license step; a trial expiry is taken over
   // by the curtain (trialExpired) and everyone else → 'auth'. A code-holder reaches
   // the paste box via the "Ich habe einen Lizenzcode" link.
-  const initialStep: GateStep =
-    !trialExpired && status?.state === 'expired' ? 'license' : 'auth';
+  const initialStep: GateStep = !trialExpired && status?.state === 'expired' ? 'license' : 'auth';
   const [step, setStep] = useState<GateStep>(initialStep);
 
   // Auth state. authBusy/authError are shared by the in-app password flow and the
@@ -460,11 +460,7 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
   // hashed asset URL so it resolves under file:// in the packaged build). Rendered
   // in BOTH gate branches (normal + day-14 curtain) so the look never drops out.
   const backgroundLayer = (
-    <div
-      className='registration-gate__bg'
-      style={{ backgroundImage: `url(${gateBackground})` }}
-      aria-hidden='true'
-    >
+    <div className='registration-gate__bg' style={{ backgroundImage: `url(${gateBackground})` }} aria-hidden='true'>
       <video
         className='registration-gate__bg-video'
         autoPlay
@@ -517,7 +513,10 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
     return (
       <div className='registration-gate' data-testid='registration-gate'>
         {backgroundLayer}
-        <div className='registration-gate__card registration-gate__card--curtain' data-testid='registration-gate-curtain'>
+        <div
+          className='registration-gate__card registration-gate__card--curtain'
+          data-testid='registration-gate-curtain'
+        >
           {languageToggle}
 
           <div className='registration-gate__header'>
@@ -537,9 +536,7 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
               <p className='registration-gate__curtain-preserved-title'>
                 {t('registrationGate.curtain.preservedTitle')}
               </p>
-              <p className='registration-gate__curtain-preserved-body'>
-                {t('registrationGate.curtain.preservedBody')}
-              </p>
+              <p className='registration-gate__curtain-preserved-body'>{t('registrationGate.curtain.preservedBody')}</p>
             </div>
 
             <p className='registration-gate__curtain-price'>{t('registrationGate.curtain.price')}</p>
@@ -619,7 +616,11 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
             {/* Explicit LOGIN / REGISTER mode toggle. The single primary action below
                 ALWAYS matches the selected mode — no more "Anmelden" button shown while
                 the user is trying to register. */}
-            <div className='registration-gate__authmode' role='tablist' aria-label={t('registrationGate.auth.modeToggle')}>
+            <div
+              className='registration-gate__authmode'
+              role='tablist'
+              aria-label={t('registrationGate.auth.modeToggle')}
+            >
               <button
                 type='button'
                 role='tab'
@@ -645,7 +646,9 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
             </div>
 
             <p className='registration-gate__subtitle'>
-              {authMode === 'login' ? t('registrationGate.auth.loginSubtitle') : t('registrationGate.auth.registerSubtitle')}
+              {authMode === 'login'
+                ? t('registrationGate.auth.loginSubtitle')
+                : t('registrationGate.auth.registerSubtitle')}
             </p>
 
             <div className='registration-gate__field'>
@@ -811,9 +814,7 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
                 data-testid='registration-gate-consent'
                 disabled={registrationSubmitting}
               />
-              <span className='registration-gate__consent-text'>
-                {t('registrationGate.registration.consentLabel')}
-              </span>
+              <span className='registration-gate__consent-text'>{t('registrationGate.registration.consentLabel')}</span>
             </label>
             <span className='registration-gate__hint'>{t('registrationGate.registration.consentHint')}</span>
 
@@ -837,11 +838,13 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
             </Button>
           </form>
         ) : (
-          <form className='registration-gate__form' onSubmit={handleActivate} data-testid='registration-gate-license-form'>
+          <form
+            className='registration-gate__form'
+            onSubmit={handleActivate}
+            data-testid='registration-gate-license-form'
+          >
             <p className='registration-gate__subtitle'>{t('registrationGate.license.subtitle')}</p>
-            {registeredAsLabel ? (
-              <p className='registration-gate__registered-as'>{registeredAsLabel}</p>
-            ) : null}
+            {registeredAsLabel ? <p className='registration-gate__registered-as'>{registeredAsLabel}</p> : null}
 
             <div className='registration-gate__field'>
               <label className='registration-gate__label' htmlFor='registration-gate-code'>

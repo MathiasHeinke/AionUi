@@ -116,9 +116,7 @@ describe('buildCompanyOsRootCandidates', () => {
   });
 
   it('the marker constant is the read-model CLI path the cores require', () => {
-    expect(COMPANY_OS_ROOT_MARKER).toBe(
-      path.join('scripts', 'command-center', 'command-center-read-model.mjs')
-    );
+    expect(COMPANY_OS_ROOT_MARKER).toBe(path.join('scripts', 'command-center', 'command-center-read-model.mjs'));
   });
 
   it('the env-key precedence list is the one the cores read', () => {

@@ -85,7 +85,10 @@ export function parseHandoverNote(raw: string): CommandEveHandoverNote {
     if (!inNext) continue;
     const m = line.match(/^\s*-\s*(.+)$/);
     if (!m) continue;
-    const item = m[1].trim().replace(/^["']|["']$/g, '').trim();
+    const item = m[1]
+      .trim()
+      .replace(/^["']|["']$/g, '')
+      .trim();
     if (item && next.length < NEXT_MAX_ITEMS) next.push(item.slice(0, NEXT_MAX_CHARS));
   }
   return { body_md: body.trim(), next };

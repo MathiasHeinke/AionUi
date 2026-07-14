@@ -22,10 +22,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { commandEve, type ICommandEveOnboardingStatusModel } from '@/common/adapter/ipcBridge';
 import { isElectronDesktop } from '@renderer/utils/platform';
-import {
-  buildOnboardingGreeting,
-  type CommandEveGreetingModel,
-} from '@/common/config/onboardingGreetingCore';
+import { buildOnboardingGreeting, type CommandEveGreetingModel } from '@/common/config/onboardingGreetingCore';
 
 export interface OnboardingStatusState {
   /** True until the first status read resolves. */

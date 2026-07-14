@@ -51,7 +51,17 @@ function buildResolver(activeSeatId: string, license: string, now: number) {
 /** A fresh, READY, cloud-branch snapshot for a seat (probedAt = now). */
 function writeReadyCloud(seatId: string, now: number): void {
   const home = resolveHonchoHomeForSeat(USER_DATA, seatId)!;
-  writeHonchoReadyState(home, reduceHonchoReadiness({ provisioned: true, serverProbe: { ok: true }, deriverProbe: { ok: true }, seatId, branch: HONCHO_DERIVER_BRANCH_CLOUD, now }));
+  writeHonchoReadyState(
+    home,
+    reduceHonchoReadiness({
+      provisioned: true,
+      serverProbe: { ok: true },
+      deriverProbe: { ok: true },
+      seatId,
+      branch: HONCHO_DERIVER_BRANCH_CLOUD,
+      now,
+    })
+  );
 }
 
 beforeEach(() => {
@@ -133,7 +143,17 @@ describe('COMPA-624 Inc.3 — H-INT-3 the shim route is inert until a fresh read
   it('a LOCAL-branch snapshot never rides the cloud deriver route', () => {
     const now = 1_700_000_000_000;
     const home = resolveHonchoHomeForSeat(USER_DATA, REAL_UUID_A)!;
-    writeHonchoReadyState(home, reduceHonchoReadiness({ provisioned: true, serverProbe: { ok: true }, deriverProbe: { ok: true }, seatId: REAL_UUID_A, branch: HONCHO_DERIVER_BRANCH_LOCAL, now }));
+    writeHonchoReadyState(
+      home,
+      reduceHonchoReadiness({
+        provisioned: true,
+        serverProbe: { ok: true },
+        deriverProbe: { ok: true },
+        seatId: REAL_UUID_A,
+        branch: HONCHO_DERIVER_BRANCH_LOCAL,
+        now,
+      })
+    );
     expect(buildResolver(REAL_UUID_A, 'CEVE.v1.wire', now)().active).toBe(false);
   });
 });

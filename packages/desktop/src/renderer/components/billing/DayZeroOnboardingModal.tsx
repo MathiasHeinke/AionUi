@@ -67,7 +67,8 @@ const DayZeroOnboardingModal: React.FC<DayZeroOnboardingModalProps> = ({ open, o
         </h2>
         <p className='day-zero-onboarding__lede'>
           {t('credits.onboarding.lede', {
-            defaultValue: 'Give EVE one real client to learn from — a brief or a connection. Everything you build stays yours.',
+            defaultValue:
+              'Give EVE one real client to learn from — a brief or a connection. Everything you build stays yours.',
           })}
         </p>
 

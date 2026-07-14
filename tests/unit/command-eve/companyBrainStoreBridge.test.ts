@@ -51,7 +51,17 @@ import { __resetActiveSeatForTests, resolveSeatHome, setActiveSeatId } from '@pr
 import { COMPANY_BRAIN_DIR } from '@process/commandEve/companyBrainSeedCore';
 import { initCommandEveBridge } from '@process/bridge/commandEveBridge';
 
-type Envelope<T = { ok?: boolean; reason_code?: string; entries?: Array<{ id: string; title: string; kind: string }>; entry?: { id: string; title: string }; created?: boolean; removed?: boolean; body?: string | null }> = {
+type Envelope<
+  T = {
+    ok?: boolean;
+    reason_code?: string;
+    entries?: Array<{ id: string; title: string; kind: string }>;
+    entry?: { id: string; title: string };
+    created?: boolean;
+    removed?: boolean;
+    body?: string | null;
+  },
+> = {
   success: boolean;
   msg?: string;
   data?: T;
@@ -60,7 +70,8 @@ type Envelope<T = { ok?: boolean; reason_code?: string; entries?: Array<{ id: st
 const SEAT = 'aabbccdd-1122-4333-8444-556677889900';
 const tempRoots: string[] = [];
 
-const call = <T>(channel: string, req?: unknown) => (registered.get(channel) as (r?: unknown) => Promise<Envelope<T>>)(req);
+const call = <T>(channel: string, req?: unknown) =>
+  (registered.get(channel) as (r?: unknown) => Promise<Envelope<T>>)(req);
 
 beforeEach(() => {
   registered.clear();
@@ -97,7 +108,11 @@ describe('company-brain store providers (real bridge seam)', () => {
     expect(empty.data?.entries).toEqual([]);
 
     // WRITE an entry (upsert; author user / source settings).
-    const written = await call('command-eve.company-brain-write', { kind: 'offer', title: 'Website Relaunch', body: 'The offer body' });
+    const written = await call('command-eve.company-brain-write', {
+      kind: 'offer',
+      title: 'Website Relaunch',
+      body: 'The offer body',
+    });
     expect(written.success).toBe(true);
     expect(written.data?.ok).toBe(true);
     expect(written.data?.created).toBe(true);
@@ -142,7 +157,11 @@ describe('company-brain store providers (real bridge seam)', () => {
   });
 
   it('read returns the body for an entry written through the seam (lazy single-body read)', async () => {
-    const written = await call('command-eve.company-brain-write', { kind: 'note', title: 'My note', body: 'the body text' });
+    const written = await call('command-eve.company-brain-write', {
+      kind: 'note',
+      title: 'My note',
+      body: 'the body text',
+    });
     const id = written.data?.entry?.id as string;
 
     const read = await call('command-eve.company-brain-read', { id });
@@ -200,7 +219,9 @@ describe('T4.5 F5 / F8 — seed→brief entry + brief.md sync (real bridge seam)
     const home = resolveSeatHome(dataRoot, SEAT).hermesHome;
 
     // First seed → a 'brief' entry appears under the stable day-0 id.
-    const first = await call('command-eve.company-brain-seed', { seed: { kind: 'paste_brief', value: 'Erstes Briefing' } });
+    const first = await call('command-eve.company-brain-seed', {
+      seed: { kind: 'paste_brief', value: 'Erstes Briefing' },
+    });
     expect(first.success).toBe(true);
     const afterFirst = (await call('command-eve.company-brain-list')).data?.entries ?? [];
     const briefs1 = afterFirst.filter((e) => (e as { kind?: string }).kind === 'brief');
@@ -208,7 +229,9 @@ describe('T4.5 F5 / F8 — seed→brief entry + brief.md sync (real bridge seam)
     expect(briefs1[0].id).toBe('brief-day-0');
 
     // Second seed → SAME entry updated, still exactly one brief (no duplicate).
-    const second = await call('command-eve.company-brain-seed', { seed: { kind: 'paste_brief', value: 'Zweites Briefing' } });
+    const second = await call('command-eve.company-brain-seed', {
+      seed: { kind: 'paste_brief', value: 'Zweites Briefing' },
+    });
     expect(second.success).toBe(true);
     const afterSecond = (await call('command-eve.company-brain-list')).data?.entries ?? [];
     const briefs2 = afterSecond.filter((e) => (e as { kind?: string }).kind === 'brief');

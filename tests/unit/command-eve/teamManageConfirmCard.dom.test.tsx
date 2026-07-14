@@ -38,9 +38,18 @@ const PENDING = {
 };
 
 beforeEach(() => {
-  vi.mocked(ipcBridge.commandEve.teamManagePeek.invoke).mockResolvedValue({ success: true, data: { ok: true, pending: PENDING } } as never);
-  vi.mocked(ipcBridge.commandEve.teamManageApply.invoke).mockResolvedValue({ success: true, data: { ok: true } } as never);
-  vi.mocked(ipcBridge.commandEve.teamManageReject.invoke).mockResolvedValue({ success: true, data: { ok: true } } as never);
+  vi.mocked(ipcBridge.commandEve.teamManagePeek.invoke).mockResolvedValue({
+    success: true,
+    data: { ok: true, pending: PENDING },
+  } as never);
+  vi.mocked(ipcBridge.commandEve.teamManageApply.invoke).mockResolvedValue({
+    success: true,
+    data: { ok: true },
+  } as never);
+  vi.mocked(ipcBridge.commandEve.teamManageReject.invoke).mockResolvedValue({
+    success: true,
+    data: { ok: true },
+  } as never);
 });
 afterEach(() => {
   cleanup();
@@ -63,7 +72,9 @@ describe('TeamManageConfirmCard (SG-1 Design B — B3/B6)', () => {
     expect(ipcBridge.commandEve.teamManageApply.invoke).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId('team-manage-confirm'));
-    await waitFor(() => expect(ipcBridge.commandEve.teamManageApply.invoke).toHaveBeenCalledWith({ intent_id: 'INT-1' }));
+    await waitFor(() =>
+      expect(ipcBridge.commandEve.teamManageApply.invoke).toHaveBeenCalledWith({ intent_id: 'INT-1' })
+    );
   });
 
   it('dismiss calls reject and never applies', async () => {
@@ -71,12 +82,17 @@ describe('TeamManageConfirmCard (SG-1 Design B — B3/B6)', () => {
     await waitFor(() => expect(screen.getByTestId('team-manage-confirm-card')).toBeTruthy());
 
     fireEvent.click(screen.getByTestId('team-manage-dismiss'));
-    await waitFor(() => expect(ipcBridge.commandEve.teamManageReject.invoke).toHaveBeenCalledWith({ intent_id: 'INT-1' }));
+    await waitFor(() =>
+      expect(ipcBridge.commandEve.teamManageReject.invoke).toHaveBeenCalledWith({ intent_id: 'INT-1' })
+    );
     expect(ipcBridge.commandEve.teamManageApply.invoke).not.toHaveBeenCalled();
   });
 
   it('renders nothing when there is no pending intent', async () => {
-    vi.mocked(ipcBridge.commandEve.teamManagePeek.invoke).mockResolvedValue({ success: true, data: { ok: true, pending: null } } as never);
+    vi.mocked(ipcBridge.commandEve.teamManagePeek.invoke).mockResolvedValue({
+      success: true,
+      data: { ok: true, pending: null },
+    } as never);
     render(<TeamManageConfirmCard />);
     // Give the mount poll a tick; the card must not appear.
     await new Promise((r) => setTimeout(r, 20));

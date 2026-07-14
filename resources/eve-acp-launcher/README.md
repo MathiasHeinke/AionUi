@@ -4,6 +4,7 @@ The transparent ACP-adapter wrapper that gives the Claude delegate lane a real
 pause-gate + role attribution env, without touching the bundled wheel.
 
 ## Why a POSIX shell script (not node/bun)
+
 Command EVE is Apple-Silicon-macOS-only. There is NO bundled node/bun in
 `resources/` (electron-builder bundles only CPython + aioncore-bun). A POSIX
 `sh` script needs no bundled interpreter and `exec` replaces the process image,
@@ -12,11 +13,13 @@ inheriting fds 0/1/2 perfectly — the wheel's line-delimited JSON-RPC pipe
 untouched. Verified by the kill-switch probe (see EVAL-RECEIPTS §SG-1 A8).
 
 ## How the wheel spawns it
+
 `delegate_task` → `subprocess.Popen([acp_command] + acp_args, ...)`. The routing
 directive emits `acp_command = <this script>`, `acp_args = ['--role', <agent_id>,
 '--status-file', <path>, '--token-file', <path>, '--', <realAdapterCmd>, ...]`.
 
 ## Gates it satisfies
+
 - **A3 (Spawn-Pause):** refuses `exec` (exit 3) when the per-role status file is
   `paused`/`off` — the ONLY enforcement point for the delegate lane, which runs
   on the operator's subscription and never hits the shim's 409 gate.
@@ -25,7 +28,9 @@ directive emits `acp_command = <this script>`, `acp_args = ['--role', <agent_id>
 - **A8 (Kill-Switch):** stdio passthrough proven (see receipt).
 
 ## Remaining wiring (SG-1 Design A, not yet done — see progress note)
+
 This artifact is built + proven but NOT YET wired in. To make it live:
+
 1. `resolveWorkerRouting` (eveWorkerAssignmentCore.ts:270-272) / the
    directive-emission path (index.ts `resolveCommandEveWorkerRuntimeInputs` +
    commandEveBridge switch-resolver): wrap the resolved `acpCommand/acpArgs`

@@ -522,7 +522,10 @@ finally:
     });
 
     const dbPath = result.model?.db_path || '';
-    const companyRows = readRows(dbPath, 'SELECT display_name, data_class FROM crm_companies ORDER BY company_id') as Array<{
+    const companyRows = readRows(
+      dbPath,
+      'SELECT display_name, data_class FROM crm_companies ORDER BY company_id'
+    ) as Array<{
       display_name: string;
       data_class: string;
     }>;
@@ -541,7 +544,13 @@ finally:
     const dealRows = readRows(
       dbPath,
       'SELECT notes_ref, allowed_actions, consent_status, human_gate, data_class FROM crm_deals ORDER BY deal_id'
-    ) as Array<{ notes_ref: string; allowed_actions: string; consent_status: string; human_gate: string; data_class: string }>;
+    ) as Array<{
+      notes_ref: string;
+      allowed_actions: string;
+      consent_status: string;
+      human_gate: string;
+      data_class: string;
+    }>;
     expect(dealRows).toEqual([
       {
         notes_ref: 'Pilot Q3',
@@ -608,7 +617,10 @@ finally:
     const dbPath = result.model?.db_path || '';
     const companyRows = readRows(dbPath, 'SELECT display_name FROM crm_companies ORDER BY company_id');
     expect(companyRows).toEqual([{ display_name: 'Draft Company' }]);
-    const contactRows = readRows(dbPath, 'SELECT display_name, role_title, notes_ref FROM crm_contacts ORDER BY contact_id');
+    const contactRows = readRows(
+      dbPath,
+      'SELECT display_name, role_title, notes_ref FROM crm_contacts ORDER BY contact_id'
+    );
     expect(contactRows).toEqual([
       { display_name: 'Draft Contact', role_title: 'Decision Maker', notes_ref: 'local-draft-only' },
     ]);

@@ -32,7 +32,13 @@ afterEach(() => {
   for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true });
 });
 
-const SNAP = { seatId: 'a1b2', state: HONCHO_STATE_READY, serverUp: true, deriverReachable: true, probedAt: '2026-07-04T12:00:00.000Z' };
+const SNAP = {
+  seatId: 'a1b2',
+  state: HONCHO_STATE_READY,
+  serverUp: true,
+  deriverReachable: true,
+  probedAt: '2026-07-04T12:00:00.000Z',
+};
 
 describe('honchoReadyStateFile — round trip', () => {
   it('writes (creating the dir) and reads back an identical snapshot', () => {

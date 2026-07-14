@@ -7,6 +7,7 @@ because there is no `honcho`/`postgres` in CI — it needs one run on the founde
 the live `honcho-ai` wheel. This doc makes that run turnkey.
 
 ## What is already done (no Mac needed)
+
 - `honchoDeriverRouteCore` + shim injection (O3): the cloud-flash deriver lane activates the
   instant a seat has a fresh-ready readiness file. Money invariant intact (free tier forced,
   license header-only, no tier in route). Commit `68e1fd55`.
@@ -19,20 +20,24 @@ the live `honcho-ai` wheel. This doc makes that run turnkey.
   Commit `328cd283`.
 
 ## The residual — 3 concrete steps on the Mac
+
 ### 1. Verify the command STRINGS (`buildHonchoCommandSet`, honchoProvisioningRun.ts)
+
 These are drafted from FACT (step order + venv/db targets) but the exact invocations are
 **MAC-VERIFY-PENDING**. Run each by hand once and correct the literal if it differs:
+
 - `brew --version` (presence) · `brew install postgresql@16` · `brew install pgvector`
 - `<hermesVenv>/bin/python --version` · `<hermesVenv>/bin/pip install honcho-ai`
 - `createdb honcho_<hash>` (+ `CREATE EXTENSION vector` — confirm whether honcho does this itself)
 - `<hermesVenv>/bin/python -m honcho serve` — confirm the real serve subcommand + flags
   (port, `--db-url`, deriver base_url env). Also confirm the MCP entry `python -m honcho.mcp`
   (in `honchoRuntimeRenderCore.HONCHO_MCP_ENTRY_ARGS`).
-Confirm the honcho SERVER endpoint (host:port) the honcho-ai client connects to, and whether
-the MCP server needs it in env (today the MCP env carries `HONCHO_DB_URI`/`WORKSPACE_ID`/`HOME`
-only — verify that is sufficient for `python -m honcho.mcp`).
+  Confirm the honcho SERVER endpoint (host:port) the honcho-ai client connects to, and whether
+  the MCP server needs it in env (today the MCP env carries `HONCHO_DB_URI`/`WORKSPACE_ID`/`HOME`
+  only — verify that is sufficient for `python -m honcho.mcp`).
 
 ### 2. Wire the background trigger + the opt-in UI
+
 - Add an operator opt-in toggle that writes `commandEve.honchoMemoryOptIn` (mirror the
   `commandEve.kanbanAutoApprove` toggle in SystemModalContent).
 - In the main process, AFTER app-ready, when the flag is true and the seat is not already
@@ -44,11 +49,13 @@ only — verify that is sufficient for `python -m honcho.mcp`).
   `/health` + deriver probes.
 
 ### 3. Prove H-INT-12 (the one non-headless gate)
+
 Kill the honcho server AFTER a config.yaml already advertises it and confirm the Hermes agent
 DEGRADES (memory tool simply absent that turn) rather than bricking startup. If Hermes is not
 fail-soft to a dead MCP server, gate the render on a live `/health` re-probe at render time.
 
 ## Safety recap
+
 Until step 2's opt-in is set, `honchoMemoryOptIn` is absent ⇒ provisioning never runs ⇒ no
 readiness file ⇒ every seat is byte-identical to pre-Honcho. Shipping the consumption wiring in
 1.7.0 is therefore safe; the activation lights up only after this Mac run.
@@ -56,12 +63,14 @@ readiness file ⇒ every seat is byte-identical to pre-Honcho. Shipping the cons
 ---
 
 ## Addendum (2026-07-05) — local-first toggle + shared delegate memory
+
 Founder direction: the deriver LLM may be cloud, BUT Honcho must ALSO run fully local with a
 local LLM, **toggle-switchable** — and the SAME per-seat memory must be reachable by the
 Claude/Codex **delegate** workers, not just EVE. Both threads are built + verified headless
 (byte-identical until Honcho is provisioned + ready). Extra Mac/wheel-verify items:
 
 ### Deriver toggle (`commandEve.honchoDeriverMode`: auto | local | cloud)
+
 - Verify the deriver LLM env-var NAMES honcho-ai actually reads (`HONCHO_DERIVER_ENV_KEYS` in
   honchoProvisioningRun.ts — currently the OpenAI-style guess `OPENAI_BASE_URL`/`OPENAI_API_KEY`).
   The VALUES are FACT (local = `http://127.0.0.1:11434/v1` + gemma4:e4b; cloud = the loopback shim).
@@ -71,6 +80,7 @@ Claude/Codex **delegate** workers, not just EVE. Both threads are built + verifi
   keeps it un-advertised, memory falls back to Company Brain, nothing egresses).
 
 ### Shared delegate memory (Claude via the eve-acp-launcher)
+
 - Verify the env-var the installed `@agentclientprotocol/claude-agent-acp` adapter reads for an
   external MCP config (`CLAUDE_DELEGATE_MCP_CONFIG_ENV` in eveWorkerLauncherCore.ts — currently
   the guess `CLAUDE_MCP_CONFIG`). The launcher already exports the per-seat honcho json path there.
@@ -79,6 +89,7 @@ Claude/Codex **delegate** workers, not just EVE. Both threads are built + verifi
 - Measure RSS of a SECOND honcho client (the delegate's) alongside EVE's on the 8GB-Air ceiling.
 
 ### Cloud-hostable memory (the "später" multi-device axis — DESIGN NOTE, not built)
+
 The current delegate/EVE honcho MCP env uses `HONCHO_DB_URI` (direct passwordless-loopback
 Postgres) — LOCAL-ONLY by design; it does NOT generalize to a cloud-hosted honcho (you never
 expose Postgres to the internet). For the browser/mobile future where Honcho is hosted in EVE's

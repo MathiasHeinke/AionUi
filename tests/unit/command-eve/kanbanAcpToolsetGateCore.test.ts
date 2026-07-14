@@ -19,7 +19,10 @@ import {
   KANBAN_WHEEL_TOOLSET_KEY,
   KANBAN_LEAK_SCAN_TRUNCATED,
 } from '@/process/commandEve/kanbanAcpToolsetGateCore';
-import { COMMAND_EVE_ACP_PLATFORM_TOOLSETS, COMMAND_EVE_CLI_PLATFORM_TOOLSETS } from '@/process/commandEve/runtimeBootstrapCore';
+import {
+  COMMAND_EVE_ACP_PLATFORM_TOOLSETS,
+  COMMAND_EVE_CLI_PLATFORM_TOOLSETS,
+} from '@/process/commandEve/runtimeBootstrapCore';
 
 describe('kanban-acp gate — default-deny visibility', () => {
   it('exposes nothing when the preflight is not ready', () => {
@@ -31,7 +34,9 @@ describe('kanban-acp gate — default-deny visibility', () => {
 
   it('exposes nothing without an active seat or board', () => {
     expect(resolveKanbanAcpToolsetGate({ preflightReady: true, activeSeatId: '', boardSlug: 'b' }).visible).toBe(false);
-    expect(resolveKanbanAcpToolsetGate({ preflightReady: true, activeSeatId: 's', boardSlug: '  ' }).visible).toBe(false);
+    expect(resolveKanbanAcpToolsetGate({ preflightReady: true, activeSeatId: 's', boardSlug: '  ' }).visible).toBe(
+      false
+    );
     expect(resolveKanbanAcpToolsetGate(undefined as never).visible).toBe(false);
   });
 
@@ -48,10 +53,7 @@ describe('kanban-acp gate — default-deny visibility', () => {
 
 describe('kanban-acp gate — fixed non-negotiable policy', () => {
   it('always requires a confirm card and forbids dispatch/spawn/delete', () => {
-    for (const input of [
-      { preflightReady: true, activeSeatId: 's', boardSlug: 'b' },
-      { preflightReady: false },
-    ]) {
+    for (const input of [{ preflightReady: true, activeSeatId: 's', boardSlug: 'b' }, { preflightReady: false }]) {
       const p = resolveKanbanAcpToolsetGate(input).policy;
       expect(p.writeRequiresConfirmCard).toBe(true);
       expect(p.autoDispatchAllowed).toBe(false);
@@ -149,7 +151,15 @@ describe('kanban-acp gate — hardening (Codex re-audit holes)', () => {
   });
 
   it('catches swarm / decompose dispatch markers in every form (bare, dotted, underscored)', () => {
-    for (const m of ['swarm', 'decompose', 'kanban.swarm', 'kanban.decompose', 'kanban_swarm', 'kanban_decompose', 'auto_decompose']) {
+    for (const m of [
+      'swarm',
+      'decompose',
+      'kanban.swarm',
+      'kanban.decompose',
+      'kanban_swarm',
+      'kanban_decompose',
+      'auto_decompose',
+    ]) {
       expect(findRawKanbanLeaks([m]).length).toBeGreaterThan(0);
     }
   });

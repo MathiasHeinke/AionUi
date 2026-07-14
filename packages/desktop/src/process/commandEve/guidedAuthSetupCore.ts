@@ -96,7 +96,10 @@ export interface GuidedAuthSetupDeps {
  * result; a `path` only on success. NO plaintext is ever returned, logged, or
  * persisted — the record stores ONLY keychain refs.
  */
-export function runGuidedApiKeySetup(input: GuidedAuthSetupInput, deps: GuidedAuthSetupDeps = {}): GuidedAuthSetupResult {
+export function runGuidedApiKeySetup(
+  input: GuidedAuthSetupInput,
+  deps: GuidedAuthSetupDeps = {}
+): GuidedAuthSetupResult {
   const isKeychainAvailable = deps.isKeychainAvailable ?? realIsKeychainAvailable;
   const encryptSecret = deps.encryptSecret ?? realEncryptSecret;
   const writeVaultRecord = deps.writeVaultRecord ?? realWriteVaultRecord;

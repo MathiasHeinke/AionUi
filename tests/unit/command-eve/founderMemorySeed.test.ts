@@ -9,7 +9,10 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
-import { resolveCommandEveRuntimeBootstrapPaths, seedFounderUserProfile } from '@/process/commandEve/runtimeBootstrapCore';
+import {
+  resolveCommandEveRuntimeBootstrapPaths,
+  seedFounderUserProfile,
+} from '@/process/commandEve/runtimeBootstrapCore';
 import type { RuntimeBootstrapIdentityProfile } from '@/process/commandEve/runtimeBootstrapCore';
 
 const mkProfile = (over: Partial<RuntimeBootstrapIdentityProfile> = {}): RuntimeBootstrapIdentityProfile => ({

@@ -9,10 +9,7 @@
 // restores the path-derived default.
 
 import { describe, expect, it, beforeEach } from 'vitest';
-import {
-  getWorkspaceCustomName,
-  setWorkspaceCustomName,
-} from '@/renderer/utils/workspace/workspaceName';
+import { getWorkspaceCustomName, setWorkspaceCustomName } from '@/renderer/utils/workspace/workspaceName';
 
 const WS = '/Users/x/Developer/hermes-temp-6969007f';
 

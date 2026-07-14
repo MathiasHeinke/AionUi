@@ -19,7 +19,12 @@ import React, { useMemo } from 'react';
 import { Progress, Tooltip } from '@arco-design/web-react';
 import { useTranslation } from 'react-i18next';
 import { useCreditsStatus } from '@renderer/hooks/useCreditsStatus';
-import { CREDIT_UNIT_EUR, isNearAllowanceWall, showsFreeActionMeter, type CreditMeterModel } from '@/common/config/creditsCore';
+import {
+  CREDIT_UNIT_EUR,
+  isNearAllowanceWall,
+  showsFreeActionMeter,
+  type CreditMeterModel,
+} from '@/common/config/creditsCore';
 import './billing.css';
 
 export interface CreditMeterBadgeProps {

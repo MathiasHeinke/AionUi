@@ -297,7 +297,9 @@ class AutoUpdaterService extends EventEmitter {
     const url = await resolveUpdateFeedUrl(readConfig);
     if (!url) {
       this._feedConfigured = false;
-      log.info(`No update feed configured (set ${UPDATE_FEED_URL_ENV} or ${UPDATE_FEED_URL_CONFIG_KEY}); skipping update checks.`);
+      log.info(
+        `No update feed configured (set ${UPDATE_FEED_URL_ENV} or ${UPDATE_FEED_URL_CONFIG_KEY}); skipping update checks.`
+      );
       return { configured: false };
     }
 

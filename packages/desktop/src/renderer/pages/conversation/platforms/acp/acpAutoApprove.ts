@@ -69,9 +69,7 @@ export function isAutoApproveMode(mode: string | undefined | null): boolean {
  * option at all, in which case the caller MUST fall back to rendering the dialog (we
  * never fabricate an approval the agent didn't offer).
  */
-export function pickAllowOptionId(
-  options: ReadonlyArray<AcpPermissionOption> | undefined | null
-): string | null {
+export function pickAllowOptionId(options: ReadonlyArray<AcpPermissionOption> | undefined | null): string | null {
   if (!options || options.length === 0) return null;
   const once = options.find((o) => o.kind === 'allow_once');
   if (once) return once.option_id;

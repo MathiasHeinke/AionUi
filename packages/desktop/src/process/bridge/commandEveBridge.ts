@@ -30,19 +30,12 @@ import {
 } from '@process/commandEve/entitlementCore';
 import { runDesktopAuthLoopback, type DesktopAuthIntent } from '@process/commandEve/desktopAuthLoopback';
 import { passwordGrant } from '@process/commandEve/desktopAuthPassword';
-import {
-  hasAccountSession,
-  readAccountSession,
-  revokeAndClearSession,
-} from '@process/commandEve/accountSessionAtRest';
+import { hasAccountSession, readAccountSession, revokeAndClearSession } from '@process/commandEve/accountSessionAtRest';
 import {
   activateEntitlementFromSession,
   silentResumeAccountAuth,
 } from '@process/commandEve/accountAuthOrchestratorCore';
-import {
-  resetEntitlement,
-  COMMAND_EVE_ENTITLEMENT_RESET_VERSION,
-} from '@process/commandEve/entitlementResetCore';
+import { resetEntitlement, COMMAND_EVE_ENTITLEMENT_RESET_VERSION } from '@process/commandEve/entitlementResetCore';
 import { reconcileEntitlementOnline } from '@process/commandEve/entitlementOnlineCheckCore';
 import {
   applyKanbanMarketingCardAction,
@@ -127,13 +120,32 @@ import {
 } from '@/common/config/seatUsageCore';
 import { ProcessConfig, getSkillsDir, getCronSkillsDir } from '@process/utils/initStorage';
 import { getDataPath } from '@process/utils/utils';
-import { getActiveSeatId, getActiveSeatKind, isActiveSeatLegacy, resolveActiveSeatHome, resolveSeatHermesHome, sanitizeSeatId } from '@process/commandEve/seatContextCore';
+import {
+  getActiveSeatId,
+  getActiveSeatKind,
+  isActiveSeatLegacy,
+  resolveActiveSeatHome,
+  resolveSeatHermesHome,
+  sanitizeSeatId,
+} from '@process/commandEve/seatContextCore';
 import { isSeatSwitchAuthorized, parseMySeats, resolveSeatAccess } from '@process/commandEve/seatSwitchCore';
 import { readMySeatsWire as readMySeatsWireCore } from '@process/commandEve/seatWireFetchCore';
 import { readCompanyBrainSeedState, writeCompanyBrainSeed } from '@process/commandEve/companyBrainSeedCore';
 import { COMMAND_EVE_HANDOVER_NOTE_RELPATH, HANDOVER_NOTE_MAX_RAW_CHARS } from '@/common/config/startscreenNoteCore';
 import nodePath from 'node:path';
-import { COMMAND_EVE_DAY_ZERO_BRIEF_ID, listEntriesWithState, mirrorBriefBodyToFile, pruneSessionDigests, readEntryBody, reconcileUnindexedEntries, removeEntry, SESSION_DIGEST_KIND, upsertEntry, upsertSystemEntry, type CompanyBrainWriteKind } from '@process/commandEve/companyBrainStoreCore';
+import {
+  COMMAND_EVE_DAY_ZERO_BRIEF_ID,
+  listEntriesWithState,
+  mirrorBriefBodyToFile,
+  pruneSessionDigests,
+  readEntryBody,
+  reconcileUnindexedEntries,
+  removeEntry,
+  SESSION_DIGEST_KIND,
+  upsertEntry,
+  upsertSystemEntry,
+  type CompanyBrainWriteKind,
+} from '@process/commandEve/companyBrainStoreCore';
 import { runSessionDigest, type SessionDigestDeps } from '@process/commandEve/sessionDigestCore';
 import { enforceMemoryBoundary } from '@process/commandEve/memoryBoundaryContractCore';
 import {
@@ -305,7 +317,8 @@ async function resolveCommandEveWorkerRuntimeInputsForSwitch(): Promise<{
 }> {
   try {
     const { readCommandEveSettingsFromBackend } = await import('@process/commandEve/commandEveBackendSettingsRead');
-    const { buildTeamDirectiveRoles, codexRuntimeForConfig, resolveAssignedClaudeDelegate } = await import('@/common/config/eveWorkerAssignmentCore');
+    const { buildTeamDirectiveRoles, codexRuntimeForConfig, resolveAssignedClaudeDelegate } =
+      await import('@/common/config/eveWorkerAssignmentCore');
     const { applyLauncherWiring } = await import('@process/commandEve/eveWorkerLauncherCore');
     // SG-1 isolation (review fix): the shim + registry + team_manage intent live on
     // the MAIN-process singleton, which is NOT torn down on a seat-switch (only the
@@ -324,36 +337,45 @@ async function resolveCommandEveWorkerRuntimeInputsForSwitch(): Promise<{
     clearKanbanPendingIntent();
     type EveWorkerAssignmentMap = import('@/common/config/eveWorkerAssignmentCore').EveWorkerAssignmentMap;
     type EveTeamWorkerStatusMap = import('@/common/config/eveTeamControlsCore').EveTeamWorkerStatusMap;
-    const bag = await readCommandEveSettingsFromBackend(['commandEve.workerAssignments', 'commandEve.teamWorkerStatus']);
+    const bag = await readCommandEveSettingsFromBackend([
+      'commandEve.workerAssignments',
+      'commandEve.teamWorkerStatus',
+    ]);
     const assignmentsRaw = bag['commandEve.workerAssignments'];
     const statusesRaw = bag['commandEve.teamWorkerStatus'];
     const assignments =
       assignmentsRaw && typeof assignmentsRaw === 'object'
         ? (Object.fromEntries(
-            Object.entries(assignmentsRaw as Record<string, { kind: string; cli_path?: string; cli_version?: string }>).map(
-              ([id, v]) => [id, { agent_id: id, ...v }]
-            )
+            Object.entries(
+              assignmentsRaw as Record<string, { kind: string; cli_path?: string; cli_version?: string }>
+            ).map(([id, v]) => [id, { agent_id: id, ...v }])
           ) as EveWorkerAssignmentMap)
         : ({} as EveWorkerAssignmentMap);
     const statuses =
-      statusesRaw && typeof statusesRaw === 'object' ? (statusesRaw as EveTeamWorkerStatusMap) : ({} as EveTeamWorkerStatusMap);
+      statusesRaw && typeof statusesRaw === 'object'
+        ? (statusesRaw as EveTeamWorkerStatusMap)
+        : ({} as EveTeamWorkerStatusMap);
     return {
       reachable: true,
       codexRuntime: codexRuntimeForConfig(assignments),
       // SG-1 A3: same launcher wiring as the boot path (index.ts) so a seat-switch
       // re-emits the wrapped delegate + refreshes the new seat's status/token mirror.
-      claudeDelegate: applyLauncherWiring(
-        resolveAssignedClaudeDelegate(assignments, statuses),
-        assignments,
-        statuses,
-        { dataPath: getDataPath(), seatId: getActiveSeatId(), resourcesPath: process.resourcesPath, env: process.env, honcho: resolveActiveSeatHonchoRenderForBridge() }
-      ),
+      claudeDelegate: applyLauncherWiring(resolveAssignedClaudeDelegate(assignments, statuses), assignments, statuses, {
+        dataPath: getDataPath(),
+        seatId: getActiveSeatId(),
+        resourcesPath: process.resourcesPath,
+        env: process.env,
+        honcho: resolveActiveSeatHonchoRenderForBridge(),
+      }),
       teamRoles: buildTeamDirectiveRoles(assignments, statuses),
     };
   } catch (error) {
     // F7: the settings READ threw → backend unreachable. Report reachable:false so
     // the switch's prepareEnv does NOT re-provision on degraded (empty) inputs.
-    console.warn('[Command EVE] seat-switch worker-runtime input read UNREACHABLE; last-known-good runtime files will be kept (no re-provision):', error);
+    console.warn(
+      '[Command EVE] seat-switch worker-runtime input read UNREACHABLE; last-known-good runtime files will be kept (no re-provision):',
+      error
+    );
     return { reachable: false, codexRuntime: '', claudeDelegate: null, teamRoles: [] };
   }
 }
@@ -417,7 +439,11 @@ const COMMAND_EVE_SWITCH_SEAT_LOCK_TIMEOUT_MS = 300_000;
  */
 function guardKanbanMutationDuringSwitch<V extends string>(
   version: V
-): { success: false; msg: string; data: { version: V; ok: false; status: 'blocked'; reason_code: 'SEAT_SWITCH_IN_PROGRESS'; message: string } } | null {
+): {
+  success: false;
+  msg: string;
+  data: { version: V; ok: false; status: 'blocked'; reason_code: 'SEAT_SWITCH_IN_PROGRESS'; message: string };
+} | null {
   if (!commandEveSwitchSeatInFlight) return null;
   const message = 'A seat switch is in progress — the board write was refused to protect per-seat isolation.';
   return {
@@ -441,7 +467,11 @@ function guardKanbanMutationDuringSwitch<V extends string>(
  * UI already reads. Reads (list/read) are NOT write-fenced — only writes can
  * contaminate — but list SKIPS its reconcile while a switch is in flight (below).
  */
-function guardBrainMutationDuringSwitch(): { success: false; msg: string; data: { ok: false; reason_code: 'SEAT_SWITCH_IN_PROGRESS'; message: string } } | null {
+function guardBrainMutationDuringSwitch(): {
+  success: false;
+  msg: string;
+  data: { ok: false; reason_code: 'SEAT_SWITCH_IN_PROGRESS'; message: string };
+} | null {
   if (!commandEveSwitchSeatInFlight) return null;
   const message = 'A seat switch is in progress — the Company-Brain write was refused to protect per-seat isolation.';
   return {
@@ -570,9 +600,15 @@ async function fetchConversationTitle(conversationId: string): Promise<string | 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), SESSION_DIGEST_TIMEOUT_MS);
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/api/conversations?limit=10000`, { method: 'GET', signal: controller.signal });
+    const res = await fetch(`http://127.0.0.1:${port}/api/conversations?limit=10000`, {
+      method: 'GET',
+      signal: controller.signal,
+    });
     if (!res.ok) return undefined;
-    const json = (await res.json()) as { data?: { items?: Array<Record<string, unknown>> } | null; items?: Array<Record<string, unknown>> };
+    const json = (await res.json()) as {
+      data?: { items?: Array<Record<string, unknown>> } | null;
+      items?: Array<Record<string, unknown>>;
+    };
     const items = json?.data?.items ?? json?.items ?? [];
     const row = items.find((c) => String(c?.id ?? '') === conversationId);
     const name = row && typeof row.name === 'string' ? row.name.trim() : '';
@@ -713,72 +749,73 @@ export function initCommandEveBridge(): void {
   // (the separate GATE-NULL slice). connectorCatalogCore's global
   // mcp_enable_allowed / connector_write_allowed stay FALSE (no global flip).
   // -------------------------------------------------------------------------
-  bridge.buildProvider('command-eve.guided-auth-setup').provider(
-    async (request?: {
-      connectorId?: string;
-      secrets?: Record<string, string>;
-      scope?: 'founder' | 'seat';
-      seatId?: string;
-      humanGateReceipt?: string;
-      manifestPath?: string;
-    }) => {
-      const version = 'command-eve-guided-auth-setup/v0' as const;
-      try {
-        const { runGuidedApiKeySetup } = await import('@process/commandEve/guidedAuthSetupCore');
-        const { referenceMcpInvocationFor } = await import('@process/commandEve/curatedConnectorReference');
-        const { reconcileVaultConfigAfterConnectorChange } = await import(
-          '@process/commandEve/reconcileHermesMcpConfigWiring'
-        );
-
-        const connectorId = typeof request?.connectorId === 'string' ? request.connectorId.trim() : '';
-        if (!connectorId) {
-          return { success: false, msg: 'GUIDED_AUTH_CONNECTOR_ID_MISSING', data: { version, ok: false } };
-        }
-
-        // Resolve the connector's stdio mcp_invocation: prefer the authoritative
-        // manifest (buildConnectorCatalog), fall back to the sandbox reference for
-        // the reference LIVE connector (Notion) so it can be set up sandbox-alone.
-        let invocation = referenceMcpInvocationFor(connectorId);
+  bridge
+    .buildProvider('command-eve.guided-auth-setup')
+    .provider(
+      async (request?: {
+        connectorId?: string;
+        secrets?: Record<string, string>;
+        scope?: 'founder' | 'seat';
+        seatId?: string;
+        humanGateReceipt?: string;
+        manifestPath?: string;
+      }) => {
+        const version = 'command-eve-guided-auth-setup/v0' as const;
         try {
-          const catalog = buildConnectorCatalog({ manifestPath: request?.manifestPath });
-          const fromManifest = catalog.model?.connectors.find((c) => c.id === connectorId)?.mcp_invocation;
-          if (fromManifest) invocation = fromManifest;
-        } catch {
-          // manifest unavailable — keep the reference fallback (Notion) if any.
+          const { runGuidedApiKeySetup } = await import('@process/commandEve/guidedAuthSetupCore');
+          const { referenceMcpInvocationFor } = await import('@process/commandEve/curatedConnectorReference');
+          const { reconcileVaultConfigAfterConnectorChange } =
+            await import('@process/commandEve/reconcileHermesMcpConfigWiring');
+
+          const connectorId = typeof request?.connectorId === 'string' ? request.connectorId.trim() : '';
+          if (!connectorId) {
+            return { success: false, msg: 'GUIDED_AUTH_CONNECTOR_ID_MISSING', data: { version, ok: false } };
+          }
+
+          // Resolve the connector's stdio mcp_invocation: prefer the authoritative
+          // manifest (buildConnectorCatalog), fall back to the sandbox reference for
+          // the reference LIVE connector (Notion) so it can be set up sandbox-alone.
+          let invocation = referenceMcpInvocationFor(connectorId);
+          try {
+            const catalog = buildConnectorCatalog({ manifestPath: request?.manifestPath });
+            const fromManifest = catalog.model?.connectors.find((c) => c.id === connectorId)?.mcp_invocation;
+            if (fromManifest) invocation = fromManifest;
+          } catch {
+            // manifest unavailable — keep the reference fallback (Notion) if any.
+          }
+
+          const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
+          const result = runGuidedApiKeySetup({
+            connector_id: connectorId,
+            mcp_invocation: invocation,
+            secrets: request?.secrets ?? {},
+            scope: request?.scope === 'seat' ? 'seat' : 'founder',
+            seat_id: request?.scope === 'seat' ? getActiveSeatId() : undefined,
+            human_gate_receipt: typeof request?.humanGateReceipt === 'string' ? request.humanGateReceipt : '',
+            userDataPath: paths.userDataPath,
+            configRoot: paths.hermesRoot,
+          });
+
+          if (!result.ok) {
+            return { success: false, msg: result.reason_code, data: { version, ...result } };
+          }
+
+          // Reconcile (re-render config.yaml from the vault + respawn). Behind the
+          // flag this is a NO-OP receipt today (byte-identical config.yaml).
+          const reconcile = await reconcileVaultConfigAfterConnectorChange('approve');
+          return {
+            success: true,
+            data: { version, ...result, reconcile },
+          };
+        } catch (error) {
+          return {
+            success: false,
+            msg: error instanceof Error ? error.message : 'Command EVE guided auth setup bridge failed.',
+            data: { version, ok: false, reason_code: 'GUIDED_AUTH_BRIDGE_FAILED' },
+          };
         }
-
-        const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
-        const result = runGuidedApiKeySetup({
-          connector_id: connectorId,
-          mcp_invocation: invocation,
-          secrets: request?.secrets ?? {},
-          scope: request?.scope === 'seat' ? 'seat' : 'founder',
-          seat_id: request?.scope === 'seat' ? getActiveSeatId() : undefined,
-          human_gate_receipt: typeof request?.humanGateReceipt === 'string' ? request.humanGateReceipt : '',
-          userDataPath: paths.userDataPath,
-          configRoot: paths.hermesRoot,
-        });
-
-        if (!result.ok) {
-          return { success: false, msg: result.reason_code, data: { version, ...result } };
-        }
-
-        // Reconcile (re-render config.yaml from the vault + respawn). Behind the
-        // flag this is a NO-OP receipt today (byte-identical config.yaml).
-        const reconcile = await reconcileVaultConfigAfterConnectorChange('approve');
-        return {
-          success: true,
-          data: { version, ...result, reconcile },
-        };
-      } catch (error) {
-        return {
-          success: false,
-          msg: error instanceof Error ? error.message : 'Command EVE guided auth setup bridge failed.',
-          data: { version, ok: false, reason_code: 'GUIDED_AUTH_BRIDGE_FAILED' },
-        };
       }
-    }
-  );
+    );
 
   bridge
     .buildProvider('command-eve.skill-library')
@@ -845,20 +882,18 @@ export function initCommandEveBridge(): void {
   // 1.2.18 Req 2 — list EVE-learned skills ({cronSkillsDir}/{job_id}/SKILL.md) so
   // the unified surface can show them read-only. Does NOT move the files (the cron
   // runtime reads them in place); a pure scan + frontmatter parse.
-  bridge
-    .buildProvider('command-eve.learned-skills')
-    .provider(async () => {
-      try {
-        const cards = listLearnedSkills(getCronSkillsDir());
-        return { success: true, data: { ok: true as const, skills: cards } };
-      } catch (error) {
-        return {
-          success: false,
-          msg: error instanceof Error ? error.message : 'Command EVE learned-skills bridge failed.',
-          data: { ok: false as const, skills: [] },
-        };
-      }
-    });
+  bridge.buildProvider('command-eve.learned-skills').provider(async () => {
+    try {
+      const cards = listLearnedSkills(getCronSkillsDir());
+      return { success: true, data: { ok: true as const, skills: cards } };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : 'Command EVE learned-skills bridge failed.',
+        data: { ok: false as const, skills: [] },
+      };
+    }
+  });
 
   // v1.6 — EVE-AUTHORED skills ("der User soll SEHEN, dass EVE sich erweitert
   // hat"). EVE writes her own field skills into the per-seat Hermes default dir
@@ -866,27 +901,25 @@ export function initCommandEveBridge(): void {
   // location IS the honest provenance. Pure read-only scan, per active seat;
   // app-owned ids are excluded as a safety net. Feeds the "Von EVE erstellt"
   // badge + description + mtime "neu"-marker on the Skill Library surface.
-  bridge
-    .buildProvider('command-eve.authored-skills')
-    .provider(async () => {
-      try {
-        const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
-        const authoredDir = nodePath.join(paths.hermesHome, COMMAND_EVE_AUTHORED_SKILLS_DIR);
-        const appOwned = new Set<string>([
-          ...EVE_STRATEGY_SKILL_IDS,
-          COMMAND_EVE_ONBOARDING_SKILL_ID,
-          COMMAND_EVE_ARTIFACT_MENU_SKILL_ID,
-        ]);
-        const cards = listAuthoredSkills(authoredDir, appOwned);
-        return { success: true, data: { ok: true as const, skills: cards } };
-      } catch (error) {
-        return {
-          success: false,
-          msg: error instanceof Error ? error.message : 'Command EVE authored-skills bridge failed.',
-          data: { ok: false as const, skills: [] },
-        };
-      }
-    });
+  bridge.buildProvider('command-eve.authored-skills').provider(async () => {
+    try {
+      const paths = resolveCommandEveRuntimeBootstrapPaths(getDataPath());
+      const authoredDir = nodePath.join(paths.hermesHome, COMMAND_EVE_AUTHORED_SKILLS_DIR);
+      const appOwned = new Set<string>([
+        ...EVE_STRATEGY_SKILL_IDS,
+        COMMAND_EVE_ONBOARDING_SKILL_ID,
+        COMMAND_EVE_ARTIFACT_MENU_SKILL_ID,
+      ]);
+      const cards = listAuthoredSkills(authoredDir, appOwned);
+      return { success: true, data: { ok: true as const, skills: cards } };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : 'Command EVE authored-skills bridge failed.',
+        data: { ok: false as const, skills: [] },
+      };
+    }
+  });
 
   bridge
     .buildProvider('command-eve.local-runtime-status')
@@ -1011,57 +1044,61 @@ export function initCommandEveBridge(): void {
   // core picks up the active seat automatically — no seatId plumbing here, same
   // as the kanban/crm providers. The seed is the client's day-0 truth; it must
   // live per-seat so each reseller client carries its own knowledge.
-  bridge
-    .buildProvider('command-eve.company-brain-seed')
-    .provider(async (request?: { seed?: ClientSeedInput }) => {
-      try {
-        const seed = request?.seed;
-        if (!seed) {
-          return { success: false, msg: 'Missing seed payload.', data: null as unknown };
-        }
-        const result = writeCompanyBrainSeed({ userDataPath: getDataPath(), seed });
-        // F5 (HIGH): on a post-T2 seat the empty day-zero scaffold (brain.json) is
-        // ALWAYS created before the first seed, so migrateSeedToBrain is a permanent
-        // no-op (it only migrates when brain.json is ABSENT) — the Seed button never
-        // produced a brain ENTRY. Fold the seed into a 'brief' entry HERE, right
-        // after a successful seed write, under the SAME stable id the migration uses
-        // (COMMAND_EVE_DAY_ZERO_BRIEF_ID) so a second seed UPDATES it (no duplicate).
-        // Best-effort: the seed write already succeeded; a failed upsert must not turn
-        // the seed into an error, so it is logged and swallowed.
-        if (result.ok) {
-          try {
-            // COMPA-625: the seed always writes to the ACTIVE seat (resolveActiveSeatHome),
-            // so active===target here; the boundary's real work at this site is the S3 hard
-            // floor — a day-0 brief carrying a raw secret/health/finance must not be
-            // persisted into the durable per-client brain. Best-effort: a rejected brief is
-            // logged + skipped (the seed write itself already succeeded), never an error.
-            const seatId = getActiveSeatId();
-            const guard = enforceMemoryBoundary({ operation: 'write', store: 'company-brain', activeSeatId: seatId, targetSeatId: seatId, payloadText: result.record.value });
-            if (!guard.ok) {
-              console.warn('[Command EVE] 625 memory-boundary skipped seed→brain brief:', guard.reasonCode);
-            } else {
-              upsertEntry(result.hermesHome, {
-                id: COMMAND_EVE_DAY_ZERO_BRIEF_ID,
-                kind: 'brief',
-                title: 'Day-0 Briefing',
-                body: result.record.value,
-                author: 'user',
-                source: 'seed-migration',
-              });
-            }
-          } catch (error) {
-            console.warn('[Command EVE] seed→brain brief entry upsert failed (seed itself succeeded):', error);
-          }
-        }
-        return { success: result.ok, data: result as unknown };
-      } catch (error) {
-        return {
-          success: false,
-          msg: error instanceof Error ? error.message : 'Command EVE company-brain seed write failed.',
-          data: null as unknown,
-        };
+  bridge.buildProvider('command-eve.company-brain-seed').provider(async (request?: { seed?: ClientSeedInput }) => {
+    try {
+      const seed = request?.seed;
+      if (!seed) {
+        return { success: false, msg: 'Missing seed payload.', data: null as unknown };
       }
-    });
+      const result = writeCompanyBrainSeed({ userDataPath: getDataPath(), seed });
+      // F5 (HIGH): on a post-T2 seat the empty day-zero scaffold (brain.json) is
+      // ALWAYS created before the first seed, so migrateSeedToBrain is a permanent
+      // no-op (it only migrates when brain.json is ABSENT) — the Seed button never
+      // produced a brain ENTRY. Fold the seed into a 'brief' entry HERE, right
+      // after a successful seed write, under the SAME stable id the migration uses
+      // (COMMAND_EVE_DAY_ZERO_BRIEF_ID) so a second seed UPDATES it (no duplicate).
+      // Best-effort: the seed write already succeeded; a failed upsert must not turn
+      // the seed into an error, so it is logged and swallowed.
+      if (result.ok) {
+        try {
+          // COMPA-625: the seed always writes to the ACTIVE seat (resolveActiveSeatHome),
+          // so active===target here; the boundary's real work at this site is the S3 hard
+          // floor — a day-0 brief carrying a raw secret/health/finance must not be
+          // persisted into the durable per-client brain. Best-effort: a rejected brief is
+          // logged + skipped (the seed write itself already succeeded), never an error.
+          const seatId = getActiveSeatId();
+          const guard = enforceMemoryBoundary({
+            operation: 'write',
+            store: 'company-brain',
+            activeSeatId: seatId,
+            targetSeatId: seatId,
+            payloadText: result.record.value,
+          });
+          if (!guard.ok) {
+            console.warn('[Command EVE] 625 memory-boundary skipped seed→brain brief:', guard.reasonCode);
+          } else {
+            upsertEntry(result.hermesHome, {
+              id: COMMAND_EVE_DAY_ZERO_BRIEF_ID,
+              kind: 'brief',
+              title: 'Day-0 Briefing',
+              body: result.record.value,
+              author: 'user',
+              source: 'seed-migration',
+            });
+          }
+        } catch (error) {
+          console.warn('[Command EVE] seed→brain brief entry upsert failed (seed itself succeeded):', error);
+        }
+      }
+      return { success: result.ok, data: result as unknown };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : 'Command EVE company-brain seed write failed.',
+        data: null as unknown,
+      };
+    }
+  });
 
   bridge.buildProvider('command-eve.company-brain-status').provider(async () => {
     try {
@@ -1143,20 +1180,28 @@ export function initCommandEveBridge(): void {
       const { syncEveWorkerLauncherFiles } = await import('@process/commandEve/eveWorkerLauncherCore');
       type EveWorkerAssignmentMap = import('@/common/config/eveWorkerAssignmentCore').EveWorkerAssignmentMap;
       type EveTeamWorkerStatusMap = import('@/common/config/eveTeamControlsCore').EveTeamWorkerStatusMap;
-      const bag = await readCommandEveSettingsFromBackend(['commandEve.workerAssignments', 'commandEve.teamWorkerStatus']);
+      const bag = await readCommandEveSettingsFromBackend([
+        'commandEve.workerAssignments',
+        'commandEve.teamWorkerStatus',
+      ]);
       const assignmentsRaw = bag['commandEve.workerAssignments'];
       const statusesRaw = bag['commandEve.teamWorkerStatus'];
       const assignments =
         assignmentsRaw && typeof assignmentsRaw === 'object'
           ? (Object.fromEntries(
-              Object.entries(assignmentsRaw as Record<string, { kind: string; cli_path?: string; cli_version?: string }>).map(
-                ([id, v]) => [id, { agent_id: id, ...v }]
-              )
+              Object.entries(
+                assignmentsRaw as Record<string, { kind: string; cli_path?: string; cli_version?: string }>
+              ).map(([id, v]) => [id, { agent_id: id, ...v }])
             ) as EveWorkerAssignmentMap)
           : ({} as EveWorkerAssignmentMap);
       const statuses =
-        statusesRaw && typeof statusesRaw === 'object' ? (statusesRaw as EveTeamWorkerStatusMap) : ({} as EveTeamWorkerStatusMap);
-      const res = syncEveWorkerLauncherFiles(assignments, statuses, { dataPath: getDataPath(), seatId: getActiveSeatId() });
+        statusesRaw && typeof statusesRaw === 'object'
+          ? (statusesRaw as EveTeamWorkerStatusMap)
+          : ({} as EveTeamWorkerStatusMap);
+      const res = syncEveWorkerLauncherFiles(assignments, statuses, {
+        dataPath: getDataPath(),
+        seatId: getActiveSeatId(),
+      });
       return { success: true, data: { ok: true, tokensWritten: res.tokensWritten.length } as unknown };
     } catch (error) {
       console.warn('[Command EVE] sync-worker-launcher-state failed:', error);
@@ -1215,24 +1260,26 @@ export function initCommandEveBridge(): void {
     }
   });
 
-  bridge.buildProvider('command-eve.kanban-acp-apply').provider(async (request?: { intent_id?: string; mutation_hash?: string }) => {
-    // Codex re-audit: the confirmed write must be fenced during a seat switch, exactly
-    // like the direct marketing-card mutation IPC — otherwise a confirm click mid-switch
-    // could consume a seat-A intent and resolve getDataPath() against seat-B.
-    const fenced = guardKanbanMutationDuringSwitch('command-eve-kanban-acp-apply/v0');
-    if (fenced) return fenced;
-    try {
-      const intentId = typeof request?.intent_id === 'string' ? request.intent_id : '';
-      const mutationHash = typeof request?.mutation_hash === 'string' ? request.mutation_hash : '';
-      if (!intentId) return { success: false, msg: 'intent_id required', data: { ok: false } as unknown };
-      const { applyKanbanAcpIntent } = await import('@process/commandEve/kanbanAcpMain');
-      const result = await applyKanbanAcpIntent(intentId, mutationHash);
-      return { success: true, data: result as unknown };
-    } catch (error) {
-      console.warn('[Command EVE] kanban-acp-apply failed:', error);
-      return { success: true, data: { ok: false, reason: 'error' } as unknown };
-    }
-  });
+  bridge
+    .buildProvider('command-eve.kanban-acp-apply')
+    .provider(async (request?: { intent_id?: string; mutation_hash?: string }) => {
+      // Codex re-audit: the confirmed write must be fenced during a seat switch, exactly
+      // like the direct marketing-card mutation IPC — otherwise a confirm click mid-switch
+      // could consume a seat-A intent and resolve getDataPath() against seat-B.
+      const fenced = guardKanbanMutationDuringSwitch('command-eve-kanban-acp-apply/v0');
+      if (fenced) return fenced;
+      try {
+        const intentId = typeof request?.intent_id === 'string' ? request.intent_id : '';
+        const mutationHash = typeof request?.mutation_hash === 'string' ? request.mutation_hash : '';
+        if (!intentId) return { success: false, msg: 'intent_id required', data: { ok: false } as unknown };
+        const { applyKanbanAcpIntent } = await import('@process/commandEve/kanbanAcpMain');
+        const result = await applyKanbanAcpIntent(intentId, mutationHash);
+        return { success: true, data: result as unknown };
+      } catch (error) {
+        console.warn('[Command EVE] kanban-acp-apply failed:', error);
+        return { success: true, data: { ok: false, reason: 'error' } as unknown };
+      }
+    });
 
   bridge.buildProvider('command-eve.kanban-acp-reject').provider(async (request?: { intent_id?: string }) => {
     try {
@@ -1284,7 +1331,11 @@ export function initCommandEveBridge(): void {
   bridge.buildProvider('command-eve.company-brain-read').provider(async (request?: { id?: string }) => {
     try {
       if (!request || typeof request.id !== 'string') {
-        return { success: false, msg: 'COMPANY_BRAIN_READ_BAD_REQUEST', data: { ok: false, reason_code: 'COMPANY_BRAIN_READ_BAD_REQUEST', body: null } as unknown };
+        return {
+          success: false,
+          msg: 'COMPANY_BRAIN_READ_BAD_REQUEST',
+          data: { ok: false, reason_code: 'COMPANY_BRAIN_READ_BAD_REQUEST', body: null } as unknown,
+        };
       }
       const home = resolveActiveSeatHome(getDataPath()).hermesHome;
       const body = readEntryBody(home, request.id);
@@ -1307,7 +1358,11 @@ export function initCommandEveBridge(): void {
       if (fenced) return fenced;
       try {
         if (!request || typeof request.kind !== 'string' || typeof request.title !== 'string') {
-          return { success: false, msg: 'COMPANY_BRAIN_WRITE_BAD_REQUEST', data: { ok: false, reason_code: 'COMPANY_BRAIN_WRITE_BAD_REQUEST' } as unknown };
+          return {
+            success: false,
+            msg: 'COMPANY_BRAIN_WRITE_BAD_REQUEST',
+            data: { ok: false, reason_code: 'COMPANY_BRAIN_WRITE_BAD_REQUEST' } as unknown,
+          };
         }
         const seatHome = resolveActiveSeatHome(getDataPath());
         const home = seatHome.hermesHome;
@@ -1315,9 +1370,19 @@ export function initCommandEveBridge(): void {
         // is a user-initiated write, so a rejection is surfaced (not silently skipped) —
         // the S3 hard floor stops a raw secret/health/finance from being persisted into
         // the per-client brain, and the seat check pins it to the active seat.
-        const guard = enforceMemoryBoundary({ operation: 'write', store: 'company-brain', activeSeatId: seatHome.seatId, targetSeatId: seatHome.seatId, payloadText: request.body ?? '' });
+        const guard = enforceMemoryBoundary({
+          operation: 'write',
+          store: 'company-brain',
+          activeSeatId: seatHome.seatId,
+          targetSeatId: seatHome.seatId,
+          payloadText: request.body ?? '',
+        });
         if (!guard.ok) {
-          return { success: false, msg: `COMPANY_BRAIN_WRITE_BOUNDARY_${guard.reasonCode}`, data: { ok: false, reason_code: `memory_boundary_${guard.reasonCode}` } as unknown };
+          return {
+            success: false,
+            msg: `COMPANY_BRAIN_WRITE_BOUNDARY_${guard.reasonCode}`,
+            data: { ok: false, reason_code: `memory_boundary_${guard.reasonCode}` } as unknown,
+          };
         }
         const result = upsertEntry(home, {
           id: request.id,
@@ -1350,7 +1415,11 @@ export function initCommandEveBridge(): void {
     if (fenced) return fenced;
     try {
       if (!request || typeof request.id !== 'string') {
-        return { success: false, msg: 'COMPANY_BRAIN_REMOVE_BAD_REQUEST', data: { ok: false, reason_code: 'COMPANY_BRAIN_REMOVE_BAD_REQUEST' } as unknown };
+        return {
+          success: false,
+          msg: 'COMPANY_BRAIN_REMOVE_BAD_REQUEST',
+          data: { ok: false, reason_code: 'COMPANY_BRAIN_REMOVE_BAD_REQUEST' } as unknown,
+        };
       }
       const home = resolveActiveSeatHome(getDataPath()).hermesHome;
       const result = removeEntry(home, request.id);
@@ -1386,7 +1455,11 @@ export function initCommandEveBridge(): void {
       home = seatHome.hermesHome;
       seatId = seatHome.seatId;
     } catch {
-      return { success: false, msg: 'SESSION_DIGEST_NO_SEAT', data: { ok: false, reason_code: 'SESSION_DIGEST_NO_SEAT', outcome: 'error' } as unknown };
+      return {
+        success: false,
+        msg: 'SESSION_DIGEST_NO_SEAT',
+        data: { ok: false, reason_code: 'SESSION_DIGEST_NO_SEAT', outcome: 'error' } as unknown,
+      };
     }
     const deps: SessionDigestDeps = {
       isSwitchInFlight: () => commandEveSwitchSeatInFlight,
@@ -1398,7 +1471,13 @@ export function initCommandEveBridge(): void {
         // model repeated. Gate the durable write with the S3 hard floor + seat check
         // before it lands in the per-seat brain. Best-effort — a rejected digest is
         // logged + skipped (no digest is an honest, safe outcome).
-        const guard = enforceMemoryBoundary({ operation: 'write', store: 'session-digest', activeSeatId: seatId, targetSeatId: seatId, payloadText: body });
+        const guard = enforceMemoryBoundary({
+          operation: 'write',
+          store: 'session-digest',
+          activeSeatId: seatId,
+          targetSeatId: seatId,
+          payloadText: body,
+        });
         if (!guard.ok) {
           console.warn('[Command EVE] 625 memory-boundary skipped session digest:', guard.reasonCode);
           return;
@@ -1505,70 +1584,70 @@ export function initCommandEveBridge(): void {
   // metered eve-inference lane and it never draws seat credits. Best-effort:
   // any auth/network/backend error returns ok:false so the renderer falls back
   // to local Gemma and then the truncated heuristic title.
-  bridge
-    .buildProvider('command-eve.generate-cloud-title')
-    .provider(async (request?: CommandEveCloudTitleRequest) => {
-      const TITLE_TIMEOUT_MS = 12_000;
-      const text = prepareCommandEveCloudTitleText(String(request?.text || ''));
-      if (!text) return { success: false, msg: 'TITLE_NO_TEXT', data: { ok: false, reason_code: 'TITLE_NO_TEXT' } };
-      if (!EVE_TITLE_FUNCTION_URL) {
-        return { success: false, msg: 'TITLE_CLOUD_NO_URL', data: { ok: false, reason_code: 'TITLE_CLOUD_NO_URL' } };
-      }
+  bridge.buildProvider('command-eve.generate-cloud-title').provider(async (request?: CommandEveCloudTitleRequest) => {
+    const TITLE_TIMEOUT_MS = 12_000;
+    const text = prepareCommandEveCloudTitleText(String(request?.text || ''));
+    if (!text) return { success: false, msg: 'TITLE_NO_TEXT', data: { ok: false, reason_code: 'TITLE_NO_TEXT' } };
+    if (!EVE_TITLE_FUNCTION_URL) {
+      return { success: false, msg: 'TITLE_CLOUD_NO_URL', data: { ok: false, reason_code: 'TITLE_CLOUD_NO_URL' } };
+    }
 
-      const wireResult = readLicenseWire(getDataPath());
-      if (!wireResult.ok || !wireResult.wire) {
-        return {
-          success: false,
-          msg: wireResult.reason_code || 'TITLE_CLOUD_NO_BEARER',
-          data: { ok: false, reason_code: wireResult.reason_code || 'TITLE_CLOUD_NO_BEARER' },
-        };
-      }
+    const wireResult = readLicenseWire(getDataPath());
+    if (!wireResult.ok || !wireResult.wire) {
+      return {
+        success: false,
+        msg: wireResult.reason_code || 'TITLE_CLOUD_NO_BEARER',
+        data: { ok: false, reason_code: wireResult.reason_code || 'TITLE_CLOUD_NO_BEARER' },
+      };
+    }
 
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), TITLE_TIMEOUT_MS);
-      try {
-        const response = await fetch(EVE_TITLE_FUNCTION_URL, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${wireResult.wire}`,
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-          },
-          body: JSON.stringify({
-            text,
-            locale: request?.locale === 'en-US' ? 'en-US' : 'de-DE',
-          }),
-          signal: controller.signal,
-        });
-        const raw = (await response.json().catch((): null => null)) as { ok?: unknown; title?: unknown; error?: unknown } | null;
-        if (!response.ok || !raw || raw.ok !== true || typeof raw.title !== 'string' || !raw.title.trim()) {
-          const reason = typeof raw?.error === 'string' ? raw.error : `TITLE_CLOUD_HTTP_${response.status}`;
-          return { success: false, msg: reason, data: { ok: false, reason_code: reason } };
-        }
-        return { success: true, data: { ok: true, title: raw.title.trim() } };
-      } catch (error) {
-        return {
-          success: false,
-          msg: error instanceof Error ? error.message : 'TITLE_CLOUD_FAILED',
-          data: {
-            ok: false,
-            reason_code: error instanceof Error && error.name === 'AbortError' ? 'TITLE_CLOUD_TIMEOUT' : 'TITLE_CLOUD_FAILED',
-          },
-        };
-      } finally {
-        clearTimeout(timer);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TITLE_TIMEOUT_MS);
+    try {
+      const response = await fetch(EVE_TITLE_FUNCTION_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${wireResult.wire}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({
+          text,
+          locale: request?.locale === 'en-US' ? 'en-US' : 'de-DE',
+        }),
+        signal: controller.signal,
+      });
+      const raw = (await response.json().catch((): null => null)) as {
+        ok?: unknown;
+        title?: unknown;
+        error?: unknown;
+      } | null;
+      if (!response.ok || !raw || raw.ok !== true || typeof raw.title !== 'string' || !raw.title.trim()) {
+        const reason = typeof raw?.error === 'string' ? raw.error : `TITLE_CLOUD_HTTP_${response.status}`;
+        return { success: false, msg: reason, data: { ok: false, reason_code: reason } };
       }
-    });
+      return { success: true, data: { ok: true, title: raw.title.trim() } };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : 'TITLE_CLOUD_FAILED',
+        data: {
+          ok: false,
+          reason_code:
+            error instanceof Error && error.name === 'AbortError' ? 'TITLE_CLOUD_TIMEOUT' : 'TITLE_CLOUD_FAILED',
+        },
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  });
 
   // Cloud TTS (1.7.x multimodal seam): MAIN is the only process allowed to call
   // eve-multimodal with the CEVE license bearer. The renderer gets a sanitized
   // audio artifact and never sees the bearer, raw provider keys, or provider
   // response fields outside the desktop contract.
   bridge.buildProvider(COMMAND_EVE_MULTIMODAL_TTS_CONSENT_GET_CHANNEL).provider(async () => {
-    const data = toCommandEveMultimodalTtsConsentBridgeResult(
-      readCommandEveMultimodalTtsConsent(getDataPath()),
-      true
-    );
+    const data = toCommandEveMultimodalTtsConsentBridgeResult(readCommandEveMultimodalTtsConsent(getDataPath()), true);
     return { success: true, data };
   });
 
@@ -1619,9 +1698,7 @@ export function initCommandEveBridge(): void {
   bridge
     .buildProvider('command-eve.multimodal-tts')
     .provider(
-      async (
-        request?: CommandEveMultimodalTtsRequest | CommandEveBridgeEnvelope<CommandEveMultimodalTtsRequest>
-      ) => {
+      async (request?: CommandEveMultimodalTtsRequest | CommandEveBridgeEnvelope<CommandEveMultimodalTtsRequest>) => {
         const TTS_TIMEOUT_MS = 35_000;
         if (!COMMAND_EVE_MULTIMODAL_TTS_CLOUD_EGRESS_ENABLED) {
           const data = commandEveMultimodalTtsFailure(
@@ -1714,11 +1791,7 @@ export function initCommandEveBridge(): void {
             return { success: false, msg: data.reason_code, data };
           }
 
-          const parsed = parseCommandEveMultimodalTtsResponse(
-            raw,
-            'EVE_MULTIMODAL_TTS_BAD_BODY',
-            built.privacyLane
-          );
+          const parsed = parseCommandEveMultimodalTtsResponse(raw, 'EVE_MULTIMODAL_TTS_BAD_BODY', built.privacyLane);
 
           if (parsed.ok === true) {
             return {
@@ -1735,9 +1808,7 @@ export function initCommandEveBridge(): void {
         } catch (error) {
           const errorName =
             error && typeof error === 'object' && 'name' in error ? String((error as { name?: unknown }).name) : '';
-          const reason = errorName === 'AbortError'
-            ? 'EVE_MULTIMODAL_TTS_TIMEOUT'
-            : 'EVE_MULTIMODAL_TTS_FAILED';
+          const reason = errorName === 'AbortError' ? 'EVE_MULTIMODAL_TTS_TIMEOUT' : 'EVE_MULTIMODAL_TTS_FAILED';
           const data = commandEveMultimodalTtsFailure(reason);
           return {
             success: false,
@@ -2783,85 +2854,83 @@ export function initCommandEveBridge(): void {
   // live yet, so a real login returns a typed BROKER_HTTP_*/OPEN failure and the
   // UI keeps the paste fallback — this handler is safe to ship now.
   // -------------------------------------------------------------------------
-  bridge
-    .buildProvider('command-eve.auth-web-login')
-    .provider(async (request?: { intent?: DesktopAuthIntent }) => {
-      const version = 'command-eve-account-auth/v0' as const;
-      try {
-        const intent: DesktopAuthIntent = request?.intent === 'register' ? 'register' : 'login';
-        const userDataPath = getDataPath();
+  bridge.buildProvider('command-eve.auth-web-login').provider(async (request?: { intent?: DesktopAuthIntent }) => {
+    const version = 'command-eve-account-auth/v0' as const;
+    try {
+      const intent: DesktopAuthIntent = request?.intent === 'register' ? 'register' : 'login';
+      const userDataPath = getDataPath();
 
-        // Open the system browser via Electron shell (lazy require so this module
-        // stays importable in non-Electron/test contexts).
-        const openExternal = (url: string): Promise<void> => {
-          // eslint-disable-next-line @typescript-eslint/no-require-imports
-          const { shell } = require('electron') as { shell?: { openExternal(u: string): Promise<void> } };
-          if (!shell?.openExternal) return Promise.reject(new Error('shell.openExternal unavailable'));
-          return shell.openExternal(url);
-        };
+      // Open the system browser via Electron shell (lazy require so this module
+      // stays importable in non-Electron/test contexts).
+      const openExternal = (url: string): Promise<void> => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { shell } = require('electron') as { shell?: { openExternal(u: string): Promise<void> } };
+        if (!shell?.openExternal) return Promise.reject(new Error('shell.openExternal unavailable'));
+        return shell.openExternal(url);
+      };
 
-        const loopback = await runDesktopAuthLoopback(intent, { openExternal });
-        if (!loopback.ok || !loopback.session) {
-          return {
-            success: false,
-            msg: loopback.reason_code || 'AUTH_FAILED',
-            data: {
-              version,
-              ok: false,
-              entitled: false,
-              // The user has no session ⇒ no automatic activation possible; offer
-              // the manual paste path so a pre-broker build is still usable.
-              needs_paste: true,
-              reason_code: loopback.reason_code,
-              message: loopback.message,
-            },
-          };
-        }
-
-        const session = loopback.session;
-        // Persist the session at rest (keychain, fail-closed) so silent resume
-        // works on next launch.
-        const { storeAccountSession } = await import('@process/commandEve/accountSessionAtRest');
-        storeAccountSession(userDataPath, session);
-
-        const result = await activateEntitlementFromSession(userDataPath, session, {
-          storeLicenseWire: (p, wire) => {
-            try {
-              storeLicenseWire(p, wire);
-            } catch {
-              // non-fatal
-            }
-          },
-        });
-
-        return {
-          success: result.activated,
-          msg: result.activated ? undefined : result.reason_code,
-          data: {
-            version,
-            ok: result.activated,
-            entitled: result.status.state === 'entitled',
-            needs_paste: result.needsPaste,
-            reason_code: result.reason_code,
-            status: result.status,
-            account: { name: session.user.name, email: session.user.email, company: session.user.company },
-          },
-        };
-      } catch (error) {
+      const loopback = await runDesktopAuthLoopback(intent, { openExternal });
+      if (!loopback.ok || !loopback.session) {
         return {
           success: false,
-          msg: error instanceof Error ? error.message : 'Command EVE auth-web-login bridge failed.',
+          msg: loopback.reason_code || 'AUTH_FAILED',
           data: {
             version,
             ok: false,
             entitled: false,
+            // The user has no session ⇒ no automatic activation possible; offer
+            // the manual paste path so a pre-broker build is still usable.
             needs_paste: true,
-            reason_code: 'AUTH_WEB_LOGIN_BRIDGE_FAILED',
-            message: error instanceof Error ? error.message : undefined,
+            reason_code: loopback.reason_code,
+            message: loopback.message,
           },
         };
       }
-    });
+
+      const session = loopback.session;
+      // Persist the session at rest (keychain, fail-closed) so silent resume
+      // works on next launch.
+      const { storeAccountSession } = await import('@process/commandEve/accountSessionAtRest');
+      storeAccountSession(userDataPath, session);
+
+      const result = await activateEntitlementFromSession(userDataPath, session, {
+        storeLicenseWire: (p, wire) => {
+          try {
+            storeLicenseWire(p, wire);
+          } catch {
+            // non-fatal
+          }
+        },
+      });
+
+      return {
+        success: result.activated,
+        msg: result.activated ? undefined : result.reason_code,
+        data: {
+          version,
+          ok: result.activated,
+          entitled: result.status.state === 'entitled',
+          needs_paste: result.needsPaste,
+          reason_code: result.reason_code,
+          status: result.status,
+          account: { name: session.user.name, email: session.user.email, company: session.user.company },
+        },
+      };
+    } catch (error) {
+      return {
+        success: false,
+        msg: error instanceof Error ? error.message : 'Command EVE auth-web-login bridge failed.',
+        data: {
+          version,
+          ok: false,
+          entitled: false,
+          needs_paste: true,
+          reason_code: 'AUTH_WEB_LOGIN_BRIDGE_FAILED',
+          message: error instanceof Error ? error.message : undefined,
+        },
+      };
+    }
+  });
 
   // -------------------------------------------------------------------------
   // In-app email/password auth (founder HG-4, 2026-06-20). Same MAIN-process
@@ -2977,9 +3046,8 @@ export function initCommandEveBridge(): void {
     };
 
     try {
-      const { buildAccountWebHandoffUrl, mintAccountWebHandoffCode, COMMAND_EVE_WEB_ORIGIN } = await import(
-        '@process/commandEve/accountWebHandoffCore'
-      );
+      const { buildAccountWebHandoffUrl, mintAccountWebHandoffCode, COMMAND_EVE_WEB_ORIGIN } =
+        await import('@process/commandEve/accountWebHandoffCore');
       const path = typeof request?.path === 'string' && request.path.startsWith('/') ? request.path : '/account';
 
       // Read the session at rest (MAIN only). getFreshSession rotates a near-expiry
@@ -3031,7 +3099,8 @@ export function initCommandEveBridge(): void {
       // Even on a failure to read/build/open with the token, try the NAKED url so
       // the operator still reaches the site (logged out → /login). Never throw the
       // chrome; never log the token (there is none to log on this path).
-      const fallbackPath = typeof request?.path === 'string' && request.path.startsWith('/') ? request.path : '/account';
+      const fallbackPath =
+        typeof request?.path === 'string' && request.path.startsWith('/') ? request.path : '/account';
       const nakedUrl = `https://command-eve.com${fallbackPath}`;
       try {
         await openExternal(nakedUrl);
@@ -3212,7 +3281,13 @@ export function initCommandEveBridge(): void {
       account_id: null as string | null,
       role: 'delegate' as const,
       active_seat_id: getActiveSeatId(),
-      seats: [] as Array<{ seat_id: string; name: string; kind: 'client' | 'own_company' | 'department'; role: 'admin' | 'delegate'; is_active: boolean }>,
+      seats: [] as Array<{
+        seat_id: string;
+        name: string;
+        kind: 'client' | 'own_company' | 'department';
+        role: 'admin' | 'delegate';
+        is_active: boolean;
+      }>,
     };
     try {
       const wire = await readMySeatsWire();
@@ -3299,7 +3374,11 @@ export function initCommandEveBridge(): void {
     try {
       const targetSeatId = typeof request?.seatId === 'string' ? request.seatId : '';
       if (!targetSeatId) {
-        return { success: false, msg: 'Missing seatId.', data: { version, ok: false, reason_code: 'SWITCH_SEAT_NO_TARGET', active_seat_id: getActiveSeatId() } };
+        return {
+          success: false,
+          msg: 'Missing seatId.',
+          data: { version, ok: false, reason_code: 'SWITCH_SEAT_NO_TARGET', active_seat_id: getActiveSeatId() },
+        };
       }
 
       // Re-resolve the caller's access from the SAME my-seats source (never trust
@@ -3316,7 +3395,8 @@ export function initCommandEveBridge(): void {
 
       const { applySeatSwitch } = await import('@process/commandEve/seatSwitchCore');
       const { restartCommandEveBackendForSeat } = await import('@process/commandEve/seatSwitchRuntime');
-      const { prepareCommandEveRuntimeProcessEnv, provisionSeatRuntimeFiles, hasValidSeatRuntimeFiles } = await import('@process/commandEve/runtimeBootstrapCore');
+      const { prepareCommandEveRuntimeProcessEnv, provisionSeatRuntimeFiles, hasValidSeatRuntimeFiles } =
+        await import('@process/commandEve/runtimeBootstrapCore');
       const { reconcileVaultConfigForSeatSwitch } = await import('@process/commandEve/reconcileHermesMcpConfigWiring');
 
       // Seat-Context-Bridge (B1): the target seat's DISPLAY LABEL comes from the
@@ -3332,135 +3412,143 @@ export function initCommandEveBridge(): void {
       // re-spawn env bake + the tier stamp below carry the correct doctrine.
       const targetKind = targetSeatRecord?.kind;
 
-      const result = await applySeatSwitch(targetSeatId, {
-        prepareEnv: async () => {
-          prepareCommandEveRuntimeProcessEnv(getDataPath());
-          // T0 — PROVISION THE TARGET SEAT'S RUNTIME FILES. applySeatSwitch has
-          // already run setActiveSeatId(target) (step a), so getActiveSeatId() is the
-          // target and prepareCommandEveRuntimeProcessEnv just re-homed HERMES_HOME to
-          // the target seat's home. But the boot bootstrap only ever provisions the
-          // LEGACY/founder home (there is no boot-restore of a saved seat — index.ts
-          // ~1395), so a client seat's home has NO config.yaml/SOUL.md/skills-command-
-          // eve — the agent would boot on WHEEL DEFAULTS (memory_enabled=FALSE, no
-          // SOUL). Write the Desktop-OWNED files into the target home NOW, before
-          // applySeatSwitch's restartBackend re-spawns the agent (which is the very
-          // next step), so the fresh agent finds them. Idempotent + safe: it writes
-          // ONLY config.yaml/SOUL.md/skills-command-eve (+ wrapper/shim/reconciliation)
-          // exactly as boot does and NEVER touches EVE-grown memories/ or the agent's
-          // own skills/. BEST-EFFORT: a provisioning error must NOT fail the switch —
-          // we log it (founder-self-detection) and let the switch proceed.
-          try {
-            const { reachable, ...workerInputs } = await resolveCommandEveWorkerRuntimeInputsForSwitch();
-            // F7 (MEDIUM): if the backend was UNREACHABLE, do NOT re-provision. A
-            // provision run with the degraded (empty) inputs would rewrite the
-            // target seat's SOUL.md/config.yaml WITHOUT the Claude-delegate directive
-            // (silent capability loss). Skipping keeps the last-known-good files that
-            // a prior reachable provisioning wrote. Self-detected via console.warn.
-            if (!reachable) {
-              console.warn(
-                `[Command EVE] Seat-switch runtime provisioning SKIPPED for ${sanitizedTarget ?? targetSeatId}: backend settings unreachable; keeping last-known-good runtime files (no degraded re-write).`
-              );
-            } else {
-              const provisioned = provisionSeatRuntimeFiles({
-                userDataPath: getDataPath(),
-                resourcesPath: process.resourcesPath,
-                // Setting-driven language, identical to the boot bootstrap, so the
-                // target seat's SOUL.md defaults to the operator's UI language.
-                uiLanguage: ProcessConfig.getSync('language'),
-                ...workerInputs,
-              });
-              if (!provisioned.ok) {
+      const result = await applySeatSwitch(
+        targetSeatId,
+        {
+          prepareEnv: async () => {
+            prepareCommandEveRuntimeProcessEnv(getDataPath());
+            // T0 — PROVISION THE TARGET SEAT'S RUNTIME FILES. applySeatSwitch has
+            // already run setActiveSeatId(target) (step a), so getActiveSeatId() is the
+            // target and prepareCommandEveRuntimeProcessEnv just re-homed HERMES_HOME to
+            // the target seat's home. But the boot bootstrap only ever provisions the
+            // LEGACY/founder home (there is no boot-restore of a saved seat — index.ts
+            // ~1395), so a client seat's home has NO config.yaml/SOUL.md/skills-command-
+            // eve — the agent would boot on WHEEL DEFAULTS (memory_enabled=FALSE, no
+            // SOUL). Write the Desktop-OWNED files into the target home NOW, before
+            // applySeatSwitch's restartBackend re-spawns the agent (which is the very
+            // next step), so the fresh agent finds them. Idempotent + safe: it writes
+            // ONLY config.yaml/SOUL.md/skills-command-eve (+ wrapper/shim/reconciliation)
+            // exactly as boot does and NEVER touches EVE-grown memories/ or the agent's
+            // own skills/. BEST-EFFORT: a provisioning error must NOT fail the switch —
+            // we log it (founder-self-detection) and let the switch proceed.
+            try {
+              const { reachable, ...workerInputs } = await resolveCommandEveWorkerRuntimeInputsForSwitch();
+              // F7 (MEDIUM): if the backend was UNREACHABLE, do NOT re-provision. A
+              // provision run with the degraded (empty) inputs would rewrite the
+              // target seat's SOUL.md/config.yaml WITHOUT the Claude-delegate directive
+              // (silent capability loss). Skipping keeps the last-known-good files that
+              // a prior reachable provisioning wrote. Self-detected via console.warn.
+              if (!reachable) {
                 console.warn(
-                  `[Command EVE] Seat-switch runtime provisioning failed for ${sanitizedTarget ?? targetSeatId} (${provisioned.hermes_home || 'no home'}); the target-file validity gate below decides fail-open vs fail-closed. Cause: ${provisioned.error ?? 'unknown'}`
+                  `[Command EVE] Seat-switch runtime provisioning SKIPPED for ${sanitizedTarget ?? targetSeatId}: backend settings unreachable; keeping last-known-good runtime files (no degraded re-write).`
                 );
-              } else if (provisioned.bundled_skill_failures.length) {
-                console.warn(
-                  `[Command EVE] Seat-switch runtime provisioning: bundled EVE strategy skills missing/invalid for ${sanitizedTarget ?? targetSeatId}: ${provisioned.bundled_skill_failures.join(', ')}`
-                );
+              } else {
+                const provisioned = provisionSeatRuntimeFiles({
+                  userDataPath: getDataPath(),
+                  resourcesPath: process.resourcesPath,
+                  // Setting-driven language, identical to the boot bootstrap, so the
+                  // target seat's SOUL.md defaults to the operator's UI language.
+                  uiLanguage: ProcessConfig.getSync('language'),
+                  ...workerInputs,
+                });
+                if (!provisioned.ok) {
+                  console.warn(
+                    `[Command EVE] Seat-switch runtime provisioning failed for ${sanitizedTarget ?? targetSeatId} (${provisioned.hermes_home || 'no home'}); the target-file validity gate below decides fail-open vs fail-closed. Cause: ${provisioned.error ?? 'unknown'}`
+                  );
+                } else if (provisioned.bundled_skill_failures.length) {
+                  console.warn(
+                    `[Command EVE] Seat-switch runtime provisioning: bundled EVE strategy skills missing/invalid for ${sanitizedTarget ?? targetSeatId}: ${provisioned.bundled_skill_failures.join(', ')}`
+                  );
+                }
               }
+            } catch (error) {
+              // Defensive: the resolver / import path itself throwing is caught here so
+              // it does not crash the thunk — but it does NOT decide the switch outcome.
+              // The single fail-closed gate below validates the target's actual files
+              // regardless of HOW provisioning ended (unreachable-skip, ok:false, or a
+              // thrown resolver).
+              console.warn(
+                '[Command EVE] Seat-switch runtime provisioning threw; validating target files before proceeding:',
+                error
+              );
             }
-          } catch (error) {
-            // Defensive: the resolver / import path itself throwing is caught here so
-            // it does not crash the thunk — but it does NOT decide the switch outcome.
-            // The single fail-closed gate below validates the target's actual files
-            // regardless of HOW provisioning ended (unreachable-skip, ok:false, or a
-            // thrown resolver).
-            console.warn('[Command EVE] Seat-switch runtime provisioning threw; validating target files before proceeding:', error);
-          }
-          // H4 (Codex): SINGLE fail-closed gate, OUTSIDE the best-effort try/catch so
-          // its throw actually propagates to applySeatSwitch (whose documented
-          // FAIL-SAFE rolls the runtime back to the prior seat on a throwing
-          // prepareEnv). The invariant regardless of how provisioning ended above
-          // (unreachable-skip / ok:false / thrown resolver): a seat switch must NEVER
-          // leave the seat booting on WHEEL DEFAULTS (memory_enabled=FALSE, no
-          // SOUL.md, no EVE skills) — that silently drops the security / memory /
-          // invisible-delivery posture. If the home holds a valid config.yaml +
-          // SOUL.md (freshly written, or last-known-good from a prior good pass) the
-          // switch proceeds; otherwise it fails closed. The legacy/founder home is
-          // always provisioned at boot, so switching home never trips this.
-          //
-          // Validate getActiveSeatId(), NOT the captured target: applySeatSwitch runs
-          // this thunk AGAIN during rollback with the active seat set back to the
-          // PRIOR seat (and provisionSeatRuntimeFiles above already keys off the
-          // active seat). Using the active seat means the rollback pass validates the
-          // prior seat's (valid) files and proceeds to restart its backend — using the
-          // captured target here would re-throw on rollback and strand a dead backend.
-          const gateSeatId = getActiveSeatId();
-          let gateHome = '';
-          try {
-            gateHome = resolveSeatHermesHome(getDataPath(), gateSeatId);
-          } catch {
-            gateHome = '';
-          }
-          if (!hasValidSeatRuntimeFiles(gateHome)) {
-            console.warn(
-              `[Command EVE] Seat-switch FAIL-CLOSED for ${gateSeatId}: home (${gateHome || 'unresolved'}) has no valid config.yaml + SOUL.md — rolling back rather than booting on wheel defaults.`
-            );
-            throw new Error(`SEAT_SWITCH_PROVISION_FAILED: ${gateSeatId} has no valid runtime files`);
-          }
-          // S5-P2 vault reconcile (arch §7): refresh the TARGET seat's config.yaml
-          // from the vault BEFORE applySeatSwitch's own restartBackend — so a seat's
-          // Founder-connectors are present on entry. respawnAfter:false because the
-          // switch lifecycle already owns the single respawn (the step right after
-          // this prepareEnv). Behind COMMAND_EVE_MCP_VAULT_ENABLED (default false):
-          // while off, the reRenderConfig closure is a no-op returning 0, so seat
-          // switch behavior stays BYTE-IDENTICAL to today (no extra bootstrap run).
-          // Runs AFTER the base provisioning above so, once the flag is on, the vault
-          // re-render layers on top of a config.yaml that already exists.
-          await reconcileVaultConfigForSeatSwitch();
+            // H4 (Codex): SINGLE fail-closed gate, OUTSIDE the best-effort try/catch so
+            // its throw actually propagates to applySeatSwitch (whose documented
+            // FAIL-SAFE rolls the runtime back to the prior seat on a throwing
+            // prepareEnv). The invariant regardless of how provisioning ended above
+            // (unreachable-skip / ok:false / thrown resolver): a seat switch must NEVER
+            // leave the seat booting on WHEEL DEFAULTS (memory_enabled=FALSE, no
+            // SOUL.md, no EVE skills) — that silently drops the security / memory /
+            // invisible-delivery posture. If the home holds a valid config.yaml +
+            // SOUL.md (freshly written, or last-known-good from a prior good pass) the
+            // switch proceeds; otherwise it fails closed. The legacy/founder home is
+            // always provisioned at boot, so switching home never trips this.
+            //
+            // Validate getActiveSeatId(), NOT the captured target: applySeatSwitch runs
+            // this thunk AGAIN during rollback with the active seat set back to the
+            // PRIOR seat (and provisionSeatRuntimeFiles above already keys off the
+            // active seat). Using the active seat means the rollback pass validates the
+            // prior seat's (valid) files and proceeds to restart its backend — using the
+            // captured target here would re-throw on rollback and strand a dead backend.
+            const gateSeatId = getActiveSeatId();
+            let gateHome = '';
+            try {
+              gateHome = resolveSeatHermesHome(getDataPath(), gateSeatId);
+            } catch {
+              gateHome = '';
+            }
+            if (!hasValidSeatRuntimeFiles(gateHome)) {
+              console.warn(
+                `[Command EVE] Seat-switch FAIL-CLOSED for ${gateSeatId}: home (${gateHome || 'unresolved'}) has no valid config.yaml + SOUL.md — rolling back rather than booting on wheel defaults.`
+              );
+              throw new Error(`SEAT_SWITCH_PROVISION_FAILED: ${gateSeatId} has no valid runtime files`);
+            }
+            // S5-P2 vault reconcile (arch §7): refresh the TARGET seat's config.yaml
+            // from the vault BEFORE applySeatSwitch's own restartBackend — so a seat's
+            // Founder-connectors are present on entry. respawnAfter:false because the
+            // switch lifecycle already owns the single respawn (the step right after
+            // this prepareEnv). Behind COMMAND_EVE_MCP_VAULT_ENABLED (default false):
+            // while off, the reRenderConfig closure is a no-op returning 0, so seat
+            // switch behavior stays BYTE-IDENTICAL to today (no extra bootstrap run).
+            // Runs AFTER the base provisioning above so, once the flag is on, the vault
+            // re-render layers on top of a config.yaml that already exists.
+            await reconcileVaultConfigForSeatSwitch();
+          },
+          restartBackend: () => restartCommandEveBackendForSeat(),
+          rebindConfig: async (seatId) => {
+            // configService lives RENDERER-side, so this MAIN-process seam cannot
+            // touch its in-memory cache. The renderer re-homes its cache itself:
+            // useSeatAccess.switchTo() calls configService.rebindSeat() with the
+            // authoritative active_seat_id this handler returns (the target on
+            // success, the prior seat on rollback). This thunk is intentionally a
+            // no-op in main; the load-bearing rebind is the renderer call. Kept as a
+            // seam so the lifecycle ordering (a→b→c→d) stays explicit and testable.
+            void seatId;
+          },
+          reseedStatus: async (seatId) => {
+            // Re-read the per-seat company-brain seed (informational; never fails the switch).
+            void readCompanyBrainSeedState({ userDataPath: getDataPath(), seatId });
+            // Seat-Context-Bridge (B2, set-point b): re-stamp the target seat's USER.md
+            // tier blocks AFTER the re-spawn env bake, so the newly-spawned agent reads a
+            // §FOUNDER (+ §SEAT for a seeded real seat) that matches the seat it landed on.
+            // Best-effort — a stamp failure is informational and never fails the switch.
+            try {
+              const { stampUserMdTiersForSwitch } = await import('@process/commandEve/userMdTierStampCore');
+              // K3: the kind holder was set by applySeatSwitch's structural phase
+              // (from the wire record) BEFORE reseedStatus runs here, so getActiveSeatKind()
+              // is the target seat's kind — the §SEAT block gets the correct doctrine.
+              stampUserMdTiersForSwitch({ userDataPath: getDataPath(), seatId, kind: getActiveSeatKind() });
+            } catch {
+              // best-effort: the runtime is already on the new seat.
+            }
+          },
+          persistActiveSeat: async (seatId) => {
+            await persistActiveSeatPointer(seatId);
+          },
         },
-        restartBackend: () => restartCommandEveBackendForSeat(),
-        rebindConfig: async (seatId) => {
-          // configService lives RENDERER-side, so this MAIN-process seam cannot
-          // touch its in-memory cache. The renderer re-homes its cache itself:
-          // useSeatAccess.switchTo() calls configService.rebindSeat() with the
-          // authoritative active_seat_id this handler returns (the target on
-          // success, the prior seat on rollback). This thunk is intentionally a
-          // no-op in main; the load-bearing rebind is the renderer call. Kept as a
-          // seam so the lifecycle ordering (a→b→c→d) stays explicit and testable.
-          void seatId;
-        },
-        reseedStatus: async (seatId) => {
-          // Re-read the per-seat company-brain seed (informational; never fails the switch).
-          void readCompanyBrainSeedState({ userDataPath: getDataPath(), seatId });
-          // Seat-Context-Bridge (B2, set-point b): re-stamp the target seat's USER.md
-          // tier blocks AFTER the re-spawn env bake, so the newly-spawned agent reads a
-          // §FOUNDER (+ §SEAT for a seeded real seat) that matches the seat it landed on.
-          // Best-effort — a stamp failure is informational and never fails the switch.
-          try {
-            const { stampUserMdTiersForSwitch } = await import('@process/commandEve/userMdTierStampCore');
-            // K3: the kind holder was set by applySeatSwitch's structural phase
-            // (from the wire record) BEFORE reseedStatus runs here, so getActiveSeatKind()
-            // is the target seat's kind — the §SEAT block gets the correct doctrine.
-            stampUserMdTiersForSwitch({ userDataPath: getDataPath(), seatId, kind: getActiveSeatKind() });
-          } catch {
-            // best-effort: the runtime is already on the new seat.
-          }
-        },
-        persistActiveSeat: async (seatId) => {
-          await persistActiveSeatPointer(seatId);
-        },
-      }, targetLabel, targetKind);
+        targetLabel,
+        targetKind
+      );
 
       return {
         success: result.ok,
@@ -3493,63 +3581,73 @@ export function initCommandEveBridge(): void {
   // (the recipient never logs in), and the brand is the operator's own, never
   // Command EVE.
   // -------------------------------------------------------------------------
-  bridge.buildProvider('command-eve.report-export').provider(
-    async (request?: {
-      format?: 'pdf' | 'docx' | 'md';
-      markdown?: string;
-      seatId?: string;
-      outputPath?: string;
-      title?: string;
-      brand?: { displayName?: string; logoDataUri?: string; footer?: string };
-    }) => {
-      const version = 'command-eve-report-export/v0' as const;
-      try {
-        const format = request?.format;
-        const outputPath = request?.outputPath;
-        if (!format || (format !== 'pdf' && format !== 'docx' && format !== 'md')) {
-          return { success: false, msg: 'Unknown export format.', data: { version, ok: false, reason_code: 'REPORT_EXPORT_BAD_FORMAT' } };
-        }
-        if (!outputPath || typeof outputPath !== 'string' || outputPath.trim().length === 0) {
-          return { success: false, msg: 'No output path.', data: { version, ok: false, reason_code: 'REPORT_EXPORT_NO_OUTPUT' } };
-        }
-
-        const content: ReportContent = {
-          markdown: typeof request?.markdown === 'string' ? request.markdown : '',
-          // The fence re-asserts this against the in-process active seat. We do
-          // NOT trust the body for identity beyond the fence equality check.
-          seatId: typeof request?.seatId === 'string' ? request.seatId : '',
-          title: request?.title,
-        };
-
-        const artifact = await exportReport(format, content, {
-          brand: request?.brand,
-          // Fence target is the AUTHORITATIVE in-process active seat (not the body).
-          activeSeatId: getActiveSeatId(),
-          pdfRenderer: format === 'pdf' ? createElectronPdfRenderer() : undefined,
-        });
-
-        const { promises: fsp } = await import('node:fs');
-        await fsp.writeFile(outputPath, artifact.bytes);
-
-        // Open the finished file in the system default app (best-effort).
+  bridge
+    .buildProvider('command-eve.report-export')
+    .provider(
+      async (request?: {
+        format?: 'pdf' | 'docx' | 'md';
+        markdown?: string;
+        seatId?: string;
+        outputPath?: string;
+        title?: string;
+        brand?: { displayName?: string; logoDataUri?: string; footer?: string };
+      }) => {
+        const version = 'command-eve-report-export/v0' as const;
         try {
-          const { shell } = (await import('electron')) as { shell?: { openPath(p: string): Promise<string> } };
-          if (shell?.openPath) await shell.openPath(outputPath);
-        } catch {
-          // Open is a convenience; the file is already written.
-        }
+          const format = request?.format;
+          const outputPath = request?.outputPath;
+          if (!format || (format !== 'pdf' && format !== 'docx' && format !== 'md')) {
+            return {
+              success: false,
+              msg: 'Unknown export format.',
+              data: { version, ok: false, reason_code: 'REPORT_EXPORT_BAD_FORMAT' },
+            };
+          }
+          if (!outputPath || typeof outputPath !== 'string' || outputPath.trim().length === 0) {
+            return {
+              success: false,
+              msg: 'No output path.',
+              data: { version, ok: false, reason_code: 'REPORT_EXPORT_NO_OUTPUT' },
+            };
+          }
 
-        return { success: true, data: { version, ok: true, format, output_path: outputPath } };
-      } catch (error) {
-        const reason_code = error instanceof SeatTruthFenceError ? error.reasonCode : 'REPORT_EXPORT_FAILED';
-        return {
-          success: false,
-          msg: error instanceof Error ? error.message : 'Command EVE report export failed.',
-          data: { version, ok: false, reason_code },
-        };
+          const content: ReportContent = {
+            markdown: typeof request?.markdown === 'string' ? request.markdown : '',
+            // The fence re-asserts this against the in-process active seat. We do
+            // NOT trust the body for identity beyond the fence equality check.
+            seatId: typeof request?.seatId === 'string' ? request.seatId : '',
+            title: request?.title,
+          };
+
+          const artifact = await exportReport(format, content, {
+            brand: request?.brand,
+            // Fence target is the AUTHORITATIVE in-process active seat (not the body).
+            activeSeatId: getActiveSeatId(),
+            pdfRenderer: format === 'pdf' ? createElectronPdfRenderer() : undefined,
+          });
+
+          const { promises: fsp } = await import('node:fs');
+          await fsp.writeFile(outputPath, artifact.bytes);
+
+          // Open the finished file in the system default app (best-effort).
+          try {
+            const { shell } = (await import('electron')) as { shell?: { openPath(p: string): Promise<string> } };
+            if (shell?.openPath) await shell.openPath(outputPath);
+          } catch {
+            // Open is a convenience; the file is already written.
+          }
+
+          return { success: true, data: { version, ok: true, format, output_path: outputPath } };
+        } catch (error) {
+          const reason_code = error instanceof SeatTruthFenceError ? error.reasonCode : 'REPORT_EXPORT_FAILED';
+          return {
+            success: false,
+            msg: error instanceof Error ? error.message : 'Command EVE report export failed.',
+            data: { version, ok: false, reason_code },
+          };
+        }
       }
-    }
-  );
+    );
 
   // Resolve a picker selection ("Privat lokal" tier OR "EVE Inference" tier)
   // into the TProviderWithModel used as the conversation `model`.
@@ -3637,7 +3735,11 @@ export function initCommandEveBridge(): void {
     try {
       // No Edge Function URL configured ⇒ nothing to call. Quiet, not a crash.
       if (!CREDITS_STATUS_FUNCTION_URL) {
-        return { success: false, msg: 'CREDITS_STATUS_NO_URL', data: quietCreditsStatus(spendCapEurCents, 'CREDITS_STATUS_NO_URL') };
+        return {
+          success: false,
+          msg: 'CREDITS_STATUS_NO_URL',
+          data: quietCreditsStatus(spendCapEurCents, 'CREDITS_STATUS_NO_URL'),
+        };
       }
 
       // No usable CEVE bearer ⇒ the user is not yet licensed / activated. Quiet.
@@ -3681,7 +3783,11 @@ export function initCommandEveBridge(): void {
 
       const raw = (await response.json().catch((): null => null)) as Record<string, unknown> | null;
       if (!raw || typeof raw !== 'object') {
-        return { success: false, msg: 'CREDITS_STATUS_BAD_BODY', data: quietCreditsStatus(spendCapEurCents, 'CREDITS_STATUS_BAD_BODY') };
+        return {
+          success: false,
+          msg: 'CREDITS_STATUS_BAD_BODY',
+          data: quietCreditsStatus(spendCapEurCents, 'CREDITS_STATUS_BAD_BODY'),
+        };
       }
 
       const purchasedCredits = finiteCreditNumber(raw.purchased_credits_remaining);
@@ -3778,7 +3884,11 @@ export function initCommandEveBridge(): void {
 
         if (!response.ok) {
           // 404 ⇒ the seat-usage Edge Function is not deployed yet (version-skew).
-          return { success: false, msg: `SEAT_USAGE_HTTP_${response.status}`, data: quiet(`SEAT_USAGE_HTTP_${response.status}`) };
+          return {
+            success: false,
+            msg: `SEAT_USAGE_HTTP_${response.status}`,
+            data: quiet(`SEAT_USAGE_HTTP_${response.status}`),
+          };
         }
 
         const raw = (await response.json().catch((): null => null)) as unknown;
@@ -3824,45 +3934,49 @@ export function initCommandEveBridge(): void {
   // meter + a future checkout reflect it. SELF-QUIET on a bad/absent value.
   bridge
     .buildProvider('command-eve.credits-set-spend-cap')
-    .provider(async (request?: { spend_cap_eur_cents?: number } | CommandEveBridgeEnvelope<{ spend_cap_eur_cents?: number }>) => {
-      try {
-        const payload = unwrapBridgeRequest<{ spend_cap_eur_cents?: number }>(request);
-        const requested = payload?.spend_cap_eur_cents;
-        if (typeof requested !== 'number' || !Number.isFinite(requested) || requested < 0) {
+    .provider(
+      async (
+        request?: { spend_cap_eur_cents?: number } | CommandEveBridgeEnvelope<{ spend_cap_eur_cents?: number }>
+      ) => {
+        try {
+          const payload = unwrapBridgeRequest<{ spend_cap_eur_cents?: number }>(request);
+          const requested = payload?.spend_cap_eur_cents;
+          if (typeof requested !== 'number' || !Number.isFinite(requested) || requested < 0) {
+            return {
+              success: false,
+              msg: 'CREDITS_SPEND_CAP_INVALID',
+              data: {
+                version: COMMAND_EVE_CREDITS_BRIDGE_VERSION,
+                ok: false,
+                reason_code: 'CREDITS_SPEND_CAP_INVALID',
+                spend_cap_eur_cents: 0,
+              },
+            };
+          }
+          const normalized = Math.round(requested);
+          await ProcessConfig.set('commandEve.spendCapEurCents', normalized);
+          return {
+            success: true,
+            data: {
+              version: COMMAND_EVE_CREDITS_BRIDGE_VERSION,
+              ok: true,
+              spend_cap_eur_cents: normalized,
+            },
+          };
+        } catch (error) {
           return {
             success: false,
-            msg: 'CREDITS_SPEND_CAP_INVALID',
+            msg: error instanceof Error ? error.message : 'Command EVE credits-set-spend-cap bridge failed.',
             data: {
               version: COMMAND_EVE_CREDITS_BRIDGE_VERSION,
               ok: false,
-              reason_code: 'CREDITS_SPEND_CAP_INVALID',
+              reason_code: 'CREDITS_SPEND_CAP_BRIDGE_FAILED',
               spend_cap_eur_cents: 0,
             },
           };
         }
-        const normalized = Math.round(requested);
-        await ProcessConfig.set('commandEve.spendCapEurCents', normalized);
-        return {
-          success: true,
-          data: {
-            version: COMMAND_EVE_CREDITS_BRIDGE_VERSION,
-            ok: true,
-            spend_cap_eur_cents: normalized,
-          },
-        };
-      } catch (error) {
-        return {
-          success: false,
-          msg: error instanceof Error ? error.message : 'Command EVE credits-set-spend-cap bridge failed.',
-          data: {
-            version: COMMAND_EVE_CREDITS_BRIDGE_VERSION,
-            ok: false,
-            reason_code: 'CREDITS_SPEND_CAP_BRIDGE_FAILED',
-            spend_cap_eur_cents: 0,
-          },
-        };
       }
-    });
+    );
 
   // SILENT REINSTALL / relaunch RESUME (no browser): on bridge init, if a
   // session.enc decrypts AND its refresh token is valid, refresh → register-

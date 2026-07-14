@@ -499,7 +499,11 @@ export const useConversationListSync = () => {
     completionUnreadConversationIds,
     attentionConversationIds,
     errorConversationIds,
-  } = useSyncExternalStore(subscribeConversationListSync, getConversationListSyncSnapshot, getConversationListSyncSnapshot);
+  } = useSyncExternalStore(
+    subscribeConversationListSync,
+    getConversationListSyncSnapshot,
+    getConversationListSyncSnapshot
+  );
 
   const clearCompletionUnread = useCallback((conversation_id: string) => {
     clearCompletionUnreadState(conversation_id);

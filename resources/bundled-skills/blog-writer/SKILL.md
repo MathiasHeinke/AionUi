@@ -14,12 +14,14 @@ scan, and never invent a fact, a number, or a testimonial. The operator's VOICE 
 is worth little; their post, in their cadence, with their point of view, is worth publishing.
 
 ## When to use
+
 - "Write a blog post / article / long-form LinkedIn piece", "draft this week's post", "turn these notes into an article".
 - "Write the next piece in the content plan" (the calendar lives in plan-system; this writes one entry from it).
 - Recurring blog / newsletter content where consistency of VOICE matters across weeks.
 - NOT: a landing/sales page (→ landing-copy) · cold outreach (→ marketing-outbound) · the calendar itself (→ plan-system).
 
 ## The method
+
 Build it as layers. Do not write a single sentence of the post until the intent + angle + voice are locked.
 
 1. **LOCK the intent + ONE takeaway.** Is this a SEARCH-intent piece (someone googles a question — you rank + answer) or
@@ -44,6 +46,7 @@ Build it as layers. Do not write a single sentence of the post until the intent 
    not a menu.
 
 ## Output shape
+
 Deliver: the **title** + the **full post body** (H2/H3 + paragraphs), then a short **SEO block** (title tag · meta · slug ·
 primary keyword) and a **publish note** (suggested channel + that it needs the operator's approval). If a voice was
 unavailable, say so at the top so the operator knows to tune it.
@@ -51,6 +54,7 @@ unavailable, say so at the top so the operator knows to tune it.
 ## Skill-Specific Safety Rules
 
 Shared non-negotiables live in `eve-doctrine`; this section only lists skill-specific boundaries.
+
 - **On-voice or honest about it.** Use USER.md's voice; if you couldn't, flag it — never pretend a generic draft is theirs.
 - **Never invent facts, numbers, quotes, or testimonials.** Ground or cut. Cite real sources when you pull them.
 - **Never publish.** This produces a DRAFT. Publishing is a separate, human-gated step (upload-post.com flow) — the

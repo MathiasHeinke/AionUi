@@ -24,13 +24,18 @@ import type { EveTeamWorkerStatusMap } from '../../../packages/desktop/src/commo
 const allActive = (): EveTeamWorkerStatusMap =>
   Object.fromEntries(EVE_TEAM_ROSTER.map((r) => [r.agent_id, 'active'])) as EveTeamWorkerStatusMap;
 const allOffExcept = (activeId: string): EveTeamWorkerStatusMap =>
-  Object.fromEntries(EVE_TEAM_ROSTER.map((r) => [r.agent_id, r.agent_id === activeId ? 'active' : 'off'])) as EveTeamWorkerStatusMap;
+  Object.fromEntries(
+    EVE_TEAM_ROSTER.map((r) => [r.agent_id, r.agent_id === activeId ? 'active' : 'off'])
+  ) as EveTeamWorkerStatusMap;
 
 describe('eveTeamManageBridgeCore — validateProposal (B2/B8)', () => {
   beforeEach(() => __resetTeamManageForTest());
 
   it('accepts a valid status proposal on a healthy team', () => {
-    const v = validateProposal({ role_agent_id: 'growth-lead', action: 'pause', reason: 'zu teuer diese Woche' }, allActive());
+    const v = validateProposal(
+      { role_agent_id: 'growth-lead', action: 'pause', reason: 'zu teuer diese Woche' },
+      allActive()
+    );
     expect(v.ok).toBe(true);
     if (v.ok) {
       expect(v.role_agent_id).toBe('growth-lead');

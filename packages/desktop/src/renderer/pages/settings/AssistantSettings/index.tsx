@@ -129,79 +129,79 @@ export const AssistantSettingsBody: React.FC = () => {
   return (
     <div className='flex flex-col h-full w-full'>
       {messageContext}
-        <AionScrollArea className='flex-1 min-h-0 pb-16px scrollbar-hide' disableOverflow={isPageMode}>
-          <AssistantListPanel
-            assistants={assistants}
-            localeKey={localeKey}
-            avatarImageMap={avatarImageMap}
-            isExtensionAssistant={isExtensionAssistant}
-            onEdit={(assistant) => void editor.handleEdit(assistant)}
-            onDuplicate={(assistant) => void editor.handleDuplicate(assistant)}
-            onCreate={() => void editor.handleCreate()}
-            onToggleEnabled={(assistant, checked) => void editor.handleToggleEnabled(assistant, checked)}
-            setActiveAssistantId={setActiveAssistantId}
-            highlightId={highlightId}
-            onHighlightConsumed={handleHighlightConsumed}
-          />
+      <AionScrollArea className='flex-1 min-h-0 pb-16px scrollbar-hide' disableOverflow={isPageMode}>
+        <AssistantListPanel
+          assistants={assistants}
+          localeKey={localeKey}
+          avatarImageMap={avatarImageMap}
+          isExtensionAssistant={isExtensionAssistant}
+          onEdit={(assistant) => void editor.handleEdit(assistant)}
+          onDuplicate={(assistant) => void editor.handleDuplicate(assistant)}
+          onCreate={() => void editor.handleCreate()}
+          onToggleEnabled={(assistant, checked) => void editor.handleToggleEnabled(assistant, checked)}
+          setActiveAssistantId={setActiveAssistantId}
+          highlightId={highlightId}
+          onHighlightConsumed={handleHighlightConsumed}
+        />
 
-          <AssistantEditDrawer
-            editVisible={editor.editVisible}
-            setEditVisible={editor.setEditVisible}
-            isCreating={editor.isCreating}
-            editName={editor.editName}
-            setEditName={editor.setEditName}
-            editDescription={editor.editDescription}
-            setEditDescription={editor.setEditDescription}
-            editAvatar={editor.editAvatar}
-            setEditAvatar={editor.setEditAvatar}
-            editAvatarImage={editAvatarImage}
-            editAgent={editor.editAgent}
-            setEditAgent={editor.setEditAgent}
-            editContext={editor.editContext}
-            setEditContext={editor.setEditContext}
-            promptViewMode={editor.promptViewMode}
-            setPromptViewMode={editor.setPromptViewMode}
-            availableSkills={editor.availableSkills}
-            selectedSkills={editor.selectedSkills}
-            setSelectedSkills={editor.setSelectedSkills}
-            pendingSkills={editor.pendingSkills}
-            customSkills={editor.customSkills}
-            setDeletePendingSkillName={editor.setDeletePendingSkillName}
-            setDeleteCustomSkillName={editor.setDeleteCustomSkillName}
-            builtinAutoSkills={editor.builtinAutoSkills}
-            disabledBuiltinSkills={editor.disabledBuiltinSkills}
-            setDisabledBuiltinSkills={editor.setDisabledBuiltinSkills}
-            activeAssistant={activeAssistant}
-            activeAssistantId={activeAssistantId}
-            isExtensionAssistant={isExtensionAssistant}
-            availableBackends={availableBackends}
-            handleSave={editor.handleSave}
-            handleDeleteClick={editor.handleDeleteClick}
-            handleDuplicate={(assistant) => void editor.handleDuplicate(assistant)}
-          />
+        <AssistantEditDrawer
+          editVisible={editor.editVisible}
+          setEditVisible={editor.setEditVisible}
+          isCreating={editor.isCreating}
+          editName={editor.editName}
+          setEditName={editor.setEditName}
+          editDescription={editor.editDescription}
+          setEditDescription={editor.setEditDescription}
+          editAvatar={editor.editAvatar}
+          setEditAvatar={editor.setEditAvatar}
+          editAvatarImage={editAvatarImage}
+          editAgent={editor.editAgent}
+          setEditAgent={editor.setEditAgent}
+          editContext={editor.editContext}
+          setEditContext={editor.setEditContext}
+          promptViewMode={editor.promptViewMode}
+          setPromptViewMode={editor.setPromptViewMode}
+          availableSkills={editor.availableSkills}
+          selectedSkills={editor.selectedSkills}
+          setSelectedSkills={editor.setSelectedSkills}
+          pendingSkills={editor.pendingSkills}
+          customSkills={editor.customSkills}
+          setDeletePendingSkillName={editor.setDeletePendingSkillName}
+          setDeleteCustomSkillName={editor.setDeleteCustomSkillName}
+          builtinAutoSkills={editor.builtinAutoSkills}
+          disabledBuiltinSkills={editor.disabledBuiltinSkills}
+          setDisabledBuiltinSkills={editor.setDisabledBuiltinSkills}
+          activeAssistant={activeAssistant}
+          activeAssistantId={activeAssistantId}
+          isExtensionAssistant={isExtensionAssistant}
+          availableBackends={availableBackends}
+          handleSave={editor.handleSave}
+          handleDeleteClick={editor.handleDeleteClick}
+          handleDuplicate={(assistant) => void editor.handleDuplicate(assistant)}
+        />
 
-          <DeleteAssistantModal
-            visible={editor.deleteConfirmVisible}
-            onCancel={() => editor.setDeleteConfirmVisible(false)}
-            onConfirm={editor.handleDeleteConfirm}
-            activeAssistant={activeAssistant}
-            avatarImageMap={avatarImageMap}
-          />
+        <DeleteAssistantModal
+          visible={editor.deleteConfirmVisible}
+          onCancel={() => editor.setDeleteConfirmVisible(false)}
+          onConfirm={editor.handleDeleteConfirm}
+          activeAssistant={activeAssistant}
+          avatarImageMap={avatarImageMap}
+        />
 
-          <SkillConfirmModals
-            deletePendingSkillName={editor.deletePendingSkillName}
-            setDeletePendingSkillName={editor.setDeletePendingSkillName}
-            pendingSkills={editor.pendingSkills}
-            setPendingSkills={editor.setPendingSkills}
-            deleteCustomSkillName={editor.deleteCustomSkillName}
-            setDeleteCustomSkillName={editor.setDeleteCustomSkillName}
-            customSkills={editor.customSkills}
-            setCustomSkills={editor.setCustomSkills}
-            selectedSkills={editor.selectedSkills}
-            setSelectedSkills={editor.setSelectedSkills}
-            message={message}
-          />
-        </AionScrollArea>
+        <SkillConfirmModals
+          deletePendingSkillName={editor.deletePendingSkillName}
+          setDeletePendingSkillName={editor.setDeletePendingSkillName}
+          pendingSkills={editor.pendingSkills}
+          setPendingSkills={editor.setPendingSkills}
+          deleteCustomSkillName={editor.deleteCustomSkillName}
+          setDeleteCustomSkillName={editor.setDeleteCustomSkillName}
+          customSkills={editor.customSkills}
+          setCustomSkills={editor.setCustomSkills}
+          selectedSkills={editor.selectedSkills}
+          setSelectedSkills={editor.setSelectedSkills}
+          message={message}
+        />
+      </AionScrollArea>
     </div>
   );
 };

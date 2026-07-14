@@ -72,7 +72,12 @@ afterEach(() => {
 describe('CRUD — create / read / edit / remove', () => {
   it('upsert CREATE writes body + index atomically; id is a kind-slug + random', () => {
     const home = makeHome();
-    const res = upsertEntry(home, { kind: 'offer', title: 'Website Relaunch', body: 'Full relaunch offer', now: fixedClock('2026-07-02T10:00:00.000Z') });
+    const res = upsertEntry(home, {
+      kind: 'offer',
+      title: 'Website Relaunch',
+      body: 'Full relaunch offer',
+      now: fixedClock('2026-07-02T10:00:00.000Z'),
+    });
 
     expect(res.ok).toBe(true);
     expect(res.created).toBe(true);
@@ -97,8 +102,19 @@ describe('CRUD — create / read / edit / remove', () => {
 
   it('upsert EDIT (same id) rewrites body + index slot in place; no duplicate, updated_at moves', () => {
     const home = makeHome();
-    const created = upsertEntry(home, { kind: 'note', title: 'Kickoff', body: 'v1', now: fixedClock('2026-07-02T10:00:00.000Z') });
-    const edited = upsertEntry(home, { id: created.entry.id, kind: 'note', title: 'Kickoff (revised)', body: 'v2', now: fixedClock('2026-07-02T12:00:00.000Z') });
+    const created = upsertEntry(home, {
+      kind: 'note',
+      title: 'Kickoff',
+      body: 'v1',
+      now: fixedClock('2026-07-02T10:00:00.000Z'),
+    });
+    const edited = upsertEntry(home, {
+      id: created.entry.id,
+      kind: 'note',
+      title: 'Kickoff (revised)',
+      body: 'v2',
+      now: fixedClock('2026-07-02T12:00:00.000Z'),
+    });
 
     expect(edited.created).toBe(false);
     const idx = readBrainIndex(home);
@@ -114,7 +130,9 @@ describe('CRUD — create / read / edit / remove', () => {
     upsertEntry(home, { kind: 'company', title: 'ACME GmbH', body: 'The client' });
     upsertEntry(home, { kind: 'audience', title: 'SMB owners', body: 'Target group' });
     upsertEntry(home, { kind: 'tone', title: 'Direct, warm', body: 'Voice' });
-    const kinds = listEntries(home).map((e) => e.kind).sort();
+    const kinds = listEntries(home)
+      .map((e) => e.kind)
+      .sort();
     expect(kinds).toEqual(['audience', 'company', 'tone']);
     expect(listEntries(home)).toHaveLength(3);
   });
@@ -161,8 +179,24 @@ describe('atomicity / self-heal — index authority', () => {
       JSON.stringify({
         schema_version: COMMAND_EVE_COMPANY_BRAIN_SCHEMA,
         entries: [
-          { id: '../escape', kind: 'note', title: 'evil', updated_at: '', author: 'user', source: 'settings', body_file: 'x' },
-          { id: 'note-legit', kind: 'note', title: 'ok', updated_at: '', author: 'user', source: 'settings', body_file: 'entries/note-legit.md' },
+          {
+            id: '../escape',
+            kind: 'note',
+            title: 'evil',
+            updated_at: '',
+            author: 'user',
+            source: 'settings',
+            body_file: 'x',
+          },
+          {
+            id: 'note-legit',
+            kind: 'note',
+            title: 'ok',
+            updated_at: '',
+            author: 'user',
+            source: 'settings',
+            body_file: 'entries/note-legit.md',
+          },
         ],
       })
     );
@@ -202,7 +236,19 @@ describe('id sanitizer — path-traversal fail-closed', () => {
 
 describe('kind allowlist — read-tolerate, write-reject', () => {
   it('isWritableKind accepts the v1.4 write kinds + the T8 blueprint kinds (team/projects/goals/focus)', () => {
-    for (const k of ['company', 'team', 'offer', 'audience', 'projects', 'goals', 'focus', 'tone', 'dos_donts', 'brief', 'note']) {
+    for (const k of [
+      'company',
+      'team',
+      'offer',
+      'audience',
+      'projects',
+      'goals',
+      'focus',
+      'tone',
+      'dos_donts',
+      'brief',
+      'note',
+    ]) {
       expect(isWritableKind(k)).toBe(true);
     }
     // session_digest stays SYSTEM-only; 'project' (singular) is NOT the T8 'projects'.
@@ -223,7 +269,17 @@ describe('kind allowlist — read-tolerate, write-reject', () => {
       brainJson(home),
       JSON.stringify({
         schema_version: COMMAND_EVE_COMPANY_BRAIN_SCHEMA,
-        entries: [{ id: 'project-alpha', kind: 'project', title: 'Alpha', updated_at: '', author: 'eve', source: 'chat', body_file: 'entries/project-alpha.md' }],
+        entries: [
+          {
+            id: 'project-alpha',
+            kind: 'project',
+            title: 'Alpha',
+            updated_at: '',
+            author: 'eve',
+            source: 'chat',
+            body_file: 'entries/project-alpha.md',
+          },
+        ],
       })
     );
     const entries = listEntries(home);
@@ -267,7 +323,10 @@ describe('migration v1 seed.json → v2 brain.json', () => {
   it('migrates a v1 seed into ONE brief entry (source seed-migration), using brief.md body', () => {
     const home = makeHome();
     // T1 seed writer creates seed.json v1 + brief.md.
-    writeCompanyBrainSeedToHome({ hermesHome: home, seed: { kind: 'paste_brief', value: 'ACME day-0 brief (seed value)' } });
+    writeCompanyBrainSeedToHome({
+      hermesHome: home,
+      seed: { kind: 'paste_brief', value: 'ACME day-0 brief (seed value)' },
+    });
     // Overwrite brief.md so we can prove the migration prefers the live brief.md body.
     fs.writeFileSync(path.join(home, COMPANY_BRAIN_DIR, 'brief.md'), 'ACME day-0 brief (brief.md body)\n');
 
@@ -565,7 +624,18 @@ describe('T4.5 audit hotfixes — F5 / F6 / F8', () => {
 
 // ── T8 — blueprint sections (fixed-section scaffold + fill count) ───────────────
 describe('T8 blueprint — ensureBrainBlueprint scaffolds the fixed sections', () => {
-  const EXPECTED_IDS = ['bp-company', 'bp-team', 'bp-offer', 'bp-audience', 'bp-projects', 'bp-goals', 'bp-focus', 'bp-tone', 'bp-dos-donts', COMMAND_EVE_DAY_ZERO_BRIEF_ID];
+  const EXPECTED_IDS = [
+    'bp-company',
+    'bp-team',
+    'bp-offer',
+    'bp-audience',
+    'bp-projects',
+    'bp-goals',
+    'bp-focus',
+    'bp-tone',
+    'bp-dos-donts',
+    COMMAND_EVE_DAY_ZERO_BRIEF_ID,
+  ];
 
   it('creates exactly 10 blueprint entries with stable ids in DISPLAY order', () => {
     const home = makeHome();
@@ -586,7 +656,12 @@ describe('T8 blueprint — ensureBrainBlueprint scaffolds the fixed sections', (
     const home = makeHome();
     ensureBrainBlueprint(home);
     // Fill one section with real content.
-    upsertEntry(home, { id: 'bp-company', kind: 'company', title: 'Unternehmen', body: '### Unternehmen\n- Name: Bäckerei Müller GmbH' });
+    upsertEntry(home, {
+      id: 'bp-company',
+      kind: 'company',
+      title: 'Unternehmen',
+      body: '### Unternehmen\n- Name: Bäckerei Müller GmbH',
+    });
     const before = readEntryBody(home, 'bp-company');
     const res2 = ensureBrainBlueprint(home);
     expect(res2.created).toBe(0);
@@ -613,7 +688,10 @@ describe('T8 blueprint — ensureBrainBlueprint scaffolds the fixed sections', (
   it('converges the day-0 seed brief onto the Briefing section (no duplicate brief entry)', () => {
     const home = makeHome();
     // A v1 seed → migrateSeedToBrain produces the brief-day-0 entry FIRST.
-    writeCompanyBrainSeedToHome({ hermesHome: home, seed: { kind: 'paste_brief', value: 'Kunde: Bäckerei Müller — lokale Sichtbarkeit' } });
+    writeCompanyBrainSeedToHome({
+      hermesHome: home,
+      seed: { kind: 'paste_brief', value: 'Kunde: Bäckerei Müller — lokale Sichtbarkeit' },
+    });
     ensureCompanyBrainReady(home); // migrate → blueprint → reconcile
     const briefEntries = listEntries(home).filter((e) => e.kind === 'brief');
     // Exactly ONE brief entry (the day-0 id doubles as the Briefing section id).
@@ -653,8 +731,18 @@ describe('T8 countFilledBlueprintSections', () => {
   it('counts a section as filled once real content is added beyond the Leitfragen', () => {
     const home = makeHome();
     ensureBrainBlueprint(home);
-    upsertEntry(home, { id: 'bp-company', kind: 'company', title: 'Unternehmen', body: '### Unternehmen\n- Name: Bäckerei Müller GmbH\n- Branche: Handwerk' });
-    upsertEntry(home, { id: 'bp-offer', kind: 'offer', title: 'Angebot', body: '### Angebot\n- Was: Vollsortiment-Bäckerei' });
+    upsertEntry(home, {
+      id: 'bp-company',
+      kind: 'company',
+      title: 'Unternehmen',
+      body: '### Unternehmen\n- Name: Bäckerei Müller GmbH\n- Branche: Handwerk',
+    });
+    upsertEntry(home, {
+      id: 'bp-offer',
+      kind: 'offer',
+      title: 'Angebot',
+      body: '### Angebot\n- Was: Vollsortiment-Bäckerei',
+    });
     const bp = countFilledBlueprintSections(home);
     expect(bp.filled).toBe(2);
   });
@@ -677,7 +765,12 @@ describe('1.6.2 — listEntriesWithState (disk fill truth for the list surface)'
     expect(company!.filled).toBe(false);
     expect(typeof company!.body_mtime_ms).toBe('number');
 
-    upsertEntry(home, { id: 'bp-company', kind: 'company', title: 'Unternehmen', body: '### Unternehmen\n- Name: Bäckerei Müller GmbH' });
+    upsertEntry(home, {
+      id: 'bp-company',
+      kind: 'company',
+      title: 'Unternehmen',
+      body: '### Unternehmen\n- Name: Bäckerei Müller GmbH',
+    });
     const after = listEntriesWithState(home);
     expect(after.find((e) => e.id === 'bp-company')!.filled).toBe(true);
   });
@@ -728,7 +821,12 @@ describe('1.6.2 — corrupt brain.json quarantine (the total-clobber window)', (
   it('quarantines an unparseable index and the ready-pass rebuilds WITHOUT losing bodies', () => {
     const home = makeHome();
     ensureBrainBlueprint(home, { now: fixedClock('2026-07-02T09:50:00.000Z') });
-    upsertEntry(home, { id: 'bp-company', kind: 'company', title: 'Unternehmen', body: '### Unternehmen\n- Name: FYN Labs LLC' });
+    upsertEntry(home, {
+      id: 'bp-company',
+      kind: 'company',
+      title: 'Unternehmen',
+      body: '### Unternehmen\n- Name: FYN Labs LLC',
+    });
     upsertEntry(home, { kind: 'note', title: 'Wichtige Notiz', body: 'Alois anrufen.' });
     const noteId = readBrainIndex(home).entries.find((e) => e.kind === 'note')!.id;
 
@@ -739,7 +837,9 @@ describe('1.6.2 — corrupt brain.json quarantine (the total-clobber window)', (
     const index = ensureCompanyBrainReady(home, { now: fixedClock('2026-07-03T12:00:00.000Z') });
 
     // The corrupt file is preserved for forensics…
-    const quarantined = fs.readdirSync(path.dirname(brainJson(home))).filter((f) => f.startsWith('brain.json.corrupt-'));
+    const quarantined = fs
+      .readdirSync(path.dirname(brainJson(home)))
+      .filter((f) => f.startsWith('brain.json.corrupt-'));
     expect(quarantined.length).toBe(1);
     // …the filled body SURVIVED byte-identical…
     expect(fs.readFileSync(bodyOf(home, 'bp-company'), 'utf8')).toContain('FYN Labs LLC');
@@ -765,7 +865,12 @@ describe('1.6.2 — migrateCompanyBrainFromHome (own-seat first provisioning)', 
     const source = makeHome();
     const target = makeHome();
     ensureBrainBlueprint(source, { now: fixedClock('2026-07-02T09:50:00.000Z') });
-    upsertEntry(source, { id: 'bp-company', kind: 'company', title: 'Unternehmen', body: '### Unternehmen\n- Name: FYN Labs LLC' });
+    upsertEntry(source, {
+      id: 'bp-company',
+      kind: 'company',
+      title: 'Unternehmen',
+      body: '### Unternehmen\n- Name: FYN Labs LLC',
+    });
     fs.writeFileSync(path.join(source, COMPANY_BRAIN_DIR, 'brief.md'), 'FYN Labs LLC - baut Command EVE.');
 
     const res = migrateCompanyBrainFromHome(source, target);
@@ -782,7 +887,12 @@ describe('1.6.2 — migrateCompanyBrainFromHome (own-seat first provisioning)', 
     ensureBrainBlueprint(source);
     upsertEntry(source, { id: 'bp-company', kind: 'company', title: 'Unternehmen', body: 'source content' });
     ensureBrainBlueprint(target);
-    upsertEntry(target, { id: 'bp-company', kind: 'company', title: 'Unternehmen', body: 'target content — filled by the seat' });
+    upsertEntry(target, {
+      id: 'bp-company',
+      kind: 'company',
+      title: 'Unternehmen',
+      body: 'target content — filled by the seat',
+    });
     const before = fs.readFileSync(bodyOf(target, 'bp-company'), 'utf8');
 
     const res = migrateCompanyBrainFromHome(source, target);
@@ -805,7 +915,12 @@ describe('1.6.2 — migrateCompanyBrainFromHome (own-seat first provisioning)', 
     const source = makeHome();
     const target = makeHome();
     ensureBrainBlueprint(source, { now: fixedClock('2026-07-02T10:06:00.000Z') });
-    upsertEntry(source, { id: 'bp-company', kind: 'company', title: 'Unternehmen', body: '### Unternehmen\n- Name: FYN Labs LLC' });
+    upsertEntry(source, {
+      id: 'bp-company',
+      kind: 'company',
+      title: 'Unternehmen',
+      body: '### Unternehmen\n- Name: FYN Labs LLC',
+    });
     // The 2026-07-02 state: the seat was empty-seeded (placeholder-only scaffold).
     ensureBrainBlueprint(target, { now: fixedClock('2026-07-02T10:09:00.000Z') });
     expect(isPristineBlueprintScaffold(target)).toBe(true);
@@ -860,7 +975,12 @@ describe('1.6.2 — migrateCompanyBrainFromHome (own-seat first provisioning)', 
     const source = makeHome();
     const target = makeHome();
     ensureBrainBlueprint(source, { now: fixedClock('2026-07-02T09:50:00.000Z') });
-    upsertEntry(source, { id: 'bp-company', kind: 'company', title: 'Unternehmen', body: '### Unternehmen\n- Name: FYN Labs LLC' });
+    upsertEntry(source, {
+      id: 'bp-company',
+      kind: 'company',
+      title: 'Unternehmen',
+      body: '### Unternehmen\n- Name: FYN Labs LLC',
+    });
     // A locally-readable secret, and a `.md` symlink to it planted in the source
     // entries dir (the exfil vector: a symlink whose name looks like a brain note).
     const secret = path.join(source, 'stolen.env');
@@ -884,7 +1004,12 @@ describe('1.6.2 — migrateCompanyBrainFromHome (own-seat first provisioning)', 
     const source = makeHome();
     const target = makeHome();
     ensureBrainBlueprint(source, { now: fixedClock('2026-07-02T09:50:00.000Z') });
-    upsertEntry(source, { id: 'bp-company', kind: 'company', title: 'Unternehmen', body: '### Unternehmen\n- Name: FYN Labs LLC' });
+    upsertEntry(source, {
+      id: 'bp-company',
+      kind: 'company',
+      title: 'Unternehmen',
+      body: '### Unternehmen\n- Name: FYN Labs LLC',
+    });
     const secret = path.join(source, 'stolen.env');
     fs.writeFileSync(secret, 'SUPABASE_SERVICE_ROLE_KEY=super-secret\nPRIVATE-KEY-BRIEF-SECRET');
     // brief.md is model-visible (EVE's directive grounds ONLY in company-brain/brief.md).

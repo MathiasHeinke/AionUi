@@ -203,7 +203,12 @@ const QuotaExhaustedWall: React.FC<QuotaExhaustedWallProps> = ({
               eur: selectedPack?.eur ?? '',
             })}
           </Button>
-          <button type='button' className='quota-exhausted-wall__later' onClick={onClose} data-testid='quota-wall-later'>
+          <button
+            type='button'
+            className='quota-exhausted-wall__later'
+            onClick={onClose}
+            data-testid='quota-wall-later'
+          >
             {t('credits.wall.later', { defaultValue: 'Not now' })}
           </button>
         </div>

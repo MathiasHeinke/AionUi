@@ -64,15 +64,7 @@ const VideoCostWall: React.FC<VideoCostWallProps> = ({ visible, durationSeconds,
   };
 
   return (
-    <Modal
-      visible
-      title={null}
-      footer={null}
-      onCancel={onCancel}
-      maskClosable
-      className='video-cost-wall'
-      escToExit
-    >
+    <Modal visible title={null} footer={null} onCancel={onCancel} maskClosable className='video-cost-wall' escToExit>
       <div className='quota-exhausted-wall__body' data-testid='video-cost-wall'>
         <h2 className='quota-exhausted-wall__title' data-testid='video-cost-wall-title'>
           {t('credits.video.title', { defaultValue: 'Video erstellen' })}
@@ -111,13 +103,7 @@ const VideoCostWall: React.FC<VideoCostWallProps> = ({ visible, durationSeconds,
         </p>
 
         <div className='quota-exhausted-wall__actions'>
-          <Button
-            type='primary'
-            long
-            shape='round'
-            onClick={handleConfirm}
-            data-testid='video-cost-wall-confirm'
-          >
+          <Button type='primary' long shape='round' onClick={handleConfirm} data-testid='video-cost-wall-confirm'>
             {t('credits.video.confirm', {
               defaultValue: 'Fortfahren — {{credits}} Credits',
               credits: preview.estimatedCredits,

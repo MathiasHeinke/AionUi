@@ -15,7 +15,9 @@ type AuthStatus = 'checking' | 'authenticated' | 'unauthenticated';
  * (FAIL-CLOSED). Exported so the mapping is unit-testable without the DOM or the
  * module-level desktop-runtime const.
  */
-export function deriveDesktopAuthStatus(res: { data?: { ok?: boolean; state?: string } | null } | null | undefined): AuthStatus {
+export function deriveDesktopAuthStatus(
+  res: { data?: { ok?: boolean; state?: string } | null } | null | undefined
+): AuthStatus {
   // `ok === true` (not merely truthy): a forged ok:"yes"/ok:1 must never authenticate.
   return res?.data?.ok === true && res.data.state === 'entitled' ? 'authenticated' : 'unauthenticated';
 }

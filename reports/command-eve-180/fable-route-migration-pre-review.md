@@ -6,12 +6,12 @@ Slice 1.8.0-b/c/d landed (theme kernel, shell, seat rail, footer, composer, Appe
 
 ## Verdict (short)
 
-Foundation is contract-conformant; remaining work is bounded and mostly mechanical. BUT implementation must start with the **global rails** (arco-override/--aou-*, modal tier, loader, toast, eve-pill blur), because they violate release gates on _every_ route and all later screenshots depend on them. Two content decisions need founder/Codex adjudication before the sweep (artifact provider/model exposure; runtime/connector diagnostics content incl. the literal "AionUI + Hermes Runtime" label). No blocker to starting.
+Foundation is contract-conformant; remaining work is bounded and mostly mechanical. BUT implementation must start with the **global rails** (arco-override/--aou-\*, modal tier, loader, toast, eve-pill blur), because they violate release gates on _every_ route and all later screenshots depend on them. Two content decisions need founder/Codex adjudication before the sweep (artifact provider/model exposure; runtime/connector diagnostics content incl. the literal "AionUI + Hermes Runtime" label). No blocker to starting.
 
 ## P0 findings
 
-1. _*--aou-* live on all public routes_*: arco-override.css:103-104 (--aou-2 = global Arco control fill/border), :144-145 (**--aou-6-brand is UNDEFINED** — global primary-button var silently broken); MessageList.tsx:107; MessageThinking.module.css (7 uses); MessageToolGroupSummary.css (7); ChatHistory.tsx:237-238; SlashCommandMenu.tsx:98; FileChangesPanel.tsx:70; SiderToolbar.tsx:69; AgentPillBar.tsx:53; WorkspaceFolderSelect.tsx:225; TeamCreateModal.tsx:46/54; SettingsModal/index.tsx:387. Violates the "no visible --aou-*" release gate.
-2. **eve primitives defined but unused**: eve-artifact-frame + eve-empty-state used NOWHERE; no settings page, modal, loader, or toast uses any eve-* class. Consumers today: SendBox, GuidInputCard, ConversationRow, SiderFooter.css, seatRail.css only.
+1. _*--aou-* live on all public routes\_\_: arco-override.css:103-104 (--aou-2 = global Arco control fill/border), :144-145 (**--aou-6-brand is UNDEFINED** — global primary-button var silently broken); MessageList.tsx:107; MessageThinking.module.css (7 uses); MessageToolGroupSummary.css (7); ChatHistory.tsx:237-238; SlashCommandMenu.tsx:98; FileChangesPanel.tsx:70; SiderToolbar.tsx:69; AgentPillBar.tsx:53; WorkspaceFolderSelect.tsx:225; TeamCreateModal.tsx:46/54; SettingsModal/index.tsx:387. Violates the "no visible --aou-_" release gate.
+2. **eve primitives defined but unused**: eve-artifact-frame + eve-empty-state used NOWHERE; no settings page, modal, loader, or toast uses any eve-\* class. Consumers today: SendBox, GuidInputCard, ConversationRow, SiderFooter.css, seatRail.css only.
 3. **Nested card stacks everywhere** (prohibited §13): kanban 3-4 deep (index.tsx:397→291→188→211); ModelModalContent 3 deep (:498→:569→:606); EveRuntime (index.tsx:91 → WorkerAssignmentCard.tsx:131 → :167); SkillsHub/capabilities; connectorCatalog (:313→:340/:358/:440); billing Arco-Card stack (:168,220,282,306,335,363); erste-schritte (:133→:147 + Card :188); localRuntime (:242/434/460→:182); account (:196,373,405); company-brain (:445).
 4. **Registration gate theme-blind**: RegistrationGatePage.css 35 hex + 38 rgba; purple glow rgba(139,92,246,.16) l.30; #ffffff!important l.227; permanently dark (light mode broken); hand-rolled blur(28px) glass (l.77-78); index.tsx raw <button>/<label>/<form> (489, 623, 634, 691, 728, 744, 884).
 5. **Hardcoded white card + purple**: WebuiModalContent.tsx:760 `bg-white`; SkillsHubSettings.tsx:176-181 (#722ED1 purple, #F5319D pink) + :550 rgba(var(--purple-6)).
@@ -26,20 +26,20 @@ Foundation is contract-conformant; remaining work is bounded and mostly mechanic
 - Blur-budget violations: .eve-pill has overlay backdrop-filter (command-eve-visual.css:291-292); ConversationSearchPopover.css:81-82 + :94-95 nested blur on scrolling results.
 - Semantic color misuse: connectorCatalog stateColor purple (:178-184) + orange gated/needs_auth (:181/189/328/614); localRuntime tierColor purple pro (:165-170); kanban review 'orange' (:146); billing.css #4f46e5 indigo fallback (:88); EVE-Runtime orange "Pausieren" control (screenshot); erste-schritte orange "offen" badge.
 - Legacy/internal naming in public UI: "AionUI + Hermes Runtime" + slug aionui-hermes-runtime on /settings/connectors (screenshot; source likely process/commandEve/connectorCatalogCore.ts); "KI-Shell" in scheduled subtitle; "Claude-CLI" in erste-schritte copy; MessageGeneratedArtifact renders provider/model in chat history (:191-193, 239-242) — §2/§19 exposure decision needed.
-- connectorCatalog + localRuntime bypass SettingsPageWrapper (no shared shell/mobile nav under /settings/*); EveRuntime intro text rendered twice (screenshot).
+- connectorCatalog + localRuntime bypass SettingsPageWrapper (no shared shell/mobile nav under /settings/\*); EveRuntime intro text rendered twice (screenshot).
 - Raw interactive HTML: registrationGate (many), OnboardingReadinessGreeting :156 (+<a> :84), OnboardingWaitingBanner :82, DayZeroOnboardingModal :124, SettingsPageWrapper :214, MessageGeneratedArtifact :313/:324.
-- CronStatusTag saturated *-light-1 pills + legacy border-arco-3/text-3 (:39-43); cron job-card hover:shadow-sm (:155); localRuntime inline-style progress bar (:278/283).
+- CronStatusTag saturated \*-light-1 pills + legacy border-arco-3/text-3 (:39-43); cron job-card hover:shadow-sm (:155); localRuntime inline-style progress bar (:278/283).
 - Absolute local paths rendered on connectors/runtime pages (Company.OS root, manifest, preflight, kanban.db) — check against "no local path leaked" gate intent.
 
 ## P2 findings
 
-- Legacy Arco token layer (bg-fill-_, text-t-_, --color-*) across all unmigrated pages — theme-safe; map during panel adoption, not a blocker.
+- Legacy Arco token layer (bg-fill-_, text-t-_, --color-\*) across all unmigrated pages — theme-safe; map during panel adoption, not a blocker.
 - Non-tokenized backdrop-filters outside the eve reduced-effects kill-switch: layout.css:47-48 (sidebar), chat-layout.css:32-33 (header), BtwOverlay.module.css:21, LoginPage.css:177, RegistrationGatePage.css:77-78.
 - Hex-literal top offenders: LoginPage.css(45), SeatRail.tsx(19), billing.css(19), MobileActionSheet(15), AppErrorBoundary(9), FileAttachButton(7), sendbox.css(5), titlebar.css(4), MessagePlan/ThoughtDisplay/MessageToolCall (3-4 each).
 - common/theme/types.ts:7 ThemeAppearance lacks 'system' — two parallel appearance models coexist (works; don't widen legacy type).
-- Dead preset CSS/covers on disk (hello-kitty, misaka-mikoto, retroma-* variants, unused PNGs) — delete.
+- Dead preset CSS/covers on disk (hello-kitty, misaka-mikoto, retroma-\* variants, unused PNGs) — delete.
 - connectorCatalog hardcoded English strings (:251/265/271/541-548) — i18n gate.
-- AppearanceModalContent still wraps rebuilt panel in legacy bg-2 rd-16px shell (:59/71); Appearance uses bespoke eve-appearance-* namespace, not shared eve-panel.
+- AppearanceModalContent still wraps rebuilt panel in legacy bg-2 rd-16px shell (:59/71); Appearance uses bespoke eve-appearance-\* namespace, not shared eve-panel.
 
 ## Recommended bounded implementation sequence
 
@@ -49,7 +49,7 @@ b. AionModal → eve-dialog tier (themes 15 dialog surfaces at once); Arco Modal
 c. AppLoader → eve shell bg + centered mark (themes every route fallback); consider a minimal route error fallback.
 d. Remove backdrop-filter from .eve-pill; fix ConversationSearchPopover nested blur.
 e. Add shared `eve-settings-group` / page-header pattern (h1 + subtitle + actions) for reuse by every route below.
-f. Sweep the 11 remaining --aou-* consumers (chat Messages files first — MessageThinking, MessageToolGroupSummary, MessageList, ChatHistory).
+f. Sweep the 11 remaining --aou-\* consumers (chat Messages files first — MessageThinking, MessageToolGroupSummary, MessageList, ChatHistory).
 **R2 — Settings sweep:** SettingsSider selected state → eve-row tokens; then per-page de-nesting to one panel level: model, capabilities/SkillsHub (incl. purple/pink removal), eve-runtime (incl. duplicated intro + orange Pausieren), billing, erste-schritte (incl. Claude-CLI copy + orange badge), account, company-brain, webui (incl. bg-white), pet, system/privacy (light touch). Decide SettingsPageWrapper adoption for connectors/runtime.
 **R3 — Standalone routes:** kanban (de-nest, orange review → semantic), scheduled + TaskDetail + CronStatusTag + CreateTaskDialog (+ "KI-Shell" copy), connectorCatalog (de-nest, purple/orange remap, display-name fix, i18n), localRuntime (de-nest, purple pro tier, progress bar tokens), onboarding banner/greeting/day-zero modal, MessageGeneratedArtifact → .eve-artifact-frame + Arco buttons (+ provider/model decision).
 **R4 — Pre-auth surfaces:** registration gate + login tokenization onto eve-overlay tiers; raw-HTML → Arco; decide dark-only vs theme-aware (recommend: keep dark-committed but tokenized).
@@ -58,7 +58,7 @@ f. Sweep the 11 remaining --aou-* consumers (chat Messages files first — Messa
 
 ## Likely regressions & exact tests
 
-- arco-override repoint touches every Arco control → per-route light/dark screenshot diff after R1a alone; verify all 4 accents update both --color-primary-* and --primary-* RGB triplets (rgba(var(--primary-6)) sites: ConversationRow.tsx:220, localRuntime:283).
+- arco-override repoint touches every Arco control → per-route light/dark screenshot diff after R1a alone; verify all 4 accents update both --color-primary-_ and --primary-_ RGB triplets (rgba(var(--primary-6)) sites: ConversationRow.tsx:220, localRuntime:283).
 - --aou-6-brand fix may change primary-button hue (currently falling back) → button screenshots in all accents/modes.
 - MessageThinking/ToolGroupSummary restyle → rerun 500-message scroll trace vs 1.7.x.
 - .eve-pill blur removal → guid/composer pill screenshots; reduced-effects + reduced-transparency states.
@@ -78,7 +78,7 @@ f. Sweep the 11 remaining --aou-* consumers (chat Messages files first — Messa
 5. Static import chain AppearanceModalContent → CssThemeSettings → BUILTIN_THEMES → preset CSS/covers: pruning requires lazy founder-gated import or the bundle gate fails.
 6. Arco <Card> replacement (billing/account/company-brain) changes padding/head/border — expect layout drift; screenshot each.
 7. presets/_.css define their own --aou-_ ramps — retiring the ramp from default-color-scheme.css is safe only after public consumers are swept; user theme payloads stay byte-identical regardless.
-8. /settings/ext/* files are frozen (parallel bugfix worktree per plan §3) — inherit only, no edits.
+8. /settings/ext/\* files are frozen (parallel bugfix worktree per plan §3) — inherit only, no edits.
 9. Adopting SettingsPageWrapper for connectors/runtime changes scroll + mobile-nav behavior — verify deep links (/connectors, /runtime redirects) and mobile.
 10. "AionUI + Hermes Runtime" display label likely comes from catalog data (connectorCatalogCore.ts / manifest) — rename display text only; connector IDs/slugs feed preflight matching.
 11. Worktree gate: git status now shows only untracked screenshots — earlier dirty bugfix files appear committed; Codex should still record WORKTREE_OWNERSHIP_PASS before slice-e edits.

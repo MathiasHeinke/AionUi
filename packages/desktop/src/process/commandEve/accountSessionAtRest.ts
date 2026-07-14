@@ -217,7 +217,10 @@ export interface GetFreshSessionDeps {
  *   - Refresh HTTP/network failure ⇒ fail closed (REFRESH_*). A 400/401 means a
  *     dead refresh token ⇒ the caller must require re-login.
  */
-export async function getFreshSession(userDataPath: string, deps: GetFreshSessionDeps = {}): Promise<FreshSessionResult> {
+export async function getFreshSession(
+  userDataPath: string,
+  deps: GetFreshSessionDeps = {}
+): Promise<FreshSessionResult> {
   const fetchImpl = deps.fetch ?? (globalThis.fetch as typeof fetch);
   const anonKey = deps.anonKey ?? resolveSupabaseAnonKey();
   const now = deps.now ?? (() => new Date());
@@ -255,7 +258,11 @@ export async function getFreshSession(userDataPath: string, deps: GetFreshSessio
 
   if (!response.ok) {
     // 400/401 ⇒ refresh token is dead/revoked. Caller requires re-login.
-    return { ok: false, reason_code: `REFRESH_HTTP_${response.status}`, message: `refresh returned ${response.status}` };
+    return {
+      ok: false,
+      reason_code: `REFRESH_HTTP_${response.status}`,
+      message: `refresh returned ${response.status}`,
+    };
   }
 
   const raw = (await response.json().catch((): null => null)) as Record<string, unknown> | null;

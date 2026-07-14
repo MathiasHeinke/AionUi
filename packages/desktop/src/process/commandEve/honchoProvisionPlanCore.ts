@@ -165,14 +165,49 @@ export function buildHonchoProvisionPlan(input: {
   const pythonSatisfied = detection.pythonSupported === true;
 
   const steps: HonchoInstallStep[] = [
-    { id: HONCHO_STEP_HOMEBREW, needsConsent: true, alreadySatisfied: detection.hasHomebrew === true, detail: 'Homebrew (Paketmanager) sicherstellen' },
-    { id: HONCHO_STEP_POSTGRES, needsConsent: true, alreadySatisfied: detection.hasPostgres === true, detail: 'PostgreSQL lokal installieren' },
-    { id: HONCHO_STEP_PGVECTOR, needsConsent: true, alreadySatisfied: detection.hasPgvector === true, detail: 'pgvector-Erweiterung installieren' },
-    { id: HONCHO_STEP_PYTHON, needsConsent: false, alreadySatisfied: pythonSatisfied, detail: 'Python-Laufzeit für Honcho vorbereiten' },
-    { id: HONCHO_STEP_PACKAGE, needsConsent: false, alreadySatisfied: detection.hasHonchoPkg === true, detail: 'Honcho-Paket installieren' },
-    { id: HONCHO_STEP_DB, needsConsent: false, alreadySatisfied: detection.dbProvisioned === true, detail: 'Per-Seat-Datenbank + Vektor-Erweiterung anlegen' },
+    {
+      id: HONCHO_STEP_HOMEBREW,
+      needsConsent: true,
+      alreadySatisfied: detection.hasHomebrew === true,
+      detail: 'Homebrew (Paketmanager) sicherstellen',
+    },
+    {
+      id: HONCHO_STEP_POSTGRES,
+      needsConsent: true,
+      alreadySatisfied: detection.hasPostgres === true,
+      detail: 'PostgreSQL lokal installieren',
+    },
+    {
+      id: HONCHO_STEP_PGVECTOR,
+      needsConsent: true,
+      alreadySatisfied: detection.hasPgvector === true,
+      detail: 'pgvector-Erweiterung installieren',
+    },
+    {
+      id: HONCHO_STEP_PYTHON,
+      needsConsent: false,
+      alreadySatisfied: pythonSatisfied,
+      detail: 'Python-Laufzeit für Honcho vorbereiten',
+    },
+    {
+      id: HONCHO_STEP_PACKAGE,
+      needsConsent: false,
+      alreadySatisfied: detection.hasHonchoPkg === true,
+      detail: 'Honcho-Paket installieren',
+    },
+    {
+      id: HONCHO_STEP_DB,
+      needsConsent: false,
+      alreadySatisfied: detection.dbProvisioned === true,
+      detail: 'Per-Seat-Datenbank + Vektor-Erweiterung anlegen',
+    },
     { id: HONCHO_STEP_PROCESS, needsConsent: false, alreadySatisfied: false, detail: 'Lokalen Honcho-Server starten' },
-    { id: HONCHO_STEP_READY, needsConsent: false, alreadySatisfied: false, detail: 'Bereitschaft prüfen (/health + Deriver)' },
+    {
+      id: HONCHO_STEP_READY,
+      needsConsent: false,
+      alreadySatisfied: false,
+      detail: 'Bereitschaft prüfen (/health + Deriver)',
+    },
   ];
 
   const consentSteps = steps.filter((s) => s.needsConsent === true && s.alreadySatisfied !== true);

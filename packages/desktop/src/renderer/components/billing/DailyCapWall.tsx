@@ -38,15 +38,7 @@ const DailyCapWall: React.FC<DailyCapWallProps> = ({ reached, jobInFlight, onClo
   if (!surface) return null;
 
   return (
-    <Modal
-      visible
-      title={null}
-      footer={null}
-      onCancel={onClose}
-      maskClosable
-      className='daily-cap-wall'
-      escToExit
-    >
+    <Modal visible title={null} footer={null} onCancel={onClose} maskClosable className='daily-cap-wall' escToExit>
       <div className='daily-cap-wall__body' data-testid='daily-cap-wall'>
         <h2 className='daily-cap-wall__title text-18px font-700 text-t-primary' data-testid='daily-cap-wall-title'>
           {t('credits.dailyCap.title', { defaultValue: 'Kostenloses Tageskontingent erreicht' })}

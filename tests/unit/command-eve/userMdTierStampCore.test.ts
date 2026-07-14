@@ -122,7 +122,13 @@ describe('B2 stamp — §FOUNDER present in every seat, §SEAT gating', () => {
 
   it('real seat WITHOUT a seed: §FOUNDER present, §SEAT absent (honest omission)', () => {
     const { fsImpl, files } = makeMemFs();
-    const r = stampUserMdTiersToHome({ hermesHome: HOME, legacy: false, profile: PROFILE, seed: null, deps: { fsImpl } });
+    const r = stampUserMdTiersToHome({
+      hermesHome: HOME,
+      legacy: false,
+      profile: PROFILE,
+      seed: null,
+      deps: { fsImpl },
+    });
     expect(r.seatStamped).toBe(false);
     expect(files[userMd]).toContain(FOUNDER_MARKER_BEGIN);
     expect(files[userMd]).not.toContain(SEAT_MARKER_BEGIN);
@@ -132,9 +138,21 @@ describe('B2 stamp — §FOUNDER present in every seat, §SEAT gating', () => {
 describe('B2 stamp — idempotency + grown-content survival', () => {
   it('double-stamp with the SAME inputs is byte-identical', () => {
     const { fsImpl, files } = makeMemFs();
-    stampUserMdTiersToHome({ hermesHome: HOME, legacy: false, profile: PROFILE, seed: { schema_version: 'v1', seeded_at: '', kind: 'paste_brief', value: 'Kunde A' }, deps: { fsImpl } });
+    stampUserMdTiersToHome({
+      hermesHome: HOME,
+      legacy: false,
+      profile: PROFILE,
+      seed: { schema_version: 'v1', seeded_at: '', kind: 'paste_brief', value: 'Kunde A' },
+      deps: { fsImpl },
+    });
     const first = files[userMd];
-    stampUserMdTiersToHome({ hermesHome: HOME, legacy: false, profile: PROFILE, seed: { schema_version: 'v1', seeded_at: '', kind: 'paste_brief', value: 'Kunde A' }, deps: { fsImpl } });
+    stampUserMdTiersToHome({
+      hermesHome: HOME,
+      legacy: false,
+      profile: PROFILE,
+      seed: { schema_version: 'v1', seeded_at: '', kind: 'paste_brief', value: 'Kunde A' },
+      deps: { fsImpl },
+    });
     const second = files[userMd];
     expect(second).toBe(first);
   });
@@ -221,7 +239,7 @@ describe('T9 operator-vs-client role semantics — §SEAT + §FOUNDER bodies', (
 
   it('§SEAT en carries the operator-vs-client role sentence', () => {
     const body = renderSeatBody(seed, 'en-US', REAL_BRAIN);
-    expect(body).toContain('Your operator runs you here on the client\'s behalf, not for their own firm.');
+    expect(body).toContain("Your operator runs you here on the client's behalf, not for their own firm.");
     expect(body).toContain('the seat name never appears in deliverables');
   });
 
@@ -251,7 +269,7 @@ describe('T9 operator-vs-client role semantics — §SEAT + §FOUNDER bodies', (
     expect(de).toContain('in Kunden-Seats handelt er im Auftrag des jeweiligen Kunden, nicht für seine eigene Firma');
     expect(de.length).toBeLessThanOrEqual(FOUNDER_BLOCK_MAX_CHARS);
     const en = renderFounderBody(PROFILE, 'en-US');
-    expect(en).toContain('in client seats they act on the respective client\'s behalf, not for their own firm');
+    expect(en).toContain("in client seats they act on the respective client's behalf, not for their own firm");
     expect(en.length).toBeLessThanOrEqual(FOUNDER_BLOCK_MAX_CHARS);
   });
 });
@@ -291,7 +309,7 @@ describe('K3 kind-conditioned §SEAT doctrine (own_company drops client doctrine
     expect(de).toContain('Abteilung/ein Bereich des Operators');
     const en = renderSeatBody(seed, 'en-US', REAL_BRAIN, 'department')!;
     expect(en).toContain('never appears in deliverables');
-    expect(en).not.toContain('on the client\'s behalf');
+    expect(en).not.toContain("on the client's behalf");
     expect(en).toContain('departments/areas');
   });
 
@@ -299,17 +317,26 @@ describe('K3 kind-conditioned §SEAT doctrine (own_company drops client doctrine
     for (const kind of ['client', 'own_company', 'department'] as const) {
       const { fsImpl, files } = makeMemFs();
       const seatHome = REAL_BRAIN.replace(/\/company-brain$/, '');
-      const r = stampUserMdTiersToHome({ hermesHome: seatHome, legacy: false, profile: PROFILE, seed, kind, deps: { fsImpl } });
+      const r = stampUserMdTiersToHome({
+        hermesHome: seatHome,
+        legacy: false,
+        profile: PROFILE,
+        seed,
+        kind,
+        deps: { fsImpl },
+      });
       expect(r.seatStamped).toBe(true);
       const body = files[path.join(seatHome, 'memories', 'USER.md')];
-      const seatBody = body.slice(body.indexOf(SEAT_MARKER_BEGIN) + SEAT_MARKER_BEGIN.length, body.indexOf(SEAT_MARKER_END)).replace(/^\n|\n$/g, '');
+      const seatBody = body
+        .slice(body.indexOf(SEAT_MARKER_BEGIN) + SEAT_MARKER_BEGIN.length, body.indexOf(SEAT_MARKER_END))
+        .replace(/^\n|\n$/g, '');
       expect(seatBody.length).toBeLessThanOrEqual(SEAT_BLOCK_MAX_CHARS);
     }
   });
 });
 
 describe('B2 stamp — cross-seat NAME isolation (2-seat fixture, real disk)', () => {
-  it('a client seat USER.md NEVER contains another seat\'s name', () => {
+  it("a client seat USER.md NEVER contains another seat's name", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-2seat-'));
     const SEAT_A = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
     const SEAT_B = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';

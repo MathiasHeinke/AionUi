@@ -30,7 +30,12 @@ vi.mock('react-i18next', () => ({
 import { KanbanColumnView } from '@renderer/pages/kanban/index';
 import type { IKanbanBoardCard, IKanbanBoardColumn, KanbanLaneKey } from '@renderer/pages/kanban/kanbanBoardModel';
 
-const makeCard = (id: string, lane: KanbanLaneKey, status = 'todo', overrides: Partial<IKanbanBoardCard> = {}): IKanbanBoardCard => ({
+const makeCard = (
+  id: string,
+  lane: KanbanLaneKey,
+  status = 'todo',
+  overrides: Partial<IKanbanBoardCard> = {}
+): IKanbanBoardCard => ({
   card_id: id,
   card_title: `Card ${id}`,
   card_status: status,
@@ -44,7 +49,10 @@ const makeCard = (id: string, lane: KanbanLaneKey, status = 'todo', overrides: P
 
 describe('KanbanColumnView (payload → cards)', () => {
   it('renders one card node per mapped card with move + action controls', () => {
-    const column: IKanbanBoardColumn = { key: 'research', cards: [makeCard('a', 'research'), makeCard('b', 'research')] };
+    const column: IKanbanBoardColumn = {
+      key: 'research',
+      cards: [makeCard('a', 'research'), makeCard('b', 'research')],
+    };
     render(
       <KanbanColumnView
         column={column}

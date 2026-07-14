@@ -74,7 +74,9 @@ export function clearConversationGenerating(conversationId: string): void {
  * terminal event; ignore everything else (bootstrap agent_status, model info,
  * context usage, …) so warmup never registers a phantom turn.
  */
-export function applyAcpStreamActivity(message: { type?: string; conversation_id?: string; data?: unknown } | null | undefined): void {
+export function applyAcpStreamActivity(
+  message: { type?: string; conversation_id?: string; data?: unknown } | null | undefined
+): void {
   const conversationId = message?.conversation_id;
   const type = message?.type;
   if (!conversationId || typeof conversationId !== 'string' || !type) return;
@@ -100,7 +102,9 @@ let nativeSubscribed = false;
 function attachResponseStream(stream: unknown): boolean {
   const emitter = stream as { on?: (handler: (message: unknown) => void) => unknown } | undefined;
   if (!emitter || typeof emitter.on !== 'function') return false;
-  emitter.on((message: unknown) => applyAcpStreamActivity(message as { type?: string; conversation_id?: string; data?: unknown }));
+  emitter.on((message: unknown) =>
+    applyAcpStreamActivity(message as { type?: string; conversation_id?: string; data?: unknown })
+  );
   return true;
 }
 

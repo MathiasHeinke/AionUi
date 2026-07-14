@@ -19,10 +19,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import {
-  decryptImageGenApiKeyForEnv,
-  encryptImageGenApiKeyAtRest,
-} from '@/common/config/imageGenApiKeyAtRest';
+import { decryptImageGenApiKeyForEnv, encryptImageGenApiKeyAtRest } from '@/common/config/imageGenApiKeyAtRest';
 import { isKeychainRef, setSafeStorageForTesting, type SafeStorageAdapter } from '@/common/config/keychain';
 
 /** Synthetic fake token — NOT a real secret. */

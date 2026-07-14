@@ -12,7 +12,11 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import { runHonchoBootstrap, type HonchoBootstrapDeps, type HonchoCommandSet } from '@/process/commandEve/honchoBootstrapCore';
+import {
+  runHonchoBootstrap,
+  type HonchoBootstrapDeps,
+  type HonchoCommandSet,
+} from '@/process/commandEve/honchoBootstrapCore';
 import { buildHonchoProvisionPlan } from '@/process/commandEve/honchoProvisionPlanCore';
 import { buildHonchoRuntimeConfig, HONCHO_DERIVER_BRANCH_CLOUD } from '@/process/commandEve/honchoRuntimeConfigCore';
 import { honchoReady, HONCHO_STATE_OFF } from '@/process/commandEve/honchoReadinessCore';
@@ -20,9 +24,18 @@ import { resolveSeatHome } from '@/process/commandEve/seatContextCore';
 
 const SEAT = 'a1b2c3d4-e5f6-4789-aabb-ccddeeff0011';
 const NOW = Date.parse('2026-07-04T12:00:00.000Z');
-const cfg = () => buildHonchoRuntimeConfig({ seatId: SEAT, seatHome: resolveSeatHome('/tmp/eve-honcho-o1', SEAT), hasLicense: true });
+const cfg = () =>
+  buildHonchoRuntimeConfig({ seatId: SEAT, seatHome: resolveSeatHome('/tmp/eve-honcho-o1', SEAT), hasLicense: true });
 
-const ALL_PRESENT = { hasHomebrew: true, hasPostgres: true, hasPgvector: true, pythonSupported: true, hasHonchoPkg: true, dbProvisioned: true, freeDiskGb: 50 };
+const ALL_PRESENT = {
+  hasHomebrew: true,
+  hasPostgres: true,
+  hasPgvector: true,
+  pythonSupported: true,
+  hasHonchoPkg: true,
+  dbProvisioned: true,
+  freeDiskGb: 50,
+};
 const OPTED = { memoryOptedIn: true, hasLicense: true };
 
 /** A scriptable fake runner: fails for any command string in `fail`. */
@@ -72,11 +85,13 @@ describe('runHonchoBootstrap — plan disabled', () => {
   it('a disabled plan writes an off readiness + one skip stage, no commands run', async () => {
     const runner = fakeRunner();
     const write = vi.fn();
-    const r = await runHonchoBootstrap(deps({
-      plan: buildHonchoProvisionPlan({ consent: { memoryOptedIn: false }, config: cfg() }),
-      runner: runner.runner,
-      writeReadiness: write,
-    }));
+    const r = await runHonchoBootstrap(
+      deps({
+        plan: buildHonchoProvisionPlan({ consent: { memoryOptedIn: false }, config: cfg() }),
+        runner: runner.runner,
+        writeReadiness: write,
+      })
+    );
     expect(r.honchoEnabled).toBe(false);
     expect(honchoReady(r.readiness)).toBe(false);
     expect(r.readiness.state).toBe(HONCHO_STATE_OFF);
@@ -106,7 +121,11 @@ describe('runHonchoBootstrap — happy path', () => {
 describe('runHonchoBootstrap — a prerequisite failure stops the chain (never blocked)', () => {
   it('postgres install fails ⇒ that step + all later steps skip, ends not-ready', async () => {
     const { runner, seen } = fakeRunner(new Set(['install-postgres']));
-    const plan = buildHonchoProvisionPlan({ consent: OPTED, config: cfg(), detection: { ...ALL_PRESENT, hasPostgres: false, dbProvisioned: false } });
+    const plan = buildHonchoProvisionPlan({
+      consent: OPTED,
+      config: cfg(),
+      detection: { ...ALL_PRESENT, hasPostgres: false, dbProvisioned: false },
+    });
     const spawn = vi.fn();
     const r = await runHonchoBootstrap(deps({ plan, runner, detachedSpawner: spawn }));
     expect(honchoReady(r.readiness)).toBe(false);
@@ -118,7 +137,11 @@ describe('runHonchoBootstrap — a prerequisite failure stops the chain (never b
   });
 
   it('a missing command for a step ⇒ skip + chain stop', async () => {
-    const plan = buildHonchoProvisionPlan({ consent: OPTED, config: cfg(), detection: { ...ALL_PRESENT, hasPgvector: false } });
+    const plan = buildHonchoProvisionPlan({
+      consent: OPTED,
+      config: cfg(),
+      detection: { ...ALL_PRESENT, hasPgvector: false },
+    });
     const r = await runHonchoBootstrap(deps({ plan, commands: { ...COMMANDS, 'honcho-pgvector': undefined } }));
     expect(honchoReady(r.readiness)).toBe(false);
     expect(r.stages.find((s) => s.id === 'honcho-pgvector')?.status).toBe('skip');
@@ -127,7 +150,11 @@ describe('runHonchoBootstrap — a prerequisite failure stops the chain (never b
 
   it('a runner that THROWS is caught ⇒ skip, no throw escapes', async () => {
     const { runner } = fakeRunner(new Set(), new Set(['install-postgres']));
-    const plan = buildHonchoProvisionPlan({ consent: OPTED, config: cfg(), detection: { ...ALL_PRESENT, hasPostgres: false } });
+    const plan = buildHonchoProvisionPlan({
+      consent: OPTED,
+      config: cfg(),
+      detection: { ...ALL_PRESENT, hasPostgres: false },
+    });
     await expect(runHonchoBootstrap(deps({ plan, runner }))).resolves.toBeDefined();
     const r = await runHonchoBootstrap(deps({ plan, runner }));
     expect(honchoReady(r.readiness)).toBe(false);
@@ -159,26 +186,32 @@ describe('runHonchoBootstrap — malformed input fail-safes (Codex O1 audit)', (
   });
 
   it('#1 an enabled plan with NO process step never reads ready', async () => {
-    const r = await runHonchoBootstrap(deps({
-      plan: { honchoEnabled: true, steps: [{ id: 'honcho-postgres', alreadySatisfied: true }] },
-      probeServer: async () => true,
-      probeDeriver: async () => true,
-    }));
+    const r = await runHonchoBootstrap(
+      deps({
+        plan: { honchoEnabled: true, steps: [{ id: 'honcho-postgres', alreadySatisfied: true }] },
+        probeServer: async () => true,
+        probeDeriver: async () => true,
+      })
+    );
     expect(honchoReady(r.readiness)).toBe(false);
   });
 
   it('#2 a config with no honchoHome ⇒ clean not-ready', async () => {
-    const r = await runHonchoBootstrap(deps({ config: { seatId: SEAT, deriver: { branch: HONCHO_DERIVER_BRANCH_CLOUD } } }));
+    const r = await runHonchoBootstrap(
+      deps({ config: { seatId: SEAT, deriver: { branch: HONCHO_DERIVER_BRANCH_CLOUD } } })
+    );
     expect(honchoReady(r.readiness)).toBe(false);
     assertNeverBlocked(r.stages);
   });
 
   it('#3 a THROWING injected now does not throw the bootstrap', async () => {
-    const r = await runHonchoBootstrap(deps({
-      now: () => {
-        throw new Error('clock dead');
-      },
-    }));
+    const r = await runHonchoBootstrap(
+      deps({
+        now: () => {
+          throw new Error('clock dead');
+        },
+      })
+    );
     expect(r).toBeDefined();
     expect(honchoReady(r.readiness)).toBe(false);
     assertNeverBlocked(r.stages);
@@ -193,7 +226,11 @@ describe('runHonchoBootstrap — malformed input fail-safes (Codex O1 audit)', (
   it('#4 after a failure, later already-satisfied steps SKIP (not pass)', async () => {
     // homebrew missing (fails), then postgres present (already-satisfied) must still skip
     const { runner } = fakeRunner(new Set(['ensure-brew']));
-    const plan = buildHonchoProvisionPlan({ consent: OPTED, config: cfg(), detection: { ...ALL_PRESENT, hasHomebrew: false } });
+    const plan = buildHonchoProvisionPlan({
+      consent: OPTED,
+      config: cfg(),
+      detection: { ...ALL_PRESENT, hasHomebrew: false },
+    });
     const r = await runHonchoBootstrap(deps({ plan, runner }));
     const postgres = r.stages.find((s) => s.id === 'honcho-postgres');
     expect(postgres?.status).toBe('skip'); // NOT pass, even though it was already satisfied
@@ -210,20 +247,24 @@ describe('runHonchoBootstrap — readiness probe outcomes', () => {
     assertNeverBlocked(r.stages);
   });
   it('a probe that THROWS is treated as not reachable (fail-safe)', async () => {
-    const r = await runHonchoBootstrap(deps({
-      probeServer: async () => {
-        throw new Error('probe blew up');
-      },
-    }));
+    const r = await runHonchoBootstrap(
+      deps({
+        probeServer: async () => {
+          throw new Error('probe blew up');
+        },
+      })
+    );
     expect(honchoReady(r.readiness)).toBe(false);
     assertNeverBlocked(r.stages);
   });
   it('a writeReadiness that throws does not throw the bootstrap', async () => {
-    const r = await runHonchoBootstrap(deps({
-      writeReadiness: () => {
-        throw new Error('disk full');
-      },
-    }));
+    const r = await runHonchoBootstrap(
+      deps({
+        writeReadiness: () => {
+          throw new Error('disk full');
+        },
+      })
+    );
     expect(r).toBeDefined();
     expect(honchoReady(r.readiness)).toBe(true); // the run still succeeded; only the persist failed
   });

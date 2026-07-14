@@ -28,10 +28,7 @@ import {
   COMMAND_EVE_HANDOVER_NOTE_RELPATH,
   HANDOVER_NOTE_MAX_RAW_CHARS,
 } from '@/common/config/startscreenNoteCore';
-import {
-  eveFirstBriefMirrorDirective,
-  eveHandoverNoteDirective,
-} from '@/process/commandEve/runtimeBootstrapCore';
+import { eveFirstBriefMirrorDirective, eveHandoverNoteDirective } from '@/process/commandEve/runtimeBootstrapCore';
 
 describe('startscreenNoteCore: tolerant parse of the note EVE wrote', () => {
   it('parses head next: list + body, strips quotes, caps at 3 chips', () => {
@@ -149,9 +146,7 @@ describe('SOUL directives: handover ritual + first-brief mirror (posture, not te
 
 describe('v1.6 Slice 4 — Day-Zero-Soft-Fold', () => {
   it('Command-EVE builds never force-pop the Day-Zero modal; upstream keeps it', async () => {
-    const { COMMAND_EVE_SHELL_ENABLED, isDayZeroForcePopEnabled } = await import(
-      '@/common/config/commandEveShell'
-    );
+    const { COMMAND_EVE_SHELL_ENABLED, isDayZeroForcePopEnabled } = await import('@/common/config/commandEveShell');
     // In the test env AIONUI_UPSTREAM_MODE is unset ⇒ this IS an EVE build.
     expect(COMMAND_EVE_SHELL_ENABLED).toBe(true);
     expect(isDayZeroForcePopEnabled()).toBe(false);
@@ -188,9 +183,7 @@ describe('v1.6 Slice 4 — Day-Zero-Soft-Fold', () => {
 
 describe('v1.6 Beat 2 — Session-1-Artefakt-Skill (D6-Merge)', () => {
   it('ships the always-on artifact-first contract as its own managed skill', async () => {
-    const { commandEveArtifactFirstSkillMarkdown } = await import(
-      '@/process/commandEve/runtimeBootstrapCore'
-    );
+    const { commandEveArtifactFirstSkillMarkdown } = await import('@/process/commandEve/runtimeBootstrapCore');
     const md = commandEveArtifactFirstSkillMarkdown();
     expect(md).toContain('Artifact-first contract (all sessions)');
     expect(md).toContain('default runtime rule, not an optional feature');
@@ -202,9 +195,7 @@ describe('v1.6 Beat 2 — Session-1-Artefakt-Skill (D6-Merge)', () => {
   });
 
   it('carries the honest menu, the fabrication kill-switch, and budget honesty', async () => {
-    const { commandEveArtifactMenuSkillMarkdown } = await import(
-      '@/process/commandEve/runtimeBootstrapCore'
-    );
+    const { commandEveArtifactMenuSkillMarkdown } = await import('@/process/commandEve/runtimeBootstrapCore');
     const md = commandEveArtifactMenuSkillMarkdown();
     // Artifact-first lives in a separate always-on contract; this skill remains
     // the opt-in first-session menu.

@@ -5,12 +5,19 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import {
-  buildErsteSchritteHubSteps,
-  type ErsteSchritteItemState,
-} from '@/common/config/ersteSchritteHubCore';
+import { buildErsteSchritteHubSteps, type ErsteSchritteItemState } from '@/common/config/ersteSchritteHubCore';
 
-const EXPECTED_ORDER = ['ki-spur', 'company-brain', 'kunde', 'connectors', 'team', 'skills', 'privacy', 'budget', 'name'];
+const EXPECTED_ORDER = [
+  'ki-spur',
+  'company-brain',
+  'kunde',
+  'connectors',
+  'team',
+  'skills',
+  'privacy',
+  'budget',
+  'name',
+];
 
 describe('ersteSchritteHubCore — the Day-0 hub steps (honest status)', () => {
   it('returns all 9 steps in first-value-reachability order', () => {

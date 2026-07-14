@@ -60,7 +60,11 @@ import { COMPANY_BRAIN_DIR } from '@process/commandEve/companyBrainSeedCore';
 import { listEntries, readEntryBody, SESSION_DIGEST_KIND } from '@process/commandEve/companyBrainStoreCore';
 import { initCommandEveBridge } from '@process/bridge/commandEveBridge';
 
-type Envelope = { success: boolean; msg?: string; data?: { ok?: boolean; outcome?: string; id?: string; reason_code?: string } };
+type Envelope = {
+  success: boolean;
+  msg?: string;
+  data?: { ok?: boolean; outcome?: string; id?: string; reason_code?: string };
+};
 
 const SEAT = 'aabbccdd-1122-4333-8444-556677889900';
 const tempRoots: string[] = [];
@@ -77,7 +81,7 @@ let generateDelayMs = 0;
 const conversations = [{ id: 'conv-1', name: 'Landingpage Müller' }];
 
 const jsonRes = (body: unknown, ok = true): Response =>
-  ({ ok, status: ok ? 200 : 500, json: async () => body } as unknown as Response);
+  ({ ok, status: ok ? 200 : 500, json: async () => body }) as unknown as Response;
 
 const fakeFetch = vi.fn(async (input: string | URL, _init?: RequestInit): Promise<Response> => {
   const url = String(input);
@@ -146,7 +150,13 @@ describe('command-eve.session-digest (real bridge seam)', () => {
 
     const home = resolveSeatHome(dataRoot, SEAT).hermesHome;
     const entry = listEntries(home).find((e) => e.id === 'sd-conv-1');
-    expect(entry).toMatchObject({ id: 'sd-conv-1', kind: SESSION_DIGEST_KIND, author: 'eve', source: 'chat', title: 'Landingpage Müller' });
+    expect(entry).toMatchObject({
+      id: 'sd-conv-1',
+      kind: SESSION_DIGEST_KIND,
+      author: 'eve',
+      source: 'chat',
+      title: 'Landingpage Müller',
+    });
     const body = readEntryBody(home, 'sd-conv-1');
     expect(body).toContain('Landingpage');
     // The digest body file actually landed under THIS seat's home.

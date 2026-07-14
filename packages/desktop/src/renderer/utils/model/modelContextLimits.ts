@@ -172,7 +172,10 @@ export function getModelContextLimit(modelName: string | undefined | null): numb
  * Compaction is intentionally NOT modeled here: the displayed window is the
  * model's real capacity; Hermes still compacts at its own (separate) threshold.
  */
-export function resolveEffectiveContextLimit(modelName: string | undefined | null, liveContextLimit?: number | null): number {
+export function resolveEffectiveContextLimit(
+  modelName: string | undefined | null,
+  liveContextLimit?: number | null
+): number {
   const live = typeof liveContextLimit === 'number' && liveContextLimit > 0 ? liveContextLimit : 0;
   const registry = getModelContextLimit(modelName);
 

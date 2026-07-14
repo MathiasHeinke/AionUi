@@ -43,9 +43,18 @@ const PENDING = {
 };
 
 beforeEach(() => {
-  vi.mocked(ipcBridge.commandEve.kanbanAcpPeek.invoke).mockResolvedValue({ success: true, data: { ok: true, pending: PENDING } } as never);
-  vi.mocked(ipcBridge.commandEve.kanbanAcpApply.invoke).mockResolvedValue({ success: true, data: { ok: true } } as never);
-  vi.mocked(ipcBridge.commandEve.kanbanAcpReject.invoke).mockResolvedValue({ success: true, data: { ok: true } } as never);
+  vi.mocked(ipcBridge.commandEve.kanbanAcpPeek.invoke).mockResolvedValue({
+    success: true,
+    data: { ok: true, pending: PENDING },
+  } as never);
+  vi.mocked(ipcBridge.commandEve.kanbanAcpApply.invoke).mockResolvedValue({
+    success: true,
+    data: { ok: true },
+  } as never);
+  vi.mocked(ipcBridge.commandEve.kanbanAcpReject.invoke).mockResolvedValue({
+    success: true,
+    data: { ok: true },
+  } as never);
 });
 afterEach(() => {
   cleanup();
@@ -66,19 +75,29 @@ describe('KanbanAcpConfirmCard (COMPA-626 K11)', () => {
     expect(ipcBridge.commandEve.kanbanAcpApply.invoke).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId('kanban-acp-confirm'));
-    await waitFor(() => expect(ipcBridge.commandEve.kanbanAcpApply.invoke).toHaveBeenCalledWith({ intent_id: 'k_abc', mutation_hash: 'k_deadbeef' }));
+    await waitFor(() =>
+      expect(ipcBridge.commandEve.kanbanAcpApply.invoke).toHaveBeenCalledWith({
+        intent_id: 'k_abc',
+        mutation_hash: 'k_deadbeef',
+      })
+    );
   });
 
   it('dismiss calls reject and never applies', async () => {
     render(<KanbanAcpConfirmCard />);
     await waitFor(() => expect(screen.getByTestId('kanban-acp-confirm-card')).toBeTruthy());
     fireEvent.click(screen.getByTestId('kanban-acp-dismiss'));
-    await waitFor(() => expect(ipcBridge.commandEve.kanbanAcpReject.invoke).toHaveBeenCalledWith({ intent_id: 'k_abc' }));
+    await waitFor(() =>
+      expect(ipcBridge.commandEve.kanbanAcpReject.invoke).toHaveBeenCalledWith({ intent_id: 'k_abc' })
+    );
     expect(ipcBridge.commandEve.kanbanAcpApply.invoke).not.toHaveBeenCalled();
   });
 
   it('renders nothing when there is no pending intent', async () => {
-    vi.mocked(ipcBridge.commandEve.kanbanAcpPeek.invoke).mockResolvedValue({ success: true, data: { ok: true, pending: null } } as never);
+    vi.mocked(ipcBridge.commandEve.kanbanAcpPeek.invoke).mockResolvedValue({
+      success: true,
+      data: { ok: true, pending: null },
+    } as never);
     render(<KanbanAcpConfirmCard />);
     await new Promise((r) => setTimeout(r, 20));
     expect(screen.queryByTestId('kanban-acp-confirm-card')).toBeNull();

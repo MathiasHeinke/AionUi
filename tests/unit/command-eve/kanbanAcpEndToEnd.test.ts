@@ -35,10 +35,17 @@ vi.mock('@process/commandEve/commandEveBackendSettingsRead', () => ({
 
 // Imported AFTER the mock so the handlers capture the mocked getDataPath.
 import { __resetActiveSeatForTests, getActiveSeatKind, setActiveSeatKind } from '@/process/commandEve/seatContextCore';
-import { applyKanbanAcpIntent, kanbanAcpProposeHandler, peekKanbanAcpForRenderer, readKanbanAcpBoard, setKanbanAcpSeatSwitchResolver } from '@/process/commandEve/kanbanAcpMain';
+import {
+  applyKanbanAcpIntent,
+  kanbanAcpProposeHandler,
+  peekKanbanAcpForRenderer,
+  readKanbanAcpBoard,
+  setKanbanAcpSeatSwitchResolver,
+} from '@/process/commandEve/kanbanAcpMain';
 import { __resetKanbanAcpForTest } from '@/process/commandEve/kanbanAcpConfirmStore';
 
-const marketingBoardPath = (root: string): string => path.join(root, 'command-eve-runtime', 'hermes', 'home', 'kanban', 'boards', 'marketing', 'kanban.db');
+const marketingBoardPath = (root: string): string =>
+  path.join(root, 'command-eve-runtime', 'hermes', 'home', 'kanban', 'boards', 'marketing', 'kanban.db');
 
 const writeJson = (filePath: string, value: unknown): void => {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -169,7 +176,12 @@ describe('COMPA-626 K12 — real propose → confirm → kanban.db write', () =>
 
     // Even under auto-approve, the safety checks still hold: an S-scope-escape / bad op is
     // rejected (never applied), and a non-marketing move is refused (K16).
-    const bad = await kanbanAcpProposeHandler({ op: 'move', task_id: 'not_a_real_card', to_lane_key: 'draft', reason: 'x' });
+    const bad = await kanbanAcpProposeHandler({
+      op: 'move',
+      task_id: 'not_a_real_card',
+      to_lane_key: 'draft',
+      reason: 'x',
+    });
     expect(bad.status).not.toBe(200); // move to a non-existent card does not silently apply
   });
 

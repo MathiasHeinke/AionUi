@@ -183,7 +183,9 @@ const writeFileAtomic = (file: string, contents: string): void => {
 
 const assertAbsoluteHome = (hermesHome: string): void => {
   if (!hermesHome || !path.isAbsolute(hermesHome)) {
-    throw new Error(`Command EVE: company-brain store requires an absolute hermesHome (got ${JSON.stringify(hermesHome)}).`);
+    throw new Error(
+      `Command EVE: company-brain store requires an absolute hermesHome (got ${JSON.stringify(hermesHome)}).`
+    );
   }
 };
 
@@ -206,10 +208,14 @@ export function assertEntryId(id: string): string {
     throw new Error(`Command EVE: rejected out-of-range company-brain entry id (${JSON.stringify(id)}).`);
   }
   if (raw.includes('\0') || raw.includes('/') || raw.includes('\\') || raw.includes('..') || raw.startsWith('.')) {
-    throw new Error(`Command EVE: rejected unsafe company-brain entry id (path-traversal guard): ${JSON.stringify(id)}`);
+    throw new Error(
+      `Command EVE: rejected unsafe company-brain entry id (path-traversal guard): ${JSON.stringify(id)}`
+    );
   }
   if (!ENTRY_ID_RE.test(raw)) {
-    throw new Error(`Command EVE: rejected malformed company-brain entry id (expected [a-z0-9-]): ${JSON.stringify(id)}`);
+    throw new Error(
+      `Command EVE: rejected malformed company-brain entry id (expected [a-z0-9-]): ${JSON.stringify(id)}`
+    );
   }
   return raw;
 }
@@ -267,7 +273,10 @@ const coerceIndex = (parsed: unknown): CompanyBrainIndex => {
       const author: CompanyBrainAuthor = rec.author === 'eve' ? 'eve' : 'user';
       const source: CompanyBrainSource =
         rec.source === 'chat' ? 'chat' : rec.source === 'seed-migration' ? 'seed-migration' : 'settings';
-      const body_file = typeof rec.body_file === 'string' && rec.body_file.length > 0 ? rec.body_file : path.posix.join(ENTRIES_SUBDIR, `${id}.md`);
+      const body_file =
+        typeof rec.body_file === 'string' && rec.body_file.length > 0
+          ? rec.body_file
+          : path.posix.join(ENTRIES_SUBDIR, `${id}.md`);
       entries.push({ id, kind, title, updated_at, author, source, body_file });
     }
   }
@@ -321,7 +330,8 @@ export function listEntriesWithState(hermesHome: string): CompanyBrainEntryWithS
   return listEntries(hermesHome).map((entry) => {
     const body = readEntryBody(hermesHome, entry.id);
     const placeholder = placeholders.get(entry.id);
-    const filled = placeholder !== undefined ? isBlueprintBodyFilled(body, placeholder) : (body ?? '').trim().length > 0;
+    const filled =
+      placeholder !== undefined ? isBlueprintBodyFilled(body, placeholder) : (body ?? '').trim().length > 0;
     let bodyMtimeMs: number | null = null;
     try {
       bodyMtimeMs = fs.statSync(path.join(entriesDirOf(hermesHome), `${entry.id}.md`)).mtimeMs;
@@ -365,7 +375,9 @@ export function readEntryBody(hermesHome: string, id: string): string | null {
 export function upsertEntry(hermesHome: string, input: UpsertEntryInput): UpsertEntryResult {
   assertAbsoluteHome(hermesHome);
   if (!isWritableKind(input.kind)) {
-    throw new Error(`Command EVE: refusing to write company-brain entry with unknown kind ${JSON.stringify(input.kind)}.`);
+    throw new Error(
+      `Command EVE: refusing to write company-brain entry with unknown kind ${JSON.stringify(input.kind)}.`
+    );
   }
   const title = (input.title ?? '').trim();
   if (title.length === 0) {
@@ -594,7 +606,10 @@ export interface ReconcileResult {
  * the index (mirrors the §SEAT first-line lift discipline).
  */
 const titleFromBody = (body: string, fallback: string): string => {
-  const firstLine = body.split('\n').map((l) => l.trim()).find((l) => l.length > 0);
+  const firstLine = body
+    .split('\n')
+    .map((l) => l.trim())
+    .find((l) => l.length > 0);
   if (!firstLine) return fallback;
   const heading = /^#{1,6}\s+(.*\S)\s*$/.exec(firstLine);
   const title = (heading ? heading[1] : firstLine).trim();
@@ -746,7 +761,9 @@ export interface UpsertSystemEntryInput {
 export function upsertSystemEntry(hermesHome: string, input: UpsertSystemEntryInput): UpsertEntryResult {
   assertAbsoluteHome(hermesHome);
   if (!SYSTEM_WRITE_KINDS.includes(input.kind)) {
-    throw new Error(`Command EVE: refusing to write company-brain SYSTEM entry with unknown kind ${JSON.stringify(input.kind)}.`);
+    throw new Error(
+      `Command EVE: refusing to write company-brain SYSTEM entry with unknown kind ${JSON.stringify(input.kind)}.`
+    );
   }
   const title = (input.title ?? '').trim();
   if (title.length === 0) {
@@ -885,13 +902,17 @@ export const BLUEPRINT_SECTIONS: readonly BlueprintSection[] = [
     id: 'bp-company',
     kind: 'company',
     title: 'Unternehmen',
-    placeholder: ['### Unternehmen', '- Name: …', '- Größe / Mitarbeiter: …', '- Branche: …', '- Standort: …'].join('\n'),
+    placeholder: ['### Unternehmen', '- Name: …', '- Größe / Mitarbeiter: …', '- Branche: …', '- Standort: …'].join(
+      '\n'
+    ),
   },
   {
     id: 'bp-team',
     kind: 'team',
     title: 'Team',
-    placeholder: ['### Team', '- Wer gehört zum Team (Rollen)?', '- Ansprechpartner: …', '- Externe Partner: …'].join('\n'),
+    placeholder: ['### Team', '- Wer gehört zum Team (Rollen)?', '- Ansprechpartner: …', '- Externe Partner: …'].join(
+      '\n'
+    ),
   },
   {
     id: 'bp-offer',
@@ -903,7 +924,12 @@ export const BLUEPRINT_SECTIONS: readonly BlueprintSection[] = [
     id: 'bp-audience',
     kind: 'audience',
     title: 'Zielgruppe',
-    placeholder: ['### Zielgruppe', '- Wer ist der ideale Kunde?', '- Probleme / Bedürfnisse: …', '- Kanäle, wo sie sind: …'].join('\n'),
+    placeholder: [
+      '### Zielgruppe',
+      '- Wer ist der ideale Kunde?',
+      '- Probleme / Bedürfnisse: …',
+      '- Kanäle, wo sie sind: …',
+    ].join('\n'),
   },
   {
     id: 'bp-projects',
@@ -915,19 +941,29 @@ export const BLUEPRINT_SECTIONS: readonly BlueprintSection[] = [
     id: 'bp-goals',
     kind: 'goals',
     title: 'Ziele & Zukunft',
-    placeholder: ['### Ziele & Zukunft', '- Ziel für die nächsten 3–12 Monate?', '- Vision / wohin soll es gehen?'].join('\n'),
+    placeholder: [
+      '### Ziele & Zukunft',
+      '- Ziel für die nächsten 3–12 Monate?',
+      '- Vision / wohin soll es gehen?',
+    ].join('\n'),
   },
   {
     id: 'bp-focus',
     kind: 'focus',
     title: 'Fokus',
-    placeholder: ['### Fokus', '- Was ist gerade am wichtigsten?', '- Woran NICHT arbeiten (bewusst weglassen)?'].join('\n'),
+    placeholder: ['### Fokus', '- Was ist gerade am wichtigsten?', '- Woran NICHT arbeiten (bewusst weglassen)?'].join(
+      '\n'
+    ),
   },
   {
     id: 'bp-tone',
     kind: 'tone',
     title: 'Tonalität',
-    placeholder: ['### Tonalität', '- Wie klingt die Marke (Stil, Ansprache)?', '- Lieblingsphrasen / was NIE gesagt wird: …'].join('\n'),
+    placeholder: [
+      '### Tonalität',
+      '- Wie klingt die Marke (Stil, Ansprache)?',
+      '- Lieblingsphrasen / was NIE gesagt wird: …',
+    ].join('\n'),
   },
   {
     // NOTE: the entry id uses a HYPHEN (bp-dos-donts) — assertEntryId's [a-z0-9-]
@@ -935,7 +971,7 @@ export const BLUEPRINT_SECTIONS: readonly BlueprintSection[] = [
     id: 'bp-dos-donts',
     kind: 'dos_donts',
     title: "Dos & Don'ts",
-    placeholder: ['### Dos & Don\'ts', '- Dos: …', '- Don\'ts: …'].join('\n'),
+    placeholder: ["### Dos & Don'ts", '- Dos: …', "- Don'ts: …"].join('\n'),
   },
   {
     // Briefing REUSES the stable day-0 brief id so seed↔blueprint converge (F5).
@@ -1200,7 +1236,10 @@ export function migrateCompanyBrainFromHome(sourceHome: string, targetHome: stri
       }
       const stamp = new Date().toISOString().replace(/[:.]/g, '-');
       fs.renameSync(brainDirOf(targetHome), `${brainDirOf(targetHome)}.pre-inherit-${stamp}`);
-    } else if (fs.existsSync(entriesDirOf(targetHome)) && fs.readdirSync(entriesDirOf(targetHome)).some((n) => n.endsWith('.md') && !n.startsWith('.'))) {
+    } else if (
+      fs.existsSync(entriesDirOf(targetHome)) &&
+      fs.readdirSync(entriesDirOf(targetHome)).some((n) => n.endsWith('.md') && !n.startsWith('.'))
+    ) {
       // No index but bodies on disk (e.g. death inside a quarantine rebuild):
       // that is REAL content awaiting adoption by ensureCompanyBrainReady —
       // overwriting same-named section bodies here would be one-shot data loss

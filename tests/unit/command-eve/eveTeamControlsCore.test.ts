@@ -221,13 +221,7 @@ describe('eveTeamControlsCore — applyControlAction reducer (never goes empty)'
 
   it('keep-floor keeps the free worker active and does not turn it off', () => {
     const statuses: EveTeamWorkerStatusMap = { 'seo-lead': 'off', 'video-marketer': 'off' };
-    const { next, applied } = applyControlAction(
-      FLOOR,
-      'stop',
-      statuses,
-      { confirmedWarning: true },
-      TEST_ROSTER
-    );
+    const { next, applied } = applyControlAction(FLOOR, 'stop', statuses, { confirmedWarning: true }, TEST_ROSTER);
     expect(applied).toBe(false);
     expect(next['house-keeper']).toBe('active');
     expect(countActiveWorkers(next, TEST_ROSTER)).toBeGreaterThanOrEqual(1);

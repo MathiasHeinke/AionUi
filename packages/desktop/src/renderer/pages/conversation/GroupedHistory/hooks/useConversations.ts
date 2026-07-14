@@ -98,7 +98,9 @@ export const useConversations = () => {
 
   // Remove stale workspace entries that no longer exist in the data
   useEffect(() => {
-    const currentWorkspaces = new Set<string>(folderGroups.map((folder) => getConversationFolderExpansionKey(folder.id)));
+    const currentWorkspaces = new Set<string>(
+      folderGroups.map((folder) => getConversationFolderExpansionKey(folder.id))
+    );
     timelineSections.forEach((section) => {
       section.items.forEach((item) => {
         if (item.type === 'workspace' && item.workspaceGroup) {

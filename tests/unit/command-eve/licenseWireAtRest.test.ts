@@ -20,7 +20,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { hasLicenseWire, isWellFormedCeveWire, readLicenseWire, storeLicenseWire } from '@/common/config/licenseWireAtRest';
+import {
+  hasLicenseWire,
+  isWellFormedCeveWire,
+  readLicenseWire,
+  storeLicenseWire,
+} from '@/common/config/licenseWireAtRest';
 import { setSafeStorageForTesting, type SafeStorageAdapter } from '@/common/config/keychain';
 
 /** Synthetic CEVE wire string — NOT a real license. */

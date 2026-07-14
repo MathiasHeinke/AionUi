@@ -6,10 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import {
-  buildDefaultPrivacyLaneConfig,
-  type PrivacyLaneConfig,
-} from '@/process/commandEve/privacyLaneConfigCore';
+import { buildDefaultPrivacyLaneConfig, type PrivacyLaneConfig } from '@/process/commandEve/privacyLaneConfigCore';
 import {
   commandEveArtifactTypeForMultimodalKind,
   decideCodexDelegateSpike,

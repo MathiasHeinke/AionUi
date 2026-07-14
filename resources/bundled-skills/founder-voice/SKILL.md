@@ -5,13 +5,14 @@ description: Capture the operator's (or one of their clients') OWN writing voice
 
 # Founder Voice
 
-The operator's voice is the moat. A generic-but-correct post is worth little; the same point in *their*
-cadence, with *their* phrases and point of view, is worth publishing. This skill turns a few real samples
+The operator's voice is the moat. A generic-but-correct post is worth little; the same point in _their_
+cadence, with _their_ phrases and point of view, is worth publishing. This skill turns a few real samples
 into a compact, reusable **voice profile** that lives in USER.md and loads into every future session — so
 EVE writes like the operator from then on, without re-learning each time. It never fabricates a voice:
 without real samples it captures what the operator tells it and says plainly where it is still guessing.
 
 ## When to use
+
 - First-time bootstrap: "learn my voice", "capture how I write", "make EVE write like me" — before the first
   on-voice content, or when USER.md has no voice section yet.
 - Tune/check a draft: "does this sound like me?", "more like my voice", "too corporate" — score + adjust.
@@ -19,6 +20,7 @@ without real samples it captures what the operator tells it and says plainly whe
   bled across clients.
 
 ## The method
+
 1. **GATHER real samples — or honestly work without them.** Ask for 2–5 things the operator actually wrote:
    LinkedIn posts, emails, a transcript of them talking, a page they're proud of. If they paste none, work
    from a short voice interview (below) and **flag that the profile is interview-based, not sample-derived**.
@@ -38,13 +40,14 @@ without real samples it captures what the operator tells it and says plainly whe
 4. **DISTILL into a named voice profile** and WRITE it to USER.md with the memory tool (target=user) under a
    clear "# Schreibstimme / Voice" entry, so it loads into every future session. Keep it compact + operational
    (a writer could use it), e.g.:
-   - Tonality: …  · Anrede: Du/Sie  · Satzbau: …  · Signature moves: …  · Vokabular (ja/nein): …  · POV: …
-   - NEVER says: …  · 2–3 verbatim sample lines that capture the sound.
+   - Tonality: … · Anrede: Du/Sie · Satzbau: … · Signature moves: … · Vokabular (ja/nein): … · POV: …
+   - NEVER says: … · 2–3 verbatim sample lines that capture the sound.
    - Confidence: sample-derived (N samples) | interview-based (flag it).
 5. **VERIFY on a tiny test.** Write 2–3 lines in the captured voice and ask "is this you?". Tune the profile
    from their reaction. The profile is done when they say "yes, that's me".
 
 ## Tuning / checking an existing draft
+
 Read the voice profile from USER.md, score the draft against it (tonality · sentence shape · never-says
 violations · POV), name the 2–3 specific things that are off, and rewrite those — don't rewrite the whole
 thing if only the opening is off. If USER.md has no voice yet, run the bootstrap first; don't guess.
@@ -52,6 +55,7 @@ thing if only the opening is off. If USER.md has no voice yet, run the bootstrap
 ## Skill-Specific Safety Rules
 
 Shared non-negotiables live in `eve-doctrine`; this section only lists skill-specific boundaries.
+
 - **Never invent a voice.** Capture from real samples or what the operator tells you; flag interview-based or
   low-confidence profiles explicitly. A guessed voice presented as theirs is a trust failure.
 - **Per-client isolation.** A client's voice profile lives in that client's seat and is used ONLY for that

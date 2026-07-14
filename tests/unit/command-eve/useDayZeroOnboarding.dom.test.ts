@@ -119,9 +119,7 @@ describe('useDayZeroOnboarding (fix #4: at-most-once forced modal)', () => {
 
   it('recordSeed() with an explicit sink flips seeded and stops forcing (no global flag)', async () => {
     const onSeedRecorded = vi.fn();
-    const { result } = renderHook(() =>
-      useDayZeroOnboarding({ enabled: true, onSeedRecorded })
-    );
+    const { result } = renderHook(() => useDayZeroOnboarding({ enabled: true, onSeedRecorded }));
     await waitFor(() => expect(result.current.shouldForce).toBe(true));
     await act(async () => {
       await result.current.recordSeed({ kind: 'paste_brief', value: 'real client brief' });

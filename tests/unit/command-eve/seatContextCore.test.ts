@@ -276,7 +276,9 @@ describe('(d) stability + active-seat holder', () => {
   it('active-seat holder defaults to the legacy seat (nothing changes until selected)', () => {
     expect(getActiveSeatId()).toBe(LEGACY_SEAT_ID);
     expect(isActiveSeatLegacy()).toBe(true);
-    expect(resolveActiveSeatHome(USER_DATA).hermesHome).toBe(resolveCommandEveRuntimeBootstrapPaths(USER_DATA).hermesHome);
+    expect(resolveActiveSeatHome(USER_DATA).hermesHome).toBe(
+      resolveCommandEveRuntimeBootstrapPaths(USER_DATA).hermesHome
+    );
   });
 
   it('setActiveSeatId switches the active seat; resolveActiveSeatHome follows', () => {

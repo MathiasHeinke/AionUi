@@ -100,7 +100,10 @@ const delegateWire = () => ({
 });
 
 type MySeatsEnvelope = { success: boolean; data?: { contract?: unknown; source?: string } };
-type SwitchEnvelope = { success: boolean; data?: { ok?: boolean; reason_code?: string; active_seat_id?: string; rolled_back?: boolean; backend_down?: boolean } };
+type SwitchEnvelope = {
+  success: boolean;
+  data?: { ok?: boolean; reason_code?: string; active_seat_id?: string; rolled_back?: boolean; backend_down?: boolean };
+};
 
 beforeEach(() => {
   registered.clear();
@@ -199,7 +202,9 @@ describe('mirror (b) — REAL switch-seat handler: admin gate + Founder chip + l
 
   it('a missing target id is rejected before any mutation', async () => {
     wirePayload = adminWire();
-    const res = await (registered.get('command-eve.switch-seat') as (r?: { seatId?: string }) => Promise<SwitchEnvelope>)({});
+    const res = await (
+      registered.get('command-eve.switch-seat') as (r?: { seatId?: string }) => Promise<SwitchEnvelope>
+    )({});
     expect(res.success).toBe(false);
     expect(res.data?.reason_code).toBe('SWITCH_SEAT_NO_TARGET');
   });

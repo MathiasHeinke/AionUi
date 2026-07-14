@@ -5,10 +5,7 @@
  */
 
 import { ipcBridge } from '@/common';
-import {
-  COMMAND_EVE_ASSISTANT_ID,
-  COMMAND_EVE_SHELL_ENABLED,
-} from '@/common/config/commandEveShell';
+import { COMMAND_EVE_ASSISTANT_ID, COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import type { Assistant } from '@/common/types/agent/assistantTypes';
 import type { AgentMetadata } from '@/renderer/utils/model/agentTypes';
 import { useAgents } from '@/renderer/hooks/agent/useAgents';

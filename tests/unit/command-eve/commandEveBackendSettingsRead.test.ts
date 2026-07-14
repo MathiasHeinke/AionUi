@@ -27,10 +27,7 @@ vi.mock('@/common/adapter/httpBridge', () => ({
 
 import { readCommandEveSettingsFromBackend } from '@process/commandEve/commandEveBackendSettingsRead';
 import { seatScopedKey } from '@/common/config/seatConfigKeyCore';
-import {
-  __resetActiveSeatForTests,
-  setActiveSeatId,
-} from '@process/commandEve/seatContextCore';
+import { __resetActiveSeatForTests, setActiveSeatId } from '@process/commandEve/seatContextCore';
 
 describe('readCommandEveSettingsFromBackend (shared batch reader)', () => {
   beforeEach(() => {
@@ -133,9 +130,7 @@ describe('readCommandEveSettingsFromBackend (shared batch reader)', () => {
 
   it('THROWS on a backend error (caller distinguishes failure from absence)', async () => {
     httpRequestMock.mockRejectedValue(new Error('ECONNREFUSED'));
-    await expect(readCommandEveSettingsFromBackend(['commandEve.localModelTierId'])).rejects.toThrow(
-      'ECONNREFUSED'
-    );
+    await expect(readCommandEveSettingsFromBackend(['commandEve.localModelTierId'])).rejects.toThrow('ECONNREFUSED');
   });
 
   it('returns {} on a successful but non-object response (defensive)', async () => {

@@ -33,11 +33,7 @@ import {
   type PdfRenderer,
   type ReportContent,
 } from '@process/commandEve/reportExportCore';
-import {
-  __resetActiveSeatForTests,
-  LEGACY_SEAT_ID,
-  setActiveSeatId,
-} from '@process/commandEve/seatContextCore';
+import { __resetActiveSeatForTests, LEGACY_SEAT_ID, setActiveSeatId } from '@process/commandEve/seatContextCore';
 
 const SEAT_A = '11111111-1111-4111-8111-111111111111';
 const SEAT_B = '22222222-2222-4222-8222-222222222222';

@@ -80,7 +80,10 @@ export function installMainProcessLocalBackendCapability(resolver: LocalBackendC
 }
 
 export function authorizeRendererBackendRequest(
-  details: Pick<OnBeforeSendHeadersListenerDetails, 'url' | 'webContentsId' | 'webContents' | 'frame' | 'requestHeaders'>,
+  details: Pick<
+    OnBeforeSendHeadersListenerDetails,
+    'url' | 'webContentsId' | 'webContents' | 'frame' | 'requestHeaders'
+  >,
   mainWindow: BrowserWindow,
   resolver: LocalBackendCapabilityResolver
 ): Record<string, string> | undefined {

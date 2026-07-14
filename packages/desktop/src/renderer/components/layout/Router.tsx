@@ -129,7 +129,11 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
             // Desktop has no web /login surface — the entitlement gate (rendered by
             // ProtectedLayout on /guid) is the login. Send desktop to /guid so the
             // gate decides; WebUI keeps the real LoginPage when unauthenticated.
-            isElectronDesktop() || status === 'authenticated' ? <Navigate to='/guid' replace /> : withRouteFallback(LoginPage)
+            isElectronDesktop() || status === 'authenticated' ? (
+              <Navigate to='/guid' replace />
+            ) : (
+              withRouteFallback(LoginPage)
+            )
           }
         />
         <Route element={<ProtectedLayout layout={layout} />}>
@@ -176,7 +180,10 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           <Route path='/runtime' element={<Navigate to='/settings/runtime' replace />} />
           <Route path='/team-roster' element={<Navigate to='/settings/eve-runtime' replace />} />
         </Route>
-        <Route path='*' element={<Navigate to={isElectronDesktop() || status === 'authenticated' ? '/guid' : '/login'} replace />} />
+        <Route
+          path='*'
+          element={<Navigate to={isElectronDesktop() || status === 'authenticated' ? '/guid' : '/login'} replace />}
+        />
       </Routes>
     </HashRouter>
   );

@@ -49,7 +49,7 @@ describe('createTeamWorkerStatusResolver (fresh read + last-known-good)', () => 
     expect(onError).toHaveBeenCalledTimes(1);
   });
 
-  it('SEAT-KEYED last-known-good: a hiccup on seat B never serves seat A\'s roster', async () => {
+  it("SEAT-KEYED last-known-good: a hiccup on seat B never serves seat A's roster", async () => {
     // Seat B fires a worker (off); switch to seat A (worker active); switch back to
     // seat B and the read HICCUPS — the resolver must hold seat B's OWN 'off', never
     // resurrect seat B's worker from seat A's 'active'.

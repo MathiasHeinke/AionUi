@@ -280,7 +280,7 @@ export function renderFounderBody(
       '§ FOUNDER',
       `Operator: ${nameLine}`,
       `Company/brand: ${companyLine}`,
-      'Global operator identity (L0) — stamped into every seat. The operator runs this installation; in client seats they act on the respective client\'s behalf, not for their own firm. Per-client isolation is sacred: one client\'s data/brief/output never bleeds into another; never attribute a client seat\'s work to the operator.',
+      "Global operator identity (L0) — stamped into every seat. The operator runs this installation; in client seats they act on the respective client's behalf, not for their own firm. Per-client isolation is sacred: one client's data/brief/output never bleeds into another; never attribute a client seat's work to the operator.",
     ].join('\n');
   }
   const nameLine = name || (confirm ? '(unbestätigt — beiläufig nachfragen)' : 'noch nicht bekannt');
@@ -308,7 +308,11 @@ export function renderSeatBody(
 ): string | null {
   const value = typeof seed?.value === 'string' ? seed.value.trim() : '';
   if (!seed || value.length === 0) return null;
-  const firstLine = value.split('\n').map((l) => l.trim()).find((l) => l.length > 0) || value;
+  const firstLine =
+    value
+      .split('\n')
+      .map((l) => l.trim())
+      .find((l) => l.length > 0) || value;
   const kindLabel =
     seed.kind === 'paste_brief'
       ? locale === 'en-US'
@@ -343,7 +347,7 @@ export function renderSeatBody(
         '§ SEAT',
         `Own project/firm (this seat), per briefing: «${firstLine}»`,
         // T9 (own_company): the operator is the client here — it is their own project/firm.
-        'This seat is one of the operator\'s own projects/firms — they are the client here.',
+        "This seat is one of the operator's own projects/firms — they are the client here.",
         // Isolation KEPT; invisible-delivery DROPPED (own brand belongs in deliverables).
         'This seat belongs to this project/firm. Its data stays in this seat (isolation, GDPR).',
         `Source: ${kindLabel}. Full brief: ${briefRefEn} — read it with read_file when you need it.`,
@@ -354,7 +358,7 @@ export function renderSeatBody(
         '§ SEAT',
         `Department/area (this seat), per briefing: «${firstLine}»`,
         // T9 (department): the operator's own department/area — not a client.
-        'This seat is one of the operator\'s departments/areas — work here belongs to exactly this area.',
+        "This seat is one of the operator's departments/areas — work here belongs to exactly this area.",
         // Conservative: invisible-delivery KEPT (an internal org label has no place outside).
         'This seat belongs to exactly this area. Its data stays in this seat (isolation, GDPR); the seat name never appears in deliverables.',
         `Source: ${kindLabel}. Full brief: ${briefRefEn} — read it with read_file when you need it.`,
@@ -364,7 +368,7 @@ export function renderSeatBody(
       '§ SEAT',
       `Client (this seat), per operator briefing: «${firstLine}»`,
       // T9 — operator-vs-client role: the operator drives EVE, the work is FOR the client.
-      'Your operator runs you here on the client\'s behalf, not for their own firm.',
+      "Your operator runs you here on the client's behalf, not for their own firm.",
       'This seat belongs to exactly this client. Their data stays in this seat (per-client isolation, GDPR); the seat name never appears in deliverables.',
       `Source: ${kindLabel}. Full brief: ${briefRefEn} — read it with read_file when you need it.`,
     ].join('\n');
@@ -455,7 +459,9 @@ export function stampUserMdTiersToHome(args: {
     const founderRaw = renderFounderBody(args.profile, locale);
     const founderTrunc = truncateToBudget(founderRaw, FOUNDER_BLOCK_MAX_CHARS);
     if (founderTrunc.truncated) {
-      log(`[CommandEVE] §FOUNDER USER.md block truncated to ${FOUNDER_BLOCK_MAX_CHARS} chars (was ${founderRaw.length}).`);
+      log(
+        `[CommandEVE] §FOUNDER USER.md block truncated to ${FOUNDER_BLOCK_MAX_CHARS} chars (was ${founderRaw.length}).`
+      );
       result.founderTruncated = true;
     }
     let next = upsertFencedBlock(

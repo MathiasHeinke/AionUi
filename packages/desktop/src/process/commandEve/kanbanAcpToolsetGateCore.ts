@@ -35,7 +35,15 @@ export type KanbanAcpTool =
 /** The raw wheel kanban tools. The reads are safe to mirror; the writes must NEVER be
  * exposed directly to the ACP agent (they mutate kanban.db in-process, un-gated). */
 export const KANBAN_WHEEL_READ_TOOLS: readonly string[] = Object.freeze(['kanban_show', 'kanban_list']);
-export const KANBAN_WHEEL_WRITE_TOOLS: readonly string[] = Object.freeze(['kanban_create', 'kanban_complete', 'kanban_block', 'kanban_unblock', 'kanban_comment', 'kanban_link', 'kanban_heartbeat']);
+export const KANBAN_WHEEL_WRITE_TOOLS: readonly string[] = Object.freeze([
+  'kanban_create',
+  'kanban_complete',
+  'kanban_block',
+  'kanban_unblock',
+  'kanban_comment',
+  'kanban_link',
+  'kanban_heartbeat',
+]);
 
 /** The raw wheel TOOLSET key that must never appear in the ACP agent's platform toolsets. */
 export const KANBAN_WHEEL_TOOLSET_KEY = 'kanban';
@@ -47,10 +55,20 @@ export const KANBAN_LEAK_SCAN_TRUNCATED = '__kanban_scan_truncated__';
 /** Config markers that would turn on autonomous dispatch / worker-spawn — must stay off.
  * Matched as case-insensitive SUBSTRINGS (so `HERMES_KANBAN_TASK`, `kanban.dispatch_in_gateway`,
  * a bare `dispatch_in_gateway`, `kanban.auto_decompose`, a bare `auto_decompose`, etc. all hit). */
-export const KANBAN_FORBIDDEN_DISPATCH_MARKERS: readonly string[] = Object.freeze(['kanban_task', 'dispatch_in_gateway', 'swarm', 'decompose']);
+export const KANBAN_FORBIDDEN_DISPATCH_MARKERS: readonly string[] = Object.freeze([
+  'kanban_task',
+  'dispatch_in_gateway',
+  'swarm',
+  'decompose',
+]);
 
 export const KANBAN_ACP_READ_TOOLS: readonly KanbanAcpTool[] = Object.freeze(['kanban.board.read']);
-export const KANBAN_ACP_WRITE_TOOLS: readonly KanbanAcpTool[] = Object.freeze(['kanban.card.create.plan', 'kanban.card.move.plan', 'kanban.card.action.plan', 'kanban.write.confirm']);
+export const KANBAN_ACP_WRITE_TOOLS: readonly KanbanAcpTool[] = Object.freeze([
+  'kanban.card.create.plan',
+  'kanban.card.move.plan',
+  'kanban.card.action.plan',
+  'kanban.write.confirm',
+]);
 
 /** The fixed policy — these bits are structural, never negotiable per call. */
 export interface KanbanAcpGatePolicy {
@@ -83,10 +101,21 @@ export interface KanbanAcpGateResult {
  * poison for every future call (Codex re-audit). Frozen so an attempt to flip a bit
  * fails instead of silently sticking. */
 function freshPolicy(): KanbanAcpGatePolicy {
-  return Object.freeze({ writeRequiresConfirmCard: true, autoDispatchAllowed: false, workerSpawnAllowed: false, deleteAllowed: false }) as KanbanAcpGatePolicy;
+  return Object.freeze({
+    writeRequiresConfirmCard: true,
+    autoDispatchAllowed: false,
+    workerSpawnAllowed: false,
+    deleteAllowed: false,
+  }) as KanbanAcpGatePolicy;
 }
 
-const denied = (): KanbanAcpGateResult => ({ visible: false, readTools: [], writeTools: [], blockedTools: [...KANBAN_WHEEL_WRITE_TOOLS], policy: freshPolicy() });
+const denied = (): KanbanAcpGateResult => ({
+  visible: false,
+  readTools: [],
+  writeTools: [],
+  blockedTools: [...KANBAN_WHEEL_WRITE_TOOLS],
+  policy: freshPolicy(),
+});
 
 /**
  * Resolve what EVE may do with the board this turn. DEFAULT-DENY: unless the preflight
@@ -119,7 +148,12 @@ export function resolveKanbanAcpToolsetGate(input: KanbanAcpGateInput): KanbanAc
  * a shared NODE budget (so a huge sparse array / huge object can not burn time), and each
  * element/key is read in its OWN try/catch so ONE throwing getter can not hide the
  * siblings after it (Codex re-audit). `budget.n` is decremented per node visited. */
-function collectStringLeaves(value: unknown, out: string[], depth: number, budget: { n: number; exhausted: boolean }): void {
+function collectStringLeaves(
+  value: unknown,
+  out: string[],
+  depth: number,
+  budget: { n: number; exhausted: boolean }
+): void {
   if (depth > 6) {
     budget.exhausted = true; // depth-truncated ⇒ incomplete scan, fail-closed (never silent-clean)
     return;
@@ -207,7 +241,9 @@ export function findRawKanbanLeaks(acpPlatformToolsets: unknown): string[] {
     const strings: string[] = [];
     const budget = { n: 20000, exhausted: false };
     collectStringLeaves(acpPlatformToolsets, strings, 0, budget);
-    const exactBlocked = new Set<string>([KANBAN_WHEEL_TOOLSET_KEY, ...KANBAN_WHEEL_WRITE_TOOLS].map((s) => s.toLowerCase()));
+    const exactBlocked = new Set<string>(
+      [KANBAN_WHEEL_TOOLSET_KEY, ...KANBAN_WHEEL_WRITE_TOOLS].map((s) => s.toLowerCase())
+    );
     const leaks: string[] = [];
     // Fail-closed: an incomplete scan must never read as clean.
     if (budget.exhausted) leaks.push(KANBAN_LEAK_SCAN_TRUNCATED);

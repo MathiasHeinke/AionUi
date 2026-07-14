@@ -14,7 +14,10 @@ import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getConversationRuntimeWorkspaceErrorMessage } from '../../utils/conversationCreateError';
 import { buildSendFailureError } from './buildSendFailureError';
-import { markConversationGenerating, clearConversationGenerating } from '@renderer/services/commandEveGenerationActivity';
+import {
+  markConversationGenerating,
+  clearConversationGenerating,
+} from '@renderer/services/commandEveGenerationActivity';
 
 type UseAcpInitialMessageParams = {
   conversation_id: string;

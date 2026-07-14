@@ -55,11 +55,7 @@ export const COMPANY_OS_ROOT_ENV_KEYS = [
  * with the command-center CLIs the cores invoke. If this file is not present, the
  * cores would fail anyway — so it is the correct acceptance test.
  */
-export const COMPANY_OS_ROOT_MARKER = path.join(
-  'scripts',
-  'command-center',
-  'command-center-read-model.mjs'
-);
+export const COMPANY_OS_ROOT_MARKER = path.join('scripts', 'command-center', 'command-center-read-model.mjs');
 
 export type CompanyOsRootResolveInput = {
   /** The current env (read-only; we DECIDE, the caller mutates process.env). */

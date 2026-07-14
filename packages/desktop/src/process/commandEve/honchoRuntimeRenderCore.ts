@@ -26,7 +26,11 @@
 import path from 'path';
 import fs from 'fs';
 import { resolveSeatHome } from './seatContextCore';
-import { buildHonchoRuntimeConfig, HONCHO_DERIVER_BRANCH_LOCAL, type HonchoRuntimeConfig } from './honchoRuntimeConfigCore';
+import {
+  buildHonchoRuntimeConfig,
+  HONCHO_DERIVER_BRANCH_LOCAL,
+  type HonchoRuntimeConfig,
+} from './honchoRuntimeConfigCore';
 import { readHonchoReadyState } from './honchoReadyStateFile';
 import { honchoReadyFromSnapshot, type HonchoReadinessState } from './honchoReadinessCore';
 import type { HonchoMcpLauncher } from './honchoMcpServerCore';

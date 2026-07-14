@@ -137,14 +137,28 @@ export async function runHonchoBootstrap(deps: HonchoBootstrapDeps): Promise<Hon
     // clean not-ready (Codex #2), rather than a silent no-write that could leave a
     // prior ready snapshot visible.
     if (!config.honchoHome) {
-      stages.push({ id: 'honcho-provision', status: 'skip', code: HONCHO_REASON_DEP_MISSING, detail: 'no per-seat honcho home in the config' });
-      return { stages, readiness: reduceHonchoReadiness({ provisioned: false, seatId, branch, now: nowMs() }), honchoEnabled: false };
+      stages.push({
+        id: 'honcho-provision',
+        status: 'skip',
+        code: HONCHO_REASON_DEP_MISSING,
+        detail: 'no per-seat honcho home in the config',
+      });
+      return {
+        stages,
+        readiness: reduceHonchoReadiness({ provisioned: false, seatId, branch, now: nowMs() }),
+        honchoEnabled: false,
+      };
     }
 
     // (1) The plan disabled Honcho ⇒ one skip stage + an off/declined readiness.
     if (plan.honchoEnabled !== true) {
       const reason = plan.skipReason || HONCHO_REASON_DEP_MISSING;
-      stages.push({ id: 'honcho-provision', status: 'skip', code: reason, detail: 'Local memory is off — using Company Brain + MEMORY.md.' });
+      stages.push({
+        id: 'honcho-provision',
+        status: 'skip',
+        code: reason,
+        detail: 'Local memory is off — using Company Brain + MEMORY.md.',
+      });
       const declined = reason === HONCHO_REASON_DECLINED || reason === HONCHO_REASON_MODE_OFF;
       return finalize(reduceHonchoReadiness({ provisioned: false, declined, seatId, branch, now: nowMs() }));
     }
@@ -158,7 +172,12 @@ export async function runHonchoBootstrap(deps: HonchoBootstrapDeps): Promise<Hon
       // Chain-stop BEFORE any per-step handling (Codex #4): once a prerequisite
       // failed, EVERY remaining step skips — including already-satisfied ones.
       if (!ok) {
-        stages.push({ id, status: 'skip', code: HONCHO_REASON_DEP_MISSING, detail: 'skipped (a prerequisite step did not complete)' });
+        stages.push({
+          id,
+          status: 'skip',
+          code: HONCHO_REASON_DEP_MISSING,
+          detail: 'skipped (a prerequisite step did not complete)',
+        });
         continue;
       }
       if (planStep.alreadySatisfied === true) {
@@ -167,7 +186,12 @@ export async function runHonchoBootstrap(deps: HonchoBootstrapDeps): Promise<Hon
       }
       const cmd = deps.commands ? deps.commands[id] : undefined;
       if (!cmd || !cmd.command) {
-        stages.push({ id, status: 'skip', code: HONCHO_REASON_DEP_MISSING, detail: 'no command provided for this step' });
+        stages.push({
+          id,
+          status: 'skip',
+          code: HONCHO_REASON_DEP_MISSING,
+          detail: 'no command provided for this step',
+        });
         ok = false;
         continue;
       }
@@ -177,9 +201,21 @@ export async function runHonchoBootstrap(deps: HonchoBootstrapDeps): Promise<Hon
         try {
           deps.detachedSpawner(cmd.command, cmd.args || [], { env: { ...deps.env, ...cmd.env } });
           serverStarted = true;
-          stages.push({ id, status: 'pass', detail: 'honcho serve started', command: cmd.command, duration_ms: nowMs() - started });
+          stages.push({
+            id,
+            status: 'pass',
+            detail: 'honcho serve started',
+            command: cmd.command,
+            duration_ms: nowMs() - started,
+          });
         } catch (error) {
-          stages.push({ id, status: 'skip', code: HONCHO_REASON_PROCESS_DOWN, detail: `serve failed: ${errText(error)}`, command: cmd.command });
+          stages.push({
+            id,
+            status: 'skip',
+            code: HONCHO_REASON_PROCESS_DOWN,
+            detail: `serve failed: ${errText(error)}`,
+            command: cmd.command,
+          });
           ok = false;
         }
         continue;
@@ -190,16 +226,32 @@ export async function runHonchoBootstrap(deps: HonchoBootstrapDeps): Promise<Hon
       let res;
       try {
         // eslint-disable-next-line no-await-in-loop -- steps are strictly ordered + dependent
-        res = await deps.runner(cmd.command, cmd.args || [], { env: { ...deps.env, ...cmd.env }, timeoutMs: cmd.timeoutMs || deps.defaultTimeoutMs || 120000 });
+        res = await deps.runner(cmd.command, cmd.args || [], {
+          env: { ...deps.env, ...cmd.env },
+          timeoutMs: cmd.timeoutMs || deps.defaultTimeoutMs || 120000,
+        });
       } catch (error) {
-        stages.push({ id, status: 'skip', code: HONCHO_REASON_DEP_MISSING, detail: `runner threw: ${errText(error)}`, command: cmd.command });
+        stages.push({
+          id,
+          status: 'skip',
+          code: HONCHO_REASON_DEP_MISSING,
+          detail: `runner threw: ${errText(error)}`,
+          command: cmd.command,
+        });
         ok = false;
         continue;
       }
       if (res && res.ok) {
         stages.push({ id, status: 'pass', detail: `${id} ok`, command: cmd.command, duration_ms: nowMs() - started });
       } else {
-        stages.push({ id, status: 'skip', code: HONCHO_REASON_DEP_MISSING, detail: `${id} did not complete`, command: cmd.command, duration_ms: nowMs() - started });
+        stages.push({
+          id,
+          status: 'skip',
+          code: HONCHO_REASON_DEP_MISSING,
+          detail: `${id} did not complete`,
+          command: cmd.command,
+          duration_ms: nowMs() - started,
+        });
         ok = false;
       }
     }
@@ -208,7 +260,12 @@ export async function runHonchoBootstrap(deps: HonchoBootstrapDeps): Promise<Hon
     // was actually started (Codex #1) — an enabled-but-empty/malformed plan that
     // spawned nothing can NEVER read ready off a coincidentally-live loopback.
     if (!ok || !serverStarted) {
-      stages.push({ id: HONCHO_STEP_READY, status: 'skip', code: HONCHO_REASON_DEP_MISSING, detail: !serverStarted ? 'honcho server was never started' : 'provisioning did not complete' });
+      stages.push({
+        id: HONCHO_STEP_READY,
+        status: 'skip',
+        code: HONCHO_REASON_DEP_MISSING,
+        detail: !serverStarted ? 'honcho server was never started' : 'provisioning did not complete',
+      });
       return finalize(reduceHonchoReadiness({ provisioned: false, seatId, branch, now: nowMs() }));
     }
     const serverOk = await safeProbe(deps.probeServer);
@@ -218,20 +275,42 @@ export async function runHonchoBootstrap(deps: HonchoBootstrapDeps): Promise<Hon
       id: HONCHO_STEP_READY,
       status: readyNow ? 'pass' : 'skip',
       code: readyNow ? undefined : serverOk ? HONCHO_REASON_DERIVER_UNREACHABLE : HONCHO_REASON_PROBE_TIMEOUT,
-      detail: readyNow ? 'Honcho ready (/health + deriver reachable)' : 'Honcho not reachable yet — using Company Brain in the meantime',
+      detail: readyNow
+        ? 'Honcho ready (/health + deriver reachable)'
+        : 'Honcho not reachable yet — using Company Brain in the meantime',
     });
     return finalize(
-      reduceHonchoReadiness({ provisioned: true, serverProbe: { ok: serverOk }, deriverProbe: { ok: deriverOk }, seatId, branch, now: nowMs() })
+      reduceHonchoReadiness({
+        provisioned: true,
+        serverProbe: { ok: serverOk },
+        deriverProbe: { ok: deriverOk },
+        seatId,
+        branch,
+        now: nowMs(),
+      })
     );
   } catch (error) {
     // ULTIMATE fail-safe (Codex #3): NOTHING may throw into the bootstrap loop — a
     // throwing injected dep (now/runner/probe) degrades to a not-ready off result.
     if (!stages.length) {
-      stages.push({ id: 'honcho-provision', status: 'skip', code: HONCHO_REASON_PROCESS_DOWN, detail: `bootstrap error: ${errText(error)}` });
+      stages.push({
+        id: 'honcho-provision',
+        status: 'skip',
+        code: HONCHO_REASON_PROCESS_DOWN,
+        detail: `bootstrap error: ${errText(error)}`,
+      });
     }
-    const readiness: HonchoReadinessState = { seatId, branch, state: HONCHO_STATE_OFF, serverUp: false, deriverReachable: false, reasonCode: HONCHO_REASON_PROCESS_DOWN };
+    const readiness: HonchoReadinessState = {
+      seatId,
+      branch,
+      state: HONCHO_STATE_OFF,
+      serverUp: false,
+      deriverReachable: false,
+      reasonCode: HONCHO_REASON_PROCESS_DOWN,
+    };
     try {
-      if (config.honchoHome && deps && typeof deps.writeReadiness === 'function') deps.writeReadiness(config.honchoHome, readiness);
+      if (config.honchoHome && deps && typeof deps.writeReadiness === 'function')
+        deps.writeReadiness(config.honchoHome, readiness);
     } catch {
       /* best-effort */
     }

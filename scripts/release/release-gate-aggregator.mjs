@@ -9,10 +9,7 @@ import {
   EGRESS_KEYSTONE_VERIFIER_VERSION,
   evaluateEgressKeystoneReport,
 } from './verify-egress-keystone-report-core.mjs';
-import {
-  RELEASE_GATE_AGGREGATOR_VERSION,
-  runReleaseGates,
-} from './release-gate-aggregator-core.mjs';
+import { RELEASE_GATE_AGGREGATOR_VERSION, runReleaseGates } from './release-gate-aggregator-core.mjs';
 import { evaluateMacUpdateFeed } from './verify-mac-update-feed-core.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));

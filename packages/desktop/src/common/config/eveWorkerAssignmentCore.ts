@@ -70,7 +70,12 @@ import {
   isEveTeamAgentId,
   type EveTeamRole,
 } from './eveTeamRoster';
-import { evaluateWorkerDispatch, statusForRole, type EveTeamWorkerStatusMap, type WorkerDispatchDecision } from './eveTeamControlsCore';
+import {
+  evaluateWorkerDispatch,
+  statusForRole,
+  type EveTeamWorkerStatusMap,
+  type WorkerDispatchDecision,
+} from './eveTeamControlsCore';
 
 /**
  * The KIND of external runnable a roster role is bound to. This is the runtime
@@ -101,8 +106,7 @@ export const CODEX_APP_SERVER_RUNTIME = 'codex_app_server';
  * local @openai/codex login EVE doesn't provision and would bill OFF the EVE lane.
  * Until a clean delegate path exists, Codex stays "bald verfügbar".
  */
-export const CODEX_DEFER_REASON =
-  'eve-custom-provider-no-codex-app-server-rewrite' as const;
+export const CODEX_DEFER_REASON = 'eve-custom-provider-no-codex-app-server-rewrite' as const;
 
 /** The canonical Anthropic-published Claude ACP adapter package (bunx target). */
 export const CLAUDE_ACP_ADAPTER_PACKAGE = '@agentclientprotocol/claude-agent-acp';

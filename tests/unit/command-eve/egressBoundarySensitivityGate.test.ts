@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  evaluateCommandEveEgressBoundary,
-  S3_HARD_FLOOR,
-} from '@/process/commandEve/egressBoundaryCore';
+import { evaluateCommandEveEgressBoundary, S3_HARD_FLOOR } from '@/process/commandEve/egressBoundaryCore';
 
 const CLOUD_PROVIDER = {
   kind: 'cloud' as const,
@@ -200,7 +197,7 @@ describe('Sensitivity-Gate (S12) — the S3 HARD FLOOR (core of the brick)', () 
   });
 
   // ── S13: the founder's OWN (legacy) seat may waive even the S3 floor when OFF ──
-  it('S13 FOUNDER: S3 secret + OFF + secretFloorWaivable → ALLOW (off is truly off for the founder\'s OWN key)', async () => {
+  it("S13 FOUNDER: S3 secret + OFF + secretFloorWaivable → ALLOW (off is truly off for the founder's OWN key)", async () => {
     const result = await evaluateCommandEveEgressBoundary({
       text: SECRET_S3,
       provider: CLOUD_PROVIDER,

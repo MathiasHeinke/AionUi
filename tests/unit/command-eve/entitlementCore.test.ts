@@ -126,9 +126,7 @@ const signCodeV2 = (
   return ['CEVE', 'v2', toBase64Url(payloadBytes), toBase64Url(signature)].join('.');
 };
 
-const validPayloadV2 = (
-  overrides: Partial<Record<string, unknown>> = {}
-): Record<string, unknown> => ({
+const validPayloadV2 = (overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> => ({
   license_version: 'command-eve-license/v2',
   edition: 'pilot' as CommandEveLicenseEdition,
   serial: 'CEVE-PILOT-V2-0001',
@@ -140,9 +138,7 @@ const validPayloadV2 = (
   ...overrides,
 });
 
-const validPayload = (
-  overrides: Partial<Record<string, unknown>> = {}
-): Record<string, unknown> => ({
+const validPayload = (overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> => ({
   license_version: 'command-eve-license/v1',
   edition: 'pilot' as CommandEveLicenseEdition,
   serial: 'CEVE-PILOT-0001',
@@ -427,7 +423,10 @@ describe('verifyLicenseCodeTs — CEVE.v2', () => {
   // v1 PAID behavior.
   it('(c) v2 paid (trial_ends_at null) verifies on expires_at', () => {
     const { publicKeyPem, privateKey } = makeKeypair();
-    const code = signCodeV2(privateKey, validPayloadV2({ trial_ends_at: null, expires_at: '2027-01-01T00:00:00.000Z' }));
+    const code = signCodeV2(
+      privateKey,
+      validPayloadV2({ trial_ends_at: null, expires_at: '2027-01-01T00:00:00.000Z' })
+    );
 
     const valid = verifyLicenseCodeTs({ code, publicKeyPem, now: NOW });
     expect(valid.ok).toBe(true);
@@ -964,10 +963,7 @@ describe('getEntitlementStatus', () => {
     // Activate while valid.
     const activateOptions = optionsFor(root, publicKeyPem);
     register(activateOptions);
-    activateWithWire(
-      signCode(privateKey, validPayload({ expires_at: '2026-06-15T00:00:00.000Z' })),
-      activateOptions
-    );
+    activateWithWire(signCode(privateKey, validPayload({ expires_at: '2026-06-15T00:00:00.000Z' })), activateOptions);
     // Later launch: clock now past expiry, same temp dir.
     const laterOptions: CommandEveEntitlementOptions = {
       ...optionsFor(root, publicKeyPem),

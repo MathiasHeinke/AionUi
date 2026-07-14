@@ -27,9 +27,19 @@ import * as path from 'node:path';
 import { getDataPath } from '@process/utils/utils';
 import { getActiveSeatId, getActiveSeatKind } from './seatContextCore';
 import { readCommandEveSettingsFromBackend } from './commandEveBackendSettingsRead';
-import { applyKanbanMarketingCardAction, buildKanbanMarketingBoard, createKanbanMarketingCard, moveKanbanMarketingCard } from './kanbanPreflightCore';
+import {
+  applyKanbanMarketingCardAction,
+  buildKanbanMarketingBoard,
+  createKanbanMarketingCard,
+  moveKanbanMarketingCard,
+} from './kanbanPreflightCore';
 import { resolveKanbanAcpToolsetGate } from './kanbanAcpToolsetGateCore';
-import { buildKanbanProposeResponse, consumeKanbanIntent, peekKanbanIntentForSeat, type KanbanAcpIntent } from './kanbanAcpConfirmStore';
+import {
+  buildKanbanProposeResponse,
+  consumeKanbanIntent,
+  peekKanbanIntentForSeat,
+  type KanbanAcpIntent,
+} from './kanbanAcpConfirmStore';
 
 /** The board EVE's ACP kanban surface operates on (the marketing board). */
 export const KANBAN_ACP_BOARD_SLUG = 'marketing';
@@ -130,11 +140,14 @@ function readBoard() {
 }
 
 /** Flatten every card across the board's lane columns. */
-function allBoardCards(board: ReturnType<typeof readBoard>): Array<{ card_id: string; card_title: string; card_status: string; lane_key: string }> {
+function allBoardCards(
+  board: ReturnType<typeof readBoard>
+): Array<{ card_id: string; card_title: string; card_status: string; lane_key: string }> {
   const columns = (board && board.model && board.model.columns) || [];
   const out: Array<{ card_id: string; card_title: string; card_status: string; lane_key: string }> = [];
   for (const col of columns) {
-    for (const c of col.cards || []) out.push({ card_id: c.card_id, card_title: c.card_title, card_status: c.card_status, lane_key: c.lane_key });
+    for (const c of col.cards || [])
+      out.push({ card_id: c.card_id, card_title: c.card_title, card_status: c.card_status, lane_key: c.lane_key });
   }
   return out;
 }
@@ -144,7 +157,11 @@ function resolveVisible(): boolean {
   if (getActiveSeatKind() === 'client') return false;
   const board = readBoard();
   if (!board || board.ok !== true) return false; // real preflight, not a hardcoded true
-  const gate = resolveKanbanAcpToolsetGate({ preflightReady: true, activeSeatId: getActiveSeatId(), boardSlug: KANBAN_ACP_BOARD_SLUG });
+  const gate = resolveKanbanAcpToolsetGate({
+    preflightReady: true,
+    activeSeatId: getActiveSeatId(),
+    boardSlug: KANBAN_ACP_BOARD_SLUG,
+  });
   return gate.visible === true;
 }
 
@@ -169,12 +186,23 @@ export interface KanbanAcpReadResult {
 /** The board state EVE may SEE. Operator-only, seat-scoped, capped + sanitized, read-only.
  * Carries NO mutation surface — no intent_id, no mutation_hash, no confirm. */
 export function readKanbanAcpBoard(): KanbanAcpReadResult {
-  const empty = (reason: string): KanbanAcpReadResult => ({ ok: false, board_slug: KANBAN_ACP_BOARD_SLUG, lanes: [], cards: [], reason });
+  const empty = (reason: string): KanbanAcpReadResult => ({
+    ok: false,
+    board_slug: KANBAN_ACP_BOARD_SLUG,
+    lanes: [],
+    cards: [],
+    reason,
+  });
   if (getActiveSeatKind() === 'client') return empty('not-available-on-client-seat');
   const board = readBoard();
   if (!board || board.ok !== true) return empty((board && board.reason_code) || 'board-not-ready');
   const raw = allBoardCards(board);
-  const cards = raw.slice(0, 200).map((c) => ({ card_id: c.card_id, title: String(c.card_title || '').slice(0, 200), lane: c.lane_key, status: c.card_status }));
+  const cards = raw.slice(0, 200).map((c) => ({
+    card_id: c.card_id,
+    title: String(c.card_title || '').slice(0, 200),
+    lane: c.lane_key,
+    status: c.card_status,
+  }));
   const lanes = Array.from(new Set<string>(cards.map((c) => c.lane)));
   return { ok: true, board_slug: KANBAN_ACP_BOARD_SLUG, lanes, cards };
 }
@@ -212,8 +240,20 @@ export async function kanbanAcpProposeHandler(proposal: unknown): Promise<{ stat
         return {
           status: applied.ok ? 200 : 202,
           payload: applied.ok
-            ? { ok: true, status: 'applied', intent_id: res.intent_id, summary: res.summary, decided_by: 'auto-approve' }
-            : { ok: false, status: 'apply-failed', intent_id: res.intent_id, summary: res.summary, reason: applied.reason },
+            ? {
+                ok: true,
+                status: 'applied',
+                intent_id: res.intent_id,
+                summary: res.summary,
+                decided_by: 'auto-approve',
+              }
+            : {
+                ok: false,
+                status: 'apply-failed',
+                intent_id: res.intent_id,
+                summary: res.summary,
+                reason: applied.reason,
+              },
         };
       }
     }
@@ -227,7 +267,15 @@ export async function kanbanAcpProposeHandler(proposal: unknown): Promise<{ stat
 
 // --- peek (renderer poll) ------------------------------------------------------
 
-export function peekKanbanAcpForRenderer(): { intent_id: string; op: string; action: string; summary: string; reason: string; mutation_hash: string; expires_ms: number } | null {
+export function peekKanbanAcpForRenderer(): {
+  intent_id: string;
+  op: string;
+  action: string;
+  summary: string;
+  reason: string;
+  mutation_hash: string;
+  expires_ms: number;
+} | null {
   const intent = peekKanbanIntentForSeat(getActiveSeatId(), Date.now());
   if (!intent) return null;
   return {
@@ -265,19 +313,34 @@ function applyKanbanWrite(intent: KanbanAcpIntent): { ok: boolean } {
   }
   if (intent.op === 'move') {
     if (!isMarketingCard(pl.task_id || '')) return { ok: false }; // K16
-    const result = moveKanbanMarketingCard({ userDataPath, task_id: pl.task_id || '', to_lane_key: pl.to_lane_key || '', boardSlug });
+    const result = moveKanbanMarketingCard({
+      userDataPath,
+      task_id: pl.task_id || '',
+      to_lane_key: pl.to_lane_key || '',
+      boardSlug,
+    });
     return { ok: result?.ok === true };
   }
   if (intent.op === 'action') {
     if (!isMarketingCard(pl.task_id || '')) return { ok: false }; // K16
     const action = (intent.action as 'comment' | 'block' | 'unblock' | 'complete') || 'comment';
-    const result = applyKanbanMarketingCardAction({ userDataPath, task_id: pl.task_id || '', action, comment: pl.comment, boardSlug });
+    const result = applyKanbanMarketingCardAction({
+      userDataPath,
+      task_id: pl.task_id || '',
+      action,
+      comment: pl.comment,
+      boardSlug,
+    });
     return { ok: result?.ok === true };
   }
   return { ok: false };
 }
 
-export async function applyKanbanAcpIntent(intent_id: string, mutationHash: string, decidedBy: 'user-confirm' | 'auto-approve' = 'user-confirm'): Promise<{ ok: boolean; reason?: string; op?: string }> {
+export async function applyKanbanAcpIntent(
+  intent_id: string,
+  mutationHash: string,
+  decidedBy: 'user-confirm' | 'auto-approve' = 'user-confirm'
+): Promise<{ ok: boolean; reason?: string; op?: string }> {
   const seatId = getActiveSeatId();
   const now = Date.now();
   // K3 defense-in-depth: never apply on a client seat, even if an intent somehow exists.
@@ -301,15 +364,42 @@ export async function applyKanbanAcpIntent(intent_id: string, mutationHash: stri
   const intent = consumed.intent;
   // K18: prove the authoritative receipt is writable BEFORE the kanban write. If it is
   // not, refuse the write — a confirmed mutation must never happen without an audit row.
-  if (!writeReceipt({ event: 'applying', intent_id, seat_id: seatId, op: intent.op, action: intent.action, board: intent.board_slug, decided_by: decidedBy, ts: now })) {
+  if (
+    !writeReceipt({
+      event: 'applying',
+      intent_id,
+      seat_id: seatId,
+      op: intent.op,
+      action: intent.action,
+      board: intent.board_slug,
+      decided_by: decidedBy,
+      ts: now,
+    })
+  ) {
     return { ok: false, reason: 'no-receipt' };
   }
   try {
     const { ok } = applyKanbanWrite(intent);
-    writeReceipt({ event: ok ? 'applied' : 'apply-noop', intent_id, seat_id: seatId, op: intent.op, action: intent.action, board: intent.board_slug, decided_by: decidedBy, ts: now });
+    writeReceipt({
+      event: ok ? 'applied' : 'apply-noop',
+      intent_id,
+      seat_id: seatId,
+      op: intent.op,
+      action: intent.action,
+      board: intent.board_slug,
+      decided_by: decidedBy,
+      ts: now,
+    });
     return ok ? { ok: true, op: intent.op } : { ok: false, reason: 'not-applied' };
   } catch (error) {
-    writeReceipt({ event: 'apply-error', intent_id, seat_id: seatId, op: intent.op, error: error instanceof Error ? error.message : String(error), ts: now });
+    writeReceipt({
+      event: 'apply-error',
+      intent_id,
+      seat_id: seatId,
+      op: intent.op,
+      error: error instanceof Error ? error.message : String(error),
+      ts: now,
+    });
     return { ok: false, reason: 'error' };
   }
 }

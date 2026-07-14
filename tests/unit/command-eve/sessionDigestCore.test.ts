@@ -75,7 +75,8 @@ const makeDeps = (over: Partial<SessionDigestDeps> = {}): DepsProbe => {
       { type: 'text', position: 'left', content: { content: 'Klar, ich entwerfe Hero, Angebot und Kontakt.' } },
     ],
     resolveTitle: async () => 'Landingpage Müller',
-    generateDigest: async () => 'Nutzer wollte eine Landingpage für Müller Bau; EVE hat Hero/Angebot/Kontakt entworfen. Offen: finaler Text.',
+    generateDigest: async () =>
+      'Nutzer wollte eine Landingpage für Müller Bau; EVE hat Hero/Angebot/Kontakt entworfen. Offen: finaler Text.',
     writeDigestEntry: ({ id, title, body }) => {
       writes.push({ id, title, body });
     },
@@ -280,7 +281,12 @@ describe('companyBrainStoreCore — session_digest system write path', () => {
     expect(isWritableKind(SESSION_DIGEST_KIND)).toBe(false);
     expect(() => upsertEntry(home, { kind: SESSION_DIGEST_KIND as never, title: 'x', body: 'y' })).toThrow();
     // … but the system writer accepts it.
-    const res = upsertSystemEntry(home, { id: 'sd-conv-1', kind: SESSION_DIGEST_KIND, title: 'Session', body: 'Digest body' });
+    const res = upsertSystemEntry(home, {
+      id: 'sd-conv-1',
+      kind: SESSION_DIGEST_KIND,
+      title: 'Session',
+      body: 'Digest body',
+    });
     expect(res.ok).toBe(true);
     expect(res.entry).toMatchObject({ id: 'sd-conv-1', kind: 'session_digest', author: 'eve', source: 'chat' });
     expect(readEntryBody(home, 'sd-conv-1')).toBe('Digest body\n');
@@ -288,8 +294,20 @@ describe('companyBrainStoreCore — session_digest system write path', () => {
 
   it('a stable id REPLACES on re-digest (no duplicate)', () => {
     const home = mkHome();
-    upsertSystemEntry(home, { id: 'sd-conv-1', kind: SESSION_DIGEST_KIND, title: 'v1', body: 'first', now: at('2026-07-02T10:00:00.000Z') });
-    upsertSystemEntry(home, { id: 'sd-conv-1', kind: SESSION_DIGEST_KIND, title: 'v2', body: 'second', now: at('2026-07-02T11:00:00.000Z') });
+    upsertSystemEntry(home, {
+      id: 'sd-conv-1',
+      kind: SESSION_DIGEST_KIND,
+      title: 'v1',
+      body: 'first',
+      now: at('2026-07-02T10:00:00.000Z'),
+    });
+    upsertSystemEntry(home, {
+      id: 'sd-conv-1',
+      kind: SESSION_DIGEST_KIND,
+      title: 'v2',
+      body: 'second',
+      now: at('2026-07-02T11:00:00.000Z'),
+    });
     const digests = listEntries(home).filter((e) => e.kind === SESSION_DIGEST_KIND);
     expect(digests).toHaveLength(1);
     expect(digests[0].title).toBe('v2');
@@ -310,7 +328,9 @@ describe('companyBrainStoreCore — session_digest system write path', () => {
     expect(() => upsertSystemEntry(home, { id: 'sd-x', kind: 'totally_unknown', title: 't', body: 'b' })).toThrow();
     expect(() => upsertSystemEntry(home, { id: '', kind: SESSION_DIGEST_KIND, title: 't', body: 'b' })).toThrow();
     expect(() => upsertSystemEntry(home, { id: 'sd-x', kind: SESSION_DIGEST_KIND, title: '  ', body: 'b' })).toThrow();
-    expect(() => upsertSystemEntry(home, { id: '../../etc', kind: SESSION_DIGEST_KIND, title: 't', body: 'b' })).toThrow();
+    expect(() =>
+      upsertSystemEntry(home, { id: '../../etc', kind: SESSION_DIGEST_KIND, title: 't', body: 'b' })
+    ).toThrow();
   });
 });
 
@@ -318,7 +338,13 @@ describe('pruneSessionDigests — FIFO to the per-seat cap (default 50)', () => 
   const seedDigests = (home: string, n: number) => {
     for (let i = 0; i < n; i += 1) {
       const stamp = new Date(Date.UTC(2026, 6, 2, 0, 0, i)).toISOString(); // ascending
-      upsertSystemEntry(home, { id: `sd-conv-${String(i).padStart(3, '0')}`, kind: SESSION_DIGEST_KIND, title: `s${i}`, body: `b${i}`, now: () => new Date(stamp) });
+      upsertSystemEntry(home, {
+        id: `sd-conv-${String(i).padStart(3, '0')}`,
+        kind: SESSION_DIGEST_KIND,
+        title: `s${i}`,
+        body: `b${i}`,
+        now: () => new Date(stamp),
+      });
     }
   };
 

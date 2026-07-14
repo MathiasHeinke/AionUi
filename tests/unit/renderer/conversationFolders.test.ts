@@ -31,7 +31,9 @@ const idsIn = (convs: TChatConversation[]) => convs.map((c) => c.id);
 const allTimelineIds = (result: ReturnType<typeof buildGroupedHistory>) =>
   result.timelineSections.flatMap((section) =>
     section.items.flatMap((item) =>
-      item.type === 'workspace' ? item.workspaceGroup!.conversations.map((conversation) => conversation.id) : [item.conversation!.id]
+      item.type === 'workspace'
+        ? item.workspaceGroup!.conversations.map((conversation) => conversation.id)
+        : [item.conversation!.id]
     )
   );
 
@@ -74,7 +76,10 @@ describe('conversation folders (1.7.4b)', () => {
     const target = { id: 'clients', name: 'Clients' };
     expect(buildConversationFolderExtra(target)).toEqual({ group_id: 'clients', group_name: 'Clients' });
     expect(buildConversationFolderExtra(null)).toEqual({ group_id: null, group_name: null });
-    expect(JSON.parse(JSON.stringify(buildConversationFolderExtra(null)))).toEqual({ group_id: null, group_name: null });
+    expect(JSON.parse(JSON.stringify(buildConversationFolderExtra(null)))).toEqual({
+      group_id: null,
+      group_name: null,
+    });
     expect(getConversationFolderId(makeConv('x', 1, buildConversationFolderExtra(target)))).toBe('clients');
     expect(getConversationFolderExpansionKey('clients')).toBe('folder:clients');
     expect(createConversationFolderId('Client Work', 123456789)).toBe('folder-client-work-21i3v9');

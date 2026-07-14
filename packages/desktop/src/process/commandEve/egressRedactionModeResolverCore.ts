@@ -38,9 +38,7 @@ export type CommandEveEgressRedactionMode = 'on' | 'off';
 const EGRESS_REDACTION_MODE_KEY = 'commandEve.egressRedactionMode';
 
 /** Injected backend batch read (real one: readCommandEveSettingsFromBackend). */
-export type CommandEveSettingsBatchReader = (
-  logicalKeys: readonly string[]
-) => Promise<Record<string, unknown>>;
+export type CommandEveSettingsBatchReader = (logicalKeys: readonly string[]) => Promise<Record<string, unknown>>;
 
 /**
  * Normalize a raw persisted value to the mode. FAIL-SAFE: only the exact string

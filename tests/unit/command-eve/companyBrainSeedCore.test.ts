@@ -28,11 +28,7 @@ import {
   writeCompanyBrainSeed,
   writeCompanyBrainSeedToHome,
 } from '@process/commandEve/companyBrainSeedCore';
-import {
-  __resetActiveSeatForTests,
-  resolveSeatHome,
-  setActiveSeatId,
-} from '@process/commandEve/seatContextCore';
+import { __resetActiveSeatForTests, resolveSeatHome, setActiveSeatId } from '@process/commandEve/seatContextCore';
 
 const tempRoots: string[] = [];
 
@@ -171,7 +167,9 @@ describe('legacy / no-seat byte-compatibility', () => {
     expect(legacyHome).not.toContain(`${path.sep}seats${path.sep}`);
     expect(legacyHome.endsWith(path.join('hermes', 'home'))).toBe(true);
 
-    expect(fs.readFileSync(path.join(legacyHome, COMPANY_BRAIN_DIR, 'brief.md'), 'utf8')).toContain('legacy single-seat brief');
+    expect(fs.readFileSync(path.join(legacyHome, COMPANY_BRAIN_DIR, 'brief.md'), 'utf8')).toContain(
+      'legacy single-seat brief'
+    );
     expect(readCompanyBrainSeedStateFromHome(legacyHome).seeded).toBe(true);
   });
 });
@@ -311,7 +309,10 @@ describe('T1 migration — kill the stale legacy root-MEMORY.md seed block', () 
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-mig-foreign-'));
     tempRoots.push(home);
     const rootMemory = path.join(home, 'MEMORY.md');
-    fs.writeFileSync(rootMemory, `# Foreign header the user typed\n\nkeep this line\n\n${legacyRootBlock}\n\n## Foreign tail\ntail survives\n`);
+    fs.writeFileSync(
+      rootMemory,
+      `# Foreign header the user typed\n\nkeep this line\n\n${legacyRootBlock}\n\n## Foreign tail\ntail survives\n`
+    );
 
     const changed = migrateStrayRootMemoryBlock(home);
     expect(changed).toBe(true);
