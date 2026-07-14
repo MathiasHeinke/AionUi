@@ -112,7 +112,9 @@ describe('Command EVE connector catalog core', () => {
     });
 
     expect(source.company_os_root).toBe('/tmp/company-os');
-    expect(source.manifest_path).toBe('/tmp/company-os/kits/company-os-kit/.company-os/eve/connector-manifests.json');
+    expect(source.manifest_path).toBe(
+      path.join('/tmp/company-os', 'kits', 'company-os-kit', '.company-os', 'eve', 'connector-manifests.json')
+    );
   });
 
   it('renders conservative evidence states from manifest and preflight receipts', () => {

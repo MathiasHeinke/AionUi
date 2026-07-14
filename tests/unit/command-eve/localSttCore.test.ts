@@ -5,6 +5,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
+import path from 'path';
 import {
   transcribeLocalSpeech,
   type CommandEveSttRunResult,
@@ -58,7 +59,7 @@ describe('transcribeLocalSpeech (on-device STT core)', () => {
     const [cmd, args] = runner.mock.calls[0];
     expect(cmd).toBe('/venv/bin/python');
     expect(args[0]).toBe('-c');
-    expect(args[2]).toBe('/tmp/command-eve-stt-fixed-uuid.webm');
+    expect(args[2]).toBe(path.join('/tmp', 'command-eve-stt-fixed-uuid.webm'));
     expect(args[3]).toBe('local');
     expect(args[4]).toBe('small');
   });

@@ -21,7 +21,7 @@ import {
 describe('command-eve TTS Electron smoke core', () => {
   it('prefers the existing release license-wire path before dev/app fallbacks', () => {
     const homeDir = '/Users/tester';
-    const releasePath = path.join(homeDir, '.command-eve');
+    const releasePath = path.resolve(homeDir, '.command-eve');
     const chosen = resolveCommandEveTtsSmokeUserDataPath({
       env: {},
       homeDir,
@@ -39,7 +39,7 @@ describe('command-eve TTS Electron smoke core', () => {
         env: { COMMAND_EVE_USER_DATA_PATH: '/tmp/command-eve-user-data' },
         homeDir: '/Users/tester',
       })
-    ).toBe('/tmp/command-eve-user-data');
+    ).toBe(path.resolve('/tmp/command-eve-user-data'));
   });
 
   it('rejects plaintext or malformed license-wire records', () => {

@@ -121,7 +121,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p reports/windows/phase-a/cross-os
-          node -e 'const fs=require("node:fs"); const cp=require("node:child_process"); const os=process.env.RUNNER_OS_NAME; const value={schema_version:"command-eve-windows-cross-os/v1",runner_os:os,source_commit:cp.execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(),status:"PASS",tsc:"PASS",lint:"PASS",format:"PASS",unit:"PASS",completion_sentinel:"WIN_CROSS_OS_COMPLETE"}; fs.writeFileSync(`reports/windows/phase-a/cross-os/${os}.json`,JSON.stringify(value,null,2)+"\n");'
+          node -e 'const fs=require("node:fs"); const cp=require("node:child_process"); const os=process.env.RUNNER_OS_NAME; const productVersion=String(JSON.parse(fs.readFileSync("package.json","utf8")).version||""); const commandEveVersion=String(JSON.parse(fs.readFileSync("public/command-eve-brand.json","utf8")).version||""); if(!productVersion||commandEveVersion.replace(/^v/u,"")!==productVersion) throw new Error("Command EVE product version sources are not aligned"); const value={schema_version:"command-eve-windows-cross-os/v1",runner_os:os,source_commit:cp.execFileSync("git",["rev-parse","HEAD"],{encoding:"utf8"}).trim(),product_version:productVersion,command_eve_version:commandEveVersion,status:"PASS",tsc:"PASS",lint:"PASS",format:"PASS",unit:"PASS",completion_sentinel:"WIN_CROSS_OS_COMPLETE"}; fs.writeFileSync(`reports/windows/phase-a/cross-os/${os}.json`,JSON.stringify(value,null,2)+"\n");'
 
       - name: Upload Windows Phase A cross-OS marker
         if: inputs.windows_phase_a_proof

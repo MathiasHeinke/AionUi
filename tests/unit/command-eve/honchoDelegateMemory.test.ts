@@ -69,7 +69,9 @@ describe('delegate honcho MCP config — write + isolation + secret-free', () =>
     expect(cfg.mcpServers.honcho.env.HONCHO_DB_URI).toMatch(/^postgresql:\/\/127\.0\.0\.1:5432\/honcho_/);
     expect(fs.readFileSync(file, 'utf8')).not.toMatch(/password|secret|CEVE\.v1/i);
     // Mode 0600.
-    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') {
+      expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    }
   });
 
   it("seat A's delegate config carries A's workspace, NEVER seat B's (isolation)", () => {

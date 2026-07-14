@@ -16,13 +16,13 @@ describe('electron user-data path resolution', () => {
   it('preserves an equals-form explicit profile directory', () => {
     expect(
       resolveElectronUserDataPath('/tmp/AionUi', 'Command EVE', ['electron', '--user-data-dir=/tmp/eve-isolated'])
-    ).toBe('/tmp/eve-isolated');
+    ).toBe(path.resolve('/tmp/eve-isolated'));
   });
 
   it('preserves a split-form explicit profile directory', () => {
     expect(
       resolveElectronUserDataPath('/tmp/AionUi', 'Command EVE', ['electron', '--user-data-dir', '/tmp/eve-recovery'])
-    ).toBe('/tmp/eve-recovery');
+    ).toBe(path.resolve('/tmp/eve-recovery'));
   });
 
   it('ignores missing or empty explicit profile values', () => {

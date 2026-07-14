@@ -10,6 +10,7 @@
  * disjoint env; no secret in the entry).
  */
 
+import path from 'path';
 import { describe, expect, it } from 'vitest';
 import { HONCHO_MCP_SERVER_ID, honchoMcpServerForSeat } from '@/process/commandEve/honchoMcpServerCore';
 import { buildHonchoRuntimeConfig } from '@/process/commandEve/honchoRuntimeConfigCore';
@@ -48,7 +49,7 @@ describe('honchoMcpServerCore — ready entry + per-seat isolation', () => {
     expect(s?.args).toEqual(['-m', 'honcho.mcp']);
     expect(s?.env?.HONCHO_WORKSPACE_ID).toBe(`ws_${SEAT_A}`);
     expect(s?.env?.HONCHO_DB_URI).toMatch(/^postgresql:\/\/127\.0\.0\.1:\d+\/honcho_[0-9a-f]{16}$/);
-    expect(s?.env?.HONCHO_HOME).toContain(`seats/${SEAT_A}`);
+    expect(s?.env?.HONCHO_HOME).toContain(path.join('seats', SEAT_A));
   });
 
   it('two seats get DISJOINT env (db + workspace + home)', () => {

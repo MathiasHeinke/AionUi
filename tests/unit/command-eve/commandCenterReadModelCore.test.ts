@@ -60,7 +60,9 @@ describe('command center read model bridge core', () => {
 
     expect(source.company_os_root).toBe('/tmp/company-os');
     expect(source.event_ledger).toBe('/tmp/company-os/metrics/events.jsonl');
-    expect(source.reducer).toBe('/tmp/company-os/scripts/command-center/command-center-read-model-core.mjs');
+    expect(source.reducer).toBe(
+      path.join('/tmp/company-os', 'scripts', 'command-center', 'command-center-read-model-core.mjs')
+    );
   });
 
   it('blocks loudly when the local event ledger is missing', async () => {

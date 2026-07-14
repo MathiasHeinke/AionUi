@@ -12,6 +12,7 @@ import type { WindowsGateReceiptV1 } from '@/process/commandEve/windows/types';
 import productIdentity from '../../../../scripts/windows/productIdentity.cjs';
 import {
   assertPhaseAGatesPassed,
+  evaluatePhaseACrossOsParity,
   evaluatePhaseAPackageInventory,
   evaluatePhaseAPreconditionDocuments,
   hasExactTrimmedLine,
@@ -222,6 +223,9 @@ describe('Command EVE Windows build workflow contract', () => {
 
     expect(reusable).toContain('["ubuntu-latest","macos-14","windows-2022"]');
     expect(preparer).toContain("const expectedOs = ['Linux', 'macOS', 'Windows']");
+    expect(reusable).toContain('product_version:productVersion');
+    expect(reusable).toContain('command_eve_version:commandEveVersion');
+    expect(preparer).toContain("'cross-os-product-version'");
     expect(preparer).toContain('WIN_PHASE_A_CONTRACT_REVIEW_COMPLETE');
     expect(preparer).toContain('FABLE_PHASE_A_POSTFIX_CONVERGED');
     expect(preparer).toContain('FABLE_PHASE_A_GATE_DELTA_CONVERGED');
@@ -232,6 +236,38 @@ describe('Command EVE Windows build workflow contract', () => {
     expect(evaluator).toContain("['WIN-G07', evaluatePhaseACloudTurn(raw)]");
     expect(evaluator).toContain("gate_id: 'WIN-G08'");
     expect(evaluator).toContain("console.log('WINDOWS_X64_PROOF')");
+  });
+
+  it('rejects a mixed Mac/Windows source commit or product version', () => {
+    const commit = 'a'.repeat(40);
+    const marker = (runnerOs: string) => ({
+      schema_version: 'command-eve-windows-cross-os/v1',
+      runner_os: runnerOs,
+      source_commit: commit,
+      product_version: '1.8.11',
+      command_eve_version: 'v1.8.11',
+      status: 'PASS',
+      tsc: 'PASS',
+      lint: 'PASS',
+      format: 'PASS',
+      unit: 'PASS',
+      completion_sentinel: 'WIN_CROSS_OS_COMPLETE',
+    });
+    const markers = [marker('Linux'), marker('macOS'), marker('Windows')];
+
+    expect(evaluatePhaseACrossOsParity(markers, commit, '1.8.11', 'v1.8.11')).toMatchObject({
+      exactOsSet: true,
+      sameCommit: true,
+      sameProductVersion: true,
+    });
+    const mixedVersionMarkers = [...markers];
+    mixedVersionMarkers[2] = { ...mixedVersionMarkers[2], product_version: '1.8.10' };
+    expect(evaluatePhaseACrossOsParity(mixedVersionMarkers, commit, '1.8.11', 'v1.8.11').sameProductVersion).toBe(
+      false
+    );
+    const mixedCommitMarkers = [...markers];
+    mixedCommitMarkers[1] = { ...mixedCommitMarkers[1], source_commit: 'b'.repeat(40) };
+    expect(evaluatePhaseACrossOsParity(mixedCommitMarkers, commit, '1.8.11', 'v1.8.11').sameCommit).toBe(false);
   });
 
   it('uses Command EVE names in Windows package and install smoke paths', () => {

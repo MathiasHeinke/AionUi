@@ -43,7 +43,13 @@ const writeJson = (filePath: string, value: unknown): void => {
 };
 
 const makePython = (root: string): string => {
-  const pythonPath = path.join(root, 'command-eve-runtime', 'hermes', 'venv', 'bin', 'python');
+  const pythonPath = path.join(
+    root,
+    'command-eve-runtime',
+    'hermes',
+    'venv',
+    ...(process.platform === 'win32' ? ['Scripts', 'python.exe'] : ['bin', 'python'])
+  );
   fs.mkdirSync(path.dirname(pythonPath), { recursive: true });
   fs.writeFileSync(pythonPath, '#!/usr/bin/env python3\n', { mode: 0o700 });
   return pythonPath;
@@ -329,7 +335,14 @@ describe('Command EVE Kanban preflight core', () => {
     expect(result.ok).toBe(false);
     expect(result.status).toBe('blocked');
     expect(result.reason_code).toBe('KANBAN_PREFLIGHT_PYTHON_MISSING');
-    expect(result.source.python_path).toContain('command-eve-runtime/hermes/venv/bin/python');
+    expect(result.source.python_path).toContain(
+      path.join(
+        'command-eve-runtime',
+        'hermes',
+        'venv',
+        ...(process.platform === 'win32' ? ['Scripts', 'python.exe'] : ['bin', 'python'])
+      )
+    );
   });
 
   it('blocks the marketing board read model when the Hermes board DB is missing', () => {

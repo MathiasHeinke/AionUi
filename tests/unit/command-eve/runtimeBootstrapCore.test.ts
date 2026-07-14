@@ -14,14 +14,14 @@ import {
   DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST,
   commandEveDelegationConcurrency,
   commandEveOllamaContextModelRef,
-  ensureCommandEveRuntimeBootstrap,
+  ensureCommandEveRuntimeBootstrap as ensureCommandEveRuntimeBootstrapCore,
   loadCommandEveCapabilityPack,
   loadCommandEveRuntimeBootstrapManifest,
   parseOllamaListHasModel,
   prepareCommandEveRuntimeProcessEnv,
   resolveCommandEveFirstRunProfile,
   resolveCommandEveCapabilityManifestPath,
-  resolveCommandEveRuntimeBootstrapPaths,
+  resolveCommandEveRuntimeBootstrapPaths as resolveCommandEveRuntimeBootstrapPathsCore,
   resolveCommandEveRuntimeBootstrapManifestPath,
   runtimeReceiptAllowsLocalModelWarmup,
   validateCommandEveCapabilityPack,
@@ -48,6 +48,19 @@ type Harness = {
   commands: string[];
   runner: RuntimeBootstrapRunner;
 };
+
+type RuntimeBootstrapOptions = Parameters<typeof ensureCommandEveRuntimeBootstrapCore>[0];
+
+// This suite models the full macOS/Homebrew bootstrap. Windows has a dedicated
+// cloud-turn-holder suite and must not inherit whichever OS happens to run CI.
+const ensureCommandEveRuntimeBootstrap = (options: RuntimeBootstrapOptions) =>
+  ensureCommandEveRuntimeBootstrapCore({
+    ...options,
+    platform: options.platform ?? 'darwin',
+  });
+
+const resolveCommandEveRuntimeBootstrapPaths = (userDataPath: string, seatId?: string | null) =>
+  resolveCommandEveRuntimeBootstrapPathsCore(userDataPath, seatId, 'darwin');
 
 const tempRoots: string[] = [];
 

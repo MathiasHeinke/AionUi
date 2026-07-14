@@ -116,8 +116,10 @@ describe('(a) provisioning a fresh TARGET seat home', () => {
     provisionSeatRuntimeFiles({ userDataPath: userData });
     const configMode = fs.statSync(path.join(seatHome, 'config.yaml')).mode & 0o777;
     const soulMode = fs.statSync(path.join(seatHome, 'SOUL.md')).mode & 0o777;
-    expect(configMode).toBe(0o600);
-    expect(soulMode).toBe(0o600);
+    if (process.platform !== 'win32') {
+      expect(configMode).toBe(0o600);
+      expect(soulMode).toBe(0o600);
+    }
   });
 
   it('pins config.yaml to the actual loopback shim URL for this process', () => {

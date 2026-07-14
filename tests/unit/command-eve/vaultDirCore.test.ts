@@ -43,13 +43,13 @@ describe('vaultDirCore — founderVaultDir', () => {
   it('resolves <userData>/command-eve-runtime/vault/founder (stable, absolute)', () => {
     const userData = '/tmp/some-user-data';
     const dir = founderVaultDir(userData);
-    expect(dir).toBe(path.join(userData, 'command-eve-runtime', 'vault', 'founder'));
+    expect(dir).toBe(path.resolve(userData, 'command-eve-runtime', 'vault', 'founder'));
     expect(path.isAbsolute(dir)).toBe(true);
   });
 
   it('falls back to <homeDir>/.command-eve when userDataPath is empty (injectable home)', () => {
     const dir = founderVaultDir('', '/fake/home');
-    expect(dir).toBe(path.join('/fake/home', '.command-eve', 'command-eve-runtime', 'vault', 'founder'));
+    expect(dir).toBe(path.resolve('/fake/home', '.command-eve', 'command-eve-runtime', 'vault', 'founder'));
   });
 
   it('is deterministic (same inputs → same dir)', () => {

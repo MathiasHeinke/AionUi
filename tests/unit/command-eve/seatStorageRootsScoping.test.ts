@@ -43,8 +43,8 @@ import {
   stripActiveSeatScopeFromRoot,
 } from '@/process/commandEve/seatContextCore';
 
-const CFG = '/cfg/command-eve-config';
-const DATA = '/data/command-eve-data';
+const CFG = path.resolve('/cfg/command-eve-config');
+const DATA = path.resolve('/data/command-eve-data');
 
 const SEAT_A = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const SEAT_B = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';

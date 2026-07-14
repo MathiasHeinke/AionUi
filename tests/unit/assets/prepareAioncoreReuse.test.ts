@@ -12,6 +12,7 @@ import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const repoRoot = resolve(__dirname, '../../..');
+const itWithPosixExecutable = it.skipIf(process.platform === 'win32');
 
 function writeManagedResourceLocalBinary(localBinary: string): void {
   mkdirSync(resolve(localBinary, '..'), { recursive: true });
@@ -52,7 +53,7 @@ describe('prepareAioncore reuse guard', () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
-  it('repairs an existing verified local bundle when managed resources are missing', () => {
+  itWithPosixExecutable('repairs an existing verified local bundle when managed resources are missing', () => {
     const projectRoot = join(tmp, 'project');
     const runtimeDir = join(projectRoot, 'resources', 'bundled-aioncore', 'darwin-arm64');
     const localBinary = join(tmp, 'private-build', 'aioncore');
@@ -204,7 +205,7 @@ try {
     expect(result.stdout).not.toContain('Reusing bundled aioncore');
   });
 
-  it('packages a verified local build without leaking its source path', () => {
+  itWithPosixExecutable('packages a verified local build without leaking its source path', () => {
     const projectRoot = join(tmp, 'project');
     const localBinary = join(tmp, 'private-build', 'aioncore');
     const sourceCommit = 'abcdef1234567890';
@@ -247,16 +248,18 @@ prepareAioncore({
     expect(manifestText).not.toContain(localBinary);
   });
 
-  it('does not reuse a local bundle whose binary and manifest were changed after preparation', () => {
-    const projectRoot = join(tmp, 'project');
-    const localBinary = join(tmp, 'private-build', 'aioncore');
-    const sourceCommit = 'abcdef1234567890';
-    writeManagedResourceLocalBinary(localBinary);
-    const expectedSha256 = createHash('sha256').update(readFileSync(localBinary)).digest('hex');
-    const scriptPath = join(tmp, 'prepare-local-reuse.cjs');
-    writeFileSync(
-      scriptPath,
-      `
+  itWithPosixExecutable(
+    'does not reuse a local bundle whose binary and manifest were changed after preparation',
+    () => {
+      const projectRoot = join(tmp, 'project');
+      const localBinary = join(tmp, 'private-build', 'aioncore');
+      const sourceCommit = 'abcdef1234567890';
+      writeManagedResourceLocalBinary(localBinary);
+      const expectedSha256 = createHash('sha256').update(readFileSync(localBinary)).digest('hex');
+      const scriptPath = join(tmp, 'prepare-local-reuse.cjs');
+      writeFileSync(
+        scriptPath,
+        `
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -286,16 +289,17 @@ if (finalSha256 !== options.expectedSha256) {
   throw new Error('tampered bundle was reused: ' + finalSha256);
 }
 `,
-      'utf8'
-    );
+        'utf8'
+      );
 
-    const result = spawnSync(process.execPath, [scriptPath], { cwd: repoRoot, encoding: 'utf8' });
+      const result = spawnSync(process.execPath, [scriptPath], { cwd: repoRoot, encoding: 'utf8' });
 
-    expect(result.status, result.stderr || result.stdout).toBe(0);
-    expect(result.stdout).not.toContain('Reusing bundled aioncore');
-    const targetBinary = join(projectRoot, 'resources', 'bundled-aioncore', 'darwin-arm64', 'aioncore');
-    expect(createHash('sha256').update(readFileSync(targetBinary)).digest('hex')).toBe(expectedSha256);
-  });
+      expect(result.status, result.stderr || result.stdout).toBe(0);
+      expect(result.stdout).not.toContain('Reusing bundled aioncore');
+      const targetBinary = join(projectRoot, 'resources', 'bundled-aioncore', 'darwin-arm64', 'aioncore');
+      expect(createHash('sha256').update(readFileSync(targetBinary)).digest('hex')).toBe(expectedSha256);
+    }
+  );
 
   it('fails closed when the copied local binary changes before post-copy verification', () => {
     const projectRoot = join(tmp, 'project');

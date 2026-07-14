@@ -45,6 +45,61 @@ export type PhaseAPreconditionDocumentChecks = {
   additionalGlmReviewRecorded: boolean;
 };
 
+export type PhaseACrossOsMarker = {
+  schema_version?: string;
+  runner_os?: string;
+  source_commit?: string;
+  product_version?: string;
+  command_eve_version?: string;
+  status?: string;
+  tsc?: string;
+  lint?: string;
+  format?: string;
+  unit?: string;
+  completion_sentinel?: string;
+};
+
+export function evaluatePhaseACrossOsParity(
+  markers: readonly PhaseACrossOsMarker[],
+  expectedCommit: string,
+  expectedProductVersion: string,
+  expectedCommandEveVersion: string
+): {
+  exactOsSet: boolean;
+  markerContractsValid: boolean;
+  allPass: boolean;
+  allSuites: boolean;
+  sameCommit: boolean;
+  sameProductVersion: boolean;
+} {
+  const expectedOs = ['Linux', 'macOS', 'Windows'];
+  const exactOsSet =
+    markers.length === expectedOs.length &&
+    expectedOs.every((os) => markers.filter((marker) => marker.runner_os === os).length === 1);
+  const markerContractsValid = markers.every(
+    (marker) =>
+      marker.schema_version === 'command-eve-windows-cross-os/v1' &&
+      marker.completion_sentinel === 'WIN_CROSS_OS_COMPLETE'
+  );
+  const allPass = markers.length === expectedOs.length && markers.every((marker) => marker.status === 'PASS');
+  const allSuites = markers.every(
+    (marker) => marker.tsc === 'PASS' && marker.lint === 'PASS' && marker.format === 'PASS' && marker.unit === 'PASS'
+  );
+  const sameCommit =
+    markers.length === expectedOs.length && markers.every((marker) => marker.source_commit === expectedCommit);
+  const normalizedCommandEveVersion = expectedCommandEveVersion.replace(/^v/u, '');
+  const sameProductVersion =
+    expectedProductVersion.length > 0 &&
+    normalizedCommandEveVersion === expectedProductVersion &&
+    markers.length === expectedOs.length &&
+    markers.every(
+      (marker) =>
+        marker.product_version === expectedProductVersion &&
+        marker.command_eve_version?.replace(/^v/u, '') === expectedProductVersion
+    );
+  return { exactOsSet, markerContractsValid, allPass, allSuites, sameCommit, sameProductVersion };
+}
+
 export function evaluatePhaseAPackageInventory(
   inventory: PhaseAPackageInventory,
   installerName: string,
@@ -405,18 +460,7 @@ function preparePreconditionGates(args: Arguments): void {
     ? fs.readdirSync(crossOsDirectory).filter((name) => name.endsWith('.json'))
     : [];
   const markers = markerFiles.map(
-    (name) =>
-      JSON.parse(fs.readFileSync(path.join(crossOsDirectory, name), 'utf8')) as {
-        schema_version?: string;
-        runner_os?: string;
-        source_commit?: string;
-        status?: string;
-        tsc?: string;
-        lint?: string;
-        format?: string;
-        unit?: string;
-        completion_sentinel?: string;
-      }
+    (name) => JSON.parse(fs.readFileSync(path.join(crossOsDirectory, name), 'utf8')) as PhaseACrossOsMarker
   );
   const currentCommit = createWindowsGateReceipt(
     baseDraft(
@@ -428,18 +472,13 @@ function preparePreconditionGates(args: Arguments): void {
     )
   ).source.commit;
   const expectedOs = ['Linux', 'macOS', 'Windows'];
-  const exactOsSet = expectedOs.every((os) => markers.filter((marker) => marker.runner_os === os).length === 1);
-  const allPass = markers.length === expectedOs.length && markers.every((marker) => marker.status === 'PASS');
-  const sameCommit =
-    markers.length === expectedOs.length && markers.every((marker) => marker.source_commit === currentCommit);
-  const allSuites = markers.every(
-    (marker) => marker.tsc === 'PASS' && marker.lint === 'PASS' && marker.format === 'PASS' && marker.unit === 'PASS'
-  );
-  const markerContractsValid = markers.every(
-    (marker) =>
-      marker.schema_version === 'command-eve-windows-cross-os/v1' &&
-      marker.completion_sentinel === 'WIN_CROSS_OS_COMPLETE'
-  );
+  const packageManifest = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8')) as { version?: string };
+  const brandManifest = JSON.parse(fs.readFileSync(path.resolve('public/command-eve-brand.json'), 'utf8')) as {
+    version?: string;
+  };
+  const productVersion = packageManifest.version || '';
+  const commandEveVersion = brandManifest.version || '';
+  const parity = evaluatePhaseACrossOsParity(markers, currentCommit, productVersion, commandEveVersion);
   receipts.push(
     emit(
       outputDirectory,
@@ -449,24 +488,37 @@ function preparePreconditionGates(args: Arguments): void {
         [
           check(
             'cross-os-runner-set',
-            exactOsSet,
+            parity.exactOsSet,
             'Linux, macOS, and Windows each produced one marker.',
             'Cross-OS runner set is incomplete or duplicated.'
           ),
           check(
             'cross-os-suite-pass',
-            markerContractsValid && allPass && allSuites,
+            parity.markerContractsValid && parity.allPass && parity.allSuites,
             'Mandatory suites passed on all three operating systems.',
             'A cross-OS marker contract or mandatory suite failed or is missing.'
           ),
           check(
             'cross-os-source-commit',
-            sameCommit,
+            parity.sameCommit,
             'All OS markers reference the proof source commit.',
             'OS markers reference a different source commit.'
           ),
+          check(
+            'cross-os-product-version',
+            parity.sameProductVersion,
+            'Linux, macOS, and Windows reference the same Command EVE product version.',
+            'Mac/Windows product-version parity is missing or mixed.'
+          ),
         ],
-        { marker_count: markers.length, runner_os: expectedOs.join(','), source_commit: currentCommit },
+        {
+          marker_count: markers.length,
+          runner_os: expectedOs.join(','),
+          source_commit: currentCommit,
+          product_version: productVersion,
+          command_eve_version: commandEveVersion,
+          parity_policy: 'same-source-same-version',
+        },
         markerFiles.map((name) => `reports/windows/phase-a/cross-os/${name}`)
       )
     )

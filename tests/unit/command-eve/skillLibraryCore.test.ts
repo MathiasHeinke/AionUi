@@ -45,7 +45,12 @@ describe('Command EVE skill library core', () => {
     });
 
     expect(source.runtime_reconciliation_path).toBe(
-      '/tmp/eve-user-data/command-eve-runtime/capabilities/command-eve-runtime-reconciliation.json'
+      path.resolve(
+        '/tmp/eve-user-data',
+        'command-eve-runtime',
+        'capabilities',
+        'command-eve-runtime-reconciliation.json'
+      )
     );
   });
 

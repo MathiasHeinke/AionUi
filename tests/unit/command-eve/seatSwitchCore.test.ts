@@ -35,7 +35,7 @@ import {
   setActiveSeatId,
 } from '@process/commandEve/seatContextCore';
 
-const USER_DATA = '/tmp/command-eve-test-userdata';
+const USER_DATA = path.resolve('/tmp/command-eve-test-userdata');
 const SEAT_A = '11111111-1111-1111-1111-111111111111';
 const SEAT_B = '22222222-2222-2222-2222-222222222222';
 

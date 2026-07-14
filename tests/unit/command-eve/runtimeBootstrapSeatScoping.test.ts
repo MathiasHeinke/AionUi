@@ -90,7 +90,11 @@ describe('(a) legacy byte-identity — no active seat', () => {
     expect(seatPaths.hermesRoot).toBe(hermesRoot);
     expect(seatPaths.hermesVenv).toBe(path.join(hermesRoot, 'venv'));
     expect(seatPaths.hermesWrapper).toBe(path.join(hermesRoot, 'hermes-command-eve'));
-    expect(seatPaths.hermesShim).toBe(path.join(hermesRoot, 'hermes'));
+    expect(seatPaths.hermesShim).toBe(
+      process.platform === 'win32'
+        ? path.join(hermesRoot, 'venv', 'Scripts', 'hermes.exe')
+        : path.join(hermesRoot, 'hermes')
+    );
     // These must NOT have moved under seats/<id>/.
     expect(seatPaths.hermesVenv).not.toContain(SEATS_SUBDIR);
     expect(seatPaths.hermesShim).not.toContain(SEATS_SUBDIR);
@@ -256,7 +260,8 @@ describe('(f) prepareCommandEveRuntimeProcessEnv pins HERMES_HOME onto the spawn
     clearActiveSeat();
     const env: NodeJS.ProcessEnv = { PATH: '/usr/bin' };
     prepareCommandEveRuntimeProcessEnv(USER_DATA, env);
-    expect((env.PATH || '').split(path.delimiter)[0]).toBe(hermesRoot);
+    const expectedPathRoot = process.platform === 'win32' ? path.join(hermesRoot, 'venv', 'Scripts') : hermesRoot;
+    expect((env.PATH || '').split(path.delimiter)[0]).toBe(expectedPathRoot);
   });
 
   it('prevents bundled Python descendants from mutating the signed app bundle', () => {

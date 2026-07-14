@@ -21,6 +21,20 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 
+const { memoryProbe } = vi.hoisted(() => ({
+  memoryProbe: { totalBytes: 16 * 1024 ** 3 },
+}));
+
+vi.mock('node:os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:os')>();
+  const totalmem = () => memoryProbe.totalBytes;
+  return {
+    ...actual,
+    totalmem,
+    default: { ...actual.default, totalmem },
+  };
+});
+
 // ── Capture the real providers registered by initCommandEveBridge ──────────────
 const registered = new Map<string, (req?: unknown) => Promise<unknown>>();
 vi.mock('@office-ai/platform', () => ({
@@ -113,6 +127,7 @@ beforeEach(() => {
     { type: 'text', position: 'right', content: { content: 'Bau mir eine Landingpage.' } },
     { type: 'text', position: 'left', content: { content: 'Klar, hier ist ein Entwurf.' } },
   ];
+  memoryProbe.totalBytes = 16 * 1024 ** 3;
   generateDelayMs = 0;
   __resetActiveSeatForTests();
   dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-digest-bridge-'));
@@ -176,6 +191,17 @@ describe('command-eve.session-digest (real bridge seam)', () => {
     ollamaModel = null;
     const res = await call('command-eve.session-digest', { conversation_id: 'conv-1' });
     expect(res.data?.outcome).toBe('no_digest');
+  });
+
+  it('skips local digest inference below the low-memory floor', async () => {
+    memoryProbe.totalBytes = 8 * 1024 ** 3;
+    const res = await call('command-eve.session-digest', { conversation_id: 'conv-1' });
+    expect(res.success).toBe(false);
+    expect(res.data?.outcome).toBe('no_digest');
+    expect(fakeFetch.mock.calls.some(([input]) => String(input).endsWith('/api/tags'))).toBe(false);
+
+    const home = resolveSeatHome(dataRoot, SEAT).hermesHome;
+    expect(listEntries(home).some((entry) => entry.kind === SESSION_DIGEST_KIND)).toBe(false);
   });
 
   it('an empty transcript writes NOTHING', async () => {
