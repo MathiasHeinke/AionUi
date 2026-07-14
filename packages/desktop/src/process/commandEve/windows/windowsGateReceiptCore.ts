@@ -176,6 +176,13 @@ export function validateWindowsGateReceipt(input: unknown): WindowsGateReceiptVa
   validateEnvironment(input.environment, errors);
   validateCommands(input.commands, errors);
   validateAssertions(input.assertions, errors);
+  if (status === 'PASS' && Array.isArray(input.assertions)) {
+    if (input.assertions.length === 0) {
+      errors.push('assertions must not be empty for PASS');
+    } else if (input.assertions.some((item) => !isRecord(item) || item.status !== 'PASS')) {
+      errors.push('every assertion must PASS when receipt status is PASS');
+    }
+  }
 
   if (!isRecord(input.metrics)) errors.push('metrics must be an object');
   if (!Array.isArray(input.evidence_paths)) {

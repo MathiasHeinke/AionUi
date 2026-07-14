@@ -10,25 +10,30 @@ network secret.
 
 ## Phase A Proof Environment
 
-| Field | Required truth | Evidence state |
-|---|---|---|
-| Operating system | Windows 11 x64; GitHub `windows-2022` or newer clean runner | confirmed runner target |
-| Architecture | x64 only | frozen |
-| User rights | Standard-user install and runtime; no permanent elevation | frozen |
-| Memory | 8 GB minimum proof target; 16 GB recommended for pilot use | frozen |
-| Free disk | 15 GB before install and test evidence capture | frozen |
-| Browser | Current Chrome or Edge for activation and external links | frozen |
-| Endpoint protection | Microsoft Defender enabled | frozen |
-| Proxy and VPN | Direct HTTPS baseline; managed proxy/VPN is outside Phase A | explicit support boundary |
-| Microphone and speaker | Not required for Phase A | deferred to voice gate |
-| OneDrive and network shares | Not required for Phase A | deferred to file-semantics gate |
-| Local model runtime | Disabled | frozen |
-| Cloud model route | Managed server-side EVE inference only | frozen |
-| Provider credentials | No provider key or reusable service credential in installer, app files, logs or client-readable config | frozen hard gate |
+| Field                       | Phase A truth                                                                                          | Evidence state                   |
+| --------------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------- |
+| Operating system            | Fresh GitHub-hosted `windows-2022` Windows Server 2022 x64 runner                                      | exact CI target                  |
+| Architecture                | x64 only                                                                                               | frozen                           |
+| User rights                 | GitHub-hosted runner rights; standard-user/non-admin behavior is not claimed                           | named-pilot gate                 |
+| Memory                      | Runner-provided memory; no 8 GB constraint is claimed                                                  | low-memory pilot gate            |
+| Free disk                   | Fresh runner capacity sufficient for build, install and evidence capture                               | measured by CI, not pilot policy |
+| Browser                     | Not required for the packaged Phase A install/start/cloud-turn proof                                   | named-pilot gate                 |
+| Endpoint protection         | Runner image default; no Defender policy claim                                                         | Defender pilot gate              |
+| Proxy and VPN               | Direct HTTPS baseline; managed proxy/VPN is outside Phase A                                            | explicit support boundary        |
+| Microphone and speaker      | Not required for Phase A                                                                               | deferred to voice gate           |
+| OneDrive and network shares | Not required for Phase A                                                                               | deferred to file-semantics gate  |
+| Local model runtime         | Disabled                                                                                               | frozen                           |
+| Cloud model route           | Managed server-side EVE inference only                                                                 | frozen                           |
+| Provider credentials        | No provider key or reusable service credential in installer, app files, logs or client-readable config | frozen hard gate                 |
 
 The Phase A VM is disposable. Every candidate starts from a fresh image and is
 destroyed after evidence collection. A patched VM or manually modified artifact
 cannot satisfy the convergence gate.
+
+This proof establishes the unsigned Windows-x64 package, installation lifecycle,
+managed Hermes turn holder and cloud-chat path. It does not establish Windows 11,
+8 GB RAM, standard-user installation, Defender compatibility or named-pilot UX.
+Those remain explicit later gates and cannot inherit a PASS from Windows Server CI.
 
 ## Named Pilot Intake
 
@@ -36,17 +41,17 @@ The future named pilot is known to use Windows, but the following machine and
 policy facts have not yet been collected. They are `UNKNOWN_WITH_OWNER`, owned
 by CPO before the named-pilot gate, and are not assumptions in Phase A:
 
-| Field | Current state | Owner / decision point |
-|---|---|---|
-| Windows edition and exact build | unknown | CPO before pilot installation |
-| CPU, RAM and free disk | unknown | CPO before pilot installation |
-| Local admin or software-install policy | unknown | CPO before pilot installation |
-| Defender or third-party endpoint policy | unknown | CPO before pilot installation |
-| Proxy, VPN or TLS inspection | unknown | CPO before pilot installation |
-| Chrome/Edge version | unknown | CPO before pilot installation |
-| OneDrive and network-share usage | unknown | CPO before file pilot |
-| Microphone and speaker availability | unknown | CPO before voice pilot |
-| Update and rollback restrictions | unknown | CPO before signed pilot release |
+| Field                                   | Current state | Owner / decision point          |
+| --------------------------------------- | ------------- | ------------------------------- |
+| Windows edition and exact build         | unknown       | CPO before pilot installation   |
+| CPU, RAM and free disk                  | unknown       | CPO before pilot installation   |
+| Local admin or software-install policy  | unknown       | CPO before pilot installation   |
+| Defender or third-party endpoint policy | unknown       | CPO before pilot installation   |
+| Proxy, VPN or TLS inspection            | unknown       | CPO before pilot installation   |
+| Chrome/Edge version                     | unknown       | CPO before pilot installation   |
+| OneDrive and network-share usage        | unknown       | CPO before file pilot           |
+| Microphone and speaker availability     | unknown       | CPO before voice pilot          |
+| Update and rollback restrictions        | unknown       | CPO before signed pilot release |
 
 No production or sensitive customer data is permitted in the first pilot run.
 
@@ -73,6 +78,8 @@ later pilot gates and are not implied by the unsigned x64 proof.
 - Public distribution, signing and updater-feed promotion remain outside Phase A.
 
 ## WIN-000 Verdict
+
+Verdict: `PASS_FOR_PHASE_A`
 
 `PASS_FOR_PHASE_A`: the proof environment and support boundary are fully
 specified. Named-pilot machine details remain an owned later intake and cannot

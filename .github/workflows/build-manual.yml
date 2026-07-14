@@ -29,6 +29,11 @@ on:
         required: false
         type: boolean
         default: false
+      windows_phase_a_proof:
+        description: 'Run the complete unsigned Windows x64 Phase A proof'
+        required: false
+        type: boolean
+        default: false
 
 env:
   BUN_INSTALL_REGISTRY: 'https://registry.npmjs.org/'
@@ -44,8 +49,31 @@ jobs:
       - name: Generate build matrix
         id: set-matrix
         shell: bash
+        env:
+          REQUESTED_REF: ${{ inputs.branch }}
+          TRIGGER_SHA: ${{ github.sha }}
         run: |
+          set -euo pipefail
           PLATFORM="${{ inputs.platform }}"
+
+          if [ "${{ inputs.windows_phase_a_proof }}" = "true" ] && [ "$PLATFORM" != "windows-x64" ]; then
+            echo "::error::windows_phase_a_proof requires platform=windows-x64"
+            exit 1
+          fi
+          if [ "${{ inputs.windows_phase_a_proof }}" = "true" ] && [ "${{ inputs.skip_code_quality }}" = "true" ]; then
+            echo "::error::windows_phase_a_proof cannot skip code quality"
+            exit 1
+          fi
+          if [ "${{ inputs.windows_phase_a_proof }}" = "true" ]; then
+            if [[ ! "$REQUESTED_REF" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::windows_phase_a_proof requires a full lowercase 40-character commit SHA"
+              exit 1
+            fi
+            if [ "$REQUESTED_REF" != "$TRIGGER_SHA" ]; then
+              echo "::error::windows_phase_a_proof ref must equal the workflow trigger SHA"
+              exit 1
+            fi
+          fi
 
           MACOS_ARM64='{"platform":"macos-arm64","os":"macos-14","command":"node scripts/build-with-builder.js arm64 --mac --arm64","artifact-name":"macos-build-arm64","arch":"arm64"}'
           MACOS_X64='{"platform":"macos-x64","os":"macos-14","command":"node scripts/build-with-builder.js x64 --mac --x64","artifact-name":"macos-build-x64","arch":"x64"}'
@@ -80,4 +108,5 @@ jobs:
       skip_code_quality: ${{ inputs.skip_code_quality }}
       append_commit_hash: true
       upload_installers_only: false
+      windows_phase_a_proof: ${{ inputs.windows_phase_a_proof }}
     secrets: inherit

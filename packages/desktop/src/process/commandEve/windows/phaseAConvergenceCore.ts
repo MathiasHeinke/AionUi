@@ -8,6 +8,8 @@ import type { WindowsGateId, WindowsGateReceiptV1 } from './types';
 import { validateWindowsGateReceipt } from './windowsGateReceiptCore';
 
 export const PHASE_A_REQUIRED_GATE_IDS = [
+  'WIN-G00',
+  'WIN-G01',
   'WIN-G02',
   'WIN-G03',
   'WIN-G04',

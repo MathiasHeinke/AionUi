@@ -37,7 +37,7 @@ function receipt(gateId: WindowsGateId, overrides: Partial<WindowsGateReceiptV1>
       test_mode: 'packaged-release',
     },
     commands: [],
-    assertions: [],
+    assertions: [{ id: `${gateId}-proof`, status: 'PASS', detail: `${gateId} passed` }],
     metrics: {},
     evidence_paths: [`reports/windows/phase-a/gates/${gateId}.json`],
     started_at: '2026-07-14T14:00:00.000Z',
@@ -74,6 +74,14 @@ describe('Windows Phase A convergence', () => {
     expect(result.ok).toBe(false);
     expect(result.reject_code).toBe('WIN_PHASE_A_REJECT');
     expect(result.missing_gate_ids).toEqual(['WIN-G06T']);
+  });
+
+  it.each(['WIN-G00', 'WIN-G01'] as const)('rejects missing frozen precondition gate %s', (gateId) => {
+    const receipts = completeReceipts().filter((item) => item.gate_id !== gateId);
+    const result = evaluatePhaseAConvergence(receipts);
+
+    expect(result.ok).toBe(false);
+    expect(result.missing_gate_ids).toEqual([gateId]);
   });
 
   it('rejects mixed candidate artifact hashes', () => {

@@ -114,6 +114,17 @@ describe('Windows gate receipt validation', () => {
     expect(result.errors).toContain('artifact.signed must be false for an unsigned Phase A receipt');
   });
 
+  it('rejects a PASS receipt with empty or rejected assertions', () => {
+    expect(validateWindowsGateReceipt(receipt({ assertions: [] })).errors).toContain(
+      'assertions must not be empty for PASS'
+    );
+    expect(
+      validateWindowsGateReceipt(
+        receipt({ assertions: [{ id: 'installer-present', status: 'REJECT', detail: 'installer missing' }] })
+      ).errors
+    ).toContain('every assertion must PASS when receipt status is PASS');
+  });
+
   it('fails closed for non-object input instead of throwing', () => {
     expect(validateWindowsGateReceipt('PASS')).toEqual({
       ok: false,
