@@ -275,11 +275,13 @@ function Get-CreditDeltaObserved {
 function Get-ProviderSecretFindingCount {
   param([string[]]$Roots)
   $pattern = '(?i)\b(?:sk-[A-Za-z0-9_-]{16,}|AIza[0-9A-Za-z_-]{20,}|ghp_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,})\b'
+  $textExtensions = @('', '.cfg', '.conf', '.csv', '.env', '.ini', '.json', '.jsonl', '.log', '.md', '.toml', '.txt', '.xml', '.yaml', '.yml')
   $count = 0
   foreach ($root in $Roots) {
     if (-not (Test-Path -LiteralPath $root)) { continue }
     foreach ($file in Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue) {
-      if ($file.Length -gt 5MB -or $file.Extension -notin @('.json', '.jsonl', '.yaml', '.yml', '.txt', '.md', '.log')) { continue }
+      $isDotEnv = $file.Name -ieq '.env' -or $file.Name.StartsWith('.env.', [System.StringComparison]::OrdinalIgnoreCase)
+      if ($file.Length -gt 5MB -or (-not $isDotEnv -and $file.Extension.ToLowerInvariant() -notin $textExtensions)) { continue }
       try { $count += ([regex]::Matches((Get-Content -LiteralPath $file.FullName -Raw), $pattern)).Count }
       catch {}
     }
@@ -290,11 +292,13 @@ function Get-ProviderSecretFindingCount {
 function Get-ExactTextFindingCount {
   param([string[]]$Roots, [string]$Needle)
   if ([string]::IsNullOrEmpty($Needle)) { return 0 }
+  $textExtensions = @('', '.cfg', '.conf', '.csv', '.env', '.ini', '.json', '.jsonl', '.log', '.md', '.toml', '.txt', '.xml', '.yaml', '.yml')
   $count = 0
   foreach ($root in $Roots) {
     if (-not (Test-Path -LiteralPath $root)) { continue }
     foreach ($file in Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue) {
-      if ($file.Length -gt 5MB -or $file.Extension -notin @('.json', '.jsonl', '.yaml', '.yml', '.txt', '.md', '.log')) { continue }
+      $isDotEnv = $file.Name -ieq '.env' -or $file.Name.StartsWith('.env.', [System.StringComparison]::OrdinalIgnoreCase)
+      if ($file.Length -gt 5MB -or (-not $isDotEnv -and $file.Extension.ToLowerInvariant() -notin $textExtensions)) { continue }
       try {
         $content = Get-Content -LiteralPath $file.FullName -Raw
         if ($content.Contains($Needle, [System.StringComparison]::Ordinal)) { $count += 1 }
@@ -345,6 +349,8 @@ $licenseWireEvidence = Join-Path $evidenceRoot 'license-wire-proof.json'
 $creditsBeforeEvidence = Join-Path $evidenceRoot 'credits-before.json'
 $creditsAfterEvidence = Join-Path $evidenceRoot 'credits-after.json'
 $runtimeEvidence = Join-Path $evidenceRoot 'runtime-bootstrap-receipt.json'
+$firstRuntimeEvidence = Join-Path $evidenceRoot 'runtime-bootstrap-first-launch-receipt.json'
+$restartRuntimeEvidence = Join-Path $evidenceRoot 'runtime-bootstrap-restart-receipt.json'
 $promptEvidence = Join-Path $evidenceRoot 'prompt-proof.json'
 $egressEvidence = Join-Path $evidenceRoot 'egress-boundary-receipt.json'
 $rawEvidencePath = Join-Path $evidenceRoot 'phase-a-raw-evidence.json'
@@ -459,7 +465,10 @@ try {
   $commands.Add([ordered]@{ command = 'installed Command EVE first launch'; exit_code = 0 })
   $runtimeReceipt = Wait-ForRuntimeReceipt -ReceiptPath $runtimeReceiptPath -TimeoutSeconds $BootstrapTimeoutSeconds
   $firstAionCore = Wait-ForAionCore -ProfilePath $profileRoot -TimeoutSeconds 90
-  if ($runtimeReceipt) { Copy-Item -LiteralPath $runtimeReceiptPath -Destination $runtimeEvidence -Force }
+  if ($runtimeReceipt) {
+    Copy-Item -LiteralPath $runtimeReceiptPath -Destination $firstRuntimeEvidence -Force
+    Copy-Item -LiteralPath $runtimeReceiptPath -Destination $runtimeEvidence -Force
+  }
 
   if ($runtimeReceipt -and (Get-OptionalProperty $runtimeReceipt 'status') -eq 'ready') {
     $hermesPath = Join-Path $dataPath 'command-eve-runtime\hermes\venv\Scripts\hermes.exe'
@@ -529,6 +538,7 @@ try {
     $restartAionCore = Wait-ForAionCore -ProfilePath $profileRoot -TimeoutSeconds 90
     $restartRuntimeReceipt = Wait-ForRuntimeReceipt -ReceiptPath $runtimeReceiptPath -TimeoutSeconds $RestartBootstrapTimeoutSeconds -StartedAfter $restartStartedAt
     if ($restartRuntimeReceipt) {
+      Copy-Item -LiteralPath $runtimeReceiptPath -Destination $restartRuntimeEvidence -Force
       Copy-Item -LiteralPath $runtimeReceiptPath -Destination $runtimeEvidence -Force
     }
     if ($restartRuntimeReceipt -and (Get-OptionalProperty $restartRuntimeReceipt 'status') -eq 'ready') {
@@ -633,6 +643,8 @@ $rawEvidence = [ordered]@{
   evidence_paths = @(
     'reports/windows/phase-a/runtime/phase-a-raw-evidence.json',
     'reports/windows/phase-a/runtime/runtime-bootstrap-receipt.json',
+    'reports/windows/phase-a/runtime/runtime-bootstrap-first-launch-receipt.json',
+    'reports/windows/phase-a/runtime/runtime-bootstrap-restart-receipt.json',
     'reports/windows/phase-a/runtime/prompt-proof.json',
     'reports/windows/phase-a/runtime/egress-boundary-receipt.json',
     'reports/windows/phase-a/runtime/credits-before.json',

@@ -6,3 +6,10 @@ extends: packages/desktop/electron-builder.yml
 
 extraMetadata:
   commandEvePhaseAUnsignedProof: true
+
+# Keep latest.yml generation enabled for the cross-platform parity receipt, but
+# make the packaged proof incapable of contacting the production update feed.
+publish:
+  provider: generic
+  url: https://phase-a.invalid
+  publishAutoUpdate: true

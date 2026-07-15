@@ -770,7 +770,7 @@ try {
     ? 'packages/desktop/electron-builder.phase-a.yml'
     : 'packages/desktop/electron-builder.yml';
   if (isUnsignedWindowsPhaseA) {
-    console.log('🧪 Building an unsigned Phase A proof with auto-update metadata disabled.');
+    console.log('🧪 Building an unsigned Phase A proof with an isolated non-production update feed.');
   }
   const builderCommand = `bunx electron-builder --config ${builderConfig} ${builderArgs} ${archFlag} ${nsisInclude} ${publishArg}`;
   try {

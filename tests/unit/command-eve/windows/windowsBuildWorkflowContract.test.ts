@@ -97,6 +97,7 @@ describe('Command EVE Windows build workflow contract', () => {
     expect(reusable).toContain('reports/windows/phase-a/gates/*.json');
     expect(reusable).toContain('if-no-files-found: error');
     expect(reusable).toContain('--require-python');
+    expect(reusable).toContain('--require-phase-a-feed-isolation');
     expect(manual).toContain('upload_installers_only: false');
   });
 
@@ -122,6 +123,8 @@ describe('Command EVE Windows build workflow contract', () => {
     expect(harness).toContain('Get-ExactTextFindingCount');
     expect(harness).toContain('Get-CommandLineScopedProcessIds');
     expect(harness).toContain('Runtime bootstrap heartbeat');
+    expect(harness).toContain('runtime-bootstrap-first-launch-receipt.json');
+    expect(harness).toContain('runtime-bootstrap-restart-receipt.json');
     expect(harness).toContain("$terminalReady = $status -eq 'ready'");
     expect(harness).toContain("Get-StageStatus -Receipt $receipt -StageId 'model'");
     expect(harness).toContain('Wait-ForCapturedStreams');
@@ -185,12 +188,14 @@ describe('Command EVE Windows build workflow contract', () => {
   it('parses the PowerShell harness and keeps proof postinstall failures fatal', () => {
     const reusable = read('.github/workflows/_build-reusable.yml');
     const builderScript = read('scripts/build-with-builder.js');
+    const harness = read('scripts/windows/run-phase-a-proof.ps1');
     const sharedBuilderConfig = YAML.parse(read('packages/desktop/electron-builder.yml')) as {
       publish?: { provider?: string; url?: string; publishAutoUpdate?: boolean };
     };
     const phaseABuilderConfig = YAML.parse(read('packages/desktop/electron-builder.phase-a.yml')) as {
       extends?: string;
       extraMetadata?: { commandEvePhaseAUnsignedProof?: boolean };
+      publish?: { provider?: string; url?: string; publishAutoUpdate?: boolean };
     };
 
     expect(reusable).toContain('[System.Management.Automation.Language.Parser]::ParseFile');
@@ -209,12 +214,22 @@ describe('Command EVE Windows build workflow contract', () => {
     expect(phaseABuilderConfig).toEqual({
       extends: 'packages/desktop/electron-builder.yml',
       extraMetadata: { commandEvePhaseAUnsignedProof: true },
+      publish: {
+        provider: 'generic',
+        url: 'https://phase-a.invalid',
+        publishAutoUpdate: true,
+      },
     });
     expect(sharedBuilderConfig.publish).toEqual({
       provider: 'generic',
       url: 'https://eve-update-proxy.commandeve.workers.dev',
       publishAutoUpdate: true,
     });
+    expect(harness.match(/\$textExtensions = @\('', '\.cfg', '\.conf', '\.csv', '\.env'/g)).toHaveLength(2);
+    expect(harness.match(/\$isDotEnv = \$file\.Name -ieq '\.env'/g)).toHaveLength(2);
+    expect(
+      harness.match(/-not \$isDotEnv -and \$file\.Extension\.ToLowerInvariant\(\) -notin \$textExtensions/g)
+    ).toHaveLength(2);
   });
 
   it('loads every TypeScript Phase A proof entrypoint without executing its CLI', async () => {

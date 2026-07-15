@@ -687,6 +687,7 @@ jobs:
           node scripts/windows/verifyWindowsPackage.mjs \
             --out out \
             --require-python \
+            --require-phase-a-feed-isolation \
             --report reports/windows/phase-a/gates/WIN-G05-package-inventory.json
 
       - name: Inspect unsigned Windows Phase A candidate

@@ -36,6 +36,7 @@ function completeFixture(outDir: string): void {
   writeFile(path.join(outDir, 'latest.yml'), `version: ${VERSION}\n`);
   writeFile(path.join(outDir, 'win-unpacked', 'Command EVE.exe'));
   writeFile(path.join(resourcesDir, 'app.asar'));
+  writeFile(path.join(resourcesDir, 'app-update.yml'), 'provider: generic\nurl: https://phase-a.invalid\n');
   writeFile(
     path.join(
       resourcesDir,
@@ -107,6 +108,7 @@ describe('Windows package inventory', () => {
       outDir,
       version: VERSION,
       requirePython: true,
+      requirePhaseAFeedIsolation: true,
       verifyBundledResources: passingVerifier,
     });
 
@@ -115,6 +117,37 @@ describe('Windows package inventory', () => {
     expect(result.bundled_python.manifest).toMatchObject({ platform: 'win32', arch: 'x64' });
     expect(result.artifacts).toHaveLength(3);
     expect(result.runtime_keys).toEqual(['win32-x64']);
+    expect(result.update_feed).toMatchObject({
+      provider: 'generic',
+      url: 'https://phase-a.invalid',
+      isolated: true,
+    });
+  });
+
+  it('rejects a production or missing update feed for the unsigned Phase A proof', () => {
+    const outDir = makeRoot();
+    completeFixture(outDir);
+    const updateMetadataPath = path.join(outDir, 'win-unpacked', 'resources', 'app-update.yml');
+    fs.writeFileSync(updateMetadataPath, 'provider: generic\nurl: https://eve-update-proxy.commandeve.workers.dev\n');
+
+    const productionFeed = inspectWindowsPackage({
+      outDir,
+      version: VERSION,
+      requirePhaseAFeedIsolation: true,
+      verifyBundledResources: passingVerifier,
+    });
+    expect(productionFeed.status).toBe('REJECT');
+    expect(productionFeed.errors).toContain('Phase A update feed is not isolated: expected https://phase-a.invalid');
+
+    fs.rmSync(updateMetadataPath);
+    const missingFeed = inspectWindowsPackage({
+      outDir,
+      version: VERSION,
+      requirePhaseAFeedIsolation: true,
+      verifyBundledResources: passingVerifier,
+    });
+    expect(missingFeed.status).toBe('REJECT');
+    expect(missingFeed.errors).toContain('missing Phase A update metadata: resources/app-update.yml');
   });
 
   it('rejects a missing ZIP instead of accepting installer-only evidence', () => {

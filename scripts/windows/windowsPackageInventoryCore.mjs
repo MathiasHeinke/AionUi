@@ -12,6 +12,7 @@ const {
 
 const WINDOWS_X64_PYTHON_ARCHIVE_SHA256 = 'f5e4d9f856567493776f3d1e832c939fbaba5dcbcc5e0492a82ecfceea83b316';
 const BUNDLED_PYTHON_MANIFEST_FILE = 'command-eve-python-manifest.json';
+const PHASE_A_UPDATE_FEED_ORIGIN = 'https://phase-a.invalid';
 
 /**
  * @typedef {(input: { resourcesDir: string, electronPlatformName: string, targetArch: string }) => {
@@ -108,6 +109,40 @@ function inspectBundledPython(outDir, resourcesDir, required, errors) {
   return { interpreter, manifest_receipt: manifestReceipt, manifest };
 }
 
+function inspectPhaseAUpdateFeed(resourcesDir, required, errors) {
+  const relativePath = 'app-update.yml';
+  const absolutePath = path.join(resourcesDir, relativePath);
+  if (!fs.existsSync(absolutePath) || !fs.statSync(absolutePath).isFile()) {
+    if (required) errors.push(`missing Phase A update metadata: resources/${relativePath}`);
+    return null;
+  }
+
+  try {
+    const metadata = YAML.parse(fs.readFileSync(absolutePath, 'utf8'));
+    const provider = typeof metadata?.provider === 'string' ? metadata.provider : '';
+    const url = typeof metadata?.url === 'string' ? metadata.url : '';
+    let isolated = false;
+    try {
+      const parsedUrl = new URL(url);
+      isolated =
+        provider === 'generic' &&
+        parsedUrl.origin === PHASE_A_UPDATE_FEED_ORIGIN &&
+        parsedUrl.pathname === '/' &&
+        !parsedUrl.username &&
+        !parsedUrl.password &&
+        !parsedUrl.search &&
+        !parsedUrl.hash;
+    } catch {}
+    if (required && !isolated) {
+      errors.push(`Phase A update feed is not isolated: expected ${PHASE_A_UPDATE_FEED_ORIGIN}`);
+    }
+    return { path: `resources/${relativePath}`, provider, url, isolated };
+  } catch (error) {
+    errors.push(`Phase A update metadata is invalid YAML: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+}
+
 /**
  * Inspect one unpacked/NSIS/ZIP Windows x64 candidate without launching it.
  *
@@ -115,11 +150,18 @@ function inspectBundledPython(outDir, resourcesDir, required, errors) {
  *   outDir: string,
  *   version: string,
  *   requirePython?: boolean,
+ *   requirePhaseAFeedIsolation?: boolean,
  *   verifyBundledResources?: BundledResourceVerifier,
  * }} options
  */
 export function inspectWindowsPackage(options) {
-  const { outDir, version, requirePython = false, verifyBundledResources = verifyBundledAioncoreResources } = options;
+  const {
+    outDir,
+    version,
+    requirePython = false,
+    requirePhaseAFeedIsolation = false,
+    verifyBundledResources = verifyBundledAioncoreResources,
+  } = options;
   const errors = [];
   const expected = productIdentity.windowsArtifactNames(version, 'x64');
   const expectedArtifactPaths = [expected.installer, expected.zip, expected.metadata];
@@ -183,6 +225,7 @@ export function inspectWindowsPackage(options) {
   }
 
   const bundledPython = inspectBundledPython(outDir, resourcesDir, requirePython, errors);
+  const updateFeed = inspectPhaseAUpdateFeed(resourcesDir, requirePhaseAFeedIsolation, errors);
 
   const metadataPath = path.join(outDir, expected.metadata);
   if (fs.existsSync(metadataPath)) {
@@ -208,6 +251,7 @@ export function inspectWindowsPackage(options) {
     runtime_keys: runtimeKeys,
     bundled_resource_checks: bundledResult.checked,
     bundled_python: bundledPython,
+    update_feed: updateFeed,
     errors,
     completion_sentinel: 'WIN_PACKAGE_INVENTORY_COMPLETE',
   };

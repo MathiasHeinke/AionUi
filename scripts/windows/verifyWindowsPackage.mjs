@@ -7,13 +7,14 @@ import process from 'node:process';
 import { inspectWindowsPackage } from './windowsPackageInventoryCore.mjs';
 
 function parseArgs(argv) {
-  const args = { outDir: 'out', version: '', report: '', requirePython: false };
+  const args = { outDir: 'out', version: '', report: '', requirePython: false, requirePhaseAFeedIsolation: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--out') args.outDir = argv[++index] || '';
     else if (arg === '--version') args.version = argv[++index] || '';
     else if (arg === '--report') args.report = argv[++index] || '';
     else if (arg === '--require-python') args.requirePython = true;
+    else if (arg === '--require-phase-a-feed-isolation') args.requirePhaseAFeedIsolation = true;
     else throw new Error(`Unknown argument: ${arg}`);
   }
   return args;
@@ -33,6 +34,7 @@ function main() {
     outDir: path.resolve(args.outDir),
     version: args.version || packageJson.version,
     requirePython: args.requirePython,
+    requirePhaseAFeedIsolation: args.requirePhaseAFeedIsolation,
   });
   if (args.report) writeAtomicJson(path.resolve(args.report), result);
   console.log(JSON.stringify(result, null, 2));
