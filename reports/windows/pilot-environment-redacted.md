@@ -18,7 +18,7 @@ network secret.
 | Memory                      | Runner-provided memory; no 8 GB constraint is claimed                                                  | low-memory pilot gate            |
 | Free disk                   | Fresh runner capacity sufficient for build, install and evidence capture                               | measured by CI, not pilot policy |
 | Browser                     | Not required for the packaged Phase A install/start/cloud-turn proof                                   | named-pilot gate                 |
-| Endpoint protection         | Runner image default; no Defender policy claim                                                         | Defender pilot gate              |
+| Endpoint protection         | CI-only Defender exclusions scoped to ephemeral build/proof paths; no customer Defender policy claim   | Defender pilot gate              |
 | Proxy and VPN               | Direct HTTPS baseline; managed proxy/VPN is outside Phase A                                            | explicit support boundary        |
 | Microphone and speaker      | Not required for Phase A                                                                               | deferred to voice gate           |
 | OneDrive and network shares | Not required for Phase A                                                                               | deferred to file-semantics gate  |

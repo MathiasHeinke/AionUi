@@ -1,0 +1,38 @@
+{
+  "schema_version": "command-eve-windows-phase-a-seat-lifecycle/v2",
+  "repository": "MathiasHeinke/AionUi",
+  "source_commit": "66ec41174e35a72db475f30206cd5fe346b1c4d6",
+  "github_run_id": 29401329864,
+  "artifact_sha256": "683000bb28d31e79fe6404e6df46bb2346a212c61df2399924aded792fca01b5",
+  "evidence_artifact": {
+    "id": 8338527889,
+    "name": "windows-x64-phase-a-evidence-66ec411",
+    "size_in_bytes": 25200
+  },
+  "cleaned_at": "2026-07-15T09:55:17.600Z",
+  "repository_secret_name": "COMMAND_EVE_PHASE_A_LICENSE",
+  "tenant_id_sha256": "1b9b39c4fdcacfe6c410b91ff0c47b37823f91b6a820ade6653f1d40881ee720",
+  "entitlement_id_sha256": "e257474173c2c31828057a2f209bfd01f1086daaf9e69c3c1528f4f7adac879f",
+  "license_code_sha256": "4317110a9adc42ee815a5b7f740d93e24d5dffff20d0a8114d03b103917d1f77",
+  "credits_status_tier": "starter",
+  "purchased_credits_before": 25000,
+  "purchased_credits_after": 24974,
+  "raw_license_persisted_locally": false,
+  "github_secret_removed": true,
+  "temporary_mint_secret_removed": true,
+  "private_state_file_removed": true,
+  "database_records_remaining": {
+    "credit_balances": 0,
+    "credit_reservations": 0,
+    "credit_transactions": 0,
+    "entitlements": 0,
+    "issued_license_codes": 0,
+    "memberships": 0,
+    "profiles": 0,
+    "tenant_invites": 0,
+    "tenants": 0,
+    "usage_events": 0
+  },
+  "cleanup_required": false,
+  "completion_sentinel": "WINDOWS_PHASE_A_TEST_SEAT_CLEANED"
+}
