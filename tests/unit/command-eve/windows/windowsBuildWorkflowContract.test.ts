@@ -128,6 +128,9 @@ describe('Command EVE Windows build workflow contract', () => {
     expect(harness).toContain('$info.Arguments = $RawArguments');
     expect(harness).toContain('-RawArguments "/S _?=$installDirectory"');
     expect(harness).not.toContain('\'/S\', "_?=$installDirectory"');
+    expect(harness).toContain('Get-ItemProperty -LiteralPath $key.PSPath -ErrorAction Stop');
+    expect(harness).toContain("Get-OptionalProperty -InputObject $properties -Name 'DisplayName' -Default ''");
+    expect(harness).not.toContain(').DisplayName');
     expect(harness).toContain('scripts/windows/evaluateWindowsPhaseA.ts');
   });
 

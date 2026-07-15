@@ -312,9 +312,10 @@ function Get-RegistryResidueCount {
   )
   $count = 0
   foreach ($root in $roots) {
-    if (-not (Test-Path $root)) { continue }
-    foreach ($key in Get-ChildItem $root -ErrorAction SilentlyContinue) {
-      $displayName = (Get-ItemProperty $key.PSPath -ErrorAction SilentlyContinue).DisplayName
+    if (-not (Test-Path -LiteralPath $root)) { continue }
+    foreach ($key in Get-ChildItem -LiteralPath $root -ErrorAction Stop) {
+      $properties = Get-ItemProperty -LiteralPath $key.PSPath -ErrorAction Stop
+      $displayName = [string](Get-OptionalProperty -InputObject $properties -Name 'DisplayName' -Default '')
       if ($displayName -like 'Command EVE*') { $count += 1 }
     }
   }
