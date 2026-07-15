@@ -33,6 +33,7 @@ type WorkflowStep = {
 };
 
 type WorkflowDocument = {
+  env?: Record<string, string>;
   jobs: Record<string, { steps?: WorkflowStep[]; with?: Record<string, unknown> }>;
 };
 
@@ -54,6 +55,12 @@ describe('Command EVE Windows build workflow contract', () => {
     expect(workflow).toContain('if ($LASTEXITCODE -ne 0)');
     expect(workflow).toContain('throw "${{ matrix.platform }} build failed with exit code $LASTEXITCODE"');
     expect(workflow).toContain('BUILD_WITH_BUILDER_SELFTEST_FAIL');
+  });
+
+  it('does not override the SHA-pinned AionHub source with an unmanifested tag', () => {
+    const workflow = parseWorkflow('.github/workflows/_build-reusable.yml');
+
+    expect(workflow.env?.AIONUI_HUB_TAG).toBeUndefined();
   });
 
   it('builds one pinned Command EVE AionCore source commit for every desktop platform', () => {
