@@ -848,6 +848,19 @@ jobs:
       - name: Run postinstall
         run: bun run postinstall
 
+      - name: Materialize Electron safeStorage runtime
+        shell: pwsh
+        run: |
+          & node node_modules/electron/install.js
+          if ($LASTEXITCODE -ne 0) {
+            throw "Electron install script failed with exit code $LASTEXITCODE"
+          }
+          $ElectronPath = Join-Path $env:GITHUB_WORKSPACE 'node_modules\electron\dist\electron.exe'
+          if (-not (Test-Path -LiteralPath $ElectronPath -PathType Leaf)) {
+            throw "Electron safeStorage runtime is missing at $ElectronPath"
+          }
+          Write-Host "Electron safeStorage runtime ready at $ElectronPath"
+
       - name: Download exact Windows candidate
         uses: actions/download-artifact@v6
         with:

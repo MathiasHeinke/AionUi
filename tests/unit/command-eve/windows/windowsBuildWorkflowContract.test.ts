@@ -102,8 +102,14 @@ describe('Command EVE Windows build workflow contract', () => {
 
   it('runs the Phase A proof on a fresh Windows runner with scoped test-seat auth', () => {
     const reusable = read('.github/workflows/_build-reusable.yml');
+    const reusableDocument = parseWorkflow('.github/workflows/_build-reusable.yml');
     const manual = read('.github/workflows/build-manual.yml');
     const harness = read('scripts/windows/run-phase-a-proof.ps1');
+    const electronStep = getWorkflowStep(
+      reusableDocument,
+      'windows-phase-a-lifecycle',
+      'Materialize Electron safeStorage runtime'
+    );
 
     expect(reusable).toContain('windows-phase-a-lifecycle:');
     expect(reusable).toContain('runs-on: windows-2022');
@@ -132,6 +138,9 @@ describe('Command EVE Windows build workflow contract', () => {
     expect(harness).toContain("Get-OptionalProperty -InputObject $properties -Name 'DisplayName' -Default ''");
     expect(harness).not.toContain(').DisplayName');
     expect(harness).toContain('scripts/windows/evaluateWindowsPhaseA.ts');
+    expect(electronStep.run).toContain('node node_modules/electron/install.js');
+    expect(electronStep.run).toContain('node_modules\\electron\\dist\\electron.exe');
+    expect(electronStep.run).toContain('Electron safeStorage runtime is missing');
   });
 
   it('binds proof execution to one exact source commit and fails if the lifecycle is skipped', () => {
