@@ -172,6 +172,15 @@ describe('Command EVE Windows build workflow contract', () => {
 
   it('parses the PowerShell harness and keeps proof postinstall failures fatal', () => {
     const reusable = read('.github/workflows/_build-reusable.yml');
+    const builderScript = read('scripts/build-with-builder.js');
+    const sharedBuilderConfig = YAML.parse(read('packages/desktop/electron-builder.yml')) as {
+      publish?: { provider?: string; url?: string; publishAutoUpdate?: boolean };
+    };
+    const phaseABuilderConfig = YAML.parse(read('packages/desktop/electron-builder.phase-a.yml')) as {
+      extends?: string;
+      publish?: { publishAutoUpdate?: boolean };
+      extraMetadata?: { commandEvePhaseAUnsignedProof?: boolean };
+    };
 
     expect(reusable).toContain('[System.Management.Automation.Language.Parser]::ParseFile');
     expect(reusable).toContain('Windows Phase A PowerShell parse passed.');
@@ -182,7 +191,19 @@ describe('Command EVE Windows build workflow contract', () => {
     expect(reusable).toContain('-RestartBootstrapTimeoutSeconds 600');
     expect(reusable).toContain('Scope Defender exclusions to ephemeral proof paths');
     expect(reusable).toContain('COMMAND_EVE_PHASE_A_UNSIGNED_BUILD');
-    expect(read('scripts/build-with-builder.js')).toContain('--config.publishAutoUpdate=false');
+    expect(builderScript).toContain('packages/desktop/electron-builder.phase-a.yml');
+    expect(builderScript).not.toContain('--config.publishAutoUpdate');
+    expect(builderScript).not.toContain('--config.extraMetadata.commandEvePhaseAUnsignedProof');
+    expect(phaseABuilderConfig).toEqual({
+      extends: 'packages/desktop/electron-builder.yml',
+      publish: { publishAutoUpdate: false },
+      extraMetadata: { commandEvePhaseAUnsignedProof: true },
+    });
+    expect(sharedBuilderConfig.publish).toEqual({
+      provider: 'generic',
+      url: 'https://eve-update-proxy.commandeve.workers.dev',
+      publishAutoUpdate: true,
+    });
   });
 
   it('loads every TypeScript Phase A proof entrypoint without executing its CLI', async () => {

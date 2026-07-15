@@ -766,13 +766,13 @@ try {
     cleanupWindowsPackOutput();
   }
 
-  const phaseAConfig = isUnsignedWindowsPhaseA
-    ? ' --config.publishAutoUpdate=false --config.extraMetadata.commandEvePhaseAUnsignedProof=true'
-    : '';
+  const builderConfig = isUnsignedWindowsPhaseA
+    ? 'packages/desktop/electron-builder.phase-a.yml'
+    : 'packages/desktop/electron-builder.yml';
   if (isUnsignedWindowsPhaseA) {
     console.log('🧪 Building an unsigned Phase A proof with auto-update metadata disabled.');
   }
-  const builderCommand = `bunx electron-builder --config packages/desktop/electron-builder.yml ${builderArgs} ${archFlag} ${nsisInclude} ${publishArg}${phaseAConfig}`;
+  const builderCommand = `bunx electron-builder --config ${builderConfig} ${builderArgs} ${archFlag} ${nsisInclude} ${publishArg}`;
   try {
     buildWithDmgRetry(builderCommand, targetArch);
   } catch (error) {
