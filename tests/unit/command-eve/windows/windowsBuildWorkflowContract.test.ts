@@ -178,7 +178,6 @@ describe('Command EVE Windows build workflow contract', () => {
     };
     const phaseABuilderConfig = YAML.parse(read('packages/desktop/electron-builder.phase-a.yml')) as {
       extends?: string;
-      publish?: { publishAutoUpdate?: boolean };
       extraMetadata?: { commandEvePhaseAUnsignedProof?: boolean };
     };
 
@@ -192,11 +191,11 @@ describe('Command EVE Windows build workflow contract', () => {
     expect(reusable).toContain('Scope Defender exclusions to ephemeral proof paths');
     expect(reusable).toContain('COMMAND_EVE_PHASE_A_UNSIGNED_BUILD');
     expect(builderScript).toContain('packages/desktop/electron-builder.phase-a.yml');
+    expect(builderScript).toContain("const publishArg = '--publish=never'");
     expect(builderScript).not.toContain('--config.publishAutoUpdate');
     expect(builderScript).not.toContain('--config.extraMetadata.commandEvePhaseAUnsignedProof');
     expect(phaseABuilderConfig).toEqual({
       extends: 'packages/desktop/electron-builder.yml',
-      publish: { publishAutoUpdate: false },
       extraMetadata: { commandEvePhaseAUnsignedProof: true },
     });
     expect(sharedBuilderConfig.publish).toEqual({

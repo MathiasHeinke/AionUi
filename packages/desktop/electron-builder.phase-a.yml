@@ -1,10 +1,8 @@
 # Phase A is an unsigned, non-distributable Windows proof. Extend the shared
-# product config so the proof remains on the same source and packaging path,
-# while using a real YAML boolean for electron-builder's provider-level flag.
+# product config so the proof remains on the same source, packaging and update-
+# metadata path. scripts/build-with-builder.js already passes --publish=never,
+# which blocks uploads without suppressing the latest.yml parity evidence.
 extends: packages/desktop/electron-builder.yml
-
-publish:
-  publishAutoUpdate: false
 
 extraMetadata:
   commandEvePhaseAUnsignedProof: true
