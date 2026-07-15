@@ -13,7 +13,10 @@
   position: relative;
   isolation: isolate;
   contain: paint;
-  background-color: color-mix(in srgb, var(--bg-1) 92%, transparent) !important;
+  background: color-mix(in srgb, var(--glass-chrome-bg) 82%, transparent) !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--glass-chrome-border) 72%, transparent);
+  -webkit-backdrop-filter: var(--glass-chrome-filter);
+  backdrop-filter: var(--glass-chrome-filter);
 }
 
 .chat-layout-header--glass::after {
@@ -24,7 +27,28 @@
   bottom: -12px;
   height: 12px;
   pointer-events: none;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--bg-1) 68%, transparent) 0%, transparent 100%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--glass-reading-bg) 58%, transparent) 0%,
+    transparent 100%
+  );
+}
+
+.chat-layout-shell,
+.chat-layout-header-block,
+.chat-layout-content {
+  background: transparent !important;
+}
+
+.chat-layout-right-sider {
+  background: var(--glass-chrome-bg) !important;
+  border-left-color: var(--glass-chrome-border) !important;
+  -webkit-backdrop-filter: var(--glass-chrome-filter);
+  backdrop-filter: var(--glass-chrome-filter);
+}
+
+.chat-layout-right-sider > .arco-layout-content {
+  background: transparent !important;
 }
 
 .chat-layout-right-sider--elements {
@@ -34,8 +58,8 @@
 
 @supports ((-webkit-backdrop-filter: blur(6px)) or (backdrop-filter: blur(6px))) {
   .chat-layout-header--glass {
-    -webkit-backdrop-filter: saturate(110%) blur(6px);
-    backdrop-filter: saturate(110%) blur(6px);
+    -webkit-backdrop-filter: var(--glass-chrome-filter);
+    backdrop-filter: var(--glass-chrome-filter);
   }
 }
 
@@ -43,7 +67,7 @@
   .chat-layout-header--glass {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
-    background-color: var(--bg-1) !important;
+    background: var(--glass-chrome-bg-solid) !important;
   }
 
   .chat-layout-header--glass::after {
@@ -53,9 +77,13 @@
 
 /* Workspace open button dropdown styles */
 .workspace-open-dropdown {
-  background-color: var(--color-bg-2);
-  border-radius: 4px;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  background: var(--glass-overlay-bg);
+  border: 1px solid var(--glass-overlay-border);
+  border-radius: var(--eve-overlay-radius);
+  box-shadow: var(--glass-shadow-soft);
+  -webkit-backdrop-filter: var(--glass-overlay-filter);
+  backdrop-filter: var(--glass-overlay-filter);
   color: var(--color-text-1);
 }
 

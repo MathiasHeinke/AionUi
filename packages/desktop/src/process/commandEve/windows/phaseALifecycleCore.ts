@@ -55,6 +55,9 @@ export type PhaseALifecycleEvidence = {
     hermes_executable_found: boolean;
     hermes_required_version: string;
     hermes_installed_version: string;
+    hermes_wheel_sha256: string;
+    hermes_expected_wheel_sha256: string;
+    hermes_wheel_sha256_verified: boolean;
     hermes_version_probe_exit_code: number;
     hermes_version_probe_output: string;
     ollama_stage_status: string;
@@ -291,6 +294,14 @@ export function evaluatePhaseAHermesTurnHolder(evidence: PhaseALifecycleEvidence
       'Hermes version probe failed or reported the wrong version.'
     ),
     assertion(
+      'hermes-wheel-sha256-pinned',
+      runtime.hermes_wheel_sha256_verified &&
+        /^[0-9a-f]{64}$/.test(runtime.hermes_wheel_sha256) &&
+        runtime.hermes_wheel_sha256 === runtime.hermes_expected_wheel_sha256,
+      'Bundled Hermes wheel matched the committed SHA-256 pin.',
+      'Bundled Hermes wheel did not match the committed SHA-256 pin.'
+    ),
+    assertion(
       'ollama-not-started',
       runtime.ollama_stage_status === 'skip',
       'Ollama stage was skipped for Phase A.',
@@ -320,6 +331,9 @@ export function evaluatePhaseAHermesTurnHolder(evidence: PhaseALifecycleEvidence
       python_source: runtime.python_source,
       hermes_required_version: runtime.hermes_required_version,
       hermes_installed_version: runtime.hermes_installed_version,
+      hermes_wheel_sha256: runtime.hermes_wheel_sha256,
+      hermes_expected_wheel_sha256: runtime.hermes_expected_wheel_sha256,
+      hermes_wheel_sha256_verified: runtime.hermes_wheel_sha256_verified,
       ollama_stage_status: runtime.ollama_stage_status,
       model_stage_status: runtime.model_stage_status,
     },

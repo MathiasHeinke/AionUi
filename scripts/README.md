@@ -92,6 +92,9 @@ npm run dist:mac
 # Build notarized macOS artifacts with a local notarytool Keychain profile
 npm run build-mac:arm64:notarized
 
+# Include the short Markdown summary shown in Command EVE's update details
+COMMAND_EVE_RELEASE_NOTES_FILE=/absolute/path/release-notes.md npm run build-mac:arm64:notarized
+
 # Build for Windows
 npm run dist:win
 
@@ -113,6 +116,10 @@ and use the `command-eve-notary` profile.
 DMG artifacts are signed and notarized by `scripts/afterAllArtifactBuild.js` after electron-builder
 creates them. DMG notarization intentionally accepts only a notarytool Keychain profile or App Store
 Connect API key, so app-specific passwords are not exposed as process arguments.
+
+For Command EVE releases, set `COMMAND_EVE_RELEASE_NOTES_FILE` to a concise Markdown file.
+The post-build feed guard embeds those notes in the final `latest-*-mac.yml`; an explicitly
+configured empty notes file fails the build instead of shipping an empty update summary.
 
 ### Manual native module rebuild
 

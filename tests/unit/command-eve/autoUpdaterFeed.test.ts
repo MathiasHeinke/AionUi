@@ -11,7 +11,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // surface the module touches at import time so we can exercise the pure
 // feed-resolution logic and the no-feed quiet state.
 // vi.hoisted lets the mock factory (hoisted to top of file) safely reference this.
-const { setFeedURL } = vi.hoisted(() => ({ setFeedURL: vi.fn() }));
+const { setFeedURL, checkForUpdates, checkForUpdatesAndNotify } = vi.hoisted(() => ({
+  setFeedURL: vi.fn(),
+  checkForUpdates: vi.fn(),
+  checkForUpdatesAndNotify: vi.fn(),
+}));
 vi.mock('electron-updater', () => ({
   autoUpdater: {
     logger: { transports: { file: { level: 'info' } } },
@@ -22,9 +26,9 @@ vi.mock('electron-updater', () => ({
     on: vi.fn(),
     removeListener: vi.fn(),
     setFeedURL,
-    checkForUpdates: vi.fn(),
+    checkForUpdates,
     downloadUpdate: vi.fn(),
-    checkForUpdatesAndNotify: vi.fn(),
+    checkForUpdatesAndNotify,
     quitAndInstall: vi.fn(),
   },
 }));
@@ -69,12 +73,15 @@ import {
   autoUpdaterService,
 } from '@/process/services/autoUpdaterService';
 import { COMMAND_EVE_UPDATE_FEED_BASE_URL } from '@/common/config/commandEveShell';
+import { autoUpdater } from 'electron-updater';
 
 const ORIGINAL_ENV = process.env[UPDATE_FEED_URL_ENV];
 
 beforeEach(() => {
   delete process.env[UPDATE_FEED_URL_ENV];
   setFeedURL.mockClear();
+  checkForUpdates.mockReset();
+  checkForUpdatesAndNotify.mockReset();
   autoUpdaterService.reset();
   // Default to the Command EVE shell being ON for each test (the production
   // installed-app condition); upstream-quiet tests flip this explicitly.
@@ -214,6 +221,21 @@ describe('autoUpdaterService.configureFeed', () => {
 });
 
 describe('autoUpdaterService.checkForUpdatesAndNotify', () => {
+  it('uses quiet background download policy in the Command EVE shell', () => {
+    expect(autoUpdater.autoDownload).toBe(true);
+    expect(autoUpdater.autoInstallOnAppQuit).toBe(false);
+  });
+
+  it('checks silently instead of invoking the native notification flow', async () => {
+    checkForUpdates.mockResolvedValue(null);
+    autoUpdaterService.initialize();
+
+    await autoUpdaterService.checkForUpdatesAndNotify(async () => COMMAND_EVE_UPDATE_FEED_BASE_URL);
+
+    expect(checkForUpdates).toHaveBeenCalledTimes(1);
+    expect(checkForUpdatesAndNotify).not.toHaveBeenCalled();
+  });
+
   it('does not throw and no-ops when CE shell is OFF and no feed is configured', async () => {
     ceShellState.shellEnabled = false;
     autoUpdaterService.initialize();
@@ -226,5 +248,42 @@ describe('autoUpdaterService.checkForUpdatesAndNotify', () => {
     autoUpdaterService.initialize();
     await expect(autoUpdaterService.checkForUpdatesAndNotify(async () => undefined)).resolves.toBeUndefined();
     expect(setFeedURL).not.toHaveBeenCalled();
+  });
+});
+
+describe('autoUpdaterService durable status', () => {
+  it('preserves release metadata through progress and downloaded events', () => {
+    autoUpdaterService.initialize();
+    autoUpdaterService.triggerEventForTest('update-available', {
+      version: '1.8.12',
+      releaseDate: '2026-07-14T12:00:00.000Z',
+      releaseNotes: 'Background updates',
+    });
+    autoUpdaterService.triggerEventForTest('download-progress', {
+      bytesPerSecond: 1024,
+      percent: 50,
+      transferred: 5,
+      total: 10,
+    });
+    autoUpdaterService.triggerEventForTest('update-downloaded', { version: '1.8.12' });
+
+    expect(autoUpdaterService.getStatusSnapshot()).toMatchObject({
+      status: 'downloaded',
+      version: '1.8.12',
+      releaseDate: '2026-07-14T12:00:00.000Z',
+      releaseNotes: 'Background updates',
+    });
+  });
+
+  it('keeps a deferred package until a newer version supersedes it', () => {
+    autoUpdaterService.initialize();
+    autoUpdaterService.triggerEventForTest('update-available', { version: '1.8.12' });
+    autoUpdaterService.triggerEventForTest('update-downloaded', { version: '1.8.12' });
+    autoUpdaterService.triggerEventForTest('checking-for-update');
+    autoUpdaterService.triggerEventForTest('update-not-available');
+    expect(autoUpdaterService.getStatusSnapshot()).toMatchObject({ status: 'downloaded', version: '1.8.12' });
+
+    autoUpdaterService.triggerEventForTest('update-available', { version: '1.8.13' });
+    expect(autoUpdaterService.getStatusSnapshot()).toMatchObject({ status: 'available', version: '1.8.13' });
   });
 });

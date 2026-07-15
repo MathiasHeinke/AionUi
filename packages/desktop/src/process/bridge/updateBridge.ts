@@ -648,6 +648,11 @@ export function initUpdateBridge(): void {
     }
   );
 
+  ipcBridge.autoUpdate.getStatus.provider(async () => ({
+    success: true,
+    data: { status: autoUpdaterService.getStatusSnapshot() },
+  }));
+
   ipcBridge.autoUpdate.download.provider(async (): Promise<{ success: boolean; msg?: string }> => {
     try {
       const result = await autoUpdaterService.downloadUpdate();

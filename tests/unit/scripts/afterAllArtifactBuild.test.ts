@@ -19,6 +19,7 @@ const {
   sha512Base64,
   collectMacUpdateArtifactGroups,
   buildMacUpdateYml,
+  resolveMacUpdateReleaseNotes,
   writeMacUpdateFeedMetadata,
 } = require('../../../scripts/afterAllArtifactBuild.js');
 
@@ -439,6 +440,28 @@ describe('afterAllArtifactBuild UPDATE-FEED guard (post-hdiutil metadata)', () =
     expect(yml).toContain('url: Command-EVE-1.7.8-mac-arm64.dmg');
     expect(yml).toContain('path: Command-EVE-1.7.8-mac-arm64.zip');
     expect(yml).toContain("releaseDate: '2026-07-08T17:56:00Z'");
+  });
+
+  it('loads multiline release notes from the explicit release file', () => {
+    const notesPath = path.join(makeOutDir(), 'release-notes.md');
+    fs.writeFileSync(notesPath, '## Neu\n\n- Hintergrund-Updates\n- Ruhiger Neustart\n');
+
+    expect(
+      resolveMacUpdateReleaseNotes('1.8.12', {
+        env: { COMMAND_EVE_RELEASE_NOTES_FILE: notesPath },
+      })
+    ).toBe('## Neu\n\n- Hintergrund-Updates\n- Ruhiger Neustart');
+  });
+
+  it('fails closed when an explicit release notes file is empty', () => {
+    const notesPath = path.join(makeOutDir(), 'release-notes.md');
+    fs.writeFileSync(notesPath, '   \n');
+
+    expect(() =>
+      resolveMacUpdateReleaseNotes('1.8.12', {
+        env: { COMMAND_EVE_RELEASE_NOTES_FILE: notesPath },
+      })
+    ).toThrow(/release notes file is empty/);
   });
 
   it('rewrites stale arm64 yml and version.json from the final artifact bytes', () => {

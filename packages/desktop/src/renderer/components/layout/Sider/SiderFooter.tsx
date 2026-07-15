@@ -6,10 +6,11 @@
 
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Tooltip } from '@arco-design/web-react';
-import { ArrowCircleLeft, CloseOne, Download, Moon, SunOne, User } from '@icon-park/react';
+import { Button, Tooltip } from '@arco-design/web-react';
+import { ArrowCircleLeft, CloseOne, Moon, Refresh, SunOne, User } from '@icon-park/react';
 import classNames from 'classnames';
 import { initialsFromName, useCommandEveProfile } from '@renderer/components/account/useCommandEveProfile';
+import { useAutoUpdateStatus } from '@renderer/hooks/system/useAutoUpdateStatus';
 import type { SiderTooltipProps } from '@renderer/utils/ui/siderTooltip';
 import './SiderFooter.css';
 
@@ -42,12 +43,23 @@ const SiderFooter: React.FC<SiderFooterProps> = ({
 }) => {
   const { t } = useTranslation();
   const { name, email } = useCommandEveProfile();
+  const updateStatus = useAutoUpdateStatus();
   const displayName = name || email || t('settings.accountPanel.title', { defaultValue: 'Konto' });
   const initials = initialsFromName(name);
   const identityLabel = isSettings ? t('common.back') : displayName;
   const settingsTooltip = isSettings ? t('common.back') : `${displayName} · ${t('common.settings')}`;
-  const updateLabel = t('update.modalTitle');
   const updateHint = t('settings.checkForUpdates');
+  const updateVersion = 'version' in updateStatus ? updateStatus.version : undefined;
+  const updateTooltip = (() => {
+    if (updateStatus.status === 'downloaded') {
+      return t('update.readyTooltip', { version: updateVersion || '' });
+    }
+    if (updateStatus.status === 'available' || updateStatus.status === 'downloading') {
+      return t('update.backgroundDownloadingTooltip', { version: updateVersion || '' });
+    }
+    if (updateStatus.status === 'error') return t('update.errorTooltip');
+    return updateHint;
+  })();
   const showThemeToggle = isSettings && !collapsed;
   const themeTooltip = theme === 'dark' ? t('settings.lightMode') : t('settings.darkMode');
 
@@ -100,21 +112,24 @@ const SiderFooter: React.FC<SiderFooterProps> = ({
             </Tooltip>
           )}
 
-          <Tooltip {...siderTooltipProps} content={updateHint} position='right'>
-            <button
-              type='button'
+          <Tooltip {...siderTooltipProps} content={updateTooltip} position='right'>
+            <Button
+              type='text'
               onClick={openUpdateModal}
               className={classNames(
                 'sider-footer__update',
-                (collapsed || isSettings) && 'sider-footer__update--compact',
+                updateStatus.status === 'downloaded' && 'sider-footer__update--ready',
+                (updateStatus.status === 'available' || updateStatus.status === 'downloading') &&
+                  'sider-footer__update--downloading',
+                updateStatus.status === 'error' && 'sider-footer__update--error',
                 isMobile && 'sider-footer-btn-mobile'
               )}
-              aria-label={updateHint}
+              aria-label={updateTooltip}
+              aria-busy={updateStatus.status === 'available' || updateStatus.status === 'downloading'}
+              icon={<Refresh size={17} className='sider-footer__update-icon' />}
               data-testid='sider-footer-update'
-            >
-              <Download size={16} className='sider-footer__update-icon' />
-              <span className='sider-footer__update-label'>{updateLabel}</span>
-            </button>
+              data-update-status={updateStatus.status}
+            />
           </Tooltip>
         </div>
       </div>

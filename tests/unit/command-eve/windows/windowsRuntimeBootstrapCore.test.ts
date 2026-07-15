@@ -10,6 +10,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  COMMAND_EVE_BUNDLED_HERMES_WHEEL_SHA256,
   ensureCommandEveRuntimeBootstrap,
   prepareCommandEveRuntimeProcessEnv,
   resolveBundledPythonCandidate,
@@ -90,6 +91,12 @@ describe('Command EVE Windows runtime paths', () => {
       'pip==25.0',
     ]);
   });
+
+  it('pins the committed Hermes wheel bytes', () => {
+    const wheelPath = path.resolve('resources', 'bundled-hermes', 'hermes_agent-0.17.0-py3-none-any.whl');
+
+    expect(sha256FileIfPresent(wheelPath)).toBe(COMMAND_EVE_BUNDLED_HERMES_WHEEL_SHA256);
+  });
 });
 
 describe('Command EVE Windows process cleanup', () => {
@@ -168,10 +175,9 @@ describe('Command EVE Windows cloud turn-holder profile', () => {
         source_url: 'https://example.invalid/python.tar.gz',
       })
     );
-    writeFile(
-      path.join(resourcesPath, 'bundled-hermes', 'hermes_agent-0.17.0-py3-none-any.whl'),
-      'hermes-wheel-fixture'
-    );
+    const bundledHermesWheel = path.join(resourcesPath, 'bundled-hermes', 'hermes_agent-0.17.0-py3-none-any.whl');
+    writeFile(bundledHermesWheel, 'hermes-wheel-fixture');
+    const expectedHermesWheelSha256 = sha256FileIfPresent(bundledHermesWheel)!;
     const commands: string[] = [];
 
     const runner: RuntimeBootstrapRunner = async (command, args) => {
@@ -218,6 +224,7 @@ describe('Command EVE Windows cloud turn-holder profile', () => {
       platform: 'win32',
       runtimeProfile: 'cloud_turn_holder_only',
       runner,
+      expectedHermesWheelSha256,
       totalMemoryBytes: 32 * 1024 ** 3,
       statfs: () => ({ bavail: 30, bsize: 1024 ** 3 }),
     });
@@ -258,6 +265,7 @@ describe('Command EVE Windows cloud turn-holder profile', () => {
       platform: 'win32',
       runtimeProfile: 'cloud_turn_holder_only',
       runner,
+      expectedHermesWheelSha256,
       totalMemoryBytes: 32 * 1024 ** 3,
       statfs: () => ({ bavail: 30, bsize: 1024 ** 3 }),
     });
@@ -277,10 +285,9 @@ describe('Command EVE Windows cloud turn-holder profile', () => {
     const conversationFixture = path.join(root, 'conversations', 'customer-work.json');
     writeFile(bundledPython, 'windows-python-fixture');
     writeFile(conversationFixture, '{"keep":true}');
-    writeFile(
-      path.join(resourcesPath, 'bundled-hermes', 'hermes_agent-0.17.0-py3-none-any.whl'),
-      'hermes-wheel-fixture'
-    );
+    const bundledHermesWheel = path.join(resourcesPath, 'bundled-hermes', 'hermes_agent-0.17.0-py3-none-any.whl');
+    writeFile(bundledHermesWheel, 'hermes-wheel-fixture');
+    const expectedHermesWheelSha256 = sha256FileIfPresent(bundledHermesWheel)!;
 
     const offlineRunner: RuntimeBootstrapRunner = async (command, args) => {
       if (command === bundledPython && args[0] === '--version') {
@@ -298,6 +305,7 @@ describe('Command EVE Windows cloud turn-holder profile', () => {
       platform: 'win32',
       runtimeProfile: 'cloud_turn_holder_only',
       runner: offlineRunner,
+      expectedHermesWheelSha256,
       totalMemoryBytes: 16 * 1024 ** 3,
       statfs: () => ({ bavail: 30, bsize: 1024 ** 3 }),
     });
@@ -332,11 +340,57 @@ describe('Command EVE Windows cloud turn-holder profile', () => {
       platform: 'win32',
       runtimeProfile: 'cloud_turn_holder_only',
       runner: onlineRunner,
+      expectedHermesWheelSha256,
       totalMemoryBytes: 16 * 1024 ** 3,
       statfs: () => ({ bavail: 30, bsize: 1024 ** 3 }),
     });
     expect(repaired.status).toBe('ready');
     expect(repaired.runtime_provenance.hermes?.package_snapshot_status).toBe('captured');
     expect(fs.readFileSync(conversationFixture, 'utf8')).toBe('{"keep":true}');
+  });
+
+  it('fails before pip when bundled Hermes bytes do not match the pin', async () => {
+    const root = makeRoot();
+    const resourcesPath = path.join(root, 'resources');
+    const bundledPython = path.join(resourcesPath, 'python', 'python.exe');
+    writeFile(bundledPython, 'windows-python-fixture');
+    writeFile(
+      path.join(resourcesPath, 'bundled-hermes', 'hermes_agent-0.17.0-py3-none-any.whl'),
+      'tampered-hermes-wheel-fixture'
+    );
+    const commands: string[] = [];
+    const runner: RuntimeBootstrapRunner = async (command, args) => {
+      commands.push([command, ...args].join(' '));
+      if (command === bundledPython && args[0] === '--version') {
+        return { command, args, ok: true, status: 0, stdout: 'Python 3.12.13\n' };
+      }
+      if (command === bundledPython && args[0] === '-m' && args[1] === 'venv') {
+        writeFile(path.join(args[2], 'Scripts', 'python.exe'), 'venv-python-fixture');
+        return { command, args, ok: true, status: 0 };
+      }
+      return { command, args, ok: false, status: 1, stderr: 'unexpected command' };
+    };
+
+    const receipt = await ensureCommandEveRuntimeBootstrap({
+      userDataPath: root,
+      resourcesPath,
+      platform: 'win32',
+      runtimeProfile: 'cloud_turn_holder_only',
+      runner,
+      expectedHermesWheelSha256: '0'.repeat(64),
+      totalMemoryBytes: 16 * 1024 ** 3,
+      statfs: () => ({ bavail: 30, bsize: 1024 ** 3 }),
+    });
+
+    expect(receipt.status).toBe('failed');
+    expect(receipt.runtime_provenance.hermes).toMatchObject({
+      wheel_expected_sha256: '0'.repeat(64),
+      wheel_sha256_verified: false,
+    });
+    expect(receipt.stages.find((stage) => stage.id === 'hermes')).toMatchObject({
+      status: 'failed',
+      code: 'HERMES_WHEEL_HASH_MISMATCH',
+    });
+    expect(commands.some((command) => command.includes('-m pip install'))).toBe(false);
   });
 });

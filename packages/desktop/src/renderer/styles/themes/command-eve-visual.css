@@ -61,6 +61,7 @@
   --eve-row-selected-bg: color-mix(in srgb, var(--eve-shell-text) 6%, transparent);
   --eve-row-selected-hairline: var(--eve-brand-logo);
   --eve-focus-ring: var(--color-primary-6, var(--primary));
+  --eve-focus-glow: 0 0 0 3px color-mix(in srgb, var(--eve-focus-ring) 28%, transparent);
 
   /* Session state. Orange remains reserved for brand. */
   --eve-status-running: var(--color-primary-6, var(--primary));
@@ -104,12 +105,19 @@
   --eve-bg-image-dim-color: #000000;
   --eve-bg-image-scrim: color-mix(in srgb, var(--eve-shell-surface) 62%, transparent);
 
-  /* Shared geometry */
-  --eve-surface-radius-sm: 6px;
-  --eve-surface-radius-md: 8px;
-  --eve-surface-radius-lg: 12px;
+  /* Shared geometry. Controls, floating overlays and dialogs use distinct but
+     related tiers; only status dots, compact toggles and intentional badges
+     use the pill radius. */
+  --eve-control-radius: 10px;
+  --eve-overlay-radius: 14px;
+  --eve-dialog-radius: 20px;
+  --eve-pill-radius: 999px;
+  --eve-surface-radius-sm: var(--eve-control-radius);
+  --eve-surface-radius-md: var(--eve-overlay-radius);
+  --eve-surface-radius-lg: 18px;
   --eve-composer-radius: 20px;
   --eve-control-height: 32px;
+  --eve-shell-footer-height: 51px;
 }
 
 :root[data-eve-bg-image='true'] .app-shell {
@@ -281,10 +289,17 @@
 .eve-dialog {
   background: var(--glass-overlay-bg);
   border-color: var(--glass-overlay-border);
-  border-radius: var(--eve-surface-radius-md);
   box-shadow: var(--glass-shadow-soft);
   -webkit-backdrop-filter: var(--glass-overlay-filter);
   backdrop-filter: var(--glass-overlay-filter);
+}
+
+.eve-overlay {
+  border-radius: var(--eve-overlay-radius);
+}
+
+.eve-dialog {
+  border-radius: var(--eve-dialog-radius);
 }
 
 .eve-row {
@@ -1509,6 +1524,7 @@
 .erste-schritte-settings__steps {
   display: flex;
   flex-direction: column;
+  gap: 2px;
 }
 
 .erste-schritte-settings__step.arco-btn {
@@ -1518,20 +1534,40 @@
   gap: 20px;
   min-height: 60px;
   height: auto;
-  padding: 10px 0;
-  border-radius: var(--eve-surface-radius-sm);
+  padding: 11px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--eve-control-radius);
+  background: transparent !important;
+  box-shadow: inset 0 -1px 0 var(--glass-panel-border);
   color: var(--eve-shell-text);
   text-align: left;
   white-space: normal;
 }
 
-.erste-schritte-settings__step.arco-btn + .erste-schritte-settings__step.arco-btn {
-  border-top: 1px solid var(--glass-panel-border);
-  border-radius: 0;
+.erste-schritte-settings__step.arco-btn .arco-btn-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  width: 100%;
 }
 
 .erste-schritte-settings__step.arco-btn:hover {
-  background: var(--eve-row-hover-bg);
+  border-color: var(--glass-panel-border);
+  background: var(--eve-row-hover-bg) !important;
+  box-shadow: none;
+}
+
+.erste-schritte-settings__step.arco-btn:active,
+.erste-schritte-settings__step.arco-btn:focus {
+  background: transparent !important;
+}
+
+.erste-schritte-settings__step.arco-btn:focus-visible {
+  border-color: color-mix(in srgb, var(--eve-status-attention) 54%, transparent);
+  background: var(--eve-row-hover-bg) !important;
+  box-shadow: var(--eve-focus-glow);
+  outline: none;
 }
 
 .erste-schritte-settings__step-copy {
@@ -1560,6 +1596,23 @@
   gap: 8px;
   flex: 0 0 auto;
   color: var(--eve-shell-text-secondary);
+}
+
+.erste-schritte-settings__step-state .arco-tag {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent !important;
+  color: currentColor !important;
+  line-height: 18px;
+}
+
+.erste-schritte-settings__step[data-status='done'] .erste-schritte-settings__step-state {
+  color: var(--eve-status-completed);
+}
+
+.erste-schritte-settings__step[data-status='attention'] .erste-schritte-settings__step-state {
+  color: var(--eve-status-attention);
 }
 
 .eve-settings-page .billing-settings {
@@ -1943,6 +1996,64 @@
   background: var(--color-primary-light-1) !important;
 }
 
+/* Runtime status is a footer row, not a second panel. The 51px geometry mirrors
+   the sidebar account footer (8px padding + 34px control + 1px divider), so the
+   bottom edge reads as one composed shell across columns. */
+.acp-chat {
+  min-width: 0;
+  overflow-x: clip;
+}
+
+.acp-send-box:has(+ .acp-runtime-status) {
+  margin-bottom: 8px;
+}
+
+.acp-runtime-status {
+  box-sizing: border-box;
+  min-width: 0;
+  height: var(--eve-shell-footer-height);
+  min-height: var(--eve-shell-footer-height);
+  flex: 0 0 var(--eve-shell-footer-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-inline: -20px;
+  padding: 8px 20px;
+  border: 0;
+  border-top: 1px solid var(--glass-chrome-border, var(--color-border-2));
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--eve-shell-text-secondary, var(--color-text-2));
+  font-size: 12px;
+}
+
+.acp-runtime-status__content {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.acp-runtime-status__notice {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--eve-shell-text-tertiary, var(--color-text-3));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.acp-runtime-status__logs.arco-btn {
+  flex: 0 0 auto;
+  padding-inline: 8px;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
 :root[data-eve-reduced-effects='true'] .eve-composer-surface {
   background: var(--glass-composer-bg-solid) !important;
   -webkit-backdrop-filter: none;
@@ -2032,7 +2143,7 @@
   min-width: 0;
   padding: clamp(24px, 4vw, 44px);
   border: 1px solid color-mix(in srgb, #ffffff 76%, #94a3b8);
-  border-radius: 8px;
+  border-radius: var(--eve-dialog-radius);
   background: color-mix(in srgb, #ffffff 84%, transparent);
   box-shadow:
     0 26px 70px color-mix(in srgb, #0f172a 16%, transparent),
@@ -2059,7 +2170,7 @@
   place-items: center;
   margin-top: 32px;
   border: 1px solid color-mix(in srgb, #f97316 32%, transparent);
-  border-radius: 8px;
+  border-radius: var(--eve-control-radius);
   background: color-mix(in srgb, #f97316 10%, transparent);
   color: #c2410c;
 }
@@ -2126,7 +2237,7 @@
 
 .eve-backend-recovery__primary.arco-btn-primary {
   min-height: 40px;
-  border-radius: 8px;
+  border-radius: var(--eve-control-radius);
   background: #2563eb;
   color: #ffffff;
   box-shadow: 0 10px 24px color-mix(in srgb, #2563eb 24%, transparent);

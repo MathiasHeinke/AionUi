@@ -119,34 +119,36 @@ const AcpRuntimeStatus: React.FC<{
         : null;
 
   return (
-    <div className='mb-8px flex items-start justify-between gap-12px px-12px py-8px rd-12px border border-solid border-border-2 bg-fill-1 text-12px text-t-secondary'>
-      <div className='min-w-0 flex flex-col gap-4px'>
-        <div className='min-w-0 flex items-center gap-8px'>
-          <span
-            className={`h-8px w-8px rd-50% shrink-0 ${statusDotClass[activity.phase]} ${isActive ? 'animate-pulse' : ''}`}
-          />
-          {isActive ? <Loading theme='outline' size='14' className='animate-spin shrink-0 text-primary-6' /> : null}
-          <span className='font-500 text-t-primary'>{phaseLabel}</span>
-          <span className='truncate'>EVE · {laneLabel}</span>
-          {elapsedMs !== undefined ? (
-            <span className='inline-flex items-center gap-4px text-t-tertiary'>
-              <Time theme='outline' size='12' />
-              {formatDuration(elapsedMs)}
-            </span>
-          ) : null}
-          {hasContextUsage ? (
-            <span className='text-t-tertiary'>
-              {t('conversation.runtimeStatus.context', {
-                used: formatTokens(activity.contextUsed as number),
-                size: formatTokens(activity.contextSize as number),
-              })}
-            </span>
-          ) : null}
-        </div>
-        {notice ? <div className='pl-16px text-t-tertiary'>{notice}</div> : null}
+    <div className='acp-runtime-status' data-testid='acp-runtime-status'>
+      <div className='acp-runtime-status__content'>
+        <span
+          className={`h-8px w-8px rd-50% shrink-0 ${statusDotClass[activity.phase]} ${isActive ? 'animate-pulse' : ''}`}
+        />
+        {isActive ? <Loading theme='outline' size='14' className='animate-spin shrink-0 text-primary-6' /> : null}
+        <span className='font-500 text-t-primary'>{phaseLabel}</span>
+        <span className='truncate'>EVE · {laneLabel}</span>
+        {elapsedMs !== undefined ? (
+          <span className='inline-flex items-center gap-4px text-t-tertiary'>
+            <Time theme='outline' size='12' />
+            {formatDuration(elapsedMs)}
+          </span>
+        ) : null}
+        {hasContextUsage ? (
+          <span className='text-t-tertiary'>
+            {t('conversation.runtimeStatus.context', {
+              used: formatTokens(activity.contextUsed as number),
+              size: formatTokens(activity.contextSize as number),
+            })}
+          </span>
+        ) : null}
+        {notice ? (
+          <span className='acp-runtime-status__notice' title={notice}>
+            {notice}
+          </span>
+        ) : null}
       </div>
       <Tooltip content={t('conversation.runtimeStatus.logsTooltip')}>
-        <Button type='text' size='mini' onClick={openLogs}>
+        <Button className='acp-runtime-status__logs' type='text' size='mini' onClick={openLogs}>
           {t('conversation.runtimeStatus.logs')}
         </Button>
       </Tooltip>

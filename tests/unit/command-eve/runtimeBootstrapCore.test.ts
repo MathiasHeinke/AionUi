@@ -42,6 +42,7 @@ import {
 import { COMMAND_EVE_VERSION } from '@/common/config/commandEveShell';
 import packageJson from '../../../package.json';
 import { registerTenant } from '@/process/commandEve/entitlementCore';
+import { sha256FileIfPresent } from '@/process/commandEve/windows/runtimeProvenanceCore';
 
 type Harness = {
   root: string;
@@ -753,6 +754,7 @@ describe('Command EVE runtime bootstrap core', () => {
         userDataPath: harness.root,
         manifestPath,
         resourcesPath,
+        expectedHermesWheelSha256: sha256FileIfPresent(wheelPath),
         runner: harness.runner,
         detachedSpawner: () => {},
         statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),

@@ -184,7 +184,7 @@ const AionModal: React.FC<AionModalProps> = ({
   const { t } = useTranslation();
   // 处理 contentStyle 配置，转换为 CSS 变量
   const contentBg = contentStyle?.background || 'transparent';
-  const contentBorderRadius = contentStyle?.borderRadius || 'var(--eve-surface-radius-md)';
+  const contentBorderRadius = contentStyle?.borderRadius || 'var(--eve-dialog-radius)';
   const contentPadding = contentStyle?.padding ?? '4px 24px 20px';
   const contentOverflow = contentStyle?.overflow || 'auto';
 
@@ -240,7 +240,7 @@ const AionModal: React.FC<AionModalProps> = ({
 
   const finalStyle: CSSProperties = {
     ...mergedStyle,
-    borderRadius: mergedStyle.borderRadius ?? 'var(--eve-surface-radius-md)',
+    borderRadius: mergedStyle.borderRadius ?? 'var(--eve-dialog-radius)',
   };
 
   const bodyInlineStyle = React.useMemo<CSSProperties>(() => {
@@ -296,7 +296,11 @@ const AionModal: React.FC<AionModalProps> = ({
           <div className='flex flex-wrap justify-end gap-10px'>
             {/* 默认按钮提供统一圆角，文案可通过 cancelText/okText 覆盖 */}
             {/* Default buttons ship with rounded corners; text can be overridden via cancelText/okText */}
-            <Button onClick={onCancel} className='px-20px min-w-80px' style={{ borderRadius: 8 }}>
+            <Button
+              onClick={onCancel}
+              className='px-20px min-w-80px'
+              style={{ borderRadius: 'var(--eve-control-radius)' }}
+            >
               {cancelLabel}
             </Button>
             <Button
@@ -304,7 +308,7 @@ const AionModal: React.FC<AionModalProps> = ({
               onClick={props.onOk}
               loading={props.confirmLoading}
               className='px-20px min-w-80px'
-              style={{ borderRadius: 8 }}
+              style={{ borderRadius: 'var(--eve-control-radius)' }}
             >
               {okLabel}
             </Button>

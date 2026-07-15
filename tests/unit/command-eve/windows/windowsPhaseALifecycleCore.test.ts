@@ -13,6 +13,7 @@ import {
   phaseACreditsConsumed,
   type PhaseALifecycleEvidence,
 } from '@/process/commandEve/windows/phaseALifecycleCore';
+import { COMMAND_EVE_BUNDLED_HERMES_WHEEL_SHA256 } from '@/process/commandEve/runtimeBootstrapCore';
 
 function evidence(): PhaseALifecycleEvidence {
   return {
@@ -43,6 +44,9 @@ function evidence(): PhaseALifecycleEvidence {
       hermes_executable_found: true,
       hermes_required_version: '0.17.0',
       hermes_installed_version: '0.17.0',
+      hermes_wheel_sha256: COMMAND_EVE_BUNDLED_HERMES_WHEEL_SHA256,
+      hermes_expected_wheel_sha256: COMMAND_EVE_BUNDLED_HERMES_WHEEL_SHA256,
+      hermes_wheel_sha256_verified: true,
       hermes_version_probe_exit_code: 0,
       hermes_version_probe_output: '0.17.0',
       ollama_stage_status: 'skip',
@@ -161,6 +165,16 @@ describe('Windows Phase A Hermes turn-holder evaluation', () => {
     const result = evaluatePhaseAHermesTurnHolder(input);
     expect(result.status).toBe('REJECT');
     expect(result.assertions.find((item) => item.id === 'hermes-version')?.status).toBe('REJECT');
+  });
+
+  it('rejects same-version Hermes bytes that do not match the committed wheel pin', () => {
+    const input = evidence();
+    input.runtime.hermes_wheel_sha256 = 'f'.repeat(64);
+    input.runtime.hermes_wheel_sha256_verified = false;
+
+    const result = evaluatePhaseAHermesTurnHolder(input);
+    expect(result.status).toBe('REJECT');
+    expect(result.assertions.find((item) => item.id === 'hermes-wheel-sha256-pinned')?.status).toBe('REJECT');
   });
 });
 

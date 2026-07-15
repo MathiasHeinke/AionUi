@@ -64,6 +64,8 @@ const COMMAND_EVE_EGRESS_PROXY_URL_ENV = 'COMMAND_EVE_EGRESS_PROXY_URL';
 const DEFAULT_MODEL_REF = 'gemma4:e4b';
 const DEFAULT_HERMES_VERSION = '0.17.0';
 const DEFAULT_HERMES_PACKAGE = 'hermes-agent';
+export const COMMAND_EVE_BUNDLED_HERMES_WHEEL_SHA256 =
+  'b5e36fce7a65b202fff54bc0742316748224c11c9061312843aecdd59ec4694d';
 const DEFAULT_FAST_CONTEXT_LENGTH = 65_536;
 const DEFAULT_LONG_CONTEXT_LENGTH = 65_536;
 // Agent response budget. 512 was the at-cost text fence — but the SAME agent config rides
@@ -636,6 +638,8 @@ export type RuntimeBootstrapProvenance = {
     installed_version: string;
     install_source: 'bundled_wheel' | 'package_index';
     wheel_sha256?: string;
+    wheel_expected_sha256?: string;
+    wheel_sha256_verified?: boolean;
     dependency_resolution: 'pypi_tls_on_first_boot';
     package_snapshot_status: 'pending' | 'captured' | 'unavailable';
     resolved_packages: string[];
@@ -690,6 +694,8 @@ export type RuntimeBootstrapOptions = {
   totalMemoryBytes?: number;
   ollamaBinaryCandidates?: string[];
   bundledHermesWheelCandidates?: string[];
+  /** Test/build seam. Production always uses the committed Hermes wheel pin. */
+  expectedHermesWheelSha256?: string;
   displayNameLookup?: () => string;
   /**
    * The operator's selected interface language (e.g. 'de-DE' / 'en-US'). Threaded
@@ -744,7 +750,7 @@ export type RuntimeBootstrapOptions = {
 
 export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
   version: 'command-eve-capability-pack/v0',
-  release: '1.8.11',
+  release: '1.8.12',
   policy: {
     default_mode: 'proposal_only',
     secret_rule: 'Never ask for passwords, cookies, recovery codes, raw tokens or .env contents in chat.',
@@ -1108,7 +1114,7 @@ type PythonLookup = CommandLookup & {
 
 export const DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST: RuntimeBootstrapManifest = {
   version: 'command-eve-runtime-bootstrap-manifest/v0',
-  release: '1.8.11',
+  release: '1.8.12',
   hermes: {
     package: DEFAULT_HERMES_PACKAGE,
     version: DEFAULT_HERMES_VERSION,
@@ -4646,16 +4652,35 @@ export async function ensureCommandEveRuntimeBootstrap(
 
   const bundledHermesWheel = resolveBundledHermesWheel(manifest, env, options);
   const hermesSpec = buildHermesPackageSpec(manifest, bundledHermesWheel);
+  const hermesWheelSha256 = bundledHermesWheel ? sha256FileIfPresent(bundledHermesWheel) : undefined;
+  const expectedHermesWheelSha256 =
+    compact(options.expectedHermesWheelSha256) || COMMAND_EVE_BUNDLED_HERMES_WHEEL_SHA256;
+  const hermesWheelSha256Verified = Boolean(hermesWheelSha256 && hermesWheelSha256 === expectedHermesWheelSha256);
   runtimeProvenance.hermes = {
     package: manifest.hermes.package,
     required_version: manifest.hermes.version,
     installed_version: '',
     install_source: bundledHermesWheel ? 'bundled_wheel' : 'package_index',
-    ...(bundledHermesWheel ? { wheel_sha256: sha256FileIfPresent(bundledHermesWheel) } : {}),
+    ...(bundledHermesWheel
+      ? {
+          wheel_sha256: hermesWheelSha256,
+          wheel_expected_sha256: expectedHermesWheelSha256,
+          wheel_sha256_verified: hermesWheelSha256Verified,
+        }
+      : {}),
     dependency_resolution: 'pypi_tls_on_first_boot',
     package_snapshot_status: 'pending',
     resolved_packages: [],
   };
+  if (bundledHermesWheel && !hermesWheelSha256Verified) {
+    pushStage(
+      makeStage('hermes', 'failed', {
+        code: 'HERMES_WHEEL_HASH_MISMATCH',
+        detail: 'Bundled Hermes wheel bytes do not match the committed SHA-256 pin.',
+      })
+    );
+    return finishReceipt();
+  }
   const hermesInstalled = fs.existsSync(hermesConsoleBinary(paths));
   const installedHermesVersion = hermesInstalled ? await readInstalledHermesVersion(paths, runner, env) : '';
   const hermesVersionMatches = installedHermesVersion === manifest.hermes.version;

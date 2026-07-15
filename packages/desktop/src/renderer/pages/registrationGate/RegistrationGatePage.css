@@ -74,7 +74,7 @@
   width: min(100%, 468px);
   padding: 36px 34px 30px;
   border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 24px;
+  border-radius: var(--eve-dialog-radius, 20px);
   background: rgba(13, 21, 38, 0.55);
   -webkit-backdrop-filter: blur(28px) saturate(150%);
   backdrop-filter: blur(28px) saturate(150%);
@@ -175,6 +175,9 @@
 }
 
 .registration-gate__form {
+  --registration-control-radius: var(--eve-control-radius, 10px);
+  --registration-control-bg: rgba(8, 15, 30, 0.58);
+  --registration-control-border: rgba(255, 255, 255, 0.14);
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -185,12 +188,32 @@
   gap: 6px;
 }
 
-.registration-gate .arco-input,
-.registration-gate input,
-.registration-gate textarea {
+.registration-gate__field > .arco-input,
+.registration-gate__field > .arco-input-wrapper,
+.registration-gate__field > .arco-input-inner-wrapper,
+.registration-gate__field > .arco-textarea {
   color: #eef3fa !important;
   -webkit-text-fill-color: #eef3fa !important;
-  background-color: rgba(255, 255, 255, 0.05) !important;
+  min-height: 42px;
+  box-sizing: border-box;
+  background: var(--registration-control-bg) !important;
+  border: 1px solid var(--registration-control-border) !important;
+  border-radius: var(--registration-control-radius) !important;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+  -webkit-backdrop-filter: blur(12px) saturate(118%);
+  backdrop-filter: blur(12px) saturate(118%);
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+.registration-gate__field > .arco-input-inner-wrapper > .arco-input {
+  min-height: 40px;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: inherit !important;
+  box-shadow: none !important;
 }
 .registration-gate .arco-input::placeholder,
 .registration-gate input::placeholder,
@@ -216,9 +239,9 @@
 }
 .registration-gate .arco-input-wrapper,
 .registration-gate .arco-input-inner-wrapper {
-  background-color: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 11px;
+  background-color: var(--registration-control-bg);
+  border: 1px solid var(--registration-control-border);
+  border-radius: var(--registration-control-radius);
   transition:
     border-color 0.18s ease,
     box-shadow 0.18s ease;
@@ -234,12 +257,24 @@
 .registration-gate .arco-input-inner-wrapper.arco-input-inner-wrapper-focus,
 .registration-gate .arco-input-inner-wrapper:focus,
 .registration-gate .arco-input-inner-wrapper:focus-within {
-  background-color: rgba(15, 23, 40, 0.92) !important;
+  background-color: var(--registration-control-bg) !important;
+}
+.registration-gate__field > .arco-input:hover,
+.registration-gate__field > .arco-input-wrapper:hover,
+.registration-gate__field > .arco-input-inner-wrapper:hover,
+.registration-gate__field > .arco-textarea:hover {
+  border-color: rgba(255, 255, 255, 0.24) !important;
+  background: rgba(8, 15, 30, 0.68) !important;
 }
 .registration-gate .arco-input-wrapper:focus-within,
-.registration-gate .arco-input-inner-wrapper:focus-within {
-  border-color: rgba(249, 115, 22, 0.7);
-  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.18);
+.registration-gate .arco-input-inner-wrapper:focus-within,
+.registration-gate__field > .arco-input:focus,
+.registration-gate__field > .arco-textarea:focus {
+  border-color: rgba(249, 115, 22, 0.7) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.05) inset,
+    0 0 0 1px rgba(249, 115, 22, 0.16),
+    0 0 18px rgba(249, 115, 22, 0.14);
 }
 
 .registration-gate__label {
@@ -260,7 +295,7 @@
   align-items: flex-start;
   padding: 12px 14px;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 13px;
+  border-radius: var(--registration-control-radius);
   background: rgba(255, 255, 255, 0.04);
 }
 .registration-gate__consent-text {
@@ -276,6 +311,9 @@
   font-weight: 600 !important;
   box-shadow: 0 8px 20px rgba(249, 115, 22, 0.3) !important;
   transition: filter 0.15s ease !important;
+}
+.registration-gate__form > .arco-btn:not(.arco-btn-shape-circle) {
+  border-radius: var(--registration-control-radius) !important;
 }
 .registration-gate .arco-btn-primary:hover {
   filter: brightness(1.06) !important;
@@ -334,7 +372,7 @@
   display: flex;
   gap: 4px;
   padding: 4px;
-  border-radius: 12px;
+  border-radius: calc(var(--registration-control-radius) + 2px);
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
@@ -342,7 +380,7 @@
   flex: 1 1 0;
   padding: 8px 12px;
   border: none;
-  border-radius: 9px;
+  border-radius: calc(var(--registration-control-radius) - 2px);
   background: transparent;
   color: #8a99ad;
   font-size: 14px;
@@ -403,7 +441,7 @@
   gap: 4px;
   padding: 14px 16px;
   border: 1px solid rgba(249, 115, 22, 0.3);
-  border-radius: 13px;
+  border-radius: var(--registration-control-radius);
   background: rgba(249, 115, 22, 0.08);
 }
 .registration-gate__curtain-preserved-title {
