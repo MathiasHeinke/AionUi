@@ -281,6 +281,14 @@ function Get-ProviderSecretFindingCount {
     if (-not (Test-Path -LiteralPath $root)) { continue }
     foreach ($file in Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue) {
       $isDotEnv = $file.Name -ieq '.env' -or $file.Name.StartsWith('.env.', [System.StringComparison]::OrdinalIgnoreCase)
+      $isPythonRecord = (
+        $file.Name -ceq 'RECORD' -and
+        $null -ne $file.Directory -and
+        $file.Directory.Name.EndsWith('.dist-info', [System.StringComparison]::OrdinalIgnoreCase)
+      )
+      # Python RECORD files contain URL-safe base64 hashes whose random bytes can
+      # resemble provider-key prefixes. They are integrity manifests, not secret-bearing config.
+      if ($isPythonRecord) { continue }
       if ($file.Length -gt 5MB -or (-not $isDotEnv -and $file.Extension.ToLowerInvariant() -notin $textExtensions)) { continue }
       try { $count += ([regex]::Matches((Get-Content -LiteralPath $file.FullName -Raw), $pattern)).Count }
       catch {}

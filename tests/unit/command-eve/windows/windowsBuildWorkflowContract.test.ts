@@ -227,6 +227,9 @@ describe('Command EVE Windows build workflow contract', () => {
     });
     expect(harness.match(/\$textExtensions = @\('', '\.cfg', '\.conf', '\.csv', '\.env'/g)).toHaveLength(2);
     expect(harness.match(/\$isDotEnv = \$file\.Name -ieq '\.env'/g)).toHaveLength(2);
+    expect(harness).toContain("$file.Name -ceq 'RECORD'");
+    expect(harness).toContain("$file.Directory.Name.EndsWith('.dist-info'");
+    expect(harness.match(/if \(\$isPythonRecord\) \{ continue \}/g)).toHaveLength(1);
     expect(
       harness.match(/-not \$isDotEnv -and \$file\.Extension\.ToLowerInvariant\(\) -notin \$textExtensions/g)
     ).toHaveLength(2);
