@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { COMMAND_EVE_OPERATIONAL_CONTEXT_LIMIT } from '@/common/config/eveContextPolicyCore';
+
 /**
  * 已知模型的 context window 大小配置
  */
@@ -23,6 +25,7 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   'gemini-1.5-flash': 1_048_576,
 
   // OpenAI 系列
+  'gpt-5.6': 1_000_000,
   'gpt-5.1': 400_000,
   'gpt-5.1-chat': 128_000,
   'gpt-5': 400_000,
@@ -41,6 +44,9 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   'o3-mini': 200_000,
 
   // Claude 系列
+  'claude-opus-4.8': 1_000_000,
+  'claude-fable-5': 1_000_000,
+  'fable-5': 1_000_000,
   'claude-opus-4.5': 200_000,
   'claude-haiku-4.5': 200_000,
   'claude-sonnet-4.5': 1_000_000,
@@ -80,25 +86,24 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
 /**
  * 默认 context limit（当无法确定模型时使用）
  */
-export const DEFAULT_CONTEXT_LIMIT = 1_048_576;
+export const DEFAULT_CONTEXT_LIMIT = COMMAND_EVE_OPERATIONAL_CONTEXT_LIMIT;
 
 /**
- * The EVE CLOUD lane's true context window (all three cloud tiers serve a
- * 1M-context model — FACT modelContextLimits above + OpenRouter catalog).
+ * Command EVE's operational cloud context window. Provider marketing may
+ * advertise 1M+, but EVE deliberately keeps one predictable 256K contract for
+ * every cloud model. Hermes compacts before this ceiling; local models retain
+ * their smaller live hardware cap.
  *
  * WHY a named constant the resolver leans on: the live `acp_context_usage.size`
  * frame Hermes emits carries the runtime's CONFIGURED `context_length`, which on
  * a Command EVE build is the LOCAL Ollama `ollama_num_ctx` memory cap (64k on the
  * M1 16GB baseline, bounded to ≤262144 in runtimeBootstrapCore). Hermes reports
  * that SAME 64k window on CLOUD turns too (one managed config, not per-lane), so
- * a naive "live size always wins" pins the cloud Max model (GLM 5.2, 1M) at 64k —
- * exactly the founder's "Kontextfenster auf 64K trotz Cloud Max Model?". The
- * model's real window must follow the MODEL on the cloud lane, so the cloud
- * resolver floors the displayed window at the model's registry size and never
- * lets the local-runtime compaction cap shrink it. (Auto-compaction still fires
- * at its own threshold — that is a separate Hermes concern, decoupled here.)
+ * a naive "live size always wins" pins cloud turns at 64K. The resolver therefore
+ * ignores that stale local size on cloud turns, but it also never exposes the
+ * provider's theoretical 1M window as EVE's usable budget.
  */
-export const EVE_CLOUD_CONTEXT_LIMIT = 1_048_576;
+export const EVE_CLOUD_CONTEXT_LIMIT = COMMAND_EVE_OPERATIONAL_CONTEXT_LIMIT;
 
 /**
  * True iff `modelId` denotes the EVE cloud inference lane (any tier:
@@ -162,12 +167,11 @@ export function getModelContextLimit(modelName: string | undefined | null): numb
  * Resolve the context window to DISPLAY/USE for a model, given the optional LIVE
  * runtime size from Hermes' `acp_context_usage` frame.
  *
- *  - LOCAL lane (and unknown models): the live `size` is the truth — it IS the
- *    real runtime window — so it wins when present; else the registry; else 1M.
- *  - CLOUD lane (EVE inference): the window follows the MODEL. The live `size` is
- *    the local-runtime compaction cap (64k) misreported on cloud turns, so we
- *    FLOOR at the model's registry window and never let that cap shrink it. This
- *    is what makes "EVE Cloud · Max" read as its real ~1M window, not 64k.
+ *  - LOCAL lane: the live `size` is the hardware-safe runtime truth.
+ *  - CLOUD lane (EVE inference): every provider is operationally capped at 256K,
+ *    even if its advertised window is 1M or larger.
+ *  - Other/unknown remote models are clamped to the same 256K ceiling, while
+ *    genuinely smaller model windows stay smaller.
  *
  * Compaction is intentionally NOT modeled here: the displayed window is the
  * model's real capacity; Hermes still compacts at its own (separate) threshold.
@@ -180,13 +184,10 @@ export function resolveEffectiveContextLimit(
   const registry = getModelContextLimit(modelName);
 
   if (isEveCloudModelId(modelName)) {
-    // Cloud: the model's window is the floor; a smaller live cap can't shrink it.
-    // A bare tier id (e.g. "max") resolves to the 1M DEFAULT via getModelContextLimit;
-    // EVE_CLOUD_CONTEXT_LIMIT keeps the floor explicit even if the registry ever
-    // returns a smaller default for an as-yet-unmapped cloud id.
-    return Math.max(registry, EVE_CLOUD_CONTEXT_LIMIT, live);
+    return EVE_CLOUD_CONTEXT_LIMIT;
   }
 
-  // Local / unknown: the live runtime size is the real window when we have one.
-  return live > 0 ? live : registry;
+  // Local / unknown: trust a smaller live runtime cap, but never expose a larger
+  // provider window than EVE's universal operating contract.
+  return Math.min(live > 0 ? live : registry, COMMAND_EVE_OPERATIONAL_CONTEXT_LIMIT);
 }

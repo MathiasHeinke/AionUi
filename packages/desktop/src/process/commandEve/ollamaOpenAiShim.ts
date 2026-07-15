@@ -18,6 +18,7 @@ import {
 import { isLegacySeatId } from './seatContextCore';
 import { evaluateWorkerDispatch, type EveTeamWorkerStatusMap } from '../../common/config/eveTeamControlsCore';
 import { EVE_INFERENCE_TIERS } from '../../common/config/eveInferenceCore';
+import { buildCommandEveContextPolicy, type CommandEveContextPolicy } from '../../common/config/eveContextPolicyCore';
 import { HONCHO_DERIVER_FORCED_TIER } from './honchoRuntimeConfigCore';
 
 /**
@@ -326,6 +327,13 @@ export type CommandEveOllamaShimOptions = {
    */
   honchoDeriverRoute?: CommandEveHonchoDeriverRouteResolver;
 };
+
+export function commandEveCacheScope(sessionId: unknown): string | undefined {
+  if (typeof sessionId !== 'string') return undefined;
+  const normalized = sessionId.trim();
+  if (!normalized || normalized.length > 512) return undefined;
+  return crypto.createHash('sha256').update(`command-eve-cache:${normalized}`).digest('hex');
+}
 
 export type CommandEveModelWarmupOptions = {
   baseUrl?: string;
@@ -778,6 +786,30 @@ function contextLengthFromModel(model: string, fallback: number): number {
   return Math.max(4_096, Math.min(262_144, Math.floor(contextLength)));
 }
 
+export async function resolveCommandEveShimContextPolicy(
+  requestedModel: string,
+  options: Pick<Required<CommandEveOllamaShimOptions>, 'eveRouting' | 'numCtx'>
+): Promise<CommandEveContextPolicy> {
+  try {
+    const route = await options.eveRouting();
+    if (route?.active) return buildCommandEveContextPolicy('cloud');
+  } catch (error) {
+    console.warn('[Command EVE] context policy route lookup failed; keeping the local hardware cap:', error);
+  }
+  return buildCommandEveContextPolicy('local', contextLengthFromModel(requestedModel, options.numCtx));
+}
+
+async function handleContextPolicy(
+  requestUrl: URL,
+  response: ServerResponse,
+  options: Required<CommandEveOllamaShimOptions>
+): Promise<void> {
+  const requestedModel = requestUrl.searchParams.get('model') ?? '';
+  const policy = await resolveCommandEveShimContextPolicy(requestedModel, options);
+  response.setHeader('cache-control', 'no-store');
+  jsonResponse(response, 200, policy);
+}
+
 function nativeChatPayload(body: Record<string, unknown>, options: Required<CommandEveOllamaShimOptions>): unknown {
   const model = String(body.model || '');
   const maxTokens =
@@ -1023,6 +1055,10 @@ async function handleEveCloudCompletions(
   // for a delegated (non-default) role, so an un-delegated call's body keeps its
   // prior shape. The id is a kebab role string, never a secret — safe to forward.
   const attributionAgentId = await options.attributionAgentId(dispatchToken, seatId);
+  // Hermes provides its local session id to the loopback shim. Hash it before
+  // cloud egress so neither the raw local id nor the conversation title leaves
+  // the Mac. The server HMACs this opaque scope again before OpenRouter sees it.
+  const cacheScope = commandEveCacheScope(body.session_id);
 
   // DUX-4 — ENFORCE the "Dein Team" pause/throttle/fire controls. The panel
   // WRITES `commandEve.teamWorkerStatus`; here is the ONE place the execution
@@ -1080,6 +1116,7 @@ async function handleEveCloudCompletions(
     // sanitizes and persists it to usage_events.seat_id; it is NEVER in
     // FORWARDABLE_BODY_KEYS so it stays invisible to OpenRouter.
     ...(typeof seatId === 'string' && seatId.length > 0 ? { seat_id: seatId } : {}),
+    ...(cacheScope ? { cache_scope: cacheScope } : {}),
     ...(Array.isArray(body.tools) && body.tools.length > 0 ? { tools: body.tools } : {}),
     ...(body.tool_choice !== undefined ? { tool_choice: body.tool_choice } : {}),
     ...(body.parallel_tool_calls !== undefined ? { parallel_tool_calls: body.parallel_tool_calls } : {}),
@@ -1706,41 +1743,47 @@ async function startCommandEveOllamaOpenAiShimOnce(shimOptions: CommandEveOllama
   };
   const nextServer = http.createServer((request, response) => {
     void (async () => {
-      const path = new URL(request.url || '/', `http://${request.headers.host || '127.0.0.1'}`).pathname;
-      if (request.method === 'GET' && path === '/health') {
+      const requestUrl = new URL(request.url || '/', `http://${request.headers.host || '127.0.0.1'}`);
+      const requestPath = requestUrl.pathname;
+      if (request.method === 'GET' && requestPath === '/health') {
         jsonResponse(response, 200, { ok: true });
         return;
       }
-      if (request.method === 'GET' && path === '/v1/models') {
+      if (request.method === 'GET' && requestPath === '/v1/models') {
         if (!requireShimAuth(request, response, options.authToken)) return;
         await handleModels(response, options);
         return;
       }
-      if (request.method === 'POST' && path === '/v1/chat/completions') {
+      if (request.method === 'GET' && requestPath === '/v1/command-eve/context-policy') {
+        if (!requireShimAuth(request, response, options.authToken)) return;
+        await handleContextPolicy(requestUrl, response, options);
+        return;
+      }
+      if (request.method === 'POST' && requestPath === '/v1/chat/completions') {
         if (!requireShimAuth(request, response, options.authToken)) return;
         await handleChatCompletions(request, response, options);
         return;
       }
       // COMPA-624 — the Honcho deriver's dedicated FREE cloud lane. Separate path
       // so it is picker-independent + free-tier-forced + never a warmup-ping.
-      if (request.method === 'POST' && path === '/honcho/deriver/v1/chat/completions') {
+      if (request.method === 'POST' && requestPath === '/honcho/deriver/v1/chat/completions') {
         if (!requireShimAuth(request, response, options.authToken)) return;
         await handleHonchoDeriverCompletions(request, response, options);
         return;
       }
-      if (request.method === 'POST' && path === '/eve/team/propose') {
+      if (request.method === 'POST' && requestPath === '/eve/team/propose') {
         await handleTeamManagePropose(request, response, options);
         return;
       }
-      if (request.method === 'POST' && path === '/eve/kanban/propose') {
+      if (request.method === 'POST' && requestPath === '/eve/kanban/propose') {
         await handleKanbanAcpPropose(request, response, options);
         return;
       }
-      if (request.method === 'GET' && path === '/eve/kanban/read') {
+      if (request.method === 'GET' && requestPath === '/eve/kanban/read') {
         await handleKanbanAcpRead(request, response, options);
         return;
       }
-      jsonResponse(response, 404, { error: { message: `Unsupported Command EVE Ollama shim path: ${path}` } });
+      jsonResponse(response, 404, { error: { message: `Unsupported Command EVE Ollama shim path: ${requestPath}` } });
     })().catch((error) => {
       jsonResponse(response, 500, { error: { message: error instanceof Error ? error.message : String(error) } });
     });

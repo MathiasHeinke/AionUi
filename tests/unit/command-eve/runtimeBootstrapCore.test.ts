@@ -423,7 +423,10 @@ describe('Command EVE runtime bootstrap core', () => {
         expect.objectContaining({ id: 'model', status: 'pass' }),
       ])
     );
-    const config = fs.readFileSync(path.join(resolveCommandEveRuntimeBootstrapPaths(harness.root).hermesHome, 'config.yaml'), 'utf8');
+    const config = fs.readFileSync(
+      path.join(resolveCommandEveRuntimeBootstrapPaths(harness.root).hermesHome, 'config.yaml'),
+      'utf8'
+    );
     expect(config).toContain(`default: ${COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID}`);
     expect(config).toContain('base_url: http://127.0.0.1:25811/v1');
     expect(runtimeReceiptAllowsLocalModelWarmup(receipt)).toBe(true);
@@ -496,11 +499,10 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(configYaml).toContain('image_input_mode: native');
       expect(configYaml).toContain('disabled_toolsets:');
       expect(configYaml).toMatch(/disabled_toolsets:\s*\n\s*- vision/);
-      // Context auto-compaction threshold (Claude-Code-style: compact LATER).
-      // The top-level compression.threshold is raised from the wheel default 0.50
-      // to 0.80 so EVE keeps more working memory before summarizing the middle of
-      // the conversation. Config-only (deep-merged over wheel defaults).
-      expect(configYaml).toMatch(/compression:\s*\n\s*threshold: 0\.80/);
+      // Context auto-compaction threshold: the dynamic provider patch raises
+      // cloud turns to 256K and compacts at 75% (196608), while local turns keep
+      // the hardware-safe 64K cap.
+      expect(configYaml).toMatch(/compression:\s*\n\s*threshold: 0\.75/);
       expect(configYaml).not.toContain('threshold: 0.50');
       expect(configYaml).toMatch(/delegation:\s*\n\s*max_concurrent_children: 3\s*\n\s*max_async_children: 3/);
       expect(configYaml).toContain('max_spawn_depth: 1');
@@ -678,6 +680,15 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(providerOverride).toContain('default_headers=_command_eve_shim_headers()');
       expect(providerOverride).toContain('top_level["reasoning_effort"] = "none"');
       expect(providerOverride).toContain('Command EVE cloud-shim stop continuation patch');
+      expect(providerOverride).toContain('command-eve-context-policy/v1');
+      expect(providerOverride).toContain('_install_command_eve_context_policy_patch');
+      expect(providerOverride).toContain('ContextCompressor.should_compress = command_eve_should_compress');
+      expect(providerOverride).toContain('def command_eve_should_compress(self: Any, *args: Any, **kwargs: Any)');
+      expect(providerOverride).toContain('def command_eve_should_defer(self: Any, *args: Any, **kwargs: Any)');
+      expect(providerOverride).toContain('_command_eve_apply_context_policy');
+      expect(providerOverride).toContain('"local-fallback"');
+      expect(providerOverride).toContain('request_host == "127.0.0.1"');
+      expect(providerOverride).toContain('top_level["session_id"] = session_id[:256]');
       expect(providerOverride).toContain('AIAgent._should_treat_stop_as_truncated');
       expect(providerOverride).toContain('command-eve');
       expect(providerOverride).toContain('command_eve_is_action_ack');

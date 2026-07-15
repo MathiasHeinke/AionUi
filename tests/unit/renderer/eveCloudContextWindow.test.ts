@@ -4,13 +4,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-// Regression: the EVE Cloud · Max context popover must show the model's real
-// ~1M window, NOT the local 64k compaction cap. The bug was that the runtime
+// Regression: EVE Cloud must show the universal 256K operating window, NOT the
+// local 64K hardware cap and NOT a provider-advertised 1M window. The bug was
+// that the runtime
 // `request_trace.model_id` on a cloud turn carries Hermes' LOCAL config model
 // (one managed Ollama config), so the resolver saw a local-looking id and let
 // the 64k live `acp_context_usage.size` win → the founder's "55.3K / 65.5K".
 // AcpSendBox now feeds the cloud SELECTION id to the indicator, which the
-// resolver detects as the cloud lane and floors at 1M.
+// resolver detects as the cloud lane and applies the 256K policy.
 
 import { describe, expect, it } from 'vitest';
 import {
@@ -38,9 +39,20 @@ describe('EVE cloud context window resolution', () => {
     expect(isEveCloudModelId('gemma-4')).toBe(false);
   });
 
-  it('cloud Max floors at ~1M even when the live size is the 64k local cap', () => {
+  it('cloud Max resolves to 256K even when Hermes still reports the local 64K cap', () => {
     expect(resolveEffectiveContextLimit(CLOUD_MAX_SELECTION, LIVE_64K)).toBe(EVE_CLOUD_CONTEXT_LIMIT);
-    expect(EVE_CLOUD_CONTEXT_LIMIT).toBe(1_048_576);
+    expect(EVE_CLOUD_CONTEXT_LIMIT).toBe(262_144);
+  });
+
+  it('caps every large remote model at 256K regardless of its advertised window', () => {
+    expect(resolveEffectiveContextLimit('claude-opus-4.8')).toBe(262_144);
+    expect(resolveEffectiveContextLimit('fable-5')).toBe(262_144);
+    expect(resolveEffectiveContextLimit('z-ai/glm-5.2')).toBe(262_144);
+    expect(resolveEffectiveContextLimit('gpt-5.6')).toBe(262_144);
+  });
+
+  it('keeps genuinely smaller provider windows smaller', () => {
+    expect(resolveEffectiveContextLimit('gpt-4')).toBe(8_192);
   });
 
   it('local lane keeps its real 64k window from the live size', () => {

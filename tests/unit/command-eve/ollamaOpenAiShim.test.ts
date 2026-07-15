@@ -4,8 +4,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   buildCommandEvePromptProof,
   buildEveCloudRoute,
+  commandEveCacheScope,
   ensureCommandEveShimAuthToken,
   isCommandEveWarmupRequest,
+  resolveCommandEveShimContextPolicy,
   resolveCommandEveShimListenPort,
   startCommandEveOllamaOpenAiShim,
   stopCommandEveOllamaOpenAiShimForTest,
@@ -18,6 +20,41 @@ describe('resolveCommandEveShimListenPort', () => {
     expect(resolveCommandEveShimListenPort(undefined, {})).toBe(25811);
     expect(resolveCommandEveShimListenPort(undefined, { AIONUI_E2E_TEST: '1' })).toBe(0);
     expect(resolveCommandEveShimListenPort(31000, { AIONUI_E2E_TEST: '1' })).toBe(31000);
+  });
+});
+
+describe('Command EVE context and cache policy', () => {
+  it('raises cloud Hermes turns to 256K but keeps local turns on their hardware cap', async () => {
+    await expect(
+      resolveCommandEveShimContextPolicy('custom:command-eve-gemma-64k:latest', {
+        numCtx: 65_536,
+        eveRouting: async () => ({ active: true, tier: 'max' }),
+      })
+    ).resolves.toMatchObject({
+      lane: 'cloud',
+      hard_limit_tokens: 262_144,
+      compression_threshold: 0.75,
+      compression_threshold_tokens: 196_608,
+    });
+
+    await expect(
+      resolveCommandEveShimContextPolicy('custom:command-eve-gemma-64k:latest', {
+        numCtx: 65_536,
+        eveRouting: async () => ({ active: false }),
+      })
+    ).resolves.toMatchObject({
+      lane: 'local',
+      hard_limit_tokens: 65_536,
+      compression_threshold_tokens: 49_152,
+    });
+  });
+
+  it('hashes Hermes session ids into stable opaque cache scopes', () => {
+    const first = commandEveCacheScope('hermes-session-1');
+    expect(first).toMatch(/^[a-f0-9]{64}$/);
+    expect(first).toBe(commandEveCacheScope('hermes-session-1'));
+    expect(first).not.toBe(commandEveCacheScope('hermes-session-2'));
+    expect(first).not.toContain('hermes-session-1');
   });
 });
 
@@ -239,6 +276,32 @@ describe('Command EVE Ollama OpenAI shim warm-up', () => {
 
     expect(response.status).toBe(401);
     expect(upstreamHits).toBe(0);
+  });
+
+  it('serves the live context policy only to authenticated Hermes requests', async () => {
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      authToken: SHIM_AUTH_TOKEN,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      eveRouting: async () => ({ active: true, tier: 'high' }),
+    });
+
+    const unauthenticated = await fetch(
+      `${shimServerUrl}/v1/command-eve/context-policy?model=custom%3Acommand-eve-gemma-64k%3Alatest`
+    );
+    expect(unauthenticated.status).toBe(401);
+
+    const authenticated = await fetch(
+      `${shimServerUrl}/v1/command-eve/context-policy?model=custom%3Acommand-eve-gemma-64k%3Alatest`,
+      { headers: { authorization: `Bearer ${SHIM_AUTH_TOKEN}` } }
+    );
+    expect(authenticated.status).toBe(200);
+    await expect(authenticated.json()).resolves.toMatchObject({
+      version: 'command-eve-context-policy/v1',
+      lane: 'cloud',
+      hard_limit_tokens: 262_144,
+      compression_threshold_tokens: 196_608,
+    });
   });
 
   it('returns a bounded first-byte timeout and closes the stalled upstream request', async () => {
@@ -532,6 +595,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
         model: 'custom:command-eve-gemma4-e4b-64k:latest',
         messages: [{ role: 'user', content: 'plan my week' }],
         stream: false,
+        session_id: 'hermes-session-private-1',
       }),
     });
     const json = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
@@ -547,6 +611,8 @@ describe('Command EVE shim — EVE cloud routing', () => {
     expect(fnSeen.body?.messages).toEqual([{ role: 'user', content: 'plan my week' }]);
     expect(fnSeen.body?.license).toBeUndefined();
     expect(fnSeen.body).not.toHaveProperty('model');
+    expect(fnSeen.body?.session_id).toBeUndefined();
+    expect(fnSeen.body?.cache_scope).toBe(commandEveCacheScope('hermes-session-private-1'));
   });
 
   it('strips native image_url parts before the EVE cloud lane sees them', async () => {
