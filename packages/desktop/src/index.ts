@@ -36,10 +36,7 @@ import { ipcBridge } from './common';
 import { initializeProcess } from './process';
 import { ProcessConfig } from './process/utils/initStorage';
 import { EVE_INFERENCE_FUNCTION_URL, resolveCommandEveWarmupLane } from './common/config/eveInferenceCore';
-import {
-  COMMAND_EVE_BONSAI_ACP_MODEL_ID,
-  COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID,
-} from './common/config/commandEveShell';
+import { COMMAND_EVE_BONSAI_ACP_MODEL_ID, COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID } from './common/config/commandEveShell';
 import { readLicenseWire } from './common/config/licenseWireAtRest';
 import type { EveTeamWorkerStatusMap } from './common/config/eveTeamControlsCore';
 import {

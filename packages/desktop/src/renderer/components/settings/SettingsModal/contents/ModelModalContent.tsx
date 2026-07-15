@@ -566,9 +566,7 @@ const ModelModalContent: React.FC = () => {
                 (localPull.model === probe.runtime_model_ref || localPull.model === probe.model_ref);
               const ensuringThis = ensuringTierId === tier.id;
               const activationBlocked =
-                tier.state === 'experimental'
-                  ? !probe || !fits
-                  : Boolean(probe && !fits && !probe.installed);
+                tier.state === 'experimental' ? !probe || !fits : Boolean(probe && !fits && !probe.installed);
               // Review fixes: the download affordance ALSO covers the SELECTED
               // tier (the most common broken state) and the Ollama-down case —
               // ensureLocalModelTier starts the runtime itself (idempotent).

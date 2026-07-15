@@ -110,7 +110,9 @@ function isNonnegativeNumber(candidate: unknown): candidate is number {
   return typeof candidate === 'number' && Number.isFinite(candidate) && candidate >= 0;
 }
 
-function parseProvisionProgress(value: Record<string, unknown> | undefined): BonsaiProvisionProgressReceipt | undefined {
+function parseProvisionProgress(
+  value: Record<string, unknown> | undefined
+): BonsaiProvisionProgressReceipt | undefined {
   if (
     value?.version !== 'command-eve-bonsai-provision-progress/v0' ||
     !['pulling', 'done', 'failed'].includes(String(value.status || '')) ||

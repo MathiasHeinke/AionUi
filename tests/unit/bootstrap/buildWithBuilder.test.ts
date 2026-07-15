@@ -5,7 +5,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -26,6 +26,9 @@ describe('build-with-builder', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'aionui-build-test-'));
     const hookPath = join(tempDir, 'hook.cjs');
     const callsPath = join(tempDir, 'prepare-calls.json');
+    const skillsSourcePath = join(tempDir, 'bundled-skills');
+
+    cpSync(resolve(repoRoot, 'resources/bundled-skills'), skillsSourcePath, { recursive: true });
 
     writeFileSync(
       hookPath,
@@ -82,6 +85,7 @@ childProcess.execSync = function mockedExecSync(command) {
         env: {
           ...process.env,
           AIONUI_PREPARE_CALLS_FILE: callsPath,
+          COMMAND_EVE_SKILLS_SRC: skillsSourcePath,
           NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require=${hookPath}`].filter(Boolean).join(' '),
         },
       });
