@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import {
   COMMAND_EVE_DEFAULT_ACP_BACKEND,
   COMMAND_EVE_DEFAULT_ACP_MODEL_ID,
+  COMMAND_EVE_BONSAI_ACP_MODEL_ID,
+  COMMAND_EVE_BONSAI_LOCAL_TIER_ID,
   COMMAND_EVE_EGRESS_PROXY_OPENAI_BASE_URL,
   COMMAND_EVE_LOCAL_RUNTIME_PROVIDER_ID,
   COMMAND_EVE_LOCAL_MODEL_TIERS,
@@ -29,14 +31,23 @@ describe('commandEveShell', () => {
     expect(getCommandEveDefaultAcpModelId('claude')).toBeUndefined();
   });
 
-  it('exposes local Gemma tiers for the Command EVE model settings surface', () => {
+  it('exposes Gemma and the experimental Bonsai tier on the same local model surface', () => {
     expect(COMMAND_EVE_LOCAL_MODEL_TIERS.map((tier) => tier.modelRef)).toEqual([
       'gemma4:e4b',
       'gemma4:12b',
       'gemma4:31b',
+      'bonsai:27b-q2',
     ]);
     expect(COMMAND_EVE_LOCAL_MODEL_TIERS[0].state).toBe('default');
     expect(COMMAND_EVE_LOCAL_MODEL_TIERS[1].state).toBe('opt_in');
+    expect(COMMAND_EVE_LOCAL_MODEL_TIERS[3]).toMatchObject({
+      id: COMMAND_EVE_BONSAI_LOCAL_TIER_ID,
+      modelId: COMMAND_EVE_BONSAI_ACP_MODEL_ID,
+      runtime: 'bonsai-prism',
+      contextLength: 65_536,
+      memoryGb: 24,
+      state: 'experimental',
+    });
   });
 
   it('maps the selected local tier to the Hermes ACP model id', () => {
@@ -58,6 +69,7 @@ describe('commandEveShell', () => {
       { id: 'custom:command-eve-gemma4-e4b-64k:latest', label: 'Gemma 4 E4B' },
       { id: 'custom:command-eve-gemma4-12b-64k:latest', label: 'Gemma 4 12B' },
       { id: 'custom:command-eve-gemma4-31b-64k:latest', label: 'Gemma 4 31B' },
+      { id: COMMAND_EVE_BONSAI_ACP_MODEL_ID, label: 'Bonsai 27B' },
     ]);
     expect(getCommandEveLocalAcpModelInfo('codex')).toBeUndefined();
   });
@@ -75,6 +87,14 @@ describe('commandEveShell', () => {
     expect(provider.base_url).toBe(COMMAND_EVE_EGRESS_PROXY_OPENAI_BASE_URL);
     expect(provider.api_key).toBe('command-eve-local-loopback');
     expect(provider.use_model).toBe('custom:command-eve-gemma4-12b-64k:latest');
+    expect(provider.context_limit).toBe(65_536);
+  });
+
+  it('routes Bonsai through the same authenticated local OpenAI shim contract', () => {
+    const provider = getCommandEveLocalRuntimeProvider(COMMAND_EVE_BONSAI_LOCAL_TIER_ID);
+    expect(provider.base_url).toBe(COMMAND_EVE_EGRESS_PROXY_OPENAI_BASE_URL);
+    expect(provider.api_key).toBe('command-eve-local-loopback');
+    expect(provider.use_model).toBe(COMMAND_EVE_BONSAI_ACP_MODEL_ID);
     expect(provider.context_limit).toBe(65_536);
   });
 

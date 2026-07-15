@@ -42,6 +42,16 @@
         "max_tokens": 512,
         "min_unified_memory_gb": 64,
         "min_free_disk_gb": 45
+      },
+      {
+        "id": "bonsai-27b-local-experimental",
+        "label": "Bonsai 27B local experimental opt-in",
+        "model_ref": "bonsai:27b-q2",
+        "runtime": "bonsai-prism",
+        "context_length": 65536,
+        "max_tokens": 512,
+        "min_unified_memory_gb": 24,
+        "min_free_disk_gb": 12
       }
     ]
   },

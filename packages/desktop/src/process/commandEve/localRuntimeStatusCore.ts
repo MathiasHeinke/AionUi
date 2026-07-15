@@ -5,12 +5,11 @@
  */
 
 import fs from 'fs';
-import path from 'path';
 import {
-  commandEveOllamaContextModelRef,
   loadCommandEveRuntimeBootstrapManifest,
   resolveCommandEveRuntimeBootstrapManifestPath,
   resolveCommandEveRuntimeBootstrapPaths,
+  runtimeModelRefForTier,
   selectRuntimeBootstrapTier,
   validateRuntimeBootstrapManifest,
   type RuntimeBootstrapManifest,
@@ -99,6 +98,7 @@ export type CommandEveLocalRuntimeTierCard = {
   label: string;
   model_ref: string;
   runtime_model_ref: string;
+  runtime: 'ollama' | 'bonsai-prism';
   context_length: number;
   max_tokens: number;
   min_unified_memory_gb: number;
@@ -110,6 +110,7 @@ export type CommandEveLocalRuntimeTierCard = {
    * never claim an install it cannot see (a warning names the unreachable probe).
    */
   installed: boolean;
+  status_known: boolean;
   /** Bytes the installed model occupies on disk (Ollama /api/tags size). */
   installed_size_bytes?: number;
   /** This machine meets the tier's RAM floor (unknown hardware ⇒ true — never invent a blocker). */
@@ -215,6 +216,7 @@ export type CommandEveLocalRuntimeStatusOptions = {
   totalMemoryBytes?: number;
   /** Free disk at the runtime root (GB). undefined ⇒ disk_fit true. */
   freeDiskGb?: number;
+  managedTierInstallStatus?: Record<string, { installed: boolean; installedSizeBytes?: number }>;
 };
 
 type JsonRecord = Record<string, unknown>;
@@ -350,10 +352,6 @@ function tierMaxTokens(tier: RuntimeBootstrapTier): number {
   return tier.max_tokens || 512;
 }
 
-function tierOllamaNumCtx(tier: RuntimeBootstrapTier): number {
-  return tier.ollama_num_ctx || tierContextLength(tier);
-}
-
 function tierStatus(tier: RuntimeBootstrapTier, selectedTier: RuntimeBootstrapTier): CommandEveLocalRuntimeTierStatus {
   if (tier.id === selectedTier.id) return 'selected';
   if (tier.id.includes('31b')) return 'pro';
@@ -416,13 +414,20 @@ function buildTierCard(
   selectedTier: RuntimeBootstrapTier,
   probes: {
     installedModels?: Array<{ name: string; size?: number }>;
+    managedTierInstallStatus?: CommandEveLocalRuntimeStatusOptions['managedTierInstallStatus'];
     totalMemoryBytes?: number;
     freeDiskGb?: number;
     recommendedTierId: string;
   }
 ): CommandEveLocalRuntimeTierCard {
-  const runtimeModelRef = commandEveOllamaContextModelRef(tier.model_ref, tierOllamaNumCtx(tier));
-  const installedModel = findInstalledModel(tier, runtimeModelRef, probes.installedModels);
+  const runtimeModelRef = runtimeModelRefForTier(tier);
+  const managedInstall = probes.managedTierInstallStatus?.[tier.id];
+  const installedModel =
+    tier.runtime === 'bonsai-prism'
+      ? managedInstall?.installed
+        ? { name: runtimeModelRef, size: managedInstall.installedSizeBytes }
+        : undefined
+      : findInstalledModel(tier, runtimeModelRef, probes.installedModels);
   const memGb =
     typeof probes.totalMemoryBytes === 'number' && probes.totalMemoryBytes > 0
       ? probes.totalMemoryBytes / 1024 ** 3
@@ -437,12 +442,14 @@ function buildTierCard(
     label: tier.label,
     model_ref: tier.model_ref,
     runtime_model_ref: runtimeModelRef,
+    runtime: tier.runtime === 'bonsai-prism' ? 'bonsai-prism' : 'ollama',
     context_length: tierContextLength(tier),
     max_tokens: tierMaxTokens(tier),
     min_unified_memory_gb: tier.min_unified_memory_gb,
     min_free_disk_gb: tier.min_free_disk_gb,
     status: tierStatus(tier, selectedTier),
     installed: installedModel !== undefined,
+    status_known: tier.runtime === 'bonsai-prism' ? managedInstall !== undefined : probes.installedModels !== undefined,
     ...(installedModel && typeof installedModel.size === 'number' ? { installed_size_bytes: installedModel.size } : {}),
     ram_fit: ramFit,
     disk_fit: diskFit,
@@ -467,9 +474,7 @@ function inferSelectedTier(
     ? manifest.local_runtime.tiers.find((tier) => tier.model_ref === receipt.base_model)
     : undefined;
   const byReceiptDefault = receipt?.default_model
-    ? manifest.local_runtime.tiers.find(
-        (tier) => commandEveOllamaContextModelRef(tier.model_ref, tierOllamaNumCtx(tier)) === receipt.default_model
-      )
+    ? manifest.local_runtime.tiers.find((tier) => runtimeModelRefForTier(tier) === receipt.default_model)
     : undefined;
   return byReceiptBase || byReceiptDefault || selectRuntimeBootstrapTier(manifest);
 }
@@ -523,6 +528,7 @@ export function buildLocalRuntimeStatus(
         installedModels: options.installedModels,
         totalMemoryBytes: options.totalMemoryBytes,
         freeDiskGb: options.freeDiskGb,
+        managedTierInstallStatus: options.managedTierInstallStatus,
         recommendedTierId,
       })
     );
@@ -557,7 +563,7 @@ export function buildLocalRuntimeStatus(
           egress_proxy_url: manifest.local_runtime.egress_proxy_url,
         },
         selected_tier_id: selectedTier.id,
-        selected_model_ref: commandEveOllamaContextModelRef(selectedTier.model_ref, tierOllamaNumCtx(selectedTier)),
+        selected_model_ref: runtimeModelRefForTier(selectedTier),
         receipt: parsedReceipt.receipt
           ? {
               path: receiptPath,

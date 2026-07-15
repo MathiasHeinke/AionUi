@@ -36,6 +36,10 @@ import { ipcBridge } from './common';
 import { initializeProcess } from './process';
 import { ProcessConfig } from './process/utils/initStorage';
 import { EVE_INFERENCE_FUNCTION_URL, resolveCommandEveWarmupLane } from './common/config/eveInferenceCore';
+import {
+  COMMAND_EVE_BONSAI_ACP_MODEL_ID,
+  COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID,
+} from './common/config/commandEveShell';
 import { readLicenseWire } from './common/config/licenseWireAtRest';
 import type { EveTeamWorkerStatusMap } from './common/config/eveTeamControlsCore';
 import {
@@ -49,6 +53,8 @@ import type {
   CommandEveEveCloudRoute,
   CommandEveHonchoDeriverRoute,
   CommandEveHonchoDeriverRouteResolver,
+  CommandEveLocalOpenAiRoute,
+  CommandEveLocalOpenAiRoutingResolver,
 } from './process/commandEve/ollamaOpenAiShim';
 import { applyLauncherWiring } from './process/commandEve/eveWorkerLauncherCore';
 import { resolveDispatchAgentId } from './process/commandEve/eveAgentTaskRegistry';
@@ -512,6 +518,37 @@ function buildCommandEveShimRoutingResolver(): () => Promise<CommandEveEveCloudR
       },
       functionUrl: EVE_INFERENCE_FUNCTION_URL,
     });
+}
+
+/**
+ * COMPA-735 — managed Bonsai 27B local route. Only the explicit Bonsai model id
+ * activates it; every Gemma request remains byte-identical on the Ollama path.
+ * The server never downloads from a chat request: installation is owned by the
+ * model settings/bootstrap flow and every runtime artifact is pinned there.
+ */
+function buildCommandEveManagedLocalOpenAiRoutingResolver(): CommandEveLocalOpenAiRoutingResolver {
+  return async (requestedModel): Promise<CommandEveLocalOpenAiRoute | undefined> => {
+    const normalizedModel = requestedModel.trim();
+    if (
+      normalizedModel !== COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID &&
+      normalizedModel !== COMMAND_EVE_BONSAI_ACP_MODEL_ID
+    ) {
+      return { active: false };
+    }
+    const { ensureBonsaiPilotServer } = await import('./process/commandEve/localInference/bonsaiServer');
+    const server = await ensureBonsaiPilotServer({
+      userDataPath: getDataPath(),
+      autoProvision: false,
+      contextSize: 65_536,
+    });
+    return {
+      active: true,
+      baseUrl: server.baseUrl,
+      model: server.model,
+      apiKey: server.apiKey,
+      providerName: 'bonsai-27b-local',
+    };
+  };
 }
 
 /**
@@ -1009,6 +1046,7 @@ function registerCommandEveRuntimeBridge(): void {
             promptProofPath: commandEvePromptProofPath(paths.runtimeRoot),
             egressReceiptPath: commandEveEgressBoundaryReceiptPath(paths.runtimeRoot),
             eveRouting: buildCommandEveShimRoutingResolver(),
+            localOpenAiRouting: buildCommandEveManagedLocalOpenAiRoutingResolver(),
             teamWorkerStatus: buildCommandEveShimTeamStatusResolver(),
             egressRedactionMode: buildCommandEveShimEgressRedactionModeResolver(),
             activeSeatId: buildCommandEveShimActiveSeatIdResolver(),
@@ -1073,6 +1111,7 @@ function registerCommandEveRuntimeBridge(): void {
             promptProofPath: commandEvePromptProofPath(paths.runtimeRoot),
             egressReceiptPath: commandEveEgressBoundaryReceiptPath(paths.runtimeRoot),
             eveRouting: buildCommandEveShimRoutingResolver(),
+            localOpenAiRouting: buildCommandEveManagedLocalOpenAiRoutingResolver(),
             teamWorkerStatus: buildCommandEveShimTeamStatusResolver(),
             egressRedactionMode: buildCommandEveShimEgressRedactionModeResolver(),
             activeSeatId: buildCommandEveShimActiveSeatIdResolver(),
@@ -1621,6 +1660,7 @@ const handleAppReady = async (): Promise<void> => {
         promptProofPath: commandEvePromptProofPath(runtimePaths.runtimeRoot),
         egressReceiptPath: commandEveEgressBoundaryReceiptPath(runtimePaths.runtimeRoot),
         eveRouting: buildCommandEveShimRoutingResolver(),
+        localOpenAiRouting: buildCommandEveManagedLocalOpenAiRoutingResolver(),
         teamWorkerStatus: buildCommandEveShimTeamStatusResolver(),
         egressRedactionMode: buildCommandEveShimEgressRedactionModeResolver(),
         activeSeatId: buildCommandEveShimActiveSeatIdResolver(),
@@ -2259,6 +2299,9 @@ app.on('before-quit', async () => {
     // Stop aioncore subprocess — backend shutdown kills all agent
     // children transitively (no separate frontend workerTaskManager remains)
     await backendManager.stop().catch((err) => console.error('[App] Failed to stop backend:', err));
+
+    const { stopBonsaiPilotServer } = await import('./process/commandEve/localInference/bonsaiServer');
+    await stopBonsaiPilotServer().catch((err) => console.error('[App] Failed to stop local Bonsai model:', err));
 
     // Destroy desktop pet windows
     try {

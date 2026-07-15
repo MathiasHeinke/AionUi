@@ -84,12 +84,14 @@ function writeJson(response: ServerResponse, status: number, payload: unknown): 
   response.end(JSON.stringify(payload));
 }
 
-async function startFakeOpenAiServer(onBody: (body: Record<string, unknown>, path: string) => void): Promise<string> {
+async function startFakeOpenAiServer(
+  onBody: (body: Record<string, unknown>, path: string, authorization?: string) => void
+): Promise<string> {
   testServer = http.createServer((request, response) => {
     void (async () => {
       const path = new URL(request.url || '/', 'http://127.0.0.1').pathname;
       const body = await readRequestBody(request);
-      onBody(body, path);
+      onBody(body, path, request.headers.authorization);
       writeJson(response, 200, {
         choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
       });
@@ -371,6 +373,121 @@ describe('Command EVE Ollama OpenAI shim warm-up', () => {
     expect(forwarded).not.toContain('image_url');
     expect(forwarded).not.toContain('SECRET_IMAGE_BYTES');
     expect(forwarded).not.toContain('/Users/mathias/private.png');
+  });
+
+  it('branches to a managed local OpenAI provider before the Ollama-native conversion', async () => {
+    let upstreamBody: Record<string, unknown> | undefined;
+    let upstreamAuthorization: string | undefined;
+    const providerUrl = await startFakeOpenAiServer((bodySeen, _path, authorization) => {
+      upstreamBody = bodySeen;
+      upstreamAuthorization = authorization;
+    });
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      localOpenAiRouting: () => ({
+        active: true,
+        baseUrl: `${providerUrl}/v1`,
+        model: 'command-eve-bonsai-27b-q2',
+        apiKey: 'test-only-local-key',
+        providerName: 'bonsai-pilot-test',
+      }),
+    });
+    const tools = [
+      {
+        type: 'function',
+        function: { name: 'read_status', description: 'Read status', parameters: { type: 'object', properties: {} } },
+      },
+    ];
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: SHIM_JSON_HEADERS,
+      body: JSON.stringify({
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [{ role: 'user', content: 'Use the status tool.' }],
+        stream: false,
+        max_tokens: 4096,
+        reasoning_effort: 'medium',
+        tools,
+        tool_choice: 'auto',
+        think: false,
+        options: { num_ctx: 65_536 },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(upstreamAuthorization).toBe('Bearer test-only-local-key');
+    expect(upstreamBody?.model).toBe('command-eve-bonsai-27b-q2');
+    expect(upstreamBody?.max_tokens).toBe(4096);
+    expect(upstreamBody?.thinking_budget_tokens).toBe(2048);
+    expect(upstreamBody?.reasoning_control).toBe(true);
+    expect(upstreamBody?.chat_template_kwargs).toEqual({ enable_thinking: true });
+    expect(upstreamBody).not.toHaveProperty('reasoning_effort');
+    expect(upstreamBody?.tools).toEqual(tools);
+    expect(upstreamBody?.tool_choice).toBe('auto');
+    expect(upstreamBody).not.toHaveProperty('think');
+    expect(upstreamBody).not.toHaveProperty('options');
+  });
+
+  it('fails closed instead of forwarding a managed local route to localhost aliases or remote hosts', async () => {
+    let upstreamHits = 0;
+    const providerUrl = await startFakeOpenAiServer(() => {
+      upstreamHits += 1;
+    });
+    const providerPort = new URL(providerUrl).port;
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      localOpenAiRouting: () => ({
+        active: true,
+        baseUrl: `http://localhost:${providerPort}/v1`,
+        model: 'command-eve-bonsai-27b-q2',
+        apiKey: 'test-only-local-key',
+      }),
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: SHIM_JSON_HEADERS,
+      body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'hello' }], stream: false }),
+    });
+
+    expect(response.status).toBe(503);
+    expect(upstreamHits).toBe(0);
+  });
+
+  it('reserves final-answer tokens even when maximum local reasoning is requested', async () => {
+    let upstreamBody: Record<string, unknown> | undefined;
+    const providerUrl = await startFakeOpenAiServer((bodySeen) => {
+      upstreamBody = bodySeen;
+    });
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      localOpenAiRouting: () => ({
+        active: true,
+        baseUrl: `${providerUrl}/v1`,
+        model: 'command-eve-bonsai-27b-q2',
+        apiKey: 'test-only-local-key',
+      }),
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: SHIM_JSON_HEADERS,
+      body: JSON.stringify({
+        model: 'local',
+        messages: [{ role: 'user', content: 'hello' }],
+        stream: false,
+        max_tokens: 128,
+        reasoning_effort: 'max',
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(upstreamBody?.thinking_budget_tokens).toBe(64);
+    expect(upstreamBody?.chat_template_kwargs).toEqual({ enable_thinking: true });
   });
 });
 

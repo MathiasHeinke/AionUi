@@ -83,7 +83,14 @@ import {
   parseEveTierIdFromSelection,
   type EveInferenceTierId,
 } from '@/common/config/eveInferenceCore';
-import { getCommandEveLocalRuntimeProvider, isCommandEveFounderBuild } from '@/common/config/commandEveShell';
+import {
+  COMMAND_EVE_BONSAI_LOCAL_TIER_ID,
+  COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID,
+  getCommandEveLocalRuntimeProvider,
+  isCommandEveFounderBuild,
+} from '@/common/config/commandEveShell';
+import { readBonsaiInstallStatus } from '@process/commandEve/localInference/bonsaiProvisioner';
+import { resolveBonsaiPilotPaths } from '@process/commandEve/localInference/bonsaiManifest';
 import { CREDITS_STATUS_FUNCTION_URL, type ClientSeedInput, type CreditsTier } from '@/common/config/creditsCore';
 import {
   prepareCommandEveCloudTitleText,
@@ -187,7 +194,6 @@ function quietCreditsStatus(spendCapEurCents: number, reasonCode: string, messag
     period_start: '',
   };
 }
-
 function finiteCreditNumber(value: unknown, fallback = 0): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
@@ -978,6 +984,7 @@ export function initCommandEveBridge(): void {
         } catch {
           /* fit defaults to true */
         }
+        const bonsaiInstall = readBonsaiInstallStatus(getDataPath());
         const result = buildLocalRuntimeStatus({
           userDataPath: getDataPath(),
           manifestPath: request?.manifestPath,
@@ -985,7 +992,28 @@ export function initCommandEveBridge(): void {
           installedModels,
           totalMemoryBytes,
           freeDiskGb,
+          managedTierInstallStatus: {
+            [COMMAND_EVE_BONSAI_LOCAL_TIER_ID]: bonsaiInstall,
+          },
         });
+        const bonsaiProgress = bonsaiInstall.progress;
+        const progressAgeMs = bonsaiProgress ? Date.now() - Date.parse(bonsaiProgress.updated_at) : Infinity;
+        if (
+          result.model &&
+          bonsaiProgress?.status === 'pulling' &&
+          Number.isFinite(progressAgeMs) &&
+          progressAgeMs <= 5 * 60_000
+        ) {
+          result.model.model_pull = {
+            path: resolveBonsaiPilotPaths(getDataPath()).provisionProgressPath,
+            status: 'pulling',
+            model: COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID,
+            total: bonsaiProgress.total,
+            completed: bonsaiProgress.completed,
+            percent: bonsaiProgress.percent,
+            updated_at: bonsaiProgress.updated_at,
+          };
+        }
         return {
           success: result.ok,
           msg: result.ok ? undefined : result.reason_code || result.message,

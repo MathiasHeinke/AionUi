@@ -1178,6 +1178,7 @@
   "commandEveLocalRuntimeStartAndEnsure": "Start runtime & check",
   "commandEveLocalRuntimeNotOnThisMac": "Won't run on this Mac",
   "commandEveLocalRuntimeRecommended": "Recommended",
+  "commandEveLocalRuntimeExperimental": "Experimental",
   "commandEveLocalRuntimeStatusUnknown": "Status temporarily unavailable",
   "commandEveLocalRuntimeInstalledSize": "uses {{gb}} GB",
   "commandEveLocalRuntimeRestartNote": "The selection applies to new EVE sessions and takes effect the next time local processing starts.",
@@ -1186,12 +1187,15 @@
     "fastDescription": "For everyday work, short analysis, and quick responses.",
     "balanced": "Planning & analysis",
     "balancedDescription": "For longer planning and more demanding drafts.",
+    "experimental": "Bonsai 27B",
+    "experimentalDescription": "A memory-efficient local 27B model for analysis and tool tasks. Experimental; recommended with 24 GB RAM or more.",
     "pro": "Local pro performance",
     "proDescription": "For especially large local tasks on high-performance Macs."
   },
   "commandEveModelTier": {
     "default": "Default",
     "opt_in": "Opt-in",
+    "experimental": "Experimental",
     "pro": "Pro"
   },
   "fontSize": "Scale",

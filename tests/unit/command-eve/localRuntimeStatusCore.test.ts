@@ -9,6 +9,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { buildLocalRuntimeStatus } from '@/process/commandEve/localRuntimeStatusCore';
+import { COMMAND_EVE_BONSAI_LOCAL_TIER_ID, COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID } from '@/common/config/commandEveShell';
 
 const tempRoots: string[] = [];
 
@@ -97,6 +98,55 @@ describe('Command EVE local runtime status core', () => {
     expect(result.model?.tiers[1].status).toBe('opt_in');
     expect(result.model?.warnings).toContain('runtime_receipt_missing');
     expect(result.model?.warnings).toContain('model_warmup_receipt_missing');
+  });
+
+  it('reports a managed Bonsai install beside Ollama tiers with its own hardware gate', () => {
+    const root = makeRoot();
+    const manifestPath = path.join(root, 'command-eve-runtime-bootstrap.json');
+    writeJson(manifestPath, {
+      ...manifest,
+      local_runtime: {
+        ...manifest.local_runtime,
+        tiers: [
+          ...manifest.local_runtime.tiers,
+          {
+            id: COMMAND_EVE_BONSAI_LOCAL_TIER_ID,
+            label: 'Bonsai 27B local experimental opt-in',
+            model_ref: 'bonsai:27b-q2',
+            runtime: 'bonsai-prism',
+            context_length: 65_536,
+            max_tokens: 512,
+            min_unified_memory_gb: 24,
+            min_free_disk_gb: 12,
+          },
+        ],
+      },
+    });
+
+    const result = buildLocalRuntimeStatus({
+      userDataPath: root,
+      manifestPath,
+      installedModels: [],
+      managedTierInstallStatus: {
+        [COMMAND_EVE_BONSAI_LOCAL_TIER_ID]: {
+          installed: true,
+          installedSizeBytes: 7_165_121_600,
+        },
+      },
+      totalMemoryBytes: 16 * 1024 ** 3,
+      freeDiskGb: 4,
+    });
+
+    const bonsai = result.model?.tiers.find((tier) => tier.id === COMMAND_EVE_BONSAI_LOCAL_TIER_ID);
+    expect(bonsai).toMatchObject({
+      runtime: 'bonsai-prism',
+      runtime_model_ref: COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID,
+      installed: true,
+      installed_size_bytes: 7_165_121_600,
+      status_known: true,
+      ram_fit: false,
+      disk_fit: true,
+    });
   });
 
   it('uses the runtime receipt to show the selected 12B planning tier', () => {

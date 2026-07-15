@@ -112,6 +112,22 @@ export type CommandEveEveRoutingResolver = () =>
   | undefined
   | Promise<CommandEveEveCloudRoute | undefined>;
 
+export type CommandEveLocalOpenAiRoute = {
+  active: boolean;
+  /** Strict IPv4 loopback OpenAI base URL, including `/v1`. */
+  baseUrl?: string;
+  /** Provider-owned model alias sent upstream instead of Hermes' stable local ref. */
+  model?: string;
+  /** Per-boot bearer used only between the EVE shim and the managed local server. */
+  apiKey?: string;
+  /** Receipt-only provider label. Never rendered as a user-facing backend selector. */
+  providerName?: string;
+};
+
+export type CommandEveLocalOpenAiRoutingResolver = (
+  requestedModel: string
+) => CommandEveLocalOpenAiRoute | undefined | Promise<CommandEveLocalOpenAiRoute | undefined>;
+
 /**
  * Per-request resolver for the persisted "Dein Team" worker-status map
  * (`commandEve.teamWorkerStatus`). Injected at shim startup (main process) so
@@ -248,6 +264,11 @@ export type CommandEveOllamaShimOptions = {
    * as before (local Ollama only) — EVE routing is purely additive.
    */
   eveRouting?: CommandEveEveRoutingResolver;
+  /**
+   * Optional provider-neutral local OpenAI route. Cloud routing still wins;
+   * inactive/omitted keeps the existing Ollama conversion byte-identical.
+   */
+  localOpenAiRouting?: CommandEveLocalOpenAiRoutingResolver;
   /**
    * Optional "Dein Team" worker-status resolver (DUX-4). When provided, the
    * EVE-cloud send path checks the delegated worker's status BEFORE dispatch and
@@ -404,6 +425,20 @@ function isLoopbackHttpUrl(value: string): boolean {
 function chatCompletionsUrl(baseUrl: string): string {
   const normalized = baseUrl.replace(/\/+$/, '');
   return `${normalized.endsWith('/v1') ? normalized : `${normalized}/v1`}/chat/completions`;
+}
+
+function isStrictIpv4LoopbackOpenAiBaseUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === 'http:' &&
+      url.hostname === '127.0.0.1' &&
+      Boolean(url.port) &&
+      (url.pathname === '/' || url.pathname === '/v1' || url.pathname === '/v1/')
+    );
+  } catch {
+    return false;
+  }
 }
 
 function jsonResponse(response: ServerResponse, status: number, payload: unknown): void {
@@ -1201,6 +1236,128 @@ async function handleHonchoDeriverCompletions(
   await handleEveCloudCompletions(request, body, response, options, forcedRoute, undefined, true);
 }
 
+function localOpenAiPayload(body: Record<string, unknown>, route: CommandEveLocalOpenAiRoute): Record<string, unknown> {
+  const optionalKeys = [
+    'max_tokens',
+    'max_completion_tokens',
+    'temperature',
+    'top_p',
+    'top_k',
+    'min_p',
+    'seed',
+    'stop',
+    'tools',
+    'tool_choice',
+    'parallel_tool_calls',
+    'response_format',
+    'stream_options',
+  ] as const;
+  const payload: Record<string, unknown> = {
+    model: route.model,
+    messages: asMessages(body.messages),
+    stream: Boolean(body.stream),
+    ...resolveLocalOpenAiReasoningConfig(body),
+  };
+  for (const key of optionalKeys) {
+    if (body[key] !== undefined) payload[key] = body[key];
+  }
+  return payload;
+}
+
+export function resolveLocalOpenAiReasoningConfig(body: Record<string, unknown>): Record<string, unknown> {
+  const effort = typeof body.reasoning_effort === 'string' ? body.reasoning_effort.toLowerCase() : 'low';
+  const maxTokensRaw = Number(body.max_completion_tokens ?? body.max_tokens);
+  const maxTokens = Number.isFinite(maxTokensRaw) && maxTokensRaw > 0 ? Math.floor(maxTokensRaw) : undefined;
+  const requestedBudget =
+    effort === 'off' || effort === 'none'
+      ? 0
+      : effort === 'minimal'
+        ? 128
+        : effort === 'medium'
+          ? 2_048
+          : effort === 'high'
+            ? 8_192
+            : effort === 'max'
+              ? Number.POSITIVE_INFINITY
+              : 512;
+  const finalAnswerReserve = maxTokens ? Math.min(1_024, Math.max(64, Math.floor(maxTokens * 0.5))) : undefined;
+  const budget =
+    maxTokens && finalAnswerReserve !== undefined
+      ? Math.min(requestedBudget, Math.max(0, maxTokens - finalAnswerReserve))
+      : Number.isFinite(requestedBudget)
+        ? requestedBudget
+        : 8_192;
+  const enableThinking = budget > 0;
+  return {
+    reasoning_format: enableThinking ? 'auto' : 'none',
+    thinking_budget_tokens: budget,
+    reasoning_control: true,
+    chat_template_kwargs: { enable_thinking: enableThinking },
+  };
+}
+
+async function handleLocalOpenAiCompletions(
+  request: IncomingMessage,
+  body: Record<string, unknown>,
+  response: ServerResponse,
+  options: Required<CommandEveOllamaShimOptions>,
+  route: CommandEveLocalOpenAiRoute
+): Promise<void> {
+  const baseUrl = typeof route.baseUrl === 'string' ? route.baseUrl.trim() : '';
+  const apiKey = typeof route.apiKey === 'string' ? route.apiKey.trim() : '';
+  const model = typeof route.model === 'string' ? route.model.trim() : '';
+  if (!isStrictIpv4LoopbackOpenAiBaseUrl(baseUrl) || !apiKey || !model) {
+    jsonResponse(response, 503, { error: { message: 'The selected local EVE model is not ready.' } });
+    return;
+  }
+
+  const upstreamScope = createUpstreamRequestScope(request, response, options);
+  try {
+    const upstream = await fetch(chatCompletionsUrl(baseUrl), {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(localOpenAiPayload(body, route)),
+      signal: upstreamScope.signal,
+    });
+    upstreamScope.markActivity();
+
+    const contentType = upstream.headers.get('content-type') || 'application/json';
+    if (Boolean(body.stream) && upstream.body) {
+      response.writeHead(upstream.status || 502, {
+        'content-type': contentType,
+        'cache-control': 'no-cache',
+        connection: 'keep-alive',
+      });
+      const reader = upstream.body.getReader();
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        upstreamScope.markActivity();
+        response.write(value);
+      }
+      response.end();
+      return;
+    }
+
+    const text = await upstream.text();
+    upstreamScope.markActivity();
+    response.writeHead(upstream.status || 502, { 'content-type': contentType });
+    response.end(text || JSON.stringify({ error: { message: 'The selected local EVE model returned no result.' } }));
+  } catch {
+    const abortReason = upstreamScope.reason();
+    if (abortReason) {
+      writeUpstreamAbortResponse(response, abortReason);
+    } else {
+      jsonResponse(response, 502, { error: { message: 'The selected local EVE model is unavailable.' } });
+    }
+  } finally {
+    upstreamScope.dispose();
+  }
+}
+
 async function handleChatCompletions(
   request: IncomingMessage,
   response: ServerResponse,
@@ -1224,6 +1381,15 @@ async function handleChatCompletions(
     }
   }
 
+  let localOpenAiRoute: CommandEveLocalOpenAiRoute | undefined;
+  try {
+    localOpenAiRoute = await options.localOpenAiRouting(model);
+  } catch (error) {
+    console.warn('[Command EVE] Managed local OpenAI route failed:', error);
+    jsonResponse(response, 503, { error: { message: 'The selected local EVE model is not ready.' } });
+    return;
+  }
+
   let localMessages = asMessages(body.messages).map((message) => stripUnsupportedImageContent(message));
   body.messages = localMessages;
 
@@ -1232,9 +1398,9 @@ async function handleChatCompletions(
       text: localMessages.map(messageText).join('\n\n'),
       provider: {
         kind: 'local',
-        name: 'ollama',
-        model,
-        baseUrl: options.ollamaBaseUrl,
+        name: localOpenAiRoute?.active ? localOpenAiRoute.providerName || 'managed-local-openai' : 'ollama',
+        model: localOpenAiRoute?.active ? localOpenAiRoute.model || model : model,
+        baseUrl: localOpenAiRoute?.active ? localOpenAiRoute.baseUrl || '' : options.ollamaBaseUrl,
       },
       policyAction: options.egressPolicyAction,
     });
@@ -1272,6 +1438,10 @@ async function handleChatCompletions(
     if (!proof.ok) {
       console.warn(`[Command EVE] Prompt proof missing EVE marker for model ${model || 'unknown'}.`);
     }
+  }
+  if (localOpenAiRoute?.active) {
+    await handleLocalOpenAiCompletions(request, body, response, options, localOpenAiRoute);
+    return;
   }
   const upstreamScope = createUpstreamRequestScope(request, response, options);
   try {
@@ -1496,6 +1666,9 @@ async function startCommandEveOllamaOpenAiShimOnce(shimOptions: CommandEveOllama
     egressPolicyAction: shimOptions.egressPolicyAction || 'redact',
     // Default resolver keeps every request on the local lane.
     eveRouting: shimOptions.eveRouting || ((): undefined => undefined),
+    // Default resolver keeps the existing Ollama conversion untouched. A managed
+    // OpenAI-local provider is opt-in and branches before nativeChatPayload().
+    localOpenAiRouting: shimOptions.localOpenAiRouting || ((): undefined => undefined),
     // Default resolver returns no status map ⇒ every worker is treated active
     // (gating is a no-op until the main process injects the live status map).
     teamWorkerStatus: shimOptions.teamWorkerStatus || ((): undefined => undefined),

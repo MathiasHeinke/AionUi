@@ -24,6 +24,7 @@ import {
   resolveCommandEveRuntimeBootstrapPaths as resolveCommandEveRuntimeBootstrapPathsCore,
   resolveCommandEveRuntimeBootstrapManifestPath,
   runtimeReceiptAllowsLocalModelWarmup,
+  runtimeModelRefForTier,
   validateCommandEveCapabilityPack,
   copyBundledStrategySkills,
   resolveBundledSkillsDir,
@@ -39,10 +40,20 @@ import {
   type RuntimeBootstrapCommandResult,
   type RuntimeBootstrapRunner,
 } from '@/process/commandEve/runtimeBootstrapCore';
-import { COMMAND_EVE_VERSION } from '@/common/config/commandEveShell';
+import {
+  COMMAND_EVE_BONSAI_LOCAL_TIER_ID,
+  COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID,
+  COMMAND_EVE_VERSION,
+} from '@/common/config/commandEveShell';
 import packageJson from '../../../package.json';
 import { registerTenant } from '@/process/commandEve/entitlementCore';
 import { sha256FileIfPresent } from '@/process/commandEve/windows/runtimeProvenanceCore';
+import {
+  BONSAI_MODEL_ARTIFACT,
+  BONSAI_RUNTIME_RELEASE,
+  COMMAND_EVE_BONSAI_PILOT_VERSION,
+  resolveBonsaiPilotPaths,
+} from '@/process/commandEve/localInference/bonsaiManifest';
 
 type Harness = {
   root: string;
@@ -334,6 +345,88 @@ describe('Command EVE runtime bootstrap core', () => {
         ],
       })
     ).toBe(true);
+  });
+
+  it('allows Bonsai warm-up only after its pinned runtime path and model pass', () => {
+    expect(
+      runtimeReceiptAllowsLocalModelWarmup({
+        status: 'ready',
+        provider: 'bonsai-prism',
+        default_model: COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID,
+        stages: [
+          { id: 'ollama', status: 'skip' },
+          { id: 'model', status: 'pass' },
+        ],
+      })
+    ).toBe(true);
+    expect(
+      runtimeReceiptAllowsLocalModelWarmup({
+        status: 'ready',
+        provider: 'bonsai-prism',
+        default_model: COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID,
+        stages: [
+          { id: 'ollama', status: 'pass' },
+          { id: 'model', status: 'pass' },
+        ],
+      })
+    ).toBe(false);
+  });
+
+  it('maps the Bonsai tier to its managed runtime alias without an Ollama context model', () => {
+    const tier = DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST.local_runtime.tiers.find(
+      (candidate) => candidate.id === COMMAND_EVE_BONSAI_LOCAL_TIER_ID
+    );
+    expect(tier).toBeDefined();
+    expect(runtimeModelRefForTier(tier!)).toBe(COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID);
+  });
+
+  it('boots an already verified Bonsai install through the same managed Hermes lifecycle', async () => {
+    const harness = makeHarness();
+    const manifestPath = writeManifest(harness.root, 'http://127.0.0.1:11434');
+    const bonsaiPaths = resolveBonsaiPilotPaths(harness.root);
+    fs.mkdirSync(path.dirname(bonsaiPaths.modelPath), { recursive: true });
+    fs.mkdirSync(path.dirname(bonsaiPaths.serverPath), { recursive: true });
+    fs.writeFileSync(bonsaiPaths.modelPath, '');
+    fs.truncateSync(bonsaiPaths.modelPath, BONSAI_MODEL_ARTIFACT.sizeBytes);
+    fs.writeFileSync(bonsaiPaths.serverPath, 'server');
+    fs.writeFileSync(
+      bonsaiPaths.receiptPath,
+      `${JSON.stringify({
+        version: COMMAND_EVE_BONSAI_PILOT_VERSION,
+        status: 'ready',
+        model: { sha256: BONSAI_MODEL_ARTIFACT.sha256 },
+        runtime: { server_sha256: BONSAI_RUNTIME_RELEASE.serverSha256 },
+      })}\n`
+    );
+
+    const receipt = await ensureCommandEveRuntimeBootstrap({
+      userDataPath: harness.root,
+      manifestPath,
+      runner: harness.runner,
+      detachedSpawner: () => {},
+      statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+      totalMemoryBytes: 32 * 1024 ** 3,
+      ollamaBinaryCandidates: [],
+      env: { COMMAND_EVE_LOCAL_MODEL_TIER: COMMAND_EVE_BONSAI_LOCAL_TIER_ID },
+      egressProxyUrl: 'http://127.0.0.1:25811',
+    });
+
+    expect(receipt).toMatchObject({
+      status: 'ready',
+      provider: 'bonsai-prism',
+      default_model: COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID,
+      base_model: 'bonsai:27b-q2',
+    });
+    expect(receipt.stages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'ollama', status: 'skip' }),
+        expect.objectContaining({ id: 'model', status: 'pass' }),
+      ])
+    );
+    const config = fs.readFileSync(path.join(resolveCommandEveRuntimeBootstrapPaths(harness.root).hermesHome, 'config.yaml'), 'utf8');
+    expect(config).toContain(`default: ${COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID}`);
+    expect(config).toContain('base_url: http://127.0.0.1:25811/v1');
+    expect(runtimeReceiptAllowsLocalModelWarmup(receipt)).toBe(true);
   });
 
   itM('installs Hermes, installs Ollama via Homebrew, pulls the default model, and writes receipts', async () => {

@@ -9,7 +9,12 @@ import fs from 'fs';
 import http from 'http';
 import os from 'os';
 import path from 'path';
+import {
+  COMMAND_EVE_BONSAI_LOCAL_TIER_ID,
+  COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID,
+} from '../../common/config/commandEveShell';
 import { readRegistration } from './entitlementCore';
+import { ensureBonsaiPilotArtifacts, readBonsaiInstallStatus } from './localInference/bonsaiProvisioner';
 import {
   COMMAND_EVE_DEFAULT_BOARD_SLUG,
   DEFAULT_SEAT_LABEL,
@@ -503,6 +508,7 @@ export type RuntimeBootstrapTier = {
   context_length?: number;
   ollama_num_ctx?: number;
   max_tokens?: number;
+  runtime?: 'ollama' | 'bonsai-prism';
   min_unified_memory_gb: number;
   min_free_disk_gb: number;
 };
@@ -605,7 +611,7 @@ export type RuntimeBootstrapReceipt = {
   completed_at: string;
   runtime_root: string;
   hermes_home: string;
-  provider: 'ollama';
+  provider: 'ollama' | 'bonsai-prism';
   default_model: string;
   base_model?: string;
   ollama_base_url: string;
@@ -648,13 +654,16 @@ export type RuntimeBootstrapProvenance = {
 
 export function runtimeReceiptAllowsLocalModelWarmup(receipt: {
   status?: string;
+  provider?: string;
   default_model?: string;
   stages?: ReadonlyArray<Pick<RuntimeBootstrapStage, 'id' | 'status'>>;
 }): boolean {
   if (receipt.status !== 'ready' || !receipt.default_model) return false;
   const ollamaStage = receipt.stages?.find((stage) => stage.id === 'ollama');
   const modelStage = receipt.stages?.find((stage) => stage.id === 'model');
-  return ollamaStage?.status === 'pass' && modelStage?.status === 'pass';
+  const runtimeReady =
+    receipt.provider === 'bonsai-prism' ? ollamaStage?.status === 'skip' : ollamaStage?.status === 'pass';
+  return runtimeReady && modelStage?.status === 'pass';
 }
 
 export type RuntimeBootstrapRunner = (
@@ -1157,6 +1166,16 @@ export const DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST: RuntimeBootstrapManifest = {
         min_unified_memory_gb: 64,
         min_free_disk_gb: 45,
       },
+      {
+        id: COMMAND_EVE_BONSAI_LOCAL_TIER_ID,
+        label: 'Bonsai 27B local experimental opt-in',
+        model_ref: 'bonsai:27b-q2',
+        runtime: 'bonsai-prism',
+        context_length: DEFAULT_LONG_CONTEXT_LENGTH,
+        max_tokens: DEFAULT_HERMES_MAX_TOKENS,
+        min_unified_memory_gb: 24,
+        min_free_disk_gb: 12,
+      },
     ],
   },
   installer_policy: {
@@ -1255,6 +1274,12 @@ function tierContextLength(tier: RuntimeBootstrapTier): number {
 
 function tierOllamaNumCtx(tier: RuntimeBootstrapTier): number {
   return normalizeContextLength(tier.ollama_num_ctx, tierContextLength(tier));
+}
+
+export function runtimeModelRefForTier(tier: RuntimeBootstrapTier): string {
+  return tier.runtime === 'bonsai-prism'
+    ? COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID
+    : commandEveOllamaContextModelRef(tier.model_ref, tierOllamaNumCtx(tier));
 }
 
 function tierMaxTokens(tier: RuntimeBootstrapTier): number {
@@ -2442,7 +2467,9 @@ export function validateRuntimeBootstrapManifest(
   if (!manifest.hermes.extras.every(safePythonExtra)) failures.push('manifest.hermes_extras_unsafe');
   if (!safeModelRef(tier.model_ref)) failures.push('manifest.model_ref_unsafe');
   if (tierContextLength(tier) < 8_192) failures.push('manifest.context_length_too_small');
-  if (tierOllamaNumCtx(tier) < tierContextLength(tier)) failures.push('manifest.ollama_num_ctx_too_small');
+  if (tier.runtime !== 'bonsai-prism' && tierOllamaNumCtx(tier) < tierContextLength(tier)) {
+    failures.push('manifest.ollama_num_ctx_too_small');
+  }
   if (manifest.installer_policy.model_weights_in_app_bundle !== false)
     failures.push('manifest.model_weights_bundle_forbidden');
   return failures;
@@ -3045,8 +3072,7 @@ function writeHermesContextLengthCache(paths: RuntimeBootstrapPaths, manifest: R
   const cacheLines = [
     'context_lengths:',
     ...manifest.local_runtime.tiers.map(
-      (tier) =>
-        `  ${commandEveOllamaContextModelRef(tier.model_ref, tierOllamaNumCtx(tier))}@${hermesBaseUrl}: ${tierContextLength(tier)}`
+      (tier) => `  ${runtimeModelRefForTier(tier)}@${hermesBaseUrl}: ${tierContextLength(tier)}`
     ),
     '',
   ];
@@ -3642,7 +3668,7 @@ function writeHermesRuntimeFiles(
   manifest: RuntimeBootstrapManifest,
   tier: RuntimeBootstrapTier,
   capabilityPack: CommandEveCapabilityPack,
-  runtimeModelRef = commandEveOllamaContextModelRef(tier.model_ref, tierOllamaNumCtx(tier)),
+  runtimeModelRef = runtimeModelRefForTier(tier),
   // Tier-keyed soul-wiring knobs. Defaults keep the at-cost text fence intact
   // for the single-tenant founder build: a real-but-cheap challenger ('low'),
   // while Hermes' skill-review background fork is killed by default (0). A
@@ -4189,7 +4215,7 @@ function buildReceipt(options: {
     completed_at: options.completedAt,
     runtime_root: options.paths.runtimeRoot,
     hermes_home: options.paths.hermesHome,
-    provider: 'ollama',
+    provider: options.tier.runtime === 'bonsai-prism' ? 'bonsai-prism' : 'ollama',
     default_model: options.runtimeModelRef,
     base_model: options.tier.model_ref,
     ollama_base_url: options.manifest.local_runtime.base_url,
@@ -4346,7 +4372,7 @@ export function provisionSeatRuntimeFiles(options: ProvisionSeatRuntimeFilesOpti
     }
     const preferredTierId = compact(env.COMMAND_EVE_LOCAL_MODEL_TIER);
     const tier = selectRuntimeBootstrapTier(manifest, preferredTierId);
-    const runtimeModelRef = commandEveOllamaContextModelRef(tier.model_ref, tierOllamaNumCtx(tier));
+    const runtimeModelRef = runtimeModelRefForTier(tier);
     const bundledSkillsDir = resolveBundledSkillsDir(env, options.resourcesPath);
     const founderOpsSkillsDir = resolveFounderOpsSkillsDir(env);
 
@@ -4451,7 +4477,7 @@ export async function ensureCommandEveRuntimeBootstrap(
   }
   const preferredTierId = compact(env.COMMAND_EVE_LOCAL_MODEL_TIER);
   const tier = selectRuntimeBootstrapTier(manifest, preferredTierId);
-  const runtimeModelRef = commandEveOllamaContextModelRef(tier.model_ref, tierOllamaNumCtx(tier));
+  const runtimeModelRef = runtimeModelRefForTier(tier);
   const startedAt = now().toISOString();
   const stages: RuntimeBootstrapStage[] = [];
   const runtimeProvenance: RuntimeBootstrapProvenance = { platform };
@@ -4940,6 +4966,49 @@ export async function ensureCommandEveRuntimeBootstrap(
   if (localModelSkip) {
     pushStage(makeStage('ollama', 'skip', localModelSkip));
     pushStage(makeStage('model', 'skip', localModelSkip));
+    return finishReceipt();
+  }
+
+  if (tier.runtime === 'bonsai-prism') {
+    pushStage(
+      makeStage('ollama', 'skip', {
+        detail: "Bonsai uses Command EVE's pinned local Prism runtime; Ollama is not required for this tier.",
+      })
+    );
+    let install = readBonsaiInstallStatus(options.userDataPath);
+    if (!install.installed && mode === 'auto' && manifest.installer_policy.allow_model_pull) {
+      const started = Date.now();
+      try {
+        await ensureBonsaiPilotArtifacts({ userDataPath: options.userDataPath, autoDownload: true });
+        install = readBonsaiInstallStatus(options.userDataPath);
+        pushStage(
+          makeStage('model', install.installed ? 'pass' : 'failed', {
+            code: install.installed ? undefined : 'BONSAI_INSTALL_VERIFICATION_FAILED',
+            detail: install.installed
+              ? `${runtimeModelRef} is installed from pinned, verified artifacts.`
+              : 'Bonsai artifacts were downloaded but did not pass the local installation receipt check.',
+            duration_ms: Date.now() - started,
+          })
+        );
+      } catch (error) {
+        pushStage(
+          makeStage('model', 'failed', {
+            code: 'BONSAI_INSTALL_FAILED',
+            detail: `Could not install the selected local Bonsai model: ${scrubOutput(error)}`,
+            duration_ms: Date.now() - started,
+          })
+        );
+      }
+      return finishReceipt();
+    }
+    pushStage(
+      makeStage('model', install.installed ? 'pass' : 'blocked', {
+        code: install.installed ? undefined : 'MODEL_NOT_FETCHED',
+        detail: install.installed
+          ? `${runtimeModelRef} is installed from pinned, verified artifacts.`
+          : 'Bonsai 27B is not installed yet. Choose Download in the local model settings.',
+      })
+    );
     return finishReceipt();
   }
 

@@ -75,6 +75,9 @@ export const COMMAND_EVE_DEFAULT_ACP_MODEL_ID = 'custom:command-eve-gemma4-e4b-6
 export const COMMAND_EVE_LOCAL_RUNTIME_PROVIDER_ID = 'command-eve-local-runtime';
 export const COMMAND_EVE_LOCAL_RUNTIME_PROVIDER_NAME = 'Command EVE Local Runtime';
 export const COMMAND_EVE_EGRESS_PROXY_OPENAI_BASE_URL = 'http://127.0.0.1:25811/v1';
+export const COMMAND_EVE_BONSAI_LOCAL_TIER_ID = 'bonsai-27b-local-experimental';
+export const COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID = 'command-eve-bonsai-27b-q2';
+export const COMMAND_EVE_BONSAI_ACP_MODEL_ID = `custom:${COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID}`;
 export const COMMAND_EVE_LOCAL_MODEL_TIERS = [
   {
     id: 'gemma-4-e4b-local-default',
@@ -86,6 +89,7 @@ export const COMMAND_EVE_LOCAL_MODEL_TIERS = [
     contextLength: 65_536,
     diskGb: 10,
     memoryGb: 16,
+    runtime: 'ollama',
     state: 'default',
   },
   {
@@ -96,6 +100,7 @@ export const COMMAND_EVE_LOCAL_MODEL_TIERS = [
     contextLength: 65_536,
     diskGb: 20,
     memoryGb: 16,
+    runtime: 'ollama',
     state: 'opt_in',
   },
   {
@@ -106,7 +111,19 @@ export const COMMAND_EVE_LOCAL_MODEL_TIERS = [
     contextLength: 65_536,
     diskGb: 45,
     memoryGb: 64,
+    runtime: 'ollama',
     state: 'pro',
+  },
+  {
+    id: COMMAND_EVE_BONSAI_LOCAL_TIER_ID,
+    label: 'Bonsai 27B',
+    modelId: COMMAND_EVE_BONSAI_ACP_MODEL_ID,
+    modelRef: 'bonsai:27b-q2',
+    contextLength: 65_536,
+    diskGb: 12,
+    memoryGb: 24,
+    runtime: 'bonsai-prism',
+    state: 'experimental',
   },
 ] as const;
 export type CommandEveLocalModelTier = (typeof COMMAND_EVE_LOCAL_MODEL_TIERS)[number];
