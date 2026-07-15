@@ -47,6 +47,17 @@ describe('Command EVE context and cache policy', () => {
       hard_limit_tokens: 65_536,
       compression_threshold_tokens: 49_152,
     });
+
+    await expect(
+      resolveCommandEveShimContextPolicy('custom:command-eve-bonsai-27b-q2', {
+        numCtx: 32_768,
+        eveRouting: async () => ({ active: false }),
+      })
+    ).resolves.toMatchObject({
+      lane: 'local',
+      hard_limit_tokens: 65_536,
+      compression_threshold_tokens: 49_152,
+    });
   });
 
   it('hashes Hermes session ids into stable opaque cache scopes', () => {

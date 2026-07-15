@@ -19,6 +19,12 @@ import { isLegacySeatId } from './seatContextCore';
 import { evaluateWorkerDispatch, type EveTeamWorkerStatusMap } from '../../common/config/eveTeamControlsCore';
 import { EVE_INFERENCE_TIERS } from '../../common/config/eveInferenceCore';
 import { buildCommandEveContextPolicy, type CommandEveContextPolicy } from '../../common/config/eveContextPolicyCore';
+import {
+  COMMAND_EVE_BONSAI_ACP_MODEL_ID,
+  COMMAND_EVE_BONSAI_LOCAL_TIER_ID,
+  COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID,
+  getCommandEveLocalModelTier,
+} from '../../common/config/commandEveShell';
 import { HONCHO_DERIVER_FORCED_TIER } from './honchoRuntimeConfigCore';
 
 /**
@@ -796,7 +802,12 @@ export async function resolveCommandEveShimContextPolicy(
   } catch (error) {
     console.warn('[Command EVE] context policy route lookup failed; keeping the local hardware cap:', error);
   }
-  return buildCommandEveContextPolicy('local', contextLengthFromModel(requestedModel, options.numCtx));
+  const bonsaiTier = getCommandEveLocalModelTier(COMMAND_EVE_BONSAI_LOCAL_TIER_ID);
+  const localContextLength =
+    requestedModel === COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID || requestedModel === COMMAND_EVE_BONSAI_ACP_MODEL_ID
+      ? bonsaiTier.contextLength
+      : contextLengthFromModel(requestedModel, options.numCtx);
+  return buildCommandEveContextPolicy('local', localContextLength);
 }
 
 async function handleContextPolicy(
