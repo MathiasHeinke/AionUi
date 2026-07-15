@@ -7,6 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import YAML from 'yaml';
 
 import type { WindowsGateReceiptV1 } from '@/process/commandEve/windows/types';
 import productIdentity from '../../../../scripts/windows/productIdentity.cjs';
@@ -23,6 +24,28 @@ function read(relativePath: string): string {
   return fs.readFileSync(path.join(process.cwd(), relativePath), 'utf8');
 }
 
+type WorkflowStep = {
+  if?: string;
+  name?: string;
+  env?: Record<string, string>;
+  run?: string;
+  with?: Record<string, unknown>;
+};
+
+type WorkflowDocument = {
+  jobs: Record<string, { steps?: WorkflowStep[]; with?: Record<string, unknown> }>;
+};
+
+function parseWorkflow(relativePath: string): WorkflowDocument {
+  return YAML.parse(read(relativePath)) as WorkflowDocument;
+}
+
+function getWorkflowStep(document: WorkflowDocument, jobId: string, stepName: string): WorkflowStep {
+  const step = document.jobs[jobId]?.steps?.find((candidate) => candidate.name === stepName);
+  if (!step) throw new Error(`Missing workflow step ${jobId}/${stepName}`);
+  return step;
+}
+
 describe('Command EVE Windows build workflow contract', () => {
   it('keeps the reusable Windows build lane fail-closed', () => {
     const workflow = read('.github/workflows/_build-reusable.yml');
@@ -31,6 +54,32 @@ describe('Command EVE Windows build workflow contract', () => {
     expect(workflow).toContain('if ($LASTEXITCODE -ne 0)');
     expect(workflow).toContain('throw "${{ matrix.platform }} build failed with exit code $LASTEXITCODE"');
     expect(workflow).toContain('BUILD_WITH_BUILDER_SELFTEST_FAIL');
+  });
+
+  it('builds one pinned Command EVE AionCore source commit for every desktop platform', () => {
+    const reusable = read('.github/workflows/_build-reusable.yml');
+    const releaseDocument = parseWorkflow('.github/workflows/build-and-release.yml');
+    const distributionDocument = parseWorkflow('.github/workflows/release-distribute.yml');
+    const releaseMatrix = releaseDocument.jobs['build-pipeline']?.with?.matrix;
+    if (typeof releaseMatrix !== 'string') throw new Error('Release build matrix must be a JSON string');
+    const releasePlatforms = (JSON.parse(releaseMatrix) as { include: Array<{ platform: string }> }).include.map(
+      (entry) => entry.platform
+    );
+    const metadataStep = getWorkflowStep(distributionDocument, 'distribute', 'Validate updater metadata');
+
+    expect(reusable).toContain('Resolve pinned Command EVE AionCore source');
+    expect(reusable).toContain('Checkout pinned Command EVE AionCore source');
+    expect(reusable).toContain('persist-credentials: false');
+    expect(reusable).toContain('cargo build --locked --release --target "$AIONCORE_RUST_TARGET" -p aionui-app');
+    expect(reusable).toContain('scripts/aioncoreSourceBuild.cjs bind');
+    expect(releasePlatforms).toContain('macos-arm64');
+    expect(releasePlatforms).toContain('windows-x64');
+    expect(releasePlatforms).not.toContain('windows-arm64');
+    expect(metadataStep.run).toContain('dist/latest.yml');
+    expect(metadataStep.run).not.toContain('dist/latest-win-arm64.yml');
+    expect(metadataStep.run).toContain('dist/latest-arm64-mac.yml');
+    expect(metadataStep.run).toContain('metadata_version');
+    expect(metadataStep.run).toContain('expected $VERSION');
   });
 
   it('uploads the complete Windows proof packet instead of installer-only output', () => {
@@ -60,6 +109,10 @@ describe('Command EVE Windows build workflow contract', () => {
     expect(harness).toContain('Get-ExactTextFindingCount');
     expect(harness).toContain('Get-CommandLineScopedProcessIds');
     expect(harness).toContain('Runtime bootstrap heartbeat');
+    expect(harness).toContain("$terminalReady = $status -eq 'ready'");
+    expect(harness).toContain("Get-StageStatus -Receipt $receipt -StageId 'model'");
+    expect(harness).toContain('Wait-ForCapturedStreams');
+    expect(harness).toContain('captured stream drain timed out');
     expect(harness).toContain('-WorkingDirectory $hermesTurnWorkingDirectory');
     expect(harness).toContain("version('hermes-agent')");
     expect(harness).toContain('license_wire_profile_binding_verified');
@@ -72,17 +125,42 @@ describe('Command EVE Windows build workflow contract', () => {
   });
 
   it('binds proof execution to one exact source commit and fails if the lifecycle is skipped', () => {
-    const reusable = read('.github/workflows/_build-reusable.yml');
+    const reusableDocument = parseWorkflow('.github/workflows/_build-reusable.yml');
     const manual = read('.github/workflows/build-manual.yml');
 
     expect(manual).toContain('windows_phase_a_proof requires a full lowercase 40-character commit SHA');
     expect(manual).toContain('ref must equal the workflow trigger SHA');
-    expect(reusable.match(/Verify exact Windows Phase A source/g)).toHaveLength(3);
-    expect(reusable).toContain('test "$ACTUAL_SHA" = "$REQUESTED_REF"');
-    expect(reusable).not.toContain('${ACTUAL_SHA,,}');
-    expect(reusable).toContain("if: steps.phase-a-preconditions.outcome == 'success'");
-    expect(reusable).toContain('pattern: windows-build-x64*');
-    expect(reusable).toContain('Windows Phase A proof was requested but did not succeed');
+    for (const jobId of ['code-quality', 'build', 'windows-phase-a-lifecycle']) {
+      const verifyStep = getWorkflowStep(reusableDocument, jobId, 'Verify exact Windows Phase A source');
+      expect(verifyStep.env).toMatchObject({
+        REQUESTED_REF: '${{ inputs.ref }}',
+        TRIGGER_SHA: '${{ github.sha }}',
+      });
+      expect(verifyStep.run).toContain('test "$ACTUAL_SHA" = "$REQUESTED_REF"');
+      expect(verifyStep.run).toContain('test "$ACTUAL_SHA" = "$TRIGGER_SHA"');
+      expect(verifyStep.run).not.toContain('${ACTUAL_SHA,,}');
+    }
+    const summaryStep = getWorkflowStep(reusableDocument, 'build-summary', 'Write build summary');
+    const lifecycleStep = getWorkflowStep(
+      reusableDocument,
+      'windows-phase-a-lifecycle',
+      'Run packaged Windows Phase A proof'
+    );
+    const candidateStep = getWorkflowStep(
+      reusableDocument,
+      'windows-phase-a-lifecycle',
+      'Download exact Windows candidate'
+    );
+    expect(lifecycleStep.if).toBe("steps.phase-a-preconditions.outcome == 'success'");
+    expect(candidateStep.with).toMatchObject({ pattern: 'windows-build-x64*' });
+    expect(summaryStep.env).toMatchObject({
+      WINDOWS_PHASE_A_PROOF: '${{ inputs.windows_phase_a_proof }}',
+      WINDOWS_PHASE_A_RESULT: '${{ needs.windows-phase-a-lifecycle.result }}',
+    });
+    expect(summaryStep.run).toContain(
+      'if [ "$WINDOWS_PHASE_A_PROOF" = "true" ] && [ "$WINDOWS_PHASE_A_RESULT" != "success" ]; then'
+    );
+    expect(summaryStep.run).toMatch(/Windows Phase A proof was requested[\s\S]*exit 1/);
   });
 
   it('parses the PowerShell harness and keeps proof postinstall failures fatal', () => {
@@ -93,7 +171,11 @@ describe('Command EVE Windows build workflow contract', () => {
     expect(reusable).not.toContain('bun run postinstall || true');
     expect(reusable).not.toContain('$Matches');
     expect(reusable).toContain('timeout-minutes: 120');
-    expect(reusable).toContain('-BootstrapTimeoutSeconds 3600');
+    expect(reusable).toContain('-BootstrapTimeoutSeconds 2400');
+    expect(reusable).toContain('-RestartBootstrapTimeoutSeconds 600');
+    expect(reusable).toContain('Scope Defender exclusions to ephemeral proof paths');
+    expect(reusable).toContain('COMMAND_EVE_PHASE_A_UNSIGNED_BUILD');
+    expect(read('scripts/build-with-builder.js')).toContain('--config.publishAutoUpdate=false');
   });
 
   it('loads every TypeScript Phase A proof entrypoint without executing its CLI', async () => {

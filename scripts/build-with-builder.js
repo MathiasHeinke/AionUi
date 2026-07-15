@@ -761,11 +761,18 @@ try {
   }
 
   const isWindowsBuild = builderArgs.includes('--win') || builderArgs.includes('--all');
+  const isUnsignedWindowsPhaseA = isWindowsBuild && process.env.COMMAND_EVE_PHASE_A_UNSIGNED_BUILD === '1';
   if (isWindowsBuild) {
     cleanupWindowsPackOutput();
   }
 
-  const builderCommand = `bunx electron-builder --config packages/desktop/electron-builder.yml ${builderArgs} ${archFlag} ${nsisInclude} ${publishArg}`;
+  const phaseAConfig = isUnsignedWindowsPhaseA
+    ? ' --config.publishAutoUpdate=false --config.extraMetadata.commandEvePhaseAUnsignedProof=true'
+    : '';
+  if (isUnsignedWindowsPhaseA) {
+    console.log('🧪 Building an unsigned Phase A proof with auto-update metadata disabled.');
+  }
+  const builderCommand = `bunx electron-builder --config packages/desktop/electron-builder.yml ${builderArgs} ${archFlag} ${nsisInclude} ${publishArg}${phaseAConfig}`;
   try {
     buildWithDmgRetry(builderCommand, targetArch);
   } catch (error) {

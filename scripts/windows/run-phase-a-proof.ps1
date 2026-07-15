@@ -3,9 +3,11 @@ param(
   [string]$InstallerPath,
   [string]$GateDirectory = 'reports/windows/phase-a/gates',
   [string]$EvidenceDirectory = 'reports/windows/phase-a/runtime',
-  [int]$BootstrapTimeoutSeconds = 3600,
+  [int]$BootstrapTimeoutSeconds = 2400,
+  [int]$RestartBootstrapTimeoutSeconds = 600,
   [int]$TurnTimeoutSeconds = 600,
-  [int]$CreditProbeTimeoutSeconds = 300
+  [int]$CreditProbeTimeoutSeconds = 300,
+  [int]$StreamDrainTimeoutSeconds = 30
 )
 
 Set-StrictMode -Version Latest
@@ -62,6 +64,25 @@ function New-ProcessStartInfo {
   return $info
 }
 
+function Wait-ForCapturedStreams {
+  param(
+    [System.Threading.Tasks.Task[string]]$StdoutTask,
+    [System.Threading.Tasks.Task[string]]$StderrTask,
+    [int]$TimeoutSeconds = 30
+  )
+  $drained = $false
+  try {
+    $tasks = [System.Threading.Tasks.Task[]]@($StdoutTask, $StderrTask)
+    $drained = [System.Threading.Tasks.Task]::WaitAll($tasks, ([Math]::Max(1, $TimeoutSeconds) * 1000))
+  } catch {}
+  $stdout = if ($StdoutTask.Status -eq [System.Threading.Tasks.TaskStatus]::RanToCompletion) { $StdoutTask.Result } else { '' }
+  $stderr = if ($StderrTask.Status -eq [System.Threading.Tasks.TaskStatus]::RanToCompletion) { $StderrTask.Result } else { '' }
+  if (-not $drained) {
+    $stderr = @($stderr, "[phase-a] captured stream drain timed out after ${TimeoutSeconds}s") -join [Environment]::NewLine
+  }
+  return [pscustomobject]@{ Drained = $drained; Stdout = $stdout; Stderr = $stderr }
+}
+
 function Invoke-CapturedProcess {
   param(
     [string]$FilePath,
@@ -96,8 +117,9 @@ function Invoke-CapturedProcess {
   } else {
     $process.WaitForExit()
   }
-  $stdout = $stdoutTask.GetAwaiter().GetResult()
-  $stderr = $stderrTask.GetAwaiter().GetResult()
+  $streams = Wait-ForCapturedStreams -StdoutTask $stdoutTask -StderrTask $stderrTask -TimeoutSeconds $StreamDrainTimeoutSeconds
+  $stdout = $streams.Stdout
+  $stderr = $streams.Stderr
   $completed = [DateTimeOffset]::UtcNow
   return [pscustomobject]@{
     ExitCode = if ($exited) { $process.ExitCode } else { 124 }
@@ -214,7 +236,9 @@ function Wait-ForRuntimeReceipt {
     if (-not $fresh -and [DateTimeOffset]::TryParse($receiptStartedAtText, [ref]$receiptStartedAt)) {
       $fresh = $receiptStartedAt -gt $StartedAfter
     }
-    if ($receipt -and $fresh -and $status -in @('ready', 'blocked', 'failed', 'skipped')) { return $receipt }
+    $terminalFailure = $status -in @('blocked', 'failed', 'skipped')
+    $terminalReady = $status -eq 'ready' -and (Get-StageStatus -Receipt $receipt -StageId 'model') -ne 'missing'
+    if ($receipt -and $fresh -and ($terminalFailure -or $terminalReady)) { return $receipt }
     if ([DateTimeOffset]::UtcNow -ge $nextHeartbeat) {
       $elapsed = $TimeoutSeconds - [int]($deadline - [DateTimeOffset]::UtcNow).TotalSeconds
       Write-Host "[phase-a] Runtime bootstrap heartbeat: ${elapsed}s elapsed"
@@ -477,8 +501,8 @@ try {
         try { $cancelProcess.Kill($true) } catch {}
         [void]$cancelProcess.WaitForExit(30000)
       }
-      [void]$cancelStdout.GetAwaiter().GetResult()
-      [void]$cancelStderr.GetAwaiter().GetResult()
+      $cancelStreams = Wait-ForCapturedStreams -StdoutTask $cancelStdout -StderrTask $cancelStderr -TimeoutSeconds $StreamDrainTimeoutSeconds
+      if (-not $cancelStreams.Drained) { $fatalErrors.Add('Cancel process stream drain timed out.') }
       Start-Sleep -Seconds 1
       $cancelScoped = Get-CommandLineScopedProcessIds -Needles @($hermesPath, $runtimeHermesHome)
       $cancelSurvivors = @(
@@ -502,7 +526,7 @@ try {
     $restartRootPid = $restartProcess.Id
     $commands.Add([ordered]@{ command = 'installed Command EVE restart'; exit_code = 0 })
     $restartAionCore = Wait-ForAionCore -ProfilePath $profileRoot -TimeoutSeconds 90
-    $restartRuntimeReceipt = Wait-ForRuntimeReceipt -ReceiptPath $runtimeReceiptPath -TimeoutSeconds $BootstrapTimeoutSeconds -StartedAfter $restartStartedAt
+    $restartRuntimeReceipt = Wait-ForRuntimeReceipt -ReceiptPath $runtimeReceiptPath -TimeoutSeconds $RestartBootstrapTimeoutSeconds -StartedAfter $restartStartedAt
     if ($restartRuntimeReceipt) {
       Copy-Item -LiteralPath $runtimeReceiptPath -Destination $runtimeEvidence -Force
     }

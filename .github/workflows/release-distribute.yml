@@ -114,7 +114,6 @@ jobs:
 
           metadata_files=(
             dist/latest.yml
-            dist/latest-win-arm64.yml
             dist/latest-mac.yml
             dist/latest-arm64-mac.yml
             dist/latest-linux.yml

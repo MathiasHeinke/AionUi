@@ -54,6 +54,20 @@ function completeReceipts(): WindowsGateReceiptV1[] {
 }
 
 describe('Windows Phase A convergence', () => {
+  it('pins the complete mandatory proof gate contract', () => {
+    expect(PHASE_A_REQUIRED_GATE_IDS).toEqual([
+      'WIN-G00',
+      'WIN-G01',
+      'WIN-G02',
+      'WIN-G03',
+      'WIN-G04',
+      'WIN-G05',
+      'WIN-G06',
+      'WIN-G06T',
+      'WIN-G07',
+    ]);
+  });
+
   it('passes only when every mandatory gate is bound to one clean commit and artifact', () => {
     expect(evaluatePhaseAConvergence(completeReceipts())).toEqual({
       ok: true,

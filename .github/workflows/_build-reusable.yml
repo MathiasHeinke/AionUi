@@ -188,6 +188,64 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Scope Defender exclusions to ephemeral Windows build paths
+        if: startsWith(matrix.platform, 'windows')
+        shell: pwsh
+        run: |
+          foreach ($Path in @($env:GITHUB_WORKSPACE, $env:RUNNER_TEMP)) {
+            if ([string]::IsNullOrWhiteSpace($Path)) { continue }
+            try { Add-MpPreference -ExclusionPath $Path -ErrorAction Stop }
+            catch { Write-Warning "Unable to add Defender exclusion for $Path`: $($_.Exception.Message)" }
+          }
+
+      - name: Resolve pinned Command EVE AionCore source
+        id: command-eve-aioncore
+        shell: bash
+        run: node scripts/aioncoreSourceBuild.cjs config "${{ matrix.platform }}" "$GITHUB_OUTPUT"
+
+      - name: Checkout pinned Command EVE AionCore source
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ steps.command-eve-aioncore.outputs.repository }}
+          ref: ${{ steps.command-eve-aioncore.outputs.commit }}
+          path: .command-eve-aioncore-source
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup pinned AionCore Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.command-eve-aioncore.outputs.rust_toolchain }}
+          targets: ${{ steps.command-eve-aioncore.outputs.target }}
+
+      - name: Fix Rust MSVC linker (Windows only)
+        if: startsWith(matrix.platform, 'windows')
+        shell: pwsh
+        run: Remove-Item 'C:\Program Files\Git\usr\bin\link.exe' -Force -ErrorAction SilentlyContinue
+
+      - name: Cache pinned Command EVE AionCore build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .command-eve-aioncore-source -> target
+          shared-key: command-eve-aioncore-${{ matrix.platform }}-${{ steps.command-eve-aioncore.outputs.commit }}
+          cache-on-failure: true
+
+      - name: Build pinned Command EVE AionCore source
+        shell: bash
+        working-directory: .command-eve-aioncore-source
+        env:
+          AIONCORE_RUST_TARGET: ${{ steps.command-eve-aioncore.outputs.target }}
+          AIONUI_EMBED_BUN: '1'
+          BUN_VARIANT: default
+          RUSTFLAGS: ${{ steps.command-eve-aioncore.outputs.rustflags }}
+        run: cargo build --locked --release --target "$AIONCORE_RUST_TARGET" -p aionui-app
+
+      - name: Bind pinned Command EVE AionCore binary
+        shell: bash
+        run: >-
+          node scripts/aioncoreSourceBuild.cjs bind "${{ matrix.platform }}" "$GITHUB_ENV"
+          ".command-eve-aioncore-source"
+
       # Restore Electron/Electron-Builder caches before any build-related install
       - name: Cache Electron artifacts
         id: electron-cache
@@ -387,8 +445,8 @@ jobs:
         shell: bash
         run: node scripts/prepareAioncore.js
         env:
-          # Version is pinned in repo-root package.json (aioncoreVersion).
-          # Set AIONUI_BACKEND_VERSION here only to override for ad-hoc builds.
+          # Version plus exact source repository/commit are pinned in package.json.
+          # The source build hash is bound through GITHUB_ENV before preparation.
           AIONUI_BACKEND_ARCH: ${{ matrix.arch }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -449,6 +507,7 @@ jobs:
           ELECTRON_BUILDER_CACHE: ${{ runner.temp }}/.cache/electron-builder
           # Phase A is unsigned. Never expose Apple or provider credentials to a Windows build.
           CSC_IDENTITY_AUTO_DISCOVERY: false
+          COMMAND_EVE_PHASE_A_UNSIGNED_BUILD: ${{ inputs.windows_phase_a_proof && '1' || '0' }}
           # Windows build flags / Windows 构建参数
           MSVS_VERSION: 2022
           GYP_MSVS_VERSION: 2022
@@ -730,7 +789,7 @@ jobs:
             out/*.yml
             reports/windows/phase-a/gates/*.json
           if-no-files-found: error
-          retention-days: 7
+          retention-days: ${{ inputs.windows_phase_a_proof && 1 || 7 }}
 
   windows-phase-a-lifecycle:
     name: Windows x64 Phase A Lifecycle
@@ -769,6 +828,15 @@ jobs:
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+
+      - name: Scope Defender exclusions to ephemeral proof paths
+        shell: pwsh
+        run: |
+          foreach ($Path in @($env:GITHUB_WORKSPACE, $env:RUNNER_TEMP)) {
+            if ([string]::IsNullOrWhiteSpace($Path)) { continue }
+            try { Add-MpPreference -ExclusionPath $Path -ErrorAction Stop }
+            catch { Write-Warning "Unable to add Defender exclusion for $Path`: $($_.Exception.Message)" }
+          }
 
       - name: Install proof dependencies
         uses: nick-fields/retry@v3
@@ -849,7 +917,8 @@ jobs:
             -InstallerPath '${{ steps.phase-a-installer.outputs.path }}' `
             -GateDirectory 'reports/windows/phase-a/gates' `
             -EvidenceDirectory 'reports/windows/phase-a/runtime' `
-            -BootstrapTimeoutSeconds 3600 `
+            -BootstrapTimeoutSeconds 2400 `
+            -RestartBootstrapTimeoutSeconds 600 `
             -TurnTimeoutSeconds 600 `
             -CreditProbeTimeoutSeconds 300
           exit $LASTEXITCODE

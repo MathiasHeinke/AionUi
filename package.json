@@ -316,6 +316,19 @@
     "win32-x64": "b9fd31c27effc3c2a644aef2e218cd6951d63865e88f583cb08b62ebf547833d"
   },
   "aioncoreVersion": "v0.1.37",
+  "commandEveAioncoreSource": {
+    "repository": "MathiasHeinke/AionCore",
+    "commit": "f0679672e7144a073f23a37615bae3e3847b96d0",
+    "rustToolchain": "1.95.0",
+    "targets": {
+      "macos-arm64": "aarch64-apple-darwin",
+      "macos-x64": "x86_64-apple-darwin",
+      "windows-x64": "x86_64-pc-windows-msvc",
+      "windows-arm64": "aarch64-pc-windows-msvc",
+      "linux-x64": "x86_64-unknown-linux-gnu",
+      "linux-arm64": "aarch64-unknown-linux-gnu"
+    }
+  },
   "electronRebuild": {
     "electronVersion": "42.6.1"
   },
