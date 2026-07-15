@@ -47,7 +47,11 @@ $repositoryVisibility = if ($repositoryPrivate -eq $true) {
 } else {
   'unknown'
 }
-$requestedCommit = [string](Get-OptionalProperty -InputObject $eventInputs -Name 'source_commit' -Default '')
+$sourceRepository = [string]$env:COMMAND_EVE_SOURCE_REPOSITORY
+$sourceRef = [string](Get-OptionalProperty -InputObject $eventInputs -Name 'source_ref' -Default '')
+$sourceCommit = [string](Get-OptionalProperty -InputObject $eventInputs -Name 'source_commit' -Default '')
+$runnerBinding = [string](Get-OptionalProperty -InputObject $eventInputs -Name 'runner_binding' -Default '')
+$expectedRunnerName = [string](Get-OptionalProperty -InputObject $eventInputs -Name 'runner_name' -Default '')
 
 $controllerTokenPresent =
   -not [string]::IsNullOrWhiteSpace($env:GH_TOKEN) -or
@@ -81,18 +85,33 @@ $productionSecretsAvailable = @(
 ).Count -gt 0
 $memoryLabel = if ($MemoryClass -eq 'lowmem-8gb') { 'phase-b-lowmem' } else { 'phase-b-normal' }
 $eventName = [string]$env:GITHUB_EVENT_NAME
-$triggerCommit = [string]$env:GITHUB_SHA
+$workflowCommit = [string]$env:GITHUB_SHA
+$runAttempt = if ($env:GITHUB_RUN_ATTEMPT -match '^[1-9][0-9]*$') {
+  [int]$env:GITHUB_RUN_ATTEMPT
+} else {
+  0
+}
 
 $policy = [ordered]@{
-  schema_version = 'command-eve-windows-phase-b-runner-policy/v1'
+  schema_version = 'command-eve-windows-phase-b-runner-policy/v2'
   repository = [ordered]@{
     full_name = $repositoryFullName
     visibility = $repositoryVisibility
   }
   dispatch = [ordered]@{
     event_name = $eventName
-    requested_commit = $requestedCommit
-    trigger_commit = $triggerCommit
+    source_repository = $sourceRepository
+    source_ref = $sourceRef
+    source_commit = $sourceCommit
+    workflow_commit = $workflowCommit
+    runner_binding = $runnerBinding
+    expected_runner_name = $expectedRunnerName
+    actual_runner_name = [string]$env:RUNNER_NAME
+    run_id = [string]$env:GITHUB_RUN_ID
+    run_attempt = $runAttempt
+    ref = [string]$env:GITHUB_REF
+    ref_type = [string]$env:GITHUB_REF_TYPE
+    workflow_ref = [string]$env:GITHUB_WORKFLOW_REF
     pull_request_from_fork = $eventName -ne 'workflow_dispatch'
     permissions = [ordered]@{
       contents = 'read'
@@ -106,7 +125,7 @@ $policy = [ordered]@{
   runner = [ordered]@{
     mode = if ($env:COMMAND_EVE_PHASE_B_JIT -eq '1') { 'jit' } else { 'unknown' }
     max_jobs = if ($env:COMMAND_EVE_PHASE_B_JIT -eq '1') { 1 } else { 0 }
-    labels = @('self-hosted', 'Windows', 'X64', 'command-eve-phase-b', $memoryLabel)
+    labels = @('self-hosted', 'Windows', 'X64', 'command-eve-phase-b', $memoryLabel, "ceve-bind-$runnerBinding")
     work_folder = '_work'
     preexisting_credential_file_count = if (
       $env:COMMAND_EVE_PREEXISTING_CREDENTIAL_FILE_COUNT -match '^[0-9]+$'

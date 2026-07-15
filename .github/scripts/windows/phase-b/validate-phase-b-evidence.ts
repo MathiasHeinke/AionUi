@@ -17,7 +17,13 @@ type CliOptions = {
   machineFactsPath: string;
   runnerPolicyPath: string;
   memoryClass: PhaseBMemoryClass;
-  expectedRepository: string;
+  expectedControlRepository: string;
+  expectedSourceRepository: string;
+  expectedSourceRef: string;
+  expectedSourceCommit: string;
+  expectedWorkflowCommit: string;
+  expectedRunnerBinding: string;
+  expectedRunnerName: string;
   outputDirectory: string;
   nowMs?: number;
 };
@@ -33,18 +39,42 @@ function parseArguments(argv: string[]): CliOptions {
   const machineFactsPath = values.get('--machine-facts');
   const runnerPolicyPath = values.get('--runner-policy');
   const memoryClass = values.get('--memory-class');
-  const expectedRepository = values.get('--expected-repository');
+  const expectedControlRepository = values.get('--expected-control-repository');
+  const expectedSourceRepository = values.get('--expected-source-repository');
+  const expectedSourceRef = values.get('--expected-source-ref');
+  const expectedSourceCommit = values.get('--expected-source-commit');
+  const expectedWorkflowCommit = values.get('--expected-workflow-commit');
+  const expectedRunnerBinding = values.get('--expected-runner-binding');
+  const expectedRunnerName = values.get('--expected-runner-name');
   const outputDirectory = values.get('--output-directory');
   if (
     !machineFactsPath ||
     !runnerPolicyPath ||
     (memoryClass !== 'lowmem-8gb' && memoryClass !== 'normal-16gb') ||
-    !expectedRepository ||
+    !expectedControlRepository ||
+    !expectedSourceRepository ||
+    !expectedSourceRef ||
+    !expectedSourceCommit ||
+    !expectedWorkflowCommit ||
+    !expectedRunnerBinding ||
+    !expectedRunnerName ||
     !outputDirectory
   ) {
     throw new Error('Missing or invalid Phase B evidence validation argument.');
   }
-  return { machineFactsPath, runnerPolicyPath, memoryClass, expectedRepository, outputDirectory };
+  return {
+    machineFactsPath,
+    runnerPolicyPath,
+    memoryClass,
+    expectedControlRepository,
+    expectedSourceRepository,
+    expectedSourceRef,
+    expectedSourceCommit,
+    expectedWorkflowCommit,
+    expectedRunnerBinding,
+    expectedRunnerName,
+    outputDirectory,
+  };
 }
 
 function readJson(filePath: string): unknown {
@@ -66,7 +96,13 @@ export function validatePhaseBEvidence(options: CliOptions): { ok: boolean; outp
     options.nowMs
   );
   const runner = evaluatePhaseBRunnerPolicy(readJson(options.runnerPolicyPath), {
-    expected_repository: options.expectedRepository,
+    expected_control_repository: options.expectedControlRepository,
+    expected_source_repository: options.expectedSourceRepository,
+    expected_source_ref: options.expectedSourceRef,
+    expected_source_commit: options.expectedSourceCommit,
+    expected_workflow_commit: options.expectedWorkflowCommit,
+    expected_runner_binding: options.expectedRunnerBinding,
+    expected_runner_name: options.expectedRunnerName,
     memory_class: options.memoryClass,
   });
   const machineOutput = path.join(options.outputDirectory, 'machine-readiness-receipt.json');
@@ -77,9 +113,19 @@ export function validatePhaseBEvidence(options: CliOptions): { ok: boolean; outp
   const ok = machine.status === 'PASS' && runner.status === 'PASS';
   const outcomeSentinel = ok ? 'WIN_PHASE_B_BOOTSTRAP_VALIDATION_PASS' : 'WIN_PHASE_B_BOOTSTRAP_VALIDATION_REJECT';
   writeJsonAtomically(summaryOutput, {
-    schema_version: 'command-eve-windows-phase-b-bootstrap-summary/v1',
+    schema_version: 'command-eve-windows-phase-b-bootstrap-summary/v2',
     memory_class: options.memoryClass,
-    expected_repository: options.expectedRepository,
+    expected_control_repository: options.expectedControlRepository,
+    expected_source_repository: options.expectedSourceRepository,
+    source_ref: runner.source_ref,
+    source_commit: runner.source_commit,
+    workflow_commit: runner.workflow_commit,
+    runner_binding: runner.runner_binding,
+    runner_name: runner.runner_name,
+    run_id: runner.run_id,
+    run_attempt: runner.run_attempt,
+    run_ref: runner.run_ref,
+    workflow_ref: runner.workflow_ref,
     machine_status: machine.status,
     runner_status: runner.status,
     status: ok ? 'PASS' : 'REJECT',

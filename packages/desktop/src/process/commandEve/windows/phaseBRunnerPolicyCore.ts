@@ -7,9 +7,9 @@
 import type { WindowsGateAssertionReceipt } from './types';
 import type { PhaseBMemoryClass } from './phaseBMachineReceiptCore';
 
-export const PHASE_B_RUNNER_POLICY_SCHEMA_VERSION = 'command-eve-windows-phase-b-runner-policy/v1' as const;
+export const PHASE_B_RUNNER_POLICY_SCHEMA_VERSION = 'command-eve-windows-phase-b-runner-policy/v2' as const;
 
-export type PhaseBRunnerPolicyEvidenceV1 = {
+export type PhaseBRunnerPolicyEvidenceV2 = {
   schema_version: typeof PHASE_B_RUNNER_POLICY_SCHEMA_VERSION;
   repository: {
     full_name: string;
@@ -17,8 +17,18 @@ export type PhaseBRunnerPolicyEvidenceV1 = {
   };
   dispatch: {
     event_name: string;
-    requested_commit: string;
-    trigger_commit: string;
+    source_repository: string;
+    source_ref: string;
+    source_commit: string;
+    workflow_commit: string;
+    runner_binding: string;
+    expected_runner_name: string;
+    actual_runner_name: string;
+    run_id: string;
+    run_attempt: number;
+    ref: string;
+    ref_type: string;
+    workflow_ref: string;
     pull_request_from_fork: boolean;
     permissions: Record<string, 'none' | 'read' | 'write'>;
   };
@@ -39,8 +49,19 @@ export type PhaseBRunnerPolicyEvidenceV1 = {
 export type PhaseBRunnerRejectCode =
   | 'WIN_B_RUNNER_POLICY_SCHEMA_INVALID'
   | 'WIN_B_REPOSITORY_NOT_PRIVATE'
+  | 'WIN_B_CONTROL_REPOSITORY_MISMATCH'
   | 'WIN_B_SOURCE_REPOSITORY_MISMATCH'
+  | 'WIN_B_SOURCE_REF_INVALID'
   | 'WIN_B_SOURCE_COMMIT_NOT_PINNED'
+  | 'WIN_B_SOURCE_COMMIT_MISMATCH'
+  | 'WIN_B_WORKFLOW_COMMIT_NOT_PINNED'
+  | 'WIN_B_WORKFLOW_COMMIT_MISMATCH'
+  | 'WIN_B_RUNNER_BINDING_INVALID'
+  | 'WIN_B_RUNNER_NAME_MISMATCH'
+  | 'WIN_B_RUN_ID_INVALID'
+  | 'WIN_B_RUN_ATTEMPT_INVALID'
+  | 'WIN_B_RUN_REF_MISMATCH'
+  | 'WIN_B_WORKFLOW_REF_MISMATCH'
   | 'WIN_B_WORKFLOW_NOT_MANUAL'
   | 'WIN_B_FORK_CONTEXT_FORBIDDEN'
   | 'WIN_B_WORKFLOW_PERMISSIONS_TOO_BROAD'
@@ -56,17 +77,34 @@ export type PhaseBRunnerRejectCode =
   | 'WIN_B_JIT_DELIVERY_INVALID';
 
 export type PhaseBRunnerPolicyResult = {
-  schema_version: 'command-eve-windows-phase-b-runner-policy-result/v1';
+  schema_version: 'command-eve-windows-phase-b-runner-policy-result/v2';
   status: 'PASS' | 'REJECT';
   reject_code: 'WIN_PHASE_B_RUNNER_POLICY_REJECT' | null;
   reject_codes: PhaseBRunnerRejectCode[];
   assertions: WindowsGateAssertionReceipt[];
+  control_repository: string | null;
+  source_repository: string | null;
+  source_ref: string | null;
   source_commit: string | null;
+  workflow_commit: string | null;
+  memory_class: PhaseBMemoryClass;
+  runner_binding: string | null;
+  runner_name: string | null;
+  run_id: string | null;
+  run_attempt: number | null;
+  run_ref: string | null;
+  workflow_ref: string | null;
   completion_sentinel: 'WIN_PHASE_B_RUNNER_POLICY_COMPLETE';
 };
 
 export type PhaseBRunnerPolicyExpectation = {
-  expected_repository: string;
+  expected_control_repository: string;
+  expected_source_repository: string;
+  expected_source_ref: string;
+  expected_source_commit: string;
+  expected_workflow_commit: string;
+  expected_runner_binding: string;
+  expected_runner_name: string;
   memory_class: PhaseBMemoryClass;
 };
 
@@ -78,6 +116,38 @@ function isPinnedCommit(value: unknown): value is string {
   return typeof value === 'string' && /^[0-9a-f]{40}$/.test(value);
 }
 
+function isRepositoryFullName(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(value);
+}
+
+function isSourceRef(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    /^[A-Za-z0-9._/-]+$/.test(value) &&
+    !value.startsWith('-') &&
+    !value.startsWith('/') &&
+    !value.endsWith('/') &&
+    !value.includes('..') &&
+    !value.includes('//')
+  );
+}
+
+function isRunnerBinding(value: unknown): value is string {
+  return typeof value === 'string' && /^[0-9a-f]{32}$/.test(value);
+}
+
+function isRunnerName(value: unknown): value is string {
+  return typeof value === 'string' && /^command-eve-phase-b-(?:lowmem|normal)-[0-9a-f]{12}$/.test(value);
+}
+
+function isRunId(value: unknown): value is string {
+  return typeof value === 'string' && /^[1-9][0-9]*$/.test(value);
+}
+
+function isRunAttempt(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+}
+
 function isSafeWorkFolder(value: unknown): value is string {
   if (typeof value !== 'string' || value.length === 0) return false;
   const normalized = value.replaceAll('\\', '/');
@@ -87,16 +157,29 @@ function isSafeWorkFolder(value: unknown): value is string {
 function result(
   rejectCodes: PhaseBRunnerRejectCode[],
   assertions: WindowsGateAssertionReceipt[],
-  sourceCommit: unknown
+  repository: Record<string, unknown> | null,
+  dispatch: Record<string, unknown> | null,
+  expectation: PhaseBRunnerPolicyExpectation
 ): PhaseBRunnerPolicyResult {
   const uniqueRejectCodes = [...new Set(rejectCodes)];
   return {
-    schema_version: 'command-eve-windows-phase-b-runner-policy-result/v1',
+    schema_version: 'command-eve-windows-phase-b-runner-policy-result/v2',
     status: uniqueRejectCodes.length === 0 ? 'PASS' : 'REJECT',
     reject_code: uniqueRejectCodes.length === 0 ? null : 'WIN_PHASE_B_RUNNER_POLICY_REJECT',
     reject_codes: uniqueRejectCodes,
     assertions,
-    source_commit: isPinnedCommit(sourceCommit) ? sourceCommit : null,
+    control_repository: isRepositoryFullName(repository?.full_name) ? repository.full_name : null,
+    source_repository: isRepositoryFullName(dispatch?.source_repository) ? dispatch.source_repository : null,
+    source_ref: isSourceRef(dispatch?.source_ref) ? dispatch.source_ref : null,
+    source_commit: isPinnedCommit(dispatch?.source_commit) ? dispatch.source_commit : null,
+    workflow_commit: isPinnedCommit(dispatch?.workflow_commit) ? dispatch.workflow_commit : null,
+    memory_class: expectation.memory_class,
+    runner_binding: isRunnerBinding(dispatch?.runner_binding) ? dispatch.runner_binding : null,
+    runner_name: isRunnerName(dispatch?.actual_runner_name) ? dispatch.actual_runner_name : null,
+    run_id: isRunId(dispatch?.run_id) ? dispatch.run_id : null,
+    run_attempt: isRunAttempt(dispatch?.run_attempt) ? dispatch.run_attempt : null,
+    run_ref: typeof dispatch?.ref === 'string' ? dispatch.ref : null,
+    workflow_ref: typeof dispatch?.workflow_ref === 'string' ? dispatch.workflow_ref : null,
     completion_sentinel: 'WIN_PHASE_B_RUNNER_POLICY_COMPLETE',
   };
 }
@@ -126,7 +209,7 @@ export function evaluatePhaseBRunnerPolicy(
       'Runner evidence uses the Phase B policy schema.',
       'Runner evidence is not an object.'
     );
-    return result(rejectCodes, assertions, null);
+    return result(rejectCodes, assertions, null, null, expectation);
   }
 
   const repository = isRecord(input.repository) ? input.repository : null;
@@ -155,22 +238,121 @@ export function evaluatePhaseBRunnerPolicy(
 
   addAssertion(
     'exact-lab-repository',
-    repository?.full_name === expectation.expected_repository,
-    'WIN_B_SOURCE_REPOSITORY_MISMATCH',
-    'Runner repository matches the private lab mirror.',
-    'Runner repository does not match the expected private lab mirror.'
+    repository?.full_name === expectation.expected_control_repository,
+    'WIN_B_CONTROL_REPOSITORY_MISMATCH',
+    'Runner repository matches the private control repository.',
+    'Runner repository does not match the expected private control repository.'
   );
 
-  const commitPinned =
-    isPinnedCommit(dispatch?.requested_commit) &&
-    isPinnedCommit(dispatch?.trigger_commit) &&
-    dispatch.requested_commit === dispatch.trigger_commit;
+  addAssertion(
+    'exact-source-repository',
+    dispatch?.source_repository === expectation.expected_source_repository,
+    'WIN_B_SOURCE_REPOSITORY_MISMATCH',
+    'Checkout source matches the expected public source repository.',
+    'Checkout source does not match the expected public source repository.'
+  );
+
+  addAssertion(
+    'exact-source-ref',
+    isSourceRef(dispatch?.source_ref) && dispatch.source_ref === expectation.expected_source_ref,
+    'WIN_B_SOURCE_REF_INVALID',
+    'Checkout source branch is explicitly bound to the expected public branch.',
+    'Checkout source branch is malformed or differs from the expected public branch.'
+  );
+
+  addAssertion(
+    'pinned-source-commit',
+    isPinnedCommit(dispatch?.source_commit),
+    'WIN_B_SOURCE_COMMIT_NOT_PINNED',
+    'Checkout source is bound to one exact lowercase source SHA.',
+    'Checkout source uses a branch or malformed SHA.'
+  );
+
   addAssertion(
     'exact-source-commit',
-    commitPinned,
-    'WIN_B_SOURCE_COMMIT_NOT_PINNED',
-    'Dispatch and trigger are bound to one exact lowercase source SHA.',
-    'Dispatch uses a branch, malformed SHA, or a different trigger SHA.'
+    dispatch?.source_commit === expectation.expected_source_commit,
+    'WIN_B_SOURCE_COMMIT_MISMATCH',
+    'Checkout source commit matches the controller-issued SHA.',
+    'Checkout source commit differs from the controller-issued SHA.'
+  );
+
+  addAssertion(
+    'pinned-workflow-commit',
+    isPinnedCommit(dispatch?.workflow_commit),
+    'WIN_B_WORKFLOW_COMMIT_NOT_PINNED',
+    'Private control workflow is bound to one exact lowercase workflow SHA.',
+    'Private control workflow uses a branch or malformed SHA.'
+  );
+
+  addAssertion(
+    'exact-workflow-commit',
+    dispatch?.workflow_commit === expectation.expected_workflow_commit,
+    'WIN_B_WORKFLOW_COMMIT_MISMATCH',
+    'Private control workflow commit matches the controller-issued SHA.',
+    'Private control workflow commit differs from the controller-issued SHA.'
+  );
+
+  const runnerBindingValid =
+    isRunnerBinding(dispatch?.runner_binding) && dispatch.runner_binding === expectation.expected_runner_binding;
+  addAssertion(
+    'unique-runner-binding',
+    runnerBindingValid,
+    'WIN_B_RUNNER_BINDING_INVALID',
+    'Dispatch and runner use the controller-issued one-run binding.',
+    'Runner binding is malformed or differs from the controller-issued binding.'
+  );
+
+  const memoryName = expectation.memory_class === 'lowmem-8gb' ? 'lowmem' : 'normal';
+  const derivedRunnerName = isRunnerBinding(expectation.expected_runner_binding)
+    ? `command-eve-phase-b-${memoryName}-${expectation.expected_runner_binding.slice(0, 12)}`
+    : '';
+  const runnerNameValid =
+    isRunnerName(expectation.expected_runner_name) &&
+    expectation.expected_runner_name === derivedRunnerName &&
+    dispatch?.expected_runner_name === expectation.expected_runner_name &&
+    dispatch?.actual_runner_name === expectation.expected_runner_name;
+  addAssertion(
+    'exact-runner-name',
+    runnerNameValid,
+    'WIN_B_RUNNER_NAME_MISMATCH',
+    'The assigned Windows runner name matches the controller-issued JIT runner.',
+    'The assigned Windows runner name differs from the controller-issued JIT runner.'
+  );
+
+  addAssertion(
+    'github-run-id',
+    isRunId(dispatch?.run_id),
+    'WIN_B_RUN_ID_INVALID',
+    'GitHub run identity is present and non-zero.',
+    'GitHub run identity is missing or malformed.'
+  );
+
+  addAssertion(
+    'github-run-attempt',
+    isRunAttempt(dispatch?.run_attempt),
+    'WIN_B_RUN_ATTEMPT_INVALID',
+    'GitHub run attempt is a positive integer.',
+    'GitHub run attempt is missing or malformed.'
+  );
+
+  const expectedRunRef = isRunnerBinding(expectation.expected_runner_binding)
+    ? `refs/tags/command-eve-phase-b-${expectation.expected_runner_binding}`
+    : '';
+  addAssertion(
+    'exact-workflow-tag',
+    dispatch?.ref_type === 'tag' && dispatch?.ref === expectedRunRef,
+    'WIN_B_RUN_REF_MISMATCH',
+    'Workflow dispatch runs from the unique controller-created tag.',
+    'Workflow dispatch does not run from the unique controller-created tag.'
+  );
+
+  const expectedWorkflowRef = `${expectation.expected_control_repository}/.github/workflows/windows-phase-b-lab.yml@${expectedRunRef}`;
+  addAssertion(
+    'exact-workflow-ref',
+    dispatch?.workflow_ref === expectedWorkflowRef,
+    'WIN_B_WORKFLOW_REF_MISMATCH',
+    'GitHub workflow reference matches the unique tagged private workflow.',
+    'GitHub workflow reference differs from the unique tagged private workflow.'
   );
 
   addAssertion(
@@ -224,7 +406,10 @@ export function evaluatePhaseBRunnerPolicy(
     ? runner.labels.filter((label): label is string => typeof label === 'string').map((label) => label.toLowerCase())
     : [];
   const memoryLabel = expectation.memory_class === 'lowmem-8gb' ? 'phase-b-lowmem' : 'phase-b-normal';
-  const requiredLabels = ['self-hosted', 'windows', 'x64', 'command-eve-phase-b', memoryLabel];
+  const bindingLabel = isRunnerBinding(expectation.expected_runner_binding)
+    ? `ceve-bind-${expectation.expected_runner_binding}`
+    : '';
+  const requiredLabels = ['self-hosted', 'windows', 'x64', 'command-eve-phase-b', memoryLabel, bindingLabel];
   addAssertion(
     'runner-labels',
     requiredLabels.every((label) => labels.includes(label)),
@@ -289,5 +474,5 @@ export function evaluatePhaseBRunnerPolicy(
     'Runner receives a reusable registration token or another persistent credential.'
   );
 
-  return result(rejectCodes, assertions, dispatch?.requested_commit);
+  return result(rejectCodes, assertions, repository, dispatch, expectation);
 }

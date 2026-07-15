@@ -1,4 +1,5 @@
 name: Command EVE Windows Phase B Lab
+run-name: Command EVE Phase B ${{ inputs.memory_class }} ${{ inputs.runner_binding }}
 
 permissions:
   contents: read
@@ -6,8 +7,24 @@ permissions:
 on:
   workflow_dispatch:
     inputs:
+      workflow_commit:
+        description: Exact lowercase private workflow commit SHA
+        required: true
+        type: string
+      source_ref:
+        description: Exact public source branch whose head is being tested
+        required: true
+        type: string
       source_commit:
         description: Exact lowercase commit SHA to test
+        required: true
+        type: string
+      runner_binding:
+        description: Controller-issued lowercase one-run binding
+        required: true
+        type: string
+      runner_name:
+        description: Controller-issued exact JIT runner name
         required: true
         type: string
       memory_class:
@@ -29,29 +46,43 @@ jobs:
     outputs:
       runner_labels: ${{ steps.contract.outputs.runner_labels }}
     steps:
-      - name: Enforce exact private source contract
+      - name: Enforce exact control and source contract
         id: contract
         shell: bash
         env:
-          EXPECTED_REPOSITORY: MathiasHeinke/command-eve-windows-lab
+          EXPECTED_CONTROL_REPOSITORY: MathiasHeinke/command-eve-windows-lab
+          EXPECTED_SOURCE_REPOSITORY: MathiasHeinke/AionUi
+          CONTROL_REPOSITORY: ${{ github.repository }}
+          CONTROL_REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+          INPUT_WORKFLOW_COMMIT: ${{ inputs.workflow_commit }}
           MEMORY_CLASS: ${{ inputs.memory_class }}
-          REPOSITORY: ${{ github.repository }}
-          REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
+          RUNNER_BINDING: ${{ inputs.runner_binding }}
+          RUNNER_NAME: ${{ inputs.runner_name }}
+          SOURCE_REPOSITORY: MathiasHeinke/AionUi
+          SOURCE_REF: ${{ inputs.source_ref }}
           SOURCE_COMMIT: ${{ inputs.source_commit }}
-          TRIGGER_SHA: ${{ github.sha }}
+          WORKFLOW_COMMIT: ${{ github.sha }}
         run: |
           set -euo pipefail
-          test "$REPOSITORY" = "$EXPECTED_REPOSITORY"
-          test "$REPOSITORY_PRIVATE" = "true"
+          test "$CONTROL_REPOSITORY" = "$EXPECTED_CONTROL_REPOSITORY"
+          test "$CONTROL_REPOSITORY_PRIVATE" = "true"
+          test "$SOURCE_REPOSITORY" = "$EXPECTED_SOURCE_REPOSITORY"
+          [[ "$SOURCE_REF" =~ ^[A-Za-z0-9._/-]+$ ]]
+          [[ "$SOURCE_REF" != -* && "$SOURCE_REF" != /* && "$SOURCE_REF" != */ ]]
+          [[ "$SOURCE_REF" != *..* && "$SOURCE_REF" != *//* ]]
           [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
-          test "$SOURCE_COMMIT" = "$TRIGGER_SHA"
+          [[ "$WORKFLOW_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          test "$WORKFLOW_COMMIT" = "$INPUT_WORKFLOW_COMMIT"
+          [[ "$RUNNER_BINDING" =~ ^[0-9a-f]{32}$ ]]
           case "$MEMORY_CLASS" in
-            lowmem-8gb) memory_label=phase-b-lowmem ;;
-            normal-16gb) memory_label=phase-b-normal ;;
+            lowmem-8gb) memory_label=phase-b-lowmem; memory_name=lowmem ;;
+            normal-16gb) memory_label=phase-b-normal; memory_name=normal ;;
             *) exit 1 ;;
           esac
-          printf 'runner_labels=["self-hosted","Windows","X64","command-eve-phase-b","%s"]\n' \
-            "$memory_label" >>"$GITHUB_OUTPUT"
+          expected_runner_name="command-eve-phase-b-${memory_name}-${RUNNER_BINDING:0:12}"
+          test "$RUNNER_NAME" = "$expected_runner_name"
+          printf 'runner_labels=["self-hosted","Windows","X64","command-eve-phase-b","%s","ceve-bind-%s"]\n' \
+            "$memory_label" "$RUNNER_BINDING" >>"$GITHUB_OUTPUT"
 
   bootstrap:
     name: Bootstrap ${{ inputs.memory_class }}
@@ -59,6 +90,20 @@ jobs:
     runs-on: ${{ fromJSON(needs.prepare.outputs.runner_labels) }}
     timeout-minutes: 240
     steps:
+      - name: Verify exact JIT runner and workflow run binding
+        shell: powershell
+        env:
+          EXPECTED_RUNNER_BINDING: ${{ inputs.runner_binding }}
+          EXPECTED_RUNNER_NAME: ${{ inputs.runner_name }}
+        run: |
+          if ($env:RUNNER_NAME -cne $env:EXPECTED_RUNNER_NAME) {
+            throw 'Assigned runner name does not match the controller-issued JIT runner.'
+          }
+          $expectedRef = "refs/tags/command-eve-phase-b-$($env:EXPECTED_RUNNER_BINDING)"
+          if ($env:GITHUB_REF_TYPE -cne 'tag' -or $env:GITHUB_REF -cne $expectedRef) {
+            throw 'Workflow run is not bound to the controller-issued private workflow tag.'
+          }
+
       - name: Verify standard-user bootstrap prerequisites
         shell: powershell
         run: |
@@ -73,9 +118,10 @@ jobs:
             throw 'The Phase B workflow must run with a non-elevated standard-user token.'
           }
 
-      - name: Checkout exact private lab source
+      - name: Checkout exact public source commit
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:
+          repository: MathiasHeinke/AionUi
           ref: ${{ inputs.source_commit }}
           fetch-depth: 1
           clean: true
@@ -113,6 +159,7 @@ jobs:
       - name: Collect machine and runner policy facts
         shell: powershell
         env:
+          COMMAND_EVE_SOURCE_REPOSITORY: MathiasHeinke/AionUi
           MEMORY_CLASS: ${{ inputs.memory_class }}
         run: |
           $evidence = 'reports/windows/phase-b/bootstrap'
@@ -134,14 +181,26 @@ jobs:
       - name: Validate machine and runner policy receipts
         shell: powershell
         env:
+          CONTROL_REPOSITORY: ${{ github.repository }}
           MEMORY_CLASS: ${{ inputs.memory_class }}
-          REPOSITORY: ${{ github.repository }}
+          RUNNER_BINDING: ${{ inputs.runner_binding }}
+          RUNNER_NAME: ${{ inputs.runner_name }}
+          SOURCE_REPOSITORY: MathiasHeinke/AionUi
+          SOURCE_REF: ${{ inputs.source_ref }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          WORKFLOW_COMMIT: ${{ inputs.workflow_commit }}
         run: |
           bun .github/scripts/windows/phase-b/validate-phase-b-evidence.ts `
             --machine-facts reports/windows/phase-b/bootstrap/machine-facts.json `
             --runner-policy reports/windows/phase-b/bootstrap/runner-policy.json `
             --memory-class $env:MEMORY_CLASS `
-            --expected-repository $env:REPOSITORY `
+            --expected-control-repository $env:CONTROL_REPOSITORY `
+            --expected-source-repository $env:SOURCE_REPOSITORY `
+            --expected-source-ref $env:SOURCE_REF `
+            --expected-source-commit $env:SOURCE_COMMIT `
+            --expected-workflow-commit $env:WORKFLOW_COMMIT `
+            --expected-runner-binding $env:RUNNER_BINDING `
+            --expected-runner-name $env:RUNNER_NAME `
             --output-directory reports/windows/phase-b/bootstrap/receipts
 
       - name: Run Phase B bootstrap regressions
@@ -161,7 +220,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: windows-phase-b-bootstrap-${{ inputs.memory_class }}-${{ inputs.source_commit }}
+          name: windows-phase-b-bootstrap-${{ inputs.runner_binding }}
           path: reports/windows/phase-b/bootstrap/**
           if-no-files-found: error
           retention-days: 14
