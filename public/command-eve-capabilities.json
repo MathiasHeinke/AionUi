@@ -125,6 +125,13 @@
       "tier": "department",
       "source": "Command EVE reasoning toolbelt",
       "default_state": "active"
+    },
+    {
+      "id": "premium-website-builder",
+      "name": "Premium Website Builder",
+      "tier": "department",
+      "source": "Command EVE website production skill",
+      "default_state": "active"
     }
   ],
   "connectors": [

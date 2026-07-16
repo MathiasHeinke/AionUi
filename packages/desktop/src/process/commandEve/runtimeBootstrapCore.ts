@@ -131,6 +131,10 @@ export const EVE_STRATEGY_SKILL_IDS = [
   'hiring',
   'option-tournament',
   'landing-copy',
+  // premium-website-builder: complete website production from a brand, visual
+  // source or rough idea. The real skill owns art direction, implementation,
+  // poster-first lazy cinematic media, responsive behavior and browser QA.
+  'premium-website-builder',
   'human-design-profile',
   'marketing-outbound',
   // blog-writer: a REAL, executable long-form/blog skill (was previously only a fake
@@ -884,6 +888,13 @@ export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
       name: 'Divergent brainstorm (wide idea generation)',
       tier: 'department',
       source: 'Command EVE reasoning toolbelt',
+      default_state: 'active',
+    },
+    {
+      id: 'premium-website-builder',
+      name: 'Premium Website Builder',
+      tier: 'department',
+      source: 'Command EVE website production skill',
       default_state: 'active',
     },
     {
@@ -1922,7 +1933,7 @@ function commandEveManagedSkillMarkdown(skill: CommandEveCapabilityPack['skills'
 }
 
 // The APP-OWNED config-awareness onboarding skill (Guided Onboarding SLICE S1).
-// This is deliberately NOT in EVE_STRATEGY_SKILL_IDS (the bundled allowlist, now 31) and
+// This is deliberately NOT in EVE_STRATEGY_SKILL_IDS (the bundled allowlist, now 32) and
 // NOT in command-eve-capabilities.json — it is
 // a separate app-owned managed skill written directly into managedSkillsRoot, which
 // is already on skills.external_dirs, so the running Hermes agent discovers it like
@@ -2288,9 +2299,9 @@ function writeCommandEveManagedSkills(
     fs.writeFileSync(path.join(skillDir, 'SKILL.md'), commandEveManagedSkillMarkdown(skill), { mode: 0o600 });
   }
   // ADDITIVE: copy the real strategy skills over the stubs. Most strategy ids are a
-  // separate id-space from the onboarding capability ids, but 6 operator skills
+  // separate id-space from the onboarding capability ids, but 7 operator skills
   // (content-machine, video-first-content-engine, blog-publishing-lane, local-kanban-ledger,
-  // voice-first-run, crm-department) INTENTIONALLY overlap: their capability entry is now
+  // voice-first-run, crm-department, premium-website-builder) INTENTIONALLY overlap: their capability entry is now
   // 'active' (so they surface as executable in the Skill Library) AND they are bundled here,
   // so the real SKILL.md is copied over the auto-generated stub. Same dest path → real wins.
   const bundledSkillFailures = copyBundledStrategySkills(paths, bundledSkillsDir);

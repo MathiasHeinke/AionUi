@@ -66,6 +66,10 @@ export const EVE_STRATEGY_SKILLS = Object.freeze([
   { id: 'hiring' },
   { id: 'option-tournament' },
   { id: 'landing-copy' },
+  // premium-website-builder: the end-to-end website production method. It
+  // composes landing-copy with brand-specific art direction, implementation,
+  // poster-first lazy cinematic media, responsive interaction and browser QA.
+  { id: 'premium-website-builder' },
   { id: 'human-design-profile' },
   { id: 'marketing-outbound', bundle: true },
   // blog-writer: a REAL executable long-form/blog skill (replaces the fake "blog-department"

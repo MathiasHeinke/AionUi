@@ -1586,7 +1586,7 @@ const buildBundledSkillsFixture = (root: string, opts: { omit?: string[] } = {})
 };
 
 describe('Command EVE bundled strategy skills (SLICE B2)', () => {
-  it('copies all 16 real strategy skills into managedSkillsRoot (whole-tree for the bundle)', () => {
+  it('copies all 32 real strategy skills into managedSkillsRoot (whole-tree for the bundle)', () => {
     const root = makeRoot();
     const bundledSkillsDir = buildBundledSkillsFixture(root);
     const paths = resolveCommandEveRuntimeBootstrapPaths(root);

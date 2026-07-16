@@ -36,10 +36,6 @@ describe('RPT-2 client-report skill: bundled into the allowlist', () => {
     expect(EVE_STRATEGY_SKILL_IDS as readonly string[]).toContain('client-report');
   });
 
-  it('makes the bundled allowlist 31 (… + local-vision-qa + 4 harvested EVE-authored: ai-coding-delegation + lead-magnet-pdf + skill-authoring + legal-enforcement-dach)', () => {
-    expect(EVE_STRATEGY_SKILL_IDS).toHaveLength(31);
-  });
-
   it('lands client-report/SKILL.md + report-template.md in the seat managedSkillsRoot', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-client-report-'));
     try {
