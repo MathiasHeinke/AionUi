@@ -20,6 +20,7 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const LAUNCHER = path.join(process.cwd(), 'resources', 'eve-acp-launcher', 'eve-acp-launcher.sh');
+const WINDOWS_LAUNCHER = path.join(process.cwd(), 'resources', 'eve-acp-launcher', 'eve-acp-launcher.ps1');
 const isMac = process.platform === 'darwin' || process.platform === 'linux'; // POSIX sh + exec
 
 interface RunResult {
@@ -29,8 +30,13 @@ interface RunResult {
     EVE_AGENT_ID?: string;
     EVE_LEASE_TOKEN?: string;
     BEARER?: string;
+    BEARER_FILE?: string;
     STATUS_FILE?: string;
     TOKEN_FILE?: string;
+    FUTURE_PROVIDER_API_KEY?: string;
+    HOME_PRESENT?: string;
+    USER_PRESENT?: string;
+    LOGNAME_PRESENT?: string;
   } | null;
 }
 
@@ -54,7 +60,8 @@ function runLauncher(
   // env to a side file, then echoes each stdin line and exits on EOF. No timers.
   fs.writeFileSync(
     adapter,
-    `printf '{"EVE_AGENT_ID":"%s","EVE_LEASE_TOKEN":"%s","BEARER":"%s","BEARER_FILE":"%s","STATUS_FILE":"%s","TOKEN_FILE":"%s"}' "$EVE_AGENT_ID" "$EVE_LEASE_TOKEN" "$COMMAND_EVE_TEAM_MANAGE_BEARER" "$COMMAND_EVE_TEAM_MANAGE_BEARER_FILE" "$STATUS_FILE" "$TOKEN_FILE" > "$PROOF_FILE"
+    `PROOF_FILE="$1"
+printf '{"EVE_AGENT_ID":"%s","EVE_LEASE_TOKEN":"%s","BEARER":"%s","BEARER_FILE":"%s","STATUS_FILE":"%s","TOKEN_FILE":"%s","FUTURE_PROVIDER_API_KEY":"%s","HOME_PRESENT":"%s","USER_PRESENT":"%s","LOGNAME_PRESENT":"%s"}' "$EVE_AGENT_ID" "$EVE_LEASE_TOKEN" "$COMMAND_EVE_TEAM_MANAGE_BEARER" "$COMMAND_EVE_TEAM_MANAGE_BEARER_FILE" "$STATUS_FILE" "$TOKEN_FILE" "$FUTURE_PROVIDER_API_KEY" "\${HOME+x}" "\${USER+x}" "\${LOGNAME+x}" > "$PROOF_FILE"
 while IFS= read -r l; do printf 'echo:%s\\n' "$l"; done`
   );
   const args = [
@@ -68,10 +75,11 @@ while IFS= read -r l; do printf 'echo:%s\\n' "$l"; done`
     '--',
     '/bin/sh',
     adapter,
+    proofFile,
   ];
   return new Promise((resolve, reject) => {
     const child = spawn('/bin/sh', args, {
-      env: { ...process.env, ...parentEnv, PROOF_FILE: proofFile },
+      env: { ...process.env, ...parentEnv },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -141,6 +149,7 @@ describe.skipIf(!isMac)('eve-acp-launcher.sh — CI exec proof (A3/A8)', () => {
       // H11: the runtime now delivers the bearer by FILE — only the PATH sits on env.
       // That path must also be scrubbed so the delegate can't read the bearer file.
       COMMAND_EVE_TEAM_MANAGE_BEARER_FILE: '/tmp/eve-operator-bearer',
+      FUTURE_PROVIDER_API_KEY: 'future-secret',
     });
     expect(r.code).toBe(0);
     expect(r.proof).not.toBeNull();
@@ -152,6 +161,13 @@ describe.skipIf(!isMac)('eve-acp-launcher.sh — CI exec proof (A3/A8)', () => {
     expect(r.proof?.BEARER_FILE ?? '').toBe('');
     expect(r.proof?.STATUS_FILE ?? '').toBe('');
     expect(r.proof?.TOKEN_FILE ?? '').toBe('');
+    expect(r.proof?.FUTURE_PROVIDER_API_KEY ?? '').toBe('');
+  });
+
+  it('keeps optional account variables absent when their parent values are empty', async () => {
+    const r = await runLauncher(dir, 'active', 'tok', undefined, { HOME: '', USER: '', LOGNAME: '' });
+    expect(r.code).toBe(0);
+    expect(r.proof).toMatchObject({ HOME_PRESENT: '', USER_PRESENT: '', LOGNAME_PRESENT: '' });
   });
 
   it('A3 fail-CLOSED: an EXPECTED status file that is missing refuses exec (exit 3) — a deleted control file cannot re-enable a paused role', async () => {
@@ -159,5 +175,31 @@ describe.skipIf(!isMac)('eve-acp-launcher.sh — CI exec proof (A3/A8)', () => {
     const r = await runLauncher(dir, 'active', 'tok', undefined, undefined, /* skipStatusFile */ true);
     expect(r.code).toBe(3);
     expect(r.proof).toBeNull(); // adapter never spawned
+  });
+});
+
+describe('eve-acp-launcher.ps1 — cross-platform source contract', () => {
+  it('ships a fail-closed read-only Windows boundary with timeout + process-tree containment', () => {
+    const source = fs.readFileSync(WINDOWS_LAUNCHER, 'utf8');
+    expect(source).toContain('JobObjectLimitKillOnJobClose');
+    expect(source).toContain('AssignProcessToJobObject');
+    expect(source).toContain("'--read-only'");
+    expect(source).toContain("'--timeout-seconds'");
+    expect(source).toContain("'fs/write_text_file'");
+    expect(source).toContain("Set-ProtocolProperty $FileSystemCapabilities 'writeTextFile' $false");
+    expect(source).toContain("tools = @('Read', 'Glob', 'Grep')");
+    expect(source).toContain("'session/new', 'session/load', 'session/resume', 'session/fork'");
+    expect(source).toContain("disallowedTools = @('Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Bash'");
+    expect(source).toContain("Set-ProtocolProperty $Params 'mcpServers' ([object[]]@())");
+    expect(source).toContain('if (-not $ReadOnly -and -not [string]::IsNullOrWhiteSpace($McpConfig)');
+    expect(source).toContain('COMMAND_EVE_TEAM_MANAGE_BEARER_FILE');
+    expect(source).toContain('COMMAND_EVE_KANBAN_ACP_BEARER_FILE');
+    expect(source).toContain('$StartInfo.EnvironmentVariables.Clear()');
+    expect(source).toContain('CommandEveBoundedLineReader');
+    expect(source).toContain('CommandEveBoundedLineWriter');
+    expect(source).not.toContain('[Console]::In.ReadLineAsync()');
+    expect(source).not.toContain('$Process.StandardOutput.ReadLineAsync()');
+    expect(fs.readFileSync(LAUNCHER, 'utf8')).toContain('exec env -i');
+    expect(source).not.toMatch(/Start-Process|Invoke-Expression|\biex\b/i);
   });
 });

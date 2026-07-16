@@ -50,7 +50,7 @@ import type {
   CommandEveHonchoDeriverRoute,
   CommandEveHonchoDeriverRouteResolver,
 } from './process/commandEve/ollamaOpenAiShim';
-import { applyLauncherWiring } from './process/commandEve/eveWorkerLauncherCore';
+import { applyLauncherWiring, clearHermesDelegateTransportEnv } from './process/commandEve/eveWorkerLauncherCore';
 import { resolveDispatchAgentId } from './process/commandEve/eveAgentTaskRegistry';
 import { resolveTeamManageBearer, teamManageProposeHandler } from './process/commandEve/eveTeamManageMain';
 import {
@@ -676,9 +676,9 @@ function buildCommandEveShimActiveSeatIdResolver(): () => string {
  *     (Codex is a dead key on EVE's provider:custom build; see
  *     eveWorkerAssignmentCore.codexRuntimeForConfig). Kept wired so a future clean
  *     Codex path flips on here with no re-plumbing.
- *   - claudeDelegate: the resolved + status-allowed Claude ACP delegate (or null),
- *     whose acp_command/acp_args the bootstrap writes into SOUL.md so EVE actually
- *     fires a delegated Claude worker over claude-agent-acp.
+ *   - claudeDelegate: the resolved + status-allowed Claude ACP delegate (or null).
+ *     The main process wraps and binds its transport in trusted process env; the
+ *     bootstrap writes only a role/capability hint into SOUL.md.
  *
  * Fail-soft: any read/resolve error yields { codexRuntime: '', claudeDelegate:
  * null } so a config glitch can NEVER block startup — it just means no external
@@ -698,9 +698,8 @@ async function resolveCommandEveWorkerRuntimeInputs(): Promise<{
     // S9 #3 store-split fix: worker assignments + team status are RENDERER-written
     // keys — the panel/keystone UI persists them to the BACKEND settings store
     // (`/api/settings/client`), NOT the main-process ProcessConfig JSON this used
-    // to read (which never held them ⇒ the SOUL.md delegate directive never
-    // rendered; the comment above literally named it "the wiring the audit found
-    // MISSING"). Read BOTH keys in ONE backend GET (batch reader). Fail-soft:
+    // to read (which never held them, so neither the trusted transport binding nor
+    // the SOUL role hint rendered). Read BOTH keys in ONE backend GET. Fail-soft:
     // absent/unreadable ⇒ undefined ⇒ no directive (today's behavior).
     const bag = await readCommandEveSettingsFromBackend([
       'commandEve.workerAssignments',
@@ -733,10 +732,12 @@ async function resolveCommandEveWorkerRuntimeInputs(): Promise<{
         resourcesPath: process.resourcesPath,
         env: process.env,
         honcho: resolveActiveSeatHonchoRender(),
+        packaged: app.isPackaged,
       }),
       teamRoles: buildTeamDirectiveRoles(assignments, statuses),
     };
   } catch (error) {
+    clearHermesDelegateTransportEnv(process.env);
     console.warn('[Command EVE] worker-runtime input resolver failed; no external worker wired:', error);
     // Fail-soft on the TEAM directive too: with no readable settings the roster
     // defaults still describe the team truthfully (default statuses, no worker).
@@ -1033,7 +1034,7 @@ function registerCommandEveRuntimeBridge(): void {
         uiLanguage: ProcessConfig.getSync('language'),
         // CLI-Keystone runtime glue: read commandEve.workerAssignments + team status
         // and thread codexRuntime ('' — Codex deferred) + the resolved Claude ACP
-        // delegate so the bootstrap writes the live delegate directive into SOUL.md.
+        // delegate so Desktop binds transport and bootstrap emits the role hint.
         ...(await resolveCommandEveWorkerRuntimeInputs()),
       });
       const existingWarmup = readJsonFile<CommandEveModelWarmupReceipt>(paths.modelWarmupReceiptPath);
@@ -1097,7 +1098,7 @@ function registerCommandEveRuntimeBridge(): void {
         uiLanguage: ProcessConfig.getSync('language'),
         // CLI-Keystone runtime glue: read commandEve.workerAssignments + team status
         // and thread codexRuntime ('' — Codex deferred) + the resolved Claude ACP
-        // delegate so the bootstrap writes the live delegate directive into SOUL.md.
+        // delegate so Desktop binds transport and bootstrap emits the role hint.
         ...(await resolveCommandEveWorkerRuntimeInputs()),
       });
       const existingWarmup = readJsonFile<CommandEveModelWarmupReceipt>(paths.modelWarmupReceiptPath);
@@ -1664,7 +1665,7 @@ const handleAppReady = async (): Promise<void> => {
     const localModelTierId = localModelTierBag['commandEve.localModelTierId'] as string | undefined;
     // CLI-Keystone runtime glue: resolve codexRuntime ('' — Codex deferred) + the
     // status-allowed Claude ACP delegate from commandEve.workerAssignments BEFORE the
-    // bootstrap so SOUL.md carries the live delegate directive (the keystone fires).
+    // bootstrap so trusted transport and the SOUL role hint agree.
     const workerRuntimeInputs = await resolveCommandEveWorkerRuntimeInputs();
     const provisionedRuntimeFiles = provisionSeatRuntimeFiles({
       userDataPath: getDataPath(),

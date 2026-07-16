@@ -664,7 +664,7 @@ describe('Command EVE runtime bootstrap core', () => {
     });
   });
 
-  it('CLI-Keystone CLAUDE wiring (LIVE): an assigned Claude delegate makes SOUL.md carry a wheel-consumable acp_command directive', async () => {
+  it('CLI-Keystone CLAUDE wiring (LIVE): config selects trusted ACP policy while SOUL carries no transport', async () => {
     // WITHOUT a claudeDelegate, SOUL.md has NO delegate directive (byte-equal today).
     const harnessOff = makeHarness({ ollamaInitiallyInstalled: true, modelInitiallyPulled: true });
     await withOllamaServer(async (baseUrl) => {
@@ -680,13 +680,15 @@ describe('Command EVE runtime bootstrap core', () => {
       });
       const paths = resolveCommandEveRuntimeBootstrapPaths(harnessOff.root);
       const soul = fs.readFileSync(path.join(paths.hermesHome, 'SOUL.md'), 'utf8');
+      const config = fs.readFileSync(path.join(paths.hermesHome, 'config.yaml'), 'utf8');
       expect(soul).not.toContain('acp_command');
       expect(soul).not.toContain('assigned external worker');
+      expect(config).not.toContain('provider: copilot-acp');
     });
 
-    // WITH a resolved Claude delegate, SOUL.md tells EVE the EXACT acp_command/acp_args
-    // to pass to delegate_task — the tuple the bundled wheel consumes (override_acp_command
-    // -> forced provider=copilot-acp). This is what makes Claude actually fire.
+    // WITH a resolved Claude delegate, config selects the fixed external-process
+    // provider. Command/argv live only in Desktop-owned process env; SOUL carries
+    // the role-level routing policy and cannot choose a transport.
     const harnessOn = makeHarness({ ollamaInitiallyInstalled: true, modelInitiallyPulled: true });
     await withOllamaServer(async (baseUrl) => {
       const manifestPath = writeManifest(harnessOn.root, baseUrl);
@@ -708,9 +710,12 @@ describe('Command EVE runtime bootstrap core', () => {
       });
       const paths = resolveCommandEveRuntimeBootstrapPaths(harnessOn.root);
       const soul = fs.readFileSync(path.join(paths.hermesHome, 'SOUL.md'), 'utf8');
+      const config = fs.readFileSync(path.join(paths.hermesHome, 'config.yaml'), 'utf8');
       expect(soul).toContain('delegate_task');
-      expect(soul).toContain('acp_command: bunx');
-      expect(soul).toContain('@agentclientprotocol/claude-agent-acp');
+      expect(soul).not.toContain('acp_command');
+      expect(soul).not.toContain('acp_args');
+      expect(soul).not.toContain('@agentclientprotocol/claude-agent-acp');
+      expect(config).toContain('delegation:\n  provider: copilot-acp');
       // honesty wall: the directive must restate that delegation is still gated.
       expect(soul.toLowerCase()).toContain('gated');
     });

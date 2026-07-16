@@ -579,24 +579,25 @@ describe('EVE soul: setting-driven language directive (appended at bootstrap)', 
 describe('EVE soul: CLI-Keystone Claude worker-routing directive (the LIVE delegate glue)', () => {
   const delegate = {
     agent_id: 'eval-research',
-    label: 'Claude',
+    label: 'internal-transport',
     acpCommand: 'bunx',
     acpArgs: ['@agentclientprotocol/claude-agent-acp'],
     provider: 'copilot-acp',
   };
 
-  it('emits the EXACT acp_command/acp_args EVE must pass to delegate_task (wheel-consumable)', () => {
+  it('routes through delegate_task without exposing model-controlled transport fields', () => {
     const d = eveWorkerRoutingDirective(delegate);
     expect(d).toMatch(/delegate_task/);
-    expect(d).toContain('acp_command: bunx');
-    expect(d).toContain('@agentclientprotocol/claude-agent-acp');
+    expect(d).not.toContain('acp_command');
+    expect(d).not.toContain('acp_args');
+    expect(d).not.toContain('@agentclientprotocol/claude-agent-acp');
     expect(d).toContain('eval-research');
   });
 
   it('honors an operator cli_path bin with empty args', () => {
     const d = eveWorkerRoutingDirective({ ...delegate, acpCommand: '/opt/claude/bin/claude', acpArgs: [] });
-    expect(d).toContain('acp_command: /opt/claude/bin/claude');
-    expect(d).toContain('acp_args: []');
+    expect(d).toContain('delegate_task');
+    expect(d).not.toContain('/opt/claude/bin/claude');
   });
 
   it('restates the honesty wall — delegation is still gated, never auto-run, not for normal chat', () => {
@@ -604,6 +605,12 @@ describe('EVE soul: CLI-Keystone Claude worker-routing directive (the LIVE deleg
     expect(d).toContain('gated');
     expect(d).toMatch(/not auto-run|never auto-run|nicht.*automat/);
     expect(d).toMatch(/not delegate normal|do not delegate/);
+  });
+
+  it('keeps the specialist copy transport-neutral', () => {
+    const d = eveWorkerRoutingDirective({ ...delegate, acpCommand: 'eve-worker-host', acpArgs: ['--private'] });
+    expect(d).toContain('Command EVE specialist');
+    expect(d).not.toMatch(/Claude|Codex|CLI/i);
   });
 
   it('emits NOTHING when no Claude delegate is wired (SOUL.md byte-equal to today)', () => {
@@ -618,12 +625,13 @@ describe('1.6.3 — eveTeamDirective (EVE knows her team)', () => {
     const { eveTeamDirective } = await import('@process/commandEve/runtimeBootstrapCore');
     const out = eveTeamDirective([
       { display_name: 'EVE', outcome: 'Setzt Prioritäten.', status: 'active', worker: null },
-      { display_name: 'Growth Lead', outcome: 'Bringt Reichweite.', status: 'active', worker: 'Claude-CLI' },
+      { display_name: 'Growth Lead', outcome: 'Bringt Reichweite.', status: 'active', worker: 'EVE-Spezialist' },
       { display_name: 'Autor', outcome: 'Schreibt Posts.', status: 'paused', worker: null },
     ]);
     expect(out).toContain('## Your team');
     expect(out).toContain('- EVE (active): Setzt Prioritäten.');
-    expect(out).toContain('- Growth Lead (active · Worker: Claude-CLI): Bringt Reichweite.');
+    expect(out).toContain('- Growth Lead (active · Worker: EVE-Spezialist): Bringt Reichweite.');
+    expect(out).not.toMatch(/Claude|Codex|CLI/i);
     expect(out).toContain('- Autor (paused): Schreibt Posts.');
     // The honesty wall: knowledge ≠ grant, paused roles get nothing.
     expect(out).toContain('not a grant');

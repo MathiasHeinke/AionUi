@@ -6,9 +6,12 @@ import {
   collectProcessTreePids,
   isProcessAlive,
   parsePosixProcessTable,
+  parseWindowsProcessTable,
+  readProcessTable,
   rememberProcessTree,
   signalKnownProcessTree,
   terminateProcessTree,
+  windowsTaskkillArgs,
 } from '../../../scripts/benchmark-process-tree';
 
 describe('benchmark process tree cleanup', () => {
@@ -27,6 +30,54 @@ describe('benchmark process tree cleanup', () => {
     expect(collectProcessTreePids(10, rows)).toEqual([10, 11, 12]);
   });
 
+  it('parses Windows CIM JSON without lossy RSS conversion', () => {
+    const rows = parseWindowsProcessTable(
+      JSON.stringify([
+        { ProcessId: 10, ParentProcessId: 1, WorkingSetSize: 104857600 },
+        { ProcessId: 11, ParentProcessId: 10, WorkingSetSize: '52428800' },
+        { ProcessId: 0, ParentProcessId: 0, WorkingSetSize: 0 },
+        { ProcessId: 12, ParentProcessId: 10, WorkingSetSize: 'invalid' },
+      ])
+    );
+
+    expect(rows).toEqual([
+      { pid: 10, ppid: 1, rssBytes: 104857600 },
+      { pid: 11, ppid: 10, rssBytes: 52428800 },
+    ]);
+  });
+
+  it('accepts a single Windows CIM row and rejects malformed output', () => {
+    expect(
+      parseWindowsProcessTable(`\uFEFF${JSON.stringify({ ProcessId: 21, ParentProcessId: 10, WorkingSetSize: 4096 })}`)
+    ).toEqual([{ pid: 21, ppid: 10, rssBytes: 4096 }]);
+    expect(parseWindowsProcessTable('{invalid')).toEqual([]);
+    expect(parseWindowsProcessTable('')).toEqual([]);
+  });
+
+  it('reads the Windows process table through PowerShell CIM', () => {
+    const calls: Array<{ file: string; args: string[] }> = [];
+    const rows = readProcessTable({
+      platform: 'win32',
+      execute: (file, args) => {
+        calls.push({ file, args });
+        return JSON.stringify({ ProcessId: 42, ParentProcessId: 4, WorkingSetSize: 8192 });
+      },
+    });
+
+    expect(rows).toEqual([{ pid: 42, ppid: 4, rssBytes: 8192 }]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.file).toBe('powershell.exe');
+    expect(calls[0]?.args).toContain(
+      'Get-CimInstance -ClassName Win32_Process | Select-Object ProcessId,ParentProcessId,WorkingSetSize | ConvertTo-Json -Compress'
+    );
+  });
+
+  it('builds recursive Windows taskkill commands with an explicit force stage', () => {
+    expect(windowsTaskkillArgs(42, false)).toEqual(['/PID', '42', '/T']);
+    expect(windowsTaskkillArgs(42, true)).toEqual(['/PID', '42', '/T', '/F']);
+    expect(windowsTaskkillArgs(1, true)).toEqual([]);
+  });
+
   it('signals descendants before the root', () => {
     const calls: Array<{ pid: number; signal: NodeJS.Signals }> = [];
 
@@ -42,7 +93,7 @@ describe('benchmark process tree cleanup', () => {
     ]);
   });
 
-  it.runIf(process.platform !== 'win32')('terminates a real parent and helper process', async () => {
+  it('terminates a real parent and helper process', async () => {
     const child = spawn(
       process.execPath,
       [

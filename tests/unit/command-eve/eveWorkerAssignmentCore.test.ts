@@ -170,10 +170,10 @@ describe('eveWorkerAssignmentCore — (C) CLAUDE routing (label is "Claude", not
     expect(r.label.toLowerCase()).not.toContain('copilot');
   });
 
-  it('uses the operator cli_path as the command with empty args', () => {
+  it('never misroutes a raw operator Claude CLI path as an ACP adapter', () => {
     const r = resolveWorkerRouting({ agent_id: ROSTER_ID, kind: 'claude', cli_path: '/opt/claude/bin/claude' });
-    expect(r.acpCommand).toBe('/opt/claude/bin/claude');
-    expect(r.acpArgs).toEqual([]);
+    expect(r.acpCommand).toBe('bunx');
+    expect(r.acpArgs).toEqual([CLAUDE_ACP_ADAPTER_PACKAGE]);
     expect(r.provider).toBe(ACP_DELEGATE_PROVIDER);
   });
 
@@ -255,13 +255,13 @@ describe('eveWorkerAssignmentCore — (F) the LIVE Claude delegate resolver (wha
     expect(delegate?.agent_id).toBe(ROSTER_ID);
   });
 
-  it('honors an operator cli_path as the acp_command (empty args)', () => {
+  it('retains cli_path only as metadata and resolves the actual ACP adapter', () => {
     const assignments: EveWorkerAssignmentMap = {
       [ROSTER_ID]: { agent_id: ROSTER_ID, kind: 'claude', cli_path: '/opt/claude/bin/claude' },
     };
     const delegate = resolveAssignedClaudeDelegate(assignments, {});
-    expect(delegate?.acpCommand).toBe('/opt/claude/bin/claude');
-    expect(delegate?.acpArgs).toEqual([]);
+    expect(delegate?.acpCommand).toBe('bunx');
+    expect(delegate?.acpArgs).toEqual([CLAUDE_ACP_ADAPTER_PACKAGE]);
   });
 
   it('returns null for a PAUSED Claude worker (the dispatch gate stays authoritative)', () => {
@@ -308,7 +308,7 @@ describe('eveWorkerAssignmentCore — (G) bunx/claude-agent-acp resolvability pr
     expect(w).toContain(CLAUDE_ACP_ADAPTER_PACKAGE);
   });
 
-  it('warns (mentioning the path) when an operator cli_path bin is NOT resolvable', () => {
+  it('warns (mentioning the path) when the resolved transport command is NOT resolvable', () => {
     const w = claudeDelegatePreflightWarning(claude('/opt/claude/bin/claude'), () => false);
     expect(w).not.toBe('');
     expect(w).toContain('/opt/claude/bin/claude');
@@ -337,7 +337,7 @@ describe('1.6.3 — buildTeamDirectiveRoles (the SOUL team-directive input)', ()
     const roles = buildTeamDirectiveRoles(assignments, statuses);
     expect(roles.length).toBeGreaterThanOrEqual(8);
     const byName = new Map(roles.map((r) => [r.display_name, r]));
-    expect(byName.get('Growth Lead')?.worker).toBe('Claude-CLI');
+    expect(byName.get('Growth Lead')?.worker).toBe('EVE-Spezialist');
     // Codex must be labelled as NOT dispatchable — EVE may not believe a facade.
     expect(byName.get('SEO')?.worker).toContain('noch nicht');
     expect(byName.get('Autor')?.status).toBe('paused');
@@ -365,7 +365,8 @@ describe('1.6.3 review fix — team directive labels only the ROUTED Claude as p
     const byName = new Map(roles.map((r) => [r.display_name, r]));
     const workers = [byName.get('Growth Lead')?.worker, byName.get('Autor')?.worker];
     // Exactly ONE of the two is the plainly routed delegate; the other is hedged.
-    expect(workers.filter((w) => w === 'Claude-CLI').length).toBe(1);
-    expect(workers.filter((w) => w?.includes('noch nicht geroutet')).length).toBe(1);
+    expect(workers.filter((w) => w === 'EVE-Spezialist').length).toBe(1);
+    expect(workers.filter((w) => w?.includes('noch nicht aktiv')).length).toBe(1);
+    expect(JSON.stringify(roles)).not.toMatch(/Claude|Codex|CLI/i);
   });
 });

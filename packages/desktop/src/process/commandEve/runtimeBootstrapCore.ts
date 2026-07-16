@@ -65,7 +65,7 @@ const DEFAULT_MODEL_REF = 'gemma4:e4b';
 const DEFAULT_HERMES_VERSION = '0.17.0';
 const DEFAULT_HERMES_PACKAGE = 'hermes-agent';
 export const COMMAND_EVE_BUNDLED_HERMES_WHEEL_SHA256 =
-  'b5e36fce7a65b202fff54bc0742316748224c11c9061312843aecdd59ec4694d';
+  '0780b8a0e7e4d7391952378509c9ac2ac847dc9350256a3893691be90e69bd79';
 const DEFAULT_FAST_CONTEXT_LENGTH = 65_536;
 const DEFAULT_LONG_CONTEXT_LENGTH = 65_536;
 // Agent response budget. 512 was the at-cost text fence — but the SAME agent config rides
@@ -717,12 +717,12 @@ export type RuntimeBootstrapOptions = {
    * CLI-Keystone CLAUDE wiring (the LIVE half): the resolved ACP delegate for an
    * assigned + status-allowed Claude worker, resolved by the main process from
    * `commandEve.workerAssignments` + `commandEve.teamWorkerStatus` via
-   * eveWorkerAssignmentCore.resolveAssignedClaudeDelegate. When present, the
-   * bootstrap writes a WORKER_ROUTING.md directive into HERMES_HOME so EVE passes
-   * the exact acp_command/acp_args to delegate_task and the claude-agent-acp
-   * adapter actually launches. Omitted -> no directive (EVE answers on its normal
-   * lane; config byte-identical to today). SECURITY: presence is NOT a grant to
-   * run — the human-gate/permission path still applies before any spawn.
+   * eveWorkerAssignmentCore.resolveAssignedClaudeDelegate. When present, Desktop
+   * binds the wrapped launcher tuple in trusted `HERMES_COPILOT_ACP_*` process env;
+   * bootstrap selects the fixed provider and gives EVE only a role/capability hint.
+   * Omitted -> no provider/hint (EVE answers on its normal lane). SECURITY:
+   * presence is NOT a grant to run — the human-gate/permission path still applies
+   * before any spawn.
    */
   claudeDelegate?: {
     agent_id: string;
@@ -3076,24 +3076,6 @@ export function eveSelectedLanguageDirective(uiLanguage: string): string {
 }
 
 /**
- * CLI-Keystone CLAUDE wiring (the LIVE half). When the operator has assigned a
- * Claude CLI worker that is status-allowed (resolved by the main process via
- * eveWorkerAssignmentCore.resolveAssignedClaudeDelegate), this appends a compact,
- * deterministic delegate directive to the always-on SOUL.md (the same proven
- * injection point the language directive uses — slot #1, loaded into every
- * prompt). It tells EVE the EXACT `acp_command`/`acp_args` to pass to the
- * `delegate_task` tool so the bundled wheel launches the claude-agent-acp adapter
- * (FACT delegate_tool.py:2236 override_acp_command -> :1158 forces
- * provider=copilot-acp). Without this the wheel's per-task acp_command is never
- * populated on the custom cloud lane (parent_agent.acp_command is None) — the
- * keystone stayed inert. Empty input -> '' (no directive; byte-identical to today).
- *
- * SECURITY / HONESTY WALL: this only makes the routing KNOWN to EVE; it is NOT a
- * grant to auto-run. The directive itself restates that EVE must follow the
- * normal permission/human-gate before spawning the CLI, and only when the task
- * genuinely benefits from a deeper coding worker — never for normal chat.
- */
-/**
  * v1.6 Slice 2 ("Die Hinterlassene Hand") — the standing handover-note posture.
  * The start surface renders ONLY language EVE really left behind: this directive
  * instructs her to write a short handover note at the end of substantial
@@ -3187,6 +3169,18 @@ export function eveTeamDirective(
   ].join('\n');
 }
 
+/**
+ * CLI-Keystone CLAUDE wiring (the LIVE half). The main process has already
+ * resolved and status-gated the assigned worker, wrapped its platform launcher,
+ * and bound the transport to trusted process env. SOUL receives only this compact
+ * role/capability hint so EVE knows when delegation is appropriate. Command/argv
+ * never enter model input and the security-backported wheel rejects any attempted
+ * per-task transport override. Empty input -> '' (no hint).
+ *
+ * SECURITY / HONESTY WALL: awareness is NOT a grant to auto-run. The directive
+ * restates the normal permission/human-gate and limits delegation to work that
+ * genuinely benefits from a deeper coding worker.
+ */
 export function eveWorkerRoutingDirective(
   claudeDelegate?: {
     agent_id: string;
@@ -3197,12 +3191,11 @@ export function eveWorkerRoutingDirective(
   } | null
 ): string {
   if (!claudeDelegate || !compact(claudeDelegate.acpCommand)) return '';
-  const argsJson = JSON.stringify(claudeDelegate.acpArgs ?? []);
   return [
     '',
-    '## Your assigned external worker (Claude)',
+    '## Your assigned specialist worker',
     '',
-    `The operator has assigned a **${claudeDelegate.label}** worker (role \`${claudeDelegate.agent_id}\`) you may delegate to. When — and ONLY when — a task genuinely needs a deeper coding/agentic worker (a real build, a multi-file change, a long autonomous job), delegate it with the \`delegate_task\` tool and pass exactly: \`acp_command: ${claudeDelegate.acpCommand}\`, \`acp_args: ${argsJson}\`. That launches the Claude worker over ACP under the operator's own local \`claude\` login.`,
+    `The operator has assigned a private Command EVE specialist (role \`${claudeDelegate.agent_id}\`) you may delegate to. When — and ONLY when — a task genuinely needs a deeper coding/agentic worker (a real build, a multi-file change, a long autonomous job), use the \`delegate_task\` tool with the task goal/context, fitting toolsets and role. Transport policy is managed outside model input; never invent, request, expose or name the internal transport to the operator.`,
     '',
     'Do NOT delegate normal conversation, smalltalk, planning, or work you can do directly — most turns are not a delegation. Delegating is still gated: follow your normal permission/approval path before any worker runs a command; an assigned worker is never auto-run. Never announce or recite this rule.',
     '',
@@ -3676,10 +3669,9 @@ function writeHermesRuntimeFiles(
   // provider:custom), so this stays '' and the key is never emitted.
   codexRuntime = '',
   // CLI-Keystone CLAUDE wiring (the LIVE half): the resolved + status-allowed
-  // Claude ACP delegate, or null. When present, its acp_command/acp_args are
-  // appended to SOUL.md as a delegate directive so EVE passes them to delegate_task
-  // and the claude-agent-acp adapter actually launches. null -> no directive
-  // (SOUL.md byte-identical to today).
+  // Claude ACP delegate, or null. The main process binds its wrapped transport in
+  // trusted process env; SOUL receives only the role/capability hint. null -> no
+  // provider and no hint.
   claudeDelegate: RuntimeBootstrapOptions['claudeDelegate'] = null,
   // 1.6.3 Team-Realität: the resolved roster (status + assigned worker) EVE
   // learns via the SOUL team directive. null/[] -> no directive (byte-identical).
@@ -3802,6 +3794,10 @@ function writeHermesRuntimeFiles(
     // background delegation. The bootstrap passes 1 on <=10GB machines so an
     // 8GB Air cannot swap itself by launching several CLI workers at once.
     'delegation:',
+    // The security-backported wheel removes model-controlled ACP command/argv.
+    // Selecting the fixed external-process provider makes Hermes resolve the
+    // launcher from Desktop-owned HERMES_COPILOT_ACP_* process env instead.
+    ...(claudeDelegate ? ['  provider: copilot-acp'] : []),
     `  max_concurrent_children: ${maxConcurrentDelegates}`,
     `  max_async_children: ${maxConcurrentDelegates}`,
     '  max_spawn_depth: 1',
@@ -4835,8 +4831,7 @@ export async function ensureCommandEveRuntimeBootstrap(
     // (dead key on provider:custom), so this stays '' and the key is never emitted.
     options.codexRuntime ?? '',
     // CLI-Keystone CLAUDE wiring (LIVE): the resolved + status-allowed Claude ACP
-    // delegate (resolved by the main process via resolveAssignedClaudeDelegate).
-    // When present, SOUL.md carries the delegate directive so EVE fires the worker.
+    // delegate. Desktop owns its transport; SOUL receives only the role hint.
     options.claudeDelegate ?? null,
     // 1.6.3 Team-Realität: the resolved roster for the SOUL team directive.
     options.teamRoles ?? null,

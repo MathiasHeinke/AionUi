@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { gunzipSync } from 'node:zlib';
@@ -149,11 +149,17 @@ describe('feedbackBridge — capture-screenshot', () => {
 });
 
 describe('feedback logs', () => {
-  it('collects the same recent three log days used by user feedback reports', () => {
+  it('collects bounded metadata for the recent three log days without raw content or private paths', () => {
     const logsDir = mkdtempSync(path.join(tmpdir(), 'aionui-feedback-logs-'));
     try {
-      writeFileSync(path.join(logsDir, '2026-05-25.log'), 'today frontend\n');
-      writeFileSync(path.join(logsDir, '2026-05-25.aioncore.log'), 'today backend\n');
+      writeFileSync(
+        path.join(logsDir, '2026-05-25.log'),
+        'ERROR user prompt: draft the confidential acquisition plan for alice@example.com\n'
+      );
+      writeFileSync(
+        path.join(logsDir, '2026-05-25.aioncore.log'),
+        'backend failed at C:\\Users\\operator\\private-workspace with sk-test-123456789012345678901234\n'
+      );
       writeFileSync(path.join(logsDir, '2026-05-24.aionrs.log'), 'yesterday rust\n');
       writeFileSync(path.join(logsDir, '2026-05-23.log'), 'third day frontend\n');
       writeFileSync(path.join(logsDir, '2026-05-22.log'), 'too old frontend\n');
@@ -162,17 +168,65 @@ describe('feedback logs', () => {
       const attachment = collectFeedbackLogAttachment(logsDir);
 
       expect(attachment).not.toBeNull();
-      expect(attachment!.filename).toBe('logs.gz');
+      expect(attachment!.filename).toBe('command-eve-support-diagnostics.json.gz');
       expect(attachment!.contentType).toBe('application/gzip');
       const content = gunzipSync(attachment!.data).toString('utf8');
-      expect(content).toContain('today frontend');
-      expect(content).toContain('today backend');
-      expect(content).toContain('yesterday rust');
-      expect(content).toContain('third day frontend');
+      const summary = JSON.parse(content) as {
+        schema_version: string;
+        privacy: Record<string, boolean | string>;
+        sources: Array<{ source: string; date: string }>;
+        totals: { source_count: number };
+        completion_sentinel: string;
+      };
+      expect(summary.schema_version).toBe('command-eve-support-bundle/v1');
+      expect(summary.privacy).toMatchObject({
+        raw_log_content_included: false,
+        filenames_included: false,
+        local_paths_included: false,
+        user_content_included: false,
+        sensitive_scan: 'PASS',
+      });
+      expect(summary.sources).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ source: 'frontend', date: '2026-05-25' }),
+          expect.objectContaining({ source: 'backend', date: '2026-05-25' }),
+          expect.objectContaining({ source: 'rust', date: '2026-05-24' }),
+        ])
+      );
+      expect(summary.totals.source_count).toBe(4);
+      expect(summary.completion_sentinel).toBe('COMMAND_EVE_SUPPORT_BUNDLE_COMPLETE');
+      expect(content).not.toContain('confidential acquisition');
+      expect(content).not.toContain('alice@example.com');
+      expect(content).not.toContain('sk-test-');
+      expect(content).not.toContain('Users');
       expect(content).not.toContain('too old frontend');
       expect(content).not.toContain('not a log');
     } finally {
       rmSync(logsDir, { recursive: true, force: true });
+    }
+  });
+
+  it('ignores directory entries that only look like dated log files', () => {
+    const logsDir = mkdtempSync(path.join(tmpdir(), 'aionui-feedback-logs-'));
+    try {
+      mkdirSync(path.join(logsDir, '2026-05-25.log'));
+      expect(collectFeedbackLogAttachment(logsDir)).toBeNull();
+    } finally {
+      rmSync(logsDir, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === 'win32')('never follows a dated log symlink', () => {
+    const logsDir = mkdtempSync(path.join(tmpdir(), 'aionui-feedback-logs-'));
+    const privateDir = mkdtempSync(path.join(tmpdir(), 'aionui-private-log-'));
+    try {
+      const privateLog = path.join(privateDir, 'private.log');
+      writeFileSync(privateLog, 'ERROR private token sk-test-123456789012345678901234\n');
+      symlinkSync(privateLog, path.join(logsDir, '2026-05-25.log'));
+      expect(collectFeedbackLogAttachment(logsDir)).toBeNull();
+    } finally {
+      rmSync(logsDir, { recursive: true, force: true });
+      rmSync(privateDir, { recursive: true, force: true });
     }
   });
 });

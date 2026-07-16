@@ -15,22 +15,23 @@
  *     BILLING/ledger keys that map to EVE-Inference TIERS — they are NOT runnable
  *     CLI handles. Two unjoined namespaces.
  *   - Hermes routes GLOBALLY (one delegation.provider/model) with NO per-worker
- *     registry in the bundled wheel; the only per-task lever the wheel's
- *     delegate_task schema exposes is `acp_command` + `acp_args` (which force
- *     provider="copilot-acp" — the generic ACP client, just Copilot-NAMED).
+ *     registry in the bundled wheel. Command EVE's security-backported wheel
+ *     intentionally exposes NO model-controlled ACP command/argv fields: Desktop
+ *     selects the fixed `copilot-acp` provider and supplies its transport through
+ *     trusted process environment only.
  *
  * This module is the JOIN. It is the dependency-light, framework-free brain that:
  *   1. turns a (role → CLI worker) choice into a PERSISTED worker record (so the
  *      card is no longer a no-op — see {@link buildWorkerAssignment});
  *   2. TRANSLATES that record into the Hermes routing the runtime actually
  *      consumes — the transports the seam proved (see {@link resolveWorkerRouting}):
- *        • CLAUDE → a per-task DELEGATE worker (the LIVE transport): resolve
- *          `acp_command` to the `@agentclientprotocol/claude-agent-acp` adapter
- *          (bunx or a resolved bin) + `acp_args`, provider "copilot-acp" (generic
- *          ACP), UX label "Claude" (NOT "Copilot"). Auth = the machine-local
- *          `claude` login. The bootstrap emits a delegate directive
- *          (resolveAssignedClaudeDelegate -> WORKER_ROUTING.md) so when EVE
- *          delegates, the claude-agent-acp adapter actually launches.
+ *        • CLAUDE → a per-task DELEGATE worker (the LIVE transport): resolve the
+ *          `@agentclientprotocol/claude-agent-acp` adapter (bunx or a resolved
+ *          bin) and its args, then bind the wrapped launcher tuple to
+ *          Desktop-owned `HERMES_COPILOT_ACP_*` process env. Hermes uses the fixed
+ *          "copilot-acp" provider (generic ACP); UX label "Claude" (NOT
+ *          "Copilot"). Auth = the machine-local `claude` login. SOUL receives
+ *          only a role/capability hint, never transport data.
  *        • CODEX  → DEFERRED, honestly (audit 2026-07-01). The seam idea was a
  *          RUNTIME-MODE toggle (`model.openai_runtime=codex_app_server`), but the
  *          bundled wheel ONLY honors that key for `provider in {openai,
@@ -58,9 +59,9 @@
  *
  * PURE: no React, no IPC, no fs. The renderer persists the record through the
  * existing config service; the bootstrapper reads {@link codexRuntimeForConfig}
- * to decide the `openai_runtime` line; the send-path reads
- * {@link resolveDispatchableWorkerRouting} to attach `acp_command`/`acp_args`
- * to a Claude delegate. The unit tests share these exact rules.
+ * to decide the `openai_runtime` line; the main process reads
+ * {@link resolveDispatchableWorkerRouting} to bind a wrapped Claude delegate to
+ * trusted runtime env. The unit tests share these exact rules.
  */
 
 import {
@@ -108,14 +109,17 @@ export const CODEX_APP_SERVER_RUNTIME = 'codex_app_server';
  */
 export const CODEX_DEFER_REASON = 'eve-custom-provider-no-codex-app-server-rewrite' as const;
 
-/** The canonical Anthropic-published Claude ACP adapter package (bunx target). */
-export const CLAUDE_ACP_ADAPTER_PACKAGE = '@agentclientprotocol/claude-agent-acp';
+/** The exact Claude ACP adapter version also embedded in AionCore managed resources. */
+export const CLAUDE_ACP_ADAPTER_VERSION = '0.39.0' as const;
+/** Exact dev-only bunx target. Packaged builds resolve the embedded adapter instead. */
+export const CLAUDE_ACP_ADAPTER_PACKAGE =
+  `@agentclientprotocol/claude-agent-acp@${CLAUDE_ACP_ADAPTER_VERSION}` as const;
 
 /**
- * The Hermes delegate provider a per-task `acp_command` forces. Passing
- * `acp_command` to delegate_task forces provider="copilot-acp" (the GENERIC ACP
- * client, only Copilot-NAMED). We point it at the Claude adapter; the UX label is
- * fixed up to "Claude" so the operator never sees "Copilot".
+ * The fixed Hermes delegate provider for Command EVE's external ACP worker. It
+ * is the GENERIC ACP client, only Copilot-NAMED. Desktop points its trusted
+ * process env at the Claude adapter; the UX label is fixed to "Claude" so the
+ * operator never sees "Copilot".
  */
 export const ACP_DELEGATE_PROVIDER = 'copilot-acp';
 
@@ -166,9 +170,9 @@ export interface EveWorkerRouting {
   codexDeferred?: true;
   /** CODEX: the honest defer reason ({@link CODEX_DEFER_REASON}); for the card copy + tests. */
   codexDeferReason?: typeof CODEX_DEFER_REASON;
-  /** CLAUDE: the ACP adapter command (cli_path bin or `bunx`). */
+  /** CLAUDE: the ACP adapter command (dev fallback `bunx`; packaged builds replace it with bundled Node). */
   acpCommand?: string;
-  /** CLAUDE: the ACP adapter args (the package name when launched via bunx; [] for a resolved bin). */
+  /** CLAUDE: ACP adapter args (the exact package target for the dev fallback). */
   acpArgs?: string[];
   /** CLAUDE: the forced generic-ACP provider ("copilot-acp"). */
   provider?: typeof ACP_DELEGATE_PROVIDER;
@@ -245,9 +249,11 @@ export function workerKindLabel(kind: EveWorkerKind, role?: EveTeamRole): string
  * TRANSLATE a persisted assignment into the routing tuple the runtime consumes.
  * Pure — no IO. The three transports, exactly as the seam proved:
  *
- *   - CLAUDE : per-task delegate (LIVE). acpCommand = the operator's cli_path when
- *     given (acpArgs []), else `bunx` with the adapter package as the arg. provider
- *     is forced to "copilot-acp" (generic ACP); the label is "Claude".
+ *   - CLAUDE : per-task delegate (LIVE). The pure routing tuple uses an exact
+ *     versioned `bunx` target for development. The main process replaces this with
+ *     the signed, bundled Node + ACP entrypoint in packaged builds. `cli_path` is
+ *     retained only as legacy assignment metadata and is never executed as ACP: a
+ *     raw Claude CLI does not implement the ACP stdio contract.
  *   - CODEX  : DEFERRED — codexDeferred true, NO runtime key (see CODEX_DEFER_REASON).
  *   - IMAGE  : imageRoute true — routes to image_gen/gentmp, never the ACP seam.
  */
@@ -269,11 +275,14 @@ export function resolveWorkerRouting(assignment: EveWorkerAssignment): EveWorker
     return { ...base, codexDeferred: true, codexDeferReason: CODEX_DEFER_REASON };
   }
 
-  // CLAUDE — per-task ACP delegate via the claude-agent-acp adapter.
-  const cliPath = compact(assignment.cli_path);
-  const acpCommand = cliPath || 'bunx';
-  const acpArgs = cliPath ? [] : [CLAUDE_ACP_ADAPTER_PACKAGE];
-  return { ...base, acpCommand, acpArgs, provider: ACP_DELEGATE_PROVIDER };
+  // CLAUDE — per-task ACP delegate. Never execute assignment.cli_path directly:
+  // the value historically points at `claude`, which is not an ACP adapter.
+  return {
+    ...base,
+    acpCommand: 'bunx',
+    acpArgs: [CLAUDE_ACP_ADAPTER_PACKAGE],
+    provider: ACP_DELEGATE_PROVIDER,
+  };
 }
 
 /**
@@ -302,16 +311,15 @@ export function codexRuntimeForConfig(_assignments: EveWorkerAssignmentMap): str
  * status-allowed (dispatch gate), with its resolved ACP adapter command/args —
  * or null when none is dispatchable.
  *
- * This is what makes Claude actually FIRE: the bootstrap writes this tuple into a
- * runtime directive (WORKER_ROUTING.md, composed into EVE's prompt) so that when
- * EVE calls `delegate_task`, it passes the exact `acp_command`/`acp_args` the
- * bundled wheel consumes (FACT delegate_tool.py:2236 override_acp_command, :1158
- * forces provider=copilot-acp). Without this the wheel's per-task acp_command is
- * never populated (EVE's parent runs on the custom cloud lane, so
- * parent_agent.acp_command is None) — the keystone stayed inert.
+ * This is what makes Claude actually FIRE: the main process wraps this tuple in
+ * the platform launcher and binds it to Desktop-owned `HERMES_COPILOT_ACP_*`
+ * process env. The bootstrap selects the fixed `copilot-acp` provider and emits
+ * only a role/capability hint into SOUL; the model can neither see nor override
+ * command/argv. Without the trusted env binding the fixed provider has no
+ * runnable transport and delegation fails closed.
  *
  * SECURITY: reuses {@link resolveDispatchableWorkerRouting}, so a paused/off
- * Claude worker yields null. Emitting the directive is NOT a grant to run — the
+ * Claude worker yields null. Binding a transport is NOT a grant to run — the
  * human-gate/permission path still applies before any spawn.
  */
 export interface ResolvedClaudeDelegate {
@@ -352,11 +360,11 @@ export function resolveAssignedClaudeDelegate(
  * PURE: it does not probe the filesystem — the caller passes a `resolvable`
  * predicate (the bootstrap supplies a `which`-style probe via its runner). Two
  * cases:
- *   - operator-supplied cli_path bin (acpArgs []): warn if THAT bin isn't
- *     resolvable.
- *   - default `bunx` launcher: warn if `bunx` isn't on PATH (then the adapter
- *     can't be fetched). Acceptable to only WARN — the founder-as-operator-#1 box
- *     may not have bun yet; this is a pre-BYOK/multi-operator guard, not a gate.
+ *   - a managed transport command: warn if that command is not resolvable.
+ *   - the development-only `bunx` launcher: warn if `bunx` is not on PATH (then
+ *     the adapter cannot be fetched). Acceptable to only WARN — the
+ *     founder-as-operator-#1 box may not have bun yet; this is a
+ *     pre-BYOK/multi-operator guard, not a gate.
  *
  * Returns a human-facing warning string, or '' when the launcher resolves (or no
  * Claude delegate is wired). NEVER throws.
@@ -443,7 +451,7 @@ export interface EveTeamDirectiveRole {
   outcome: string;
   /** Live status at resolve time: active | paused | off. */
   status: string;
-  /** Human label of the assigned EXTERNAL worker, or null = EVE-Runtime default. */
+  /** Brand-neutral EVE label for an assigned specialist, or null = EVE runtime. */
   worker: string | null;
 }
 
@@ -462,19 +470,18 @@ export function buildTeamDirectiveRoles(
 ): EveTeamDirectiveRole[] {
   // Review fix (SOUL consistency): the routing directive carries exactly ONE
   // dispatchable Claude delegate (resolveAssignedClaudeDelegate, first match) —
-  // so only THAT role may claim a plainly routed "Claude-CLI". Every other
-  // claude-assigned role is labelled honestly as assigned-but-not-yet-routed,
-  // or EVE's own world model would promise capability the runtime lacks.
+  // so only THAT role may claim a plainly routed specialist. Transport brands
+  // stay internal; the operator and EVE's team model only see Command EVE roles.
   const routedClaudeId = resolveAssignedClaudeDelegate(assignments, statuses)?.agent_id ?? null;
   return roster.map((role) => {
     const assignment = assignments[role.agent_id];
     const worker =
       assignment?.kind === 'claude'
         ? role.agent_id === routedClaudeId
-          ? 'Claude-CLI'
-          : 'Claude-CLI (zugewiesen, noch nicht geroutet)'
+          ? 'EVE-Spezialist'
+          : 'EVE-Spezialist (zugewiesen, noch nicht aktiv)'
         : assignment?.kind === 'codex'
-          ? 'Codex-CLI (noch nicht ansteuerbar)'
+          ? 'EVE-Spezialist (noch nicht verfuegbar)'
           : null;
     return {
       display_name: role.displayName,
