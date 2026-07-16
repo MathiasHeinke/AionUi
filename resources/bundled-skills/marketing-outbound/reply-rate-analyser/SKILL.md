@@ -1,29 +1,26 @@
 ---
 name: reply-rate-analyser
-description: 'Nutze, wenn eine Outbound-Sequenz läuft und du wissen willst, warum sie performt oder nicht — Benchmark-Check gegen realistische B2B-Werte, Ursache pro Touch (Betreff? Angle? Timing? Liste?) und priorisierte A/B-Tests, statt blind alles umzuschreiben. Beispiele: "Warum antwortet keiner auf meine Sequenz?", "Analysier die Open/Reply-Rates pro Touch", "Welchen A/B-Test soll ich zuerst fahren?", "Ist 1,2% Reply normal?"'
+description: "Nutze, wenn eine Outbound-Sequenz läuft und du wissen willst, warum sie performt oder nicht — Benchmark-Check gegen realistische B2B-Werte, Ursache pro Touch (Betreff? Angle? Timing? Liste?) und priorisierte A/B-Tests, statt blind alles umzuschreiben. Beispiele: \"Warum antwortet keiner auf meine Sequenz?\", \"Analysier die Open/Reply-Rates pro Touch\", \"Welchen A/B-Test soll ich zuerst fahren?\", \"Ist 1,2% Reply normal?\""
 ---
 
 # Reply-Rate Analyser
 
 Verwandelt rohe Sequenz-Zahlen (Open / Reply / Bounce pro Touch) in eine Diagnose: was hakt, an
-welchem Touch, _warum_ — und welche drei Tests du in dieser Reihenfolge fährst. Kein „schreib alles
+welchem Touch, *warum* — und welche drei Tests du in dieser Reihenfolge fährst. Kein „schreib alles
 neu", sondern ein chirurgischer Eingriff am schwächsten Glied.
 
 ## Was du bekommst
-
 Eine Diagnose pro Touch (Benchmark-Ampel + vermutete Ursache mit Begründung) und die **Top-3-Tests**,
 priorisiert nach Hebel × Aufwand — jeder Test mit Hypothese, konkreter Änderung und Erfolgsmetrik.
 Plus: ein klares „erst das, dann messen, dann das nächste" — nie zwei Variablen gleichzeitig.
 
 ## Wann nutzen
-
 - Eine Sequenz hat **genug Volumen gelaufen** (Faustregel: ≥ 50 Kontakte/Touch, besser 100+), sonst
   ist jede „Reply-Rate" Rauschen, kein Signal.
 - Die Zahlen fühlen sich „irgendwie schlecht" an und du weißt nicht, **wo** der Bruch sitzt.
 - **Vor** der nächsten Sequenz-Runde — damit du die echte Schwachstelle fixt, nicht die laute.
 
 ## Input
-
 - **Pflicht:** pro Touch die Zahlen — versendet, **Open-Rate**, **Reply-Rate**, **Bounce-Rate**.
   (Hast du keine Open-Rate, weil Pixel aus / Apple MPP verzerrt: sag es — dann fahren wir
   Reply-first, Open wird ignoriert. Das ist 2026 oft der ehrlichere Weg.)
@@ -33,21 +30,20 @@ Plus: ein klares „erst das, dann messen, dann das nächste" — nie zwei Varia
   „falscher Botschaft" zu trennen), Positive-vs-Negative-Reply-Split.
 
 ## Workflow
-
 1. **Funnel aufstellen.** Schreib pro Touch die Kette: versendet → zugestellt → geöffnet → geantwortet.
-   Erst dann siehst du, _an welcher Stufe_ es leakt. Eine nackte Reply-Rate ohne den Funnel darüber
+   Erst dann siehst du, *an welcher Stufe* es leakt. Eine nackte Reply-Rate ohne den Funnel darüber
    ist nicht diagnostizierbar.
 2. **Bounce zuerst lesen** — die ehrlichste Zahl. > 5 % = Listenproblem, nicht Copy-Problem. Alles
    andere ist Makulatur, bis die Liste sauber ist (siehe Benchmarks unten). Hohe Bounce killt obendrein
-   die Domain-Reputation → drückt _alle_ folgenden Touches.
+   die Domain-Reputation → drückt *alle* folgenden Touches.
 3. **Stufe für Stufe gegen Benchmark prüfen** (Ampel grün/gelb/rot, Tabelle unten). Wo zuerst rot wird,
-   _dort_ sitzt der Engpass — Stufen _danach_ erst bewerten, wenn die davor grün ist. Reihenfolge:
+   *dort* sitzt der Engpass — Stufen *danach* erst bewerten, wenn die davor grün ist. Reihenfolge:
    **Zustellung → Open → Reply**.
 4. **Ursache pro Touch herleiten** — nicht raten, aus dem Muster lesen:
    - **Zustellung niedrig / Bounce hoch** → Liste (alte Daten, kein Catch-all-Filter, kein
      Verify-Schritt) oder Domain-Setup (SPF/DKIM/DMARC, Warmup, zu hohes Volumen).
    - **Open niedrig, Zustellung ok** → **Betreff** (zu generisch, salesy, Clickbait) oder Absender-Name
-     / Reputation. _Falls keine Open-Daten verlässlich: überspringen, Reply-first._
+     / Reputation. *Falls keine Open-Daten verlässlich: überspringen, Reply-first.*
    - **Open ok, Reply niedrig** → **Botschaft**: Hook nicht relevant (falscher Angle/Pain), CTA zu
      schwer (Kalender-Link, „15 Min?"), zu lang, Ich-zentriert, oder schlicht **falsche Liste** (Open
      aus Neugier, aber kein echter Fit → gegen `outreach-brief.md` prüfen).
@@ -55,7 +51,7 @@ Plus: ein klares „erst das, dann messen, dann das nächste" — nie zwei Varia
      hochschieben") oder Timing zu eng/zu weit.
    - **Alles flach über alle Touches** → meist Liste oder Angle-Market-Fit, selten der Betreff.
 5. **Reply-Qualität trennen.** Eine 8 %-Reply-Rate aus „kein Interesse / nehmt mich raus" ist
-   _schlechter_ als 3 % positiv. Wenn der Split vorliegt: positive Reply-Rate ist die echte Metrik.
+   *schlechter* als 3 % positiv. Wenn der Split vorliegt: positive Reply-Rate ist die echte Metrik.
 6. **Tests priorisieren** — Hebel (wie viel kann sich bewegen) × Aufwand (wie schnell testbar). Fix den
    **frühesten roten Funnel-Schritt zuerst** — ein Open-Test bringt nichts, wenn 40 % bouncen. Genau
    **eine Variable pro Test**, sonst weißt du hinterher nicht, was gewirkt hat.
@@ -63,21 +59,19 @@ Plus: ein klares „erst das, dann messen, dann das nächste" — nie zwei Varia
    `ANNAHME(... — zu verifizieren)`, kein geratener Grund als Fakt getarnt.
 
 ## B2B-Benchmarks (realistisch, Cold-Outbound, kein Hype)
-
 ANNAHME(typische DACH-/B2B-Spannen 2025/26 — gegen deine eigene Historie kalibrieren, sobald vorhanden):
 
-| Metrik                  | rot (Problem) | gelb (ok) | grün (stark) |
-| ----------------------- | ------------- | --------- | ------------ |
-| **Bounce**              | > 5 %         | 2–5 %     | < 2 %        |
-| **Open** (wenn messbar) | < 25 %        | 25–45 %   | > 45 %       |
-| **Reply** (gesamt)      | < 1 %         | 1–5 %     | > 5 %        |
-| **Positive Reply**      | < 0,5 %       | 0,5–2 %   | > 2 %        |
+| Metrik | rot (Problem) | gelb (ok) | grün (stark) |
+|---|---|---|---|
+| **Bounce** | > 5 % | 2–5 % | < 2 % |
+| **Open** (wenn messbar) | < 25 % | 25–45 % | > 45 % |
+| **Reply** (gesamt) | < 1 % | 1–5 % | > 5 % |
+| **Positive Reply** | < 0,5 % | 0,5–2 % | > 2 % |
 
 Open-Rates sind durch Apple Mail Privacy Protection systematisch aufgebläht — behandle sie als grobe
 Richtung, nicht als Wahrheit. Im Zweifel **Reply ist die einzige Zahl, die zählt**.
 
 ## Diagnose-Logik (Kurzformeln)
-
 - `Bounce hoch + Reply egal` → **Liste/Domain fixen, sonst nichts testen.**
 - `Open hoch + Reply niedrig` → **Botschaft oder Fit**, nicht der Betreff.
 - `Open niedrig + Zustellung ok` → **Betreff/Absender**, nicht der Body.
@@ -85,7 +79,6 @@ Richtung, nicht als Wahrheit. Im Zweifel **Reply ist die einzige Zahl, die zähl
 - `Reply ok, aber alles negativ` → **falsche Liste / falscher Angle**, nicht die Copy-Mechanik.
 
 ## Test-Skelett (so sieht ein Top-3-Eintrag aus)
-
 ```
 Test 1 — <was du änderst, EINE Variable>
   Touch:        <welcher>
@@ -96,7 +89,6 @@ Test 1 — <was du änderst, EINE Variable>
 ```
 
 ## Beispiel (Auszug)
-
 > **Touch 1:** Bounce 1 % (grün), Open 38 % (gelb), Reply 0,6 % (rot).
 > Open ok → Liste & Betreff sind nicht das Problem. Reply rot bei ordentlichem Open →
 > `ANNAHME(Hook trifft den Pain nicht / CTA zu schwer)`. Im Body steht ein Kalender-Link im
@@ -107,16 +99,14 @@ Test 1 — <was du änderst, EINE Variable>
 > Erfolgsmetrik: Reply-Rate Touch 1 von 0,6 % → Ziel > 1,5 %, ab ~100 Sends/Arm bewertbar. Aufwand: niedrig.
 
 ## Häufige Fehler
-
 - **Aus zu wenig Volumen schließen.** 2 Replies auf 30 Mails sind kein Trend. Erst Volumen, dann Urteil.
 - **Open-Rate als heilige Zahl** behandeln, obwohl MPP/Pixel sie verzerren — Reply schlägt Open.
 - **Mehrere Variablen gleichzeitig** ändern → kein verwertbares Ergebnis.
 - **Den Betreff fixen, während die Liste bouncet.** Immer den frühesten roten Funnel-Schritt zuerst.
-- **Bounce ignorieren** — hohe Bounce ruiniert die Domain-Reputation und sabotiert _kommende_ Sequenzen.
-- Reply-_Menge_ mit Reply-_Qualität_ verwechseln (viele „nein danke" ≠ Erfolg).
+- **Bounce ignorieren** — hohe Bounce ruiniert die Domain-Reputation und sabotiert *kommende* Sequenzen.
+- Reply-*Menge* mit Reply-*Qualität* verwechseln (viele „nein danke" ≠ Erfolg).
 
 ## Regeln
-
 - **Evidenz vor Behauptung.** Jede Ursache wird aus dem Funnel-Muster hergeleitet oder als
   `ANNAHME(...)` markiert — kein geratener Grund als Diagnose verkauft.
 - **Keine erfundenen Benchmarks** — die Spannen oben sind Orientierung; sobald eigene Historie da ist,
@@ -127,7 +117,6 @@ Test 1 — <was du änderst, EINE Variable>
   werden, nicht lauter.
 
 ## Output
-
 - **Diagnose pro Touch:** Funnel-Zahlen + Ampel je Stufe + vermutete Ursache (mit Begründung oder `ANNAHME`).
 - **Top-3-Tests:** je Hypothese, EINE-Variablen-Änderung (A→B), Erfolgsmetrik + Signifikanzschwelle, Aufwand.
 - **Eine Zeile Reihenfolge-Empfehlung:** welchen Test zuerst, warum (frühester roter Schritt), wie lange messen.

@@ -5,23 +5,21 @@ description: Design a business (or a single offer) to be SCALABLE and SELLABLE �
 
 # Business Architecture
 
-Most founders build a _successful_ business and discover too late it is a _job_, not an asset — it does not run
+Most founders build a *successful* business and discover too late it is a *job*, not an asset — it does not run
 without them, so it cannot scale and cannot sell. This skill builds the other kind: a business (or even a single
-offer) structured around a **system**, designed _as if_ you would sell it tomorrow. You never have to sell — the
+offer) structured around a **system**, designed *as if* you would sell it tomorrow. You never have to sell — the
 point is **optionality**: "the goal is not the exit, the goal is options; when you don't know your options, you
 don't have any." Building to that standard forces documented processes, no key-person risk, predictable revenue —
-which is also simply the _better_ business to own. The method runs three moves: **audit** what's sellable today,
+which is also simply the *better* business to own. The method runs three moves: **audit** what's sellable today,
 **package** the asset (Soft Shop), and **structure** for scale + exit-optionality.
 
 ## When to use
-
 - Structuring or **restructuring** a business, or designing/repackaging a single **offer** into a productised, transferable asset.
 - When the user asks "how do I make this **scalable** / **sellable**", "is my business worth anything", "what would a buyer pay", "how do I grow this".
 - Packaging a **service** so it survives without the founder doing every delivery personally.
 - Annually, as a cadence — the Sellability Audit and Soft Shop are meant to repeat (same month every year).
 
 ## The method
-
 Run as three moves — audit, package, structure. Keep them separate; each answers a different question.
 
 1. **Run the SELLABILITY AUDIT (what's sellable today).** Score 1–10 on the criteria a buyer actually checks:
@@ -32,37 +30,35 @@ Run as three moves — audit, package, structure. Keep them separate; each answe
 2. **PACKAGE the asset + run the SOFT SHOP (what it's worth, told straight).** Build the productised package: a
    one-pager (what you do, for whom, how) · 3-year P&L (revenue, margins, trends) · customer-concentration view ·
    the growth story (where do the next 3 years come from) · team/key-roles · IP/brand/differentiation. Then once a
-   year **simulate a sale** with 3–5 _real_ plausible buyers (competitors, larger players, PE) — the most honest
-   free strategy consulting there is, because buyers have a financial interest in telling you what they _see_, not
+   year **simulate a sale** with 3–5 *real* plausible buyers (competitors, larger players, PE) — the most honest
+   free strategy consulting there is, because buyers have a financial interest in telling you what they *see*, not
    what you want to hear. Ask the **magic question**: "based on what you've seen, how would you value us?" → "$X" →
    **"and why not 1.5X?"** → the five things they name **are your business plan for next year**. They also tell you
    what has **zero value** to a buyer → deprioritize it. Repeat next year: "you said do these five and we'd be 1.5X
    — we did; here are the numbers" — which compounds trust and the valuation at any real sale.
 3. **STRUCTURE for SCALE + EXIT-OPTIONALITY (which initiatives, which growth path).** Two filters:
-   - **Scalability — the Don-Shula touchdown filter.** For every initiative ask whether its _best case_ is a
-     **yard play** (5–10% lift) or a **touchdown** (10x possible) — touchdowns often cost the _same_ effort, so
+   - **Scalability — the Don-Shula touchdown filter.** For every initiative ask whether its *best case* is a
+     **yard play** (5–10% lift) or a **touchdown** (10x possible) — touchdowns often cost the *same* effort, so
      seek them deliberately. Touchdown = scales without linear effort growth, reproducible, self-reinforcing
      (network effect, reputation, recurring). Frame each one with **"what's the $10M version? the $100M version?"**
-     — if the current model can't reach that path, it isn't strategic. Don't kill yard plays; consciously _size_ them.
+     — if the current model can't reach that path, it isn't strategic. Don't kill yard plays; consciously *size* them.
    - **Exit-optionality — the three growth paths.** Make all three visible even if you choose one: **self-fund**
      (100% ownership, your capital/risk, slower) · **outside equity** (bank/PE/VC — leverage + speed, but co-owners
      and reporting) · **employee-ownership/ESPP** (sell a slice to the team — A-player retention + founder liquidity,
-     and it can make the business _more_ attractive to a later buyer because key people are locked in). Per path:
-     feasible / unrealistic / not relevant today — and "what fits in 12 months, and what must we prepare to _have_
+     and it can make the business *more* attractive to a later buyer because key people are locked in). Per path:
+     feasible / unrealistic / not relevant today — and "what fits in 12 months, and what must we prepare to *have*
      the option?"
 
 ## Output
-
 - The **Sellability Audit scorecard** (each criterion 1–10 + the gap), with the **two lowest scores named as next-quarter priorities**.
 - The **productised package skeleton** (one-pager · 3-yr P&L · concentration · growth story · team · IP) ready for a Soft Shop, plus the **buyer shortlist + the magic-question script**.
 - The **touchdown filter** applied to current initiatives (yard vs touchdown, $10M/$100M framing) and the **three-paths optionality check** (which path fits now, which in 12 months, what to prepare).
 - The decision it changes: what to **systematize first**, which offer/initiative is a real touchdown vs a yard play, and which growth/exit path you're structuring toward.
 
 ## Key discipline
-
-- **Successful ≠ sellable.** A business that needs you daily is a job. Build around a system (the Apple-after-Jobs standard), not a person — that is the better business _whether or not_ you ever sell.
+- **Successful ≠ sellable.** A business that needs you daily is a job. Build around a system (the Apple-after-Jobs standard), not a person — that is the better business *whether or not* you ever sell.
 - **Optionality, not exit.** Preparing to sell does not commit you to selling. The deliverable is options.
-- **Buyers tell the truth; rooms flatter.** The Soft Shop's honesty is its whole value — don't soften it into a vibe. Pair it with `icp-persona-panel` if you also need brutally-honest _demand_ signal, not just _valuation_ signal.
+- **Buyers tell the truth; rooms flatter.** The Soft Shop's honesty is its whole value — don't soften it into a vibe. Pair it with `icp-persona-panel` if you also need brutally-honest *demand* signal, not just *valuation* signal.
 - **Size your plays.** Most work is yard plays — fine. Just don't mistake a 5% lift for a strategic bet, and make sure at least one real touchdown is in the plan each quarter.
 
 ## EVE Runtime Link

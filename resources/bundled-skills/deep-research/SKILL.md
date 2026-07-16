@@ -13,14 +13,12 @@ labeled weak. A research report nobody can act on (or that quietly launders a ve
 number) is theater.
 
 ## When to use
-
 - **Entering a market** — is it real, how big, growing or dying, regulated, and is the timing right NOW.
 - **Studying competitors before positioning** — what they sell-as, who they target, their headline/copy mechanic, their price, and the GAP they leave open.
 - **Finding or validating a target group** — who needs it most now, can they pay, can you reach them, and do they show the "tried AI, got stuck" signal.
 - Whenever the user asks "is there a market", "who are the competitors", "who should we sell to", "find the gap", "size this", or "research X" — and the answer must be defensible, not vibes.
 
 ## The method
-
 1. **Decompose the question into parallel sub-searches.** Split by angle, by market/geo, by segment, and
    by source-type (Reddit/forums · X/HN · analyst reports · competitor sites · pricing pages · review
    sites). Pick the MODE — MARKET, COMPETITOR, or ICP/TARGET-GROUP — and let it shape the sub-questions.
@@ -43,7 +41,6 @@ number) is theater.
    Where it's ICP mode, deliver the per-market ranking.
 
 ## Output
-
 - **MARKET mode:** size (with the methodology and the date), growth/dynamics, regulation, and a timing
   read (why now / why not yet) — each backed by a cited, verified source, with unverifiable numbers
   flagged as such.
@@ -52,7 +49,6 @@ number) is theater.
 - In every mode: a sources list with dates, and an explicit **confidence + weak-evidence** note so the reader knows which conclusions are load-bearing and which are still hypotheses.
 
 ## Rules
-
 - Refute before you trust — every load-bearing number must survive an attempt to break it.
 - Vendor/aspirational/unsourced numbers get flagged, never silently passed through. Self-citing virality is one source, not many.
 - State the date on every claim; current evidence beats authoritative-sounding stale evidence.

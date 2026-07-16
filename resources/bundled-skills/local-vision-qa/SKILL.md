@@ -17,7 +17,6 @@ active model has no vision endpoint, use a local vision model through Ollama.
 and screenshots stay local, DSGVO-green by construction.
 
 ## When to use
-
 - Visual QA of rendered artifacts: PDF pages, HTML→PDF output, social-post images,
   logo/format conversions, layout drafts.
 - "Schau dir das Bild an" when `vision_analyze` / `browser_vision` return 502
