@@ -10,17 +10,17 @@
 #      shim, so the shim's 409 gate cannot pause it — this launcher is the ONLY
 #      enforcement point for the delegate lane.
 #   2. TOKEN INJECT: export EVE_AGENT_ID + EVE_LEASE_TOKEN into the child env
-#      (read from a 0600 file OUTSIDE hermesHome — NEVER passed in argv/SOUL,
-#      which is model-visible).
+#      (read from a 0600 file OUTSIDE hermesHome — NEVER passed in argv or model
+#      input).
 #   3. TRANSPARENT stdio: `exec` the real adapter so the process is REPLACED
 #      (fds 0/1/2 inherited perfectly — the JSON-RPC pipe passes through
 #      untouched). The launcher writes NOTHING to stdout, ever.
 #
-# Invocation (emitted by eveWorkerRoutingDirective):
+# Invocation (bound by the Desktop main process through trusted process env):
 #   eve-acp-launcher.sh --role <agent_id> --status-file <path>
 #     --token-file <path> -- <realAdapterCmd> [args...]
 #
-# POSIX sh only (Command EVE is Apple-Silicon-macOS-only). No node/bun needed.
+# POSIX sh only. No shell-specific arrays or node/bun launcher dependency.
 
 set -eu
 
@@ -79,22 +79,10 @@ if [ -n "$TOKEN_FILE" ] && [ -r "$TOKEN_FILE" ]; then
   TOKEN="$(cat "$TOKEN_FILE" 2>/dev/null | tr -d '[:space:]')"
 fi
 
-# 3) SCRUB operator-only state from the delegated worker's env. This launcher is
-#    the boundary between EVE's runtime (which legitimately holds these) and a
-#    third-party autonomous CLI worker (which must not). The delegate inherits our
-#    full env via `exec`, so anything not unset here leaks to it. COMMAND_EVE_TEAM_
-#    MANAGE_BEARER gates the team_manage propose route — a delegated worker holding
-#    it could queue team-status-change intents EVE alone is meant to raise. The
-#    status/token FILE PATHS are shell locals (not exported) and are consumed above,
-#    so they are already absent from the child — we unset them anyway as defence in
-#    depth so no future refactor can leak the pause-gate's control-file path to the
-#    delegate. (The A4 lease token is delivered per-role, not a shared secret.)
-unset COMMAND_EVE_TEAM_MANAGE_BEARER COMMAND_EVE_TEAM_MANAGE_BEARER_FILE STATUS_FILE TOKEN_FILE
-
-# 4) Transparent stdio: `exec` replaces this process with the real adapter,
-#    inheriting fds 0/1/2 exactly — the wheel's JSON-RPC pipe is untouched.
-export EVE_AGENT_ID="$ROLE"
-export EVE_LEASE_TOKEN="$TOKEN"
+# 3) Build the child environment from an allowlist. A denylist cannot anticipate
+#    future provider keys, bearer names, or control-file paths. The adapter gets
+#    only OS/runtime basics, its machine-local Claude login location, and the
+#    scoped EVE role lease.
 
 # 5) COMPA-624 — hand the delegate the per-seat honcho MEMORY tool. --mcp-config is
 #    a FILE PATH (not a secret; the HONCHO_* values live inside the 0600 file, which
@@ -103,8 +91,29 @@ export EVE_LEASE_TOKEN="$TOKEN"
 #    file (Honcho not provisioned/ready) is a silent no-op, so the delegate simply
 #    runs without a honcho tool. The env-var NAME is MAC-VERIFY-PENDING against the
 #    installed claude-agent-acp adapter (see CLAUDE_DELEGATE_MCP_CONFIG_ENV).
+CLAUDE_CONFIG="${CLAUDE_CONFIG_DIR:-}"
+HAS_MCP_CONFIG="false"
 if [ -n "$MCP_CONFIG" ] && [ -r "$MCP_CONFIG" ]; then
-  export CLAUDE_MCP_CONFIG="$MCP_CONFIG"
+  HAS_MCP_CONFIG="true"
 fi
 
-exec "$@"
+# Build env(1)'s assignment argv before the adapter command. Optional variables
+# stay absent when their parent value is empty; an empty HOME or
+# CLAUDE_CONFIG_DIR is an explicit path for several runtimes and disables their
+# normal account-directory fallback.
+set -- \
+  "PATH=${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}" \
+  "TMPDIR=${TMPDIR:-/tmp}" \
+  "LANG=${LANG:-en_US.UTF-8}" \
+  "SHELL=${SHELL:-/bin/sh}" \
+  "EVE_AGENT_ID=$ROLE" \
+  "EVE_LEASE_TOKEN=$TOKEN" \
+  "$@"
+
+if [ -n "${LOGNAME:-}" ]; then set -- "LOGNAME=$LOGNAME" "$@"; fi
+if [ -n "${USER:-}" ]; then set -- "USER=$USER" "$@"; fi
+if [ -n "${HOME:-}" ]; then set -- "HOME=$HOME" "$@"; fi
+if [ -n "$CLAUDE_CONFIG" ]; then set -- "CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG" "$@"; fi
+if [ "$HAS_MCP_CONFIG" = "true" ]; then set -- "CLAUDE_MCP_CONFIG=$MCP_CONFIG" "$@"; fi
+
+exec env -i "$@"

@@ -525,7 +525,7 @@ async function sampleMainMemory(handle: BenchmarkApp): Promise<MainMemorySample 
 }
 
 function sampleProcessTreeMemory(handle: BenchmarkApp): ProcessTreeMemorySample | null {
-  if (!handle.pid || process.platform === 'win32') return null;
+  if (!handle.pid) return null;
   const rows = readProcessTable();
   const byPid = new Map(rows.map((row) => [row.pid, row]));
   const processIds = collectProcessTreePids(handle.pid, rows);

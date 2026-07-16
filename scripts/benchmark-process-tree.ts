@@ -12,6 +12,29 @@ export type ProcessTreeTermination = {
   survivors: number[];
 };
 
+type ProcessTableExecutor = (file: string, args: string[]) => string;
+
+type WindowsProcessTableRow = {
+  ProcessId?: unknown;
+  ParentProcessId?: unknown;
+  WorkingSetSize?: unknown;
+};
+
+const WINDOWS_PROCESS_TABLE_COMMAND = [
+  'Get-CimInstance -ClassName Win32_Process',
+  'Select-Object ProcessId,ParentProcessId,WorkingSetSize',
+  'ConvertTo-Json -Compress',
+].join(' | ');
+
+function executeProcessTableCommand(file: string, args: string[]): string {
+  return execFileSync(file, args, {
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024,
+    timeout: 10_000,
+    windowsHide: true,
+  });
+}
+
 export function parsePosixProcessTable(output: string): ProcessTableRow[] {
   return output
     .split('\n')
@@ -24,10 +47,54 @@ export function parsePosixProcessTable(output: string): ProcessTableRow[] {
     }));
 }
 
-export function readProcessTable(): ProcessTableRow[] {
-  if (process.platform === 'win32') return [];
+function parseSafeProcessNumber(value: unknown, minimum: number): number | null {
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN;
+  return Number.isSafeInteger(parsed) && parsed >= minimum ? parsed : null;
+}
+
+export function parseWindowsProcessTable(output: string): ProcessTableRow[] {
+  const normalized = output.replace(/^\uFEFF/, '').trim();
+  if (!normalized) return [];
+
+  let decoded: unknown;
   try {
-    return parsePosixProcessTable(execFileSync('ps', ['-axo', 'pid=,ppid=,rss=,comm='], { encoding: 'utf8' }));
+    decoded = JSON.parse(normalized);
+  } catch {
+    return [];
+  }
+
+  const rows = Array.isArray(decoded) ? decoded : [decoded];
+  return rows.flatMap((candidate): ProcessTableRow[] => {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return [];
+    const row = candidate as WindowsProcessTableRow;
+    const pid = parseSafeProcessNumber(row.ProcessId, 1);
+    const ppid = parseSafeProcessNumber(row.ParentProcessId, 0);
+    const rssBytes = parseSafeProcessNumber(row.WorkingSetSize, 0);
+    return pid === null || ppid === null || rssBytes === null ? [] : [{ pid, ppid, rssBytes }];
+  });
+}
+
+export function readProcessTable(
+  options: {
+    platform?: NodeJS.Platform;
+    execute?: ProcessTableExecutor;
+  } = {}
+): ProcessTableRow[] {
+  const platform = options.platform ?? process.platform;
+  const execute = options.execute ?? executeProcessTableCommand;
+  try {
+    if (platform === 'win32') {
+      return parseWindowsProcessTable(
+        execute('powershell.exe', [
+          '-NoLogo',
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          WINDOWS_PROCESS_TABLE_COMMAND,
+        ])
+      );
+    }
+    return parsePosixProcessTable(execute('ps', ['-axo', 'pid=,ppid=,rss=,comm=']));
   } catch {
     return [];
   }
@@ -97,6 +164,25 @@ export function signalKnownProcessTree(
   return signaled;
 }
 
+export function windowsTaskkillArgs(rootPid: number, force: boolean): string[] {
+  if (!Number.isInteger(rootPid) || rootPid <= 1) return [];
+  return ['/PID', String(rootPid), '/T', ...(force ? ['/F'] : [])];
+}
+
+function taskkillWindowsProcessTree(rootPid: number, force: boolean): void {
+  const args = windowsTaskkillArgs(rootPid, force);
+  if (args.length === 0) return;
+  try {
+    execFileSync('taskkill.exe', args, {
+      stdio: 'ignore',
+      timeout: 10_000,
+      windowsHide: true,
+    });
+  } catch {
+    // The process may already be gone or may require the forced retry below.
+  }
+}
+
 async function waitForTreeExit(
   knownProcessIds: Set<number>,
   rootPid: number,
@@ -129,12 +215,20 @@ export async function terminateProcessTree(
 
   rememberProcessTree(rootPid, knownProcessIds);
   const captured = [...knownProcessIds];
-  signalKnownProcessTree(rootPid, knownProcessIds, 'SIGTERM');
+  if (process.platform === 'win32') taskkillWindowsProcessTree(rootPid, false);
+  else signalKnownProcessTree(rootPid, knownProcessIds, 'SIGTERM');
   let survivors = await waitForTreeExit(knownProcessIds, rootPid, graceMs, pollMs);
   let forced: number[] = [];
   if (survivors.length > 0) {
     if (isProcessAlive(rootPid)) rememberProcessTree(rootPid, knownProcessIds);
-    forced = signalKnownProcessTree(rootPid, new Set(survivors), 'SIGKILL');
+    if (process.platform === 'win32') {
+      forced = [...survivors];
+      // The original root may have exited while descendants remain. Force each
+      // captured survivor as a tree root so orphaned helpers cannot escape cleanup.
+      for (const survivorPid of survivors) taskkillWindowsProcessTree(survivorPid, true);
+    } else {
+      forced = signalKnownProcessTree(rootPid, new Set(survivors), 'SIGKILL');
+    }
     survivors = await waitForTreeExit(knownProcessIds, rootPid, forceWaitMs, pollMs);
   }
 
