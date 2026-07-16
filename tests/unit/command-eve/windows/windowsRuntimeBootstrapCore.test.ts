@@ -7,6 +7,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import yauzl from 'yauzl';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -37,6 +38,50 @@ function makeRoot(): string {
 function writeFile(filePath: string, content = 'fixture'): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, content);
+}
+
+function readWheelEntry(wheelPath: string, entryName: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    yauzl.open(wheelPath, { lazyEntries: true }, (openError, zipFile) => {
+      if (openError || !zipFile) {
+        reject(openError ?? new Error(`Could not open wheel: ${wheelPath}`));
+        return;
+      }
+
+      let found = false;
+      const fail = (error: Error): void => {
+        zipFile.close();
+        reject(error);
+      };
+
+      zipFile.on('error', fail);
+      zipFile.on('end', () => {
+        if (!found) fail(new Error(`Wheel entry not found: ${entryName}`));
+      });
+      zipFile.on('entry', (entry) => {
+        if (entry.fileName !== entryName) {
+          zipFile.readEntry();
+          return;
+        }
+
+        found = true;
+        zipFile.openReadStream(entry, (streamError, stream) => {
+          if (streamError || !stream) {
+            fail(streamError ?? new Error(`Could not read wheel entry: ${entryName}`));
+            return;
+          }
+          const chunks: Buffer[] = [];
+          stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+          stream.on('error', fail);
+          stream.on('end', () => {
+            zipFile.close();
+            resolve(Buffer.concat(chunks).toString('utf8'));
+          });
+        });
+      });
+      zipFile.readEntry();
+    });
+  });
 }
 
 afterEach(() => {
@@ -96,6 +141,31 @@ describe('Command EVE Windows runtime paths', () => {
     const wheelPath = path.resolve('resources', 'bundled-hermes', 'hermes_agent-0.17.0-py3-none-any.whl');
 
     expect(sha256FileIfPresent(wheelPath)).toBe(COMMAND_EVE_BUNDLED_HERMES_WHEEL_SHA256);
+  });
+
+  it('pins the model-hidden ACP transport contract inside the committed Hermes wheel', async () => {
+    const wheelPath = path.resolve('resources', 'bundled-hermes', 'hermes_agent-0.17.0-py3-none-any.whl');
+    const [delegateTool, runAgent, auth] = await Promise.all([
+      readWheelEntry(wheelPath, 'tools/delegate_tool.py'),
+      readWheelEntry(wheelPath, 'run_agent.py'),
+      readWheelEntry(wheelPath, 'hermes_cli/auth.py'),
+    ]);
+    const schemaStart = delegateTool.indexOf('DELEGATE_TASK_SCHEMA =');
+    const schemaEnd = delegateTool.indexOf('# --- Registry ---', schemaStart);
+    const modelSchema = delegateTool.slice(schemaStart, schemaEnd);
+
+    expect(schemaStart).toBeGreaterThanOrEqual(0);
+    expect(schemaEnd).toBeGreaterThan(schemaStart);
+    expect(modelSchema).not.toContain('"acp_command"');
+    expect(modelSchema).not.toContain('"acp_args"');
+    expect(delegateTool).toContain('_MODEL_HIDDEN_TASK_FIELDS = {"acp_command", "acp_args"}');
+    expect(delegateTool).toContain('override_acp_command=creds.get("command")');
+    expect(delegateTool).toContain('override_acp_args=creds.get("args")');
+    expect(runAgent).not.toContain('function_args.get("acp_command")');
+    expect(runAgent).not.toContain('function_args.get("acp_args")');
+    expect(auth).toContain('os.getenv("HERMES_COPILOT_ACP_COMMAND"');
+    expect(auth).toContain('os.getenv("HERMES_COPILOT_ACP_ARGS"');
+    expect(auth).toContain('args = shlex.split(raw_args)');
   });
 });
 

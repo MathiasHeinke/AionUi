@@ -56,6 +56,7 @@ import {
   runKanbanPreflight,
 } from '@process/commandEve/kanbanPreflightCore';
 import { buildLocalRuntimeStatus } from '@process/commandEve/localRuntimeStatusCore';
+import { clearHermesDelegateTransportEnv } from '@process/commandEve/eveWorkerLauncherCore';
 import { transcribeLocalSpeech } from '@process/commandEve/localSttCore';
 import type { CommandEveLocalSttRequest } from '@/common/types/provider/speech';
 import {
@@ -386,6 +387,7 @@ async function resolveCommandEveWorkerRuntimeInputsForSwitch(): Promise<{
       teamRoles: buildTeamDirectiveRoles(assignments, statuses),
     };
   } catch (error) {
+    clearHermesDelegateTransportEnv(process.env);
     // F7: the settings READ threw → backend unreachable. Report reachable:false so
     // the switch's prepareEnv does NOT re-provision on degraded (empty) inputs.
     console.warn(

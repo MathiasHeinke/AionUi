@@ -7,23 +7,23 @@
 /**
  * Command EVE 1.7.0 — eve-acp-launcher wiring (SG-1 Design A, gates A3/A4).
  *
- * The bundled POSIX-sh launcher (resources/eve-acp-launcher/eve-acp-launcher.sh)
- * sits transparently in front of the real Claude ACP adapter so the delegate lane
+ * The bundled platform launcher (POSIX sh on macOS, PowerShell on Windows)
+ * sits transparently in front of the real ACP adapter so the delegate lane
  * gets a REAL pause-gate + attribution env WITHOUT a wheel bump. This module is the
  * main-side glue that:
  *
  *   1. resolves the bundled launcher path (dev + packaged),
  *   2. computes the per-(seat, role) status/token file paths — OUTSIDE hermesHome,
  *      so EVE's own file tools never see them,
- *   3. WRAPS a resolved Claude delegate so `delegate_task`'s `acp_command` becomes
- *      the launcher and `acp_args` carry `--role/--status-file/--token-file` in
- *      FRONT of the original adapter argv,
+ *   3. WRAPS a resolved Claude delegate and binds that transport into Desktop-owned
+ *      process env. Hermes resolves it from the fixed `copilot-acp` provider; the
+ *      model-facing `delegate_task` schema never receives command or argv fields,
  *   4. writes the DERIVED status files (a read-mirror of commandEve.teamWorkerStatus
  *      — never a second source of truth) + the 0600 token files.
  *
- * A4 (token visibility): the wrapped `acp_args` carry the token FILE PATH, never the
- * token itself — `acp_args` are echoed verbatim into SOUL prose (model-visible). The
- * token lives only in the 0600 file the launcher reads.
+ * A4 (token visibility): the wrapped argv carries the token FILE PATH, never the
+ * token itself. The argv is process policy, not SOUL prose or model input; the token
+ * lives only in the 0600 file the launcher reads.
  *
  * A3 (spawn-pause): the launcher refuses `exec` (exit 3) when the status file reads
  * `paused`/`off`. The delegate lane runs on the operator's subscription and never
@@ -34,7 +34,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { EVE_TEAM_ROSTER } from '../../common/config/eveTeamRoster';
 import type { EveTeamWorkerStatusMap } from '../../common/config/eveTeamControlsCore';
-import type { EveWorkerAssignmentMap, ResolvedClaudeDelegate } from '../../common/config/eveWorkerAssignmentCore';
+import {
+  CLAUDE_ACP_ADAPTER_VERSION,
+  type EveWorkerAssignmentMap,
+  type ResolvedClaudeDelegate,
+} from '../../common/config/eveWorkerAssignmentCore';
 import { currentLeaseFor, mintLeaseToken } from './eveAgentTaskRegistry';
 import { honchoMcpServerForSeat, isCanonicalLoopbackDbUri } from './honchoMcpServerCore';
 import type { HonchoRenderInput } from './honchoRuntimeRenderCore';
@@ -54,11 +58,51 @@ export const CLAUDE_DELEGATE_MCP_CONFIG_ENV = 'CLAUDE_MCP_CONFIG';
 
 /** Env override so tests / dev boxes can point at the source launcher. */
 export const COMMAND_EVE_LAUNCHER_DIR_ENV = 'COMMAND_EVE_LAUNCHER_DIR';
+export const HERMES_COPILOT_ACP_COMMAND_ENV = 'HERMES_COPILOT_ACP_COMMAND';
+export const HERMES_COPILOT_ACP_ARGS_ENV = 'HERMES_COPILOT_ACP_ARGS';
 const BUNDLED_LAUNCHER_DIR = 'eve-acp-launcher';
-const LAUNCHER_SCRIPT = 'eve-acp-launcher.sh';
+const POSIX_LAUNCHER_SCRIPT = 'eve-acp-launcher.sh';
+const WINDOWS_LAUNCHER_SCRIPT = 'eve-acp-launcher.ps1';
+const BUNDLED_AIONCORE_DIR = 'bundled-aioncore';
+const MANAGED_RESOURCES_DIR = 'managed-resources';
+const CLAUDE_ACP_TOOL_SLUG = 'claude-agent-acp';
+
+/**
+ * A bounded safety ceiling, deliberately long enough for deep worker tasks. The
+ * user may legitimately run 30+ minute jobs; this cap exists to stop abandoned
+ * process trees, not to police productive reasoning.
+ */
+export const COMMAND_EVE_DELEGATE_TIMEOUT_SECONDS = 2 * 60 * 60;
 
 function compact(value: string | undefined): string {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+/** Encode one argv token for Python's POSIX `shlex.split` contract. */
+function quoteHermesAcpArg(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
+
+export function serializeHermesAcpArgs(args: readonly string[]): string {
+  return args.map(quoteHermesAcpArg).join(' ');
+}
+
+/** Remove any ambient or previous-seat delegate transport before resolving anew. */
+export function clearHermesDelegateTransportEnv(env: NodeJS.ProcessEnv): void {
+  delete env[HERMES_COPILOT_ACP_COMMAND_ENV];
+  delete env[HERMES_COPILOT_ACP_ARGS_ENV];
+}
+
+/**
+ * Bind a launcher-wrapped transport into the parent process env Hermes inherits.
+ * The model cannot mutate its parent's environment, unlike its writable config.yaml.
+ */
+export function bindHermesDelegateTransportEnv(env: NodeJS.ProcessEnv, delegate: ResolvedClaudeDelegate): void {
+  clearHermesDelegateTransportEnv(env);
+  const command = compact(delegate.acpCommand);
+  if (!command || delegate.acpArgs.length === 0) return;
+  env[HERMES_COPILOT_ACP_COMMAND_ENV] = command;
+  env[HERMES_COPILOT_ACP_ARGS_ENV] = serializeHermesAcpArgs(delegate.acpArgs);
 }
 
 /**
@@ -70,21 +114,125 @@ function compact(value: string | undefined): string {
  * the runtime entry (applyLauncherWiring) FAILS CLOSED — it returns null and wires
  * NO delegate rather than an unwrapped one (H13); see applyLauncherWiring below.
  */
-export function resolveBundledLauncherPath(env: NodeJS.ProcessEnv, resourcesPath?: string): string {
+export function resolveBundledLauncherPath(
+  env: NodeJS.ProcessEnv,
+  resourcesPath?: string,
+  platform: NodeJS.Platform = process.platform
+): string {
+  const launcherScript = platform === 'win32' ? WINDOWS_LAUNCHER_SCRIPT : POSIX_LAUNCHER_SCRIPT;
   const explicitDir = compact(env[COMMAND_EVE_LAUNCHER_DIR_ENV]);
   const candidates = [
-    explicitDir ? path.join(explicitDir, LAUNCHER_SCRIPT) : '',
-    resourcesPath ? path.join(resourcesPath, BUNDLED_LAUNCHER_DIR, LAUNCHER_SCRIPT) : '',
-    path.join(process.cwd(), 'resources', BUNDLED_LAUNCHER_DIR, LAUNCHER_SCRIPT),
+    explicitDir ? path.join(explicitDir, launcherScript) : '',
+    resourcesPath ? path.join(resourcesPath, BUNDLED_LAUNCHER_DIR, launcherScript) : '',
+    path.join(process.cwd(), 'resources', BUNDLED_LAUNCHER_DIR, launcherScript),
   ].filter(Boolean);
   const found = candidates.find((candidate) => {
     try {
-      return path.isAbsolute(candidate) && fs.existsSync(candidate);
+      if (!path.isAbsolute(candidate)) return false;
+      const stat = fs.lstatSync(candidate);
+      return stat.isFile() && !stat.isSymbolicLink();
     } catch {
       return false;
     }
   });
   return found || '';
+}
+
+export type BundledClaudeAcpTransportResolution =
+  | { state: 'not-bundled' }
+  | { state: 'invalid' }
+  | { state: 'ready'; acpCommand: string; acpArgs: string[] };
+
+function managedRuntimeKey(platform: NodeJS.Platform, arch: NodeJS.Architecture): string {
+  const os = platform === 'win32' ? 'win32' : platform === 'darwin' ? 'darwin' : platform === 'linux' ? 'linux' : '';
+  const cpu = arch === 'x64' || arch === 'arm64' ? arch : '';
+  return os && cpu ? `${os}-${cpu}` : '';
+}
+
+function isPackagedResourceRoot(resourcesPath: string | undefined): boolean {
+  const root = compact(resourcesPath);
+  if (!root) return false;
+  try {
+    return fs.lstatSync(path.join(root, 'app.asar')).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function resolveBundledRegularFile(root: string, candidate: string): string {
+  const absoluteRoot = path.resolve(root);
+  const absoluteCandidate = path.resolve(candidate);
+  const relative = path.relative(absoluteRoot, absoluteCandidate);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return '';
+
+  let cursor = absoluteRoot;
+  const segments = relative.split(path.sep);
+  try {
+    const rootStat = fs.lstatSync(absoluteRoot);
+    if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) return '';
+    for (const [index, segment] of segments.entries()) {
+      cursor = path.join(cursor, segment);
+      const stat = fs.lstatSync(cursor);
+      if (stat.isSymbolicLink()) return '';
+      const final = index === segments.length - 1;
+      if ((!final && !stat.isDirectory()) || (final && !stat.isFile())) return '';
+    }
+    const realRoot = fs.realpathSync.native(absoluteRoot);
+    const realCandidate = fs.realpathSync.native(absoluteCandidate);
+    const realRelative = path.relative(realRoot, realCandidate);
+    if (!realRelative || realRelative.startsWith('..') || path.isAbsolute(realRelative)) return '';
+    return absoluteCandidate;
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Resolve the signed Node + Claude ACP pair exported by AionCore into the app
+ * bundle. A packaged build must never fetch or infer this transport at runtime.
+ * `not-bundled` is reserved for source/dev runs; an existing but malformed
+ * managed-resource root is `invalid` so the delegate can fail closed.
+ */
+export function resolveBundledClaudeAcpTransport(
+  resourcesPath: string | undefined,
+  platform: NodeJS.Platform = process.platform,
+  arch: NodeJS.Architecture = process.arch
+): BundledClaudeAcpTransportResolution {
+  const root = compact(resourcesPath);
+  const runtimeKey = managedRuntimeKey(platform, arch);
+  if (!root || !runtimeKey) return { state: 'not-bundled' };
+  const managedRoot = path.join(root, BUNDLED_AIONCORE_DIR, runtimeKey, MANAGED_RESOURCES_DIR);
+  if (!fs.existsSync(managedRoot)) return { state: 'not-bundled' };
+
+  try {
+    const managedStat = fs.lstatSync(managedRoot);
+    if (managedStat.isSymbolicLink() || !managedStat.isDirectory()) return { state: 'invalid' };
+
+    const nodeRoot = path.join(managedRoot, 'node');
+    const nodeExecutableParts = platform === 'win32' ? ['node.exe'] : ['bin', 'node'];
+    const nodeCandidates = fs
+      .readdirSync(nodeRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => resolveBundledRegularFile(managedRoot, path.join(nodeRoot, entry.name, ...nodeExecutableParts)))
+      .filter(Boolean);
+    if (nodeCandidates.length !== 1) return { state: 'invalid' };
+
+    const toolRoot = path.join(managedRoot, 'acp', CLAUDE_ACP_TOOL_SLUG, CLAUDE_ACP_ADAPTER_VERSION, runtimeKey);
+    const manifestPath = resolveBundledRegularFile(managedRoot, path.join(toolRoot, 'manifest.json'));
+    if (!manifestPath) return { state: 'invalid' };
+    const manifestStat = fs.statSync(manifestPath);
+    if (manifestStat.size < 2 || manifestStat.size > 64 * 1024) return { state: 'invalid' };
+    const manifestBytes = fs.readFileSync(manifestPath);
+    const manifestText = new TextDecoder('utf-8', { fatal: true }).decode(manifestBytes);
+    const manifest = JSON.parse(manifestText) as { entrypoint?: unknown };
+    const entrypoint = typeof manifest.entrypoint === 'string' ? manifest.entrypoint.trim() : '';
+    if (!entrypoint || path.isAbsolute(entrypoint)) return { state: 'invalid' };
+    const entrypointPath = resolveBundledRegularFile(toolRoot, path.join(toolRoot, entrypoint));
+    if (!entrypointPath) return { state: 'invalid' };
+    return { state: 'ready', acpCommand: nodeCandidates[0], acpArgs: [entrypointPath] };
+  } catch {
+    return { state: 'invalid' };
+  }
 }
 
 /**
@@ -134,9 +282,13 @@ export interface LauncherWrapConfig {
   /**
    * COMPA-624 — when set, the launcher gets `--mcp-config <path>` so it exports the
    * per-seat honcho MCP config pointer to the delegate adapter. A FILE PATH only
-   * (never a secret; A4-safe even though acp_args are model-visible in SOUL).
+   * (never a secret; A4-safe because wrapped argv stays in trusted process env).
    */
   readonly honchoMcpConfigFile?: string;
+  /** Explicit in tests; defaults to the runtime platform. */
+  readonly platform?: NodeJS.Platform;
+  /** Windows process-tree ceiling. Values are clamped to 60s..24h. */
+  readonly timeoutSeconds?: number;
 }
 
 /**
@@ -148,6 +300,18 @@ export interface LauncherWrapConfig {
  * through is identical: sh runs the script, the script `exec`s the real adapter.
  */
 export const LAUNCHER_INTERPRETER = '/bin/sh';
+export const WINDOWS_LAUNCHER_INTERPRETER = 'powershell.exe';
+
+function isAbsoluteLauncherPath(value: string): boolean {
+  // Tests may construct a Windows path while running on macOS. Accept either
+  // host grammar; the candidate itself still has to exist at resolution time.
+  return path.isAbsolute(value) || path.win32.isAbsolute(value);
+}
+
+function boundedDelegateTimeoutSeconds(value: number | undefined): number {
+  if (!Number.isFinite(value)) return COMMAND_EVE_DELEGATE_TIMEOUT_SECONDS;
+  return Math.min(24 * 60 * 60, Math.max(60, Math.floor(value as number)));
+}
 
 /**
  * Wrap a resolved Claude delegate so `delegate_task` launches the eve-acp-launcher
@@ -156,18 +320,23 @@ export const LAUNCHER_INTERPRETER = '/bin/sh';
  * is NOT the runtime fail-open — the sole runtime caller (applyLauncherWiring) checks
  * the launcher path FIRST and FAILS CLOSED (returns null, wires no delegate) on a
  * missing launcher (H13), so in production this unchanged-return is never reached with
- * an absent launcher. The token itself is NEVER placed in acp_args (A4): only the
- * token FILE PATH is, and acp_args are model-visible in SOUL.
+ * an absent launcher. The token itself is NEVER placed in argv (A4): only the
+ * token FILE PATH is, and the wrapped argv is bound outside model input.
  */
 export function wrapClaudeDelegateWithLauncher(
   delegate: ResolvedClaudeDelegate,
   config: LauncherWrapConfig
 ): ResolvedClaudeDelegate {
   const launcherPath = compact(config.launcherPath);
-  if (!launcherPath || !path.isAbsolute(launcherPath)) return delegate;
+  if (!launcherPath || !isAbsoluteLauncherPath(launcherPath)) return delegate;
+  const platform = config.platform ?? process.platform;
   const honchoMcpConfigFile = compact(config.honchoMcpConfigFile);
+  const launcherPrefix =
+    platform === 'win32'
+      ? ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', launcherPath]
+      : [launcherPath];
   const wrappedArgs = [
-    launcherPath,
+    ...launcherPrefix,
     '--role',
     delegate.agent_id,
     '--status-file',
@@ -178,11 +347,18 @@ export function wrapClaudeDelegateWithLauncher(
     // launcher exports it to the delegate adapter; the launcher's own readability
     // check makes an absent file a no-op, so this stays inert until Honcho is ready.
     ...(honchoMcpConfigFile ? ['--mcp-config', honchoMcpConfigFile] : []),
+    ...(platform === 'win32'
+      ? ['--timeout-seconds', String(boundedDelegateTimeoutSeconds(config.timeoutSeconds)), '--read-only']
+      : []),
     '--',
     delegate.acpCommand,
     ...delegate.acpArgs,
   ];
-  return { ...delegate, acpCommand: LAUNCHER_INTERPRETER, acpArgs: wrappedArgs };
+  return {
+    ...delegate,
+    acpCommand: platform === 'win32' ? WINDOWS_LAUNCHER_INTERPRETER : LAUNCHER_INTERPRETER,
+    acpArgs: wrappedArgs,
+  };
 }
 
 /**
@@ -330,7 +506,7 @@ export function syncEveWorkerLauncherFiles(
         }
       } else {
         // M1: paused/off role is not spawned — remove any previously-active lease
-        // token so it never lingers at a SOUL-known path (minimal token surface).
+        // token so it never lingers at a delegate-known path (minimal token surface).
         try {
           fs.rmSync(paths.tokenFile, { force: true });
         } catch {
@@ -365,8 +541,20 @@ export function applyLauncherWiring(
   delegate: ResolvedClaudeDelegate | null,
   assignments: EveWorkerAssignmentMap,
   statuses: EveTeamWorkerStatusMap,
-  ctx: { dataPath: string; seatId: string; resourcesPath?: string; env: NodeJS.ProcessEnv; honcho?: HonchoRenderInput }
+  ctx: {
+    dataPath: string;
+    seatId: string;
+    resourcesPath?: string;
+    env: NodeJS.ProcessEnv;
+    honcho?: HonchoRenderInput;
+    platform?: NodeJS.Platform;
+    arch?: NodeJS.Architecture;
+    /** Exact Electron truth when available; packaged transports never use the dev fallback. */
+    packaged?: boolean;
+  }
 ): ResolvedClaudeDelegate | null {
+  // Re-resolution is also revocation: never let a prior seat/role transport linger.
+  clearHermesDelegateTransportEnv(ctx.env);
   try {
     // Pass the per-seat honcho render input so ACTIVE Claude delegates get the SAME
     // local memory EVE has (per-seat, revocation-symmetric). Absent/not-ready ⇒ no
@@ -380,20 +568,36 @@ export function applyLauncherWiring(
     console.warn('[Command EVE] launcher state sync failed:', error);
   }
   if (!delegate) return null;
-  const launcherPath = resolveBundledLauncherPath(ctx.env, ctx.resourcesPath);
+  const platform = ctx.platform ?? process.platform;
+  const packaged = ctx.packaged ?? isPackagedResourceRoot(ctx.resourcesPath);
+  const bundledTransport = resolveBundledClaudeAcpTransport(ctx.resourcesPath, platform, ctx.arch ?? process.arch);
+  if (bundledTransport.state === 'invalid' || (packaged && bundledTransport.state !== 'ready')) {
+    console.warn(
+      '[Command EVE] packaged Claude ACP transport is unavailable — refusing external delegation (fail-closed).'
+    );
+    return null;
+  }
+  const transportDelegate =
+    bundledTransport.state === 'ready'
+      ? { ...delegate, acpCommand: bundledTransport.acpCommand, acpArgs: bundledTransport.acpArgs }
+      : delegate;
+  const launcherPath = resolveBundledLauncherPath(ctx.env, ctx.resourcesPath, platform);
   if (!launcherPath) {
     // H13 fail-closed: never wire an unwrapped delegate (no pause-gate, no env scrub).
     console.warn('[Command EVE] eve-acp-launcher not found — refusing to wire an unwrapped delegate (fail-closed).');
     return null;
   }
-  const paths = computeLauncherStatePaths(ctx.dataPath, ctx.seatId, delegate.agent_id);
-  return wrapClaudeDelegateWithLauncher(delegate, {
+  const paths = computeLauncherStatePaths(ctx.dataPath, ctx.seatId, transportDelegate.agent_id);
+  const wrapped = wrapClaudeDelegateWithLauncher(transportDelegate, {
     launcherPath,
     statusFile: paths.statusFile,
     tokenFile: paths.tokenFile,
+    platform,
     // Only point at the honcho config when Honcho is fresh-ready for this seat (the
     // config file was written for the active role in the sync above). The launcher
     // re-checks readability, so a race that removes it degrades to no-honcho, not a fail.
     honchoMcpConfigFile: ctx.honcho?.ready === true ? paths.honchoMcpConfigFile : undefined,
   });
+  bindHermesDelegateTransportEnv(ctx.env, wrapped);
+  return wrapped;
 }

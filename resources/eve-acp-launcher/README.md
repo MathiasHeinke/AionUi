@@ -1,49 +1,59 @@
 # eve-acp-launcher (SG-1 Design A, 1.7.0)
 
-The transparent ACP-adapter wrapper that gives the Claude delegate lane a real
-pause-gate + role attribution env, without touching the bundled wheel.
+The platform ACP-adapter boundary that gives Command EVE's private specialist
+lane a real pause gate, role attribution, and bounded process containment
+without touching the bundled Hermes wheel.
 
-## Why a POSIX shell script (not node/bun)
+## Platform implementations
 
-Command EVE is Apple-Silicon-macOS-only. There is NO bundled node/bun in
-`resources/` (electron-builder bundles only CPython + aioncore-bun). A POSIX
-`sh` script needs no bundled interpreter and `exec` replaces the process image,
-inheriting fds 0/1/2 perfectly — the wheel's line-delimited JSON-RPC pipe
-(`copilot_acp_client.py:433-437`, `stdin/stdout/stderr=PIPE`) passes through
-untouched. Verified by the kill-switch probe (see EVAL-RECEIPTS §SG-1 A8).
+- `eve-acp-launcher.sh`: macOS/POSIX. `/bin/sh` needs no bundled runtime and
+  `exec` replaces the launcher with the adapter while preserving stdio.
+- `eve-acp-launcher.ps1`: Windows 11. Windows PowerShell 5.1 is part of the OS.
+  The proxy rewrites the ACP filesystem capability to read-only, rejects write
+  requests, scrubs application credentials, enforces a bounded runtime, and
+  places the complete adapter tree in a kill-on-close Windows Job Object.
 
 ## How the wheel spawns it
 
-`delegate_task` → `subprocess.Popen([acp_command] + acp_args, ...)`. The routing
-directive emits `acp_command = <this script>`, `acp_args = ['--role', <agent_id>,
-'--status-file', <path>, '--token-file', <path>, '--', <realAdapterCmd>, ...]`.
+The security-backported Hermes wheel removes ACP command/argv from the
+model-facing `delegate_task` schema. The main process resolves the platform
+launcher and binds its file paths, stable role id, bounded timeout, and adapter
+tuple through Desktop-owned `HERMES_COPILOT_ACP_*` process env. Hermes resolves
+that transport only for the fixed `copilot-acp` provider. Lease bytes never
+appear in argv or model input.
+
+In a packaged app, Desktop resolves the exact `claude-agent-acp@0.39.0`
+entrypoint and Node executable from AionCore's signed managed-resource bundle.
+The packaged Windows lane therefore has no ambient Node, Bun, npm, or PATH
+installation prerequisite. A present but malformed managed-resource bundle
+fails closed; the pinned `bunx` tuple remains a development-only fallback for
+source runs where no packaged bundle exists.
 
 ## Gates it satisfies
 
-- **A3 (Spawn-Pause):** refuses `exec` (exit 3) when the per-role status file is
-  `paused`/`off` — the ONLY enforcement point for the delegate lane, which runs
-  on the operator's subscription and never hits the shim's 409 gate.
+- **A3 (Spawn-Pause):** refuses to start when the per-role status file is not
+  exactly `active` (exit 3 on Windows; paused/off on POSIX).
 - **A4 (Token-Sichtbarkeit):** the lease token is read from a 0600 file OUTSIDE
-  hermesHome; it is NEVER in `acp_args` (which are model-visible in SOUL).
-- **A8 (Kill-Switch):** stdio passthrough proven (see receipt).
+  hermesHome; it is NEVER in argv or model input.
+- **A4 (Environment boundary):** both launchers create the adapter environment
+  from an allowlist, so future provider keys are not delegated merely because
+  their names were unknown when this boundary was written.
+- **WIN-B09 (Read-only):** Windows advertises no write capability and intercepts
+  ACP filesystem mutation requests before Hermes can execute them. Session
+  creation also replaces the adapter's own tool surface with `Read`, `Glob`,
+  and `Grep`, disables user/project/local settings, strips MCP servers and extra
+  roots, and rejects shell/write/task tools even when the caller requests them.
+- **WIN-B09 (Timeout):** Windows has a two-hour default ceiling, clamped to
+  60 seconds through 24 hours for explicit test/diagnostic overrides.
+- **WIN-B09 (Orphan cleanup):** closing or killing the launcher closes its Job
+  Object and terminates the entire adapter process tree.
 
-## Remaining wiring (SG-1 Design A, not yet done — see progress note)
+## Verification
 
-This artifact is built + proven but NOT YET wired in. To make it live:
-
-1. `resolveWorkerRouting` (eveWorkerAssignmentCore.ts:270-272) / the
-   directive-emission path (index.ts `resolveCommandEveWorkerRuntimeInputs` +
-   commandEveBridge switch-resolver): wrap the resolved `acpCommand/acpArgs`
-   with this launcher + main-resolved paths (launcher path via
-   `process.resourcesPath`, status-dir + token-file under `getDataPath()`,
-   OUTSIDE hermesHome). The launcher path is machine-specific → the wrap happens
-   in the MAIN process, not the pure `resolveWorkerRouting`.
-2. Main process writes the per-role status file whenever
-   `commandEve.teamWorkerStatus` changes AND at boot (so the launcher reads live
-   status). Single-writer discipline: the status file is a DERIVED read-mirror
-   of the backend store, never a second source of truth.
-3. Shim spoof-close (A1): strip `body.agent_id` in `ollamaOpenAiShim.ts:694`;
-   resolve agent_id only from a validated `x-eve-dispatch` header via
-   `eveAgentTaskRegistry` (forward-compat — the header producer is the 1.8 wheel
-   bump; in 1.7.0 the shim's 409 stays dead-but-harmless, the launcher is the
-   live pause enforcement).
+- Cross-platform source/contract tests:
+  `tests/unit/command-eve/eveWorkerLauncherCore.test.ts` and
+  `tests/unit/command-eve/eveAcpLauncherExec.test.ts`.
+- Windows-only execution proof:
+  `tests/unit/command-eve/eveAcpLauncherWindowsExec.test.ts`.
+- The Windows execution proof must run on the private Windows 11 x64 candidate;
+  a macOS skip is expected and is not accepted as WIN-B09 evidence.
