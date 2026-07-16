@@ -75,8 +75,8 @@ describe('premium-website-builder bundled capability', () => {
     expect(mediaReference).toContain('requestIdleCallback');
     expect(mediaReference).toContain('prefers-reduced-motion: reduce');
     expect(mediaReference).toContain('visibilitychange');
-    expect(mediaReference).toContain('video.addEventListener("playing"');
-    expect(mediaReference).toContain('video.querySelectorAll("source[data-hero-source]")');
+    expect(mediaReference).toMatch(/video\.addEventListener\(['"]playing['"]/);
+    expect(mediaReference).toMatch(/video\.querySelectorAll\(['"]source\[data-hero-source\]['"]\)/);
     expect(mediaReference).toContain('video.load()');
     expect(mediaReference).toContain('sessionStorage.setItem');
     expect(mediaReference).toMatch(/const shouldPlay = \(\) =>/);

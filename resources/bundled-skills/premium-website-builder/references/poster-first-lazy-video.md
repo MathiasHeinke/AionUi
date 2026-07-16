@@ -81,17 +81,9 @@ Use the existing project's conventions. This pattern demonstrates the timing
 contract; adapt naming and types to the repository.
 
 ```jsx
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from 'react';
 
-function usePosterFirstVideo({
-  sectionRef,
-  videoRef,
-  userPausedRef,
-  desktopWebm,
-  desktopMp4,
-  mobileWebm,
-  mobileMp4,
-}) {
+function usePosterFirstVideo({ sectionRef, videoRef, userPausedRef, desktopWebm, desktopMp4, mobileWebm, mobileMp4 }) {
   const [canPlay, setCanPlay] = useState(false);
   const [hasPlayed, setHasPlayed] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -101,11 +93,10 @@ function usePosterFirstVideo({
     const video = videoRef.current;
     if (!section || !video) return undefined;
 
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const mobileViewport = window.matchMedia("(max-width: 767px)");
-    const connection =
-      navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-    let pageLoaded = document.readyState === "complete";
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const mobileViewport = window.matchMedia('(max-width: 767px)');
+    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    let pageLoaded = document.readyState === 'complete';
     let nearHero = false;
     let heroVisible = false;
     let sourcesAttached = false;
@@ -115,14 +106,10 @@ function usePosterFirstVideo({
 
     const isAllowed = () => !reducedMotion.matches && connection?.saveData !== true;
     const shouldPlay = () =>
-      sourcesAttached &&
-      isAllowed() &&
-      heroVisible &&
-      !document.hidden &&
-      !userPausedRef.current;
+      sourcesAttached && isAllowed() && heroVisible && !document.hidden && !userPausedRef.current;
 
     const cancelScheduled = () => {
-      if (idleId != null && "cancelIdleCallback" in window) {
+      if (idleId != null && 'cancelIdleCallback' in window) {
         window.cancelIdleCallback(idleId);
       }
       window.clearTimeout(timerId);
@@ -132,8 +119,8 @@ function usePosterFirstVideo({
 
     const unloadMedia = (updateState = true) => {
       video.pause();
-      video.removeAttribute("src");
-      video.querySelectorAll("source[data-hero-source]").forEach((source) => source.remove());
+      video.removeAttribute('src');
+      video.querySelectorAll('source[data-hero-source]').forEach((source) => source.remove());
       video.load();
       sourcesAttached = false;
       if (updateState) {
@@ -155,12 +142,12 @@ function usePosterFirstVideo({
       const useMobile = mobileViewport.matches && (mobileWebm || mobileMp4);
       return useMobile
         ? [
-            { src: mobileWebm, type: "video/webm" },
-            { src: mobileMp4, type: "video/mp4" },
+            { src: mobileWebm, type: 'video/webm' },
+            { src: mobileMp4, type: 'video/mp4' },
           ]
         : [
-            { src: desktopWebm, type: "video/webm" },
-            { src: desktopMp4, type: "video/mp4" },
+            { src: desktopWebm, type: 'video/webm' },
+            { src: desktopMp4, type: 'video/mp4' },
           ];
     };
 
@@ -168,20 +155,20 @@ function usePosterFirstVideo({
       if (disposed || sourcesAttached || !pageLoaded || !nearHero || !isAllowed()) return;
       for (const sourceSpec of selectedSources()) {
         if (!sourceSpec.src) continue;
-        const source = document.createElement("source");
+        const source = document.createElement('source');
         source.src = sourceSpec.src;
         source.type = sourceSpec.type;
-        source.dataset.heroSource = "true";
+        source.dataset.heroSource = 'true';
         video.appendChild(source);
       }
-      sourcesAttached = video.querySelector("source[data-hero-source]") !== null;
+      sourcesAttached = video.querySelector('source[data-hero-source]') !== null;
       if (sourcesAttached) video.load();
     };
 
     const scheduleAttach = () => {
       if (disposed || sourcesAttached || !pageLoaded || !nearHero || !isAllowed()) return;
       cancelScheduled();
-      if ("requestIdleCallback" in window) {
+      if ('requestIdleCallback' in window) {
         idleId = window.requestIdleCallback(attachSources, { timeout: 2200 });
       } else {
         timerId = window.setTimeout(attachSources, 900);
@@ -219,15 +206,15 @@ function usePosterFirstVideo({
     const onError = () => unloadMedia();
     const onVisibilityChange = () => syncPlayback();
 
-    if (!pageLoaded) window.addEventListener("load", onLoad, { once: true });
-    video.addEventListener("canplay", onCanPlay);
-    video.addEventListener("playing", onPlaying);
-    video.addEventListener("pause", onPause);
-    video.addEventListener("error", onError);
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    reducedMotion.addEventListener?.("change", onPreferenceChange);
-    connection?.addEventListener?.("change", onPreferenceChange);
-    mobileViewport.addEventListener?.("change", onVariantChange);
+    if (!pageLoaded) window.addEventListener('load', onLoad, { once: true });
+    video.addEventListener('canplay', onCanPlay);
+    video.addEventListener('playing', onPlaying);
+    video.addEventListener('pause', onPause);
+    video.addEventListener('error', onError);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    reducedMotion.addEventListener?.('change', onPreferenceChange);
+    connection?.addEventListener?.('change', onPreferenceChange);
+    mobileViewport.addEventListener?.('change', onVariantChange);
 
     const preloadObserver = new IntersectionObserver(
       ([entry]) => {
@@ -235,14 +222,14 @@ function usePosterFirstVideo({
         if (nearHero) scheduleAttach();
         else if (!sourcesAttached) cancelScheduled();
       },
-      { rootMargin: "200px 0px", threshold: 0 },
+      { rootMargin: '200px 0px', threshold: 0 }
     );
     const playbackObserver = new IntersectionObserver(
       ([entry]) => {
         heroVisible = entry.isIntersecting;
         syncPlayback();
       },
-      { threshold: 0.05 },
+      { threshold: 0.05 }
     );
     preloadObserver.observe(section);
     playbackObserver.observe(section);
@@ -252,26 +239,18 @@ function usePosterFirstVideo({
       cancelScheduled();
       preloadObserver.disconnect();
       playbackObserver.disconnect();
-      window.removeEventListener("load", onLoad);
-      video.removeEventListener("canplay", onCanPlay);
-      video.removeEventListener("playing", onPlaying);
-      video.removeEventListener("pause", onPause);
-      video.removeEventListener("error", onError);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-      reducedMotion.removeEventListener?.("change", onPreferenceChange);
-      connection?.removeEventListener?.("change", onPreferenceChange);
-      mobileViewport.removeEventListener?.("change", onVariantChange);
+      window.removeEventListener('load', onLoad);
+      video.removeEventListener('canplay', onCanPlay);
+      video.removeEventListener('playing', onPlaying);
+      video.removeEventListener('pause', onPause);
+      video.removeEventListener('error', onError);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      reducedMotion.removeEventListener?.('change', onPreferenceChange);
+      connection?.removeEventListener?.('change', onPreferenceChange);
+      mobileViewport.removeEventListener?.('change', onVariantChange);
       unloadMedia(false);
     };
-  }, [
-    sectionRef,
-    videoRef,
-    userPausedRef,
-    desktopWebm,
-    desktopMp4,
-    mobileWebm,
-    mobileMp4,
-  ]);
+  }, [sectionRef, videoRef, userPausedRef, desktopWebm, desktopMp4, mobileWebm, mobileMp4]);
 
   return { canPlay, hasPlayed, playing };
 }
@@ -280,13 +259,13 @@ export function CinematicHero({
   poster,
   desktopVideo,
   mobileVideo = {},
-  pauseStorageKey = "hero-motion-paused",
+  pauseStorageKey = 'hero-motion-paused',
   children,
 }) {
   const sectionRef = useRef(null);
   const videoRef = useRef(null);
   const [paused, setPaused] = useState(
-    () => typeof window !== "undefined" && sessionStorage.getItem(pauseStorageKey) === "1",
+    () => typeof window !== 'undefined' && sessionStorage.getItem(pauseStorageKey) === '1'
   );
   const userPausedRef = useRef(paused);
   const { canPlay, hasPlayed, playing } = usePosterFirstVideo({
@@ -305,52 +284,46 @@ export function CinematicHero({
     if (video.paused) {
       userPausedRef.current = false;
       sessionStorage.removeItem(pauseStorageKey);
-      video.play().then(() => setPaused(false)).catch(() => {});
+      video
+        .play()
+        .then(() => setPaused(false))
+        .catch(() => {});
     } else {
       userPausedRef.current = true;
-      sessionStorage.setItem(pauseStorageKey, "1");
+      sessionStorage.setItem(pauseStorageKey, '1');
       video.pause();
       setPaused(true);
     }
   };
 
   return (
-    <section
-      className="hero"
-      ref={sectionRef}
-      style={{ "--hero-position": poster.objectPosition || "center" }}
-    >
-      <div className="heroMedia" aria-hidden="true">
+    <section className='hero' ref={sectionRef} style={{ '--hero-position': poster.objectPosition || 'center' }}>
+      <div className='heroMedia' aria-hidden='true'>
         <img
-          className="heroPoster"
+          className='heroPoster'
           src={poster.src}
           srcSet={poster.srcSet}
-          sizes={poster.sizes || "100vw"}
-          alt=""
+          sizes={poster.sizes || '100vw'}
+          alt=''
           width={poster.width}
           height={poster.height}
-          fetchPriority="high"
-          decoding="async"
+          fetchPriority='high'
+          decoding='async'
         />
         <video
           ref={videoRef}
-          className={`heroVideo ${hasPlayed ? "isReady" : ""}`}
+          className={`heroVideo ${hasPlayed ? 'isReady' : ''}`}
           muted
           loop
           playsInline
-          preload="none"
-          tabIndex="-1"
+          preload='none'
+          tabIndex='-1'
         />
       </div>
-      <div className="heroContent">{children}</div>
+      <div className='heroContent'>{children}</div>
       {canPlay && (
-        <button
-          className="heroMotionControl"
-          type="button"
-          aria-pressed={paused}
-          onClick={togglePlayback}
-        >
-          {paused || !playing ? "Play background motion" : "Pause background motion"}
+        <button className='heroMotionControl' type='button' aria-pressed={paused} onClick={togglePlayback}>
+          {paused || !playing ? 'Play background motion' : 'Pause background motion'}
         </button>
       )}
     </section>
