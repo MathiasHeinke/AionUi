@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 
+const CLAUDE_ACP_ADAPTER_VERSION = '0.39.0';
+
 function backendBinaryName(platform) {
   return platform === 'win32' ? 'aioncore.exe' : 'aioncore';
 }
@@ -49,17 +51,14 @@ function requireManagedNode(baseDir, runtimeKey, platform, checked, missing) {
   const versions = readDirectories(nodeRoot);
   const executableParts = nodeExecutableParts(platform);
 
-  if (versions.length === 0) {
+  if (versions.length !== 1) {
     const relativePath = bundledPath(runtimeKey, 'managed-resources', 'node', '*', ...executableParts);
     checked.push(relativePath);
     missing.push(relativePath);
     return;
   }
 
-  const executableFound = versions.some((version) => {
-    const executablePath = path.join(nodeRoot, version, ...executableParts);
-    return isFile(executablePath);
-  });
+  const executableFound = isFile(path.join(nodeRoot, versions[0], ...executableParts));
 
   const relativePath = bundledPath(runtimeKey, 'managed-resources', 'node', '*', ...executableParts);
   checked.push(relativePath);
@@ -77,12 +76,22 @@ function readManifest(manifestPath) {
   }
 }
 
-function requireManagedAcpTool(baseDir, runtimeKey, toolId, checked, missing) {
+function requireManagedAcpTool(baseDir, runtimeKey, toolId, checked, missing, expectedVersion) {
   const toolRoot = path.join(baseDir, 'managed-resources', 'acp', toolId);
-  const versions = readDirectories(toolRoot);
+  const discoveredVersions = readDirectories(toolRoot);
+  const versions = expectedVersion ? [expectedVersion] : discoveredVersions;
+  const versionSegment = expectedVersion || '*';
 
-  if (versions.length === 0) {
-    const relativePath = bundledPath(runtimeKey, 'managed-resources', 'acp', toolId, '*', runtimeKey, 'manifest.json');
+  if (versions.length === 0 || (expectedVersion && !discoveredVersions.includes(expectedVersion))) {
+    const relativePath = bundledPath(
+      runtimeKey,
+      'managed-resources',
+      'acp',
+      toolId,
+      versionSegment,
+      runtimeKey,
+      'manifest.json'
+    );
     checked.push(relativePath);
     missing.push(relativePath);
     return;
@@ -95,7 +104,7 @@ function requireManagedAcpTool(baseDir, runtimeKey, toolId, checked, missing) {
       'managed-resources',
       'acp',
       toolId,
-      '*',
+      versionSegment,
       runtimeKey,
       'manifest.json'
     );
@@ -142,11 +151,12 @@ function verifyBundledAioncoreResources({ resourcesDir, electronPlatformName, ta
   requireRelativePath(baseDir, runtimeKey, ['managed-resources'], checked, missing);
   requireManagedNode(baseDir, runtimeKey, electronPlatformName, checked, missing);
   requireManagedAcpTool(baseDir, runtimeKey, 'codex-acp', checked, missing);
-  requireManagedAcpTool(baseDir, runtimeKey, 'claude-agent-acp', checked, missing);
+  requireManagedAcpTool(baseDir, runtimeKey, 'claude-agent-acp', checked, missing, CLAUDE_ACP_ADAPTER_VERSION);
 
   return { runtimeKey, checked, missing };
 }
 
 module.exports = {
+  CLAUDE_ACP_ADAPTER_VERSION,
   verifyBundledAioncoreResources,
 };

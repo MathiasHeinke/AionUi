@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { CLAUDE_ACP_ADAPTER_VERSION as RUNTIME_CLAUDE_ACP_ADAPTER_VERSION } from '../../../packages/desktop/src/common/config/eveWorkerAssignmentCore';
 
 const {
+  CLAUDE_ACP_ADAPTER_VERSION,
   verifyBundledAioncoreResources,
 } = require('../../../packages/shared-scripts/src/verify-bundled-aioncore-resources');
 
@@ -33,7 +35,7 @@ describe('verifyBundledAioncoreResources', () => {
     });
     writeFileSync(join(codexRoot, 'codex-acp.exe'), '', { flush: true });
 
-    const claudeRoot = join(managedResourcesDir, 'acp', 'claude-agent-acp', '0.13.0', 'win32-x64');
+    const claudeRoot = join(managedResourcesDir, 'acp', 'claude-agent-acp', CLAUDE_ACP_ADAPTER_VERSION, 'win32-x64');
     mkdirSync(claudeRoot, { recursive: true });
     writeFileSync(
       join(claudeRoot, 'manifest.json'),
@@ -48,6 +50,8 @@ describe('verifyBundledAioncoreResources', () => {
   });
 
   it('passes when node and managed ACP entrypoints exist', () => {
+    expect(CLAUDE_ACP_ADAPTER_VERSION).toBe(RUNTIME_CLAUDE_ACP_ADAPTER_VERSION);
+
     const result = verifyBundledAioncoreResources({
       resourcesDir,
       electronPlatformName: 'win32',
@@ -60,6 +64,20 @@ describe('verifyBundledAioncoreResources', () => {
 
   it('reports missing managed node runtime executable', () => {
     rmSync(join(managedResourcesDir, 'node', 'node-v24.11.0-win-x64', 'node.exe'));
+
+    const result = verifyBundledAioncoreResources({
+      resourcesDir,
+      electronPlatformName: 'win32',
+      targetArch: 'x64',
+    });
+
+    expect(result.missing).toContain('bundled-aioncore/win32-x64/managed-resources/node/*/node.exe');
+  });
+
+  it('rejects multiple managed node runtime versions', () => {
+    const extraNodeRoot = join(managedResourcesDir, 'node', 'node-v25.0.0-win-x64');
+    mkdirSync(extraNodeRoot, { recursive: true });
+    writeFileSync(join(extraNodeRoot, 'node.exe'), '', { flush: true });
 
     const result = verifyBundledAioncoreResources({
       resourcesDir,
@@ -91,7 +109,13 @@ describe('verifyBundledAioncoreResources', () => {
     });
     writeFileSync(join(darwinCodexRoot, 'codex-acp'), '', { flush: true });
 
-    const darwinClaudeRoot = join(darwinManagedResourcesDir, 'acp', 'claude-agent-acp', '0.13.0', 'darwin-arm64');
+    const darwinClaudeRoot = join(
+      darwinManagedResourcesDir,
+      'acp',
+      'claude-agent-acp',
+      CLAUDE_ACP_ADAPTER_VERSION,
+      'darwin-arm64'
+    );
     mkdirSync(darwinClaudeRoot, { recursive: true });
     writeFileSync(join(darwinClaudeRoot, 'manifest.json'), JSON.stringify({ entrypoint: 'claude-agent-acp' }), {
       flush: true,
@@ -151,6 +175,28 @@ describe('verifyBundledAioncoreResources', () => {
 
     expect(result.missing).toContain(
       'bundled-aioncore/win32-x64/managed-resources/acp/codex-acp/0.14.0/win32-x64/codex-acp.exe'
+    );
+  });
+
+  it('rejects a Claude ACP bundle without the runtime-pinned adapter version', () => {
+    rmSync(join(managedResourcesDir, 'acp', 'claude-agent-acp'), { recursive: true });
+    const wrongVersionRoot = join(managedResourcesDir, 'acp', 'claude-agent-acp', '0.40.0', 'win32-x64');
+    mkdirSync(wrongVersionRoot, { recursive: true });
+    writeFileSync(
+      join(wrongVersionRoot, 'manifest.json'),
+      JSON.stringify({ entrypoint: 'claude-agent-acp.exe', path_entries: [] }),
+      { flush: true }
+    );
+    writeFileSync(join(wrongVersionRoot, 'claude-agent-acp.exe'), '', { flush: true });
+
+    const result = verifyBundledAioncoreResources({
+      resourcesDir,
+      electronPlatformName: 'win32',
+      targetArch: 'x64',
+    });
+
+    expect(result.missing).toContain(
+      `bundled-aioncore/win32-x64/managed-resources/acp/claude-agent-acp/${CLAUDE_ACP_ADAPTER_VERSION}/win32-x64/manifest.json`
     );
   });
 });

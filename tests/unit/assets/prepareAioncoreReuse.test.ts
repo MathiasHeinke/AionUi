@@ -30,8 +30,11 @@ const bundleOut = args[args.indexOf('--bundle-out') + 1];
 if (!args.includes('prepare-managed-resources') || !bundleOut) process.exit(2);
 fs.mkdirSync(path.join(bundleOut, 'node', 'node-v-test-darwin-arm64', 'bin'), { recursive: true });
 fs.writeFileSync(path.join(bundleOut, 'node', 'node-v-test-darwin-arm64', 'bin', 'node'), '');
-for (const [toolId, entrypoint] of [['codex-acp', 'codex-acp'], ['claude-agent-acp', 'claude-agent-acp']]) {
-  const root = path.join(bundleOut, 'acp', toolId, '0.0.0', 'darwin-arm64');
+for (const [toolId, version, entrypoint] of [
+  ['codex-acp', '0.0.0', 'codex-acp'],
+  ['claude-agent-acp', '0.39.0', 'claude-agent-acp'],
+]) {
+  const root = path.join(bundleOut, 'acp', toolId, version, 'darwin-arm64');
   fs.mkdirSync(root, { recursive: true });
   fs.writeFileSync(path.join(root, 'manifest.json'), JSON.stringify({ entrypoint }));
   fs.writeFileSync(path.join(root, entrypoint), '');
@@ -96,11 +99,11 @@ childProcess.execFileSync = function patchedExecFileSync(file, args, options) {
     fs.mkdirSync(path.join(bundleOut, 'node', 'node-v-test-darwin-arm64', 'bin'), { recursive: true });
     fs.writeFileSync(path.join(bundleOut, 'node', 'node-v-test-darwin-arm64', 'bin', 'node'), '');
 
-    for (const [toolId, entrypoint] of [
-      ['codex-acp', 'codex-acp'],
-      ['claude-agent-acp', 'claude-agent-acp'],
+    for (const [toolId, version, entrypoint] of [
+      ['codex-acp', '0.0.0', 'codex-acp'],
+      ['claude-agent-acp', '0.39.0', 'claude-agent-acp'],
     ]) {
-      const root = path.join(bundleOut, 'acp', toolId, '0.0.0', 'darwin-arm64');
+      const root = path.join(bundleOut, 'acp', toolId, version, 'darwin-arm64');
       fs.mkdirSync(root, { recursive: true });
       fs.writeFileSync(path.join(root, 'manifest.json'), JSON.stringify({ entrypoint }));
       fs.writeFileSync(path.join(root, entrypoint), '');
