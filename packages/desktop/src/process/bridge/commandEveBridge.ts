@@ -86,11 +86,21 @@ import {
 import {
   COMMAND_EVE_BONSAI_LOCAL_TIER_ID,
   COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID,
+  COMMAND_EVE_COLIBRI_LOCAL_TIER_ID,
+  COMMAND_EVE_COLIBRI_RUNTIME_MODEL_ID,
   getCommandEveLocalRuntimeProvider,
   isCommandEveFounderBuild,
 } from '@/common/config/commandEveShell';
-import { readBonsaiInstallStatus } from '@process/commandEve/localInference/bonsaiProvisioner';
+import {
+  isBonsaiProvisionInFlight,
+  readBonsaiInstallStatus,
+} from '@process/commandEve/localInference/bonsaiProvisioner';
 import { resolveBonsaiPilotPaths } from '@process/commandEve/localInference/bonsaiManifest';
+import {
+  isColibriProvisionInFlight,
+  readColibriInstallStatus,
+} from '@process/commandEve/localInference/colibriProvisioner';
+import { resolveColibriPaths } from '@process/commandEve/localInference/colibriManifest';
 import { CREDITS_STATUS_FUNCTION_URL, type ClientSeedInput, type CreditsTier } from '@/common/config/creditsCore';
 import {
   prepareCommandEveCloudTitleText,
@@ -985,6 +995,7 @@ export function initCommandEveBridge(): void {
           /* fit defaults to true */
         }
         const bonsaiInstall = readBonsaiInstallStatus(getDataPath());
+        const colibriInstall = readColibriInstallStatus(getDataPath());
         const result = buildLocalRuntimeStatus({
           userDataPath: getDataPath(),
           manifestPath: request?.manifestPath,
@@ -994,24 +1005,41 @@ export function initCommandEveBridge(): void {
           freeDiskGb,
           managedTierInstallStatus: {
             [COMMAND_EVE_BONSAI_LOCAL_TIER_ID]: bonsaiInstall,
+            [COMMAND_EVE_COLIBRI_LOCAL_TIER_ID]: colibriInstall,
           },
         });
-        const bonsaiProgress = bonsaiInstall.progress;
-        const progressAgeMs = bonsaiProgress ? Date.now() - Date.parse(bonsaiProgress.updated_at) : Infinity;
-        if (
-          result.model &&
-          bonsaiProgress?.status === 'pulling' &&
-          Number.isFinite(progressAgeMs) &&
-          progressAgeMs <= 5 * 60_000
-        ) {
+        const progressCandidates = [
+          bonsaiInstall.progress
+            ? {
+                progress: bonsaiInstall.progress,
+                model: COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID,
+                path: resolveBonsaiPilotPaths(getDataPath()).provisionProgressPath,
+                inFlight: isBonsaiProvisionInFlight(getDataPath()),
+              }
+            : undefined,
+          colibriInstall.progress
+            ? {
+                progress: colibriInstall.progress,
+                model: COMMAND_EVE_COLIBRI_RUNTIME_MODEL_ID,
+                path: resolveColibriPaths(getDataPath()).provisionProgressPath,
+                inFlight: isColibriProvisionInFlight(getDataPath()),
+              }
+            : undefined,
+        ]
+          .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate))
+          .toSorted((a, b) => Date.parse(b.progress.updated_at) - Date.parse(a.progress.updated_at));
+        const activeProgress = progressCandidates.find(
+          (candidate) => candidate.inFlight && ['pulling', 'building'].includes(candidate.progress.status)
+        );
+        if (result.model && activeProgress) {
           result.model.model_pull = {
-            path: resolveBonsaiPilotPaths(getDataPath()).provisionProgressPath,
-            status: 'pulling',
-            model: COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID,
-            total: bonsaiProgress.total,
-            completed: bonsaiProgress.completed,
-            percent: bonsaiProgress.percent,
-            updated_at: bonsaiProgress.updated_at,
+            path: activeProgress.path,
+            status: activeProgress.progress.status as 'pulling' | 'building',
+            model: activeProgress.model,
+            total: activeProgress.progress.total,
+            completed: activeProgress.progress.completed,
+            percent: activeProgress.progress.percent,
+            updated_at: activeProgress.progress.updated_at,
           };
         }
         return {

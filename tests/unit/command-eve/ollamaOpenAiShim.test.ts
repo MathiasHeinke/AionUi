@@ -7,6 +7,7 @@ import {
   commandEveCacheScope,
   ensureCommandEveShimAuthToken,
   isCommandEveWarmupRequest,
+  localOpenAiPayload,
   resolveCommandEveShimContextPolicy,
   resolveCommandEveShimListenPort,
   startCommandEveOllamaOpenAiShim,
@@ -66,6 +67,54 @@ describe('Command EVE context and cache policy', () => {
     expect(first).toBe(commandEveCacheScope('hermes-session-1'));
     expect(first).not.toBe(commandEveCacheScope('hermes-session-2'));
     expect(first).not.toContain('hermes-session-1');
+  });
+});
+
+describe('Colibrì OpenAI request profile', () => {
+  it('forwards only fields supported by the pinned Colibrì adapter', () => {
+    const tools = [{ type: 'function', function: { name: 'status', parameters: { type: 'object' } } }];
+    const payload = localOpenAiPayload(
+      {
+        messages: [{ role: 'user', content: 'Check status.' }],
+        stream: true,
+        max_tokens: 12_000,
+        reasoning_effort: 'max',
+        temperature: 0.4,
+        top_p: 0.9,
+        tools,
+        tool_choice: 'required',
+        top_k: 20,
+        min_p: 0.1,
+        seed: 42,
+        stop: ['END'],
+        parallel_tool_calls: true,
+        response_format: { type: 'json_object' },
+        stream_options: { include_usage: true },
+      },
+      { active: true, model: 'command-eve-colibri-glm-5-2-uncensored', payloadProfile: 'colibri' }
+    );
+    expect(payload).toMatchObject({
+      model: 'command-eve-colibri-glm-5-2-uncensored',
+      stream: true,
+      max_completion_tokens: 12_000,
+      reasoning_effort: 'xhigh',
+      enable_thinking: true,
+      temperature: 0.4,
+      top_p: 0.9,
+      tools,
+      tool_choice: 'required',
+    });
+    for (const forbidden of [
+      'top_k',
+      'min_p',
+      'seed',
+      'stop',
+      'parallel_tool_calls',
+      'response_format',
+      'stream_options',
+    ]) {
+      expect(payload).not.toHaveProperty(forbidden);
+    }
   });
 });
 

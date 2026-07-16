@@ -129,6 +129,8 @@ export type CommandEveLocalOpenAiRoute = {
   apiKey?: string;
   /** Receipt-only provider label. Never rendered as a user-facing backend selector. */
   providerName?: string;
+  /** Provider-specific request allowlist. Colibrì rejects several llama.cpp extensions. */
+  payloadProfile?: 'default' | 'colibri';
 };
 
 export type CommandEveLocalOpenAiRoutingResolver = (
@@ -1284,7 +1286,38 @@ async function handleHonchoDeriverCompletions(
   await handleEveCloudCompletions(request, body, response, options, forcedRoute, undefined, true);
 }
 
-function localOpenAiPayload(body: Record<string, unknown>, route: CommandEveLocalOpenAiRoute): Record<string, unknown> {
+export function localOpenAiPayload(
+  body: Record<string, unknown>,
+  route: CommandEveLocalOpenAiRoute
+): Record<string, unknown> {
+  if (route.payloadProfile === 'colibri') {
+    const requestedEffort = typeof body.reasoning_effort === 'string' ? body.reasoning_effort.toLowerCase() : 'low';
+    const reasoningEffort =
+      requestedEffort === 'off' || requestedEffort === 'none'
+        ? 'none'
+        : requestedEffort === 'minimal'
+          ? 'minimal'
+          : requestedEffort === 'medium'
+            ? 'medium'
+            : requestedEffort === 'high'
+              ? 'high'
+              : requestedEffort === 'max' || requestedEffort === 'xhigh'
+                ? 'xhigh'
+                : 'low';
+    const payload: Record<string, unknown> = {
+      model: route.model,
+      messages: asMessages(body.messages),
+      stream: Boolean(body.stream),
+      reasoning_effort: reasoningEffort,
+      enable_thinking: reasoningEffort !== 'none',
+    };
+    const maxTokens = body.max_completion_tokens ?? body.max_tokens;
+    if (maxTokens !== undefined) payload.max_completion_tokens = maxTokens;
+    for (const key of ['temperature', 'top_p', 'tools', 'tool_choice'] as const) {
+      if (body[key] !== undefined) payload[key] = body[key];
+    }
+    return payload;
+  }
   const optionalKeys = [
     'max_tokens',
     'max_completion_tokens',

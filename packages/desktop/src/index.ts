@@ -36,7 +36,15 @@ import { ipcBridge } from './common';
 import { initializeProcess } from './process';
 import { ProcessConfig } from './process/utils/initStorage';
 import { EVE_INFERENCE_FUNCTION_URL, resolveCommandEveWarmupLane } from './common/config/eveInferenceCore';
-import { COMMAND_EVE_BONSAI_ACP_MODEL_ID, COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID } from './common/config/commandEveShell';
+import {
+  COMMAND_EVE_BONSAI_ACP_MODEL_ID,
+  COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID,
+  COMMAND_EVE_COLIBRI_ACP_MODEL_ID,
+  COMMAND_EVE_COLIBRI_RUNTIME_MODEL_ID,
+  getCommandEveLocalModelTier,
+  getCommandEveLocalModelTierForRuntimeModel,
+  normalizeCommandEveLocalModelTierId,
+} from './common/config/commandEveShell';
 import { readLicenseWire } from './common/config/licenseWireAtRest';
 import type { EveTeamWorkerStatusMap } from './common/config/eveTeamControlsCore';
 import {
@@ -68,6 +76,7 @@ import { resolveHonchoHomeForSeat } from './process/commandEve/honchoRuntimeConf
 import { resolveHonchoRenderForSeat, type HonchoRenderInput } from './process/commandEve/honchoRuntimeRenderCore';
 import {
   resolveCommandEveRuntimeBootstrapPaths,
+  runtimeReceiptAllowsLocalModelRequest,
   runtimeReceiptAllowsLocalModelWarmup,
   type RuntimeBootstrapReceipt,
 } from './process/commandEve/runtimeBootstrapCore';
@@ -518,20 +527,65 @@ function buildCommandEveShimRoutingResolver(): () => Promise<CommandEveEveCloudR
 }
 
 /**
- * COMPA-735 — managed Bonsai 27B local route. Only the explicit Bonsai model id
- * activates it; every Gemma request remains byte-identical on the Ollama path.
+ * Managed non-Ollama local routes. Only explicit managed model ids activate
+ * them; every Gemma request remains byte-identical on the Ollama path.
  * The server never downloads from a chat request: installation is owned by the
  * model settings/bootstrap flow and every runtime artifact is pinned there.
  */
 function buildCommandEveManagedLocalOpenAiRoutingResolver(): CommandEveLocalOpenAiRoutingResolver {
   return async (requestedModel): Promise<CommandEveLocalOpenAiRoute | undefined> => {
     const normalizedModel = requestedModel.trim();
+    const requestedTier = getCommandEveLocalModelTierForRuntimeModel(normalizedModel);
+    if (requestedTier) {
+      const settings = await readCommandEveSettingsFromBackend(['commandEve.localModelTierId']);
+      const selectedTier = getCommandEveLocalModelTier(
+        normalizeCommandEveLocalModelTierId(settings['commandEve.localModelTierId'] as string | undefined)
+      );
+      if (selectedTier.id !== requestedTier.id) {
+        throw new Error('The requested local EVE model is no longer the selected model tier.');
+      }
+      const receiptPath = resolveCommandEveRuntimeBootstrapPaths(getDataPath()).receiptPath;
+      const receipt = readJsonFile<RuntimeBootstrapReceipt>(receiptPath);
+      if (!receipt || !runtimeReceiptAllowsLocalModelRequest(receipt, app.getVersion(), normalizedModel)) {
+        throw new Error('The selected local EVE model is still being verified for this app release.');
+      }
+    }
+    if (
+      normalizedModel === COMMAND_EVE_COLIBRI_RUNTIME_MODEL_ID ||
+      normalizedModel === COMMAND_EVE_COLIBRI_ACP_MODEL_ID
+    ) {
+      const [{ stopBonsaiPilotServer }, { ensureColibriServer }] = await Promise.all([
+        import('./process/commandEve/localInference/bonsaiServer'),
+        import('./process/commandEve/localInference/colibriServer'),
+      ]);
+      await stopBonsaiPilotServer();
+      const server = await ensureColibriServer({
+        userDataPath: getDataPath(),
+        autoProvision: false,
+        contextSize: 65_536,
+      });
+      return {
+        active: true,
+        baseUrl: server.baseUrl,
+        model: server.model,
+        apiKey: server.apiKey,
+        providerName: 'colibri-glm-5-2-local',
+        payloadProfile: 'colibri',
+      };
+    }
     if (
       normalizedModel !== COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID &&
       normalizedModel !== COMMAND_EVE_BONSAI_ACP_MODEL_ID
     ) {
+      const [{ stopBonsaiPilotServer }, { stopColibriServer }] = await Promise.all([
+        import('./process/commandEve/localInference/bonsaiServer'),
+        import('./process/commandEve/localInference/colibriServer'),
+      ]);
+      await Promise.all([stopBonsaiPilotServer(), stopColibriServer()]);
       return { active: false };
     }
+    const { stopColibriServer } = await import('./process/commandEve/localInference/colibriServer');
+    await stopColibriServer();
     const { ensureBonsaiPilotServer } = await import('./process/commandEve/localInference/bonsaiServer');
     const server = await ensureBonsaiPilotServer({
       userDataPath: getDataPath(),
@@ -1061,6 +1115,7 @@ function registerCommandEveRuntimeBridge(): void {
         appPath: app.getAppPath(),
         resourcesPath: process.resourcesPath,
         mode: 'auto',
+        allowColibriDownload: true,
         env: tierId ? { COMMAND_EVE_LOCAL_MODEL_TIER: tierId } : undefined,
         egressProxyUrl: shimUrl,
         // Setting-driven language: thread the operator's selected UI language into
@@ -2299,6 +2354,8 @@ app.on('before-quit', async () => {
 
     const { stopBonsaiPilotServer } = await import('./process/commandEve/localInference/bonsaiServer');
     await stopBonsaiPilotServer().catch((err) => console.error('[App] Failed to stop local Bonsai model:', err));
+    const { stopColibriServer } = await import('./process/commandEve/localInference/colibriServer');
+    await stopColibriServer().catch((err) => console.error('[App] Failed to stop local Colibrì model:', err));
 
     // Destroy desktop pet windows
     try {

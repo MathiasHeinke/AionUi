@@ -8,7 +8,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button, Progress, Message } from '@arco-design/web-react';
 import { CheckOne, Download, FolderOpen, Refresh, CloseOne, Install } from '@icon-park/react';
 import { ipcBridge } from '@/common';
-import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
+import { COMMAND_EVE_SHELL_ENABLED, formatCommandEveDisplayVersion } from '@/common/config/commandEveShell';
 import AionModal from '@/renderer/components/base/AionModal';
 import MarkdownView from '@/renderer/components/Markdown';
 import type { UpdateDownloadProgressEvent, UpdateReleaseInfo } from '@/common/update/updateTypes';
@@ -20,7 +20,7 @@ import {
 import { useTranslation } from 'react-i18next';
 
 declare const __APP_VERSION__: string;
-const APP_VERSION = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '0.0.0';
+const APP_VERSION = formatCommandEveDisplayVersion(typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '0.0.0');
 
 type UpdateStatus =
   | 'checking'
@@ -81,7 +81,7 @@ const UpdateModal: React.FC = () => {
   const includePrerelease = useMemo(() => localStorage.getItem('update.includePrerelease') === 'true', [visible]);
   const hasCompatibleManualAsset = Boolean(updateInfo?.recommendedAsset);
   const manualInfoMatchesAuto = !autoUpdateInfo || !updateInfo || autoUpdateInfo.version === updateInfo.version;
-  const displayedUpdateVersion = autoUpdateInfo?.version || updateInfo?.version;
+  const displayedUpdateVersion = formatCommandEveDisplayVersion(autoUpdateInfo?.version || updateInfo?.version || '');
   const displayedReleaseName = manualInfoMatchesAuto ? updateInfo?.name : undefined;
   const displayedReleaseNotes = autoUpdateInfo?.releaseNotes || (manualInfoMatchesAuto ? updateInfo?.body : undefined);
 
@@ -141,7 +141,7 @@ const UpdateModal: React.FC = () => {
         res = null;
       }
       if (res?.data?.currentVersion) {
-        setCurrentVersion(res.data.currentVersion);
+        setCurrentVersion(formatCommandEveDisplayVersion(res.data.currentVersion));
       }
 
       if (autoUpdateOk) {

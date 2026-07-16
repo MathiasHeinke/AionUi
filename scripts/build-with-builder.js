@@ -14,6 +14,7 @@ const { execSync, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { viteBuildExists } = require('./buildWithBuilderViteOutputCore.cjs');
 const { PRODUCT_NAME, WINDOWS_EXECUTABLE_NAME } = require('./windows/productIdentity.cjs');
 
 // Fail-closed exit-code propagation. Historically a build failure could log
@@ -123,14 +124,6 @@ function saveCurrentHash(hash) {
   } catch {}
 }
 
-function viteBuildExists() {
-  const outDir = path.resolve(__dirname, '../out');
-  const mainDir = path.join(outDir, 'main');
-  const rendererDir = path.join(outDir, 'renderer');
-
-  return fs.existsSync(path.join(mainDir, 'index.js')) && fs.existsSync(path.join(rendererDir, 'index.html'));
-}
-
 function shouldSkipViteBuild(skipViteFlag, forceFlag) {
   if (forceFlag) return false;
   if (skipViteFlag) return true;
@@ -139,7 +132,7 @@ function shouldSkipViteBuild(skipViteFlag, forceFlag) {
   const currentHash = computeSourceHash();
   const cachedHash = loadCachedHash();
 
-  if (cachedHash && currentHash === cachedHash && viteBuildExists()) {
+  if (cachedHash && currentHash === cachedHash && viteBuildExists(path.resolve(__dirname, '../out'))) {
     console.log('📦 Incremental build: Vite output unchanged, skipping compilation');
     return true;
   }

@@ -47,6 +47,29 @@ describe('Command EVE runtime bridge registration', () => {
     expect(warmupSource).not.toContain("lane = { lane: 'local' }");
   });
 
+  it('gates every managed local route on the exact release receipt and never downloads from chat', () => {
+    const source = fs.readFileSync(path.resolve(__dirname, '../../../packages/desktop/src/index.ts'), 'utf8');
+    const resolverStart = source.indexOf('function buildCommandEveManagedLocalOpenAiRoutingResolver(');
+    const resolverEnd = source.indexOf('function buildCommandEveShimEgressRedactionModeResolver(', resolverStart);
+    const resolverSource = source.slice(resolverStart, resolverEnd);
+
+    expect(resolverSource).toContain(
+      'runtimeReceiptAllowsLocalModelRequest(receipt, app.getVersion(), normalizedModel)'
+    );
+    expect(resolverSource).not.toContain("requestedTier.runtime === 'ollama'");
+    expect(resolverSource).toContain('autoProvision: false');
+    expect(resolverSource).not.toContain('autoProvision: true');
+  });
+
+  it('allows the 384 GB Colibri download only through the explicit model-settings action', () => {
+    const source = fs.readFileSync(path.resolve(__dirname, '../../../packages/desktop/src/index.ts'), 'utf8');
+    const providerStart = source.indexOf('ipcBridge.commandEve.ensureLocalModelTier.provider');
+    const providerEnd = source.indexOf('ipcBridge.commandEve.warmLocalModel.provider', providerStart);
+    const providerSource = source.slice(providerStart, providerEnd);
+
+    expect(providerSource).toContain('allowColibriDownload: true');
+  });
+
   it('cancels deferred runtime work after a known backend startup failure', () => {
     const source = fs.readFileSync(path.resolve(__dirname, '../../../packages/desktop/src/index.ts'), 'utf8');
     const warmupStart = source.indexOf('function scheduleCommandEveLocalModelWarmup(');

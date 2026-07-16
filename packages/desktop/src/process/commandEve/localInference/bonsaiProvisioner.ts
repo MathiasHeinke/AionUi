@@ -544,3 +544,7 @@ export async function ensureBonsaiPilotArtifacts(
     if (inFlightProvisions.get(key) === task) inFlightProvisions.delete(key);
   }
 }
+
+export function isBonsaiProvisionInFlight(userDataPath: string): boolean {
+  return inFlightProvisions.has(path.resolve(userDataPath));
+}

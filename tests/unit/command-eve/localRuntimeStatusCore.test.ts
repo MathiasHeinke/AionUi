@@ -9,7 +9,12 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { buildLocalRuntimeStatus } from '@/process/commandEve/localRuntimeStatusCore';
-import { COMMAND_EVE_BONSAI_LOCAL_TIER_ID, COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID } from '@/common/config/commandEveShell';
+import {
+  COMMAND_EVE_BONSAI_LOCAL_TIER_ID,
+  COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID,
+  COMMAND_EVE_COLIBRI_LOCAL_TIER_ID,
+  COMMAND_EVE_COLIBRI_RUNTIME_MODEL_ID,
+} from '@/common/config/commandEveShell';
 
 const tempRoots: string[] = [];
 
@@ -149,6 +154,59 @@ describe('Command EVE local runtime status core', () => {
     });
   });
 
+  it('keeps Colibrì visible while honestly blocking an undersized Mac', () => {
+    const root = makeRoot();
+    const manifestPath = path.join(root, 'command-eve-runtime-bootstrap.json');
+    writeJson(manifestPath, {
+      ...manifest,
+      local_runtime: {
+        ...manifest.local_runtime,
+        tiers: [
+          ...manifest.local_runtime.tiers,
+          {
+            id: COMMAND_EVE_COLIBRI_LOCAL_TIER_ID,
+            label: 'Colibrì GLM-5.2 Uncensored local max opt-in',
+            model_ref: 'colibri:glm-5.2-fp8-uncensored-int4',
+            runtime: 'colibri',
+            lane: 'colibri',
+            alignment: 'uncensored',
+            tool_calling: 'preview',
+            recommended_unified_memory_gb: 128,
+            context_length: 65_536,
+            max_tokens: 8_192,
+            min_unified_memory_gb: 48,
+            min_free_disk_gb: 400,
+          },
+        ],
+      },
+    });
+
+    const result = buildLocalRuntimeStatus({
+      userDataPath: root,
+      manifestPath,
+      installedModels: [],
+      managedTierInstallStatus: {
+        [COMMAND_EVE_COLIBRI_LOCAL_TIER_ID]: { installed: false, resumeAvailable: true },
+      },
+      totalMemoryBytes: 24 * 1024 ** 3,
+      freeDiskGb: 100,
+    });
+
+    const colibri = result.model?.tiers.find((tier) => tier.id === COMMAND_EVE_COLIBRI_LOCAL_TIER_ID);
+    expect(colibri).toMatchObject({
+      runtime: 'colibri',
+      runtime_model_ref: COMMAND_EVE_COLIBRI_RUNTIME_MODEL_ID,
+      alignment: 'uncensored',
+      tool_calling: 'preview',
+      recommended_unified_memory_gb: 128,
+      installed: false,
+      status_known: true,
+      ram_fit: false,
+      disk_fit: false,
+      resume_available: true,
+    });
+  });
+
   it('uses the runtime receipt to show the selected 12B planning tier', () => {
     const root = makeRoot();
     const manifestPath = path.join(root, 'command-eve-runtime-bootstrap.json');
@@ -169,7 +227,10 @@ describe('Command EVE local runtime status core', () => {
       base_model: 'gemma4:12b',
       ollama_base_url: 'http://127.0.0.1:11434',
       egress_proxy_url: 'http://127.0.0.1:25811',
-      stages: [],
+      stages: [
+        { id: 'ollama', status: 'pass' },
+        { id: 'model', status: 'pass' },
+      ],
       next_action: 'ready',
       warnings: [],
       capabilities: { skills: 1, connectors: 1, capability_pack: 'pack.json' },
@@ -189,17 +250,18 @@ describe('Command EVE local runtime status core', () => {
       manifestPath,
       receiptPath,
       modelWarmupReceiptPath,
+      installedModels: [{ name: 'command-eve-gemma4-12b-64k:latest' }],
     });
 
     expect(result.ok).toBe(true);
     expect(result.model?.selected_tier_id).toBe('gemma-4-12b-local-planning');
     expect(result.model?.selected_model_ref).toBe('command-eve-gemma4-12b-64k:latest');
     expect(result.model?.tiers.find((tier) => tier.id === 'gemma-4-12b-local-planning')?.status).toBe('selected');
+    expect(result.model?.tiers.find((tier) => tier.id === 'gemma-4-12b-local-planning')?.ready_for_use).toBe(true);
     expect(result.model?.receipt?.status).toBe('ready');
     expect(result.model?.model_warmup?.status).toBe('ready');
     expect(result.model?.model_warmup?.elapsed_ms).toBe(3000);
-    // 1.6.3: no injected Ollama probe ⇒ the core SAYS so (never a silent gap).
-    expect(result.model?.warnings).toEqual(['ollama_probe_unavailable']);
+    expect(result.model?.warnings).toEqual([]);
   });
 
   it('accepts a running warm-up receipt without a completed timestamp', () => {

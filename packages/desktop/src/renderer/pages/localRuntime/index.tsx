@@ -89,7 +89,7 @@ type LocalRuntimeModel = {
   };
   model_pull?: {
     path: string;
-    status: 'pulling' | 'done' | 'failed';
+    status: 'pulling' | 'building' | 'done' | 'failed';
     model: string;
     total: number;
     completed: number;

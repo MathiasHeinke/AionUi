@@ -12,10 +12,14 @@ import path from 'path';
 import {
   COMMAND_EVE_BONSAI_LOCAL_TIER_ID,
   COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID,
+  COMMAND_EVE_COLIBRI_LOCAL_TIER_ID,
+  COMMAND_EVE_COLIBRI_RUNTIME_MODEL_ID,
+  COMMAND_EVE_LOCAL_MODEL_TIERS,
 } from '../../common/config/commandEveShell';
 import { COMMAND_EVE_CONTEXT_COMPRESSION_THRESHOLD } from '../../common/config/eveContextPolicyCore';
 import { readRegistration } from './entitlementCore';
 import { ensureBonsaiPilotArtifacts, readBonsaiInstallStatus } from './localInference/bonsaiProvisioner';
+import { ensureColibriArtifacts, readColibriInstallStatus } from './localInference/colibriProvisioner';
 import {
   COMMAND_EVE_DEFAULT_BOARD_SLUG,
   DEFAULT_SEAT_LABEL,
@@ -67,7 +71,7 @@ const ONE_GB = 1024 ** 3;
 const DEFAULT_OLLAMA_BASE_URL = 'http://127.0.0.1:11434';
 const DEFAULT_EGRESS_PROXY_URL = 'http://127.0.0.1:25811';
 const COMMAND_EVE_EGRESS_PROXY_URL_ENV = 'COMMAND_EVE_EGRESS_PROXY_URL';
-const DEFAULT_MODEL_REF = 'gemma4:e4b';
+const DEFAULT_MODEL_REF = 'hf.co/tripolskypetr/Gemma-4-Uncensored-Aggressive-GGUF:Q5_K_M';
 const DEFAULT_HERMES_VERSION = '0.17.0';
 const DEFAULT_HERMES_PACKAGE = 'hermes-agent';
 export const COMMAND_EVE_BUNDLED_HERMES_WHEEL_SHA256 =
@@ -176,6 +180,9 @@ export const EVE_STRATEGY_SKILL_IDS = [
   'lead-magnet-pdf',
   'skill-authoring',
   'legal-enforcement-dach',
+  // First conversation-ingest adapter. Its bundled scripts keep PLAUD source
+  // metadata and recording content behind the local content firewall.
+  'plaud-recording-ingest',
 ] as const;
 const COMMAND_EVE_CAPABILITIES_FILE = 'command-eve-capabilities.json';
 const COMMAND_EVE_MANAGED_SKILLS_DIR = 'skills-command-eve';
@@ -509,7 +516,11 @@ export type RuntimeBootstrapTier = {
   context_length?: number;
   ollama_num_ctx?: number;
   max_tokens?: number;
-  runtime?: 'ollama' | 'bonsai-prism';
+  runtime?: 'ollama' | 'bonsai-prism' | 'colibri';
+  lane?: 'fast' | 'balanced' | 'pro' | 'bonsai' | 'colibri';
+  alignment?: 'standard' | 'uncensored';
+  tool_calling?: 'qualified' | 'preview';
+  recommended_unified_memory_gb?: number;
   min_unified_memory_gb: number;
   min_free_disk_gb: number;
 };
@@ -612,7 +623,7 @@ export type RuntimeBootstrapReceipt = {
   completed_at: string;
   runtime_root: string;
   hermes_home: string;
-  provider: 'ollama' | 'bonsai-prism';
+  provider: 'ollama' | 'bonsai-prism' | 'colibri';
   default_model: string;
   base_model?: string;
   ollama_base_url: string;
@@ -662,9 +673,34 @@ export function runtimeReceiptAllowsLocalModelWarmup(receipt: {
   if (receipt.status !== 'ready' || !receipt.default_model) return false;
   const ollamaStage = receipt.stages?.find((stage) => stage.id === 'ollama');
   const modelStage = receipt.stages?.find((stage) => stage.id === 'model');
-  const runtimeReady =
-    receipt.provider === 'bonsai-prism' ? ollamaStage?.status === 'skip' : ollamaStage?.status === 'pass';
+  const managedProvider = receipt.provider === 'bonsai-prism' || receipt.provider === 'colibri';
+  const runtimeReady = managedProvider ? ollamaStage?.status === 'skip' : ollamaStage?.status === 'pass';
   return runtimeReady && modelStage?.status === 'pass';
+}
+
+function normalizeReceiptModelRef(model: string | undefined): string {
+  const normalized = String(model || '')
+    .trim()
+    .replace(/^custom:/, '');
+  return normalized.endsWith(':latest') ? normalized.slice(0, -':latest'.length) : normalized;
+}
+
+export function runtimeReceiptAllowsLocalModelRequest(
+  receipt: {
+    app_release?: string;
+    status?: string;
+    provider?: string;
+    default_model?: string;
+    stages?: ReadonlyArray<Pick<RuntimeBootstrapStage, 'id' | 'status'>>;
+  },
+  appRelease: string,
+  requestedModel: string
+): boolean {
+  return (
+    receipt.app_release === appRelease &&
+    runtimeReceiptAllowsLocalModelWarmup(receipt) &&
+    normalizeReceiptModelRef(receipt.default_model) === normalizeReceiptModelRef(requestedModel)
+  );
 }
 
 export type RuntimeBootstrapRunner = (
@@ -690,6 +726,11 @@ export type RuntimeBootstrapOptions = {
   manifestPath?: string;
   capabilityManifestPath?: string;
   mode?: RuntimeBootstrapMode;
+  /**
+   * Colibri is a roughly 400 GB install. Normal app bootstrap must never start
+   * or resume it implicitly; only the explicit model-settings action sets this.
+   */
+  allowColibriDownload?: boolean;
   env?: NodeJS.ProcessEnv;
   /**
    * The loopback shim URL bound by this desktop process. Production normally
@@ -760,11 +801,12 @@ export type RuntimeBootstrapOptions = {
 
 export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
   version: 'command-eve-capability-pack/v0',
-  release: '1.8.13',
+  release: '1.813.0',
   policy: {
     default_mode: 'proposal_only',
     secret_rule: 'Never ask for passwords, cookies, recovery codes, raw tokens or .env contents in chat.',
-    write_rule: 'Write-capable connectors require CEO/Codex review and the matching HumanGate before use.',
+    write_rule:
+      'Uncensored local inference changes reply alignment only. External messages, purchases, publishing, deletion and account changes remain connector-scoped, revocable and auditable, and require the configured HumanGate until the operator grants that exact scope.',
   },
   skills: [
     {
@@ -850,6 +892,13 @@ export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
       tier: 'autonomy_core',
       source: 'Command EVE L1 voice control plane',
       default_state: 'active',
+    },
+    {
+      id: 'plaud-recording-ingest',
+      name: 'PLAUD recording import and local conversation processing',
+      tier: 'autonomy_core',
+      source: 'Command EVE private conversation-ingest adapter',
+      default_state: 'gated',
     },
     {
       id: 'desktop-observation',
@@ -1124,7 +1173,7 @@ type PythonLookup = CommandLookup & {
 
 export const DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST: RuntimeBootstrapManifest = {
   version: 'command-eve-runtime-bootstrap-manifest/v0',
-  release: '1.8.13',
+  release: '1.813.0',
   hermes: {
     package: DEFAULT_HERMES_PACKAGE,
     version: DEFAULT_HERMES_VERSION,
@@ -1138,32 +1187,47 @@ export const DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST: RuntimeBootstrapManifest = {
     tiers: [
       {
         id: 'gemma-4-e4b-local-default',
-        label: 'Gemma 4 E4B local default',
+        label: 'Gemma 4 E4B Uncensored local default',
         model_ref: DEFAULT_MODEL_REF,
         default: true,
         context_length: DEFAULT_FAST_CONTEXT_LENGTH,
         ollama_num_ctx: DEFAULT_FAST_CONTEXT_LENGTH,
         max_tokens: DEFAULT_HERMES_MAX_TOKENS,
+        runtime: 'ollama',
+        lane: 'fast',
+        alignment: 'uncensored',
+        tool_calling: 'preview',
+        recommended_unified_memory_gb: 24,
         min_unified_memory_gb: 16,
         min_free_disk_gb: 10,
       },
       {
         id: 'gemma-4-12b-local-planning',
-        label: 'Gemma 4 12B local planning opt-in',
-        model_ref: 'gemma4:12b',
+        label: 'Gemma 4 12B Heretic local planning opt-in',
+        model_ref: 'hf.co/SC117/Gemma-4-12B-it-heretic-GGUF:Q6_K',
         context_length: DEFAULT_LONG_CONTEXT_LENGTH,
         ollama_num_ctx: DEFAULT_LONG_CONTEXT_LENGTH,
         max_tokens: DEFAULT_HERMES_MAX_TOKENS,
-        min_unified_memory_gb: 16,
+        runtime: 'ollama',
+        lane: 'balanced',
+        alignment: 'uncensored',
+        tool_calling: 'preview',
+        recommended_unified_memory_gb: 32,
+        min_unified_memory_gb: 24,
         min_free_disk_gb: 20,
       },
       {
         id: 'gemma-4-31b-local-pro',
-        label: 'Gemma 4 31B local pro opt-in',
-        model_ref: 'gemma4:31b',
+        label: 'Gemma 4 31B Heretic local pro opt-in',
+        model_ref: 'hf.co/llmfan46/gemma-4-31B-it-uncensored-heretic-GGUF:Q6_K',
         context_length: DEFAULT_LONG_CONTEXT_LENGTH,
         ollama_num_ctx: DEFAULT_LONG_CONTEXT_LENGTH,
         max_tokens: DEFAULT_HERMES_MAX_TOKENS,
+        runtime: 'ollama',
+        lane: 'pro',
+        alignment: 'uncensored',
+        tool_calling: 'preview',
+        recommended_unified_memory_gb: 96,
         min_unified_memory_gb: 64,
         min_free_disk_gb: 45,
       },
@@ -1172,10 +1236,28 @@ export const DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST: RuntimeBootstrapManifest = {
         label: 'Bonsai 27B local experimental opt-in',
         model_ref: 'bonsai:27b-q2',
         runtime: 'bonsai-prism',
+        lane: 'bonsai',
+        alignment: 'standard',
+        tool_calling: 'qualified',
+        recommended_unified_memory_gb: 32,
         context_length: DEFAULT_LONG_CONTEXT_LENGTH,
         max_tokens: DEFAULT_HERMES_MAX_TOKENS,
         min_unified_memory_gb: 24,
         min_free_disk_gb: 12,
+      },
+      {
+        id: COMMAND_EVE_COLIBRI_LOCAL_TIER_ID,
+        label: 'Colibrì GLM-5.2 Uncensored local max opt-in',
+        model_ref: 'colibri:glm-5.2-fp8-uncensored-int4',
+        runtime: 'colibri',
+        lane: 'colibri',
+        alignment: 'uncensored',
+        tool_calling: 'preview',
+        context_length: DEFAULT_LONG_CONTEXT_LENGTH,
+        max_tokens: 8_192,
+        recommended_unified_memory_gb: 128,
+        min_unified_memory_gb: 48,
+        min_free_disk_gb: 400,
       },
     ],
   },
@@ -1278,9 +1360,11 @@ function tierOllamaNumCtx(tier: RuntimeBootstrapTier): number {
 }
 
 export function runtimeModelRefForTier(tier: RuntimeBootstrapTier): string {
-  return tier.runtime === 'bonsai-prism'
-    ? COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID
-    : commandEveOllamaContextModelRef(tier.model_ref, tierOllamaNumCtx(tier));
+  const catalogTier = COMMAND_EVE_LOCAL_MODEL_TIERS.find((candidate) => candidate.id === tier.id);
+  if (catalogTier) return catalogTier.modelId.replace(/^custom:/, '');
+  if (tier.runtime === 'bonsai-prism') return COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID;
+  if (tier.runtime === 'colibri') return COMMAND_EVE_COLIBRI_RUNTIME_MODEL_ID;
+  return commandEveOllamaContextModelRef(tier.model_ref, tierOllamaNumCtx(tier));
 }
 
 function tierMaxTokens(tier: RuntimeBootstrapTier): number {
@@ -1922,7 +2006,7 @@ function commandEveManagedSkillMarkdown(skill: CommandEveCapabilityPack['skills'
 }
 
 // The APP-OWNED config-awareness onboarding skill (Guided Onboarding SLICE S1).
-// This is deliberately NOT in EVE_STRATEGY_SKILL_IDS (the bundled allowlist, now 31) and
+// This is deliberately NOT in EVE_STRATEGY_SKILL_IDS (the bundled allowlist, now 32) and
 // NOT in command-eve-capabilities.json — it is
 // a separate app-owned managed skill written directly into managedSkillsRoot, which
 // is already on skills.external_dirs, so the running Hermes agent discovers it like
@@ -2468,7 +2552,7 @@ export function validateRuntimeBootstrapManifest(
   if (!manifest.hermes.extras.every(safePythonExtra)) failures.push('manifest.hermes_extras_unsafe');
   if (!safeModelRef(tier.model_ref)) failures.push('manifest.model_ref_unsafe');
   if (tierContextLength(tier) < 8_192) failures.push('manifest.context_length_too_small');
-  if (tier.runtime !== 'bonsai-prism' && tierOllamaNumCtx(tier) < tierContextLength(tier)) {
+  if ((!tier.runtime || tier.runtime === 'ollama') && tierOllamaNumCtx(tier) < tierContextLength(tier)) {
     failures.push('manifest.ollama_num_ctx_too_small');
   }
   if (manifest.installer_policy.model_weights_in_app_bundle !== false)
@@ -4190,6 +4274,16 @@ export function parseOllamaListHasModel(stdout: string, modelRef: string): boole
     .some((line) => line.trim().split(/\s+/)[0] === target);
 }
 
+export function parseOllamaModelfileBlobSha256(stdout: string): string | undefined {
+  const match = /^FROM\s+.*(?:sha256-|sha256:)([a-f0-9]{64})\s*$/im.exec(stdout);
+  return match?.[1]?.toLowerCase();
+}
+
+function expectedOllamaArtifactSha256(tier: RuntimeBootstrapTier): string | undefined {
+  const catalogTier = COMMAND_EVE_LOCAL_MODEL_TIERS.find((candidate) => candidate.id === tier.id);
+  return catalogTier?.runtime === 'ollama' ? catalogTier.source.artifactSha256.toLowerCase() : undefined;
+}
+
 export function commandEveOllamaContextModelRef(modelRef: string, numCtx = DEFAULT_LONG_CONTEXT_LENGTH): string {
   const safeBase = compact(modelRef)
     .toLowerCase()
@@ -4377,7 +4471,12 @@ function buildReceipt(options: {
     completed_at: options.completedAt,
     runtime_root: options.paths.runtimeRoot,
     hermes_home: options.paths.hermesHome,
-    provider: options.tier.runtime === 'bonsai-prism' ? 'bonsai-prism' : 'ollama',
+    provider:
+      options.tier.runtime === 'bonsai-prism'
+        ? 'bonsai-prism'
+        : options.tier.runtime === 'colibri'
+          ? 'colibri'
+          : 'ollama',
     default_model: options.runtimeModelRef,
     base_model: options.tier.model_ref,
     ollama_base_url: options.manifest.local_runtime.base_url,
@@ -5174,6 +5273,58 @@ export async function ensureCommandEveRuntimeBootstrap(
     return finishReceipt();
   }
 
+  if (tier.runtime === 'colibri') {
+    pushStage(
+      makeStage('ollama', 'skip', {
+        detail: "Colibrì uses Command EVE's pinned Metal runtime; Ollama is not required for this tier.",
+      })
+    );
+    let install = readColibriInstallStatus(options.userDataPath);
+    if (
+      !install.installed &&
+      mode === 'auto' &&
+      options.allowColibriDownload === true &&
+      manifest.installer_policy.allow_model_pull
+    ) {
+      const started = Date.now();
+      try {
+        await ensureColibriArtifacts({
+          userDataPath: options.userDataPath,
+          autoDownload: true,
+          allowHomebrewInstall: manifest.installer_policy.allow_homebrew_install,
+        });
+        install = readColibriInstallStatus(options.userDataPath);
+        pushStage(
+          makeStage('model', install.installed ? 'pass' : 'failed', {
+            code: install.installed ? undefined : 'COLIBRI_INSTALL_VERIFICATION_FAILED',
+            detail: install.installed
+              ? `${runtimeModelRef} is installed from pinned, verified source and model artifacts.`
+              : 'Colibrì artifacts were prepared but did not pass the local installation receipt check.',
+            duration_ms: Date.now() - started,
+          })
+        );
+      } catch (error) {
+        pushStage(
+          makeStage('model', 'failed', {
+            code: 'COLIBRI_INSTALL_FAILED',
+            detail: `Could not install the selected local Colibrì model: ${scrubOutput(error)}`,
+            duration_ms: Date.now() - started,
+          })
+        );
+      }
+      return finishReceipt();
+    }
+    pushStage(
+      makeStage('model', install.installed ? 'pass' : 'blocked', {
+        code: install.installed ? undefined : 'MODEL_NOT_FETCHED',
+        detail: install.installed
+          ? `${runtimeModelRef} is installed from pinned, verified source and model artifacts.`
+          : 'Colibrì is not installed yet. It needs about 400 GB free disk and is recommended on a 128 GB Apple Silicon Mac.',
+      })
+    );
+    return finishReceipt();
+  }
+
   let ollama = await resolveOllamaCommand(runner, env, options.ollamaBinaryCandidates, platform);
   if (!ollama.ok && mode === 'auto' && manifest.installer_policy.allow_homebrew_install) {
     const brew = await commandExists('brew', runner, env, platform);
@@ -5306,9 +5457,39 @@ export async function ensureCommandEveRuntimeBootstrap(
     return finishReceipt();
   }
 
+  const expectedArtifactSha256 = expectedOllamaArtifactSha256(tier);
+  if (expectedArtifactSha256) {
+    const started = Date.now();
+    const modelArtifact = await runner(ollama.path, ['show', tier.model_ref, '--modelfile'], {
+      env,
+      timeoutMs: DEFAULT_STAGE_TIMEOUT_MS,
+    });
+    const actualArtifactSha256 = modelArtifact.ok
+      ? parseOllamaModelfileBlobSha256(modelArtifact.stdout || '')
+      : undefined;
+    if (actualArtifactSha256 !== expectedArtifactSha256) {
+      pushStage(
+        makeStage('model', 'failed', {
+          code: 'MODEL_ARTIFACT_INTEGRITY_FAILED',
+          detail: modelArtifact.ok
+            ? `${tier.model_ref} does not match Command EVE's pinned local model artifact.`
+            : `Could not verify the pinned local artifact for ${tier.model_ref}: ${scrubOutput(
+                modelArtifact.stderr || modelArtifact.error
+              )}`,
+          command: `ollama show ${tier.model_ref} --modelfile`,
+          duration_ms: Date.now() - started,
+        })
+      );
+      return finishReceipt();
+    }
+  }
+
   const listForAlias = await runner(ollama.path, ['list'], { env, timeoutMs: DEFAULT_STAGE_TIMEOUT_MS });
   let hasRuntimeModel = listForAlias.ok && parseOllamaListHasModel(listForAlias.stdout || '', runtimeModelRef);
-  if (!hasRuntimeModel && mode === 'auto') {
+  const builtInOllamaTier = COMMAND_EVE_LOCAL_MODEL_TIERS.some(
+    (candidate) => candidate.id === tier.id && candidate.runtime === 'ollama'
+  );
+  if (mode === 'auto' && (!hasRuntimeModel || builtInOllamaTier)) {
     const modelfilePath = writeOllamaContextModelfile(
       paths,
       tier.model_ref,
@@ -5334,6 +5515,32 @@ export async function ensureCommandEveRuntimeBootstrap(
     }
     const listAfterAlias = await runner(ollama.path, ['list'], { env, timeoutMs: DEFAULT_STAGE_TIMEOUT_MS });
     hasRuntimeModel = listAfterAlias.ok && parseOllamaListHasModel(listAfterAlias.stdout || '', runtimeModelRef);
+  }
+
+  if (hasRuntimeModel && expectedArtifactSha256) {
+    const started = Date.now();
+    const runtimeArtifact = await runner(ollama.path, ['show', runtimeModelRef, '--modelfile'], {
+      env,
+      timeoutMs: DEFAULT_STAGE_TIMEOUT_MS,
+    });
+    const actualRuntimeSha256 = runtimeArtifact.ok
+      ? parseOllamaModelfileBlobSha256(runtimeArtifact.stdout || '')
+      : undefined;
+    if (actualRuntimeSha256 !== expectedArtifactSha256) {
+      pushStage(
+        makeStage('model', 'failed', {
+          code: 'MODEL_CONTEXT_ALIAS_INTEGRITY_FAILED',
+          detail: runtimeArtifact.ok
+            ? `${runtimeModelRef} does not resolve to Command EVE's pinned local model artifact.`
+            : `Could not verify the runtime artifact for ${runtimeModelRef}: ${scrubOutput(
+                runtimeArtifact.stderr || runtimeArtifact.error
+              )}`,
+          command: `ollama show ${runtimeModelRef} --modelfile`,
+          duration_ms: Date.now() - started,
+        })
+      );
+      return finishReceipt();
+    }
   }
 
   pushStage(

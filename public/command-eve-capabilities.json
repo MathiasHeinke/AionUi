@@ -1,10 +1,10 @@
 {
   "version": "command-eve-capability-pack/v0",
-  "release": "1.8.13",
+  "release": "1.813.0",
   "policy": {
     "default_mode": "proposal_only",
     "secret_rule": "Never ask for passwords, cookies, recovery codes, raw tokens or .env contents in chat.",
-    "write_rule": "Write-capable connectors require CEO/Codex review and the matching HumanGate before use."
+    "write_rule": "Uncensored local inference changes reply alignment only. External messages, purchases, publishing, deletion and account changes remain connector-scoped, revocable and auditable, and require the configured HumanGate until the operator grants that exact scope."
   },
   "skills": [
     {
@@ -90,6 +90,13 @@
       "tier": "autonomy_core",
       "source": "Command EVE L1 voice control plane",
       "default_state": "active"
+    },
+    {
+      "id": "plaud-recording-ingest",
+      "name": "PLAUD recording import and local conversation processing",
+      "tier": "autonomy_core",
+      "source": "Command EVE private conversation-ingest adapter",
+      "default_state": "gated"
     },
     {
       "id": "desktop-observation",

@@ -114,6 +114,10 @@ export const EVE_STRATEGY_SKILLS = Object.freeze([
   { id: 'lead-magnet-pdf' },
   { id: 'skill-authoring' },
   { id: 'legal-enforcement-dach' },
+  // PLAUD is the first adapter in EVE's general conversation-ingest lane. The
+  // bundled tree includes the official-CLI download boundary, local-first data
+  // route contract and a fail-closed capability/auth guard.
+  { id: 'plaud-recording-ingest' },
 ]);
 
 /** Just the ids, for callers that want the flat allowlist. */
@@ -228,7 +232,11 @@ export const SKILL_IDS_REQUIRING_DISABLE_MODEL_INVOCATION = Object.freeze([
   'voice-first-run',
 ]);
 
-export const SKILL_IDS_REQUIRING_LINKED_FILES = Object.freeze(['content-machine', 'blog-writer']);
+export const SKILL_IDS_REQUIRING_LINKED_FILES = Object.freeze([
+  'content-machine',
+  'blog-writer',
+  'plaud-recording-ingest',
+]);
 
 function leadingFrontmatter(text) {
   const body = String(text || '');

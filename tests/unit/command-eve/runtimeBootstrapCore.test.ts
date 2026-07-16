@@ -5,6 +5,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import crypto from 'crypto';
 import fs from 'fs';
 import http from 'http';
 import os from 'os';
@@ -13,17 +14,18 @@ import {
   DEFAULT_COMMAND_EVE_CAPABILITY_PACK,
   DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST,
   commandEveDelegationConcurrency,
-  commandEveOllamaContextModelRef,
   ensureCommandEveRuntimeBootstrap as ensureCommandEveRuntimeBootstrapCore,
   loadCommandEveCapabilityPack,
   loadCommandEveRuntimeBootstrapManifest,
   parseOllamaListHasModel,
+  parseOllamaModelfileBlobSha256,
   prepareCommandEveRuntimeProcessEnv,
   resolveCommandEveFirstRunProfile,
   resolveCommandEveCapabilityManifestPath,
   resolveCommandEveRuntimeBootstrapPaths as resolveCommandEveRuntimeBootstrapPathsCore,
   resolveCommandEveRuntimeBootstrapManifestPath,
   runtimeReceiptAllowsLocalModelWarmup,
+  runtimeReceiptAllowsLocalModelRequest,
   runtimeModelRefForTier,
   validateCommandEveCapabilityPack,
   copyBundledStrategySkills,
@@ -43,6 +45,10 @@ import {
 import {
   COMMAND_EVE_BONSAI_LOCAL_TIER_ID,
   COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID,
+  COMMAND_EVE_COLIBRI_LOCAL_TIER_ID,
+  COMMAND_EVE_COLIBRI_RUNTIME_MODEL_ID,
+  COMMAND_EVE_LOCAL_MODEL_TIERS,
+  COMMAND_EVE_MARKETING_VERSION,
   COMMAND_EVE_VERSION,
 } from '@/common/config/commandEveShell';
 import packageJson from '../../../package.json';
@@ -54,6 +60,13 @@ import {
   COMMAND_EVE_BONSAI_PILOT_VERSION,
   resolveBonsaiPilotPaths,
 } from '@/process/commandEve/localInference/bonsaiManifest';
+import {
+  COLIBRI_MODEL_SNAPSHOT,
+  COLIBRI_MTP_PINS,
+  COLIBRI_SOURCE,
+  COMMAND_EVE_COLIBRI_VERSION,
+  resolveColibriPaths,
+} from '@/process/commandEve/localInference/colibriManifest';
 
 type Harness = {
   root: string;
@@ -77,6 +90,10 @@ const resolveCommandEveRuntimeBootstrapPaths = (userDataPath: string, seatId?: s
   resolveCommandEveRuntimeBootstrapPathsCore(userDataPath, seatId, 'darwin');
 
 const tempRoots: string[] = [];
+const DEFAULT_GEMMA_MODEL_REF = COMMAND_EVE_LOCAL_MODEL_TIERS[0].modelRef;
+const PLANNING_GEMMA_MODEL_REF = COMMAND_EVE_LOCAL_MODEL_TIERS[1].modelRef;
+const DEFAULT_GEMMA_RUNTIME_MODEL_REF = COMMAND_EVE_LOCAL_MODEL_TIERS[0].modelId.replace(/^custom:/, '');
+const PLANNING_GEMMA_RUNTIME_MODEL_REF = COMMAND_EVE_LOCAL_MODEL_TIERS[1].modelId.replace(/^custom:/, '');
 
 const makeRoot = (): string => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'command-eve-runtime-bootstrap-test-'));
@@ -126,14 +143,17 @@ const makeHarness = (
   options: {
     ollamaInitiallyInstalled?: boolean;
     modelInitiallyPulled?: boolean;
+    modelArtifactSha256?: string;
+    runtimeAliasArtifactSha256?: string;
     hermesInitiallyInstalled?: string;
   } = {}
 ): Harness => {
   const root = makeRoot();
   let ollamaInstalled = Boolean(options.ollamaInitiallyInstalled);
-  const pulledModels = new Set<string>(options.modelInitiallyPulled ? ['gemma4:e4b'] : []);
-  const contextModels = new Set<string>(
-    options.modelInitiallyPulled ? [commandEveOllamaContextModelRef('gemma4:e4b', 65_536)] : []
+  const pulledModels = new Set<string>(options.modelInitiallyPulled ? [DEFAULT_GEMMA_MODEL_REF] : []);
+  const contextModels = new Set<string>(options.modelInitiallyPulled ? [DEFAULT_GEMMA_RUNTIME_MODEL_REF] : []);
+  const contextModelSources = new Map<string, string>(
+    options.modelInitiallyPulled ? [[DEFAULT_GEMMA_RUNTIME_MODEL_REF, DEFAULT_GEMMA_MODEL_REF]] : []
   );
   let hermesVersion = options.hermesInitiallyInstalled || '';
   const commands: string[] = [];
@@ -190,16 +210,33 @@ const makeHarness = (
       const stdout = `${rows.join('\n')}\n`;
       return commandResult(command, args, true, stdout);
     }
-    if (isOllamaCommand && args[0] === 'pull' && (args[1] || '').startsWith('gemma4:')) {
+    if (isOllamaCommand && args[0] === 'pull' && args[1]) {
       pulledModels.add(args[1]);
       return commandResult(command, args);
+    }
+    if (isOllamaCommand && args[0] === 'show' && args[1] && args[2] === '--modelfile') {
+      const sourceModelRef = contextModelSources.get(args[1]) || args[1];
+      const catalogTier = COMMAND_EVE_LOCAL_MODEL_TIERS.find((tier) => tier.modelRef === sourceModelRef);
+      const expectedSha256 = contextModelSources.has(args[1])
+        ? options.runtimeAliasArtifactSha256 || catalogTier?.source.artifactSha256 || ''
+        : options.modelArtifactSha256 || catalogTier?.source.artifactSha256 || '';
+      const installed = contextModelSources.has(args[1]) ? contextModels.has(args[1]) : pulledModels.has(args[1]);
+      return commandResult(
+        command,
+        args,
+        installed && /^[a-f0-9]{64}$/.test(expectedSha256),
+        `FROM /tmp/.ollama/models/blobs/sha256-${expectedSha256}\n`
+      );
     }
     if (isOllamaCommand && args[0] === 'create' && (args[1] || '').startsWith('command-eve-')) {
       const modelfilePath = args[3];
       const modelfile = fs.existsSync(modelfilePath) ? fs.readFileSync(modelfilePath, 'utf8') : '';
       const sourceModelRef = modelfile.match(/^FROM\s+(.+)$/m)?.[1]?.trim() || '';
       const ok = pulledModels.has(sourceModelRef);
-      if (ok) contextModels.add(args[1]);
+      if (ok) {
+        contextModels.add(args[1]);
+        contextModelSources.set(args[1], sourceModelRef);
+      }
       return commandResult(command, args, ok);
     }
     return commandResult(command, args);
@@ -237,6 +274,13 @@ const writeManifest = (root: string, baseUrl: string, overrides = ''): string =>
 };
 
 describe('Command EVE runtime bootstrap core', () => {
+  it('parses only a pinned Ollama GGUF blob digest from a rendered Modelfile', () => {
+    const digest = 'a'.repeat(64);
+    expect(parseOllamaModelfileBlobSha256(`FROM /Users/eve/.ollama/models/blobs/sha256-${digest}\n`)).toBe(digest);
+    expect(parseOllamaModelfileBlobSha256(`FROM hf.co/example/model:Q6_K\n`)).toBeUndefined();
+    expect(parseOllamaModelfileBlobSha256(`FROM /tmp/sha256-${'b'.repeat(63)}\n`)).toBeUndefined();
+  });
+
   it('keeps Command EVE release truth aligned across package, shell, bootstrap and capability manifests', () => {
     const publicBrand = JSON.parse(
       fs.readFileSync(path.resolve(__dirname, '../../../public/command-eve-brand.json'), 'utf8')
@@ -252,7 +296,7 @@ describe('Command EVE runtime bootstrap core', () => {
     expect(COMMAND_EVE_VERSION).toBe(packageJson.version);
     expect(DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST.release).toBe(packageJson.version);
     expect(DEFAULT_COMMAND_EVE_CAPABILITY_PACK.release).toBe(packageJson.version);
-    expect(publicBrand.version).toBe(`v${packageJson.version}`);
+    expect(publicBrand.version).toBe(`v${COMMAND_EVE_MARKETING_VERSION}`);
     expect(publicRuntimeBootstrap.release).toBe(packageJson.version);
     expect(publicCapabilityPack.release).toBe(packageJson.version);
   });
@@ -380,6 +424,145 @@ describe('Command EVE runtime bootstrap core', () => {
     expect(runtimeModelRefForTier(tier!)).toBe(COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID);
   });
 
+  it('authorizes local model requests only from an integrity-ready receipt for this exact release and model', () => {
+    const receipt = {
+      app_release: '1.813.0',
+      status: 'ready',
+      provider: 'ollama',
+      default_model: 'command-eve-gemma4-e4b-64k:latest',
+      stages: [
+        { id: 'ollama' as const, status: 'pass' as const },
+        { id: 'model' as const, status: 'pass' as const },
+      ],
+    };
+    expect(runtimeReceiptAllowsLocalModelRequest(receipt, '1.813.0', 'custom:command-eve-gemma4-e4b-64k')).toBe(true);
+    expect(runtimeReceiptAllowsLocalModelRequest(receipt, '1.812.0', receipt.default_model)).toBe(false);
+    expect(runtimeReceiptAllowsLocalModelRequest(receipt, '1.813.0', 'command-eve-gemma4-12b-64k')).toBe(false);
+    for (const provider of ['bonsai-prism', 'colibri']) {
+      expect(
+        runtimeReceiptAllowsLocalModelRequest(
+          {
+            ...receipt,
+            provider,
+            default_model:
+              provider === 'colibri' ? COMMAND_EVE_COLIBRI_RUNTIME_MODEL_ID : COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID,
+            stages: [
+              { id: 'ollama', status: 'skip' },
+              { id: 'model', status: 'pass' },
+            ],
+          },
+          '1.813.0',
+          provider === 'colibri' ? COMMAND_EVE_COLIBRI_RUNTIME_MODEL_ID : COMMAND_EVE_BONSAI_RUNTIME_MODEL_ID
+        )
+      ).toBe(true);
+    }
+  });
+
+  it('maps Colibrì to its managed runtime alias and warm-up contract', () => {
+    const tier = DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST.local_runtime.tiers.find(
+      (candidate) => candidate.id === COMMAND_EVE_COLIBRI_LOCAL_TIER_ID
+    );
+    expect(tier).toBeDefined();
+    expect(runtimeModelRefForTier(tier!)).toBe(COMMAND_EVE_COLIBRI_RUNTIME_MODEL_ID);
+    expect(
+      runtimeReceiptAllowsLocalModelWarmup({
+        status: 'ready',
+        provider: 'colibri',
+        default_model: COMMAND_EVE_COLIBRI_RUNTIME_MODEL_ID,
+        stages: [
+          { id: 'ollama', status: 'skip' },
+          { id: 'model', status: 'pass' },
+        ],
+      })
+    ).toBe(true);
+  });
+
+  it('keeps every built-in tier runtime alias aligned with its stable ACP model id', () => {
+    for (const catalogTier of COMMAND_EVE_LOCAL_MODEL_TIERS) {
+      const manifestTier = DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST.local_runtime.tiers.find(
+        (candidate) => candidate.id === catalogTier.id
+      );
+      expect(manifestTier).toBeDefined();
+      expect(runtimeModelRefForTier(manifestTier!)).toBe(catalogTier.modelId.replace(/^custom:/, ''));
+    }
+  });
+
+  it('boots an already verified Colibrì install without touching Ollama', async () => {
+    const harness = makeHarness();
+    const manifestPath = writeManifest(harness.root, 'http://127.0.0.1:11434');
+    const colibriPaths = resolveColibriPaths(harness.root);
+    fs.mkdirSync(path.dirname(colibriPaths.cliPath), { recursive: true });
+    fs.mkdirSync(colibriPaths.modelDir, { recursive: true });
+    fs.writeFileSync(colibriPaths.cliPath, '#!/usr/bin/env python3\n');
+    fs.writeFileSync(colibriPaths.enginePath, 'engine');
+    const engineSha256 = crypto.createHash('sha256').update('engine').digest('hex');
+    for (const pin of COLIBRI_MTP_PINS) {
+      const target = path.join(colibriPaths.modelDir, pin.path);
+      fs.closeSync(fs.openSync(target, 'w'));
+      fs.truncateSync(target, pin.sizeBytes);
+    }
+    fs.writeFileSync(
+      colibriPaths.receiptPath,
+      `${JSON.stringify({
+        version: COMMAND_EVE_COLIBRI_VERSION,
+        status: 'ready',
+        model: {
+          revision: COLIBRI_MODEL_SNAPSHOT.revision,
+          tree_sha256: COLIBRI_MODEL_SNAPSHOT.treeSha256,
+          size_bytes: COLIBRI_MODEL_SNAPSHOT.totalSizeBytes,
+        },
+        runtime: { source_commit: COLIBRI_SOURCE.commit, engine_sha256: engineSha256 },
+      })}\n`
+    );
+
+    const receipt = await ensureCommandEveRuntimeBootstrap({
+      userDataPath: harness.root,
+      manifestPath,
+      runner: harness.runner,
+      detachedSpawner: () => {},
+      statfs: () => ({ bavail: 500 * 1024 * 1024, bsize: 1024 }),
+      totalMemoryBytes: 128 * 1024 ** 3,
+      ollamaBinaryCandidates: [],
+      env: { COMMAND_EVE_LOCAL_MODEL_TIER: COMMAND_EVE_COLIBRI_LOCAL_TIER_ID },
+      egressProxyUrl: 'http://127.0.0.1:25811',
+    });
+
+    expect(receipt).toMatchObject({
+      status: 'ready',
+      provider: 'colibri',
+      default_model: COMMAND_EVE_COLIBRI_RUNTIME_MODEL_ID,
+      base_model: 'colibri:glm-5.2-fp8-uncensored-int4',
+    });
+    expect(receipt.stages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'ollama', status: 'skip' }),
+        expect.objectContaining({ id: 'model', status: 'pass' }),
+      ])
+    );
+    expect(harness.commands.some((command) => command.includes('ollama'))).toBe(false);
+  });
+
+  it('never starts or resumes the 384 GB Colibrì download during normal auto bootstrap', async () => {
+    const harness = makeHarness();
+    const receipt = await ensureCommandEveRuntimeBootstrap({
+      userDataPath: harness.root,
+      manifestPath: writeManifest(harness.root, 'http://127.0.0.1:11434'),
+      runner: harness.runner,
+      detachedSpawner: () => {},
+      statfs: () => ({ bavail: 500 * 1024 * 1024, bsize: 1024 }),
+      totalMemoryBytes: 128 * 1024 ** 3,
+      ollamaBinaryCandidates: [],
+      env: { COMMAND_EVE_LOCAL_MODEL_TIER: COMMAND_EVE_COLIBRI_LOCAL_TIER_ID },
+      egressProxyUrl: 'http://127.0.0.1:25811',
+    });
+
+    expect(receipt.status).toBe('blocked');
+    expect(receipt.stages).toContainEqual(
+      expect.objectContaining({ id: 'model', status: 'blocked', code: 'MODEL_NOT_FETCHED' })
+    );
+    expect(fs.existsSync(resolveColibriPaths(harness.root).downloadsDir)).toBe(false);
+  });
+
   it('boots an already verified Bonsai install through the same managed Hermes lifecycle', async () => {
     const harness = makeHarness();
     const manifestPath = writeManifest(harness.root, 'http://127.0.0.1:11434');
@@ -448,12 +631,12 @@ describe('Command EVE runtime bootstrap core', () => {
       });
 
       const paths = resolveCommandEveRuntimeBootstrapPaths(harness.root);
-      const runtimeModelRef = commandEveOllamaContextModelRef('gemma4:e4b', 65_536);
+      const runtimeModelRef = DEFAULT_GEMMA_RUNTIME_MODEL_REF;
       expect(receipt.status).toBe('ready');
       expect(receipt.capabilities.skills).toBeGreaterThanOrEqual(10);
       expect(receipt.capabilities.connectors).toBeGreaterThanOrEqual(10);
       expect(receipt.default_model).toBe(runtimeModelRef);
-      expect(receipt.base_model).toBe('gemma4:e4b');
+      expect(receipt.base_model).toBe(DEFAULT_GEMMA_MODEL_REF);
       expect(fs.existsSync(paths.hermesWrapper)).toBe(true);
       expect(fs.existsSync(paths.hermesShim)).toBe(true);
       // BAKE-LEAK FIX (Phase 4 / SEAT-TOOL-1 STEP 2): the shim/wrapper must use
@@ -664,13 +847,13 @@ describe('Command EVE runtime bootstrap core', () => {
         `${runtimeModelRef}@${baseUrl}/v1: 65536`
       );
       expect(fs.readFileSync(path.join(paths.hermesHome, 'context_length_cache.yaml'), 'utf8')).toContain(
-        `${commandEveOllamaContextModelRef('gemma4:12b', 65_536)}@${baseUrl}/v1: 65536`
+        `${PLANNING_GEMMA_RUNTIME_MODEL_REF}@${baseUrl}/v1: 65536`
       );
       const modelfile = fs.readFileSync(
         path.join(paths.runtimeRoot, 'ollama-modelfiles', `${runtimeModelRef.replace(/[:/]/g, '-')}.Modelfile`),
         'utf8'
       );
-      expect(modelfile).toContain('FROM gemma4:e4b');
+      expect(modelfile).toContain(`FROM ${DEFAULT_GEMMA_MODEL_REF}`);
       expect(modelfile).toContain('PARAMETER num_ctx 65536');
       const providerOverride = fs.readFileSync(
         path.join(paths.hermesHome, 'plugins', 'model-providers', 'custom', '__init__.py'),
@@ -705,7 +888,7 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(receipt.identity?.confidence).toBe('verified');
       expect(receipt.identity?.needs_confirmation).toBe(false);
       expect(harness.commands.some((command) => command.includes('brew install ollama'))).toBe(true);
-      expect(harness.commands.some((command) => command.includes('ollama pull gemma4:e4b'))).toBe(true);
+      expect(harness.commands.some((command) => command.includes(`ollama pull ${DEFAULT_GEMMA_MODEL_REF}`))).toBe(true);
       expect(harness.commands.some((command) => command.includes(`ollama create ${runtimeModelRef}`))).toBe(true);
       expect(harness.commands.some((command) => command.includes('curl'))).toBe(false);
       expect(JSON.parse(fs.readFileSync(paths.receiptPath, 'utf8')).status).toBe('ready');
@@ -728,15 +911,90 @@ describe('Command EVE runtime bootstrap core', () => {
       });
 
       const paths = resolveCommandEveRuntimeBootstrapPaths(harness.root);
-      const runtimeModelRef = commandEveOllamaContextModelRef('gemma4:12b', 65_536);
+      const runtimeModelRef = PLANNING_GEMMA_RUNTIME_MODEL_REF;
       expect(receipt.status).toBe('ready');
       expect(receipt.default_model).toBe(runtimeModelRef);
-      expect(receipt.base_model).toBe('gemma4:12b');
+      expect(receipt.base_model).toBe(PLANNING_GEMMA_MODEL_REF);
       expect(fs.readFileSync(path.join(paths.hermesHome, 'config.yaml'), 'utf8')).toContain(
         `default: ${runtimeModelRef}`
       );
-      expect(harness.commands.some((command) => command.includes('ollama pull gemma4:12b'))).toBe(true);
+      expect(harness.commands.some((command) => command.includes(`ollama pull ${PLANNING_GEMMA_MODEL_REF}`))).toBe(
+        true
+      );
       expect(harness.commands.some((command) => command.includes(`ollama create ${runtimeModelRef}`))).toBe(true);
+    });
+  });
+
+  it('fails closed when Ollama resolves a built-in Gemma tier to a different GGUF artifact', async () => {
+    const harness = makeHarness({
+      ollamaInitiallyInstalled: true,
+      modelInitiallyPulled: true,
+      modelArtifactSha256: 'f'.repeat(64),
+    });
+    await withOllamaServer(async (baseUrl) => {
+      const receipt = await ensureCommandEveRuntimeBootstrap({
+        userDataPath: harness.root,
+        manifestPath: writeManifest(harness.root, baseUrl),
+        runner: harness.runner,
+        detachedSpawner: () => {},
+        statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+        totalMemoryBytes: 32 * 1024 ** 3,
+        ollamaBinaryCandidates: [],
+      });
+
+      expect(receipt.status).toBe('failed');
+      expect(receipt.stages).toContainEqual(
+        expect.objectContaining({ id: 'model', status: 'failed', code: 'MODEL_ARTIFACT_INTEGRITY_FAILED' })
+      );
+      expect(harness.commands.some((command) => command.includes('ollama create'))).toBe(false);
+    });
+  });
+
+  it('rebinds an existing stable Gemma alias to the newly verified uncensored artifact on upgrade', async () => {
+    const harness = makeHarness({ ollamaInitiallyInstalled: true, modelInitiallyPulled: true });
+    await withOllamaServer(async (baseUrl) => {
+      const receipt = await ensureCommandEveRuntimeBootstrap({
+        userDataPath: harness.root,
+        manifestPath: writeManifest(harness.root, baseUrl),
+        runner: harness.runner,
+        detachedSpawner: () => {},
+        statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+        totalMemoryBytes: 32 * 1024 ** 3,
+        ollamaBinaryCandidates: [],
+      });
+
+      expect(receipt.status).toBe('ready');
+      expect(harness.commands).toContain(
+        `/opt/homebrew/bin/ollama create ${DEFAULT_GEMMA_RUNTIME_MODEL_REF} -f ${path.join(
+          resolveCommandEveRuntimeBootstrapPaths(harness.root).runtimeRoot,
+          'ollama-modelfiles',
+          `${DEFAULT_GEMMA_RUNTIME_MODEL_REF.replace(/[:/]/g, '-')}.Modelfile`
+        )}`
+      );
+    });
+  });
+
+  it('fails closed when the served stable alias resolves to a different GGUF artifact', async () => {
+    const harness = makeHarness({
+      ollamaInitiallyInstalled: true,
+      modelInitiallyPulled: true,
+      runtimeAliasArtifactSha256: 'f'.repeat(64),
+    });
+    await withOllamaServer(async (baseUrl) => {
+      const receipt = await ensureCommandEveRuntimeBootstrap({
+        userDataPath: harness.root,
+        manifestPath: writeManifest(harness.root, baseUrl),
+        runner: harness.runner,
+        detachedSpawner: () => {},
+        statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+        totalMemoryBytes: 32 * 1024 ** 3,
+        ollamaBinaryCandidates: [],
+      });
+
+      expect(receipt.status).toBe('failed');
+      expect(receipt.stages).toContainEqual(
+        expect.objectContaining({ id: 'model', status: 'failed', code: 'MODEL_CONTEXT_ALIAS_INTEGRITY_FAILED' })
+      );
     });
   });
 
@@ -1581,7 +1839,7 @@ const buildBundledSkillsFixture = (root: string, opts: { omit?: string[] } = {})
 };
 
 describe('Command EVE bundled strategy skills (SLICE B2)', () => {
-  it('copies all 16 real strategy skills into managedSkillsRoot (whole-tree for the bundle)', () => {
+  it('copies all 32 real strategy skills into managedSkillsRoot (whole-tree for the bundle)', () => {
     const root = makeRoot();
     const bundledSkillsDir = buildBundledSkillsFixture(root);
     const paths = resolveCommandEveRuntimeBootstrapPaths(root);

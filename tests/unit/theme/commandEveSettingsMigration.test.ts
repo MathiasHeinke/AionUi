@@ -159,7 +159,7 @@ describe('Command EVE settings migration contract', () => {
   it('keeps public settings copy provider-neutral and local paths private', () => {
     expect(modelSettingsSource).not.toContain('>{tier.label}</div>');
     expect(modelSettingsSource).not.toContain('>{tier.modelId}</div>');
-    expect(modelSettingsSource).toContain("t('settings.commandEveLocalRuntimeLane.fast')");
+    expect(modelSettingsSource).toContain('t(`settings.commandEveLocalRuntimeLane.${tier.lane}`)');
     expect(firstStepsSource).not.toContain('deine Claude-CLI');
     expect(skillsSettingsSource).toContain("t('settings.commandEveSkillStorage'");
     expect(skillsSettingsSource).toContain('COMMAND_EVE_SHELL_ENABLED ? undefined : skillPaths.user_skills_dir');

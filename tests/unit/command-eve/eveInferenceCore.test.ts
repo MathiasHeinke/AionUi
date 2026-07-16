@@ -161,13 +161,13 @@ describe('eveInferenceCore — free-tier greying (requirement 1)', () => {
     // EVE Standard (the free model) selectable on a trial.
     expect(byLabel(items, 'eve', 'Standard')!.disabled).toBe(false);
 
-    // Both local tiers selectable.
+    // The entry-level local tiers remain selectable.
     expect(byLabel(items, 'local', 'Standard')!.disabled).toBe(false);
     expect(byLabel(items, 'local', 'Hoch')!.disabled).toBe(false);
 
     // Local tiers carry their bundled model labels as sublabels.
-    expect(byLabel(items, 'local', 'Standard')!.sublabel).toBe('Gemma 4 E4B');
-    expect(byLabel(items, 'local', 'Hoch')!.sublabel).toBe('Gemma 4 12B');
+    expect(byLabel(items, 'local', 'Standard')!.sublabel).toBe('Gemma 4 E4B Uncensored');
+    expect(byLabel(items, 'local', 'Hoch')!.sublabel).toBe('Gemma 4 12B Heretic');
   });
 
   it('leaves ALL EVE levels selectable when paid (trial_ends_at null/absent)', () => {
@@ -547,7 +547,7 @@ describe('eveInferenceCore — honest active-lane self-description (Task #50 por
     expect(resolveCommandEveActiveLane(localTierValue('local-standard'))).toEqual({
       kind: 'local',
       tierId: 'local-standard',
-      modelLabel: 'Gemma 4 E4B',
+      modelLabel: 'Gemma 4 E4B Uncensored',
     });
   });
 
@@ -571,10 +571,10 @@ describe('eveInferenceCore — honest active-lane self-description (Task #50 por
 
   it('describes a local lane by its honest model name', () => {
     expect(describeCommandEveActiveLane(localTierValue('local-standard'), 'de-DE')).toBe(
-      'Lokal · Gemma 4 E4B (privat, läuft auf deinem Mac)'
+      'Lokal · Gemma 4 E4B Uncensored (privat, läuft auf deinem Mac)'
     );
     expect(describeCommandEveActiveLane(localTierValue('local-high'), 'en-US')).toBe(
-      'Local · Gemma 4 12B (private, runs on your Mac)'
+      'Local · Gemma 4 12B Heretic (private, runs on your Mac)'
     );
   });
 

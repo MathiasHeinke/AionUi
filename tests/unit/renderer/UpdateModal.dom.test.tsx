@@ -74,7 +74,10 @@ vi.mock('@/common', () => ({
   },
 }));
 
-vi.mock('@/common/config/commandEveShell', () => ({ COMMAND_EVE_SHELL_ENABLED: true }));
+vi.mock('@/common/config/commandEveShell', () => ({
+  COMMAND_EVE_SHELL_ENABLED: true,
+  formatCommandEveDisplayVersion: (version: string) => version,
+}));
 
 vi.mock('@/renderer/hooks/system/useAutoUpdateStatus', () => ({
   useAutoUpdateStatus: () => updateStore.status,

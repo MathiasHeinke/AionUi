@@ -345,7 +345,7 @@ describe('Command EVE assistant bootstrap core', () => {
         'de-DE'
       );
 
-      expect(context).toContain('Aktive Inferenz-Lane: Lokal · Gemma 4 E4B (privat, läuft auf deinem Mac)');
+      expect(context).toContain('Aktive Inferenz-Lane: Lokal · Gemma 4 E4B Uncensored (privat, läuft auf deinem Mac)');
       // It does NOT claim EVE Cloud on the local lane.
       expect(context).not.toContain('Aktive Inferenz-Lane: EVE Cloud');
     });

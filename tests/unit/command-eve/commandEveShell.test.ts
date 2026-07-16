@@ -5,21 +5,32 @@ import {
   COMMAND_EVE_DEFAULT_ACP_MODEL_ID,
   COMMAND_EVE_BONSAI_ACP_MODEL_ID,
   COMMAND_EVE_BONSAI_LOCAL_TIER_ID,
+  COMMAND_EVE_COLIBRI_ACP_MODEL_ID,
+  COMMAND_EVE_COLIBRI_LOCAL_TIER_ID,
   COMMAND_EVE_EGRESS_PROXY_OPENAI_BASE_URL,
   COMMAND_EVE_LOCAL_RUNTIME_PROVIDER_ID,
   COMMAND_EVE_LOCAL_MODEL_TIERS,
   COMMAND_EVE_SHELL_ENABLED,
+  formatCommandEveDisplayVersion,
   getCommandEveAcpModelIdForTier,
   getCommandEveDefaultAcpModelId,
   getCommandEveDefaultAcpModelIdForTier,
   getCommandEveLocalAcpModelInfo,
   getCommandEveLocalAcpModelInfoForTier,
   getCommandEveLocalRuntimeProvider,
+  getCommandEveLocalModelTierForRuntimeModel,
   isCommandEveAcpConversation,
   normalizeCommandEveLocalModelTierId,
 } from '@/common/config/commandEveShell';
 
 describe('commandEveShell', () => {
+  it('keeps compact founder release labels separate from updater SemVer', () => {
+    expect(formatCommandEveDisplayVersion('1.813.0')).toBe('1.813');
+    expect(formatCommandEveDisplayVersion('1.814.0')).toBe('1.814');
+    expect(formatCommandEveDisplayVersion('1.8.0')).toBe('1.8.0');
+    expect(formatCommandEveDisplayVersion('2.0.0')).toBe('2.0.0');
+  });
+
   it('pins the Command EVE Hermes default to the local E4B 64k model', () => {
     expect(COMMAND_EVE_DEFAULT_ACP_BACKEND).toBe('hermes');
     expect(COMMAND_EVE_DEFAULT_ACP_MODEL_ID).toBe('custom:command-eve-gemma4-e4b-64k:latest');
@@ -31,12 +42,13 @@ describe('commandEveShell', () => {
     expect(getCommandEveDefaultAcpModelId('claude')).toBeUndefined();
   });
 
-  it('exposes Gemma and the experimental Bonsai tier on the same local model surface', () => {
+  it('exposes uncensored Gemma, Bonsai, and Colibrì on the same local model surface', () => {
     expect(COMMAND_EVE_LOCAL_MODEL_TIERS.map((tier) => tier.modelRef)).toEqual([
-      'gemma4:e4b',
-      'gemma4:12b',
-      'gemma4:31b',
+      'hf.co/tripolskypetr/Gemma-4-Uncensored-Aggressive-GGUF:Q5_K_M',
+      'hf.co/SC117/Gemma-4-12B-it-heretic-GGUF:Q6_K',
+      'hf.co/llmfan46/gemma-4-31B-it-uncensored-heretic-GGUF:Q6_K',
       'bonsai:27b-q2',
+      'colibri:glm-5.2-fp8-uncensored-int4',
     ]);
     expect(COMMAND_EVE_LOCAL_MODEL_TIERS[0].state).toBe('default');
     expect(COMMAND_EVE_LOCAL_MODEL_TIERS[1].state).toBe('opt_in');
@@ -47,6 +59,16 @@ describe('commandEveShell', () => {
       contextLength: 65_536,
       memoryGb: 24,
       state: 'experimental',
+    });
+    expect(COMMAND_EVE_LOCAL_MODEL_TIERS[4]).toMatchObject({
+      id: COMMAND_EVE_COLIBRI_LOCAL_TIER_ID,
+      modelId: COMMAND_EVE_COLIBRI_ACP_MODEL_ID,
+      runtime: 'colibri',
+      memoryGb: 48,
+      recommendedMemoryGb: 128,
+      diskGb: 400,
+      alignment: 'uncensored',
+      toolCalling: 'preview',
     });
   });
 
@@ -61,15 +83,26 @@ describe('commandEveShell', () => {
     expect(normalizeCommandEveLocalModelTierId('missing')).toBe(COMMAND_EVE_LOCAL_MODEL_TIERS[0].id);
   });
 
+  it('maps only stable built-in runtime aliases back to their selected tier', () => {
+    expect(getCommandEveLocalModelTierForRuntimeModel('command-eve-gemma4-12b-64k')).toMatchObject({
+      id: 'gemma-4-12b-local-planning',
+    });
+    expect(getCommandEveLocalModelTierForRuntimeModel('custom:command-eve-gemma4-12b-64k:latest')).toMatchObject({
+      id: 'gemma-4-12b-local-planning',
+    });
+    expect(getCommandEveLocalModelTierForRuntimeModel('custom:user-owned-model')).toBeUndefined();
+  });
+
   it('exposes Command EVE local model tiers as Hermes ACP model metadata before handshake', () => {
     const modelInfo = getCommandEveLocalAcpModelInfo('hermes');
     expect(modelInfo?.current_model_id).toBe(COMMAND_EVE_DEFAULT_ACP_MODEL_ID);
-    expect(modelInfo?.current_model_label).toBe('Gemma 4 E4B');
+    expect(modelInfo?.current_model_label).toBe('Gemma 4 E4B Uncensored');
     expect(modelInfo?.available_models).toEqual([
-      { id: 'custom:command-eve-gemma4-e4b-64k:latest', label: 'Gemma 4 E4B' },
-      { id: 'custom:command-eve-gemma4-12b-64k:latest', label: 'Gemma 4 12B' },
-      { id: 'custom:command-eve-gemma4-31b-64k:latest', label: 'Gemma 4 31B' },
+      { id: 'custom:command-eve-gemma4-e4b-64k:latest', label: 'Gemma 4 E4B Uncensored' },
+      { id: 'custom:command-eve-gemma4-12b-64k:latest', label: 'Gemma 4 12B Heretic' },
+      { id: 'custom:command-eve-gemma4-31b-64k:latest', label: 'Gemma 4 31B Heretic' },
       { id: COMMAND_EVE_BONSAI_ACP_MODEL_ID, label: 'Bonsai 27B' },
+      { id: COMMAND_EVE_COLIBRI_ACP_MODEL_ID, label: 'Colibrì GLM-5.2 Uncensored' },
     ]);
     expect(getCommandEveLocalAcpModelInfo('codex')).toBeUndefined();
   });
@@ -77,7 +110,7 @@ describe('commandEveShell', () => {
   it('can expose a non-default Command EVE tier as the selected ACP model', () => {
     const modelInfo = getCommandEveLocalAcpModelInfoForTier('hermes', 'gemma-4-12b-local-planning');
     expect(modelInfo?.current_model_id).toBe('custom:command-eve-gemma4-12b-64k:latest');
-    expect(modelInfo?.current_model_label).toBe('Gemma 4 12B');
+    expect(modelInfo?.current_model_label).toBe('Gemma 4 12B Heretic');
   });
 
   it('creates a loopback provider identity for the selected local EVE tier', () => {
@@ -96,6 +129,13 @@ describe('commandEveShell', () => {
     expect(provider.api_key).toBe('command-eve-local-loopback');
     expect(provider.use_model).toBe(COMMAND_EVE_BONSAI_ACP_MODEL_ID);
     expect(provider.context_limit).toBe(65_536);
+  });
+
+  it('keeps Colibrì visible and routable even when hardware admission later blocks installation', () => {
+    const provider = getCommandEveLocalRuntimeProvider(COMMAND_EVE_COLIBRI_LOCAL_TIER_ID);
+    expect(provider.use_model).toBe(COMMAND_EVE_COLIBRI_ACP_MODEL_ID);
+    expect(provider.context_limit).toBe(65_536);
+    expect(provider.capabilities).toEqual([{ type: 'text' }, { type: 'function_calling' }]);
   });
 
   describe('isCommandEveAcpConversation', () => {

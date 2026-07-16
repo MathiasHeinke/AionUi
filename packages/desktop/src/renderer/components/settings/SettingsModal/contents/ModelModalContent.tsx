@@ -31,6 +31,7 @@ import { shouldDisableModelByok } from '@/common/config/eveInferenceCore';
 import { bridge as platformBridge } from '@office-ai/platform';
 import SettingsSection, { SettingsPageHeader } from '@/renderer/components/settings/SettingsSection';
 import { EVE_SETTINGS_TAG_COLOR } from '@/renderer/components/settings/settingsSemantics';
+import { commandEveLocalPullMatchesTier } from './commandEveLocalModelUiCore';
 import '../model-provider.css';
 
 /** 1.6.3 — the per-tier disk truth the status bridge injects (see localRuntimeStatusCore). */
@@ -39,9 +40,11 @@ type CommandEveLocalTierProbe = {
   installed_size_bytes?: number;
   ram_fit: boolean;
   disk_fit: boolean;
+  resume_available: boolean;
+  ready_for_use: boolean;
   recommended: boolean;
   status_known: boolean;
-  runtime: 'ollama' | 'bonsai-prism';
+  runtime: 'ollama' | 'bonsai-prism' | 'colibri';
   runtime_model_ref?: string;
   model_ref?: string;
 };
@@ -57,9 +60,11 @@ const localRuntimeStatusBridge = platformBridge.buildProvider<
           installed_size_bytes?: number;
           ram_fit?: boolean;
           disk_fit?: boolean;
+          resume_available?: boolean;
+          ready_for_use?: boolean;
           recommended?: boolean;
           status_known?: boolean;
-          runtime?: 'ollama' | 'bonsai-prism';
+          runtime?: 'ollama' | 'bonsai-prism' | 'colibri';
           runtime_model_ref?: string;
           model_ref?: string;
         }>;
@@ -213,23 +218,23 @@ const ModelModalContent: React.FC = () => {
       });
   };
 
-  const selectCommandEveLocalModelTier = (tierId: string) => {
+  const selectCommandEveLocalModelTier = async (tierId: string): Promise<boolean> => {
     const normalizedTierId = normalizeCommandEveLocalModelTierId(tierId);
     setSelectedLocalModelTierId(normalizedTierId);
-    configService
-      .set('commandEve.localModelTierId', normalizedTierId)
-      .then(() => {
-        message.success(t('settings.commandEveLocalRuntimeSelected'));
-      })
-      .catch((error) => {
-        console.error('Failed to save Command EVE local model tier:', error);
-        setSelectedLocalModelTierId(
-          normalizeCommandEveLocalModelTierId(
-            configService.get('commandEve.localModelTierId') ?? COMMAND_EVE_DEFAULT_LOCAL_MODEL_TIER_ID
-          )
-        );
-        message.error(t('settings.saveModelConfigFailed'));
-      });
+    try {
+      await configService.set('commandEve.localModelTierId', normalizedTierId);
+      message.success(t('settings.commandEveLocalRuntimeSelected'));
+      return true;
+    } catch (error) {
+      console.error('Failed to save Command EVE local model tier:', error);
+      setSelectedLocalModelTierId(
+        normalizeCommandEveLocalModelTierId(
+          configService.get('commandEve.localModelTierId') ?? COMMAND_EVE_DEFAULT_LOCAL_MODEL_TIER_ID
+        )
+      );
+      message.error(t('settings.saveModelConfigFailed'));
+      return false;
+    }
   };
 
   // ── 1.6.3: the model cards tell the TRUTH (audit wf_9db95fb2: "Auswählen"
@@ -258,16 +263,19 @@ const ModelModalContent: React.FC = () => {
                 typeof tier.installed_size_bytes === 'number' ? tier.installed_size_bytes : undefined,
               ram_fit: tier.ram_fit !== false,
               disk_fit: tier.disk_fit !== false,
+              resume_available: tier.resume_available === true,
+              ready_for_use: tier.ready_for_use === true,
               recommended: tier.recommended === true,
               status_known: tier.status_known !== false,
-              runtime: tier.runtime === 'bonsai-prism' ? 'bonsai-prism' : 'ollama',
+              runtime:
+                tier.runtime === 'bonsai-prism' ? 'bonsai-prism' : tier.runtime === 'colibri' ? 'colibri' : 'ollama',
               runtime_model_ref: tier.runtime_model_ref,
               model_ref: tier.model_ref,
             };
           }
           setLocalTiers(byId);
           const pull = model.model_pull;
-          if (pull && pull.status === 'pulling') {
+          if (pull && ['pulling', 'building'].includes(pull.status)) {
             pulling = true;
             setLocalPull({ model: pull.model, percent: pull.percent, status: pull.status });
           } else {
@@ -290,26 +298,25 @@ const ModelModalContent: React.FC = () => {
   // fire the full ensure pass (bootstrap re-run → streamOllamaPull with the
   // live progress side-file → warm-up). NOT awaited to completion for UI state —
   // progress arrives via the status poll; a blocked result surfaces honestly.
-  const downloadCommandEveLocalModelTier = (tierId: string) => {
+  const downloadCommandEveLocalModelTier = async (tierId: string): Promise<void> => {
     const normalizedTierId = normalizeCommandEveLocalModelTierId(tierId);
-    selectCommandEveLocalModelTier(normalizedTierId);
     setEnsuringTierId(normalizedTierId);
-    ipcBridge.commandEve.ensureLocalModelTier
-      .invoke({ tierId: normalizedTierId })
-      .then((res) => {
-        const status = res?.data?.status;
-        if (status && status !== 'ready') {
-          message.warning(
-            t('settings.commandEveLocalRuntimeEnsureBlocked', {
-              reason: res?.data?.next_action || status,
-            })
-          );
-        }
-      })
-      .catch((error) => {
-        console.error('Command EVE local model ensure failed:', error);
-      })
-      .finally(() => setEnsuringTierId(null));
+    try {
+      if (!(await selectCommandEveLocalModelTier(normalizedTierId))) return;
+      const res = await ipcBridge.commandEve.ensureLocalModelTier.invoke({ tierId: normalizedTierId });
+      const status = res?.data?.status;
+      if (status && status !== 'ready') {
+        message.warning(
+          t('settings.commandEveLocalRuntimeEnsureBlocked', {
+            reason: res?.data?.next_action || status,
+          })
+        );
+      }
+    } catch (error) {
+      console.error('Command EVE local model ensure failed:', error);
+    } finally {
+      setEnsuringTierId(null);
+    }
   };
 
   // 切换供应商启用状态（全选 ↔ 全不选）
@@ -536,37 +543,23 @@ const ModelModalContent: React.FC = () => {
           >
             {COMMAND_EVE_LOCAL_MODEL_TIERS.map((tier) => {
               const selected = selectedLocalModelTierId === tier.id;
-              const displayLabel =
-                tier.state === 'default'
-                  ? t('settings.commandEveLocalRuntimeLane.fast')
-                  : tier.state === 'opt_in'
-                    ? t('settings.commandEveLocalRuntimeLane.balanced')
-                    : tier.state === 'experimental'
-                      ? t('settings.commandEveLocalRuntimeLane.experimental')
-                      : t('settings.commandEveLocalRuntimeLane.pro');
-              const displayDescription =
-                tier.state === 'default'
-                  ? t('settings.commandEveLocalRuntimeLane.fastDescription')
-                  : tier.state === 'opt_in'
-                    ? t('settings.commandEveLocalRuntimeLane.balancedDescription')
-                    : tier.state === 'experimental'
-                      ? t('settings.commandEveLocalRuntimeLane.experimentalDescription')
-                      : t('settings.commandEveLocalRuntimeLane.proDescription');
+              const displayLabel = t(`settings.commandEveLocalRuntimeLane.${tier.lane}`);
+              const displayDescription = t(`settings.commandEveLocalRuntimeLane.${tier.lane}Description`);
               // 1.6.3 — the card's honest state, from the injected probe:
               // installed ✓ / lädt X % / nicht geladen / läuft nicht auf
               // diesem Mac / Status unbekannt (Ollama down). No probe row
               // yet (first render) keeps the old claim-free card.
               const probe = localTiers[tier.id];
-              const fits = !probe || (probe.ram_fit && probe.disk_fit);
+              const resumeAvailable = probe?.runtime === 'colibri' && probe.resume_available;
+              const fits = !probe || (probe.ram_fit && (probe.disk_fit || resumeAvailable));
               // Percent is only ever THIS tier's pull (review fix: a click on
               // tier B must not display a foreign/stale tier-A percent).
-              const pullingThis =
-                localPull !== null &&
-                probe !== undefined &&
-                (localPull.model === probe.runtime_model_ref || localPull.model === probe.model_ref);
+              const activeThis = commandEveLocalPullMatchesTier(localPull, probe);
               const ensuringThis = ensuringTierId === tier.id;
+              const ramBlocked = Boolean(probe && !probe.ram_fit);
+              const diskBlocked = Boolean(probe && !probe.disk_fit && !probe.installed && !resumeAvailable);
               const activationBlocked =
-                tier.state === 'experimental' ? !probe || !fits : Boolean(probe && !fits && !probe.installed);
+                tier.state === 'experimental' ? !probe || ramBlocked || diskBlocked : ramBlocked || diskBlocked;
               // Review fixes: the download affordance ALSO covers the SELECTED
               // tier (the most common broken state) and the Ollama-down case —
               // ensureLocalModelTier starts the runtime itself (idempotent).
@@ -590,14 +583,28 @@ const ModelModalContent: React.FC = () => {
                             {t('settings.commandEveLocalRuntimeExperimental')}
                           </Tag>
                         )}
+                        {tier.alignment === 'uncensored' && (
+                          <Tag color={EVE_SETTINGS_TAG_COLOR.attention}>
+                            {t('settings.commandEveLocalRuntimeUncensored')}
+                          </Tag>
+                        )}
+                        {tier.toolCalling === 'preview' && (
+                          <Tag color='purple'>{t('settings.commandEveLocalRuntimeToolPreview')}</Tag>
+                        )}
                       </div>
                       <span>{displayDescription}</span>
                     </div>
                   </div>
                   <div className='eve-model-tier__state' data-testid={`command-eve-model-tier-state-${tier.id}`}>
-                    {pullingThis ? (
+                    {activeThis ? (
                       <Tag color='blue'>
-                        {t('settings.commandEveLocalRuntimeDownloading', { percent: localPull?.percent ?? 0 })}
+                        {localPull?.status === 'building'
+                          ? t('settings.commandEveLocalRuntimeBuilding')
+                          : t('settings.commandEveLocalRuntimeDownloading', { percent: localPull?.percent ?? 0 })}
+                      </Tag>
+                    ) : selected && probe?.installed && !probe.ready_for_use ? (
+                      <Tag color={EVE_SETTINGS_TAG_COLOR.attention}>
+                        {t('settings.commandEveLocalRuntimeVerificationRequired')}
                       </Tag>
                     ) : probe?.installed ? (
                       <Tag color='green'>{t('settings.commandEveLocalRuntimeInstalled')}</Tag>
@@ -606,6 +613,11 @@ const ModelModalContent: React.FC = () => {
                     ) : probe ? (
                       <Tag color='gray'>{t('settings.commandEveLocalRuntimeNotInstalled')}</Tag>
                     ) : null}
+                    {resumeAvailable && !activeThis && (
+                      <Tag color={EVE_SETTINGS_TAG_COLOR.attention}>
+                        {t('settings.commandEveLocalRuntimeResumeAvailable')}
+                      </Tag>
+                    )}
                     {probe && !fits && <Tag color='gray'>{t('settings.commandEveLocalRuntimeNotOnThisMac')}</Tag>}
                   </div>
                   <div className='eve-model-tier__meta'>
@@ -614,11 +626,14 @@ const ModelModalContent: React.FC = () => {
                       memory: tier.memoryGb,
                       disk: tier.diskGb,
                     })}
+                    {` · ${t('settings.commandEveLocalRuntimeRecommendedMemory', {
+                      memory: tier.recommendedMemoryGb,
+                    })}`}
                     {probe?.installed && typeof probe.installed_size_bytes === 'number'
                       ? ` · ${t('settings.commandEveLocalRuntimeInstalledSize', { gb: (probe.installed_size_bytes / 1024 ** 3).toFixed(1) })}`
                       : ''}
                   </div>
-                  {selected && !showDownload && !activationBlocked ? (
+                  {selected && probe?.ready_for_use && !showDownload && !activationBlocked ? (
                     <Tag
                       className='eve-model-tier__action'
                       color='green'
@@ -630,25 +645,25 @@ const ModelModalContent: React.FC = () => {
                     <Button
                       data-testid={`command-eve-model-tier-select-${tier.id}`}
                       className='eve-model-tier__action'
-                      type={showDownload ? 'primary' : 'outline'}
+                      type={showDownload || (selected && probe && !probe.ready_for_use) ? 'primary' : 'outline'}
                       size='small'
-                      loading={ensuringThis || pullingThis}
+                      loading={ensuringThis || activeThis}
                       disabled={activationBlocked}
-                      onClick={() =>
-                        showDownload
-                          ? downloadCommandEveLocalModelTier(tier.id)
-                          : selectCommandEveLocalModelTier(tier.id)
-                      }
+                      onClick={() => void downloadCommandEveLocalModelTier(tier.id)}
                     >
                       {tier.state === 'experimental' && !probe
                         ? t('settings.commandEveLocalRuntimeStatusUnknown')
                         : activationBlocked
                           ? t('settings.commandEveLocalRuntimeNotOnThisMac')
                           : showDownload
-                            ? probe && !probe.status_known
-                              ? t('settings.commandEveLocalRuntimeStartAndEnsure')
-                              : t('settings.commandEveLocalRuntimeDownload')
-                            : t('settings.commandEveLocalRuntimeSelect')}
+                            ? resumeAvailable
+                              ? t('settings.commandEveLocalRuntimeResume')
+                              : probe && !probe.status_known
+                                ? t('settings.commandEveLocalRuntimeStartAndEnsure')
+                                : t('settings.commandEveLocalRuntimeDownload')
+                            : selected && probe && !probe.ready_for_use
+                              ? t('settings.commandEveLocalRuntimeVerifyAndActivate')
+                              : t('settings.commandEveLocalRuntimeSelect')}
                     </Button>
                   )}
                 </div>

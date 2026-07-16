@@ -15,6 +15,7 @@ import {
   COMMAND_EVE_APP_NAME,
   COMMAND_EVE_ASSISTANT_AVATAR,
   COMMAND_EVE_SHELL_ENABLED,
+  formatCommandEveDisplayVersion,
 } from '@/common/config/commandEveShell';
 import SettingsSection, { SettingsPageHeader } from '@/renderer/components/settings/SettingsSection';
 import PreferenceRow from '@/renderer/components/settings/PreferenceRow';
@@ -118,7 +119,7 @@ const AboutModalContent: React.FC = () => {
               </span>
             </div>
             <span className='eve-pill eve-about-summary__version'>
-              {t('settings.currentVersion')} v{__APP_VERSION__}
+              {t('settings.currentVersion')} v{formatCommandEveDisplayVersion(__APP_VERSION__)}
             </span>
           </div>
         </SettingsSection>

@@ -1,0 +1,7 @@
+interface:
+  display_name: 'PLAUD Aufnahmen verarbeiten'
+  short_description: 'PLAUD Audio lokal importieren und auswerten'
+  default_prompt: 'Nutze $plaud-recording-ingest, um meine neueste PLAUD Aufnahme lokal zu importieren, zu transkribieren und zusammenzufassen.'
+
+policy:
+  allow_implicit_invocation: true

@@ -5,9 +5,9 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const repoRoot = resolve(__dirname, '../../..');
@@ -27,6 +27,14 @@ describe('build-with-builder', () => {
     const hookPath = join(tempDir, 'hook.cjs');
     const callsPath = join(tempDir, 'prepare-calls.json');
     const skillsSourcePath = join(tempDir, 'bundled-skills');
+    const volatileBuildFiles = [
+      resolve(repoRoot, 'out/.build-hash'),
+      resolve(repoRoot, 'out/main/index.js'),
+      resolve(repoRoot, 'out/renderer/index.html'),
+    ];
+    const buildFileSnapshots = new Map(
+      volatileBuildFiles.map((filePath) => [filePath, existsSync(filePath) ? readFileSync(filePath) : null])
+    );
 
     cpSync(resolve(repoRoot, 'resources/bundled-skills'), skillsSourcePath, { recursive: true });
 
@@ -69,8 +77,8 @@ childProcess.execSync = function mockedExecSync(command) {
   if (commandText.includes('electron-vite build')) {
     fs.mkdirSync(path.join(process.cwd(), 'out/main'), { recursive: true });
     fs.mkdirSync(path.join(process.cwd(), 'out/renderer'), { recursive: true });
-    fs.writeFileSync(path.join(process.cwd(), 'out/main/index.js'), '');
-    fs.writeFileSync(path.join(process.cwd(), 'out/renderer/index.html'), '');
+    fs.writeFileSync(path.join(process.cwd(), 'out/main/index.js'), 'module.exports = {};');
+    fs.writeFileSync(path.join(process.cwd(), 'out/renderer/index.html'), '<!doctype html><html></html>');
   }
   return Buffer.from('');
 };
@@ -101,6 +109,14 @@ childProcess.execSync = function mockedExecSync(command) {
       const calls = JSON.parse(readFileSync(callsPath, 'utf8')) as Array<{ arch?: string } | null>;
       expect(calls).toContainEqual(expect.objectContaining({ arch: expectedArch }));
     } finally {
+      for (const [filePath, content] of buildFileSnapshots) {
+        if (content === null) {
+          rmSync(filePath, { force: true });
+          continue;
+        }
+        mkdirSync(dirname(filePath), { recursive: true });
+        writeFileSync(filePath, content);
+      }
       rmSync(tempDir, { recursive: true, force: true });
     }
   });

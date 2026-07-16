@@ -10,6 +10,7 @@ import {
   resolveCommandEveRuntimeBootstrapManifestPath,
   resolveCommandEveRuntimeBootstrapPaths,
   runtimeModelRefForTier,
+  runtimeReceiptAllowsLocalModelRequest,
   selectRuntimeBootstrapTier,
   validateRuntimeBootstrapManifest,
   type RuntimeBootstrapManifest,
@@ -98,7 +99,11 @@ export type CommandEveLocalRuntimeTierCard = {
   label: string;
   model_ref: string;
   runtime_model_ref: string;
-  runtime: 'ollama' | 'bonsai-prism';
+  runtime: 'ollama' | 'bonsai-prism' | 'colibri';
+  lane?: 'fast' | 'balanced' | 'pro' | 'bonsai' | 'colibri';
+  alignment?: 'standard' | 'uncensored';
+  tool_calling?: 'qualified' | 'preview';
+  recommended_unified_memory_gb?: number;
   context_length: number;
   max_tokens: number;
   min_unified_memory_gb: number;
@@ -117,6 +122,10 @@ export type CommandEveLocalRuntimeTierCard = {
   ram_fit: boolean;
   /** Enough free disk for a fresh pull OR already installed (installed needs no new space). */
   disk_fit: boolean;
+  /** A pinned managed download has resumable progress; final disk admission remains provisioner-owned. */
+  resume_available: boolean;
+  /** The selected model has a ready integrity receipt for this exact app release. */
+  ready_for_use: boolean;
   /** 1.6.3 recommendation policy (recommendedLocalTierId — founder-tunable). */
   recommended: boolean;
 };
@@ -163,7 +172,7 @@ export type CommandEveLocalRuntimeStatusModel = {
    */
   model_pull?: {
     path: string;
-    status: 'pulling' | 'done' | 'failed';
+    status: 'pulling' | 'building' | 'done' | 'failed';
     model: string;
     total: number;
     completed: number;
@@ -216,7 +225,10 @@ export type CommandEveLocalRuntimeStatusOptions = {
   totalMemoryBytes?: number;
   /** Free disk at the runtime root (GB). undefined ⇒ disk_fit true. */
   freeDiskGb?: number;
-  managedTierInstallStatus?: Record<string, { installed: boolean; installedSizeBytes?: number }>;
+  managedTierInstallStatus?: Record<
+    string,
+    { installed: boolean; installedSizeBytes?: number; resumeAvailable?: boolean }
+  >;
 };
 
 type JsonRecord = Record<string, unknown>;
@@ -418,16 +430,17 @@ function buildTierCard(
     totalMemoryBytes?: number;
     freeDiskGb?: number;
     recommendedTierId: string;
+    selectedReadyForUse: boolean;
   }
 ): CommandEveLocalRuntimeTierCard {
   const runtimeModelRef = runtimeModelRefForTier(tier);
   const managedInstall = probes.managedTierInstallStatus?.[tier.id];
-  const installedModel =
-    tier.runtime === 'bonsai-prism'
-      ? managedInstall?.installed
-        ? { name: runtimeModelRef, size: managedInstall.installedSizeBytes }
-        : undefined
-      : findInstalledModel(tier, runtimeModelRef, probes.installedModels);
+  const managedRuntime = tier.runtime !== undefined && tier.runtime !== 'ollama';
+  const installedModel = managedRuntime
+    ? managedInstall?.installed
+      ? { name: runtimeModelRef, size: managedInstall.installedSizeBytes }
+      : undefined
+    : findInstalledModel(tier, runtimeModelRef, probes.installedModels);
   const memGb =
     typeof probes.totalMemoryBytes === 'number' && probes.totalMemoryBytes > 0
       ? probes.totalMemoryBytes / 1024 ** 3
@@ -442,17 +455,25 @@ function buildTierCard(
     label: tier.label,
     model_ref: tier.model_ref,
     runtime_model_ref: runtimeModelRef,
-    runtime: tier.runtime === 'bonsai-prism' ? 'bonsai-prism' : 'ollama',
+    runtime: tier.runtime === 'bonsai-prism' ? 'bonsai-prism' : tier.runtime === 'colibri' ? 'colibri' : 'ollama',
+    ...(tier.lane ? { lane: tier.lane } : {}),
+    ...(tier.alignment ? { alignment: tier.alignment } : {}),
+    ...(tier.tool_calling ? { tool_calling: tier.tool_calling } : {}),
+    ...(typeof tier.recommended_unified_memory_gb === 'number'
+      ? { recommended_unified_memory_gb: tier.recommended_unified_memory_gb }
+      : {}),
     context_length: tierContextLength(tier),
     max_tokens: tierMaxTokens(tier),
     min_unified_memory_gb: tier.min_unified_memory_gb,
     min_free_disk_gb: tier.min_free_disk_gb,
     status: tierStatus(tier, selectedTier),
     installed: installedModel !== undefined,
-    status_known: tier.runtime === 'bonsai-prism' ? managedInstall !== undefined : probes.installedModels !== undefined,
+    status_known: managedRuntime ? managedInstall !== undefined : probes.installedModels !== undefined,
     ...(installedModel && typeof installedModel.size === 'number' ? { installed_size_bytes: installedModel.size } : {}),
     ram_fit: ramFit,
     disk_fit: diskFit,
+    resume_available: managedInstall?.resumeAvailable === true,
+    ready_for_use: tier.id === selectedTier.id && probes.selectedReadyForUse,
     recommended: tier.id === probes.recommendedTierId,
   };
 }
@@ -523,6 +544,14 @@ export function buildLocalRuntimeStatus(
       manifest.local_runtime.default_tier_id,
       options.totalMemoryBytes
     );
+    const selectedReadyForUse = Boolean(
+      parsedReceipt.receipt &&
+      runtimeReceiptAllowsLocalModelRequest(
+        parsedReceipt.receipt,
+        manifest.release,
+        runtimeModelRefForTier(selectedTier)
+      )
+    );
     const tiers = manifest.local_runtime.tiers.map((tier) =>
       buildTierCard(tier, selectedTier, {
         installedModels: options.installedModels,
@@ -530,6 +559,7 @@ export function buildLocalRuntimeStatus(
         freeDiskGb: options.freeDiskGb,
         managedTierInstallStatus: options.managedTierInstallStatus,
         recommendedTierId,
+        selectedReadyForUse,
       })
     );
     const memGbRounded =
