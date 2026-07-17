@@ -28,7 +28,7 @@ import { isElectronDesktop } from '@/renderer/utils/platform';
 import type { AvailableAgent } from '../types';
 import type { Assistant } from '@/common/types/agent/assistantTypes';
 import PresetAgentTag, { type AgentSwitcherItem } from './PresetAgentTag';
-import { Button, Dropdown, Menu, Message, Tooltip } from '@arco-design/web-react';
+import { Button, Checkbox, Dropdown, Menu, Message, Tooltip } from '@arco-design/web-react';
 import { ArrowUp, Lightning, Paperclip, Shield, UploadOne } from '@icon-park/react';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
