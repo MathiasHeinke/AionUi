@@ -83,8 +83,7 @@ function createDeps(): GuidSendDeps {
     resolvePresetRulesAndSkills: vi.fn().mockResolvedValue({}),
     resolveEnabledSkills: vi.fn(() => []),
     resolveDisabledBuiltinSkills: vi.fn(() => []),
-    guidDisabledBuiltinSkills: undefined,
-    guidEnabledSkills: undefined,
+    skillSelection: {},
     availableMcpServers: [],
     selectedMcpServerIds: [],
     currentEffectiveAgentInfo: { agent_type: 'acp', isAvailable: true },
@@ -164,5 +163,53 @@ describe('useGuidSend blocked cloud lane', () => {
     expect(deps.setInput).not.toHaveBeenCalled();
     expect(deps.setFiles).not.toHaveBeenCalled();
     expect(deps.setDir).not.toHaveBeenCalled();
+  });
+
+  it('hands the shared new-chat skill selection to the conversation create contract', async () => {
+    configGetMock.mockImplementation((key: string) =>
+      key === 'commandEve.inferenceSelection' ? 'command-eve-local:local-standard' : undefined
+    );
+    bridgeMocks.ensureAssistant.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        agent_id: 'hermes-runtime',
+        agent_name: 'EVE',
+        cli_path: '/runtime/hermes',
+        enabled_skills: ['assistant-default'],
+      },
+    });
+    bridgeMocks.runtimeStatus.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        default_model: 'command-eve-gemma4-e4b-64k:latest',
+        model_warmup: {
+          status: 'ready',
+          model: 'command-eve-gemma4-e4b-64k:latest',
+        },
+      },
+    });
+    bridgeMocks.conversationCreate.mockResolvedValue({ id: 'conversation-1' });
+
+    const deps = createDeps();
+    deps.skillSelection = {
+      enabledSkills: ['optional-active'],
+      excludedAutoInjectSkills: ['auto-excluded'],
+    };
+    const { result } = renderHook(() => useGuidSend(deps));
+
+    await act(async () => {
+      await result.current.handleSend();
+    });
+
+    expect(bridgeMocks.conversationCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        extra: expect.objectContaining({
+          preset_enabled_skills: ['optional-active'],
+          exclude_auto_inject_skills: ['auto-excluded'],
+        }),
+      })
+    );
   });
 });

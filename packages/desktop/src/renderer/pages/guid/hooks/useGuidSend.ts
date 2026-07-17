@@ -20,6 +20,7 @@ import { isEveInferenceSelection, resolveEffectiveInferenceSelection } from '@/c
 import type { IMcpServer, TProviderWithModel } from '@/common/config/storage';
 import { buildAgentConversationParams } from '@/common/utils/buildAgentConversationParams';
 import { getConversationCreateErrorMessage } from '@/renderer/pages/conversation/utils/conversationCreateError';
+import type { SkillCapabilitySelection } from '@/renderer/hooks/capabilities';
 import { emitter } from '@/renderer/utils/emitter';
 import { updateWorkspaceTime } from '@/renderer/utils/workspace/workspaceHistory';
 import { Message } from '@arco-design/web-react';
@@ -63,8 +64,7 @@ export type GuidSendDeps = {
   resolveDisabledBuiltinSkills: (
     agentInfo: { agent_type: string; backend?: string; custom_agent_id?: string } | undefined
   ) => string[] | undefined;
-  guidDisabledBuiltinSkills: string[] | undefined;
-  guidEnabledSkills: string[] | undefined;
+  skillSelection: SkillCapabilitySelection;
   availableMcpServers?: IMcpServer[];
   selectedMcpServerIds?: string[];
   currentEffectiveAgentInfo: EffectiveAgentInfo;
@@ -141,8 +141,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
     resolvePresetRulesAndSkills,
     resolveEnabledSkills,
     resolveDisabledBuiltinSkills,
-    guidDisabledBuiltinSkills,
-    guidEnabledSkills,
+    skillSelection: { enabledSkills: guidEnabledSkills, excludedAutoInjectSkills: guidDisabledBuiltinSkills },
     setMentionOpen,
     setMentionQuery,
     setMentionSelectorOpen,

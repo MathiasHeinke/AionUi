@@ -8,7 +8,13 @@ import { ipcBridge } from '@/common';
 import type { IMcpServer } from '@/common/config/storage';
 import AgentModeSelector from '@/renderer/components/agent/AgentModeSelector';
 import UnifiedSendBar from '@/renderer/components/chat/UnifiedSendBar';
+import {
+  SKILL_CAPABILITY_MENU_POPUP_STYLE,
+  SkillCapabilityCountLabel,
+  SkillCapabilityMenuItems,
+} from '@/renderer/components/media/SkillCapabilityMenu';
 import { WorkspaceContextControl } from '@/renderer/components/workspace';
+import type { SkillCapabilityCatalog } from '@/renderer/hooks/capabilities';
 import { createModeLabelFormatter, supportsModeSwitch } from '@/renderer/utils/model/agentModes';
 import {
   COMMAND_EVE_DEFAULT_ACP_BACKEND,
@@ -22,7 +28,7 @@ import { isElectronDesktop } from '@/renderer/utils/platform';
 import type { AvailableAgent } from '../types';
 import type { Assistant } from '@/common/types/agent/assistantTypes';
 import PresetAgentTag, { type AgentSwitcherItem } from './PresetAgentTag';
-import { Button, Checkbox, Dropdown, Menu, Message, Tooltip } from '@arco-design/web-react';
+import { Button, Dropdown, Menu, Message, Tooltip } from '@arco-design/web-react';
 import { ArrowUp, Lightning, Paperclip, Shield, UploadOne } from '@icon-park/react';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -62,9 +68,7 @@ type GuidActionRowProps = {
   hidePresetTag?: boolean;
 
   // Skills management
-  allSkills: Array<{ name: string; description: string; isAuto: boolean }>;
-  disabledBuiltinSkills: string[];
-  enabledSkills: string[];
+  skillCatalog: SkillCapabilityCatalog;
   onToggleSkill: (name: string, isAuto: boolean) => void;
   mcpServers: IMcpServer[];
   selectedMcpServerIds: string[];
@@ -104,9 +108,7 @@ const GuidActionRow: React.FC<GuidActionRowProps> = ({
   agentSwitcherItems,
   onAgentSwitch,
   hideModeSwitch = false,
-  allSkills,
-  disabledBuiltinSkills,
-  enabledSkills,
+  skillCatalog,
   onToggleSkill,
   mcpServers,
   selectedMcpServerIds,
@@ -162,10 +164,6 @@ const GuidActionRow: React.FC<GuidActionRowProps> = ({
 
   const isWebUI = !isElectronDesktop();
 
-  const isSkillChecked = (skill: { name: string; isAuto: boolean }) =>
-    skill.isAuto ? !disabledBuiltinSkills.includes(skill.name) : enabledSkills.includes(skill.name);
-
-  const activeSkillCount = allSkills.filter(isSkillChecked).length;
   const activeMcpCount = selectedMcpServerIds.length;
 
   const menuContent = (
@@ -211,42 +209,23 @@ const GuidActionRow: React.FC<GuidActionRowProps> = ({
           </div>
         </Menu.Item>
       )}
-      {allSkills.length > 0 && (
+      {skillCatalog.totalCount > 0 && (
         <Menu.SubMenu
           key='skills'
           title={
             <div className='flex items-center gap-8px'>
               <Lightning theme='filled' size='16' fill={iconColors.primary} style={{ lineHeight: 0 }} />
-              <span>
-                {t('settings.capabilitiesTab.skills')} ({activeSkillCount}/{allSkills.length})
-              </span>
+              <SkillCapabilityCountLabel catalog={skillCatalog} />
             </div>
           }
           triggerProps={{
-            popupStyle: {
-              maxHeight: 360,
-              overflowY: 'auto',
-              overflowX: 'hidden',
-            },
+            popupStyle: SKILL_CAPABILITY_MENU_POPUP_STYLE,
           }}
         >
-          {allSkills.map((skill) => (
-            <Menu.Item
-              key={`skill-${skill.name}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleSkill(skill.name, skill.isAuto);
-              }}
-            >
-              <Checkbox
-                checked={isSkillChecked(skill)}
-                onClick={(e: React.MouseEvent) => e.stopPropagation()}
-                onChange={() => onToggleSkill(skill.name, skill.isAuto)}
-              >
-                <span className='text-13px'>{skill.name}</span>
-              </Checkbox>
-            </Menu.Item>
-          ))}
+          <SkillCapabilityMenuItems
+            catalog={skillCatalog}
+            onToggleSkill={(skill) => onToggleSkill(skill.name, skill.isAutoInject)}
+          />
         </Menu.SubMenu>
       )}
       {mcpServers.length > 0 && (

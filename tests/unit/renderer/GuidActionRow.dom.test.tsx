@@ -80,9 +80,15 @@ const baseProps = {
   assistants: [],
   localeKey: 'de',
   onClosePresetTag: vi.fn(),
-  allSkills: [],
-  disabledBuiltinSkills: [],
-  enabledSkills: [],
+  skillCatalog: {
+    mode: 'selection' as const,
+    status: 'ready' as const,
+    items: [],
+    activeItems: [],
+    activeCount: 0,
+    totalCount: 0,
+    selection: {},
+  },
   onToggleSkill: vi.fn(),
   mcpServers: [],
   selectedMcpServerIds: [],
@@ -131,5 +137,28 @@ describe('GuidActionRow (UnifiedSendBar integration)', () => {
     fireEvent.click(screen.getByTestId('eve-composer-control-trigger'));
     // The EVE start screen mirrors the in-chat pill prefix.
     expect((await screen.findByTestId('mode-selector')).textContent).toContain('agentMode.permission');
+  });
+
+  it('uses the shared active/available skill count on the new-chat capability menu', async () => {
+    renderRow(
+      <GuidActionRow
+        {...baseProps}
+        skillCatalog={{
+          mode: 'selection',
+          status: 'ready',
+          items: [
+            { name: 'auto-skill', description: '', isAutoInject: true, active: true },
+            { name: 'optional-skill', description: '', isAutoInject: false, active: false },
+          ],
+          activeItems: [{ name: 'auto-skill', description: '', isAutoInject: true, active: true }],
+          activeCount: 1,
+          totalCount: 2,
+          selection: { enabledSkills: [], excludedAutoInjectSkills: [] },
+        }}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId('file-upload-btn'));
+    expect((await screen.findByTestId('skill-capability-count')).textContent).toBe('common.skills (1/2)');
   });
 });

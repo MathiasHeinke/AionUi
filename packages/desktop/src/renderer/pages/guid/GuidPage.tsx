@@ -15,6 +15,7 @@ import { appendSpeechTranscript } from '@/renderer/hooks/system/useSpeechInput';
 import ShellElementsRail from '@/renderer/components/layout/Titlebar/ShellElementsRail';
 import { useCommandEveProfile } from '@/renderer/components/account/useCommandEveProfile';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
+import { useSkillCapabilityCatalog } from '@/renderer/hooks/capabilities';
 import {
   WORKSPACE_OPEN_EVENT,
   WORKSPACE_TOGGLE_EVENT,
@@ -95,30 +96,12 @@ const GuidPage: React.FC = () => {
   }, []);
 
   // --- Skills state ---
-  // All available skills (builtin auto-injected + user-imported custom) merged
-  // into one catalog for the action-row menu. Auto-injected skills default to
-  // checked; the rest are opt-in per conversation (or pre-checked when the
-  // active assistant declares them in `enabled_skills`).
-  const [allSkills, setAllSkills] = useState<Array<{ name: string; description: string; isAuto: boolean }>>([]);
+  // Auto-injected skills default to checked; the rest are opt-in per
+  // conversation or pre-checked by the active assistant.
   const [guidDisabledBuiltinSkills, setGuidDisabledBuiltinSkills] = useState<string[] | undefined>(undefined);
   const [guidEnabledSkills, setGuidEnabledSkills] = useState<string[] | undefined>(undefined);
   const [availableMcpServers, setAvailableMcpServers] = useState<IMcpServer[]>([]);
   const [guidSelectedMcpServerIds, setGuidSelectedMcpServerIds] = useState<string[] | undefined>(undefined);
-
-  useEffect(() => {
-    Promise.all([ipcBridge.fs.listBuiltinAutoSkills.invoke(), ipcBridge.fs.listAvailableSkills.invoke()])
-      .then(([autoSkills, availableSkills]) => {
-        const autoNames = new Set(autoSkills.map((s) => s.name));
-        const merged: Array<{ name: string; description: string; isAuto: boolean }> = [
-          ...autoSkills.map((s) => ({ name: s.name, description: s.description, isAuto: true })),
-          ...availableSkills
-            .filter((s) => !autoNames.has(s.name))
-            .map((s) => ({ name: s.name, description: s.description, isAuto: false })),
-        ];
-        setAllSkills(merged);
-      })
-      .catch(() => setAllSkills([]));
-  }, []);
 
   useEffect(() => {
     void ensureBackendMcpCatalog()
@@ -131,20 +114,6 @@ const GuidPage: React.FC = () => {
         setAvailableMcpServers([]);
         setGuidSelectedMcpServerIds((prev) => prev ?? []);
       });
-  }, []);
-
-  const handleToggleSkill = useCallback((skillName: string, isAuto: boolean) => {
-    if (isAuto) {
-      setGuidDisabledBuiltinSkills((prev) => {
-        const list = prev ?? [];
-        return list.includes(skillName) ? list.filter((s) => s !== skillName) : [...list, skillName];
-      });
-    } else {
-      setGuidEnabledSkills((prev) => {
-        const list = prev ?? [];
-        return list.includes(skillName) ? list.filter((s) => s !== skillName) : [...list, skillName];
-      });
-    }
   }, []);
 
   const handleToggleMcpServer = useCallback((serverId: string) => {
@@ -170,6 +139,28 @@ const GuidPage: React.FC = () => {
     preselectAgentKey,
     locationKey: location.key,
   });
+  const skillCatalog = useSkillCapabilityCatalog({
+    mode: 'selection',
+    enabledSkills: guidEnabledSkills ?? agentSelection.resolveEnabledSkills(agentSelection.selectedAgentInfo),
+    excludedAutoInjectSkills:
+      guidDisabledBuiltinSkills ?? agentSelection.resolveDisabledBuiltinSkills(agentSelection.selectedAgentInfo),
+  });
+  const handleToggleSkill = useCallback(
+    (skillName: string, isAuto: boolean) => {
+      if (isAuto) {
+        setGuidDisabledBuiltinSkills((prev) => {
+          const list = prev ?? skillCatalog.selection.excludedAutoInjectSkills ?? [];
+          return list.includes(skillName) ? list.filter((name) => name !== skillName) : [...list, skillName];
+        });
+      } else {
+        setGuidEnabledSkills((prev) => {
+          const list = prev ?? skillCatalog.selection.enabledSkills ?? [];
+          return list.includes(skillName) ? list.filter((name) => name !== skillName) : [...list, skillName];
+        });
+      }
+    },
+    [skillCatalog.selection.enabledSkills, skillCatalog.selection.excludedAutoInjectSkills]
+  );
 
   const guidInput = useGuidInput({
     locationState: location.state as { workspace?: string } | null,
@@ -211,8 +202,7 @@ const GuidPage: React.FC = () => {
     resolvePresetRulesAndSkills: agentSelection.resolvePresetRulesAndSkills,
     resolveEnabledSkills: agentSelection.resolveEnabledSkills,
     resolveDisabledBuiltinSkills: agentSelection.resolveDisabledBuiltinSkills,
-    guidDisabledBuiltinSkills,
-    guidEnabledSkills,
+    skillSelection: skillCatalog.selection,
     availableMcpServers,
     selectedMcpServerIds: guidSelectedMcpServerIds,
     currentEffectiveAgentInfo: agentSelection.currentEffectiveAgentInfo,
@@ -668,9 +658,7 @@ const GuidPage: React.FC = () => {
       onAgentSwitch={(key) => {
         handlePresetAgentTypeSwitch(key).catch((err) => console.error('Failed to switch agent type:', err));
       }}
-      allSkills={allSkills}
-      disabledBuiltinSkills={guidDisabledBuiltinSkills ?? []}
-      enabledSkills={guidEnabledSkills ?? []}
+      skillCatalog={skillCatalog}
       onToggleSkill={handleToggleSkill}
       mcpServers={availableMcpServers}
       selectedMcpServerIds={guidSelectedMcpServerIds ?? []}

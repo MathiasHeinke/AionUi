@@ -5,9 +5,10 @@
  */
 
 import type { IConversationMcpStatus, IConversationMcpStatusKind } from '@/common/config/storage';
-import { Button, Message, Trigger } from '@arco-design/web-react';
+import { Button, Menu, Message, Trigger } from '@arco-design/web-react';
 import { FolderOpen, Lightning, Paperclip, Right, Shield } from '@icon-park/react';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
+import { useSkillCapabilityCatalog } from '@/renderer/hooks/capabilities';
 import { isElectronDesktop } from '@/renderer/utils/platform';
 import { FileService } from '@/renderer/services/FileService';
 import type { FileMetadata } from '@/renderer/services/FileService';
@@ -16,6 +17,11 @@ import React, { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
+import {
+  SKILL_CAPABILITY_MENU_POPUP_STYLE,
+  SkillCapabilityCountLabel,
+  SkillCapabilityMenuItems,
+} from './SkillCapabilityMenu';
 
 interface FileAttachButtonProps {
   openFileSelector: () => void;
@@ -105,6 +111,7 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
   const [mcpOpen, setMcpOpen] = useState(false);
 
   const skillNames = loadedSkills ?? conversationContext?.loadedSkills ?? [];
+  const skillCatalog = useSkillCapabilityCatalog({ mode: 'runtime', activeSkills: skillNames });
   const mcpStatuses = buildLoadedMcpStatuses(
     loadedMcpStatuses ?? conversationContext?.loadedMcpStatuses,
     conversationContext?.loadedMcpServers
@@ -140,7 +147,7 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
   );
 
   const isDesktop = isElectronDesktop();
-  const hasSkills = skillNames.length > 0;
+  const hasSkills = skillCatalog.activeCount > 0;
   const hasMcpServers = mcpStatuses.length > 0;
   const attachIcon = <Paperclip theme='outline' size='17' strokeWidth={2} fill='currentColor' />;
 
@@ -171,22 +178,19 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
   };
 
   const skillsPanel = (
-    <div
-      role='menu'
+    <Menu
       data-eve-interaction-role='event-boundary'
-      style={{ ...cardStyle, minWidth: 180 }}
+      style={{
+        ...cardStyle,
+        ...SKILL_CAPABILITY_MENU_POPUP_STYLE,
+        minWidth: 220,
+        width: 'min(320px, calc(100vw - 96px))',
+        maxWidth: 320,
+      }}
       onClick={(e) => e.stopPropagation()}
     >
-      {skillNames.map((name) => (
-        <MenuItem
-          key={name}
-          icon={<Lightning theme='outline' size={15} strokeWidth={2.5} />}
-          label={name}
-          onClick={() => handleSkillClick(name)}
-          className='mx-6px'
-        />
-      ))}
-    </div>
+      <SkillCapabilityMenuItems catalog={skillCatalog} onInvokeSkill={(skill) => handleSkillClick(skill.name)} />
+    </Menu>
   );
 
   const mcpPanel = (
@@ -284,7 +288,7 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
                 <div>
                   <MenuItem
                     icon={<Lightning theme='outline' size={15} strokeWidth={2.5} />}
-                    label={`${t('conversation.skills.loaded', { defaultValue: 'Loaded Skills' })} · ${skillNames.length}`}
+                    label={<SkillCapabilityCountLabel catalog={skillCatalog} />}
                     suffix={<Right theme='outline' size={12} strokeWidth={3} style={{ color: '#c9cdd4' }} />}
                   />
                 </div>
