@@ -12,6 +12,16 @@
   align-items: center;
 }
 
+.unified-send-bar__busy-slot {
+  display: inline-flex;
+  width: 64px;
+  min-width: 64px;
+  height: var(--eve-control-height, 32px);
+  flex: 0 0 64px;
+  align-items: center;
+  justify-content: center;
+}
+
 .unified-send-bar :where(.arco-btn-shape-circle, .speech-input-button),
 .unified-send-bar :where(.sendbox-model-btn, .agent-mode-compact-pill) {
   width: var(--eve-control-height, 32px) !important;
@@ -135,15 +145,6 @@
   height: 40px;
   align-items: center;
   justify-content: center;
-}
-
-.eve-composer-control__trigger-visual::before {
-  position: absolute;
-  inset: 2px;
-  border: 2px solid color-mix(in srgb, var(--eve-shell-text-secondary) 28%, transparent);
-  border-radius: 999px;
-  box-shadow: 0 0 14px color-mix(in srgb, var(--eve-brand-logo) 12%, transparent);
-  content: '';
 }
 
 .eve-composer-control__ring {

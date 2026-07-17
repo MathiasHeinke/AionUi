@@ -119,6 +119,22 @@ function CodeBlock(props: CodeBlockProps) {
   const footerTextColor = isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.35)';
   const borderColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)';
   const bgColor = isDark ? 'rgba(255,255,255,0.04)' : 'var(--bg-2)';
+  const iconButtonStyle: React.CSSProperties = {
+    appearance: 'none',
+    WebkitAppearance: 'none',
+    display: 'inline-flex',
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 0,
+    border: 0,
+    borderRadius: '50%',
+    outline: 0,
+    background: 'transparent',
+    boxShadow: 'none',
+    cursor: 'pointer',
+  };
 
   return (
     <div
@@ -150,6 +166,7 @@ function CodeBlock(props: CodeBlockProps) {
                 aria-label={expanded ? t('common.collapse') : t('common.expand')}
                 title={expanded ? t('common.collapse') : t('common.expand')}
                 className='inline-flex items-center justify-center border-none bg-transparent p-0'
+                style={iconButtonStyle}
                 onClick={toggleExpanded}
               >
                 {expanded ? (
@@ -164,6 +181,7 @@ function CodeBlock(props: CodeBlockProps) {
               aria-label={t('common.copy')}
               title={t('common.copy')}
               className='inline-flex items-center justify-center border-none bg-transparent p-0'
+              style={iconButtonStyle}
               onClick={handleCopy}
             >
               <Copy theme='outline' size='14' style={{ display: 'block' }} fill={iconFill} />
@@ -231,6 +249,10 @@ function CodeBlock(props: CodeBlockProps) {
               borderRight: 0,
               borderBottom: 0,
               borderLeft: 0,
+              appearance: 'none',
+              WebkitAppearance: 'none',
+              outline: 0,
+              boxShadow: 'none',
               background: 'transparent',
             }}
             onClick={toggleExpanded}

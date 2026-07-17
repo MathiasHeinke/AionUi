@@ -10,8 +10,8 @@ import {
 } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Button, Dropdown, Menu, Typography } from '@arco-design/web-react';
-import { CornerDownRight, Delete, Drag, MoreOne } from '@icon-park/react';
+import { Button, Dropdown, Menu, Tooltip, Typography } from '@arco-design/web-react';
+import { CornerDownRight, CornerUpLeft, Delete, Drag, MoreOne } from '@icon-park/react';
 import React, { useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -47,12 +47,14 @@ type CommandQueuePanelProps = {
   items: ConversationCommandQueueItem[];
   paused: boolean;
   interactionLocked: boolean;
+  promotingCommandIds?: ReadonlySet<string>;
   onPause: () => void;
   onResume: () => void;
   onInteractionLock: () => void;
   onInteractionUnlock: () => void;
   onUpdate?: (commandId: string, input: string) => boolean;
   onEdit?: (item: ConversationCommandQueueItem) => void;
+  onPromote?: (item: ConversationCommandQueueItem) => void | Promise<void>;
   onReorder: (activeCommandId: string, overCommandId: string) => void;
   onRemove: (commandId: string) => void;
   onClear: () => void;
@@ -68,12 +70,14 @@ type RenderActionIconButtonArgs = {
 
 type SortableQueueItemProps = {
   item: ConversationCommandQueueItem;
+  promotePending: boolean;
   dragDisabled: boolean;
   dragHandleLabel: string;
   preview: string;
   fileCountLabel: string | null;
   t: (key: string, options?: Record<string, unknown>) => string;
   onEdit?: (item: ConversationCommandQueueItem) => void;
+  onPromote?: (item: ConversationCommandQueueItem) => void | Promise<void>;
   onRemove: (commandId: string) => void;
   onClear: () => void;
   onDragHandlePointerDown: (event: React.PointerEvent<HTMLButtonElement>) => void;
@@ -81,6 +85,7 @@ type SortableQueueItemProps = {
 
 type QueueItemCardProps = {
   item: ConversationCommandQueueItem;
+  promotePending: boolean;
   isDragging: boolean;
   dragDisabled: boolean;
   dragHandleLabel: string;
@@ -88,6 +93,7 @@ type QueueItemCardProps = {
   fileCountLabel: string | null;
   t: (key: string, options?: Record<string, unknown>) => string;
   onEdit?: (item: ConversationCommandQueueItem) => void;
+  onPromote?: (item: ConversationCommandQueueItem) => void | Promise<void>;
   onRemove: (commandId: string) => void;
   onClear: () => void;
   onDragHandlePointerDown: (event: React.PointerEvent<HTMLButtonElement>) => void;
@@ -125,6 +131,7 @@ const renderQueueActionIconButton = ({
 
 const QueueItemCard: React.FC<QueueItemCardProps> = ({
   item,
+  promotePending,
   isDragging,
   dragDisabled,
   dragHandleLabel,
@@ -132,6 +139,7 @@ const QueueItemCard: React.FC<QueueItemCardProps> = ({
   fileCountLabel,
   t,
   onEdit,
+  onPromote,
   onRemove,
   onClear,
   onDragHandlePointerDown,
@@ -143,6 +151,7 @@ const QueueItemCard: React.FC<QueueItemCardProps> = ({
     <div
       className='group flex items-center justify-between gap-6px rd-10px px-8px py-5px transition-[background-color,opacity] duration-180 ease-out'
       data-command-id={item.id}
+      data-promote-pending={promotePending ? 'true' : 'false'}
       data-sortable={dragDisabled ? 'disabled' : 'enabled'}
       aria-grabbed={isDragging}
       aria-label={preview}
@@ -212,6 +221,25 @@ const QueueItemCard: React.FC<QueueItemCardProps> = ({
         </div>
       </div>
       <div className='flex items-center gap-0.5 shrink-0'>
+        {onPromote ? (
+          <Tooltip
+            mini
+            content={
+              item.files.length > 0
+                ? t('conversation.commandQueue.promoteFilesUnsupported', {
+                    defaultValue: 'Corrections with files stay queued.',
+                  })
+                : t('conversation.commandQueue.promote', { defaultValue: 'Push as correction now' })
+            }
+          >
+            {renderQueueActionIconButton({
+              ariaLabel: t('conversation.commandQueue.promote', { defaultValue: 'Push as correction now' }),
+              disabled: item.files.length > 0 || promotePending,
+              onClick: promotePending ? undefined : () => void onPromote(item),
+              icon: <CornerUpLeft theme='outline' size='14' strokeWidth={2.5} />,
+            })}
+          </Tooltip>
+        ) : null}
         {renderQueueActionIconButton({
           ariaLabel: t('conversation.commandQueue.remove', { defaultValue: 'Remove' }),
           onClick: () => onRemove(item.id),
@@ -248,12 +276,14 @@ const QueueItemCard: React.FC<QueueItemCardProps> = ({
 
 const SortableQueueItem: React.FC<SortableQueueItemProps> = ({
   item,
+  promotePending,
   dragDisabled,
   dragHandleLabel,
   preview,
   fileCountLabel,
   t,
   onEdit,
+  onPromote,
   onRemove,
   onClear,
   onDragHandlePointerDown,
@@ -275,6 +305,7 @@ const SortableQueueItem: React.FC<SortableQueueItemProps> = ({
     <div ref={setNodeRef} style={style}>
       <QueueItemCard
         item={item}
+        promotePending={promotePending}
         isDragging={isDragging}
         dragDisabled={dragDisabled}
         dragHandleLabel={dragHandleLabel}
@@ -282,6 +313,7 @@ const SortableQueueItem: React.FC<SortableQueueItemProps> = ({
         fileCountLabel={fileCountLabel}
         t={t}
         onEdit={onEdit}
+        onPromote={onPromote}
         onRemove={onRemove}
         onClear={onClear}
         onDragHandlePointerDown={onDragHandlePointerDown}
@@ -298,9 +330,11 @@ const SortableQueueItem: React.FC<SortableQueueItemProps> = ({
 const CommandQueuePanel: React.FC<CommandQueuePanelProps> = ({
   items,
   interactionLocked,
+  promotingCommandIds = new Set<string>(),
   onInteractionLock,
   onInteractionUnlock,
   onEdit,
+  onPromote,
   onReorder,
   onRemove,
   onClear,
@@ -397,12 +431,14 @@ const CommandQueuePanel: React.FC<CommandQueuePanelProps> = ({
                   <SortableQueueItem
                     key={item.id}
                     item={item}
-                    dragDisabled={false}
+                    promotePending={promotingCommandIds.has(item.id)}
+                    dragDisabled={promotingCommandIds.has(item.id)}
                     dragHandleLabel={dragHandleLabel}
                     preview={preview}
                     fileCountLabel={fileCountLabel}
                     t={t}
                     onEdit={onEdit}
+                    onPromote={onPromote}
                     onRemove={onRemove}
                     onClear={onClear}
                     onDragHandlePointerDown={(event) => {

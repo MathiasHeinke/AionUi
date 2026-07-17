@@ -664,13 +664,11 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
             runningRef.current = true;
           }
 
-          // YOLO / "Nicht fragen" auto-approve. The selected permission mode is
-          // persisted on the conversation but never reaches Hermes (the only push
-          // path, PUT /api/conversations/:id/mode, 404s on the bundled runtime), so
-          // Hermes keeps asking. The desktop honors the mode here: in the
-          // auto-approve mode ONLY, answer the request's own allow_once option and
-          // skip rendering the "Approve edit:" dialog. The gating modes (Standard,
-          // Änderungen übernehmen) fall through and render the dialog as before.
+          // YOLO / "Nicht fragen" replay fallback. The stable config-options path
+          // synchronizes this mode into Hermes' session-scoped approval state. If a
+          // permission emitted before that acknowledgement is replayed on reconnect,
+          // answer its own allow_once option here instead of showing a stale dialog.
+          // The gating modes (Standard, Änderungen übernehmen) still fall through.
           const request = message.data as AcpPermissionRequest | undefined;
           const callId = request?.tool_call?.tool_call_id || message.msg_id;
           const decision = resolveAcpAutoApprove(permissionModeRef.current, request);
@@ -897,9 +895,8 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
 
   // Keep the live permission mode current for the auto-approve path. The picker
   // (AgentModeSelector) broadcasts the effective mode on initial sync and on every
-  // in-session switch; only adopt events for THIS conversation. Because the backend
-  // /mode route 404s, this is the only reliable signal that a user switched to (or
-  // away from) YOLO/"Nicht fragen" after the conversation was first loaded.
+  // in-session switch; only adopt events for THIS conversation. This keeps replayed
+  // permission events in lockstep while the backend config-options write settles.
   useEffect(() => {
     return addEventListener('acp.permission.mode', (evt) => {
       if (evt.conversation_id === conversation_id) {

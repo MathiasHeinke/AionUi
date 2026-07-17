@@ -14,7 +14,9 @@ vi.mock('@/renderer/hooks/agent/useEveInferenceSelection', () => ({
 }));
 
 vi.mock('@/renderer/components/agent/ContextUsageIndicator', () => ({
-  default: () => <span data-testid='context-ring' />,
+  default: ({ showDetails }: { showDetails?: boolean }) => (
+    <span data-testid='context-ring' data-show-details={String(showDetails)} />
+  ),
 }));
 
 import UnifiedSendBar from '@/renderer/components/chat/UnifiedSendBar';
@@ -99,5 +101,6 @@ describe('UnifiedSendBar', () => {
     expect(screen.getByText('model')).toBeTruthy();
     expect(screen.getByText('permission')).toBeTruthy();
     expect(screen.getByTestId('context-ring')).toBeTruthy();
+    expect(screen.getByTestId('context-ring')).toHaveAttribute('data-show-details', 'false');
   });
 });

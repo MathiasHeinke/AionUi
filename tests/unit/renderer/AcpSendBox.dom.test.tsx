@@ -19,6 +19,13 @@ const {
   setSendBoxHandlerMock,
   sendBoxPropsMock,
   speechTranscribePendingMock,
+  queuePanelPropsMock,
+  queueItemsMock,
+  queueRemoveMock,
+  queueRestoreMock,
+  queueLockMock,
+  queueUnlockMock,
+  runtimeViewMock,
 } = vi.hoisted(() => ({
   sendMessageInvokeMock: vi.fn(),
   addOrUpdateMessageMock: vi.fn(),
@@ -27,6 +34,26 @@ const {
   setSendBoxHandlerMock: vi.fn(),
   sendBoxPropsMock: { current: null as Record<string, unknown> | null },
   speechTranscribePendingMock: vi.fn().mockResolvedValue('spoken prompt'),
+  queuePanelPropsMock: { current: null as Record<string, unknown> | null },
+  queueItemsMock: {
+    current: [] as Array<{ id: string; input: string; files: string[]; created_at: number }>,
+  },
+  queueRemoveMock: vi.fn(),
+  queueRestoreMock: vi.fn(),
+  queueLockMock: vi.fn(),
+  queueUnlockMock: vi.fn(),
+  runtimeViewMock: {
+    hydrated: true,
+    isProcessing: false,
+    canSendMessage: true,
+    activeTurnId: null as string | null,
+    markSendStarted: vi.fn(),
+    markSendAccepted: vi.fn(),
+    markSendFailed: vi.fn(),
+    markStopRequested: vi.fn(),
+    markStopAcknowledged: vi.fn(),
+    resetLocalGate: vi.fn(),
+  },
 }));
 
 vi.mock('@/common', () => ({
@@ -92,7 +119,12 @@ vi.mock('@/renderer/components/chat/SpeechInputButton', async () => {
     ),
   };
 });
-vi.mock('@/renderer/components/chat/CommandQueuePanel', () => ({ default: () => null }));
+vi.mock('@/renderer/components/chat/CommandQueuePanel', () => ({
+  default: (props: Record<string, unknown>) => {
+    queuePanelPropsMock.current = props;
+    return null;
+  },
+}));
 vi.mock('@/renderer/components/chat/MobileActionSheet', () => ({
   default: () => null,
   useAttachEntry: () => ({ entries: [], hiddenFileInput: null }),
@@ -154,21 +186,35 @@ vi.mock('@/renderer/pages/conversation/Messages/hooks', () => ({
   useAddOrUpdateMessage: () => addOrUpdateMessageMock,
 }));
 vi.mock('@/renderer/pages/conversation/platforms/useConversationCommandQueue', () => ({
+  buildConversationBusyControlCommand: ({ input, mode }: { input: string; mode: 'queue' | 'steer' }) =>
+    mode === 'steer' ? { mode, input: `/steer ${input.trim()}` } : null,
   shouldEnqueueConversationCommand: () => false,
   useConversationCommandQueue: () => ({
-    items: [],
+    items: queueItemsMock.current,
     isPaused: false,
     isInteractionLocked: false,
     hasPendingCommands: false,
     enqueue: vi.fn(),
-    remove: vi.fn(),
+    remove: queueRemoveMock,
+    restore: queueRestoreMock,
     clear: vi.fn(),
     reorder: vi.fn(),
     pause: vi.fn(),
     resume: vi.fn(),
-    lockInteraction: vi.fn(),
-    unlockInteraction: vi.fn(),
+    lockInteraction: queueLockMock,
+    unlockInteraction: queueUnlockMock,
     resetActiveExecution: vi.fn(),
+  }),
+}));
+vi.mock('@/renderer/pages/conversation/runtime/useConversationRuntimeView', () => ({
+  useConversationRuntimeView: () => ({
+    ...runtimeViewMock,
+    view: {
+      hydrated: runtimeViewMock.hydrated,
+      isProcessing: runtimeViewMock.isProcessing,
+      canSendMessage: runtimeViewMock.canSendMessage,
+      activeTurnId: runtimeViewMock.activeTurnId,
+    },
   }),
 }));
 vi.mock('@/renderer/pages/conversation/Preview', () => ({
@@ -246,6 +292,14 @@ describe('AcpSendBox', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sendBoxPropsMock.current = null;
+    queuePanelPropsMock.current = null;
+    queueItemsMock.current = [];
+    runtimeViewMock.hydrated = true;
+    runtimeViewMock.isProcessing = false;
+    runtimeViewMock.canSendMessage = true;
+    runtimeViewMock.activeTurnId = null;
+    queueRemoveMock.mockResolvedValue(undefined);
+    queueRestoreMock.mockResolvedValue(undefined);
   });
 
   it('resets ACP loading state when sendMessage fails before any stream error arrives', async () => {
@@ -300,5 +354,122 @@ describe('AcpSendBox', () => {
       | undefined;
     await expect(transcribePendingSpeechInput?.({ emit: false })).resolves.toBe('spoken prompt');
     expect(speechTranscribePendingMock).toHaveBeenCalledWith({ emit: false });
+  });
+
+  it('removes a queued text command before promoting it into the running turn', async () => {
+    const queuedItem = {
+      id: 'queued-1',
+      input: 'Use the corrected customer segment',
+      files: [],
+      created_at: 1,
+    };
+    queueItemsMock.current = [queuedItem];
+    runtimeViewMock.isProcessing = true;
+    runtimeViewMock.canSendMessage = false;
+    sendMessageInvokeMock.mockResolvedValue({});
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='claude'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    const onPromote = queuePanelPropsMock.current?.onPromote as
+      | ((item: typeof queuedItem) => Promise<void>)
+      | undefined;
+    expect(onPromote).toBeTypeOf('function');
+    await act(async () => {
+      await onPromote?.(queuedItem);
+    });
+
+    expect(sendMessageInvokeMock).toHaveBeenCalledWith({
+      input: '/steer Use the corrected customer segment',
+      conversation_id: 'conv-1',
+      files: [],
+    });
+    expect(queueRemoveMock).toHaveBeenCalledWith('queued-1');
+    expect(queueRemoveMock.mock.invocationCallOrder[0]).toBeLessThan(sendMessageInvokeMock.mock.invocationCallOrder[0]);
+    expect(queueRestoreMock).not.toHaveBeenCalled();
+    expect(queueLockMock).toHaveBeenCalledTimes(1);
+    expect(queueUnlockMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores a promoted command when the running-turn correction fails', async () => {
+    const queuedItem = {
+      id: 'queued-1',
+      input: 'Use the corrected customer segment',
+      files: [],
+      created_at: 1,
+    };
+    queueItemsMock.current = [queuedItem];
+    runtimeViewMock.isProcessing = true;
+    runtimeViewMock.canSendMessage = false;
+    sendMessageInvokeMock.mockRejectedValue(new Error('steer rejected'));
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='claude'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    const onPromote = queuePanelPropsMock.current?.onPromote as
+      | ((item: typeof queuedItem) => Promise<void>)
+      | undefined;
+    expect(onPromote).toBeTypeOf('function');
+    await act(async () => {
+      await onPromote?.(queuedItem);
+    });
+
+    expect(queueRemoveMock).toHaveBeenCalledWith('queued-1');
+    expect(queueRestoreMock).toHaveBeenCalledWith(queuedItem);
+    expect(queueUnlockMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('deduplicates rapid promotion attempts for the same queued command', async () => {
+    const queuedItem = {
+      id: 'queued-1',
+      input: 'Use the corrected customer segment',
+      files: [],
+      created_at: 1,
+    };
+    queueItemsMock.current = [queuedItem];
+    runtimeViewMock.isProcessing = true;
+    runtimeViewMock.canSendMessage = false;
+    let resolveSend: (value: unknown) => void = () => {};
+    sendMessageInvokeMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSend = resolve;
+      })
+    );
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='claude'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    const onPromote = queuePanelPropsMock.current?.onPromote as
+      | ((item: typeof queuedItem) => Promise<void>)
+      | undefined;
+    const first = onPromote?.(queuedItem);
+    const duplicate = onPromote?.(queuedItem);
+    await duplicate;
+
+    expect(queueRemoveMock).toHaveBeenCalledTimes(1);
+    expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1);
+
+    resolveSend({});
+    await act(async () => {
+      await first;
+    });
   });
 });

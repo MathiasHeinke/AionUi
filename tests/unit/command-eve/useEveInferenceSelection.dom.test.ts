@@ -14,11 +14,8 @@
  *   - a switch made on one surface propagates to others via the config
  *     subscription (header ↔ sheet ↔ GuidPage);
  *   - a greyed paid level (trialing) is NOT committable, and a previously-stored
- *     paid level auto-resets to the default (Standard) when the entitlement is trialing.
- *
- * STUFEN note (3-tier model): Standard (DeepSeek V4 Flash) is the free-eligible rung
- * — the EVE Free model AND EVE Pro's cheapest. Hoch (DeepSeek V4 Pro) + Max (GLM 5.2)
- * are the paid Pro rungs that grey out while trialing.
+ *     paid level auto-resets to the default (Standard) when neither entitlement
+ *     nor metered credits fund it.
  */
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
@@ -56,6 +53,23 @@ vi.mock('@renderer/hooks/useEntitlementGate', () => ({
   useEntitlementGate: () => ({ loading: false, status: entitlement, blocked: false, refresh: vi.fn() }),
 }));
 
+const creditsStatus: {
+  ok: boolean;
+  tier: string;
+  purchased_credits_remaining: number;
+  included_allowance_credits_remaining: number;
+  has_active_topup: boolean;
+} = {
+  ok: false,
+  tier: 'free',
+  purchased_credits_remaining: 0,
+  included_allowance_credits_remaining: 0,
+  has_active_topup: false,
+};
+vi.mock('@renderer/hooks/useCreditsStatus', () => ({
+  useCreditsStatus: () => ({ loading: false, status: creditsStatus, meter: null, refresh: vi.fn() }),
+}));
+
 import { useEveInferenceSelection } from '@renderer/hooks/agent/useEveInferenceSelection';
 import { configService } from '@/common/config/configService';
 import { EVE_DEFAULT_INFERENCE_SELECTION, eveTierValue, localTierValue } from '@/common/config/eveInferenceCore';
@@ -65,6 +79,13 @@ describe('useEveInferenceSelection', () => {
     store.clear();
     subscribers.clear();
     entitlement.trial_ends_at = null; // paid by default
+    // No authoritative credit receipt by default: existing entitlement-only
+    // tests keep exercising the compatibility path.
+    creditsStatus.ok = false;
+    creditsStatus.tier = 'free';
+    creditsStatus.purchased_credits_remaining = 0;
+    creditsStatus.included_allowance_credits_remaining = 0;
+    creditsStatus.has_active_topup = false;
     vi.clearAllMocks();
   });
 
@@ -72,7 +93,7 @@ describe('useEveInferenceSelection', () => {
     const { result } = renderHook(() => useEveInferenceSelection());
     expect(result.current.selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION);
     expect(result.current.selectedItem?.group).toBe('eve');
-    // Cloud picker rows read "Standard / Hoch / Sehr hoch / Maximum" (4-Stufen-Leiter 2026-07-04).
+    // Cloud picker rows read "Standard / Hoch / Sehr hoch / Maximum / Ultra".
     expect(result.current.selectedItem?.label).toBe('Standard');
   });
 
@@ -113,19 +134,38 @@ describe('useEveInferenceSelection', () => {
     expect(result.current.selection).toBe(eveStandard);
   });
 
-  it('greys the paid Pro rungs (Hoch + Max) while trialing and refuses to commit a greyed level', () => {
+  it('greys the paid Pro rungs through Ultra while trialing and refuses to commit them', () => {
     entitlement.trial_ends_at = '2099-01-01T00:00:00.000Z'; // trialing
+    creditsStatus.tier = 'free';
     const { result } = renderHook(() => useEveInferenceSelection());
     const eveHoch = eveTierValue('eve-high');
     const eveMax = eveTierValue('eve-max');
+    const eveUltra = eveTierValue('eve-ultra');
     expect(result.current.isSelectable(eveHoch)).toBe(false);
     expect(result.current.isSelectable(eveMax)).toBe(false);
+    expect(result.current.isSelectable(eveUltra)).toBe(false);
     act(() => result.current.commit(eveHoch));
     act(() => result.current.commit(eveMax));
+    act(() => result.current.commit(eveUltra));
     // commit is a no-op for a disabled level — selection stays at the default (Standard).
     expect(result.current.selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION);
     expect(configService.set).not.toHaveBeenCalledWith('commandEve.inferenceSelection', eveHoch);
     expect(configService.set).not.toHaveBeenCalledWith('commandEve.inferenceSelection', eveMax);
+    expect(configService.set).not.toHaveBeenCalledWith('commandEve.inferenceSelection', eveUltra);
+  });
+
+  it('keeps all metered cloud levels available when a trial-marked account owns purchased credits', () => {
+    entitlement.trial_ends_at = '2099-01-01T00:00:00.000Z';
+    creditsStatus.ok = true;
+    creditsStatus.tier = 'free';
+    creditsStatus.purchased_credits_remaining = 120_000;
+
+    const { result } = renderHook(() => useEveInferenceSelection());
+
+    expect(result.current.isSelectable(eveTierValue('eve-high'))).toBe(true);
+    expect(result.current.isSelectable(eveTierValue('eve-xhigh'))).toBe(true);
+    expect(result.current.isSelectable(eveTierValue('eve-max'))).toBe(true);
+    expect(result.current.isSelectable(eveTierValue('eve-ultra'))).toBe(true);
   });
 
   it('auto-resets a previously-stored paid level (Max) to the default (Standard) when trialing', async () => {
@@ -137,7 +177,7 @@ describe('useEveInferenceSelection', () => {
   });
 
   it('auto-resets a now-removed tier (the retired eve-maximum) to the default', async () => {
-    // A user who persisted the old eve-maximum tier (removed in the 3-tier model)
+    // A user who persisted the old eve-maximum wire id
     // must not be stranded on an unresolvable selection — reset to Standard.
     store.set('commandEve.inferenceSelection', 'command-eve-inference:eve-maximum');
     entitlement.trial_ends_at = null; // paid
@@ -145,12 +185,13 @@ describe('useEveInferenceSelection', () => {
     await waitFor(() => expect(result.current.selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION));
   });
 
-  it('keeps the paid Pro rungs (Hoch + Max) selectable when paid (trial_ends_at null)', () => {
+  it('keeps the paid Pro rungs through Ultra selectable when paid (trial_ends_at null)', () => {
     const { result } = renderHook(() => useEveInferenceSelection());
     expect(result.current.isSelectable(eveTierValue('eve-high'))).toBe(true);
     expect(result.current.isSelectable(eveTierValue('eve-max'))).toBe(true);
-    act(() => result.current.commit(eveTierValue('eve-max')));
-    expect(result.current.selection).toBe(eveTierValue('eve-max'));
+    expect(result.current.isSelectable(eveTierValue('eve-ultra'))).toBe(true);
+    act(() => result.current.commit(eveTierValue('eve-ultra')));
+    expect(result.current.selection).toBe(eveTierValue('eve-ultra'));
   });
 
   it('never auto-resets a persisted paid tier for a confirmed non-trial user', async () => {

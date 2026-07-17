@@ -19,11 +19,17 @@ import {
 } from '@/renderer/pages/conversation/Messages/hooks';
 import { fetchAllConversationMessages } from '@/renderer/utils/chat/messageHistory';
 
-const { responseStreamHandlerRef } = vi.hoisted(() => ({
+const { responseStreamHandlerRef, resyncHandlerRef, connectedHandlerRef } = vi.hoisted(() => ({
   responseStreamHandlerRef: {
     current: undefined as
       | ((message: { type: string; conversation_id: string; msg_id: string; data: unknown }) => void)
       | undefined,
+  },
+  resyncHandlerRef: {
+    current: undefined as (() => void) | undefined,
+  },
+  connectedHandlerRef: {
+    current: undefined as ((event: { reconnected: boolean }) => void) | undefined,
   },
 }));
 
@@ -41,6 +47,22 @@ vi.mock('@/common', () => ({
               };
             }
           ),
+      },
+      realtimeResyncRequired: {
+        on: vi.fn().mockImplementation((handler: () => void) => {
+          resyncHandlerRef.current = handler;
+          return () => {
+            if (resyncHandlerRef.current === handler) resyncHandlerRef.current = undefined;
+          };
+        }),
+      },
+      realtimeConnected: {
+        on: vi.fn().mockImplementation((handler: (event: { reconnected: boolean }) => void) => {
+          connectedHandlerRef.current = handler;
+          return () => {
+            if (connectedHandlerRef.current === handler) connectedHandlerRef.current = undefined;
+          };
+        }),
       },
       userCreated: {
         on: vi.fn().mockReturnValue(() => {}),
@@ -165,6 +187,8 @@ describe('message merging', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     responseStreamHandlerRef.current = undefined;
+    resyncHandlerRef.current = undefined;
+    connectedHandlerRef.current = undefined;
   });
 
   afterEach(() => {
@@ -486,6 +510,96 @@ describe('message merging', () => {
       await Promise.resolve();
     });
     expect((result.current.messages[0] as IMessageText).content.content).toBe('Persisted after the retry delay');
+    expect(invoke).toHaveBeenCalledTimes(3);
+  });
+
+  it('rehydrates persisted messages after the backend reports a realtime lag', async () => {
+    const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
+    invoke.mockClear();
+    invoke
+      .mockResolvedValueOnce({
+        items: [],
+        oldest_cursor: null,
+        newest_cursor: null,
+        has_more_before: false,
+        has_more_after: false,
+      })
+      .mockResolvedValueOnce({
+        items: [],
+        oldest_cursor: null,
+        newest_cursor: null,
+        has_more_before: false,
+        has_more_after: false,
+      })
+      .mockResolvedValueOnce({
+        items: [createTextMessage('msg-recovered', 'Recovered after realtime lag')],
+        oldest_cursor: 'cursor-msg-recovered',
+        newest_cursor: 'cursor-msg-recovered',
+        has_more_before: false,
+        has_more_after: false,
+      });
+
+    const { result } = renderHook(() => useMessageCacheHarness(), { wrapper: CacheWrapper });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => resyncHandlerRef.current?.());
+    await act(async () => {
+      vi.advanceTimersByTime(75);
+      await Promise.resolve();
+      await Promise.resolve();
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect((result.current.messages[0] as IMessageText).content.content).toBe('Recovered after realtime lag');
+    expect(invoke).toHaveBeenCalledTimes(3);
+  });
+
+  it('rehydrates only after an actual WebSocket reconnect', async () => {
+    const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
+    invoke.mockClear();
+    invoke
+      .mockResolvedValueOnce({
+        items: [],
+        oldest_cursor: null,
+        newest_cursor: null,
+        has_more_before: false,
+        has_more_after: false,
+      })
+      .mockResolvedValue({
+        items: [createTextMessage('msg-reconnected', 'Recovered after reconnect')],
+        oldest_cursor: 'cursor-msg-reconnected',
+        newest_cursor: 'cursor-msg-reconnected',
+        has_more_before: false,
+        has_more_after: false,
+      });
+
+    const { result } = renderHook(() => useMessageCacheHarness(), { wrapper: CacheWrapper });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => connectedHandlerRef.current?.({ reconnected: false }));
+    await act(async () => {
+      vi.advanceTimersByTime(1_000);
+      await Promise.resolve();
+    });
+    expect(invoke).toHaveBeenCalledTimes(1);
+
+    act(() => connectedHandlerRef.current?.({ reconnected: true }));
+    await act(async () => {
+      vi.advanceTimersByTime(75);
+      await Promise.resolve();
+      await Promise.resolve();
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect((result.current.messages[0] as IMessageText).content.content).toBe('Recovered after reconnect');
     expect(invoke).toHaveBeenCalledTimes(3);
   });
 

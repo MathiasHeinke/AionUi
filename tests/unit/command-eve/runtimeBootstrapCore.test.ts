@@ -1134,6 +1134,74 @@ describe('Command EVE runtime bootstrap core', () => {
     });
   });
 
+  it('repairs a same-version Hermes install when its bundled wheel receipt is missing', async () => {
+    const harness = makeHarness({
+      ollamaInitiallyInstalled: true,
+      modelInitiallyPulled: true,
+      hermesInitiallyInstalled: '0.17.0',
+    });
+    const paths = resolveCommandEveRuntimeBootstrapPaths(harness.root);
+    fs.mkdirSync(path.join(paths.hermesVenv, 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(paths.hermesVenv, 'bin', 'python'), '#!/usr/bin/env bash\n');
+    fs.writeFileSync(path.join(paths.hermesVenv, 'bin', 'hermes'), '#!/usr/bin/env bash\n');
+    fs.chmodSync(path.join(paths.hermesVenv, 'bin', 'python'), 0o755);
+    fs.chmodSync(path.join(paths.hermesVenv, 'bin', 'hermes'), 0o755);
+
+    const resourcesPath = path.join(harness.root, 'Resources');
+    const wheelPath = path.join(resourcesPath, 'bundled-hermes', 'hermes_agent-0.17.0-py3-none-any.whl');
+    fs.mkdirSync(path.dirname(wheelPath), { recursive: true });
+    fs.writeFileSync(wheelPath, 'patched Hermes wheel\n');
+    const wheelSha256 = sha256FileIfPresent(wheelPath)!;
+
+    await withOllamaServer(async (baseUrl) => {
+      const manifestPath = writeManifest(harness.root, baseUrl);
+      const firstReceipt = await ensureCommandEveRuntimeBootstrap({
+        userDataPath: harness.root,
+        manifestPath,
+        resourcesPath,
+        expectedHermesWheelSha256: wheelSha256,
+        runner: harness.runner,
+        detachedSpawner: () => {},
+        statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+        totalMemoryBytes: 32 * 1024 ** 3,
+      });
+
+      expect(firstReceipt.status).toBe('ready');
+      expect(firstReceipt.stages.find((stage) => stage.id === 'hermes')?.detail).toContain(
+        'Repaired hermes-agent 0.17.0'
+      );
+      expect(
+        harness.commands.some((command) =>
+          command.includes(`pip install --force-reinstall --no-deps ${wheelPath}[acp]`)
+        )
+      ).toBe(true);
+      expect(harness.commands.some((command) => command.includes('pip install --upgrade pip'))).toBe(false);
+
+      const installReceipt = JSON.parse(
+        fs.readFileSync(path.join(paths.hermesRoot, 'bundled-wheel-receipt.json'), 'utf8')
+      );
+      expect(installReceipt).toMatchObject({
+        version: 'command-eve-hermes-wheel-receipt/v1',
+        package_version: '0.17.0',
+        wheel_sha256: wheelSha256,
+      });
+
+      const repairCount = harness.commands.filter((command) => command.includes('--force-reinstall')).length;
+      const secondReceipt = await ensureCommandEveRuntimeBootstrap({
+        userDataPath: harness.root,
+        manifestPath,
+        resourcesPath,
+        expectedHermesWheelSha256: wheelSha256,
+        runner: harness.runner,
+        detachedSpawner: () => {},
+        statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+        totalMemoryBytes: 32 * 1024 ** 3,
+      });
+      expect(secondReceipt.status).toBe('ready');
+      expect(harness.commands.filter((command) => command.includes('--force-reinstall'))).toHaveLength(repairCount);
+    });
+  });
+
   it('upgrades an existing Hermes runtime when its version does not match the manifest', async () => {
     const harness = makeHarness({
       ollamaInitiallyInstalled: true,

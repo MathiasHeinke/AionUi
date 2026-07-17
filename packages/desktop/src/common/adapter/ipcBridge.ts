@@ -34,7 +34,7 @@ import type {
   UpdateAssistantRequest,
 } from '../types/agent/assistantTypes';
 import type { PreviewHistoryTarget, PreviewSnapshotInfo } from '../types/office/preview';
-import type { AcpModelInfo } from '../types/platform/acpTypes';
+import type { AcpModelInfo, AcpSessionConfigOption } from '../types/platform/acpTypes';
 import type {
   CreateProviderRequest,
   FetchModelsAnonymousRequest,
@@ -53,6 +53,7 @@ import type {
   CommandEveMultimodalTtsRequest,
   CommandEveMultimodalTtsResult,
 } from '../config/eveMultimodalGatewayCore';
+import type { CommandEvePdfPrepareRequest, CommandEvePdfPrepareResult } from '../config/evePdfIntelligenceCore';
 import type {
   ITeamAgentRemovedEvent,
   ITeamAgentRenamedEvent,
@@ -255,6 +256,8 @@ export const conversation = {
     (p) => ({ status: p.status })
   ),
   responseStream: wsEmitter<IResponseMessage>('message.stream'),
+  realtimeResyncRequired: wsEmitter<{ reason?: string }>('realtime.resync_required'),
+  realtimeConnected: wsEmitter<{ reconnected?: boolean }>('realtime.connected'),
   userCreated: wsEmitter<{
     conversation_id: string;
     msg_id: string;
@@ -1677,6 +1680,11 @@ export const commandEve = {
     IBridgeResponse<CommandEveMultimodalTtsConsentBridgeResult>,
     CommandEveMultimodalTtsConsentSetRequest
   >('command-eve.multimodal-tts-consent-set'),
+  // Local-first PDF extraction. MAIN adds a private page-citation sidecar and
+  // calls the server-side OCR lane only after explicit per-send consent.
+  pdfPrepare: bridge.buildProvider<IBridgeResponse<CommandEvePdfPrepareResult>, CommandEvePdfPrepareRequest>(
+    'command-eve.pdf-prepare'
+  ),
   evaluateGateDecision: bridge.buildProvider<
     IBridgeResponse<ICommandEveGateDecision>,
     { action: ICommandEveGateAction }
@@ -2280,6 +2288,53 @@ export const mode = {
 // ACP Conversation — routed to /api/agents/* + conversation routes
 // ---------------------------------------------------------------------------
 
+type AcpConfigOptionsResponse = {
+  config_options: AcpSessionConfigOption[];
+};
+
+type AcpSetConfigOptionResponse = {
+  confirmation: 'observed' | 'command_ack';
+  config_options?: AcpSessionConfigOption[];
+};
+
+function findAcpConfigOption(
+  response: AcpConfigOptionsResponse | AcpSetConfigOptionResponse,
+  optionId: 'mode' | 'model'
+): AcpSessionConfigOption | undefined {
+  return response.config_options?.find((option) => option.id === optionId || option.category === optionId);
+}
+
+function mapModeConfigResponse(response: AcpConfigOptionsResponse | AcpSetConfigOptionResponse): {
+  mode: string;
+  initialized: boolean;
+} {
+  const option = findAcpConfigOption(response, 'mode');
+  return {
+    mode: option?.current_value ?? option?.selected_value ?? 'default',
+    initialized: true,
+  };
+}
+
+function mapModelConfigResponse(response: AcpConfigOptionsResponse | AcpSetConfigOptionResponse): {
+  model_info: AcpModelInfo | null;
+} {
+  const option = findAcpConfigOption(response, 'model');
+  if (!option) return { model_info: null };
+
+  const currentModelId = option.current_value ?? option.selected_value ?? null;
+  const currentOption = option.options?.find((candidate) => candidate.value === currentModelId);
+  return {
+    model_info: {
+      current_model_id: currentModelId,
+      current_model_label: currentOption?.name ?? currentOption?.label ?? currentModelId,
+      available_models: (option.options ?? []).map((candidate) => ({
+        id: candidate.value,
+        label: candidate.name ?? candidate.label ?? candidate.value,
+      })),
+    },
+  };
+}
+
 export const acpConversation = {
   sendMessage: conversation.sendMessage,
   responseStream: conversation.responseStream,
@@ -2343,26 +2398,38 @@ export const acpConversation = {
   checkProviderHealth: httpPost<ProviderHealthCheckResponse, ProviderHealthCheckRequest>(
     '/api/agents/provider-health-check'
   ),
-  setMode: httpPut<{ mode: string; initialized: boolean }, { conversation_id: string; mode: string }>(
-    (p) => `/api/conversations/${p.conversation_id}/mode`,
-    (p) => ({ mode: p.mode })
+  setMode: withResponseMap(
+    httpPut<AcpSetConfigOptionResponse, { conversation_id: string; mode: string }>(
+      (p) => `/api/conversations/${p.conversation_id}/config-options/mode`,
+      (p) => ({ value: p.mode })
+    ),
+    mapModeConfigResponse
   ),
-  // 404 is the expected pre-warmup response from `/api/conversations/:id/mode`
-  // and `/api/conversations/:id/model` — the agent has not attached yet, so
-  // we have nothing to read. AcpModeSelector / AcpModelSelector both fall back
-  // to handshake metadata in that case. Silence the bridge log so this
-  // ordinary state doesn't pollute Sentry breadcrumbs (ELECTRON-1BT).
-  getMode: httpGet<{ mode: string; initialized: boolean }, { conversation_id: string }>(
-    (p) => `/api/conversations/${p.conversation_id}/mode`,
-    { silentStatuses: [404] }
+  // Mode/model are stable ACP config options in AionCore. The retired legacy
+  // `/mode` and `/model` routes intentionally return 404; keeping the renderer
+  // on those routes made the selector cosmetic and left Hermes in manual mode.
+  // A 404 from config-options still means the agent is not attached yet, so
+  // callers keep their existing handshake fallback without noisy breadcrumbs.
+  getMode: withResponseMap(
+    httpGet<AcpConfigOptionsResponse, { conversation_id: string }>(
+      (p) => `/api/conversations/${p.conversation_id}/config-options`,
+      { silentStatuses: [404] }
+    ),
+    mapModeConfigResponse
   ),
-  getModel: httpGet<{ model_info: AcpModelInfo | null }, { conversation_id: string }>(
-    (p) => `/api/conversations/${p.conversation_id}/model`,
-    { silentStatuses: [404] }
+  getModel: withResponseMap(
+    httpGet<AcpConfigOptionsResponse, { conversation_id: string }>(
+      (p) => `/api/conversations/${p.conversation_id}/config-options`,
+      { silentStatuses: [404] }
+    ),
+    mapModelConfigResponse
   ),
-  setModel: httpPut<{ model_info: AcpModelInfo | null }, { conversation_id: string; model_id: string }>(
-    (p) => `/api/conversations/${p.conversation_id}/model`,
-    (p) => ({ model_id: p.model_id })
+  setModel: withResponseMap(
+    httpPut<AcpSetConfigOptionResponse, { conversation_id: string; model_id: string }>(
+      (p) => `/api/conversations/${p.conversation_id}/config-options/model`,
+      (p) => ({ value: p.model_id })
+    ),
+    mapModelConfigResponse
   ),
 };
 

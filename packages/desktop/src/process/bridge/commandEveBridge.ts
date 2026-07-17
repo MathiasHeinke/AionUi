@@ -123,11 +123,26 @@ import {
   type CommandEveMultimodalTtsRequest,
 } from '@/common/config/eveMultimodalGatewayCore';
 import {
+  buildCommandEvePdfOcrRequest,
+  COMMAND_EVE_PDF_INTELLIGENCE_VERSION,
+  COMMAND_EVE_PDF_MAX_CLOUD_RESPONSE_BYTES,
+  parseCommandEvePdfOcrResponse,
+  type CommandEvePdfPrepareRequest,
+  type CommandEvePreparedPdfDocument,
+} from '@/common/config/evePdfIntelligenceCore';
+import {
   evaluateCommandEveMultimodalTtsConsentAllowed,
   readCommandEveMultimodalTtsConsent,
   setCommandEveMultimodalTtsConsent,
   toCommandEveMultimodalTtsConsentBridgeResult,
 } from '@process/commandEve/multimodalTtsConsentCore';
+import {
+  CommandEvePdfPreparationError,
+  persistPdfSidecar,
+  prepareLocalPdf,
+  type LocalPdfPreparation,
+} from '@process/commandEve/document/pdfIntelligenceService';
+import { parseCloudOcrMarkdownPages } from '@process/commandEve/document/pdfIntelligenceCore';
 import {
   SEAT_USAGE_FUNCTION_URL,
   currentUsageMonth,
@@ -182,6 +197,10 @@ const COMMAND_EVE_MULTIMODAL_TTS_CLOUD_EGRESS_ENABLED = true;
 // Keep true only while the deployed eve-multimodal function returns a fail-closed
 // auth/provider response to no-secret smoke tests instead of 404.
 const COMMAND_EVE_MULTIMODAL_TTS_SERVER_GATEWAY_DEPLOYED = true;
+// PDF cloud OCR stays independently gated because it uploads customer document
+// bytes. Keep both true only after the edge function deployment + no-secret smoke.
+const COMMAND_EVE_PDF_CLOUD_OCR_ENABLED = true;
+const COMMAND_EVE_PDF_SERVER_GATEWAY_DEPLOYED = true;
 
 /**
  * A SELF-QUIET unavailable status returned when the credits backend cannot be
@@ -1878,6 +1897,178 @@ export function initCommandEveBridge(): void {
         }
       }
     );
+
+  // PDF intelligence (1.814): extract born-digital PDFs locally first. Only
+  // scanned/image PDFs may cross the server-side OpenRouter OCR boundary, and
+  // only after an explicit per-send renderer confirmation. MAIN owns the CEVE
+  // bearer and PDF bytes; the renderer receives private sidecar paths/receipts.
+  bridge
+    .buildProvider('command-eve.pdf-prepare')
+    .provider(async (request?: CommandEvePdfPrepareRequest | CommandEveBridgeEnvelope<CommandEvePdfPrepareRequest>) => {
+      const payload = unwrapBridgeRequest<CommandEvePdfPrepareRequest>(request);
+      const filePaths = Array.from(
+        new Set(
+          (Array.isArray(payload?.filePaths) ? payload.filePaths : []).filter((value) => typeof value === 'string')
+        )
+      );
+      const readyDocuments: CommandEvePreparedPdfDocument[] = [];
+      const preparedFiles = (): string[] => readyDocuments.map((document) => document.sidecar_path);
+      const failure = (
+        reasonCode: string,
+        message?: string,
+        options?: { requiresConsent?: boolean; pendingNames?: string[] }
+      ) => ({
+        success: false,
+        msg: reasonCode,
+        data: {
+          version: COMMAND_EVE_PDF_INTELLIGENCE_VERSION,
+          ok: false as const,
+          reason_code: reasonCode,
+          ...(message ? { message } : {}),
+          documents: readyDocuments,
+          prepared_files: preparedFiles(),
+          requires_cloud_ocr_consent: options?.requiresConsent === true,
+          ...(options?.pendingNames?.length ? { pending_source_names: options.pendingNames } : {}),
+        },
+      });
+
+      if (filePaths.length === 0 || filePaths.length > 5) {
+        return failure('EVE_PDF_BAD_FILE_COUNT', 'Select between one and five PDF files per message.');
+      }
+
+      const hermesHome = resolveActiveSeatHome(getDataPath()).hermesHome;
+      const localPreparations: LocalPdfPreparation[] = [];
+      for (const filePath of filePaths) {
+        try {
+          const prepared = await prepareLocalPdf({ filePath, hermesHome });
+          localPreparations.push(prepared);
+          if (!prepared.quality.requiresOcr || prepared.document.extraction_mode === 'cloud_ocr') {
+            readyDocuments.push(prepared.document);
+          }
+        } catch (error) {
+          const reasonCode =
+            error instanceof CommandEvePdfPreparationError ? error.reasonCode : 'EVE_PDF_LOCAL_EXTRACTION_FAILED';
+          return failure(reasonCode, error instanceof Error ? error.message.slice(0, 300) : undefined);
+        }
+      }
+
+      const pending = localPreparations.filter(
+        (prepared) => prepared.quality.requiresOcr && prepared.document.extraction_mode !== 'cloud_ocr'
+      );
+      if (pending.length > 0 && payload?.allowCloudOcr !== true) {
+        return failure(
+          'EVE_PDF_CLOUD_OCR_CONSENT_REQUIRED',
+          'One or more PDFs contain too little reliable local text and require explicit cloud OCR consent.',
+          {
+            requiresConsent: true,
+            pendingNames: pending.map((prepared) => prepared.document.source_name),
+          }
+        );
+      }
+
+      if (pending.length > 0) {
+        if (!COMMAND_EVE_PDF_CLOUD_OCR_ENABLED) {
+          return failure('EVE_PDF_CLOUD_OCR_NOT_ENABLED');
+        }
+        const privacyLane = payload?.privacyLane ?? 'cloud_auto';
+        const wireResult = readLicenseWire(getDataPath());
+        const gate = resolveCommandEveMultimodalGate({
+          provider: 'openrouter',
+          capability: 'document_ocr',
+          privacyLane,
+          hasServerGateway: Boolean(EVE_MULTIMODAL_FUNCTION_URL) && COMMAND_EVE_PDF_SERVER_GATEWAY_DEPLOYED,
+          hasLicense: Boolean(wireResult.ok && wireResult.wire),
+          directProviderKeyPresentInDesktop: false,
+        });
+        if (gate.ok === false) {
+          return failure(`EVE_PDF_${gate.reason.toUpperCase().replace(/-/g, '_')}`, gate.message);
+        }
+        if (!wireResult.ok || !wireResult.wire) {
+          return failure(wireResult.reason_code || 'EVE_PDF_NO_BEARER');
+        }
+
+        for (const prepared of pending) {
+          const built = buildCommandEvePdfOcrRequest({
+            fileName: prepared.document.source_name,
+            fileSha256: prepared.document.sha256,
+            pageCount: prepared.document.page_count,
+            fileDataBase64: Buffer.from(prepared.sourceBytes).toString('base64'),
+            privacyLane,
+            requestId: payload?.requestId,
+          });
+          if (built.ok === false) {
+            return failure(built.reason_code, built.message);
+          }
+
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 90_000);
+          try {
+            const response = await fetch(gate.functionUrl, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${wireResult.wire}`,
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+              },
+              redirect: 'error',
+              cache: 'no-store',
+              body: JSON.stringify(built.body),
+              signal: controller.signal,
+            });
+            const responseText = await readCommandEveLimitedResponseText(
+              response,
+              COMMAND_EVE_PDF_MAX_CLOUD_RESPONSE_BYTES
+            );
+            if (responseText.ok === false) {
+              return failure('EVE_PDF_OCR_RESPONSE_TOO_LARGE');
+            }
+            let raw: unknown = null;
+            try {
+              raw = JSON.parse(responseText.text);
+            } catch {
+              raw = null;
+            }
+            const parsed = parseCommandEvePdfOcrResponse(raw);
+            if (!response.ok || parsed.ok === false) {
+              return failure(
+                parsed.ok === false ? parsed.reason_code : `EVE_PDF_OCR_HTTP_${response.status}`,
+                parsed.ok === false ? parsed.message : undefined
+              );
+            }
+            const pages = parseCloudOcrMarkdownPages(parsed.data.artifact.text, parsed.data.document.page_count);
+            const cloudDocument = persistPdfSidecar({
+              hermesHome,
+              sourcePath: prepared.document.source_path,
+              sha256: prepared.document.sha256,
+              bytes: prepared.document.bytes,
+              pages,
+              extractionMode: 'cloud_ocr',
+              requiresOcr: false,
+            });
+            readyDocuments.push(cloudDocument);
+          } catch (error) {
+            const name = error && typeof error === 'object' && 'name' in error ? String(error.name) : '';
+            return failure(name === 'AbortError' ? 'EVE_PDF_OCR_TIMEOUT' : 'EVE_PDF_OCR_FAILED');
+          } finally {
+            clearTimeout(timer);
+          }
+        }
+      }
+
+      // Re-read no source bytes and expose no cloud payload. The only files the
+      // renderer adds to Hermes are private, deterministic Markdown sidecars.
+      return {
+        success: true,
+        data: {
+          version: COMMAND_EVE_PDF_INTELLIGENCE_VERSION,
+          ok: true as const,
+          documents: readyDocuments,
+          prepared_files: preparedFiles(),
+          cloud_ocr_used: readyDocuments.some((document) => document.extraction_mode === 'cloud_ocr'),
+          requires_cloud_ocr_consent: false as const,
+        },
+      };
+    });
 
   bridge.buildProvider('command-eve.kanban-preflight').provider(async (request?: { boardSlug?: string }) => {
     try {

@@ -12,16 +12,15 @@
  * nothing else — no raw CLI/agent picker, no raw provider/model list:
  *
  *   - Privat (lokal):   Standard (Gemma 4 E4B) · Hoch (Gemma 4 12B)
- *   - EVE Inference:    Standard · Hoch · Max
+ *   - EVE Inference:    Standard · Hoch · Sehr hoch · Maximum · Ultra
  *
  * EVE LEVELS (Stufen) — both lanes share the entry word "Standard":
- *   - Standard — FREE (DeepSeek V4 Flash). The default for a fresh chat.
- *   - Hoch — PAID (DeepSeek V4 Pro). Marked "mehr Credits".
- *   - Max / "härteste Aufgabe" — PAID + GATED (GLM 5.2). Carries a VISIBLE
- *     higher-cost badge ("höchste Kosten") so the rate is obvious before picking.
+ *   - Standard is free-eligible; Hoch through Maximum are routine metered lanes.
+ *   - Ultra is the experimental maximum-power lane and carries the only visible
+ *     high-cost warning. Concrete cloud models remain server-owned.
  *
  * When the entitlement is trialing/free (entitlementCore CEVE.v2
- * `trial_ends_at` present), EVE Hoch + EVE Max are GREYED OUT (disabled) with
+ * `trial_ends_at` present), every paid rung from EVE Hoch through Ultra is GREYED OUT with
  * a subtle "im Paid-Tarif" hint. Only EVE Standard + the two local tiers stay
  * selectable. The picker model + gating come from the pure `eveInferenceCore`.
  *
@@ -72,7 +71,7 @@ const EveInferencePicker: React.FC<{
       if (eveCloudNeedsActivation) {
         return `EVE Cloud · ${t('conversation.eveInference.needsActivation', 'Aktivierung nötig')}`;
       }
-      // The EVE cloud rows already read "EVE Standard / EVE High / EVE Max", so the
+      // The EVE cloud rows already carry their user-facing strength labels, so the
       // chip shows that label verbatim (no redundant "EVE Cloud · EVE Standard").
       // The local lane stays prefixed with "Lokal · <tier>" so the private lane is
       // never mistaken for cloud.
@@ -109,10 +108,8 @@ const EveInferencePicker: React.FC<{
                     ) : null}
                   </span>
                   <span className='flex items-center gap-6px shrink-0'>
-                    {/* Cost badge: the GATED (Maximum) level gets a loud, high-cost
-                        badge so the ~5× rate is unmistakable; the credit-consuming
-                        Max level gets a softer credit marker. Always shown,
-                        whether or not the row is greyed while trialing. */}
+                    {/* Only the experimental Ultra lane carries a cost badge.
+                        Routine metered rows stay visually quiet. */}
                     {item.costBadge ? (
                       <span
                         className={

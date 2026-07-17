@@ -127,7 +127,7 @@ export async function readInferenceSelectionFromBackendStrict(): Promise<string 
  *     → isEveInferenceSelection? → resolveWireTierFromSelection → buildEveCloudRoute
  *
  * A LOCAL selection returns `{ active: false }`. An EVE selection returns an
- * active route carrying the wire tier (standard/high/max) + license. A rejected
+ * active route carrying the wire tier (standard/high/xhigh/max/ultra) + license. A rejected
  * `readSelection` deliberately propagates: unreadable state is not equivalent to
  * an absent setting and must never become an implicit Standard or local route.
  */

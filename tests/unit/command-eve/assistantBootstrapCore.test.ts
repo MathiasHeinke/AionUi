@@ -311,7 +311,7 @@ describe('Command EVE assistant bootstrap core', () => {
       );
 
       expect(context).toContain('Aktive Inferenz-Lane: EVE Cloud, Maximum-Stufe');
-      expect(context).toContain('maximales Reasoning, höchste Qualität');
+      expect(context).toContain('maximales Reasoning, starke Agentenarbeit');
       expect(context).not.toContain(`Aktive Inferenz-Lane: ${SHIM}`);
       // The local warm-up line is explicitly framed as the fallback, not "the model".
       expect(context).toContain('Lokale Runtime (Fallback-Warmup, nur auf der lokalen Lane aktiv)');
@@ -330,9 +330,47 @@ describe('Command EVE assistant bootstrap core', () => {
       );
 
       expect(context).toContain('Active inference lane: EVE Cloud, Maximum tier');
-      expect(context).toContain('maximum reasoning, top quality');
+      expect(context).toContain('maximum reasoning, strong agent work');
       expect(context).not.toContain(`Active inference lane: ${SHIM}`);
       expect(context).toContain('Self-description:');
+    });
+
+    it('Ultra selection explicitly teaches proactive worker orchestration while preserving boundaries', () => {
+      const de = buildCommandEveAssistantFirstRunContext(
+        {
+          appVersion: '1.8.14',
+          receipt: ollamaReceipt,
+          inferenceSelection: 'command-eve-inference:eve-ultra',
+        },
+        'de-DE'
+      );
+      const en = buildCommandEveAssistantFirstRunContext(
+        {
+          appVersion: '1.8.14',
+          receipt: ollamaReceipt,
+          inferenceSelection: 'command-eve-inference:eve-ultra',
+        },
+        'en-US'
+      );
+
+      expect(de).toContain('Aktive Inferenz-Lane: EVE Cloud, Ultra-Stufe');
+      expect(de).toContain('proaktive Worker-Orchestrierung');
+      expect(de).toContain('Datenschutz- und Freigabegrenzen');
+      expect(en).toContain('Active inference lane: EVE Cloud, Ultra tier');
+      expect(en).toContain('proactive worker orchestration');
+      expect(en).toContain('privacy, and approval boundaries');
+    });
+
+    it('Maximum does not claim the Ultra worker profile', () => {
+      const context = buildCommandEveAssistantFirstRunContext(
+        {
+          appVersion: '1.8.14',
+          receipt: ollamaReceipt,
+          inferenceSelection: 'command-eve-inference:eve-max',
+        },
+        'en-US'
+      );
+      expect(context).not.toContain('Ultra execution profile');
     });
 
     it('LOCAL selection → honestly names the local model (DE)', () => {

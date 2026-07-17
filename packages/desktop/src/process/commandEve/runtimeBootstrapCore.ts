@@ -75,7 +75,8 @@ const DEFAULT_MODEL_REF = 'hf.co/tripolskypetr/Gemma-4-Uncensored-Aggressive-GGU
 const DEFAULT_HERMES_VERSION = '0.17.0';
 const DEFAULT_HERMES_PACKAGE = 'hermes-agent';
 export const COMMAND_EVE_BUNDLED_HERMES_WHEEL_SHA256 =
-  '0780b8a0e7e4d7391952378509c9ac2ac847dc9350256a3893691be90e69bd79';
+  'da80efbbb51ad5e8d5a6931b066c7df444204cf7549ecb848d80eda231f96086';
+const COMMAND_EVE_HERMES_WHEEL_RECEIPT_FILE = 'bundled-wheel-receipt.json';
 const DEFAULT_FAST_CONTEXT_LENGTH = 65_536;
 const DEFAULT_LONG_CONTEXT_LENGTH = 65_536;
 // Agent response budget. 512 was the at-cost text fence — but the SAME agent config rides
@@ -658,6 +659,8 @@ export type RuntimeBootstrapProvenance = {
     wheel_sha256?: string;
     wheel_expected_sha256?: string;
     wheel_sha256_verified?: boolean;
+    installed_wheel_sha256?: string;
+    installed_wheel_verified?: boolean;
     dependency_resolution: 'pypi_tls_on_first_boot';
     package_snapshot_status: 'pending' | 'captured' | 'unavailable';
     resolved_packages: string[];
@@ -801,7 +804,7 @@ export type RuntimeBootstrapOptions = {
 
 export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
   version: 'command-eve-capability-pack/v0',
-  release: '1.813.0',
+  release: '1.814.0',
   policy: {
     default_mode: 'proposal_only',
     secret_rule: 'Never ask for passwords, cookies, recovery codes, raw tokens or .env contents in chat.',
@@ -1173,7 +1176,7 @@ type PythonLookup = CommandLookup & {
 
 export const DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST: RuntimeBootstrapManifest = {
   version: 'command-eve-runtime-bootstrap-manifest/v0',
-  release: '1.813.0',
+  release: '1.814.0',
   hermes: {
     package: DEFAULT_HERMES_PACKAGE,
     version: DEFAULT_HERMES_VERSION,
@@ -1595,6 +1598,28 @@ const writeJsonAtomic = (file: string, data: unknown): void => {
   fs.writeFileSync(tempFile, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
   fs.renameSync(tempFile, file);
 };
+
+type HermesWheelInstallReceipt = {
+  version: 'command-eve-hermes-wheel-receipt/v1';
+  package_version: string;
+  wheel_sha256: string;
+};
+
+function readHermesWheelInstallReceipt(file: string): HermesWheelInstallReceipt | undefined {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<HermesWheelInstallReceipt>;
+    if (
+      parsed.version !== 'command-eve-hermes-wheel-receipt/v1' ||
+      typeof parsed.package_version !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(String(parsed.wheel_sha256 || ''))
+    ) {
+      return undefined;
+    }
+    return parsed as HermesWheelInstallReceipt;
+  } catch {
+    return undefined;
+  }
+}
 
 type RuntimeOutputTail = { chunks: Buffer[]; bytes: number; truncated: boolean };
 
@@ -4967,50 +4992,93 @@ export async function ensureCommandEveRuntimeBootstrap(
   const hermesInstalled = fs.existsSync(hermesConsoleBinary(paths));
   const installedHermesVersion = hermesInstalled ? await readInstalledHermesVersion(paths, runner, env) : '';
   const hermesVersionMatches = installedHermesVersion === manifest.hermes.version;
+  const hermesWheelReceiptPath = path.join(paths.hermesRoot, COMMAND_EVE_HERMES_WHEEL_RECEIPT_FILE);
+  const hermesWheelInstallReceipt = bundledHermesWheel
+    ? readHermesWheelInstallReceipt(hermesWheelReceiptPath)
+    : undefined;
+  const installedHermesWheelMatches = Boolean(
+    !bundledHermesWheel ||
+    (hermesWheelInstallReceipt?.package_version === manifest.hermes.version &&
+      hermesWheelInstallReceipt.wheel_sha256 === hermesWheelSha256)
+  );
+  const hermesRuntimeMatches = hermesInstalled && hermesVersionMatches && installedHermesWheelMatches;
+  if (runtimeProvenance.hermes && bundledHermesWheel) {
+    runtimeProvenance.hermes.installed_wheel_sha256 = hermesWheelInstallReceipt?.wheel_sha256 || '';
+    runtimeProvenance.hermes.installed_wheel_verified = installedHermesWheelMatches;
+  }
   if (mode === 'check') {
     pushStage(
-      makeStage('hermes', hermesInstalled && hermesVersionMatches ? 'pass' : 'blocked', {
-        code:
-          hermesInstalled && hermesVersionMatches
-            ? undefined
+      makeStage('hermes', hermesRuntimeMatches ? 'pass' : 'blocked', {
+        code: hermesRuntimeMatches
+          ? undefined
+          : hermesInstalled && hermesVersionMatches && !installedHermesWheelMatches
+            ? 'HERMES_WHEEL_REINSTALL_REQUIRED'
             : hermesInstalled
               ? 'HERMES_VERSION_MISMATCH'
               : 'HERMES_MISSING',
-        detail:
-          hermesInstalled && hermesVersionMatches
-            ? `Hermes ${installedHermesVersion} is installed.`
+        detail: hermesRuntimeMatches
+          ? `Hermes ${installedHermesVersion} is installed.`
+          : hermesInstalled && hermesVersionMatches && !installedHermesWheelMatches
+            ? 'The installed Hermes runtime does not match the bundled Command EVE wheel.'
             : hermesInstalled
               ? `Hermes ${installedHermesVersion || 'unknown'} is installed, but Command EVE requires ${manifest.hermes.version}.`
               : 'Hermes is not installed in the Command EVE runtime venv.',
       })
     );
-    if (!hermesInstalled || !hermesVersionMatches) {
+    if (!hermesRuntimeMatches) {
       return finishReceipt();
     }
-  } else if (!hermesInstalled || !hermesVersionMatches) {
+  } else if (!hermesRuntimeMatches) {
     const started = Date.now();
-    const pipUpgrade = await runner(pythonBinary(paths), ['-m', 'pip', 'install', '--upgrade', 'pip'], {
-      env,
-      timeoutMs: DEFAULT_STAGE_TIMEOUT_MS,
-    });
+    const sameVersionWheelRepair = Boolean(
+      bundledHermesWheel && hermesInstalled && hermesVersionMatches && !installedHermesWheelMatches
+    );
+    const pipUpgrade = sameVersionWheelRepair
+      ? { command: '', args: [], ok: true }
+      : await runner(pythonBinary(paths), ['-m', 'pip', 'install', '--upgrade', 'pip'], {
+          env,
+          timeoutMs: DEFAULT_STAGE_TIMEOUT_MS,
+        });
+    const installArgs = sameVersionWheelRepair
+      ? ['-m', 'pip', 'install', '--force-reinstall', '--no-deps', hermesSpec]
+      : ['-m', 'pip', 'install', hermesSpec];
     const install = pipUpgrade.ok
-      ? await runner(pythonBinary(paths), ['-m', 'pip', 'install', hermesSpec], {
+      ? await runner(pythonBinary(paths), installArgs, {
           env,
           timeoutMs: DEFAULT_LONG_STAGE_TIMEOUT_MS,
         })
       : pipUpgrade;
+    let wheelReceiptWritten = true;
+    if (install.ok && bundledHermesWheel && hermesWheelSha256) {
+      try {
+        writeJsonAtomic(hermesWheelReceiptPath, {
+          version: 'command-eve-hermes-wheel-receipt/v1',
+          package_version: manifest.hermes.version,
+          wheel_sha256: hermesWheelSha256,
+        } satisfies HermesWheelInstallReceipt);
+      } catch {
+        wheelReceiptWritten = false;
+      }
+    }
+    const hermesReady = install.ok && wheelReceiptWritten;
     pushStage(
-      makeStage('hermes', install.ok ? 'pass' : 'failed', {
-        code: install.ok ? undefined : 'HERMES_INSTALL_FAILED',
-        detail: install.ok
-          ? `${hermesInstalled ? 'Updated' : 'Installed'} ${manifest.hermes.package} ${manifest.hermes.version}.`
-          : scrubOutput(install.stderr || install.error),
-        command: `${pythonBinary(paths)} -m pip install ${hermesSpec}`,
+      makeStage('hermes', hermesReady ? 'pass' : 'failed', {
+        code: hermesReady ? undefined : install.ok ? 'HERMES_WHEEL_RECEIPT_WRITE_FAILED' : 'HERMES_INSTALL_FAILED',
+        detail: hermesReady
+          ? `${sameVersionWheelRepair ? 'Repaired' : hermesInstalled ? 'Updated' : 'Installed'} ${manifest.hermes.package} ${manifest.hermes.version}.`
+          : install.ok
+            ? 'Hermes was installed, but its private wheel receipt could not be persisted.'
+            : scrubOutput(install.stderr || install.error),
+        command: `${pythonBinary(paths)} ${installArgs.join(' ')}`,
         duration_ms: Date.now() - started,
       })
     );
-    if (!install.ok) {
+    if (!hermesReady) {
       return finishReceipt();
+    }
+    if (runtimeProvenance.hermes && hermesWheelSha256) {
+      runtimeProvenance.hermes.installed_wheel_sha256 = hermesWheelSha256;
+      runtimeProvenance.hermes.installed_wheel_verified = true;
     }
   } else {
     pushStage(makeStage('hermes', 'pass', { detail: `Hermes ${installedHermesVersion} already installed.` }));

@@ -25,6 +25,8 @@ interface ContextUsageIndicatorProps {
   modelId?: string;
   className?: string;
   size?: number;
+  /** Render only the ring when a parent control already owns the details menu. */
+  showDetails?: boolean;
 }
 
 const ContextUsageIndicator: React.FC<ContextUsageIndicatorProps> = ({
@@ -33,6 +35,7 @@ const ContextUsageIndicator: React.FC<ContextUsageIndicatorProps> = ({
   modelId,
   className = '',
   size = 24,
+  showDetails = true,
 }) => {
   // Model-sensitive context window. On the CLOUD lane the window follows the MODEL
   // (floored at its registry size) so the local-runtime 64k compaction cap that
@@ -68,10 +71,8 @@ const ContextUsageIndicator: React.FC<ContextUsageIndicatorProps> = ({
     return 'rgb(var(--primary-6))';
   };
 
-  // 背景圆环颜色 - 适配深浅主题
-  const getTrackColor = () => {
-    return 'var(--color-fill-3)';
-  };
+  // Background ring color adapts through the active theme token.
+  const trackColor = 'var(--color-fill-3)';
 
   // The popover body = the Claude-Code-style context + credits panel. The ring
   // itself still derives its fill from `percentage` (above); the panel owns the
@@ -80,37 +81,36 @@ const ContextUsageIndicator: React.FC<ContextUsageIndicatorProps> = ({
     <ContextCreditsPopover tokenUsage={tokenUsage} contextLimit={context_limit} modelId={modelId} />
   );
 
+  const ring = (
+    <div
+      className={`context-usage-indicator flex items-center justify-center ${showDetails ? 'cursor-pointer' : ''} ${className}`}
+      style={{ width: size, height: size }}
+    >
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ transform: 'rotate(-90deg)' }}>
+        {/* 背景圆环 */}
+        <circle cx={size / 2} cy={size / 2} r={radius} fill='none' stroke={trackColor} strokeWidth={strokeWidth} />
+        {/* 进度圆环 */}
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill='none'
+          stroke={getStrokeColor()}
+          strokeWidth={strokeWidth}
+          strokeLinecap='round'
+          strokeDasharray={circumference}
+          strokeDashoffset={strokeDashoffset}
+          style={{ transition: 'stroke-dashoffset 0.3s ease, stroke 0.3s ease' }}
+        />
+      </svg>
+    </div>
+  );
+
+  if (!showDetails) return ring;
+
   return (
     <Popover content={popoverContent} position='top' trigger='hover' className='context-usage-popover'>
-      <div
-        className={`context-usage-indicator cursor-pointer flex items-center justify-center ${className}`}
-        style={{ width: size, height: size }}
-      >
-        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ transform: 'rotate(-90deg)' }}>
-          {/* 背景圆环 */}
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            fill='none'
-            stroke={getTrackColor()}
-            strokeWidth={strokeWidth}
-          />
-          {/* 进度圆环 */}
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={radius}
-            fill='none'
-            stroke={getStrokeColor()}
-            strokeWidth={strokeWidth}
-            strokeLinecap='round'
-            strokeDasharray={circumference}
-            strokeDashoffset={strokeDashoffset}
-            style={{ transition: 'stroke-dashoffset 0.3s ease, stroke 0.3s ease' }}
-          />
-        </svg>
-      </div>
+      {ring}
     </Popover>
   );
 };

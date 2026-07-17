@@ -59,9 +59,9 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   'claude-3-haiku': 200_000,
 
   // ── Command EVE cloud lane (eve-inference → OpenRouter) ──────────────────
-  // All three EVE cloud tiers serve a 1M-context model (FACT: OpenRouter catalog
-  // 2026-06-27, context_length=1_048_576 each): Standard=DeepSeek V4 Flash,
-  // Hoch=DeepSeek V4 Pro, Max=GLM 5.2. Keyed by BOTH the model slug AND the EVE
+  // Provider-advertised context windows. Command EVE still clamps every cloud
+  // lane to the operational 256K contract below. Keyed by BOTH the model slug
+  // AND the EVE selection prefix so request-trace ids resolve truthfully.
   // selection prefix, so the fuzzy fallback resolves whichever id the request_trace
   // carries — the founder's point: GLM must NOT read as 64k like a local model.
   'z-ai/glm-5.2': 1_048_576,
@@ -71,7 +71,11 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   'deepseek-v4-pro': 1_048_576,
   'deepseek-v4-flash': 1_048_576,
   'deepseek-v4': 1_048_576,
-  'command-eve-inference': 1_048_576, // any EVE cloud tier (eve-standard/high/max)
+  'moonshotai/kimi-k2.6': 262_144,
+  'kimi-k2.6': 262_144,
+  'moonshotai/kimi-k3': 1_048_576,
+  'kimi-k3': 1_048_576,
+  'command-eve-inference': 1_048_576, // any EVE cloud tier
 
   // ── Command EVE local lane (bundled Gemma via Ollama) ────────────────────
   // FALLBACK ONLY — the live `acp_context_usage` frame reports the real runtime
@@ -107,10 +111,11 @@ export const EVE_CLOUD_CONTEXT_LIMIT = COMMAND_EVE_OPERATIONAL_CONTEXT_LIMIT;
 
 /**
  * True iff `modelId` denotes the EVE cloud inference lane (any tier:
- * standard/high/max), whose real context window is the large cloud window, NOT
+ * standard/high/xhigh/max/ultra), whose operational context window is the
+ * 256K cloud contract, NOT
  * the local-runtime `acp_context_usage.size` (which is the Ollama memory cap).
  *
- * Matches the cloud model slugs (GLM/DeepSeek), the EVE inference provider id,
+ * Matches the cloud model slugs (GLM/DeepSeek/Kimi), the EVE inference provider id,
  * and the bare wire tier values the request_trace may carry. Deliberately does
  * NOT match local Gemma ids (those keep the live 64k size as truth).
  */
@@ -123,15 +128,21 @@ export function isEveCloudModelId(modelName: string | undefined | null): boolean
     id.includes('command-eve-inference') ||
     id.includes('glm-5.2') ||
     id.includes('deepseek-v4') ||
+    id.includes('kimi-k2.6') ||
+    id.includes('kimi-k3') ||
     // The EVE Inference selection ids (and their bare tier forms) the picker
     // persists — e.g. "command-eve-inference:eve-max" (caught above) or a bare
     // "eve-max"/"eve-high"/"eve-standard" if the prefix was ever stripped.
     id === 'eve-standard' ||
     id === 'eve-high' ||
+    id === 'eve-xhigh' ||
     id === 'eve-max' ||
+    id === 'eve-ultra' ||
     id === 'standard' ||
     id === 'high' ||
-    id === 'max'
+    id === 'xhigh' ||
+    id === 'max' ||
+    id === 'ultra'
   );
 }
 

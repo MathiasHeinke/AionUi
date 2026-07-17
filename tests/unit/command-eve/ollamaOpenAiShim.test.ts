@@ -783,6 +783,37 @@ describe('Command EVE shim — EVE cloud routing', () => {
     expect(fnSeen.body?.tool_choice).toBe('auto');
   });
 
+  it('injects the bounded Ultra worker profile only for the Ultra wire tier', async () => {
+    const ollamaBaseUrl = await startFakeOpenAiServer(() => {});
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl,
+      eveRouting: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE, tier: 'ultra' }),
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: SHIM_JSON_HEADERS,
+      body: JSON.stringify({
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [{ role: 'user', content: 'audit and repair this complex project' }],
+        stream: false,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const messages = fnSeen.body?.messages as Array<{ role?: string; content?: string }>;
+    expect(messages[0].role).toBe('system');
+    expect(messages[0].content).toContain('EVE Ultra execution profile');
+    expect(messages[0].content).toContain('delegate_task');
+    expect(messages[0].content).toContain('worker slots');
+    expect(messages[0].content).toContain('Existing human gates remain binding');
+    expect(messages[1]).toEqual({ role: 'user', content: 'audit and repair this complex project' });
+  });
+
   it('omits tools on a tool-less EVE cloud turn (byte-clean, no empty array)', async () => {
     const ollamaBaseUrl = await startFakeOpenAiServer(() => {});
     const fnSeen: EveFnSeen = {};
@@ -984,12 +1015,12 @@ describe('Command EVE shim — EVE cloud routing', () => {
     expect(response.status).toBe(500);
   });
 
-  it('forwards the EVE Max wire tier VERBATIM (max → GLM 5.2), never silently downgraded to Flash', async () => {
+  it('forwards the EVE Maximum wire tier VERBATIM (max → Kimi K2.6), never silently downgraded to Flash', async () => {
     // HONEST TIER ROUTING (1.2.19) — the money-path tripwire. The deployed
-    // eve-inference routes max → z-ai/glm-5.2; the desktop must POST tier:'max'
+    // eve-inference routes max → moonshotai/kimi-k2.6; the desktop must POST tier:'max'
     // when the user picked EVE Max. The OLD shim fell back to 'standard' on any
     // empty tier, which is why OpenRouter logs showed 100% Flash. This asserts a
-    // max route POSTs tier:'max' (GLM lane), not 'standard' (Flash).
+    // max route POSTs tier:'max' (Kimi K2.6 lane), not 'standard' (Flash).
     let ollamaSeen = false;
     const ollamaBaseUrl = await startFakeOpenAiServer(() => {
       ollamaSeen = true;

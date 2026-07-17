@@ -5,7 +5,11 @@ import {
   COMMAND_EVE_ASSISTANT_ID,
   COMMAND_EVE_TITLE,
 } from '@/common/config/commandEveShell';
-import { commandEveActiveModeLabel, describeCommandEveActiveLane } from '@/common/config/eveInferenceCore';
+import {
+  commandEveActiveModeLabel,
+  describeCommandEveActiveLane,
+  resolveCommandEveActiveLane,
+} from '@/common/config/eveInferenceCore';
 
 export type CommandEveDetectedAgent = {
   id?: string;
@@ -500,6 +504,8 @@ export function buildCommandEveAssistantFirstRunContext(
   const skills = capabilityPack?.skills || [];
   const connectors = capabilityPack?.connectors || [];
   const failedStages = (receipt?.stages || []).filter((stage) => ['blocked', 'failed'].includes(stage.status));
+  const activeLane = resolveCommandEveActiveLane(context.inferenceSelection);
+  const ultraProfileActive = activeLane.kind === 'eve' && activeLane.wireTier === 'ultra';
 
   if (locale === 'de-DE') {
     const seatLinesDe = usingSeat
@@ -534,6 +540,11 @@ export function buildCommandEveAssistantFirstRunContext(
         context.inferenceSelection,
         'de-DE'
       )}`,
+      ...(ultraProfileActive
+        ? [
+            '- Ultra-Arbeitsprofil: proaktive Worker-Orchestrierung fuer komplexe Aufgaben innerhalb der vorhandenen Hardware-, Datenschutz- und Freigabegrenzen.',
+          ]
+        : []),
       // The local runtime receipt below describes ONLY the bundled local Ollama
       // warm-up. It is the active model ONLY on the local lane; on the EVE cloud
       // lane it is just the warmed-but-idle local fallback — do NOT report it as
@@ -597,6 +608,11 @@ export function buildCommandEveAssistantFirstRunContext(
       context.inferenceSelection,
       'en-US'
     )}`,
+    ...(ultraProfileActive
+      ? [
+          '- Ultra execution profile: proactive worker orchestration for complex tasks within the available hardware, privacy, and approval boundaries.',
+        ]
+      : []),
     // The local runtime receipt below describes ONLY the bundled local Ollama
     // warm-up. It is the active model ONLY on the local lane; on the EVE cloud
     // lane it is just the warmed-but-idle local fallback — do NOT report it as

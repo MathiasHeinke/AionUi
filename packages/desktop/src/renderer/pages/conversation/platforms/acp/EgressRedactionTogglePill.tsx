@@ -70,7 +70,7 @@ const EgressRedactionTogglePill: React.FC = () => {
           defaultValue:
             'Datenschutz-Filter ist AUS — sensible Daten gehen unredigiert ans Modell. Klicken zum Anschalten.',
         })}
-        className='inline-flex items-center gap-4px rd-999px border border-solid border-warning-4 bg-warning-1 px-8px py-3px text-11px text-warning-6 cursor-pointer hover:bg-warning-2'
+        className='inline-flex items-center gap-4px rd-999px border-none bg-transparent px-6px py-3px text-11px text-warning-6 outline-none cursor-pointer hover:bg-warning-1'
       >
         <Shield theme='outline' size='12' />
         <span>{t('conversation.runtimeStatus.egress.pillOff', { defaultValue: 'Datenschutz aus' })}</span>
@@ -88,7 +88,7 @@ const EgressRedactionTogglePill: React.FC = () => {
         title={t('conversation.runtimeStatus.egress.pillOnHint', {
           defaultValue: 'Datenschutz-Filter ist an. Klicken, um ihn für diesen Seat auszuschalten.',
         })}
-        className='inline-flex items-center gap-4px rd-999px border border-solid border-border-2 bg-transparent px-8px py-3px text-11px text-t-tertiary opacity-70 cursor-pointer hover:opacity-100'
+        className='inline-flex items-center gap-4px rd-999px border-none bg-transparent px-6px py-3px text-11px text-t-tertiary opacity-70 outline-none cursor-pointer hover:bg-fill-2 hover:opacity-100'
       >
         <Shield theme='outline' size='12' />
         <span>{t('conversation.runtimeStatus.egress.pillOn', { defaultValue: 'Datenschutz an' })}</span>

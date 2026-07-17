@@ -175,6 +175,7 @@ const EveComposerControl: React.FC<{
             modelId={config.modelId}
             className='eve-composer-control__ring'
             size={38}
+            showDetails={false}
           />
           <CommandEveGlyph size={17} />
         </span>
@@ -209,7 +210,7 @@ const UnifiedSendBar: React.FC<UnifiedSendBarProps> = ({
       {/* Right cluster: EVE control · mic · send. Stays on one
           row, never wraps under the send button. */}
       <div className='unified-send-bar__right flex items-center gap-6px flex-shrink-0 min-w-0 ml-auto'>
-        {busyModeSlot}
+        {busyModeSlot ? <div className='unified-send-bar__busy-slot'>{busyModeSlot}</div> : null}
         {eveControl ? (
           <EveComposerControl config={eveControl} modelSlot={modelSlot} permissionSlot={permissionSlot} />
         ) : (

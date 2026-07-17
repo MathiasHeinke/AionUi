@@ -14,31 +14,34 @@
  *
  *   - Privat (lokal):   Standard = Gemma 4 E4B, Hoch = Gemma 4 12B
  *                       (the bundled local tiers from commandEveShell.ts).
- *   - EVE Inference:    Standard, Hoch, Max (cloud, OpenAI-compatible Edge fn).
+ *   - EVE Inference:    Standard, Hoch, Sehr hoch, Maximum, Ultra
+ *                       (cloud, OpenAI-compatible Edge fn).
  *                       The user sees a level; the backend resolves the concrete
  *                       model from that level via a registry. Both lanes share
  *                       the entry word "Standard" (founder choice 2026-06-27).
  *
- * THE THREE EVE LEVELS (STUFEN):
+ * THE FIVE EVE LEVELS (STUFEN):
  *   - Standard  — FREE. DeepSeek V4 Flash. The default for a fresh chat.
  *   - Hoch      — PAID. DeepSeek V4 Pro. Consumes credits ("mehr Credits").
- *   - Max / "härteste Aufgabe" — PAID + GATED. GLM 5.2. The highest cost level:
- *     it carries a VISIBLE higher-cost badge ("höchste Kosten") so the rate vs
- *     Hoch is obvious before the user picks it.
+ *   - Sehr hoch — PAID. GLM 5.2 with high reasoning.
+ *   - Maximum   — PAID. Kimi K2.6 with maximum reasoning.
+ *   - Ultra     — PAID. Experimental Kimi K3 with maximum reasoning and
+ *                 proactive worker orchestration for genuinely complex work.
  *
  * FREE-TIER RULES (entitlement trialing/free per entitlementCore):
- *   - EVE Hoch + EVE Max are GREYED OUT (disabled, "im Paid-Tarif" hint).
+ *   - EVE Hoch + Sehr hoch + Maximum + Ultra are disabled unless a paid seat,
+ *     active top-up, or spendable metered credit balance exists.
  *   - BYOK is GREYED OUT in settings (handled at the settings surface using
  *     {@link isByokDisabledForEntitlement} from this module).
  *   - Only EVE Standard + the two local tiers are selectable.
  *
  * BACKEND LEVEL REGISTRY (no tier→level shift): the eve-inference Edge Function
  * resolves the concrete upstream model from a user-facing LEVEL via a registry
- * (levels: standard [free], high [free], max [DeepSeek V4 Pro, paid], maximum
- * [GLM 5.2, paid, gated]). After the backend wire-contract fix the wire `tier`
+ * (levels: standard, high, xhigh, max, ultra). The wire `tier`
  * this module sends IS the registry level verbatim — there is NO tier→level
- * bridge/shift any more: Standard→`standard`, Hoch→`high`, Max→`max`,
- * Maximum→`maximum`. The function looks the value up in the registry directly.
+ * bridge/shift any more: Standard→`standard`, Hoch→`high`, Sehr hoch→`xhigh`,
+ * Maximum→`max`, Ultra→`ultra`. The function looks the value up in the registry
+ * directly.
  *
  * EVE ROUTING (all levels): every EVE Inference level routes through the
  * Command EVE backend Edge Function as an OpenAI-compatible client. We model an
@@ -97,7 +100,8 @@ export const EVE_INFERENCE_TIER_SUBLABEL = 'EVE Cloud';
  * Per-level UI economics (so the picker never surprises a user about cost):
  *   - `paidOnly`        — greyed out while trialing (free tiers stay open).
  *   - `consumesCredits` — show a "verbraucht Credits" marker on the row.
- *   - `gated`           — highest cost, server-gated; show the high-cost badge.
+ *   - `gated`           — experimental/highest-cost marker; access still keys on
+ *                         paid inference entitlement, never this cosmetic flag.
  *   - `costBadge`       — short, non-secret UI badge text (e.g. "~5× Kosten").
  *
  * The two FREE levels (Standard + Hoch) carry NO cost badge; the user can pick
@@ -136,8 +140,7 @@ export const EVE_INFERENCE_TIERS = [
   },
   {
     id: 'eve-xhigh',
-    // STUFE: Sehr hoch — GLM 5.2 at HIGH reasoning effort. Same model as Maximum,
-    // one reasoning step below it (server injects reasoning.effort=high for `xhigh`).
+    // STUFE: Sehr hoch — GLM 5.2 at HIGH reasoning effort.
     label: 'Sehr hoch',
     tier: 'xhigh',
     paidOnly: true,
@@ -148,20 +151,30 @@ export const EVE_INFERENCE_TIERS = [
   },
   {
     id: 'eve-max',
-    // STUFE: Maximum / "härteste Aufgabe" — GLM 5.2 at MAX reasoning effort, highest
-    // cost (server injects reasoning.effort=max for `max`).
+    // STUFE: Maximum / "härteste Aufgabe" — stable Kimi K2.6 at MAX reasoning.
+    // This remains the strongest predictable, cost-bounded frontier lane.
     label: 'Maximum',
     tier: 'max',
     paidOnly: true,
     consumesCredits: true,
-    // VESTIGIAL (founder 2026-07-04 "wozu gaten?"): `gated` gates NOTHING —
-    // isEveTierSelectable keys only on `paidOnly`, and the cost badges are toned
-    // down/not surfaced. Kept as a legacy cosmetic flag (and to keep the field a
-    // real boolean); there is no access gate on any tier.
+    gated: false,
+    modelLabel: 'starkes Agenten-Reasoning',
+    costBadge: 'sehr hohe Kosten',
+  },
+  {
+    id: 'eve-ultra',
+    // STUFE: Ultra — experimental Kimi K3 at MAX reasoning. The Main-process
+    // request boundary adds the Ultra execution profile so Hermes proactively
+    // uses the worker slots already available under the current hardware cap for
+    // genuinely complex tasks. Existing privacy, side-effect and human gates
+    // remain binding; Ultra is more execution power, never fewer safeguards.
+    label: 'Ultra',
+    tier: 'ultra',
+    paidOnly: true,
+    consumesCredits: true,
     gated: true,
-    modelLabel: 'höchste Intelligenz',
-    /** Highest-cost badge so the rate vs Sehr hoch is obvious before picking. */
-    costBadge: 'höchste Kosten',
+    modelLabel: 'maximale Agenten-Power · experimentell',
+    costBadge: 'Ultra-Kosten',
   },
 ] as const;
 
@@ -170,17 +183,20 @@ export type EveInferenceTierId = EveInferenceTier['id'];
 export type EveInferenceWireTier = EveInferenceTier['tier'];
 
 /**
- * User-facing cloud-row labels (founder 2026-07-04): the 4-STUFEN ladder reads
- * "Standard / Hoch / Sehr hoch / Maximum" in the picker (the group header "EVE
+ * User-facing cloud-row labels: the 5-STUFEN ladder reads
+ * "Standard / Hoch / Sehr hoch / Maximum / Ultra" in the picker (the group header "EVE
  * Inference (Cloud)" already conveys the lane, so the rows drop the "EVE" prefix).
- * Sehr hoch = GLM 5.2 @ high reasoning, Maximum = GLM 5.2 @ max reasoning. This map
- * is presentation-only and does NOT change any selection value or wire `tier`.
+ * Sehr hoch = GLM 5.2 @ high reasoning, Maximum = Kimi K2.6 @ max reasoning,
+ * Ultra = experimental Kimi K3 @ max reasoning plus proactive orchestration.
+ * This map is presentation-only and does NOT change any selection value or wire
+ * `tier`.
  */
 export const EVE_INFERENCE_TIER_DISPLAY_LABELS: Record<EveInferenceWireTier, string> = {
   standard: 'Standard',
   high: 'Hoch',
   xhigh: 'Sehr hoch',
   max: 'Maximum',
+  ultra: 'Ultra',
 };
 
 export const EVE_INFERENCE_DEFAULT_TIER_ID: EveInferenceTierId = EVE_INFERENCE_TIERS[0].id;
@@ -245,7 +261,7 @@ export interface EvePickerItem {
   group: EvePickerGroupKind;
   /** Primary label (STUFE), e.g. "Standard" / "Hoch" / "Max" / "Maximum". */
   label: string;
-  /** Secondary descriptor, e.g. "Gemma 4 E4B" (local) or "DeepSeek V4 Pro". */
+  /** Secondary capability descriptor; concrete cloud model names stay server-owned. */
   sublabel?: string;
   /** True when this item is disabled for the current entitlement (greyed). */
   disabled: boolean;
@@ -253,9 +269,9 @@ export interface EvePickerItem {
   disabledReasonCode?: 'PAID_TIER_REQUIRED';
   /** True iff this is a paid level that consumes credits (show a credit marker). */
   consumesCredits?: boolean;
-  /** True iff this is the highest-cost, server-gated level (show high-cost badge). */
+  /** True iff this is the experimental/highest-cost level (show high-cost treatment). */
   gated?: boolean;
-  /** Short, non-secret cost badge text, e.g. "verbraucht Credits" / "~5× Kosten". */
+  /** Short, non-secret cost badge text, e.g. "verbraucht Credits" / "Ultra-Kosten". */
   costBadge?: string;
 }
 
@@ -327,6 +343,7 @@ export function parseEveTierIdFromSelection(value: string | null | undefined): E
  *   command-eve-inference:eve-standard → 'standard'
  *   command-eve-inference:eve-high     → 'high'
  *   command-eve-inference:eve-max      → 'max'
+ *   command-eve-inference:eve-ultra    → 'ultra'
  *
  * Returns `undefined` for a LOCAL selection or any value that does not resolve
  * to a known EVE tier (so a caller can fail-loud rather than silently meter the
@@ -464,8 +481,12 @@ const EVE_CLOUD_TIER_BLURB: Record<EveInferenceTierId, { de: string; en: string 
     en: 'deep reasoning, hard tasks',
   },
   'eve-max': {
-    de: 'maximales Reasoning, höchste Qualität',
-    en: 'maximum reasoning, top quality',
+    de: 'maximales Reasoning, starke Agentenarbeit',
+    en: 'maximum reasoning, strong agent work',
+  },
+  'eve-ultra': {
+    de: 'maximales Reasoning, proaktive Worker-Orchestrierung',
+    en: 'maximum reasoning, proactive worker orchestration',
   },
 };
 
@@ -522,6 +543,10 @@ export interface EveEntitlementView {
   trial_ends_at?: string | null;
   has_paid_seat?: boolean;
   has_active_topup?: boolean;
+  /** Live credits truth: purchased/included metered credits can fund cloud inference. */
+  has_metered_credits?: boolean;
+  /** Distinguishes an authoritative zero-credit response from an unavailable response. */
+  metered_credit_access_known?: boolean;
 }
 
 /**
@@ -559,6 +584,29 @@ export function isModelByokAllowed(entitlement: EveEntitlementView | null | unde
 }
 
 /**
+ * Whether metered EVE cloud levels are available. This is intentionally wider
+ * than BYOK: bought credits must remain spendable even when a stale trial flag
+ * is still present, while adding arbitrary provider keys stays a Pro-only gate.
+ */
+export function hasEvePaidInferenceAccess(entitlement: EveEntitlementView | null | undefined): boolean {
+  if (
+    entitlement?.has_paid_seat === true ||
+    entitlement?.has_active_topup === true ||
+    entitlement?.has_metered_credits === true
+  ) {
+    return true;
+  }
+
+  if (entitlement?.metered_credit_access_known === true) {
+    return false;
+  }
+
+  // Compatibility for an unavailable credits endpoint: retain the previously
+  // proven entitlement behavior instead of revoking access on a transient read.
+  return !isTrialingEntitlement(entitlement);
+}
+
+/**
  * UI-only BYOK lock decision with three-state credits truth. A confirmed trial
  * always locks. Otherwise an authoritative credits response may confirm that no
  * paid path exists; an unavailable response must stay unknown and cannot revoke
@@ -575,27 +623,25 @@ export function shouldDisableModelByok(
 
 /**
  * Whether a given EVE tier is selectable for the entitlement. Standard is
- * always selectable; High/Max are paid-only and disabled while trialing.
+ * always selectable; metered levels require paid inference access.
  */
 export function isEveTierSelectable(
   tier: Pick<EveInferenceTier, 'paidOnly'>,
   entitlement: EveEntitlementView | null | undefined
 ): boolean {
   if (!tier.paidOnly) return true;
-  return !isTrialingEntitlement(entitlement);
+  return hasEvePaidInferenceAccess(entitlement);
 }
 
 /**
  * Build the full two-group picker model (STUFEN) for the current entitlement.
- * Local tiers are never gated; the PAID EVE levels (Max, Maximum) are greyed
- * (disabled, PAID_TIER_REQUIRED) while trialing. The FREE levels (Standard,
- * Hoch) always stay selectable. Paid levels carry their model label as the
- * sublabel plus a visible cost badge; the GATED Maximum level carries the
- * highest-cost badge so the ~5× rate is obvious. Free levels keep the
- * cloud/external sublabel.
+ * Local tiers are never gated. EVE Standard is always selectable; Hoch, Sehr
+ * hoch, Maximum and Ultra require a paid seat, active top-up, or spendable metered
+ * credits. Cloud rows expose capability descriptors rather than concrete model
+ * names because the server owns provider and model routing.
  */
 export function buildEvePickerGroups(entitlement: EveEntitlementView | null | undefined): EvePickerGroup[] {
-  const trialing = isTrialingEntitlement(entitlement);
+  const paidInferenceAccess = hasEvePaidInferenceAccess(entitlement);
 
   const localGroup: EvePickerGroup = {
     kind: 'local',
@@ -615,25 +661,25 @@ export function buildEvePickerGroups(entitlement: EveEntitlementView | null | un
     // for the private/local lane.
     title: EVE_INFERENCE_GROUP_TITLE,
     items: EVE_INFERENCE_TIERS.map((tier) => {
-      const disabled = tier.paidOnly && trialing;
+      const disabled = tier.paidOnly && !paidInferenceAccess;
       const consumesCredits = tier.consumesCredits === true;
       const gated = tier.gated === true;
-      // Paid levels surface their model label (DeepSeek V4 Pro / GLM 5.2);
-      // free levels keep the cloud/external sublabel.
+      // Cloud rows expose capability labels; concrete model routing remains
+      // server-owned and may change without a desktop release.
       const modelLabel = 'modelLabel' in tier ? (tier.modelLabel as string) : undefined;
       const sublabel = modelLabel ?? EVE_INFERENCE_TIER_SUBLABEL;
+      const costBadge = gated && 'costBadge' in tier ? (tier.costBadge as string) : undefined;
       return {
         value: eveTierValue(tier.id),
         group: 'eve' as const,
-        // Cloud rows read "EVE Standard / EVE High / EVE Max" (the group header
-        // "EVE Inference (Cloud)" already conveys the lane). Founder mandate:
-        // tone down the cost/upsell — the per-row cost badges ("mehr Credits",
-        // "höchste Kosten") are intentionally NOT surfaced here. `consumesCredits`
-        // / `gated` flags are still carried for any non-picker logic.
+        // The group header already conveys the EVE cloud lane. Founder mandate:
+        // Keep routine metered rows quiet. Ultra alone exposes its explicit
+        // high-cost warning because it is experimental and materially dearer.
         label: EVE_INFERENCE_TIER_DISPLAY_LABELS[tier.tier],
         sublabel,
         disabled,
         ...(disabled ? { disabledReasonCode: 'PAID_TIER_REQUIRED' as const } : {}),
+        ...(costBadge ? { costBadge } : {}),
         consumesCredits,
         gated,
       };
@@ -725,14 +771,13 @@ function buildFreeLaneItems(): EvePickerItem[] {
  * Build the three-lane picker view (Lokal · EVE Free · EVE Pro) for the current
  * entitlement. Founder rules (2026-06-27): Lokal is offered to EVERYONE (the
  * privacy lane, downloadable models); a TRIAL/free user gets Lokal + EVE Free
- * selectable and EVE Pro LOCKED (all three rungs shown greyed, with an upgrade
+ * selectable and EVE Pro LOCKED (all five rungs shown greyed, with an upgrade
  * affordance); a PAYING user no longer sees EVE Free (hidden) and EVE Pro becomes
- * selectable. EVE Pro = Standard (DeepSeek V4 Flash, cheapest) · Hoch (DeepSeek V4
- * Pro) · Max (GLM 5.2), increasing credit cost — pick the intelligence, the server
- * meters it. Pure presentation over the existing tiers — no wire/tier change.
+ * selectable. EVE Pro = Standard · Hoch · Sehr hoch · Maximum · Ultra with increasing
+ * reasoning/cost; the server owns the concrete model registry and metering.
  */
 export function buildEveLaneViews(entitlement: EveEntitlementView | null | undefined): PickerLaneView[] {
-  const trialing = isTrialingEntitlement(entitlement);
+  const paidInferenceAccess = hasEvePaidInferenceAccess(entitlement);
   return [
     {
       lane: 'local',
@@ -746,18 +791,18 @@ export function buildEveLaneViews(entitlement: EveEntitlementView | null | undef
       title: 'EVE Free',
       accent: 'blue',
       // Paying (non-trial) users no longer see the Free lane.
-      state: trialing ? 'available' : 'hidden',
+      state: paidInferenceAccess ? 'hidden' : 'available',
       items: buildFreeLaneItems(),
     },
     {
       lane: 'pro',
       title: 'EVE Pro',
       accent: 'gold',
-      // Trial/free: all three rungs SHOWN but greyed + upgrade. Paid: selectable.
+      // Trial/free: all five rungs SHOWN but greyed + upgrade. Paid: selectable.
       // EVE Pro includes the Standard rung (same model as Free) so the full
       // intelligence ladder lives in one lane.
-      state: trialing ? 'locked' : 'available',
-      items: EVE_INFERENCE_TIERS.map((tier) => eveTierToProItem(tier, trialing)),
+      state: paidInferenceAccess ? 'available' : 'locked',
+      items: EVE_INFERENCE_TIERS.map((tier) => eveTierToProItem(tier, !paidInferenceAccess)),
     },
   ];
 }

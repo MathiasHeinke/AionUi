@@ -21,7 +21,7 @@
 
 export const EVE_MULTIMODAL_FUNCTION_URL = 'https://unvbeothoimlzlolxucl.supabase.co/functions/v1/eve-multimodal';
 
-export type CommandEveMultimodalProvider = 'xai';
+export type CommandEveMultimodalProvider = 'xai' | 'openrouter';
 
 export type CommandEveMultimodalCapability =
   | 'vision'
@@ -29,7 +29,8 @@ export type CommandEveMultimodalCapability =
   | 'video_generation'
   | 'tts'
   | 'stt'
-  | 'realtime_voice';
+  | 'realtime_voice'
+  | 'document_ocr';
 
 export type CommandEveMultimodalEndpointKind =
   | 'responses'
@@ -37,9 +38,10 @@ export type CommandEveMultimodalEndpointKind =
   | 'video_generation_async'
   | 'tts_binary'
   | 'stt_binary'
-  | 'realtime_ephemeral';
+  | 'realtime_ephemeral'
+  | 'document_processing';
 
-export type CommandEveMultimodalArtifactKind = 'text' | 'image' | 'video' | 'audio';
+export type CommandEveMultimodalArtifactKind = 'text' | 'image' | 'video' | 'audio' | 'document';
 
 export type CommandEvePrivacyLane = 'local_only' | 'cloud_auto' | 'cloud_us' | 'cloud_eu' | 'cloud_de';
 
@@ -57,7 +59,7 @@ export type CommandEveMultimodalContract = {
   model: string;
   endpointKind: CommandEveMultimodalEndpointKind;
   artifactKind: CommandEveMultimodalArtifactKind;
-  residencyLane: 'us_cloud';
+  residencyLane: 'us_cloud' | 'global_cloud';
   requiresServerSideProviderKey: true;
   requiresEphemeralClientToken: boolean;
   execution: 'sync' | 'async_poll' | 'websocket';
@@ -83,7 +85,7 @@ export type CommandEveMultimodalGateResult =
       ok: true;
       functionUrl: string;
       contract: CommandEveMultimodalContract;
-      residencyConfirmation: 'explicit-us-cloud' | 'server-must-confirm-us-cloud';
+      residencyConfirmation: 'explicit-us-cloud' | 'server-must-confirm-us-cloud' | 'zdr-enforced-global';
     }
   | {
       ok: false;
@@ -266,7 +268,10 @@ export const COMMAND_EVE_GROK_SMART_PLUS_PROFILE: CommandEveGrokSmartPlusProfile
   requiresVisibleSafetyReceipt: true,
 };
 
-export const XAI_MULTIMODAL_CONTRACTS: Record<CommandEveMultimodalCapability, CommandEveMultimodalContract> = {
+export const XAI_MULTIMODAL_CONTRACTS: Record<
+  Exclude<CommandEveMultimodalCapability, 'document_ocr'>,
+  CommandEveMultimodalContract
+> = {
   vision: {
     provider: 'xai',
     capability: 'vision',
@@ -339,6 +344,19 @@ export const XAI_MULTIMODAL_CONTRACTS: Record<CommandEveMultimodalCapability, Co
     requiresEphemeralClientToken: true,
     execution: 'websocket',
   },
+};
+
+export const OPENROUTER_PDF_MULTIMODAL_CONTRACT: CommandEveMultimodalContract = {
+  provider: 'openrouter',
+  capability: 'document_ocr',
+  model: 'google/gemini-2.5-flash',
+  endpointKind: 'document_processing',
+  artifactKind: 'document',
+  residencyLane: 'global_cloud',
+  requiresServerSideProviderKey: true,
+  requiresEphemeralClientToken: false,
+  execution: 'sync',
+  maxInputBytes: 12 * 1024 * 1024,
 };
 
 const MULTIMODAL_PRIVACY_LANES: readonly CommandEvePrivacyLane[] = [
@@ -742,7 +760,10 @@ export function getCommandEveMultimodalContract(
   provider: CommandEveMultimodalProvider,
   capability: CommandEveMultimodalCapability
 ): CommandEveMultimodalContract | undefined {
-  if (provider !== 'xai') return undefined;
+  if (provider === 'openrouter') {
+    return capability === 'document_ocr' ? OPENROUTER_PDF_MULTIMODAL_CONTRACT : undefined;
+  }
+  if (capability === 'document_ocr') return undefined;
   return XAI_MULTIMODAL_CONTRACTS[capability];
 }
 
@@ -754,6 +775,13 @@ function residencyBlockedMessage(privacyLane: CommandEvePrivacyLane): string {
     return 'xAI multimodal is currently a US cloud lane; German cloud routing is not available for this provider yet.';
   }
   return 'xAI multimodal is not allowed while local-only privacy mode is active.';
+}
+
+function openRouterResidencyBlockedMessage(privacyLane: CommandEvePrivacyLane): string {
+  if (privacyLane === 'local_only') {
+    return 'OpenRouter document OCR is blocked while local-only privacy mode is active.';
+  }
+  return 'OpenRouter document OCR is currently an explicit global ZDR cloud lane; US, EU and German residency are not claimed.';
 }
 
 export function resolveCommandEveMultimodalGate(input: CommandEveMultimodalGateInput): CommandEveMultimodalGateResult {
@@ -779,16 +807,26 @@ export function resolveCommandEveMultimodalGate(input: CommandEveMultimodalGateI
     return {
       ok: false,
       reason: 'local-only-privacy',
-      message: residencyBlockedMessage(input.privacyLane),
+      message:
+        input.provider === 'openrouter'
+          ? openRouterResidencyBlockedMessage(input.privacyLane)
+          : residencyBlockedMessage(input.privacyLane),
       contract,
     };
   }
 
-  if (!isCommandEveMultimodalUsCloudLaneAvailable(input.privacyLane)) {
+  const residencyAvailable =
+    input.provider === 'openrouter'
+      ? input.privacyLane === 'cloud_auto'
+      : isCommandEveMultimodalUsCloudLaneAvailable(input.privacyLane);
+  if (!residencyAvailable) {
     return {
       ok: false,
       reason: 'residency-unavailable',
-      message: residencyBlockedMessage(input.privacyLane),
+      message:
+        input.provider === 'openrouter'
+          ? openRouterResidencyBlockedMessage(input.privacyLane)
+          : residencyBlockedMessage(input.privacyLane),
       contract,
     };
   }
@@ -797,7 +835,8 @@ export function resolveCommandEveMultimodalGate(input: CommandEveMultimodalGateI
     return {
       ok: false,
       reason: 'missing-server-gateway',
-      message: 'Command EVE multimodal requires the server-side eve-multimodal gateway before xAI can be used.',
+      message:
+        'Command EVE multimodal requires the server-side eve-multimodal gateway before a managed provider can be used.',
       contract,
     };
   }
@@ -815,7 +854,12 @@ export function resolveCommandEveMultimodalGate(input: CommandEveMultimodalGateI
     ok: true,
     functionUrl: EVE_MULTIMODAL_FUNCTION_URL,
     contract,
-    residencyConfirmation: input.privacyLane === 'cloud_auto' ? 'server-must-confirm-us-cloud' : 'explicit-us-cloud',
+    residencyConfirmation:
+      input.provider === 'openrouter'
+        ? 'zdr-enforced-global'
+        : input.privacyLane === 'cloud_auto'
+          ? 'server-must-confirm-us-cloud'
+          : 'explicit-us-cloud',
   };
 }
 

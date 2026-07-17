@@ -15,8 +15,8 @@
  *   - read/persist the choice from/to `commandEve.inferenceSelection`
  *     (configService) so a switch made anywhere takes effect on the next turn
  *     (the send-path shim re-reads the live selection per request);
- *   - build the two-group picker model gated by the live entitlement
- *     (EVE High/Max greyed while trialing) via the pure `eveInferenceCore`;
+ *   - build the two-group picker model gated by live entitlement and credit
+ *     truth (all metered levels remain available while bought credits exist);
  *   - expose the current display label + a `commit` that resets a now-disabled
  *     paid tier back to EVE Standard.
  *
@@ -36,6 +36,7 @@ import {
   type EvePickerItem,
 } from '@/common/config/eveInferenceCore';
 import { useEntitlementGate } from '@renderer/hooks/useEntitlementGate';
+import { useCreditsStatus } from '@renderer/hooks/useCreditsStatus';
 import { isElectronDesktop } from '@renderer/utils/platform';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -54,9 +55,9 @@ export interface UseEveInferenceSelectionResult {
   isSelectable: (value: string) => boolean;
   /**
    * Whether the EVE Inference (cloud) lane has a usable license bearer at rest.
-   * `true` = activated, cloud routes; `false` = entitled-but-no-wire (a send on
-   * an EVE tier SILENTLY falls back to local), so the surface must read
-   * "Aktivierung nötig" rather than lie "EVE Cloud"; `undefined` = unknown
+   * `true` = activated, cloud routes; `false` = no usable cloud bearer, so the
+   * surface must read "Aktivierung nötig" rather than lie "EVE Cloud";
+   * `undefined` = unknown
    * (loading / non-desktop / transient read error) → do NOT degrade the label.
    */
   cloudBearerAvailable: boolean | undefined;
@@ -70,6 +71,26 @@ export interface UseEveInferenceSelectionResult {
  */
 export function useEveInferenceSelection(onChange?: (selection: string) => void): UseEveInferenceSelectionResult {
   const { status } = useEntitlementGate();
+  const { status: creditsStatus } = useCreditsStatus();
+
+  const pickerEntitlement = useMemo(() => {
+    const creditsAreAuthoritative = creditsStatus?.ok === true;
+    const purchasedCredits = Number(creditsStatus?.purchased_credits_remaining ?? 0);
+    const includedCredits = Number(creditsStatus?.included_allowance_credits_remaining ?? 0);
+    const hasMeteredCredits =
+      creditsAreAuthoritative &&
+      (creditsStatus?.has_active_topup === true ||
+        creditsStatus?.tier !== 'free' ||
+        purchasedCredits > 0 ||
+        includedCredits > 0);
+
+    return {
+      ...status,
+      has_active_topup: creditsStatus?.has_active_topup === true,
+      has_metered_credits: hasMeteredCredits,
+      metered_credit_access_known: creditsAreAuthoritative,
+    };
+  }, [creditsStatus, status]);
 
   const [selection, setSelection] = useState<string>(() => {
     // Default to EVE Standard (cloud) for a fresh user; local Gemma is opt-in.
@@ -86,8 +107,7 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
   }, []);
 
   // Bearer presence for the EVE (cloud) lane. The header chip + picker must tell
-  // the TRUTH: an EVE tier with NO license wire silently falls back to local on
-  // send (useGuidSend), so showing a confident "EVE Cloud · Hoch" would lie.
+  // the truth: without a license wire, showing "EVE Cloud · Hoch" would lie.
   // `undefined` stays the safe default (don't degrade on a transient/unknown read).
   const [cloudBearerAvailable, setCloudBearerAvailable] = useState<boolean | undefined>(undefined);
   const refreshBearer = useCallback(async () => {
@@ -115,7 +135,7 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
     return () => window.removeEventListener('focus', onFocus);
   }, [refreshBearer]);
 
-  const groups = useMemo(() => buildEvePickerGroups(status), [status]);
+  const groups = useMemo(() => buildEvePickerGroups(pickerEntitlement), [pickerEntitlement]);
   const items = useMemo(() => groups.flatMap((g) => g.items), [groups]);
 
   const selectedRaw = useMemo(() => items.find((i) => i.value === selection), [items, selection]);
@@ -143,9 +163,9 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
 
   // Reset to the safe default (EVE Standard) once when the active selection is no
   // longer usable, so no surface shows a stranded value as "active":
-  //  - a paid EVE tier that trialing just greyed out (disabled), OR
+  //  - a metered EVE tier that is no longer funded (disabled), OR
   //  - a now-UNKNOWN EVE selection (e.g. the retired `eve-maximum` tier removed in
-  //    the 3-tier model) that resolves to no picker item.
+  //    the retired `eve-maximum` id) that resolves to no picker item.
   useEffect(() => {
     const fallback = eveTierValue(EVE_INFERENCE_DEFAULT_TIER_ID);
     const isUnknownEve = isEveInferenceSelection(selection) && !items.some((item) => item.value === selection);

@@ -167,6 +167,32 @@ describe('Command EVE Windows runtime paths', () => {
     expect(auth).toContain('os.getenv("HERMES_COPILOT_ACP_ARGS"');
     expect(auth).toContain('args = shlex.split(raw_args)');
   });
+
+  it("binds ACP Don't Ask to session-scoped command approvals without bypassing hardline guards", async () => {
+    const wheelPath = path.resolve('resources', 'bundled-hermes', 'hermes_agent-0.17.0-py3-none-any.whl');
+    const [server, approval] = await Promise.all([
+      readWheelEntry(wheelPath, 'acp_adapter/server.py'),
+      readWheelEntry(wheelPath, 'tools/approval.py'),
+    ]);
+
+    expect(server).toContain('def _sync_terminal_approval_mode(self, state: SessionState)');
+    expect(server).toContain('enable_session_yolo(state.session_id)');
+    expect(server).toContain('disable_session_yolo(state.session_id)');
+    expect(server.match(/self\._sync_terminal_approval_mode\(state\)/g)).toHaveLength(3);
+    expect(server).not.toContain('approvals.mode = "off"');
+
+    const guardStart = approval.indexOf('def check_all_command_guards(');
+    const guardEnd = approval.indexOf('\ndef ', guardStart + 1);
+    const commandGuards = approval.slice(guardStart, guardEnd);
+    expect(guardStart).toBeGreaterThanOrEqual(0);
+    expect(commandGuards.indexOf('detect_hardline_command(command)')).toBeGreaterThanOrEqual(0);
+    expect(commandGuards.indexOf('_check_sudo_stdin_guard(command)')).toBeGreaterThan(
+      commandGuards.indexOf('detect_hardline_command(command)')
+    );
+    expect(commandGuards.indexOf('is_current_session_yolo_enabled()')).toBeGreaterThan(
+      commandGuards.indexOf('_check_sudo_stdin_guard(command)')
+    );
+  });
 });
 
 describe('Command EVE Windows process cleanup', () => {

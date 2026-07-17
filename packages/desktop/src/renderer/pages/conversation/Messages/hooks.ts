@@ -927,19 +927,41 @@ export const useMessageLstCache = (key: string) => {
     let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
     let reconcileSequence = 0;
 
-    const scheduleReconcile = (sequence: number, terminalMessageId: string, attempt: number, delay: number) => {
+    const scheduleReconcile = (
+      sequence: number,
+      terminalMessageId: string,
+      attempt: number,
+      delay: number,
+      minimumAttempts = 1
+    ) => {
       reconcileTimer = setTimeout(() => {
         reconcileTimer = null;
         void reconcileMessages(terminalMessageId)
           .then((foundTerminalMessage) => {
-            if (sequence !== reconcileSequence || foundTerminalMessage || attempt >= TERMINAL_RECONCILE_MAX_ATTEMPTS) {
+            if (
+              sequence !== reconcileSequence ||
+              (foundTerminalMessage && attempt >= minimumAttempts) ||
+              attempt >= TERMINAL_RECONCILE_MAX_ATTEMPTS
+            ) {
               return;
             }
-            scheduleReconcile(sequence, terminalMessageId, attempt + 1, TERMINAL_RECONCILE_RETRY_DELAY_MS);
+            scheduleReconcile(
+              sequence,
+              terminalMessageId,
+              attempt + 1,
+              TERMINAL_RECONCILE_RETRY_DELAY_MS,
+              minimumAttempts
+            );
           })
           .catch((error) => {
             if (sequence === reconcileSequence && attempt < TERMINAL_RECONCILE_MAX_ATTEMPTS) {
-              scheduleReconcile(sequence, terminalMessageId, attempt + 1, TERMINAL_RECONCILE_RETRY_DELAY_MS);
+              scheduleReconcile(
+                sequence,
+                terminalMessageId,
+                attempt + 1,
+                TERMINAL_RECONCILE_RETRY_DELAY_MS,
+                minimumAttempts
+              );
               return;
             }
             console.error('[useMessageLstCache] Failed to reconcile completed turn:', error);
@@ -947,7 +969,7 @@ export const useMessageLstCache = (key: string) => {
       }, delay);
     };
 
-    const unsubscribe = ipcBridge.conversation.responseStream.on((message) => {
+    const unsubscribeResponse = ipcBridge.conversation.responseStream.on((message) => {
       if (message.conversation_id !== key || (message.type !== 'finish' && message.type !== 'error')) {
         return;
       }
@@ -960,9 +982,24 @@ export const useMessageLstCache = (key: string) => {
       scheduleReconcile(reconcileSequence, message.msg_id, 1, TERMINAL_RECONCILE_DELAY_MS);
     });
 
+    const scheduleRecoveryReconcile = () => {
+      if (reconcileTimer) clearTimeout(reconcileTimer);
+      reconcileSequence += 1;
+      // Two reads cover the short window in which the durable relay is still
+      // persisting events that the realtime transport could not deliver.
+      scheduleReconcile(reconcileSequence, '', 1, TERMINAL_RECONCILE_DELAY_MS, 2);
+    };
+
+    const unsubscribeResync = ipcBridge.conversation.realtimeResyncRequired.on(scheduleRecoveryReconcile);
+    const unsubscribeConnected = ipcBridge.conversation.realtimeConnected.on(({ reconnected }) => {
+      if (reconnected) scheduleRecoveryReconcile();
+    });
+
     return () => {
       reconcileSequence += 1;
-      unsubscribe();
+      unsubscribeResponse();
+      unsubscribeResync();
+      unsubscribeConnected();
       if (reconcileTimer) clearTimeout(reconcileTimer);
     };
   }, [key, reconcileMessages]);

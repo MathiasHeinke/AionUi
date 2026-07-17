@@ -23,9 +23,26 @@ mkdir -p "$OUTPUT_DIR"
 # 1) Copy all distributables (unique file names)
 # ---------------------------------------------------------------------------
 echo "==> Copying distributables from $ARTIFACTS_DIR ..."
-mapfile -t DISTRIBUTABLES < <(find "$ARTIFACTS_DIR" -type f \( \
+
+# Windows remains a private Phase-B pilot until its signed clean-machine gates
+# are complete. The public release preparer must fail closed if a pilot artifact
+# is ever mixed into this input directory.
+WINDOWS_PUBLIC_ASSETS=$(find "$ARTIFACTS_DIR" -type f \( \
   -name "*.exe" -o \
   -name "*.msi" -o \
+  -name "latest.yml" -o \
+  -name "latest-win-*.yml" -o \
+  -name "*-win-*.zip" -o \
+  -name "aionui-web-*-win-*.tar.gz" -o \
+  -name "aionui-web-*-win-*.tar.gz.sha256" \
+\) | sort || true)
+if [ -n "$WINDOWS_PUBLIC_ASSETS" ]; then
+  echo "::error::Windows pilot artifacts must not enter the public release lane:"
+  echo "$WINDOWS_PUBLIC_ASSETS"
+  exit 1
+fi
+
+mapfile -t DISTRIBUTABLES < <(find "$ARTIFACTS_DIR" -type f \( \
   -name "*.dmg" -o \
   -name "*.deb" -o \
   -name "*.zip" \
@@ -77,8 +94,6 @@ fi
 # ---------------------------------------------------------------------------
 echo "==> Collecting updater metadata ..."
 
-WIN_X64_LATEST=$(find "$ARTIFACTS_DIR" -type f -path "*/windows-build-x64/*" -name "latest.yml" | sort | head -n 1 || true)
-WIN_ARM64_LATEST=$(find "$ARTIFACTS_DIR" -type f -path "*/windows-build-arm64/*" -name "latest.yml" | sort | head -n 1 || true)
 MAC_X64_LATEST=$(find "$ARTIFACTS_DIR" -type f -path "*/macos-build-x64/*" -name "latest-mac.yml" | sort | head -n 1 || true)
 MAC_ARM64_LATEST=$(find "$ARTIFACTS_DIR" -type f -path "*/macos-build-arm64/*" -name "latest-mac.yml" | sort | head -n 1 || true)
 LINUX_X64_LATEST=$(find "$ARTIFACTS_DIR" -type f -path "*/linux-build-x64/*" -name "latest-linux.yml" | sort | head -n 1 || true)
@@ -90,7 +105,6 @@ LINUX_ARM64_LATEST=$(find "$ARTIFACTS_DIR" -type f -path "*/linux-build-arm64/*"
 # ---------------------------------------------------------------------------
 echo "==> Writing canonical updater metadata ..."
 
-[ -n "$WIN_X64_LATEST" ]    && cp -f "$WIN_X64_LATEST"    "$OUTPUT_DIR/latest.yml"
 [ -n "$MAC_X64_LATEST" ]    && cp -f "$MAC_X64_LATEST"    "$OUTPUT_DIR/latest-mac.yml"
 [ -n "$LINUX_X64_LATEST" ]  && cp -f "$LINUX_X64_LATEST"  "$OUTPUT_DIR/latest-linux.yml"
 [ -n "$LINUX_ARM64_LATEST" ] && cp -f "$LINUX_ARM64_LATEST" "$OUTPUT_DIR/latest-linux-arm64.yml"
@@ -99,8 +113,6 @@ echo "==> Writing canonical updater metadata ..."
 # 4) Architecture-specific metadata required by electron-updater
 # ---------------------------------------------------------------------------
 echo "==> Writing architecture-specific updater metadata ..."
-
-[ -n "$WIN_ARM64_LATEST" ]  && cp -f "$WIN_ARM64_LATEST"  "$OUTPUT_DIR/latest-win-arm64.yml"
 
 # electron-updater on macOS constructs the yml filename as "${channel}-mac.yml".
 # For arm64, channel is "latest-arm64", so it looks for "latest-arm64-mac.yml".
@@ -112,7 +124,7 @@ echo "==> Writing architecture-specific updater metadata ..."
 echo "==> Validating required metadata ..."
 
 MISSING=0
-for required in latest.yml latest-mac.yml latest-linux.yml latest-linux-arm64.yml; do
+for required in latest-mac.yml latest-linux.yml latest-linux-arm64.yml; do
   if [ ! -f "$OUTPUT_DIR/$required" ]; then
     echo "::error::Missing required updater metadata: $required"
     MISSING=1
@@ -130,7 +142,6 @@ WEB_PLATFORMS=(
   "darwin-x86_64"
   "linux-arm64"
   "linux-x86_64"
-  "win-x86_64"
 )
 
 for plat in "${WEB_PLATFORMS[@]}"; do

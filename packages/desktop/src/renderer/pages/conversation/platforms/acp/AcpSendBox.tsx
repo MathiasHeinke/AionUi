@@ -59,7 +59,8 @@ import { iconColors } from '@/renderer/styles/colors';
 import { emitter, useAddEventListener } from '@/renderer/utils/emitter';
 import { mergeFileSelectionItems } from '@/renderer/utils/file/fileSelection';
 import { buildDisplayMessage } from '@/renderer/utils/file/messageFiles';
-import { Message, Tag } from '@arco-design/web-react';
+import { isCommandEvePdfPath, mergeCommandEvePreparedPdfFiles } from '@/common/config/evePdfIntelligenceCore';
+import { Message, Modal, Tag } from '@arco-design/web-react';
 import { Brain, EditOne, MagicHat, Shield, Time } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -155,6 +156,8 @@ const AcpSendBox: React.FC<{
   const [isMobileSheetOpen, setIsMobileSheetOpen] = useState(false);
   const [currentMode, setCurrentMode] = useState<string | undefined>(session_mode);
   const [busySendMode, setBusySendMode] = useState<ConversationBusyControlMode>('queue');
+  const promotingQueuedCommandIdsRef = useRef(new Set<string>());
+  const [promotingQueuedCommandIds, setPromotingQueuedCommandIds] = useState<ReadonlySet<string>>(() => new Set());
   const prepareRuntimeSync = useCallback(async () => {
     if (teamPermission) {
       await teamPermission.warmupSession();
@@ -450,6 +453,7 @@ Please check your local CLI tool authentication status`,
     hasPendingCommands,
     enqueue,
     remove,
+    restore,
     clear,
     reorder,
     pause,
@@ -510,9 +514,77 @@ Please check your local CLI tool authentication status`,
     [busySendMode, conversation_id, enqueue, executeCommand, hasPendingCommands, isBusy, runtimeView.isProcessing]
   );
 
+  const preparePdfFiles = useCallback(
+    async (files: string[]): Promise<string[] | null> => {
+      if (!isEveConversation) return files;
+      const pdfFiles = files.filter(isCommandEvePdfPath);
+      if (pdfFiles.length === 0) return files;
+
+      const invoke = (allowCloudOcr: boolean) =>
+        ipcBridge.commandEve.pdfPrepare.invoke({
+          filePaths: pdfFiles,
+          allowCloudOcr,
+          privacyLane: 'cloud_auto',
+          requestId: `pdf-${Date.now().toString(36)}`,
+        });
+      try {
+        let response = await invoke(false);
+        if (response.success && response.data?.ok) {
+          return mergeCommandEvePreparedPdfFiles(files, response.data.documents);
+        }
+
+        const initialFailure = response.data?.ok === false ? response.data : undefined;
+        if (initialFailure?.requires_cloud_ocr_consent !== true) {
+          Message.error({
+            content: initialFailure?.message || t('conversation.pdf.prepareFailed'),
+            duration: 6000,
+          });
+          return null;
+        }
+
+        const approved = await new Promise<boolean>((resolve) => {
+          Modal.confirm({
+            title: t('conversation.pdf.cloudOcrTitle'),
+            content: t('conversation.pdf.cloudOcrDescription', {
+              files: initialFailure.pending_source_names?.join(', ') || t('conversation.pdf.selectedDocuments'),
+            }),
+            okText: t('conversation.pdf.cloudOcrConfirm'),
+            cancelText: t('common.cancel'),
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false),
+            closable: true,
+          });
+        });
+        if (!approved) return null;
+
+        response = await invoke(true);
+        if (!response.success || !response.data?.ok) {
+          const cloudFailure = response.data?.ok === false ? response.data : undefined;
+          Message.error({
+            content: cloudFailure?.message || t('conversation.pdf.cloudOcrFailed'),
+            duration: 6000,
+          });
+          return null;
+        }
+        return mergeCommandEvePreparedPdfFiles(files, response.data.documents);
+      } catch (error) {
+        Message.error({
+          content: getConversationRuntimeWorkspaceErrorMessage(error, t) || t('conversation.pdf.prepareFailed'),
+          duration: 6000,
+        });
+        return null;
+      }
+    },
+    [isEveConversation, t]
+  );
+
   const onSendHandler = async (message: string) => {
     const atPathFiles = atPath.map((item) => (typeof item === 'string' ? item : item.path));
     const allFiles = [...uploadFile, ...atPathFiles];
+
+    const preparedFiles = await preparePdfFiles(allFiles);
+    // A cancelled/failed OCR gate must leave the draft and selected files intact.
+    if (preparedFiles === null) return;
 
     clearFiles();
     emitter.emit('acp.selected.file.clear');
@@ -542,12 +614,12 @@ Please check your local CLI tool authentication status`,
       // video request at exactly the spec the user approved.
       videoCostWall.requestVideo({}, (resolved) => {
         const resolvedMessage = buildResolvedVideoMessage(message, resolved);
-        void dispatchMessage(resolvedMessage, allFiles);
+        void dispatchMessage(resolvedMessage, preparedFiles);
       });
       return;
     }
 
-    await dispatchMessage(message, allFiles);
+    await dispatchMessage(message, preparedFiles);
   };
 
   const handleEditQueuedCommand = useCallback(
@@ -559,6 +631,71 @@ Please check your local CLI tool authentication status`,
       emitter.emit('acp.selected.file.clear');
     },
     [remove, setAtPath, setContent, setUploadFile]
+  );
+
+  const handlePromoteQueuedCommand = useCallback(
+    async (item: ConversationCommandQueueItem) => {
+      if (item.files.length > 0) {
+        Message.warning(
+          t('conversation.commandQueue.promoteFilesUnsupported', {
+            defaultValue: 'Corrections with files stay queued.',
+          })
+        );
+        return;
+      }
+
+      if (!runtimeView.isProcessing) {
+        return;
+      }
+
+      if (promotingQueuedCommandIdsRef.current.has(item.id) || isQueueInteractionLocked) {
+        return;
+      }
+
+      promotingQueuedCommandIdsRef.current.add(item.id);
+      setPromotingQueuedCommandIds(new Set(promotingQueuedCommandIdsRef.current));
+      lockInteraction();
+
+      try {
+        // Remove before dispatch so a double click cannot send the same correction
+        // twice. A failed dispatch restores the exact item below.
+        await remove(item.id);
+        const correction = buildConversationBusyControlCommand({ input: item.input, mode: 'steer' });
+        if (!correction) {
+          throw new Error('Queued correction is empty.');
+        }
+        await ipcBridge.acpConversation.sendMessage.invoke({
+          input: correction.input,
+          conversation_id,
+          files: [],
+        });
+        emitter.emit('chat.history.refresh');
+      } catch (error) {
+        await restore(item);
+        Message.error({
+          content:
+            parseError(error) ||
+            t('conversation.commandQueue.promoteFailed', {
+              defaultValue: 'The correction could not be pushed into the current run.',
+            }),
+          duration: 5000,
+        });
+      } finally {
+        promotingQueuedCommandIdsRef.current.delete(item.id);
+        setPromotingQueuedCommandIds(new Set(promotingQueuedCommandIdsRef.current));
+        unlockInteraction();
+      }
+    },
+    [
+      conversation_id,
+      isQueueInteractionLocked,
+      lockInteraction,
+      remove,
+      restore,
+      runtimeView.isProcessing,
+      t,
+      unlockInteraction,
+    ]
   );
 
   const appendSelectedFiles = useCallback(
@@ -823,11 +960,13 @@ Please check your local CLI tool authentication status`,
         items={queuedCommands}
         paused={isQueuePaused}
         interactionLocked={isQueueInteractionLocked}
+        promotingCommandIds={promotingQueuedCommandIds}
         onPause={pause}
         onResume={resume}
         onInteractionLock={lockInteraction}
         onInteractionUnlock={unlockInteraction}
         onEdit={handleEditQueuedCommand}
+        onPromote={runtimeView.isProcessing ? handlePromoteQueuedCommand : undefined}
         onReorder={reorder}
         onRemove={remove}
         onClear={clear}

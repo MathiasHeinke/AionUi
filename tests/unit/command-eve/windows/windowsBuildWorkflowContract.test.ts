@@ -34,7 +34,15 @@ type WorkflowStep = {
 
 type WorkflowDocument = {
   env?: Record<string, string>;
-  jobs: Record<string, { steps?: WorkflowStep[]; with?: Record<string, unknown> }>;
+  jobs: Record<
+    string,
+    {
+      if?: string;
+      steps?: WorkflowStep[];
+      strategy?: { matrix?: unknown };
+      with?: Record<string, unknown>;
+    }
+  >;
 };
 
 function parseWorkflow(relativePath: string): WorkflowDocument {
@@ -63,10 +71,13 @@ describe('Command EVE Windows build workflow contract', () => {
     expect(workflow.env?.AIONUI_HUB_TAG).toBeUndefined();
   });
 
-  it('builds one pinned Command EVE AionCore source commit for every desktop platform', () => {
+  it('keeps Windows in the private pilot while public releases stay Mac/Linux only', () => {
     const reusable = read('.github/workflows/_build-reusable.yml');
     const releaseDocument = parseWorkflow('.github/workflows/build-and-release.yml');
     const distributionDocument = parseWorkflow('.github/workflows/release-distribute.yml');
+    const packWebWorkflow = read('.github/workflows/pack-web-cli.yml');
+    const packWebDocument = parseWorkflow('.github/workflows/pack-web-cli.yml');
+    const assetPreparer = read('scripts/prepare-release-assets.sh');
     const releaseMatrix = releaseDocument.jobs['build-pipeline']?.with?.matrix;
     if (typeof releaseMatrix !== 'string') throw new Error('Release build matrix must be a JSON string');
     const releasePlatforms = (JSON.parse(releaseMatrix) as { include: Array<{ platform: string }> }).include.map(
@@ -80,13 +91,23 @@ describe('Command EVE Windows build workflow contract', () => {
     expect(reusable).toContain('cargo build --locked --release --target "$AIONCORE_RUST_TARGET" -p aionui-app');
     expect(reusable).toContain('scripts/aioncoreSourceBuild.cjs bind');
     expect(releasePlatforms).toContain('macos-arm64');
-    expect(releasePlatforms).toContain('windows-x64');
+    expect(releasePlatforms).not.toContain('windows-x64');
     expect(releasePlatforms).not.toContain('windows-arm64');
-    expect(metadataStep.run).toContain('dist/latest.yml');
+    expect(metadataStep.run).not.toContain('dist/latest.yml');
     expect(metadataStep.run).not.toContain('dist/latest-win-arm64.yml');
     expect(metadataStep.run).toContain('dist/latest-arm64-mac.yml');
     expect(metadataStep.run).toContain('metadata_version');
     expect(metadataStep.run).toContain('expected $VERSION');
+    expect(
+      distributionDocument.jobs.distribute.steps?.some((step) => step.name === 'Reject Windows pilot assets')
+    ).toBe(true);
+    const packWebJob = packWebDocument.jobs['pack-web-cli'];
+    expect(packWebJob?.if).not.toContain('matrix.platform');
+    expect(packWebJob?.strategy?.matrix).toEqual(expect.stringContaining('fromJSON(inputs.include_windows &&'));
+    expect(packWebWorkflow).toContain('"platform":"win32"');
+    expect(assetPreparer).toContain('Windows pilot artifacts must not enter the public release lane');
+    expect(assetPreparer).not.toContain('for required in latest.yml');
+    expect(assetPreparer).not.toContain('"win-x86_64"');
   });
 
   it('uploads the complete Windows proof packet instead of installer-only output', () => {

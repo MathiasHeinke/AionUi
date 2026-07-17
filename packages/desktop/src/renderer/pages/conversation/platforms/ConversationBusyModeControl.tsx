@@ -1,4 +1,4 @@
-import { Radio, Tooltip } from '@arco-design/web-react';
+import { Radio } from '@arco-design/web-react';
 import { EditOne, Time } from '@icon-park/react';
 import React from 'react';
 import { useTranslation } from 'react-i18next';
@@ -14,42 +14,45 @@ type ConversationBusyModeControlProps = {
 const ConversationBusyModeControl: React.FC<ConversationBusyModeControlProps> = ({ visible, value, onChange }) => {
   const { t } = useTranslation();
 
-  if (!visible) {
-    return null;
-  }
-
   const queueLabel = t('conversation.commandQueue.busyModeQueue', { defaultValue: 'Afterwards' });
   const steerLabel = t('conversation.commandQueue.busyModeSteer', { defaultValue: 'Correction' });
+  const queueTooltip = t('conversation.commandQueue.busyModeQueueTooltip', {
+    defaultValue: 'Send after the current run finishes.',
+  });
+  const steerTooltip = t('conversation.commandQueue.busyModeSteerTooltip', {
+    defaultValue: 'Push into the current run after the next tool step.',
+  });
 
   return (
-    <div className='conversation-busy-mode-control' data-testid='conversation-busy-mode-control'>
+    <div
+      className={`conversation-busy-mode-control ${visible ? 'is-visible' : 'is-hidden'}`}
+      data-testid='conversation-busy-mode-control'
+      aria-hidden={!visible}
+    >
       <Radio.Group
         type='button'
         size='mini'
         value={value}
+        disabled={!visible}
         onChange={(nextValue) => onChange(nextValue as ConversationBusyControlMode)}
         aria-label={t('conversation.commandQueue.busyModeAria', { defaultValue: 'Busy send mode' })}
       >
-        <Tooltip
-          mini
-          content={t('conversation.commandQueue.busyModeQueueTooltip', {
-            defaultValue: 'Send after the current run finishes.',
-          })}
+        <Radio
+          value='queue'
+          aria-label={queueLabel}
+          title={`${queueLabel}: ${queueTooltip}`}
+          data-testid='conversation-busy-mode-queue'
         >
-          <Radio value='queue' aria-label={queueLabel} data-testid='conversation-busy-mode-queue'>
-            <Time theme='outline' size='15' aria-hidden='true' />
-          </Radio>
-        </Tooltip>
-        <Tooltip
-          mini
-          content={t('conversation.commandQueue.busyModeSteerTooltip', {
-            defaultValue: 'Push into the current run after the next tool step.',
-          })}
+          <Time theme='outline' size='16' aria-hidden='true' />
+        </Radio>
+        <Radio
+          value='steer'
+          aria-label={steerLabel}
+          title={`${steerLabel}: ${steerTooltip}`}
+          data-testid='conversation-busy-mode-steer'
         >
-          <Radio value='steer' aria-label={steerLabel} data-testid='conversation-busy-mode-steer'>
-            <EditOne theme='outline' size='15' aria-hidden='true' />
-          </Radio>
-        </Tooltip>
+          <EditOne theme='outline' size='16' aria-hidden='true' />
+        </Radio>
       </Radio.Group>
     </div>
   );

@@ -66,6 +66,8 @@ describe('EgressRedactionTogglePill — persistent "Datenschutz aus" waiver badg
     render(<EgressRedactionTogglePill />);
     expect(screen.getByText('Datenschutz an')).toBeInTheDocument();
     expect(screen.queryByText('Datenschutz aus')).toBeNull();
+    expect(screen.getByText('Datenschutz an').closest('button')).toHaveClass('border-none');
+    expect(screen.getByText('Datenschutz an').closest('button')).not.toHaveClass('border-solid');
   });
 
   it('dismisses the disable-confirm popover on an outside click (1.7.1 polish)', () => {

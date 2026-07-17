@@ -32,7 +32,7 @@ function licenseWire(expiresAt: string | null = '2027-07-07T00:00:00.000Z'): str
   const payload = buildLicensePayloadV2({
     edition: 'standard',
     serial: 'code-1',
-    tenant_serial: 'tenant-1',
+    tenant_serial: '00000000-0000-4000-8000-000000000001',
     issued_at: NOWISH,
     expires_at: expiresAt,
     trial_ends_at: null,
@@ -67,6 +67,47 @@ function disableTtsProvider(): void {
 function enableTtsProvider(apiKey = 'test-xai-key'): void {
   Deno.env.set('EVE_MULTIMODAL_ENABLE_XAI_TTS', 'true');
   Deno.env.set('XAI_API_KEY', apiKey);
+}
+
+function disablePdfOcrProvider(): void {
+  Deno.env.delete('EVE_MULTIMODAL_ENABLE_OPENROUTER_PDF_OCR');
+  Deno.env.delete('EVE_MULTIMODAL_OPENROUTER_PDF_MODEL');
+  Deno.env.delete('EVE_MULTIMODAL_PDF_OCR_TIMEOUT_MS');
+  Deno.env.delete('OPENROUTER_API_KEY');
+}
+
+function enablePdfOcrProvider(apiKey = 'test-openrouter-key'): void {
+  Deno.env.set('EVE_MULTIMODAL_ENABLE_OPENROUTER_PDF_OCR', 'true');
+  Deno.env.set('OPENROUTER_API_KEY', apiKey);
+}
+
+function pdfRequestBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const bytes = new TextEncoder().encode('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF');
+  return {
+    provider: 'openrouter',
+    capability: 'document_ocr',
+    privacyLane: 'cloud_auto',
+    directProviderKeyPresentInDesktop: false,
+    file_name: 'meeting.pdf',
+    file_sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+    file_data_base64: btoa(String.fromCharCode(...bytes)),
+    page_count: 2,
+    requestId: 'req_pdf',
+    ...overrides,
+  };
+}
+
+function allowPdfOcrUsage() {
+  return Promise.resolve({
+    ok: true as const,
+    allowed: true,
+    reason: 'reserved',
+    tenantUnits: 2,
+    tenantCap: 500,
+    globalUnits: 2,
+    globalCap: 10_000,
+    replayed: false,
+  });
 }
 
 Deno.test('answers CORS preflight without license verification', async () => {
@@ -482,5 +523,240 @@ Deno.test('times out slow TTS provider requests', async () => {
     assertEquals(body.reason, 'provider-timeout');
   } finally {
     disableTtsProvider();
+  }
+});
+
+Deno.test('keeps OpenRouter PDF OCR provider-disabled until the server gate is enabled', async () => {
+  try {
+    disablePdfOcrProvider();
+    let fetchCalls = 0;
+    const response = await handleEveMultimodal(request(pdfRequestBody()), {
+      fetch: () => {
+        fetchCalls += 1;
+        return Promise.resolve(new Response('{}'));
+      },
+    });
+    const body = await response.json();
+
+    assertEquals(fetchCalls, 0);
+    assertEquals(response.status, 501);
+    assertEquals(body.reason, 'provider-not-enabled');
+    assertEquals(body.provider, 'openrouter');
+  } finally {
+    disablePdfOcrProvider();
+  }
+});
+
+Deno.test('requires an OpenRouter key only on the server before PDF OCR can run', async () => {
+  try {
+    Deno.env.set('EVE_MULTIMODAL_ENABLE_OPENROUTER_PDF_OCR', 'true');
+    Deno.env.delete('OPENROUTER_API_KEY');
+    const response = await handleEveMultimodal(request(pdfRequestBody()));
+    const body = await response.json();
+
+    assertEquals(response.status, 503);
+    assertEquals(body.reason, 'provider-not-configured');
+    assertEquals(body.provider, 'openrouter');
+  } finally {
+    disablePdfOcrProvider();
+  }
+});
+
+Deno.test('calls OpenRouter PDF OCR with ZDR and returns page-cited markdown without echoing PDF bytes', async () => {
+  try {
+    enablePdfOcrProvider();
+    const inputBody = pdfRequestBody();
+    let fetchCalls = 0;
+    const fetchStub: typeof fetch = (input, init) => {
+      fetchCalls += 1;
+      const headers = init?.headers as Record<string, string>;
+      const payload = JSON.parse(String(init?.body));
+
+      assertEquals(String(input), 'https://openrouter.ai/api/v1/chat/completions');
+      assertEquals(headers.Authorization, 'Bearer test-openrouter-key');
+      assertEquals(payload.model, 'google/gemini-2.5-flash');
+      assertEquals(payload.provider, { zdr: true, data_collection: 'deny' });
+      assertEquals(payload.plugins, [{ id: 'file-parser', pdf: { engine: 'mistral-ocr' } }]);
+      assertEquals(payload.messages[0].content[1].type, 'file');
+      assertEquals(payload.messages[0].content[1].file.filename, 'meeting.pdf');
+      assertEquals(
+        payload.messages[0].content[1].file.file_data,
+        `data:application/pdf;base64,${inputBody.file_data_base64}`
+      );
+
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: '## Page 1\n\nAlpha\n\n## Page 2\n\nBeta',
+                  annotations: [
+                    {
+                      type: 'file',
+                      file: { hash: 'openrouter-file-hash', name: 'meeting.pdf', content: [] },
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        )
+      );
+    };
+
+    let usageGateCalls = 0;
+    const response = await handleEveMultimodal(request(inputBody), {
+      fetch: fetchStub,
+      reservePdfOcrUsage: (input) => {
+        usageGateCalls += 1;
+        assertEquals(input.tenantId, '00000000-0000-4000-8000-000000000001');
+        assertEquals(input.pages, 2);
+        assertEquals(input.tenantCap, 500);
+        assertEquals(input.globalCap, 10_000);
+        assertEquals(/^[a-f0-9]{64}$/.test(input.requestFingerprint), true);
+        return allowPdfOcrUsage();
+      },
+    });
+    const body = await response.json();
+
+    assertEquals(fetchCalls, 1);
+    assertEquals(usageGateCalls, 1);
+    assertEquals(response.status, 200);
+    assertEquals(body.ok, true);
+    assertEquals(body.provider, 'openrouter');
+    assertEquals(body.artifact.text, '## Page 1\n\nAlpha\n\n## Page 2\n\nBeta');
+    assertEquals(body.document, {
+      engine: 'mistral-ocr',
+      model: 'google/gemini-2.5-flash',
+      page_count: 2,
+      parsed_file_hash: 'openrouter-file-hash',
+      zdr_enforced: true,
+      data_collection: 'deny',
+    });
+    assertEquals(body.residency.confirmation, 'zdr-enforced-global');
+    assertEquals(body.usage, {
+      metering: 'daily-page-cap',
+      pages_reserved: 2,
+      tenant_pages_used_today: 2,
+      tenant_page_cap: 500,
+      global_pages_used_today: 2,
+      global_page_cap: 10_000,
+    });
+    assertEquals(JSON.stringify(body).includes(String(inputBody.file_data_base64)), false);
+    assertEquals(JSON.stringify(body).includes('test-openrouter-key'), false);
+  } finally {
+    disablePdfOcrProvider();
+  }
+});
+
+Deno.test('rejects a mismatched PDF hash before calling OpenRouter', async () => {
+  try {
+    enablePdfOcrProvider();
+    let fetchCalls = 0;
+    const response = await handleEveMultimodal(request(pdfRequestBody({ file_sha256: '0'.repeat(64) })), {
+      fetch: () => {
+        fetchCalls += 1;
+        return Promise.resolve(new Response('{}'));
+      },
+    });
+    const body = await response.json();
+
+    assertEquals(fetchCalls, 0);
+    assertEquals(response.status, 400);
+    assertEquals(body.reason, 'pdf-sha256-mismatch');
+  } finally {
+    disablePdfOcrProvider();
+  }
+});
+
+Deno.test('fails closed when OpenRouter omits trustworthy physical page boundaries', async () => {
+  try {
+    enablePdfOcrProvider();
+    const fetchStub: typeof fetch = () =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: 'This response has no page boundaries.' } }],
+            provider_debug: 'must-not-leak',
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        )
+      );
+
+    const response = await handleEveMultimodal(request(pdfRequestBody()), {
+      fetch: fetchStub,
+      reservePdfOcrUsage: allowPdfOcrUsage,
+    });
+    const body = await response.json();
+
+    assertEquals(response.status, 502);
+    assertEquals(body.reason, 'provider-page-boundaries-unavailable');
+    assertEquals(JSON.stringify(body).includes('must-not-leak'), false);
+  } finally {
+    disablePdfOcrProvider();
+  }
+});
+
+Deno.test('blocks PDF OCR before provider egress when the daily page gate is exhausted', async () => {
+  try {
+    enablePdfOcrProvider();
+    let fetchCalls = 0;
+    const response = await handleEveMultimodal(request(pdfRequestBody()), {
+      fetch: () => {
+        fetchCalls += 1;
+        return Promise.resolve(new Response('{}'));
+      },
+      reservePdfOcrUsage: () =>
+        Promise.resolve({
+          ok: true,
+          allowed: false,
+          reason: 'tenant-daily-cap',
+          tenantUnits: 500,
+          tenantCap: 500,
+          globalUnits: 900,
+          globalCap: 10_000,
+          replayed: false,
+        }),
+    });
+    const body = await response.json();
+
+    assertEquals(fetchCalls, 0);
+    assertEquals(response.status, 429);
+    assertEquals(body.reason, 'pdf-ocr-daily-cap');
+  } finally {
+    disablePdfOcrProvider();
+  }
+});
+
+Deno.test('rejects a replayed PDF OCR reservation before a second provider call', async () => {
+  try {
+    enablePdfOcrProvider();
+    let fetchCalls = 0;
+    const response = await handleEveMultimodal(request(pdfRequestBody()), {
+      fetch: () => {
+        fetchCalls += 1;
+        return Promise.resolve(new Response('{}'));
+      },
+      reservePdfOcrUsage: () =>
+        Promise.resolve({
+          ok: true,
+          allowed: false,
+          reason: 'request-replayed',
+          tenantUnits: 2,
+          tenantCap: 500,
+          globalUnits: 2,
+          globalCap: 10_000,
+          replayed: true,
+        }),
+    });
+    const body = await response.json();
+
+    assertEquals(fetchCalls, 0);
+    assertEquals(response.status, 409);
+    assertEquals(body.reason, 'request-replayed');
+  } finally {
+    disablePdfOcrProvider();
   }
 });

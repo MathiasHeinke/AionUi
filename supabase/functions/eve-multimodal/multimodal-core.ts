@@ -1,9 +1,8 @@
 // Command EVE — eve-multimodal gateway core (pure).
 //
-// This is the server-side skeleton contract for xAI/Grok multimodal work. It is
-// intentionally not a provider client yet: successful auth + request validation
-// still returns provider-not-enabled so no xAI call can accidentally ship before
-// the gateway has residency, cost, artifact, and timeout controls.
+// This is the pure server-side contract for xAI/Grok and OpenRouter multimodal
+// work. Successful validation returns provider-not-enabled; the handler may
+// execute only capabilities that have an explicit, server-side feature gate.
 
 export type EveMultimodalCapability =
   | 'vision'
@@ -11,11 +10,14 @@ export type EveMultimodalCapability =
   | 'video_generation'
   | 'tts'
   | 'stt'
-  | 'realtime_voice';
+  | 'realtime_voice'
+  | 'document_ocr';
+
+export type EveMultimodalProvider = 'xai' | 'openrouter';
 
 export type EveMultimodalPrivacyLane = 'local_only' | 'cloud_auto' | 'cloud_us' | 'cloud_eu' | 'cloud_de';
 
-export type EveMultimodalArtifactKind = 'text' | 'image' | 'video' | 'audio';
+export type EveMultimodalArtifactKind = 'text' | 'image' | 'video' | 'audio' | 'document';
 
 export type EveMultimodalReason =
   | 'invalid-request'
@@ -36,8 +38,8 @@ export type EveMultimodalRequestBody = {
 
 export type EveMultimodalResidencyReceipt = {
   requestedPrivacyLane: EveMultimodalPrivacyLane;
-  effectiveResidency: 'us_cloud';
-  confirmation: 'explicit-us-cloud' | 'server-must-confirm-us-cloud';
+  effectiveResidency: 'us_cloud' | 'global_cloud';
+  confirmation: 'explicit-us-cloud' | 'server-must-confirm-us-cloud' | 'zdr-enforced-global';
 };
 
 export type EveMultimodalArtifactEnvelope = {
@@ -52,10 +54,17 @@ export type EveMultimodalTtsReceipt = {
   output_format: { codec: 'mp3' };
 };
 
+export type EveMultimodalDocumentReceipt = {
+  engine: 'mistral-ocr';
+  file_sha256: string;
+  input_bytes: number;
+  page_count: number;
+};
+
 export type EveMultimodalSkeletonResponse = {
   ok: false;
   gateway: 'eve-multimodal';
-  provider: 'xai';
+  provider: EveMultimodalProvider;
   reason: EveMultimodalReason;
   message: string;
   checked_at: string;
@@ -64,6 +73,7 @@ export type EveMultimodalSkeletonResponse = {
   residency?: EveMultimodalResidencyReceipt;
   artifact?: EveMultimodalArtifactEnvelope;
   tts?: EveMultimodalTtsReceipt;
+  document?: EveMultimodalDocumentReceipt;
   license?: { verified: true; edition: string };
 };
 
@@ -85,6 +95,7 @@ const CAPABILITIES = Object.freeze([
   'tts',
   'stt',
   'realtime_voice',
+  'document_ocr',
 ] as const);
 
 const PRIVACY_LANES = Object.freeze(['local_only', 'cloud_auto', 'cloud_us', 'cloud_eu', 'cloud_de'] as const);
@@ -96,9 +107,11 @@ const ARTIFACT_BY_CAPABILITY: Record<EveMultimodalCapability, EveMultimodalArtif
   tts: 'audio',
   stt: 'text',
   realtime_voice: 'audio',
+  document_ocr: 'document',
 };
 
 export const EVE_MULTIMODAL_TTS_MAX_TEXT_CHARS = 15_000;
+export const EVE_MULTIMODAL_PDF_MAX_BYTES = 12 * 1024 * 1024;
 
 const FORBIDDEN_PROVIDER_KEY_FIELDS = new Set([
   'apiKey',
@@ -147,14 +160,17 @@ function response(
   reason: EveMultimodalReason,
   message: string,
   args: DecideEveMultimodalArgs,
-  extra: Partial<Pick<EveMultimodalSkeletonResponse, 'capability' | 'residency' | 'artifact' | 'tts'>> = {}
+  extra: Partial<
+    Pick<EveMultimodalSkeletonResponse, 'capability' | 'residency' | 'artifact' | 'tts' | 'document'>
+  > = {},
+  provider: EveMultimodalProvider = 'xai'
 ): EveMultimodalDecision {
   return {
     status,
     body: {
       ok: false,
       gateway: 'eve-multimodal',
-      provider: 'xai',
+      provider,
       reason,
       message,
       checked_at: args.now,
@@ -170,6 +186,76 @@ function residencyReceipt(privacyLane: EveMultimodalPrivacyLane): EveMultimodalR
     effectiveResidency: 'us_cloud',
     confirmation: privacyLane === 'cloud_auto' ? 'server-must-confirm-us-cloud' : 'explicit-us-cloud',
   };
+}
+
+function openRouterResidencyReceipt(privacyLane: EveMultimodalPrivacyLane): EveMultimodalResidencyReceipt {
+  return {
+    requestedPrivacyLane: privacyLane,
+    effectiveResidency: 'global_cloud',
+    confirmation: 'zdr-enforced-global',
+  };
+}
+
+function isSha256(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+}
+
+function stripAsciiControlCharacters(value: string): string {
+  let cleaned = '';
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    if (codePoint !== undefined && codePoint > 0x1f && codePoint !== 0x7f) cleaned += character;
+  }
+  return cleaned;
+}
+
+function cleanPdfFileName(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  const base = value.trim().replace(/\\/g, '/').split('/').pop() || '';
+  if (!base.toLowerCase().endsWith('.pdf')) return '';
+  return stripAsciiControlCharacters(base).slice(0, 180);
+}
+
+function decodePdfBase64(value: unknown): Uint8Array | null {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.length % 4 !== 0 ||
+    !/^[A-Za-z0-9+/]+={0,2}$/.test(value)
+  ) {
+    return null;
+  }
+  try {
+    const binary = atob(value);
+    if (binary.length === 0 || binary.length > EVE_MULTIMODAL_PDF_MAX_BYTES || !binary.startsWith('%PDF-')) return null;
+    return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  } catch {
+    return null;
+  }
+}
+
+export type EveMultimodalPdfInput = {
+  fileName: string;
+  fileSha256: string;
+  pageCount: number;
+  bytes: Uint8Array;
+};
+
+export function extractEveMultimodalPdfInput(body: unknown): EveMultimodalPdfInput | null {
+  if (!isRecord(body)) return null;
+  const fileName = cleanPdfFileName(body.file_name);
+  const bytes = decodePdfBase64(body.file_data_base64);
+  const pageCount = body.page_count;
+  if (
+    !fileName ||
+    !bytes ||
+    !isSha256(body.file_sha256) ||
+    !Number.isInteger(pageCount) ||
+    Number(pageCount) < 1 ||
+    Number(pageCount) > 500
+  )
+    return null;
+  return { fileName, fileSha256: body.file_sha256, pageCount: Number(pageCount), bytes };
 }
 
 function ttsReceiptFromBody(body: Record<string, unknown>):
@@ -212,7 +298,12 @@ export function decideEveMultimodalSkeletonRequest(args: DecideEveMultimodalArgs
   }
 
   const provider = args.body.provider ?? 'xai';
-  if (provider !== 'xai' || !isCapability(args.body.capability)) {
+  if (
+    (provider !== 'xai' && provider !== 'openrouter') ||
+    !isCapability(args.body.capability) ||
+    (provider === 'openrouter' && args.body.capability !== 'document_ocr') ||
+    (provider === 'xai' && args.body.capability === 'document_ocr')
+  ) {
     return response(400, 'unsupported-capability', 'Unsupported eve-multimodal provider or capability.', args);
   }
 
@@ -229,7 +320,8 @@ export function decideEveMultimodalSkeletonRequest(args: DecideEveMultimodalArgs
       'invalid-request',
       'Unknown privacyLane. Valid lanes: local_only, cloud_auto, cloud_us, cloud_eu, cloud_de.',
       args,
-      { capability }
+      { capability },
+      provider
     );
   }
   const base = {
@@ -246,7 +338,8 @@ export function decideEveMultimodalSkeletonRequest(args: DecideEveMultimodalArgs
       'desktop-provider-key-present',
       'Desktop must explicitly attest that no provider key is bundled before the gateway can run.',
       args,
-      base
+      base,
+      provider
     );
   }
 
@@ -254,25 +347,44 @@ export function decideEveMultimodalSkeletonRequest(args: DecideEveMultimodalArgs
     return response(
       403,
       'local-only-privacy',
-      'xAI multimodal is blocked while local-only privacy mode is active.',
+      `${provider === 'openrouter' ? 'OpenRouter document OCR' : 'xAI multimodal'} is blocked while local-only privacy mode is active.`,
       args,
-      base
+      base,
+      provider
     );
   }
 
-  if (privacyLane === 'cloud_eu' || privacyLane === 'cloud_de') {
+  if (
+    (provider === 'xai' && (privacyLane === 'cloud_eu' || privacyLane === 'cloud_de')) ||
+    (provider === 'openrouter' && privacyLane !== 'cloud_auto')
+  ) {
     return response(
       403,
       'residency-unavailable',
-      'xAI multimodal is currently available only as a US cloud lane in this gateway.',
+      provider === 'openrouter'
+        ? 'OpenRouter document OCR is currently an explicit global ZDR cloud lane; no US, EU or German residency is claimed.'
+        : 'xAI multimodal is currently available only as a US cloud lane in this gateway.',
       args,
-      base
+      base,
+      provider
+    );
+  }
+
+  const pdfInput = provider === 'openrouter' ? extractEveMultimodalPdfInput(args.body) : null;
+  if (provider === 'openrouter' && !pdfInput) {
+    return response(
+      400,
+      'invalid-request',
+      'OpenRouter document OCR requires a valid PDF, safe filename and matching SHA-256 field.',
+      args,
+      base,
+      provider
     );
   }
 
   const tts = capability === 'tts' ? ttsReceiptFromBody(args.body) : null;
   if (tts && !tts.ok) {
-    return response(400, 'invalid-request', tts.message, args, base);
+    return response(400, 'invalid-request', tts.message, args, base, provider);
   }
 
   return response(
@@ -282,9 +394,20 @@ export function decideEveMultimodalSkeletonRequest(args: DecideEveMultimodalArgs
     args,
     {
       ...base,
-      residency: residencyReceipt(privacyLane),
+      residency: provider === 'openrouter' ? openRouterResidencyReceipt(privacyLane) : residencyReceipt(privacyLane),
       ...(tts?.ok ? { tts: tts.receipt } : {}),
-    }
+      ...(pdfInput
+        ? {
+            document: {
+              engine: 'mistral-ocr' as const,
+              file_sha256: pdfInput.fileSha256,
+              input_bytes: pdfInput.bytes.byteLength,
+              page_count: pdfInput.pageCount,
+            },
+          }
+        : {}),
+    },
+    provider
   );
 }
 

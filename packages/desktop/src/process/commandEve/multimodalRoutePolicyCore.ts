@@ -59,7 +59,7 @@ export type CommandEveMultimodalRouteReceipt = {
   requiresPoll: boolean;
   requiresEphemeralClientToken: boolean;
   residencyLane: CommandEveMultimodalContract['residencyLane'];
-  residencyConfirmation: 'explicit-us-cloud' | 'server-must-confirm-us-cloud';
+  residencyConfirmation: 'explicit-us-cloud' | 'server-must-confirm-us-cloud' | 'zdr-enforced-global';
   directProviderKeyPresentInDesktop: false;
 };
 
@@ -113,7 +113,7 @@ export type CommandEveSpikeDecision =
     };
 
 export function commandEveArtifactTypeForMultimodalKind(kind: CommandEveMultimodalArtifactKind): GeneratedArtifactType {
-  if (kind === 'text') return 'report';
+  if (kind === 'text' || kind === 'document') return 'report';
   return kind;
 }
 
@@ -134,6 +134,7 @@ export function privacyLaneIdForMultimodalCapability(
 ): Extract<PrivacyLaneId, 'vision_cloud' | 'image_cloud' | 'video_cloud' | 'tts_cloud' | 'stt_cloud'> {
   switch (capability) {
     case 'vision':
+    case 'document_ocr':
       return 'vision_cloud';
     case 'image_generation':
       return 'image_cloud';
@@ -161,6 +162,8 @@ function titleForCapability(capability: CommandEveMultimodalCapability): string 
       return 'Speech transcript';
     case 'realtime_voice':
       return 'Realtime voice session';
+    case 'document_ocr':
+      return 'Parsed PDF document';
   }
 }
 

@@ -29,9 +29,13 @@ describe('EVE cloud context window resolution', () => {
     expect(isEveCloudModelId(CLOUD_MAX_SELECTION)).toBe(true);
     expect(isEveCloudModelId('command-eve-inference:eve-high')).toBe(true);
     expect(isEveCloudModelId('command-eve-inference:eve-standard')).toBe(true);
+    expect(isEveCloudModelId('command-eve-inference:eve-ultra')).toBe(true);
     expect(isEveCloudModelId('eve-max')).toBe(true);
     expect(isEveCloudModelId('eve-high')).toBe(true);
     expect(isEveCloudModelId('eve-standard')).toBe(true);
+    expect(isEveCloudModelId('eve-ultra')).toBe(true);
+    expect(isEveCloudModelId('moonshotai/kimi-k2.6')).toBe(true);
+    expect(isEveCloudModelId('moonshotai/kimi-k3')).toBe(true);
   });
 
   it('does NOT treat the local Hermes runtime model as cloud', () => {
@@ -49,6 +53,8 @@ describe('EVE cloud context window resolution', () => {
     expect(resolveEffectiveContextLimit('fable-5')).toBe(262_144);
     expect(resolveEffectiveContextLimit('z-ai/glm-5.2')).toBe(262_144);
     expect(resolveEffectiveContextLimit('gpt-5.6')).toBe(262_144);
+    expect(resolveEffectiveContextLimit('moonshotai/kimi-k2.6')).toBe(262_144);
+    expect(resolveEffectiveContextLimit('moonshotai/kimi-k3')).toBe(262_144);
   });
 
   it('keeps genuinely smaller provider windows smaller', () => {

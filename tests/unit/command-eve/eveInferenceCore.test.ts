@@ -8,17 +8,12 @@
  * EVE Inference picker core — the STUFEN (level) model + the two required
  * behaviors:
  *
- *  (0) STUFEN shape: EVE exposes FOUR levels — Standard, Hoch (both FREE,
- *      Standard default), Max (DeepSeek V4 Pro, paid, consumes credits) and
- *      Maximum / "härteste Aufgabe" (GLM 5.2, paid + GATED, highest cost). The
- *      paid levels carry a model sublabel + a visible cost badge; Maximum is
- *      flagged `gated` with the highest-cost badge so the ~5× rate is obvious.
+ *  (0) STUFEN shape: EVE exposes FIVE levels — Standard, Hoch, Sehr hoch,
+ *      Maximum and Ultra. Standard is free-eligible; the other levels are metered.
  *
  *  (1) Free-tier greying: when the entitlement is trialing (CEVE.v2
- *      trial_ends_at present), EVE Max + EVE Maximum are disabled (greyed) with
- *      a PAID_TIER_REQUIRED hint, and BYOK is disabled; EVE Standard + EVE Hoch
- *      + both local tiers stay selectable. A paid entitlement (trial_ends_at
- *      null/absent) leaves everything selectable.
+ *      trial_ends_at present), metered levels are disabled unless the user has
+ *      a paid seat, active top-up, or spendable credits. BYOK remains separate.
  *
  *  (2) EVE routing: buildEveInferenceProvider targets the eve-inference Edge
  *      Function URL with the CEVE license WIRE STRING as the bearer api_key
@@ -46,6 +41,7 @@ import {
   isModelByokAllowed,
   isEveInferenceSelection,
   isEveTierSelectable,
+  hasEvePaidInferenceAccess,
   isTrialingEntitlement,
   localTierValue,
   parseEveTierIdFromSelection,
@@ -86,22 +82,24 @@ describe('eveInferenceCore — trial detection', () => {
 });
 
 describe('eveInferenceCore — STUFEN shape (requirement 0)', () => {
-  it('exposes EXACTLY the four EVE levels in order: Standard, Hoch, Sehr hoch, Maximum', () => {
+  it('exposes EXACTLY the five EVE levels in order: Standard, Hoch, Sehr hoch, Maximum, Ultra', () => {
     const groups = buildEvePickerGroups(PAID_NULL);
     const eve = groups.find((g) => g.kind === 'eve')!;
-    // Founder mandate 1.2.13: picker rows read "EVE Standard / EVE High / EVE Max".
-    expect(eve.items.map((i) => i.label)).toEqual(['Standard', 'Hoch', 'Sehr hoch', 'Maximum']);
+    // Founder mandate: picker rows expose the strength ladder, never raw models.
+    expect(eve.items.map((i) => i.label)).toEqual(['Standard', 'Hoch', 'Sehr hoch', 'Maximum', 'Ultra']);
   });
 
-  it('Standard is the free-eligible default (DeepSeek V4 Flash); Hoch + Max are paid', () => {
+  it('Standard is the free-eligible default; Hoch through Ultra are paid', () => {
     const mittel = EVE_INFERENCE_TIERS.find((t) => t.id === 'eve-standard')!;
     const hoch = EVE_INFERENCE_TIERS.find((t) => t.id === 'eve-high')!;
     const max = EVE_INFERENCE_TIERS.find((t) => t.id === 'eve-max')!;
+    const ultra = EVE_INFERENCE_TIERS.find((t) => t.id === 'eve-ultra')!;
     expect(mittel.paidOnly).toBe(false);
     expect(mittel.label).toBe('Standard');
     expect(mittel.modelLabel).toBe('großer Kontext');
     expect(hoch.paidOnly).toBe(true);
     expect(max.paidOnly).toBe(true);
+    expect(ultra.paidOnly).toBe(true);
     expect(EVE_INFERENCE_DEFAULT_TIER_ID).toBe('eve-standard');
   });
 
@@ -115,19 +113,25 @@ describe('eveInferenceCore — STUFEN shape (requirement 0)', () => {
     expect(hoch.costBadge).toBeUndefined();
   });
 
-  it('EVE Max is paid + GATED (GLM 5.2); cost badge suppressed in picker', () => {
+  it('EVE Maximum is the stable max-reasoning lane; Ultra alone carries the experimental high-cost marker', () => {
     const items = flat(buildEvePickerGroups(PAID_NULL));
     const max = byLabel(items, 'eve', 'Maximum')!;
+    const ultra = byLabel(items, 'eve', 'Ultra')!;
     expect(max.consumesCredits).toBe(true);
-    expect(max.gated).toBe(true);
-    expect(max.sublabel).toBe('höchste Intelligenz');
+    expect(max.gated).toBe(false);
+    expect(max.sublabel).toBe('starkes Agenten-Reasoning');
     expect(max.costBadge).toBeUndefined();
+    expect(ultra.consumesCredits).toBe(true);
+    expect(ultra.gated).toBe(true);
+    expect(ultra.sublabel).toBe('maximale Agenten-Power · experimentell');
+    expect(ultra.costBadge).toBe('Ultra-Kosten');
   });
 
-  it('no EVE picker row carries a cost badge (founder mandate: tone down upsell)', () => {
+  it('keeps routine EVE rows quiet and marks only experimental Ultra cost', () => {
     const items = flat(buildEvePickerGroups(PAID_NULL));
     const eve = items.filter((i) => i.group === 'eve');
-    expect(eve.every((i) => i.costBadge === undefined)).toBe(true);
+    expect(eve.filter((i) => i.label !== 'Ultra').every((i) => i.costBadge === undefined)).toBe(true);
+    expect(byLabel(items, 'eve', 'Ultra')!.costBadge).toBe('Ultra-Kosten');
     expect(byLabel(items, 'eve', 'Standard')!.consumesCredits).toBe(false);
   });
 });
@@ -136,27 +140,29 @@ describe('eveInferenceCore — free-tier greying (requirement 1)', () => {
   it('renders EXACTLY two groups and nothing else', () => {
     const groups = buildEvePickerGroups(TRIAL);
     expect(groups.map((g) => g.kind)).toEqual(['local', 'eve']);
-    // Local: Standard + Hoch only (no 31B pro tier). EVE: the three STUFEN
-    // (display labels "EVE Standard / EVE High / EVE Max").
+    // Local: Standard + Hoch only (no 31B pro tier). EVE: all five STUFEN.
     expect(groups[0].items.map((i) => i.label)).toEqual(['Standard', 'Hoch']);
-    expect(groups[1].items.map((i) => i.label)).toEqual(['Standard', 'Hoch', 'Sehr hoch', 'Maximum']);
+    expect(groups[1].items.map((i) => i.label)).toEqual(['Standard', 'Hoch', 'Sehr hoch', 'Maximum', 'Ultra']);
   });
 
-  it('greys the paid Pro rungs (EVE High + EVE Max) while trialing; EVE Standard + locals selectable', () => {
+  it('greys every paid Pro rung through Ultra while trialing; EVE Standard + locals stay selectable', () => {
     const items = flat(buildEvePickerGroups(TRIAL));
 
-    // The paid Pro rungs (EVE High + EVE Max) disabled with the paid hint.
+    // The paid Pro rungs are disabled with the paid hint.
     const hoch = byLabel(items, 'eve', 'Hoch')!;
     const max = byLabel(items, 'eve', 'Maximum')!;
+    const ultra = byLabel(items, 'eve', 'Ultra')!;
     expect(hoch.disabled).toBe(true);
     expect(hoch.disabledReasonCode).toBe('PAID_TIER_REQUIRED');
     expect(max.disabled).toBe(true);
     expect(max.disabledReasonCode).toBe('PAID_TIER_REQUIRED');
+    expect(ultra.disabled).toBe(true);
+    expect(ultra.disabledReasonCode).toBe('PAID_TIER_REQUIRED');
 
-    // Founder mandate 1.2.13: even while greyed, the picker does NOT push cost
-    // labels — the upsell is conveyed by the disabled/paid hint, not a cost badge.
+    // Routine tiers stay quiet. Experimental Ultra keeps its explicit cost warning.
     expect(hoch.costBadge).toBeUndefined();
     expect(max.costBadge).toBeUndefined();
+    expect(ultra.costBadge).toBe('Ultra-Kosten');
 
     // EVE Standard (the free model) selectable on a trial.
     expect(byLabel(items, 'eve', 'Standard')!.disabled).toBe(false);
@@ -176,6 +182,7 @@ describe('eveInferenceCore — free-tier greying (requirement 1)', () => {
       expect(byLabel(items, 'eve', 'Standard')!.disabled).toBe(false);
       expect(byLabel(items, 'eve', 'Hoch')!.disabled).toBe(false);
       expect(byLabel(items, 'eve', 'Maximum')!.disabled).toBe(false);
+      expect(byLabel(items, 'eve', 'Ultra')!.disabled).toBe(false);
     }
   });
 
@@ -183,6 +190,17 @@ describe('eveInferenceCore — free-tier greying (requirement 1)', () => {
     expect(isEveTierSelectable({ paidOnly: false }, TRIAL)).toBe(true);
     expect(isEveTierSelectable({ paidOnly: true }, TRIAL)).toBe(false);
     expect(isEveTierSelectable({ paidOnly: true }, PAID_NULL)).toBe(true);
+  });
+
+  it('keeps bought credits spendable even when a stale trial flag is present', () => {
+    const fundedTrial = {
+      trial_ends_at: '2099-01-01T00:00:00.000Z',
+      has_metered_credits: true,
+      metered_credit_access_known: true,
+    };
+    expect(hasEvePaidInferenceAccess(fundedTrial)).toBe(true);
+    expect(isEveTierSelectable({ paidOnly: true }, fundedTrial)).toBe(true);
+    expect(isModelByokAllowed(fundedTrial)).toBe(false);
   });
 
   it('disables BYOK while trialing, enables it when paid', () => {
@@ -271,11 +289,12 @@ describe('eveInferenceCore — honest CLOUD labeling (audit #1)', () => {
     expect(groups.find((g) => g.kind === 'local')!.title).not.toContain('Cloud');
   });
 
-  it('each EVE level names its concrete cloud model in the sublabel (level in the primary label, model in the secondary)', () => {
+  it('each EVE level exposes a capability sublabel without leaking the concrete cloud model', () => {
     const items = flat(buildEvePickerGroups(TRIAL));
     expect(byLabel(items, 'eve', 'Standard')!.sublabel).toBe('großer Kontext');
     expect(byLabel(items, 'eve', 'Hoch')!.sublabel).toBe('intelligenter');
-    expect(byLabel(items, 'eve', 'Maximum')!.sublabel).toBe('höchste Intelligenz');
+    expect(byLabel(items, 'eve', 'Maximum')!.sublabel).toBe('starkes Agenten-Reasoning');
+    expect(byLabel(items, 'eve', 'Ultra')!.sublabel).toBe('maximale Agenten-Power · experimentell');
   });
 
   it('cloud heading marks EVE as Cloud; rows show CAPABILITY, never a concrete model name', () => {
@@ -286,7 +305,7 @@ describe('eveInferenceCore — honest CLOUD labeling (audit #1)', () => {
     // vendors (DeepSeek/GLM) and not the local one (Gemma). The lane is still
     // unmistakably "Cloud" via the heading; the rows describe capability only.
     const eveSubs = eveGroup.items.map((i) => i.sublabel ?? '');
-    expect(eveSubs.every((s) => !/gemma|deepseek|glm|openrouter/i.test(s))).toBe(true);
+    expect(eveSubs.every((s) => !/gemma|deepseek|glm|kimi|moonshot|openrouter/i.test(s))).toBe(true);
     // The local group is unmistakably NOT cloud (heading). Offline/local models ARE
     // named (founder 2026-06-28: they run on the user's own device) — only the cloud
     // lane stays model-abstract.
@@ -294,14 +313,16 @@ describe('eveInferenceCore — honest CLOUD labeling (audit #1)', () => {
     expect(localGroup.title.toLowerCase()).not.toContain('cloud');
     expect(localGroup.items.some((i) => /gemma/i.test(i.sublabel ?? ''))).toBe(true);
     // ...but a CLOUD vendor/model must never appear, even in the local rows.
-    expect(localGroup.items.map((i) => i.sublabel ?? '').every((s) => !/deepseek|glm/i.test(s))).toBe(true);
+    expect(localGroup.items.map((i) => i.sublabel ?? '').every((s) => !/deepseek|glm|kimi|moonshot/i.test(s))).toBe(
+      true
+    );
   });
 });
 
 describe('commandEveActiveModeLabel — honest lane self-description (cloud abstract, local named)', () => {
-  const NO_MODEL = /gemma|deepseek|glm|ollama|openrouter/i;
+  const NO_MODEL = /gemma|deepseek|glm|kimi|moonshot|ollama|openrouter/i;
   // Cloud models/providers must NEVER appear anywhere; the on-device (gemma) model MAY (local only).
-  const NO_CLOUD_MODEL = /deepseek|glm|openrouter/i;
+  const NO_CLOUD_MODEL = /deepseek|glm|kimi|moonshot|openrouter/i;
 
   it('NAMES the on-device model for the LOCAL lane (founder: offline models are named)', () => {
     const de = commandEveActiveModeLabel(localTierValue('local-standard'), 'de-DE');
@@ -349,11 +370,12 @@ describe('eveInferenceCore — EVE Standard routing (requirement 2)', () => {
     // Each level sends its registry level name; the backend resolves the model.
     expect(buildEveInferenceProvider({ tierId: 'eve-high', licenseWire: FAKE_WIRE }).use_model).toBe('high');
     expect(buildEveInferenceProvider({ tierId: 'eve-max', licenseWire: FAKE_WIRE }).use_model).toBe('max');
+    expect(buildEveInferenceProvider({ tierId: 'eve-ultra', licenseWire: FAKE_WIRE }).use_model).toBe('ultra');
   });
 
-  it('the wire values are exactly the registry-accepted set (matches the server KNOWN_TIERS standard/high/xhigh/max)', () => {
+  it('the wire values are exactly the registry-accepted five-level set', () => {
     const wires = EVE_INFERENCE_TIERS.map((t) => t.tier);
-    expect(wires).toEqual(['standard', 'high', 'xhigh', 'max']);
+    expect(wires).toEqual(['standard', 'high', 'xhigh', 'max', 'ultra']);
     // The desktop never sends "DeepSeek V4 Pro" / "GLM 5.2" on the wire — only
     // the level; the backend resolves the model.
     for (const w of wires) {
@@ -478,13 +500,17 @@ describe('eveInferenceCore — startup warm-up lane selection', () => {
 describe('eveInferenceCore — HONEST tier routing (resolveWireTierFromSelection, 1.2.19)', () => {
   // This is the EXACT contract the desktop money-path repair rests on: the wire
   // tier POSTed to eve-inference is the user's ACTUAL picker selection, mapped
-  // VERBATIM to the registry value — so EVE Max meters GLM 5.2 and EVE High
+  // VERBATIM to the registry value — so EVE Maximum/Ultra and EVE High
   // meters DeepSeek V4 Pro, never the cheapest Flash. (Root cause closed:
   // OpenRouter logs showed 100% Flash because the selection→wire-tier mapping
   // was an unasserted inline expression that fell back to 'standard'.)
 
-  it('maps eve-max → wire tier "max" (GLM 5.2 lane)', () => {
+  it('maps eve-max → wire tier "max"', () => {
     expect(resolveWireTierFromSelection(eveTierValue('eve-max'))).toBe('max');
+  });
+
+  it('maps eve-ultra → wire tier "ultra"', () => {
+    expect(resolveWireTierFromSelection(eveTierValue('eve-ultra'))).toBe('ultra');
   });
 
   it('maps eve-high → wire tier "high" (DeepSeek V4 Pro lane)', () => {
@@ -504,13 +530,15 @@ describe('eveInferenceCore — HONEST tier routing (resolveWireTierFromSelection
   it('models an in-session switch: re-resolving the new selection changes the wire tier', () => {
     // The picker persists a NEW selection on an in-session switch; the send path
     // re-resolves the CURRENT selection per request. So switching Standard → Max
-    // → High must yield a DIFFERENT wire tier each time (the switch "persists"
-    // to the wire), proving a paid user who picks Max is not stuck on Flash.
+    // → Ultra → High must yield the current wire tier every time.
     let current = eveTierValue('eve-standard');
     expect(resolveWireTierFromSelection(current)).toBe('standard');
 
     current = eveTierValue('eve-max'); // user switches to EVE Max mid-session
     expect(resolveWireTierFromSelection(current)).toBe('max');
+
+    current = eveTierValue('eve-ultra');
+    expect(resolveWireTierFromSelection(current)).toBe('ultra');
 
     current = eveTierValue('eve-high'); // user switches down to EVE High
     expect(resolveWireTierFromSelection(current)).toBe('high');
@@ -556,17 +584,25 @@ describe('eveInferenceCore — honest active-lane self-description (Task #50 por
     expect(resolveCommandEveActiveLane('').kind).toBe('eve');
   });
 
-  it('describes EVE Cloud Max as the active tier, never the shim model (DE + EN)', () => {
+  it('describes EVE Cloud Maximum as the stable max-reasoning tier, never the shim model (DE + EN)', () => {
     const de = describeCommandEveActiveLane(eveTierValue('eve-max'), 'de-DE');
-    expect(de).toBe('EVE Cloud, Maximum-Stufe (maximales Reasoning, höchste Qualität)');
+    expect(de).toBe('EVE Cloud, Maximum-Stufe (maximales Reasoning, starke Agentenarbeit)');
     expect(de).not.toContain(SHIM);
     expect(de.toLowerCase()).not.toContain('ollama');
     expect(de.toLowerCase()).not.toContain('lokal');
 
     const en = describeCommandEveActiveLane(eveTierValue('eve-max'), 'en-US');
-    expect(en).toBe('EVE Cloud, Maximum tier (maximum reasoning, top quality)');
+    expect(en).toBe('EVE Cloud, Maximum tier (maximum reasoning, strong agent work)');
     expect(en).not.toContain(SHIM);
     expect(en.toLowerCase()).not.toContain('local');
+  });
+
+  it('describes Ultra as proactive worker orchestration without exposing Kimi', () => {
+    const de = describeCommandEveActiveLane(eveTierValue('eve-ultra'), 'de-DE');
+    const en = describeCommandEveActiveLane(eveTierValue('eve-ultra'), 'en-US');
+    expect(de).toBe('EVE Cloud, Ultra-Stufe (maximales Reasoning, proaktive Worker-Orchestrierung)');
+    expect(en).toBe('EVE Cloud, Ultra tier (maximum reasoning, proactive worker orchestration)');
+    expect(`${de} ${en}`).not.toMatch(/kimi|moonshot|openrouter/i);
   });
 
   it('describes a local lane by its honest model name', () => {
@@ -579,7 +615,7 @@ describe('eveInferenceCore — honest active-lane self-description (Task #50 por
   });
 
   it('NEVER surfaces the shim model id on ANY EVE cloud tier', () => {
-    for (const tier of ['eve-standard', 'eve-high', 'eve-max'] as const) {
+    for (const tier of ['eve-standard', 'eve-high', 'eve-xhigh', 'eve-max', 'eve-ultra'] as const) {
       for (const locale of ['de-DE', 'en-US'] as const) {
         const desc = describeCommandEveActiveLane(eveTierValue(tier), locale);
         expect(desc).not.toContain(SHIM);

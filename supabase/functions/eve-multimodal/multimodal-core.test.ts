@@ -3,6 +3,7 @@
 // Run: deno test supabase/functions/eve-multimodal/multimodal-core.test.ts
 
 import { assertEquals } from 'jsr:@std/assert@1';
+import crypto from 'node:crypto';
 import { decideEveMultimodalSkeletonRequest } from './multimodal-core.ts';
 
 const NOW = '2026-07-07T12:00:00.000Z';
@@ -13,6 +14,21 @@ function decide(body: unknown) {
     now: NOW,
     requestId: 'req_test',
   });
+}
+
+function pdfBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const bytes = new TextEncoder().encode('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF');
+  return {
+    provider: 'openrouter',
+    capability: 'document_ocr',
+    privacyLane: 'cloud_auto',
+    directProviderKeyPresentInDesktop: false,
+    file_name: 'scan.pdf',
+    file_sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+    file_data_base64: btoa(String.fromCharCode(...bytes)),
+    page_count: 2,
+    ...overrides,
+  };
 }
 
 Deno.test('rejects non-object request bodies', () => {
@@ -194,4 +210,47 @@ Deno.test('requires server confirmation semantics for cloud_auto', () => {
   assertEquals(result.body.reason, 'provider-not-enabled');
   assertEquals(result.body.residency?.confirmation, 'server-must-confirm-us-cloud');
   assertEquals(result.body.artifact?.kind, 'image');
+});
+
+Deno.test('returns a bounded OpenRouter PDF receipt without echoing document bytes', () => {
+  const requestBody = pdfBody();
+  const result = decide(requestBody);
+
+  assertEquals(result.status, 501);
+  assertEquals(result.body.provider, 'openrouter');
+  assertEquals(result.body.capability, 'document_ocr');
+  assertEquals(result.body.reason, 'provider-not-enabled');
+  assertEquals(result.body.residency, {
+    requestedPrivacyLane: 'cloud_auto',
+    effectiveResidency: 'global_cloud',
+    confirmation: 'zdr-enforced-global',
+  });
+  assertEquals(result.body.document?.engine, 'mistral-ocr');
+  assertEquals(result.body.document?.page_count, 2);
+  assertEquals(result.body.document?.input_bytes, 34);
+  assertEquals(JSON.stringify(result.body).includes(String(requestBody.file_data_base64)), false);
+});
+
+Deno.test('blocks every residency claim for OpenRouter PDF OCR except explicit global cloud_auto', () => {
+  for (const privacyLane of ['local_only', 'cloud_us', 'cloud_eu', 'cloud_de']) {
+    const result = decide(pdfBody({ privacyLane }));
+
+    assertEquals(result.status, 403);
+    assertEquals(result.body.provider, 'openrouter');
+    assertEquals(result.body.reason, privacyLane === 'local_only' ? 'local-only-privacy' : 'residency-unavailable');
+  }
+});
+
+Deno.test('rejects malformed PDF envelopes before provider execution', () => {
+  for (const override of [
+    { file_name: '../scan.txt' },
+    { file_sha256: 'not-a-hash' },
+    { file_data_base64: btoa('not a pdf') },
+    { page_count: 0 },
+    { page_count: 501 },
+  ]) {
+    const result = decide(pdfBody(override));
+    assertEquals(result.status, 400);
+    assertEquals(result.body.reason, 'invalid-request');
+  }
 });

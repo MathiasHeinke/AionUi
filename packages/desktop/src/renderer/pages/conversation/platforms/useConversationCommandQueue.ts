@@ -628,19 +628,36 @@ export const useConversationCommandQueue = ({
   const remove = useCallback(
     (commandId: string) => {
       if (!enabled) {
-        return;
+        return Promise.resolve(undefined);
       }
 
       logCommandQueue(conversation_id, 'removed', {
         commandId,
       });
-      void updateState((state) => {
+      return updateState((state) => {
         const nextItems = removeQueuedCommand(state.items, commandId);
         return {
           items: nextItems,
           isPaused: false,
         };
       });
+    },
+    [conversation_id, enabled, updateState]
+  );
+
+  const restore = useCallback(
+    (item: ConversationCommandQueueItem) => {
+      if (!enabled) {
+        return Promise.resolve(undefined);
+      }
+
+      logCommandQueue(conversation_id, 'restored-after-promotion-failure', {
+        item: summarizeQueuedCommand(item),
+      });
+      return updateState((state) => ({
+        items: restoreQueuedCommand(state.items, item),
+        isPaused: state.isPaused,
+      }));
     },
     [conversation_id, enabled, updateState]
   );
@@ -809,6 +826,7 @@ export const useConversationCommandQueue = ({
     enqueue,
     update,
     remove,
+    restore,
     clear,
     reorder,
     pause,

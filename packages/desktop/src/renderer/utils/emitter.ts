@@ -29,8 +29,8 @@ interface EventTypes {
   // conversation's effective permission mode changes (initial sync + every
   // in-session pick) so the ACP message handler can decide whether an incoming
   // request_permission should be auto-allowed (YOLO/"Nicht fragen") or gated.
-  // The backend has no live /mode route (it 404s), so this renderer-side signal
-  // is the source of truth the auto-approve path reads.
+  // This renderer-side signal covers permission events replayed while the stable
+  // backend config-options acknowledgement is still settling.
   'acp.permission.mode': [{ conversation_id: string; mode: string }];
   'codex.selected.file': [Array<string | FileOrFolderItem>];
   'codex.selected.file.append': [Array<string | FileOrFolderItem>];

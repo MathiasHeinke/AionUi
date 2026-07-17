@@ -930,7 +930,7 @@ async function handleEveCloudCompletions(
   // selection, forwarded VERBATIM — NO silent fall-through to 'standard'. The
   // routing resolver derives this from the live selection via
   // resolveWireTierFromSelection (eve-standard→'standard', eve-high→'high',
-  // eve-max→'max'). If an ACTIVE EVE route arrives without a known wire tier the
+  // eve-max→'max', eve-ultra→'ultra'). If an ACTIVE EVE route arrives without a known wire tier the
   // selection→tier chain is broken; we FAIL LOUD (500) instead of metering the
   // cheapest model — the previous `: 'standard'` fallback was exactly the bug
   // that made a paid EVE-Max user silently bill DeepSeek V4 Flash (OpenRouter
@@ -954,7 +954,8 @@ async function handleEveCloudCompletions(
   }
   // HONEST TIER ROUTING (1.2.19): refuse an active EVE route with a missing or
   // unknown wire tier rather than silently downgrading to the cheapest model.
-  // A correct route always carries one of the registry tiers (standard/high/max);
+  // A correct route always carries one of the registry tiers
+  // (standard/high/xhigh/max/ultra);
   // a missing/unknown value means the selection→tier resolution broke upstream.
   if (!KNOWN_EVE_WIRE_TIERS.has(tier)) {
     jsonResponse(response, 500, {
@@ -1043,6 +1044,25 @@ async function handleEveCloudCompletions(
     // we never over-redact a waived S1/S2 nor under-redact an S3.
     const messageRedactThreshold: CommandEveSensitivityClass = redactionDisabledByOperator ? 'S3' : 'S1';
     outboundMessages = outboundMessages.map((message) => redactMessageContent(message, messageRedactThreshold));
+  }
+
+  // ULTRA EXECUTION PROFILE. This is injected at the trusted Main-process
+  // boundary on EVERY Ultra request, so it also takes effect when the user
+  // switches lanes mid-session. It asks Hermes to use the worker slots already
+  // available under the live hardware cap for genuinely complex work; it does
+  // not increase that cap and explicitly preserves all privacy, permission,
+  // spend, publish and deploy gates. Simple work remains direct to avoid costly
+  // delegation theatre.
+  if (tier === 'ultra') {
+    outboundMessages = [
+      {
+        role: 'system',
+        content:
+          '## EVE Ultra execution profile\n' +
+          'For genuinely complex tasks, proactively use delegate_task and all worker slots already available under the current Hermes hardware cap. Parallelize independent read-only or reversible research, review, and implementation work; synthesize and verify the results before answering. Never invent unavailable workers, never bypass privacy, permission, or credit limits, and never self-approve sending, spending, publishing, purchasing, or deploying. Existing human gates remain binding. For simple tasks, answer directly instead of spawning workers.',
+      },
+      ...outboundMessages,
+    ];
   }
 
   const proof = buildCommandEvePromptProof({ ...body, messages: outboundMessages });

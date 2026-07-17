@@ -19,9 +19,12 @@ vi.mock('react-i18next', () => ({
 }));
 
 describe('ConversationBusyModeControl', () => {
-  it('stays hidden while idle', () => {
+  it('keeps a stable hidden layout slot while idle', () => {
     const { container } = render(<ConversationBusyModeControl visible={false} value='queue' onChange={vi.fn()} />);
-    expect(container).toBeEmptyDOMElement();
+    const control = container.querySelector('[data-testid="conversation-busy-mode-control"]');
+    expect(control).toHaveClass('is-hidden');
+    expect(control).toHaveAttribute('aria-hidden', 'true');
+    expect(container.querySelector('input[type="radio"][value="queue"]')).toBeDisabled();
   });
 
   it('uses compact accessible icons and switches the send mode', () => {
@@ -30,6 +33,14 @@ describe('ConversationBusyModeControl', () => {
 
     expect(screen.queryByText('Afterwards')).not.toBeInTheDocument();
     expect(screen.queryByText('Correction')).not.toBeInTheDocument();
+    expect(screen.getByTestId('conversation-busy-mode-queue')).toHaveAttribute(
+      'title',
+      'Afterwards: Send after the current run finishes.'
+    );
+    expect(screen.getByTestId('conversation-busy-mode-steer')).toHaveAttribute(
+      'title',
+      'Correction: Push into the current run.'
+    );
 
     fireEvent.click(screen.getByRole('radio', { name: 'Correction' }));
     expect(onChange).toHaveBeenCalledWith('steer');

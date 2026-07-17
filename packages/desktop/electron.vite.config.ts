@@ -92,7 +92,10 @@ export default defineConfig(({ mode }) => {
         // '@aionui/web-host' excluded so its TS sources (which use ESM ".js" import specifiers)
         // are bundled by esbuild rather than left as `require('@aionui/web-host')`, which Node
         // cannot resolve because the package ships no compiled .js files (workspace-only).
-        externalizeDepsPlugin({ exclude: ['fix-path', '@aionui/web-host'] }),
+        // pdfjs-dist is used in the Electron main process for local, private PDF
+        // extraction. Bundle it so a packaged customer install never depends on
+        // a loose node_modules tree.
+        externalizeDepsPlugin({ exclude: ['fix-path', '@aionui/web-host', 'pdfjs-dist'] }),
         ...(isDevelopment
           ? [
               {

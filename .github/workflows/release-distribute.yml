@@ -97,13 +97,30 @@ jobs:
             --repo "${{ github.repository }}" \
             --dir dist \
             --pattern "*.dmg" \
-            --pattern "*.exe" \
-            --pattern "*.msi" \
             --pattern "*.deb" \
             --pattern "*.zip" \
             --pattern "latest*.yml"
           echo "Downloaded files:"
           ls -la dist
+
+      - name: Reject Windows pilot assets
+        run: |
+          set -euo pipefail
+
+          windows_assets=$(find dist -maxdepth 1 -type f \( \
+            -name "*.exe" -o \
+            -name "*.msi" -o \
+            -name "latest.yml" -o \
+            -name "latest-win-*.yml" -o \
+            -name "*-win-*.zip" -o \
+            -name "aionui-web-*-win-*.tar.gz" -o \
+            -name "aionui-web-*-win-*.tar.gz.sha256" \
+          \) -print)
+          if [ -n "$windows_assets" ]; then
+            echo "::error::Windows remains a private pilot and cannot be distributed publicly."
+            echo "$windows_assets"
+            exit 1
+          fi
 
       - name: Validate updater metadata
         id: metadata
@@ -113,7 +130,6 @@ jobs:
           set -euo pipefail
 
           metadata_files=(
-            dist/latest.yml
             dist/latest-mac.yml
             dist/latest-arm64-mac.yml
             dist/latest-linux.yml

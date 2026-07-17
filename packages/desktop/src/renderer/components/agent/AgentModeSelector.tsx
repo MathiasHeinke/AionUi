@@ -268,9 +268,8 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
 
   // Broadcast the effective permission mode for THIS conversation so the ACP
   // message handler's auto-approve path stays in lockstep with the pill. This is
-  // the load-bearing signal for the YOLO/"Nicht fragen" fix: the backend has no
-  // live /mode route (it 404s), so the desktop honors the mode itself, and the
-  // request_permission handler reads the mode from this broadcast. Fires on the
+  // defense-in-depth signal for permission events replayed while the backend's
+  // config-options acknowledgement settles. Fires on the
   // initial resolved mode and on every change (sync or user pick). No-op without a
   // conversation_id (the Guid start screen has no live conversation to gate yet).
   useEffect(() => {
@@ -298,12 +297,9 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
 
       if (!conversation_id) return;
 
-      // OPTIMISTIC: reflect the pick in the UI immediately. The backend /mode PUT is
-      // BEST-EFFORT — the bundled runtime 404s it (the mode lives on the conversation's
-      // session_mode, there is no live /mode route), and the OLD code only set
-      // current_mode AFTER a successful setMode, so a 404 reverted the switch → exactly
-      // the "Umschalten in der Session geht nicht" the founder reported. We must keep the
-      // user's pick regardless of the network result.
+      // OPTIMISTIC: reflect the pick immediately while the stable config-options
+      // write is acknowledged. Keep the user's explicit pick if the runtime is still
+      // attaching; the next live read reconciles it once the ACP session is ready.
       setCurrentMode(mode);
       onModeChanged?.(mode);
       if (backend) {

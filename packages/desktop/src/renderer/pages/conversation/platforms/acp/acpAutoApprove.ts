@@ -10,19 +10,17 @@ import type { AcpPermissionOption, AcpPermissionRequest } from '@/common/types/p
  * Desktop-side ACP auto-approve resolver for the YOLO / "Nicht fragen" permission
  * mode.
  *
- * WHY THIS EXISTS (root cause):
+ * WHY THIS EXISTS:
  * EVE runs as a Hermes/ACP agent. Hermes emits an ACP `session/request_permission`
  * for every dangerous tool call (write_text_file/edit, terminal, …) and the desktop
  * renders the "Approve edit:" dialog from it. The permission MODE selected in the
  * bottom pill (Standard / Änderungen übernehmen / Nicht-fragen) is persisted on the
- * conversation (`extra.session_mode`) but it NEVER reaches Hermes: the only push
- * path is `acpConversation.setMode` → `PUT /api/conversations/:id/mode`, and that
- * route 404s on the bundled aioncore runtime (verified live on 1.2.19:
- * `{"success":false,"error":"Route not found.","code":"NOT_FOUND"}`). So Hermes is
- * never told to stop asking, and the renderer rendered the dialog unconditionally —
- * "Nicht fragen" had no effect.
+ * conversation (`extra.session_mode`) and is also synchronized through AionCore's
+ * stable config-options API. The renderer still answers a replayed permission event
+ * as defense in depth: reconnects may redeliver an already-emitted gate after Hermes
+ * accepted the mode, and that must not strand a running turn behind a stale dialog.
  *
- * THE FIX (this module):
+ * THE RENDERER FALLBACK (this module):
  * The desktop honors the mode itself. When an `acp_permission` request arrives AND
  * the conversation's effective mode is the YOLO/auto-approve mode, the desktop
  * auto-responds `allow` (selecting the request's own `allow_once` option) instead of

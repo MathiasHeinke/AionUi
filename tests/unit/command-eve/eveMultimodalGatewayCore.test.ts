@@ -14,6 +14,7 @@ import {
   resolveCommandEveMultimodalGate,
   validateCommandEveGrokSmartPlusProfile,
   XAI_MULTIMODAL_CONTRACTS,
+  OPENROUTER_PDF_MULTIMODAL_CONTRACT,
   type CommandEveMultimodalCapability,
 } from '@/common/config/eveMultimodalGatewayCore';
 
@@ -60,6 +61,20 @@ describe('Command EVE multimodal gateway contract', () => {
       requiresEphemeralClientToken: true,
       execution: 'websocket',
     });
+  });
+
+  it('pins OpenRouter PDF OCR to the server-side global ZDR document contract', () => {
+    expect(OPENROUTER_PDF_MULTIMODAL_CONTRACT).toMatchObject({
+      provider: 'openrouter',
+      capability: 'document_ocr',
+      model: 'google/gemini-2.5-flash',
+      endpointKind: 'document_processing',
+      artifactKind: 'document',
+      residencyLane: 'global_cloud',
+      requiresServerSideProviderKey: true,
+      maxInputBytes: 12 * 1024 * 1024,
+    });
+    expect(getCommandEveMultimodalContract('openrouter', 'document_ocr')).toBe(OPENROUTER_PDF_MULTIMODAL_CONTRACT);
   });
 
   it('blocks raw xAI/provider keys in the desktop app even when every other gate is green', () => {
@@ -124,6 +139,47 @@ describe('Command EVE multimodal gateway contract', () => {
       reason: 'provider-unsupported',
     });
   });
+
+  it('allows OpenRouter PDF OCR only through explicit global cloud_auto with ZDR', () => {
+    const result = resolveCommandEveMultimodalGate({
+      provider: 'openrouter',
+      capability: 'document_ocr',
+      privacyLane: 'cloud_auto',
+      hasServerGateway: true,
+      hasLicense: true,
+      directProviderKeyPresentInDesktop: false,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      functionUrl: EVE_MULTIMODAL_FUNCTION_URL,
+      residencyConfirmation: 'zdr-enforced-global',
+      contract: {
+        provider: 'openrouter',
+        capability: 'document_ocr',
+        residencyLane: 'global_cloud',
+      },
+    });
+  });
+
+  it.each(['local_only', 'cloud_us', 'cloud_eu', 'cloud_de'] as const)(
+    'blocks OpenRouter PDF OCR privacy lane %s without making residency claims',
+    (privacyLane) => {
+      const result = resolveCommandEveMultimodalGate({
+        provider: 'openrouter',
+        capability: 'document_ocr',
+        privacyLane,
+        hasServerGateway: true,
+        hasLicense: true,
+        directProviderKeyPresentInDesktop: false,
+      });
+
+      expect(result).toMatchObject({
+        ok: false,
+        reason: privacyLane === 'local_only' ? 'local-only-privacy' : 'residency-unavailable',
+      });
+    }
+  );
 
   it.each([
     ['local_only', 'local-only-privacy'],

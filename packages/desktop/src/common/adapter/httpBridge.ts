@@ -388,6 +388,18 @@ let ws: WebSocket | null = null;
 let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let wsReconnectAttempt = 0;
 
+function dispatchWsEvent(eventName: string, payload: unknown): void {
+  const handlers = wsListeners.get(eventName);
+  if (!handlers) return;
+  for (const handler of handlers) {
+    try {
+      handler(payload);
+    } catch {
+      // One renderer listener must never break the shared realtime transport.
+    }
+  }
+}
+
 function ensureWs(): void {
   if (typeof window === 'undefined') {
     console.debug('[ensureWs] skipped: no window');
@@ -412,7 +424,9 @@ function ensureWs(): void {
 
   current.addEventListener('open', () => {
     console.debug('[ensureWs] CONNECTED');
+    const reconnected = wsReconnectAttempt > 0;
     wsReconnectAttempt = 0;
+    dispatchWsEvent('realtime.connected', { reconnected });
   });
 
   current.addEventListener('close', (e) => {
@@ -438,16 +452,7 @@ function ensureWs(): void {
       const payload = msg.data ?? msg.payload;
       console.debug('[WS:msg]', eventName, payload === undefined ? 'no-payload' : 'payload-present');
       if (eventName) {
-        const handlers = wsListeners.get(eventName);
-        if (handlers) {
-          for (const h of handlers) {
-            try {
-              h(payload);
-            } catch {
-              /* never crash listener */
-            }
-          }
-        }
+        dispatchWsEvent(eventName, payload);
       }
     } catch {
       // ignore non-JSON
