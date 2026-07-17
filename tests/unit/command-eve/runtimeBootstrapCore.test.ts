@@ -871,7 +871,8 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(providerOverride).toContain('_command_eve_apply_context_policy');
       expect(providerOverride).toContain('"local-fallback"');
       expect(providerOverride).toContain('request_host == "127.0.0.1"');
-      expect(providerOverride).toContain('top_level["session_id"] = session_id[:256]');
+      expect(providerOverride).toContain('extra_body["session_id"] = session_id[:256]');
+      expect(providerOverride).not.toContain('top_level["session_id"]');
       expect(providerOverride).toContain('AIAgent._should_treat_stop_as_truncated');
       expect(providerOverride).toContain('command-eve');
       expect(providerOverride).toContain('command_eve_is_action_ack');

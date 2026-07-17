@@ -164,9 +164,11 @@ const WORKER_DESCRIPTORS: Record<EveWorkerId, EveWorkerDescriptor> = {
   },
   fable: {
     id: 'fable',
-    suitedFor: ['expensive product-feel challenge', 'high-level narrative review'],
+    suitedFor: ['Claude Max product-feel challenge', 'high-level narrative review'],
     dataClassesAllowed: ['S0-public', 'S1-internal-low'],
-    billingLane: 'app_metered',
+    // Fable is a Claude Code model and must stay on the operator's authenticated
+    // Claude Max seat. Never silently route this worker through OpenRouter.
+    billingLane: 'seat',
     releaseAuthority: 'advisor_only',
     requiresAuth: true,
     defaultSupported: true,

@@ -3308,7 +3308,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '        except Exception:',
     '            request_host = ""',
     '        if session_id and request_host == "127.0.0.1":',
-    '            top_level["session_id"] = session_id[:256]',
+    '            extra_body["session_id"] = session_id[:256]',
     '',
     '        if ollama_num_ctx:',
     '            extra_body["options"] = {"num_ctx": ollama_num_ctx}',

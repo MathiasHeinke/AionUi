@@ -162,7 +162,7 @@ describe('Command EVE worker registry core', () => {
     });
   });
 
-  it('blocks restricted data and caps Fable at high effort', () => {
+  it('blocks restricted data and keeps Fable on the Claude Max seat at high effort', () => {
     expect(
       decideEveWorkerDelegation({
         registry: registryWithActive(['grok']),
@@ -203,6 +203,7 @@ describe('Command EVE worker registry core', () => {
       })
     ).toMatchObject({
       ok: true,
+      billingLane: 'seat',
       reasonCode: 'worker.delegate-pass',
       humanGate: 'HG-0',
     });
