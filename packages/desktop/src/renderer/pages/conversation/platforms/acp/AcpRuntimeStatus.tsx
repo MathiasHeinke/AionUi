@@ -56,9 +56,9 @@ const AcpRuntimeStatus: React.FC<{
   aiProcessing: boolean;
 }> = ({ activity, running, aiProcessing }) => {
   const { t } = useTranslation();
-  // Founder/dev-only chrome: this log strip is hidden for operators (see the gate
-  // below). The DSGVO egress notice is a SEPARATE, production-visible component
-  // (EgressBoundaryNotice) so gating this strip never hides the compliance signal.
+  // Operators see a redacted lifecycle line while work is active. Dev mode adds
+  // lane/context/log details, but raw backend and model identifiers never become
+  // part of the customer-facing status contract.
   const isDevMode = useIsDevMode();
   const [visible] = useConfig('commandEve.runtimeStatusVisible');
   const [now, setNow] = useState(Date.now());
@@ -93,9 +93,8 @@ const AcpRuntimeStatus: React.FC<{
     });
   }, [activity.phase, isActive, t]);
 
-  // Operators never see this strip: hidden unless explicitly enabled AND in a dev
-  // build. In packaged/production builds it is always hidden (isDevMode === false).
-  if (!isVisible || !isDevMode) return null;
+  const showOperatorStatus = isActive || activity.phase === 'error';
+  if (!isVisible || (!isDevMode && !showOperatorStatus)) return null;
 
   const elapsedMs = activity.startedAt && isActive ? now - activity.startedAt : activity.elapsedMs;
   // Brand + privacy: the operator sees EVE + which LANE inference runs on (local = on-device,
@@ -126,7 +125,7 @@ const AcpRuntimeStatus: React.FC<{
         />
         {isActive ? <Loading theme='outline' size='14' className='animate-spin shrink-0 text-primary-6' /> : null}
         <span className='font-500 text-t-primary'>{phaseLabel}</span>
-        <span className='truncate'>EVE · {laneLabel}</span>
+        {isDevMode ? <span className='truncate'>EVE · {laneLabel}</span> : null}
         {elapsedMs !== undefined ? (
           <span className='inline-flex items-center gap-4px text-t-tertiary'>
             <Time theme='outline' size='12' />
@@ -146,12 +145,19 @@ const AcpRuntimeStatus: React.FC<{
             {notice}
           </span>
         ) : null}
+        {!isDevMode && activity.phase === 'tool_wait' && activity.detail ? (
+          <span className='acp-runtime-status__notice' title={activity.detail}>
+            {t('conversation.runtimeStatus.toolDetail', { tool: activity.detail })}
+          </span>
+        ) : null}
       </div>
-      <Tooltip content={t('conversation.runtimeStatus.logsTooltip')}>
-        <Button className='acp-runtime-status__logs' type='text' size='mini' onClick={openLogs}>
-          {t('conversation.runtimeStatus.logs')}
-        </Button>
-      </Tooltip>
+      {isDevMode ? (
+        <Tooltip content={t('conversation.runtimeStatus.logsTooltip')}>
+          <Button className='acp-runtime-status__logs' type='text' size='mini' onClick={openLogs}>
+            {t('conversation.runtimeStatus.logs')}
+          </Button>
+        </Tooltip>
+      ) : null}
     </div>
   );
 };

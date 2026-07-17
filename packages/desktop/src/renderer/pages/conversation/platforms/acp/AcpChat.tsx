@@ -121,8 +121,8 @@ const AcpChat: React.FC<{
           )}
           {/* Runtime status is supporting chrome, not a second composer. It sits
               below the input as the chat-column footer and aligns with the
-              account footer in the left sidebar. Founder/dev only; the component
-              remains hidden for operators in packaged builds. */}
+              account footer in the left sidebar. Operators see only the safe
+              active phase; dev mode adds diagnostics and log access. */}
           <AcpRuntimeStatus
             activity={messageState.runtimeActivity}
             running={messageState.running}

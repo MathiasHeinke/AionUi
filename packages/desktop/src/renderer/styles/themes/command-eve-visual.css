@@ -2008,6 +2008,34 @@
   margin-bottom: 8px;
 }
 
+.acp-document-preparation {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 12px 8px;
+  color: var(--eve-shell-text-secondary, var(--color-text-2));
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.acp-document-preparation--error {
+  color: rgb(var(--danger-6));
+}
+
+.acp-document-preparation__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.acp-document-preparation__elapsed {
+  flex: 0 0 auto;
+  color: var(--eve-shell-text-tertiary, var(--color-text-3));
+  font-variant-numeric: tabular-nums;
+}
+
 .acp-runtime-status {
   box-sizing: border-box;
   min-width: 0;

@@ -13,6 +13,7 @@ import type { UseAcpMessageReturn } from '@/renderer/pages/conversation/platform
 
 const {
   sendMessageInvokeMock,
+  pdfPrepareInvokeMock,
   addOrUpdateMessageMock,
   resetStateMock,
   emitterEmitMock,
@@ -26,8 +27,10 @@ const {
   queueLockMock,
   queueUnlockMock,
   runtimeViewMock,
+  draftDataMock,
 } = vi.hoisted(() => ({
   sendMessageInvokeMock: vi.fn(),
+  pdfPrepareInvokeMock: vi.fn(),
   addOrUpdateMessageMock: vi.fn(),
   resetStateMock: vi.fn(),
   emitterEmitMock: vi.fn(),
@@ -54,6 +57,13 @@ const {
     markStopAcknowledged: vi.fn(),
     resetLocalGate: vi.fn(),
   },
+  draftDataMock: {
+    current: {
+      atPath: [] as string[],
+      uploadFile: [] as string[],
+      content: '',
+    },
+  },
 }));
 
 vi.mock('@/common', () => ({
@@ -66,6 +76,11 @@ vi.mock('@/common', () => ({
     conversation: {
       stop: {
         invoke: vi.fn().mockResolvedValue(undefined),
+      },
+    },
+    commandEve: {
+      pdfPrepare: {
+        invoke: pdfPrepareInvokeMock,
       },
     },
   },
@@ -88,6 +103,24 @@ vi.mock('@/renderer/components/chat/SendBox', () => ({
       </>
     );
   },
+}));
+
+vi.mock('@/renderer/components/chat/UnifiedSendBar', () => ({
+  default: (props: {
+    busyModeSlot?: React.ReactNode;
+    modelSlot?: React.ReactNode;
+    permissionSlot?: React.ReactNode;
+    contextSlot?: React.ReactNode;
+    micSlot?: React.ReactNode;
+  }) => (
+    <>
+      {props.busyModeSlot}
+      {props.modelSlot}
+      {props.permissionSlot}
+      {props.contextSlot}
+      {props.micSlot}
+    </>
+  ),
 }));
 
 vi.mock('@/renderer/components/agent/AgentModeSelector', () => ({ default: () => null }));
@@ -147,11 +180,7 @@ vi.mock('@/renderer/hooks/agent/useAgentModesForBackend', () => ({
 }));
 vi.mock('@/renderer/hooks/chat/useSendBoxDraft', () => ({
   getSendBoxDraftHook: () => () => ({
-    data: {
-      atPath: [],
-      uploadFile: [],
-      content: '',
-    },
+    data: draftDataMock.current,
     mutate: vi.fn(),
   }),
 }));
@@ -248,6 +277,15 @@ vi.mock('@/renderer/pages/conversation/platforms/acp/useAcpInitialMessage', () =
 }));
 
 vi.mock('@arco-design/web-react', () => ({
+  Button: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
+    <button type='button' {...props}>
+      {children}
+    </button>
+  ),
+  Dropdown: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+  Menu: Object.assign(({ children }: { children?: React.ReactNode }) => <>{children}</>, {
+    Item: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
+  }),
   Message: {
     success: vi.fn(),
     error: vi.fn(),
@@ -298,8 +336,92 @@ describe('AcpSendBox', () => {
     runtimeViewMock.isProcessing = false;
     runtimeViewMock.canSendMessage = true;
     runtimeViewMock.activeTurnId = null;
+    draftDataMock.current = { atPath: [], uploadFile: [], content: '' };
+    pdfPrepareInvokeMock.mockReset();
     queueRemoveMock.mockResolvedValue(undefined);
     queueRestoreMock.mockResolvedValue(undefined);
+  });
+
+  it('shows PDF preparation before dispatching the analysis to EVE', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: ['/tmp/report.pdf'], content: '' };
+    let resolvePreparation: (value: unknown) => void = () => {};
+    pdfPrepareInvokeMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolvePreparation = resolve;
+      })
+    );
+    let resolveSend: (value: unknown) => void = () => {};
+    sendMessageInvokeMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSend = resolve;
+      })
+    );
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    act(() => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    expect(await screen.findByTestId('acp-document-preparation')).toHaveTextContent('reading_local');
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolvePreparation({
+        success: true,
+        data: {
+          ok: true,
+          documents: [
+            {
+              source_path: '/tmp/report.pdf',
+              sidecar_path: '/tmp/hermes/document-intelligence/report.md',
+            },
+          ],
+        },
+      });
+    });
+
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId('acp-document-preparation')).toHaveTextContent('handoff');
+    expect(sendMessageInvokeMock).toHaveBeenCalledWith({
+      input: 'Hello',
+      conversation_id: 'conv-1',
+      files: ['/tmp/report.pdf', '/tmp/hermes/document-intelligence/report.md'],
+    });
+
+    await act(async () => {
+      resolveSend({});
+    });
+    await waitFor(() => expect(screen.queryByTestId('acp-document-preparation')).toBeNull());
+  });
+
+  it('surfaces a PDF preparation failure without starting a model turn', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: ['/tmp/broken.pdf'], content: 'Keep this draft' };
+    pdfPrepareInvokeMock.mockRejectedValue(new Error('local PDF extraction failed'));
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('error');
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+    expect(sendBoxPropsMock.current?.loading).toBe(false);
   });
 
   it('resets ACP loading state when sendMessage fails before any stream error arrives', async () => {

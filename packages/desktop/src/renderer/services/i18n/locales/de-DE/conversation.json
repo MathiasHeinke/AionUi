@@ -135,7 +135,15 @@
     "cloudOcrConfirm": "OCR einmal erlauben",
     "selectedDocuments": "den ausgewählten Dokumenten",
     "prepareFailed": "EVE konnte dieses PDF nicht sicher lesen. Die Nachricht wurde nicht gesendet.",
-    "cloudOcrFailed": "Cloud-OCR ist fehlgeschlagen. Nachricht und PDF bleiben ungesendet."
+    "cloudOcrFailed": "Cloud-OCR ist fehlgeschlagen. Nachricht und PDF bleiben ungesendet.",
+    "phase": {
+      "reading_local": "{{count}} PDF wird lokal gelesen",
+      "reading_local_other": "{{count}} PDFs werden lokal gelesen",
+      "awaiting_cloud_ocr": "PDF bereit · wartet auf deine OCR-Freigabe",
+      "reading_cloud": "PDF wird mit freigegebener Cloud-OCR gelesen",
+      "handoff": "PDF gelesen · Analyse wird an EVE übergeben",
+      "error": "PDF konnte nicht verarbeitet werden · Nachricht blieb ungesendet"
+    }
   },
   "commandEveRuntimePreparing": "EVE bereitet die lokale Runtime vor. Das kann beim ersten Start oder nach Modellwechsel etwas dauern.",
   "commandEveRuntimeNotReady": "EVE kann noch nicht senden: {{reason}}",
@@ -594,6 +602,7 @@
     "logsOpenFailed": "Logs konnten nicht geöffnet werden",
     "modelUnknown": "Modell unbekannt",
     "context": "Kontext {{used}}/{{size}}",
+    "toolDetail": "Werkzeug: {{tool}}",
     "notice": {
       "localModel": "Lokales 64k-Modell: erste Antworten können 30–90 Sekunden dauern.",
       "longRunning": "EVE arbeitet weiter. Öffne bei Bedarf die Logs oder stoppe die Anfrage."

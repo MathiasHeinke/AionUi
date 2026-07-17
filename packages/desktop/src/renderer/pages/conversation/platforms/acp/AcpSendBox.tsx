@@ -65,6 +65,7 @@ import { Brain, EditOne, MagicHat, Shield, Time } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { buildSendFailureError } from './buildSendFailureError';
+import AcpDocumentPreparationStatus, { type AcpDocumentPreparationState } from './AcpDocumentPreparationStatus';
 import { useAcpInitialMessage } from './useAcpInitialMessage';
 import type { UseAcpMessageReturn } from './useAcpMessage';
 import VideoCostWall from '@/renderer/components/billing/VideoCostWall';
@@ -156,6 +157,8 @@ const AcpSendBox: React.FC<{
   const [isMobileSheetOpen, setIsMobileSheetOpen] = useState(false);
   const [currentMode, setCurrentMode] = useState<string | undefined>(session_mode);
   const [busySendMode, setBusySendMode] = useState<ConversationBusyControlMode>('queue');
+  const [documentPreparation, setDocumentPreparation] = useState<AcpDocumentPreparationState | null>(null);
+  const documentPreparationInFlightRef = useRef(false);
   const promotingQueuedCommandIdsRef = useRef(new Set<string>());
   const [promotingQueuedCommandIds, setPromotingQueuedCommandIds] = useState<ReadonlySet<string>>(() => new Set());
   const prepareRuntimeSync = useCallback(async () => {
@@ -520,6 +523,9 @@ Please check your local CLI tool authentication status`,
       const pdfFiles = files.filter(isCommandEvePdfPath);
       if (pdfFiles.length === 0) return files;
 
+      const startedAt = Date.now();
+      setDocumentPreparation({ phase: 'reading_local', fileCount: pdfFiles.length, startedAt });
+
       const invoke = (allowCloudOcr: boolean) =>
         ipcBridge.commandEve.pdfPrepare.invoke({
           filePaths: pdfFiles,
@@ -530,17 +536,21 @@ Please check your local CLI tool authentication status`,
       try {
         let response = await invoke(false);
         if (response.success && response.data?.ok) {
+          setDocumentPreparation({ phase: 'handoff', fileCount: pdfFiles.length, startedAt });
           return mergeCommandEvePreparedPdfFiles(files, response.data.documents);
         }
 
         const initialFailure = response.data?.ok === false ? response.data : undefined;
         if (initialFailure?.requires_cloud_ocr_consent !== true) {
+          setDocumentPreparation({ phase: 'error', fileCount: pdfFiles.length, startedAt });
           Message.error({
             content: initialFailure?.message || t('conversation.pdf.prepareFailed'),
             duration: 6000,
           });
           return null;
         }
+
+        setDocumentPreparation({ phase: 'awaiting_cloud_ocr', fileCount: pdfFiles.length, startedAt });
 
         const approved = await new Promise<boolean>((resolve) => {
           Modal.confirm({
@@ -555,10 +565,15 @@ Please check your local CLI tool authentication status`,
             closable: true,
           });
         });
-        if (!approved) return null;
+        if (!approved) {
+          setDocumentPreparation(null);
+          return null;
+        }
 
+        setDocumentPreparation({ phase: 'reading_cloud', fileCount: pdfFiles.length, startedAt });
         response = await invoke(true);
         if (!response.success || !response.data?.ok) {
+          setDocumentPreparation({ phase: 'error', fileCount: pdfFiles.length, startedAt });
           const cloudFailure = response.data?.ok === false ? response.data : undefined;
           Message.error({
             content: cloudFailure?.message || t('conversation.pdf.cloudOcrFailed'),
@@ -566,8 +581,10 @@ Please check your local CLI tool authentication status`,
           });
           return null;
         }
+        setDocumentPreparation({ phase: 'handoff', fileCount: pdfFiles.length, startedAt });
         return mergeCommandEvePreparedPdfFiles(files, response.data.documents);
       } catch (error) {
+        setDocumentPreparation({ phase: 'error', fileCount: pdfFiles.length, startedAt });
         Message.error({
           content: getConversationRuntimeWorkspaceErrorMessage(error, t) || t('conversation.pdf.prepareFailed'),
           duration: 6000,
@@ -579,12 +596,19 @@ Please check your local CLI tool authentication status`,
   );
 
   const onSendHandler = async (message: string) => {
+    if (documentPreparationInFlightRef.current) return;
     const atPathFiles = atPath.map((item) => (typeof item === 'string' ? item : item.path));
     const allFiles = [...uploadFile, ...atPathFiles];
+    const hasPdfFiles = isEveConversation && allFiles.some(isCommandEvePdfPath);
+
+    if (hasPdfFiles) documentPreparationInFlightRef.current = true;
 
     const preparedFiles = await preparePdfFiles(allFiles);
     // A cancelled/failed OCR gate must leave the draft and selected files intact.
-    if (preparedFiles === null) return;
+    if (preparedFiles === null) {
+      documentPreparationInFlightRef.current = false;
+      return;
+    }
 
     clearFiles();
     emitter.emit('acp.selected.file.clear');
@@ -612,6 +636,8 @@ Please check your local CLI tool authentication status`,
       // video directive carrying the confirmed tier/resolution/credit ceiling —
       // not the unmodified original message. Confirming now actually routes a
       // video request at exactly the spec the user approved.
+      documentPreparationInFlightRef.current = false;
+      setDocumentPreparation(null);
       videoCostWall.requestVideo({}, (resolved) => {
         const resolvedMessage = buildResolvedVideoMessage(message, resolved);
         void dispatchMessage(resolvedMessage, preparedFiles);
@@ -619,7 +645,12 @@ Please check your local CLI tool authentication status`,
       return;
     }
 
-    await dispatchMessage(message, preparedFiles);
+    try {
+      await dispatchMessage(message, preparedFiles);
+    } finally {
+      documentPreparationInFlightRef.current = false;
+      if (hasPdfFiles) setDocumentPreparation(null);
+    }
   };
 
   const handleEditQueuedCommand = useCallback(
@@ -956,6 +987,7 @@ Please check your local CLI tool authentication status`,
         onCancel={videoCostWall.cancel}
         onConfirm={videoCostWall.confirm}
       />
+      <AcpDocumentPreparationStatus state={documentPreparation} />
       <CommandQueuePanel
         items={queuedCommands}
         paused={isQueuePaused}
@@ -982,7 +1014,7 @@ Please check your local CLI tool authentication status`,
           emitter.emit('acp.selected.file', items);
           setAtPath(items);
         }}
-        loading={isBusy}
+        loading={isBusy || documentPreparationInFlightRef.current}
         disabled={false}
         hasPendingSpeechInput={speechInputStatus === 'recording'}
         transcribePendingSpeechInput={transcribePendingSpeechInput}

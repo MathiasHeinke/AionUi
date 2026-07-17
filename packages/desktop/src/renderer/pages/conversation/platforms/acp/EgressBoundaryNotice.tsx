@@ -20,8 +20,8 @@ type EgressBoundaryStatus = {
 
 /**
  * EgressBoundaryNotice — the DSGVO data-boundary signal, extracted out of
- * AcpRuntimeStatus so it survives in PRODUCTION even though the runtime log strip is
- * now founder/dev-only.
+ * AcpRuntimeStatus; both surfaces remain independently gated and this notice is
+ * never replaced by the redacted runtime lifecycle line.
  *
  * It surfaces ONLY a REAL action EVE took on outbound text (it redacted or blocked a
  * detected secret before model egress). We deliberately DO NOT render an "all clear"
