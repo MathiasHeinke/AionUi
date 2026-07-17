@@ -8,12 +8,15 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { classifyAcpStreamWatchdog, useAcpMessage } from '@/renderer/pages/conversation/platforms/acp/useAcpMessage';
 import type { IResponseMessage } from '@/common/adapter/ipcBridge';
+import type { AcpPermissionRequest } from '@/common/types/platform/acpTypes';
+import { emitter } from '@/renderer/utils/emitter';
 
 const {
   addOrUpdateMessageMock,
   responseStreamOnMock,
   responseStreamHandlerRef,
   conversationGetInvokeMock,
+  confirmMessageInvokeMock,
   reportInferenceErrorMock,
 } = vi.hoisted(() => ({
   addOrUpdateMessageMock: vi.fn(),
@@ -22,9 +25,18 @@ const {
     current: undefined as ((message: IResponseMessage) => void) | undefined,
   },
   conversationGetInvokeMock: vi.fn(),
+  confirmMessageInvokeMock: vi.fn(),
   // Default: NO quota/cap signal recognized → the error path renders the cold bubble
   // exactly as before. Tests flip this to true to exercise the suppression (M-quotawall).
   reportInferenceErrorMock: vi.fn((): boolean => false),
+}));
+
+vi.mock('@/common/adapter/ipcBridge', () => ({
+  conversation: {
+    confirmMessage: {
+      invoke: confirmMessageInvokeMock,
+    },
+  },
 }));
 
 vi.mock('@/renderer/pages/conversation/Messages/hooks', () => ({
@@ -67,10 +79,34 @@ vi.mock('@/common', () => ({
   },
 }));
 
+const makePermissionRequest = (callId: string): AcpPermissionRequest => ({
+  session_id: 'session-1',
+  options: [
+    { option_id: 'allow-once', name: 'Allow', kind: 'allow_once' },
+    { option_id: 'reject-once', name: 'Reject', kind: 'reject_once' },
+  ],
+  tool_call: {
+    tool_call_id: callId,
+    kind: 'edit',
+    title: 'Approve edit',
+    raw_input: { description: 'write file' },
+  },
+});
+
+const emitPermission = (callId: string): void => {
+  responseStreamHandlerRef.current?.({
+    type: 'acp_permission',
+    data: makePermissionRequest(callId),
+    msg_id: `message-${callId}`,
+    conversation_id: 'conv-1',
+  });
+};
+
 describe('useAcpMessage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     responseStreamHandlerRef.current = undefined;
+    confirmMessageInvokeMock.mockResolvedValue(undefined);
     reportInferenceErrorMock.mockReturnValue(false);
   });
 
@@ -823,6 +859,65 @@ describe('useAcpMessage', () => {
           },
         },
       ]);
+    });
+  });
+
+  describe('EVE permission acknowledgement seeding', () => {
+    it('ignores stale persisted EVE dont_ask until backend request trace confirms it', async () => {
+      conversationGetInvokeMock.mockResolvedValue({
+        type: 'acp',
+        status: 'idle',
+        extra: { backend: 'hermes', session_mode: 'dont_ask' },
+      });
+      const { result } = renderHook(() => useAcpMessage('conv-1'));
+
+      await waitFor(() => expect(result.current.hasHydratedRunningState).toBe(true));
+
+      act(() => emitPermission('call-before-ack'));
+      expect(confirmMessageInvokeMock).not.toHaveBeenCalled();
+      expect(addOrUpdateMessageMock).toHaveBeenCalledTimes(1);
+
+      act(() => {
+        responseStreamHandlerRef.current?.({
+          type: 'request_trace',
+          data: {
+            backend: 'hermes',
+            model_id: 'eve-local',
+            session_mode: 'dont_ask',
+          },
+          msg_id: 'trace-1',
+          conversation_id: 'conv-1',
+        });
+        emitPermission('call-after-ack');
+      });
+
+      await waitFor(() => {
+        expect(confirmMessageInvokeMock).toHaveBeenCalledWith({
+          confirm_key: 'allow-once',
+          msg_id: 'message-call-after-ack',
+          conversation_id: 'conv-1',
+          call_id: 'call-after-ack',
+        });
+      });
+      expect(addOrUpdateMessageMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('auto-approves after the selector publishes the backend-acknowledged EVE mode', async () => {
+      conversationGetInvokeMock.mockResolvedValue({
+        type: 'acp',
+        status: 'idle',
+        extra: { backend: 'hermes', session_mode: 'default' },
+      });
+      const { result } = renderHook(() => useAcpMessage('conv-1'));
+
+      await waitFor(() => expect(result.current.hasHydratedRunningState).toBe(true));
+      act(() => {
+        emitter.emit('acp.permission.mode', { conversation_id: 'conv-1', mode: 'dont_ask' });
+        emitPermission('call-selector-ack');
+      });
+
+      await waitFor(() => expect(confirmMessageInvokeMock).toHaveBeenCalledTimes(1));
+      expect(addOrUpdateMessageMock).not.toHaveBeenCalled();
     });
   });
 

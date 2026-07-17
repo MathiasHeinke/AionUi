@@ -11,7 +11,6 @@ import { COMMAND_EVE_SHELL_ENABLED, getCommandEveDefaultAcpModelIdForTier } from
 import type { IProvider, TProviderWithModel } from '@/common/config/storage';
 import type { Assistant } from '@/common/types/agent/assistantTypes';
 import { DEFAULT_CODEX_MODELS } from '@/common/types/codex/codexModels';
-import { CODEX_MODE_NATIVE_FULL_ACCESS, normalizeCodexMode } from '@/common/types/codex/codexModes';
 import { resolveLocaleKey } from '@/common/utils';
 import { loadPresetAssistantResources } from '@/common/utils/presetAssistantResources';
 import {
@@ -21,48 +20,8 @@ import {
 import type { AgentMetadata } from '@/renderer/utils/model/agentTypes';
 import { getAgents } from '@/renderer/hooks/agent/useAgents';
 import type { AcpModelInfo } from '@/common/types/platform/acpTypes';
-import { getAgentModes } from '@/renderer/utils/model/agentModes';
+import { resolveStoredPreferredMode } from '@/renderer/pages/guid/hooks/agentSelectionUtils';
 import { hasSpecificModelCapability } from '@/renderer/utils/model/modelCapabilities';
-
-type ModePreference = {
-  preferredMode?: string;
-  yoloMode?: boolean;
-};
-
-const LEGACY_YOLO_MODE_MAP: Partial<Record<string, string>> = {
-  claude: 'bypassPermissions',
-  codex: CODEX_MODE_NATIVE_FULL_ACCESS,
-  qwen: 'yolo',
-};
-
-async function resolvePreferredMode(backend: string): Promise<string | undefined> {
-  const modeOptions = getAgentModes(backend);
-  if (modeOptions.length === 0) {
-    return undefined;
-  }
-
-  let preference: ModePreference | undefined;
-
-  if (backend === 'aionrs') {
-    preference = configService.get('aionrs.config');
-  } else {
-    const acpConfig = configService.get('acp.config');
-    preference = acpConfig?.[backend as string];
-  }
-
-  const normalizedPreferredMode =
-    backend === 'codex' ? normalizeCodexMode(preference?.preferredMode) : preference?.preferredMode;
-  if (normalizedPreferredMode && modeOptions.some((option) => option.value === normalizedPreferredMode)) {
-    return normalizedPreferredMode;
-  }
-
-  const legacyMode = LEGACY_YOLO_MODE_MAP[backend];
-  if (preference?.yoloMode && legacyMode && modeOptions.some((option) => option.value === legacyMode)) {
-    return legacyMode;
-  }
-
-  return undefined;
-}
 
 async function resolvePreferredAcpModelId(backend: string): Promise<string | undefined> {
   const commandEveDefaultModelId = getCommandEveDefaultAcpModelIdForTier(
@@ -173,7 +132,7 @@ export async function getDefaultAionrsModel(): Promise<TProviderWithModel> {
 export async function buildCliAgentParams(agent: AgentMetadata, workspace: string): Promise<ICreateConversationParams> {
   const agentKey = agent.backend || agent.agent_type;
   const type = getConversationTypeForBackend(agentKey);
-  const preferredMode = await resolvePreferredMode(agentKey);
+  const preferredMode = resolveStoredPreferredMode(agentKey);
   const preferredAcpModelId = type === 'acp' ? await resolvePreferredAcpModelId(agentKey) : undefined;
 
   let model: TProviderWithModel;
@@ -221,7 +180,7 @@ export async function buildPresetAssistantParams(
     localeKey,
   });
 
-  const preferredMode = await resolvePreferredMode(preset_agent_type);
+  const preferredMode = resolveStoredPreferredMode(preset_agent_type);
   const type = getConversationTypeForBackend(preset_agent_type);
   const preferredAcpModelId = type === 'acp' ? await resolvePreferredAcpModelId(preset_agent_type) : undefined;
   const model = {} as TProviderWithModel;

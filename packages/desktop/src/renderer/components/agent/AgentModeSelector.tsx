@@ -6,8 +6,13 @@
 
 import { ipcBridge } from '@/common';
 import { configService } from '@/common/config/configService';
+import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
 import type { AcpSessionConfigOption } from '@/common/types/platform/acpTypes';
-import { savePreferredMode } from '@/renderer/pages/guid/hooks/agentSelectionUtils';
+import {
+  resolveConversationMode,
+  resolveStoredPreferredMode,
+  savePreferredMode,
+} from '@/renderer/pages/guid/hooks/agentSelectionUtils';
 import {
   getAgentModes,
   resolveModeForBackend,
@@ -142,6 +147,7 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
     return getAgentModes(backend);
   }, [dynamicModes, cachedModes, backend]);
   const defaultMode = modes[0]?.value ?? 'default';
+  const isEveConversation = isCommandEveAcpConversation(backend);
   // Validate initialMode against available modes; fall back to backend's default
   // when the provided value doesn't match (e.g. opencode has 'build'/'plan', not 'default').
   // resolveModeForBackend ALSO maps cross-backend synonyms (e.g. a saved
@@ -149,7 +155,7 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
   // "YOLO set in the start view resets to Standard in the chat" — the start screen
   // stored 'yolo' but hermes only knows default/accept_edits/dont_ask, so the plain
   // some()-match snapped it back to the default.
-  const validInitialMode = resolveModeForBackend(initialMode, modes) ?? defaultMode;
+  const validInitialMode = resolveConversationMode(backend, initialMode, modes) ?? defaultMode;
   const [current_mode, setCurrentMode] = useState<string>(validInitialMode);
   const [isLoading, setIsLoading] = useState(false);
   const [dropdownVisible, setDropdownVisible] = useState(false);
@@ -165,11 +171,13 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
   // ONLY on a genuine initialMode change (agent switch / new session_mode), not
   // on every `modes` array identity change.
   const appliedInitialModeRef = useRef<string | undefined>(initialMode);
-  // Backend session mode is never seeded from session_mode (warmup calls no
-  // setMode), so getMode authoritatively returns 'default' and the pick is lost.
-  // Seed it ONCE per conversation from a non-default initialMode; this ref makes
-  // the push idempotent so an SWR/getMode re-run can't double-fire it.
-  const seededBackendModeRef = useRef(false);
+  const publishAcknowledgedMode = useCallback(
+    (mode: string) => {
+      if (!conversation_id) return;
+      emitter.emit('acp.permission.mode', { conversation_id, mode });
+    },
+    [conversation_id]
+  );
   const getDisplayModeLabel = useCallback(
     (mode: AgentModeOption) => modeLabelFormatter?.(mode) ?? mode.label,
     [modeLabelFormatter]
@@ -188,13 +196,11 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
   useEffect(() => {
     userSelectedModeRef.current = false;
     appliedInitialModeRef.current = initialMode;
-    // Re-arm the one-shot backend seed for the incoming conversation/agent.
-    seededBackendModeRef.current = false;
     // Use resolveModeForBackend (not a bare some()-match) so a cross-backend
     // synonym like 'yolo' resolves to hermes' 'dont_ask' instead of snapping to
     // the default — this effect re-runs on every conversation/backend switch and
     // was silently RE-OVERRIDING the line-146 seed back to Standard.
-    setCurrentMode(resolveModeForBackend(initialMode, modes) ?? defaultMode);
+    setCurrentMode(resolveConversationMode(backend, initialMode, modes) ?? defaultMode);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversation_id, backend]);
 
@@ -207,7 +213,7 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
     if (initialMode === appliedInitialModeRef.current) return;
     appliedInitialModeRef.current = initialMode;
     if (userSelectedModeRef.current) return;
-    const valid = resolveModeForBackend(initialMode, modes) ?? defaultMode;
+    const valid = resolveConversationMode(backend, initialMode, modes) ?? defaultMode;
     setCurrentMode(valid);
   }, [initialMode, modes, defaultMode]);
 
@@ -225,37 +231,75 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
       await beforeRuntimeSync?.();
       return ipcBridge.acpConversation.getMode.invoke({ conversation_id });
     })()
-      .then((result) => {
+      .then(async (result) => {
         if (cancelled || !result) return;
         // The user's explicit pick wins, always.
         if (userSelectedModeRef.current) return;
         // Before the manager is initialized, getMode returns
         // { mode: 'default', initialized: false } — never adopt that.
         if (result.initialized === false) return;
-        const backendMode = result.mode;
-        const initialIsNonDefault =
-          initialMode !== undefined && initialMode !== defaultMode && modes.some((m) => m.value === initialMode);
+        const backendMode = resolveModeForBackend(result.mode, modes);
+        const preferredEveMode = isEveConversation ? resolveStoredPreferredMode(backend, modes) : undefined;
+
+        // Command EVE's permission choice is a founder-level global preference,
+        // not a stale per-chat default. Push it into every existing Hermes
+        // session, but publish it to renderer auto-approval only after the stable
+        // config-options endpoint confirms the same mode.
+        if (preferredEveMode && backendMode !== preferredEveMode) {
+          setCurrentMode(preferredEveMode);
+          let confirmed: Awaited<ReturnType<typeof ipcBridge.acpConversation.setMode.invoke>>;
+          try {
+            confirmed = await ipcBridge.acpConversation.setMode.invoke({
+              conversation_id,
+              mode: preferredEveMode,
+            });
+          } catch {
+            if (backendMode) {
+              setCurrentMode(backendMode);
+              publishAcknowledgedMode(backendMode);
+            }
+            return;
+          }
+          if (cancelled || userSelectedModeRef.current) return;
+          const confirmedMode = resolveModeForBackend(confirmed?.mode, modes);
+          if (confirmedMode) {
+            setCurrentMode(confirmedMode);
+            publishAcknowledgedMode(confirmedMode);
+          }
+          return;
+        }
+
+        if (backendMode) {
+          setCurrentMode(backendMode);
+          publishAcknowledgedMode(backendMode);
+        }
+
+        const resolvedInitialMode = resolveModeForBackend(initialMode, modes);
+        const initialIsNonDefault = resolvedInitialMode !== undefined && resolvedInitialMode !== defaultMode;
         // ROOT FIX: the backend session mode is never seeded from session_mode,
         // so a non-default start-view pick reads back here as bare `default`.
         // Push the pick to the backend ONCE so the real session mode matches the
         // selector, then adopt initialMode as authoritative instead of `default`.
-        if (backendMode === defaultMode && initialIsNonDefault && !seededBackendModeRef.current && initialMode) {
-          seededBackendModeRef.current = true;
-          setCurrentMode(initialMode);
-          void ipcBridge.acpConversation.setMode.invoke({ conversation_id, mode: initialMode }).catch(() => {
-            // Seeding is best-effort; the selector already shows initialMode and
-            // an explicit in-session pick will re-issue setMode authoritatively.
-          });
+        if (backendMode === defaultMode && initialIsNonDefault && resolvedInitialMode) {
+          setCurrentMode(resolvedInitialMode);
+          void ipcBridge.acpConversation.setMode
+            .invoke({ conversation_id, mode: resolvedInitialMode })
+            .then((confirmed) => {
+              if (cancelled || userSelectedModeRef.current) return;
+              const confirmedMode = resolveModeForBackend(confirmed?.mode, modes);
+              if (!confirmedMode) return;
+              setCurrentMode(confirmedMode);
+              publishAcknowledgedMode(confirmedMode);
+            })
+            .catch(() => {
+              // Best-effort for non-EVE agents; their persisted session mode
+              // remains the renderer fallback until a later live read succeeds.
+            });
           return;
         }
         // Even if the one-shot seed already ran, never downgrade a deliberately
         // non-default initialMode to a stale backend `default`.
         if (backendMode === defaultMode && initialIsNonDefault) return;
-        // Only adopt a backend mode that is actually a known mode for this
-        // backend (guards against a stale/foreign value rendering blank).
-        if (modes.some((m) => m.value === backendMode)) {
-          setCurrentMode(backendMode);
-        }
       })
       .catch(() => {
         // Silent fail, keep current state
@@ -264,18 +308,17 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [conversation_id, can_switchMode, beforeRuntimeSync, defaultMode, initialMode, modes]);
-
-  // Broadcast the effective permission mode for THIS conversation so the ACP
-  // message handler's auto-approve path stays in lockstep with the pill. This is
-  // defense-in-depth signal for permission events replayed while the backend's
-  // config-options acknowledgement settles. Fires on the
-  // initial resolved mode and on every change (sync or user pick). No-op without a
-  // conversation_id (the Guid start screen has no live conversation to gate yet).
-  useEffect(() => {
-    if (!conversation_id) return;
-    emitter.emit('acp.permission.mode', { conversation_id, mode: current_mode });
-  }, [conversation_id, current_mode]);
+  }, [
+    backend,
+    beforeRuntimeSync,
+    can_switchMode,
+    conversation_id,
+    defaultMode,
+    initialMode,
+    isEveConversation,
+    modes,
+    publishAcknowledgedMode,
+  ]);
 
   const handleModeChange = useCallback(
     async (mode: string) => {
@@ -283,6 +326,8 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
       setDropdownVisible(false);
 
       if (mode === current_mode) return;
+
+      const previousMode = current_mode;
 
       // The user has now explicitly chosen — no passive sync may override it.
       userSelectedModeRef.current = true;
@@ -301,8 +346,7 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
       // write is acknowledged. Keep the user's explicit pick if the runtime is still
       // attaching; the next live read reconciles it once the ACP session is ready.
       setCurrentMode(mode);
-      onModeChanged?.(mode);
-      if (backend) {
+      if (backend && !isEveConversation) {
         // Mirror Guid-page behaviour: an in-session switch becomes the next default.
         void savePreferredMode(backend, mode);
       }
@@ -310,20 +354,39 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
       try {
         await beforeRuntimeSync?.();
         const confirmed = await ipcBridge.acpConversation.setMode.invoke({ conversation_id, mode });
-        // Only correct course if the backend authoritatively confirms a DIFFERENT mode.
-        const confirmedMode = confirmed?.mode;
-        if (confirmedMode && confirmedMode !== mode && modes.some((m) => m.value === confirmedMode)) {
-          setCurrentMode(confirmedMode);
-          onModeChanged?.(confirmedMode);
+        const confirmedMode = resolveModeForBackend(confirmed?.mode, modes);
+        if (!confirmedMode) {
+          if (isEveConversation) setCurrentMode(previousMode);
+          return;
+        }
+
+        setCurrentMode(confirmedMode);
+        onModeChanged?.(confirmedMode);
+        publishAcknowledgedMode(confirmedMode);
+        if (backend && isEveConversation && confirmedMode === mode) {
+          await savePreferredMode(backend, confirmedMode);
         }
       } catch (error) {
-        // best-effort: a missing /mode route must NOT undo the visible switch.
-        console.warn('[AgentModeSelector] setMode best-effort (kept local pick):', error);
+        if (isEveConversation) {
+          setCurrentMode(previousMode);
+          onModeChanged?.(previousMode);
+        }
+        console.warn('[AgentModeSelector] setMode failed:', error);
       } finally {
         setIsLoading(false);
       }
     },
-    [backend, beforeRuntimeSync, conversation_id, current_mode, onModeChanged, onModeSelect, t]
+    [
+      backend,
+      beforeRuntimeSync,
+      conversation_id,
+      current_mode,
+      isEveConversation,
+      modes,
+      onModeChanged,
+      onModeSelect,
+      publishAcknowledgedMode,
+    ]
   );
 
   const renderLogo = () => (

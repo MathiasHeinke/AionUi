@@ -5,7 +5,68 @@
  */
 
 import { configService } from '@/common/config/configService';
+import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
+import { CODEX_MODE_NATIVE_FULL_ACCESS, normalizeCodexMode } from '@/common/types/codex/codexModes';
 import type { AgentSource } from '@/renderer/utils/model/agentTypes';
+import { getAgentModes, resolveModeForBackend, type AgentModeOption } from '@/renderer/utils/model/agentModes';
+
+type ModePreference = {
+  preferredMode?: string;
+  yoloMode?: boolean;
+};
+
+const LEGACY_YOLO_MODE_MAP: Partial<Record<string, string>> = {
+  claude: 'bypassPermissions',
+  codex: CODEX_MODE_NATIVE_FULL_ACCESS,
+  hermes: 'dont_ask',
+  qwen: 'yolo',
+};
+
+function getModePreference(agentKey: string): ModePreference | undefined {
+  if (agentKey === 'aionrs') {
+    return configService.get('aionrs.config');
+  }
+
+  return configService.get('acp.config')?.[agentKey];
+}
+
+/** Resolve the persisted preference to a mode the selected backend actually supports. */
+export function resolveStoredPreferredMode(
+  agentKey: string | undefined,
+  availableModes?: AgentModeOption[]
+): string | undefined {
+  if (!agentKey) return undefined;
+
+  const modes = availableModes ?? getAgentModes(agentKey);
+  if (modes.length === 0) return undefined;
+
+  const preference = getModePreference(agentKey);
+  const preferredMode =
+    agentKey === 'codex' ? normalizeCodexMode(preference?.preferredMode) : preference?.preferredMode;
+  const resolvedPreferredMode = isCommandEveAcpConversation(agentKey)
+    ? resolveModeForBackend(preferredMode, modes)
+    : modes.find((mode) => mode.value === preferredMode)?.value;
+  if (resolvedPreferredMode) return resolvedPreferredMode;
+
+  const legacyMode = LEGACY_YOLO_MODE_MAP[agentKey];
+  return preference?.yoloMode ? resolveModeForBackend(legacyMode, modes) : undefined;
+}
+
+/**
+ * Resolve the mode shown for an existing conversation.
+ *
+ * EVE's founder-selected preference is global and therefore overrides a stale
+ * per-conversation value. Other agents retain their existing session-local mode.
+ */
+export function resolveConversationMode(
+  backend: string | undefined,
+  sessionMode: string | undefined,
+  availableModes: AgentModeOption[]
+): string | undefined {
+  const resolvedSessionMode = resolveModeForBackend(sessionMode, availableModes);
+  if (!backend || !isCommandEveAcpConversation(backend)) return resolvedSessionMode;
+  return resolveStoredPreferredMode(backend, availableModes) ?? resolvedSessionMode;
+}
 
 /** Save preferred mode to the agent's own config key */
 export async function savePreferredMode(agentKey: string, mode: string): Promise<void> {

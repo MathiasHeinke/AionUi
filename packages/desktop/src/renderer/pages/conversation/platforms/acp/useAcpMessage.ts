@@ -7,6 +7,7 @@
 import { ipcBridge } from '@/common';
 import { conversation as conversationBridge } from '@/common/adapter/ipcBridge';
 import { transformMessage } from '@/common/chat/chatLib';
+import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
 import type { AvailableCommand, IMessageThinking } from '@/common/chat/chatLib';
 import type { AcpPermissionRequest } from '@/common/types/platform/acpTypes';
 import { resolveAcpAutoApprove } from './acpAutoApprove';
@@ -171,12 +172,9 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
   const activeToolCallsRef = useRef<Map<string, string>>(new Map());
 
   // Live permission mode for THIS conversation, used by the acp_permission
-  // auto-approve path. Seeded from conversation.get's extra.session_mode (on
-  // conversation switch) and kept current via the 'acp.permission.mode' emitter
-  // event that AgentModeSelector broadcasts. The backend has no live /mode route
-  // (it 404s), so this renderer-side value is the source of truth for whether an
-  // incoming request_permission should be auto-allowed (YOLO/"Nicht fragen") or
-  // gated. Guards against a stale/closed-over mode in the response handler.
+  // auto-approve path. EVE is seeded only from an acknowledged selector event or
+  // the backend's request_trace; its persisted extra.session_mode can be stale
+  // after the founder changes the global EVE preference in another chat.
   const permissionModeRef = useRef<string | undefined>(undefined);
 
   // Guard against double auto-responding the same permission request: a stream
@@ -744,6 +742,9 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
               model_id: String(trace.model_id || 'unknown'),
               session_mode: trace.session_mode as string | undefined,
             };
+            if (typeof trace.session_mode === 'string') {
+              permissionModeRef.current = trace.session_mode;
+            }
             setRuntimeActivity({
               phase: 'thinking',
               backend: requestTraceRef.current.backend,
@@ -982,11 +983,15 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           }
         }
 
-        // Seed the live permission mode for the auto-approve path from the
-        // conversation's persisted session_mode (the picker writes it here; the
-        // founder's YOLO/"Nicht fragen" pick reads back as 'yolo'/'dont_ask').
-        // AgentModeSelector keeps it current via the 'acp.permission.mode' event.
-        if (res.type === 'acp' && typeof res.extra?.session_mode === 'string') {
+        // Non-EVE ACP agents retain their session-local persisted mode. EVE does
+        // not trust this value because its founder-selected preference is global;
+        // AgentModeSelector publishes the live mode only after backend config
+        // acknowledgement, and request_trace provides the same backend truth.
+        if (
+          res.type === 'acp' &&
+          !isCommandEveAcpConversation(res.extra?.backend) &&
+          typeof res.extra?.session_mode === 'string'
+        ) {
           permissionModeRef.current = res.extra.session_mode;
         }
       })
