@@ -51,6 +51,12 @@ import {
   COMMAND_EVE_MARKETING_VERSION,
   COMMAND_EVE_VERSION,
 } from '@/common/config/commandEveShell';
+import {
+  CLAUDE_SEAT_BILLING_LANE,
+  CLAUDE_SEAT_FALLBACK_POLICY,
+  CLAUDE_SEAT_RUNTIME_ROUTE,
+  type ResolvedClaudeDelegate,
+} from '@/common/config/eveWorkerAssignmentCore';
 import packageJson from '../../../package.json';
 import { registerTenant } from '@/process/commandEve/entitlementCore';
 import { sha256FileIfPresent } from '@/process/commandEve/windows/runtimeProvenanceCore';
@@ -870,7 +876,8 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(providerOverride).toContain('def command_eve_should_defer(self: Any, *args: Any, **kwargs: Any)');
       expect(providerOverride).toContain('_command_eve_apply_context_policy');
       expect(providerOverride).toContain('"local-fallback"');
-      expect(providerOverride).toContain('request_host == "127.0.0.1"');
+      expect(providerOverride).toContain('request_host in {"127.0.0.1", "localhost", "::1"}');
+      expect(providerOverride).not.toContain('request_host == "127.0.0.1"');
       expect(providerOverride).toContain('extra_body["session_id"] = session_id[:256]');
       expect(providerOverride).not.toContain('top_level["session_id"]');
       expect(providerOverride).toContain('AIAgent._should_treat_stop_as_truncated');
@@ -1069,6 +1076,9 @@ describe('Command EVE runtime bootstrap core', () => {
           acpCommand: 'bunx',
           acpArgs: ['@agentclientprotocol/claude-agent-acp'],
           provider: 'copilot-acp',
+          billingLane: CLAUDE_SEAT_BILLING_LANE,
+          runtimeRoute: CLAUDE_SEAT_RUNTIME_ROUTE,
+          fallbackPolicy: CLAUDE_SEAT_FALLBACK_POLICY,
         },
       });
       const paths = resolveCommandEveRuntimeBootstrapPaths(harnessOn.root);
@@ -1081,6 +1091,45 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(config).toContain('delegation:\n  provider: copilot-acp');
       // honesty wall: the directive must restate that delegation is still gated.
       expect(soul.toLowerCase()).toContain('gated');
+    });
+  });
+
+  it.each([
+    ['app-metered billing', { billingLane: 'app_metered' }],
+    ['EVE Inference/OpenRouter execution', { runtimeRoute: 'eve_inference_openrouter' }],
+    ['cloud fallback', { fallbackPolicy: 'eve_inference' }],
+  ])('does not write Claude delegation config for a forged %s route', async (_case, override) => {
+    const harness = makeHarness({ ollamaInitiallyInstalled: true, modelInitiallyPulled: true });
+    await withOllamaServer(async (baseUrl) => {
+      const manifestPath = writeManifest(harness.root, baseUrl);
+      const forgedDelegate = {
+        agent_id: 'eval-research',
+        label: 'Claude',
+        acpCommand: 'bunx',
+        acpArgs: ['@agentclientprotocol/claude-agent-acp'],
+        provider: 'copilot-acp',
+        billingLane: CLAUDE_SEAT_BILLING_LANE,
+        runtimeRoute: CLAUDE_SEAT_RUNTIME_ROUTE,
+        fallbackPolicy: CLAUDE_SEAT_FALLBACK_POLICY,
+        ...override,
+      } as unknown as ResolvedClaudeDelegate;
+
+      await ensureCommandEveRuntimeBootstrap({
+        userDataPath: harness.root,
+        manifestPath,
+        runner: harness.runner,
+        detachedSpawner: () => {},
+        statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+        totalMemoryBytes: 32 * 1024 ** 3,
+        ollamaBinaryCandidates: [],
+        claudeDelegate: forgedDelegate,
+      });
+
+      const paths = resolveCommandEveRuntimeBootstrapPaths(harness.root);
+      const soul = fs.readFileSync(path.join(paths.hermesHome, 'SOUL.md'), 'utf8');
+      const config = fs.readFileSync(path.join(paths.hermesHome, 'config.yaml'), 'utf8');
+      expect(soul).not.toContain('delegate_task');
+      expect(config).not.toContain('provider: copilot-acp');
     });
   });
 

@@ -81,9 +81,15 @@ function createDeps(): GuidSendDeps {
     })),
     getEffectiveAgentType: vi.fn(() => ({ agent_type: 'hermes', isAvailable: true })),
     resolvePresetRulesAndSkills: vi.fn().mockResolvedValue({}),
-    resolveEnabledSkills: vi.fn(() => []),
-    resolveDisabledBuiltinSkills: vi.fn(() => []),
-    skillSelection: {},
+    skillCatalog: {
+      mode: 'selection',
+      status: 'ready',
+      items: [],
+      activeItems: [],
+      activeCount: 0,
+      totalCount: 0,
+      selection: {},
+    },
     availableMcpServers: [],
     selectedMcpServerIds: [],
     currentEffectiveAgentInfo: { agent_type: 'acp', isAvailable: true },
@@ -193,9 +199,12 @@ describe('useGuidSend blocked cloud lane', () => {
     bridgeMocks.conversationCreate.mockResolvedValue({ id: 'conversation-1' });
 
     const deps = createDeps();
-    deps.skillSelection = {
-      enabledSkills: ['optional-active'],
-      excludedAutoInjectSkills: ['auto-excluded'],
+    deps.skillCatalog = {
+      ...deps.skillCatalog,
+      selection: {
+        enabledSkills: ['optional-active'],
+        excludedAutoInjectSkills: ['auto-excluded'],
+      },
     };
     const { result } = renderHook(() => useGuidSend(deps));
 
@@ -212,4 +221,100 @@ describe('useGuidSend blocked cloud lane', () => {
       })
     );
   });
+
+  it('preserves an explicit empty ready-catalog selection instead of restoring assistant defaults', async () => {
+    configGetMock.mockImplementation((key: string) =>
+      key === 'commandEve.inferenceSelection' ? 'command-eve-local:local-standard' : undefined
+    );
+    bridgeMocks.ensureAssistant.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        agent_id: 'hermes-runtime',
+        agent_name: 'EVE',
+        cli_path: '/runtime/hermes',
+        enabled_skills: ['assistant-default'],
+      },
+    });
+    bridgeMocks.runtimeStatus.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        default_model: 'command-eve-gemma4-e4b-64k:latest',
+        model_warmup: { status: 'ready', model: 'command-eve-gemma4-e4b-64k:latest' },
+      },
+    });
+    bridgeMocks.conversationCreate.mockResolvedValue({ id: 'conversation-1' });
+
+    const deps = createDeps();
+    deps.skillCatalog = {
+      ...deps.skillCatalog,
+      selection: { enabledSkills: [], excludedAutoInjectSkills: [] },
+    };
+    const { result } = renderHook(() => useGuidSend(deps));
+
+    await act(async () => {
+      await result.current.handleSend();
+    });
+
+    expect(bridgeMocks.conversationCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        extra: expect.objectContaining({
+          preset_enabled_skills: [],
+          exclude_auto_inject_skills: [],
+        }),
+      })
+    );
+  });
+
+  it.each(['loading', 'error'] as const)(
+    'omits stale and readiness-derived skill selections while the catalog is %s',
+    async (status) => {
+      configGetMock.mockImplementation((key: string) =>
+        key === 'commandEve.inferenceSelection' ? 'command-eve-local:local-standard' : undefined
+      );
+      bridgeMocks.ensureAssistant.mockResolvedValue({
+        success: true,
+        data: {
+          status: 'ready',
+          agent_id: 'hermes-runtime',
+          agent_name: 'EVE',
+          cli_path: '/runtime/hermes',
+          enabled_skills: ['assistant-default'],
+        },
+      });
+      bridgeMocks.runtimeStatus.mockResolvedValue({
+        success: true,
+        data: {
+          status: 'ready',
+          default_model: 'command-eve-gemma4-e4b-64k:latest',
+          model_warmup: { status: 'ready', model: 'command-eve-gemma4-e4b-64k:latest' },
+        },
+      });
+      bridgeMocks.conversationCreate.mockResolvedValue({ id: 'conversation-1' });
+
+      const deps = createDeps();
+      deps.skillCatalog = {
+        mode: 'selection',
+        status,
+        items: [{ name: 'stale-skill', description: '', isAutoInject: false, active: true }],
+        activeItems: [{ name: 'stale-skill', description: '', isAutoInject: false, active: true }],
+        activeCount: 1,
+        totalCount: 1,
+        selection: {
+          enabledSkills: ['stale-skill'],
+          excludedAutoInjectSkills: ['stale-auto'],
+        },
+      };
+      const { result } = renderHook(() => useGuidSend(deps));
+
+      await act(async () => {
+        await result.current.handleSend();
+      });
+
+      const createPayload = bridgeMocks.conversationCreate.mock.calls[0]?.[0];
+      expect(createPayload?.extra).not.toHaveProperty('preset_enabled_skills');
+      expect(createPayload?.extra).not.toHaveProperty('exclude_auto_inject_skills');
+    }
+  );
 });

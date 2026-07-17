@@ -24,7 +24,15 @@ import FilePreview from '@/renderer/components/media/FilePreview';
 import HorizontalFileList from '@/renderer/components/media/HorizontalFileList';
 import { useAcpModelInfo } from '@/renderer/hooks/agent/useAcpModelInfo';
 import { useAgentModesForBackend } from '@/renderer/hooks/agent/useAgentModesForBackend';
-import { createModeLabelFormatter } from '@/renderer/utils/model/agentModes';
+import {
+  boundCommandEveModeMenu,
+  commandEveBackendMode,
+  COMMAND_EVE_HG4_DELEGATED_MODE,
+  createModeLabelFormatter,
+  hasActiveEveHg4Delegation,
+  isCommandEveModeExpansion,
+  persistEvePermissionAuthority,
+} from '@/renderer/utils/model/agentModes';
 import { useEveInferenceSelection } from '@/renderer/hooks/agent/useEveInferenceSelection';
 import { isEveInferenceSelection } from '@/common/config/eveInferenceCore';
 import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
@@ -182,6 +190,11 @@ const AcpSendBox: React.FC<{
     onSelectModelFailed: () => Message.error(t('agent.model.switchFailed')),
   });
   const availableAgentModes = useAgentModesForBackend(backend);
+  const isEveConversation = isCommandEveAcpConversation(backend);
+  const availablePermissionModes = useMemo(
+    () => (isEveConversation ? boundCommandEveModeMenu(availableAgentModes, true) : availableAgentModes),
+    [availableAgentModes, isEveConversation]
+  );
 
   // EVE-aware permission-mode label formatter. For the Hermes/EVE backend it
   // maps the three honest modes to the clean EVE labels (Standard / Änderungen
@@ -194,7 +207,6 @@ const AcpSendBox: React.FC<{
   // Inference tier picker (Standard/High/Max + Private). Same persistence key as
   // the desktop header + GuidPage picker, so a switch made in the sheet takes
   // effect on the next turn (the send shim re-reads the live selection).
-  const isEveConversation = isCommandEveAcpConversation(backend);
   const eveInference = useEveInferenceSelection();
 
   // Model id handed to the context indicator/popover. On an EVE conversation the
@@ -222,23 +234,128 @@ const AcpSendBox: React.FC<{
       .then((result) => {
         if (cancelled || !result) return;
         if (result.initialized !== false) {
-          setCurrentMode(result.mode);
+          setCurrentMode(
+            isEveConversation && result.mode === 'dont_ask' && hasActiveEveHg4Delegation(backend, conversation_id)
+              ? COMMAND_EVE_HG4_DELEGATED_MODE
+              : result.mode
+          );
         }
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [conversation_id, isMobile, isMobileSheetOpen, prepareRuntimeSync]);
+  }, [backend, conversation_id, isEveConversation, isMobile, isMobileSheetOpen, prepareRuntimeSync]);
 
   const handleSheetModeChange = useCallback(
     async (mode: string) => {
       if (mode === currentMode) return;
+      const previousMode = currentMode ?? 'default';
+
+      if (isEveConversation) {
+        const requestedBackendMode = commandEveBackendMode(mode);
+        const isExpansion = isCommandEveModeExpansion(previousMode, mode);
+        const hg4Delegated = mode === COMMAND_EVE_HG4_DELEGATED_MODE;
+        let restrictionPersistenceFailed = false;
+
+        if (!isExpansion) {
+          setCurrentMode(mode);
+          emitter.emit('acp.permission.mode', { conversation_id, mode });
+          try {
+            await persistEvePermissionAuthority({
+              backend,
+              conversationId: conversation_id,
+              preferredMode: requestedBackendMode,
+              hg4Delegated: false,
+            });
+          } catch (error) {
+            restrictionPersistenceFailed = true;
+            console.error('[AcpSendBox] Failed to persist mobile EVE revocation:', error);
+            Message.warning(
+              t('agentMode.eve.revocationPersistFailed', {
+                defaultValue: 'Restriction is active locally, but its audit record could not be persisted.',
+              })
+            );
+          }
+        }
+
+        try {
+          await prepareRuntimeSync();
+          const confirmed = await ipcBridge.acpConversation.setMode.invoke({
+            conversation_id,
+            mode: requestedBackendMode,
+          });
+          const confirmedMode = confirmed.mode || requestedBackendMode;
+          if (confirmedMode !== requestedBackendMode) {
+            if (isExpansion) {
+              setCurrentMode(confirmedMode);
+              emitter.emit('acp.permission.mode', { conversation_id, mode: confirmedMode });
+            }
+            Message.error(t('agentMode.switchFailed'));
+            return;
+          }
+
+          if (isExpansion) {
+            try {
+              await persistEvePermissionAuthority({
+                backend,
+                conversationId: conversation_id,
+                preferredMode: requestedBackendMode,
+                hg4Delegated,
+              });
+            } catch (error) {
+              setCurrentMode(confirmedMode);
+              emitter.emit('acp.permission.mode', { conversation_id, mode: confirmedMode });
+              console.error('[AcpSendBox] Failed to persist mobile EVE expansion:', error);
+              Message.warning(
+                t('agentMode.eve.expansionPersistFailed', {
+                  defaultValue: hg4Delegated
+                    ? 'HG4 delegation was not persisted. Sensitive actions will continue to ask.'
+                    : 'The mode is active for this conversation, but the preference was not persisted.',
+                })
+              );
+              return;
+            }
+            setCurrentMode(mode);
+            emitter.emit('acp.permission.mode', { conversation_id, mode });
+          }
+
+          if (isLeaderInTeam) teamPermission?.propagateMode?.(confirmedMode);
+          if (!restrictionPersistenceFailed) Message.success(t('agentMode.switchSuccess'));
+        } catch (error) {
+          if (isExpansion) {
+            setCurrentMode(previousMode);
+            emitter.emit('acp.permission.mode', { conversation_id, mode: previousMode });
+          }
+          console.error('[AcpSendBox] Failed to switch EVE mode via sheet:', error);
+          Message.error(t('agentMode.switchFailed'));
+        }
+        return;
+      }
+
+      const isExpansion = isCommandEveModeExpansion(currentMode ?? 'default', mode);
+
+      if (!isExpansion) {
+        setCurrentMode(mode);
+        emitter.emit('acp.permission.mode', { conversation_id, mode });
+      }
+
       try {
         await prepareRuntimeSync();
         const confirmed = await ipcBridge.acpConversation.setMode.invoke({ conversation_id, mode });
         const confirmedMode = confirmed.mode || mode;
-        setCurrentMode(confirmedMode);
+        if (confirmedMode !== mode) {
+          if (isExpansion) {
+            setCurrentMode(confirmedMode);
+            emitter.emit('acp.permission.mode', { conversation_id, mode: confirmedMode });
+          }
+          Message.error(t('agentMode.switchFailed'));
+          return;
+        }
+        if (isExpansion) {
+          setCurrentMode(confirmedMode);
+          emitter.emit('acp.permission.mode', { conversation_id, mode: confirmedMode });
+        }
         if (backend) void savePreferredMode(backend, confirmedMode);
         if (isLeaderInTeam) teamPermission?.propagateMode?.(confirmedMode);
         Message.success(t('agentMode.switchSuccess'));
@@ -247,7 +364,7 @@ const AcpSendBox: React.FC<{
         Message.error(t('agentMode.switchFailed'));
       }
     },
-    [backend, conversation_id, currentMode, isLeaderInTeam, prepareRuntimeSync, t, teamPermission]
+    [backend, conversation_id, currentMode, isEveConversation, isLeaderInTeam, prepareRuntimeSync, t, teamPermission]
   );
 
   const handleDesktopModeChanged = useCallback(
@@ -488,18 +605,39 @@ Please check your local CLI tool authentication status`,
   // queue/in-flight semantics are identical.
   const dispatchMessage = useCallback(
     async (message: string, allFiles: string[]) => {
-      const busyControlCommand =
-        runtimeView.isProcessing && allFiles.length === 0
-          ? buildConversationBusyControlCommand({ input: message, mode: busySendMode })
-          : null;
+      const requestedBusyControlCommand = runtimeView.isProcessing
+        ? buildConversationBusyControlCommand({ input: message, mode: busySendMode })
+        : null;
+      const busyControlCommand = allFiles.length === 0 ? requestedBusyControlCommand : null;
+
+      if (allFiles.length > 0 && requestedBusyControlCommand?.mode === 'steer') {
+        Message.warning(
+          t('conversation.commandQueue.steerFilesQueued', {
+            defaultValue: 'Corrections cannot include files, so this message was queued for afterwards.',
+          })
+        );
+      }
+
       if (busyControlCommand) {
-        await ipcBridge.acpConversation.sendMessage.invoke({
-          input: busyControlCommand.input,
-          conversation_id,
-          files: [],
-        });
-        emitter.emit('chat.history.refresh');
-        return;
+        try {
+          await ipcBridge.acpConversation.sendMessage.invoke({
+            input: busyControlCommand.input,
+            conversation_id,
+            files: [],
+          });
+          emitter.emit('chat.history.refresh');
+          return true;
+        } catch (error) {
+          Message.error({
+            content:
+              parseError(error) ||
+              t('conversation.commandQueue.promoteFailed', {
+                defaultValue: 'The correction could not be pushed into the current run.',
+              }),
+            duration: 5000,
+          });
+          return false;
+        }
       }
 
       if (
@@ -509,12 +647,12 @@ Please check your local CLI tool authentication status`,
           hasPendingCommands,
         })
       ) {
-        enqueue({ input: message, files: allFiles });
-        return;
+        return enqueue({ input: message, files: allFiles }) !== null;
       }
       await executeCommand({ input: message, files: allFiles });
+      return true;
     },
-    [busySendMode, conversation_id, enqueue, executeCommand, hasPendingCommands, isBusy, runtimeView.isProcessing]
+    [busySendMode, conversation_id, enqueue, executeCommand, hasPendingCommands, isBusy, runtimeView.isProcessing, t]
   );
 
   const preparePdfFiles = useCallback(
@@ -597,15 +735,25 @@ Please check your local CLI tool authentication status`,
 
   const onSendHandler = async (message: string) => {
     if (documentPreparationInFlightRef.current) return;
-    const atPathFiles = atPath.map((item) => (typeof item === 'string' ? item : item.path));
-    const allFiles = [...uploadFile, ...atPathFiles];
+    const draftContent = content || message;
+    const selectedAtPath = [...atPath];
+    const selectedUploadFiles = [...uploadFile];
+    const atPathFiles = selectedAtPath.map((item) => (typeof item === 'string' ? item : item.path));
+    const allFiles = [...selectedUploadFiles, ...atPathFiles];
     const hasPdfFiles = isEveConversation && allFiles.some(isCommandEvePdfPath);
+    const restoreDraftAndFiles = () => {
+      setContent(draftContent);
+      setUploadFile(selectedUploadFiles);
+      setAtPath(selectedAtPath);
+      emitter.emit('acp.selected.file', selectedAtPath);
+    };
 
     if (hasPdfFiles) documentPreparationInFlightRef.current = true;
 
     const preparedFiles = await preparePdfFiles(allFiles);
     // A cancelled/failed OCR gate must leave the draft and selected files intact.
     if (preparedFiles === null) {
+      restoreDraftAndFiles();
       documentPreparationInFlightRef.current = false;
       return;
     }
@@ -646,7 +794,13 @@ Please check your local CLI tool authentication status`,
     }
 
     try {
-      await dispatchMessage(message, preparedFiles);
+      const accepted = await dispatchMessage(message, preparedFiles);
+      if (!accepted) {
+        restoreDraftAndFiles();
+      }
+    } catch (error) {
+      restoreDraftAndFiles();
+      throw error;
     } finally {
       documentPreparationInFlightRef.current = false;
       if (hasPdfFiles) setDocumentPreparation(null);
@@ -747,7 +901,7 @@ Please check your local CLI tool authentication status`,
   const sheetEntries = useMemo<MobileActionSheetEntry[]>(() => {
     if (!isMobile) return [];
 
-    const modeOptions: MobileActionSheetOption[] = availableAgentModes.map((mode) => ({
+    const modeOptions: MobileActionSheetOption[] = availablePermissionModes.map((mode) => ({
       key: mode.value,
       label: formatModeLabel(mode),
       description: mode.description,
@@ -924,7 +1078,7 @@ Please check your local CLI tool authentication status`,
     return entries;
   }, [
     attachEntries,
-    availableAgentModes,
+    availablePermissionModes,
     canSwitchModel,
     currentMode,
     busySendMode,
@@ -956,6 +1110,7 @@ Please check your local CLI tool authentication status`,
     // connected → 409) so they don't bubble up as unhandled rejections.
     // UI state resets immediately; the backend acknowledgement is applied when
     // it arrives so a stalled cancel request does not freeze the composer.
+    pause();
     const turnId = runtimeView.activeTurnId;
     if (!turnId) {
       resetState();

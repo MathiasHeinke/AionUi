@@ -50,7 +50,11 @@ import { iconColors } from '@/renderer/styles/colors';
 import { emitter, useAddEventListener } from '@/renderer/utils/emitter';
 import { mergeFileSelectionItems } from '@/renderer/utils/file/fileSelection';
 import { buildDisplayMessage, collectSelectedFiles } from '@/renderer/utils/file/messageFiles';
-import { mergeWithCapabilities, type AgentModeOption } from '@/renderer/utils/model/agentModes';
+import {
+  isCommandEveModeExpansion,
+  mergeWithCapabilities,
+  type AgentModeOption,
+} from '@/renderer/utils/model/agentModes';
 import { useEveInferenceSelection } from '@/renderer/hooks/agent/useEveInferenceSelection';
 import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import { isElectronDesktop } from '@/renderer/utils/platform';
@@ -429,21 +433,50 @@ const AionrsSendBox: React.FC<{
       return;
     }
 
-    const filesToSend = collectSelectedFiles(uploadFile, atPath);
+    const draftContent = content || message;
+    const selectedAtPath = [...atPath];
+    const selectedUploadFiles = [...uploadFile];
+    const filesToSend = collectSelectedFiles(selectedUploadFiles, selectedAtPath);
+    const restoreDraftAndFiles = () => {
+      setContent(draftContent);
+      setUploadFile(selectedUploadFiles);
+      setAtPath(selectedAtPath);
+      emitter.emit('aionrs.selected.file', selectedAtPath);
+    };
     clearFiles();
     emitter.emit('aionrs.selected.file.clear');
 
-    const busyControlCommand =
-      runtimeView.isProcessing && filesToSend.length === 0
-        ? buildConversationBusyControlCommand({ input: message, mode: busySendMode })
-        : null;
+    const requestedBusyControlCommand = runtimeView.isProcessing
+      ? buildConversationBusyControlCommand({ input: message, mode: busySendMode })
+      : null;
+    const busyControlCommand = filesToSend.length === 0 ? requestedBusyControlCommand : null;
+
+    if (filesToSend.length > 0 && requestedBusyControlCommand?.mode === 'steer') {
+      Message.warning(
+        t('conversation.commandQueue.steerFilesQueued', {
+          defaultValue: 'Corrections cannot include files, so this message was queued for afterwards.',
+        })
+      );
+    }
+
     if (busyControlCommand) {
-      await ipcBridge.conversation.sendMessage.invoke({
-        input: busyControlCommand.input,
-        conversation_id,
-        files: [],
-      });
-      emitter.emit('chat.history.refresh');
+      try {
+        await ipcBridge.conversation.sendMessage.invoke({
+          input: busyControlCommand.input,
+          conversation_id,
+          files: [],
+        });
+        emitter.emit('chat.history.refresh');
+      } catch (error) {
+        restoreDraftAndFiles();
+        Message.error(
+          error instanceof Error
+            ? error.message
+            : t('conversation.commandQueue.promoteFailed', {
+                defaultValue: 'The correction could not be pushed into the current run.',
+              })
+        );
+      }
       return;
     }
 
@@ -454,11 +487,18 @@ const AionrsSendBox: React.FC<{
         hasPendingCommands,
       })
     ) {
-      enqueue({ input: message, files: filesToSend });
+      if (enqueue({ input: message, files: filesToSend }) === null) {
+        restoreDraftAndFiles();
+      }
       return;
     }
 
-    await executeCommand({ input: message, files: filesToSend });
+    try {
+      await executeCommand({ input: message, files: filesToSend });
+    } catch (error) {
+      restoreDraftAndFiles();
+      throw error;
+    }
   };
 
   const handleEditQueuedCommand = useCallback(
@@ -493,11 +533,29 @@ const AionrsSendBox: React.FC<{
   const handleSheetModeChange = useCallback(
     async (mode: string) => {
       if (mode === currentMode) return;
+      const isExpansion = isCommandEveModeExpansion(currentMode ?? 'default', mode);
+
+      if (!isExpansion) {
+        setCurrentMode(mode);
+        emitter.emit('acp.permission.mode', { conversation_id, mode });
+      }
+
       try {
         await prepareRuntimeSync();
         const confirmed = await ipcBridge.acpConversation.setMode.invoke({ conversation_id, mode });
         const confirmedMode = confirmed.mode || mode;
-        setCurrentMode(confirmedMode);
+        if (confirmedMode !== mode) {
+          if (isExpansion) {
+            setCurrentMode(confirmedMode);
+            emitter.emit('acp.permission.mode', { conversation_id, mode: confirmedMode });
+          }
+          Message.error(t('agentMode.switchFailed'));
+          return;
+        }
+        if (isExpansion) {
+          setCurrentMode(confirmedMode);
+          emitter.emit('acp.permission.mode', { conversation_id, mode: confirmedMode });
+        }
         void savePreferredMode('aionrs', confirmedMode);
         propagateMode?.(confirmedMode);
         Message.success(t('agentMode.switchSuccess'));
@@ -748,6 +806,7 @@ const AionrsSendBox: React.FC<{
     // Best-effort cancel: swallow rejections so they don't bubble up as
     // unhandled rejections. UI state resets immediately; the backend
     // acknowledgement is applied when it arrives.
+    pause();
     const turnId = runtimeView.activeTurnId;
     if (!turnId) {
       resetState();

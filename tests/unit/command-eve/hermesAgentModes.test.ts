@@ -6,7 +6,15 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { getAgentModes, mergeWithCapabilities, supportsModeSwitch } from '@/renderer/utils/model/agentModes';
+import {
+  boundCommandEveModeMenu,
+  commandEveBackendMode,
+  COMMAND_EVE_HG4_DELEGATED_MODE,
+  getAgentModes,
+  isCommandEveModeExpansion,
+  mergeWithCapabilities,
+  supportsModeSwitch,
+} from '@/renderer/utils/model/agentModes';
 
 // The permission modes that gate Hermes (Command EVE) tool execution. These ids
 // MUST match Hermes' ACP-advertised session modes (acp_adapter server
@@ -30,5 +38,36 @@ describe('Command EVE / Hermes permission modes', () => {
     expect(merged.map((m) => m.value)).toEqual(['default', 'accept_edits', 'dont_ask']);
     // Known ids keep their static (human) labels rather than title-casing.
     expect(merged.find((m) => m.value === 'accept_edits')?.label).toBe('Semi-autonomous');
+  });
+
+  it('bounds the conversation menu and models HG4 delegation as ack-gated renderer authority', () => {
+    const bounded = boundCommandEveModeMenu(
+      [
+        ...getAgentModes('hermes'),
+        { value: 'untrusted_runtime_mode', label: 'Untrusted' },
+        { value: 'dont_ask', label: 'Misleading runtime label' },
+      ],
+      true
+    );
+
+    expect(bounded.map((mode) => mode.value)).toEqual([
+      'default',
+      'accept_edits',
+      'dont_ask',
+      COMMAND_EVE_HG4_DELEGATED_MODE,
+    ]);
+    expect(bounded.at(-1)?.label).toContain('this chat');
+    expect(bounded.at(-1)?.description).toContain('Warned sensitive actions through HG3.5');
+    expect(commandEveBackendMode(COMMAND_EVE_HG4_DELEGATED_MODE)).toBe('dont_ask');
+    expect(isCommandEveModeExpansion('dont_ask', COMMAND_EVE_HG4_DELEGATED_MODE)).toBe(true);
+    expect(isCommandEveModeExpansion(COMMAND_EVE_HG4_DELEGATED_MODE, 'default')).toBe(false);
+  });
+
+  it('keeps the restrictive default escape when runtime capabilities are incomplete', () => {
+    expect(boundCommandEveModeMenu([{ value: 'dont_ask', label: 'Auto' }], true).map((mode) => mode.value)).toEqual([
+      'default',
+      'dont_ask',
+      COMMAND_EVE_HG4_DELEGATED_MODE,
+    ]);
   });
 });

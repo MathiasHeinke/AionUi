@@ -27,6 +27,9 @@ import { __resetEveAgentTaskRegistryForTest } from '../../../packages/desktop/sr
 import {
   CLAUDE_ACP_ADAPTER_PACKAGE,
   CLAUDE_ACP_ADAPTER_VERSION,
+  CLAUDE_SEAT_BILLING_LANE,
+  CLAUDE_SEAT_FALLBACK_POLICY,
+  CLAUDE_SEAT_RUNTIME_ROUTE,
   type ResolvedClaudeDelegate,
 } from '../../../packages/desktop/src/common/config/eveWorkerAssignmentCore';
 
@@ -36,6 +39,9 @@ const DELEGATE: ResolvedClaudeDelegate = {
   acpCommand: 'bunx',
   acpArgs: [CLAUDE_ACP_ADAPTER_PACKAGE],
   provider: 'copilot-acp',
+  billingLane: CLAUDE_SEAT_BILLING_LANE,
+  runtimeRoute: CLAUDE_SEAT_RUNTIME_ROUTE,
+  fallbackPolicy: CLAUDE_SEAT_FALLBACK_POLICY,
 };
 
 describe('eveWorkerLauncherCore (SG-1 A3/A4)', () => {
@@ -65,6 +71,11 @@ describe('eveWorkerLauncherCore (SG-1 A3/A4)', () => {
         platform: 'darwin',
       });
       expect(wrapped?.acpCommand).toBe('/bin/sh');
+      expect(wrapped).toMatchObject({
+        billingLane: CLAUDE_SEAT_BILLING_LANE,
+        runtimeRoute: CLAUDE_SEAT_RUNTIME_ROUTE,
+        fallbackPolicy: CLAUDE_SEAT_FALLBACK_POLICY,
+      });
       expect(env[HERMES_COPILOT_ACP_COMMAND_ENV]).toBe('/bin/sh');
       expect(env[HERMES_COPILOT_ACP_ARGS_ENV]).toContain("'--role'");
       expect(env[HERMES_COPILOT_ACP_ARGS_ENV]).not.toContain('hostile-old');
@@ -73,6 +84,35 @@ describe('eveWorkerLauncherCore (SG-1 A3/A4)', () => {
       expect(env[HERMES_COPILOT_ACP_COMMAND_ENV]).toBeUndefined();
       expect(env[HERMES_COPILOT_ACP_ARGS_ENV]).toBeUndefined();
       expect(applyLauncherWiring(null, assignments, statuses, { dataPath, seatId: 'seat-1', env })).toBeNull();
+      expect(env[HERMES_COPILOT_ACP_COMMAND_ENV]).toBeUndefined();
+      expect(env[HERMES_COPILOT_ACP_ARGS_ENV]).toBeUndefined();
+
+      fs.rmSync(dataPath, { recursive: true, force: true });
+      fs.rmSync(launcherDir, { recursive: true, force: true });
+    });
+
+    it.each([
+      ['app-metered billing', { billingLane: 'app_metered' }],
+      ['EVE Inference/OpenRouter execution', { runtimeRoute: 'eve_inference_openrouter' }],
+      ['cloud fallback', { fallbackPolicy: 'eve_inference' }],
+    ])('revokes transport and refuses a Claude-seat delegate carrying %s', (_case, override) => {
+      const dataPath = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-transport-reject-'));
+      const launcherDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-launcher-reject-'));
+      fs.writeFileSync(path.join(launcherDir, 'eve-acp-launcher.sh'), '#!/bin/sh\n');
+      const env = {
+        COMMAND_EVE_LAUNCHER_DIR: launcherDir,
+        [HERMES_COPILOT_ACP_COMMAND_ENV]: 'hostile-old-command',
+        [HERMES_COPILOT_ACP_ARGS_ENV]: 'hostile-old-args',
+      } as NodeJS.ProcessEnv;
+
+      const result = applyLauncherWiring(
+        { ...DELEGATE, ...override } as unknown as ResolvedClaudeDelegate,
+        { 'growth-lead': { agent_id: 'growth-lead', kind: 'claude' } } as never,
+        { 'growth-lead': 'active' } as never,
+        { dataPath, seatId: 'seat-1', env, platform: 'darwin' }
+      );
+
+      expect(result).toBeNull();
       expect(env[HERMES_COPILOT_ACP_COMMAND_ENV]).toBeUndefined();
       expect(env[HERMES_COPILOT_ACP_ARGS_ENV]).toBeUndefined();
 

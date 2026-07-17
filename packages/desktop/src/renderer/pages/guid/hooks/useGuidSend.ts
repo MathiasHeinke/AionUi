@@ -20,7 +20,7 @@ import { isEveInferenceSelection, resolveEffectiveInferenceSelection } from '@/c
 import type { IMcpServer, TProviderWithModel } from '@/common/config/storage';
 import { buildAgentConversationParams } from '@/common/utils/buildAgentConversationParams';
 import { getConversationCreateErrorMessage } from '@/renderer/pages/conversation/utils/conversationCreateError';
-import type { SkillCapabilitySelection } from '@/renderer/hooks/capabilities';
+import type { SkillCapabilityCatalog } from '@/renderer/hooks/capabilities';
 import { emitter } from '@/renderer/utils/emitter';
 import { updateWorkspaceTime } from '@/renderer/utils/workspace/workspaceHistory';
 import { Message } from '@arco-design/web-react';
@@ -58,13 +58,7 @@ export type GuidSendDeps = {
   resolvePresetRulesAndSkills: (
     agentInfo: { agent_type: string; backend?: string; custom_agent_id?: string; context?: string } | undefined
   ) => Promise<{ rules?: string; skills?: string }>;
-  resolveEnabledSkills: (
-    agentInfo: { agent_type: string; backend?: string; custom_agent_id?: string } | undefined
-  ) => string[] | undefined;
-  resolveDisabledBuiltinSkills: (
-    agentInfo: { agent_type: string; backend?: string; custom_agent_id?: string } | undefined
-  ) => string[] | undefined;
-  skillSelection: SkillCapabilitySelection;
+  skillCatalog: SkillCapabilityCatalog;
   availableMcpServers?: IMcpServer[];
   selectedMcpServerIds?: string[];
   currentEffectiveAgentInfo: EffectiveAgentInfo;
@@ -139,9 +133,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
     findAgentByKey,
     getEffectiveAgentType,
     resolvePresetRulesAndSkills,
-    resolveEnabledSkills,
-    resolveDisabledBuiltinSkills,
-    skillSelection: { enabledSkills: guidEnabledSkills, excludedAutoInjectSkills: guidDisabledBuiltinSkills },
+    skillCatalog,
     setMentionOpen,
     setMentionQuery,
     setMentionSelectorOpen,
@@ -150,6 +142,9 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
     t,
   } = deps;
   const sendingRef = useRef(false);
+  const skillSelectionReady = skillCatalog.mode === 'selection' && skillCatalog.status === 'ready';
+  const guidEnabledSkills = skillSelectionReady ? skillCatalog.selection.enabledSkills : undefined;
+  const guidDisabledBuiltinSkills = skillSelectionReady ? skillCatalog.selection.excludedAutoInjectSkills : undefined;
 
   const handleSend = useCallback(async () => {
     let commandEveRuntimeModel: TProviderWithModel | undefined;
@@ -276,22 +271,19 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
     const preset_context = [preset_rules, preset_skills]
       .filter((part): part is string => Boolean(part && part.trim()))
       .join('\n\n');
-    // Guid page's per-conversation skill overrides take precedence over the
-    // assistant's saved defaults. The combined skills menu lets the user pick
-    // any custom skill — not just preset-declared ones — so for non-preset
-    // agents we still forward the user's selection (the backend accepts
-    // `preset_enabled_skills` regardless of `is_preset`).
-    const presetEnabledSkillsDefault = resolveEnabledSkills(agentInfo);
-    const commandEveEnabledSkills = commandEveAssistantReadiness?.enabled_skills?.length
-      ? commandEveAssistantReadiness.enabled_skills
-      : undefined;
-    const enabled_skills = guidEnabledSkills ?? commandEveEnabledSkills ?? presetEnabledSkillsDefault;
-    const enabled_skills_to_send = is_preset
-      ? enabled_skills
-      : guidEnabledSkills?.length
-        ? guidEnabledSkills
-        : undefined;
-    const excludeBuiltinSkills = guidDisabledBuiltinSkills ?? resolveDisabledBuiltinSkills(agentInfo);
+    // The ready catalog is the only frontend selection authority. In loading or
+    // error states omit both fields so the backend applies assistant defaults;
+    // never combine a fresh readiness response with an invisible stale menu.
+    // Preserve explicit empty arrays so toggling every optional skill off is
+    // materially different from leaving the backend default unspecified.
+    const skillSelectionExtra = skillSelectionReady
+      ? {
+          ...(guidEnabledSkills !== undefined ? { preset_enabled_skills: guidEnabledSkills } : {}),
+          ...(guidDisabledBuiltinSkills !== undefined ? { exclude_auto_inject_skills: guidDisabledBuiltinSkills } : {}),
+        }
+      : {};
+    const enabled_skills = guidEnabledSkills;
+    const excludeBuiltinSkills = guidDisabledBuiltinSkills;
 
     const finalEffectiveAgentType = isCommandEveAssistant ? COMMAND_EVE_DEFAULT_ACP_BACKEND : effectiveAgentType;
 
@@ -318,8 +310,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
             expected_model: effectiveCurrentModel?.use_model,
             switched_at: Date.now(),
           },
-          preset_enabled_skills: enabled_skills_to_send,
-          exclude_auto_inject_skills: excludeBuiltinSkills,
+          ...skillSelectionExtra,
         },
       });
 
@@ -365,8 +356,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         custom_workspace: isCustomWorkspace,
         extra: {
           default_files: files,
-          preset_enabled_skills: enabled_skills_to_send,
-          exclude_auto_inject_skills: excludeBuiltinSkills,
+          ...skillSelectionExtra,
         },
       });
 
@@ -414,8 +404,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
             workspace: finalWorkspace,
             custom_workspace: isCustomWorkspace,
             preset_rules: is_preset ? preset_context : undefined,
-            preset_enabled_skills: enabled_skills_to_send,
-            exclude_auto_inject_skills: excludeBuiltinSkills,
+            ...skillSelectionExtra,
             preset_assistant_id,
             session_mode: selectedMode,
           },
@@ -503,11 +492,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         current_model_id: effectiveAcpModelId,
         extra: {
           default_files: files,
-          exclude_auto_inject_skills: excludeBuiltinSkills,
-          // Non-preset agents still forward user-selected custom skills via the
-          // shared backend slot. For preset assistants this is already wired
-          // through `preset_resources.enabled_skills` above.
-          ...(is_preset ? {} : guidEnabledSkills?.length ? { preset_enabled_skills: guidEnabledSkills } : {}),
+          ...skillSelectionExtra,
         },
       });
 
@@ -554,8 +539,7 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
     findAgentByKey,
     getEffectiveAgentType,
     resolvePresetRulesAndSkills,
-    resolveEnabledSkills,
-    resolveDisabledBuiltinSkills,
+    skillSelectionReady,
     guidDisabledBuiltinSkills,
     guidEnabledSkills,
     navigate,

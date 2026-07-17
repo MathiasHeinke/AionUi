@@ -61,12 +61,16 @@ describe('Command EVE context and cache policy', () => {
     });
   });
 
-  it('hashes Hermes session ids into stable opaque cache scopes', () => {
-    const first = commandEveCacheScope('hermes-session-1');
+  it('hashes Hermes session ids into stable seat-partitioned opaque cache scopes', () => {
+    const first = commandEveCacheScope('hermes-session-1', 'seat-1');
     expect(first).toMatch(/^[a-f0-9]{64}$/);
-    expect(first).toBe(commandEveCacheScope('hermes-session-1'));
-    expect(first).not.toBe(commandEveCacheScope('hermes-session-2'));
+    expect(first).toBe(commandEveCacheScope('hermes-session-1', 'seat-1'));
+    expect(first).not.toBe(commandEveCacheScope('hermes-session-2', 'seat-1'));
+    expect(first).not.toBe(commandEveCacheScope('hermes-session-1', 'seat-2'));
     expect(first).not.toContain('hermes-session-1');
+    expect(commandEveCacheScope('hermes-session-1', '')).toBeUndefined();
+    expect(commandEveCacheScope('hermes-session-1', ' seat-2 ')).toBeUndefined();
+    expect(commandEveCacheScope('hermes-session-1', '../seat-1')).toBeUndefined();
   });
 });
 
@@ -672,7 +676,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
     expect(fnSeen.body?.license).toBeUndefined();
     expect(fnSeen.body).not.toHaveProperty('model');
     expect(fnSeen.body?.session_id).toBeUndefined();
-    expect(fnSeen.body?.cache_scope).toBe(commandEveCacheScope('hermes-session-private-1'));
+    expect(fnSeen.body?.cache_scope).toBe(commandEveCacheScope('hermes-session-private-1', 'seat-1'));
   });
 
   it('strips native image_url parts before the EVE cloud lane sees them', async () => {
@@ -1464,10 +1468,17 @@ describe('Command EVE shim — per-seat usage attribution (A3)', () => {
     await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
-      body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'hi' }], stream: false }),
+      body: JSON.stringify({
+        model: 'm',
+        messages: [{ role: 'user', content: 'hi' }],
+        stream: false,
+        session_id: 'same-local-session',
+      }),
     });
 
     expect(fnSeen.body?.seat_id).toBe(seatUuid);
+    expect(fnSeen.body?.cache_scope).toBe(commandEveCacheScope('same-local-session', seatUuid));
+    expect(fnSeen.body?.cache_scope).not.toBe(commandEveCacheScope('same-local-session', 'seat-1'));
   });
 
   it('sends the legacy "seat-1" by default (resolver omitted ⇒ byte-stable attribution)', async () => {
@@ -1504,10 +1515,16 @@ describe('Command EVE shim — per-seat usage attribution (A3)', () => {
     await fetch(`${shimServerUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: SHIM_JSON_HEADERS,
-      body: JSON.stringify({ model: 'm', messages: [{ role: 'user', content: 'hi' }], stream: false }),
+      body: JSON.stringify({
+        model: 'm',
+        messages: [{ role: 'user', content: 'hi' }],
+        stream: false,
+        session_id: 'same-local-session',
+      }),
     });
 
     expect(fnSeen.body).not.toHaveProperty('seat_id');
+    expect(fnSeen.body).not.toHaveProperty('cache_scope');
   });
 
   it('sends ONLY the opaque id — the display LABEL never rides the body (H3)', async () => {

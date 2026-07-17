@@ -1,7 +1,7 @@
 import { ipcBridge } from '@/common';
 import { fromAvailableSkillsToBuiltinAutoSkills, type RawAvailableSkill } from '@/common/adapter/skillMapper';
 import { useMemo } from 'react';
-import useSWR from 'swr';
+import useSWR, { type ScopedMutator } from 'swr';
 import { useActiveSeatId } from '@/renderer/hooks/useActiveSeatId';
 import type {
   SkillCapabilityCatalog,
@@ -11,6 +11,14 @@ import type {
 } from './types';
 
 export const SKILL_CAPABILITY_CATALOG_KEY = 'skills.capability-catalog';
+
+export const getSkillCapabilityCatalogKey = (activeSeatId: string) =>
+  [SKILL_CAPABILITY_CATALOG_KEY, activeSeatId] as const;
+
+export const isSkillCapabilityCatalogKey = (key: unknown): boolean =>
+  Array.isArray(key) && key[0] === SKILL_CAPABILITY_CATALOG_KEY;
+
+export const invalidateSkillCapabilityCatalog = (mutate: ScopedMutator) => mutate(isSkillCapabilityCatalogKey);
 
 const uniqueNames = (names: string[] | undefined): string[] | undefined => {
   if (names === undefined) return undefined;
@@ -22,8 +30,8 @@ export const buildSkillCapabilityCatalog = (
   options: SkillCapabilityCatalogOptions,
   status: SkillCapabilityCatalog['status'] = rawSkills ? 'ready' : 'loading'
 ): SkillCapabilityCatalog => {
-  const authoritativeCatalog = rawSkills !== undefined;
-  const availableSkills = rawSkills ?? [];
+  const selectionCatalogReady = options.mode === 'selection' && status === 'ready' && rawSkills !== undefined;
+  const availableSkills = options.mode === 'selection' && !selectionCatalogReady ? [] : (rawSkills ?? []);
   const autoInjectNames = new Set(fromAvailableSkillsToBuiltinAutoSkills(availableSkills).map((skill) => skill.name));
   const runtimeNames = options.mode === 'runtime' ? (uniqueNames(options.activeSkills) ?? []) : [];
   const runtimeNameSet = new Set(runtimeNames);
@@ -33,16 +41,15 @@ export const buildSkillCapabilityCatalog = (
   const excludedAutoInjectSkills =
     options.mode === 'selection' ? uniqueNames(options.excludedAutoInjectSkills) : undefined;
 
-  const selection: SkillCapabilitySelection = {
-    enabledSkills:
-      authoritativeCatalog && enabledSkills
-        ? enabledSkills.filter((name) => availableNames.has(name) && !autoInjectNames.has(name))
-        : enabledSkills,
-    excludedAutoInjectSkills:
-      authoritativeCatalog && excludedAutoInjectSkills
-        ? excludedAutoInjectSkills.filter((name) => autoInjectNames.has(name))
-        : excludedAutoInjectSkills,
-  };
+  // A new-chat selection is authoritative only while its install catalog is
+  // ready. Loading/error states intentionally carry no hidden selection; the
+  // create request can then use backend assistant defaults deterministically.
+  const selection: SkillCapabilitySelection = selectionCatalogReady
+    ? {
+        enabledSkills: enabledSkills?.filter((name) => availableNames.has(name) && !autoInjectNames.has(name)),
+        excludedAutoInjectSkills: excludedAutoInjectSkills?.filter((name) => autoInjectNames.has(name)),
+      }
+    : {};
   const selectedNames = new Set(selection.enabledSkills ?? []);
   const excludedNames = new Set(selection.excludedAutoInjectSkills ?? []);
 
@@ -96,7 +103,7 @@ export const buildSkillCapabilityCatalog = (
 
 export const useSkillCapabilityCatalog = (options: SkillCapabilityCatalogOptions): SkillCapabilityCatalog => {
   const activeSeatId = useActiveSeatId();
-  const { data, error } = useSWR<RawAvailableSkill[]>([SKILL_CAPABILITY_CATALOG_KEY, activeSeatId], () =>
+  const { data, error } = useSWR<RawAvailableSkill[]>(getSkillCapabilityCatalogKey(activeSeatId), () =>
     ipcBridge.fs.listAvailableSkills.invoke()
   );
 

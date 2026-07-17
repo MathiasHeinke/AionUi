@@ -1,4 +1,10 @@
-export { buildSkillCapabilityCatalog, useSkillCapabilityCatalog } from './useSkillCapabilityCatalog';
+export {
+  buildSkillCapabilityCatalog,
+  getSkillCapabilityCatalogKey,
+  invalidateSkillCapabilityCatalog,
+  isSkillCapabilityCatalogKey,
+  useSkillCapabilityCatalog,
+} from './useSkillCapabilityCatalog';
 export type {
   SkillCapabilityCatalog,
   SkillCapabilityCatalogOptions,

@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import ConversationBusyModeControl from '@/renderer/pages/conversation/platforms/ConversationBusyModeControl';
 
@@ -63,5 +63,20 @@ describe('ConversationBusyModeControl', () => {
     expect(screen.getByTestId('conversation-busy-mode-queue')).toHaveAttribute('role', 'menuitemradio');
     fireEvent.click(await screen.findByTestId('conversation-busy-mode-steer'));
     expect(onChange).toHaveBeenCalledWith('steer');
+  });
+
+  it('closes an open menu when the active run ends', async () => {
+    const onChange = vi.fn();
+    const { rerender } = render(<ConversationBusyModeControl visible value='queue' onChange={onChange} />);
+
+    fireEvent.click(screen.getByTestId('conversation-busy-mode-trigger'));
+    expect(await screen.findByTestId('conversation-busy-mode-steer')).toBeInTheDocument();
+
+    rerender(<ConversationBusyModeControl visible={false} value='queue' onChange={onChange} />);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('conversation-busy-mode-steer')).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId('conversation-busy-mode-control')).toHaveAttribute('data-state', 'idle');
   });
 });

@@ -11,6 +11,7 @@ import {
   resolveAcpAutoApprove,
 } from '@/renderer/pages/conversation/platforms/acp/acpAutoApprove';
 import type { AcpPermissionRequest } from '@/common/types/platform/acpTypes';
+import { COMMAND_EVE_HG4_DELEGATED_MODE } from '@/renderer/utils/model/agentModes';
 
 /**
  * A realistic ACP request_permission payload — exactly the shape Hermes emits for
@@ -33,11 +34,11 @@ function makeEditPermissionRequest(): AcpPermissionRequest {
   };
 }
 
-describe('acpAutoApprove — isAutoApproveMode (SECURITY: only YOLO auto-approves)', () => {
-  it('auto-approves ONLY the YOLO / "Nicht fragen" mode + its cross-backend synonyms', () => {
-    // EVE/Hermes YOLO id, and the synonyms a conversation may have persisted.
-    expect(isAutoApproveMode('dont_ask')).toBe(true); // hermes "Nicht fragen"
-    expect(isAutoApproveMode('yolo')).toBe(true); // persisted synonym (verified live: extra.session_mode='yolo')
+describe('acpAutoApprove — isAutoApproveMode (SECURITY: EVE escalation requires scoped HG4)', () => {
+  it('requires the explicit EVE HG4 delegation while retaining other backends native auto modes', () => {
+    expect(isAutoApproveMode('dont_ask')).toBe(false);
+    expect(isAutoApproveMode(COMMAND_EVE_HG4_DELEGATED_MODE)).toBe(true);
+    expect(isAutoApproveMode('yolo')).toBe(true);
     expect(isAutoApproveMode('bypassPermissions')).toBe(true); // claude synonym
   });
 
@@ -80,14 +81,66 @@ describe('acpAutoApprove — pickAllowOptionId', () => {
 });
 
 describe('acpAutoApprove — resolveAcpAutoApprove', () => {
-  it('YOLO + a request with an allow option → auto-approve with the allow_once id', () => {
+  it('plain EVE dont_ask gates an escalated request; scoped HG4 delegation allows through HG3.5', () => {
     expect(resolveAcpAutoApprove('dont_ask', makeEditPermissionRequest())).toEqual({
+      autoApprove: false,
+      optionId: null,
+    });
+    expect(resolveAcpAutoApprove(COMMAND_EVE_HG4_DELEGATED_MODE, makeEditPermissionRequest())).toEqual({
       autoApprove: true,
       optionId: 'opt-allow-once',
     });
     expect(resolveAcpAutoApprove('yolo', makeEditPermissionRequest())).toEqual({
       autoApprove: true,
       optionId: 'opt-allow-once',
+    });
+    expect(resolveAcpAutoApprove('yolo', makeEditPermissionRequest(), 'hermes')).toEqual({
+      autoApprove: false,
+      optionId: null,
+    });
+  });
+
+  it('never auto-approves a request explicitly marked as the final HG4 gate', () => {
+    const request: AcpPermissionRequest = {
+      ...makeEditPermissionRequest(),
+      tool_call: {
+        ...makeEditPermissionRequest().tool_call,
+        raw_input: { description: 'irreversible action', human_gate: 'HG-4' },
+      },
+    };
+    expect(resolveAcpAutoApprove(COMMAND_EVE_HG4_DELEGATED_MODE, request)).toEqual({
+      autoApprove: false,
+      optionId: null,
+    });
+  });
+
+  it('recognizes human_gate_level metadata as an explicit final HG4 gate', () => {
+    const request: AcpPermissionRequest = {
+      ...makeEditPermissionRequest(),
+      tool_call: {
+        ...makeEditPermissionRequest().tool_call,
+        raw_input: { metadata: { human_gate_level: 'HG4' } },
+      },
+    };
+
+    expect(resolveAcpAutoApprove(COMMAND_EVE_HG4_DELEGATED_MODE, request)).toEqual({
+      autoApprove: false,
+      optionId: null,
+    });
+  });
+
+  it('recognizes a numeric human_gate_level as an explicit final HG4 gate', () => {
+    const request: AcpPermissionRequest = {
+      ...makeEditPermissionRequest(),
+      tool_call: {
+        ...makeEditPermissionRequest().tool_call,
+        raw_input: { metadata: { human_gate_level: 4 } },
+      },
+    };
+
+    expect(resolveAcpAutoApprove(COMMAND_EVE_HG4_DELEGATED_MODE, request)).toEqual({
+      autoApprove: false,
+      optionId: null,
     });
   });
 
@@ -115,8 +168,8 @@ describe('acpAutoApprove — resolveAcpAutoApprove', () => {
  * FULL-CHAIN: reproduce the exact branch the ACP message handler (useAcpMessage's
  * `acp_permission` case) runs, against a real request_permission payload, and prove
  * the end-to-end behavior:
- *   - mode = "Nicht fragen" (dont_ask / yolo) → desktop AUTO-answers allow via
- *     confirmMessage AND renders NO "Approve edit:" dialog.
+ *   - mode = plain EVE dont_ask → renderer keeps the escalation dialog.
+ *   - mode = explicit scoped HG4 delegation → desktop AUTO-answers through HG3.5.
  *   - mode = "Standard" (default) → desktop renders the dialog AND does NOT answer.
  *
  * This mirrors the handler 1:1: resolve the decision from the live mode, and when it
@@ -149,7 +202,7 @@ describe('acpAutoApprove — FULL CHAIN: request_permission → auto-allow vs ga
     renderDialog(request);
   }
 
-  it('mode "Nicht fragen" (dont_ask): auto-allows the edit, shows NO dialog', () => {
+  it('plain EVE dont_ask keeps a first-delivery escalation in the dialog', () => {
     const confirmMessage = vi.fn();
     const renderDialog = vi.fn();
     handleAcpPermission({
@@ -162,21 +215,15 @@ describe('acpAutoApprove — FULL CHAIN: request_permission → auto-allow vs ga
       answeredCallIds: new Set(),
     });
 
-    expect(confirmMessage).toHaveBeenCalledTimes(1);
-    expect(confirmMessage).toHaveBeenCalledWith({
-      confirm_key: 'opt-allow-once',
-      msg_id: 'm1',
-      conversation_id: 'c8c96df2',
-      call_id: 'call-42',
-    });
-    expect(renderDialog).not.toHaveBeenCalled();
+    expect(confirmMessage).not.toHaveBeenCalled();
+    expect(renderDialog).toHaveBeenCalledTimes(1);
   });
 
-  it('mode "yolo" (persisted synonym): auto-allows the edit, shows NO dialog', () => {
+  it('explicit conversation-scoped HG4 delegation auto-allows through HG3.5', () => {
     const confirmMessage = vi.fn();
     const renderDialog = vi.fn();
     handleAcpPermission({
-      mode: 'yolo',
+      mode: COMMAND_EVE_HG4_DELEGATED_MODE,
       request: makeEditPermissionRequest(),
       msg_id: 'm1',
       conversation_id: 'c1',
@@ -221,12 +268,12 @@ describe('acpAutoApprove — FULL CHAIN: request_permission → auto-allow vs ga
     expect(confirmMessage).not.toHaveBeenCalled();
   });
 
-  it('YOLO: a re-delivered request for the same call_id is auto-answered only ONCE', () => {
+  it('scoped HG4: a re-delivered request for the same call_id is auto-answered only ONCE', () => {
     const confirmMessage = vi.fn();
     const renderDialog = vi.fn();
     const answeredCallIds = new Set<string>();
     const common = {
-      mode: 'dont_ask',
+      mode: COMMAND_EVE_HG4_DELEGATED_MODE,
       request: makeEditPermissionRequest(),
       msg_id: 'm1',
       conversation_id: 'c1',
@@ -240,11 +287,11 @@ describe('acpAutoApprove — FULL CHAIN: request_permission → auto-allow vs ga
     expect(renderDialog).not.toHaveBeenCalled();
   });
 
-  it('YOLO but reject-only request: gates (cannot fabricate an allow)', () => {
+  it('scoped HG4 but reject-only request gates (cannot fabricate an allow)', () => {
     const confirmMessage = vi.fn();
     const renderDialog = vi.fn();
     handleAcpPermission({
-      mode: 'dont_ask',
+      mode: COMMAND_EVE_HG4_DELEGATED_MODE,
       request: { ...makeEditPermissionRequest(), options: [{ option_id: 'r', name: 'Reject', kind: 'reject_once' }] },
       msg_id: 'm1',
       conversation_id: 'c1',

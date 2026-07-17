@@ -5,29 +5,30 @@
  * packaged Command EVE runtime manifest without exposing model mutation.
  */
 import { test, expect } from '../fixtures';
+import { goToSettings } from '../helpers';
 
 test.describe('Command EVE Local Runtime', () => {
   test.setTimeout(120_000);
 
-  test('renders local Gemma runtime tiers and loopback provider truth', async ({ page }, testInfo) => {
+  test('renders the managed local AI status without exposing internal runtime wiring', async ({ page }, testInfo) => {
     await page.waitForSelector('body', { state: 'visible' });
 
-    await page.evaluate(() => {
-      window.location.hash = '#/runtime';
-    });
+    await goToSettings(page, 'runtime');
 
-    await expect(page.getByText('Local Runtime').first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText('Read-only').first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText('v0.17.0').first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('heading', { name: /Lokale KI|Local AI/ })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/Lokale Ausführung|Local execution/).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/Wird automatisch von EVE verwaltet|Managed automatically by EVE/).first()).toBeVisible(
+      {
+        timeout: 30_000,
+      }
+    );
     await expect(page.getByText(/Hermes|hermes-agent/)).toHaveCount(0);
-    await expect(page.getByText('http://127.0.0.1:11434').first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText('http://127.0.0.1:25811').first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText('gemma4:e4b').first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText('gemma4:12b').first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText('gemma4:31b').first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(/Kanban/).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/127\.0\.0\.1|gemma4:/)).toHaveCount(0);
+    await expect(page.getByText(/Schnell und effizient|Fast and efficient/).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/Planung und Analyse|Planning and analysis/).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/Lokale Aufgaben|Local tasks/).first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/Module bereit|modules ready/).first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText('Modell-Warm-up').first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/Startprüfung|Startup check/).first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole('button', { name: /Warm-up|warm-up|Modellwechsel|model switching/ })).toHaveCount(0);
 
     const screenshotPath = 'tests/e2e/results/command-eve-local-runtime.png';

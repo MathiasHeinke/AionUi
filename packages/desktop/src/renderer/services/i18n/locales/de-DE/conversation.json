@@ -489,6 +489,7 @@
     "promote": "Jetzt als Korrektur einschieben",
     "promoteFilesUnsupported": "Korrekturen mit Dateien bleiben in der Warteschlange.",
     "promoteFailed": "Die Korrektur konnte nicht in den laufenden Auftrag eingeschoben werden.",
+    "steerFilesQueued": "Korrekturen können keine Dateien enthalten. Diese Nachricht wurde deshalb für danach eingereiht.",
     "files": "{{count}} Dateien",
     "pausedAfterFailure": "Der nächste Befehl in der Warteschlange konnte nicht gestartet werden. Bearbeite, ordne neu an oder entferne ihn, um fortzufahren.",
     "emptyInput": "Befehle in der Warteschlange dürfen nicht leer sein.",

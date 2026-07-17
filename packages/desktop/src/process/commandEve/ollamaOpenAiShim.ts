@@ -15,7 +15,7 @@ import {
   type CommandEveEgressPolicyAction,
   type CommandEveSensitivityClass,
 } from './egressBoundaryCore';
-import { isLegacySeatId } from './seatContextCore';
+import { isLegacySeatId, sanitizeSeatId } from './seatContextCore';
 import { evaluateWorkerDispatch, type EveTeamWorkerStatusMap } from '../../common/config/eveTeamControlsCore';
 import { EVE_INFERENCE_TIERS } from '../../common/config/eveInferenceCore';
 import { buildCommandEveContextPolicy, type CommandEveContextPolicy } from '../../common/config/eveContextPolicyCore';
@@ -336,11 +336,15 @@ export type CommandEveOllamaShimOptions = {
   honchoDeriverRoute?: CommandEveHonchoDeriverRouteResolver;
 };
 
-export function commandEveCacheScope(sessionId: unknown): string | undefined {
+export function commandEveCacheScope(sessionId: unknown, seatId: unknown): string | undefined {
   if (typeof sessionId !== 'string') return undefined;
   const normalized = sessionId.trim();
   if (!normalized || normalized.length > 512) return undefined;
-  return crypto.createHash('sha256').update(`command-eve-cache:${normalized}`).digest('hex');
+  if (typeof seatId !== 'string') return undefined;
+  if (!seatId.trim() || seatId.length > 64) return undefined;
+  const normalizedSeatId = sanitizeSeatId(seatId);
+  if (!normalizedSeatId) return undefined;
+  return crypto.createHash('sha256').update(`command-eve-cache:${normalizedSeatId}:${normalized}`).digest('hex');
 }
 
 export type CommandEveModelWarmupOptions = {
@@ -1088,10 +1092,11 @@ async function handleEveCloudCompletions(
   // for a delegated (non-default) role, so an un-delegated call's body keeps its
   // prior shape. The id is a kebab role string, never a secret — safe to forward.
   const attributionAgentId = await options.attributionAgentId(dispatchToken, seatId);
-  // Hermes provides its local session id to the loopback shim. Hash it before
-  // cloud egress so neither the raw local id nor the conversation title leaves
-  // the Mac. The server HMACs this opaque scope again before OpenRouter sees it.
-  const cacheScope = commandEveCacheScope(body.session_id);
+  // Hermes provides its local session id to the loopback shim. Bind it to the
+  // canonical active seat before hashing, so identical local ids on two seats
+  // cannot share a cache scope. The server HMACs this opaque scope again before
+  // OpenRouter sees it; neither raw id nor the conversation title leaves the Mac.
+  const cacheScope = commandEveCacheScope(body.session_id, seatId);
 
   // DUX-4 — ENFORCE the "Dein Team" pause/throttle/fire controls. The panel
   // WRITES `commandEve.teamWorkerStatus`; here is the ONE place the execution

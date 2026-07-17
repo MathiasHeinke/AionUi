@@ -488,6 +488,7 @@
     "promote": "Push as correction now",
     "promoteFilesUnsupported": "Corrections with files stay queued.",
     "promoteFailed": "The correction could not be pushed into the current run.",
+    "steerFilesQueued": "Corrections cannot include files, so this message was queued for afterwards.",
     "files": "{{count}} files",
     "pausedAfterFailure": "The next queued command could not start. Edit, reorder, or remove it to continue.",
     "emptyInput": "Queued commands cannot be empty.",

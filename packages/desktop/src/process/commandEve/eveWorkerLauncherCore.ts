@@ -36,6 +36,7 @@ import { EVE_TEAM_ROSTER } from '../../common/config/eveTeamRoster';
 import type { EveTeamWorkerStatusMap } from '../../common/config/eveTeamControlsCore';
 import {
   CLAUDE_ACP_ADAPTER_VERSION,
+  isClaudeSeatDelegateRoute,
   type EveWorkerAssignmentMap,
   type ResolvedClaudeDelegate,
 } from '../../common/config/eveWorkerAssignmentCore';
@@ -99,6 +100,7 @@ export function clearHermesDelegateTransportEnv(env: NodeJS.ProcessEnv): void {
  */
 export function bindHermesDelegateTransportEnv(env: NodeJS.ProcessEnv, delegate: ResolvedClaudeDelegate): void {
   clearHermesDelegateTransportEnv(env);
+  if (!isClaudeSeatDelegateRoute(delegate)) return;
   const command = compact(delegate.acpCommand);
   if (!command || delegate.acpArgs.length === 0) return;
   env[HERMES_COPILOT_ACP_COMMAND_ENV] = command;
@@ -555,11 +557,17 @@ export function applyLauncherWiring(
 ): ResolvedClaudeDelegate | null {
   // Re-resolution is also revocation: never let a prior seat/role transport linger.
   clearHermesDelegateTransportEnv(ctx.env);
+  const delegateRouteValid = delegate === null || isClaudeSeatDelegateRoute(delegate);
+  if (!delegateRouteValid) {
+    console.warn(
+      '[Command EVE] Claude-seat worker requested a non-seat or fallback route — refusing delegation (fail-closed).'
+    );
+  }
   try {
     // Pass the per-seat honcho render input so ACTIVE Claude delegates get the SAME
     // local memory EVE has (per-seat, revocation-symmetric). Absent/not-ready ⇒ no
     // delegate honcho config (byte-identical to before this lane existed).
-    syncEveWorkerLauncherFiles(assignments, statuses, {
+    syncEveWorkerLauncherFiles(delegateRouteValid ? assignments : {}, statuses, {
       dataPath: ctx.dataPath,
       seatId: ctx.seatId,
       honcho: ctx.honcho,
@@ -567,7 +575,7 @@ export function applyLauncherWiring(
   } catch (error) {
     console.warn('[Command EVE] launcher state sync failed:', error);
   }
-  if (!delegate) return null;
+  if (!delegate || !delegateRouteValid) return null;
   const platform = ctx.platform ?? process.platform;
   const packaged = ctx.packaged ?? isPackagedResourceRoot(ctx.resourcesPath);
   const bundledTransport = resolveBundledClaudeAcpTransport(ctx.resourcesPath, platform, ctx.arch ?? process.arch);

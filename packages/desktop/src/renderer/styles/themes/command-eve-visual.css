@@ -2163,21 +2163,23 @@
 
 .eve-backend-recovery::after {
   z-index: -1;
-  background: color-mix(in srgb, #f7f9fb 44%, transparent);
+  background: color-mix(in srgb, #f7f9fb 24%, transparent);
 }
 
 .eve-backend-recovery__panel {
   width: min(100%, 720px);
   min-width: 0;
   padding: clamp(24px, 4vw, 44px);
-  border: 1px solid color-mix(in srgb, #ffffff 76%, #94a3b8);
+  border: 1px solid color-mix(in srgb, #ffffff 68%, #94a3b8);
   border-radius: var(--eve-dialog-radius);
-  background: color-mix(in srgb, #ffffff 84%, transparent);
+  background: color-mix(in srgb, #ffffff 66%, transparent);
+  background-clip: padding-box;
   box-shadow:
-    0 26px 70px color-mix(in srgb, #0f172a 16%, transparent),
-    inset 0 1px 0 color-mix(in srgb, #ffffff 86%, transparent);
-  -webkit-backdrop-filter: blur(24px) saturate(140%);
-  backdrop-filter: blur(24px) saturate(140%);
+    0 34px 90px color-mix(in srgb, #0f172a 18%, transparent),
+    0 0 0 1px color-mix(in srgb, #ffffff 26%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #ffffff 92%, transparent);
+  -webkit-backdrop-filter: blur(34px) saturate(155%);
+  backdrop-filter: blur(34px) saturate(155%);
 }
 
 .eve-backend-recovery__header {
@@ -2291,15 +2293,16 @@
   }
 
   .eve-backend-recovery::after {
-    background: color-mix(in srgb, #07090c 48%, transparent);
+    background: color-mix(in srgb, #07090c 28%, transparent);
   }
 
   .eve-backend-recovery__panel {
     border-color: color-mix(in srgb, #ffffff 12%, transparent);
-    background: color-mix(in srgb, #171a1e 82%, transparent);
+    background: color-mix(in srgb, #171a1e 66%, transparent);
     box-shadow:
-      0 30px 80px color-mix(in srgb, #000000 48%, transparent),
-      inset 0 1px 0 color-mix(in srgb, #ffffff 10%, transparent);
+      0 34px 92px color-mix(in srgb, #000000 54%, transparent),
+      0 0 0 1px color-mix(in srgb, #ffffff 6%, transparent),
+      inset 0 1px 0 color-mix(in srgb, #ffffff 12%, transparent);
   }
 
   .eve-backend-recovery__header,

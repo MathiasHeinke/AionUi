@@ -53,9 +53,25 @@ describe('Command EVE worker registry core', () => {
       status: 'active',
       reasonCode: 'worker.active',
       billingLane: 'seat',
+      executionRoute: 'claude_cli_acp',
+      fallbackPolicy: 'none',
       lastSmoke: { status: 'pass', reportPath: '/tmp/smoke.json' },
     });
   });
+
+  it.each(['claude', 'opus', 'fable'] as const)(
+    'pins the %s worker to the Claude CLI/ACP seat route with no fallback',
+    (workerId) => {
+      const worker = registryWithActive([workerId]).workers.find((entry) => entry.id === workerId);
+
+      expect(worker).toMatchObject({
+        status: 'active',
+        billingLane: 'seat',
+        executionRoute: 'claude_cli_acp',
+        fallbackPolicy: 'none',
+      });
+    }
+  );
 
   it('keeps Codex deferred unless the delegation seam is explicitly supported', () => {
     const unsupported = buildEveWorkerRegistry({
@@ -107,6 +123,7 @@ describe('Command EVE worker registry core', () => {
         sensitivity: 'S1-internal-low',
         privacyMode: 'cloud_balanced',
         userConsent: true,
+        executionRoute: 'claude_cli_acp',
       })
     ).toMatchObject({
       ok: false,
@@ -121,6 +138,7 @@ describe('Command EVE worker registry core', () => {
         sensitivity: 'S1-internal-low',
         privacyMode: 'cloud_balanced',
         userConsent: false,
+        executionRoute: 'claude_cli_acp',
       })
     ).toMatchObject({
       ok: false,
@@ -137,6 +155,7 @@ describe('Command EVE worker registry core', () => {
         sensitivity: 'S0-public',
         privacyMode: 'cloud_balanced',
         userConsent: true,
+        executionRoute: 'claude_cli_acp',
       })
     ).toMatchObject({
       ok: true,
@@ -153,6 +172,7 @@ describe('Command EVE worker registry core', () => {
         sensitivity: 'S0-public',
         privacyMode: 'local_only',
         userConsent: true,
+        executionRoute: 'eve_inference_openrouter',
       })
     ).toMatchObject({
       ok: false,
@@ -170,6 +190,7 @@ describe('Command EVE worker registry core', () => {
         sensitivity: 'S3-restricted',
         privacyMode: 'cloud_balanced',
         userConsent: true,
+        executionRoute: 'eve_inference_openrouter',
       })
     ).toMatchObject({
       ok: false,
@@ -184,6 +205,7 @@ describe('Command EVE worker registry core', () => {
         sensitivity: 'S1-internal-low',
         privacyMode: 'cloud_balanced',
         userConsent: true,
+        executionRoute: 'claude_cli_acp',
         requestedReasoningEffort: 'xhigh',
       })
     ).toMatchObject({
@@ -199,6 +221,7 @@ describe('Command EVE worker registry core', () => {
         sensitivity: 'S1-internal-low',
         privacyMode: 'cloud_balanced',
         userConsent: true,
+        executionRoute: 'claude_cli_acp',
         requestedReasoningEffort: 'high',
       })
     ).toMatchObject({
@@ -208,4 +231,27 @@ describe('Command EVE worker registry core', () => {
       humanGate: 'HG-0',
     });
   });
+
+  it.each(['claude', 'opus', 'fable'] as const)(
+    'refuses to dispatch the %s seat worker through EVE Inference/OpenRouter',
+    (workerId) => {
+      expect(
+        decideEveWorkerDelegation({
+          registry: registryWithActive([workerId]),
+          workerId,
+          sensitivity: 'S0-public',
+          privacyMode: 'cloud_balanced',
+          userConsent: true,
+          executionRoute: 'eve_inference_openrouter',
+        })
+      ).toMatchObject({
+        ok: false,
+        billingLane: 'seat',
+        executionRoute: 'claude_cli_acp',
+        fallbackPolicy: 'none',
+        reasonCode: 'worker.runtime-route-mismatch',
+        humanGate: 'HG-2.5',
+      });
+    }
+  );
 });

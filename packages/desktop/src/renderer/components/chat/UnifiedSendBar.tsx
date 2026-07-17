@@ -90,6 +90,8 @@ const EveComposerControl: React.FC<{
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [popoverVisible, setPopoverVisible] = useState(false);
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
+  const [menuPlacement, setMenuPlacement] = useState({ width: 332, offsetX: 0 });
   const { selectedItem, cloudBearerAvailable } = useEveInferenceSelection();
   const effectiveLimit = resolveEffectiveContextLimit(config.modelId, config.contextLimit);
   const percentage = useMemo(() => {
@@ -108,8 +110,38 @@ const EveComposerControl: React.FC<{
       ? t('conversation.eveControl.contextReady')
       : t('conversation.eveControl.contextPercent', { percent: Math.round(percentage) });
 
+  const updateMenuPlacement = React.useCallback(() => {
+    const trigger = triggerRef.current;
+    const composer = trigger?.closest<HTMLElement>('.eve-composer-surface');
+    if (!trigger || !composer) return;
+
+    const triggerBox = trigger.getBoundingClientRect();
+    const composerBox = composer.getBoundingClientRect();
+    const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+    const edgeInset = 8;
+    const viewportInset = 12;
+    const width = Math.max(176, Math.min(332, composerBox.width - edgeInset * 2, viewportWidth - viewportInset * 2));
+    const naturalLeft = triggerBox.left + triggerBox.width / 2 - width / 2;
+    const minLeft = Math.max(viewportInset, composerBox.left + edgeInset);
+    const maxLeft = Math.min(viewportWidth - viewportInset - width, composerBox.right - edgeInset - width);
+    const desiredLeft = maxLeft >= minLeft ? Math.min(maxLeft, Math.max(minLeft, naturalLeft)) : naturalLeft;
+
+    setMenuPlacement({ width, offsetX: desiredLeft - naturalLeft });
+  }, []);
+
+  React.useEffect(() => {
+    if (!popoverVisible) return undefined;
+    updateMenuPlacement();
+    window.addEventListener('resize', updateMenuPlacement);
+    return () => window.removeEventListener('resize', updateMenuPlacement);
+  }, [popoverVisible, updateMenuPlacement]);
+
   const content = (
-    <div className='eve-composer-control__menu' data-testid='eve-composer-control-menu'>
+    <div
+      className={`eve-composer-control__menu ${menuPlacement.width < 280 ? 'eve-composer-control__menu--compact' : ''}`}
+      style={{ width: menuPlacement.width }}
+      data-testid='eve-composer-control-menu'
+    >
       <div className='eve-composer-control__row'>
         <SettingTwo size={17} aria-hidden='true' />
         <span className='eve-composer-control__label'>{t('conversation.eveControl.howEveWorks')}</span>
@@ -155,10 +187,15 @@ const EveComposerControl: React.FC<{
       position='top'
       trigger='click'
       className='eve-composer-control-popover'
+      triggerProps={{ popupAlign: { top: [menuPlacement.offsetX, 12] } }}
       popupVisible={popoverVisible}
-      onVisibleChange={setPopoverVisible}
+      onVisibleChange={(visible) => {
+        if (visible) updateMenuPlacement();
+        setPopoverVisible(visible);
+      }}
     >
       <Button
+        ref={triggerRef}
         type='text'
         shape='circle'
         className='eve-composer-control__trigger'

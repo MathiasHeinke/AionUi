@@ -17,8 +17,8 @@
  *     (the send-path shim re-reads the live selection per request);
  *   - build the two-group picker model gated by live entitlement and credit
  *     truth (all metered levels remain available while bought credits exist);
- *   - expose the current display label + a `commit` that resets a now-disabled
- *     paid tier back to EVE Standard.
+ *   - expose the current display label + a `commit`, and reset a now-disabled
+ *     paid tier only after funding truth is authoritative.
  *
  * Keeping this in ONE hook means the desktop component, the header injection and
  * both mobile sheets cannot drift apart.
@@ -41,7 +41,7 @@ import { isElectronDesktop } from '@renderer/utils/platform';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 export interface UseEveInferenceSelectionResult {
-  /** The persisted/active selection value (always a known picker value). */
+  /** Persisted selection; unknown local/connected values stay verbatim until their source loads. */
   selection: string;
   /** Two-group picker model, gated by the current entitlement. */
   groups: EvePickerGroup[];
@@ -70,8 +70,8 @@ export interface UseEveInferenceSelectionResult {
  *   surface an egress notice). The persistence to configService happens first.
  */
 export function useEveInferenceSelection(onChange?: (selection: string) => void): UseEveInferenceSelectionResult {
-  const { status } = useEntitlementGate();
-  const { status: creditsStatus } = useCreditsStatus();
+  const { loading: entitlementLoading, status } = useEntitlementGate();
+  const { loading: creditsLoading, status: creditsStatus } = useCreditsStatus();
 
   const pickerEntitlement = useMemo(() => {
     const creditsAreAuthoritative = creditsStatus?.ok === true;
@@ -138,6 +138,16 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
   const groups = useMemo(() => buildEvePickerGroups(pickerEntitlement), [pickerEntitlement]);
   const items = useMemo(() => groups.flatMap((g) => g.items), [groups]);
 
+  // A destructive fallback is only justified once both independent funding
+  // sources have finished with authoritative truth. In particular, a stale
+  // trial marker can arrive before purchased-credit status during startup.
+  const paidTierAccessKnown =
+    !entitlementLoading &&
+    status?.ok === true &&
+    status.state === 'entitled' &&
+    !creditsLoading &&
+    creditsStatus?.ok === true;
+
   const selectedRaw = useMemo(() => items.find((i) => i.value === selection), [items, selection]);
   const selectedItem = selectedRaw && !selectedRaw.disabled ? selectedRaw : undefined;
 
@@ -163,17 +173,21 @@ export function useEveInferenceSelection(onChange?: (selection: string) => void)
 
   // Reset to the safe default (EVE Standard) once when the active selection is no
   // longer usable, so no surface shows a stranded value as "active":
-  //  - a metered EVE tier that is no longer funded (disabled), OR
-  //  - a now-UNKNOWN EVE selection (e.g. the retired `eve-maximum` tier removed in
-  //    the retired `eve-maximum` id) that resolves to no picker item.
+  //  - a metered EVE tier after both entitlement and credit truth confirm that it
+  //    is no longer funded, OR
+  //  - a now-UNKNOWN EVE selection (e.g. the retired `eve-maximum` id) that
+  //    resolves to no picker item.
+  // Unknown local/connected values remain untouched because their provider model
+  // may not have loaded yet; an absent picker row is not proof they were retired.
   useEffect(() => {
     const fallback = eveTierValue(EVE_INFERENCE_DEFAULT_TIER_ID);
     const isUnknownEve = isEveInferenceSelection(selection) && !items.some((item) => item.value === selection);
-    if (((selectedRaw && selectedRaw.disabled) || isUnknownEve) && selection !== fallback) {
+    const isConfirmedUnfundedTier = selectedRaw?.group === 'eve' && selectedRaw.disabled && paidTierAccessKnown;
+    if ((isConfirmedUnfundedTier || isUnknownEve) && selection !== fallback) {
       setSelection(fallback);
       configService.set('commandEve.inferenceSelection', fallback);
     }
-  }, [selectedRaw, items, selection]);
+  }, [selectedRaw, items, paidTierAccessKnown, selection]);
 
   return { selection, groups, items, selectedItem, commit, isSelectable, cloudBearerAvailable, refreshBearer };
 }

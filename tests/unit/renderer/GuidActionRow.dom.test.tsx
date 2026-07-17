@@ -161,4 +161,58 @@ describe('GuidActionRow (UnifiedSendBar integration)', () => {
     fireEvent.click(screen.getByTestId('file-upload-btn'));
     expect((await screen.findByTestId('skill-capability-count')).textContent).toBe('common.skills (1/2)');
   });
+
+  it('renders the nested skill menu and forwards a new-chat toggle', async () => {
+    const onToggleSkill = vi.fn();
+    renderRow(
+      <GuidActionRow
+        {...baseProps}
+        onToggleSkill={onToggleSkill}
+        skillCatalog={{
+          mode: 'selection',
+          status: 'ready',
+          items: [{ name: 'optional-skill', description: '', isAutoInject: false, active: false }],
+          activeItems: [],
+          activeCount: 0,
+          totalCount: 1,
+          selection: { enabledSkills: [], excludedAutoInjectSkills: [] },
+        }}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId('file-upload-btn'));
+    fireEvent.mouseEnter(await screen.findByTestId('skill-capability-count'));
+    fireEvent.click(await screen.findByText('optional-skill'));
+
+    expect(onToggleSkill).toHaveBeenCalledWith('optional-skill', false);
+  });
+
+  it('renders the nested MCP menu and forwards a server toggle', async () => {
+    const onToggleMcpServer = vi.fn();
+    renderRow(
+      <GuidActionRow
+        {...baseProps}
+        mcpServers={[
+          {
+            id: 'filesystem',
+            name: 'Filesystem',
+            enabled: false,
+            transport: { type: 'stdio', command: 'filesystem-server' },
+            tools: [{ name: 'read_file', description: 'Read a file', inputSchema: {} }],
+            created_at: 0,
+            updated_at: 0,
+            original_json: '{}',
+          },
+        ]}
+        onToggleMcpServer={onToggleMcpServer}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId('file-upload-btn'));
+    const mcpCount = await screen.findByText('mcp.label (0/1)');
+    fireEvent.mouseEnter(mcpCount);
+    fireEvent.click(await screen.findByText('Filesystem (1 mcp.tools)'));
+
+    expect(onToggleMcpServer).toHaveBeenCalledWith('filesystem');
+  });
 });

@@ -123,6 +123,11 @@ export const CLAUDE_ACP_ADAPTER_PACKAGE =
  */
 export const ACP_DELEGATE_PROVIDER = 'copilot-acp';
 
+/** Immutable production route for every Claude-seat worker (Claude, Opus, Fable). */
+export const CLAUDE_SEAT_BILLING_LANE = 'seat' as const;
+export const CLAUDE_SEAT_RUNTIME_ROUTE = 'claude_cli_acp' as const;
+export const CLAUDE_SEAT_FALLBACK_POLICY = 'none' as const;
+
 /**
  * A PERSISTED worker assignment — the record the (formerly no-op) card now
  * writes. The KEY is the roster `agent_id` (the namespace JOIN: a runnable CLI is
@@ -176,6 +181,12 @@ export interface EveWorkerRouting {
   acpArgs?: string[];
   /** CLAUDE: the forced generic-ACP provider ("copilot-acp"). */
   provider?: typeof ACP_DELEGATE_PROVIDER;
+  /** CLAUDE: operator subscription billing only; never EVE credits/app metering. */
+  billingLane?: typeof CLAUDE_SEAT_BILLING_LANE;
+  /** CLAUDE: the only allowed runtime route for Claude/Opus/Fable seat work. */
+  runtimeRoute?: typeof CLAUDE_SEAT_RUNTIME_ROUTE;
+  /** CLAUDE: a failed seat launch never falls back to EVE Inference/OpenRouter. */
+  fallbackPolicy?: typeof CLAUDE_SEAT_FALLBACK_POLICY;
   /** IMAGE: true iff this worker routes to the Hermes image_gen + gentmp proxy (NOT the ACP seam). */
   imageRoute?: true;
 }
@@ -282,6 +293,9 @@ export function resolveWorkerRouting(assignment: EveWorkerAssignment): EveWorker
     acpCommand: 'bunx',
     acpArgs: [CLAUDE_ACP_ADAPTER_PACKAGE],
     provider: ACP_DELEGATE_PROVIDER,
+    billingLane: CLAUDE_SEAT_BILLING_LANE,
+    runtimeRoute: CLAUDE_SEAT_RUNTIME_ROUTE,
+    fallbackPolicy: CLAUDE_SEAT_FALLBACK_POLICY,
   };
 }
 
@@ -328,6 +342,27 @@ export interface ResolvedClaudeDelegate {
   acpCommand: string;
   acpArgs: string[];
   provider: typeof ACP_DELEGATE_PROVIDER;
+  billingLane: typeof CLAUDE_SEAT_BILLING_LANE;
+  runtimeRoute: typeof CLAUDE_SEAT_RUNTIME_ROUTE;
+  fallbackPolicy: typeof CLAUDE_SEAT_FALLBACK_POLICY;
+}
+
+/** Runtime guard for the trusted Claude CLI/ACP seat lane. Unknown/missing fields fail closed. */
+export function isClaudeSeatDelegateRoute(value: unknown): value is ResolvedClaudeDelegate {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<ResolvedClaudeDelegate>;
+  return (
+    compact(candidate.agent_id).length > 0 &&
+    compact(candidate.label).length > 0 &&
+    compact(candidate.acpCommand).length > 0 &&
+    Array.isArray(candidate.acpArgs) &&
+    candidate.acpArgs.length > 0 &&
+    candidate.acpArgs.every((arg) => typeof arg === 'string' && arg.trim().length > 0) &&
+    candidate.provider === ACP_DELEGATE_PROVIDER &&
+    candidate.billingLane === CLAUDE_SEAT_BILLING_LANE &&
+    candidate.runtimeRoute === CLAUDE_SEAT_RUNTIME_ROUTE &&
+    candidate.fallbackPolicy === CLAUDE_SEAT_FALLBACK_POLICY
+  );
 }
 
 export function resolveAssignedClaudeDelegate(
@@ -340,13 +375,17 @@ export function resolveAssignedClaudeDelegate(
     if (!decision.allowed || !decision.routing) continue;
     const r = decision.routing;
     if (!r.acpCommand || !r.provider) continue;
-    return {
+    const delegate = {
       agent_id: r.agent_id,
       label: r.label,
       acpCommand: r.acpCommand,
       acpArgs: r.acpArgs ?? [],
       provider: r.provider,
+      billingLane: r.billingLane,
+      runtimeRoute: r.runtimeRoute,
+      fallbackPolicy: r.fallbackPolicy,
     };
+    if (isClaudeSeatDelegateRoute(delegate)) return delegate;
   }
   return null;
 }

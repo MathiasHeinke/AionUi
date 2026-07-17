@@ -4,12 +4,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, render, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createElement, useEffect } from 'react';
 import { classifyAcpStreamWatchdog, useAcpMessage } from '@/renderer/pages/conversation/platforms/acp/useAcpMessage';
 import type { IResponseMessage } from '@/common/adapter/ipcBridge';
 import type { AcpPermissionRequest } from '@/common/types/platform/acpTypes';
 import { emitter } from '@/renderer/utils/emitter';
+import { COMMAND_EVE_HG4_DELEGATED_MODE } from '@/renderer/utils/model/agentModes';
 
 const {
   addOrUpdateMessageMock,
@@ -100,6 +102,21 @@ const emitPermission = (callId: string): void => {
     msg_id: `message-${callId}`,
     conversation_id: 'conv-1',
   });
+};
+
+const PassiveGrantPublisher = () => {
+  useEffect(() => {
+    emitter.emit('acp.permission.mode', {
+      conversation_id: 'conv-1',
+      mode: COMMAND_EVE_HG4_DELEGATED_MODE,
+    });
+  }, []);
+  return null;
+};
+
+const PermissionMountHarness = () => {
+  useAcpMessage('conv-1');
+  return createElement(PassiveGrantPublisher);
 };
 
 describe('useAcpMessage', () => {
@@ -863,7 +880,7 @@ describe('useAcpMessage', () => {
   });
 
   describe('EVE permission acknowledgement seeding', () => {
-    it('ignores stale persisted EVE dont_ask until backend request trace confirms it', async () => {
+    it('keeps first-delivery escalations gated even after backend request trace confirms plain dont_ask', async () => {
       conversationGetInvokeMock.mockResolvedValue({
         type: 'acp',
         status: 'idle',
@@ -891,18 +908,11 @@ describe('useAcpMessage', () => {
         emitPermission('call-after-ack');
       });
 
-      await waitFor(() => {
-        expect(confirmMessageInvokeMock).toHaveBeenCalledWith({
-          confirm_key: 'allow-once',
-          msg_id: 'message-call-after-ack',
-          conversation_id: 'conv-1',
-          call_id: 'call-after-ack',
-        });
-      });
-      expect(addOrUpdateMessageMock).toHaveBeenCalledTimes(1);
+      expect(confirmMessageInvokeMock).not.toHaveBeenCalled();
+      expect(addOrUpdateMessageMock).toHaveBeenCalledTimes(2);
     });
 
-    it('auto-approves after the selector publishes the backend-acknowledged EVE mode', async () => {
+    it('auto-approves through HG3.5 after the selector publishes a persisted scoped HG4 delegation', async () => {
       conversationGetInvokeMock.mockResolvedValue({
         type: 'acp',
         status: 'idle',
@@ -912,12 +922,58 @@ describe('useAcpMessage', () => {
 
       await waitFor(() => expect(result.current.hasHydratedRunningState).toBe(true));
       act(() => {
-        emitter.emit('acp.permission.mode', { conversation_id: 'conv-1', mode: 'dont_ask' });
+        emitter.emit('acp.permission.mode', {
+          conversation_id: 'conv-1',
+          mode: COMMAND_EVE_HG4_DELEGATED_MODE,
+        });
         emitPermission('call-selector-ack');
       });
 
       await waitFor(() => expect(confirmMessageInvokeMock).toHaveBeenCalledTimes(1));
       expect(addOrUpdateMessageMock).not.toHaveBeenCalled();
+    });
+
+    it('captures a child passive grant publish during initial mount', async () => {
+      conversationGetInvokeMock.mockResolvedValue({
+        type: 'acp',
+        status: 'idle',
+        extra: { backend: 'hermes', session_mode: 'dont_ask' },
+      });
+
+      render(createElement(PermissionMountHarness));
+      await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
+      act(() => emitPermission('call-restored-on-mount'));
+
+      await waitFor(() => expect(confirmMessageInvokeMock).toHaveBeenCalledTimes(1));
+      expect(addOrUpdateMessageMock).not.toHaveBeenCalled();
+    });
+
+    it('does not let a stale backend trace widen authority after immediate local revocation', async () => {
+      conversationGetInvokeMock.mockResolvedValue({
+        type: 'acp',
+        status: 'idle',
+        extra: { backend: 'hermes', session_mode: 'dont_ask' },
+      });
+      const { result } = renderHook(() => useAcpMessage('conv-1'));
+
+      await waitFor(() => expect(result.current.hasHydratedRunningState).toBe(true));
+      act(() => {
+        emitter.emit('acp.permission.mode', {
+          conversation_id: 'conv-1',
+          mode: COMMAND_EVE_HG4_DELEGATED_MODE,
+        });
+        emitter.emit('acp.permission.mode', { conversation_id: 'conv-1', mode: 'default' });
+        responseStreamHandlerRef.current?.({
+          type: 'request_trace',
+          data: { backend: 'hermes', model_id: 'eve-local', session_mode: 'dont_ask' },
+          msg_id: 'trace-after-revoke',
+          conversation_id: 'conv-1',
+        });
+        emitPermission('call-after-revoke');
+      });
+
+      expect(confirmMessageInvokeMock).not.toHaveBeenCalled();
+      expect(addOrUpdateMessageMock).toHaveBeenCalledTimes(1);
     });
   });
 

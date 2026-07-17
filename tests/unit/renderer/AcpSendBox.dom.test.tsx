@@ -10,6 +10,7 @@ import React from 'react';
 import { BackendHttpError } from '@/common/adapter/httpBridge';
 import AcpSendBox from '@/renderer/pages/conversation/platforms/acp/AcpSendBox';
 import type { UseAcpMessageReturn } from '@/renderer/pages/conversation/platforms/acp/useAcpMessage';
+import { COMMAND_EVE_HG4_DELEGATED_MODE } from '@/renderer/utils/model/agentModes';
 
 const {
   sendMessageInvokeMock,
@@ -22,12 +23,27 @@ const {
   speechTranscribePendingMock,
   queuePanelPropsMock,
   queueItemsMock,
+  queueEnqueueMock,
   queueRemoveMock,
   queueRestoreMock,
+  queuePauseMock,
   queueLockMock,
   queueUnlockMock,
+  shouldEnqueueMock,
   runtimeViewMock,
   draftDataMock,
+  draftMutateMock,
+  setUploadFileMock,
+  sendBoxMessageMock,
+  layoutIsMobileMock,
+  mobileActionSheetPropsMock,
+  agentModesMock,
+  getModeInvokeMock,
+  setModeInvokeMock,
+  messageErrorMock,
+  messageWarningMock,
+  configGetMock,
+  configSetMock,
 } = vi.hoisted(() => ({
   sendMessageInvokeMock: vi.fn(),
   pdfPrepareInvokeMock: vi.fn(),
@@ -41,10 +57,13 @@ const {
   queueItemsMock: {
     current: [] as Array<{ id: string; input: string; files: string[]; created_at: number }>,
   },
+  queueEnqueueMock: vi.fn(),
   queueRemoveMock: vi.fn(),
   queueRestoreMock: vi.fn(),
+  queuePauseMock: vi.fn(),
   queueLockMock: vi.fn(),
   queueUnlockMock: vi.fn(),
+  shouldEnqueueMock: vi.fn(),
   runtimeViewMock: {
     hydrated: true,
     isProcessing: false,
@@ -64,7 +83,29 @@ const {
       content: '',
     },
   },
+  draftMutateMock: vi.fn(),
+  setUploadFileMock: vi.fn(),
+  sendBoxMessageMock: { current: 'Hello' },
+  layoutIsMobileMock: { current: false },
+  mobileActionSheetPropsMock: { current: null as Record<string, unknown> | null },
+  agentModesMock: {
+    current: [] as Array<{ value: string; label: string; description?: string }>,
+  },
+  getModeInvokeMock: vi.fn(),
+  setModeInvokeMock: vi.fn(),
+  messageErrorMock: vi.fn(),
+  messageWarningMock: vi.fn(),
+  configGetMock: vi.fn(),
+  configSetMock: vi.fn(),
 }));
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolver) => {
+    resolve = resolver;
+  });
+  return { promise, resolve };
+}
 
 vi.mock('@/common', () => ({
   ipcBridge: {
@@ -72,10 +113,16 @@ vi.mock('@/common', () => ({
       sendMessage: {
         invoke: sendMessageInvokeMock,
       },
+      getMode: {
+        invoke: getModeInvokeMock,
+      },
+      setMode: {
+        invoke: setModeInvokeMock,
+      },
     },
     conversation: {
       stop: {
-        invoke: vi.fn().mockResolvedValue(undefined),
+        invoke: vi.fn().mockResolvedValue({ runtime: null }),
       },
     },
     commandEve: {
@@ -83,6 +130,14 @@ vi.mock('@/common', () => ({
         invoke: pdfPrepareInvokeMock,
       },
     },
+  },
+}));
+
+vi.mock('@/common/config/configService', () => ({
+  configService: {
+    get: configGetMock,
+    set: configSetMock,
+    subscribe: vi.fn(() => vi.fn()),
   },
 }));
 
@@ -95,7 +150,7 @@ vi.mock('@/renderer/components/chat/SendBox', () => ({
         <button
           type='button'
           onClick={() => {
-            void props.onSend('Hello').catch(() => {});
+            void props.onSend(sendBoxMessageMock.current).catch(() => {});
           }}
         >
           send
@@ -159,7 +214,10 @@ vi.mock('@/renderer/components/chat/CommandQueuePanel', () => ({
   },
 }));
 vi.mock('@/renderer/components/chat/MobileActionSheet', () => ({
-  default: () => null,
+  default: (props: Record<string, unknown>) => {
+    mobileActionSheetPropsMock.current = props;
+    return null;
+  },
   useAttachEntry: () => ({ entries: [], hiddenFileInput: null }),
 }));
 vi.mock('@/renderer/components/chat/ThoughtDisplay', () => ({ default: () => null }));
@@ -176,12 +234,12 @@ vi.mock('@/renderer/hooks/agent/useAcpModelInfo', () => ({
   }),
 }));
 vi.mock('@/renderer/hooks/agent/useAgentModesForBackend', () => ({
-  useAgentModesForBackend: () => [],
+  useAgentModesForBackend: () => agentModesMock.current,
 }));
 vi.mock('@/renderer/hooks/chat/useSendBoxDraft', () => ({
   getSendBoxDraftHook: () => () => ({
     data: draftDataMock.current,
-    mutate: vi.fn(),
+    mutate: draftMutateMock,
   }),
 }));
 vi.mock('@/renderer/hooks/chat/useSendBoxFiles', () => ({
@@ -189,7 +247,7 @@ vi.mock('@/renderer/hooks/chat/useSendBoxFiles', () => ({
     handleFilesAdded: vi.fn(),
     clearFiles: vi.fn(),
   }),
-  createSetUploadFile: () => vi.fn(),
+  createSetUploadFile: () => setUploadFileMock,
 }));
 vi.mock('@/renderer/hooks/chat/useAutoTitle', () => ({
   useAutoTitle: () => ({
@@ -200,7 +258,7 @@ vi.mock('@/renderer/hooks/context/ConversationContext', () => ({
   useConversationContextSafe: () => null,
 }));
 vi.mock('@/renderer/hooks/context/LayoutContext', () => ({
-  useLayoutContext: () => ({ isMobile: false }),
+  useLayoutContext: () => ({ isMobile: layoutIsMobileMock.current }),
 }));
 vi.mock('@/renderer/hooks/file/useOpenFileSelector', () => ({
   useOpenFileSelector: () => ({
@@ -215,20 +273,23 @@ vi.mock('@/renderer/pages/conversation/Messages/hooks', () => ({
   useAddOrUpdateMessage: () => addOrUpdateMessageMock,
 }));
 vi.mock('@/renderer/pages/conversation/platforms/useConversationCommandQueue', () => ({
-  buildConversationBusyControlCommand: ({ input, mode }: { input: string; mode: 'queue' | 'steer' }) =>
-    mode === 'steer' ? { mode, input: `/steer ${input.trim()}` } : null,
-  shouldEnqueueConversationCommand: () => false,
+  buildConversationBusyControlCommand: ({ input, mode }: { input: string; mode: 'queue' | 'steer' }) => {
+    const trimmed = input.trim();
+    if (trimmed.startsWith('/steer ')) return { mode: 'steer', input: trimmed };
+    return mode === 'steer' ? { mode, input: `/steer ${trimmed}` } : null;
+  },
+  shouldEnqueueConversationCommand: shouldEnqueueMock,
   useConversationCommandQueue: () => ({
     items: queueItemsMock.current,
     isPaused: false,
     isInteractionLocked: false,
     hasPendingCommands: false,
-    enqueue: vi.fn(),
+    enqueue: queueEnqueueMock,
     remove: queueRemoveMock,
     restore: queueRestoreMock,
     clear: vi.fn(),
     reorder: vi.fn(),
-    pause: vi.fn(),
+    pause: queuePauseMock,
     resume: vi.fn(),
     lockInteraction: queueLockMock,
     unlockInteraction: queueUnlockMock,
@@ -288,7 +349,8 @@ vi.mock('@arco-design/web-react', () => ({
   }),
   Message: {
     success: vi.fn(),
-    error: vi.fn(),
+    error: messageErrorMock,
+    warning: messageWarningMock,
   },
   Popover: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
   Radio: Object.assign(({ children }: { children?: React.ReactNode }) => <>{children}</>, {
@@ -331,12 +393,24 @@ describe('AcpSendBox', () => {
     vi.clearAllMocks();
     sendBoxPropsMock.current = null;
     queuePanelPropsMock.current = null;
+    mobileActionSheetPropsMock.current = null;
     queueItemsMock.current = [];
+    queueEnqueueMock.mockReturnValue({ id: 'queued', input: 'queued', files: [], created_at: 1 });
+    shouldEnqueueMock.mockReturnValue(false);
     runtimeViewMock.hydrated = true;
     runtimeViewMock.isProcessing = false;
     runtimeViewMock.canSendMessage = true;
     runtimeViewMock.activeTurnId = null;
     draftDataMock.current = { atPath: [], uploadFile: [], content: '' };
+    sendBoxMessageMock.current = 'Hello';
+    layoutIsMobileMock.current = false;
+    agentModesMock.current = [];
+    getModeInvokeMock.mockResolvedValue({ mode: 'default', initialized: true });
+    setModeInvokeMock.mockResolvedValue({ mode: 'default', initialized: true });
+    configGetMock.mockImplementation((key: string) =>
+      key === 'acp.config' ? { hermes: { preferredMode: 'default' } } : undefined
+    );
+    configSetMock.mockResolvedValue(undefined);
     pdfPrepareInvokeMock.mockReset();
     queueRemoveMock.mockResolvedValue(undefined);
     queueRestoreMock.mockResolvedValue(undefined);
@@ -344,18 +418,10 @@ describe('AcpSendBox', () => {
 
   it('shows PDF preparation before dispatching the analysis to EVE', async () => {
     draftDataMock.current = { atPath: [], uploadFile: ['/tmp/report.pdf'], content: '' };
-    let resolvePreparation: (value: unknown) => void = () => {};
-    pdfPrepareInvokeMock.mockReturnValue(
-      new Promise((resolve) => {
-        resolvePreparation = resolve;
-      })
-    );
-    let resolveSend: (value: unknown) => void = () => {};
-    sendMessageInvokeMock.mockReturnValue(
-      new Promise((resolve) => {
-        resolveSend = resolve;
-      })
-    );
+    const preparation = createDeferred<unknown>();
+    pdfPrepareInvokeMock.mockReturnValue(preparation.promise);
+    const send = createDeferred<unknown>();
+    sendMessageInvokeMock.mockReturnValue(send.promise);
 
     render(
       <AcpSendBox
@@ -374,7 +440,7 @@ describe('AcpSendBox', () => {
     expect(sendMessageInvokeMock).not.toHaveBeenCalled();
 
     await act(async () => {
-      resolvePreparation({
+      preparation.resolve({
         success: true,
         data: {
           ok: true,
@@ -397,7 +463,7 @@ describe('AcpSendBox', () => {
     });
 
     await act(async () => {
-      resolveSend({});
+      send.resolve({});
     });
     await waitFor(() => expect(screen.queryByTestId('acp-document-preparation')).toBeNull());
   });
@@ -563,12 +629,8 @@ describe('AcpSendBox', () => {
     queueItemsMock.current = [queuedItem];
     runtimeViewMock.isProcessing = true;
     runtimeViewMock.canSendMessage = false;
-    let resolveSend: (value: unknown) => void = () => {};
-    sendMessageInvokeMock.mockReturnValue(
-      new Promise((resolve) => {
-        resolveSend = resolve;
-      })
-    );
+    const send = createDeferred<unknown>();
+    sendMessageInvokeMock.mockReturnValue(send.promise);
 
     render(
       <AcpSendBox
@@ -589,9 +651,339 @@ describe('AcpSendBox', () => {
     expect(queueRemoveMock).toHaveBeenCalledTimes(1);
     expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1);
 
-    resolveSend({});
+    send.resolve({});
     await act(async () => {
       await first;
     });
+  });
+
+  it('restores the draft after a correction-now request is rejected', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: [], content: '/steer Correct the active run' };
+    sendBoxMessageMock.current = '/steer Correct the active run';
+    runtimeViewMock.isProcessing = true;
+    runtimeViewMock.canSendMessage = false;
+    sendMessageInvokeMock.mockRejectedValue(new Error('correction rejected'));
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='claude'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() => expect(messageErrorMock).toHaveBeenCalled());
+    const restoredStates = draftMutateMock.mock.calls.map(([updater]) =>
+      typeof updater === 'function' ? updater(draftDataMock.current) : updater
+    );
+    expect(restoredStates).toContainEqual(expect.objectContaining({ content: '/steer Correct the active run' }));
+    expect(setUploadFileMock).toHaveBeenCalledWith([]);
+    expect(emitterEmitMock).toHaveBeenCalledWith('acp.selected.file', []);
+  });
+
+  it('restores the draft and files when enqueue rejects the command', async () => {
+    draftDataMock.current = {
+      atPath: ['/tmp/workspace/context.md'],
+      uploadFile: ['/tmp/upload.txt'],
+      content: 'Queue this with context',
+    };
+    sendBoxMessageMock.current = 'Queue this with context';
+    runtimeViewMock.isProcessing = true;
+    runtimeViewMock.canSendMessage = false;
+    shouldEnqueueMock.mockReturnValue(true);
+    queueEnqueueMock.mockReturnValue(null);
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='claude'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    expect(queueEnqueueMock).toHaveBeenCalledWith({
+      input: 'Queue this with context',
+      files: ['/tmp/upload.txt', '/tmp/workspace/context.md'],
+    });
+    const restoredStates = draftMutateMock.mock.calls.map(([updater]) =>
+      typeof updater === 'function' ? updater(draftDataMock.current) : updater
+    );
+    expect(restoredStates).toContainEqual(expect.objectContaining({ content: 'Queue this with context' }));
+    expect(restoredStates).toContainEqual(expect.objectContaining({ atPath: ['/tmp/workspace/context.md'] }));
+    expect(setUploadFileMock).toHaveBeenCalledWith(['/tmp/upload.txt']);
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+  });
+
+  it('warns and queues a correction that includes files', async () => {
+    draftDataMock.current = {
+      atPath: [],
+      uploadFile: ['/tmp/evidence.txt'],
+      content: '/steer Use this evidence',
+    };
+    sendBoxMessageMock.current = '/steer Use this evidence';
+    runtimeViewMock.isProcessing = true;
+    runtimeViewMock.canSendMessage = false;
+    shouldEnqueueMock.mockReturnValue(true);
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='claude'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    expect(messageWarningMock).toHaveBeenCalled();
+    expect(queueEnqueueMock).toHaveBeenCalledWith({
+      input: '/steer Use this evidence',
+      files: ['/tmp/evidence.txt'],
+    });
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+  });
+
+  it('pauses queued work before stopping the active turn', async () => {
+    runtimeViewMock.activeTurnId = 'turn-1';
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='claude'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    const onStop = sendBoxPropsMock.current?.onStop as (() => Promise<void>) | undefined;
+    await act(async () => {
+      await onStop?.();
+    });
+
+    expect(queuePauseMock).toHaveBeenCalledTimes(1);
+    expect(runtimeViewMock.markStopRequested).toHaveBeenCalledWith('turn-1');
+  });
+
+  it('offers a per-chat HG4 delegation on mobile and publishes it only after backend ack and persistence', async () => {
+    layoutIsMobileMock.current = true;
+    agentModesMock.current = [
+      { value: 'default', label: 'Ask every time' },
+      { value: 'dont_ask', label: 'Auto' },
+    ];
+    const backendAck = createDeferred<{ mode: string; initialized: boolean }>();
+    const persistence = createDeferred<void>();
+    setModeInvokeMock.mockReturnValue(backendAck.promise);
+    configSetMock.mockReturnValue(persistence.promise);
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        session_mode='default'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    const entries = mobileActionSheetPropsMock.current?.entries as
+      | Array<{
+          key: string;
+          submenu?: {
+            options: Array<{ key: string; label: string; description?: string }>;
+            onSelect: (key: string) => void;
+          };
+        }>
+      | undefined;
+    const permissionEntry = entries?.find((entry) => entry.key === 'permission');
+    const delegatedOption = permissionEntry?.submenu?.options.find(
+      (option) => option.key === COMMAND_EVE_HG4_DELEGATED_MODE
+    );
+    expect(delegatedOption?.label).toContain('this chat');
+    expect(delegatedOption?.description).toContain('this conversation');
+
+    act(() => permissionEntry?.submenu?.onSelect(COMMAND_EVE_HG4_DELEGATED_MODE));
+    await waitFor(() =>
+      expect(setModeInvokeMock).toHaveBeenCalledWith({ conversation_id: 'conv-1', mode: 'dont_ask' })
+    );
+    expect(configSetMock).not.toHaveBeenCalled();
+    expect(emitterEmitMock).not.toHaveBeenCalledWith('acp.permission.mode', {
+      conversation_id: 'conv-1',
+      mode: COMMAND_EVE_HG4_DELEGATED_MODE,
+    });
+
+    await act(async () => backendAck.resolve({ mode: 'dont_ask', initialized: true }));
+    await waitFor(() => expect(configSetMock).toHaveBeenCalled());
+    expect(configSetMock).toHaveBeenCalledWith(
+      'acp.config',
+      expect.objectContaining({
+        hermes: expect.objectContaining({
+          preferredMode: 'dont_ask',
+          hg4Delegations: expect.objectContaining({
+            'conv-1': expect.objectContaining({
+              active: true,
+              scope: 'conversation',
+              authority: 'through_hg3_5',
+            }),
+          }),
+        }),
+      })
+    );
+    expect(emitterEmitMock).not.toHaveBeenCalledWith('acp.permission.mode', {
+      conversation_id: 'conv-1',
+      mode: COMMAND_EVE_HG4_DELEGATED_MODE,
+    });
+
+    await act(async () => persistence.resolve(undefined));
+    await waitFor(() =>
+      expect(emitterEmitMock).toHaveBeenCalledWith('acp.permission.mode', {
+        conversation_id: 'conv-1',
+        mode: COMMAND_EVE_HG4_DELEGATED_MODE,
+      })
+    );
+  });
+
+  it('restores and immediately revokes a persisted mobile grant even when backend setMode fails', async () => {
+    layoutIsMobileMock.current = true;
+    agentModesMock.current = [
+      { value: 'default', label: 'Ask every time' },
+      { value: 'dont_ask', label: 'Auto' },
+    ];
+    configGetMock.mockImplementation((key: string) =>
+      key === 'acp.config'
+        ? {
+            hermes: {
+              preferredMode: 'dont_ask',
+              hg4Delegations: {
+                'conv-1': {
+                  active: true,
+                  scope: 'conversation',
+                  authority: 'through_hg3_5',
+                  conversationId: 'conv-1',
+                  backendMode: 'dont_ask',
+                  grantedAt: '2026-07-17T18:00:00.000Z',
+                  riskAcknowledgedAt: '2026-07-17T18:00:00.000Z',
+                  updatedAt: '2026-07-17T18:00:00.000Z',
+                },
+              },
+            },
+          }
+        : undefined
+    );
+    getModeInvokeMock.mockResolvedValue({ mode: 'dont_ask', initialized: true });
+    setModeInvokeMock.mockRejectedValue(new Error('backend unavailable'));
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        session_mode='dont_ask'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    act(() => (sendBoxPropsMock.current?.onMobilePlusClick as (() => void) | undefined)?.());
+    await waitFor(() => expect(getModeInvokeMock).toHaveBeenCalledWith({ conversation_id: 'conv-1' }));
+    await waitFor(() => {
+      const entries = mobileActionSheetPropsMock.current?.entries as
+        | Array<{
+            key: string;
+            submenu?: { options: Array<{ key: string; active?: boolean }>; onSelect: (key: string) => void };
+          }>
+        | undefined;
+      const permissionEntry = entries?.find((entry) => entry.key === 'permission');
+      expect(
+        permissionEntry?.submenu?.options.find((option) => option.key === COMMAND_EVE_HG4_DELEGATED_MODE)?.active
+      ).toBe(true);
+    });
+
+    const entries = mobileActionSheetPropsMock.current?.entries as
+      | Array<{ key: string; submenu?: { onSelect: (key: string) => void } }>
+      | undefined;
+    act(() => entries?.find((entry) => entry.key === 'permission')?.submenu?.onSelect('default'));
+
+    await waitFor(() => expect(setModeInvokeMock).toHaveBeenCalledWith({ conversation_id: 'conv-1', mode: 'default' }));
+    expect(emitterEmitMock).toHaveBeenCalledWith('acp.permission.mode', {
+      conversation_id: 'conv-1',
+      mode: 'default',
+    });
+    expect(configSetMock).toHaveBeenCalledWith(
+      'acp.config',
+      expect.objectContaining({
+        hermes: expect.objectContaining({
+          preferredMode: 'default',
+          hg4Delegations: expect.objectContaining({
+            'conv-1': expect.objectContaining({ active: false, revokedAt: expect.any(String) }),
+          }),
+          hg4DelegationAudit: expect.arrayContaining([
+            expect.objectContaining({ event: 'revoked', conversationId: 'conv-1' }),
+          ]),
+        }),
+      })
+    );
+    expect(emitterEmitMock.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      configSetMock.mock.invocationCallOrder.at(-1)!
+    );
+    expect(emitterEmitMock.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      setModeInvokeMock.mock.invocationCallOrder.at(-1)!
+    );
+  });
+
+  it('publishes a restrictive mobile permission mode before backend acknowledgement', async () => {
+    layoutIsMobileMock.current = true;
+    agentModesMock.current = [
+      { value: 'default', label: 'Ask every time' },
+      { value: 'dont_ask', label: 'Do not ask' },
+    ];
+    const setMode = createDeferred<{ mode: string; initialized: boolean }>();
+    setModeInvokeMock.mockReturnValue(setMode.promise);
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        session_mode='dont_ask'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    const entries = mobileActionSheetPropsMock.current?.entries as
+      | Array<{ key: string; submenu?: { onSelect: (key: string) => void } }>
+      | undefined;
+    const permissionEntry = entries?.find((entry) => entry.key === 'permission');
+    expect(permissionEntry?.submenu).toBeDefined();
+
+    act(() => {
+      permissionEntry?.submenu?.onSelect('default');
+    });
+    await waitFor(() => {
+      expect(setModeInvokeMock).toHaveBeenCalledWith({ conversation_id: 'conv-1', mode: 'default' });
+    });
+    expect(emitterEmitMock).toHaveBeenCalledWith('acp.permission.mode', {
+      conversation_id: 'conv-1',
+      mode: 'default',
+    });
+    expect(emitterEmitMock.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      setModeInvokeMock.mock.invocationCallOrder.at(-1)!
+    );
+
+    await act(async () => {
+      setMode.resolve({ mode: 'default', initialized: true });
+    });
+    expect(emitterEmitMock).toHaveBeenCalledTimes(1);
   });
 });

@@ -7,6 +7,11 @@
   --eve-composer-control-active: color-mix(in srgb, var(--eve-shell-text, var(--color-text-1)) 11%, transparent);
 }
 
+.eve-composer-surface {
+  container-name: eve-composer;
+  container-type: inline-size;
+}
+
 .unified-send-bar__left,
 .unified-send-bar__right {
   min-height: var(--eve-composer-control-size);
@@ -177,8 +182,30 @@
 }
 
 .eve-composer-control__menu {
+  box-sizing: border-box;
   width: min(332px, calc(100vw - 32px));
   padding: 8px;
+}
+
+.eve-composer-control__menu--compact .eve-composer-control__row,
+.eve-composer-control__menu--compact .eve-composer-control__row.arco-btn {
+  min-height: 56px !important;
+  grid-template-columns: 22px minmax(0, 1fr) 14px;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  row-gap: 1px;
+}
+
+.eve-composer-control__menu--compact .eve-composer-control__value {
+  grid-column: 2 / 4;
+  grid-row: 2;
+  max-width: 100%;
+  justify-content: flex-start;
+}
+
+.eve-composer-control__menu--compact .eve-composer-control__row > svg:last-child:not(:first-child) {
+  grid-column: 3;
+  grid-row: 1;
 }
 
 .eve-composer-control__row,
@@ -268,6 +295,35 @@
 .eve-composer-control__advanced:hover,
 .eve-composer-control__advanced:focus-visible {
   color: var(--eve-shell-text, var(--color-text-1)) !important;
+}
+
+@container eve-composer (max-width: 360px) {
+  .unified-send-bar {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    gap: 6px !important;
+  }
+
+  .unified-send-bar__left {
+    width: 100%;
+    grid-column: 1 / -1;
+    grid-row: 1;
+    overflow: hidden;
+  }
+
+  .unified-send-bar__left [data-testid='workspace-context-control'] {
+    min-width: 0 !important;
+    max-width: none !important;
+    flex: 1 1 auto;
+  }
+
+  .unified-send-bar__right {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: end;
+    margin-left: 0 !important;
+  }
 }
 
 @media (max-width: 767px) {

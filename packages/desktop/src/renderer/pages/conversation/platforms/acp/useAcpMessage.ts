@@ -171,11 +171,14 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
   const lastPendingBufferedAtRef = useRef<number | undefined>(undefined);
   const activeToolCallsRef = useRef<Map<string, string>>(new Map());
 
-  // Live permission mode for THIS conversation, used by the acp_permission
-  // auto-approve path. EVE is seeded only from an acknowledged selector event or
-  // the backend's request_trace; its persisted extra.session_mode can be stale
-  // after the founder changes the global EVE preference in another chat.
+  // Live renderer permission authority for THIS conversation. Plain EVE
+  // `dont_ask` leaves escalations gated; the selector publishes the separate,
+  // conversation-scoped HG4 grant only after backend acknowledgement.
   const permissionModeRef = useRef<string | undefined>(undefined);
+  const permissionBackendRef = useRef<string | undefined>(undefined);
+  // Once the selector publishes local authority, a later/stale request_trace may
+  // report backend `dont_ask` but must never widen a just-revoked renderer grant.
+  const hasLocalPermissionAuthorityRef = useRef(false);
 
   // Guard against double auto-responding the same permission request: a stream
   // can re-deliver an acp_permission (reconnect/replay), and confirmMessage is
@@ -662,14 +665,13 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
             runningRef.current = true;
           }
 
-          // YOLO / "Nicht fragen" replay fallback. The stable config-options path
-          // synchronizes this mode into Hermes' session-scoped approval state. If a
-          // permission emitted before that acknowledgement is replayed on reconnect,
-          // answer its own allow_once option here instead of showing a stale dialog.
-          // The gating modes (Standard, Änderungen übernehmen) still fall through.
+          // Renderer fallback. Plain EVE `dont_ask` does not enter this branch:
+          // Hermes already consumes routine authority, so a permission that reaches
+          // the renderer is an escalation. Only an explicit scoped HG4 delegation
+          // may auto-answer requests through HG3.5; explicit HG4 stays in the dialog.
           const request = message.data as AcpPermissionRequest | undefined;
           const callId = request?.tool_call?.tool_call_id || message.msg_id;
-          const decision = resolveAcpAutoApprove(permissionModeRef.current, request);
+          const decision = resolveAcpAutoApprove(permissionModeRef.current, request, permissionBackendRef.current);
           if (decision.autoApprove && decision.optionId) {
             // Already auto-answered this call (stream replay/reconnect): silently
             // no-op. confirmMessage is not idempotent and the dialog must NOT pop
@@ -742,7 +744,10 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
               model_id: String(trace.model_id || 'unknown'),
               session_mode: trace.session_mode as string | undefined,
             };
-            if (typeof trace.session_mode === 'string') {
+            if (typeof trace.backend === 'string') {
+              permissionBackendRef.current = trace.backend;
+            }
+            if (typeof trace.session_mode === 'string' && !hasLocalPermissionAuthorityRef.current) {
               permissionModeRef.current = trace.session_mode;
             }
             setRuntimeActivity({
@@ -894,13 +899,25 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
     return () => window.clearInterval(timer);
   }, [flushPendingThinkingMessage]);
 
-  // Keep the live permission mode current for the auto-approve path. The picker
-  // (AgentModeSelector) broadcasts the effective mode on initial sync and on every
-  // in-session switch; only adopt events for THIS conversation. This keeps replayed
-  // permission events in lockstep while the backend config-options write settles.
-  useEffect(() => {
+  // Drop stale authority before child passive hydration can publish the new
+  // conversation's acknowledged grant.
+  useLayoutEffect(() => {
+    permissionModeRef.current = undefined;
+    permissionBackendRef.current = undefined;
+    hasLocalPermissionAuthorityRef.current = false;
+    autoApprovedCallIdsRef.current = new Set();
+  }, [conversation_id]);
+
+  // Keep local permission authority current for the auto-approve path. Restrictive
+  // selector events publish before the backend call, so revocation takes effect in
+  // this renderer immediately even when setMode fails. Expansions publish only after
+  // acknowledgement and successful grant persistence.
+  // Register during layout so a child selector's passive hydration effect cannot
+  // publish a persisted grant before this conversation listener exists.
+  useLayoutEffect(() => {
     return addEventListener('acp.permission.mode', (evt) => {
       if (evt.conversation_id === conversation_id) {
+        hasLocalPermissionAuthorityRef.current = true;
         permissionModeRef.current = evt.mode;
       }
     });
@@ -927,11 +944,6 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
     clearThinkingMessageThrottle();
     setHasThinkingMessage(false);
     setHasHydratedRunningState(false);
-    // New conversation context: drop the stale live mode and the per-call
-    // auto-approve dedupe set until conversation.get re-seeds them below.
-    permissionModeRef.current = undefined;
-    autoApprovedCallIdsRef.current = new Set();
-
     // Clear running/processing immediately for the new conversation. Hydration only
     // turns these back on when the backend reports status === 'running'. Otherwise
     // conversation.get's idle branch raced with useAcpInitialMessage's
@@ -987,6 +999,9 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
         // not trust this value because its founder-selected preference is global;
         // AgentModeSelector publishes the live mode only after backend config
         // acknowledgement, and request_trace provides the same backend truth.
+        if (res.type === 'acp' && typeof res.extra?.backend === 'string') {
+          permissionBackendRef.current = res.extra.backend;
+        }
         if (
           res.type === 'acp' &&
           !isCommandEveAcpConversation(res.extra?.backend) &&

@@ -13,6 +13,13 @@ type ConversationBusyModeControlProps = {
 
 const ConversationBusyModeControl: React.FC<ConversationBusyModeControlProps> = ({ visible, value, onChange }) => {
   const { t } = useTranslation();
+  const [popupVisible, setPopupVisible] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!visible) {
+      setPopupVisible(false);
+    }
+  }, [visible]);
 
   const queueLabel = t('conversation.commandQueue.busyModeQueue', { defaultValue: 'Afterwards' });
   const steerLabel = t('conversation.commandQueue.busyModeSteer', { defaultValue: 'Correction' });
@@ -70,7 +77,13 @@ const ConversationBusyModeControl: React.FC<ConversationBusyModeControlProps> = 
       data-mode={value}
       aria-hidden={!visible}
     >
-      <Dropdown trigger='click' droplist={droplist} position='top'>
+      <Dropdown
+        trigger='click'
+        droplist={droplist}
+        position='top'
+        popupVisible={visible && popupVisible}
+        onVisibleChange={(nextVisible) => setPopupVisible(visible && nextVisible)}
+      >
         <Button
           type='text'
           shape='circle'

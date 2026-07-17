@@ -352,12 +352,7 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
         {showWorkspaceButton && (
           <button
             type='button'
-            className={classNames(
-              'app-titlebar__button',
-              layout?.isMobile && 'app-titlebar__button--mobile',
-              COMMAND_EVE_SHELL_ENABLED && 'app-titlebar__button--elements',
-              COMMAND_EVE_SHELL_ENABLED && !workspaceCollapsed && 'app-titlebar__button--elements-active'
-            )}
+            className={classNames('app-titlebar__button', layout?.isMobile && 'app-titlebar__button--mobile')}
             onClick={handleWorkspaceToggle}
             aria-label={workspaceTooltip}
             aria-pressed={COMMAND_EVE_SHELL_ENABLED ? !workspaceCollapsed : undefined}

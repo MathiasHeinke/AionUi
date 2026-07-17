@@ -41,7 +41,11 @@ import {
   resolveHonchoRenderForSeat,
   type HonchoRenderInput,
 } from './honchoRuntimeRenderCore';
-import { claudeDelegatePreflightWarning } from '../../common/config/eveWorkerAssignmentCore';
+import {
+  claudeDelegatePreflightWarning,
+  isClaudeSeatDelegateRoute,
+  type ResolvedClaudeDelegate,
+} from '../../common/config/eveWorkerAssignmentCore';
 import { COMPANY_BRAIN_DIR, readCompanyBrainSeedStateFromHome } from './companyBrainSeedCore';
 import {
   countFilledBlueprintSections,
@@ -778,13 +782,7 @@ export type RuntimeBootstrapOptions = {
    * presence is NOT a grant to run — the human-gate/permission path still applies
    * before any spawn.
    */
-  claudeDelegate?: {
-    agent_id: string;
-    label: string;
-    acpCommand: string;
-    acpArgs: string[];
-    provider: string;
-  } | null;
+  claudeDelegate?: ResolvedClaudeDelegate | null;
   /**
    * 1.6.3 (Team-Realität): the operator-curated team roster with live status +
    * assigned external worker, resolved by the main process (roster constant +
@@ -3307,7 +3305,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '            request_host = (urlparse(str(ctx.get("base_url") or "")).hostname or "").lower()',
     '        except Exception:',
     '            request_host = ""',
-    '        if session_id and request_host == "127.0.0.1":',
+    '        if session_id and request_host in {"127.0.0.1", "localhost", "::1"}:',
     '            extra_body["session_id"] = session_id[:256]',
     '',
     '        if ollama_num_ctx:',
@@ -3986,6 +3984,7 @@ function writeHermesRuntimeFiles(
   honcho: HonchoRenderInput = { ready: false },
   maxConcurrentDelegates = DEFAULT_COMMAND_EVE_DELEGATION_CONCURRENCY
 ): string[] {
+  const trustedClaudeSeatDelegate = isClaudeSeatDelegateRoute(claudeDelegate) ? claudeDelegate : null;
   ensureDir(paths.hermesHome);
   const { executableSkillIds, bundledSkillFailures } = writeCommandEveManagedSkills(
     paths,
@@ -4094,7 +4093,7 @@ function writeHermesRuntimeFiles(
     // The security-backported wheel removes model-controlled ACP command/argv.
     // Selecting the fixed external-process provider makes Hermes resolve the
     // launcher from Desktop-owned HERMES_COPILOT_ACP_* process env instead.
-    ...(claudeDelegate ? ['  provider: copilot-acp'] : []),
+    ...(trustedClaudeSeatDelegate ? ['  provider: copilot-acp'] : []),
     `  max_concurrent_children: ${maxConcurrentDelegates}`,
     `  max_async_children: ${maxConcurrentDelegates}`,
     '  max_spawn_depth: 1',
@@ -4238,7 +4237,7 @@ function writeHermesRuntimeFiles(
     path.join(paths.hermesHome, 'SOUL.md'),
     EVE_SOUL_MARKDOWN +
       eveSelectedLanguageDirective(uiLanguage) +
-      eveWorkerRoutingDirective(claudeDelegate) +
+      eveWorkerRoutingDirective(trustedClaudeSeatDelegate) +
       // 1.6.3 Team-Realität: EVE knows the curated team (roles, live status,
       // assigned workers) the Orchestrierung page shows the operator.
       eveTeamDirective(teamRoles, manifest.local_runtime.egress_proxy_url) +

@@ -34,6 +34,9 @@ describe('EVE permission-mode labels resolve through i18n', () => {
     expect(inst.t('agentMode.eve.ask')).toBe('Fragen');
     expect(inst.t('agentMode.eve.acceptEdits')).toBe('Auto-Edits');
     expect(inst.t('agentMode.eve.yolo')).toBe('Auto');
+    expect(inst.t('agentMode.eve.autoThroughHg35')).toBe('Auto bis HG3.5 (dieser Chat)');
+    expect(inst.t('agentMode.eve.autoThroughHg35Description')).toContain('HG4 fragt immer');
+    expect(inst.t('agentMode.eve.expansionNotConfirmed')).toContain('bisherige Modus bleibt aktiv');
     // Sanity: the existing dropdown header the founder's screenshot showed also resolves
     expect(inst.t('agentMode.switchMode')).toBe('Berechtigungsmodus');
     expect(inst.t('agentMode.permission')).toBe('Berechtigung');
@@ -45,6 +48,9 @@ describe('EVE permission-mode labels resolve through i18n', () => {
     expect(inst.t('agentMode.eve.ask')).toBe('Ask');
     expect(inst.t('agentMode.eve.acceptEdits')).toBe('Auto-edit');
     expect(inst.t('agentMode.eve.yolo')).toBe('Auto');
+    expect(inst.t('agentMode.eve.autoThroughHg35')).toBe('Auto through HG3.5 (this chat)');
+    expect(inst.t('agentMode.eve.autoThroughHg35Description')).toContain('HG4 always asks');
+    expect(inst.t('agentMode.eve.expansionNotConfirmed')).toContain('previous mode remains active');
   });
 
   it('the agentMode object is NOT clobbered by common.agentMode (the reviewer’s concern)', () => {

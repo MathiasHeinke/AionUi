@@ -37,11 +37,15 @@ import type { EveTeamWorkerStatusMap } from '@/common/config/eveTeamControlsCore
 import {
   ACP_DELEGATE_PROVIDER,
   CLAUDE_ACP_ADAPTER_PACKAGE,
+  CLAUDE_SEAT_BILLING_LANE,
+  CLAUDE_SEAT_FALLBACK_POLICY,
+  CLAUDE_SEAT_RUNTIME_ROUTE,
   CODEX_APP_SERVER_MIN_VERSION,
   CODEX_DEFER_REASON,
   buildWorkerAssignment,
   claudeDelegatePreflightWarning,
   codexRuntimeForConfig,
+  isClaudeSeatDelegateRoute,
   looksLikeAbsolutePath,
   resolveAssignedClaudeDelegate,
   resolveDispatchableWorkerRouting,
@@ -165,6 +169,9 @@ describe('eveWorkerAssignmentCore — (C) CLAUDE routing (label is "Claude", not
     expect(r.acpCommand).toBe('bunx');
     expect(r.acpArgs).toEqual([CLAUDE_ACP_ADAPTER_PACKAGE]);
     expect(r.provider).toBe(ACP_DELEGATE_PROVIDER);
+    expect(r.billingLane).toBe(CLAUDE_SEAT_BILLING_LANE);
+    expect(r.runtimeRoute).toBe(CLAUDE_SEAT_RUNTIME_ROUTE);
+    expect(r.fallbackPolicy).toBe(CLAUDE_SEAT_FALLBACK_POLICY);
     // The forced provider is copilot-NAMED, but the user-facing label must be Claude.
     expect(r.label.toLowerCase()).toContain('claude');
     expect(r.label.toLowerCase()).not.toContain('copilot');
@@ -253,6 +260,16 @@ describe('eveWorkerAssignmentCore — (F) the LIVE Claude delegate resolver (wha
     expect(delegate?.acpArgs).toEqual([CLAUDE_ACP_ADAPTER_PACKAGE]);
     expect(delegate?.provider).toBe(ACP_DELEGATE_PROVIDER);
     expect(delegate?.agent_id).toBe(ROSTER_ID);
+    expect(isClaudeSeatDelegateRoute(delegate)).toBe(true);
+  });
+
+  it.each([
+    ['app-metered billing', { billingLane: 'app_metered' }],
+    ['EVE Inference/OpenRouter execution', { runtimeRoute: 'eve_inference_openrouter' }],
+    ['cloud fallback', { fallbackPolicy: 'eve_inference' }],
+  ])('rejects a Claude-seat delegate carrying %s', (_case, override) => {
+    const valid = resolveAssignedClaudeDelegate({ [ROSTER_ID]: { agent_id: ROSTER_ID, kind: 'claude' } }, {})!;
+    expect(isClaudeSeatDelegateRoute({ ...valid, ...override })).toBe(false);
   });
 
   it('retains cli_path only as metadata and resolves the actual ACP adapter', () => {

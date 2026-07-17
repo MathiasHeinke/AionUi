@@ -10,6 +10,8 @@ import SettingsPageWrapper from './components/SettingsPageWrapper';
 import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
 import { EVE_SETTINGS_TAG_COLOR } from '@/renderer/components/settings/settingsSemantics';
 import SettingsSection from '@/renderer/components/settings/SettingsSection';
+import { invalidateSkillCapabilityCatalog } from '@/renderer/hooks/capabilities';
+import { useSWRConfig } from 'swr';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1.2.18 STEP 4 — Unified skill surface.
@@ -200,6 +202,7 @@ type FilterChip = 'all' | SkillState;
 
 const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = true }) => {
   const { t } = useTranslation();
+  const { mutate } = useSWRConfig();
   const [searchParams, setSearchParams] = useSearchParams();
   const highlightName = searchParams.get('highlight');
   const [highlightedSkill, setHighlightedSkill] = useState<string | null>(null);
@@ -484,6 +487,9 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
           : [];
       const count = importedNames.length;
       const names = importedNames.join(', ');
+      await invalidateSkillCapabilityCatalog(mutate).catch((error) => {
+        console.warn('Failed to refresh the shared skill capability catalog after import:', error);
+      });
       Message.success(
         t('settings.skillsHub.importSuccessDetailed', {
           count,
@@ -502,6 +508,9 @@ const SkillsHubSettings: React.FC<SkillsHubSettingsProps> = ({ withWrapper = tru
   const handleDelete = async (skillName: string) => {
     try {
       await ipcBridge.fs.deleteSkill.invoke({ skill_name: skillName });
+      await invalidateSkillCapabilityCatalog(mutate).catch((error) => {
+        console.warn('Failed to refresh the shared skill capability catalog after delete:', error);
+      });
       Message.success(t('settings.skillsHub.deleteSuccess', { defaultValue: 'Skill deleted' }));
       void fetchData();
     } catch (error) {

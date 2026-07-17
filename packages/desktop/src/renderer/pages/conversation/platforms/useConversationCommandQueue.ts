@@ -454,6 +454,7 @@ export const useConversationCommandQueue = ({
   const pausedRef = useRef(data.isPaused);
   const waitingForTurnStartRef = useRef(false);
   const waitingForTurnCompletionRef = useRef(false);
+  const executeResolvedBeforeTurnStartRef = useRef(false);
   const interactionLockedRef = useRef(false);
   const [isInteractionLocked, setIsInteractionLocked] = useState(false);
   const [executionGateVersion, setExecutionGateVersion] = useState(0);
@@ -466,7 +467,22 @@ export const useConversationCommandQueue = ({
     if (waitingForTurnStartRef.current && executionGate.isProcessing) {
       waitingForTurnStartRef.current = false;
       waitingForTurnCompletionRef.current = true;
+      executeResolvedBeforeTurnStartRef.current = false;
       logCommandQueue(conversation_id, 'turn-started', {
+        pendingItemCount: stateRef.current.items.length,
+      });
+      return;
+    }
+
+    if (
+      waitingForTurnStartRef.current &&
+      executeResolvedBeforeTurnStartRef.current &&
+      executionGate.hydrated &&
+      executionGate.canExecute
+    ) {
+      waitingForTurnStartRef.current = false;
+      executeResolvedBeforeTurnStartRef.current = false;
+      logCommandQueue(conversation_id, 'turn-finished-before-start-observed', {
         pendingItemCount: stateRef.current.items.length,
       });
       return;
@@ -478,7 +494,13 @@ export const useConversationCommandQueue = ({
         pendingItemCount: stateRef.current.items.length,
       });
     }
-  }, [conversation_id, executionGate.canExecute, executionGate.hydrated, executionGate.isProcessing]);
+  }, [
+    conversation_id,
+    executionGate.canExecute,
+    executionGate.hydrated,
+    executionGate.isProcessing,
+    executionGateVersion,
+  ]);
 
   useEffect(() => {
     pausedRef.current = data.isPaused;
@@ -495,6 +517,7 @@ export const useConversationCommandQueue = ({
 
     waitingForTurnStartRef.current = false;
     waitingForTurnCompletionRef.current = false;
+    executeResolvedBeforeTurnStartRef.current = false;
     pausedRef.current = false;
     interactionLockedRef.current = false;
     stateRef.current = createDefaultQueueState();
@@ -532,6 +555,7 @@ export const useConversationCommandQueue = ({
   const clear = useCallback(() => {
     waitingForTurnStartRef.current = false;
     waitingForTurnCompletionRef.current = false;
+    executeResolvedBeforeTurnStartRef.current = false;
     pausedRef.current = false;
     logCommandQueue(conversation_id, 'cleared');
     void updateState(() => createDefaultQueueState());
@@ -688,6 +712,7 @@ export const useConversationCommandQueue = ({
     pausedRef.current = true;
     waitingForTurnStartRef.current = false;
     waitingForTurnCompletionRef.current = false;
+    executeResolvedBeforeTurnStartRef.current = false;
     logCommandQueue(conversation_id, 'paused', {
       itemCount: data.items.length,
     });
@@ -747,6 +772,7 @@ export const useConversationCommandQueue = ({
       const hadPendingTurn = waitingForTurnStartRef.current || waitingForTurnCompletionRef.current;
       waitingForTurnStartRef.current = false;
       waitingForTurnCompletionRef.current = false;
+      executeResolvedBeforeTurnStartRef.current = false;
 
       if (!hadPendingTurn) {
         return;
@@ -777,6 +803,7 @@ export const useConversationCommandQueue = ({
 
     const [nextCommand, ...remainingCommands] = data.items;
     waitingForTurnStartRef.current = true;
+    executeResolvedBeforeTurnStartRef.current = false;
     logCommandQueue(conversation_id, 'dequeued', {
       item: summarizeQueuedCommand(nextCommand),
       remainingItemCount: remainingCommands.length,
@@ -786,25 +813,35 @@ export const useConversationCommandQueue = ({
       isPaused: false,
     }));
 
-    void onExecute(nextCommand).catch((error) => {
-      console.error('[conversation-command-queue] Failed to execute queued command:', error);
-      logCommandQueue(conversation_id, 'execute-failed', {
-        item: summarizeQueuedCommand(nextCommand),
-        error: error instanceof Error ? error.message : String(error),
+    void onExecute(nextCommand)
+      .then(() => {
+        if (!waitingForTurnStartRef.current) {
+          return;
+        }
+
+        executeResolvedBeforeTurnStartRef.current = true;
+        setExecutionGateVersion((version) => version + 1);
+      })
+      .catch((error) => {
+        console.error('[conversation-command-queue] Failed to execute queued command:', error);
+        logCommandQueue(conversation_id, 'execute-failed', {
+          item: summarizeQueuedCommand(nextCommand),
+          error: error instanceof Error ? error.message : String(error),
+        });
+        waitingForTurnStartRef.current = false;
+        waitingForTurnCompletionRef.current = false;
+        executeResolvedBeforeTurnStartRef.current = false;
+        pausedRef.current = true;
+        void updateState((state) => ({
+          items: restoreQueuedCommand(state.items, nextCommand),
+          isPaused: true,
+        }));
+        Message.warning(
+          t('conversation.commandQueue.pausedAfterFailure', {
+            defaultValue: 'The next queued command could not start. Edit, reorder, or remove it to continue.',
+          })
+        );
       });
-      waitingForTurnStartRef.current = false;
-      waitingForTurnCompletionRef.current = false;
-      pausedRef.current = true;
-      void updateState((state) => ({
-        items: restoreQueuedCommand(state.items, nextCommand),
-        isPaused: true,
-      }));
-      Message.warning(
-        t('conversation.commandQueue.pausedAfterFailure', {
-          defaultValue: 'The next queued command could not start. Edit, reorder, or remove it to continue.',
-        })
-      );
-    });
   }, [
     conversation_id,
     data.items,

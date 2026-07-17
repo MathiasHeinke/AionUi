@@ -20,10 +20,22 @@ import {
   type RuntimeGatePrivacyMode,
   type SensitivityClass,
 } from './runtimeGateCore';
+import {
+  CLAUDE_SEAT_BILLING_LANE,
+  CLAUDE_SEAT_FALLBACK_POLICY,
+  CLAUDE_SEAT_RUNTIME_ROUTE,
+} from '../../common/config/eveWorkerAssignmentCore';
 
-export type EveWorkerId = 'claude' | 'codex' | 'gemini' | 'deepseek' | 'glm' | 'grok' | 'fable';
+export type EveWorkerId = 'claude' | 'opus' | 'fable' | 'codex' | 'gemini' | 'deepseek' | 'glm' | 'grok';
 export type EveWorkerStatus = 'active' | 'paused' | 'off' | 'deferred' | 'needs_auth' | 'smoke_failed';
 export type EveWorkerBillingLane = 'seat' | 'app_metered' | 'byok' | 'local' | 'unknown';
+export type EveWorkerExecutionRoute =
+  | typeof CLAUDE_SEAT_RUNTIME_ROUTE
+  | 'eve_inference_openrouter'
+  | 'byok'
+  | 'local'
+  | 'unavailable';
+export type EveWorkerFallbackPolicy = typeof CLAUDE_SEAT_FALLBACK_POLICY;
 export type EveWorkerReleaseAuthority = 'none' | 'advisor_only' | 'controller_only';
 export type EveWorkerReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
@@ -45,6 +57,7 @@ export type EveWorkerDelegationReasonCode =
   | 'worker.data-class-blocked'
   | 'worker.needs-consent'
   | 'worker.human-required'
+  | 'worker.runtime-route-mismatch'
   | 'worker.fable-effort-cap';
 
 export type EveWorkerSmokeStatus = 'pass' | 'fail' | 'not_run';
@@ -60,6 +73,8 @@ export interface EveWorkerTruth {
   suitedFor: string[];
   dataClassesAllowed: SensitivityClass[];
   billingLane: EveWorkerBillingLane;
+  executionRoute: EveWorkerExecutionRoute;
+  fallbackPolicy: EveWorkerFallbackPolicy;
   lastSmoke?: { status: 'pass' | 'fail'; reportPath?: string };
   releaseAuthority: EveWorkerReleaseAuthority;
   reasonCode: EveWorkerReasonCode;
@@ -90,6 +105,8 @@ export type EveWorkerDelegationDecision = {
   workerId: EveWorkerId;
   workerStatus?: EveWorkerStatus;
   billingLane?: EveWorkerBillingLane;
+  executionRoute?: EveWorkerExecutionRoute;
+  fallbackPolicy?: EveWorkerFallbackPolicy;
   reasonCode: EveWorkerDelegationReasonCode;
   humanGate: RuntimeGateHumanGate;
 };
@@ -99,29 +116,59 @@ type EveWorkerDescriptor = {
   suitedFor: string[];
   dataClassesAllowed: SensitivityClass[];
   billingLane: EveWorkerBillingLane;
+  executionRoute: EveWorkerExecutionRoute;
+  fallbackPolicy: EveWorkerFallbackPolicy;
   releaseAuthority: EveWorkerReleaseAuthority;
   requiresAuth: boolean;
   defaultSupported: boolean;
   maxReasoningEffort?: EveWorkerReasoningEffort;
 };
 
-const WORKER_ORDER: readonly EveWorkerId[] = ['claude', 'codex', 'gemini', 'deepseek', 'glm', 'grok', 'fable'];
+const WORKER_ORDER: readonly EveWorkerId[] = ['claude', 'opus', 'fable', 'codex', 'gemini', 'deepseek', 'glm', 'grok'];
 
 const WORKER_DESCRIPTORS: Record<EveWorkerId, EveWorkerDescriptor> = {
   claude: {
     id: 'claude',
     suitedFor: ['longform writing', 'code review', 'tool delegation', 'human-tone synthesis'],
     dataClassesAllowed: ['S0-public', 'S1-internal-low', 'S2-confidential'],
-    billingLane: 'seat',
+    billingLane: CLAUDE_SEAT_BILLING_LANE,
+    executionRoute: CLAUDE_SEAT_RUNTIME_ROUTE,
+    fallbackPolicy: CLAUDE_SEAT_FALLBACK_POLICY,
     releaseAuthority: 'none',
     requiresAuth: true,
     defaultSupported: true,
+  },
+  opus: {
+    id: 'opus',
+    suitedFor: ['Claude Max deep implementation', 'cross-file review', 'long-context synthesis'],
+    dataClassesAllowed: ['S0-public', 'S1-internal-low', 'S2-confidential'],
+    billingLane: CLAUDE_SEAT_BILLING_LANE,
+    executionRoute: CLAUDE_SEAT_RUNTIME_ROUTE,
+    fallbackPolicy: CLAUDE_SEAT_FALLBACK_POLICY,
+    releaseAuthority: 'advisor_only',
+    requiresAuth: true,
+    defaultSupported: true,
+    maxReasoningEffort: 'max',
+  },
+  fable: {
+    id: 'fable',
+    suitedFor: ['Claude Max product-feel challenge', 'high-level narrative review'],
+    dataClassesAllowed: ['S0-public', 'S1-internal-low'],
+    billingLane: CLAUDE_SEAT_BILLING_LANE,
+    executionRoute: CLAUDE_SEAT_RUNTIME_ROUTE,
+    fallbackPolicy: CLAUDE_SEAT_FALLBACK_POLICY,
+    releaseAuthority: 'advisor_only',
+    requiresAuth: true,
+    defaultSupported: true,
+    maxReasoningEffort: 'high',
   },
   codex: {
     id: 'codex',
     suitedFor: ['code implementation', 'controller review', 'diff reasoning'],
     dataClassesAllowed: ['S0-public', 'S1-internal-low', 'S2-confidential'],
     billingLane: 'seat',
+    executionRoute: 'unavailable',
+    fallbackPolicy: 'none',
     releaseAuthority: 'controller_only',
     requiresAuth: true,
     defaultSupported: false,
@@ -131,6 +178,8 @@ const WORKER_DESCRIPTORS: Record<EveWorkerId, EveWorkerDescriptor> = {
     suitedFor: ['long-context review', 'architecture drift', 'cross-file synthesis'],
     dataClassesAllowed: ['S0-public', 'S1-internal-low', 'S2-confidential'],
     billingLane: 'byok',
+    executionRoute: 'byok',
+    fallbackPolicy: 'none',
     releaseAuthority: 'advisor_only',
     requiresAuth: true,
     defaultSupported: true,
@@ -140,6 +189,8 @@ const WORKER_DESCRIPTORS: Record<EveWorkerId, EveWorkerDescriptor> = {
     suitedFor: ['bounded diff review', 'implementation challenge', 'cost-efficient advisor'],
     dataClassesAllowed: ['S0-public', 'S1-internal-low', 'S2-confidential'],
     billingLane: 'app_metered',
+    executionRoute: 'eve_inference_openrouter',
+    fallbackPolicy: 'none',
     releaseAuthority: 'advisor_only',
     requiresAuth: true,
     defaultSupported: true,
@@ -149,6 +200,8 @@ const WORKER_DESCRIPTORS: Record<EveWorkerId, EveWorkerDescriptor> = {
     suitedFor: ['long reasoning review', 'architecture challenge', 'spec-drift check'],
     dataClassesAllowed: ['S0-public', 'S1-internal-low', 'S2-confidential'],
     billingLane: 'app_metered',
+    executionRoute: 'eve_inference_openrouter',
+    fallbackPolicy: 'none',
     releaseAuthority: 'advisor_only',
     requiresAuth: true,
     defaultSupported: true,
@@ -158,21 +211,11 @@ const WORKER_DESCRIPTORS: Record<EveWorkerId, EveWorkerDescriptor> = {
     suitedFor: ['research challenge', 'multimodal provider lane', 'realtime-content exploration'],
     dataClassesAllowed: ['S0-public', 'S1-internal-low'],
     billingLane: 'app_metered',
+    executionRoute: 'eve_inference_openrouter',
+    fallbackPolicy: 'none',
     releaseAuthority: 'advisor_only',
     requiresAuth: true,
     defaultSupported: true,
-  },
-  fable: {
-    id: 'fable',
-    suitedFor: ['Claude Max product-feel challenge', 'high-level narrative review'],
-    dataClassesAllowed: ['S0-public', 'S1-internal-low'],
-    // Fable is a Claude Code model and must stay on the operator's authenticated
-    // Claude Max seat. Never silently route this worker through OpenRouter.
-    billingLane: 'seat',
-    releaseAuthority: 'advisor_only',
-    requiresAuth: true,
-    defaultSupported: true,
-    maxReasoningEffort: 'high',
   },
 };
 
@@ -239,6 +282,8 @@ function decideWorkerTruth(
     suitedFor: [...descriptor.suitedFor],
     dataClassesAllowed: [...descriptor.dataClassesAllowed],
     billingLane: descriptor.billingLane,
+    executionRoute: descriptor.executionRoute,
+    fallbackPolicy: descriptor.fallbackPolicy,
     releaseAuthority: descriptor.releaseAuthority,
     reasonCode,
     ...(descriptor.maxReasoningEffort ? { maxReasoningEffort: descriptor.maxReasoningEffort } : {}),
@@ -275,6 +320,7 @@ export function decideEveWorkerDelegation(input: {
   sensitivity: SensitivityClass;
   privacyMode: RuntimeGatePrivacyMode;
   userConsent: boolean;
+  executionRoute: EveWorkerExecutionRoute;
   autonomyLevel?: RuntimeGateAutonomyLevel;
   requestedReasoningEffort?: EveWorkerReasoningEffort;
 }): EveWorkerDelegationDecision {
@@ -289,8 +335,23 @@ export function decideEveWorkerDelegation(input: {
       workerId: worker.id,
       workerStatus: worker.status,
       billingLane: worker.billingLane,
+      executionRoute: worker.executionRoute,
+      fallbackPolicy: worker.fallbackPolicy,
       reasonCode: 'worker.not-active',
       humanGate: worker.status === 'needs_auth' ? 'HG-2' : 'HG-1',
+    };
+  }
+
+  if (input.executionRoute !== worker.executionRoute) {
+    return {
+      ok: false,
+      workerId: worker.id,
+      workerStatus: worker.status,
+      billingLane: worker.billingLane,
+      executionRoute: worker.executionRoute,
+      fallbackPolicy: worker.fallbackPolicy,
+      reasonCode: 'worker.runtime-route-mismatch',
+      humanGate: 'HG-2.5',
     };
   }
 
@@ -300,6 +361,8 @@ export function decideEveWorkerDelegation(input: {
       workerId: worker.id,
       workerStatus: worker.status,
       billingLane: worker.billingLane,
+      executionRoute: worker.executionRoute,
+      fallbackPolicy: worker.fallbackPolicy,
       reasonCode: 'worker.disabled-by-privacy',
       humanGate: 'HG-2',
     };
@@ -311,6 +374,8 @@ export function decideEveWorkerDelegation(input: {
       workerId: worker.id,
       workerStatus: worker.status,
       billingLane: worker.billingLane,
+      executionRoute: worker.executionRoute,
+      fallbackPolicy: worker.fallbackPolicy,
       reasonCode: 'worker.data-class-blocked',
       humanGate: input.sensitivity === 'S3-restricted' ? 'HG-3' : 'HG-2',
     };
@@ -322,6 +387,8 @@ export function decideEveWorkerDelegation(input: {
       workerId: worker.id,
       workerStatus: worker.status,
       billingLane: worker.billingLane,
+      executionRoute: worker.executionRoute,
+      fallbackPolicy: worker.fallbackPolicy,
       reasonCode: 'worker.fable-effort-cap',
       humanGate: 'HG-2.5',
     };
@@ -343,6 +410,8 @@ export function decideEveWorkerDelegation(input: {
       workerId: worker.id,
       workerStatus: worker.status,
       billingLane: worker.billingLane,
+      executionRoute: worker.executionRoute,
+      fallbackPolicy: worker.fallbackPolicy,
       reasonCode: runtimeGate.reasonCode === 'gate.needs-consent' ? 'worker.needs-consent' : 'worker.human-required',
       humanGate: runtimeGate.humanGate,
     };
@@ -353,6 +422,8 @@ export function decideEveWorkerDelegation(input: {
     workerId: worker.id,
     workerStatus: worker.status,
     billingLane: worker.billingLane,
+    executionRoute: worker.executionRoute,
+    fallbackPolicy: worker.fallbackPolicy,
     reasonCode: 'worker.delegate-pass',
     humanGate: 'HG-0',
   };

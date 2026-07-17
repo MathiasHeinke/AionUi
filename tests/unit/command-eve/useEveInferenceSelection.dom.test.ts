@@ -48,9 +48,18 @@ vi.mock('@/common/config/configService', () => {
 
 // Controllable entitlement status. `trial_ends_at` non-null ⇒ trialing (greys the
 // paid Pro rungs Hoch/Max; only Standard stays free). Default: paid (all selectable).
-const entitlement: { trial_ends_at?: string | null } = { trial_ends_at: null };
+const entitlement = {
+  ok: true,
+  state: 'entitled',
+  trial_ends_at: null as string | null,
+  has_paid_seat: false,
+};
+const entitlementHookState: { loading: boolean; status: typeof entitlement | null } = {
+  loading: false,
+  status: entitlement,
+};
 vi.mock('@renderer/hooks/useEntitlementGate', () => ({
-  useEntitlementGate: () => ({ loading: false, status: entitlement, blocked: false, refresh: vi.fn() }),
+  useEntitlementGate: () => ({ ...entitlementHookState, blocked: false, refresh: vi.fn() }),
 }));
 
 const creditsStatus: {
@@ -66,8 +75,12 @@ const creditsStatus: {
   included_allowance_credits_remaining: 0,
   has_active_topup: false,
 };
+const creditsHookState: { loading: boolean; status: typeof creditsStatus | null } = {
+  loading: false,
+  status: creditsStatus,
+};
 vi.mock('@renderer/hooks/useCreditsStatus', () => ({
-  useCreditsStatus: () => ({ loading: false, status: creditsStatus, meter: null, refresh: vi.fn() }),
+  useCreditsStatus: () => ({ ...creditsHookState, meter: null, refresh: vi.fn() }),
 }));
 
 import { useEveInferenceSelection } from '@renderer/hooks/agent/useEveInferenceSelection';
@@ -79,6 +92,9 @@ describe('useEveInferenceSelection', () => {
     store.clear();
     subscribers.clear();
     entitlement.trial_ends_at = null; // paid by default
+    entitlement.has_paid_seat = false;
+    entitlementHookState.loading = false;
+    entitlementHookState.status = entitlement;
     // No authoritative credit receipt by default: existing entitlement-only
     // tests keep exercising the compatibility path.
     creditsStatus.ok = false;
@@ -86,6 +102,8 @@ describe('useEveInferenceSelection', () => {
     creditsStatus.purchased_credits_remaining = 0;
     creditsStatus.included_allowance_credits_remaining = 0;
     creditsStatus.has_active_topup = false;
+    creditsHookState.loading = false;
+    creditsHookState.status = creditsStatus;
     vi.clearAllMocks();
   });
 
@@ -171,9 +189,80 @@ describe('useEveInferenceSelection', () => {
   it('auto-resets a previously-stored paid level (Max) to the default (Standard) when trialing', async () => {
     store.set('commandEve.inferenceSelection', eveTierValue('eve-max'));
     entitlement.trial_ends_at = '2099-01-01T00:00:00.000Z'; // trialing
+    creditsStatus.ok = true;
     const { result } = renderHook(() => useEveInferenceSelection());
     await waitFor(() => expect(result.current.selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION));
     expect(store.get('commandEve.inferenceSelection')).toBe(EVE_DEFAULT_INFERENCE_SELECTION);
+  });
+
+  it('preserves a funded paid tier when stale trial truth arrives before purchased credits', async () => {
+    const eveMax = eveTierValue('eve-max');
+    store.set('commandEve.inferenceSelection', eveMax);
+    entitlement.trial_ends_at = '2099-01-01T00:00:00.000Z';
+    entitlementHookState.loading = true;
+    entitlementHookState.status = null;
+    creditsHookState.loading = true;
+    creditsHookState.status = null;
+
+    const { result, rerender } = renderHook(() => useEveInferenceSelection());
+    expect(result.current.selection).toBe(eveMax);
+
+    entitlementHookState.loading = false;
+    entitlementHookState.status = entitlement;
+    rerender();
+
+    const cloudItems = result.current.groups.find((group) => group.kind === 'eve')?.items ?? [];
+    expect(cloudItems.map((item) => item.label)).toEqual(['Standard', 'Hoch', 'Sehr hoch', 'Maximum', 'Ultra']);
+    expect(cloudItems.find((item) => item.value === eveMax)?.disabled).toBe(true);
+    expect(result.current.selection).toBe(eveMax);
+    expect(configService.set).not.toHaveBeenCalledWith(
+      'commandEve.inferenceSelection',
+      EVE_DEFAULT_INFERENCE_SELECTION
+    );
+
+    creditsStatus.ok = true;
+    creditsStatus.purchased_credits_remaining = 120_000;
+    creditsHookState.loading = false;
+    creditsHookState.status = creditsStatus;
+    rerender();
+
+    await waitFor(() => expect(result.current.isSelectable(eveMax)).toBe(true));
+    expect(result.current.selection).toBe(eveMax);
+    expect(store.get('commandEve.inferenceSelection')).toBe(eveMax);
+    expect(configService.set).not.toHaveBeenCalledWith(
+      'commandEve.inferenceSelection',
+      EVE_DEFAULT_INFERENCE_SELECTION
+    );
+  });
+
+  it('persists a paid-tier fallback only after both reads confirm no funded access', async () => {
+    const eveMax = eveTierValue('eve-max');
+    store.set('commandEve.inferenceSelection', eveMax);
+    entitlement.trial_ends_at = '2099-01-01T00:00:00.000Z';
+    entitlementHookState.loading = true;
+    entitlementHookState.status = null;
+    creditsHookState.loading = true;
+    creditsHookState.status = null;
+
+    const { result, rerender } = renderHook(() => useEveInferenceSelection());
+
+    creditsStatus.ok = true;
+    creditsHookState.loading = false;
+    creditsHookState.status = creditsStatus;
+    rerender();
+    expect(result.current.selection).toBe(eveMax);
+    expect(configService.set).not.toHaveBeenCalledWith(
+      'commandEve.inferenceSelection',
+      EVE_DEFAULT_INFERENCE_SELECTION
+    );
+
+    entitlementHookState.loading = false;
+    entitlementHookState.status = entitlement;
+    rerender();
+
+    await waitFor(() => expect(result.current.selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION));
+    expect(store.get('commandEve.inferenceSelection')).toBe(EVE_DEFAULT_INFERENCE_SELECTION);
+    expect(configService.set).toHaveBeenCalledWith('commandEve.inferenceSelection', EVE_DEFAULT_INFERENCE_SELECTION);
   });
 
   it('auto-resets a now-removed tier (the retired eve-maximum) to the default', async () => {
@@ -183,6 +272,20 @@ describe('useEveInferenceSelection', () => {
     entitlement.trial_ends_at = null; // paid
     const { result } = renderHook(() => useEveInferenceSelection());
     await waitFor(() => expect(result.current.selection).toBe(EVE_DEFAULT_INFERENCE_SELECTION));
+  });
+
+  it.each([
+    ['local', 'command-eve-local:future-local'],
+    ['connected', 'connected-provider:future-model'],
+  ])('preserves an unknown %s selection without claiming a known picker item', async (_kind, persisted) => {
+    store.set('commandEve.inferenceSelection', persisted);
+
+    const { result } = renderHook(() => useEveInferenceSelection());
+
+    await waitFor(() => expect(result.current.selection).toBe(persisted));
+    expect(result.current.selectedItem).toBeUndefined();
+    expect(store.get('commandEve.inferenceSelection')).toBe(persisted);
+    expect(configService.set).not.toHaveBeenCalled();
   });
 
   it('keeps the paid Pro rungs through Ultra selectable when paid (trial_ends_at null)', () => {

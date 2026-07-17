@@ -177,6 +177,14 @@ describe('UnifiedSendBar', () => {
     expect(busyModeCss).not.toMatch(/\.conversation-busy-mode-control\.is-(?:hidden|visible)\s*\{[^}]*transform:/);
   });
 
+  it('offsets the large EVE popover toward the composer instead of past its right edge', () => {
+    const source = readSource('packages/desktop/src/renderer/components/chat/UnifiedSendBar.tsx');
+    expect(source).toContain('composerBox.width - edgeInset * 2');
+    expect(source).toContain('desiredLeft - naturalLeft');
+    expect(source).toContain('triggerProps={{ popupAlign: { top: [menuPlacement.offsetX, 12] } }}');
+    expect(unifiedSendBarCss).toContain('.eve-composer-control__menu--compact');
+  });
+
   it('centers the stop square and rotates only its work ring with a reduced-motion fallback', () => {
     expect(sendBoxCss).toMatch(
       /\.sendbox-stop-button \.arco-btn-icon\s*\{[\s\S]*?align-items:\s*center;[\s\S]*?justify-content:\s*center;/

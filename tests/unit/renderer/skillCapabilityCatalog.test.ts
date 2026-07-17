@@ -1,6 +1,12 @@
 import type { RawAvailableSkill } from '@/common/adapter/skillMapper';
-import { buildSkillCapabilityCatalog } from '@/renderer/hooks/capabilities';
-import { describe, expect, it } from 'vitest';
+import {
+  buildSkillCapabilityCatalog,
+  getSkillCapabilityCatalogKey,
+  invalidateSkillCapabilityCatalog,
+  isSkillCapabilityCatalogKey,
+} from '@/renderer/hooks/capabilities';
+import type { ScopedMutator } from 'swr';
+import { describe, expect, it, vi } from 'vitest';
 
 const skills: RawAvailableSkill[] = [
   {
@@ -36,7 +42,7 @@ const skills: RawAvailableSkill[] = [
 ];
 
 describe('skill capability catalog', () => {
-  it('uses one active/available count and removes selections the runtime catalog cannot apply', () => {
+  it('marks assistant-readiness skills active and removes selections the runtime catalog cannot apply', () => {
     const catalog = buildSkillCapabilityCatalog(skills, {
       mode: 'selection',
       enabledSkills: ['optional-active', 'missing-skill', 'auto-active'],
@@ -78,5 +84,52 @@ describe('skill capability catalog', () => {
     expect(catalog.status).toBe('error');
     expect(catalog.activeItems.map((item) => item.name)).toEqual(['runtime-only']);
     expect({ active: catalog.activeCount, available: catalog.totalCount }).toEqual({ active: 1, available: 1 });
+  });
+
+  it.each(['loading', 'error'] as const)('fails closed for a new-chat selection while the catalog is %s', (status) => {
+    const catalog = buildSkillCapabilityCatalog(
+      status === 'error' ? skills : undefined,
+      {
+        mode: 'selection',
+        enabledSkills: ['optional-active'],
+        excludedAutoInjectSkills: ['auto-excluded'],
+      },
+      status
+    );
+
+    expect(catalog.selection).toEqual({});
+    expect(catalog.items).toEqual([]);
+    expect({ active: catalog.activeCount, available: catalog.totalCount }).toEqual({ active: 0, available: 0 });
+  });
+
+  it('keeps new-chat and running-chat capability truth aligned for the same active skills', () => {
+    const newChatCatalog = buildSkillCapabilityCatalog(skills, {
+      mode: 'selection',
+      enabledSkills: ['optional-active'],
+      excludedAutoInjectSkills: ['auto-excluded'],
+    });
+    const runningChatCatalog = buildSkillCapabilityCatalog(skills, {
+      mode: 'runtime',
+      activeSkills: newChatCatalog.activeItems.map((item) => item.name),
+    });
+
+    expect(runningChatCatalog.activeItems.map((item) => item.name)).toEqual(
+      newChatCatalog.activeItems.map((item) => item.name)
+    );
+    expect({ active: runningChatCatalog.activeCount, available: runningChatCatalog.totalCount }).toEqual({
+      active: newChatCatalog.activeCount,
+      available: newChatCatalog.totalCount,
+    });
+  });
+
+  it('invalidates every seat-scoped catalog without matching unrelated SWR keys', async () => {
+    const mutate = vi.fn().mockResolvedValue(undefined);
+
+    await invalidateSkillCapabilityCatalog(mutate as unknown as ScopedMutator);
+
+    expect(mutate).toHaveBeenCalledWith(isSkillCapabilityCatalogKey);
+    expect(isSkillCapabilityCatalogKey(getSkillCapabilityCatalogKey('seat-a'))).toBe(true);
+    expect(isSkillCapabilityCatalogKey(getSkillCapabilityCatalogKey('seat-b'))).toBe(true);
+    expect(isSkillCapabilityCatalogKey(['assistants.list', 'seat-a'])).toBe(false);
   });
 });

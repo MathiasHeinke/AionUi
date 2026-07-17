@@ -69,4 +69,58 @@ describe('conversation skill selection bridge', () => {
     expect(created.extra).not.toHaveProperty('preset_enabled_skills');
     expect(created.extra).not.toHaveProperty('exclude_auto_inject_skills');
   });
+
+  it('preserves explicit empty selections so the backend can override assistant defaults', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        id: 'conversation-1',
+        type: 'acp',
+        name: 'No optional skills',
+        extra: { backend: 'hermes', skills: [] },
+      })
+    );
+
+    await conversation.create.invoke({
+      type: 'acp',
+      name: 'No optional skills',
+      model: {} as TProviderWithModel,
+      extra: {
+        backend: 'hermes',
+        preset_enabled_skills: [],
+        exclude_auto_inject_skills: [],
+      },
+    });
+
+    const request = fetchMock.mock.calls[0];
+    expect(JSON.parse(String(request?.[1]?.body)).extra).toEqual({
+      backend: 'hermes',
+      preset_enabled_skills: [],
+      exclude_auto_inject_skills: [],
+    });
+  });
+
+  it('omits selection fields when the frontend delegates to backend defaults', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        id: 'conversation-1',
+        type: 'acp',
+        name: 'Backend defaults',
+        extra: { backend: 'hermes', skills: ['assistant-default'] },
+      })
+    );
+
+    await conversation.create.invoke({
+      type: 'acp',
+      name: 'Backend defaults',
+      model: {} as TProviderWithModel,
+      extra: { backend: 'hermes' },
+    });
+
+    const request = fetchMock.mock.calls[0];
+    const requestExtra = JSON.parse(String(request?.[1]?.body)).extra;
+    expect(requestExtra).not.toHaveProperty('preset_enabled_skills');
+    expect(requestExtra).not.toHaveProperty('exclude_auto_inject_skills');
+  });
 });
