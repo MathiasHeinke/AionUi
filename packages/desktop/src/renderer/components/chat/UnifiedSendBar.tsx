@@ -169,14 +169,16 @@ const EveComposerControl: React.FC<{
         data-testid='eve-composer-control-trigger'
       >
         <span className='eve-composer-control__trigger-visual' aria-hidden='true'>
-          <ContextUsageIndicator
-            tokenUsage={config.tokenUsage}
-            context_limit={config.contextLimit}
-            modelId={config.modelId}
-            className='eve-composer-control__ring'
-            size={38}
-            showDetails={false}
-          />
+          {config.tokenUsage ? (
+            <ContextUsageIndicator
+              tokenUsage={config.tokenUsage}
+              context_limit={config.contextLimit}
+              modelId={config.modelId}
+              className='eve-composer-control__ring'
+              size={30}
+              showDetails={false}
+            />
+          ) : null}
           <CommandEveGlyph size={17} />
         </span>
       </Button>

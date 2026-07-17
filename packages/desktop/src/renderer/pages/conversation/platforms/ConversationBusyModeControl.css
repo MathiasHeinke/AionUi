@@ -1,81 +1,96 @@
 .conversation-busy-mode-control {
   display: inline-flex;
-  width: 64px;
-  min-width: 64px;
-  min-height: var(--eve-control-height, 32px);
+  width: var(--eve-composer-control-size, var(--eve-control-height, 32px));
+  min-width: var(--eve-composer-control-size, var(--eve-control-height, 32px));
+  height: var(--eve-composer-control-size, var(--eve-control-height, 32px));
+  min-height: var(--eve-composer-control-size, var(--eve-control-height, 32px));
+  flex: 0 0 var(--eve-composer-control-size, var(--eve-control-height, 32px));
   align-items: center;
   justify-content: center;
-  transition:
-    opacity 160ms ease,
-    transform 160ms ease;
+  transition: opacity 160ms ease;
 }
 
 .conversation-busy-mode-control.is-hidden {
   visibility: hidden;
   pointer-events: none;
   opacity: 0;
-  transform: translateY(2px) scale(0.96);
 }
 
 .conversation-busy-mode-control.is-visible {
   visibility: visible;
   opacity: 1;
-  transform: translateY(0) scale(1);
 }
 
-.conversation-busy-mode-control .arco-radio-group-type-button {
+.conversation-busy-mode-trigger,
+.conversation-busy-mode-trigger.arco-btn {
   display: inline-flex;
-  width: 64px;
-  height: 32px;
+  width: var(--eve-composer-control-size, var(--eve-control-height, 32px));
+  min-width: var(--eve-composer-control-size, var(--eve-control-height, 32px));
+  height: var(--eve-composer-control-size, var(--eve-control-height, 32px));
+  flex: 0 0 var(--eve-composer-control-size, var(--eve-control-height, 32px));
   align-items: center;
   justify-content: center;
-  gap: 4px;
   padding: 0;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.conversation-busy-mode-control .arco-radio-button {
-  display: inline-flex;
-  width: 28px;
-  height: 28px;
-  align-items: center;
-  justify-content: center;
-  margin: 0;
   border: 0;
   border-radius: 999px;
-  background: transparent;
+  background: color-mix(in srgb, var(--eve-shell-surface, var(--color-bg-2)) 52%, transparent);
+  box-shadow: inset 0 1px 0 var(--glass-edge-highlight, transparent);
   color: var(--eve-composer-control-color, var(--color-text-3));
-  line-height: 1;
+  transform: none;
 }
 
-.conversation-busy-mode-control .arco-radio-button::before,
-.conversation-busy-mode-control .arco-radio-button::after {
-  display: none;
-}
-
-.conversation-busy-mode-control .arco-radio-button-inner {
-  display: inline-flex;
-  width: 28px;
-  height: 28px;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-}
-
-.conversation-busy-mode-control .arco-radio-button:hover {
+.conversation-busy-mode-trigger:hover,
+.conversation-busy-mode-trigger:focus-visible {
   background: color-mix(in srgb, var(--eve-shell-text, var(--color-text-1)) 7%, transparent);
   color: var(--eve-shell-text, var(--color-text-1));
 }
 
-.conversation-busy-mode-control .arco-radio-button.arco-radio-checked {
-  background: color-mix(in srgb, var(--eve-brand-logo, rgb(var(--primary-6))) 10%, transparent);
-  color: var(--eve-brand-logo, rgb(var(--primary-6)));
-  box-shadow: 0 0 14px color-mix(in srgb, var(--eve-brand-logo, rgb(var(--primary-6))) 22%, transparent);
+.conversation-busy-mode-trigger:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--eve-brand-logo, rgb(var(--primary-6))) 24%, transparent);
 }
 
-.conversation-busy-mode-control .arco-radio-button:focus-within {
-  outline: 0;
-  box-shadow: 0 0 12px color-mix(in srgb, var(--eve-brand-logo, rgb(var(--primary-6))) 30%, transparent);
+.conversation-busy-mode-menu {
+  width: min(286px, calc(100vw - 32px));
+  padding: 6px;
+  border: 0;
+  background: color-mix(in srgb, var(--eve-shell-surface, var(--color-bg-2)) 92%, transparent);
+  box-shadow:
+    0 16px 36px color-mix(in srgb, var(--eve-shell-text, var(--color-text-1)) 18%, transparent),
+    inset 0 1px 0 var(--glass-edge-highlight, transparent);
+  -webkit-backdrop-filter: var(--glass-composer-filter, blur(18px));
+  backdrop-filter: var(--glass-composer-filter, blur(18px));
+}
+
+.conversation-busy-mode-menu__item {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 3px 0;
+}
+
+.conversation-busy-mode-menu__copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.conversation-busy-mode-menu__copy strong {
+  color: var(--color-text-1);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.conversation-busy-mode-menu__copy small {
+  color: var(--color-text-3);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: normal;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conversation-busy-mode-control {
+    transition: none;
+  }
 }

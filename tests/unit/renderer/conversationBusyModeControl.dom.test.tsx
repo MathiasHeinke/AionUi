@@ -24,25 +24,44 @@ describe('ConversationBusyModeControl', () => {
     const control = container.querySelector('[data-testid="conversation-busy-mode-control"]');
     expect(control).toHaveClass('is-hidden');
     expect(control).toHaveAttribute('aria-hidden', 'true');
-    expect(container.querySelector('input[type="radio"][value="queue"]')).toBeDisabled();
+    expect(control).toHaveAttribute('data-state', 'idle');
+    expect(control).toHaveAttribute('data-mode', 'queue');
+    expect(screen.getByTestId('conversation-busy-mode-trigger')).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByTestId('conversation-busy-mode-trigger')).toHaveAttribute('tabindex', '-1');
   });
 
-  it('uses compact accessible icons and switches the send mode', () => {
+  it('preserves the same control and trigger nodes across idle and busy states', () => {
+    const onChange = vi.fn();
+    const { rerender } = render(<ConversationBusyModeControl visible={false} value='queue' onChange={onChange} />);
+    const control = screen.getByTestId('conversation-busy-mode-control');
+    const trigger = screen.getByTestId('conversation-busy-mode-trigger');
+
+    rerender(<ConversationBusyModeControl visible value='steer' onChange={onChange} />);
+
+    expect(screen.getByTestId('conversation-busy-mode-control')).toBe(control);
+    expect(screen.getByTestId('conversation-busy-mode-trigger')).toBe(trigger);
+    expect(control).toHaveClass('is-visible');
+    expect(control).toHaveAttribute('data-state', 'busy');
+    expect(control).toHaveAttribute('data-mode', 'steer');
+    expect(trigger).toHaveAttribute('aria-disabled', 'false');
+    expect(trigger).not.toHaveAttribute('tabindex');
+    expect(trigger).toHaveAttribute('aria-label', 'Busy send mode: Correction');
+  });
+
+  it('shows one compact mode trigger and switches the send mode from its menu', async () => {
     const onChange = vi.fn();
     render(<ConversationBusyModeControl visible value='queue' onChange={onChange} />);
 
     expect(screen.queryByText('Afterwards')).not.toBeInTheDocument();
     expect(screen.queryByText('Correction')).not.toBeInTheDocument();
-    expect(screen.getByTestId('conversation-busy-mode-queue')).toHaveAttribute(
-      'title',
-      'Afterwards: Send after the current run finishes.'
-    );
-    expect(screen.getByTestId('conversation-busy-mode-steer')).toHaveAttribute(
-      'title',
-      'Correction: Push into the current run.'
-    );
+    const trigger = screen.getByTestId('conversation-busy-mode-trigger');
+    expect(trigger).toHaveAttribute('aria-label', 'Busy send mode: Afterwards');
+    expect(trigger).toHaveAttribute('title', 'Afterwards: Send after the current run finishes.');
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Correction' }));
+    fireEvent.click(trigger);
+    expect(await screen.findByTestId('conversation-busy-mode-queue')).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByTestId('conversation-busy-mode-queue')).toHaveAttribute('role', 'menuitemradio');
+    fireEvent.click(await screen.findByTestId('conversation-busy-mode-steer'));
     expect(onChange).toHaveBeenCalledWith('steer');
   });
 });

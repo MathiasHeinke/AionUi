@@ -1,5 +1,6 @@
 .unified-send-bar {
-  min-height: var(--eve-control-height, 32px);
+  --eve-composer-control-size: var(--eve-control-height, 32px);
+  min-height: var(--eve-composer-control-size);
   align-items: center;
   --eve-composer-control-color: color-mix(in srgb, var(--eve-shell-text, var(--color-text-1)) 68%, transparent);
   --eve-composer-control-hover: color-mix(in srgb, var(--eve-shell-text, var(--color-text-1)) 7%, transparent);
@@ -8,30 +9,30 @@
 
 .unified-send-bar__left,
 .unified-send-bar__right {
-  min-height: var(--eve-control-height, 32px);
+  min-height: var(--eve-composer-control-size);
   align-items: center;
 }
 
 .unified-send-bar__busy-slot {
   display: inline-flex;
-  width: 64px;
-  min-width: 64px;
-  height: var(--eve-control-height, 32px);
-  flex: 0 0 64px;
+  width: var(--eve-composer-control-size);
+  min-width: var(--eve-composer-control-size);
+  height: var(--eve-composer-control-size);
+  flex: 0 0 var(--eve-composer-control-size);
   align-items: center;
   justify-content: center;
 }
 
 .unified-send-bar :where(.arco-btn-shape-circle, .speech-input-button),
 .unified-send-bar :where(.sendbox-model-btn, .agent-mode-compact-pill) {
-  width: var(--eve-control-height, 32px) !important;
-  min-width: var(--eve-control-height, 32px) !important;
-  height: var(--eve-control-height, 32px) !important;
+  width: var(--eve-composer-control-size) !important;
+  min-width: var(--eve-composer-control-size) !important;
+  height: var(--eve-composer-control-size) !important;
   padding: 0 !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  flex: 0 0 var(--eve-control-height, 32px) !important;
+  flex: 0 0 var(--eve-composer-control-size) !important;
   border-radius: 999px !important;
 }
 
@@ -43,9 +44,9 @@
 }
 
 .unified-send-bar :where(.sendbox-model-btn, .agent-mode-compact-pill) .arco-btn-content {
-  width: var(--eve-control-height, 32px);
+  width: var(--eve-composer-control-size);
   min-width: 0;
-  height: var(--eve-control-height, 32px);
+  height: var(--eve-composer-control-size);
   padding: 0;
   display: inline-flex;
   align-items: center;
@@ -115,9 +116,10 @@
 .eve-composer-control__trigger,
 .eve-composer-control__trigger.arco-btn {
   position: relative;
-  width: 42px !important;
-  min-width: 42px !important;
-  height: 42px !important;
+  width: var(--eve-composer-control-size) !important;
+  min-width: var(--eve-composer-control-size) !important;
+  height: var(--eve-composer-control-size) !important;
+  flex: 0 0 var(--eve-composer-control-size) !important;
   padding: 0 !important;
   border: 0 !important;
   border-radius: 999px !important;
@@ -141,8 +143,9 @@
 .eve-composer-control__trigger-visual {
   position: relative;
   display: inline-flex;
-  width: 40px;
-  height: 40px;
+  width: var(--eve-composer-control-size);
+  height: var(--eve-composer-control-size);
+  flex: 0 0 var(--eve-composer-control-size);
   align-items: center;
   justify-content: center;
 }
@@ -153,8 +156,12 @@
   pointer-events: none;
 }
 
-.eve-composer-control__ring + .command-eve-glyph {
-  position: relative;
+.eve-composer-control__trigger-visual > .command-eve-glyph {
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   z-index: 1;
 }
 

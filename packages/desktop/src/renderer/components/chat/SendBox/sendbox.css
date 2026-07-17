@@ -42,16 +42,57 @@
 .sendbox-stop-button,
 .sendbox-stop-button.arco-btn,
 .sendbox-stop-button.arco-btn-secondary {
-  background: var(--eve-brand-logo, rgb(var(--primary-6))) !important;
-  border: 1px solid var(--eve-brand-logo, rgb(var(--primary-6))) !important;
+  position: relative;
+  isolation: isolate;
+  width: var(--eve-control-height, 32px) !important;
+  min-width: var(--eve-control-height, 32px) !important;
+  height: var(--eve-control-height, 32px) !important;
+  padding: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: color-mix(
+    in srgb,
+    var(--eve-brand-logo, rgb(var(--primary-6))) 88%,
+    var(--eve-shell-surface, var(--color-bg-2))
+  ) !important;
+  border: 0 !important;
   color: #ffffff !important;
-  box-shadow: none !important;
+  box-shadow:
+    0 8px 18px color-mix(in srgb, var(--eve-brand-logo, rgb(var(--primary-6))) 24%, transparent),
+    inset 0 1px 0 var(--glass-edge-highlight, transparent) !important;
+  transform: none !important;
 }
 
 .sendbox-stop-button.bg-animate,
 .sendbox-stop-button.arco-btn.bg-animate,
 .sendbox-stop-button.arco-btn-secondary.bg-animate {
-  animation: sendbox-stop-breathe 1.4s ease-in-out infinite alternate;
+  animation: none;
+}
+
+.sendbox-stop-button.bg-animate::before,
+.sendbox-stop-button.arco-btn.bg-animate::before,
+.sendbox-stop-button.arco-btn-secondary.bg-animate::before {
+  position: absolute;
+  z-index: 0;
+  inset: 2px;
+  border: 1.5px solid color-mix(in srgb, currentColor 34%, transparent);
+  border-top-color: currentColor;
+  border-right-color: color-mix(in srgb, currentColor 82%, transparent);
+  border-radius: inherit;
+  animation: sendbox-stop-work-ring 900ms linear infinite;
+  content: '';
+  pointer-events: none;
+}
+
+.sendbox-stop-button .arco-btn-icon {
+  display: inline-flex;
+  width: 15px;
+  height: 15px;
+  align-items: center;
+  justify-content: center;
+  margin: 0 !important;
+  line-height: 0;
 }
 
 .sendbox-stop-button.bg-animate .arco-icon,
@@ -61,12 +102,16 @@
 }
 
 .sendbox-stop-icon {
+  position: relative;
+  z-index: 1;
   display: inline-flex;
   width: 15px;
   height: 15px;
+  flex: 0 0 15px;
   align-items: center;
   justify-content: center;
   color: #ffffff;
+  line-height: 0;
 }
 
 .sendbox-stop-icon svg {
@@ -75,19 +120,9 @@
   fill: currentColor;
 }
 
-/* Breathe via color + a soft glow ring only — NO transform: scale(). On narrow
-   mobile the panel is single-line (~50px) with overflow:hidden + rounded corners;
-   a scaled-up button plus an 8px glow pushed the button's footprint past the
-   panel's straight edge, so the glow's top/bottom got clipped along the corner
-   arc (#13). Dropping the scale and trimming the glow to 6px keeps the whole
-   footprint inside the panel at every common width. */
-@keyframes sendbox-stop-breathe {
-  0% {
-    box-shadow: 0 0 0 0 rgba(var(--primary-6), 0);
-  }
-
-  100% {
-    box-shadow: 0 0 0 5px color-mix(in srgb, var(--eve-brand-logo, rgb(var(--primary-6))) 20%, transparent);
+@keyframes sendbox-stop-work-ring {
+  to {
+    transform: rotate(1turn);
   }
 }
 
@@ -291,6 +326,13 @@
   .sendbox-stop-button.bg-animate,
   .sendbox-stop-button.arco-btn.bg-animate,
   .sendbox-stop-button.arco-btn-secondary.bg-animate {
+    animation: none;
+  }
+
+  .sendbox-stop-button.bg-animate::before,
+  .sendbox-stop-button.arco-btn.bg-animate::before,
+  .sendbox-stop-button.arco-btn-secondary.bg-animate::before {
+    border-color: color-mix(in srgb, currentColor 62%, transparent);
     animation: none;
   }
 
