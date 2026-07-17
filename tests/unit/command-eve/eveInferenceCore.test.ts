@@ -37,6 +37,7 @@ import {
   EVE_INFERENCE_GROUP_TITLE,
   EVE_INFERENCE_TIERS,
   eveTierValue,
+  filterEvePickerGroups,
   isByokDisabledForEntitlement,
   isModelByokAllowed,
   isEveInferenceSelection,
@@ -45,12 +46,15 @@ import {
   isTrialingEntitlement,
   localTierValue,
   parseEveTierIdFromSelection,
+  parseLocalTierFromSelection,
   resolveCommandEveActiveLane,
   describeCommandEveActiveLane,
   resolveCommandEveWarmupLane,
   resolveEffectiveInferenceSelection,
+  resolveEvePickerItemAvailability,
   resolveWireTierFromSelection,
   shouldDisableModelByok,
+  type EveConnectedProviderGroup,
   type EvePickerItem,
 } from '@/common/config/eveInferenceCore';
 
@@ -133,6 +137,104 @@ describe('eveInferenceCore — STUFEN shape (requirement 0)', () => {
     expect(eve.filter((i) => i.label !== 'Ultra').every((i) => i.costBadge === undefined)).toBe(true);
     expect(byLabel(items, 'eve', 'Ultra')!.costBadge).toBe('Ultra-Kosten');
     expect(byLabel(items, 'eve', 'Standard')!.consumesCredits).toBe(false);
+  });
+});
+
+describe('eveInferenceCore — scalable picker presentation', () => {
+  it('keeps only matching rows while preserving their group navigation', () => {
+    const filtered = filterEvePickerGroups(buildEvePickerGroups(PAID_NULL), 'Ultra');
+
+    expect(filtered.map((group) => group.kind)).toEqual(['eve']);
+    expect(filtered[0].items.map((item) => item.label)).toEqual(['Ultra']);
+  });
+
+  it('keeps the full group when its heading matches the search', () => {
+    const filtered = filterEvePickerGroups(buildEvePickerGroups(PAID_NULL), 'privat');
+
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].items.map((item) => item.label)).toEqual(['Standard', 'Hoch']);
+  });
+
+  it('appends connected providers only when an explicit routed group is supplied', () => {
+    const connected: EveConnectedProviderGroup = {
+      kind: 'connected',
+      title: 'OpenRouter (verbunden)',
+      items: [
+        {
+          value: 'test-routed-provider:model',
+          group: 'connected',
+          label: 'Persönliches Modell',
+          disabled: true,
+          disabledReasonCode: 'AUTH_REQUIRED',
+        },
+      ],
+    };
+
+    expect(buildEvePickerGroups(PAID_NULL).some((group) => group.kind === 'connected')).toBe(false);
+    expect(buildEvePickerGroups(PAID_NULL, [connected]).at(-1)).toEqual(connected);
+  });
+
+  it('does not synthesize raw CLI worker backends into the model picker', () => {
+    const labels = flat(buildEvePickerGroups(PAID_NULL)).map((item) => item.label);
+
+    expect(labels).not.toContain('Claude Code');
+    expect(labels).not.toContain('Codex');
+    expect(labels).not.toContain('Gemini CLI');
+  });
+});
+
+describe('eveInferenceCore — truthful picker availability', () => {
+  const groups = buildEvePickerGroups(PAID_NULL);
+  const cloud = groups.find((group) => group.kind === 'eve')!.items[0];
+  const local = groups.find((group) => group.kind === 'local')!.items[0];
+  const localTierId = parseLocalTierFromSelection(local.value)!.localTierId;
+
+  it('blocks cloud tiers while offline before evaluating authentication', () => {
+    expect(
+      resolveEvePickerItemAvailability(cloud, {
+        cloudOnline: false,
+        cloudAuthenticated: false,
+      })
+    ).toEqual({ state: 'unavailable', selectable: false, reasonCode: 'OFFLINE' });
+  });
+
+  it('reports missing cloud authentication without changing the selected value', () => {
+    expect(
+      resolveEvePickerItemAvailability(cloud, {
+        cloudOnline: true,
+        cloudAuthenticated: false,
+      })
+    ).toEqual({ state: 'unavailable', selectable: false, reasonCode: 'AUTH_REQUIRED' });
+  });
+
+  it('keeps unknown local probes selectable instead of inventing a hardware blocker', () => {
+    expect(resolveEvePickerItemAvailability(local, {})).toEqual({ state: 'checking', selectable: true });
+  });
+
+  it('blocks a local tier when authoritative hardware truth says it cannot fit', () => {
+    expect(
+      resolveEvePickerItemAvailability(local, {
+        localTiers: {
+          [localTierId]: { statusKnown: true, ramFit: false, installed: true, readyForUse: true },
+        },
+      })
+    ).toEqual({ state: 'unavailable', selectable: false, reasonCode: 'HARDWARE_UNSUPPORTED' });
+  });
+
+  it('distinguishes a missing local install from a pending integrity verification', () => {
+    const notInstalled = resolveEvePickerItemAvailability(local, {
+      localTiers: {
+        [localTierId]: { statusKnown: true, ramFit: true, installed: false, readyForUse: false },
+      },
+    });
+    const notVerified = resolveEvePickerItemAvailability(local, {
+      localTiers: {
+        [localTierId]: { statusKnown: true, ramFit: true, installed: true, readyForUse: false },
+      },
+    });
+
+    expect(notInstalled.reasonCode).toBe('NOT_INSTALLED');
+    expect(notVerified.reasonCode).toBe('VERIFICATION_REQUIRED');
   });
 });
 

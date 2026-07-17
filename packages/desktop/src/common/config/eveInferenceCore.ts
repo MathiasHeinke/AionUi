@@ -8,9 +8,9 @@
  * Command EVE inference picker — pure core (STUFEN / level model).
  *
  * The founder mandate is "nothing confusing": a user picks a STUFE (level), NOT
- * a raw model id. So the picker is EXACTLY TWO groups and NOTHING else (no raw
- * CLI/agent picker, no raw provider/model list, no raw "DeepSeek"/"GLM" id in
- * the primary row):
+ * a raw model id. The active product exposes exactly the two verified groups
+ * below. The presentation model can append explicitly supplied connected-user
+ * provider groups later, but it never discovers or exposes raw CLI agents:
  *
  *   - Privat (lokal):   Standard = Gemma 4 E4B, Hoch = Gemma 4 12B
  *                       (the bundled local tiers from commandEveShell.ts).
@@ -249,10 +249,21 @@ export const EVE_LOCAL_PICKER_TIERS: EveLocalPickerTier[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// The two-group picker model (the ONLY thing the UI renders).
+// Picker presentation model. Local + EVE are the only built-in groups. A future
+// routed provider adapter may explicitly append `connected` groups; this core
+// never discovers provider settings or ACP/CLI agents on its own.
 // ---------------------------------------------------------------------------
 
-export type EvePickerGroupKind = 'local' | 'eve';
+export type EvePickerGroupKind = 'local' | 'eve' | 'connected';
+
+export type EvePickerUnavailableReasonCode =
+  | 'PAID_TIER_REQUIRED'
+  | 'OFFLINE'
+  | 'AUTH_REQUIRED'
+  | 'HARDWARE_UNSUPPORTED'
+  | 'NOT_INSTALLED'
+  | 'VERIFICATION_REQUIRED'
+  | 'UNAVAILABLE';
 
 export interface EvePickerItem {
   /** Unique selection value across both groups. */
@@ -266,7 +277,7 @@ export interface EvePickerItem {
   /** True when this item is disabled for the current entitlement (greyed). */
   disabled: boolean;
   /** Non-secret reason the item is disabled (UI hint). */
-  disabledReasonCode?: 'PAID_TIER_REQUIRED';
+  disabledReasonCode?: EvePickerUnavailableReasonCode;
   /** True iff this is a paid level that consumes credits (show a credit marker). */
   consumesCredits?: boolean;
   /** True iff this is the experimental/highest-cost level (show high-cost treatment). */
@@ -280,6 +291,55 @@ export interface EvePickerGroup {
   /** Group heading, e.g. "Privat (lokal)" / "EVE Inference". */
   title: string;
   items: EvePickerItem[];
+}
+
+/**
+ * Future connected-provider groups must come from an explicit, routed adapter.
+ * The picker does not turn generic model settings or ACP workers into entries.
+ */
+export type EveConnectedProviderGroup = Omit<EvePickerGroup, 'kind' | 'items'> & {
+  kind: 'connected';
+  items: Array<EvePickerItem & { group: 'connected' }>;
+};
+
+export type EveLocalPickerRuntimeTruth = {
+  statusKnown: boolean;
+  ramFit: boolean;
+  installed: boolean;
+  readyForUse: boolean;
+};
+
+export type EvePickerRuntimeTruth = {
+  cloudOnline?: boolean;
+  cloudAuthenticated?: boolean;
+  localTiers?: Readonly<Record<string, EveLocalPickerRuntimeTruth | undefined>>;
+};
+
+export type EvePickerItemAvailability = {
+  state: 'available' | 'checking' | 'unavailable';
+  selectable: boolean;
+  reasonCode?: EvePickerUnavailableReasonCode;
+};
+
+/**
+ * Filter groups without flattening their navigation hierarchy. Group-title
+ * matches keep the full group; item matches keep only matching rows.
+ */
+export function filterEvePickerGroups(groups: readonly EvePickerGroup[], query: string): EvePickerGroup[] {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  if (!normalizedQuery) return groups.map((group) => ({ ...group, items: [...group.items] }));
+
+  return groups.flatMap((group) => {
+    const groupMatches = group.title.toLocaleLowerCase().includes(normalizedQuery);
+    const items = groupMatches
+      ? [...group.items]
+      : group.items.filter((item) =>
+          [item.label, item.sublabel, item.costBadge].some((value) =>
+            value?.toLocaleLowerCase().includes(normalizedQuery)
+          )
+        );
+    return items.length > 0 ? [{ ...group, items }] : [];
+  });
 }
 
 /** Stable selection value for an EVE tier (so the UI + router agree). */
@@ -371,6 +431,56 @@ export function parseLocalTierFromSelection(value: string | null | undefined): E
   if (!isLocalSelection(value)) return undefined;
   const id = (value as string).slice(LOCAL_SELECTION_PREFIX.length);
   return EVE_LOCAL_PICKER_TIERS.find((tier) => tier.id === id);
+}
+
+/**
+ * Combine entitlement gating with live cloud and local-runtime truth. Unknown
+ * probes stay selectable but explicitly `checking`; missing evidence must never
+ * invent an auth or hardware blocker.
+ */
+export function resolveEvePickerItemAvailability(
+  item: EvePickerItem,
+  runtimeTruth: EvePickerRuntimeTruth
+): EvePickerItemAvailability {
+  if (item.disabled) {
+    return {
+      state: 'unavailable',
+      selectable: false,
+      reasonCode: item.disabledReasonCode ?? 'UNAVAILABLE',
+    };
+  }
+
+  if (item.group === 'eve') {
+    if (runtimeTruth.cloudOnline === false) {
+      return { state: 'unavailable', selectable: false, reasonCode: 'OFFLINE' };
+    }
+    if (runtimeTruth.cloudAuthenticated === false) {
+      return { state: 'unavailable', selectable: false, reasonCode: 'AUTH_REQUIRED' };
+    }
+    if (runtimeTruth.cloudOnline === undefined || runtimeTruth.cloudAuthenticated === undefined) {
+      return { state: 'checking', selectable: true };
+    }
+    return { state: 'available', selectable: true };
+  }
+
+  if (item.group === 'local') {
+    const tierId = parseLocalTierFromSelection(item.value)?.localTierId;
+    const localTruth = tierId ? runtimeTruth.localTiers?.[tierId] : undefined;
+    if (!localTruth || !localTruth.statusKnown) {
+      return { state: 'checking', selectable: true };
+    }
+    if (!localTruth.ramFit) {
+      return { state: 'unavailable', selectable: false, reasonCode: 'HARDWARE_UNSUPPORTED' };
+    }
+    if (!localTruth.installed) {
+      return { state: 'unavailable', selectable: false, reasonCode: 'NOT_INSTALLED' };
+    }
+    if (!localTruth.readyForUse) {
+      return { state: 'unavailable', selectable: false, reasonCode: 'VERIFICATION_REQUIRED' };
+    }
+  }
+
+  return { state: 'available', selectable: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -640,7 +750,10 @@ export function isEveTierSelectable(
  * credits. Cloud rows expose capability descriptors rather than concrete model
  * names because the server owns provider and model routing.
  */
-export function buildEvePickerGroups(entitlement: EveEntitlementView | null | undefined): EvePickerGroup[] {
+export function buildEvePickerGroups(
+  entitlement: EveEntitlementView | null | undefined,
+  connectedProviderGroups: readonly EveConnectedProviderGroup[] = []
+): EvePickerGroup[] {
   const paidInferenceAccess = hasEvePaidInferenceAccess(entitlement);
 
   const localGroup: EvePickerGroup = {
@@ -686,7 +799,9 @@ export function buildEvePickerGroups(entitlement: EveEntitlementView | null | un
     }),
   };
 
-  return [localGroup, eveGroup];
+  const connectedGroups = connectedProviderGroups.filter((group) => group.items.length > 0);
+
+  return [localGroup, eveGroup, ...connectedGroups];
 }
 
 // ---------------------------------------------------------------------------

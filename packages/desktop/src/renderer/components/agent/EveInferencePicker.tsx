@@ -8,8 +8,9 @@
  * EVE Inference picker — the ONLY model picker a Command EVE user sees. The user
  * picks a STUFE (level), never a raw model id.
  *
- * Founder mandate: "nothing confusing". So this renders EXACTLY TWO groups and
- * nothing else — no raw CLI/agent picker, no raw provider/model list:
+ * Founder mandate: "nothing confusing". The active product renders the two
+ * verified groups below. Future connected-user providers can be supplied as
+ * explicit routed groups, but raw CLI/agent discovery never enters this picker:
  *
  *   - Privat (lokal):   Standard (Gemma 4 E4B) · Hoch (Gemma 4 12B)
  *   - EVE Inference:    Standard · Hoch · Sehr hoch · Maximum · Ultra
@@ -30,15 +31,42 @@
  * the raw license wire.
  */
 
-import { isEveInferenceSelection, type EvePickerItem } from '@/common/config/eveInferenceCore';
+import {
+  filterEvePickerGroups,
+  isEveInferenceSelection,
+  resolveEvePickerItemAvailability,
+  type EveLocalPickerRuntimeTruth,
+  type EvePickerItem,
+  type EvePickerItemAvailability,
+  type EvePickerUnavailableReasonCode,
+} from '@/common/config/eveInferenceCore';
 import { useEveInferenceSelection } from '@renderer/hooks/agent/useEveInferenceSelection';
 import { iconColors } from '@renderer/styles/colors';
-import { Button, Dropdown, Menu, Tooltip } from '@arco-design/web-react';
-import { Brain } from '@icon-park/react';
-import React, { useCallback, useMemo } from 'react';
+import { Button, Dropdown, Input, Menu, Tooltip } from '@arco-design/web-react';
+import { Brain, Check, Search } from '@icon-park/react';
+import { bridge as platformBridge } from '@office-ai/platform';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-const PAID_HINT_DE = 'im Paid-Tarif';
+type CommandEveLocalTierProbe = {
+  id: string;
+  installed?: boolean;
+  ram_fit?: boolean;
+  ready_for_use?: boolean;
+  status_known?: boolean;
+};
+
+const localRuntimeStatusBridge = platformBridge.buildProvider<
+  {
+    success: boolean;
+    data?: { model?: { tiers?: CommandEveLocalTierProbe[] } };
+  },
+  Record<string, never>
+>('command-eve.local-runtime-status');
+
+const readCloudOnline = (): boolean | undefined => {
+  return typeof navigator === 'undefined' ? undefined : navigator.onLine !== false;
+};
 
 const EveInferencePicker: React.FC<{
   /** Called with the new selection value when the user picks an item. */
@@ -51,23 +79,130 @@ const EveInferencePicker: React.FC<{
   // picker, the in-session header and the mobile sheets never drift apart.
   const { selection, groups, selectedItem, commit, cloudBearerAvailable } = useEveInferenceSelection(onChange);
 
+  const [query, setQuery] = useState('');
+  const [cloudOnline, setCloudOnline] = useState<boolean | undefined>(readCloudOnline);
+  const [localTiers, setLocalTiers] = useState<Record<string, EveLocalPickerRuntimeTruth> | undefined>(undefined);
+
+  const refreshLocalRuntime = useCallback(async (): Promise<void> => {
+    try {
+      const response = await localRuntimeStatusBridge.invoke({});
+      const tiers = response.success ? response.data?.model?.tiers : undefined;
+      if (!Array.isArray(tiers)) return;
+      setLocalTiers(
+        Object.fromEntries(
+          tiers.map((tier) => [
+            tier.id,
+            {
+              statusKnown: tier.status_known === true,
+              ramFit: tier.ram_fit !== false,
+              installed: tier.installed === true,
+              readyForUse: tier.ready_for_use === true,
+            },
+          ])
+        )
+      );
+    } catch {
+      // Unknown is an honest state. A failed probe must not invent a blocker.
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshLocalRuntime();
+    const handleFocus = (): void => void refreshLocalRuntime();
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [refreshLocalRuntime]);
+
+  useEffect(() => {
+    const refreshOnline = (): void => setCloudOnline(readCloudOnline());
+    window.addEventListener('online', refreshOnline);
+    window.addEventListener('offline', refreshOnline);
+    return () => {
+      window.removeEventListener('online', refreshOnline);
+      window.removeEventListener('offline', refreshOnline);
+    };
+  }, []);
+
+  const runtimeTruth = useMemo(
+    () => ({ cloudOnline, cloudAuthenticated: cloudBearerAvailable, localTiers }),
+    [cloudBearerAvailable, cloudOnline, localTiers]
+  );
+  const availabilityByValue = useMemo(
+    () =>
+      new Map(
+        groups
+          .flatMap((group) => group.items)
+          .map((item) => [item.value, resolveEvePickerItemAvailability(item, runtimeTruth)] as const)
+      ),
+    [groups, runtimeTruth]
+  );
+  const filteredGroups = useMemo(() => filterEvePickerGroups(groups, query), [groups, query]);
+
   // An EVE (cloud) tier is selected but there is NO license wire at rest. The
   // send path fails loudly and keeps the draft, so the chip must not claim that
   // the cloud tier is ready. `=== false` only: transient reads keep the normal label.
-  const eveCloudNeedsActivation = selectedItem?.group === 'eve' && cloudBearerAvailable === false;
+  const selectedAvailability = selectedItem ? availabilityByValue.get(selectedItem.value) : undefined;
+  const eveCloudNeedsActivation = selectedItem?.group === 'eve' && selectedAvailability?.reasonCode === 'AUTH_REQUIRED';
+  const eveCloudIsOffline = selectedItem?.group === 'eve' && selectedAvailability?.reasonCode === 'OFFLINE';
+
+  const availabilityLabel = useCallback(
+    (availability: EvePickerItemAvailability): { short: string; detail: string } | undefined => {
+      if (availability.state === 'checking') {
+        const detail = t('conversation.eveInference.statusChecking', 'Status wird geprüft');
+        return { short: t('conversation.eveInference.checking', 'Prüfung'), detail };
+      }
+
+      const labels: Record<EvePickerUnavailableReasonCode, { short: string; detail: string }> = {
+        PAID_TIER_REQUIRED: {
+          short: t('conversation.eveInference.paidPlan', 'Paid'),
+          detail: t('conversation.eveInference.paidOnly', 'Nur im Paid-Tarif verfügbar'),
+        },
+        OFFLINE: {
+          short: t('conversation.eveInference.offline', 'Offline'),
+          detail: t('conversation.eveInference.offlineUnavailable', 'EVE Cloud benötigt eine Internetverbindung.'),
+        },
+        AUTH_REQUIRED: {
+          short: t('conversation.eveInference.activation', 'Aktivierung'),
+          detail: t('conversation.eveInference.needsActivation', 'Aktivierung nötig'),
+        },
+        HARDWARE_UNSUPPORTED: {
+          short: t('conversation.eveInference.hardware', 'Hardware'),
+          detail: t('conversation.eveInference.hardwareUnavailable', 'Hardware nicht geeignet'),
+        },
+        NOT_INSTALLED: {
+          short: t('conversation.eveInference.notInstalled', 'Nicht installiert'),
+          detail: t('conversation.eveInference.localNotInstalled', 'Lokales Modell ist nicht installiert'),
+        },
+        VERIFICATION_REQUIRED: {
+          short: t('conversation.eveInference.verification', 'Verifizierung'),
+          detail: t('conversation.eveInference.verificationRequired', 'Lokales Modell muss verifiziert werden'),
+        },
+        UNAVAILABLE: {
+          short: t('conversation.eveInference.unavailable', 'Nicht verfügbar'),
+          detail: t('conversation.eveInference.unavailable', 'Nicht verfügbar'),
+        },
+      };
+
+      return availability.reasonCode ? labels[availability.reasonCode] : undefined;
+    },
+    [t]
+  );
 
   const handleSelect = useCallback(
     (item: EvePickerItem) => {
-      if (item.disabled) return;
+      if (!availabilityByValue.get(item.value)?.selectable) return;
       commit(item.value);
     },
-    [commit]
+    [availabilityByValue, commit]
   );
 
   const displayLabel = useMemo(() => {
     if (selectedItem) {
       // If the cloud lane has no bearer at rest, say so instead of claiming the
       // selected tier is ready.
+      if (eveCloudIsOffline) {
+        return `EVE Cloud · ${t('conversation.eveInference.offline', 'Offline')}`;
+      }
       if (eveCloudNeedsActivation) {
         return `EVE Cloud · ${t('conversation.eveInference.needsActivation', 'Aktivierung nötig')}`;
       }
@@ -78,80 +213,122 @@ const EveInferencePicker: React.FC<{
       if (selectedItem.group === 'eve') {
         return selectedItem.label;
       }
-      return `${t('common.localModel', 'Lokal')} · ${selectedItem.label}`;
+      if (selectedItem.group === 'connected') {
+        return selectedItem.label;
+      }
+      const localLabel = `${t('common.localModel', 'Lokal')} · ${selectedItem.label}`;
+      return selectedAvailability?.state === 'unavailable'
+        ? `${localLabel} · ${t('conversation.eveInference.unavailable', 'Nicht verfügbar')}`
+        : localLabel;
     }
     return t('conversation.eveInference.pick', 'Modell wählen');
-  }, [selectedItem, eveCloudNeedsActivation, t]);
+  }, [selectedItem, selectedAvailability, eveCloudIsOffline, eveCloudNeedsActivation, t]);
 
   const renderLogo = () => <Brain theme='outline' size='14' fill={iconColors.secondary} className='shrink-0' />;
 
   const droplist = (
-    <Menu className='eve-inference-picker-menu' style={{ maxWidth: 340, minWidth: 240 }}>
-      {groups.map((group) => (
-        <Menu.ItemGroup key={group.kind} title={group.title}>
-          {group.items.map((item) => {
-            const row = (
-              <Menu.Item
-                key={item.value}
-                disabled={item.disabled}
-                className={item.value === selection && !item.disabled ? 'bg-2!' : ''}
-                onClick={() => handleSelect(item)}
-              >
-                <div className='flex items-center justify-between gap-8px w-full'>
-                  <span className='flex items-center gap-6px min-w-0'>
-                    {/* STUFE label never shrinks; the long model sublabel
-                        truncates first so the right-side cost badge + paid hint
-                        never overlap it (U1: the greyed paid rows overflowed). */}
-                    <span className={item.disabled ? 'opacity-50 shrink-0' : 'shrink-0'}>{item.label}</span>
-                    {item.sublabel ? (
-                      <span className='text-12px opacity-50 truncate min-w-0'>({item.sublabel})</span>
-                    ) : null}
-                  </span>
-                  <span className='flex items-center gap-6px shrink-0'>
-                    {/* Only the experimental Ultra lane carries a cost badge.
-                        Routine metered rows stay visually quiet. */}
-                    {item.costBadge ? (
-                      <span
-                        className={
-                          item.gated
-                            ? 'text-11px font-600 px-6px py-1px rounded-full text-warning bg-warning-light-1 shrink-0'
-                            : 'text-11px px-6px py-1px rounded-full opacity-70 bg-2 shrink-0'
-                        }
-                        title={
-                          item.gated
-                            ? t(
-                                'conversation.eveInference.highestCost',
-                                'Höchste Kosten — nur für die härteste Aufgabe'
-                              )
-                            : t('conversation.eveInference.consumesCredits', 'Verbraucht Credits')
-                        }
-                      >
-                        {item.costBadge}
+    <div
+      className='eve-inference-picker-menu flex flex-col overflow-hidden'
+      style={{
+        width: 360,
+        maxWidth: 'calc(100vw - 24px)',
+        height: 430,
+        maxHeight: '70vh',
+      }}
+    >
+      <div className='p-8px shrink-0'>
+        <Input
+          allowClear
+          value={query}
+          onChange={setQuery}
+          prefix={<Search theme='outline' size='14' fill={iconColors.secondary} />}
+          placeholder={t('conversation.eveInference.search', 'Modelle durchsuchen')}
+          aria-label={t('conversation.eveInference.search', 'Modelle durchsuchen')}
+        />
+      </div>
+      <div
+        className='eve-inference-picker-scroll flex-1 min-h-0 overflow-y-auto'
+        style={{ overflowY: 'auto', scrollbarGutter: 'stable' }}
+      >
+        <Menu style={{ width: '100%' }}>
+          {filteredGroups.map((group) => (
+            <Menu.ItemGroup key={`${group.kind}:${group.title}`} title={group.title}>
+              {group.items.map((item) => {
+                const availability = availabilityByValue.get(item.value) ?? {
+                  state: 'checking' as const,
+                  selectable: true,
+                };
+                const statusLabel = availabilityLabel(availability);
+                const isSelected = item.value === selection;
+                const row = (
+                  <Menu.Item
+                    key={item.value}
+                    disabled={!availability.selectable}
+                    className={isSelected ? 'bg-2!' : ''}
+                    data-testid={`eve-inference-option-${item.value}`}
+                    data-selected={isSelected ? 'true' : 'false'}
+                    aria-current={isSelected ? 'true' : undefined}
+                    onClick={() => handleSelect(item)}
+                  >
+                    <div className='flex items-center justify-between gap-8px w-full min-w-0'>
+                      <span className='flex items-center gap-6px min-w-0'>
+                        <span className={!availability.selectable ? 'opacity-50 shrink-0' : 'shrink-0'}>
+                          {item.label}
+                        </span>
+                        {item.sublabel ? (
+                          <span className='text-12px opacity-50 truncate min-w-0'>({item.sublabel})</span>
+                        ) : null}
                       </span>
-                    ) : null}
-                    {item.disabled && item.disabledReasonCode === 'PAID_TIER_REQUIRED' ? (
-                      <span className='text-11px opacity-50 shrink-0'>{PAID_HINT_DE}</span>
-                    ) : null}
-                  </span>
-                </div>
-              </Menu.Item>
-            );
-            // A disabled paid row gets a tooltip explaining why it is greyed.
-            return item.disabled ? (
-              <Tooltip
-                key={item.value}
-                position='left'
-                content={t('conversation.eveInference.paidOnly', 'Nur im Paid-Tarif verfügbar')}
-              >
-                {row}
-              </Tooltip>
-            ) : (
-              row
-            );
-          })}
-        </Menu.ItemGroup>
-      ))}
-    </Menu>
+                      <span className='flex items-center gap-6px shrink-0'>
+                        {item.costBadge ? (
+                          <span
+                            className={
+                              item.gated
+                                ? 'text-11px font-600 px-6px py-1px rounded-full text-warning bg-warning-light-1 shrink-0'
+                                : 'text-11px px-6px py-1px rounded-full opacity-70 bg-2 shrink-0'
+                            }
+                            title={
+                              item.gated
+                                ? t(
+                                    'conversation.eveInference.highestCost',
+                                    'Höchste Kosten — nur für die härteste Aufgabe'
+                                  )
+                                : t('conversation.eveInference.consumesCredits', 'Verbraucht Credits')
+                            }
+                          >
+                            {item.costBadge}
+                          </span>
+                        ) : null}
+                        {statusLabel ? (
+                          <span className='text-11px opacity-60 shrink-0' title={statusLabel.detail}>
+                            {statusLabel.short}
+                          </span>
+                        ) : null}
+                        {isSelected ? (
+                          <Check theme='outline' size='13' fill={iconColors.primary} aria-hidden='true' />
+                        ) : null}
+                      </span>
+                    </div>
+                  </Menu.Item>
+                );
+                return availability.state === 'unavailable' && statusLabel ? (
+                  <Tooltip key={item.value} position='left' content={statusLabel.detail}>
+                    {row}
+                  </Tooltip>
+                ) : (
+                  row
+                );
+              })}
+            </Menu.ItemGroup>
+          ))}
+        </Menu>
+        {filteredGroups.length === 0 ? (
+          <div className='px-12px py-24px text-center text-12px opacity-60'>
+            {t('conversation.eveInference.noResults', 'Keine Modelle gefunden')}
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 
   return (
