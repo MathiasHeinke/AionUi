@@ -45,8 +45,8 @@ export const COMMAND_EVE_TITLE = '⌘ EVE';
 // Electron Updater requires three-part SemVer. The compact founder-facing
 // release train is 1.813, 1.814, ... while package/feed truth stays 1.813.0,
 // 1.814.0, ... so update ordering remains standards-compliant.
-export const COMMAND_EVE_VERSION = '1.814.0';
-export const COMMAND_EVE_MARKETING_VERSION = '1.814';
+export const COMMAND_EVE_VERSION = '1.815.0';
+export const COMMAND_EVE_MARKETING_VERSION = '1.815';
 
 export function formatCommandEveDisplayVersion(version: string): string {
   const normalized = String(version || '').trim();
