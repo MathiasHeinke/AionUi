@@ -32,7 +32,8 @@
     "openFailed": "Failed to open artifact",
     "revealFailed": "Failed to show artifact in folder",
     "failed": "Artifact failed",
-    "noPreview": "Artifact created, but no preview source was provided."
+    "noPreview": "Artifact created, but no preview source was provided.",
+    "previewUnavailable": "A direct preview is not available for this file type."
   },
   "availableCommands": "{{count}} Available Commands",
   "atFile.hint": "Type to search for files",

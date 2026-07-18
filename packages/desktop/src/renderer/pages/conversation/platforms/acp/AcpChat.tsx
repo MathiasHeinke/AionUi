@@ -138,7 +138,7 @@ const AcpChat: React.FC<{
               active phase; dev mode adds diagnostics and log access. */}
           <AcpRuntimeStatus
             activity={messageState.runtimeActivity}
-            running={messageState.running}
+            running={messageState.running || runtimeView.isProcessing || isPreparingDocument}
             aiProcessing={messageState.aiProcessing}
             backend={backend}
             egressBoundary={egressBoundary}

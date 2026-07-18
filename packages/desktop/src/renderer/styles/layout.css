@@ -55,6 +55,7 @@
    macOS desktop-blur, pair with BrowserWindow vibrancy='sidebar' (follow-up). */
 .layout-sider > .arco-layout-sider-children {
   background: var(--glass-chrome-bg) !important;
+  overflow-x: hidden;
   -webkit-backdrop-filter: var(--glass-chrome-filter);
   backdrop-filter: var(--glass-chrome-filter);
   box-shadow: 1px 0 0 var(--glass-edge-highlight) inset;

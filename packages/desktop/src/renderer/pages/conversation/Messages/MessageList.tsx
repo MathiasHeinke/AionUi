@@ -42,6 +42,7 @@ import MessageGeneratedArtifact from './components/MessageGeneratedArtifact';
 import MessageSkillSuggest from './components/MessageSkillSuggest';
 import MessageText from './components/MessageText';
 import MessageThinking from './components/MessageThinking';
+import { buildGeneratedArtifactFromHermesMediaDirective, parseHermesMediaDirectives } from './hermesMediaDirectiveCore';
 import {
   getGeneratedArtifactPayloadSourceKeys,
   getToolResultArtifactSourceKeys,
@@ -292,7 +293,7 @@ const MessageList: React.FC<{
 
   // Pre-process message list to group tool outputs into summary cards
   const processedList = useMemo(() => {
-    const result: Array<IMessageVO> = [];
+    const result: IProcessedItem[] = [];
     const visibleArtifacts = artifacts.filter(isVisibleConversationArtifact);
     const generatedArtifactSourceKeys = new Set(
       visibleArtifacts.flatMap(getGeneratedArtifactSourceKeys).filter((key): key is string => Boolean(key))
@@ -386,6 +387,36 @@ const MessageList: React.FC<{
       toolSourceMessageIds = [];
       diffsChanges = [];
       diffsSourceMessageIds = [];
+      if (message.type === 'text' && message.position === 'left') {
+        const parsedMedia = parseHermesMediaDirectives(message.content.content);
+        if (parsedMedia.directives.length) {
+          result.push({
+            ...message,
+            content: {
+              ...message.content,
+              content: parsedMedia.text,
+            },
+          });
+          parsedMedia.directives.forEach((directive, index) => {
+            if (generatedArtifactSourceKeys.has(directive.source)) return;
+            generatedArtifactSourceKeys.add(directive.source);
+            const artifact = buildGeneratedArtifactFromHermesMediaDirective({
+              conversation_id: message.conversation_id,
+              message_id: message.id,
+              index,
+              created_at: message.created_at,
+              directive,
+            });
+            result.push({
+              type: 'artifact',
+              id: artifact.id,
+              artifact,
+              created_at: artifact.created_at,
+            });
+          });
+          continue;
+        }
+      }
       result.push(message);
     }
     const visibleArtifactItems = visibleArtifacts.map<IArtifactVO>((artifact) => ({

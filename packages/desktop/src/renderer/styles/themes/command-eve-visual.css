@@ -2125,6 +2125,51 @@
   box-shadow: none !important;
 }
 
+.eve-artifact-card {
+  border: 1px solid color-mix(in srgb, var(--glass-chrome-border, var(--color-border-2)) 78%, transparent);
+  background: color-mix(in srgb, var(--glass-composer-bg, var(--color-bg-2)) 86%, transparent);
+  -webkit-backdrop-filter: blur(22px) saturate(138%);
+  backdrop-filter: blur(22px) saturate(138%);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--glass-edge-highlight, white) 52%, transparent),
+    0 12px 30px color-mix(in srgb, #020617 13%, transparent);
+}
+
+.eve-artifact-preview {
+  border: 1px solid color-mix(in srgb, var(--glass-chrome-border, var(--color-border-2)) 72%, transparent);
+  background: color-mix(in srgb, var(--color-bg-2) 84%, transparent);
+}
+
+.eve-artifact-actions {
+  border-top: 1px solid color-mix(in srgb, var(--glass-chrome-border, var(--color-border-2)) 64%, transparent);
+  background: color-mix(in srgb, var(--glass-chrome-bg, var(--color-bg-2)) 58%, transparent);
+}
+
+.eve-artifact-action {
+  min-height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--eve-shell-text-secondary, var(--color-text-2));
+  cursor: pointer;
+  font: inherit;
+  transition:
+    color 140ms ease,
+    background-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.eve-artifact-action:hover {
+  background: color-mix(in srgb, var(--eve-accent, var(--color-primary-6)) 10%, transparent);
+  color: var(--eve-accent, var(--color-primary-6));
+  box-shadow: 0 0 14px color-mix(in srgb, var(--eve-accent, var(--color-primary-6)) 12%, transparent);
+}
+
+.eve-artifact-action:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--eve-accent, var(--color-primary-6)) 74%, transparent);
+  outline-offset: 2px;
+}
+
 :root[data-eve-reduced-effects='true'] .eve-composer-surface {
   background: var(--glass-composer-bg-solid) !important;
   -webkit-backdrop-filter: none;

@@ -12,6 +12,7 @@ import type { IMessageText, IMessageToolGroup, TMessage } from '@/common/chat/ch
 import type { MessageHistoryPagination } from '@/renderer/pages/conversation/Messages/hooks';
 import { MessageListLoadingProvider, MessageListProvider } from '@/renderer/pages/conversation/Messages/hooks';
 import MessageList from '@/renderer/pages/conversation/Messages/MessageList';
+import { parseHermesMediaDirectives } from '@/renderer/pages/conversation/Messages/hermesMediaDirectiveCore';
 import {
   buildGeneratedArtifactFromToolResult,
   getToolResultArtifactSourceKeys,
@@ -19,6 +20,9 @@ import {
 
 const artifactMock = vi.hoisted(() => ({
   artifacts: [] as IConversationArtifact[],
+}));
+const ipcMock = vi.hoisted(() => ({
+  readFile: vi.fn(),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -38,6 +42,7 @@ vi.mock('react-router-dom', () => ({
 vi.mock('@arco-design/web-react', () => ({
   Message: {
     error: vi.fn(),
+    useMessage: () => [{ error: vi.fn(), success: vi.fn() }, null],
   },
   Image: {
     PreviewGroup: ({ children }: PropsWithChildren) => <>{children}</>,
@@ -50,6 +55,9 @@ vi.mock('@/common', () => ({
       openFile: { invoke: vi.fn() },
       openExternal: { invoke: vi.fn() },
       showItemInFolder: { invoke: vi.fn() },
+    },
+    fs: {
+      readFile: { invoke: ipcMock.readFile },
     },
     theme: {
       requestCurrent: { invoke: vi.fn().mockResolvedValue(null) },
@@ -144,6 +152,10 @@ vi.mock('@/renderer/pages/conversation/Messages/MessageFileChanges', () => ({
 
 vi.mock('@/renderer/pages/conversation/Messages/components/SelectionReplyButton', () => ({
   default: () => null,
+}));
+
+vi.mock('@/renderer/pages/conversation/Preview/components/viewers/PDFViewer', () => ({
+  default: ({ file_path }: { file_path?: string }) => <div data-testid='pdf-preview-inner'>{file_path}</div>,
 }));
 
 vi.mock('@icon-park/react', () => ({
@@ -275,6 +287,7 @@ function mockScrollerGeometry(
 describe('MessageList', () => {
   afterEach(() => {
     artifactMock.artifacts = [];
+    ipcMock.readFile.mockReset();
   });
 
   it('renders message rows with external margin spacing in the plain scroll list', () => {
@@ -288,6 +301,90 @@ describe('MessageList', () => {
     const messageRow = screen.getByTestId('message-text-left');
     expect(messageRow.className).toContain('m-t-10px');
     expect(messageRow.className).not.toContain('pt-10px');
+  });
+
+  it('renders an assistant Hermes MEDIA directive as a visible file artifact', () => {
+    const message: IMessageText = {
+      ...createTextMessage(),
+      content: {
+        content: [
+          'Die PDF ist fertig und liegt im Downloads-Ordner.',
+          '',
+          '**MEDIA:** /Users/eve/Downloads/command eve output.pdf',
+        ].join('\n'),
+      },
+    };
+
+    render(<MessageList />, {
+      wrapper: ({ children }) => <Wrapper messages={[message]}>{children}</Wrapper>,
+    });
+
+    expect(screen.getByText('Die PDF ist fertig und liegt im Downloads-Ordner.')).toBeInTheDocument();
+    expect(screen.queryByText(/MEDIA:/)).not.toBeInTheDocument();
+    expect(screen.getByTestId('generated-artifact-card')).toBeInTheDocument();
+    expect(screen.getByText('command eve output.pdf')).toBeInTheDocument();
+    expect(screen.getByTestId('generated-artifact-open')).toBeInTheDocument();
+    expect(screen.getByTestId('generated-artifact-reveal')).toBeInTheDocument();
+    expect(screen.getByTestId('generated-artifact-pdf')).toBeInTheDocument();
+  });
+
+  it('does not promote user or unsafe MEDIA text into an artifact', () => {
+    const userMessage: IMessageText = {
+      ...createTextMessage(),
+      id: 'message-user',
+      position: 'right',
+      content: { content: 'MEDIA:/Users/eve/Downloads/user-file.pdf' },
+    };
+    const unsafeAssistantMessage: IMessageText = {
+      ...createTextMessage(),
+      id: 'message-unsafe',
+      content: { content: 'MEDIA:../../private/report.pdf' },
+    };
+
+    render(<MessageList />, {
+      wrapper: ({ children }) => <Wrapper messages={[userMessage, unsafeAssistantMessage]}>{children}</Wrapper>,
+    });
+
+    expect(screen.queryByTestId('generated-artifact-card')).not.toBeInTheDocument();
+    expect(screen.getByText('MEDIA:/Users/eve/Downloads/user-file.pdf')).toBeInTheDocument();
+    expect(screen.getByText('MEDIA:../../private/report.pdf')).toBeInTheDocument();
+  });
+
+  it('deduplicates valid Hermes MEDIA directives while retaining unsupported lines', () => {
+    const parsed = parseHermesMediaDirectives(
+      [
+        'Bereit.',
+        'MEDIA:/tmp/final.pdf',
+        'MEDIA:/tmp/final.pdf',
+        'MEDIA:http://example.com/insecure.pdf',
+        'MEDIA:/tmp/no-extension',
+      ].join('\n')
+    );
+
+    expect(parsed.directives).toEqual([
+      {
+        source: '/tmp/final.pdf',
+        artifactType: 'file',
+        title: 'final.pdf',
+      },
+    ]);
+    expect(parsed.text).toContain('MEDIA:http://example.com/insecure.pdf');
+    expect(parsed.text).toContain('MEDIA:/tmp/no-extension');
+  });
+
+  it('recovers a MEDIA artifact when streamed prose is joined directly after the extension', () => {
+    const parsed = parseHermesMediaDirectives(
+      '**MEDIA:** /Users/eve/Downloads/final.pdfDie PDF liegt fertig im Downloads-Ordner.'
+    );
+
+    expect(parsed.directives).toEqual([
+      {
+        source: '/Users/eve/Downloads/final.pdf',
+        artifactType: 'file',
+        title: 'final.pdf',
+      },
+    ]);
+    expect(parsed.text).toBe('Die PDF liegt fertig im Downloads-Ordner.');
   });
 
   it('renders the empty slot when there are no messages', () => {
@@ -509,7 +606,8 @@ describe('MessageList', () => {
     });
   });
 
-  it('does not auto-frame source-only html artifacts', () => {
+  it('loads and securely frames source-only html artifacts', async () => {
+    ipcMock.readFile.mockResolvedValue('<main><h1>Local offer</h1><script>window.pwned = true</script></main>');
     artifactMock.artifacts = [
       {
         id: 'artifact-source-html',
@@ -531,8 +629,13 @@ describe('MessageList', () => {
       wrapper: ({ children }) => <Wrapper>{children}</Wrapper>,
     });
 
-    expect(screen.queryByTestId('generated-artifact-html')).not.toBeInTheDocument();
-    expect(screen.getByTestId('generated-artifact-empty')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('generated-artifact-html')).toBeInTheDocument());
+    expect(ipcMock.readFile).toHaveBeenCalledWith({ path: '/tmp/generated-landing-page.html' });
+    const htmlArtifact = screen.getByTestId('generated-artifact-html');
+    expect(htmlArtifact.getAttribute('sandbox')).toBe('');
+    expect(htmlArtifact.getAttribute('srcdoc')).toContain('Content-Security-Policy');
+    expect(htmlArtifact.getAttribute('srcdoc')).toContain('<main><h1>Local offer</h1>');
+    expect(htmlArtifact.getAttribute('srcdoc')).toContain('window.pwned');
   });
 
   it('keeps image generation tool results inline instead of collapsing them into the step summary', () => {

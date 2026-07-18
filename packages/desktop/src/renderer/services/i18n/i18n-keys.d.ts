@@ -1695,6 +1695,7 @@ export type I18nKey =
   | 'messages.artifact.noPreview'
   | 'messages.artifact.open'
   | 'messages.artifact.openFailed'
+  | 'messages.artifact.previewUnavailable'
   | 'messages.artifact.receipt'
   | 'messages.artifact.receiptPath'
   | 'messages.artifact.requestId'

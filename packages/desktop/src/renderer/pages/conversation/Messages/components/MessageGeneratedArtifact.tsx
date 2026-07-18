@@ -10,14 +10,17 @@ import MarkdownView from '@/renderer/components/Markdown';
 import { iconColors } from '@/renderer/styles/colors';
 import { Message } from '@arco-design/web-react';
 import { FolderOpen, Paperclip, PreviewOpen } from '@icon-park/react';
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import PDFPreview from '../../Preview/components/viewers/PDFViewer';
 import { secureArtifactHtml } from '../../Preview/components/renderers/htmlArtifactSecurityCore';
 import { sanitizeArtifactPreviewSource } from './artifactPreviewSecurityCore';
 
 type ArtifactPayload = IGeneratedConversationArtifact['payload'] | Record<string, unknown> | string;
+type ArtifactPreviewType = IGeneratedArtifactType | 'pdf';
 
 const TEXT_PREVIEW_MAX = 1200;
+const HTML_PREVIEW_MAX = 2 * 1024 * 1024;
 const SOURCE_URL_KEYS = [
   'url',
   'file_url',
@@ -99,7 +102,7 @@ function fileUrlToPath(url: string): string | undefined {
 function inferType(
   kind: IGeneratedConversationArtifact['kind'],
   payload: Record<string, unknown>
-): IGeneratedArtifactType {
+): ArtifactPreviewType {
   const explicitType = readString(payload, ['artifact_type', 'type', 'kind']);
   if (explicitType === 'image' || explicitType === 'video' || explicitType === 'audio' || explicitType === 'html') {
     return explicitType;
@@ -107,6 +110,7 @@ function inferType(
   if (kind === 'image' || kind === 'video' || kind === 'audio' || kind === 'html') return kind;
 
   const mimeType = readString(payload, ['mime_type', 'media_type', 'mimeType'])?.toLowerCase();
+  if (mimeType === 'application/pdf') return 'pdf';
   if (mimeType?.startsWith('image/')) return 'image';
   if (mimeType?.startsWith('video/')) return 'video';
   if (mimeType?.startsWith('audio/')) return 'audio';
@@ -114,6 +118,7 @@ function inferType(
 
   const pathOrUrl = readString(payload, [...SOURCE_PATH_KEYS, ...SOURCE_URL_KEYS]);
   const ext = pathOrUrl?.split('?')[0].split('#')[0].split('.').pop()?.toLowerCase();
+  if (ext === 'pdf') return 'pdf';
   if (ext && ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'svg', 'bmp'].includes(ext)) return 'image';
   if (ext && ['mp4', 'mov', 'webm', 'm4v'].includes(ext)) return 'video';
   if (ext && ['mp3', 'wav', 'm4a', 'ogg', 'aac'].includes(ext)) return 'audio';
@@ -130,8 +135,10 @@ function formatBytes(bytes?: number): string | undefined {
   return `${mb.toFixed(mb >= 100 ? 0 : 1)} MB`;
 }
 
-function getTypeLabel(t: ReturnType<typeof useTranslation>['t'], type: IGeneratedArtifactType): string {
+function getTypeLabel(t: ReturnType<typeof useTranslation>['t'], type: ArtifactPreviewType): string {
   switch (type) {
+    case 'pdf':
+      return 'PDF';
     case 'image':
       return t('messages.artifact.image');
     case 'video':
@@ -183,7 +190,7 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
   const typeLabel = getTypeLabel(t, type);
   const path = readString(payload, SOURCE_PATH_KEYS);
   const rawSource = readString(payload, SOURCE_URL_KEYS) || (path ? pathToFileUrl(path) : undefined);
-  const source = sanitizeArtifactPreviewSource(rawSource, type);
+  const source = sanitizeArtifactPreviewSource(rawSource, type === 'pdf' ? 'file' : type);
   const title =
     readString(payload, ['title', 'name', 'file_name']) ||
     getFileName(path) ||
@@ -196,13 +203,49 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
   const sizeLabel = formatBytes(readNumber(payload, ['size', 'bytes']));
   const error = readString(payload, ['error']);
   const htmlContent = type === 'html' ? readString(payload, ['html', 'content']) : undefined;
-  const securedHtmlContent = htmlContent ? secureArtifactHtml(htmlContent) : undefined;
   const textContent = type === 'file' ? readString(payload, ['content', 'text']) : undefined;
   const receiptSummary = buildReceiptSummary(t, payload);
   const openPath = path || (source?.startsWith('file:') ? fileUrlToPath(source) : undefined);
+  const [pathHtmlContent, setPathHtmlContent] = useState<string>();
+  const [pathHtmlLoading, setPathHtmlLoading] = useState(false);
+
+  useEffect(() => {
+    if (type !== 'html' || htmlContent || !openPath) {
+      setPathHtmlContent(undefined);
+      setPathHtmlLoading(false);
+      return;
+    }
+
+    let active = true;
+    setPathHtmlContent(undefined);
+    setPathHtmlLoading(true);
+    void ipcBridge.fs.readFile.invoke({ path: openPath }).then(
+      (content) => {
+        if (!active) return;
+        setPathHtmlLoading(false);
+        if (typeof content === 'string' && content.length <= HTML_PREVIEW_MAX) {
+          setPathHtmlContent(content);
+        }
+      },
+      () => {
+        if (!active) return;
+        setPathHtmlLoading(false);
+      }
+    );
+
+    return () => {
+      active = false;
+    };
+  }, [htmlContent, openPath, type]);
+
+  const securedHtmlContent = useMemo(() => {
+    const content = htmlContent || pathHtmlContent;
+    return content ? secureArtifactHtml(content) : undefined;
+  }, [htmlContent, pathHtmlContent]);
   const canOpen = Boolean(openPath || (source && /^https?:/i.test(source)));
   const hasPreview =
     ((type === 'image' || type === 'video' || type === 'audio') && Boolean(source)) ||
+    (type === 'pdf' && Boolean(openPath || source)) ||
     (type === 'html' && Boolean(securedHtmlContent)) ||
     (type === 'file' && Boolean(textContent));
 
@@ -233,10 +276,7 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
 
   return (
     <div data-testid='generated-artifact-card' className='max-w-780px w-full mx-auto'>
-      <div
-        className='overflow-hidden rd-8px bg-fill-0 b-1 b-solid'
-        style={{ borderColor: 'color-mix(in srgb, var(--color-border-2) 70%, transparent)' }}
-      >
+      <div className='eve-artifact-card overflow-hidden rd-8px'>
         <div className='flex items-start gap-10px px-14px py-12px'>
           <Paperclip theme='outline' size={18} fill={iconColors.secondary} className='shrink-0 mt-1px' />
           <div className='min-w-0 flex-1'>
@@ -284,14 +324,23 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
             {type === 'audio' && source && (
               <audio data-testid='generated-artifact-audio' src={source} controls className='block w-full' />
             )}
+            {type === 'pdf' && (openPath || source) && (
+              <div data-testid='generated-artifact-pdf' className='eve-artifact-preview h-360px overflow-hidden rd-6px'>
+                <PDFPreview file_path={openPath} content={openPath ? undefined : source} hideToolbar />
+              </div>
+            )}
+            {type === 'html' && pathHtmlLoading && (
+              <div className='eve-artifact-preview flex h-160px items-center justify-center rd-6px text-12px text-t-secondary'>
+                {t('preview.loading')}
+              </div>
+            )}
             {type === 'html' && securedHtmlContent && (
               <iframe
                 data-testid='generated-artifact-html'
                 title={title}
                 sandbox=''
                 srcDoc={securedHtmlContent}
-                className='block w-full h-260px rd-6px bg-bg-2 b-1 b-solid'
-                style={{ borderColor: 'var(--color-border-2)' }}
+                className='eve-artifact-preview block w-full h-300px rd-6px'
               />
             )}
             {type === 'file' && textContent && (
@@ -308,19 +357,19 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
             )}
             {!hasPreview && (
               <div data-testid='generated-artifact-empty' className='text-12px text-t-secondary'>
-                {t('messages.artifact.noPreview')}
+                {canOpen ? t('messages.artifact.previewUnavailable') : t('messages.artifact.noPreview')}
               </div>
             )}
           </div>
         )}
 
         {(canOpen || openPath) && (
-          <div className='flex items-center gap-8px px-14px py-10px bg-fill-1 b-t-1 b-solid border-border-2'>
+          <div className='eve-artifact-actions flex items-center gap-8px px-14px py-10px'>
             {canOpen && (
               <button
                 type='button'
                 data-testid='generated-artifact-open'
-                className='flex items-center gap-5px px-8px py-5px rd-4px text-12px text-t-primary bg-fill-0 hover:bg-fill-2 transition-colors'
+                className='eve-artifact-action flex items-center gap-6px px-10px text-12px'
                 onClick={() => void handleOpen()}
               >
                 <PreviewOpen theme='outline' size={14} fill={iconColors.secondary} />
@@ -331,7 +380,7 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
               <button
                 type='button'
                 data-testid='generated-artifact-reveal'
-                className='flex items-center gap-5px px-8px py-5px rd-4px text-12px text-t-primary bg-fill-0 hover:bg-fill-2 transition-colors'
+                className='eve-artifact-action flex items-center gap-6px px-10px text-12px'
                 onClick={() => void handleReveal()}
               >
                 <FolderOpen theme='outline' size={14} fill={iconColors.secondary} />
