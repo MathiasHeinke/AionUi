@@ -183,6 +183,9 @@ describe('UnifiedSendBar', () => {
     expect(source).toContain('desiredLeft - naturalLeft');
     expect(source).toContain('triggerProps={{ popupAlign: { top: [menuPlacement.offsetX, 12] } }}');
     expect(unifiedSendBarCss).toContain('.eve-composer-control__menu--compact');
+    expect(unifiedSendBarCss).toMatch(
+      /\.eve-composer-control__trigger\s*>\s*\.arco-btn-content\s*\{[\s\S]*?place-items:\s*center;/
+    );
   });
 
   it('centers the stop square and rotates only its work ring with a reduced-motion fallback', () => {

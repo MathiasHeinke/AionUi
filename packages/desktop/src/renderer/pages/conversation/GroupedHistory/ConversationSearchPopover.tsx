@@ -409,7 +409,8 @@ const ConversationSearchPopover: React.FC<ConversationSearchPopoverProps> = ({
               'hover:bg-fill-3 active:bg-fill-4': !disabled && fullWidth,
               'hover:bg-fill-2 hover:border-[color:var(--color-border-2)]': !disabled && !fullWidth,
               'opacity-50 cursor-not-allowed': disabled,
-              'bg-aou-2 text-primary border-[color:var(--color-primary-light-3)]': visible && !disabled && !fullWidth,
+              'bg-[color-mix(in_srgb,var(--eve-accent)_12%,transparent)] text-[var(--eve-accent)] border-[color:color-mix(in_srgb,var(--eve-accent)_28%,transparent)]':
+                visible && !disabled && !fullWidth,
             },
             buttonClassName
           )}

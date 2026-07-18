@@ -22,8 +22,9 @@ interface ThoughtDisplayProps {
 }
 
 // Background gradient constants
-const GRADIENT_DARK = 'linear-gradient(135deg, #464767 0%, #323232 100%)';
-const GRADIENT_LIGHT = 'linear-gradient(90deg, #F0F3FF 0%, #F2F2F2 100%)';
+const GRADIENT_DARK =
+  'linear-gradient(135deg, color-mix(in srgb, var(--eve-brand-logo) 13%, #202224) 0%, #202224 100%)';
+const GRADIENT_LIGHT = 'linear-gradient(90deg, color-mix(in srgb, var(--eve-brand-logo) 8%, #f4f5f7) 0%, #f4f5f7 100%)';
 
 const ThoughtDisplay: React.FC<ThoughtDisplayProps> = ({
   thought,
@@ -98,7 +99,7 @@ const ThoughtDisplay: React.FC<ThoughtDisplayProps> = ({
         className='relative z-1 mb--20px pb-30px px-10px py-10px rd-t-20px text-14px lh-20px text-t-primary flex items-center gap-8px'
         style={containerStyle}
       >
-        <Spin size={14} />
+        <Spin size={14} style={{ color: 'var(--eve-brand-logo)' }} />
         <span className='text-t-secondary'>
           {t('conversation.chat.processing')}
           <span className='ml-8px opacity-60'>({formatElapsedTime(elapsedTime)})</span>
@@ -116,8 +117,14 @@ const ThoughtDisplay: React.FC<ThoughtDisplayProps> = ({
       style={containerStyle}
     >
       <div className='flex items-center gap-8px'>
-        {running && <Spin size={14} />}
-        <Tag color='arcoblue' size='small'>
+        {running && <Spin size={14} style={{ color: 'var(--eve-brand-logo)' }} />}
+        <Tag
+          size='small'
+          style={{
+            color: 'var(--eve-brand-logo)',
+            background: 'color-mix(in srgb, var(--eve-brand-logo) 10%, transparent)',
+          }}
+        >
           {thought?.subject}
         </Tag>
         {showDescription && <span className='flex-1 truncate'>{thought?.description}</span>}

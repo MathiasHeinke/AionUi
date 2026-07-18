@@ -14,6 +14,7 @@ import { COMMAND_EVE_HG4_DELEGATED_MODE } from '@/renderer/utils/model/agentMode
 
 const {
   sendMessageInvokeMock,
+  steerInvokeMock,
   pdfPrepareInvokeMock,
   addOrUpdateMessageMock,
   resetStateMock,
@@ -48,6 +49,7 @@ const {
   buildDisplayMessageMock,
 } = vi.hoisted(() => ({
   sendMessageInvokeMock: vi.fn(),
+  steerInvokeMock: vi.fn(),
   pdfPrepareInvokeMock: vi.fn(),
   addOrUpdateMessageMock: vi.fn(),
   resetStateMock: vi.fn(),
@@ -118,6 +120,9 @@ vi.mock('@/common', () => ({
     acpConversation: {
       sendMessage: {
         invoke: sendMessageInvokeMock,
+      },
+      steer: {
+        invoke: steerInvokeMock,
       },
       getMode: {
         invoke: getModeInvokeMock,
@@ -421,6 +426,7 @@ describe('AcpSendBox', () => {
     );
     configSetMock.mockResolvedValue(undefined);
     pdfPrepareInvokeMock.mockReset();
+    steerInvokeMock.mockReset();
     buildDisplayMessageMock.mockImplementation((input: string) => input);
     queueRemoveMock.mockResolvedValue(undefined);
     queueRestoreMock.mockResolvedValue(undefined);
@@ -664,12 +670,18 @@ describe('AcpSendBox', () => {
     queueItemsMock.current = [queuedItem];
     runtimeViewMock.isProcessing = true;
     runtimeViewMock.canSendMessage = false;
-    sendMessageInvokeMock.mockResolvedValue({});
+    runtimeViewMock.activeTurnId = 'turn-1';
+    steerInvokeMock.mockResolvedValue({
+      msg_id: 'correction-1',
+      turn_id: 'turn-1',
+      accepted: true,
+      runtime: null,
+    });
 
     render(
       <AcpSendBox
         conversation_id='conv-1'
-        backend='claude'
+        backend='hermes'
         workspacePath='/tmp/workspace'
         messageState={makeMessageState()}
       />
@@ -683,13 +695,15 @@ describe('AcpSendBox', () => {
       await onPromote?.(queuedItem);
     });
 
-    expect(sendMessageInvokeMock).toHaveBeenCalledWith({
+    expect(steerInvokeMock).toHaveBeenCalledWith({
       input: '/steer Use the corrected customer segment',
       conversation_id: 'conv-1',
-      files: [],
+      turn_id: 'turn-1',
+      request_id: 'queued-1',
     });
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
     expect(queueRemoveMock).toHaveBeenCalledWith('queued-1');
-    expect(queueRemoveMock.mock.invocationCallOrder[0]).toBeLessThan(sendMessageInvokeMock.mock.invocationCallOrder[0]);
+    expect(queueRemoveMock.mock.invocationCallOrder[0]).toBeLessThan(steerInvokeMock.mock.invocationCallOrder[0]);
     expect(queueRestoreMock).not.toHaveBeenCalled();
     expect(queueLockMock).toHaveBeenCalledTimes(1);
     expect(queueUnlockMock).toHaveBeenCalledTimes(1);
@@ -705,12 +719,13 @@ describe('AcpSendBox', () => {
     queueItemsMock.current = [queuedItem];
     runtimeViewMock.isProcessing = true;
     runtimeViewMock.canSendMessage = false;
-    sendMessageInvokeMock.mockRejectedValue(new Error('steer rejected'));
+    runtimeViewMock.activeTurnId = 'turn-1';
+    steerInvokeMock.mockRejectedValue(new Error('steer rejected'));
 
     render(
       <AcpSendBox
         conversation_id='conv-1'
-        backend='claude'
+        backend='hermes'
         workspacePath='/tmp/workspace'
         messageState={makeMessageState()}
       />
@@ -739,13 +754,14 @@ describe('AcpSendBox', () => {
     queueItemsMock.current = [queuedItem];
     runtimeViewMock.isProcessing = true;
     runtimeViewMock.canSendMessage = false;
+    runtimeViewMock.activeTurnId = 'turn-1';
     const send = createDeferred<unknown>();
-    sendMessageInvokeMock.mockReturnValue(send.promise);
+    steerInvokeMock.mockReturnValue(send.promise);
 
     render(
       <AcpSendBox
         conversation_id='conv-1'
-        backend='claude'
+        backend='hermes'
         workspacePath='/tmp/workspace'
         messageState={makeMessageState()}
       />
@@ -759,7 +775,7 @@ describe('AcpSendBox', () => {
     await duplicate;
 
     expect(queueRemoveMock).toHaveBeenCalledTimes(1);
-    expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1);
+    expect(steerInvokeMock).toHaveBeenCalledTimes(1);
 
     send.resolve({});
     await act(async () => {
@@ -767,17 +783,53 @@ describe('AcpSendBox', () => {
     });
   });
 
+  it('routes a correction-now command through the active Hermes turn instead of starting a second turn', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: [], content: '/steer Correct the active run' };
+    sendBoxMessageMock.current = '/steer Correct the active run';
+    runtimeViewMock.isProcessing = true;
+    runtimeViewMock.canSendMessage = false;
+    runtimeViewMock.activeTurnId = 'turn-1';
+    steerInvokeMock.mockResolvedValue({
+      msg_id: 'correction-1',
+      turn_id: 'turn-1',
+      accepted: true,
+      runtime: null,
+    });
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    expect(steerInvokeMock).toHaveBeenCalledWith({
+      input: '/steer Correct the active run',
+      conversation_id: 'conv-1',
+      turn_id: 'turn-1',
+      request_id: expect.any(String),
+    });
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+  });
+
   it('restores the draft after a correction-now request is rejected', async () => {
     draftDataMock.current = { atPath: [], uploadFile: [], content: '/steer Correct the active run' };
     sendBoxMessageMock.current = '/steer Correct the active run';
     runtimeViewMock.isProcessing = true;
     runtimeViewMock.canSendMessage = false;
-    sendMessageInvokeMock.mockRejectedValue(new Error('correction rejected'));
+    runtimeViewMock.activeTurnId = 'turn-1';
+    steerInvokeMock.mockRejectedValue(new Error('correction rejected'));
 
     render(
       <AcpSendBox
         conversation_id='conv-1'
-        backend='claude'
+        backend='hermes'
         workspacePath='/tmp/workspace'
         messageState={makeMessageState()}
       />

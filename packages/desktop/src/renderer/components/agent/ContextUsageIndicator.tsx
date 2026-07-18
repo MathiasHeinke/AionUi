@@ -68,7 +68,7 @@ const ContextUsageIndicator: React.FC<ContextUsageIndicatorProps> = ({
   const getStrokeColor = () => {
     if (isDanger) return 'rgb(var(--danger-6))';
     if (isWarning) return 'rgb(var(--warning-6))';
-    return 'rgb(var(--primary-6))';
+    return 'var(--eve-brand-logo)';
   };
 
   // Background ring color adapts through the active theme token.

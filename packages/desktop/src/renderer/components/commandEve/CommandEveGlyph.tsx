@@ -5,6 +5,7 @@
  */
 
 import classNames from 'classnames';
+import { Command } from '@icon-park/react';
 import React from 'react';
 
 export type CommandEveGlyphProps = {
@@ -17,11 +18,13 @@ export type CommandEveGlyphProps = {
 const CommandEveGlyph: React.FC<CommandEveGlyphProps> = ({ size = 20, className, decorative = true }) => (
   <span
     className={classNames('command-eve-glyph', className)}
-    style={{ fontSize: size }}
+    style={{ width: size, height: size }}
     aria-hidden={decorative || undefined}
+    aria-label={decorative ? undefined : 'Command EVE'}
+    role={decorative ? undefined : 'img'}
     data-testid='command-eve-glyph'
   >
-    {'⌘'}
+    <Command theme='outline' size={size} strokeWidth={4} aria-hidden='true' />
   </span>
 );
 

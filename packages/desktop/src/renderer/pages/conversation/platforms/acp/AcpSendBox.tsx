@@ -219,13 +219,13 @@ const AcpSendBox: React.FC<{
   // 64k model — that is exactly why the cloud Max popover showed "55K / 65.5K"
   // instead of the model's real ~1M window: the resolver could not tell the turn
   // was a CLOUD turn from that local-looking id. When an EVE Inference (cloud)
-  // tier is the active selection AND the cloud bearer is usable, use that cloud
-  // SELECTION id (e.g. "command-eve-inference:eve-max") so the window resolver
-  // detects the cloud lane and floors at the model's real window. When a LOCAL
-  // tier is selected (or the bearer is missing so a send silently falls back to
-  // local), keep the live runtime model id whose 64k IS the real local window.
-  const cloudSelectionActive =
-    isEveConversation && isEveInferenceSelection(eveInference.selection) && eveInference.cloudBearerAvailable === true;
+  // tier is the active selection, use that cloud SELECTION id (e.g.
+  // "command-eve-inference:eve-max") so the window resolver applies EVE's 256k
+  // operating policy. Bearer availability is enforced fail-closed by the send
+  // boundary; its asynchronous UI check must not transiently re-label a cloud
+  // turn as the local 64k lane. A LOCAL selection keeps the live runtime model
+  // id whose 64k is the real hardware-safe window.
+  const cloudSelectionActive = isEveConversation && isEveInferenceSelection(eveInference.selection);
   const indicatorModelId = cloudSelectionActive ? eveInference.selection : runtimeActivity.modelId;
 
   // Mirror AgentModeSelector's getMode sync so the sheet shows the live mode label.
@@ -424,6 +424,7 @@ const AcpSendBox: React.FC<{
   const addOrUpdateMessage = useAddOrUpdateMessage(); // Move this here so it's available in useEffect
   const addOrUpdateMessageRef = useLatestRef(addOrUpdateMessage);
   const runtimeView = useConversationRuntimeView(conversation_id);
+  const activeSteerRequestsRef = useRef(new Map<string, Promise<unknown>>());
 
   // Shared file handling logic
   const { handleFilesAdded, clearFiles } = useSendBoxFiles({
@@ -590,6 +591,43 @@ Please check your local CLI tool authentication status`,
   // an explicit upgrade inside the wall.
   const videoCostWall = useVideoCostWall();
 
+  const dispatchSteer = useCallback(
+    (input: string, requestId?: string) => {
+      const turnId = runtimeView.activeTurnId;
+      if (!turnId) {
+        return Promise.reject(
+          new Error(
+            t('conversation.commandQueue.activeTurnUnavailable', {
+              defaultValue: 'The current run is not ready for a correction yet.',
+            })
+          )
+        );
+      }
+
+      const normalizedInput = input.trim();
+      const inFlightKey = `${turnId}\u0000${normalizedInput}`;
+      const existingRequest = activeSteerRequestsRef.current.get(inFlightKey);
+      if (existingRequest) return existingRequest;
+
+      const pendingRequest = ipcBridge.acpConversation.steer.invoke({
+        input: normalizedInput,
+        conversation_id,
+        turn_id: turnId,
+        request_id: requestId ?? uuid(),
+      });
+      activeSteerRequestsRef.current.set(inFlightKey, pendingRequest);
+
+      const clearRequest = () => {
+        if (activeSteerRequestsRef.current.get(inFlightKey) === pendingRequest) {
+          activeSteerRequestsRef.current.delete(inFlightKey);
+        }
+      };
+      void pendingRequest.then(clearRequest, clearRequest);
+      return pendingRequest;
+    },
+    [conversation_id, runtimeView.activeTurnId, t]
+  );
+
   // The real dispatch (queue or execute) for an already-cleared message. Both
   // the normal send and the post-confirm video send route through this so the
   // queue/in-flight semantics are identical.
@@ -610,11 +648,7 @@ Please check your local CLI tool authentication status`,
 
       if (busyControlCommand) {
         try {
-          await ipcBridge.acpConversation.sendMessage.invoke({
-            input: busyControlCommand.input,
-            conversation_id,
-            files: [],
-          });
+          await dispatchSteer(busyControlCommand.input);
           emitter.emit('chat.history.refresh');
           return true;
         } catch (error) {
@@ -642,7 +676,7 @@ Please check your local CLI tool authentication status`,
       await executeCommand({ input: message, files: agentFiles, displayFiles });
       return true;
     },
-    [busySendMode, conversation_id, enqueue, executeCommand, hasPendingCommands, isBusy, runtimeView.isProcessing, t]
+    [busySendMode, dispatchSteer, enqueue, executeCommand, hasPendingCommands, isBusy, runtimeView.isProcessing, t]
   );
 
   const preparePdfFiles = useCallback(
@@ -907,11 +941,7 @@ Please check your local CLI tool authentication status`,
         if (!correction) {
           throw new Error('Queued correction is empty.');
         }
-        await ipcBridge.acpConversation.sendMessage.invoke({
-          input: correction.input,
-          conversation_id,
-          files: [],
-        });
+        await dispatchSteer(correction.input, item.id);
         emitter.emit('chat.history.refresh');
       } catch (error) {
         await restore(item);
@@ -930,7 +960,7 @@ Please check your local CLI tool authentication status`,
       }
     },
     [
-      conversation_id,
+      dispatchSteer,
       isQueueInteractionLocked,
       lockInteraction,
       remove,

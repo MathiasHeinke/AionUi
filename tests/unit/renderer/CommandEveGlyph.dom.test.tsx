@@ -16,7 +16,7 @@ describe('CommandEveGlyph', () => {
     render(<CommandEveGlyph />);
 
     const glyph = screen.getByTestId('command-eve-glyph');
-    expect(glyph.textContent).toBe('⌘');
+    expect(glyph.querySelector('svg')).not.toBeNull();
     expect(glyph.getAttribute('aria-hidden')).toBe('true');
     expect(glyph.querySelector('img')).toBeNull();
   });
@@ -25,8 +25,11 @@ describe('CommandEveGlyph', () => {
     render(<CommandEveGlyph size={16} className='command-eve-glyph--muted' decorative={false} />);
 
     const glyph = screen.getByTestId('command-eve-glyph');
-    expect(glyph.style.fontSize).toBe('16px');
+    expect(glyph.style.width).toBe('16px');
+    expect(glyph.style.height).toBe('16px');
     expect(glyph.classList.contains('command-eve-glyph--muted')).toBe(true);
     expect(glyph.hasAttribute('aria-hidden')).toBe(false);
+    expect(glyph).toHaveAttribute('role', 'img');
+    expect(glyph).toHaveAccessibleName('Command EVE');
   });
 });

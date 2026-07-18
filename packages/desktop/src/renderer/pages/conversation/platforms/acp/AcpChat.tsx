@@ -144,6 +144,7 @@ const AcpChat: React.FC<{
             activity={messageState.runtimeActivity}
             running={messageState.running}
             aiProcessing={messageState.aiProcessing}
+            backend={backend}
           />
         </div>
       </ConversationArtifactProvider>

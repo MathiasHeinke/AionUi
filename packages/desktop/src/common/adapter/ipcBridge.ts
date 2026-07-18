@@ -234,6 +234,14 @@ export const conversation = {
       inject_skills: p.inject_skills,
     })
   ),
+  steer: httpPost<ISteerMessageResult, ISteerMessageParams>(
+    (p) => `/api/conversations/${p.conversation_id}/steer`,
+    (p) => ({
+      turn_id: p.turn_id,
+      request_id: p.request_id,
+      content: p.input,
+    })
+  ),
   getSlashCommands: httpGet<AcpSlashCommandApiItem[], { conversation_id: string }>(
     (p) => `/api/conversations/${p.conversation_id}/slash-commands`
   ),
@@ -2337,6 +2345,7 @@ function mapModelConfigResponse(response: AcpConfigOptionsResponse | AcpSetConfi
 
 export const acpConversation = {
   sendMessage: conversation.sendMessage,
+  steer: conversation.steer,
   responseStream: conversation.responseStream,
   // aioncore v0.1.37 (0.34.0) renamed the agent-list GET from /api/agents to
   // /api/agents/management (the plain /api/agents GET now 404s). The renderer base
@@ -2982,12 +2991,26 @@ interface ISendMessageParams {
   inject_skills?: string[];
 }
 
+interface ISteerMessageParams {
+  input: string;
+  conversation_id: string;
+  turn_id: string;
+  request_id: string;
+}
+
 // Server-assigned identifier for the newly created user message. Clients must
 // use this as the canonical msg_id when rendering an optimistic bubble so the
 // local state aligns with DB rows and WebSocket stream events.
 export interface ISendMessageResult {
   msg_id: string;
   turn_id: string;
+  runtime: TConversationRuntimeSummary;
+}
+
+export interface ISteerMessageResult {
+  msg_id: string;
+  turn_id: string;
+  accepted: boolean;
   runtime: TConversationRuntimeSummary;
 }
 

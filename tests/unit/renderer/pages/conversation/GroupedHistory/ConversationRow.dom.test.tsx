@@ -110,7 +110,7 @@ describe('ConversationRow archive UI', () => {
   it('shows only the public EVE identity, never a runtime or assistant image', () => {
     const { container } = renderRow();
 
-    expect(screen.getByTestId('command-eve-glyph').textContent).toBe('⌘');
+    expect(screen.getByTestId('command-eve-glyph').querySelector('svg')).not.toBeNull();
     expect(container.querySelector('img')).toBeNull();
   });
 

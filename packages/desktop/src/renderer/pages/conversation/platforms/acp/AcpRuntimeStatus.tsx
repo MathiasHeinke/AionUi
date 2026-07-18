@@ -1,6 +1,11 @@
 import { ipcBridge } from '@/common';
+import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
+import { COMMAND_EVE_OPERATIONAL_CONTEXT_LIMIT } from '@/common/config/eveContextPolicyCore';
+import { isEveInferenceSelection } from '@/common/config/eveInferenceCore';
+import { useEveInferenceSelection } from '@/renderer/hooks/agent/useEveInferenceSelection';
 import { useConfig } from '@/renderer/hooks/config/useConfig';
 import { useIsDevMode } from '@/renderer/hooks/useIsDevMode';
+import { resolveEffectiveContextLimit } from '@/renderer/utils/model/modelContextLimits';
 import { Button, Message, Tooltip } from '@arco-design/web-react';
 import { Loading, Time } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -44,6 +49,9 @@ function formatDuration(ms: number): string {
 }
 
 function formatTokens(tokens: number): string {
+  if (tokens === COMMAND_EVE_OPERATIONAL_CONTEXT_LIMIT) {
+    return '256k';
+  }
   if (tokens >= 1000) {
     return `${(tokens / 1000).toFixed(1)}k`;
   }
@@ -54,13 +62,15 @@ const AcpRuntimeStatus: React.FC<{
   activity: AcpRuntimeActivity;
   running: boolean;
   aiProcessing: boolean;
-}> = ({ activity, running, aiProcessing }) => {
+  backend?: string;
+}> = ({ activity, running, aiProcessing, backend }) => {
   const { t } = useTranslation();
   // Operators see a redacted lifecycle line while work is active. Dev mode adds
   // lane/context/log details, but raw backend and model identifiers never become
   // part of the customer-facing status contract.
   const isDevMode = useIsDevMode();
   const [visible] = useConfig('commandEve.runtimeStatusVisible');
+  const eveInference = useEveInferenceSelection();
   const [now, setNow] = useState(Date.now());
   const isVisible = visible ?? true;
   const isActive = running || aiProcessing || ACTIVE_PHASES.has(activity.phase);
@@ -100,13 +110,24 @@ const AcpRuntimeStatus: React.FC<{
   // Brand + privacy: the operator sees EVE + which LANE inference runs on (local = on-device,
   // a DSGVO selling point), NEVER the internal backend name ('hermes') or the raw engine model
   // id ('custom:command-eve-gemma4-*'). Newly visible once the status strip was mounted.
-  const isLocalLane = /^custom:|gemma|command-eve/i.test(activity.modelId ?? '');
+  const isEveConversation = isCommandEveAcpConversation(backend);
+  // The selected lane is the display-policy truth. Bearer presence is checked
+  // fail-closed by the send boundary, but it loads asynchronously and must not
+  // make an active EVE cloud turn flicker back to Hermes' local 64k telemetry.
+  const cloudSelectionActive = isEveConversation && isEveInferenceSelection(eveInference.selection);
+  const effectiveModelId = cloudSelectionActive ? eveInference.selection : activity.modelId;
+  const isLocalLane = isEveConversation
+    ? !cloudSelectionActive
+    : /^custom:|gemma|command-eve/i.test(activity.modelId ?? '');
   const laneLabel = activity.modelId
     ? isLocalLane
       ? t('conversation.runtimeStatus.laneLocal', { defaultValue: 'lokal' })
       : t('conversation.runtimeStatus.laneCloud', { defaultValue: 'Cloud' })
     : t('conversation.runtimeStatus.modelUnknown');
   const hasContextUsage = typeof activity.contextUsed === 'number' && typeof activity.contextSize === 'number';
+  const effectiveContextSize = hasContextUsage
+    ? resolveEffectiveContextLimit(effectiveModelId, activity.contextSize)
+    : undefined;
   const notice =
     isActive && elapsedMs && elapsedMs >= LONG_RUNNING_NOTICE_MS
       ? t('conversation.runtimeStatus.notice.longRunning')
@@ -121,9 +142,11 @@ const AcpRuntimeStatus: React.FC<{
     <div className='acp-runtime-status' data-testid='acp-runtime-status'>
       <div className='acp-runtime-status__content'>
         <span
-          className={`h-8px w-8px rd-50% shrink-0 ${statusDotClass[activity.phase]} ${isActive ? 'animate-pulse' : ''}`}
+          className={`h-8px w-8px rd-50% shrink-0 ${statusDotClass[activity.phase]} ${isActive ? 'animate-pulse' : ''} ${activity.phase === 'thinking' || activity.phase === 'streaming' ? 'acp-runtime-status__dot--active' : ''}`}
         />
-        {isActive ? <Loading theme='outline' size='14' className='animate-spin shrink-0 text-primary-6' /> : null}
+        {isActive ? (
+          <Loading theme='outline' size='14' className='animate-spin shrink-0 acp-runtime-status__spinner--active' />
+        ) : null}
         <span className='font-500 text-t-primary'>{phaseLabel}</span>
         {isDevMode ? <span className='truncate'>EVE · {laneLabel}</span> : null}
         {elapsedMs !== undefined ? (
@@ -136,7 +159,7 @@ const AcpRuntimeStatus: React.FC<{
           <span className='text-t-tertiary'>
             {t('conversation.runtimeStatus.context', {
               used: formatTokens(activity.contextUsed as number),
-              size: formatTokens(activity.contextSize as number),
+              size: formatTokens(effectiveContextSize as number),
             })}
           </span>
         ) : null}

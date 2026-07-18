@@ -207,19 +207,20 @@
 
 /* Transparent EVE identity. The square packaged-app asset never belongs here. */
 .command-eve-glyph {
-  width: 1em;
-  height: 1em;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: inline-grid;
+  place-items: center;
   flex: 0 0 auto;
   color: var(--eve-brand-logo);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-weight: 600;
-  line-height: 1;
+  line-height: 0;
   letter-spacing: 0;
   text-shadow: none;
   user-select: none;
+}
+
+.command-eve-glyph > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .command-eve-glyph--muted {
@@ -2064,6 +2065,15 @@
   gap: 8px;
   overflow: hidden;
   white-space: nowrap;
+}
+
+.acp-runtime-status__dot--active {
+  background: var(--eve-brand-logo) !important;
+  box-shadow: 0 0 8px color-mix(in srgb, var(--eve-brand-logo) 34%, transparent);
+}
+
+.acp-runtime-status__spinner--active {
+  color: var(--eve-brand-logo) !important;
 }
 
 .acp-runtime-status__notice {
