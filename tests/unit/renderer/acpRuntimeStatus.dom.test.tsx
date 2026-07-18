@@ -103,7 +103,7 @@ describe('AcpRuntimeStatus operator visibility', () => {
       />
     );
 
-    expect(screen.getByTestId('acp-runtime-status')).toHaveTextContent('Kontext 69.3k/256k');
+    expect(screen.getByTestId('acp-runtime-status')).toHaveTextContent('Kontext 67.7k/256k');
   });
 
   it('shows the selected lane while Hermes has not reported a raw model id yet', () => {

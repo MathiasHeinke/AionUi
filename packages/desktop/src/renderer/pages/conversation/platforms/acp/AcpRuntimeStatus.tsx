@@ -53,8 +53,9 @@ function formatTokens(tokens: number): string {
   if (tokens === COMMAND_EVE_OPERATIONAL_CONTEXT_LIMIT) {
     return '256k';
   }
-  if (tokens >= 1000) {
-    return `${(tokens / 1000).toFixed(1)}k`;
+  if (tokens >= 1024) {
+    const kiloTokens = tokens / 1024;
+    return `${Number.isInteger(kiloTokens) ? kiloTokens.toFixed(0) : kiloTokens.toFixed(1)}k`;
   }
   return String(tokens);
 }

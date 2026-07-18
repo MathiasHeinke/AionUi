@@ -794,6 +794,7 @@ export type I18nKey =
   | 'conversation.commandEveLocalMarketingIntent.failed'
   | 'conversation.commandEveRuntimeNotReady'
   | 'conversation.commandEveRuntimePreparing'
+  | 'conversation.commandQueue.activeTurnUnavailable'
   | 'conversation.commandQueue.busyModeAria'
   | 'conversation.commandQueue.busyModeQueue'
   | 'conversation.commandQueue.busyModeQueueTooltip'
