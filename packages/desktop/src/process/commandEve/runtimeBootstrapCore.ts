@@ -79,7 +79,7 @@ const DEFAULT_MODEL_REF = 'hf.co/tripolskypetr/Gemma-4-Uncensored-Aggressive-GGU
 const DEFAULT_HERMES_VERSION = '0.17.0';
 const DEFAULT_HERMES_PACKAGE = 'hermes-agent';
 export const COMMAND_EVE_BUNDLED_HERMES_WHEEL_SHA256 =
-  'da80efbbb51ad5e8d5a6931b066c7df444204cf7549ecb848d80eda231f96086';
+  'dbfb5e3f9495f21c00c4e5503ae2df5a73b9cdbff48acf3840dd33cc8cce6a39';
 const COMMAND_EVE_HERMES_WHEEL_RECEIPT_FILE = 'bundled-wheel-receipt.json';
 const DEFAULT_FAST_CONTEXT_LENGTH = 65_536;
 const DEFAULT_LONG_CONTEXT_LENGTH = 65_536;
