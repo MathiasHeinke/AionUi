@@ -29,6 +29,7 @@ import {
   terminateProcessTree,
 } from './benchmark-process-tree';
 import { collectStartupGateFailures } from './benchmark-gates';
+import { inspectPackagedRuntimeReadiness } from './benchmark-runtime-readiness';
 
 // ── CLI args ────────────────────────────────────────────────────────────────
 
@@ -192,6 +193,7 @@ type StartupTiming = {
 
 const GUID_INPUT = '.guid-input-card-shell textarea';
 const AGENT_PILL = '[data-agent-pill="true"]';
+const PACKAGED_IDLE_SETTLE_MS = 25_000;
 
 // ── Log file helpers ────────────────────────────────────────────────────────
 
@@ -481,6 +483,52 @@ async function waitForPackagedLifecycle(
   );
 }
 
+async function waitForPackagedRuntimeIdle(
+  handle: Extract<BenchmarkApp, { kind: 'packaged' }>,
+  logPath: string,
+  logOffset: number,
+  timeoutMs: number
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    rememberProcessTree(handle.pid, handle.knownProcessIds);
+    if (handle.process.exitCode !== null) {
+      throw new Error(
+        `Packaged app exited before runtime idle (code=${handle.process.exitCode}).\n${handle.diagnostics()}`
+      );
+    }
+
+    const readiness = inspectPackagedRuntimeReadiness(readNewLogLines(logPath, logOffset));
+    if (readiness.failureReason) {
+      throw new Error(`Packaged runtime did not become idle: ${readiness.failureReason}`);
+    }
+    if (readiness.ready) break;
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  const readiness = inspectPackagedRuntimeReadiness(readNewLogLines(logPath, logOffset));
+  if (!readiness.ready) {
+    throw new Error(
+      `Packaged runtime did not become idle within ${timeoutMs}ms ` +
+        `(commandEveRuntimeReady=${readiness.commandEveRuntimeReady}, ` +
+        `managedRuntimeSettled=${readiness.managedRuntimeSettled})`
+    );
+  }
+
+  const settleDeadline = Date.now() + PACKAGED_IDLE_SETTLE_MS;
+  while (Date.now() < settleDeadline) {
+    rememberProcessTree(handle.pid, handle.knownProcessIds);
+    if (handle.process.exitCode !== null) {
+      throw new Error(
+        `Packaged app exited during runtime settle (code=${handle.process.exitCode}).\n${handle.diagnostics()}`
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
+
 async function closeApp(handle: BenchmarkApp): Promise<void> {
   if (handle.kind === 'electron') {
     try {
@@ -671,8 +719,17 @@ async function runOneIteration(iteration: number, args: Args): Promise<StartupTi
       await new Promise((r) => setTimeout(r, 1_000));
       wallTotal = Date.now() - wallStart;
 
+      // Warm-up iteration 0 shares its profile with the measured runs. It must
+      // not terminate while the bundled Python/Hermes environment is still
+      // being created, otherwise the next launch inherits a partial venv.
+      if (iteration === 0 || args.withMemory) {
+        await waitForPackagedRuntimeIdle(app, logPath, logOffset, args.launchTimeoutMs);
+      }
+
       if (args.withMemory) {
-        await new Promise((r) => setTimeout(r, 5_000));
+        // A clean customer profile installs the bundled EVE/Hermes and managed
+        // Node/ACP runtimes after first paint. Sampling five seconds later
+        // measured that active bootstrap as "idle" and repeatedly killed it.
         const idle = await takeSnapshot(app, null);
         memory = {
           idle,
