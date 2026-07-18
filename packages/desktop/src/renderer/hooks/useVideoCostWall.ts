@@ -27,6 +27,7 @@ export type VideoConfirmResolved = { tierId: VideoQualityTier; estimatedCredits:
 
 /** The function the caller wants to run ONCE the user confirms (the real submit). */
 export type VideoRun = (resolved: VideoConfirmResolved) => void | Promise<void>;
+export type VideoCancel = () => void;
 
 export interface VideoCostWallState {
   /** Whether the cost-wall is open (a video request is awaiting confirmation). */
@@ -38,7 +39,7 @@ export interface VideoCostWallState {
    * directly) — the war-game guardrail. `run` is stashed and only invoked on
    * confirm.
    */
-  requestVideo: (request: { durationSeconds?: number }, run: VideoRun) => void;
+  requestVideo: (request: { durationSeconds?: number }, run: VideoRun, onCancel?: VideoCancel) => void;
   /** The user explicitly confirmed: invokes the stashed run with the resolved tier, then closes. */
   confirm: (resolved: VideoConfirmResolved) => void;
   /** The user backed out: drop the pending run and close. */
@@ -48,9 +49,9 @@ export interface VideoCostWallState {
 export function useVideoCostWall(): VideoCostWallState {
   const [visible, setVisible] = useState(false);
   const [durationSeconds, setDurationSeconds] = useState<number | undefined>(undefined);
-  const [pendingRun, setPendingRun] = useState<{ run: VideoRun } | null>(null);
+  const [pendingRun, setPendingRun] = useState<{ run: VideoRun; onCancel?: VideoCancel } | null>(null);
 
-  const requestVideo = useCallback((request: { durationSeconds?: number }, run: VideoRun) => {
+  const requestVideo = useCallback((request: { durationSeconds?: number }, run: VideoRun, onCancel?: VideoCancel) => {
     // Guardrail: video ALWAYS requires confirm — open the wall, never fire now.
     const gate = buildVideoSubmitGate({ confirmed: false });
     if (!gate.requiresConfirm) {
@@ -59,7 +60,7 @@ export function useVideoCostWall(): VideoCostWallState {
       return;
     }
     setDurationSeconds(request.durationSeconds);
-    setPendingRun({ run });
+    setPendingRun({ run, onCancel });
     setVisible(true);
   }, []);
 
@@ -78,9 +79,11 @@ export function useVideoCostWall(): VideoCostWallState {
   );
 
   const cancel = useCallback(() => {
+    const onCancel = pendingRun?.onCancel;
     setVisible(false);
     setPendingRun(null);
-  }, []);
+    onCancel?.();
+  }, [pendingRun]);
 
   return { visible, durationSeconds, requestVideo, confirm, cancel };
 }

@@ -58,6 +58,18 @@ describe('CommandQueuePanel', () => {
     expect(onPromote).not.toHaveBeenCalled();
   });
 
+  it('counts only user-visible files while keeping internal sidecars non-promotable', () => {
+    const item = {
+      ...createItem(['/tmp/report.pdf', '/tmp/document-intelligence/report.md']),
+      displayFiles: ['/tmp/report.pdf'],
+    };
+    renderPanel(item);
+
+    expect(screen.getByText('1 files')).toBeInTheDocument();
+    expect(screen.queryByText('2 files')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Push as correction now' })).toBeDisabled();
+  });
+
   it('disables promotion while the same queued command is already being dispatched', () => {
     const item = createItem();
     const onPromote = renderPanel(item, vi.fn(), new Set([item.id]));

@@ -267,8 +267,9 @@ const MessageItem: React.FC<{ message: TMessage; highlighted?: boolean }> = Reac
 const MessageList: React.FC<{
   className?: string;
   emptySlot?: React.ReactNode;
+  suppressEmptySlot?: boolean;
   historyPagination?: MessageHistoryPagination;
-}> = ({ className, emptySlot, historyPagination = emptyMessageHistoryPagination }) => {
+}> = ({ className, emptySlot, suppressEmptySlot = false, historyPagination = emptyMessageHistoryPagination }) => {
   const list = useMessageList();
   const isMessageListLoading = useMessageListLoading();
   const artifacts = useConversationArtifacts();
@@ -621,7 +622,7 @@ const MessageList: React.FC<{
     return <MessageItem message={item as TMessage} key={(item as TMessage).id} highlighted={highlighted}></MessageItem>;
   };
 
-  if (processedList.length === 0 && isMessageListLoading) {
+  if (processedList.length === 0 && (isMessageListLoading || suppressEmptySlot)) {
     return <MessageListSkeleton />;
   }
 

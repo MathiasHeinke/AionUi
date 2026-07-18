@@ -19,7 +19,11 @@ import type { TokenUsageData } from '@/common/config/storage';
 import { useAddOrUpdateMessage } from '@/renderer/pages/conversation/Messages/hooks';
 import type { ThoughtData } from '@/renderer/components/chat/ThoughtDisplay';
 import { useQuotaWall, type QuotaWallState } from '@renderer/hooks/useQuotaWall';
-import { ensureAcpGenerationTracking } from '@renderer/services/commandEveGenerationActivity';
+import {
+  clearConversationGenerating,
+  ensureAcpGenerationTracking,
+} from '@renderer/services/commandEveGenerationActivity';
+import { getConversationRuntimeViewSnapshot } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 const THINKING_MESSAGE_THROTTLE_MS = 50;
@@ -1091,6 +1095,25 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
     clearThinkingMessageThrottle();
     setHasThinkingMessage(false);
   }, [clearThinkingMessageThrottle]);
+
+  useEffect(() => {
+    return addEventListener('conversation.runtime.recovered', (event) => {
+      if (event.conversation_id !== conversation_id || event.runtime.is_processing) return;
+      const runtimeView = getConversationRuntimeViewSnapshot(conversation_id);
+      if (
+        runtimeView.localSubmitting ||
+        (runtimeView.isProcessing &&
+          runtimeView.activeTurnId !== null &&
+          runtimeView.activeTurnId !== event.recoveredTurnId)
+      ) {
+        return;
+      }
+      // Durable runtime truth repairs the UI when the terminal stream frame was
+      // missed. This clears both the composer state and the seat-switch guard.
+      resetState();
+      clearConversationGenerating(conversation_id);
+    });
+  }, [conversation_id, resetState]);
 
   const fetchSlashCommands = useCallback(() => {
     void ipcBridge.conversation.getSlashCommands

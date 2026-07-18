@@ -8,7 +8,10 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import React, { type PropsWithChildren } from 'react';
 import { SWRConfig } from 'swr';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useConversationCommandQueue } from '@/renderer/pages/conversation/platforms/useConversationCommandQueue';
+import {
+  normalizeQueueState,
+  useConversationCommandQueue,
+} from '@/renderer/pages/conversation/platforms/useConversationCommandQueue';
 
 const { messageWarningMock } = vi.hoisted(() => ({
   messageWarningMock: vi.fn(),
@@ -93,5 +96,78 @@ describe('useConversationCommandQueue', () => {
     expect(result.current.items).toEqual([expect.objectContaining({ input: 'retry me', files: ['/tmp/context.txt'] })]);
     expect(messageWarningMock).toHaveBeenCalledTimes(1);
     consoleErrorSpy.mockRestore();
+  });
+
+  it('preserves private agent sidecars separately from user-visible files', async () => {
+    const onExecute = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(
+      () =>
+        useConversationCommandQueue({
+          conversation_id: 'pdf-sidecar-queue',
+          isBusy: true,
+          runtimeGate: {
+            hydrated: true,
+            canSendMessage: false,
+            isProcessing: true,
+          },
+          onExecute,
+        }),
+      { wrapper: Wrapper }
+    );
+
+    act(() => {
+      result.current.enqueue({
+        input: 'Analyze this PDF',
+        files: ['/tmp/report.pdf', '/tmp/document-intelligence/report.md'],
+        displayFiles: ['/tmp/report.pdf'],
+      });
+    });
+
+    await waitFor(() =>
+      expect(result.current.items).toEqual([
+        expect.objectContaining({
+          files: ['/tmp/report.pdf', '/tmp/document-intelligence/report.md'],
+          displayFiles: ['/tmp/report.pdf'],
+        }),
+      ])
+    );
+    expect(JSON.parse(window.sessionStorage.getItem('conversation-command-queue/pdf-sidecar-queue') ?? '{}')).toEqual(
+      expect.objectContaining({
+        items: [
+          expect.objectContaining({
+            files: ['/tmp/report.pdf', '/tmp/document-intelligence/report.md'],
+            displayFiles: ['/tmp/report.pdf'],
+          }),
+        ],
+      })
+    );
+    expect(onExecute).not.toHaveBeenCalled();
+  });
+
+  it('hides generated PDF sidecars when restoring a queue written before display files existed', () => {
+    expect(
+      normalizeQueueState({
+        items: [
+          {
+            id: 'legacy-pdf',
+            input: 'Analyze this PDF',
+            files: ['/tmp/report.pdf', '/tmp/hermes/document-intelligence/pdf/abc123/document.md'],
+            created_at: 1,
+          },
+        ],
+        isPaused: true,
+      })
+    ).toEqual({
+      items: [
+        {
+          id: 'legacy-pdf',
+          input: 'Analyze this PDF',
+          files: ['/tmp/report.pdf', '/tmp/hermes/document-intelligence/pdf/abc123/document.md'],
+          displayFiles: ['/tmp/report.pdf'],
+          created_at: 1,
+        },
+      ],
+      isPaused: true,
+    });
   });
 });

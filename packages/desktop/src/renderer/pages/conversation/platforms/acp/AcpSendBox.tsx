@@ -59,6 +59,10 @@ import {
 import ConversationBusyModeControl from '@/renderer/pages/conversation/platforms/ConversationBusyModeControl';
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
 import { useConversationRuntimeView } from '@/renderer/pages/conversation/runtime/useConversationRuntimeView';
+import {
+  markConversationDocumentPreparationSettled,
+  markConversationDocumentPreparationStarted,
+} from '@/renderer/pages/conversation/runtime/conversationDocumentPreparationStore';
 import { getConversationRuntimeWorkspaceErrorMessage } from '@/renderer/pages/conversation/utils/conversationCreateError';
 import { warmupConversation } from '@/renderer/pages/conversation/utils/warmupConversation';
 import { useTeamPermission } from '@/renderer/pages/team/hooks/TeamPermissionContext';
@@ -456,23 +460,9 @@ const AcpSendBox: React.FC<{
     []
   );
 
-  // Check for and send initial message from guid page
-  useAcpInitialMessage({
-    conversation_id: conversation_id,
-    backend,
-    workspacePath,
-    setAiProcessing,
-    resetState,
-    markSendStarted: runtimeView.markSendStarted,
-    markSendAccepted: runtimeView.markSendAccepted,
-    markSendFailed: runtimeView.markSendFailed,
-    checkAndUpdateTitle,
-    addOrUpdateMessage: addOrUpdateMessageRef.current,
-  });
-
   const executeCommand = useCallback(
-    async ({ input, files }: Pick<ConversationCommandQueueItem, 'input' | 'files'>) => {
-      const displayMessage = buildDisplayMessage(input, files, workspacePath || '');
+    async ({ input, files, displayFiles }: Pick<ConversationCommandQueueItem, 'input' | 'files' | 'displayFiles'>) => {
+      const displayMessage = buildDisplayMessage(input, displayFiles ?? files, workspacePath || '');
 
       runtimeView.markSendStarted();
       // 1.7.3 (Codex #2): mark generation at SEND time so the seat-switch guard
@@ -604,13 +594,13 @@ Please check your local CLI tool authentication status`,
   // the normal send and the post-confirm video send route through this so the
   // queue/in-flight semantics are identical.
   const dispatchMessage = useCallback(
-    async (message: string, allFiles: string[]) => {
+    async (message: string, agentFiles: string[], displayFiles: string[] = agentFiles) => {
       const requestedBusyControlCommand = runtimeView.isProcessing
         ? buildConversationBusyControlCommand({ input: message, mode: busySendMode })
         : null;
-      const busyControlCommand = allFiles.length === 0 ? requestedBusyControlCommand : null;
+      const busyControlCommand = agentFiles.length === 0 ? requestedBusyControlCommand : null;
 
-      if (allFiles.length > 0 && requestedBusyControlCommand?.mode === 'steer') {
+      if (agentFiles.length > 0 && requestedBusyControlCommand?.mode === 'steer') {
         Message.warning(
           t('conversation.commandQueue.steerFilesQueued', {
             defaultValue: 'Corrections cannot include files, so this message was queued for afterwards.',
@@ -647,9 +637,9 @@ Please check your local CLI tool authentication status`,
           hasPendingCommands,
         })
       ) {
-        return enqueue({ input: message, files: allFiles }) !== null;
+        return enqueue({ input: message, files: agentFiles, displayFiles }) !== null;
       }
-      await executeCommand({ input: message, files: allFiles });
+      await executeCommand({ input: message, files: agentFiles, displayFiles });
       return true;
     },
     [busySendMode, conversation_id, enqueue, executeCommand, hasPendingCommands, isBusy, runtimeView.isProcessing, t]
@@ -733,85 +723,153 @@ Please check your local CLI tool authentication status`,
     [isEveConversation, t]
   );
 
-  const onSendHandler = async (message: string) => {
-    if (documentPreparationInFlightRef.current) return;
-    const draftContent = content || message;
-    const selectedAtPath = [...atPath];
-    const selectedUploadFiles = [...uploadFile];
-    const atPathFiles = selectedAtPath.map((item) => (typeof item === 'string' ? item : item.path));
-    const allFiles = [...selectedUploadFiles, ...atPathFiles];
-    const hasPdfFiles = isEveConversation && allFiles.some(isCommandEvePdfPath);
-    const restoreDraftAndFiles = () => {
-      setContent(draftContent);
-      setUploadFile(selectedUploadFiles);
-      setAtPath(selectedAtPath);
-      emitter.emit('acp.selected.file', selectedAtPath);
-    };
-
-    if (hasPdfFiles) documentPreparationInFlightRef.current = true;
-
-    const preparedFiles = await preparePdfFiles(allFiles);
-    // A cancelled/failed OCR gate must leave the draft and selected files intact.
-    if (preparedFiles === null) {
-      restoreDraftAndFiles();
-      documentPreparationInFlightRef.current = false;
-      return;
-    }
-
-    clearFiles();
-    emitter.emit('acp.selected.file.clear');
-
-    // Heavy-lane guardrail (DUX-6, FAIL-SAFE): in a Command EVE conversation a
-    // request that reaches the heavy video lane by ANY path is routed through the
-    // cost-wall first. The gate is NOT the NL regex alone — it ALSO fires when the
-    // message addresses the videomarketer worker by name/role (and, where a
-    // resolver surfaces it, the resolved video capability). A regex false-negative
-    // can no longer silently bypass the most expensive lane.
-    const routesToVideo =
-      isEveConversation &&
-      isVideoLaneRequest({
-        message,
-        // The videomarketer is addressed in-prompt today; surface that as a
-        // resolved-worker signal so the wall fires even when the verb/noun regex
-        // misses. (A backend resolver may later pass resolvedVideoCapability.)
-        resolvedAgentId: addressesVideoMarketer(message) ? VIDEO_LANE_AGENT_ID : null,
-      });
-
-    if (routesToVideo) {
-      // `requestVideo` opens the wall (transparent cost preview) and only fires
-      // the real dispatch from the user's explicit confirm. DUX-5: on confirm we
-      // dispatch the RESOLVED video request — the original text PLUS an explicit
-      // video directive carrying the confirmed tier/resolution/credit ceiling —
-      // not the unmodified original message. Confirming now actually routes a
-      // video request at exactly the spec the user approved.
-      documentPreparationInFlightRef.current = false;
-      setDocumentPreparation(null);
-      videoCostWall.requestVideo({}, (resolved) => {
-        const resolvedMessage = buildResolvedVideoMessage(message, resolved);
-        void dispatchMessage(resolvedMessage, preparedFiles);
-      });
-      return;
-    }
-
-    try {
-      const accepted = await dispatchMessage(message, preparedFiles);
-      if (!accepted) {
-        restoreDraftAndFiles();
+  const submitMessage = useCallback(
+    async (
+      message: string,
+      allFiles: string[],
+      controls: { clearSelection: () => void; restoreDraftAndFiles: () => void }
+    ): Promise<boolean> => {
+      if (documentPreparationInFlightRef.current) {
+        controls.restoreDraftAndFiles();
+        return false;
       }
-    } catch (error) {
-      restoreDraftAndFiles();
-      throw error;
-    } finally {
+
+      const hasPdfFiles = isEveConversation && allFiles.some(isCommandEvePdfPath);
+      if (hasPdfFiles) {
+        documentPreparationInFlightRef.current = true;
+        markConversationDocumentPreparationStarted(conversation_id);
+      }
+
+      const preparedFiles = await preparePdfFiles(allFiles);
+      // A cancelled/failed OCR gate must leave the draft and selected files intact.
+      if (preparedFiles === null) {
+        controls.restoreDraftAndFiles();
+        documentPreparationInFlightRef.current = false;
+        markConversationDocumentPreparationSettled(conversation_id);
+        return false;
+      }
+
+      controls.clearSelection();
+
+      // Heavy-lane guardrail (DUX-6, FAIL-SAFE): every send surface, including
+      // the fresh-chat handoff, reaches this same cost wall before video work.
+      const routesToVideo =
+        isEveConversation &&
+        isVideoLaneRequest({
+          message,
+          resolvedAgentId: addressesVideoMarketer(message) ? VIDEO_LANE_AGENT_ID : null,
+        });
+
+      if (routesToVideo) {
+        documentPreparationInFlightRef.current = false;
+        setDocumentPreparation(null);
+        videoCostWall.requestVideo(
+          {},
+          (resolved) => {
+            const resolvedMessage = buildResolvedVideoMessage(message, resolved);
+            const dispatch = dispatchMessage(resolvedMessage, preparedFiles, allFiles);
+            markConversationDocumentPreparationSettled(conversation_id);
+            void dispatch
+              .then((accepted) => {
+                if (!accepted) controls.restoreDraftAndFiles();
+              })
+              .catch(() => {
+                controls.restoreDraftAndFiles();
+              });
+          },
+          () => {
+            controls.restoreDraftAndFiles();
+            markConversationDocumentPreparationSettled(conversation_id);
+          }
+        );
+        return true;
+      }
+
+      try {
+        const accepted = await dispatchMessage(message, preparedFiles, allFiles);
+        if (!accepted) controls.restoreDraftAndFiles();
+        return accepted;
+      } catch (error) {
+        controls.restoreDraftAndFiles();
+        throw error;
+      } finally {
+        documentPreparationInFlightRef.current = false;
+        if (hasPdfFiles) {
+          setDocumentPreparation(null);
+          markConversationDocumentPreparationSettled(conversation_id);
+        }
+      }
+    },
+    [conversation_id, dispatchMessage, isEveConversation, preparePdfFiles, videoCostWall.requestVideo]
+  );
+
+  useEffect(
+    () => () => {
       documentPreparationInFlightRef.current = false;
-      if (hasPdfFiles) setDocumentPreparation(null);
-    }
-  };
+      markConversationDocumentPreparationSettled(conversation_id);
+    },
+    [conversation_id]
+  );
+
+  const onSendHandler = useCallback(
+    async (message: string): Promise<void> => {
+      const draftContent = content || message;
+      const selectedAtPath = [...atPath];
+      const selectedUploadFiles = [...uploadFile];
+      const atPathFiles = selectedAtPath.map((item) => (typeof item === 'string' ? item : item.path));
+      const allFiles = [...selectedUploadFiles, ...atPathFiles];
+
+      await submitMessage(message, allFiles, {
+        clearSelection: () => {
+          clearFiles();
+          emitter.emit('acp.selected.file.clear');
+        },
+        restoreDraftAndFiles: () => {
+          setContent(draftContent);
+          setUploadFile(selectedUploadFiles);
+          setAtPath(selectedAtPath);
+          emitter.emit('acp.selected.file', selectedAtPath);
+        },
+      });
+    },
+    [atPath, clearFiles, content, setAtPath, setContent, setUploadFile, submitMessage, uploadFile]
+  );
+
+  const sendInitialMessage = useCallback(
+    async (input: string, files: string[]): Promise<boolean> => {
+      try {
+        return await submitMessage(input, files, {
+          clearSelection: () => {},
+          restoreDraftAndFiles: () => {
+            setContent(input);
+            setUploadFile(files);
+            setAtPath([]);
+            emitter.emit('acp.selected.file.clear');
+          },
+        });
+      } catch {
+        // executeCommand already rendered the structured failure and restored
+        // the fresh-chat draft. Do not add a second generic error message here.
+        return false;
+      }
+    },
+    [setAtPath, setContent, setUploadFile, submitMessage]
+  );
+
+  // The Guid/startscreen handoff is only transport. All real submission work
+  // stays in submitMessage so PDFs, video gates, queues, and recovery cannot drift.
+  useAcpInitialMessage({
+    conversation_id,
+    sendInitialMessage,
+    resetState,
+    addOrUpdateMessage: addOrUpdateMessageRef.current,
+  });
 
   const handleEditQueuedCommand = useCallback(
     (item: ConversationCommandQueueItem) => {
       remove(item.id);
       setContent(item.input);
-      setUploadFile(Array.from(new Set(item.files)));
+      setUploadFile(Array.from(new Set(item.displayFiles ?? item.files)));
       setAtPath([]);
       emitter.emit('acp.selected.file.clear');
     },

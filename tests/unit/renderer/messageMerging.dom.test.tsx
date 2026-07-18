@@ -16,8 +16,10 @@ import {
   useAddOrUpdateMessage,
   useMessageLstCache,
   useMessageList,
+  useMessageListLoading,
 } from '@/renderer/pages/conversation/Messages/hooks';
 import { fetchAllConversationMessages } from '@/renderer/utils/chat/messageHistory';
+import { emitter } from '@/renderer/utils/emitter';
 
 const { responseStreamHandlerRef, resyncHandlerRef, connectedHandlerRef } = vi.hoisted(() => ({
   responseStreamHandlerRef: {
@@ -164,6 +166,7 @@ function useMessageCacheHarness(conversation_id = CONVERSATION_ID) {
   return {
     pagination: useMessageLstCache(conversation_id),
     messages: useMessageList(),
+    loading: useMessageListLoading(),
   };
 }
 
@@ -601,6 +604,259 @@ describe('message merging', () => {
 
     expect((result.current.messages[0] as IMessageText).content.content).toBe('Recovered after reconnect');
     expect(invoke).toHaveBeenCalledTimes(3);
+  });
+
+  it('repairs a missed fresh-chat transcript after an explicit runtime refresh', async () => {
+    const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
+    invoke.mockReset();
+    invoke
+      .mockResolvedValueOnce({
+        items: [],
+        oldest_cursor: null,
+        newest_cursor: null,
+        has_more_before: false,
+        has_more_after: false,
+      })
+      .mockResolvedValue({
+        items: [
+          createTextMessage('msg-user', 'Read this PDF'),
+          createTextMessage('msg-answer', 'Persisted PDF analysis'),
+        ],
+        oldest_cursor: 'cursor-msg-user',
+        newest_cursor: 'cursor-msg-answer',
+        has_more_before: false,
+        has_more_after: false,
+      });
+
+    const { result } = renderHook(() => useMessageCacheHarness(), { wrapper: CacheWrapper });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => emitter.emit('conversation.messages.refresh', { conversation_id: SECOND_CONVERSATION_ID }));
+    await act(async () => {
+      vi.advanceTimersByTime(1_000);
+      await Promise.resolve();
+    });
+    expect(invoke).toHaveBeenCalledTimes(1);
+
+    act(() =>
+      emitter.emit('conversation.messages.refresh', {
+        conversation_id: CONVERSATION_ID,
+        expectedTerminalMessageId: 'msg-answer',
+      })
+    );
+    expect(result.current.loading).toBe(true);
+    await act(async () => {
+      vi.advanceTimersByTime(75);
+      await Promise.resolve();
+      await Promise.resolve();
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result.current.messages.map((message) => message.msg_id)).toEqual(['msg-user', 'msg-answer']);
+    expect(result.current.loading).toBe(false);
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps recovery loading until the expected terminal message is actually durable', async () => {
+    const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
+    invoke.mockReset();
+    const oldHistory = {
+      items: [createTextMessage('msg-old', 'Previous turn')],
+      oldest_cursor: 'cursor-msg-old',
+      newest_cursor: 'cursor-msg-old',
+      has_more_before: false,
+      has_more_after: false,
+    };
+    invoke
+      .mockResolvedValueOnce(oldHistory)
+      .mockResolvedValueOnce(oldHistory)
+      .mockResolvedValueOnce(oldHistory)
+      .mockResolvedValueOnce({
+        items: [createTextMessage('msg-old', 'Previous turn'), createTextMessage('msg-new', 'New PDF answer')],
+        oldest_cursor: 'cursor-msg-old',
+        newest_cursor: 'cursor-msg-new',
+        has_more_before: false,
+        has_more_after: false,
+      });
+
+    const { result } = renderHook(() => useMessageCacheHarness(), { wrapper: CacheWrapper });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() =>
+      emitter.emit('conversation.messages.refresh', {
+        conversation_id: CONVERSATION_ID,
+        expectedTerminalMessageId: 'msg-new',
+      })
+    );
+    expect(result.current.loading).toBe(true);
+
+    await act(async () => {
+      vi.advanceTimersByTime(75);
+      await Promise.resolve();
+      await Promise.resolve();
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.loading).toBe(true);
+    expect(result.current.messages.map((message) => message.msg_id)).toEqual(['msg-old']);
+
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.loading).toBe(false);
+    expect(result.current.messages.map((message) => message.msg_id)).toEqual(['msg-old', 'msg-new']);
+  });
+
+  it('keeps recovery active beyond the short terminal retry window when persistence is delayed', async () => {
+    const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
+    invoke.mockReset();
+    const oldHistory = {
+      items: [createTextMessage('msg-old', 'Previous turn')],
+      oldest_cursor: 'cursor-msg-old',
+      newest_cursor: 'cursor-msg-old',
+      has_more_before: false,
+      has_more_after: false,
+    };
+    let reads = 0;
+    invoke.mockImplementation(async () => {
+      reads += 1;
+      if (reads <= 8) return oldHistory;
+      return {
+        items: [createTextMessage('msg-old', 'Previous turn'), createTextMessage('msg-late', 'Late PDF answer')],
+        oldest_cursor: 'cursor-msg-old',
+        newest_cursor: 'cursor-msg-late',
+        has_more_before: false,
+        has_more_after: false,
+      };
+    });
+
+    const { result } = renderHook(() => useMessageCacheHarness(), { wrapper: CacheWrapper });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() =>
+      emitter.emit('conversation.messages.refresh', {
+        conversation_id: CONVERSATION_ID,
+        expectedTerminalMessageId: 'msg-late',
+      })
+    );
+    const advanceRecoveryRetry = async () => {
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+      await Promise.resolve();
+    };
+    await act(async () => {
+      vi.advanceTimersByTime(75);
+      await Promise.resolve();
+      await Promise.resolve();
+      await advanceRecoveryRetry();
+      await advanceRecoveryRetry();
+      await advanceRecoveryRetry();
+      await advanceRecoveryRetry();
+      await advanceRecoveryRetry();
+    });
+
+    expect(reads).toBe(7);
+    expect(result.current.loading).toBe(true);
+    expect(result.current.messages.map((message) => message.msg_id)).toEqual(['msg-old']);
+
+    await act(async () => {
+      await advanceRecoveryRetry();
+      await advanceRecoveryRetry();
+    });
+
+    expect(reads).toBe(9);
+    expect(result.current.loading).toBe(false);
+    expect(result.current.messages.map((message) => message.msg_id)).toEqual(['msg-old', 'msg-late']);
+  });
+
+  it('does not let a superseded recovery read clear terminal reconciliation loading', async () => {
+    const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
+    invoke.mockReset();
+    const recoveryRead = createDeferred<{
+      items: IMessageText[];
+      oldest_cursor: string | null;
+      newest_cursor: string | null;
+      has_more_before: boolean;
+      has_more_after: boolean;
+    }>();
+    const terminalRead = createDeferred<{
+      items: IMessageText[];
+      oldest_cursor: string | null;
+      newest_cursor: string | null;
+      has_more_before: boolean;
+      has_more_after: boolean;
+    }>();
+    invoke
+      .mockResolvedValueOnce({
+        items: [],
+        oldest_cursor: null,
+        newest_cursor: null,
+        has_more_before: false,
+        has_more_after: false,
+      })
+      .mockReturnValueOnce(recoveryRead.promise)
+      .mockReturnValueOnce(terminalRead.promise);
+
+    const { result } = renderHook(() => useMessageCacheHarness(), { wrapper: CacheWrapper });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => emitter.emit('conversation.messages.refresh', { conversation_id: CONVERSATION_ID }));
+    await act(async () => {
+      vi.advanceTimersByTime(75);
+      await Promise.resolve();
+    });
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'finish',
+        data: null,
+        msg_id: 'msg-terminal',
+        conversation_id: CONVERSATION_ID,
+      });
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(75);
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      recoveryRead.resolve({
+        items: [],
+        oldest_cursor: null,
+        newest_cursor: null,
+        has_more_before: false,
+        has_more_after: false,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.loading).toBe(true);
+
+    await act(async () => {
+      terminalRead.resolve({
+        items: [createTextMessage('msg-terminal', 'Terminal answer')],
+        oldest_cursor: 'cursor-msg-terminal',
+        newest_cursor: 'cursor-msg-terminal',
+        has_more_before: false,
+        has_more_after: false,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.loading).toBe(false);
+    expect(result.current.messages.map((message) => message.msg_id)).toEqual(['msg-terminal']);
   });
 
   it('prepends older pages by cursor without duplicating overlap', async () => {

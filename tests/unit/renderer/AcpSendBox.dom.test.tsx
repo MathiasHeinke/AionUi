@@ -44,6 +44,8 @@ const {
   messageWarningMock,
   configGetMock,
   configSetMock,
+  initialMessageParamsMock,
+  buildDisplayMessageMock,
 } = vi.hoisted(() => ({
   sendMessageInvokeMock: vi.fn(),
   pdfPrepareInvokeMock: vi.fn(),
@@ -97,6 +99,10 @@ const {
   messageWarningMock: vi.fn(),
   configGetMock: vi.fn(),
   configSetMock: vi.fn(),
+  initialMessageParamsMock: {
+    current: null as { sendInitialMessage?: (input: string, files: string[]) => Promise<boolean> } | null,
+  },
+  buildDisplayMessageMock: vi.fn((input: string) => input),
 }));
 
 function createDeferred<T>() {
@@ -331,10 +337,12 @@ vi.mock('@/renderer/utils/file/fileSelection', () => ({
   mergeFileSelectionItems: vi.fn(),
 }));
 vi.mock('@/renderer/utils/file/messageFiles', () => ({
-  buildDisplayMessage: (input: string) => input,
+  buildDisplayMessage: buildDisplayMessageMock,
 }));
 vi.mock('@/renderer/pages/conversation/platforms/acp/useAcpInitialMessage', () => ({
-  useAcpInitialMessage: vi.fn(),
+  useAcpInitialMessage: (params: { sendInitialMessage?: (input: string, files: string[]) => Promise<boolean> }) => {
+    initialMessageParamsMock.current = params;
+  },
 }));
 
 vi.mock('@arco-design/web-react', () => ({
@@ -394,6 +402,7 @@ describe('AcpSendBox', () => {
     sendBoxPropsMock.current = null;
     queuePanelPropsMock.current = null;
     mobileActionSheetPropsMock.current = null;
+    initialMessageParamsMock.current = null;
     queueItemsMock.current = [];
     queueEnqueueMock.mockReturnValue({ id: 'queued', input: 'queued', files: [], created_at: 1 });
     shouldEnqueueMock.mockReturnValue(false);
@@ -412,6 +421,7 @@ describe('AcpSendBox', () => {
     );
     configSetMock.mockResolvedValue(undefined);
     pdfPrepareInvokeMock.mockReset();
+    buildDisplayMessageMock.mockImplementation((input: string) => input);
     queueRemoveMock.mockResolvedValue(undefined);
     queueRestoreMock.mockResolvedValue(undefined);
   });
@@ -461,11 +471,111 @@ describe('AcpSendBox', () => {
       conversation_id: 'conv-1',
       files: ['/tmp/report.pdf', '/tmp/hermes/document-intelligence/report.md'],
     });
+    expect(buildDisplayMessageMock).toHaveBeenCalledWith('Hello', ['/tmp/report.pdf'], '/tmp/workspace');
 
     await act(async () => {
       send.resolve({});
     });
     await waitFor(() => expect(screen.queryByTestId('acp-document-preparation')).toBeNull());
+  });
+
+  it('routes a fresh-chat PDF through the same native preparation path', async () => {
+    const preparation = createDeferred<unknown>();
+    pdfPrepareInvokeMock.mockReturnValue(preparation.promise);
+    sendMessageInvokeMock.mockResolvedValue({
+      turn_id: 'turn-1',
+      msg_id: 'message-1',
+      runtime: {
+        state: 'running',
+        can_send_message: false,
+        has_task: true,
+        task_status: 'running',
+        is_processing: true,
+        pending_confirmations: 0,
+        turn_id: 'turn-1',
+      },
+    });
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    let submission!: Promise<boolean>;
+    act(() => {
+      submission = initialMessageParamsMock.current?.sendInitialMessage?.('Read this PDF', [
+        '/tmp/report.pdf',
+      ]) as Promise<boolean>;
+    });
+
+    expect(await screen.findByTestId('acp-document-preparation')).toHaveTextContent('reading_local');
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      preparation.resolve({
+        success: true,
+        data: {
+          ok: true,
+          documents: [
+            {
+              source_path: '/tmp/report.pdf',
+              sidecar_path: '/tmp/hermes/document-intelligence/report.md',
+            },
+          ],
+        },
+      });
+      await submission;
+    });
+
+    expect(sendMessageInvokeMock).toHaveBeenCalledWith({
+      input: 'Read this PDF',
+      conversation_id: 'conv-1',
+      files: ['/tmp/report.pdf', '/tmp/hermes/document-intelligence/report.md'],
+    });
+    expect(buildDisplayMessageMock).toHaveBeenCalledWith('Read this PDF', ['/tmp/report.pdf'], '/tmp/workspace');
+  });
+
+  it('keeps an internal PDF sidecar out of the visible queued attachment list', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: ['/tmp/report.pdf'], content: '' };
+    shouldEnqueueMock.mockReturnValue(true);
+    pdfPrepareInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        ok: true,
+        documents: [
+          {
+            source_path: '/tmp/report.pdf',
+            sidecar_path: '/tmp/hermes/document-intelligence/report.md',
+          },
+        ],
+      },
+    });
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() =>
+      expect(queueEnqueueMock).toHaveBeenCalledWith({
+        input: 'Hello',
+        files: ['/tmp/report.pdf', '/tmp/hermes/document-intelligence/report.md'],
+        displayFiles: ['/tmp/report.pdf'],
+      })
+    );
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
   });
 
   it('surfaces a PDF preparation failure without starting a model turn', async () => {
@@ -714,6 +824,7 @@ describe('AcpSendBox', () => {
     expect(queueEnqueueMock).toHaveBeenCalledWith({
       input: 'Queue this with context',
       files: ['/tmp/upload.txt', '/tmp/workspace/context.md'],
+      displayFiles: ['/tmp/upload.txt', '/tmp/workspace/context.md'],
     });
     const restoredStates = draftMutateMock.mock.calls.map(([updater]) =>
       typeof updater === 'function' ? updater(draftDataMock.current) : updater
@@ -752,6 +863,7 @@ describe('AcpSendBox', () => {
     expect(queueEnqueueMock).toHaveBeenCalledWith({
       input: '/steer Use this evidence',
       files: ['/tmp/evidence.txt'],
+      displayFiles: ['/tmp/evidence.txt'],
     });
     expect(sendMessageInvokeMock).not.toHaveBeenCalled();
   });

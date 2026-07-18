@@ -4,31 +4,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { ipcBridge } from '@/common';
 import type { TMessage } from '@/common/chat/chatLib';
-import type { TConversationRuntimeSummary } from '@/common/config/storage';
 import { parseError, uuid } from '@/common/utils';
-import { emitter } from '@/renderer/utils/emitter';
-import { buildDisplayMessage } from '@/renderer/utils/file/messageFiles';
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getConversationRuntimeWorkspaceErrorMessage } from '../../utils/conversationCreateError';
 import { buildSendFailureError } from './buildSendFailureError';
-import {
-  markConversationGenerating,
-  clearConversationGenerating,
-} from '@renderer/services/commandEveGenerationActivity';
 
 type UseAcpInitialMessageParams = {
   conversation_id: string;
-  backend: string;
-  workspacePath?: string;
-  setAiProcessing: (value: boolean) => void;
+  sendInitialMessage: (input: string, files: string[]) => Promise<boolean>;
   resetState: () => void;
-  markSendStarted?: () => void;
-  markSendAccepted?: (turn_id: string, runtime: TConversationRuntimeSummary, msg_id?: string) => void;
-  markSendFailed?: (reason: string) => void;
-  checkAndUpdateTitle: (conversation_id: string, input: string) => void;
   addOrUpdateMessage: (message: TMessage, prepend?: boolean) => void;
 };
 
@@ -38,14 +24,8 @@ type UseAcpInitialMessageParams = {
  */
 export const useAcpInitialMessage = ({
   conversation_id,
-  backend,
-  workspacePath,
-  setAiProcessing,
+  sendInitialMessage,
   resetState,
-  markSendStarted,
-  markSendAccepted,
-  markSendFailed,
-  checkAndUpdateTitle,
   addOrUpdateMessage,
 }: UseAcpInitialMessageParams): void => {
   const { t } = useTranslation();
@@ -59,35 +39,20 @@ export const useAcpInitialMessage = ({
     // Clear immediately to prevent duplicate sends (e.g., if component remounts while sendMessage is pending)
     sessionStorage.removeItem(storageKey);
 
-    const sendInitialMessage = async () => {
+    const submitStoredMessage = async () => {
       try {
-        const initialMessage = JSON.parse(storedMessage);
+        const initialMessage = JSON.parse(storedMessage) as { input?: unknown; files?: unknown };
         const input = typeof initialMessage.input === 'string' ? initialMessage.input : '';
-        const files = Array.isArray(initialMessage.files) ? initialMessage.files : [];
-        const displayMessage = buildDisplayMessage(input, files, workspacePath || '');
+        const files = Array.isArray(initialMessage.files)
+          ? initialMessage.files.filter((file): file is string => typeof file === 'string')
+          : [];
 
-        markSendStarted?.();
-        // 1.7.3 (Codex #2): the seat-switch guard must see the submit→start window
-        // for this send path too, not only AcpSendBox. Cleared in the catch if it
-        // never becomes a running turn; the stream's finish/error clears it otherwise.
-        markConversationGenerating(conversation_id);
-        setAiProcessing(true);
-
-        void checkAndUpdateTitle(conversation_id, input);
-        const result = await ipcBridge.acpConversation.sendMessage.invoke({
-          input: displayMessage,
-          conversation_id: conversation_id,
-          files,
-        });
-        markSendAccepted?.(result.turn_id, result.runtime, result.msg_id);
-
-        // Initial message sent successfully
-        emitter.emit('chat.history.refresh');
+        // The fresh-chat handoff must use the exact same preparation, cost-wall,
+        // queue, runtime, and recovery path as an in-chat send.
+        await sendInitialMessage(input, files);
       } catch (error) {
         const errorMessageText =
           getConversationRuntimeWorkspaceErrorMessage(error, t) || parseError(error) || t('common.unknownError');
-        markSendFailed?.(errorMessageText);
-        clearConversationGenerating(conversation_id);
         console.error('[useAcpInitialMessage] Error sending initial message:', error);
         console.error('[useAcpInitialMessage] Error details:', {
           name: (error as Error)?.name,
@@ -110,24 +75,11 @@ export const useAcpInitialMessage = ({
         };
         addOrUpdateMessage(errorMessage, true);
         resetState();
-        setAiProcessing(false); // Keep the prop-setter in sync with the hook reset
       }
     };
 
-    sendInitialMessage().catch((error) => {
+    submitStoredMessage().catch((error) => {
       console.error('Failed to send initial message:', error);
     });
-  }, [
-    addOrUpdateMessage,
-    backend,
-    checkAndUpdateTitle,
-    conversation_id,
-    markSendAccepted,
-    markSendFailed,
-    markSendStarted,
-    resetState,
-    setAiProcessing,
-    t,
-    workspacePath,
-  ]);
+  }, [addOrUpdateMessage, conversation_id, resetState, sendInitialMessage, t]);
 };

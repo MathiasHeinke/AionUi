@@ -419,11 +419,12 @@ const CommandQueuePanel: React.FC<CommandQueuePanelProps> = ({
             >
               {items.map((item) => {
                 const preview = getCommandPreview(item.input);
+                const visibleFiles = item.displayFiles ?? item.files;
                 const fileCountLabel =
-                  item.files.length > 0
+                  visibleFiles.length > 0
                     ? t('conversation.commandQueue.files', {
-                        count: item.files.length,
-                        defaultValue: `${item.files.length} files`,
+                        count: visibleFiles.length,
+                        defaultValue: `${visibleFiles.length} files`,
                       })
                     : null;
 

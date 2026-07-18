@@ -16,6 +16,8 @@ import {
   useMessageLstCache,
 } from '@renderer/pages/conversation/Messages/hooks';
 import { usePendingConfirmationsRecovery } from '@renderer/pages/conversation/Messages/usePendingConfirmationsRecovery';
+import { useConversationRuntimeSnapshot } from '@renderer/pages/conversation/runtime/useConversationRuntimeView';
+import { useConversationDocumentPreparation } from '@renderer/pages/conversation/runtime/conversationDocumentPreparationStore';
 import HOC from '@renderer/utils/ui/HOC';
 import QuotaExhaustedWall from '@renderer/components/billing/QuotaExhaustedWall';
 import DailyCapWall from '@renderer/components/billing/DailyCapWall';
@@ -66,6 +68,10 @@ const AcpChat: React.FC<{
   const messageState = useAcpMessage(conversation_id, {
     skipWarmup: Boolean(teamPermission) || waitForWarmup === false,
   });
+  // Read the shared runtime store without installing another copy of the IPC
+  // hydration/listener effects already owned by the sendbox runtime hook.
+  const runtimeView = useConversationRuntimeSnapshot(conversation_id);
+  const isPreparingDocument = useConversationDocumentPreparation(conversation_id);
 
   return (
     <ConversationProvider
@@ -84,7 +90,18 @@ const AcpChat: React.FC<{
         <div className='acp-chat flex-1 flex flex-col px-20px min-h-0'>
           {headerSlot}
           <FlexFullContainer>
-            <MessageList className='flex-1' emptySlot={emptySlot} historyPagination={historyPagination} />
+            <MessageList
+              className='flex-1'
+              emptySlot={emptySlot}
+              suppressEmptySlot={
+                !messageState.hasHydratedRunningState ||
+                messageState.running ||
+                messageState.aiProcessing ||
+                runtimeView.isProcessing ||
+                isPreparingDocument
+              }
+              historyPagination={historyPagination}
+            />
           </FlexFullContainer>
           <AcpE2EStreamInjector conversationId={conversation_id} />
           {/* DSGVO egress notice — PRODUCTION-VISIBLE for all users: when EVE redacts

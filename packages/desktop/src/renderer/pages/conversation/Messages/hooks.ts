@@ -15,11 +15,14 @@ import {
 } from '@/common/chat/chatLib';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createContext } from '@renderer/utils/ui/createContext';
+import { addEventListener } from '@/renderer/utils/emitter';
 
 const MESSAGE_HISTORY_PAGE_SIZE = 200;
 const TERMINAL_RECONCILE_DELAY_MS = 75;
 const TERMINAL_RECONCILE_RETRY_DELAY_MS = 600;
-const TERMINAL_RECONCILE_MAX_ATTEMPTS = 2;
+const TERMINAL_RECONCILE_MAX_ATTEMPTS = 6;
+const RECOVERY_RECONCILE_MAX_ATTEMPTS = 20;
+const RECOVERY_RECONCILE_MIN_ATTEMPTS = 4;
 
 const [useMessageList, MessageListProvider, useUpdateMessageList] = createContext([] as TMessage[]);
 const [useMessageListLoading, MessageListLoadingProvider, useUpdateMessageListLoading] = createContext(false);
@@ -782,6 +785,7 @@ export const useMessageLstCache = (key: string) => {
   const isLoadingOlderMessagesRef = useRef(false);
   const loadedHistoricalMessagesRef = useRef(0);
   const loadGenerationRef = useRef(0);
+  const loadingSequenceRef = useRef(0);
 
   const setOlderAvailability = useCallback((value: boolean) => {
     hasOlderMessagesRef.current = value;
@@ -814,12 +818,11 @@ export const useMessageLstCache = (key: string) => {
       if (generation !== loadGenerationRef.current) return true;
       const messages = toChronologicalHistoryPage(result?.items?.map(normalizeDbMessage) ?? []);
       update((currentList) => reconcileHistoryMessages(currentList, messages, key));
-      return (
-        !expectedTerminalMessageId ||
-        messages.some(
-          (message) => message.id === expectedTerminalMessageId || message.msg_id === expectedTerminalMessageId
-        )
-      );
+      return expectedTerminalMessageId
+        ? messages.some(
+            (message) => message.id === expectedTerminalMessageId || message.msg_id === expectedTerminalMessageId
+          )
+        : messages.length > 0;
     },
     [key, update]
   );
@@ -865,6 +868,7 @@ export const useMessageLstCache = (key: string) => {
   useEffect(() => {
     if (!key) return;
     let cancelled = false;
+    const loadingSequence = ++loadingSequenceRef.current;
     loadGenerationRef.current += 1;
     isLoadingOlderMessagesRef.current = false;
     setLoading(true);
@@ -879,7 +883,7 @@ export const useMessageLstCache = (key: string) => {
         console.error('[useMessageLstCache] Failed to load messages from database:', error);
       })
       .finally(() => {
-        if (!cancelled) {
+        if (!cancelled && loadingSequence === loadingSequenceRef.current) {
           setLoading(false);
         }
       });
@@ -927,12 +931,24 @@ export const useMessageLstCache = (key: string) => {
     let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
     let reconcileSequence = 0;
 
+    const beginReconcileLoading = (): number => {
+      const loadingSequence = ++loadingSequenceRef.current;
+      setLoading(true);
+      return loadingSequence;
+    };
+
+    const settleReconcileLoading = (loadingSequence: number): void => {
+      if (loadingSequence === loadingSequenceRef.current) setLoading(false);
+    };
+
     const scheduleReconcile = (
       sequence: number,
       terminalMessageId: string,
       attempt: number,
       delay: number,
-      minimumAttempts = 1
+      minimumAttempts = 1,
+      maximumAttempts = TERMINAL_RECONCILE_MAX_ATTEMPTS,
+      onSettled?: () => void
     ) => {
       reconcileTimer = setTimeout(() => {
         reconcileTimer = null;
@@ -941,8 +957,9 @@ export const useMessageLstCache = (key: string) => {
             if (
               sequence !== reconcileSequence ||
               (foundTerminalMessage && attempt >= minimumAttempts) ||
-              attempt >= TERMINAL_RECONCILE_MAX_ATTEMPTS
+              attempt >= maximumAttempts
             ) {
+              if (sequence === reconcileSequence) onSettled?.();
               return;
             }
             scheduleReconcile(
@@ -950,20 +967,25 @@ export const useMessageLstCache = (key: string) => {
               terminalMessageId,
               attempt + 1,
               TERMINAL_RECONCILE_RETRY_DELAY_MS,
-              minimumAttempts
+              minimumAttempts,
+              maximumAttempts,
+              onSettled
             );
           })
           .catch((error) => {
-            if (sequence === reconcileSequence && attempt < TERMINAL_RECONCILE_MAX_ATTEMPTS) {
+            if (sequence === reconcileSequence && attempt < maximumAttempts) {
               scheduleReconcile(
                 sequence,
                 terminalMessageId,
                 attempt + 1,
                 TERMINAL_RECONCILE_RETRY_DELAY_MS,
-                minimumAttempts
+                minimumAttempts,
+                maximumAttempts,
+                onSettled
               );
               return;
             }
+            if (sequence === reconcileSequence) onSettled?.();
             console.error('[useMessageLstCache] Failed to reconcile completed turn:', error);
           });
       }, delay);
@@ -976,33 +998,56 @@ export const useMessageLstCache = (key: string) => {
 
       if (reconcileTimer) clearTimeout(reconcileTimer);
       reconcileSequence += 1;
+      const sequence = reconcileSequence;
+      const loadingSequence = beginReconcileLoading();
       // The WebSocket is the fast path; the persisted transcript is the durable
       // truth. Reconcile shortly after a terminal frame so a transient renderer
       // listener gap or reconnect cannot leave an active chat blank until remount.
-      scheduleReconcile(reconcileSequence, message.msg_id, 1, TERMINAL_RECONCILE_DELAY_MS);
+      scheduleReconcile(sequence, message.msg_id, 1, TERMINAL_RECONCILE_DELAY_MS, 1, undefined, () => {
+        if (sequence === reconcileSequence) settleReconcileLoading(loadingSequence);
+      });
     });
 
-    const scheduleRecoveryReconcile = () => {
+    const scheduleRecoveryReconcile = (expectedTerminalMessageId = '') => {
       if (reconcileTimer) clearTimeout(reconcileTimer);
       reconcileSequence += 1;
-      // Two reads cover the short window in which the durable relay is still
-      // persisting events that the realtime transport could not deliver.
-      scheduleReconcile(reconcileSequence, '', 1, TERMINAL_RECONCILE_DELAY_MS, 2);
+      const sequence = reconcileSequence;
+      const loadingSequence = beginReconcileLoading();
+      // Runtime-idle can beat durable transcript persistence by more than one
+      // database read. Keep reconciling for a bounded window and require actual
+      // transcript evidence before the empty-slot handoff can reappear.
+      scheduleReconcile(
+        sequence,
+        expectedTerminalMessageId,
+        1,
+        TERMINAL_RECONCILE_DELAY_MS,
+        expectedTerminalMessageId ? 1 : RECOVERY_RECONCILE_MIN_ATTEMPTS,
+        RECOVERY_RECONCILE_MAX_ATTEMPTS,
+        () => {
+          if (sequence === reconcileSequence) settleReconcileLoading(loadingSequence);
+        }
+      );
     };
 
-    const unsubscribeResync = ipcBridge.conversation.realtimeResyncRequired.on(scheduleRecoveryReconcile);
+    const unsubscribeResync = ipcBridge.conversation.realtimeResyncRequired.on(() => scheduleRecoveryReconcile());
     const unsubscribeConnected = ipcBridge.conversation.realtimeConnected.on(({ reconnected }) => {
       if (reconnected) scheduleRecoveryReconcile();
+    });
+    const unsubscribeExplicitRefresh = addEventListener('conversation.messages.refresh', (event) => {
+      if (event.conversation_id === key) scheduleRecoveryReconcile(event.expectedTerminalMessageId);
     });
 
     return () => {
       reconcileSequence += 1;
+      loadingSequenceRef.current += 1;
       unsubscribeResponse();
       unsubscribeResync();
       unsubscribeConnected();
+      unsubscribeExplicitRefresh();
       if (reconcileTimer) clearTimeout(reconcileTimer);
+      setLoading(false);
     };
-  }, [key, reconcileMessages]);
+  }, [key, reconcileMessages, setLoading]);
 
   return useMemo<MessageHistoryPagination>(
     () => ({

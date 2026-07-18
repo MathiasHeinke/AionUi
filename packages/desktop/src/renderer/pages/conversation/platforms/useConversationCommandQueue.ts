@@ -8,6 +8,8 @@ import useSWR from 'swr';
 export type ConversationCommandQueueItem = {
   id: string;
   input: string;
+  /** Files shown back to the user. Internal agent sidecars stay in `files`. */
+  displayFiles?: string[];
   files: string[];
   created_at: number;
 };
@@ -46,6 +48,7 @@ const summarizeQueuedCommand = (item: ConversationCommandQueueItem): Record<stri
   created_at: item.created_at,
   inputLength: item.input.length,
   fileCount: item.files.length,
+  displayFileCount: (item.displayFiles ?? item.files).length,
   preview: item.input.replace(/\s+/g, ' ').trim().slice(0, 120),
 });
 
@@ -70,6 +73,17 @@ const measureQueueStateBytes = (state: ConversationCommandQueueState): number =>
 
 const uniqueFiles = (files: string[]): string[] => Array.from(new Set(files.filter(Boolean)));
 const isInputEmpty = (input: string): boolean => input.trim().length === 0;
+const isGeneratedPdfSidecar = (filePath: string): boolean => {
+  const normalizedPath = filePath.replaceAll('\\', '/').toLowerCase();
+  return normalizedPath.includes('/document-intelligence/pdf/') && normalizedPath.endsWith('/document.md');
+};
+
+const deriveLegacyDisplayFiles = (files: string[]): string[] => {
+  if (!files.some((filePath) => filePath.toLowerCase().endsWith('.pdf'))) {
+    return files;
+  }
+  return files.filter((filePath) => !isGeneratedPdfSidecar(filePath));
+};
 
 const normalizeQueueItem = (item: unknown): ConversationCommandQueueItem | null => {
   if (!item || typeof item !== 'object') {
@@ -77,28 +91,36 @@ const normalizeQueueItem = (item: unknown): ConversationCommandQueueItem | null 
   }
 
   const candidate = item as Record<string, unknown>;
+  const candidateDisplayFiles = candidate.displayFiles;
   if (
     typeof candidate.id !== 'string' ||
     typeof candidate.input !== 'string' ||
     !Array.isArray(candidate.files) ||
     !candidate.files.every((file) => typeof file === 'string') ||
+    (candidateDisplayFiles !== undefined &&
+      (!Array.isArray(candidateDisplayFiles) || !candidateDisplayFiles.every((file) => typeof file === 'string'))) ||
     typeof candidate.created_at !== 'number' ||
     !Number.isFinite(candidate.created_at)
   ) {
     return null;
   }
 
+  const files = uniqueFiles(candidate.files);
   const normalizedItem: ConversationCommandQueueItem = {
     id: candidate.id,
     input: candidate.input,
-    files: uniqueFiles(candidate.files),
+    files,
+    displayFiles: Array.isArray(candidateDisplayFiles)
+      ? uniqueFiles(candidateDisplayFiles)
+      : deriveLegacyDisplayFiles(files),
     created_at: candidate.created_at,
   };
 
   if (
     isInputEmpty(normalizedItem.input) ||
     normalizedItem.input.length > MAX_QUEUED_COMMAND_INPUT_LENGTH ||
-    normalizedItem.files.length > MAX_QUEUED_COMMAND_FILES
+    normalizedItem.files.length > MAX_QUEUED_COMMAND_FILES ||
+    (normalizedItem.displayFiles?.length ?? 0) > MAX_QUEUED_COMMAND_FILES
   ) {
     return null;
   }
@@ -143,10 +165,12 @@ export const estimateQueueStateBytes = (state: ConversationCommandQueueState): n
 export const createQueuedCommandItem = ({
   input,
   files,
-}: Pick<ConversationCommandQueueItem, 'input' | 'files'>): ConversationCommandQueueItem => ({
+  displayFiles,
+}: Pick<ConversationCommandQueueItem, 'input' | 'files' | 'displayFiles'>): ConversationCommandQueueItem => ({
   id: uuid(),
   input,
   files: uniqueFiles(files),
+  ...(displayFiles ? { displayFiles: uniqueFiles(displayFiles) } : {}),
   created_at: Date.now(),
 });
 
@@ -163,7 +187,12 @@ const getQueueValidationFailureReason = (state: ConversationCommandQueueState): 
     return 'inputTooLong';
   }
 
-  if (state.items.some((item) => item.files.length > MAX_QUEUED_COMMAND_FILES)) {
+  if (
+    state.items.some(
+      (item) =>
+        item.files.length > MAX_QUEUED_COMMAND_FILES || (item.displayFiles?.length ?? 0) > MAX_QUEUED_COMMAND_FILES
+    )
+  ) {
     return 'tooManyFiles';
   }
 
@@ -283,7 +312,7 @@ export const restoreQueuedCommand = (
 export const updateQueuedCommand = (
   items: ConversationCommandQueueItem[],
   commandId: string,
-  updates: Partial<Pick<ConversationCommandQueueItem, 'input' | 'files'>>
+  updates: Partial<Pick<ConversationCommandQueueItem, 'input' | 'files' | 'displayFiles'>>
 ): ConversationCommandQueueItem[] =>
   items.map((item) =>
     item.id === commandId
@@ -291,6 +320,7 @@ export const updateQueuedCommand = (
           ...item,
           ...updates,
           files: updates.files ? uniqueFiles(updates.files) : item.files,
+          displayFiles: updates.displayFiles ? uniqueFiles(updates.displayFiles) : item.displayFiles,
         }
       : item
   );
@@ -406,7 +436,7 @@ type UseConversationCommandQueueOptions = {
   onExecute: (item: ConversationCommandQueueItem) => Promise<void>;
 };
 
-type EnqueueCommandInput = Pick<ConversationCommandQueueItem, 'input' | 'files'>;
+type EnqueueCommandInput = Pick<ConversationCommandQueueItem, 'input' | 'files' | 'displayFiles'>;
 type UpdateCommandInput = Pick<ConversationCommandQueueItem, 'input'>;
 
 const getQueueValidationMessage = (
@@ -574,13 +604,13 @@ export const useConversationCommandQueue = ({
   );
 
   const enqueue = useCallback(
-    ({ input, files }: EnqueueCommandInput) => {
+    ({ input, files, displayFiles }: EnqueueCommandInput) => {
       if (!enabled) {
         return null;
       }
 
       const currentState = normalizeQueueState(stateRef.current);
-      const item = createQueuedCommandItem({ input, files });
+      const item = createQueuedCommandItem({ input, files, displayFiles });
       const validation = validateQueuedCommandItem(item, currentState);
 
       if (isQueueValidationFailure(validation)) {

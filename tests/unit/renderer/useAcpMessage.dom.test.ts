@@ -12,6 +12,11 @@ import type { IResponseMessage } from '@/common/adapter/ipcBridge';
 import type { AcpPermissionRequest } from '@/common/types/platform/acpTypes';
 import { emitter } from '@/renderer/utils/emitter';
 import { COMMAND_EVE_HG4_DELEGATED_MODE } from '@/renderer/utils/model/agentModes';
+import {
+  localSendAccepted,
+  localSendStarted,
+  resetConversationRuntimeViewStoreForTest,
+} from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
 
 const {
   addOrUpdateMessageMock,
@@ -122,6 +127,7 @@ const PermissionMountHarness = () => {
 describe('useAcpMessage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetConversationRuntimeViewStoreForTest();
     responseStreamHandlerRef.current = undefined;
     confirmMessageInvokeMock.mockResolvedValue(undefined);
     reportInferenceErrorMock.mockReturnValue(false);
@@ -433,6 +439,87 @@ describe('useAcpMessage', () => {
 
     expect(result.current.running).toBe(false);
     expect(result.current.aiProcessing).toBe(false);
+  });
+
+  it('clears a stuck composer when durable runtime recovery observes completion', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    const { result } = renderHook(() => useAcpMessage('conv-1'));
+
+    await waitFor(() => expect(result.current.hasHydratedRunningState).toBe(true));
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: null,
+        msg_id: 'msg-1',
+        conversation_id: 'conv-1',
+      });
+    });
+    expect(result.current.running).toBe(true);
+
+    act(() => {
+      emitter.emit('conversation.runtime.recovered', {
+        conversation_id: 'conv-1',
+        recoveredTurnId: 'turn-1',
+        runtime: {
+          state: 'idle',
+          can_send_message: true,
+          has_task: false,
+          task_status: 'finished',
+          is_processing: false,
+          pending_confirmations: 0,
+          turn_id: null,
+        },
+      });
+    });
+
+    expect(result.current.running).toBe(false);
+    expect(result.current.aiProcessing).toBe(false);
+    expect(result.current.runtimeActivity.phase).toBe('idle');
+  });
+
+  it('does not let an older recovered turn clear a newer active composer run', async () => {
+    conversationGetInvokeMock.mockResolvedValue(null);
+    const { result } = renderHook(() => useAcpMessage('conv-1'));
+
+    await waitFor(() => expect(result.current.hasHydratedRunningState).toBe(true));
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'start',
+        data: null,
+        msg_id: 'msg-new',
+        conversation_id: 'conv-1',
+      });
+      localSendStarted('conv-1');
+      localSendAccepted('conv-1', 'turn-new', {
+        state: 'running',
+        can_send_message: false,
+        has_task: true,
+        task_status: 'running',
+        is_processing: true,
+        pending_confirmations: 0,
+        turn_id: 'turn-new',
+      });
+    });
+    expect(result.current.running).toBe(true);
+
+    act(() => {
+      emitter.emit('conversation.runtime.recovered', {
+        conversation_id: 'conv-1',
+        recoveredTurnId: 'turn-old',
+        runtime: {
+          state: 'idle',
+          can_send_message: true,
+          has_task: false,
+          task_status: 'finished',
+          is_processing: false,
+          pending_confirmations: 0,
+          turn_id: null,
+        },
+      });
+    });
+
+    expect(result.current.running).toBe(true);
+    expect(result.current.runtimeActivity.phase).not.toBe('idle');
   });
 
   it('emits a synthetic thinking done update on finish when the stream never sends one', async () => {

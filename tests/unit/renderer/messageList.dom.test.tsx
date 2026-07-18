@@ -311,6 +311,15 @@ describe('MessageList', () => {
     expect(screen.queryByText('empty state')).not.toBeInTheDocument();
   });
 
+  it('suppresses a stale empty slot while the conversation runtime is active', () => {
+    render(<MessageList emptySlot={<div>stale handoff note</div>} suppressEmptySlot />, {
+      wrapper: ({ children }) => <Wrapper messages={[]}>{children}</Wrapper>,
+    });
+
+    expect(screen.getByTestId('message-list-skeleton')).toBeInTheDocument();
+    expect(screen.queryByText('stale handoff note')).not.toBeInTheDocument();
+  });
+
   it('loads older history when the user scrolls to the top of a long conversation', () => {
     const loadOlderMessages = vi.fn().mockResolvedValue(undefined);
     render(

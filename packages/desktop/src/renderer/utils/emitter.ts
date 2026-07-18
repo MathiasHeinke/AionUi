@@ -9,6 +9,7 @@ import type { DependencyList } from 'react';
 import { useEffect } from 'react';
 import type { FileOrFolderItem } from '@/renderer/utils/file/fileTypes';
 import type { PreviewContentType } from '@/common/types/office/preview';
+import type { TConversationRuntimeSummary } from '@/common/config/storage';
 
 export type ReplyQuote = {
   messageId: string;
@@ -37,6 +38,12 @@ interface EventTypes {
   'codex.selected.file.clear': void;
   'codex.workspace.refresh': void;
   'chat.history.refresh': void;
+  // Durable conversation recovery signals. The database/runtime are the source
+  // of truth when a renderer misses a realtime user/terminal frame.
+  'conversation.messages.refresh': [{ conversation_id: string; expectedTerminalMessageId?: string }];
+  'conversation.runtime.recovered': [
+    { conversation_id: string; runtime: TConversationRuntimeSummary; recoveredTurnId: string | null },
+  ];
   // 会话删除事件 / Conversation deletion event
   'conversation.deleted': [string]; // conversation_id
   // 预览面板事件 / Preview panel events
