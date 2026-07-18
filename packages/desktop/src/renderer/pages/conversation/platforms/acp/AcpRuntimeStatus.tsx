@@ -99,7 +99,10 @@ const AcpRuntimeStatus: React.FC<{
   }, [t]);
 
   const phaseLabel = useMemo(() => {
-    const phase = isActive && activity.phase === 'ready' ? 'thinking' : activity.phase;
+    const phase =
+      isActive && (activity.phase === 'idle' || activity.phase === 'ready' || activity.phase === 'done')
+        ? 'thinking'
+        : activity.phase;
     return t(`conversation.runtimeStatus.phase.${phase}`, {
       defaultValue: phase,
     });

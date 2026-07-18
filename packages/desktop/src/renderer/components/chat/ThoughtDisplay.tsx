@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Tag, Spin } from '@arco-design/web-react';
+import { Tag } from '@arco-design/web-react';
 import React, { useMemo, useEffect, useState, useRef } from 'react';
 import { useThemeContext } from '@/renderer/hooks/context/ThemeContext';
 import { useTranslation } from 'react-i18next';
@@ -99,7 +99,11 @@ const ThoughtDisplay: React.FC<ThoughtDisplayProps> = ({
         className='relative z-1 mb--20px pb-30px px-10px py-10px rd-t-20px text-14px lh-20px text-t-primary flex items-center gap-8px'
         style={containerStyle}
       >
-        <Spin size={14} style={{ color: 'var(--eve-brand-logo)' }} />
+        <span
+          className='block w-6px h-6px rd-full shrink-0'
+          style={{ background: 'var(--eve-brand-logo)' }}
+          aria-hidden='true'
+        />
         <span className='text-t-secondary'>
           {t('conversation.chat.processing')}
           <span className='ml-8px opacity-60'>({formatElapsedTime(elapsedTime)})</span>
@@ -117,7 +121,13 @@ const ThoughtDisplay: React.FC<ThoughtDisplayProps> = ({
       style={containerStyle}
     >
       <div className='flex items-center gap-8px'>
-        {running && <Spin size={14} style={{ color: 'var(--eve-brand-logo)' }} />}
+        {running ? (
+          <span
+            className='block w-6px h-6px rd-full shrink-0'
+            style={{ background: 'var(--eve-brand-logo)' }}
+            aria-hidden='true'
+          />
+        ) : null}
         <Tag
           size='small'
           style={{

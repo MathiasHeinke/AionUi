@@ -1,6 +1,7 @@
 ---
 name: local-kanban-ledger
-description: Local filesystem-based work-item tracking for EVE's per-client and per-project work. Replaces the need for an external kanban tool for EVE's internal workflow: each client seat gets its own ledger directory with kanban-style columns (TODO/DOING/BLOCKED/DONE/ARCHIVED), per-item metadata cards, daily work logs and weekly summaries. Use when the operator asks "what's on my plate", "show me my pipeline", "track this task", "what's blocked", "what did we do this week", or as the persistent work surface for any multi-step EVE task.
+description: >-
+  Local filesystem-based work-item tracking for EVE's per-client and per-project work. Replaces the need for an external kanban tool for EVE's internal workflow: each client seat gets its own ledger directory with kanban-style columns (TODO/DOING/BLOCKED/DONE/ARCHIVED), per-item metadata cards, daily work logs and weekly summaries. Use when the operator asks "what's on my plate", "show me my pipeline", "track this task", "what's blocked", "what did we do this week", or as the persistent work surface for any multi-step EVE task.
 ---
 
 # Local Kanban Ledger

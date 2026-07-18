@@ -64,6 +64,13 @@ describe('AcpRuntimeStatus operator visibility', () => {
     expect(screen.queryByTestId('acp-runtime-status')).toBeNull();
   });
 
+  it('does not report ready while an accepted turn is already active', () => {
+    render(<AcpRuntimeStatus activity={{ phase: 'idle', updatedAt: Date.now() }} running aiProcessing={false} />);
+
+    expect(screen.getByTestId('acp-runtime-status')).toHaveTextContent('thinking');
+    expect(screen.getByTestId('acp-runtime-status')).not.toHaveTextContent('idle');
+  });
+
   it('moves a real redaction receipt into the compact footer instead of a wide banner', () => {
     render(
       <AcpRuntimeStatus

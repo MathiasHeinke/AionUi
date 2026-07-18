@@ -1349,7 +1349,7 @@ Please check your local CLI tool authentication status`,
                     tokenUsage,
                     contextLimit: context_limit,
                     modelId: indicatorModelId,
-                    disabled: isBusy,
+                    disabled: false,
                   }
                 : undefined
             }

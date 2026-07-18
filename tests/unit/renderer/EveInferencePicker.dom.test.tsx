@@ -95,9 +95,9 @@ describe('EveInferencePicker', () => {
     expect(await screen.findByText('Ultra')).toBeInTheDocument();
     const shell = document.querySelector('.eve-inference-picker-menu') as HTMLElement | null;
     const scroll = document.querySelector('.eve-inference-picker-scroll') as HTMLElement | null;
-    expect(shell?.style.width).toBe('360px');
-    expect(shell?.style.height).toBe('430px');
-    expect(shell?.style.maxHeight).toBe('70vh');
+    expect(shell?.style.width).toBe('340px');
+    expect(shell?.style.height).toBe('462px');
+    expect(shell?.style.maxHeight).toBe('calc(100vh - 40px)');
     expect(scroll?.style.overflowY).toBe('auto');
 
     const selected = screen.getByTestId(`eve-inference-option-${mocks.localItems[0].value}`);

@@ -230,10 +230,10 @@ const EveInferencePicker: React.FC<{
     <div
       className='eve-inference-picker-menu flex flex-col overflow-hidden'
       style={{
-        width: 360,
-        maxWidth: 'calc(100vw - 24px)',
-        height: 430,
-        maxHeight: '70vh',
+        width: 340,
+        maxWidth: 'calc(100vw - 32px)',
+        height: 462,
+        maxHeight: 'calc(100vh - 40px)',
       }}
     >
       <div className='p-8px shrink-0'>
@@ -332,7 +332,7 @@ const EveInferencePicker: React.FC<{
   );
 
   return (
-    <Dropdown trigger='click' droplist={droplist} disabled={disabled} position='bl'>
+    <Dropdown trigger='click' droplist={droplist} disabled={disabled} position='br'>
       <Button
         className='sendbox-model-btn header-model-btn agent-mode-compact-pill'
         shape='round'

@@ -1,6 +1,7 @@
 ---
 name: content-machine
-description: Turn founder context, source material and market signals into a safe content operating system that feeds social, blog, video and campaign lanes — without defaulting to AI slop. Produces the shared CMO substrate before any format-specific content pack runs: source inventory → founder voice → vault → research → raw brief → anchor draft → writer council → derivatives → release packet → learning loop. Setup command creates the full local folder surface in draft-only mode. Use when the operator says "set up my marketing pipeline", "I want to produce content regularly", "build a founder content system", or needs a repeatable content workflow for themselves or a client.
+description: >-
+  Turn founder context, source material and market signals into a safe content operating system that feeds social, blog, video and campaign lanes — without defaulting to AI slop. Produces the shared CMO substrate before any format-specific content pack runs: source inventory → founder voice → vault → research → raw brief → anchor draft → writer council → derivatives → release packet → learning loop. Setup command creates the full local folder surface in draft-only mode. Use when the operator says "set up my marketing pipeline", "I want to produce content regularly", "build a founder content system", or needs a repeatable content workflow for themselves or a client.
 linked_files:
   - references/folder-surface.md
 ---

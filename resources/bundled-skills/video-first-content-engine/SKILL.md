@@ -1,6 +1,7 @@
 ---
 name: video-first-content-engine
-description: Turn raw video capture into gated YouTube, clips, social posts and article packages — without public publishing in the first release slice. Produces local draft-only packages: intake → media preflight → transcript + segmentation → risk/claim safety classification → editorial packager → publisher dry-run. Setup command creates the full local drop-folder structure. Use when the operator says "set up a video content engine", "turn raw videos into YouTube clips posts and articles", "create a publish package from this recording", or wants to run a video-first content operation for themselves or a client.
+description: >-
+  Turn raw video capture into gated YouTube, clips, social posts and article packages — without public publishing in the first release slice. Produces local draft-only packages: intake → media preflight → transcript + segmentation → risk/claim safety classification → editorial packager → publisher dry-run. Setup command creates the full local drop-folder structure. Use when the operator says "set up a video content engine", "turn raw videos into YouTube clips posts and articles", "create a publish package from this recording", or wants to run a video-first content operation for themselves or a client.
 ---
 
 # Video-First Content Engine

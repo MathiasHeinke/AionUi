@@ -1,6 +1,7 @@
 ---
 name: blog-publishing-lane
-description: The human-gated publishing pipeline that takes approved content from content-machine (anchor drafts, derivatives, release packets) and distributes it through upload-post.com to blog, LinkedIn, X and newsletter channels. Produces: content audit → quality gate → Upload-Post payload → remote preflight → review queue → metrics harvest. NEVER publishes without explicit operator approval. Use when the operator says "publish this article", "schedule this post", "put this into the content calendar", "run the morning-after audit", or after content-machine or video-engine produced a release packet.
+description: >-
+  The human-gated publishing pipeline that takes approved content from content-machine (anchor drafts, derivatives, release packets) and distributes it through upload-post.com to blog, LinkedIn, X and newsletter channels. Produces: content audit → quality gate → Upload-Post payload → remote preflight → review queue → metrics harvest. NEVER publishes without explicit operator approval. Use when the operator says "publish this article", "schedule this post", "put this into the content calendar", "run the morning-after audit", or after content-machine or video-engine produced a release packet.
 ---
 
 # Blog Publishing Lane
