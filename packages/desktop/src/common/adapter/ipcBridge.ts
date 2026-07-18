@@ -107,6 +107,13 @@ import {
 } from './workspaceMapper';
 import { fromAvailableSkillsToBuiltinAutoSkills, type RawAvailableSkill } from './skillMapper';
 
+export type AcpConversationUsage = {
+  used: number;
+  size: number;
+  cost?: Record<string, unknown> | null;
+  _meta?: Record<string, unknown> | null;
+};
+
 // ---------------------------------------------------------------------------
 // Shell — routed to POST /api/shell/*
 // ---------------------------------------------------------------------------
@@ -244,6 +251,9 @@ export const conversation = {
   ),
   getSlashCommands: httpGet<AcpSlashCommandApiItem[], { conversation_id: string }>(
     (p) => `/api/conversations/${p.conversation_id}/slash-commands`
+  ),
+  getUsage: httpGet<AcpConversationUsage | null, { conversation_id: string }>(
+    (p) => `/api/conversations/${p.conversation_id}/usage`
   ),
   askSideQuestion: httpPost<ConversationSideQuestionResult, { conversation_id: string; question: string }>(
     (p) => `/api/conversations/${p.conversation_id}/side-question`,

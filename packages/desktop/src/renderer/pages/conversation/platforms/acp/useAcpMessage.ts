@@ -294,6 +294,21 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
     [addOrUpdateMessage]
   );
 
+  const applyContextUsage = useCallback((usage: { used: number; size: number } | null | undefined) => {
+    if (!usage || typeof usage.used !== 'number' || typeof usage.size !== 'number') return;
+
+    setTokenUsage({ total_tokens: usage.used });
+    if (usage.size > 0) {
+      setContextLimit(usage.size);
+    }
+    setRuntimeActivity((prev) => ({
+      ...prev,
+      contextUsed: usage.used,
+      contextSize: usage.size,
+      updatedAt: Date.now(),
+    }));
+  }, []);
+
   const mergeThinkingMessage = useCallback(
     (pending: IMessageThinking, incoming: IMessageThinking): IMessageThinking => {
       return {
@@ -487,6 +502,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           setRunning(true);
           runningRef.current = true;
           setRuntimeActivity((prev) => ({
+            ...prev,
             phase: 'submitting',
             backend: requestTraceRef.current?.backend ?? prev.backend,
             modelId: requestTraceRef.current?.model_id ?? prev.modelId,
@@ -513,14 +529,15 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
             // Log request completion
             if (requestTraceRef.current) {
               const duration = Date.now() - requestTraceRef.current.startTime;
-              setRuntimeActivity({
+              setRuntimeActivity((prev) => ({
+                ...prev,
                 phase: 'done',
                 backend: requestTraceRef.current.backend,
                 modelId: requestTraceRef.current.model_id,
                 startedAt: requestTraceRef.current.startTime,
                 updatedAt: Date.now(),
                 elapsedMs: duration,
-              });
+              }));
               console.log(
                 `%c[RequestTrace]%c FINISH | ${requestTraceRef.current.backend} → ${requestTraceRef.current.model_id} | ${duration}ms | ${new Date().toISOString()}`,
                 'color: #52c41a; font-weight: bold',
@@ -539,6 +556,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
             aiProcessingRef.current = false;
           }
           setRuntimeActivity((prev) => ({
+            ...prev,
             phase: 'streaming',
             backend: requestTraceRef.current?.backend ?? prev.backend,
             modelId: requestTraceRef.current?.model_id ?? prev.modelId,
@@ -569,6 +587,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           if (agentData?.status) {
             setAcpStatus(agentData.status);
             setRuntimeActivity((prev) => ({
+              ...prev,
               phase:
                 agentData.status === 'connecting'
                   ? 'connecting'
@@ -652,6 +671,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
             runningRef.current = true;
           }
           setRuntimeActivity((prev) => ({
+            ...prev,
             phase: activeToolName ? 'tool_wait' : 'streaming',
             backend: requestTraceRef.current?.backend ?? prev.backend,
             modelId: requestTraceRef.current?.model_id ?? prev.modelId,
@@ -724,19 +744,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           break;
         }
         case 'acp_context_usage': {
-          const usageData = message.data as { used: number; size: number };
-          if (usageData && typeof usageData.used === 'number') {
-            setTokenUsage({ total_tokens: usageData.used });
-            if (usageData.size > 0) {
-              setContextLimit(usageData.size);
-            }
-            setRuntimeActivity((prev) => ({
-              ...prev,
-              contextUsed: usageData.used,
-              contextSize: usageData.size,
-              updatedAt: Date.now(),
-            }));
-          }
+          applyContextUsage(message.data as { used: number; size: number });
           break;
         }
         case 'request_trace':
@@ -754,13 +762,14 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
             if (typeof trace.session_mode === 'string' && !hasLocalPermissionAuthorityRef.current) {
               permissionModeRef.current = trace.session_mode;
             }
-            setRuntimeActivity({
+            setRuntimeActivity((prev) => ({
+              ...prev,
               phase: 'thinking',
               backend: requestTraceRef.current.backend,
               modelId: requestTraceRef.current.model_id,
               startedAt: requestTraceRef.current.startTime,
               updatedAt: Date.now(),
-            });
+            }));
             console.log(
               `%c[RequestTrace]%c START | ${trace.backend} → ${trace.model_id} | ${new Date().toISOString()}`,
               'color: #1890ff; font-weight: bold',
@@ -798,7 +807,8 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           // Log request error
           if (requestTraceRef.current) {
             const duration = Date.now() - requestTraceRef.current.startTime;
-            setRuntimeActivity({
+            setRuntimeActivity((prev) => ({
+              ...prev,
               phase: 'error',
               backend: requestTraceRef.current.backend,
               modelId: requestTraceRef.current.model_id,
@@ -806,7 +816,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
               updatedAt: Date.now(),
               elapsedMs: duration,
               detail: typeof message.data === 'string' ? message.data : undefined,
-            });
+            }));
             console.log(
               `%c[RequestTrace]%c ERROR | ${requestTraceRef.current.backend} → ${requestTraceRef.current.model_id} | ${duration}ms | ${new Date().toISOString()}`,
               'color: #ff4d4f; font-weight: bold',
@@ -837,6 +847,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
       setRunning,
       setAiProcessing,
       setAcpStatus,
+      applyContextUsage,
       reportInferenceError,
     ]
   );
@@ -979,6 +990,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
           setAiProcessing(true);
           aiProcessingRef.current = true;
           setRuntimeActivity((prev) => ({
+            ...prev,
             phase: 'thinking',
             backend: prev.backend,
             modelId: prev.modelId,
@@ -1049,28 +1061,35 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
     let cancelled = false;
     void ipcBridge.conversation.warmup
       .invoke({ conversation_id })
-      .then(() => {
+      .then(async () => {
         if (cancelled) return;
-        return ipcBridge.conversation.getSlashCommands.invoke({ conversation_id });
+        const [commands, usage] = await Promise.all([
+          ipcBridge.conversation.getSlashCommands.invoke({ conversation_id }),
+          ipcBridge.conversation.getUsage.invoke({ conversation_id }),
+        ]);
+        return { commands, usage };
       })
       .then((result) => {
         if (cancelled) return;
-        if (!result || !Array.isArray(result) || result.length === 0) return;
-        setSlashCommands(
-          result.map((c) => ({
-            name: c.command,
-            description: c.description,
-            kind: 'template' as const,
-            source: 'acp' as const,
-            selectionBehavior: 'insert' as const,
-          }))
-        );
+        if (!result) return;
+        applyContextUsage(result.usage);
+        if (Array.isArray(result.commands) && result.commands.length > 0) {
+          setSlashCommands(
+            result.commands.map((c) => ({
+              name: c.command,
+              description: c.description,
+              kind: 'template' as const,
+              source: 'acp' as const,
+              selectionBehavior: 'insert' as const,
+            }))
+          );
+        }
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [conversation_id, options?.skipWarmup]);
+  }, [applyContextUsage, conversation_id, options?.skipWarmup]);
 
   const resetState = useCallback(() => {
     turnFinishedRef.current = true;
@@ -1080,6 +1099,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
     aiProcessingRef.current = false;
     setThought({ subject: '', description: '' });
     setRuntimeActivity((prev) => ({
+      ...prev,
       phase: 'idle',
       backend: prev.backend,
       modelId: prev.modelId,

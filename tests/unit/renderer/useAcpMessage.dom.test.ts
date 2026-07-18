@@ -23,6 +23,7 @@ const {
   responseStreamOnMock,
   responseStreamHandlerRef,
   conversationGetInvokeMock,
+  conversationGetUsageInvokeMock,
   confirmMessageInvokeMock,
   reportInferenceErrorMock,
 } = vi.hoisted(() => ({
@@ -32,6 +33,7 @@ const {
     current: undefined as ((message: IResponseMessage) => void) | undefined,
   },
   conversationGetInvokeMock: vi.fn(),
+  conversationGetUsageInvokeMock: vi.fn().mockResolvedValue(null),
   confirmMessageInvokeMock: vi.fn(),
   // Default: NO quota/cap signal recognized → the error path renders the cold bubble
   // exactly as before. Tests flip this to true to exercise the suppression (M-quotawall).
@@ -81,6 +83,9 @@ vi.mock('@/common', () => ({
       },
       getSlashCommands: {
         invoke: vi.fn().mockResolvedValue([]),
+      },
+      getUsage: {
+        invoke: conversationGetUsageInvokeMock,
       },
     },
   },
@@ -163,6 +168,40 @@ describe('useAcpMessage', () => {
 
     expect(responseStreamOnMock).toHaveBeenCalledTimes(1);
     expect(addOrUpdateMessageMock).toHaveBeenCalled();
+  });
+
+  it('hydrates ACP usage after warmup and preserves it through the turn lifecycle', async () => {
+    conversationGetInvokeMock.mockResolvedValue({
+      id: 'conv-1',
+      type: 'acp',
+      status: 'finished',
+      extra: { backend: 'hermes' },
+    });
+    conversationGetUsageInvokeMock.mockResolvedValue({ used: 42_000, size: 65_536 });
+
+    const { result } = renderHook(() => useAcpMessage('conv-1'));
+
+    await waitFor(() => {
+      expect(result.current.runtimeActivity.contextUsed).toBe(42_000);
+      expect(result.current.runtimeActivity.contextSize).toBe(65_536);
+    });
+
+    for (const message of [
+      { type: 'start', data: null },
+      { type: 'text', data: 'Working' },
+      { type: 'finish', data: null },
+    ] as const) {
+      act(() => {
+        responseStreamHandlerRef.current?.({
+          ...message,
+          msg_id: 'msg-usage',
+          conversation_id: 'conv-1',
+        });
+      });
+    }
+
+    expect(result.current.runtimeActivity.contextUsed).toBe(42_000);
+    expect(result.current.runtimeActivity.contextSize).toBe(65_536);
   });
 
   describe('ACP stream watchdog', () => {
