@@ -160,8 +160,8 @@ const EgressRedactionTogglePill: React.FC = () => {
                 background: 'var(--glass-overlay-bg)',
                 borderColor: 'var(--glass-overlay-border)',
                 boxShadow: 'var(--glass-shadow-soft)',
-                WebkitBackdropFilter: 'blur(18px) saturate(132%)',
-                backdropFilter: 'blur(18px) saturate(132%)',
+                WebkitBackdropFilter: 'var(--glass-overlay-filter)',
+                backdropFilter: 'var(--glass-overlay-filter)',
               }}
             >
               <div className='mb-8px text-t-secondary'>

@@ -76,7 +76,7 @@ describe('SeatRail', () => {
     mockAccess();
     const { container } = render(<SeatRail />);
     expect(screen.getByTestId('seat-rail')).toBeTruthy();
-    expect(screen.getByTestId('seat-rail-brand').textContent).toBe('⌘');
+    expect(screen.getByTestId('seat-rail-brand').querySelector('[data-testid="command-eve-glyph"]')).toBeTruthy();
     expect(container.querySelector('img')).toBeNull();
     expect(screen.getByTestId('seat-rail-seat-s1')).toBeTruthy();
     expect(screen.getByTestId('seat-rail-seat-s2')).toBeTruthy();

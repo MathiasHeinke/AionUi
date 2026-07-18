@@ -210,6 +210,21 @@ test('findSkillHygieneFailures requires disable_model_invocation for long-tail s
   assert.deepEqual(findSkillHygieneFailures({ skillId: 'lead-magnet-pdf', text: present }), []);
 });
 
+test('findSkillHygieneFailures accepts folded YAML descriptions and linked files', () => {
+  const folded = [
+    '---',
+    'name: content-machine',
+    'description: >-',
+    '  Build a content system safely. Use when the operator needs a repeatable workflow.',
+    'linked_files:',
+    '  - references/contract.md',
+    '---',
+    '# Content Machine',
+  ].join('\n');
+
+  assert.deepEqual(findSkillHygieneFailures({ skillId: 'content-machine', text: folded }), []);
+});
+
 test('findSkillHygieneFailures rejects duplicated EVE doctrine surfaces and missing linked files', () => {
   const duplicated = [
     '---',

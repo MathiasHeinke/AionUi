@@ -246,9 +246,26 @@ function leadingFrontmatter(text) {
 }
 
 function frontmatterScalar(frontmatter, key) {
-  const re = new RegExp(`^${key}:\\s*(.+)$`, 'im');
-  const match = frontmatter.match(re);
-  return match ? match[1].trim().replace(/^['"]|['"]$/g, '') : '';
+  const lines = String(frontmatter || '').split('\n');
+  const keyPattern = new RegExp(`^${key}:\\s*(.*)$`, 'i');
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(keyPattern);
+    if (!match) continue;
+
+    const inline = match[1].trim();
+    if (!/^[>|][+-]?$/.test(inline)) {
+      return inline.replace(/^['"]|['"]$/g, '');
+    }
+
+    const block = [];
+    for (let blockIndex = index + 1; blockIndex < lines.length; blockIndex += 1) {
+      const line = lines[blockIndex];
+      if (line.trim() && !/^\s/.test(line)) break;
+      block.push(line.trim());
+    }
+    return inline.startsWith('>') ? block.join(' ').trim() : block.join('\n').trim();
+  }
+  return '';
 }
 
 function frontmatterLinkedFiles(frontmatter) {
