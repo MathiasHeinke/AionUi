@@ -7,9 +7,10 @@ import { useConfig } from '@/renderer/hooks/config/useConfig';
 import { useIsDevMode } from '@/renderer/hooks/useIsDevMode';
 import { resolveEffectiveContextLimit } from '@/renderer/utils/model/modelContextLimits';
 import { Button, Message, Tooltip } from '@arco-design/web-react';
-import { Loading, Time } from '@icon-park/react';
+import { Shield, Time } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { EgressBoundaryStatus } from './EgressBoundaryNotice';
 import type { AcpRuntimeActivity, AcpRuntimeActivityPhase } from './useAcpMessage';
 
 const ACTIVE_PHASES = new Set<AcpRuntimeActivityPhase>([
@@ -63,7 +64,8 @@ const AcpRuntimeStatus: React.FC<{
   running: boolean;
   aiProcessing: boolean;
   backend?: string;
-}> = ({ activity, running, aiProcessing, backend }) => {
+  egressBoundary?: EgressBoundaryStatus | null;
+}> = ({ activity, running, aiProcessing, backend, egressBoundary }) => {
   const { t } = useTranslation();
   // Operators see a redacted lifecycle line while work is active. Dev mode adds
   // lane/context/log details, but raw backend and model identifiers never become
@@ -103,7 +105,14 @@ const AcpRuntimeStatus: React.FC<{
     });
   }, [activity.phase, isActive, t]);
 
-  const showOperatorStatus = isActive || activity.phase === 'error';
+  const egressDecision = egressBoundary?.decision;
+  const egressLabel =
+    egressDecision === 'block'
+      ? t('conversation.runtimeStatus.egress.blockedCompact', { defaultValue: 'Sensible Daten blockiert' })
+      : egressDecision === 'redact'
+        ? t('conversation.runtimeStatus.egress.redactedCompact', { defaultValue: 'Sensible Daten bereinigt' })
+        : null;
+  const showOperatorStatus = isActive || activity.phase === 'error' || Boolean(egressLabel);
   if (!isVisible || (!isDevMode && !showOperatorStatus)) return null;
 
   const elapsedMs = activity.startedAt && isActive ? now - activity.startedAt : activity.elapsedMs;
@@ -115,15 +124,17 @@ const AcpRuntimeStatus: React.FC<{
   // fail-closed by the send boundary, but it loads asynchronously and must not
   // make an active EVE cloud turn flicker back to Hermes' local 64k telemetry.
   const cloudSelectionActive = isEveConversation && isEveInferenceSelection(eveInference.selection);
+  const selectedLaneKnown = isEveConversation && Boolean(eveInference.selectedItem);
   const effectiveModelId = cloudSelectionActive ? eveInference.selection : activity.modelId;
   const isLocalLane = isEveConversation
     ? !cloudSelectionActive
     : /^custom:|gemma|command-eve/i.test(activity.modelId ?? '');
-  const laneLabel = activity.modelId
-    ? isLocalLane
-      ? t('conversation.runtimeStatus.laneLocal', { defaultValue: 'lokal' })
-      : t('conversation.runtimeStatus.laneCloud', { defaultValue: 'Cloud' })
-    : t('conversation.runtimeStatus.modelUnknown');
+  const laneLabel =
+    activity.modelId || selectedLaneKnown
+      ? isLocalLane
+        ? t('conversation.runtimeStatus.laneLocal', { defaultValue: 'lokal' })
+        : t('conversation.runtimeStatus.laneCloud', { defaultValue: 'Cloud' })
+      : t('conversation.runtimeStatus.modelUnknown');
   const hasContextUsage = typeof activity.contextUsed === 'number' && typeof activity.contextSize === 'number';
   const effectiveContextSize = hasContextUsage
     ? resolveEffectiveContextLimit(effectiveModelId, activity.contextSize)
@@ -144,9 +155,6 @@ const AcpRuntimeStatus: React.FC<{
         <span
           className={`h-8px w-8px rd-50% shrink-0 ${statusDotClass[activity.phase]} ${isActive ? 'animate-pulse' : ''} ${activity.phase === 'thinking' || activity.phase === 'streaming' ? 'acp-runtime-status__dot--active' : ''}`}
         />
-        {isActive ? (
-          <Loading theme='outline' size='14' className='animate-spin shrink-0 acp-runtime-status__spinner--active' />
-        ) : null}
         <span className='font-500 text-t-primary'>{phaseLabel}</span>
         {isDevMode ? <span className='truncate'>EVE · {laneLabel}</span> : null}
         {elapsedMs !== undefined ? (
@@ -172,6 +180,39 @@ const AcpRuntimeStatus: React.FC<{
           <span className='acp-runtime-status__notice' title={activity.detail}>
             {t('conversation.runtimeStatus.toolDetail', { tool: activity.detail })}
           </span>
+        ) : null}
+        {egressLabel ? (
+          <Tooltip
+            content={[
+              egressLabel,
+              t('conversation.runtimeStatus.egress.findingCount', {
+                count: egressBoundary?.finding_count ?? 0,
+                defaultValue: '{{count}} Treffer',
+              }),
+              egressBoundary?.observed_at
+                ? new Date(egressBoundary.observed_at).toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })
+                : null,
+              t('conversation.runtimeStatus.egress.compactHint', {
+                defaultValue: 'Originalwerte werden nicht angezeigt.',
+              }),
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          >
+            <span
+              className={`acp-runtime-status__privacy ${egressDecision === 'block' ? 'text-danger-6' : ''}`}
+              data-testid='acp-runtime-egress-receipt'
+            >
+              <Shield theme='outline' size='12' />
+              <span>{egressLabel}</span>
+              <span aria-label={t('conversation.runtimeStatus.egress.findings', { defaultValue: 'Treffer' })}>
+                {egressBoundary?.finding_count ?? 0}
+              </span>
+            </span>
+          </Tooltip>
         ) : null}
       </div>
       {isDevMode ? (

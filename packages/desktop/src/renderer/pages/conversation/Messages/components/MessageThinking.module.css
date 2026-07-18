@@ -62,7 +62,10 @@
   padding: 10px 14px;
   margin-top: 6px;
   margin-left: 20px;
-  background: var(--eve-row-hover-bg);
+  background: var(--eve-message-surface-bg);
+  border: 1px solid var(--eve-message-surface-border);
+  -webkit-backdrop-filter: var(--eve-message-surface-filter);
+  backdrop-filter: var(--eve-message-surface-filter);
   border-radius: 8px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -70,7 +73,7 @@
 }
 
 :global([data-theme='dark']) .body {
-  background: var(--eve-row-hover-bg);
+  background: var(--eve-message-surface-bg);
 }
 
 .collapsed {

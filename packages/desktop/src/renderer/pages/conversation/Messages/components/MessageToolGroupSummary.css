@@ -99,12 +99,15 @@
   padding: 10px 14px;
   margin-top: 6px;
   margin-left: 20px;
-  background: var(--eve-row-hover-bg);
+  background: var(--eve-message-surface-bg);
+  border: 1px solid var(--eve-message-surface-border);
   border-radius: 8px;
+  -webkit-backdrop-filter: var(--eve-message-surface-filter);
+  backdrop-filter: var(--eve-message-surface-filter);
 }
 
 [data-theme='dark'] .tool-group-summary__body {
-  background: var(--eve-row-hover-bg);
+  background: var(--eve-message-surface-bg);
 }
 
 .tool-detail-panel {
@@ -128,8 +131,8 @@
   font-size: 12px;
   line-height: 1.5;
   color: var(--color-text-2, #4e5969);
-  background: var(--glass-panel-bg, var(--color-fill-1, #f7f8fa));
-  border: 1px solid var(--glass-panel-border, var(--color-border-2));
+  background: var(--eve-message-surface-bg);
+  border: 1px solid var(--eve-message-surface-border);
   border-radius: 4px;
   padding: 6px 8px;
   margin: 0;

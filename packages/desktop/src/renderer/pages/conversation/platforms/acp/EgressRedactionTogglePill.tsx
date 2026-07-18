@@ -6,7 +6,8 @@
 
 import { useConfig } from '@/renderer/hooks/config/useConfig';
 import { Shield } from '@icon-park/react';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 
 /**
@@ -32,13 +33,67 @@ const EgressRedactionTogglePill: React.FC = () => {
   const redactionDisabled = egressRedactionMode === 'off';
   const [confirming, setConfirming] = useState(false);
   const rootRef = useRef<HTMLSpanElement>(null);
+  const confirmationRef = useRef<HTMLDivElement>(null);
+  const [confirmationStyle, setConfirmationStyle] = useState<React.CSSProperties>({
+    position: 'fixed',
+    visibility: 'hidden',
+    zIndex: 1200,
+  });
+
+  const positionConfirmation = useCallback(() => {
+    const anchor = rootRef.current;
+    if (!anchor) return;
+
+    const anchorRect = anchor.getBoundingClientRect();
+    const viewportPadding = 12;
+    const gap = 6;
+    const width = Math.min(260, Math.max(220, window.innerWidth - viewportPadding * 2));
+    const measuredHeight = confirmationRef.current?.offsetHeight ?? 0;
+    const left = Math.max(
+      viewportPadding,
+      Math.min(anchorRect.right - width, window.innerWidth - width - viewportPadding)
+    );
+    const below = anchorRect.bottom + gap;
+    const top =
+      measuredHeight > 0 && below + measuredHeight > window.innerHeight - viewportPadding
+        ? Math.max(viewportPadding, anchorRect.top - measuredHeight - gap)
+        : below;
+
+    setConfirmationStyle({
+      boxSizing: 'border-box',
+      position: 'fixed',
+      top,
+      left,
+      width,
+      visibility: 'visible',
+      zIndex: 1200,
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!confirming) return;
+    positionConfirmation();
+    const frame = window.requestAnimationFrame(positionConfirmation);
+    return () => window.cancelAnimationFrame(frame);
+  }, [confirming, positionConfirmation]);
+
+  useEffect(() => {
+    if (!confirming) return;
+    window.addEventListener('resize', positionConfirmation);
+    window.addEventListener('scroll', positionConfirmation, true);
+    return () => {
+      window.removeEventListener('resize', positionConfirmation);
+      window.removeEventListener('scroll', positionConfirmation, true);
+    };
+  }, [confirming, positionConfirmation]);
 
   // Dismiss the confirm popover on outside-click / Escape (founder 2026-07-05:
   // it previously stayed open when clicking elsewhere).
   useEffect(() => {
     if (!confirming) return;
     const onDown = (event: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setConfirming(false);
+      const target = event.target as Node;
+      if (!rootRef.current?.contains(target) && !confirmationRef.current?.contains(target)) setConfirming(false);
     };
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setConfirming(false);
@@ -93,32 +148,48 @@ const EgressRedactionTogglePill: React.FC = () => {
         <Shield theme='outline' size='12' />
         <span>{t('conversation.runtimeStatus.egress.pillOn', { defaultValue: 'Datenschutz an' })}</span>
       </button>
-      {confirming ? (
-        <div className='absolute right-0 top-[calc(100%+6px)] z-10 w-260px rd-12px border border-solid border-border-2 bg-fill-1 p-12px text-12px shadow-md'>
-          <div className='mb-8px text-t-secondary'>
-            {t('conversation.runtimeStatus.egress.pillConfirm', {
-              defaultValue:
-                'PII-Schutz für diesen Seat ausschalten? Sensible Daten (Adresse, IBAN, Gesundheit, Finanzen) gehen dann unredigiert ans Modell.',
-            })}
-          </div>
-          <div className='flex justify-end gap-8px'>
-            <button
-              type='button'
-              onClick={() => setConfirming(false)}
-              className='rd-8px border border-solid border-border-2 bg-transparent px-10px py-4px text-t-secondary cursor-pointer hover:bg-fill-2'
+      {confirming && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              ref={confirmationRef}
+              data-testid='egress-redaction-confirmation'
+              className='rd-12px border border-solid p-12px text-12px'
+              style={{
+                ...confirmationStyle,
+                boxSizing: 'border-box',
+                background: 'var(--glass-overlay-bg)',
+                borderColor: 'var(--glass-overlay-border)',
+                boxShadow: 'var(--glass-shadow-soft)',
+                WebkitBackdropFilter: 'blur(18px) saturate(132%)',
+                backdropFilter: 'blur(18px) saturate(132%)',
+              }}
             >
-              {t('common.cancel', { defaultValue: 'Abbrechen' })}
-            </button>
-            <button
-              type='button'
-              onClick={turnOff}
-              className='rd-8px border-none bg-warning-6 px-10px py-4px text-white cursor-pointer hover:bg-warning-5'
-            >
-              {t('conversation.runtimeStatus.egress.pillConfirmOff', { defaultValue: 'Ausschalten' })}
-            </button>
-          </div>
-        </div>
-      ) : null}
+              <div className='mb-8px text-t-secondary'>
+                {t('conversation.runtimeStatus.egress.pillConfirm', {
+                  defaultValue:
+                    'PII-Schutz für diesen Seat ausschalten? Sensible Daten (Adresse, IBAN, Gesundheit, Finanzen) gehen dann unredigiert ans Modell.',
+                })}
+              </div>
+              <div className='flex justify-end gap-8px'>
+                <button
+                  type='button'
+                  onClick={() => setConfirming(false)}
+                  className='rd-8px border border-solid border-border-2 bg-transparent px-10px py-4px text-t-secondary cursor-pointer hover:bg-fill-2'
+                >
+                  {t('common.cancel', { defaultValue: 'Abbrechen' })}
+                </button>
+                <button
+                  type='button'
+                  onClick={turnOff}
+                  className='rd-8px border-none bg-warning-6 px-10px py-4px text-white cursor-pointer hover:bg-warning-5'
+                >
+                  {t('conversation.runtimeStatus.egress.pillConfirmOff', { defaultValue: 'Ausschalten' })}
+                </button>
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
     </span>
   );
 };

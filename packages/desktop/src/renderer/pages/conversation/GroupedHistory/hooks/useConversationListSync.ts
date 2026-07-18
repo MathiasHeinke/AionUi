@@ -441,7 +441,10 @@ const initializeConversationListSyncStore = () => {
         // (unless the user is already looking at this conversation).
         markError(conversation_id);
       }
-      if (wasGenerating && activeConversationIdState !== conversation_id) {
+      if (wasGenerating) {
+        // Keep a visible completion receipt even when the operator is already
+        // inside this conversation. It is cleared by the next explicit open,
+        // while a fresh turn temporarily replaces it with the running state.
         markCompletionUnread(conversation_id);
       }
       clearGenerating(conversation_id);
@@ -471,14 +474,16 @@ const initializeConversationListSyncStore = () => {
   });
   ipcBridge.conversation.turnCompleted.on((event) => {
     const isUnseen = activeConversationIdState !== event.session_id;
-    if (isTerminalTurnState(event.state) && isUnseen) {
+    if (isTerminalTurnState(event.state)) {
       markCompletionUnread(event.session_id);
       // Split the terminal turn states into their semantic resting flags:
       //   ai_waiting_input → attention (EVE is waiting on the user)
       //   error / stopped  → error     (the turn failed / was interrupted)
-      if (event.state === 'ai_waiting_input') {
+      // Attention/error remain unread-only so an already visible failure does
+      // not masquerade as a new background notification.
+      if (isUnseen && event.state === 'ai_waiting_input') {
         markAttention(event.session_id);
-      } else if (event.state === 'error' || event.state === 'stopped') {
+      } else if (isUnseen && (event.state === 'error' || event.state === 'stopped')) {
         markError(event.session_id);
       }
     }

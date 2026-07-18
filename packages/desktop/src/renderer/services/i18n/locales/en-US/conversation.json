@@ -635,6 +635,11 @@
     "egress": {
       "blocked": "EVE blocked sensitive data before model egress ({{count}} finding(s)).",
       "redacted": "EVE redacted sensitive data before model egress ({{count}} finding(s)).",
+      "blockedCompact": "Sensitive data blocked",
+      "redactedCompact": "Sensitive data redacted",
+      "findingCount": "{{count}} finding(s)",
+      "findings": "Findings",
+      "compactHint": "Original values are not shown.",
       "clear": "Last model call had no sensitive findings.",
       "disabled": "PII protection off",
       "disabledFootnote": "* Privacy off",

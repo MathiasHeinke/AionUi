@@ -24,7 +24,7 @@ import DailyCapWall from '@renderer/components/billing/DailyCapWall';
 import React from 'react';
 import AcpE2EStreamInjector from './AcpE2EStreamInjector';
 import AcpRuntimeStatus from './AcpRuntimeStatus';
-import EgressBoundaryNotice from './EgressBoundaryNotice';
+import { useEgressBoundaryStatus } from './EgressBoundaryNotice';
 import AcpSendBox from './AcpSendBox';
 import { useAcpMessage } from './useAcpMessage';
 
@@ -72,6 +72,7 @@ const AcpChat: React.FC<{
   // hydration/listener effects already owned by the sendbox runtime hook.
   const runtimeView = useConversationRuntimeSnapshot(conversation_id);
   const isPreparingDocument = useConversationDocumentPreparation(conversation_id);
+  const egressBoundary = useEgressBoundaryStatus(messageState.running || messageState.aiProcessing);
 
   return (
     <ConversationProvider
@@ -104,11 +105,6 @@ const AcpChat: React.FC<{
             />
           </FlexFullContainer>
           <AcpE2EStreamInjector conversationId={conversation_id} />
-          {/* DSGVO egress notice — PRODUCTION-VISIBLE for all users: when EVE redacts
-              or blocks sensitive data before model egress the operator SEES "EVE redacted
-              N finding(s)" instead of it happening silently. Gated only by the operator
-              off-switch (commandEve.egressStatusVisible), never by dev mode. */}
-          <EgressBoundaryNotice active={messageState.running || messageState.aiProcessing} />
           {/* Lane-3 402 quota-exhausted wall — fed by the LIVE stream-error path
               in useAcpMessage. The wall idle-suppresses itself: it renders only
               when a turn was in-flight AND a 402 quota_exhausted body arrived. */}
@@ -145,6 +141,7 @@ const AcpChat: React.FC<{
             running={messageState.running}
             aiProcessing={messageState.aiProcessing}
             backend={backend}
+            egressBoundary={egressBoundary}
           />
         </div>
       </ConversationArtifactProvider>

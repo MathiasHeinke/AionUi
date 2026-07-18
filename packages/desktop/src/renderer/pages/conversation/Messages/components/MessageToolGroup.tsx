@@ -568,7 +568,7 @@ const MessageToolGroup: React.FC<IMessageToolGroupProps> = ({ message }) => {
         return (
           <div key={call_id}>
             <Alert
-              className={ALERT_CLASSES}
+              className={`${ALERT_CLASSES} eve-message-tool-alert`}
               type={
                 status === 'Error'
                   ? 'error'

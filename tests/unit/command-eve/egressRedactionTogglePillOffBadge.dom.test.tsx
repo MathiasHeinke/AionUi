@@ -79,6 +79,17 @@ describe('EgressRedactionTogglePill — persistent "Datenschutz aus" waiver badg
     expect(screen.queryByText(/PII-Schutz für diesen Seat ausschalten/)).toBeNull();
   });
 
+  it('portals the confirmation above clipped chat chrome', () => {
+    configValues.set('commandEve.egressRedactionMode', 'on');
+    render(<EgressRedactionTogglePill />);
+    fireEvent.click(screen.getByText('Datenschutz an'));
+
+    const confirmation = screen.getByTestId('egress-redaction-confirmation');
+    expect(confirmation.parentElement).toBe(document.body);
+    expect(confirmation.style.position).toBe('fixed');
+    expect(Number(confirmation.style.zIndex)).toBeGreaterThanOrEqual(1000);
+  });
+
   it('dismisses the disable-confirm popover on Escape (1.7.1 polish)', () => {
     configValues.set('commandEve.egressRedactionMode', 'on');
     render(<EgressRedactionTogglePill />);

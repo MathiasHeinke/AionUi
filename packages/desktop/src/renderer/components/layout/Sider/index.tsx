@@ -199,15 +199,15 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
   };
 
   return (
-    <div className='size-full flex flex-col'>
+    <div className='size-full min-w-0 max-w-full flex flex-col overflow-x-hidden'>
       {/* Main content area */}
-      <div className='flex-1 min-h-0 overflow-hidden'>
+      <div className='flex-1 min-h-0 min-w-0 max-w-full overflow-hidden'>
         {isSettings ? (
           <Suspense fallback={<div className='size-full' />}>
             <SettingsSider collapsed={collapsed} tooltipEnabled={tooltipEnabled} />
           </Suspense>
         ) : (
-          <div className='size-full flex flex-col gap-2px'>
+          <div className='size-full min-w-0 max-w-full flex flex-col gap-2px overflow-x-hidden'>
             <SiderToolbar
               isMobile={isMobile}
               isBatchMode={isBatchMode}
@@ -257,7 +257,12 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               )}
             />
             {/* Scrollable content: pinned → team/cron (slot) → projects → conversations */}
-            <div className={classNames('flex-1 min-h-0 overflow-y-auto', siderStyles.scrollArea)}>
+            <div
+              className={classNames(
+                'flex-1 min-h-0 min-w-0 max-w-full overflow-y-auto overflow-x-hidden',
+                siderStyles.scrollArea
+              )}
+            >
               <Suspense fallback={<div className='min-h-200px' />}>
                 <WorkspaceGroupedHistory
                   {...workspaceHistoryProps}

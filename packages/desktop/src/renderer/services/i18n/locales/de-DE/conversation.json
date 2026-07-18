@@ -611,6 +611,11 @@
     "egress": {
       "blocked": "EVE hat sensible Daten vor dem Modell blockiert ({{count}} Treffer).",
       "redacted": "EVE hat sensible Daten vor dem Modell bereinigt ({{count}} Treffer).",
+      "blockedCompact": "Sensible Daten blockiert",
+      "redactedCompact": "Sensible Daten bereinigt",
+      "findingCount": "{{count}} Treffer",
+      "findings": "Treffer",
+      "compactHint": "Originalwerte werden nicht angezeigt.",
       "clear": "Letzter Modellaufruf ohne sensible Treffer.",
       "disabled": "PII-Schutz aus",
       "disabledFootnote": "* Datenschutz aus",

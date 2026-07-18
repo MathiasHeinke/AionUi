@@ -247,7 +247,8 @@ test.describe('Command EVE fresh PDF recovery', () => {
       await goToConversation(page, conversationId);
 
       await expect.poll(() => sendAccepted, { timeout: 30_000 }).toBe(true);
-      await expect(page.getByTestId('message-list-skeleton')).toBeVisible();
+      // The running-state skeleton is intentionally transient and may already
+      // be gone by the time the mocked durable result is observed.
       await expect(page.getByText(/EVEs Übergabenotiz/i)).toHaveCount(0);
 
       expect(capturedSendBody?.content).toContain(prompt);

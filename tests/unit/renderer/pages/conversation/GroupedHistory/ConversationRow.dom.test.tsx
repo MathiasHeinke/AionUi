@@ -127,6 +127,14 @@ describe('ConversationRow archive UI', () => {
     expect(screen.getByTestId('session-status-dot').getAttribute('data-status')).toBe('error');
   });
 
+  it('shows a completed receipt as a circular done dot', () => {
+    renderRow({ selected: true, hasCompletionUnread: true });
+
+    const status = screen.getByTestId('session-status-dot');
+    expect(status.getAttribute('data-shape')).toBe('circle');
+    expect(status.getAttribute('data-status')).toBe('done');
+  });
+
   it('uses a native primary action and keeps the menu a separate button', () => {
     const onConversationClick = vi.fn();
     renderRow({ onConversationClick });

@@ -55,6 +55,18 @@
   --glass-edge-highlight: color-mix(in srgb, #ffffff 64%, transparent);
   --glass-shadow-soft: 0 16px 36px color-mix(in srgb, #0f172a 12%, transparent);
 
+  /* One translucency contract for prose, thoughts and tool details. Semantic
+     accents may change, but chat blocks must not jump between opaque tiers. */
+  --eve-message-surface-opacity: 68%;
+  --eve-message-surface-bg: color-mix(
+    in srgb,
+    var(--eve-shell-surface) var(--eve-message-surface-opacity),
+    transparent
+  );
+  --eve-message-user-bg: color-mix(in srgb, var(--eve-brand-logo) 8%, var(--eve-message-surface-bg));
+  --eve-message-surface-border: color-mix(in srgb, var(--glass-panel-border) 78%, transparent);
+  --eve-message-surface-filter: blur(10px) saturate(116%);
+
   /* Rows and focus */
   --eve-row-surface: transparent;
   --eve-row-hover-bg: color-mix(in srgb, var(--eve-shell-text) 5%, transparent);
@@ -183,6 +195,7 @@
   --eve-glass-reading-opacity: 72.24%;
   --eve-glass-panel-opacity: 77%;
   --eve-glass-overlay-opacity: 84%;
+  --eve-message-surface-opacity: 68%;
 
   --glass-chrome-border: color-mix(in srgb, #ffffff 10%, transparent);
   --glass-panel-border: color-mix(in srgb, #ffffff 9%, transparent);
@@ -203,6 +216,19 @@
   --eve-composer-border: color-mix(in srgb, #ffffff 13%, transparent);
   --eve-spotlight-max: var(--eve-spotlight-opacity-dark);
   --eve-bg-image-scrim: color-mix(in srgb, #101214 68%, transparent);
+}
+
+.eve-message-surface,
+.eve-message-tool-card.arco-card,
+.eve-message-tool-alert.arco-alert {
+  background: var(--eve-message-surface-bg) !important;
+  border-color: var(--eve-message-surface-border) !important;
+  -webkit-backdrop-filter: var(--eve-message-surface-filter);
+  backdrop-filter: var(--eve-message-surface-filter);
+}
+
+.eve-message-tool-card.arco-card {
+  box-shadow: inset 0 1px 0 var(--glass-edge-highlight);
 }
 
 /* Transparent EVE identity. The square packaged-app asset never belongs here. */
@@ -2072,14 +2098,21 @@
   box-shadow: 0 0 8px color-mix(in srgb, var(--eve-brand-logo) 34%, transparent);
 }
 
-.acp-runtime-status__spinner--active {
-  color: var(--eve-brand-logo) !important;
-}
-
 .acp-runtime-status__notice {
   min-width: 0;
   overflow: hidden;
   color: var(--eve-shell-text-tertiary, var(--color-text-3));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.acp-runtime-status__privacy {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  color: var(--eve-brand-logo);
   text-overflow: ellipsis;
   white-space: nowrap;
 }

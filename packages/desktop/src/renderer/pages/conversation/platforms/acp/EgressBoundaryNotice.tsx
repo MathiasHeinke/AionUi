@@ -6,11 +6,9 @@
 
 import { ipcBridge } from '@/common';
 import { useConfig } from '@/renderer/hooks/config/useConfig';
-import { Shield } from '@icon-park/react';
 import React, { useEffect, useState } from 'react';
-import { useTranslation } from 'react-i18next';
 
-type EgressBoundaryStatus = {
+export type EgressBoundaryStatus = {
   decision?: string;
   observed_at?: string;
   finding_count?: number;
@@ -19,18 +17,11 @@ type EgressBoundaryStatus = {
 };
 
 /**
- * EgressBoundaryNotice — the DSGVO data-boundary signal, extracted out of
- * AcpRuntimeStatus; both surfaces remain independently gated and this notice is
- * never replaced by the redacted runtime lifecycle line.
- *
- * It surfaces ONLY a REAL action EVE took on outbound text (it redacted or blocked a
- * detected secret before model egress). We deliberately DO NOT render an "all clear"
- * line — that would assert a guarantee we can't prove (founder 2026-06-26). It is a
- * security/compliance signal for ALL users (operators + founders), gated ONLY by the
- * operator off-switch `commandEve.egressStatusVisible`, NEVER by dev mode.
+ * Poll the real egress receipt without creating another chat surface. The compact,
+ * operator-safe receipt is rendered by AcpRuntimeStatus in the existing footer row.
+ * Raw values and receipt paths never enter the DOM.
  */
-const EgressBoundaryNotice: React.FC<{ active?: boolean }> = ({ active = false }) => {
-  const { t } = useTranslation();
+export const useEgressBoundaryStatus = (active = false): EgressBoundaryStatus | null => {
   const [egressVisibleSetting] = useConfig('commandEve.egressStatusVisible');
   const egressVisible = egressVisibleSetting ?? true;
   // NOTE: the persistent "Datenschutz aus" control-waiver indicator moved to the
@@ -72,35 +63,5 @@ const EgressBoundaryNotice: React.FC<{ active?: boolean }> = ({ active = false }
     };
   }, [egressVisible, active]);
 
-  const egressDecision = egressBoundary?.decision;
-  const egressLabel =
-    egressDecision === 'block'
-      ? t('conversation.runtimeStatus.egress.blocked', { count: egressBoundary?.finding_count ?? 0 })
-      : egressDecision === 'redact'
-        ? t('conversation.runtimeStatus.egress.redacted', { count: egressBoundary?.finding_count ?? 0 })
-        : null;
-
-  // Only the ACTION strip is gated by the display toggle; the off-badge is not.
-  const actionStrip =
-    egressVisible && egressLabel ? (
-      <div
-        className={`mb-8px flex items-center gap-6px px-12px py-6px rd-12px border border-solid border-border-2 bg-fill-1 text-12px ${
-          egressDecision === 'block' ? 'text-danger-6' : 'text-warning-6'
-        }`}
-      >
-        <Shield theme='outline' size='13' />
-        <span>{egressLabel}</span>
-        {egressBoundary?.observed_at ? (
-          <span className='text-t-tertiary'>
-            {new Date(egressBoundary.observed_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </span>
-        ) : null}
-      </div>
-    ) : null;
-
-  if (!actionStrip) return null;
-
-  return <>{actionStrip}</>;
+  return egressVisible ? egressBoundary : null;
 };
-
-export default EgressBoundaryNotice;
