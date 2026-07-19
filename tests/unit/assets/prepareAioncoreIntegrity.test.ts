@@ -1,11 +1,20 @@
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-const { resolveExpectedAioncoreSha256, resolveLocalAioncoreSource, verifyAioncoreCliContract, verifyFileSha256 } =
-  require('../../../packages/shared-scripts/src/prepare-aioncore.js') as {
+const {
+  resolveAioncoreArtifactProvenance,
+  resolveExpectedAioncoreSha256,
+  resolveLocalAioncoreSource,
+  verifyAioncoreCliContract,
+  verifyFileSha256,
+} = require('../../../packages/shared-scripts/src/prepare-aioncore.js') as {
+    resolveAioncoreArtifactProvenance: (
+      projectRoot: string,
+      runtimeKey: string
+    ) => { kind: string; repository: string; commit: string; tag?: string; sha256: string };
     resolveExpectedAioncoreSha256: (projectRoot: string, runtimeKey: string, explicit?: string) => string;
     resolveLocalAioncoreSource: (
       localBinaryPath?: string,
@@ -31,17 +40,68 @@ describe('AionCore build integrity gate', () => {
     for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
   });
 
-  it('resolves a platform pin from package.json', () => {
+  it('resolves an upstream release archive pin from package.json', () => {
     const root = makeRoot();
     const expected = 'a'.repeat(64);
-    writeFileSync(join(root, 'package.json'), JSON.stringify({ aioncoreSha256: { 'darwin-arm64': expected } }));
+    writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({
+        aioncoreArtifactProvenance: {
+          'darwin-arm64': {
+            kind: 'upstream-release-archive',
+            repository: 'iOfficeAI/AionCore',
+            commit: 'b'.repeat(40),
+            tag: 'v0.1.37',
+            sha256: expected,
+          },
+        },
+      })
+    );
     expect(resolveExpectedAioncoreSha256(root, 'darwin-arm64')).toBe(expected);
+  });
+
+  it('refuses to treat a source-built binary hash as a release archive hash', () => {
+    const root = makeRoot();
+    writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({
+        aioncoreArtifactProvenance: {
+          'darwin-arm64': {
+            kind: 'command-eve-source-build',
+            repository: 'MathiasHeinke/AionCore',
+            commit: 'b'.repeat(40),
+            sha256: 'a'.repeat(64),
+          },
+        },
+      })
+    );
+    expect(() => resolveExpectedAioncoreSha256(root, 'darwin-arm64')).toThrow(/pinned to a Command EVE source build/);
   });
 
   it('fails closed when no valid platform pin exists', () => {
     const root = makeRoot();
-    writeFileSync(join(root, 'package.json'), JSON.stringify({ aioncoreSha256: {} }));
-    expect(() => resolveExpectedAioncoreSha256(root, 'darwin-arm64')).toThrow(/Missing pinned AionCore SHA256/);
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ aioncoreArtifactProvenance: {} }));
+    expect(() => resolveExpectedAioncoreSha256(root, 'darwin-arm64')).toThrow(
+      /Missing or malformed AionCore artifact provenance/
+    );
+  });
+
+  it('binds every checked-in artifact hash to its actual source kind', () => {
+    const projectRoot = process.cwd();
+    const packageJson = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8'));
+    expect(resolveAioncoreArtifactProvenance(projectRoot, 'darwin-arm64')).toMatchObject({
+      kind: 'command-eve-source-build',
+      repository: 'MathiasHeinke/AionCore',
+      commit: packageJson.commandEveAioncoreSource.commit,
+    });
+    for (const runtimeKey of ['darwin-x64', 'linux-arm64', 'linux-x64', 'win32-arm64', 'win32-x64']) {
+      expect(resolveAioncoreArtifactProvenance(projectRoot, runtimeKey)).toMatchObject({
+        kind: 'upstream-release-archive',
+        repository: 'iOfficeAI/AionCore',
+        commit: 'abbcd7823d4165781c2d9f6bacadc6bdbe17aef2',
+        tag: 'v0.1.37',
+      });
+    }
   });
 
   it('verifies archive bytes before extraction and rejects a mismatch', () => {

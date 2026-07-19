@@ -85,16 +85,44 @@ function sha256File(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
 
+function resolveAioncoreArtifactProvenance(projectRoot, runtimeKey) {
+  const pkg = readJsonSafe(path.join(projectRoot, 'package.json'));
+  const provenance = pkg?.aioncoreArtifactProvenance?.[runtimeKey];
+  const sha256 = normalizeSha256(provenance?.sha256);
+  const repository = typeof provenance?.repository === 'string' ? provenance.repository.trim() : '';
+  const commit = normalizeSourceCommit(provenance?.commit);
+
+  if (!sha256 || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || !commit || commit.length !== 40) {
+    throw new Error(`Missing or malformed AionCore artifact provenance for ${runtimeKey}`);
+  }
+
+  if (provenance.kind === 'command-eve-source-build') {
+    return { kind: provenance.kind, repository, commit, sha256 };
+  }
+
+  const tag = typeof provenance.tag === 'string' ? provenance.tag.trim() : '';
+  if (provenance.kind === 'upstream-release-archive' && /^v\d+\.\d+\.\d+$/.test(tag)) {
+    return { kind: provenance.kind, repository, commit, tag, sha256 };
+  }
+
+  throw new Error(`Unsupported AionCore artifact provenance for ${runtimeKey}`);
+}
+
 function resolveExpectedAioncoreSha256(projectRoot, runtimeKey, explicitSha256) {
   const explicit = normalizeSha256(explicitSha256 || process.env.AIONUI_BACKEND_SHA256);
   if (explicit) return explicit;
 
-  const pkg = readJsonSafe(path.join(projectRoot, 'package.json'));
-  const pinned = normalizeSha256(pkg?.aioncoreSha256?.[runtimeKey]);
-  if (pinned) return pinned;
+  const provenance = resolveAioncoreArtifactProvenance(projectRoot, runtimeKey);
+  if (provenance.kind === 'upstream-release-archive') return provenance.sha256;
+  if (provenance.kind === 'command-eve-source-build') {
+    throw new Error(
+      `AionCore ${runtimeKey} is pinned to a Command EVE source build. ` +
+        'Set AIONUI_BACKEND_LOCAL_BINARY, AIONUI_BACKEND_SHA256, and AIONUI_BACKEND_SOURCE_COMMIT.'
+    );
+  }
 
   throw new Error(
-    `Missing pinned AionCore SHA256 for ${runtimeKey}. Add package.json aioncoreSha256.${runtimeKey} ` +
+    `Missing pinned AionCore artifact provenance for ${runtimeKey}. ` +
       'or set AIONUI_BACKEND_SHA256 for an explicit version override.'
   );
 }
@@ -443,6 +471,7 @@ module.exports = {
   normalizeSha256,
   normalizeSourceCommit,
   prepareAioncore,
+  resolveAioncoreArtifactProvenance,
   resolveLocalAioncoreSource,
   resolveExpectedAioncoreSha256,
   sha256File,

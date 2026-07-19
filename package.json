@@ -311,18 +311,53 @@
   "engines": {
     "node": ">=22 <25"
   },
-  "aioncoreSha256": {
-    "darwin-arm64": "fd058e15c7bf92bfd7fe0c1de99f5d650675b9edcbd957e0a575040bc4bfa131",
-    "darwin-x64": "206cdce093d0d01c4bb94ea22e4e0a82b711e05878e14d4e843ced70dba4af8a",
-    "linux-arm64": "40fedf5fadfb0ec925ffc1d440da372c06ca6b8628cfcc66fb98cc8669494e9e",
-    "linux-x64": "5af042b1f27e6a099ea6ee44cab54444479f9f25a34e8a07d1e327d12436239b",
-    "win32-arm64": "dbf2ba5a80e9d20a2302a51388cad88c63b5f6cbf3ecf0cf0b50d07b8a90b1c1",
-    "win32-x64": "b9fd31c27effc3c2a644aef2e218cd6951d63865e88f583cb08b62ebf547833d"
+  "aioncoreArtifactProvenance": {
+    "darwin-arm64": {
+      "kind": "command-eve-source-build",
+      "repository": "MathiasHeinke/AionCore",
+      "commit": "20fd02d31aad42692963d156ce693fd95d0b1500",
+      "sha256": "dbb45615af2645e011c4928e68edfdd99eed5c6023292a0aa0c5696be40d89db"
+    },
+    "darwin-x64": {
+      "kind": "upstream-release-archive",
+      "repository": "iOfficeAI/AionCore",
+      "commit": "abbcd7823d4165781c2d9f6bacadc6bdbe17aef2",
+      "tag": "v0.1.37",
+      "sha256": "206cdce093d0d01c4bb94ea22e4e0a82b711e05878e14d4e843ced70dba4af8a"
+    },
+    "linux-arm64": {
+      "kind": "upstream-release-archive",
+      "repository": "iOfficeAI/AionCore",
+      "commit": "abbcd7823d4165781c2d9f6bacadc6bdbe17aef2",
+      "tag": "v0.1.37",
+      "sha256": "40fedf5fadfb0ec925ffc1d440da372c06ca6b8628cfcc66fb98cc8669494e9e"
+    },
+    "linux-x64": {
+      "kind": "upstream-release-archive",
+      "repository": "iOfficeAI/AionCore",
+      "commit": "abbcd7823d4165781c2d9f6bacadc6bdbe17aef2",
+      "tag": "v0.1.37",
+      "sha256": "5af042b1f27e6a099ea6ee44cab54444479f9f25a34e8a07d1e327d12436239b"
+    },
+    "win32-arm64": {
+      "kind": "upstream-release-archive",
+      "repository": "iOfficeAI/AionCore",
+      "commit": "abbcd7823d4165781c2d9f6bacadc6bdbe17aef2",
+      "tag": "v0.1.37",
+      "sha256": "dbf2ba5a80e9d20a2302a51388cad88c63b5f6cbf3ecf0cf0b50d07b8a90b1c1"
+    },
+    "win32-x64": {
+      "kind": "upstream-release-archive",
+      "repository": "iOfficeAI/AionCore",
+      "commit": "abbcd7823d4165781c2d9f6bacadc6bdbe17aef2",
+      "tag": "v0.1.37",
+      "sha256": "b9fd31c27effc3c2a644aef2e218cd6951d63865e88f583cb08b62ebf547833d"
+    }
   },
   "aioncoreVersion": "v0.1.37",
   "commandEveAioncoreSource": {
     "repository": "MathiasHeinke/AionCore",
-    "commit": "b3781ad6a0c5b97fb3090e1bef3a9a3a9e627ba4",
+    "commit": "20fd02d31aad42692963d156ce693fd95d0b1500",
     "rustToolchain": "1.95.0",
     "targets": {
       "macos-arm64": "aarch64-apple-darwin",
