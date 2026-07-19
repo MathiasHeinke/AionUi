@@ -136,6 +136,7 @@
     "cloudOcrConfirm": "Allow OCR once",
     "selectedDocuments": "the selected documents",
     "prepareFailed": "EVE could not read this PDF safely. The message was not sent.",
+    "preparationInProgress": "EVE is already preparing this PDF. Your draft stays ready.",
     "cloudOcrFailed": "Cloud OCR failed. The message and PDF remain unsent.",
     "phase": {
       "reading_local": "Reading {{count}} PDF locally",

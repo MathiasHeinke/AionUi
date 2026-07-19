@@ -287,6 +287,8 @@ vi.mock('@/renderer/pages/conversation/platforms/useConversationCommandQueue', (
   buildConversationBusyControlCommand: ({ input, mode }: { input: string; mode: 'queue' | 'steer' }) => {
     const trimmed = input.trim();
     if (trimmed.startsWith('/steer ')) return { mode: 'steer', input: trimmed };
+    const queueMatch = trimmed.match(/^\/(?:queue|q)\s+([\s\S]+)$/i);
+    if (queueMatch) return { mode: 'queue', input: `/queue ${queueMatch[1].trim()}` };
     return mode === 'steer' ? { mode, input: `/steer ${trimmed}` } : null;
   },
   shouldEnqueueConversationCommand: shouldEnqueueMock,
@@ -483,6 +485,62 @@ describe('AcpSendBox', () => {
       send.resolve({});
     });
     await waitFor(() => expect(screen.queryByTestId('acp-document-preparation')).toBeNull());
+  });
+
+  it('keeps a second PDF submit visible instead of silently dropping it', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: ['/tmp/report.pdf'], content: '' };
+    const preparation = createDeferred<unknown>();
+    pdfPrepareInvokeMock.mockReturnValue(preparation.promise);
+    sendMessageInvokeMock.mockResolvedValue({
+      turn_id: 'turn-1',
+      msg_id: 'message-1',
+      runtime: {
+        state: 'running',
+        can_send_message: false,
+        has_task: true,
+        task_status: 'running',
+        is_processing: true,
+        pending_confirmations: 0,
+        turn_id: 'turn-1',
+      },
+    });
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    act(() => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+    expect(await screen.findByTestId('acp-document-preparation')).toHaveTextContent('reading_local');
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    expect(pdfPrepareInvokeMock).toHaveBeenCalledTimes(1);
+    expect(messageWarningMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      preparation.resolve({
+        success: true,
+        data: {
+          ok: true,
+          documents: [
+            {
+              source_path: '/tmp/report.pdf',
+              sidecar_path: '/tmp/hermes/document-intelligence/report.md',
+            },
+          ],
+        },
+      });
+    });
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
   });
 
   it('routes a fresh-chat PDF through the same native preparation path', async () => {
@@ -818,6 +876,68 @@ describe('AcpSendBox', () => {
     expect(sendMessageInvokeMock).not.toHaveBeenCalled();
   });
 
+  it('reuses the same correction request id after a transport failure', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: [], content: '/steer Correct the active run' };
+    sendBoxMessageMock.current = '/steer Correct the active run';
+    runtimeViewMock.isProcessing = true;
+    runtimeViewMock.canSendMessage = false;
+    runtimeViewMock.activeTurnId = 'turn-1';
+    steerInvokeMock
+      .mockRejectedValueOnce(new Error('transport timeout'))
+      .mockResolvedValueOnce({ msg_id: 'correction-1', turn_id: 'turn-1', accepted: true, runtime: null });
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+    await waitFor(() => expect(steerInvokeMock).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+    await waitFor(() => expect(steerInvokeMock).toHaveBeenCalledTimes(2));
+
+    expect(steerInvokeMock.mock.calls[1][0].request_id).toBe(steerInvokeMock.mock.calls[0][0].request_id);
+  });
+
+  it('queues an explicit queue command without sending it to the active Hermes turn', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: [], content: '/queue Run the tests afterwards' };
+    sendBoxMessageMock.current = '/queue Run the tests afterwards';
+    runtimeViewMock.isProcessing = true;
+    runtimeViewMock.canSendMessage = false;
+    runtimeViewMock.activeTurnId = 'turn-1';
+    shouldEnqueueMock.mockReturnValue(true);
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    expect(queueEnqueueMock).toHaveBeenCalledWith({
+      input: 'Run the tests afterwards',
+      files: [],
+      displayFiles: [],
+    });
+    expect(steerInvokeMock).not.toHaveBeenCalled();
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+  });
+
   it('restores the draft after a correction-now request is rejected', async () => {
     draftDataMock.current = { atPath: [], uploadFile: [], content: '/steer Correct the active run' };
     sendBoxMessageMock.current = '/steer Correct the active run';
@@ -913,7 +1033,7 @@ describe('AcpSendBox', () => {
 
     expect(messageWarningMock).toHaveBeenCalled();
     expect(queueEnqueueMock).toHaveBeenCalledWith({
-      input: '/steer Use this evidence',
+      input: 'Use this evidence',
       files: ['/tmp/evidence.txt'],
       displayFiles: ['/tmp/evidence.txt'],
     });

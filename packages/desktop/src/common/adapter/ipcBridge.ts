@@ -3113,6 +3113,7 @@ export interface IFileMetadata {
   type: string;
   lastModified: number;
   isDirectory?: boolean;
+  is_directory?: boolean;
 }
 
 export type IWorkspaceFlatFile = {

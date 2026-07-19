@@ -135,6 +135,7 @@
     "cloudOcrConfirm": "OCR einmal erlauben",
     "selectedDocuments": "den ausgewählten Dokumenten",
     "prepareFailed": "EVE konnte dieses PDF nicht sicher lesen. Die Nachricht wurde nicht gesendet.",
+    "preparationInProgress": "EVE bereitet dieses PDF bereits vor. Dein Entwurf bleibt erhalten.",
     "cloudOcrFailed": "Cloud-OCR ist fehlgeschlagen. Nachricht und PDF bleiben ungesendet.",
     "phase": {
       "reading_local": "{{count}} PDF wird lokal gelesen",

@@ -426,6 +426,7 @@ const AcpSendBox: React.FC<{
   const addOrUpdateMessageRef = useLatestRef(addOrUpdateMessage);
   const runtimeView = useConversationRuntimeView(conversation_id);
   const activeSteerRequestsRef = useRef(new Map<string, Promise<unknown>>());
+  const steerRetryRequestIdsRef = useRef(new Map<string, string>());
 
   // Shared file handling logic
   const { handleFilesAdded, clearFiles } = useSendBoxFiles({
@@ -608,20 +609,27 @@ Please check your local CLI tool authentication status`,
       const existingRequest = activeSteerRequestsRef.current.get(inFlightKey);
       if (existingRequest) return existingRequest;
 
+      const stableRequestId = requestId ?? steerRetryRequestIdsRef.current.get(inFlightKey) ?? uuid();
+      if (!requestId) steerRetryRequestIdsRef.current.set(inFlightKey, stableRequestId);
       const pendingRequest = ipcBridge.acpConversation.steer.invoke({
         input: normalizedInput,
         conversation_id,
         turn_id: turnId,
-        request_id: requestId ?? uuid(),
+        request_id: stableRequestId,
       });
       activeSteerRequestsRef.current.set(inFlightKey, pendingRequest);
 
-      const clearRequest = () => {
+      const clearActiveRequest = () => {
         if (activeSteerRequestsRef.current.get(inFlightKey) === pendingRequest) {
           activeSteerRequestsRef.current.delete(inFlightKey);
         }
       };
-      void pendingRequest.then(clearRequest, clearRequest);
+      void pendingRequest.then(() => {
+        clearActiveRequest();
+        if (!requestId && steerRetryRequestIdsRef.current.get(inFlightKey) === stableRequestId) {
+          steerRetryRequestIdsRef.current.delete(inFlightKey);
+        }
+      }, clearActiveRequest);
       return pendingRequest;
     },
     [conversation_id, runtimeView.activeTurnId, t]
@@ -645,7 +653,7 @@ Please check your local CLI tool authentication status`,
         );
       }
 
-      if (busyControlCommand) {
+      if (busyControlCommand?.mode === 'steer') {
         try {
           await dispatchSteer(busyControlCommand.input);
           emitter.emit('chat.history.refresh');
@@ -663,6 +671,11 @@ Please check your local CLI tool authentication status`,
         }
       }
 
+      const queuedMessage =
+        requestedBusyControlCommand && (requestedBusyControlCommand.mode === 'queue' || agentFiles.length > 0)
+          ? requestedBusyControlCommand.input.replace(/^\/(?:queue|steer)\s+/i, '').trim()
+          : message;
+
       if (
         shouldEnqueueConversationCommand({
           enabled: true,
@@ -670,9 +683,9 @@ Please check your local CLI tool authentication status`,
           hasPendingCommands,
         })
       ) {
-        return enqueue({ input: message, files: agentFiles, displayFiles }) !== null;
+        return enqueue({ input: queuedMessage, files: agentFiles, displayFiles }) !== null;
       }
-      await executeCommand({ input: message, files: agentFiles, displayFiles });
+      await executeCommand({ input: queuedMessage, files: agentFiles, displayFiles });
       return true;
     },
     [busySendMode, dispatchSteer, enqueue, executeCommand, hasPendingCommands, isBusy, runtimeView.isProcessing, t]
@@ -764,6 +777,7 @@ Please check your local CLI tool authentication status`,
     ): Promise<boolean> => {
       if (documentPreparationInFlightRef.current) {
         controls.restoreDraftAndFiles();
+        Message.warning(t('conversation.pdf.preparationInProgress'));
         return false;
       }
 

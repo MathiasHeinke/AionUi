@@ -5,7 +5,7 @@
  */
 
 import { ipcBridge } from '@/common';
-import type { IGeneratedArtifactType, IGeneratedConversationArtifact } from '@/common/adapter/ipcBridge';
+import type { IFileMetadata, IGeneratedArtifactType, IGeneratedConversationArtifact } from '@/common/adapter/ipcBridge';
 import MarkdownView from '@/renderer/components/Markdown';
 import { iconColors } from '@/renderer/styles/colors';
 import { Message } from '@arco-design/web-react';
@@ -87,20 +87,32 @@ function getFileName(value?: string): string | undefined {
   return normalized.split('/').filter(Boolean).pop();
 }
 
-function pathToFileUrl(path: string): string {
+const WINDOWS_ABSOLUTE_PATH_RE = /^[a-z]:[\\/]/i;
+
+export function pathToFileUrl(path: string): string {
+  if (WINDOWS_ABSOLUTE_PATH_RE.test(path)) {
+    const fileUrl = new URL('file:///');
+    fileUrl.pathname = `/${path.replaceAll('\\', '/')}`;
+    return fileUrl.href;
+  }
   if (/^[a-z][a-z0-9+.-]*:/i.test(path)) return path;
   if (path.startsWith('/')) return new URL(`file://${path}`).href;
   return path;
 }
 
-function fileUrlToPath(url: string): string | undefined {
+export function fileUrlToPath(url: string): string | undefined {
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== 'file:') return undefined;
-    return decodeURIComponent(parsed.pathname);
+    const decodedPath = decodeURIComponent(parsed.pathname);
+    return /^\/[a-z]:\//i.test(decodedPath) ? decodedPath.slice(1) : decodedPath;
   } catch {
     return undefined;
   }
+}
+
+export function isDirectoryMetadata(metadata: IFileMetadata): boolean {
+  return Boolean(metadata.isDirectory || metadata.is_directory);
 }
 
 function inferLocalMediaMime(
@@ -264,7 +276,7 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
     void (async () => {
       try {
         const metadata = await ipcBridge.fs.getFileMetadata.invoke({ path: openPath });
-        if (!metadata || metadata.isDirectory || metadata.size > HTML_PREVIEW_MAX) return;
+        if (!metadata || isDirectoryMetadata(metadata) || metadata.size > HTML_PREVIEW_MAX) return;
         const content = await ipcBridge.fs.readFile.invoke({ path: openPath });
         if (!active) return;
         if (typeof content === 'string' && content.length <= HTML_PREVIEW_MAX) {
@@ -298,7 +310,7 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
     void (async () => {
       try {
         const metadata = await ipcBridge.fs.getFileMetadata.invoke({ path: openPath });
-        if (!metadata || metadata.isDirectory || metadata.size > LOCAL_MEDIA_PREVIEW_MAX_BYTES) return;
+        if (!metadata || isDirectoryMetadata(metadata) || metadata.size > LOCAL_MEDIA_PREVIEW_MAX_BYTES) return;
 
         let candidate: string | null = null;
         if (type === 'image') {

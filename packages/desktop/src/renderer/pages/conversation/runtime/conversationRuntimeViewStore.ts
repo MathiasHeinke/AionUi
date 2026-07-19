@@ -297,11 +297,16 @@ export const localSendFailedConversationRuntimeView = (
   reason: string
 ): ConversationRuntimeSnapshot => {
   const base = previous ?? createDefaultConversationRuntimeView(conversation_id);
+  const hasActiveTurn = base.isProcessing && Boolean(base.activeTurnId);
   const view: ConversationRuntimeView = {
     ...base,
-    state: 'idle',
-    isProcessing: false,
-    canSendMessage: true,
+    ...(hasActiveTurn
+      ? {}
+      : {
+          state: 'idle',
+          isProcessing: false,
+          canSendMessage: true,
+        }),
     localSubmitting: false,
     hydrated: true,
   };

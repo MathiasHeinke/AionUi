@@ -976,6 +976,7 @@ export type I18nKey =
   | 'conversation.pdf.phase.reading_cloud'
   | 'conversation.pdf.phase.reading_local'
   | 'conversation.pdf.phase.reading_local_other'
+  | 'conversation.pdf.preparationInProgress'
   | 'conversation.pdf.prepareFailed'
   | 'conversation.pdf.selectedDocuments'
   | 'conversation.runtimePreparing.sendboxHint'

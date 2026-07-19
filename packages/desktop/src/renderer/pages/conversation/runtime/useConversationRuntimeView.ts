@@ -355,8 +355,9 @@ export const useConversationRuntimeView = (conversation_id: string): UseConversa
 
   const markSendFailed = useCallback(
     (reason: string) => {
-      stopRuntimeRecoveryMonitor(conversation_id);
       flushRuntimeViewLogs(localSendFailed(conversation_id, normalizeReason(reason)));
+      const runtimeSnapshot = getConversationRuntimeViewSnapshot(conversation_id);
+      if (!runtimeSnapshot.isProcessing) stopRuntimeRecoveryMonitor(conversation_id);
     },
     [conversation_id]
   );

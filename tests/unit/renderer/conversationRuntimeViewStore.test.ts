@@ -122,6 +122,19 @@ describe('conversationRuntimeViewStore turn id contract', () => {
     await expect(pendingTurn).resolves.toBeNull();
   });
 
+  it('keeps an existing active turn running when a concurrent send fails', () => {
+    hydrateSucceeded('conv-1', runningRuntime('turn-1'));
+    localSendStarted('conv-1');
+    localSendFailed('conv-1', 'conversation is already running');
+
+    const view = getConversationRuntimeViewSnapshot('conv-1');
+    expect(view.state).toBe('running');
+    expect(view.isProcessing).toBe(true);
+    expect(view.canSendMessage).toBe(false);
+    expect(view.activeTurnId).toBe('turn-1');
+    expect(view.localSubmitting).toBe(false);
+  });
+
   it('ignores stale stop ack for an older turn', () => {
     hydrateSucceeded('conv-1', runningRuntime('turn-2'));
     localStopRequested('conv-1', 'turn-1');
