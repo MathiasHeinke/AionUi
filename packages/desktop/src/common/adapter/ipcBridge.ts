@@ -114,6 +114,20 @@ export type AcpConversationUsage = {
   _meta?: Record<string, unknown> | null;
 };
 
+export type IGeneratedArtifactPreviewKind = 'pdf' | 'image' | 'video' | 'audio' | 'html';
+
+export interface IGeneratedArtifactPreviewRequest {
+  path: string;
+  kind: IGeneratedArtifactPreviewKind;
+}
+
+export interface IGeneratedArtifactPreviewResult {
+  data: string;
+  encoding: 'base64' | 'utf8';
+  mimeType: string;
+  size: number;
+}
+
 // ---------------------------------------------------------------------------
 // Shell — routed to POST /api/shell/*
 // ---------------------------------------------------------------------------
@@ -728,6 +742,10 @@ export const application = {
     })
   ),
   getPath: bridge.buildProvider<string, { name: 'desktop' | 'home' | 'downloads' }>('app.get-path'),
+  readGeneratedArtifactPreview: bridge.buildProvider<
+    IGeneratedArtifactPreviewResult | null,
+    IGeneratedArtifactPreviewRequest
+  >('app.read-generated-artifact-preview'),
   // Electron-local: copies cache dir + persists to ProcessEnv, paired with restart.
   // The backend reads AIONUI_*_DIR env vars on boot, so it does not own this config.
   updateSystemInfo: bridge.buildProvider<void, { cacheDir: string; workDir: string; logDir?: string }>(

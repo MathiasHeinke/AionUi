@@ -32,6 +32,7 @@ const ipcMock = vi.hoisted(() => ({
   readFileBuffer: vi.fn(),
   getImageBase64: vi.fn(),
   getFileMetadata: vi.fn(),
+  readGeneratedArtifactPreview: vi.fn(),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -70,6 +71,9 @@ vi.mock('@/common', () => ({
       readFileBuffer: { invoke: ipcMock.readFileBuffer },
       getImageBase64: { invoke: ipcMock.getImageBase64 },
       getFileMetadata: { invoke: ipcMock.getFileMetadata },
+    },
+    application: {
+      readGeneratedArtifactPreview: { invoke: ipcMock.readGeneratedArtifactPreview },
     },
     theme: {
       requestCurrent: { invoke: vi.fn().mockResolvedValue(null) },
@@ -306,6 +310,7 @@ describe('MessageList', () => {
     ipcMock.readFileBuffer.mockReset();
     ipcMock.getImageBase64.mockReset();
     ipcMock.getFileMetadata.mockReset();
+    ipcMock.readGeneratedArtifactPreview.mockReset();
   });
 
   it('renders message rows with external margin spacing in the plain scroll list', () => {
@@ -322,14 +327,13 @@ describe('MessageList', () => {
   });
 
   it('renders an assistant Hermes MEDIA directive as a visible file artifact', async () => {
-    ipcMock.getFileMetadata.mockResolvedValue({
-      name: 'command eve output.pdf',
-      path: '/Users/eve/Downloads/command eve output.pdf',
+    ipcMock.getFileMetadata.mockRejectedValue(new Error('outside workspace'));
+    ipcMock.readGeneratedArtifactPreview.mockResolvedValue({
+      data: 'JVBERi0=',
+      encoding: 'base64',
+      mimeType: 'application/pdf',
       size: 1024,
-      type: 'application/pdf',
-      lastModified: 1,
     });
-    ipcMock.readFileBuffer.mockResolvedValue('JVBERi0=');
     const message: IMessageText = {
       ...createTextMessage(),
       content: {
@@ -356,10 +360,45 @@ describe('MessageList', () => {
       'data-content',
       'data:application/pdf;base64,JVBERi0='
     );
-    expect(ipcMock.readFileBuffer).toHaveBeenCalledWith({
+    expect(ipcMock.getFileMetadata).toHaveBeenCalledWith({
       path: '/Users/eve/Downloads/command eve output.pdf',
       workspace: '/tmp',
     });
+    expect(ipcMock.readGeneratedArtifactPreview).toHaveBeenCalledWith({
+      path: '/Users/eve/Downloads/command eve output.pdf',
+      kind: 'pdf',
+    });
+    expect(ipcMock.readFileBuffer).not.toHaveBeenCalled();
+  });
+
+  it('loads a generated Downloads HTML artifact through the bounded desktop bridge', async () => {
+    ipcMock.getFileMetadata.mockRejectedValue(new Error('outside workspace'));
+    ipcMock.readGeneratedArtifactPreview.mockResolvedValue({
+      data: '<main><h1>Command EVE report</h1></main>',
+      encoding: 'utf8',
+      mimeType: 'text/html',
+      size: 41,
+    });
+    const message: IMessageText = {
+      ...createTextMessage(),
+      content: {
+        content: 'MEDIA: /Users/eve/Downloads/command-eve-report.html',
+      },
+    };
+
+    render(<MessageList />, {
+      wrapper: ({ children }) => <Wrapper messages={[message]}>{children}</Wrapper>,
+    });
+
+    await waitFor(() => expect(screen.getByTestId('generated-artifact-html')).toBeInTheDocument());
+    const htmlArtifact = screen.getByTestId('generated-artifact-html');
+    expect(htmlArtifact.getAttribute('srcdoc')).toContain('Content-Security-Policy');
+    expect(htmlArtifact.getAttribute('srcdoc')).toContain('<main><h1>Command EVE report</h1></main>');
+    expect(ipcMock.readGeneratedArtifactPreview).toHaveBeenCalledWith({
+      path: '/Users/eve/Downloads/command-eve-report.html',
+      kind: 'html',
+    });
+    expect(ipcMock.readFile).not.toHaveBeenCalled();
   });
 
   it('does not promote user or unsafe MEDIA text into an artifact', () => {

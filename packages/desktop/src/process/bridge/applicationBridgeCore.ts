@@ -15,6 +15,7 @@ import { ipcBridge } from '@/common';
 import { getSystemDir, ProcessEnv } from '@process/utils/initStorage';
 import { copyDirectoryRecursively, getConfigPath, getDataPath, resolveCliSafePath } from '@process/utils';
 import { stripActiveSeatScopeFromRoot } from '@process/commandEve/seatContextCore';
+import { readApprovedGeneratedArtifactPreview } from './generatedArtifactPreviewCore';
 
 export function initApplicationBridgeCore(): void {
   // application.systemInfo is served by the backend via HTTP; updateSystemInfo
@@ -53,4 +54,8 @@ export function initApplicationBridgeCore(): void {
     };
     return Promise.resolve(map[name] ?? home);
   });
+
+  ipcBridge.application.readGeneratedArtifactPreview.provider((request) =>
+    readApprovedGeneratedArtifactPreview(request, path.join(os.homedir(), 'Downloads'))
+  );
 }

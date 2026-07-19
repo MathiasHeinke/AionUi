@@ -8,7 +8,7 @@ import { ipcBridge } from '@/common';
 import { buildPdfSrc } from '../../previewUrls';
 import { usePreviewToolbarExtras } from '../../context/PreviewToolbarExtrasContext';
 import { Button, Message } from '@arco-design/web-react';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 interface PDFPreviewProps {
@@ -25,16 +25,11 @@ interface PDFPreviewProps {
   hideToolbar?: boolean;
 }
 
-// Electron webview 元素的类型定义 / Type definition for Electron webview element
-interface ElectronWebView extends HTMLElement {
-  src: string;
-}
-
 const PDFPreview: React.FC<PDFPreviewProps> = ({ file_path, content, hideToolbar = false }) => {
   const { t } = useTranslation();
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const webviewRef = useRef<ElectronWebView>(null);
+  const hasSource = Boolean(file_path || content);
+  const [loading, setLoading] = useState(hasSource);
   const [messageApi, messageContextHolder] = Message.useMessage();
   const toolbarExtrasContext = usePreviewToolbarExtras();
   const usePortalToolbar = Boolean(toolbarExtrasContext) && !hideToolbar;
@@ -48,49 +43,19 @@ const PDFPreview: React.FC<PDFPreviewProps> = ({ file_path, content, hideToolbar
     try {
       await ipcBridge.shell.openFile.invoke(file_path);
       messageApi.success(t('preview.openInSystemSuccess'));
-    } catch (err) {
+    } catch {
       messageApi.error(t('preview.openInSystemFailed'));
     }
   }, [file_path, messageApi, t]);
 
   useEffect(() => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      if (!file_path && !content) {
-        setError(t('preview.pdf.pathMissing'));
-        setLoading(false);
-        return;
-      }
-
-      // webview 加载成功后隐藏 loading
-      // Hide loading after webview finishes loading
-      const webview = webviewRef.current;
-      if (webview) {
-        const handleLoad = () => {
-          setLoading(false);
-        };
-        const handleError = () => {
-          setError(t('preview.pdf.loadFailed'));
-          setLoading(false);
-        };
-
-        webview.addEventListener('did-finish-load', handleLoad);
-        webview.addEventListener('did-fail-load', handleError);
-
-        return () => {
-          webview.removeEventListener('did-finish-load', handleLoad);
-          webview.removeEventListener('did-fail-load', handleError);
-        };
-      } else {
-        setLoading(false);
-      }
-    } catch (err) {
-      setError(`${t('preview.pdf.loadFailed')}: ${err instanceof Error ? err.message : String(err)}`);
-      setLoading(false);
+    setLoading(hasSource);
+    if (!hasSource) {
+      setError(t('preview.pdf.pathMissing'));
+      return;
     }
-  }, [file_path, content, t]);
+    setError(null);
+  }, [file_path, content, hasSource, t]);
 
   // 设置工具栏扩展（必须在所有条件返回之前调用）
   // Set toolbar extras (must be called before any conditional returns)
@@ -108,8 +73,8 @@ const PDFPreview: React.FC<PDFPreviewProps> = ({ file_path, content, hideToolbar
     return () => toolbarExtrasContext.setExtras(null);
   }, [usePortalToolbar, toolbarExtrasContext, t, loading, error]);
 
-  // 使用 Electron webview 加载本地 PDF 文件
-  // Use Electron webview to load local PDF files
+  // Chrome's PDF viewer renders data and file URLs reliably in an iframe.
+  // Electron webviews can report a successful load while remaining blank.
   const pdfSrc = buildPdfSrc(file_path, content);
 
   if (error) {
@@ -120,15 +85,6 @@ const PDFPreview: React.FC<PDFPreviewProps> = ({ file_path, content, hideToolbar
           <div className='text-16px text-t-error mb-8px'>❌ {error}</div>
           <div className='text-12px text-t-secondary'>{t('preview.pdf.unableDisplay')}</div>
         </div>
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div className='flex items-center justify-center h-full'>
-        {messageContextHolder}
-        <div className='text-14px text-t-secondary'>{t('preview.loading')}</div>
       </div>
     );
   }
@@ -155,15 +111,24 @@ const PDFPreview: React.FC<PDFPreviewProps> = ({ file_path, content, hideToolbar
         </div>
       )}
       {/* PDF 内容区域 / PDF content area */}
-      <div className='flex-1 overflow-hidden bg-bg-1'>
-        {/* key 确保文件路径改变时 webview 重新挂载 / key ensures webview remounts when file path changes */}
-        <webview
+      <div className='relative flex-1 overflow-hidden bg-bg-1'>
+        <iframe
           key={pdfSrc}
-          ref={webviewRef}
           src={pdfSrc}
+          title={t('preview.pdf.title')}
           className='w-full h-full'
-          style={{ display: 'inline-flex' }}
+          style={{ border: 0 }}
+          onLoad={() => setLoading(false)}
+          onError={() => {
+            setError(t('preview.pdf.loadFailed'));
+            setLoading(false);
+          }}
         />
+        {loading && (
+          <div className='absolute inset-0 flex items-center justify-center bg-bg-1'>
+            <div className='text-14px text-t-secondary'>{t('preview.loading')}</div>
+          </div>
+        )}
       </div>
     </div>
   );

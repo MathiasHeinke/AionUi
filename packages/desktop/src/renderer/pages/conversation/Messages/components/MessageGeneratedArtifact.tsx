@@ -279,7 +279,7 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
   const [localFilePreviewLoading, setLocalFilePreviewLoading] = useState(false);
 
   useEffect(() => {
-    if (type !== 'html' || htmlContent || !openPath || !workspace) {
+    if (type !== 'html' || htmlContent || !openPath) {
       setPathHtmlContent(undefined);
       setPathHtmlLoading(false);
       return;
@@ -290,9 +290,25 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
     setPathHtmlLoading(true);
     void (async () => {
       try {
-        const metadata = await ipcBridge.fs.getFileMetadata.invoke({ path: openPath, workspace });
-        if (!metadata || isDirectoryMetadata(metadata) || metadata.size > HTML_PREVIEW_MAX) return;
-        const content = await ipcBridge.fs.readFile.invoke({ path: openPath, workspace });
+        let content: string | null | undefined;
+        if (workspace) {
+          try {
+            const metadata = await ipcBridge.fs.getFileMetadata.invoke({ path: openPath, workspace });
+            if (!metadata || isDirectoryMetadata(metadata) || metadata.size > HTML_PREVIEW_MAX) return;
+            content = await ipcBridge.fs.readFile.invoke({ path: openPath, workspace });
+          } catch {
+            // A generated output may intentionally live in Downloads rather
+            // than the active workspace. The desktop fallback is rooted and
+            // bounded in the main process.
+          }
+        }
+        if (typeof content !== 'string') {
+          const approved = await ipcBridge.application.readGeneratedArtifactPreview.invoke({
+            path: openPath,
+            kind: 'html',
+          });
+          content = approved?.encoding === 'utf8' ? approved.data : undefined;
+        }
         if (!active) return;
         if (typeof content === 'string' && content.length <= HTML_PREVIEW_MAX) {
           setPathHtmlContent(content);
@@ -317,7 +333,6 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
     if (
       !isLocalFilePreview ||
       !openPath ||
-      !workspace ||
       (type !== 'image' && type !== 'video' && type !== 'audio' && type !== 'pdf')
     ) {
       setLocalFilePreviewSource(undefined);
@@ -331,19 +346,38 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
 
     void (async () => {
       try {
-        const metadata = await ipcBridge.fs.getFileMetadata.invoke({ path: openPath, workspace });
-        if (!metadata || isDirectoryMetadata(metadata) || metadata.size > LOCAL_FILE_PREVIEW_MAX_BYTES) return;
-
         let candidate: string | null = null;
-        if (type === 'image') {
-          candidate = await ipcBridge.fs.getImageBase64.invoke({ path: openPath, workspace });
-        } else {
-          const encoded = await ipcBridge.fs.readFileBuffer.invoke({ path: openPath, workspace });
-          if (type === 'pdf') {
-            if (encoded) candidate = `data:application/pdf;base64,${encoded}`;
-          } else {
-            const localMime = inferLocalMediaMime(type, openPath, mimeType, metadata.type);
-            if (encoded && localMime) candidate = `data:${localMime};base64,${encoded}`;
+        if (workspace) {
+          try {
+            const metadata = await ipcBridge.fs.getFileMetadata.invoke({ path: openPath, workspace });
+            if (!metadata || isDirectoryMetadata(metadata) || metadata.size > LOCAL_FILE_PREVIEW_MAX_BYTES) return;
+            if (type === 'image') {
+              candidate = await ipcBridge.fs.getImageBase64.invoke({ path: openPath, workspace });
+            } else {
+              const encoded = await ipcBridge.fs.readFileBuffer.invoke({ path: openPath, workspace });
+              if (type === 'pdf') {
+                if (encoded) candidate = `data:application/pdf;base64,${encoded}`;
+              } else {
+                const localMime = inferLocalMediaMime(type, openPath, mimeType, metadata.type);
+                if (encoded && localMime) candidate = `data:${localMime};base64,${encoded}`;
+              }
+            }
+          } catch {
+            // Try the read-only Downloads artifact bridge below.
+          }
+        }
+
+        if (!candidate) {
+          const approved = await ipcBridge.application.readGeneratedArtifactPreview.invoke({
+            path: openPath,
+            kind: type,
+          });
+          if (approved?.encoding === 'base64') {
+            if (type === 'pdf') {
+              candidate = `data:application/pdf;base64,${approved.data}`;
+            } else if (approved.mimeType.startsWith(`${type}/`)) {
+              candidate = `data:${approved.mimeType};base64,${approved.data}`;
+            }
           }
         }
 
