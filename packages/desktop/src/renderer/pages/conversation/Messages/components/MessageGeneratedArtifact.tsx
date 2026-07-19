@@ -21,6 +21,10 @@ type ArtifactPreviewType = IGeneratedArtifactType | 'pdf';
 
 const TEXT_PREVIEW_MAX = 1200;
 const HTML_PREVIEW_MAX = 2 * 1024 * 1024;
+// Data URLs are capped at 64 MiB by artifactPreviewSecurityCore. Keep enough
+// headroom for base64 expansion and the MIME prefix before loading a local
+// audio/video file into renderer memory.
+const LOCAL_MEDIA_PREVIEW_MAX_BYTES = 47 * 1024 * 1024;
 const SOURCE_URL_KEYS = [
   'url',
   'file_url',
@@ -97,6 +101,42 @@ function fileUrlToPath(url: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function inferLocalMediaMime(
+  type: Extract<ArtifactPreviewType, 'image' | 'video' | 'audio'>,
+  path: string,
+  declaredMime?: string,
+  metadataMime?: string
+): string | undefined {
+  const expectedPrefix = `${type}/`;
+  for (const candidate of [declaredMime, metadataMime]) {
+    const normalized = candidate?.trim().toLowerCase();
+    if (normalized?.startsWith(expectedPrefix)) return normalized;
+  }
+
+  const extension = path.split('?')[0].split('#')[0].split('.').pop()?.toLowerCase();
+  const mimeByExtension: Record<string, string> = {
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    avif: 'image/avif',
+    svg: 'image/svg+xml',
+    bmp: 'image/bmp',
+    mp4: 'video/mp4',
+    mov: 'video/quicktime',
+    webm: 'video/webm',
+    m4v: 'video/x-m4v',
+    mp3: 'audio/mpeg',
+    wav: 'audio/wav',
+    m4a: 'audio/mp4',
+    ogg: 'audio/ogg',
+    aac: 'audio/aac',
+  };
+  const inferred = extension ? mimeByExtension[extension] : undefined;
+  return inferred?.startsWith(expectedPrefix) ? inferred : undefined;
 }
 
 function inferType(
@@ -208,6 +248,8 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
   const openPath = path || (source?.startsWith('file:') ? fileUrlToPath(source) : undefined);
   const [pathHtmlContent, setPathHtmlContent] = useState<string>();
   const [pathHtmlLoading, setPathHtmlLoading] = useState(false);
+  const [localMediaSource, setLocalMediaSource] = useState<string>();
+  const [localMediaLoading, setLocalMediaLoading] = useState(false);
 
   useEffect(() => {
     if (type !== 'html' || htmlContent || !openPath) {
@@ -238,13 +280,55 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
     };
   }, [htmlContent, openPath, type]);
 
+  useEffect(() => {
+    const isLocalMedia =
+      (type === 'image' || type === 'video' || type === 'audio') && Boolean(openPath) && source?.startsWith('file:');
+    if (!isLocalMedia || !openPath || (type !== 'image' && type !== 'video' && type !== 'audio')) {
+      setLocalMediaSource(undefined);
+      setLocalMediaLoading(false);
+      return;
+    }
+
+    let active = true;
+    setLocalMediaSource(undefined);
+    setLocalMediaLoading(true);
+
+    void (async () => {
+      try {
+        const metadata = await ipcBridge.fs.getFileMetadata.invoke({ path: openPath });
+        if (!metadata || metadata.isDirectory || metadata.size > LOCAL_MEDIA_PREVIEW_MAX_BYTES) return;
+
+        let candidate: string | null = null;
+        if (type === 'image') {
+          candidate = await ipcBridge.fs.getImageBase64.invoke({ path: openPath });
+        } else {
+          const encoded = await ipcBridge.fs.readFileBuffer.invoke({ path: openPath });
+          const localMime = inferLocalMediaMime(type, openPath, mimeType, metadata.type);
+          if (encoded && localMime) candidate = `data:${localMime};base64,${encoded}`;
+        }
+
+        if (active) setLocalMediaSource(sanitizeArtifactPreviewSource(candidate ?? undefined, type));
+      } catch {
+        // The artifact remains openable/revealable even when an inline preview
+        // cannot be loaded or exceeds the bounded renderer-memory budget.
+      } finally {
+        if (active) setLocalMediaLoading(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [mimeType, openPath, source, type]);
+
   const securedHtmlContent = useMemo(() => {
     const content = htmlContent || pathHtmlContent;
     return content ? secureArtifactHtml(content) : undefined;
   }, [htmlContent, pathHtmlContent]);
+  const previewSource = source?.startsWith('file:') ? localMediaSource : source;
   const canOpen = Boolean(openPath || (source && /^https?:/i.test(source)));
   const hasPreview =
-    ((type === 'image' || type === 'video' || type === 'audio') && Boolean(source)) ||
+    ((type === 'image' || type === 'video' || type === 'audio') && Boolean(previewSource)) ||
     (type === 'pdf' && Boolean(openPath || source)) ||
     (type === 'html' && Boolean(securedHtmlContent)) ||
     (type === 'file' && Boolean(textContent));
@@ -305,24 +389,29 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
           </div>
         ) : (
           <div className='px-14px pb-12px'>
-            {type === 'image' && source && (
+            {localMediaLoading && (type === 'image' || type === 'video' || type === 'audio') && (
+              <div className='eve-artifact-preview flex h-160px items-center justify-center rd-6px text-12px text-t-secondary'>
+                {t('preview.loading')}
+              </div>
+            )}
+            {type === 'image' && previewSource && (
               <img
                 data-testid='generated-artifact-image'
-                src={source}
+                src={previewSource}
                 alt={title}
                 className='block max-w-full max-h-420px rd-6px object-contain bg-bg-2'
               />
             )}
-            {type === 'video' && source && (
+            {type === 'video' && previewSource && (
               <video
                 data-testid='generated-artifact-video'
-                src={source}
+                src={previewSource}
                 controls
                 className='block w-full max-h-420px rd-6px bg-bg-2'
               />
             )}
-            {type === 'audio' && source && (
-              <audio data-testid='generated-artifact-audio' src={source} controls className='block w-full' />
+            {type === 'audio' && previewSource && (
+              <audio data-testid='generated-artifact-audio' src={previewSource} controls className='block w-full' />
             )}
             {type === 'pdf' && (openPath || source) && (
               <div data-testid='generated-artifact-pdf' className='eve-artifact-preview h-360px overflow-hidden rd-6px'>
@@ -355,7 +444,7 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
                 </MarkdownView>
               </div>
             )}
-            {!hasPreview && (
+            {!hasPreview && !localMediaLoading && (
               <div data-testid='generated-artifact-empty' className='text-12px text-t-secondary'>
                 {canOpen ? t('messages.artifact.previewUnavailable') : t('messages.artifact.noPreview')}
               </div>

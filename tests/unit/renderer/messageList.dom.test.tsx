@@ -23,6 +23,9 @@ const artifactMock = vi.hoisted(() => ({
 }));
 const ipcMock = vi.hoisted(() => ({
   readFile: vi.fn(),
+  readFileBuffer: vi.fn(),
+  getImageBase64: vi.fn(),
+  getFileMetadata: vi.fn(),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -58,6 +61,9 @@ vi.mock('@/common', () => ({
     },
     fs: {
       readFile: { invoke: ipcMock.readFile },
+      readFileBuffer: { invoke: ipcMock.readFileBuffer },
+      getImageBase64: { invoke: ipcMock.getImageBase64 },
+      getFileMetadata: { invoke: ipcMock.getFileMetadata },
     },
     theme: {
       requestCurrent: { invoke: vi.fn().mockResolvedValue(null) },
@@ -288,6 +294,9 @@ describe('MessageList', () => {
   afterEach(() => {
     artifactMock.artifacts = [];
     ipcMock.readFile.mockReset();
+    ipcMock.readFileBuffer.mockReset();
+    ipcMock.getImageBase64.mockReset();
+    ipcMock.getFileMetadata.mockReset();
   });
 
   it('renders message rows with external margin spacing in the plain scroll list', () => {
@@ -636,6 +645,91 @@ describe('MessageList', () => {
     expect(htmlArtifact.getAttribute('srcdoc')).toContain('Content-Security-Policy');
     expect(htmlArtifact.getAttribute('srcdoc')).toContain('<main><h1>Local offer</h1>');
     expect(htmlArtifact.getAttribute('srcdoc')).toContain('window.pwned');
+  });
+
+  it('loads local image, audio, and video artifacts through bounded data URLs', async () => {
+    ipcMock.getFileMetadata.mockImplementation(async ({ path }: { path: string }) => ({
+      name: path.split('/').pop(),
+      path,
+      size: 1024,
+      type: path.endsWith('.mp4') ? 'video/mp4' : path.endsWith('.wav') ? 'audio/wav' : 'image/png',
+      lastModified: 1,
+    }));
+    ipcMock.getImageBase64.mockResolvedValue('data:image/png;base64,aW1hZ2U=');
+    ipcMock.readFileBuffer.mockImplementation(async ({ path }: { path: string }) =>
+      path.endsWith('.mp4') ? 'dmlkZW8=' : 'YXVkaW8='
+    );
+    artifactMock.artifacts = [
+      {
+        id: 'artifact-local-image',
+        conversation_id: 'conversation-1',
+        kind: 'image',
+        status: 'active',
+        payload: { artifact_type: 'image', path: '/tmp/eve.png' },
+        created_at: 8,
+        updated_at: 8,
+      },
+      {
+        id: 'artifact-local-audio',
+        conversation_id: 'conversation-1',
+        kind: 'audio',
+        status: 'active',
+        payload: { artifact_type: 'audio', path: '/tmp/eve.wav' },
+        created_at: 9,
+        updated_at: 9,
+      },
+      {
+        id: 'artifact-local-video',
+        conversation_id: 'conversation-1',
+        kind: 'video',
+        status: 'active',
+        payload: { artifact_type: 'video', path: '/tmp/eve.mp4' },
+        created_at: 10,
+        updated_at: 10,
+      },
+    ];
+
+    render(<MessageList />, {
+      wrapper: ({ children }) => <Wrapper>{children}</Wrapper>,
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('generated-artifact-image')).toHaveAttribute('src', 'data:image/png;base64,aW1hZ2U=')
+    );
+    expect(screen.getByTestId('generated-artifact-audio')).toHaveAttribute('src', 'data:audio/wav;base64,YXVkaW8=');
+    expect(screen.getByTestId('generated-artifact-video')).toHaveAttribute('src', 'data:video/mp4;base64,dmlkZW8=');
+    expect(ipcMock.getImageBase64).toHaveBeenCalledWith({ path: '/tmp/eve.png' });
+    expect(ipcMock.readFileBuffer).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not load an oversized local media artifact into renderer memory', async () => {
+    ipcMock.getFileMetadata.mockResolvedValue({
+      name: 'large.mp4',
+      path: '/tmp/large.mp4',
+      size: 48 * 1024 * 1024,
+      type: 'video/mp4',
+      lastModified: 1,
+    });
+    artifactMock.artifacts = [
+      {
+        id: 'artifact-large-video',
+        conversation_id: 'conversation-1',
+        kind: 'video',
+        status: 'active',
+        payload: { artifact_type: 'video', path: '/tmp/large.mp4' },
+        created_at: 11,
+        updated_at: 11,
+      },
+    ];
+
+    render(<MessageList />, {
+      wrapper: ({ children }) => <Wrapper>{children}</Wrapper>,
+    });
+
+    await waitFor(() => expect(ipcMock.getFileMetadata).toHaveBeenCalledWith({ path: '/tmp/large.mp4' }));
+    await waitFor(() => expect(screen.getByTestId('generated-artifact-empty')).toBeInTheDocument());
+    expect(ipcMock.readFileBuffer).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('generated-artifact-video')).not.toBeInTheDocument();
   });
 
   it('keeps image generation tool results inline instead of collapsing them into the step summary', () => {
