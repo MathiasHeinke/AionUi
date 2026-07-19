@@ -233,6 +233,23 @@ describe('message merging', () => {
     expect(messages.filter((message) => message.type === 'acp_tool_call')).toHaveLength(1);
   });
 
+  it('reconciles legacy ACP tool calls without an update payload', () => {
+    const persisted = {
+      ...createToolCallMessage('legacy-tool'),
+      content: { session_id: 'legacy-session' },
+    } as IMessageAcpToolCall;
+    const live = {
+      ...persisted,
+      id: 'live-legacy-tool',
+    };
+
+    const messages = reconcileHistoryMessages([live], [persisted], CONVERSATION_ID);
+
+    const toolCalls = messages.filter((message) => message.type === 'acp_tool_call');
+    expect(toolCalls).toHaveLength(1);
+    expect(toolCalls[0].msg_id).toBe('legacy-tool');
+  });
+
   it('keeps text segments split when tool calls interrupt the same msg_id stream', async () => {
     const { result } = renderHook(() => useMessageHarness(), {
       wrapper: TestWrapper,

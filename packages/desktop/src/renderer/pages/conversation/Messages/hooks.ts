@@ -640,10 +640,10 @@ export function toChronologicalHistoryPage(messages: TMessage[]): TMessage[] {
 }
 
 function getMessageIdentity(message: TMessage): string {
-  if (message.type === 'acp_tool_call' && message.content.update.tool_call_id) {
+  if (message.type === 'acp_tool_call' && message.content?.update?.tool_call_id) {
     return `acp-tool:${message.content.update.tool_call_id}`;
   }
-  if (message.type === 'tool_call' && message.content.call_id) {
+  if (message.type === 'tool_call' && message.content?.call_id) {
     return `tool:${message.content.call_id}`;
   }
   return message.msg_id ? `msg:${message.msg_id}:${message.type}` : `id:${message.id}`;
