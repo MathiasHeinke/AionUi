@@ -451,6 +451,16 @@ function ensureWs(): void {
       const eventName = msg.name ?? msg.event;
       const payload = msg.data ?? msg.payload;
       console.debug('[WS:msg]', eventName, payload === undefined ? 'no-payload' : 'payload-present');
+      if (eventName === 'ping') {
+        // AionCore drops clients that do not answer its application-level
+        // heartbeat. A half-open renderer socket otherwise keeps HTTP working
+        // while silently losing live message.stream events until a route
+        // remount reloads the persisted transcript.
+        if (current.readyState === WebSocket.OPEN) {
+          current.send(JSON.stringify({ name: 'pong', data: payload ?? {} }));
+        }
+        return;
+      }
       if (eventName) {
         dispatchWsEvent(eventName, payload);
       }

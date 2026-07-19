@@ -41,6 +41,7 @@ interface EventTypes {
   // Durable conversation recovery signals. The database/runtime are the source
   // of truth when a renderer misses a realtime user/terminal frame.
   'conversation.messages.refresh': [{ conversation_id: string; expectedTerminalMessageId?: string }];
+  'conversation.messages.reconcile': [{ conversation_id: string }];
   'conversation.runtime.recovered': [
     { conversation_id: string; runtime: TConversationRuntimeSummary; recoveredTurnId: string | null },
   ];

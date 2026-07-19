@@ -490,6 +490,33 @@ describe('MessageList', () => {
     expect(screen.queryByText('stale handoff note')).not.toBeInTheDocument();
   });
 
+  it('shows immediate runtime activity instead of a blank loading history', () => {
+    render(
+      <MessageList
+        emptySlot={<div>stale handoff note</div>}
+        suppressEmptySlot
+        tailSlot={<div data-testid='pending-runtime-activity'>EVE is preparing the task</div>}
+      />,
+      {
+        wrapper: ({ children }) => <Wrapper messages={[]}>{children}</Wrapper>,
+      }
+    );
+
+    expect(screen.getByTestId('pending-runtime-activity')).toBeInTheDocument();
+    expect(screen.queryByTestId('message-list-skeleton')).not.toBeInTheDocument();
+    expect(screen.queryByText('stale handoff note')).not.toBeInTheDocument();
+  });
+
+  it('places runtime activity after an existing conversation message', () => {
+    render(<MessageList tailSlot={<div data-testid='pending-runtime-activity'>EVE is preparing the task</div>} />, {
+      wrapper: ({ children }) => <Wrapper>{children}</Wrapper>,
+    });
+
+    const message = screen.getByText('streaming reply');
+    const activity = screen.getByTestId('pending-runtime-activity');
+    expect(message.compareDocumentPosition(activity) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('loads older history when the user scrolls to the top of a long conversation', () => {
     const loadOlderMessages = vi.fn().mockResolvedValue(undefined);
     render(

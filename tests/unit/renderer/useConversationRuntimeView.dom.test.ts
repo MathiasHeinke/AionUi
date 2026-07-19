@@ -137,6 +137,67 @@ describe('useConversationRuntimeView recovery', () => {
     });
   });
 
+  it('requests a silent transcript reconcile while the accepted turn is still running', async () => {
+    const emitSpy = vi.spyOn(emitter, 'emit');
+    const runningRuntime = runtime({
+      state: 'running',
+      can_send_message: false,
+      has_task: true,
+      task_status: 'running',
+      is_processing: true,
+      turn_id: 'turn-1',
+    });
+    getConversationOrNullMock.mockResolvedValue({ runtime: runningRuntime });
+    const { result } = renderHook(() => useConversationRuntimeView('conv-1'));
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    act(() => {
+      result.current.markSendStarted();
+      result.current.markSendAccepted('turn-1', runningRuntime, 'msg-1');
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(1_500);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(emitSpy).toHaveBeenCalledWith('conversation.messages.reconcile', { conversation_id: 'conv-1' });
+    expect(result.current.isProcessing).toBe(true);
+  });
+
+  it('does not reconcile while a local submission has not been accepted', async () => {
+    const emitSpy = vi.spyOn(emitter, 'emit');
+    const runningRuntime = runtime({
+      state: 'running',
+      can_send_message: false,
+      has_task: true,
+      task_status: 'running',
+      is_processing: true,
+      turn_id: 'turn-1',
+    });
+    getConversationOrNullMock.mockResolvedValue({ runtime: runningRuntime });
+    const { result } = renderHook(() => useConversationRuntimeView('conv-1'));
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    act(() => result.current.markSendStarted());
+
+    await act(async () => {
+      vi.advanceTimersByTime(1_500);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(emitSpy).not.toHaveBeenCalledWith('conversation.messages.reconcile', { conversation_id: 'conv-1' });
+    expect(result.current.view.localSubmitting).toBe(true);
+  });
+
   it('keeps recovery active when the terminal transport event has no runtime summary', async () => {
     const emitSpy = vi.spyOn(emitter, 'emit');
     const { result } = renderHook(() => useConversationRuntimeView('conv-1'));

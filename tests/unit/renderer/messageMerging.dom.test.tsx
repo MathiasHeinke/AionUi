@@ -697,6 +697,85 @@ describe('message merging', () => {
     expect(invoke).toHaveBeenCalledTimes(2);
   });
 
+  it('renders persisted in-flight activity without a websocket event or chat remount', async () => {
+    const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
+    invoke.mockReset();
+    invoke
+      .mockResolvedValueOnce({
+        items: [],
+        oldest_cursor: null,
+        newest_cursor: null,
+        has_more_before: false,
+        has_more_after: false,
+      })
+      .mockResolvedValueOnce({
+        items: [createThinkingMessage('msg-thinking', 'Visible while the chat stays mounted')],
+        oldest_cursor: 'cursor-msg-thinking',
+        newest_cursor: 'cursor-msg-thinking',
+        has_more_before: false,
+        has_more_after: false,
+      });
+
+    const { result } = renderHook(() => useMessageCacheHarness(), { wrapper: CacheWrapper });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.messages).toEqual([]);
+
+    act(() => emitter.emit('conversation.messages.reconcile', { conversation_id: CONVERSATION_ID }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect((result.current.messages[0] as IMessageThinking).content.content).toBe(
+      'Visible while the chat stays mounted'
+    );
+    expect(result.current.loading).toBe(false);
+    expect(invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it('coalesces repeated live transcript reconciles into one in-flight read and one follow-up', async () => {
+    const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
+    invoke.mockReset();
+    const emptyPage = {
+      items: [],
+      oldest_cursor: null,
+      newest_cursor: null,
+      has_more_before: false,
+      has_more_after: false,
+    };
+    let resolveFirstReconcile!: (value: typeof emptyPage) => void;
+    const firstReconcile = new Promise<typeof emptyPage>((resolve) => {
+      resolveFirstReconcile = resolve;
+    });
+    invoke
+      .mockResolvedValueOnce(emptyPage)
+      .mockImplementationOnce(() => firstReconcile)
+      .mockResolvedValueOnce(emptyPage);
+
+    renderHook(() => useMessageCacheHarness(), { wrapper: CacheWrapper });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => {
+      emitter.emit('conversation.messages.reconcile', { conversation_id: CONVERSATION_ID });
+      emitter.emit('conversation.messages.reconcile', { conversation_id: CONVERSATION_ID });
+      emitter.emit('conversation.messages.reconcile', { conversation_id: CONVERSATION_ID });
+    });
+    expect(invoke).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      resolveFirstReconcile(emptyPage);
+      await firstReconcile;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(invoke).toHaveBeenCalledTimes(3);
+  });
+
   it('keeps recovery loading until the expected terminal message is actually durable', async () => {
     const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
     invoke.mockReset();

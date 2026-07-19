@@ -586,6 +586,7 @@
     "projectFiles": "Projektdateien"
   },
   "runtimeStatus": {
+    "preparing": "EVE bereitet den Auftrag vor",
     "phase": {
       "idle": "EVE bereit",
       "connecting": "EVE verbindet",

@@ -610,6 +610,7 @@
     "projectFiles": "Project files"
   },
   "runtimeStatus": {
+    "preparing": "EVE is preparing the task",
     "phase": {
       "idle": "EVE ready",
       "connecting": "EVE connecting",

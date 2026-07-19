@@ -19,6 +19,7 @@ class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
 
   readyState = FakeWebSocket.CONNECTING;
+  sent: string[] = [];
   readonly listeners: SocketListenerMap = { open: [], close: [], error: [], message: [] };
 
   constructor(readonly url: string) {
@@ -33,6 +34,10 @@ class FakeWebSocket {
     this.readyState = FakeWebSocket.CLOSED;
   }
 
+  send(message: string): void {
+    this.sent.push(message);
+  }
+
   dispatchOpen(): void {
     this.readyState = FakeWebSocket.OPEN;
     this.listeners.open.forEach((listener) => listener());
@@ -43,7 +48,7 @@ class FakeWebSocket {
     this.listeners.close.forEach((listener) => listener({ code: 1006, reason: 'test' } as CloseEvent));
   }
 
-  dispatchMessage(name: string, data: unknown): void {
+  dispatchMessage(name: string, data?: unknown): void {
     this.listeners.message.forEach((listener) => listener({ data: JSON.stringify({ name, data }) } as MessageEvent));
   }
 }
@@ -85,5 +90,34 @@ describe('httpBridge realtime recovery', () => {
 
     FakeWebSocket.instances[1].dispatchOpen();
     expect(connected).toHaveBeenLastCalledWith({ reconnected: true });
+  });
+
+  it('answers the AionCore heartbeat so a mounted chat keeps its realtime stream', async () => {
+    const { wsEmitter } = await import('@/common/adapter/httpBridge');
+    const internalPing = vi.fn();
+    wsEmitter('ping').on(internalPing);
+
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatchOpen();
+    socket.dispatchMessage('ping', { timestamp: 123 });
+    socket.dispatchMessage('ping');
+
+    expect(socket.sent).toEqual([
+      JSON.stringify({ name: 'pong', data: { timestamp: 123 } }),
+      JSON.stringify({ name: 'pong', data: {} }),
+    ]);
+    expect(internalPing).not.toHaveBeenCalled();
+  });
+
+  it('does not answer a heartbeat before the socket is open', async () => {
+    const { wsEmitter } = await import('@/common/adapter/httpBridge');
+    const internalPing = vi.fn();
+    wsEmitter('ping').on(internalPing);
+
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatchMessage('ping', { timestamp: 123 });
+
+    expect(socket.sent).toEqual([]);
+    expect(internalPing).not.toHaveBeenCalled();
   });
 });

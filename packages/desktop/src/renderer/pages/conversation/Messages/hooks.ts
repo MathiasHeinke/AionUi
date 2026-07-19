@@ -937,6 +937,9 @@ export const useMessageLstCache = (key: string) => {
     let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
     let reconcileSequence = 0;
     let activeTerminalMessageId = '';
+    let liveReconcileInFlight = false;
+    let liveReconcileQueued = false;
+    let disposed = false;
 
     const beginReconcileLoading = (): number => {
       const loadingSequence = ++loadingSequenceRef.current;
@@ -1044,6 +1047,25 @@ export const useMessageLstCache = (key: string) => {
       );
     };
 
+    const reconcileLiveTranscript = () => {
+      if (liveReconcileInFlight) {
+        liveReconcileQueued = true;
+        return;
+      }
+      liveReconcileInFlight = true;
+      void reconcileMessages('')
+        .catch((error) => {
+          console.error('[useMessageLstCache] Failed to reconcile active transcript:', error);
+        })
+        .finally(() => {
+          liveReconcileInFlight = false;
+          if (!disposed && liveReconcileQueued) {
+            liveReconcileQueued = false;
+            reconcileLiveTranscript();
+          }
+        });
+    };
+
     const unsubscribeResync = ipcBridge.conversation.realtimeResyncRequired.on(() => scheduleRecoveryReconcile());
     const unsubscribeConnected = ipcBridge.conversation.realtimeConnected.on(({ reconnected }) => {
       if (reconnected) scheduleRecoveryReconcile();
@@ -1051,14 +1073,19 @@ export const useMessageLstCache = (key: string) => {
     const unsubscribeExplicitRefresh = addEventListener('conversation.messages.refresh', (event) => {
       if (event.conversation_id === key) scheduleRecoveryReconcile(event.expectedTerminalMessageId);
     });
+    const unsubscribeLiveReconcile = addEventListener('conversation.messages.reconcile', (event) => {
+      if (event.conversation_id === key) reconcileLiveTranscript();
+    });
 
     return () => {
+      disposed = true;
       reconcileSequence += 1;
       loadingSequenceRef.current += 1;
       unsubscribeResponse();
       unsubscribeResync();
       unsubscribeConnected();
       unsubscribeExplicitRefresh();
+      unsubscribeLiveReconcile();
       if (reconcileTimer) clearTimeout(reconcileTimer);
       setLoading(false);
     };

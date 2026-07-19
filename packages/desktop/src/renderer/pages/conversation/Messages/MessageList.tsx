@@ -268,9 +268,16 @@ const MessageItem: React.FC<{ message: TMessage; highlighted?: boolean }> = Reac
 const MessageList: React.FC<{
   className?: string;
   emptySlot?: React.ReactNode;
+  tailSlot?: React.ReactNode;
   suppressEmptySlot?: boolean;
   historyPagination?: MessageHistoryPagination;
-}> = ({ className, emptySlot, suppressEmptySlot = false, historyPagination = emptyMessageHistoryPagination }) => {
+}> = ({
+  className,
+  emptySlot,
+  tailSlot,
+  suppressEmptySlot = false,
+  historyPagination = emptyMessageHistoryPagination,
+}) => {
   const list = useMessageList();
   const isMessageListLoading = useMessageListLoading();
   const artifacts = useConversationArtifacts();
@@ -653,11 +660,11 @@ const MessageList: React.FC<{
     return <MessageItem message={item as TMessage} key={(item as TMessage).id} highlighted={highlighted}></MessageItem>;
   };
 
-  if (processedList.length === 0 && (isMessageListLoading || suppressEmptySlot)) {
+  if (processedList.length === 0 && (isMessageListLoading || suppressEmptySlot) && !tailSlot) {
     return <MessageListSkeleton />;
   }
 
-  if (processedList.length === 0 && emptySlot) {
+  if (processedList.length === 0 && emptySlot && !tailSlot) {
     return <div className='relative flex-1 h-full flex items-center justify-center'>{emptySlot}</div>;
   }
 
@@ -688,6 +695,7 @@ const MessageList: React.FC<{
               {processedList.map((item, index) => (
                 <React.Fragment key={getProcessedItemAnchorId(item) || index}>{renderItem(index, item)}</React.Fragment>
               ))}
+              {tailSlot}
               <div className='h-20px' />
             </div>
           </div>

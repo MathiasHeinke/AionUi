@@ -1016,6 +1016,7 @@ export type I18nKey =
   | 'conversation.runtimeStatus.phase.thinking'
   | 'conversation.runtimeStatus.phase.tool_wait'
   | 'conversation.runtimeStatus.phase.ui_backlog'
+  | 'conversation.runtimeStatus.preparing'
   | 'conversation.runtimeStatus.toolDetail'
   | 'conversation.sendbox.hint'
   | 'conversation.sideQuestion.alreadyRunning'

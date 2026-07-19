@@ -91,6 +91,10 @@ const emitMessagesRefresh = (conversation_id: string, expectedTerminalMessageId?
   });
 };
 
+const emitMessagesReconcile = (conversation_id: string): void => {
+  emitter.emit('conversation.messages.reconcile', { conversation_id });
+};
+
 const emitRuntimeRecovered = (
   conversation_id: string,
   runtime: TConversationRuntimeSummary,
@@ -163,6 +167,11 @@ async function pollConversationRuntime(conversation_id: string, monitor: Runtime
     }
     flushRuntimeViewLogs(hydrateSucceeded(conversation_id, runtime));
     if (runtime.is_processing) {
+      // The websocket is the low-latency path, but the durable transcript must
+      // keep a mounted chat live even after sleep/network churn leaves that
+      // socket stale. This one-shot signal is coalesced by the message cache and
+      // never toggles the full history loading state.
+      emitMessagesReconcile(conversation_id);
       scheduleRuntimeRecoveryPoll(conversation_id, monitor);
       return;
     }

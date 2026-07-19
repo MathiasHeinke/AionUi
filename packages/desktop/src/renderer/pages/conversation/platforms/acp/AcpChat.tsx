@@ -13,6 +13,7 @@ import { ConversationArtifactProvider } from '@renderer/pages/conversation/Messa
 import {
   MessageListLoadingProvider,
   MessageListProvider,
+  useMessageList,
   useMessageLstCache,
 } from '@renderer/pages/conversation/Messages/hooks';
 import { usePendingConfirmationsRecovery } from '@renderer/pages/conversation/Messages/usePendingConfirmationsRecovery';
@@ -22,11 +23,43 @@ import HOC from '@renderer/utils/ui/HOC';
 import QuotaExhaustedWall from '@renderer/components/billing/QuotaExhaustedWall';
 import DailyCapWall from '@renderer/components/billing/DailyCapWall';
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import AcpE2EStreamInjector from './AcpE2EStreamInjector';
 import AcpRuntimeStatus from './AcpRuntimeStatus';
 import { useEgressBoundaryStatus } from './EgressBoundaryNotice';
+import { shouldShowPendingAssistantActivity } from './pendingAssistantActivity';
 import AcpSendBox from './AcpSendBox';
 import { useAcpMessage } from './useAcpMessage';
+
+const AcpPendingAssistantActivity: React.FC<{
+  conversation_id: string;
+  isProcessing: boolean;
+  localSubmitting: boolean;
+}> = ({ conversation_id, isProcessing, localSubmitting }) => {
+  const { t } = useTranslation();
+  const messages = useMessageList();
+  const latestConversationMessage = messages.findLast((message) => message.conversation_id === conversation_id);
+
+  if (!shouldShowPendingAssistantActivity(isProcessing, localSubmitting, latestConversationMessage?.position)) {
+    return null;
+  }
+
+  return (
+    <div
+      className='message-item px-8px m-t-14px max-w-full md:max-w-780px mx-auto flex items-center gap-10px text-t-secondary'
+      data-testid='acp-pending-assistant-activity'
+      role='status'
+      aria-live='polite'
+    >
+      <span className='h-8px w-8px rd-full bg-warning-6 animate-pulse shrink-0' />
+      <span className='font-500'>
+        {t('conversation.runtimeStatus.preparing', {
+          defaultValue: 'EVE is preparing the task',
+        })}
+      </span>
+    </div>
+  );
+};
 
 const AcpChat: React.FC<{
   conversation_id: string;
@@ -102,6 +135,15 @@ const AcpChat: React.FC<{
                 isPreparingDocument
               }
               historyPagination={historyPagination}
+              tailSlot={
+                runtimeView.isProcessing ? (
+                  <AcpPendingAssistantActivity
+                    conversation_id={conversation_id}
+                    isProcessing={runtimeView.isProcessing}
+                    localSubmitting={runtimeView.localSubmitting}
+                  />
+                ) : null
+              }
             />
           </FlexFullContainer>
           <AcpE2EStreamInjector conversationId={conversation_id} />
