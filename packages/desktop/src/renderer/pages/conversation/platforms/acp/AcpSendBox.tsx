@@ -59,6 +59,7 @@ import {
 import ConversationBusyModeControl from '@/renderer/pages/conversation/platforms/ConversationBusyModeControl';
 import { usePreviewContext } from '@/renderer/pages/conversation/Preview';
 import { useConversationRuntimeView } from '@/renderer/pages/conversation/runtime/useConversationRuntimeView';
+import { waitForConversationActiveTurnId } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
 import {
   markConversationDocumentPreparationSettled,
   markConversationDocumentPreparationStarted,
@@ -592,15 +593,13 @@ Please check your local CLI tool authentication status`,
   const videoCostWall = useVideoCostWall();
 
   const dispatchSteer = useCallback(
-    (input: string, requestId?: string) => {
-      const turnId = runtimeView.activeTurnId;
+    async (input: string, requestId?: string) => {
+      const turnId = runtimeView.activeTurnId ?? (await waitForConversationActiveTurnId(conversation_id));
       if (!turnId) {
-        return Promise.reject(
-          new Error(
-            t('conversation.commandQueue.activeTurnUnavailable', {
-              defaultValue: 'The current run is not ready for a correction yet.',
-            })
-          )
+        throw new Error(
+          t('conversation.commandQueue.activeTurnUnavailable', {
+            defaultValue: 'The current run is not ready for a correction yet.',
+          })
         );
       }
 

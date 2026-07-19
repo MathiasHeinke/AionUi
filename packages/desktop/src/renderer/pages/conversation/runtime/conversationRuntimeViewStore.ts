@@ -377,6 +377,40 @@ export const getConversationRuntimeViewSnapshot = (conversation_id: string): Con
   return next;
 };
 
+export const waitForConversationActiveTurnId = (
+  conversation_id: string,
+  options: { timeoutMs?: number } = {}
+): Promise<string | null> => {
+  const timeoutMs = options.timeoutMs ?? 15_000;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let unsubscribe: (() => void) | undefined;
+
+    const finish = (turnId: string | null) => {
+      if (settled) return;
+      settled = true;
+      if (timeout) clearTimeout(timeout);
+      unsubscribe?.();
+      resolve(turnId);
+    };
+
+    const inspect = () => {
+      const view = getConversationRuntimeViewSnapshot(conversation_id);
+      if (view.activeTurnId) {
+        finish(view.activeTurnId);
+        return;
+      }
+      if (!view.isProcessing) finish(null);
+    };
+
+    unsubscribe = subscribeConversationRuntimeView(inspect);
+    inspect();
+    if (!settled) timeout = setTimeout(() => finish(null), timeoutMs);
+  });
+};
+
 export const hydrateStarted = (conversation_id: string): ConversationRuntimeViewLogEntry[] =>
   setConversationRuntimeSnapshot(
     conversation_id,

@@ -4,11 +4,13 @@ import {
   getConversationRuntimeViewSnapshot,
   hydrateSucceeded,
   localSendAccepted,
+  localSendFailed,
   localSendStarted,
   localStopAcknowledged,
   localStopRequested,
   resetConversationRuntimeViewStoreForTest,
   turnCompleted,
+  waitForConversationActiveTurnId,
 } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
 
 const idleRuntime = (): TConversationRuntimeSummary => ({
@@ -100,6 +102,24 @@ describe('conversationRuntimeViewStore turn id contract', () => {
     expect(view.canSendMessage).toBe(false);
     expect(view.localSubmitting).toBe(false);
     expect(view.activeTurnId).toBe('turn-1');
+  });
+
+  it('waits for a locally submitted turn before steering', async () => {
+    localSendStarted('conv-1');
+    const pendingTurn = waitForConversationActiveTurnId('conv-1', { timeoutMs: 100 });
+
+    localSendAccepted('conv-1', 'turn-1', runningRuntime('turn-1'), 'msg-1');
+
+    await expect(pendingTurn).resolves.toBe('turn-1');
+  });
+
+  it('fails closed when the local send ends before a turn becomes active', async () => {
+    localSendStarted('conv-1');
+    const pendingTurn = waitForConversationActiveTurnId('conv-1', { timeoutMs: 100 });
+
+    localSendFailed('conv-1', 'send failed');
+
+    await expect(pendingTurn).resolves.toBeNull();
   });
 
   it('ignores stale stop ack for an older turn', () => {
