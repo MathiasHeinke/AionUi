@@ -640,6 +640,12 @@ export function toChronologicalHistoryPage(messages: TMessage[]): TMessage[] {
 }
 
 function getMessageIdentity(message: TMessage): string {
+  if (message.type === 'acp_tool_call' && message.content.update.tool_call_id) {
+    return `acp-tool:${message.content.update.tool_call_id}`;
+  }
+  if (message.type === 'tool_call' && message.content.call_id) {
+    return `tool:${message.content.call_id}`;
+  }
   return message.msg_id ? `msg:${message.msg_id}:${message.type}` : `id:${message.id}`;
 }
 
@@ -930,6 +936,7 @@ export const useMessageLstCache = (key: string) => {
 
     let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
     let reconcileSequence = 0;
+    let activeTerminalMessageId = '';
 
     const beginReconcileLoading = (): number => {
       const loadingSequence = ++loadingSequenceRef.current;
@@ -1000,15 +1007,20 @@ export const useMessageLstCache = (key: string) => {
       reconcileSequence += 1;
       const sequence = reconcileSequence;
       const loadingSequence = beginReconcileLoading();
+      activeTerminalMessageId = message.msg_id;
       // The WebSocket is the fast path; the persisted transcript is the durable
       // truth. Reconcile shortly after a terminal frame so a transient renderer
       // listener gap or reconnect cannot leave an active chat blank until remount.
       scheduleReconcile(sequence, message.msg_id, 1, TERMINAL_RECONCILE_DELAY_MS, 1, undefined, () => {
-        if (sequence === reconcileSequence) settleReconcileLoading(loadingSequence);
+        if (sequence === reconcileSequence) {
+          activeTerminalMessageId = '';
+          settleReconcileLoading(loadingSequence);
+        }
       });
     });
 
     const scheduleRecoveryReconcile = (expectedTerminalMessageId = '') => {
+      const authoritativeTerminalMessageId = activeTerminalMessageId || expectedTerminalMessageId;
       if (reconcileTimer) clearTimeout(reconcileTimer);
       reconcileSequence += 1;
       const sequence = reconcileSequence;
@@ -1018,13 +1030,16 @@ export const useMessageLstCache = (key: string) => {
       // transcript evidence before the empty-slot handoff can reappear.
       scheduleReconcile(
         sequence,
-        expectedTerminalMessageId,
+        authoritativeTerminalMessageId,
         1,
         TERMINAL_RECONCILE_DELAY_MS,
-        expectedTerminalMessageId ? 1 : RECOVERY_RECONCILE_MIN_ATTEMPTS,
+        authoritativeTerminalMessageId ? 1 : RECOVERY_RECONCILE_MIN_ATTEMPTS,
         RECOVERY_RECONCILE_MAX_ATTEMPTS,
         () => {
-          if (sequence === reconcileSequence) settleReconcileLoading(loadingSequence);
+          if (sequence === reconcileSequence) {
+            if (activeTerminalMessageId === authoritativeTerminalMessageId) activeTerminalMessageId = '';
+            settleReconcileLoading(loadingSequence);
+          }
         }
       );
     };

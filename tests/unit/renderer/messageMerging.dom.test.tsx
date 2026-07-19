@@ -13,6 +13,7 @@ import type { IMessageAcpToolCall, IMessageText, IMessageThinking } from '@/comm
 import {
   MessageListLoadingProvider,
   MessageListProvider,
+  reconcileHistoryMessages,
   useAddOrUpdateMessage,
   useMessageLstCache,
   useMessageList,
@@ -143,6 +144,14 @@ function createToolCallMessage(toolCallId: string): IMessageAcpToolCall {
   };
 }
 
+function createLiveToolCallMessage(toolCallId: string): IMessageAcpToolCall {
+  return {
+    ...createToolCallMessage(toolCallId),
+    id: `live-${toolCallId}`,
+    msg_id: 'assistant-message-id',
+  };
+}
+
 function TestWrapper({ children }: PropsWithChildren): JSX.Element {
   return <MessageListProvider value={[]}>{children}</MessageListProvider>;
 }
@@ -212,6 +221,16 @@ describe('message merging', () => {
     );
     expect(path).not.toContain('page=');
     expect(path).not.toContain('page_size=');
+  });
+
+  it('deduplicates live and persisted ACP tool calls by their stable tool call id', () => {
+    const messages = reconcileHistoryMessages(
+      [createLiveToolCallMessage('tool-1')],
+      [createToolCallMessage('tool-1')],
+      CONVERSATION_ID
+    );
+
+    expect(messages.filter((message) => message.type === 'acp_tool_call')).toHaveLength(1);
   });
 
   it('keeps text segments split when tool calls interrupt the same msg_id stream', async () => {
@@ -857,6 +876,68 @@ describe('message merging', () => {
     });
     expect(result.current.loading).toBe(false);
     expect(result.current.messages.map((message) => message.msg_id)).toEqual(['msg-terminal']);
+  });
+
+  it('keeps the assistant terminal id authoritative when runtime recovery reports the user message id', async () => {
+    const invoke = vi.mocked(ipcBridge.database.getConversationMessages.invoke);
+    invoke.mockReset();
+    const userOnlyHistory = {
+      items: [createTextMessage('msg-user', 'Queued correction')],
+      oldest_cursor: 'cursor-msg-user',
+      newest_cursor: 'cursor-msg-user',
+      has_more_before: false,
+      has_more_after: false,
+    };
+    invoke
+      .mockResolvedValueOnce({
+        items: [],
+        oldest_cursor: null,
+        newest_cursor: null,
+        has_more_before: false,
+        has_more_after: false,
+      })
+      .mockResolvedValueOnce(userOnlyHistory)
+      .mockResolvedValueOnce({
+        items: [
+          createTextMessage('msg-user', 'Queued correction'),
+          createTextMessage('msg-assistant', 'Durable corrected answer'),
+        ],
+        oldest_cursor: 'cursor-msg-user',
+        newest_cursor: 'cursor-msg-assistant',
+        has_more_before: false,
+        has_more_after: false,
+      });
+
+    const { result } = renderHook(() => useMessageCacheHarness(), { wrapper: CacheWrapper });
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => {
+      responseStreamHandlerRef.current?.({
+        type: 'finish',
+        data: null,
+        msg_id: 'msg-assistant',
+        conversation_id: CONVERSATION_ID,
+      });
+      emitter.emit('conversation.messages.refresh', {
+        conversation_id: CONVERSATION_ID,
+        expectedTerminalMessageId: 'msg-user',
+      });
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(75);
+      await Promise.resolve();
+      await Promise.resolve();
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(invoke).toHaveBeenCalledTimes(3);
+    expect(result.current.loading).toBe(false);
+    expect(result.current.messages.map((message) => message.msg_id)).toEqual(['msg-user', 'msg-assistant']);
   });
 
   it('prepends older pages by cursor without duplicating overlap', async () => {
