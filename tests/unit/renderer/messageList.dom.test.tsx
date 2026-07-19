@@ -21,6 +21,12 @@ import {
 const artifactMock = vi.hoisted(() => ({
   artifacts: [] as IConversationArtifact[],
 }));
+const conversationContextMock = vi.hoisted(() => ({
+  current: { conversation_id: 'conversation-1', workspace: '/tmp' } as {
+    conversation_id: string;
+    workspace: string;
+  } | null,
+}));
 const ipcMock = vi.hoisted(() => ({
   readFile: vi.fn(),
   readFileBuffer: vi.fn(),
@@ -73,7 +79,7 @@ vi.mock('@/common', () => ({
 }));
 
 vi.mock('@/renderer/hooks/context/ConversationContext', () => ({
-  useConversationContextSafe: () => null,
+  useConversationContextSafe: () => conversationContextMock.current,
 }));
 
 vi.mock('@/renderer/hooks/file/useAutoPreviewOfficeFiles', () => ({
@@ -161,7 +167,9 @@ vi.mock('@/renderer/pages/conversation/Messages/components/SelectionReplyButton'
 }));
 
 vi.mock('@/renderer/pages/conversation/Preview/components/viewers/PDFViewer', () => ({
-  default: ({ file_path }: { file_path?: string }) => <div data-testid='pdf-preview-inner'>{file_path}</div>,
+  default: ({ file_path, content }: { file_path?: string; content?: string }) => (
+    <div data-testid='pdf-preview-inner' data-file-path={file_path} data-content={content} />
+  ),
 }));
 
 vi.mock('@icon-park/react', () => ({
@@ -293,6 +301,7 @@ function mockScrollerGeometry(
 describe('MessageList', () => {
   afterEach(() => {
     artifactMock.artifacts = [];
+    conversationContextMock.current = { conversation_id: 'conversation-1', workspace: '/tmp' };
     ipcMock.readFile.mockReset();
     ipcMock.readFileBuffer.mockReset();
     ipcMock.getImageBase64.mockReset();
@@ -312,7 +321,15 @@ describe('MessageList', () => {
     expect(messageRow.className).not.toContain('pt-10px');
   });
 
-  it('renders an assistant Hermes MEDIA directive as a visible file artifact', () => {
+  it('renders an assistant Hermes MEDIA directive as a visible file artifact', async () => {
+    ipcMock.getFileMetadata.mockResolvedValue({
+      name: 'command eve output.pdf',
+      path: '/Users/eve/Downloads/command eve output.pdf',
+      size: 1024,
+      type: 'application/pdf',
+      lastModified: 1,
+    });
+    ipcMock.readFileBuffer.mockResolvedValue('JVBERi0=');
     const message: IMessageText = {
       ...createTextMessage(),
       content: {
@@ -334,7 +351,15 @@ describe('MessageList', () => {
     expect(screen.getByText('command eve output.pdf')).toBeInTheDocument();
     expect(screen.getByTestId('generated-artifact-open')).toBeInTheDocument();
     expect(screen.getByTestId('generated-artifact-reveal')).toBeInTheDocument();
-    expect(screen.getByTestId('generated-artifact-pdf')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('generated-artifact-pdf')).toBeInTheDocument());
+    expect(screen.getByTestId('pdf-preview-inner')).toHaveAttribute(
+      'data-content',
+      'data:application/pdf;base64,JVBERi0='
+    );
+    expect(ipcMock.readFileBuffer).toHaveBeenCalledWith({
+      path: '/Users/eve/Downloads/command eve output.pdf',
+      workspace: '/tmp',
+    });
   });
 
   it('does not promote user or unsafe MEDIA text into an artifact', () => {
@@ -646,12 +671,35 @@ describe('MessageList', () => {
     });
 
     await waitFor(() => expect(screen.getByTestId('generated-artifact-html')).toBeInTheDocument());
-    expect(ipcMock.readFile).toHaveBeenCalledWith({ path: '/tmp/generated-landing-page.html' });
+    expect(ipcMock.readFile).toHaveBeenCalledWith({ path: '/tmp/generated-landing-page.html', workspace: '/tmp' });
     const htmlArtifact = screen.getByTestId('generated-artifact-html');
     expect(htmlArtifact.getAttribute('sandbox')).toBe('');
     expect(htmlArtifact.getAttribute('srcdoc')).toContain('Content-Security-Policy');
     expect(htmlArtifact.getAttribute('srcdoc')).toContain('<main><h1>Local offer</h1>');
     expect(htmlArtifact.getAttribute('srcdoc')).toContain('window.pwned');
+  });
+
+  it('does not read a model-provided local artifact path without an active workspace', async () => {
+    conversationContextMock.current = null;
+    artifactMock.artifacts = [
+      {
+        id: 'artifact-unscoped-html',
+        conversation_id: 'conversation-1',
+        kind: 'html',
+        status: 'active',
+        payload: { artifact_type: 'html', path: '/tmp/unscoped.html' },
+        created_at: 8,
+        updated_at: 8,
+      },
+    ];
+
+    render(<MessageList />, {
+      wrapper: ({ children }) => <Wrapper>{children}</Wrapper>,
+    });
+
+    await waitFor(() => expect(screen.getByTestId('generated-artifact-empty')).toBeInTheDocument());
+    expect(ipcMock.getFileMetadata).not.toHaveBeenCalled();
+    expect(ipcMock.readFile).not.toHaveBeenCalled();
   });
 
   it('does not read an oversized local html artifact into renderer memory', async () => {
@@ -678,7 +726,9 @@ describe('MessageList', () => {
       wrapper: ({ children }) => <Wrapper>{children}</Wrapper>,
     });
 
-    await waitFor(() => expect(ipcMock.getFileMetadata).toHaveBeenCalledWith({ path: '/tmp/large.html' }));
+    await waitFor(() =>
+      expect(ipcMock.getFileMetadata).toHaveBeenCalledWith({ path: '/tmp/large.html', workspace: '/tmp' })
+    );
     await waitFor(() => expect(screen.getByTestId('generated-artifact-empty')).toBeInTheDocument());
     expect(ipcMock.readFile).not.toHaveBeenCalled();
     expect(screen.queryByTestId('generated-artifact-html')).not.toBeInTheDocument();
@@ -735,7 +785,7 @@ describe('MessageList', () => {
     );
     expect(screen.getByTestId('generated-artifact-audio')).toHaveAttribute('src', 'data:audio/wav;base64,YXVkaW8=');
     expect(screen.getByTestId('generated-artifact-video')).toHaveAttribute('src', 'data:video/mp4;base64,dmlkZW8=');
-    expect(ipcMock.getImageBase64).toHaveBeenCalledWith({ path: '/tmp/eve.png' });
+    expect(ipcMock.getImageBase64).toHaveBeenCalledWith({ path: '/tmp/eve.png', workspace: '/tmp' });
     expect(ipcMock.readFileBuffer).toHaveBeenCalledTimes(2);
   });
 
@@ -763,7 +813,9 @@ describe('MessageList', () => {
       wrapper: ({ children }) => <Wrapper>{children}</Wrapper>,
     });
 
-    await waitFor(() => expect(ipcMock.getFileMetadata).toHaveBeenCalledWith({ path: '/tmp/large.mp4' }));
+    await waitFor(() =>
+      expect(ipcMock.getFileMetadata).toHaveBeenCalledWith({ path: '/tmp/large.mp4', workspace: '/tmp' })
+    );
     await waitFor(() => expect(screen.getByTestId('generated-artifact-empty')).toBeInTheDocument());
     expect(ipcMock.readFileBuffer).not.toHaveBeenCalled();
     expect(screen.queryByTestId('generated-artifact-video')).not.toBeInTheDocument();
