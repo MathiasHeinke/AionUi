@@ -312,7 +312,7 @@
     "node": ">=22 <25"
   },
   "aioncoreSha256": {
-    "darwin-arm64": "a7ddbeca2067f542535f103ca9d2412f19a29d8b2406f905c69952e84d7cfc46",
+    "darwin-arm64": "8b82f235a3b0c7ae24b6354efb171e989e04a6def29648239a7196dbcc3ee24b",
     "darwin-x64": "206cdce093d0d01c4bb94ea22e4e0a82b711e05878e14d4e843ced70dba4af8a",
     "linux-arm64": "40fedf5fadfb0ec925ffc1d440da372c06ca6b8628cfcc66fb98cc8669494e9e",
     "linux-x64": "5af042b1f27e6a099ea6ee44cab54444479f9f25a34e8a07d1e327d12436239b",
