@@ -261,19 +261,21 @@ const MessageGeneratedArtifact: React.FC<{ artifact: IGeneratedConversationArtif
     let active = true;
     setPathHtmlContent(undefined);
     setPathHtmlLoading(true);
-    void ipcBridge.fs.readFile.invoke({ path: openPath }).then(
-      (content) => {
+    void (async () => {
+      try {
+        const metadata = await ipcBridge.fs.getFileMetadata.invoke({ path: openPath });
+        if (!metadata || metadata.isDirectory || metadata.size > HTML_PREVIEW_MAX) return;
+        const content = await ipcBridge.fs.readFile.invoke({ path: openPath });
         if (!active) return;
-        setPathHtmlLoading(false);
         if (typeof content === 'string' && content.length <= HTML_PREVIEW_MAX) {
           setPathHtmlContent(content);
         }
-      },
-      () => {
-        if (!active) return;
-        setPathHtmlLoading(false);
+      } catch {
+        // Keep the artifact actions available when a preview cannot be loaded.
+      } finally {
+        if (active) setPathHtmlLoading(false);
       }
-    );
+    })();
 
     return () => {
       active = false;

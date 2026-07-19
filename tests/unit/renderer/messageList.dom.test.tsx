@@ -616,6 +616,13 @@ describe('MessageList', () => {
   });
 
   it('loads and securely frames source-only html artifacts', async () => {
+    ipcMock.getFileMetadata.mockResolvedValue({
+      name: 'generated-landing-page.html',
+      path: '/tmp/generated-landing-page.html',
+      size: 1024,
+      type: 'text/html',
+      lastModified: 1,
+    });
     ipcMock.readFile.mockResolvedValue('<main><h1>Local offer</h1><script>window.pwned = true</script></main>');
     artifactMock.artifacts = [
       {
@@ -645,6 +652,36 @@ describe('MessageList', () => {
     expect(htmlArtifact.getAttribute('srcdoc')).toContain('Content-Security-Policy');
     expect(htmlArtifact.getAttribute('srcdoc')).toContain('<main><h1>Local offer</h1>');
     expect(htmlArtifact.getAttribute('srcdoc')).toContain('window.pwned');
+  });
+
+  it('does not read an oversized local html artifact into renderer memory', async () => {
+    ipcMock.getFileMetadata.mockResolvedValue({
+      name: 'large.html',
+      path: '/tmp/large.html',
+      size: 2 * 1024 * 1024 + 1,
+      type: 'text/html',
+      lastModified: 1,
+    });
+    artifactMock.artifacts = [
+      {
+        id: 'artifact-large-html',
+        conversation_id: 'conversation-1',
+        kind: 'html',
+        status: 'active',
+        payload: { artifact_type: 'html', path: '/tmp/large.html' },
+        created_at: 8,
+        updated_at: 8,
+      },
+    ];
+
+    render(<MessageList />, {
+      wrapper: ({ children }) => <Wrapper>{children}</Wrapper>,
+    });
+
+    await waitFor(() => expect(ipcMock.getFileMetadata).toHaveBeenCalledWith({ path: '/tmp/large.html' }));
+    await waitFor(() => expect(screen.getByTestId('generated-artifact-empty')).toBeInTheDocument());
+    expect(ipcMock.readFile).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('generated-artifact-html')).not.toBeInTheDocument();
   });
 
   it('loads local image, audio, and video artifacts through bounded data URLs', async () => {
