@@ -32,7 +32,12 @@ import type {
   ProjectSemanticStageInput,
 } from '../core/semanticBundleCore';
 import { readJson, withExclusiveFileLock, writeFileCreateOnly, writeJsonAtomic } from '../storage/atomicJson';
-import type { PortableProjectBinding, ProjectConversationBindingClient } from '../runtime/conversationBindingClient';
+import {
+  ProjectBindingClientError,
+  type PortableProjectBinding,
+  type ProjectBindingSnapshot,
+  type ProjectConversationBindingClient,
+} from '../runtime/conversationBindingClient';
 
 const SIDECAR_VERSION = 'command-eve-project-semantic-sidecar/v1' as const;
 const PROPOSAL_QUEUE_VERSION = 'command-eve-project-domain-proposal-queue/v1' as const;
@@ -533,6 +538,22 @@ export function createProjectSemanticCoordinator(
   const operationSerializer = createProjectSemanticOperationSerializer();
   const serialized = operationSerializer.run;
 
+  // A conversation that does not exist (yet) has no binding state. UI-driven
+  // creates use a synthetic conversation id unknown to the backend, so a
+  // NOT_FOUND read must resolve to the null snapshot instead of rejecting the
+  // whole create (live dev-app proof caught this as a preflight capability
+  // failure). Real backend failures (401/5xx/network) still throw.
+  const readBindingSnapshotOrNull = async (conversationId: string): Promise<ProjectBindingSnapshot> => {
+    try {
+      return await options.binding_client.read(conversationId);
+    } catch (error) {
+      if (error instanceof ProjectBindingClientError && error.code === 'NOT_FOUND') {
+        return { binding: null, project_binding_revision: 0, project_binding_receipt_id: null };
+      }
+      throw error;
+    }
+  };
+
   const readSidecar = (transactionId: string): SemanticSidecar => {
     try {
       return parseSidecar(readJson(sidecarFile(transactionId)));
@@ -719,7 +740,7 @@ export function createProjectSemanticCoordinator(
       const bindingEffect = sidecar.effects.conversation_binding;
       if (bindingEffect.status === 'planned') {
         input.assert_mutation_allowed();
-        const observed = await options.binding_client.read(input.conversation_id);
+        const observed = await readBindingSnapshotOrNull(input.conversation_id);
         input.assert_mutation_allowed();
         const pairChanges = !same(bindingEffect.expected, bindingEffect.next);
         let owned = false;
@@ -780,7 +801,7 @@ export function createProjectSemanticCoordinator(
       });
     }
     const bindingEffect = sidecar.effects.conversation_binding;
-    const currentBinding = await options.binding_client.read(input.conversation_id);
+    const currentBinding = await readBindingSnapshotOrNull(input.conversation_id);
     input.assert_mutation_allowed();
     const bindingPairChanged = !same(bindingEffect.expected, bindingEffect.next);
     if (bindingPairChanged && same(currentBinding.binding, bindingEffect.next)) {
@@ -853,7 +874,7 @@ export function createProjectSemanticCoordinator(
           project_id: identity.project_id,
           workspace_root_ref: identity.workspace_root_ref,
         };
-        const observed = await options.binding_client.read(input.conversation_id);
+        const observed = await readBindingSnapshotOrNull(input.conversation_id);
         if (observed.binding !== null && !same(observed.binding, nextBinding)) {
           throw new ProjectWorkspaceError('semantic.preflight-rejected');
         }
@@ -925,7 +946,7 @@ export function createProjectSemanticCoordinator(
         const hermesHome = options.resolve_hermes_home(input.identity.seat_id);
         const existingBrain = readBrainIndex(hermesHome).entries.find((entry) => entry.id === plan.brain.entry_id);
         if (existingBrain) throw new ProjectWorkspaceError('semantic.preflight-rejected');
-        const observedBinding = await options.binding_client.read(input.conversation_id);
+        const observedBinding = await readBindingSnapshotOrNull(input.conversation_id);
         input.assert_mutation_allowed();
         if (
           !same(observedBinding.binding, input.binding.initial_conversation_binding) ||
