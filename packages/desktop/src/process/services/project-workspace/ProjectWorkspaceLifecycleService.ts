@@ -8,10 +8,10 @@ import { PROJECT_BRAIN_KIND, upsertSystemEntry } from '@process/commandEve/compa
 import { mapProjectWorkspaceReason } from './core/lifecycleReasonCore';
 import type { ProjectConversationMetadataClient, PortableProjectBinding } from './runtime/conversationBindingClient';
 import { readJson, writeFileAtomic, writeJsonAtomic } from './storage/atomicJson';
-import { ProjectWorkspaceRegistryStore } from './storage/registryStore';
+import type { ProjectWorkspaceRegistryStore } from './storage/registryStore';
 import {
   hashProjectLifecycleRequest,
-  ProjectLifecycleOperationStore,
+  type ProjectLifecycleOperationStore,
   type ProjectLifecycleOperationName,
   type ProjectLifecycleOperationV1,
 } from './transaction/lifecycleOperationStore';
