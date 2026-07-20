@@ -346,6 +346,25 @@ export function stripActiveSeatScopeFromRoot(root: string): string {
 let activeSeatId: string = LEGACY_SEAT_ID;
 
 /**
+ * The SEAT CONTEXT REVISION (S81/R1a) — a monotonic, main-owned counter that
+ * bumps on EVERY successful `setActiveSeatId` call (i.e. every seat switch,
+ * including a defensive same-id re-assert). It lets main-side services reject
+ * renderer mutations that were issued against a stale seat context
+ * (`assertSeat` in ProjectWorkspaceLifecycleService): after a switch, the old
+ * revision no longer matches and the mutation fails closed with
+ * `seat.changed` instead of landing in the new seat. The renderer learns the
+ * current revision only through the `ProjectWorkspaceListDTO.seat_context_revision`
+ * snapshot; it can never mint one. Process-local, monotonic for the process
+ * lifetime; reset only by the test/clean-reset helpers below.
+ */
+let activeSeatContextRevision = 0;
+
+/** Get the current seat context revision (monotonic, bumped on every seat switch). */
+export function getActiveSeatContextRevision(): number {
+  return activeSeatContextRevision;
+}
+
+/**
  * The DISPLAY LABEL of the currently-active seat (Seat-Context-Bridge / B1).
  *
  * This is a PLAIN display name ('Founder' for the legacy/founder home, or the
@@ -438,6 +457,7 @@ export function isActiveSeatLegacy(): boolean {
 export function setActiveSeatId(seatId?: string | null): string {
   const sanitized = assertSeatId(seatId);
   activeSeatId = sanitized;
+  activeSeatContextRevision += 1;
   return activeSeatId;
 }
 
@@ -470,6 +490,7 @@ export function getActiveSeatBoardSlug(): string {
 /** Reset the active seat back to the legacy default (for clean-reset / tests). */
 export function clearActiveSeat(): void {
   activeSeatId = LEGACY_SEAT_ID;
+  activeSeatContextRevision = 0;
   activeSeatLabel = DEFAULT_SEAT_LABEL;
   activeSeatKind = DEFAULT_SEAT_KIND;
 }
@@ -485,6 +506,7 @@ export function resolveActiveSeatHome(userDataPath: string, homeDir?: string): S
 /** Test-only: force-reset the active-seat holder (id + label + kind). */
 export function __resetActiveSeatForTests(): void {
   activeSeatId = LEGACY_SEAT_ID;
+  activeSeatContextRevision = 0;
   activeSeatLabel = DEFAULT_SEAT_LABEL;
   activeSeatKind = DEFAULT_SEAT_KIND;
 }

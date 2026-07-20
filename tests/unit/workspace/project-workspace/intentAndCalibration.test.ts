@@ -3,7 +3,11 @@ import type {
   ExistingProjectCandidate,
   ImmutableProjectTargetSnapshot,
 } from '@/common/types/project-workspace/intent';
-import { evaluateCalibrationReceipt, resolveProjectIntent } from '@process/services/project-workspace/core/intentCore';
+import {
+  evaluateCalibrationReceipt,
+  matchConversationCandidates,
+  resolveProjectIntent,
+} from '@process/services/project-workspace/core/intentCore';
 
 const snapshot: ImmutableProjectTargetSnapshot = {
   seat_id: 'seat-alpha',
@@ -165,5 +169,46 @@ describe('implicit auto-create calibration', () => {
     expect(
       evaluateCalibrationReceipt({ ...perfectReceipt, raw_dataset: '/private/data' } as CalibrationReceiptV1, expected)
     ).toMatchObject({ eligible: false, reason_code: 'calibration.insufficient-sample' });
+  });
+});
+
+describe('matchConversationCandidates (S81/R3 chat gate)', () => {
+  const atlas: ExistingProjectCandidate = {
+    project_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    seat_id: 'seat-alpha',
+    realm_id: snapshot.realm_id,
+    root_id: snapshot.root_id,
+    workspace_root_ref: snapshot.workspace_root_ref,
+    title: 'Atlas Research',
+    slug: 'atlas-research',
+    status: 'active',
+  };
+  const orion: ExistingProjectCandidate = {
+    ...atlas,
+    project_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    title: 'Orion Launch',
+    slug: 'orion-launch',
+  };
+
+  it('returns a single candidate when the message names one project (bind case)', () => {
+    expect(matchConversationCandidates('please continue the atlas research thread', [atlas, orion])).toEqual([atlas]);
+  });
+
+  it('returns no candidate for unrelated text (pass-through case)', () => {
+    expect(matchConversationCandidates('what is the weather today', [atlas, orion])).toEqual([]);
+  });
+
+  it('returns every match in deterministic project_id order (clarify case)', () => {
+    const both = matchConversationCandidates('atlas research and orion launch updates', [orion, atlas]);
+    expect(both.map((candidate) => candidate.project_id)).toEqual([atlas.project_id, orion.project_id]);
+  });
+
+  it('ignores archived candidates and empty input', () => {
+    expect(matchConversationCandidates('atlas research', [{ ...atlas, status: 'archived' }])).toEqual([]);
+    expect(matchConversationCandidates('   ', [atlas])).toEqual([]);
+  });
+
+  it('matches on slug tokens even when the title casing differs', () => {
+    expect(matchConversationCandidates('ATLAS RESEARCH kickoff', [atlas])).toEqual([atlas]);
   });
 });

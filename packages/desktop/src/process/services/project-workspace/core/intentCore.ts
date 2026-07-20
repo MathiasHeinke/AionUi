@@ -249,3 +249,35 @@ export function evaluateCalibrationReceipt(
     reason_code: 'auto-create.locked',
   };
 }
+
+/**
+ * CHAT-GATE CANDIDATE MATCHING (S81/R3, main-process only).
+ *
+ * Scores the free-text of an outgoing chat message against the existing
+ * project candidates of a seat. A candidate matches when >= 80% of its title
+ * words appear in the message, or when every token of its slug appears. This
+ * deliberately reuses the same normalization as title matching so the chat
+ * gate cannot drift from the router. Returns matches in deterministic order.
+ *
+ * The caller (chat gate) decides: 0 matches -> pass through, 1 -> bind,
+ * >1 -> clarify. Auto-create stays release-locked and is never produced here.
+ */
+export function matchConversationCandidates(
+  input: string,
+  candidates: ExistingProjectCandidate[]
+): ExistingProjectCandidate[] {
+  const words = new Set(normalizedWords(input));
+  if (words.size === 0) return [];
+  return candidates
+    .filter((candidate) => candidate.status === 'active')
+    .filter((candidate) => {
+      const titleWords = normalizedWords(candidate.title);
+      if (titleWords.length > 0) {
+        const hits = titleWords.filter((word) => words.has(word)).length;
+        if (hits / titleWords.length >= 0.8) return true;
+      }
+      const slugTokens = candidate.slug.split('-').filter(Boolean);
+      return slugTokens.length > 0 && slugTokens.every((token) => words.has(token));
+    })
+    .toSorted((left, right) => left.project_id.localeCompare(right.project_id));
+}
