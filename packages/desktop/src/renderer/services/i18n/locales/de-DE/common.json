@@ -127,6 +127,157 @@
   "processing": "Wird verarbeitet...",
   "optional": "(optional)",
   "clear": "Leeren",
+  "projects": {
+    "title": "Projekte",
+    "sider": "Projekte",
+    "description": "Ordne Arbeit nach Seat, Bereich und Projekt, ohne lokale Ordner in der Chat-Oberfläche offenzulegen.",
+    "loading": "Projekte werden geladen…",
+    "automaticDisabled": "Die automatische Projekterstellung bleibt bis zum Abschluss der Kalibrierung pausiert. Manuelles Erstellen und Übernehmen bleibt verfügbar.",
+    "currentSeat": "Aktueller Seat: {{seat}}",
+    "listLabel": "Projektliste",
+    "updated": "Aktualisiert {{date}}",
+    "conversations": "{{count}} Unterhaltung(en)",
+    "actionCompleted": "Projekt aktualisiert",
+    "filter": {
+      "label": "Projekte nach Bereich filtern",
+      "all": "Alle Bereiche"
+    },
+    "realms": {
+      "private": "Privat",
+      "business": "Geschäftlich",
+      "custom": "Benutzerdefiniert"
+    },
+    "status": {
+      "active": "Aktiv",
+      "archived": "Archiviert",
+      "locked": "Gesperrt",
+      "recovery_required": "Wiederherstellung erforderlich"
+    },
+    "actions": {
+      "edit": "Metadaten bearbeiten",
+      "archive": "Archivieren",
+      "restore": "Wiederherstellen",
+      "reveal": "Im Finder öffnen",
+      "recover": "Reparieren",
+      "undo": "Letzten Vorgang rückgängig machen",
+      "bind": "Chat verbinden",
+      "unbind": "Chat trennen"
+    },
+    "fields": {
+      "placement": "Bereich und Stammordner",
+      "title": "Projekttitel",
+      "titlePlaceholder": "z. B. Markteinführung",
+      "profile": "Projektprofil (optional)",
+      "profilePlaceholder": "Beschreibe Ziel, Arbeit und Grenzen des Projekts"
+    },
+    "create": {
+      "action": "Projekt erstellen",
+      "title": "Projekt erstellen",
+      "confirm": "Jetzt erstellen",
+      "preview": "Plan prüfen",
+      "previewTitle": "Vor dem Erstellen prüfen",
+      "destination": "Ablage: {{destination}}"
+    },
+    "adopt": {
+      "action": "Ordner übernehmen",
+      "title": "Bestehenden Ordner übernehmen",
+      "confirm": "Jetzt übernehmen",
+      "chooseFolder": "Ordner auswählen",
+      "description": "Die native Ordnerauswahl gehört Command EVE. Diese Ansicht erhält nur eine sichere Anzeigevorschau, niemals den absoluten Pfad."
+    },
+    "edit": {
+      "title": "Projektmetadaten bearbeiten"
+    },
+    "confirm": {
+      "archive": {
+        "title": "Projekt archivieren?",
+        "description": "„{{title}}“ archivieren? Die Dateien bleiben unverändert und das Projekt kann wiederhergestellt werden."
+      },
+      "undo": {
+        "title": "Letzten zulässigen Vorgang rückgängig machen?",
+        "description": "Command EVE macht nur den verifizierten letzten Vorgang für „{{title}}“ rückgängig. Geänderte Nutzerdaten werden niemals gelöscht."
+      }
+    },
+    "empty": {
+      "description": "In diesem Bereich gibt es noch keine passenden Projekte. Erstelle ein Projekt in einem privaten, geschäftlichen oder eigenen Bereich oder übernimm sicher einen bestehenden Ordner."
+    },
+    "artifact": {
+      "invalidTitle": "Projektaktualisierung ausgeblendet",
+      "invalidDescription": "Diese Projektaktualisierung enthielt nicht unterstützte oder sensible Felder und wurde nicht dargestellt.",
+      "receipt": "Beleg: {{receipt}}",
+      "followUps": "Verfügbare sichere Folgeschritte",
+      "state": {
+        "preview": "Vorschau",
+        "awaiting_confirmation": "Bestätigung ausstehend",
+        "committing": "Projekt wird erstellt",
+        "completed": "Abgeschlossen",
+        "rejected": "Abgelehnt",
+        "recovery_required": "Wiederherstellung erforderlich"
+      }
+    },
+    "reasons": {
+      "service_unavailable": {
+        "title": "Projekte sind noch nicht verfügbar",
+        "description": "Der lokale Projektdienst ist nicht verbunden. Aktualisiere, sobald Command EVE vollständig gestartet ist."
+      },
+      "workspace_locked": {
+        "title": "Projekt ist gerade gesperrt",
+        "description": "Ein anderer verifizierter Vorgang besitzt dieses Projekt. Aktualisiere nach dessen Abschluss."
+      },
+      "stale_snapshot": {
+        "title": "Projektinformationen haben sich geändert",
+        "description": "Aktualisiere die Projektliste und prüfe den aktuellen Stand vor einem neuen Versuch."
+      },
+      "seat_changed": {
+        "title": "Aktiver Seat wurde gewechselt",
+        "description": "Dieser Plan gehört zum vorherigen Seat. Aktualisiere und erstelle einen neuen Plan für den aktiven Seat."
+      },
+      "root_conflict": {
+        "title": "Konflikt im Stammordner",
+        "description": "Wähle einen anderen verifizierten Projektstammordner. Es wurden keine Dateien verändert."
+      },
+      "ownership_conflict": {
+        "title": "Eigentumskonflikt",
+        "description": "Dieser Ort gehört zu einem anderen Seat oder Bereich. Wähle einen Stammordner des aktiven Seats."
+      },
+      "nested_project": {
+        "title": "Verschachteltes Projekt blockiert",
+        "description": "Ein Projekt darf nicht in einem anderen verwalteten Projekt liegen. Wähle einen anderen Stammordner."
+      },
+      "duplicate_project": {
+        "title": "Projekt existiert bereits",
+        "description": "Aktualisiere und arbeite im bestehenden Projekt weiter. Command EVE hat kein Duplikat erstellt."
+      },
+      "foreign_manifest": {
+        "title": "Fremdes Projektmanifest",
+        "description": "Der Ordner kann nicht automatisch übernommen werden. Prüfe einen begrenzten Reparatur- oder Quarantänevorschlag."
+      },
+      "corrupt_manifest": {
+        "title": "Projektmanifest ist beschädigt",
+        "description": "Es wurde nichts verändert. Prüfe einen begrenzten Reparatur- oder Quarantänevorschlag."
+      },
+      "newer_manifest_version": {
+        "title": "Projektformat ist neuer",
+        "description": "Aktualisiere Command EVE oder kontaktiere den Operator, bevor du dieses Projekt öffnest."
+      },
+      "recovery_required": {
+        "title": "Wiederherstellung ist erforderlich",
+        "description": "Ein dauerhafter Vorgang ist unvollständig. Nutze Wiederherstellen und wiederhole nicht die ursprüngliche Aktion."
+      },
+      "capability_failure": {
+        "title": "Projektberechtigung konnte nicht geprüft werden",
+        "description": "Es wurde nichts verändert. Kontaktiere den Operator mit der sicheren Beleg-ID."
+      },
+      "invariant_failure": {
+        "title": "Projektsicherheitsprüfung fehlgeschlagen",
+        "description": "Command EVE hat vor der Erfolgsbestätigung gestoppt. Kontaktiere den Operator mit der sicheren Beleg-ID."
+      },
+      "transient_precommit_failure": {
+        "title": "Projektplan konnte nicht übernommen werden",
+        "description": "Der Fehler trat vor dem Commit auf. Ein neuer Versuch aus einer frischen Vorschau ist sicher."
+      }
+    }
+  },
   "unit": {
     "minute_short": "Min",
     "second_short": "Sek"

@@ -127,6 +127,157 @@
   "processing": "Processing...",
   "optional": "(optional)",
   "clear": "Clear",
+  "projects": {
+    "title": "Projects",
+    "sider": "Projects",
+    "description": "Organize work by seat, realm, and project without exposing local folders to the chat surface.",
+    "loading": "Loading projects…",
+    "automaticDisabled": "Automatic project creation is paused until its calibration is complete. Manual Create and Adopt remain available.",
+    "currentSeat": "Current seat: {{seat}}",
+    "listLabel": "Project list",
+    "updated": "Updated {{date}}",
+    "conversations": "{{count}} conversation(s)",
+    "actionCompleted": "Project updated",
+    "filter": {
+      "label": "Filter projects by realm",
+      "all": "All realms"
+    },
+    "realms": {
+      "private": "Private",
+      "business": "Business",
+      "custom": "Custom"
+    },
+    "status": {
+      "active": "Active",
+      "archived": "Archived",
+      "locked": "Locked",
+      "recovery_required": "Recovery required"
+    },
+    "actions": {
+      "edit": "Edit metadata",
+      "archive": "Archive",
+      "restore": "Restore",
+      "reveal": "Open in Finder",
+      "recover": "Recover",
+      "undo": "Undo latest operation",
+      "bind": "Bind chat",
+      "unbind": "Unbind chat"
+    },
+    "fields": {
+      "placement": "Realm and root",
+      "title": "Project title",
+      "titlePlaceholder": "e.g. Market launch",
+      "profile": "Project profile (optional)",
+      "profilePlaceholder": "Describe the intended work and boundaries"
+    },
+    "create": {
+      "action": "Create project",
+      "title": "Create project",
+      "confirm": "Create now",
+      "preview": "Review plan",
+      "previewTitle": "Review before creating",
+      "destination": "Placement: {{destination}}"
+    },
+    "adopt": {
+      "action": "Adopt folder",
+      "title": "Adopt existing folder",
+      "confirm": "Adopt now",
+      "chooseFolder": "Choose folder",
+      "description": "The native folder picker is owned by Command EVE. This screen receives only a safe display preview, never the absolute path."
+    },
+    "edit": {
+      "title": "Edit project metadata"
+    },
+    "confirm": {
+      "archive": {
+        "title": "Archive project?",
+        "description": "Archive “{{title}}”? Its files remain untouched and the project can be restored."
+      },
+      "undo": {
+        "title": "Undo latest eligible operation?",
+        "description": "Command EVE will undo only the verified latest operation for “{{title}}”. Changed user files are never deleted."
+      }
+    },
+    "empty": {
+      "description": "No projects match this realm. Create a project in a private, business, or custom realm, or safely adopt an existing folder."
+    },
+    "artifact": {
+      "invalidTitle": "Project update hidden",
+      "invalidDescription": "This project update contained unsupported or sensitive fields and was not rendered.",
+      "receipt": "Receipt: {{receipt}}",
+      "followUps": "Available safe follow-ups",
+      "state": {
+        "preview": "Preview",
+        "awaiting_confirmation": "Awaiting confirmation",
+        "committing": "Creating project",
+        "completed": "Completed",
+        "rejected": "Rejected",
+        "recovery_required": "Recovery required"
+      }
+    },
+    "reasons": {
+      "service_unavailable": {
+        "title": "Projects are not available yet",
+        "description": "The local project service is not connected. Refresh after Command EVE has finished starting."
+      },
+      "workspace_locked": {
+        "title": "Project is currently locked",
+        "description": "Another verified operation owns this project. Refresh after it has completed."
+      },
+      "stale_snapshot": {
+        "title": "Project information changed",
+        "description": "Refresh the project list and review the current state before trying again."
+      },
+      "seat_changed": {
+        "title": "Active seat changed",
+        "description": "This plan belongs to the previous seat. Refresh and create a new plan for the active seat."
+      },
+      "root_conflict": {
+        "title": "Root conflict",
+        "description": "Choose another verified project root. No files were changed."
+      },
+      "ownership_conflict": {
+        "title": "Ownership conflict",
+        "description": "This location belongs to another seat or realm. Choose a root owned by the active seat."
+      },
+      "nested_project": {
+        "title": "Nested project blocked",
+        "description": "A project cannot be placed inside another managed project. Choose another root."
+      },
+      "duplicate_project": {
+        "title": "Project already exists",
+        "description": "Refresh to continue with the existing project. Command EVE did not create a duplicate."
+      },
+      "foreign_manifest": {
+        "title": "Foreign project manifest",
+        "description": "The folder cannot be adopted automatically. Review a bounded repair or quarantine proposal."
+      },
+      "corrupt_manifest": {
+        "title": "Project manifest is damaged",
+        "description": "No changes were made. Review a bounded repair or quarantine proposal."
+      },
+      "newer_manifest_version": {
+        "title": "Project format is newer",
+        "description": "Update Command EVE or contact the operator before opening this project."
+      },
+      "recovery_required": {
+        "title": "Recovery is required",
+        "description": "A durable operation is incomplete. Use Recover; do not repeat the original action."
+      },
+      "capability_failure": {
+        "title": "Project authority could not be verified",
+        "description": "No change was made. Contact the operator with the safe receipt identifier."
+      },
+      "invariant_failure": {
+        "title": "Project safety check failed",
+        "description": "Command EVE stopped before confirming success. Contact the operator with the safe receipt identifier."
+      },
+      "transient_precommit_failure": {
+        "title": "Project plan could not be committed",
+        "description": "The failure happened before commit and can be retried safely from a fresh preview."
+      }
+    }
+  },
   "unit": {
     "minute_short": "m",
     "second_short": "s"

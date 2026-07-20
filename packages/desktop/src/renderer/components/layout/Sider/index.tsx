@@ -17,6 +17,7 @@ import {
   SiderCommandCenterEntry,
   SiderKanbanEntry,
 } from './SiderNav';
+import SiderProjectsEntry from './SiderNav/SiderProjectsEntry';
 // 1.2.18 Req 1 — Connectoren / Skills / Runtime / Dein Team moved OUT of the main
 // sidebar INTO Settings (declutter; the operator is the conductor). Their entries
 // (SiderConnectorCatalogEntry / SiderSkillLibraryEntry / SiderLocalRuntimeEntry)
@@ -140,6 +141,17 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
     }
   };
 
+  const handleProjectsClick = () => {
+    cleanupSiderTooltips();
+    blurActiveElement();
+    closePreview();
+    setIsBatchMode(false);
+    Promise.resolve(navigate('/projects')).catch((error) => {
+      console.error('Navigation failed:', error);
+    });
+    onSessionClick?.();
+  };
+
   // 1.2.18 — handlers for Connectoren/Skills/Runtime/Dein Team removed; those
   // surfaces moved into Settings (the old top-level routes still resolve via
   // redirects in Router.tsx for bookmarks/deep-links).
@@ -247,6 +259,13 @@ const Sider: React.FC<SiderProps> = ({ onSessionClick, collapsed = false }) => {
               collapsed={collapsed}
               siderTooltipProps={siderTooltipProps}
               onClick={handleKanbanClick}
+            />
+            <SiderProjectsEntry
+              isMobile={isMobile}
+              isActive={pathname === '/projects'}
+              collapsed={collapsed}
+              siderTooltipProps={siderTooltipProps}
+              onClick={handleProjectsClick}
             />
             {/* 1.2.18 — Connectoren / Skills / Runtime / Dein Team entries moved into Settings. */}
             {/* Divider between fixed top nav and scrollable content area */}

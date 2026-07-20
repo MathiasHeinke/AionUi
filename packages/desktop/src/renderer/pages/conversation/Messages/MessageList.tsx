@@ -5,6 +5,8 @@
  */
 
 import type { IConversationArtifact, IGeneratedConversationArtifact } from '@/common/adapter/ipcBridge';
+import type { ProjectWorkspaceConversationArtifactDTO } from '@renderer/pages/projects/types';
+import { useProjectWorkspaceConversationArtifacts } from '@renderer/pages/projects/client';
 import type { IMessageAcpToolCall, IMessageToolCall, IMessageToolGroup, TMessage } from '@/common/chat/chatLib';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
 import { iconColors } from '@/renderer/styles/colors';
@@ -40,6 +42,7 @@ import MessageToolGroupSummary from './components/MessageToolGroupSummary';
 import MessageCronTrigger from './components/MessageCronTrigger';
 import MessageGeneratedArtifact from './components/MessageGeneratedArtifact';
 import MessageSkillSuggest from './components/MessageSkillSuggest';
+import ProjectWorkspaceCard from './components/ProjectWorkspaceCard';
 import MessageText from './components/MessageText';
 import MessageThinking from './components/MessageThinking';
 import { buildGeneratedArtifactFromHermesMediaDirective, parseHermesMediaDirectives } from './hermesMediaDirectiveCore';
@@ -63,7 +66,8 @@ type IMessageVO =
       sourceMessageIds: string[];
       created_at: number;
     };
-type IArtifactVO = { type: 'artifact'; id: string; artifact: IConversationArtifact; created_at: number };
+type ConversationArtifactView = IConversationArtifact | ProjectWorkspaceConversationArtifactDTO;
+type IArtifactVO = { type: 'artifact'; id: string; artifact: ConversationArtifactView; created_at: number };
 type IProcessedItem = IMessageVO | IArtifactVO;
 
 type ConversationLocationState = {
@@ -282,6 +286,7 @@ const MessageList: React.FC<{
   const isMessageListLoading = useMessageListLoading();
   const artifacts = useConversationArtifacts();
   const conversationContext = useConversationContextSafe();
+  const projectWorkspaceArtifacts = useProjectWorkspaceConversationArtifacts(conversationContext?.conversation_id);
   useAutoPreviewOfficeFiles(conversationContext);
   const { t } = useTranslation();
   const location = useLocation();
@@ -432,11 +437,17 @@ const MessageList: React.FC<{
       artifact,
       created_at: artifact.created_at,
     }));
+    const projectWorkspaceArtifactItems = projectWorkspaceArtifacts.map<IArtifactVO>((artifact) => ({
+      type: 'artifact',
+      id: artifact.id,
+      artifact,
+      created_at: artifact.created_at,
+    }));
 
-    return [...result, ...visibleArtifactItems].toSorted(
+    return [...result, ...visibleArtifactItems, ...projectWorkspaceArtifactItems].toSorted(
       (a, b) => getProcessedItemCreatedAt(a) - getProcessedItemCreatedAt(b)
     );
-  }, [artifacts, list]);
+  }, [artifacts, list, projectWorkspaceArtifacts]);
 
   // Use auto-scroll hook
   const {
@@ -634,7 +645,9 @@ const MessageList: React.FC<{
           className='min-w-0 message-item px-8px m-t-10px max-w-full md:max-w-780px mx-auto'
           style={highlighted ? highlightStyle : undefined}
         >
-          {item.artifact.kind === 'cron_trigger' ? (
+          {item.artifact.kind === 'project_workspace' ? (
+            <ProjectWorkspaceCard payload={item.artifact.payload} />
+          ) : item.artifact.kind === 'cron_trigger' ? (
             <MessageCronTrigger artifact={item.artifact} />
           ) : item.artifact.kind === 'skill_suggest' ? (
             <MessageSkillSuggest artifact={item.artifact} />
