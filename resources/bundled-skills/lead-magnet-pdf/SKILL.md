@@ -15,6 +15,7 @@ of inaction in euros, let them self-assess, THEN present the framework and proof
 a pitch from page one, it's not a lead magnet — it's a sales deck masquerading as one.
 
 ## When to use
+
 - "Build a lead magnet", "create a PDF for lead gen", "make this a downloadable asset"
 - Turning a client's positioning/framework into a gated asset
 - Converting a sales deck or pitch into something that earns the download first
@@ -24,12 +25,14 @@ a pitch from page one, it's not a lead magnet — it's a sales deck masquerading
 ## The method
 
 ### 1. Lock the ICP + the ONE diagnostic
+
 One buyer, one pain, one insight they'll pay attention to. The lead magnet's title and hook must
 be a **forced-yes diagnostic** the ICP can only answer "yes, that's me" — not a benefit claim. If
 the title is "How to grow your business" it's generic; if it's "Die stille Steuer: wie viel Umsatz
 dein Marketing-System täglich verbrennt" it's specific and diagnostic.
 
 ### 2. Voice guard on the hook — REQUIRED before you render
+
 The euro-hook is the single most load-bearing line in the whole asset. Before you build any
 sections around it, run the hook (title + subtitle + the "stille Steuer" framing) through the
 **content-machine Founder-Voice and anti-slop guard** — the same voice check content-machine's
@@ -108,6 +111,7 @@ buyer. When in doubt, leave the placeholder and flag it; a `[needs client input]
 correct, a fabricated number never is.
 
 **Before writing any content, scrape the client's real website:**
+
 - Use `browser_navigate` + `browser_console` with `document.body.innerText` to extract all text
 - Collect: real framework names, real case study numbers, real client logos/names, founder bio,
   real pain points as described on the site
@@ -121,6 +125,7 @@ Zahl"). The inputs (missed opportunities, LTV, timeframe) must be the client's r
 `[needs client input]`; never present a modelled estimate as a guaranteed or measured result.
 
 **Verify replacements via pdftotext:**
+
 ```bash
 pdftotext output.pdf - | grep -c "OldPlaceholderString"  # must be 0
 pdftotext output.pdf - | grep -c "RealDataString"        # must be >0
@@ -132,6 +137,7 @@ The PDF must look like it came from the same brand as the client's website. Do N
 colors, fonts, or dark/light patterns — extract them from the live site.
 
 **Extract the client's real brand CSS via `browser_console`:**
+
 - Navigate to the client's site, then run a JS expression that pulls:
   - CSS custom properties (`--primary`, `--secondary`, `--accent`, etc.)
   - Computed styles on `h1`, `h2`, `h3`, `button` (fontFamily, color, bg, weight)
@@ -140,6 +146,7 @@ colors, fonts, or dark/light patterns — extract them from the live site.
   body font → PDF body; dark/light pattern → PDF section rhythm
 
 **Common mismatches** (all real findings):
+
 - Gold/amber accent in the PDF when the brand uses wine red — instant "generic template" tell
 - Sans-serif headings when the brand uses Playfair Display (serif/editorial) — tonal break
 - System fonts instead of the client's web fonts — feels like a different company
@@ -150,6 +157,7 @@ CSS mapping table.
 ### 7. Contrast & readability pass
 
 Check every text/background combination:
+
 - Light sections: body text `#2a2a3e` or darker on `#f5f5f8` backgrounds
 - Dark sections: body text `#d0d0e0` or brighter on `#0d0d1a` backgrounds
 - Lead/subtitle text: one step lighter than body (e.g. `#3a3a50` on light, `#c0c0d8` on dark)
@@ -164,6 +172,7 @@ with accent border. Dark section → dark card with subtle fill. No exceptions.
 ### 8. Verify & deliver
 
 **Text verification:**
+
 ```bash
 pdfinfo output.pdf | grep Pages    # confirm page count
 pdftotext output.pdf - | head -80   # scan first pages for content
@@ -255,6 +264,7 @@ Deliver the PDF + the HTML source. The operator approves before any distribution
   10% visible for grid patterns at 150 DPI.
 
 ## Output shape
+
 Deliver: the **PDF artifact** (ready for the operator to review and gate), the **HTML source**
 (for future edits), and a **change log** of what was integrated from real data vs. what was
 written from the client's positioning vs. what is still `[needs client input]`. The operator
@@ -263,6 +273,7 @@ approves before distribution.
 ## Skill-Specific Safety Rules
 
 Shared non-negotiables live in `eve-doctrine`; this section only lists skill-specific boundaries.
+
 - **Real data only — fabrication is a violation, not a style slip.** Every euro figure,
   case-study number and framework name must come from the scraped/provided client material or be
   marked `[needs client input]`. Never fabricate testimonials, case study numbers, or framework
@@ -282,6 +293,7 @@ Shared non-negotiables live in `eve-doctrine`; this section only lists skill-spe
   framework has a specific name on the site, use that exact name.
 
 ## Related skills
+
 - `landing-copy` — shares the conversion logic (diagnostic hook, value frame, proof, CTA) but for
   web pages, not PDFs. Lock the ICP + diagnostic here, then build the PDF.
 - `content-machine` — the substrate that feeds format-specific outputs and owns the Founder-Voice

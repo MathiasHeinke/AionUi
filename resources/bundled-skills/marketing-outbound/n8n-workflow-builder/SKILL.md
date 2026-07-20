@@ -1,6 +1,6 @@
 ---
 name: n8n-workflow-builder
-description: "Nutze, wenn du eine Outbound-Automatisierung in n8n bauen willst — vom Trigger über die Schritte bis zum Output, inklusive nötiger API-Endpoints/Credentials (nur Namen), Error-Handling und Test-Plan. Technischer als die anderen Skills, gleiche Struktur. Beispiele: \"Bau mir den n8n-Flow für die LinkedIn-Trigger-Sequenz\", \"Wie automatisiere ich Brief→Erstansprache→CRM in n8n?\", \"Workflow: neuer Lead in Pipedrive → Slack-Alert\""
+description: 'Nutze, wenn du eine Outbound-Automatisierung in n8n bauen willst — vom Trigger über die Schritte bis zum Output, inklusive nötiger API-Endpoints/Credentials (nur Namen), Error-Handling und Test-Plan. Technischer als die anderen Skills, gleiche Struktur. Beispiele: "Bau mir den n8n-Flow für die LinkedIn-Trigger-Sequenz", "Wie automatisiere ich Brief→Erstansprache→CRM in n8n?", "Workflow: neuer Lead in Pipedrive → Slack-Alert"'
 ---
 
 # n8n Workflow Builder
@@ -11,12 +11,14 @@ Error-Handling und einen Test-Plan. Du bekommst keinen halben Pseudocode, sonder
 die du in n8n direkt nachklicken kannst.
 
 ## Was du bekommst
+
 Eine nummerierte **Node-Liste** (jeder Node mit Typ, Zweck, Ein-/Ausgangsfeldern), den **Datenfluss**
 zwischen den Nodes, ein konkretes **Error-Handling-Konzept** (Retry, Fallback, Alerting) und einen
 **Test-Plan** mit Pinned-Data-Schritten. Plus die Liste der Credentials, die du in n8n anlegen musst —
 als Referenz-Namen, ohne einen einzigen echten Key.
 
 ## Wann nutzen
+
 - Du willst einen der Outbound-Schritte automatisieren statt manuell zu klicken (z. B. neuer Lead →
   Anreicherung → `copywriting-first-touch` → CRM-Eintrag → Slack-Ping).
 - Du hast eine Idee („wenn X passiert, dann Y") und brauchst die saubere Node-Topologie dazu.
@@ -24,6 +26,7 @@ als Referenz-Namen, ohne einen einzigen echten Key.
   oder ein Rate-Limit-Schutz fehlt.
 
 ## Input
+
 - **Pflicht:** Was soll passieren (Trigger + gewünschtes Endergebnis) und **welche Tools** beteiligt sind
   (CRM, Email, LinkedIn-Tool, Slack, Google Sheets, …).
 - **Optional (macht den Flow stark):** `outreach-brief.md` (liefert ICP/Persona/Angle, falls der Flow
@@ -33,11 +36,12 @@ als Referenz-Namen, ohne einen einzigen echten Key.
   mit Platzhaltern.
 
 ## Workflow
+
 1. **Trigger klären — was startet den Flow?**
-   - *Event-getrieben:* Webhook (neuer Lead aus Formular/CRM), n8n-native App-Trigger (z. B. „New Deal
+   - _Event-getrieben:_ Webhook (neuer Lead aus Formular/CRM), n8n-native App-Trigger (z. B. „New Deal
      in Pipedrive"), Email-Trigger.
-   - *Zeit-getrieben:* Schedule/Cron (z. B. täglich 08:00 die Follow-up-Fälligkeiten prüfen).
-   - *Manuell:* nur für Tests — produktiv immer durch einen echten Trigger ersetzen.
+   - _Zeit-getrieben:_ Schedule/Cron (z. B. täglich 08:00 die Follow-up-Fälligkeiten prüfen).
+   - _Manuell:_ nur für Tests — produktiv immer durch einen echten Trigger ersetzen.
 2. **Schritte als lineare Kette skizzieren** — jeder fachliche Schritt = ein Node. Reihenfolge:
    Empfangen → Validieren/Normalisieren → Anreichern → Verarbeiten/Generieren → Schreiben → Benachrichtigen.
    Lieber ein Node mehr mit klarem Zweck als ein 200-Zeilen-Function-Node, den später keiner versteht.
@@ -61,6 +65,7 @@ als Referenz-Namen, ohne einen einzigen echten Key.
    erst dann scharf schalten.
 
 ## Node-Skelett (typischer Outbound-Flow)
+
 ```
 [1] Trigger            → Webhook / Schedule / App-Trigger        out: rohes Lead-Objekt
 [2] Validate/Normalize → Function/Set: Felder mappen, leere      out: lead{email,name,domain,...}
@@ -76,6 +81,7 @@ als Referenz-Namen, ohne einen einzigen echten Key.
 ```
 
 ## Error-Handling-Konzept
+
 - **Retry (transiente Fehler):** Netzwerk/5xx/Timeout → am Node „Retry On Fail" (z. B. 3 Versuche,
   exponentielles Backoff). Nie endlos — sonst hängt der Flow.
 - **Fallback (fachlicher Fehler):** Anreicherung liefert nichts → mit Defaults weiterlaufen statt abbrechen;
@@ -88,6 +94,7 @@ als Referenz-Namen, ohne einen einzigen echten Key.
   Key ist falsch oder der Payload kaputt, Wiederholen hilft nicht.
 
 ## Test-Plan
+
 1. **Pinned Data** am Trigger setzen: ein realistisches Beispiel-Lead-Objekt, damit du ohne Live-Event testen kannst.
 2. **Node für Node ausführen** (n8n „Execute Node") und nach jedem Schritt den Output prüfen — stimmen die Feldnamen, ist der Datenfluss intakt?
 3. **Fehlerfall provozieren:** ungültige Domain / fehlende Email → greift der Suppression/Validate-Stop? Falscher Credential → landet es im Alert, nicht im Void?
@@ -96,17 +103,19 @@ als Referenz-Namen, ohne einen einzigen echten Key.
 6. **Erst dann produktiv schalten** — Trigger aktivieren, erste echten Runs im Execution-Log beobachten.
 
 ## Beispiel
+
 > **Schlecht (ein Mega-Node, kein Error-Pfad, Key im Klartext):**
 > Ein einziger Function-Node holt Lead, ruft fünf APIs, sendet die Email — `Authorization: Bearer sk-live-…`
 > hart reingeschrieben. Bei jedem Fehler bricht alles ab, niemand merkt es, und der Key liegt im Workflow-JSON.
 >
 > **Gut (klare Kette, Fehlerweg, Credentials referenziert):**
 > `[1] Webhook → [2] Set (normalize) → [3] IF (suppression) → [4] HTTP GET /persons/search (Cred: „Pipedrive API prod")
-> → [5] OpenAI-Node (Cred: „OpenAI – outbound") → [6] Wait 60s → [7] Email-Send (Cred: „SMTP outbound")
-> → [8] Pipedrive-Update + Slack-Notify`. Jeder externe Node: Retry 3×/Backoff; `Continue On Fail` → Error-Branch
+→ [5] OpenAI-Node (Cred: „OpenAI – outbound") → [6] Wait 60s → [7] Email-Send (Cred: „SMTP outbound")
+→ [8] Pipedrive-Update + Slack-Notify`. Jeder externe Node: Retry 3×/Backoff; `Continue On Fail` → Error-Branch
 > schreibt ins Dead-Letter-Sheet und pingt Slack. Kein Key im Flow — alles über benannte Credentials.
 
 ## Häufige Fehler
+
 - **Echte Keys im Workflow** statt benannte Credentials — landet im Export-JSON und in jedem Backup. Niemals.
 - **Kein Error-Branch** an externen Calls — der erste API-Hänger killt den Flow lautlos.
 - **Endlos-Retry / kein Backoff** — aus einem 429 wird ein Self-DDoS gegen die fremde API.
@@ -115,6 +124,7 @@ als Referenz-Namen, ohne einen einzigen echten Key.
 - **Direkt produktiv ohne Pinned-Data-Test** — der erste echte Run ist dann dein Test, an echten Empfängern.
 
 ## Regeln
+
 - **Niemals echte Keys/Secrets/Tokens** in Output, Node-Beschreibung oder Beispiel. Nur Credential-**Namen**
   als Referenz. Werte gehören in n8ns verschlüsselten Credential-Store, nie in den Flow.
 - **Evidenz vor Annahme:** Feldnamen, Endpoints, Rate-Limits, die du nicht sicher kennst, als
@@ -126,6 +136,7 @@ als Referenz-Namen, ohne einen einzigen echten Key.
   verweise auf die API-Doku, statt einen Pfad zu raten.
 
 ## Output
+
 - **Node-Liste** (nummeriert): je Node Typ, Zweck, Input-/Output-Felder, referenziertes Credential (Name).
 - **Datenfluss:** wie die Felder von Node zu Node wandern (Kette wie im Skelett oben).
 - **Error-Handling:** Retry/Fallback/Alerting pro kritischem Node + Idempotenz-Hinweis.

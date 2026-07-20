@@ -24,12 +24,12 @@ The operating rule: **No strong-voice content without a completed FVBM.**
 
 ## FVBM Maturity Levels
 
-| Level | Meaning | What's captured |
-|---|---|---|
-| **M0** | Seed interview complete | Core beliefs, audience, what they stand for/against |
-| **M1** | Voice samples exist | 2–5 real writing samples captured |
-| **M2** | Voice profile written | Structured voice profile in USER.md |
-| **M3** | Field-tested | Content produced, feedback incorporated, voice stable |
+| Level  | Meaning                 | What's captured                                       |
+| ------ | ----------------------- | ----------------------------------------------------- |
+| **M0** | Seed interview complete | Core beliefs, audience, what they stand for/against   |
+| **M1** | Voice samples exist     | 2–5 real writing samples captured                     |
+| **M2** | Voice profile written   | Structured voice profile in USER.md                   |
+| **M3** | Field-tested            | Content produced, feedback incorporated, voice stable |
 
 Voice-first-run takes the operator from M0 → M1 (it stops at M1; founder-voice
 handles M1 → M2 → M3).
@@ -100,11 +100,13 @@ Write this to the client's workspace as `fvbm/fvbm-profile.yaml`.
 Now that beliefs are anchored, ask for samples:
 
 **Lowest friction** (prefer these):
+
 - "Schick mir einen Link zu deinem letzten LinkedIn Post" (if they've posted)
 - "Schick mir eine Email die du geschrieben hast und die sich gut anfühlt"
 - "Sag mir einen Satz den du oft sagst — ich schreib ihn auf"
 
 **If they have nothing:**
+
 - Ask them to write 2–3 sentences about WHY they started their business, in
   their own words, right now. Type it, don't polish it.
 - Ask for a voice memo (recorded on phone, 1–2 minutes: "erzähl mir woran du

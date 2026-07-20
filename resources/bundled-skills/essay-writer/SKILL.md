@@ -1,6 +1,6 @@
 ---
 name: essay-writer
-description: "Schreibt persönlich-philosophische ESSAYS mit Heldenreise, echter Autorenstimme und kuratiertem Apparat — von Rohmaterial (Diktat, Notizen, Biografie-Bruch) über Entwurf, adversariales Review und Straffung (minus 15 bis 20 Prozent) bis zur publikationsreifen Fassung mit sauberen Fußnoten. Länge standardmäßig 3.500 bis 6.000 Wörter (nach Straffung 4.000 bis 5.000). Nutzen bei Trigger wie «schreib einen Essay», «mach aus meinen Notizen oder Diktaten einen Essay», «hilf mir meinen Essay zu schärfen oder straffen» — auch in der Stimme eines anderen Autors (Voice-Profil via founder-voice, mit dessen Freigabe). Produziert Markdown-Master plus optional DOCX und PDF plus Redaktionsnotiz. Niemals veröffentlichen ohne Human-Gate."
+description: 'Schreibt persönlich-philosophische ESSAYS mit Heldenreise, echter Autorenstimme und kuratiertem Apparat — von Rohmaterial (Diktat, Notizen, Biografie-Bruch) über Entwurf, adversariales Review und Straffung (minus 15 bis 20 Prozent) bis zur publikationsreifen Fassung mit sauberen Fußnoten. Länge standardmäßig 3.500 bis 6.000 Wörter (nach Straffung 4.000 bis 5.000). Nutzen bei Trigger wie «schreib einen Essay», «mach aus meinen Notizen oder Diktaten einen Essay», «hilf mir meinen Essay zu schärfen oder straffen» — auch in der Stimme eines anderen Autors (Voice-Profil via founder-voice, mit dessen Freigabe). Produziert Markdown-Master plus optional DOCX und PDF plus Redaktionsnotiz. Niemals veröffentlichen ohne Human-Gate.'
 ---
 
 # Essay Writer

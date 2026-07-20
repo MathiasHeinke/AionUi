@@ -18,7 +18,7 @@ sind getrennt, weil sie unterschiedlich gesetzt werden.
 
 - **Schmutztitel** (half-title), **Titelseite** (Titel groß + Untertitel + Autor),
 - **Impressum/Copyright:** `Copyright © JAHR Autor. Alle Rechte vorbehalten.` + Herausgeber
-  + Haftungsausschluss („keine rechtliche/medizinische/finanzielle Beratung") + `Ausgabe: 1. Auflage, JAHR.`
+  - Haftungsausschluss („keine rechtliche/medizinische/finanzielle Beratung") + `Ausgabe: 1. Auflage, JAHR.`
 - **Widmung** + **Epigraph** (ein starkes Zitat aus dem Buch — nicht generisch).
 - **Inhaltsverzeichnis** (Print: automatisch; eBook: via `--toc`).
 

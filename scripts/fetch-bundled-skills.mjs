@@ -142,7 +142,7 @@ export const COMMAND_EVE_SKILLS_MODE_ENV = 'COMMAND_EVE_SKILLS_MODE';
 export const AUTHOR_PRODUCTION_SKILL_IDS = Object.freeze(['autor-studio', 'essay-writer', 'book-publishing']);
 export const AUTHOR_PRODUCTION_EXPECTED_FILE_COUNT = 32;
 export const AUTHOR_PRODUCTION_EXPECTED_AGGREGATE_SHA256 =
-  '7af34714d428b4451f7811bc9f87da32ec5ac4f594783c0e3a9fd3f1c9e2f465';
+  '99900130fc3835a2c1eb8ed805a11b4940e763865f1c3ddab2ec527c758df883';
 
 // ---------------------------------------------------------------------------
 // PURE LOGIC (exported for unit tests; no fs side effects)

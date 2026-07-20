@@ -6,23 +6,25 @@ description: Turn a messy question plus a pile of evidence/inputs into a sharp, 
 # Decision Brief
 
 A decision brief is the opposite of a research dump. Research, an icp-persona-panel run, a pre-mortem, or a
-deep-research fan-out all *produce* evidence — a decision brief *spends* it. It compresses the mess into the
+deep-research fan-out all _produce_ evidence — a decision brief _spends_ it. It compresses the mess into the
 shape a busy operator can act on in one read: the **bottom line first**, a crisp **evidence-cited answer** to each
 sub-question that actually gates the call, **one decisive recommendation** (not a survey of options), the **honest
 residual risk** that remains even if everything is executed perfectly, and the **explicit decision** the user now
 has to make. It is decision-grade or it is noise: lead with the call, honesty over smoothing.
 
 ## When to use
+
 - When the user must **DECIDE** and there's a pile of input — reports, options, numbers, conflicting takes.
 - When the user says "make this decision-ready", "what should I do", "give it to me straight", "just tell me".
 - **After** a deep-research, icp-persona-panel, pre-mortem, or plan-system run — to compress it into ONE action.
 - When a thread has drifted into an exhaustive menu and the operator needs the recommendation, not the catalog.
 
 ## The method
+
 Run it as ordered moves — restate, marshal, answer, recommend, residual, ask. Don't skip to the verdict before the evidence is marked.
 
-1. **Restate the REAL decision + break it into the gating sub-questions.** Say in one line *what is actually being
-   decided* (not the surface question) and *who decides* (founder = HG-4, vs an autonomous call). Then list only the
+1. **Restate the REAL decision + break it into the gating sub-questions.** Say in one line _what is actually being
+   decided_ (not the surface question) and _who decides_ (founder = HG-4, vs an autonomous call). Then list only the
    **sub-questions that actually gate it** — the ones whose answers would flip the recommendation. Drop the rest.
 2. **Marshal the evidence — and grade it.** For each load-bearing claim cite the source and **date** it, then mark it
    `FACT(file:path / source)`, `INFERENCE(from X)`, or `HYPOTHESIS(no evidence yet)` with a confidence (high/med/low).
@@ -36,11 +38,12 @@ Run it as ordered moves — restate, marshal, answer, recommend, residual, ask. 
    the one condition that would switch it; don't punt the whole choice back.
 5. **Separate CONTROLLABLE from EXOGENOUS risk + state the honest residual.** Split self-inflicted risk (we can fix
    by executing well) from exogenous risk (market, platform, regulator — outside our control). Then state the **residual**:
-   what still bites *even if execution is flawless*. This is the line most briefs omit and the one the operator most needs.
+   what still bites _even if execution is flawless_. This is the line most briefs omit and the one the operator most needs.
 6. **End with the explicit decision asked.** Close with the single concrete thing the user must now do or approve —
    the gate, the spend, the go/no-go — and the immediate next step once they answer. One decision, not a to-do list.
 
 ## Output
+
 - **BOTTOM LINE** (1–3 sentences, the call, up front) — readable before anything else.
 - **Sub-question answers**, each evidence-cited and confidence-marked, with vendor/aspirational/unsourced numbers flagged.
 - **VERDICT + the single recommendation** (decisive; if a fork is real, the default + the one switching condition).
@@ -48,6 +51,7 @@ Run it as ordered moves — restate, marshal, answer, recommend, residual, ask. 
 - **The decision asked**: the explicit go/no-go or approval the user must make now, plus the next step on each answer.
 
 ## Key discipline
+
 - **Lead with the decision.** The recommendation goes in the first lines, not the conclusion — assume the reader stops after the bottom line.
 - **A recommendation, not a menu.** Surveying every option is a way of refusing to decide. Commit to one and own the fork conditions.
 - **Honesty over smoothing.** Surface the inconvenient number, the soft "yes", the residual that doesn't go away. A brief that flatters the plan is worthless (same standard as icp-persona-panel's honesty rule).

@@ -60,6 +60,7 @@ approval_owner_confirmed:    ✓ if operator explicitly approved
 ```
 
 Blockers (any one blocks distribution):
+
 - Missing writer runtime auth
 - Missing image for image-required social lane
 - Generated image contains placeholder or non-allowlist text
@@ -108,6 +109,7 @@ must be revised before resubmission.
 ### 5. Review Queue Submission
 
 Only after:
+
 - All quality gates pass
 - Remote preflight passes
 - Operator explicitly confirms "yes, publish this"
@@ -173,6 +175,7 @@ marketing/
 ## Output Shape
 
 Deliver:
+
 1. **Content audit** — what's ready, what's blocking
 2. **Distribution plan** — which channels, when, with what payloads
 3. **Preflight result** — PASS or blocker details

@@ -1,6 +1,6 @@
 ---
 name: book-publishing
-description: "A-bis-Z-Produktionspipeline für Sachbuch oder Roman: Positionierung, genreabhängige Evidence- oder Kanon-Arbeit, Draft, unabhängiger Audit, Front-/Backmatter, Print-PDF, Cover, EPUB, KDP-Konto, Paperback, Kindle und Launch. Nutze diesen Skill, um ein Buch zu veröffentlichen, auf KDP zu bringen, ein Print-PDF oder EPUB zu bauen oder die Buchproduktion zu steuern. Literarisches Schreiben bleibt bei autor-studio. Rechte, ISBN/Imprint, KI-Offenlegung, DRM, KDP Select, Preis, öffentliche Launch-Aktionen und finaler Publish-Klick sind Human-Gates."
+description: 'A-bis-Z-Produktionspipeline für Sachbuch oder Roman: Positionierung, genreabhängige Evidence- oder Kanon-Arbeit, Draft, unabhängiger Audit, Front-/Backmatter, Print-PDF, Cover, EPUB, KDP-Konto, Paperback, Kindle und Launch. Nutze diesen Skill, um ein Buch zu veröffentlichen, auf KDP zu bringen, ein Print-PDF oder EPUB zu bauen oder die Buchproduktion zu steuern. Literarisches Schreiben bleibt bei autor-studio. Rechte, ISBN/Imprint, KI-Offenlegung, DRM, KDP Select, Preis, öffentliche Launch-Aktionen und finaler Publish-Klick sind Human-Gates.'
 ---
 
 # Book Publishing (A–Z, Idee → KDP-live)
@@ -60,13 +60,13 @@ Formularbestätigungen und Publikationsmutationen führt der Mensch aus.
 8. **eBook-Build (EPUB)** — pandoc mit epub.css, `--syntax-highlighting=none`. Skript: build_ebook.sh; ebook_front.md, ebook_cta.md.
 9. **KDP-Konto & Steuer** — Konto, wirtschaftlich Berechtigten, Steuerprofil und Bankverbindung anhand der tatsächlichen Rechts-/Steuersituation klären. **Mensch bzw. Steuerberatung führt aus.**
 10. **KDP Publish Paperback** — Print-Listenpreis, aktuelle Tantiemenstufe,
-   Druckoptionen und Probedruck prüfen. Rechte, Territorien, ISBN/Imprint,
-   Preisfreigabe und Publish sind Human Gates.
+    Druckoptionen und Probedruck prüfen. Rechte, Territorien, ISBN/Imprint,
+    Preisfreigabe und Publish sind Human Gates.
 11. **KDP Publish Kindle** — eBook-Preis und aktuelle Bedingungen prüfen.
-   Rechte, KI-Offenlegung, DRM, KDP Select, Preis und Publish sind Human Gates.
+    Rechte, KI-Offenlegung, DRM, KDP Select, Preis und Publish sind Human Gates.
 12. **Launch & Funnel** — passendes Ziel für Sachbuch oder Roman definieren;
-   öffentliche Posts, Mailings, Reviewer-Anfragen oder bezahlte Maßnahmen nur
-   nach menschlicher Freigabe ausführen.
+    öffentliche Posts, Mailings, Reviewer-Anfragen oder bezahlte Maßnahmen nur
+    nach menschlicher Freigabe ausführen.
 
 ## Detail-Runbooks (nur die aktuelle Stufe laden)
 
@@ -89,16 +89,16 @@ Referenzen pauschal in den Kontext ziehen.
 
 ## Human-Decision-Matrix
 
-| Entscheidung oder Mutation | Agent darf | Mensch entscheidet/führt aus |
-|---|---|---|
-| Rechte, Territorien, Steuer-/Bankprofil | Fakten und Optionen vorbereiten | attestieren, speichern, absenden |
-| ISBN und Imprint | Optionen, Folgen und Datenabgleich darstellen | ISBN wählen/zuweisen und Imprint bestätigen |
-| KI-Offenlegung | verwendete Verfahren inventarisieren, Formularantwort vorschlagen | Antwort bestätigen und absenden |
-| Titel, Cover und öffentliche Metadaten | Varianten, QA und Preview vorbereiten | finale öffentliche Fassung freigeben |
-| DRM und KDP Select | Folgen und Distributionskonflikte darstellen | auswählen oder ändern |
-| Preis und Release-Termin | aktuelle Vorschau, Marge und Alternativen berechnen | Preis und Termin freigeben |
-| Publish | Preflight und Decision Card erstellen | final klicken |
-| Launch, Reviewer, Mailings, Posts, Ads | Entwürfe, Listen und Budgetvorschlag erstellen | externe Sends, Spend und öffentliche Mutationen freigeben |
+| Entscheidung oder Mutation              | Agent darf                                                        | Mensch entscheidet/führt aus                              |
+| --------------------------------------- | ----------------------------------------------------------------- | --------------------------------------------------------- |
+| Rechte, Territorien, Steuer-/Bankprofil | Fakten und Optionen vorbereiten                                   | attestieren, speichern, absenden                          |
+| ISBN und Imprint                        | Optionen, Folgen und Datenabgleich darstellen                     | ISBN wählen/zuweisen und Imprint bestätigen               |
+| KI-Offenlegung                          | verwendete Verfahren inventarisieren, Formularantwort vorschlagen | Antwort bestätigen und absenden                           |
+| Titel, Cover und öffentliche Metadaten  | Varianten, QA und Preview vorbereiten                             | finale öffentliche Fassung freigeben                      |
+| DRM und KDP Select                      | Folgen und Distributionskonflikte darstellen                      | auswählen oder ändern                                     |
+| Preis und Release-Termin                | aktuelle Vorschau, Marge und Alternativen berechnen               | Preis und Termin freigeben                                |
+| Publish                                 | Preflight und Decision Card erstellen                             | final klicken                                             |
+| Launch, Reviewer, Mailings, Posts, Ads  | Entwürfe, Listen und Budgetvorschlag erstellen                    | externe Sends, Spend und öffentliche Mutationen freigeben |
 
 ## Werkzeuge (Voraussetzung)
 

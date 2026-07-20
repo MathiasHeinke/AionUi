@@ -16,6 +16,7 @@ Der Agent darf Felder und Optionen vorbereiten, aber keine Rechte attestieren,
 ISBN zuweisen, Territorien oder Preis bestätigen und nicht veröffentlichen.
 
 ## Tab 1 — Details
+
 - Sprache, **Buchtitel** + **Untertitel**, Serie (überspringen), Auflage, **Autor**,
   Mitwirkende (optional).
 - **Beschreibung** (Verkaufstext, ~200–4000 Zeichen; Schmerz → Versprechen → für wen).
@@ -30,6 +31,7 @@ ISBN zuweisen, Territorien oder Preis bestätigen und nicht veröffentlichen.
   Mensch entscheidet zwischen sofortiger und geplanter Veröffentlichung.
 
 ## Tab 2 — Inhalt
+
 - **ISBN/Imprint:** kostenlose KDP-ISBN und eigene ISBN vergleichen. KDPs freie
   ISBN gilt nur auf KDP und führt zum Imprint „Independently published"; eigene
   ISBN muss mit den Daten der ISBN-Agentur übereinstimmen. **Nicht autonom
@@ -44,6 +46,7 @@ ISBN zuweisen, Territorien oder Preis bestätigen und nicht veröffentlichen.
   **genehmigt die Buchvorschau** im KDP-Konto.
 
 ## Tab 3 — Rechte & Preisgestaltung
+
 - **Gebiete:** nur die Territorien auswählen, für die tatsächlich
   Veröffentlichungsrechte vorliegen; **menschliche Attestierung**.
 - **Primärer Marktplatz:** z.B. Amazon.de.

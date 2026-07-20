@@ -12,8 +12,8 @@ Ausgabe: 1. Auflage, JAHR.
 
 # Widmung {.unnumbered .unlisted}
 
-*WIDMUNG*
+_WIDMUNG_
 
-------
+---
 
-*EPIGRAPH ODER LEER LASSEN*
+_EPIGRAPH ODER LEER LASSEN_

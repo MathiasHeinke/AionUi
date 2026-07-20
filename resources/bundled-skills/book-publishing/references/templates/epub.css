@@ -1,20 +1,24 @@
 /* Generische Kindle/EPUB-Reflow- und Lesbarkeitsvorlage. */
-body { line-height: 1.5; }
+body {
+  line-height: 1.5;
+}
 
 /* Code / YAML-Contracts: auf kleinen Screens umbrechen statt abschneiden.
    WICHTIG: nur mit pandoc --no-highlight bauen, sonst ueberschreibt der
    injizierte sourceCode-Style (white-space: pre) diese Regel und der Code
    wird auf schmalen Kindle-Screens abgeschnitten statt umgebrochen. */
-pre, code, pre code {
+pre,
+code,
+pre code {
   font-size: 0.7em;
-  white-space: pre-wrap !important;  /* bricht lange Zeilen um (Phone/eReader) */
-  overflow-wrap: anywhere;           /* bricht auch lange Pfade/Tokens ohne Space */
+  white-space: pre-wrap !important; /* bricht lange Zeilen um (Phone/eReader) */
+  overflow-wrap: anywhere; /* bricht auch lange Pfade/Tokens ohne Space */
   word-wrap: break-word;
 }
 pre {
   background: #f5f6f1;
   padding: 0.55em 0.7em;
-  border-left: 3px solid #9bbf30;   /* Lime, passt zum Cover */
+  border-left: 3px solid #9bbf30; /* Lime, passt zum Cover */
   margin: 1em 0;
 }
 
@@ -25,7 +29,8 @@ table {
   font-size: 0.8em;
   margin: 1em 0;
 }
-th, td {
+th,
+td {
   border: 1px solid #cccccc;
   padding: 4px 6px;
   text-align: left;
@@ -33,7 +38,11 @@ th, td {
   overflow-wrap: break-word;
   word-break: break-word;
 }
-th { background: #f0f0f0; }
+th {
+  background: #f0f0f0;
+}
 
 /* jedes Kapitel auf neuer Seite */
-h1 { page-break-before: always; }
+h1 {
+  page-break-before: always;
+}

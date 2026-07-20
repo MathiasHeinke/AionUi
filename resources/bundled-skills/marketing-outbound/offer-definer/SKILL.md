@@ -1,6 +1,6 @@
 ---
 name: offer-definer
-description: "Nutze, wenn du eine schwammige Angebotsbeschreibung in ein scharfes Offer verwandeln willst — ein Satz, der Outcome, Beleg, Risiko-Umkehr und CTA trägt, statt Feature-Liste. Beispiele: \"Definier mein Angebot als einen Satz\", \"Mein Offer ist schwammig, mach es scharf\", \"Was ist mein eigentliches Versprechen für die Erstansprache?\""
+description: 'Nutze, wenn du eine schwammige Angebotsbeschreibung in ein scharfes Offer verwandeln willst — ein Satz, der Outcome, Beleg, Risiko-Umkehr und CTA trägt, statt Feature-Liste. Beispiele: "Definier mein Angebot als einen Satz", "Mein Offer ist schwammig, mach es scharf", "Was ist mein eigentliches Versprechen für die Erstansprache?"'
 ---
 
 # Offer-Definer
@@ -10,30 +10,34 @@ er es dir glaubt (Proof), warum er nichts riskiert (Risk-Reversal) und was er al
 Das ist die Substanz, aus der jeder Hook, jede Brücke und jeder Call ihren Nutzen zieht.
 
 ## Was du bekommst
+
 Ein fertiges **Offer-Statement** (ein Satz, copy-fähig) plus die **5 Bausteine** sauber getrennt:
 Outcome, Proof, Risk-Reversal, CTA und der eine Satz selbst. Dazu eine Gut/Schlecht-Gegenüberstellung
-deines konkreten Falls — damit du siehst, *warum* es jetzt sticht. Wandert direkt in `outreach-brief.md`.
+deines konkreten Falls — damit du siehst, _warum_ es jetzt sticht. Wandert direkt in `outreach-brief.md`.
 
 ## Wann nutzen
+
 - Dein Angebot klingt nach Feature-Liste oder Selbstbeschreibung, nicht nach Versprechen.
 - **Vor** jeder Copy: First-Touch, Follow-up, LinkedIn, Call ziehen den Nutzen aus genau diesem Satz.
 - Wenn drei Leute dein Angebot unterschiedlich beschreiben — dann ist es noch nicht definiert.
 
 ## Input
+
 - **Pflicht:** Angebotsbeschreibung (was du tust, in deinen Worten) + **Preis** (Zahl + Modell:
   einmalig / mtl. / Retainer / nutzungsbasiert).
 - **Optional (macht das Offer stark):** `outreach-brief.md` (zieht ICP + Pains automatisch),
   echte Ergebnisse/Zahlen aus Won-Deals, Kundenzitate, deine Garantie/Konditionen, Lieferzeit.
 
 ## Workflow
-1. **Outcome ausgraben — nicht den Prozess.** Frag: *Was hat der Kunde, wenn wir fertig sind, das er
-   vorher nicht hatte?* Übersetze jedes Feature in ein Ergebnis (Mechanik → Resultat).
+
+1. **Outcome ausgraben — nicht den Prozess.** Frag: _Was hat der Kunde, wenn wir fertig sind, das er
+   vorher nicht hatte?_ Übersetze jedes Feature in ein Ergebnis (Mechanik → Resultat).
    - „CRM-Setup + Sequenzen" → „planbar 8–12 qualifizierte Termine im Monat".
    - Outcome ohne Zahl/Zeit ist schwach. Hast du keine echte Zahl: `ANNAHME(... — mit Pilot belegen)`,
      nie eine erfinden.
 2. **Proof verankern.** Warum soll man das glauben? Stärkstes verfügbares Beweismittel wählen:
    benannter Kunde + Zahl > anonyme Zahl > Mechanismus-Erklärung > Erfahrung/Track-Record.
-   Kein Beleg vorhanden → Proof = der *nachvollziehbare Mechanismus* („weil X, deshalb Y"), markiert.
+   Kein Beleg vorhanden → Proof = der _nachvollziehbare Mechanismus_ („weil X, deshalb Y"), markiert.
 3. **Risk-Reversal setzen.** Verschieb das Risiko von ihm auf dich. Wähle das stärkste, das du
    wirklich halten kannst: Geld-zurück, Erfolgsbasis, kostenloser Pilot/erster Monat, „zahlst erst bei
    Ergebnis", kurze Kündbarkeit, Festpreis statt offen. Nur versprechen, was du einhältst.
@@ -47,16 +51,20 @@ deines konkreten Falls — damit du siehst, *warum* es jetzt sticht. Wandert dir
    Ist der Proof echt oder eine `ANNAHME`? Ist die Risk-Reversal haltbar? Dann in `outreach-brief.md`.
 
 ## Offer-Formel (zum Ausfüllen)
+
 ```
 Wir helfen [ICP], [Outcome mit Zahl/Zeit] zu erreichen —
 [Proof-Anker] — [Risk-Reversal]. [CTA].
 ```
+
 Kürzere Variante (Hormozi-knapp):
+
 ```
 [Outcome] in [Zeitraum], [Risk-Reversal] — oder [Konsequenz für mich].
 ```
 
 ## Die 5 Bausteine (Output-Skelett)
+
 ```
 ## Offer-Statement (1 Satz)
 <der eine Satz>
@@ -72,14 +80,16 @@ Kürzere Variante (Hormozi-knapp):
 ## Beispiel
 
 **Schwach (Feature-Liste, Ich-zentriert, kein Risiko, kein Proof):**
+
 > Wir bieten eine umfassende Outbound-Lösung mit CRM-Integration, Multi-Channel-Sequenzen,
 > KI-gestützter Personalisierung und Reporting. Ab 2.500 € im Monat. Vereinbaren Sie ein
 > unverbindliches Erstgespräch.
 
-Warum schwach: beschreibt *Werkzeug*, kein Ergebnis. Kein Beleg, keine Zahl, kein Zeitrahmen, kein
-Risiko auf der Anbieterseite, CTA generisch. Der Kunde weiß nicht, was er danach *hat*.
+Warum schwach: beschreibt _Werkzeug_, kein Ergebnis. Kein Beleg, keine Zahl, kein Zeitrahmen, kein
+Risiko auf der Anbieterseite, CTA generisch. Der Kunde weiß nicht, was er danach _hat_.
 
 **Stark (ein Outcome, ein Proof, Risiko umgekehrt, kleiner Schritt):**
+
 > Wir bringen B2B-Dienstleistern planbar **8–12 qualifizierte Termine im Monat** — bei einem Kunden
 > von 3 auf 11 in 60 Tagen — **zahlbar erst ab dem ersten gebuchten Termin**, mtl. kündbar. Lohnt sich
 > ein 20-Minuten-Blick auf eure Zahlen?
@@ -88,6 +98,7 @@ Bausteine: Outcome = 8–12 Termine/Monat · Proof = 3→11 in 60 Tagen (benannt
 zahlbar ab erstem Termin + mtl. kündbar · CTA = 20-Min-Blick · Preis-Anker = ein Termin → ein Deal → 10×.
 
 ## Häufige Fehler
+
 - **Prozess statt Ergebnis** verkaufen („wir machen X, Y, Z") — niemand kauft Aufwand, alle kaufen Resultat.
 - **Outcome ohne Zahl/Zeit** („mehr Termine", „bessere Pipeline") — vage Outcomes wirken wie jeder andere.
 - **Mehrere Versprechen** in einen Satz packen — verwässert. Ein Offer, ein Outcome.
@@ -96,6 +107,7 @@ zahlbar ab erstem Termin + mtl. kündbar · CTA = 20-Min-Blick · Preis-Anker = 
 - Preis am eigenen Aufwand statt am Kunden-Nutzen ankern.
 
 ## Regeln
+
 - **Ein Satz, ein Versprechen.** Passt es nicht in einen Satz, ist es noch nicht definiert.
 - **Evidenz vor Behauptung.** Jeder Proof braucht Quelle/Mechanismus oder wird zur `ANNAHME(...)`.
 - **Keine erfundenen Zahlen, keine unhaltbaren Garantien** — nur versprechen, was du einlöst.
@@ -103,7 +115,8 @@ zahlbar ab erstem Termin + mtl. kündbar · CTA = 20-Min-Blick · Preis-Anker = 
 - Schreib das fertige Offer in `outreach-brief.md`, damit Copy/Call denselben Nutzen ziehen.
 
 ## Output
+
 - **Offer-Statement** — der eine, copy-fähige Satz.
 - **Die 5 Bausteine** (Outcome · Proof · Risk-Reversal · CTA · Preis-Anker), je sauber getrennt.
-- Eine Gut/Schlecht-Zeile zu *diesem* Angebot — damit der Unterschied sichtbar ist.
+- Eine Gut/Schlecht-Zeile zu _diesem_ Angebot — damit der Unterschied sichtbar ist.
 - Unbelegtes als `ANNAHME(... — zu verifizieren)`, nicht als Fakt tarnen.

@@ -15,7 +15,7 @@ Redigieren trennt **Wahrheits-/Kanoncheck** von **Stimme/Kadenz**. Sonst
 
 ## Durchgang A — Blind-Audit (Sachbuch oder Roman)
 
-Ein *unabhängiger* Blick (anderer Agent / anderer Tag / Kollege), der das Kapitel
+Ein _unabhängiger_ Blick (anderer Agent / anderer Tag / Kollege), der das Kapitel
 **ohne** deine Absichten liest:
 
 - Sachbuch: belegte Claims, keine getarnten Hypothesen, konsistente Zahlen und
@@ -40,7 +40,7 @@ schwache Öffnungen/Schlüsse stärken, Kadenz glätten. Laut lesen.
   gegen den finalen Text prüfen.
 - Namen/Begriffe/Schreibweisen vereinheitlichen (ein Glossar hilft beiden).
 - Rechtschreibung (KDP zeigt später eine Rechtschreibprüfung — englische Fachbegriffe/Marken
-  lösen dort *erwartbar* viele False Positives aus, kein Blocker).
+  lösen dort _erwartbar_ viele False Positives aus, kein Blocker).
 
 ## Outputs
 

@@ -18,6 +18,7 @@ jeder Bildschirmgröße/Schriftgröße an. Der eine Fallstrick ist Code/Tabellen
 ## Der Build (exakt)
 
 `templates/build_ebook.sh`:
+
 ```bash
 pandoc ebook_front.md body.md ebook_cta.md \
   -o book.epub \

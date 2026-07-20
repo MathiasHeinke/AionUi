@@ -11,22 +11,22 @@ const {
   verifyAioncoreCliContract,
   verifyFileSha256,
 } = require('../../../packages/shared-scripts/src/prepare-aioncore.js') as {
-    resolveAioncoreArtifactProvenance: (
-      projectRoot: string,
-      runtimeKey: string
-    ) => { kind: string; repository: string; commit: string; tag?: string; sha256: string };
-    resolveExpectedAioncoreSha256: (projectRoot: string, runtimeKey: string, explicit?: string) => string;
-    resolveLocalAioncoreSource: (
-      localBinaryPath?: string,
-      explicitSha256?: string,
-      explicitSourceCommit?: string
-    ) => { binaryPath: string; binarySha256: string; sourceCommit: string } | null;
-    verifyAioncoreCliContract: (
-      binaryPath: string,
-      deps?: { execFileSync?: () => string }
-    ) => { requiredArguments: string[] };
-    verifyFileSha256: (filePath: string, expected: string) => string;
-  };
+  resolveAioncoreArtifactProvenance: (
+    projectRoot: string,
+    runtimeKey: string
+  ) => { kind: string; repository: string; commit: string; tag?: string; sha256: string };
+  resolveExpectedAioncoreSha256: (projectRoot: string, runtimeKey: string, explicit?: string) => string;
+  resolveLocalAioncoreSource: (
+    localBinaryPath?: string,
+    explicitSha256?: string,
+    explicitSourceCommit?: string
+  ) => { binaryPath: string; binarySha256: string; sourceCommit: string } | null;
+  verifyAioncoreCliContract: (
+    binaryPath: string,
+    deps?: { execFileSync?: () => string }
+  ) => { requiredArguments: string[] };
+  verifyFileSha256: (filePath: string, expected: string) => string;
+};
 
 describe('AionCore build integrity gate', () => {
   const roots: string[] = [];

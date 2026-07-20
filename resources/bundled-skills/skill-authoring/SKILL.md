@@ -52,15 +52,15 @@ The body follows this structure:
 
 ## Source material locations
 
-| Source | Path | What's there |
-|---|---|---|
-| Department packs | `docs/orchestration/*.md` | Full SOP, folder surface, HumanGates, quality gates |
-| Start scripts | `scripts/content/*-start.mjs` | Setup commands, folder creation |
-| Core logic | `scripts/content/*-start-core.mjs` | File writing, config, validation |
-| Worker contracts | `docs/templates/*-worker-contract.md` | Bounded role definitions |
-| Tests | `scripts/content/*.test.mjs` | Expected behaviour, edge cases |
-| Portable pipeline | `docs/orchestration/company-os-portable-content-pipeline.md` | Reusable pipeline contracts |
-| Marketing department | `docs/orchestration/company-os-marketing-department-pack-v*.md` | Blog engine, Upload-Post integration |
+| Source               | Path                                                            | What's there                                        |
+| -------------------- | --------------------------------------------------------------- | --------------------------------------------------- |
+| Department packs     | `docs/orchestration/*.md`                                       | Full SOP, folder surface, HumanGates, quality gates |
+| Start scripts        | `scripts/content/*-start.mjs`                                   | Setup commands, folder creation                     |
+| Core logic           | `scripts/content/*-start-core.mjs`                              | File writing, config, validation                    |
+| Worker contracts     | `docs/templates/*-worker-contract.md`                           | Bounded role definitions                            |
+| Tests                | `scripts/content/*.test.mjs`                                    | Expected behaviour, edge cases                      |
+| Portable pipeline    | `docs/orchestration/company-os-portable-content-pipeline.md`    | Reusable pipeline contracts                         |
+| Marketing department | `docs/orchestration/company-os-marketing-department-pack-v*.md` | Blog engine, Upload-Post integration                |
 
 ## The extraction pattern
 
@@ -87,11 +87,13 @@ skill merely points to them.
 
 The department pack is often 200-350 lines of C-level delegation language.
 Distill it to the ESSENTIAL steps the operator needs to follow. Trim:
+
 - Plane/COMPA/GROW ticket references (irrelevant to the operator)
 - CEO/Codex/C-level delegation layers (the operator IS the CEO)
 - Internal doctrine that does not affect how the skill runs
 
 Keep:
+
 - The numbered SOP steps with concrete actions
 - Quality thresholds as plain numbers
 - The folder surface as a tree
@@ -128,7 +130,7 @@ distinction, and getting it wrong either ships a jailbreak or kills a legitimate
 product feature:
 
 - **FORBIDDEN — the covert prompt-jailbreak skill.** A skill that ships a jailbreak
-  prompt to make a model that is *supposed* to refuse stop refusing. The harm is
+  prompt to make a model that is _supposed_ to refuse stop refusing. The harm is
   the deception: a guardrail is being defeated behind the operator's back.
 - **PERMITTED — the legitimate gated unlock feature ("EVE-Unlock-Lane").** An
   unlocked / uncensored **local** model, offered as its own consent-gated,
@@ -137,9 +139,9 @@ product feature:
   and priced as its own lane, and nothing about it is hidden. That is a feature
   with a consent gate, not a jailbreak skill. **This guard explicitly permits it.**
 
-The test is not the word "uncensored." The test is: *is a guardrail being
+The test is not the word "uncensored." The test is: _is a guardrail being
 defeated covertly, or is a capability being offered openly behind a consent
-gate the operator sees and chooses?* The first is forbidden; the second is a
+gate the operator sees and chooses?_ The first is forbidden; the second is a
 legitimate, gated, monetized feature.
 
 ### Dual-use skills need a human-gate + liability clause
@@ -148,6 +150,7 @@ Some skills are legitimate but sharp-edged — legal enforcement / dunning
 (e.g. formal cease-and-desist or Abmahnung workflows), PII extraction, anything
 that can produce real-world legal or financial consequences for a third party.
 These MAY be authored, but ONLY WITH:
+
 - an explicit **HumanGate** on the action that has external consequences (nothing
   fires autonomously), and
 - a **liability clause** in the skill body stating the operator is responsible
@@ -168,6 +171,7 @@ EVE builds SKILL.md -> places in .claude/skills/<name>/SKILL.md
 ```
 
 Rules:
+
 - **No auto-promote — every new skill passes the gate.** Between "EVE wrote it"
   and "it ships" there is always a human-gate that checks four things: doctrine
   compliance (per-client isolation, invisible-delivery, no-auto-publish),

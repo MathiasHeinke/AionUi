@@ -120,7 +120,7 @@ Compare the first draft with the founder-approved final. Propose updates to
 - Daily social draft: council average ≥ 8/10
 - Anchor post, newsletter, blog or campaign: council average ≥ 8.5/10
 - Book chapter, strategic public stance or high-risk claim: council average ≥ 9/10
-  + CAO/HumanGate review
+  - CAO/HumanGate review
 
 ## Folder Surface
 

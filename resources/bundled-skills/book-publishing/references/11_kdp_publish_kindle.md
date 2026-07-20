@@ -15,12 +15,14 @@ Vom Taschenbuch aus **„+ Kindle eBook erstellen"** → kopiert Metadaten autom
 und **verknüpft beide Formate auf einer Amazon-Produktseite**. Drei Tabs.
 
 ## Tab 1 — Details
+
 - Metadaten können vorbefüllt sein; Titel, Autor, Beschreibung, Rechte und
   Keywords erneut gegen die freigegebene Fassung prüfen. Rechte bestätigt der
   Mensch.
 - **Kategorien neu wählen** — der Kindle-Kategoriebaum ist ein anderer als beim Print.
 
 ## Tab 2 — Inhalt
+
 - **Mensch lädt nach Preflight hoch:** `book.epub` (KDP konvertiert; DOCX nur
   als bewusst geprüfter Fallback).
 - **DRM bewusst entscheiden:** KDP erlaubt die Einstellung seit 2026 nachträglich zu ändern.
@@ -37,6 +39,7 @@ und **verknüpft beide Formate auf einer Amazon-Produktseite**. Drei Tabs.
   dass Code-Blöcke/Tabellen **umbrechen** (der `--syntax-highlighting=none`-Test aus Stufe 08).
 
 ## Tab 3 — Preise
+
 - **KDP Select:** 90-tägige Digitalexklusivität mit eigenen Chancen und Einschränkungen.
   Nur nach **menschlicher Entscheidung** wählen, wenn keine kollidierende
   eBook-Distribution geplant ist.

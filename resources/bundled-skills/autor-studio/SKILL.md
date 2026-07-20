@@ -1,6 +1,6 @@
 ---
 name: autor-studio
-description: "Dach und Intent-Router für Schreibaufträge, mit belastbaren Pfaden für Essay, Kurzgeschichte und Sachbuch sowie einem vorbereitenden, zustandsgeführten Romanpfad. Nutze diesen Skill für genregebundene Schreibaufträge und die Wahl des passenden Produktionspfads. Gemeinsame Grundform: Voice, Kern, Skelett, Entwurf, Blind-Review, Straffung, Autoren-Abgleich und Export mit Human-Gate. Das gewünschte Genre bleibt verbindlich: Ein Essay-Auftrag erzeugt keinen Buchentwurf. Andere Textformen werden in ihrem genannten Format weitergegeben, nie umgedeutet. Orchestriert essay-writer für Essays und book-publishing für Buchproduktion/KDP."
+description: 'Dach und Intent-Router für Schreibaufträge, mit belastbaren Pfaden für Essay, Kurzgeschichte und Sachbuch sowie einem vorbereitenden, zustandsgeführten Romanpfad. Nutze diesen Skill für genregebundene Schreibaufträge und die Wahl des passenden Produktionspfads. Gemeinsame Grundform: Voice, Kern, Skelett, Entwurf, Blind-Review, Straffung, Autoren-Abgleich und Export mit Human-Gate. Das gewünschte Genre bleibt verbindlich: Ein Essay-Auftrag erzeugt keinen Buchentwurf. Andere Textformen werden in ihrem genannten Format weitergegeben, nie umgedeutet. Orchestriert essay-writer für Essays und book-publishing für Buchproduktion/KDP.'
 ---
 
 # Autor Studio — eine Grundform, vier Genres
@@ -42,15 +42,19 @@ lassen**. Nur folgenlose Detailannahmen dürfen sichtbar markiert werden.
 ## Die vier Genres
 
 ### 1. Essay (3.500–6.000 Wörter)
+
 Persönlich-philosophischer Weltbild-Essay mit autobiografischem Kern. Struktur: die 12 Bausteine (These-Satz, Heldenreise, konkrete Bruchszene, Eskalationsbogen Ich→Wir→Welt, Selbst-Einwand, kuratierte Verweise 5–10, Immunisierung, 3–7 Aphorismen, Vakuum-Dynamik, Ringschluss, sauberer Apparat, Redaktionsnotiz). **Ausführung: essay-writer laden und folgen.**
 
 ### 2. Kurzgeschichte (1.000–7.500 Wörter)
+
 Eine Erzählung, ein Bogen, ein POV. Struktur: Prämisse in einem Satz → eine zentrale Figur mit einem Mangel → EINE Schlüsselszene als Wendepunkt → Ende, das den Anfang neu lesbar macht. POV-Disziplin (kein Kopfwechsel), show don't tell, kein Quellenapparat. Straffung gilt ebenso; Dialog wird laut gelesen.
 
 ### 3. Sachbuch (50.000–90.000 Wörter)
+
 Orchestrierte Kapitel, jede Kapitel-Thesis trägt einen Teil der Buchthese. Ablauf: Buchthese + Phasen-Dramaturgie (z. B. Aufwachen → Verstehen → Energie → Aktion) → Kapitel-Map → pro Kapitel das Sachkapitel-Muster (Aufhänger → These → Beweis → Konsequenz → Überleitung) → Claim-Inventory buchweit → Produktion und Publish mit **book-publishing** (Stufen 1–12). Kapitelstatus im vorhandenen Projekt-Ledger führen; ohne Ledger ist `manuscript-status.md` die lokale Statuswahrheit.
 
 ### 4. Roman (60.000–120.000 Wörter)
+
 Narrative Architektur vor Szenenschreiben: Prämisse → `story-canon.md`
 (Figuren, Wollen vs. Brauchen, Wunde, Beziehungen, Weltregeln, Zeitlinie) →
 Akt-Struktur → `chapter-map.md` → Szenen-Kapitel (jede Szene verändert etwas)

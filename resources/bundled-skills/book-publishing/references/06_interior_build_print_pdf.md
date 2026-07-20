@@ -18,6 +18,7 @@ Aus `body.md` wird das druckfertige Innenteil-PDF — via **pandoc + tectonic**
 ## Der Build (exakt)
 
 `templates/build_interior.sh`:
+
 ```bash
 pandoc body.md -o interior.pdf \
   --pdf-engine=tectonic \
@@ -26,6 +27,7 @@ pandoc body.md -o interior.pdf \
   -f markdown+autolink_bare_uris \
   -H header.tex -B frontmatter.tex -A backmatter_cta.tex
 ```
+
 - `-H header.tex` = der komplette 6×9-Interior-Stil (Geometrie, Schrift, Kapitel-/Kolumnen-Design,
   Code-Umbruch via `fvextra`, Blocksatz-Tuning). Liegt fertig in `templates/header.tex`.
 - `--top-level-division=chapter` = jedes `#` = neues Kapitel.

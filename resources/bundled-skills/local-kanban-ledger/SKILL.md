@@ -59,14 +59,14 @@ Each item is a Markdown file:
 ---
 id: ticket-003
 status: doing
-priority: high              # critical / high / medium / low
-client: client-name         # or "internal" for EVE's own work
-project: content-machine     # which skill or project area
-type: task                  # task / bug / request / decision / milestone
+priority: high # critical / high / medium / low
+client: client-name # or "internal" for EVE's own work
+project: content-machine # which skill or project area
+type: task # task / bug / request / decision / milestone
 created: 2026-06-29T08:00
 updated: 2026-06-29T10:30
 deadline: 2026-07-06
-depends_on: [ticket-001]    # optional blockers
+depends_on: [ticket-001] # optional blockers
 ---
 
 # Title: Set up content-machine for Client X
@@ -81,6 +81,7 @@ blog posts.
 first council review.
 
 ## Progress
+
 - [x] Founder intake completed
 - [x] Approved sources identified
 - [ ] FVBM captured
@@ -88,6 +89,7 @@ first council review.
 - [ ] First vault card drafted
 
 ## Notes
+
 2026-06-29 08:00 — Created from operator request.
 2026-06-29 10:30 — Waiting on operator to send voice samples.
 ```
@@ -108,6 +110,7 @@ BLOCKED items with their titles, priorities and deadlines.
 ### 3. Add an Item
 
 When the operator says "track this X":
+
 - Create a new ticket-NNN.md file in TODO/
 - Assign the next sequential ID
 - Fill in what you know (title, type, priority, client, project)
@@ -117,6 +120,7 @@ When the operator says "track this X":
 ### 4. Move an Item
 
 When status changes:
+
 - Move the file to the corresponding column
 - Update the `status` and `updated` fields in the YAML frontmatter
 - Add a dated note in the Progress section
@@ -130,16 +134,20 @@ At the end of a work session (or when asked), write a brief daily log:
 # 2026-06-29
 
 ## Done
+
 - ticket-003: Created content-machine intake for Client X
 - ticket-002: Completed voice capture — FVBM at M1
 
 ## In Progress
+
 - ticket-005: Blog post draft for Client X (blocked on voice approval)
 
 ## Blocked
+
 - ticket-004: Client X pipeline setup — waiting on source inventory list
 
 ## Decisions
+
 - Client X starts with LinkedIn-only, blog comes in week 2
 ```
 

@@ -67,12 +67,12 @@ crm/
 ---
 id: deal-client-x
 status: active
-stage: proposal           # discovery / qualification / proposal / negotiation / won / lost / stalled
-priority: high            # critical / high / medium / low
-value: 24900              # monthly or one-time EUR
-type: monthly             # monthly / one-time / project
-client: "Client X GmbH"
-contacts: ["contact-john-smith"]
+stage: proposal # discovery / qualification / proposal / negotiation / won / lost / stalled
+priority: high # critical / high / medium / low
+value: 24900 # monthly or one-time EUR
+type: monthly # monthly / one-time / project
+client: 'Client X GmbH'
+contacts: ['contact-john-smith']
 created: 2026-06-01
 updated: 2026-06-29
 expected_close: 2026-07-15
@@ -86,34 +86,40 @@ expected_close: 2026-07-15
 **Stage:** Proposal (gesendet 2026-06-25)
 
 ## Timeline
-| Datum | Ereignis |
-|---|---|
-| 2026-06-01 | Discovery Call — Bedarf bestätigt |
-| 2026-06-10 | Qualifikation — Budget vorhanden, Entscheider: John Smith (CEO) |
-| 2026-06-20 | Proposal angefordert |
+
+| Datum      | Ereignis                                                         |
+| ---------- | ---------------------------------------------------------------- |
+| 2026-06-01 | Discovery Call — Bedarf bestätigt                                |
+| 2026-06-10 | Qualifikation — Budget vorhanden, Entscheider: John Smith (CEO)  |
+| 2026-06-20 | Proposal angefordert                                             |
 | 2026-06-25 | Proposal gesendet — 3 Optionen (Starter/Professional/Enterprise) |
-| 2026-06-29 | Follow-up: John prüft mit Team, Rückmeldung bis 2026-07-10 |
+| 2026-06-29 | Follow-up: John prüft mit Team, Rückmeldung bis 2026-07-10       |
 
 ## Entscheider-Kontakt
+
 - **Name:** John Smith
 - **Rolle:** CEO
 - **Email:** john@clientx.de
 - **Notizen:** Entscheidet allein, mag kurze Mails, liest jeden Morgen LinkedIn
 
 ## Nächster Schritt
+
 - 2026-07-05: Sanftes Follow-up (LinkedIn like/reblog + kurze Nachricht)
 - 2026-07-10: Wenn keine Rückmeldung, Anruf vorschlagen
 
 ## Win-Bedingungen
+
 - Content Machine ist Feature #1 auf ihrer Wunschliste
 - Budget ist freigegeben (QS-Lauf 2026)
 - Konkurrenz: Agentur-Monatsmodell (teurer, langsamer)
 - **Risiko:** Entscheider ist im Juli 2 Wochen im Urlaub
 
 ## Notizen
+
 2026-06-01 — Erstgespräch. Client X braucht dringend Content-Pipeline.
 2026-06-25 — Proposal versendet. Option 2 (Professional) scheint der Sweet Spot.
-```
+
+````
 
 ## Contact Card Format
 
@@ -131,7 +137,7 @@ source: "LinkedIn Outreach"
 created: 2026-06-01
 updated: 2026-06-29
 ---
-```
+````
 
 ## The method
 

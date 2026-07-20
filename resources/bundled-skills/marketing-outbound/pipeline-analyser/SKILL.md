@@ -1,27 +1,30 @@
 ---
 name: pipeline-analyser
-description: "Nutze, wenn du einen Pipeline-Export / CRM-Dump in eine ehrliche Risiko-Diagnose verwandeln willst — welche Deals kippen, warum sie stecken, und die EXAKTE nächste Aktion pro Deal. Beispiele: \"Analysier meine Pipeline\", \"Welche Deals sind at risk?\", \"Was ist diese Woche dran?\", \"Warum steckt der Deal mit acme.com?\""
+description: 'Nutze, wenn du einen Pipeline-Export / CRM-Dump in eine ehrliche Risiko-Diagnose verwandeln willst — welche Deals kippen, warum sie stecken, und die EXAKTE nächste Aktion pro Deal. Beispiele: "Analysier meine Pipeline", "Welche Deals sind at risk?", "Was ist diese Woche dran?", "Warum steckt der Deal mit acme.com?"'
 ---
 
 # Pipeline Analyser
 
 Verwandelt einen Pipeline-Export in eine Risiko-Diagnose, die du sofort abarbeiten kannst: pro Deal
-ein At-Risk-Flag, die wahrscheinliche Ursache (warum steckt es), und die *eine* nächste Aktion — plus
+ein At-Risk-Flag, die wahrscheinliche Ursache (warum steckt es), und die _eine_ nächste Aktion — plus
 die 3 Deals, die **diese Woche** Priorität haben. Keine Vanity-Forecasts, kein „sieht gut aus".
 
 ## Was du bekommst
+
 Eine Deal-Tabelle (Deal · Stage · Risiko · Ursache · nächste Aktion) und darunter die **Top-3 dieser
 Woche** mit klarer Begründung, warum genau die drei. Jeder Risiko-Call kommt mit Beleg aus den Daten
 (letzter Kontakt, Stage-Alter, fehlender Next-Step) — geratene Ursachen werden als `ANNAHME(...)`
 markiert, nicht als Fakt getarnt.
 
 ## Wann nutzen
-- Montag-Morgen-Triage: Du hast 20–80 offene Deals und willst wissen, wo du *heute* anpacken musst.
+
+- Montag-Morgen-Triage: Du hast 20–80 offene Deals und willst wissen, wo du _heute_ anpacken musst.
 - Ein Deal ist still geworden und du brauchst eine ehrliche Diagnose statt Wunschdenken.
 - Vor dem Forecast-Call: Du willst die wackeligen Deals kennen, bevor jemand anders sie findet.
 - Nach einer Outreach-Welle: Welche frischen Deals brauchen jetzt den nächsten Touch, bevor sie kalt werden.
 
 ## Input
+
 - **Pflicht:** Pipeline-Export (CSV / Tabelle / CRM-Dump). Sinnvoll pro Deal: Firma, Stage,
   Deal-Wert, letzter Kontakt (Datum), Datum des Stage-Eintritts, nächster geplanter Schritt.
 - **Optional (schärft die Diagnose):** `outreach-brief.md` (liefert ICP → erkennt schlechte Fits),
@@ -31,6 +34,7 @@ markiert, nicht als Fakt getarnt.
   Risiko-Entscheidung nötig ist. Fehlt ein Feld, arbeite mit dem, was da ist, und nenne die Lücke.
 
 ## Workflow
+
 1. **Daten einlesen & normalisieren.** Erkenne die Spalten (Stage, Wert, letzter Kontakt, Stage-Alter,
    Next-Step). Fehlt „letzter Kontakt" oder „nächster Schritt", ist das schon ein Signal — markiere es,
    rate es nicht weg.
@@ -40,20 +44,22 @@ markiert, nicht als Fakt getarnt.
 3. **At-Risk-Flag pro Deal setzen** (🟢 / 🟡 / 🔴, Logik unten). Flag = Funktion aus Stage-Alter,
    Tagen seit letztem Kontakt, fehlendem Next-Step und Stage-Sprung-Mustern (z. B. seit Wochen in
    „Angebot" ohne Reaktion).
-4. **Ursache diagnostizieren** — *warum* steckt es? Genau eine Hauptursache pro Deal, aus dem
+4. **Ursache diagnostizieren** — _warum_ steckt es? Genau eine Hauptursache pro Deal, aus dem
    Ursachen-Katalog unten. Beleg dazu (z. B. „31 Tage kein Kontakt, kein Next-Step gesetzt"). Wenn die
    Daten keine eindeutige Ursache hergeben: `ANNAHME(...)` + welches Datenfeld es klären würde.
-5. **Nächste Aktion ableiten** — *eine* konkrete, ausführbare Aktion, kein Vorhaben. Nicht „nachfassen",
+5. **Nächste Aktion ableiten** — _eine_ konkrete, ausführbare Aktion, kein Vorhaben. Nicht „nachfassen",
    sondern „Anruf: nach Budget-Freigabe fragen" oder „Breakup-Mail (siehe `copywriting-follow-up`)".
    Aktion muss zur Ursache passen (Katalog koppelt beide).
 6. **Top-3 der Woche wählen.** Nicht einfach die 3 rötesten — sondern die mit dem höchsten
-   **(Rettbarkeit × Wert)**. Ein 🔴-Deal, der seit 90 Tagen tot ist, ist *nicht* Priorität; ein
+   **(Rettbarkeit × Wert)**. Ein 🔴-Deal, der seit 90 Tagen tot ist, ist _nicht_ Priorität; ein
    🟡-Deal mit hohem Wert und klarem nächstem Schritt schon. Begründe die Auswahl in je einem Satz.
 7. **Sauber ausgeben** — Tabelle zuerst (Scan-bar), Top-3 darunter, offene Datenlücken am Ende. Keine
    Wertung ohne Beleg aus den Daten.
 
 ## Risiko-Flag-Logik (Faustregeln, anpassbar)
+
 Falls keine eigenen Schwellen gegeben, nutze diese und markiere sie als `ANNAHME`:
+
 - 🟢 **On Track** — Next-Step gesetzt, letzter Kontakt < 7 Tage, Stage-Alter im Rahmen.
 - 🟡 **Watch** — kein Next-Step ODER 7–14 Tage kein Kontakt ODER Stage-Alter ~1,5× üblich.
 - 🔴 **At Risk** — > 14 Tage kein Kontakt UND kein Next-Step, ODER Stage-Alter > 2× üblich, ODER „nach
@@ -62,6 +68,7 @@ Falls keine eigenen Schwellen gegeben, nutze diese und markiere sie als `ANNAHME
   einmal sauber schließen (Breakup) statt Energie verbrennen.
 
 ## Ursachen → Aktions-Katalog
+
 - **Kein Next-Step gesetzt** → Aktion: konkreten nächsten Schritt mit Datum vereinbaren (kurzer Call/Mail).
 - **Single-Threaded** (nur ein Kontakt, kein Entscheider eingebunden) → Aktion: zweiten Stakeholder
   identifizieren + Intro anfragen.
@@ -73,6 +80,7 @@ Falls keine eigenen Schwellen gegeben, nutze diese und markiere sie als `ANNAHME
   letzte ehrliche Antwort.
 
 ## Ausgabe-Skelett
+
 ```
 ## Pipeline-Risiko · <Datum> · <N Deals>
 
@@ -91,16 +99,20 @@ Falls keine eigenen Schwellen gegeben, nutze diese und markiere sie als `ANNAHME
 ```
 
 ## Beispiel
+
 **Schlecht (Wunschdenken, keine Aktion):**
+
 > Acme sieht gut aus, kümmern uns die Tage. TechCorp ist noch dran, mal abwarten.
 
 **Gut (Flag · Ursache + Beleg · eine Aktion):**
+
 > | Acme GmbH | Angebot | 🔴 | Still nach Angebot — 18 Tage kein Kontakt, kein Next-Step | Anruf: nach konkretem Einwand fragen |
 > | TechCorp | Discovery | 🟡 | Single-Threaded — nur Junior-Kontakt, `ANNAHME`: Entscheider fehlt | Intro zum Teamlead anfragen |
 >
 > **Top-3:** 1. Acme (hoher Wert, klarer rettbarer Einwand möglich) — der Deal kippt diese Woche oder gar nicht.
 
 ## Häufige Fehler
+
 - **Rötlichkeit = Priorität** setzen. Tote Deals sind keine Priorität; rettbare mit Wert schon.
 - Ursache **raten** statt aus Daten ableiten — und das Raten nicht als `ANNAHME` kennzeichnen.
 - Aktion als Vorhaben formulieren („nachfassen", „dranbleiben") statt als konkreten, datierten Schritt.
@@ -109,6 +121,7 @@ Falls keine eigenen Schwellen gegeben, nutze diese und markiere sie als `ANNAHME
 - Den ⚫️-„wohl tot"-Deal monatelang im Forecast mitschleppen, statt ihn sauber zu schließen.
 
 ## Regeln
+
 - **Evidenz vor Behauptung.** Jeder Risiko-Call und jede Ursache braucht einen Beleg aus den Daten,
   sonst ist es eine `ANNAHME(... — welches Feld es klären würde)`.
 - **Eine nächste Aktion pro Deal** — konkret, ausführbar, idealerweise mit Datum.
@@ -118,6 +131,7 @@ Falls keine eigenen Schwellen gegeben, nutze diese und markiere sie als `ANNAHME
 - ICP-Abgleich, wenn `outreach-brief.md` vorliegt — schlechter Fit ist eine legitime Ursache, kein Versagen.
 
 ## Output
+
 - **Deal-Tabelle:** Deal · Stage · Risiko (🟢🟡🔴⚫️) · Ursache (mit Beleg) · eine nächste Aktion.
 - **Top-3 diese Woche** mit je einem Satz Begründung (Rettbarkeit × Wert), nicht nur „am rötesten".
 - **Offene Datenlücken** am Ende, falls fehlende Felder das Flagging verzerren.
