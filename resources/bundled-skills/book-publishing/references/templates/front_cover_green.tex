@@ -1,0 +1,44 @@
+\documentclass{article}
+\usepackage[paperwidth=6in,paperheight=9in,margin=0pt]{geometry}
+\usepackage{tikz}
+\usetikzlibrary{calc}
+\usepackage{libertinus}
+\usepackage{graphicx}
+\definecolor{accent}{RGB}{174,230,30}
+\definecolor{cream}{RGB}{245,247,240}
+\definecolor{muted}{RGB}{179,184,190}
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+
+\InputIfFileExists{book-metadata.tex}{}{}
+\providecommand{\BackgroundImage}{cover-background.png}
+\providecommand{\CoverKicker}{KATEGORIE ODER KURZCLAIM}
+\providecommand{\CoverTitle}{BUCHTITEL}
+\providecommand{\CoverSubtitle}{Untertitel oder konkretes Versprechen}
+\providecommand{\CoverAuthor}{VORNAME NACHNAME}
+
+\begin{document}
+\begin{tikzpicture}[remember picture,overlay]
+  \coordinate (O) at (current page.south west);
+  \fill[black] (O) rectangle ($(O)+(6in,9in)$);
+  \IfFileExists{\BackgroundImage}{
+    \node[anchor=south west,inner sep=0pt] at (O)
+      {\includegraphics[width=6in,height=9in]{\BackgroundImage}};
+  }{}
+  \fill[black,opacity=0.55]
+    ($(O)+(0in,9in)$) rectangle ($(O)+(6in,4.3in)$);
+  \fill[black,opacity=0.78]
+    ($(O)+(0in,0in)$) rectangle ($(O)+(6in,2.2in)$);
+
+  \node[anchor=north,align=center,text=accent,font=\sffamily\bfseries\fontsize{20}{23}\selectfont]
+    at ($(O)+(3in,8.25in)$) {\CoverKicker};
+  \node[anchor=north,align=center,text=cream,text width=5in,
+        font=\sffamily\bfseries\fontsize{38}{42}\selectfont]
+    at ($(O)+(3in,6.9in)$) {\CoverTitle};
+  \node[anchor=north,align=center,text=cream,text width=4.8in,
+        font=\sffamily\fontsize{17}{21}\selectfont]
+    at ($(O)+(3in,1.7in)$) {\CoverSubtitle};
+  \node[anchor=south,align=center,text=muted,font=\sffamily\bfseries\fontsize{13}{15}\selectfont]
+    at ($(O)+(3in,0.34in)$) {\CoverAuthor};
+\end{tikzpicture}
+\end{document}

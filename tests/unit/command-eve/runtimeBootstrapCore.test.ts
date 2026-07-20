@@ -305,6 +305,9 @@ describe('Command EVE runtime bootstrap core', () => {
     expect(publicBrand.version).toBe(`v${COMMAND_EVE_MARKETING_VERSION}`);
     expect(publicRuntimeBootstrap.release).toBe(packageJson.version);
     expect(publicCapabilityPack.release).toBe(packageJson.version);
+    for (const id of ['autor-studio', 'essay-writer', 'book-publishing']) {
+      expect(publicCapabilityPack.skills.find((skill) => skill.id === id)?.default_state).toBe('active');
+    }
   });
 
   it('parses exact Ollama model names from list output', () => {
@@ -340,6 +343,9 @@ describe('Command EVE runtime bootstrap core', () => {
     expect(resolved).toBe(capabilityPath);
     expect(validateCommandEveCapabilityPack(capabilityPack)).toEqual([]);
     expect(capabilityPack.skills.some((skill) => skill.id === 'content-machine')).toBe(true);
+    for (const id of ['autor-studio', 'essay-writer', 'book-publishing']) {
+      expect(capabilityPack.skills.find((skill) => skill.id === id)?.default_state).toBe('active');
+    }
     expect(capabilityPack.connectors.some((connector) => connector.id === 'codex-cli')).toBe(true);
   });
 
@@ -842,6 +848,9 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(reconciliation.executable_skill_ids).toContain('first-run-company-discovery');
       // 1.2.14: content-machine et al. are now executable (real bundled SKILL.md); department-pack-creator stays a prompt-label.
       expect(reconciliation.executable_skill_ids).toContain('content-machine');
+      for (const id of ['autor-studio', 'essay-writer', 'book-publishing']) {
+        expect(reconciliation.executable_skill_ids).toContain(id);
+      }
       expect(reconciliation.prompt_label_skill_ids).toContain('department-pack-creator');
       expect(reconciliation.hermes_config.skills_external_dirs).toEqual(['${HERMES_HOME}/skills-command-eve']);
       expect(reconciliation.hermes_config.mcp_servers).toEqual([]);
@@ -1956,13 +1965,18 @@ const buildBundledSkillsFixture = (root: string, opts: { omit?: string[] } = {})
         path.join(skillDir, 'SKILL.md'),
         `---\nname: ${id}\n---\n\n# ${id}\n\nReal strategy method content for ${id} (not a stub).\n`
       );
+      if (id === 'book-publishing') {
+        fs.mkdirSync(path.join(skillDir, 'references', 'templates'), { recursive: true });
+        fs.writeFileSync(path.join(skillDir, 'references', '01_concept_and_positioning.md'), '# Positioning\n');
+        fs.writeFileSync(path.join(skillDir, 'references', 'templates', 'build_ebook.sh'), '#!/bin/sh\n');
+      }
     }
   }
   return dir;
 };
 
 describe('Command EVE bundled strategy skills (SLICE B2)', () => {
-  it('copies all 32 real strategy skills into managedSkillsRoot (whole-tree for the bundle)', () => {
+  it('copies all 35 real strategy skills and nested book-production assets into managedSkillsRoot', () => {
     const root = makeRoot();
     const bundledSkillsDir = buildBundledSkillsFixture(root);
     const paths = resolveCommandEveRuntimeBootstrapPaths(root);
@@ -1989,6 +2003,14 @@ describe('Command EVE bundled strategy skills (SLICE B2)', () => {
     }
     // The bundle README travelled too.
     expect(fs.existsSync(path.join(paths.managedSkillsRoot, 'marketing-outbound', 'README.md'))).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(paths.managedSkillsRoot, 'book-publishing', 'references', '01_concept_and_positioning.md')
+      )
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(paths.managedSkillsRoot, 'book-publishing', 'references', 'templates', 'build_ebook.sh'))
+    ).toBe(true);
   });
 
   it('ignores atomic snapshot stage files while copying bundled skills', () => {

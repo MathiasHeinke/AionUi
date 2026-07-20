@@ -60,6 +60,9 @@ const COMMAND_EVE_ACTIVE_SKILLS = [
   'connector-setup',
   'memory-ledger-setup',
   'goal-materialization',
+  'autor-studio',
+  'essay-writer',
+  'book-publishing',
 ];
 
 async function runtimeStatus(page: Parameters<typeof invokeBridge>[0]): Promise<RuntimeStatus> {
@@ -177,6 +180,9 @@ test.describe('Command EVE product readiness', () => {
     expect(germanSkill).toContain('Lokaler First-Run-Kontext');
     expect(germanSkill).toContain('content-machine');
     expect(germanSkill).toContain('video-first-content-engine');
+    expect(germanSkill).toContain('autor-studio');
+    expect(germanSkill).toContain('essay-writer');
+    expect(germanSkill).toContain('book-publishing');
     expect(germanSkill).toContain('Connector installed: local-command-eve-runtime');
     expect(germanSkill).toContain('Connector needs_auth: github-gitnexus');
     expect(germanSkill).toMatch(/Skills installiert: \d+; Connector Policies: \d+/);

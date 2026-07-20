@@ -39,15 +39,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 // ---------------------------------------------------------------------------
 // ALLOWLIST — the curated EVE strategy skill set.
 // ---------------------------------------------------------------------------
 // EXPLICIT allowlist (never glob .claude/skills — gitnexus and other dev/IDE
-// skills must NOT travel into the shipped app). 15 single-folder skills with one
-// SKILL.md each, PLUS marketing-outbound which is a BUNDLE (no top-level
-// SKILL.md; 17 nested sub-skill dirs each with their own SKILL.md).
+// skills must NOT travel into the shipped app). The curated set is made of
+// single-folder skills with one executable SKILL.md plus any nested assets, and
+// marketing-outbound which is a BUNDLE (no top-level SKILL.md; 17 nested
+// sub-skill dirs each with their own SKILL.md).
 //
 // `bundle: true` changes the verify rule: a single skill must land its own
 // <id>/SKILL.md; a bundle must land at least one NESTED **/SKILL.md (Hermes'
@@ -73,6 +75,13 @@ export const EVE_STRATEGY_SKILLS = Object.freeze([
   { id: 'blog-writer' },
   // founder-voice: captures the operator's writing voice into USER.md so on-voice content sounds like them.
   { id: 'founder-voice' },
+  // Author production pack (2026-07-20): intent-safe genre routing, the focused
+  // essay craft lane and the complete book build/publishing tree. book-publishing
+  // is a single skill with nested references/templates, so the normal whole-tree
+  // copy preserves its production assets while SKILL.md remains the executable root.
+  { id: 'autor-studio' },
+  { id: 'essay-writer' },
+  { id: 'book-publishing' },
   // client-report: in-seat generator of the operator's client-facing report deliverable
   // (single-folder skill: SKILL.md + report-template.md).
   { id: 'client-report' },
@@ -125,6 +134,11 @@ export const EVE_STRATEGY_SKILL_IDS = Object.freeze(EVE_STRATEGY_SKILLS.map((s) 
 
 export const DEFAULT_SKILLS_SRC = '/Users/mathiasheinke/Developer/Company.OS/.claude/skills';
 export const COMMAND_EVE_SKILLS_SRC_ENV = 'COMMAND_EVE_SKILLS_SRC';
+export const COMMAND_EVE_SKILLS_MODE_ENV = 'COMMAND_EVE_SKILLS_MODE';
+export const AUTHOR_PRODUCTION_SKILL_IDS = Object.freeze(['autor-studio', 'essay-writer', 'book-publishing']);
+export const AUTHOR_PRODUCTION_EXPECTED_FILE_COUNT = 32;
+export const AUTHOR_PRODUCTION_EXPECTED_AGGREGATE_SHA256 =
+  '7af34714d428b4451f7811bc9f87da32ec5ac4f594783c0e3a9fd3f1c9e2f465';
 
 // ---------------------------------------------------------------------------
 // PURE LOGIC (exported for unit tests; no fs side effects)
@@ -147,6 +161,26 @@ export function decideSkillSource({ sourceExists, snapshotExists }) {
     action: 'missing',
     reason: 'allowlisted skill missing from BOTH canonical source and committed snapshot — fail-closed',
   };
+}
+
+/**
+ * Release builds are snapshot-only so an unrelated local Company.OS checkout
+ * can never rewrite the reviewed payload. Refresh remains an explicit developer
+ * action and may use either a declared source root or the historical default.
+ */
+export function resolveSkillStageSource({ mode, explicitSourceRoot = '', defaultSourceRoot = DEFAULT_SKILLS_SRC }) {
+  const normalizedMode = String(mode || 'refresh')
+    .trim()
+    .toLowerCase();
+  if (normalizedMode === 'snapshot') return { ok: true, mode: 'snapshot', srcRoot: null };
+  if (normalizedMode === 'refresh') {
+    return {
+      ok: true,
+      mode: 'refresh',
+      srcRoot: String(explicitSourceRoot || defaultSourceRoot).trim(),
+    };
+  }
+  return { ok: false, mode: normalizedMode, srcRoot: null };
 }
 
 /**
@@ -408,6 +442,58 @@ function collectJsonPaths(dir) {
   return out;
 }
 
+function collectManifestFiles(root, relativeRoot, reasonCodes) {
+  const out = [];
+  let entries;
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    reasonCodes.push('author_production_manifest_root_missing');
+    return out;
+  }
+  for (const entry of entries.toSorted((left, right) => left.name.localeCompare(right.name))) {
+    const fullPath = path.join(root, entry.name);
+    const relativePath = path.posix.join(relativeRoot, entry.name);
+    if (entry.isDirectory()) {
+      out.push(...collectManifestFiles(fullPath, relativePath, reasonCodes));
+      continue;
+    }
+    if (!entry.isFile()) {
+      reasonCodes.push('author_production_manifest_non_file');
+      continue;
+    }
+    const content = fs.readFileSync(fullPath);
+    out.push({
+      path: relativePath,
+      sha256: createHash('sha256').update(content).digest('hex'),
+      bytes: content.byteLength,
+    });
+  }
+  return out;
+}
+
+/** Bind the shipped Author Studio payload to the independently reviewed source manifest. */
+export function verifyAuthorProductionSkillManifest(snapshotRoot) {
+  const reasonCodes = [];
+  const files = AUTHOR_PRODUCTION_SKILL_IDS.flatMap((skillId) =>
+    collectManifestFiles(path.join(snapshotRoot, skillId), skillId, reasonCodes)
+  ).toSorted((left, right) => left.path.localeCompare(right.path));
+  const manifestText = files.map((file) => `${file.sha256}  ${file.bytes}  ${file.path}`).join('\n') + '\n';
+  const aggregateSha256 = createHash('sha256').update(manifestText).digest('hex');
+  if (files.length !== AUTHOR_PRODUCTION_EXPECTED_FILE_COUNT) {
+    reasonCodes.push('author_production_manifest_file_count_mismatch');
+  }
+  if (aggregateSha256 !== AUTHOR_PRODUCTION_EXPECTED_AGGREGATE_SHA256) {
+    reasonCodes.push('author_production_manifest_hash_mismatch');
+  }
+  return {
+    ok: reasonCodes.length === 0,
+    reason_codes: [...new Set(reasonCodes)].toSorted(),
+    file_count: files.length,
+    aggregate_sha256: aggregateSha256,
+  };
+}
+
 export function scanForbiddenLocaleContent(localeRoot) {
   const failures = [];
   for (const jsonPath of collectJsonPaths(localeRoot)) {
@@ -494,9 +580,10 @@ export function stageBundledSkills({ srcRoot, snapshotRoot, skills = EVE_STRATEG
   fs.mkdirSync(snapshotRoot, { recursive: true });
 
   for (const skill of skills) {
-    const srcDir = path.join(srcRoot, skill.id);
+    const srcDir = srcRoot ? path.join(srcRoot, skill.id) : null;
     const destDir = path.join(snapshotRoot, skill.id);
     const sourceExists = (() => {
+      if (!srcDir) return false;
       try {
         return fs.statSync(srcDir).isDirectory();
       } catch {
@@ -518,6 +605,7 @@ export function stageBundledSkills({ srcRoot, snapshotRoot, skills = EVE_STRATEG
       continue;
     }
     if (decision.action === 'refresh') {
+      if (!srcDir) throw new Error(`refresh source unexpectedly missing for ${skill.id}`);
       copyTree(srcDir, destDir);
       log(`refreshed ${skill.id} from source`);
     } else {
@@ -572,12 +660,35 @@ export function stageBundledSkills({ srcRoot, snapshotRoot, skills = EVE_STRATEG
 }
 
 function main() {
-  const srcRoot = compactEnv(process.env[COMMAND_EVE_SKILLS_SRC_ENV]) || DEFAULT_SKILLS_SRC;
+  const source = resolveSkillStageSource({
+    mode: compactEnv(process.env[COMMAND_EVE_SKILLS_MODE_ENV]),
+    explicitSourceRoot: compactEnv(process.env[COMMAND_EVE_SKILLS_SRC_ENV]),
+  });
+  if (!source.ok) {
+    console.error(
+      `[fetch-bundled-skills] FAIL-CLOSED: ${COMMAND_EVE_SKILLS_MODE_ENV} must be refresh or snapshot, got ${source.mode || '<empty>'}`
+    );
+    process.exitCode = 2;
+    return;
+  }
+  const srcRoot = source.srcRoot;
   const localeRoot = path.join(REPO_ROOT, 'packages', 'desktop', 'src', 'renderer', 'services', 'i18n', 'locales');
-  log(`source=${srcRoot}`);
+  const sourceLabel = source.mode === 'snapshot' ? '<committed-snapshot-only>' : srcRoot;
+  log(`source=${sourceLabel}`);
   log(`snapshot=${path.relative(REPO_ROOT, SNAPSHOT_DIR)}`);
 
   const failures = stageBundledSkills({ srcRoot, snapshotRoot: SNAPSHOT_DIR });
+  const authorManifest = verifyAuthorProductionSkillManifest(SNAPSHOT_DIR);
+  if (!authorManifest.ok) {
+    failures.push(...authorManifest.reason_codes);
+    log(
+      `AUTHOR MANIFEST INVALID — files=${authorManifest.file_count} aggregate=${authorManifest.aggregate_sha256} reasons=${authorManifest.reason_codes.join(',')}`
+    );
+  } else {
+    log(
+      `author-manifest=${authorManifest.aggregate_sha256} files=${authorManifest.file_count} (pinned committed snapshot)`
+    );
+  }
   for (const failure of scanForbiddenLocaleContent(localeRoot)) {
     failures.push(`locale_forbidden_content:${failure}`);
     log(`FORBIDDEN LOCALE CONTENT — ${failure}`);
@@ -586,7 +697,7 @@ function main() {
     console.error(
       `[fetch-bundled-skills] FAIL-CLOSED: ${failures.length} skill(s) missing/invalid:\n  ` +
         failures.join('\n  ') +
-        `\n  Source: ${srcRoot}\n  A strategy skill the running agent expects is absent from both ` +
+        `\n  Source: ${sourceLabel}\n  A strategy skill the running agent expects is absent from both ` +
         `the canonical source and the committed snapshot — refusing to ship a silent gap.`
     );
     process.exitCode = 2;

@@ -1,0 +1,96 @@
+% Generic 6x9 NO-BLEED print-interior style. Adjust geometry for another target.
+\InputIfFileExists{book-metadata.tex}{}{}
+\providecommand{\BookRunningTitle}{Buchtitel}
+\usepackage[paperwidth=6in,paperheight=9in,top=0.85in,bottom=0.85in,inner=0.8in,outer=0.62in,headsep=14pt,footskip=24pt]{geometry}
+
+\usepackage{libertinus}
+% Libertinus Serif/Sans/Mono via fontspec; mono falls back to Libertinus Mono
+
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\definecolor{ink}{RGB}{17,21,28}
+\definecolor{muted}{RGB}{120,126,136}
+\definecolor{accent}{RGB}{176,141,77}
+
+% wrap long lines in code blocks (worker contracts, ledger entries)
+\usepackage{fvextra}
+\fvset{breaklines=true,breakanywhere=true,fontsize=\small}
+
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{etoolbox}
+% wide 4-column tables: smaller font + tighter columns so they fit 6x9
+\AtBeginEnvironment{longtable}{\small\setlength{\tabcolsep}{4pt}}
+% let long snake_case code tokens in table cells break at underscores
+\renewcommand{\_}{\textunderscore\allowbreak}
+
+% chapter heading style
+\usepackage{titlesec}
+\titleformat{\chapter}[display]
+  {\normalfont\sffamily\bfseries\raggedright}
+  {\normalsize\sffamily\color{muted}\MakeUppercase{\chaptertitlename}\ \thechapter}
+  {0.6em}
+  {\huge\color{ink}}
+\titleformat{name=\chapter,numberless}[display]
+  {\normalfont\sffamily\bfseries\raggedright}
+  {}
+  {0pt}
+  {\huge\color{ink}}
+\titlespacing*{\chapter}{0pt}{6pt}{34pt}
+
+% section headings
+\titleformat{\section}
+  {\normalfont\sffamily\bfseries\color{ink}}{\thesection}{0.6em}{}
+\titlespacing*{\section}{0pt}{16pt}{6pt}
+
+% running heads / page numbers
+\usepackage{fancyhdr}
+\renewcommand{\chaptermark}[1]{\markboth{#1}{}}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[LE]{\small\itshape\color{muted}\BookRunningTitle}
+\fancyhead[RO]{\small\itshape\color{muted}\nouppercase{\leftmark}}
+\fancyfoot[C]{\small\color{muted}\thepage}
+\renewcommand{\headrulewidth}{0.3pt}
+\renewcommand{\footrulewidth}{0pt}
+\makeatletter
+\renewcommand{\headrule}{\hbox to\headwidth{\color{muted!50}\leaders\hrule height \headrulewidth\hfill}}
+\makeatother
+
+% paragraph shape: book-style indented, no extra skip
+\setlength{\parindent}{1.25em}
+\setlength{\parskip}{0pt plus 1pt}
+% --- justification quality (XeTeX cannot do font-expansion, so tune hyphenation/tolerance) ---
+\microtypesetup{protrusion=true}
+\tolerance=1500
+\hbadness=1500
+\setlength{\emergencystretch}{1.5em}
+\hyphenpenalty=50
+\exhyphenpenalty=50
+\doublehyphendemerits=2500
+
+% line spacing a touch open for readability
+\usepackage{setspace}
+\setstretch{1.06}
+
+% no header on empty pages
+\usepackage{emptypage}
+
+% blockquotes: a quieter, inset look
+\usepackage{quoting}
+\quotingsetup{vskip=6pt,leftmargin=1.4em,rightmargin=0.4em,indentfirst=false}
+\renewenvironment{quote}{\begin{quoting}\itshape\small\color{ink!88}}{\end{quoting}}
+
+% tighten code block frame spacing
+\usepackage{mdframed}
+
+% vector QR code for the closing call-to-action page
+\usepackage{qrcode}
+
+% --- Flattersatz (ragged-right mit Silbentrennung) als finaler Satz ---
+\usepackage{ragged2e}
+\AtBeginDocument{\RaggedRight}
+% Hinweis: breakable URLs (xurl + \urlstyle{same}) liefert pandoc bereits im
+% Template; bare URLs werden via Input-Flag +autolink_bare_uris zu \url{}.

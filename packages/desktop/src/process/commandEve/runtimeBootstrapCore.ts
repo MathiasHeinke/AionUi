@@ -150,6 +150,13 @@ export const EVE_STRATEGY_SKILL_IDS = [
   // reusable voice profile in USER.md, so blog-writer/marketing-outbound/landing-copy write like
   // THEM. Never invents a voice; per-client isolation. Pairs with the memory-bootstrap USER.md seed.
   'founder-voice',
+  // Author production pack: autor-studio preserves the requested genre, essay-writer
+  // owns the focused essay craft lane, and book-publishing carries the complete
+  // references/checklists/templates tree. All three are copied whole-tree from the
+  // staged bundle and surface as active department capabilities below.
+  'autor-studio',
+  'essay-writer',
+  'book-publishing',
   // client-report: the in-seat GENERATOR of the operator's client-facing deliverable
   // (exec summary / findings / recommendations / next steps), assembled from ONLY the
   // active seat's truth and shaped to feed the report export. Seat-fenced + honesty-walled
@@ -843,6 +850,27 @@ export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
       name: 'Founder intent to CEO delegation and worker contracts',
       tier: 'autonomy_core',
       source: 'Company.OS worker contract doctrine',
+      default_state: 'active',
+    },
+    {
+      id: 'autor-studio',
+      name: 'Author Studio',
+      tier: 'department',
+      source: 'Company.OS author production skill pack',
+      default_state: 'active',
+    },
+    {
+      id: 'essay-writer',
+      name: 'Essay Writer',
+      tier: 'department',
+      source: 'Company.OS author production skill pack',
+      default_state: 'active',
+    },
+    {
+      id: 'book-publishing',
+      name: 'Book Publishing',
+      tier: 'department',
+      source: 'Company.OS author production skill pack',
       default_state: 'active',
     },
     {
@@ -2029,7 +2057,7 @@ function commandEveManagedSkillMarkdown(skill: CommandEveCapabilityPack['skills'
 }
 
 // The APP-OWNED config-awareness onboarding skill (Guided Onboarding SLICE S1).
-// This is deliberately NOT in EVE_STRATEGY_SKILL_IDS (the bundled allowlist, now 32) and
+// This is deliberately NOT in EVE_STRATEGY_SKILL_IDS (the bundled allowlist, now 35) and
 // NOT in command-eve-capabilities.json — it is
 // a separate app-owned managed skill written directly into managedSkillsRoot, which
 // is already on skills.external_dirs, so the running Hermes agent discovers it like
@@ -2377,7 +2405,7 @@ export function copyFounderOpsSkills(paths: RuntimeBootstrapPaths, founderOpsSki
 
 // Returns the executable (onboarding-stub) skill ids AND any bundled-strategy-skill
 // failures so the caller can surface a VISIBLE warning. The two skill sets coexist:
-// the onboarding capability stubs (real, useful first-run scaffolding) PLUS the 15
+// the onboarding capability stubs (real, useful first-run scaffolding) PLUS the 35
 // real strategy skills copied from the bundle.
 function writeCommandEveManagedSkills(
   paths: RuntimeBootstrapPaths,
@@ -2395,9 +2423,10 @@ function writeCommandEveManagedSkills(
     fs.writeFileSync(path.join(skillDir, 'SKILL.md'), commandEveManagedSkillMarkdown(skill), { mode: 0o600 });
   }
   // ADDITIVE: copy the real strategy skills over the stubs. Most strategy ids are a
-  // separate id-space from the onboarding capability ids, but 6 operator skills
+  // separate id-space from the onboarding capability ids, but 9 operator skills
   // (content-machine, video-first-content-engine, blog-publishing-lane, local-kanban-ledger,
-  // voice-first-run, crm-department) INTENTIONALLY overlap: their capability entry is now
+  // voice-first-run, crm-department, autor-studio, essay-writer, book-publishing)
+  // INTENTIONALLY overlap: their capability entry is now
   // 'active' (so they surface as executable in the Skill Library) AND they are bundled here,
   // so the real SKILL.md is copied over the auto-generated stub. Same dest path → real wins.
   const bundledSkillFailures = copyBundledStrategySkills(paths, bundledSkillsDir);

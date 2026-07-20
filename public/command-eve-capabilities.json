@@ -43,6 +43,27 @@
       "default_state": "active"
     },
     {
+      "id": "autor-studio",
+      "name": "Author Studio",
+      "tier": "department",
+      "source": "Company.OS author production skill pack",
+      "default_state": "active"
+    },
+    {
+      "id": "essay-writer",
+      "name": "Essay Writer",
+      "tier": "department",
+      "source": "Company.OS author production skill pack",
+      "default_state": "active"
+    },
+    {
+      "id": "book-publishing",
+      "name": "Book Publishing",
+      "tier": "department",
+      "source": "Company.OS author production skill pack",
+      "default_state": "active"
+    },
+    {
       "id": "content-machine",
       "name": "Content Machine",
       "tier": "department",

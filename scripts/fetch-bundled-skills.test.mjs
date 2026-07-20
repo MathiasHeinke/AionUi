@@ -5,6 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
+  AUTHOR_PRODUCTION_EXPECTED_AGGREGATE_SHA256,
+  AUTHOR_PRODUCTION_EXPECTED_FILE_COUNT,
   EVE_STRATEGY_SKILLS,
   EVE_STRATEGY_SKILL_IDS,
   findForbiddenUserFacingJsonContent,
@@ -14,13 +16,15 @@ import {
   SKILL_IDS_REQUIRING_DISABLE_MODEL_INVOCATION,
   SKILL_IDS_REQUIRING_LINKED_FILES,
   scanForbiddenLocaleContent,
+  resolveSkillStageSource,
   stageBundledSkills,
+  verifyAuthorProductionSkillManifest,
 } from './fetch-bundled-skills.mjs';
 
 // --- allowlist shape -------------------------------------------------------
 
-test('the allowlist is exactly 32: strategy + operator skills + local-vision + field and PLAUD skills', () => {
-  assert.equal(EVE_STRATEGY_SKILL_IDS.length, 32);
+test('the allowlist is exactly 35 and includes the complete author-production skill pack', () => {
+  assert.equal(EVE_STRATEGY_SKILL_IDS.length, 35);
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('eve-doctrine'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('marketing-outbound'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('blog-writer'));
@@ -37,6 +41,9 @@ test('the allowlist is exactly 32: strategy + operator skills + local-vision + f
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('skill-authoring'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('legal-enforcement-dach'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('plaud-recording-ingest'));
+  assert.ok(EVE_STRATEGY_SKILL_IDS.includes('autor-studio'));
+  assert.ok(EVE_STRATEGY_SKILL_IDS.includes('essay-writer'));
+  assert.ok(EVE_STRATEGY_SKILL_IDS.includes('book-publishing'));
   // gitnexus and other dev/IDE skills must NEVER be in the allowlist.
   assert.ok(!EVE_STRATEGY_SKILL_IDS.includes('gitnexus'));
 });
@@ -44,6 +51,49 @@ test('the allowlist is exactly 32: strategy + operator skills + local-vision + f
 test('marketing-outbound is the only bundle; the rest are single skills', () => {
   const bundles = EVE_STRATEGY_SKILLS.filter((s) => s.bundle).map((s) => s.id);
   assert.deepEqual(bundles, ['marketing-outbound']);
+});
+
+test('release snapshot mode ignores every external source root while refresh mode remains explicit', () => {
+  assert.deepEqual(
+    resolveSkillStageSource({
+      mode: 'snapshot',
+      explicitSourceRoot: '/untrusted/source',
+      defaultSourceRoot: '/default',
+    }),
+    { ok: true, mode: 'snapshot', srcRoot: null }
+  );
+  assert.deepEqual(
+    resolveSkillStageSource({ mode: 'refresh', explicitSourceRoot: '/approved/source', defaultSourceRoot: '/default' }),
+    { ok: true, mode: 'refresh', srcRoot: '/approved/source' }
+  );
+  assert.deepEqual(resolveSkillStageSource({ mode: 'unknown', defaultSourceRoot: '/default' }), {
+    ok: false,
+    mode: 'unknown',
+    srcRoot: null,
+  });
+});
+
+test('the committed author-production snapshot matches the pinned 32-file source manifest', () => {
+  const result = verifyAuthorProductionSkillManifest(path.resolve('resources/bundled-skills'));
+  assert.equal(result.ok, true);
+  assert.equal(result.file_count, AUTHOR_PRODUCTION_EXPECTED_FILE_COUNT);
+  assert.equal(result.aggregate_sha256, AUTHOR_PRODUCTION_EXPECTED_AGGREGATE_SHA256);
+});
+
+test('the author-production manifest fails closed when one expected payload byte drifts', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'author-manifest-test-'));
+  try {
+    const snapshotRoot = path.join(root, 'bundled-skills');
+    for (const id of ['autor-studio', 'essay-writer', 'book-publishing']) {
+      fs.cpSync(path.resolve('resources/bundled-skills', id), path.join(snapshotRoot, id), { recursive: true });
+    }
+    fs.appendFileSync(path.join(snapshotRoot, 'autor-studio', 'SKILL.md'), '\nmanifest drift\n');
+    const result = verifyAuthorProductionSkillManifest(snapshotRoot);
+    assert.equal(result.ok, false);
+    assert.ok(result.reason_codes.includes('author_production_manifest_hash_mismatch'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 // --- decideSkillSource (refresh / keep / missing) --------------------------
@@ -106,12 +156,17 @@ function makeFixtureSrc(root, { omit = [] } = {}) {
         path.join(dir, 'SKILL.md'),
         `---\nname: ${skill.id}\ndescription: Use when ${skill.id} is explicitly needed.\n${disableLine}${linkedFiles}---\n# ${skill.id}\nreal\n`
       );
+      if (skill.id === 'book-publishing') {
+        fs.mkdirSync(path.join(dir, 'references', 'templates'), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'references', '01_concept_and_positioning.md'), '# Positioning\n');
+        fs.writeFileSync(path.join(dir, 'references', 'templates', 'build_ebook.sh'), '#!/bin/sh\n');
+      }
     }
   }
   return srcRoot;
 }
 
-test('stageBundledSkills refreshes from source and verifies all 32 (no failures)', () => {
+test('stageBundledSkills refreshes from source and verifies all 35 including nested book assets', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fbs-test-'));
   try {
     const srcRoot = makeFixtureSrc(root);
@@ -122,6 +177,8 @@ test('stageBundledSkills refreshes from source and verifies all 32 (no failures)
     assert.ok(fs.existsSync(path.join(snapshotRoot, 'eve-doctrine', 'SKILL.md')));
     // bundle's nested SKILL.md landed
     assert.ok(fs.existsSync(path.join(snapshotRoot, 'marketing-outbound', 'icp-definer', 'SKILL.md')));
+    assert.ok(fs.existsSync(path.join(snapshotRoot, 'book-publishing', 'references', '01_concept_and_positioning.md')));
+    assert.ok(fs.existsSync(path.join(snapshotRoot, 'book-publishing', 'references', 'templates', 'build_ebook.sh')));
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -1,0 +1,29 @@
+% Text comes from book-metadata.tex. Generate and verify cta-qr.png separately;
+% keeping the URL out of TeX avoids escaping errors and makes the QR testable.
+\providecommand{\CtaTitle}{Die nächste Tür}
+\providecommand{\CtaBody}{Hier steht die kurze Einladung zum nächsten passenden Schritt. Sie erklärt den Nutzen, ohne Druck oder unbelegte Versprechen.}
+\providecommand{\CtaLabel}{example.com}
+
+\clearpage
+\thispagestyle{empty}
+\vspace*{1.05in}
+\begingroup
+\setlength{\parindent}{0pt}
+\begin{center}
+{\sffamily\bfseries\LARGE\color{ink} \CtaTitle}
+\end{center}
+\vspace{1.7em}
+\begin{center}
+\begin{minipage}{0.82\textwidth}
+\setstretch{1.13}
+\CtaBody
+\end{minipage}
+\end{center}
+\vspace{2.3em}
+\begin{center}
+\IfFileExists{cta-qr.png}{%
+  \includegraphics[width=1.25in]{cta-qr.png}\\[0.9em]
+  {\sffamily\bfseries\large \CtaLabel}%
+}{}
+\end{center}
+\endgroup

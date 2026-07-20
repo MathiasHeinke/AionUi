@@ -105,6 +105,7 @@ childProcess.execSync = function mockedExecSync(command) {
       }
 
       expect(result.status, result.stderr || result.stdout).toBe(0);
+      expect(`${result.stdout}\n${result.stderr}`).toContain('source=<committed-snapshot-only>');
 
       const calls = JSON.parse(readFileSync(callsPath, 'utf8')) as Array<{ arch?: string } | null>;
       expect(calls).toContainEqual(expect.objectContaining({ arch: expectedArch }));

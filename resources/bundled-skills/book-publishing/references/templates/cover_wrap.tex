@@ -1,0 +1,97 @@
+\documentclass{article}
+% Replace width/height with the exact current KDP cover-template dimensions.
+\usepackage[paperwidth=12.75in,paperheight=9.25in,margin=0pt]{geometry}
+\usepackage{tikz}
+\usetikzlibrary{calc}
+\usepackage{libertinus}
+\usepackage{setspace}
+\usepackage{graphicx}
+\definecolor{ink}{RGB}{8,10,8}
+\definecolor{cream}{RGB}{245,247,240}
+\definecolor{accent}{RGB}{174,230,30}
+\definecolor{muted}{RGB}{150,156,158}
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+
+% Text comes from book-metadata.tex. Replace geometry only after downloading
+% the authoritative current KDP cover template.
+\InputIfFileExists{book-metadata.tex}{}{}
+\newcommand{\WrapWidth}{12.75}
+\newcommand{\WrapHeight}{9.25}
+\newcommand{\BackTrimX}{0.125}
+\newcommand{\SpineCenterX}{6.375}
+\newcommand{\FrontTrimX}{6.625}
+\providecommand{\FrontCover}{front-cover.png}
+\providecommand{\AuthorPhoto}{author-photo.jpg}
+\providecommand{\BookTitle}{Buchtitel}
+\providecommand{\AuthorName}{Vorname Nachname}
+\providecommand{\BookKicker}{THEMA ODER KATEGORIE}
+\providecommand{\BookBlurb}{Klappentext: Problem, Versprechen und Zielgruppe.}
+\providecommand{\BookClosing}{Ein prägnanter Schlusssatz.}
+\providecommand{\AuthorBio}{Kurze Autorenbiografie.}
+\providecommand{\ImprintName}{IMPRINT}
+% Example reserve; replace with the exact zone from the downloaded template.
+\newcommand{\BarcodeX}{3.85}
+\newcommand{\BarcodeY}{0.35}
+\newcommand{\BarcodeWidth}{2.0}
+\newcommand{\BarcodeHeight}{1.2}
+\newif\ifShowBarcodeGuide
+\ShowBarcodeGuidefalse
+
+\begin{document}
+\begin{tikzpicture}[remember picture,overlay]
+  \coordinate (O) at (current page.south west);
+  \fill[ink] (O) rectangle ($(O)+(\WrapWidth in,\WrapHeight in)$);
+
+  % FRONT: exact trim placement must match the downloaded KDP template.
+  \IfFileExists{\FrontCover}{
+    \node[anchor=south west,inner sep=0pt] at ($(O)+(\FrontTrimX in,0.125in)$)
+      {\includegraphics[width=6in,height=9in]{\FrontCover}};
+  }{
+    \draw[accent,line width=1pt] ($(O)+(\FrontTrimX in,0.125in)$)
+      rectangle ($(O)+(\FrontTrimX in,0.125in)+(6in,9in)$);
+    \node[text=cream,align=center] at ($(O)+(\FrontTrimX in,0.125in)+(3in,4.5in)$)
+      {Front-Cover fehlt\\\texttt{front-cover.png}};
+  }
+
+  % SPINE
+  \node[rotate=-90,anchor=center,text=cream,font=\sffamily\bfseries\fontsize{12}{14}\selectfont]
+    at ($(O)+(\SpineCenterX in,5.1in)$) {\BookTitle};
+  \node[rotate=-90,anchor=center,text=accent,font=\sffamily\bfseries\fontsize{10}{12}\selectfont]
+    at ($(O)+(\SpineCenterX in,2.4in)$) {\AuthorName};
+
+  % BACK
+  \coordinate (BNW) at ($(O)+(\BackTrimX in,9.125in)$);
+  \coordinate (BSW) at ($(O)+(\BackTrimX in,0.125in)$);
+  \node[anchor=north west,align=left,text=accent]
+    at ($(BNW)+(0.62in,-0.85in)$) {\sffamily\bfseries\footnotesize \BookKicker};
+  \node[anchor=north west,align=left,text=cream,text width=4.55in]
+    at ($(BNW)+(0.62in,-1.22in)$) {\setstretch{1.2}\normalsize \BookBlurb};
+  \node[anchor=north west,align=left,text=accent,text width=4.55in]
+    at ($(BSW)+(0.62in,3.62in)$) {\itshape\large \BookClosing};
+  \draw[accent!50,line width=0.5pt]
+    ($(BSW)+(0.62in,2.05in)$) -- ($(BSW)+(5.3in,2.05in)$);
+
+  \IfFileExists{\AuthorPhoto}{
+    \begin{scope}
+      \clip[rounded corners=5pt] ($(BSW)+(0.62in,0.42in)$)
+        rectangle ($(BSW)+(1.92in,2.02in)$);
+      \node[anchor=center] at ($(BSW)+(1.27in,1.22in)$)
+        {\includegraphics[width=1.7in]{\AuthorPhoto}};
+    \end{scope}
+  }{}
+  \node[anchor=north west,align=left,text=cream,text width=1.55in,font=\rmfamily\fontsize{11}{13}\selectfont]
+    at ($(BSW)+(2.05in,1.9in)$) {\AuthorName};
+  \node[anchor=north west,align=left,text=muted,text width=1.55in,font=\rmfamily\fontsize{7.5}{9.5}\selectfont]
+    at ($(BSW)+(2.05in,1.58in)$) {\AuthorBio};
+  \node[anchor=north west,align=left,text=accent,text width=1.55in,font=\sffamily\fontsize{8}{10}\selectfont]
+    at ($(BSW)+(2.05in,0.6in)$) {\ImprintName};
+
+  % No text or image may enter this reserve. Enable the guide only for QA.
+  \ifShowBarcodeGuide
+    \draw[red,dashed,line width=0.8pt]
+      ($(BSW)+(\BarcodeX in,\BarcodeY in)$) rectangle
+      ($(BSW)+(\BarcodeX in,\BarcodeY in)+(\BarcodeWidth in,\BarcodeHeight in)$);
+  \fi
+\end{tikzpicture}
+\end{document}

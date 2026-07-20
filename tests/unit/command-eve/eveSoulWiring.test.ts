@@ -216,12 +216,17 @@ describe('EVE soul-wiring: bundled strategy skills copy (real, additive, fail-cl
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-soul-bundle-'));
     const bundledSkillsDir = path.join(root, 'bundled-skills');
     fs.mkdirSync(bundledSkillsDir, { recursive: true });
-    // 25 single-folder skills (all allowlisted ids except the marketing-outbound bundle).
+    // Every single-folder skill (all allowlisted ids except the marketing-outbound bundle).
     for (const id of EVE_STRATEGY_SKILL_IDS) {
       if (id === 'marketing-outbound') continue;
       const dir = path.join(bundledSkillsDir, id);
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, 'SKILL.md'), `# ${id}\nReal strategy skill content for ${id}.\n`);
+      if (id === 'book-publishing') {
+        fs.mkdirSync(path.join(dir, 'references', 'templates'), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'references', '01_concept_and_positioning.md'), '# Positioning\n');
+        fs.writeFileSync(path.join(dir, 'references', 'templates', 'build_ebook.sh'), '#!/bin/sh\n');
+      }
     }
     // marketing-outbound is a BUNDLE: no top-level SKILL.md, nested sub-skills.
     const moRoot = path.join(bundledSkillsDir, 'marketing-outbound');
@@ -236,7 +241,7 @@ describe('EVE soul-wiring: bundled strategy skills copy (real, additive, fail-cl
     return { root, bundledSkillsDir, paths };
   };
 
-  it('lands all 32 allowlisted strategy skills with real (non-stub) content', () => {
+  it('lands all 35 allowlisted strategy skills with real (non-stub) content', () => {
     const { root, bundledSkillsDir, paths } = makeFixture();
     try {
       const failures = copyBundledStrategySkills(paths, bundledSkillsDir);
@@ -247,6 +252,11 @@ describe('EVE soul-wiring: bundled strategy skills copy (real, additive, fail-cl
         expect(fs.existsSync(dest), `${id}/SKILL.md must land`).toBe(true);
         expect(fs.readFileSync(dest, 'utf8')).toContain(`Real strategy skill content for ${id}`);
       }
+      expect(
+        fs.existsSync(
+          path.join(paths.managedSkillsRoot, 'book-publishing', 'references', 'templates', 'build_ebook.sh')
+        )
+      ).toBe(true);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -415,8 +425,8 @@ describe('EVE soul-wiring: internal Operating Rule reconciled to defer to SOUL.m
 describe('EVE onboarding S1: app-owned config-awareness skill (separate from the strategy allowlist)', () => {
   const SKILL_MD = commandEveOnboardingSkillMarkdown();
 
-  it('is its own app-owned skill, NOT in EVE_STRATEGY_SKILL_IDS (allowlist is 32 including PLAUD ingest)', () => {
-    expect(EVE_STRATEGY_SKILL_IDS).toHaveLength(32);
+  it('is its own app-owned skill, NOT in the 35-skill strategy allowlist', () => {
+    expect(EVE_STRATEGY_SKILL_IDS).toHaveLength(35);
     expect(EVE_STRATEGY_SKILL_IDS as readonly string[]).not.toContain('eve-onboarding-awareness');
   });
 

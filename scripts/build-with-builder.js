@@ -442,16 +442,21 @@ function fetchBundledPython(platform, arch) {
 // them into Contents/Resources/bundled-skills. Unlike bundled-python this runs
 // UNCONDITIONALLY for every platform — the skills are cross-platform pure
 // markdown with no signing/notarize concern. The fetch script refreshes the
-// committed snapshot from the canonical Company.OS skills dir when present and
-// otherwise trusts the committed snapshot; either way it FAILS CLOSED (non-zero
-// exit) if any allowlisted strategy skill is missing/invalid, so we never ship a
-// silent capability gap (founder-self-detection standard).
+// committed snapshot only. External Company.OS refresh is a separate explicit
+// development action; the release build must never change reviewed resources
+// based on whichever checkout happens to exist on the machine. The stage still
+// FAILS CLOSED (non-zero exit) if an allowlisted skill is missing/invalid or the
+// pinned Author Studio manifest drifts.
 function fetchBundledSkills() {
   const fetchScript = path.join(__dirname, 'fetch-bundled-skills.mjs');
   console.log('🧠 Staging bundled EVE strategy skills for extraResources...');
   const result = spawnSync(process.execPath, [fetchScript], {
     stdio: 'inherit',
-    env: process.env,
+    env: {
+      ...process.env,
+      COMMAND_EVE_SKILLS_MODE: 'snapshot',
+      COMMAND_EVE_SKILLS_SRC: '',
+    },
   });
   if (result.error) {
     throw new Error(`Bundled-skills stage could not start: ${result.error.message}`);

@@ -1,0 +1,64 @@
+\documentclass{article}
+% Optional back-cover design preview only. The KDP upload is built from
+% cover_wrap.tex; repeat every accepted layout change there.
+\usepackage[paperwidth=6in,paperheight=9in,margin=0pt]{geometry}
+\usepackage{tikz}
+\usetikzlibrary{calc}
+\usepackage{libertinus}
+\usepackage{setspace}
+\usepackage{graphicx}
+\definecolor{ink}{RGB}{16,20,27}
+\definecolor{paper}{RGB}{237,234,226}
+\definecolor{accent}{RGB}{198,160,92}
+\definecolor{muted}{RGB}{150,156,168}
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+
+\InputIfFileExists{book-metadata.tex}{}{}
+\providecommand{\BookKicker}{THEMA ODER KATEGORIE}
+\providecommand{\BookBlurb}{Hier steht der Klappentext: Problem, Versprechen und Zielgruppe in drei bis fünf kurzen Absätzen.}
+\providecommand{\BookClosing}{Ein prägnanter Schlusssatz.}
+\providecommand{\AuthorName}{Vorname Nachname}
+\providecommand{\AuthorBio}{Kurze Autorenbiografie in zwei bis drei Sätzen.}
+\providecommand{\ImprintName}{IMPRINT}
+\providecommand{\AuthorPhoto}{author-photo.jpg}
+
+\begin{document}
+\begin{tikzpicture}[remember picture,overlay]
+  \fill[ink] (current page.south west) rectangle (current page.north east);
+  \node[anchor=north west,align=left,text=accent]
+    at ($(current page.north west)+(0.7in,-0.9in)$)
+    {\sffamily\bfseries\footnotesize \BookKicker};
+  \node[anchor=north west,align=left,text=paper,text width=4.6in]
+    at ($(current page.north west)+(0.7in,-1.28in)$)
+    {\setstretch{1.14}\normalsize \BookBlurb};
+  \node[anchor=south west,align=left,text=accent,text width=4.6in]
+    at ($(current page.south west)+(0.7in,2.35in)$)
+    {\itshape\large \BookClosing};
+  \draw[muted!40,line width=0.5pt]
+    ($(current page.south west)+(0.7in,2.0in)$) -- ($(current page.south east)+(-0.7in,2.0in)$);
+
+  \IfFileExists{\AuthorPhoto}{%
+    \begin{scope}
+      \clip[rounded corners=5pt] ($(current page.south west)+(0.7in,0.42in)$)
+        rectangle ($(current page.south west)+(2.0in,1.95in)$);
+      \node[anchor=center] at ($(current page.south west)+(1.35in,1.18in)$)
+        {\includegraphics[width=1.7in]{\AuthorPhoto}};
+    \end{scope}
+  }{%
+    \draw[muted!55,line width=0.8pt,rounded corners=5pt]
+      ($(current page.south west)+(0.7in,0.42in)$)
+      rectangle ($(current page.south west)+(2.0in,1.95in)$);
+  }
+  \node[anchor=north west,align=left,text=paper,
+        font=\rmfamily\fontsize{14}{17}\selectfont]
+    at ($(current page.south west)+(2.35in,1.62in)$) {\AuthorName};
+  \node[anchor=north west,align=left,text=muted,text width=2.75in,
+        font=\rmfamily\fontsize{9}{12}\selectfont]
+    at ($(current page.south west)+(2.35in,1.3in)$) {\AuthorBio};
+  \node[anchor=north west,align=left,text=accent,
+        font=\sffamily\fontsize{8.5}{11}\selectfont]
+    at ($(current page.south west)+(2.35in,0.66in)$) {\ImprintName};
+\end{tikzpicture}
+\strut
+\end{document}

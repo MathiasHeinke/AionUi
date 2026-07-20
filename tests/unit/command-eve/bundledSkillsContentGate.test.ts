@@ -18,7 +18,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 // The build-gate logic is exported from the plain build script (ESM .mjs).
-import { findForbiddenSkillContent, FORBIDDEN_SKILL_CONTENT } from '../../../scripts/fetch-bundled-skills.mjs';
+import {
+  findForbiddenSkillContent,
+  findSkillHygieneFailures,
+  FORBIDDEN_SKILL_CONTENT,
+} from '../../../scripts/fetch-bundled-skills.mjs';
 
 describe('bundled-skills build content gate', () => {
   it('flags the "WRONG for automation" rubber-stamp framing', () => {
@@ -64,5 +68,54 @@ describe('bundled-skills build content gate', () => {
     const describesAntiPattern =
       'The anti-pattern to never fall into: blindly sending Down/Enter to accept every permission or bypass warning — that is rubber-stamping, not judgment, and it turns the gate off.';
     expect(findForbiddenSkillContent(describesAntiPattern)).toEqual([]);
+  });
+
+  it('ships the author-production skills with hygienic trigger metadata and no forbidden content', () => {
+    for (const id of ['autor-studio', 'essay-writer', 'book-publishing']) {
+      const body = fs.readFileSync(path.resolve(__dirname, `../../../resources/bundled-skills/${id}/SKILL.md`), 'utf8');
+      expect(findSkillHygieneFailures({ skillId: id, text: body }), id).toEqual([]);
+      expect(findForbiddenSkillContent(body), id).toEqual([]);
+    }
+  });
+
+  it('keeps genre intent binding and every publication mutation behind a Human-Gate', () => {
+    const authorStudio = fs.readFileSync(
+      path.resolve(__dirname, '../../../resources/bundled-skills/autor-studio/SKILL.md'),
+      'utf8'
+    );
+    const essayWriter = fs.readFileSync(
+      path.resolve(__dirname, '../../../resources/bundled-skills/essay-writer/SKILL.md'),
+      'utf8'
+    );
+    const bookPublishing = fs.readFileSync(
+      path.resolve(__dirname, '../../../resources/bundled-skills/book-publishing/SKILL.md'),
+      'utf8'
+    );
+
+    expect(authorStudio).toContain('Das genannte Genre ist das gelieferte Genre.');
+    expect(authorStudio).toContain('Niemals aus einem Essay-Auftrag ein Buch bauen.');
+    expect(essayWriter).toMatch(/Genre-Grenze:[\s\S]*ESSAYS[\s\S]*kein Buch/);
+    expect(bookPublishing).toMatch(/DRM[\s\S]*KDP Select[\s\S]*finaler Publish-Klick[\s\S]*Human-Gates/);
+  });
+
+  it('ships the complete 30-file book-production tree including references, checklists and build templates', () => {
+    const root = path.resolve(__dirname, '../../../resources/bundled-skills/book-publishing');
+    const files = fs
+      .readdirSync(root, { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .map((entry) => path.relative(root, path.join(entry.parentPath, entry.name)))
+      .toSorted();
+
+    expect(files).toHaveLength(30);
+    expect(files).toEqual(
+      expect.arrayContaining([
+        'SKILL.md',
+        'references/01_concept_and_positioning.md',
+        'references/12_launch_and_funnel.md',
+        'references/checklists/pre_publish_qa_checklist.md',
+        'references/templates/build_ebook.sh',
+        'references/templates/build_interior.sh',
+      ])
+    );
   });
 });
