@@ -26,6 +26,7 @@ import {
 import { ProjectWorkspaceLifecycleService } from '@process/services/project-workspace/ProjectWorkspaceLifecycleService';
 import { ProjectWorkspaceService } from '@process/services/project-workspace/ProjectWorkspaceService';
 import { createAionCoreProjectBindingClient } from '@process/services/project-workspace/runtime/conversationBindingClient';
+import { createProjectSemanticCoordinator } from '@process/services/project-workspace/semantic/projectSemanticCoordinator';
 import { ProjectWorkspaceConversationArtifactStore } from '@process/services/project-workspace/storage/conversationArtifactStore';
 import { ProjectWorkspaceRegistryStore } from '@process/services/project-workspace/storage/registryStore';
 import { ensureProjectWorkspaceSeatBootstrap } from '@process/services/project-workspace/seatBootstrap';
@@ -138,7 +139,20 @@ export function initProjectWorkspaceServiceBridge(): void {
     is_seat_switch_in_flight: isCommandEveSeatSwitchInFlight,
     resolve_hermes_home: (seatId) => resolveSeatHome(getDataPath(), seatId).hermesHome,
   });
-  const service = new ProjectWorkspaceService({ registry, get_active_seat_id: getActiveSeatId });
+  const service = new ProjectWorkspaceService({
+    registry,
+    get_active_seat_id: getActiveSeatId,
+    // Production creates run the semantic preflight (brain entry, domain
+    // proposal queue, binding staging) — without the coordinator every create
+    // fails with semantic.coordinator-required (caught by the live dev-app
+    // proof as "Projektberechtigung konnte nicht geprüft werden").
+    semantic_coordinator: createProjectSemanticCoordinator({
+      state_root,
+      binding_client,
+      get_active_seat_id: getActiveSeatId,
+      resolve_hermes_home: (seatId) => resolveSeatHome(getDataPath(), seatId).hermesHome,
+    }),
+  });
 
   const artifactEmitter = bridge.buildEmitter<{
     conversation_id: string;
