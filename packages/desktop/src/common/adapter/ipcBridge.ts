@@ -34,6 +34,12 @@ import type {
   UpdateAssistantRequest,
 } from '../types/agent/assistantTypes';
 import type { PreviewHistoryTarget, PreviewSnapshotInfo } from '../types/office/preview';
+import type {
+  ProjectWorkspaceConversationArtifactDTO,
+  ProjectWorkspaceListDTO,
+  ProjectWorkspacePreviewDTO,
+  ProjectWorkspaceReceiptDTO,
+} from '../types/project-workspace/ui';
 import type { AcpModelInfo, AcpSessionConfigOption } from '../types/platform/acpTypes';
 import type {
   CreateProviderRequest,
@@ -191,6 +197,63 @@ const directConversationSend = httpPost<ISendMessageResult, ISendMessageParams>(
 export const projectWorkspaceRuntime = {
   send: bridge.buildProvider<ISendMessageResult, ISendMessageParams>('project-workspace.runtime-send'),
   warmup: bridge.buildProvider<void, { conversation_id: string }>('project-workspace.runtime-warmup'),
+};
+
+type ProjectWorkspaceMutationIdentity = {
+  project_id: string;
+  expected_revision: number;
+  seat_context_revision: number;
+  idempotency_key: string;
+};
+
+export const projectWorkspace = {
+  list: bridge.buildProvider<ProjectWorkspaceListDTO, void>('project-workspace.list'),
+  listConversationArtifacts: bridge.buildProvider<
+    ProjectWorkspaceConversationArtifactDTO[],
+    { conversation_id: string }
+  >('project-workspace.listConversationArtifacts'),
+  previewCreate: bridge.buildProvider<
+    ProjectWorkspacePreviewDTO,
+    { placement_id: string; title: string; profile?: string; seat_context_revision: number }
+  >('project-workspace.previewCreate'),
+  create: bridge.buildProvider<
+    ProjectWorkspaceReceiptDTO,
+    { preview_id: string; expected_preview_revision: number; seat_context_revision: number; idempotency_key: string }
+  >('project-workspace.create'),
+  previewAdopt: bridge.buildProvider<
+    ProjectWorkspacePreviewDTO | null,
+    { title?: string; seat_context_revision: number }
+  >('project-workspace.previewAdopt'),
+  adopt: bridge.buildProvider<
+    ProjectWorkspaceReceiptDTO,
+    { preview_id: string; expected_preview_revision: number; seat_context_revision: number; idempotency_key: string }
+  >('project-workspace.adopt'),
+  updateMetadata: bridge.buildProvider<
+    ProjectWorkspaceReceiptDTO,
+    ProjectWorkspaceMutationIdentity & { title: string }
+  >('project-workspace.updateMetadata'),
+  archive: bridge.buildProvider<ProjectWorkspaceReceiptDTO, ProjectWorkspaceMutationIdentity>(
+    'project-workspace.archive'
+  ),
+  restore: bridge.buildProvider<ProjectWorkspaceReceiptDTO, ProjectWorkspaceMutationIdentity>(
+    'project-workspace.restore'
+  ),
+  reveal: bridge.buildProvider<void, { project_id: string; seat_context_revision: number }>('project-workspace.reveal'),
+  recover: bridge.buildProvider<ProjectWorkspaceReceiptDTO, ProjectWorkspaceMutationIdentity>(
+    'project-workspace.recover'
+  ),
+  undo: bridge.buildProvider<ProjectWorkspaceReceiptDTO, ProjectWorkspaceMutationIdentity>('project-workspace.undo'),
+  bindConversation: bridge.buildProvider<
+    ProjectWorkspaceReceiptDTO,
+    ProjectWorkspaceMutationIdentity & { conversation_id: string }
+  >('project-workspace.bindConversation'),
+  unbindConversation: bridge.buildProvider<
+    ProjectWorkspaceReceiptDTO,
+    ProjectWorkspaceMutationIdentity & { conversation_id: string }
+  >('project-workspace.unbindConversation'),
+  artifactChanged: bridge.buildEmitter<{ conversation_id: string; artifact: ProjectWorkspaceConversationArtifactDTO }>(
+    'project-workspace.artifact-changed'
+  ),
 };
 
 async function invokeProjectRuntimeFallback<T>(direct: () => Promise<T>, main: () => Promise<T>): Promise<T> {
