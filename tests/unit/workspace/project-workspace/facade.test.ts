@@ -231,6 +231,24 @@ describe('ProjectWorkspaceFacade (S81 R1b)', () => {
     expect(serialized).not.toContain('.command-eve');
   });
 
+  it('list stays usable when metadata enrichment fails (capability/backend outage)', async () => {
+    const { project } = await createProject(f, 'Resilient Projekt');
+    const bindingClient = (f.facade as unknown as { deps: { binding_client: { listMetadata: () => Promise<unknown> } } })
+      .deps.binding_client;
+    const metadataSpy = vi.spyOn(bindingClient, 'listMetadata').mockRejectedValue(new Error('backend down'));
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const dto = await f.facade.list();
+
+    expect(dto.notice_reason).toBeUndefined();
+    expect(dto.placements.length).toBeGreaterThan(0);
+    const summary = dto.projects.find((candidate) => candidate.project_id === project.project_id);
+    expect(summary).toBeTruthy();
+    expect(summary?.conversation_count).toBe(0);
+    expect(metadataSpy).toHaveBeenCalledTimes(1);
+    consoleError.mockRestore();
+  });
+
   it('previewCreate -> create roundtrip commits the stashed plan', async () => {
     const { preview, receipt, project } = await createProject(f, 'Atlas Projekt');
 

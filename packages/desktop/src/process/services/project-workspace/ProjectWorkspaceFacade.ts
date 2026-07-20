@@ -332,10 +332,17 @@ export class ProjectWorkspaceFacade {
     }
     const catalogs = this.deps.registry.readSeatCatalogs(seatId);
     const conversationCountByProject = new Map<string, number>();
-    for (const metadata of await this.deps.binding_client.listMetadata()) {
-      const projectId = metadata.binding?.project_id;
-      if (!projectId) continue;
-      conversationCountByProject.set(projectId, (conversationCountByProject.get(projectId) ?? 0) + 1);
+    try {
+      for (const metadata of await this.deps.binding_client.listMetadata()) {
+        const projectId = metadata.binding?.project_id;
+        if (!projectId) continue;
+        conversationCountByProject.set(projectId, (conversationCountByProject.get(projectId) ?? 0) + 1);
+      }
+    } catch (error) {
+      // Conversation counts are enrichment, never a reason to fail the whole
+      // list: a metadata backend failure (capability rotation, backend down)
+      // must not blank the placements/projects UI.
+      console.error('[ProjectWorkspace] list: metadata enrichment failed, returning counts as zero', error);
     }
     const placements: ProjectPlacementDTO[] = catalogs.roots.roots.flatMap((root) => {
       const realm = root.realm_id

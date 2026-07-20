@@ -120,7 +120,15 @@ export function initProjectWorkspaceServiceBridge(): void {
   ensureProjectWorkspaceSeatBootstrap({ registry, seat_id: getActiveSeatId(), data_path: getDataPath() });
   const operations = new ProjectLifecycleOperationStore(state_root);
   const getPort = (): number => backendPort();
-  const binding_client = createAionCoreProjectBindingClient({ get_port: getPort });
+  // Lazy fetch indirection: the local-capability fetch boundary is installed
+  // in index.ts AFTER bridge modules are constructed. Binding globalThis.fetch
+  // eagerly at construction would capture the unwrapped original and every
+  // metadata call would 401 ("Local capability is required") — exactly what
+  // the live dev-app proof caught.
+  const binding_client = createAionCoreProjectBindingClient({
+    get_port: getPort,
+    fetch_impl: (input, init) => globalThis.fetch(input, init),
+  });
   const lifecycle = new ProjectWorkspaceLifecycleService({
     registry,
     operations,
