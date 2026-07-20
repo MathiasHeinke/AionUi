@@ -14,11 +14,7 @@ import {
 import { FolderOpen, Plus, Refresh, Undo } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  createIdempotencyKey,
-  ProjectWorkspaceClientError,
-  useProjectWorkspaceClient,
-} from './client';
+import { createIdempotencyKey, ProjectWorkspaceClientError, useProjectWorkspaceClient } from './client';
 import AdoptProjectDialog from './components/AdoptProjectDialog';
 import CreateProjectDialog from './components/CreateProjectDialog';
 import EditProjectDialog from './components/EditProjectDialog';
