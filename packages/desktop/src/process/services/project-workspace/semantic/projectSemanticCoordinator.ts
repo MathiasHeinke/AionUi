@@ -757,16 +757,28 @@ export function createProjectSemanticCoordinator(
         ) {
           options.on_phase?.('conversation-binding:before-cas');
           input.assert_mutation_allowed();
-          await options.binding_client.compareAndSwap({
-            conversation_id: input.conversation_id,
-            expected: bindingEffect.expected,
-            expected_project_binding_revision: bindingEffect.expected_revision,
-            expected_project_binding_receipt_id: bindingEffect.expected_receipt_id,
-            project_binding_operation_id: bindingEffect.operation_id,
-            next: bindingEffect.next,
-          });
-          owned = pairChanges;
-          options.on_phase?.('conversation-binding:written');
+          try {
+            await options.binding_client.compareAndSwap({
+              conversation_id: input.conversation_id,
+              expected: bindingEffect.expected,
+              expected_project_binding_revision: bindingEffect.expected_revision,
+              expected_project_binding_receipt_id: bindingEffect.expected_receipt_id,
+              project_binding_operation_id: bindingEffect.operation_id,
+              next: bindingEffect.next,
+            });
+            owned = pairChanges;
+            options.on_phase?.('conversation-binding:written');
+          } catch (error) {
+            // Binding a conversation that does not exist (e.g. the synthetic
+            // UI conversation id) is a no-op, not a commit failure: the project
+            // must still commit. Live dev-app proof caught this 404 rolling
+            // back fully promoted projects.
+            if (error instanceof ProjectBindingClientError && error.code === 'NOT_FOUND') {
+              options.on_phase?.('conversation-binding:skipped-not-found');
+            } else {
+              throw error;
+            }
+          }
         } else {
           throw new ProjectWorkspaceError('semantic.bundle-mismatch');
         }
