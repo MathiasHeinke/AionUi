@@ -8,6 +8,8 @@ import { useEntitlementGate } from '@renderer/hooks/useEntitlementGate';
 import { isElectronDesktop } from '@renderer/utils/platform';
 import { TEAM_MODE_ENABLED } from '@/common/config/constants';
 import { isDayZeroForcePopEnabled } from '@/common/config/commandEveShell';
+import { ProjectWorkspaceClientProvider } from '@renderer/pages/projects/client';
+import { rawProjectWorkspaceClient } from '@renderer/pages/projects/rawClient';
 const Conversation = React.lazy(() => import('@renderer/pages/conversation'));
 const Guid = React.lazy(() => import('@renderer/pages/guid'));
 // 1.2.18 — Agenten + Assistenten + Dein Team merged into the single EVE-Runtime
@@ -137,7 +139,17 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
             )
           }
         />
-        <Route element={<ProtectedLayout layout={layout} />}>
+        <Route
+          element={
+            // Project workspace client scope covers every protected route (Kimi
+            // F2 review finding): the conversation view's MessageList consumes
+            // the same client as /projects, so chat-intent artifacts render
+            // there instead of falling back to the unavailable stub.
+            <ProjectWorkspaceClientProvider client={rawProjectWorkspaceClient}>
+              <ProtectedLayout layout={layout} />
+            </ProjectWorkspaceClientProvider>
+          }
+        >
           <Route index element={<Navigate to='/guid' replace />} />
           <Route path='/guid' element={withRouteFallback(Guid)} />
           <Route path='/conversation/:id' element={withRouteFallback(Conversation)} />

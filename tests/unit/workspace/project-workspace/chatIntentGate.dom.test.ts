@@ -40,6 +40,7 @@ describe('runProjectChatIntentGate (S81 R3)', () => {
       input: 'hallo welt',
       seat_context_revision: 0,
       idempotency_key: expect.any(String),
+      deadline_ms: expect.any(Number),
     });
     expect(mocks.messageInfo).not.toHaveBeenCalled();
   });

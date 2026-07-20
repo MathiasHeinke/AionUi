@@ -1,5 +1,7 @@
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { bridge } from '@office-ai/platform';
+import { ProjectWorkspaceError } from '@/common/types/project-workspace/reasonCodes';
 import type {
   ProjectWorkspaceConversationArtifactDTO,
   ProjectWorkspaceExplicitChatIntentRequest,
@@ -7,7 +9,9 @@ import type {
   ProjectWorkspaceListDTO,
   ProjectWorkspacePreviewDTO,
   ProjectWorkspaceReceiptDTO,
+  ProjectWorkspaceUiReasonCode,
 } from '@/common/types/project-workspace/ui';
+import { mapProjectWorkspaceReason } from '@process/services/project-workspace/core/lifecycleReasonCore';
 import {
   getActiveSeatContextRevision,
   getActiveSeatId,
@@ -43,6 +47,56 @@ type MutationIdentity = {
   seat_context_revision: number;
   idempotency_key: string;
 };
+
+/**
+ * IPC error mapping (Kimi F1 review finding). The platform's subscribe wrapper
+ * attaches only `.then(...)` to provider results — a provider that THROWS
+ * never emits the callback, so the renderer's invoke hangs forever. Providers
+ * registered here must therefore never throw across the boundary: every error
+ * is converted into a method-appropriate value (fail-closed for mutations,
+ * notice/empty payloads for reads).
+ */
+function toReasonCode(error: unknown): ProjectWorkspaceUiReasonCode {
+  return error instanceof ProjectWorkspaceError ? mapProjectWorkspaceReason(error.reason_code) : 'invariant_failure';
+}
+
+function rejectedReceiptFor(error: unknown, idempotencyKey: string): ProjectWorkspaceReceiptDTO {
+  const reason = toReasonCode(error);
+  return {
+    receipt_id: idempotencyKey,
+    outcome: reason === 'recovery_required' ? 'recovery_required' : 'rejected',
+    completed_at: Date.now(),
+    reason_code: reason,
+    safe_follow_ups: [],
+  };
+}
+
+function noticeListFor(error: unknown): ProjectWorkspaceListDTO {
+  return {
+    seat_label: getActiveSeatLabel(),
+    seat_context_revision: getActiveSeatContextRevision(),
+    automatic_creation_enabled: false,
+    placements: [],
+    projects: [],
+    notice_reason: toReasonCode(error),
+  };
+}
+
+function failedPreviewFor(error: unknown, title: string): ProjectWorkspacePreviewDTO {
+  return {
+    preview_id: crypto.randomUUID(),
+    preview_revision: 0,
+    destination_label: '',
+    project_title: title,
+    scaffold_summary: [],
+    semantic_writes: [],
+    conversation_effect: '',
+    warnings: [toReasonCode(error)],
+    // Already expired on arrival: a create attempted from this stub fails
+    // closed as stale instead of provisioning from an invalid preview.
+    expires_at: Date.now(),
+  };
+}
 
 function backendPort(): number {
   const value = (globalThis as typeof globalThis & { __backendPort?: number }).__backendPort;
@@ -93,70 +147,164 @@ export function initProjectWorkspaceServiceBridge(): void {
   });
   facadeRef = facade;
 
-  bridge.buildProvider<ProjectWorkspaceListDTO, void>('project-workspace.list').provider(() => facade.list());
+  bridge.buildProvider<ProjectWorkspaceListDTO, void>('project-workspace.list').provider(async () => {
+    try {
+      return await facade.list();
+    } catch (error) {
+      return noticeListFor(error);
+    }
+  });
   bridge
     .buildProvider<ProjectWorkspaceConversationArtifactDTO[], { conversation_id: string }>(
       'project-workspace.listConversationArtifacts'
     )
-    .provider((input) => facade.listConversationArtifacts(input));
+    .provider(async (input) => {
+      try {
+        return await facade.listConversationArtifacts(input);
+      } catch {
+        return [];
+      }
+    });
   bridge
     .buildProvider<
       ProjectWorkspacePreviewDTO,
       { placement_id: string; title: string; profile?: string; seat_context_revision: number }
     >('project-workspace.previewCreate')
-    .provider((input) => facade.previewCreate(input));
+    .provider(async (input) => {
+      try {
+        return await facade.previewCreate(input);
+      } catch (error) {
+        return failedPreviewFor(error, input.title);
+      }
+    });
   bridge
     .buildProvider<
       ProjectWorkspaceReceiptDTO,
       { preview_id: string; expected_preview_revision: number; seat_context_revision: number; idempotency_key: string }
     >('project-workspace.create')
-    .provider((input) => facade.create(input));
+    .provider(async (input) => {
+      try {
+        return await facade.create(input);
+      } catch (error) {
+        return rejectedReceiptFor(error, input.idempotency_key);
+      }
+    });
   bridge
     .buildProvider<ProjectWorkspacePreviewDTO | null, { title?: string; seat_context_revision: number }>(
       'project-workspace.previewAdopt'
     )
-    .provider((input) => facade.previewAdopt(input));
+    .provider(async (input) => {
+      try {
+        return await facade.previewAdopt(input);
+      } catch {
+        return null;
+      }
+    });
   bridge
     .buildProvider<
       ProjectWorkspaceReceiptDTO,
       { preview_id: string; expected_preview_revision: number; seat_context_revision: number; idempotency_key: string }
     >('project-workspace.adopt')
-    .provider((input) => facade.adopt(input));
+    .provider(async (input) => {
+      try {
+        return await facade.adopt(input);
+      } catch (error) {
+        return rejectedReceiptFor(error, input.idempotency_key);
+      }
+    });
   bridge
     .buildProvider<ProjectWorkspaceReceiptDTO, MutationIdentity & { title: string }>('project-workspace.updateMetadata')
-    .provider((input) => facade.updateMetadata(input));
+    .provider(async (input) => {
+      try {
+        return await facade.updateMetadata(input);
+      } catch (error) {
+        return rejectedReceiptFor(error, input.idempotency_key);
+      }
+    });
   bridge
     .buildProvider<ProjectWorkspaceReceiptDTO, MutationIdentity>('project-workspace.archive')
-    .provider((input) => facade.archive(input));
+    .provider(async (input) => {
+      try {
+        return await facade.archive(input);
+      } catch (error) {
+        return rejectedReceiptFor(error, input.idempotency_key);
+      }
+    });
   bridge
     .buildProvider<ProjectWorkspaceReceiptDTO, MutationIdentity>('project-workspace.restore')
-    .provider((input) => facade.restore(input));
+    .provider(async (input) => {
+      try {
+        return await facade.restore(input);
+      } catch (error) {
+        return rejectedReceiptFor(error, input.idempotency_key);
+      }
+    });
   bridge
     .buildProvider<void, { project_id: string; seat_context_revision: number }>('project-workspace.reveal')
-    .provider((input) => facade.reveal(input));
+    .provider(async (input) => {
+      try {
+        await facade.reveal(input);
+      } catch (error) {
+        console.error('[ProjectWorkspace] reveal failed (mapped, non-blocking)', error);
+      }
+    });
   bridge
     .buildProvider<ProjectWorkspaceReceiptDTO, MutationIdentity>('project-workspace.recover')
-    .provider((input) => facade.recover(input));
+    .provider(async (input) => {
+      try {
+        return await facade.recover(input);
+      } catch (error) {
+        return rejectedReceiptFor(error, input.idempotency_key);
+      }
+    });
   bridge
     .buildProvider<ProjectWorkspaceReceiptDTO, MutationIdentity>('project-workspace.undo')
-    .provider((input) => facade.undo(input));
+    .provider(async (input) => {
+      try {
+        return await facade.undo(input);
+      } catch (error) {
+        return rejectedReceiptFor(error, input.idempotency_key);
+      }
+    });
   bridge
     .buildProvider<ProjectWorkspaceReceiptDTO, MutationIdentity & { conversation_id: string }>(
       'project-workspace.bindConversation'
     )
-    .provider((input) => facade.bindConversation(input));
+    .provider(async (input) => {
+      try {
+        return await facade.bindConversation(input);
+      } catch (error) {
+        return rejectedReceiptFor(error, input.idempotency_key);
+      }
+    });
   bridge
     .buildProvider<ProjectWorkspaceReceiptDTO, MutationIdentity & { conversation_id: string }>(
       'project-workspace.unbindConversation'
     )
-    .provider((input) => facade.unbindConversation(input));
+    .provider(async (input) => {
+      try {
+        return await facade.unbindConversation(input);
+      } catch (error) {
+        return rejectedReceiptFor(error, input.idempotency_key);
+      }
+    });
   bridge
     .buildProvider<ProjectWorkspaceExplicitChatIntentResult, ProjectWorkspaceExplicitChatIntentRequest>(
       'project-workspace.chat-intent'
     )
-    .provider(async (input) => facade.chatIntent(input));
+    .provider(async (input) => {
+      try {
+        return await facade.chatIntent(input);
+      } catch {
+        // Defensive only — facade.chatIntent is already fail-open by contract.
+        return { decision: 'pass_through' as const };
+      }
+    });
 
   // S81/R2 — boot-time recovery of interrupted workspace transactions.
+  // ORDERING (Fable review finding): initAllBridges() calls initCommandEveBridge()
+  // BEFORE this init, and initCommandEveBridge initializes the seat context
+  // synchronously — so recoverAll here provably runs after seat readiness.
   // Deliberately fire-and-forget: recovery NEVER blocks the boot path, and a
   // failure is logged, not thrown.
   void service

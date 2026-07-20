@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { ProjectWorkspaceError } from '@/common/types/project-workspace/reasonCodes';
 import type { ProjectWorkspaceListDTO } from '@/common/types/project-workspace/ui';
 
 const mocks = vi.hoisted(() => {
@@ -141,5 +142,89 @@ describe('initProjectWorkspaceServiceBridge (S81 R1c)', () => {
     });
     recoverAll.mockRestore();
     consoleError.mockRestore();
+  });
+
+  describe('IPC error mapping (Kimi F1): providers never throw across the boundary', () => {
+    async function initWithThrowingFacade(method: string): Promise<void> {
+      const { ProjectWorkspaceFacade } = await import('@process/services/project-workspace/ProjectWorkspaceFacade');
+      // NOTE: afterEach runs vi.resetModules(), so the class used here must be
+      // imported dynamically from the SAME fresh registry the bridge gets —
+      // the static top-level import would be a different class instance and
+      // instanceof in the bridge's toReasonCode would fail.
+      const { ProjectWorkspaceError: FreshError } = await import('@/common/types/project-workspace/reasonCodes');
+      vi.spyOn(ProjectWorkspaceFacade.prototype, method as never).mockImplementation(() => {
+        throw new FreshError('seat.changed');
+      });
+      const { initProjectWorkspaceServiceBridge } = await import('@process/bridge/projectWorkspaceServiceBridge');
+      initProjectWorkspaceServiceBridge();
+    }
+
+    function providerFor(key: string): (input?: unknown) => Promise<unknown> {
+      const record = mocks.providers.find((entry) => entry.key === key);
+      if (!record) throw new Error(`${key} provider not registered`);
+      return record.provider as (input?: unknown) => Promise<unknown>;
+    }
+
+    it('maps a thrown ProjectWorkspaceError to a rejected receipt with reason code (mutations)', async () => {
+      await initWithThrowingFacade('updateMetadata');
+      const receipt = (await providerFor('project-workspace.updateMetadata')({
+        project_id: 'p1',
+        expected_revision: 0,
+        seat_context_revision: 0,
+        idempotency_key: '11111111-1111-4111-8111-111111111111',
+        title: 'x',
+      })) as { outcome: string; reason_code?: string; receipt_id: string };
+      expect(receipt.outcome).toBe('rejected');
+      expect(receipt.reason_code).toBe('seat_changed');
+      expect(receipt.receipt_id).toBe('11111111-1111-4111-8111-111111111111');
+    });
+
+    it('maps a thrown error in list to a notice DTO instead of hanging', async () => {
+      await initWithThrowingFacade('list');
+      const dto = (await providerFor('project-workspace.list')()) as ProjectWorkspaceListDTO;
+      expect(dto.notice_reason).toBe('seat_changed');
+      expect(dto.placements).toEqual([]);
+      expect(dto.projects).toEqual([]);
+    });
+
+    it('maps a thrown error in previewCreate to an expired warning stub', async () => {
+      await initWithThrowingFacade('previewCreate');
+      const preview = (await providerFor('project-workspace.previewCreate')({
+        placement_id: 'p',
+        title: 'T',
+        seat_context_revision: 0,
+      })) as { warnings: string[]; expires_at: number; preview_revision: number };
+      expect(preview.warnings).toEqual(['seat_changed']);
+      expect(preview.preview_revision).toBe(0);
+      expect(preview.expires_at).toBeLessThanOrEqual(Date.now());
+    });
+
+    it('maps a thrown error in reveal to a logged void resolution', async () => {
+      await initWithThrowingFacade('reveal');
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+      await expect(
+        providerFor('project-workspace.reveal')({ project_id: 'p1', seat_context_revision: 0 })
+      ).resolves.toBeUndefined();
+      consoleError.mockRestore();
+    });
+
+    it('maps a thrown error in chatIntent to pass_through', async () => {
+      await initWithThrowingFacade('chatIntent');
+      const result = (await providerFor('project-workspace.chat-intent')({
+        conversation_id: 'c1',
+        input: 'hello',
+        seat_context_revision: 0,
+        idempotency_key: '11111111-1111-4111-8111-111111111111',
+      })) as { decision: string };
+      expect(result.decision).toBe('pass_through');
+    });
+
+    it('maps a thrown error in listConversationArtifacts to an empty list', async () => {
+      await initWithThrowingFacade('listConversationArtifacts');
+      const artifacts = (await providerFor('project-workspace.listConversationArtifacts')({
+        conversation_id: 'c1',
+      })) as unknown[];
+      expect(artifacts).toEqual([]);
+    });
   });
 });

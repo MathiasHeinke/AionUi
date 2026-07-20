@@ -233,6 +233,33 @@ describe('ProjectWorkspaceFacade.chatIntent (S81 R3)', () => {
     expect(artifacts[0]?.payload.state).toBe('awaiting_confirmation');
   });
 
+  it('does not bind when the renderer deadline has already passed (Fable/Grok race fix)', async () => {
+    await createProject(f, 'Atlas Projekt');
+    const bindSpy = vi.spyOn(f.lifecycle, 'bindConversation');
+
+    const result = await f.facade.chatIntent({
+      ...chatRequest('bitte analysiere das atlas projekt budget'),
+      deadline_ms: Date.now() - 1,
+    });
+
+    expect(result).toEqual({ decision: 'pass_through' });
+    expect(bindSpy).not.toHaveBeenCalled();
+    expect(f.artifactStore.list(SEAT_ID, 'conv-chat')).toEqual([]);
+  });
+
+  it('binds when the renderer deadline is still in the future', async () => {
+    await createProject(f, 'Atlas Projekt');
+    const bindSpy = vi.spyOn(f.lifecycle, 'bindConversation');
+
+    const result = await f.facade.chatIntent({
+      ...chatRequest('bitte analysiere das atlas projekt budget'),
+      deadline_ms: Date.now() + 60_000,
+    });
+
+    expect(result.decision).toBe('handled');
+    expect(bindSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('passes through on a stale seat context revision', async () => {
     await createProject(f, 'Atlas Projekt');
     const bindSpy = vi.spyOn(f.lifecycle, 'bindConversation');

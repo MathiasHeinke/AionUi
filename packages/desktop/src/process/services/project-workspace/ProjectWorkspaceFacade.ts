@@ -487,11 +487,15 @@ export class ProjectWorkspaceFacade {
     }
     const record = this.trustedProjectRecord(seatId, request.project_id);
     const receiptsDirectory = path.join(record.canonical_project_path, '.command-eve', 'receipts');
+    // Receipt filenames are random UUIDv4 transaction ids, so lexicographic
+    // order is NOT chronological (Fable/Kimi review finding). Select by mtime.
     const receiptFiles = fs.existsSync(receiptsDirectory)
       ? fs
           .readdirSync(receiptsDirectory)
           .filter((name) => /^[0-9a-f-]{36}\.json$/i.test(name))
-          .toSorted()
+          .map((name) => ({ name, mtimeMs: fs.statSync(path.join(receiptsDirectory, name)).mtimeMs }))
+          .toSorted((left, right) => left.mtimeMs - right.mtimeMs)
+          .map((entry) => entry.name)
       : [];
     const latest = receiptFiles.at(-1);
     if (!latest) {
@@ -607,6 +611,14 @@ export class ProjectWorkspaceFacade {
         return { decision: 'needs_clarification', question };
       }
       const match = matches[0];
+      // The renderer's 250ms budget races this handler. If the renderer has
+      // already given up (deadline passed), do NOT commit a binding — the send
+      // has gone out unbound and a late bind would churn mid-turn attestation
+      // state (Fable/Grok review finding). Binding happens before the send or
+      // not at all this turn.
+      if (typeof request.deadline_ms === 'number' && this.nowMs() >= request.deadline_ms) {
+        return { decision: 'pass_through' };
+      }
       const receipt = await this.deps.lifecycle.bindConversation({
         project_id: match.project_id,
         expected_revision: catalogs.projects.revision,

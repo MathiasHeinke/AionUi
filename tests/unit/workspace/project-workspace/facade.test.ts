@@ -299,7 +299,8 @@ describe('ProjectWorkspaceFacade (S81 R1b)', () => {
     expect(mismatchReceipt).toMatchObject({ outcome: 'rejected', reason_code: 'stale_snapshot' });
   });
 
-  it('undo maps the latest receipt main-side and returns a path-free receipt', async () => {
+  // fs-heavy (full scaffold provisioning); generous timeout for parallel-suite load.
+  it('undo maps the latest receipt main-side and returns a path-free receipt', { timeout: 60_000 }, async () => {
     const { project } = await createProject(f, 'Undo Projekt');
     const revision = f.registry.readSeatCatalogs(SEAT_ID).projects.revision;
 
@@ -330,6 +331,40 @@ describe('ProjectWorkspaceFacade (S81 R1b)', () => {
 
     expect(receipt).toMatchObject({ outcome: 'rejected', reason_code: 'stale_snapshot' });
     expect(fs.existsSync(path.join(f.rootPath, 'stale-undo-projekt'))).toBe(true);
+  });
+
+  it('undo selects receipts by mtime, not by lexicographic filename order (Fable/Kimi fix)', async () => {
+    const { project } = await createProject(f, 'Undo Mtime Projekt');
+    const revision = f.registry.readSeatCatalogs(SEAT_ID).projects.revision;
+    const receiptsDir = path.join(f.rootPath, 'undo-mtime-projekt', '.command-eve', 'receipts');
+    const original = fs.readdirSync(receiptsDir).find((name) => name.endsWith('.json')) as string;
+    const originalPath = path.join(receiptsDir, original);
+    // Decoy: UUID filename sorts LAST lexicographically, but its mtime is OLDER.
+    const decoyPath = path.join(receiptsDir, 'ffffffff-ffff-4fff-8fff-ffffffffffff.json');
+    const content = JSON.parse(fs.readFileSync(originalPath, 'utf8')) as { transaction_id: string };
+    content.transaction_id = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+    fs.writeFileSync(decoyPath, JSON.stringify(content, null, 2));
+    const now = Date.now();
+    fs.utimesSync(originalPath, new Date(now), new Date(now));
+    fs.utimesSync(decoyPath, new Date(now - 60_000), new Date(now - 60_000));
+
+    const { ProjectWorkspaceService } = await import('@process/services/project-workspace/ProjectWorkspaceService');
+    const undoSpy = vi
+      .spyOn(ProjectWorkspaceService.prototype, 'undo')
+      .mockResolvedValue({ ok: true, status: 'undone' });
+
+    const receipt = await f.facade.undo({
+      project_id: project.project_id,
+      expected_revision: revision,
+      seat_context_revision: SEAT_REVISION,
+      idempotency_key: crypto.randomUUID(),
+    });
+
+    // mtime-based selection picks the original receipt and completes the undo;
+    // lexicographic selection would have hit the journal-less decoy and failed.
+    expect(undoSpy).toHaveBeenCalledWith(originalPath);
+    expect(undoSpy).not.toHaveBeenCalledWith(decoyPath);
+    expect(receipt.outcome).toBe('completed');
   });
 
   it('reveal resolves the trusted path main-side via shell.showItemInFolder', async () => {

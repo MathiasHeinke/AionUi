@@ -129,6 +129,8 @@ export type ProjectWorkspaceExplicitChatIntentRequest = {
   input: string;
   seat_context_revision: number;
   idempotency_key: string;
+  /** Optional renderer wall-clock deadline (ms epoch). Main must not commit a binding after it. */
+  deadline_ms?: number;
 };
 
 export type ProjectWorkspaceExplicitChatIntentResult =

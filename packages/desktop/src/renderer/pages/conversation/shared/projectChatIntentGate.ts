@@ -18,6 +18,7 @@ export async function runProjectChatIntentGate(input: { conversation_id: string;
         input: message,
         seat_context_revision: 0,
         idempotency_key: crypto.randomUUID(),
+        deadline_ms: Date.now() + GATE_TIMEOUT_MS,
       }),
       new Promise<null>((resolve) => setTimeout(() => resolve(null), GATE_TIMEOUT_MS)),
     ]);
