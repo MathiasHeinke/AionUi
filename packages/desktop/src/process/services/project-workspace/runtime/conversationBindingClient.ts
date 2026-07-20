@@ -25,6 +25,16 @@ export type ProjectConversationBindingClient = {
   compareAndSwap: (input: ProjectBindingCasInput) => Promise<ProjectBindingSnapshot>;
 };
 
+export type ProjectConversationMetadataClient = ProjectConversationBindingClient & {
+  readMetadata: (conversationId: string) => Promise<ProjectConversationMetadata>;
+  listMetadata: () => Promise<ProjectConversationMetadata[]>;
+};
+
+export type ProjectConversationMetadata = ProjectBindingSnapshot & {
+  conversation_id: string;
+  name: string;
+};
+
 export class ProjectBindingClientError extends Error {
   readonly code: string;
 
@@ -104,7 +114,7 @@ function unwrapConversation(body: unknown): Record<string, unknown> {
   return candidate as Record<string, unknown>;
 }
 
-async function parseResponse(response: Response): Promise<ProjectBindingSnapshot> {
+async function responseBody(response: Response): Promise<unknown> {
   const raw = await response.text();
   let body: unknown;
   try {
@@ -122,11 +132,59 @@ async function parseResponse(response: Response): Promise<ProjectBindingSnapshot
         : 'PROJECT_BINDING_REQUEST_FAILED';
     throw new ProjectBindingClientError(code);
   }
-  const conversation = unwrapConversation(body);
+  return body;
+}
+
+function snapshotFromConversation(conversation: Record<string, unknown>): ProjectBindingSnapshot {
   return {
     binding: bindingFromExtra(conversation.extra),
     project_binding_revision: revisionFromExtra(conversation.extra),
     project_binding_receipt_id: receiptFromExtra(conversation.extra),
+  };
+}
+
+function metadataFromConversation(conversation: Record<string, unknown>): ProjectConversationMetadata {
+  if (
+    typeof conversation.id !== 'string' ||
+    !/^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$/.test(conversation.id) ||
+    typeof conversation.name !== 'string' ||
+    !conversation.name.trim() ||
+    conversation.name.length > 200
+  ) {
+    throw new ProjectBindingClientError('PROJECT_BINDING_RESPONSE_INVALID');
+  }
+  return {
+    conversation_id: conversation.id,
+    name: conversation.name.trim(),
+    ...snapshotFromConversation(conversation),
+  };
+}
+
+async function parseMetadataResponse(response: Response): Promise<ProjectConversationMetadata> {
+  return metadataFromConversation(unwrapConversation(await responseBody(response)));
+}
+
+async function parseResponse(response: Response): Promise<ProjectBindingSnapshot> {
+  return snapshotFromConversation(unwrapConversation(await responseBody(response)));
+}
+
+async function parseListResponse(response: Response): Promise<{
+  items: ProjectConversationMetadata[];
+  has_more: boolean;
+}> {
+  const body = await responseBody(response);
+  const envelope = body && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>) : null;
+  const candidate = envelope && Object.hasOwn(envelope, 'data') ? envelope.data : envelope;
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+    throw new ProjectBindingClientError('PROJECT_BINDING_RESPONSE_INVALID');
+  }
+  const page = candidate as Record<string, unknown>;
+  if (!Array.isArray(page.items) || typeof page.has_more !== 'boolean') {
+    throw new ProjectBindingClientError('PROJECT_BINDING_RESPONSE_INVALID');
+  }
+  return {
+    items: page.items.map((item) => metadataFromConversation(unwrapConversation(item))),
+    has_more: page.has_more,
   };
 }
 
@@ -164,7 +222,7 @@ function expectation(
 export function createAionCoreProjectBindingClient(input: {
   get_port: () => number;
   fetch_impl?: typeof globalThis.fetch;
-}): ProjectConversationBindingClient {
+}): ProjectConversationMetadataClient {
   const fetchImpl = input.fetch_impl ?? globalThis.fetch.bind(globalThis);
   const url = (conversationId: string): string => {
     const port = input.get_port();
@@ -172,6 +230,15 @@ export function createAionCoreProjectBindingClient(input: {
       throw new ProjectBindingClientError('PROJECT_RUNTIME_BACKEND_UNAVAILABLE');
     }
     return `http://127.0.0.1:${port}/api/conversations/${encodeURIComponent(assertConversationId(conversationId))}`;
+  };
+  const listUrl = (cursor?: string): string => {
+    const port = input.get_port();
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      throw new ProjectBindingClientError('PROJECT_RUNTIME_BACKEND_UNAVAILABLE');
+    }
+    const query = new URLSearchParams({ limit: '200' });
+    if (cursor) query.set('cursor', assertConversationId(cursor));
+    return `http://127.0.0.1:${port}/api/conversations?${query.toString()}`;
   };
   return {
     read: async (conversationId) =>
@@ -223,6 +290,31 @@ export function createAionCoreProjectBindingClient(input: {
         throw new ProjectBindingClientError('PROJECT_BINDING_RESPONSE_MISMATCH');
       }
       return snapshot;
+    },
+    readMetadata: async (conversationId) => {
+      const expected = assertConversationId(conversationId);
+      const metadata = await parseMetadataResponse(
+        await fetchImpl(url(expected), { method: 'GET', redirect: 'error' })
+      );
+      if (metadata.conversation_id !== expected) {
+        throw new ProjectBindingClientError('PROJECT_BINDING_RESPONSE_MISMATCH');
+      }
+      return metadata;
+    },
+    listMetadata: async () => {
+      const all: ProjectConversationMetadata[] = [];
+      let cursor: string | undefined;
+      for (let pageIndex = 0; pageIndex < 100; pageIndex += 1) {
+        const page = await parseListResponse(await fetchImpl(listUrl(cursor), { method: 'GET', redirect: 'error' }));
+        all.push(...page.items);
+        if (!page.has_more) return all;
+        const nextCursor = page.items.at(-1)?.conversation_id;
+        if (!nextCursor || nextCursor === cursor) {
+          throw new ProjectBindingClientError('PROJECT_BINDING_RESPONSE_INVALID');
+        }
+        cursor = nextCursor;
+      }
+      throw new ProjectBindingClientError('PROJECT_BINDING_RESPONSE_INVALID');
     },
   };
 }

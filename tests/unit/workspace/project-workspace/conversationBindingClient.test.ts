@@ -16,6 +16,60 @@ const RECEIPT_A = '55555555-5555-4555-8555-555555555555';
 const OPERATION = '66666666-6666-4666-8666-666666666666';
 
 describe('AionCore project conversation binding CAS client', () => {
+  it('reads bounded conversation metadata and paginates binding summaries without exposing raw extra', async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: { id: 'conversation-a', name: ' Launch ', extra: { ...A, private_path: '/Users/private' } },
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: { items: [{ id: 'conversation-a', name: 'Launch', extra: A }], total: 2, has_more: true },
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: { items: [{ id: 'conversation-b', name: 'Other', extra: {} }], total: 2, has_more: false },
+          }),
+          { status: 200 }
+        )
+      );
+    const client = createAionCoreProjectBindingClient({ get_port: () => 43123, fetch_impl: fetchImpl });
+    await expect(client.readMetadata('conversation-a')).resolves.toEqual({
+      conversation_id: 'conversation-a',
+      name: 'Launch',
+      binding: A,
+      project_binding_revision: 0,
+      project_binding_receipt_id: null,
+    });
+    await expect(client.listMetadata()).resolves.toEqual([
+      {
+        conversation_id: 'conversation-a',
+        name: 'Launch',
+        binding: A,
+        project_binding_revision: 0,
+        project_binding_receipt_id: null,
+      },
+      {
+        conversation_id: 'conversation-b',
+        name: 'Other',
+        binding: null,
+        project_binding_revision: 0,
+        project_binding_receipt_id: null,
+      },
+    ]);
+    expect(String(fetchImpl.mock.calls[2][0])).toContain('cursor=conversation-a');
+  });
+
   it('reads the portable pair and sends an exact expected-pair CAS without any path', async () => {
     const fetchImpl = vi
       .fn<typeof fetch>()

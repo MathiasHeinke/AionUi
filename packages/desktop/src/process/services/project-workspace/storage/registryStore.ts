@@ -587,6 +587,86 @@ export class ProjectWorkspaceRegistryStore {
     });
   }
 
+  /**
+   * Coarse, active-seat project-catalog CAS used by the 1.817 lifecycle UI.
+   * Project identity and physical placement are immutable here; root migration
+   * remains a separate HG-3 operation.
+   */
+  replaceProjectIfRevision(input: {
+    seat_id: string;
+    expected_revision: number;
+    expected_record: ProjectCatalogRecord;
+    next_record: ProjectCatalogRecord;
+  }): { record: ProjectCatalogRecord; revision: number; updated_at: string } {
+    const seatId = parseSeatId(input.seat_id);
+    if (
+      !Number.isSafeInteger(input.expected_revision) ||
+      input.expected_revision < 0 ||
+      input.expected_record.seat_id !== seatId ||
+      input.next_record.seat_id !== seatId ||
+      input.expected_record.project_id !== input.next_record.project_id
+    ) {
+      throw new ProjectWorkspaceError('catalog.revision-conflict', 'project catalog');
+    }
+    const immutableIdentityMatches =
+      input.expected_record.realm_id === input.next_record.realm_id &&
+      input.expected_record.root_id === input.next_record.root_id &&
+      input.expected_record.workspace_root_ref === input.next_record.workspace_root_ref &&
+      input.expected_record.slug === input.next_record.slug &&
+      input.expected_record.manifest_relative_path === input.next_record.manifest_relative_path &&
+      input.expected_record.canonical_project_path === input.next_record.canonical_project_path &&
+      input.expected_record.comparison_key === input.next_record.comparison_key &&
+      input.expected_record.registered_at === input.next_record.registered_at;
+    if (!immutableIdentityMatches) throw new ProjectWorkspaceError('root.migration-required');
+
+    const paths = this.pathsForSeat(seatId);
+    return withExclusiveFileLock(`${paths.project_catalog}.lock`, () => {
+      const catalog = this.readProjectCatalog(paths.project_catalog, seatId);
+      if (catalog.revision !== input.expected_revision) {
+        throw new ProjectWorkspaceError('catalog.revision-conflict', 'project catalog');
+      }
+      const existing = catalog.projects.find((record) => record.project_id === input.expected_record.project_id);
+      if (!existing || !exactProjectRecord(existing, input.expected_record)) {
+        throw new ProjectWorkspaceError('catalog.project-conflict', input.expected_record.project_id);
+      }
+      const next = {
+        ...catalog,
+        revision: catalog.revision + 1,
+        projects: catalog.projects.map((record) =>
+          record.project_id === input.next_record.project_id ? input.next_record : record
+        ),
+        updated_at: this.timestamp(),
+      } satisfies ProjectCatalogV1;
+      const validated = parseProjectCatalog(next);
+      if (validated.ok === false) throw new ProjectWorkspaceError(validated.reason_code, 'project catalog');
+      writeJsonAtomic(paths.project_catalog, validated.value);
+      return {
+        record: input.next_record,
+        revision: validated.value.revision,
+        updated_at: validated.value.updated_at,
+      };
+    });
+  }
+
+  touchProjectIfRevision(input: { seat_id: string; project_id: string; expected_revision: number }): {
+    record: ProjectCatalogRecord;
+    revision: number;
+    updated_at: string;
+  } {
+    const catalogs = this.readSeatCatalogs(input.seat_id);
+    if (catalogs.projects.revision !== input.expected_revision) {
+      throw new ProjectWorkspaceError('catalog.revision-conflict', 'project catalog');
+    }
+    const current = catalogs.projects.projects.find((record) => record.project_id === input.project_id);
+    if (!current) throw new ProjectWorkspaceError('catalog.project-conflict', input.project_id);
+    return this.replaceProjectIfRevision({
+      seat_id: input.seat_id,
+      expected_revision: input.expected_revision,
+      expected_record: current,
+      next_record: current,
+    });
+  }
+
   removeProject(seatIdValue: string, projectId: string): boolean {
     const seatId = parseSeatId(seatIdValue);
     const paths = this.pathsForSeat(seatId);

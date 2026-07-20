@@ -91,6 +91,36 @@ describe('project workspace registries', () => {
     expect(store.readSeatCatalogs('seat-beta').realms.realms).toHaveLength(0);
   });
 
+  it('updates only mutable project metadata through an exact catalog-revision CAS', () => {
+    const record = seedProject();
+    const updated = store.replaceProjectIfRevision({
+      seat_id: 'seat-alpha',
+      expected_revision: 1,
+      expected_record: record,
+      next_record: { ...record, title: 'Alpha Renamed', status: 'archived' },
+    });
+    expect(updated).toMatchObject({ revision: 2, record: { title: 'Alpha Renamed', status: 'archived' } });
+    expect(() =>
+      store.replaceProjectIfRevision({
+        seat_id: 'seat-alpha',
+        expected_revision: 1,
+        expected_record: record,
+        next_record: { ...record, title: 'Stale' },
+      })
+    ).toThrow(/catalog\.revision-conflict/);
+  });
+
+  it('touches a binding mutation without changing physical project identity', () => {
+    const record = seedProject();
+    const touched = store.touchProjectIfRevision({
+      seat_id: 'seat-alpha',
+      project_id: record.project_id,
+      expected_revision: 1,
+    });
+    expect(touched.revision).toBe(2);
+    expect(touched.record).toEqual(record);
+  });
+
   it('preserves realm and root identity across display renames', () => {
     store.initializeSeat('seat-alpha');
     store.upsertRealm({

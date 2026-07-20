@@ -1,4 +1,5 @@
 export * from './ProjectWorkspaceService';
+export * from './ProjectWorkspaceLifecycleService';
 export * from './runtime';
 export * from './semantic';
 export * from './core';
