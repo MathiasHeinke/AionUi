@@ -54,6 +54,7 @@ const EXPECTED_PROVIDER_CHANNELS = [
   'project-workspace.undo',
   'project-workspace.bindConversation',
   'project-workspace.unbindConversation',
+  'project-workspace.chat-intent',
 ] as const;
 
 describe('initProjectWorkspaceServiceBridge (S81 R1c)', () => {
@@ -88,7 +89,7 @@ describe('initProjectWorkspaceServiceBridge (S81 R1c)', () => {
     mocks.emitters.length = 0;
   });
 
-  it('registers all 14 providers under the exact channel names plus the artifact emitter', async () => {
+  it('registers all 15 providers under the exact channel names plus the artifact emitter', async () => {
     const { initProjectWorkspaceServiceBridge } = await import('@process/bridge/projectWorkspaceServiceBridge');
     initProjectWorkspaceServiceBridge();
 

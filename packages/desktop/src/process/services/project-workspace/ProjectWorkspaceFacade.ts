@@ -10,6 +10,8 @@ import type {
   ProjectSummaryDTO,
   ProjectWorkspaceAction,
   ProjectWorkspaceConversationArtifactDTO,
+  ProjectWorkspaceExplicitChatIntentRequest,
+  ProjectWorkspaceExplicitChatIntentResult,
   ProjectWorkspaceListDTO,
   ProjectWorkspacePreviewDTO,
   ProjectWorkspaceReceiptDTO,
@@ -20,7 +22,7 @@ import type {
 } from '@/common/types/project-workspace/ui';
 import type { ProjectWorkspaceLifecycleService } from './ProjectWorkspaceLifecycleService';
 import type { ProjectCreateResult, ProjectWorkspaceService } from './ProjectWorkspaceService';
-import { resolveProjectIntent } from './core/intentCore';
+import { matchConversationCandidates, resolveProjectIntent } from './core/intentCore';
 import { mapProjectWorkspaceReason } from './core/lifecycleReasonCore';
 import type { ProjectConversationMetadataClient } from './runtime/conversationBindingClient';
 import type { ProjectWorkspaceConversationArtifactStore } from './storage/conversationArtifactStore';
@@ -82,6 +84,8 @@ export type ProjectWorkspaceFacadeDeps = {
   get_active_seat_id: () => string;
   get_active_seat_label: () => string;
   get_active_seat_context_revision: () => number;
+  /** Optional seat-switch guard for the fail-open chat intent gate (S81/R3). */
+  is_seat_switch_in_flight?: () => boolean;
   now_ms?: () => number;
   preview_ttl_ms?: number;
   /** Injectable for tests; defaults to electron shell.showItemInFolder. */
@@ -541,6 +545,112 @@ export class ProjectWorkspaceFacade {
       if (entry.conversation_id === artifact.conversation_id) entry.listener(artifact);
     }
   };
+
+  /**
+   * S81/R3 — chat intent gate. Scores an outgoing chat message against the
+   * seat's existing projects: 0 matches → pass through, 1 → bind via the
+   * lifecycle service, >1 → clarify. FAIL-OPEN by contract: any error
+   * (seat switch, stale revision, binding failure, store failure) resolves to
+   * `pass_through` so sending is never blocked. Auto-create stays
+   * release-locked — this gate only ever binds EXISTING projects.
+   */
+  async chatIntent(
+    request: ProjectWorkspaceExplicitChatIntentRequest
+  ): Promise<ProjectWorkspaceExplicitChatIntentResult> {
+    try {
+      if (this.deps.is_seat_switch_in_flight?.()) return { decision: 'pass_through' };
+      const currentRevision = this.deps.get_active_seat_context_revision();
+      if (request.seat_context_revision !== 0 && request.seat_context_revision !== currentRevision) {
+        return { decision: 'pass_through' }; // stale renderer view: never bind
+      }
+      const seatId = this.deps.get_active_seat_id();
+      const catalogs = this.deps.registry.readSeatCatalogs(seatId);
+      const candidates = catalogs.projects.projects.map((record) => ({
+        project_id: record.project_id,
+        seat_id: record.seat_id,
+        realm_id: record.realm_id,
+        root_id: record.root_id,
+        workspace_root_ref: record.workspace_root_ref,
+        title: record.title,
+        slug: record.slug,
+        status: record.status,
+      }));
+      const matches = matchConversationCandidates(request.input, candidates);
+      if (matches.length === 0) return { decision: 'pass_through' };
+      if (matches.length > 1) {
+        const titles = matches.map((match) => match.title);
+        const question = `Meinst du eines dieser Projekte: ${titles.map((title) => `"${title}"`).join(' oder ')}? Sag kurz, welches gemeint ist.`;
+        const artifactId = crypto.randomUUID();
+        const preview = {
+          artifact_id: artifactId,
+          state: 'preview' as const,
+          intent_summary: 'Mehrdeutige Projekt-Zuordnung',
+          target_label: titles.join(' / '),
+          project_title: titles.join(' / '),
+          delta_summary: titles,
+          question,
+          safe_follow_ups: [] as ProjectWorkspaceAction[],
+        };
+        this.deps.artifact_store.create({
+          seat_id: seatId,
+          conversation_id: request.conversation_id,
+          artifact_id: artifactId,
+          payload: preview,
+        });
+        this.deps.artifact_store.transition({
+          seat_id: seatId,
+          conversation_id: request.conversation_id,
+          artifact_id: artifactId,
+          expected_state: 'preview',
+          payload: { ...preview, state: 'awaiting_confirmation' as const },
+        });
+        return { decision: 'needs_clarification', question };
+      }
+      const match = matches[0];
+      const receipt = await this.deps.lifecycle.bindConversation({
+        project_id: match.project_id,
+        expected_revision: catalogs.projects.revision,
+        seat_context_revision: currentRevision,
+        idempotency_key: request.idempotency_key,
+        conversation_id: request.conversation_id,
+      });
+      const artifactId = crypto.randomUUID();
+      const preview = {
+        artifact_id: artifactId,
+        state: 'preview' as const,
+        project_id: match.project_id,
+        intent_summary: `Unterhaltung dem Projekt "${match.title}" zugeordnet`,
+        target_label: match.title,
+        project_title: match.title,
+        delta_summary: [`bind -> ${match.slug}`],
+        safe_follow_ups: ['reveal', 'edit'] as ProjectWorkspaceAction[],
+      };
+      this.deps.artifact_store.create({
+        seat_id: seatId,
+        conversation_id: request.conversation_id,
+        artifact_id: artifactId,
+        payload: preview,
+      });
+      this.deps.artifact_store.transition({
+        seat_id: seatId,
+        conversation_id: request.conversation_id,
+        artifact_id: artifactId,
+        expected_state: 'preview',
+        payload: {
+          ...preview,
+          state: 'completed' as const,
+          receipt: {
+            receipt_id: receipt.receipt_id,
+            outcome: receipt.outcome,
+            completed_at: receipt.completed_at,
+          },
+        },
+      });
+      return { decision: 'handled', artifact_id: artifactId };
+    } catch {
+      return { decision: 'pass_through' }; // intent errors never block sending
+    }
+  }
 }
 
 export function createProjectWorkspaceFacade(deps: ProjectWorkspaceFacadeDeps): ProjectWorkspaceFacade {

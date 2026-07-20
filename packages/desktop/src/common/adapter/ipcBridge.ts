@@ -36,6 +36,8 @@ import type {
 import type { PreviewHistoryTarget, PreviewSnapshotInfo } from '../types/office/preview';
 import type {
   ProjectWorkspaceConversationArtifactDTO,
+  ProjectWorkspaceExplicitChatIntentRequest,
+  ProjectWorkspaceExplicitChatIntentResult,
   ProjectWorkspaceListDTO,
   ProjectWorkspacePreviewDTO,
   ProjectWorkspaceReceiptDTO,
@@ -253,6 +255,9 @@ export const projectWorkspace = {
   >('project-workspace.unbindConversation'),
   artifactChanged: bridge.buildEmitter<{ conversation_id: string; artifact: ProjectWorkspaceConversationArtifactDTO }>(
     'project-workspace.artifact-changed'
+  ),
+  chatIntent: bridge.buildProvider<ProjectWorkspaceExplicitChatIntentResult, ProjectWorkspaceExplicitChatIntentRequest>(
+    'project-workspace.chat-intent'
   ),
 };
 

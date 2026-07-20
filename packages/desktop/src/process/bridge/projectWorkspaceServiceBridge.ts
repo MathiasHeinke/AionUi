@@ -2,6 +2,8 @@ import path from 'node:path';
 import { bridge } from '@office-ai/platform';
 import type {
   ProjectWorkspaceConversationArtifactDTO,
+  ProjectWorkspaceExplicitChatIntentRequest,
+  ProjectWorkspaceExplicitChatIntentResult,
   ProjectWorkspaceListDTO,
   ProjectWorkspacePreviewDTO,
   ProjectWorkspaceReceiptDTO,
@@ -87,6 +89,7 @@ export function initProjectWorkspaceServiceBridge(): void {
     get_active_seat_id: getActiveSeatId,
     get_active_seat_label: getActiveSeatLabel,
     get_active_seat_context_revision: getActiveSeatContextRevision,
+    is_seat_switch_in_flight: isCommandEveSeatSwitchInFlight,
   });
   facadeRef = facade;
 
@@ -147,6 +150,11 @@ export function initProjectWorkspaceServiceBridge(): void {
       'project-workspace.unbindConversation'
     )
     .provider((input) => facade.unbindConversation(input));
+  bridge
+    .buildProvider<ProjectWorkspaceExplicitChatIntentResult, ProjectWorkspaceExplicitChatIntentRequest>(
+      'project-workspace.chat-intent'
+    )
+    .provider(async (input) => facade.chatIntent(input));
 
   // S81/R2 — boot-time recovery of interrupted workspace transactions.
   // Deliberately fire-and-forget: recovery NEVER blocks the boot path, and a
