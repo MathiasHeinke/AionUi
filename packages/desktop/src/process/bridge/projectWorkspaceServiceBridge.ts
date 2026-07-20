@@ -103,7 +103,14 @@ function backendPort(): number {
   return typeof value === 'number' ? value : 0;
 }
 
+// Fable #6 / Grok #13: repeated init (HMR, double import) must not duplicate
+// singletons, provider registrations, the emitter, or boot recovery.
+let initialized = false;
+
 export function initProjectWorkspaceServiceBridge(): void {
+  if (initialized) return;
+  initialized = true;
+
   const state_root = path.join(getDataPath(), 'project-workspace');
   const registry = new ProjectWorkspaceRegistryStore({ state_root });
   const operations = new ProjectLifecycleOperationStore(state_root);
