@@ -15,6 +15,7 @@ import type {
   ProjectBindingCasInput,
   ProjectConversationBindingClient,
 } from '@/process/services/project-workspace/runtime/conversationBindingClient';
+import { ProjectBindingClientError } from '@/process/services/project-workspace/runtime/conversationBindingClient';
 import {
   createProjectSemanticCoordinator,
   createProjectSemanticOperationSerializer,
@@ -306,6 +307,28 @@ describe('project semantic coordinator', () => {
     expect(bindingRevision).toBe(9);
     expect(bindingReceipt).toBe('77777777-7777-4777-8777-777777777777');
     expect(casCalls).toEqual([]);
+  });
+
+  it('skips the binding write on NOT_FOUND and keeps the sidecar parseable (UI-create path)', async () => {
+    bindingClient = {
+      read: async () => {
+        throw new ProjectBindingClientError('NOT_FOUND');
+      },
+      compareAndSwap: async () => {
+        throw new ProjectBindingClientError('NOT_FOUND');
+      },
+    };
+    const setup = await prepared();
+    await setup.current.stage(setup.stage);
+    await expect(setup.current.commit(setup.lifecycle)).resolves.toBeUndefined();
+
+    const skipSidecarFile = path.join(stateRoot, 'semantic-sidecars', `${IDS.transaction}.json`);
+    const effect = JSON.parse(fs.readFileSync(skipSidecarFile, 'utf8')).effects.conversation_binding;
+    // Applied AND owned (revisions differ), otherwise parseSidecar wedges the
+    // transaction into a permanent semantic.bundle-mismatch (live proof).
+    expect(effect).toMatchObject({ status: 'applied', owned: true });
+    // Re-running commit must stay valid (idempotent, no wedge).
+    await expect(setup.current.commit(setup.lifecycle)).resolves.toBeUndefined();
   });
 
   it('recovers response loss after an accepted binding CAS and rolls back idempotently', async () => {

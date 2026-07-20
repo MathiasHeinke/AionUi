@@ -774,6 +774,12 @@ export function createProjectSemanticCoordinator(
             // must still commit. Live dev-app proof caught this 404 rolling
             // back fully promoted projects.
             if (error instanceof ProjectBindingClientError && error.code === 'NOT_FOUND') {
+              // The desired end state (no binding anywhere, project committed)
+              // IS achieved, so the effect is owned exactly like a written CAS.
+              // parseSidecar enforces owned === (applied && revisions differ);
+              // leaving owned=false here wedges the transaction into a
+              // permanently invalid sidecar (live dev-app proof).
+              owned = pairChanges;
               options.on_phase?.('conversation-binding:skipped-not-found');
             } else {
               throw error;
