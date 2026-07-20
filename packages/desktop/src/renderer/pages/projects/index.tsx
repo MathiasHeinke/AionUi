@@ -17,10 +17,8 @@ import { useTranslation } from 'react-i18next';
 import {
   createIdempotencyKey,
   ProjectWorkspaceClientError,
-  ProjectWorkspaceClientProvider,
   useProjectWorkspaceClient,
 } from './client';
-import { rawProjectWorkspaceClient } from './rawClient';
 import AdoptProjectDialog from './components/AdoptProjectDialog';
 import CreateProjectDialog from './components/CreateProjectDialog';
 import EditProjectDialog from './components/EditProjectDialog';
@@ -370,10 +368,7 @@ const ProjectsPage: React.FC = () => {
   );
 };
 
-const ProjectsPageWithClient: React.FC = () => (
-  <ProjectWorkspaceClientProvider client={rawProjectWorkspaceClient}>
-    <ProjectsPage />
-  </ProjectWorkspaceClientProvider>
-);
-
-export default ProjectsPageWithClient;
+// NOTE: the project workspace client is provided globally at the protected
+// layout level (Router.tsx). Tests mount their own provider around this page,
+// so the default export must stay the plain component (no nested self-wrap).
+export default ProjectsPage;
