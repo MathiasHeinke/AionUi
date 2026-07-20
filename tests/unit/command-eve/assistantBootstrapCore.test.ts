@@ -179,6 +179,15 @@ describe('Command EVE assistant bootstrap core', () => {
     // The internal Chief-of-Staff skill (content-machine / Codex CLI) lives only in the founder build.
     expect(COMMAND_EVE_ASSISTANT_SKILL_FOUNDER_DE).toContain('Codex CLI');
     expect(COMMAND_EVE_ASSISTANT_SKILL_FOUNDER_EN).toContain('Claude Code CLI');
+    for (const surface of [
+      COMMAND_EVE_ASSISTANT_SKILL_DE,
+      COMMAND_EVE_ASSISTANT_SKILL_EN,
+      COMMAND_EVE_ASSISTANT_SKILL_FOUNDER_DE,
+      COMMAND_EVE_ASSISTANT_SKILL_FOUNDER_EN,
+    ]) {
+      expect(surface).toContain('premium-website-builder');
+      expect(surface).toMatch(/public (?:deploy|deployment)|Public Deploy/);
+    }
     expect(buildCommandEveAssistantSkill('de-DE', undefined, false)).toBe(COMMAND_EVE_ASSISTANT_SKILL_DE);
     expect(buildCommandEveAssistantSkill('en-US', undefined, true)).toContain('Claude Code CLI');
   });

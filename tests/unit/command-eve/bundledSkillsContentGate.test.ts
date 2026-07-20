@@ -118,4 +118,28 @@ describe('bundled-skills build content gate', () => {
       ])
     );
   });
+
+  it('ships the complete premium website builder with local-first media and deploy gates', () => {
+    const root = path.resolve(__dirname, '../../../resources/bundled-skills/premium-website-builder');
+    const files = fs
+      .readdirSync(root, { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .map((entry) => path.relative(root, path.join(entry.parentPath, entry.name)))
+      .toSorted();
+    const skill = fs.readFileSync(path.join(root, 'SKILL.md'), 'utf8');
+
+    expect(files).toEqual([
+      'SKILL.md',
+      'agents/openai.yaml',
+      'references/art-direction.md',
+      'references/poster-first-lazy-video.md',
+      'references/quality-gates.md',
+      'references/responsive-interaction.md',
+    ]);
+    expect(findSkillHygieneFailures({ skillId: 'premium-website-builder', text: skill })).toEqual([]);
+    expect(findForbiddenSkillContent(skill)).toEqual([]);
+    expect(skill).toMatch(/poster[- ]first/i);
+    expect(skill).toMatch(/public deploy[\s\S]*explicit/i);
+    expect(skill).toMatch(/BLOCKED_CAPABILITY/);
+  });
 });

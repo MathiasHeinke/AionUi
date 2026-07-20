@@ -64,6 +64,13 @@
       "default_state": "active"
     },
     {
+      "id": "premium-website-builder",
+      "name": "Premium Website Builder",
+      "tier": "department",
+      "source": "Company.OS premium website production skill",
+      "default_state": "active"
+    },
+    {
       "id": "content-machine",
       "name": "Content Machine",
       "tier": "department",

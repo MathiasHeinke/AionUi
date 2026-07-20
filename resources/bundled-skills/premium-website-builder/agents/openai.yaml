@@ -1,0 +1,4 @@
+interface:
+  display_name: 'Premium Website Builder'
+  short_description: 'Build distinctive, fast, cinematic websites'
+  default_prompt: '$premium-website-builder: turn this idea or visual reference into a distinctive, responsive, performance-safe website and verify it in a real browser.'

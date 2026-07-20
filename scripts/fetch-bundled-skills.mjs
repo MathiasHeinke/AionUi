@@ -68,6 +68,10 @@ export const EVE_STRATEGY_SKILLS = Object.freeze([
   { id: 'hiring' },
   { id: 'option-tournament' },
   { id: 'landing-copy' },
+  // premium-website-builder: end-to-end local website production with a
+  // locked visual thesis, poster-first media, responsive QA and an explicit
+  // Human Gate before any public deploy.
+  { id: 'premium-website-builder' },
   { id: 'human-design-profile' },
   { id: 'marketing-outbound', bundle: true },
   // blog-writer: a REAL executable long-form/blog skill (replaces the fake "blog-department"

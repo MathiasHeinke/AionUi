@@ -305,7 +305,7 @@ describe('Command EVE runtime bootstrap core', () => {
     expect(publicBrand.version).toBe(`v${COMMAND_EVE_MARKETING_VERSION}`);
     expect(publicRuntimeBootstrap.release).toBe(packageJson.version);
     expect(publicCapabilityPack.release).toBe(packageJson.version);
-    for (const id of ['autor-studio', 'essay-writer', 'book-publishing']) {
+    for (const id of ['autor-studio', 'essay-writer', 'book-publishing', 'premium-website-builder']) {
       expect(publicCapabilityPack.skills.find((skill) => skill.id === id)?.default_state).toBe('active');
     }
   });
@@ -1970,13 +1970,20 @@ const buildBundledSkillsFixture = (root: string, opts: { omit?: string[] } = {})
         fs.writeFileSync(path.join(skillDir, 'references', '01_concept_and_positioning.md'), '# Positioning\n');
         fs.writeFileSync(path.join(skillDir, 'references', 'templates', 'build_ebook.sh'), '#!/bin/sh\n');
       }
+      if (id === 'premium-website-builder') {
+        fs.mkdirSync(path.join(skillDir, 'references'), { recursive: true });
+        fs.writeFileSync(
+          path.join(skillDir, 'references', 'poster-first-lazy-video.md'),
+          '# Poster-first lazy video\n'
+        );
+      }
     }
   }
   return dir;
 };
 
 describe('Command EVE bundled strategy skills (SLICE B2)', () => {
-  it('copies all 35 real strategy skills and nested book-production assets into managedSkillsRoot', () => {
+  it('copies all 36 real strategy skills plus nested author and website assets into managedSkillsRoot', () => {
     const root = makeRoot();
     const bundledSkillsDir = buildBundledSkillsFixture(root);
     const paths = resolveCommandEveRuntimeBootstrapPaths(root);
@@ -2010,6 +2017,11 @@ describe('Command EVE bundled strategy skills (SLICE B2)', () => {
     ).toBe(true);
     expect(
       fs.existsSync(path.join(paths.managedSkillsRoot, 'book-publishing', 'references', 'templates', 'build_ebook.sh'))
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(paths.managedSkillsRoot, 'premium-website-builder', 'references', 'poster-first-lazy-video.md')
+      )
     ).toBe(true);
   });
 
