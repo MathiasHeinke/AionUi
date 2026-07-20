@@ -116,11 +116,7 @@ function realmKind(label: string): ProjectWorkspaceRealmKind {
     .replace(/\p{Mark}/gu, '')
     .toLocaleLowerCase('en-US');
   if (folded.includes('privat') || folded.includes('personal')) return 'private';
-  if (
-    folded.includes('geschaft') ||
-    folded.includes('business') ||
-    folded.includes('work')
-  ) {
+  if (folded.includes('geschaft') || folded.includes('business') || folded.includes('work')) {
     return 'business';
   }
   return 'custom';

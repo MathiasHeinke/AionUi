@@ -233,8 +233,9 @@ describe('ProjectWorkspaceFacade (S81 R1b)', () => {
 
   it('list stays usable when metadata enrichment fails (capability/backend outage)', async () => {
     const { project } = await createProject(f, 'Resilient Projekt');
-    const bindingClient = (f.facade as unknown as { deps: { binding_client: { listMetadata: () => Promise<unknown> } } })
-      .deps.binding_client;
+    const bindingClient = (
+      f.facade as unknown as { deps: { binding_client: { listMetadata: () => Promise<unknown> } } }
+    ).deps.binding_client;
     const metadataSpy = vi.spyOn(bindingClient, 'listMetadata').mockRejectedValue(new Error('backend down'));
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 
