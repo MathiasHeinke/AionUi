@@ -109,7 +109,12 @@ describe('initProjectWorkspaceServiceBridge (S81 R1c)', () => {
     expect(dto.seat_context_revision).toBe(0);
     expect(dto.seat_label).toBe('Founder');
     expect(dto.automatic_creation_enabled).toBe(false);
-    expect(dto.placements).toEqual([]);
+    // The bridge init bootstraps the seat: default realms/roots are seeded
+    // (Privat/Geschäftlich), so placements are offerable on first list.
+    expect(dto.placements).toEqual([
+      expect.objectContaining({ realm_kind: 'private', realm_label: 'Privat', writable: true }),
+      expect.objectContaining({ realm_kind: 'business', realm_label: 'Geschäftlich', writable: true }),
+    ]);
     expect(dto.projects).toEqual([]);
   });
 

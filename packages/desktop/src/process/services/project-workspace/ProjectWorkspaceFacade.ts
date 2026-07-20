@@ -25,6 +25,7 @@ import type { ProjectCreateResult, ProjectWorkspaceService } from './ProjectWork
 import { matchConversationCandidates, resolveProjectIntent } from './core/intentCore';
 import { mapProjectWorkspaceReason } from './core/lifecycleReasonCore';
 import type { ProjectConversationMetadataClient } from './runtime/conversationBindingClient';
+import { ensureProjectWorkspaceSeatBootstrap } from './seatBootstrap';
 import type { ProjectWorkspaceConversationArtifactStore } from './storage/conversationArtifactStore';
 import type { ProjectWorkspaceRegistryStore } from './storage/registryStore';
 import { PROJECT_SCAFFOLD_DIRECTORIES } from './templates/scaffold';
@@ -108,11 +109,15 @@ function deterministicUuid(seed: string): string {
  * 'custom'. This is display-only — it never influences paths or authorization.
  */
 function realmKind(label: string): ProjectWorkspaceRealmKind {
-  const folded = label.normalize('NFKD').toLocaleLowerCase('en-US');
+  // NFKD + strip combining marks so 'Geschäftlich' folds to 'geschaeftlich'
+  // (same normalization family as the intent core's word matcher).
+  const folded = label
+    .normalize('NFKD')
+    .replace(/\p{Mark}/gu, '')
+    .toLocaleLowerCase('en-US');
   if (folded.includes('privat') || folded.includes('personal')) return 'private';
   if (
-    folded.includes('geschaeft') ||
-    folded.includes('geschäft') ||
+    folded.includes('geschaft') ||
     folded.includes('business') ||
     folded.includes('work')
   ) {
@@ -315,6 +320,16 @@ export class ProjectWorkspaceFacade {
 
   async list(): Promise<ProjectWorkspaceListDTO> {
     const seatId = this.deps.get_active_seat_id();
+    // Lazy seat bootstrap (same idempotent seed as the bridge init): a seat
+    // restored or switched to after boot still gets its default realms/roots
+    // on first list, so placements are always offerable.
+    if (this.deps.registry.readSeatCatalogs(seatId).realms.realms.length === 0) {
+      ensureProjectWorkspaceSeatBootstrap({
+        registry: this.deps.registry,
+        seat_id: seatId,
+        data_path: path.dirname(this.deps.registry.stateRoot),
+      });
+    }
     const catalogs = this.deps.registry.readSeatCatalogs(seatId);
     const conversationCountByProject = new Map<string, number>();
     for (const metadata of await this.deps.binding_client.listMetadata()) {

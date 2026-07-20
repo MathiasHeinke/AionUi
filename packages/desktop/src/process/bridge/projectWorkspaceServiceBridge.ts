@@ -28,6 +28,7 @@ import { ProjectWorkspaceService } from '@process/services/project-workspace/Pro
 import { createAionCoreProjectBindingClient } from '@process/services/project-workspace/runtime/conversationBindingClient';
 import { ProjectWorkspaceConversationArtifactStore } from '@process/services/project-workspace/storage/conversationArtifactStore';
 import { ProjectWorkspaceRegistryStore } from '@process/services/project-workspace/storage/registryStore';
+import { ensureProjectWorkspaceSeatBootstrap } from '@process/services/project-workspace/seatBootstrap';
 import { ProjectLifecycleOperationStore } from '@process/services/project-workspace/transaction/lifecycleOperationStore';
 import { getDataPath } from '@process/utils/utils';
 
@@ -113,6 +114,10 @@ export function initProjectWorkspaceServiceBridge(): void {
 
   const state_root = path.join(getDataPath(), 'project-workspace');
   const registry = new ProjectWorkspaceRegistryStore({ state_root });
+  // Seed the default realms/roots for the boot seat (live-gap fix): without
+  // placements the projects UI cannot create anything. Idempotent no-op when
+  // the seat is already bootstrapped.
+  ensureProjectWorkspaceSeatBootstrap({ registry, seat_id: getActiveSeatId(), data_path: getDataPath() });
   const operations = new ProjectLifecycleOperationStore(state_root);
   const getPort = (): number => backendPort();
   const binding_client = createAionCoreProjectBindingClient({ get_port: getPort });
