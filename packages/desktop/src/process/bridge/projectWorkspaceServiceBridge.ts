@@ -147,4 +147,17 @@ export function initProjectWorkspaceServiceBridge(): void {
       'project-workspace.unbindConversation'
     )
     .provider((input) => facade.unbindConversation(input));
+
+  // S81/R2 — boot-time recovery of interrupted workspace transactions.
+  // Deliberately fire-and-forget: recovery NEVER blocks the boot path, and a
+  // failure is logged, not thrown.
+  void service
+    .recoverAll()
+    .then((results) => {
+      const recovered = results.filter((result) => result.ok).length;
+      if (results.length > 0) {
+        console.log(`[ProjectWorkspace] boot recovery: ${recovered}/${results.length} reconciled`);
+      }
+    })
+    .catch((error: unknown) => console.error('[ProjectWorkspace] boot recovery failed (non-blocking)', error));
 }

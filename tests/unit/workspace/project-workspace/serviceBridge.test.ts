@@ -110,4 +110,35 @@ describe('initProjectWorkspaceServiceBridge (S81 R1c)', () => {
     expect(dto.placements).toEqual([]);
     expect(dto.projects).toEqual([]);
   });
+
+  it('runs boot recovery exactly once per init (S81 R2)', async () => {
+    const { ProjectWorkspaceService } = await import('@process/services/project-workspace/ProjectWorkspaceService');
+    const recoverAll = vi.spyOn(ProjectWorkspaceService.prototype, 'recoverAll');
+    const { initProjectWorkspaceServiceBridge } = await import('@process/bridge/projectWorkspaceServiceBridge');
+
+    initProjectWorkspaceServiceBridge();
+
+    expect(recoverAll).toHaveBeenCalledTimes(1);
+    recoverAll.mockRestore();
+  });
+
+  it('swallows a boot recovery failure without blocking init (S81 R2)', async () => {
+    const { ProjectWorkspaceService } = await import('@process/services/project-workspace/ProjectWorkspaceService');
+    const recoverAll = vi
+      .spyOn(ProjectWorkspaceService.prototype, 'recoverAll')
+      .mockRejectedValue(new Error('recovery boom'));
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { initProjectWorkspaceServiceBridge } = await import('@process/bridge/projectWorkspaceServiceBridge');
+
+    expect(() => initProjectWorkspaceServiceBridge()).not.toThrow();
+    expect(recoverAll).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(consoleError).toHaveBeenCalledWith(
+        '[ProjectWorkspace] boot recovery failed (non-blocking)',
+        expect.any(Error)
+      );
+    });
+    recoverAll.mockRestore();
+    consoleError.mockRestore();
+  });
 });
