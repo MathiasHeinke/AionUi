@@ -16,6 +16,9 @@ function runProvisioner(input: {
   slug: string;
   transactionId: string;
   operation: 'create' | 'adopt';
+  mode?: 'provision' | 'recover';
+  crashPhase?: string;
+  holdAtLease?: boolean;
 }): Promise<Record<string, unknown>> {
   const serviceModule = path.resolve(
     'packages/desktop/src/process/services/project-workspace/ProjectWorkspaceService.ts'
@@ -62,23 +65,33 @@ function runProvisioner(input: {
       get_active_seat_id: () => 'seat-alpha',
       random_uuid: () => ${JSON.stringify(input.transactionId)},
       semantic_coordinator: {
-        preflight: ({ transaction_id }) => ({
+        preflight: async ({ transaction_id }) => ({
           ok: true,
           extension_bundle_sha256: 'e'.repeat(64),
+          effect_plan_sha256: 'a'.repeat(64),
+          initial_conversation_binding: null,
+          initial_project_binding_revision: 0,
+          initial_project_binding_receipt_id: null,
           preflight_receipt_id: 'test-boundary-pass:v1',
           semantic_context_ref: 'context:' + transaction_id,
           semantic_context_sha256: 'f'.repeat(64),
         }),
-        stage: ({ assert_mutation_allowed }) => assert_mutation_allowed(),
-        commit: ({ assert_mutation_allowed }) => assert_mutation_allowed(),
-        recover: ({ assert_mutation_allowed }) => assert_mutation_allowed(),
-        rollback: ({ assert_mutation_allowed }) => assert_mutation_allowed(),
+        stage: async ({ assert_mutation_allowed }) => assert_mutation_allowed(),
+        commit: async ({ assert_mutation_allowed }) => assert_mutation_allowed(),
+        recover: async ({ assert_mutation_allowed }) => assert_mutation_allowed(),
+        rollback: async ({ assert_mutation_allowed }) => assert_mutation_allowed(),
+        prepareRemovalRollback: async ({ assert_mutation_allowed }) => assert_mutation_allowed(),
+        finalizeRemovalRollback: async ({ assert_mutation_allowed, assert_removal_committed }) => {
+          assert_mutation_allowed();
+          assert_removal_committed();
+        },
       },
       on_phase: (phase) => {
-        if (phase === '${input.operation === 'create' ? 'leased' : 'adopt:leased'}') Atomics.wait(wait, 0, 0, 900);
+        if (phase === ${JSON.stringify(input.crashPhase ?? '')}) process.exit(91);
+        if (${input.holdAtLease !== false} && phase === '${input.operation === 'create' ? 'leased' : 'adopt:leased'}') Atomics.wait(wait, 0, 0, 900);
       },
     });
-    const result = ${input.operation === 'create' ? 'service.create(plan)' : `service.adopt(plan, ${JSON.stringify(target)}, true)`};
+    const result = await ${input.mode === 'recover' ? 'service.recoverAll()' : input.operation === 'create' ? 'service.create(plan)' : `service.adopt(plan, ${JSON.stringify(target)}, true)`};
     console.log(JSON.stringify(result));
   `;
   return new Promise((resolve, reject) => {
@@ -89,6 +102,7 @@ function runProvisioner(input: {
     child.stderr.on('data', (chunk) => (stderr += String(chunk)));
     child.on('error', reject);
     child.on('exit', (code) => {
+      if (input.crashPhase && code === 91) return resolve({ crashed: true, phase: input.crashPhase });
       if (code !== 0) return reject(new Error(stderr || `child exited ${code}`));
       resolve(JSON.parse(stdout.trim()) as Record<string, unknown>);
     });
@@ -148,11 +162,42 @@ describe('concurrent project provisioning', () => {
     ]);
     expect(results.filter((result) => result.ok && !result.already_existed)).toHaveLength(1);
     expect(results.filter((result) => !result.ok)).toEqual([
-      expect.objectContaining({ reason_code: 'workspace.concurrent-operation' }),
+      expect.objectContaining({ reason_code: 'workspace.concurrent-operation', recovery_required: true }),
     ]);
     const registry = new ProjectWorkspaceRegistryStore({ state_root: stateRoot });
     expect(registry.readSeatCatalogs('seat-alpha').projects.projects).toHaveLength(1);
-    expect(fs.existsSync(path.join(projectRoot, 'concurrent-atlas', '.command-eve', 'project.json'))).toBe(true);
+    const manifestPath = path.join(projectRoot, 'concurrent-atlas', '.command-eve', 'project.json');
+    const manifestBytes = fs.readFileSync(manifestPath, 'utf8');
+    const journalDirectory = path.join(stateRoot, 'transactions');
+    const journalFiles = fs
+      .readdirSync(journalDirectory)
+      .filter((name) => name.endsWith('.journal.json'))
+      .toSorted();
+    expect(journalFiles).toHaveLength(2);
+    expect(
+      journalFiles
+        .map((name) => JSON.parse(fs.readFileSync(path.join(journalDirectory, name), 'utf8')).phase)
+        .toSorted()
+    ).toEqual(['committed', 'planned']);
+
+    expect(
+      await runProvisioner({
+        stateRoot,
+        projectRoot,
+        slug: 'concurrent-atlas',
+        transactionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        operation: 'create',
+        mode: 'recover',
+        holdAtLease: false,
+      })
+    ).toContainEqual(expect.objectContaining({ ok: true, action: 'rolled_back' }));
+    expect(
+      journalFiles
+        .map((name) => JSON.parse(fs.readFileSync(path.join(journalDirectory, name), 'utf8')).phase)
+        .toSorted()
+    ).toEqual(['committed', 'undone']);
+    expect(fs.readFileSync(manifestPath, 'utf8')).toBe(manifestBytes);
+    expect(registry.readSeatCatalogs('seat-alpha').projects.projects).toHaveLength(1);
   });
 
   it('allows adoption to win an existing-folder create/adopt race without overwriting', async () => {
@@ -180,6 +225,139 @@ describe('concurrent project provisioning', () => {
       expect.objectContaining({ reason_code: 'workspace.collision' }),
     ]);
     expect(fs.readFileSync(path.join(target, 'README.md'), 'utf8')).toBe('pre-existing\n');
+    const registry = new ProjectWorkspaceRegistryStore({ state_root: stateRoot });
+    expect(registry.readSeatCatalogs('seat-alpha').projects.projects).toHaveLength(1);
+  });
+
+  it.each([
+    ['create', 'lease:acquired'],
+    ['adopt', 'adopt:lease:acquired'],
+  ] as const)(
+    'recovers a %s process death after lease acquisition from its planned journal',
+    async (operation, phase) => {
+      const slug = `${operation}-planned-crash`;
+      const target = path.join(projectRoot, slug);
+      if (operation === 'adopt') {
+        fs.mkdirSync(target);
+        fs.writeFileSync(path.join(target, 'README.md'), 'pre-existing\n');
+      }
+      const transactionId =
+        operation === 'create' ? '88888888-8888-4888-8888-888888888888' : '99999999-9999-4999-8999-999999999999';
+      expect(
+        await runProvisioner({
+          stateRoot,
+          projectRoot,
+          slug,
+          transactionId,
+          operation,
+          crashPhase: phase,
+          holdAtLease: false,
+        })
+      ).toEqual({ crashed: true, phase });
+
+      const journalFile = path.join(stateRoot, 'transactions', `${transactionId}.journal.json`);
+      expect(JSON.parse(fs.readFileSync(journalFile, 'utf8'))).toMatchObject({
+        phase: 'planned',
+        transaction_id: transactionId,
+      });
+      const leaseFile = path.join(
+        stateRoot,
+        'leases',
+        fs.readdirSync(path.join(stateRoot, 'leases')).find((name) => name.endsWith('.lease.json')) as string
+      );
+      expect(JSON.parse(fs.readFileSync(leaseFile, 'utf8'))).toMatchObject({
+        transaction_id: transactionId,
+        released_at_ms: null,
+      });
+
+      const recovered = await runProvisioner({
+        stateRoot,
+        projectRoot,
+        slug,
+        transactionId,
+        operation,
+        mode: 'recover',
+        holdAtLease: false,
+      });
+      expect(recovered).toContainEqual(
+        expect.objectContaining({ ok: true, action: 'rolled_back', transaction_id: transactionId })
+      );
+      expect(JSON.parse(fs.readFileSync(journalFile, 'utf8'))).toMatchObject({ phase: 'undone' });
+      expect(operation === 'adopt' ? fs.existsSync(target) : !fs.existsSync(target)).toBe(true);
+
+      const retry = await runProvisioner({
+        stateRoot,
+        projectRoot,
+        slug,
+        transactionId:
+          operation === 'create' ? 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' : 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        operation,
+        holdAtLease: false,
+      });
+      expect(retry).toMatchObject({ ok: true, committed: true });
+    }
+  );
+
+  it('survives a second process death after recovery lease takeover without rewriting journal lineage', async () => {
+    const slug = 'recovery-lineage-crash';
+    const transactionId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    expect(
+      await runProvisioner({
+        stateRoot,
+        projectRoot,
+        slug,
+        transactionId,
+        operation: 'create',
+        crashPhase: 'promoted',
+        holdAtLease: false,
+      })
+    ).toEqual({ crashed: true, phase: 'promoted' });
+    const journalFile = path.join(stateRoot, 'transactions', `${transactionId}.journal.json`);
+    const initialJournal = JSON.parse(fs.readFileSync(journalFile, 'utf8')) as Record<string, unknown>;
+
+    expect(
+      await runProvisioner({
+        stateRoot,
+        projectRoot,
+        slug,
+        transactionId,
+        operation: 'create',
+        mode: 'recover',
+        crashPhase: 'recovery:lease:acquired',
+        holdAtLease: false,
+      })
+    ).toEqual({ crashed: true, phase: 'recovery:lease:acquired' });
+    const handoffJournal = JSON.parse(fs.readFileSync(journalFile, 'utf8')) as Record<string, unknown>;
+    const leaseFile = path.join(
+      stateRoot,
+      'leases',
+      fs.readdirSync(path.join(stateRoot, 'leases')).find((name) => name.endsWith('.lease.json')) as string
+    );
+    const handoffLease = JSON.parse(fs.readFileSync(leaseFile, 'utf8')) as Record<string, unknown>;
+    expect(handoffJournal.owner_token_sha256).toBe(initialJournal.owner_token_sha256);
+    expect(handoffLease).toMatchObject({
+      transaction_id: transactionId,
+      lineage_owner_token_sha256: initialJournal.owner_token_sha256,
+      released_at_ms: null,
+    });
+    expect(handoffLease.owner_token_sha256).not.toBe(initialJournal.owner_token_sha256);
+
+    const recovered = await runProvisioner({
+      stateRoot,
+      projectRoot,
+      slug,
+      transactionId,
+      operation: 'create',
+      mode: 'recover',
+      holdAtLease: false,
+    });
+    expect(recovered).toContainEqual(
+      expect.objectContaining({ ok: true, action: 'reconciled', transaction_id: transactionId })
+    );
+    expect(JSON.parse(fs.readFileSync(journalFile, 'utf8'))).toMatchObject({
+      phase: 'committed',
+      owner_token_sha256: initialJournal.owner_token_sha256,
+    });
     const registry = new ProjectWorkspaceRegistryStore({ state_root: stateRoot });
     expect(registry.readSeatCatalogs('seat-alpha').projects.projects).toHaveLength(1);
   });

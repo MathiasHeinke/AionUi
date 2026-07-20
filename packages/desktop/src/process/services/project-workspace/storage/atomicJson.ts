@@ -3,15 +3,26 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ProjectWorkspaceError } from '@/common/types/project-workspace/reasonCodes';
 
-const FILE_LOCK_VERSION = 'command-eve-exclusive-file-lock/v1' as const;
+const FILE_LOCK_VERSION = 'command-eve-exclusive-file-lock/v2' as const;
+const LEGACY_FILE_LOCK_VERSION = 'command-eve-exclusive-file-lock/v1' as const;
+const PROCESS_WITNESS_VERSION = 'command-eve-process-witness/v1' as const;
 const FILE_LOCK_STALE_AFTER_MS = 30_000;
+const PROCESS_BOOT_NONCE_SHA256 = crypto
+  .createHash('sha256')
+  .update(`${crypto.randomUUID()}:${process.pid}:${Date.now()}`, 'utf8')
+  .digest('hex');
 
 type FileLockRecord = {
   schema_version: typeof FILE_LOCK_VERSION;
   owner_token: string;
   pid: number;
+  process_nonce_sha256: string;
   acquired_at_ms: number;
   expires_at_ms: number;
+};
+
+type LegacyFileLockRecord = Omit<FileLockRecord, 'schema_version' | 'process_nonce_sha256'> & {
+  schema_version: typeof LEGACY_FILE_LOCK_VERSION;
 };
 
 type FileLockSnapshot = {
@@ -19,11 +30,16 @@ type FileLockSnapshot = {
   dev: number;
   ino: number;
   mtime_ms: number;
-  record?: FileLockRecord;
+  record?: FileLockRecord | LegacyFileLockRecord;
 };
 
 export function ensurePrivateDirectory(directory: string): void {
-  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const created = fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  if (created === undefined) {
+    const stat = fs.lstatSync(directory);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new ProjectWorkspaceError('workspace.io-failed');
+    return;
+  }
   try {
     fs.chmodSync(directory, 0o700);
   } catch {
@@ -103,20 +119,24 @@ export function readJson(file: string): unknown {
   return JSON.parse(fs.readFileSync(file, 'utf8')) as unknown;
 }
 
-function parseFileLockRecord(value: unknown): FileLockRecord | undefined {
+function parseFileLockRecord(value: unknown): FileLockRecord | LegacyFileLockRecord | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
   const record = value as Record<string, unknown>;
+  const isLegacy = record.schema_version === LEGACY_FILE_LOCK_VERSION;
+  const expectedKeys = isLegacy
+    ? ['schema_version', 'owner_token', 'pid', 'acquired_at_ms', 'expires_at_ms']
+    : ['schema_version', 'owner_token', 'pid', 'process_nonce_sha256', 'acquired_at_ms', 'expires_at_ms'];
   if (
-    Object.keys(record).length !== 5 ||
-    !['schema_version', 'owner_token', 'pid', 'acquired_at_ms', 'expires_at_ms'].every((key) =>
-      Object.hasOwn(record, key)
-    ) ||
-    record.schema_version !== FILE_LOCK_VERSION ||
+    Object.keys(record).length !== expectedKeys.length ||
+    !expectedKeys.every((key) => Object.hasOwn(record, key)) ||
+    (record.schema_version !== FILE_LOCK_VERSION && !isLegacy) ||
     typeof record.owner_token !== 'string' ||
     record.owner_token.length < 16 ||
     typeof record.pid !== 'number' ||
     !Number.isSafeInteger(record.pid) ||
     record.pid <= 0 ||
+    (!isLegacy &&
+      (typeof record.process_nonce_sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(record.process_nonce_sha256))) ||
     typeof record.acquired_at_ms !== 'number' ||
     !Number.isFinite(record.acquired_at_ms) ||
     record.acquired_at_ms < 0 ||
@@ -126,7 +146,7 @@ function parseFileLockRecord(value: unknown): FileLockRecord | undefined {
   ) {
     return undefined;
   }
-  return record as FileLockRecord;
+  return record as FileLockRecord | LegacyFileLockRecord;
 }
 
 function readFileLockSnapshot(file: string): FileLockSnapshot | undefined {
@@ -143,7 +163,7 @@ function readFileLockSnapshot(file: string): FileLockSnapshot | undefined {
     const buffer = Buffer.alloc(stat.size);
     if (stat.size > 0) fs.readSync(descriptor, buffer, 0, stat.size, 0);
     const raw = buffer.toString('utf8');
-    let record: FileLockRecord | undefined;
+    let record: FileLockRecord | LegacyFileLockRecord | undefined;
     try {
       record = parseFileLockRecord(JSON.parse(raw) as unknown);
     } catch {
@@ -167,9 +187,77 @@ function processIsAlive(pid: number): boolean {
   }
 }
 
-function isStaleFileLock(snapshot: FileLockSnapshot, nowMs: number): boolean {
-  if (snapshot.record) return !processIsAlive(snapshot.record.pid);
-  return nowMs - snapshot.mtime_ms >= FILE_LOCK_STALE_AFTER_MS;
+type ProcessWitness = {
+  schema_version: typeof PROCESS_WITNESS_VERSION;
+  pid: number;
+  process_nonce_sha256: string;
+};
+
+function processWitnessPath(directory: string, pid: number): string {
+  return path.join(directory, '.process-witnesses', `${pid}.json`);
+}
+
+export function publishProcessWitness(directory: string): void {
+  writeJsonAtomic(processWitnessPath(directory, process.pid), {
+    schema_version: PROCESS_WITNESS_VERSION,
+    pid: process.pid,
+    process_nonce_sha256: PROCESS_BOOT_NONCE_SHA256,
+  } satisfies ProcessWitness);
+}
+
+function readProcessWitness(directory: string, pid: number): ProcessWitness | undefined {
+  try {
+    const value = readJson(processWitnessPath(directory, pid));
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
+    const witness = value as Record<string, unknown>;
+    if (
+      Object.keys(witness).length !== 3 ||
+      witness.schema_version !== PROCESS_WITNESS_VERSION ||
+      witness.pid !== pid ||
+      typeof witness.process_nonce_sha256 !== 'string' ||
+      !/^[0-9a-f]{64}$/.test(witness.process_nonce_sha256)
+    ) {
+      return undefined;
+    }
+    return witness as ProcessWitness;
+  } catch {
+    return undefined;
+  }
+}
+
+export function currentProcessNonceSha256(): string {
+  return PROCESS_BOOT_NONCE_SHA256;
+}
+
+export function processWitnessMatches(directory: string, pid: number, processNonceSha256: string): boolean | undefined {
+  const witness = readProcessWitness(directory, pid);
+  return witness ? witness.process_nonce_sha256 === processNonceSha256 : undefined;
+}
+
+function lockOwnerIsLive(snapshot: FileLockSnapshot, lockDirectory: string): boolean {
+  if (!snapshot.record || !processIsAlive(snapshot.record.pid)) return false;
+  if (snapshot.record.schema_version === LEGACY_FILE_LOCK_VERSION) return true;
+  const witnessMatches = processWitnessMatches(
+    lockDirectory,
+    snapshot.record.pid,
+    snapshot.record.process_nonce_sha256
+  );
+  // Missing witness evidence fails safe: a live PID is never stolen on TTL alone.
+  return witnessMatches === undefined || witnessMatches;
+}
+
+export function processPidIsAlive(pid: number): boolean {
+  return processIsAlive(pid);
+}
+
+type FileLockDisposition = 'active' | 'live-stuck' | 'stale';
+
+function fileLockDisposition(snapshot: FileLockSnapshot, nowMs: number, lockDirectory: string): FileLockDisposition {
+  if (snapshot.record) {
+    if (!lockOwnerIsLive(snapshot, lockDirectory)) return 'stale';
+    return nowMs >= snapshot.record.expires_at_ms ? 'live-stuck' : 'active';
+  }
+  return nowMs - snapshot.mtime_ms >= FILE_LOCK_STALE_AFTER_MS ? 'stale' : 'active';
 }
 
 function restoreQuarantinedLock(quarantine: string, lockPath: string): void {
@@ -184,12 +272,14 @@ function restoreQuarantinedLock(quarantine: string, lockPath: string): void {
 
 export function withExclusiveFileLock<T>(lockPath: string, callback: () => T): T {
   ensurePrivateDirectory(path.dirname(lockPath));
+  publishProcessWitness(path.dirname(lockPath));
   const ownerToken = crypto.randomUUID();
   const acquiredAtMs = Date.now();
   const record: FileLockRecord = {
     schema_version: FILE_LOCK_VERSION,
     owner_token: ownerToken,
     pid: process.pid,
+    process_nonce_sha256: PROCESS_BOOT_NONCE_SHA256,
     acquired_at_ms: acquiredAtMs,
     expires_at_ms: acquiredAtMs + FILE_LOCK_STALE_AFTER_MS,
   };
@@ -224,7 +314,11 @@ export function withExclusiveFileLock<T>(lockPath: string, callback: () => T): T
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
     const observed = readFileLockSnapshot(lockPath);
-    if (!observed || !isStaleFileLock(observed, acquiredAtMs)) {
+    const disposition = observed ? fileLockDisposition(observed, acquiredAtMs, path.dirname(lockPath)) : 'active';
+    if (disposition === 'live-stuck') {
+      throw new ProjectWorkspaceError('workspace.recovery-required');
+    }
+    if (!observed || disposition !== 'stale') {
       throw new ProjectWorkspaceError('workspace.concurrent-operation');
     }
     const quarantine = `${lockPath}.stale.${ownerToken}`;
@@ -240,7 +334,7 @@ export function withExclusiveFileLock<T>(lockPath: string, callback: () => T): T
       quarantined.dev !== observed.dev ||
       quarantined.ino !== observed.ino ||
       quarantined.raw !== observed.raw ||
-      !isStaleFileLock(quarantined, acquiredAtMs)
+      fileLockDisposition(quarantined, acquiredAtMs, path.dirname(lockPath)) !== 'stale'
     ) {
       restoreQuarantinedLock(quarantine, lockPath);
       throw new ProjectWorkspaceError('workspace.concurrent-operation');
@@ -269,6 +363,8 @@ export function withExclusiveFileLock<T>(lockPath: string, callback: () => T): T
       const current = readFileLockSnapshot(lockPath);
       if (
         current?.record?.owner_token === ownerToken &&
+        current.record.schema_version === FILE_LOCK_VERSION &&
+        current.record.process_nonce_sha256 === PROCESS_BOOT_NONCE_SHA256 &&
         current.dev === descriptorStat.dev &&
         current.ino === descriptorStat.ino
       ) {

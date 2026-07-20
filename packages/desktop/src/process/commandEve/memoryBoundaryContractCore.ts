@@ -42,7 +42,14 @@ import {
 } from '@/common/api/egressBoundaryCore';
 
 /** The durable memory stores the contract governs. All are per-seat / per-client. */
-export type MemoryBoundaryStore = 'company-brain' | 'memory-md' | 'user-md' | 'honcho' | 'session-digest';
+export type MemoryBoundaryStore =
+  | 'company-brain'
+  | 'memory-md'
+  | 'user-md'
+  | 'honcho'
+  | 'session-digest'
+  | 'project-wiki'
+  | 'project-memory-bank';
 
 /** read = recall; write = persist a durable entry; derive = feed content to the dialectical LLM. */
 export type MemoryBoundaryOperation = 'read' | 'write' | 'derive';
@@ -65,7 +72,15 @@ export const MEMORY_BOUNDARY_OVERSIZE = 'oversize';
 
 /** The recognized operations + stores. Anything else is a MALFORMED call (fail-closed). */
 const KNOWN_OPERATIONS: MemoryBoundaryOperation[] = ['read', 'write', 'derive'];
-const KNOWN_STORES: MemoryBoundaryStore[] = ['company-brain', 'memory-md', 'user-md', 'honcho', 'session-digest'];
+const KNOWN_STORES: MemoryBoundaryStore[] = [
+  'company-brain',
+  'memory-md',
+  'user-md',
+  'honcho',
+  'session-digest',
+  'project-wiki',
+  'project-memory-bank',
+];
 
 /**
  * Per-store hard cap on a single durable write (characters). A memory store holds
@@ -84,6 +99,8 @@ export const MEMORY_BOUNDARY_MAX_CHARS: Record<MemoryBoundaryStore, number> = {
   'memory-md': 40000,
   'user-md': 40000,
   'session-digest': 2000,
+  'project-wiki': 40000,
+  'project-memory-bank': 40000,
   honcho: 0,
 };
 

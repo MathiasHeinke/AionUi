@@ -6,6 +6,7 @@ import {
   installMainProcessLocalBackendCapability,
   isCurrentLocalBackendUrl,
 } from '@/process/security/localBackendCapabilityCore';
+import { PROJECT_RUNTIME_ATTESTATION_HEADER } from '@/process/security/projectRuntimeAttestationCore';
 
 const resolver = {
   getPort: () => 43123,
@@ -38,7 +39,11 @@ describe('local backend capability transport', () => {
         url: 'http://127.0.0.1:43123/api/settings',
         webContentsId: 7,
         frame: mainFrame,
-        requestHeaders: { Accept: 'application/json', 'X-AionUI-Local-Capability': 'forged' },
+        requestHeaders: {
+          Accept: 'application/json',
+          'X-AionUI-Local-Capability': 'forged',
+          [PROJECT_RUNTIME_ATTESTATION_HEADER]: 'forged-ticket',
+        },
       },
       mainWindow,
       resolver
@@ -74,7 +79,11 @@ describe('local backend capability transport', () => {
           url: 'http://127.0.0.1:43123/api/settings',
           webContentsId: 7,
           frame: subFrame,
-          requestHeaders: { Accept: 'application/json', 'X-AionUI-Local-Capability': 'forged' },
+          requestHeaders: {
+            Accept: 'application/json',
+            'X-AionUI-Local-Capability': 'forged',
+            [PROJECT_RUNTIME_ATTESTATION_HEADER]: 'forged-ticket',
+          },
         },
         mainWindow,
         resolver
@@ -93,7 +102,11 @@ describe('local backend capability transport', () => {
           url: 'http://127.0.0.1:43123/api/settings',
           webContentsId: 7,
           frame: null,
-          requestHeaders: { Accept: 'application/json', 'X-AionUI-Local-Capability': 'forged' },
+          requestHeaders: {
+            Accept: 'application/json',
+            'X-AionUI-Local-Capability': 'forged',
+            [PROJECT_RUNTIME_ATTESTATION_HEADER]: 'forged-ticket',
+          },
         },
         mainWindow,
         resolver
@@ -112,7 +125,11 @@ describe('local backend capability transport', () => {
           url: 'https://example.com/api',
           webContentsId: 7,
           frame: mainFrame,
-          requestHeaders: { Accept: 'application/json', 'X-AionUI-Local-Capability': 'forged' },
+          requestHeaders: {
+            Accept: 'application/json',
+            'X-AionUI-Local-Capability': 'forged',
+            [PROJECT_RUNTIME_ATTESTATION_HEADER]: 'forged-ticket',
+          },
         },
         mainWindow,
         resolver

@@ -15,6 +15,7 @@ export type TransactionId = string & { readonly [transactionIdBrand]: true };
 export type WorkspaceRootRef = `root:${string}` & { readonly [workspaceRootRefBrand]: true };
 
 export const OPAQUE_PROJECT_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+export const TRANSACTION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 export const SAFE_SEAT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 function parseOpaqueId(value: unknown, label: string): string {
@@ -44,7 +45,10 @@ export function parseProjectId(value: unknown): ProjectId {
 }
 
 export function parseTransactionId(value: unknown): TransactionId {
-  return parseOpaqueId(value, 'transaction_id') as TransactionId;
+  if (typeof value !== 'string' || !TRANSACTION_ID_PATTERN.test(value)) {
+    throw new ProjectWorkspaceError('identity.invalid', 'transaction_id must be a canonical lowercase UUIDv4');
+  }
+  return value as TransactionId;
 }
 
 export function toWorkspaceRootRef(rootId: RootId): WorkspaceRootRef {

@@ -15,7 +15,10 @@ import { parseTransactionId } from '@/common/types/project-workspace/identity';
 import { ProjectWorkspaceError, type ProjectWorkspaceReasonCode } from '@/common/types/project-workspace/reasonCodes';
 import {
   PROJECT_JOURNAL_VERSION,
+  type ProjectJournalPhase,
   type ProjectTransactionJournalV1,
+  type ProjectUndoCatalogProofV1,
+  type ProjectUndoQuarantinePlanV1,
 } from '@/common/types/project-workspace/transaction';
 import { verifyImmutableTargetSnapshot } from './core/preflightCore';
 import {
@@ -44,26 +47,46 @@ import {
 import {
   acquireProjectLease,
   advanceProjectJournal,
+  buildProjectUndoQuarantinePlan,
+  establishProjectUndoQuarantine,
   leaseOwnerTokenSha256,
   listProjectJournals,
+  prepareProjectUndoQuarantine,
   projectLeasePath,
   projectJournalPath,
+  purgeProjectUndoQuarantine,
   readProjectJournal,
   releaseProjectLease,
-  removeCreatedTree,
-  verifyCreatedFiles,
   hasOnlyExpectedFiles,
+  verifyCreatedFiles,
   heartbeatProjectLease,
   inspectProjectAdoption,
   isProjectLeaseReleased,
-  removeAdoptionAdditions,
   writeProjectJournal,
 } from './transaction';
+
+const PROVISIONING_UNDO_SOURCE_PHASES: ReadonlySet<ProjectJournalPhase> = new Set([
+  'planned',
+  'leased',
+  'preflighted',
+  'semantic_staged',
+  'staging',
+  'staged',
+]);
+
+const ACTIVE_UNDO_PHASES: ReadonlySet<ProjectJournalPhase> = new Set([
+  'undo_quarantine_prepared',
+  'undo_quarantining',
+  'undo_quarantined',
+  'undo_semantic_rolled_back',
+  'undo_removal_committed',
+]);
 
 export type ProjectWorkspaceServiceOptions = {
   registry: ProjectWorkspaceRegistryStore;
   get_active_seat_id: () => string;
   now?: () => Date;
+  lease_now_ms?: () => number;
   random_uuid?: () => string;
   lease_ttl_ms?: number;
   on_phase?: (phase: string) => void;
@@ -115,6 +138,7 @@ export class ProjectWorkspaceService {
   private readonly registry: ProjectWorkspaceRegistryStore;
   private readonly getActiveSeatId: () => string;
   private readonly now: () => Date;
+  private readonly leaseNowMs: () => number;
   private readonly randomUuid: () => string;
   private readonly leaseTtlMs: number;
   private readonly onPhase?: (phase: string) => void;
@@ -124,6 +148,7 @@ export class ProjectWorkspaceService {
     this.registry = options.registry;
     this.getActiveSeatId = options.get_active_seat_id;
     this.now = options.now ?? (() => new Date());
+    this.leaseNowMs = options.lease_now_ms ?? Date.now;
     this.randomUuid = options.random_uuid ?? crypto.randomUUID;
     this.leaseTtlMs = options.lease_ttl_ms ?? 30_000;
     this.onPhase = options.on_phase;
@@ -139,8 +164,42 @@ export class ProjectWorkspaceService {
   }
 
   private refreshLease(leasePath: string, ownerToken: string): void {
-    if (!heartbeatProjectLease(leasePath, ownerToken, this.now().getTime(), this.leaseTtlMs)) {
+    if (!heartbeatProjectLease(leasePath, ownerToken, this.leaseNowMs(), this.leaseTtlMs)) {
       throw new ProjectWorkspaceError('workspace.concurrent-operation');
+    }
+  }
+
+  private async withLeaseHeartbeat<T>(
+    leasePath: string,
+    ownerToken: string,
+    operation: (assertLeaseAlive: () => void) => Promise<T>
+  ): Promise<T> {
+    this.refreshLease(leasePath, ownerToken);
+    let heartbeatFailure: ProjectWorkspaceError | undefined;
+    const assertLeaseAlive = (): void => {
+      if (heartbeatFailure) throw heartbeatFailure;
+      try {
+        this.refreshLease(leasePath, ownerToken);
+      } catch {
+        heartbeatFailure = new ProjectWorkspaceError('workspace.concurrent-operation');
+        throw heartbeatFailure;
+      }
+    };
+    const intervalMs = Math.max(100, Math.min(1_000, Math.floor(this.leaseTtlMs / 3)));
+    const timer = setInterval(() => {
+      try {
+        this.refreshLease(leasePath, ownerToken);
+      } catch {
+        heartbeatFailure = new ProjectWorkspaceError('workspace.concurrent-operation');
+      }
+    }, intervalMs);
+    timer.unref?.();
+    try {
+      const result = await operation(assertLeaseAlive);
+      assertLeaseAlive();
+      return result;
+    } finally {
+      clearInterval(timer);
     }
   }
 
@@ -148,6 +207,11 @@ export class ProjectWorkspaceService {
     if (
       !journal.semantic_base_bundle_sha256 ||
       !journal.semantic_bundle_sha256 ||
+      !journal.semantic_effect_plan_sha256 ||
+      !Object.hasOwn(journal, 'semantic_initial_project_id') ||
+      !Object.hasOwn(journal, 'semantic_initial_workspace_root_ref') ||
+      journal.semantic_initial_project_binding_revision === undefined ||
+      !Object.hasOwn(journal, 'semantic_initial_project_binding_receipt_id') ||
       !journal.semantic_preflight_receipt_id ||
       !journal.semantic_context_ref ||
       !journal.semantic_context_sha256 ||
@@ -158,6 +222,16 @@ export class ProjectWorkspaceService {
     return {
       base_bundle_sha256: journal.semantic_base_bundle_sha256,
       bundle_sha256: journal.semantic_bundle_sha256,
+      effect_plan_sha256: journal.semantic_effect_plan_sha256,
+      initial_conversation_binding:
+        journal.semantic_initial_project_id === null && journal.semantic_initial_workspace_root_ref === null
+          ? null
+          : {
+              project_id: String(journal.semantic_initial_project_id),
+              workspace_root_ref: String(journal.semantic_initial_workspace_root_ref) as `root:${string}`,
+            },
+      initial_project_binding_revision: journal.semantic_initial_project_binding_revision,
+      initial_project_binding_receipt_id: journal.semantic_initial_project_binding_receipt_id ?? null,
       preflight_receipt_id: journal.semantic_preflight_receipt_id,
       semantic_context_ref: journal.semantic_context_ref,
       semantic_context_sha256: journal.semantic_context_sha256,
@@ -169,6 +243,7 @@ export class ProjectWorkspaceService {
     journal: ProjectTransactionJournalV1;
     project_path: string;
     root_record: RootRecord;
+    assert_lease_alive: () => void;
   }): ProjectSemanticLifecycleInput {
     const coordinator = this.semanticCoordinator;
     if (!coordinator) throw new ProjectWorkspaceError('semantic.coordinator-required');
@@ -179,8 +254,10 @@ export class ProjectWorkspaceService {
       identity: input.journal.identity,
       binding: this.semanticBinding(input.journal),
       project_path: input.project_path,
-      assert_mutation_allowed: () =>
-        this.assertProjectMutationAllowed(input.journal.identity.seat_id, input.root_record, input.project_path),
+      assert_mutation_allowed: () => {
+        input.assert_lease_alive();
+        this.assertProjectMutationAllowed(input.journal.identity.seat_id, input.root_record, input.project_path);
+      },
     };
   }
 
@@ -200,19 +277,142 @@ export class ProjectWorkspaceService {
     return /^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$/.test(value);
   }
 
-  private rollbackSemanticIfBound(input: {
+  private async continueProjectUndo(input: {
     journal: ProjectTransactionJournalV1;
-    project_path: string;
+    physical_path: string;
+    semantic_project_path: string;
     root_record: RootRecord;
-  }): boolean {
-    if (!input.journal.semantic_preflight_receipt_id) return true;
-    if (!this.semanticCoordinator) return false;
-    try {
-      this.semanticCoordinator.rollback(this.semanticLifecycleInput(input));
-      return true;
-    } catch {
-      return false;
-    }
+    lease_path: string;
+    owner_token: string;
+    receipt_relative_path?: string;
+    catalog_proof?: ProjectUndoCatalogProofV1;
+  }): Promise<ProjectTransactionJournalV1> {
+    return this.withLeaseHeartbeat(input.lease_path, input.owner_token, async (assertLeaseAlive) => {
+      let journal = input.journal;
+      const assertMutationAllowed = (targetPath: string): void => {
+        this.runPhase('undo:before-filesystem-mutation');
+        assertLeaseAlive();
+        this.assertProjectMutationAllowed(journal.identity.seat_id, input.root_record, targetPath);
+      };
+      const advance = (
+        phase: ProjectJournalPhase,
+        changes: Partial<ProjectTransactionJournalV1> = {}
+      ): ProjectTransactionJournalV1 => {
+        this.runPhase(`undo:before-${phase}`);
+        assertLeaseAlive();
+        this.assertProjectMutationAllowed(journal.identity.seat_id, input.root_record, input.semantic_project_path);
+        journal = advanceProjectJournal(this.registry.stateRoot, journal, phase, this.timestamp(), changes);
+        this.runPhase(`undo:${phase}`);
+        return journal;
+      };
+
+      if (journal.phase === 'rollback_pending') {
+        throw new ProjectWorkspaceError('workspace.recovery-required');
+      }
+
+      if (PROVISIONING_UNDO_SOURCE_PHASES.has(journal.phase) || journal.phase === 'committed') {
+        const committedUndo = journal.phase === 'committed';
+        const plan = buildProjectUndoQuarantinePlan({
+          transaction_id: journal.transaction_id,
+          origin: committedUndo ? 'committed-undo' : 'provisioning-rollback',
+          operation: journal.operation,
+          root: input.physical_path,
+          created_files: journal.created_files,
+          created_directories: journal.created_directories,
+          ...(committedUndo ? { receipt_relative_path: input.receipt_relative_path } : {}),
+          catalog_proof: committedUndo ? (input.catalog_proof ?? null) : null,
+        });
+        if (!plan) throw new ProjectWorkspaceError('workspace.recovery-required');
+        advance('undo_quarantine_prepared', { undo_quarantine_plan: plan });
+      }
+
+      if (!ACTIVE_UNDO_PHASES.has(journal.phase) || !journal.undo_quarantine_plan) {
+        if (journal.phase === 'undone') return journal;
+        throw new ProjectWorkspaceError('workspace.recovery-required');
+      }
+
+      let plan: ProjectUndoQuarantinePlanV1 = journal.undo_quarantine_plan;
+      if (journal.phase === 'undo_quarantine_prepared') {
+        const prepared = prepareProjectUndoQuarantine(input.physical_path, plan, assertMutationAllowed);
+        if (!prepared) throw new ProjectWorkspaceError('workspace.recovery-required');
+        if (JSON.stringify(prepared) !== JSON.stringify(plan)) {
+          plan = prepared;
+          advance('undo_quarantine_prepared', { undo_quarantine_plan: plan });
+        }
+        advance('undo_quarantining');
+      }
+
+      if (journal.phase === 'undo_quarantining') {
+        assertLeaseAlive();
+        if (!establishProjectUndoQuarantine(input.physical_path, plan, assertMutationAllowed)) {
+          throw new ProjectWorkspaceError('workspace.recovery-required');
+        }
+        advance('undo_quarantined');
+      }
+
+      if (journal.phase === 'undo_quarantined') {
+        if (journal.semantic_preflight_receipt_id) {
+          if (!this.semanticCoordinator) throw new ProjectWorkspaceError('semantic.coordinator-required');
+          await this.semanticCoordinator.prepareRemovalRollback(
+            this.semanticLifecycleInput({
+              journal,
+              project_path: input.semantic_project_path,
+              root_record: input.root_record,
+              assert_lease_alive: assertLeaseAlive,
+            })
+          );
+        }
+        advance('undo_semantic_rolled_back');
+      }
+
+      if (journal.phase === 'undo_semantic_rolled_back') {
+        advance('undo_removal_committed');
+      }
+
+      if (journal.phase === 'undo_removal_committed') {
+        assertLeaseAlive();
+        if (!purgeProjectUndoQuarantine(input.physical_path, plan, assertMutationAllowed)) {
+          throw new ProjectWorkspaceError('workspace.recovery-required');
+        }
+        if (plan.catalog_proof) {
+          assertLeaseAlive();
+          this.assertProjectMutationAllowed(journal.identity.seat_id, input.root_record, input.semantic_project_path);
+          this.registry.removeProjectIfMatches({
+            seat_id: journal.identity.seat_id,
+            expected_revision: plan.catalog_proof.expected_revision,
+            expected_record: plan.catalog_proof.expected_record,
+            allow_already_absent: true,
+          });
+        }
+        if (journal.semantic_preflight_receipt_id) {
+          if (!this.semanticCoordinator) throw new ProjectWorkspaceError('semantic.coordinator-required');
+          const assertRemovalCommitted = (): void => {
+            assertLeaseAlive();
+            this.assertProjectMutationAllowed(journal.identity.seat_id, input.root_record, input.semantic_project_path);
+            const durable = readProjectJournal(projectJournalPath(this.registry.stateRoot, journal.transaction_id));
+            if (
+              durable.phase !== 'undo_removal_committed' ||
+              JSON.stringify(durable.undo_quarantine_plan) !== JSON.stringify(plan)
+            ) {
+              throw new ProjectWorkspaceError('workspace.recovery-required');
+            }
+          };
+          await this.semanticCoordinator.finalizeRemovalRollback({
+            ...this.semanticLifecycleInput({
+              journal,
+              project_path: input.semantic_project_path,
+              root_record: input.root_record,
+              assert_lease_alive: assertLeaseAlive,
+            }),
+            assert_removal_committed: assertRemovalCommitted,
+          });
+        }
+        advance('undone', { undo_quarantine_plan: undefined });
+      }
+
+      if (journal.phase !== 'undone') throw new ProjectWorkspaceError('workspace.recovery-required');
+      return journal;
+    });
   }
 
   private assertActiveSeat(expectedSeatId: string): void {
@@ -415,7 +615,7 @@ export class ProjectWorkspaceService {
     };
   }
 
-  create(plan: ProjectIntentPlan): ProjectCreateResult {
+  async create(plan: ProjectIntentPlan): Promise<ProjectCreateResult> {
     if (plan.action !== 'create' || !plan.project_id || !this.validConversationId(plan.conversation_id)) {
       return { ok: false, reason_code: 'identity.invalid' };
     }
@@ -449,16 +649,7 @@ export class ProjectWorkspaceService {
     const ownerToken = `${crypto.randomUUID()}:${process.pid}:${Date.now()}`;
     const leaseDirectory = path.join(this.registry.stateRoot, 'leases');
     const leaseKey = `${plan.seat_id}|${plan.realm_id}|${target.comparison_key}`;
-    const acquired = acquireProjectLease({
-      lease_directory: leaseDirectory,
-      key: leaseKey,
-      owner_token: ownerToken,
-      ttl_ms: this.leaseTtlMs,
-      now_ms: this.now().getTime(),
-      can_take_over_stale: () => false,
-    });
-    if (acquired.ok === false) return { ok: false, reason_code: acquired.reason_code };
-
+    const leasePath = projectLeasePath(leaseDirectory, leaseKey);
     const stagingPath = path.join(canonicalRoot.canonical_path, `.command-eve-stage-${transactionId}`);
     const identity = {
       seat_id: plan.seat_id,
@@ -474,12 +665,12 @@ export class ProjectWorkspaceService {
       transaction_id: transactionId,
       conversation_id: plan.conversation_id,
       operation: 'create',
-      phase: 'leased',
+      phase: 'planned',
       identity,
       slug: plan.slug,
       staging_path: stagingPath,
       final_path: target.target_path,
-      lease_path: acquired.lease_path,
+      lease_path: leasePath,
       owner_token_sha256: leaseOwnerTokenSha256(ownerToken),
       created_files: [],
       created_directories: [],
@@ -488,17 +679,36 @@ export class ProjectWorkspaceService {
     };
     try {
       this.assertProjectMutationAllowed(plan.seat_id, rootRecord, stagingPath);
+      this.assertProjectMutationAllowed(plan.seat_id, rootRecord, target.target_path);
+      writeProjectJournal(this.registry.stateRoot, journal);
     } catch (error) {
-      releaseProjectLease(acquired.lease_path, ownerToken);
       return {
         ok: false,
         reason_code: error instanceof ProjectWorkspaceError ? error.reason_code : 'workspace.io-failed',
       };
     }
-    writeProjectJournal(this.registry.stateRoot, journal);
+    const acquired = acquireProjectLease({
+      lease_directory: leaseDirectory,
+      key: leaseKey,
+      transaction_id: transactionId,
+      lineage_owner_token_sha256: journal.owner_token_sha256,
+      owner_token: ownerToken,
+      ttl_ms: this.leaseTtlMs,
+      now_ms: this.leaseNowMs(),
+      can_take_over_stale: (lease) => lease.transaction_id === transactionId,
+    });
+    if (acquired.ok === false) {
+      // No lease means no authority to advance even our own undo journal. Keep
+      // the mutation-free `planned` record so recoverAll can acquire the lease
+      // later and drive the bounded no-op quarantine state machine.
+      return { ok: false, reason_code: acquired.reason_code, recovery_required: true };
+    }
     let escapedCrash = false;
+    let recoveryRequired = false;
 
     try {
+      this.runPhase('lease:acquired');
+      journal = advanceProjectJournal(this.registry.stateRoot, journal, 'leased', this.timestamp());
       this.runPhase('leased');
       this.refreshLease(acquired.lease_path, ownerToken);
       catalogs = this.registry.readSeatCatalogs(plan.seat_id);
@@ -510,15 +720,17 @@ export class ProjectWorkspaceService {
         throw new ProjectWorkspaceError('workspace.collision');
       }
 
-      const semanticPreflight = preflightProjectSemanticBundle({
-        operation: 'create',
-        transaction_id: transactionId,
-        conversation_id: plan.conversation_id,
-        identity,
-        manifest,
-        proposed_domains: plan.proposed_domains,
-        coordinator: this.semanticCoordinator,
-      });
+      const semanticPreflight = await this.withLeaseHeartbeat(acquired.lease_path, ownerToken, () =>
+        preflightProjectSemanticBundle({
+          operation: 'create',
+          transaction_id: transactionId,
+          conversation_id: plan.conversation_id,
+          identity,
+          manifest,
+          proposed_domains: plan.proposed_domains,
+          coordinator: this.semanticCoordinator,
+        })
+      );
       if (semanticPreflight.ok === false) throw new ProjectWorkspaceError(semanticPreflight.reason_code);
       catalogs = this.registry.readSeatCatalogs(plan.seat_id);
       const semanticSnapshot = verifyImmutableTargetSnapshot(plan, this.getActiveSeatId(), catalogs);
@@ -531,6 +743,12 @@ export class ProjectWorkspaceService {
       journal = advanceProjectJournal(this.registry.stateRoot, journal, 'preflighted', this.timestamp(), {
         semantic_base_bundle_sha256: semanticPreflight.binding.base_bundle_sha256,
         semantic_bundle_sha256: semanticPreflight.binding.bundle_sha256,
+        semantic_effect_plan_sha256: semanticPreflight.binding.effect_plan_sha256,
+        semantic_initial_project_id: semanticPreflight.binding.initial_conversation_binding?.project_id ?? null,
+        semantic_initial_workspace_root_ref:
+          semanticPreflight.binding.initial_conversation_binding?.workspace_root_ref ?? null,
+        semantic_initial_project_binding_revision: semanticPreflight.binding.initial_project_binding_revision,
+        semantic_initial_project_binding_receipt_id: semanticPreflight.binding.initial_project_binding_receipt_id,
         semantic_preflight_receipt_id: semanticPreflight.binding.preflight_receipt_id,
         semantic_context_ref: semanticPreflight.binding.semantic_context_ref,
         semantic_context_sha256: semanticPreflight.binding.semantic_context_sha256,
@@ -541,11 +759,16 @@ export class ProjectWorkspaceService {
 
       this.assertProjectMutationAllowed(plan.seat_id, rootRecord, target.target_path);
       if (!this.semanticCoordinator) throw new ProjectWorkspaceError('semantic.coordinator-required');
-      this.semanticCoordinator.stage({
-        ...semanticPreflight.preflight_input,
-        binding: semanticPreflight.binding,
-        assert_mutation_allowed: () => this.assertProjectMutationAllowed(plan.seat_id, rootRecord, target.target_path),
-      });
+      await this.withLeaseHeartbeat(acquired.lease_path, ownerToken, (assertLeaseAlive) =>
+        this.semanticCoordinator!.stage({
+          ...semanticPreflight.preflight_input,
+          binding: semanticPreflight.binding,
+          assert_mutation_allowed: () => {
+            assertLeaseAlive();
+            this.assertProjectMutationAllowed(plan.seat_id, rootRecord, target.target_path);
+          },
+        })
+      );
       catalogs = this.registry.readSeatCatalogs(plan.seat_id);
       const stagedSemanticSnapshot = verifyImmutableTargetSnapshot(plan, this.getActiveSeatId(), catalogs);
       if (stagedSemanticSnapshot.ok === false) throw new ProjectWorkspaceError(stagedSemanticSnapshot.reason_code);
@@ -590,19 +813,22 @@ export class ProjectWorkspaceService {
       this.assertProjectMutationAllowed(plan.seat_id, rootRecord, target.target_path);
       fs.renameSync(stagingPath, target.target_path);
       syncDirectoryDurable(canonicalRoot.canonical_path);
-      this.runPhase('promotion:renamed');
       journal = advanceProjectJournal(this.registry.stateRoot, journal, 'promoted', this.timestamp());
+      this.runPhase('promotion:renamed');
       this.runPhase('promoted');
       this.refreshLease(acquired.lease_path, ownerToken);
 
       this.assertProjectMutationAllowed(plan.seat_id, rootRecord, target.target_path);
       if (!this.semanticCoordinator) throw new ProjectWorkspaceError('semantic.coordinator-required');
-      this.semanticCoordinator.commit(
-        this.semanticLifecycleInput({
-          journal,
-          project_path: target.target_path,
-          root_record: rootRecord,
-        })
+      await this.withLeaseHeartbeat(acquired.lease_path, ownerToken, (assertLeaseAlive) =>
+        this.semanticCoordinator!.commit(
+          this.semanticLifecycleInput({
+            journal,
+            project_path: target.target_path,
+            root_record: rootRecord,
+            assert_lease_alive: assertLeaseAlive,
+          })
+        )
       );
       this.assertProjectMutationAllowed(plan.seat_id, rootRecord, target.target_path);
       journal = advanceProjectJournal(this.registry.stateRoot, journal, 'semantic_committed', this.timestamp());
@@ -660,36 +886,31 @@ export class ProjectWorkspaceService {
         escapedCrash = true;
         throw error;
       }
-      if (
-        journal.phase === 'leased' ||
-        journal.phase === 'preflighted' ||
-        journal.phase === 'semantic_staged' ||
-        journal.phase === 'staging' ||
-        journal.phase === 'staged'
-      ) {
-        const semanticRolledBack = this.rollbackSemanticIfBound({
-          journal,
-          project_path: target.target_path,
-          root_record: rootRecord,
-        });
-        const removed =
-          semanticRolledBack &&
-          (fs.existsSync(stagingPath)
-            ? removeCreatedTree(stagingPath, journal.created_files, journal.created_directories)
-            : true);
-        journal = advanceProjectJournal(
-          this.registry.stateRoot,
-          journal,
-          removed ? 'undone' : 'recovery_required',
-          this.timestamp(),
-          removed ? {} : { reason_code: 'workspace.recovery-required' }
-        );
+      if (PROVISIONING_UNDO_SOURCE_PHASES.has(journal.phase) || ACTIVE_UNDO_PHASES.has(journal.phase)) {
+        try {
+          journal = await this.continueProjectUndo({
+            journal,
+            physical_path: stagingPath,
+            semantic_project_path: target.target_path,
+            root_record: rootRecord,
+            lease_path: acquired.lease_path,
+            owner_token: ownerToken,
+          });
+        } catch (rollbackError) {
+          if (!(rollbackError instanceof ProjectWorkspaceError)) {
+            escapedCrash = true;
+            throw rollbackError;
+          }
+          recoveryRequired = true;
+          journal = readProjectJournal(projectJournalPath(this.registry.stateRoot, journal.transaction_id));
+        }
       } else if (
         journal.phase === 'promoted' ||
         journal.phase === 'semantic_committed' ||
         journal.phase === 'cataloged'
       ) {
-        journal = advanceProjectJournal(this.registry.stateRoot, journal, 'recovery_required', this.timestamp(), {
+        recoveryRequired = true;
+        journal = advanceProjectJournal(this.registry.stateRoot, journal, journal.phase, this.timestamp(), {
           reason_code: error.reason_code,
         });
       }
@@ -697,14 +918,14 @@ export class ProjectWorkspaceService {
       return {
         ok: false,
         reason_code: error.reason_code,
-        ...(journal.phase === 'recovery_required' ? { recovery_required: true } : {}),
+        ...(recoveryRequired || journal.phase !== 'undone' ? { recovery_required: true } : {}),
       };
     } finally {
       if (!escapedCrash && fs.existsSync(acquired.lease_path)) releaseProjectLease(acquired.lease_path, ownerToken);
     }
   }
 
-  adopt(plan: ProjectIntentPlan, directory: string, confirmed: boolean): ProjectCreateResult {
+  async adopt(plan: ProjectIntentPlan, directory: string, confirmed: boolean): Promise<ProjectCreateResult> {
     if (!confirmed) return { ok: false, reason_code: 'adoption.confirmation-required' };
     if (plan.action !== 'create' || !plan.project_id || !this.validConversationId(plan.conversation_id)) {
       return { ok: false, reason_code: 'identity.invalid' };
@@ -758,15 +979,8 @@ export class ProjectWorkspaceService {
     const ownerToken = `${crypto.randomUUID()}:adopt:${process.pid}:${Date.now()}`;
     const comparisonKey = rootComparisonKey(canonicalDirectory);
     const leaseKey = `${plan.seat_id}|${plan.realm_id}|${comparisonKey}`;
-    const acquired = acquireProjectLease({
-      lease_directory: path.join(this.registry.stateRoot, 'leases'),
-      key: leaseKey,
-      owner_token: ownerToken,
-      ttl_ms: this.leaseTtlMs,
-      now_ms: this.now().getTime(),
-      can_take_over_stale: () => false,
-    });
-    if (acquired.ok === false) return { ok: false, reason_code: acquired.reason_code };
+    const leaseDirectory = path.join(this.registry.stateRoot, 'leases');
+    const leasePath = projectLeasePath(leaseDirectory, leaseKey);
     const createdAt = this.timestamp();
     const manifest = this.projectManifest(plan, realmRecord, createdAt);
     let journal: ProjectTransactionJournalV1 = {
@@ -774,12 +988,12 @@ export class ProjectWorkspaceService {
       transaction_id: transactionId,
       conversation_id: plan.conversation_id,
       operation: 'adopt',
-      phase: 'leased',
+      phase: 'planned',
       identity,
       slug: plan.slug,
       staging_path: canonicalDirectory,
       final_path: canonicalDirectory,
-      lease_path: acquired.lease_path,
+      lease_path: leasePath,
       owner_token_sha256: leaseOwnerTokenSha256(ownerToken),
       created_files: [],
       created_directories: [],
@@ -788,16 +1002,32 @@ export class ProjectWorkspaceService {
     };
     try {
       this.assertProjectMutationAllowed(plan.seat_id, rootRecord, canonicalDirectory);
+      writeProjectJournal(this.registry.stateRoot, journal);
     } catch (error) {
-      releaseProjectLease(acquired.lease_path, ownerToken);
       return {
         ok: false,
         reason_code: error instanceof ProjectWorkspaceError ? error.reason_code : 'workspace.io-failed',
       };
     }
-    writeProjectJournal(this.registry.stateRoot, journal);
+    const acquired = acquireProjectLease({
+      lease_directory: leaseDirectory,
+      key: leaseKey,
+      transaction_id: transactionId,
+      lineage_owner_token_sha256: journal.owner_token_sha256,
+      owner_token: ownerToken,
+      ttl_ms: this.leaseTtlMs,
+      now_ms: this.leaseNowMs(),
+      can_take_over_stale: (lease) => lease.transaction_id === transactionId,
+    });
+    if (acquired.ok === false) {
+      // See create(): the durable planned journal is intentionally left for a
+      // later lease-owning recovery pass instead of claiming an undo occurred.
+      return { ok: false, reason_code: acquired.reason_code, recovery_required: true };
+    }
     let escapedCrash = false;
     try {
+      this.runPhase('adopt:lease:acquired');
+      journal = advanceProjectJournal(this.registry.stateRoot, journal, 'leased', this.timestamp());
       this.runPhase('adopt:leased');
       this.refreshLease(acquired.lease_path, ownerToken);
       catalogs = this.registry.readSeatCatalogs(plan.seat_id);
@@ -813,16 +1043,18 @@ export class ProjectWorkspaceService {
       if (inspection.action !== 'preview') {
         throw new ProjectWorkspaceError(inspection.reason_code ?? 'adoption.collision');
       }
-      const semanticPreflight = preflightProjectSemanticBundle({
-        operation: 'adopt',
-        transaction_id: transactionId,
-        conversation_id: plan.conversation_id,
-        identity,
-        manifest,
-        proposed_domains: plan.proposed_domains,
-        coordinator: this.semanticCoordinator,
-        included_relative_paths: inspection.missing,
-      });
+      const semanticPreflight = await this.withLeaseHeartbeat(acquired.lease_path, ownerToken, () =>
+        preflightProjectSemanticBundle({
+          operation: 'adopt',
+          transaction_id: transactionId,
+          conversation_id: plan.conversation_id,
+          identity,
+          manifest,
+          proposed_domains: plan.proposed_domains,
+          coordinator: this.semanticCoordinator,
+          included_relative_paths: inspection.missing,
+        })
+      );
       if (semanticPreflight.ok === false) throw new ProjectWorkspaceError(semanticPreflight.reason_code);
       catalogs = this.registry.readSeatCatalogs(plan.seat_id);
       const semanticSnapshot = verifyImmutableTargetSnapshot(plan, this.getActiveSeatId(), catalogs);
@@ -844,6 +1076,12 @@ export class ProjectWorkspaceService {
       journal = advanceProjectJournal(this.registry.stateRoot, journal, 'preflighted', this.timestamp(), {
         semantic_base_bundle_sha256: semanticPreflight.binding.base_bundle_sha256,
         semantic_bundle_sha256: semanticPreflight.binding.bundle_sha256,
+        semantic_effect_plan_sha256: semanticPreflight.binding.effect_plan_sha256,
+        semantic_initial_project_id: semanticPreflight.binding.initial_conversation_binding?.project_id ?? null,
+        semantic_initial_workspace_root_ref:
+          semanticPreflight.binding.initial_conversation_binding?.workspace_root_ref ?? null,
+        semantic_initial_project_binding_revision: semanticPreflight.binding.initial_project_binding_revision,
+        semantic_initial_project_binding_receipt_id: semanticPreflight.binding.initial_project_binding_receipt_id,
         semantic_preflight_receipt_id: semanticPreflight.binding.preflight_receipt_id,
         semantic_context_ref: semanticPreflight.binding.semantic_context_ref,
         semantic_context_sha256: semanticPreflight.binding.semantic_context_sha256,
@@ -853,11 +1091,16 @@ export class ProjectWorkspaceService {
       this.refreshLease(acquired.lease_path, ownerToken);
       this.assertProjectMutationAllowed(plan.seat_id, rootRecord, canonicalDirectory);
       if (!this.semanticCoordinator) throw new ProjectWorkspaceError('semantic.coordinator-required');
-      this.semanticCoordinator.stage({
-        ...semanticPreflight.preflight_input,
-        binding: semanticPreflight.binding,
-        assert_mutation_allowed: () => this.assertProjectMutationAllowed(plan.seat_id, rootRecord, canonicalDirectory),
-      });
+      await this.withLeaseHeartbeat(acquired.lease_path, ownerToken, (assertLeaseAlive) =>
+        this.semanticCoordinator!.stage({
+          ...semanticPreflight.preflight_input,
+          binding: semanticPreflight.binding,
+          assert_mutation_allowed: () => {
+            assertLeaseAlive();
+            this.assertProjectMutationAllowed(plan.seat_id, rootRecord, canonicalDirectory);
+          },
+        })
+      );
       catalogs = this.registry.readSeatCatalogs(plan.seat_id);
       const stagedSemanticSnapshot = verifyImmutableTargetSnapshot(plan, this.getActiveSeatId(), catalogs);
       if (stagedSemanticSnapshot.ok === false) throw new ProjectWorkspaceError(stagedSemanticSnapshot.reason_code);
@@ -906,12 +1149,15 @@ export class ProjectWorkspaceService {
       this.runPhase('adopt:promoted');
       this.refreshLease(acquired.lease_path, ownerToken);
       if (!this.semanticCoordinator) throw new ProjectWorkspaceError('semantic.coordinator-required');
-      this.semanticCoordinator.commit(
-        this.semanticLifecycleInput({
-          journal,
-          project_path: canonicalDirectory,
-          root_record: rootRecord,
-        })
+      await this.withLeaseHeartbeat(acquired.lease_path, ownerToken, (assertLeaseAlive) =>
+        this.semanticCoordinator!.commit(
+          this.semanticLifecycleInput({
+            journal,
+            project_path: canonicalDirectory,
+            root_record: rootRecord,
+            assert_lease_alive: assertLeaseAlive,
+          })
+        )
       );
       this.assertProjectMutationAllowed(plan.seat_id, rootRecord, canonicalDirectory);
       journal = advanceProjectJournal(this.registry.stateRoot, journal, 'semantic_committed', this.timestamp());
@@ -964,31 +1210,25 @@ export class ProjectWorkspaceService {
         escapedCrash = true;
         throw error;
       }
-      let removed = false;
-      if (
-        journal.phase === 'leased' ||
-        journal.phase === 'preflighted' ||
-        journal.phase === 'semantic_staged' ||
-        journal.phase === 'staging' ||
-        journal.phase === 'staged'
-      ) {
-        const semanticRolledBack = this.rollbackSemanticIfBound({
-          journal,
-          project_path: canonicalDirectory,
-          root_record: rootRecord,
-        });
-        removed =
-          semanticRolledBack &&
-          removeAdoptionAdditions(canonicalDirectory, journal.created_files, journal.created_directories);
-        advanceProjectJournal(
-          this.registry.stateRoot,
-          journal,
-          removed ? 'undone' : 'recovery_required',
-          this.timestamp(),
-          removed ? {} : { reason_code: 'workspace.recovery-required' }
-        );
+      if (PROVISIONING_UNDO_SOURCE_PHASES.has(journal.phase) || ACTIVE_UNDO_PHASES.has(journal.phase)) {
+        try {
+          journal = await this.continueProjectUndo({
+            journal,
+            physical_path: canonicalDirectory,
+            semantic_project_path: canonicalDirectory,
+            root_record: rootRecord,
+            lease_path: acquired.lease_path,
+            owner_token: ownerToken,
+          });
+        } catch (rollbackError) {
+          if (!(rollbackError instanceof ProjectWorkspaceError)) {
+            escapedCrash = true;
+            throw rollbackError;
+          }
+          journal = readProjectJournal(projectJournalPath(this.registry.stateRoot, journal.transaction_id));
+        }
       } else {
-        advanceProjectJournal(this.registry.stateRoot, journal, 'recovery_required', this.timestamp(), {
+        advanceProjectJournal(this.registry.stateRoot, journal, journal.phase, this.timestamp(), {
           reason_code: error.reason_code,
         });
       }
@@ -996,14 +1236,14 @@ export class ProjectWorkspaceService {
       return {
         ok: false,
         reason_code: error.reason_code,
-        ...(!removed ? { recovery_required: true } : {}),
+        ...(journal.phase !== 'undone' ? { recovery_required: true } : {}),
       };
     } finally {
       if (!escapedCrash && fs.existsSync(acquired.lease_path)) releaseProjectLease(acquired.lease_path, ownerToken);
     }
   }
 
-  recoverAll(): ProjectRecoveryResult[] {
+  async recoverAll(): Promise<ProjectRecoveryResult[]> {
     const results: ProjectRecoveryResult[] = [];
     for (const entry of listProjectJournals(this.registry.stateRoot)) {
       let journal = entry.journal;
@@ -1045,19 +1285,19 @@ export class ProjectWorkspaceService {
       const acquired = acquireProjectLease({
         lease_directory: path.join(this.registry.stateRoot, 'leases'),
         key,
+        transaction_id: journal.transaction_id,
+        lineage_owner_token_sha256: journal.owner_token_sha256,
         owner_token: ownerToken,
         ttl_ms: this.leaseTtlMs,
-        now_ms: this.now().getTime(),
-        can_take_over_stale: (lease) => lease.owner_token_sha256 === journal.owner_token_sha256,
+        now_ms: this.leaseNowMs(),
+        can_take_over_stale: (lease) => lease.transaction_id === journal.transaction_id,
       });
       if (acquired.ok === false) {
         results.push({ ok: false, reason_code: acquired.reason_code, transaction_id: journal.transaction_id });
         continue;
       }
-      journal = advanceProjectJournal(this.registry.stateRoot, journal, journal.phase, this.timestamp(), {
-        lease_path: acquired.lease_path,
-        owner_token_sha256: leaseOwnerTokenSha256(ownerToken),
-      });
+      this.runPhase('recovery:lease:acquired');
+      journal = advanceProjectJournal(this.registry.stateRoot, journal, journal.phase, this.timestamp());
       try {
         this.assertProjectMutationAllowed(journal.identity.seat_id, context.root_record, context.final_path);
         if (terminalPhase) {
@@ -1069,111 +1309,34 @@ export class ProjectWorkspaceService {
           journal.phase === 'staged' &&
           !fs.existsSync(context.staging_path) &&
           fs.existsSync(context.final_path);
-        if (
-          !observedCreatePromotion &&
-          (journal.phase === 'leased' ||
-            journal.phase === 'preflighted' ||
-            journal.phase === 'semantic_staged' ||
-            journal.phase === 'staging' ||
-            journal.phase === 'staged')
-        ) {
-          if (journal.semantic_preflight_receipt_id) {
-            if (!this.semanticCoordinator) throw new ProjectWorkspaceError('semantic.coordinator-required');
-            this.semanticCoordinator.rollback(
-              this.semanticLifecycleInput({
-                journal,
-                project_path: context.final_path,
-                root_record: context.root_record,
-              })
-            );
-          }
-          this.assertProjectMutationAllowed(journal.identity.seat_id, context.root_record, context.staging_path);
-          const removed = !fs.existsSync(context.staging_path)
-            ? true
-            : journal.operation === 'adopt'
-              ? removeAdoptionAdditions(
-                  context.staging_path,
-                  journal.created_files,
-                  journal.created_directories,
-                  [],
-                  (targetPath) =>
-                    this.assertProjectMutationAllowed(journal.identity.seat_id, context.root_record, targetPath),
-                  true
-                )
-              : removeCreatedTree(
-                  context.staging_path,
-                  journal.created_files,
-                  journal.created_directories,
-                  [],
-                  (targetPath) =>
-                    this.assertProjectMutationAllowed(journal.identity.seat_id, context.root_record, targetPath),
-                  true
-                );
-          if (!removed) {
-            advanceProjectJournal(this.registry.stateRoot, journal, 'recovery_required', this.timestamp(), {
-              reason_code: 'workspace.recovery-required',
-            });
-            results.push({
-              ok: false,
-              reason_code: 'workspace.recovery-required',
-              transaction_id: journal.transaction_id,
-            });
-            continue;
-          }
-          advanceProjectJournal(this.registry.stateRoot, journal, 'undone', this.timestamp());
-          results.push({ ok: true, action: 'rolled_back', transaction_id: journal.transaction_id });
+        if (journal.phase === 'rollback_pending') {
+          journal = advanceProjectJournal(this.registry.stateRoot, journal, 'recovery_required', this.timestamp(), {
+            reason_code: 'workspace.recovery-required',
+          });
+          results.push({
+            ok: false,
+            reason_code: 'workspace.recovery-required',
+            transaction_id: journal.transaction_id,
+          });
           continue;
         }
-        if (journal.phase === 'rollback_pending') {
-          if (!this.semanticCoordinator) throw new ProjectWorkspaceError('semantic.coordinator-required');
-          this.semanticCoordinator.rollback(
-            this.semanticLifecycleInput({
-              journal,
-              project_path: context.final_path,
-              root_record: context.root_record,
-            })
-          );
-          const receiptPath = path.join(
-            context.final_path,
-            '.command-eve',
-            'receipts',
-            `${journal.transaction_id}.json`
-          );
-          const relativeReceipt = path.relative(context.final_path, receiptPath).split(path.sep).join('/');
-          const removed = !fs.existsSync(context.final_path)
-            ? true
-            : journal.operation === 'adopt'
-              ? removeAdoptionAdditions(
-                  context.final_path,
-                  journal.created_files,
-                  journal.created_directories,
-                  [relativeReceipt],
-                  (targetPath) =>
-                    this.assertProjectMutationAllowed(journal.identity.seat_id, context.root_record, targetPath),
-                  true
-                )
-              : removeCreatedTree(
-                  context.final_path,
-                  journal.created_files,
-                  journal.created_directories,
-                  [relativeReceipt],
-                  (targetPath) =>
-                    this.assertProjectMutationAllowed(journal.identity.seat_id, context.root_record, targetPath),
-                  true
-                );
-          if (!removed) {
-            advanceProjectJournal(this.registry.stateRoot, journal, 'recovery_required', this.timestamp(), {
-              reason_code: 'workspace.recovery-required',
-            });
-            results.push({
-              ok: false,
-              reason_code: 'workspace.recovery-required',
-              transaction_id: journal.transaction_id,
-            });
-            continue;
-          }
-          this.registry.removeProject(journal.identity.seat_id, journal.identity.project_id);
-          advanceProjectJournal(this.registry.stateRoot, journal, 'undone', this.timestamp());
+        if (
+          ACTIVE_UNDO_PHASES.has(journal.phase) ||
+          (!observedCreatePromotion && PROVISIONING_UNDO_SOURCE_PHASES.has(journal.phase))
+        ) {
+          const undoOrigin = journal.undo_quarantine_plan?.origin;
+          const physicalPath =
+            undoOrigin === 'committed-undo' || journal.operation === 'adopt'
+              ? context.final_path
+              : context.staging_path;
+          journal = await this.continueProjectUndo({
+            journal,
+            physical_path: physicalPath,
+            semantic_project_path: context.final_path,
+            root_record: context.root_record,
+            lease_path: acquired.lease_path,
+            owner_token: ownerToken,
+          });
           results.push({ ok: true, action: 'rolled_back', transaction_id: journal.transaction_id });
           continue;
         }
@@ -1237,12 +1400,15 @@ export class ProjectWorkspaceService {
         this.assertProjectMutationAllowed(journal.identity.seat_id, root, context.final_path);
         if (journal.phase === 'promoted' || observedCreatePromotion) {
           if (!this.semanticCoordinator) throw new ProjectWorkspaceError('semantic.coordinator-required');
-          this.semanticCoordinator.recover(
-            this.semanticLifecycleInput({
-              journal,
-              project_path: context.final_path,
-              root_record: root,
-            })
+          await this.withLeaseHeartbeat(acquired.lease_path, ownerToken, (assertLeaseAlive) =>
+            this.semanticCoordinator!.recover(
+              this.semanticLifecycleInput({
+                journal,
+                project_path: context.final_path,
+                root_record: root,
+                assert_lease_alive: assertLeaseAlive,
+              })
+            )
           );
           journal = advanceProjectJournal(this.registry.stateRoot, journal, 'semantic_committed', this.timestamp());
         }
@@ -1323,7 +1489,7 @@ export class ProjectWorkspaceService {
     return results;
   }
 
-  undo(receiptPath: string): ProjectUndoResult {
+  async undo(receiptPath: string): Promise<ProjectUndoResult> {
     const resolvedReceiptPath = path.resolve(receiptPath);
     let parsed;
     try {
@@ -1416,9 +1582,11 @@ export class ProjectWorkspaceService {
     const acquired = acquireProjectLease({
       lease_directory: path.join(this.registry.stateRoot, 'leases'),
       key: leaseKey,
+      transaction_id: receipt.transaction_id,
+      lineage_owner_token_sha256: journal.owner_token_sha256,
       owner_token: ownerToken,
       ttl_ms: this.leaseTtlMs,
-      now_ms: this.now().getTime(),
+      now_ms: this.leaseNowMs(),
       can_take_over_stale: () => false,
     });
     if (acquired.ok === false) {
@@ -1437,55 +1605,51 @@ export class ProjectWorkspaceService {
           updated_at: this.timestamp(),
           reason_code: 'workspace.undo-hash-mismatch',
         };
+        this.refreshLease(acquired.lease_path, ownerToken);
         this.assertProjectMutationAllowed(receipt.identity.seat_id, root, resolvedReceiptPath);
         writeJsonAtomic(resolvedReceiptPath, recoveryReceipt);
+        this.refreshLease(acquired.lease_path, ownerToken);
         this.registry.markProjectRecoveryRequired(receipt.identity.seat_id, receipt.identity.project_id);
+        this.refreshLease(acquired.lease_path, ownerToken);
         advanceProjectJournal(this.registry.stateRoot, journal, 'recovery_required', this.timestamp(), {
           reason_code: 'workspace.undo-hash-mismatch',
         });
         return { ok: false, status: 'recovery_required', reason_code: 'workspace.undo-hash-mismatch' };
       }
-
-      journal = advanceProjectJournal(this.registry.stateRoot, journal, 'rollback_pending', this.timestamp(), {
-        lease_path: acquired.lease_path,
-        owner_token_sha256: leaseOwnerTokenSha256(ownerToken),
-      });
-      this.semanticCoordinator.rollback(
-        this.semanticLifecycleInput({
-          journal,
-          project_path: projectPath,
-          root_record: root,
+      const catalogProof: ProjectUndoCatalogProofV1 = {
+        expected_revision: catalogs.projects.revision,
+        expected_record: project,
+      };
+      if (
+        !buildProjectUndoQuarantinePlan({
+          transaction_id: journal.transaction_id,
+          origin: 'committed-undo',
+          operation: journal.operation,
+          root: projectPath,
+          created_files: journal.created_files,
+          created_directories: journal.created_directories,
+          receipt_relative_path: relativeReceipt,
+          catalog_proof: catalogProof,
         })
-      );
-      const beforeMutation = (targetPath: string) =>
-        this.assertProjectMutationAllowed(receipt.identity.seat_id, root, targetPath);
-      const removed =
-        journal.operation === 'adopt'
-          ? removeAdoptionAdditions(
-              projectPath,
-              receipt.created_files,
-              receipt.created_directories,
-              [relativeReceipt],
-              beforeMutation
-            )
-          : removeCreatedTree(
-              projectPath,
-              receipt.created_files,
-              receipt.created_directories,
-              [relativeReceipt],
-              beforeMutation
-            );
-      if (!removed) {
-        advanceProjectJournal(this.registry.stateRoot, journal, 'recovery_required', this.timestamp(), {
-          reason_code: 'workspace.recovery-required',
-        });
+      ) {
         return { ok: false, status: 'recovery_required', reason_code: 'workspace.recovery-required' };
       }
-      this.assertActiveSeat(receipt.identity.seat_id);
-      this.registry.removeProject(receipt.identity.seat_id, receipt.identity.project_id);
-      advanceProjectJournal(this.registry.stateRoot, journal, 'undone', this.timestamp());
+      journal = await this.continueProjectUndo({
+        journal,
+        physical_path: projectPath,
+        semantic_project_path: projectPath,
+        root_record: root,
+        lease_path: acquired.lease_path,
+        owner_token: ownerToken,
+        receipt_relative_path: relativeReceipt,
+        catalog_proof: catalogProof,
+      });
+      if (journal.phase !== 'undone') {
+        return { ok: false, status: 'recovery_required', reason_code: 'workspace.recovery-required' };
+      }
       return { ok: true, status: 'undone' };
-    } catch {
+    } catch (error) {
+      if (!(error instanceof ProjectWorkspaceError)) throw error;
       return { ok: false, status: 'recovery_required', reason_code: 'workspace.recovery-required' };
     } finally {
       releaseProjectLease(acquired.lease_path, ownerToken);

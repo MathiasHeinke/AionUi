@@ -1,5 +1,9 @@
 import crypto from 'node:crypto';
-import type { ProjectIdentityTuple } from '@/common/types/project-workspace/identity';
+import {
+  parseProjectId,
+  parseWorkspaceRootRef,
+  type ProjectIdentityTuple,
+} from '@/common/types/project-workspace/identity';
 import type { ProposedDomain } from '@/common/types/project-workspace/intent';
 import type { ProjectManifestV1 } from '@/common/types/project-workspace/manifest';
 import type { ProjectWorkspaceReasonCode } from '@/common/types/project-workspace/reasonCodes';
@@ -22,6 +26,13 @@ export type ProjectSemanticLocalWrite = {
 export type ProjectSemanticBundleBinding = {
   base_bundle_sha256: string;
   bundle_sha256: string;
+  effect_plan_sha256: string;
+  initial_conversation_binding: {
+    project_id: string;
+    workspace_root_ref: `root:${string}`;
+  } | null;
+  initial_project_binding_revision: number;
+  initial_project_binding_receipt_id: string | null;
   preflight_receipt_id: string;
   semantic_context_ref: string;
   semantic_context_sha256: string;
@@ -44,6 +55,10 @@ export type ProjectSemanticPreflightResult =
   | {
       ok: true;
       extension_bundle_sha256: string;
+      effect_plan_sha256: string;
+      initial_conversation_binding: ProjectSemanticBundleBinding['initial_conversation_binding'];
+      initial_project_binding_revision: number;
+      initial_project_binding_receipt_id: string | null;
       preflight_receipt_id: string;
       semantic_context_ref: string;
       semantic_context_sha256: string;
@@ -65,17 +80,26 @@ export type ProjectSemanticLifecycleInput = {
   assert_mutation_allowed: () => void;
 };
 
+export type ProjectSemanticRemovalFinalizeInput = ProjectSemanticLifecycleInput & {
+  /** Re-read the durable service journal and reject unless filesystem removal is committed. */
+  assert_removal_committed: () => void;
+};
+
 export type ProjectSemanticCoordinator = {
   /** Pure boundary/meta validation. No sidecar, Brain, Wiki, index, or conversation mutation is allowed here. */
-  preflight: (input: ProjectSemanticPreflightInput) => ProjectSemanticPreflightResult;
+  preflight: (input: ProjectSemanticPreflightInput) => Promise<ProjectSemanticPreflightResult>;
   /** Atomically stage the strict-private context sidecar after PASS and before scaffold mutation. */
-  stage: (input: ProjectSemanticStageInput) => void;
+  stage: (input: ProjectSemanticStageInput) => Promise<void>;
   /** Idempotent by bundle/ref; load and verify the strict sidecar before every mutation. */
-  commit: (input: ProjectSemanticLifecycleInput) => void;
+  commit: (input: ProjectSemanticLifecycleInput) => Promise<void>;
   /** Reconcile an interrupted commit from the strict sidecar; never infer a new bundle. */
-  recover: (input: ProjectSemanticLifecycleInput) => void;
+  recover: (input: ProjectSemanticLifecycleInput) => Promise<void>;
   /** Remove only coordinator-owned, unchanged writes and the verified strict sidecar. */
-  rollback: (input: ProjectSemanticLifecycleInput) => void;
+  rollback: (input: ProjectSemanticLifecycleInput) => Promise<void>;
+  /** Remove coordinator-owned effects while retaining the strict sidecar as the restart witness. */
+  prepareRemovalRollback: (input: ProjectSemanticLifecycleInput) => Promise<void>;
+  /** Reconcile removal idempotently and unlink the sidecar only after durable removal-commit proof. */
+  finalizeRemovalRollback: (input: ProjectSemanticRemovalFinalizeInput) => Promise<void>;
 };
 
 function sha256Canonical(value: unknown): string {
@@ -115,6 +139,33 @@ function normalizeProposedDomains(values: unknown): ProposedDomain[] | undefined
   }
   if (byKey.size > 64) return undefined;
   return [...byKey.entries()].toSorted(([left], [right]) => left.localeCompare(right)).map(([, value]) => value);
+}
+
+function validInitialConversationBinding(value: ProjectSemanticBundleBinding['initial_conversation_binding']): boolean {
+  if (value === null) return true;
+  if (
+    typeof value !== 'object' ||
+    Array.isArray(value) ||
+    Object.keys(value).length !== 2 ||
+    !Object.hasOwn(value, 'project_id') ||
+    !Object.hasOwn(value, 'workspace_root_ref')
+  ) {
+    return false;
+  }
+  try {
+    parseProjectId(value.project_id);
+    parseWorkspaceRootRef(value.workspace_root_ref);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function validProjectBindingReceiptId(value: unknown): value is string | null {
+  return (
+    value === null ||
+    (typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value))
+  );
 }
 
 export function buildProjectSemanticBaseBundle(
@@ -161,7 +212,7 @@ export function buildProjectSemanticBaseBundle(
   return { base_bundle_sha256: baseBundleSha256, local_writes: localWrites };
 }
 
-export function preflightProjectSemanticBundle(input: {
+export async function preflightProjectSemanticBundle(input: {
   operation: 'create' | 'adopt';
   transaction_id: string;
   conversation_id: string;
@@ -170,13 +221,14 @@ export function preflightProjectSemanticBundle(input: {
   proposed_domains: readonly ProposedDomain[];
   coordinator?: ProjectSemanticCoordinator;
   included_relative_paths?: readonly string[];
-}):
+}): Promise<
   | {
       ok: true;
       binding: ProjectSemanticBundleBinding;
       preflight_input: ProjectSemanticPreflightInput;
     }
-  | { ok: false; reason_code: ProjectWorkspaceReasonCode } {
+  | { ok: false; reason_code: ProjectWorkspaceReasonCode }
+> {
   if (!/^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$/.test(input.conversation_id)) {
     return { ok: false, reason_code: 'identity.invalid' };
   }
@@ -205,12 +257,17 @@ export function preflightProjectSemanticBundle(input: {
     base_bundle_sha256: base.base_bundle_sha256,
     local_writes: base.local_writes,
   };
-  const result = input.coordinator.preflight(preflightInput);
+  const result = await input.coordinator.preflight(preflightInput);
   if (result.ok === false) {
     return { ok: false, reason_code: result.reason_code ?? 'semantic.preflight-rejected' };
   }
   if (
     !/^[0-9a-f]{64}$/.test(result.extension_bundle_sha256) ||
+    !/^[0-9a-f]{64}$/.test(result.effect_plan_sha256) ||
+    !validInitialConversationBinding(result.initial_conversation_binding) ||
+    !Number.isSafeInteger(result.initial_project_binding_revision) ||
+    result.initial_project_binding_revision < 0 ||
+    !validProjectBindingReceiptId(result.initial_project_binding_receipt_id) ||
     !/^[0-9a-f]{64}$/.test(result.semantic_context_sha256) ||
     !/^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$/.test(result.preflight_receipt_id) ||
     !/^[A-Za-z0-9][A-Za-z0-9:._-]{0,127}$/.test(result.semantic_context_ref)
@@ -222,11 +279,19 @@ export function preflightProjectSemanticBundle(input: {
     bundle_sha256: sha256Canonical({
       base_bundle_sha256: base.base_bundle_sha256,
       extension_bundle_sha256: result.extension_bundle_sha256,
+      effect_plan_sha256: result.effect_plan_sha256,
+      initial_conversation_binding: result.initial_conversation_binding,
+      initial_project_binding_revision: result.initial_project_binding_revision,
+      initial_project_binding_receipt_id: result.initial_project_binding_receipt_id,
       preflight_receipt_id: result.preflight_receipt_id,
       semantic_context_ref: result.semantic_context_ref,
       semantic_context_sha256: result.semantic_context_sha256,
       proposed_domains_sha256: proposedDomainsSha256,
     }),
+    effect_plan_sha256: result.effect_plan_sha256,
+    initial_conversation_binding: result.initial_conversation_binding,
+    initial_project_binding_revision: result.initial_project_binding_revision,
+    initial_project_binding_receipt_id: result.initial_project_binding_receipt_id,
     preflight_receipt_id: result.preflight_receipt_id,
     semantic_context_ref: result.semantic_context_ref,
     semantic_context_sha256: result.semantic_context_sha256,

@@ -83,6 +83,7 @@ import {
   httpPost,
   httpPut,
   httpRequest,
+  isBackendHttpError,
   stubProvider,
   withResponseMap,
   wsEmitter,
@@ -174,6 +175,43 @@ export const assistants = {
 // Conversation — REST + WS
 // ---------------------------------------------------------------------------
 
+const directConversationWarmup = httpPost<void, { conversation_id: string }>(
+  (p) => `/api/conversations/${p.conversation_id}/warmup`
+);
+const directConversationSend = httpPost<ISendMessageResult, ISendMessageParams>(
+  (p) => `/api/conversations/${p.conversation_id}/messages`,
+  (p) => ({
+    content: p.input,
+    files: p.files,
+    loading_id: p.loading_id,
+    inject_skills: p.inject_skills,
+  })
+);
+
+export const projectWorkspaceRuntime = {
+  send: bridge.buildProvider<ISendMessageResult, ISendMessageParams>('project-workspace.runtime-send'),
+  warmup: bridge.buildProvider<void, { conversation_id: string }>('project-workspace.runtime-warmup'),
+};
+
+async function invokeProjectRuntimeFallback<T>(direct: () => Promise<T>, main: () => Promise<T>): Promise<T> {
+  try {
+    return await direct();
+  } catch (error) {
+    if (!isBackendHttpError(error)) throw error;
+    const bindingRequired =
+      error.status === 400 &&
+      (error.code === 'PROJECT_RUNTIME_BINDING_REQUIRED' ||
+        (error.code === 'BAD_REQUEST' && error.backendMessage === 'PROJECT_RUNTIME_BINDING_REQUIRED'));
+    if (!bindingRequired) throw error;
+    if (typeof window !== 'undefined' && !window.electronAPI) {
+      throw new Error('PROJECT_RUNTIME_ATTESTATION_UNAVAILABLE', {
+        cause: { name: error.name, status: error.status, code: error.code },
+      });
+    }
+    return main();
+  }
+}
+
 export const conversation = {
   create: withResponseMap(
     httpPost<TChatConversation, ICreateConversationParams>('/api/conversations', (p) => {
@@ -240,21 +278,27 @@ export const conversation = {
     }
   ),
   reset: httpPost<void, IResetConversationParams>((p) => `/api/conversations/${p.id}/reset`),
-  warmup: httpPost<void, { conversation_id: string }>((p) => `/api/conversations/${p.conversation_id}/warmup`),
+  warmup: {
+    provider: directConversationWarmup.provider,
+    invoke: (params: { conversation_id: string }) =>
+      invokeProjectRuntimeFallback(
+        () => directConversationWarmup.invoke(params),
+        () => projectWorkspaceRuntime.warmup.invoke(params)
+      ),
+  },
   stop: httpPost<{ runtime: TConversationRuntimeSummary }, { conversation_id: string; turn_id: string }>(
     (p) => `/api/conversations/${p.conversation_id}/cancel`,
     (p) => ({ turn_id: p.turn_id })
   ),
   activeCount: httpGet<{ count: number }>('/api/conversations/active-count'),
-  sendMessage: httpPost<ISendMessageResult, ISendMessageParams>(
-    (p) => `/api/conversations/${p.conversation_id}/messages`,
-    (p) => ({
-      content: p.input,
-      files: p.files,
-      loading_id: p.loading_id,
-      inject_skills: p.inject_skills,
-    })
-  ),
+  sendMessage: {
+    provider: directConversationSend.provider,
+    invoke: (params: ISendMessageParams) =>
+      invokeProjectRuntimeFallback(
+        () => directConversationSend.invoke(params),
+        () => projectWorkspaceRuntime.send.invoke(params)
+      ),
+  },
   steer: httpPost<ISteerMessageResult, ISteerMessageParams>(
     (p) => `/api/conversations/${p.conversation_id}/steer`,
     (p) => ({

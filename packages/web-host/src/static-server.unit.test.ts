@@ -7,6 +7,7 @@ import type { AddressInfo } from 'node:net';
 import {
   injectWebSocketCapabilityHeaders,
   LOCAL_BACKEND_CAPABILITY_HEADER,
+  PROJECT_RUNTIME_ATTESTATION_HEADER,
   startStaticServer,
   type StaticServerHandle,
 } from './static-server.js';
@@ -99,6 +100,7 @@ describe('static-server', () => {
       res.end(
         JSON.stringify({
           capability: req.headers[LOCAL_BACKEND_CAPABILITY_HEADER],
+          attestation: req.headers[PROJECT_RUNTIME_ATTESTATION_HEADER] ?? null,
           authorization: req.headers.authorization,
           origin: req.headers.origin ?? null,
         })
@@ -113,12 +115,17 @@ describe('static-server', () => {
     });
 
     const response = await fetch(`${handle.localUrl}/api/anything`, {
-      headers: { Authorization: 'Bearer user-jwt', Origin: handle.localUrl },
+      headers: {
+        Authorization: 'Bearer user-jwt',
+        Origin: handle.localUrl,
+        'X-AionUI-Project-Runtime-Attestation': 'forged-ticket',
+      },
     });
     const json = (await response.json()) as Record<string, string | null>;
 
     expect(json).toEqual({
       capability: 'process-capability',
+      attestation: null,
       authorization: 'Bearer user-jwt',
       origin: null,
     });
@@ -173,7 +180,12 @@ describe('static-server', () => {
   it('always strips a forged HTTP capability when no server capability is available', async () => {
     const backend = await startMockBackend((req, res) => {
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ capability: req.headers[LOCAL_BACKEND_CAPABILITY_HEADER] ?? null }));
+      res.end(
+        JSON.stringify({
+          capability: req.headers[LOCAL_BACKEND_CAPABILITY_HEADER] ?? null,
+          attestation: req.headers[PROJECT_RUNTIME_ATTESTATION_HEADER] ?? null,
+        })
+      );
     });
     stopBackend = backend.close;
     handle = await startStaticServer({
@@ -184,10 +196,13 @@ describe('static-server', () => {
     });
 
     const response = await fetch(`${handle.localUrl}/api/anything`, {
-      headers: { 'X-AionUI-Local-Capability': 'forged' },
+      headers: {
+        'X-AionUI-Local-Capability': 'forged',
+        'X-AionUI-Project-Runtime-Attestation': 'forged-ticket',
+      },
     });
 
-    expect(await response.json()).toEqual({ capability: null });
+    expect(await response.json()).toEqual({ capability: null, attestation: null });
   });
 
   it('rewrites WebSocket headers without leaking browser Origin or clobbering JWT auth', () => {
@@ -196,7 +211,8 @@ describe('static-server', () => {
         'Host: 127.0.0.1:1234\r\n' +
         'Origin: https://attacker.example\r\n' +
         'Authorization: Bearer user-jwt\r\n' +
-        'X-AionUI-Local-Capability: forged\r\n\r\n' +
+        'X-AionUI-Local-Capability: forged\r\n' +
+        'X-AionUI-Project-Runtime-Attestation: forged-ticket\r\n\r\n' +
         'body'
     );
 
@@ -205,6 +221,7 @@ describe('static-server', () => {
     expect(rewritten).toContain('Authorization: Bearer user-jwt');
     expect(rewritten).toContain(`${LOCAL_BACKEND_CAPABILITY_HEADER}: process-capability`);
     expect(rewritten.toLowerCase()).not.toContain('origin:');
+    expect(rewritten.toLowerCase()).not.toContain(PROJECT_RUNTIME_ATTESTATION_HEADER);
     expect(rewritten).not.toContain('forged');
     expect(rewritten.endsWith('body')).toBe(true);
   });
@@ -214,13 +231,15 @@ describe('static-server', () => {
       'GET /ws HTTP/1.1\r\n' +
         'Host: 127.0.0.1:1234\r\n' +
         'Origin: http://127.0.0.1:1234\r\n' +
-        'X-AionUI-Local-Capability: forged\r\n\r\n'
+        'X-AionUI-Local-Capability: forged\r\n' +
+        'X-AionUI-Project-Runtime-Attestation: forged-ticket\r\n\r\n'
     );
 
     const rewritten = injectWebSocketCapabilityHeaders(request, '').toString('latin1');
 
     expect(rewritten.toLowerCase()).not.toContain('origin:');
     expect(rewritten.toLowerCase()).not.toContain(LOCAL_BACKEND_CAPABILITY_HEADER);
+    expect(rewritten.toLowerCase()).not.toContain(PROJECT_RUNTIME_ATTESTATION_HEADER);
     expect(rewritten).not.toContain('forged');
   });
 

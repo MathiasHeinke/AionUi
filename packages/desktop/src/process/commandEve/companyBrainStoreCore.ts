@@ -51,10 +51,12 @@
  * entry are produced today.
  */
 
+import crypto from 'node:crypto';
 import fs from 'fs';
 import path from 'path';
 
 import { COMPANY_BRAIN_DIR, readCompanyBrainSeedStateFromHome } from '@process/commandEve/companyBrainSeedCore';
+import { withExclusiveFileLock } from '@process/services/project-workspace/storage/atomicJson';
 
 /** Schema tag for the multi-entry index (company-brain/brain.json). */
 export const COMMAND_EVE_COMPANY_BRAIN_SCHEMA = 'command-eve-company-brain/v2';
@@ -192,6 +194,257 @@ const assertAbsoluteHome = (hermesHome: string): void => {
 const brainDirOf = (hermesHome: string): string => path.join(hermesHome, COMPANY_BRAIN_DIR);
 const brainJsonOf = (hermesHome: string): string => path.join(brainDirOf(hermesHome), 'brain.json');
 const entriesDirOf = (hermesHome: string): string => path.join(brainDirOf(hermesHome), ENTRIES_SUBDIR);
+const activeMutationLocks = new Set<string>();
+
+type ExactRegularFile = {
+  contents: string;
+  dev: number;
+  ino: number;
+  size: number;
+  sha256: string;
+  mtimeMs: number;
+};
+
+type ExactDirectory = { dev: number; ino: number; realPath: string };
+
+function isMissing(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException).code === 'ENOENT';
+}
+
+function lstatIfPresent(file: string): fs.Stats | undefined {
+  try {
+    return fs.lstatSync(file);
+  } catch (error) {
+    if (isMissing(error)) return undefined;
+    throw error;
+  }
+}
+
+function exactDirectory(directory: string, label: string): ExactDirectory | undefined {
+  const before = lstatIfPresent(directory);
+  if (!before) return undefined;
+  if (before.isSymbolicLink() || !before.isDirectory()) {
+    throw new Error(`Command EVE: ${label} must be a real directory.`);
+  }
+  const realPath = fs.realpathSync(directory);
+  const after = fs.lstatSync(directory);
+  if (after.isSymbolicLink() || !after.isDirectory() || after.dev !== before.dev || after.ino !== before.ino) {
+    throw new Error(`Command EVE: ${label} changed while it was being validated.`);
+  }
+  return { dev: before.dev, ino: before.ino, realPath };
+}
+
+function ensureRealDirectory(directory: string, label: string): ExactDirectory {
+  try {
+    fs.mkdirSync(directory, { mode: 0o700 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+  }
+  const exact = exactDirectory(directory, label);
+  if (!exact) throw new Error(`Command EVE: failed to create ${label}.`);
+  return exact;
+}
+
+function existingBrainDirectory(hermesHome: string): ExactDirectory | undefined {
+  assertAbsoluteHome(hermesHome);
+  return exactDirectory(brainDirOf(hermesHome), 'company-brain/');
+}
+
+function ensureBrainDirectory(hermesHome: string): ExactDirectory {
+  assertAbsoluteHome(hermesHome);
+  fs.mkdirSync(path.resolve(hermesHome), { recursive: true, mode: 0o700 });
+  return ensureRealDirectory(brainDirOf(hermesHome), 'company-brain/');
+}
+
+/**
+ * Resolve entries/ without following a symlink and prove that its canonical path
+ * remains the direct child of the canonical company-brain directory.
+ */
+function existingEntriesDirectory(hermesHome: string): string | undefined {
+  const brain = existingBrainDirectory(hermesHome);
+  if (!brain) return undefined;
+  const entriesPath = entriesDirOf(hermesHome);
+  const entries = exactDirectory(entriesPath, 'company-brain/entries/');
+  if (!entries) return undefined;
+  if (
+    path.dirname(path.resolve(entriesPath)) !== path.resolve(brainDirOf(hermesHome)) ||
+    path.dirname(entries.realPath) !== brain.realPath ||
+    path.basename(entries.realPath) !== ENTRIES_SUBDIR
+  ) {
+    throw new Error('Command EVE: company-brain/entries/ escaped its canonical storage boundary.');
+  }
+  return entriesPath;
+}
+
+function ensureEntriesDirectory(hermesHome: string): string {
+  const brain = ensureBrainDirectory(hermesHome);
+  const entriesPath = entriesDirOf(hermesHome);
+  const entries = ensureRealDirectory(entriesPath, 'company-brain/entries/');
+  if (
+    path.dirname(path.resolve(entriesPath)) !== path.resolve(brainDirOf(hermesHome)) ||
+    path.dirname(entries.realPath) !== brain.realPath ||
+    path.basename(entries.realPath) !== ENTRIES_SUBDIR
+  ) {
+    throw new Error('Command EVE: company-brain/entries/ escaped its canonical storage boundary.');
+  }
+  return entriesPath;
+}
+
+function exactRegularFile(file: string): ExactRegularFile | undefined {
+  const before = lstatIfPresent(file);
+  if (!before) return undefined;
+  if (before.isSymbolicLink() || !before.isFile()) {
+    throw new Error('Command EVE: company-brain body/index path must be a regular file.');
+  }
+  let descriptor: number | undefined;
+  try {
+    descriptor = fs.openSync(
+      file,
+      fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0) | (fs.constants.O_NONBLOCK ?? 0)
+    );
+    const descriptorStat = fs.fstatSync(descriptor);
+    if (!descriptorStat.isFile()) {
+      throw new Error('Command EVE: company-brain body/index descriptor is not a regular file.');
+    }
+    const contents = fs.readFileSync(descriptor, 'utf8');
+    const descriptorAfterRead = fs.fstatSync(descriptor);
+    const pathStat = fs.lstatSync(file);
+    if (
+      pathStat.isSymbolicLink() ||
+      !pathStat.isFile() ||
+      pathStat.dev !== descriptorStat.dev ||
+      pathStat.ino !== descriptorStat.ino ||
+      descriptorAfterRead.size !== descriptorStat.size ||
+      descriptorAfterRead.mtimeMs !== descriptorStat.mtimeMs ||
+      pathStat.size !== descriptorAfterRead.size ||
+      pathStat.mtimeMs !== descriptorAfterRead.mtimeMs ||
+      descriptorAfterRead.dev !== descriptorStat.dev ||
+      descriptorAfterRead.ino !== descriptorStat.ino ||
+      descriptorAfterRead.size !== Buffer.byteLength(contents, 'utf8')
+    ) {
+      throw new Error('Command EVE: company-brain body/index changed while it was being read.');
+    }
+    return {
+      contents,
+      dev: descriptorStat.dev,
+      ino: descriptorStat.ino,
+      size: descriptorAfterRead.size,
+      sha256: crypto.createHash('sha256').update(contents, 'utf8').digest('hex'),
+      mtimeMs: descriptorAfterRead.mtimeMs,
+    };
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
+}
+
+function sameExactFile(left: ExactRegularFile, right: ExactRegularFile): boolean {
+  return (
+    left.dev === right.dev &&
+    left.ino === right.ino &&
+    left.size === right.size &&
+    left.sha256 === right.sha256 &&
+    left.contents === right.contents
+  );
+}
+
+function writeBodyAtomic(hermesHome: string, name: string, contents: string): string {
+  const entriesDirectory = ensureEntriesDirectory(hermesHome);
+  const file = path.join(entriesDirectory, name);
+  writeFileAtomic(file, contents);
+  // A parent-directory replacement must never turn a successful write into an
+  // out-of-bound publication.
+  ensureEntriesDirectory(hermesHome);
+  return file;
+}
+
+function writeBodyCreateOnly(hermesHome: string, name: string, contents: string): ExactRegularFile {
+  const entriesDirectory = ensureEntriesDirectory(hermesHome);
+  const file = path.join(entriesDirectory, name);
+  fs.writeFileSync(file, contents, { mode: 0o600, flag: 'wx' });
+  ensureEntriesDirectory(hermesHome);
+  const snapshot = exactRegularFile(file);
+  if (!snapshot || snapshot.contents !== contents) {
+    throw new Error('Command EVE: create-only company-brain staging body changed while it was written.');
+  }
+  return snapshot;
+}
+
+function unlinkExactRegularFileIfPresent(hermesHome: string, name: string, expected?: ExactRegularFile): boolean {
+  const entriesDirectory = existingEntriesDirectory(hermesHome);
+  if (!entriesDirectory) return false;
+  const file = path.join(entriesDirectory, name);
+  const observed = exactRegularFile(file);
+  if (!observed) return false;
+  if (expected && !sameExactFile(observed, expected)) {
+    throw new Error('Command EVE: company-brain body ownership changed before removal.');
+  }
+  const immediatelyBeforeUnlink = exactRegularFile(file);
+  if (!immediatelyBeforeUnlink || !sameExactFile(observed, immediatelyBeforeUnlink)) {
+    throw new Error('Command EVE: company-brain body changed immediately before removal.');
+  }
+  fs.unlinkSync(file);
+  return true;
+}
+
+function brainMutationLockPath(hermesHome: string): string {
+  return path.join(path.resolve(hermesHome), COMPANY_BRAIN_DIR, 'brain.json.lock');
+}
+
+function hasCompanyBrainMutationLock(hermesHome: string): boolean {
+  return activeMutationLocks.has(brainMutationLockPath(hermesHome));
+}
+
+/**
+ * One cross-process mutation fence for every brain.json read-modify-write path.
+ * The callback is synchronous by contract, so a same-stack nested store operation
+ * can safely reuse the held lock without opening an interleaving window.
+ */
+export function withCompanyBrainMutationLock<T>(hermesHome: string, operation: () => T): T {
+  assertAbsoluteHome(hermesHome);
+  const lockPath = brainMutationLockPath(hermesHome);
+  if (activeMutationLocks.has(lockPath)) return operation();
+  return withExclusiveFileLock(lockPath, () => {
+    activeMutationLocks.add(lockPath);
+    try {
+      return operation();
+    } finally {
+      activeMutationLocks.delete(lockPath);
+    }
+  });
+}
+
+function withCompanyBrainMutationLocks<T>(hermesHomes: readonly string[], operation: () => T): T {
+  const ordered = [
+    ...new Set(
+      hermesHomes.map((home) => {
+        assertAbsoluteHome(home);
+        return path.resolve(home);
+      })
+    ),
+  ].toSorted((left, right) => brainMutationLockPath(left).localeCompare(brainMutationLockPath(right)));
+
+  const alreadyHeld = ordered.filter((home) => activeMutationLocks.has(brainMutationLockPath(home)));
+  if (alreadyHeld.length > 0 && alreadyHeld.length !== ordered.length) {
+    throw new Error('Command EVE: refusing an out-of-order partial two-home mutation lock acquisition.');
+  }
+
+  const acquire = (index: number): T => {
+    if (index >= ordered.length) return operation();
+    const home = ordered[index];
+    const lockPath = brainMutationLockPath(home);
+    if (activeMutationLocks.has(lockPath)) return acquire(index + 1);
+    return withExclusiveFileLock(lockPath, () => {
+      activeMutationLocks.add(lockPath);
+      try {
+        return acquire(index + 1);
+      } finally {
+        activeMutationLocks.delete(lockPath);
+      }
+    });
+  };
+
+  return acquire(0);
+}
 
 /**
  * Fail-closed entry-id validation (assertSeatId discipline): an id is a bare
@@ -239,11 +492,37 @@ const slugify = (input: string): string =>
  * so a pathological title can never produce an unsafe id.
  */
 const deriveEntryId = (kind: CompanyBrainWriteKind, title: string): string => {
-  const titleSlug = slugify(title);
-  const rand = Math.random().toString(36).slice(2, 8);
-  const base = titleSlug.length > 0 ? `${kind}-${titleSlug}-${rand}` : `${kind}-${rand}`;
-  return assertEntryId(base.slice(0, 64).replace(/-+$/g, '') || `${kind}-${rand}`);
+  const nonce = crypto.randomUUID().replaceAll('-', '').slice(0, 12);
+  const titleBudget = Math.max(0, 64 - kind.length - nonce.length - 2);
+  const titleSlug = slugify(title).slice(0, titleBudget).replace(/-+$/g, '');
+  return assertEntryId(titleSlug.length > 0 ? `${kind}-${titleSlug}-${nonce}` : `${kind}-${nonce}`);
 };
+
+/**
+ * An omitted id always means CREATE. A UUID collision (index or disk) is retried;
+ * it must never silently turn the operation into edit semantics.
+ */
+function deriveUnusedEntryId(
+  hermesHome: string,
+  index: CompanyBrainIndex,
+  kind: CompanyBrainWriteKind,
+  title: string
+): string {
+  const entriesDirectory = ensureEntriesDirectory(hermesHome);
+  const indexedIds = new Set(index.entries.map((entry) => entry.id));
+  for (let attempt = 0; attempt < 16; attempt += 1) {
+    const candidate = deriveEntryId(kind, title);
+    if (indexedIds.has(candidate)) continue;
+    if (
+      lstatIfPresent(path.join(entriesDirectory, `${candidate}.md`)) ||
+      lstatIfPresent(path.join(entriesDirectory, `.staging-${candidate}.md`))
+    ) {
+      continue;
+    }
+    return candidate;
+  }
+  throw new Error('Command EVE: failed to allocate a collision-free company-brain entry id.');
+}
 
 const emptyIndex = (): CompanyBrainIndex => ({ schema_version: COMMAND_EVE_COMPANY_BRAIN_SCHEMA, entries: [] });
 
@@ -283,6 +562,80 @@ const coerceIndex = (parsed: unknown): CompanyBrainIndex => {
   return { schema_version: COMMAND_EVE_COMPANY_BRAIN_SCHEMA, entries };
 };
 
+function strictIndex(parsed: unknown): CompanyBrainIndex {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Command EVE: malformed company-brain index.');
+  }
+  const record = parsed as Record<string, unknown>;
+  if (
+    Object.keys(record).length !== 2 ||
+    !Object.hasOwn(record, 'schema_version') ||
+    !Object.hasOwn(record, 'entries') ||
+    record.schema_version !== COMMAND_EVE_COMPANY_BRAIN_SCHEMA ||
+    !Array.isArray(record.entries)
+  ) {
+    throw new Error('Command EVE: malformed company-brain index.');
+  }
+
+  const ids = new Set<string>();
+  const entries = record.entries.map((candidate): CompanyBrainEntry => {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+      throw new Error('Command EVE: malformed company-brain index entry.');
+    }
+    const entry = candidate as Record<string, unknown>;
+    const keys = ['id', 'kind', 'title', 'updated_at', 'author', 'source', 'body_file'] as const;
+    if (Object.keys(entry).length !== keys.length || !keys.every((key) => Object.hasOwn(entry, key))) {
+      throw new Error('Command EVE: malformed company-brain index entry.');
+    }
+    const id = typeof entry.id === 'string' ? assertEntryId(entry.id) : '';
+    if (
+      !id ||
+      ids.has(id) ||
+      typeof entry.kind !== 'string' ||
+      entry.kind.length === 0 ||
+      typeof entry.title !== 'string' ||
+      entry.title.length === 0 ||
+      typeof entry.updated_at !== 'string' ||
+      entry.updated_at.length === 0 ||
+      (entry.author !== 'user' && entry.author !== 'eve') ||
+      (entry.source !== 'settings' && entry.source !== 'chat' && entry.source !== 'seed-migration') ||
+      entry.body_file !== path.posix.join(ENTRIES_SUBDIR, `${id}.md`)
+    ) {
+      throw new Error('Command EVE: malformed company-brain index entry.');
+    }
+    ids.add(id);
+    return {
+      id,
+      kind: entry.kind,
+      title: entry.title,
+      updated_at: entry.updated_at,
+      author: entry.author,
+      source: entry.source,
+      body_file: entry.body_file,
+    };
+  });
+  return { schema_version: COMMAND_EVE_COMPANY_BRAIN_SCHEMA, entries };
+}
+
+/**
+ * Lossless mutation reader. Public reads remain tolerant, but a read-modify-write
+ * must never turn malformed/partially-valid bytes into a new empty index.
+ */
+function readBrainIndexForMutation(hermesHome: string, allowMissing = false): CompanyBrainIndex {
+  assertAbsoluteHome(hermesHome);
+  const brainDirectory = existingBrainDirectory(hermesHome);
+  if (!brainDirectory) {
+    if (allowMissing) return emptyIndex();
+    throw new Error('Command EVE: company-brain index is absent.');
+  }
+  const snapshot = exactRegularFile(brainJsonOf(hermesHome));
+  if (!snapshot) {
+    if (allowMissing) return emptyIndex();
+    throw new Error('Command EVE: company-brain index is absent.');
+  }
+  return strictIndex(JSON.parse(snapshot.contents) as unknown);
+}
+
 /**
  * Read the index (company-brain/brain.json). A missing/unreadable/malformed file
  * returns an EMPTY index — never throws. Unknown kinds are preserved (read-tolerant).
@@ -290,8 +643,10 @@ const coerceIndex = (parsed: unknown): CompanyBrainIndex => {
 export function readBrainIndex(hermesHome: string): CompanyBrainIndex {
   assertAbsoluteHome(hermesHome);
   try {
-    const raw = fs.readFileSync(brainJsonOf(hermesHome), 'utf8');
-    return coerceIndex(JSON.parse(raw));
+    if (!existingBrainDirectory(hermesHome)) return emptyIndex();
+    const snapshot = exactRegularFile(brainJsonOf(hermesHome));
+    if (!snapshot) return emptyIndex();
+    return coerceIndex(JSON.parse(snapshot.contents));
   } catch {
     return emptyIndex();
   }
@@ -334,7 +689,9 @@ export function listEntriesWithState(hermesHome: string): CompanyBrainEntryWithS
       placeholder !== undefined ? isBlueprintBodyFilled(body, placeholder) : (body ?? '').trim().length > 0;
     let bodyMtimeMs: number | null = null;
     try {
-      bodyMtimeMs = fs.statSync(path.join(entriesDirOf(hermesHome), `${entry.id}.md`)).mtimeMs;
+      const entriesDirectory = existingEntriesDirectory(hermesHome);
+      const snapshot = entriesDirectory ? exactRegularFile(path.join(entriesDirectory, `${entry.id}.md`)) : undefined;
+      bodyMtimeMs = snapshot?.mtimeMs ?? null;
     } catch {
       // missing/unreadable body — null keeps the index timestamp authoritative
     }
@@ -343,7 +700,13 @@ export function listEntriesWithState(hermesHome: string): CompanyBrainEntryWithS
 }
 
 const writeIndex = (hermesHome: string, index: CompanyBrainIndex): void => {
+  ensureBrainDirectory(hermesHome);
+  const existing = lstatIfPresent(brainJsonOf(hermesHome));
+  if (existing && (existing.isSymbolicLink() || !existing.isFile())) {
+    throw new Error('Command EVE: brain.json must be a regular file.');
+  }
   writeFileAtomic(brainJsonOf(hermesHome), `${JSON.stringify(index, null, 2)}\n`);
+  ensureBrainDirectory(hermesHome);
 };
 
 /**
@@ -354,9 +717,13 @@ const writeIndex = (hermesHome: string, index: CompanyBrainIndex): void => {
 export function readEntryBody(hermesHome: string, id: string): string | null {
   assertAbsoluteHome(hermesHome);
   const safeId = assertEntryId(id);
+  const entriesDirectory = existingEntriesDirectory(hermesHome);
+  if (!entriesDirectory) return null;
   try {
-    return fs.readFileSync(path.join(entriesDirOf(hermesHome), `${safeId}.md`), 'utf8');
+    return exactRegularFile(path.join(entriesDirectory, `${safeId}.md`))?.contents ?? null;
   } catch {
+    // Tolerant read only: never follow a symlink/special file and never expose its
+    // target bytes. Mutation paths use the strict helpers and still fail closed.
     return null;
   }
 }
@@ -373,6 +740,9 @@ export function readEntryBody(hermesHome: string, id: string): string | null {
  * 'settings' (the T3 UI path); EVE-authored entries arrive via the T4 reconciler.
  */
 export function upsertEntry(hermesHome: string, input: UpsertEntryInput): UpsertEntryResult {
+  if (!hasCompanyBrainMutationLock(hermesHome)) {
+    return withCompanyBrainMutationLock(hermesHome, () => upsertEntry(hermesHome, input));
+  }
   assertAbsoluteHome(hermesHome);
   if (!isWritableKind(input.kind)) {
     throw new Error(
@@ -384,9 +754,10 @@ export function upsertEntry(hermesHome: string, input: UpsertEntryInput): Upsert
     throw new Error('Command EVE: refusing to write a company-brain entry with a blank title.');
   }
 
-  const index = readBrainIndex(hermesHome);
+  ensureEntriesDirectory(hermesHome);
+  const index = readBrainIndexForMutation(hermesHome, true);
   const existingId = input.id !== undefined ? assertEntryId(input.id) : undefined;
-  const id = existingId ?? deriveEntryId(input.kind, title);
+  const id = existingId ?? deriveUnusedEntryId(hermesHome, index, input.kind, title);
   const created = !index.entries.some((e) => e.id === id);
 
   const updated_at = (input.now?.() ?? new Date()).toISOString();
@@ -410,11 +781,10 @@ export function upsertEntry(hermesHome: string, input: UpsertEntryInput): Upsert
   // — it is already referenced, so there is no resurrection window to protect.
   const bodyPath = path.join(entriesDirOf(hermesHome), `${id}.md`);
   const bodyContents = `${(input.body ?? '').replace(/\s+$/, '')}\n`;
-  const stagingPath = path.join(entriesDirOf(hermesHome), `.staging-${id}.md`);
   if (created) {
-    writeFileAtomic(stagingPath, bodyContents);
+    writeBodyCreateOnly(hermesHome, `.staging-${id}.md`, bodyContents);
   } else {
-    writeFileAtomic(bodyPath, bodyContents);
+    writeBodyAtomic(hermesHome, `${id}.md`, bodyContents);
   }
 
   // 2) index (atomic) — replace-in-place on edit, append on create.
@@ -422,11 +792,11 @@ export function upsertEntry(hermesHome: string, input: UpsertEntryInput): Upsert
   const nextIndex: CompanyBrainIndex = { schema_version: COMMAND_EVE_COMPANY_BRAIN_SCHEMA, entries: nextEntries };
   writeIndex(hermesHome, nextIndex);
 
-  // 3) CREATE only: promote the staging body onto the final name AFTER the index
-  //    references it (crash here → next reconcile skips the dotfile; the indexed
-  //    entry's body reads as null until a re-edit, never resurrected as an eve note).
-  if (created) {
-    fs.renameSync(stagingPath, bodyPath);
+  // 3) CREATE only: publish with a create-only hard link. A raw write_file body
+  //    that appears after the index commit wins EEXIST and is never overwritten;
+  //    the exact staging body remains available for explicit recovery.
+  if (created && !promoteExactStagingBody(hermesHome, entry, bodyContents)) {
+    throw new Error('Command EVE: failed to promote the entry staging body.');
   }
 
   return { ok: true, index: nextIndex, entry, bodyPath, created };
@@ -444,9 +814,12 @@ export function upsertEntry(hermesHome: string, input: UpsertEntryInput): Upsert
  * an absent id unlinks nothing and rewrites the same index (removed:false).
  */
 export function removeEntry(hermesHome: string, id: string): RemoveEntryResult {
+  if (!hasCompanyBrainMutationLock(hermesHome)) {
+    return withCompanyBrainMutationLock(hermesHome, () => removeEntry(hermesHome, id));
+  }
   assertAbsoluteHome(hermesHome);
   const safeId = assertEntryId(id);
-  const index = readBrainIndex(hermesHome);
+  const index = readBrainIndexForMutation(hermesHome);
   const nextEntries = index.entries.filter((e) => e.id !== safeId);
   const removed = nextEntries.length !== index.entries.length;
 
@@ -455,7 +828,8 @@ export function removeEntry(hermesHome: string, id: string): RemoveEntryResult {
     //    touching the index so the entry is never left as an index-less body the
     //    reconciler would adopt. fs.rmSync({force:true}) does not throw on ENOENT.
     try {
-      fs.rmSync(path.join(entriesDirOf(hermesHome), `${safeId}.md`), { force: true });
+      unlinkExactRegularFileIfPresent(hermesHome, `${safeId}.md`);
+      unlinkExactRegularFileIfPresent(hermesHome, `.staging-${safeId}.md`);
     } catch {
       return { ok: false, index, removed: false };
     }
@@ -495,6 +869,13 @@ export function mirrorBriefBodyToFile(hermesHome: string, body: string): boolean
  * error is swallowed so scaffolding can never block boot or a seat switch.
  */
 export function ensureCompanyBrainScaffold(hermesHome: string): ScaffoldResult {
+  if (!hasCompanyBrainMutationLock(hermesHome)) {
+    try {
+      return withCompanyBrainMutationLock(hermesHome, () => ensureCompanyBrainScaffold(hermesHome));
+    } catch {
+      return { ok: false, created: false, brainDir: '' };
+    }
+  }
   try {
     assertAbsoluteHome(hermesHome);
   } catch {
@@ -502,9 +883,13 @@ export function ensureCompanyBrainScaffold(hermesHome: string): ScaffoldResult {
   }
   const brainDir = brainDirOf(hermesHome);
   try {
-    ensureDir(entriesDirOf(hermesHome)); // creates company-brain/ + entries/
+    ensureEntriesDirectory(hermesHome); // creates company-brain/ + entries/
     const brainJson = brainJsonOf(hermesHome);
-    if (fs.existsSync(brainJson)) {
+    const existing = lstatIfPresent(brainJson);
+    if (existing) {
+      if (existing.isSymbolicLink() || !existing.isFile()) {
+        throw new Error('Command EVE: brain.json must be a regular file.');
+      }
       return { ok: true, created: false, brainDir };
     }
     writeIndex(hermesHome, emptyIndex());
@@ -527,6 +912,13 @@ export function ensureCompanyBrainScaffold(hermesHome: string): ScaffoldResult {
  * brain instead. Never throws — a migration failure degrades to an empty scaffold.
  */
 export function migrateSeedToBrain(hermesHome: string, opts?: { now?: () => Date }): MigrateSeedResult {
+  if (!hasCompanyBrainMutationLock(hermesHome)) {
+    try {
+      return withCompanyBrainMutationLock(hermesHome, () => migrateSeedToBrain(hermesHome, opts));
+    } catch {
+      return { ok: false, migrated: false, index: emptyIndex() };
+    }
+  }
   try {
     assertAbsoluteHome(hermesHome);
   } catch {
@@ -534,15 +926,19 @@ export function migrateSeedToBrain(hermesHome: string, opts?: { now?: () => Date
   }
 
   // Already migrated (or already a v2 store) → no-op, return the live index.
-  if (fs.existsSync(brainJsonOf(hermesHome))) {
-    return { ok: true, migrated: false, index: readBrainIndex(hermesHome) };
+  if (lstatIfPresent(brainJsonOf(hermesHome))) {
+    return { ok: true, migrated: false, index: readBrainIndexForMutation(hermesHome) };
   }
 
   const seedState = readCompanyBrainSeedStateFromHome(hermesHome);
   if (!seedState.seeded || !seedState.record) {
     // No v1 seed to migrate → just scaffold an empty brain.
     const scaffold = ensureCompanyBrainScaffold(hermesHome);
-    return { ok: scaffold.ok, migrated: false, index: readBrainIndex(hermesHome) };
+    return {
+      ok: scaffold.ok,
+      migrated: false,
+      index: scaffold.ok ? readBrainIndexForMutation(hermesHome) : emptyIndex(),
+    };
   }
 
   // Prefer the live brief.md body (what the agent reads today); fall back to the
@@ -639,17 +1035,27 @@ const titleFromBody = (body: string, fallback: string): string => {
  * when something was actually adopted.
  */
 export function reconcileUnindexedEntries(hermesHome: string, opts?: { now?: () => Date }): ReconcileResult {
+  if (!hasCompanyBrainMutationLock(hermesHome)) {
+    try {
+      return withCompanyBrainMutationLock(hermesHome, () => reconcileUnindexedEntries(hermesHome, opts));
+    } catch {
+      return { ok: false, index: emptyIndex(), adopted: 0, adoptedIds: [] };
+    }
+  }
   let index: CompanyBrainIndex;
   try {
     assertAbsoluteHome(hermesHome);
-    index = readBrainIndex(hermesHome);
+    index = readBrainIndexForMutation(hermesHome, true);
   } catch {
     return { ok: false, index: emptyIndex(), adopted: 0, adoptedIds: [] };
   }
 
-  const entriesDir = entriesDirOf(hermesHome);
+  let entriesDir: string;
   let dirents: fs.Dirent[];
   try {
+    const existingEntries = existingEntriesDirectory(hermesHome);
+    if (!existingEntries) return { ok: false, index, adopted: 0, adoptedIds: [] };
+    entriesDir = existingEntries;
     dirents = fs.readdirSync(entriesDir, { withFileTypes: true });
   } catch {
     // No entries/ dir (or unreadable) → nothing to reconcile.
@@ -680,7 +1086,9 @@ export function reconcileUnindexedEntries(hermesHome: string, opts?: { now?: () 
 
     let body = '';
     try {
-      body = fs.readFileSync(path.join(entriesDir, name), 'utf8');
+      const bodySnapshot = exactRegularFile(path.join(entriesDir, name));
+      if (!bodySnapshot) continue;
+      body = bodySnapshot.contents;
     } catch {
       continue; // unreadable body → skip (don't adopt a phantom)
     }
@@ -725,12 +1133,14 @@ export function reconcileUnindexedEntries(hermesHome: string, opts?: { now?: () 
  * other entry.
  */
 export const SESSION_DIGEST_KIND = 'session_digest' as const;
+/** Project identity summaries are system-owned and never accepted by the renderer write allowlist. */
+export const PROJECT_BRAIN_KIND = 'project' as const;
 
 /** Max L3 session_digest entries kept per seat before FIFO-pruning (spec §2 L3). */
 export const SESSION_DIGEST_MAX = 50;
 
 /** Kinds the DESKTOP SYSTEM writer (not the user IPC) may write — T5 widens by one. */
-const SYSTEM_WRITE_KINDS: readonly string[] = [...COMPANY_BRAIN_WRITE_KINDS, SESSION_DIGEST_KIND];
+const SYSTEM_WRITE_KINDS: readonly string[] = [...COMPANY_BRAIN_WRITE_KINDS, SESSION_DIGEST_KIND, PROJECT_BRAIN_KIND];
 
 export interface UpsertSystemEntryInput {
   /** REQUIRED for a system entry — the writer owns the id (stable so re-digest replaces). */
@@ -741,6 +1151,465 @@ export interface UpsertSystemEntryInput {
   author?: CompanyBrainAuthor;
   source?: CompanyBrainSource;
   now?: () => Date;
+}
+
+export interface RecoverSystemEntryPromotionInput extends Omit<UpsertSystemEntryInput, 'now'> {
+  updated_at: string;
+}
+
+function expectedSystemEntry(input: RecoverSystemEntryPromotionInput): {
+  id: string;
+  entry: CompanyBrainEntry;
+  bodyContents: string;
+} {
+  if (!SYSTEM_WRITE_KINDS.includes(input.kind)) throw new Error('Command EVE: invalid SYSTEM entry recovery kind.');
+  const id = assertEntryId(input.id);
+  const title = (input.title ?? '').trim();
+  if (title.length === 0 || new Date(input.updated_at).toISOString() !== input.updated_at) {
+    throw new Error('Command EVE: invalid SYSTEM entry recovery identity.');
+  }
+  return {
+    id,
+    entry: {
+      id,
+      kind: input.kind,
+      title,
+      updated_at: input.updated_at,
+      author: input.author ?? 'eve',
+      source: input.source ?? 'chat',
+      body_file: path.posix.join(ENTRIES_SUBDIR, `${id}.md`),
+    },
+    bodyContents: `${(input.body ?? '').replace(/\s+$/, '')}\n`,
+  };
+}
+
+function promoteExactStagingBody(
+  hermesHome: string,
+  expectedEntry: CompanyBrainEntry,
+  expectedBodyContents: string
+): boolean {
+  try {
+    const indexed = readBrainIndexForMutation(hermesHome).entries.find((entry) => entry.id === expectedEntry.id);
+    if (!entryExactlyMatches(indexed, expectedEntry)) return false;
+    const entriesDirectory = existingEntriesDirectory(hermesHome);
+    if (!entriesDirectory) return false;
+    const bodyPath = path.join(entriesDirectory, `${expectedEntry.id}.md`);
+    const stagingName = `.staging-${expectedEntry.id}.md`;
+    const stagingPath = path.join(entriesDirectory, stagingName);
+    const finalBody = exactRegularFile(bodyPath);
+    if (finalBody) {
+      if (finalBody.contents !== expectedBodyContents) return false;
+      const staging = exactRegularFile(stagingPath);
+      if (staging?.contents === expectedBodyContents) {
+        try {
+          unlinkExactRegularFileIfPresent(hermesHome, stagingName, staging);
+        } catch {
+          // The exact final bytes are already published; retain a contested
+          // staging residue rather than deleting anything uncertain.
+        }
+      }
+      return true;
+    }
+
+    const staging = exactRegularFile(stagingPath);
+    if (!staging || staging.contents !== expectedBodyContents) return false;
+    const current = readBrainIndexForMutation(hermesHome).entries.find((entry) => entry.id === expectedEntry.id);
+    if (!entryExactlyMatches(current, expectedEntry)) return false;
+    const immediatelyBeforeLink = exactRegularFile(stagingPath);
+    if (!immediatelyBeforeLink || !sameExactFile(immediatelyBeforeLink, staging)) return false;
+    try {
+      fs.linkSync(stagingPath, bodyPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') return false;
+    }
+    const promoted = exactRegularFile(bodyPath);
+    if (!promoted || promoted.contents !== expectedBodyContents) return false;
+    try {
+      unlinkExactRegularFileIfPresent(hermesHome, stagingName, staging);
+    } catch {
+      // The exact final body is authoritative; stale staging cleanup is best-effort.
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Promotes only the exact system-owned staging body referenced by the exact index entry. */
+export function recoverSystemEntryPromotion(hermesHome: string, input: RecoverSystemEntryPromotionInput): boolean {
+  if (!hasCompanyBrainMutationLock(hermesHome)) {
+    try {
+      return withCompanyBrainMutationLock(hermesHome, () => recoverSystemEntryPromotion(hermesHome, input));
+    } catch {
+      return false;
+    }
+  }
+  assertAbsoluteHome(hermesHome);
+  const expected = expectedSystemEntry(input);
+  return promoteExactStagingBody(hermesHome, expected.entry, expected.bodyContents);
+}
+
+export type RemoveExactSystemEntryInput = RecoverSystemEntryPromotionInput;
+
+export interface RemoveExactSystemEntryResult {
+  ok: boolean;
+  removed: boolean;
+  /** True only when BOTH the exact body path and its index slot were already absent. */
+  already_absent: boolean;
+  index: CompanyBrainIndex;
+}
+
+function entryExactlyMatches(left: CompanyBrainEntry | undefined, right: CompanyBrainEntry): boolean {
+  return left !== undefined && JSON.stringify(left) === JSON.stringify(right);
+}
+
+function unlinkPathIfExact(file: string, expected: ExactRegularFile): void {
+  const immediatelyBeforeUnlink = exactRegularFile(file);
+  if (!immediatelyBeforeUnlink || !sameExactFile(immediatelyBeforeUnlink, expected)) {
+    throw new Error('Command EVE: quarantined company-brain body changed before unlink.');
+  }
+  fs.unlinkSync(file);
+}
+
+function restoreCapturedBody(capturedPath: string, bodyPath: string, captured: ExactRegularFile): void {
+  const currentBody = exactRegularFile(bodyPath);
+  if (currentBody) return; // a later raw writer already published the newest path
+  const currentCapture = exactRegularFile(capturedPath);
+  if (!currentCapture || !sameExactFile(currentCapture, captured)) {
+    throw new Error('Command EVE: captured company-brain body changed before restore.');
+  }
+  try {
+    fs.linkSync(capturedPath, bodyPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+  }
+}
+
+type ExactIndexReplacement = {
+  canonicalPath: string;
+  candidatePath: string;
+  candidate: ExactRegularFile;
+  previousCapturePath: string;
+  previousQuarantinePath: string;
+  previous: ExactRegularFile;
+  published: ExactRegularFile;
+  nonce: string;
+  finalized: boolean;
+};
+
+function restoreCapturedFileCreateOnly(capturedPath: string, canonicalPath: string): void {
+  if (exactRegularFile(canonicalPath)) return;
+  const captured = exactRegularFile(capturedPath);
+  if (!captured) return;
+  try {
+    fs.linkSync(capturedPath, canonicalPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+  }
+}
+
+function rollbackExactIndexReplacement(replacement: ExactIndexReplacement): void {
+  if (replacement.finalized) return;
+  const current = exactRegularFile(replacement.canonicalPath);
+  if (!current || !sameExactFile(current, replacement.published)) {
+    // Missing or different means a raw writer won; never manufacture/overwrite a
+    // canonical index over that latest filesystem state.
+    return;
+  }
+
+  const rollbackCapturePath = `${replacement.candidatePath}.rollback-${replacement.nonce}`;
+  fs.renameSync(replacement.canonicalPath, rollbackCapturePath);
+  const capturedCurrent = exactRegularFile(rollbackCapturePath);
+  if (!capturedCurrent) return;
+  if (!sameExactFile(capturedCurrent, replacement.published)) {
+    restoreCapturedFileCreateOnly(rollbackCapturePath, replacement.canonicalPath);
+    return;
+  }
+
+  // A writer that held the pre-capture descriptor may have changed the old inode.
+  // Both hidden names point to it; restore those newest bytes create-only.
+  restoreCapturedFileCreateOnly(replacement.previousQuarantinePath, replacement.canonicalPath);
+  if (!exactRegularFile(replacement.canonicalPath)) {
+    restoreCapturedFileCreateOnly(replacement.previousCapturePath, replacement.canonicalPath);
+  }
+}
+
+function verifyExactIndexReplacement(replacement: ExactIndexReplacement): boolean {
+  if (replacement.finalized) return false;
+  const canonical = exactRegularFile(replacement.canonicalPath);
+  const candidate = exactRegularFile(replacement.candidatePath);
+  const previousCapture = exactRegularFile(replacement.previousCapturePath);
+  const previousQuarantine = exactRegularFile(replacement.previousQuarantinePath);
+  return (
+    canonical !== undefined &&
+    candidate !== undefined &&
+    previousCapture !== undefined &&
+    previousQuarantine !== undefined &&
+    sameExactFile(canonical, replacement.published) &&
+    sameExactFile(candidate, replacement.candidate) &&
+    sameExactFile(previousCapture, replacement.previous) &&
+    sameExactFile(previousQuarantine, replacement.previous)
+  );
+}
+
+function finalizeExactIndexReplacement(replacement: ExactIndexReplacement): boolean {
+  if (!verifyExactIndexReplacement(replacement)) return false;
+  const candidate = exactRegularFile(replacement.candidatePath);
+  const canonical = exactRegularFile(replacement.canonicalPath);
+  if (
+    !candidate ||
+    !canonical ||
+    !sameExactFile(candidate, replacement.candidate) ||
+    !sameExactFile(canonical, replacement.published)
+  ) {
+    return false;
+  }
+  unlinkPathIfExact(replacement.candidatePath, candidate);
+  const canonicalAfterCandidateCleanup = exactRegularFile(replacement.canonicalPath);
+  if (!canonicalAfterCandidateCleanup || !sameExactFile(canonicalAfterCandidateCleanup, replacement.published)) {
+    return false;
+  }
+  unlinkPathIfExact(replacement.previousCapturePath, replacement.previous);
+  const previousQuarantine = exactRegularFile(replacement.previousQuarantinePath);
+  if (!previousQuarantine || !sameExactFile(previousQuarantine, replacement.previous)) return false;
+  unlinkPathIfExact(replacement.previousQuarantinePath, previousQuarantine);
+  replacement.finalized = true;
+  const finalCanonical = exactRegularFile(replacement.canonicalPath);
+  return finalCanonical !== undefined && sameExactFile(finalCanonical, replacement.published);
+}
+
+function beginExactIndexReplacement(
+  hermesHome: string,
+  previous: ExactRegularFile,
+  nextIndex: CompanyBrainIndex
+): ExactIndexReplacement {
+  const brainDirectory = ensureBrainDirectory(hermesHome);
+  const canonicalPath = brainJsonOf(hermesHome);
+  const nonce = `${process.pid}-${crypto.randomUUID()}`;
+  const candidatePath = path.join(brainDirectory.realPath, `.brain-index-next-${nonce}.json`);
+  const previousCapturePath = path.join(brainDirectory.realPath, `.brain-index-capture-${nonce}.json`);
+  const previousQuarantinePath = path.join(brainDirectory.realPath, `.brain-index-old-${nonce}.json`);
+  let candidate: ExactRegularFile | undefined;
+  let published: ExactRegularFile | undefined;
+
+  try {
+    const current = exactRegularFile(canonicalPath);
+    if (!current || !sameExactFile(current, previous)) {
+      throw new Error('Command EVE: brain.json changed before exact replacement.');
+    }
+    fs.writeFileSync(candidatePath, `${JSON.stringify(nextIndex, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+    candidate = exactRegularFile(candidatePath);
+    if (!candidate) throw new Error('Command EVE: failed to stage exact brain.json replacement.');
+
+    fs.linkSync(canonicalPath, previousQuarantinePath);
+    const quarantined = exactRegularFile(previousQuarantinePath);
+    const immediatelyBeforeCapture = exactRegularFile(canonicalPath);
+    if (
+      !quarantined ||
+      !immediatelyBeforeCapture ||
+      !sameExactFile(quarantined, previous) ||
+      !sameExactFile(immediatelyBeforeCapture, previous)
+    ) {
+      throw new Error('Command EVE: brain.json changed before exact capture.');
+    }
+
+    fs.renameSync(canonicalPath, previousCapturePath);
+    const captured = exactRegularFile(previousCapturePath);
+    if (!captured || !sameExactFile(captured, previous)) {
+      restoreCapturedFileCreateOnly(previousCapturePath, canonicalPath);
+      throw new Error('Command EVE: brain.json replacement won the capture race.');
+    }
+    const quarantineBeforePublish = exactRegularFile(previousQuarantinePath);
+    if (!quarantineBeforePublish || !sameExactFile(quarantineBeforePublish, previous)) {
+      restoreCapturedFileCreateOnly(previousCapturePath, canonicalPath);
+      throw new Error('Command EVE: brain.json changed before exact publish.');
+    }
+
+    // Create-only publication: a raw writer that creates brain.json in the
+    // capture window wins EEXIST and is never overwritten.
+    fs.linkSync(candidatePath, canonicalPath);
+    published = exactRegularFile(canonicalPath);
+    if (!published || !sameExactFile(published, candidate)) {
+      throw new Error('Command EVE: exact brain.json publication lost ownership.');
+    }
+    return {
+      canonicalPath,
+      candidatePath,
+      candidate,
+      previousCapturePath,
+      previousQuarantinePath,
+      previous,
+      published,
+      nonce,
+      finalized: false,
+    };
+  } catch (error) {
+    try {
+      if (published && candidate) {
+        rollbackExactIndexReplacement({
+          canonicalPath,
+          candidatePath,
+          candidate,
+          previousCapturePath,
+          previousQuarantinePath,
+          previous,
+          published,
+          nonce,
+          finalized: false,
+        });
+      } else if (!exactRegularFile(canonicalPath)) {
+        restoreCapturedFileCreateOnly(previousCapturePath, canonicalPath);
+        if (!exactRegularFile(canonicalPath)) {
+          restoreCapturedFileCreateOnly(previousQuarantinePath, canonicalPath);
+        }
+      }
+    } catch {
+      // Hidden capture/quarantine files retain bytes for a later recovery pass.
+    }
+    throw error;
+  }
+}
+
+/**
+ * Remove one SYSTEM-owned entry only when its complete index metadata and body
+ * bytes still match the caller's receipt. The body is first hard-linked to a
+ * hidden quarantine and the canonical name is atomically captured. If a raw
+ * write_file edit/replacement wins any race, its bytes are restored/preserved and
+ * brain.json is left unchanged. This is the storage primitive transactional
+ * semantic rollback uses instead of the broad user `removeEntry` path.
+ */
+export function removeExactSystemEntry(
+  hermesHome: string,
+  input: RemoveExactSystemEntryInput
+): RemoveExactSystemEntryResult {
+  if (!hasCompanyBrainMutationLock(hermesHome)) {
+    try {
+      return withCompanyBrainMutationLock(hermesHome, () => removeExactSystemEntry(hermesHome, input));
+    } catch {
+      return { ok: false, removed: false, already_absent: false, index: readBrainIndex(hermesHome) };
+    }
+  }
+
+  assertAbsoluteHome(hermesHome);
+  const expected = expectedSystemEntry(input);
+  let originalIndex: CompanyBrainIndex;
+  try {
+    originalIndex = readBrainIndexForMutation(hermesHome, true);
+  } catch {
+    return { ok: false, removed: false, already_absent: false, index: readBrainIndex(hermesHome) };
+  }
+  const indexed = originalIndex.entries.find((entry) => entry.id === expected.id);
+  let entriesDirectory: string | undefined;
+  let body: ExactRegularFile | undefined;
+  try {
+    entriesDirectory = existingEntriesDirectory(hermesHome);
+    body = entriesDirectory ? exactRegularFile(path.join(entriesDirectory, `${expected.id}.md`)) : undefined;
+  } catch {
+    return { ok: false, removed: false, already_absent: false, index: originalIndex };
+  }
+
+  if (!indexed && !body) {
+    return { ok: true, removed: false, already_absent: true, index: originalIndex };
+  }
+  if (
+    !entriesDirectory ||
+    !entryExactlyMatches(indexed, expected.entry) ||
+    !body ||
+    body.contents !== expected.bodyContents
+  ) {
+    return { ok: false, removed: false, already_absent: false, index: originalIndex };
+  }
+
+  const bodyPath = path.join(entriesDirectory, `${expected.id}.md`);
+  const nonce = crypto.randomUUID();
+  const quarantinePath = path.join(entriesDirectory, `.remove-${expected.id}-${nonce}.md`);
+  const capturePath = path.join(entriesDirectory, `.capture-${expected.id}-${nonce}.md`);
+  let quarantine: ExactRegularFile | undefined;
+  let captured: ExactRegularFile | undefined;
+  let indexBeforeRemoval: CompanyBrainIndex | undefined;
+  let removalIndex: CompanyBrainIndex | undefined;
+  let indexReplacement: ExactIndexReplacement | undefined;
+
+  const restoreBestBody = (): void => {
+    try {
+      const captureNow = exactRegularFile(capturePath);
+      if (captureNow && captured) {
+        restoreCapturedBody(capturePath, bodyPath, captureNow);
+        return;
+      }
+      const quarantineNow = exactRegularFile(quarantinePath);
+      if (quarantineNow && quarantine) restoreCapturedBody(quarantinePath, bodyPath, quarantineNow);
+    } catch {
+      // The quarantine/capture remains hidden on disk rather than deleting bytes.
+    }
+  };
+
+  const failClosed = (): RemoveExactSystemEntryResult => {
+    if (indexReplacement) {
+      try {
+        rollbackExactIndexReplacement(indexReplacement);
+      } catch {
+        // Hidden index captures retain bytes; never overwrite a raw winner.
+      }
+    }
+    restoreBestBody();
+    return { ok: false, removed: false, already_absent: false, index: readBrainIndex(hermesHome) };
+  };
+
+  try {
+    // Create-only hard-link: never overwrites a contender's path and pins the
+    // exact inode while the canonical path is claimed.
+    fs.linkSync(bodyPath, quarantinePath);
+    quarantine = exactRegularFile(quarantinePath);
+    if (!quarantine || !sameExactFile(quarantine, body)) return failClosed();
+
+    const immediatelyBeforeCapture = exactRegularFile(bodyPath);
+    if (!immediatelyBeforeCapture || !sameExactFile(immediatelyBeforeCapture, body)) return failClosed();
+    fs.renameSync(bodyPath, capturePath);
+    captured = exactRegularFile(capturePath);
+    if (!captured || !sameExactFile(captured, body)) {
+      // rename captured the replacement instead of our owned bytes; put those
+      // latest bytes back under the canonical name and leave the index untouched.
+      restoreBestBody();
+      return failClosed();
+    }
+
+    // The quarantine still pins the owned inode, so the duplicate capture name
+    // can be removed after an immediate descriptor/inode/hash revalidation.
+    unlinkPathIfExact(capturePath, captured);
+    captured = undefined;
+
+    const indexSnapshot = exactRegularFile(brainJsonOf(hermesHome));
+    if (!indexSnapshot) return failClosed();
+    indexBeforeRemoval = strictIndex(JSON.parse(indexSnapshot.contents) as unknown);
+    const currentOwner = indexBeforeRemoval.entries.find((entry) => entry.id === expected.id);
+    if (!entryExactlyMatches(currentOwner, expected.entry)) return failClosed();
+    if (exactRegularFile(bodyPath)) return failClosed();
+    const quarantineBeforeIndex = exactRegularFile(quarantinePath);
+    if (!quarantineBeforeIndex || !sameExactFile(quarantineBeforeIndex, body)) return failClosed();
+
+    removalIndex = {
+      schema_version: COMMAND_EVE_COMPANY_BRAIN_SCHEMA,
+      entries: indexBeforeRemoval.entries.filter((entry) => entry.id !== expected.id),
+    };
+    indexReplacement = beginExactIndexReplacement(hermesHome, indexSnapshot, removalIndex);
+
+    // Raw body/index writers that publish during either exact capture win. The
+    // prior index and exact body remain hard-linked until all ownership checks pass.
+    if (!verifyExactIndexReplacement(indexReplacement)) return failClosed();
+    if (exactRegularFile(bodyPath)) return failClosed();
+    const quarantineBeforeUnlink = exactRegularFile(quarantinePath);
+    if (!quarantineBeforeUnlink || !sameExactFile(quarantineBeforeUnlink, body)) return failClosed();
+    if (!finalizeExactIndexReplacement(indexReplacement)) return failClosed();
+    if (exactRegularFile(bodyPath)) return failClosed();
+    const finalQuarantine = exactRegularFile(quarantinePath);
+    if (!finalQuarantine || !sameExactFile(finalQuarantine, body)) return failClosed();
+    unlinkPathIfExact(quarantinePath, finalQuarantine);
+    quarantine = undefined;
+    return { ok: true, removed: true, already_absent: false, index: removalIndex };
+  } catch {
+    return failClosed();
+  }
 }
 
 /**
@@ -759,6 +1628,9 @@ export interface UpsertSystemEntryInput {
  * non-absolute home, and any id that fails assertEntryId.
  */
 export function upsertSystemEntry(hermesHome: string, input: UpsertSystemEntryInput): UpsertEntryResult {
+  if (!hasCompanyBrainMutationLock(hermesHome)) {
+    return withCompanyBrainMutationLock(hermesHome, () => upsertSystemEntry(hermesHome, input));
+  }
   assertAbsoluteHome(hermesHome);
   if (!SYSTEM_WRITE_KINDS.includes(input.kind)) {
     throw new Error(
@@ -771,7 +1643,8 @@ export function upsertSystemEntry(hermesHome: string, input: UpsertSystemEntryIn
   }
   const id = assertEntryId(input.id);
 
-  const index = readBrainIndex(hermesHome);
+  ensureEntriesDirectory(hermesHome);
+  const index = readBrainIndexForMutation(hermesHome, true);
   const created = !index.entries.some((e) => e.id === id);
   const updated_at = (input.now?.() ?? new Date()).toISOString();
   const body_file = path.posix.join(ENTRIES_SUBDIR, `${id}.md`);
@@ -787,19 +1660,26 @@ export function upsertSystemEntry(hermesHome: string, input: UpsertSystemEntryIn
 
   const bodyPath = path.join(entriesDirOf(hermesHome), `${id}.md`);
   const bodyContents = `${(input.body ?? '').replace(/\s+$/, '')}\n`;
-  const stagingPath = path.join(entriesDirOf(hermesHome), `.staging-${id}.md`);
   if (created) {
-    writeFileAtomic(stagingPath, bodyContents);
+    writeBodyCreateOnly(hermesHome, `.staging-${id}.md`, bodyContents);
   } else {
-    writeFileAtomic(bodyPath, bodyContents);
+    writeBodyAtomic(hermesHome, `${id}.md`, bodyContents);
   }
 
   const nextEntries = created ? [...index.entries, entry] : index.entries.map((e) => (e.id === id ? entry : e));
   const nextIndex: CompanyBrainIndex = { schema_version: COMMAND_EVE_COMPANY_BRAIN_SCHEMA, entries: nextEntries };
   writeIndex(hermesHome, nextIndex);
 
-  if (created) {
-    fs.renameSync(stagingPath, bodyPath);
+  if (
+    created &&
+    !recoverSystemEntryPromotion(hermesHome, {
+      ...input,
+      id,
+      title,
+      updated_at,
+    })
+  ) {
+    throw new Error('Command EVE: failed to promote the SYSTEM entry staging body.');
   }
 
   return { ok: true, index: nextIndex, entry, bodyPath, created };
@@ -825,10 +1705,17 @@ export interface PruneResult {
  * failure degrades to a no-op. Idempotent — at or below the cap it prunes nothing.
  */
 export function pruneSessionDigests(hermesHome: string, max: number = SESSION_DIGEST_MAX): PruneResult {
+  if (!hasCompanyBrainMutationLock(hermesHome)) {
+    try {
+      return withCompanyBrainMutationLock(hermesHome, () => pruneSessionDigests(hermesHome, max));
+    } catch {
+      return { ok: false, index: emptyIndex(), pruned: 0, prunedIds: [] };
+    }
+  }
   let index: CompanyBrainIndex;
   try {
     assertAbsoluteHome(hermesHome);
-    index = readBrainIndex(hermesHome);
+    index = readBrainIndexForMutation(hermesHome);
   } catch {
     return { ok: false, index: emptyIndex(), pruned: 0, prunedIds: [] };
   }
@@ -852,7 +1739,7 @@ export function pruneSessionDigests(hermesHome: string, max: number = SESSION_DI
   const prunedIds: string[] = [];
   for (const e of doomed) {
     try {
-      fs.rmSync(path.join(entriesDirOf(hermesHome), `${e.id}.md`), { force: true });
+      unlinkExactRegularFileIfPresent(hermesHome, `${e.id}.md`);
       prunedIds.push(e.id);
     } catch {
       doomedIds.delete(e.id); // keep this entry indexed — its body survived the unlink
@@ -1040,12 +1927,19 @@ export interface BlueprintResult {
  * duplicate). Only scaffolds the sections still missing.
  */
 export function ensureBrainBlueprint(hermesHome: string, opts?: { now?: () => Date }): BlueprintResult {
+  if (!hasCompanyBrainMutationLock(hermesHome)) {
+    try {
+      return withCompanyBrainMutationLock(hermesHome, () => ensureBrainBlueprint(hermesHome, opts));
+    } catch {
+      return { ok: false, created: 0, createdIds: [], index: emptyIndex() };
+    }
+  }
   let index: CompanyBrainIndex;
   try {
     assertAbsoluteHome(hermesHome);
     // Make sure company-brain/ + brain.json exist before we upsert sections.
     ensureCompanyBrainScaffold(hermesHome);
-    index = readBrainIndex(hermesHome);
+    index = readBrainIndexForMutation(hermesHome);
   } catch {
     return { ok: false, created: 0, createdIds: [], index: emptyIndex() };
   }
@@ -1064,9 +1958,13 @@ export function ensureBrainBlueprint(hermesHome: string, opts?: { now?: () => Da
       if (bodyOnDisk !== null) {
         let adoptedAt = (opts?.now?.() ?? new Date()).toISOString();
         try {
-          adoptedAt = fs.statSync(path.join(entriesDirOf(hermesHome), `${section.id}.md`)).mtime.toISOString();
+          const entriesDirectory = existingEntriesDirectory(hermesHome);
+          const bodySnapshot = entriesDirectory
+            ? exactRegularFile(path.join(entriesDirectory, `${section.id}.md`))
+            : undefined;
+          if (bodySnapshot) adoptedAt = new Date(bodySnapshot.mtimeMs).toISOString();
         } catch {
-          // stat raced away — keep now()
+          // body raced away — keep now()
         }
         const adopted: CompanyBrainEntry = {
           id: section.id,
@@ -1077,7 +1975,7 @@ export function ensureBrainBlueprint(hermesHome: string, opts?: { now?: () => Da
           source: 'settings',
           body_file: path.posix.join(ENTRIES_SUBDIR, `${section.id}.md`),
         };
-        const live = readBrainIndex(hermesHome);
+        const live = readBrainIndexForMutation(hermesHome);
         writeIndex(hermesHome, {
           schema_version: COMMAND_EVE_COMPANY_BRAIN_SCHEMA,
           entries: [...live.entries.filter((e) => e.id !== section.id), adopted],
@@ -1103,7 +2001,12 @@ export function ensureBrainBlueprint(hermesHome: string, opts?: { now?: () => Da
       // Best-effort per section: a failed section never aborts the rest.
     }
   }
-  return { ok: true, created: createdIds.length, createdIds, index: readBrainIndex(hermesHome) };
+  return {
+    ok: true,
+    created: createdIds.length,
+    createdIds,
+    index: readBrainIndexForMutation(hermesHome),
+  };
 }
 
 /**
@@ -1135,6 +2038,13 @@ export function countFilledBlueprintSections(hermesHome: string): { filled: numb
  * structured blueprint + EVE's fresh notes visible) exactly once.
  */
 export function ensureCompanyBrainReady(hermesHome: string, opts?: { now?: () => Date }): CompanyBrainIndex {
+  if (!hasCompanyBrainMutationLock(hermesHome)) {
+    try {
+      return withCompanyBrainMutationLock(hermesHome, () => ensureCompanyBrainReady(hermesHome, opts));
+    } catch {
+      return readBrainIndex(hermesHome);
+    }
+  }
   // 1.6.2: a corrupt brain.json must be quarantined BEFORE anything reads it as
   // an empty index — the rebuild below (blueprint adopt-guard + reconciler)
   // restores the index from the surviving files instead of clobbering them.
@@ -1165,16 +2075,28 @@ export interface QuarantineIndexResult {
  * parseable brain.json is a no-op.
  */
 export function quarantineCorruptBrainIndex(hermesHome: string, opts?: { now?: () => Date }): QuarantineIndexResult {
+  if (!hasCompanyBrainMutationLock(hermesHome)) {
+    try {
+      return withCompanyBrainMutationLock(hermesHome, () => quarantineCorruptBrainIndex(hermesHome, opts));
+    } catch {
+      return { quarantined: false };
+    }
+  }
   try {
     assertAbsoluteHome(hermesHome);
     const file = brainJsonOf(hermesHome);
-    if (!fs.existsSync(file)) return { quarantined: false };
+    const observed = exactRegularFile(file);
+    if (!observed) return { quarantined: false };
     try {
-      JSON.parse(fs.readFileSync(file, 'utf8'));
+      strictIndex(JSON.parse(observed.contents) as unknown);
       return { quarantined: false };
     } catch {
       const stamp = (opts?.now?.() ?? new Date()).toISOString().replace(/[:.]/g, '-');
       const target = `${file}.corrupt-${stamp}`;
+      const immediatelyBeforeRename = exactRegularFile(file);
+      if (!immediatelyBeforeRename || !sameExactFile(observed, immediatelyBeforeRename)) {
+        return { quarantined: false };
+      }
       fs.renameSync(file, target);
       return { quarantined: true, corruptFile: target };
     }
@@ -1202,13 +2124,27 @@ export interface MigrateBrainHomeResult {
  * 'own_company' — client seats NEVER inherit the operator's brain (ISO-6).
  */
 export function migrateCompanyBrainFromHome(sourceHome: string, targetHome: string): MigrateBrainHomeResult {
+  if (!hasCompanyBrainMutationLock(sourceHome) || !hasCompanyBrainMutationLock(targetHome)) {
+    try {
+      return withCompanyBrainMutationLocks([sourceHome, targetHome], () =>
+        migrateCompanyBrainFromHome(sourceHome, targetHome)
+      );
+    } catch {
+      return { ok: false, migrated: false, copied: 0 };
+    }
+  }
   try {
     assertAbsoluteHome(sourceHome);
     assertAbsoluteHome(targetHome);
     if (path.resolve(sourceHome) === path.resolve(targetHome)) return { ok: true, migrated: false, copied: 0 };
-    if (!fs.existsSync(brainJsonOf(sourceHome))) return { ok: true, migrated: false, copied: 0 };
+    const sourceBrain = exactRegularFile(brainJsonOf(sourceHome));
+    if (!sourceBrain) return { ok: true, migrated: false, copied: 0 };
+    // A migration is a mutation. Never copy a partially valid/coerced source
+    // index, because the target's next RMW would otherwise silently drop bytes.
+    readBrainIndexForMutation(sourceHome);
+    const srcEntries = existingEntriesDirectory(sourceHome);
 
-    if (fs.existsSync(brainJsonOf(targetHome))) {
+    if (lstatIfPresent(brainJsonOf(targetHome))) {
       // HEAL LANE (review finding): every own-seat provisioned under ≤1.6.1 was
       // ALREADY empty-seeded (a placeholder-only scaffold — exactly the live
       // incident this migration exists for), and a bare existence check would
@@ -1226,8 +2162,9 @@ export function migrateCompanyBrainFromHome(sourceHome: string, targetHome: stri
       // non-dot `.md` that is NOT a blueprint section / day-zero brief body — those
       // ARE the pristine scaffold's own placeholders (safe to take over); anything
       // else is a real unindexed note ⇒ hard no-op, let the ready-pass reconcile.
-      if (fs.existsSync(entriesDirOf(targetHome))) {
-        const hasUnindexedNote = fs.readdirSync(entriesDirOf(targetHome)).some((n) => {
+      const targetEntries = existingEntriesDirectory(targetHome);
+      if (targetEntries) {
+        const hasUnindexedNote = fs.readdirSync(targetEntries).some((n) => {
           if (!n.endsWith('.md') || n.startsWith('.')) return false;
           const base = n.slice(0, -'.md'.length);
           return !isBlueprintSectionId(base) && base !== COMMAND_EVE_DAY_ZERO_BRIEF_ID;
@@ -1235,10 +2172,19 @@ export function migrateCompanyBrainFromHome(sourceHome: string, targetHome: stri
         if (hasUnindexedNote) return { ok: true, migrated: false, copied: 0 };
       }
       const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-      fs.renameSync(brainDirOf(targetHome), `${brainDirOf(targetHome)}.pre-inherit-${stamp}`);
+      const canonicalBrainDir = brainDirOf(targetHome);
+      const setAside = `${canonicalBrainDir}.pre-inherit-${stamp}-${process.pid}-${crypto.randomUUID()}`;
+      fs.mkdirSync(setAside, { mode: 0o700 });
+      for (const child of fs.readdirSync(canonicalBrainDir)) {
+        // The two-home fence itself must stay at its canonical path until the
+        // callback returns. Process witnesses are lock infrastructure too.
+        if (child === 'brain.json.lock' || child === '.process-witnesses') continue;
+        fs.renameSync(path.join(canonicalBrainDir, child), path.join(setAside, child));
+      }
+      ensureBrainDirectory(targetHome);
     } else if (
-      fs.existsSync(entriesDirOf(targetHome)) &&
-      fs.readdirSync(entriesDirOf(targetHome)).some((n) => n.endsWith('.md') && !n.startsWith('.'))
+      existingEntriesDirectory(targetHome) &&
+      fs.readdirSync(existingEntriesDirectory(targetHome)!).some((n) => n.endsWith('.md') && !n.startsWith('.'))
     ) {
       // No index but bodies on disk (e.g. death inside a quarantine rebuild):
       // that is REAL content awaiting adoption by ensureCompanyBrainReady —
@@ -1248,7 +2194,7 @@ export function migrateCompanyBrainFromHome(sourceHome: string, targetHome: stri
     }
 
     let copied = 0;
-    const copyFile = (from: string, to: string): void => {
+    const copyFile = (from: string, to: string, bodyName?: string): void => {
       // H10 (re-audit fix): symlink-safe at the SINGLE copy chokepoint. lstat (NOT
       // stat/existsSync) the SOURCE and skip anything that is not a regular file, so
       // a symlinked brief.md / seed.json / brain.json — or a symlinked entry — can
@@ -1257,16 +2203,25 @@ export function migrateCompanyBrainFromHome(sourceHome: string, targetHome: stri
       // dirent.isFile() (lstat semantics); centralizing the guard here additionally
       // covers the companion + index copies, which the first H10 pass left exposed
       // (existsSync + readFileSync both follow symlinks).
-      const st = fs.lstatSync(from, { throwIfNoEntry: false });
-      if (!st || !st.isFile()) return;
-      writeFileAtomic(to, fs.readFileSync(from, 'utf8'));
+      let snapshot: ExactRegularFile | undefined;
+      try {
+        snapshot = exactRegularFile(from);
+      } catch {
+        return;
+      }
+      if (!snapshot) return;
+      if (bodyName) writeBodyAtomic(targetHome, bodyName, snapshot.contents);
+      else {
+        ensureBrainDirectory(targetHome);
+        writeFileAtomic(to, snapshot.contents);
+        ensureBrainDirectory(targetHome);
+      }
       copied += 1;
     };
     // Bodies FIRST, index LAST — the same crash ordering as upsertSystemEntry: an
     // interrupted copy leaves body files a later ready-pass can adopt, never an
     // index pointing at bodies that were never written.
-    const srcEntries = entriesDirOf(sourceHome);
-    if (fs.existsSync(srcEntries)) {
+    if (srcEntries) {
       // H10 (Codex): mirror the reconciler's guard exactly — read with
       // withFileTypes, copy ONLY DIRECT regular files (dirent.isFile() ⇒ a `.md`
       // SYMLINK or a symlinked dir is skipped, never followed), and require the
@@ -1283,14 +2238,18 @@ export function migrateCompanyBrainFromHome(sourceHome: string, targetHome: stri
         } catch {
           continue; // crafted / unsafe basename → ignore, never copy
         }
-        copyFile(path.join(srcEntries, name), path.join(entriesDirOf(targetHome), name));
+        copyFile(path.join(srcEntries, name), path.join(entriesDirOf(targetHome), name), name);
       }
     }
     for (const companion of ['brief.md', 'seed.json']) {
       const from = path.join(brainDirOf(sourceHome), companion);
-      if (fs.existsSync(from)) copyFile(from, path.join(brainDirOf(targetHome), companion));
+      if (lstatIfPresent(from)) copyFile(from, path.join(brainDirOf(targetHome), companion));
     }
     copyFile(brainJsonOf(sourceHome), brainJsonOf(targetHome));
+    // Prove the final target is a strict, lossless index and that the canonical
+    // target directory was never replaced while its lock was held.
+    readBrainIndexForMutation(targetHome);
+    ensureBrainDirectory(targetHome);
     return { ok: true, migrated: true, copied };
   } catch {
     return { ok: false, migrated: false, copied: 0 };
@@ -1306,8 +2265,7 @@ export function migrateCompanyBrainFromHome(sourceHome: string, targetHome: stri
 export function isPristineBlueprintScaffold(hermesHome: string): boolean {
   try {
     assertAbsoluteHome(hermesHome);
-    const raw = fs.readFileSync(brainJsonOf(hermesHome), 'utf8');
-    const index = coerceIndex(JSON.parse(raw));
+    const index = readBrainIndexForMutation(hermesHome);
     if (!index.entries.every((e) => isBlueprintSectionId(e.id) || e.id === COMMAND_EVE_DAY_ZERO_BRIEF_ID)) return false;
     return countFilledBlueprintSections(hermesHome).filled === 0;
   } catch {

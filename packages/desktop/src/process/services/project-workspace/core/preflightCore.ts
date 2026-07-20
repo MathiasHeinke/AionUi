@@ -28,6 +28,27 @@ export function verifyImmutableTargetSnapshot(
     return { ok: false, reason_code: 'seat.changed' };
   }
   if (
+    plan.snapshot.realm_id !== plan.realm_id ||
+    plan.snapshot.root_id !== plan.root_id ||
+    plan.snapshot.workspace_root_ref !== plan.workspace_root_ref ||
+    plan.snapshot.workspace_root_ref !== `root:${plan.snapshot.root_id}` ||
+    !Number.isSafeInteger(plan.snapshot.realm_revision) ||
+    plan.snapshot.realm_revision < 0 ||
+    !Number.isSafeInteger(plan.snapshot.root_revision) ||
+    plan.snapshot.root_revision < 0 ||
+    !Number.isSafeInteger(plan.snapshot.project_catalog_revision) ||
+    plan.snapshot.project_catalog_revision < 0
+  ) {
+    return { ok: false, reason_code: 'identity.invalid' };
+  }
+  if (
+    catalogs.realms.seat_id !== plan.seat_id ||
+    catalogs.roots.seat_id !== plan.seat_id ||
+    catalogs.projects.seat_id !== plan.seat_id
+  ) {
+    return { ok: false, reason_code: 'seat.changed' };
+  }
+  if (
     catalogs.realms.revision !== plan.snapshot.realm_revision ||
     catalogs.roots.revision !== plan.snapshot.root_revision ||
     catalogs.projects.revision !== plan.snapshot.project_catalog_revision

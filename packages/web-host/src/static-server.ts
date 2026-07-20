@@ -33,6 +33,7 @@ export type StaticServerHandle = {
 
 const DEFAULT_PORT = 25808;
 export const LOCAL_BACKEND_CAPABILITY_HEADER = 'x-aionui-local-capability';
+export const PROJECT_RUNTIME_ATTESTATION_HEADER = 'x-aionui-project-runtime-attestation';
 
 export function isAllowedWebUiProxyOrigin(origin: string | undefined, port: number): boolean {
   if (!origin) return true;
@@ -72,6 +73,7 @@ function forwardToBackend(
 ): void {
   const headers: http.OutgoingHttpHeaders = { ...req.headers, host: `127.0.0.1:${backendPort}` };
   delete headers[LOCAL_BACKEND_CAPABILITY_HEADER];
+  delete headers[PROJECT_RUNTIME_ATTESTATION_HEADER];
   // The outer proxy validates the browser origin against its live loopback
   // port. AionCore receives no browser Origin because its per-launch allowlist
   // is fixed before this optional WebUI is started.
@@ -190,7 +192,9 @@ export function injectWebSocketCapabilityHeaders(request: Buffer, capability: st
     .filter(
       (line, index) =>
         index === 0 ||
-        (!/^origin\s*:/i.test(line) && !new RegExp(`^${LOCAL_BACKEND_CAPABILITY_HEADER}\\s*:`, 'i').test(line))
+        (!/^origin\s*:/i.test(line) &&
+          !new RegExp(`^${LOCAL_BACKEND_CAPABILITY_HEADER}\\s*:`, 'i').test(line) &&
+          !new RegExp(`^${PROJECT_RUNTIME_ATTESTATION_HEADER}\\s*:`, 'i').test(line))
     )
     .filter((line) => line.length > 0);
   const capabilityHeaders = capability ? [`${LOCAL_BACKEND_CAPABILITY_HEADER}: ${capability}`] : [];

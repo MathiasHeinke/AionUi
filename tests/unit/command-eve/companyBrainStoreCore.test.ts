@@ -16,6 +16,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import crypto from 'node:crypto';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -43,6 +44,7 @@ import {
   readBrainIndex,
   readEntryBody,
   reconcileUnindexedEntries,
+  removeExactSystemEntry,
   removeEntry,
   upsertEntry,
   upsertSystemEntry,
@@ -161,14 +163,74 @@ describe('CRUD — create / read / edit / remove', () => {
 });
 
 describe('atomicity / self-heal — index authority', () => {
-  it('a malformed brain.json reads as an empty index (self-heals, never throws)', () => {
+  it('keeps tolerant reads but fails mutation closed on a malformed brain.json', () => {
     const home = makeHome();
     ensureCompanyBrainScaffold(home);
     fs.writeFileSync(brainJson(home), '{ this is : not json');
+    const malformed = fs.readFileSync(brainJson(home), 'utf8');
     expect(readBrainIndex(home).entries).toEqual([]);
-    // A subsequent write recovers a clean index.
-    upsertEntry(home, { kind: 'note', title: 'Recovered', body: 'ok' });
-    expect(listEntries(home)).toHaveLength(1);
+    expect(() => upsertEntry(home, { kind: 'note', title: 'Must not clobber', body: 'no' })).toThrow();
+    expect(fs.readFileSync(brainJson(home), 'utf8')).toBe(malformed);
+  });
+
+  it('never drops a partially invalid record during read-modify-write', () => {
+    const home = makeHome();
+    const existing = upsertEntry(home, {
+      id: 'note-existing',
+      kind: 'note',
+      title: 'Existing',
+      body: 'preserve me',
+      now: fixedClock('2026-07-20T08:00:00.000Z'),
+    });
+    const partial = {
+      schema_version: COMMAND_EVE_COMPANY_BRAIN_SCHEMA,
+      entries: [
+        existing.entry,
+        {
+          id: 'note-partial',
+          kind: 'note',
+          updated_at: '2026-07-20T08:00:00.000Z',
+          author: 'user',
+          source: 'settings',
+          body_file: 'entries/note-partial.md',
+        },
+      ],
+    };
+    fs.writeFileSync(brainJson(home), `${JSON.stringify(partial, null, 2)}\n`);
+    const before = fs.readFileSync(brainJson(home), 'utf8');
+
+    expect(() => upsertEntry(home, { id: 'note-new', kind: 'note', title: 'New', body: 'new' })).toThrow();
+    expect(fs.readFileSync(brainJson(home), 'utf8')).toBe(before);
+    expect(fs.readFileSync(bodyOf(home, 'note-existing'), 'utf8')).toBe('preserve me\n');
+    expect(fs.existsSync(bodyOf(home, 'note-new'))).toBe(false);
+  });
+
+  it('returns an empty tolerant read for a symlinked brain.json without exposing target bytes', () => {
+    const home = makeHome();
+    ensureCompanyBrainScaffold(home);
+    const outside = path.join(path.dirname(home), 'outside-secret-index.json');
+    fs.writeFileSync(
+      outside,
+      `${JSON.stringify({
+        schema_version: COMMAND_EVE_COMPANY_BRAIN_SCHEMA,
+        entries: [
+          {
+            id: 'note-secret',
+            kind: 'note',
+            title: 'TOP SECRET',
+            updated_at: '2026-07-20T08:00:00.000Z',
+            author: 'user',
+            source: 'settings',
+            body_file: 'entries/note-secret.md',
+          },
+        ],
+      })}\n`
+    );
+    fs.unlinkSync(brainJson(home));
+    fs.symlinkSync(outside, brainJson(home));
+
+    expect(readBrainIndex(home)).toEqual({ schema_version: COMMAND_EVE_COMPANY_BRAIN_SCHEMA, entries: [] });
+    expect(fs.readFileSync(outside, 'utf8')).toContain('TOP SECRET');
   });
 
   it('an index entry with an unsafe id is dropped defensively on read', () => {
@@ -222,6 +284,40 @@ describe('id sanitizer — path-traversal fail-closed', () => {
     expect(() => upsertEntry(home, { id: '../../etc', kind: 'note', title: 't', body: 'b' })).toThrow();
     expect(() => removeEntry(home, '../../etc')).toThrow();
     expect(() => readEntryBody(home, '../../etc')).toThrow();
+  });
+
+  it('returns null for a symlinked entry body without exposing target bytes', () => {
+    const home = makeHome();
+    const created = upsertEntry(home, { id: 'note-owned', kind: 'note', title: 'Owned', body: 'owned' });
+    const outside = path.join(path.dirname(home), 'outside-secret-body.md');
+    fs.writeFileSync(outside, 'TOP SECRET BODY\n');
+    fs.unlinkSync(created.bodyPath);
+    fs.symlinkSync(outside, created.bodyPath);
+
+    expect(readEntryBody(home, created.entry.id)).toBeNull();
+    expect(fs.readFileSync(outside, 'utf8')).toBe('TOP SECRET BODY\n');
+  });
+
+  it('retries an omitted-id UUID collision and never converts CREATE into an edit', () => {
+    const home = makeHome();
+    const collisionId = 'note-collision-111111111111';
+    const existing = upsertEntry(home, { id: collisionId, kind: 'note', title: 'Existing', body: 'keep me' });
+    const uuidSpy = vi
+      .spyOn(crypto, 'randomUUID')
+      .mockReturnValueOnce('11111111-1111-4111-8111-111111111111')
+      .mockReturnValueOnce('22222222-2222-4222-8222-222222222222');
+
+    const created = upsertEntry(home, { kind: 'note', title: 'Collision', body: 'new body' });
+    uuidSpy.mockRestore();
+
+    expect(created.created).toBe(true);
+    expect(created.entry.id).toBe('note-collision-222222222222');
+    expect(readBrainIndex(home).entries.map((entry) => entry.id)).toEqual([
+      existing.entry.id,
+      'note-collision-222222222222',
+    ]);
+    expect(fs.readFileSync(existing.bodyPath, 'utf8')).toBe('keep me\n');
+    expect(fs.readFileSync(created.bodyPath, 'utf8')).toBe('new body\n');
   });
 
   it('every written path stays strictly under company-brain/', () => {
@@ -566,8 +662,8 @@ describe('T4.5 audit hotfixes — F5 / F6 / F8', () => {
     const created = upsertEntry(home, { kind: 'note', title: 'Keeper', body: 'stays' });
     const id = created.entry.id;
 
-    // Force fs.rmSync to throw (EPERM-class) once.
-    const rmSpy = vi.spyOn(fs, 'rmSync').mockImplementationOnce(() => {
+    // Force fs.unlinkSync to throw (EPERM-class) once.
+    const rmSpy = vi.spyOn(fs, 'unlinkSync').mockImplementationOnce(() => {
       throw Object.assign(new Error('EPERM'), { code: 'EPERM' });
     });
     const res = removeEntry(home, id);
@@ -603,6 +699,29 @@ describe('T4.5 audit hotfixes — F5 / F6 / F8', () => {
     expect(leftovers).toEqual([]);
     expect(fs.existsSync(bodyOf(home, res.entry.id))).toBe(true);
     expect(readEntryBody(home, res.entry.id)).toBe('final body\n');
+  });
+
+  it('F6: generic CREATE never overwrites a raw final body that wins the promotion race', () => {
+    const home = makeHome();
+    const originalLink = fs.linkSync.bind(fs);
+    let racedBodyPath = '';
+    const linkSpy = vi.spyOn(fs, 'linkSync').mockImplementation((from, to) => {
+      if (!racedBodyPath && path.basename(String(from)).startsWith('.staging-') && String(to).endsWith('.md')) {
+        racedBodyPath = String(to);
+        fs.writeFileSync(racedBodyPath, 'latest raw body\n');
+      }
+      originalLink(from, to);
+    });
+
+    expect(() => upsertEntry(home, { id: 'note-raced-create', kind: 'note', title: 'Raced', body: 'owned' })).toThrow(
+      /failed to promote/
+    );
+    linkSpy.mockRestore();
+
+    expect(racedBodyPath).toBe(bodyOf(home, 'note-raced-create'));
+    expect(fs.readFileSync(racedBodyPath, 'utf8')).toBe('latest raw body\n');
+    expect(fs.readFileSync(path.join(entriesDir(home), '.staging-note-raced-create.md'), 'utf8')).toBe('owned\n');
+    expect(readBrainIndex(home).entries.some((entry) => entry.id === 'note-raced-create')).toBe(true);
   });
 
   // ── F8 — brief.md ↔ brief-entry sync ──────────────────────────────────────────
@@ -858,9 +977,314 @@ describe('1.6.2 — corrupt brain.json quarantine (the total-clobber window)', (
     expect(res.quarantined).toBe(false);
     expect(fs.readFileSync(brainJson(home), 'utf8')).toBe(before);
   });
+
+  it('quarantines a parseable but partially invalid index before the ready rebuild mutates', () => {
+    const home = makeHome();
+    ensureCompanyBrainScaffold(home);
+    fs.writeFileSync(
+      brainJson(home),
+      JSON.stringify({
+        schema_version: COMMAND_EVE_COMPANY_BRAIN_SCHEMA,
+        entries: [{ id: 'note-incomplete', kind: 'note' }],
+      })
+    );
+
+    const result = quarantineCorruptBrainIndex(home, { now: fixedClock('2026-07-20T08:30:00.000Z') });
+
+    expect(result.quarantined).toBe(true);
+    expect(result.corruptFile && fs.existsSync(result.corruptFile)).toBe(true);
+    expect(fs.existsSync(brainJson(home))).toBe(false);
+  });
+});
+
+describe('storage boundary — entries/ is never followed', () => {
+  it('rejects read, write, and remove when entries/ is a symlink', () => {
+    const home = makeHome();
+    const created = upsertEntry(home, {
+      id: 'note-owned',
+      kind: 'note',
+      title: 'Owned',
+      body: 'inside',
+      now: fixedClock('2026-07-20T09:00:00.000Z'),
+    });
+    const entriesPath = path.join(home, COMPANY_BRAIN_DIR, ENTRIES_SUBDIR);
+    const outside = path.join(path.dirname(home), 'outside');
+    fs.mkdirSync(outside, { recursive: true });
+    fs.writeFileSync(path.join(outside, 'note-owned.md'), 'outside secret\n');
+    fs.rmSync(entriesPath, { recursive: true });
+    fs.symlinkSync(outside, entriesPath);
+
+    expect(() => readEntryBody(home, created.entry.id)).toThrow(/real directory/);
+    expect(() => upsertEntry(home, { id: created.entry.id, kind: 'note', title: 'Overwrite', body: 'bad' })).toThrow(
+      /real directory/
+    );
+    expect(removeEntry(home, created.entry.id)).toMatchObject({ ok: false, removed: false });
+    expect(fs.readFileSync(path.join(outside, 'note-owned.md'), 'utf8')).toBe('outside secret\n');
+  });
+
+  it('rejects a non-directory entries/ node before any body mutation', () => {
+    const home = makeHome();
+    ensureCompanyBrainScaffold(home);
+    const entriesPath = path.join(home, COMPANY_BRAIN_DIR, ENTRIES_SUBDIR);
+    fs.rmSync(entriesPath, { recursive: true });
+    fs.writeFileSync(entriesPath, 'not a directory\n');
+
+    expect(() => readEntryBody(home, 'note-owned')).toThrow(/real directory/);
+    expect(() => upsertSystemEntry(home, { id: 'project-owned', kind: 'project', title: 'P', body: 'B' })).toThrow(
+      /real directory/
+    );
+    expect(fs.readFileSync(entriesPath, 'utf8')).toBe('not a directory\n');
+  });
+});
+
+describe('removeExactSystemEntry — raw write_file race safety', () => {
+  const setup = () => {
+    const home = makeHome();
+    const body = '# Project Alpha\nProject ID: alpha';
+    const written = upsertSystemEntry(home, {
+      id: 'project-alpha',
+      kind: 'project',
+      title: 'Project Alpha',
+      body,
+      author: 'eve',
+      source: 'chat',
+      now: fixedClock('2026-07-20T09:30:00.000Z'),
+    });
+    const input = {
+      id: written.entry.id,
+      kind: written.entry.kind,
+      title: written.entry.title,
+      body,
+      author: written.entry.author,
+      source: written.entry.source,
+      updated_at: written.entry.updated_at,
+    };
+    return { home, bodyPath: written.bodyPath, input, entry: written.entry };
+  };
+
+  const withRawMarker = (home: string, markerId: string) => ({
+    schema_version: COMMAND_EVE_COMPANY_BRAIN_SCHEMA,
+    entries: [
+      ...readBrainIndex(home).entries,
+      {
+        id: markerId,
+        kind: 'note',
+        title: 'Latest raw index edit',
+        updated_at: '2026-07-20T09:31:00.000Z',
+        author: 'eve' as const,
+        source: 'chat' as const,
+        body_file: `entries/${markerId}.md`,
+      },
+    ],
+  });
+
+  it('removes exact owned bytes and is absent-idempotent only after body and index are both absent', () => {
+    const { home, bodyPath, input } = setup();
+
+    expect(removeExactSystemEntry(home, input)).toMatchObject({
+      ok: true,
+      removed: true,
+      already_absent: false,
+    });
+    expect(fs.existsSync(bodyPath)).toBe(false);
+    expect(removeExactSystemEntry(home, input)).toMatchObject({
+      ok: true,
+      removed: false,
+      already_absent: true,
+    });
+
+    fs.writeFileSync(bodyPath, 'raw body after index removal\n');
+    expect(removeExactSystemEntry(home, input)).toMatchObject({
+      ok: false,
+      removed: false,
+      already_absent: false,
+    });
+    expect(fs.readFileSync(bodyPath, 'utf8')).toBe('raw body after index removal\n');
+  });
+
+  it('fails closed when raw write_file edits the body before removal', () => {
+    const { home, bodyPath, input, entry } = setup();
+    fs.writeFileSync(bodyPath, 'latest operator edit\n');
+
+    const result = removeExactSystemEntry(home, input);
+
+    expect(result.ok).toBe(false);
+    expect(fs.readFileSync(bodyPath, 'utf8')).toBe('latest operator edit\n');
+    expect(readBrainIndex(home).entries.find((candidate) => candidate.id === entry.id)).toEqual(entry);
+  });
+
+  it('restores a raw replacement captured in the rename race and preserves its exact index slot', () => {
+    const { home, bodyPath, input, entry } = setup();
+    const originalRename = fs.renameSync.bind(fs);
+    let raced = false;
+    const renameSpy = vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      if (!raced && path.resolve(String(from)) === path.resolve(bodyPath) && String(to).includes('.capture-')) {
+        raced = true;
+        const replacement = `${bodyPath}.raw-replacement`;
+        fs.writeFileSync(replacement, 'newest raw replacement\n');
+        originalRename(replacement, bodyPath);
+      }
+      originalRename(from, to);
+    });
+
+    const result = removeExactSystemEntry(home, input);
+    renameSpy.mockRestore();
+
+    expect(raced).toBe(true);
+    expect(result.ok).toBe(false);
+    expect(fs.readFileSync(bodyPath, 'utf8')).toBe('newest raw replacement\n');
+    expect(readBrainIndex(home).entries.find((candidate) => candidate.id === entry.id)).toEqual(entry);
+  });
+
+  it('recovers an in-place edit that lands at the capture-unlink boundary', () => {
+    const { home, bodyPath, input, entry } = setup();
+    const originalUnlink = fs.unlinkSync.bind(fs);
+    let raced = false;
+    const unlinkSpy = vi.spyOn(fs, 'unlinkSync').mockImplementation((file) => {
+      if (!raced && String(file).includes('.capture-project-alpha-')) {
+        raced = true;
+        fs.writeFileSync(file, 'latest in-place edit\n');
+      }
+      originalUnlink(file);
+    });
+
+    const result = removeExactSystemEntry(home, input);
+    unlinkSpy.mockRestore();
+
+    expect(raced).toBe(true);
+    expect(result.ok).toBe(false);
+    expect(fs.readFileSync(bodyPath, 'utf8')).toBe('latest in-place edit\n');
+    expect(readBrainIndex(home).entries.find((candidate) => candidate.id === entry.id)).toEqual(entry);
+  });
+
+  it('preserves a raw atomic brain.json replacement that wins the exact index-capture race', () => {
+    const { home, bodyPath, input } = setup();
+    const latest = withRawMarker(home, 'note-raw-index-replacement');
+    const latestBytes = `${JSON.stringify(latest, null, 2)}\n`;
+    const originalRename = fs.renameSync.bind(fs);
+    let raced = false;
+    const renameSpy = vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      if (
+        !raced &&
+        path.resolve(String(from)) === path.resolve(brainJson(home)) &&
+        String(to).includes('.brain-index-capture-')
+      ) {
+        raced = true;
+        const replacement = `${brainJson(home)}.raw-replacement`;
+        fs.writeFileSync(replacement, latestBytes);
+        originalRename(replacement, brainJson(home));
+      }
+      originalRename(from, to);
+    });
+
+    const result = removeExactSystemEntry(home, input);
+    renameSpy.mockRestore();
+
+    expect(raced).toBe(true);
+    expect(result).toMatchObject({ ok: false, removed: false, already_absent: false });
+    expect(fs.readFileSync(brainJson(home), 'utf8')).toBe(latestBytes);
+    expect(fs.readFileSync(bodyPath, 'utf8')).toBe(`${input.body}\n`);
+  });
+
+  it('preserves a raw in-place brain.json edit that lands at the exact index-capture boundary', () => {
+    const { home, bodyPath, input } = setup();
+    const latest = withRawMarker(home, 'note-raw-index-edit');
+    const latestBytes = `${JSON.stringify(latest, null, 2)}\n`;
+    const originalRename = fs.renameSync.bind(fs);
+    let raced = false;
+    const renameSpy = vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      if (
+        !raced &&
+        path.resolve(String(from)) === path.resolve(brainJson(home)) &&
+        String(to).includes('.brain-index-capture-')
+      ) {
+        raced = true;
+        fs.writeFileSync(from, latestBytes);
+      }
+      originalRename(from, to);
+    });
+
+    const result = removeExactSystemEntry(home, input);
+    renameSpy.mockRestore();
+
+    expect(raced).toBe(true);
+    expect(result).toMatchObject({ ok: false, removed: false, already_absent: false });
+    expect(fs.readFileSync(brainJson(home), 'utf8')).toBe(latestBytes);
+    expect(fs.readFileSync(bodyPath, 'utf8')).toBe(`${input.body}\n`);
+  });
 });
 
 describe('1.6.2 — migrateCompanyBrainFromHome (own-seat first provisioning)', () => {
+  const writeLiveLegacyLock = (home: string): string => {
+    const lock = path.join(home, COMPANY_BRAIN_DIR, 'brain.json.lock');
+    const now = Date.now();
+    fs.writeFileSync(
+      lock,
+      `${JSON.stringify({
+        schema_version: 'command-eve-exclusive-file-lock/v1',
+        owner_token: 'external-live-owner-token',
+        pid: process.pid,
+        acquired_at_ms: now,
+        expires_at_ms: now + 30_000,
+      })}\n`,
+      { mode: 0o600 }
+    );
+    return lock;
+  };
+
+  it('fails closed while the source home is concurrently mutation-locked', () => {
+    const source = makeHome();
+    const target = makeHome();
+    ensureBrainBlueprint(source);
+    const sourceLock = writeLiveLegacyLock(source);
+
+    const result = migrateCompanyBrainFromHome(source, target);
+
+    expect(result).toEqual({ ok: false, migrated: false, copied: 0 });
+    expect(fs.existsSync(brainJson(target))).toBe(false);
+    expect(fs.existsSync(sourceLock)).toBe(true);
+  });
+
+  it('fails closed while the target home is concurrently mutation-locked', () => {
+    const source = makeHome();
+    const target = makeHome();
+    ensureBrainBlueprint(source);
+    fs.mkdirSync(path.join(target, COMPANY_BRAIN_DIR), { recursive: true });
+    const targetLock = writeLiveLegacyLock(target);
+
+    const result = migrateCompanyBrainFromHome(source, target);
+
+    expect(result).toEqual({ ok: false, migrated: false, copied: 0 });
+    expect(fs.existsSync(brainJson(target))).toBe(false);
+    expect(fs.existsSync(targetLock)).toBe(true);
+  });
+
+  it('acquires both home locks in canonical path order', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ce-brain-lock-order-'));
+    tempRoots.push(root);
+    const source = path.join(root, 'z-source');
+    const target = path.join(root, 'a-target');
+    ensureBrainBlueprint(source);
+    const observedLocks: string[] = [];
+    const originalOpen = fs.openSync.bind(fs);
+    const openSpy = vi.spyOn(fs, 'openSync').mockImplementation((file, flags, mode) => {
+      if (String(file).endsWith(`${path.sep}brain.json.lock`) && (Number(flags) & fs.constants.O_EXCL) !== 0) {
+        observedLocks.push(path.resolve(String(file)));
+      }
+      return originalOpen(file, flags, mode);
+    });
+
+    const result = migrateCompanyBrainFromHome(source, target);
+    openSpy.mockRestore();
+
+    expect(result.migrated).toBe(true);
+    expect(observedLocks.slice(0, 2)).toEqual(
+      [source, target]
+        .map((home) => path.join(path.resolve(home), COMPANY_BRAIN_DIR, 'brain.json.lock'))
+        .toSorted((left, right) => left.localeCompare(right))
+    );
+  });
+
   it('carries index + bodies + companions into a brainless target', () => {
     const source = makeHome();
     const target = makeHome();
@@ -924,13 +1348,32 @@ describe('1.6.2 — migrateCompanyBrainFromHome (own-seat first provisioning)', 
     // The 2026-07-02 state: the seat was empty-seeded (placeholder-only scaffold).
     ensureBrainBlueprint(target, { now: fixedClock('2026-07-02T10:09:00.000Z') });
     expect(isPristineBlueprintScaffold(target)).toBe(true);
+    const canonicalBrainDir = path.join(target, COMPANY_BRAIN_DIR);
+    const canonicalBefore = fs.lstatSync(canonicalBrainDir);
+    const originalRename = fs.renameSync.bind(fs);
+    let targetLockObserved = false;
+    const renameSpy = vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      if (path.resolve(String(to)) === path.resolve(brainJson(target))) {
+        targetLockObserved = fs.existsSync(path.join(canonicalBrainDir, 'brain.json.lock'));
+      }
+      originalRename(from, to);
+    });
 
     const res = migrateCompanyBrainFromHome(source, target);
+    renameSpy.mockRestore();
     expect(res.migrated).toBe(true);
     expect(fs.readFileSync(bodyOf(target, 'bp-company'), 'utf8')).toContain('FYN Labs LLC');
+    const canonicalAfter = fs.lstatSync(canonicalBrainDir);
+    expect({ dev: canonicalAfter.dev, ino: canonicalAfter.ino }).toEqual({
+      dev: canonicalBefore.dev,
+      ino: canonicalBefore.ino,
+    });
+    expect(targetLockObserved).toBe(true);
     // The set-aside scaffold is preserved for forensics.
     const brainParent = path.dirname(path.dirname(brainJson(target)));
-    expect(fs.readdirSync(brainParent).some((n) => n.startsWith('company-brain.pre-inherit-'))).toBe(true);
+    const setAside = fs.readdirSync(brainParent).find((n) => n.startsWith('company-brain.pre-inherit-'));
+    expect(setAside).toBeDefined();
+    expect(fs.readdirSync(path.join(brainParent, setAside!))).not.toContain('brain.json.lock');
   });
 
   it('no index but bodies on disk (quarantine crash window) → hard no-op, ready-pass adopts instead', () => {

@@ -61,6 +61,23 @@ function writeInitialJson(file: string, value: unknown): void {
   }
 }
 
+function exactProjectRecord(left: ProjectCatalogRecord, right: ProjectCatalogRecord): boolean {
+  return (
+    left.project_id === right.project_id &&
+    left.seat_id === right.seat_id &&
+    left.realm_id === right.realm_id &&
+    left.root_id === right.root_id &&
+    left.workspace_root_ref === right.workspace_root_ref &&
+    left.title === right.title &&
+    left.slug === right.slug &&
+    left.status === right.status &&
+    left.manifest_relative_path === right.manifest_relative_path &&
+    left.canonical_project_path === right.canonical_project_path &&
+    left.comparison_key === right.comparison_key &&
+    left.registered_at === right.registered_at
+  );
+}
+
 export class ProjectWorkspaceRegistryStore {
   readonly stateRoot: string;
   private readonly now: () => Date;
@@ -154,7 +171,7 @@ export class ProjectWorkspaceRegistryStore {
     return this.readSeatCatalogs(seatId);
   }
 
-  private readRealmCatalog(file: string): RealmCatalogV1 {
+  private readRealmCatalog(file: string, expectedSeatId?: string): RealmCatalogV1 {
     let raw: unknown;
     try {
       raw = readJson(file);
@@ -163,10 +180,13 @@ export class ProjectWorkspaceRegistryStore {
     }
     const parsed = parseRealmCatalog(raw);
     if (parsed.ok === false) throw new ProjectWorkspaceError(parsed.reason_code, file);
+    if (expectedSeatId !== undefined && parsed.value.seat_id !== expectedSeatId) {
+      throw new ProjectWorkspaceError('schema.invalid', file);
+    }
     return parsed.value;
   }
 
-  private readRootCatalog(file: string): RootCatalogV1 {
+  private readRootCatalog(file: string, expectedSeatId?: string): RootCatalogV1 {
     let raw: unknown;
     try {
       raw = readJson(file);
@@ -175,10 +195,13 @@ export class ProjectWorkspaceRegistryStore {
     }
     const parsed = parseRootCatalog(raw);
     if (parsed.ok === false) throw new ProjectWorkspaceError(parsed.reason_code, file);
+    if (expectedSeatId !== undefined && parsed.value.seat_id !== expectedSeatId) {
+      throw new ProjectWorkspaceError('schema.invalid', file);
+    }
     return parsed.value;
   }
 
-  private readProjectCatalog(file: string): ProjectCatalogV1 {
+  private readProjectCatalog(file: string, expectedSeatId?: string): ProjectCatalogV1 {
     let raw: unknown;
     try {
       raw = readJson(file);
@@ -187,6 +210,9 @@ export class ProjectWorkspaceRegistryStore {
     }
     const parsed = parseProjectCatalog(raw);
     if (parsed.ok === false) throw new ProjectWorkspaceError(parsed.reason_code, file);
+    if (expectedSeatId !== undefined && parsed.value.seat_id !== expectedSeatId) {
+      throw new ProjectWorkspaceError('schema.invalid', file);
+    }
     return parsed.value;
   }
 
@@ -203,12 +229,21 @@ export class ProjectWorkspaceRegistryStore {
   }
 
   private readSeatCatalogsRaw(seatIdValue: string): SeatCatalogBundle {
-    const paths = this.pathsForSeat(seatIdValue);
-    return {
-      realms: this.readRealmCatalog(paths.realm_catalog),
-      roots: this.readRootCatalog(paths.root_catalog),
-      projects: this.readProjectCatalog(paths.project_catalog),
+    const seatId = parseSeatId(seatIdValue);
+    const paths = this.pathsForSeat(seatId);
+    const catalogs = {
+      realms: this.readRealmCatalog(paths.realm_catalog, seatId),
+      roots: this.readRootCatalog(paths.root_catalog, seatId),
+      projects: this.readProjectCatalog(paths.project_catalog, seatId),
     };
+    if (
+      catalogs.realms.seat_id !== seatId ||
+      catalogs.roots.seat_id !== seatId ||
+      catalogs.projects.seat_id !== seatId
+    ) {
+      throw new ProjectWorkspaceError('schema.invalid', `catalog seat mismatch: ${seatId}`);
+    }
+    return catalogs;
   }
 
   private withRootRegistryLocks<T>(seatIdValue: string, callback: () => T): T {
@@ -235,7 +270,7 @@ export class ProjectWorkspaceRegistryStore {
     const realmId = parseRealmId(input.realm.realm_id);
     const paths = this.pathsForSeat(seatId);
     return withExclusiveFileLock(`${paths.realm_catalog}.lock`, () => {
-      const catalog = this.readRealmCatalog(paths.realm_catalog);
+      const catalog = this.readRealmCatalog(paths.realm_catalog, seatId);
       if (catalog.revision !== input.expected_revision) {
         throw new ProjectWorkspaceError('catalog.revision-conflict', 'realm catalog');
       }
@@ -378,11 +413,12 @@ export class ProjectWorkspaceRegistryStore {
   }
 
   renameRoot(input: { seat_id: string; root_id: string; expected_revision: number; label: string }): RootCatalogV1 {
+    const seatId = parseSeatId(input.seat_id);
     const rootId = parseRootId(input.root_id);
-    const paths = this.pathsForSeat(input.seat_id);
+    const paths = this.pathsForSeat(seatId);
     this.recoverPendingRootRegistration();
     return withExclusiveFileLock(`${paths.root_catalog}.lock`, () => {
-      const catalog = this.readRootCatalog(paths.root_catalog);
+      const catalog = this.readRootCatalog(paths.root_catalog, seatId);
       if (catalog.revision !== input.expected_revision) {
         throw new ProjectWorkspaceError('catalog.revision-conflict', 'root catalog');
       }
@@ -475,9 +511,9 @@ export class ProjectWorkspaceRegistryStore {
     const seatId = parseSeatId(input.record.seat_id);
     const paths = this.pathsForSeat(seatId);
     return withExclusiveFileLock(`${paths.project_catalog}.lock`, () => {
-      const catalog = this.readProjectCatalog(paths.project_catalog);
-      const roots = this.readRootCatalog(paths.root_catalog);
-      const realms = this.readRealmCatalog(paths.realm_catalog);
+      const catalog = this.readProjectCatalog(paths.project_catalog, seatId);
+      const roots = this.readRootCatalog(paths.root_catalog, seatId);
+      const realms = this.readRealmCatalog(paths.realm_catalog, seatId);
       const root = roots.roots.find((record) => record.root_id === input.record.root_id);
       const realm = realms.realms.find((record) => record.realm_id === input.record.realm_id);
       const globalOwner = this.readGlobalRoots().roots.find((record) => record.root_id === input.record.root_id);
@@ -552,9 +588,10 @@ export class ProjectWorkspaceRegistryStore {
   }
 
   removeProject(seatIdValue: string, projectId: string): boolean {
-    const paths = this.pathsForSeat(seatIdValue);
+    const seatId = parseSeatId(seatIdValue);
+    const paths = this.pathsForSeat(seatId);
     return withExclusiveFileLock(`${paths.project_catalog}.lock`, () => {
-      const catalog = this.readProjectCatalog(paths.project_catalog);
+      const catalog = this.readProjectCatalog(paths.project_catalog, seatId);
       const nextProjects = catalog.projects.filter((record) => record.project_id !== projectId);
       if (nextProjects.length === catalog.projects.length) return false;
       const next = {
@@ -570,10 +607,54 @@ export class ProjectWorkspaceRegistryStore {
     });
   }
 
+  removeProjectIfMatches(input: {
+    seat_id: string;
+    expected_revision: number;
+    expected_record: ProjectCatalogRecord;
+    allow_already_absent: boolean;
+  }): 'removed' | 'already_absent' {
+    const seatId = parseSeatId(input.seat_id);
+    if (
+      !Number.isSafeInteger(input.expected_revision) ||
+      input.expected_revision < 0 ||
+      input.expected_record.seat_id !== seatId
+    ) {
+      throw new ProjectWorkspaceError('catalog.revision-conflict', 'project catalog');
+    }
+    const paths = this.pathsForSeat(seatId);
+    return withExclusiveFileLock(`${paths.project_catalog}.lock`, () => {
+      const catalog = this.readProjectCatalog(paths.project_catalog, seatId);
+      const existing = catalog.projects.find((record) => record.project_id === input.expected_record.project_id);
+      if (!existing) {
+        if (input.allow_already_absent && catalog.revision >= input.expected_revision + 1) {
+          return 'already_absent';
+        }
+        throw new ProjectWorkspaceError('catalog.revision-conflict', 'project catalog');
+      }
+      if (!exactProjectRecord(existing, input.expected_record)) {
+        throw new ProjectWorkspaceError('catalog.project-conflict', input.expected_record.project_id);
+      }
+      if (catalog.revision < input.expected_revision) {
+        throw new ProjectWorkspaceError('catalog.revision-conflict', 'project catalog');
+      }
+      const next = {
+        ...catalog,
+        revision: catalog.revision + 1,
+        projects: catalog.projects.filter((record) => record.project_id !== input.expected_record.project_id),
+        updated_at: this.timestamp(),
+      } satisfies ProjectCatalogV1;
+      const validated = parseProjectCatalog(next);
+      if (validated.ok === false) throw new ProjectWorkspaceError(validated.reason_code, 'project catalog');
+      writeJsonAtomic(paths.project_catalog, validated.value);
+      return 'removed';
+    });
+  }
+
   markProjectRecoveryRequired(seatIdValue: string, projectId: string): void {
-    const paths = this.pathsForSeat(seatIdValue);
+    const seatId = parseSeatId(seatIdValue);
+    const paths = this.pathsForSeat(seatId);
     withExclusiveFileLock(`${paths.project_catalog}.lock`, () => {
-      const catalog = this.readProjectCatalog(paths.project_catalog);
+      const catalog = this.readProjectCatalog(paths.project_catalog, seatId);
       const projects = catalog.projects.map((record) =>
         record.project_id === projectId ? { ...record, status: 'recovery_required' as const } : record
       );

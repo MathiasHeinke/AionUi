@@ -9,6 +9,11 @@ import {
   releaseProjectLease,
 } from '@process/services/project-workspace/transaction/leaseStore';
 
+const TRANSACTION_A = '11111111-1111-4111-8111-111111111111';
+const TRANSACTION_B = '22222222-2222-4222-8222-222222222222';
+const LINEAGE_A = 'a'.repeat(64);
+const LINEAGE_B = 'b'.repeat(64);
+
 function runContender(lockDirectory: string, ownerToken: string): Promise<Record<string, unknown>> {
   const modulePath = path.resolve('packages/desktop/src/process/services/project-workspace/transaction/leaseStore.ts');
   const program = `
@@ -16,6 +21,8 @@ function runContender(lockDirectory: string, ownerToken: string): Promise<Record
     const result = acquireProjectLease({
       lease_directory: ${JSON.stringify(lockDirectory)},
       key: 'seat-alpha|realm-alpha|/tmp/target',
+      transaction_id: ${JSON.stringify(TRANSACTION_A)},
+      lineage_owner_token_sha256: ${JSON.stringify(LINEAGE_A)},
       owner_token: ${JSON.stringify(ownerToken)},
       ttl_ms: 10000,
       now_ms: Date.now(),
@@ -64,6 +71,8 @@ describe('interprocess project lease', () => {
       const first = acquireProjectLease({
         lease_directory: directory,
         key: 'seat-alpha|realm-alpha|/tmp/target',
+        transaction_id: TRANSACTION_A,
+        lineage_owner_token_sha256: LINEAGE_A,
         owner_token: 'owner-a',
         ttl_ms: 1_000,
         now_ms: 1_000,
@@ -78,6 +87,8 @@ describe('interprocess project lease', () => {
         acquireProjectLease({
           lease_directory: directory,
           key: 'seat-alpha|realm-alpha|/tmp/target',
+          transaction_id: TRANSACTION_A,
+          lineage_owner_token_sha256: LINEAGE_A,
           owner_token: 'owner-b',
           ttl_ms: 1_000,
           now_ms: 2_001,
@@ -88,15 +99,37 @@ describe('interprocess project lease', () => {
         acquireProjectLease({
           lease_directory: directory,
           key: 'seat-alpha|realm-alpha|/tmp/target',
+          transaction_id: TRANSACTION_A,
+          lineage_owner_token_sha256: LINEAGE_A,
           owner_token: 'owner-b',
           ttl_ms: 1_000,
           now_ms: 2_600,
           can_take_over_stale: () => false,
         })
-      ).toMatchObject({ ok: false, reason_code: 'workspace.lease-stale-unrecoverable' });
+      ).toMatchObject({ ok: false, reason_code: 'workspace.concurrent-operation' });
+      expect(
+        acquireProjectLease({
+          lease_directory: directory,
+          key: 'seat-alpha|realm-alpha|/tmp/target',
+          transaction_id: TRANSACTION_A,
+          lineage_owner_token_sha256: LINEAGE_A,
+          owner_token: 'owner-b',
+          ttl_ms: 1_000,
+          now_ms: 2_600,
+          can_take_over_stale: () => true,
+        })
+      ).toMatchObject({ ok: false, reason_code: 'workspace.concurrent-operation' });
+
+      const staleLease = JSON.parse(fs.readFileSync(first.lease_path, 'utf8')) as Record<string, unknown>;
+      fs.writeFileSync(
+        first.lease_path,
+        `${JSON.stringify({ ...staleLease, owner_process_nonce_sha256: 'f'.repeat(64) }, null, 2)}\n`
+      );
       const takeover = acquireProjectLease({
         lease_directory: directory,
         key: 'seat-alpha|realm-alpha|/tmp/target',
+        transaction_id: TRANSACTION_A,
+        lineage_owner_token_sha256: LINEAGE_A,
         owner_token: 'owner-b',
         ttl_ms: 1_000,
         now_ms: 2_600,
@@ -110,6 +143,8 @@ describe('interprocess project lease', () => {
         acquireProjectLease({
           lease_directory: directory,
           key: 'seat-alpha|realm-alpha|/tmp/invalid',
+          transaction_id: TRANSACTION_A,
+          lineage_owner_token_sha256: LINEAGE_A,
           owner_token: 'owner-c',
           ttl_ms: Number.NaN,
           now_ms: 3_000,
@@ -127,6 +162,8 @@ describe('interprocess project lease', () => {
       const first = acquireProjectLease({
         lease_directory: directory,
         key: 'seat-alpha|realm-alpha|/tmp/target',
+        transaction_id: TRANSACTION_A,
+        lineage_owner_token_sha256: LINEAGE_A,
         owner_token: 'owner-a',
         ttl_ms: 1_000,
         now_ms: 1_000,
@@ -140,6 +177,8 @@ describe('interprocess project lease', () => {
       const successor = acquireProjectLease({
         lease_directory: directory,
         key: 'seat-alpha|realm-alpha|/tmp/target',
+        transaction_id: TRANSACTION_B,
+        lineage_owner_token_sha256: LINEAGE_B,
         owner_token: 'owner-b',
         ttl_ms: 1_000,
         now_ms: 1_001,
@@ -154,4 +193,78 @@ describe('interprocess project lease', () => {
       fs.rmSync(directory, { recursive: true, force: true });
     }
   });
+
+  it('never exposes a partial lease when create-only publication fails', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-project-lease-create-crash-'));
+    const originalLink = fs.linkSync;
+    const linkSpy = vi.spyOn(fs, 'linkSync').mockImplementation((existingPath, newPath) => {
+      if (String(newPath).endsWith('.lease.json')) {
+        const error = new Error('simulated crash before create publication') as NodeJS.ErrnoException;
+        error.code = 'EIO';
+        throw error;
+      }
+      return originalLink(existingPath, newPath);
+    });
+    try {
+      expect(() =>
+        acquireProjectLease({
+          lease_directory: directory,
+          key: 'seat-alpha|realm-alpha|/tmp/create-crash',
+          transaction_id: TRANSACTION_A,
+          lineage_owner_token_sha256: LINEAGE_A,
+          owner_token: 'owner-a',
+          ttl_ms: 1_000,
+          now_ms: 1_000,
+          can_take_over_stale: () => false,
+        })
+      ).toThrow('simulated crash before create publication');
+      expect(fs.readdirSync(directory).filter((name) => name.endsWith('.lease.json'))).toEqual([]);
+    } finally {
+      linkSpy.mockRestore();
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it.each(['heartbeat', 'release'] as const)(
+    'keeps the complete old lease visible when atomic %s publication fails',
+    (operation) => {
+      const directory = fs.mkdtempSync(path.join(os.tmpdir(), `eve-project-lease-${operation}-crash-`));
+      try {
+        const acquired = acquireProjectLease({
+          lease_directory: directory,
+          key: `seat-alpha|realm-alpha|/tmp/${operation}-crash`,
+          transaction_id: TRANSACTION_A,
+          lineage_owner_token_sha256: LINEAGE_A,
+          owner_token: 'owner-a',
+          ttl_ms: 1_000,
+          now_ms: 1_000,
+          can_take_over_stale: () => false,
+        });
+        if (acquired.ok === false) throw new Error(acquired.reason_code);
+        const before = fs.readFileSync(acquired.lease_path, 'utf8');
+        const originalRename = fs.renameSync;
+        const renameSpy = vi.spyOn(fs, 'renameSync').mockImplementation((oldPath, newPath) => {
+          if (String(newPath) === acquired.lease_path) {
+            const error = new Error(`simulated crash before ${operation} publication`) as NodeJS.ErrnoException;
+            error.code = 'EIO';
+            throw error;
+          }
+          return originalRename(oldPath, newPath);
+        });
+        try {
+          const result =
+            operation === 'heartbeat'
+              ? heartbeatProjectLease(acquired.lease_path, 'owner-a', 1_500, 1_000)
+              : releaseProjectLease(acquired.lease_path, 'owner-a');
+          expect(result).toBe(false);
+        } finally {
+          renameSpy.mockRestore();
+        }
+        expect(fs.readFileSync(acquired.lease_path, 'utf8')).toBe(before);
+        expect(() => JSON.parse(before)).not.toThrow();
+      } finally {
+        fs.rmSync(directory, { recursive: true, force: true });
+      }
+    }
+  );
 });

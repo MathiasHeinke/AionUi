@@ -1,5 +1,6 @@
 import type { BrowserWindow, OnBeforeSendHeadersListenerDetails } from 'electron';
 import { LOCAL_BACKEND_CAPABILITY_HEADER } from '@aionui/web-host';
+import { PROJECT_RUNTIME_ATTESTATION_HEADER } from './projectRuntimeAttestationCore';
 
 export type LocalBackendCapabilityResolver = {
   getPort: () => number;
@@ -91,7 +92,10 @@ export function authorizeRendererBackendRequest(
   const requestHeaders = { ...details.requestHeaders };
   let strippedReservedCapability = false;
   for (const name of Object.keys(requestHeaders)) {
-    if (name.toLowerCase() === LOCAL_BACKEND_CAPABILITY_HEADER) {
+    if (
+      name.toLowerCase() === LOCAL_BACKEND_CAPABILITY_HEADER ||
+      name.toLowerCase() === PROJECT_RUNTIME_ATTESTATION_HEADER
+    ) {
       delete requestHeaders[name];
       strippedReservedCapability = true;
     }
