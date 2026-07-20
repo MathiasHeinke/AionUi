@@ -15,6 +15,7 @@ import MobileActionSheet, {
 } from '@/renderer/components/chat/MobileActionSheet';
 import SendBox from '@/renderer/components/chat/SendBox';
 import ThoughtDisplay from '@/renderer/components/chat/ThoughtDisplay';
+import { runProjectChatIntentGate } from '@/renderer/pages/conversation/shared/projectChatIntentGate';
 import {
   markConversationGenerating,
   clearConversationGenerating,
@@ -432,6 +433,10 @@ const AionrsSendBox: React.FC<{
       setContent('');
       return;
     }
+
+    // S81/R3: bounded, fail-open project intent gate before dispatch; never
+    // touches executeCommand/sendMessage.
+    await runProjectChatIntentGate({ conversation_id, message });
 
     const draftContent = content || message;
     const selectedAtPath = [...atPath];

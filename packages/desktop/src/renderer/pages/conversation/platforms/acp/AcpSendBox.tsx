@@ -63,6 +63,7 @@ import { waitForConversationActiveTurnId } from '@/renderer/pages/conversation/r
 import {
   markConversationDocumentPreparationSettled,
   markConversationDocumentPreparationStarted,
+  useConversationDocumentPreparation,
 } from '@/renderer/pages/conversation/runtime/conversationDocumentPreparationStore';
 import { getConversationRuntimeWorkspaceErrorMessage } from '@/renderer/pages/conversation/utils/conversationCreateError';
 import { warmupConversation } from '@/renderer/pages/conversation/utils/warmupConversation';
@@ -78,6 +79,7 @@ import { Brain, EditOne, MagicHat, Shield, Time } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { buildSendFailureError } from './buildSendFailureError';
+import { runProjectChatIntentGate } from '@/renderer/pages/conversation/shared/projectChatIntentGate';
 import AcpDocumentPreparationStatus, { type AcpDocumentPreparationState } from './AcpDocumentPreparationStatus';
 import { useAcpInitialMessage } from './useAcpInitialMessage';
 import type { UseAcpMessageReturn } from './useAcpMessage';
@@ -172,6 +174,10 @@ const AcpSendBox: React.FC<{
   const [busySendMode, setBusySendMode] = useState<ConversationBusyControlMode>('queue');
   const [documentPreparation, setDocumentPreparation] = useState<AcpDocumentPreparationState | null>(null);
   const documentPreparationInFlightRef = useRef(false);
+  // Reactive twin of the ref for rendering: the ref serves synchronous guards,
+  // the store-backed hook keeps `loading` correct regardless of microtask
+  // ordering (the S81/R3 intent gate adds an await before preparation starts).
+  const documentPreparationInFlight = useConversationDocumentPreparation(conversation_id);
   const promotingQueuedCommandIdsRef = useRef(new Set<string>());
   const [promotingQueuedCommandIds, setPromotingQueuedCommandIds] = useState<ReadonlySet<string>>(() => new Set());
   const prepareRuntimeSync = useCallback(async () => {
@@ -775,6 +781,10 @@ Please check your local CLI tool authentication status`,
       allFiles: string[],
       controls: { clearSelection: () => void; restoreDraftAndFiles: () => void }
     ): Promise<boolean> => {
+      // S81/R3: bounded, fail-open project intent gate — always first, before
+      // PDF prep or dispatch, and never touching executeCommand/sendMessage.
+      await runProjectChatIntentGate({ conversation_id, message });
+
       if (documentPreparationInFlightRef.current) {
         controls.restoreDraftAndFiles();
         Message.warning(t('conversation.pdf.preparationInProgress'));
@@ -1270,7 +1280,7 @@ Please check your local CLI tool authentication status`,
           emitter.emit('acp.selected.file', items);
           setAtPath(items);
         }}
-        loading={isBusy || documentPreparationInFlightRef.current}
+        loading={isBusy || documentPreparationInFlight}
         disabled={false}
         hasPendingSpeechInput={speechInputStatus === 'recording'}
         transcribePendingSpeechInput={transcribePendingSpeechInput}
