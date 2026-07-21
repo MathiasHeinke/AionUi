@@ -103,7 +103,7 @@ test.describe('Command EVE egress boundary', () => {
     inferenceSettings = undefined;
   });
 
-  test('redacts sensitive data from the real EVE GUI chat path and writes a fresh receipt', async ({ page }) => {
+  test('blocks sensitive data from the real EVE GUI chat path and writes a fresh receipt', async ({ page }) => {
     const rendererLogs: string[] = [];
     const createConversationPayloads: string[] = [];
     page.on('request', (request) => {
