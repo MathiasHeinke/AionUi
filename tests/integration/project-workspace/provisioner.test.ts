@@ -548,6 +548,70 @@ describe('project workspace transaction and recovery', () => {
     expect(registry.readSeatCatalogs('seat-alpha').projects.projects).toHaveLength(0);
   });
 
+  it('skips foreign-seat journals during boot recovery (1.818 CAO-P2: recoverAll only on the boot seat)', async () => {
+    const betaRealm = '55555555-5555-4555-8555-555555555555';
+    const betaRootId = '66666666-6666-4666-8666-666666666666';
+    const betaRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-project-beta-'));
+    try {
+      registry.initializeSeat('seat-beta');
+      registry.upsertRealm({
+        seat_id: 'seat-beta',
+        expected_revision: 0,
+        realm: { realm_id: betaRealm, label: 'Beta', path_slug: 'beta', status: 'active', order: 0 },
+      });
+      registry.registerRoot({
+        seat_id: 'seat-beta',
+        expected_seat_revision: registry.readSeatCatalogs('seat-beta').roots.revision,
+        expected_global_revision: registry.readGlobalRoots().revision,
+        root: {
+          root_id: betaRootId,
+          realm_id: betaRealm,
+          label: 'Beta Projects',
+          kind: 'app_managed',
+          path: betaRoot,
+          status: 'active',
+        },
+      });
+      // A crashed create under seat-beta leaves a seat-beta journal behind.
+      activeSeat = 'seat-beta';
+      const betaPlan: ProjectIntentPlan = {
+        ...plan(),
+        seat_id: 'seat-beta',
+        realm_id: betaRealm,
+        root_id: betaRootId,
+        workspace_root_ref: `root:${betaRootId}`,
+        snapshot: {
+          seat_id: 'seat-beta',
+          realm_id: betaRealm,
+          root_id: betaRootId,
+          workspace_root_ref: `root:${betaRootId}`,
+          realm_revision: 1,
+          root_revision: 1,
+          project_catalog_revision: 0,
+        },
+      };
+      const crashing = service((phase) => {
+        if (phase === 'promoted') throw new Error('SIMULATED_CRASH');
+      });
+      await expect(crashing.create(betaPlan)).rejects.toThrow('SIMULATED_CRASH');
+      const journalFile = path.join(stateRoot, 'transactions', `${IDS.transaction}.journal.json`);
+      const crashedJournal = fs.readFileSync(journalFile, 'utf8');
+      expect(JSON.parse(crashedJournal)).toMatchObject({
+        phase: 'promoted',
+        identity: expect.objectContaining({ seat_id: 'seat-beta' }),
+      });
+
+      // Boot under seat-alpha: the foreign-seat journal must be ignored
+      // entirely — no recovery attempt, no failure entry, no journal mutation.
+      activeSeat = 'seat-alpha';
+      expect(await service().recoverAll()).toEqual([]);
+      expect(fs.readFileSync(journalFile, 'utf8')).toBe(crashedJournal);
+      expect(registry.readSeatCatalogs('seat-beta').projects.projects).toHaveLength(0);
+    } finally {
+      fs.rmSync(betaRoot, { recursive: true, force: true });
+    }
+  });
+
   it('rejects recovery with a semantic receipt when the coordinator is unavailable', async () => {
     const crashing = service((phase) => {
       if (phase === 'promoted') throw new Error('SIMULATED_CRASH');

@@ -17,8 +17,26 @@ test.describe('Command EVE appearance controls', () => {
     await expect(page.getByTestId('eve-appearance-mode-light')).toBeVisible();
     await expect(page.getByTestId('eve-appearance-mode-dark')).toBeVisible();
     await expect(page.locator(ACCENT_SELECTOR)).toHaveCount(4);
-    await expect(page.locator('.eve-background-empty')).toBeVisible();
     await expect(page.locator('.cm-editor')).toHaveCount(0);
+
+    // drift: 1affa51e the default profile ships builtin:command-eve-default, so
+    // .eve-background-empty only renders after the remove flow clears assetId — never under
+    // the default profile. Drive select → remove → empty explicitly (C5 decision).
+    const defaultPreset = page.getByTestId('eve-background-preset-builtin-command-eve-default');
+    await expect(defaultPreset).toBeVisible();
+    await expect(defaultPreset).toHaveAttribute('aria-checked', 'true');
+    await expect(page.locator('.eve-background-editor')).toBeVisible();
+
+    await page.locator('.eve-background-preview__remove').click();
+    const confirmDialog = page.locator('.arco-modal').last();
+    await expect(confirmDialog).toBeVisible();
+    await confirmDialog.getByRole('button', { name: /Entfernen|Remove/ }).click();
+    await expect(page.locator('.eve-background-empty')).toBeVisible();
+
+    // Restore the default builtin background for subsequent specs in the shared app.
+    await defaultPreset.click();
+    await expect(defaultPreset).toHaveAttribute('aria-checked', 'true');
+    await expect(page.locator('.eve-background-editor')).toBeVisible();
   });
 
   test('accent selection updates the public theme token', async ({ page }) => {

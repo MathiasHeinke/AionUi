@@ -12,9 +12,20 @@
  *   5. Assert workspace updated (team record + all agent conversations)
  *   6. Send another task to leader → verify member gets re-assigned
  *   7. Cleanup: delete team + temp directory
+ *
+ * Spawned ACP agents run sandboxed: ACP permission cards raised during member
+ * init/turns are auto-approved through the shared
+ * startAutoApprovePermissionMessages helper (established pattern from
+ * cron-crud / conversation-full-cycle); the local autoApproveMcpDialogs loop
+ * keeps handling the separate MCP modal-button surface.
  */
 import { test, expect } from '../../fixtures';
-import { invokeBridge, RUN_TEAM_AGENT_LIVE, TEAM_SUPPORTED_BACKENDS } from '../../helpers';
+import {
+  invokeBridge,
+  startAutoApprovePermissionMessages,
+  RUN_TEAM_AGENT_LIVE,
+  TEAM_SUPPORTED_BACKENDS,
+} from '../../helpers';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -27,12 +38,15 @@ test.describe('Team Workspace Migration', () => {
 
   let targetWorkspace: string;
   let team_id: string | undefined;
+  let stopAutoApprove: (() => void) | null = null;
 
   test.beforeAll(async () => {
     targetWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), 'aionui-target-'));
   });
 
   test.afterAll(async () => {
+    stopAutoApprove?.();
+    stopAutoApprove = null;
     fs.rmSync(targetWorkspace, { recursive: true, force: true });
   });
 
@@ -120,6 +134,9 @@ test.describe('Team Workspace Migration', () => {
     // Wait for leader session to be ready
     const chatInput = page.locator('textarea').first();
     await expect(chatInput).toBeVisible({ timeout: 30_000 });
+
+    // Auto-approve ACP permission cards the spawned sandboxed agents may raise.
+    stopAutoApprove = startAutoApprovePermissionMessages(page);
 
     await page.screenshot({ path: 'tests/e2e/results/team-migration-01-created.png' });
 

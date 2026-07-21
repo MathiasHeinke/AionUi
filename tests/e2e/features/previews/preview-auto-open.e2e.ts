@@ -17,6 +17,7 @@ import os from 'os';
 import path from 'path';
 import { test, expect } from '../../fixtures';
 import { goToGuid } from '../../helpers';
+import { openWorkspaceContextPanel } from '../../helpers/workspacePanel';
 
 async function enableAutoPreviewOfficeFiles(page: import('@playwright/test').Page): Promise<void> {
   await page.evaluate(async () => {
@@ -87,6 +88,16 @@ async function installWorkspaceOfficeWatchDebug(page: import('@playwright/test')
 
         const name = parsed.name ?? parsed.event ?? 'unknown';
         const data = parsed.data ?? parsed.payload;
+
+        // drift: f43ed0be AionCore drops clients that do not answer its application-level
+        // heartbeat ping with a pong — the debug channel must answer like the app does.
+        if (name === 'ping') {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ name: 'pong', data: data ?? {} }));
+          }
+          return;
+        }
+
         debug.events.push({ name, data });
       } catch {
         debug.events.push({ name: 'non-json', data: String(event.data) });
@@ -195,6 +206,10 @@ async function createConversationWithWorkspace(
     timeout: 15_000,
   });
 
+  // drift: 964c3c97 .chat-workspace now lives behind the collapsed-by-default ShellElementsRail
+  // "Kontext" tab — open the rail via the titlebar toggle, then activate the context tab.
+  await openWorkspaceContextPanel(page);
+
   await expect(page.locator('.chat-workspace')).toBeVisible({ timeout: 30_000 });
   return conversationId;
 }
@@ -238,12 +253,11 @@ test.describe('Preview auto-open for Office files', () => {
 
       try {
         conversationId = await createConversationWithWorkspace(page, workspace);
-        await expect
-          .poll(async () => (await getWorkspaceOfficeWatchDebug(page, workspace)).wsStatus, { timeout: 10_000 })
-          .toBe('open');
-
         // Give the renderer enough time to start the backend watcher and record
         // the initial baseline before we create the new office file.
+        // drift: the passive debug WebSocket is dropped by the backend's connection
+        // management even when answering pings, so it is kept for diagnostics only —
+        // the feature proof is the preview tab opening via the app's own WS channel.
         await page.waitForTimeout(2_000);
 
         const targetFile = path.join(workspace, fileName);

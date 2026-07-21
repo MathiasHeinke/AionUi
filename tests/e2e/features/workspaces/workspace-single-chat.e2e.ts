@@ -1,25 +1,20 @@
 /**
  * E2E: Single-chat workspace panel — real user flow.
  *
- * Seeds a directory with known files, mocks the native folder dialog, then
- * creates a conversation from the guid page with a user-specified workspace.
- * Verifies the workspace panel renders the seeded files, search works, and
+ * Seeds a directory with known files, creates a conversation bound to it via
+ * the conversations API, then opens the ShellElementsRail context tab and
+ * verifies the workspace panel renders the seeded files, search works, and
  * tabs switch correctly.
  */
 import { test, expect } from '../../fixtures';
-import { goToGuid, sendMessageFromGuid } from '../../helpers';
-import {
-  forceLocalCommandEveInference,
-  restoreCommandEveInference,
-  type CommandEveInferenceSettingsSnapshot,
-} from '../../helpers/commandEveInference';
+import { goToGuid } from '../../helpers';
+import { openWorkspaceContextPanel } from '../../helpers/workspacePanel';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 
 test.describe('Workspace — single chat', () => {
   let workspace: string;
-  let inferenceSettings: CommandEveInferenceSettingsSnapshot | undefined;
 
   test.beforeAll(() => {
     workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'aionui-e2e-ws-single-'));
@@ -33,35 +28,47 @@ test.describe('Workspace — single chat', () => {
     fs.rmSync(workspace, { recursive: true, force: true });
   });
 
-  test.afterEach(async ({ page }) => {
-    if (inferenceSettings) await restoreCommandEveInference(page, inferenceSettings);
-    inferenceSettings = undefined;
-  });
-
-  test('user selects workspace folder, sends message, sees files in panel', async ({ page, electronApp }) => {
+  test('creates a workspace-bound conversation and sees files in the panel', async ({ page }) => {
     test.setTimeout(240_000);
 
-    await electronApp.evaluate(async ({ dialog }, target) => {
-      dialog.showOpenDialog = () => Promise.resolve({ canceled: false, filePaths: [target] });
+    await goToGuid(page);
+
+    // drift: 964c3c97 removed the guid workspace selector (GuidWorkspaceFootnote); seed the
+    // workspace via POST /api/conversations extra.workspace (API pattern from 1c6716a3).
+    // forceLocalCommandEveInference stays HTTP-only and is not needed: no message is sent.
+    const conversationId = await page.evaluate(async (workspacePath) => {
+      const port = (window as Window).__backendPort;
+      if (!port) throw new Error('window.__backendPort is not available');
+      const response = await fetch(`http://127.0.0.1:${port}/api/conversations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'acp',
+          name: `E2E workspace single chat ${Date.now()}`,
+          extra: {
+            workspace: workspacePath,
+            custom_workspace: true,
+            backend: 'codex',
+            session_mode: 'full-access',
+          },
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`Conversation create failed (${response.status}): ${await response.text()}`);
+      }
+      const result = (await response.json()) as { data?: { id?: string } };
+      const id = result.data?.id;
+      if (!id) throw new Error('Conversation create response did not include an id');
+      window.location.assign(`#/conversation/${id}`);
+      return id;
     }, workspace);
 
-    await goToGuid(page);
-    inferenceSettings = await forceLocalCommandEveInference(page);
+    await page.waitForURL(/\/conversation\//, { timeout: 30_000 });
+    expect(page.url()).toContain(conversationId);
 
-    // Click workspace selector → triggers mocked native dialog
-    const wsBtn = page.locator('[data-testid="workspace-selector-btn"]');
-    await expect(wsBtn).toBeVisible({ timeout: 5_000 });
-    await wsBtn.click();
-    const chooseDifferent = page.getByText(/Choose a different folder|Anderen Ordner auswählen|选择其他文件夹/i);
-    if (await chooseDifferent.isVisible({ timeout: 1_000 }).catch(() => false)) {
-      await chooseDifferent.click();
-    }
-    await expect(page.getByRole('button', { name: new RegExp(path.basename(workspace), 'i') })).toBeVisible({
-      timeout: 5_000,
-    });
-
-    // Send a message to create the conversation
-    await sendMessageFromGuid(page, 'list files in this project');
+    // drift: 964c3c97 .chat-workspace now lives behind the collapsed-by-default ShellElementsRail
+    // "Kontext" tab — open the rail via the titlebar toggle, then activate the context tab.
+    await openWorkspaceContextPanel(page);
 
     // Workspace panel should mount with our seeded files
     const panel = page.locator('.chat-workspace:visible').last();

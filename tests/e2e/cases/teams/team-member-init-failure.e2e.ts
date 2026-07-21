@@ -12,9 +12,14 @@
  * status="failed" on mount. The server assigns the real slotId — we cannot
  * predict it, so we let addAgent return it and rely on the fact that
  * FailedMember is the only non-leader slot.
+ *
+ * Team creation spawns a real ACP leader agent; createTeamOrSkip converts the
+ * "no supported agents installed" sandbox condition into a clean skip (1.818
+ * C4 harness finding — this spec's inline try/catch was the model for the
+ * shared helper).
  */
 import { test, expect } from '../../fixtures';
-import { invokeBridge, navigateTo, createTeam, deleteTeam } from '../../helpers';
+import { invokeBridge, navigateTo, createTeamOrSkip, deleteTeam } from '../../helpers';
 
 type AgentPayload = {
   name: string;
@@ -28,14 +33,8 @@ type TeamAgentResult = { slot_id: string; name: string; status: string };
 test.describe('Team Member Init Failure UI', () => {
   test('failed agent slot renders error overlay with remove button', async ({ page }) => {
     // [setup] Create a team with a leader slot via shared helper
-    let teamId: string;
-    try {
-      teamId = await createTeam(page, 'E2E Init-Failure Team');
-    } catch {
-      console.log('[E2E] createTeam unavailable — skipping member-init-failure test');
-      test.skip();
-      return;
-    }
+    const teamId = await createTeamOrSkip(page, 'E2E Init-Failure Team');
+    if (!teamId) return;
 
     // [inject] Add a teammate via team.add-agent. Backend assigns slot_id/status;
     // init-failure surface is produced by the agent not being able to initialise.

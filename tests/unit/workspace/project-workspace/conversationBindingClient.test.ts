@@ -70,6 +70,115 @@ describe('AionCore project conversation binding CAS client', () => {
     expect(String(fetchImpl.mock.calls[2][0])).toContain('cursor=conversation-a');
   });
 
+  it('skips malformed listMetadata records but keeps the valid enrichment (1.818 CAO-P2)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: {
+            items: [
+              { id: 'conversation-a', name: 'Launch', extra: A },
+              { id: 'conversation-broken', name: '', extra: A },
+              { id: 'conversation-c', name: 'Ops', extra: {} },
+            ],
+            total: 3,
+            has_more: false,
+          },
+        }),
+        { status: 200 }
+      )
+    );
+    const client = createAionCoreProjectBindingClient({ get_port: () => 43123, fetch_impl: fetchImpl });
+
+    await expect(client.listMetadata()).resolves.toEqual([
+      {
+        conversation_id: 'conversation-a',
+        name: 'Launch',
+        binding: A,
+        project_binding_revision: 0,
+        project_binding_receipt_id: null,
+      },
+      {
+        conversation_id: 'conversation-c',
+        name: 'Ops',
+        binding: null,
+        project_binding_revision: 0,
+        project_binding_receipt_id: null,
+      },
+    ]);
+    expect(warn).toHaveBeenCalledWith(
+      '[ProjectBinding] listMetadata: skipping malformed conversation record',
+      expect.any(Error)
+    );
+    warn.mockRestore();
+  });
+
+  it('paginates past a trailing malformed record using its raw id', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: {
+              items: [
+                { id: 'conversation-a', name: 'Launch', extra: A },
+                { id: 'conversation-broken', name: '', extra: A },
+              ],
+              total: 3,
+              has_more: true,
+            },
+          }),
+          { status: 200 }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: { items: [{ id: 'conversation-c', name: 'Ops', extra: {} }], total: 3, has_more: false },
+          }),
+          { status: 200 }
+        )
+      );
+    const client = createAionCoreProjectBindingClient({ get_port: () => 43123, fetch_impl: fetchImpl });
+
+    await expect(client.listMetadata()).resolves.toHaveLength(2);
+    expect(String(fetchImpl.mock.calls[1][0])).toContain('cursor=conversation-broken');
+    vi.restoreAllMocks();
+  });
+
+  it('fails closed when the page boundary record has no usable cursor id', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: {
+            items: [
+              { id: 'conversation-a', name: 'Launch', extra: A },
+              { name: 'no id here', extra: {} },
+            ],
+            total: 5,
+            has_more: true,
+          },
+        }),
+        { status: 200 }
+      )
+    );
+    const client = createAionCoreProjectBindingClient({ get_port: () => 43123, fetch_impl: fetchImpl });
+
+    await expect(client.listMetadata()).rejects.toMatchObject({ code: 'PROJECT_BINDING_RESPONSE_INVALID' });
+    vi.restoreAllMocks();
+  });
+
+  it('still fails closed on a malformed listMetadata page envelope', async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: ['not', 'a', 'page'] }), { status: 200 }));
+    const client = createAionCoreProjectBindingClient({ get_port: () => 43123, fetch_impl: fetchImpl });
+
+    await expect(client.listMetadata()).rejects.toMatchObject({ code: 'PROJECT_BINDING_RESPONSE_INVALID' });
+  });
+
   it('reads the portable pair and sends an exact expected-pair CAS without any path', async () => {
     const fetchImpl = vi
       .fn<typeof fetch>()

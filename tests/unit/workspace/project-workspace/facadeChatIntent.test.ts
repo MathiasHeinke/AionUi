@@ -289,4 +289,66 @@ describe('ProjectWorkspaceFacade.chatIntent (S81 R3)', () => {
 
     expect(result).toEqual({ decision: 'pass_through' });
   });
+
+  it('fails open with a rejected artifact when the bind receipt is rejected (1.818 CAO-P2)', async () => {
+    await createProject(f, 'Atlas Projekt');
+    vi.spyOn(f.lifecycle, 'bindConversation').mockResolvedValue({
+      receipt_id: 'receipt-rejected-1',
+      outcome: 'rejected',
+      completed_at: Date.now(),
+      reason_code: 'stale_snapshot',
+      safe_follow_ups: [],
+    });
+
+    const result = await f.facade.chatIntent(chatRequest('bitte analysiere das atlas projekt budget'));
+
+    // The send goes out unbound; the artifact records the actual rejection
+    // instead of claiming a completed bind that never happened.
+    expect(result).toEqual({ decision: 'pass_through' });
+    const artifacts = f.artifactStore.list(SEAT_ID, 'conv-chat');
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]?.payload.state).toBe('rejected');
+    expect(artifacts[0]?.payload.receipt?.outcome).toBe('rejected');
+    expect(artifacts[0]?.payload.reason_code).toBe('stale_snapshot');
+    expect(artifacts[0]?.payload.intent_summary_i18n).toEqual({
+      key: 'common.projects.chatIntent.bindRejectedSummary',
+      params: { title: 'Atlas Projekt' },
+    });
+  });
+
+  it('ships the bound summary as an i18n ref with an English fallback (1.818 CAO-P2)', async () => {
+    await createProject(f, 'Atlas Projekt');
+
+    const result = await f.facade.chatIntent(chatRequest('bitte analysiere das atlas projekt budget'));
+
+    expect(result.decision).toBe('handled');
+    const artifacts = f.artifactStore.list(SEAT_ID, 'conv-chat');
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]?.payload.intent_summary).toBe('Conversation assigned to project "Atlas Projekt"');
+    expect(artifacts[0]?.payload.intent_summary_i18n).toEqual({
+      key: 'common.projects.chatIntent.boundSummary',
+      params: { title: 'Atlas Projekt' },
+    });
+  });
+
+  it('ships the clarification copy as an i18n ref with an English fallback (1.818 CAO-P2)', async () => {
+    await createProject(f, 'Atlas Alpha');
+    await createProject(f, 'Atlas Beta');
+
+    const result = await f.facade.chatIntent(chatRequest('atlas alpha beta status bitte'));
+
+    expect(result.decision).toBe('needs_clarification');
+    if (result.decision === 'needs_clarification') {
+      expect(result.question_i18n?.key).toBe('common.projects.chatIntent.clarifyQuestion');
+      expect(result.question_i18n?.params?.titles).toHaveLength(2);
+      expect(result.question_i18n?.params?.titles).toEqual(expect.arrayContaining(['"Atlas Alpha"', '"Atlas Beta"']));
+      // English fallback keeps the titles for version-skew rendering.
+      expect(result.question).toContain('Atlas Alpha');
+      expect(result.question).toContain('Atlas Beta');
+    }
+    const artifacts = f.artifactStore.list(SEAT_ID, 'conv-chat');
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]?.payload.question_i18n?.key).toBe('common.projects.chatIntent.clarifyQuestion');
+    expect(artifacts[0]?.payload.intent_summary_i18n).toEqual({ key: 'common.projects.chatIntent.ambiguousSummary' });
+  });
 });

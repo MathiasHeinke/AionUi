@@ -6,8 +6,12 @@
 
 import { execFile } from 'node:child_process';
 import { migrateConfigStorage, migrateLegacyMcpConfigToDb, migrateProviders } from '@/common/config/configMigration';
-import { httpRequest } from '@/common/adapter/httpBridge';
-import { mcpService } from '@/common/adapter/ipcBridge';
+import { httpRequest, isBackendHttpError } from '@/common/adapter/httpBridge';
+import { mcpService, mode } from '@/common/adapter/ipcBridge';
+import {
+  COMMAND_EVE_LOCAL_RUNTIME_PROVIDER_ID,
+  getCommandEveLocalRuntimeProvider,
+} from '@/common/config/commandEveShell';
 import type { ConfigKeyMap } from '@/common/config/configKeys';
 import {
   removeImageGenerationEnvKeys,
@@ -58,6 +62,58 @@ async function fetchProviders(): Promise<IProvider[]> {
   } catch (error) {
     console.warn('[Migration] MCP bootstrap could not load providers for image generation env resolution', error);
     return [];
+  }
+}
+
+/**
+ * A provider create that loses a concurrent-seed race surfaces as a 409
+ * conflict (duplicate id). Anything carrying the 409 signal counts, so
+ * non-structured wrappers (e.g. IPC re-throws) are covered too.
+ */
+function isProviderAlreadyExistsError(error: unknown): boolean {
+  if (isBackendHttpError(error)) {
+    return error.status === 409;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('409');
+}
+
+/**
+ * Seed the Command EVE local-runtime provider row (EVE-1.818 C1).
+ *
+ * The GUI creates local-lane conversations with provider id
+ * `command-eve-local-runtime` (egress proxy `127.0.0.1:25811/v1`), but no
+ * install/upgrade path ever wrote that row into the backend DB, so the
+ * aionrs factory rejected local-lane chats with UNKNOWN_UPSTREAM_ERROR.
+ *
+ * - Idempotent: an existing row is left completely untouched — never PUT,
+ *   never overwrite a possibly user-modified provider.
+ * - Race-safe: two concurrent seeds against one DB yield exactly one row.
+ *   The loser gets a 409 conflict from createProvider, which means the row
+ *   now exists — that is SUCCESS, not an error. Other failures rethrow so
+ *   the step runner logs them in the established style and moves on.
+ */
+export async function ensureCommandEveLocalRuntimeProvider(): Promise<void> {
+  const providers = await fetchProviders();
+  const existing = providers.find((provider) => provider.id === COMMAND_EVE_LOCAL_RUNTIME_PROVIDER_ID);
+  if (existing) {
+    return;
+  }
+
+  try {
+    await mode.createProvider.invoke(getCommandEveLocalRuntimeProvider());
+    console.info(
+      '[Migration] seeded Command EVE local runtime provider (id: %s)',
+      COMMAND_EVE_LOCAL_RUNTIME_PROVIDER_ID
+    );
+  } catch (error) {
+    if (isProviderAlreadyExistsError(error)) {
+      console.info(
+        '[Migration] Command EVE local runtime provider was seeded concurrently — conflict treated as success'
+      );
+      return;
+    }
+    throw error;
   }
 }
 
@@ -375,6 +431,10 @@ const MIGRATION_STEPS: Array<{
   },
   { name: 'migrateConfigStorage', run: async (configFile) => (await migrateConfigStorage(configFile), true) },
   { name: 'migrateProviders', run: async (configFile) => (await migrateProviders(configFile), true) },
+  {
+    name: 'ensureCommandEveLocalRuntimeProvider',
+    run: async () => (await ensureCommandEveLocalRuntimeProvider(), true),
+  },
   {
     name: 'ensureBootstrapMcpServersInDb',
     run: async (configFile) => (await ensureBootstrapMcpServersInDb(configFile), true),

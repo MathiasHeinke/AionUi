@@ -215,6 +215,13 @@
         "recovery_required": "Recovery required"
       }
     },
+    "chatIntent": {
+      "boundSummary": "Conversation assigned to project \"{{title}}\"",
+      "bindRejectedSummary": "Could not assign conversation to project \"{{title}}\"",
+      "ambiguousSummary": "Ambiguous project assignment",
+      "clarifyQuestion": "Did you mean one of these projects: {{titles}}? Tell me which one you meant.",
+      "listOr": " or "
+    },
     "reasons": {
       "service_unavailable": {
         "title": "Projects are not available yet",

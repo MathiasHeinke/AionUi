@@ -6,6 +6,7 @@ import {
   type ProjectWorkspaceArtifactDTO,
   type ProjectWorkspaceConversationArtifactDTO,
   type ProjectWorkspaceArtifactState,
+  type ProjectWorkspaceI18nRef,
   type ProjectWorkspaceListDTO,
   type ProjectWorkspaceReasonCode,
   type ProjectWorkspaceReceiptDTO,
@@ -85,6 +86,32 @@ const actions = (value: unknown, label: string): ProjectWorkspaceAction[] => {
 
 const optionalReason = (value: unknown): ProjectWorkspaceReasonCode | undefined =>
   value === undefined ? undefined : enumValue(value, PROJECT_WORKSPACE_REASON_CODES, 'reason_code');
+
+/**
+ * Validate a main-process i18n reference (1.818 CAO-P2). Bounded like every
+ * other display string: param keys must not be sensitive, param values go
+ * through the same path/overlong fences as free text, arrays stay small.
+ */
+const i18nRefValue = (value: unknown, label: string): ProjectWorkspaceI18nRef => {
+  const source = record(value, label);
+  exactKeys(source, ['key', 'params'], label);
+  const key = stringValue(source.key, `${label}.key`);
+  if (source.params === undefined) return { key };
+  const paramsSource = record(source.params, `${label}.params`);
+  const params: Record<string, string | string[]> = {};
+  for (const [paramKey, paramValue] of Object.entries(paramsSource)) {
+    if (SENSITIVE_KEY.test(paramKey)) {
+      throw new UnsafeProjectWorkspaceDTOError(`${label}.params contains a sensitive field`);
+    }
+    if (Array.isArray(paramValue)) {
+      if (paramValue.length > 32) throw new UnsafeProjectWorkspaceDTOError(`${label}.params.${paramKey} is invalid`);
+      params[paramKey] = paramValue.map((item, index) => stringValue(item, `${label}.params.${paramKey}[${index}]`));
+    } else {
+      params[paramKey] = stringValue(paramValue, `${label}.params.${paramKey}`);
+    }
+  }
+  return { key, params };
+};
 
 const placement = (value: unknown): ProjectPlacementDTO => {
   const source = record(value, 'placement');
@@ -208,10 +235,12 @@ export const parseProjectWorkspaceArtifactDTO = (value: unknown): ProjectWorkspa
       'state',
       'project_id',
       'intent_summary',
+      'intent_summary_i18n',
       'target_label',
       'project_title',
       'delta_summary',
       'question',
+      'question_i18n',
       'reason_code',
       'receipt',
       'safe_follow_ups',
@@ -232,10 +261,15 @@ export const parseProjectWorkspaceArtifactDTO = (value: unknown): ProjectWorkspa
     state: enumValue(source.state, ARTIFACT_STATES, 'state'),
     project_id: source.project_id === undefined ? undefined : stringValue(source.project_id, 'project_id'),
     intent_summary: stringValue(source.intent_summary, 'intent_summary'),
+    intent_summary_i18n:
+      source.intent_summary_i18n === undefined
+        ? undefined
+        : i18nRefValue(source.intent_summary_i18n, 'intent_summary_i18n'),
     target_label: stringValue(source.target_label, 'target_label'),
     project_title: stringValue(source.project_title, 'project_title'),
     delta_summary: strings(source.delta_summary, 'delta_summary'),
     question: source.question === undefined ? undefined : stringValue(source.question, 'question'),
+    question_i18n: source.question_i18n === undefined ? undefined : i18nRefValue(source.question_i18n, 'question_i18n'),
     reason_code: optionalReason(source.reason_code),
     receipt,
     safe_follow_ups: actions(source.safe_follow_ups, 'safe_follow_ups'),

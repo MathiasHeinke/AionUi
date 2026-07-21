@@ -1,4 +1,4 @@
-import { expect, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { invokeBridge } from './bridge';
 import { TEAM_PUBLIC_LEADER_TYPE, TEAM_SUPPORTED_BACKENDS } from './teamConfig';
 
@@ -69,6 +69,35 @@ export async function createTeam(page: Page, name: string, leaderType?: string):
     throw new Error(`Could not extract teamId from URL hash: ${hash}`);
   }
   return match[1];
+}
+
+/**
+ * Sandbox-aware team spawn for specs that create real ACP agents.
+ *
+ * createTeam drives the UI create flow, which spawns a leader ACP agent. In
+ * the E2E sandbox (and on machines without agent CLIs) no supported backend is
+ * installed — createTeam then THROWS ("No supported agents installed — skip
+ * this test"), which Playwright records as a FAILURE. That is an environment
+ * condition, not a product defect, so sandboxed runs must SKIP cleanly instead
+ * (1.818 C4 harness finding: skip-throw instead of clean skip in teams specs).
+ *
+ * This helper routes the spawn through the established skip pattern from
+ * team-member-init-failure.e2e.ts: known unavailability errors become
+ * test.skip(), unexpected errors still fail loud. Returns the teamId, or null
+ * when the test was skipped (unreachable — test.skip aborts — but keeps type
+ * narrowing honest for callers).
+ */
+export async function createTeamOrSkip(page: Page, name: string, leaderType?: string): Promise<string | null> {
+  try {
+    return await createTeam(page, name, leaderType);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/No supported (team )?backends? available|No supported agents installed|No agent option matched/i.test(message)) {
+      test.skip(true, `Team "${name}" could not be created in this sandbox: ${message}`);
+      return null;
+    }
+    throw error;
+  }
 }
 
 async function pickLeaderOption(page: Page, leaderType?: string): Promise<Locator | null> {

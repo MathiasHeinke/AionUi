@@ -89,15 +89,29 @@ export type ProjectWorkspaceArtifactState =
   | 'rejected'
   | 'recovery_required';
 
+/**
+ * Reference to a renderer-owned i18n key plus interpolation params (1.818
+ * CAO-P2). The main process never bakes locale-specific UI copy into DTOs;
+ * it ships the key + params and an English raw fallback, and the renderer
+ * localizes via its de/en i18n system. `string[]` param values are joined
+ * renderer-side with the locale-appropriate list conjunction.
+ */
+export type ProjectWorkspaceI18nRef = {
+  key: string;
+  params?: Record<string, string | string[]>;
+};
+
 export type ProjectWorkspaceArtifactDTO = {
   artifact_id: string;
   state: ProjectWorkspaceArtifactState;
   project_id?: string;
   intent_summary: string;
+  intent_summary_i18n?: ProjectWorkspaceI18nRef;
   target_label: string;
   project_title: string;
   delta_summary: string[];
   question?: string;
+  question_i18n?: ProjectWorkspaceI18nRef;
   reason_code?: ProjectWorkspaceUiReasonCode;
   receipt?: Pick<ProjectWorkspaceReceiptDTO, 'receipt_id' | 'outcome' | 'completed_at'>;
   safe_follow_ups: ProjectWorkspaceAction[];
@@ -135,5 +149,5 @@ export type ProjectWorkspaceExplicitChatIntentRequest = {
 
 export type ProjectWorkspaceExplicitChatIntentResult =
   | { decision: 'pass_through' }
-  | { decision: 'needs_clarification'; question: string }
+  | { decision: 'needs_clarification'; question: string; question_i18n?: ProjectWorkspaceI18nRef }
   | { decision: 'handled'; artifact_id: string };

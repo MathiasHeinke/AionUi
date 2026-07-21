@@ -31,6 +31,21 @@ cd ../AionCore && cargo install --path crates/aionui-app
 export PATH="$HOME/.cargo/bin:$PATH"
 ```
 
+#### Sibling-backend specs: aioncore binary env contract
+
+Specs that spawn a throw-away sibling backend (currently
+`features/builtin-skill-migration` and `features/assistants-user-data`, five
+scenarios total) resolve the binary through the shared helper
+`tests/e2e/helpers/aioncoreBinary.ts` in this exact order:
+
+1. `AIONUI_BACKEND_BINARY` — explicit override (highest priority)
+2. `AIONUI_BACKEND_LOCAL_BINARY` — explicit local dev build
+3. `resources/bundled-aioncore/<platform>-<arch>/aioncore[.exe]` (repo-bundled artifact)
+4. `aioncore[.exe]` found on `PATH`
+5. `~/.cargo/bin/aioncore[.exe]` (legacy cargo-install fallback)
+
+Example: `AIONUI_BACKEND_BINARY=/path/to/aioncore npx playwright test ...`
+
 ### 3. Run Tests
 
 ```bash
@@ -205,6 +220,10 @@ Failed tests automatically get screenshots attached to the HTML report.
 | `E2E_DEV=1`      | unset                       | Force dev mode               |
 | `TEAM_AGENT`     | all (`claude,codex,gemini`) | Filter team leader types     |
 | `CI`             | unset                       | Auto-selects packaged mode   |
+| `AIONUI_BACKEND_BINARY` | unset                | Explicit aioncore binary for sibling-backend specs (see contract above) |
+| `AIONUI_BACKEND_LOCAL_BINARY` | unset          | Local dev build of aioncore for sibling-backend specs (second in contract) |
+| `COMMAND_EVE_AUTO_UPDATE_E2E_PACKAGED_APP` | unset | Packaged artifact gate for `specs/command-eve-auto-update.e2e.ts` — path to `Command EVE.app`, the executable, or an unpacked electron-builder dir. The auto-update suites SKIP unless this is set (they only run against electron-builder output, never in dev runs) |
+| `RUN_TEAM_AGENT_LIVE` | unset                  | Opt-in for live model-backed team-agent specs (`1` enables) |
 
 Variables set automatically during test launch:
 
@@ -214,6 +233,31 @@ Variables set automatically during test launch:
 | `AIONUI_DISABLE_AUTO_UPDATE` | `1`   | No update checks         |
 | `AIONUI_DISABLE_DEVTOOLS`    | `1`   | No DevTools windows      |
 | `AIONUI_CDP_PORT`            | `0`   | CDP disabled             |
+
+### Teams specs in the sandbox
+
+Team creation spawns real ACP leader/member agents. In the E2E sandbox (no
+agent CLIs installed) specs must SKIP cleanly, not fail: use
+`createTeamOrSkip` (tests/e2e/helpers/teamHelpers.ts) instead of bare
+`createTeam`, and bridge spawn results (`team.create` / `team.add-agent`)
+must degrade to `test.skip(...)`. Live team-agent specs
+(`RUN_TEAM_AGENT_LIVE=1`) auto-approve ACP permission cards via the shared
+`startAutoApprovePermissionMessages` helper so spawned sandboxed agents never
+block on a card.
+
+### Failure baseline (pinned 1.817 set)
+
+`tests/e2e/baselines/g6r-step-03-failed-56d036cd.txt` pins the 38 known
+failures of the 1.817 full e2e run (206 passed / 38 failed, 0 product
+regressions after triage). After a full run, diff the fresh failure list
+against it — any NEW failure fails the comparator:
+
+```bash
+node scripts/e2e-baseline-diff.mjs --new <failures.txt>
+```
+
+Exit 1 with a `NEW FAILURES` list means something regressed that was not
+failing in the 1.817 baseline.
 
 ---
 

@@ -18,13 +18,18 @@
  * The sibling-backend pattern is identical to the assistant-user-data
  * pilot's T5 — the singleton Electron fixture cannot restart with a
  * seeded data-dir, so out-of-process probes cover the cold-start paths.
+ *
+ * Sibling-backend binary resolution follows the shared e2e env contract (see
+ * tests/e2e/helpers/aioncoreBinary.ts): AIONUI_BACKEND_BINARY (explicit) →
+ * AIONUI_BACKEND_LOCAL_BINARY → resources/bundled-aioncore → PATH →
+ * ~/.cargo/bin.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test, expect } from '../../fixtures';
-import { httpGet, httpPost } from '../../helpers';
+import { httpGet, httpPost, resolveAioncoreBinary } from '../../helpers';
 
 // ── Shared constants ────────────────────────────────────────────────────────
 
@@ -64,20 +69,6 @@ interface MaterializeResponse {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
-
-function resolveBackendBinary(): string {
-  const candidates = [
-    process.env.AIONUI_BACKEND_BINARY,
-    path.resolve(process.cwd(), 'resources', 'bundled-aioncore', `${process.platform}-${process.arch}`, 'aioncore'),
-    path.join(os.homedir(), '.cargo', 'bin', 'aioncore'),
-  ].filter((x): x is string => typeof x === 'string' && x.length > 0);
-  for (const c of candidates) {
-    if (fs.existsSync(c)) return c;
-  }
-  throw new Error(
-    'aioncore binary not found. Prepare resources/bundled-aioncore, set AIONUI_BACKEND_BINARY, or install to ~/.cargo/bin/aioncore.'
-  );
-}
 
 function selectAutoInjectSkills(skills: SkillInfo[]): SkillInfo[] {
   return skills.filter(
@@ -309,7 +300,7 @@ test.describe('Built-in Skill Migration (T3)', () => {
     }
 
     async function startBackend(): Promise<void> {
-      const bin = resolveBackendBinary();
+      const bin = resolveAioncoreBinary();
       const logPath = path.join(dataDir, 'sibling-aioncore.log');
       const logFd = fs.openSync(logPath, 'a');
       const parentEnv = { ...process.env };

@@ -1,8 +1,12 @@
 /**
  * E2E: Team rename + pin/unpin via sidebar context menu.
+ *
+ * Team creation spawns a real ACP leader agent; createTeamOrSkip converts the
+ * "no supported agents installed" sandbox condition into a clean skip (1.818
+ * C4 harness finding).
  */
 import { test, expect } from '../../fixtures';
-import { cleanupTeamsByName, createTeam, ensureTeamSectionExpanded, getTeamSiderRow } from '../../helpers';
+import { cleanupTeamsByName, createTeamOrSkip, ensureTeamSectionExpanded, getTeamSiderRow } from '../../helpers';
 
 // 三点菜单触发按钮
 const MENU_TRIGGER = '[data-testid="sider-item-menu-trigger"]';
@@ -80,7 +84,8 @@ test.describe('Team Rename & Pin', () => {
 
   test('重命名 team', async ({ page }) => {
     // 1. 通过 UI 创建 team
-    await createTeam(page, RENAME_ORIG);
+    const teamId = await createTeamOrSkip(page, RENAME_ORIG);
+    if (!teamId) return;
 
     // 2. 侧边栏 → hover → 三点菜单 → rename
     await clickTeamMenuItem(page, RENAME_ORIG, 'rename');
@@ -109,11 +114,13 @@ test.describe('Team Rename & Pin', () => {
 
   test('pin/unpin team 改变排序', async ({ page }) => {
     // 1. 创建两个 team，A 先创建排在前面
-    await createTeam(page, PIN_A);
+    const pinAId = await createTeamOrSkip(page, PIN_A);
+    if (!pinAId) return;
     // 回到首页避免阻塞第二次创建
     await page.goto(page.url().replace(/#.*/, '#/'), { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(1_000);
-    await createTeam(page, PIN_B);
+    const pinBId = await createTeamOrSkip(page, PIN_B);
+    if (!pinBId) return;
 
     // 回到首页让侧边栏完整渲染
     await page.goto(page.url().replace(/#.*/, '#/'), { waitUntil: 'domcontentloaded' });

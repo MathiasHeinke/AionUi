@@ -129,6 +129,20 @@ describe('initProjectWorkspaceServiceBridge (S81 R1c)', () => {
     recoverAll.mockRestore();
   });
 
+  it('ignores a repeated init: no duplicate providers, emitter, or boot recovery (Fable #6 / Grok #13)', async () => {
+    const { ProjectWorkspaceService } = await import('@process/services/project-workspace/ProjectWorkspaceService');
+    const recoverAll = vi.spyOn(ProjectWorkspaceService.prototype, 'recoverAll');
+    const { initProjectWorkspaceServiceBridge } = await import('@process/bridge/projectWorkspaceServiceBridge');
+
+    initProjectWorkspaceServiceBridge();
+    initProjectWorkspaceServiceBridge();
+
+    expect(mocks.providers.map((entry) => entry.key)).toEqual([...EXPECTED_PROVIDER_CHANNELS]);
+    expect(mocks.emitters.map((entry) => entry.key)).toEqual(['project-workspace.artifact-changed']);
+    expect(recoverAll).toHaveBeenCalledTimes(1);
+    recoverAll.mockRestore();
+  });
+
   it('swallows a boot recovery failure without blocking init (S81 R2)', async () => {
     const { ProjectWorkspaceService } = await import('@process/services/project-workspace/ProjectWorkspaceService');
     const recoverAll = vi

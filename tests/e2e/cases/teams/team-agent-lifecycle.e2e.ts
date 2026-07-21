@@ -10,9 +10,21 @@
  *   6. Asserts member tab disappears from tab bar.
  *
  * Operations MUST go through leader chat input — invokeBridge is only for setup.
+ *
+ * Spawned ACP agents run sandboxed: ACP permission cards raised during member
+ * init/add/fire turns are auto-approved through the shared
+ * startAutoApprovePermissionMessages helper (established pattern from
+ * cron-crud / conversation-full-cycle); the local MCP tool-confirmation dialog
+ * loops below keep handling the separate modal-button surface.
  */
 import { test, expect } from '../../fixtures';
-import { invokeBridge, navigateTo, RUN_TEAM_AGENT_LIVE, TEAM_SUPPORTED_BACKENDS } from '../../helpers';
+import {
+  invokeBridge,
+  navigateTo,
+  startAutoApprovePermissionMessages,
+  RUN_TEAM_AGENT_LIVE,
+  TEAM_SUPPORTED_BACKENDS,
+} from '../../helpers';
 
 /** Map leader type to backend + model values used in team.create */
 const AGENT_TYPE_MAP: Record<string, { backend: string; model: string }> = {
@@ -25,6 +37,13 @@ const LEADER_CONFIGS = [...TEAM_SUPPORTED_BACKENDS].map((leaderType) => ({
   leaderType,
   teamName: `E2E Lifecycle-${leaderType}-${Date.now()}`,
 }));
+
+let stopAutoApprove: (() => void) | null = null;
+
+test.afterEach(() => {
+  stopAutoApprove?.();
+  stopAutoApprove = null;
+});
 
 for (const { leaderType, teamName } of LEADER_CONFIGS) {
   test(`team lifecycle: ${leaderType} leader`, async ({ page }) => {
@@ -71,6 +90,9 @@ for (const { leaderType, teamName } of LEADER_CONFIGS) {
     await page.waitForURL(/\/team\//);
     const chatInput = page.locator('textarea').first();
     await expect(chatInput).toBeVisible({ timeout: 10000 });
+
+    // Auto-approve ACP permission cards the spawned sandboxed agents may raise.
+    stopAutoApprove = startAutoApprovePermissionMessages(page);
 
     const tabBar = page.locator('[data-testid="team-tab-bar"]');
 

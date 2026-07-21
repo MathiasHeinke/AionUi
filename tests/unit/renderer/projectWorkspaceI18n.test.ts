@@ -16,4 +16,15 @@ describe('project workspace localization', () => {
     expect(de.projects.create.action).not.toBe(en.projects.create.action);
     expect(de.projects.adopt.action).not.toBe(en.projects.adopt.action);
   });
+
+  it('ships the chatIntent copy in both locales with interpolation anchors (1.818 CAO-P2)', () => {
+    expect(Object.keys(de.projects.chatIntent)).toEqual(Object.keys(en.projects.chatIntent));
+    expect(en.projects.chatIntent.boundSummary).toContain('{{title}}');
+    expect(de.projects.chatIntent.boundSummary).toContain('{{title}}');
+    expect(en.projects.chatIntent.clarifyQuestion).toContain('{{titles}}');
+    expect(de.projects.chatIntent.clarifyQuestion).toContain('{{titles}}');
+    // German copy stays German; the locales must not collapse into one.
+    expect(de.projects.chatIntent.clarifyQuestion).not.toBe(en.projects.chatIntent.clarifyQuestion);
+    expect(de.projects.chatIntent.listOr).not.toBe(en.projects.chatIntent.listOr);
+  });
 });

@@ -12,7 +12,8 @@
  * integration suite; this file only asserts the rendered UI state.
  */
 import { test, expect } from '../../fixtures';
-import { cleanupTeamsByName } from '../../helpers';
+import { cleanupTeamsByName, invokeBridge } from '../../helpers';
+import { domClick, openWorkspaceContextPanel } from '../../helpers/workspacePanel';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -57,6 +58,19 @@ test.describe('Workspace Changes — UI panel', () => {
 
     await cleanupTeamsByName(page, TEAM_NAME);
 
+    // drift: the public EVE team leader only renders once the chief-of-staff assistant is
+    // seeded; the boot-time seed races fresh sandboxes, so ensure it via the bridge first
+    // and reload so the renderer refetches the assistants catalog.
+    const ensured = await invokeBridge<{ success?: boolean; msg?: string }>(
+      page,
+      'command-eve.ensure-assistant',
+      undefined,
+      90_000
+    );
+    expect(ensured.success, ensured.msg || 'Command EVE assistant readiness failed').toBe(true);
+    await page.reload();
+    await page.waitForSelector('body', { state: 'visible' });
+
     // ── Create team with seeded workspace ────────────────────────────────
     const createBtn = page.locator('[data-testid="team-create-btn"]').first();
     await expect(createBtn).toBeVisible({ timeout: 10_000 });
@@ -89,6 +103,10 @@ test.describe('Workspace Changes — UI panel', () => {
     await expect(modal).toBeHidden({ timeout: 15_000 });
     await page.waitForURL(/\/team\//, { timeout: 15_000 });
 
+    // drift: 964c3c97 .chat-workspace now lives behind the collapsed-by-default ShellElementsRail
+    // "Kontext" tab — open the rail via the titlebar toggle, then activate the context tab.
+    await openWorkspaceContextPanel(page);
+
     const panel = page.locator('.chat-workspace');
     await expect(panel).toBeVisible({ timeout: 30_000 });
 
@@ -114,7 +132,8 @@ test.describe('Workspace Changes — UI panel', () => {
       name: /Stage All Changes|Alle Änderungen bereitstellen|全部暂存/i,
     });
     await expect(stageButton).toBeVisible({ timeout: 5_000 });
-    await stageButton.click();
+    // drift: 964c3c97 the rail's clipped panel area intercepts geometry clicks — use a DOM click
+    await domClick(stageButton);
     // After staging, the file should still be in the list (just under Staged).
     await expect(panel.getByText('created.txt').first()).toBeVisible({ timeout: 10_000 });
     await page.screenshot({ path: 'tests/e2e/results/workspace-snapshot-03-staged.png' });

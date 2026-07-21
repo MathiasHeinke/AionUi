@@ -6,6 +6,7 @@ import type { ProjectIntentPlan } from '@/common/types/project-workspace/intent'
 import type { ProjectCatalogRecord, RealmRecord, RootRecord } from '@/common/types/project-workspace/registry';
 import { ProjectWorkspaceError } from '@/common/types/project-workspace/reasonCodes';
 import type {
+  ProjectWorkspaceI18nRef,
   ProjectPlacementDTO,
   ProjectSummaryDTO,
   ProjectWorkspaceAction,
@@ -601,16 +602,27 @@ export class ProjectWorkspaceFacade {
       if (matches.length === 0) return { decision: 'pass_through' };
       if (matches.length > 1) {
         const titles = matches.map((match) => match.title);
-        const question = `Meinst du eines dieser Projekte: ${titles.map((title) => `"${title}"`).join(' oder ')}? Sag kurz, welches gemeint ist.`;
+        // UI copy ships as renderer-owned i18n key + params (1.818 CAO-P2);
+        // the raw string is only the English fallback for version skew.
+        const quotedTitles = titles.map((title) => `"${title}"`);
+        const question = `Did you mean one of these projects: ${quotedTitles.join(' or ')}? Tell me which one you meant.`;
+        const questionI18n: ProjectWorkspaceI18nRef = {
+          key: 'common.projects.chatIntent.clarifyQuestion',
+          params: { titles: quotedTitles },
+        };
         const artifactId = crypto.randomUUID();
         const preview = {
           artifact_id: artifactId,
           state: 'preview' as const,
-          intent_summary: 'Mehrdeutige Projekt-Zuordnung',
+          intent_summary: 'Ambiguous project assignment',
+          intent_summary_i18n: {
+            key: 'common.projects.chatIntent.ambiguousSummary',
+          } as ProjectWorkspaceI18nRef,
           target_label: titles.join(' / '),
           project_title: titles.join(' / '),
           delta_summary: titles,
           question,
+          question_i18n: questionI18n,
           safe_follow_ups: [] as ProjectWorkspaceAction[],
         };
         this.deps.artifact_store.create({
@@ -626,7 +638,7 @@ export class ProjectWorkspaceFacade {
           expected_state: 'preview',
           payload: { ...preview, state: 'awaiting_confirmation' as const },
         });
-        return { decision: 'needs_clarification', question };
+        return { decision: 'needs_clarification', question, question_i18n: questionI18n };
       }
       const match = matches[0];
       // The renderer's 250ms budget races this handler. If the renderer has
@@ -649,7 +661,11 @@ export class ProjectWorkspaceFacade {
         artifact_id: artifactId,
         state: 'preview' as const,
         project_id: match.project_id,
-        intent_summary: `Unterhaltung dem Projekt "${match.title}" zugeordnet`,
+        intent_summary: `Conversation assigned to project "${match.title}"`,
+        intent_summary_i18n: {
+          key: 'common.projects.chatIntent.boundSummary',
+          params: { title: match.title },
+        } as ProjectWorkspaceI18nRef,
         target_label: match.title,
         project_title: match.title,
         delta_summary: [`bind -> ${match.slug}`],
@@ -661,6 +677,34 @@ export class ProjectWorkspaceFacade {
         artifact_id: artifactId,
         payload: preview,
       });
+      if (receipt.outcome !== 'completed') {
+        // 1.818 CAO-P2: a rejected bind must not claim a completed artifact
+        // or a handled decision. The send goes out unbound (fail-open, same
+        // as the deadline-race path) and the artifact records the actual
+        // rejection with its receipt and reason code.
+        this.deps.artifact_store.transition({
+          seat_id: seatId,
+          conversation_id: request.conversation_id,
+          artifact_id: artifactId,
+          expected_state: 'preview',
+          payload: {
+            ...preview,
+            state: 'rejected' as const,
+            intent_summary: `Could not assign conversation to project "${match.title}"`,
+            intent_summary_i18n: {
+              key: 'common.projects.chatIntent.bindRejectedSummary',
+              params: { title: match.title },
+            } as ProjectWorkspaceI18nRef,
+            ...(receipt.reason_code ? { reason_code: receipt.reason_code } : {}),
+            receipt: {
+              receipt_id: receipt.receipt_id,
+              outcome: receipt.outcome,
+              completed_at: receipt.completed_at,
+            },
+          },
+        });
+        return { decision: 'pass_through' };
+      }
       this.deps.artifact_store.transition({
         seat_id: seatId,
         conversation_id: request.conversation_id,

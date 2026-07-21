@@ -1,0 +1,55 @@
+# Command EVE E2E failure baseline — pinned for 1.818 (C4 harness finding 4).
+#
+# Provenance: 1.817 RC full e2e run at UI commit 56d036cd (branch
+# codex/command-eve-1817-integration), 2026-07-20: 206 passed / 38 failed,
+# 0 product regressions after triage (see Company.OS
+# reports/command-eve/2026-07-20/1817/06-release/handoff-1818-carryovers.md).
+# Reconstructed from the run's Playwright error-detail set
+# (tests/e2e/report/data/*.md "- Name:" entries in the 1.817 worktree) —
+# the 1.817 strand referenced this list as g6r-step-03-failed-56d036cd.txt.
+#
+# Format: one full Playwright test name per line
+#   <spec path> >> <describe> [<describe>...] >> <test>
+# Lines starting with # are comments; blank lines are ignored.
+#
+# Compare a fresh failure list against this baseline with:
+#   node scripts/e2e-baseline-diff.mjs --new <failures.txt>
+# The comparator FAILS (exit 1) on any NEW failure not pinned here.
+cases/teams/team-member-ops.e2e.ts >> Team Member Ops >> remove member via tab close button
+cases/teams/team-member-ops.e2e.ts >> Team Member Ops >> rename leader tab via double-click
+cases/teams/team-rename-pin.e2e.ts >> Team Rename & Pin >> pin/unpin team 改变排序
+cases/teams/team-rename-pin.e2e.ts >> Team Rename & Pin >> 重命名 team
+features/assistants-user-data/assistant-user-data.e2e.ts >> Assistant User Data Migration (T5) >> Migration contract (sibling backend) >> S10: legacy row with built-in id is either skipped (if hook renames) or rejected
+features/assistants-user-data/assistant-user-data.e2e.ts >> Assistant User Data Migration (T5) >> Migration contract (sibling backend) >> S8: legacy import happy path — 3 user rows land, built-ins filtered
+features/assistants-user-data/assistant-user-data.e2e.ts >> Assistant User Data Migration (T5) >> Migration contract (sibling backend) >> S9: retry import is idempotent (skips existing, no duplicates)
+features/builtin-skill-migration/builtin-skill-migration.e2e.ts >> Built-in Skill Migration (T3) >> Cold-start invariants (sibling backend) >> S6: startup sweep removes orphan agent-skills dirs for unknown conversation ids
+features/builtin-skill-migration/builtin-skill-migration.e2e.ts >> Built-in Skill Migration (T3) >> Cold-start invariants (sibling backend) >> S8: cold start replaces legacy builtin-skills contents with the embedded corpus
+features/previews/preview-auto-open.e2e.ts >> Preview auto-open for Office files >> new .docx file auto-opens a preview tab
+features/previews/preview-auto-open.e2e.ts >> Preview auto-open for Office files >> new .pptx file auto-opens a preview tab
+features/previews/preview-auto-open.e2e.ts >> Preview auto-open for Office files >> new .xlsx file auto-opens a preview tab
+features/settings/display/css-theme-crud.e2e.ts >> Command EVE appearance controls >> exposes bounded appearance controls without the legacy raw CSS editor
+features/settings/display/zoom-scale.e2e.ts >> Zoom scale (FontSizeControl) >> clicking the slider track changes the percentage
+features/settings/skills/url-highlight.e2e.ts >> Skills Hub - URL Highlight (P1) >> TC-S-22: should highlight skill and scroll to it when URL has highlight param
+features/settings/system/dev-settings.e2e.ts >> DevSettings >> TC-DEV-02: should toggle CDP switch
+features/settings/system/dev-settings.e2e.ts >> DevSettings >> TC-DEV-03: should display CDP URL with port, Link and Copy buttons
+features/settings/system/dev-settings.e2e.ts >> DevSettings >> TC-DEV-04: should expand MCP config and show code block with Copy
+features/settings/system/preferences-extra.e2e.ts >> System Preferences — Extra >> TC-PREF-05: should toggle saveUploadToWorkspace switch
+features/settings/system/preferences-extra.e2e.ts >> System Preferences — Extra >> TC-PREF-06: should toggle cronNotification switch when notifications are on
+features/settings/system/preferences-extra.e2e.ts >> System Preferences — Extra >> TC-PREF-07: should toggle startOnBoot or skip if disabled
+features/settings/system/preferences.e2e.ts >> System Preferences >> TC-PREF-02: should toggle close-to-tray switch
+features/settings/system/preferences.e2e.ts >> System Preferences >> TC-PREF-03: should toggle notification switch via collapse header
+features/settings/system/preferences.e2e.ts >> System Preferences >> TC-PREF-04: should toggle auto-preview Office files switch
+features/settings/system/system-persist.e2e.ts >> System Settings Persistence >> TC-PERSIST-01: language selection persists after reload
+features/workspaces/workspace-file-ops.e2e.ts >> Workspace — file operations >> setup: create conversation with workspace panel
+features/workspaces/workspace-files.e2e.ts >> Workspace Files — UI panel >> workspace panel renders tree and search for a team workspace
+features/workspaces/workspace-single-chat.e2e.ts >> Workspace — single chat >> user selects workspace folder, sends message, sees files in panel
+features/workspaces/workspace-snapshot.e2e.ts >> Workspace Changes — UI panel >> changes tab surfaces a newly written file and stage button moves it
+specs/command-eve-auto-update.e2e.ts >> Command EVE auto-update – CE shell defaults to the R2 feed (no env override) >> (d) startup check activates (broadcasts "checking") instead of the quiet no-op
+specs/command-eve-auto-update.e2e.ts >> Command EVE auto-update – detect + signal against local feed >> (a) reaches status available with the feed version via the real startup check
+specs/command-eve-auto-update.e2e.ts >> Command EVE auto-update – quiet no-op when no feed configured >> (c) startup check resolves quietly, no available/error broadcast, no error dialog
+specs/command-eve-connector-catalog.e2e.ts >> Command EVE Connector Catalog >> renders governed connector cards from the local manifest
+specs/command-eve-scheduled-public.e2e.ts >> Command EVE public scheduled tasks >> shows only Command EVE and stores the managed Hermes execution contract
+specs/ext-mcp.e2e.ts >> Extension: MCP Servers >> MCP server toggles are visible
+specs/ext-mcp.e2e.ts >> Extension: MCP Servers >> MCP tools page loads
+specs/ext-mcp.e2e.ts >> Extension: MCP Servers >> extension MCP servers registered (page functional)
+specs/team-empty-state.e2e.ts >> team empty state: command-eve leader renders greeting and suggestions

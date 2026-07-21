@@ -168,9 +168,27 @@ async function parseResponse(response: Response): Promise<ProjectBindingSnapshot
   return snapshotFromConversation(unwrapConversation(await responseBody(response)));
 }
 
+/**
+ * Best-effort extraction of a raw list item's conversation id for pagination.
+ * Independent of the strict per-item metadata validation: an item can be
+ * malformed for enrichment (empty name, bad binding) yet still carry a usable
+ * id that lets the cursor advance past it.
+ */
+function rawConversationId(value: unknown): string | undefined {
+  try {
+    const record = unwrapConversation(value);
+    return typeof record.id === 'string' && /^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$/.test(record.id)
+      ? record.id
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function parseListResponse(response: Response): Promise<{
   items: ProjectConversationMetadata[];
   has_more: boolean;
+  next_cursor?: string;
 }> {
   const body = await responseBody(response);
   const envelope = body && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>) : null;
@@ -182,9 +200,29 @@ async function parseListResponse(response: Response): Promise<{
   if (!Array.isArray(page.items) || typeof page.has_more !== 'boolean') {
     throw new ProjectBindingClientError('PROJECT_BINDING_RESPONSE_INVALID');
   }
+  // Per-item tolerance (1.818 CAO-P2): a single malformed conversation record
+  // (e.g. a legacy row with an empty or overlong name) must not zero the
+  // whole metadata enrichment — skip it and keep the valid items. The page
+  // envelope itself stays fail-closed (PROJECT_BINDING_RESPONSE_INVALID).
+  const items: ProjectConversationMetadata[] = [];
+  for (const raw of page.items) {
+    try {
+      items.push(metadataFromConversation(unwrapConversation(raw)));
+    } catch (error) {
+      console.warn('[ProjectBinding] listMetadata: skipping malformed conversation record', error);
+    }
+  }
+  // The pagination cursor comes from the RAW last item, not the last parsed
+  // one — otherwise a trailing malformed record would silently re-page or
+  // strand the cursor. No usable id on the boundary record → fail closed.
+  const nextCursor = page.has_more ? rawConversationId(page.items.at(-1)) : undefined;
+  if (page.has_more && !nextCursor) {
+    throw new ProjectBindingClientError('PROJECT_BINDING_RESPONSE_INVALID');
+  }
   return {
-    items: page.items.map((item) => metadataFromConversation(unwrapConversation(item))),
+    items,
     has_more: page.has_more,
+    ...(nextCursor ? { next_cursor: nextCursor } : {}),
   };
 }
 
@@ -308,11 +346,10 @@ export function createAionCoreProjectBindingClient(input: {
         const page = await parseListResponse(await fetchImpl(listUrl(cursor), { method: 'GET', redirect: 'error' }));
         all.push(...page.items);
         if (!page.has_more) return all;
-        const nextCursor = page.items.at(-1)?.conversation_id;
-        if (!nextCursor || nextCursor === cursor) {
+        if (!page.next_cursor || page.next_cursor === cursor) {
           throw new ProjectBindingClientError('PROJECT_BINDING_RESPONSE_INVALID');
         }
-        cursor = nextCursor;
+        cursor = page.next_cursor;
       }
       throw new ProjectBindingClientError('PROJECT_BINDING_RESPONSE_INVALID');
     },

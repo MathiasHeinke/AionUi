@@ -3,6 +3,7 @@ import { FolderOpen } from '@icon-park/react';
 import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { parseProjectWorkspaceArtifactDTO } from '@renderer/pages/projects/dto';
+import { resolveProjectWorkspaceI18n } from '@renderer/pages/projects/i18nRef';
 import {
   getProjectWorkspaceActionKey,
   getProjectWorkspaceReasonPresentation,
@@ -31,6 +32,14 @@ const ProjectWorkspaceCard: React.FC<{ payload: unknown }> = ({ payload }) => {
   }
 
   const reason = parsed.reason_code ? getProjectWorkspaceReasonPresentation(parsed.reason_code) : undefined;
+  // Main-process copy arrives as i18n ref + English fallback (1.818 CAO-P2):
+  // localize here, in the renderer that owns the de/en resources.
+  const intentSummary = parsed.intent_summary_i18n
+    ? resolveProjectWorkspaceI18n(parsed.intent_summary_i18n, t, parsed.intent_summary)
+    : parsed.intent_summary;
+  const question = parsed.question_i18n
+    ? resolveProjectWorkspaceI18n(parsed.question_i18n, t, parsed.question ?? '')
+    : parsed.question;
   const stateColor =
     parsed.state === 'completed'
       ? 'green'
@@ -53,7 +62,7 @@ const ProjectWorkspaceCard: React.FC<{ payload: unknown }> = ({ payload }) => {
       data-testid='project-workspace-card'
     >
       <div className='flex flex-col gap-10px' aria-live='polite'>
-        <Typography.Paragraph className='!m-0'>{parsed.intent_summary}</Typography.Paragraph>
+        <Typography.Paragraph className='!m-0'>{intentSummary}</Typography.Paragraph>
         <Typography.Text className='text-t-secondary'>{parsed.target_label}</Typography.Text>
         {parsed.delta_summary.length ? (
           <ul className='m-0 pl-20px text-t-secondary'>
@@ -62,9 +71,9 @@ const ProjectWorkspaceCard: React.FC<{ payload: unknown }> = ({ payload }) => {
             ))}
           </ul>
         ) : null}
-        {parsed.question ? (
+        {question ? (
           <div role='status'>
-            <Alert type='info' content={parsed.question} />
+            <Alert type='info' content={question} />
           </div>
         ) : null}
         {reason ? (

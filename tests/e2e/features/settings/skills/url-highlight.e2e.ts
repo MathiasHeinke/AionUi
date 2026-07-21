@@ -56,7 +56,7 @@ test.describe('Skills Hub - URL Highlight (P1)', () => {
       await takeScreenshot(page, 'skills-hub/tc-s-22/01-before-highlight.png');
 
       // Step 1: Add highlight parameter via history API
-      const hashInfo = await page.evaluate((name) => {
+      await page.evaluate((name) => {
         const url = new URL(window.location.href);
         const currentHash = url.hash;
         const [path, search] = currentHash.split('?');
@@ -66,57 +66,29 @@ test.describe('Skills Hub - URL Highlight (P1)', () => {
         window.location.hash = newHash;
         return { currentHash, newHash, finalHash: window.location.hash };
       }, skillName);
-      // Wait for highlight animation to start (requestAnimationFrame + scroll)
-      await page.waitForTimeout(300);
 
-      // Screenshot 02: After adding highlight param (during highlight)
-      await takeScreenshot(page, 'skills-hub/tc-s-22/02-after-navigation.png');
+      // drift: 4fe872e6 highlight styling refactored from utility classes
+      // (border-primary-5/bg-primary-1) to the BEM modifier eve-skill-row--highlighted.
+      // The app applies it via requestAnimationFrame and auto-clears it after ~2s,
+      // so poll immediately — a fixed sleep or screenshots first can miss the window.
+      await expect(targetCard).toHaveClass(/eve-skill-row--highlighted/, { timeout: 10_000 });
 
-      // Card should still be visible (no page reload)
-      await expect(targetCard).toBeVisible({ timeout: 10000 });
-
-      // Screenshot 03: Card visible during highlight
-      await takeScreenshot(page, 'skills-hub/tc-s-22/03-card-visible.png');
-
-      // Expected: Target card has highlight styles (border-primary-5, bg-primary-1)
-      // Check immediately while highlight is still active
-      const cardClasses = await targetCard.getAttribute('class');
-      console.log(`[TC-S-22] Card classes: ${cardClasses}`);
-
-      // Verify highlight styles are applied
-      if (cardClasses) {
-        expect(cardClasses).toContain('border-primary-5');
-        expect(cardClasses).toContain('bg-primary-1');
-      }
+      // Screenshot 02: Card highlighted
+      await takeScreenshot(page, 'skills-hub/tc-s-22/02-highlighted.png');
 
       // Verify URL parameter was cleared by app
       const currentURL = page.url();
       expect(currentURL).not.toContain('highlight=');
 
-      // Screenshot 04: Highlight styles visible
-      await takeScreenshot(page, 'skills-hub/tc-s-22/04-highlight-styles.png');
+      // Step 2: the app's 2s clear timer removes the modifier again
+      await expect(targetCard).not.toHaveClass(/eve-skill-row--highlighted/, { timeout: 10_000 });
 
-      // Step 2: Wait for highlight to disappear (2 seconds)
-      await page.waitForTimeout(2500);
+      // Screenshot 03: Highlight cleared
+      await takeScreenshot(page, 'skills-hub/tc-s-22/03-highlight-cleared.png');
 
-      // Screenshot 05: After highlight timeout
-      await takeScreenshot(page, 'skills-hub/tc-s-22/05-after-timeout.png');
-
-      // Expected: Highlight styles removed
-      const updatedClasses = await targetCard.getAttribute('class');
-      console.log(`[TC-S-22] Updated classes: ${updatedClasses}`);
-
-      if (updatedClasses) {
-        expect(updatedClasses).not.toContain('border-primary-5');
-        expect(updatedClasses).not.toContain('bg-primary-1');
-      }
-
-      // Expected: URL parameter cleared
+      // URL parameter stays cleared
       const finalUrl = page.url();
       expect(finalUrl).not.toContain('highlight=');
-
-      // Screenshot 06: Highlight cleared, URL cleaned
-      await takeScreenshot(page, 'skills-hub/tc-s-22/06-final-state.png');
     } finally {
       tempSource.cleanup();
     }

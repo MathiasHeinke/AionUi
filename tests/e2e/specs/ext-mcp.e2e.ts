@@ -8,7 +8,8 @@ import { goToSettings, expectBodyContainsAny, takeScreenshot, waitForSettle, ARC
 
 async function openMcpTools(page: import('@playwright/test').Page): Promise<void> {
   await goToSettings(page, 'capabilities');
-  const toolsTab = page.getByRole('tab', { name: /Tools|MCP & Voice/ });
+  // drift: 4fe872e6 capabilities tools tab renamed to "Werkzeuge & Sprache"/"Tools & speech"
+  const toolsTab = page.getByRole('tab', { name: /Werkzeuge & Sprache|Tools & speech/ });
   await toolsTab.click();
   await expect(toolsTab).toHaveAttribute('aria-selected', 'true');
 }

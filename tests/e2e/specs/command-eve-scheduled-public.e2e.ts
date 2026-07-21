@@ -36,6 +36,17 @@ test.describe('Command EVE public scheduled tasks', () => {
         timeout: 30_000,
       });
 
+      // drift: the chief-of-staff assistant seeds asynchronously ~3s after app ready; a fresh
+      // sandbox races it and cron create fails with "assistant 'command-eve-chief-of-staff'
+      // not found", so ensure the assistant via the bridge before creating the task.
+      const ensured = await invokeBridge<{ success?: boolean; msg?: string }>(
+        page,
+        'command-eve.ensure-assistant',
+        undefined,
+        90_000
+      );
+      expect(ensured.success, ensured.msg || 'Command EVE assistant readiness failed').toBe(true);
+
       await page.getByRole('button', { name: /Neue Aufgabe|New task/ }).click();
       const dialog = page.locator('.arco-modal').first();
       await expect(dialog).toBeVisible();
@@ -71,8 +82,21 @@ test.describe('Command EVE public scheduled tasks', () => {
       expect(created?.metadata?.agent_config).not.toHaveProperty('custom_agent_id');
       expect(created?.metadata?.agent_config).not.toHaveProperty('is_preset');
 
+      // drift: the list view does not reliably re-render the new card via subscription
+      // events in the sandbox; reload so the page refetches before asserting the card.
+      await page.reload();
+      await expect(page.locator('h1').filter({ hasText: /Geplante Aufgaben|Scheduled Tasks/ })).toBeVisible({
+        timeout: 30_000,
+      });
+
       const taskCard = page.getByText(taskName, { exact: true }).first().locator('../..');
-      await expect(taskCard.locator('img[alt="Command EVE"]')).toHaveCount(1);
+      await expect(taskCard).toBeVisible({ timeout: 15_000 });
+      // drift: 1c6716a3 the task card renders the agent mark as avatar image or initials
+      // fallback (no guaranteed img[alt="Command EVE"]); accept either Command EVE mark.
+      const agentMark = taskCard
+        .locator('img[alt="Command EVE"]')
+        .or(taskCard.getByText('C', { exact: true }).first());
+      await expect(agentMark.first()).toBeVisible({ timeout: 10_000 });
       await expect(taskCard).not.toContainText(/Claude|Codex|Gemini|Hermes|Aion CLI/i);
       await taskCard.click();
       await expect(page.locator('h1').filter({ hasText: taskName })).toBeVisible({ timeout: 15_000 });

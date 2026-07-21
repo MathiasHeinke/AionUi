@@ -61,9 +61,11 @@ export {
   runConversationCycle,
 } from './conversation';
 export { startAutoApprovePermissionMessages, waitForPermissionMessageCard } from './permissions';
+export { aioncoreBinaryCandidates, resolveAioncoreBinary } from './aioncoreBinary';
 export { RUN_TEAM_AGENT_LIVE, TEAM_PUBLIC_LEADER_TYPE, TEAM_SUPPORTED_BACKENDS } from './teamConfig';
 export {
   createTeam,
+  createTeamOrSkip,
   ensureTeam,
   deleteTeam,
   cleanupTeamsByName,

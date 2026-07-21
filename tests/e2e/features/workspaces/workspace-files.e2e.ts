@@ -8,7 +8,8 @@
  * integration suite (tests/integration).
  */
 import { test, expect } from '../../fixtures';
-import { cleanupTeamsByName } from '../../helpers';
+import { cleanupTeamsByName, invokeBridge } from '../../helpers';
+import { openWorkspaceContextPanel } from '../../helpers/workspacePanel';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -40,6 +41,19 @@ test.describe('Workspace Files — UI panel', () => {
     }, workspace);
 
     await cleanupTeamsByName(page, TEAM_NAME);
+
+    // drift: the public EVE team leader only renders once the chief-of-staff assistant is
+    // seeded; the boot-time seed races fresh sandboxes, so ensure it via the bridge first
+    // and reload so the renderer refetches the assistants catalog.
+    const ensured = await invokeBridge<{ success?: boolean; msg?: string }>(
+      page,
+      'command-eve.ensure-assistant',
+      undefined,
+      90_000
+    );
+    expect(ensured.success, ensured.msg || 'Command EVE assistant readiness failed').toBe(true);
+    await page.reload();
+    await page.waitForSelector('body', { state: 'visible' });
 
     // ── Create team via sidebar UI ───────────────────────────────────────
     const createBtn = page.locator('[data-testid="team-create-btn"]').first();
@@ -74,6 +88,10 @@ test.describe('Workspace Files — UI panel', () => {
 
     await expect(modal).toBeHidden({ timeout: 15_000 });
     await page.waitForURL(/\/team\//, { timeout: 15_000 });
+
+    // drift: 964c3c97 .chat-workspace now lives behind the collapsed-by-default ShellElementsRail
+    // "Kontext" tab — open the rail via the titlebar toggle, then activate the context tab.
+    await openWorkspaceContextPanel(page);
 
     // ── Wait for workspace panel to mount ────────────────────────────────
     const panel = page.locator('.chat-workspace');

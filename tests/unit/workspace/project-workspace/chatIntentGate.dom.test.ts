@@ -81,4 +81,55 @@ describe('runProjectChatIntentGate (S81 R3)', () => {
     await runProjectChatIntentGate({ conversation_id: 'conv-1', message: 'hallo' });
     expect(mocks.chatIntentInvoke).not.toHaveBeenCalled();
   });
+
+  it('resolves a question_i18n ref to localized copy with joined titles (1.818 CAO-P2)', async () => {
+    const { default: i18n } = await import('i18next');
+    if (!i18n.isInitialized) {
+      await i18n.init({
+        lng: 'en-US',
+        // Matches the app i18n config (interpolation.escapeValue: false).
+        interpolation: { escapeValue: false },
+        resources: {
+          'en-US': {
+            translation: {
+              common: {
+                projects: {
+                  chatIntent: {
+                    clarifyQuestion: 'Did you mean one of these projects: {{titles}}? Tell me which one you meant.',
+                    listOr: ' or ',
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+    }
+    mocks.chatIntentInvoke.mockResolvedValue({
+      decision: 'needs_clarification',
+      question: 'Did you mean one of these projects: "Atlas Alpha" or "Atlas Beta"? Tell me which one you meant.',
+      question_i18n: {
+        key: 'common.projects.chatIntent.clarifyQuestion',
+        params: { titles: ['"Atlas Alpha"', '"Atlas Beta"'] },
+      },
+    });
+
+    await runProjectChatIntentGate({ conversation_id: 'conv-1', message: 'atlas status' });
+
+    expect(mocks.messageInfo).toHaveBeenCalledWith(
+      'Did you mean one of these projects: "Atlas Alpha" or "Atlas Beta"? Tell me which one you meant.'
+    );
+  });
+
+  it('falls back to the raw question when the i18n key is unknown (version skew)', async () => {
+    mocks.chatIntentInvoke.mockResolvedValue({
+      decision: 'needs_clarification',
+      question: 'Fallback copy from main',
+      question_i18n: { key: 'common.projects.chatIntent.doesNotExist' },
+    });
+
+    await runProjectChatIntentGate({ conversation_id: 'conv-1', message: 'atlas status' });
+
+    expect(mocks.messageInfo).toHaveBeenCalledWith('Fallback copy from main');
+  });
 });

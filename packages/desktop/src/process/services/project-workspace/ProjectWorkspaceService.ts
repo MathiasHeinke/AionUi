@@ -1257,6 +1257,12 @@ export class ProjectWorkspaceService {
         });
         continue;
       }
+      // Boot-seat fence (1.818 CAO-P2): boot recovery runs ONLY for the seat
+      // that is active right now. A foreign-seat journal belongs to that
+      // seat's own boot recovery — it must not be leased, advanced, or
+      // reported as a failed recovery under the wrong active seat. The
+      // assertActiveSeat below stays as defense-in-depth.
+      if (journal.identity.seat_id !== this.getActiveSeatId()) continue;
       let context: ReturnType<ProjectWorkspaceService['trustedJournalContext']>;
       try {
         this.assertActiveSeat(journal.identity.seat_id);

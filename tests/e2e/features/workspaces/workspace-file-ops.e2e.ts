@@ -10,6 +10,7 @@
  */
 import { test, expect } from '../../fixtures';
 import { goToGuid } from '../../helpers';
+import { domClick, domContextMenu, openWorkspaceContextPanel } from '../../helpers/workspacePanel';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -67,6 +68,10 @@ test.describe.serial('Workspace — file operations', () => {
     await page.waitForURL(/\/conversation\//, { timeout: 30_000 });
     expect(page.url()).toContain(conversationId);
 
+    // drift: 964c3c97 .chat-workspace now lives behind the collapsed-by-default ShellElementsRail
+    // "Kontext" tab — open the rail via the titlebar toggle, then activate the context tab.
+    await openWorkspaceContextPanel(page);
+
     const wsPanel = page.locator('.chat-workspace');
     await expect(wsPanel).toBeVisible({ timeout: 45_000 });
 
@@ -86,7 +91,8 @@ test.describe.serial('Workspace — file operations', () => {
     const componentsNode = panel.getByText('components').first();
     await expect(componentsNode).toBeVisible({ timeout: 10_000 });
 
-    await componentsNode.click();
+    // drift: 964c3c97 the rail's clipped panel area intercepts geometry clicks — use a DOM click
+    await domClick(componentsNode);
     await page.waitForTimeout(500);
 
     await expect(panel.getByText('Button.tsx').first()).toBeVisible({ timeout: 5_000 });
@@ -126,7 +132,8 @@ test.describe.serial('Workspace — file operations', () => {
 
     const configNode = panel.getByText('config.json').first();
     await expect(configNode).toBeVisible({ timeout: 10_000 });
-    await configNode.click({ button: 'right' });
+    // drift: 964c3c97 the rail's clipped panel area intercepts geometry clicks — DOM contextmenu
+    await domContextMenu(configNode);
 
     const ctxMenu = page.locator('.fixed.z-100').first();
     await expect(ctxMenu).toBeVisible({ timeout: 3_000 });

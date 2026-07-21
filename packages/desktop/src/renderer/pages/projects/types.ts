@@ -6,6 +6,7 @@ export type {
   ProjectWorkspaceArtifactDTO,
   ProjectWorkspaceArtifactState,
   ProjectWorkspaceConversationArtifactDTO,
+  ProjectWorkspaceI18nRef,
   ProjectWorkspaceListDTO,
   ProjectWorkspacePreviewDTO,
   ProjectWorkspaceRealmKind,

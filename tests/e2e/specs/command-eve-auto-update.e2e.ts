@@ -31,18 +31,26 @@
  *   electron-updater refuses to run when !app.isPackaged (isUpdaterActive gate),
  *   so a dev `electron .` launch can never reach real 'update-available' detection
  *   without a product-code change. This spec therefore launches the PACKAGED
- *   build under out/<mac>/Command EVE.app (the same artifact pattern the fixtures
- *   use in packaged mode), where app.isPackaged === true and the production
- *   startup auto-check runs the real detection against the feed. It launches its
- *   own instance with the dedicated AIONUI_AUTO_UPDATE_E2E override so the
- *   updater stays active while E2E runtime ports remain isolated, and resolves
+ *   build where app.isPackaged === true and the production startup auto-check
+ *   runs the real detection against the feed. It launches its own instance with
+ *   the dedicated AIONUI_AUTO_UPDATE_E2E override so the updater stays active
+ *   while E2E runtime ports remain isolated, and resolves
  *   COMMAND_EVE_UPDATE_FEED_URL from the environment exactly as an installed app.
  *
- * The packaged build must be fresh (contain W8's feed wiring). Rebuild with:
+ * GATE (1.818 C4 harness finding): auto-update proofs only run against
+ * electron-builder output (a notary/packaged build), never in dev runs. Every
+ * suite in this file is SKIPPED unless the packaged build artifact path is
+ * provided explicitly:
+ *
+ *   COMMAND_EVE_AUTO_UPDATE_E2E_PACKAGED_APP=/path/to/'Command EVE.app' \
+ *     npx playwright test --config playwright.config.ts tests/e2e/specs/command-eve-auto-update.e2e.ts
+ *
+ * The env value may point at the .app bundle, the executable inside it, or an
+ * unpacked electron-builder output directory. Produce the artifact with:
  *   npx electron-vite build --config packages/desktop/electron.vite.config.ts
  *   CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder \
  *     --config packages/desktop/electron-builder.yml --mac dir --arm64 --publish=never
- * The spec fails loud (skips nothing) with a clear message if the .app is absent.
+ * (or the notarized `build-mac:*:notarized` lanes for the release artifact).
  *
  * The Command EVE shell downloads the referenced artifact in the background.
  * A tiny checksum-valid dummy zip is sufficient because this spec never invokes
@@ -64,6 +72,17 @@ const ZIP_NAME = `Command-EVE-${FEED_VERSION}-mac-arm64.zip`;
 const BLOCKMAP_NAME = `${ZIP_NAME}.blockmap`;
 const STATUS_CHANNEL = 'auto-update.status';
 const PACKAGED_USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'command-eve-auto-update-user-data-'));
+
+/**
+ * Packaged-artifact gate (1.818 C4): this spec only runs when the runner
+ * explicitly provides the electron-builder output to exercise. Dev runs leave
+ * it unset and skip the whole file instead of failing against a missing or
+ * stale out/ directory.
+ */
+const PACKAGED_APP_ENV = 'COMMAND_EVE_AUTO_UPDATE_E2E_PACKAGED_APP';
+const PACKAGED_APP_SKIP_REASON =
+  `Auto-update e2e only runs against electron-builder output (notary/packaged build). ` +
+  `Set ${PACKAGED_APP_ENV}=<path to Command EVE.app, executable, or unpacked dir> — skipped in dev runs.`;
 
 test.afterAll(() => {
   try {
@@ -204,46 +223,50 @@ async function closePackagedApp(browser: Browser, child: ChildProcessWithoutNull
 }
 
 /**
- * Resolve the packaged Electron executable under out/ (mirrors fixtures.ts
- * resolvePackagedApp, darwin focus). Returns null if no packaged app is present.
+ * Resolve the packaged Electron executable from the explicit
+ * COMMAND_EVE_AUTO_UPDATE_E2E_PACKAGED_APP artifact path. Accepts a .app
+ * bundle, the executable inside it, or an unpacked electron-builder output
+ * directory. Returns null when the gate env is unset or does not resolve to a
+ * runnable artifact — callers must treat null as "skip", never as "scan out/".
  */
 function resolvePackagedApp(): { executablePath: string; cwd: string } | null {
-  const projectRoot = path.resolve(__dirname, '../../..');
-  const outDir = path.join(projectRoot, 'out');
-  if (!fs.existsSync(outDir)) return null;
+  const artifact = process.env[PACKAGED_APP_ENV]?.trim();
+  if (!artifact) return null;
 
-  if (process.platform === 'darwin') {
-    for (const dir of ['mac-arm64', 'mac-x64', 'mac', 'mac-universal']) {
-      const macDir = path.join(outDir, dir);
-      if (!fs.existsSync(macDir)) continue;
-      const appBundle = fs.readdirSync(macDir).find((f) => f.endsWith('.app'));
-      if (!appBundle) continue;
-      for (const name of ['Command EVE', 'AionUi']) {
-        const exe = path.join(macDir, appBundle, 'Contents', 'MacOS', name);
-        if (fs.existsSync(exe)) return { executablePath: exe, cwd: macDir };
-      }
+  const resolved = path.resolve(artifact);
+  if (!fs.existsSync(resolved)) return null;
+
+  // Path directly to the executable.
+  if (fs.statSync(resolved).isFile()) {
+    return { executablePath: resolved, cwd: path.dirname(resolved) };
+  }
+
+  // Path to a macOS .app bundle.
+  if (process.platform === 'darwin' && resolved.endsWith('.app')) {
+    for (const name of ['Command EVE', 'AionUi']) {
+      const exe = path.join(resolved, 'Contents', 'MacOS', name);
+      if (fs.existsSync(exe)) return { executablePath: exe, cwd: path.dirname(resolved) };
     }
     return null;
   }
 
-  // Linux / Windows unpacked layouts (release-machine portability).
-  const { dirs, names } =
-    process.platform === 'win32'
-      ? { dirs: ['win-unpacked', 'win-arm64-unpacked', 'win-x64-unpacked'], names: ['Command EVE.exe', 'AionUi.exe'] }
-      : {
-          dirs: ['linux-unpacked', 'linux-arm64-unpacked', 'linux-x64-unpacked'],
-          names: ['command-eve', 'Command EVE', 'aionui', 'AionUi'],
-        };
-  for (const dir of dirs) {
-    const dirPath = path.join(outDir, dir);
-    if (!fs.existsSync(dirPath)) continue;
+  // Path to an unpacked electron-builder directory (linux/win layouts).
+  if (fs.statSync(resolved).isDirectory()) {
+    const names =
+      process.platform === 'win32'
+        ? ['Command EVE.exe', 'AionUi.exe']
+        : ['Command EVE', 'command-eve', 'AionUi', 'aionui'];
     for (const name of names) {
-      const exe = path.join(dirPath, name);
-      if (fs.existsSync(exe)) return { executablePath: exe, cwd: dirPath };
+      const exe = path.join(resolved, name);
+      if (fs.existsSync(exe)) return { executablePath: exe, cwd: resolved };
     }
   }
+
   return null;
 }
+
+/** The gated packaged artifact this run was given (null → skip every suite). */
+const PACKAGED_APP = resolvePackagedApp();
 
 /**
  * Launch the PACKAGED Electron app with the given extra env. WITHOUT
@@ -255,14 +278,9 @@ function resolvePackagedApp(): { executablePath: string; cwd: string } | null {
 async function launchPackagedApp(extraEnv: Record<string, string>): Promise<PackagedAppHandle> {
   const packaged = resolvePackagedApp();
   if (!packaged) {
-    throw new Error(
-      '[auto-update e2e] No packaged app found under out/. The over-the-air update ' +
-        'cycle can only be proven against a packaged build (electron-updater refuses ' +
-        'to run when !app.isPackaged). Build it first:\n' +
-        '  npx electron-vite build --config packages/desktop/electron.vite.config.ts\n' +
-        '  CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder \\\n' +
-        '    --config packages/desktop/electron-builder.yml --mac dir --arm64 --publish=never'
-    );
+    // Unreachable when the describe-level gate is active — the suites skip
+    // before beforeAll runs. Kept as a fail-closed guard for direct reuse.
+    throw new Error(`[auto-update e2e] ${PACKAGED_APP_SKIP_REASON}`);
   }
 
   const env: Record<string, string> = {
@@ -405,6 +423,7 @@ async function openUpdateModalViaFooter(page: Page): Promise<void> {
 // ── Suite A: feed configured → detect + broadcast + visible German signal ─────
 
 test.describe.serial('Command EVE auto-update – detect + signal against local feed', () => {
+  test.skip(!PACKAGED_APP, PACKAGED_APP_SKIP_REASON);
   test.setTimeout(300_000);
 
   let feed: { dir: string; cleanup: () => void };
@@ -495,6 +514,7 @@ test.describe.serial('Command EVE auto-update – detect + signal against local 
  * (configureFeed → setFeedURL url === COMMAND_EVE_UPDATE_FEED_BASE_URL).
  */
 test.describe.serial('Command EVE auto-update – CE shell defaults to the R2 feed (no env override)', () => {
+  test.skip(!PACKAGED_APP, PACKAGED_APP_SKIP_REASON);
   test.setTimeout(300_000);
 
   let packagedApp: PackagedAppHandle;
@@ -550,6 +570,7 @@ test.describe.serial('Command EVE auto-update – CE shell defaults to the R2 fe
 // ── Suite C: no feed → quiet no-op, no error dialog ───────────────────────────
 
 test.describe.serial('Command EVE auto-update – quiet no-op when no feed configured', () => {
+  test.skip(!PACKAGED_APP, PACKAGED_APP_SKIP_REASON);
   test.setTimeout(300_000);
 
   let packagedApp: PackagedAppHandle;

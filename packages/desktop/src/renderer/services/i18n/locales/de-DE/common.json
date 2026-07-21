@@ -215,6 +215,13 @@
         "recovery_required": "Wiederherstellung erforderlich"
       }
     },
+    "chatIntent": {
+      "boundSummary": "Unterhaltung dem Projekt \"{{title}}\" zugeordnet",
+      "bindRejectedSummary": "Zuordnung zum Projekt \"{{title}}\" fehlgeschlagen",
+      "ambiguousSummary": "Mehrdeutige Projekt-Zuordnung",
+      "clarifyQuestion": "Meinst du eines dieser Projekte: {{titles}}? Sag kurz, welches gemeint ist.",
+      "listOr": " oder "
+    },
     "reasons": {
       "service_unavailable": {
         "title": "Projekte sind noch nicht verfügbar",

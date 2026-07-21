@@ -1,5 +1,7 @@
 import { Message } from '@arco-design/web-react';
+import i18n from 'i18next';
 import { ipcBridge } from '@/common';
+import { resolveProjectWorkspaceI18n } from '@/renderer/pages/projects/i18nRef';
 
 const GATE_TIMEOUT_MS = 250;
 
@@ -23,7 +25,13 @@ export async function runProjectChatIntentGate(input: { conversation_id: string;
       new Promise<null>((resolve) => setTimeout(() => resolve(null), GATE_TIMEOUT_MS)),
     ]);
     if (result && result.decision === 'needs_clarification') {
-      Message.info(result.question);
+      // Localize the main-process clarification via its i18n ref when present
+      // (1.818 CAO-P2); the raw question is the English fallback.
+      Message.info(
+        result.question_i18n
+          ? resolveProjectWorkspaceI18n(result.question_i18n, i18n.t.bind(i18n), result.question)
+          : result.question
+      );
     }
   } catch {
     // fail-open: intent gate never blocks sending

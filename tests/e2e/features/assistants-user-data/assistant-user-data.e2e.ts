@@ -12,6 +12,11 @@
  * The renderer-side glue for migration is already covered by the
  * Vitest unit suite (`tests/unit/migrateAssistants.test.ts`); scenarios
  * 8-10 here validate the HTTP invariants that glue depends on.
+ *
+ * Sibling-backend binary resolution follows the shared e2e env contract (see
+ * tests/e2e/helpers/aioncoreBinary.ts): AIONUI_BACKEND_BINARY (explicit) →
+ * AIONUI_BACKEND_LOCAL_BINARY → resources/bundled-aioncore → PATH →
+ * ~/.cargo/bin.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
@@ -30,6 +35,7 @@ import {
   httpInvoke,
   httpPost,
   openAssistantDrawer,
+  resolveAioncoreBinary,
   saveAssistant,
   toggleAssistantEnabled,
   waitForDrawerClose,
@@ -59,22 +65,6 @@ function querySqliteIds(dataDir: string, sql: string): string[] {
     .split('\n')
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
-}
-
-/** Backend binary resolved from PATH / cargo bin. */
-function resolveBackendBinary(): string {
-  const platform = process.platform === 'win32' ? 'windows' : process.platform;
-  const arch = process.arch === 'arm64' ? 'arm64' : process.arch === 'x64' ? 'x64' : process.arch;
-  const executable = process.platform === 'win32' ? 'aioncore.exe' : 'aioncore';
-  const candidates = [
-    process.env.AIONUI_BACKEND_BINARY,
-    path.join(process.cwd(), 'resources', 'bundled-aioncore', `${platform}-${arch}`, executable),
-    path.join(os.homedir(), '.cargo', 'bin', executable),
-  ].filter((x): x is string => typeof x === 'string' && x.length > 0);
-  for (const c of candidates) {
-    if (fs.existsSync(c)) return c;
-  }
-  throw new Error(`aioncore binary not found. Set AIONUI_BACKEND_BINARY or install to ~/.cargo/bin/aioncore.`);
 }
 
 // ── Backend HTTP contract (shared with renderer httpBridge) ──────────────────
@@ -402,7 +392,7 @@ test.describe('Assistant User Data Migration (T5)', () => {
     }
 
     async function startBackend(): Promise<void> {
-      const bin = resolveBackendBinary();
+      const bin = resolveAioncoreBinary();
       const logPath = path.join(dataDir, 'sibling-aioncore.log');
       const logFd = fs.openSync(logPath, 'a');
       // Scrub env vars that would drag the main Electron's backend state in.

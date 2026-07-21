@@ -10,12 +10,30 @@
  *   6. Type a message in the member textarea and press Enter.
  *   7. Assert message text is visible in the DOM.
  *   8. Assert the member tab shows an active badge (member started processing).
+ *
+ * The spawned ACP member runs sandboxed: ACP permission cards raised during
+ * member init/turns are auto-approved through the shared
+ * startAutoApprovePermissionMessages helper (established pattern from
+ * cron-crud / conversation-full-cycle), so a card never blocks the flow.
  */
 import { test, expect } from '../../fixtures';
-import { navigateTo, ensureTeam, RUN_TEAM_AGENT_LIVE, TEAM_SUPPORTED_BACKENDS } from '../../helpers';
+import {
+  navigateTo,
+  ensureTeam,
+  startAutoApprovePermissionMessages,
+  RUN_TEAM_AGENT_LIVE,
+  TEAM_SUPPORTED_BACKENDS,
+} from '../../helpers';
 
 test.describe('Team Member Messaging', () => {
   test.skip(!RUN_TEAM_AGENT_LIVE, 'Live team-agent member messaging is opt-in: set RUN_TEAM_AGENT_LIVE=1.');
+
+  let stopAutoApprove: (() => void) | null = null;
+
+  test.afterEach(() => {
+    stopAutoApprove?.();
+    stopAutoApprove = null;
+  });
 
   test('send message directly to member via member tab', async ({ page }) => {
     test.setTimeout(300_000);
@@ -43,6 +61,9 @@ test.describe('Team Member Messaging', () => {
 
     const chatInput = page.locator('textarea').first();
     await expect(chatInput).toBeVisible({ timeout: 10_000 });
+
+    // Auto-approve ACP permission cards the spawned sandboxed member may raise.
+    stopAutoApprove = startAutoApprovePermissionMessages(page);
 
     const tabBar = page.locator('[data-testid="team-tab-bar"]');
 
