@@ -1245,10 +1245,18 @@ export class ProjectWorkspaceService {
 
   async recoverAll(): Promise<ProjectRecoveryResult[]> {
     const results: ProjectRecoveryResult[] = [];
+    const bootSeatId = this.getActiveSeatId();
+    const assertBootSeatActive = (): void => {
+      if (this.getActiveSeatId() !== bootSeatId) throw new ProjectWorkspaceError('seat.changed');
+    };
     for (const entry of listProjectJournals(this.registry.stateRoot)) {
       let journal = entry.journal;
       const terminalPhase =
         journal.phase === 'committed' || journal.phase === 'undone' || journal.phase === 'recovery_required';
+      // The recovery pass belongs to the seat that was active when it began.
+      // A later seat switch must never make a foreign journal eligible.
+      if (journal.identity.seat_id !== bootSeatId) continue;
+      if (this.getActiveSeatId() !== bootSeatId) break;
       if (entry.file !== projectJournalPath(this.registry.stateRoot, journal.transaction_id)) {
         results.push({
           ok: false,
@@ -1262,9 +1270,9 @@ export class ProjectWorkspaceService {
       // seat's own boot recovery — it must not be leased, advanced, or
       // reported as a failed recovery under the wrong active seat. The
       // assertActiveSeat below stays as defense-in-depth.
-      if (journal.identity.seat_id !== this.getActiveSeatId()) continue;
       let context: ReturnType<ProjectWorkspaceService['trustedJournalContext']>;
       try {
+        assertBootSeatActive();
         this.assertActiveSeat(journal.identity.seat_id);
         context = this.trustedJournalContext(journal);
       } catch (error) {
@@ -1286,6 +1294,7 @@ export class ProjectWorkspaceService {
       if (terminalPhase && (!fs.existsSync(context.lease_path) || isProjectLeaseReleased(context.lease_path))) {
         continue;
       }
+      assertBootSeatActive();
       const ownerToken = `${crypto.randomUUID()}:recovery:${process.pid}`;
       const key = `${journal.identity.seat_id}|${journal.identity.realm_id}|${context.comparison_key}`;
       const acquired = acquireProjectLease({
@@ -1303,8 +1312,11 @@ export class ProjectWorkspaceService {
         continue;
       }
       this.runPhase('recovery:lease:acquired');
-      journal = advanceProjectJournal(this.registry.stateRoot, journal, journal.phase, this.timestamp());
+      let abortForSeatChange = false;
       try {
+        assertBootSeatActive();
+        journal = advanceProjectJournal(this.registry.stateRoot, journal, journal.phase, this.timestamp());
+        assertBootSeatActive();
         this.assertProjectMutationAllowed(journal.identity.seat_id, context.root_record, context.final_path);
         if (terminalPhase) {
           results.push({ ok: true, action: 'reconciled', transaction_id: journal.transaction_id });
@@ -1316,6 +1328,7 @@ export class ProjectWorkspaceService {
           !fs.existsSync(context.staging_path) &&
           fs.existsSync(context.final_path);
         if (journal.phase === 'rollback_pending') {
+          assertBootSeatActive();
           journal = advanceProjectJournal(this.registry.stateRoot, journal, 'recovery_required', this.timestamp(), {
             reason_code: 'workspace.recovery-required',
           });
@@ -1330,6 +1343,7 @@ export class ProjectWorkspaceService {
           ACTIVE_UNDO_PHASES.has(journal.phase) ||
           (!observedCreatePromotion && PROVISIONING_UNDO_SOURCE_PHASES.has(journal.phase))
         ) {
+          assertBootSeatActive();
           const undoOrigin = journal.undo_quarantine_plan?.origin;
           const physicalPath =
             undoOrigin === 'committed-undo' || journal.operation === 'adopt'
@@ -1370,6 +1384,7 @@ export class ProjectWorkspaceService {
           parsed.value.slug !== journal.slug ||
           !verifyCreatedFiles(context.final_path, journal.created_files)
         ) {
+          assertBootSeatActive();
           advanceProjectJournal(this.registry.stateRoot, journal, 'recovery_required', this.timestamp(), {
             reason_code: 'workspace.recovery-required',
           });
@@ -1386,6 +1401,7 @@ export class ProjectWorkspaceService {
           journal.operation === 'adopt' ? journal.created_files.map((fileEntry) => fileEntry.relative_path) : undefined
         );
         if (recoveryBase.base_bundle_sha256 !== journal.semantic_base_bundle_sha256) {
+          assertBootSeatActive();
           advanceProjectJournal(this.registry.stateRoot, journal, 'recovery_required', this.timestamp(), {
             reason_code: 'semantic.bundle-mismatch',
           });
@@ -1416,6 +1432,7 @@ export class ProjectWorkspaceService {
               })
             )
           );
+          assertBootSeatActive();
           journal = advanceProjectJournal(this.registry.stateRoot, journal, 'semantic_committed', this.timestamp());
         }
         const record: ProjectCatalogRecord = {
@@ -1432,6 +1449,7 @@ export class ProjectWorkspaceService {
           comparison_key: context.comparison_key,
           registered_at: this.timestamp(),
         };
+        assertBootSeatActive();
         this.registry.registerProject({ record, expected_revision: catalogs.projects.revision });
         const receipt: ProjectReceiptV1 = {
           schema_version: PROJECT_RECEIPT_VERSION,
@@ -1472,13 +1490,17 @@ export class ProjectWorkspaceService {
             throw new ProjectWorkspaceError('workspace.recovery-required');
           }
         } else {
+          assertBootSeatActive();
           writeFileCreateOnly(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
         }
+        assertBootSeatActive();
         advanceProjectJournal(this.registry.stateRoot, journal, 'committed', this.timestamp());
         results.push({ ok: true, action: 'reconciled', transaction_id: journal.transaction_id });
       } catch (error) {
         const reasonCode = error instanceof ProjectWorkspaceError ? error.reason_code : 'workspace.io-failed';
+        abortForSeatChange = reasonCode === 'seat.changed';
         if (reasonCode === 'semantic.bundle-mismatch' && journal.phase !== 'recovery_required') {
+          assertBootSeatActive();
           journal = advanceProjectJournal(this.registry.stateRoot, journal, 'recovery_required', this.timestamp(), {
             reason_code: reasonCode,
           });
@@ -1491,6 +1513,7 @@ export class ProjectWorkspaceService {
       } finally {
         releaseProjectLease(acquired.lease_path, ownerToken);
       }
+      if (abortForSeatChange) break;
     }
     return results;
   }

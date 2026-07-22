@@ -310,9 +310,37 @@ describe('ProjectWorkspaceFacade.chatIntent (S81 R3)', () => {
     expect(artifacts[0]?.payload.state).toBe('rejected');
     expect(artifacts[0]?.payload.receipt?.outcome).toBe('rejected');
     expect(artifacts[0]?.payload.reason_code).toBe('stale_snapshot');
+    expect(artifacts[0]?.payload.safe_follow_ups).toEqual([]);
     expect(artifacts[0]?.payload.intent_summary_i18n).toEqual({
       key: 'common.projects.chatIntent.bindRejectedSummary',
       params: { title: 'Atlas Projekt' },
+    });
+  });
+
+  it('fails open with a recovery artifact and safe recover action when the bind needs recovery', async () => {
+    await createProject(f, 'Atlas Projekt');
+    vi.spyOn(f.lifecycle, 'bindConversation').mockResolvedValue({
+      receipt_id: 'receipt-recovery-1',
+      outcome: 'recovery_required',
+      completed_at: Date.now(),
+      reason_code: 'recovery_required',
+      safe_follow_ups: ['recover'],
+    });
+
+    const result = await f.facade.chatIntent(chatRequest('bitte analysiere das atlas projekt budget'));
+
+    expect(result).toEqual({ decision: 'pass_through' });
+    const artifacts = f.artifactStore.list(SEAT_ID, 'conv-chat');
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]?.payload).toMatchObject({
+      state: 'recovery_required',
+      reason_code: 'recovery_required',
+      safe_follow_ups: ['recover'],
+      receipt: { receipt_id: 'receipt-recovery-1', outcome: 'recovery_required' },
+      intent_summary_i18n: {
+        key: 'common.projects.chatIntent.bindRecoveryRequiredSummary',
+        params: { title: 'Atlas Projekt' },
+      },
     });
   });
 

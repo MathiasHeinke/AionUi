@@ -1,0 +1,10 @@
+# Command EVE 1.818 full-E2E approved skip roster.
+#
+# Fail closed by default: this roster intentionally starts empty. After the
+# first complete candidate run, review every reported skipped title and add
+# only environment-intentional skips here. Dynamic missing-UI or missing-data
+# skips are regressions unless the release controller explicitly approves the
+# exact canonical Playwright title.
+#
+# Format:
+#   <spec path> >> <describe> [<describe>...] >> <test>

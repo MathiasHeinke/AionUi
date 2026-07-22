@@ -218,6 +218,7 @@
     "chatIntent": {
       "boundSummary": "Conversation assigned to project \"{{title}}\"",
       "bindRejectedSummary": "Could not assign conversation to project \"{{title}}\"",
+      "bindRecoveryRequiredSummary": "Conversation assignment to project \"{{title}}\" requires recovery",
       "ambiguousSummary": "Ambiguous project assignment",
       "clarifyQuestion": "Did you mean one of these projects: {{titles}}? Tell me which one you meant.",
       "listOr": " or "

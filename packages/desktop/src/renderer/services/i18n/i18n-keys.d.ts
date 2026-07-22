@@ -519,6 +519,7 @@ export type I18nKey =
   | 'common.projects.artifact.state.rejected'
   | 'common.projects.automaticDisabled'
   | 'common.projects.chatIntent.ambiguousSummary'
+  | 'common.projects.chatIntent.bindRecoveryRequiredSummary'
   | 'common.projects.chatIntent.bindRejectedSummary'
   | 'common.projects.chatIntent.boundSummary'
   | 'common.projects.chatIntent.clarifyQuestion'

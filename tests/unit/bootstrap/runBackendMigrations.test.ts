@@ -127,8 +127,26 @@ const configFile = {
  * Same backend shape as the default beforeEach mock, but with a caller-chosen
  * /api/providers listing — used by the local-runtime seed specs.
  */
-const mockBackendWithProviders = (providers: IProvider[]) => {
-  httpRequestMock.mockImplementation(async (method: string, path: string) => {
+const providerRowFromCreate = (body: unknown): IProvider => {
+  const request = body as ReturnType<typeof getCommandEveLocalRuntimeProvider> & {
+    models?: string[];
+    enabled?: boolean;
+  };
+  return {
+    ...request,
+    models: request.models || [],
+    enabled: request.enabled ?? true,
+    created_at: 1,
+    updated_at: 1,
+  } as IProvider;
+};
+
+const mockBackendWithProviders = (
+  providers: IProvider[],
+  onCreate?: (body: unknown, rows: IProvider[]) => Promise<IProvider>
+) => {
+  const rows = [...providers];
+  httpRequestMock.mockImplementation(async (method: string, path: string, body?: unknown) => {
     if (method === 'GET' && path === '/api/settings/client') {
       return {
         'tools.imageGenerationModel': {
@@ -140,10 +158,16 @@ const mockBackendWithProviders = (providers: IProvider[]) => {
       };
     }
     if (method === 'GET' && path === '/api/providers') {
-      return providers;
+      return [...rows];
+    }
+    if (method === 'POST' && path === '/api/providers') {
+      const created = onCreate ? await onCreate(body, rows) : providerRowFromCreate(body);
+      if (!rows.some((row) => row.id === created.id)) rows.push(created);
+      return created;
     }
     return undefined;
   });
+  return rows;
 };
 
 beforeEach(() => {
@@ -160,22 +184,7 @@ beforeEach(() => {
     ...data,
   }));
   testMcpConnectionMock.mockResolvedValue({ success: false, error: 'Command not found: npx' });
-  httpRequestMock.mockImplementation(async (method: string, path: string) => {
-    if (method === 'GET' && path === '/api/settings/client') {
-      return {
-        'tools.imageGenerationModel': {
-          id: 'provider-1',
-          name: 'Gemini',
-          platform: 'gemini',
-          use_model: 'gemini-image',
-        },
-      };
-    }
-    if (method === 'GET' && path === '/api/providers') {
-      return [provider];
-    }
-    return undefined;
-  });
+  mockBackendWithProviders([provider]);
 });
 
 describe('resolveImageGenerationMigrationConfig', () => {
@@ -248,18 +257,21 @@ describe('ensureCommandEveLocalRuntimeProvider', () => {
       ([method, path]) => method === 'PUT' && String(path).startsWith('/api/providers')
     );
 
+  const providerPostCalls = () =>
+    httpRequestMock.mock.calls.filter(([method, path]) => method === 'POST' && path === '/api/providers');
+
   it('seeds the provider on a fresh install with the exact default-tier shape', async () => {
     await runBackendMigrations(configFile as never);
 
-    expect(createProviderMock).toHaveBeenCalledTimes(1);
-    expect(createProviderMock).toHaveBeenCalledWith(getCommandEveLocalRuntimeProvider());
-    const seeded = createProviderMock.mock.calls[0][0];
+    expect(providerPostCalls()).toHaveLength(1);
+    const seeded = providerPostCalls()[0][2];
     expect(seeded).toMatchObject({
       id: 'command-eve-local-runtime',
       platform: 'custom',
       base_url: 'http://127.0.0.1:25811/v1',
       api_key: 'command-eve-local-loopback',
-      use_model: 'custom:command-eve-gemma4-e4b-64k:latest',
+      models: ['custom:command-eve-gemma4-e4b-64k:latest'],
+      enabled: true,
       capabilities: [{ type: 'text' }, { type: 'function_calling' }],
     });
   });
@@ -269,7 +281,7 @@ describe('ensureCommandEveLocalRuntimeProvider', () => {
 
     await runBackendMigrations(configFile as never);
 
-    expect(createProviderMock).not.toHaveBeenCalled();
+    expect(providerPostCalls()).toHaveLength(0);
     expect(updateProviderMock).not.toHaveBeenCalled();
     expect(providerPutCalls()).toHaveLength(0);
   });
@@ -279,40 +291,75 @@ describe('ensureCommandEveLocalRuntimeProvider', () => {
 
     await runBackendMigrations(configFile as never);
 
-    expect(createProviderMock).not.toHaveBeenCalled();
+    expect(providerPostCalls()).toHaveLength(0);
     expect(updateProviderMock).not.toHaveBeenCalled();
     expect(providerPutCalls()).toHaveLength(0);
   });
 
-  it('treats a create conflict from a concurrent seed as success (race-safe)', async () => {
+  it('treats only a structured 409 create conflict as success and verifies readback', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    mockBackendWithProviders([]);
     const conflict = new BackendHttpError({
       method: 'POST',
       path: '/api/providers',
       status: 409,
       body: { success: false, code: 'PROVIDER_EXISTS', error: 'provider id already exists' },
     });
-    createProviderMock
-      .mockResolvedValueOnce({ id: COMMAND_EVE_LOCAL_RUNTIME_PROVIDER_ID })
-      .mockRejectedValueOnce(conflict);
+    mockBackendWithProviders([], async (_body, rows) => {
+      rows.push(localRuntimeRow());
+      throw conflict;
+    });
 
     await expect(
-      Promise.all([ensureCommandEveLocalRuntimeProvider(), ensureCommandEveLocalRuntimeProvider()])
-    ).resolves.toEqual([undefined, undefined]);
+      ensureCommandEveLocalRuntimeProvider({ maxAttempts: 1, sleep: async () => undefined })
+    ).resolves.toMatchObject({ status: 'ready', conflict: true, created: false });
 
-    // Two parallel seeds → one create succeeds, one conflicts — and the
-    // conflict is success, so nothing reaches the error channel.
-    expect(createProviderMock).toHaveBeenCalledTimes(2);
+    expect(providerPostCalls()).toHaveLength(1);
     expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it('retries a transient POST failure in the same process and then verifies the row', async () => {
+    let attempts = 0;
+    mockBackendWithProviders([], async (body) => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw new BackendHttpError({ method: 'POST', path: '/api/providers', status: 500, body: 'transient' });
+      }
+      return providerRowFromCreate(body);
+    });
+
+    await expect(
+      ensureCommandEveLocalRuntimeProvider({ maxAttempts: 2, sleep: async () => undefined })
+    ).resolves.toMatchObject({ status: 'ready', attempts: 2, created: true });
+    expect(providerPostCalls()).toHaveLength(2);
+  });
+
+  it('never POSTs when the provider GET fails because backend state is unknown', async () => {
+    httpRequestMock.mockImplementation(async (method: string, path: string) => {
+      if (method === 'GET' && path === '/api/providers') throw new Error('read unavailable');
+      return undefined;
+    });
+
+    await expect(
+      ensureCommandEveLocalRuntimeProvider({ maxAttempts: 1, sleep: async () => undefined })
+    ).rejects.toThrow('is not ready after 1 bounded attempt');
+    expect(providerPostCalls()).toHaveLength(0);
+  });
+
+  it('does nothing when the Command EVE shell is disabled', async () => {
+    await expect(ensureCommandEveLocalRuntimeProvider({ shellEnabled: false })).resolves.toEqual({
+      status: 'disabled',
+      attempts: 0,
+      created: false,
+      conflict: false,
+    });
+    expect(httpRequestMock).not.toHaveBeenCalled();
   });
 
   it('logs a step failure and continues when the seed fails for a non-conflict reason', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    mockBackendWithProviders([]);
-    createProviderMock.mockRejectedValue(
-      new BackendHttpError({ method: 'POST', path: '/api/providers', status: 500, body: 'boom' })
-    );
+    mockBackendWithProviders([], async () => {
+      throw new BackendHttpError({ method: 'POST', path: '/api/providers', status: 500, body: 'boom' });
+    });
 
     await expect(runBackendMigrations(configFile as never)).resolves.toBeUndefined();
 
@@ -329,9 +376,9 @@ describe('ensureCommandEveLocalRuntimeProvider', () => {
     vi.mocked(migrateProviders).mockImplementationOnce(async () => {
       order.push('migrateProviders');
     });
-    createProviderMock.mockImplementationOnce(async () => {
+    mockBackendWithProviders([provider], async (body) => {
       order.push('ensureCommandEveLocalRuntimeProvider');
-      return { id: COMMAND_EVE_LOCAL_RUNTIME_PROVIDER_ID };
+      return providerRowFromCreate(body);
     });
     listServersMock.mockImplementationOnce(async () => {
       order.push('ensureBootstrapMcpServersInDb');

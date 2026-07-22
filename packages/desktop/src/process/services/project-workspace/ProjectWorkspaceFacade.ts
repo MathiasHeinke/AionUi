@@ -520,7 +520,7 @@ export class ProjectWorkspaceFacade {
     if (!latest) {
       return {
         receipt_id: request.idempotency_key,
-        outcome: 'rejected',
+        outcome: 'recovery_required',
         completed_at: this.nowMs(),
         reason_code: 'recovery_required',
         safe_follow_ups: ['recover'],
@@ -678,10 +678,10 @@ export class ProjectWorkspaceFacade {
         payload: preview,
       });
       if (receipt.outcome !== 'completed') {
-        // 1.818 CAO-P2: a rejected bind must not claim a completed artifact
-        // or a handled decision. The send goes out unbound (fail-open, same
-        // as the deadline-race path) and the artifact records the actual
-        // rejection with its receipt and reason code.
+        // 1.818 CAO-P2: a non-completed bind must not claim a completed
+        // artifact or a handled decision. Keep recovery-required distinct
+        // from a hard rejection so the UI can offer the one safe next action.
+        const recoveryRequired = receipt.outcome === 'recovery_required';
         this.deps.artifact_store.transition({
           seat_id: seatId,
           conversation_id: request.conversation_id,
@@ -689,12 +689,17 @@ export class ProjectWorkspaceFacade {
           expected_state: 'preview',
           payload: {
             ...preview,
-            state: 'rejected' as const,
-            intent_summary: `Could not assign conversation to project "${match.title}"`,
+            state: recoveryRequired ? ('recovery_required' as const) : ('rejected' as const),
+            intent_summary: recoveryRequired
+              ? `Conversation assignment to project "${match.title}" requires recovery`
+              : `Could not assign conversation to project "${match.title}"`,
             intent_summary_i18n: {
-              key: 'common.projects.chatIntent.bindRejectedSummary',
+              key: recoveryRequired
+                ? 'common.projects.chatIntent.bindRecoveryRequiredSummary'
+                : 'common.projects.chatIntent.bindRejectedSummary',
               params: { title: match.title },
             } as ProjectWorkspaceI18nRef,
+            safe_follow_ups: recoveryRequired ? (['recover'] as ProjectWorkspaceAction[]) : [],
             ...(receipt.reason_code ? { reason_code: receipt.reason_code } : {}),
             receipt: {
               receipt_id: receipt.receipt_id,

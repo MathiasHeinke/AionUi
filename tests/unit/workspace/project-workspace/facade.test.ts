@@ -348,8 +348,34 @@ describe('ProjectWorkspaceFacade (S81 R1b)', () => {
       idempotency_key: crypto.randomUUID(),
     });
 
-    expect(receipt).toMatchObject({ outcome: 'rejected', reason_code: 'stale_snapshot' });
+    expect(receipt).toMatchObject({
+      outcome: 'rejected',
+      reason_code: 'stale_snapshot',
+      safe_follow_ups: [],
+    });
     expect(fs.existsSync(path.join(f.rootPath, 'stale-undo-projekt'))).toBe(true);
+  });
+
+  it('undo preserves recovery-required outcome, reason, and safe recovery action when no receipt is available', async () => {
+    const { project } = await createProject(f, 'Missing Receipt Projekt');
+    const revision = f.registry.readSeatCatalogs(SEAT_ID).projects.revision;
+    fs.rmSync(path.join(f.rootPath, 'missing-receipt-projekt', '.command-eve', 'receipts'), {
+      recursive: true,
+      force: true,
+    });
+
+    const receipt = await f.facade.undo({
+      project_id: project.project_id,
+      expected_revision: revision,
+      seat_context_revision: SEAT_REVISION,
+      idempotency_key: crypto.randomUUID(),
+    });
+
+    expect(receipt).toMatchObject({
+      outcome: 'recovery_required',
+      reason_code: 'recovery_required',
+      safe_follow_ups: ['recover'],
+    });
   });
 
   it('undo selects receipts by mtime, not by lexicographic filename order (Fable/Kimi fix)', async () => {

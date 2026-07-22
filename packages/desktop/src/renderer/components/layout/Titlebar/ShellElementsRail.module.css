@@ -71,6 +71,10 @@
   gap: 14px;
 }
 
+.contextSection {
+  min-height: 100%;
+}
+
 .activityCard,
 .contextCard,
 .metaBlock {
@@ -221,18 +225,24 @@
 
 .contextFiles {
   display: flex;
+  flex: 1;
   min-height: 0;
   flex-direction: column;
   gap: 8px;
+  overflow: hidden;
 }
 
 .contextFilesContent {
+  display: flex;
+  flex: 1;
   min-height: 180px;
+  flex-direction: column;
   overflow: hidden;
   border-top: 1px solid color-mix(in srgb, var(--glass-panel-border) 66%, transparent);
   padding-top: 8px;
 }
 
 .contextFilesContent > * {
+  flex: 1;
   min-height: 0;
 }

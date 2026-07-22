@@ -214,16 +214,16 @@ Failed tests automatically get screenshots attached to the HTML report.
 
 ## Environment Variables
 
-| Variable         | Default                     | Purpose                      |
-| ---------------- | --------------------------- | ---------------------------- |
-| `E2E_PACKAGED=1` | unset (dev mode)            | Use packaged app from `out/` |
-| `E2E_DEV=1`      | unset                       | Force dev mode               |
-| `TEAM_AGENT`     | all (`claude,codex,gemini`) | Filter team leader types     |
-| `CI`             | unset                       | Auto-selects packaged mode   |
-| `AIONUI_BACKEND_BINARY` | unset                | Explicit aioncore binary for sibling-backend specs (see contract above) |
-| `AIONUI_BACKEND_LOCAL_BINARY` | unset          | Local dev build of aioncore for sibling-backend specs (second in contract) |
-| `COMMAND_EVE_AUTO_UPDATE_E2E_PACKAGED_APP` | unset | Packaged artifact gate for `specs/command-eve-auto-update.e2e.ts` — path to `Command EVE.app`, the executable, or an unpacked electron-builder dir. The auto-update suites SKIP unless this is set (they only run against electron-builder output, never in dev runs) |
-| `RUN_TEAM_AGENT_LIVE` | unset                  | Opt-in for live model-backed team-agent specs (`1` enables) |
+| Variable                                   | Default                     | Purpose                                                                                                                                                                                                                                                               |
+| ------------------------------------------ | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `E2E_PACKAGED=1`                           | unset (dev mode)            | Use packaged app from `out/`                                                                                                                                                                                                                                          |
+| `E2E_DEV=1`                                | unset                       | Force dev mode                                                                                                                                                                                                                                                        |
+| `TEAM_AGENT`                               | all (`claude,codex,gemini`) | Filter team leader types                                                                                                                                                                                                                                              |
+| `CI`                                       | unset                       | Auto-selects packaged mode                                                                                                                                                                                                                                            |
+| `AIONUI_BACKEND_BINARY`                    | unset                       | Explicit aioncore binary for sibling-backend specs (see contract above)                                                                                                                                                                                               |
+| `AIONUI_BACKEND_LOCAL_BINARY`              | unset                       | Local dev build of aioncore for sibling-backend specs (second in contract)                                                                                                                                                                                            |
+| `COMMAND_EVE_AUTO_UPDATE_E2E_PACKAGED_APP` | unset                       | Packaged artifact gate for `specs/command-eve-auto-update.e2e.ts` — path to `Command EVE.app`, the executable, or an unpacked electron-builder dir. The auto-update suites SKIP unless this is set (they only run against electron-builder output, never in dev runs) |
+| `RUN_TEAM_AGENT_LIVE`                      | unset                       | Opt-in for live model-backed team-agent specs (`1` enables)                                                                                                                                                                                                           |
 
 Variables set automatically during test launch:
 
@@ -245,32 +245,96 @@ must degrade to `test.skip(...)`. Live team-agent specs
 `startAutoApprovePermissionMessages` helper so spawned sandboxed agents never
 block on a card.
 
-### Failure baseline (pinned 1.817 set)
+### Fail-closed full-E2E baseline gate
 
-`tests/e2e/baselines/g6r-step-03-failed-56d036cd.txt` pins the 38 known
-failures of the 1.817 full e2e run (206 passed / 38 failed, 0 product
-regressions after triage). After a full run, diff the fresh failure list
-against it — any NEW failure fails the comparator:
+The release-candidate command runs Playwright with its JSON reporter, writes a
+post-run metadata sidecar only after Playwright exits, then invokes the
+comparator:
 
 ```bash
-node scripts/e2e-baseline-diff.mjs --new <failures.txt>
+bun run test:e2e:baseline
 ```
 
-Exit 1 with a `NEW FAILURES` list means something regressed that was not
-failing in the 1.817 baseline.
+This release command deliberately accepts no Playwright passthrough arguments.
+Selection flags such as `--grep`, `--project`, `--shard`, or positional spec
+paths would narrow the run and are rejected fail-closed.
+
+The command refuses a dirty worktree. The tested source must be committed so
+the full 40-character candidate SHA in the receipt is truthful. Saved evidence
+is written under `test-results/command-eve-e2e-baseline/`.
+
+The gate fails closed on a missing, empty, truncated, malformed, timed-out,
+interrupted, or count-inconsistent report; a candidate-SHA mismatch; any
+unapproved skip; and any failure not in the effective baseline. A plain list
+of failure names is not accepted as release evidence.
+
+The sidecar schema is `command-eve-playwright-run/v1`:
+
+```json
+{
+  "schema_version": "command-eve-playwright-run/v1",
+  "candidate_sha": "<40-character Git SHA>",
+  "run_status": "completed",
+  "playwright_status": "passed|failed",
+  "playwright_exit_code": 0,
+  "completed_at": "<ISO-8601 timestamp>",
+  "counts": {
+    "expected": 0,
+    "unexpected": 0,
+    "flaky": 0,
+    "skipped": 0,
+    "projects": 0,
+    "specs": 0,
+    "tests": 0
+  }
+}
+```
+
+To re-evaluate preserved evidence without rerunning Playwright:
+
+```bash
+node scripts/e2e-baseline-diff.mjs \
+  --report <playwright-report.json> \
+  --run-metadata <run-metadata.json> \
+  --candidate-sha <40-character-git-sha>
+```
+
+Baseline inputs:
+
+- `g6r-step-03-failed-56d036cd.txt` preserves the 38-failure 1.817 run.
+- `command-eve-1818-retired-failures.txt` removes modernized green specs from
+  that historical allowlist. It is mandatory even when an additional retired
+  roster is supplied; their reappearance is always a new failure.
+- `command-eve-1818-approved-skips.txt` is the exact reviewed skip roster. It
+  intentionally starts empty; a conditional or dynamic `test.skip()` is not
+  release-approved merely because the test declared it.
+
+Controlled repinning loop:
+
+1. Run the complete committed candidate with `bun run test:e2e:baseline`.
+2. Review every `unexpected_skips` title. Add only environment-intentional
+   titles to the approved-skip roster, then rerun the complete candidate.
+3. Triage every `new_failures` title. Fix product/spec drift first. Only an
+   accepted non-regression may be pinned.
+4. Replace the default failure file with a new candidate-SHA-named baseline,
+   update `DEFAULT_BASELINE` and provenance together, and rerun from a clean
+   commit. Never append to the old 38-failure file.
+5. Preserve the JSON report, post-run metadata, and comparator PASS receipt for
+   CAO/Controller review.
 
 ---
 
 ## NPM Scripts
 
-| Command                           | Scope                    |
-| --------------------------------- | ------------------------ |
-| `bun run test:e2e`                | All E2E tests            |
-| `bun run test:e2e:team`           | All `team-*.e2e.ts`      |
-| `bun run test:e2e:team:create`    | Team creation only       |
-| `bun run test:e2e:team:lifecycle` | Add + fire members       |
-| `bun run test:e2e:team:whitelist` | Agent whitelist dropdown |
-| `bun run test:e2e:team:comm`      | Message sending          |
+| Command                           | Scope                                                |
+| --------------------------------- | ---------------------------------------------------- |
+| `bun run test:e2e`                | All E2E tests                                        |
+| `bun run test:e2e:baseline`       | Full committed candidate + fail-closed baseline gate |
+| `bun run test:e2e:team`           | All `team-*.e2e.ts`                                  |
+| `bun run test:e2e:team:create`    | Team creation only                                   |
+| `bun run test:e2e:team:lifecycle` | Add + fire members                                   |
+| `bun run test:e2e:team:whitelist` | Agent whitelist dropdown                             |
+| `bun run test:e2e:team:comm`      | Message sending                                      |
 
 ### Examples
 

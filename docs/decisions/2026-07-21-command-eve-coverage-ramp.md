@@ -25,7 +25,7 @@ notarization, R2 writes, or a release-state transition."
 - `vitest.config.ts:98-104` — all four thresholds are `0`, with the comment
   "Keeping them informational until coverage ramps up across all files."
 - `codecov.yml:19-25` — project status `target: auto, threshold: 1%,
-  informational: true`; patch status `target: 50%, informational: true`.
+informational: true`; patch status `target: 50%, informational: true`.
 - `just push` (repo release-quality suite) contains no coverage gate; 1.816
   shipped under the same doctrine.
 
@@ -41,12 +41,12 @@ notarization, R2 writes, or a release-state transition."
 
 Measured numbers (FACT, from that decision + the HG-2.5 controller card):
 
-| Scope | Statements | Branches | Functions | Lines |
-| --- | --- | --- | --- | --- |
-| Baseline `e617c81c` | 42.47 | 40.06 | 38.64 | 43.14 |
-| Freeze `16c1cf70` | 45.24 | 43.28 | 41.66 | 46.11 |
-| Delta (pp) | +2.77 | +3.22 | +3.02 | +2.97 |
-| Final 1.817 card | 45.62 | 43.59 | — | — |
+| Scope               | Statements | Branches | Functions | Lines |
+| ------------------- | ---------- | -------- | --------- | ----- |
+| Baseline `e617c81c` | 42.47      | 40.06    | 38.64     | 43.14 |
+| Freeze `16c1cf70`   | 45.24      | 43.28    | 41.66     | 46.11 |
+| Delta (pp)          | +2.77      | +3.22    | +3.02     | +2.97 |
+| Final 1.817 card    | 45.62      | 43.59    | —         | —     |
 
 So the product sits at ~45 % statement coverage — about 35 percentage points
 (~20k covered lines) below the literal matrix value.

@@ -13,7 +13,7 @@
  */
 import { test, expect } from '../../fixtures';
 import { cleanupTeamsByName, invokeBridge } from '../../helpers';
-import { domClick, openWorkspaceContextPanel } from '../../helpers/workspacePanel';
+import { openWorkspaceContextPanel } from '../../helpers/workspacePanel';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -132,8 +132,7 @@ test.describe('Workspace Changes — UI panel', () => {
       name: /Stage All Changes|Alle Änderungen bereitstellen|全部暂存/i,
     });
     await expect(stageButton).toBeVisible({ timeout: 5_000 });
-    // drift: 964c3c97 the rail's clipped panel area intercepts geometry clicks — use a DOM click
-    await domClick(stageButton);
+    await stageButton.click();
     // After staging, the file should still be in the list (just under Staged).
     await expect(panel.getByText('created.txt').first()).toBeVisible({ timeout: 10_000 });
     await page.screenshot({ path: 'tests/e2e/results/workspace-snapshot-03-staged.png' });

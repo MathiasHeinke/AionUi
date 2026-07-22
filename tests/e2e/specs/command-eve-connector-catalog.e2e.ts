@@ -9,6 +9,7 @@ import { _electron as electron, type ElectronApplication, type Page } from 'play
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { resolveAioncoreBinary } from '../helpers/aioncoreBinary';
 
 const tempRoots: string[] = [];
 let connectorCatalogE2ERoot: string;
@@ -169,7 +170,7 @@ test.describe('Command EVE Connector Catalog', () => {
     }
 
     for (const root of tempRoots.splice(0)) {
-      fs.rmSync(root, { recursive: true, force: true });
+      fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   });
 
@@ -180,6 +181,7 @@ test.describe('Command EVE Connector Catalog', () => {
     await closeSharedElectronAppForIsolatedSpec();
     const isolatedHome = fs.mkdtempSync(path.join(os.tmpdir(), 'command-eve-connector-catalog-home-'));
     tempRoots.push(isolatedHome);
+    const backendBinary = resolveAioncoreBinary();
     let app: ElectronApplication | null = null;
     let page: Page;
     try {
@@ -189,6 +191,11 @@ test.describe('Command EVE Connector Catalog', () => {
         env: {
           ...(process.env as Record<string, string>),
           HOME: isolatedHome,
+          // The desktop binary resolver consumes bundled resources or PATH;
+          // AIONUI_BACKEND_BINARY is the E2E harness input, not a product
+          // resolver input. Put its owning directory on PATH for this isolated
+          // app so the same verified binary is actually launched.
+          PATH: `${path.dirname(backendBinary)}${path.delimiter}${process.env.PATH || ''}`,
           AIONUI_DISABLE_AUTO_UPDATE: '1',
           AIONUI_DISABLE_DEVTOOLS: '1',
           AIONUI_E2E_TEST: '1',
@@ -208,57 +215,105 @@ test.describe('Command EVE Connector Catalog', () => {
     try {
       await page.waitForSelector('body', { state: 'visible' });
 
-    await page.evaluate(() => {
-      window.location.hash = '#/connectors';
-    });
+      await page.evaluate(() => {
+        window.location.hash = '#/connectors';
+      });
 
-    // drift: bc58b27d governed German-first UI titles the page "Connectoren"/"Connectors", not "Connector Catalog"
-    await expect(page.locator('h1').filter({ hasText: /Connectoren|Connectors/ }).first()).toBeVisible({
-      timeout: 30_000,
-    });
-    await expect(page.getByText('CONNECTOR_CATALOG_ELECTRON_BRIDGE_REQUIRED')).toHaveCount(0);
-
-    // drift: bc58b27d the public (non-founder) build renders governed cards with public names
-    // only; manifest paths, policy text, MCP-enable tags and audit details are founder-view
-    // (showTechnicalDetails) and must NOT render here.
-    await expect(page.getByTestId('connector-card-local-company-os-workspace')).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId('connector-card-execution-ledger-plane')).toBeVisible();
-    await expect(page.getByTestId('connector-card-github-gitnexus')).toBeVisible();
-    await expect(page.getByTestId('connector-card-marketing-publishing-stack')).toBeVisible();
-    await expect(page.getByText(/Command EVE Workspace/i).first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(/Aufgaben und Projekte|Tasks and projects/).first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText('GitHub + GitNexus').first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText('Upload-Post + Social + Analytics').first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText('Plane Execution Ledger')).toHaveCount(0);
-    await expect(page.getByText('connector-manifests.json')).toHaveCount(0);
-    await expect(page.getByText('raw_mcp_add')).toHaveCount(0);
-    await expect(page.getByText(/HUMANGATE_AND_PREFLIGHT_REQUIRED/)).toHaveCount(0);
-    await expect(page.getByText(/Installiert|Installed/).first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(/Freigabe nötig|Approval required/).first()).toBeVisible({ timeout: 30_000 });
-    await expect
-      .poll(async () => page.getByRole('button', { name: /Verbindung prüfen|Check connection/ }).count(), {
+      // drift: bc58b27d governed German-first UI titles the page "Connectoren"/"Connectors", not "Connector Catalog"
+      await expect(
+        page
+          .locator('h1')
+          .filter({ hasText: /Connectoren|Connectors/ })
+          .first()
+      ).toBeVisible({
         timeout: 30_000,
-      })
-      .toBeGreaterThanOrEqual(2);
+      });
+      await expect(page.getByText('CONNECTOR_CATALOG_ELECTRON_BRIDGE_REQUIRED')).toHaveCount(0);
 
-    const localPreflightButton = page.getByTestId('connector-preflight-button-local-company-os-workspace');
-    await expect(localPreflightButton).toBeVisible({ timeout: 30_000 });
-    await localPreflightButton.click();
-    // The preflight must reach a governed terminal state. In the shared E2E sandbox the
-    // audit-ledger path lives outside the seeded Company.OS root, so the fail-closed guard
-    // may legitimately answer "blocked" instead of "ready" — both are honest outcomes.
-    await expect(
-      page
-        .getByText(/Verbindung geprüft|Connection checked|Prüfung nicht abgeschlossen|Check not completed/)
-        .first()
-    ).toBeVisible({ timeout: 30_000 });
+      // drift: bc58b27d the public (non-founder) build renders governed cards with public names
+      // only; manifest paths, policy text, MCP-enable tags and audit details are founder-view
+      // (showTechnicalDetails) and must NOT render here.
+      await expect(page.getByTestId('connector-card-local-company-os-workspace')).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId('connector-card-execution-ledger-plane')).toBeVisible();
+      await expect(page.getByTestId('connector-card-github-gitnexus')).toBeVisible();
+      await expect(page.getByTestId('connector-card-marketing-publishing-stack')).toBeVisible();
+      await expect(page.getByText(/Command EVE Workspace/i).first()).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByText(/Aufgaben und Projekte|Tasks and projects/).first()).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByText('GitHub + GitNexus').first()).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByText('Upload-Post + Social + Analytics').first()).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByText('Plane Execution Ledger')).toHaveCount(0);
+      await expect(page.getByText('connector-manifests.json')).toHaveCount(0);
+      await expect(page.getByText('raw_mcp_add')).toHaveCount(0);
+      await expect(page.getByText(/HUMANGATE_AND_PREFLIGHT_REQUIRED/)).toHaveCount(0);
+      await expect(page.getByText(/Installiert|Installed/).first()).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByText(/Freigabe nötig|Approval required/).first()).toBeVisible({ timeout: 30_000 });
+      await expect
+        .poll(async () => page.getByRole('button', { name: /Verbindung prüfen|Check connection/ }).count(), {
+          timeout: 30_000,
+        })
+        .toBeGreaterThanOrEqual(2);
 
-    const screenshotPath = 'tests/e2e/results/command-eve-connector-catalog.png';
-    await page.screenshot({ path: screenshotPath, fullPage: true });
-    await testInfo.attach('command-eve-connector-catalog', {
-      path: screenshotPath,
-      contentType: 'image/png',
-    });
+      const localPreflightButton = page.getByTestId('connector-preflight-button-local-company-os-workspace');
+      await expect(localPreflightButton).toBeVisible({ timeout: 30_000 });
+      await localPreflightButton.click();
+      // This is the READY-path spec. The isolated process receives a root-confined
+      // manifest, receipt path and audit ledger, so accepting a blocked result here
+      // would hide a broken preflight. Fail-closed/path-rejection behavior has its
+      // own connectorPreflightCore tests.
+      await expect(page.getByText(/Verbindung geprüft|Connection checked/).first()).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByText(/Prüfung nicht abgeschlossen|Check not completed/)).toHaveCount(0);
+
+      const receiptPath = path.join(
+        connectorCatalogE2ERoot,
+        '.company-os',
+        'operations',
+        'preflight-results',
+        'local-company-os-workspace-latest.json'
+      );
+      const auditEventPath = path.join(connectorCatalogE2ERoot, 'metrics', 'agent-events.jsonl');
+      await expect.poll(() => fs.existsSync(receiptPath), { timeout: 30_000 }).toBe(true);
+      await expect.poll(() => fs.existsSync(auditEventPath), { timeout: 30_000 }).toBe(true);
+
+      const receipt = JSON.parse(fs.readFileSync(receiptPath, 'utf8')) as {
+        schema_version?: string;
+        ok?: boolean;
+        connector_id?: string;
+        reason_code?: string;
+        checks?: Array<{ required?: boolean; ok?: boolean }>;
+      };
+      expect(receipt).toMatchObject({
+        schema_version: 'command-eve-connector-preflight-receipt/v0',
+        ok: true,
+        connector_id: 'local-company-os-workspace',
+        reason_code: 'LOCAL_COMPANY_OS_WORKSPACE_READY',
+      });
+      expect(receipt.checks?.filter((check) => check.required).every((check) => check.ok)).toBe(true);
+
+      const auditEvents = fs
+        .readFileSync(auditEventPath, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      expect(
+        auditEvents.some((event) => {
+          const payload = event.payload as Record<string, unknown> | undefined;
+          return (
+            event.event_type === 'connector.preflight_recorded' &&
+            payload?.connector_id === 'local-company-os-workspace' &&
+            payload.status === 'ready' &&
+            payload.ok === true &&
+            payload.reason_code === 'LOCAL_COMPANY_OS_WORKSPACE_READY' &&
+            payload.receipt_path === receiptPath
+          );
+        })
+      ).toBe(true);
+
+      const screenshotPath = 'tests/e2e/results/command-eve-connector-catalog.png';
+      await page.screenshot({ path: screenshotPath, fullPage: true });
+      await testInfo.attach('command-eve-connector-catalog', {
+        path: screenshotPath,
+        contentType: 'image/png',
+      });
     } finally {
       await app.close().catch(() => {});
     }

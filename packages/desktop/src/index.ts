@@ -1391,6 +1391,18 @@ const scheduleBackendMigrations = (): void => {
   })();
 };
 
+async function ensureCommandEveLocalProviderAfterBackendStart(context: 'boot' | 'seat-respawn'): Promise<void> {
+  const { ensureCommandEveLocalRuntimeProvider } = await import('./process/commandEve/providerBootstrap');
+  const result = await ensureCommandEveLocalRuntimeProvider();
+  if (result.status === 'disabled') {
+    console.info(`[CommandEVE] Local runtime provider bootstrap skipped during ${context} (upstream shell).`);
+    return;
+  }
+  console.info(
+    `[CommandEVE] Local runtime provider ready during ${context} (attempts=${result.attempts}, created=${result.created}, conflict=${result.conflict}).`
+  );
+}
+
 const createWindow = ({ showOnReady = true }: { showOnReady?: boolean } = {}): void => {
   console.log('[CommandEVE] Creating main window...');
   const { x: windowX, y: windowY, width: windowWidth, height: windowHeight } = resolveInitialBounds();
@@ -1915,6 +1927,14 @@ const handleAppReady = async (): Promise<void> => {
     // window.__backendPort via preload, but main has no `window`.
     (globalThis as typeof globalThis & { __backendPort?: number }).__backendPort = backendPort;
     registerCronResumeBridge(backendPort);
+    try {
+      await ensureCommandEveLocalProviderAfterBackendStart('boot');
+    } catch (error) {
+      // Cloud and upstream-compatible surfaces remain usable, but the local
+      // lane must not claim readiness. The on-demand bridge retries this
+      // bounded bootstrap before returning a local provider.
+      console.error('[CommandEVE] Local runtime provider is not ready after backend boot:', error);
+    }
     backendStartedOk = true;
 
     // A5 / SLICE B — register the seat-switch backend re-spawn hook. A seat
@@ -2026,6 +2046,10 @@ const handleAppReady = async (): Promise<void> => {
       }
       (globalThis as typeof globalThis & { __backendPort?: number }).__backendPort = respawnPort;
       registerCronResumeBridge(respawnPort);
+      // Seat DBs are physically distinct. Do not complete the switch until the
+      // newly-active DB can read back its own provider row. A hard failure
+      // propagates into the existing seat-switch rollback path.
+      await ensureCommandEveLocalProviderAfterBackendStart('seat-respawn');
       // ISO-6: the EVE assistant skill prompt is a function of the ACTIVE seat —
       // regenerate it so the new seat's client entity (its ISO-3 seed), not the
       // prior seat's nor the admin's, is what the agent runs with. The single

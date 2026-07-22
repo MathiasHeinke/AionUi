@@ -169,7 +169,7 @@ const ShellElementsRail: React.FC<ShellElementsRailProps> = ({
         ) : null}
 
         {activeTab === 'context' ? (
-          <section className={styles.section}>
+          <section className={`${styles.section} ${styles.contextSection}`}>
             <div className={styles.contextCard}>
               <span className={styles.contextIcon}>
                 <FolderOpen size={17} aria-hidden='true' />

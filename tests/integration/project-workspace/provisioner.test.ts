@@ -235,6 +235,10 @@ function simulateLeaseOwnerDeath(stateRoot: string): void {
   }
 }
 
+function crashAtPromotion(phase: string): void {
+  if (phase === 'promoted') throw new Error('SIMULATED_CRASH');
+}
+
 describe('project workspace transaction and recovery', () => {
   let stateRoot: string;
   let projectRoot: string;
@@ -607,6 +611,104 @@ describe('project workspace transaction and recovery', () => {
       expect(await service().recoverAll()).toEqual([]);
       expect(fs.readFileSync(journalFile, 'utf8')).toBe(crashedJournal);
       expect(registry.readSeatCatalogs('seat-beta').projects.projects).toHaveLength(0);
+    } finally {
+      fs.rmSync(betaRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('aborts a boot-seat recovery pass before journal mutation when the active seat changes', async () => {
+    const alphaTransaction = '11111111-1111-4111-8111-111111111111';
+    const betaTransaction = '99999999-9999-4999-8999-999999999999';
+    const betaRealm = '55555555-5555-4555-8555-555555555555';
+    const betaRootId = '66666666-6666-4666-8666-666666666666';
+    const betaProjectId = '77777777-7777-4777-8777-777777777777';
+    const betaRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-project-beta-switch-'));
+    try {
+      registry.initializeSeat('seat-beta');
+      registry.upsertRealm({
+        seat_id: 'seat-beta',
+        expected_revision: 0,
+        realm: { realm_id: betaRealm, label: 'Beta', path_slug: 'beta', status: 'active', order: 0 },
+      });
+      registry.registerRoot({
+        seat_id: 'seat-beta',
+        expected_seat_revision: registry.readSeatCatalogs('seat-beta').roots.revision,
+        expected_global_revision: registry.readGlobalRoots().revision,
+        root: {
+          root_id: betaRootId,
+          realm_id: betaRealm,
+          label: 'Beta Projects',
+          kind: 'app_managed',
+          path: betaRoot,
+          status: 'active',
+        },
+      });
+
+      const createService = (transactionId: string, onPhase: (phase: string) => void) =>
+        new ProjectWorkspaceService({
+          registry,
+          get_active_seat_id: () => activeSeat,
+          now: () => now,
+          random_uuid: () => transactionId,
+          on_phase: onPhase,
+          semantic_coordinator: semanticCoordinator,
+        });
+
+      activeSeat = 'seat-beta';
+      const betaPlan: ProjectIntentPlan = {
+        ...plan(),
+        seat_id: 'seat-beta',
+        realm_id: betaRealm,
+        root_id: betaRootId,
+        project_id: betaProjectId,
+        workspace_root_ref: `root:${betaRootId}`,
+        snapshot: {
+          seat_id: 'seat-beta',
+          realm_id: betaRealm,
+          root_id: betaRootId,
+          workspace_root_ref: `root:${betaRootId}`,
+          realm_revision: 1,
+          root_revision: 1,
+          project_catalog_revision: 0,
+        },
+      };
+      await expect(createService(betaTransaction, crashAtPromotion).create(betaPlan)).rejects.toThrow(
+        'SIMULATED_CRASH'
+      );
+
+      activeSeat = 'seat-alpha';
+      await expect(createService(alphaTransaction, crashAtPromotion).create(plan())).rejects.toThrow('SIMULATED_CRASH');
+      simulateLeaseOwnerDeath(stateRoot);
+      now = new Date(now.getTime() + 31_000);
+
+      const alphaJournal = path.join(stateRoot, 'transactions', `${alphaTransaction}.journal.json`);
+      const betaJournal = path.join(stateRoot, 'transactions', `${betaTransaction}.journal.json`);
+      const betaLease = fs
+        .readdirSync(path.join(stateRoot, 'leases'))
+        .filter((name) => name.endsWith('.lease.json'))
+        .map((name) => path.join(stateRoot, 'leases', name))
+        .find((file) => JSON.parse(fs.readFileSync(file, 'utf8')).transaction_id === betaTransaction);
+      if (!betaLease) throw new Error('beta lease missing');
+      const alphaBefore = fs.readFileSync(alphaJournal, 'utf8');
+      const betaBefore = fs.readFileSync(betaJournal, 'utf8');
+      const betaLeaseBefore = fs.readFileSync(betaLease, 'utf8');
+      const recovering = new ProjectWorkspaceService({
+        registry,
+        get_active_seat_id: () => activeSeat,
+        now: () => now,
+        on_phase: (phase) => {
+          if (phase === 'recovery:lease:acquired') activeSeat = 'seat-beta';
+        },
+        semantic_coordinator: semanticCoordinator,
+      });
+
+      expect(await recovering.recoverAll()).toEqual([
+        { ok: false, reason_code: 'seat.changed', transaction_id: alphaTransaction },
+      ]);
+      expect(fs.readFileSync(alphaJournal, 'utf8')).toBe(alphaBefore);
+      expect(fs.readFileSync(betaJournal, 'utf8')).toBe(betaBefore);
+      expect(fs.readFileSync(betaLease, 'utf8')).toBe(betaLeaseBefore);
+      expect(registry.readSeatCatalogs('seat-beta').projects.projects).toEqual([]);
     } finally {
       fs.rmSync(betaRoot, { recursive: true, force: true });
     }

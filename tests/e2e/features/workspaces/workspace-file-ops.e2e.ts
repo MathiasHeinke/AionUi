@@ -10,7 +10,7 @@
  */
 import { test, expect } from '../../fixtures';
 import { goToGuid } from '../../helpers';
-import { domClick, domContextMenu, openWorkspaceContextPanel } from '../../helpers/workspacePanel';
+import { openWorkspaceContextPanel } from '../../helpers/workspacePanel';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -91,8 +91,7 @@ test.describe.serial('Workspace — file operations', () => {
     const componentsNode = panel.getByText('components').first();
     await expect(componentsNode).toBeVisible({ timeout: 10_000 });
 
-    // drift: 964c3c97 the rail's clipped panel area intercepts geometry clicks — use a DOM click
-    await domClick(componentsNode);
+    await componentsNode.click();
     await page.waitForTimeout(500);
 
     await expect(panel.getByText('Button.tsx').first()).toBeVisible({ timeout: 5_000 });
@@ -132,8 +131,7 @@ test.describe.serial('Workspace — file operations', () => {
 
     const configNode = panel.getByText('config.json').first();
     await expect(configNode).toBeVisible({ timeout: 10_000 });
-    // drift: 964c3c97 the rail's clipped panel area intercepts geometry clicks — DOM contextmenu
-    await domContextMenu(configNode);
+    await configNode.click({ button: 'right' });
 
     const ctxMenu = page.locator('.fixed.z-100').first();
     await expect(ctxMenu).toBeVisible({ timeout: 3_000 });

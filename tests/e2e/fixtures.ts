@@ -19,6 +19,7 @@ import { _electron as electron } from 'playwright';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
+import { resolveAioncoreBinary } from './helpers/aioncoreBinary';
 
 type Fixtures = {
   electronApp: ElectronApplication;
@@ -148,10 +149,21 @@ function shouldUsePackagedMode(): boolean {
 async function launchApp(): Promise<ElectronApplication> {
   const projectRoot = path.resolve(__dirname, '../..');
   const usePackaged = shouldUsePackagedMode();
+  let backendBinary: string | undefined;
+  try {
+    backendBinary = resolveAioncoreBinary({ cwd: projectRoot });
+  } catch {
+    // Preserve the product resolver's own fail-loud behavior when the harness
+    // has no binary. Release runs always provide an explicit verified binary.
+  }
 
   const commonEnv = {
     ...process.env,
     HOME: e2eHomeDir,
+    // AIONUI_BACKEND_BINARY is the E2E contract; the desktop product resolver
+    // intentionally consumes only bundled resources or PATH. Bridge the two at
+    // the fixture boundary so every Dev-App spec launches the verified binary.
+    PATH: backendBinary ? `${path.dirname(backendBinary)}${path.delimiter}${process.env.PATH || ''}` : process.env.PATH,
     XDG_CONFIG_HOME: path.join(e2eHomeDir, '.config'),
     XDG_CACHE_HOME: path.join(e2eHomeDir, '.cache'),
     AIONUI_EXTENSIONS_PATH: process.env.AIONUI_EXTENSIONS_PATH || path.join(projectRoot, 'examples'),

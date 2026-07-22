@@ -218,6 +218,7 @@
     "chatIntent": {
       "boundSummary": "Unterhaltung dem Projekt \"{{title}}\" zugeordnet",
       "bindRejectedSummary": "Zuordnung zum Projekt \"{{title}}\" fehlgeschlagen",
+      "bindRecoveryRequiredSummary": "Die Zuordnung zum Projekt \"{{title}}\" muss wiederhergestellt werden",
       "ambiguousSummary": "Mehrdeutige Projekt-Zuordnung",
       "clarifyQuestion": "Meinst du eines dieser Projekte: {{titles}}? Sag kurz, welches gemeint ist.",
       "listOr": " oder "

@@ -56,6 +56,7 @@ import {
   runKanbanPreflight,
 } from '@process/commandEve/kanbanPreflightCore';
 import { buildLocalRuntimeStatus } from '@process/commandEve/localRuntimeStatusCore';
+import { ensureCommandEveLocalRuntimeProvider } from '@process/commandEve/providerBootstrap';
 import { clearHermesDelegateTransportEnv } from '@process/commandEve/eveWorkerLauncherCore';
 import { transcribeLocalSpeech } from '@process/commandEve/localSttCore';
 import type { CommandEveLocalSttRequest } from '@/common/types/provider/speech';
@@ -3950,6 +3951,12 @@ export function initCommandEveBridge(): void {
         // local tier id rides either in the selection ("command-eve-local:<id>")
         // mapped by the renderer, or as an explicit localTierId for the
         // commandEveShell tier.
+        //
+        // Provider rows live in the active seat's backend DB. Re-prove the row
+        // before returning the synthetic provider so a transient boot failure
+        // becomes an honest not-ready result instead of a later opaque
+        // UNKNOWN_UPSTREAM_ERROR during send.
+        await ensureCommandEveLocalRuntimeProvider();
         const provider = getCommandEveLocalRuntimeProvider(request?.localTierId);
         return { success: true, data: { provider, lane: 'local' as const } };
       } catch (error) {

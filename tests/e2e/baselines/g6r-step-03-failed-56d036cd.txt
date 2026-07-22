@@ -12,9 +12,10 @@
 #   <spec path> >> <describe> [<describe>...] >> <test>
 # Lines starting with # are comments; blank lines are ignored.
 #
-# Compare a fresh failure list against this baseline with:
-#   node scripts/e2e-baseline-diff.mjs --new <failures.txt>
-# The comparator FAILS (exit 1) on any NEW failure not pinned here.
+# This is historical provenance, not the entire effective allowlist. The 1.818
+# comparator subtracts command-eve-1818-retired-failures.txt so modernized
+# green specs cannot silently regress under their old pins. See the E2E README
+# for the complete JSON-report command and controlled repinning workflow.
 cases/teams/team-member-ops.e2e.ts >> Team Member Ops >> remove member via tab close button
 cases/teams/team-member-ops.e2e.ts >> Team Member Ops >> rename leader tab via double-click
 cases/teams/team-rename-pin.e2e.ts >> Team Rename & Pin >> pin/unpin team 改变排序

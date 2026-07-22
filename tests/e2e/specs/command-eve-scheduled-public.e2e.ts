@@ -93,9 +93,7 @@ test.describe('Command EVE public scheduled tasks', () => {
       await expect(taskCard).toBeVisible({ timeout: 15_000 });
       // drift: 1c6716a3 the task card renders the agent mark as avatar image or initials
       // fallback (no guaranteed img[alt="Command EVE"]); accept either Command EVE mark.
-      const agentMark = taskCard
-        .locator('img[alt="Command EVE"]')
-        .or(taskCard.getByText('C', { exact: true }).first());
+      const agentMark = taskCard.locator('img[alt="Command EVE"]').or(taskCard.getByText('C', { exact: true }).first());
       await expect(agentMark.first()).toBeVisible({ timeout: 10_000 });
       await expect(taskCard).not.toContainText(/Claude|Codex|Gemini|Hermes|Aion CLI/i);
       await taskCard.click();

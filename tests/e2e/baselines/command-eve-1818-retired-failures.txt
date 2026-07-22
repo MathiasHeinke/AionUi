@@ -1,0 +1,16 @@
+# Command EVE 1.818 failures retired from the historical 1.817 baseline.
+#
+# These specs were modernized in the 1.818 carry-over work. They remain listed
+# in the historical 38-failure file for provenance, but the comparator removes
+# them from the effective allowlist. If any reappears, it is a NEW failure.
+features/settings/display/css-theme-crud.e2e.ts >> Command EVE appearance controls >> exposes bounded appearance controls without the legacy raw CSS editor
+features/settings/skills/url-highlight.e2e.ts >> Skills Hub - URL Highlight (P1) >> TC-S-22: should highlight skill and scroll to it when URL has highlight param
+features/workspaces/workspace-file-ops.e2e.ts >> Workspace — file operations >> setup: create conversation with workspace panel
+features/workspaces/workspace-files.e2e.ts >> Workspace Files — UI panel >> workspace panel renders tree and search for a team workspace
+features/workspaces/workspace-single-chat.e2e.ts >> Workspace — single chat >> user selects workspace folder, sends message, sees files in panel
+features/workspaces/workspace-snapshot.e2e.ts >> Workspace Changes — UI panel >> changes tab surfaces a newly written file and stage button moves it
+specs/command-eve-connector-catalog.e2e.ts >> Command EVE Connector Catalog >> renders governed connector cards from the local manifest
+specs/command-eve-scheduled-public.e2e.ts >> Command EVE public scheduled tasks >> shows only Command EVE and stores the managed Hermes execution contract
+specs/ext-mcp.e2e.ts >> Extension: MCP Servers >> MCP server toggles are visible
+specs/ext-mcp.e2e.ts >> Extension: MCP Servers >> MCP tools page loads
+specs/ext-mcp.e2e.ts >> Extension: MCP Servers >> extension MCP servers registered (page functional)
