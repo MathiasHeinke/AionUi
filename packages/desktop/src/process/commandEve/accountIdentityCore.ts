@@ -26,7 +26,17 @@ export function isConfirmedCommandEveProfileName(input: {
   const name = normalize(input.name);
   if (!name) return false;
   if (input.source === 'email_fallback') return false;
-  if (input.source === 'explicit' || input.source === 'account_metadata') return true;
+  if (input.source === 'explicit') return true;
+
+  // Profile metadata is normally authoritative, but a value byte-equivalent
+  // to EVE's historical email-local-part derivation is still only a guess. The
+  // neutral greeting is safer until the user supplies a genuinely distinct
+  // name through registration or profile metadata.
+  const emailGuess = deriveEmailFallbackName(input.email || '');
+  if (emailGuess && name.localeCompare(emailGuess, undefined, { sensitivity: 'accent' }) === 0) {
+    return false;
+  }
+  if (input.source === 'account_metadata') return true;
 
   // Backward-compatible migration rule for records created before provenance
   // existed: exact email-local-part guesses are treated conservatively as
@@ -54,6 +64,14 @@ export function resolveCommandEveDisplayIdentity(input: {
   }
 
   const sessionName = normalize(input.sessionName);
-  if (sessionName) return { name: sessionName, nameConfirmed: true, source: 'account_metadata' };
+  if (
+    isConfirmedCommandEveProfileName({
+      name: sessionName,
+      email: input.email,
+      source: 'account_metadata',
+    })
+  ) {
+    return { name: sessionName, nameConfirmed: true, source: 'account_metadata' };
+  }
   return { nameConfirmed: false };
 }

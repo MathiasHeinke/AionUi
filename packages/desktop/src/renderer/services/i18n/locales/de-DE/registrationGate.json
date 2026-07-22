@@ -42,6 +42,7 @@
       "AUTH_SESSION_INVALID": "Die Anmeldung ist fehlgeschlagen. Bitte versuche es erneut.",
       "AUTH_FAILED": "Die Anmeldung ist fehlgeschlagen. Bitte versuche es erneut.",
       "AUTH_TIMEOUT": "Die Anmeldung hat zu lange gedauert. Bitte versuche es erneut.",
+      "BROKER_TIMEOUT": "Die sichere Anmeldung hat zu lange gedauert. Bitte versuche es erneut.",
       "STATE_MISMATCH": "Sicherheitsprüfung fehlgeschlagen. Bitte versuche es erneut.",
       "OPEN_BROWSER_FAILED": "Der Browser konnte nicht geöffnet werden. Bitte versuche es erneut.",
       "unknown": "Die Anmeldung ist fehlgeschlagen. Bitte versuche es erneut."

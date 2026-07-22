@@ -289,6 +289,26 @@ describe('desktopAuthLoopback — (2) state mismatch + (3) loopback binding', ()
   });
 });
 
+describe('desktopAuthLoopback — broker exchange timeout', () => {
+  it('fails closed when the broker never settles after the loopback callback', async () => {
+    const fetchSpy = vi.fn(() => new Promise<Response>(() => {}));
+
+    const result = await exchangeCodeForSession({
+      code: 'one-time-code-123',
+      codeVerifier: 'verifier-test-only',
+      fetchImpl: fetchSpy as unknown as typeof fetch,
+      anonKey: 'anon-test',
+      timeoutMs: 20,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.reason_code).toBe('BROKER_TIMEOUT');
+    const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    expect(init.signal?.aborted).toBe(true);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // (4) keychain fail-closed for session-at-rest
 // ---------------------------------------------------------------------------

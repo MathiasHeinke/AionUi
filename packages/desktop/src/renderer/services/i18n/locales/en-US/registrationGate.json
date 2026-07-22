@@ -42,6 +42,7 @@
       "AUTH_SESSION_INVALID": "Sign-in failed. Please try again.",
       "AUTH_FAILED": "Sign-in failed. Please try again.",
       "AUTH_TIMEOUT": "Sign-in took too long. Please try again.",
+      "BROKER_TIMEOUT": "Secure sign-in took too long. Please try again.",
       "STATE_MISMATCH": "Security check failed. Please try again.",
       "OPEN_BROWSER_FAILED": "Could not open the browser. Please try again.",
       "unknown": "Sign-in failed. Please try again."

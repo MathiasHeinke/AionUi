@@ -2009,6 +2009,7 @@ export type I18nKey =
   | 'registrationGate.auth.errors.AUTH_NETWORK'
   | 'registrationGate.auth.errors.AUTH_SESSION_INVALID'
   | 'registrationGate.auth.errors.AUTH_TIMEOUT'
+  | 'registrationGate.auth.errors.BROKER_TIMEOUT'
   | 'registrationGate.auth.errors.EMAIL_CONFIRMATION_REQUIRED'
   | 'registrationGate.auth.errors.OPEN_BROWSER_FAILED'
   | 'registrationGate.auth.errors.STATE_MISMATCH'

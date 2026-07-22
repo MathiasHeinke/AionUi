@@ -57,6 +57,9 @@ export const DESKTOP_AUTH_BROKER_URL = `${COMMAND_EVE_SUPABASE_URL}/functions/v1
 /** Web page that drives the human login/register. NOTE: not shipped yet (paste-fallback covers this). */
 export const DESKTOP_AUTH_WEB_URL = 'https://command-eve.com/auth/desktop';
 
+/** Broker exchange is a separate network phase after the loopback server closes. */
+const DEFAULT_BROKER_EXCHANGE_TIMEOUT_MS = 20_000;
+
 /**
  * Project ANON (publishable) key, used as the `apikey` header for the broker
  * and GoTrue. NOT a secret (it is the public anon key shipped in every web
@@ -175,6 +178,8 @@ export interface DesktopAuthLoopbackDeps {
   anonKey?: string;
   /** Hard timeout in ms (default 5 min). */
   timeoutMs?: number;
+  /** Separate bounded timeout for the post-callback broker exchange. */
+  brokerTimeoutMs?: number;
   /** Bind host — ALWAYS 127.0.0.1 in production; exposed only so tests can assert it. */
   host?: string;
 }
@@ -402,6 +407,7 @@ export async function runDesktopAuthLoopback(
     codeVerifier: pkce.verifier,
     fetchImpl,
     anonKey,
+    timeoutMs: deps.brokerTimeoutMs,
   });
 }
 
@@ -416,27 +422,51 @@ export async function exchangeCodeForSession(args: {
   fetchImpl: typeof fetch;
   anonKey: string;
   url?: string;
+  timeoutMs?: number;
 }): Promise<DesktopAuthLoopbackResult> {
   const { code, codeVerifier, fetchImpl, anonKey } = args;
   const url = args.url ?? DESKTOP_AUTH_BROKER_URL;
+  const timeoutMs = Math.max(1, args.timeoutMs ?? DEFAULT_BROKER_EXCHANGE_TIMEOUT_MS);
+  const abortController = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<Response>((_, reject) => {
+    timeout = setTimeout(() => {
+      abortController.abort();
+      reject(new Error('BROKER_TIMEOUT'));
+    }, timeoutMs);
+    if (typeof timeout.unref === 'function') timeout.unref();
+  });
 
   let response: Response;
   try {
-    response = await fetchImpl(url, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        apikey: anonKey,
-        Accept: 'application/json',
-      },
-      body: JSON.stringify({ action: 'redeem', one_time_code: code, code_verifier: codeVerifier }),
-    });
+    response = await Promise.race([
+      fetchImpl(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          apikey: anonKey,
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({ action: 'redeem', one_time_code: code, code_verifier: codeVerifier }),
+        signal: abortController.signal,
+      }),
+      timeoutPromise,
+    ]);
   } catch (err) {
+    if (abortController.signal.aborted || (err instanceof Error && err.message === 'BROKER_TIMEOUT')) {
+      return {
+        ok: false,
+        reason_code: 'BROKER_TIMEOUT',
+        message: `broker exchange timed out after ${timeoutMs}ms`,
+      };
+    }
     return {
       ok: false,
       reason_code: 'BROKER_NETWORK',
       message: err instanceof Error ? err.message : 'broker network error',
     };
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
 
   if (!response.ok) {

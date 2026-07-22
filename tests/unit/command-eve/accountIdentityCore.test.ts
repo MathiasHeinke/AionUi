@@ -27,6 +27,13 @@ describe('accountIdentityCore', () => {
         email: 'jane.doe@acme-corp.com',
       })
     ).toBe(false);
+    expect(
+      isConfirmedCommandEveProfileName({
+        name: 'Jane Doe',
+        email: 'jane.doe@acme-corp.com',
+        source: 'account_metadata',
+      })
+    ).toBe(false);
   });
 
   it('accepts explicit registration names and profile edits', () => {
@@ -54,6 +61,14 @@ describe('accountIdentityCore', () => {
         registrationName: 'Jane Doe',
         registrationNameSource: 'email_fallback',
         sessionName: undefined,
+        email: 'jane.doe@acme-corp.com',
+      })
+    ).toEqual({ nameConfirmed: false });
+
+    expect(
+      resolveCommandEveDisplayIdentity({
+        registrationName: undefined,
+        sessionName: 'Jane Doe',
         email: 'jane.doe@acme-corp.com',
       })
     ).toEqual({ nameConfirmed: false });
