@@ -1290,6 +1290,7 @@ export interface ICommandEveRegistrationRecord {
   version: 'command-eve-registration/v0';
   tenant_id: string;
   name: string;
+  name_source?: 'explicit' | 'account_metadata' | 'email_fallback';
   company: string;
   email: string;
   gdpr_consent: true;
@@ -1458,6 +1459,9 @@ export interface ICommandEveRegistrationStatusResult {
   /** True iff an encrypted account session is stored (logged in). */
   has_session: boolean;
   name?: string;
+  /** False means any stored email-local-part placeholder is intentionally hidden. */
+  name_confirmed?: boolean;
+  name_source?: 'explicit' | 'account_metadata' | 'email_fallback';
   email?: string;
   company?: string;
 }

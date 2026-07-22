@@ -109,13 +109,28 @@ describe('useGuidSend blocked cloud lane', () => {
     vi.clearAllMocks();
     bridgeMocks.evaluateGateDecision.mockResolvedValue({ success: true });
     bridgeMocks.ensureAssistant.mockResolvedValue({ success: false });
-    bridgeMocks.resolveInferenceProvider.mockResolvedValue({ success: false });
+    bridgeMocks.resolveInferenceProvider.mockResolvedValue({
+      success: true,
+      data: {
+        lane: 'local',
+        provider: {
+          id: 'command-eve-local-runtime',
+          name: 'Command EVE Local Runtime',
+          platform: 'custom',
+          base_url: 'http://127.0.0.1:25811/v1',
+          api_key: '',
+          models: ['command-eve-gemma4-e4b-64k:latest'],
+          use_model: 'command-eve-gemma4-e4b-64k:latest',
+        },
+      },
+    });
     bridgeMocks.conversationCreate.mockReset();
     configGetMock.mockReturnValue(undefined);
     Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: true });
   });
 
   it('keeps the draft, files, and workspace when EVE Cloud needs activation', async () => {
+    bridgeMocks.resolveInferenceProvider.mockResolvedValue({ success: false });
     const deps = createDeps();
     const { result } = renderHook(() => useGuidSend(deps));
 
@@ -128,6 +143,43 @@ describe('useGuidSend blocked cloud lane', () => {
     expect(deps.setFiles).not.toHaveBeenCalled();
     expect(deps.setDir).not.toHaveBeenCalled();
     expect(deps.setMentionOpen).not.toHaveBeenCalled();
+  });
+
+  it('fails closed before conversation creation when local provider reconciliation fails', async () => {
+    configGetMock.mockImplementation((key: string) =>
+      key === 'commandEve.inferenceSelection' ? 'command-eve-local:local-standard' : undefined
+    );
+    bridgeMocks.ensureAssistant.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        agent_id: 'hermes-runtime',
+        agent_name: 'EVE',
+        cli_path: '/runtime/hermes',
+        enabled_skills: [],
+      },
+    });
+    bridgeMocks.runtimeStatus.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        default_model: 'command-eve-gemma4-e4b-64k:latest',
+        model_warmup: { status: 'ready', model: 'command-eve-gemma4-e4b-64k:latest' },
+      },
+    });
+    bridgeMocks.resolveInferenceProvider.mockResolvedValue({ success: false, msg: 'PROVIDER_RECONCILE_FAILED' });
+
+    const deps = createDeps();
+    const { result } = renderHook(() => useGuidSend(deps));
+    await act(async () => {
+      await result.current.handleSend();
+    });
+
+    expect(bridgeMocks.resolveInferenceProvider).toHaveBeenCalledWith({ localTierId: 'gemma-4-e4b-local-default' });
+    expect(bridgeMocks.conversationCreate).not.toHaveBeenCalled();
+    expect(messageErrorMock).toHaveBeenCalledWith('conversation.commandEveRuntimeNotReady');
+    expect(deps.setInput).not.toHaveBeenCalled();
+    expect(deps.setFiles).not.toHaveBeenCalled();
   });
 
   it('shows a neutral error and preserves the draft when the EVE ACP conversation cannot be created', async () => {

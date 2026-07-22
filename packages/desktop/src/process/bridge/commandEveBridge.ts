@@ -35,6 +35,7 @@ import {
   activateEntitlementFromSession,
   silentResumeAccountAuth,
 } from '@process/commandEve/accountAuthOrchestratorCore';
+import { resolveCommandEveDisplayIdentity } from '@process/commandEve/accountIdentityCore';
 import { resetEntitlement, COMMAND_EVE_ENTITLEMENT_RESET_VERSION } from '@process/commandEve/entitlementResetCore';
 import { reconcileEntitlementOnline } from '@process/commandEve/entitlementOnlineCheckCore';
 import {
@@ -3420,22 +3421,24 @@ export function initCommandEveBridge(): void {
       const hasSession = hasAccountSession(userDataPath);
       // Prefer the session's user identity when present (it is the source of
       // truth for the logged-in account); fall back to the local registration.
-      let name = registration?.name;
       let email = registration?.email;
       let company = registration?.company;
+      let sessionName: string | undefined;
       if (hasSession) {
         const read = readAccountSession(userDataPath);
         if (read.ok && read.session) {
           // Email is the LOGIN identity → the session is authoritative.
           email = read.session.user.email || email;
-          // Name + company are LOCALLY EDITABLE (account panel, 1.2.13). A present
-          // local registration value is the user's explicit edit and OUTRANKS the
-          // session-derived value for display; only fall back to the session when
-          // the local record has none.
-          name = registration?.name || read.session.user.name || name;
+          sessionName = read.session.user.name;
           company = registration?.company || read.session.user.company || company;
         }
       }
+      const identity = resolveCommandEveDisplayIdentity({
+        registrationName: registration?.name,
+        registrationNameSource: registration?.name_source,
+        sessionName,
+        email,
+      });
       return {
         success: true,
         data: {
@@ -3443,9 +3446,11 @@ export function initCommandEveBridge(): void {
           ok: true,
           registered: Boolean(registration),
           has_session: hasSession,
-          ...(name ? { name } : {}),
+          ...(identity.name ? { name: identity.name } : {}),
+          name_confirmed: identity.nameConfirmed,
           ...(email ? { email } : {}),
           ...(company ? { company } : {}),
+          ...(identity.source ? { name_source: identity.source } : {}),
         },
       };
     } catch (error) {

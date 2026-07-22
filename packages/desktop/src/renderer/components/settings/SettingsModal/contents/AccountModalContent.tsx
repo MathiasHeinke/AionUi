@@ -28,6 +28,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Button, Input, Message, Popconfirm, Tag } from '@arco-design/web-react';
 import { useTranslation } from 'react-i18next';
 import { commandEve, type ICommandEveRegistrationStatusResult } from '@/common/adapter/ipcBridge';
+import { refreshCommandEveProfile } from '@/renderer/components/account/useCommandEveProfile';
 import PreferenceRow from '@/renderer/components/settings/PreferenceRow';
 import SettingsSection, { SettingsPageHeader } from '@/renderer/components/settings/SettingsSection';
 
@@ -81,6 +82,8 @@ const AccountModalContent: React.FC = () => {
       const response = await commandEve.registrationUpdate.invoke({ name, company });
       if (response.data?.ok) {
         await refresh();
+        // Same-session chrome (GuidPage greeting, SiderFooter, ProfileAvatar) reads the shared store.
+        await refreshCommandEveProfile();
         setEditing(false);
         Message.success(t('settings.accountPanel.saved', { defaultValue: 'Profil gespeichert.' }));
       } else {
@@ -144,6 +147,7 @@ const AccountModalContent: React.FC = () => {
       const response = await commandEve.authLogout.invoke();
       if (response.data?.ok) {
         await refresh();
+        await refreshCommandEveProfile();
       } else {
         Message.error(t('settings.accountPanel.logout'));
       }
@@ -184,6 +188,7 @@ const AccountModalContent: React.FC = () => {
     try {
       await commandEve.authWebLogin.invoke({ intent: 'login' });
       await refresh();
+      await refreshCommandEveProfile();
     } catch {
       // self-quiet; the gate / avatar reflect the real state
     } finally {

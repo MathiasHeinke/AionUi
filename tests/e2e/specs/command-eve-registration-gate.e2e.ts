@@ -256,6 +256,24 @@ test.describe.serial('Command EVE registration + license gate', () => {
       await expect(page.locator(GATE_SELECTOR)).toBeVisible({ timeout: 30_000 });
       await expect(page.locator('[data-testid="registration-gate-auth"]')).toBeVisible({ timeout: 30_000 });
 
+      // (a.auth) Browser-mediated PKCE is the visible default. A fresh user is
+      // not confronted with duplicate credential fields after registering on
+      // command-eve.com; direct credentials remain an explicit fallback.
+      await expect(page.locator('[data-testid="registration-gate-browser-login"]')).toBeVisible();
+      await expect(page.locator('[data-testid="registration-gate-email"]')).toHaveCount(0);
+      await expect(page.locator('[data-testid="registration-gate-password"]')).toHaveCount(0);
+      const passwordFallback = page.locator('[data-testid="registration-gate-password-fallback-toggle"]');
+      await expect(passwordFallback).toHaveAttribute('aria-expanded', 'false');
+      await passwordFallback.click();
+      await expect(page.locator('[data-testid="registration-gate-email"]')).toBeVisible();
+      await expect(page.locator('[data-testid="registration-gate-password"]')).toHaveAttribute(
+        'autocomplete',
+        'current-password'
+      );
+      await expect(passwordFallback).toHaveAttribute('aria-expanded', 'true');
+      await passwordFallback.click();
+      await expect(page.locator('[data-testid="registration-gate-password"]')).toHaveCount(0);
+
       // (a.bypass) Forced deep-link to a main route must NOT reveal a main surface:
       // the route guard renders the gate for every protected route.
       await gotoHash(page, '#/command-center');
@@ -268,9 +286,19 @@ test.describe.serial('Command EVE registration + license gate', () => {
       await page.locator('[data-testid="registration-gate-have-code"]').click();
       await expect(page.locator('[data-testid="registration-gate-license-form"]')).toBeVisible({ timeout: 15_000 });
       await page.locator('[data-testid="registration-gate-back"]').click();
-      await expect(page.locator('[data-testid="registration-gate-form"]')).toBeVisible({ timeout: 15_000 });
+      await expect(page.locator('[data-testid="registration-gate-auth"]')).toBeVisible({ timeout: 15_000 });
+      await expect(page.locator('[data-testid="registration-gate-form"]')).toHaveCount(0);
 
-      // (b) Registration without consent is blocked (button stays, specific error).
+      // (b) The rare code-only route is explicit about the required local binding.
+      // It does not pretend activation can succeed without a registration record,
+      // and the code field remains mounted/preserved across this deliberate setup.
+      await page.locator('[data-testid="registration-gate-have-code"]').click();
+      await expect(page.locator('[data-testid="registration-gate-license-setup"]')).toBeVisible();
+      await expect(page.locator('[data-testid="registration-gate-license-submit"]')).toHaveCount(0);
+      await page.locator('[data-testid="registration-gate-code"]').fill('CEVE.v1.preserved-through-setup');
+      await page.locator('[data-testid="registration-gate-license-setup-button"]').click();
+
+      // Registration without consent is blocked (button stays, specific error).
       await page.locator('[data-testid="registration-gate-name"]').fill('Alois');
       await page.locator('[data-testid="registration-gate-company"]').fill('Alois GmbH');
       await page.locator('[data-testid="registration-gate-email"]').fill('alois@example.com');
@@ -283,6 +311,10 @@ test.describe.serial('Command EVE registration + license gate', () => {
       await page.locator('[data-testid="registration-gate-consent"]').click();
       await page.locator('[data-testid="registration-gate-submit"]').click();
       await expect(page.locator('[data-testid="registration-gate-license-form"]')).toBeVisible({ timeout: 15_000 });
+      await expect(page.locator('[data-testid="registration-gate-code"]')).toHaveValue(
+        'CEVE.v1.preserved-through-setup'
+      );
+      await expect(page.locator('[data-testid="registration-gate-license-submit"]')).toBeVisible();
 
       // (c) A wrong-key code shows the SIGNATURE_INVALID-specific error and does NOT unlock.
       const wrongKeyCode = signCode(attacker.privateKey, pilotPayload());

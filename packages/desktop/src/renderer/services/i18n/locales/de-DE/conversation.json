@@ -4,6 +4,7 @@
     "greetingMorning": "Guten Morgen, {{name}}.",
     "greetingDay": "Guten Tag, {{name}}.",
     "greetingEvening": "Guten Abend, {{name}}.",
+    "firstRunSetupCta": "Mit EVE einrichten",
     "greetingWithoutName": "Hallo.",
     "subtitle": "Woran arbeiten wir heute?",
     "evePlaceholder": "Schreib EVE, was du erreichen möchtest ...",

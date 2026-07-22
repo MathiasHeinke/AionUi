@@ -5,8 +5,56 @@
  */
 
 import { ipcBridge } from '@/common';
-import type { MenuItemConstructorOptions } from 'electron';
-import { Menu, app } from 'electron';
+import type { MenuItemConstructorOptions, WebContents } from 'electron';
+import { BrowserWindow, Menu, app } from 'electron';
+
+export interface EditableContextMenuFlags {
+  canUndo: boolean;
+  canRedo: boolean;
+  canCut: boolean;
+  canCopy: boolean;
+  canPaste: boolean;
+  canDelete: boolean;
+  canSelectAll: boolean;
+}
+
+/**
+ * Native edit menu shown only for editable Chromium fields. Passwords never
+ * leave the renderer through this hook: Electron executes standard edit roles
+ * against the focused field and the main process receives no clipboard value.
+ */
+export function buildEditableContextMenuTemplate(
+  flags: EditableContextMenuFlags,
+  isMac = process.platform === 'darwin'
+): MenuItemConstructorOptions[] {
+  return [
+    { role: 'undo', enabled: flags.canUndo },
+    { role: 'redo', enabled: flags.canRedo },
+    { type: 'separator' },
+    { role: 'cut', enabled: flags.canCut },
+    { role: 'copy', enabled: flags.canCopy },
+    { role: 'paste', enabled: flags.canPaste },
+    ...(isMac ? ([{ role: 'pasteAndMatchStyle', enabled: flags.canPaste }] as MenuItemConstructorOptions[]) : []),
+    { role: 'delete', enabled: flags.canDelete },
+    { type: 'separator' },
+    { role: 'selectAll', enabled: flags.canSelectAll },
+  ];
+}
+
+const editableContextMenuBindings = new WeakSet<WebContents>();
+
+/** Attach the native Cut/Copy/Paste menu exactly once to the main renderer. */
+export function setupEditableContextMenu(webContents: WebContents): void {
+  if (editableContextMenuBindings.has(webContents)) return;
+  editableContextMenuBindings.add(webContents);
+
+  webContents.on('context-menu', (_event, params) => {
+    if (!params.isEditable || webContents.isDestroyed()) return;
+    const menu = Menu.buildFromTemplate(buildEditableContextMenuTemplate(params.editFlags));
+    const window = BrowserWindow.fromWebContents(webContents) ?? undefined;
+    menu.popup({ window });
+  });
+}
 
 export function setupApplicationMenu(): void {
   const isMac = process.platform === 'darwin';

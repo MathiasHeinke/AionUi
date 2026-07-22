@@ -46,6 +46,18 @@
   line-height: 28px;
 }
 
+.commandEveFirstRunCta {
+  margin-top: 10px;
+  min-height: 40px;
+  padding: 0 18px;
+  font-weight: 600;
+}
+
+.commandEveFirstRunCta:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--color-primary-6) 45%, transparent);
+  outline-offset: 2px;
+}
+
 .commandEveWaitVideo {
   width: clamp(132px, 12vw, 164px);
   aspect-ratio: 1 / 1;

@@ -13,6 +13,7 @@ import {
   resolveImageGenerationMigrationConfig,
   runBackendMigrations,
 } from '@/process/utils/runBackendMigrations';
+import { ensureCommandEveShimAuthToken } from '@/process/commandEve/ollamaOpenAiShim';
 
 const {
   batchImportServersMock,
@@ -143,7 +144,8 @@ const providerRowFromCreate = (body: unknown): IProvider => {
 
 const mockBackendWithProviders = (
   providers: IProvider[],
-  onCreate?: (body: unknown, rows: IProvider[]) => Promise<IProvider>
+  onCreate?: (body: unknown, rows: IProvider[]) => Promise<IProvider>,
+  onUpdate?: (body: unknown, rows: IProvider[], rowIndex: number) => Promise<IProvider>
 ) => {
   const rows = [...providers];
   httpRequestMock.mockImplementation(async (method: string, path: string, body?: unknown) => {
@@ -164,6 +166,16 @@ const mockBackendWithProviders = (
       const created = onCreate ? await onCreate(body, rows) : providerRowFromCreate(body);
       if (!rows.some((row) => row.id === created.id)) rows.push(created);
       return created;
+    }
+    if (method === 'PUT' && path.startsWith('/api/providers/')) {
+      const id = decodeURIComponent(path.slice('/api/providers/'.length));
+      const rowIndex = rows.findIndex((row) => row.id === id);
+      if (rowIndex < 0) throw new Error(`Provider ${id} not found`);
+      const updated = onUpdate
+        ? await onUpdate(body, rows, rowIndex)
+        : ({ ...rows[rowIndex], ...(body as Partial<IProvider>), updated_at: 2 } as IProvider);
+      rows[rowIndex] = updated;
+      return updated;
     }
     return undefined;
   });
@@ -249,7 +261,13 @@ describe('ensureCommandEveLocalRuntimeProvider', () => {
   /** The seeded provider as a persisted backend row (use_model → models). */
   const localRuntimeRow = (): IProvider => {
     const { use_model, ...rest } = getCommandEveLocalRuntimeProvider();
-    return { ...rest, models: [use_model], enabled: true };
+    return {
+      ...rest,
+      api_key: ensureCommandEveShimAuthToken(),
+      models: [use_model],
+      enabled: true,
+      is_full_url: false,
+    };
   };
 
   const providerPutCalls = () =>
@@ -269,11 +287,13 @@ describe('ensureCommandEveLocalRuntimeProvider', () => {
       id: 'command-eve-local-runtime',
       platform: 'custom',
       base_url: 'http://127.0.0.1:25811/v1',
-      api_key: 'command-eve-local-loopback',
+      api_key: ensureCommandEveShimAuthToken(),
       models: ['custom:command-eve-gemma4-e4b-64k:latest'],
       enabled: true,
+      is_full_url: false,
       capabilities: [{ type: 'text' }, { type: 'function_calling' }],
     });
+    expect(seeded).not.toMatchObject({ api_key: 'command-eve-local-loopback' });
   });
 
   it('does not create the provider when the row already exists (second boot)', async () => {
@@ -286,7 +306,7 @@ describe('ensureCommandEveLocalRuntimeProvider', () => {
     expect(providerPutCalls()).toHaveLength(0);
   });
 
-  it('never overwrites an existing user-modified row', async () => {
+  it('preserves user-modified non-security fields on an already-ready row', async () => {
     mockBackendWithProviders([{ ...localRuntimeRow(), models: ['custom:command-eve-bonsai-27b-q2'] }]);
 
     await runBackendMigrations(configFile as never);
@@ -294,6 +314,113 @@ describe('ensureCommandEveLocalRuntimeProvider', () => {
     expect(providerPostCalls()).toHaveLength(0);
     expect(updateProviderMock).not.toHaveBeenCalled();
     expect(providerPutCalls()).toHaveLength(0);
+  });
+
+  it('reconciles stale security fields without overwriting models or the display name', async () => {
+    const models = ['custom:operator-preserved-model'];
+    const rows = mockBackendWithProviders([
+      {
+        ...localRuntimeRow(),
+        platform: 'openai',
+        name: 'Operator label',
+        base_url: 'https://credential-sink.invalid/v1',
+        api_key: 'stale-boot-token',
+        models,
+        enabled: false,
+        is_full_url: true,
+      },
+    ]);
+
+    await expect(
+      ensureCommandEveLocalRuntimeProvider({ maxAttempts: 1, sleep: async () => undefined })
+    ).resolves.toMatchObject({ status: 'ready', created: false, attempts: 1 });
+
+    expect(providerPostCalls()).toHaveLength(0);
+    expect(providerPutCalls()).toHaveLength(1);
+    expect(providerPutCalls()[0][1]).toBe('/api/providers/command-eve-local-runtime');
+    expect(providerPutCalls()[0][2]).toEqual({
+      platform: 'custom',
+      base_url: 'http://127.0.0.1:25811/v1',
+      api_key: ensureCommandEveShimAuthToken(),
+      enabled: true,
+      is_full_url: false,
+    });
+    expect(rows[0]).toMatchObject({
+      name: 'Operator label',
+      models,
+      platform: 'custom',
+      base_url: 'http://127.0.0.1:25811/v1',
+      api_key: ensureCommandEveShimAuthToken(),
+      enabled: true,
+      is_full_url: false,
+    });
+  });
+
+  it('reconciles the provider to the active ephemeral shim URL', async () => {
+    const ephemeralBaseUrl = 'http://127.0.0.1:41234/v1';
+    mockBackendWithProviders([localRuntimeRow()]);
+
+    await expect(
+      ensureCommandEveLocalRuntimeProvider({
+        shimOpenAiBaseUrl: ephemeralBaseUrl,
+        maxAttempts: 1,
+        sleep: async () => undefined,
+      })
+    ).resolves.toMatchObject({ status: 'ready', created: false, attempts: 1 });
+
+    expect(providerPutCalls()).toHaveLength(1);
+    expect(providerPutCalls()[0][2]).toEqual({ base_url: ephemeralBaseUrl });
+  });
+
+  it('rejects a non-loopback shim URL before reading or mutating provider state', async () => {
+    await expect(
+      ensureCommandEveLocalRuntimeProvider({
+        shimOpenAiBaseUrl: 'https://credential-sink.invalid/v1',
+        maxAttempts: 1,
+        sleep: async () => undefined,
+      })
+    ).rejects.toThrow('is not ready after 1 bounded attempt');
+    expect(httpRequestMock).not.toHaveBeenCalled();
+  });
+
+  it('retries a transient security-field PUT and verifies the repaired readback', async () => {
+    let updateAttempts = 0;
+    mockBackendWithProviders(
+      [{ ...localRuntimeRow(), api_key: 'stale-boot-token' }],
+      undefined,
+      async (body, rows, rowIndex) => {
+        updateAttempts += 1;
+        if (updateAttempts === 1) {
+          throw new BackendHttpError({
+            method: 'PUT',
+            path: '/api/providers/command-eve-local-runtime',
+            status: 500,
+            body: 'transient',
+          });
+        }
+        return { ...rows[rowIndex], ...(body as Partial<IProvider>), updated_at: 2 } as IProvider;
+      }
+    );
+
+    await expect(ensureCommandEveLocalRuntimeProvider({ maxAttempts: 2, retryDelayMs: 0 })).resolves.toMatchObject({
+      status: 'ready',
+      attempts: 2,
+      created: false,
+    });
+    expect(updateAttempts).toBe(2);
+  });
+
+  it('fails closed when the PUT readback still violates the security contract', async () => {
+    mockBackendWithProviders(
+      [{ ...localRuntimeRow(), api_key: 'stale-boot-token' }],
+      undefined,
+      async (_body, rows, rowIndex) => rows[rowIndex]
+    );
+
+    await expect(
+      ensureCommandEveLocalRuntimeProvider({ maxAttempts: 1, sleep: async () => undefined })
+    ).rejects.toThrow('is not ready after 1 bounded attempt');
+    expect(providerPutCalls()).toHaveLength(1);
   });
 
   it('treats only a structured 409 create conflict as success and verifies readback', async () => {

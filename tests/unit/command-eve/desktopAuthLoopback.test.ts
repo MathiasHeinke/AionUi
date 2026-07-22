@@ -217,6 +217,12 @@ describe('desktopAuthLoopback — (2) state mismatch + (3) loopback binding', ()
     );
 
     let redirectUri = '';
+    let callbackHtml = '';
+    let callbackHeaders: http.IncomingHttpHeaders = {};
+    let resolveCallbackBody: (() => void) | undefined;
+    const callbackBodyDone = new Promise<void>((resolve) => {
+      resolveCallbackBody = resolve;
+    });
     const result = await runDesktopAuthLoopback('login', {
       openExternal: (url) => {
         const parsed = new URL(url);
@@ -227,8 +233,15 @@ describe('desktopAuthLoopback — (2) state mismatch + (3) loopback binding', ()
         u.searchParams.set('code', 'one-time-code-123');
         return new Promise<void>((resolve) => {
           http.get(u.toString(), (res) => {
-            res.resume();
-            res.on('end', () => resolve());
+            callbackHeaders = res.headers;
+            res.setEncoding('utf8');
+            res.on('data', (chunk: string) => {
+              callbackHtml += chunk;
+            });
+            res.on('end', () => {
+              resolveCallbackBody?.();
+              resolve();
+            });
           });
         });
       },
@@ -247,18 +260,32 @@ describe('desktopAuthLoopback — (2) state mismatch + (3) loopback binding', ()
     expect(headers.Authorization).toBeUndefined();
     expect(String(init.body)).toContain('one-time-code-123');
     expect(String(init.body)).toContain('code_verifier');
+    await callbackBodyDone;
 
-    // Single-use: a SECOND request to the same port must fail (server closed).
+    // The browser success page gives the user an explicit way back to the app,
+    // but the focus-only custom URL carries no auth material whatsoever.
+    expect(callbackHtml).toContain('Jetzt Command EVE öffnen');
+    expect(callbackHtml).toContain('href="command-eve://auth/complete"');
+    expect(callbackHtml).not.toContain('one-time-code-123');
+    expect(callbackHtml).not.toContain('state=');
+    expect(callbackHtml).not.toContain('access_token');
+    expect(callbackHeaders['cache-control']).toContain('no-store');
+    expect(callbackHeaders['content-security-policy']).toContain("default-src 'none'");
+    expect(callbackHeaders['referrer-policy']).toBe('no-referrer');
+
+    // Single-use: a SECOND request either finds the port closed or is rejected
+    // with 410 on a racing keep-alive socket. It can never trigger another redeem.
     const u = new URL(redirectUri);
-    await expect(
-      new Promise<void>((resolve, reject) => {
-        const req = http.get(u.toString(), (res) => {
-          res.resume();
-          res.on('end', () => resolve());
-        });
-        req.on('error', reject);
-      })
-    ).rejects.toBeTruthy();
+    const secondOutcome = await new Promise<{ status?: number; error?: Error }>((resolve) => {
+      const req = http.get(u.toString(), (res) => {
+        const status = res.statusCode;
+        res.resume();
+        res.on('end', () => resolve({ status }));
+      });
+      req.on('error', (error) => resolve({ error }));
+    });
+    expect(Boolean(secondOutcome.error) || secondOutcome.status === 410).toBe(true);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -348,10 +375,21 @@ describe('accountAuthOrchestratorCore — (5) login->code->activate happy path',
   });
 
   it('derives a name + company from the email when the web omitted them', () => {
-    expect(deriveProfileFromEmail('jane.doe@acme-corp.com')).toEqual({ name: 'Jane Doe', company: 'Acme Corp' });
+    expect(deriveProfileFromEmail('jane.doe@acme-corp.com')).toEqual({
+      name: 'Jane Doe',
+      company: 'Acme Corp',
+      nameSource: 'email_fallback',
+    });
     // freemail domain does NOT become a company.
     const gmail = deriveProfileFromEmail('founder@gmail.com');
     expect(gmail.company).not.toBe('Gmail');
+    expect(gmail.nameSource).toBe('email_fallback');
+    // Explicit session metadata stays confirmed provenance.
+    expect(deriveProfileFromEmail('founder@gmail.com', { name: 'Mathias Heinke', company: 'Fyn Labs' })).toEqual({
+      name: 'Mathias Heinke',
+      company: 'Fyn Labs',
+      nameSource: 'account_metadata',
+    });
   });
 });
 

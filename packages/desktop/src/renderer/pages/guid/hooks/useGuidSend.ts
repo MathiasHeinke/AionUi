@@ -12,7 +12,6 @@ import {
   COMMAND_EVE_DISPLAY_NAME,
   COMMAND_EVE_SHELL_ENABLED,
   getCommandEveAcpModelIdForTier,
-  getCommandEveLocalRuntimeProvider,
   normalizeCommandEveLocalModelTierId,
 } from '@/common/config/commandEveShell';
 import { configService } from '@/common/config/configService';
@@ -209,8 +208,6 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         const tierId = normalizeCommandEveLocalModelTierId(configService.get('commandEve.localModelTierId'));
         const expectedModel = getCommandEveAcpModelIdForTier(tierId);
         const expectedRuntimeModel = toCommandEveRuntimeModelId(expectedModel);
-        commandEveRuntimeModel = getCommandEveLocalRuntimeProvider(tierId);
-        commandEveRuntimeModelId = expectedModel;
         const currentStatus = await ipcBridge.commandEve.runtimeStatus.invoke().catch((): undefined => undefined);
         const isRuntimeReady =
           currentStatus?.success &&
@@ -239,6 +236,24 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
             return false;
           }
         }
+
+        // Re-prove the security-owned provider row immediately before every
+        // local send. Boot reconciliation is intentionally non-fatal, and an
+        // operator may have opened the generic provider settings since boot;
+        // neither may turn into a later opaque AionCore 401/unknown-upstream.
+        const resolvedLocal = await ipcBridge.commandEve.resolveInferenceProvider
+          .invoke({ localTierId: tierId })
+          .catch((): undefined => undefined);
+        if (!resolvedLocal?.success || !resolvedLocal.data?.provider) {
+          Message.error(
+            t('conversation.commandEveRuntimeNotReady', {
+              reason: resolvedLocal?.msg || 'local provider security reconciliation failed',
+            })
+          );
+          return false;
+        }
+        commandEveRuntimeModel = resolvedLocal.data.provider;
+        commandEveRuntimeModelId = expectedModel;
       }
     }
     const effectiveCurrentModel = commandEveRuntimeModel ?? current_model;

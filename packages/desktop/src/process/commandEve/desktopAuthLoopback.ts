@@ -38,6 +38,7 @@
 import crypto from 'node:crypto';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { COMMAND_EVE_PROTOCOL_SCHEME } from '@/common/config/commandEveShell';
 
 // ---------------------------------------------------------------------------
 // Supabase project + endpoints (same project as eve-inference / credits-status)
@@ -183,20 +184,43 @@ const LOOPBACK_HOST = '127.0.0.1';
 
 /** Minimal self-contained success page shown in the browser tab after callback. */
 function successHtml(): string {
+  // Focus-only deep link: it carries no code, state, token, user id or other auth
+  // material. The already-running app still completes the PKCE redemption through
+  // the loopback flow above; this button merely gives the user an explicit way back.
+  const openAppUrl = `${COMMAND_EVE_PROTOCOL_SCHEME}://auth/complete`;
   return [
     '<!doctype html><html lang="de"><head><meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width,initial-scale=1">',
     '<title>Command EVE</title>',
     '<style>html,body{height:100%;margin:0}body{display:flex;align-items:center;justify-content:center;',
     'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0b0b0f;color:#f4f4f5}',
-    '.card{text-align:center;max-width:420px;padding:40px}',
-    '.glyph{font-size:42px;margin-bottom:16px}h1{font-size:20px;font-weight:600;margin:0 0 8px}',
-    'p{color:#a1a1aa;font-size:14px;line-height:1.5;margin:0}</style></head><body>',
+    '.card{text-align:center;max-width:440px;padding:40px 28px}',
+    '.glyph{font-size:42px;margin-bottom:16px;color:#f97316}h1{font-size:22px;font-weight:700;margin:0 0 8px}',
+    'p{color:#a1a1aa;font-size:14px;line-height:1.5;margin:0}',
+    '.open{display:inline-flex;align-items:center;justify-content:center;min-height:48px;margin:24px 0 14px;',
+    'padding:0 26px;border-radius:12px;background:linear-gradient(180deg,#fb923c,#f97316);color:#fff;',
+    'font-size:15px;font-weight:700;text-decoration:none;box-shadow:0 10px 28px rgba(249,115,22,.3)}',
+    '.open:focus-visible{outline:3px solid rgba(251,146,60,.45);outline-offset:3px}',
+    '.fallback{font-size:12px;color:#71717a}</style></head><body>',
     '<div class="card"><div class="glyph">⌘</div>',
-    '<h1>Du bist angemeldet.</h1>',
-    '<p>Du kannst dieses Fenster schließen und zu Command EVE zurückkehren.</p>',
+    '<h1>Anmeldung bestätigt.</h1>',
+    '<p>Command EVE schließt die sichere Anmeldung im Hintergrund ab.</p>',
+    `<a class="open" href="${openAppUrl}">Jetzt Command EVE öffnen</a>`,
+    '<p class="fallback">Falls kein Wechsel erfolgt, öffne Command EVE über das Dock.</p>',
     '</div></body></html>',
   ].join('');
+}
+
+function setLoopbackHtmlHeaders(res: http.ServerResponse): void {
+  res.setHeader('content-type', 'text/html; charset=utf-8');
+  res.setHeader('cache-control', 'no-store, max-age=0');
+  res.setHeader('pragma', 'no-cache');
+  res.setHeader('referrer-policy', 'no-referrer');
+  res.setHeader('x-content-type-options', 'nosniff');
+  res.setHeader(
+    'content-security-policy',
+    "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+  );
 }
 
 /** Error page (still 200 so the tab renders) when the web page returned an error. */
@@ -252,6 +276,15 @@ export async function runDesktopAuthLoopback(
       let timer: NodeJS.Timeout | undefined;
 
       const server = createServer((req, res) => {
+        // `server.close()` stops new connections, but a keep-alive socket can race
+        // one more request through. Enforce single-use at the handler boundary too:
+        // no second callback can be parsed, rendered as success, or exchanged.
+        if (settled) {
+          res.statusCode = 410;
+          res.setHeader('cache-control', 'no-store, max-age=0');
+          res.end('gone');
+          return;
+        }
         try {
           // Only the callback path is handled; any other path 404s but does NOT
           // settle the attempt (lets stray probes pass without aborting).
@@ -266,7 +299,7 @@ export async function runDesktopAuthLoopback(
           // (4) STATE FIRST — before reading code or serving any success page.
           if (!stateEquals(state, receivedState)) {
             res.statusCode = 400;
-            res.setHeader('content-type', 'text/html; charset=utf-8');
+            setLoopbackHtmlHeaders(res);
             res.end(errorHtml('Sicherheitsprüfung fehlgeschlagen.'));
             finish({ ok: false, reason_code: 'STATE_MISMATCH', message: 'Loopback state did not match.' });
             return;
@@ -276,7 +309,7 @@ export async function runDesktopAuthLoopback(
           if (errorParam) {
             const desc = url.searchParams.get('error_description') || errorParam;
             res.statusCode = 200;
-            res.setHeader('content-type', 'text/html; charset=utf-8');
+            setLoopbackHtmlHeaders(res);
             res.end(errorHtml(desc));
             finish({ ok: false, reason_code: 'WEB_AUTH_ERROR', message: desc });
             return;
@@ -285,14 +318,14 @@ export async function runDesktopAuthLoopback(
           const code = url.searchParams.get('code');
           if (!code) {
             res.statusCode = 400;
-            res.setHeader('content-type', 'text/html; charset=utf-8');
+            setLoopbackHtmlHeaders(res);
             res.end(errorHtml('Kein Anmelde-Code empfangen.'));
             finish({ ok: false, reason_code: 'NO_CODE', message: 'Callback carried no code.' });
             return;
           }
 
           res.statusCode = 200;
-          res.setHeader('content-type', 'text/html; charset=utf-8');
+          setLoopbackHtmlHeaders(res);
           res.end(successHtml());
           finish({ ok: true, code });
         } catch (err) {

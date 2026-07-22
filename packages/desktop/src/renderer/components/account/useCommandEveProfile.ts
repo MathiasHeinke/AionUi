@@ -10,6 +10,8 @@ import { commandEve } from '@/common/adapter/ipcBridge';
 export type CommandEveProfile = {
   name?: string;
   email?: string;
+  /** True only when the name is confirmed (never an email-local-part guess). */
+  nameConfirmed?: boolean;
   loaded: boolean;
 };
 
@@ -46,7 +48,16 @@ export function refreshCommandEveProfile(): Promise<void> {
     try {
       const response = await commandEve.registrationStatus.invoke();
       const data = response.data;
-      profile = data?.ok ? { name: data.name, email: data.email, loaded: true } : { loaded: true };
+      const nameConfirmed = data?.name_confirmed !== false && Boolean(data?.name);
+      profile = data?.ok
+        ? {
+            // Bridge suppresses unconfirmed guesses; the defensive flag keeps
+            // this safe across mixed-version renderer/main development boots.
+            ...(nameConfirmed && data.name ? { name: data.name, nameConfirmed: true } : { nameConfirmed: false }),
+            ...(data.email ? { email: data.email } : {}),
+            loaded: true,
+          }
+        : { loaded: true };
     } catch {
       profile = { loaded: true };
     }
@@ -56,6 +67,13 @@ export function refreshCommandEveProfile(): Promise<void> {
   });
 
   return refreshPromise;
+}
+
+/** Test-only: clear the shared store between vitest cases. */
+export function resetCommandEveProfileForTests(): void {
+  profile = { loaded: false };
+  refreshPromise = null;
+  emit();
 }
 
 export const useCommandEveProfile = (): CommandEveProfileSnapshot => {

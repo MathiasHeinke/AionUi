@@ -578,6 +578,14 @@ try {
     return;
   }
 
+  // Brand integrity is a release invariant, not a visual best-effort. Fail
+  // before bundling/signing if any desktop, mobile or PWA app-icon surface
+  // regresses to the legacy AionUi glyph or opaque white corner fringe.
+  execSync('node scripts/verify-command-eve-brand-assets.mjs', {
+    stdio: 'inherit',
+    env: process.env,
+  });
+
   // 1. Ensure package.json main entry is correct for electron-vite
   const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
   if (packageJson.main !== './out/main/index.js') {

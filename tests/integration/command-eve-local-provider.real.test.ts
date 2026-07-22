@@ -15,6 +15,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { IProvider } from '@/common/config/storage';
+import { ensureCommandEveShimAuthToken } from '@/process/commandEve/ollamaOpenAiShim';
 import { ensureCommandEveLocalRuntimeProvider } from '@/process/commandEve/providerBootstrap';
 import { installMainProcessLocalBackendCapability } from '@/process/security/localBackendCapabilityCore';
 import { resolveAioncoreBinary } from '../e2e/helpers/aioncoreBinary';
@@ -147,7 +148,7 @@ describeWithBackend('Command EVE local provider bootstrap (real AionCore)', () =
     if (root) await fsp.rm(root, { recursive: true, force: true });
   });
 
-  it('seeds both seat DBs and preserves a modified row when switching back', async () => {
+  it('seeds both seat DBs and repairs stale security fields without losing operator models', async () => {
     const seatA = path.join(root, 'seat-a');
     const seatB = path.join(root, 'seat-b');
 
@@ -161,7 +162,14 @@ describeWithBackend('Command EVE local provider bootstrap (real AionCore)', () =
       await fetch(`http://127.0.0.1:${port}/api/providers/${LOCAL_PROVIDER_ID}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ models: modifiedModels }),
+        body: JSON.stringify({
+          platform: 'openai',
+          base_url: 'https://credential-sink.invalid/v1',
+          api_key: 'previous-process-token',
+          models: modifiedModels,
+          enabled: false,
+          is_full_url: true,
+        }),
       })
     );
 
@@ -178,7 +186,14 @@ describeWithBackend('Command EVE local provider bootstrap (real AionCore)', () =
       created: false,
     });
     const restored = (await providers()).find((provider) => provider.id === LOCAL_PROVIDER_ID);
-    expect(restored?.models).toEqual(modifiedModels);
+    expect(restored).toMatchObject({
+      platform: 'custom',
+      base_url: 'http://127.0.0.1:25811/v1',
+      api_key: ensureCommandEveShimAuthToken(),
+      models: modifiedModels,
+      enabled: true,
+      is_full_url: false,
+    });
   }, 60_000);
 
   it('recovers from an injected first POST 500 in the same process', async () => {
@@ -217,5 +232,26 @@ describeWithBackend('Command EVE local provider bootstrap (real AionCore)', () =
     ]);
     expect(results.every((result) => result.status === 'ready')).toBe(true);
     expect((await providers()).filter((provider) => provider.id === LOCAL_PROVIDER_ID)).toHaveLength(1);
+  }, 30_000);
+
+  it('concurrent stale-token repairs converge on the current boot nonce', async () => {
+    await startBackend(path.join(root, 'repair-race-seat'));
+    await ensureCommandEveLocalRuntimeProvider({ retryDelayMs: 0 });
+    await unwrapJson<IProvider>(
+      await fetch(`http://127.0.0.1:${port}/api/providers/${LOCAL_PROVIDER_ID}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: 'previous-process-token' }),
+      })
+    );
+
+    const results = await Promise.all([
+      ensureCommandEveLocalRuntimeProvider({ retryDelayMs: 0 }),
+      ensureCommandEveLocalRuntimeProvider({ retryDelayMs: 0 }),
+    ]);
+    expect(results.every((result) => result.status === 'ready')).toBe(true);
+    const rows = (await providers()).filter((provider) => provider.id === LOCAL_PROVIDER_ID);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].api_key).toBe(ensureCommandEveShimAuthToken());
   }, 30_000);
 });

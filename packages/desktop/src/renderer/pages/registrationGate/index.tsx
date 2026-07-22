@@ -29,6 +29,7 @@ import {
   type ICommandEveEntitlementStatusResult,
   type ICommandEveRegistrationRecord,
 } from '@/common/adapter/ipcBridge';
+import { refreshCommandEveProfile } from '@/renderer/components/account/useCommandEveProfile';
 import './RegistrationGatePage.css';
 // Bundled (Vite-hashed) cinematic background. A STATIC image = one GPU texture,
 // zero animation → zero repaint cost (the prior drifting aurora was the source of
@@ -151,6 +152,11 @@ export interface RegistrationGatePageProps {
 }
 
 const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onEntitled }) => {
+  const notifyEntitled = React.useCallback(async () => {
+    // Shared chrome must learn the new identity in the same session (no restart).
+    await refreshCommandEveProfile();
+    await onEntitled();
+  }, [onEntitled]);
   const { t, i18n } = useTranslation();
 
   // The day-14 trial curtain takes over the whole gate: it is NOT a step in the
@@ -185,6 +191,10 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
   // The mode drives the primary button label/action AND the password field semantics
   // (current-password ⇒ fill an existing one; new-password ⇒ offer/generate a new one).
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  // Browser-mediated PKCE is the safe, effortless default. Direct credentials stay
+  // available as an explicit fallback, but are no longer the first thing a new user
+  // sees after already registering on command-eve.com.
+  const [showPasswordFallback, setShowPasswordFallback] = useState(!BROWSER_LOGIN_ENABLED);
   const switchAuthMode = useCallback((next: 'login' | 'register') => {
     setAuthMode(next);
     setAuthError(null);
@@ -200,13 +210,14 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
   const handleWebLogin = useCallback(
     async (intent: 'login' | 'register') => {
       setAuthError(null);
+      setPendingIntent(null);
       setAuthBusy(true);
       try {
         const response = await commandEve.authWebLogin.invoke({ intent });
         const data = response.data;
         if (data?.ok && data.entitled) {
           // Gate host re-reads the main-process status and unmounts the gate.
-          await onEntitled();
+          await notifyEntitled();
           return;
         }
         // Login completed but no license yet (PENDING) OR the web page / broker
@@ -232,7 +243,7 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
         setAuthBusy(false);
       }
     },
-    [onEntitled, t]
+    [notifyEntitled, t]
   );
 
   // Map a main-process reason_code to a localized, account-existence-safe message.
@@ -269,7 +280,7 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
         const response = await commandEve.authPasswordLogin.invoke({ intent, email, password });
         const data = response.data;
         if (data?.ok && data.entitled) {
-          await onEntitled();
+          await notifyEntitled();
           return;
         }
         if (data?.needs_paste) {
@@ -299,7 +310,7 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
         setPendingIntent(null);
       }
     },
-    [authEmail, authPassword, onEntitled, resolveAuthError, t]
+    [authEmail, authPassword, notifyEntitled, resolveAuthError, t]
   );
 
   // Opening the web checkout is a deliberate, low-risk action — it never touches
@@ -334,6 +345,8 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
   const [licenseSuccess, setLicenseSuccess] = useState(false);
 
   const isUnconfigured = status?.state === 'unconfigured';
+  const hasLocalRegistration =
+    registrationRecord !== null || status?.state === 'registered_unlicensed' || status?.state === 'expired';
 
   useEffect(() => {
     document.documentElement.lang = i18n.language;
@@ -421,6 +434,15 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
       event.preventDefault();
       setLicenseError(null);
 
+      // A CEVE.v1 license is bound to the local registration record by the main
+      // process. Keep that security contract explicit: the rare code-only path
+      // first asks for the existing local setup, then activates. Never submit a
+      // request that is guaranteed to fail with REGISTRATION_REQUIRED.
+      if (!hasLocalRegistration) {
+        setLicenseError(t('registrationGate.license.errors.REGISTRATION_REQUIRED'));
+        return;
+      }
+
       const trimmedCode = code.trim();
       if (!trimmedCode) {
         setLicenseError(t('registrationGate.license.errors.empty'));
@@ -435,7 +457,7 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
           setLicenseSuccess(true);
           // Hand control back to the gate host, which re-reads the main-process
           // status and unmounts the gate once it reports 'entitled'.
-          await onEntitled();
+          await notifyEntitled();
           return;
         }
         setLicenseError(resolveLicenseError(data?.reason_code));
@@ -446,7 +468,7 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
         setLicenseSubmitting(false);
       }
     },
-    [code, onEntitled, resolveLicenseError, t]
+    [code, hasLocalRegistration, notifyEntitled, resolveLicenseError, t]
   );
 
   const registeredAsLabel = useMemo(() => {
@@ -610,7 +632,14 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
             data-testid='registration-gate-auth'
             onSubmit={(event) => {
               event.preventDefault();
-              void handlePasswordAuth(authMode);
+              if (showPasswordFallback || !BROWSER_LOGIN_ENABLED) {
+                void handlePasswordAuth(authMode);
+                return;
+              }
+              // Enter on the browser-first screen follows the visible primary
+              // action; it must never surface a phantom "email required" error
+              // while those credential fields are intentionally collapsed.
+              void handleWebLogin(authMode);
             }}
           >
             {/* Explicit LOGIN / REGISTER mode toggle. The single primary action below
@@ -651,57 +680,31 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
                 : t('registrationGate.auth.registerSubtitle')}
             </p>
 
-            <div className='registration-gate__field'>
-              <label className='registration-gate__label' htmlFor='registration-gate-email'>
-                {t('registrationGate.auth.emailLabel')}
-              </label>
-              <Input
-                id='registration-gate-email'
-                type='email'
-                name='username'
-                value={authEmail}
-                onChange={(value) => setAuthEmail(value)}
-                placeholder={t('registrationGate.auth.emailPlaceholder')}
-                data-testid='registration-gate-email'
+            {BROWSER_LOGIN_ENABLED ? (
+              <Button
+                type='primary'
+                htmlType='button'
+                long
+                shape='round'
+                className='registration-gate__browser-primary'
+                loading={authBusy && pendingIntent === null}
                 disabled={authBusy}
-                autoComplete='username'
-              />
-            </div>
+                onClick={() => void handleWebLogin(authMode)}
+                data-testid='registration-gate-browser-login'
+              >
+                {authBusy && pendingIntent === null
+                  ? authMode === 'login'
+                    ? t('registrationGate.auth.browserLoginOpening')
+                    : t('registrationGate.auth.browserRegisterOpening')
+                  : authMode === 'login'
+                    ? t('registrationGate.auth.browserLogin')
+                    : t('registrationGate.auth.browserRegister')}
+              </Button>
+            ) : null}
 
-            <div className='registration-gate__field'>
-              <label className='registration-gate__label' htmlFor='registration-gate-password'>
-                {t('registrationGate.auth.passwordLabel')}
-              </label>
-              {/* key=authMode ⇒ Chromium treats login vs register as DISTINCT fields, so
-                  current-password offers to FILL an existing one and new-password offers a
-                  NEW one. (Electron is Chromium, so the native macOS suggestion popover —
-                  a Safari feature — never shows; the in-app generator below is the reliable
-                  path, and the markup still lets external managers help.) */}
-              <Input.Password
-                key={authMode}
-                id='registration-gate-password'
-                name={authMode === 'register' ? 'new-password' : 'current-password'}
-                value={authPassword}
-                onChange={(value) => setAuthPassword(value)}
-                placeholder={t('registrationGate.auth.passwordPlaceholder')}
-                data-testid='registration-gate-password'
-                disabled={authBusy}
-                autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
-                visibility={passwordRevealed}
-                onVisibilityChange={setPasswordRevealed}
-              />
-              {authMode === 'register' ? (
-                <button
-                  type='button'
-                  className='registration-gate__suggest-pw'
-                  onClick={handleSuggestPassword}
-                  disabled={authBusy}
-                  data-testid='registration-gate-suggest-password'
-                >
-                  {t('registrationGate.auth.suggestPassword')}
-                </button>
-              ) : null}
-            </div>
+            {BROWSER_LOGIN_ENABLED ? (
+              <p className='registration-gate__browser-hint'>{t('registrationGate.auth.browserSessionHint')}</p>
+            ) : null}
 
             {authError ? (
               <span className='registration-gate__error' role='alert' data-testid='registration-gate-auth-error'>
@@ -709,50 +712,107 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
               </span>
             ) : null}
 
-            <Button
-              type='primary'
-              htmlType='submit'
-              long
-              shape='round'
-              loading={authBusy && pendingIntent === authMode}
-              disabled={authBusy}
-              data-testid={authMode === 'login' ? 'registration-gate-login' : 'registration-gate-register'}
-            >
-              {authMode === 'login'
-                ? authBusy && pendingIntent === 'login'
-                  ? t('registrationGate.auth.loggingIn')
-                  : t('registrationGate.auth.login')
-                : authBusy && pendingIntent === 'register'
-                  ? t('registrationGate.auth.registering')
-                  : t('registrationGate.auth.register')}
-            </Button>
-
-            {BROWSER_LOGIN_ENABLED && (
+            {BROWSER_LOGIN_ENABLED ? (
               <button
                 type='button'
-                className='registration-gate__back'
-                onClick={() => void handleWebLogin(authMode)}
+                className='registration-gate__password-fallback-toggle'
+                aria-expanded={showPasswordFallback}
+                aria-controls='registration-gate-password-fallback'
+                onClick={() => setShowPasswordFallback((visible) => !visible)}
                 disabled={authBusy}
-                data-testid='registration-gate-browser-login'
+                data-testid='registration-gate-password-fallback-toggle'
               >
-                {/* pendingIntent stays null ONLY for the browser-loopback flow (the
-                    password flow sets it), so this is the browser action's own busy
-                    feedback — without it the whole card freezes with no spinner. */}
-                {authBusy && pendingIntent === null
-                  ? t('registrationGate.auth.browserLoginOpening')
-                  : t('registrationGate.auth.browserLogin')}
+                {authMode === 'login'
+                  ? t('registrationGate.auth.passwordFallbackLogin')
+                  : t('registrationGate.auth.passwordFallbackRegister')}
               </button>
-            )}
+            ) : null}
+
+            {showPasswordFallback ? (
+              <div
+                id='registration-gate-password-fallback'
+                className='registration-gate__password-fallback'
+                data-testid='registration-gate-password-fallback'
+              >
+                <div className='registration-gate__field'>
+                  <label className='registration-gate__label' htmlFor='registration-gate-email'>
+                    {t('registrationGate.auth.emailLabel')}
+                  </label>
+                  <Input
+                    id='registration-gate-email'
+                    type='email'
+                    name='username'
+                    value={authEmail}
+                    onChange={(value) => setAuthEmail(value)}
+                    placeholder={t('registrationGate.auth.emailPlaceholder')}
+                    data-testid='registration-gate-email'
+                    disabled={authBusy}
+                    autoComplete='username'
+                    autoFocus
+                  />
+                </div>
+
+                <div className='registration-gate__field'>
+                  <label className='registration-gate__label' htmlFor='registration-gate-password'>
+                    {t('registrationGate.auth.passwordLabel')}
+                  </label>
+                  {/* key=authMode ⇒ password managers distinguish filling an existing
+                      credential from suggesting a new one. The native edit context menu
+                      provides Cut/Copy/Paste without exposing clipboard contents to EVE. */}
+                  <Input.Password
+                    key={authMode}
+                    id='registration-gate-password'
+                    name={authMode === 'register' ? 'new-password' : 'current-password'}
+                    value={authPassword}
+                    onChange={(value) => setAuthPassword(value)}
+                    placeholder={t('registrationGate.auth.passwordPlaceholder')}
+                    data-testid='registration-gate-password'
+                    disabled={authBusy}
+                    autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
+                    visibility={passwordRevealed}
+                    onVisibilityChange={setPasswordRevealed}
+                  />
+                  {authMode === 'register' ? (
+                    <button
+                      type='button'
+                      className='registration-gate__suggest-pw'
+                      onClick={handleSuggestPassword}
+                      disabled={authBusy}
+                      data-testid='registration-gate-suggest-password'
+                    >
+                      {t('registrationGate.auth.suggestPassword')}
+                    </button>
+                  ) : null}
+                </div>
+
+                <Button
+                  type='secondary'
+                  htmlType='submit'
+                  long
+                  shape='round'
+                  loading={authBusy && pendingIntent === authMode}
+                  disabled={authBusy}
+                  data-testid={authMode === 'login' ? 'registration-gate-login' : 'registration-gate-register'}
+                >
+                  {authMode === 'login'
+                    ? authBusy && pendingIntent === 'login'
+                      ? t('registrationGate.auth.loggingIn')
+                      : t('registrationGate.auth.login')
+                    : authBusy && pendingIntent === 'register'
+                      ? t('registrationGate.auth.registering')
+                      : t('registrationGate.auth.register')}
+                </Button>
+              </div>
+            ) : null}
 
             <button
               type='button'
               className='registration-gate__back'
               onClick={() => {
                 setAuthError(null);
-                // "I have a code" must land on the code-PASTE step, not the local
-                // Name/Firma/E-Mail registration form (a code-holder should never be
-                // forced through a PII registration first). The license step creates
-                // any needed record server-side on activation.
+                // Keep browser-auth primary. A user who deliberately chooses the
+                // optional code path sees the code first; if this Mac has no local
+                // binding yet, that screen offers one explicit setup action.
                 setStep('license');
               }}
               disabled={authBusy}
@@ -836,6 +896,19 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
                 ? t('registrationGate.registration.submitting')
                 : t('registrationGate.registration.submit')}
             </Button>
+
+            <button
+              type='button'
+              className='registration-gate__back'
+              onClick={() => {
+                setRegistrationError(null);
+                setStep('license');
+              }}
+              disabled={registrationSubmitting}
+              data-testid='registration-gate-registration-back'
+            >
+              {t('registrationGate.registration.backToLicense')}
+            </button>
           </form>
         ) : (
           <form
@@ -872,24 +945,46 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
               </span>
             ) : null}
 
-            <Button
-              type='primary'
-              htmlType='submit'
-              long
-              shape='round'
-              loading={licenseSubmitting}
-              disabled={licenseSuccess}
-              data-testid='registration-gate-license-submit'
-            >
-              {licenseSubmitting ? t('registrationGate.license.submitting') : t('registrationGate.license.submit')}
-            </Button>
+            {hasLocalRegistration ? (
+              <Button
+                type='primary'
+                htmlType='submit'
+                long
+                shape='round'
+                loading={licenseSubmitting}
+                disabled={licenseSuccess}
+                data-testid='registration-gate-license-submit'
+              >
+                {licenseSubmitting ? t('registrationGate.license.submitting') : t('registrationGate.license.submit')}
+              </Button>
+            ) : (
+              <div className='registration-gate__license-setup' data-testid='registration-gate-license-setup'>
+                <p className='registration-gate__license-setup-copy'>{t('registrationGate.license.localSetupHint')}</p>
+                <Button
+                  type='primary'
+                  htmlType='button'
+                  long
+                  shape='round'
+                  onClick={() => {
+                    setLicenseError(null);
+                    setStep('registration');
+                  }}
+                  data-testid='registration-gate-license-setup-button'
+                >
+                  {t('registrationGate.license.localSetup')}
+                </Button>
+              </div>
+            )}
 
             <button
               type='button'
               className='registration-gate__back'
               onClick={() => {
                 setLicenseError(null);
-                setStep('registration');
+                // Browser-auth is the coherent primary entry. Returning from the
+                // optional code path must not drop a user into the legacy local-PII
+                // form that they never chose.
+                setStep('auth');
               }}
               disabled={licenseSubmitting || licenseSuccess}
               data-testid='registration-gate-back'

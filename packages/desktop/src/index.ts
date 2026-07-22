@@ -104,7 +104,7 @@ import './process/bridge/desktopShellBridge';
 import { wasLaunchedAtLogin } from '@process/bridge/applicationBridge';
 import { onLanguageChanged } from './process/bridge/systemSettingsBridge';
 import { setInitialLanguage } from '@process/services/i18n';
-import { setupApplicationMenu } from './process/utils/appMenu';
+import { setupApplicationMenu, setupEditableContextMenu } from './process/utils/appMenu';
 import {
   hardenAttachedWebviewPreferences,
   isAllowedWebviewSource,
@@ -1469,6 +1469,7 @@ const createWindow = ({ showOnReady = true }: { showOnReady?: boolean } = {}): v
     getPort: () => backendManager.port,
     getCapability: () => backendManager.localCapability,
   });
+  setupEditableContextMenu(mainWindow.webContents);
 
   if (isTelemetryAllowed()) {
     scheduleStartupLogReport(mainWindow);

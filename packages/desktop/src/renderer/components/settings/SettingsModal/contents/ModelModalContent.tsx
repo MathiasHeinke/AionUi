@@ -32,6 +32,7 @@ import { bridge as platformBridge } from '@office-ai/platform';
 import SettingsSection, { SettingsPageHeader } from '@/renderer/components/settings/SettingsSection';
 import { EVE_SETTINGS_TAG_COLOR } from '@/renderer/components/settings/settingsSemantics';
 import { commandEveLocalPullMatchesTier } from './commandEveLocalModelUiCore';
+import { filterUserManagedProviders, isUserManagedProviderId } from './providerProtectionCore';
 import '../model-provider.css';
 
 /** 1.6.3 — the per-tier disk truth the status bridge injects (see localRuntimeStatusCore). */
@@ -160,6 +161,7 @@ const ModelModalContent: React.FC = () => {
     )
   );
   const { data, mutate } = useProvidersQuery();
+  const userManagedProviders = useMemo(() => filterUserManagedProviders(data), [data]);
   const [message, messageContext] = Message.useMessage();
 
   /**
@@ -167,6 +169,9 @@ const ModelModalContent: React.FC = () => {
    * The caller is expected to have mutated the id-bearing record already.
    */
   const persistPlatform = async (platform: IProvider): Promise<void> => {
+    if (!isUserManagedProviderId(platform.id)) {
+      throw new Error('COMMAND_EVE_RESERVED_PROVIDER');
+    }
     const existing = (data || []).some((item) => item.id === platform.id);
     if (existing) {
       const { id, ...body } = platform;
@@ -204,6 +209,7 @@ const ModelModalContent: React.FC = () => {
   };
 
   const removePlatform = (id: string) => {
+    if (!isUserManagedProviderId(id)) return;
     const nextArray = (data ?? []).filter((item: IProvider) => item.id !== id);
     void mutate(nextArray, false);
     ipcBridge.mode.deleteProvider
@@ -711,7 +717,7 @@ const ModelModalContent: React.FC = () => {
             </div>
           }
         >
-          {!data || data.length === 0 ? (
+          {userManagedProviders.length === 0 ? (
             <div className='eve-settings-notice eve-settings-inline-notice'>
               <Info theme='outline' size={15} />
               <span>
@@ -726,7 +732,7 @@ const ModelModalContent: React.FC = () => {
             </div>
           ) : (
             <div className='eve-model-provider-list'>
-              {(data || []).map((platform: IProvider) => {
+              {userManagedProviders.map((platform: IProvider) => {
                 const key = platform.id;
                 const isExpanded = collapseKey[platform.id] ?? false;
                 return (

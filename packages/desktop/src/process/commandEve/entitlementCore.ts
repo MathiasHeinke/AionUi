@@ -47,6 +47,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { CommandEveProfileNameSource } from './accountIdentityCore';
 import { readLicenseWire } from '@/common/config/licenseWireAtRest';
 
 // ---------------------------------------------------------------------------
@@ -507,6 +508,8 @@ export interface CommandEveRegistrationRecord {
   version: typeof COMMAND_EVE_REGISTRATION_RECORD_VERSION;
   tenant_id: string;
   name: string;
+  /** Provenance lets UI distinguish an explicit name from an email-derived placeholder. */
+  name_source?: CommandEveProfileNameSource;
   company: string;
   email: string;
   gdpr_consent: true;
@@ -617,6 +620,7 @@ export interface RegisterTenantInput {
   company: string;
   email: string;
   consent: boolean;
+  nameSource?: CommandEveProfileNameSource;
 }
 
 // ---------------------------------------------------------------------------
@@ -920,6 +924,7 @@ export function registerTenant(
     version: COMMAND_EVE_REGISTRATION_RECORD_VERSION,
     tenant_id: tenantId,
     name,
+    name_source: input.nameSource ?? 'explicit',
     company,
     email,
     gdpr_consent: true,
@@ -982,6 +987,7 @@ export function updateRegistrationProfile(
   const record: CommandEveRegistrationRecord = {
     ...existing,
     name,
+    ...(input.name !== undefined ? { name_source: 'explicit' as const } : {}),
     company,
   };
 

@@ -36,6 +36,7 @@ import {
 } from './entitlementCore';
 import { COMMAND_EVE_SUPABASE_URL, resolveSupabaseAnonKey, type CommandEveAccountSession } from './desktopAuthLoopback';
 import { getFreshSession, hasAccountSession } from './accountSessionAtRest';
+import { deriveEmailFallbackName, type CommandEveProfileNameSource } from './accountIdentityCore';
 
 export const REGISTER_PROFILE_URL = `${COMMAND_EVE_SUPABASE_URL}/functions/v1/register-profile`;
 export const MY_LICENSE_URL = `${COMMAND_EVE_SUPABASE_URL}/functions/v1/my-license`;
@@ -99,13 +100,15 @@ function titleCase(part: string): string {
 export function deriveProfileFromEmail(
   email: string,
   explicit?: { name?: string; company?: string }
-): { name: string; company: string } {
+): { name: string; company: string; nameSource: CommandEveProfileNameSource } {
   const trimmedEmail = (email || '').trim();
   const [localPartRaw, domainRaw] = trimmedEmail.split('@');
   const localPart = localPartRaw || 'user';
   const domain = (domainRaw || '').toLowerCase();
 
-  const name = (explicit?.name || '').trim() || titleCase(localPart) || 'EVE User';
+  const explicitName = (explicit?.name || '').trim();
+  const name = explicitName || deriveEmailFallbackName(trimmedEmail) || 'EVE User';
+  const nameSource: CommandEveProfileNameSource = explicitName ? 'account_metadata' : 'email_fallback';
 
   let company = (explicit?.company || '').trim();
   if (!company) {
@@ -114,7 +117,7 @@ export function deriveProfileFromEmail(
     }
     if (!company) company = titleCase(localPart);
   }
-  return { name: name || 'EVE User', company: company || 'EVE' };
+  return { name: name || 'EVE User', company: company || 'EVE', nameSource };
 }
 
 // ---------------------------------------------------------------------------
@@ -287,7 +290,16 @@ export async function activateEntitlementFromSession(
       name: session.user.name,
       company: session.user.company,
     });
-    registerTenant({ name: profile.name, company: profile.company, email: session.user.email, consent: true }, options);
+    registerTenant(
+      {
+        name: profile.name,
+        company: profile.company,
+        email: session.user.email,
+        consent: true,
+        nameSource: profile.nameSource,
+      },
+      options
+    );
   }
   const registration = readRegistration(userDataPath);
   if (!registration) {

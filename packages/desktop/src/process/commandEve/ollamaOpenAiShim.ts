@@ -57,6 +57,21 @@ export function ensureCommandEveShimAuthToken(): string {
   return bootShimAuthToken;
 }
 
+/**
+ * OpenAI-compatible URL of the shim owned by this Electron main process.
+ *
+ * Normal packaged launches use the canonical 25811 port. Explicit E2E mode
+ * binds port 0 so parallel/dev instances cannot collide; in that mode a URL is
+ * unsafe until the server has actually selected its ephemeral port.
+ */
+export function getCommandEveOllamaOpenAiShimBaseUrl(): string {
+  if (serverUrl) return `${serverUrl.replace(/\/+$/, '')}/v1`;
+  if (resolveCommandEveShimListenPort(undefined) === 0) {
+    throw new Error('Command EVE loopback shim has not selected its E2E port yet.');
+  }
+  return `http://127.0.0.1:${DEFAULT_SHIM_PORT}/v1`;
+}
+
 export function commandEveShimAuthTokenFilePath(dataPath: string): string {
   return path.join(path.resolve(dataPath), 'command-eve-runtime', 'shim-auth-token');
 }

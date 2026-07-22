@@ -34,6 +34,9 @@ describe('deep-link security', () => {
 
   it('rejects unsupported actions, unsafe navigation and oversized input', () => {
     expect(parseDeepLinkUrl(link('run-command?command=rm'))).toBeNull();
+    // Browser auth uses this OS URL only to focus the existing app. It must never
+    // enter the renderer deep-link dispatch surface or carry auth parameters.
+    expect(parseDeepLinkUrl(link('auth/complete'))).toBeNull();
     expect(parseDeepLinkUrl(link('navigate?route=%2Fsettings%2Fmodel'))).toBeNull();
     expect(parseDeepLinkUrl(link('navigate?route=%2Fconversation%2Fconv-123'))).toEqual({
       action: 'navigate',

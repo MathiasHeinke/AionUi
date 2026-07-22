@@ -11,7 +11,8 @@ import {
   getCommandEveLocalRuntimeProvider,
 } from '@/common/config/commandEveShell';
 import type { IProvider } from '@/common/config/storage';
-import type { CreateProviderRequest } from '@/common/types/provider/providerApi';
+import type { CreateProviderRequest, UpdateProviderRequest } from '@/common/types/provider/providerApi';
+import { ensureCommandEveShimAuthToken, getCommandEveOllamaOpenAiShimBaseUrl } from './ollamaOpenAiShim';
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 const DEFAULT_RETRY_DELAY_MS = 150;
@@ -27,6 +28,7 @@ export type CommandEveLocalProviderBootstrapResult = {
 
 export type CommandEveLocalProviderBootstrapOptions = {
   shellEnabled?: boolean;
+  shimOpenAiBaseUrl?: string;
   maxAttempts?: number;
   retryDelayMs?: number;
   requestTimeoutMs?: number;
@@ -41,12 +43,42 @@ function sleep(delayMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
-function localRuntimeCreateRequest(): CreateProviderRequest {
+function normalizeShimOpenAiBaseUrl(candidate: string): string {
+  const parsed = new URL(candidate);
+  const port = Number(parsed.port);
+  if (
+    parsed.protocol !== 'http:' ||
+    parsed.hostname !== '127.0.0.1' ||
+    !Number.isInteger(port) ||
+    port < 1 ||
+    port > 65_535 ||
+    parsed.pathname.replace(/\/+$/, '') !== '/v1' ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    throw new Error('Command EVE local runtime provider requires an exact 127.0.0.1 OpenAI /v1 shim URL.');
+  }
+  return `http://127.0.0.1:${port}/v1`;
+}
+
+function localRuntimeCreateRequest(shimOpenAiBaseUrl?: string): CreateProviderRequest {
   const { use_model, ...provider } = getCommandEveLocalRuntimeProvider();
   return {
     ...provider,
+    // In normal builds this is :25811. Explicit E2E/multi-instance launches
+    // bind an ephemeral port; persisting the fixed port would address a foreign
+    // app's shim and correctly fail its nonce check with 401.
+    base_url: normalizeShimOpenAiBaseUrl(shimOpenAiBaseUrl ?? getCommandEveOllamaOpenAiShimBaseUrl()),
+    // AionCore resolves credentials from the provider DB, not from the
+    // renderer's conversation payload. Persist the same process-local nonce
+    // enforced by the loopback shim; the static common-config value is only a
+    // non-secret renderer placeholder.
+    api_key: ensureCommandEveShimAuthToken(),
     models: [use_model],
     enabled: true,
+    is_full_url: false,
   };
 }
 
@@ -54,6 +86,53 @@ async function readLocalRuntimeProvider(requestTimeoutMs: number): Promise<IProv
   const providers =
     (await httpRequest<IProvider[]>('GET', '/api/providers', undefined, { timeoutMs: requestTimeoutMs })) || [];
   return providers.find((provider) => provider.id === COMMAND_EVE_LOCAL_RUNTIME_PROVIDER_ID);
+}
+
+/**
+ * Security-owned fields for the app-managed provider row.
+ *
+ * The boot nonce must never be paired with an operator-edited remote URL: that
+ * would turn the next inference request into a credential disclosure. Models,
+ * labels, capabilities and other non-security fields remain untouched.
+ */
+function localRuntimeSecurityPatch(
+  existing: IProvider,
+  desired: CreateProviderRequest
+): UpdateProviderRequest | undefined {
+  const patch: UpdateProviderRequest = {};
+  if (existing.platform !== desired.platform) patch.platform = desired.platform;
+  if (existing.base_url !== desired.base_url) patch.base_url = desired.base_url;
+  if (existing.api_key !== desired.api_key) patch.api_key = desired.api_key;
+  if (existing.enabled !== true) patch.enabled = true;
+  if (existing.is_full_url === true) patch.is_full_url = false;
+  return Object.keys(patch).length > 0 ? patch : undefined;
+}
+
+async function reconcileLocalRuntimeProvider(
+  existing: IProvider,
+  desired: CreateProviderRequest,
+  requestTimeoutMs: number
+): Promise<IProvider> {
+  const patch = localRuntimeSecurityPatch(existing, desired);
+  if (!patch) return existing;
+
+  await httpRequest<IProvider>(
+    'PUT',
+    `/api/providers/${encodeURIComponent(COMMAND_EVE_LOCAL_RUNTIME_PROVIDER_ID)}`,
+    patch,
+    { timeoutMs: requestTimeoutMs }
+  );
+
+  const persisted = await readLocalRuntimeProvider(requestTimeoutMs);
+  if (!persisted) {
+    throw new Error('Command EVE local runtime provider reconcile completed without a persisted readback row.');
+  }
+  if (localRuntimeSecurityPatch(persisted, desired)) {
+    throw new Error('Command EVE local runtime provider reconcile readback did not match its security contract.');
+  }
+
+  console.info('[CommandEVE] Local runtime provider security fields reconciled (readback verified).');
+  return persisted;
 }
 
 function isProviderAlreadyExistsError(error: unknown): boolean {
@@ -87,14 +166,16 @@ export async function ensureCommandEveLocalRuntimeProvider(
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
+      const desired = localRuntimeCreateRequest(options.shimOpenAiBaseUrl);
       const existing = await readLocalRuntimeProvider(requestTimeoutMs);
       if (existing) {
-        return { status: 'ready', attempts: attempt, created: false, conflict: false, provider: existing };
+        const provider = await reconcileLocalRuntimeProvider(existing, desired, requestTimeoutMs);
+        return { status: 'ready', attempts: attempt, created: false, conflict: false, provider };
       }
 
       let conflict = false;
       try {
-        await httpRequest<IProvider>('POST', '/api/providers', localRuntimeCreateRequest(), {
+        await httpRequest<IProvider>('POST', '/api/providers', desired, {
           timeoutMs: requestTimeoutMs,
           silentStatuses: [409],
         });
@@ -109,6 +190,7 @@ export async function ensureCommandEveLocalRuntimeProvider(
       if (!persisted) {
         throw new Error('Command EVE local runtime provider create completed without a persisted readback row.');
       }
+      const provider = await reconcileLocalRuntimeProvider(persisted, desired, requestTimeoutMs);
 
       console.info(
         conflict
@@ -120,7 +202,7 @@ export async function ensureCommandEveLocalRuntimeProvider(
         attempts: attempt,
         created: !conflict,
         conflict,
-        provider: persisted,
+        provider,
       };
     } catch (error) {
       lastError = error;

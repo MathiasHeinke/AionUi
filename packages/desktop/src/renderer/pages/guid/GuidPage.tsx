@@ -14,6 +14,7 @@ import SpeechInputButton from '@/renderer/components/chat/SpeechInputButton';
 import { appendSpeechTranscript } from '@/renderer/hooks/system/useSpeechInput';
 import ShellElementsRail from '@/renderer/components/layout/Titlebar/ShellElementsRail';
 import { useCommandEveProfile } from '@/renderer/components/account/useCommandEveProfile';
+import { useOnboardingStatus } from '@renderer/hooks/useOnboardingStatus';
 import { useLayoutContext } from '@/renderer/hooks/context/LayoutContext';
 import { useSkillCapabilityCatalog } from '@/renderer/hooks/capabilities';
 import {
@@ -30,6 +31,7 @@ import { AgentPillBarSkeleton } from './components/GuidSkeleton';
 import GuidActionRow from './components/GuidActionRow';
 import GuidInputCard from './components/GuidInputCard';
 import GuidModelSelector from './components/GuidModelSelector';
+import FirstRunSetupCta from './components/FirstRunSetupCta';
 import MentionDropdown, { MentionSelectorBadge } from './components/MentionDropdown';
 import QuickActionButtons from './components/QuickActionButtons';
 import FeedbackReportModal from '@/renderer/components/settings/SettingsModal/contents/FeedbackReportModal';
@@ -65,7 +67,10 @@ const GuidPage: React.FC = () => {
   const localeKey = resolveLocaleKey(i18n.language);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const layout = useLayoutContext();
-  const { name: profileName } = useCommandEveProfile();
+  const { name: profileName, nameConfirmed, loaded: profileLoaded } = useCommandEveProfile();
+  // First-run entry bridge (1.818 bounded): one obvious path into existing Erste-Schritte setup.
+  // No forced modal, no auto LLM — only after entitlement landing when setup is not complete.
+  const { loading: onboardingLoading, model: onboardingModel } = useOnboardingStatus();
   const [elementsRailCollapsed, setElementsRailCollapsed] = useState(false);
 
   useEffect(() => {
@@ -583,7 +588,8 @@ const GuidPage: React.FC = () => {
   // otherwise the fallback state exposes the internal CLI/agent catalog.
   const isCommandEveAssistant = COMMAND_EVE_SHELL_ENABLED;
   const commandEveGreeting = useMemo(() => {
-    const firstName = profileName?.trim().split(/\s+/)[0];
+    // Only greet with a confirmed personal name. Email-local-part guesses stay neutral.
+    const firstName = nameConfirmed ? profileName?.trim().split(/\s+/)[0] : undefined;
     if (!firstName) return t('conversation.welcome.greetingWithoutName');
     const hour = new Date().getHours();
     const greetingKey =
@@ -593,7 +599,12 @@ const GuidPage: React.FC = () => {
           ? 'conversation.welcome.greetingDay'
           : 'conversation.welcome.greetingEvening';
     return t(greetingKey, { name: firstName });
-  }, [profileName, t]);
+  }, [nameConfirmed, profileName, t]);
+  const openFirstRunSetup = useCallback(() => {
+    void Promise.resolve(navigate('/settings/erste-schritte')).catch((error) => {
+      console.error('[GuidPage] First-run setup navigation failed:', error);
+    });
+  }, [navigate]);
   const showAssistantSelectionArea = !COMMAND_EVE_SHELL_ENABLED;
 
   // Build the model selector node
@@ -680,6 +691,17 @@ const GuidPage: React.FC = () => {
                 <div className={styles.commandEveHero}>
                   <h1 className={styles.commandEveGreeting}>{commandEveGreeting}</h1>
                   <p className={styles.commandEveSubtitle}>{t('conversation.welcome.subtitle')}</p>
+                  <FirstRunSetupCta
+                    shellEnabled={COMMAND_EVE_SHELL_ENABLED}
+                    profileLoaded={profileLoaded}
+                    onboardingLoading={onboardingLoading}
+                    onboardingModel={onboardingModel}
+                    className={styles.commandEveFirstRunCta}
+                    label={t('conversation.welcome.firstRunSetupCta', {
+                      defaultValue: 'Mit EVE einrichten',
+                    })}
+                    onOpen={openFirstRunSetup}
+                  />
                 </div>
               ) : agentSelection.is_presetAgent ? (
                 <div className={styles.heroHeaderControls}>

@@ -6,6 +6,7 @@ import {
   buildEveCloudRoute,
   commandEveCacheScope,
   ensureCommandEveShimAuthToken,
+  getCommandEveOllamaOpenAiShimBaseUrl,
   isCommandEveWarmupRequest,
   localOpenAiPayload,
   resolveCommandEveShimContextPolicy,
@@ -248,6 +249,11 @@ afterEach(async () => {
 });
 
 describe('Command EVE Ollama OpenAI shim warm-up', () => {
+  it('reports the actual ephemeral OpenAI base URL selected by the active shim', async () => {
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({ port: 0, ollamaBaseUrl: 'http://127.0.0.1:1' });
+    expect(getCommandEveOllamaOpenAiShimBaseUrl()).toBe(`${shimServerUrl}/v1`);
+  });
+
   it('coalesces concurrent first-start calls into one loopback server', async () => {
     const starts = [
       startCommandEveOllamaOpenAiShim({ port: 0, ollamaBaseUrl: 'http://127.0.0.1:1' }),
