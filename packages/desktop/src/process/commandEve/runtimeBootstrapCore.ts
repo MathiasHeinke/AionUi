@@ -4765,8 +4765,11 @@ export function provisionSeatRuntimeFiles(options: ProvisionSeatRuntimeFilesOpti
   }
 }
 
-export async function ensureCommandEveRuntimeBootstrap(
-  options: RuntimeBootstrapOptions
+const runtimeBootstrapQueueTails = new Map<string, Promise<void>>();
+
+async function ensureCommandEveRuntimeBootstrapUnlocked(
+  options: RuntimeBootstrapOptions,
+  activeSeatId: ReturnType<typeof getActiveSeatId>
 ): Promise<RuntimeBootstrapReceipt> {
   const platform = options.platform ?? process.platform;
   const runtimeProfile = options.runtimeProfile ?? (platform === 'win32' ? 'cloud_turn_holder_only' : 'default');
@@ -4775,7 +4778,7 @@ export async function ensureCommandEveRuntimeBootstrap(
   const now = options.now || (() => new Date());
   const runner = options.runner || defaultRunner;
   const detachedSpawner = options.detachedSpawner || defaultDetachedSpawner;
-  const paths = resolveCommandEveRuntimeBootstrapPaths(options.userDataPath, getActiveSeatId(), platform);
+  const paths = resolveCommandEveRuntimeBootstrapPaths(options.userDataPath, activeSeatId, platform);
   const manifestPath = resolveCommandEveRuntimeBootstrapManifestPath(options);
   const capabilityManifestPath = resolveCommandEveCapabilityManifestPath(options);
   ensureDir(paths.runtimeRoot);
@@ -5658,4 +5661,45 @@ export async function ensureCommandEveRuntimeBootstrap(
   }
 
   return finishReceipt();
+}
+
+/**
+ * Serialize bootstrap mutations per user-data runtime root.
+ *
+ * Startup deliberately provisions the runtime in the background while the UI
+ * stays interactive. A user action can therefore request another bootstrap
+ * before `python -m venv` has finished installing pip. Seeing `venv/bin/python`
+ * is not proof that the venv is complete; two writers then race on the same
+ * files and the second can fail with `No module named pip`. A queue preserves
+ * every caller's own tier/options while ensuring only one writer owns a given
+ * runtime root at a time.
+ */
+export async function ensureCommandEveRuntimeBootstrap(
+  options: RuntimeBootstrapOptions
+): Promise<RuntimeBootstrapReceipt> {
+  const platform = options.platform ?? process.platform;
+  const activeSeatId = getActiveSeatId();
+  const runtimeRoot = resolveCommandEveRuntimeBootstrapPaths(
+    options.userDataPath,
+    activeSeatId,
+    platform
+  ).runtimeRoot;
+  const queueKey = `${platform}:${path.resolve(runtimeRoot)}`;
+  const previousTurn = runtimeBootstrapQueueTails.get(queueKey) ?? Promise.resolve();
+  let releaseTurn!: () => void;
+  const currentTurn = new Promise<void>((resolve) => {
+    releaseTurn = resolve;
+  });
+  const queueTail = previousTurn.catch((): void => undefined).then(() => currentTurn);
+  runtimeBootstrapQueueTails.set(queueKey, queueTail);
+
+  await previousTurn.catch((): void => undefined);
+  try {
+    return await ensureCommandEveRuntimeBootstrapUnlocked(options, activeSeatId);
+  } finally {
+    releaseTurn();
+    if (runtimeBootstrapQueueTails.get(queueKey) === queueTail) {
+      runtimeBootstrapQueueTails.delete(queueKey);
+    }
+  }
 }

@@ -349,6 +349,74 @@ describe('Command EVE runtime bootstrap core', () => {
     expect(capabilityPack.connectors.some((connector) => connector.id === 'codex-cli')).toBe(true);
   });
 
+  itM('serializes concurrent bootstraps until a fresh Python venv is complete', async () => {
+    const harness = makeHarness();
+    const manifestPath = writeManifest(harness.root, 'http://127.0.0.1:11434');
+    let signalVenvStarted!: () => void;
+    const venvStarted = new Promise<void>((resolve) => {
+      signalVenvStarted = resolve;
+    });
+    let releaseVenv!: () => void;
+    const venvMayFinish = new Promise<void>((resolve) => {
+      releaseVenv = resolve;
+    });
+    let pipReady = false;
+    let prematurePipCalls = 0;
+
+    const runner: RuntimeBootstrapRunner = async (command, args, options) => {
+      if (command === '/usr/bin/python3.13' && args[0] === '-m' && args[1] === 'venv') {
+        const venv = args[2];
+        fs.mkdirSync(path.join(venv, 'bin'), { recursive: true });
+        fs.writeFileSync(path.join(venv, 'bin', 'python'), '#!/usr/bin/env bash\n');
+        fs.chmodSync(path.join(venv, 'bin', 'python'), 0o755);
+        signalVenvStarted();
+        await venvMayFinish;
+        pipReady = true;
+        return commandResult(command, args);
+      }
+      if (command.endsWith('/bin/python') && args[0] === '-m' && args[1] === 'pip' && !pipReady) {
+        prematurePipCalls += 1;
+        return commandResult(command, args, false, '', 'No module named pip');
+      }
+      return harness.runner(command, args, options);
+    };
+    const options: RuntimeBootstrapOptions = {
+      userDataPath: harness.root,
+      manifestPath,
+      runner,
+      detachedSpawner: () => {},
+      statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+      totalMemoryBytes: 8 * 1024 ** 3,
+      ollamaBinaryCandidates: [],
+    };
+
+    const startupBootstrap = ensureCommandEveRuntimeBootstrap(options);
+    await venvStarted;
+    const userTriggeredBootstrap = ensureCommandEveRuntimeBootstrap(options);
+    let userTriggeredSettled = false;
+    void userTriggeredBootstrap.then(
+      () => {
+        userTriggeredSettled = true;
+      },
+      () => {
+        userTriggeredSettled = true;
+      }
+    );
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(userTriggeredSettled).toBe(false);
+    expect(prematurePipCalls).toBe(0);
+    releaseVenv();
+
+    const [startupReceipt, userTriggeredReceipt] = await Promise.all([
+      startupBootstrap,
+      userTriggeredBootstrap,
+    ]);
+    expect(startupReceipt.status).toBe('ready');
+    expect(userTriggeredReceipt.status).toBe('ready');
+    expect(prematurePipCalls).toBe(0);
+  });
+
   // prettier-ignore
   itM('LOW-RAM (8GB): downgrades to CLOUD-ONLY — writes config.yaml, skips only local model, finishes ready (perf audit #3)', async () => {
     const harness = makeHarness();
