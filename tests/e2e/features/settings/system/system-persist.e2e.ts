@@ -7,8 +7,7 @@
  */
 
 import { test, expect } from '../../../fixtures';
-import { goToSettings, waitForSettle, waitForClassChange } from '../../../helpers/navigation';
-import { ARCO_SWITCH } from '../../../helpers/selectors';
+import { goToSettings, waitForSettle } from '../../../helpers/navigation';
 
 async function reloadAndGoToSystem(page: import('@playwright/test').Page) {
   await page.reload();
@@ -24,61 +23,51 @@ test.describe('System Settings Persistence', () => {
 
   // TC-PERSIST-01: Language switch persists across reload
   test('TC-PERSIST-01: language selection persists after reload', async ({ page }) => {
-    const selectTrigger = page.locator('.aion-select .arco-select-view').first();
+    const selectTrigger = page.locator('[data-testid="system-preference-language"]').getByRole('combobox');
     await expect(selectTrigger).toBeVisible();
-    const originalLang = await selectTrigger.textContent();
+    const rawOriginalLang = (await selectTrigger.textContent())?.trim() || 'Deutsch';
+    const originalLang = rawOriginalLang === 'de-DE' ? 'Deutsch' : rawOriginalLang;
+    const targetLang = originalLang === 'English' ? 'Deutsch' : 'English';
 
     await selectTrigger.click();
-    const englishOption = page.locator('.arco-select-option:has-text("English")');
-    await expect(englishOption).toBeVisible();
-    await englishOption.click();
-    await page.waitForFunction(() => document.body.textContent?.includes('Language'), { timeout: 15_000 });
-    expect(await selectTrigger.textContent()).toContain('English');
+    const targetOption = page.getByRole('option', { name: targetLang, exact: true });
+    await expect(targetOption).toBeVisible();
+    await targetOption.click();
+    await expect(selectTrigger).toContainText(targetLang, { timeout: 15_000 });
 
     await reloadAndGoToSystem(page);
 
-    const reloadedSelect = page.locator('.aion-select .arco-select-view').first();
+    const reloadedSelect = page.locator('[data-testid="system-preference-language"]').getByRole('combobox');
     await expect(reloadedSelect).toBeVisible();
-    expect(await reloadedSelect.textContent()).toContain('English');
-    expect(await page.locator('body').textContent()).toContain('Language');
+    await expect(reloadedSelect).toContainText(targetLang);
 
     // Restore
     await reloadedSelect.click();
-    const restoreOption = page.locator(`.arco-select-option:has-text("${originalLang?.trim() || '简体中文'}")`);
+    const restoreOption = page.getByRole('option', { name: originalLang, exact: true });
     await expect(restoreOption).toBeVisible();
     await restoreOption.click();
+    await expect(reloadedSelect).toContainText(originalLang, { timeout: 15_000 });
     await waitForSettle(page);
   });
 
-  // TC-PERSIST-02: closeToTray switch persists across reload
-  // Known issue: systemSettings.setCloseToTray writes via HTTP but reload reads from
-  // configService cache which may not reflect the update. Skipped until cache consistency is fixed.
-  test.skip('TC-PERSIST-02: closeToTray toggle persists after reload', async ({ page }) => {
-    const closeToTraySwitch = page.locator(`.divide-y ${ARCO_SWITCH}`).nth(1);
+  // TC-PERSIST-02: closeToTray switch persists across reload.
+  test('TC-PERSIST-02: closeToTray toggle persists after reload', async ({ page }) => {
+    const closeToTraySwitch = page.locator('[data-testid="system-preference-closeToTray"]').getByRole('switch');
     await expect(closeToTraySwitch).toBeVisible();
-    const wasChecked = await closeToTraySwitch.evaluate((el) => el.classList.contains('arco-switch-checked'));
+    const wasChecked = (await closeToTraySwitch.getAttribute('aria-checked')) === 'true';
 
     await closeToTraySwitch.click();
-    await waitForClassChange(closeToTraySwitch);
-    expect(await closeToTraySwitch.evaluate((el) => el.classList.contains('arco-switch-checked'))).toBe(!wasChecked);
+    await expect(closeToTraySwitch).toHaveAttribute('aria-checked', String(!wasChecked));
 
     await reloadAndGoToSystem(page);
 
-    const reloadedSwitch = page.locator(`.divide-y ${ARCO_SWITCH}`).nth(1);
+    const reloadedSwitch = page.locator('[data-testid="system-preference-closeToTray"]').getByRole('switch');
     await expect(reloadedSwitch).toBeVisible();
-    await page.waitForFunction(
-      (expected: boolean) => {
-        const el = document.querySelectorAll('.divide-y .arco-switch')[1];
-        return el?.classList.contains('arco-switch-checked') === expected;
-      },
-      !wasChecked,
-      { timeout: 15_000 }
-    );
-    expect(await reloadedSwitch.evaluate((el) => el.classList.contains('arco-switch-checked'))).toBe(!wasChecked);
+    await expect(reloadedSwitch).toHaveAttribute('aria-checked', String(!wasChecked), { timeout: 15_000 });
 
     // Restore
     await reloadedSwitch.click();
-    await waitForClassChange(reloadedSwitch);
+    await expect(reloadedSwitch).toHaveAttribute('aria-checked', String(wasChecked));
   });
 
   // TC-PERSIST-03: promptTimeout InputNumber persists across reload
@@ -118,6 +107,7 @@ test.describe('System Settings Persistence', () => {
           }
           return false;
         },
+        undefined,
         { timeout: 15_000 }
       )
       .catch(() => {});
@@ -132,42 +122,31 @@ test.describe('System Settings Persistence', () => {
     await waitForSettle(page, 500);
   });
 
-  // Known issue: same configService cache consistency problem as TC-PERSIST-02.
-  test.skip('TC-PERSIST-04: notification toggle persists after reload', async ({ page }) => {
-    const collapseHeader = page.locator('.arco-collapse-item-header');
-    await expect(collapseHeader).toBeVisible();
-    const notifSwitch = collapseHeader.locator(ARCO_SWITCH);
+  test('TC-PERSIST-04: notification toggle persists after reload', async ({ page }) => {
+    const notificationName = /^(Notifications|Benachrichtigungen)$/;
+    const cronNotificationName = /^(Scheduled Task Completion|Abschluss geplanter Aufgaben)$/;
+    const notifSwitch = page.getByRole('switch', { name: notificationName });
     await expect(notifSwitch).toBeVisible();
-    const wasChecked = await notifSwitch.evaluate((el) => el.classList.contains('arco-switch-checked'));
+    const wasChecked = (await notifSwitch.getAttribute('aria-checked')) === 'true';
 
     await notifSwitch.click();
-    await waitForClassChange(notifSwitch);
-    expect(await notifSwitch.evaluate((el) => el.classList.contains('arco-switch-checked'))).toBe(!wasChecked);
+    await expect(notifSwitch).toHaveAttribute('aria-checked', String(!wasChecked));
 
     await reloadAndGoToSystem(page);
 
-    const reloadedNotifSwitch = page.locator('.arco-collapse-item-header').locator(ARCO_SWITCH);
+    const reloadedNotifSwitch = page.getByRole('switch', { name: notificationName });
     await expect(reloadedNotifSwitch).toBeVisible();
-    await page.waitForFunction(
-      (expected: boolean) => {
-        const el = document.querySelector('.arco-collapse-item-header .arco-switch');
-        return el?.classList.contains('arco-switch-checked') === expected;
-      },
-      !wasChecked,
-      { timeout: 15_000 }
-    );
-    expect(await reloadedNotifSwitch.evaluate((el) => el.classList.contains('arco-switch-checked'))).toBe(!wasChecked);
+    await expect(reloadedNotifSwitch).toHaveAttribute('aria-checked', String(!wasChecked), { timeout: 15_000 });
 
-    // Verify Collapse expand/collapse matches the switch state
-    const collapseContent = page.locator('.arco-collapse-item-content');
+    const cronNotificationSwitch = page.getByRole('switch', { name: cronNotificationName });
     if (!wasChecked) {
-      await expect(collapseContent).toBeVisible();
+      await expect(cronNotificationSwitch).toBeVisible();
     } else {
-      await expect(collapseContent).not.toBeVisible();
+      await expect(cronNotificationSwitch).toHaveCount(0);
     }
 
     // Restore
     await reloadedNotifSwitch.click();
-    await waitForClassChange(reloadedNotifSwitch);
+    await expect(reloadedNotifSwitch).toHaveAttribute('aria-checked', String(wasChecked));
   });
 });

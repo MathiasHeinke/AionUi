@@ -45,20 +45,7 @@ test.describe('Team Create - Full UI Flow', () => {
 
     // Step 5: Open leader dropdown
     const leaderSelect = modal.locator('[data-testid="team-create-leader-select"]');
-    const hasLeaderSelect = await leaderSelect.isVisible({ timeout: 3_000 }).catch(() => false);
-
-    if (!hasLeaderSelect) {
-      // No supported agents installed — cancel and skip
-      const cancelBtn = modal
-        .locator('.arco-btn')
-        .filter({ hasText: /Cancel|取消|Abbrechen/i })
-        .first();
-      await cancelBtn.click({ force: true }).catch(() => {});
-      console.log('[E2E] No supported agent available for team creation — skipping');
-      test.skip();
-      return;
-    }
-
+    await expect(leaderSelect).toBeVisible({ timeout: 30_000 });
     await leaderSelect.click();
 
     await page.screenshot({ path: 'tests/e2e/results/team-ui-03-dropdown.png' });

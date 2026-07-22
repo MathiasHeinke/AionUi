@@ -10,6 +10,7 @@
  */
 import { test, expect } from '../../fixtures';
 import { goToGuid } from '../../helpers';
+import { openWorkspaceContextPanel } from '../../helpers/workspacePanel';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -35,45 +36,41 @@ test.describe('Preview — file click triggers preview', () => {
     fs.rmSync(workspace, { recursive: true, force: true });
   });
 
-  test('clicking HTML file in workspace tree opens preview panel', async ({ page, electronApp }) => {
+  async function openWorkspaceConversation(page: import('@playwright/test').Page): Promise<void> {
+    await goToGuid(page);
+    await page.evaluate(async (workspacePath) => {
+      const port = (window as Window).__backendPort;
+      if (!port) throw new Error('window.__backendPort is not available');
+      const response = await fetch(`http://127.0.0.1:${port}/api/conversations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'acp',
+          name: `E2E preview conversation ${Date.now()}`,
+          extra: { workspace: workspacePath, custom_workspace: true, backend: 'codex', session_mode: 'full-access' },
+        }),
+      });
+      if (!response.ok) throw new Error(`Conversation create failed (${response.status}): ${await response.text()}`);
+      const result = (await response.json()) as { data?: { id?: string } };
+      const id = result.data?.id;
+      if (!id) throw new Error('Conversation create response did not include an id');
+      window.location.assign(`#/conversation/${id}`);
+    }, workspace);
+    await page.waitForURL(/\/conversation\//, { timeout: 30_000 });
+    await openWorkspaceContextPanel(page);
+  }
+
+  test('clicking HTML file in workspace tree opens preview panel', async ({ page }) => {
     test.setTimeout(120_000);
 
-    await electronApp.evaluate(async ({ dialog }, target) => {
-      dialog.showOpenDialog = () => Promise.resolve({ canceled: false, filePaths: [target] });
-    }, workspace);
-
-    await goToGuid(page);
-
-    const agentPill = page.locator('[data-testid^="agent-pill-"]').first();
-    if (!(await agentPill.isVisible({ timeout: 10_000 }).catch(() => false))) {
-      test.skip(true, 'No agent pills available');
-      return;
-    }
-    await agentPill.click();
-
-    const wsBtn = page.locator('[data-testid="workspace-selector-btn"]');
-    if (await wsBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
-      await wsBtn.click();
-      await page.waitForTimeout(500);
-    }
-
-    const input = page.locator('[data-testid="guid-input"] textarea, [data-testid="guid-input"] input').first();
-    await input.fill('check the HTML file');
-    await page.locator('[data-testid="guid-send-btn"]').click();
-    await page.waitForURL(/\/conversation\//, { timeout: 30_000 });
+    await openWorkspaceConversation(page);
 
     // Wait for workspace panel and file tree
-    const wsPanel = page.locator('.chat-workspace');
-    if (!(await wsPanel.isVisible({ timeout: 30_000 }).catch(() => false))) {
-      test.skip(true, 'Workspace panel not available');
-      return;
-    }
+    const wsPanel = page.locator('.chat-workspace:visible').last();
+    await expect(wsPanel).toBeVisible({ timeout: 30_000 });
 
     const tree = wsPanel.locator('.workspace-tree');
-    if (!(await tree.isVisible({ timeout: 15_000 }).catch(() => false))) {
-      test.skip(true, 'File tree not loaded');
-      return;
-    }
+    await expect(tree).toBeVisible({ timeout: 15_000 });
 
     // Click page.html in the tree → should trigger preview
     const htmlFile = wsPanel.getByText('page.html').first();
@@ -83,11 +80,8 @@ test.describe('Preview — file click triggers preview', () => {
     await page.screenshot({ path: 'tests/e2e/results/preview-conv-01-clicked.png' });
 
     // Preview panel should appear
-    const previewPanel = page.locator('.preview-panel');
-    if (!(await previewPanel.isVisible({ timeout: 15_000 }).catch(() => false))) {
-      test.skip(true, 'Preview panel did not open on file click');
-      return;
-    }
+    const previewPanel = page.locator('.preview-panel:visible').last();
+    await expect(previewPanel).toBeVisible({ timeout: 15_000 });
 
     // Preview should have content (iframe for HTML, or viewer)
     const content = previewPanel.locator('iframe, [class*="viewer"], [class*="editor"], pre, .cm-editor').first();
@@ -95,67 +89,40 @@ test.describe('Preview — file click triggers preview', () => {
 
     await page.screenshot({ path: 'tests/e2e/results/preview-conv-02-preview.png' });
 
-    // Toolbar should have action buttons
-    const downloadBtn = previewPanel.locator('[title*="download"], [title*="Download"], [title*="下载"]').first();
-    const openBtn = previewPanel.locator('[title*="open"], [title*="Open"], [title*="打开"]').first();
-    expect(
-      (await downloadBtn.isVisible().catch(() => false)) || (await openBtn.isVisible().catch(() => false))
-    ).toBeTruthy();
+    // Toolbar actions are exposed through accessible names; title-only English
+    // selectors drifted when the DE shell became the default locale.
+    await expect(
+      previewPanel
+        .getByRole('button', {
+          name: /Datei herunterladen|Download file|In System-App öffnen|Open in system|下载|打开/i,
+        })
+        .first()
+    ).toBeVisible();
   });
 
-  test('clicking markdown file opens preview with rendered content', async ({ page, electronApp }) => {
+  test('clicking markdown file opens preview with rendered content', async ({ page }) => {
     test.setTimeout(120_000);
 
-    await electronApp.evaluate(async ({ dialog }, target) => {
-      dialog.showOpenDialog = () => Promise.resolve({ canceled: false, filePaths: [target] });
-    }, workspace);
+    await openWorkspaceConversation(page);
 
-    await goToGuid(page);
-
-    const agentPill = page.locator('[data-testid^="agent-pill-"]').first();
-    if (!(await agentPill.isVisible({ timeout: 10_000 }).catch(() => false))) {
-      test.skip(true, 'No agent pills available');
-      return;
-    }
-    await agentPill.click();
-
-    const wsBtn = page.locator('[data-testid="workspace-selector-btn"]');
-    if (await wsBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
-      await wsBtn.click();
-      await page.waitForTimeout(500);
-    }
-
-    const input = page.locator('[data-testid="guid-input"] textarea, [data-testid="guid-input"] input').first();
-    await input.fill('read the notes');
-    await page.locator('[data-testid="guid-send-btn"]').click();
-    await page.waitForURL(/\/conversation\//, { timeout: 30_000 });
-
-    const wsPanel = page.locator('.chat-workspace');
-    if (!(await wsPanel.isVisible({ timeout: 30_000 }).catch(() => false))) {
-      test.skip(true, 'Workspace panel not available');
-      return;
-    }
+    const wsPanel = page.locator('.chat-workspace:visible').last();
+    await expect(wsPanel).toBeVisible({ timeout: 30_000 });
 
     const tree = wsPanel.locator('.workspace-tree');
-    if (!(await tree.isVisible({ timeout: 15_000 }).catch(() => false))) {
-      test.skip(true, 'File tree not loaded');
-      return;
-    }
+    await expect(tree).toBeVisible({ timeout: 15_000 });
 
     // Click notes.md
     const mdFile = wsPanel.getByText('notes.md').first();
     await expect(mdFile).toBeVisible({ timeout: 10_000 });
     await mdFile.click();
 
-    const previewPanel = page.locator('.preview-panel');
-    if (!(await previewPanel.isVisible({ timeout: 15_000 }).catch(() => false))) {
-      test.skip(true, 'Preview panel did not open');
-      return;
-    }
+    const previewPanel = page.locator('.preview-panel:visible').last();
+    await expect(previewPanel).toBeVisible({ timeout: 15_000 });
 
-    // Should have rendered markdown content or editor with source
-    const viewer = previewPanel.locator('iframe, [class*="viewer"], .cm-editor, pre').first();
-    await expect(viewer).toBeVisible({ timeout: 10_000 });
+    // Assert the user-visible Markdown result rather than an implementation
+    // class; the current renderer produces semantic HTML directly.
+    await expect(previewPanel.getByRole('heading', { name: 'Preview Test' })).toBeVisible({ timeout: 10_000 });
+    await expect(previewPanel.getByText('Item 1', { exact: true })).toBeVisible({ timeout: 10_000 });
 
     await page.screenshot({ path: 'tests/e2e/results/preview-conv-03-markdown.png' });
   });

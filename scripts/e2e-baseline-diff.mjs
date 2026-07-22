@@ -59,6 +59,7 @@ const DEFAULT_EVIDENCE_DIR = path.resolve(REPO_ROOT, 'test-results', 'command-ev
 const SHA_PATTERN = /^[0-9a-f]{40}$/i;
 const OUTCOMES = ['expected', 'unexpected', 'flaky', 'skipped'];
 const RESULT_STATUSES = ['passed', 'failed', 'timedOut', 'skipped', 'interrupted'];
+const ANONYMOUS_DEFAULT_PROJECT_ID = Symbol('playwright anonymous default project');
 const REQUIRED_METADATA_COUNTS = ['expected', 'unexpected', 'flaky', 'skipped', 'projects', 'specs', 'tests'];
 
 function asObject(value) {
@@ -120,7 +121,19 @@ function canonicalTitle(file, suiteTitles, specTitle) {
   return [normalizeSpecFile(file), ...suiteTitles, String(specTitle || '').trim()].filter(Boolean).join(' >> ');
 }
 
-function collectSuiteInventory(suite, suiteTitles, inventory, isFileSuite) {
+function isAnonymousDefaultProject(projects) {
+  if (!Array.isArray(projects) || projects.length !== 1) return false;
+  const project = asObject(projects[0]);
+  return (
+    Boolean(project) &&
+    Object.prototype.hasOwnProperty.call(project, 'id') &&
+    Object.prototype.hasOwnProperty.call(project, 'name') &&
+    String(project.id) === '' &&
+    String(project.name) === ''
+  );
+}
+
+function collectSuiteInventory(suite, suiteTitles, inventory, isFileSuite, allowAnonymousDefaultProject) {
   const suiteObject = asObject(suite);
   if (!suiteObject) {
     inventory.structuralErrors.push('suite entry is not an object');
@@ -170,9 +183,17 @@ function collectSuiteInventory(suite, suiteTitles, inventory, isFileSuite) {
       }
       inventory.outcomes[outcome] += 1;
 
+      const hasProjectId = Object.prototype.hasOwnProperty.call(testObject, 'projectId');
+      const hasProjectName = Object.prototype.hasOwnProperty.call(testObject, 'projectName');
       const projectId = String(testObject.projectId || '');
-      if (!projectId) inventory.structuralErrors.push(`test is missing projectId: ${title}`);
-      else inventory.testProjectIds.add(projectId);
+      const projectName = String(testObject.projectName || '');
+      if (projectId) {
+        inventory.testProjectIds.add(projectId);
+      } else if (allowAnonymousDefaultProject && hasProjectId && hasProjectName && !projectName) {
+        inventory.testProjectIds.add(ANONYMOUS_DEFAULT_PROJECT_ID);
+      } else {
+        inventory.structuralErrors.push(`test is missing projectId: ${title}`);
+      }
 
       const expectedStatus = String(testObject.expectedStatus || '');
       if (!RESULT_STATUSES.includes(expectedStatus)) {
@@ -214,7 +235,7 @@ function collectSuiteInventory(suite, suiteTitles, inventory, isFileSuite) {
     return;
   }
   for (const child of suiteObject.suites || []) {
-    collectSuiteInventory(child, nestedTitles, inventory, false);
+    collectSuiteInventory(child, nestedTitles, inventory, false, allowAnonymousDefaultProject);
   }
 }
 
@@ -231,7 +252,10 @@ function extractInventory(report) {
     incompleteErrors: [],
     countErrors: [],
   };
-  for (const suite of report.suites) collectSuiteInventory(suite, [], inventory, true);
+  const allowAnonymousDefaultProject = isAnonymousDefaultProject(report.config?.projects);
+  for (const suite of report.suites) {
+    collectSuiteInventory(suite, [], inventory, true, allowAnonymousDefaultProject);
+  }
   return inventory;
 }
 
@@ -293,18 +317,22 @@ function validateReportShape(report) {
 function validateProjects(projects, inventory) {
   const ids = new Set();
   const errors = [];
+  const allowAnonymousDefaultProject = isAnonymousDefaultProject(projects);
   for (const project of projects) {
     const projectObject = asObject(project);
     const id = String(projectObject?.id || '');
-    if (!projectObject || !id) errors.push('Playwright project is missing an id');
+    if (allowAnonymousDefaultProject) ids.add(ANONYMOUS_DEFAULT_PROJECT_ID);
+    else if (!projectObject || !id) errors.push('Playwright project is missing an id');
     else if (ids.has(id)) errors.push(`duplicate Playwright project id: ${id}`);
     else ids.add(id);
   }
   for (const projectId of inventory.testProjectIds) {
-    if (!ids.has(projectId)) errors.push(`test references unknown Playwright project id: ${projectId}`);
+    if (!ids.has(projectId)) errors.push(`test references unknown Playwright project id: ${String(projectId)}`);
   }
   for (const projectId of ids) {
-    if (!inventory.testProjectIds.has(projectId)) errors.push(`Playwright project has no reported tests: ${projectId}`);
+    if (!inventory.testProjectIds.has(projectId)) {
+      errors.push(`Playwright project has no reported tests: ${String(projectId)}`);
+    }
   }
   return errors;
 }

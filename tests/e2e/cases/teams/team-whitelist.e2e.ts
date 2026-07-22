@@ -26,14 +26,12 @@ test.describe('Team Agent Public Boundary', () => {
 
     const modal = page.locator('.team-create-modal');
     const leaderSelect = modal.locator('[data-testid="team-create-leader-select"]');
-    const hasLeaderSelect = await leaderSelect.isVisible({ timeout: 5000 }).catch(() => false);
-
-    if (!hasLeaderSelect) {
-      test.skip(true, 'Command EVE team leader is not available in this E2E environment');
-      return;
-    }
-
-    await expect(leaderSelect).toBeVisible({ timeout: 5000 });
+    // A pristine profile may still be installing and seeding the bundled EVE
+    // runtime. The product now refreshes this modal after that idempotent seed;
+    // wait for the real public leader instead of converting a boot race into an
+    // approved skip. Fresh-install boots are bounded to three minutes by the
+    // shared Electron fixture as well.
+    await expect(leaderSelect).toBeVisible({ timeout: 180_000 });
     await leaderSelect.click();
 
     const allOptions = page.locator('[data-testid^="team-create-agent-option-"]');

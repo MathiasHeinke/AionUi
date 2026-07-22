@@ -159,8 +159,10 @@ import electronSquirrelStartup from 'electron-squirrel-startup';
 // set it, so resolution fell through to `process.cwd()/public` — which is '/'
 // for a Finder launch, where no key exists. Point the resolver at the real
 // resources root so BOTH trusted keys load and server-minted (SaaS) CEVE.v1
-// codes verify offline. Dev (app.isPackaged === false) keeps the cwd/public path.
-if (app.isPackaged && !process.env.COMMAND_EVE_RESOURCES_PATH) {
+// codes verify offline. Overwrite any ambient value unconditionally: a signed
+// build must never accept a caller-selected key directory. Dev
+// (app.isPackaged === false) keeps the cwd/public path and test seams.
+if (app.isPackaged) {
   process.env.COMMAND_EVE_RESOURCES_PATH = process.resourcesPath;
 }
 

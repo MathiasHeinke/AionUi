@@ -1000,6 +1000,21 @@ describe('getEntitlementStatus', () => {
     expect(status.state).toBe('unregistered');
   });
 
+  it('keeps the registration gate required in a packaged runtime even when the dev flag is OFF', () => {
+    const root = makeRoot();
+    const { publicKeyPem } = makeKeypair();
+    const options = optionsFor(root, publicKeyPem, {
+      COMMAND_EVE_REGISTRATION_REQUIRED: 'false',
+      COMMAND_EVE_RESOURCES_PATH: root,
+    });
+    const status = getEntitlementStatus(options);
+    expect(status.required).toBe(true);
+    // The env key is ignored as well in packaged mode, so a test-only key can
+    // never turn this into an entitled/unregistered production gate.
+    expect(status.state).toBe('unconfigured');
+    expect(status.ok).toBe(false);
+  });
+
   it('accepts a public key supplied as a file path via env (W12 injection seam)', () => {
     const root = makeRoot();
     const { publicKeyPem } = makeKeypair();
@@ -1061,6 +1076,22 @@ describe('multi-key resolution + activation', () => {
     const result = activateEntitlement({ code: signCode(privateKey, validPayload()) }, options);
     expect(result.ok).toBe(true);
     expect(result.record?.issuer).toBe('env');
+  });
+
+  it('ignores an env key in a packaged runtime and trusts only bundled signed resources', () => {
+    const root = makeRoot();
+    const founder = makeKeypair();
+    const attacker = makeKeypair();
+    fs.writeFileSync(path.join(root, FOUNDER_FILE), founder.publicKeyPem);
+    const options = optionsFor(root, attacker.publicKeyPem, { COMMAND_EVE_RESOURCES_PATH: root });
+
+    const entries = resolveLicensePublicKeyEntries(options);
+    expect(entries.map((entry) => entry.issuer)).toEqual(['founder']);
+
+    register(options);
+    const rejected = activateEntitlement({ code: signCode(attacker.privateKey, validPayload()) }, options);
+    expect(rejected.ok).toBe(false);
+    expect(rejected.reason_code).toBe('LICENSE_SIGNATURE_INVALID');
   });
 
   it('bundled founder + server keys: a server-signed code verifies (issuer = server)', () => {

@@ -30,6 +30,8 @@ const LanguageSwitcher: React.FC = () => {
   return (
     <div className='flex items-center gap-8px'>
       <AionSelect ref={selectRef} className='w-160px' value={i18n.language} onChange={handleLanguageChange}>
+        <AionSelect.Option value='de-DE'>Deutsch</AionSelect.Option>
+        <AionSelect.Option value='en-US'>English</AionSelect.Option>
         <AionSelect.Option value='zh-CN'>简体中文</AionSelect.Option>
         <AionSelect.Option value='zh-TW'>繁體中文</AionSelect.Option>
         <AionSelect.Option value='ja-JP'>日本語</AionSelect.Option>
@@ -37,7 +39,6 @@ const LanguageSwitcher: React.FC = () => {
         <AionSelect.Option value='tr-TR'>Türkçe</AionSelect.Option>
         <AionSelect.Option value='ru-RU'>Русский</AionSelect.Option>
         <AionSelect.Option value='uk-UA'>Українська</AionSelect.Option>
-        <AionSelect.Option value='en-US'>English</AionSelect.Option>
       </AionSelect>
     </div>
   );

@@ -624,7 +624,6 @@ const RegistrationGatePage: React.FC<RegistrationGatePageProps> = ({ status, onE
         {isUnconfigured ? (
           <div className='registration-gate__form' data-testid='registration-gate-unconfigured'>
             <p className='registration-gate__subtitle'>{t('registrationGate.unconfigured.description')}</p>
-            <p className='registration-gate__hint'>{t('registrationGate.unconfigured.fallbackHint')}</p>
           </div>
         ) : step === 'auth' ? (
           <form

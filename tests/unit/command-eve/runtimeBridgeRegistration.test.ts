@@ -4,6 +4,17 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 describe('Command EVE runtime bridge registration', () => {
+  it('pins packaged license-key resolution to Electron signed resources unconditionally', () => {
+    const source = fs.readFileSync(path.resolve(__dirname, '../../../packages/desktop/src/index.ts'), 'utf8');
+    const markerStart = source.indexOf('// ============ Command EVE license-key resolution');
+    const markerEnd = source.indexOf('// ============ Single Instance Lock', markerStart);
+    const markerSource = source.slice(markerStart, markerEnd);
+
+    expect(markerSource).toContain('if (app.isPackaged) {');
+    expect(markerSource).toContain('process.env.COMMAND_EVE_RESOURCES_PATH = process.resourcesPath;');
+    expect(markerSource).not.toContain('app.isPackaged && !process.env.COMMAND_EVE_RESOURCES_PATH');
+  });
+
   it('registers every renderer-declared runtime provider in the active app entrypoint', () => {
     const source = fs.readFileSync(path.resolve(__dirname, '../../../packages/desktop/src/index.ts'), 'utf8');
     for (const provider of [

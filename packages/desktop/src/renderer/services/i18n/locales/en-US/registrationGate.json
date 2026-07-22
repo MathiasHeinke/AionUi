@@ -104,8 +104,7 @@
   },
   "unconfigured": {
     "title": "Activation unavailable",
-    "description": "This build cannot verify license codes because no verification key is configured. Contact the Command EVE team, or start the app with the pilot fallback flag.",
-    "fallbackHint": "Pilot fallback: set COMMAND_EVE_REGISTRATION_REQUIRED=0 to bypass the gate."
+    "description": "This build cannot verify license codes because it contains no valid verification key. Contact the Command EVE team."
   },
   "error": {
     "title": "Activation check failed",

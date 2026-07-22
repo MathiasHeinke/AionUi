@@ -6,6 +6,7 @@
  */
 import { test, expect } from '../../fixtures';
 import { goToGuid } from '../../helpers';
+import { openWorkspaceContextPanel } from '../../helpers/workspacePanel';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -24,65 +25,61 @@ test.describe('Preview — history and view toggle', () => {
   });
 
   /** Create conversation with workspace, click a file, return preview panel or null. */
-  async function openPreviewViaFileClick(
-    page: import('@playwright/test').Page,
-    electronApp: import('@playwright/test').ElectronApplication,
-    fileName: string
-  ) {
-    await electronApp.evaluate(async ({ dialog }, target) => {
-      dialog.showOpenDialog = () => Promise.resolve({ canceled: false, filePaths: [target] });
-    }, workspace);
-
+  async function openPreviewViaFileClick(page: import('@playwright/test').Page, fileName: string) {
     await goToGuid(page);
 
-    const agentPill = page.locator('[data-testid^="agent-pill-"]').first();
-    if (!(await agentPill.isVisible({ timeout: 10_000 }).catch(() => false))) return null;
-    await agentPill.click();
-
-    const wsBtn = page.locator('[data-testid="workspace-selector-btn"]');
-    if (await wsBtn.isVisible({ timeout: 5_000 }).catch(() => false)) {
-      await wsBtn.click();
-      await page.waitForTimeout(500);
-    }
-
-    const input = page.locator('[data-testid="guid-input"] textarea, [data-testid="guid-input"] input').first();
-    await input.fill('review the files');
-    await page.locator('[data-testid="guid-send-btn"]').click();
+    // 1.8.11 removed the guid workspace picker from the public shell. Seed the
+    // workspace through the same local conversations API used by the current
+    // workspace specs; no installed raw-agent pill or LLM response is required.
+    await page.evaluate(async (workspacePath) => {
+      const port = (window as Window).__backendPort;
+      if (!port) throw new Error('window.__backendPort is not available');
+      const response = await fetch(`http://127.0.0.1:${port}/api/conversations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'acp',
+          name: `E2E preview history ${Date.now()}`,
+          extra: { workspace: workspacePath, custom_workspace: true, backend: 'codex', session_mode: 'full-access' },
+        }),
+      });
+      if (!response.ok) throw new Error(`Conversation create failed (${response.status}): ${await response.text()}`);
+      const result = (await response.json()) as { data?: { id?: string } };
+      const id = result.data?.id;
+      if (!id) throw new Error('Conversation create response did not include an id');
+      window.location.assign(`#/conversation/${id}`);
+    }, workspace);
     await page.waitForURL(/\/conversation\//, { timeout: 30_000 });
 
-    const wsPanel = page.locator('.chat-workspace');
-    if (!(await wsPanel.isVisible({ timeout: 30_000 }).catch(() => false))) return null;
+    await openWorkspaceContextPanel(page);
+
+    const wsPanel = page.locator('.chat-workspace:visible').last();
+    await expect(wsPanel).toBeVisible({ timeout: 30_000 });
 
     const tree = wsPanel.locator('.workspace-tree');
-    if (!(await tree.isVisible({ timeout: 15_000 }).catch(() => false))) return null;
+    await expect(tree).toBeVisible({ timeout: 15_000 });
 
     const fileNode = wsPanel.getByText(fileName).first();
-    if (!(await fileNode.isVisible({ timeout: 10_000 }).catch(() => false))) return null;
+    await expect(fileNode).toBeVisible({ timeout: 10_000 });
     await fileNode.click();
 
-    const previewPanel = page.locator('.preview-panel');
-    if (!(await previewPanel.isVisible({ timeout: 15_000 }).catch(() => false))) return null;
+    const previewPanel = page.locator('.preview-panel:visible').last();
+    await expect(previewPanel).toBeVisible({ timeout: 15_000 });
 
     return previewPanel;
   }
 
-  test('Editor/Preview toggle switches view mode', async ({ page, electronApp }) => {
+  test('Editor/Preview toggle switches view mode', async ({ page }) => {
     test.setTimeout(120_000);
 
-    const panel = await openPreviewViaFileClick(page, electronApp, 'app.html');
-    if (!panel) {
-      test.skip(true, 'Preview panel not available');
-      return;
-    }
+    const panel = await openPreviewViaFileClick(page, 'app.html');
 
-    // Find Editor and Preview toggle text spans
-    const editorToggle = panel.getByText(/^Editor$|^编辑器$/).first();
-    const previewToggle = panel.getByText(/^Preview$|^预览$/).first();
+    // The current DE/EN shell exposes these as accessible tabs (Code/Quelle
+    // and Vorschau/Preview), not the old free-text "Editor" labels.
+    const editorToggle = panel.getByRole('tab', { name: /^(Code|Quelle|Source|Editor|编辑器)$/i }).first();
+    const previewToggle = panel.getByRole('tab', { name: /^(Vorschau|Preview|预览)$/i }).first();
 
-    if (!(await editorToggle.isVisible({ timeout: 5_000 }).catch(() => false))) {
-      test.skip(true, 'View mode toggle not available for this file type');
-      return;
-    }
+    await expect(editorToggle).toBeVisible({ timeout: 5_000 });
 
     // Switch to Editor mode
     await editorToggle.click();
@@ -108,43 +105,15 @@ test.describe('Preview — history and view toggle', () => {
     }
   });
 
-  test('history dropdown opens and shows version list', async ({ page, electronApp }) => {
+  test('snapshot and history controls stay hidden while the product flag is off', async ({ page }) => {
     test.setTimeout(120_000);
 
-    const panel = await openPreviewViaFileClick(page, electronApp, 'app.html');
-    if (!panel) {
-      test.skip(true, 'Preview panel not available');
-      return;
-    }
+    const panel = await openPreviewViaFileClick(page, 'app.html');
 
-    // Find history button by title (i18n: "历史版本" or "History versions")
-    const historyBtn = panel
-      .locator('[title*="history"], [title*="History"], [title*="版本"], [title*="历史"]')
-      .first();
-
-    if (!(await historyBtn.isVisible({ timeout: 5_000 }).catch(() => false))) {
-      test.skip(true, 'History button not visible in toolbar');
-      return;
-    }
-
-    await historyBtn.click();
-    await page.screenshot({ path: 'tests/e2e/results/preview-hist-03-dropdown.png' });
-
-    // Dropdown should appear with either entries or "no history" message
-    const dropdown = page.locator('.arco-trigger-popup, .arco-dropdown, .arco-popover').last();
-    const dropdownVisible = await dropdown.isVisible({ timeout: 5_000 }).catch(() => false);
-
-    if (dropdownVisible) {
-      // Should show either version entries or empty state text
-      const hasEntries = await dropdown.locator('[class*="item"]').count();
-      const hasEmptyText = await dropdown
-        .getByText(/no history|暂无|没有/i)
-        .isVisible()
-        .catch(() => false);
-      expect(hasEntries > 0 || hasEmptyText).toBeTruthy();
-    }
-
-    // Dismiss
-    await page.keyboard.press('Escape');
+    // PreviewToolbar intentionally keeps SHOW_SNAPSHOT_HISTORY=false. Pin the
+    // public contract instead of silently skipping a control that is not meant
+    // to ship in 1.818.
+    await expect(panel.getByRole('button', { name: /history|verlauf|版本|历史/i })).toHaveCount(0);
+    await expect(panel.getByRole('button', { name: /snapshot|schnappschuss|快照/i })).toHaveCount(0);
   });
 });

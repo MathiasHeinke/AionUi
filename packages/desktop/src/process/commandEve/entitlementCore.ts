@@ -32,9 +32,9 @@
  * Public-key resolution (1.1.0 multi-key): a verification accepts a code signed
  * by ANY trusted key. Resolution returns an ORDERED LIST of PEMs and the first
  * key whose signature verifies wins:
- *   - env COMMAND_EVE_LICENSE_PUBLIC_KEY (PEM string OR a file path — detected;
- *     may now hold MULTIPLE concatenated PEM blocks, each split into one entry)
- *     takes priority and REPLACES the bundled list when set (W12/pilot override);
+ *   - in development only, env COMMAND_EVE_LICENSE_PUBLIC_KEY (PEM string OR a
+ *     file path — detected; may hold MULTIPLE concatenated PEM blocks) takes
+ *     priority and REPLACES the bundled list when set (W12 test seam);
  *   - otherwise the bundled list = `public/command-eve-license-public-key.pem`
  *     (founder, offline key) + `public/command-eve-license-public-key-server.pem`
  *     (server key the SaaS backend mints with — OPTIONAL: an absent file is just
@@ -180,8 +180,7 @@ export interface CommandEveLicenseKeyEntry {
 }
 
 export type VerifyLicenseCodeResult =
-  | { ok: true; payload: CommandEveLicensePayload }
-  | { ok: false; reason_code: CommandEveLicenseReasonCode };
+  { ok: true; payload: CommandEveLicensePayload } | { ok: false; reason_code: CommandEveLicenseReasonCode };
 
 /** Multi-key verify result: on success, also records WHICH key verified. */
 export type VerifyLicenseCodeMultiResult =
@@ -542,11 +541,7 @@ export interface CommandEveEntitlementRecord {
 }
 
 export type CommandEveEntitlementGateState =
-  | 'unconfigured'
-  | 'unregistered'
-  | 'registered_unlicensed'
-  | 'entitled'
-  | 'expired';
+  'unconfigured' | 'unregistered' | 'registered_unlicensed' | 'entitled' | 'expired';
 
 export interface CommandEveEntitlementStatusResult {
   version: typeof COMMAND_EVE_ENTITLEMENT_BRIDGE_VERSION;
@@ -677,6 +672,11 @@ function readEntitlement(userDataPath: string): CommandEveEntitlementRecord | nu
 // ---------------------------------------------------------------------------
 
 export function isRegistrationRequired(env: NodeJS.ProcessEnv = process.env): boolean {
+  // `src/index.ts` always publishes the real resources root before any bridge is
+  // initialized in a packaged Electron app. Treat that internal marker as the
+  // trust boundary: end-user environment variables may tune DEV/E2E, but can
+  // never turn off the production entitlement gate.
+  if (isNonEmptyString(env.COMMAND_EVE_RESOURCES_PATH)) return true;
   const raw = env[REGISTRATION_REQUIRED_FLAG];
   if (raw === undefined || raw === '') return REGISTRATION_REQUIRED_DEFAULT;
   const normalized = String(raw).trim().toLowerCase();
@@ -761,7 +761,11 @@ function readPemFileBlocks(filePath: string): string[] {
  */
 export function resolveLicensePublicKeyEntries(options: CommandEveEntitlementOptions): CommandEveLicenseKeyEntry[] {
   const env = options.env ?? process.env;
-  const fromEnv = env[PUBLIC_KEY_ENV];
+  // The packaged app must trust only keys shipped inside its signed bundle. The
+  // resources marker is installed by `src/index.ts` from Electron's immutable
+  // `process.resourcesPath`; the env override remains available solely to the
+  // development and E2E harnesses that pre-date the public release.
+  const fromEnv = isNonEmptyString(env.COMMAND_EVE_RESOURCES_PATH) ? undefined : env[PUBLIC_KEY_ENV];
 
   // Env override REPLACES the bundled list when set (and parseable).
   if (isNonEmptyString(fromEnv)) {
@@ -1167,7 +1171,7 @@ export function getEntitlementStatus(options: CommandEveEntitlementOptions): Com
       required: true,
       state: 'unconfigured',
       message:
-        'License verification is unconfigured: no public key is available. Contact the operator / use the pilot fallback flag.',
+        'License verification is unconfigured: no bundled public key is available. Contact the Command EVE team.',
       ...(registration ? { tenant_id: registration.tenant_id } : {}),
     };
   }

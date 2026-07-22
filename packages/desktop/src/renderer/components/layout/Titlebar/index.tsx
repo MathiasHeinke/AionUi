@@ -346,7 +346,7 @@ const Titlebar: React.FC<TitlebarProps> = ({ workspaceAvailable }) => {
           <CreditMeterBadge onOpenBilling={() => void navigate('/settings/billing')} />
         )}
         {/* Account avatar (desktop only). Opens the Account settings panel. */}
-        {!COMMAND_EVE_SHELL_ENABLED && isDesktopRuntime && !layout?.isMobile && (
+        {isDesktopRuntime && !layout?.isMobile && (
           <ProfileAvatar onOpenAccount={() => void navigate('/settings/account')} />
         )}
         {showWorkspaceButton && (

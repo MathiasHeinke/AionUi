@@ -192,6 +192,48 @@ describe('e2e-baseline-diff comparator', () => {
     expect(result.receipt.new_failures).toEqual([]);
   });
 
+  it("accepts Playwright's explicit empty identity for one anonymous default project", () => {
+    const report = makeReport([{ title: 'healthy test' }]);
+    report.config.projects[0] = { id: '', name: '' };
+    report.suites[0].specs[0].tests[0].projectId = '';
+    report.suites[0].specs[0].tests[0].projectName = '';
+    const result = runComparator({ report, metadata: makeMetadata(report) });
+    expect(result.status).toBe(0);
+    expect(result.receipt.status).toBe('PASS');
+    expect(result.receipt.counts).toMatchObject({ projects: 1, specs: 1, tests: 1 });
+  });
+
+  it('blocks an empty test project id when more than one project is configured', () => {
+    const report = makeReport([{ title: 'healthy test' }]);
+    report.config.projects[0] = { id: '', name: '' };
+    report.config.projects.push({ id: 'electron', name: 'electron' });
+    report.suites[0].specs[0].tests[0].projectId = '';
+    report.suites[0].specs[0].tests[0].projectName = '';
+    const result = runComparator({ report, metadata: makeMetadata(report) });
+    expect(result.status).toBe(3);
+    expect(result.receipt.status).toBe('BLOCKED_REPORT_MALFORMED');
+  });
+
+  it('blocks a missing projectId property even for one anonymous default project', () => {
+    const report = makeReport([{ title: 'healthy test' }]);
+    report.config.projects[0] = { id: '', name: '' };
+    report.suites[0].specs[0].tests[0].projectName = '';
+    delete (report.suites[0].specs[0].tests[0] as Partial<(typeof report.suites)[0]['specs'][0]['tests'][0]>).projectId;
+    const result = runComparator({ report, metadata: makeMetadata(report) });
+    expect(result.status).toBe(3);
+    expect(result.receipt.status).toBe('BLOCKED_REPORT_MALFORMED');
+  });
+
+  it('blocks a test that references an unknown project id', () => {
+    const report = makeReport([{ title: 'healthy test' }]);
+    report.suites[0].specs[0].tests[0].projectId = 'unknown-project';
+    report.suites[0].specs[0].tests[0].projectName = 'unknown-project';
+    const result = runComparator({ report, metadata: makeMetadata(report) });
+    expect(result.status).toBe(8);
+    expect(result.receipt.status).toBe('BLOCKED_COUNT_MISMATCH');
+    expect(result.receipt.errors).toContain('test references unknown Playwright project id: unknown-project');
+  });
+
   it('accepts a complete report whose only failure is effectively pinned', () => {
     const result = runComparator({
       report: makeReport([{ title: 'pinned failure', outcome: 'unexpected' }]),

@@ -13,6 +13,13 @@ type ModalHandles = {
 };
 
 async function openCreateModal(page: import('@playwright/test').Page): Promise<ModalHandles> {
+  // The Electron app is reused by this serial harness. A preceding failed
+  // assertion must not leave a modal intercepting the next test's click.
+  const existingModal = page.locator('.team-create-modal').first();
+  if (await existingModal.isVisible().catch(() => false)) {
+    await closeModal(page);
+  }
+
   const createBtn = page.locator('[data-testid="team-create-btn"]').first();
   await expect(createBtn).toBeVisible({ timeout: 10_000 });
   await createBtn.click();

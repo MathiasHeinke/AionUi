@@ -104,8 +104,7 @@
   },
   "unconfigured": {
     "title": "Aktivierung nicht verfügbar",
-    "description": "Dieser Build kann keine Lizenzcodes prüfen, weil kein Prüfschlüssel konfiguriert ist. Bitte wende dich an das Command-EVE-Team oder starte die App mit dem Pilot-Fallback-Flag.",
-    "fallbackHint": "Pilot-Fallback: Setze COMMAND_EVE_REGISTRATION_REQUIRED=0, um das Gate zu umgehen."
+    "description": "Dieser Build kann keine Lizenzcodes prüfen, weil kein gültiger Prüfschlüssel enthalten ist. Bitte wende dich an das Command-EVE-Team."
   },
   "error": {
     "title": "Aktivierungsprüfung fehlgeschlagen",

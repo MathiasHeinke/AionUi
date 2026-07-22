@@ -49,14 +49,11 @@ test.describe('Team Create', () => {
     const nameInput = modal.locator('[data-testid="team-create-name-input"]');
     await expect(nameInput).toBeVisible();
 
-    // Verify the leader AionSelect trigger exists (agent picker is a searchable dropdown)
+    // The public Command EVE leader is seeded on demand when the modal opens.
+    // Wait fail-closed for the real picker instead of treating the transient
+    // preparation state as an unavailable-agent boundary.
     const leaderSelect = page.locator('[data-testid="team-create-leader-select"]');
-    const noAgentsMsg = page
-      .locator('.team-create-modal')
-      .getByText(/No supported agents installed|没有支持的 agent|Keine.*Agent/i);
-    const hasSelect = await leaderSelect.isVisible({ timeout: 3000 }).catch(() => false);
-    const hasNoAgentsMsg = await noAgentsMsg.isVisible({ timeout: 1000 }).catch(() => false);
-    expect(hasSelect || hasNoAgentsMsg).toBeTruthy();
+    await expect(leaderSelect).toBeVisible({ timeout: 30_000 });
 
     // Verify Create button exists (disabled until agent is selected and name is filled)
     const confirmBtn = page.locator('.team-create-modal .arco-btn-primary');
@@ -84,54 +81,45 @@ test.describe('Team Create', () => {
 
     // Open the leader picker. The current UI renders a radio-list, not a dropdown.
     const leaderSelect = modal.locator('[data-testid="team-create-leader-select"]');
-    const hasSelect = await leaderSelect.isVisible({ timeout: 3000 }).catch(() => false);
+    await expect(leaderSelect).toBeVisible({ timeout: 30_000 });
 
     // Screenshot: select trigger visible
     await page.screenshot({ path: 'tests/e2e/results/team-03-agent-dropdown.png' });
 
-    if (hasSelect) {
-      await leaderSelect.click();
+    await leaderSelect.click();
 
-      // Options are portaled to document.body — query at page scope
-      const firstOption = page.locator('[data-testid^="team-create-agent-option-"]').first();
-      await expect(firstOption).toBeVisible({ timeout: 5000 });
-      await firstOption.click();
+    // Options are portaled to document.body — query at page scope
+    const firstOption = page.locator('[data-testid^="team-create-agent-option-"]').first();
+    await expect(firstOption).toBeVisible({ timeout: 5000 });
+    await firstOption.click();
 
-      // Wait for select value to reflect the chosen option (Create btn becomes enabled)
-      const confirmBtn = page.locator('.team-create-modal .arco-btn-primary');
-      await expect(confirmBtn).toBeEnabled({ timeout: 5000 });
+    // Wait for select value to reflect the chosen option (Create btn becomes enabled)
+    const confirmBtn = page.locator('.team-create-modal .arco-btn-primary');
+    await expect(confirmBtn).toBeEnabled({ timeout: 5000 });
 
-      // Screenshot: form filled
-      await page.screenshot({ path: 'tests/e2e/results/team-04-filled.png' });
+    // Screenshot: form filled
+    await page.screenshot({ path: 'tests/e2e/results/team-04-filled.png' });
 
-      // Click Create and wait for navigation
-      await confirmBtn.click();
-      await page.waitForFunction(() => /^#\/team\/[^/?#]+/.test(window.location.hash), undefined, { timeout: 15000 });
+    // Click Create and wait for navigation
+    await confirmBtn.click();
+    await page.waitForFunction(() => /^#\/team\/[^/?#]+/.test(window.location.hash), undefined, { timeout: 15000 });
 
-      // Screenshot: after creation
-      await page.screenshot({ path: 'tests/e2e/results/team-05-created.png' });
+    // Screenshot: after creation
+    await page.screenshot({ path: 'tests/e2e/results/team-05-created.png' });
 
-      // Verify team name appears in sidebar
-      const teamName = page.locator('text=E2E Test Team');
-      await expect(teamName.first()).toBeVisible({ timeout: 10000 });
+    // Verify team name appears in sidebar
+    const teamName = page.locator('text=E2E Test Team');
+    await expect(teamName.first()).toBeVisible({ timeout: 10000 });
 
-      // cleanup: remove the team we just created to avoid polluting later tests
-      await cleanupTeamsByName(page, 'E2E Test Team');
-    } else {
-      // No supported agents installed — screenshot and skip
-      await page.screenshot({ path: 'tests/e2e/results/team-03-no-agents.png' });
-      await modal.getByTestId('team-create-cancel').click();
-      await expect(modal).toBeHidden({ timeout: 5000 });
-      console.log('[E2E] No supported agents available for team creation');
-      test.skip();
-    }
+    // cleanup: remove the team we just created to avoid polluting later tests
+    await cleanupTeamsByName(page, 'E2E Test Team');
   });
 });
 
 /**
  * Helper: open the Create Team modal, fill a team name, select the agent whose
  * option text matches `agentTextPattern`, click Create, and verify the team
- * was created. Skips gracefully if the agent is not installed.
+ * was created. Public Command EVE availability is a fail-closed invariant.
  */
 async function createTeamWithAgent(
   page: import('@playwright/test').Page,
@@ -155,16 +143,7 @@ async function createTeamWithAgent(
 
   // Open the leader picker. The current UI renders a radio-list, not a dropdown.
   const leaderSelect = modal.locator('[data-testid="team-create-leader-select"]');
-  const hasLeaderSelect = await leaderSelect.isVisible({ timeout: 3000 }).catch(() => false);
-  if (!hasLeaderSelect) {
-    const noAgentsMessage = modal.getByText(/No supported agents installed|没有支持的 agent|Keine.*Agent/i);
-    await expect(noAgentsMessage).toBeVisible({ timeout: 3000 });
-    await modal.getByTestId('team-create-cancel').click();
-    await expect(modal).toBeHidden({ timeout: 5000 });
-    console.log('[E2E] No supported agents available for whitelisted leader test — skipping');
-    test.skip();
-    return;
-  }
+  await expect(leaderSelect).toBeVisible({ timeout: 30_000 });
   await leaderSelect.click();
 
   await page.screenshot({ path: `tests/e2e/results/${screenshotPrefix}-dropdown.png` });
@@ -187,13 +166,7 @@ async function createTeamWithAgent(
   }
 
   if (!matchingOption) {
-    // Agent not installed — close dropdown and modal, skip test
-    await page.keyboard.press('Escape').catch(() => {});
-    await modal.getByTestId('team-create-cancel').click({ force: true });
-    await expect(modal).toBeHidden({ timeout: 5000 });
-    console.log(`[E2E] Agent matching ${agentTextPattern} not found — skipping`);
-    test.skip();
-    return;
+    throw new Error(`Public team leader matching ${agentTextPattern} was not rendered`);
   }
 
   await matchingOption.click();

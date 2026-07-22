@@ -42,7 +42,10 @@ test.describe('Team Member Ops', () => {
     await firstTab.dblclick();
 
     // An input should appear inside the tab
-    const renameInput = firstTab.locator('input');
+    // Editing replaces the labelled tab button entirely. Resolve the input
+    // from the stable tab bar after the double-click instead of chaining from
+    // the button that is intentionally no longer in the DOM.
+    const renameInput = tabBar.locator('input').first();
     await expect(renameInput).toBeVisible({ timeout: 5_000 });
 
     await page.screenshot({ path: 'tests/e2e/results/member-ops-02-editing.png' });

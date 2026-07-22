@@ -21,7 +21,9 @@ const BACKEND_UI_PATTERN: Record<string, RegExp> = {
  * /api/teams would bypass this, leaving the sidebar empty under Playwright
  * Electron (see mnemo #269).
  *
- * Throws if no supported backend is available — callers should skip the test.
+ * The public Command EVE leader is a bundled product invariant. A standard
+ * release run therefore waits fail-closed for the on-demand seed instead of
+ * converting a fresh-install race into an environment skip.
  */
 export async function createTeam(page: Page, name: string, leaderType?: string): Promise<string> {
   if (TEAM_SUPPORTED_BACKENDS.size === 0) {
@@ -42,11 +44,7 @@ export async function createTeam(page: Page, name: string, leaderType?: string):
   await nameInput.fill(name);
 
   const leaderSelect = modal.locator('[data-testid="team-create-leader-select"]');
-  const hasLeaderSelect = await leaderSelect.isVisible({ timeout: 3_000 }).catch(() => false);
-  if (!hasLeaderSelect) {
-    await closeModal(page, modal);
-    throw new Error('No supported agents installed — skip this test');
-  }
+  await expect(leaderSelect).toBeVisible({ timeout: 30_000 });
 
   const option = await pickLeaderOption(page, leaderType ?? TEAM_PUBLIC_LEADER_TYPE);
   if (!option) {
@@ -75,11 +73,10 @@ export async function createTeam(page: Page, name: string, leaderType?: string):
  * Sandbox-aware team spawn for specs that create real ACP agents.
  *
  * createTeam drives the UI create flow, which spawns a leader ACP agent. In
- * the E2E sandbox (and on machines without agent CLIs) no supported backend is
- * installed — createTeam then THROWS ("No supported agents installed — skip
- * this test"), which Playwright records as a FAILURE. That is an environment
- * condition, not a product defect, so sandboxed runs must SKIP cleanly instead
- * (1.818 C4 harness finding: skip-throw instead of clean skip in teams specs).
+ * Explicit harness configurations can still remove every allowed public
+ * backend. That is an environment condition and remains a clean skip. Once a
+ * public backend is configured, however, a missing Command EVE leader is a
+ * product/bootstrap failure and must stay loud.
  *
  * This helper routes the spawn through the established skip pattern from
  * team-member-init-failure.e2e.ts: known unavailability errors become
@@ -93,7 +90,7 @@ export async function createTeamOrSkip(page: Page, name: string, leaderType?: st
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (
-      /No supported (team )?backends? available|No supported agents installed|No agent option matched/i.test(message)
+      /No supported (team )?backends? available|No agent option matched/i.test(message)
     ) {
       test.skip(true, `Team "${name}" could not be created in this sandbox: ${message}`);
       return null;

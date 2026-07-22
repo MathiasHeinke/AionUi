@@ -1,12 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Form, Input, Message } from '@arco-design/web-react';
+import { Button, Form, Input, Message, Spin } from '@arco-design/web-react';
 import type { RefInputType } from '@arco-design/web-react/es/Input/interface';
 import { Close } from '@icon-park/react';
 import { useTranslation } from 'react-i18next';
+import { useSWRConfig } from 'swr';
 import { ipcBridge } from '@/common';
 import type { TTeam, TeamAgent } from '@/common/types/team/teamTypes';
+import type { Assistant } from '@/common/types/agent/assistantTypes';
 import { useAuth } from '@renderer/hooks/context/AuthContext';
 import { useConversationAgents } from '@renderer/pages/conversation/hooks/useConversationAgents';
+import { DETECTED_AGENTS_SWR_KEY } from '@renderer/utils/model/agentTypes';
 import AionModal from '@renderer/components/base/AionModal';
 import { WorkspaceFolderSelect } from '@renderer/components/workspace';
 import { getConversationCreateErrorMessage } from '@renderer/pages/conversation/utils/conversationCreateError';
@@ -65,12 +68,15 @@ const AgentRadioRow: React.FC<{
 
 const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
   const { t } = useTranslation();
+  const { mutate: mutateSWR } = useSWRConfig();
   const { user } = useAuth();
-  const { cliAgents, presetAssistants } = useConversationAgents();
+  const { cliAgents, presetAssistants, isLoading: agentsLoading } = useConversationAgents();
   const [name, setName] = useState('');
   const [dispatchAgentKey, setDispatchAgentKey] = useState<string | undefined>(undefined);
   const [workspace, setWorkspace] = useState('');
   const [loading, setLoading] = useState(false);
+  const [assistantRefreshInFlight, setAssistantRefreshInFlight] = useState(false);
+  const [freshPresetAssistants, setFreshPresetAssistants] = useState<Assistant[] | null>(null);
   const nameInputRef = useRef<RefInputType | null>(null);
 
   const cliAgentOptions = useMemo(() => cliAgents.map(cliAgentToOption), [cliAgents]);
@@ -84,8 +90,8 @@ const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
     [cliAgents]
   );
   const presetAssistantOptions = useMemo(
-    () => presetAssistants.map((a) => assistantToOption(a, teamCapableKeys)),
-    [presetAssistants, teamCapableKeys]
+    () => (freshPresetAssistants ?? presetAssistants).map((a) => assistantToOption(a, teamCapableKeys)),
+    [freshPresetAssistants, presetAssistants, teamCapableKeys]
   );
   const allAgents = useMemo(
     () => filterUserVisibleTeamLeaderAgents([...cliAgentOptions, ...presetAssistantOptions]),
@@ -97,6 +103,39 @@ const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
       setTimeout(() => nameInputRef.current?.focus(), 50);
     }
   }, [visible]);
+
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    setAssistantRefreshInFlight(true);
+
+    // Fresh installs seed the managed EVE assistant three seconds after the
+    // window appears. A modal opened before that seed used to cache an empty
+    // assistant list for the whole session. Reuse the idempotent MAIN bootstrap,
+    // then refresh both shared sources once; no raw worker is exposed.
+    void ipcBridge.commandEve.ensureAssistant
+      .invoke()
+      .then(async (result) => {
+        if (cancelled || !result?.success) return;
+        const [detectedAgents, assistants] = await Promise.all([
+          mutateSWR(DETECTED_AGENTS_SWR_KEY),
+          ipcBridge.assistants.list.invoke(),
+        ]);
+        void detectedAgents;
+        if (cancelled) return;
+        const enabledAssistants = assistants.filter((assistant) => assistant.enabled !== false);
+        setFreshPresetAssistants(enabledAssistants);
+        await mutateSWR('assistants.presets', enabledAssistants, false);
+      })
+      .catch((): void => undefined)
+      .finally(() => {
+        if (!cancelled) setAssistantRefreshInFlight(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [visible, mutateSWR]);
 
   useEffect(() => {
     if (!visible) return;
@@ -265,7 +304,12 @@ const TeamCreateModal: React.FC<Props> = ({ visible, onClose, onCreated }) => {
               </div>
             }
           >
-            {allAgents.length === 0 ? (
+            {allAgents.length === 0 && (agentsLoading || assistantRefreshInFlight) ? (
+              <div className='flex items-center justify-center gap-8px rounded-8px border border-dashed border-[var(--glass-overlay-border)] bg-transparent py-20px text-12px text-t-tertiary'>
+                <Spin size={18} />
+                {t('team.create.preparingLeader')}
+              </div>
+            ) : allAgents.length === 0 ? (
               <div className='flex items-center justify-center rounded-8px border border-dashed border-[var(--glass-overlay-border)] bg-transparent py-20px text-12px text-t-tertiary'>
                 {t('team.create.noSupportedAgents', { defaultValue: 'No supported agents installed' })}
               </div>

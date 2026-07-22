@@ -30,6 +30,7 @@
     "subAgentsPlaceholder": "Select sub agents",
     "workspacePlaceholder": "Project folder path (optional)",
     "confirm": "Create Team",
+    "preparingLeader": "Preparing Command EVE…",
     "noSupportedAgents": "No supported agents installed",
     "supportedAgentsHint": "Currently supports Claude and Codex. More agents coming soon.",
     "leaderDesc": "Understands your goals and coordinates agents to complete tasks",

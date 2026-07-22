@@ -152,6 +152,14 @@ describe('Command EVE visual rails', () => {
     );
   });
 
+  it('keeps the desktop account avatar visible in the Command EVE shell', () => {
+    const titlebar = read('components/layout/Titlebar/index.tsx');
+
+    expect(titlebar).toContain('{isDesktopRuntime && !layout?.isMobile && (');
+    expect(titlebar).toContain("<ProfileAvatar onOpenAccount={() => void navigate('/settings/account')} />");
+    expect(titlebar).not.toContain('!COMMAND_EVE_SHELL_ENABLED && isDesktopRuntime && !layout?.isMobile');
+  });
+
   it('renders runtime status as the borderless footer below the chat composer', () => {
     const acpChat = read('pages/conversation/platforms/acp/AcpChat.tsx');
     const runtimeStatus = read('pages/conversation/platforms/acp/AcpRuntimeStatus.tsx');
