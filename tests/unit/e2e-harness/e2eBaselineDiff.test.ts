@@ -278,6 +278,17 @@ describe('e2e-baseline-diff comparator', () => {
     expect(result.receipt.approved_skips).toEqual([APPROVED_SKIP]);
   });
 
+  it('does not report an approved skipped baseline failure as resolved', () => {
+    const result = runComparator({
+      report: makeReport([{ title: 'pinned failure', outcome: 'skipped', omitResults: true }]),
+      approvedSkips: [PINNED_FAILURE],
+    });
+    expect(result.status).toBe(0);
+    expect(result.receipt.resolved_failures).toEqual([]);
+    expect(result.receipt.baseline_skips).toEqual([PINNED_FAILURE]);
+    expect(result.receipt.detail).toContain('0 baseline failure(s) resolved');
+  });
+
   it('blocks an empty Playwright report instead of treating all failures as resolved', () => {
     const report = makeReport([]);
     report.config.projects = [];

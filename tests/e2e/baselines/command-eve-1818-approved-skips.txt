@@ -1,10 +1,217 @@
 # Command EVE 1.818 full-E2E approved skip roster.
 #
-# Fail closed by default: this roster intentionally starts empty. After the
-# first complete candidate run, review every reported skipped title and add
-# only environment-intentional skips here. Dynamic missing-UI or missing-data
-# skips are regressions unless the release controller explicitly approves the
-# exact canonical Playwright title.
+# Candidate discovery: ce7ceba867e511956d8e18d99b1a3db1415a7c74
+# Reviewed exact inventory: 191/191 unique canonical titles.
+# This roster is candidate-gate data, not permission to add new skips. Any title not
+# listed here remains fail-closed. Packaged-only cases must run after notarization.
 #
 # Format:
 #   <spec path> >> <describe> [<describe>...] >> <test>
+
+# Public product boundary (156)
+# Public Command EVE intentionally hides upstream assistant CRUD, raw agent/backend
+# selectors, founder-only Command Center surfaces, and upstream-only Skills Hub.
+features/assistants-user-data/assistant-user-data.e2e.ts >> Assistant User Data Migration (T5) >> S1: list returns built-ins (no regressions from first-launch baseline)
+features/assistants-user-data/assistant-user-data.e2e.ts >> Assistant User Data Migration (T5) >> S2: create user assistant via UI, backend row present
+features/assistants-user-data/assistant-user-data.e2e.ts >> Assistant User Data Migration (T5) >> S3: update user assistant name + rule md, verify backend state
+features/assistants-user-data/assistant-user-data.e2e.ts >> Assistant User Data Migration (T5) >> S4: delete user assistant clears backend row and rule md
+features/assistants-user-data/assistant-user-data.e2e.ts >> Assistant User Data Migration (T5) >> S5: built-in assistant edit rejected at backend and UI
+features/assistants-user-data/assistant-user-data.e2e.ts >> Assistant User Data Migration (T5) >> S6: extension assistant edit rejected at backend
+features/assistants-user-data/assistant-user-data.e2e.ts >> Assistant User Data Migration (T5) >> S7: toggle built-in enabled persists via assistant_overrides
+features/assistants/core-interactions.e2e.ts >> Assistant Settings Core Interactions (P0) >> P0-1: search toggle — expand/collapse with icon change
+features/assistants/core-interactions.e2e.ts >> Assistant Settings Core Interactions (P0) >> P0-2: card click isolation — body opens drawer, actions do not
+features/assistants/core-interactions.e2e.ts >> Assistant Settings Core Interactions (P0) >> P0-3: delete modal shows assistant preview card
+features/assistants/core-interactions.e2e.ts >> Assistant Settings Core Interactions (P0) >> P0-4: highlight assistant card via query param
+features/assistants/core-interactions.e2e.ts >> Assistant Settings Core Interactions (P0) >> P0-5: skills modal search filters and shows empty state
+features/assistants/core-interactions.e2e.ts >> Assistant Settings Core Interactions (P0) >> P0-6: extension assistant shows skills section
+features/assistants/edge-cases.e2e.ts >> Assistant Settings Edge Cases (P2) >> P2-1: highlight animation cleanup on unmount
+features/assistants/edge-cases.e2e.ts >> Assistant Settings Edge Cases (P2) >> P2-2: search and tab filter both apply empty state
+features/assistants/edge-cases.e2e.ts >> Assistant Settings Edge Cases (P2) >> P2-3: skill delete button visible on hover
+features/assistants/edge-cases.e2e.ts >> Assistant Settings Edge Cases (P2) >> P2-4: add custom path ok button disabled when empty
+features/assistants/edge-cases.e2e.ts >> Assistant Settings Edge Cases (P2) >> P2-5: add custom path folder button triggers dialog
+features/assistants/ui-states.e2e.ts >> Assistant Settings UI States (P1) >> P1-10: rules section edit preview tab switch
+features/assistants/ui-states.e2e.ts >> Assistant Settings UI States (P1) >> P1-11: rules preview shows empty placeholder
+features/assistants/ui-states.e2e.ts >> Assistant Settings UI States (P1) >> P1-12: main agent dropdown shows extension tag
+features/assistants/ui-states.e2e.ts >> Assistant Settings UI States (P1) >> P1-13: skills section header shows count and status dot
+features/assistants/ui-states.e2e.ts >> Assistant Settings UI States (P1) >> P1-14: no pending badge when no pending skills
+features/assistants/ui-states.e2e.ts >> Assistant Settings UI States (P1) >> P1-15: no custom badge when no custom skills
+features/assistants/ui-states.e2e.ts >> Assistant Settings UI States (P1) >> P1-16: builtin skill checkbox unchecks without modal
+features/assistants/ui-states.e2e.ts >> Assistant Settings UI States (P1) >> P1-18: auto-injected section shows when configured
+features/assistants/ui-states.e2e.ts >> Assistant Settings UI States (P1) >> P1-19: custom skills section shows empty state
+features/assistants/ui-states.e2e.ts >> Assistant Settings UI States (P1) >> P1-1: search input auto-focuses on expand
+features/assistants/ui-states.e2e.ts >> Assistant Settings UI States (P1) >> P1-20: skills modal source pills render and switch
+features/assistants/ui-states.e2e.ts >> Assistant Settings UI States (P1) >> P1-21: skills modal shows added skills as disabled
+features/assistants/ui-states.e2e.ts >> Assistant Settings UI States (P1) >> P1-22: drawer width responds to viewport size
+features/assistants/ui-states.e2e.ts >> Assistant Settings UI States (P1) >> P1-23: session storage intent opens assistant editor
+features/assistants/ui-states.e2e.ts >> Assistant Settings UI States (P1) >> P1-24: mobile layout stacks buttons vertically and full width
+features/assistants/ui-states.e2e.ts >> Assistant Settings UI States (P1) >> P1-25: skills modal clears search on close
+features/assistants/ui-states.e2e.ts >> Assistant Settings UI States (P1) >> P1-26: section headers show count
+features/assistants/ui-states.e2e.ts >> Assistant Settings UI States (P1) >> P1-27: summary skills count tag shows correct initial state
+features/assistants/ui-states.e2e.ts >> Assistant Settings UI States (P1) >> P1-2: search with blank query does not filter
+features/assistants/ui-states.e2e.ts >> Assistant Settings UI States (P1) >> P1-3: custom assistant shows source tag, builtin does not
+features/assistants/ui-states.e2e.ts >> Assistant Settings UI States (P1) >> P1-4: filter with no results shows empty state
+features/assistants/ui-states.e2e.ts >> Assistant Settings UI States (P1) >> P1-5: duplicate button only visible on hover
+features/assistants/ui-states.e2e.ts >> Assistant Settings UI States (P1) >> P1-6: extension assistant switch is disabled and checked
+features/assistants/ui-states.e2e.ts >> Assistant Settings UI States (P1) >> P1-7: drawer close button closes drawer
+features/assistants/ui-states.e2e.ts >> Assistant Settings UI States (P1) >> P1-8: drawer cancel button closes drawer
+features/assistants/ui-states.e2e.ts >> Assistant Settings UI States (P1) >> P1-9: rules section expand collapse toggles height
+features/settings/skills/batch-import.e2e.ts >> Skills Hub - Batch Import (P1) >> TC-S-11: should batch import external skills and skip already existing ones
+features/settings/skills/boards-rendering.e2e.ts >> Skills Hub - Boards Rendering (P1) >> TC-S-27: should render Extension Skills board with correct structure
+features/settings/skills/boards-rendering.e2e.ts >> Skills Hub - Boards Rendering (P1) >> TC-S-28: should render Auto-injected Skills board with correct structure
+features/settings/skills/core-ui.e2e.ts >> Skills Hub - Core UI (P0) >> TC-S-08: should render external skills section with custom source
+features/settings/skills/core-ui.e2e.ts >> Skills Hub - Core UI (P0) >> TC-S-10: should import external skill via UI click
+features/settings/skills/core-ui.e2e.ts >> Skills Hub - Core UI (P0) >> TC-S-16: should add custom external path via UI
+features/settings/skills/core-ui.e2e.ts >> Skills Hub - Core UI (P0) >> TC-S-19: should export skill to external source via UI
+features/settings/skills/path-export.e2e.ts >> Skills Hub - Path/Export (P1) >> TC-S-14: should refresh external skills and show newly added skill
+features/settings/skills/path-export.e2e.ts >> Skills Hub - Path/Export (P1) >> TC-S-17: should show error when adding duplicate custom path
+features/settings/skills/path-export.e2e.ts >> Skills Hub - Path/Export (P1) >> TC-S-18: should disable Confirm button when required fields are empty
+features/settings/skills/path-export.e2e.ts >> Skills Hub - Path/Export (P1) >> TC-S-20: should show error when exporting to target with existing skill
+features/settings/skills/refresh-empty-tabs.e2e.ts >> Skills Hub - Refresh/Empty/Tabs (P1) >> TC-S-09: should switch tabs and show correct external skills
+features/settings/skills/search.e2e.ts >> Skills Hub - Search (P1) >> TC-S-12: should filter external skills list by search keyword
+features/settings/skills/search.e2e.ts >> Skills Hub - Search (P1) >> TC-S-13: should show empty state when external search has no match
+specs/acp-agent.e2e.ts >> ACP Agent >> screenshot: upstream agent pill bar
+specs/acp-agent.e2e.ts >> ACP Agent >> upstream MCP tools page has server management UI
+specs/acp-agent.e2e.ts >> ACP Agent >> upstream shell can see agent backend names
+specs/acp-agent.e2e.ts >> ACP Agent >> upstream shell can select an agent pill
+specs/agent-settings-detection.e2e.ts >> Agent Settings Detection >> upstream settings show detected Gemini or Aion agents
+specs/assistant-settings-crud.e2e.ts >> Assistant Settings CRUD >> create assistant — name required validation
+specs/assistant-settings-crud.e2e.ts >> Assistant Settings CRUD >> create custom assistant — full flow
+specs/assistant-settings-crud.e2e.ts >> Assistant Settings CRUD >> created assistant persists after page reload
+specs/assistant-settings-crud.e2e.ts >> Assistant Settings CRUD >> delete custom assistant
+specs/assistant-settings-crud.e2e.ts >> Assistant Settings CRUD >> disabled builtin assistant removed from guid page presets
+specs/assistant-settings-crud.e2e.ts >> Assistant Settings CRUD >> duplicate assistant
+specs/assistant-settings-crud.e2e.ts >> Assistant Settings CRUD >> edit custom assistant — change name
+specs/assistant-settings-crud.e2e.ts >> Assistant Settings CRUD >> edit custom assistant — switch Main Agent
+specs/assistant-settings-crud.e2e.ts >> Assistant Settings CRUD >> enable / disable toggle
+specs/assistant-settings-crud.e2e.ts >> Assistant Settings CRUD >> page loads with assistant list
+specs/assistant-settings-crud.e2e.ts >> Assistant Settings CRUD >> re-enabled assistant visible after toggle back on
+specs/assistant-settings-crud.e2e.ts >> Assistant Settings CRUD >> search filter — by name
+specs/assistant-settings-crud.e2e.ts >> Assistant Settings CRUD >> search filter — clear restores full list
+specs/assistant-settings-crud.e2e.ts >> Assistant Settings CRUD >> sort order — enabled section renders before disabled
+specs/assistant-settings-crud.e2e.ts >> Assistant Settings CRUD >> tab filter — System / Custom
+specs/assistant-settings-permissions.e2e.ts >> Assistant Settings Permissions >> builtin — Main Agent editable
+specs/assistant-settings-permissions.e2e.ts >> Assistant Settings Permissions >> builtin — name/desc/avatar read-only
+specs/assistant-settings-permissions.e2e.ts >> Assistant Settings Permissions >> builtin — no delete button
+specs/assistant-settings-permissions.e2e.ts >> Assistant Settings Permissions >> builtin — save button enabled
+specs/assistant-settings-permissions.e2e.ts >> Assistant Settings Permissions >> custom — all fields editable
+specs/assistant-settings-permissions.e2e.ts >> Assistant Settings Permissions >> extension — can duplicate
+specs/assistant-settings-permissions.e2e.ts >> Assistant Settings Permissions >> extension — name/desc/save all editable
+specs/assistant-settings-permissions.e2e.ts >> Assistant Settings Permissions >> extension — no delete button
+specs/assistant-settings-skills.e2e.ts >> Assistant Settings Skills >> add skills button opens modal
+specs/assistant-settings-skills.e2e.ts >> Assistant Settings Skills >> builtin assistant can access skills section
+specs/assistant-settings-skills.e2e.ts >> Assistant Settings Skills >> custom skills collapse renders
+specs/assistant-settings-skills.e2e.ts >> Assistant Settings Skills >> disable auto-injected skill and save
+specs/assistant-settings-skills.e2e.ts >> Assistant Settings Skills >> extension assistant drawer opens without error
+specs/assistant-settings-skills.e2e.ts >> Assistant Settings Skills >> skill panel shows auto-injected skills section
+specs/assistant-settings-skills.e2e.ts >> Assistant Settings Skills >> skill panel shows builtin skills for custom assistant
+specs/assistant-settings-skills.e2e.ts >> Assistant Settings Skills >> skill selection persists after save and reopen
+specs/assistant-settings-skills.e2e.ts >> Assistant Settings Skills >> skills counter shows in summary
+specs/assistant-settings-skills.e2e.ts >> Assistant Settings Skills >> toggle builtin skill selection
+specs/command-eve-kanban-board.e2e.ts >> Command EVE Kanban Board – mutation proof >> actions: GUI comment/block/unblock/complete produce receipts without spawning Hermes
+specs/command-eve-kanban-board.e2e.ts >> Command EVE Kanban Board – mutation proof >> create: GUI click produces sqlite row + task_events receipt + audit event
+specs/command-eve-kanban-board.e2e.ts >> Command EVE Kanban Board – mutation proof >> crm overlay: GUI click initializes local-only CRM schema + audit receipt
+specs/command-eve-kanban-board.e2e.ts >> Command EVE Kanban Board – mutation proof >> dispatch gate: GUI click routes through NL-5 and records a blocked no-spawn receipt
+specs/command-eve-kanban-board.e2e.ts >> Command EVE Kanban Board – mutation proof >> dispatch gate: GUI click uses embedded NL-5 when Company.OS dispatch CLI is unavailable
+specs/command-eve-kanban-board.e2e.ts >> Command EVE Kanban Board – mutation proof >> move: GUI click produces sqlite task_events moved receipt + audit event
+specs/conversation-full-cycle.e2e.ts >> Conversation Full Cycle >> AgentBadge click navigates to AssistantSettings
+specs/conversation-full-cycle.e2e.ts >> Conversation Full Cycle >> Claude -- full conversation with AI reply
+specs/conversation-full-cycle.e2e.ts >> Conversation Full Cycle >> Codex -- full conversation with AI reply
+specs/conversation-full-cycle.e2e.ts >> Conversation Full Cycle >> ConversationSkillsIndicator displays without error
+specs/conversation-full-cycle.e2e.ts >> Conversation Full Cycle >> Gemini -- full conversation with AI reply
+specs/conversation-full-cycle.e2e.ts >> Conversation Full Cycle >> conversation shows correct agent info
+specs/conversation-full-cycle.e2e.ts >> Conversation Full Cycle >> cron -- CreateTaskDialog run-now emits skill suggestion, save it, then next run reuses saved skill
+specs/conversation-full-cycle.e2e.ts >> Conversation Full Cycle >> cron -- aionrs conversation skill creates task with full-auto job mode
+specs/conversation-full-cycle.e2e.ts >> Conversation Full Cycle >> cron -- claude conversation skill creates task with full-auto job mode
+specs/conversation-full-cycle.e2e.ts >> Conversation Full Cycle >> cron -- codex conversation skill creates task with full-auto job mode
+specs/conversation-full-cycle.e2e.ts >> Conversation Full Cycle >> cron -- create task with CLI agent, verify detail, then delete
+specs/conversation-full-cycle.e2e.ts >> Conversation Full Cycle >> cron -- create task with preset assistant, verify detail, then delete
+specs/conversation-full-cycle.e2e.ts >> Conversation Full Cycle >> cron -- create task, run now from detail page, then delete
+specs/conversation-full-cycle.e2e.ts >> Conversation Full Cycle >> cron -- gemini conversation skill creates task with full-auto job mode
+specs/conversation-full-cycle.e2e.ts >> Conversation Full Cycle >> delete conversation removes from list
+specs/conversation-full-cycle.e2e.ts >> Conversation Full Cycle >> disabled skill does not break conversation
+specs/conversation-full-cycle.e2e.ts >> Conversation Full Cycle >> new conversation auto-navigates from guid
+specs/conversation-full-cycle.e2e.ts >> Conversation Full Cycle >> preset assistant -- full conversation
+specs/conversation-full-cycle.e2e.ts >> Conversation Full Cycle >> return to guid from conversation
+specs/conversation-full-cycle.e2e.ts >> Conversation Full Cycle >> skills indicator click navigates to SkillsHub and highlights skill
+specs/cron-crud.e2e.ts >> Cron via AI conversation >> AI creates task in conversation — sidebar shows task with child conversation
+specs/cron-crud.e2e.ts >> Cron via AI conversation >> create scheduled task via conversation, modify it, then delete — conversations preserved
+specs/extension-contributed.e2e.ts >> Extension-Contributed Agents & Assistants >> duplicate extension assistant to custom
+specs/extension-contributed.e2e.ts >> Extension-Contributed Agents & Assistants >> extension assistant edit is read-only
+specs/feedback-scenarios.e2e.ts >> [5] Agent fail_cli alert surfaces feedback pill (module=agent-detection)
+specs/feedback-scenarios.e2e.ts >> [6] Agent fail_acp warning surfaces feedback pill (module=agent-detection)
+specs/guid-agent-selection.e2e.ts >> Guid Agent Selection >> agent pill bar shows backend data attribute
+specs/guid-agent-selection.e2e.ts >> Guid Agent Selection >> agent pill has data-agent-key attribute
+specs/guid-agent-selection.e2e.ts >> Guid Agent Selection >> newly created assistant appears on guid page
+specs/guid-agent-selection.e2e.ts >> Guid Agent Selection >> preset assistants visible in selection area
+specs/guid-agent-selection.e2e.ts >> Guid Agent Selection >> select Claude agent via pill
+specs/guid-agent-selection.e2e.ts >> Guid Agent Selection >> select Codex agent via pill
+specs/guid-agent-selection.e2e.ts >> Guid Agent Selection >> select Gemini agent via pill
+specs/guid-agent-selection.e2e.ts >> Guid Agent Selection >> select preset assistant changes selection state
+specs/guid-agent-selection.e2e.ts >> Guid Agent Selection >> switch between two presets
+specs/guid-agent-selection.e2e.ts >> Guid Agent Selection >> switching agent deselects previous
+specs/guid-agent-selection.e2e.ts >> Guid Agent Selection >> unavailable agent pill is not rendered or shows unavailable state
+specs/guid-mode-to-conversation.e2e.ts >> Guid Mode → Conversation Sync >> aionrs: two mode switches both carry into conversation
+specs/guid-mode-to-conversation.e2e.ts >> Guid Mode → Conversation Sync >> claude: two mode switches both carry into conversation
+specs/guid-mode-to-conversation.e2e.ts >> Guid Mode → Conversation Sync >> codex: two mode switches both carry into conversation
+specs/guid-mode-to-conversation.e2e.ts >> Guid Mode → Conversation Sync >> gemini: two mode switches both carry into conversation
+specs/hub-backend-install.e2e.ts >> Hub Backend Install — E2E >> Edge Cases >> Hub modal shows loading state before data arrives
+specs/hub-backend-install.e2e.ts >> Hub Backend Install — E2E >> Edge Cases >> install_failed state shows Retry button with error tooltip
+specs/hub-backend-install.e2e.ts >> Hub Backend Install — E2E >> Hub Modal — Close >> Hub modal can be closed via close button or backdrop
+specs/hub-backend-install.e2e.ts >> Hub Backend Install — E2E >> Hub Modal — Install Action >> clicking Install button on an available agent triggers installation
+specs/hub-backend-install.e2e.ts >> Hub Backend Install — E2E >> Hub Modal — Open & List >> Hub modal renders agent cards with data-testid
+specs/hub-backend-install.e2e.ts >> Hub Backend Install — E2E >> Hub Modal — Open & List >> each Hub card has a displayName and status button
+specs/hub-backend-install.e2e.ts >> Hub Backend Install — E2E >> Hub Modal — Open & List >> navigates to Agent settings and finds the Market button
+specs/hub-backend-install.e2e.ts >> Hub Backend Install — E2E >> Hub Modal — Open & List >> opens Hub modal and shows loading or agent list
+specs/hub-backend-install.e2e.ts >> Hub Backend Install — E2E >> Hub Modal — Status Display >> cards show correct status buttons (Install or Installed)
+specs/hub-backend-install.e2e.ts >> Hub Backend Install — E2E >> Post-Install — Agent List Refresh >> detected agents section shows agents after Hub modal closes
+specs/hub-backend-install.e2e.ts >> Hub Backend Install — E2E >> Post-Install — Pill Bar Integration >> agent pill bar on guid page renders available backends
+specs/hub-backend-install.e2e.ts >> Hub Backend Install — E2E >> Post-Install — Pill Bar Integration >> selecting an agent in pill bar activates it for chat
+specs/team-create-preset-leader.e2e.ts >> Team Create - preset assistant leader >> can create a team with a preset assistant as leader
+
+# Environment and explicit opt-in (26)
+# These raw-agent, team-agent, BYOK-aionrs, and native-extension cases require
+# explicit capabilities or opt-in harnesses. The public EVE runtime path is covered
+# separately by the mandatory egress-keystone and continuous Dev-App proof.
+cases/teams/team-agent-lifecycle.e2e.ts >> team lifecycle: command-eve leader
+cases/teams/team-communication.e2e.ts >> Team Communication >> scenario 4: send message to leader via UI input
+cases/teams/team-member-init-failure.e2e.ts >> Team Member Init Failure UI >> failed agent slot renders error overlay with remove button
+cases/teams/team-member-messaging.e2e.ts >> Team Member Messaging >> send message directly to member via member tab
+cases/teams/team-member-ops.e2e.ts >> Team Member Ops >> remove member via tab close button
+cases/teams/team-session-mode.e2e.ts >> Team Session Mode Propagation >> session mode change on leader UI propagates to team record
+cases/teams/team-tab-context.e2e.ts >> Team Tab Context Persistence >> switching tabs and back preserves leader conversation history
+cases/teams/team-view-modes.e2e.ts >> Team View Modes >> model selector dropdown shows available models for ACP agent
+cases/teams/team-workspace-migration.e2e.ts >> Team Workspace Migration >> migrate workspace and verify team still functional
+features/conversations/aionrs/basic-flow.e2e.ts >> Aionrs Chat - Basic Flow (P0) >> TC-A-01: should complete minimal conversation with no attachments
+features/conversations/aionrs/basic-flow.e2e.ts >> Aionrs Chat - Basic Flow (P0) >> TC-A-02: should associate single folder and reference in message
+features/conversations/aionrs/basic-flow.e2e.ts >> Aionrs Chat - Basic Flow (P0) >> TC-A-03: should upload single file and binary receives file parameter
+features/conversations/aionrs/combo-scenarios.e2e.ts >> Aionrs Chat - Combo Scenarios (P1) >> TC-A-10: should handle folder + second model + yolo mode combo
+features/conversations/aionrs/combo-scenarios.e2e.ts >> Aionrs Chat - Combo Scenarios (P1) >> TC-A-11: should handle file + non-default model + default mode combo
+features/conversations/aionrs/combo-scenarios.e2e.ts >> Aionrs Chat - Combo Scenarios (P1) >> TC-A-12: should handle full combo (folder + file + second model + yolo)
+features/conversations/aionrs/edge-cases.e2e.ts >> Aionrs Chat - Edge Cases (P2) >> TC-A-13: should skip when aionrs binary is not reachable
+features/conversations/aionrs/edge-cases.e2e.ts >> Aionrs Chat - Edge Cases (P2) >> TC-A-14: should show error when uploading file exceeding 100MB limit
+features/conversations/aionrs/edge-cases.e2e.ts >> Aionrs Chat - Edge Cases (P2) >> TC-A-15: should show error when associating deleted folder path
+features/conversations/aionrs/permission-modes.e2e.ts >> Aionrs Chat - Permission Modes (P0 + P1) >> TC-A-05: should use yolo permission selected on guid page
+features/conversations/aionrs/permission-modes.e2e.ts >> Aionrs Chat - Permission Modes (P0 + P1) >> TC-A-06: should switch permission mid-conversation and persist to DB
+specs/acp-conversation.e2e.ts >> ACP Conversation Lifecycle >> claude: create session, wait for active, then delete
+specs/acp-conversation.e2e.ts >> ACP Conversation Lifecycle >> codex: create session, wait for active, then delete
+specs/ext-webui-contrib.e2e.ts >> Extension WebUI Contributions >> protects ext-feishu api route with auth middleware
+specs/ext-webui-contrib.e2e.ts >> Extension WebUI Contributions >> serves ext-feishu static assets
+specs/ext-webui-contrib.e2e.ts >> Extension WebUI Contributions >> supports runtime toggle of webui-contributed extension routes
+specs/gemini-acp-conversation.e2e.ts >> Gemini (ACP) Conversation Lifecycle >> gemini backend routes through the generic ACP pipeline
+
+# Packaged or isolated negative-path gate (5)
+# Auto-update cases run only against the notarized electron-builder artifact.
+# The unavailable-backend recovery case runs in its own deliberately broken sandbox.
+specs/command-eve-auto-update.e2e.ts >> Command EVE auto-update – CE shell defaults to the R2 feed (no env override) >> (d) startup check activates (broadcasts "checking") instead of the quiet no-op
+specs/command-eve-auto-update.e2e.ts >> Command EVE auto-update – detect + signal against local feed >> (a) reaches status available with the feed version via the real startup check
+specs/command-eve-auto-update.e2e.ts >> Command EVE auto-update – detect + signal against local feed >> (b) stays quiet, then shows ready details only after the footer icon is clicked
+specs/command-eve-auto-update.e2e.ts >> Command EVE auto-update – quiet no-op when no feed configured >> (c) startup check resolves quietly, no available/error broadcast, no error dialog
+specs/command-eve-backend-recovery.e2e.ts >> Command EVE backend recovery surface >> keeps the startup failure panel translucent and readable
+
+# Pinned upstream runtime debt (4)
+# These four upstream aionrs model-switch cases are hard-skipped in source with a
+# documented runtime-hang defect. They do not cover the managed public EVE chat path.
+features/conversations/aionrs/mid-conversation-switch.e2e.ts >> Aionrs Chat - Mid-Conversation Switch (P1) >> TC-A-08: should handle continuous switch (model → permission → model)
+features/conversations/aionrs/mid-conversation-switch.e2e.ts >> Aionrs Chat - Mid-Conversation Switch (P1) >> TC-A-09: should handle 3 rounds of conversation after model/permission switch
+features/conversations/aionrs/model-selection.e2e.ts >> Aionrs Chat - Model Selection (P0 + P1) >> TC-A-04: should use second model selected on guid page
+features/conversations/aionrs/model-selection.e2e.ts >> Aionrs Chat - Model Selection (P0 + P1) >> TC-A-07: should switch model mid-conversation and update DB

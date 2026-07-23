@@ -95,7 +95,7 @@ async function resolveMainWindow(electronApp: ElectronApplication): Promise<Page
   // A fresh Command EVE sandbox installs the bundled Hermes runtime before the
   // first window. Verified cold boots take about 60s on this machine and can be
   // slower under load, so keep a bounded three-minute window budget.
-  return resolveWindowBefore(Date.now() + 180_000);
+  return resolveWindowBefore(Date.now() + E2E_ELECTRON_LAUNCH_TIMEOUT_MS);
 }
 
 /**
@@ -157,6 +157,7 @@ async function launchApp(): Promise<ElectronApplication> {
   if (!usePackaged) {
     const requiredDevEntries = [
       path.join(projectRoot, 'out', 'main', 'index.js'),
+      path.join(projectRoot, 'out', 'preload', 'index.js'),
       path.join(projectRoot, 'out', 'renderer', 'index.html'),
     ];
     const missingDevEntries = requiredDevEntries.filter((entry) => !fs.existsSync(entry));

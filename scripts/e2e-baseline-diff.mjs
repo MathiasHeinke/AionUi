@@ -462,7 +462,9 @@ export function evaluateE2EBaselineReport(
   const failingTitles = [...inventory.failureTitles].sort();
   const retiredFailureSet = new Set(retiredFailures);
   const effectiveBaseline = baseline.filter((title) => !retiredFailureSet.has(title));
-  const { newFailures, resolved } = diffAgainstBaseline(effectiveBaseline, failingTitles);
+  const { newFailures, resolved: noLongerFailing } = diffAgainstBaseline(effectiveBaseline, failingTitles);
+  const baselineSkips = noLongerFailing.filter((title) => inventory.skippedTitles.has(title));
+  const resolved = noLongerFailing.filter((title) => !inventory.skippedTitles.has(title));
   const retiredRegressions = failingTitles.filter((title) => retiredFailureSet.has(title));
   const resolvedApprovedSkips = approvedSkips.filter((title) => !inventory.skippedTitles.has(title)).sort();
   const evidence = {
@@ -471,6 +473,7 @@ export function evaluateE2EBaselineReport(
     failing_tests: failingTitles,
     new_failures: newFailures,
     resolved_failures: resolved,
+    baseline_skips: baselineSkips,
     approved_skips: [...inventory.skippedTitles].sort(),
     resolved_approved_skips: resolvedApprovedSkips,
     baseline_failures: baseline.length,
