@@ -43,6 +43,46 @@ async function reloadAndGoToDisplay(page: import('@playwright/test').Page): Prom
   await waitForSettle(page);
 }
 
+async function readPersistedVisualPreference(
+  page: import('@playwright/test').Page,
+  key: 'mode' | 'accent'
+): Promise<unknown> {
+  return page.evaluate(async (preferenceKey) => {
+    const win = window as Window & {
+      __backendPort?: number;
+      __aionBackend?: { getPort?: () => number };
+    };
+    const dynamicPort = win.__aionBackend?.getPort?.();
+    const port = typeof dynamicPort === 'number' && dynamicPort > 0 ? dynamicPort : win.__backendPort;
+    if (!port) throw new Error('window.__backendPort is not available');
+
+    const response = await fetch(`http://127.0.0.1:${port}/api/settings/client`);
+    if (!response.ok) {
+      throw new Error(`GET /api/settings/client failed (${response.status}): ${await response.text()}`);
+    }
+    const raw = (await response.json()) as Record<string, unknown>;
+    const settings =
+      raw && typeof raw.data === 'object' && raw.data !== null ? (raw.data as Record<string, unknown>) : raw;
+    const preferences = settings['commandEve.visualPreferences'];
+    return preferences && typeof preferences === 'object'
+      ? (preferences as Record<string, unknown>)[preferenceKey]
+      : undefined;
+  }, key);
+}
+
+async function expectVisualPreferencePersisted(
+  page: import('@playwright/test').Page,
+  key: 'mode' | 'accent',
+  expected: string
+): Promise<void> {
+  await expect
+    .poll(() => readPersistedVisualPreference(page, key), {
+      timeout: 10_000,
+      message: `expected ${key}=${expected} to be durable before reload`,
+    })
+    .toBe(expected);
+}
+
 test.describe('Display settings persistence across reload', () => {
   test.setTimeout(60_000);
 
@@ -69,6 +109,7 @@ test.describe('Display settings persistence across reload', () => {
       targetTheme,
       { timeout: 5_000 }
     );
+    await expectVisualPreferencePersisted(page, 'mode', targetTheme);
 
     await reloadAndGoToDisplay(page);
 
@@ -83,6 +124,7 @@ test.describe('Display settings persistence across reload', () => {
       initialTheme,
       { timeout: 5_000 }
     );
+    await expectVisualPreferencePersisted(page, 'mode', initialMode!.replace('eve-appearance-mode-', ''));
   });
 
   test('zoom scale persists after reload', async ({ page }) => {
@@ -125,11 +167,13 @@ test.describe('Display settings persistence across reload', () => {
 
     await page.getByTestId(targetTestId).click();
     await expect(page.getByTestId(targetTestId)).toHaveAttribute('aria-checked', 'true');
+    await expectVisualPreferencePersisted(page, 'accent', targetAccent);
 
     await reloadAndGoToDisplay(page);
     await expect(page.getByTestId(targetTestId)).toHaveAttribute('aria-checked', 'true');
 
     await page.getByTestId(initialTestId!).click();
     await expect(page.getByTestId(initialTestId!)).toHaveAttribute('aria-checked', 'true');
+    await expectVisualPreferencePersisted(page, 'accent', initialTestId!.replace('eve-appearance-accent-', ''));
   });
 });
