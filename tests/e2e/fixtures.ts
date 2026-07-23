@@ -33,6 +33,11 @@ const e2eStateSandboxDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aionui-e2e-sta
 const e2eStateFile = path.join(e2eStateSandboxDir, 'extension-states.json');
 const e2eUserDataDir = path.join(e2eStateSandboxDir, 'user-data');
 const e2eHomeDir = path.join(e2eStateSandboxDir, 'home');
+// Keep Playwright's process-attach budget aligned with the documented cold
+// runtime-install window below. After any failed test Playwright starts a new
+// worker with a pristine HOME, so a 60s launch timeout turns one known failure
+// into a cascade of unrelated Electron-launch failures.
+const E2E_ELECTRON_LAUNCH_TIMEOUT_MS = 180_000;
 export const E2E_AGENT_EVENTS_PATH = path.join(e2eStateSandboxDir, 'agent-events.jsonl');
 const e2eLedgerSource = [
   process.env.COMMAND_EVE_E2E_EVENTS_LEDGER,
@@ -149,6 +154,19 @@ function shouldUsePackagedMode(): boolean {
 async function launchApp(): Promise<ElectronApplication> {
   const projectRoot = path.resolve(__dirname, '../..');
   const usePackaged = shouldUsePackagedMode();
+  if (!usePackaged) {
+    const requiredDevEntries = [
+      path.join(projectRoot, 'out', 'main', 'index.js'),
+      path.join(projectRoot, 'out', 'renderer', 'index.html'),
+    ];
+    const missingDevEntries = requiredDevEntries.filter((entry) => !fs.existsSync(entry));
+    if (missingDevEntries.length > 0) {
+      throw new Error(
+        `E2E Dev-App bundle is missing: ${missingDevEntries.join(', ')}. ` +
+          'Run `bun run package` before the release E2E gate.'
+      );
+    }
+  }
   let backendBinary: string | undefined;
   try {
     backendBinary = resolveAioncoreBinary({ cwd: projectRoot });
@@ -212,7 +230,7 @@ async function launchApp(): Promise<ElectronApplication> {
         ...commonEnv,
         NODE_ENV: 'production',
       },
-      timeout: 60_000,
+      timeout: E2E_ELECTRON_LAUNCH_TIMEOUT_MS,
     });
 
     return electronApp;
@@ -233,7 +251,7 @@ async function launchApp(): Promise<ElectronApplication> {
       ...commonEnv,
       NODE_ENV: 'development',
     },
-    timeout: 60_000,
+    timeout: E2E_ELECTRON_LAUNCH_TIMEOUT_MS,
   });
 
   return electronApp;
