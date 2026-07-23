@@ -41,6 +41,21 @@ const FORBIDDEN_DEFAULT_SURFACES = [
     id: 'dispatcher-auto-spawn',
     patterns: [/dispatcher\s+auto[-\s]?spawn/i, /auto[-\s]?spawn\s+dispatcher/i, /dispatch\s+in\s+gateway/i],
   },
+  // 1.819 R5 (HG-3) — forbidden CLI/worker label corpus. Customer-mode default
+  // surfaces must not teach internal orchestration: no CLI executable names,
+  // no worker-assignment plumbing, no founder-only surface labels.
+  {
+    id: 'cli-executable-names',
+    patterns: [/claude\s+code/i, /codex\s+cli/i, /gemini\s+cli/i, /cli-agenten/i, /\bcli\s+agents?\b/i],
+  },
+  {
+    id: 'worker-plumbing-labels',
+    patterns: [/worker[\s-]+(id|assignment|launcher)/i, /worker-assignment/i, /launcher[\s-]+state/i],
+  },
+  {
+    id: 'founder-only-surface-labels',
+    patterns: [/command\s+center/i, /provider[\s-]+diagnostics/i, /devtools/i, /\bfounder\s+(mode|build)/i],
+  },
 ] as const;
 
 async function collectDefaultSurfaceLabels(page: Page): Promise<string[]> {
@@ -101,9 +116,12 @@ test.describe('Command EVE default surface inventory', () => {
     expectNoForbiddenSurface(await collectDefaultSurfaceLabels(page));
 
     await goToSettings(page, 'system');
-    await expect(page.getByText(/EVE-Aktivitätsstatus anzeigen|Show EVE activity status/)).toBeVisible({
+    await expect(
+      page.getByText(/PII-Schutz \(DSGVO-Egress-Filter\)|PII protection \(GDPR egress filter\)/)
+    ).toBeVisible({
       timeout: 30_000,
     });
+    await expect(page.getByText(/EVE-Aktivitätsstatus anzeigen|Show EVE activity status/)).toHaveCount(0);
     expectNoForbiddenSurface(await collectDefaultSurfaceLabels(page));
   });
 });

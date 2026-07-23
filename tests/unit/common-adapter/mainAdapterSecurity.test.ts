@@ -6,7 +6,22 @@
  * @vitest-environment node
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import ts from 'typescript';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  FOUNDER_ONLY_PROVIDER_KEYS,
+  RENDERER_PROVIDER_KEYS,
+  RENDERER_PROVIDER_PAYLOAD_CLASSES,
+  type ProviderPayloadClass,
+  type RendererProviderKey,
+} from '@/common/adapter/security/providerRegistry';
+import {
+  getRendererToMainAdapterPolicy,
+  parseRendererToMainAdapterEvent,
+} from '@/common/adapter/security/bridgePolicy';
+import { wsEmitter } from '@/common/adapter/httpBridge';
 
 const state = vi.hoisted(() => ({
   handler: undefined as ((event: unknown, payload: unknown) => unknown) | undefined,
@@ -40,10 +55,39 @@ type FakeWebContents = {
 };
 
 beforeEach(() => {
+  delete process.env.COMMAND_EVE_FOUNDER_BUILD;
   state.handler = undefined;
   state.emitter.emit.mockReset();
   vi.resetModules();
 });
+
+afterEach(() => {
+  delete process.env.COMMAND_EVE_FOUNDER_BUILD;
+  vi.unstubAllGlobals();
+});
+
+function providerPayload(providerKey: string, ...payload: [] | [unknown]): string {
+  const envelope: { id: string; data?: unknown } = { id: `${providerKey}deadbeef` };
+  if (payload.length === 1) envelope.data = payload[0];
+  return JSON.stringify({ name: `subscribe-${providerKey}`, data: envelope });
+}
+
+function validProviderPayload(providerKey: RendererProviderKey): string {
+  switch (providerKey) {
+    case 'command-eve.team-manage-apply':
+    case 'command-eve.team-manage-reject':
+    case 'command-eve.kanban-acp-reject':
+      return providerPayload(providerKey, { intent_id: 'intent-1' });
+    case 'command-eve.kanban-acp-apply':
+      return providerPayload(providerKey, { intent_id: 'intent-1', mutation_hash: 'sha256:abc' });
+    case 'update-system-info':
+      return providerPayload(providerKey, { cacheDir: '/tmp/cache', workDir: '/tmp/work' });
+    default:
+      return RENDERER_PROVIDER_PAYLOAD_CLASSES[providerKey] === 'void'
+        ? providerPayload(providerKey)
+        : providerPayload(providerKey, {});
+  }
+}
 
 async function setup(): Promise<{ webContents: FakeWebContents; handler: NonNullable<typeof state.handler> }> {
   const module = await import('@/common/adapter/main');
@@ -58,12 +102,12 @@ describe('main adapter IPC trust boundary', () => {
   it('allows a registered main-frame sender', async () => {
     const { webContents, handler } = await setup();
 
-    await handler(
-      { sender: webContents, senderFrame: webContents.mainFrame },
-      JSON.stringify({ name: 'settings.read', data: { id: 1 } })
-    );
+    await handler({ sender: webContents, senderFrame: webContents.mainFrame }, providerPayload('update.check', {}));
 
-    expect(state.emitter.emit).toHaveBeenCalledWith('settings.read', { id: 1 });
+    expect(state.emitter.emit).toHaveBeenCalledWith('subscribe-update.check', {
+      id: 'update.checkdeadbeef',
+      data: {},
+    });
   });
 
   it('blocks an unregistered renderer before dispatch', async () => {
@@ -71,10 +115,7 @@ describe('main adapter IPC trust boundary', () => {
     const foreign = { mainFrame: {}, isDestroyed: () => false };
 
     expect(() =>
-      handler(
-        { sender: foreign, senderFrame: foreign.mainFrame },
-        JSON.stringify({ name: 'command-eve.entitlement-read', data: {} })
-      )
+      handler({ sender: foreign, senderFrame: foreign.mainFrame }, providerPayload('command-eve.entitlement-status'))
     ).toThrow('untrusted');
     expect(state.emitter.emit).not.toHaveBeenCalled();
   });
@@ -82,8 +123,28 @@ describe('main adapter IPC trust boundary', () => {
   it('blocks subframes from a trusted window', async () => {
     const { webContents, handler } = await setup();
 
+    expect(() => handler({ sender: webContents, senderFrame: {} }, providerPayload('update.check'))).toThrow(
+      'untrusted'
+    );
+    expect(state.emitter.emit).not.toHaveBeenCalled();
+  });
+
+  it.each([{ senderFrame: undefined }, { senderFrame: null }])(
+    'blocks a trusted window when senderFrame is $senderFrame',
+    async ({ senderFrame }) => {
+      const { webContents, handler } = await setup();
+
+      expect(() => handler({ sender: webContents, senderFrame }, providerPayload('update.check'))).toThrow('untrusted');
+      expect(state.emitter.emit).not.toHaveBeenCalled();
+    }
+  );
+
+  it('blocks destroyed senders before dispatch', async () => {
+    const { webContents, handler } = await setup();
+    const destroyed = { ...webContents, isDestroyed: () => true };
+
     expect(() =>
-      handler({ sender: webContents, senderFrame: {} }, JSON.stringify({ name: 'feedback:collect-logs', data: {} }))
+      handler({ sender: destroyed, senderFrame: destroyed.mainFrame }, providerPayload('update.check'))
     ).toThrow('untrusted');
     expect(state.emitter.emit).not.toHaveBeenCalled();
   });
@@ -93,8 +154,313 @@ describe('main adapter IPC trust boundary', () => {
     const event = { sender: webContents, senderFrame: webContents.mainFrame };
 
     expect(() => handler(event, '{')).toThrow();
-    expect(() => handler(event, JSON.stringify({ name: '', data: {} }))).toThrow('shape');
+    expect(() => handler(event, JSON.stringify({ name: '', data: {} }))).toThrow();
     expect(() => handler(event, 'x'.repeat(50 * 1024 * 1024 + 1))).toThrow('size');
     expect(state.emitter.emit).not.toHaveBeenCalled();
+  });
+
+  it('rejects unknown exact names, prefix lookalikes and raw emitter names', async () => {
+    const { webContents, handler } = await setup();
+    const event = { sender: webContents, senderFrame: webContents.mainFrame };
+
+    expect(() => handler(event, providerPayload('command-eve.entitlement-status-extra'))).toThrow('unknown');
+    expect(() => handler(event, providerPayload('command-eve.'))).toThrow('unknown');
+    expect(() =>
+      handler(event, JSON.stringify({ name: 'update.open', data: { id: 'update.opendeadbeef', data: {} } }))
+    ).toThrow('unknown');
+    expect(state.emitter.emit).not.toHaveBeenCalled();
+  });
+
+  it('rejects provider envelopes without an exact platform invocation id', async () => {
+    const { webContents, handler } = await setup();
+    const event = { sender: webContents, senderFrame: webContents.mainFrame };
+    const name = 'subscribe-update.check';
+
+    expect(() => handler(event, JSON.stringify({ name, data: null }))).toThrow('envelope');
+    expect(() => handler(event, JSON.stringify({ name, data: {} }))).toThrow('envelope');
+    expect(() => handler(event, JSON.stringify({ name, data: { id: 'otherdeadbeef' } }))).toThrow('envelope');
+    expect(state.emitter.emit).not.toHaveBeenCalled();
+  });
+
+  it('rejects extra provider envelope fields instead of silently forwarding them', async () => {
+    const { webContents, handler } = await setup();
+    const event = { sender: webContents, senderFrame: webContents.mainFrame };
+    const payload = JSON.stringify({
+      name: 'subscribe-update.check',
+      data: { id: 'update.checkdeadbeef', data: {}, privileged: true },
+    });
+
+    expect(() => handler(event, payload)).toThrow('envelope');
+    expect(state.emitter.emit).not.toHaveBeenCalled();
+  });
+
+  it('rejects data on void providers and missing or non-record data on required-record providers', async () => {
+    const { webContents, handler } = await setup();
+    const event = { sender: webContents, senderFrame: webContents.mainFrame };
+
+    expect(() => handler(event, providerPayload('command-eve.entitlement-status', {}))).toThrow('expected void');
+    expect(() => handler(event, providerPayload('update.check'))).toThrow('expected record');
+    expect(() => handler(event, providerPayload('update.check', null))).toThrow('expected record');
+    expect(() => handler(event, providerPayload('update.check', []))).toThrow('expected record');
+    expect(state.emitter.emit).not.toHaveBeenCalled();
+  });
+
+  it('accepts an omitted optional record but rejects scalar optional payloads', async () => {
+    const { webContents, handler } = await setup();
+    const event = { sender: webContents, senderFrame: webContents.mainFrame };
+
+    await handler(event, providerPayload('command-eve.connector-catalog'));
+    expect(state.emitter.emit).toHaveBeenCalledWith('subscribe-command-eve.connector-catalog', {
+      id: 'command-eve.connector-catalogdeadbeef',
+    });
+
+    expect(() => handler(event, providerPayload('command-eve.connector-catalog', 'all'))).toThrow(
+      'expected optional record'
+    );
+    expect(state.emitter.emit).toHaveBeenCalledTimes(1);
+  });
+
+  it('recursively blocks prototype keys and excessive object nesting', async () => {
+    const { webContents, handler } = await setup();
+    const event = { sender: webContents, senderFrame: webContents.mainFrame };
+    const prototypePayload =
+      '{"name":"subscribe-update.check","data":{"id":"update.checkdeadbeef","data":{"nested":{"__proto__":{"admin":true}}}}}';
+    const constructorPayload =
+      '{"name":"subscribe-update.check","data":{"id":"update.checkdeadbeef","data":{"nested":{"constructor":{"prototype":{"admin":true}}}}}}';
+    const deeplyNested: Record<string, unknown> = {};
+    let cursor = deeplyNested;
+    for (let index = 0; index < 18; index++) {
+      const next: Record<string, unknown> = {};
+      cursor.next = next;
+      cursor = next;
+    }
+
+    expect(() => handler(event, prototypePayload)).toThrow('prototype key');
+    expect(() => handler(event, constructorPayload)).toThrow('prototype key');
+    expect(() => handler(event, providerPayload('update.check', deeplyNested))).toThrow('nesting depth');
+    expect(state.emitter.emit).not.toHaveBeenCalled();
+  });
+
+  it('accepts only the exact string-path schema for update-system-info', async () => {
+    const { webContents, handler } = await setup();
+    const event = { sender: webContents, senderFrame: webContents.mainFrame };
+
+    await handler(event, validProviderPayload('update-system-info'));
+    expect(state.emitter.emit).toHaveBeenCalledTimes(1);
+
+    expect(() => handler(event, providerPayload('update-system-info', { cacheDir: '/tmp/cache' }))).toThrow('workDir');
+    expect(() =>
+      handler(event, providerPayload('update-system-info', { cacheDir: '/tmp/cache', workDir: '/tmp/work', root: '/' }))
+    ).toThrow('payload keys');
+    expect(() =>
+      handler(event, providerPayload('update-system-info', { cacheDir: '/tmp/cache', workDir: '/tmp/work', logDir: 1 }))
+    ).toThrow('logDir');
+    expect(state.emitter.emit).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['command-eve.team-manage-apply', { intent_id: '' }],
+    ['command-eve.team-manage-reject', { intent_id: 'intent-1', extra: true }],
+    ['command-eve.kanban-acp-apply', { intent_id: 'intent-1' }],
+    ['command-eve.kanban-acp-reject', { intent_id: 42 }],
+  ] as const)('rejects schema-invalid high-risk intent payload for %s', async (providerKey, data) => {
+    process.env.COMMAND_EVE_FOUNDER_BUILD = '1';
+    const { webContents, handler } = await setup();
+    const event = { sender: webContents, senderFrame: webContents.mainFrame };
+
+    expect(() => handler(event, providerPayload(providerKey, data))).toThrow('provider event payload');
+    expect(state.emitter.emit).not.toHaveBeenCalled();
+  });
+
+  it.each([...FOUNDER_ONLY_PROVIDER_KEYS])(
+    'denies founder-only provider %s in customer mode and accepts it with the main-owned flag',
+    async (providerKey) => {
+      const { webContents, handler } = await setup();
+      const event = { sender: webContents, senderFrame: webContents.mainFrame };
+      const payload = validProviderPayload(providerKey);
+      const expectedEnvelope = (JSON.parse(payload) as { data: unknown }).data;
+
+      expect(() => handler(event, payload)).toThrow('founder-only');
+      expect(state.emitter.emit).not.toHaveBeenCalled();
+
+      process.env.COMMAND_EVE_FOUNDER_BUILD = '1';
+      await handler(event, payload);
+      expect(state.emitter.emit).toHaveBeenCalledWith(`subscribe-${providerKey}`, expectedEnvelope);
+    }
+  );
+});
+
+const collectTypeScriptFiles = (root: string): string[] => {
+  const result: string[] = [];
+  const visit = (directory: string) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const target = path.join(directory, entry.name);
+      if (entry.isDirectory()) visit(target);
+      else if (/\.tsx?$/.test(entry.name)) result.push(target);
+    }
+  };
+  visit(root);
+  return result;
+};
+
+type SourceProviderDeclaration = Readonly<{ key: string; payloadClass: ProviderPayloadClass }>;
+
+const classifySourceProviderPayload = (node: ts.CallExpression, source: ts.SourceFile): ProviderPayloadClass => {
+  const typeText = node.typeArguments?.[1]?.getText(source) ?? 'undefined';
+  const members = typeText
+    .replaceAll(/\s+/g, ' ')
+    .split('|')
+    .map((member) => member.trim());
+  const hasVoid = members.some((member) => member === 'void' || member === 'undefined');
+  const hasRecord = members.some((member) => member !== 'void' && member !== 'undefined');
+  return hasVoid && hasRecord ? 'optional-record' : hasRecord ? 'record' : 'void';
+};
+
+const extractProviderDeclarations = (filePath: string): SourceProviderDeclaration[] => {
+  const sourceText = fs.readFileSync(filePath, 'utf8');
+  const source = ts.createSourceFile(
+    filePath,
+    sourceText,
+    ts.ScriptTarget.Latest,
+    true,
+    filePath.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+  );
+  const constants = new Map<string, string>();
+  const declarations: SourceProviderDeclaration[] = [];
+
+  const collectConstants = (node: ts.Node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer &&
+      ts.isStringLiteral(node.initializer)
+    ) {
+      constants.set(node.name.text, node.initializer.text);
+    }
+    ts.forEachChild(node, collectConstants);
+  };
+  collectConstants(source);
+
+  const collectProviders = (node: ts.Node) => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === 'buildProvider'
+    ) {
+      const argument = node.arguments[0];
+      const key = ts.isStringLiteral(argument)
+        ? argument.text
+        : ts.isIdentifier(argument)
+          ? constants.get(argument.text)
+          : undefined;
+      if (!key) {
+        const line = source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
+        throw new Error(`Unresolved renderer provider key at ${path.relative(process.cwd(), filePath)}:${line}`);
+      }
+      declarations.push({ key, payloadClass: classifySourceProviderPayload(node, source) });
+    }
+    ts.forEachChild(node, collectProviders);
+  };
+  collectProviders(source);
+  return declarations;
+};
+
+const mergeSourcePayloadClasses = (classes: readonly ProviderPayloadClass[]): ProviderPayloadClass => {
+  const values = new Set(classes);
+  if (values.has('optional-record') || (values.has('void') && values.has('record'))) return 'optional-record';
+  return values.has('record') ? 'record' : 'void';
+};
+
+describe('main adapter source-derived wire registry', () => {
+  it('accepts the exact provider envelope emitted by the installed Office AI platform', async () => {
+    const platform = await vi.importActual<typeof import('@office-ai/platform')>('@office-ai/platform');
+    let observed: { name: string; data: unknown } | null = null;
+    let platformEmitter: { emit: (name: string, data: unknown) => void } | null = null;
+
+    platform.bridge.adapter({
+      emit(name, data) {
+        observed = { name, data };
+        const invocation = data as { id: string };
+        queueMicrotask(() => platformEmitter?.emit(`subscribe.callback-update.check${invocation.id}`, { ok: true }));
+      },
+      on(emitter) {
+        platformEmitter = emitter;
+      },
+    });
+
+    await platform.bridge.buildProvider<{ ok: boolean }, Record<string, never>>('update.check').invoke({});
+    expect(observed).not.toBeNull();
+    expect(
+      parseRendererToMainAdapterEvent(JSON.stringify(observed), {
+        maxPayloadBytes: 50 * 1024 * 1024,
+        founderBuild: false,
+      })
+    ).toEqual(observed);
+  });
+
+  it('stays byte-exact with every renderer-callable provider declaration', () => {
+    const declarations = ['packages/desktop/src/common', 'packages/desktop/src/renderer'].flatMap((root) =>
+      collectTypeScriptFiles(path.join(process.cwd(), root)).flatMap(extractProviderDeclarations)
+    );
+    const sourceProviderKeys = new Set(declarations.map(({ key }) => key));
+
+    expect([...RENDERER_PROVIDER_KEYS].toSorted()).toEqual([...sourceProviderKeys].toSorted());
+    expect(new Set(RENDERER_PROVIDER_KEYS).size).toBe(RENDERER_PROVIDER_KEYS.length);
+  });
+
+  it('freezes an explicit source-derived payload class for every registered provider', () => {
+    const declarations = ['packages/desktop/src/common', 'packages/desktop/src/renderer'].flatMap((root) =>
+      collectTypeScriptFiles(path.join(process.cwd(), root)).flatMap(extractProviderDeclarations)
+    );
+    const byKey = new Map<string, ProviderPayloadClass[]>();
+    for (const declaration of declarations) {
+      const classes = byKey.get(declaration.key) ?? [];
+      classes.push(declaration.payloadClass);
+      byKey.set(declaration.key, classes);
+    }
+    const sourceClasses = Object.fromEntries(
+      [...byKey.entries()].map(([key, classes]) => [key, mergeSourcePayloadClasses(classes)])
+    );
+
+    expect(Object.keys(RENDERER_PROVIDER_PAYLOAD_CLASSES).toSorted()).toEqual([...RENDERER_PROVIDER_KEYS].toSorted());
+    expect(RENDERER_PROVIDER_PAYLOAD_CLASSES).toEqual(sourceClasses);
+  });
+
+  it('main-authorizes every Command Center marketing provider and ACP peek as founder-only', () => {
+    const marketingProviders = RENDERER_PROVIDER_KEYS.filter((key) => key.startsWith('command-eve.kanban-marketing-'));
+
+    expect(marketingProviders.length).toBeGreaterThan(0);
+    expect(marketingProviders.every((key) => FOUNDER_ONLY_PROVIDER_KEYS.has(key))).toBe(true);
+    expect(FOUNDER_ONLY_PROVIDER_KEYS.has('command-eve.kanban-acp-peek')).toBe(true);
+  });
+
+  it('never accepts platform callback or raw emitter directions from the renderer', () => {
+    expect(getRendererToMainAdapterPolicy('subscribe.callback-update.checkforged')).toBeNull();
+    expect(getRendererToMainAdapterPolicy('update.open')).toBeNull();
+  });
+
+  it('keeps the sole renderer ipcBridge emitter on its transportless WS-local compatibility seam', () => {
+    const rendererEmitCalls = collectTypeScriptFiles(path.join(process.cwd(), 'packages/desktop/src/renderer')).flatMap(
+      (filePath) => {
+        const source = fs.readFileSync(filePath, 'utf8');
+        return [...source.matchAll(/\bipcBridge(?:\.[A-Za-z_$][\w$]*)+\.emit\s*\(/g)].map((match) => ({
+          file: path.relative(process.cwd(), filePath),
+          expression: match[0].replace(/\s*\($/, ''),
+        }));
+      }
+    );
+    const electronAdapterEmit = vi.fn();
+    vi.stubGlobal('window', { electronAPI: { emit: electronAdapterEmit } });
+
+    wsEmitter<{ type: string }>('message.stream').emit({ type: 'error' });
+
+    expect(rendererEmitCalls).toEqual([
+      {
+        file: 'packages/desktop/src/renderer/pages/conversation/platforms/acp/AcpSendBox.tsx',
+        expression: 'ipcBridge.acpConversation.responseStream.emit',
+      },
+    ]);
+    expect(electronAdapterEmit).not.toHaveBeenCalled();
+    expect(getRendererToMainAdapterPolicy('message.stream')).toBeNull();
   });
 });

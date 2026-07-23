@@ -13,7 +13,7 @@
  * If neither env nor fallback path exists on disk the test fails loudly (no silent skip).
  */
 import { E2E_AGENT_EVENTS_PATH, test, expect } from '../fixtures';
-import { invokeBridge } from '../helpers';
+import { expectFounderOnlyBridgeDenied } from '../helpers/bridge/founderOnly';
 import fs from 'fs';
 import path from 'path';
 
@@ -64,10 +64,7 @@ test.describe('Command EVE Command Center', () => {
     }
   });
 
-  test('keeps the founder route private while its governed bridge remains operational', async ({
-    page,
-    electronApp,
-  }) => {
+  test('keeps the founder route and governed bridge private in customer mode', async ({ page, electronApp }) => {
     const userDataPath = await electronApp.evaluate(async ({ app }) => app.getPath('userData'));
     const commandEveDataPath = path.join(userDataPath, COMMAND_EVE_DATA_DIR_NAME);
     const reconciliationPath = path.join(
@@ -102,32 +99,12 @@ test.describe('Command EVE Command Center', () => {
     await expect.poll(() => page.evaluate(() => window.location.hash), { timeout: 30_000 }).toBe('#/guid');
     await expect(page.getByText(/Command Center|Kommandozentrale/)).toHaveCount(0);
 
-    const readModel = await invokeBridge<{
-      success: boolean;
-      data: { ok: boolean; status: string; model?: unknown; reason_code?: string };
-    }>(page, 'command-eve.command-center-read-model', { maxRuns: 50 }, 30_000);
-    expect(readModel.success, readModel.data.reason_code).toBe(true);
-    expect(readModel.data.ok).toBe(true);
-    expect(readModel.data.status).toBe('ready');
-    expect(readModel.data.model).toBeTruthy();
-
-    const proof = await invokeBridge<{
-      success: boolean;
-      data: { ok: boolean; status: string; reason_code?: string; card_id?: string; audit_event_path?: string };
-    }>(
-      page,
-      'command-eve.kanban-marketing-proof-card',
-      { boardSlug: 'marketing', eventLedgerPath: e2eLedgerPath },
-      30_000
-    );
-    expect(proof.success, proof.data.reason_code).toBe(true);
-    expect(proof.data.ok).toBe(true);
-    expect(proof.data.status).toBe('ready');
-    expect(proof.data.reason_code).toMatch(/KANBAN_MARKETING_PROOF_CARD_(CREATED|EXISTS)/);
-    expect(proof.data.card_id).toBeTruthy();
-    expect(proof.data.audit_event_path).toBe(e2eLedgerPath);
-
-    const ledger = fs.readFileSync(e2eLedgerPath, 'utf8');
-    expect(ledger).toContain('kanban.marketing_board_proof_card_');
+    const ledgerBefore = fs.readFileSync(e2eLedgerPath, 'utf8');
+    await expectFounderOnlyBridgeDenied(page, 'command-eve.command-center-read-model', { maxRuns: 50 });
+    await expectFounderOnlyBridgeDenied(page, 'command-eve.kanban-marketing-proof-card', {
+      boardSlug: 'marketing',
+      eventLedgerPath: e2eLedgerPath,
+    });
+    expect(fs.readFileSync(e2eLedgerPath, 'utf8')).toBe(ledgerBefore);
   });
 });

@@ -4,9 +4,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { gunzipSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 
 import { buildSupportBundleSummary } from '@/process/feedback/supportBundleCore';
+import { collectFeedbackLogAttachment } from '@/process/feedback/logs';
 
 describe('supportBundleCore', () => {
   it('keeps only allowlisted diagnostic aggregates and ephemeral fingerprints', () => {
@@ -56,5 +61,47 @@ describe('supportBundleCore', () => {
     expect(() => buildSupportBundleSummary([], { fingerprintKey: Buffer.alloc(8) })).toThrow(
       'fingerprint key must contain at least 16 bytes'
     );
+  });
+
+  it('serializes only privacy-filtered aggregates in the user-submitted feedback attachment', () => {
+    const logsRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'command-eve-feedback-privacy-'));
+    const fakeCapability = 'f19a'.repeat(16);
+    const privateEmail = 'feedback.reasoning@example.com';
+    const rawLine = `ERROR reasoning for ${privateEmail} with x-aionui-local-capability: ${fakeCapability}`;
+    fs.writeFileSync(path.join(logsRoot, '2026-07-23.log'), rawLine, 'utf8');
+
+    try {
+      const attachment = collectFeedbackLogAttachment(logsRoot);
+      expect(attachment).not.toBeNull();
+      const serialized = gunzipSync(attachment!.data).toString('utf8');
+      const summary = JSON.parse(serialized) as {
+        privacy: {
+          raw_log_content_included: boolean;
+          filenames_included: boolean;
+          local_paths_included: boolean;
+          user_content_included: boolean;
+          sensitive_scan: string;
+        };
+        completion_sentinel: string;
+      };
+
+      expect(attachment!.filename).toBe('command-eve-support-diagnostics.json.gz');
+      expect(summary.privacy).toEqual({
+        raw_log_content_included: false,
+        filenames_included: false,
+        local_paths_included: false,
+        user_content_included: false,
+        sensitive_scan: 'PASS',
+      });
+      expect(summary.completion_sentinel).toBe('COMMAND_EVE_SUPPORT_BUNDLE_COMPLETE');
+      expect(serialized).not.toContain(rawLine);
+      expect(serialized).not.toContain(privateEmail);
+      expect(serialized).not.toContain('x-aionui-local-capability');
+      expect(serialized).not.toContain(fakeCapability);
+      expect(serialized).not.toContain(logsRoot);
+      expect(serialized).not.toContain('2026-07-23.log');
+    } finally {
+      fs.rmSync(logsRoot, { recursive: true, force: true });
+    }
   });
 });

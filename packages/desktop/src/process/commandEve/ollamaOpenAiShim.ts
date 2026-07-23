@@ -269,6 +269,28 @@ export type CommandEveHonchoDeriverRouteResolver = () =>
   | undefined
   | Promise<CommandEveHonchoDeriverRoute | undefined>;
 
+export type CommandEveUpstreamOutcome =
+  | 'completed'
+  | 'client_closed'
+  | 'first_byte_timeout'
+  | 'idle_timeout'
+  | 'upstream_error';
+
+/**
+ * Content-free receipt for the desktop transport boundary only.
+ *
+ * This proves how the shim-side request ended. It deliberately carries no
+ * prompt/model/provider data and makes no claim about server-side reservations,
+ * billing, credits, or settlement.
+ */
+export type CommandEveUpstreamOutcomeReceipt = {
+  version: 'command-eve-upstream-outcome/v1';
+  boundary: 'desktop_upstream_transport';
+  observed_at: string;
+  outcome: CommandEveUpstreamOutcome;
+  response_started: boolean;
+};
+
 export type CommandEveOllamaShimOptions = {
   port?: number;
   /** Override for tests. Production defaults to a random per-process nonce. */
@@ -282,6 +304,13 @@ export type CommandEveOllamaShimOptions = {
   upstreamIdleTimeoutMs?: number;
   promptProofPath?: string;
   egressReceiptPath?: string;
+  /**
+   * Defaults beside `egressReceiptPath` when that production receipt is enabled.
+   * The file contains transport outcome metadata only, never model content.
+   */
+  upstreamOutcomeReceiptPath?: string;
+  /** Test/diagnostic observer for the same content-free transport receipt. */
+  upstreamOutcomeReporter?: (receipt: CommandEveUpstreamOutcomeReceipt) => void;
   egressPolicyAction?: CommandEveEgressPolicyAction;
   /**
    * Optional EVE cloud routing resolver. When omitted, the shim behaves exactly
@@ -543,14 +572,23 @@ function requireShimAuth(request: IncomingMessage, response: ServerResponse, exp
   return false;
 }
 
-type UpstreamAbortReason = 'client_closed' | 'first_byte_timeout' | 'idle_timeout';
+type UpstreamAbortReason = Extract<CommandEveUpstreamOutcome, 'client_closed' | 'first_byte_timeout' | 'idle_timeout'>;
 
 type UpstreamRequestScope = {
   signal: AbortSignal;
   markActivity: () => void;
+  markUpstreamError: () => void;
   reason: () => UpstreamAbortReason | undefined;
   dispose: () => void;
 };
+
+function writeUpstreamOutcomeReceipt(receiptPath: string, receipt: CommandEveUpstreamOutcomeReceipt): void {
+  if (!receiptPath) return;
+  fs.mkdirSync(path.dirname(receiptPath), { recursive: true });
+  const tempFile = `${receiptPath}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  fs.writeFileSync(tempFile, `${JSON.stringify(receipt, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(tempFile, receiptPath);
+}
 
 function createUpstreamRequestScope(
   request: IncomingMessage,
@@ -560,14 +598,40 @@ function createUpstreamRequestScope(
   const controller = new AbortController();
   let abortReason: UpstreamAbortReason | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let outcomeRecorded = false;
+
+  const recordOutcome = (outcome: CommandEveUpstreamOutcome): void => {
+    if (outcomeRecorded) return;
+    outcomeRecorded = true;
+    const receipt: CommandEveUpstreamOutcomeReceipt = {
+      version: 'command-eve-upstream-outcome/v1',
+      boundary: 'desktop_upstream_transport',
+      observed_at: new Date().toISOString(),
+      outcome,
+      response_started: response.headersSent,
+    };
+    try {
+      writeUpstreamOutcomeReceipt(options.upstreamOutcomeReceiptPath, receipt);
+      options.upstreamOutcomeReporter(receipt);
+    } catch {
+      // Outcome evidence must never turn a completed or cancelled inference into
+      // a transport failure. Keep the warning content-free as well.
+      console.warn('[Command EVE] Upstream outcome receipt could not be recorded.');
+    }
+  };
 
   const abort = (reason: UpstreamAbortReason): void => {
     if (controller.signal.aborted) return;
     abortReason = reason;
     controller.abort(new Error(reason));
+    recordOutcome(reason);
   };
   const arm = (reason: UpstreamAbortReason, timeoutMs: number): void => {
     if (timer) clearTimeout(timer);
+    if (controller.signal.aborted) {
+      timer = undefined;
+      return;
+    }
     timer = timeoutMs > 0 ? setTimeout(() => abort(reason), timeoutMs) : undefined;
   };
   const onClientClosed = (): void => abort('client_closed');
@@ -587,11 +651,13 @@ function createUpstreamRequestScope(
   return {
     signal: controller.signal,
     markActivity: () => arm('idle_timeout', options.upstreamIdleTimeoutMs),
+    markUpstreamError: () => recordOutcome('upstream_error'),
     reason: () => abortReason,
     dispose: () => {
       if (timer) clearTimeout(timer);
       request.off('aborted', onClientClosed);
       response.off('close', onResponseClosed);
+      recordOutcome('completed');
     },
   };
 }
@@ -1247,6 +1313,7 @@ async function handleEveCloudCompletions(
     if (abortReason) {
       writeUpstreamAbortResponse(response, abortReason);
     } else {
+      upstreamScope.markUpstreamError();
       // Generic 502 — never echo the error (could surface the bearer in some
       // runtimes), matching the function's own upstream-failure discipline.
       jsonResponse(response, 502, { error: { message: 'EVE Inference upstream unreachable.' } });
@@ -1472,6 +1539,7 @@ async function handleLocalOpenAiCompletions(
     if (abortReason) {
       writeUpstreamAbortResponse(response, abortReason);
     } else {
+      upstreamScope.markUpstreamError();
       jsonResponse(response, 502, { error: { message: 'The selected local EVE model is unavailable.' } });
     }
   } finally {
@@ -1659,8 +1727,10 @@ async function handleChatCompletions(
     if (abortReason) {
       writeUpstreamAbortResponse(response, abortReason);
     } else if (response.headersSent) {
+      upstreamScope.markUpstreamError();
       if (!response.writableEnded) response.end();
     } else {
+      upstreamScope.markUpstreamError();
       jsonResponse(response, 502, { error: { message: 'Ollama upstream unreachable.' } });
     }
   } finally {
@@ -1782,6 +1852,12 @@ async function startCommandEveOllamaOpenAiShimOnce(shimOptions: CommandEveOllama
     upstreamIdleTimeoutMs: shimOptions.upstreamIdleTimeoutMs ?? DEFAULT_UPSTREAM_IDLE_TIMEOUT_MS,
     promptProofPath: shimOptions.promptProofPath || '',
     egressReceiptPath: shimOptions.egressReceiptPath || '',
+    upstreamOutcomeReceiptPath:
+      shimOptions.upstreamOutcomeReceiptPath ||
+      (shimOptions.egressReceiptPath
+        ? path.join(path.dirname(shimOptions.egressReceiptPath), 'last-upstream-outcome-receipt.json')
+        : ''),
+    upstreamOutcomeReporter: shimOptions.upstreamOutcomeReporter || (() => undefined),
     // Redact-and-continue by default (see egressBoundaryCore): a hard block 451s
     // non-retryably and hangs the turn. PII is stripped before egress, never leaked.
     egressPolicyAction: shimOptions.egressPolicyAction || 'redact',

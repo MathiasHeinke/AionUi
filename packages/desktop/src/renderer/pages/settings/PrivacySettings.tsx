@@ -7,7 +7,7 @@
 /**
  * Privacy settings — telemetry + Command EVE cloud voice opt-in toggles.
  *
- * Telemetry (crash reporting + capped log upload via Sentry) is OFF by default.
+ * Telemetry (crash reporting + structural log metadata via Sentry) is OFF by default.
  * This page is the only place a user can turn it on, and it reads/writes the
  * main-process consent store through the bridge channels defined alongside the
  * consent core. Sentry stays gated on the persisted value, so flipping this
@@ -48,8 +48,9 @@ type BridgeResponse<T> = { success?: boolean; data?: T; msg?: string };
 
 const TELEMETRY_DISCLOSURE = [
   'Telemetry is OFF by default. Nothing is sent unless you turn it on here.',
-  'When enabled, Command EVE sends anonymous crash reports and a capped, gzipped slice of recent app logs to our error-tracking service (Sentry) to help diagnose failures, tagged with an anonymous random installation id, app version, OS and CPU architecture. No account details, file contents, prompts, API keys or personal data are collected.',
-  'You can turn this off again at any time; turning it off stops all crash reporting and log uploads immediately.',
+  'When enabled, Command EVE sends pseudonymous crash diagnostics to Sentry after applying its sensitive-data redactor. Crash diagnostics can contain error messages and technical stack, context, breadcrumb and request metadata. They are tagged with a random installation id, app version, OS and CPU architecture. The automatic log attachment contains only structural metadata for recent log files: generated entry numbers, byte sizes and modification times. It never contains original filenames, local paths, log text, prompts or file contents.',
+  'Submitting feedback is separate and user initiated. The feedback form explains that your description, a privacy-filtered diagnostic summary from the last three days and any screenshots shown in the form are sent only when you press Submit.',
+  'You can turn telemetry off again at any time; turning it off stops automatic crash reporting and metadata uploads immediately.',
 ].join('\n\n');
 
 const getConsent = bridge.buildProvider<TelemetryConsentBridgeResult, void>(TELEMETRY_CONSENT_GET_CHANNEL).invoke;

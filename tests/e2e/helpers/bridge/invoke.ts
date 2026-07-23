@@ -106,7 +106,9 @@ export async function invokeBridge<T = unknown>(
         throw new Error('electronAPI bridge is unavailable in renderer context');
       }
 
-      const id = `e2e_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
+      const id = `${requestKey}${Math.floor(Math.random() * 0x1_0000_0000)
+        .toString(16)
+        .padStart(8, '0')}`;
       const callbackEventName = `subscribe.callback-${requestKey}${id}`;
       const requestEventName = `subscribe-${requestKey}`;
 

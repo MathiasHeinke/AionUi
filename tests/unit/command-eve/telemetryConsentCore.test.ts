@@ -178,9 +178,57 @@ describe('setConsent persistence (filesystem round-trip)', () => {
 });
 
 describe('disclosure string', () => {
-  it('states telemetry is off by default and how to change it', () => {
+  const readSettingsLocale = (locale: 'de-DE' | 'en-US') =>
+    JSON.parse(
+      fs.readFileSync(
+        path.resolve(`packages/desktop/src/renderer/services/i18n/locales/${locale}/settings.json`),
+        'utf8'
+      )
+    ) as {
+      privacy: { disclosure: string; disclosureDescription: string; telemetryDescription: string };
+      bugReportAutoInfo: string;
+    };
+
+  it('describes structural-only automatic telemetry and a separate user-submitted feedback path', () => {
     expect(TELEMETRY_DISCLOSURE).toMatch(/off by default/i);
     expect(TELEMETRY_DISCLOSURE.toLowerCase()).toContain('crash');
-    expect(TELEMETRY_DISCLOSURE).toMatch(/turn (this|it) off/i);
+    expect(TELEMETRY_DISCLOSURE).toContain('structural metadata');
+    expect(TELEMETRY_DISCLOSURE).toContain(
+      'It never contains original filenames, local paths, log text, prompts or file contents.'
+    );
+    expect(TELEMETRY_DISCLOSURE).toContain('Submitting feedback is separate and user initiated.');
+    expect(TELEMETRY_DISCLOSURE).toContain('only when you press Submit');
+    expect(TELEMETRY_DISCLOSURE).toMatch(/turn telemetry off again/i);
+    expect(TELEMETRY_DISCLOSURE).not.toMatch(/slice of recent app logs/i);
+  });
+
+  it('keeps the canonical core, renderer fallback, and English locale byte-aligned', () => {
+    const english = readSettingsLocale('en-US');
+    const rendererSource = fs.readFileSync(
+      path.resolve('packages/desktop/src/renderer/pages/settings/PrivacySettings.tsx'),
+      'utf8'
+    );
+
+    expect(english.privacy.disclosure).toBe(TELEMETRY_DISCLOSURE);
+    for (const paragraph of TELEMETRY_DISCLOSURE.split('\n\n')) {
+      expect(rendererSource).toContain(`'${paragraph}'`);
+    }
+  });
+
+  it('keeps DE and EN telemetry and feedback copy exact about what is sent and when', () => {
+    const english = readSettingsLocale('en-US');
+    const german = readSettingsLocale('de-DE');
+
+    expect(english.privacy.telemetryDescription).toContain('structural log metadata only');
+    expect(english.privacy.telemetryDescription).toContain('never raw log text');
+    expect(english.privacy.disclosureDescription).toContain('Feedback is a separate action');
+    expect(english.bugReportAutoInfo).toMatch(/^When you submit,/u);
+    expect(english.bugReportAutoInfo).toContain('never raw log text, filenames, paths, prompts or file contents');
+
+    expect(german.privacy.telemetryDescription).toContain('ausschließlich strukturelle Log-Metadaten');
+    expect(german.privacy.telemetryDescription).toContain('niemals rohe Logtexte');
+    expect(german.privacy.disclosure).toContain('Das Senden von Feedback ist davon getrennt');
+    expect(german.bugReportAutoInfo).toMatch(/^Beim Absenden/u);
+    expect(german.bugReportAutoInfo).toContain('niemals rohe Logtexte, Dateinamen, Pfade, Prompts oder Dateiinhalte');
   });
 });

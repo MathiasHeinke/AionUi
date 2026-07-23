@@ -21,6 +21,7 @@ import { cleanupSiderTooltips } from '@renderer/utils/ui/siderTooltip';
 import { useConversationShortcuts } from '@renderer/hooks/ui/useConversationShortcuts';
 import { isElectronDesktop } from '@renderer/utils/platform';
 import { COMMAND_EVE_SHELL_ENABLED } from '@/common/config/commandEveShell';
+import { useCommandEveFounderBuild } from '@renderer/hooks/useCommandEveFounderBuild';
 import SeatRail from '@renderer/components/seats/SeatRail';
 import '@renderer/styles/layout.css';
 
@@ -112,6 +113,11 @@ const Layout: React.FC<{
   const [shouldMountUpdateModal, setShouldMountUpdateModal] = useState(false);
   const { onClick } = useDebug();
   const { contextHolder: directorySelectionContextHolder } = useDirectorySelection();
+  // 1.819 R5 (HG-3): team-manage / kanban-ACP confirm cards are founder-only
+  // surfaces. The main-process bridge also denies these providers in customer
+  // mode — this renderer gate keeps customer builds from polling founder-only
+  // endpoints and renders nothing while the flag resolves (fail-closed).
+  const { founderBuild } = useCommandEveFounderBuild();
   useDeepLink();
   useNotificationClick();
   const navigate = useNavigate();
@@ -404,14 +410,14 @@ const Layout: React.FC<{
               </Suspense>
               {/* SG-1 Design B: the team_manage confirm card polls for a pending
                   EVE proposal and surfaces the button-only confirm gate globally. */}
-              {COMMAND_EVE_SHELL_ENABLED && (
+              {COMMAND_EVE_SHELL_ENABLED && founderBuild && (
                 <Suspense fallback={null}>
                   <TeamManageConfirmCard />
                 </Suspense>
               )}
               {/* COMPA-626: the kanban-ACP confirm card — same button-only governance
                   gate for EVE's proposed card changes. */}
-              {COMMAND_EVE_SHELL_ENABLED && (
+              {COMMAND_EVE_SHELL_ENABLED && founderBuild && (
                 <Suspense fallback={null}>
                   <KanbanAcpConfirmCard />
                 </Suspense>

@@ -38,6 +38,23 @@ function verifyBundledResources(resourcesDir, electronPlatformName, targetArch) 
   console.log(`   ✓ Bundled resources verified for ${result.runtimeKey} (${result.checked.length} checks)`);
 }
 
+async function verifyCommandEvePackagedResources({ appOutDir, packager, resourcesDir, targetArch }) {
+  const productFilename = packager?.appInfo?.productFilename || 'Command EVE';
+  const appPath = path.join(appOutDir, `${productFilename}.app`);
+  const { verifyPackagedCommandEveResources } = await import('./release/verify-packaged-command-eve-resources.mjs');
+  const receipt = verifyPackagedCommandEveResources({
+    appPath,
+    sourcePublicDir: path.resolve(__dirname, '..', 'public'),
+    resourcesPath: resourcesDir,
+    expectedArch: targetArch,
+    productFilename,
+  });
+  const keyProof = receipt.keys.map((key) => `${key.file}:${key.sha256.slice(0, 12)}`).join(', ');
+  console.log(
+    `   ✓ Command EVE packaged-resource truth verified (${receipt.executable_architectures.join(', ')}; ${keyProof}; no private key)`
+  );
+}
+
 module.exports = async function afterPack(context) {
   const { arch, electronPlatformName, appOutDir, packager } = context;
   const targetArch = normalizeArch(typeof arch === 'string' ? arch : Arch[arch] || process.arch);
@@ -74,6 +91,9 @@ module.exports = async function afterPack(context) {
     }
 
     verifyBundledResources(resourcesDir, electronPlatformName, targetArch);
+    if (electronPlatformName === 'darwin') {
+      await verifyCommandEvePackagedResources({ appOutDir, packager, resourcesDir, targetArch });
+    }
   } else {
     throw new Error(`resources directory not found: ${resourcesDir}`);
   }

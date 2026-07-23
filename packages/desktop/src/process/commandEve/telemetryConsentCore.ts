@@ -7,9 +7,9 @@
 /**
  * Telemetry consent store.
  *
- * Telemetry (Sentry crash reporting + startup log upload) is OPT-IN. The
+ * Telemetry (Sentry crash reporting + startup structural-metadata upload) is OPT-IN. The
  * default state is NOT consented, so a fresh install never sends crash reports,
- * device identifiers, or log bundles until the user explicitly opts in from the
+ * device identifiers, or structural log metadata until the user explicitly opts in from the
  * privacy settings. This is the GDPR-safe default for shipped builds.
  *
  * The gate is read synchronously at process startup (before the backend or the
@@ -164,6 +164,7 @@ export function isTelemetryAllowed(): boolean {
  */
 export const TELEMETRY_DISCLOSURE = [
   'Telemetry is OFF by default. Nothing is sent unless you turn it on here.',
-  'When enabled, Command EVE sends anonymous crash reports and a capped, gzipped slice of recent app logs to our error-tracking service (Sentry) to help diagnose failures, tagged with an anonymous random installation id, app version, OS and CPU architecture. No account details, file contents, prompts, API keys or personal data are collected.',
-  'You can turn this off again at any time; turning it off stops all crash reporting and log uploads immediately.',
+  'When enabled, Command EVE sends pseudonymous crash diagnostics to Sentry after applying its sensitive-data redactor. Crash diagnostics can contain error messages and technical stack, context, breadcrumb and request metadata. They are tagged with a random installation id, app version, OS and CPU architecture. The automatic log attachment contains only structural metadata for recent log files: generated entry numbers, byte sizes and modification times. It never contains original filenames, local paths, log text, prompts or file contents.',
+  'Submitting feedback is separate and user initiated. The feedback form explains that your description, a privacy-filtered diagnostic summary from the last three days and any screenshots shown in the form are sent only when you press Submit.',
+  'You can turn telemetry off again at any time; turning it off stops automatic crash reporting and metadata uploads immediately.',
 ].join('\n\n');

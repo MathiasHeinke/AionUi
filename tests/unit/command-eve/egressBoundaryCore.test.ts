@@ -48,6 +48,30 @@ describe('Command EVE egress boundary core', () => {
     expect(result.allowedText).not.toContain('12345678');
   });
 
+  it('redacts PII and secrets inside a reasoning-channel envelope before cloud egress', async () => {
+    const privateEmail = 'reasoning.private@example.com';
+    const privateIban = 'DE89370400440532013000';
+    const privateSecret = 'sk-reasoningcanary1234567890123456';
+    const reasoningEnvelope = JSON.stringify({
+      channel: 'reasoning',
+      delta: `Plan for ${privateEmail}, transfer to ${privateIban}, then use ${privateSecret}.`,
+    });
+    const result = await evaluateCommandEveEgressBoundary({
+      text: reasoningEnvelope,
+      provider: { ...LOCAL_PROVIDER, kind: 'cloud', name: 'EVE Inference' },
+    });
+
+    expect(result.decision).toBe('redact');
+    expect(result.allowedText).toContain('"channel":"reasoning"');
+    expect(result.allowedText).toContain('[REDACTED_EMAIL]');
+    expect(result.allowedText).toContain('[REDACTED_IBAN]');
+    expect(result.allowedText).toContain('[REDACTED_SECRET]');
+    const observableEgress = `${result.allowedText}\n${JSON.stringify(result.receipt)}`;
+    expect(observableEgress).not.toContain(privateEmail);
+    expect(observableEgress).not.toContain(privateIban);
+    expect(observableEgress).not.toContain(privateSecret);
+  });
+
   it('explicit policyAction:block still hard-blocks (opt-in strict mode preserved)', async () => {
     const result = await evaluateCommandEveEgressBoundary({
       text: 'Mein API key: sk-abcdefghijklmnopqrstuvwxyz123456',

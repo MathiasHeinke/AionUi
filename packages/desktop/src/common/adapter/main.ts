@@ -8,8 +8,10 @@ import type { BrowserWindow } from 'electron';
 import { ipcMain } from 'electron';
 
 import { bridge } from '@office-ai/platform';
+import { isCommandEveFounderBuild } from '../config/commandEveShell';
 import { ADAPTER_BRIDGE_EVENT_KEY } from './constant';
 import { registerWebSocketBroadcaster, getBridgeEmitter, setBridgeEmitter, broadcastToAll } from './registry';
+import { parseRendererToMainAdapterEvent } from './security/bridgePolicy';
 
 /**
  * Bridge event data structure for IPC communication
@@ -40,33 +42,21 @@ export const setPetNotifyHook = (hook: ((name: string, data: unknown) => void) |
  * */
 /** Maximum IPC payload size (50 MB). Messages exceeding this are dropped with an error notification. */
 const MAX_IPC_PAYLOAD_SIZE = 50 * 1024 * 1024;
-const MAX_BRIDGE_EVENT_NAME_LENGTH = 256;
 
 export function isTrustedAdapterIpcSender(event: AdapterIpcEvent): boolean {
   const sender = event.sender;
   if (!sender || sender.isDestroyed()) return false;
-  if (event.senderFrame && event.senderFrame !== sender.mainFrame) return false;
+  if (!event.senderFrame || event.senderFrame !== sender.mainFrame) return false;
   return adapterWindowList.some(
     (win) => !win.isDestroyed() && !win.webContents.isDestroyed() && win.webContents === sender
   );
 }
 
 function parseBridgeEvent(info: unknown): BridgeEventData {
-  if (typeof info !== 'string') throw new Error('Invalid adapter bridge payload type.');
-  if (Buffer.byteLength(info, 'utf8') > MAX_IPC_PAYLOAD_SIZE) {
-    throw new Error('Adapter bridge payload exceeds the allowed size.');
-  }
-  const parsed = JSON.parse(info) as Partial<BridgeEventData> | null;
-  if (
-    !parsed ||
-    typeof parsed !== 'object' ||
-    typeof parsed.name !== 'string' ||
-    parsed.name.length === 0 ||
-    parsed.name.length > MAX_BRIDGE_EVENT_NAME_LENGTH
-  ) {
-    throw new Error('Invalid adapter bridge event shape.');
-  }
-  return { name: parsed.name, data: parsed.data };
+  return parseRendererToMainAdapterEvent(info, {
+    maxPayloadBytes: MAX_IPC_PAYLOAD_SIZE,
+    founderBuild: isCommandEveFounderBuild(),
+  });
 }
 
 bridge.adapter({

@@ -13,7 +13,9 @@ import path from 'path';
 import {
   DEFAULT_COMMAND_EVE_CAPABILITY_PACK,
   DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST,
+  COMMAND_EVE_ONBOARDING_SKILL_ID,
   commandEveDelegationConcurrency,
+  commandEveOnboardingSkillMarkdown,
   ensureCommandEveRuntimeBootstrap as ensureCommandEveRuntimeBootstrapCore,
   loadCommandEveCapabilityPack,
   loadCommandEveRuntimeBootstrapManifest,
@@ -66,6 +68,7 @@ import {
   COMMAND_EVE_BONSAI_PILOT_VERSION,
   resolveBonsaiPilotPaths,
 } from '@/process/commandEve/localInference/bonsaiManifest';
+import { buildCommandEveAssistantFirstRunContext } from '@/process/commandEve/assistantBootstrapCore';
 import {
   COLIBRI_MODEL_SNAPSHOT,
   COLIBRI_MTP_PINS,
@@ -408,10 +411,7 @@ describe('Command EVE runtime bootstrap core', () => {
     expect(prematurePipCalls).toBe(0);
     releaseVenv();
 
-    const [startupReceipt, userTriggeredReceipt] = await Promise.all([
-      startupBootstrap,
-      userTriggeredBootstrap,
-    ]);
+    const [startupReceipt, userTriggeredReceipt] = await Promise.all([startupBootstrap, userTriggeredBootstrap]);
     expect(startupReceipt.status).toBe('ready');
     expect(userTriggeredReceipt.status).toBe('ready');
     expect(prematurePipCalls).toBe(0);
@@ -1801,6 +1801,120 @@ describe('Command EVE runtime bootstrap core', () => {
     expect(profile.source).toBe('registration');
   });
 
+  it('generates the verified Operator context only after explicit registration is submitted', async () => {
+    const harness = makeHarness();
+    const paths = resolveCommandEveRuntimeBootstrapPaths(harness.root);
+
+    // Clean-install direction: there is no profile to prefill the registration
+    // gate. The gate writes registration.json first; bootstrap derives every
+    // downstream first-run artifact from that explicit submission.
+    expect(fs.existsSync(paths.firstRunProfile)).toBe(false);
+    const reg = registerTenant(
+      {
+        name: 'Ada Lovelace',
+        company: 'Analytical Engines',
+        email: 'ada@example.test',
+        consent: true,
+        nameSource: 'explicit',
+      },
+      { userDataPath: harness.root }
+    );
+    expect(reg.ok).toBe(true);
+    expect(fs.existsSync(paths.firstRunProfile)).toBe(false);
+
+    const receipt = await ensureCommandEveRuntimeBootstrap({
+      userDataPath: harness.root,
+      runner: harness.runner,
+      detachedSpawner: () => {},
+      statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+      // A low-RAM install takes the fully provisioned cloud-only path: runtime
+      // files + Operator memory are written, only the local model is skipped.
+      totalMemoryBytes: 4 * 1024 ** 3,
+      displayNameLookup: () => 'Wrong macOS Guess',
+      env: { USER: 'wrong-local-user' },
+    });
+
+    const profile = JSON.parse(fs.readFileSync(paths.firstRunProfile, 'utf8')) as {
+      founder_name?: string;
+      company_name?: string;
+      source: string;
+      confidence: string;
+      needs_confirmation: boolean;
+    };
+    const operatorContext = fs.readFileSync(path.join(paths.hermesHome, 'memories', 'USER.md'), 'utf8');
+    const onboardingSkill = fs.readFileSync(
+      path.join(paths.managedSkillsRoot, COMMAND_EVE_ONBOARDING_SKILL_ID, 'SKILL.md'),
+      'utf8'
+    );
+    const firstRunContext = buildCommandEveAssistantFirstRunContext(
+      { appVersion: '1.819.0', receipt, profile },
+      'de-DE'
+    );
+
+    expect(receipt.status).toBe('ready');
+    expect(profile).toMatchObject({
+      founder_name: 'Ada Lovelace',
+      company_name: 'Analytical Engines',
+      source: 'registration',
+      confidence: 'verified',
+      needs_confirmation: false,
+    });
+    expect(receipt.identity).toMatchObject(profile);
+    expect(operatorContext).toContain('# Operator\nName: Ada Lovelace\nFirma/Brand: Analytical Engines');
+    expect(operatorContext).not.toContain('Wrong macOS Guess');
+    expect(firstRunContext).toContain('- Founder-Seed: Ada Lovelace');
+    expect(firstRunContext).toContain('- Company-Seed: Analytical Engines');
+    expect(firstRunContext).toContain('- Identity-Quelle: registration / verified');
+    expect(onboardingSkill).toBe(commandEveOnboardingSkillMarkdown());
+  });
+
+  it('never promotes an email-local-part fallback into the confirmed Operator name', async () => {
+    const harness = makeHarness();
+    const reg = registerTenant(
+      {
+        name: 'Jane Doe',
+        company: 'Example',
+        email: 'jane.doe@example.test',
+        consent: true,
+        nameSource: 'email_fallback',
+      },
+      { userDataPath: harness.root }
+    );
+    expect(reg.ok).toBe(true);
+
+    const receipt = await ensureCommandEveRuntimeBootstrap({
+      userDataPath: harness.root,
+      runner: harness.runner,
+      detachedSpawner: () => {},
+      statfs: () => ({ bavail: 50 * 1024 * 1024, bsize: 1024 }),
+      totalMemoryBytes: 4 * 1024 ** 3,
+      displayNameLookup: () => '',
+      env: { USER: 'admin' },
+    });
+
+    const paths = resolveCommandEveRuntimeBootstrapPaths(harness.root);
+    const profile = JSON.parse(fs.readFileSync(paths.firstRunProfile, 'utf8')) as {
+      founder_name?: string;
+      company_name?: string;
+      source: string;
+      confidence: string;
+    };
+    const operatorContext = fs.readFileSync(path.join(paths.hermesHome, 'memories', 'USER.md'), 'utf8');
+    const firstRunContext = buildCommandEveAssistantFirstRunContext(
+      { appVersion: '1.819.0', receipt, profile },
+      'de-DE'
+    );
+
+    expect(receipt.status).toBe('ready');
+    expect(profile.founder_name).toBeUndefined();
+    expect(profile).toMatchObject({ company_name: 'Example', source: 'registration', confidence: 'verified' });
+    expect(receipt.identity?.founder_name).toBeUndefined();
+    expect(operatorContext).toContain('Name: (unbestätigt — beiläufig nachfragen)');
+    expect(operatorContext).not.toContain('Jane Doe');
+    expect(firstRunContext).toContain('- Founder-Seed: noch nicht bekannt');
+    expect(firstRunContext).not.toContain('Jane Doe');
+  });
+
   it('does not treat placeholder local usernames as a verified founder identity', async () => {
     const harness = makeHarness({ ollamaInitiallyInstalled: true });
     const receipt = await ensureCommandEveRuntimeBootstrap({
@@ -1973,6 +2087,25 @@ describe('resolveCommandEveFirstRunProfile registration seed (COMPA-596)', () =>
     });
     expect(profile.founder_name).toBe('Mathias Heinke');
     expect(profile.company_name).toBe('FYN Labs');
+    expect(profile.source).toBe('registration');
+    expect(profile.confidence).toBe('verified');
+    expect(profile.needs_confirmation).toBe(false);
+  });
+
+  it('suppresses an email-derived registration name even when its record is otherwise valid', () => {
+    const profile = resolveCommandEveFirstRunProfile({
+      env: { USER: 'admin' },
+      now,
+      displayNameLookup: () => '',
+      registration: {
+        founder_name: 'Jane Doe',
+        founder_name_source: 'email_fallback',
+        company_name: 'Example',
+        email: 'jane.doe@example.test',
+      },
+    });
+    expect(profile.founder_name).toBeUndefined();
+    expect(profile.company_name).toBe('Example');
     expect(profile.source).toBe('registration');
     expect(profile.confidence).toBe('verified');
     expect(profile.needs_confirmation).toBe(false);

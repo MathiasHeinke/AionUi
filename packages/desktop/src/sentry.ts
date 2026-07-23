@@ -40,6 +40,7 @@ type SearchableEvent = {
 };
 
 const BACKEND_HTTP_ERROR_PAYLOAD_PATTERN = /(Backend [A-Z]+ \S+ failed \(\d+\)):\s*[^\n]*/g;
+const LOCAL_CAPABILITY_HEADER_VALUE_PATTERN = /(\bx-aionui-local-capability\b["']?\s*[:=]\s*["']?)[0-9a-f]{64}\b/gi;
 const MAX_SENTRY_REDACTION_DEPTH = 12;
 const SENSITIVE_SENTRY_KEYS = new Set([
   'authorization',
@@ -50,13 +51,16 @@ const SENSITIVE_SENTRY_KEYS = new Set([
   'privatekey',
   'proxyauthorization',
   'setcookie',
+  'xaionuilocalcapability',
 ]);
 const SENSITIVE_SENTRY_KEY_SUFFIXES = ['apikey', 'credential', 'jwt', 'secret', 'sessionid', 'token'];
 const SENTRY_LOCAL_VARIABLE_KEYS = new Set(['locals', 'vars', 'variables']);
 
 export function redactSentryText(value: string): string {
   return redactCommandEveSensitiveText(
-    value.replace(BACKEND_HTTP_ERROR_PAYLOAD_PATTERN, '$1: [BACKEND_RESPONSE_REDACTED]')
+    value
+      .replace(BACKEND_HTTP_ERROR_PAYLOAD_PATTERN, '$1: [BACKEND_RESPONSE_REDACTED]')
+      .replace(LOCAL_CAPABILITY_HEADER_VALUE_PATTERN, '$1[LOCAL_CAPABILITY_REDACTED]')
   );
 }
 
@@ -527,12 +531,13 @@ function listLogFilesSync(dir: string): LogFileMeta[] {
 class UnretryableError extends Error {}
 class RetryableError extends Error {}
 
-async function runStartupLogReport(): Promise<void> {
+/** @internal Exported for structural-only telemetry contract tests. */
+export async function runStartupLogReport(): Promise<void> {
   // Defensive re-check: consent may have been revoked during the startup delay.
-  // No consent → never upload logs. Don't touch throttle state so a later
+  // No consent → never upload structural log metadata. Don't touch throttle state so a later
   // opt-in still fires on the next launch.
   if (!isTelemetryAllowed()) {
-    console.info('[sentry] startup log report skipped (telemetry consent not granted)');
+    console.info('[sentry] startup metadata report skipped (telemetry consent not granted)');
     return;
   }
 
@@ -541,14 +546,14 @@ async function runStartupLogReport(): Promise<void> {
 
   if (state.lastReportAt && now - state.lastReportAt < THROTTLE_WINDOW_MS) {
     const remainingHours = ((THROTTLE_WINDOW_MS - (now - state.lastReportAt)) / 3_600_000).toFixed(1);
-    console.info(`[sentry] startup log report skipped (throttled, next attempt in ~${remainingHours}h)`);
+    console.info(`[sentry] startup metadata report skipped (throttled, next attempt in ~${remainingHours}h)`);
     return;
   }
 
   // DSN gate goes first so we don't read the disk for nothing.
   // Don't write state — the next launch with a DSN should still fire.
   if (!process.env.SENTRY_DSN) {
-    console.info('[sentry] startup log report skipped (SENTRY_DSN not set)');
+    console.info('[sentry] startup metadata report skipped (SENTRY_DSN not set)');
     throw new UnretryableError('no DSN');
   }
 
@@ -595,7 +600,7 @@ async function runStartupLogReport(): Promise<void> {
 }
 
 /**
- * Schedule a one-shot startup log report 30s after the renderer finishes
+ * Schedule a one-shot structural startup metadata report 30s after the renderer finishes
  * loading. Best-effort: any failure is logged to console only and never
  * affects app startup.
  *
@@ -612,7 +617,7 @@ export function scheduleStartupLogReport(window: BrowserWindow): void {
   const trigger = () => {
     setTimeout(() => {
       runStartupLogReport().catch((err) => {
-        console.error('[sentry] startup log report failed:', err);
+        console.error('[sentry] startup metadata report failed:', err);
       });
     }, STARTUP_DELAY_MS);
   };

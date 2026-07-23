@@ -9,17 +9,27 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { randomBytes } from 'node:crypto';
 
+const electronPathMock = vi.hoisted(() => ({ logs: '/tmp', userData: '/tmp' }));
+
 vi.mock('electron', () => ({
-  app: { getVersion: () => '0.0.0-test', getPath: () => '/tmp', isPackaged: false },
+  app: {
+    getVersion: () => '0.0.0-test',
+    getPath: (name: string) => (name === 'logs' ? electronPathMock.logs : electronPathMock.userData),
+    isPackaged: false,
+  },
 }));
 
 let sentryInitOptions: { beforeSend?: (event: unknown) => unknown } | undefined;
 const scopeSetContext = vi.fn();
 const scopeSetExtra = vi.fn();
 const scopeSetTag = vi.fn();
+const scopeAddAttachment = vi.fn();
 
 vi.mock('@sentry/electron/main', () => ({
   init: vi.fn((options: { beforeSend?: (event: unknown) => unknown }) => {
@@ -32,10 +42,12 @@ vi.mock('@sentry/electron/main', () => ({
       setTag: scopeSetTag,
       setExtra: scopeSetExtra,
       setContext: scopeSetContext,
+      addAttachment: scopeAddAttachment,
     });
   }),
   captureException: vi.fn(),
   captureEvent: vi.fn(),
+  captureMessage: vi.fn(),
   flush: vi.fn(async () => true),
 }));
 
@@ -69,6 +81,7 @@ import {
   captureBackendStartupFailure,
   initSentry,
   redactSentryText,
+  runStartupLogReport,
 } from '@/sentry';
 
 describe('selectRecentLogFiles', () => {
@@ -134,6 +147,70 @@ describe('buildStructuralLogSegments', () => {
 
     expect(segments).toEqual([{ name: 'log-1.metadata.json', mtime: 123, content: '{"size_bytes":456}\n' }]);
     expect(JSON.stringify(segments)).not.toContain(secret);
+  });
+});
+
+describe('runStartupLogReport structural-only egress', () => {
+  it('never reads or emits log text, PII, reasoning, or the synthetic loopback capability canary', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'command-eve-r6-startup-report-'));
+    const logsRoot = path.join(root, 'logs');
+    fs.mkdirSync(logsRoot, { recursive: true });
+
+    const fakeCapability = 'a18f'.repeat(16);
+    const privateEmail = 'reasoning.owner+private@example.com';
+    const privateIban = 'DE89370400440532013000';
+    const rawLog = [
+      `x-aionui-local-capability: ${fakeCapability}`,
+      `reasoning: contact ${privateEmail}`,
+      `prompt: transfer to ${privateIban}`,
+    ].join('\n');
+    fs.writeFileSync(path.join(logsRoot, '2026-07-23.log'), rawLog, 'utf8');
+
+    const previousDsn = process.env.SENTRY_DSN;
+    electronPathMock.logs = logsRoot;
+    electronPathMock.userData = root;
+    process.env.SENTRY_DSN = 'https://public@example.invalid/1';
+    scopeAddAttachment.mockClear();
+    scopeSetExtra.mockClear();
+    vi.mocked(Sentry.captureMessage).mockClear();
+    const consoleInfo = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+
+    try {
+      await runStartupLogReport();
+
+      expect(scopeAddAttachment).toHaveBeenCalledOnce();
+      const attachment = scopeAddAttachment.mock.calls[0][0] as {
+        filename: string;
+        data: Buffer;
+        contentType: string;
+      };
+      const attachmentText = gunzipSync(attachment.data).toString('utf8');
+      const observableEgress = `${attachmentText}\n${JSON.stringify(scopeSetExtra.mock.calls)}\n${JSON.stringify(
+        consoleInfo.mock.calls
+      )}`;
+
+      expect(attachment.filename).toBe('aionui-log-metadata.json.gz');
+      expect(attachment.contentType).toBe('application/gzip');
+      expect(attachmentText).toContain('"size_bytes":');
+      expect(observableEgress).not.toContain('x-aionui-local-capability');
+      expect(observableEgress).not.toContain(fakeCapability);
+      expect(observableEgress).not.toContain(privateEmail);
+      expect(observableEgress).not.toContain(privateIban);
+      expect(observableEgress).not.toContain('reasoning:');
+      expect(observableEgress).not.toContain('prompt:');
+      expect(Sentry.captureMessage).toHaveBeenCalledWith('startup-log-report', 'info');
+    } finally {
+      consoleInfo.mockRestore();
+      if (previousDsn === undefined) delete process.env.SENTRY_DSN;
+      else process.env.SENTRY_DSN = previousDsn;
+      electronPathMock.logs = '/tmp';
+      electronPathMock.userData = '/tmp';
+      vi.mocked(Sentry.withScope).mockClear();
+      vi.mocked(Sentry.captureMessage).mockClear();
+      scopeAddAttachment.mockClear();
+      scopeSetExtra.mockClear();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
@@ -334,8 +411,45 @@ describe('initSentry beforeSend', () => {
     expect(serialized).toContain('[NESTED_DATA_REDACTED]');
   });
 
+  it('redacts PII and the synthetic loopback capability from reasoning-channel telemetry', () => {
+    initSentry();
+    const fakeCapability = '9d7c'.repeat(16);
+    const privateEmail = 'reasoning.private@example.com';
+    const privateIban = 'DE89370400440532013000';
+    const event = {
+      message: `x-aionui-local-capability=${fakeCapability}`,
+      contexts: {
+        model: {
+          reasoning: `Think about ${privateEmail}; x-aionui-local-capability: ${fakeCapability}`,
+        },
+      },
+      extra: {
+        thinking: `Use ${privateIban} with x-aionui-local-capability: ${fakeCapability}`,
+      },
+      request: {
+        headers: {
+          'x-aionui-local-capability': fakeCapability,
+        },
+      },
+    };
+
+    expect(sentryInitOptions?.beforeSend?.(event)).toBe(event);
+    const serialized = JSON.stringify(event);
+    expect(serialized).not.toContain(fakeCapability);
+    expect(serialized).not.toContain(privateEmail);
+    expect(serialized).not.toContain(privateIban);
+    expect(serialized).toContain('[LOCAL_CAPABILITY_REDACTED]');
+    expect(serialized).toContain('[SENSITIVE_VALUE_REDACTED]');
+    expect(serialized).toContain('[REDACTED_EMAIL]');
+    expect(serialized).toContain('[REDACTED_IBAN]');
+  });
+
   it('redacts standalone telemetry text with the Command EVE egress rules', () => {
-    expect(redactSentryText('Contact alice@example.com')).not.toContain('alice@example.com');
+    const fakeCapability = 'cafe'.repeat(16);
+    const redacted = redactSentryText(`Contact alice@example.com with x-aionui-local-capability: ${fakeCapability}`);
+    expect(redacted).not.toContain('alice@example.com');
+    expect(redacted).not.toContain(fakeCapability);
+    expect(redacted).toContain('[LOCAL_CAPABILITY_REDACTED]');
   });
 
   it('keeps native shutdown fatal crashes while filtering GPU crashpad noise', () => {

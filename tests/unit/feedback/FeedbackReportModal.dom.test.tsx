@@ -148,6 +148,24 @@ describe('FeedbackReportModal — prefill', () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
+  it('collects the privacy-filtered diagnostic summary only after the user explicitly submits', async () => {
+    const collectFeedbackLogs = vi.fn(async () => null);
+    (window as unknown as { electronAPI: { collectFeedbackLogs: typeof collectFeedbackLogs } }).electronAPI = {
+      collectFeedbackLogs,
+    };
+    const user = userEvent.setup();
+    renderModal(<FeedbackReportModal visible={true} onCancel={vi.fn()} defaultModule='conversation-session' />);
+
+    expect(collectFeedbackLogs).not.toHaveBeenCalled();
+    await user.type(screen.getByPlaceholderText('settings.bugReportDescriptionPlaceholder'), 'explicit report');
+    expect(collectFeedbackLogs).not.toHaveBeenCalled();
+
+    await user.click(screen.getByText('settings.bugReportSubmit'));
+    await waitFor(() => {
+      expect(collectFeedbackLogs).toHaveBeenCalledOnce();
+    });
+  });
+
   it('submits feedback tags and extra context to Sentry', async () => {
     const user = userEvent.setup();
     const onCancel = vi.fn();

@@ -17,6 +17,7 @@ import {
   COMMAND_EVE_LOCAL_MODEL_TIERS,
 } from '../../common/config/commandEveShell';
 import { COMMAND_EVE_CONTEXT_COMPRESSION_THRESHOLD } from '../../common/config/eveContextPolicyCore';
+import { isConfirmedCommandEveProfileName, type CommandEveProfileNameSource } from './accountIdentityCore';
 import { readRegistration } from './entitlementCore';
 import { ensureBonsaiPilotArtifacts, readBonsaiInstallStatus } from './localInference/bonsaiProvisioner';
 import { ensureColibriArtifacts, readColibriInstallStatus } from './localInference/colibriProvisioner';
@@ -2528,10 +2529,20 @@ export function resolveCommandEveFirstRunProfile(options: {
    * so EVE can greet the founder with their real name + company on first launch
    * instead of "not known yet".
    */
-  registration?: { founder_name?: string; company_name?: string };
+  registration?: {
+    founder_name?: string;
+    founder_name_source?: CommandEveProfileNameSource;
+    company_name?: string;
+    email?: string;
+  };
 }): RuntimeBootstrapIdentityProfile {
   const founderFromRegistration = normalizeIdentityText(options.registration?.founder_name);
   const companyFromRegistration = normalizeIdentityText(options.registration?.company_name);
+  const founderFromRegistrationConfirmed = isConfirmedCommandEveProfileName({
+    name: founderFromRegistration,
+    email: options.registration?.email,
+    source: options.registration?.founder_name_source,
+  });
   const founderFromEnv = normalizeIdentityText(
     options.env.COMMAND_EVE_FOUNDER_NAME || options.env.COMMAND_EVE_USER_NAME
   );
@@ -2549,7 +2560,11 @@ export function resolveCommandEveFirstRunProfile(options: {
   let confidence: RuntimeBootstrapIdentityConfidence = 'placeholder';
   let needsConfirmation = true;
 
-  if (founderFromRegistration && !isPlaceholderIdentityName(founderFromRegistration)) {
+  if (
+    founderFromRegistrationConfirmed &&
+    founderFromRegistration &&
+    !isPlaceholderIdentityName(founderFromRegistration)
+  ) {
     founderName = founderFromRegistration;
     source = 'registration';
     confidence = 'verified';
@@ -4896,7 +4911,12 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
     now,
     displayNameLookup: options.displayNameLookup,
     registration: registrationRecord
-      ? { founder_name: registrationRecord.name, company_name: registrationRecord.company }
+      ? {
+          founder_name: registrationRecord.name,
+          founder_name_source: registrationRecord.name_source,
+          company_name: registrationRecord.company,
+          email: registrationRecord.email,
+        }
       : undefined,
   });
   writeJsonAtomic(paths.firstRunProfile, firstRunProfile);
@@ -5679,11 +5699,7 @@ export async function ensureCommandEveRuntimeBootstrap(
 ): Promise<RuntimeBootstrapReceipt> {
   const platform = options.platform ?? process.platform;
   const activeSeatId = getActiveSeatId();
-  const runtimeRoot = resolveCommandEveRuntimeBootstrapPaths(
-    options.userDataPath,
-    activeSeatId,
-    platform
-  ).runtimeRoot;
+  const runtimeRoot = resolveCommandEveRuntimeBootstrapPaths(options.userDataPath, activeSeatId, platform).runtimeRoot;
   const queueKey = `${platform}:${path.resolve(runtimeRoot)}`;
   const previousTurn = runtimeBootstrapQueueTails.get(queueKey) ?? Promise.resolve();
   let releaseTurn!: () => void;
