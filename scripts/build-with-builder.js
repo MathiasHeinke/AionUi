@@ -192,6 +192,16 @@ function dmgExists(outDir) {
 function tryRemoveDir(targetDir) {
   if (!fs.existsSync(targetDir)) return true;
   try {
+    // The packaged artifact-python tree is read-only-locked after a signed
+    // build (0444 files / 0555 dirs, see signArtifactPythonReceipt_core.js).
+    // Plain rmSync then dies with EACCES on rmdir and leaves a half-deleted
+    // .app behind — the exact corruption that broke two consecutive 1.819
+    // builds. Restore owner-write before any removal.
+    try {
+      execSync(`chmod -R u+w "${targetDir}"`, { stdio: 'ignore' });
+    } catch {
+      // best-effort; rmSync below is the final attempt either way
+    }
     fs.rmSync(targetDir, {
       recursive: true,
       force: true,
@@ -822,6 +832,18 @@ try {
   }
   const builderCommand = `bunx electron-builder --config ${builderConfig} ${builderArgs} ${archFlag} ${nsisInclude} ${publishArg}`;
   try {
+    // A previously signed build leaves the artifact-python tree read-only
+    // (0444/0555, see signArtifactPythonReceipt_core.js). electron-builder's
+    // own packaging cleanup rmdir()s the old .app and dies with EACCES on the
+    // locked tree, leaving a half-deleted .app behind — the exact corruption
+    // that produced a notarized-but-broken 1.819 DMG. Unlock before building.
+    if (process.platform === 'darwin' && fs.existsSync(outDir)) {
+      try {
+        execSync(`chmod -R u+w "${outDir}"`, { stdio: 'ignore' });
+      } catch {
+        // best-effort; a fresh out/ has nothing to unlock
+      }
+    }
     buildWithDmgRetry(builderCommand, targetArch);
   } catch (error) {
     const winExePath = path.join(outDir, 'win-unpacked', WINDOWS_EXECUTABLE_NAME);
