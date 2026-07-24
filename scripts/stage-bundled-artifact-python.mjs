@@ -855,7 +855,9 @@ function writeArtifactComplianceFiles({ targetDirectory, packages, manifest }) {
   );
   for (const entry of packages) {
     const matching = licenseFiles.filter((file) =>
-      file.path.toLowerCase().startsWith(`${String(entry.name).replaceAll('-', '_')}-${entry.version}.dist-info/`.toLowerCase())
+      file.path
+        .toLowerCase()
+        .startsWith(`${String(entry.name).replaceAll('-', '_')}-${entry.version}.dist-info/`.toLowerCase())
     );
     noticesSections.push(
       [

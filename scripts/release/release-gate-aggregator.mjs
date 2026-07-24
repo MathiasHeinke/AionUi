@@ -17,7 +17,16 @@ const NOTARIZATION_GATE = path.join(HERE, 'verify-notarization-stapled.mjs');
 const FIRST_RUN_BUNDLE_GATE = path.join(HERE, 'verify-command-eve-first-run-bundle.mjs');
 
 function parseArgs(argv) {
-  const args = { egressJsonReport: '', dmg: '', outDir: '', metadata: '', app: '', userData: '', json: false, help: false };
+  const args = {
+    egressJsonReport: '',
+    dmg: '',
+    outDir: '',
+    metadata: '',
+    app: '',
+    userData: '',
+    json: false,
+    help: false,
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--egress-json-report') args.egressJsonReport = argv[++index] || '';

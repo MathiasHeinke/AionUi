@@ -26,7 +26,8 @@ export const PRIVATE_KEY_HEADER = /-----BEGIN (?:OPENSSH |EC |RSA |DSA |ENCRYPTE
 // evade the guard. Text-extension files are only flagged when the header sits
 // at the START of the file — real PEMs begin with it; docs merely quote it
 // inline. Keeps npm-doc false positives out while closing the rename evasion.
-export const PRIVATE_KEY_HEADER_AT_START = /^\s*(?:\uFEFF)?-----BEGIN (?:OPENSSH |EC |RSA |DSA |ENCRYPTED )?PRIVATE KEY-----/;
+export const PRIVATE_KEY_HEADER_AT_START =
+  /^\s*(?:\uFEFF)?-----BEGIN (?:OPENSSH |EC |RSA |DSA |ENCRYPTED )?PRIVATE KEY-----/;
 export const TEXT_SCAN_EXTENSIONS = new Set(['.txt', '.dat']);
 const TEXT_SCAN_MAX_BYTES = 32 * 1024;
 export const PRIVATE_KEY_FILENAME = /signing.*\.key$/i;

@@ -115,9 +115,7 @@ export async function readInferenceSelectionFromBackendStrict(): Promise<string 
     // Deliberately user-facing (fail-closed lane guard): constructed as a
     // CommandEveShimPublicError so the shim may echo this exact message while
     // every arbitrary throw gets the generic 500 (F-14, Kimi 1.819 audit).
-    throw new CommandEveShimPublicError(
-      'Command EVE cloud route unavailable: inference selection could not be read.'
-    );
+    throw new CommandEveShimPublicError('Command EVE cloud route unavailable: inference selection could not be read.');
   }
 }
 

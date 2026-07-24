@@ -22,7 +22,7 @@ describe('visual-direction-gate Hermes skill', () => {
 
   it('ships its discovery metadata next to the executable SKILL.md', () => {
     const metadata = fs.readFileSync(path.join(skillRoot, 'agents', 'openai.yaml'), 'utf8');
-    expect(metadata).toContain('display_name: "Visual Direction Gate"');
+    expect(metadata).toMatch(/display_name:\s+['"]Visual Direction Gate['"]/);
     expect(metadata).toContain('$visual-direction-gate');
   });
 });

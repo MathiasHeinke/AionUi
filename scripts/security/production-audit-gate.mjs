@@ -33,7 +33,10 @@ function parseArgs(argv) {
   // tests; a release/CI invocation must never be able to weaken the gate by
   // passing them. Fail closed unless the explicit test-hook env var is set.
   const testHooksEnabled = process.env.COMMAND_EVE_AUDIT_GATE_TEST_HOOKS === '1';
-  if (!testHooksEnabled && (options.auditJson !== undefined || options.ledger !== DEFAULT_LEDGER || options.now !== undefined)) {
+  if (
+    !testHooksEnabled &&
+    (options.auditJson !== undefined || options.ledger !== DEFAULT_LEDGER || options.now !== undefined)
+  ) {
     throw new Error(
       'production-audit-gate: --audit-json/--ledger/--now are test-only hooks; set COMMAND_EVE_AUDIT_GATE_TEST_HOOKS=1 to enable them'
     );

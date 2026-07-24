@@ -194,7 +194,10 @@ function buildSyntheticWheel({ distribution = 'mutation-pkg', version = '1.0.0',
   if (!archiveFiles.has(`${distInfo}/WHEEL`)) {
     archiveFiles.set(
       `${distInfo}/WHEEL`,
-      Buffer.from('Wheel-Version: 1.0\nGenerator: eve-mutation-test\nRoot-Is-Purelib: true\nTag: py3-none-any\n', 'utf8')
+      Buffer.from(
+        'Wheel-Version: 1.0\nGenerator: eve-mutation-test\nRoot-Is-Purelib: true\nTag: py3-none-any\n',
+        'utf8'
+      )
     );
   }
   const recordPath = `${distInfo}/RECORD`;
@@ -276,10 +279,7 @@ test('mutation (c): RECORD naming a file absent from the archive is rejected', a
       { path: 'mutation_pkg/ghost.py', hash: recordDigest(ghost), size: String(ghost.length) },
     ],
   });
-  await assert.rejects(
-    () => inspectWheel(entry),
-    /Wheel RECORD names a missing archive file mutation_pkg\/ghost\.py/
-  );
+  await assert.rejects(() => inspectWheel(entry), /Wheel RECORD names a missing archive file mutation_pkg\/ghost\.py/);
 });
 
 test('mutation (d): a wrong hash recorded in RECORD for an intact file is rejected', async (t) => {
@@ -300,9 +300,7 @@ test('mutation (d2): a wrong size recorded in RECORD for an intact file is rejec
   const entry = stageSyntheticWheel(t, {
     files: { 'mutation_pkg/module.py': content },
     transformRecord: (rows) =>
-      rows.map((row) =>
-        row.path === 'mutation_pkg/module.py' ? { ...row, size: String(content.length + 1) } : row
-      ),
+      rows.map((row) => (row.path === 'mutation_pkg/module.py' ? { ...row, size: String(content.length + 1) } : row)),
   });
   await assert.rejects(() => inspectWheel(entry), /Wheel RECORD size mismatch for mutation_pkg\/module\.py/);
 });

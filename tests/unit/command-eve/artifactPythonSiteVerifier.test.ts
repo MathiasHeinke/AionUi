@@ -190,7 +190,10 @@ describe('signed artifact-site verifier — Pro Gate 2 mutation battery', () => 
 
   it('fails closed when the receipt itself is missing', () => {
     fs.rmSync(path.join(siteDir, RECEIPT_NAME));
-    expect(verifyCommandEveArtifactPythonSite(siteDir)).toMatchObject({ ok: false, reason: 'artifact_receipt_invalid' });
+    expect(verifyCommandEveArtifactPythonSite(siteDir)).toMatchObject({
+      ok: false,
+      reason: 'artifact_receipt_invalid',
+    });
   });
 
   it('fails closed when tree_phase is outside the signed contract', () => {

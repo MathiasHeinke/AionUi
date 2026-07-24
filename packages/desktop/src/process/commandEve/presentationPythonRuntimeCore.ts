@@ -213,7 +213,8 @@ function artifactTreeFiles(directory: string, receipt: ArtifactPythonRuntimeRece
       const target = path.join(current, entry.name);
       if (entry.isSymbolicLink()) throw new Error(`artifact_tree_symlink:${target}`);
       if (entry.isDirectory()) visit(target);
-      else if (entry.isFile() && target !== receiptPath) addFile('artifact-site', path.relative(directory, target), target);
+      else if (entry.isFile() && target !== receiptPath)
+        addFile('artifact-site', path.relative(directory, target), target);
       else if (!entry.isFile()) throw new Error(`artifact_tree_special_file:${target}`);
     }
   };

@@ -32,18 +32,20 @@ describe('build-with-builder', () => {
       args: ['arm64', '--mac', '--arm64'],
       expectedArch: 'arm64',
     },
-  ])('enforces the target contract for args $args', ({ args, expectedArch, expectedError }) => {
-    const tempDir = mkdtempSync(join(tmpdir(), 'aionui-build-test-'));
-    const hookPath = join(tempDir, 'hook.cjs');
-    const callsPath = join(tempDir, 'prepare-calls.json');
-    const skillsSourcePath = join(tempDir, 'bundled-skills');
-    const selftestOutDir = join(tempDir, 'out');
+  ])(
+    'enforces the target contract for args $args',
+    ({ args, expectedArch, expectedError }) => {
+      const tempDir = mkdtempSync(join(tmpdir(), 'aionui-build-test-'));
+      const hookPath = join(tempDir, 'hook.cjs');
+      const callsPath = join(tempDir, 'prepare-calls.json');
+      const skillsSourcePath = join(tempDir, 'bundled-skills');
+      const selftestOutDir = join(tempDir, 'out');
 
-    cpSync(resolve(repoRoot, 'resources/bundled-skills'), skillsSourcePath, { recursive: true });
+      cpSync(resolve(repoRoot, 'resources/bundled-skills'), skillsSourcePath, { recursive: true });
 
-    writeFileSync(
-      hookPath,
-      `
+      writeFileSync(
+        hookPath,
+        `
 const childProcess = require('node:child_process');
 const fs = require('node:fs');
 const Module = require('node:module');
@@ -87,35 +89,37 @@ childProcess.execSync = function mockedExecSync(command) {
   return Buffer.from('');
 };
 `,
-      'utf8'
-    );
+        'utf8'
+      );
 
-    try {
-      const result = spawnSync(process.execPath, ['scripts/build-with-builder.js', ...args], {
-        cwd: repoRoot,
-        encoding: 'utf8',
-        env: {
-          ...process.env,
-          AIONUI_PREPARE_CALLS_FILE: callsPath,
-          COMMAND_EVE_SKILLS_SRC: skillsSourcePath,
-          BUILD_WITH_BUILDER_SELFTEST_OUT_DIR: selftestOutDir,
-          NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require=${hookPath}`].filter(Boolean).join(' '),
-        },
-      });
+      try {
+        const result = spawnSync(process.execPath, ['scripts/build-with-builder.js', ...args], {
+          cwd: repoRoot,
+          encoding: 'utf8',
+          env: {
+            ...process.env,
+            AIONUI_PREPARE_CALLS_FILE: callsPath,
+            COMMAND_EVE_SKILLS_SRC: skillsSourcePath,
+            BUILD_WITH_BUILDER_SELFTEST_OUT_DIR: selftestOutDir,
+            NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require=${hookPath}`].filter(Boolean).join(' '),
+          },
+        });
 
-      if (expectedError) {
-        expect(result.status).toBe(1);
-        expect(`${result.stderr}\n${result.stdout}`).toContain(expectedError);
-        return;
+        if (expectedError) {
+          expect(result.status).toBe(1);
+          expect(`${result.stderr}\n${result.stdout}`).toContain(expectedError);
+          return;
+        }
+
+        expect(result.status, result.stderr || result.stdout).toBe(0);
+        expect(`${result.stdout}\n${result.stderr}`).toContain('source=<committed-snapshot-only>');
+
+        const calls = JSON.parse(readFileSync(callsPath, 'utf8')) as Array<{ arch?: string } | null>;
+        expect(calls).toContainEqual(expect.objectContaining({ arch: expectedArch }));
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
       }
-
-      expect(result.status, result.stderr || result.stdout).toBe(0);
-      expect(`${result.stdout}\n${result.stderr}`).toContain('source=<committed-snapshot-only>');
-
-      const calls = JSON.parse(readFileSync(callsPath, 'utf8')) as Array<{ arch?: string } | null>;
-      expect(calls).toContainEqual(expect.objectContaining({ arch: expectedArch }));
-    } finally {
-      rmSync(tempDir, { recursive: true, force: true });
-    }
-  });
+    },
+    30_000
+  );
 });

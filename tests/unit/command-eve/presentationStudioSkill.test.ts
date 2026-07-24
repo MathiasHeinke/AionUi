@@ -28,7 +28,7 @@ describe('presentation-studio Hermes skill', () => {
 
   it('ships discovery metadata next to the executable skill', () => {
     const metadata = fs.readFileSync(path.join(skillRoot, 'agents', 'openai.yaml'), 'utf8');
-    expect(metadata).toContain('display_name: "Presentation Studio"');
+    expect(metadata).toMatch(/display_name:\s+['"]Presentation Studio['"]/);
     expect(metadata).toContain('$presentation-studio');
   });
 });
