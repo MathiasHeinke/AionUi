@@ -837,9 +837,20 @@ try {
     // own packaging cleanup rmdir()s the old .app and dies with EACCES on the
     // locked tree, leaving a half-deleted .app behind — the exact corruption
     // that produced a notarized-but-broken 1.819 DMG. Unlock before building.
-    if (process.platform === 'darwin' && fs.existsSync(outDir)) {
+    // Scoped to the locked subtree only: a blanket chmod over the whole app
+    // bundle is slow enough to time out contract tests (2 GB of frameworks).
+    const lockedArtifactSite = path.join(
+      outDir,
+      'mac-arm64',
+      'Command EVE.app',
+      'Contents',
+      'Resources',
+      'python',
+      'artifact-site-packages'
+    );
+    if (process.platform === 'darwin' && fs.existsSync(lockedArtifactSite)) {
       try {
-        execSync(`chmod -R u+w "${outDir}"`, { stdio: 'ignore' });
+        execSync(`chmod -R u+w "${lockedArtifactSite}"`, { stdio: 'ignore' });
       } catch {
         // best-effort; a fresh out/ has nothing to unlock
       }

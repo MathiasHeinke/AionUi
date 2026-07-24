@@ -2071,6 +2071,13 @@ function prependPathSegment(env: NodeJS.ProcessEnv, segment: string): void {
   env.PATH = [segment, ...parts].join(path.delimiter);
 }
 
+function prependEnvPathSegment(env: NodeJS.ProcessEnv, key: 'PYTHONPATH', segment: string): void {
+  const current = env[key] || '';
+  const parts = current.split(path.delimiter).filter(Boolean);
+  if (parts.includes(segment)) return;
+  env[key] = [segment, ...parts].join(path.delimiter);
+}
+
 export function prepareCommandEveRuntimeProcessEnv(
   userDataPath: string,
   env: NodeJS.ProcessEnv = process.env,
@@ -2099,6 +2106,22 @@ export function prepareCommandEveRuntimeProcessEnv(
   // Every Python descendant must keep bytecode out of Contents/Resources/python,
   // otherwise a first launch mutates the bundle and invalidates its code seal.
   env.PYTHONDONTWRITEBYTECODE = '1';
+
+  // Signed artifact runtime PRECEDENCE (P1-2 shadowing, surfaced by the 1.819
+  // C9 run): the hermes wheel pins Pillow==12.2.0, and venv site-packages
+  // precede the .pth-appended artifact site in sys.path — so the venv's stale,
+  // vulnerable copy would shadow the signed, verified 12.3.0 at runtime.
+  // PYTHONPATH entries precede site-packages, so putting the verified artifact
+  // site FIRST makes the signed tree authoritative for every backend-spawned
+  // interpreter (the .pth binding stays as the env-independent backstop).
+  // resolveCommandEveArtifactPythonSiteDir only returns a directory whose
+  // receipt + tree pass the full verifier, so an unverified or tampered site
+  // is never injected. Dev/source runs resolve to '' and skip this entirely.
+  const electronResourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+  const artifactSiteDir = resolveCommandEveArtifactPythonSiteDir(env, electronResourcesPath);
+  if (artifactSiteDir) {
+    prependEnvPathSegment(env, 'PYTHONPATH', artifactSiteDir);
+  }
 
   // The predictable local inference port is bearer-protected. Hermes receives
   // only a 0600 token-file path; the CEVE/cloud credential never enters config.
@@ -5481,7 +5504,15 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
     }
   }
 
-  let presentationPythonProbe = await runner(pythonBinary(paths), commandEvePresentationPythonProbeArgs(), {
+  // Probe the SIGNED artifact site when one is bound (packaged builds), not the
+  // venv fallback: the hermes wheel pins Pillow==12.2.0, and the venv's own
+  // site-packages precede the .pth-appended artifact site in sys.path, so the
+  // no-arg fallback probe reads the venv's stale metadata and fails the pinned
+  // 12.3.0 assertion (PRESENTATION_PYTHON_IMPORT_FAILED). The site probe is
+  // interpreter-isolated (-I -P -S), inserts the signed root first, and proves
+  // versions AND import origins against exactly the signed tree.
+  const probeArgs = commandEvePresentationPythonProbeArgs(artifactSite.ok ? artifactSite.directory : '');
+  let presentationPythonProbe = await runner(pythonBinary(paths), probeArgs, {
     env,
     timeoutMs: DEFAULT_STAGE_TIMEOUT_MS,
   });
