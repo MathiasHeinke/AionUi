@@ -12,16 +12,39 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import fs from 'fs';
+import path from 'path';
 import { z } from 'zod';
 import { BUILTIN_IMAGE_GEN_ID, BUILTIN_IMAGE_GEN_NAME } from './constants';
 import { executeImageGeneration } from '@/common/chat/imageGenCore';
+import { COMMAND_EVE_MANAGED_IMAGE_PLATFORM } from '@/common/config/eveManagedImageGenerationCore';
 import type { TProviderWithModel } from '@/common/config/storage';
+
+function readManagedLoopbackApiKey(platform: string, baseUrl: string): string {
+  if (platform !== COMMAND_EVE_MANAGED_IMAGE_PLATFORM) return '';
+  try {
+    const parsed = new URL(baseUrl);
+    if (parsed.protocol !== 'http:' || !['127.0.0.1', '::1', 'localhost'].includes(parsed.hostname)) return '';
+  } catch {
+    return '';
+  }
+
+  const apiKeyFile = process.env.AIONUI_IMG_API_KEY_FILE?.trim();
+  if (!apiKeyFile || !path.isAbsolute(apiKeyFile) || path.basename(apiKeyFile) !== 'shim-auth-token') return '';
+  try {
+    const stat = fs.lstatSync(apiKeyFile);
+    if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o077) !== 0) return '';
+    if (typeof process.getuid === 'function' && stat.uid !== process.getuid()) return '';
+    return fs.readFileSync(apiKeyFile, 'utf8').trim();
+  } catch {
+    return '';
+  }
+}
 
 // Read provider config from environment variables
 function getProviderFromEnv(): TProviderWithModel | null {
   const platform = process.env.AIONUI_IMG_PLATFORM;
   const base_url = process.env.AIONUI_IMG_BASE_URL;
-  const api_key = process.env.AIONUI_IMG_API_KEY;
   const model = process.env.AIONUI_IMG_MODEL;
 
   if (!platform || !model) {
@@ -33,7 +56,7 @@ function getProviderFromEnv(): TProviderWithModel | null {
     name: BUILTIN_IMAGE_GEN_NAME,
     platform,
     base_url: base_url || '',
-    api_key: api_key || '',
+    api_key: process.env.AIONUI_IMG_API_KEY || readManagedLoopbackApiKey(platform, base_url || ''),
     use_model: model,
   };
 }
@@ -87,6 +110,16 @@ IMPORTANT: When user provides multiple images, ALWAYS pass ALL images to the ima
         .describe(
           'Optional: Array of paths to existing local image files or HTTP/HTTPS URLs to edit/modify. Examples: ["test.jpg", "https://example.com/img.png"]. For single image, use array format: ["test.jpg"].'
         ),
+      aspect_ratio: z
+        .enum(['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9'])
+        .optional()
+        .describe('Optional output aspect ratio. Use 16:9 for slide directions and desktop website hero directions.'),
+      resolution: z
+        .enum(['1K', '2K'])
+        .optional()
+        .describe(
+          'Optional output resolution. Use 1K for selection drafts and 2K only for a user-selected final direction.'
+        ),
       workspace_dir: z
         .string()
         .optional()
@@ -94,7 +127,7 @@ IMPORTANT: When user provides multiple images, ALWAYS pass ALL images to the ima
           'Optional: Working directory for resolving relative paths and saving output images. Defaults to current working directory.'
         ),
     },
-    async ({ prompt, image_uris, workspace_dir }) => {
+    async ({ prompt, image_uris, aspect_ratio, resolution, workspace_dir }) => {
       const provider = getProviderFromEnv();
       if (!provider) {
         return {
@@ -111,7 +144,12 @@ IMPORTANT: When user provides multiple images, ALWAYS pass ALL images to the ima
       const proxy = process.env.AIONUI_IMG_PROXY || undefined;
       const workspaceDir = workspace_dir || process.cwd();
 
-      const result = await executeImageGeneration({ prompt, image_uris }, provider, workspaceDir, proxy);
+      const result = await executeImageGeneration(
+        { prompt, image_uris, aspect_ratio, resolution },
+        provider,
+        workspaceDir,
+        proxy
+      );
 
       if (!result.success) {
         return {

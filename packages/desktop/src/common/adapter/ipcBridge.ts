@@ -63,6 +63,15 @@ import type {
 } from '../config/eveMultimodalGatewayCore';
 import type { CommandEvePdfPrepareRequest, CommandEvePdfPrepareResult } from '../config/evePdfIntelligenceCore';
 import type {
+  CommandEvePresentationPrepareRequest,
+  CommandEvePresentationPrepareResult,
+} from '../config/evePresentationIntelligenceCore';
+import type { CommandEveImagePrepareRequest, CommandEveImagePrepareResult } from '../config/eveImageIntelligenceCore';
+import type {
+  CommandEveManagedVisualTurnAuthorizationRequest,
+  CommandEveManagedVisualTurnAuthorizationResult,
+} from '../config/eveManagedVisualTurnCore';
+import type {
   ITeamAgentRemovedEvent,
   ITeamAgentRenamedEvent,
   ITeamAgentSpawnedEvent,
@@ -1522,6 +1531,8 @@ export interface ICommandEveShellFlagsResult {
   ok: boolean;
   /** COMMAND_EVE_FOUNDER_BUILD=1 — gates founder-only surfaces (Assistenten-CRUD). */
   founder_build: boolean;
+  /** Safe public build fact for hiding development-only chrome. Never exposes CDP config or ports. */
+  is_dev_mode?: boolean;
 }
 
 /** v1.4 T2: the company-brain-list payload — index only, NO bodies. */
@@ -1837,6 +1848,23 @@ export const commandEve = {
   pdfPrepare: bridge.buildProvider<IBridgeResponse<CommandEvePdfPrepareResult>, CommandEvePdfPrepareRequest>(
     'command-eve.pdf-prepare'
   ),
+  // Presentation intelligence: MAIN renders PPTX slides locally and sends only
+  // bounded previews through the managed ZDR vision gateway after user consent.
+  presentationPrepare: bridge.buildProvider<
+    IBridgeResponse<CommandEvePresentationPrepareResult>,
+    CommandEvePresentationPrepareRequest
+  >('command-eve.presentation-prepare'),
+  // Ordinary image intelligence: MAIN normalizes JPEG/PNG/WebP locally and
+  // sends only a bounded JPEG preview through the same managed ZDR gateway.
+  imagePrepare: bridge.buildProvider<IBridgeResponse<CommandEveImagePrepareResult>, CommandEveImagePrepareRequest>(
+    'command-eve.image-prepare'
+  ),
+  // One-turn managed synthesis authorization. MAIN returns only a short-lived
+  // opaque marker; the license bearer and provider key never cross the bridge.
+  managedVisualTurnAuthorize: bridge.buildProvider<
+    IBridgeResponse<CommandEveManagedVisualTurnAuthorizationResult>,
+    CommandEveManagedVisualTurnAuthorizationRequest
+  >('command-eve.managed-visual-turn-authorize'),
   evaluateGateDecision: bridge.buildProvider<
     IBridgeResponse<ICommandEveGateDecision>,
     { action: ICommandEveGateAction }

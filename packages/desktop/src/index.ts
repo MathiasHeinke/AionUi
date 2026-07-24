@@ -8,7 +8,7 @@
 // ANY module that calls app.getPath('userData'), because Electron caches the path on first call.
 import './process/utils/configureChromium';
 import { installGpuCrashHandler } from './process/utils/gpuRecovery';
-import { initSentry, scheduleStartupLogReport, setSentryDeviceId } from './sentry';
+import { closeSentry, initSentry, scheduleStartupLogReport, setSentryDeviceId } from './sentry';
 import {
   isTelemetryAllowed,
   readConsent,
@@ -87,6 +87,7 @@ import {
   readInferenceSelectionFromBackendStrict,
   resolveEveCloudRouteFromBackend,
 } from './process/commandEve/inferenceSelectionBackendRead';
+import { resolveCommandEveManagedVisualTurn } from './process/commandEve/managedVisualTurnAuthorizationCore';
 import { readCommandEveSettingsFromBackend } from './process/commandEve/commandEveBackendSettingsRead';
 import { createTeamWorkerStatusResolver } from './process/commandEve/teamWorkerStatusResolverCore';
 import { createEgressRedactionModeResolver } from './process/commandEve/egressRedactionModeResolverCore';
@@ -113,6 +114,7 @@ import {
   isTrustedMainRendererUrl,
 } from './process/security/mainWindowSecurityCore';
 import { configureMainRendererSessionPermissions } from './process/security/sessionPermissionCore';
+import { installQuitCleanup } from './process/startup/quitCleanup';
 import {
   configureMainRendererBackendCapability,
   installMainProcessLocalBackendCapability,
@@ -513,9 +515,27 @@ function commandEveGateAuditPath(runtimeRoot: string): string {
  * fallback silently changes the lane the user selected. The shim likewise
  * fail-closes (401/500) if the license/URL is missing.
  */
-function buildCommandEveShimRoutingResolver(): () => Promise<CommandEveEveCloudRoute | undefined> {
-  return () =>
-    resolveEveCloudRouteFromBackend({
+function buildCommandEveShimRoutingResolver(): (
+  body?: Record<string, unknown>
+) => Promise<CommandEveEveCloudRoute | undefined> {
+  return async (body) => {
+    const managedVisualTurn = resolveCommandEveManagedVisualTurn(body, getActiveSeatId());
+    if (managedVisualTurn.status === 'invalid') {
+      throw new Error(
+        `Managed visual turn authorization is invalid (${managedVisualTurn.reason_code}). Reconfirm cloud processing and retry.`
+      );
+    }
+    if (managedVisualTurn.status === 'authorized') {
+      const wireResult = readLicenseWire(getDataPath());
+      return {
+        active: true,
+        functionUrl: EVE_INFERENCE_FUNCTION_URL,
+        license: wireResult.ok ? wireResult.wire : undefined,
+        tier: managedVisualTurn.tier,
+      };
+    }
+
+    return resolveEveCloudRouteFromBackend({
       // HONEST TIER ROUTING (1.2.19 + backend-store fix): read the only store the
       // renderer writes and reject on transport failure. A valid absent value may
       // default to Standard; an unreadable value may not.
@@ -526,6 +546,7 @@ function buildCommandEveShimRoutingResolver(): () => Promise<CommandEveEveCloudR
       },
       functionUrl: EVE_INFERENCE_FUNCTION_URL,
     });
+  };
 }
 
 /**
@@ -1113,6 +1134,8 @@ function registerCommandEveRuntimeBridge(): void {
             kanbanAcpRead: readKanbanAcpBoard,
           }))
       );
+      let warmupReceipt: CommandEveModelWarmupReceipt | undefined;
+      let status: CommandEveRuntimeStatusPayload | undefined;
       const receipt = await ensureCommandEveRuntimeBootstrap({
         userDataPath: getDataPath(),
         appPath: app.getAppPath(),
@@ -1128,17 +1151,19 @@ function registerCommandEveRuntimeBridge(): void {
         // and thread codexRuntime ('' — Codex deferred) + the resolved Claude ACP
         // delegate so Desktop binds transport and bootstrap emits the role hint.
         ...(await resolveCommandEveWorkerRuntimeInputs()),
+        afterBootstrapExclusive: async (terminalReceipt) => {
+          const existingWarmup = readJsonFile<CommandEveModelWarmupReceipt>(paths.modelWarmupReceiptPath);
+          const shouldWarm = !commandEveWarmupReceiptReadyForModel(existingWarmup, terminalReceipt.default_model || '');
+          warmupReceipt = shouldWarm
+            ? await ensureCommandEveLocalModelWarmup(terminalReceipt, shimUrl, warmCommandEveLocalModel)
+            : existingWarmup;
+          status = await getCommandEveRuntimeStatusPayload();
+        },
       });
-      const existingWarmup = readJsonFile<CommandEveModelWarmupReceipt>(paths.modelWarmupReceiptPath);
-      const shouldWarm = !commandEveWarmupReceiptReadyForModel(existingWarmup, receipt.default_model || '');
-      const warmupReceipt = shouldWarm
-        ? await ensureCommandEveLocalModelWarmup(receipt, shimUrl, warmCommandEveLocalModel)
-        : existingWarmup;
-      const status = await getCommandEveRuntimeStatusPayload();
       const warmupOk = ['ready', 'skipped'].includes(warmupReceipt?.status || '');
       return {
         success: receipt.status === 'ready' && warmupOk,
-        data: status,
+        data: status ?? (await getCommandEveRuntimeStatusPayload()),
         msg:
           receipt.status !== 'ready'
             ? receipt.next_action
@@ -1179,6 +1204,8 @@ function registerCommandEveRuntimeBridge(): void {
             kanbanAcpRead: readKanbanAcpBoard,
           }))
       );
+      let warmupReceipt: CommandEveModelWarmupReceipt | undefined;
+      let status: CommandEveRuntimeStatusPayload | undefined;
       const receipt = await ensureCommandEveRuntimeBootstrap({
         userDataPath: getDataPath(),
         appPath: app.getAppPath(),
@@ -1193,26 +1220,24 @@ function registerCommandEveRuntimeBridge(): void {
         // and thread codexRuntime ('' — Codex deferred) + the resolved Claude ACP
         // delegate so Desktop binds transport and bootstrap emits the role hint.
         ...(await resolveCommandEveWorkerRuntimeInputs()),
+        afterBootstrapExclusive: async (terminalReceipt) => {
+          const existingWarmup = readJsonFile<CommandEveModelWarmupReceipt>(paths.modelWarmupReceiptPath);
+          warmupReceipt = commandEveWarmupReceiptReadyForModel(existingWarmup, terminalReceipt.default_model || '')
+            ? existingWarmup
+            : await ensureCommandEveLocalModelWarmup(terminalReceipt, shimUrl, warmCommandEveLocalModel);
+          status = await getCommandEveRuntimeStatusPayload();
+        },
       });
-      const existingWarmup = readJsonFile<CommandEveModelWarmupReceipt>(paths.modelWarmupReceiptPath);
-      if (commandEveWarmupReceiptReadyForModel(existingWarmup, receipt.default_model || '')) {
-        return {
-          success: true,
-          data: await getCommandEveRuntimeStatusPayload(),
-        };
-      }
-
-      const warmupReceipt = await ensureCommandEveLocalModelWarmup(receipt, shimUrl, warmCommandEveLocalModel);
-      const warmupOk = ['ready', 'skipped'].includes(warmupReceipt.status);
+      const warmupOk = ['ready', 'skipped'].includes(warmupReceipt?.status || '');
       return {
         success: receipt.status === 'ready' && warmupOk,
-        data: await getCommandEveRuntimeStatusPayload(),
+        data: status ?? (await getCommandEveRuntimeStatusPayload()),
         msg:
           receipt.status !== 'ready'
             ? receipt.next_action
             : warmupOk
               ? undefined
-              : warmupReceipt.error || 'local model warm-up failed',
+              : warmupReceipt?.error || 'local model warm-up failed',
       };
     } catch (error) {
       return { success: false, msg: error instanceof Error ? error.message : String(error) };
@@ -1256,6 +1281,10 @@ function registerCommandEveRuntimeBridge(): void {
     .buildProvider<TelemetryConsentBridgeResult, { consent: boolean }>(TELEMETRY_CONSENT_SET_CHANNEL)
     .provider(async (request) => {
       const state = setConsent(request?.consent === true);
+      // F-11 (Kimi 1.819 audit): dropping consent must also close the Sentry
+      // client so already-queued envelopes cannot flush after opt-out. The
+      // beforeSend gate alone leaves the offline/retry buffer alive.
+      if (state.consent !== true) closeSentry();
       return { consent: state.consent === true, updatedAt: state.updatedAt };
     });
 }
@@ -1385,7 +1414,7 @@ const scheduleBackendMigrations = (): void => {
   void (async () => {
     try {
       const { runBackendMigrations } = await import('./process/utils/runBackendMigrations');
-      await runBackendMigrations(ProcessConfig);
+      await runBackendMigrations(ProcessConfig, { userDataPath: getDataPath() });
       console.info('[CommandEVE] runBackendMigrations completed');
     } catch (error) {
       console.error('[CommandEVE] Backend migration hook threw:', error);
@@ -2366,46 +2395,36 @@ app.on('activate', () => {
   }
 });
 
-app.on('before-quit', async () => {
-  console.log('[CommandEVE] before-quit');
-  setIsQuitting(true);
-  isExplicitQuit = true;
-  destroyTray();
-
-  const cleanup = async () => {
+installQuitCleanup({
+  onBeforeQuit: (handler) => app.on('before-quit', (event) => handler(event)),
+  quitApp: () => app.quit(),
+  setIsQuitting,
+  markExplicitQuit: () => {
+    isExplicitQuit = true;
+  },
+  destroyTray,
+  disposeCronResumeListener: () => {
     disposeCronResumeListener?.();
     disposeCronResumeListener = null;
-
+  },
+  stopBackend: async () => {
     // Stop aioncore subprocess — backend shutdown kills all agent
-    // children transitively (no separate frontend workerTaskManager remains)
+    // children transitively. The quit controller keeps Electron alive until
+    // this resolves, so active ACP sessions can deliver cancel/shutdown.
     await backendManager.stop().catch((err) => console.error('[App] Failed to stop backend:', err));
 
     const { stopBonsaiPilotServer } = await import('./process/commandEve/localInference/bonsaiServer');
     await stopBonsaiPilotServer().catch((err) => console.error('[App] Failed to stop local Bonsai model:', err));
     const { stopColibriServer } = await import('./process/commandEve/localInference/colibriServer');
     await stopColibriServer().catch((err) => console.error('[App] Failed to stop local Colibrì model:', err));
-
-    // Destroy desktop pet windows
-    try {
-      const { destroyPetWindow } = await import('./process/pet/petManager');
-      destroyPetWindow();
-    } catch {
-      /* pet not initialized */
-    }
-
-    // Web Server lifecycle is managed by aioncore subprocess
-    // Office/PPT preview spawns also live in the backend; frontend no longer owns those sessions.
-  };
-
-  // Master timeout: force quit if cleanup hangs
-  const timeout = new Promise<void>((resolve) => {
-    setTimeout(() => {
-      console.warn('[CommandEVE] Cleanup timed out after 10s, forcing quit');
-      resolve();
-    }, 10000);
-  });
-
-  await Promise.race([cleanup(), timeout]);
+  },
+  destroyPetWindow: async () => {
+    const { destroyPetWindow } = await import('./process/pet/petManager');
+    destroyPetWindow();
+  },
+  logInfo: console.log,
+  logWarn: console.warn,
+  logError: console.error,
 });
 
 app.on('will-quit', () => {

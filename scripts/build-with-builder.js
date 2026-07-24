@@ -44,7 +44,12 @@ const DMG_RETRY_MAX = 3;
 const DMG_RETRY_DELAY_SEC = 30;
 
 // Incremental build: hash of source files to detect changes
-const INCREMENTAL_CACHE_FILE = 'out/.build-hash';
+const INCREMENTAL_CACHE_FILE = '.build-hash';
+
+function resolveBuildOutputDir() {
+  const selftestOverride = String(process.env.BUILD_WITH_BUILDER_SELFTEST_OUT_DIR || '').trim();
+  return selftestOverride ? path.resolve(selftestOverride) : path.resolve(__dirname, '../out');
+}
 
 function walkFiles(dir, acc = []) {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -105,7 +110,7 @@ function computeSourceHash() {
 
 function loadCachedHash() {
   try {
-    const cacheFile = path.resolve(__dirname, '..', INCREMENTAL_CACHE_FILE);
+    const cacheFile = path.join(resolveBuildOutputDir(), INCREMENTAL_CACHE_FILE);
     if (fs.existsSync(cacheFile)) {
       return fs.readFileSync(cacheFile, 'utf8').trim();
     }
@@ -115,7 +120,7 @@ function loadCachedHash() {
 
 function saveCurrentHash(hash) {
   try {
-    const cacheFile = path.resolve(__dirname, '..', INCREMENTAL_CACHE_FILE);
+    const cacheFile = path.join(resolveBuildOutputDir(), INCREMENTAL_CACHE_FILE);
     const viteDir = path.dirname(cacheFile);
     if (!fs.existsSync(viteDir)) {
       fs.mkdirSync(viteDir, { recursive: true });
@@ -132,7 +137,7 @@ function shouldSkipViteBuild(skipViteFlag, forceFlag) {
   const currentHash = computeSourceHash();
   const cachedHash = loadCachedHash();
 
-  if (cachedHash && currentHash === cachedHash && viteBuildExists(path.resolve(__dirname, '../out'))) {
+  if (cachedHash && currentHash === cachedHash && viteBuildExists(resolveBuildOutputDir())) {
     console.log('📦 Incremental build: Vite output unchanged, skipping compilation');
     return true;
   }
@@ -311,7 +316,7 @@ function createDmgWithHdiutil(appDir, targetArch) {
   if (!appName) throw new Error(`No .app found in ${appDir}`);
   const appPath = path.join(appDir, appName);
   const version = require('../package.json').version;
-  const outDir = path.resolve(__dirname, '../out');
+  const outDir = resolveBuildOutputDir();
   const dmgPath = path.join(outDir, `Command-EVE-${version}-mac-${targetArch}.dmg`);
   const volName = `Command EVE ${version}-${targetArch}`;
 
@@ -344,7 +349,7 @@ function createDmgWithHdiutil(appDir, targetArch) {
 
 function buildWithDmgRetry(cmd, targetArch) {
   const isMac = process.platform === 'darwin';
-  const outDir = path.resolve(__dirname, '../out');
+  const outDir = resolveBuildOutputDir();
 
   try {
     execSync(cmd, { stdio: 'inherit', shell: process.platform === 'win32' });
@@ -385,7 +390,7 @@ function buildWithDmgRetry(cmd, targetArch) {
 
 // Clean stale Windows packaging outputs from previous runs
 function cleanupWindowsPackOutput() {
-  const outDir = path.resolve(__dirname, '../out');
+  const outDir = resolveBuildOutputDir();
   if (!fs.existsSync(outDir)) return;
 
   const removed = [];
@@ -432,6 +437,28 @@ function fetchBundledPython(platform, arch) {
     throw new Error(
       `Bundled-Python fetch failed (exit ${result.status}) — aborting before electron-builder ` +
         `to avoid packaging a missing/unverified python bundle. See docs/bundled-python.md.`
+    );
+  }
+}
+
+// Populate the verified bundled interpreter with the exact document-artifact
+// package set (PPTX/DOCX/PDF/XLSX/QR). Native extension modules land under the
+// bundled Python root so afterSign's existing deep-sign pass covers them before
+// notarization; no wheel or package download is permitted in a customer task.
+function stageBundledArtifactPython(platform, arch) {
+  const stageScript = path.join(__dirname, 'stage-bundled-artifact-python.mjs');
+  console.log(`📄 Staging signed Artifact Python runtime (${platform}/${arch})...`);
+  const result = spawnSync(process.execPath, [stageScript, '--platform', platform, '--arch', arch], {
+    stdio: 'inherit',
+    env: process.env,
+  });
+  if (result.error) {
+    throw new Error(`Artifact-Python stage could not start: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    throw new Error(
+      `Artifact-Python stage failed (exit ${result.status}) — aborting before electron-builder ` +
+        `to avoid shipping a runtime that downloads document packages during a user task.`
     );
   }
 }
@@ -571,7 +598,7 @@ try {
     throw new Error('BUILD_WITH_BUILDER_SELFTEST_FAIL: simulated electron-builder failure');
   }
   if (process.env.BUILD_WITH_BUILDER_SELFTEST_MAC_FEED_GUARD === '1') {
-    const selftestOutDir = process.env.BUILD_WITH_BUILDER_SELFTEST_OUT_DIR || path.resolve(__dirname, '../out');
+    const selftestOutDir = resolveBuildOutputDir();
     const selftestVersion = process.env.BUILD_WITH_BUILDER_SELFTEST_VERSION || '1.7.91';
     const selftestArch = process.env.BUILD_WITH_BUILDER_SELFTEST_ARCH || 'arm64';
     removeStaleMacSiblingMetadata(selftestOutDir, selftestVersion, selftestArch);
@@ -627,7 +654,7 @@ try {
   });
 
   // 3. Verify electron-vite output
-  const outDir = path.resolve(__dirname, '../out');
+  const outDir = resolveBuildOutputDir();
   if (!fs.existsSync(outDir)) {
     throw new Error('electron-vite did not generate out/ directory');
   }
@@ -673,12 +700,19 @@ try {
     throw new Error('Bundled Python requires one target platform per build; --all is unsupported.');
   }
   if (buildsMac) {
+    if (multiArch || targetArch !== 'arm64') {
+      throw new Error(
+        'Command EVE Desktop currently ships bundled Python on macOS arm64 only; x64/universal builds are blocked.'
+      );
+    }
     fetchBundledPython('darwin', 'arm64');
+    stageBundledArtifactPython('darwin', 'arm64');
   } else if (buildsWindows) {
     if (multiArch || targetArch !== 'x64') {
       throw new Error('Command EVE Phase A supports bundled Python on Windows x64 only.');
     }
     fetchBundledPython('win32', 'x64');
+    stageBundledArtifactPython('win32', 'x64');
   }
 
   // 6c. Stage the EVE strategy skills for ALL platforms (cross-platform markdown,

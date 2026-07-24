@@ -30,7 +30,7 @@ blocker.**
 - FACT(`packages/desktop/src/index.ts:1454`): main window loads
   `path.join(__dirname, '../preload/index.js')`.
 - FACT(`packages/desktop/electron.vite.config.ts:152-174`): preload emits
-  `out/preload/index.js` (+ pet* variants) as part of the same electron-vite
+  `out/preload/index.js` (+ pet\* variants) as part of the same electron-vite
   package build.
 - INFERENCE(`packages/desktop/src/index.ts:1454` + Electron sandbox preload
   semantics): if main+renderer exist but preload is missing, Electron can still
@@ -91,7 +91,7 @@ but the fix still follows.**
 Facts in tree:
 
 - FACT(`tests/e2e/fixtures.ts:32-36`): module-scope `mkdtemp` sandbox →
-  `e2eHomeDir` used as `HOME` / XDG_* for every launch in that worker.
+  `e2eHomeDir` used as `HOME` / XDG\_\* for every launch in that worker.
 - FACT(`playwright.config.ts:10-13`): `fullyParallel: false`, `workers: 1`,
   `retries: CI ? 1 : 0`.
 - FACT(`tests/e2e/fixtures.ts:53-68`, `329-332`):
@@ -144,7 +144,7 @@ directly addresses that cascade. Comment polish is optional, not a reject.
   CI this is a known cost of cold Hermes install, not a new mask of product
   hangs.
 - FACT(`tests/e2e/fixtures.ts:178-186`): packaged launches also set
-  `HOME: e2eHomeDir` and the same XDG_* sandbox.
+  `HOME: e2eHomeDir` and the same XDG\_\* sandbox.
 - INFERENCE(runtimeBootstrapCore + fixtures HOME contract): packaged first
   launch in a pristine sandbox HOME also cold-installs runtime into that HOME.
   Therefore packaged mode needs the same attach budget as dev mode.
@@ -161,12 +161,12 @@ HOME sandbox and therefore the same cold install path.
 **No product-spec regression from the fixtures change. Sibling launch sites
 remain on 60s (pre-existing inconsistency, out of this diff’s must-fix set).**
 
-| Path | Launch timeout | Fail-fast on missing `out/` | HOME |
-|---|---|---|---|
-| `tests/e2e/fixtures.ts` (shared) | **180s (new)** | **main+renderer (new)** | module mkdtemp |
-| `command-eve-registration-gate.e2e.ts` | 60s | main only (existing) | process env / own userData; closes shared app first |
-| `command-eve-connector-catalog.e2e.ts` isolated relaunch | 60s | none | own mkdtemp HOME after `closeSharedElectronAppForIsolatedSpec` |
-| `ext-no-extensions.e2e.ts` | 60s | none | own sandbox |
+| Path                                                     | Launch timeout | Fail-fast on missing `out/` | HOME                                                           |
+| -------------------------------------------------------- | -------------- | --------------------------- | -------------------------------------------------------------- |
+| `tests/e2e/fixtures.ts` (shared)                         | **180s (new)** | **main+renderer (new)**     | module mkdtemp                                                 |
+| `command-eve-registration-gate.e2e.ts`                   | 60s            | main only (existing)        | process env / own userData; closes shared app first            |
+| `command-eve-connector-catalog.e2e.ts` isolated relaunch | 60s            | none                        | own mkdtemp HOME after `closeSharedElectronAppForIsolatedSpec` |
+| `ext-no-extensions.e2e.ts`                               | 60s            | none                        | own sandbox                                                    |
 
 - FACT: no other shared-fixtures consumer hard-codes the old 60s launch bound.
 - FACT: `shouldUsePackagedMode()` only keys on `E2E_PACKAGED=1`; default/CI
@@ -220,13 +220,13 @@ tiny pure-cleanup if someone touches the file again.
 
 ## Findings summary
 
-| ID | Sev | Finding | Action |
-|---|---|---|---|
-| G1 | note | Comment slightly overstates “any failed test → new worker” vs in-worker relaunch | optional wording polish |
-| G2 | note | `resolveMainWindow` still duplicates magic `180_000` | optional constant reuse |
-| G3 | note | Preload not in fail-fast list | optional tighten; not required |
-| G4 | note | Sibling isolated launches still at 60s | follow-up if cascades seen there |
-| — | — | No P0/P1 defect in the reviewed diff | ship-eligible |
+| ID  | Sev  | Finding                                                                          | Action                           |
+| --- | ---- | -------------------------------------------------------------------------------- | -------------------------------- |
+| G1  | note | Comment slightly overstates “any failed test → new worker” vs in-worker relaunch | optional wording polish          |
+| G2  | note | `resolveMainWindow` still duplicates magic `180_000`                             | optional constant reuse          |
+| G3  | note | Preload not in fail-fast list                                                    | optional tighten; not required   |
+| G4  | note | Sibling isolated launches still at 60s                                           | follow-up if cascades seen there |
+| —   | —    | No P0/P1 defect in the reviewed diff                                             | ship-eligible                    |
 
 No REJECT findings. No security surface change. No product path change.
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Presentation Studio"
+  short_description: 'Create and improve editable presentations'
+  default_prompt: 'Use $presentation-studio to analyze this deck, choose a visual direction when needed, and build a polished editable PPTX.'

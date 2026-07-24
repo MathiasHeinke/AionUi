@@ -1,6 +1,6 @@
 {
   "version": "command-eve-capability-pack/v0",
-  "release": "1.818.0",
+  "release": "1.819.0",
   "policy": {
     "default_mode": "proposal_only",
     "secret_rule": "Never ask for passwords, cookies, recovery codes, raw tokens or .env contents in chat.",
@@ -37,9 +37,128 @@
     },
     {
       "id": "goal-materialization",
-      "name": "Turn your goal into a plan and get it done",
+      "name": "Founder intent to CEO delegation and worker contracts",
       "tier": "autonomy_core",
-      "source": "Command EVE planning",
+      "source": "Company.OS worker contract doctrine",
+      "default_state": "active"
+    },
+    {
+      "id": "eve-doctrine",
+      "name": "EVE operating doctrine",
+      "tier": "core",
+      "source": "Command EVE operating doctrine",
+      "default_state": "active"
+    },
+    {
+      "id": "plan-system",
+      "name": "Goal and plan system",
+      "tier": "autonomy_core",
+      "source": "Command EVE planning toolbelt",
+      "default_state": "active"
+    },
+    {
+      "id": "pre-mortem",
+      "name": "Pre-mortem",
+      "tier": "department",
+      "source": "Command EVE reasoning toolbelt",
+      "default_state": "active"
+    },
+    {
+      "id": "business-diagnostic",
+      "name": "Business diagnostic",
+      "tier": "department",
+      "source": "Command EVE strategy toolbelt",
+      "default_state": "active"
+    },
+    {
+      "id": "icp-persona-panel",
+      "name": "Customer persona panel",
+      "tier": "department",
+      "source": "Command EVE strategy toolbelt",
+      "default_state": "active"
+    },
+    {
+      "id": "decision-brief",
+      "name": "Decision brief",
+      "tier": "department",
+      "source": "Command EVE reasoning toolbelt",
+      "default_state": "active"
+    },
+    {
+      "id": "deep-research",
+      "name": "Deep research",
+      "tier": "department",
+      "source": "Command EVE research toolbelt",
+      "default_state": "active"
+    },
+    {
+      "id": "gtm-strategy",
+      "name": "Go-to-market strategy",
+      "tier": "department",
+      "source": "Command EVE strategy toolbelt",
+      "default_state": "active"
+    },
+    {
+      "id": "customer-discovery",
+      "name": "Customer discovery",
+      "tier": "department",
+      "source": "Command EVE strategy toolbelt",
+      "default_state": "active"
+    },
+    {
+      "id": "business-architecture",
+      "name": "Business architecture",
+      "tier": "department",
+      "source": "Command EVE strategy toolbelt",
+      "default_state": "active"
+    },
+    {
+      "id": "hiring",
+      "name": "Hiring",
+      "tier": "department",
+      "source": "Command EVE operating toolbelt",
+      "default_state": "active"
+    },
+    {
+      "id": "option-tournament",
+      "name": "Option tournament",
+      "tier": "department",
+      "source": "Command EVE reasoning toolbelt",
+      "default_state": "active"
+    },
+    {
+      "id": "landing-copy",
+      "name": "Landing page copy",
+      "tier": "department",
+      "source": "Command EVE writing toolbelt",
+      "default_state": "active"
+    },
+    {
+      "id": "human-design-profile",
+      "name": "Human Design profile (optional reflection lens)",
+      "tier": "gated_department",
+      "source": "Command EVE optional personal reflection toolbelt",
+      "default_state": "gated"
+    },
+    {
+      "id": "blog-writer",
+      "name": "Blog writer",
+      "tier": "department",
+      "source": "Command EVE writing toolbelt",
+      "default_state": "active"
+    },
+    {
+      "id": "founder-voice",
+      "name": "Founder voice",
+      "tier": "department",
+      "source": "Command EVE writing toolbelt",
+      "default_state": "active"
+    },
+    {
+      "id": "client-report",
+      "name": "Client report",
+      "tier": "department",
+      "source": "Command EVE reporting toolbelt",
       "default_state": "active"
     },
     {
@@ -72,37 +191,23 @@
     },
     {
       "id": "content-machine",
-      "name": "Content Machine",
+      "name": "Content Operating System",
       "tier": "department",
-      "source": "aionui-hermes-content-machine-skill",
+      "source": "Command EVE content operations skill",
       "default_state": "active"
-    },
-    {
-      "id": "blog-department",
-      "name": "Blog Department",
-      "tier": "department",
-      "source": "aionui-hermes-blog-department-skill",
-      "default_state": "available"
     },
     {
       "id": "video-first-content-engine",
-      "name": "Video-first Content Engine",
+      "name": "Video-to-Content Studio",
       "tier": "department",
-      "source": "aionui-hermes-video-first-content-engine-skill",
+      "source": "Command EVE video content production skill",
       "default_state": "active"
     },
     {
-      "id": "department-pack-creator",
-      "name": "Department Capability Pack Creator",
-      "tier": "department",
-      "source": "aionui-hermes-department-pack-creator-skill",
-      "default_state": "available"
-    },
-    {
       "id": "security-fortress-review",
-      "name": "Security and Fortress review routing",
+      "name": "Security review (explicit approval)",
       "tier": "gated_department",
-      "source": "Command EVE security review",
+      "source": "Company.OS security productization gates",
       "default_state": "gated"
     },
     {
@@ -137,12 +242,12 @@
       "id": "crm-department",
       "name": "CRM and relationship operating layer",
       "tier": "department",
-      "source": "Command EVE revenue layer",
+      "source": "Company.OS revenue department roadmap",
       "default_state": "active"
     },
     {
       "id": "blog-publishing-lane",
-      "name": "Blog and social publishing lane",
+      "name": "Blog and Social Publishing (human-gated)",
       "tier": "department",
       "source": "Command EVE human-gated publishing pipeline",
       "default_state": "active"
@@ -160,6 +265,55 @@
       "tier": "department",
       "source": "Command EVE reasoning toolbelt",
       "default_state": "active"
+    },
+    {
+      "id": "local-vision-qa",
+      "name": "Local vision QA (explicit offline/on-device choice only)",
+      "tier": "gated_department",
+      "source": "Command EVE local toolbelt (EVE-authored, harvested 2026-07-03)",
+      "default_state": "gated"
+    },
+    {
+      "id": "visual-direction-gate",
+      "name": "Visual direction selection before design-heavy builds",
+      "tier": "department",
+      "source": "Command EVE managed creative-production skill",
+      "default_state": "active"
+    },
+    {
+      "id": "presentation-studio",
+      "name": "Presentation Studio",
+      "tier": "department",
+      "source": "Command EVE managed presentation-production skill",
+      "default_state": "active"
+    },
+    {
+      "id": "ai-coding-delegation",
+      "name": "Coding Task Delegation (explicit approval)",
+      "tier": "department",
+      "source": "Command EVE supervised local delegation skill",
+      "default_state": "gated"
+    },
+    {
+      "id": "lead-magnet-pdf",
+      "name": "Lead-Magnet PDF Studio",
+      "tier": "department",
+      "source": "Command EVE lead-magnet production skill",
+      "default_state": "active"
+    },
+    {
+      "id": "skill-authoring",
+      "name": "Skill Authoring (explicit approval)",
+      "tier": "gated_department",
+      "source": "Command EVE curated skill-authoring skill",
+      "default_state": "gated"
+    },
+    {
+      "id": "legal-enforcement-dach",
+      "name": "DACH Legal Draft Assistant (lawyer review required)",
+      "tier": "gated_department",
+      "source": "Command EVE DACH legal-draft skill",
+      "default_state": "gated"
     }
   ],
   "connectors": [
@@ -188,14 +342,6 @@
       "human_gate": "HG-2 before durable state migration"
     },
     {
-      "id": "command-eve-command-center",
-      "name": "Command EVE Command Center (read-model panel)",
-      "tier": "core",
-      "setup_mode": "bootstrap",
-      "default_state": "installed",
-      "human_gate": "HG-2.5 before promoting from read-only to any mutation action"
-    },
-    {
       "id": "codex-cli",
       "name": "Codex CLI",
       "tier": "autonomy_core",
@@ -221,11 +367,11 @@
     },
     {
       "id": "plane-sync",
-      "name": "Work-board sync (optional)",
+      "name": "Plane sync surface",
       "tier": "recommended",
       "setup_mode": "optional_sync_connector",
       "default_state": "needs_auth",
-      "human_gate": "asks before write-capable changes"
+      "human_gate": "HG-3 before write-capable ledger changes"
     },
     {
       "id": "google-workspace",
@@ -234,6 +380,30 @@
       "setup_mode": "guided_connector",
       "default_state": "needs_auth",
       "human_gate": "HG-2 for read scopes; HG-3 for write/share actions"
+    },
+    {
+      "id": "linear-project-management",
+      "name": "Linear",
+      "tier": "recommended",
+      "setup_mode": "guided_connector",
+      "default_state": "needs_auth",
+      "human_gate": "HG-3 before write-capable Linear changes"
+    },
+    {
+      "id": "notion-workspace",
+      "name": "Notion",
+      "tier": "recommended",
+      "setup_mode": "guided_connector",
+      "default_state": "needs_auth",
+      "human_gate": "HG-2 for read scopes; HG-3 for write/share actions"
+    },
+    {
+      "id": "slack-internal-comms",
+      "name": "Slack",
+      "tier": "optional_gated",
+      "setup_mode": "deferred_gated_connector",
+      "default_state": "gated",
+      "human_gate": "HG-3 before posting to any Slack channel or DM"
     },
     {
       "id": "local-filesystem-workspaces",

@@ -24,6 +24,7 @@ import {
   ensureAcpGenerationTracking,
 } from '@renderer/services/commandEveGenerationActivity';
 import { getConversationRuntimeViewSnapshot } from '@/renderer/pages/conversation/runtime/conversationRuntimeViewStore';
+import { warmupConversation } from '@/renderer/pages/conversation/utils/warmupConversation';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 const THINKING_MESSAGE_THROTTLE_MS = 50;
@@ -1059,8 +1060,7 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
   useEffect(() => {
     if (options?.skipWarmup) return;
     let cancelled = false;
-    void ipcBridge.conversation.warmup
-      .invoke({ conversation_id })
+    void warmupConversation(conversation_id)
       .then(async () => {
         if (cancelled) return;
         const [commands, usage] = await Promise.all([

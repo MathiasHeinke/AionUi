@@ -6,6 +6,7 @@ linked_files:
   - references/command-eve-integration.md
   - scripts/plaud-download-audio.mjs
   - scripts/plaud-ingest-guard.mjs
+disable_model_invocation: true
 ---
 
 # PLAUD Recording Ingest

@@ -145,6 +145,7 @@ describe('LocalRuntimePage public shell', () => {
     expect(screen.getByText('localRuntime.values.managedByEve')).toBeTruthy();
 
     await waitFor(() => expect(localRuntimeInvokeMock).toHaveBeenCalled());
+    expect(kanbanInvokeMock).not.toHaveBeenCalled();
     const rendered = document.body.textContent || '';
     expect(rendered).not.toContain('INTERNAL-HERMES-PACKAGE');
     expect(rendered).not.toContain('INTERNAL TIER LABEL');

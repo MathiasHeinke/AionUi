@@ -41,6 +41,11 @@ type SearchableEvent = {
 
 const BACKEND_HTTP_ERROR_PAYLOAD_PATTERN = /(Backend [A-Z]+ \S+ failed \(\d+\)):\s*[^\n]*/g;
 const LOCAL_CAPABILITY_HEADER_VALUE_PATTERN = /(\bx-aionui-local-capability\b["']?\s*[:=]\s*["']?)[0-9a-f]{64}\b/gi;
+// F-12 (Kimi 1.819 audit): stack-frame filename/abs_path values leak the OS
+// username via absolute paths like /Users/<name>/…, /home/<name>/… or
+// C:\Users\<name>\…. The generic egress rules never covered home paths, so
+// scrub them here for every string the Sentry redactor touches.
+const OS_USER_HOME_PATH_PATTERN = /(\/Users\/|\/home\/|[A-Za-z]:\\Users\\)[^/\s\\"']+/g;
 const MAX_SENTRY_REDACTION_DEPTH = 12;
 const SENSITIVE_SENTRY_KEYS = new Set([
   'authorization',
@@ -61,6 +66,7 @@ export function redactSentryText(value: string): string {
     value
       .replace(BACKEND_HTTP_ERROR_PAYLOAD_PATTERN, '$1: [BACKEND_RESPONSE_REDACTED]')
       .replace(LOCAL_CAPABILITY_HEADER_VALUE_PATTERN, '$1[LOCAL_CAPABILITY_REDACTED]')
+      .replace(OS_USER_HOME_PATH_PATTERN, '$1[OS_USER_REDACTED]')
   );
 }
 
@@ -200,6 +206,21 @@ export function initSentry(): void {
   Sentry.setTag('app.arch', process.arch);
   Sentry.setTag('app.version', app.getVersion());
   Sentry.setTag('os.name', process.platform);
+}
+
+/**
+ * F-11 (Kimi 1.819 audit): revoking consent must actually close the Sentry
+ * client. The per-event beforeSend gate already makes "off" immediate for new
+ * events, but envelopes queued while consent was on (offline buffer, retry
+ * backoff, anonymous session envelopes) could still flush after opt-out.
+ * close(0) disables the client and drops the queued buffer without waiting.
+ */
+export function closeSentry(): void {
+  try {
+    void Sentry.close(0);
+  } catch {
+    // Closing telemetry must never break the consent write path.
+  }
 }
 
 /**

@@ -3,7 +3,7 @@
   "updatedAt": "2026-07-23T12:00:00.000Z",
   "policy": {
     "command": "bun run security:audit:production",
-    "scope": "bun audit --production --json",
+    "scope": "bun audit --json (complete lockfile; production reachability reviewed per exception)",
     "rule": "Every current advisory must be remediated or exactly matched by one current, owner-bound, evidence-backed exception. Critical advisories are never exceptable.",
     "maxExceptionDays": 31
   },
@@ -30,7 +30,7 @@
         "controls": [
           "The vulnerable serve-static entrypoint is not loaded by Command EVE runtime code.",
           "External HTTP, SSE and streamable-HTTP MCP transports remain blocked by the connector catalog.",
-          "The production audit gate rescans runtime imports and fails immediately if @hono/node-server becomes reachable."
+          "The production audit gate re-runs a first-party substring tripwire over packages/** source and fails if a literal '@hono/node-server' specifier appears in product source. This is a tripwire, not a module-graph reachability proof; it intentionally excludes node_modules/resources and cannot see computed specifiers."
         ],
         "verification": [
           "bun run security:audit:production",

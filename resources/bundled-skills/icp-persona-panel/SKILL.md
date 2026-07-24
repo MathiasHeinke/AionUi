@@ -1,14 +1,14 @@
 ---
 name: icp-persona-panel
-description: Use when the operator needs to stress-test ANY assumption — a product, feature, ad, landing page, headline, offer, or pricing model — by spawning 12–30 agents that each fully inhabit a distinct, realistic person from the target group (varied across sub-segments AND markets), having them react brutally honestly (most should NOT convert), then adversarial judges, then a decision-grade synthesis. This is the "30 agents that ARE your target group test it" panel — the engine behind a war-game. Use BEFORE committing to an offer/price/ad/headline/feature, when the user asks "would my target group actually buy this / click this / pay this", when validating a campaign, or whenever a message "tests well in the room" (that's when monoculture hides).
+description: Use when the operator needs to stress-test a product, feature, ad, landing page, headline, offer or price with a deliberately varied target-group panel. Build 12–30 distinct persona viewpoints, collect brutally honest structured reactions, run an adversarial judge and produce a decision-grade synthesis. The default path is one bounded model turn or a small number of sequential panel batches, not one process per persona. Use before committing to an offer, price, campaign or feature; the panel narrows a bet but never replaces evidence from real customers.
 ---
 
 # ICP Persona Panel
 
 A persona panel is the inverse of asking your team "does this sound good?". Instead of one optimistic room,
-you spawn **12–30 agents that each BECOME a different, realistic person from the target group** — varied across
-sub-segments _and_ markets — let each react **honestly** (most will NOT convert), then send **adversarial
-judges** at the rosy read, and only then synthesize. The output is not a vibe — it is a **fit-distribution +
+you construct **12–30 distinct persona viewpoints** that each represent a realistic person from the target group —
+varied across sub-segments and markets — let each react **honestly** (most will NOT convert), then send an
+**adversarial judge** at the rosy read, and only then synthesize. The output is not a vibe — it is a **fit-distribution +
 a decision**: does this offer/ad/price actually land, on whom, and where is the honest evidence still missing.
 It is the engine behind a war-game: run the same panel on competing offers, prices, or headlines and compare.
 
@@ -31,14 +31,14 @@ Run it as phases — fan-out, react, attack, synthesize. Do NOT collapse them; t
    **role** (economic buyer / champion / user / blocker) — and cross them **× markets** → **12–30 distinct personas**.
    Each persona gets a one-line spine: who they are, their incumbent, their budget reality, their bias.
    The matrix MUST span sub-segments and markets — a panel of 30 clones is worthless (see monoculture flag).
-3. **Each persona reacts via a STRUCTURED schema** — spawn them, instruct each to _fully inhabit_ the person and be
+3. **Each persona reacts via a STRUCTURED schema** — instruct each viewpoint to _fully inhabit_ the person and be
    **brutally honest, not a bull**. Most personas should land at "no" or "not yet"; a panel where everyone converts is a
    broken panel. Each returns exactly:
    - `would_try` (yes/no) · `would_pay` (yes/no + at what price) · `fit_score` (0–10)
    - `killer_or_hype` (the one thing that would make them act — or the word that screams "marketing")
    - `whats_missing` (what they'd need to see to convert) · `top_objection` (their single biggest "no")
    - `verdict` (one honest sentence in _their_ voice, their vocabulary, not yours)
-4. **ADVERSARIAL JUDGES.** Spawn a skeptic whose only job is to **refute the rosy read**: which "yes" votes are soft
+4. **ADVERSARIAL JUDGE.** Run a separate skeptic pass whose only job is to **refute the rosy read**: which "yes" votes are soft
    or socially-desirable, which fit-scores are inflated, is the sample stacked toward easy converters, is any "win"
    actually generic hype that any product could claim? The skeptic **ranks** the personas by how load-bearing each
    reaction really is and flags every place the panel is flattering itself.
@@ -68,11 +68,20 @@ Run it as phases — fan-out, react, attack, synthesize. Do NOT collapse them; t
 ## EVE Runtime Link
 
 Shared Command EVE posture lives in `eve-doctrine`; this section only explains how this skill plugs into the runtime.
-This is a native EVE capability, run as a multi-agent panel through Hermes (one sub-agent per persona, a skeptic
-sub-agent as judge, a synthesis pass) — the same fan-out the war-game already uses.
+This is a native EVE capability. The normal Hermes path creates all persona
+viewpoints in one bounded turn or in small sequential batches and then runs a
+separate skeptic pass. It does **not** create one operating-system process or
+one full MCP fleet per persona.
+
+If the runtime exposes a controlled delegation tool and the operator explicitly
+asks for genuinely independent model workers, run the collaboration capacity
+gate first. Use at most three workers total, at most two concurrently, and give
+each worker a slice of the persona matrix. If the capacity gate is red, stay on
+the bounded single-session path. Never bypass the capacity gate and never let a
+persona worker spawn children of its own.
 
 - **EVE creates the asset.** EVE generates the **persona-matrix profile** (the attribute × market grid as reusable
-  personas), spawns the panel, collects the structured schema, runs the adversarial judge, and writes the
+  personas), runs the bounded panel, collects the structured schema, runs the adversarial judge, and writes the
   fit-distribution + verdict back as a saved panel the operator can re-run when the offer changes.
 - **Alois self-checks first.** Before he spends on his own funnel, the operator (Alois) runs the panel on **his own**
   offer/price/headline — EVE shows him where his ICP says "no", which segment is his real beachhead, and whether his

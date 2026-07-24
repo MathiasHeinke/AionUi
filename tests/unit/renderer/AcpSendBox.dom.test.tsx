@@ -16,6 +16,11 @@ const {
   sendMessageInvokeMock,
   steerInvokeMock,
   pdfPrepareInvokeMock,
+  imagePrepareInvokeMock,
+  presentationPrepareInvokeMock,
+  managedVisualTurnAuthorizeInvokeMock,
+  pptPreviewStartInvokeMock,
+  pptPreviewStopInvokeMock,
   addOrUpdateMessageMock,
   resetStateMock,
   emitterEmitMock,
@@ -43,6 +48,7 @@ const {
   setModeInvokeMock,
   messageErrorMock,
   messageWarningMock,
+  modalConfirmMock,
   configGetMock,
   configSetMock,
   initialMessageParamsMock,
@@ -51,6 +57,11 @@ const {
   sendMessageInvokeMock: vi.fn(),
   steerInvokeMock: vi.fn(),
   pdfPrepareInvokeMock: vi.fn(),
+  imagePrepareInvokeMock: vi.fn(),
+  presentationPrepareInvokeMock: vi.fn(),
+  managedVisualTurnAuthorizeInvokeMock: vi.fn(),
+  pptPreviewStartInvokeMock: vi.fn(),
+  pptPreviewStopInvokeMock: vi.fn(),
   addOrUpdateMessageMock: vi.fn(),
   resetStateMock: vi.fn(),
   emitterEmitMock: vi.fn(),
@@ -99,6 +110,7 @@ const {
   setModeInvokeMock: vi.fn(),
   messageErrorMock: vi.fn(),
   messageWarningMock: vi.fn(),
+  modalConfirmMock: vi.fn(),
   configGetMock: vi.fn(),
   configSetMock: vi.fn(),
   initialMessageParamsMock: {
@@ -139,6 +151,23 @@ vi.mock('@/common', () => ({
     commandEve: {
       pdfPrepare: {
         invoke: pdfPrepareInvokeMock,
+      },
+      imagePrepare: {
+        invoke: imagePrepareInvokeMock,
+      },
+      presentationPrepare: {
+        invoke: presentationPrepareInvokeMock,
+      },
+      managedVisualTurnAuthorize: {
+        invoke: managedVisualTurnAuthorizeInvokeMock,
+      },
+    },
+    pptPreview: {
+      start: {
+        invoke: pptPreviewStartInvokeMock,
+      },
+      stop: {
+        invoke: pptPreviewStopInvokeMock,
       },
     },
   },
@@ -367,6 +396,9 @@ vi.mock('@arco-design/web-react', () => ({
     error: messageErrorMock,
     warning: messageWarningMock,
   },
+  Modal: {
+    confirm: modalConfirmMock,
+  },
   Popover: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
   Radio: Object.assign(({ children }: { children?: React.ReactNode }) => <>{children}</>, {
     Group: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
@@ -428,6 +460,22 @@ describe('AcpSendBox', () => {
     );
     configSetMock.mockResolvedValue(undefined);
     pdfPrepareInvokeMock.mockReset();
+    imagePrepareInvokeMock.mockReset();
+    presentationPrepareInvokeMock.mockReset();
+    managedVisualTurnAuthorizeInvokeMock.mockReset();
+    pptPreviewStartInvokeMock.mockReset();
+    pptPreviewStopInvokeMock.mockReset();
+    modalConfirmMock.mockReset();
+    pptPreviewStartInvokeMock.mockResolvedValue({ url: '/api/ppt-proxy/41000' });
+    pptPreviewStopInvokeMock.mockResolvedValue(undefined);
+    managedVisualTurnAuthorizeInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        ok: true,
+        marker: `[[COMMAND_EVE_MANAGED_VISUAL_TURN:${'V'.repeat(43)}]]`,
+        tier: 'high',
+      },
+    });
     steerInvokeMock.mockReset();
     buildDisplayMessageMock.mockImplementation((input: string) => input);
     queueRemoveMock.mockResolvedValue(undefined);
@@ -662,6 +710,273 @@ describe('AcpSendBox', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('error');
     expect(sendMessageInvokeMock).not.toHaveBeenCalled();
     expect(sendBoxPropsMock.current?.loading).toBe(false);
+  });
+
+  it('routes a PPTX through local rendering, explicit managed vision consent and a private sidecar', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: ['/tmp/board-deck.pptx'], content: '' };
+    modalConfirmMock.mockImplementation((options: { onOk?: () => void }) => {
+      options.onOk?.();
+    });
+    presentationPrepareInvokeMock
+      .mockResolvedValueOnce({
+        success: false,
+        data: {
+          ok: false,
+          reason_code: 'EVE_PRESENTATION_CLOUD_VISION_CONSENT_REQUIRED',
+          requires_cloud_vision_consent: true,
+          pending_source_names: ['board-deck.pptx'],
+          documents: [],
+          prepared_files: [],
+        },
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: {
+          ok: true,
+          documents: [
+            {
+              source_path: '/tmp/board-deck.pptx',
+              source_name: 'board-deck.pptx',
+              sidecar_path: '/tmp/hermes/document-intelligence/presentation/deck/document.md',
+              prompt_context: '## PPTX slide 1\n\nTitle slide.',
+            },
+          ],
+        },
+      });
+    sendMessageInvokeMock.mockResolvedValue({
+      turn_id: 'turn-pptx',
+      msg_id: 'message-pptx',
+      runtime: {
+        state: 'running',
+        can_send_message: false,
+        has_task: true,
+        task_status: 'running',
+        is_processing: true,
+        pending_confirmations: 0,
+        turn_id: 'turn-pptx',
+      },
+    });
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() => expect(presentationPrepareInvokeMock).toHaveBeenCalledTimes(2));
+    expect(pptPreviewStartInvokeMock).not.toHaveBeenCalled();
+    expect(presentationPrepareInvokeMock.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        filePaths: ['/tmp/board-deck.pptx'],
+        allowCloudVision: false,
+        privacyLane: 'cloud_auto',
+      })
+    );
+    expect(presentationPrepareInvokeMock.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        filePaths: ['/tmp/board-deck.pptx'],
+        allowCloudVision: true,
+        privacyLane: 'cloud_auto',
+      })
+    );
+    expect(modalConfirmMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'conversation.presentation.cloudVisionTitle',
+        okText: 'conversation.presentation.cloudVisionConfirm',
+      })
+    );
+    await waitFor(() =>
+      expect(sendMessageInvokeMock).toHaveBeenCalledWith({
+        input: expect.stringContaining('Hello'),
+        conversation_id: 'conv-1',
+        files: ['/tmp/board-deck.pptx', '/tmp/hermes/document-intelligence/presentation/deck/document.md'],
+      })
+    );
+    expect(managedVisualTurnAuthorizeInvokeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ preferredTier: 'high', sourceCount: 1 })
+    );
+    expect(pptPreviewStopInvokeMock).not.toHaveBeenCalled();
+    expect(pdfPrepareInvokeMock).not.toHaveBeenCalled();
+  });
+
+  it('validates a PPTX before bootstrapping a missing OfficeCLI engine', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: ['/tmp/board-deck.pptx'], content: '' };
+    modalConfirmMock.mockImplementation((options: { onOk?: () => void }) => options.onOk?.());
+    presentationPrepareInvokeMock
+      .mockResolvedValueOnce({
+        success: false,
+        data: {
+          ok: false,
+          reason_code: 'EVE_PRESENTATION_ENGINE_UNAVAILABLE',
+          requires_cloud_vision_consent: false,
+          documents: [],
+          prepared_files: [],
+        },
+      })
+      .mockResolvedValueOnce({
+        success: false,
+        data: {
+          ok: false,
+          reason_code: 'EVE_PRESENTATION_CLOUD_VISION_CONSENT_REQUIRED',
+          requires_cloud_vision_consent: true,
+          pending_source_names: ['board-deck.pptx'],
+          documents: [],
+          prepared_files: [],
+        },
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: {
+          ok: true,
+          documents: [
+            {
+              source_path: '/tmp/board-deck.pptx',
+              source_name: 'board-deck.pptx',
+              sidecar_path: '/tmp/hermes/document-intelligence/presentation/deck/document.md',
+              prompt_context: '## PPTX slide 1\n\nTitle slide.',
+            },
+          ],
+        },
+      });
+    sendMessageInvokeMock.mockResolvedValue({
+      turn_id: 'turn-pptx-bootstrap',
+      msg_id: 'message-pptx-bootstrap',
+      runtime: {
+        state: 'running',
+        can_send_message: false,
+        has_task: true,
+        task_status: 'running',
+        is_processing: true,
+        pending_confirmations: 0,
+        turn_id: 'turn-pptx-bootstrap',
+      },
+    });
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+
+    await waitFor(() => expect(presentationPrepareInvokeMock).toHaveBeenCalledTimes(3));
+    expect(pptPreviewStartInvokeMock).toHaveBeenCalledTimes(1);
+    expect(pptPreviewStartInvokeMock).toHaveBeenCalledWith({
+      file_path: '/tmp/board-deck.pptx',
+      workspace: '/tmp/workspace',
+    });
+    expect(presentationPrepareInvokeMock.mock.invocationCallOrder[0]).toBeLessThan(
+      pptPreviewStartInvokeMock.mock.invocationCallOrder[0]
+    );
+    expect(pptPreviewStartInvokeMock.mock.invocationCallOrder[0]).toBeLessThan(
+      presentationPrepareInvokeMock.mock.invocationCallOrder[1]
+    );
+    await waitFor(() => expect(pptPreviewStopInvokeMock).toHaveBeenCalledWith({ file_path: '/tmp/board-deck.pptx' }));
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+  });
+
+  it('routes a normal image through managed vision without OfficeCLI or Ollama', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: ['/tmp/screenshot.png'], content: '' };
+    modalConfirmMock.mockImplementation((options: { onOk?: () => void }) => {
+      options.onOk?.();
+    });
+    imagePrepareInvokeMock
+      .mockResolvedValueOnce({
+        success: false,
+        data: {
+          ok: false,
+          reason_code: 'EVE_IMAGE_CLOUD_VISION_CONSENT_REQUIRED',
+          requires_cloud_vision_consent: true,
+          pending_source_names: ['screenshot.png'],
+          documents: [],
+          prepared_files: [],
+        },
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: {
+          ok: true,
+          documents: [
+            {
+              source_path: '/tmp/screenshot.png',
+              source_name: 'screenshot.png',
+              sidecar_path: '/tmp/hermes/document-intelligence/image/hash/document.md',
+              prompt_context: '## Image 1\n\nA screenshot.',
+            },
+          ],
+        },
+      });
+    sendMessageInvokeMock.mockResolvedValue({
+      turn_id: 'turn-image',
+      msg_id: 'message-image',
+      runtime: {
+        state: 'running',
+        can_send_message: false,
+        has_task: true,
+        task_status: 'running',
+        is_processing: true,
+        pending_confirmations: 0,
+        turn_id: 'turn-image',
+      },
+    });
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() => expect(imagePrepareInvokeMock).toHaveBeenCalledTimes(2));
+    expect(imagePrepareInvokeMock.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        filePaths: ['/tmp/screenshot.png'],
+        allowCloudVision: false,
+        privacyLane: 'cloud_auto',
+      })
+    );
+    expect(imagePrepareInvokeMock.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        filePaths: ['/tmp/screenshot.png'],
+        allowCloudVision: true,
+        privacyLane: 'cloud_auto',
+      })
+    );
+    expect(modalConfirmMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'conversation.image.cloudVisionTitle',
+        okText: 'conversation.image.cloudVisionConfirm',
+      })
+    );
+    await waitFor(() =>
+      expect(sendMessageInvokeMock).toHaveBeenCalledWith({
+        input: expect.stringContaining('Hello'),
+        conversation_id: 'conv-1',
+        files: ['/tmp/screenshot.png', '/tmp/hermes/document-intelligence/image/hash/document.md'],
+      })
+    );
+    expect(managedVisualTurnAuthorizeInvokeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ preferredTier: 'high', sourceCount: 1 })
+    );
+    expect(pptPreviewStartInvokeMock).not.toHaveBeenCalled();
+    expect(pdfPrepareInvokeMock).not.toHaveBeenCalled();
   });
 
   it('resets ACP loading state when sendMessage fails before any stream error arrives', async () => {

@@ -28,6 +28,7 @@ import HorizontalFileList from '@renderer/components/media/HorizontalFileList';
 import MarkdownView from '@renderer/components/Markdown';
 import { stripThinkTags, hasThinkTags } from '@renderer/utils/chat/thinkTagFilter';
 import { stripSkillSuggest, hasSkillSuggest } from '@renderer/utils/chat/skillSuggestParser';
+import { stripCommandEvePreparedContext } from '@/common/config/evePreparedContextCore';
 import { useUpsertConversationArtifact } from '@renderer/pages/conversation/Messages/artifacts';
 
 /**
@@ -108,6 +109,7 @@ const MessageText: React.FC<{ message: IMessageText }> = ({ message }) => {
   const contentToRender = useMemo(() => {
     let content = message.content.content;
     if (typeof content === 'string') {
+      content = stripCommandEvePreparedContext(content);
       if (hasThinkTags(content)) {
         content = stripThinkTags(content);
       }
@@ -149,7 +151,7 @@ const MessageText: React.FC<{ message: IMessageText }> = ({ message }) => {
   }, []);
 
   // 过滤空内容，避免渲染空DOM
-  if (!message.content.content || (typeof message.content.content === 'string' && !message.content.content.trim())) {
+  if (!contentToRender || (typeof contentToRender === 'string' && !contentToRender.trim())) {
     return null;
   }
 

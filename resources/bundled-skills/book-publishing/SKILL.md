@@ -106,6 +106,13 @@ Referenzen pauschal in den Kontext ziehen.
 (`pdfinfo`/`pdftoppm`), ein Bildwerkzeug (`sips` auf macOS oder ImageMagick
 `magick` plattformübergreifend) und optional ein Bildgenerator fürs Cover.
 
+Diese Spezialwerkzeuge bilden einen optionalen, separat signierten Publishing-
+Toolchain-Pack und gehören nicht zum normalen Dokument-Runtime-Pack. Vor Phase 6
+einmal read-only preflighten. Fehlt etwas, `BLOCKED_CAPABILITY` mit dem konkreten
+Werkzeug melden und die editierbaren Quellen liefern; niemals während eines
+Nutzerauftrags per Homebrew, pip oder anderem Paketmanager installieren und
+keinen stillen Erstlauf-Download durch Tectonic auslösen.
+
 ## Output
 
 - `positioning.md`, `body.md` (Single Source) und genreabhängig

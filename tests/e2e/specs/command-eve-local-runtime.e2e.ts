@@ -26,8 +26,8 @@ test.describe('Command EVE Local Runtime', () => {
     await expect(page.getByText(/127\.0\.0\.1|gemma4:/)).toHaveCount(0);
     await expect(page.getByText(/Schnell und effizient|Fast and efficient/).first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByText(/Planung und Analyse|Planning and analysis/).first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(/Lokale Aufgaben|Local tasks/).first()).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByText(/Module bereit|modules ready/).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/Lokale Aufgaben|Local tasks/)).toHaveCount(0);
+    await expect(page.getByText(/Module bereit|modules ready/)).toHaveCount(0);
     await expect(page.getByText(/Startprüfung|Startup check/).first()).toBeVisible({ timeout: 30_000 });
     await expect(page.getByRole('button', { name: /Warm-up|warm-up|Modellwechsel|model switching/ })).toHaveCount(0);
 

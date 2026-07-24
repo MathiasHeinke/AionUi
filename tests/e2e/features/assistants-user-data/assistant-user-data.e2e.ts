@@ -35,9 +35,11 @@ import {
   httpInvoke,
   httpPost,
   openAssistantDrawer,
+  provisionAioncoreLocalCapability,
   resolveAioncoreBinary,
   saveAssistant,
   toggleAssistantEnabled,
+  type AioncoreLocalCapability,
   waitForDrawerClose,
 } from '../../helpers';
 
@@ -341,6 +343,7 @@ test.describe('Assistant User Data Migration (T5)', () => {
     let backend: ChildProcess | null = null;
     let dataDir: string = '';
     let defaultAgentId = '';
+    let localCapability: AioncoreLocalCapability | null = null;
 
     const baseUrl = `http://127.0.0.1:${MIGRATION_BACKEND_PORT}`;
 
@@ -349,7 +352,7 @@ test.describe('Assistant User Data Migration (T5)', () => {
       while (Date.now() < deadline) {
         try {
           // eslint-disable-next-line no-await-in-loop -- sequential polling by design
-          const r = await fetch(`${baseUrl}/api/system/info`);
+          const r = await fetch(`${baseUrl}/api/system/info`, { headers: localCapability?.headers });
           if (r.ok) return;
         } catch {
           // keep polling
@@ -363,7 +366,10 @@ test.describe('Assistant User Data Migration (T5)', () => {
     async function httpJson<T>(method: string, route: string, body?: unknown): Promise<T> {
       const res = await fetch(`${baseUrl}${route}`, {
         method,
-        headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+        headers: {
+          ...localCapability?.headers,
+          ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        },
         body: body !== undefined ? JSON.stringify(body) : undefined,
       });
       if (!res.ok) {
@@ -393,6 +399,7 @@ test.describe('Assistant User Data Migration (T5)', () => {
 
     async function startBackend(): Promise<void> {
       const bin = resolveAioncoreBinary();
+      localCapability = provisionAioncoreLocalCapability(dataDir);
       const logPath = path.join(dataDir, 'sibling-aioncore.log');
       const logFd = fs.openSync(logPath, 'a');
       // Scrub env vars that would drag the main Electron's backend state in.
@@ -401,12 +408,27 @@ test.describe('Assistant User Data Migration (T5)', () => {
       delete parentEnv.AIONUI_EXTENSION_STATES_FILE;
       delete parentEnv.AIONUI_E2E_TEST;
       delete parentEnv.AIONUI_CDP_PORT;
-      backend = spawn(bin, ['--local', '--port', String(MIGRATION_BACKEND_PORT), '--data-dir', dataDir], {
-        stdio: ['ignore', logFd, logFd],
-        env: { ...parentEnv, RUST_LOG: 'warn' },
-      });
+      backend = spawn(
+        bin,
+        [
+          '--local',
+          '--local-capability-file',
+          localCapability.filePath,
+          '--local-origin',
+          'null',
+          '--port',
+          String(MIGRATION_BACKEND_PORT),
+          '--data-dir',
+          dataDir,
+        ],
+        {
+          stdio: ['ignore', logFd, logFd],
+          env: { ...parentEnv, RUST_LOG: 'warn' },
+        }
+      );
       try {
         await waitForHealthy();
+        fs.rmSync(localCapability.filePath, { force: true });
       } catch (err) {
         const tail = fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8').slice(-2000) : '(no log)';
         throw new Error(`${(err as Error).message}\n--- sibling backend log tail ---\n${tail}`, { cause: err });
@@ -415,6 +437,7 @@ test.describe('Assistant User Data Migration (T5)', () => {
 
     test.beforeEach(async () => {
       dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aionui-e2e-migrate-'));
+      localCapability = null;
       await startBackend();
       const agents = await httpJson<Array<{ id: string; agent_type?: string }>>('GET', '/api/agents/management');
       defaultAgentId = agents.find((agent) => agent.agent_type === 'aionrs')?.id ?? '';
@@ -423,6 +446,7 @@ test.describe('Assistant User Data Migration (T5)', () => {
 
     test.afterEach(async () => {
       await stopBackend();
+      localCapability = null;
       if (dataDir && fs.existsSync(dataDir)) {
         fs.rmSync(dataDir, { recursive: true, force: true });
       }

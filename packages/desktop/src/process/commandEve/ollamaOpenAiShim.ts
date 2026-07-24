@@ -16,6 +16,7 @@ import {
   type CommandEveSensitivityClass,
 } from './egressBoundaryCore';
 import { isLegacySeatId, sanitizeSeatId } from './seatContextCore';
+import { isCommandEveShimPublicError } from './shimPublicError';
 import { evaluateWorkerDispatch, type EveTeamWorkerStatusMap } from '../../common/config/eveTeamControlsCore';
 import { EVE_INFERENCE_TIERS } from '../../common/config/eveInferenceCore';
 import { buildCommandEveContextPolicy, type CommandEveContextPolicy } from '../../common/config/eveContextPolicyCore';
@@ -26,6 +27,8 @@ import {
   getCommandEveLocalModelTier,
 } from '../../common/config/commandEveShell';
 import { HONCHO_DERIVER_FORCED_TIER } from './honchoRuntimeConfigCore';
+import { stripCommandEveManagedVisualTurnMarkers } from '../../common/config/eveManagedVisualTurnCore';
+import { executeCommandEveManagedImageGeneration } from './managedImageGenerationService';
 
 /**
  * The known EVE wire tiers (registry SSOT) — derived from EVE_INFERENCE_TIERS so
@@ -129,10 +132,9 @@ export type CommandEveEveCloudRoute = {
  * resolver (returning the route directly) is still accepted for tests / the
  * no-op default.
  */
-export type CommandEveEveRoutingResolver = () =>
-  | CommandEveEveCloudRoute
-  | undefined
-  | Promise<CommandEveEveCloudRoute | undefined>;
+export type CommandEveEveRoutingResolver = (
+  body?: Record<string, unknown>
+) => CommandEveEveCloudRoute | undefined | Promise<CommandEveEveCloudRoute | undefined>;
 
 export type CommandEveLocalOpenAiRoute = {
   active: boolean;
@@ -533,8 +535,38 @@ function readBody(request: IncomingMessage): Promise<Record<string, unknown>> {
   });
 }
 
+async function handleManagedImageGeneration(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  let body: Record<string, unknown>;
+  try {
+    body = await readBody(request);
+  } catch {
+    jsonResponse(response, 400, { error: { code: 'invalid_json', message: 'Invalid managed image request.' } });
+    return;
+  }
+  const result = await executeCommandEveManagedImageGeneration(body);
+  jsonResponse(response, result.status, result.body);
+}
+
 function asMessages(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+function stripManagedVisualTurnAuthorization(message: unknown): unknown {
+  if (!message || typeof message !== 'object' || Array.isArray(message)) return message;
+  const record = message as Record<string, unknown>;
+  if (typeof record.content === 'string') {
+    return { ...record, content: stripCommandEveManagedVisualTurnMarkers(record.content) };
+  }
+  if (!Array.isArray(record.content)) return record;
+  return {
+    ...record,
+    content: record.content.map((part) => {
+      if (!part || typeof part !== 'object' || Array.isArray(part)) return part;
+      const contentPart = part as Record<string, unknown>;
+      if (typeof contentPart.text !== 'string') return contentPart;
+      return { ...contentPart, text: stripCommandEveManagedVisualTurnMarkers(contentPart.text) };
+    }),
+  };
 }
 
 // SG-1 A1: read the X-EVE-Dispatch header value as a single trimmed token. Node
@@ -932,7 +964,10 @@ async function fetchOllama(
   init: RequestInit,
   options: Required<CommandEveOllamaShimOptions>
 ): Promise<Response> {
-  return fetch(`${options.ollamaBaseUrl.replace(/\/+$/, '')}${path}`, init);
+  // F-05 (Kimi 1.819 audit): never follow redirects on upstream lanes. A 30x
+  // from a compromised upstream must not re-POST request bodies cross-origin;
+  // no shim lane has a legitimate redirect.
+  return fetch(`${options.ollamaBaseUrl.replace(/\/+$/, '')}${path}`, { ...init, redirect: 'error' });
 }
 
 async function handleModels(response: ServerResponse, options: Required<CommandEveOllamaShimOptions>): Promise<void> {
@@ -1251,6 +1286,7 @@ async function handleEveCloudCompletions(
         // The license rides ONLY here — never in the body, never logged.
         authorization: `Bearer ${license}`,
       },
+      redirect: 'error',
       body: JSON.stringify(outboundBody),
       signal: upstreamScope.signal,
     });
@@ -1279,6 +1315,10 @@ async function handleEveCloudCompletions(
     // bodies otherwise.
     const text = await upstream.text();
     upstreamScope.markActivity();
+    // F-14 (Kimi 1.819 audit): a non-OK upstream status is an upstream error in
+    // the outcome receipt, not a silent "completed" — otherwise the receipt is
+    // worthless as watchdog evidence.
+    if (!upstream.ok) upstreamScope.markUpstreamError();
 
     // Friendly daily-cap (429): the raw upstream body is a terse
     // "rate_limit"/"daily cap reached" JSON that surfaces in chat as a cold
@@ -1507,6 +1547,7 @@ async function handleLocalOpenAiCompletions(
         'content-type': 'application/json',
         authorization: `Bearer ${apiKey}`,
       },
+      redirect: 'error',
       body: JSON.stringify(localOpenAiPayload(body, route)),
       signal: upstreamScope.signal,
     });
@@ -1532,6 +1573,9 @@ async function handleLocalOpenAiCompletions(
 
     const text = await upstream.text();
     upstreamScope.markActivity();
+    // F-14 (Kimi 1.819 audit): non-OK upstream status must land in the outcome
+    // receipt as upstream_error, not as a silent "completed".
+    if (!upstream.ok) upstreamScope.markUpstreamError();
     response.writeHead(upstream.status || 502, { 'content-type': contentType });
     response.end(text || JSON.stringify({ error: { message: 'The selected local EVE model returned no result.' } }));
   } catch {
@@ -1560,7 +1604,12 @@ async function handleChatCompletions(
   // the active picker selection is an EVE tier. A warm-up ping ("ping") stays
   // local — it only ever exercises the bundled local model.
   if (!isCommandEveWarmupRequest(body)) {
-    const eveRoute = await options.eveRouting();
+    // The resolver sees the original hidden one-turn authorization marker. An
+    // invalid/expired marker rejects here and therefore fails closed instead of
+    // falling through to Ollama. Strip the opaque marker before either cloud or
+    // local model handling so it never becomes model-visible or leaves the Mac.
+    const eveRoute = await options.eveRouting(body);
+    body.messages = asMessages(body.messages).map(stripManagedVisualTurnAuthorization);
     if (eveRoute?.active) {
       // SG-1 A1: the attribution token rides the X-EVE-Dispatch HEADER, never the
       // body — so a client that stuffs `body.agent_id` cannot spoof a role.
@@ -1839,6 +1888,13 @@ export function startCommandEveOllamaOpenAiShim(shimOptions: CommandEveOllamaShi
 }
 
 async function startCommandEveOllamaOpenAiShimOnce(shimOptions: CommandEveOllamaShimOptions): Promise<string> {
+  // F-04 (Kimi 1.819 audit): an explicitly supplied ollamaBaseUrl must stay on
+  // loopback. No production caller passes this option today, but any future
+  // config plumbing must fail closed instead of silently creating off-host
+  // egress from the shim lane.
+  if (shimOptions.ollamaBaseUrl && !isLoopbackHttpUrl(shimOptions.ollamaBaseUrl)) {
+    throw new Error('Command EVE ollamaBaseUrl must be a loopback http URL (127.0.0.1/localhost/::1 with port).');
+  }
   const options: Required<CommandEveOllamaShimOptions> = {
     // Parallel E2E workers must not mistake another test/dev instance for a
     // production port conflict. Port 0 is limited to the explicit test mode;
@@ -1924,6 +1980,11 @@ async function startCommandEveOllamaOpenAiShimOnce(shimOptions: CommandEveOllama
         await handleChatCompletions(request, response, options);
         return;
       }
+      if (request.method === 'POST' && requestPath === '/v1/images') {
+        if (!requireShimAuth(request, response, options.authToken)) return;
+        await handleManagedImageGeneration(request, response);
+        return;
+      }
       // COMPA-624 — the Honcho deriver's dedicated FREE cloud lane. Separate path
       // so it is picker-independent + free-tier-forced + never a warmup-ping.
       if (request.method === 'POST' && requestPath === '/honcho/deriver/v1/chat/completions') {
@@ -1945,7 +2006,14 @@ async function startCommandEveOllamaOpenAiShimOnce(shimOptions: CommandEveOllama
       }
       jsonResponse(response, 404, { error: { message: `Unsupported Command EVE Ollama shim path: ${requestPath}` } });
     })().catch((error) => {
-      jsonResponse(response, 500, { error: { message: error instanceof Error ? error.message : String(error) } });
+      // F-14 (Kimi 1.819 audit): never echo raw error.message to the client —
+      // a latent throw source must not become a credential channel. Only errors
+      // explicitly constructed as CommandEveShimPublicError carry client-safe,
+      // deliberately authored fail-closed messages; everything else gets the
+      // generic 500. Log content-free either way.
+      console.warn('[Command EVE] Shim request failed with an internal error.');
+      const message = isCommandEveShimPublicError(error) ? error.message : 'Command EVE shim internal error.';
+      jsonResponse(response, 500, { error: { message } });
     });
   });
   await new Promise<void>((resolve, reject) => {
@@ -2013,6 +2081,7 @@ export async function warmCommandEveLocalModel(
         'content-type': 'application/json',
         authorization: `Bearer ${warmupOptions.authToken || ensureCommandEveShimAuthToken()}`,
       },
+      redirect: 'error',
       signal: abortController.signal,
       body: JSON.stringify({
         model: warmupOptions.model,
@@ -2095,6 +2164,7 @@ export async function warmCommandEveEveLane(
         'content-type': 'application/json',
         authorization: `Bearer ${warmupOptions.authToken || ensureCommandEveShimAuthToken()}`,
       },
+      redirect: 'error',
       signal: abortController.signal,
       body: JSON.stringify({
         // A tiny EVE-persona system message keeps the prompt-proof marker happy;

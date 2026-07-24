@@ -82,6 +82,7 @@ export const RENDERER_PROVIDER_KEYS = [
   'command-eve.learned-skills',
   'command-eve.license-wire-status',
   'command-eve.local-runtime-status',
+  'command-eve.managed-visual-turn-authorize',
   'command-eve.multimodal-tts',
   'command-eve.multimodal-tts-consent-get',
   'command-eve.multimodal-tts-consent-set',
@@ -90,6 +91,8 @@ export const RENDERER_PROVIDER_KEYS = [
   'command-eve.onboarding-status',
   'command-eve.open-account-web',
   'command-eve.pdf-prepare',
+  'command-eve.image-prepare',
+  'command-eve.presentation-prepare',
   'command-eve.registration-status',
   'command-eve.registration-update',
   'command-eve.report-export',
@@ -164,6 +167,18 @@ export type RendererProviderKey = (typeof RENDERER_PROVIDER_KEYS)[number];
 export type ProviderPayloadClass = 'void' | 'optional-record' | 'record';
 
 /**
+ * The public seat-scoped Kanban reuses four legacy "marketing" wire names.
+ * These providers are customer-callable only for the literal `default` board;
+ * every other board slug remains founder-only in the main-process parser.
+ */
+export const CUSTOMER_DEFAULT_KANBAN_PROVIDER_KEYS: ReadonlySet<RendererProviderKey> = new Set([
+  'command-eve.kanban-marketing-board',
+  'command-eve.kanban-marketing-card-action',
+  'command-eve.kanban-marketing-card-create',
+  'command-eve.kanban-marketing-card-move',
+]);
+
+/**
  * Per-provider request schema class, mechanically derived from each renderer-side
  * `buildProvider<Result, Params>` declaration and frozen by the R4 source test.
  */
@@ -236,6 +251,7 @@ export const RENDERER_PROVIDER_PAYLOAD_CLASSES = {
   'command-eve.learned-skills': 'void',
   'command-eve.license-wire-status': 'void',
   'command-eve.local-runtime-status': 'optional-record',
+  'command-eve.managed-visual-turn-authorize': 'record',
   'command-eve.multimodal-tts': 'record',
   'command-eve.multimodal-tts-consent-get': 'void',
   'command-eve.multimodal-tts-consent-set': 'record',
@@ -244,6 +260,8 @@ export const RENDERER_PROVIDER_PAYLOAD_CLASSES = {
   'command-eve.onboarding-status': 'void',
   'command-eve.open-account-web': 'record',
   'command-eve.pdf-prepare': 'record',
+  'command-eve.image-prepare': 'record',
+  'command-eve.presentation-prepare': 'record',
   'command-eve.registration-status': 'void',
   'command-eve.registration-update': 'record',
   'command-eve.report-export': 'record',
@@ -334,10 +352,6 @@ export const FOUNDER_ONLY_PROVIDER_KEYS: ReadonlySet<RendererProviderKey> = new 
   'command-eve.kanban-acp-apply',
   'command-eve.kanban-acp-peek',
   'command-eve.kanban-acp-reject',
-  'command-eve.kanban-marketing-board',
-  'command-eve.kanban-marketing-card-action',
-  'command-eve.kanban-marketing-card-create',
-  'command-eve.kanban-marketing-card-move',
   'command-eve.kanban-marketing-dispatch-approval',
   'command-eve.kanban-marketing-dispatch-decision',
   'command-eve.kanban-marketing-dispatch-plan',
@@ -350,7 +364,6 @@ export const FOUNDER_ONLY_PROVIDER_KEYS: ReadonlySet<RendererProviderKey> = new 
   'command-eve.kanban-marketing-worker-observed-run',
   'command-eve.kanban-marketing-worker-start-gate',
   'command-eve.kanban-preflight',
-  'command-eve.report-export',
   'command-eve.status-surface',
   'command-eve.sync-worker-launcher-state',
   'command-eve.team-manage-apply',

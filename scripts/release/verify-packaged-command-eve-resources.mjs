@@ -6,12 +6,87 @@ import { fileURLToPath } from 'node:url';
 
 import { scanForPrivateKeys } from './verify-no-private-keys.mjs';
 
-export const PACKAGED_COMMAND_EVE_RESOURCES_VERIFIER_VERSION = 'verify-packaged-command-eve-resources/v1';
+export const PACKAGED_COMMAND_EVE_RESOURCES_VERIFIER_VERSION = 'verify-packaged-command-eve-resources/v3';
 
 export const COMMAND_EVE_PUBLIC_KEY_FILES = Object.freeze([
   'command-eve-license-public-key.pem',
   'command-eve-license-public-key-server.pem',
 ]);
+
+export const COMMAND_EVE_PRESENTATION_PYTHON_WHEELS = Object.freeze([
+  {
+    name: 'python-pptx',
+    version: '1.0.2',
+    filename: 'python_pptx-1.0.2-py3-none-any.whl',
+    sha256: '160838e0b8565a8b1f67947675886e9fea18aa5e795db7ae531606d68e785cba',
+  },
+  {
+    name: 'XlsxWriter',
+    version: '3.2.9',
+    filename: 'xlsxwriter-3.2.9-py3-none-any.whl',
+    sha256: '9a5db42bc5dff014806c58a20b9eae7322a134abb6fce3c92c181bfb275ec5b3',
+  },
+  {
+    name: 'pypdf',
+    version: '6.14.2',
+    filename: 'pypdf-6.14.2-py3-none-any.whl',
+    sha256: '3f07891af76dc002657e04993ab9b4de81de29f9013b9761d0b7968bff12e946',
+  },
+  {
+    name: 'reportlab',
+    version: '5.0.0',
+    filename: 'reportlab-5.0.0-py3-none-any.whl',
+    sha256: '9d5a3affa84919e1111ede580031266a570e93b1ce388219621347965ff1d93c',
+  },
+  {
+    name: 'python-docx',
+    version: '1.2.0',
+    filename: 'python_docx-1.2.0-py3-none-any.whl',
+    sha256: '3fd478f3250fbbbfd3b94fe1e985955737c145627498896a8a6bf81f4baf66c7',
+  },
+  {
+    name: 'openpyxl',
+    version: '3.1.5',
+    filename: 'openpyxl-3.1.5-py2.py3-none-any.whl',
+    sha256: '5282c12b107bffeef825f4617dc029afaf41d0ea60823bbb665ef3079dc79de2',
+  },
+  {
+    name: 'et-xmlfile',
+    version: '2.0.0',
+    filename: 'et_xmlfile-2.0.0-py3-none-any.whl',
+    sha256: '7a91720bc756843502c3b7504c77b8fe44217c85c537d85037f0f536151b2caa',
+  },
+  {
+    name: 'qrcode',
+    version: '8.2',
+    filename: 'qrcode-8.2-py3-none-any.whl',
+    sha256: '16e64e0716c14960108e85d853062c9e8bba5ca8252c0b4d0231b9df4060ff4f',
+  },
+  {
+    name: 'defusedxml',
+    version: '0.7.1',
+    filename: 'defusedxml-0.7.1-py2.py3-none-any.whl',
+    sha256: 'a352e7e428770286cc899e2542b6cdaedb2b4953ff269a210103ec58f6198a61',
+  },
+  {
+    name: 'typing-extensions',
+    version: '4.16.0',
+    filename: 'typing_extensions-4.16.0-py3-none-any.whl',
+    sha256: '481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8',
+  },
+  {
+    name: 'charset-normalizer',
+    version: '3.4.9',
+    filename: 'charset_normalizer-3.4.9-py3-none-any.whl',
+    sha256: '68e5f26a1ad57ded6d1cfb85331d1c1a195314756471d97758c48498bb4dcdf5',
+  },
+]);
+
+const COMMAND_EVE_PRESENTATION_PYTHON_BUNDLE_VERSION = 'command-eve-artifact-python-wheels/v2';
+const COMMAND_EVE_ARTIFACT_PYTHON_BUILD_VERSION = 'command-eve-artifact-python-build/v1';
+const COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_VERSION = 'command-eve-artifact-python-runtime/v1';
+const COMMAND_EVE_ARTIFACT_RUNTIME_RECEIPT = 'command-eve-artifact-python-runtime.json';
+const NATIVE_ARCHIVE_ENTRY_PATTERN = /\.(?:so|dylib|dll|pyd|node)$/i;
 
 const MACH_O_ARCH_BY_BUILDER_ARCH = Object.freeze({
   arm64: 'arm64',
@@ -70,9 +145,151 @@ function defaultReadArchitectures(executablePath) {
   return output.trim().split(/\s+/).filter(Boolean);
 }
 
+function defaultListArchiveEntries(archivePath) {
+  const output = execFileSync('/usr/bin/unzip', ['-Z1', archivePath], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  return output.split(/\r?\n/).filter(Boolean);
+}
+
 function normalizeArchitectures(value) {
   const entries = Array.isArray(value) ? value : String(value || '').split(/\s+/);
   return [...new Set(entries.map((entry) => String(entry).trim()).filter(Boolean))].sort();
+}
+
+function normalizeDistributionName(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[-_.]+/g, '-');
+}
+
+function parseJsonFile(filePath, label, deps) {
+  const bytes = readRequiredRegularFile(filePath, label, deps);
+  try {
+    return { bytes, value: JSON.parse(bytes.toString('utf8')) };
+  } catch {
+    throw new Error(`PACKAGED-RESOURCES: ${label} is not valid JSON`);
+  }
+}
+
+function collectArtifactNativeFiles(directory, deps, root = directory, collected = []) {
+  for (const entry of deps.readdir(directory, { withFileTypes: true })) {
+    const target = path.join(directory, entry.name);
+    if (entry.isSymbolicLink()) {
+      throw new Error(`PACKAGED-RESOURCES: signed Artifact Python runtime contains a symlink: ${target}`);
+    }
+    if (entry.isDirectory()) collectArtifactNativeFiles(target, deps, root, collected);
+    else if (entry.isFile() && /\.(?:so|dylib|dll|pyd)$/i.test(entry.name)) {
+      collected.push(path.relative(root, target));
+    }
+  }
+  return collected;
+}
+
+function verifyPackagedArtifactPython({ resourcesPath, sourceArtifactManifestPath, expectedArch, deps }) {
+  const { bytes: sourceManifestBytes, value: sourceManifest } = parseJsonFile(
+    sourceArtifactManifestPath,
+    'source Artifact Python manifest',
+    deps
+  );
+  const runtimeKey = `darwin-${expectedArch}`;
+  const platformPackages = sourceManifest?.platforms?.[runtimeKey];
+  if (
+    sourceManifest?.version !== COMMAND_EVE_ARTIFACT_PYTHON_BUILD_VERSION ||
+    sourceManifest?.runtime_version !== COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_VERSION ||
+    sourceManifest?.network_install_allowed !== false ||
+    !Array.isArray(sourceManifest?.common_packages) ||
+    !Array.isArray(platformPackages)
+  ) {
+    throw new Error(`PACKAGED-RESOURCES: source Artifact Python manifest does not support ${runtimeKey}`);
+  }
+  const expectedPackages = [
+    ...sourceManifest.common_packages.map((entry) => ({ ...entry, scope: 'common' })),
+    ...platformPackages.map((entry) => ({ ...entry, scope: runtimeKey })),
+  ];
+  const artifactDirectory = path.join(resourcesPath, 'python', 'artifact-site-packages');
+  assertDirectory(artifactDirectory, 'packaged signed Artifact Python runtime', deps);
+  const receiptPath = path.join(artifactDirectory, COMMAND_EVE_ARTIFACT_RUNTIME_RECEIPT);
+  const { value: receipt } = parseJsonFile(receiptPath, 'packaged Artifact Python receipt', deps);
+  if (
+    receipt?.version !== COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_VERSION ||
+    receipt?.build_manifest_version !== COMMAND_EVE_ARTIFACT_PYTHON_BUILD_VERSION ||
+    receipt?.build_manifest_sha256 !== sha256(sourceManifestBytes) ||
+    receipt?.runtime_key !== runtimeKey ||
+    receipt?.network_install_allowed !== false ||
+    receipt?.probe_status !== 'pass' ||
+    !Array.isArray(receipt?.packages) ||
+    receipt.packages.length !== expectedPackages.length ||
+    !Array.isArray(receipt?.native_files)
+  ) {
+    throw new Error('PACKAGED-RESOURCES: packaged Artifact Python receipt violates its signed-runtime contract');
+  }
+
+  const distInfo = new Map();
+  for (const entry of deps.readdir(artifactDirectory, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !entry.name.endsWith('.dist-info')) continue;
+    const metadataPath = path.join(artifactDirectory, entry.name, 'METADATA');
+    const metadata = readRequiredRegularFile(metadataPath, `packaged ${entry.name}/METADATA`, deps).toString('utf8');
+    const name = metadata.match(/^Name:\s*(.+)$/m)?.[1]?.trim();
+    const version = metadata.match(/^Version:\s*(.+)$/m)?.[1]?.trim();
+    if (!name || !version) throw new Error(`PACKAGED-RESOURCES: incomplete package metadata in ${metadataPath}`);
+    distInfo.set(normalizeDistributionName(name), { name, version, metadataPath });
+  }
+
+  const packages = expectedPackages.map((expected) => {
+    const declared = receipt.packages.find((entry) => entry?.name === expected.name);
+    const installed = distInfo.get(normalizeDistributionName(expected.name));
+    if (
+      !declared ||
+      declared.version !== expected.version ||
+      declared.import_name !== expected.import_name ||
+      declared.wheel !== expected.filename ||
+      declared.wheel_sha256 !== expected.sha256 ||
+      declared.license !== expected.license ||
+      declared.scope !== expected.scope ||
+      !installed ||
+      installed.version !== expected.version
+    ) {
+      throw new Error(`PACKAGED-RESOURCES: packaged Artifact Python mismatch for ${expected.name}`);
+    }
+    return {
+      package: expected.name,
+      version: expected.version,
+      wheel: expected.filename,
+      wheel_sha256: expected.sha256,
+      license: expected.license,
+      scope: expected.scope,
+    };
+  });
+
+  const nativeFiles = collectArtifactNativeFiles(artifactDirectory, deps).sort();
+  const declaredNativeFiles = [...receipt.native_files].map(String).sort();
+  if (nativeFiles.length === 0 || JSON.stringify(nativeFiles) !== JSON.stringify(declaredNativeFiles)) {
+    throw new Error('PACKAGED-RESOURCES: signed Artifact Python native-file receipt is incomplete or stale');
+  }
+  const expectedMachOArch = MACH_O_ARCH_BY_BUILDER_ARCH[expectedArch];
+  const nativeArchitectures = nativeFiles.map((relativePath) => {
+    const filePath = path.join(artifactDirectory, relativePath);
+    readRequiredRegularFile(filePath, `packaged Artifact Python native file ${relativePath}`, deps);
+    const architectures = normalizeArchitectures(deps.readArchitectures(filePath));
+    if (!architectures.includes(expectedMachOArch)) {
+      throw new Error(
+        `PACKAGED-RESOURCES: Artifact Python native file ${relativePath} lacks ${expectedMachOArch}: ${architectures.join(', ') || 'none'}`
+      );
+    }
+    return { file: relativePath, architectures };
+  });
+
+  return {
+    runtime_version: COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_VERSION,
+    runtime_key: runtimeKey,
+    network_install_allowed: false,
+    packages,
+    native_files: nativeArchitectures,
+    receipt_path: receiptPath,
+  };
 }
 
 /**
@@ -85,6 +302,7 @@ function normalizeArchitectures(value) {
 export function verifyPackagedCommandEveResources(options, injected = {}) {
   const appPath = path.resolve(String(options?.appPath || ''));
   const sourcePublicDir = path.resolve(String(options?.sourcePublicDir || ''));
+  const sourceArtifactManifestPath = path.resolve(String(options?.sourceArtifactManifestPath || ''));
   const expectedArch = String(options?.expectedArch || 'arm64');
   const productFilename = String(options?.productFilename || path.basename(appPath, '.app'));
   const expectedMachOArch = MACH_O_ARCH_BY_BUILDER_ARCH[expectedArch];
@@ -95,7 +313,9 @@ export function verifyPackagedCommandEveResources(options, injected = {}) {
   const deps = {
     lstat: injected.lstat || fs.lstatSync,
     readFile: injected.readFile || fs.readFileSync,
+    readdir: injected.readdir || fs.readdirSync,
     readArchitectures: injected.readArchitectures || defaultReadArchitectures,
+    listArchiveEntries: injected.listArchiveEntries || defaultListArchiveEntries,
     scanPrivateKeys: injected.scanPrivateKeys || scanForPrivateKeys,
   };
 
@@ -141,6 +361,69 @@ export function verifyPackagedCommandEveResources(options, injected = {}) {
     };
   });
 
+  const presentationDirectory = path.join(resourcesPath, 'bundled-hermes', 'presentation');
+  assertDirectory(presentationDirectory, 'packaged presentation Python bundle', deps);
+  const presentationManifestPath = path.join(presentationDirectory, 'manifest.json');
+  const presentationManifestBytes = readRequiredRegularFile(
+    presentationManifestPath,
+    'packaged presentation Python manifest',
+    deps
+  );
+  let presentationManifest;
+  try {
+    presentationManifest = JSON.parse(presentationManifestBytes.toString('utf8'));
+  } catch {
+    throw new Error('PACKAGED-RESOURCES: packaged presentation Python manifest is not valid JSON');
+  }
+  if (
+    presentationManifest?.version !== COMMAND_EVE_PRESENTATION_PYTHON_BUNDLE_VERSION ||
+    presentationManifest?.native_binaries !== false ||
+    presentationManifest?.network_install_allowed !== false ||
+    !Array.isArray(presentationManifest?.packages)
+  ) {
+    throw new Error('PACKAGED-RESOURCES: packaged presentation Python manifest violates its offline-only contract');
+  }
+
+  const presentationPython = COMMAND_EVE_PRESENTATION_PYTHON_WHEELS.map((expected) => {
+    const declared = presentationManifest.packages.find((entry) => entry?.name === expected.name);
+    if (
+      !declared ||
+      declared.version !== expected.version ||
+      declared.filename !== expected.filename ||
+      declared.sha256 !== expected.sha256
+    ) {
+      throw new Error(`PACKAGED-RESOURCES: packaged presentation manifest mismatch for ${expected.name}`);
+    }
+    const packagedPath = path.join(presentationDirectory, expected.filename);
+    const bytes = readRequiredRegularFile(packagedPath, `packaged ${expected.filename}`, deps);
+    if (sha256(bytes) !== expected.sha256) {
+      throw new Error(`PACKAGED-RESOURCES: packaged ${expected.filename} failed its SHA-256 pin`);
+    }
+    const nativeEntries = deps
+      .listArchiveEntries(packagedPath)
+      .filter((entry) => NATIVE_ARCHIVE_ENTRY_PATTERN.test(entry));
+    if (nativeEntries.length > 0) {
+      throw new Error(
+        `PACKAGED-RESOURCES: packaged ${expected.filename} unexpectedly contains native binaries: ${nativeEntries.join(', ')}`
+      );
+    }
+    return {
+      package: expected.name,
+      version: expected.version,
+      file: expected.filename,
+      bytes: bytes.length,
+      sha256: expected.sha256,
+      native_entries: 0,
+    };
+  });
+
+  const artifactPython = verifyPackagedArtifactPython({
+    resourcesPath,
+    sourceArtifactManifestPath,
+    expectedArch,
+    deps,
+  });
+
   const privateKeyFindings = deps.scanPrivateKeys([appPath]);
   if (!Array.isArray(privateKeyFindings)) {
     throw new Error('PACKAGED-RESOURCES: private-key scanner returned an invalid result');
@@ -163,6 +446,12 @@ export function verifyPackagedCommandEveResources(options, injected = {}) {
     builder_arch: expectedArch,
     executable_architectures: architectures,
     keys,
+    presentation_python: {
+      bundle_version: COMMAND_EVE_PRESENTATION_PYTHON_BUNDLE_VERSION,
+      offline_only: true,
+      wheels: presentationPython,
+    },
+    artifact_python: artifactPython,
     private_key_findings: 0,
   };
 }
@@ -188,6 +477,8 @@ if (isCli) {
     const result = verifyPackagedCommandEveResources({
       appPath: args.app,
       sourcePublicDir: args['source-public-dir'] || path.resolve('public'),
+      sourceArtifactManifestPath:
+        args['source-artifact-manifest'] || path.resolve('resources/bundled-python-artifacts/manifest.json'),
       resourcesPath: args['resources-path'],
       expectedArch: args.arch || 'arm64',
       productFilename: args['product-filename'],

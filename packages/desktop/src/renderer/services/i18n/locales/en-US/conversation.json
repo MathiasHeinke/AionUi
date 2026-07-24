@@ -148,6 +148,47 @@
       "error": "PDF processing failed · message was not sent"
     }
   },
+  "documents": {
+    "preparationInProgress": "EVE is already preparing your file for analysis. Your draft stays ready."
+  },
+  "presentation": {
+    "cloudVisionTitle": "Allow visual analysis of this presentation?",
+    "cloudVisionDescription": "EVE checked {{files}} locally. To understand charts, images and layout, only rendered slide previews are processed once through Command EVE's managed cloud using Zero Data Retention and no-training routing. No provider key is stored in the app, and the PPTX file itself stays on this Mac. Cancel keeps the draft and file unsent.",
+    "cloudVisionConfirm": "Analyze slides once",
+    "selectedDocuments": "the selected presentation",
+    "prepareFailed": "EVE could not prepare this presentation safely. The message was not sent.",
+    "cloudVisionFailed": "Visual slide analysis failed. The message and presentation remain unsent.",
+    "phase": {
+      "reading_presentation_local": "Preparing {{count}} presentation locally",
+      "reading_presentation_local_other": "Preparing {{count}} presentations locally",
+      "awaiting_cloud_vision": "Presentation ready · waiting for analysis approval",
+      "reading_cloud_vision": "Analyzing slides visually and securely",
+      "presentation_handoff": "Presentation understood · handing analysis to EVE",
+      "presentation_error": "Presentation processing failed · message was not sent"
+    }
+  },
+  "image": {
+    "cloudVisionTitle": "Analyze this image securely?",
+    "cloudVisionDescription": "EVE checked {{files}} locally. Only a reduced preview is processed once through Command EVE's managed cloud using Zero Data Retention and no-training routing. No provider key is stored in the app, and the original stays on this Mac. Cancel keeps the draft and image unsent.",
+    "cloudVisionConfirm": "Analyze image once",
+    "selectedImages": "the selected image",
+    "prepareFailed": "EVE could not prepare this image safely. The message was not sent.",
+    "cloudVisionFailed": "Image analysis failed. The message and image remain unsent.",
+    "phase": {
+      "reading_image_local": "Preparing {{count}} image locally",
+      "reading_image_local_other": "Preparing {{count}} images locally",
+      "awaiting_image_cloud_vision": "Image ready · waiting for analysis approval",
+      "reading_image_cloud_vision": "Analyzing image visually and securely",
+      "image_handoff": "Image understood · handing analysis to EVE",
+      "image_error": "Image processing failed · message was not sent"
+    }
+  },
+  "visual": {
+    "managedCloudTitle": "Answer this visual analysis securely in the cloud?",
+    "managedCloudDescription": "EVE prepared {{files}} locally. To create the complete answer, only the prepared bounded previews and extracted content are processed once through the managed OpenRouter ZDR route: no training and no provider key in the app. Original files stay on this Mac. Cancel keeps the draft and files unsent.",
+    "managedCloudConfirm": "Analyze securely once",
+    "managedCloudFailed": "Managed visual analysis could not be authorized. The draft and files remain unsent."
+  },
   "createFailed": "Failed to create conversation",
   "createError": {
     "pathVariants": {

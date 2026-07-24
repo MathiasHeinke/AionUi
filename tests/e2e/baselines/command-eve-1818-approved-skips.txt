@@ -1,7 +1,7 @@
-# Command EVE 1.818 full-E2E approved skip roster.
+# Command EVE 1.819 full-E2E approved skip roster.
 #
 # Candidate discovery: ce7ceba867e511956d8e18d99b1a3db1415a7c74
-# Reviewed exact inventory: 191/191 unique canonical titles.
+# Reviewed exact inventory: 195/195 unique canonical titles.
 # This roster is candidate-gate data, not permission to add new skips. Any title not
 # listed here remains fail-closed. Packaged-only cases must run after notarization.
 #
@@ -69,6 +69,10 @@ features/settings/skills/path-export.e2e.ts >> Skills Hub - Path/Export (P1) >> 
 features/settings/skills/refresh-empty-tabs.e2e.ts >> Skills Hub - Refresh/Empty/Tabs (P1) >> TC-S-09: should switch tabs and show correct external skills
 features/settings/skills/search.e2e.ts >> Skills Hub - Search (P1) >> TC-S-12: should filter external skills list by search keyword
 features/settings/skills/search.e2e.ts >> Skills Hub - Search (P1) >> TC-S-13: should show empty state when external search has no match
+features/settings/system/dev-settings.e2e.ts >> DevSettings >> TC-DEV-01: DevTools button is visible with correct label
+features/settings/system/dev-settings.e2e.ts >> DevSettings >> TC-DEV-02: should toggle CDP switch
+features/settings/system/dev-settings.e2e.ts >> DevSettings >> TC-DEV-03: should display CDP URL with port, Link and Copy buttons
+features/settings/system/dev-settings.e2e.ts >> DevSettings >> TC-DEV-04: should expand MCP config and show code block with Copy
 specs/acp-agent.e2e.ts >> ACP Agent >> screenshot: upstream agent pill bar
 specs/acp-agent.e2e.ts >> ACP Agent >> upstream MCP tools page has server management UI
 specs/acp-agent.e2e.ts >> ACP Agent >> upstream shell can see agent backend names

@@ -62,21 +62,23 @@ test.describe('Command EVE public Kanban', () => {
     const userDataPath = await electronApp.evaluate(async ({ app }) => app.getPath('userData'));
     writeReconciliationLock(userDataPath);
 
-    const proof = await invokeBridge<{
+    // Initialize the public seat board through the same customer-authorized
+    // default-board mutation seam the UI uses. The founder-only proof-card seam
+    // is deliberately not available in this customer-mode proof.
+    const seed = await invokeBridge<{
       success: boolean;
-      data: { ok: boolean; status: string; reason_code?: string };
-    }>(
-      page,
-      'command-eve.kanban-marketing-proof-card',
-      { boardSlug: 'default', eventLedgerPath: E2E_AGENT_EVENTS_PATH },
-      30_000
-    );
-    expect(proof.success, proof.data.reason_code).toBe(true);
-    expect(proof.data.ok, proof.data.reason_code).toBe(true);
-
-    await page.evaluate(() => {
-      window.location.hash = '#/kanban';
+      data: { ok: boolean; reason_code?: string };
+    }>(page, 'command-eve.kanban-marketing-card-create', {
+      title: 'Public board initialized',
+      lane_key: 'research',
+      client_token: `public-seed-${Date.now().toString(36)}`,
+      boardSlug: 'default',
     });
+    expect(seed.success, seed.data.reason_code).toBe(true);
+    expect(seed.data.ok, seed.data.reason_code).toBe(true);
+
+    await page.getByTestId('sider-kanban-entry').click();
+    await expect.poll(() => page.evaluate(() => window.location.hash), { timeout: 15_000 }).toBe('#/kanban');
     await expect(page.getByTestId('kanban-columns')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('kanban-board-slug')).toContainText('default');
 

@@ -37,7 +37,10 @@ lassen**. Nur folgenlose Detailannahmen dürfen sichtbar markiert werden.
 4. **Entwurf → Blind-Review → Reparatur → Straffung** — getrennte Durchgänge; Straffung −15 bis −20 % mit Schutzregeln (nie streichen: Bruchszene/Schlüsselszene, Punchlines, Verortung).
 5. **Wahrheitsdisziplin je nach Genre** — Essay/Sachbuch: jede harte Behauptung belegt (Claim-Inventory) oder als These markiert. Fiktion: Welt- und Figurenkonsistenz statt Quellen (Kanon-Widersprüche = Fehler).
 6. **Autoren-Abgleich** der Kernstellen (Bruch-/Schlüsselszene, persönliche Passagen). Autoren-Korrektur = Ground Truth. Danach keine autonomen Edits.
-7. **Export synchron** (MD-Master, DOCX/PDF via pandoc; Buch: Build-Pipeline). **Human-Gate vor jeder Veröffentlichung.**
+7. **Export synchron** (MD-Master, DOCX/PDF über EVEs verwalteten Dokument-
+   Runtime; Buch: Build-Pipeline). Pandoc oder Office-CLIs nur als bereits
+   vorhandene, separat verwaltete Spezial-Toolchain verwenden — niemals im
+   Nutzerauftrag installieren. **Human-Gate vor jeder Veröffentlichung.**
 
 ## Die vier Genres
 

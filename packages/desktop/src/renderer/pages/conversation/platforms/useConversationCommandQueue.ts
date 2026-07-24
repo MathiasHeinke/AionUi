@@ -4,12 +4,15 @@ import { Message } from '@arco-design/web-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import useSWR from 'swr';
+import { COMMAND_EVE_PREPARED_CONTEXT_MAX_CHARS } from '@/common/config/evePreparedContextCore';
 
 export type ConversationCommandQueueItem = {
   id: string;
   input: string;
   /** Files shown back to the user. Internal agent sidecars stay in `files`. */
   displayFiles?: string[];
+  /** Private, bounded document evidence injected only into the agent prompt. */
+  preparedContext?: string;
   files: string[];
   created_at: number;
 };
@@ -49,6 +52,7 @@ const summarizeQueuedCommand = (item: ConversationCommandQueueItem): Record<stri
   inputLength: item.input.length,
   fileCount: item.files.length,
   displayFileCount: (item.displayFiles ?? item.files).length,
+  preparedContextLength: item.preparedContext?.length ?? 0,
   preview: item.input.replace(/\s+/g, ' ').trim().slice(0, 120),
 });
 
@@ -92,6 +96,7 @@ const normalizeQueueItem = (item: unknown): ConversationCommandQueueItem | null 
 
   const candidate = item as Record<string, unknown>;
   const candidateDisplayFiles = candidate.displayFiles;
+  const candidatePreparedContext = candidate.preparedContext;
   if (
     typeof candidate.id !== 'string' ||
     typeof candidate.input !== 'string' ||
@@ -99,6 +104,7 @@ const normalizeQueueItem = (item: unknown): ConversationCommandQueueItem | null 
     !candidate.files.every((file) => typeof file === 'string') ||
     (candidateDisplayFiles !== undefined &&
       (!Array.isArray(candidateDisplayFiles) || !candidateDisplayFiles.every((file) => typeof file === 'string'))) ||
+    (candidatePreparedContext !== undefined && typeof candidatePreparedContext !== 'string') ||
     typeof candidate.created_at !== 'number' ||
     !Number.isFinite(candidate.created_at)
   ) {
@@ -113,6 +119,9 @@ const normalizeQueueItem = (item: unknown): ConversationCommandQueueItem | null 
     displayFiles: Array.isArray(candidateDisplayFiles)
       ? uniqueFiles(candidateDisplayFiles)
       : deriveLegacyDisplayFiles(files),
+    ...(typeof candidatePreparedContext === 'string' && candidatePreparedContext.trim()
+      ? { preparedContext: candidatePreparedContext }
+      : {}),
     created_at: candidate.created_at,
   };
 
@@ -120,7 +129,8 @@ const normalizeQueueItem = (item: unknown): ConversationCommandQueueItem | null 
     isInputEmpty(normalizedItem.input) ||
     normalizedItem.input.length > MAX_QUEUED_COMMAND_INPUT_LENGTH ||
     normalizedItem.files.length > MAX_QUEUED_COMMAND_FILES ||
-    (normalizedItem.displayFiles?.length ?? 0) > MAX_QUEUED_COMMAND_FILES
+    (normalizedItem.displayFiles?.length ?? 0) > MAX_QUEUED_COMMAND_FILES ||
+    (normalizedItem.preparedContext?.length ?? 0) > COMMAND_EVE_PREPARED_CONTEXT_MAX_CHARS
   ) {
     return null;
   }
@@ -166,11 +176,16 @@ export const createQueuedCommandItem = ({
   input,
   files,
   displayFiles,
-}: Pick<ConversationCommandQueueItem, 'input' | 'files' | 'displayFiles'>): ConversationCommandQueueItem => ({
+  preparedContext,
+}: Pick<
+  ConversationCommandQueueItem,
+  'input' | 'files' | 'displayFiles' | 'preparedContext'
+>): ConversationCommandQueueItem => ({
   id: uuid(),
   input,
   files: uniqueFiles(files),
   ...(displayFiles ? { displayFiles: uniqueFiles(displayFiles) } : {}),
+  ...(preparedContext?.trim() ? { preparedContext } : {}),
   created_at: Date.now(),
 });
 
@@ -185,6 +200,10 @@ const getQueueValidationFailureReason = (state: ConversationCommandQueueState): 
 
   if (state.items.some((item) => item.input.length > MAX_QUEUED_COMMAND_INPUT_LENGTH)) {
     return 'inputTooLong';
+  }
+
+  if (state.items.some((item) => (item.preparedContext?.length ?? 0) > COMMAND_EVE_PREPARED_CONTEXT_MAX_CHARS)) {
+    return 'queueTooLarge';
   }
 
   if (
@@ -436,7 +455,7 @@ type UseConversationCommandQueueOptions = {
   onExecute: (item: ConversationCommandQueueItem) => Promise<void>;
 };
 
-type EnqueueCommandInput = Pick<ConversationCommandQueueItem, 'input' | 'files' | 'displayFiles'>;
+type EnqueueCommandInput = Pick<ConversationCommandQueueItem, 'input' | 'files' | 'displayFiles' | 'preparedContext'>;
 type UpdateCommandInput = Pick<ConversationCommandQueueItem, 'input'>;
 
 const getQueueValidationMessage = (
@@ -604,13 +623,13 @@ export const useConversationCommandQueue = ({
   );
 
   const enqueue = useCallback(
-    ({ input, files, displayFiles }: EnqueueCommandInput) => {
+    ({ input, files, displayFiles, preparedContext }: EnqueueCommandInput) => {
       if (!enabled) {
         return null;
       }
 
       const currentState = normalizeQueueState(stateRef.current);
-      const item = createQueuedCommandItem({ input, files, displayFiles });
+      const item = createQueuedCommandItem({ input, files, displayFiles, preparedContext });
       const validation = validateQueuedCommandItem(item, currentState);
 
       if (isQueueValidationFailure(validation)) {

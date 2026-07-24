@@ -23,6 +23,11 @@ function devSection(page: import('@playwright/test').Page) {
 }
 
 test.describe('DevSettings', () => {
+  test.skip(
+    process.env.COMMAND_EVE_FOUNDER_BUILD !== '1',
+    'DevTools/CDP controls are main-authorized founder-only in the public Command EVE shell.'
+  );
+
   test.beforeEach(async ({ page }) => {
     await goToSettings(page, 'system');
     await waitForSettle(page);

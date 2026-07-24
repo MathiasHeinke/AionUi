@@ -16,10 +16,12 @@ import {
 } from '@/common/config/commandEveShell';
 import { configService } from '@/common/config/configService';
 import { isEveInferenceSelection, resolveEffectiveInferenceSelection } from '@/common/config/eveInferenceCore';
+import { isCommandEveManagedImageMcp } from '@/common/config/eveManagedMcpCore';
 import type { IMcpServer, TProviderWithModel } from '@/common/config/storage';
 import { buildAgentConversationParams } from '@/common/utils/buildAgentConversationParams';
 import { getConversationCreateErrorMessage } from '@/renderer/pages/conversation/utils/conversationCreateError';
 import type { SkillCapabilityCatalog } from '@/renderer/hooks/capabilities';
+import { toSessionMcpServer } from '@/renderer/hooks/mcp/catalog';
 import { emitter } from '@/renderer/utils/emitter';
 import { updateWorkspaceTime } from '@/renderer/utils/workspace/workspaceHistory';
 import { Message } from '@arco-design/web-react';
@@ -133,6 +135,8 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
     getEffectiveAgentType,
     resolvePresetRulesAndSkills,
     skillCatalog,
+    availableMcpServers = [],
+    selectedMcpServerIds,
     setMentionOpen,
     setMentionQuery,
     setMentionSelectorOpen,
@@ -299,6 +303,19 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
       : {};
     const enabled_skills = guidEnabledSkills;
     const excludeBuiltinSkills = guidDisabledBuiltinSkills;
+    const selectedMcpServerIdSet = new Set(selectedMcpServerIds ?? []);
+    const selectedUserMcpServerIds = availableMcpServers
+      .filter((server) => selectedMcpServerIdSet.has(server.id) && server.builtin !== true)
+      .map((server) => server.id);
+    const selectedAllSessionMcpServers = availableMcpServers
+      .filter((server) => selectedMcpServerIdSet.has(server.id))
+      .map((server) => toSessionMcpServer(server));
+    const selectedBuiltinSessionMcpServers = availableMcpServers
+      .filter(
+        (server) =>
+          selectedMcpServerIdSet.has(server.id) && server.builtin === true && !isCommandEveManagedImageMcp(server)
+      )
+      .map((server) => toSessionMcpServer(server));
 
     const finalEffectiveAgentType = isCommandEveAssistant ? COMMAND_EVE_DEFAULT_ACP_BACKEND : effectiveAgentType;
 
@@ -419,6 +436,8 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
             workspace: finalWorkspace,
             custom_workspace: isCustomWorkspace,
             preset_rules: is_preset ? preset_context : undefined,
+            selected_mcp_server_ids: selectedUserMcpServerIds,
+            selected_session_mcp_servers: selectedAllSessionMcpServers,
             ...skillSelectionExtra,
             preset_assistant_id,
             session_mode: selectedMode,
@@ -508,6 +527,8 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
         extra: {
           default_files: files,
           ...skillSelectionExtra,
+          selected_mcp_server_ids: selectedUserMcpServerIds,
+          selected_session_mcp_servers: selectedBuiltinSessionMcpServers,
         },
       });
 
@@ -554,6 +575,8 @@ export const useGuidSend = (deps: GuidSendDeps): GuidSendResult => {
     findAgentByKey,
     getEffectiveAgentType,
     resolvePresetRulesAndSkills,
+    availableMcpServers,
+    selectedMcpServerIds,
     skillSelectionReady,
     guidDisabledBuiltinSkills,
     guidEnabledSkills,

@@ -180,7 +180,8 @@ export interface CommandEveLicenseKeyEntry {
 }
 
 export type VerifyLicenseCodeResult =
-  { ok: true; payload: CommandEveLicensePayload } | { ok: false; reason_code: CommandEveLicenseReasonCode };
+  | { ok: true; payload: CommandEveLicensePayload }
+  | { ok: false; reason_code: CommandEveLicenseReasonCode };
 
 /** Multi-key verify result: on success, also records WHICH key verified. */
 export type VerifyLicenseCodeMultiResult =
@@ -541,7 +542,11 @@ export interface CommandEveEntitlementRecord {
 }
 
 export type CommandEveEntitlementGateState =
-  'unconfigured' | 'unregistered' | 'registered_unlicensed' | 'entitled' | 'expired';
+  | 'unconfigured'
+  | 'unregistered'
+  | 'registered_unlicensed'
+  | 'entitled'
+  | 'expired';
 
 export interface CommandEveEntitlementStatusResult {
   version: typeof COMMAND_EVE_ENTITLEMENT_BRIDGE_VERSION;

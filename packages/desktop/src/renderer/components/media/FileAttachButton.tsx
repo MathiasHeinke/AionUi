@@ -5,6 +5,7 @@
  */
 
 import type { IConversationMcpStatus, IConversationMcpStatusKind } from '@/common/config/storage';
+import { userVisibleConversationMcpStatuses } from '@/common/config/eveManagedMcpCore';
 import { Button, Menu, Message, Trigger } from '@arco-design/web-react';
 import { FolderOpen, Lightning, Paperclip, Right, Shield } from '@icon-park/react';
 import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
@@ -80,21 +81,6 @@ const MCP_STATUS_CLASS_NAME: Record<IConversationMcpStatusKind, string> = {
   unsupported: 'text-[var(--color-warning-6)]',
 };
 
-const buildLoadedMcpStatuses = (
-  statuses?: IConversationMcpStatus[],
-  legacyNames?: string[]
-): IConversationMcpStatus[] => {
-  if (Array.isArray(statuses) && statuses.length > 0) {
-    return statuses;
-  }
-
-  return (legacyNames ?? []).map((name) => ({
-    id: name,
-    name,
-    status: 'loaded',
-  }));
-};
-
 const FileAttachButton: React.FC<FileAttachButtonProps> = ({
   openFileSelector,
   onLocalFilesAdded,
@@ -112,7 +98,7 @@ const FileAttachButton: React.FC<FileAttachButtonProps> = ({
 
   const skillNames = loadedSkills ?? conversationContext?.loadedSkills ?? [];
   const skillCatalog = useSkillCapabilityCatalog({ mode: 'runtime', activeSkills: skillNames });
-  const mcpStatuses = buildLoadedMcpStatuses(
+  const mcpStatuses = userVisibleConversationMcpStatuses(
     loadedMcpStatuses ?? conversationContext?.loadedMcpStatuses,
     conversationContext?.loadedMcpServers
   );

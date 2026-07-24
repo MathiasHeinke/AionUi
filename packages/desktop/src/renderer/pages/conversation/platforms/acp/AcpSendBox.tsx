@@ -1,5 +1,5 @@
 import { ipcBridge } from '@/common';
-import type { IConversationMcpStatus } from '@/common/config/storage';
+import { userVisibleConversationMcpStatuses } from '@/common/config/eveManagedMcpCore';
 import { isBackendHttpError } from '@/common/adapter/httpBridge';
 import { isSideQuestionSupported } from '@/common/chat/sideQuestion';
 import { parseError, uuid } from '@/common/utils';
@@ -34,7 +34,7 @@ import {
   persistEvePermissionAuthority,
 } from '@/renderer/utils/model/agentModes';
 import { useEveInferenceSelection } from '@/renderer/hooks/agent/useEveInferenceSelection';
-import { isEveInferenceSelection } from '@/common/config/eveInferenceCore';
+import { isEveInferenceSelection, resolveWireTierFromSelection } from '@/common/config/eveInferenceCore';
 import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
 import {
   markConversationGenerating,
@@ -74,6 +74,16 @@ import { emitter, useAddEventListener } from '@/renderer/utils/emitter';
 import { mergeFileSelectionItems } from '@/renderer/utils/file/fileSelection';
 import { buildDisplayMessage } from '@/renderer/utils/file/messageFiles';
 import { isCommandEvePdfPath, mergeCommandEvePreparedPdfFiles } from '@/common/config/evePdfIntelligenceCore';
+import { isCommandEvePresentationPath } from '@/common/config/evePresentationIntelligenceCore';
+import { isCommandEveImagePath } from '@/common/config/eveImageIntelligenceCore';
+import {
+  buildCommandEvePreparedAgentInput,
+  composeCommandEvePreparedContext,
+} from '@/common/config/evePreparedContextCore';
+import {
+  COMMAND_EVE_MANAGED_VISUAL_TURN_CONSENT_VERSION,
+  resolveCommandEveManagedVisualPreferredTier,
+} from '@/common/config/eveManagedVisualTurnCore';
 import { Message, Modal, Tag } from '@arco-design/web-react';
 import { Brain, EditOne, MagicHat, Shield, Time } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -81,6 +91,7 @@ import { useTranslation } from 'react-i18next';
 import { buildSendFailureError } from './buildSendFailureError';
 import { runProjectChatIntentGate } from '@/renderer/pages/conversation/shared/projectChatIntentGate';
 import AcpDocumentPreparationStatus, { type AcpDocumentPreparationState } from './AcpDocumentPreparationStatus';
+import { useCommandEveVisualPreparation } from './useCommandEveVisualPreparation';
 import { useAcpInitialMessage } from './useAcpInitialMessage';
 import type { UseAcpMessageReturn } from './useAcpMessage';
 import VideoCostWall from '@/renderer/components/billing/VideoCostWall';
@@ -162,13 +173,10 @@ const AcpSendBox: React.FC<{
   const isMobile = Boolean(layout?.isMobile);
   const conversationContext = useConversationContextSafe();
   const loadedSkills = conversationContext?.loadedSkills ?? [];
-  const loadedMcpStatuses =
-    conversationContext?.loadedMcpStatuses ??
-    (conversationContext?.loadedMcpServers ?? []).map<IConversationMcpStatus>((name) => ({
-      id: name,
-      name,
-      status: 'loaded',
-    }));
+  const loadedMcpStatuses = userVisibleConversationMcpStatuses(
+    conversationContext?.loadedMcpStatuses,
+    conversationContext?.loadedMcpServers
+  );
   const [isMobileSheetOpen, setIsMobileSheetOpen] = useState(false);
   const [currentMode, setCurrentMode] = useState<string | undefined>(session_mode);
   const [busySendMode, setBusySendMode] = useState<ConversationBusyControlMode>('queue');
@@ -202,6 +210,11 @@ const AcpSendBox: React.FC<{
   });
   const availableAgentModes = useAgentModesForBackend(backend);
   const isEveConversation = isCommandEveAcpConversation(backend);
+  const { preparePresentationFiles, prepareImageFiles } = useCommandEveVisualPreparation({
+    isEveConversation,
+    workspacePath,
+    setDocumentPreparation,
+  });
   const availablePermissionModes = useMemo(
     () => (isEveConversation ? boundCommandEveModeMenu(availableAgentModes, true) : availableAgentModes),
     [availableAgentModes, isEveConversation]
@@ -470,8 +483,14 @@ const AcpSendBox: React.FC<{
   );
 
   const executeCommand = useCallback(
-    async ({ input, files, displayFiles }: Pick<ConversationCommandQueueItem, 'input' | 'files' | 'displayFiles'>) => {
-      const displayMessage = buildDisplayMessage(input, displayFiles ?? files, workspacePath || '');
+    async ({
+      input,
+      files,
+      displayFiles,
+      preparedContext,
+    }: Pick<ConversationCommandQueueItem, 'input' | 'files' | 'displayFiles' | 'preparedContext'>) => {
+      const agentInput = buildCommandEvePreparedAgentInput(input, preparedContext);
+      const displayMessage = buildDisplayMessage(agentInput, displayFiles ?? files, workspacePath || '');
 
       runtimeView.markSendStarted();
       // 1.7.3 (Codex #2): mark generation at SEND time so the seat-switch guard
@@ -645,7 +664,7 @@ Please check your local CLI tool authentication status`,
   // the normal send and the post-confirm video send route through this so the
   // queue/in-flight semantics are identical.
   const dispatchMessage = useCallback(
-    async (message: string, agentFiles: string[], displayFiles: string[] = agentFiles) => {
+    async (message: string, agentFiles: string[], displayFiles: string[] = agentFiles, preparedContext?: string) => {
       const requestedBusyControlCommand = runtimeView.isProcessing
         ? buildConversationBusyControlCommand({ input: message, mode: busySendMode })
         : null;
@@ -689,9 +708,9 @@ Please check your local CLI tool authentication status`,
           hasPendingCommands,
         })
       ) {
-        return enqueue({ input: queuedMessage, files: agentFiles, displayFiles }) !== null;
+        return enqueue({ input: queuedMessage, files: agentFiles, displayFiles, preparedContext }) !== null;
       }
-      await executeCommand({ input: queuedMessage, files: agentFiles, displayFiles });
+      await executeCommand({ input: queuedMessage, files: agentFiles, displayFiles, preparedContext });
       return true;
     },
     [busySendMode, dispatchSteer, enqueue, executeCommand, hasPendingCommands, isBusy, runtimeView.isProcessing, t]
@@ -787,24 +806,121 @@ Please check your local CLI tool authentication status`,
 
       if (documentPreparationInFlightRef.current) {
         controls.restoreDraftAndFiles();
-        Message.warning(t('conversation.pdf.preparationInProgress'));
+        Message.warning(t('conversation.documents.preparationInProgress'));
         return false;
       }
 
-      const hasPdfFiles = isEveConversation && allFiles.some(isCommandEvePdfPath);
-      if (hasPdfFiles) {
+      const hasDocumentFiles =
+        isEveConversation &&
+        allFiles.some(
+          (file) => isCommandEvePdfPath(file) || isCommandEvePresentationPath(file) || isCommandEveImagePath(file)
+        );
+      if (hasDocumentFiles) {
         documentPreparationInFlightRef.current = true;
         markConversationDocumentPreparationStarted(conversation_id);
       }
 
-      const preparedFiles = await preparePdfFiles(allFiles);
+      const pdfPreparedFiles = await preparePdfFiles(allFiles);
       // A cancelled/failed OCR gate must leave the draft and selected files intact.
-      if (preparedFiles === null) {
+      if (pdfPreparedFiles === null) {
         controls.restoreDraftAndFiles();
         documentPreparationInFlightRef.current = false;
         markConversationDocumentPreparationSettled(conversation_id);
         return false;
       }
+      const presentationPreparation = await preparePresentationFiles(pdfPreparedFiles);
+      // A cancelled/failed vision gate follows the same no-loss contract.
+      if (presentationPreparation === null) {
+        controls.restoreDraftAndFiles();
+        documentPreparationInFlightRef.current = false;
+        markConversationDocumentPreparationSettled(conversation_id);
+        return false;
+      }
+      const imagePreparation = await prepareImageFiles(presentationPreparation.files);
+      if (imagePreparation === null) {
+        controls.restoreDraftAndFiles();
+        documentPreparationInFlightRef.current = false;
+        markConversationDocumentPreparationSettled(conversation_id);
+        return false;
+      }
+
+      const visualContexts = [...presentationPreparation.contexts, ...imagePreparation.contexts];
+      const composedContext = visualContexts.length > 0 ? composeCommandEvePreparedContext(visualContexts) : null;
+      if (composedContext?.ok === false) {
+        controls.restoreDraftAndFiles();
+        documentPreparationInFlightRef.current = false;
+        markConversationDocumentPreparationSettled(conversation_id);
+        Message.error({
+          content:
+            composedContext.reason_code === 'EVE_PREPARED_CONTEXT_TOO_LARGE'
+              ? t('conversation.presentation.contextTooLarge', {
+                  defaultValue: 'The prepared presentation context is too large. Split the deck and try again.',
+                })
+              : t('conversation.presentation.prepareFailed'),
+          duration: 6000,
+        });
+        return false;
+      }
+      let preparedContext = composedContext?.context;
+      if (preparedContext) {
+        const priorConsent = presentationPreparation.cloudConsentGranted || imagePreparation.cloudConsentGranted;
+        if (!priorConsent) {
+          setDocumentPreparation({
+            phase: 'awaiting_cloud_vision',
+            fileCount: visualContexts.length,
+            startedAt: Date.now(),
+          });
+          const approved = await new Promise<boolean>((resolve) => {
+            Modal.confirm({
+              title: t('conversation.visual.managedCloudTitle'),
+              content: t('conversation.visual.managedCloudDescription', {
+                files: visualContexts.map((context) => context.sourceName).join(', '),
+              }),
+              okText: t('conversation.visual.managedCloudConfirm'),
+              cancelText: t('common.cancel'),
+              onOk: () => resolve(true),
+              onCancel: () => resolve(false),
+              closable: true,
+            });
+          });
+          if (!approved) {
+            controls.restoreDraftAndFiles();
+            documentPreparationInFlightRef.current = false;
+            markConversationDocumentPreparationSettled(conversation_id);
+            setDocumentPreparation(null);
+            return false;
+          }
+        }
+
+        const authorization = await ipcBridge.commandEve.managedVisualTurnAuthorize.invoke({
+          consentVersion: COMMAND_EVE_MANAGED_VISUAL_TURN_CONSENT_VERSION,
+          preferredTier: resolveCommandEveManagedVisualPreferredTier(
+            resolveWireTierFromSelection(eveInference.selection)
+          ),
+          sourceCount: visualContexts.length,
+        });
+        if (!authorization.success || !authorization.data?.ok || !authorization.data.marker) {
+          controls.restoreDraftAndFiles();
+          documentPreparationInFlightRef.current = false;
+          markConversationDocumentPreparationSettled(conversation_id);
+          setDocumentPreparation({
+            phase: 'presentation_error',
+            fileCount: visualContexts.length,
+            startedAt: Date.now(),
+          });
+          Message.error({
+            content:
+              authorization.data?.message ||
+              t('conversation.visual.managedCloudFailed', {
+                defaultValue: 'Managed visual analysis could not be authorized. Please try again.',
+              }),
+            duration: 6000,
+          });
+          return false;
+        }
+        preparedContext = `${authorization.data.marker}\n${preparedContext}`;
+      }
+      const visuallyPreparedFiles = imagePreparation.files;
 
       controls.clearSelection();
 
@@ -824,7 +940,7 @@ Please check your local CLI tool authentication status`,
           {},
           (resolved) => {
             const resolvedMessage = buildResolvedVideoMessage(message, resolved);
-            const dispatch = dispatchMessage(resolvedMessage, preparedFiles, allFiles);
+            const dispatch = dispatchMessage(resolvedMessage, visuallyPreparedFiles, allFiles, preparedContext);
             markConversationDocumentPreparationSettled(conversation_id);
             void dispatch
               .then((accepted) => {
@@ -843,7 +959,7 @@ Please check your local CLI tool authentication status`,
       }
 
       try {
-        const accepted = await dispatchMessage(message, preparedFiles, allFiles);
+        const accepted = await dispatchMessage(message, visuallyPreparedFiles, allFiles, preparedContext);
         if (!accepted) controls.restoreDraftAndFiles();
         return accepted;
       } catch (error) {
@@ -851,13 +967,22 @@ Please check your local CLI tool authentication status`,
         throw error;
       } finally {
         documentPreparationInFlightRef.current = false;
-        if (hasPdfFiles) {
+        if (hasDocumentFiles) {
           setDocumentPreparation(null);
           markConversationDocumentPreparationSettled(conversation_id);
         }
       }
     },
-    [conversation_id, dispatchMessage, isEveConversation, preparePdfFiles, videoCostWall.requestVideo]
+    [
+      conversation_id,
+      dispatchMessage,
+      eveInference.selection,
+      isEveConversation,
+      preparePdfFiles,
+      prepareImageFiles,
+      preparePresentationFiles,
+      videoCostWall.requestVideo,
+    ]
   );
 
   useEffect(

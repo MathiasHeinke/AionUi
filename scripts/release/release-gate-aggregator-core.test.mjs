@@ -11,12 +11,14 @@ import {
 const PASS_EGRESS = { status: 'PASS', detail: 'egress proof passed', exit_code: 0 };
 const PASS_NOTARIZATION = { status: 'PASS', detail: 'Artifact is stapled and accepted by Gatekeeper', exit_code: 0 };
 const PASS_UPDATE_FEED = { status: 'PASS', detail: 'mac update feed matched final artifacts', exit_code: 0 };
+const PASS_FIRST_RUN_BUNDLE = { status: 'PASS', detail: 'fresh packaged first-run bundle verified', exit_code: 0 };
 
 function passingRunners(overrides = {}) {
   return {
     egressKeystone: () => PASS_EGRESS,
     notarizationStapled: () => PASS_NOTARIZATION,
     macUpdateFeed: () => PASS_UPDATE_FEED,
+    firstRunBundle: () => PASS_FIRST_RUN_BUNDLE,
     ...overrides,
   };
 }
@@ -26,6 +28,7 @@ test('notarization-stapled is a required, fail-closed gate in the roster', () =>
   assert.ok(ids.includes('notarization-stapled'), 'notarization-stapled must be a required gate');
   assert.ok(ids.includes('egress-keystone'), 'egress-keystone stays a required gate');
   assert.ok(ids.includes('mac-update-feed'), 'mac-update-feed must block stale updater metadata');
+  assert.ok(ids.includes('first-run-bundle'), 'first-run-bundle (C9) must be a required gate');
 });
 
 test('aggregate PASSes only when every required gate passes', async () => {
@@ -149,4 +152,41 @@ test('normalizeGateResult treats any non-PASS status as a block', () => {
   assert.equal(normalizeGateResult(gate, { status: 'BLOCKED_SPCTL_REJECTED' }).ok, false);
   assert.equal(normalizeGateResult(gate, { status: '' }).ok, false);
   assert.equal(normalizeGateResult(gate, null).ok, false);
+});
+
+test('aggregate FAILS CLOSED when the first-run-bundle gate reports a stale receipt', async () => {
+  const result = await runReleaseGates(
+    passingRunners({
+      firstRunBundle: () => ({
+        status: 'BLOCKED_RECEIPT',
+        detail: 'runtime-bootstrap-receipt.json is not bound to the packaged version',
+        exit_code: 6,
+      }),
+    })
+  );
+  assert.equal(result.status, 'BLOCKED');
+  assert.ok(result.blocked_gates.includes('first-run-bundle'));
+});
+
+test('aggregate FAILS CLOSED when the first-run-bundle runner throws', async () => {
+  const result = await runReleaseGates(
+    passingRunners({
+      firstRunBundle: () => {
+        throw new Error('packaged app missing');
+      },
+    })
+  );
+  assert.equal(result.status, 'BLOCKED');
+  assert.ok(result.blocked_gates.includes('first-run-bundle'));
+});
+
+test('a missing first-run-bundle runner is a fail-closed config error', async () => {
+  const result = await runReleaseGates({
+    egressKeystone: () => PASS_EGRESS,
+    notarizationStapled: () => PASS_NOTARIZATION,
+    macUpdateFeed: () => PASS_UPDATE_FEED,
+    // firstRunBundle intentionally omitted
+  });
+  assert.equal(result.status, 'BLOCKED_CONFIG_ERROR');
+  assert.ok(result.blocked_gates.includes('first-run-bundle'));
 });

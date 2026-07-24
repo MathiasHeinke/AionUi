@@ -1,4 +1,5 @@
 import FileAttachButton from '@/renderer/components/media/FileAttachButton';
+import { BUILTIN_IMAGE_GEN_ID, BUILTIN_IMAGE_GEN_NAME } from '@/common/config/storage';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter } from 'react-router-dom';
@@ -71,5 +72,31 @@ describe('FileAttachButton skill capabilities', () => {
     expect(screen.queryByText('runtime-inactive')).toBeNull();
     fireEvent.click(activeSkill);
     expect(mocks.emit).toHaveBeenCalledWith('sendbox.fill', '/runtime-active ');
+  });
+
+  it('does not expose the app-owned image generator as an unsupported user connector', () => {
+    const openFileSelector = vi.fn();
+    render(
+      <SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>
+        <MemoryRouter>
+          <FileAttachButton
+            openFileSelector={openFileSelector}
+            loadedSkills={[]}
+            loadedMcpStatuses={[
+              {
+                id: BUILTIN_IMAGE_GEN_ID,
+                name: BUILTIN_IMAGE_GEN_NAME,
+                status: 'unsupported',
+              },
+            ]}
+          />
+        </MemoryRouter>
+      </SWRConfig>
+    );
+
+    fireEvent.click(screen.getByTestId('aionrs-attach-folder-btn'));
+    expect(openFileSelector).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('conversation.mcp.loaded')).toBeNull();
+    expect(screen.queryByText('conversation.mcp.status.unsupported')).toBeNull();
   });
 });

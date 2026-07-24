@@ -359,6 +359,39 @@ export const OPENROUTER_PDF_MULTIMODAL_CONTRACT: CommandEveMultimodalContract = 
   maxInputBytes: 12 * 1024 * 1024,
 };
 
+export const OPENROUTER_VISION_MULTIMODAL_CONTRACT: CommandEveMultimodalContract = {
+  provider: 'openrouter',
+  capability: 'vision',
+  model: 'google/gemini-2.5-flash',
+  endpointKind: 'document_processing',
+  artifactKind: 'text',
+  residencyLane: 'global_cloud',
+  requiresServerSideProviderKey: true,
+  requiresEphemeralClientToken: false,
+  execution: 'sync',
+  maxInputBytes: 12 * 1024 * 1024,
+};
+
+export const OPENROUTER_IMAGE_MULTIMODAL_CONTRACT: CommandEveMultimodalContract = {
+  provider: 'openrouter',
+  capability: 'image_generation',
+  model: 'google/gemini-3-pro-image',
+  endpointKind: 'image_generation',
+  artifactKind: 'image',
+  residencyLane: 'global_cloud',
+  requiresServerSideProviderKey: true,
+  requiresEphemeralClientToken: false,
+  execution: 'sync',
+  maxInputBytes: 8 * 1024 * 1024,
+  maxTextChars: 12_000,
+};
+
+// Release switch for managed PPTX and ordinary image analysis. Both must remain
+// true only while the production gateway and service-role usage ledger pass the
+// no-secret plus Free/Paid smoke matrix. The desktop contains no provider key.
+export const COMMAND_EVE_MANAGED_VISION_ENABLED = true;
+export const COMMAND_EVE_MANAGED_VISION_GATEWAY_DEPLOYED = true;
+
 const MULTIMODAL_PRIVACY_LANES: readonly CommandEvePrivacyLane[] = [
   'local_only',
   'cloud_auto',
@@ -761,7 +794,10 @@ export function getCommandEveMultimodalContract(
   capability: CommandEveMultimodalCapability
 ): CommandEveMultimodalContract | undefined {
   if (provider === 'openrouter') {
-    return capability === 'document_ocr' ? OPENROUTER_PDF_MULTIMODAL_CONTRACT : undefined;
+    if (capability === 'document_ocr') return OPENROUTER_PDF_MULTIMODAL_CONTRACT;
+    if (capability === 'vision') return OPENROUTER_VISION_MULTIMODAL_CONTRACT;
+    if (capability === 'image_generation') return OPENROUTER_IMAGE_MULTIMODAL_CONTRACT;
+    return undefined;
   }
   if (capability === 'document_ocr') return undefined;
   return XAI_MULTIMODAL_CONTRACTS[capability];
@@ -779,9 +815,9 @@ function residencyBlockedMessage(privacyLane: CommandEvePrivacyLane): string {
 
 function openRouterResidencyBlockedMessage(privacyLane: CommandEvePrivacyLane): string {
   if (privacyLane === 'local_only') {
-    return 'OpenRouter document OCR is blocked while local-only privacy mode is active.';
+    return 'Managed cloud document and presentation analysis is blocked while local-only privacy mode is active.';
   }
-  return 'OpenRouter document OCR is currently an explicit global ZDR cloud lane; US, EU and German residency are not claimed.';
+  return 'Managed cloud document and presentation analysis currently uses an explicit global ZDR lane; US, EU and German residency are not claimed.';
 }
 
 export function resolveCommandEveMultimodalGate(input: CommandEveMultimodalGateInput): CommandEveMultimodalGateResult {

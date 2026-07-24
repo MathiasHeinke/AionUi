@@ -29,6 +29,12 @@ export const REQUIRED_RELEASE_GATES = [
     runnerKey: 'macUpdateFeed',
     description: 'macOS updater metadata points to the final stapled DMG and ZIP bytes',
   },
+  {
+    id: 'first-run-bundle',
+    runnerKey: 'firstRunBundle',
+    description:
+      'C9 first-run bundle proof: fresh packaged run receipt is bound to the release version, the verified registration identity chain holds, and the generated onboarding skill is byte-identical',
+  },
 ];
 
 function asText(value) {

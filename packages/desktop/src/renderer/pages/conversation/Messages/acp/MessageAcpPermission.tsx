@@ -7,6 +7,7 @@
 import type { IMessageAcpPermission } from '@/common/chat/chatLib';
 import { conversation } from '@/common/adapter/ipcBridge';
 import { Button, Card, Radio, Typography } from '@arco-design/web-react';
+import { IconBook, IconEdit, IconLink, IconLock, IconThunderbolt } from '@arco-design/web-react/icon';
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -26,23 +27,23 @@ const MessageAcpPermission: React.FC<MessageAcpPermissionProps> = React.memo(({ 
       return {
         title: t('messages.permissionRequest'),
         description: t('messages.agentRequestingPermission'),
-        icon: '🔐',
+        icon: <IconLock aria-hidden />,
       };
     }
 
     const displayTitle = tool_call.title || tool_call.raw_input?.description || t('messages.permissionRequest');
 
     // 简单的图标映射
-    const kindIcons: Record<string, string> = {
-      edit: '✏️',
-      read: '📖',
-      fetch: '🌐',
-      execute: '⚡',
+    const kindIcons: Record<string, React.ReactNode> = {
+      edit: <IconEdit aria-hidden />,
+      read: <IconBook aria-hidden />,
+      fetch: <IconLink aria-hidden />,
+      execute: <IconThunderbolt aria-hidden />,
     };
 
     return {
       title: displayTitle,
-      icon: kindIcons[tool_call.kind || 'execute'] || '⚡',
+      icon: kindIcons[tool_call.kind || 'execute'] || <IconThunderbolt aria-hidden />,
     };
   };
   const { title, icon } = getToolInfo();
@@ -72,10 +73,6 @@ const MessageAcpPermission: React.FC<MessageAcpPermissionProps> = React.memo(({ 
     }
   };
 
-  if (!tool_call) {
-    return null;
-  }
-
   return (
     <Card
       className='mb-4'
@@ -86,14 +83,16 @@ const MessageAcpPermission: React.FC<MessageAcpPermissionProps> = React.memo(({ 
       <div className='space-y-4'>
         {/* Header with icon and title */}
         <div className='flex items-center space-x-2'>
-          <span className='text-2xl'>{icon}</span>
+          <span className='text-2xl' aria-hidden>
+            {icon}
+          </span>
           <Text className='block'>{title}</Text>
         </div>
-        {(tool_call.raw_input?.command || tool_call.title) && (
+        {(tool_call?.raw_input?.command || tool_call?.title) && (
           <div>
             <Text className='text-xs text-t-secondary mb-1'>{t('messages.command')}</Text>
             <code className='text-xs bg-1 p-2 rounded block text-t-primary break-all'>
-              {tool_call.raw_input?.command || tool_call.title}
+              {tool_call?.raw_input?.command || tool_call?.title}
             </code>
           </div>
         )}

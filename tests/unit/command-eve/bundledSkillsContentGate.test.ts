@@ -20,11 +20,22 @@ import { describe, expect, it } from 'vitest';
 // The build-gate logic is exported from the plain build script (ESM .mjs).
 import {
   findForbiddenSkillContent,
+  findRuntimeInstallInstructions,
   findSkillHygieneFailures,
   FORBIDDEN_SKILL_CONTENT,
 } from '../../../scripts/fetch-bundled-skills.mjs';
 
 describe('bundled-skills build content gate', () => {
+  it('excludes the retired outbound tree from the signed app payload', () => {
+    const builder = fs.readFileSync(
+      path.resolve(__dirname, '../../..', 'packages/desktop/electron-builder.yml'),
+      'utf8'
+    );
+    expect(builder).toMatch(
+      /from: resources\/bundled-skills[\s\S]*!marketing-outbound[\s\S]*!marketing-outbound\/\*\*/
+    );
+  });
+
   it('flags the "WRONG for automation" rubber-stamp framing', () => {
     expect(findForbiddenSkillContent('the safe/exit option (WRONG for automation)')).toContain('wrong-for-automation');
   });
@@ -59,6 +70,28 @@ describe('bundled-skills build content gate', () => {
       'utf8'
     );
     expect(findForbiddenSkillContent(body)).toEqual([]);
+  });
+
+  it('fails closed on consumer-facing package-manager instructions while allowing explicit prohibitions', () => {
+    expect(findRuntimeInstallInstructions('Install: `brew install graphviz`')).toContain('runtime-brew-install');
+    expect(findRuntimeInstallInstructions('Run `pip install pymupdf` now.')).toContain('runtime-pip-install');
+    expect(findRuntimeInstallInstructions('Never run `pip install pymupdf` in a consumer task.')).toEqual([]);
+  });
+
+  it('keeps the shipped document artifact skills runtime-invisible', () => {
+    for (const id of [
+      'eve-doctrine',
+      'presentation-studio',
+      'lead-magnet-pdf',
+      'autor-studio',
+      'essay-writer',
+      'book-publishing',
+      'legal-enforcement-dach',
+    ]) {
+      const body = fs.readFileSync(path.resolve(__dirname, `../../../resources/bundled-skills/${id}/SKILL.md`), 'utf8');
+      expect(findRuntimeInstallInstructions(body), id).toEqual([]);
+      expect(findSkillHygieneFailures({ skillId: id, text: body }), id).toEqual([]);
+    }
   });
 
   it('does NOT false-positive on a doc that DESCRIBES the anti-pattern in order to forbid it', () => {

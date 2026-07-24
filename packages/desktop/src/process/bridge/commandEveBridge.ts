@@ -5,6 +5,7 @@
  */
 
 import { bridge } from '@office-ai/platform';
+import { app } from 'electron';
 import { buildCommandCenterReadModel } from '@process/commandEve/commandCenterReadModelCore';
 import {
   buildLocalTitlePrompt,
@@ -92,7 +93,7 @@ import {
   COMMAND_EVE_COLIBRI_LOCAL_TIER_ID,
   COMMAND_EVE_COLIBRI_RUNTIME_MODEL_ID,
   getCommandEveLocalRuntimeProvider,
-  isCommandEveFounderBuild,
+  isCommandEveFounderBuildAllowed,
 } from '@/common/config/commandEveShell';
 import {
   isBonsaiProvisionInFlight,
@@ -116,6 +117,8 @@ import {
   COMMAND_EVE_MULTIMODAL_TTS_CONSENT_GET_CHANNEL,
   COMMAND_EVE_MULTIMODAL_TTS_CONSENT_SET_CHANNEL,
   COMMAND_EVE_MULTIMODAL_TTS_MAX_RESPONSE_BYTES,
+  COMMAND_EVE_MANAGED_VISION_ENABLED,
+  COMMAND_EVE_MANAGED_VISION_GATEWAY_DEPLOYED,
   EVE_MULTIMODAL_FUNCTION_URL,
   parseCommandEveMultimodalTtsResponse,
   resolveCommandEveMultimodalGate,
@@ -145,6 +148,12 @@ import {
   type LocalPdfPreparation,
 } from '@process/commandEve/document/pdfIntelligenceService';
 import { parseCloudOcrMarkdownPages } from '@process/commandEve/document/pdfIntelligenceCore';
+import { readCommandEveLimitedResponseText } from '@process/commandEve/limitedFetchResponse';
+import { handleCommandEveImagePrepare } from '@process/bridge/commandEveImageBridge';
+import { handleCommandEvePresentationPrepare } from '@process/bridge/commandEvePresentationBridge';
+import { consumeCommandEveFileSelectionPathGrant } from '@process/commandEve/fileSelectionGrantCore';
+import { authorizeCommandEveManagedVisualTurn } from '@process/commandEve/managedVisualTurnAuthorizationCore';
+import type { CommandEveManagedVisualTurnAuthorizationRequest } from '@/common/config/eveManagedVisualTurnCore';
 import {
   SEAT_USAGE_FUNCTION_URL,
   currentUsageMonth,
@@ -203,7 +212,6 @@ const COMMAND_EVE_MULTIMODAL_TTS_SERVER_GATEWAY_DEPLOYED = true;
 // bytes. Keep both true only after the edge function deployment + no-secret smoke.
 const COMMAND_EVE_PDF_CLOUD_OCR_ENABLED = true;
 const COMMAND_EVE_PDF_SERVER_GATEWAY_DEPLOYED = true;
-
 /**
  * A SELF-QUIET unavailable status returned when the credits backend cannot be
  * reached. The numeric zeroes satisfy the versioned IPC shape only; `ok:false`
@@ -238,43 +246,6 @@ function unwrapBridgeRequest<T>(request?: T | CommandEveBridgeEnvelope<T>): T | 
     return (request as CommandEveBridgeEnvelope<T>).data;
   }
   return request as T | undefined;
-}
-
-async function readCommandEveLimitedResponseText(
-  response: Response,
-  maxBytes: number
-): Promise<{ ok: true; text: string } | { ok: false; reason_code: 'EVE_MULTIMODAL_TTS_RESPONSE_TOO_LARGE' }> {
-  const contentLength = Number(response.headers.get('content-length') || 0);
-  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
-    return { ok: false, reason_code: 'EVE_MULTIMODAL_TTS_RESPONSE_TOO_LARGE' };
-  }
-
-  if (!response.body) {
-    const text = await response.text();
-    const bytes = new TextEncoder().encode(text).byteLength;
-    return bytes > maxBytes ? { ok: false, reason_code: 'EVE_MULTIMODAL_TTS_RESPONSE_TOO_LARGE' } : { ok: true, text };
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let text = '';
-  let bytesRead = 0;
-  try {
-    while (true) {
-      const chunk = await reader.read();
-      if (chunk.done) break;
-      bytesRead += chunk.value.byteLength;
-      if (bytesRead > maxBytes) {
-        await reader.cancel().catch((): undefined => undefined);
-        return { ok: false, reason_code: 'EVE_MULTIMODAL_TTS_RESPONSE_TOO_LARGE' };
-      }
-      text += decoder.decode(chunk.value, { stream: true });
-    }
-    text += decoder.decode();
-    return { ok: true, text };
-  } finally {
-    reader.releaseLock();
-  }
 }
 
 /**
@@ -1240,9 +1211,16 @@ export function initCommandEveBridge(): void {
   // the public build. Fail-soft: any error reads as the PUBLIC shape.
   bridge.buildProvider('command-eve.shell-flags').provider(async () => {
     try {
-      return { success: true, data: { ok: true, founder_build: isCommandEveFounderBuild() } as unknown };
+      return {
+        success: true,
+        data: {
+          ok: true,
+          founder_build: isCommandEveFounderBuildAllowed(app.isPackaged),
+          is_dev_mode: !app.isPackaged,
+        } as unknown,
+      };
     } catch {
-      return { success: true, data: { ok: true, founder_build: false } as unknown };
+      return { success: true, data: { ok: true, founder_build: false, is_dev_mode: false } as unknown };
     }
   });
 
@@ -1690,6 +1668,7 @@ export function initCommandEveBridge(): void {
           'Content-Type': 'application/json',
           Accept: 'application/json',
         },
+        redirect: 'error',
         body: JSON.stringify({
           text,
           locale: request?.locale === 'en-US' ? 'en-US' : 'de-DE',
@@ -2069,6 +2048,30 @@ export function initCommandEveBridge(): void {
           cloud_ocr_used: readyDocuments.some((document) => document.extraction_mode === 'cloud_ocr'),
           requires_cloud_ocr_consent: false as const,
         },
+      };
+    });
+
+  // Presentation intelligence is isolated from this already-large bridge.
+  bridge.buildProvider('command-eve.presentation-prepare').provider(handleCommandEvePresentationPrepare);
+
+  bridge.buildProvider('command-eve.image-prepare').provider(handleCommandEveImagePrepare);
+
+  bridge
+    .buildProvider('command-eve.managed-visual-turn-authorize')
+    .provider(async (request?: CommandEveManagedVisualTurnAuthorizationRequest) => {
+      const userDataPath = getDataPath();
+      const entitlement = getEntitlementStatus({ userDataPath });
+      const wire = readLicenseWire(userDataPath);
+      const result = authorizeCommandEveManagedVisualTurn({
+        request,
+        seatId: getActiveSeatId(),
+        hasPaidSeat: entitlement.state === 'entitled' && entitlement.has_paid_seat === true,
+        hasLicenseWire: wire.ok && Boolean(wire.wire),
+      });
+      return {
+        success: result.ok,
+        msg: result.ok ? undefined : result.reason_code || result.message,
+        data: result,
       };
     });
 
@@ -3865,6 +3868,19 @@ export function initCommandEveBridge(): void {
               data: { version, ok: false, reason_code: 'REPORT_EXPORT_NO_OUTPUT' },
             };
           }
+          if (
+            !consumeCommandEveFileSelectionPathGrant({
+              filePath: outputPath,
+              seatId: getActiveSeatId(),
+              purpose: 'write',
+            })
+          ) {
+            return {
+              success: false,
+              msg: 'The export destination was not selected in the current save dialog.',
+              data: { version, ok: false, reason_code: 'REPORT_EXPORT_OUTPUT_NOT_USER_SELECTED' },
+            };
+          }
 
           const content: ReportContent = {
             markdown: typeof request?.markdown === 'string' ? request.markdown : '',
@@ -4024,6 +4040,7 @@ export function initCommandEveBridge(): void {
             Authorization: `Bearer ${wireResult.wire}`,
             Accept: 'application/json',
           },
+          redirect: 'error',
         });
       } catch (networkError) {
         // Network failure (offline / function not deployed) — stay quiet.
@@ -4133,6 +4150,7 @@ export function initCommandEveBridge(): void {
               Authorization: `Bearer ${wireResult.wire}`,
               Accept: 'application/json',
             },
+            redirect: 'error',
           });
         } catch (networkError) {
           // Offline / function not deployed — stay quiet (version-skew resting state).

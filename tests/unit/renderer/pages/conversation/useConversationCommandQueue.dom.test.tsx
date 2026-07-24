@@ -120,6 +120,7 @@ describe('useConversationCommandQueue', () => {
         input: 'Analyze this PDF',
         files: ['/tmp/report.pdf', '/tmp/document-intelligence/report.md'],
         displayFiles: ['/tmp/report.pdf'],
+        preparedContext: 'Prepared private evidence',
       });
     });
 
@@ -128,6 +129,7 @@ describe('useConversationCommandQueue', () => {
         expect.objectContaining({
           files: ['/tmp/report.pdf', '/tmp/document-intelligence/report.md'],
           displayFiles: ['/tmp/report.pdf'],
+          preparedContext: 'Prepared private evidence',
         }),
       ])
     );
@@ -137,6 +139,7 @@ describe('useConversationCommandQueue', () => {
           expect.objectContaining({
             files: ['/tmp/report.pdf', '/tmp/document-intelligence/report.md'],
             displayFiles: ['/tmp/report.pdf'],
+            preparedContext: 'Prepared private evidence',
           }),
         ],
       })

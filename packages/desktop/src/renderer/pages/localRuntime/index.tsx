@@ -390,20 +390,36 @@ const LocalRuntimePage: React.FC = () => {
     setError(null);
     setKanbanError(null);
     try {
-      const [response, kanbanResponse] = await Promise.all([
-        localRuntimeBridge.invoke(undefined),
-        kanbanPreflightBridge.invoke({ boardSlug: 'default' }),
-      ]);
+      const response = await localRuntimeBridge.invoke(undefined);
       if (!mountedRef.current) return;
       const data = response.data;
       setResult(data ?? null);
       if (!response.success) {
         setError(response.msg || data?.message || t('localRuntime.errors.loadFailed'));
       }
-      const kanbanData = kanbanResponse.data;
-      setKanbanResult(kanbanData ?? null);
-      if (!kanbanResponse.success) {
-        setKanbanError(kanbanResponse.msg || kanbanData?.message || t('localRuntime.errors.kanbanLoadFailed'));
+
+      // `command-eve.kanban-preflight` exposes filesystem/module diagnostics
+      // and is main-authorized founder-only. A public runtime page must never
+      // invoke it and then lose the otherwise valid local-runtime result when
+      // the security boundary rejects the request.
+      if (showTechnicalDetails) {
+        try {
+          const kanbanResponse = await kanbanPreflightBridge.invoke({ boardSlug: 'default' });
+          if (!mountedRef.current) return;
+          const kanbanData = kanbanResponse.data;
+          setKanbanResult(kanbanData ?? null);
+          if (!kanbanResponse.success) {
+            setKanbanError(kanbanResponse.msg || kanbanData?.message || t('localRuntime.errors.kanbanLoadFailed'));
+          }
+        } catch (kanbanLoadError) {
+          if (!mountedRef.current) return;
+          setKanbanResult(null);
+          setKanbanError(
+            kanbanLoadError instanceof Error ? kanbanLoadError.message : t('localRuntime.errors.kanbanLoadFailed')
+          );
+        }
+      } else {
+        setKanbanResult(null);
       }
     } catch (loadError) {
       if (!mountedRef.current) return;
@@ -411,7 +427,7 @@ const LocalRuntimePage: React.FC = () => {
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [t]);
+  }, [showTechnicalDetails, t]);
 
   useEffect(() => {
     void load();
@@ -546,69 +562,69 @@ const LocalRuntimePage: React.FC = () => {
               ))}
             </section>
 
-            <section className='eve-settings-group'>
-              <div className='mb-12px flex flex-wrap items-center gap-8px'>
-                <span className='text-16px font-700 leading-24px text-t-primary'>
-                  {t('localRuntime.sections.kanban')}
-                </span>
-                {kanbanResult ? (
-                  <Tag color={kanbanResult.ok ? 'green' : kanbanResult.status === 'blocked' ? 'gray' : 'red'}>
-                    {kanbanResult.ok ? t('localRuntime.kanban.ready') : t('localRuntime.kanban.notReady')}
-                  </Tag>
-                ) : null}
-                {showTechnicalDetails ? <Tag color='gray'>{t('localRuntime.readOnly')}</Tag> : null}
-              </div>
-              {kanbanResult?.model ? (
-                <>
-                  <div className='grid gap-x-12px gap-y-8px text-12px leading-18px lg:grid-cols-[180px_minmax(0,1fr)]'>
-                    <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.localData')}</span>
-                    <span className='text-t-secondary'>
-                      {kanbanResult.model.board.db_exists
-                        ? t('localRuntime.kanban.dbPresent.yes')
-                        : t('localRuntime.kanban.dbPresent.no')}
-                    </span>
-                    <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.tasks')}</span>
-                    <span className='text-t-secondary'>
-                      {typeof kanbanResult.model.board.task_count === 'number'
-                        ? formatNumber(kanbanResult.model.board.task_count)
-                        : '-'}
-                    </span>
-                    <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.modules')}</span>
-                    <span className='text-t-secondary'>
-                      {t('localRuntime.kanban.moduleCount', {
-                        ready: kanbanResult.model.modules.filter((module) => module.ok).length,
-                        total: kanbanResult.model.modules.length,
-                      })}
-                    </span>
-                    <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.protection')}</span>
-                    <span className='text-t-secondary'>
-                      {/* Write-governance lock = dispatcher off + external MCP off. auto_decompose
+            {showTechnicalDetails ? (
+              <section className='eve-settings-group'>
+                <div className='mb-12px flex flex-wrap items-center gap-8px'>
+                  <span className='text-16px font-700 leading-24px text-t-primary'>
+                    {t('localRuntime.sections.kanban')}
+                  </span>
+                  {kanbanResult ? (
+                    <Tag color={kanbanResult.ok ? 'green' : kanbanResult.status === 'blocked' ? 'gray' : 'red'}>
+                      {kanbanResult.ok ? t('localRuntime.kanban.ready') : t('localRuntime.kanban.notReady')}
+                    </Tag>
+                  ) : null}
+                  <Tag color='gray'>{t('localRuntime.readOnly')}</Tag>
+                </div>
+                {kanbanResult?.model ? (
+                  <>
+                    <div className='grid gap-x-12px gap-y-8px text-12px leading-18px lg:grid-cols-[180px_minmax(0,1fr)]'>
+                      <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.localData')}</span>
+                      <span className='text-t-secondary'>
+                        {kanbanResult.model.board.db_exists
+                          ? t('localRuntime.kanban.dbPresent.yes')
+                          : t('localRuntime.kanban.dbPresent.no')}
+                      </span>
+                      <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.tasks')}</span>
+                      <span className='text-t-secondary'>
+                        {typeof kanbanResult.model.board.task_count === 'number'
+                          ? formatNumber(kanbanResult.model.board.task_count)
+                          : '-'}
+                      </span>
+                      <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.modules')}</span>
+                      <span className='text-t-secondary'>
+                        {t('localRuntime.kanban.moduleCount', {
+                          ready: kanbanResult.model.modules.filter((module) => module.ok).length,
+                          total: kanbanResult.model.modules.length,
+                        })}
+                      </span>
+                      <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.protection')}</span>
+                      <span className='text-t-secondary'>
+                        {/* Write-governance lock = dispatcher off + external MCP off. auto_decompose
                           is intentionally ON (tree-building, not execution) — see
                           isKanbanWriteGovernanceLocked in kanbanPreflightCore (Founder 2026-07-05). */}
-                      {kanbanResult.model.governance.dispatcher_disabled &&
-                      kanbanResult.model.governance.mcp_servers_disabled
-                        ? t('localRuntime.kanban.governanceLocked')
-                        : t('localRuntime.kanban.governanceOpen')}
-                    </span>
-                    {showTechnicalDetails ? (
-                      <>
-                        <span className='text-t-tertiary'>{t('localRuntime.labels.hermes')}</span>
-                        <span className='text-t-secondary'>
-                          {`${kanbanResult.model.hermes.installed_version} / ${kanbanResult.model.hermes.min_required_version}`}
-                        </span>
-                        <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.board')}</span>
-                        <span className='text-t-secondary'>{kanbanResult.model.board.slug}</span>
-                        <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.db')}</span>
-                        <span className='break-words text-t-secondary'>{kanbanResult.model.board.db_path}</span>
-                        <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.reconciliation')}</span>
-                        <span className='break-words text-t-secondary'>
-                          {kanbanResult.model.governance.runtime_reconciliation_path}
-                        </span>
-                      </>
-                    ) : null}
-                  </div>
-                  {kanbanResult.model.warnings.length ? (
-                    showTechnicalDetails ? (
+                        {kanbanResult.model.governance.dispatcher_disabled &&
+                        kanbanResult.model.governance.mcp_servers_disabled
+                          ? t('localRuntime.kanban.governanceLocked')
+                          : t('localRuntime.kanban.governanceOpen')}
+                      </span>
+                      {showTechnicalDetails ? (
+                        <>
+                          <span className='text-t-tertiary'>{t('localRuntime.labels.hermes')}</span>
+                          <span className='text-t-secondary'>
+                            {`${kanbanResult.model.hermes.installed_version} / ${kanbanResult.model.hermes.min_required_version}`}
+                          </span>
+                          <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.board')}</span>
+                          <span className='text-t-secondary'>{kanbanResult.model.board.slug}</span>
+                          <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.db')}</span>
+                          <span className='break-words text-t-secondary'>{kanbanResult.model.board.db_path}</span>
+                          <span className='text-t-tertiary'>{t('localRuntime.kanban.labels.reconciliation')}</span>
+                          <span className='break-words text-t-secondary'>
+                            {kanbanResult.model.governance.runtime_reconciliation_path}
+                          </span>
+                        </>
+                      ) : null}
+                    </div>
+                    {kanbanResult.model.warnings.length ? (
                       <Alert
                         className='mt-12px'
                         type='info'
@@ -617,18 +633,13 @@ const LocalRuntimePage: React.FC = () => {
                           .map((warning) => t(`localRuntime.warnings.${warning}`, warning))
                           .join(' · ')}
                       />
-                    ) : (
-                      <div className='mt-12px flex items-start gap-8px text-13px leading-20px text-t-secondary'>
-                        <Tag color='gray'>{t('localRuntime.warnings.title')}</Tag>
-                        <span>{t('localRuntime.warnings.publicTaskSummary')}</span>
-                      </div>
-                    )
-                  ) : null}
-                </>
-              ) : (
-                <Empty description={t('localRuntime.empty.noKanban')} />
-              )}
-            </section>
+                    ) : null}
+                  </>
+                ) : (
+                  <Empty description={t('localRuntime.empty.noKanban')} />
+                )}
+              </section>
+            ) : null}
 
             <section className='eve-settings-group'>
               <div className='mb-12px text-16px font-700 leading-24px text-t-primary'>

@@ -36,8 +36,8 @@ describe('RPT-2 client-report skill: bundled into the allowlist', () => {
     expect(EVE_STRATEGY_SKILL_IDS as readonly string[]).toContain('client-report');
   });
 
-  it('makes the bundled allowlist 36, including author and website production', () => {
-    expect(EVE_STRATEGY_SKILL_IDS).toHaveLength(36);
+  it('makes the bundled allowlist 37, including author, website and presentation production', () => {
+    expect(EVE_STRATEGY_SKILL_IDS).toHaveLength(37);
   });
 
   it('lands client-report/SKILL.md + report-template.md in the seat managedSkillsRoot', () => {

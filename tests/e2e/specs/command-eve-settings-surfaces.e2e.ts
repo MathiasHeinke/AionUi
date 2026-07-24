@@ -197,9 +197,9 @@ test.describe('Command EVE settings surfaces', () => {
     );
 
     await goToSettings(page, 'system');
-    const statusRow = page.getByTestId('system-preference-commandEveRuntimeStatus');
-    await expect(statusRow).toContainText(/EVE-Aktivitätsstatus anzeigen|Show EVE activity status/);
-    await expect(statusRow.locator('.arco-switch')).toBeVisible();
+    // The old duplicate runtime-status switch was removed from System. Runtime
+    // truth now has one dedicated, sanitized EVE-Runtime page.
+    await expect(page.getByTestId('system-preference-commandEveRuntimeStatus')).toHaveCount(0);
 
     const warmupRow = page.getByTestId('system-preference-commandEveModelWarmup');
     await expect(warmupRow).toContainText(/Lokales EVE-Modell vorwärmen|Pre-warm local EVE model/);
@@ -207,6 +207,13 @@ test.describe('Command EVE settings surfaces', () => {
       /Cloud-Modelle werden dabei nicht aufgerufen|Cloud models are not called|cloud providers are not pinged/
     );
     await expect(warmupRow.locator('.arco-switch')).toBeVisible();
+
+    await goToSettings(page, 'runtime');
+    await expect(page.getByRole('heading', { name: /Lokale KI|Local AI/ })).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText(/Lokale Ausführung|Local execution/).first()).toBeVisible({ timeout: 30_000 });
+    await expect(
+      page.getByText(/Wird automatisch von EVE verwaltet|Managed automatically by EVE/).first()
+    ).toBeVisible();
   });
 
   test('keeps EVE as the public runtime identity and hides internal agent cards', async ({ page }) => {

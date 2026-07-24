@@ -28,6 +28,16 @@ function parseArgs(argv) {
       process.exit(0);
     } else throw new Error(`Unknown argument: ${arg}`);
   }
+  // F-15 (Kimi 1.819 audit): --audit-json/--ledger/--now can substitute the
+  // audit input, the ledger, or the clock. They exist for the gate's own unit
+  // tests; a release/CI invocation must never be able to weaken the gate by
+  // passing them. Fail closed unless the explicit test-hook env var is set.
+  const testHooksEnabled = process.env.COMMAND_EVE_AUDIT_GATE_TEST_HOOKS === '1';
+  if (!testHooksEnabled && (options.auditJson !== undefined || options.ledger !== DEFAULT_LEDGER || options.now !== undefined)) {
+    throw new Error(
+      'production-audit-gate: --audit-json/--ledger/--now are test-only hooks; set COMMAND_EVE_AUDIT_GATE_TEST_HOOKS=1 to enable them'
+    );
+  }
   if (!options.ledger) throw new Error('--ledger requires a path');
   if (argv.includes('--audit-json') && !options.auditJson) throw new Error('--audit-json requires a path');
   if (argv.includes('--now') && !options.now) throw new Error('--now requires an ISO timestamp');
@@ -43,7 +53,10 @@ function readJson(path, label) {
 }
 
 function runBunAudit() {
-  const result = spawnSync('bun', ['audit', '--production', '--json'], {
+  // Bun 1.3 has no --production flag for `bun audit`; passing it was silently
+  // ignored and made the recorded scope misleading. Audit the complete lockfile
+  // and keep production reachability decisions in the reviewed exception ledger.
+  const result = spawnSync('bun', ['audit', '--json'], {
     cwd: REPO_ROOT,
     encoding: 'utf8',
     timeout: 120_000,
@@ -72,6 +85,13 @@ function walkRuntimeFiles(directory, files = []) {
 }
 
 function collectRuntimeImportHits(ledger) {
+  // F-09 (Kimi 1.819 audit): this is a first-party substring TRIPWIRE over
+  // packages/** source, not a module-graph reachability proof. It can be
+  // evaded by computed specifiers (import('@hono/' + 'node-server')) and it
+  // intentionally excludes node_modules/resources. It exists to catch the
+  // realistic regression — a developer wiring the excepted package into
+  // product source — not to prove non-reachability. The ledger wording must
+  // not claim more than this.
   const specifiers = new Set(
     (ledger.exceptions || []).flatMap((entry) => entry?.reachability?.requiredAbsentRuntimeImports || [])
   );

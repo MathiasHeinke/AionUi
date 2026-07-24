@@ -19,6 +19,8 @@ import { observeRouteShadow } from '@/process/commandEve/routePolicyCore';
 import type { TProviderWithModel } from '@/common/config/storage';
 import type { UnifiedChatCompletionResponse } from '@/common/api/RotatingApiClient';
 import { IMAGE_EXTENSIONS, MIME_TYPE_MAP, MIME_TO_EXT_MAP, DEFAULT_IMAGE_EXTENSION } from '@/common/config/constants';
+import { COMMAND_EVE_MANAGED_IMAGE_PLATFORM } from '@/common/config/eveManagedImageGenerationCore';
+import { executeManagedImageGenerationViaShim } from './managedImageGenerationClient';
 
 const API_TIMEOUT_MS = 120000; // 2 minutes for image generation API calls
 
@@ -161,6 +163,8 @@ export async function processImageUri(imageUri: string, workspaceDir: string): P
 export interface ImageGenParams {
   prompt: string;
   image_uris?: string[] | string;
+  aspect_ratio?: string;
+  resolution?: string;
 }
 
 export interface ImageGenResult {
@@ -198,6 +202,7 @@ export async function executeImageGeneration(
     }
 
     const hasImages = imageUris.length > 0;
+    const referenceDataUrls: string[] = [];
     let enhancedPrompt: string;
     if (hasImages) {
       enhancedPrompt = `Analyze/Edit image: ${params.prompt}`;
@@ -224,7 +229,10 @@ export async function executeImageGeneration(
         }
       });
 
-      successful.forEach((imageContent) => contentParts.push(imageContent));
+      successful.forEach((imageContent) => {
+        contentParts.push(imageContent);
+        referenceDataUrls.push(imageContent.image_url.url);
+      });
 
       if (successful.length === 0) {
         return {
@@ -251,6 +259,27 @@ export async function executeImageGeneration(
       });
     } catch (_routeShadowError) {
       // Shadow routing must never break image generation.
+    }
+
+    if (provider.platform === COMMAND_EVE_MANAGED_IMAGE_PLATFORM) {
+      const managed = await executeManagedImageGenerationViaShim({
+        provider,
+        prompt: params.prompt,
+        referenceDataUrls,
+        aspectRatio: params.aspect_ratio,
+        resolution: params.resolution,
+        signal,
+      });
+      if (managed.ok === false) {
+        return { success: false, text: `Error generating image: ${managed.error}`, error: managed.error };
+      }
+      const imagePath = await saveGeneratedImage(managed.dataUrl, workspaceDir);
+      return {
+        success: true,
+        text: `Managed visual direction generated${managed.model ? ` with ${managed.model}` : ''}.\n\nGenerated image saved to: ${imagePath}`,
+        imagePath,
+        relativeImagePath: path.relative(workspaceDir, imagePath),
+      };
     }
 
     // Create client and call API

@@ -6,7 +6,7 @@
  * (the canonical authoring home, /.claude/skills) into a committed snapshot at
  *
  *   resources/bundled-skills/<skill-id>/SKILL.md
- *   resources/bundled-skills/marketing-outbound/<sub>/SKILL.md   (the bundle)
+ *   resources/bundled-skills/<skill-id>/SKILL.md
  *
  * electron-builder then maps `resources/bundled-skills` -> `bundled-skills` via
  * `extraResources`, landing it at `Contents/Resources/bundled-skills/` OUTSIDE the
@@ -47,9 +47,11 @@ import { fileURLToPath } from 'node:url';
 // ---------------------------------------------------------------------------
 // EXPLICIT allowlist (never glob .claude/skills — gitnexus and other dev/IDE
 // skills must NOT travel into the shipped app). The curated set is made of
-// single-folder skills with one executable SKILL.md plus any nested assets, and
-// marketing-outbound which is a BUNDLE (no top-level SKILL.md; 17 nested
-// sub-skill dirs each with their own SKILL.md).
+// single-folder skills with one executable SKILL.md plus any nested assets.
+// The historical marketing-outbound bundle deliberately stays OUT of this
+// allowlist until its DACH outreach/legal posture has been independently
+// remediated. A `gated` catalog label is not an execution boundary because
+// Hermes recursively discovers nested SKILL.md files.
 //
 // `bundle: true` changes the verify rule: a single skill must land its own
 // <id>/SKILL.md; a bundle must land at least one NESTED **/SKILL.md (Hermes'
@@ -73,7 +75,6 @@ export const EVE_STRATEGY_SKILLS = Object.freeze([
   // Human Gate before any public deploy.
   { id: 'premium-website-builder' },
   { id: 'human-design-profile' },
-  { id: 'marketing-outbound', bundle: true },
   // blog-writer: a REAL executable long-form/blog skill (replaces the fake "blog-department"
   // prompt label). On-voice (USER.md), SEO-aware, claim-safe, never publishes.
   { id: 'blog-writer' },
@@ -116,6 +117,14 @@ export const EVE_STRATEGY_SKILLS = Object.freeze([
   // for commercial bundling contexts; the skill already prefers the installed
   // bundled Gemma model when it accepts image input.
   { id: 'local-vision-qa' },
+  // Skill-owned visual selection: three real image directions in chat, an
+  // explicit 1/2/3 choice, then a locked editable artifact build. The Desktop
+  // supplies only the managed image capability; it does not hardcode this flow.
+  { id: 'visual-direction-gate' },
+  // Consumer-safe PowerPoint analysis and production wrapper. It composes the
+  // visual-direction gate with EVE's app-managed Office engine and full-deck QA;
+  // the operator never sees an OfficeCLI/Ollama/install prompt.
+  { id: 'presentation-studio' },
   // 4 weitere EVE-authored Feld-Skills geerntet (2026-07-03, Founder-Go), jeweils
   // gehärtet vor Public (Details: docs/strategy/command-eve-eve-authored-skills-harvest-2026-07-03.md):
   // ai-coding-delegation (tmux-Subscription-Lane, composes mit delegate_task; ToS-Caveat),
@@ -142,7 +151,7 @@ export const COMMAND_EVE_SKILLS_MODE_ENV = 'COMMAND_EVE_SKILLS_MODE';
 export const AUTHOR_PRODUCTION_SKILL_IDS = Object.freeze(['autor-studio', 'essay-writer', 'book-publishing']);
 export const AUTHOR_PRODUCTION_EXPECTED_FILE_COUNT = 32;
 export const AUTHOR_PRODUCTION_EXPECTED_AGGREGATE_SHA256 =
-  '99900130fc3835a2c1eb8ed805a11b4940e763865f1c3ddab2ec527c758df883';
+  'bb7ef89f78588dfc056711ec5d763d0e8f49b07e2b38cb316b6a4787cfd442c4';
 
 // ---------------------------------------------------------------------------
 // PURE LOGIC (exported for unit tests; no fs side effects)
@@ -221,6 +230,11 @@ export const FORBIDDEN_SKILL_CONTENT = [
   { id: 'wrong-for-automation', re: /WRONG for automation/i },
   { id: 'bypass-permissions-warning-row', re: /Bypass-permissions warning/i },
   { id: 'auto-accept-permission-warning', re: /arrow\s+\**Down\**\s+to the accept option/i },
+  { id: 'dangerously-skip-permissions', re: /--dangerously-skip-permissions/i },
+  {
+    id: 'raw-api-key-assignment',
+    re: /\b(?:ANTHROPIC|OPENROUTER|OPENAI|XAI)_API_KEY\s*=/i,
+  },
 ];
 
 export function findForbiddenSkillContent(text) {
@@ -264,9 +278,13 @@ export function findForbiddenUserFacingJsonContent(jsonText) {
 }
 
 export const SKILL_IDS_REQUIRING_DISABLE_MODEL_INVOCATION = Object.freeze([
+  'ai-coding-delegation',
   'lead-magnet-pdf',
   'legal-enforcement-dach',
   'human-design-profile',
+  'local-vision-qa',
+  'plaud-recording-ingest',
+  'skill-authoring',
   'voice-first-run',
 ]);
 
@@ -275,6 +293,34 @@ export const SKILL_IDS_REQUIRING_LINKED_FILES = Object.freeze([
   'blog-writer',
   'plaud-recording-ingest',
 ]);
+
+export const SKILL_IDS_REQUIRING_RUNTIME_INVISIBILITY = Object.freeze([
+  'eve-doctrine',
+  'presentation-studio',
+  'lead-magnet-pdf',
+  'autor-studio',
+  'essay-writer',
+  'book-publishing',
+  'legal-enforcement-dach',
+]);
+
+export function findRuntimeInstallInstructions(text) {
+  const patterns = [
+    { id: 'runtime-pip-install', re: /\b(?:python\s+-m\s+pip|pip|uv\s+pip)\s+install\b/i },
+    { id: 'runtime-brew-install', re: /\bbrew\s+install\b/i },
+    { id: 'runtime-npm-install', re: /\b(?:npm|pnpm|bun|yarn)\s+install\b/i },
+  ];
+  const negation = /\b(?:never|do not|does not|must not|nicht|niemals|kein(?:e|en|er|es)?|ohne)\b/i;
+  const failures = new Set();
+  for (const paragraph of String(text || '').split(/\n\s*\n/)) {
+    const normalized = paragraph.replace(/[*_`]/g, ' ');
+    if (negation.test(normalized)) continue;
+    for (const pattern of patterns) {
+      if (pattern.re.test(normalized)) failures.add(pattern.id);
+    }
+  }
+  return [...failures];
+}
 
 function leadingFrontmatter(text) {
   const body = String(text || '');
@@ -369,6 +415,10 @@ export function findSkillHygieneFailures({ skillId, text }) {
 
   if (SKILL_IDS_REQUIRING_LINKED_FILES.includes(skillId) && frontmatterLinkedFiles(frontmatter).length === 0) {
     failures.push('linked_files_missing');
+  }
+
+  if (SKILL_IDS_REQUIRING_RUNTIME_INVISIBILITY.includes(skillId)) {
+    failures.push(...findRuntimeInstallInstructions(text));
   }
 
   return failures;

@@ -5,15 +5,24 @@ import {
   COMMAND_EVE_LOCAL_RUNTIME_PROVIDER_ID,
   getCommandEveLocalRuntimeProvider,
 } from '@/common/config/commandEveShell';
+import {
+  COMMAND_EVE_MANAGED_IMAGE_MODEL,
+  COMMAND_EVE_MANAGED_IMAGE_PLATFORM,
+  COMMAND_EVE_MANAGED_IMAGE_PROVIDER_ID,
+  getCommandEveManagedImageProvider,
+} from '@/common/config/eveManagedImageGenerationCore';
 import { migrateProviders } from '@/common/config/configMigration';
 import { IMAGE_GEN_ENV_KEYS } from '@/common/config/imageGenerationMcpEnv';
 import { BUILTIN_IMAGE_GEN_NAME, type IMcpServer, type IProvider } from '@/common/config/storage';
 import {
   ensureCommandEveLocalRuntimeProvider,
+  resolveImageGenerationMcpEnabled,
   resolveImageGenerationMigrationConfig,
   runBackendMigrations,
+  secureManagedImageGenerationMcpEnv,
 } from '@/process/utils/runBackendMigrations';
 import { ensureCommandEveShimAuthToken } from '@/process/commandEve/ollamaOpenAiShim';
+import { ensureCommandEveManagedImageProvider } from '@/process/commandEve/managedImageProviderBootstrap';
 
 const {
   batchImportServersMock,
@@ -22,7 +31,9 @@ const {
   createProviderMock,
   httpRequestMock,
   listServersMock,
+  provisionShimAuthTokenFileMock,
   testMcpConnectionMock,
+  toggleServerMock,
   updateProviderMock,
   updateServerMock,
 } = vi.hoisted(() => ({
@@ -32,7 +43,9 @@ const {
   createProviderMock: vi.fn(),
   httpRequestMock: vi.fn(),
   listServersMock: vi.fn(),
+  provisionShimAuthTokenFileMock: vi.fn(),
   testMcpConnectionMock: vi.fn(),
+  toggleServerMock: vi.fn(),
   updateProviderMock: vi.fn(),
   updateServerMock: vi.fn(),
 }));
@@ -50,6 +63,7 @@ vi.mock('@/common/adapter/ipcBridge', () => ({
     listServers: { invoke: listServersMock },
     batchImportServers: { invoke: batchImportServersMock },
     updateServer: { invoke: updateServerMock },
+    toggleServer: { invoke: toggleServerMock },
     testMcpConnection: { invoke: testMcpConnectionMock },
   },
   mode: {
@@ -64,13 +78,21 @@ vi.mock('@/common/config/configMigration', () => ({
   migrateProviders: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('@/process/utils/initStorage', () => ({
+vi.mock('@/process/utils/builtinMcpPath', () => ({
   getBuiltinMcpScriptPath: (name: string) => `/mock/${name}.js`,
 }));
 
 vi.mock('@/process/utils/migrateAssistants', () => ({
   migrateAssistantsToBackend: vi.fn().mockResolvedValue(true),
 }));
+
+vi.mock('@/process/commandEve/ollamaOpenAiShim', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/process/commandEve/ollamaOpenAiShim')>();
+  return {
+    ...actual,
+    provisionCommandEveShimAuthTokenFile: provisionShimAuthTokenFileMock,
+  };
+});
 
 const provider: IProvider = {
   id: 'provider-1',
@@ -145,19 +167,20 @@ const providerRowFromCreate = (body: unknown): IProvider => {
 const mockBackendWithProviders = (
   providers: IProvider[],
   onCreate?: (body: unknown, rows: IProvider[]) => Promise<IProvider>,
-  onUpdate?: (body: unknown, rows: IProvider[], rowIndex: number) => Promise<IProvider>
+  onUpdate?: (body: unknown, rows: IProvider[], rowIndex: number) => Promise<IProvider>,
+  backendPreferences: Record<string, unknown> = {
+    'tools.imageGenerationModel': {
+      id: 'provider-1',
+      name: 'Gemini',
+      platform: 'gemini',
+      use_model: 'gemini-image',
+    },
+  }
 ) => {
   const rows = [...providers];
   httpRequestMock.mockImplementation(async (method: string, path: string, body?: unknown) => {
     if (method === 'GET' && path === '/api/settings/client') {
-      return {
-        'tools.imageGenerationModel': {
-          id: 'provider-1',
-          name: 'Gemini',
-          platform: 'gemini',
-          use_model: 'gemini-image',
-        },
-      };
+      return backendPreferences;
     }
     if (method === 'GET' && path === '/api/providers') {
       return [...rows];
@@ -189,11 +212,17 @@ beforeEach(() => {
   createProviderMock.mockResolvedValue({ id: COMMAND_EVE_LOCAL_RUNTIME_PROVIDER_ID });
   updateProviderMock.mockResolvedValue(undefined);
   listServersMock.mockResolvedValue([]);
+  provisionShimAuthTokenFileMock.mockReturnValue('/mock/user-data/command-eve-runtime/shim-auth-token');
   batchImportServersMock.mockResolvedValue([]);
   updateServerMock.mockImplementation(async ({ id, data }) => ({
     ...imageServer(),
     id,
     ...data,
+  }));
+  toggleServerMock.mockImplementation(async ({ id }) => ({
+    ...imageServer(),
+    id,
+    enabled: true,
   }));
   testMcpConnectionMock.mockResolvedValue({ success: false, error: 'Command not found: npx' });
   mockBackendWithProviders([provider]);
@@ -214,6 +243,63 @@ describe('resolveImageGenerationMigrationConfig', () => {
       backendConfig
     );
   });
+
+  it('restores the app-managed image MCP after an older migration dropped its switch', () => {
+    expect(
+      resolveImageGenerationMcpEnabled(
+        {
+          ...getCommandEveManagedImageProvider(),
+          enabled: true,
+        },
+        false
+      )
+    ).toBe(true);
+  });
+
+  it('honors an explicit opt-out and preserves generic provider state without one', () => {
+    expect(
+      resolveImageGenerationMcpEnabled(
+        {
+          ...getCommandEveManagedImageProvider(),
+          enabled: true,
+          switch: false,
+        },
+        true
+      )
+    ).toBe(false);
+    expect(resolveImageGenerationMcpEnabled({ id: 'provider-1', enabled: true }, false)).toBe(false);
+    expect(resolveImageGenerationMcpEnabled({ id: 'provider-1', enabled: true }, true)).toBe(true);
+  });
+
+  it('persists the managed loopback nonce by file path and never in MCP env plaintext', () => {
+    const managedProvider = {
+      ...getCommandEveManagedImageProvider(),
+      api_key: 'process-local-nonce',
+      models: [COMMAND_EVE_MANAGED_IMAGE_MODEL],
+    } as IProvider;
+    const secured = secureManagedImageGenerationMcpEnv(
+      {
+        ok: true,
+        source: 'provider-id',
+        provider: managedProvider,
+        model: COMMAND_EVE_MANAGED_IMAGE_MODEL,
+        env: {
+          [IMAGE_GEN_ENV_KEYS.providerId]: COMMAND_EVE_MANAGED_IMAGE_PROVIDER_ID,
+          [IMAGE_GEN_ENV_KEYS.platform]: COMMAND_EVE_MANAGED_IMAGE_PLATFORM,
+          [IMAGE_GEN_ENV_KEYS.baseUrl]: managedProvider.base_url,
+          [IMAGE_GEN_ENV_KEYS.apiKey]: managedProvider.api_key,
+          [IMAGE_GEN_ENV_KEYS.model]: COMMAND_EVE_MANAGED_IMAGE_MODEL,
+        },
+      },
+      '/mock/user-data/command-eve-runtime/shim-auth-token'
+    );
+
+    expect(secured.ok).toBe(true);
+    if (secured.ok) {
+      expect(secured.env[IMAGE_GEN_ENV_KEYS.apiKey]).toBeUndefined();
+      expect(secured.env[IMAGE_GEN_ENV_KEYS.apiKeyFile]).toBe('/mock/user-data/command-eve-runtime/shim-auth-token');
+    }
+  });
 });
 
 describe('runBackendMigrations', () => {
@@ -221,13 +307,14 @@ describe('runBackendMigrations', () => {
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
     listServersMock.mockResolvedValue([imageServer()]);
 
-    await runBackendMigrations(configFile as never);
+    await runBackendMigrations(configFile as never, { userDataPath: '/mock/user-data' });
 
     expect(updateServerMock).not.toHaveBeenCalled();
     expect(testMcpConnectionMock).not.toHaveBeenCalled();
     expect(infoSpy).toHaveBeenCalledWith(
-      '[Migration] image MCP bootstrap decision, server id: %s, transport changed: %s, json changed: %s, will update: %s',
+      '[Migration] image MCP bootstrap decision, server id: %s, transport changed: %s, json changed: %s, enabled changed: %s, will update: %s',
       'image-server-id',
+      'no',
       'no',
       'no',
       'no'
@@ -243,17 +330,192 @@ describe('runBackendMigrations', () => {
       },
     ]);
 
-    await runBackendMigrations(configFile as never);
+    await runBackendMigrations(configFile as never, { userDataPath: '/mock/user-data' });
 
     expect(updateServerMock).toHaveBeenCalledOnce();
+    expect(toggleServerMock).not.toHaveBeenCalled();
     expect(testMcpConnectionMock).not.toHaveBeenCalled();
     expect(infoSpy).toHaveBeenCalledWith(
-      '[Migration] image MCP bootstrap decision, server id: %s, transport changed: %s, json changed: %s, will update: %s',
+      '[Migration] image MCP bootstrap decision, server id: %s, transport changed: %s, json changed: %s, enabled changed: %s, will update: %s',
       'image-server-id',
       'no',
       'yes',
+      'no',
       'yes'
     );
+  });
+
+  it('restores a disabled managed image MCP through the dedicated toggle endpoint', async () => {
+    const disabledServer = { ...imageServer(), enabled: false };
+    listServersMock.mockResolvedValue([disabledServer]);
+    updateServerMock.mockImplementation(async ({ id, data }) => ({
+      ...disabledServer,
+      id,
+      ...data,
+    }));
+    mockBackendWithProviders(
+      [
+        {
+          ...getCommandEveManagedImageProvider(),
+          api_key: ensureCommandEveShimAuthToken(),
+          models: [COMMAND_EVE_MANAGED_IMAGE_MODEL],
+          enabled: true,
+        } as IProvider,
+      ],
+      undefined,
+      undefined,
+      {
+        'tools.imageGenerationModel': {
+          ...getCommandEveManagedImageProvider(),
+          enabled: true,
+        },
+      }
+    );
+
+    await runBackendMigrations(configFile as never, { userDataPath: '/mock/user-data' });
+
+    expect(updateServerMock).toHaveBeenCalledOnce();
+    expect(toggleServerMock).toHaveBeenCalledOnce();
+    expect(toggleServerMock).toHaveBeenCalledWith({ id: 'image-server-id' });
+  });
+
+  it('activates the managed image capability on a fresh install without replacing an explicit provider choice', async () => {
+    mockBackendWithProviders([], undefined, undefined, {});
+
+    await runBackendMigrations(configFile as never, { userDataPath: '/mock/user-data' });
+
+    const importedServers = batchImportServersMock.mock.calls.flatMap(([payload]) => payload.servers as IMcpServer[]);
+    const importedImageServer = importedServers.find((server) => server.name === BUILTIN_IMAGE_GEN_NAME);
+    expect(importedImageServer).toMatchObject({
+      enabled: true,
+      transport: {
+        type: 'stdio',
+        env: {
+          [IMAGE_GEN_ENV_KEYS.providerId]: COMMAND_EVE_MANAGED_IMAGE_PROVIDER_ID,
+          [IMAGE_GEN_ENV_KEYS.platform]: COMMAND_EVE_MANAGED_IMAGE_PLATFORM,
+          [IMAGE_GEN_ENV_KEYS.apiKeyFile]: '/mock/user-data/command-eve-runtime/shim-auth-token',
+          [IMAGE_GEN_ENV_KEYS.model]: COMMAND_EVE_MANAGED_IMAGE_MODEL,
+        },
+      },
+    });
+    expect(
+      importedImageServer?.transport.type === 'stdio'
+        ? importedImageServer.transport.env?.[IMAGE_GEN_ENV_KEYS.apiKey]
+        : undefined
+    ).toBeUndefined();
+    expect(configFileSetMock).toHaveBeenCalledWith(
+      'tools.imageGenerationModel',
+      expect.objectContaining({
+        id: COMMAND_EVE_MANAGED_IMAGE_PROVIDER_ID,
+        platform: COMMAND_EVE_MANAGED_IMAGE_PLATFORM,
+        use_model: COMMAND_EVE_MANAGED_IMAGE_MODEL,
+      })
+    );
+  });
+});
+
+describe('ensureCommandEveManagedImageProvider', () => {
+  const managedRow = (overrides: Partial<IProvider> = {}): IProvider => {
+    const { use_model, ...providerConfig } = getCommandEveManagedImageProvider();
+    return {
+      ...providerConfig,
+      api_key: ensureCommandEveShimAuthToken(),
+      models: [use_model],
+      enabled: true,
+      is_full_url: false,
+      ...overrides,
+    } as IProvider;
+  };
+
+  const managedPostCalls = () =>
+    httpRequestMock.mock.calls.filter(
+      ([method, path, body]) =>
+        method === 'POST' &&
+        path === '/api/providers' &&
+        typeof body === 'object' &&
+        body !== null &&
+        'id' in body &&
+        body.id === COMMAND_EVE_MANAGED_IMAGE_PROVIDER_ID
+    );
+
+  const managedPutCalls = () =>
+    httpRequestMock.mock.calls.filter(
+      ([method, path]) => method === 'PUT' && path === `/api/providers/${COMMAND_EVE_MANAGED_IMAGE_PROVIDER_ID}`
+    );
+
+  it('seeds one loopback-only provider with the fixed local model and no cloud credential', async () => {
+    const shimBaseUrl = 'http://127.0.0.1:41235/v1';
+    mockBackendWithProviders([provider]);
+
+    await expect(
+      ensureCommandEveManagedImageProvider({ shimOpenAiBaseUrl: shimBaseUrl, sleep: async () => undefined })
+    ).resolves.toMatchObject({ status: 'ready', created: true, conflict: false });
+
+    expect(managedPostCalls()).toHaveLength(1);
+    expect(managedPostCalls()[0][2]).toMatchObject({
+      id: COMMAND_EVE_MANAGED_IMAGE_PROVIDER_ID,
+      platform: COMMAND_EVE_MANAGED_IMAGE_PLATFORM,
+      base_url: shimBaseUrl,
+      api_key: ensureCommandEveShimAuthToken(),
+      models: [COMMAND_EVE_MANAGED_IMAGE_MODEL],
+      enabled: true,
+      is_full_url: false,
+    });
+    expect(JSON.stringify(managedPostCalls()[0][2])).not.toContain('openrouter');
+  });
+
+  it('is idempotent when the exact managed provider already exists', async () => {
+    mockBackendWithProviders([provider, managedRow()]);
+
+    await expect(ensureCommandEveManagedImageProvider({ sleep: async () => undefined })).resolves.toMatchObject({
+      status: 'ready',
+      created: false,
+      conflict: false,
+    });
+
+    expect(managedPostCalls()).toHaveLength(0);
+    expect(managedPutCalls()).toHaveLength(0);
+  });
+
+  it('repairs every mutable field back to the bounded loopback contract', async () => {
+    mockBackendWithProviders([
+      provider,
+      managedRow({
+        name: 'Remote image provider',
+        platform: 'openai',
+        base_url: 'https://credential-sink.invalid/v1',
+        api_key: 'remote-secret',
+        models: ['remote-model'],
+        enabled: false,
+        is_full_url: true,
+      }),
+    ]);
+
+    await expect(ensureCommandEveManagedImageProvider({ sleep: async () => undefined })).resolves.toMatchObject({
+      status: 'ready',
+      created: false,
+    });
+
+    expect(managedPutCalls()).toHaveLength(1);
+    expect(managedPutCalls()[0][2]).toMatchObject({
+      name: 'EVE Visual Directions',
+      platform: COMMAND_EVE_MANAGED_IMAGE_PLATFORM,
+      base_url: 'http://127.0.0.1:25811/v1',
+      api_key: ensureCommandEveShimAuthToken(),
+      models: [COMMAND_EVE_MANAGED_IMAGE_MODEL],
+      enabled: true,
+      is_full_url: false,
+    });
+  });
+
+  it('rejects non-loopback bootstrap targets without touching the backend', async () => {
+    await expect(
+      ensureCommandEveManagedImageProvider({
+        shimOpenAiBaseUrl: 'https://credential-sink.invalid/v1',
+        sleep: async () => undefined,
+      })
+    ).rejects.toThrow('not ready after three bounded attempts');
+    expect(httpRequestMock).not.toHaveBeenCalled();
   });
 });
 
@@ -275,8 +537,16 @@ describe('ensureCommandEveLocalRuntimeProvider', () => {
       ([method, path]) => method === 'PUT' && String(path).startsWith('/api/providers')
     );
 
-  const providerPostCalls = () =>
-    httpRequestMock.mock.calls.filter(([method, path]) => method === 'POST' && path === '/api/providers');
+  const providerPostCalls = (providerId = COMMAND_EVE_LOCAL_RUNTIME_PROVIDER_ID) =>
+    httpRequestMock.mock.calls.filter(
+      ([method, path, body]) =>
+        method === 'POST' &&
+        path === '/api/providers' &&
+        typeof body === 'object' &&
+        body !== null &&
+        'id' in body &&
+        body.id === providerId
+    );
 
   it('seeds the provider on a fresh install with the exact default-tier shape', async () => {
     await runBackendMigrations(configFile as never);

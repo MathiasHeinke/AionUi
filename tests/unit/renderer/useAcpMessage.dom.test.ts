@@ -78,6 +78,9 @@ vi.mock('@/common', () => ({
       get: {
         invoke: conversationGetInvokeMock,
       },
+      activeCount: {
+        invoke: vi.fn().mockResolvedValue({ count: 0 }),
+      },
       warmup: {
         invoke: vi.fn().mockResolvedValue(undefined),
       },

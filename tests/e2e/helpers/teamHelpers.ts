@@ -89,9 +89,7 @@ export async function createTeamOrSkip(page: Page, name: string, leaderType?: st
     return await createTeam(page, name, leaderType);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (
-      /No supported (team )?backends? available|No agent option matched/i.test(message)
-    ) {
+    if (/No supported (team )?backends? available|No agent option matched/i.test(message)) {
       test.skip(true, `Team "${name}" could not be created in this sandbox: ${message}`);
       return null;
     }

@@ -22,6 +22,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const PRIVATE_KEY_HEADER = /-----BEGIN (?:OPENSSH |EC |RSA |DSA |ENCRYPTED )?PRIVATE KEY-----/;
+// F-10 (Kimi 1.819 audit): a PEM renamed to license.txt/keys.dat must not
+// evade the guard. Text-extension files are only flagged when the header sits
+// at the START of the file — real PEMs begin with it; docs merely quote it
+// inline. Keeps npm-doc false positives out while closing the rename evasion.
+export const PRIVATE_KEY_HEADER_AT_START = /^\s*(?:\uFEFF)?-----BEGIN (?:OPENSSH |EC |RSA |DSA |ENCRYPTED )?PRIVATE KEY-----/;
+export const TEXT_SCAN_EXTENSIONS = new Set(['.txt', '.dat']);
+const TEXT_SCAN_MAX_BYTES = 32 * 1024;
 export const PRIVATE_KEY_FILENAME = /signing.*\.key$/i;
 // Content-scan ONLY real key-file types. Docs/source (npm's config.html, man
 // pages, .js) merely MENTION "BEGIN PRIVATE KEY" and must not trip the guard —
@@ -56,6 +63,28 @@ export function scanForPrivateKeys(roots, deps = {}) {
     for (const f of walk(root, [], { readdir })) {
       if (PRIVATE_KEY_FILENAME.test(path.basename(f))) {
         findings.push({ file: f, reason: 'private signing-key filename' });
+        continue;
+      }
+      // Second tier (F-10): small .txt/.dat files whose FIRST bytes are a PEM
+      // header. A renamed private key starts with the header; documentation
+      // quoting it inline does not match.
+      if (TEXT_SCAN_EXTENSIONS.has(path.extname(f).toLowerCase())) {
+        let textSize;
+        try {
+          textSize = statSize(f);
+        } catch {
+          continue;
+        }
+        if (textSize > TEXT_SCAN_MAX_BYTES) continue;
+        let textHead;
+        try {
+          textHead = readText(f);
+        } catch {
+          continue;
+        }
+        if (PRIVATE_KEY_HEADER_AT_START.test(textHead)) {
+          findings.push({ file: f, reason: 'PRIVATE KEY material (renamed text file)' });
+        }
         continue;
       }
       // Only content-scan real key-file types (skips docs/source that merely

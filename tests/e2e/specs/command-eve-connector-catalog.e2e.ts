@@ -9,6 +9,8 @@ import { _electron as electron, type ElectronApplication, type Page } from 'play
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { expectFounderOnlyBridgeDenied } from '../helpers/bridge/founderOnly';
+import { invokeBridge } from '../helpers/bridge/invoke';
 import { resolveAioncoreBinary } from '../helpers/aioncoreBinary';
 
 const tempRoots: string[] = [];
@@ -138,7 +140,36 @@ function createE2ECompanyOsRoot(): string {
   return root;
 }
 
-test.describe('Command EVE Connector Catalog', () => {
+async function launchConnectorCatalogApp(founderBuild: boolean): Promise<{
+  app: ElectronApplication;
+  page: Page;
+}> {
+  const isolatedHome = fs.mkdtempSync(path.join(os.tmpdir(), 'command-eve-connector-catalog-home-'));
+  tempRoots.push(isolatedHome);
+  const projectRoot = path.resolve(__dirname, '../../..');
+  const backendBinary = resolveAioncoreBinary({ cwd: projectRoot });
+  const app = await electron.launch({
+    args: ['.', `--user-data-dir=${path.join(isolatedHome, 'user-data')}`],
+    cwd: projectRoot,
+    env: {
+      ...(process.env as Record<string, string>),
+      HOME: isolatedHome,
+      PATH: `${path.dirname(backendBinary)}${path.delimiter}${process.env.PATH || ''}`,
+      AIONUI_DISABLE_AUTO_UPDATE: '1',
+      AIONUI_DISABLE_DEVTOOLS: '1',
+      AIONUI_E2E_TEST: '1',
+      AIONUI_MULTI_INSTANCE: '1',
+      AIONUI_CDP_PORT: '0',
+      NODE_ENV: 'development',
+      COMMAND_EVE_FOUNDER_BUILD: founderBuild ? '1' : '0',
+      COMMAND_EVE_REGISTRATION_REQUIRED: '0',
+    },
+    timeout: 60_000,
+  });
+  return { app, page: await app.firstWindow() };
+}
+
+test.describe.serial('Command EVE Connector Catalog', () => {
   test.setTimeout(120_000);
 
   test.beforeAll(() => {
@@ -179,38 +210,7 @@ test.describe('Command EVE Connector Catalog', () => {
     // launches its own instance with the seeded env instead of relying on the shared fixtures
     // app (whose launch env predates beforeAll and may carry a foreign audit-ledger path).
     await closeSharedElectronAppForIsolatedSpec();
-    const isolatedHome = fs.mkdtempSync(path.join(os.tmpdir(), 'command-eve-connector-catalog-home-'));
-    tempRoots.push(isolatedHome);
-    const backendBinary = resolveAioncoreBinary();
-    let app: ElectronApplication | null = null;
-    let page: Page;
-    try {
-      app = await electron.launch({
-        args: ['.', `--user-data-dir=${path.join(isolatedHome, 'user-data')}`],
-        cwd: path.resolve(__dirname, '../../..'),
-        env: {
-          ...(process.env as Record<string, string>),
-          HOME: isolatedHome,
-          // The desktop binary resolver consumes bundled resources or PATH;
-          // AIONUI_BACKEND_BINARY is the E2E harness input, not a product
-          // resolver input. Put its owning directory on PATH for this isolated
-          // app so the same verified binary is actually launched.
-          PATH: `${path.dirname(backendBinary)}${path.delimiter}${process.env.PATH || ''}`,
-          AIONUI_DISABLE_AUTO_UPDATE: '1',
-          AIONUI_DISABLE_DEVTOOLS: '1',
-          AIONUI_E2E_TEST: '1',
-          AIONUI_MULTI_INSTANCE: '1',
-          AIONUI_CDP_PORT: '0',
-          NODE_ENV: 'development',
-          COMMAND_EVE_REGISTRATION_REQUIRED: '0',
-        },
-        timeout: 60_000,
-      });
-      page = await app.firstWindow();
-    } catch (error) {
-      if (app) await app.close().catch(() => {});
-      throw error;
-    }
+    const { app, page } = await launchConnectorCatalogApp(false);
 
     try {
       await page.waitForSelector('body', { state: 'visible' });
@@ -255,13 +255,55 @@ test.describe('Command EVE Connector Catalog', () => {
 
       const localPreflightButton = page.getByTestId('connector-preflight-button-local-company-os-workspace');
       await expect(localPreflightButton).toBeVisible({ timeout: 30_000 });
-      await localPreflightButton.click();
-      // This is the READY-path spec. The isolated process receives a root-confined
-      // manifest, receipt path and audit ledger, so accepting a blocked result here
-      // would hide a broken preflight. Fail-closed/path-rejection behavior has its
-      // own connectorPreflightCore tests.
-      await expect(page.getByText(/Verbindung geprüft|Connection checked/).first()).toBeVisible({ timeout: 30_000 });
-      await expect(page.getByText(/Prüfung nicht abgeschlossen|Check not completed/)).toHaveCount(0);
+      // R5 boundary: public users can browse the sanitized connector catalog,
+      // while filesystem/provider diagnostics stay main-authorized founder-only.
+      await expectFounderOnlyBridgeDenied(page, 'command-eve.connector-preflight', {
+        connectorId: 'local-company-os-workspace',
+        manifestPath: process.env.COMMAND_EVE_CONNECTOR_MANIFEST_PATH,
+      });
+      await expect(page.getByText(/Verbindung geprüft|Connection checked/)).toHaveCount(0);
+
+      const receiptPath = path.join(
+        connectorCatalogE2ERoot,
+        '.company-os',
+        'operations',
+        'preflight-results',
+        'local-company-os-workspace-latest.json'
+      );
+      const auditEventPath = path.join(connectorCatalogE2ERoot, 'metrics', 'agent-events.jsonl');
+      expect(fs.existsSync(receiptPath)).toBe(false);
+      expect(fs.existsSync(auditEventPath)).toBe(false);
+
+      const screenshotPath = 'tests/e2e/results/command-eve-connector-catalog.png';
+      await page.screenshot({ path: screenshotPath, fullPage: true });
+      await testInfo.attach('command-eve-connector-catalog', {
+        path: screenshotPath,
+        contentType: 'image/png',
+      });
+    } finally {
+      await app.close().catch(() => {});
+    }
+  });
+
+  test('runs the filesystem preflight only behind the founder main-process gate', async () => {
+    const { app, page } = await launchConnectorCatalogApp(true);
+    try {
+      await page.waitForSelector('body', { state: 'visible' });
+      await page.evaluate(() => {
+        window.location.hash = '#/connectors';
+      });
+
+      const response = await invokeBridge<{ success: boolean; data?: { ok?: boolean; reason_code?: string } }>(
+        page,
+        'command-eve.connector-preflight',
+        {
+          connectorId: 'local-company-os-workspace',
+          manifestPath: process.env.COMMAND_EVE_CONNECTOR_MANIFEST_PATH,
+        },
+        30_000
+      );
+      expect(response.success, response.data?.reason_code).toBe(true);
+      expect(response.data?.ok, response.data?.reason_code).toBe(true);
 
       const receiptPath = path.join(
         connectorCatalogE2ERoot,
@@ -307,13 +349,6 @@ test.describe('Command EVE Connector Catalog', () => {
           );
         })
       ).toBe(true);
-
-      const screenshotPath = 'tests/e2e/results/command-eve-connector-catalog.png';
-      await page.screenshot({ path: screenshotPath, fullPage: true });
-      await testInfo.attach('command-eve-connector-catalog', {
-        path: screenshotPath,
-        contentType: 'image/png',
-      });
     } finally {
       await app.close().catch(() => {});
     }

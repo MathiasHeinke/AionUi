@@ -36,6 +36,7 @@ import {
 } from '../resources/builtinMcp/constants';
 import { encryptImageGenApiKeyAtRest } from '@/common/config/imageGenApiKeyAtRest';
 import { IMAGE_GEN_ENV_KEYS } from '@/common/config/imageGenerationMcpEnv';
+import { getBuiltinMcpScriptPath } from './builtinMcpPath';
 // Platform and architecture types (moved from deleted updateConfig)
 type PlatformType = 'win32' | 'darwin' | 'linux';
 type ArchitectureType = 'x64' | 'arm64' | 'ia32' | 'arm';
@@ -450,29 +451,6 @@ const getDefaultMcpServers = (): IMcpServer[] => {
     updated_at: now,
     original_json: JSON.stringify({ [name]: config }, null, 2),
   }));
-};
-
-const getBuiltinMcpBaseDir = (): string => {
-  const mainModuleDir =
-    typeof require !== 'undefined' && require.main?.filename ? path.dirname(require.main.filename) : __dirname;
-  const baseDir = path.basename(mainModuleDir) === 'chunks' ? path.dirname(mainModuleDir) : mainModuleDir;
-  // In packaged mode the main bundle lives inside app.asar, but external node
-  // processes cannot read files from ASAR archives. Redirect to the unpacked copy.
-  if (getPlatformServices().paths.isPackaged()) {
-    return baseDir.replace('app.asar', 'app.asar.unpacked');
-  }
-  return baseDir;
-};
-
-/**
- * Resolve the path to a built-in MCP server entry script.
- * In development the file lives next to the main process bundle (out/main/);
- * in production it's inside the packaged app.
- */
-const getBuiltinMcpScriptPath = (scriptName: string): string => {
-  // initStorage may itself be code-split into out/main/chunks/.
-  // Built-in MCP entry files are emitted next to the main entry in out/main/.
-  return path.resolve(getBuiltinMcpBaseDir(), `${scriptName}.js`);
 };
 
 /**

@@ -5,22 +5,32 @@
  */
 
 import { execFile } from 'node:child_process';
+import path from 'node:path';
 import { migrateConfigStorage, migrateLegacyMcpConfigToDb, migrateProviders } from '@/common/config/configMigration';
 import { httpRequest } from '@/common/adapter/httpBridge';
 import { mcpService } from '@/common/adapter/ipcBridge';
 import { ensureCommandEveLocalRuntimeProvider } from '@/process/commandEve/providerBootstrap';
+import { ensureCommandEveManagedImageProvider } from '@/process/commandEve/managedImageProviderBootstrap';
+import { provisionCommandEveShimAuthTokenFile } from '@/process/commandEve/ollamaOpenAiShim';
+import {
+  COMMAND_EVE_MANAGED_IMAGE_PROVIDER_ID,
+  getCommandEveManagedImageProvider,
+} from '@/common/config/eveManagedImageGenerationCore';
 import type { ConfigKeyMap } from '@/common/config/configKeys';
 import {
+  IMAGE_GEN_ENV_KEYS,
   removeImageGenerationEnvKeys,
   resolveImageGenerationMcpEnv,
   type ImageGenerationMcpEnvResolveResult,
 } from '@/common/config/imageGenerationMcpEnv';
 import { BUILTIN_IMAGE_GEN_NAME, type IMcpServer, type IProvider } from '@/common/config/storage';
-import { getBuiltinMcpScriptPath, type ProcessConfig as ProcessConfigType } from './initStorage';
+import type { ProcessConfig as ProcessConfigType } from './initStorage';
+import { getBuiltinMcpScriptPath } from './builtinMcpPath';
 import { migrateAssistantsToBackend } from './migrateAssistants';
 
 type ConfigFile = typeof ProcessConfigType;
 type MigrationStepResult = boolean;
+type BackendMigrationOptions = { userDataPath?: string };
 type McpImportServer = Partial<IMcpServer> & Pick<IMcpServer, 'name' | 'transport'>;
 type BackendClientPreferences = Record<string, unknown>;
 const BUILTIN_CHROME_DEVTOOLS_NAME = 'chrome-devtools';
@@ -77,13 +87,30 @@ export function resolveImageGenerationMigrationConfig(
 
 function resolveImageGenerationMigrationConfigSource(
   backendPrefs: BackendClientPreferences,
-  fileConfig?: ConfigKeyMap['tools.imageGenerationModel']
-): 'backend' | 'file' | 'none' {
+  fileConfig?: ConfigKeyMap['tools.imageGenerationModel'],
+  managedDefault = false
+): 'backend' | 'file' | 'managed-default' | 'none' {
   const backendConfig = backendPrefs['tools.imageGenerationModel'];
   if (backendConfig && typeof backendConfig === 'object') {
     return 'backend';
   }
-  return fileConfig ? 'file' : 'none';
+  if (fileConfig) return 'file';
+  return managedDefault ? 'managed-default' : 'none';
+}
+
+export function resolveImageGenerationMcpEnabled(
+  config: Partial<ConfigKeyMap['tools.imageGenerationModel']> | undefined,
+  existingEnabled?: boolean
+): boolean {
+  if (typeof config?.switch === 'boolean') return config.switch;
+  // The managed provider stores its provider-row `enabled` bit in the backend
+  // preference. Older builds dropped the MCP `switch` during migration, which
+  // left the signed image tool disabled forever on the next boot. Treat this
+  // exact app-owned provider as enabled unless an explicit switch says no.
+  if (config?.id === COMMAND_EVE_MANAGED_IMAGE_PROVIDER_ID && config.enabled === true) return true;
+  // For user-selected providers the MCP row remains authoritative when the
+  // legacy preference has no switch. Never silently enable an arbitrary MCP.
+  return existingEnabled === true;
 }
 
 function logImageGenerationEnvResolution(
@@ -114,7 +141,7 @@ function logImageGenerationEnvResolution(
 
 function buildBuiltinImageGenerationServer(
   resolution: ImageGenerationMcpEnvResolveResult,
-  config?: ConfigKeyMap['tools.imageGenerationModel']
+  enabled: boolean
 ): McpImportServer {
   const scriptPath = getBuiltinMcpScriptPath('builtin-mcp-image-gen');
   const env = resolution.ok ? resolution.env : {};
@@ -127,7 +154,7 @@ function buildBuiltinImageGenerationServer(
   return {
     name: BUILTIN_IMAGE_GEN_NAME,
     description: 'Built-in image generation tool powered by AI models. Configure the model in Settings > Tools.',
-    enabled: config?.switch === true && resolution.ok,
+    enabled: enabled && resolution.ok,
     builtin: true,
     transport: {
       type: 'stdio',
@@ -254,22 +281,62 @@ function buildOriginalJsonFromTransport(server: Pick<IMcpServer, 'name' | 'descr
   );
 }
 
-async function ensureBootstrapMcpServersInDb(configFile: ConfigFile): Promise<void> {
+export function secureManagedImageGenerationMcpEnv(
+  resolution: ImageGenerationMcpEnvResolveResult,
+  authTokenFile: string
+): ImageGenerationMcpEnvResolveResult {
+  if (resolution.ok === false || resolution.provider.id !== COMMAND_EVE_MANAGED_IMAGE_PROVIDER_ID) {
+    return resolution;
+  }
+
+  const env = { ...resolution.env };
+  delete env[IMAGE_GEN_ENV_KEYS.apiKey];
+  delete env[IMAGE_GEN_ENV_KEYS.apiKeyFile];
+  if (path.isAbsolute(authTokenFile) && path.basename(authTokenFile) === 'shim-auth-token') {
+    env[IMAGE_GEN_ENV_KEYS.apiKeyFile] = authTokenFile;
+  }
+  return { ...resolution, env };
+}
+
+async function ensureBootstrapMcpServersInDb(
+  configFile: ConfigFile,
+  options: BackendMigrationOptions = {}
+): Promise<void> {
   const [backendPrefs, fileImageConfig, providers] = await Promise.all([
     fetchBackendClientPreferences(),
     configFile.get('tools.imageGenerationModel').catch((): undefined => undefined),
     fetchProviders(),
   ]);
-  const imageConfig = resolveImageGenerationMigrationConfig(backendPrefs, fileImageConfig);
-  const imageConfigSource = resolveImageGenerationMigrationConfigSource(backendPrefs, fileImageConfig);
+  const configuredImage = resolveImageGenerationMigrationConfig(backendPrefs, fileImageConfig);
+  const imageConfig =
+    configuredImage ??
+    ({ ...getCommandEveManagedImageProvider(), switch: true } as ConfigKeyMap['tools.imageGenerationModel']);
+  const imageConfigSource = resolveImageGenerationMigrationConfigSource(
+    backendPrefs,
+    fileImageConfig,
+    configuredImage === undefined
+  );
   const existing = await mcpService.listServers.invoke();
   const existingByName = new Map((existing ?? []).map((server) => [server.name, server]));
   const existingImageServer = existingByName.get(BUILTIN_IMAGE_GEN_NAME);
   const existingImageEnv =
     existingImageServer?.transport.type === 'stdio' ? existingImageServer.transport.env : undefined;
-  const imageEnvResolution = resolveImageGenerationMcpEnv(imageConfig, providers, existingImageEnv);
+  const rawImageEnvResolution = resolveImageGenerationMcpEnv(imageConfig, providers, existingImageEnv);
+  const managedImageAuthTokenFile =
+    rawImageEnvResolution.ok === true &&
+    rawImageEnvResolution.provider.id === COMMAND_EVE_MANAGED_IMAGE_PROVIDER_ID &&
+    options.userDataPath
+      ? provisionCommandEveShimAuthTokenFile(options.userDataPath)
+      : '';
+  const imageEnvResolution = secureManagedImageGenerationMcpEnv(rawImageEnvResolution, managedImageAuthTokenFile);
+  const managedImageAuthReady =
+    rawImageEnvResolution.ok === false ||
+    rawImageEnvResolution.provider.id !== COMMAND_EVE_MANAGED_IMAGE_PROVIDER_ID ||
+    Boolean(imageEnvResolution.ok && imageEnvResolution.env[IMAGE_GEN_ENV_KEYS.apiKeyFile]);
+  const imageEnabled =
+    resolveImageGenerationMcpEnabled(imageConfig, existingImageServer?.enabled) && managedImageAuthReady;
   logImageGenerationEnvResolution(imageEnvResolution, 'bootstrap');
-  const imageServer = buildBuiltinImageGenerationServer(imageEnvResolution, imageConfig);
+  const imageServer = buildBuiltinImageGenerationServer(imageEnvResolution, imageEnabled);
   const defaultServers = buildDefaultMcpServers();
   const missing = [...defaultServers, imageServer].filter((server) => !existingByName.has(server.name));
   let imageServerUpdated = false;
@@ -328,22 +395,31 @@ async function ensureBootstrapMcpServersInDb(configFile: ConfigFile): Promise<vo
     );
     const imageTransportChanged = !isSameStdioTransport(existingImageServer.transport, updatedTransport);
     const imageOriginalJsonChanged = existingImageServer.original_json !== original_json;
-    const imageServerChanged = imageTransportChanged || imageOriginalJsonChanged;
+    const imageEnabledChanged = existingImageServer.enabled !== imageEnabled;
+    const imageServerChanged = imageTransportChanged || imageOriginalJsonChanged || imageEnabledChanged;
     console.info(
-      '[Migration] image MCP bootstrap decision, server id: %s, transport changed: %s, json changed: %s, will update: %s',
+      '[Migration] image MCP bootstrap decision, server id: %s, transport changed: %s, json changed: %s, enabled changed: %s, will update: %s',
       existingImageServer.id,
       imageTransportChanged ? 'yes' : 'no',
       imageOriginalJsonChanged ? 'yes' : 'no',
+      imageEnabledChanged ? 'yes' : 'no',
       imageServerChanged ? 'yes' : 'no'
     );
     if (imageServerChanged) {
-      await mcpService.updateServer.invoke({
+      const persistedImageServer = await mcpService.updateServer.invoke({
         id: existingImageServer.id,
         data: {
           transport: updatedTransport,
           original_json,
         },
       });
+      // The MCP update endpoint intentionally does not accept `enabled`; state
+      // changes go through the dedicated toggle endpoint. Comparing the
+      // persisted row keeps this migration idempotent and avoids toggling an
+      // already-correct server after a concurrent/bootstrap update.
+      if (persistedImageServer.enabled !== imageEnabled) {
+        await mcpService.toggleServer.invoke({ id: existingImageServer.id });
+      }
       imageServerUpdated = true;
     }
   } else if (existingImageServer && imageEnvResolution.ok === false) {
@@ -364,13 +440,13 @@ async function ensureBootstrapMcpServersInDb(configFile: ConfigFile): Promise<vo
     missing.length,
     imageServerUpdated ? 'yes' : 'no',
     imageConfigSource,
-    imageConfig?.switch === true ? 'yes' : 'no'
+    imageEnabled ? 'yes' : 'no'
   );
 }
 
 const MIGRATION_STEPS: Array<{
   name: string;
-  run: (configFile: ConfigFile) => Promise<MigrationStepResult>;
+  run: (configFile: ConfigFile, options?: BackendMigrationOptions) => Promise<MigrationStepResult>;
 }> = [
   {
     name: 'migrateLegacyMcpConfigToDb',
@@ -383,8 +459,12 @@ const MIGRATION_STEPS: Array<{
     run: async () => (await ensureCommandEveLocalRuntimeProvider(), true),
   },
   {
+    name: 'ensureCommandEveManagedImageProvider',
+    run: async () => (await ensureCommandEveManagedImageProvider(), true),
+  },
+  {
     name: 'ensureBootstrapMcpServersInDb',
-    run: async (configFile) => (await ensureBootstrapMcpServersInDb(configFile), true),
+    run: async (configFile, options) => (await ensureBootstrapMcpServersInDb(configFile, options), true),
   },
   { name: 'migrateAssistantsToBackend', run: async (configFile) => migrateAssistantsToBackend(configFile) },
 ];
@@ -415,7 +495,10 @@ async function syncBuiltinMcpConfig(configFile: ConfigFile): Promise<void> {
   );
 }
 
-export async function runBackendMigrations(configFile: ConfigFile): Promise<void> {
+export async function runBackendMigrations(
+  configFile: ConfigFile,
+  options: BackendMigrationOptions = {}
+): Promise<void> {
   await CLEANUP_STEPS.reduce<Promise<void>>(async (previous, step) => {
     await previous;
     const start = Date.now();
@@ -431,7 +514,7 @@ export async function runBackendMigrations(configFile: ConfigFile): Promise<void
     await previous;
     const start = Date.now();
     try {
-      const completed = await step.run(configFile);
+      const completed = await step.run(configFile, options);
       const elapsed = Date.now() - start;
       if (!completed) {
         console.warn(`[CommandEVE] Backend migration step incomplete: ${step.name} (${elapsed}ms)`);

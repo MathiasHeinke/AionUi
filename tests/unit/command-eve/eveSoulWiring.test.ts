@@ -216,9 +216,8 @@ describe('EVE soul-wiring: bundled strategy skills copy (real, additive, fail-cl
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-soul-bundle-'));
     const bundledSkillsDir = path.join(root, 'bundled-skills');
     fs.mkdirSync(bundledSkillsDir, { recursive: true });
-    // Every single-folder skill (all allowlisted ids except the marketing-outbound bundle).
+    // Every curated runtime skill is an independently reviewable root skill.
     for (const id of EVE_STRATEGY_SKILL_IDS) {
-      if (id === 'marketing-outbound') continue;
       const dir = path.join(bundledSkillsDir, id);
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, 'SKILL.md'), `# ${id}\nReal strategy skill content for ${id}.\n`);
@@ -228,26 +227,16 @@ describe('EVE soul-wiring: bundled strategy skills copy (real, additive, fail-cl
         fs.writeFileSync(path.join(dir, 'references', 'templates', 'build_ebook.sh'), '#!/bin/sh\n');
       }
     }
-    // marketing-outbound is a BUNDLE: no top-level SKILL.md, nested sub-skills.
-    const moRoot = path.join(bundledSkillsDir, 'marketing-outbound');
-    const sub1 = path.join(moRoot, 'icp-definer');
-    const sub2 = path.join(moRoot, 'copywriting-linkedin-dm');
-    fs.mkdirSync(sub1, { recursive: true });
-    fs.mkdirSync(sub2, { recursive: true });
-    fs.writeFileSync(path.join(sub1, 'SKILL.md'), '# icp-definer\nnested sub-skill\n');
-    fs.writeFileSync(path.join(sub2, 'SKILL.md'), '# copywriting-linkedin-dm\nnested sub-skill\n');
-
     const paths = resolveCommandEveRuntimeBootstrapPaths(path.join(root, 'userData'));
     return { root, bundledSkillsDir, paths };
   };
 
-  it('lands all 36 allowlisted strategy skills with real (non-stub) content', () => {
+  it('lands all 37 allowlisted strategy skills with real (non-stub) content', () => {
     const { root, bundledSkillsDir, paths } = makeFixture();
     try {
       const failures = copyBundledStrategySkills(paths, bundledSkillsDir);
       expect(failures).toEqual([]);
       for (const id of EVE_STRATEGY_SKILL_IDS) {
-        if (id === 'marketing-outbound') continue;
         const dest = path.join(paths.managedSkillsRoot, id, 'SKILL.md');
         expect(fs.existsSync(dest), `${id}/SKILL.md must land`).toBe(true);
         expect(fs.readFileSync(dest, 'utf8')).toContain(`Real strategy skill content for ${id}`);
@@ -257,18 +246,6 @@ describe('EVE soul-wiring: bundled strategy skills copy (real, additive, fail-cl
           path.join(paths.managedSkillsRoot, 'book-publishing', 'references', 'templates', 'build_ebook.sh')
         )
       ).toBe(true);
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  });
-
-  it('copies marketing-outbound whole-tree (nested sub-skill SKILL.md files travel)', () => {
-    const { root, bundledSkillsDir, paths } = makeFixture();
-    try {
-      copyBundledStrategySkills(paths, bundledSkillsDir);
-      const moDest = path.join(paths.managedSkillsRoot, 'marketing-outbound');
-      expect(fs.existsSync(path.join(moDest, 'icp-definer', 'SKILL.md'))).toBe(true);
-      expect(fs.existsSync(path.join(moDest, 'copywriting-linkedin-dm', 'SKILL.md'))).toBe(true);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -425,8 +402,8 @@ describe('EVE soul-wiring: internal Operating Rule reconciled to defer to SOUL.m
 describe('EVE onboarding S1: app-owned config-awareness skill (separate from the strategy allowlist)', () => {
   const SKILL_MD = commandEveOnboardingSkillMarkdown();
 
-  it('is its own app-owned skill, NOT in the 36-skill strategy allowlist', () => {
-    expect(EVE_STRATEGY_SKILL_IDS).toHaveLength(36);
+  it('is its own app-owned skill, NOT in the 37-skill strategy allowlist', () => {
+    expect(EVE_STRATEGY_SKILL_IDS).toHaveLength(37);
     expect(EVE_STRATEGY_SKILL_IDS as readonly string[]).not.toContain('eve-onboarding-awareness');
   });
 

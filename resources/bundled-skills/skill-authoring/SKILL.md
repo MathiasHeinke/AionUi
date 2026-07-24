@@ -1,6 +1,7 @@
 ---
 name: skill-authoring
 description: "Author a new EVE skill by extracting the SOP from existing Company.OS doctrine, department packs, scripts and templates into a focused, self-contained SKILL.md that EVE can load and run. Covers the full craft: finding source material, distilling the SOP into skill anatomy, placing artifacts for the deployment pipeline, verifying the result, and — because this is the CURATOR skill that scales to every skill authored after it — the hard guard on what a skill must NEVER do (no guardrail-disabling, no safety/PII-bypass, no ToS/billing circumvention) plus the human-gate every new skill passes before promotion. Use when building a skill from an existing department pack or script, when the operator says 'build a skill for this', or whenever existing Company.OS code needs to become an EVE-consumable SKILL.md."
+disable_model_invocation: true
 ---
 
 # Skill Authoring

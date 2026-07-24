@@ -154,6 +154,11 @@ extraResources:
   # markdown -> no deep-sign/notarize step needed (unlike Resources/python).
   - from: resources/bundled-skills
     to: bundled-skills
+    filter:
+      # Retired DACH-outbound content remains in repository history for audit,
+      # but must not enter the signed app payload or Hermes discovery surface.
+      - '!marketing-outbound'
+      - '!marketing-outbound/**'
   # eve-acp-launcher (SG-1 Design A): the POSIX-sh wrapper that gives the Claude
   # delegate lane a real pause-gate + attribution env. Lands at
   # Contents/Resources/eve-acp-launcher/eve-acp-launcher.sh, where

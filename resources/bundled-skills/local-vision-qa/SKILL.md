@@ -1,6 +1,7 @@
 ---
 name: local-vision-qa
-description: Give yourself eyes ON THIS MAC — visually inspect images, rendered PDFs, logos, screenshots and design drafts with a LOCAL vision model via Ollama, when your active model has no image endpoint (vision_analyze/browser_vision return 502). Structured yes/no questions, opacity/visibility calibration loops, PDF page QA. Images NEVER leave the machine (DSGVO-green). Use when you need to verify what something LOOKS like — a rendered PDF page, a logo conversion, a layout, a watermark — and cloud vision is unavailable or the content is client material that must stay local. NOT for reading text (→ pdftotext), NOT for generating images.
+description: Explicit OFFLINE/ON-DEVICE visual QA via an already installed local model or, only after informed user approval, an optional model download. Use solely when the operator explicitly asks for local, offline, private, or on-device image processing. Never trigger for routine image/PPTX analysis, never treat a cloud-model mismatch as permission to suggest Ollama, and never download a model silently. Images stay on this Mac. NOT for reading text or generating images.
+disable_model_invocation: true
 ---
 
 # Local Vision QA (lokale Bildsicht)
@@ -10,25 +11,38 @@ description: Give yourself eyes ON THIS MAC — visually inspect images, rendere
 > pulled a local vision model herself, calibrated it empirically, and documented
 > the craft. This is her method, hardened for every operator.
 
-You can SEE — locally. When a task needs visual verification (does the rendered
-page look right? is the watermark visible? did the logo convert cleanly?) and your
-active model has no vision endpoint, use a local vision model through Ollama.
+You can SEE — locally, but only when the operator deliberately chooses the
+offline/on-device lane. Routine image and PPTX analysis belongs to Command EVE's
+managed vision path and must not fall through to Ollama because an active chat
+model lacks an image endpoint.
 **The image never leaves this Mac** — that is the point: client material, drafts
 and screenshots stay local, DSGVO-green by construction.
+
+## Hard activation gate
+
+- Activate only after an explicit request such as “lokal”, “offline”, “nur auf
+  diesem Mac”, “on-device” or “darf die Cloud nicht verlassen”.
+- A 502, a non-vision chat model, a PPTX attachment, or “analysiere dieses Bild”
+  is **not** permission to propose, install or pull a local model.
+- For ordinary image/PPTX analysis, use the managed presentation/vision lane.
+- If the operator explicitly chose local-only and no suitable model is already
+  installed, explain the exact download size and trade-off once, then wait for
+  an explicit yes. Declining must never block ordinary cloud analysis outside a
+  local-only request.
 
 ## When to use
 
 - Visual QA of rendered artifacts: PDF pages, HTML→PDF output, social-post images,
   logo/format conversions, layout drafts.
-- "Schau dir das Bild an" when `vision_analyze` / `browser_vision` return 502
-  ("no image endpoint"). **Do NOT retry them after the first 502** — the active
-  model has no vision endpoint; retrying wastes turns. Switch to local vision.
+- Explicitly local/offline “Schau dir das Bild an” requests when the managed
+  cloud lane must not be used.
 - NOT for reading text out of documents — use `pdftotext` (vision models
   hallucinate fine text). NOT for image GENERATION.
 
 ## Model resolution (in this order — never a silent multi-GB download)
 
-1. **Try the already-installed bundled model first.** Probe once whether an
+1. **Only after the hard activation gate passed**, try the already-installed
+   bundled model first. Probe once whether an
    installed `command-eve-gemma4-*` model accepts an `images` payload on
    `POST http://127.0.0.1:11434/api/generate` (tiny test image, short prompt).
    If it answers about the image content: use it — zero extra download.
@@ -42,6 +56,10 @@ and screenshots stay local, DSGVO-green by construction.
 ## The QA loop
 
 ### 1. Render PDF pages as PNG (when the target is a PDF)
+
+Use EVE's managed PDF renderer first. If `pdftoppm` is already available inside
+an approved managed publishing toolchain, the following is a compatible
+fallback. Never install Poppler or another system package during the task.
 
 ```bash
 pdftoppm -png -r 150 -f 1 -l 1 output.pdf cover_page   # page 1 @150 DPI

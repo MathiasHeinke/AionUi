@@ -17,7 +17,8 @@ import {
   type CommandEveSeatRosterEntry,
   type CommandEveSeatSeedRecord,
 } from './assistantBootstrapCore';
-import { COMMAND_EVE_ASSISTANT_ID, isCommandEveFounderBuild } from '@/common/config/commandEveShell';
+import { app } from 'electron';
+import { COMMAND_EVE_ASSISTANT_ID, isCommandEveFounderBuildAllowed } from '@/common/config/commandEveShell';
 import { resolveEffectiveInferenceSelection } from '@/common/config/eveInferenceCore';
 import { readInferenceSelectionFromBackend } from './inferenceSelectionBackendRead';
 import fs from 'fs';
@@ -511,7 +512,7 @@ export async function ensureCommandEveAssistant(
   appVersion: string,
   options: EnsureCommandEveAssistantOptions = {}
 ): Promise<CommandEveAssistantEnsureResult> {
-  const isFounderBuild = isCommandEveFounderBuild();
+  const isFounderBuild = isCommandEveFounderBuildAllowed(Boolean(app?.isPackaged));
   const agents = await loadCommandEveDetectedAgents(backendPort);
   const presetAgentType = selectCommandEvePresetAgentType(agents);
   const agentId = resolveCommandEveAssistantAgentId(agents, presetAgentType);

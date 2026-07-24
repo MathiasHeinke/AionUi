@@ -29,7 +29,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test, expect } from '../../fixtures';
-import { httpGet, httpPost, resolveAioncoreBinary } from '../../helpers';
+import {
+  httpGet,
+  httpPost,
+  provisionAioncoreLocalCapability,
+  resolveAioncoreBinary,
+  type AioncoreLocalCapability,
+} from '../../helpers';
 
 // ── Shared constants ────────────────────────────────────────────────────────
 
@@ -249,6 +255,7 @@ test.describe('Built-in Skill Migration (T3)', () => {
   test.describe('Cold-start invariants (sibling backend)', () => {
     let backend: ChildProcess | null = null;
     let dataDir: string = '';
+    let localCapability: AioncoreLocalCapability | null = null;
 
     const baseUrl = `http://127.0.0.1:${SIBLING_BACKEND_PORT}`;
 
@@ -257,7 +264,7 @@ test.describe('Built-in Skill Migration (T3)', () => {
       while (Date.now() < deadline) {
         try {
           // eslint-disable-next-line no-await-in-loop -- sequential polling by design
-          const r = await fetch(`${baseUrl}/api/system/info`);
+          const r = await fetch(`${baseUrl}/api/system/info`, { headers: localCapability?.headers });
           if (r.ok) return;
         } catch {
           // keep polling
@@ -271,7 +278,10 @@ test.describe('Built-in Skill Migration (T3)', () => {
     async function httpJson<T>(method: string, route: string, body?: unknown): Promise<T> {
       const res = await fetch(`${baseUrl}${route}`, {
         method,
-        headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+        headers: {
+          ...localCapability?.headers,
+          ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        },
         body: body !== undefined ? JSON.stringify(body) : undefined,
       });
       if (!res.ok) {
@@ -301,6 +311,7 @@ test.describe('Built-in Skill Migration (T3)', () => {
 
     async function startBackend(): Promise<void> {
       const bin = resolveAioncoreBinary();
+      localCapability = provisionAioncoreLocalCapability(dataDir);
       const logPath = path.join(dataDir, 'sibling-aioncore.log');
       const logFd = fs.openSync(logPath, 'a');
       const parentEnv = { ...process.env };
@@ -310,12 +321,27 @@ test.describe('Built-in Skill Migration (T3)', () => {
       delete parentEnv.AIONUI_E2E_TEST;
       delete parentEnv.AIONUI_CDP_PORT;
       delete parentEnv.AIONUI_BUILTIN_SKILLS_PATH;
-      backend = spawn(bin, ['--local', '--port', String(SIBLING_BACKEND_PORT), '--data-dir', dataDir], {
-        stdio: ['ignore', logFd, logFd],
-        env: { ...parentEnv, RUST_LOG: 'warn' },
-      });
+      backend = spawn(
+        bin,
+        [
+          '--local',
+          '--local-capability-file',
+          localCapability.filePath,
+          '--local-origin',
+          'null',
+          '--port',
+          String(SIBLING_BACKEND_PORT),
+          '--data-dir',
+          dataDir,
+        ],
+        {
+          stdio: ['ignore', logFd, logFd],
+          env: { ...parentEnv, RUST_LOG: 'warn' },
+        }
+      );
       try {
         await waitForHealthy();
+        fs.rmSync(localCapability.filePath, { force: true });
       } catch (err) {
         const tail = fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8').slice(-2000) : '(no log)';
         throw new Error(`${(err as Error).message}\n--- sibling backend log tail ---\n${tail}`, { cause: err });
@@ -324,10 +350,12 @@ test.describe('Built-in Skill Migration (T3)', () => {
 
     test.beforeEach(() => {
       dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aionui-e2e-builtin-skill-'));
+      localCapability = null;
     });
 
     test.afterEach(async () => {
       await stopBackend();
+      localCapability = null;
       if (dataDir && fs.existsSync(dataDir)) {
         fs.rmSync(dataDir, { recursive: true, force: true });
       }

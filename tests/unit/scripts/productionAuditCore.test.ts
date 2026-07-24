@@ -1,3 +1,7 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+
 import { describe, expect, it } from 'vitest';
 
 import { evaluateProductionAudit, flattenBunAuditReport } from '../../../scripts/security/production-audit-core.mjs';
@@ -46,6 +50,19 @@ function buildLedger(overrides: Record<string, unknown> = {}) {
 }
 
 describe('production dependency audit gate', () => {
+  it('runs the supported complete-lockfile Bun audit command and keeps the security ledger in PR scope', () => {
+    const gateSource = fs.readFileSync(path.resolve('scripts/security/production-audit-gate.mjs'), 'utf8');
+    const workflow = fs.readFileSync(path.resolve('.github/workflows/pr-checks.yml'), 'utf8');
+    const ledger = JSON.parse(
+      fs.readFileSync(path.resolve('docs/security/production-advisory-exceptions.json'), 'utf8')
+    );
+
+    expect(gateSource).toContain("spawnSync('bun', ['audit', '--json']");
+    expect(gateSource).not.toContain("['audit', '--production', '--json']");
+    expect(workflow).not.toContain("- 'docs/**'");
+    expect(ledger.policy.scope).toContain('complete lockfile');
+  });
+
   it('accepts an exactly matched, unexpired and unreachable advisory exception', () => {
     const receipt = evaluateProductionAudit({
       auditReport: { '@hono/node-server': [ADVISORY] },
@@ -138,5 +155,23 @@ describe('production dependency audit gate', () => {
 
   it('rejects malformed Bun audit payloads instead of treating them as zero advisories', () => {
     expect(() => flattenBunAuditReport([])).toThrow('must be a JSON object');
+  });
+
+  it('rejects test-only CLI hooks unless the explicit env var enables them (F-15)', () => {
+    const gate = path.resolve('scripts/security/production-audit-gate.mjs');
+    const blocked = spawnSync(process.execPath, [gate, '--now', '2026-07-23T00:00:00.000Z', '--json'], {
+      encoding: 'utf8',
+      env: { ...process.env, COMMAND_EVE_AUDIT_GATE_TEST_HOOKS: '' },
+    });
+    expect(blocked.status).not.toBe(0);
+    expect(`${blocked.stdout}${blocked.stderr}`).toContain('test-only hooks');
+
+    // With the env var set the hook parses (the run itself may still fail later
+    // on audit/ledger content — this only proves the hook gate opened).
+    const allowed = spawnSync(process.execPath, [gate, '--now', '2026-07-23T00:00:00.000Z', '--json'], {
+      encoding: 'utf8',
+      env: { ...process.env, COMMAND_EVE_AUDIT_GATE_TEST_HOOKS: '1' },
+    });
+    expect(`${allowed.stdout}${allowed.stderr}`).not.toContain('test-only hooks');
   });
 });

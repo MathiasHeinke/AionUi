@@ -147,6 +147,47 @@
       "error": "PDF konnte nicht verarbeitet werden · Nachricht blieb ungesendet"
     }
   },
+  "documents": {
+    "preparationInProgress": "EVE bereitet deine Datei bereits für die Analyse vor. Dein Entwurf bleibt erhalten."
+  },
+  "presentation": {
+    "cloudVisionTitle": "Visuelle Analyse dieser Präsentation erlauben?",
+    "cloudVisionDescription": "EVE hat {{files}} lokal geprüft. Für Diagramme, Bilder und Layout werden nur gerenderte Folienvorschauen einmalig über die verwaltete Command-EVE-Cloud verarbeitet: Zero Data Retention, kein Training und kein Anbieter-Key in der App. Die PPTX-Datei selbst bleibt auf diesem Mac. Abbrechen lässt Entwurf und Datei ungesendet.",
+    "cloudVisionConfirm": "Folien einmal analysieren",
+    "selectedDocuments": "die ausgewählte Präsentation",
+    "prepareFailed": "EVE konnte diese Präsentation nicht sicher vorbereiten. Die Nachricht wurde nicht gesendet.",
+    "cloudVisionFailed": "Die visuelle Folienanalyse ist fehlgeschlagen. Nachricht und Präsentation bleiben ungesendet.",
+    "phase": {
+      "reading_presentation_local": "{{count}} Präsentation wird lokal vorbereitet",
+      "reading_presentation_local_other": "{{count}} Präsentationen werden lokal vorbereitet",
+      "awaiting_cloud_vision": "Präsentation bereit · wartet auf deine Analyse-Freigabe",
+      "reading_cloud_vision": "Folien werden sicher visuell analysiert",
+      "presentation_handoff": "Präsentation verstanden · Analyse wird an EVE übergeben",
+      "presentation_error": "Präsentation konnte nicht verarbeitet werden · Nachricht blieb ungesendet"
+    }
+  },
+  "image": {
+    "cloudVisionTitle": "Dieses Bild sicher analysieren?",
+    "cloudVisionDescription": "EVE hat {{files}} lokal geprüft. Für die visuelle Analyse wird nur eine verkleinerte Vorschau einmalig über die verwaltete Command-EVE-Cloud verarbeitet: Zero Data Retention, kein Training und kein Anbieter-Key in der App. Das Original bleibt auf diesem Mac. Abbrechen lässt Entwurf und Bild ungesendet.",
+    "cloudVisionConfirm": "Bild einmal analysieren",
+    "selectedImages": "das ausgewählte Bild",
+    "prepareFailed": "EVE konnte dieses Bild nicht sicher vorbereiten. Die Nachricht wurde nicht gesendet.",
+    "cloudVisionFailed": "Die Bildanalyse ist fehlgeschlagen. Nachricht und Bild bleiben ungesendet.",
+    "phase": {
+      "reading_image_local": "{{count}} Bild wird lokal vorbereitet",
+      "reading_image_local_other": "{{count}} Bilder werden lokal vorbereitet",
+      "awaiting_image_cloud_vision": "Bild bereit · wartet auf deine Analyse-Freigabe",
+      "reading_image_cloud_vision": "Bild wird sicher visuell analysiert",
+      "image_handoff": "Bild verstanden · Analyse wird an EVE übergeben",
+      "image_error": "Bild konnte nicht verarbeitet werden · Nachricht blieb ungesendet"
+    }
+  },
+  "visual": {
+    "managedCloudTitle": "Diese visuelle Analyse sicher in der Cloud beantworten?",
+    "managedCloudDescription": "EVE hat {{files}} lokal vorbereitet. Für die vollständige Antwort werden ausschließlich die vorbereiteten, begrenzten Vorschauen und extrahierten Inhalte einmalig über den verwalteten OpenRouter-ZDR-Pfad verarbeitet: kein Training, kein Anbieter-Key in der App. Originaldateien bleiben auf diesem Mac. Abbrechen lässt Entwurf und Dateien ungesendet.",
+    "managedCloudConfirm": "Einmal sicher analysieren",
+    "managedCloudFailed": "Die verwaltete visuelle Analyse konnte nicht freigegeben werden. Entwurf und Dateien bleiben ungesendet."
+  },
   "commandEveRuntimePreparing": "EVE bereitet die lokale Runtime vor. Das kann beim ersten Start oder nach Modellwechsel etwas dauern.",
   "commandEveRuntimeNotReady": "EVE kann noch nicht senden: {{reason}}",
   "createFailed": "Gespräch konnte nicht erstellt werden",

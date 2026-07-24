@@ -226,7 +226,8 @@ tree. This helps the operator see the full path and reduces uncertainty — it i
 
 **Technique — Graphviz decision tree:**
 
-1. Install: `brew install graphviz`
+1. If the managed visual lane or an already-installed `dot` binary is
+   available, use it. Never install Graphviz during the legal task.
 2. Write a `.dot` file with all scenarios (video removed/not, Unterlassung
    signed/not, Auskunft correct/not, payment yes/no)
 3. Generate: `dot -Tpng -Gdpi=150 input.dot -o output.png`

@@ -35,6 +35,7 @@ import {
   copyFounderOpsSkills,
   resolveFounderOpsSkillsDir,
   EVE_STRATEGY_SKILL_IDS,
+  RETIRED_COMMAND_EVE_MANAGED_SKILL_IDS,
   buildCommandEveEnvironmentHint,
   yamlDoubleQuote,
   stripYamlUnprintables,
@@ -195,8 +196,8 @@ const makeHarness = (
     if (command.endsWith('/bin/python') && args.includes('pip')) {
       const installTarget = args.at(-1) || '';
       if (
-        installTarget === 'hermes-agent[acp]==0.17.0' ||
-        installTarget.endsWith('hermes_agent-0.17.0-py3-none-any.whl[acp]')
+        installTarget === 'hermes-agent[acp,mcp]==0.17.0' ||
+        installTarget.endsWith('hermes_agent-0.17.0-py3-none-any.whl[acp,mcp]')
       ) {
         hermesVersion = '0.17.0';
         fs.writeFileSync(path.join(path.dirname(command), 'hermes'), '#!/usr/bin/env bash\n');
@@ -307,6 +308,7 @@ describe('Command EVE runtime bootstrap core', () => {
     expect(DEFAULT_COMMAND_EVE_CAPABILITY_PACK.release).toBe(packageJson.version);
     expect(publicBrand.version).toBe(`v${COMMAND_EVE_MARKETING_VERSION}`);
     expect(publicRuntimeBootstrap.release).toBe(packageJson.version);
+    expect([...publicRuntimeBootstrap.hermes.extras].sort()).toEqual(['acp', 'mcp']);
     expect(publicCapabilityPack.release).toBe(packageJson.version);
     for (const id of ['autor-studio', 'essay-writer', 'book-publishing', 'premium-website-builder']) {
       expect(publicCapabilityPack.skills.find((skill) => skill.id === id)?.default_state).toBe('active');
@@ -330,6 +332,25 @@ describe('Command EVE runtime bootstrap core', () => {
     fs.writeFileSync(asarManifestPath, '{"release":"stale"}\n');
 
     expect(resolveCommandEveRuntimeBootstrapManifestPath({ appPath, resourcesPath })).toBe(manifestPath);
+  });
+
+  it('prefers current public source manifests over stale out/renderer bytes in an unpackaged dev app', () => {
+    const root = makeRoot();
+    const resourcesPath = path.join(root, 'Electron.app', 'Contents', 'Resources');
+    const publicDir = path.join(root, 'public');
+    const outDir = path.join(root, 'out', 'renderer');
+    fs.mkdirSync(resourcesPath, { recursive: true });
+    fs.mkdirSync(publicDir, { recursive: true });
+    fs.mkdirSync(outDir, { recursive: true });
+    const publicRuntime = path.join(publicDir, 'command-eve-runtime-bootstrap.json');
+    const publicCapabilities = path.join(publicDir, 'command-eve-capabilities.json');
+    fs.writeFileSync(publicRuntime, '{"release":"current"}\n');
+    fs.writeFileSync(publicCapabilities, '{"release":"current"}\n');
+    fs.writeFileSync(path.join(outDir, 'command-eve-runtime-bootstrap.json'), '{"release":"stale"}\n');
+    fs.writeFileSync(path.join(outDir, 'command-eve-capabilities.json'), '{"release":"stale"}\n');
+
+    expect(resolveCommandEveRuntimeBootstrapManifestPath({ appPath: root, resourcesPath })).toBe(publicRuntime);
+    expect(resolveCommandEveCapabilityManifestPath({ appPath: root, resourcesPath })).toBe(publicCapabilities);
   });
 
   it('resolves and validates the packaged Command EVE capability pack', () => {
@@ -415,6 +436,44 @@ describe('Command EVE runtime bootstrap core', () => {
     expect(startupReceipt.status).toBe('ready');
     expect(userTriggeredReceipt.status).toBe('ready');
     expect(prematurePipCalls).toBe(0);
+  });
+
+  it('keeps the terminal-receipt consumer inside the runtime queue lease', async () => {
+    const root = makeRoot();
+    let signalFirstConsumer!: () => void;
+    const firstConsumerStarted = new Promise<void>((resolve) => {
+      signalFirstConsumer = resolve;
+    });
+    let releaseFirstConsumer!: () => void;
+    const firstConsumerMayFinish = new Promise<void>((resolve) => {
+      releaseFirstConsumer = resolve;
+    });
+    let secondConsumerStarted = false;
+
+    const first = ensureCommandEveRuntimeBootstrap({
+      userDataPath: root,
+      mode: 'off',
+      afterBootstrapExclusive: async (receipt) => {
+        expect(receipt.status).toBe('skipped');
+        signalFirstConsumer();
+        await firstConsumerMayFinish;
+      },
+    });
+    await firstConsumerStarted;
+
+    const second = ensureCommandEveRuntimeBootstrap({
+      userDataPath: root,
+      mode: 'off',
+      afterBootstrapExclusive: () => {
+        secondConsumerStarted = true;
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(secondConsumerStarted).toBe(false);
+    releaseFirstConsumer();
+    await Promise.all([first, second]);
+    expect(secondConsumerStarted).toBe(true);
   });
 
   // prettier-ignore
@@ -914,12 +973,13 @@ describe('Command EVE runtime bootstrap core', () => {
         blocked_external_mcp_transports: string[];
       };
       expect(reconciliation.executable_skill_ids).toContain('first-run-company-discovery');
-      // 1.2.14: content-machine et al. are now executable (real bundled SKILL.md); department-pack-creator stays a prompt-label.
+      // Every surfaced production capability is now backed by a real skill;
+      // stale prompt-only labels were removed from the operator catalog.
       expect(reconciliation.executable_skill_ids).toContain('content-machine');
       for (const id of ['autor-studio', 'essay-writer', 'book-publishing']) {
         expect(reconciliation.executable_skill_ids).toContain(id);
       }
-      expect(reconciliation.prompt_label_skill_ids).toContain('department-pack-creator');
+      expect(reconciliation.prompt_label_skill_ids).toEqual([]);
       expect(reconciliation.hermes_config.skills_external_dirs).toEqual(['${HERMES_HOME}/skills-command-eve']);
       expect(reconciliation.hermes_config.mcp_servers).toEqual([]);
       expect(reconciliation.hermes_config.platform_toolsets).toEqual({ cli: ['hermes-cli'], acp: ['hermes-acp'] });
@@ -1256,8 +1316,8 @@ describe('Command EVE runtime bootstrap core', () => {
       });
 
       expect(receipt.status).toBe('ready');
-      expect(harness.commands.some((command) => command.includes(`${wheelPath}[acp]`))).toBe(true);
-      expect(harness.commands.some((command) => command.includes('hermes-agent[acp]==0.17.0'))).toBe(false);
+      expect(harness.commands.some((command) => command.includes(`${wheelPath}[acp,mcp]`))).toBe(true);
+      expect(harness.commands.some((command) => command.includes('hermes-agent[acp,mcp]==0.17.0'))).toBe(false);
     });
   });
 
@@ -1298,9 +1358,7 @@ describe('Command EVE runtime bootstrap core', () => {
         'Repaired hermes-agent 0.17.0'
       );
       expect(
-        harness.commands.some((command) =>
-          command.includes(`pip install --force-reinstall --no-deps ${wheelPath}[acp]`)
-        )
+        harness.commands.some((command) => command.includes(`pip install --force-reinstall ${wheelPath}[acp,mcp]`))
       ).toBe(true);
       expect(harness.commands.some((command) => command.includes('pip install --upgrade pip'))).toBe(false);
 
@@ -1308,9 +1366,10 @@ describe('Command EVE runtime bootstrap core', () => {
         fs.readFileSync(path.join(paths.hermesRoot, 'bundled-wheel-receipt.json'), 'utf8')
       );
       expect(installReceipt).toMatchObject({
-        version: 'command-eve-hermes-wheel-receipt/v1',
+        version: 'command-eve-hermes-wheel-receipt/v2',
         package_version: '0.17.0',
         wheel_sha256: wheelSha256,
+        extras: ['acp', 'mcp'],
       });
 
       const repairCount = harness.commands.filter((command) => command.includes('--force-reinstall')).length;
@@ -2139,9 +2198,8 @@ describe('resolveCommandEveFirstRunProfile registration seed (COMPA-596)', () =>
 // SLICE B2 — bundled EVE strategy skills (real SKILL.md, not boilerplate stubs)
 // ---------------------------------------------------------------------------
 
-// Build a fixture bundled-skills dir: every allowlisted single skill gets a real
-// <id>/SKILL.md, and marketing-outbound gets a BUNDLE (nested sub-skill dirs each
-// with their own SKILL.md) so the whole-tree copy is exercised.
+// Build a fixture bundled-skills dir: every allowlisted skill gets a real
+// <id>/SKILL.md and selected skills carry nested production assets.
 const buildBundledSkillsFixture = (root: string, opts: { omit?: string[] } = {}): string => {
   const omit = new Set(opts.omit || []);
   const dir = path.join(root, 'bundled-skills');
@@ -2150,41 +2208,45 @@ const buildBundledSkillsFixture = (root: string, opts: { omit?: string[] } = {})
     if (omit.has(id)) continue;
     const skillDir = path.join(dir, id);
     fs.mkdirSync(skillDir, { recursive: true });
-    if (id === 'marketing-outbound') {
-      // A bundle: README.md + nested sub-skills, no top-level SKILL.md.
-      fs.writeFileSync(path.join(skillDir, 'README.md'), '# marketing-outbound bundle\n');
-      for (const sub of ['icp-definer', 'offer-definer', 'cold-call-script']) {
-        const subDir = path.join(skillDir, sub);
-        fs.mkdirSync(subDir, { recursive: true });
-        fs.writeFileSync(
-          path.join(subDir, 'SKILL.md'),
-          `---\nname: ${sub}\n---\n\n# ${sub}\n\nReal nested method content for ${sub}.\n`
-        );
-      }
-    } else {
-      fs.writeFileSync(
-        path.join(skillDir, 'SKILL.md'),
-        `---\nname: ${id}\n---\n\n# ${id}\n\nReal strategy method content for ${id} (not a stub).\n`
-      );
-      if (id === 'book-publishing') {
-        fs.mkdirSync(path.join(skillDir, 'references', 'templates'), { recursive: true });
-        fs.writeFileSync(path.join(skillDir, 'references', '01_concept_and_positioning.md'), '# Positioning\n');
-        fs.writeFileSync(path.join(skillDir, 'references', 'templates', 'build_ebook.sh'), '#!/bin/sh\n');
-      }
-      if (id === 'premium-website-builder') {
-        fs.mkdirSync(path.join(skillDir, 'references'), { recursive: true });
-        fs.writeFileSync(
-          path.join(skillDir, 'references', 'poster-first-lazy-video.md'),
-          '# Poster-first lazy video\n'
-        );
-      }
+    fs.writeFileSync(
+      path.join(skillDir, 'SKILL.md'),
+      `---\nname: ${id}\n---\n\n# ${id}\n\nReal strategy method content for ${id} (not a stub).\n`
+    );
+    if (id === 'book-publishing') {
+      fs.mkdirSync(path.join(skillDir, 'references', 'templates'), { recursive: true });
+      fs.writeFileSync(path.join(skillDir, 'references', '01_concept_and_positioning.md'), '# Positioning\n');
+      fs.writeFileSync(path.join(skillDir, 'references', 'templates', 'build_ebook.sh'), '#!/bin/sh\n');
+    }
+    if (id === 'premium-website-builder') {
+      fs.mkdirSync(path.join(skillDir, 'references'), { recursive: true });
+      fs.writeFileSync(path.join(skillDir, 'references', 'poster-first-lazy-video.md'), '# Poster-first lazy video\n');
     }
   }
   return dir;
 };
 
 describe('Command EVE bundled strategy skills (SLICE B2)', () => {
-  it('copies all 36 real strategy skills plus nested author and website assets into managedSkillsRoot', () => {
+  it('removes only exact retired app-owned skill ids on upgrade', () => {
+    const root = makeRoot();
+    const bundledSkillsDir = buildBundledSkillsFixture(root);
+    const paths = resolveCommandEveRuntimeBootstrapPaths(root);
+    const preservedUserSkill = path.join(paths.managedSkillsRoot, 'session-1-artefakt');
+    fs.mkdirSync(preservedUserSkill, { recursive: true });
+    fs.writeFileSync(path.join(preservedUserSkill, 'SKILL.md'), '# user skill\n');
+    for (const id of RETIRED_COMMAND_EVE_MANAGED_SKILL_IDS) {
+      const retired = path.join(paths.managedSkillsRoot, id);
+      fs.mkdirSync(retired, { recursive: true });
+      fs.writeFileSync(path.join(retired, 'SKILL.md'), '# retired\n');
+    }
+
+    expect(copyBundledStrategySkills(paths, bundledSkillsDir)).toEqual([]);
+    for (const id of RETIRED_COMMAND_EVE_MANAGED_SKILL_IDS) {
+      expect(fs.existsSync(path.join(paths.managedSkillsRoot, id)), id).toBe(false);
+    }
+    expect(fs.existsSync(path.join(preservedUserSkill, 'SKILL.md'))).toBe(true);
+  });
+
+  it('copies every real strategy skill plus nested author and website assets into managedSkillsRoot', () => {
     const root = makeRoot();
     const bundledSkillsDir = buildBundledSkillsFixture(root);
     const paths = resolveCommandEveRuntimeBootstrapPaths(root);
@@ -2194,7 +2256,6 @@ describe('Command EVE bundled strategy skills (SLICE B2)', () => {
 
     // Every single skill landed its own SKILL.md with REAL (non-stub) content.
     for (const id of EVE_STRATEGY_SKILL_IDS) {
-      if (id === 'marketing-outbound') continue;
       const md = path.join(paths.managedSkillsRoot, id, 'SKILL.md');
       expect(fs.existsSync(md)).toBe(true);
       const body = fs.readFileSync(md, 'utf8');
@@ -2203,14 +2264,6 @@ describe('Command EVE bundled strategy skills (SLICE B2)', () => {
       expect(body).not.toContain('Command EVE managed core skill for local-first founder onboarding');
     }
 
-    // The bundle's nested sub-skill SKILL.md files travelled (whole-tree copy).
-    for (const sub of ['icp-definer', 'offer-definer', 'cold-call-script']) {
-      const nested = path.join(paths.managedSkillsRoot, 'marketing-outbound', sub, 'SKILL.md');
-      expect(fs.existsSync(nested)).toBe(true);
-      expect(fs.readFileSync(nested, 'utf8')).toContain('Real nested method content');
-    }
-    // The bundle README travelled too.
-    expect(fs.existsSync(path.join(paths.managedSkillsRoot, 'marketing-outbound', 'README.md'))).toBe(true);
     expect(
       fs.existsSync(
         path.join(paths.managedSkillsRoot, 'book-publishing', 'references', '01_concept_and_positioning.md')
@@ -2274,17 +2327,16 @@ describe('Command EVE bundled strategy skills (SLICE B2)', () => {
     expect(fs.existsSync(path.join(paths.managedSkillsRoot, 'plan-system', 'SKILL.md'))).toBe(true);
   });
 
-  it('FAILS CLOSED: an empty bundle (no nested SKILL.md) is reported missing', () => {
+  it('FAILS CLOSED: an allowlisted directory without SKILL.md is reported missing', () => {
     const root = makeRoot();
     const bundledSkillsDir = buildBundledSkillsFixture(root);
-    // Strip the bundle's nested sub-skills so it has a dir but no SKILL.md anywhere.
-    fs.rmSync(path.join(bundledSkillsDir, 'marketing-outbound'), { recursive: true, force: true });
-    fs.mkdirSync(path.join(bundledSkillsDir, 'marketing-outbound'), { recursive: true });
-    fs.writeFileSync(path.join(bundledSkillsDir, 'marketing-outbound', 'README.md'), 'only a readme\n');
+    fs.rmSync(path.join(bundledSkillsDir, 'local-vision-qa'), { recursive: true, force: true });
+    fs.mkdirSync(path.join(bundledSkillsDir, 'local-vision-qa'), { recursive: true });
+    fs.writeFileSync(path.join(bundledSkillsDir, 'local-vision-qa', 'README.md'), 'only a readme\n');
     const paths = resolveCommandEveRuntimeBootstrapPaths(root);
 
     const failures = copyBundledStrategySkills(paths, bundledSkillsDir);
-    expect(failures).toContain('capabilities.bundled_skill_missing:marketing-outbound');
+    expect(failures).toContain('capabilities.bundled_skill_missing:local-vision-qa');
   });
 
   it('is a no-op (no failures) when no bundled-skills dir is resolvable', () => {

@@ -4,14 +4,16 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import path from 'node:path';
 import type { BrowserWindow } from 'electron';
-import { ipcMain } from 'electron';
+import { app, ipcMain } from 'electron';
 
 import { bridge } from '@office-ai/platform';
-import { isCommandEveFounderBuild } from '../config/commandEveShell';
+import { isCommandEveFounderBuildAllowed } from '../config/commandEveShell';
 import { ADAPTER_BRIDGE_EVENT_KEY } from './constant';
 import { registerWebSocketBroadcaster, getBridgeEmitter, setBridgeEmitter, broadcastToAll } from './registry';
 import { parseRendererToMainAdapterEvent } from './security/bridgePolicy';
+import { isTrustedMainRendererUrl } from '../../process/security/mainWindowSecurityCore';
 
 /**
  * Bridge event data structure for IPC communication
@@ -47,6 +49,15 @@ export function isTrustedAdapterIpcSender(event: AdapterIpcEvent): boolean {
   const sender = event.sender;
   if (!sender || sender.isDestroyed()) return false;
   if (!event.senderFrame || event.senderFrame !== sender.mainFrame) return false;
+  if (
+    !isTrustedMainRendererUrl(event.senderFrame.url, {
+      isPackaged: app.isPackaged,
+      rendererUrl: process.env['ELECTRON_RENDERER_URL'],
+      fallbackFile: path.join(app.getAppPath(), 'out/renderer/index.html'),
+    })
+  ) {
+    return false;
+  }
   return adapterWindowList.some(
     (win) => !win.isDestroyed() && !win.webContents.isDestroyed() && win.webContents === sender
   );
@@ -55,7 +66,7 @@ export function isTrustedAdapterIpcSender(event: AdapterIpcEvent): boolean {
 function parseBridgeEvent(info: unknown): BridgeEventData {
   return parseRendererToMainAdapterEvent(info, {
     maxPayloadBytes: MAX_IPC_PAYLOAD_SIZE,
-    founderBuild: isCommandEveFounderBuild(),
+    founderBuild: isCommandEveFounderBuildAllowed(app.isPackaged),
   });
 }
 

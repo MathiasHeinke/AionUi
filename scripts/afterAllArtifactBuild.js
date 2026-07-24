@@ -607,13 +607,13 @@ async function verifyNoPrivateKeysShipped(context) {
 }
 
 exports.default = async function afterAllArtifactBuild(context) {
+  // Cross-platform security invariant: Windows/Linux artifacts are just as
+  // capable of leaking a dropped signing key as the notarized macOS lane.
+  await verifyNoPrivateKeysShipped(context);
+
   if (process.platform !== 'darwin') {
     return context.artifactPaths;
   }
-
-  // Fail the build before notarize if any private signing key sneaked into a
-  // shippable path (C2 CI guard).
-  await verifyNoPrivateKeysShipped(context);
 
   // Fail the build before notarize if the built app does NOT stamp the single
   // source-of-truth version (root package.json) into Info.plist + app.asar. This
@@ -672,3 +672,4 @@ exports.buildMacUpdateYml = buildMacUpdateYml;
 exports.metadataFileNameForMacArch = metadataFileNameForMacArch;
 exports.resolveMacUpdateReleaseNotes = resolveMacUpdateReleaseNotes;
 exports.writeMacUpdateFeedMetadata = writeMacUpdateFeedMetadata;
+exports.verifyNoPrivateKeysShipped = verifyNoPrivateKeysShipped;

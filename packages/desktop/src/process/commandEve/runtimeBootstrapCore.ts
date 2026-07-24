@@ -17,6 +17,11 @@ import {
   COMMAND_EVE_LOCAL_MODEL_TIERS,
 } from '../../common/config/commandEveShell';
 import { COMMAND_EVE_CONTEXT_COMPRESSION_THRESHOLD } from '../../common/config/eveContextPolicyCore';
+import {
+  COMMAND_EVE_MANAGED_IMAGE_MODEL,
+  COMMAND_EVE_MANAGED_IMAGE_PLATFORM,
+  COMMAND_EVE_MANAGED_IMAGE_PROVIDER_ID,
+} from '../../common/config/eveManagedImageGenerationCore';
 import { isConfirmedCommandEveProfileName, type CommandEveProfileNameSource } from './accountIdentityCore';
 import { readRegistration } from './entitlementCore';
 import { ensureBonsaiPilotArtifacts, readBonsaiInstallStatus } from './localInference/bonsaiProvisioner';
@@ -35,7 +40,8 @@ import {
 } from './seatContextCore';
 import { provisionTeamManageBearerFile } from './eveTeamManageMain';
 import { provisionKanbanAcpBearerFile } from './kanbanAcpMain';
-import { provisionCommandEveShimAuthTokenFile } from './ollamaOpenAiShim';
+import { commandEveShimAuthTokenFilePath, provisionCommandEveShimAuthTokenFile } from './ollamaOpenAiShim';
+import { getBuiltinMcpScriptPath } from '../utils/builtinMcpPath';
 import { honchoMcpServerForSeat } from './honchoMcpServerCore';
 import {
   eveHonchoMemoryDirective,
@@ -69,6 +75,14 @@ import {
   sha256FileIfPresent,
   type BundledPythonProvenance,
 } from './windows/runtimeProvenanceCore';
+import {
+  commandEvePresentationPythonInstallArgs,
+  commandEvePresentationPythonProbeArgs,
+  resolveCommandEveArtifactPythonSiteDir,
+  resolveCommandEvePresentationPythonBundleDir,
+  verifyCommandEveArtifactPythonSite,
+  verifyCommandEvePresentationPythonBundle,
+} from './presentationPythonRuntimeCore';
 
 export const COMMAND_EVE_RUNTIME_BOOTSTRAP_VERSION = 'command-eve-runtime-bootstrap/v0';
 
@@ -80,7 +94,7 @@ const DEFAULT_MODEL_REF = 'hf.co/tripolskypetr/Gemma-4-Uncensored-Aggressive-GGU
 const DEFAULT_HERMES_VERSION = '0.17.0';
 const DEFAULT_HERMES_PACKAGE = 'hermes-agent';
 export const COMMAND_EVE_BUNDLED_HERMES_WHEEL_SHA256 =
-  'e4dfb547c79aaa81eb0c79995512b7818e6c5041ea3206d09b4555420fad83d9';
+  'a0a5427f6025474288af4399fa277e871813d6b409ad253fd5154bb30d7e62d9';
 const COMMAND_EVE_HERMES_WHEEL_RECEIPT_FILE = 'bundled-wheel-receipt.json';
 const DEFAULT_FAST_CONTEXT_LENGTH = 65_536;
 const DEFAULT_LONG_CONTEXT_LENGTH = 65_536;
@@ -124,9 +138,9 @@ const BUNDLED_SKILLS_DIR = 'bundled-skills';
 const COMMAND_EVE_SKILLS_DIR_ENV = 'COMMAND_EVE_SKILLS_DIR';
 // The curated EVE strategy skill ids that ship bundled and get copied into
 // managedSkillsRoot at first run. EXPLICIT allowlist — kept in lockstep with
-// scripts/fetch-bundled-skills.mjs EVE_STRATEGY_SKILL_IDS. marketing-outbound is a
-// BUNDLE (nested sub-skill dirs); the rest are single-folder skills. The
-// whole-tree copy below handles both shapes.
+// scripts/fetch-bundled-skills.mjs EVE_STRATEGY_SKILL_IDS. Every allowlisted
+// entry is an independently curated root skill. Nested legacy bundles are not
+// shipped merely because their parent directory exists.
 export const EVE_STRATEGY_SKILL_IDS = [
   'eve-doctrine',
   'plan-system',
@@ -145,13 +159,12 @@ export const EVE_STRATEGY_SKILL_IDS = [
   // through responsive/browser QA. Public deployment remains human-gated.
   'premium-website-builder',
   'human-design-profile',
-  'marketing-outbound',
   // blog-writer: a REAL, executable long-form/blog skill (was previously only a fake
   // "blog-department" prompt label with no SKILL.md). On-voice (pulls USER.md), SEO-aware,
   // claim-safe (UWG/DSGVO), never publishes — produces a draft for the human-gated flow.
   'blog-writer',
   // founder-voice: captures the operator's (or a client's) writing voice from real samples into a
-  // reusable voice profile in USER.md, so blog-writer/marketing-outbound/landing-copy write like
+  // reusable voice profile in USER.md, so blog-writer and landing-copy write like
   // THEM. Never invents a voice; per-client isolation. Pairs with the memory-bootstrap USER.md seed.
   'founder-voice',
   // Author production pack: autor-studio preserves the requested genre, essay-writer
@@ -186,11 +199,18 @@ export const EVE_STRATEGY_SKILL_IDS = [
   // brainstorm-divergent = wide divergent idea generator that FEEDS option-tournament.
   'challenge-engine',
   'brainstorm-divergent',
-  // local-vision-qa (2026-07-03): HARVESTED FROM AN EVE-AUTHORED FIELD SKILL —
-  // local visual QA via Ollama vision model (opt-in download, images never
-  // leave the Mac). See scripts/fetch-bundled-skills.mjs for provenance + the
-  // open model-license gate.
+  // local-vision-qa (2026-07-03): explicit OFFLINE/ON-DEVICE lane only. Routine
+  // images and PPTX files use the managed presentation/vision preprocessor;
+  // a non-vision chat model must never trigger an Ollama suggestion or download.
   'local-vision-qa',
+  // visual-direction-gate keeps taste selection in Hermes' skill layer: EVE
+  // generates and shows three source-grounded directions, waits for 1/2/3, then
+  // locks the chosen image before an editable PPTX/PDF/site build begins.
+  'visual-direction-gate',
+  // presentation-studio is the consumer-facing PPTX workflow over the managed
+  // Office engine. It analyzes, edits or redesigns complete editable decks and
+  // invokes the visual-direction gate when no target has been approved yet.
+  'presentation-studio',
   // 4 further EVE-authored field skills harvested + hardened (2026-07-03).
   'ai-coding-delegation',
   'lead-magnet-pdf',
@@ -199,6 +219,14 @@ export const EVE_STRATEGY_SKILL_IDS = [
   // First conversation-ingest adapter. Its bundled scripts keep PLAUD source
   // metadata and recording content behind the local content firewall.
   'plaud-recording-ingest',
+] as const;
+// Generated-runtime cleanup list. These ids previously landed in the app-owned
+// managed skill directory but are no longer approved for Hermes discovery.
+// Removing only these exact ids preserves every user-authored or unknown skill.
+export const RETIRED_COMMAND_EVE_MANAGED_SKILL_IDS = [
+  'marketing-outbound',
+  'blog-department',
+  'department-pack-creator',
 ] as const;
 const COMMAND_EVE_CAPABILITIES_FILE = 'command-eve-capabilities.json';
 const COMMAND_EVE_MANAGED_SKILLS_DIR = 'skills-command-eve';
@@ -484,6 +512,7 @@ export type RuntimeBootstrapStageId =
   | 'capacity'
   | 'python'
   | 'hermes'
+  | 'presentation-python'
   | 'web'
   | 'ollama'
   | 'model'
@@ -758,6 +787,13 @@ export type RuntimeBootstrapOptions = {
   egressProxyUrl?: string;
   runner?: RuntimeBootstrapRunner;
   detachedSpawner?: RuntimeBootstrapDetachedSpawner;
+  /**
+   * Runs after this bootstrap has produced its terminal receipt but before the
+   * per-runtime queue lease is released. Keep this callback bounded: it exists
+   * for consumers such as the local-model warm-up that must verify the terminal
+   * receipt without a following bootstrap overwriting it with partial progress.
+   */
+  afterBootstrapExclusive?: (receipt: RuntimeBootstrapReceipt) => void | Promise<void>;
   now?: () => Date;
   statfs?: (targetPath: string) => { bavail: number; bsize: number };
   totalMemoryBytes?: number;
@@ -813,7 +849,7 @@ export type RuntimeBootstrapOptions = {
 
 export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
   version: 'command-eve-capability-pack/v0',
-  release: '1.818.0',
+  release: '1.819.0',
   policy: {
     default_mode: 'proposal_only',
     secret_rule: 'Never ask for passwords, cookies, recovery codes, raw tokens or .env contents in chat.',
@@ -857,6 +893,125 @@ export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
       default_state: 'active',
     },
     {
+      id: 'eve-doctrine',
+      name: 'EVE operating doctrine',
+      tier: 'core',
+      source: 'Command EVE operating doctrine',
+      default_state: 'active',
+    },
+    {
+      id: 'plan-system',
+      name: 'Goal and plan system',
+      tier: 'autonomy_core',
+      source: 'Command EVE planning toolbelt',
+      default_state: 'active',
+    },
+    {
+      id: 'pre-mortem',
+      name: 'Pre-mortem',
+      tier: 'department',
+      source: 'Command EVE reasoning toolbelt',
+      default_state: 'active',
+    },
+    {
+      id: 'business-diagnostic',
+      name: 'Business diagnostic',
+      tier: 'department',
+      source: 'Command EVE strategy toolbelt',
+      default_state: 'active',
+    },
+    {
+      id: 'icp-persona-panel',
+      name: 'Customer persona panel',
+      tier: 'department',
+      source: 'Command EVE strategy toolbelt',
+      default_state: 'active',
+    },
+    {
+      id: 'decision-brief',
+      name: 'Decision brief',
+      tier: 'department',
+      source: 'Command EVE reasoning toolbelt',
+      default_state: 'active',
+    },
+    {
+      id: 'deep-research',
+      name: 'Deep research',
+      tier: 'department',
+      source: 'Command EVE research toolbelt',
+      default_state: 'active',
+    },
+    {
+      id: 'gtm-strategy',
+      name: 'Go-to-market strategy',
+      tier: 'department',
+      source: 'Command EVE strategy toolbelt',
+      default_state: 'active',
+    },
+    {
+      id: 'customer-discovery',
+      name: 'Customer discovery',
+      tier: 'department',
+      source: 'Command EVE strategy toolbelt',
+      default_state: 'active',
+    },
+    {
+      id: 'business-architecture',
+      name: 'Business architecture',
+      tier: 'department',
+      source: 'Command EVE strategy toolbelt',
+      default_state: 'active',
+    },
+    {
+      id: 'hiring',
+      name: 'Hiring',
+      tier: 'department',
+      source: 'Command EVE operating toolbelt',
+      default_state: 'active',
+    },
+    {
+      id: 'option-tournament',
+      name: 'Option tournament',
+      tier: 'department',
+      source: 'Command EVE reasoning toolbelt',
+      default_state: 'active',
+    },
+    {
+      id: 'landing-copy',
+      name: 'Landing page copy',
+      tier: 'department',
+      source: 'Command EVE writing toolbelt',
+      default_state: 'active',
+    },
+    {
+      id: 'human-design-profile',
+      name: 'Human Design profile (optional reflection lens)',
+      tier: 'gated_department',
+      source: 'Command EVE optional personal reflection toolbelt',
+      default_state: 'gated',
+    },
+    {
+      id: 'blog-writer',
+      name: 'Blog writer',
+      tier: 'department',
+      source: 'Command EVE writing toolbelt',
+      default_state: 'active',
+    },
+    {
+      id: 'founder-voice',
+      name: 'Founder voice',
+      tier: 'department',
+      source: 'Command EVE writing toolbelt',
+      default_state: 'active',
+    },
+    {
+      id: 'client-report',
+      name: 'Client report',
+      tier: 'department',
+      source: 'Command EVE reporting toolbelt',
+      default_state: 'active',
+    },
+    {
       id: 'autor-studio',
       name: 'Author Studio',
       tier: 'department',
@@ -886,35 +1041,21 @@ export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
     },
     {
       id: 'content-machine',
-      name: 'Content Machine',
+      name: 'Content Operating System',
       tier: 'department',
-      source: 'aionui-hermes-content-machine-skill',
+      source: 'Command EVE content operations skill',
       default_state: 'active',
-    },
-    {
-      id: 'blog-department',
-      name: 'Blog Department',
-      tier: 'department',
-      source: 'aionui-hermes-blog-department-skill',
-      default_state: 'available',
     },
     {
       id: 'video-first-content-engine',
-      name: 'Video-first Content Engine',
+      name: 'Video-to-Content Studio',
       tier: 'department',
-      source: 'aionui-hermes-video-first-content-engine-skill',
+      source: 'Command EVE video content production skill',
       default_state: 'active',
     },
     {
-      id: 'department-pack-creator',
-      name: 'Department Capability Pack Creator',
-      tier: 'department',
-      source: 'aionui-hermes-department-pack-creator-skill',
-      default_state: 'available',
-    },
-    {
       id: 'security-fortress-review',
-      name: 'Security and Fortress review routing',
+      name: 'Security review (explicit approval)',
       tier: 'gated_department',
       source: 'Company.OS security productization gates',
       default_state: 'gated',
@@ -956,7 +1097,7 @@ export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
     },
     {
       id: 'blog-publishing-lane',
-      name: 'Blog and social publishing lane',
+      name: 'Blog and Social Publishing (human-gated)',
       tier: 'department',
       source: 'Command EVE human-gated publishing pipeline',
       default_state: 'active',
@@ -977,16 +1118,30 @@ export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
     },
     {
       id: 'local-vision-qa',
-      name: 'Local vision QA (lokale Bildsicht — images never leave the Mac)',
-      tier: 'department',
+      name: 'Local vision QA (explicit offline/on-device choice only)',
+      tier: 'gated_department',
       source: 'Command EVE local toolbelt (EVE-authored, harvested 2026-07-03)',
+      default_state: 'gated',
+    },
+    {
+      id: 'visual-direction-gate',
+      name: 'Visual direction selection before design-heavy builds',
+      tier: 'department',
+      source: 'Command EVE managed creative-production skill',
+      default_state: 'active',
+    },
+    {
+      id: 'presentation-studio',
+      name: 'Presentation Studio',
+      tier: 'department',
+      source: 'Command EVE managed presentation-production skill',
       default_state: 'active',
     },
     {
       id: 'ai-coding-delegation',
-      name: 'AI coding delegation (subscription-safe tmux lane, composes with delegate_task)',
+      name: 'Coding Task Delegation (explicit approval)',
       tier: 'department',
-      source: 'Command EVE local toolbelt (EVE-authored, harvested 2026-07-03)',
+      source: 'Command EVE supervised local delegation skill',
       // GATED, not active (Codex C2). HONEST SCOPE (re-audit): default_state is a
       // capability-pack LABEL — it drives the stub-write skip (writeCommandEveManagedSkills)
       // and the gated_skill_ids reconciliation list; it does NOT withhold the SKILL.md
@@ -1003,24 +1158,24 @@ export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
     },
     {
       id: 'lead-magnet-pdf',
-      name: 'Lead-Magnet PDF (gated brand-matched asset, real-data-only)',
+      name: 'Lead-Magnet PDF Studio',
       tier: 'department',
-      source: 'Command EVE marketing toolbelt (EVE-authored, harvested 2026-07-03)',
+      source: 'Command EVE lead-magnet production skill',
       default_state: 'active',
     },
     {
       id: 'skill-authoring',
-      name: 'Skill authoring (the curator — with the safety guard + human-gate)',
-      tier: 'department',
-      source: 'Command EVE meta toolbelt (EVE-authored, harvested 2026-07-03)',
-      default_state: 'active',
+      name: 'Skill Authoring (explicit approval)',
+      tier: 'gated_department',
+      source: 'Command EVE curated skill-authoring skill',
+      default_state: 'gated',
     },
     {
       id: 'legal-enforcement-dach',
-      name: 'DACH Abmahnung (ENTWURF only — lawyer signs, human-gated)',
-      tier: 'department',
-      source: 'Command EVE legal toolbelt (EVE-authored, harvested 2026-07-03)',
-      default_state: 'active',
+      name: 'DACH Legal Draft Assistant (lawyer review required)',
+      tier: 'gated_department',
+      source: 'Command EVE DACH legal-draft skill',
+      default_state: 'gated',
     },
   ],
   connectors: [
@@ -1213,11 +1368,13 @@ type PythonLookup = CommandLookup & {
 
 export const DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST: RuntimeBootstrapManifest = {
   version: 'command-eve-runtime-bootstrap-manifest/v0',
-  release: '1.818.0',
+  release: '1.819.0',
   hermes: {
     package: DEFAULT_HERMES_PACKAGE,
     version: DEFAULT_HERMES_VERSION,
-    extras: ['acp'],
+    // ACP is the desktop transport; MCP is required for app-owned capabilities
+    // such as managed image generation. Both are installed by EVE itself.
+    extras: ['acp', 'mcp'],
   },
   local_runtime: {
     provider: 'ollama',
@@ -1447,6 +1604,41 @@ export type CommandEveHermesMcpServer = {
 };
 
 /**
+ * The image generator is an app-owned capability, not a user connector. Hermes
+ * therefore receives it directly in its private 0600 config instead of through
+ * the external-connector vault flag. The loopback bearer itself never enters
+ * config.yaml: the MCP child reads the already-provisioned 0600 token file.
+ */
+export function buildCommandEveManagedImageHermesMcpServer(input: {
+  electronExecutable: string;
+  scriptPath: string;
+  shimBaseUrl: string;
+  authTokenFile: string;
+}): CommandEveHermesMcpServer | undefined {
+  const electronExecutable = input.electronExecutable.trim();
+  const scriptPath = input.scriptPath.trim();
+  const authTokenFile = input.authTokenFile.trim();
+  if (!path.isAbsolute(electronExecutable) || !path.isAbsolute(scriptPath) || !path.isAbsolute(authTokenFile)) {
+    return undefined;
+  }
+  if (!isLoopbackHttpUrl(input.shimBaseUrl)) return undefined;
+
+  return {
+    id: 'aionui-image-generation',
+    command: electronExecutable,
+    args: [scriptPath],
+    env: {
+      ELECTRON_RUN_AS_NODE: '1',
+      AIONUI_IMG_PROVIDER_ID: COMMAND_EVE_MANAGED_IMAGE_PROVIDER_ID,
+      AIONUI_IMG_PLATFORM: COMMAND_EVE_MANAGED_IMAGE_PLATFORM,
+      AIONUI_IMG_BASE_URL: ollamaOpenAiCompatibleBaseUrl(input.shimBaseUrl),
+      AIONUI_IMG_API_KEY_FILE: authTokenFile,
+      AIONUI_IMG_MODEL: COMMAND_EVE_MANAGED_IMAGE_MODEL,
+    },
+  };
+}
+
+/**
  * Render the Hermes `mcp_servers:` config block from vetted connectors. An empty
  * list renders the inline empty map `mcp_servers: {}` — IDENTICAL to the prior
  * hardcoded literal, so first-run output is unchanged until v1.4 populates the
@@ -1637,18 +1829,21 @@ const writeJsonAtomic = (file: string, data: unknown): void => {
 };
 
 type HermesWheelInstallReceipt = {
-  version: 'command-eve-hermes-wheel-receipt/v1';
+  version: 'command-eve-hermes-wheel-receipt/v2';
   package_version: string;
   wheel_sha256: string;
+  extras: string[];
 };
 
 function readHermesWheelInstallReceipt(file: string): HermesWheelInstallReceipt | undefined {
   try {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<HermesWheelInstallReceipt>;
     if (
-      parsed.version !== 'command-eve-hermes-wheel-receipt/v1' ||
+      parsed.version !== 'command-eve-hermes-wheel-receipt/v2' ||
       typeof parsed.package_version !== 'string' ||
-      !/^[a-f0-9]{64}$/.test(String(parsed.wheel_sha256 || ''))
+      !/^[a-f0-9]{64}$/.test(String(parsed.wheel_sha256 || '')) ||
+      !Array.isArray(parsed.extras) ||
+      parsed.extras.some((extra) => typeof extra !== 'string')
     ) {
       return undefined;
     }
@@ -1848,9 +2043,18 @@ export function resolveCommandEveCapabilityManifestPath(options: {
   appPath?: string;
   resourcesPath?: string;
 }): string {
+  const sourcePublicPath =
+    options.appPath && !options.appPath.endsWith('.asar')
+      ? path.join(options.appPath, 'public', COMMAND_EVE_CAPABILITIES_FILE)
+      : '';
   const candidates = [
     compact(options.capabilityManifestPath),
     options.resourcesPath ? path.join(options.resourcesPath, COMMAND_EVE_CAPABILITIES_FILE) : '',
+    // In an unpackaged dev app, `out/renderer` can be a stale production-build
+    // remnant because Vite serves `public/` directly instead of copying it.
+    // Prefer the current source manifest. Packaged appPath ends in app.asar, so
+    // it can never consult a cwd-controlled development file.
+    sourcePublicPath,
     options.appPath ? path.join(options.appPath, 'out', 'renderer', COMMAND_EVE_CAPABILITIES_FILE) : '',
     options.resourcesPath
       ? path.join(options.resourcesPath, 'app.asar', 'out', 'renderer', COMMAND_EVE_CAPABILITIES_FILE)
@@ -1971,9 +2175,16 @@ export function resolveCommandEveRuntimeBootstrapManifestPath(options: {
   appPath?: string;
   resourcesPath?: string;
 }): string {
+  const sourcePublicPath =
+    options.appPath && !options.appPath.endsWith('.asar')
+      ? path.join(options.appPath, 'public', 'command-eve-runtime-bootstrap.json')
+      : '';
   const candidates = [
     compact(options.manifestPath),
     options.resourcesPath ? path.join(options.resourcesPath, 'command-eve-runtime-bootstrap.json') : '',
+    // Same dev-source rule as the capability manifest: an unpackaged Vite app
+    // serves `public/` directly and may leave old bytes in out/renderer.
+    sourcePublicPath,
     options.appPath ? path.join(options.appPath, 'out', 'renderer', 'command-eve-runtime-bootstrap.json') : '',
     options.resourcesPath
       ? path.join(options.resourcesPath, 'app.asar', 'out', 'renderer', 'command-eve-runtime-bootstrap.json')
@@ -2301,9 +2512,8 @@ function writeCommandEveArtifactMenuSkill(paths: RuntimeBootstrapPaths): void {
   fs.writeFileSync(path.join(skillDir, 'SKILL.md'), commandEveArtifactMenuSkillMarkdown(), { mode: 0o600 });
 }
 
-// Recursively copy a directory tree from src into dest (whole-tree so
-// marketing-outbound's 17 nested sub-skills + READMEs travel and Hermes' os.walk
-// discovers every nested SKILL.md). Files land 0o600 (consistent with the rest of
+// Recursively copy a directory tree from src into dest so reviewed nested
+// references and assets travel with their root skill. Files land 0o600 (consistent with the rest of
 // the managed home; the dir is writable so the curator/skill_manage loop can edit
 // AGENT-created skills — never these bundled ones, FACT hermes config.py docstring).
 function copyDirTreeMode600(srcDir: string, destDir: string): void {
@@ -2354,7 +2564,9 @@ function hasAnySkillMd(dir: string): boolean {
 }
 
 // Copy the REAL bundled EVE strategy skills into managedSkillsRoot, ADDITIVELY
-// (on top of the onboarding capability stubs the loop above wrote). This is what
+// (on top of the onboarding capability stubs the loop above wrote), except for
+// exact retired app-owned ids that must be removed from upgraded installations.
+// This is what
 // makes skills.external_dirs serve real eve-doctrine/plan-system/icp-persona-panel
 // method content to the running Hermes agent instead of boilerplate stubs.
 //
@@ -2365,6 +2577,16 @@ function hasAnySkillMd(dir: string): boolean {
 // bare unit-test env), this is a no-op — the stubs still ship and nothing fails.
 export function copyBundledStrategySkills(paths: RuntimeBootstrapPaths, bundledSkillsDir: string): string[] {
   const failures: string[] = [];
+  for (const id of RETIRED_COMMAND_EVE_MANAGED_SKILL_IDS) {
+    const retiredDir = path.join(paths.managedSkillsRoot, id);
+    try {
+      fs.rmSync(retiredDir, { recursive: true, force: true });
+    } catch (error) {
+      failures.push(
+        `capabilities.retired_skill_remove_failed:${id}:${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
   if (!bundledSkillsDir) return failures;
   ensureDir(paths.managedSkillsRoot);
   for (const id of EVE_STRATEGY_SKILL_IDS) {
@@ -2783,6 +3005,65 @@ function pythonBinary(paths: RuntimeBootstrapPaths): string {
   return paths.platform === 'win32'
     ? path.join(paths.hermesVenv, 'Scripts', 'python.exe')
     : path.join(paths.hermesVenv, 'bin', 'python');
+}
+
+const COMMAND_EVE_ARTIFACT_PYTHON_PTH_FILE = 'command-eve-artifact-python.pth';
+
+async function bindCommandEveArtifactPythonSite(input: {
+  paths: RuntimeBootstrapPaths;
+  artifactSite: string;
+  runner: RuntimeBootstrapRunner;
+  env: NodeJS.ProcessEnv;
+}): Promise<{ ok: true; pathFile: string } | { ok: false; reason: string }> {
+  if (!input.artifactSite || /[\r\n]/.test(input.artifactSite)) {
+    return { ok: false, reason: 'artifact_site_path_invalid' };
+  }
+  const siteProbe = await input.runner(
+    pythonBinary(input.paths),
+    ['-c', 'import site; print(site.getsitepackages()[0])'],
+    { env: input.env, timeoutMs: DEFAULT_STAGE_TIMEOUT_MS }
+  );
+  if (!siteProbe.ok) return { ok: false, reason: 'venv_site_packages_probe_failed' };
+  const sitePackages = String(siteProbe.stdout || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .at(-1);
+  if (!sitePackages || !path.isAbsolute(sitePackages)) {
+    return { ok: false, reason: 'venv_site_packages_path_invalid' };
+  }
+  try {
+    const realVenv = fs.realpathSync(input.paths.hermesVenv);
+    const realSitePackages = fs.realpathSync(sitePackages);
+    const relative = path.relative(realVenv, realSitePackages);
+    const siteStat = fs.lstatSync(realSitePackages);
+    if (
+      relative.startsWith('..') ||
+      path.isAbsolute(relative) ||
+      !siteStat.isDirectory() ||
+      siteStat.isSymbolicLink()
+    ) {
+      return { ok: false, reason: 'venv_site_packages_escaped' };
+    }
+    const pathFile = path.join(realSitePackages, COMMAND_EVE_ARTIFACT_PYTHON_PTH_FILE);
+    if (fs.existsSync(pathFile)) {
+      const existing = fs.lstatSync(pathFile);
+      if (!existing.isFile() || existing.isSymbolicLink()) {
+        return { ok: false, reason: 'artifact_path_file_invalid' };
+      }
+      if (fs.readFileSync(pathFile, 'utf8') === `${input.artifactSite}\n`) {
+        fs.chmodSync(pathFile, 0o600);
+        return { ok: true, pathFile };
+      }
+    }
+    const temporary = `${pathFile}.${process.pid}.${Date.now()}.tmp`;
+    fs.writeFileSync(temporary, `${input.artifactSite}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+    fs.renameSync(temporary, pathFile);
+    fs.chmodSync(pathFile, 0o600);
+    return { ok: true, pathFile };
+  } catch (error) {
+    return { ok: false, reason: error instanceof Error ? error.message : 'artifact_path_file_write_failed' };
+  }
 }
 
 function hermesConsoleBinary(paths: RuntimeBootstrapPaths): string {
@@ -4062,6 +4343,17 @@ function writeHermesRuntimeFiles(
   // Vetted external MCP connectors (HumanGate-approved, vault-backed) — empty today;
   // v1.4 populates this via resolveVettedMcpServersForBootstrap. See WO write-slice.
   const vettedMcpServers = resolveVettedMcpServersForBootstrap(capabilityPack, getActiveSeatId(), mcpVaultDeps);
+  const managedImageScriptPath = getBuiltinMcpScriptPath('builtin-mcp-image-gen');
+  const managedImageTokenFile = commandEveShimAuthTokenFilePath(paths.userDataPath);
+  const managedImageMcpServer =
+    fs.existsSync(managedImageScriptPath) && fs.existsSync(managedImageTokenFile)
+      ? buildCommandEveManagedImageHermesMcpServer({
+          electronExecutable: process.execPath,
+          scriptPath: managedImageScriptPath,
+          shimBaseUrl: manifest.local_runtime.egress_proxy_url,
+          authTokenFile: managedImageTokenFile,
+        })
+      : undefined;
   // COMPA-624 Inc.3 — the per-seat Honcho MCP server, or undefined when Honcho is
   // not fresh-ready / has no venv launcher (the builder is fully fail-safe). When
   // present it is prepended to the vetted set for THIS seat (the render input was
@@ -4101,10 +4393,10 @@ function writeHermesRuntimeFiles(
     // can never run away for ~30 min on an unreadable target. Hermes reads it from
     // here (cli.py:3257 -> max_iterations) — its own default is 90.
     `  max_turns: ${DEFAULT_COMMAND_EVE_MAX_TURNS}`,
-    // Disable Hermes' implicit vision pre-analysis path. `text`/`auto` can call
-    // vision_analyze before the main agent even starts; with the current cloud shim
-    // that hard-502s and burns hidden model calls. Native image parts are stripped
-    // fail-closed by the AionUI shim until a vetted Command EVE vision lane exists.
+    // Disable Hermes' implicit vision pre-analysis path. Routine image/PPTX input
+    // is prepared by AionUI's managed, consent-gated presentation lane before the
+    // turn starts. Letting Hermes auto-call vision_analyze would bypass that product
+    // contract and can still hard-502 on a non-vision chat model.
     '  image_input_mode: native',
     // T4 YOU-ARE-HERE: `agent.environment_hint` is appended VERBATIM to the system
     // prompt's environment-hints block (FACT prompt_builder.py:989-1000
@@ -4119,14 +4411,9 @@ function writeHermesRuntimeFiles(
     // it). Omitted when empty so the config stays byte-identical for a degenerate
     // seat context.
     ...(environmentHint ? [`  environment_hint: ${yamlDoubleQuote(environmentHint)}`] : []),
-    // Drop vision_analyze / browser_vision: the cloud lane (V4 Flash) has NO vision,
-    // so any image call HARD-502s ("No endpoints found that support image input")
-    // and the error is fed back as retryable context -> a wasted loop. Hermes
-    // subtracts disabled_toolsets from the enabled set (FACT tools_config.py:61 maps
-    // 'vision' -> vision_analyze, :1463-1467). Vision is currently broken on BOTH
-    // lanes anyway (it routes to the main provider via the shim). REMOVE this line
-    // once local-lane multimodal vision is wired (needs the wheel-side vision
-    // auto-routing fix) so it can be used on the local Gemma lane.
+    // Drop implicit vision_analyze / browser_vision. AionUI owns routine attachments
+    // and the explicit local-vision-qa skill owns only deliberate offline requests;
+    // neither path should silently depend on the selected chat model's image support.
     '  disabled_toolsets:',
     '    - vision',
     // Context auto-compaction threshold (Claude-Code-style: compact LATER, keep
@@ -4193,7 +4480,11 @@ function writeHermesRuntimeFiles(
     // boundary intact rather than force-wiring credentials at first run.
     // Connector emitter (v1.1.0 line): render the vetted EXTERNAL MCP servers
     // (catalog + guided preflight / HumanGate) instead of a hardcoded empty map.
-    ...renderHermesMcpServersYaml(honchoMcpServer ? [honchoMcpServer, ...vettedMcpServers] : vettedMcpServers),
+    ...renderHermesMcpServersYaml(
+      [managedImageMcpServer, honchoMcpServer, ...vettedMcpServers].filter(
+        (server): server is CommandEveHermesMcpServer => Boolean(server)
+      )
+    ),
     // The remember + self-optimize halves of the soul. Both default OFF in code
     // (FACT agent/agent_init.py:1076-1077 memory_enabled/user_profile_enabled
     // default False) so they MUST be emitted explicitly or MEMORY.md/USER.md
@@ -5061,7 +5352,9 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
   const installedHermesWheelMatches = Boolean(
     !bundledHermesWheel ||
     (hermesWheelInstallReceipt?.package_version === manifest.hermes.version &&
-      hermesWheelInstallReceipt.wheel_sha256 === hermesWheelSha256)
+      hermesWheelInstallReceipt.wheel_sha256 === hermesWheelSha256 &&
+      JSON.stringify([...hermesWheelInstallReceipt.extras].sort()) ===
+        JSON.stringify([...manifest.hermes.extras].sort()))
   );
   const hermesRuntimeMatches = hermesInstalled && hermesVersionMatches && installedHermesWheelMatches;
   if (runtimeProvenance.hermes && bundledHermesWheel) {
@@ -5102,7 +5395,7 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
           timeoutMs: DEFAULT_STAGE_TIMEOUT_MS,
         });
     const installArgs = sameVersionWheelRepair
-      ? ['-m', 'pip', 'install', '--force-reinstall', '--no-deps', hermesSpec]
+      ? ['-m', 'pip', 'install', '--force-reinstall', hermesSpec]
       : ['-m', 'pip', 'install', hermesSpec];
     const install = pipUpgrade.ok
       ? await runner(pythonBinary(paths), installArgs, {
@@ -5114,9 +5407,10 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
     if (install.ok && bundledHermesWheel && hermesWheelSha256) {
       try {
         writeJsonAtomic(hermesWheelReceiptPath, {
-          version: 'command-eve-hermes-wheel-receipt/v1',
+          version: 'command-eve-hermes-wheel-receipt/v2',
           package_version: manifest.hermes.version,
           wheel_sha256: hermesWheelSha256,
+          extras: [...manifest.hermes.extras].sort(),
         } satisfies HermesWheelInstallReceipt);
       } catch {
         wheelReceiptWritten = false;
@@ -5144,6 +5438,129 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
     }
   } else {
     pushStage(makeStage('hermes', 'pass', { detail: `Hermes ${installedHermesVersion} already installed.` }));
+  }
+
+  // DOCUMENT ARTIFACT RUNTIME (P0, 1.819). PPTX/DOCX/PDF/XLSX/QR work is a
+  // product capability, not a reason for an agent to run `pip install` during a
+  // customer task. Packaged builds bind the private venv to an exact package set
+  // already embedded under Resources/python and deep-signed before notarization.
+  // Source/dev runs retain a pure-wheel fallback, always --no-index/--no-deps.
+  const artifactSiteDir = resolveCommandEveArtifactPythonSiteDir(env, options.resourcesPath);
+  const artifactSite = artifactSiteDir
+    ? verifyCommandEveArtifactPythonSite(artifactSiteDir)
+    : { ok: false as const, reason: 'artifact_site_missing' };
+  const signedArtifactSiteRequired = pythonUsesBundledCandidate && Boolean(options.resourcesPath);
+  if (signedArtifactSiteRequired && !artifactSite.ok) {
+    const artifactSiteReason = 'reason' in artifactSite ? artifactSite.reason : 'artifact_site_invalid';
+    pushStage(
+      makeStage('presentation-python', mode === 'check' ? 'blocked' : 'failed', {
+        code: 'PRESENTATION_PYTHON_SIGNED_SITE_INVALID',
+        detail: `The packaged app is missing its exact signed document-artifact runtime (${artifactSiteReason}).`,
+      })
+    );
+    return finishReceipt();
+  }
+
+  let pathBinding: Awaited<ReturnType<typeof bindCommandEveArtifactPythonSite>> | undefined;
+  if (artifactSite.ok && mode !== 'check') {
+    pathBinding = await bindCommandEveArtifactPythonSite({
+      paths,
+      artifactSite: artifactSite.directory,
+      runner,
+      env,
+    });
+    if (!pathBinding.ok) {
+      const pathBindingReason = 'reason' in pathBinding ? pathBinding.reason : 'artifact_site_bind_failed';
+      pushStage(
+        makeStage('presentation-python', 'failed', {
+          code: 'PRESENTATION_PYTHON_SITE_BIND_FAILED',
+          detail: `The signed document runtime could not be bound to EVE's private Python environment (${pathBindingReason}).`,
+        })
+      );
+      return finishReceipt();
+    }
+  }
+
+  let presentationPythonProbe = await runner(pythonBinary(paths), commandEvePresentationPythonProbeArgs(), {
+    env,
+    timeoutMs: DEFAULT_STAGE_TIMEOUT_MS,
+  });
+  if (mode === 'check') {
+    const ready = presentationPythonProbe.ok && (!signedArtifactSiteRequired || artifactSite.ok);
+    pushStage(
+      makeStage('presentation-python', ready ? 'pass' : 'blocked', {
+        code: ready ? undefined : 'PRESENTATION_PYTHON_RUNTIME_MISSING',
+        detail: ready
+          ? 'Signed PPTX/DOCX/PDF/XLSX artifact runtime is ready.'
+          : 'The managed document runtime is missing, unbound, or version-mismatched.',
+      })
+    );
+    if (!ready) return finishReceipt();
+  } else if (!presentationPythonProbe.ok) {
+    const started = Date.now();
+    if (artifactSite.ok) {
+      pushStage(
+        makeStage('presentation-python', 'failed', {
+          code: 'PRESENTATION_PYTHON_IMPORT_FAILED',
+          detail: scrubOutput(presentationPythonProbe.stderr || presentationPythonProbe.error),
+          duration_ms: Date.now() - started,
+        })
+      );
+      return finishReceipt();
+    }
+    const bundleDir = resolveCommandEvePresentationPythonBundleDir(env, options.resourcesPath);
+    const bundle = bundleDir
+      ? verifyCommandEvePresentationPythonBundle(bundleDir)
+      : { ok: false as const, reason: 'bundle_directory_missing' };
+    if (!bundle.ok) {
+      const bundleReason = 'reason' in bundle ? bundle.reason : 'bundle_invalid';
+      pushStage(
+        makeStage('presentation-python', 'failed', {
+          code: 'PRESENTATION_PYTHON_BUNDLE_INVALID',
+          detail: `The development build does not contain the exact offline document wheels (${bundleReason}).`,
+          duration_ms: Date.now() - started,
+        })
+      );
+      return finishReceipt();
+    }
+
+    const installArgs = commandEvePresentationPythonInstallArgs(bundle.directory);
+    const install = await runner(pythonBinary(paths), installArgs, {
+      env,
+      timeoutMs: DEFAULT_LONG_STAGE_TIMEOUT_MS,
+    });
+    if (install.ok) {
+      presentationPythonProbe = await runner(pythonBinary(paths), commandEvePresentationPythonProbeArgs(), {
+        env,
+        timeoutMs: DEFAULT_STAGE_TIMEOUT_MS,
+      });
+    }
+    const ready = install.ok && presentationPythonProbe.ok;
+    pushStage(
+      makeStage('presentation-python', ready ? 'pass' : 'failed', {
+        code: ready
+          ? undefined
+          : install.ok
+            ? 'PRESENTATION_PYTHON_IMPORT_FAILED'
+            : 'PRESENTATION_PYTHON_INSTALL_FAILED',
+        detail: ready
+          ? 'Installed the exact pure-Python document fallback without network access.'
+          : scrubOutput(
+              install.stderr || install.error || presentationPythonProbe.stderr || presentationPythonProbe.error
+            ),
+        command: `${pythonBinary(paths)} ${installArgs.join(' ')}`,
+        duration_ms: Date.now() - started,
+      })
+    );
+    if (!ready) return finishReceipt();
+  } else {
+    pushStage(
+      makeStage('presentation-python', 'pass', {
+        detail: artifactSite.ok
+          ? 'Signed PPTX/DOCX/PDF/XLSX artifact runtime is ready.'
+          : 'Managed document runtime is ready in the private EVE environment.',
+      })
+    );
   }
 
   const packageSnapshot =
@@ -5711,7 +6128,9 @@ export async function ensureCommandEveRuntimeBootstrap(
 
   await previousTurn.catch((): void => undefined);
   try {
-    return await ensureCommandEveRuntimeBootstrapUnlocked(options, activeSeatId);
+    const receipt = await ensureCommandEveRuntimeBootstrapUnlocked(options, activeSeatId);
+    await options.afterBootstrapExclusive?.(receipt);
+    return receipt;
   } finally {
     releaseTurn();
     if (runtimeBootstrapQueueTails.get(queueKey) === queueTail) {

@@ -83,7 +83,10 @@ async function ensureRuntimeReady(page: Parameters<typeof invokeBridge>[0]): Pro
     { tierId: 'e4b' },
     180_000
   );
-  expect(ensured.success, ensured.msg || ensured.data?.next_action || 'Command EVE runtime ensure failed').toBe(true);
+  expect(
+    ensured.success,
+    `${ensured.msg || ensured.data?.next_action || 'Command EVE runtime ensure failed'}; response=${JSON.stringify(ensured)}`
+  ).toBe(true);
   expect(ensured.data?.status).toBe('ready');
   return ensured.data!;
 }

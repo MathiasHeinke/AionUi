@@ -12,6 +12,7 @@ export const IMAGE_GEN_ENV_KEYS = {
   platform: 'AIONUI_IMG_PLATFORM',
   baseUrl: 'AIONUI_IMG_BASE_URL',
   apiKey: 'AIONUI_IMG_API_KEY',
+  apiKeyFile: 'AIONUI_IMG_API_KEY_FILE',
   model: 'AIONUI_IMG_MODEL',
 } as const;
 

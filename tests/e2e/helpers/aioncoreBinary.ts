@@ -16,6 +16,7 @@
  * `AIONUI_BACKEND_BINARY` plus hardcoded bundled/cargo paths — neither
  * `AIONUI_BACKEND_LOCAL_BINARY` nor `PATH`. All specs now share this helper.
  */
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -39,6 +40,37 @@ export interface ResolveAioncoreBinaryOptions {
   arch?: string;
   /** Existence probe (injectable for tests). Defaults to fs.existsSync. */
   exists?: (candidate: string) => boolean;
+}
+
+export interface AioncoreLocalCapability {
+  /** 64-hex-byte bearer required on every protected loopback request. */
+  value: string;
+  /** Owner-only bootstrap file consumed by `aioncore --local`. */
+  filePath: string;
+  /** Header set for direct sibling-backend probes. */
+  headers: Readonly<Record<'x-aionui-local-capability', string>>;
+}
+
+/**
+ * Provision the same owner-only local capability contract as the desktop and
+ * web-host launchers. Sibling-backend E2Es bypass those launchers, so they must
+ * create the bootstrap file and authenticate their own direct HTTP probes.
+ */
+export function provisionAioncoreLocalCapability(dataDir: string): AioncoreLocalCapability {
+  const runtimeDir = path.join(dataDir, 'runtime-security');
+  fs.mkdirSync(runtimeDir, { recursive: true, mode: 0o700 });
+  if (process.platform !== 'win32') fs.chmodSync(runtimeDir, 0o700);
+
+  const value = crypto.randomBytes(32).toString('hex');
+  const filePath = path.join(runtimeDir, `local-capability-${process.pid}-${crypto.randomUUID()}`);
+  fs.writeFileSync(filePath, value, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+  if (process.platform !== 'win32') fs.chmodSync(filePath, 0o600);
+
+  return {
+    value,
+    filePath,
+    headers: { 'x-aionui-local-capability': value },
+  };
 }
 
 export function aioncoreBinaryName(platform: string): string {

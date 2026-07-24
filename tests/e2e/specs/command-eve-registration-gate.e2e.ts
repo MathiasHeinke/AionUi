@@ -40,6 +40,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { closeSharedElectronAppForIsolatedSpec } from '../fixtures';
+import { resolveAioncoreBinary } from '../helpers/aioncoreBinary';
 
 // ── CEVE.v1 in-test signer (mirror of license-code-core.mjs wire format) ──────
 
@@ -142,6 +143,7 @@ async function launchGateApp(opts: {
   injectKey?: boolean;
 }): Promise<ElectronApplication> {
   const projectRoot = path.resolve(__dirname, '../../..');
+  const backendBinary = resolveAioncoreBinary({ cwd: projectRoot });
   const mainEntry = path.join(projectRoot, 'out', 'main', 'index.js');
   if (!fs.existsSync(mainEntry)) {
     throw new Error(
@@ -163,6 +165,7 @@ async function launchGateApp(opts: {
     AIONUI_E2E_TEST: '1',
     AIONUI_MULTI_INSTANCE: '1',
     AIONUI_CDP_PORT: '0',
+    PATH: `${path.dirname(backendBinary)}${path.delimiter}${process.env.PATH || ''}`,
     NODE_ENV: 'development',
     COMMAND_EVE_REGISTRATION_REQUIRED: opts.registrationRequired ?? '1',
   };

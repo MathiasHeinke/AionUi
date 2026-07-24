@@ -8,9 +8,11 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import ts from 'typescript';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  CUSTOMER_DEFAULT_KANBAN_PROVIDER_KEYS,
   FOUNDER_ONLY_PROVIDER_KEYS,
   RENDERER_PROVIDER_KEYS,
   RENDERER_PROVIDER_PAYLOAD_CLASSES,
@@ -26,9 +28,16 @@ import { wsEmitter } from '@/common/adapter/httpBridge';
 const state = vi.hoisted(() => ({
   handler: undefined as ((event: unknown, payload: unknown) => unknown) | undefined,
   emitter: { emit: vi.fn() },
+  isPackaged: false,
 }));
 
 vi.mock('electron', () => ({
+  app: {
+    get isPackaged() {
+      return state.isPackaged;
+    },
+    getAppPath: () => '/app',
+  },
   ipcMain: {
     handle: vi.fn((_channel: string, handler: (event: unknown, payload: unknown) => unknown) => {
       state.handler = handler;
@@ -50,19 +59,22 @@ vi.mock('@/common/adapter/registry', () => ({
 }));
 
 type FakeWebContents = {
-  mainFrame: object;
+  mainFrame: { url: string };
   isDestroyed: () => boolean;
 };
 
 beforeEach(() => {
   delete process.env.COMMAND_EVE_FOUNDER_BUILD;
+  process.env.ELECTRON_RENDERER_URL = 'http://127.0.0.1:5173/app';
   state.handler = undefined;
   state.emitter.emit.mockReset();
+  state.isPackaged = false;
   vi.resetModules();
 });
 
 afterEach(() => {
   delete process.env.COMMAND_EVE_FOUNDER_BUILD;
+  delete process.env.ELECTRON_RENDERER_URL;
   vi.unstubAllGlobals();
 });
 
@@ -74,6 +86,27 @@ function providerPayload(providerKey: string, ...payload: [] | [unknown]): strin
 
 function validProviderPayload(providerKey: RendererProviderKey): string {
   switch (providerKey) {
+    case 'command-eve.kanban-marketing-board':
+      return providerPayload(providerKey, { boardSlug: 'default' });
+    case 'command-eve.kanban-marketing-card-create':
+      return providerPayload(providerKey, {
+        title: 'Customer task',
+        lane_key: 'research',
+        client_token: 'customer-task-1',
+        boardSlug: 'default',
+      });
+    case 'command-eve.kanban-marketing-card-move':
+      return providerPayload(providerKey, { task_id: 'task-1', to_lane_key: 'draft', boardSlug: 'default' });
+    case 'command-eve.kanban-marketing-card-action':
+      return providerPayload(providerKey, { task_id: 'task-1', action: 'complete', boardSlug: 'default' });
+    case 'command-eve.report-export':
+      return providerPayload(providerKey, {
+        format: 'pdf',
+        markdown: '# Customer report',
+        seatId: 'seat-1',
+        outputPath: '/tmp/customer-report.pdf',
+        title: 'Customer report',
+      });
     case 'command-eve.team-manage-apply':
     case 'command-eve.team-manage-reject':
     case 'command-eve.kanban-acp-reject':
@@ -89,9 +122,17 @@ function validProviderPayload(providerKey: RendererProviderKey): string {
   }
 }
 
-async function setup(): Promise<{ webContents: FakeWebContents; handler: NonNullable<typeof state.handler> }> {
+async function setup(rendererUrl?: string): Promise<{
+  webContents: FakeWebContents;
+  handler: NonNullable<typeof state.handler>;
+}> {
   const module = await import('@/common/adapter/main');
-  const webContents = { mainFrame: {}, isDestroyed: () => false };
+  const url =
+    rendererUrl ??
+    (state.isPackaged
+      ? pathToFileURL('/app/out/renderer/index.html').href
+      : (process.env.ELECTRON_RENDERER_URL ?? 'http://127.0.0.1:5173/app'));
+  const webContents = { mainFrame: { url }, isDestroyed: () => false };
   const window = { webContents, isDestroyed: () => false, on: vi.fn() };
   module.initMainAdapterWithWindow(window as never);
   if (!state.handler) throw new Error('adapter handler was not registered');
@@ -112,7 +153,7 @@ describe('main adapter IPC trust boundary', () => {
 
   it('blocks an unregistered renderer before dispatch', async () => {
     const { handler } = await setup();
-    const foreign = { mainFrame: {}, isDestroyed: () => false };
+    const foreign = { mainFrame: { url: 'http://127.0.0.1:5173/app' }, isDestroyed: () => false };
 
     expect(() =>
       handler({ sender: foreign, senderFrame: foreign.mainFrame }, providerPayload('command-eve.entitlement-status'))
@@ -123,9 +164,30 @@ describe('main adapter IPC trust boundary', () => {
   it('blocks subframes from a trusted window', async () => {
     const { webContents, handler } = await setup();
 
-    expect(() => handler({ sender: webContents, senderFrame: {} }, providerPayload('update.check'))).toThrow(
-      'untrusted'
-    );
+    expect(() =>
+      handler(
+        { sender: webContents, senderFrame: { url: 'http://127.0.0.1:5173/app' } },
+        providerPayload('update.check')
+      )
+    ).toThrow('untrusted');
+    expect(state.emitter.emit).not.toHaveBeenCalled();
+  });
+
+  it('blocks a registered main frame after navigation outside the configured renderer boundary', async () => {
+    const { webContents, handler } = await setup('https://attacker.example/');
+
+    expect(() =>
+      handler({ sender: webContents, senderFrame: webContents.mainFrame }, providerPayload('update.check'))
+    ).toThrow('untrusted');
+    expect(state.emitter.emit).not.toHaveBeenCalled();
+  });
+
+  it('blocks a development renderer on the wrong origin', async () => {
+    const { webContents, handler } = await setup('http://127.0.0.1:9999/app');
+
+    expect(() =>
+      handler({ sender: webContents, senderFrame: webContents.mainFrame }, providerPayload('update.check'))
+    ).toThrow('untrusted');
     expect(state.emitter.emit).not.toHaveBeenCalled();
   });
 
@@ -288,6 +350,75 @@ describe('main adapter IPC trust boundary', () => {
       expect(state.emitter.emit).toHaveBeenCalledWith(`subscribe-${providerKey}`, expectedEnvelope);
     }
   );
+
+  it('never promotes a packaged customer build through COMMAND_EVE_FOUNDER_BUILD', async () => {
+    state.isPackaged = true;
+    process.env.COMMAND_EVE_FOUNDER_BUILD = '1';
+    const { webContents, handler } = await setup();
+    const event = { sender: webContents, senderFrame: webContents.mainFrame };
+
+    expect(() => handler(event, validProviderPayload('open-dev-tools'))).toThrow('founder-only');
+    expect(state.emitter.emit).not.toHaveBeenCalled();
+  });
+
+  it.each([...CUSTOMER_DEFAULT_KANBAN_PROVIDER_KEYS])(
+    'allows %s for the public default board without widening founder boards',
+    async (providerKey) => {
+      const { webContents, handler } = await setup();
+      const event = { sender: webContents, senderFrame: webContents.mainFrame };
+      const payload = validProviderPayload(providerKey);
+      const expectedEnvelope = (JSON.parse(payload) as { data: unknown }).data;
+
+      await handler(event, payload);
+      expect(state.emitter.emit).toHaveBeenCalledWith(`subscribe-${providerKey}`, expectedEnvelope);
+
+      const data = (expectedEnvelope as { data: Record<string, unknown> }).data;
+      expect(() => handler(event, providerPayload(providerKey, { ...data, boardSlug: 'marketing' }))).toThrow(
+        'founder-only Kanban board'
+      );
+    }
+  );
+
+  it('keeps event-ledger path injection founder-only on conditional Kanban mutations', async () => {
+    const { webContents, handler } = await setup();
+    const event = { sender: webContents, senderFrame: webContents.mainFrame };
+    const request = {
+      title: 'Customer task',
+      lane_key: 'research',
+      client_token: 'customer-task-2',
+      boardSlug: 'default',
+      eventLedgerPath: '/tmp/forged-ledger.jsonl',
+    };
+
+    expect(() => handler(event, providerPayload('command-eve.kanban-marketing-card-create', request))).toThrow(
+      'payload keys'
+    );
+
+    process.env.COMMAND_EVE_FOUNDER_BUILD = '1';
+    await handler(event, providerPayload('command-eve.kanban-marketing-card-create', request));
+    expect(state.emitter.emit).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows customer report export through its exact schema and rejects arbitrary relative targets', async () => {
+    const { webContents, handler } = await setup();
+    const event = { sender: webContents, senderFrame: webContents.mainFrame };
+
+    await handler(event, validProviderPayload('command-eve.report-export'));
+    expect(state.emitter.emit).toHaveBeenCalledTimes(1);
+
+    expect(() =>
+      handler(
+        event,
+        providerPayload('command-eve.report-export', {
+          format: 'pdf',
+          markdown: '# Report',
+          seatId: 'seat-1',
+          outputPath: 'relative/report.pdf',
+        })
+      )
+    ).toThrow('outputPath');
+    expect(state.emitter.emit).toHaveBeenCalledTimes(1);
+  });
 });
 
 const collectTypeScriptFiles = (root: string): string[] => {
@@ -426,11 +557,24 @@ describe('main adapter source-derived wire registry', () => {
     expect(RENDERER_PROVIDER_PAYLOAD_CLASSES).toEqual(sourceClasses);
   });
 
-  it('main-authorizes every Command Center marketing provider and ACP peek as founder-only', () => {
+  it('main-authorizes marketing providers as founder-only except the default-board customer subset', () => {
     const marketingProviders = RENDERER_PROVIDER_KEYS.filter((key) => key.startsWith('command-eve.kanban-marketing-'));
 
     expect(marketingProviders.length).toBeGreaterThan(0);
-    expect(marketingProviders.every((key) => FOUNDER_ONLY_PROVIDER_KEYS.has(key))).toBe(true);
+    expect(
+      marketingProviders.every(
+        (key) => FOUNDER_ONLY_PROVIDER_KEYS.has(key) || CUSTOMER_DEFAULT_KANBAN_PROVIDER_KEYS.has(key)
+      )
+    ).toBe(true);
+    expect([...CUSTOMER_DEFAULT_KANBAN_PROVIDER_KEYS].toSorted()).toEqual(
+      [
+        'command-eve.kanban-marketing-board',
+        'command-eve.kanban-marketing-card-action',
+        'command-eve.kanban-marketing-card-create',
+        'command-eve.kanban-marketing-card-move',
+      ].toSorted()
+    );
+    expect([...CUSTOMER_DEFAULT_KANBAN_PROVIDER_KEYS].every((key) => !FOUNDER_ONLY_PROVIDER_KEYS.has(key))).toBe(true);
     expect(FOUNDER_ONLY_PROVIDER_KEYS.has('command-eve.kanban-acp-peek')).toBe(true);
   });
 

@@ -39,14 +39,26 @@ export function isCommandEveFounderBuild(
   return value === '1' || value === 'true';
 }
 
+/**
+ * Public packaged builds can never be promoted into founder mode by launching
+ * the app with an environment variable. Internal founder surfaces remain
+ * available only in an unpackaged development build.
+ */
+export function isCommandEveFounderBuildAllowed(
+  isPackaged: boolean,
+  env: NodeJS.ProcessEnv | undefined = typeof process === 'undefined' ? undefined : process.env
+): boolean {
+  return !isPackaged && isCommandEveFounderBuild(env);
+}
+
 export const COMMAND_EVE_APP_NAME = 'Command EVE';
 export const COMMAND_EVE_DISPLAY_NAME = 'EVE';
 export const COMMAND_EVE_TITLE = '⌘ EVE';
 // Electron Updater requires three-part SemVer. The compact founder-facing
 // release train is 1.813, 1.814, ... while package/feed truth stays 1.813.0,
 // 1.814.0, ... so update ordering remains standards-compliant.
-export const COMMAND_EVE_VERSION = '1.818.0';
-export const COMMAND_EVE_MARKETING_VERSION = '1.818';
+export const COMMAND_EVE_VERSION = '1.819.0';
+export const COMMAND_EVE_MARKETING_VERSION = '1.819';
 
 export function formatCommandEveDisplayVersion(version: string): string {
   const normalized = String(version || '').trim();

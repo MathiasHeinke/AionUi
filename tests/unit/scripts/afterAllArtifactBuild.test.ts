@@ -23,6 +23,19 @@ const {
   writeMacUpdateFeedMetadata,
 } = require('../../../scripts/afterAllArtifactBuild.js');
 
+describe('afterAllArtifactBuild cross-platform private-key gate', () => {
+  it('runs the private-key scan before the Darwin-only notarization branch', () => {
+    const source = fs.readFileSync(path.resolve('scripts/afterAllArtifactBuild.js'), 'utf8');
+    const entrypoint = source.indexOf('exports.default = async function afterAllArtifactBuild');
+    const privateKeyGate = source.indexOf('await verifyNoPrivateKeysShipped(context);', entrypoint);
+    const platformBranch = source.indexOf("if (process.platform !== 'darwin')", entrypoint);
+
+    expect(entrypoint).toBeGreaterThanOrEqual(0);
+    expect(privateKeyGate).toBeGreaterThan(entrypoint);
+    expect(privateKeyGate).toBeLessThan(platformBranch);
+  });
+});
+
 describe('afterAllArtifactBuild DMG notarization helpers', () => {
   it('resolves the configured DMG signing identity', () => {
     expect(

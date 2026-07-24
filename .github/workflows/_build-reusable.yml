@@ -475,6 +475,15 @@ jobs:
           "exit_code=$InjectedExitCode" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           Write-Host "Injected build failed as required (exit $InjectedExitCode)"
 
+      # SECURITY (C2, cross-platform): scan shippable roots for private signing-key
+      # material BEFORE the Windows artifact build. The macOS lane enforces this via
+      # afterAllArtifactBuild; the Windows lane gets the same fail-closed guard here
+      # so a dropped key can never reach an NSIS installer.
+      - name: Scan shippable paths for private keys (Windows)
+        if: startsWith(matrix.platform, 'windows')
+        shell: bash
+        run: node scripts/release/verify-no-private-keys.mjs public resources
+
       - name: Build with electron-builder (Windows)
         if: startsWith(matrix.platform, 'windows')
         id: windows-build

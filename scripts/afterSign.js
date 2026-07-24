@@ -9,6 +9,7 @@ const {
   resolvePythonRoot,
 } = require('./deepSignPython_core.js');
 const { writeFinalAioncoreArtifactReceipt } = require('./finalAioncoreArtifactReceipt.js');
+const { rewriteArtifactPythonReceiptPostSign } = require('./signArtifactPythonReceipt_core.js');
 
 function firstEnv(env, names) {
   for (const name of names) {
@@ -208,6 +209,25 @@ function deepSignBundledPython(appPath, env = process.env, deps = {}) {
     console.warn(
       `Bundled-python deep-sign: skipped ${skipped.length} non-signable file(s); continuing to re-seal the .app.`
     );
+  }
+
+  // Pro-verdict Gate 2/3 (GPT-5.6-Pro 1.819 review): codesign rewrote the
+  // artifact-site Mach-O bytes, so the staging receipt's pre-sign tree hashes
+  // are stale. Rewrite the receipt with post-sign hashes + tree_phase 'signed'
+  // BEFORE the outer re-seal so the sealed .app matches what the runtime
+  // verifier will compare against. Without this the notarized app would fail
+  // closed on every artifact import. Non-bundle builds skip gracefully.
+  try {
+    const receiptRewrite = rewriteArtifactPythonReceiptPostSign(appPath);
+    if (receiptRewrite.rewritten) {
+      console.log(
+        `Artifact Python receipt rewritten post-sign (${receiptRewrite.treeFiles} tree files, tree_phase=signed).`
+      );
+    }
+  } catch (receiptError) {
+    const message = receiptError && receiptError.message ? receiptError.message : String(receiptError);
+    console.error(`Artifact Python post-sign receipt rewrite failed: ${message}`);
+    throw receiptError;
   }
 
   // Re-seal the outer .app so its signature covers the re-signed python tree.

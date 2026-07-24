@@ -14,15 +14,18 @@ import { evaluateMacUpdateFeed } from './verify-mac-update-feed-core.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const NOTARIZATION_GATE = path.join(HERE, 'verify-notarization-stapled.mjs');
+const FIRST_RUN_BUNDLE_GATE = path.join(HERE, 'verify-command-eve-first-run-bundle.mjs');
 
 function parseArgs(argv) {
-  const args = { egressJsonReport: '', dmg: '', outDir: '', metadata: '', json: false, help: false };
+  const args = { egressJsonReport: '', dmg: '', outDir: '', metadata: '', app: '', userData: '', json: false, help: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--egress-json-report') args.egressJsonReport = argv[++index] || '';
     else if (arg === '--dmg') args.dmg = argv[++index] || '';
     else if (arg === '--out-dir') args.outDir = argv[++index] || '';
     else if (arg === '--metadata') args.metadata = argv[++index] || '';
+    else if (arg === '--app') args.app = argv[++index] || '';
+    else if (arg === '--user-data') args.userData = argv[++index] || '';
     else if (arg === '--json') args.json = true;
     else if (arg === '--help' || arg === '-h') args.help = true;
     else throw new Error(`Unknown argument: ${arg}`);
@@ -37,6 +40,8 @@ function usage() {
     --dmg <path-to.dmg> \\
     [--out-dir <release-out-dir>] \\
     [--metadata <latest-*-mac.yml>] \\
+    --app <electron-builder/Command EVE.app> \\
+    --user-data <fresh-packaged-run-userData> \\
     [--json]
 
 Runs the REQUIRED, fail-closed release gates and blocks the release unless every
@@ -44,9 +49,13 @@ one passes:
   - egress-keystone     (Command EVE egress-boundary Playwright proof)
   - notarization-stapled (DMG stapler-valid + accepted by Gatekeeper/spctl)
   - mac-update-feed      (latest-*-mac.yml points to the final DMG/ZIP hashes)
+  - first-run-bundle     (C9: fresh packaged run receipt ↔ version binding,
+                          identity chain, onboarding skill byte-identity)
 
 A non-stapled or spctl-rejected DMG, a missing/failed/skipped egress proof, or a
-stale updater metadata fails the whole gate closed.`;
+stale updater metadata fails the whole gate closed. The first-run-bundle gate
+requires one real cold launch of the packaged app with a clean --user-data
+directory before the aggregate can pass.`;
 }
 
 // Runner for the egress-keystone gate: reads the Playwright JSON report and
@@ -135,6 +144,50 @@ function makeMacUpdateFeedRunner({ dmgPath, outDir, metadataPath }) {
     });
 }
 
+// Runner for the first-run-bundle (C9) gate: spawns the standalone verifier so
+// the real receipt/identity/skill checks run against an actual fresh packaged
+// launch. Missing inputs, a non-zero exit or unparseable output fail closed,
+// and a PASS claim from a non-zero child exit is forced back to BLOCKED.
+function makeFirstRunBundleRunner({ appPath, userDataPath }) {
+  return () => {
+    if (!appPath || !userDataPath) {
+      return {
+        status: 'BLOCKED_INPUT',
+        detail: '--app and --user-data are required for the first-run-bundle gate',
+      };
+    }
+    const run = spawnSync(
+      process.execPath,
+      [FIRST_RUN_BUNDLE_GATE, '--app', appPath, '--user-data', userDataPath, '--json'],
+      { encoding: 'utf8' }
+    );
+    if (run.error) {
+      return {
+        status: 'BLOCKED_CHECK_ERROR',
+        detail: `first-run-bundle gate could not run: ${run.error.message}`,
+      };
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(run.stdout || '');
+    } catch {
+      return {
+        status: 'BLOCKED_CHECK_ERROR',
+        detail: `first-run-bundle gate produced unparseable output (exit ${run.status})`,
+        exit_code: run.status,
+      };
+    }
+    if (run.status !== 0 && parsed.status === 'PASS') {
+      return {
+        status: 'BLOCKED_CHECK_ERROR',
+        detail: `first-run-bundle gate reported PASS but exited ${run.status}; failing closed`,
+        exit_code: run.status,
+      };
+    }
+    return parsed;
+  };
+}
+
 function printResult(result, json) {
   if (json) {
     console.log(JSON.stringify(result, null, 2));
@@ -160,6 +213,10 @@ async function main() {
       dmgPath: args.dmg,
       outDir: args.outDir,
       metadataPath: args.metadata,
+    }),
+    firstRunBundle: makeFirstRunBundleRunner({
+      appPath: args.app,
+      userDataPath: args.userData,
     }),
   });
   result.aggregator_version = RELEASE_GATE_AGGREGATOR_VERSION;

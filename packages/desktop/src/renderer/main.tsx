@@ -7,11 +7,22 @@
 // Sentry must be initialized first
 // Use electron-specific renderer package only inside Electron; fall back to the
 // browser SDK when running as a web server (no window.electronAPI).
-if ((window as { electronAPI?: unknown }).electronAPI) {
+// F-12 (Kimi 1.819 audit): the renderer Sentry client must never carry its own
+// DSN. Telemetry egress is main-process-only and consent-gated there; a
+// renderer-side DSN (e.g. via an injected VITE_/RENDERER_ env) would bypass
+// both the consent gate and the main-process redactor. Fail closed: skip the
+// renderer init entirely if any renderer-reachable DSN is configured.
+const rendererEnv = (import.meta as { env?: Record<string, string | undefined> }).env || {};
+const rendererDsnConfigured = Boolean(
+  rendererEnv.VITE_SENTRY_DSN || rendererEnv.SENTRY_DSN || rendererEnv.RENDERER_SENTRY_DSN
+);
+if ((window as { electronAPI?: unknown }).electronAPI && !rendererDsnConfigured) {
   // Dynamic import avoids bundling sentry-ipc:// protocol code into the web build
   import('@sentry/electron/renderer')
     .then((Sentry) =>
       Sentry.init({
+        // No dsn here on purpose: events travel over the sentry-ipc:// bridge
+        // into the consent-gated main-process client.
         beforeSend(event) {
           if (!(window as { __backendStartupFailed?: boolean }).__backendStartupFailed) {
             return event;

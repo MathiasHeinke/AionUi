@@ -155,6 +155,31 @@ describe('MessageText attachment paths', () => {
     expect(screen.getByTestId('file-preview')).toHaveTextContent('/Users/demo/Desktop/photo.png');
   });
 
+  it('keeps prepared document evidence private while preserving the visible prompt and attachment', () => {
+    const message: IMessageText = {
+      id: 'msg-prepared-context',
+      msg_id: 'msg-prepared-context',
+      conversation_id: 'conv-1',
+      type: 'text',
+      position: 'right',
+      createdAt: Date.now(),
+      content: {
+        content:
+          '[[COMMAND_EVE_PREPARED_CONTEXT]]\nprivate slide evidence\n[[/COMMAND_EVE_PREPARED_CONTEXT]]\n\nAnalyze the deck.\n\n[[AION_FILES]]\n/Users/demo/Desktop/deck.pptx',
+      },
+    };
+
+    render(
+      <ConversationProvider value={{ conversation_id: 'conv-1', workspace: '/workspace/demo', type: 'acp' }}>
+        <MessageText message={message} />
+      </ConversationProvider>
+    );
+
+    expect(screen.getByTestId('message-text-content')).toHaveTextContent('Analyze the deck.');
+    expect(screen.queryByText(/private slide evidence/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId('file-preview')).toHaveTextContent('/Users/demo/Desktop/deck.pptx');
+  });
+
   it('reads assistant messages aloud with the local read-aloud service', () => {
     const message: IMessageText = {
       id: 'msg-3',

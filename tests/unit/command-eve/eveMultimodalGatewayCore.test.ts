@@ -14,6 +14,7 @@ import {
   resolveCommandEveMultimodalGate,
   validateCommandEveGrokSmartPlusProfile,
   XAI_MULTIMODAL_CONTRACTS,
+  OPENROUTER_IMAGE_MULTIMODAL_CONTRACT,
   OPENROUTER_PDF_MULTIMODAL_CONTRACT,
   type CommandEveMultimodalCapability,
 } from '@/common/config/eveMultimodalGatewayCore';
@@ -75,6 +76,36 @@ describe('Command EVE multimodal gateway contract', () => {
       maxInputBytes: 12 * 1024 * 1024,
     });
     expect(getCommandEveMultimodalContract('openrouter', 'document_ocr')).toBe(OPENROUTER_PDF_MULTIMODAL_CONTRACT);
+  });
+
+  it('pins managed image generation to the server-side global ZDR image contract', () => {
+    expect(OPENROUTER_IMAGE_MULTIMODAL_CONTRACT).toMatchObject({
+      provider: 'openrouter',
+      capability: 'image_generation',
+      model: 'google/gemini-3-pro-image',
+      endpointKind: 'image_generation',
+      artifactKind: 'image',
+      residencyLane: 'global_cloud',
+      maxInputBytes: 8 * 1024 * 1024,
+      maxTextChars: 12_000,
+    });
+    expect(getCommandEveMultimodalContract('openrouter', 'image_generation')).toBe(
+      OPENROUTER_IMAGE_MULTIMODAL_CONTRACT
+    );
+    expect(
+      resolveCommandEveMultimodalGate({
+        provider: 'openrouter',
+        capability: 'image_generation',
+        privacyLane: 'cloud_auto',
+        hasServerGateway: true,
+        hasLicense: true,
+        directProviderKeyPresentInDesktop: false,
+      })
+    ).toMatchObject({
+      ok: true,
+      residencyConfirmation: 'zdr-enforced-global',
+      contract: { model: 'google/gemini-3-pro-image' },
+    });
   });
 
   it('blocks raw xAI/provider keys in the desktop app even when every other gate is green', () => {

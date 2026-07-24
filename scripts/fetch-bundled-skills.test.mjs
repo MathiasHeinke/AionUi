@@ -3,6 +3,7 @@ import test from 'node:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { parse as parseYaml } from 'yaml';
 
 import {
   AUTHOR_PRODUCTION_EXPECTED_AGGREGATE_SHA256,
@@ -23,10 +24,10 @@ import {
 
 // --- allowlist shape -------------------------------------------------------
 
-test('the allowlist is exactly 36 and includes author production plus premium website delivery', () => {
-  assert.equal(EVE_STRATEGY_SKILL_IDS.length, 36);
+test('the allowlist is exactly 37 and includes curated production skills', () => {
+  assert.equal(EVE_STRATEGY_SKILL_IDS.length, 37);
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('eve-doctrine'));
-  assert.ok(EVE_STRATEGY_SKILL_IDS.includes('marketing-outbound'));
+  assert.ok(!EVE_STRATEGY_SKILL_IDS.includes('marketing-outbound'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('blog-writer'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('founder-voice'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('client-report'));
@@ -36,6 +37,8 @@ test('the allowlist is exactly 36 and includes author production plus premium we
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('challenge-engine'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('brainstorm-divergent'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('local-vision-qa'));
+  assert.ok(EVE_STRATEGY_SKILL_IDS.includes('visual-direction-gate'));
+  assert.ok(EVE_STRATEGY_SKILL_IDS.includes('presentation-studio'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('ai-coding-delegation'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('lead-magnet-pdf'));
   assert.ok(EVE_STRATEGY_SKILL_IDS.includes('skill-authoring'));
@@ -49,9 +52,26 @@ test('the allowlist is exactly 36 and includes author production plus premium we
   assert.ok(!EVE_STRATEGY_SKILL_IDS.includes('gitnexus'));
 });
 
-test('marketing-outbound is the only bundle; the rest are single skills', () => {
+test('the public runtime allowlist contains only independently curated root skills', () => {
   const bundles = EVE_STRATEGY_SKILLS.filter((s) => s.bundle).map((s) => s.id);
-  assert.deepEqual(bundles, ['marketing-outbound']);
+  assert.deepEqual(bundles, []);
+});
+
+test('every bundled root skill has AionCore-compatible YAML frontmatter', () => {
+  for (const skill of EVE_STRATEGY_SKILLS) {
+    const skillPath = path.resolve('resources/bundled-skills', skill.id, 'SKILL.md');
+    const text = fs.readFileSync(skillPath, 'utf8');
+    const match = text.match(/^---\n([\s\S]*?)\n---(?:\n|$)/);
+    assert.ok(match, `${skill.id}: missing leading YAML frontmatter`);
+
+    let frontmatter;
+    assert.doesNotThrow(() => {
+      frontmatter = parseYaml(match[1]);
+    }, `${skill.id}: invalid YAML frontmatter`);
+    assert.equal(frontmatter?.name, skill.id, `${skill.id}: frontmatter name must equal the root skill id`);
+    assert.equal(typeof frontmatter?.description, 'string', `${skill.id}: description must be a string`);
+    assert.ok(frontmatter.description.trim(), `${skill.id}: description must not be empty`);
+  }
 });
 
 test('release snapshot mode ignores every external source root while refresh mode remains explicit', () => {
@@ -167,7 +187,7 @@ function makeFixtureSrc(root, { omit = [] } = {}) {
   return srcRoot;
 }
 
-test('stageBundledSkills refreshes from source and verifies all 36 including nested production assets', () => {
+test('stageBundledSkills refreshes from source and verifies all 37 including nested production assets', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fbs-test-'));
   try {
     const srcRoot = makeFixtureSrc(root);
@@ -176,8 +196,6 @@ test('stageBundledSkills refreshes from source and verifies all 36 including nes
     assert.deepEqual(failures, []);
     // single skill landed
     assert.ok(fs.existsSync(path.join(snapshotRoot, 'eve-doctrine', 'SKILL.md')));
-    // bundle's nested SKILL.md landed
-    assert.ok(fs.existsSync(path.join(snapshotRoot, 'marketing-outbound', 'icp-definer', 'SKILL.md')));
     assert.ok(fs.existsSync(path.join(snapshotRoot, 'book-publishing', 'references', '01_concept_and_positioning.md')));
     assert.ok(fs.existsSync(path.join(snapshotRoot, 'book-publishing', 'references', 'templates', 'build_ebook.sh')));
   } finally {
@@ -351,17 +369,19 @@ test('stageBundledSkills FAILS CLOSED when a skill is in neither source nor snap
   }
 });
 
-test('stageBundledSkills FAILS CLOSED on an invalid bundle (no nested SKILL.md)', () => {
+test('stageBundledSkills FAILS CLOSED on an invalid explicitly declared bundle', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'fbs-test-'));
   try {
-    const srcRoot = makeFixtureSrc(root);
-    // Break the bundle: a dir with only a README, no nested SKILL.md.
-    fs.rmSync(path.join(srcRoot, 'marketing-outbound'), { recursive: true, force: true });
-    fs.mkdirSync(path.join(srcRoot, 'marketing-outbound'), { recursive: true });
-    fs.writeFileSync(path.join(srcRoot, 'marketing-outbound', 'README.md'), 'only readme\n');
+    const srcRoot = path.join(root, 'src-skills');
+    fs.mkdirSync(path.join(srcRoot, 'synthetic-bundle'), { recursive: true });
+    fs.writeFileSync(path.join(srcRoot, 'synthetic-bundle', 'README.md'), 'only readme\n');
     const snapshotRoot = path.join(root, 'snapshot');
-    const failures = stageBundledSkills({ srcRoot, snapshotRoot });
-    assert.ok(failures.includes('bundled_skill_invalid:marketing-outbound'));
+    const failures = stageBundledSkills({
+      srcRoot,
+      snapshotRoot,
+      skills: [{ id: 'synthetic-bundle', bundle: true }],
+    });
+    assert.ok(failures.includes('bundled_skill_invalid:synthetic-bundle'));
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

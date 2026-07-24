@@ -40,6 +40,7 @@ import { useGuidInput } from './hooks/useGuidInput';
 import { useGuidMention } from './hooks/useGuidMention';
 import { useGuidModelSelection } from './hooks/useGuidModelSelection';
 import { useGuidSend } from './hooks/useGuidSend';
+import { resolveGuidInitialMcpServerIds } from './hooks/guidMcpSelectionCore';
 import { useTypewriterPlaceholder } from './hooks/useTypewriterPlaceholder';
 import { ensureBackendMcpCatalog } from '@/renderer/hooks/mcp/catalog';
 import { resolveAgentLogo } from '@/renderer/utils/model/agentLogo';
@@ -112,7 +113,9 @@ const GuidPage: React.FC = () => {
     void ensureBackendMcpCatalog()
       .then(({ allServers }) => {
         setAvailableMcpServers(allServers);
-        setGuidSelectedMcpServerIds((prev) => prev ?? []);
+        setGuidSelectedMcpServerIds(
+          (prev) => prev ?? resolveGuidInitialMcpServerIds(allServers, COMMAND_EVE_SHELL_ENABLED)
+        );
       })
       .catch((error) => {
         console.error('[GuidPage] Failed to load MCP catalog:', error);

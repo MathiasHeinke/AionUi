@@ -44,7 +44,10 @@ Ein Weltbild-Essay mit autobiografischem Kern: Der Autor argumentiert aus bezahl
 7. **Straffung −15 bis −20 %** — Streichkandidaten: Füllsätze, Doppelungen, zweite Belege, Vorreden. NIEMALS streichen: Bruchszene, Punchlines, Verortung, Immunisierungen. Wortzahl vorher/nachher dokumentieren.
 8. **Apparat & Verifikation** — Fußnoten-Regex-Check (aufsteigend, keine Lücken), Quellen via web_search verifizieren; nicht Verifizierbares allgemein formulieren („Interviews aus dem Jahr 2026") oder streichen — niemals erfinden.
 9. **Autoren-Abgleich** — 2–3 Stellen gezielt gegenlesen lassen: Bruchszene, persönliche/politische Passagen. Deren Korrektur ist Ground Truth.
-10. **Export** — Markdown-Master; DOCX via pandoc, PDF via LibreOffice (soffice --headless --convert-to pdf). Alle Formate synchron halten. **Human-Gate vor jeder Veröffentlichung.**
+10. **Export** — Markdown-Master; DOCX/PDF über EVEs verwalteten Dokument-
+    Runtime. Pandoc oder LibreOffice nur als bereits vorhandene, separat
+    verwaltete Spezial-Toolchain verwenden; niemals während des Auftrags
+    installieren. Alle Formate synchron halten. **Human-Gate vor jeder Veröffentlichung.**
 
 ## Qualitätsschwellen
 

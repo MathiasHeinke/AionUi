@@ -54,6 +54,7 @@ import {
 } from '@/common/config/eveInferenceCore';
 import { buildEveCloudRoute, type CommandEveEveCloudRoute } from './ollamaOpenAiShim';
 import { getActiveSeatId } from './seatContextCore';
+import { CommandEveShimPublicError } from './shimPublicError';
 
 const INFERENCE_SELECTION_KEY = 'commandEve.inferenceSelection';
 
@@ -111,7 +112,12 @@ export async function readInferenceSelectionFromBackendStrict(): Promise<string 
   try {
     return await fetchInferenceSelectionFromBackend();
   } catch {
-    throw new Error('Command EVE cloud route unavailable: inference selection could not be read.');
+    // Deliberately user-facing (fail-closed lane guard): constructed as a
+    // CommandEveShimPublicError so the shim may echo this exact message while
+    // every arbitrary throw gets the generic 500 (F-14, Kimi 1.819 audit).
+    throw new CommandEveShimPublicError(
+      'Command EVE cloud route unavailable: inference selection could not be read.'
+    );
   }
 }
 

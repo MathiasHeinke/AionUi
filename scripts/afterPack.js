@@ -45,13 +45,18 @@ async function verifyCommandEvePackagedResources({ appOutDir, packager, resource
   const receipt = verifyPackagedCommandEveResources({
     appPath,
     sourcePublicDir: path.resolve(__dirname, '..', 'public'),
+    sourceArtifactManifestPath: path.resolve(__dirname, '..', 'resources', 'bundled-python-artifacts', 'manifest.json'),
     resourcesPath: resourcesDir,
     expectedArch: targetArch,
     productFilename,
   });
   const keyProof = receipt.keys.map((key) => `${key.file}:${key.sha256.slice(0, 12)}`).join(', ');
+  const presentationProof = receipt.presentation_python.wheels
+    .map((wheel) => `${wheel.package}@${wheel.version}:${wheel.sha256.slice(0, 12)}`)
+    .join(', ');
+  const artifactProof = `${receipt.artifact_python.packages.length} packages/${receipt.artifact_python.native_files.length} native`;
   console.log(
-    `   ✓ Command EVE packaged-resource truth verified (${receipt.executable_architectures.join(', ')}; ${keyProof}; no private key)`
+    `   ✓ Command EVE packaged-resource truth verified (${receipt.executable_architectures.join(', ')}; ${keyProof}; ${presentationProof}; ${artifactProof}; no private key)`
   );
 }
 

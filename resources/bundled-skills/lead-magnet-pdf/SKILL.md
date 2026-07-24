@@ -1,6 +1,7 @@
 ---
 name: lead-magnet-pdf
-description: Build a high-conversion lead magnet as a downloadable PDF — structured HTML rendered via Chrome headless. Produces a self-contained, brand-matched asset with a forced-yes diagnostic hook, euro-quantified cost framing ("stille Steuer"), a self-assessment with scoring bands, the client's REAL framework, a real before/after case study, real social proof, and one focused CTA. Real client data only — every euro figure, case-study number and framework name comes from the scraped/provided client material or is marked [needs client input]; no fabricated testimonials, no invented "real" numbers. The euro-hook must pass the content-machine Founder-Voice guard before render. Use when the operator says "build a lead magnet", "create a PDF for lead gen", "make this a downloadable asset", or wants to turn a client's positioning into a gated PDF. NOT a blog post (→ content-machine derivatives), NOT a landing page (→ landing-copy), NOT a strategy report to an existing client. Shares conversion logic with landing-copy (diagnostic hook, value frame, proof, CTA) but delivers as a PDF artifact. Invisible delivery: the PDF carries the client's brand, never EVE's.
+description: >-
+  Build a high-conversion lead magnet as a downloadable PDF — structured HTML rendered via Chrome headless. Produces a self-contained, brand-matched asset with a forced-yes diagnostic hook, euro-quantified cost framing ("stille Steuer"), a self-assessment with scoring bands, the client's REAL framework, a real before/after case study, real social proof, and one focused CTA. Real client data only — every euro figure, case-study number and framework name comes from the scraped/provided client material or is marked [needs client input]; no fabricated testimonials, no invented "real" numbers. The euro-hook must pass the content-machine Founder-Voice guard before render. Use when the operator says "build a lead magnet", "create a PDF for lead gen", "make this a downloadable asset", or wants to turn a client's positioning into a gated PDF. NOT a blog post (→ content-machine derivatives), NOT a landing page (→ landing-copy), NOT a strategy report to an existing client. Shares conversion logic with landing-copy (diagnostic hook, value frame, proof, CTA) but delivers as a PDF artifact. Invisible delivery: the PDF carries the client's brand, never EVE's.
 disable_model_invocation: true
 ---
 
@@ -79,10 +80,13 @@ A hook that hasn't passed the voice guard does not proceed to Section 3.
    dilute focus; a lead magnet works best when it drives ONE next step. One quote from the founder
    about who they work with.
 
-### 4. Render — HTML → Chrome headless → PDF
+### 4. Render — HTML → managed Chromium/PDF engine → PDF
 
 Write the content as a single HTML file with embedded CSS (print-optimized, A4, page breaks).
-Render via Chrome headless — NOT WeasyPrint (unreliable on macOS due to native lib dependencies).
+Render through EVE's signed managed Chromium/PDF path. Do not ask the operator to
+install Chrome, WeasyPrint, PyMuPDF, or system packages. If a separately managed
+browser binary is already present, it may be used as a compatible fallback; it
+must never be installed during the task.
 
 ```bash
 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
@@ -180,10 +184,12 @@ pdffonts output.pdf                 # confirm web fonts are embedded
 open output.pdf                     # visual check
 ```
 
-**Visual verification (when active model has no vision):** for visual PDF QA — logo placement,
-background-pattern/watermark visibility, opacity calibration, element positioning, page balance —
-use the **`local-vision-qa` skill** (render pages to PNG, ask targeted yes/no questions via the
-local Ollama vision model; images never leave the machine, DSGVO-green).
+**Visual verification:** render every page through EVE's managed PDF renderer.
+With explicit cloud-processing consent, use the managed vision lane for logo
+placement, background/watermark visibility, opacity, positioning, and page
+balance. Use `local-vision-qa` only when the operator explicitly chose an
+offline/on-device workflow; a non-vision chat model must never trigger an Ollama
+or installation prompt.
 
 Deliver the PDF + the HTML source. The operator approves before any distribution.
 
@@ -198,15 +204,16 @@ Deliver the PDF + the HTML source. The operator approves before any distribution
 - **Mixed encoding in HTML** — files may contain both raw Unicode (ä, €, —) and HTML entities
   (&uuml;, &euro;). Exact string matching fails silently when you guess wrong. Always `grep -n`
   the actual file content before attempting replacement to see which encoding is in play.
-- **WeasyPrint is unreliable on macOS** — native library issues (pango, glib) persist even after
-  `brew install pango glib`. Chrome headless is the reliable path. Don't waste time on WeasyPrint.
+- **Do not repair the runtime inside a consumer task** — no package manager,
+  PyMuPDF, WeasyPrint, browser, system-library, or model installation. A missing
+  signed capability is an app-bootstrap defect and must be reported as such.
 - **Dark elements on light pages = design break** — a dark card (e.g. `background: #1A1A1A`)
   placed inside a light `.section` looks like a foreign object. The operator's reaction:
   "das sieht scheisse aus." Fix: match the element's color scheme to the section it lives in.
   Light section → light card with accent border (`background: #FAFAFA; border: 1px solid #8B1E3F`).
   Dark section → dark card. The element should feel native to its page, not dropped in from
-  another template. Verify with the `local-vision-qa` skill — ask "does this box look like it
-  belongs on this page or does it look out of place?"
+  another template. Verify with the managed visual-QA lane; use
+  `local-vision-qa` only after an explicit offline/on-device request.
 - **page-break-inside:avoid creates orphan pages** — when a protected block (score-box, case
   table) gets pushed to the next page, it leaves the previous page half-empty AND arrives at the
   top of the next page with no supporting content — a mostly-blank page with one box "klebt oben."
@@ -254,12 +261,11 @@ Deliver the PDF + the HTML source. The operator approves before any distribution
 - **EXR logo files can't be embedded directly** — design-savvy clients may provide logos in
   OpenEXR format (`.exr`). Chrome headless cannot render EXR images in PDFs. Convert to PNG first
   via `ffmpeg -i logo.exr -update 1 logo.png`. Pillow and `sips` cannot read EXR.
-- **Visual QA requires vision — don't retry non-vision tools** — when the active model lacks
-  vision capability, `vision_analyze` and `browser_vision` return 502 errors. Retrying them
-  wastes turns and frustrates the operator. Immediately use the `local-vision-qa` skill
-  (local Ollama vision fallback) instead.
+- **Visual QA requires a vision-capable route** — if the active chat model has no
+  image endpoint, use EVE's managed vision route after consent. Do not retry the
+  same failing endpoint and do not fall through to a local model or download.
 - **Background pattern opacity may be too subtle** — grid patterns or watermarks below ~8%
-  opacity may be invisible in the rendered PDF. Use the `local-vision-qa` skill to verify
+  opacity may be invisible in the rendered PDF. Use the managed visual-QA lane to verify
   visibility and bump opacity until the model confirms detection. Observed: 6% invisible,
   10% visible for grid patterns at 150 DPI.
 

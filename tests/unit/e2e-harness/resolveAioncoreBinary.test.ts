@@ -11,8 +11,14 @@
  *   resources/bundled-aioncore → PATH → ~/.cargo/bin
  */
 import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { aioncoreBinaryCandidates, resolveAioncoreBinary } from '../../e2e/helpers/aioncoreBinary';
+import {
+  aioncoreBinaryCandidates,
+  provisionAioncoreLocalCapability,
+  resolveAioncoreBinary,
+} from '../../e2e/helpers/aioncoreBinary';
 
 const CWD = '/repo';
 const HOME_DIR = '/home/tester';
@@ -152,5 +158,27 @@ describe('resolveAioncoreBinary env contract', () => {
 
     expect(candidates.every((c) => c.path.endsWith('aioncore.exe'))).toBe(true);
     expect(candidates.map((c) => c.source)).toEqual(['bundled-resources', 'PATH', 'cargo-home']);
+  });
+});
+
+describe('aioncore sibling-backend capability contract', () => {
+  it('creates a fresh 64-hex capability in an owner-only bootstrap file', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aioncore-capability-test-'));
+    try {
+      const first = provisionAioncoreLocalCapability(root);
+      const second = provisionAioncoreLocalCapability(root);
+
+      expect(first.value).toMatch(/^[0-9a-f]{64}$/);
+      expect(second.value).toMatch(/^[0-9a-f]{64}$/);
+      expect(second.value).not.toBe(first.value);
+      expect(first.headers).toEqual({ 'x-aionui-local-capability': first.value });
+      expect(fs.readFileSync(first.filePath, 'utf8')).toBe(first.value);
+      if (process.platform !== 'win32') {
+        expect(fs.statSync(path.dirname(first.filePath)).mode & 0o777).toBe(0o700);
+        expect(fs.statSync(first.filePath).mode & 0o777).toBe(0o600);
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });

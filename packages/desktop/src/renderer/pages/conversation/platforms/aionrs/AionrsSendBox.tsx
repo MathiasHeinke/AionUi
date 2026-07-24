@@ -5,7 +5,7 @@
  */
 
 import { ipcBridge } from '@/common';
-import type { IConversationMcpStatus } from '@/common/config/storage';
+import { userVisibleConversationMcpStatuses } from '@/common/config/eveManagedMcpCore';
 import AgentModeSelector from '@/renderer/components/agent/AgentModeSelector';
 import CommandQueuePanel from '@/renderer/components/chat/CommandQueuePanel';
 import MobileActionSheet, {
@@ -132,13 +132,10 @@ const AionrsSendBox: React.FC<{
   const eveInference = useEveInferenceSelection();
   const conversationContext = useConversationContextSafe();
   const loadedSkills = conversationContext?.loadedSkills ?? [];
-  const loadedMcpStatuses =
-    conversationContext?.loadedMcpStatuses ??
-    (conversationContext?.loadedMcpServers ?? []).map<IConversationMcpStatus>((name) => ({
-      id: name,
-      name,
-      status: 'loaded',
-    }));
+  const loadedMcpStatuses = userVisibleConversationMcpStatuses(
+    conversationContext?.loadedMcpStatuses,
+    conversationContext?.loadedMcpServers
+  );
   const { t } = useTranslation();
   const { checkAndUpdateTitle } = useAutoTitle();
   const { current_model } = modelSelection;

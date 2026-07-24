@@ -46,7 +46,19 @@ vi.mock('@arco-design/web-react', () => ({
 }));
 
 import { COMMAND_EVE_ASSISTANT_KEY } from '@/common/config/commandEveShell';
+import { BUILTIN_IMAGE_GEN_NAME, type IMcpServer } from '@/common/config/storage';
 import { useGuidSend, type GuidSendDeps } from '@/renderer/pages/guid/hooks/useGuidSend';
+
+const mcpServer = (overrides: Partial<IMcpServer>): IMcpServer => ({
+  id: 'mcp-server',
+  name: 'mcp-server',
+  enabled: true,
+  transport: { type: 'stdio', command: 'node', args: ['server.js'] },
+  created_at: 1,
+  updated_at: 1,
+  original_json: '{}',
+  ...overrides,
+});
 
 function createDeps(): GuidSendDeps {
   return {
@@ -269,6 +281,68 @@ describe('useGuidSend blocked cloud lane', () => {
         extra: expect.objectContaining({
           preset_enabled_skills: ['optional-active'],
           exclude_auto_inject_skills: ['auto-excluded'],
+        }),
+      })
+    );
+  });
+
+  it('keeps the globally managed image tool out of ACP session injection while preserving real MCP selections', async () => {
+    configGetMock.mockImplementation((key: string) =>
+      key === 'commandEve.inferenceSelection' ? 'command-eve-local:local-standard' : undefined
+    );
+    bridgeMocks.ensureAssistant.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        agent_id: 'hermes-runtime',
+        agent_name: 'EVE',
+        cli_path: '/runtime/hermes',
+        enabled_skills: [],
+      },
+    });
+    bridgeMocks.runtimeStatus.mockResolvedValue({
+      success: true,
+      data: {
+        status: 'ready',
+        default_model: 'command-eve-gemma4-e4b-64k:latest',
+        model_warmup: { status: 'ready', model: 'command-eve-gemma4-e4b-64k:latest' },
+      },
+    });
+    bridgeMocks.conversationCreate.mockResolvedValue({ id: 'conversation-mcp' });
+
+    const builtInImage = mcpServer({
+      id: 'builtin-image-runtime',
+      name: BUILTIN_IMAGE_GEN_NAME,
+      builtin: true,
+      transport: { type: 'stdio', command: 'node', args: ['builtin-mcp-image-gen.js'] },
+    });
+    const otherBuiltIn = mcpServer({
+      id: 'builtin-readonly-tool',
+      name: 'builtin-readonly-tool',
+      builtin: true,
+      transport: { type: 'stdio', command: 'node', args: ['builtin-readonly-tool.js'] },
+    });
+    const userServer = mcpServer({ id: 'user-files', name: 'user-files', builtin: false });
+    const deps = createDeps();
+    deps.availableMcpServers = [builtInImage, otherBuiltIn, userServer];
+    deps.selectedMcpServerIds = [builtInImage.id, otherBuiltIn.id, userServer.id];
+    const { result } = renderHook(() => useGuidSend(deps));
+
+    await act(async () => {
+      await result.current.handleSend();
+    });
+
+    expect(bridgeMocks.conversationCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        extra: expect.objectContaining({
+          selected_mcp_server_ids: ['user-files'],
+          selected_session_mcp_servers: [
+            {
+              id: otherBuiltIn.id,
+              name: otherBuiltIn.name,
+              transport: otherBuiltIn.transport,
+            },
+          ],
         }),
       })
     );

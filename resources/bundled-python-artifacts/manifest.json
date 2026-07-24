@@ -1,0 +1,157 @@
+{
+  "version": "command-eve-artifact-python-build/v1",
+  "runtime_version": "command-eve-artifact-python-runtime/v1",
+  "python_version": "3.12.13",
+  "network_install_allowed": false,
+  "common_root": "../bundled-hermes/presentation",
+  "common_packages": [
+    {
+      "name": "python-pptx",
+      "version": "1.0.2",
+      "import_name": "pptx",
+      "filename": "python_pptx-1.0.2-py3-none-any.whl",
+      "sha256": "160838e0b8565a8b1f67947675886e9fea18aa5e795db7ae531606d68e785cba",
+      "license": "MIT"
+    },
+    {
+      "name": "XlsxWriter",
+      "version": "3.2.9",
+      "import_name": "xlsxwriter",
+      "filename": "xlsxwriter-3.2.9-py3-none-any.whl",
+      "sha256": "9a5db42bc5dff014806c58a20b9eae7322a134abb6fce3c92c181bfb275ec5b3",
+      "license": "BSD-2-Clause"
+    },
+    {
+      "name": "pypdf",
+      "version": "6.14.2",
+      "import_name": "pypdf",
+      "filename": "pypdf-6.14.2-py3-none-any.whl",
+      "sha256": "3f07891af76dc002657e04993ab9b4de81de29f9013b9761d0b7968bff12e946",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "name": "reportlab",
+      "version": "5.0.0",
+      "import_name": "reportlab",
+      "filename": "reportlab-5.0.0-py3-none-any.whl",
+      "sha256": "9d5a3affa84919e1111ede580031266a570e93b1ce388219621347965ff1d93c",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "name": "python-docx",
+      "version": "1.2.0",
+      "import_name": "docx",
+      "filename": "python_docx-1.2.0-py3-none-any.whl",
+      "sha256": "3fd478f3250fbbbfd3b94fe1e985955737c145627498896a8a6bf81f4baf66c7",
+      "license": "MIT"
+    },
+    {
+      "name": "openpyxl",
+      "version": "3.1.5",
+      "import_name": "openpyxl",
+      "filename": "openpyxl-3.1.5-py2.py3-none-any.whl",
+      "sha256": "5282c12b107bffeef825f4617dc029afaf41d0ea60823bbb665ef3079dc79de2",
+      "license": "MIT"
+    },
+    {
+      "name": "et-xmlfile",
+      "version": "2.0.0",
+      "import_name": "et_xmlfile",
+      "filename": "et_xmlfile-2.0.0-py3-none-any.whl",
+      "sha256": "7a91720bc756843502c3b7504c77b8fe44217c85c537d85037f0f536151b2caa",
+      "license": "MIT"
+    },
+    {
+      "name": "qrcode",
+      "version": "8.2",
+      "import_name": "qrcode",
+      "filename": "qrcode-8.2-py3-none-any.whl",
+      "sha256": "16e64e0716c14960108e85d853062c9e8bba5ca8252c0b4d0231b9df4060ff4f",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "name": "defusedxml",
+      "version": "0.7.1",
+      "import_name": "defusedxml",
+      "filename": "defusedxml-0.7.1-py2.py3-none-any.whl",
+      "sha256": "a352e7e428770286cc899e2542b6cdaedb2b4953ff269a210103ec58f6198a61",
+      "license": "PSF-2.0"
+    },
+    {
+      "name": "typing-extensions",
+      "version": "4.16.0",
+      "import_name": "typing_extensions",
+      "filename": "typing_extensions-4.16.0-py3-none-any.whl",
+      "sha256": "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8",
+      "license": "PSF-2.0"
+    },
+    {
+      "name": "charset-normalizer",
+      "version": "3.4.9",
+      "import_name": "charset_normalizer",
+      "filename": "charset_normalizer-3.4.9-py3-none-any.whl",
+      "sha256": "68e5f26a1ad57ded6d1cfb85331d1c1a195314756471d97758c48498bb4dcdf5",
+      "license": "MIT"
+    }
+  ],
+  "platforms": {
+    "darwin-arm64": [
+      {
+        "name": "lxml",
+        "version": "6.1.1",
+        "import_name": "lxml",
+        "filename": "lxml-6.1.1-cp312-cp312-macosx_10_13_universal2.whl",
+        "sha256": "104c09bda8d2a562824c0e319d0768ce26a779b7601e0931d33b09b53c392ef7",
+        "license": "BSD-3-Clause"
+      },
+      {
+        "name": "Pillow",
+        "version": "12.3.0",
+        "import_name": "PIL",
+        "filename": "pillow-12.3.0-cp312-cp312-macosx_11_0_arm64.whl",
+        "sha256": "ffd0c5368496f41b0944be820fcb7a838aa6e623d250b01acf2643939c3f99d7",
+        "license": "MIT-CMU"
+      }
+    ],
+    "win32-x64": [
+      {
+        "name": "lxml",
+        "version": "6.1.1",
+        "import_name": "lxml",
+        "filename": "lxml-6.1.1-cp312-cp312-win_amd64.whl",
+        "sha256": "26e6eda8d38c1fcab1090dd196ee87cbd13788e531937610e2589085de074e77",
+        "license": "BSD-3-Clause"
+      },
+      {
+        "name": "Pillow",
+        "version": "12.3.0",
+        "import_name": "PIL",
+        "filename": "pillow-12.3.0-cp312-cp312-win_amd64.whl",
+        "sha256": "a2b55dd6b2a4c4b7d87ffa56bdb33fdc5fdb9a462173861a7bc097f17d91cb09",
+        "license": "MIT-CMU"
+      },
+      {
+        "name": "colorama",
+        "version": "0.4.6",
+        "import_name": "colorama",
+        "filename": "colorama-0.4.6-py2.py3-none-any.whl",
+        "sha256": "4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6",
+        "license": "BSD-3-Clause"
+      }
+    ]
+  },
+  "excluded_packages": [
+    {
+      "name": "PyMuPDF",
+      "reason": "Strong-copyleft/commercial dual license; use the managed PDF.js plus pypdf/reportlab baseline unless a commercial license is approved."
+    },
+    {
+      "name": "pdfplumber",
+      "reason": "Adds a second PDF parsing/layout/extraction stack through pdfminer.six; add only for a reproducible table-extraction gap on a versioned corpus."
+    },
+    {
+      "name": "pandas/matplotlib",
+      "reason": "Large native data stack; keep in an optional signed analytics pack rather than every consumer install."
+    }
+  ]
+}

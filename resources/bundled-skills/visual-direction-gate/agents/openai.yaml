@@ -1,0 +1,4 @@
+interface:
+  display_name: "Visual Direction Gate"
+  short_description: 'Choose a visual direction before building'
+  default_prompt: 'Use $visual-direction-gate to show three visual directions before rebuilding this presentation.'

@@ -16,6 +16,8 @@ import {
   warmCommandEveEveLane,
   warmCommandEveLocalModel,
 } from '@/process/commandEve/ollamaOpenAiShim';
+import { commandEveManagedVisualTurnMarker } from '@/common/config/eveManagedVisualTurnCore';
+import { CommandEveShimPublicError } from '@/process/commandEve/shimPublicError';
 
 describe('resolveCommandEveShimListenPort', () => {
   it('keeps production pinned while isolating explicit E2E launches', () => {
@@ -644,6 +646,77 @@ describe('buildEveCloudRoute (pure)', () => {
 });
 
 describe('Command EVE shim — EVE cloud routing', () => {
+  it('passes the original body to one-turn routing but strips its opaque authorization marker before egress', async () => {
+    const ollamaBaseUrl = await startFakeOpenAiServer(() => {});
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+    const marker = commandEveManagedVisualTurnMarker('V'.repeat(43));
+    let resolverSawMarker = false;
+
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl,
+      eveRouting: (body) => {
+        resolverSawMarker = JSON.stringify(body?.messages).includes(marker);
+        return { active: true, functionUrl: fnUrl, license: FAKE_LICENSE, tier: 'high' };
+      },
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: SHIM_JSON_HEADERS,
+      body: JSON.stringify({
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [{ role: 'user', content: `${marker}\nAnalyze the four-slide deck.` }],
+        stream: false,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(resolverSawMarker).toBe(true);
+    expect(fnSeen.body?.tier).toBe('high');
+    expect(JSON.stringify(fnSeen.body?.messages)).not.toContain(marker);
+    expect(JSON.stringify(fnSeen.body?.messages)).toContain('Analyze the four-slide deck.');
+  });
+
+  it('routes and strips a managed visual authorization carried in structured text content', async () => {
+    const ollamaBaseUrl = await startFakeOpenAiServer(() => {});
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+    const marker = commandEveManagedVisualTurnMarker('W'.repeat(43));
+    let resolverSawMarker = false;
+
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl,
+      eveRouting: (body) => {
+        resolverSawMarker = JSON.stringify(body?.messages).includes(marker);
+        return { active: true, functionUrl: fnUrl, license: FAKE_LICENSE, tier: 'high' };
+      },
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: SHIM_JSON_HEADERS,
+      body: JSON.stringify({
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [
+          {
+            role: 'user',
+            content: [{ type: 'text', text: `${marker}\nAnalyze the four-slide deck.` }],
+          },
+        ],
+        stream: false,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(resolverSawMarker).toBe(true);
+    expect(fnSeen.body?.tier).toBe('high');
+    expect(JSON.stringify(fnSeen.body?.messages)).not.toContain(marker);
+    expect(JSON.stringify(fnSeen.body?.messages)).toContain('Analyze the four-slide deck.');
+  });
+
   it('routes an EVE-tier chat to the eve-inference function with bearer + tier, not to Ollama', async () => {
     let ollamaSeen = false;
     const ollamaBaseUrl = await startFakeOpenAiServer(() => {
@@ -981,7 +1054,12 @@ describe('Command EVE shim — EVE cloud routing', () => {
       port: 0,
       ollamaBaseUrl: 'http://127.0.0.1:1',
       eveRouting: () =>
-        Promise.reject(new Error('Command EVE cloud route unavailable: inference selection could not be read.')),
+        // Mirrors production (readInferenceSelectionFromBackendStrict): the
+        // deliberate fail-closed lane guard is a CommandEveShimPublicError so
+        // its authored message may surface to the client.
+        Promise.reject(
+          new CommandEveShimPublicError('Command EVE cloud route unavailable: inference selection could not be read.')
+        ),
     });
 
     const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
@@ -998,6 +1076,46 @@ describe('Command EVE shim — EVE cloud routing', () => {
     await expect(response.json()).resolves.toMatchObject({
       error: { message: 'Command EVE cloud route unavailable: inference selection could not be read.' },
     });
+  });
+
+  it('never echoes arbitrary throw messages to the client (F-14)', async () => {
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+      eveRouting: () => Promise.reject(new Error('bearer sk-secret-leak must never surface')),
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: SHIM_JSON_HEADERS,
+      body: JSON.stringify({
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [{ role: 'user', content: 'hi' }],
+        stream: false,
+      }),
+    });
+
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body?.error?.message).toBe('Command EVE shim internal error.');
+    expect(JSON.stringify(body)).not.toContain('sk-secret-leak');
+  });
+
+  it('rejects a non-loopback ollamaBaseUrl at shim start (F-04)', async () => {
+    await expect(
+      startCommandEveOllamaOpenAiShim({
+        port: 0,
+        ollamaBaseUrl: 'https://ollama.example.invalid:11434',
+      })
+    ).rejects.toThrow(/loopback/);
+  });
+
+  it('accepts an explicit loopback ollamaBaseUrl at shim start (F-04)', async () => {
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: 'http://127.0.0.1:1',
+    });
+    expect(shimServerUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+/);
   });
 
   it('rejects a cleartext-remote function URL (fail closed, 500)', async () => {

@@ -2,12 +2,22 @@ import { test, expect, type ElectronApplication, type Page, _electron as electro
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { getChannelPluginStatus, goToSettings, invokeBridge, settingsSiderItemById } from '../helpers';
+import {
+  getChannelPluginStatus,
+  goToSettings,
+  invokeBridge,
+  resolveAioncoreBinary,
+  settingsSiderItemById,
+} from '../helpers';
 
 const emptyExtensionsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aionui-e2e-no-extensions-'));
 const stateSandboxDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aionui-e2e-no-extensions-state-'));
 const extensionStatesFile = path.join(stateSandboxDir, 'extension-states.json');
 const agentEventsFile = path.join(stateSandboxDir, 'agent-events.jsonl');
+const isolatedHomeDir = path.join(stateSandboxDir, 'home');
+const isolatedUserDataDir = path.join(stateSandboxDir, 'user-data');
+fs.mkdirSync(isolatedHomeDir, { recursive: true });
+fs.mkdirSync(isolatedUserDataDir, { recursive: true });
 fs.writeFileSync(agentEventsFile, '');
 
 function isDevToolsWindow(page: Page): boolean {
@@ -35,7 +45,8 @@ async function resolveMainWindow(electronApp: ElectronApplication): Promise<Page
 
 async function launchAppWithoutExtensions(): Promise<ElectronApplication> {
   const projectRoot = path.resolve(__dirname, '../../..');
-  const launchArgs = ['.'];
+  const backendBinary = resolveAioncoreBinary({ cwd: projectRoot });
+  const launchArgs = ['.', `--user-data-dir=${isolatedUserDataDir}`];
   if (process.platform === 'linux' && process.env.CI) {
     launchArgs.push('--no-sandbox');
   }
@@ -45,6 +56,10 @@ async function launchAppWithoutExtensions(): Promise<ElectronApplication> {
     cwd: projectRoot,
     env: {
       ...process.env,
+      HOME: isolatedHomeDir,
+      XDG_CONFIG_HOME: path.join(isolatedHomeDir, '.config'),
+      XDG_CACHE_HOME: path.join(isolatedHomeDir, '.cache'),
+      PATH: `${path.dirname(backendBinary)}${path.delimiter}${process.env.PATH || ''}`,
       AIONUI_EXTENSIONS_PATH: emptyExtensionsDir,
       AIONUI_EXTENSION_STATES_FILE: extensionStatesFile,
       AIONUI_DISABLE_AUTO_UPDATE: '1',
@@ -69,9 +84,14 @@ test.describe.serial('Extension: Empty Directory / No Extensions', () => {
   });
 
   test.afterAll(async () => {
+    try {
+      await electronApp?.evaluate(async ({ app }) => app.exit(0));
+    } catch {
+      // The app may already have exited after a failed assertion.
+    }
     await electronApp?.close().catch(() => {});
-    fs.rmSync(stateSandboxDir, { recursive: true, force: true });
-    fs.rmSync(emptyExtensionsDir, { recursive: true, force: true });
+    fs.rmSync(stateSandboxDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    fs.rmSync(emptyExtensionsDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   test('loads with zero extension contributions', async () => {

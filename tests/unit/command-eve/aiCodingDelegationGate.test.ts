@@ -11,24 +11,33 @@
  * `--dangerously-skip-permissions` AND told EVE the safe option was "WRONG for
  * automation" and to arrow Down past the warning — a blind gate-OFF, on any seat.
  *
- * The refined posture (founder 2026-07-06) is NOT "forbid skip-permissions" — that
- * is permission-fatigue paranoia. It is the HG-3.5 model: EVE is the discerning gate
- * (judges each action, escalates the consequential to the operator), the operator
- * chooses the autonomy level (supervised default; autonomous = explicit opt-in,
- * scope-bounded), and a set of inviolable hard floors always escalate. This test
- * locks THAT posture: the rubber-stamp anti-pattern can never return, and the
- * governance model must be present. It is a gate for the RIGHT invariants, not a
- * blanket string ban.
+ * 1.819 curator hardening: this bundled chat skill is now the supervised tmux
+ * lane only. Broader autonomous work belongs to the native scoped delegation
+ * runtime. The public skill must neither disable permissions nor teach raw API
+ * credential injection or unbounded child fleets.
  */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_COMMAND_EVE_CAPABILITY_PACK } from '@/process/commandEve/runtimeBootstrapCore';
+import {
+  DEFAULT_COMMAND_EVE_CAPABILITY_PACK,
+  EVE_STRATEGY_SKILL_IDS as RUNTIME_STRATEGY_SKILL_IDS,
+} from '@/process/commandEve/runtimeBootstrapCore';
+import { EVE_STRATEGY_SKILL_IDS as STAGED_STRATEGY_SKILL_IDS } from '../../../scripts/fetch-bundled-skills.mjs';
 
 const SKILL_PATH = path.resolve(__dirname, '../../../resources/bundled-skills/ai-coding-delegation/SKILL.md');
 const skillBody = () => fs.readFileSync(SKILL_PATH, 'utf8');
 const aiCodingSkill = () => DEFAULT_COMMAND_EVE_CAPABILITY_PACK.skills.find((s) => s.id === 'ai-coding-delegation');
+
+const EXPLICIT_ONLY_SKILL_IDS = [
+  'ai-coding-delegation',
+  'human-design-profile',
+  'local-vision-qa',
+  'plaud-recording-ingest',
+  'skill-authoring',
+  'legal-enforcement-dach',
+] as const;
 
 describe('ai-coding-delegation — permission-governance posture', () => {
   it('is a GATED capability, never an always-on default', () => {
@@ -56,25 +65,76 @@ describe('ai-coding-delegation — permission-governance posture', () => {
     expect(body).toMatch(/rubber-stamp/i);
   });
 
-  it('keeps the inviolable hard floors and the operator opt-in for autonomy', () => {
+  it('keeps the inviolable hard floors and routes autonomy to the native runtime', () => {
     const body = skillBody();
     expect(body).toMatch(/hard floor/i);
     expect(body).toMatch(/publish|deploy|production/i);
     expect(body).toMatch(/secret|credential/i);
     expect(body).toMatch(/another client('|’)?s? seat|another seat/i);
-    expect(body).toMatch(/opt-in|autonomy level/i);
-    expect(body).toMatch(/scope-bound|disposable|throwaway/i);
+    expect(body).toMatch(/native scoped delegation runtime/i);
+    expect(body).toMatch(/capacity/i);
   });
 
-  it('any literal skip-permissions flag stays gated behind opt-in + scope (never the default launch)', () => {
+  it('never teaches permission bypass, raw API credential injection or worker-owned child fleets', () => {
     const body = skillBody();
-    if (body.includes('--dangerously-skip-permissions')) {
-      // If the raw flag is spelled out, the doc MUST surround it with the opt-in + scope guardrails.
-      expect(body).toMatch(/opt-in/i);
-      expect(body).toMatch(/scope-bound|disposable/i);
+    expect(body).not.toContain('--dangerously-skip-permissions');
+    expect(body).not.toMatch(/ANTHROPIC_API_KEY\s*=/);
+    expect(body).not.toMatch(/use sub-agents|may spawn sub-agents/i);
+    expect(body).toMatch(/at most two tmux coding workers/i);
+    expect(body).toMatch(/never let either worker create\s+children/i);
+  });
+});
+
+describe('Command EVE 1.819 skill curation', () => {
+  it('keeps the public capability artifact byte-for-byte equivalent to the runtime pack', () => {
+    const publicPack = JSON.parse(
+      fs.readFileSync(path.resolve(__dirname, '../../../public/command-eve-capabilities.json'), 'utf8')
+    );
+    expect(publicPack).toEqual(DEFAULT_COMMAND_EVE_CAPABILITY_PACK);
+  });
+
+  it('keeps the build allowlist, runtime copy allowlist and capability catalog in lockstep', () => {
+    expect(STAGED_STRATEGY_SKILL_IDS).toEqual([...RUNTIME_STRATEGY_SKILL_IDS]);
+    const catalog = new Map(DEFAULT_COMMAND_EVE_CAPABILITY_PACK.skills.map((skill) => [skill.id, skill]));
+    expect(new Set(DEFAULT_COMMAND_EVE_CAPABILITY_PACK.skills.map((skill) => skill.id)).size).toBe(
+      DEFAULT_COMMAND_EVE_CAPABILITY_PACK.skills.length
+    );
+    for (const id of RUNTIME_STRATEGY_SKILL_IDS) {
+      const skill = catalog.get(id);
+      expect(skill, `${id} must have a user-facing catalog card`).toBeDefined();
+      expect(skill?.name.trim(), `${id} must have a readable name`).not.toBe(id);
+      expect(skill?.source.trim(), `${id} must name its provenance`).not.toBe('');
     }
-    // The default one-shot launch recipe must be the supervised one (no skip flag on it).
-    const oneShot = body.slice(body.indexOf('### One-shot delegation'), body.indexOf('### Multi-turn dialog'));
-    expect(oneShot).not.toContain('--dangerously-skip-permissions');
+  });
+
+  it('quarantines the unreviewed outbound bundle and removes stale prompt-only labels', () => {
+    expect(RUNTIME_STRATEGY_SKILL_IDS).not.toContain('marketing-outbound');
+    expect(STAGED_STRATEGY_SKILL_IDS).not.toContain('marketing-outbound');
+    const catalogIds = DEFAULT_COMMAND_EVE_CAPABILITY_PACK.skills.map((skill) => skill.id);
+    expect(catalogIds).not.toContain('marketing-outbound');
+    expect(catalogIds).not.toContain('blog-department');
+    expect(catalogIds).not.toContain('department-pack-creator');
+  });
+
+  it('keeps sensitive or high-impact skills gated and explicit-invocation-only', () => {
+    for (const id of EXPLICIT_ONLY_SKILL_IDS) {
+      const catalog = DEFAULT_COMMAND_EVE_CAPABILITY_PACK.skills.find((skill) => skill.id === id);
+      expect(catalog?.default_state, id).toBe('gated');
+      const body = fs.readFileSync(path.resolve(__dirname, `../../../resources/bundled-skills/${id}/SKILL.md`), 'utf8');
+      expect(body, id).toMatch(/^disable_model_invocation:\s*true$/m);
+    }
+  });
+
+  it('leaves the managed visual direction workflow active without enabling local-model fallback', () => {
+    const visualDirection = DEFAULT_COMMAND_EVE_CAPABILITY_PACK.skills.find(
+      (skill) => skill.id === 'visual-direction-gate'
+    );
+    const localVision = DEFAULT_COMMAND_EVE_CAPABILITY_PACK.skills.find((skill) => skill.id === 'local-vision-qa');
+    const presentationStudio = DEFAULT_COMMAND_EVE_CAPABILITY_PACK.skills.find(
+      (skill) => skill.id === 'presentation-studio'
+    );
+    expect(visualDirection?.default_state).toBe('active');
+    expect(presentationStudio?.default_state).toBe('active');
+    expect(localVision?.default_state).toBe('gated');
   });
 });

@@ -5,6 +5,7 @@
  */
 
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import yauzl from 'yauzl';
@@ -26,6 +27,12 @@ import {
   readBundledPythonProvenance,
   sha256FileIfPresent,
 } from '@/process/commandEve/windows/runtimeProvenanceCore';
+import {
+  COMMAND_EVE_ARTIFACT_PYTHON_PACKAGES,
+  COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_RECEIPT,
+  COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_VERSION,
+  COMMAND_EVE_ARTIFACT_PYTHON_SITE_SUBDIR,
+} from '@/process/commandEve/presentationPythonRuntimeCore';
 
 const roots: string[] = [];
 
@@ -38,6 +45,36 @@ function makeRoot(): string {
 function writeFile(filePath: string, content = 'fixture'): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, content);
+}
+
+function writeArtifactPythonSiteFixture(resourcesPath: string): string {
+  const sitePath = path.join(resourcesPath, 'python', COMMAND_EVE_ARTIFACT_PYTHON_SITE_SUBDIR);
+  // The hardened site verifier (Pro-verdict Gate 2) requires the full receipt
+  // contract: tree phase, tree root hash over the enumerated site files, and
+  // per-package wheel/metadata hashes + tags. The fixture site contains only
+  // the receipt, so the tree is empty and its root hash is sha256('[]').
+  const emptyTreeRoot = crypto.createHash('sha256').update('[]').digest('hex');
+  writeFile(
+    path.join(sitePath, COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_RECEIPT),
+    JSON.stringify({
+      version: COMMAND_EVE_ARTIFACT_PYTHON_RUNTIME_VERSION,
+      network_install_allowed: false,
+      tree_phase: 'signed',
+      tree_root_sha256: emptyTreeRoot,
+      tree_files: [],
+      spread_files: [],
+      packages: COMMAND_EVE_ARTIFACT_PYTHON_PACKAGES.map((entry) => ({
+        name: entry.name,
+        version: entry.version,
+        import_name: entry.importName,
+        wheel: entry.filename,
+        wheel_sha256: entry.sha256,
+        metadata_sha256: 'a'.repeat(64),
+        wheel_tags: ['py3-none-any'],
+      })),
+    })
+  );
+  return sitePath;
 }
 
 function readWheelEntry(wheelPath: string, entryName: string): Promise<string> {
@@ -273,8 +310,10 @@ describe('Command EVE Windows cloud turn-holder profile', () => {
     );
     const bundledHermesWheel = path.join(resourcesPath, 'bundled-hermes', 'hermes_agent-0.17.0-py3-none-any.whl');
     writeFile(bundledHermesWheel, 'hermes-wheel-fixture');
+    writeArtifactPythonSiteFixture(resourcesPath);
     const expectedHermesWheelSha256 = sha256FileIfPresent(bundledHermesWheel)!;
     const commands: string[] = [];
+    const paths = resolveCommandEveRuntimeBootstrapPaths(root, null, 'win32');
 
     const runner: RuntimeBootstrapRunner = async (command, args) => {
       commands.push([command, ...args].join(' '));
@@ -301,6 +340,23 @@ describe('Command EVE Windows cloud turn-holder profile', () => {
       ) {
         return { command, args, ok: true, status: 0, stdout: '0.17.0\n' };
       }
+      if (
+        command.endsWith(path.join('Scripts', 'python.exe')) &&
+        args.join(' ') === '-c import site; print(site.getsitepackages()[0])'
+      ) {
+        const sitePackages = path.join(paths.hermesVenv, 'Lib', 'site-packages');
+        writeFile(path.join(sitePackages, '.fixture'));
+        return { command, args, ok: true, status: 0, stdout: `${sitePackages}\n` };
+      }
+      if (
+        command.endsWith(path.join('Scripts', 'python.exe')) &&
+        // The hardened probe runs `python -I -P -S -c <source>`; match -c
+        // anywhere and inspect the source argument.
+        args.includes('-c') &&
+        args[args.indexOf('-c') + 1]?.includes('PRESENTATION_PYTHON_READY')
+      ) {
+        return { command, args, ok: true, status: 0, stdout: 'PRESENTATION_PYTHON_READY\n' };
+      }
       if (command.endsWith(path.join('Scripts', 'python.exe')) && args.includes('pip')) {
         const installTarget = args.at(-1) || '';
         if (/hermes[_-]agent/i.test(installTarget)) {
@@ -324,8 +380,6 @@ describe('Command EVE Windows cloud turn-holder profile', () => {
       totalMemoryBytes: 32 * 1024 ** 3,
       statfs: () => ({ bavail: 30, bsize: 1024 ** 3 }),
     });
-    const paths = resolveCommandEveRuntimeBootstrapPaths(root, null, 'win32');
-
     expect(receipt.status).toBe('ready');
     expect(receipt.runtime_profile).toBe('cloud_turn_holder_only');
     expect(receipt.runtime_provenance.python).toMatchObject({
@@ -383,7 +437,9 @@ describe('Command EVE Windows cloud turn-holder profile', () => {
     writeFile(conversationFixture, '{"keep":true}');
     const bundledHermesWheel = path.join(resourcesPath, 'bundled-hermes', 'hermes_agent-0.17.0-py3-none-any.whl');
     writeFile(bundledHermesWheel, 'hermes-wheel-fixture');
+    writeArtifactPythonSiteFixture(resourcesPath);
     const expectedHermesWheelSha256 = sha256FileIfPresent(bundledHermesWheel)!;
+    const paths = resolveCommandEveRuntimeBootstrapPaths(root, null, 'win32');
 
     const offlineRunner: RuntimeBootstrapRunner = async (command, args) => {
       if (command === bundledPython && args[0] === '--version') {
@@ -427,6 +483,23 @@ describe('Command EVE Windows cloud turn-holder profile', () => {
       }
       if (command.endsWith(path.join('Scripts', 'python.exe')) && args.join(' ') === '-c import ddgs') {
         return { command, args, ok: true, status: 0 };
+      }
+      if (
+        command.endsWith(path.join('Scripts', 'python.exe')) &&
+        args.join(' ') === '-c import site; print(site.getsitepackages()[0])'
+      ) {
+        const sitePackages = path.join(paths.hermesVenv, 'Lib', 'site-packages');
+        writeFile(path.join(sitePackages, '.fixture'));
+        return { command, args, ok: true, status: 0, stdout: `${sitePackages}\n` };
+      }
+      if (
+        command.endsWith(path.join('Scripts', 'python.exe')) &&
+        // The hardened probe runs `python -I -P -S -c <source>`; match -c
+        // anywhere and inspect the source argument.
+        args.includes('-c') &&
+        args[args.indexOf('-c') + 1]?.includes('PRESENTATION_PYTHON_READY')
+      ) {
+        return { command, args, ok: true, status: 0, stdout: 'PRESENTATION_PYTHON_READY\n' };
       }
       return { command, args, ok: false, status: 1, stderr: 'unexpected command' };
     };
