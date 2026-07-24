@@ -84,6 +84,67 @@ function treeRootSha256(files) {
 }
 
 /**
+ * Lock the signed artifact-site tree read-only (files 0o444, dirs 0o555).
+ *
+ * The post-sign tree allowlist is only as strong as the tree's immutability:
+ * any interpreter importing from the site (hermes venv, office CLI on a
+ * system python, probes) would otherwise drop __pycache__/*.pyc files into
+ * the signed tree and fail the runtime verifier on the NEXT launch — the
+ * exact failure the 1.819 C9 first run surfaced (480 cpython-313 extras).
+ * CPython tolerates an unwritable __pycache__ silently, so imports keep
+ * working; nothing in the packaged app has a legitimate write here.
+ *
+ * Must run BEFORE rewriteArtifactPythonReceiptPostSign so the receipt records
+ * the final read-only modes. The receipt file itself stays writable here so
+ * the rewrite can still replace it; lockArtifactPythonReceiptReadOnly seals
+ * it afterwards.
+ */
+function lockArtifactPythonSiteReadOnly(appPath, deps = {}) {
+  const fsDeps = {
+    existsSync: deps.existsSync || fs.existsSync,
+    readdirSync: deps.readdirSync || fs.readdirSync,
+    lstatSync: deps.lstatSync || fs.lstatSync,
+    chmodSync: deps.chmodSync || fs.chmodSync,
+  };
+  const siteDir = path.join(appPath, 'Contents', 'Resources', SITE_SUBDIR);
+  if (!fsDeps.existsSync(siteDir)) {
+    return { locked: false, reason: 'no-artifact-site' };
+  }
+  let files = 0;
+  const visit = (current) => {
+    for (const entry of fsDeps.readdirSync(current, { withFileTypes: true })) {
+      const target = path.join(current, entry.name);
+      if (entry.isSymbolicLink()) throw new Error(`read-only lock found a symlink: ${target}`);
+      if (entry.isDirectory()) {
+        visit(target);
+        fsDeps.chmodSync(target, 0o555);
+      } else if (entry.isFile()) {
+        if (entry.name === RECEIPT_NAME && path.dirname(target) === siteDir) continue;
+        fsDeps.chmodSync(target, 0o444);
+        files += 1;
+      }
+    }
+  };
+  visit(siteDir);
+  fsDeps.chmodSync(siteDir, 0o555);
+  return { locked: true, siteDir, files };
+}
+
+/** Seal the receipt itself read-only after the post-sign rewrite ran. */
+function lockArtifactPythonReceiptReadOnly(appPath, deps = {}) {
+  const fsDeps = {
+    existsSync: deps.existsSync || fs.existsSync,
+    chmodSync: deps.chmodSync || fs.chmodSync,
+  };
+  const receiptPath = path.join(appPath, 'Contents', 'Resources', SITE_SUBDIR, RECEIPT_NAME);
+  if (!fsDeps.existsSync(receiptPath)) {
+    return { locked: false, reason: 'no-receipt' };
+  }
+  fsDeps.chmodSync(receiptPath, 0o444);
+  return { locked: true, receiptPath };
+}
+
+/**
  * Rewrite the artifact-site runtime receipt after codesign has run.
  *
  * @param {string} appPath path to the packaged .app bundle
@@ -135,6 +196,8 @@ module.exports = {
   RECEIPT_NAME,
   RECEIPT_VERSION,
   enumerateSiteTree,
+  lockArtifactPythonReceiptReadOnly,
+  lockArtifactPythonSiteReadOnly,
   rewriteArtifactPythonReceiptPostSign,
   treeRootSha256,
 };

@@ -689,6 +689,30 @@ function removePreviouslySpreadFiles(targetDirectory, pythonRoot) {
 // Pro-verdict Gate 1 / P2-2: SBOM + THIRD_PARTY_NOTICES from the final tree
 // ---------------------------------------------------------------------------
 
+// Remove every __pycache__ directory from the staged tree. Wheels ship none;
+// probe- or build-created caches are only valid for the exact interpreter
+// that wrote them and would otherwise ship stale bytecode to runtime
+// interpreters on other minor versions (office CLI system python, hermes
+// venv). Deterministic, source-only trees keep the signed allowlist honest.
+function stripBytecodeCaches(targetDirectory) {
+  const visit = (directory) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const target = path.join(directory, entry.name);
+      if (entry.isSymbolicLink()) throw new Error(`Bytecode-cache strip found a symlink: ${target}`);
+      if (entry.isDirectory()) {
+        if (entry.name === '__pycache__') {
+          fs.rmSync(target, { recursive: true, force: true });
+          continue;
+        }
+        visit(target);
+      } else if (entry.isFile() && /\.py[co]$/.test(entry.name)) {
+        fs.rmSync(target, { force: true });
+      }
+    }
+  };
+  visit(targetDirectory);
+}
+
 const COMMAND_EVE_ARTIFACT_SBOM_FILE = 'sbom.cyclonedx.json';
 const COMMAND_EVE_ARTIFACT_NOTICES_FILE = 'THIRD_PARTY_NOTICES.txt';
 const LICENSE_FILE_PATTERN = /(?:^|\/)(?:licenses?\/)?(?:licen[cs]e|copying|notice)(?:\.[^/]*)?$/i;
@@ -993,6 +1017,13 @@ export async function stageBundledArtifactPython(options) {
   // PEP-770 sbom, lxml's libxml2 notices) are merged from the dist-info
   // payloads so no native .dylib/.so ships without an owning component.
   const compliance = writeArtifactComplianceFiles({ targetDirectory, packages, manifest });
+
+  // Deterministic tree: no interpreter bytecode caches. Wheels ship none, and
+  // any probe-created __pycache__ would only be valid for the exact build
+  // interpreter anyway — a runtime interpreter on a different minor version
+  // (e.g. the office CLI's system python) rebuilds its own cache. Shipping
+  // caches adds bytes and cross-version risk for zero benefit.
+  stripBytecodeCaches(targetDirectory);
 
   const tree = collectArtifactTreeFiles(targetDirectory, pythonRoot, spreadFiles);
 

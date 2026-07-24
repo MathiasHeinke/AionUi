@@ -9,7 +9,11 @@ const {
   resolvePythonRoot,
 } = require('./deepSignPython_core.js');
 const { writeFinalAioncoreArtifactReceipt } = require('./finalAioncoreArtifactReceipt.js');
-const { rewriteArtifactPythonReceiptPostSign } = require('./signArtifactPythonReceipt_core.js');
+const {
+  lockArtifactPythonReceiptReadOnly,
+  lockArtifactPythonSiteReadOnly,
+  rewriteArtifactPythonReceiptPostSign,
+} = require('./signArtifactPythonReceipt_core.js');
 
 function firstEnv(env, names) {
   for (const name of names) {
@@ -211,18 +215,25 @@ function deepSignBundledPython(appPath, env = process.env, deps = {}) {
     );
   }
 
-  // Pro-verdict Gate 2/3 (GPT-5.6-Pro 1.819 review): codesign rewrote the
-  // artifact-site Mach-O bytes, so the staging receipt's pre-sign tree hashes
-  // are stale. Rewrite the receipt with post-sign hashes + tree_phase 'signed'
-  // BEFORE the outer re-seal so the sealed .app matches what the runtime
-  // verifier will compare against. Without this the notarized app would fail
-  // closed on every artifact import. Non-bundle builds skip gracefully.
+  // Pro-verdict Gate 2/3 (GPT-5.6-Pro 1.819 review) + C9 finding (1.819 first
+  // run): codesign rewrote the artifact-site Mach-O bytes, so the staging
+  // receipt's pre-sign tree hashes are stale — and the signed tree must be
+  // read-only, or runtime interpreters drop __pycache__ files into it and the
+  // verifier fails on the NEXT launch. Lock the tree read-only first, then
+  // rewrite the receipt with post-sign hashes + final modes + tree_phase
+  // 'signed', BEFORE the outer re-seal so the sealed .app matches what the
+  // runtime verifier will compare against. Non-bundle builds skip gracefully.
   try {
+    const readOnlyLock = lockArtifactPythonSiteReadOnly(appPath);
+    if (readOnlyLock.locked) {
+      console.log(`Artifact Python site locked read-only (${readOnlyLock.files} files).`);
+    }
     const receiptRewrite = rewriteArtifactPythonReceiptPostSign(appPath);
     if (receiptRewrite.rewritten) {
       console.log(
         `Artifact Python receipt rewritten post-sign (${receiptRewrite.treeFiles} tree files, tree_phase=signed).`
       );
+      lockArtifactPythonReceiptReadOnly(appPath);
     }
   } catch (receiptError) {
     const message = receiptError && receiptError.message ? receiptError.message : String(receiptError);

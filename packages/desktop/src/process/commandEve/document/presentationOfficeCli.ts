@@ -67,6 +67,11 @@ export function runOfficeCliJson(args: readonly string[]): Promise<unknown> {
           LOCALAPPDATA: process.env.LOCALAPPDATA,
           SystemRoot: process.env.SystemRoot,
           NO_COLOR: '1',
+          // The office CLI resolves a system interpreter (e.g. python 3.13)
+          // whose imports of the signed artifact site must never mutate it:
+          // a stray __pycache__/*.pyc breaks the post-sign tree allowlist and
+          // fails the bootstrap's signed-site verification on the NEXT launch.
+          PYTHONDONTWRITEBYTECODE: '1',
         },
       },
       (error, stdout) => {
