@@ -331,6 +331,14 @@ function createDmgWithHdiutil(appDir, targetArch) {
       stdio: 'inherit',
     });
   } finally {
+    // The staged copy inherits the read-only-locked artifact-python tree
+    // (0444/0555, see signArtifactPythonReceipt_core.js); plain rmSync fails
+    // with ENOTEMPTY inside write-protected dirs. Restore owner-write first.
+    try {
+      execSync(`chmod -R u+w "${stage}"`, { stdio: 'ignore' });
+    } catch {
+      // best-effort; rmSync below is the final attempt either way
+    }
     fs.rmSync(stage, { recursive: true, force: true });
   }
 
