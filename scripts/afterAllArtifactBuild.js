@@ -60,10 +60,9 @@ function rebuildDmgWithHdiutil(dmgPath, context) {
     );
     return appPath;
   } finally {
-    // The staged copy inherits the read-only-locked artifact-python tree
-    // (0444 files / 0555 dirs, see signArtifactPythonReceipt_core.js). Plain
-    // rmSync cannot unlink inside write-protected dirs (ENOTEMPTY), so
-    // restore owner-write first; cleanup must never fail the build.
+    // Defensive cleanup for partially built or legacy app trees. Current
+    // updater-compatible artifacts are already 0644/0755, but older staging
+    // output may still contain owner-read-only paths.
     try {
       execFileSync('chmod', ['-R', 'u+w', stageRoot], { stdio: 'ignore' });
     } catch {

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -9,8 +10,7 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const {
-  lockArtifactPythonReceiptReadOnly,
-  lockArtifactPythonSiteReadOnly,
+  prepareArtifactPythonSiteForUpdater,
   rewriteArtifactPythonReceiptPostSign,
   treeRootSha256,
 } = require('./signArtifactPythonReceipt_core.js');
@@ -129,34 +129,46 @@ test('post-sign rewrite fails closed on a symlink inside the tree', (t) => {
   assert.throws(() => rewriteArtifactPythonReceiptPostSign(appPath), /symlink/);
 });
 
-test('read-only lock makes files 0444 and dirs 0555, and the receipt records those modes', (t) => {
+test('updater preparation makes files 0644 and dirs 0755, and the receipt records those modes', (t) => {
   const { appPath, siteDir } = makeApp(t);
   writeStagingReceipt(siteDir);
 
-  const lock = lockArtifactPythonSiteReadOnly(appPath);
-  assert.equal(lock.locked, true);
-  assert.ok(lock.files >= 2);
+  const preparation = prepareArtifactPythonSiteForUpdater(appPath);
+  assert.equal(preparation.prepared, true);
+  assert.ok(preparation.files >= 3);
 
   const fileMode = fs.statSync(path.join(siteDir, 'pptx', 'api.py')).mode & 0o777;
   const dirMode = fs.statSync(path.join(siteDir, 'pptx')).mode & 0o777;
-  assert.equal(fileMode, 0o444);
-  assert.equal(dirMode, 0o555);
+  assert.equal(fileMode, 0o644);
+  assert.equal(dirMode, 0o755);
 
   const result = rewriteArtifactPythonReceiptPostSign(appPath);
   assert.equal(result.rewritten, true);
   const rewritten = JSON.parse(fs.readFileSync(path.join(siteDir, RECEIPT_NAME), 'utf8'));
   const apiEntry = rewritten.tree_files.find((entry) => entry.path === 'pptx/api.py');
-  assert.equal(apiEntry.mode, 0o444);
-
-  // The receipt itself stays writable through the rewrite, then gets sealed.
-  const seal = lockArtifactPythonReceiptReadOnly(appPath);
-  assert.equal(seal.locked, true);
-  assert.equal(fs.statSync(path.join(siteDir, RECEIPT_NAME)).mode & 0o777, 0o444);
+  assert.equal(apiEntry.mode, 0o644);
+  assert.equal(fs.statSync(path.join(siteDir, RECEIPT_NAME)).mode & 0o777, 0o644);
 });
 
-test('read-only lock skips gracefully without an artifact site', (t) => {
+test(
+  'updater-prepared tree permits ShipIt quarantine removal on macOS',
+  { skip: process.platform !== 'darwin' },
+  (t) => {
+    const { appPath, siteDir } = makeApp(t);
+    writeStagingReceipt(siteDir);
+    prepareArtifactPythonSiteForUpdater(appPath);
+
+    const quarantineValue = '0083;00000000;Command EVE updater regression test;';
+    execFileSync('xattr', ['-w', 'com.apple.quarantine', quarantineValue, siteDir]);
+    execFileSync('xattr', ['-w', 'com.apple.quarantine', quarantineValue, path.join(siteDir, 'pptx', 'api.py')]);
+
+    assert.doesNotThrow(() => execFileSync('xattr', ['-dr', 'com.apple.quarantine', siteDir]));
+  }
+);
+
+test('updater preparation skips gracefully without an artifact site', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'eve-lock-empty-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  const result = lockArtifactPythonSiteReadOnly(path.join(root, 'Command EVE.app'));
-  assert.deepEqual(result, { locked: false, reason: 'no-artifact-site' });
+  const result = prepareArtifactPythonSiteForUpdater(path.join(root, 'Command EVE.app'));
+  assert.deepEqual(result, { prepared: false, reason: 'no-artifact-site' });
 });

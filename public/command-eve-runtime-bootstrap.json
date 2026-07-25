@@ -1,6 +1,6 @@
 {
   "version": "command-eve-runtime-bootstrap-manifest/v0",
-  "release": "1.819.0",
+  "release": "1.819.1",
   "hermes": {
     "package": "hermes-agent",
     "version": "0.17.0",
