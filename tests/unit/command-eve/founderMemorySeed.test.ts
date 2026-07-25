@@ -10,10 +10,13 @@ import os from 'os';
 import path from 'path';
 
 import {
+  COMMAND_EVE_RUNTIME_BOOTSTRAP_VERSION,
   resolveCommandEveRuntimeBootstrapPaths,
   seedFounderUserProfile,
+  syncCommandEveRegistrationIdentityArtifacts,
 } from '@/process/commandEve/runtimeBootstrapCore';
 import type { RuntimeBootstrapIdentityProfile } from '@/process/commandEve/runtimeBootstrapCore';
+import { registerTenant } from '@/process/commandEve/entitlementCore';
 
 const mkProfile = (over: Partial<RuntimeBootstrapIdentityProfile> = {}): RuntimeBootstrapIdentityProfile => ({
   version: 'command-eve-first-run-profile/v0',
@@ -68,5 +71,99 @@ describe('seedFounderUserProfile — durable founder memory bootstrap', () => {
     const wrote = seedFounderUserProfile(paths, mkProfile());
     expect(wrote).toBe(false);
     expect(fs.readFileSync(userMd, 'utf8')).toBe('Operator heißt Mathias, mag knappe Antworten ohne Floskeln.');
+  });
+
+  it('migrates the legacy machine seed and refreshes only the confirmed operator identity', () => {
+    const paths = freshPaths();
+    const userMd = path.join(paths.hermesHome, 'memories', 'USER.md');
+    fs.mkdirSync(path.dirname(userMd), { recursive: true });
+    fs.writeFileSync(
+      userMd,
+      [
+        '# Operator\nName: Old macOS Guess\nFirma/Brand: (unbestätigt — beiläufig nachfragen)\n(Bei der Registrierung angegeben — beim ersten Gespräch kurz bestätigen lassen.)',
+        '# Was ich über den Operator lernen + hier festhalten soll\n- bestehender Scaffold',
+        '# Gewachsene Erinnerung\nAntworten bitte knapp.',
+      ].join('\n§\n') + '\n'
+    );
+
+    const confirmedProfile = mkProfile({
+      source: 'registration',
+      confidence: 'verified',
+      needs_confirmation: false,
+      founder_name: 'Confirmed Founder',
+      company_name: 'Confirmed Company',
+    });
+    const wrote = seedFounderUserProfile(paths, confirmedProfile);
+
+    const refreshed = fs.readFileSync(userMd, 'utf8');
+    expect(wrote).toBe(true);
+    expect(refreshed).toContain('<!-- CE:OPERATOR-SEED:v1 -->');
+    expect(refreshed).toContain('# Operator\nName: Confirmed Founder\nFirma/Brand: Confirmed Company');
+    expect(refreshed).not.toContain('Old macOS Guess');
+    expect(refreshed).toContain('# Gewachsene Erinnerung\nAntworten bitte knapp.');
+    expect(seedFounderUserProfile(paths, confirmedProfile)).toBe(false);
+    expect(fs.readFileSync(userMd, 'utf8')).toContain('# Gewachsene Erinnerung\nAntworten bitte knapp.');
+  });
+
+  it('synchronizes registration into profile, receipt and USER.md after the cold bootstrap', async () => {
+    const paths = freshPaths();
+    seedFounderUserProfile(
+      paths,
+      mkProfile({
+        source: 'macos_full_name',
+        founder_name: 'OS Guess',
+        company_name: undefined,
+      })
+    );
+    fs.mkdirSync(path.dirname(paths.receiptPath), { recursive: true });
+    fs.writeFileSync(
+      paths.receiptPath,
+      JSON.stringify({
+        version: COMMAND_EVE_RUNTIME_BOOTSTRAP_VERSION,
+        app_release: '1.819.1',
+        stages: [],
+        identity: { source: 'macos_full_name', founder_name: 'OS Guess' },
+      })
+    );
+    const registeredAt = new Date('2026-07-25T12:00:00.000Z');
+    expect(
+      registerTenant(
+        {
+          name: 'EVE Release Test',
+          company: 'FYN Labs Release QA',
+          email: 'eve-release@example.invalid',
+          consent: true,
+        },
+        { userDataPath: paths.userDataPath, now: () => registeredAt }
+      ).ok
+    ).toBe(true);
+
+    const synced = await syncCommandEveRegistrationIdentityArtifacts(paths.userDataPath, {
+      env: {},
+      now: () => new Date('2026-07-25T12:00:01.000Z'),
+      displayNameLookup: () => '',
+    });
+
+    expect(synced.ok).toBe(true);
+    expect(synced.profile).toMatchObject({
+      source: 'registration',
+      confidence: 'verified',
+      needs_confirmation: false,
+      founder_name: 'EVE Release Test',
+      company_name: 'FYN Labs Release QA',
+    });
+    const userMd = fs.readFileSync(path.join(paths.hermesHome, 'memories', 'USER.md'), 'utf8');
+    expect(userMd).toContain(
+      '# Operator\nName: EVE Release Test\nFirma/Brand: FYN Labs Release QA\n(Bei der Registrierung angegeben.)'
+    );
+    expect(userMd).not.toContain('OS Guess');
+    const receipt = JSON.parse(fs.readFileSync(paths.receiptPath, 'utf8'));
+    expect(receipt.identity).toMatchObject({
+      source: 'registration',
+      confidence: 'verified',
+      founder_name: 'EVE Release Test',
+      company_name: 'FYN Labs Release QA',
+      profile_path: paths.firstRunProfile,
+    });
   });
 });

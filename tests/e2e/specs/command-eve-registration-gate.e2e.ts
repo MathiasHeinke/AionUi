@@ -239,7 +239,7 @@ function findFileUnder(root: string, fileName: string): string | null {
 }
 
 test.describe.serial('Command EVE registration + license gate', () => {
-  test.setTimeout(180_000);
+  test.setTimeout(240_000);
 
   test.beforeAll(async () => {
     // Other Command EVE E2E specs keep a shared app alive with the registration
@@ -318,6 +318,63 @@ test.describe.serial('Command EVE registration + license gate', () => {
         'CEVE.v1.preserved-through-setup'
       );
       await expect(page.locator('[data-testid="registration-gate-license-submit"]')).toBeVisible();
+
+      // Registration is not only renderer-local: the confirmed identity must
+      // replace the first-boot OS guess in every machine-owned runtime artifact
+      // during the SAME running app, before a license succeeds or navigation
+      // occurs. This is the real C9 chain, not a pre-seeded fixture.
+      const submittedRegistrationFile = findFileUnder(mainScenarioParent, 'registration.json');
+      expect(submittedRegistrationFile, 'registration.json was not written after submit').not.toBeNull();
+      const submittedRuntimeRoot = path.dirname(path.dirname(submittedRegistrationFile as string));
+      await expect
+        .poll(
+          () => {
+            const profilePath = path.join(submittedRuntimeRoot, 'first-run-profile.json');
+            const receiptPath = path.join(submittedRuntimeRoot, 'runtime-bootstrap-receipt.json');
+            const userMdPath = path.join(submittedRuntimeRoot, 'hermes', 'home', 'memories', 'USER.md');
+            if (![profilePath, receiptPath, userMdPath].every((candidate) => fs.existsSync(candidate))) return null;
+            const profile = JSON.parse(fs.readFileSync(profilePath, 'utf8'));
+            const receipt = JSON.parse(fs.readFileSync(receiptPath, 'utf8'));
+            const userMd = fs.readFileSync(userMdPath, 'utf8');
+            return {
+              profile: {
+                source: profile.source,
+                confidence: profile.confidence,
+                needs_confirmation: profile.needs_confirmation,
+                founder_name: profile.founder_name,
+                company_name: profile.company_name,
+              },
+              receipt: {
+                source: receipt.identity?.source,
+                confidence: receipt.identity?.confidence,
+                founder_name: receipt.identity?.founder_name,
+                company_name: receipt.identity?.company_name,
+              },
+              operatorSeedCurrent: userMd.includes(
+                '# Operator\nName: Alois\nFirma/Brand: Alois GmbH\n(Bei der Registrierung angegeben.)'
+              ),
+              operatorSeedManaged: userMd.includes('<!-- CE:OPERATOR-SEED:v1 -->'),
+            };
+          },
+          { timeout: 60_000, message: 'Waiting for registration identity to reach profile, receipt and USER.md' }
+        )
+        .toMatchObject({
+          profile: {
+            source: 'registration',
+            confidence: 'verified',
+            needs_confirmation: false,
+            founder_name: 'Alois',
+            company_name: 'Alois GmbH',
+          },
+          receipt: {
+            source: 'registration',
+            confidence: 'verified',
+            founder_name: 'Alois',
+            company_name: 'Alois GmbH',
+          },
+          operatorSeedCurrent: true,
+          operatorSeedManaged: true,
+        });
 
       // (c) A wrong-key code shows the SIGNATURE_INVALID-specific error and does NOT unlock.
       const wrongKeyCode = signCode(attacker.privateKey, pilotPayload());

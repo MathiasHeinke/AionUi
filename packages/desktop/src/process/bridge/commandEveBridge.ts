@@ -77,6 +77,7 @@ import {
   EVE_STRATEGY_SKILL_IDS,
   COMMAND_EVE_ONBOARDING_SKILL_ID,
   COMMAND_EVE_ARTIFACT_MENU_SKILL_ID,
+  syncCommandEveRegistrationIdentityArtifacts,
 } from '@process/commandEve/runtimeBootstrapCore';
 import { buildCommandEveStatusSurface } from '@process/commandEve/statusSurfaceCore';
 import { resolveHonchoRenderForSeat, type HonchoRenderInput } from '@process/commandEve/honchoRuntimeRenderCore';
@@ -246,6 +247,21 @@ function unwrapBridgeRequest<T>(request?: T | CommandEveBridgeEnvelope<T>): T | 
     return (request as CommandEveBridgeEnvelope<T>).data;
   }
   return request as T | undefined;
+}
+
+async function syncRegistrationIdentityArtifactsBestEffort(userDataPath: string): Promise<void> {
+  try {
+    const result = await syncCommandEveRegistrationIdentityArtifacts(userDataPath);
+    if (!result.ok && result.reason_code !== 'REGISTRATION_MISSING') {
+      console.warn(`[Command EVE] Registration identity sync incomplete: ${result.reason_code || 'unknown'}`);
+    }
+  } catch (error) {
+    // Registration/auth itself remains authoritative. A memory/receipt refresh
+    // failure is surfaced but must not strand a user after successful login.
+    console.warn(
+      `[Command EVE] Registration identity sync failed: ${error instanceof Error ? error.message : 'unknown'}`
+    );
+  }
 }
 
 /**
@@ -3028,6 +3044,7 @@ export function initCommandEveBridge(): void {
           },
           { userDataPath: getDataPath() }
         );
+        if (result.ok) void syncRegistrationIdentityArtifactsBestEffort(getDataPath());
         return {
           success: result.ok,
           msg: result.ok ? undefined : result.reason_code || result.message,
@@ -3156,6 +3173,7 @@ export function initCommandEveBridge(): void {
           }
         },
       });
+      void syncRegistrationIdentityArtifactsBestEffort(userDataPath);
 
       return {
         success: result.activated,
@@ -3229,6 +3247,7 @@ export function initCommandEveBridge(): void {
             }
           },
         });
+        void syncRegistrationIdentityArtifactsBestEffort(userDataPath);
 
         return {
           success: result.activated,
@@ -3478,6 +3497,7 @@ export function initCommandEveBridge(): void {
           },
           { userDataPath: getDataPath() }
         );
+        if (result.ok) void syncRegistrationIdentityArtifactsBestEffort(getDataPath());
         return {
           success: result.ok,
           msg: result.ok ? undefined : result.reason_code || result.message,
@@ -4265,7 +4285,8 @@ export function initCommandEveBridge(): void {
   // never blocks bridge init and never throws the chrome.
   void (async () => {
     try {
-      await silentResumeAccountAuth(getDataPath(), {
+      const userDataPath = getDataPath();
+      await silentResumeAccountAuth(userDataPath, {
         storeLicenseWire: (p, wire) => {
           try {
             storeLicenseWire(p, wire);
@@ -4274,6 +4295,7 @@ export function initCommandEveBridge(): void {
           }
         },
       });
+      if (readRegistration(userDataPath)) await syncRegistrationIdentityArtifactsBestEffort(userDataPath);
     } catch {
       // A dead refresh / network failure just leaves the gate on Login.
     }

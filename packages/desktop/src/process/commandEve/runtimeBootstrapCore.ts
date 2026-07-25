@@ -4239,12 +4239,77 @@ export function renderCommandEveEnvironmentHintForHome(hermesHome: string): stri
   }
 }
 
+const OPERATOR_SEED_MARKER_BEGIN = '<!-- CE:OPERATOR-SEED:v1 -->';
+const OPERATOR_SEED_MARKER_END = '<!-- /CE:OPERATOR-SEED -->';
+const OPERATOR_LEARNING_SCAFFOLD_HEADING = '# Was ich über den Operator lernen + hier festhalten soll';
+const OPERATOR_ENTRY_DELIMITER = '\n§\n';
+
+function renderOperatorIdentityEntry(firstRunProfile: RuntimeBootstrapIdentityProfile): string {
+  // Only carry a name/company forward when the bootstrap deemed them RELIABLE — a
+  // 'placeholder' confidence means the registration form gave garbage (e.g. an email
+  // local-part), which we must NOT enshrine as the operator's identity.
+  const reliable = firstRunProfile.confidence !== 'placeholder';
+  const name = (reliable && firstRunProfile.founder_name?.trim()) || '';
+  const company = (reliable && firstRunProfile.company_name?.trim()) || '';
+  return name || company
+    ? `# Operator\nName: ${name || '(unbestätigt — beiläufig nachfragen)'}\nFirma/Brand: ${company || '(unbestätigt — beiläufig nachfragen)'}\n(Bei der Registrierung angegeben${firstRunProfile.needs_confirmation ? ' — beim ersten Gespräch kurz bestätigen lassen' : ''}.)`
+    : `# Operator\n(Noch keine bestätigte Identität. Frag im ersten Gespräch beiläufig nach Name, Firma/Brand und worum es geht — und HALTE es hier fest.)`;
+}
+
+function operatorSeedBlock(identityEntry: string): string {
+  return `${OPERATOR_SEED_MARKER_BEGIN}\n${identityEntry}\n${OPERATOR_SEED_MARKER_END}`;
+}
+
+function isLegacyMachineSeededOperatorEntry(entry: string): boolean {
+  if (
+    entry ===
+    '# Operator\n(Noch keine bestätigte Identität. Frag im ersten Gespräch beiläufig nach Name, Firma/Brand und worum es geht — und HALTE es hier fest.)'
+  ) {
+    return true;
+  }
+  return /^# Operator\nName: [^\n]+\nFirma\/Brand: [^\n]+\n\(Bei der Registrierung angegeben(?: — beim ersten Gespräch kurz bestätigen lassen)?\.\)$/.test(
+    entry
+  );
+}
+
+/**
+ * Refresh only the bootstrap-owned identity entry. The first launch can finish
+ * before registration/browser auth, so USER.md initially contains an OS guess.
+ * A later confirmed registration must replace that guess without clobbering any
+ * EVE-grown memory outside this narrow marker fence.
+ *
+ * Legacy migration is intentionally conservative: the unmarked first entry is
+ * adopted only when it has the exact old machine template AND the immediately
+ * following learning scaffold is still present. Arbitrary/user-grown USER.md is
+ * left byte-identical.
+ */
+function refreshManagedOperatorSeed(existing: string, nextBlock: string): string | null {
+  const beginCount = existing.split(OPERATOR_SEED_MARKER_BEGIN).length - 1;
+  const endCount = existing.split(OPERATOR_SEED_MARKER_END).length - 1;
+  if (beginCount > 0 || endCount > 0) {
+    if (beginCount !== 1 || endCount !== 1) return null;
+    const begin = existing.indexOf(OPERATOR_SEED_MARKER_BEGIN);
+    const end = existing.indexOf(OPERATOR_SEED_MARKER_END, begin + OPERATOR_SEED_MARKER_BEGIN.length);
+    if (begin === -1 || end <= begin) return null;
+    return `${existing.slice(0, begin)}${nextBlock}${existing.slice(end + OPERATOR_SEED_MARKER_END.length)}`;
+  }
+
+  const delimiterIndex = existing.indexOf(OPERATOR_ENTRY_DELIMITER);
+  if (delimiterIndex <= 0) return null;
+  const firstEntry = existing.slice(0, delimiterIndex).trim();
+  const remainder = existing.slice(delimiterIndex + OPERATOR_ENTRY_DELIMITER.length);
+  if (!isLegacyMachineSeededOperatorEntry(firstEntry)) return null;
+  if (!remainder.startsWith(OPERATOR_LEARNING_SCAFFOLD_HEADING)) return null;
+  return `${nextBlock}${OPERATOR_ENTRY_DELIMITER}${remainder}`;
+}
+
 // Seed the durable founder profile (memories/USER.md) on first run so EVE's "I remember you
 // across sessions" is real from turn one: the file loads into EVERY system prompt and compounds.
 // The audit found USER.md was NEVER created (the founder profile never persisted) — this gives the
-// profile a real, structured substrate to grow from instead of an empty file. IDEMPOTENT: never
-// clobber a USER.md EVE has already grown. (Reliably WRITING new facts on the weak 4B local model
-// is a separate hermes-wheel item; this is the autonomous half — make the substrate exist + honest.)
+// profile a real, structured substrate to grow from instead of an empty file. IDEMPOTENT: refresh
+// only the marker-owned identity seed; never clobber a USER.md EVE has grown outside that fence.
+// (Reliably WRITING new facts on the weak 4B local model is a separate hermes-wheel item; this is
+// the autonomous half — make the substrate exist + honest.)
 export function seedFounderUserProfile(
   paths: RuntimeBootstrapPaths,
   firstRunProfile: RuntimeBootstrapIdentityProfile
@@ -4252,23 +4317,10 @@ export function seedFounderUserProfile(
   const memDir = path.join(paths.hermesHome, 'memories');
   const userMdPath = path.join(memDir, 'USER.md');
   try {
-    if (fs.existsSync(userMdPath) && fs.readFileSync(userMdPath, 'utf8').trim()) {
-      return false; // already grown by EVE — never clobber the operator's profile
-    }
-    fs.mkdirSync(memDir, { recursive: true });
-    // Only carry a name/company forward when the bootstrap deemed them RELIABLE — a
-    // 'placeholder' confidence means the registration form gave garbage (e.g. an email
-    // local-part), which we must NOT enshrine as the operator's identity.
-    const reliable = firstRunProfile.confidence !== 'placeholder';
-    const name = (reliable && firstRunProfile.founder_name?.trim()) || '';
-    const company = (reliable && firstRunProfile.company_name?.trim()) || '';
-    const ENTRY_DELIMITER = '\n§\n'; // matches the memory tool's entry separator
-    const identityEntry =
-      name || company
-        ? `# Operator\nName: ${name || '(unbestätigt — beiläufig nachfragen)'}\nFirma/Brand: ${company || '(unbestätigt — beiläufig nachfragen)'}\n(Bei der Registrierung angegeben${firstRunProfile.needs_confirmation ? ' — beim ersten Gespräch kurz bestätigen lassen' : ''}.)`
-        : `# Operator\n(Noch keine bestätigte Identität. Frag im ersten Gespräch beiläufig nach Name, Firma/Brand und worum es geht — und HALTE es hier fest.)`;
+    const identityEntry = renderOperatorIdentityEntry(firstRunProfile);
+    const managedIdentity = operatorSeedBlock(identityEntry);
     const scaffoldEntry = [
-      '# Was ich über den Operator lernen + hier festhalten soll',
+      OPERATOR_LEARNING_SCAFFOLD_HEADING,
       '- Geschäft: Was verkauft er, an wen, Angebot/Preis?',
       '- Ziele: Woran arbeitet er gerade (Vision → Versionen → Meilensteine)?',
       '- Schreibstimme: Wie klingt er (Tonalität, Lieblingsphrasen, was er NIE sagt)? — fürs On-Voice-Schreiben.',
@@ -4278,7 +4330,19 @@ export function seedFounderUserProfile(
       '',
       'Trag echte Fakten ein, sobald du sie erfährst (memory-Tool, target=user). Erfinde nichts; was du nicht weißt, bleibt eine offene Frage, die du beiläufig klärst.',
     ].join('\n');
-    fs.writeFileSync(userMdPath, [identityEntry, scaffoldEntry].join(ENTRY_DELIMITER) + '\n', { mode: 0o600 });
+
+    const existing = fs.existsSync(userMdPath) ? fs.readFileSync(userMdPath, 'utf8') : '';
+    if (existing.trim()) {
+      const refreshed = refreshManagedOperatorSeed(existing, managedIdentity);
+      if (refreshed === null || refreshed === existing) return false;
+      fs.writeFileSync(userMdPath, refreshed, { mode: 0o600 });
+      return true;
+    }
+
+    fs.mkdirSync(memDir, { recursive: true });
+    fs.writeFileSync(userMdPath, [managedIdentity, scaffoldEntry].join(OPERATOR_ENTRY_DELIMITER) + '\n', {
+      mode: 0o600,
+    });
     return true;
   } catch {
     return false; // best-effort: a seed failure must never block the boot
@@ -5095,6 +5159,31 @@ export function provisionSeatRuntimeFiles(options: ProvisionSeatRuntimeFilesOpti
 }
 
 const runtimeBootstrapQueueTails = new Map<string, Promise<void>>();
+
+async function withRuntimeBootstrapExclusive<T>(
+  platform: NodeJS.Platform,
+  runtimeRoot: string,
+  mutation: () => Promise<T> | T
+): Promise<T> {
+  const queueKey = `${platform}:${path.resolve(runtimeRoot)}`;
+  const previousTurn = runtimeBootstrapQueueTails.get(queueKey) ?? Promise.resolve();
+  let releaseTurn!: () => void;
+  const currentTurn = new Promise<void>((resolve) => {
+    releaseTurn = resolve;
+  });
+  const queueTail = previousTurn.catch((): void => undefined).then(() => currentTurn);
+  runtimeBootstrapQueueTails.set(queueKey, queueTail);
+
+  await previousTurn.catch((): void => undefined);
+  try {
+    return await mutation();
+  } finally {
+    releaseTurn();
+    if (runtimeBootstrapQueueTails.get(queueKey) === queueTail) {
+      runtimeBootstrapQueueTails.delete(queueKey);
+    }
+  }
+}
 
 async function ensureCommandEveRuntimeBootstrapUnlocked(
   options: RuntimeBootstrapOptions,
@@ -6148,24 +6237,122 @@ export async function ensureCommandEveRuntimeBootstrap(
   const platform = options.platform ?? process.platform;
   const activeSeatId = getActiveSeatId();
   const runtimeRoot = resolveCommandEveRuntimeBootstrapPaths(options.userDataPath, activeSeatId, platform).runtimeRoot;
-  const queueKey = `${platform}:${path.resolve(runtimeRoot)}`;
-  const previousTurn = runtimeBootstrapQueueTails.get(queueKey) ?? Promise.resolve();
-  let releaseTurn!: () => void;
-  const currentTurn = new Promise<void>((resolve) => {
-    releaseTurn = resolve;
-  });
-  const queueTail = previousTurn.catch((): void => undefined).then(() => currentTurn);
-  runtimeBootstrapQueueTails.set(queueKey, queueTail);
-
-  await previousTurn.catch((): void => undefined);
-  try {
+  return withRuntimeBootstrapExclusive(platform, runtimeRoot, async () => {
     const receipt = await ensureCommandEveRuntimeBootstrapUnlocked(options, activeSeatId);
     await options.afterBootstrapExclusive?.(receipt);
     return receipt;
-  } finally {
-    releaseTurn();
-    if (runtimeBootstrapQueueTails.get(queueKey) === queueTail) {
-      runtimeBootstrapQueueTails.delete(queueKey);
+  });
+}
+
+export type CommandEveRegistrationIdentitySyncResult = {
+  ok: boolean;
+  profile?: RuntimeBootstrapIdentityProfile;
+  operator_seed_changed: boolean;
+  tier_stamp_changed: boolean;
+  receipt_updated: boolean;
+  reason_code?: 'REGISTRATION_MISSING' | 'RUNTIME_RECEIPT_MISSING' | 'RUNTIME_RECEIPT_INVALID';
+};
+
+/**
+ * Reconcile confirmed registration identity into every machine-owned runtime
+ * artifact without rerunning the expensive bootstrap. The mutation shares the
+ * exact bootstrap queue, so a fast user can submit registration while the cold
+ * install is still provisioning without the earlier OS-guess bootstrap racing
+ * back over the confirmed profile.
+ */
+export async function syncCommandEveRegistrationIdentityArtifacts(
+  userDataPath: string,
+  options: {
+    env?: NodeJS.ProcessEnv;
+    now?: () => Date;
+    displayNameLookup?: () => string;
+    platform?: NodeJS.Platform;
+  } = {}
+): Promise<CommandEveRegistrationIdentitySyncResult> {
+  const platform = options.platform ?? process.platform;
+  const activeSeatId = getActiveSeatId();
+  const paths = resolveCommandEveRuntimeBootstrapPaths(userDataPath, activeSeatId, platform);
+
+  return withRuntimeBootstrapExclusive(platform, paths.runtimeRoot, () => {
+    const registration = readRegistration(paths.userDataPath);
+    if (!registration) {
+      return {
+        ok: false,
+        operator_seed_changed: false,
+        tier_stamp_changed: false,
+        receipt_updated: false,
+        reason_code: 'REGISTRATION_MISSING',
+      };
     }
-  }
+
+    const profile = resolveCommandEveFirstRunProfile({
+      env: options.env ?? process.env,
+      now: options.now ?? (() => new Date()),
+      displayNameLookup: options.displayNameLookup,
+      registration: {
+        founder_name: registration.name,
+        founder_name_source: registration.name_source,
+        company_name: registration.company,
+        email: registration.email,
+      },
+    });
+    writeJsonAtomic(paths.firstRunProfile, profile);
+
+    const operatorSeedChanged = seedFounderUserProfile(paths, profile);
+    const legacy = isLegacySeatId(activeSeatId);
+    const tierStamp = stampUserMdTiersToHome({
+      hermesHome: paths.hermesHome,
+      legacy,
+      profile,
+      seed: legacy ? null : readCompanyBrainSeedStateFromHome(paths.hermesHome).record,
+      locale: 'de-DE',
+      kind: getActiveSeatKind(),
+    });
+
+    if (!fs.existsSync(paths.receiptPath)) {
+      return {
+        ok: false,
+        profile,
+        operator_seed_changed: operatorSeedChanged,
+        tier_stamp_changed: tierStamp.changed,
+        receipt_updated: false,
+        reason_code: 'RUNTIME_RECEIPT_MISSING',
+      };
+    }
+
+    let receipt: RuntimeBootstrapReceipt;
+    try {
+      receipt = JSON.parse(fs.readFileSync(paths.receiptPath, 'utf8')) as RuntimeBootstrapReceipt;
+    } catch {
+      return {
+        ok: false,
+        profile,
+        operator_seed_changed: operatorSeedChanged,
+        tier_stamp_changed: tierStamp.changed,
+        receipt_updated: false,
+        reason_code: 'RUNTIME_RECEIPT_INVALID',
+      };
+    }
+    if (receipt.version !== COMMAND_EVE_RUNTIME_BOOTSTRAP_VERSION || !Array.isArray(receipt.stages)) {
+      return {
+        ok: false,
+        profile,
+        operator_seed_changed: operatorSeedChanged,
+        tier_stamp_changed: tierStamp.changed,
+        receipt_updated: false,
+        reason_code: 'RUNTIME_RECEIPT_INVALID',
+      };
+    }
+
+    const nextIdentity = { ...profile, profile_path: paths.firstRunProfile };
+    const receiptUpdated = JSON.stringify(receipt.identity) !== JSON.stringify(nextIdentity);
+    if (receiptUpdated) writeJsonAtomic(paths.receiptPath, { ...receipt, identity: nextIdentity });
+    return {
+      ok: tierStamp.ok,
+      profile,
+      operator_seed_changed: operatorSeedChanged,
+      tier_stamp_changed: tierStamp.changed,
+      receipt_updated: receiptUpdated,
+    };
+  });
 }
