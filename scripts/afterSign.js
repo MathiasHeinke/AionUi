@@ -217,9 +217,10 @@ function deepSignBundledPython(appPath, env = process.env, deps = {}) {
   // Pro-verdict Gate 2/3 (GPT-5.6-Pro 1.819 review) + C9 finding (1.819 first
   // run): codesign rewrote the artifact-site Mach-O bytes, so the staging
   // receipt's pre-sign tree hashes are stale. Runtime interpreters must not
-  // drop __pycache__ files into it (all packaged entry points set
-  // PYTHONDONTWRITEBYTECODE), while Squirrel/ShipIt still needs owner-write
-  // permission to remove com.apple.quarantine during an update. Normalize to
+  // drop __pycache__ files into it (packaged entry points set
+  // PYTHONDONTWRITEBYTECODE; isolated probes also pass -B because -I ignores
+  // PYTHON* env), while Squirrel/ShipIt still needs owner-write permission to
+  // remove com.apple.quarantine during an update. Normalize to
   // 0644/0755, then rewrite the receipt with post-sign hashes + final modes +
   // tree_phase 'signed', BEFORE the outer re-seal. Non-bundle builds skip.
   try {

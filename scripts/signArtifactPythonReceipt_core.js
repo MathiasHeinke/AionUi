@@ -94,10 +94,11 @@ function treeRootSha256(files) {
  *
  * Runtime integrity does not depend on filesystem immutability: the outer app
  * is code-signed, every artifact-site byte and mode is covered by the signed
- * receipt, the runtime verifier fails closed on drift, and every packaged
- * Python entry point sets PYTHONDONTWRITEBYTECODE=1. This function must run
- * BEFORE rewriteArtifactPythonReceiptPostSign so the receipt records the final
- * installer-compatible modes.
+ * receipt, the runtime verifier fails closed on drift, and packaged Python
+ * entry points disable bytecode writes (PYTHONDONTWRITEBYTECODE=1, plus an
+ * explicit -B for isolated probes because -I ignores PYTHON* env variables).
+ * This function must run BEFORE rewriteArtifactPythonReceiptPostSign so the
+ * receipt records the final installer-compatible modes.
  */
 function prepareArtifactPythonSiteForUpdater(appPath, deps = {}) {
   const fsDeps = {

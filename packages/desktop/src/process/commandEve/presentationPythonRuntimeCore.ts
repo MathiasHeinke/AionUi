@@ -383,6 +383,10 @@ export function commandEvePresentationPythonProbeArgs(artifactSiteDirectory = ''
   ]);
   if (!artifactSiteDirectory) {
     return [
+      // -I implies -E, so Python ignores PYTHONDONTWRITEBYTECODE from the
+      // parent environment. Keep -B explicit or the first packaged probe can
+      // create __pycache__ inside the signed app and invalidate its code seal.
+      '-B',
       '-I',
       '-P',
       '-c',
@@ -411,7 +415,7 @@ from openpyxl import DEFUSEDXML
 assert pillow_version == "12.3.0" and DEFUSEDXML is True
 print("PRESENTATION_PYTHON_READY")
 `;
-  return ['-I', '-P', '-S', '-c', source];
+  return ['-B', '-I', '-P', '-S', '-c', source];
 }
 
 export function commandEvePresentationPythonInstallArgs(bundleDir: string): string[] {

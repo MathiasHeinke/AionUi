@@ -78,7 +78,15 @@ describe('bundled presentation Python runtime', () => {
     expect(installArgs).toContain('XlsxWriter==3.2.9');
     expect(installArgs.join(' ')).not.toMatch(/https?:\/\//);
 
-    const probe = commandEvePresentationPythonProbeArgs().join(' ');
+    const fallbackProbeArgs = commandEvePresentationPythonProbeArgs();
+    const signedSiteProbeArgs = commandEvePresentationPythonProbeArgs('/signed/artifact-site');
+    // Python isolated mode (-I) ignores PYTHON* environment variables. The
+    // explicit -B is therefore a code-signing invariant, not an optimization:
+    // neither probe may write __pycache__ into the packaged app bundle.
+    expect(fallbackProbeArgs.slice(0, 3)).toEqual(['-B', '-I', '-P']);
+    expect(signedSiteProbeArgs.slice(0, 4)).toEqual(['-B', '-I', '-P', '-S']);
+
+    const probe = fallbackProbeArgs.join(' ');
     expect(probe).toContain('version("python-pptx")');
     expect(probe).toContain('version("XlsxWriter")');
     // The hardened probe imports via import_module with an origin assertion
