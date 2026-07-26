@@ -120,7 +120,7 @@ describe('seedFounderUserProfile — durable founder memory bootstrap', () => {
       paths.receiptPath,
       JSON.stringify({
         version: COMMAND_EVE_RUNTIME_BOOTSTRAP_VERSION,
-        app_release: '1.819.1',
+        app_release: '1.819.2',
         stages: [],
         identity: { source: 'macos_full_name', founder_name: 'OS Guess' },
       })

@@ -753,6 +753,8 @@ function messageText(message: unknown): string {
 
 const COMMAND_EVE_IMAGE_OMITTED_TEXT =
   '[Image attachment omitted: Command EVE vision is disabled until a vetted vision lane is configured.]';
+const COMMAND_EVE_LOCAL_VISION_MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+const COMMAND_EVE_LOCAL_VISION_MODEL = /^minicpm-v(?::[^/]+)?$/i;
 
 function stripNativeImageHintText(text: string): string {
   return text.replace(/\n?\[Image attached(?: at)?: [^\]\n]+\]/g, '').trim();
@@ -760,6 +762,26 @@ function stripNativeImageHintText(text: string): string {
 
 function isNativeImageContentPart(part: Record<string, unknown>): boolean {
   return part.type === 'image_url' || Object.prototype.hasOwnProperty.call(part, 'image_url');
+}
+
+function stripNativeImageHintsOnly(message: unknown): unknown {
+  if (!message || typeof message !== 'object') return message;
+  const nextMessage = { ...(message as Record<string, unknown>) };
+  const content = nextMessage.content;
+  if (typeof content === 'string') {
+    nextMessage.content = stripNativeImageHintText(content) || content;
+    return nextMessage;
+  }
+  if (!Array.isArray(content)) return nextMessage;
+  nextMessage.content = content.map((part) => {
+    if (!part || typeof part !== 'object') return part;
+    const nextPart = { ...(part as Record<string, unknown>) };
+    if (typeof nextPart.text === 'string') {
+      nextPart.text = stripNativeImageHintText(nextPart.text) || nextPart.text;
+    }
+    return nextPart;
+  });
+  return nextMessage;
 }
 
 function stripUnsupportedImageContent(message: unknown): unknown {
@@ -791,8 +813,12 @@ function stripUnsupportedImageContent(message: unknown): unknown {
  * redacts ONLY the hard-floor classes (secret/financial/health) so a toggle-off
  * turn still strips credentials while passing waived S1/S2 through.
  */
-function redactMessageContent(message: unknown, minClass: CommandEveSensitivityClass = 'S1'): unknown {
-  const safeMessage = stripUnsupportedImageContent(message);
+function redactMessageContent(
+  message: unknown,
+  minClass: CommandEveSensitivityClass = 'S1',
+  preserveLocalImages = false
+): unknown {
+  const safeMessage = preserveLocalImages ? stripNativeImageHintsOnly(message) : stripUnsupportedImageContent(message);
   if (!safeMessage || typeof safeMessage !== 'object') return safeMessage;
   const nextMessage = { ...(safeMessage as Record<string, unknown>) };
   // Redact tool-call arguments too (the model can echo PII into a tool call it makes).
@@ -827,6 +853,76 @@ function redactMessageContent(message: unknown, minClass: CommandEveSensitivityC
     return nextPart;
   });
   return nextMessage;
+}
+
+function isCommandEveLocalVisionModel(model: string): boolean {
+  return COMMAND_EVE_LOCAL_VISION_MODEL.test(model.trim());
+}
+
+function imageDataUrlPayload(part: Record<string, unknown>): string | undefined {
+  const imageUrl = part.image_url;
+  const url =
+    typeof imageUrl === 'string'
+      ? imageUrl
+      : imageUrl && typeof imageUrl === 'object' && typeof (imageUrl as Record<string, unknown>).url === 'string'
+        ? String((imageUrl as Record<string, unknown>).url)
+        : '';
+  const match = url.match(/^data:image\/(png|jpeg|webp|gif);base64,([A-Za-z0-9+/]+={0,2})$/i);
+  if (!match || match[2].length % 4 !== 0) return undefined;
+  const bytes = Buffer.from(match[2], 'base64');
+  if (bytes.length === 0 || bytes.length > COMMAND_EVE_LOCAL_VISION_MAX_IMAGE_BYTES) return undefined;
+  const mime = match[1].toLowerCase();
+  const hasExpectedMagic =
+    (mime === 'png' &&
+      bytes.length >= 8 &&
+      bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) ||
+    (mime === 'jpeg' && bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) ||
+    (mime === 'webp' &&
+      bytes.length >= 12 &&
+      bytes.subarray(0, 4).toString('ascii') === 'RIFF' &&
+      bytes.subarray(8, 12).toString('ascii') === 'WEBP') ||
+    (mime === 'gif' && bytes.length >= 6 && ['GIF87a', 'GIF89a'].includes(bytes.subarray(0, 6).toString('ascii')));
+  if (!hasExpectedMagic) return undefined;
+  return match[2];
+}
+
+function prepareLocalOllamaVisionMessages(messages: unknown[]): {
+  messages: unknown[];
+  imageCount: number;
+  invalidImageCount: number;
+} {
+  let imageCount = 0;
+  let invalidImageCount = 0;
+  const prepared = messages.map((message) => {
+    if (!message || typeof message !== 'object') return message;
+    const nextMessage = { ...(message as Record<string, unknown>) };
+    const content = nextMessage.content;
+    if (!Array.isArray(content)) return nextMessage;
+    const textParts: string[] = [];
+    const images: string[] = [];
+    for (const part of content) {
+      if (!part || typeof part !== 'object') continue;
+      const record = part as Record<string, unknown>;
+      if (isNativeImageContentPart(record)) {
+        const payload = imageDataUrlPayload(record);
+        if (payload) {
+          images.push(payload);
+          imageCount += 1;
+        } else {
+          invalidImageCount += 1;
+        }
+        continue;
+      }
+      if (typeof record.text === 'string') {
+        const text = stripNativeImageHintText(record.text);
+        if (text) textParts.push(text);
+      }
+    }
+    nextMessage.content = textParts.join('\n\n');
+    if (images.length > 0) nextMessage.images = images;
+    return nextMessage;
+  });
+  return { messages: prepared, imageCount, invalidImageCount };
 }
 
 function classifyPromptMarker(promptText: string): CommandEvePromptProof['marker'] {
@@ -1599,16 +1695,19 @@ async function handleChatCompletions(
   const body = await readBody(request);
   const model = String(body.model || '');
   const stream = Boolean(body.stream);
+  const forceLocalVision = isCommandEveLocalVisionModel(model);
 
   // EVE Inference (cloud) lane takes precedence over the local Ollama path when
   // the active picker selection is an EVE tier. A warm-up ping ("ping") stays
-  // local — it only ever exercises the bundled local model.
+  // local — it only ever exercises the bundled local model. The one vetted
+  // MiniCPM vision identifier is also explicitly local: auxiliary vision must
+  // not inherit the user's cloud chat picker or require a CEVE bearer.
   if (!isCommandEveWarmupRequest(body)) {
     // The resolver sees the original hidden one-turn authorization marker. An
     // invalid/expired marker rejects here and therefore fails closed instead of
     // falling through to Ollama. Strip the opaque marker before either cloud or
     // local model handling so it never becomes model-visible or leaves the Mac.
-    const eveRoute = await options.eveRouting(body);
+    const eveRoute = forceLocalVision ? { active: false } : await options.eveRouting(body);
     body.messages = asMessages(body.messages).map(stripManagedVisualTurnAuthorization);
     if (eveRoute?.active) {
       // SG-1 A1: the attribution token rides the X-EVE-Dispatch HEADER, never the
@@ -1628,7 +1727,10 @@ async function handleChatCompletions(
     return;
   }
 
-  let localMessages = asMessages(body.messages).map((message) => stripUnsupportedImageContent(message));
+  const useLocalOllamaVision = !localOpenAiRoute?.active && forceLocalVision;
+  let localMessages = asMessages(body.messages).map((message) =>
+    useLocalOllamaVision ? stripNativeImageHintsOnly(message) : stripUnsupportedImageContent(message)
+  );
   body.messages = localMessages;
 
   if (!isCommandEveWarmupRequest(body)) {
@@ -1662,7 +1764,7 @@ async function handleChatCompletions(
       // Local lane never egresses and never carries a toggle context, so it always
       // redacts at the full S1 threshold (legacy behaviour). Wrap so Array.map's
       // (value,index,array) never leaks the index into the minClass parameter.
-      localMessages = localMessages.map((message) => redactMessageContent(message));
+      localMessages = localMessages.map((message) => redactMessageContent(message, 'S1', useLocalOllamaVision));
       body.messages = localMessages;
     }
 
@@ -1680,6 +1782,16 @@ async function handleChatCompletions(
   if (localOpenAiRoute?.active) {
     await handleLocalOpenAiCompletions(request, body, response, options, localOpenAiRoute);
     return;
+  }
+  if (useLocalOllamaVision) {
+    const preparedVision = prepareLocalOllamaVisionMessages(asMessages(body.messages));
+    if (preparedVision.invalidImageCount > 0) {
+      jsonResponse(response, 400, {
+        error: { message: 'The local vision request contained an invalid or unsupported embedded image.' },
+      });
+      return;
+    }
+    body.messages = preparedVision.messages;
   }
   const upstreamScope = createUpstreamRequestScope(request, response, options);
   try {

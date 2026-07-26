@@ -21,6 +21,8 @@ export interface ElectronBridgeAPI {
   on: (callback: (event: { value: string }) => void) => void;
   // 获取拖拽文件/目录的绝对路径 / Get absolute path for dragged file/directory
   getPathForFile?: (file: File) => string;
+  // Register a path returned by AionCore's app-owned HTTP upload endpoint.
+  registerAppUploadPath?: (filePath: string) => Promise<boolean>;
   // Feedback log collection / 收集反馈日志
   collectFeedbackLogs?: () => Promise<{ filename: string; data: number[] } | null>;
   // Feedback screenshot capture / 反馈截图

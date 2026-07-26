@@ -107,6 +107,9 @@ const DEFAULT_LONG_CONTEXT_LENGTH = 65_536;
 const DEFAULT_HERMES_MAX_TOKENS = 2048;
 const COMMAND_EVE_OLLAMA_MODEL_PREFIX = 'command-eve';
 const BUNDLED_HERMES_DIR = 'bundled-hermes';
+const BUNDLED_AIONCORE_DIR = 'bundled-aioncore';
+const MANAGED_RESOURCES_DIR = 'managed-resources';
+const MANAGED_NODE_DIR = 'node';
 // Vendored keyless-web-backend wheels (ddgs + its runtime closure: primp, lxml,
 // httpx[brotli,http2,socks], click, fake-useragent, …). Committed under
 // resources/bundled-hermes/web for the OFFLINE-CAPABLE path
@@ -849,7 +852,7 @@ export type RuntimeBootstrapOptions = {
 
 export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
   version: 'command-eve-capability-pack/v0',
-  release: '1.819.1',
+  release: '1.819.2',
   policy: {
     default_mode: 'proposal_only',
     secret_rule: 'Never ask for passwords, cookies, recovery codes, raw tokens or .env contents in chat.',
@@ -1368,7 +1371,7 @@ type PythonLookup = CommandLookup & {
 
 export const DEFAULT_RUNTIME_BOOTSTRAP_MANIFEST: RuntimeBootstrapManifest = {
   version: 'command-eve-runtime-bootstrap-manifest/v0',
-  release: '1.819.1',
+  release: '1.819.2',
   hermes: {
     package: DEFAULT_HERMES_PACKAGE,
     version: DEFAULT_HERMES_VERSION,
@@ -1604,31 +1607,91 @@ export type CommandEveHermesMcpServer = {
 };
 
 /**
+ * Resolve the single signed Node runtime shipped inside bundled AionCore.
+ *
+ * Packaged Command EVE deliberately burns Electron's RunAsNode fuse OFF. An
+ * Electron executable can therefore never be a valid MCP stdio runtime in a
+ * release artifact, even when ELECTRON_RUN_AS_NODE is present in the child
+ * environment. The managed Node bundle is already covered by the runtime
+ * receipt and packaged-resource release gates, so use that exact executable
+ * and fail closed when its layout is missing, ambiguous, or escapes the signed
+ * managed-resources tree.
+ */
+export function resolveCommandEveManagedNodeExecutable(
+  resourcesPath: string | undefined,
+  platform: NodeJS.Platform = process.platform,
+  arch: NodeJS.Architecture = process.arch
+): string {
+  const root = typeof resourcesPath === 'string' ? resourcesPath.trim() : '';
+  const osKey = platform === 'win32' ? 'win32' : platform === 'darwin' ? 'darwin' : platform === 'linux' ? 'linux' : '';
+  const archKey = arch === 'x64' || arch === 'arm64' ? arch : '';
+  if (!root || !path.isAbsolute(root) || !osKey || !archKey) return '';
+
+  const managedRoot = path.join(root, BUNDLED_AIONCORE_DIR, `${osKey}-${archKey}`, MANAGED_RESOURCES_DIR);
+  const nodeRoot = path.join(managedRoot, MANAGED_NODE_DIR);
+  const executableParts = platform === 'win32' ? ['node.exe'] : ['bin', 'node'];
+
+  try {
+    const managedRootStat = fs.lstatSync(managedRoot);
+    const nodeRootStat = fs.lstatSync(nodeRoot);
+    if (
+      managedRootStat.isSymbolicLink() ||
+      !managedRootStat.isDirectory() ||
+      nodeRootStat.isSymbolicLink() ||
+      !nodeRootStat.isDirectory()
+    ) {
+      return '';
+    }
+
+    const candidates = fs
+      .readdirSync(nodeRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
+      .map((entry) => path.join(nodeRoot, entry.name, ...executableParts))
+      .filter((candidate) => {
+        try {
+          const stat = fs.lstatSync(candidate);
+          return stat.isFile() && !stat.isSymbolicLink();
+        } catch {
+          return false;
+        }
+      });
+    if (candidates.length !== 1) return '';
+
+    const realManagedRoot = fs.realpathSync.native(managedRoot);
+    const realCandidate = fs.realpathSync.native(candidates[0]);
+    const relative = path.relative(realManagedRoot, realCandidate);
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return '';
+    return candidates[0];
+  } catch {
+    return '';
+  }
+}
+
+/**
  * The image generator is an app-owned capability, not a user connector. Hermes
  * therefore receives it directly in its private 0600 config instead of through
  * the external-connector vault flag. The loopback bearer itself never enters
  * config.yaml: the MCP child reads the already-provisioned 0600 token file.
  */
 export function buildCommandEveManagedImageHermesMcpServer(input: {
-  electronExecutable: string;
+  nodeExecutable: string;
   scriptPath: string;
   shimBaseUrl: string;
   authTokenFile: string;
 }): CommandEveHermesMcpServer | undefined {
-  const electronExecutable = input.electronExecutable.trim();
+  const nodeExecutable = input.nodeExecutable.trim();
   const scriptPath = input.scriptPath.trim();
   const authTokenFile = input.authTokenFile.trim();
-  if (!path.isAbsolute(electronExecutable) || !path.isAbsolute(scriptPath) || !path.isAbsolute(authTokenFile)) {
+  if (!path.isAbsolute(nodeExecutable) || !path.isAbsolute(scriptPath) || !path.isAbsolute(authTokenFile)) {
     return undefined;
   }
   if (!isLoopbackHttpUrl(input.shimBaseUrl)) return undefined;
 
   return {
     id: 'aionui-image-generation',
-    command: electronExecutable,
+    command: nodeExecutable,
     args: [scriptPath],
     env: {
-      ELECTRON_RUN_AS_NODE: '1',
       AIONUI_IMG_PROVIDER_ID: COMMAND_EVE_MANAGED_IMAGE_PROVIDER_ID,
       AIONUI_IMG_PLATFORM: COMMAND_EVE_MANAGED_IMAGE_PLATFORM,
       AIONUI_IMG_BASE_URL: ollamaOpenAiCompatibleBaseUrl(input.shimBaseUrl),
@@ -3253,15 +3316,60 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     'from providers.base import ProviderProfile',
     '',
     '',
-    'def _command_eve_shim_headers() -> dict[str, str]:',
+    'def _command_eve_shim_token() -> str:',
     '    token_file = os.environ.get("COMMAND_EVE_SHIM_AUTH_TOKEN_FILE", "").strip()',
-    '    if not token_file:',
-    '        return {}',
+    '    if not token_file or not Path(token_file).is_absolute():',
+    '        return ""',
     '    try:',
     '        token = Path(token_file).read_text(encoding="utf-8").strip()',
     '    except Exception:',
-    '        return {}',
+    '        return ""',
+    '    return token if re.fullmatch(r"[a-f0-9]{64}", token) else ""',
+    '',
+    '',
+    'def _command_eve_shim_headers() -> dict[str, str]:',
+    '    token = _command_eve_shim_token()',
     '    return {"Authorization": f"Bearer {token}"} if token else {}',
+    '',
+    '',
+    'def _command_eve_is_local_shim_base(base_url: str) -> bool:',
+    '    try:',
+    '        parsed = urlparse(str(base_url or ""))',
+    '        return (',
+    '            parsed.scheme == "http"',
+    '            and (parsed.hostname or "").lower() in {"127.0.0.1", "localhost", "::1"}',
+    '            and parsed.port == 25811',
+    '            and parsed.path.rstrip("/") in {"", "/v1"}',
+    '        )',
+    '    except Exception:',
+    '        return False',
+    '',
+    '',
+    'def _install_command_eve_auxiliary_auth_patch() -> None:',
+    '    try:',
+    '        from agent import auxiliary_client',
+    '    except Exception:',
+    '        return',
+    '    original = getattr(auxiliary_client, "_resolve_custom_runtime", None)',
+    '    if not callable(original) or getattr(original, "_command_eve_shim_auth_patch", False):',
+    '        return',
+    '',
+    '    def command_eve_resolve_custom_runtime():',
+    '        resolved = original()',
+    '        if not isinstance(resolved, tuple) or len(resolved) not in {2, 3}:',
+    '            return resolved',
+    '        base_url = resolved[0]',
+    '        if not _command_eve_is_local_shim_base(base_url):',
+    '            return resolved',
+    '        token = _command_eve_shim_token()',
+    '        if not token:',
+    '            return resolved',
+    '        if len(resolved) == 2:',
+    '            return base_url, token',
+    '        return base_url, token, resolved[2]',
+    '',
+    '    command_eve_resolve_custom_runtime._command_eve_shim_auth_patch = True',
+    '    auxiliary_client._resolve_custom_runtime = command_eve_resolve_custom_runtime',
     '',
     '',
     '# Dynamic Command EVE context policy. The same Hermes process serves local',
@@ -3655,6 +3763,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '        ollama_num_ctx: int | None = None,',
     '        **ctx: Any,',
     '    ) -> tuple[dict[str, Any], dict[str, Any]]:',
+    '        _install_command_eve_auxiliary_auth_patch()',
     '        _install_command_eve_context_policy_patch()',
     '        _install_command_eve_stop_continuation_patch()',
     '        extra_body: dict[str, Any] = {}',
@@ -3689,6 +3798,7 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '        default_headers=_command_eve_shim_headers(),',
     '    )',
     ')',
+    '_install_command_eve_auxiliary_auth_patch()',
     '_install_command_eve_context_policy_patch()',
     '_install_command_eve_stop_continuation_patch()',
     '',
@@ -4432,10 +4542,11 @@ function writeHermesRuntimeFiles(
   const vettedMcpServers = resolveVettedMcpServersForBootstrap(capabilityPack, getActiveSeatId(), mcpVaultDeps);
   const managedImageScriptPath = getBuiltinMcpScriptPath('builtin-mcp-image-gen');
   const managedImageTokenFile = commandEveShimAuthTokenFilePath(paths.userDataPath);
+  const managedImageNodeExecutable = resolveCommandEveManagedNodeExecutable(process.resourcesPath);
   const managedImageMcpServer =
-    fs.existsSync(managedImageScriptPath) && fs.existsSync(managedImageTokenFile)
+    managedImageNodeExecutable && fs.existsSync(managedImageScriptPath) && fs.existsSync(managedImageTokenFile)
       ? buildCommandEveManagedImageHermesMcpServer({
-          electronExecutable: process.execPath,
+          nodeExecutable: managedImageNodeExecutable,
           scriptPath: managedImageScriptPath,
           shimBaseUrl: manifest.local_runtime.egress_proxy_url,
           authTokenFile: managedImageTokenFile,

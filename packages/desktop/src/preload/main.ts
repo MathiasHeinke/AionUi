@@ -12,7 +12,10 @@ import '@sentry/electron/preload';
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { ADAPTER_BRIDGE_EVENT_KEY } from '../common/adapter/constant';
 import { DESKTOP_SHELL_CHANNELS } from '../common/config/desktopShellChannels';
-import { COMMAND_EVE_FILE_SELECTION_GRANT_CHANNEL } from '../common/config/commandEveFileSelectionGrant';
+import {
+  COMMAND_EVE_APP_UPLOAD_GRANT_CHANNEL,
+  COMMAND_EVE_FILE_SELECTION_GRANT_CHANNEL,
+} from '../common/config/commandEveFileSelectionGrant';
 
 /**
  * @description 注入到renderer进程中, 用于与main进程通信
@@ -48,6 +51,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const granted = ipcRenderer.sendSync(COMMAND_EVE_FILE_SELECTION_GRANT_CHANNEL, filePath) === true;
     return granted ? filePath : '';
   },
+  // Attest only paths returned by AionCore's own HTTP upload endpoint. Main
+  // independently confines them to the app-owned temp upload root.
+  registerAppUploadPath: (filePath: string) =>
+    ipcRenderer.invoke(COMMAND_EVE_APP_UPLOAD_GRANT_CHANNEL, filePath).then((result) => result === true),
   // Feedback: collect and compress recent log files
   collectFeedbackLogs: () => ipcRenderer.invoke('feedback:collect-logs'),
   // Feedback: capture a screenshot of the current window

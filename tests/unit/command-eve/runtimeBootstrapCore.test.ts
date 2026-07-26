@@ -1004,6 +1004,12 @@ describe('Command EVE runtime bootstrap core', () => {
       );
       expect(providerOverride).toContain('COMMAND_EVE_SHIM_AUTH_TOKEN_FILE');
       expect(providerOverride).toContain('default_headers=_command_eve_shim_headers()');
+      expect(providerOverride).toContain('def _install_command_eve_auxiliary_auth_patch()');
+      expect(providerOverride).toContain(
+        'auxiliary_client._resolve_custom_runtime = command_eve_resolve_custom_runtime'
+      );
+      expect(providerOverride).toContain('and parsed.port == 25811');
+      expect(providerOverride).toContain('re.fullmatch(r"[a-f0-9]{64}", token)');
       expect(providerOverride).toContain('top_level["reasoning_effort"] = "none"');
       expect(providerOverride).toContain('Command EVE cloud-shim stop continuation patch');
       expect(providerOverride).toContain('command-eve-context-policy/v1');

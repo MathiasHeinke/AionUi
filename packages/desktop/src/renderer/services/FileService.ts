@@ -15,6 +15,23 @@ export interface UploadFileOptions {
   signal?: AbortSignal;
 }
 
+type AppUploadGrantBridge = {
+  registerAppUploadPath?: (filePath: string) => Promise<boolean>;
+};
+
+/**
+ * Electron must attest the backend-returned path before managed document
+ * bridges can read it. WebUI has no privileged main-process bridge and keeps
+ * its existing HTTP-only behavior.
+ */
+export async function isAppOwnedUploadPathAttested(
+  filePath: string,
+  bridge: AppUploadGrantBridge | undefined = typeof window === 'undefined' ? undefined : window.electronAPI
+): Promise<boolean> {
+  const registerAppUploadPath = bridge?.registerAppUploadPath;
+  return !registerAppUploadPath || (await registerAppUploadPath(filePath)) === true;
+}
+
 /**
  * Upload a file to the backend via HTTP multipart.
  *
@@ -85,7 +102,7 @@ export async function uploadFileViaHttp(
       });
     }
 
-    xhr.addEventListener('load', () => {
+    xhr.addEventListener('load', async () => {
       detachSignal();
       if (xhr.status === 413) {
         reject(new Error('FILE_TOO_LARGE'));
@@ -100,6 +117,10 @@ export async function uploadFileViaHttp(
         if (!result.success || typeof result.data !== 'string' || !result.data) {
           reject(new Error('Upload failed: server returned unsuccessful response'));
         } else {
+          if (!(await isAppOwnedUploadPathAttested(result.data))) {
+            reject(new Error('Upload failed: app-owned path attestation rejected'));
+            return;
+          }
           resolve(result.data);
         }
       } catch {

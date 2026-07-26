@@ -4,13 +4,51 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { ipcBridge } from '@/common';
-import { COMMAND_EVE_FILE_SELECTION_GRANT_CHANNEL } from '@/common/config/commandEveFileSelectionGrant';
-import { registerCommandEveFileSelectionGrant } from '@process/commandEve/fileSelectionGrantCore';
+import {
+  COMMAND_EVE_APP_UPLOAD_GRANT_CHANNEL,
+  COMMAND_EVE_FILE_SELECTION_GRANT_CHANNEL,
+} from '@/common/config/commandEveFileSelectionGrant';
+import {
+  registerCommandEveAppOwnedUploadGrant,
+  registerCommandEveFileSelectionGrant,
+} from '@process/commandEve/fileSelectionGrantCore';
 import { getActiveSeatId } from '@process/commandEve/seatContextCore';
 
 export function initDialogBridge(): void {
+  // Renderer HTTP uploads are not native picker selections. The main process
+  // therefore verifies the returned path against AionCore's app-owned temp
+  // root before granting it; arbitrary renderer paths remain rejected.
+  ipcMain.handle(COMMAND_EVE_APP_UPLOAD_GRANT_CHANNEL, (event, filePath: unknown): boolean => {
+    const sender = event.sender;
+    const ownerWindow = BrowserWindow.fromWebContents(sender);
+    const rejectionReason = !ownerWindow
+      ? 'owner-window-missing'
+      : ownerWindow.isDestroyed()
+        ? 'owner-window-destroyed'
+        : sender.isDestroyed()
+          ? 'sender-destroyed'
+          : !event.senderFrame
+            ? 'sender-frame-missing'
+            : event.senderFrame !== sender.mainFrame
+              ? 'sender-frame-not-main'
+              : null;
+    if (rejectionReason) {
+      console.warn(`[Command EVE] App-owned upload grant rejected before path verification: ${rejectionReason}`);
+      return false;
+    }
+    const granted = registerCommandEveAppOwnedUploadGrant({
+      filePath,
+      tempDir: app.getPath('temp'),
+      seatId: getActiveSeatId(),
+    });
+    if (!granted) {
+      console.warn('[Command EVE] App-owned upload grant rejected by path verification.');
+    }
+    return granted;
+  });
+
   // Drag/drop paths are resolved in the isolated preload through
   // webUtils.getPathForFile. The hidden sync channel records only that resolved
   // path; the renderer has no raw ipcRenderer surface with which to mint an

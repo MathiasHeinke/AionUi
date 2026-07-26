@@ -510,6 +510,85 @@ describe('Command EVE Ollama OpenAI shim warm-up', () => {
     expect(forwarded).not.toContain('/Users/mathias/private.png');
   });
 
+  it('converts a vetted embedded image for the local MiniCPM vision lane without exposing its source path', async () => {
+    let upstreamBody: Record<string, unknown> | undefined;
+    let cloudRouteReads = 0;
+    const baseUrl = await startFakeOpenAiServer((bodySeen) => {
+      upstreamBody = bodySeen;
+    });
+    const onePixelPng = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: baseUrl,
+      eveRouting: () => {
+        cloudRouteReads += 1;
+        return buildEveCloudRoute({ isEveSelection: true, tier: 'max' });
+      },
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: SHIM_JSON_HEADERS,
+      body: JSON.stringify({
+        model: 'minicpm-v:8b',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'what is on this screenshot?\n\n[Image attached at: /Users/mathias/private.png]' },
+              { type: 'image_url', image_url: { url: `data:image/png;base64,${onePixelPng}` } },
+            ],
+          },
+        ],
+        stream: false,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(cloudRouteReads).toBe(0);
+    const forwarded = JSON.stringify(upstreamBody?.messages);
+    expect(forwarded).toContain('what is on this screenshot?');
+    expect(forwarded).toContain(onePixelPng);
+    expect(forwarded).toContain('"images"');
+    expect(forwarded).not.toContain('image_url');
+    expect(forwarded).not.toContain('data:image');
+    expect(forwarded).not.toContain('/Users/mathias/private.png');
+  });
+
+  it('rejects URL-backed or malformed images instead of fetching or silently dropping them in local vision', async () => {
+    let upstreamHits = 0;
+    const baseUrl = await startFakeOpenAiServer(() => {
+      upstreamHits += 1;
+    });
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl: baseUrl,
+      eveRouting: () => buildEveCloudRoute({ isEveSelection: false }),
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: SHIM_JSON_HEADERS,
+      body: JSON.stringify({
+        model: 'minicpm-v:8b',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'analyze this' },
+              { type: 'image_url', image_url: { url: 'https://example.invalid/private.png' } },
+            ],
+          },
+        ],
+        stream: false,
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(upstreamHits).toBe(0);
+  });
+
   it('branches to a managed local OpenAI provider before the Ollama-native conversion', async () => {
     let upstreamBody: Record<string, unknown> | undefined;
     let upstreamAuthorization: string | undefined;
