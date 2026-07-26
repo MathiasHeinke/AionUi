@@ -659,6 +659,13 @@ print("ARTIFACT_PYTHON_READY")
 `;
 }
 
+export function artifactPythonProbeArgs(packages, targetDirectory) {
+  // -I implies -E, so Python ignores PYTHONDONTWRITEBYTECODE from the
+  // environment. Keep -B explicit or the build probe writes stdlib bytecode
+  // caches containing absolute release-machine paths into the staged runtime.
+  return ['-B', '-I', '-P', '-S', '-c', artifactPythonProbeSource(packages, targetDirectory)];
+}
+
 function removePreviouslySpreadFiles(targetDirectory, pythonRoot) {
   const receiptPath = path.join(targetDirectory, COMMAND_EVE_ARTIFACT_RUNTIME_RECEIPT);
   if (!fs.existsSync(receiptPath)) return;
@@ -694,11 +701,14 @@ function removePreviouslySpreadFiles(targetDirectory, pythonRoot) {
 // that wrote them and would otherwise ship stale bytecode to runtime
 // interpreters on other minor versions (office CLI system python, hermes
 // venv). Deterministic, source-only trees keep the signed allowlist honest.
-function stripBytecodeCaches(targetDirectory) {
+export function stripBytecodeCaches(targetDirectory) {
   const visit = (directory) => {
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
       const target = path.join(directory, entry.name);
-      if (entry.isSymbolicLink()) throw new Error(`Bytecode-cache strip found a symlink: ${target}`);
+      // The pinned CPython distribution contains legitimate executable and
+      // pkgconfig symlinks. Never follow them; cache-named symlinks remain for
+      // the packaged-resource verifier to reject fail-closed.
+      if (entry.isSymbolicLink()) continue;
       if (entry.isDirectory()) {
         if (entry.name === '__pycache__') {
           fs.rmSync(target, { recursive: true, force: true });
@@ -982,16 +992,12 @@ export async function stageBundledArtifactPython(options) {
     const probeCwd = path.join(pythonRoot, '.command-eve-artifact-probe-cwd');
     fs.rmSync(probeCwd, { recursive: true, force: true });
     fs.mkdirSync(probeCwd, { recursive: false, mode: 0o700 });
-    const probe = spawnSync(
-      interpreter,
-      ['-I', '-P', '-S', '-c', artifactPythonProbeSource(packages, targetDirectory)],
-      {
-        cwd: probeCwd,
-        encoding: 'utf8',
-        env: { ...sanitizePythonEnvironment(), PYTHONDONTWRITEBYTECODE: '1' },
-        stdio: ['ignore', 'pipe', 'pipe'],
-      }
-    );
+    const probe = spawnSync(interpreter, artifactPythonProbeArgs(packages, targetDirectory), {
+      cwd: probeCwd,
+      encoding: 'utf8',
+      env: { ...sanitizePythonEnvironment(), PYTHONDONTWRITEBYTECODE: '1' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
     fs.rmSync(probeCwd, { recursive: true, force: true });
     if (probe.status !== 0 || !String(probe.stdout || '').includes('ARTIFACT_PYTHON_READY')) {
       throw new Error(`Artifact Python import probe failed: ${String(probe.stderr || probe.stdout || '').trim()}`);
@@ -1025,7 +1031,11 @@ export async function stageBundledArtifactPython(options) {
   // interpreter anyway — a runtime interpreter on a different minor version
   // (e.g. the office CLI's system python) rebuilds its own cache. Shipping
   // caches adds bytes and cross-version risk for zero benefit.
-  stripBytecodeCaches(targetDirectory);
+  // The pinned CPython archive itself contains a few stdlib caches, and the
+  // probe historically created more when -B was missing. Clean the complete
+  // staged runtime, not only artifact-site-packages, before electron-builder
+  // copies and signs it.
+  stripBytecodeCaches(pythonRoot);
 
   const tree = collectArtifactTreeFiles(targetDirectory, pythonRoot, spreadFiles);
 

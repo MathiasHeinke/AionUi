@@ -188,6 +188,27 @@ function collectArtifactNativeFiles(directory, deps, root = directory, collected
   return collected;
 }
 
+function collectPythonBytecodeCaches(directory, deps, root = directory, collected = []) {
+  for (const entry of deps.readdir(directory, { withFileTypes: true })) {
+    const target = path.join(directory, entry.name);
+    const relativePath = path.relative(root, target).split(path.sep).join('/');
+    if (entry.isSymbolicLink()) {
+      if (entry.name === '__pycache__' || /\.py[co]$/i.test(entry.name)) collected.push(relativePath);
+      continue;
+    }
+    if (entry.isDirectory()) {
+      if (entry.name === '__pycache__') {
+        collected.push(relativePath);
+        continue;
+      }
+      collectPythonBytecodeCaches(target, deps, root, collected);
+    } else if (entry.isFile() && /\.py[co]$/i.test(entry.name)) {
+      collected.push(relativePath);
+    }
+  }
+  return collected;
+}
+
 function verifyPackagedArtifactPython({ resourcesPath, sourceArtifactManifestPath, expectedArch, deps }) {
   const { bytes: sourceManifestBytes, value: sourceManifest } = parseJsonFile(
     sourceArtifactManifestPath,
@@ -209,7 +230,15 @@ function verifyPackagedArtifactPython({ resourcesPath, sourceArtifactManifestPat
     ...sourceManifest.common_packages.map((entry) => ({ ...entry, scope: 'common' })),
     ...platformPackages.map((entry) => ({ ...entry, scope: runtimeKey })),
   ];
-  const artifactDirectory = path.join(resourcesPath, 'python', 'artifact-site-packages');
+  const pythonDirectory = path.join(resourcesPath, 'python');
+  assertDirectory(pythonDirectory, 'packaged bundled Python runtime', deps);
+  const bytecodeCaches = collectPythonBytecodeCaches(pythonDirectory, deps).sort();
+  if (bytecodeCaches.length > 0) {
+    throw new Error(
+      `PACKAGED-RESOURCES: bundled Python runtime contains bytecode caches: ${bytecodeCaches.slice(0, 5).join(', ')}`
+    );
+  }
+  const artifactDirectory = path.join(pythonDirectory, 'artifact-site-packages');
   assertDirectory(artifactDirectory, 'packaged signed Artifact Python runtime', deps);
   const receiptPath = path.join(artifactDirectory, COMMAND_EVE_ARTIFACT_RUNTIME_RECEIPT);
   const { value: receipt } = parseJsonFile(receiptPath, 'packaged Artifact Python receipt', deps);

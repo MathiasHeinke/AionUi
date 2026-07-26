@@ -192,6 +192,14 @@ describe('packaged Command EVE resource truth', () => {
     expect(() => verify()).toThrow(/Artifact Python receipt violates/);
   });
 
+  it('fails closed when any bundled Python bytecode cache would enter the signed artifact', () => {
+    const cacheDirectory = path.join(resourcesPath, 'python', 'lib', 'python3.12', '__pycache__');
+    fs.mkdirSync(cacheDirectory, { recursive: true });
+    fs.writeFileSync(path.join(cacheDirectory, 'pathlib.cpython-312.pyc'), 'absolute build path');
+
+    expect(() => verify()).toThrow(/bundled Python runtime contains bytecode caches/);
+  });
+
   it('fails closed when the server public key is absent from the app', () => {
     fs.rmSync(path.join(resourcesPath, 'command-eve-license-public-key-server.pem'));
 

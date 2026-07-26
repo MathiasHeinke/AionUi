@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   COMMAND_EVE_ARTIFACT_PYTHON_BUILD_VERSION,
+  artifactPythonProbeArgs,
   assertCombinedWheelLayout,
   assertRuntimeDependencyClosure,
   extractWheel,
@@ -15,6 +16,7 @@ import {
   readBuildManifest,
   resolvePackageSources,
   safeWheelEntryPath,
+  stripBytecodeCaches,
 } from './stage-bundled-artifact-python.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -80,6 +82,33 @@ test('dependency closure evaluates Windows markers and fails closed when qrcode 
 
   installed.set('colorama', { name: 'colorama', metadata: 'Name: colorama\nVersion: 0.4.6\n' });
   assert.doesNotThrow(() => assertRuntimeDependencyClosure(installed, 'win32-x64', '3.12.13'));
+});
+
+test('isolated artifact probe explicitly disables bytecode writes', () => {
+  const args = artifactPythonProbeArgs([], '/tmp/artifact-site');
+
+  assert.deepEqual(args.slice(0, 4), ['-B', '-I', '-P', '-S']);
+  assert.equal(args[4], '-c');
+  assert.match(args[5], /ARTIFACT_PYTHON_READY/);
+});
+
+test('bytecode cleanup covers the complete staged Python tree without following runtime symlinks', (t) => {
+  const pythonRoot = makeTempDir(t);
+  const stdlibCache = path.join(pythonRoot, 'lib', 'python3.12', '__pycache__');
+  const artifactCache = path.join(pythonRoot, 'artifact-site-packages', 'pkg', '__pycache__');
+  fs.mkdirSync(stdlibCache, { recursive: true });
+  fs.mkdirSync(artifactCache, { recursive: true });
+  fs.writeFileSync(path.join(stdlibCache, 'pathlib.cpython-312.pyc'), 'absolute-build-path');
+  fs.writeFileSync(path.join(artifactCache, 'module.cpython-312.pyc'), 'cache');
+  fs.writeFileSync(path.join(pythonRoot, 'lib', 'python3.12', 'pathlib.py'), '# source stays\n');
+  fs.symlinkSync('python3.12', path.join(pythonRoot, 'python3'));
+
+  stripBytecodeCaches(pythonRoot);
+
+  assert.equal(fs.existsSync(stdlibCache), false);
+  assert.equal(fs.existsSync(artifactCache), false);
+  assert.equal(fs.existsSync(path.join(pythonRoot, 'lib', 'python3.12', 'pathlib.py')), true);
+  assert.equal(fs.readlinkSync(path.join(pythonRoot, 'python3')), 'python3.12');
 });
 
 // ---------------------------------------------------------------------------
