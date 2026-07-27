@@ -83,6 +83,7 @@ import {
   verifyCommandEveArtifactPythonSite,
   verifyCommandEvePresentationPythonBundle,
 } from './presentationPythonRuntimeCore';
+import { buildCommandAllowlistYaml, type EveRememberedCommand } from '@/common/config/eveRememberedCommandsCore';
 
 export const COMMAND_EVE_RUNTIME_BOOTSTRAP_VERSION = 'command-eve-runtime-bootstrap/v0';
 
@@ -859,6 +860,17 @@ export type RuntimeBootstrapOptions = {
     status: string;
     worker: string | null;
   }> | null;
+  /**
+   * 1.820: the literal commands THIS SEAT's human said EVE may always run,
+   * from `commandEve.authority.rememberedCommands`.
+   *
+   * The emitted `command_allowlist` is a PROJECTION of that record. Revoking a
+   * row and rebooting removes it, so no authority can accumulate that the human
+   * cannot withdraw — which is the whole reason the C0 containment wipes Hermes'
+   * own persisted grants. Absent/[] -> `command_allowlist: []`, byte-identical
+   * to that containment.
+   */
+  rememberedCommands?: readonly EveRememberedCommand[];
 };
 
 export const DEFAULT_COMMAND_EVE_CAPABILITY_PACK: CommandEveCapabilityPack = {
@@ -4994,7 +5006,15 @@ function writeHermesRuntimeFiles(
   // computed by BOTH cadence callers with the TARGET seatId. Default not-ready ⇒
   // NOTHING Honcho is emitted and config.yaml + SOUL stay byte-identical to today.
   honcho: HonchoRenderInput = { ready: false },
-  maxConcurrentDelegates = DEFAULT_COMMAND_EVE_DELEGATION_CONCURRENCY
+  maxConcurrentDelegates = DEFAULT_COMMAND_EVE_DELEGATION_CONCURRENCY,
+  // 1.820: the commands THIS SEAT's human said EVE may always run, from
+  // `commandEve.authority.rememberedCommands`. The emitted allowlist is a
+  // PROJECTION of that record, never a place authority accumulates: revoking a
+  // row and rebooting removes it, and a grant the human cannot withdraw is not a
+  // grant. [] (the default) emits `command_allowlist: []`, byte-identical to the
+  // C0 containment, so with nothing granted this parameter changes nothing and
+  // every legacy category-wide entry keeps being revoked.
+  rememberedCommands: readonly EveRememberedCommand[] = []
 ): string[] {
   const trustedClaudeSeatDelegate = isClaudeSeatDelegateRoute(claudeDelegate) ? claudeDelegate : null;
   ensureDir(paths.hermesHome);
@@ -5125,7 +5145,16 @@ function writeHermesRuntimeFiles(
     // could make a per-operation decision. Re-emitting an explicit empty list on
     // every boot and seat provisioning pass revokes those legacy class-wide
     // grants without relying on the currently installed profile being clean.
-    'command_allowlist: []',
+    // Was an unconditional `command_allowlist: []`. It still is whenever the seat
+    // has granted nothing. What it must NEVER become is Hermes' own "always"
+    // unit: `approve_permanent` stores `pattern_key`, which `detect_dangerous_command`
+    // sets to the DESCRIPTION of a regex category — so one click on
+    // `rm /tmp/picture.png` granted "delete in root path" for every future
+    // command in that class, across sessions. Nothing in this projection can
+    // write such an entry: `buildCommandAllowlistYaml` emits literal command
+    // text only, which Hermes matches by exact string
+    // (FACT wheel tools/approval.py `_command_matches_permanent_allowlist`).
+    ...buildCommandAllowlistYaml(rememberedCommands),
     // 1.820: Hermes must ALWAYS ask, and must never decide by itself.
     //
     // AionCore is the only authority in this product: `command_eve_transport_mode`
@@ -5601,6 +5630,8 @@ export type ProvisionSeatRuntimeFilesOptions = {
   codexRuntime?: string;
   claudeDelegate?: RuntimeBootstrapOptions['claudeDelegate'];
   teamRoles?: RuntimeBootstrapOptions['teamRoles'];
+  /** 1.820: this seat's remembered command grants. Absent/[] -> `command_allowlist: []`. */
+  rememberedCommands?: RuntimeBootstrapOptions['rememberedCommands'];
   /** Test seam; production derives this from os.totalmem(). */
   totalMemoryBytes?: number;
 };
@@ -5762,7 +5793,8 @@ export function provisionSeatRuntimeFiles(options: ProvisionSeatRuntimeFilesOpti
       // COMPA-624 Inc.3 — the Honcho render input for the TARGET seat (seatId,
       // resolved above). Same seat as `paths`, so no active-seat drift on switch.
       resolveHonchoRenderForSeat({ userDataPath: paths.userDataPath, seatId, hermesVenv: paths.hermesVenv }),
-      commandEveDelegationConcurrency(options.totalMemoryBytes ?? os.totalmem())
+      commandEveDelegationConcurrency(options.totalMemoryBytes ?? os.totalmem()),
+      options.rememberedCommands ?? []
     );
 
     return {
@@ -6430,7 +6462,8 @@ async function ensureCommandEveRuntimeBootstrapUnlocked(
     // Reads the seat's readiness snapshot; not-ready (no provisioning yet) ⇒ nothing
     // Honcho is emitted (byte-identical). Same-seat: paths was resolved with no seatId.
     resolveHonchoRenderForSeat({ userDataPath: paths.userDataPath, seatId: undefined, hermesVenv: paths.hermesVenv }),
-    commandEveDelegationConcurrency(totalMemoryBytes)
+    commandEveDelegationConcurrency(totalMemoryBytes),
+    options.rememberedCommands ?? []
   );
   if (bundledSkillFailures.length) {
     // VISIBLE preflight break (founder-self-detection): a skip-status stage with a

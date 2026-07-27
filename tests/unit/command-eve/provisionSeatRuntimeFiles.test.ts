@@ -307,6 +307,75 @@ describe('(f) 1.820 upgrade revokes legacy class-wide Hermes grants', () => {
   });
 });
 
+describe('(g) 1.820 remembered command grants reach this seat and no other', () => {
+  it('projects the seat record into command_allowlist, and revoking removes it', () => {
+    const userData = makeUserData();
+    const seatId = REAL_UUID_A;
+
+    // Nothing granted: byte-identical to the C0 containment.
+    const empty = provisionSeatRuntimeFiles({ userDataPath: userData, seatId });
+    expect(empty.ok).toBe(true);
+    const emptyConfig = fs.readFileSync(path.join(empty.hermes_home, 'config.yaml'), 'utf8');
+    expect(emptyConfig).toContain('command_allowlist: []');
+
+    // The human grants two literal commands for THIS seat.
+    const granted = provisionSeatRuntimeFiles({
+      userDataPath: userData,
+      seatId,
+      rememberedCommands: [
+        { command: 'git status', grantedAt: '2026-07-27T22:00:00.000Z' },
+        { command: 'bun run test', grantedAt: '2026-07-27T22:05:00.000Z' },
+      ],
+    });
+    expect(granted.ok).toBe(true);
+    const grantedConfig = fs.readFileSync(path.join(granted.hermes_home, 'config.yaml'), 'utf8');
+    // Hermes matches these by exact command text, before any danger check.
+    expect(grantedConfig).toMatch(/command_allowlist:\s*\n\s*- "git status"\s*\n\s*- "bun run test"/);
+    expect(grantedConfig).not.toContain('command_allowlist: []');
+
+    // Revoking is deleting a row: the projection is rebuilt without it. An
+    // authority the human cannot withdraw is not an authority, it is a leak.
+    const revoked = provisionSeatRuntimeFiles({
+      userDataPath: userData,
+      seatId,
+      rememberedCommands: [{ command: 'git status', grantedAt: '2026-07-27T22:00:00.000Z' }],
+    });
+    const revokedConfig = fs.readFileSync(path.join(revoked.hermes_home, 'config.yaml'), 'utf8');
+    expect(revokedConfig).toContain('- "git status"');
+    expect(revokedConfig).not.toContain('bun run test');
+  });
+
+  it('never writes a grant into another seat', () => {
+    const userData = makeUserData();
+    provisionSeatRuntimeFiles({
+      userDataPath: userData,
+      seatId: REAL_UUID_A,
+      rememberedCommands: [{ command: 'git status', grantedAt: '2026-07-27T22:00:00.000Z' }],
+    });
+    const other = provisionSeatRuntimeFiles({ userDataPath: userData, seatId: REAL_UUID_B });
+    const otherConfig = fs.readFileSync(path.join(other.hermes_home, 'config.yaml'), 'utf8');
+    // One client's grant must never reach another client's seat.
+    expect(otherConfig).toContain('command_allowlist: []');
+    expect(otherConfig).not.toContain('git status');
+  });
+
+  it('drops a compound command that Hermes could never match anyway', () => {
+    const userData = makeUserData();
+    const result = provisionSeatRuntimeFiles({
+      userDataPath: userData,
+      seatId: REAL_UUID_A,
+      rememberedCommands: [
+        { command: 'ls && rm -rf build', grantedAt: '2026-07-27T22:00:00.000Z' },
+        { command: 'git status', grantedAt: '2026-07-27T22:00:00.000Z' },
+      ],
+    });
+    const config = fs.readFileSync(path.join(result.hermes_home, 'config.yaml'), 'utf8');
+    expect(config).toContain('- "git status"');
+    // Storing it would have been a promise silently never kept.
+    expect(config).not.toContain('rm -rf build');
+  });
+});
+
 describe('(H4) hasValidSeatRuntimeFiles — the seat-switch fail-closed gate', () => {
   const makeHome = (): string => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'command-eve-h4-home-'));
