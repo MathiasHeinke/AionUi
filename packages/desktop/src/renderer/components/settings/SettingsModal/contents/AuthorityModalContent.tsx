@@ -16,31 +16,22 @@
  */
 
 import { configService } from '@/common/config/configService';
-import {
-  EVE_LADDER_RUNGS,
-  EVE_SEALED_CAPABILITIES,
-  type EveAuthorityGrant,
-  type EveLadderRung,
-  type EveSealedCapability,
-} from '@/common/config/eveAuthorityCore';
+import { type EveAuthorityGrant, type EveLadderRung, type EveSealedCapability } from '@/common/config/eveAuthorityCore';
 import { readRememberedCommands } from '@/common/config/eveRememberedCommandsCore';
+import { COMMAND_EVE_LEGACY_BACKEND } from '@/common/config/eveAuthorityStoreCore';
 import {
-  classifyDailyBudget,
-  grantNeedsAttention,
+  ENFORCED_LADDER_RUNGS,
+  backendModeForGrant,
   isUnconfirmedGrant,
   resolveStoredGrant,
-  withDailyBudget,
   withLadder,
-  withSeal,
   withoutRememberedCommand,
 } from '@/common/config/eveAuthorityStoreCore';
 import AionScrollArea from '@/renderer/components/base/AionScrollArea';
 import SettingsSection from '@/renderer/components/settings/SettingsSection';
-import { Button, InputNumber, Message, Radio, Switch, Tag } from '@arco-design/web-react';
+import { Button, Radio } from '@arco-design/web-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-
-const CENTS_PER_EUR = 100;
 
 /** i18n keys per rung. Copy lives in commandEve.json so translators see them together. */
 const RUNG_KEYS: Record<EveLadderRung, string> = {
@@ -52,18 +43,9 @@ const RUNG_KEYS: Record<EveLadderRung, string> = {
   5: 'authority.rung.full',
 };
 
-const SEAL_KEYS: Record<EveSealedCapability, string> = {
-  'spend.money': 'authority.seal.money',
-  'publish.outward': 'authority.seal.publish',
-  'delete.outside': 'authority.seal.delete',
-  'credentials.read': 'authority.seal.credentials',
-  'deploy.production': 'authority.seal.deploy',
-};
-
 const AuthorityModalContent: React.FC = () => {
   const { t } = useTranslation();
   const [grant, setGrant] = useState<EveAuthorityGrant | null>(null);
-  const [budgetEur, setBudgetEur] = useState<number | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,8 +57,6 @@ const AuthorityModalContent: React.FC = () => {
       if (cancelled) return;
       const resolved = resolveStoredGrant(stored, legacy);
       setGrant(resolved);
-      const cents = resolved.limits?.['spend.money']?.dailyCents;
-      setBudgetEur(typeof cents === 'number' ? cents / CENTS_PER_EUR : undefined);
     })();
     return () => {
       cancelled = true;
@@ -86,9 +66,21 @@ const AuthorityModalContent: React.FC = () => {
   const persist = useCallback(async (next: EveAuthorityGrant) => {
     setGrant(next);
     await configService.set('commandEve.authority', next);
+    // The grant is the record; `acp.config[hermes].preferredMode` is what the
+    // session-opening path already reads. Writing only the record would leave a
+    // setting that stores a preference and changes nothing — the exact defect
+    // class this whole change exists to remove.
+    const mode = backendModeForGrant(next);
+    if (mode) {
+      const acp = (await configService.get('acp.config')) ?? {};
+      const backend = (acp as Record<string, Record<string, unknown>>)[COMMAND_EVE_LEGACY_BACKEND] ?? {};
+      await configService.set('acp.config', {
+        ...(acp as Record<string, unknown>),
+        [COMMAND_EVE_LEGACY_BACKEND]: { ...backend, preferredMode: mode },
+      });
+    }
   }, []);
 
-  const attention = useMemo(() => (grant ? grantNeedsAttention(grant) : null), [grant]);
   const remembered = useMemo(() => (grant ? readRememberedCommands(grant.rememberedCommands) : []), [grant]);
 
   if (!grant) return null;
@@ -97,29 +89,9 @@ const AuthorityModalContent: React.FC = () => {
     void persist(withLadder(grant, value));
   };
 
-  const onSeal = (capability: EveSealedCapability, open: boolean) => {
-    const next = withSeal(grant, capability, open, new Date().toISOString());
-    if (capability === 'spend.money' && !open) setBudgetEur(undefined);
-    void persist(next);
-  };
-
   const onForget = (command: string): void => {
     if (!grant) return;
     void persist(withoutRememberedCommand(grant, command));
-  };
-
-  const onBudget = (value: number | undefined) => {
-    setBudgetEur(value);
-    if (value === undefined) return;
-    const cents = Math.round(value * CENTS_PER_EUR);
-    const verdict = classifyDailyBudget(cents);
-    if (verdict === 'invalid') return;
-    if (verdict === 'confirm') {
-      // Not refused — just not waved through. A four-figure daily ceiling is
-      // allowed to be deliberate; it is not allowed to be a slip of the keyboard.
-      Message.warning(t('commandEve:authority.budgetHigh'));
-    }
-    void persist(withDailyBudget(grant, cents));
   };
 
   return (
@@ -134,7 +106,7 @@ const AuthorityModalContent: React.FC = () => {
           description={t('commandEve:authority.ladderDescription')}
         >
           <Radio.Group direction='vertical' value={grant.ladder} onChange={onLadder} className='flex flex-col gap-12px'>
-            {EVE_LADDER_RUNGS.map((rung) => (
+            {ENFORCED_LADDER_RUNGS.map((rung) => (
               <Radio key={rung} value={rung}>
                 <span className='font-medium'>{t(`commandEve:${RUNG_KEYS[rung]}.title`)}</span>
                 <div className='text-13px op-70'>{t(`commandEve:${RUNG_KEYS[rung]}.body`)}</div>
@@ -143,53 +115,14 @@ const AuthorityModalContent: React.FC = () => {
           </Radio.Group>
         </SettingsSection>
 
-        <SettingsSection
-          title={t('commandEve:authority.sealsTitle')}
-          description={t('commandEve:authority.sealsDescription')}
-        >
-          <div className='flex flex-col gap-16px'>
-            {EVE_SEALED_CAPABILITIES.map((capability) => {
-              const open = grant.capabilities[capability] === true;
-              const grantedAt = grant.grantedAt?.[capability];
-              return (
-                <div key={capability} className='flex flex-col gap-8px'>
-                  <div className='flex items-start justify-between gap-16px'>
-                    <div>
-                      <div className='font-medium'>{t(`commandEve:${SEAL_KEYS[capability]}.title`)}</div>
-                      <div className='text-13px op-70'>{t(`commandEve:${SEAL_KEYS[capability]}.body`)}</div>
-                      {open && grantedAt && (
-                        <div className='text-12px op-60 mt-4px'>
-                          {t('commandEve:authority.grantedAt', {
-                            date: new Date(grantedAt).toLocaleDateString(),
-                          })}
-                        </div>
-                      )}
-                    </div>
-                    <Switch checked={open} onChange={(checked) => onSeal(capability, checked)} />
-                  </div>
-
-                  {capability === 'spend.money' && open && (
-                    <div className='flex items-center gap-8px pl-4px'>
-                      <span className='text-13px'>{t('commandEve:authority.dailyBudget')}</span>
-                      <InputNumber
-                        value={budgetEur}
-                        onChange={onBudget}
-                        min={0.01}
-                        step={1}
-                        precision={2}
-                        suffix='€'
-                        style={{ width: 140 }}
-                      />
-                      {attention === 'money-without-budget' && (
-                        <Tag color='red'>{t('commandEve:authority.budgetMissing')}</Tag>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </SettingsSection>
+        {/*
+          The sealed capability switches (money, outward publishing, deletion
+          outside the workspace, credentials, production deploys) are modelled
+          and tested in eveAuthorityCore, but NOTHING enforces them yet: no
+          production code calls grantAllows/decideAuthority. Rendering them would
+          ship five switches that store a preference and change nothing. They
+          land together with the classification that makes them real.
+        */}
 
         <SettingsSection
           title={t('commandEve:authority.rememberedTitle')}

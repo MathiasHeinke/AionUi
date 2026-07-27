@@ -5,11 +5,17 @@
  */
 
 /**
- * The permission card survived five releases with a broken "always" derivation
- * partly because it had almost no DOM coverage. This panel is the new place a
- * human grants authority, so it gets tested from the start — in particular the
- * one property the founder asked for out loud: even on the top rung, the sealed
- * switches are OFF until someone turns each one on.
+ * Settings → Freigaben, as it actually ships in 1.820.
+ *
+ * The panel deliberately renders ONLY what something enforces: the three rungs
+ * AionCore decides against, and the commands this seat remembered. The sealed
+ * capability switches are modelled and tested in eveAuthorityCore, but no
+ * production code calls grantAllows yet — shipping them would be five switches
+ * that store a preference and change nothing.
+ *
+ * The load-bearing test is "writes the record AND the key the session-opening
+ * path reads". A setting that only records an intention is the defect this whole
+ * change exists to remove.
  */
 
 import React from 'react';
@@ -56,8 +62,8 @@ vi.mock('@/renderer/components/settings/SettingsSection', () => ({
 
 vi.mock('@arco-design/web-react', () => {
   // These stubs cannot be hoisted out of the factory: vitest hoists `vi.mock`
-  // above the imports, so a factory that closed over an outer binding would read
-  // it before initialisation. The lint rule's advice is wrong in this position.
+  // above the imports, so a factory closing over an outer binding would read it
+  // before initialisation. The lint rule's advice is wrong in this position.
   // eslint-disable-next-line unicorn/consistent-function-scoping
   const RadioGroup = ({
     value,
@@ -68,7 +74,7 @@ vi.mock('@arco-design/web-react', () => {
     onChange: (next: number) => void;
     children: React.ReactNode;
   }) => (
-    <div data-testid='ladder' data-value={value} onClick={() => onChange(5)}>
+    <div data-testid='ladder' data-value={value} onClick={() => onChange(3)}>
       {children}
     </div>
   );
@@ -79,22 +85,19 @@ vi.mock('@arco-design/web-react', () => {
   Radio.Group = RadioGroup;
   return {
     Radio,
-    Switch: ({ checked, onChange }: { checked: boolean; onChange: (next: boolean) => void }) => (
-      <button data-testid='seal' data-checked={checked ? 'on' : 'off'} onClick={() => onChange(!checked)} />
-    ),
-    InputNumber: ({ value }: { value?: number }) => <input data-testid='budget' value={value ?? ''} readOnly />,
     Button: ({ children, onClick }: { children: React.ReactNode; onClick: () => void }) => (
       <button data-testid='forget' onClick={onClick}>
         {children}
       </button>
     ),
-    Tag: ({ children }: { children: React.ReactNode }) => <span data-testid='tag'>{children}</span>,
-    Message: { warning: vi.fn() },
   };
 });
 
 const importPanel = async () =>
   (await import('@/renderer/components/settings/SettingsModal/contents/AuthorityModalContent')).default;
+
+// eslint-disable-next-line unicorn/consistent-function-scoping
+const lastWrite = (key: string): unknown => setSpy.mock.calls.filter((call) => call[0] === key).at(-1)?.[1];
 
 beforeEach(() => {
   for (const key of Object.keys(store)) delete store[key];
@@ -104,52 +107,60 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-describe('Settings → Freigaben', () => {
-  it('shows every seal OFF even when the ladder is at the top', async () => {
-    const top: EveAuthorityGrant = { ladder: 5, capabilities: {}, updatedBy: 'user' };
-    store['commandEve.authority'] = top;
+describe('Settings → Freigaben offers only what something enforces', () => {
+  it('renders exactly the three rungs AionCore decides against', async () => {
+    store['commandEve.authority'] = { ladder: 2, capabilities: {}, updatedBy: 'user' } satisfies EveAuthorityGrant;
     const Panel = await importPanel();
     render(<Panel />);
 
-    const seals = await screen.findAllByTestId('seal');
-    expect(seals).toHaveLength(5);
-    for (const seal of seals) {
-      expect(seal.getAttribute('data-checked')).toBe('off');
-    }
-    expect(screen.getByTestId('ladder').getAttribute('data-value')).toBe('5');
+    expect(await screen.findByTestId('rung-1')).toBeTruthy();
+    expect(screen.getByTestId('rung-2')).toBeTruthy();
+    expect(screen.getByTestId('rung-3')).toBeTruthy();
+    // 0, 4 and 5 exist in the model but nothing classifies them yet.
+    expect(screen.queryByTestId('rung-0')).toBeNull();
+    expect(screen.queryByTestId('rung-4')).toBeNull();
+    expect(screen.queryByTestId('rung-5')).toBeNull();
+    expect(screen.getByTestId('ladder').getAttribute('data-value')).toBe('2');
   });
 
-  it('moving the ladder to the top does not open a single seal', async () => {
+  it('says plainly when the stored value was migrated and never confirmed', async () => {
+    store['acp.config'] = { hermes: { preferredMode: 'dont_ask' } };
+    const Panel = await importPanel();
+    render(<Panel />);
+    expect(await screen.findByText('commandEve:authority.notConfirmedYet')).toBeTruthy();
+    expect(screen.getByTestId('ladder').getAttribute('data-value')).toBe('3');
+  });
+});
+
+describe('choosing a rung actually takes effect', () => {
+  it('writes the record AND the key the session-opening path reads', async () => {
     store['commandEve.authority'] = { ladder: 1, capabilities: {}, updatedBy: 'user' } satisfies EveAuthorityGrant;
     const Panel = await importPanel();
     render(<Panel />);
 
     (await screen.findByTestId('ladder')).click();
 
-    await waitFor(() => expect(setSpy).toHaveBeenCalled());
-    const written = setSpy.mock.calls.at(-1)?.[1] as EveAuthorityGrant;
-    expect(written.ladder).toBe(5);
-    expect(written.capabilities).toEqual({});
+    await waitFor(() => expect(setSpy.mock.calls.some((call) => call[0] === 'acp.config')).toBe(true));
+    expect((lastWrite('commandEve.authority') as EveAuthorityGrant).ladder).toBe(3);
+    // Without this second write the panel would store an intention and change
+    // nothing.
+    expect((lastWrite('acp.config') as Record<string, { preferredMode?: string }>).hermes?.preferredMode).toBe(
+      'dont_ask'
+    );
   });
 
-  it('opening the money seal records the grant and asks for an amount', async () => {
-    store['commandEve.authority'] = { ladder: 3, capabilities: {}, updatedBy: 'user' } satisfies EveAuthorityGrant;
+  it('opens no sealed capability by moving the ladder', async () => {
+    store['commandEve.authority'] = { ladder: 1, capabilities: {}, updatedBy: 'user' } satisfies EveAuthorityGrant;
     const Panel = await importPanel();
     render(<Panel />);
-
-    const seals = await screen.findAllByTestId('seal');
-    seals[0]?.click(); // spend.money is first in EVE_SEALED_CAPABILITIES
-
+    (await screen.findByTestId('ladder')).click();
     await waitFor(() => expect(setSpy).toHaveBeenCalled());
-    const written = setSpy.mock.calls.at(-1)?.[1] as EveAuthorityGrant;
-    expect(written.capabilities['spend.money']).toBe(true);
-    expect(written.grantedAt?.['spend.money']).toBeTruthy();
-    // Unsealed but with no amount yet: the panel must say so rather than look
-    // like a switch that is on while EVE never spends.
-    expect(await screen.findByTestId('tag')).toBeTruthy();
+    expect((lastWrite('commandEve.authority') as EveAuthorityGrant).capabilities).toEqual({});
   });
+});
 
-  it('lists what EVE remembered and withdraws exactly one row', async () => {
+describe('what EVE remembered', () => {
+  it('lists the grants and withdraws exactly one row', async () => {
     store['commandEve.authority'] = {
       ladder: 3,
       capabilities: {},
@@ -163,25 +174,21 @@ describe('Settings → Freigaben', () => {
     render(<Panel />);
 
     expect(await screen.findAllByTestId('remembered-row')).toHaveLength(2);
-    // Withdrawing is the property that makes remembering acceptable at all: an
-    // authority the human cannot take back is not an authority, it is a leak.
+    // Withdrawing is what makes remembering acceptable at all: an authority the
+    // human cannot take back is not an authority, it is a leak.
     (await screen.findAllByTestId('forget'))[0]?.click();
 
     await waitFor(() => expect(setSpy).toHaveBeenCalled());
-    const written = setSpy.mock.calls.at(-1)?.[1] as EveAuthorityGrant;
-    expect(written.rememberedCommands).toEqual([{ command: 'bun run test', grantedAt: '2026-07-27T22:05:00.000Z' }]);
+    expect((lastWrite('commandEve.authority') as EveAuthorityGrant).rememberedCommands).toEqual([
+      { command: 'bun run test', grantedAt: '2026-07-27T22:05:00.000Z' },
+    ]);
   });
 
-  it('says plainly when the stored value was migrated and never confirmed', async () => {
-    // No stored grant, a legacy per-backend mode present → migrated, not chosen.
-    store['acp.config'] = { hermes: { preferredMode: 'dont_ask' } };
+  it('says so when nothing is remembered yet', async () => {
+    store['commandEve.authority'] = { ladder: 2, capabilities: {}, updatedBy: 'user' } satisfies EveAuthorityGrant;
     const Panel = await importPanel();
     render(<Panel />);
-    expect(await screen.findByText('commandEve:authority.notConfirmedYet')).toBeTruthy();
-    // And the migration landed on the legacy rung without unsealing anything.
-    expect(screen.getByTestId('ladder').getAttribute('data-value')).toBe('3');
-    for (const seal of screen.getAllByTestId('seal')) {
-      expect(seal.getAttribute('data-checked')).toBe('off');
-    }
+    expect(await screen.findByText('commandEve:authority.rememberedEmpty')).toBeTruthy();
+    expect(screen.queryByTestId('remembered-row')).toBeNull();
   });
 });

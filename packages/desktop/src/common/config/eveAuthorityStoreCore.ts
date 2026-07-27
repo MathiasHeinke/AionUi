@@ -184,3 +184,48 @@ export function withoutRememberedCommand(grant: EveAuthorityGrant, command: stri
   if (next.length === existing.length) return grant;
   return { ...grant, rememberedCommands: next, updatedBy: 'user' };
 }
+
+/**
+ * The rungs 1.820 actually ENFORCES, and the backend mode each becomes.
+ *
+ * AionCore decides against three modes — `default`, `accept_edits`, `dont_ask`
+ * (COMMAND_EVE_BACKEND_MODE_ORDER) — so exactly three rungs can be honoured
+ * today. Rungs 0, 4 and 5 exist in the model and are tested, but nothing
+ * classifies "reversible outside the workspace" versus "irreversible" yet, so
+ * offering them would be a switch that does nothing.
+ *
+ * That is the whole reason this map exists instead of a comment: the panel
+ * renders what is in here, so a rung cannot reach the UI before something
+ * enforces it.
+ */
+const LADDER_TO_BACKEND_MODE: Partial<Record<EveLadderRung, string>> = {
+  1: 'default',
+  2: 'accept_edits',
+  3: 'dont_ask',
+};
+
+/** The rungs the settings panel may offer, in order. */
+export const ENFORCED_LADDER_RUNGS: readonly EveLadderRung[] = [1, 2, 3];
+
+/** The backend mode a rung becomes, or null when nothing enforces it yet. */
+export function ladderToBackendMode(rung: EveLadderRung): string | null {
+  return LADDER_TO_BACKEND_MODE[rung] ?? null;
+}
+
+/** True when this rung can actually be honoured today. */
+export function isEnforcedLadderRung(rung: EveLadderRung): boolean {
+  return ladderToBackendMode(rung) !== null;
+}
+
+/**
+ * The legacy per-backend value to write ALONGSIDE the grant, so the choice
+ * actually takes effect.
+ *
+ * The grant is the record; `acp.config[hermes].preferredMode` is what the
+ * session opening path already reads. Writing only the grant would leave a
+ * setting that stores a preference and changes nothing — which is exactly the
+ * defect class this whole change exists to remove.
+ */
+export function backendModeForGrant(grant: EveAuthorityGrant): string | null {
+  return ladderToBackendMode(grant.ladder);
+}
