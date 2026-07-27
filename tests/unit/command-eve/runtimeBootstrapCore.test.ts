@@ -6,6 +6,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import crypto from 'crypto';
+import { spawnSync } from 'child_process';
 import fs from 'fs';
 import http from 'http';
 import os from 'os';
@@ -836,7 +837,7 @@ describe('Command EVE runtime bootstrap core', () => {
       // the implicit fallback walk. ddgs is search-only, so extract_backend is left
       // unset on purpose (registry capability-filter falls through for web_extract).
       expect(configYaml).toMatch(/web:\s*\n\s*backend: ddgs\s*\n\s*search_backend: ddgs/);
-      expect(configYaml).toMatch(/auxiliary:\s*\n\s*web_extract:\s*\n\s*timeout: \d+/);
+      expect(configYaml).toMatch(/web_extract:\s*\n\s*timeout: \d+/);
       expect(configYaml).toContain('skills:');
       expect(configYaml).toContain('external_dirs:');
       expect(configYaml).toContain('"${HERMES_HOME}/skills-command-eve"');
@@ -998,10 +999,8 @@ describe('Command EVE runtime bootstrap core', () => {
       );
       expect(modelfile).toContain(`FROM ${DEFAULT_GEMMA_MODEL_REF}`);
       expect(modelfile).toContain('PARAMETER num_ctx 65536');
-      const providerOverride = fs.readFileSync(
-        path.join(paths.hermesHome, 'plugins', 'model-providers', 'custom', '__init__.py'),
-        'utf8'
-      );
+      const providerOverridePath = path.join(paths.hermesHome, 'plugins', 'model-providers', 'custom', '__init__.py');
+      const providerOverride = fs.readFileSync(providerOverridePath, 'utf8');
       expect(providerOverride).toContain('COMMAND_EVE_SHIM_AUTH_TOKEN_FILE');
       expect(providerOverride).toContain('default_headers=_command_eve_shim_headers()');
       expect(providerOverride).toContain('def _install_command_eve_auxiliary_auth_patch()');
@@ -1018,6 +1017,39 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(providerOverride).toContain('def command_eve_should_compress(self: Any, *args: Any, **kwargs: Any)');
       expect(providerOverride).toContain('def command_eve_should_defer(self: Any, *args: Any, **kwargs: Any)');
       expect(providerOverride).toContain('_command_eve_apply_context_policy');
+      expect(providerOverride).toContain('_COMMAND_EVE_COMPRESSION_ATTEMPT_TIMEOUT_S = 14.0');
+      expect(providerOverride).toContain('_COMMAND_EVE_COMPRESSION_MAX_ATTEMPTS = 2');
+      expect(providerOverride).toContain('_COMMAND_EVE_COMPRESSION_TOTAL_BUDGET_S = 29.0');
+      expect(providerOverride).toContain(
+        'connection = http.client.HTTPConnection(host, port, timeout=attempt_timeout)'
+      );
+      expect(providerOverride).toContain('if not _command_eve_is_local_shim_base(base_url):');
+      expect(providerOverride).toContain('except Exception as error:');
+      expect(providerOverride).not.toContain('_command_eve_stream_compression_status');
+      expect(providerOverride).toContain('getattr(agent, "tool_progress_callback", None)');
+      expect(providerOverride).toContain('getattr(agent, "step_callback", None)');
+      expect(providerOverride).toContain('direct_external_egress": False');
+      expect(providerOverride).toContain('command-eve-compression-receipt.json');
+      expect(providerOverride).toContain('"context_compression"');
+      expect(providerOverride).toContain('AIAgent._compress_context = command_eve_compress_context');
+      expect(configYaml).toContain(
+        'compression:\n  threshold: 0.75\n  target_ratio: 0.50\n  abort_on_summary_failure: true'
+      );
+      expect(configYaml).toContain('auxiliary:\n  compression:\n    timeout: 14\n    fallback_chain: []');
+      const compressionHarness = spawnSync(
+        'python3',
+        [path.resolve('tests/fixtures/command-eve/compression_provider_harness.py'), providerOverridePath],
+        { encoding: 'utf8', timeout: 5_000 }
+      );
+      expect(compressionHarness.status, compressionHarness.stderr || compressionHarness.stdout).toBe(0);
+      expect(JSON.parse(compressionHarness.stdout)).toMatchObject({
+        retry_attempts: 2,
+        nonretry_attempts: 1,
+        timeout_attempts: 2,
+        effective_lane: 'ollama_local',
+        status_events: ['tool', 'step'],
+        receipt_mode: '0600',
+      });
       expect(providerOverride).toContain('"local-fallback"');
       expect(providerOverride).toContain('request_host in {"127.0.0.1", "localhost", "::1"}');
       expect(providerOverride).not.toContain('request_host == "127.0.0.1"');
