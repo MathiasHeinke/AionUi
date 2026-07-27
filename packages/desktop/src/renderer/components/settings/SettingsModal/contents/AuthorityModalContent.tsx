@@ -98,18 +98,18 @@ const AuthorityModalContent: React.FC = () => {
     <AionScrollArea>
       <div className='flex flex-col gap-24px pb-24px'>
         {isUnconfirmedGrant(grant) && (
-          <div className='rd-8px bg-orange-1 p-12px text-14px'>{t('commandEve:authority.notConfirmedYet')}</div>
+          <div className='rd-8px bg-orange-1 p-12px text-14px'>{t('commandEve.authority.notConfirmedYet')}</div>
         )}
 
         <SettingsSection
-          title={t('commandEve:authority.ladderTitle')}
-          description={t('commandEve:authority.ladderDescription')}
+          title={t('commandEve.authority.ladderTitle')}
+          description={t('commandEve.authority.ladderDescription')}
         >
           <Radio.Group direction='vertical' value={grant.ladder} onChange={onLadder} className='flex flex-col gap-12px'>
             {ENFORCED_LADDER_RUNGS.map((rung) => (
               <Radio key={rung} value={rung}>
-                <span className='font-medium'>{t(`commandEve:${RUNG_KEYS[rung]}.title`)}</span>
-                <div className='text-13px op-70'>{t(`commandEve:${RUNG_KEYS[rung]}.body`)}</div>
+                <span className='font-medium'>{t(`commandEve.${RUNG_KEYS[rung]}.title`)}</span>
+                <div className='text-13px op-70'>{t(`commandEve.${RUNG_KEYS[rung]}.body`)}</div>
               </Radio>
             ))}
           </Radio.Group>
@@ -125,11 +125,11 @@ const AuthorityModalContent: React.FC = () => {
         */}
 
         <SettingsSection
-          title={t('commandEve:authority.rememberedTitle')}
-          description={t('commandEve:authority.rememberedDescription')}
+          title={t('commandEve.authority.rememberedTitle')}
+          description={t('commandEve.authority.rememberedDescription')}
         >
           {remembered.length === 0 ? (
-            <div className='text-13px op-70'>{t('commandEve:authority.rememberedEmpty')}</div>
+            <div className='text-13px op-70'>{t('commandEve.authority.rememberedEmpty')}</div>
           ) : (
             <div className='flex flex-col gap-8px'>
               {remembered.map((entry) => (
@@ -141,13 +141,13 @@ const AuthorityModalContent: React.FC = () => {
                   <div className='min-w-0'>
                     <code className='text-13px break-all'>{entry.command}</code>
                     <div className='text-12px op-60'>
-                      {t('commandEve:authority.grantedAt', {
+                      {t('commandEve.authority.grantedAt', {
                         date: new Date(entry.grantedAt).toLocaleDateString(),
                       })}
                     </div>
                   </div>
                   <Button size='mini' status='danger' onClick={() => onForget(entry.command)}>
-                    {t('commandEve:authority.forget')}
+                    {t('commandEve.authority.forget')}
                   </Button>
                 </div>
               ))}

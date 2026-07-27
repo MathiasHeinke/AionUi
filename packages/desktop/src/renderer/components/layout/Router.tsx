@@ -24,6 +24,7 @@ const SystemSettings = React.lazy(() => import('@renderer/pages/settings/SystemS
 const BillingSettings = React.lazy(() => import('@renderer/pages/settings/BillingSettings'));
 const CompanyBrainSettings = React.lazy(() => import('@renderer/pages/settings/CompanyBrainSettings'));
 const AccountSettings = React.lazy(() => import('@renderer/pages/settings/AccountSettings'));
+const AuthoritySettings = React.lazy(() => import('@renderer/pages/settings/AuthoritySettings'));
 const PrivacySettings = React.lazy(() => import('@renderer/pages/settings/PrivacySettings'));
 const WebuiSettings = React.lazy(() => import('@renderer/pages/settings/WebuiSettings'));
 const PetSettings = React.lazy(() => import('@renderer/pages/settings/PetSettings'));
@@ -179,6 +180,7 @@ const PanelRoute: React.FC<{ layout: React.ReactElement }> = ({ layout }) => {
           <Route path='/settings/company-brain' element={withRouteFallback(CompanyBrainSettings)} />
           <Route path='/settings/account' element={withRouteFallback(AccountSettings)} />
           <Route path='/settings/about' element={withRouteFallback(SystemSettings)} />
+          <Route path='/settings/authority' element={withRouteFallback(AuthoritySettings)} />
           <Route path='/settings/privacy' element={withRouteFallback(PrivacySettings)} />
           <Route path='/settings/ext/:tabId' element={withRouteFallback(ExtensionSettingsPage)} />
           <Route path='/settings' element={<Navigate to='/settings/erste-schritte' replace />} />

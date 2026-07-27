@@ -13,6 +13,7 @@ import {
   Info,
   Lightning,
   LinkCloud,
+  Lock,
   Puzzle,
   Robot,
   Shield,
@@ -39,6 +40,7 @@ export const BUILTIN_TAB_IDS = [
   'capabilities',
   'runtime',
   'connectors',
+  'authority',
   'appearance',
   'webui',
   'pet',
@@ -147,6 +149,12 @@ const SettingsSider: React.FC<{ collapsed?: boolean; tooltipEnabled?: boolean }>
         path: 'webui',
       },
       pet: { id: 'pet', label: t('pet.desktopPet'), icon: <Cat />, path: 'pet' },
+      authority: {
+        id: 'authority',
+        label: t('settings.authority', { defaultValue: 'Freigaben' }),
+        icon: <Lock />,
+        path: 'authority',
+      },
       privacy: {
         id: 'privacy',
         label: t('settings.privacy.navLabel', { defaultValue: 'Privacy' }),
