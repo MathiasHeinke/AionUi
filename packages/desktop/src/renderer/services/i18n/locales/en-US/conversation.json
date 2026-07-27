@@ -606,7 +606,7 @@
         "body": "This request hit the model's request limit before any visible reply was produced."
       },
       "ACP_EMPTY_TURN_REFUSAL": {
-        "body": "The model refused this request before producing any visible reply."
+        "body": "This turn ended without a visible reply. If it keeps happening, start a new chat — the session may have gone stale."
       }
     }
   },

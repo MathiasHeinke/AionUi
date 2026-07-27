@@ -688,7 +688,7 @@
         "body": "Diese Anfrage hat das Anfragelimit des Modells erreicht, bevor eine sichtbare Antwort erzeugt wurde."
       },
       "ACP_EMPTY_TURN_REFUSAL": {
-        "body": "Das Modell hat diese Anfrage abgelehnt, bevor eine sichtbare Antwort erzeugt wurde."
+        "body": "Dieser Zug hat keine sichtbare Antwort erzeugt. Wenn das wiederholt passiert, starte einen neuen Chat — die Sitzung ist womöglich abgelaufen."
       }
     }
   },
