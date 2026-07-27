@@ -710,5 +710,8 @@
     "error": "Error",
     "done": "Done – unread",
     "idle": "Ready"
+  },
+  "messages": {
+    "rememberThisCommand": "Always allow this command from now on"
   }
 }

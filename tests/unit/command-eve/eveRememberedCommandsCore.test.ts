@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 
 import {
   MAX_REMEMBERED_COMMAND_LENGTH,
+  answerAllowsExecution,
   buildCommandAllowlistYaml,
   canOfferRemember,
   classifyRememberCandidate,
@@ -155,5 +156,33 @@ describe('the mirrored wheel constant', () => {
       { encoding: 'utf8' }
     ).trim();
     expect(source).toContain(String.raw`re.compile(r"(?:\n|&&|\|\||[;&|<>` + '`' + String.raw`]|\$\()")`);
+  });
+});
+
+describe('only an allow may trigger a remember', () => {
+  it('accepts the answers that actually let the command run', () => {
+    for (const id of ['allow_once', 'allow_session', 'allow', 'proceed_once', 'Allow-Once', ' allow_session ']) {
+      expect(answerAllowsExecution(id), id).toBe(true);
+    }
+  });
+
+  it('refuses every refusal, and anything it does not recognise', () => {
+    // A remember triggered by a DENY is the worst bug this feature could have:
+    // the human says no and EVE writes a standing yes. Unknown ids therefore
+    // fall on the refusal side, not the permissive one.
+    for (const id of [
+      'deny',
+      'deny_always',
+      'reject',
+      'cancel',
+      'never_allow',
+      'allow_always',
+      'something_new',
+      '',
+      null,
+      undefined,
+    ]) {
+      expect(answerAllowsExecution(id as string), String(id)).toBe(false);
+    }
   });
 });

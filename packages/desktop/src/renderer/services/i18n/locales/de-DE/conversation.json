@@ -706,5 +706,8 @@
     "error": "Fehler",
     "done": "Fertig – ungelesen",
     "idle": "Bereit"
+  },
+  "messages": {
+    "rememberThisCommand": "Diesen Befehl künftig immer erlauben"
   }
 }

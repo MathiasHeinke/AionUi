@@ -12,7 +12,10 @@ import {
   isPermissionClassificationUnverified,
   normalizePermissionOptions,
 } from './permissionCardPolicy';
-import { Button, Card, Radio, Typography } from '@arco-design/web-react';
+import { configService } from '@/common/config/configService';
+import { answerAllowsExecution, canOfferRemember } from '@/common/config/eveRememberedCommandsCore';
+import { resolveStoredGrant, withRememberedCommand } from '@/common/config/eveAuthorityStoreCore';
+import { Button, Card, Checkbox, Radio, Typography } from '@arco-design/web-react';
 import { IconBook, IconEdit, IconLink, IconLock, IconThunderbolt } from '@arco-design/web-react/icon';
 import React, { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -88,6 +91,40 @@ const MessageAcpPermission: React.FC<MessageAcpPermissionProps> = React.memo(({ 
   const [isResponding, setIsResponding] = useState(false);
   const [hasResponded, setHasResponded] = useState(false);
   const [responseError, setResponseError] = useState<string | null>(null);
+  const [rememberChecked, setRememberChecked] = useState(false);
+
+  /**
+   * The literal command this card is about, when there is one.
+   *
+   * "Remember this" is offered only for a real, storable command — never for a
+   * compound one Hermes could never match, and never as a category. That is the
+   * whole difference to Hermes' own "always" button, which stores the NAME of a
+   * regex class and hands over everything that class matches.
+   */
+  const commandText = typeof rawInput?.command === 'string' ? rawInput.command : '';
+  const canRemember = isCommandEve && canOfferRemember(commandText);
+
+  /**
+   * Persist the grant AFTER the answer was accepted, and only for an answer that
+   * actually lets the command run. Writing it first would leave a standing yes
+   * behind if the authority rejected the response.
+   */
+  const persistRemember = async (): Promise<void> => {
+    if (!rememberChecked || !canRemember || !answerAllowsExecution(selected)) return;
+    try {
+      const [stored, legacy] = await Promise.all([
+        configService.get('commandEve.authority'),
+        configService.get('acp.config'),
+      ]);
+      const grant = resolveStoredGrant(stored, legacy);
+      const next = withRememberedCommand(grant, commandText, new Date().toISOString());
+      if (next !== grant) await configService.set('commandEve.authority', next);
+    } catch (error) {
+      // A failed remember must never fail the approval the user just gave: the
+      // command still runs this once, EVE simply asks again next time.
+      console.error('Could not remember command grant:', error);
+    }
+  };
 
   const handleConfirm = async () => {
     if (hasResponded || !selected || inactive) return;
@@ -105,6 +142,7 @@ const MessageAcpPermission: React.FC<MessageAcpPermissionProps> = React.memo(({ 
 
       const result = (await conversation.confirmMessage.invoke(invokeData)) as unknown;
       if (isExplicitPermissionFailure(result)) throw new Error('Permission authority rejected the response.');
+      await persistRemember();
       setHasResponded(true);
     } catch (error) {
       console.error('Error confirming permission:', error);
@@ -193,6 +231,13 @@ const MessageAcpPermission: React.FC<MessageAcpPermissionProps> = React.memo(({ 
                 <Text type='secondary'>{t('messages.noOptionsAvailable')}</Text>
               )}
             </Radio.Group>
+            {canRemember && answerAllowsExecution(selected) && (
+              <div className='pl-20px' data-testid='message-acp-permission-remember'>
+                <Checkbox checked={rememberChecked} disabled={inactive || isResponding} onChange={setRememberChecked}>
+                  <Text className='text-xs'>{t('messages.rememberThisCommand')}</Text>
+                </Checkbox>
+              </div>
+            )}
             <div className='flex justify-start pl-20px'>
               <Button
                 type='primary'

@@ -150,3 +150,36 @@ export function buildCommandAllowlistYaml(entries: readonly EveRememberedCommand
   if (rows.length === 0) return ['command_allowlist: []'];
   return ['command_allowlist:', ...rows.map((entry) => `  - ${JSON.stringify(entry.command)}`)];
 }
+
+/**
+ * Tokens that mean "this answer lets the command run". Everything else — and
+ * anything unrecognised — is treated as a refusal.
+ *
+ * Deliberately an allowlist. A remember triggered by a DENY would be the worst
+ * possible bug in this feature: the human says no and EVE writes a standing yes.
+ * So an option id nobody anticipated must fall on the refusal side.
+ */
+const ALLOW_ANSWER_TOKENS = new Set([
+  'allow',
+  'allow_once',
+  'allow_session',
+  'allow_for_session',
+  'allow_current_session',
+  'proceed',
+  'proceed_once',
+  'proceed_session',
+  'session_allow',
+]);
+
+/** May this answer trigger a "remember this command" write at all? */
+export function answerAllowsExecution(optionId: string | null | undefined): boolean {
+  const token = String(optionId ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+  if (!token) return false;
+  if (token.includes('deny') || token.includes('reject') || token.includes('cancel') || token.includes('never')) {
+    return false;
+  }
+  return ALLOW_ANSWER_TOKENS.has(token);
+}

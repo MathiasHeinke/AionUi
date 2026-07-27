@@ -1064,6 +1064,7 @@ export type I18nKey =
   | 'conversation.mcp.status.failed'
   | 'conversation.mcp.status.loaded'
   | 'conversation.mcp.status.unsupported'
+  | 'conversation.messages.rememberThisCommand'
   | 'conversation.minimap.count'
   | 'conversation.minimap.empty'
   | 'conversation.minimap.noMatch'
