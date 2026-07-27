@@ -312,7 +312,12 @@ export function verifyCommandEveFirstRunBundle(options = {}, deps = {}) {
     if (missing.length > 0 || !exists(appPath) || !stat(appPath).isDirectory()) {
       return result(
         'BLOCKED_INPUT',
-        `Missing required packaged first-run artifact(s): ${missing.map(path.basename).join(', ')}`
+        // NOT `missing.map(path.basename)`: Array.map passes (element, index),
+        // so the index arrives as basename's `suffix` argument and Node throws
+        // ERR_INVALID_ARG_TYPE. That crash replaced this gate's real verdict
+        // with a bogus BLOCKED_INPUT about a "suffix" argument and hid WHICH
+        // artifacts were missing.
+        `Missing required packaged first-run artifact(s): ${missing.map((filePath) => path.basename(filePath)).join(', ')}`
       );
     }
 
