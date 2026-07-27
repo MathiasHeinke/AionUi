@@ -168,14 +168,14 @@ describe('the sealed set never hangs off a rung', () => {
   });
 });
 
-describe('money is the seal that is not a boolean', () => {
-  const withBudget = (dailyCents: number): EveAuthorityGrant => ({
-    ladder: 3,
-    capabilities: { 'spend.money': true },
-    limits: { 'spend.money': { dailyCents } },
-    updatedBy: 'user',
-  });
+const withBudget = (dailyCents: number): EveAuthorityGrant => ({
+  ladder: 3,
+  capabilities: { 'spend.money': true },
+  limits: { 'spend.money': { dailyCents } },
+  updatedBy: 'user',
+});
 
+describe('money is the seal that is not a boolean', () => {
   it('spends inside the daily ceiling and stops at it', () => {
     const grant = withBudget(5000); // 50 EUR
     const spend = (amountCents: number, spentTodayCents: number) =>
