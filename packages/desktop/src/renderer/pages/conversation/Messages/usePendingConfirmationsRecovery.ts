@@ -8,6 +8,7 @@ import { ipcBridge } from '@/common';
 import type { IConfirmation, IMessagePermission, TMessage } from '@/common/chat/chatLib';
 import { useEffect } from 'react';
 import { useUpdateMessageList } from './hooks';
+import { shouldApplyPermissionConfirmation } from './acp/permissionCardPolicy';
 
 export const pendingConfirmationMsgId = (confirmationId: string) => `confirmation:${confirmationId}`;
 
@@ -52,6 +53,28 @@ export function removePermissionMessage(list: TMessage[], target: { id?: string;
   });
 }
 
+export function upsertPendingConfirmationMessage(
+  list: TMessage[],
+  conversation_id: string,
+  confirmation: IConfirmation<unknown>
+): TMessage[] {
+  const existing = list.find((message) => {
+    if (message.type === 'permission') return message.content?.call_id === confirmation.call_id;
+    if (message.type === 'acp_permission') {
+      return (message.content?.tool_call?.tool_call_id || message.msg_id || message.id) === confirmation.call_id;
+    }
+    return false;
+  });
+  if (existing?.type === 'permission' && !shouldApplyPermissionConfirmation(existing.content, confirmation)) {
+    return list;
+  }
+  const withoutExisting = removePermissionMessage(list, {
+    id: confirmation.id,
+    call_id: confirmation.call_id,
+  });
+  return withoutExisting.concat(buildPendingConfirmationMessage(conversation_id, confirmation));
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -66,13 +89,7 @@ export function usePendingConfirmationsRecovery(conversation_id: string) {
 
     const upsertConfirmation = (confirmation: IConfirmation<unknown>) => {
       if (!confirmation?.call_id || !confirmation?.id) return;
-      updateMessageList((list) => {
-        const withoutExisting = removePermissionMessage(list, {
-          id: confirmation.id,
-          call_id: confirmation.call_id,
-        });
-        return withoutExisting.concat(buildPendingConfirmationMessage(conversation_id, confirmation));
-      });
+      updateMessageList((list) => upsertPendingConfirmationMessage(list, conversation_id, confirmation));
     };
 
     const syncPendingConfirmations = async () => {
@@ -84,8 +101,7 @@ export function usePendingConfirmationsRecovery(conversation_id: string) {
           let next = list;
           for (const confirmation of confirmations ?? []) {
             if (!confirmation?.call_id || !confirmation?.id) continue;
-            if (hasPermissionMessageForCallId(next, confirmation.call_id)) continue;
-            next = next.concat(buildPendingConfirmationMessage(conversation_id, confirmation));
+            next = upsertPendingConfirmationMessage(next, conversation_id, confirmation);
           }
           return next;
         });

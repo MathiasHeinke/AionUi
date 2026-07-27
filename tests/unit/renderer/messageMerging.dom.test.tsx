@@ -9,7 +9,13 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ipcBridge } from '@/common';
 import { buildConversationMessagesPath } from '@/common/adapter/ipcBridge';
-import type { IMessageAcpToolCall, IMessageText, IMessageThinking } from '@/common/chat/chatLib';
+import type {
+  IMessageAcpPermission,
+  IMessageAcpToolCall,
+  IMessagePermission,
+  IMessageText,
+  IMessageThinking,
+} from '@/common/chat/chatLib';
 import {
   MessageListLoadingProvider,
   MessageListProvider,
@@ -152,6 +158,43 @@ function createLiveToolCallMessage(toolCallId: string): IMessageAcpToolCall {
   };
 }
 
+function createAcpPermission(callId: string): IMessageAcpPermission {
+  return {
+    id: `acp-${callId}`,
+    msg_id: `acp-${callId}`,
+    type: 'acp_permission',
+    conversation_id: CONVERSATION_ID,
+    position: 'left',
+    content: {
+      session_id: 'session-1',
+      options: [{ option_id: 'allow_once', name: 'Allow once', kind: 'allow_once' }],
+      tool_call: {
+        tool_call_id: callId,
+        title: 'Write file',
+        kind: 'edit',
+      },
+    },
+  };
+}
+
+function createRecoveredPermission(callId: string): IMessagePermission {
+  return {
+    id: `confirmation:${callId}`,
+    msg_id: `confirmation:${callId}`,
+    type: 'permission',
+    conversation_id: CONVERSATION_ID,
+    position: 'left',
+    content: {
+      id: callId,
+      call_id: callId,
+      title: 'Write file',
+      description: 'write_file',
+      command_type: 'edit',
+      options: [{ label: 'Allow once', value: 'allow_once' }],
+    },
+  };
+}
+
 function TestWrapper({ children }: PropsWithChildren): JSX.Element {
   return <MessageListProvider value={[]}>{children}</MessageListProvider>;
 }
@@ -231,6 +274,36 @@ describe('message merging', () => {
     );
 
     expect(messages.filter((message) => message.type === 'acp_tool_call')).toHaveLength(1);
+  });
+
+  it('replaces a live ACP permission with the authoritative confirmation projection', async () => {
+    const { result } = renderHook(() => useMessageHarness(), {
+      wrapper: TestWrapper,
+    });
+
+    act(() => {
+      result.current.addOrUpdateMessage(createAcpPermission('permission-1'));
+      result.current.addOrUpdateMessage(createRecoveredPermission('permission-1'));
+    });
+    await flushMessageQueue();
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0].type).toBe('permission');
+  });
+
+  it('ignores a late duplicate ACP frame after the authoritative confirmation arrived', async () => {
+    const { result } = renderHook(() => useMessageHarness(), {
+      wrapper: TestWrapper,
+    });
+
+    act(() => {
+      result.current.addOrUpdateMessage(createRecoveredPermission('permission-2'));
+      result.current.addOrUpdateMessage(createAcpPermission('permission-2'));
+    });
+    await flushMessageQueue();
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0].type).toBe('permission');
   });
 
   it('reconciles legacy ACP tool calls without an update payload', () => {

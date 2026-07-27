@@ -34,8 +34,8 @@ vi.mock('react-i18next', () => ({
 
 // The S0 bridge read — each test sets the next response/rejection.
 const invokeMock = vi.fn();
-// v1.6 Slice 2: the handover-note read (default: no note ⇒ system card owns
-// the surface — the pre-Slice-2 behavior stays byte-identical).
+// A seat-level handover note may remain readable for a future overview, but
+// the fresh-chat emptySlot must never invoke that provider.
 const noteInvokeMock = vi.fn();
 vi.mock('@/common/adapter/ipcBridge', () => ({
   commandEve: {
@@ -44,7 +44,7 @@ vi.mock('@/common/adapter/ipcBridge', () => ({
   },
 }));
 
-// Chip sends ride the real send path — mocked at the '@/common' boundary.
+// Any implicit note-to-message path would cross this boundary.
 const sendMessageMock = vi.fn();
 vi.mock('@/common', () => ({
   ipcBridge: { acpConversation: { sendMessage: { invoke: (...args: unknown[]) => sendMessageMock(...args) } } },
@@ -114,7 +114,8 @@ beforeEach(() => {
   invokeMock.mockReset();
   noteInvokeMock.mockReset();
   sendMessageMock.mockReset();
-  // Default: no handover note — every pre-Slice-2 expectation holds unchanged.
+  // A provider response is configured deliberately: containment requires the
+  // conversation surface not to call it at all.
   noteInvokeMock.mockResolvedValue({ data: { version: 'command-eve-startscreen-note/v0', ok: true, exists: false } });
   messageList = [];
 });
@@ -194,13 +195,7 @@ describe('OnboardingWaitingBanner — blockers stay visible in non-empty chats',
   });
 });
 
-/**
- * v1.6 Slice 2 — "Die Hinterlassene Hand": the surface renders EVE's really
- * left-behind words verbatim, framed by the SYSTEM's mtime; her `next:` entries
- * are the only tap-chips; blockers/degraded status never get hidden behind her
- * note; and without a note everything above stays byte-identical.
- */
-describe('OnboardingReadinessGreeting — handover note (Die Hinterlassene Hand)', () => {
+describe('OnboardingReadinessGreeting — seat-level handover containment', () => {
   const NOTE_RAW = [
     '---',
     'next:',
@@ -213,63 +208,64 @@ describe('OnboardingReadinessGreeting — handover note (Die Hinterlassene Hand)
     data: { version: 'command-eve-startscreen-note/v0', ok: true, exists: true, mtime_ms: mtimeMs, raw },
   });
 
-  it('renders her note verbatim with the system age frame and suppresses the generic ready headline', async () => {
+  it('does not read or render an existing seat-level note in a fresh chat', async () => {
     invokeMock.mockResolvedValue(okReadyResponse);
     noteInvokeMock.mockResolvedValue(noteResponse(Date.now() - 60_000));
     renderInRouter(<OnboardingReadinessGreeting />);
-    const note = await screen.findByTestId('eve-handover-note');
-    expect(note.getAttribute('data-age-class')).toBe('today');
-    expect(screen.getByTestId('eve-handover-note-body').textContent).toContain(
-      'Wir haben heute deinen Brief geschärft und die Posts skizziert.'
-    );
-    expect(screen.getByTestId('eve-handover-note-age').textContent).toContain('geschrieben heute');
-    // Her voice owns the surface: the generic system ready-headline is gone.
-    expect(screen.getByTestId('eve-onboarding-greeting').textContent).not.toContain('startklar');
+    const card = await screen.findByTestId('eve-onboarding-greeting');
+    expect(card.textContent).toContain('startklar');
+    expect(card.textContent).not.toContain('Wir haben heute deinen Brief geschärft');
+    expect(screen.queryByTestId('eve-handover-note')).toBeNull();
+    expect(noteInvokeMock).not.toHaveBeenCalled();
+    expect(sendMessageMock).not.toHaveBeenCalled();
   });
 
-  it('a real blocker stays visible BELOW her note (system information is never hidden)', async () => {
-    invokeMock.mockResolvedValue(okBlockedResponse);
-    noteInvokeMock.mockResolvedValue(noteResponse(Date.now() - 60_000));
-    renderInRouter(<OnboardingReadinessGreeting />);
-    await screen.findByTestId('eve-handover-note');
-    expect(screen.getByTestId('eve-onboarding-greeting-gap-license')).toBeTruthy();
-  });
-
-  it('frames a 16-day-old note as a long-absence welcome (K11 return framing)', async () => {
-    invokeMock.mockResolvedValue(okReadyResponse);
-    noteInvokeMock.mockResolvedValue(noteResponse(Date.now() - 16 * 86_400_000));
-    renderInRouter(<OnboardingReadinessGreeting />);
-    const note = await screen.findByTestId('eve-handover-note');
-    expect(note.getAttribute('data-age-class')).toBe('long');
-    expect(screen.getByTestId('eve-handover-note-age').textContent).toContain('schön, dass du wieder da bist');
-  });
-
-  it('her next: entry is a tappable chip that sends HER suggestion into the conversation', async () => {
+  it('stays isolated across two chats and a remount', async () => {
     invokeMock.mockResolvedValue(okReadyResponse);
     noteInvokeMock.mockResolvedValue(noteResponse(Date.now() - 60_000));
-    sendMessageMock.mockResolvedValue({ success: true });
     const { ConversationProvider } = await import('@/renderer/hooks/context/ConversationContext');
-    renderInRouter(
+    const first = renderInRouter(
       <ConversationProvider value={{ conversation_id: 'conv-1', type: 'acp' }}>
         <OnboardingReadinessGreeting />
       </ConversationProvider>
     );
-    const chip = await screen.findByTestId('eve-handover-note-next-0');
-    expect(chip.textContent).toBe('Die zwei Entwürfe reviewen');
-    chip.click();
-    await waitFor(() => expect(sendMessageMock).toHaveBeenCalledTimes(1));
-    expect(sendMessageMock.mock.calls[0][0]).toMatchObject({
-      input: 'Die zwei Entwürfe reviewen',
-      conversation_id: 'conv-1',
-    });
+    await screen.findByTestId('eve-onboarding-greeting');
+    first.unmount();
+    renderInRouter(
+      <ConversationProvider value={{ conversation_id: 'conv-2', type: 'acp' }}>
+        <OnboardingReadinessGreeting />
+      </ConversationProvider>
+    );
+    const second = await screen.findByTestId('eve-onboarding-greeting');
+    expect(second.textContent).not.toContain('Wir haben heute deinen Brief geschärft');
+    expect(noteInvokeMock).not.toHaveBeenCalled();
+    expect(sendMessageMock).not.toHaveBeenCalled();
   });
 
-  it('an empty-body note renders NOTHING in her name (system card owns the surface)', async () => {
+  it('cannot disclose either of two seat-specific notes', async () => {
     invokeMock.mockResolvedValue(okReadyResponse);
-    noteInvokeMock.mockResolvedValue(noteResponse(Date.now(), '---\nnext:\n  - Chip ohne Notiz\n---\n'));
+    let activeSeat = 'seat-a';
+    noteInvokeMock.mockImplementation(() =>
+      Promise.resolve(noteResponse(Date.now(), activeSeat === 'seat-a' ? 'PRIVATE SEAT A' : 'PRIVATE SEAT B'))
+    );
+    const first = renderInRouter(<OnboardingReadinessGreeting />);
+    await screen.findByTestId('eve-onboarding-greeting');
+    first.unmount();
+    activeSeat = 'seat-b';
     renderInRouter(<OnboardingReadinessGreeting />);
     const card = await screen.findByTestId('eve-onboarding-greeting');
+    expect(card.textContent).not.toContain('PRIVATE SEAT A');
+    expect(card.textContent).not.toContain('PRIVATE SEAT B');
     expect(screen.queryByTestId('eve-handover-note')).toBeNull();
+    expect(noteInvokeMock).not.toHaveBeenCalled();
+    expect(sendMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('is non-blocking even if the dormant provider would fail', async () => {
+    invokeMock.mockResolvedValue(okReadyResponse);
+    noteInvokeMock.mockRejectedValue(new Error('provider unavailable'));
+    const card = await renderInRouter(<OnboardingReadinessGreeting />).findByTestId('eve-onboarding-greeting');
     expect(card.textContent).toContain('startklar');
+    expect(noteInvokeMock).not.toHaveBeenCalled();
   });
 });

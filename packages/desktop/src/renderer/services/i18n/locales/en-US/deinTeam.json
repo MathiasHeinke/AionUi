@@ -32,8 +32,8 @@
     "hireForSprint": "Hire for sprint"
   },
   "confirm": {
-    "budgetTitle": "Above the base budget",
-    "budgetBody": "Hiring {{role}} brings projected cost to €{{projected}}/month — €{{overage}} above the included base budget of €{{hull}}. Additional charges apply. Hire anyway?",
+    "budgetTitle": "Above the planning limit",
+    "budgetBody": "Hiring {{role}} brings the monthly plan value to €{{projected}} — €{{overage}} above the €{{hull}} planning limit. This is a plan value, not actual billing. Hire anyway?",
     "hireAnyway": "Hire anyway",
     "floorTitle": "Your last team member is leaving",
     "floorBody": "Keep one free local team member? Your company stays available and the free front desk remains on.",
@@ -44,13 +44,25 @@
     "floorRestored": "The last paid team member is off. The free front desk is handling reception."
   },
   "budget": {
-    "title": "Projected cost / month",
+    "title": "Plan vs actual",
+    "planValue": "Plan {{plan}} / {{hull}}",
     "activePaid": "Active paid team members: {{count}}",
+    "planTooltip": "Plan values for active roles: {{count}}",
     "monthShort": "mo.",
-    "tooltipRemaining": "{{amount}} left in the base budget",
-    "tooltipOverage": "{{amount}} above the base budget",
-    "withinBudget": "Within the included base budget — {{amount}} left.",
-    "overBudget": "{{amount}} above the base budget — additional charges apply."
+    "tooltipRemaining": "{{amount}} left in the planning limit",
+    "tooltipOverage": "{{amount}} above the planning limit",
+    "withinBudget": "Active-role plan value — {{amount}} left in the planning limit. Not actual billing.",
+    "overBudget": "Planning limit exceeded by {{amount}}. Not actual billing.",
+    "actualAvailable": "Actual · {{count}} verified runs · {{period}} · {{routes}}",
+    "actualUnavailable": "Actual · unavailable — no matching current ledger provenance.",
+    "actualProofTitle": "SG-1 ledger proofs for {{period}}",
+    "actualCalls": "{{count}} runs",
+    "receipt": "Routing receipt {{id}}",
+    "routes": {
+      "subscription": "Subscription lane",
+      "byok": "BYOK lane",
+      "local": "Local lane"
+    }
   },
   "skills": {
     "strategy": "Strategy",

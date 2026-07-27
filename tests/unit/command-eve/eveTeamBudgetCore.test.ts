@@ -32,11 +32,13 @@ import {
 } from '@/common/config/eveTeamRoster';
 import {
   BASE_HULL_EUR,
+  buildTeamPlanActualMeter,
   evaluateBudgetGate,
   projectAfterAction,
   projectMonthlySpend,
 } from '@/common/config/eveTeamBudgetCore';
 import type { EveTeamWorkerStatusMap } from '@/common/config/eveTeamControlsCore';
+import type { VerifiedAgentUsageSnapshot } from '@/common/config/seatUsageCore';
 
 // ---------------------------------------------------------------------------
 // (0) grade → salary table (Founder-locked §7)
@@ -151,6 +153,48 @@ describe('projectMonthlySpend — sum of ACTIVE worker salaries', () => {
     expect(projection.fitsHull).toBe(false);
     expect(projection.overageEur).toBe(40);
     expect(projection.remainingEur).toBe(0);
+  });
+});
+
+describe('buildTeamPlanActualMeter — plan and SG-1 actual never collapse into one claim', () => {
+  it('keeps unavailable actual as null instead of converting it to zero', () => {
+    const actual: VerifiedAgentUsageSnapshot = {
+      status: 'unavailable',
+      period: '2026-07',
+      reason: 'missing-or-malformed',
+      rows: [],
+      total_calls: null,
+      as_of: null,
+    };
+    const meter = buildTeamPlanActualMeter(projectMonthlySpend({}), actual);
+    expect(meter.plan.totalEur).toBe(200);
+    expect(meter.actual.status).toBe('unavailable');
+    expect(meter.actualCalls).toBeNull();
+  });
+
+  it('copies only a verified actual value and preserves its recorded route provenance', () => {
+    const actual: VerifiedAgentUsageSnapshot = {
+      status: 'available',
+      period: '2026-07',
+      as_of: '2026-07-20T11:55:00.000Z',
+      total_calls: 3,
+      rows: [
+        {
+          ledger_event_id: 'evt-1',
+          routing_receipt_id: 'route-1',
+          agent_id: 'content-writer',
+          period: '2026-07',
+          route: 'subscription',
+          recorded_at: '2026-07-20T10:00:00.000Z',
+          immutable: true,
+          calls: 3,
+        },
+      ],
+    };
+    const meter = buildTeamPlanActualMeter(projectMonthlySpend({}), actual);
+    expect(meter.actualCalls).toBe(3);
+    expect(meter.actual.rows[0].route).toBe('subscription');
+    expect(meter.plan.totalEur).toBe(200);
   });
 });
 

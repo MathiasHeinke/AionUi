@@ -157,6 +157,7 @@ import { authorizeCommandEveManagedVisualTurn } from '@process/commandEve/manage
 import type { CommandEveManagedVisualTurnAuthorizationRequest } from '@/common/config/eveManagedVisualTurnCore';
 import {
   SEAT_USAGE_FUNCTION_URL,
+  buildSeatUsageIpcResult,
   currentUsageMonth,
   emptySeatUsage,
   isValidUsageMonth,
@@ -4210,13 +4211,7 @@ export function initCommandEveBridge(): void {
 
         return {
           success: true,
-          data: {
-            version: 'command-eve-seat-usage/v0' as const,
-            ok: true,
-            month: scoped.month,
-            seats: scoped.seats,
-            total: scoped.total,
-          },
+          data: buildSeatUsageIpcResult(scoped),
         };
       } catch (error) {
         return {

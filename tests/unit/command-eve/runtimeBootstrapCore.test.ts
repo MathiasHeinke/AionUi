@@ -1007,6 +1007,15 @@ describe('Command EVE runtime bootstrap core', () => {
       expect(providerOverride).toContain(
         'auxiliary_client._resolve_custom_runtime = command_eve_resolve_custom_runtime'
       );
+      expect(providerOverride).toContain('def _install_command_eve_permission_authority_patch()');
+      expect(providerOverride).toContain(
+        'HermesACPAgent._edit_approval_policy_for_state = command_eve_edit_approval_policy'
+      );
+      expect(providerOverride).toContain(
+        'HermesACPAgent._sync_terminal_approval_mode = command_eve_sync_terminal_approval_mode'
+      );
+      expect(providerOverride).toContain('disable_session_yolo');
+      expect(providerOverride).not.toContain('enable_session_yolo');
       expect(providerOverride).toContain('and parsed.port == 25811');
       expect(providerOverride).toContain('re.fullmatch(r"[a-f0-9]{64}", token)');
       expect(providerOverride).toContain('top_level["reasoning_effort"] = "none"');
@@ -1049,6 +1058,20 @@ describe('Command EVE runtime bootstrap core', () => {
         effective_lane: 'ollama_local',
         status_events: ['tool', 'step'],
         receipt_mode: '0600',
+      });
+      const permissionAuthorityHarness = spawnSync(
+        'python3',
+        [path.resolve('tests/fixtures/command-eve/permission_authority_patch_harness.py'), providerOverridePath],
+        { encoding: 'utf8', timeout: 5_000 }
+      );
+      expect(
+        permissionAuthorityHarness.status,
+        permissionAuthorityHarness.stderr || permissionAuthorityHarness.stdout
+      ).toBe(0);
+      expect(JSON.parse(permissionAuthorityHarness.stdout)).toEqual({
+        edit_policy: 'ask',
+        terminal_yolo_disabled: ['session-auto'],
+        idempotent_install: true,
       });
       expect(providerOverride).toContain('"local-fallback"');
       expect(providerOverride).toContain('request_host in {"127.0.0.1", "localhost", "::1"}');

@@ -53,12 +53,20 @@ interface MessageIndex {
   msgIdIndex: Map<string, number>; // msg_id -> index
   call_idIndex: Map<string, number>; // tool_call.call_id -> index
   tool_call_idIndex: Map<string, number>; // acp_tool_call.update.tool_call_id -> index
-  permission_call_idIndex: Map<string, number>; // permission.content.call_id -> index
+  permission_call_idIndex: Map<string, number>; // permission/acp_permission call_id -> index
 }
 
 function getMessageIndexKey(message: TMessage): string | undefined {
   if (!message.msg_id) return undefined;
   return message.type === 'thinking' ? `thinking:${message.msg_id}` : message.msg_id;
+}
+
+function getPermissionCallId(message: TMessage): string | undefined {
+  if (message.type === 'permission') return message.content?.call_id;
+  if (message.type === 'acp_permission') {
+    return message.content?.tool_call?.tool_call_id || message.msg_id || message.id;
+  }
+  return undefined;
 }
 
 // 使用 WeakMap 缓存索引，当列表被 GC 时自动清理
@@ -98,8 +106,9 @@ function buildMessageIndex(list: TMessage[]): MessageIndex {
     if (msg.type === 'acp_tool_call' && msg.content?.update?.tool_call_id) {
       tool_call_idIndex.set(msg.content.update.tool_call_id, i);
     }
-    if (msg.type === 'permission' && msg.content?.call_id) {
-      permission_call_idIndex.set(msg.content.call_id, i);
+    const permissionCallId = getPermissionCallId(msg);
+    if (permissionCallId) {
+      permission_call_idIndex.set(permissionCallId, i);
     }
   }
 
@@ -131,6 +140,16 @@ function composeMessageWithIndex(message: TMessage | undefined, list: TMessage[]
     const msgIndexKey = getMessageIndexKey(message);
     if (msgIndexKey) {
       index.msgIdIndex.set(msgIndexKey, 0);
+    }
+    if (message.type === 'tool_call' && message.content?.call_id) {
+      index.call_idIndex.set(message.content.call_id, 0);
+    }
+    if (message.type === 'acp_tool_call' && message.content?.update?.tool_call_id) {
+      index.tool_call_idIndex.set(message.content.update.tool_call_id, 0);
+    }
+    const permissionCallId = getPermissionCallId(message);
+    if (permissionCallId) {
+      index.permission_call_idIndex.set(permissionCallId, 0);
     }
     return [message];
   }
@@ -195,9 +214,44 @@ function composeMessageWithIndex(message: TMessage | undefined, list: TMessage[]
     return list.concat(message);
   }
 
-  // permission: use call_id for recovery/live stream dedupe.
-  if (message.type === 'permission' && message.content?.call_id) {
-    const existingIdx = index.permission_call_idIndex.get(message.content.call_id);
+  // Permission requests arrive on two independent lanes: the live ACP stream
+  // and the authoritative confirmation add/list channel. Whichever lane wins
+  // the race, keep exactly one card per call_id. Prefer the confirmation
+  // projection because it carries lifecycle updates used after remount.
+  const permissionCallId = getPermissionCallId(message);
+  if (message.type === 'acp_permission' && permissionCallId) {
+    const existingIdx = index.permission_call_idIndex.get(permissionCallId);
+    if (existingIdx !== undefined && existingIdx < list.length) {
+      const existingMsg = list[existingIdx];
+      if (existingMsg.type === 'permission') {
+        return list;
+      }
+      if (existingMsg.type === 'acp_permission') {
+        const newList = list.slice();
+        newList[existingIdx] = {
+          ...existingMsg,
+          ...message,
+          content: {
+            ...existingMsg.content,
+            ...message.content,
+            tool_call: {
+              ...existingMsg.content.tool_call,
+              ...message.content.tool_call,
+            },
+          },
+        };
+        return newList;
+      }
+    }
+    const newIdx = list.length;
+    index.permission_call_idIndex.set(permissionCallId, newIdx);
+    const msgIndexKey = getMessageIndexKey(message);
+    if (msgIndexKey) index.msgIdIndex.set(msgIndexKey, newIdx);
+    return list.concat(message);
+  }
+
+  if (message.type === 'permission' && permissionCallId) {
+    const existingIdx = index.permission_call_idIndex.get(permissionCallId);
     if (existingIdx !== undefined && existingIdx < list.length) {
       const existingMsg = list[existingIdx];
       if (existingMsg.type === 'permission') {
@@ -205,9 +259,19 @@ function composeMessageWithIndex(message: TMessage | undefined, list: TMessage[]
         newList[existingIdx] = { ...existingMsg, ...message, content: message.content };
         return newList;
       }
+      if (existingMsg.type === 'acp_permission') {
+        const newList = list.slice();
+        newList[existingIdx] = message;
+        const rebuilt = buildMessageIndex(newList);
+        index.msgIdIndex = rebuilt.msgIdIndex;
+        index.call_idIndex = rebuilt.call_idIndex;
+        index.tool_call_idIndex = rebuilt.tool_call_idIndex;
+        index.permission_call_idIndex = rebuilt.permission_call_idIndex;
+        return newList;
+      }
     }
     const newIdx = list.length;
-    index.permission_call_idIndex.set(message.content.call_id, newIdx);
+    index.permission_call_idIndex.set(permissionCallId, newIdx);
     const msgIndexKey = getMessageIndexKey(message);
     if (msgIndexKey) index.msgIdIndex.set(msgIndexKey, newIdx);
     return list.concat(message);
@@ -368,7 +432,8 @@ export const useAddOrUpdateMessage = () => {
           continue;
         }
 
-        if (item.add) {
+        const permissionCallId = getPermissionCallId(item.message);
+        if (item.add && !permissionCallId) {
           // 新增消息，更新索引
           // New message, update index
           const msg = item.message;
@@ -380,9 +445,6 @@ export const useAddOrUpdateMessage = () => {
           }
           if (msg.type === 'acp_tool_call' && msg.content?.update?.tool_call_id) {
             index.tool_call_idIndex.set(msg.content.update.tool_call_id, newIdx);
-          }
-          if (msg.type === 'permission' && msg.content?.call_id) {
-            index.permission_call_idIndex.set(msg.content.call_id, newIdx);
           }
           newList = newList.concat(msg);
         } else {

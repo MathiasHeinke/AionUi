@@ -21,10 +21,17 @@
  * non-desktop (WebUI) builds there is no bridge ⇒ available:false, empty.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { commandEve, type ICommandEveSeatUsageResult } from '@/common/adapter/ipcBridge';
 import { isElectronDesktop } from '@renderer/utils/platform';
-import { currentUsageMonth } from '@/common/config/seatUsageCore';
+import { EVE_SYSTEM_AGENT_ID, EVE_TEAM_ROSTER } from '@/common/config/eveTeamRoster';
+import {
+  currentUsageMonth,
+  verifiedAgentUsageFromSeatUsage,
+  type VerifiedAgentUsageSnapshot,
+} from '@/common/config/seatUsageCore';
+
+const TEAM_METER_AGENT_IDS = [EVE_SYSTEM_AGENT_ID, ...EVE_TEAM_ROSTER.map((role) => role.agent_id)] as const;
 
 export interface SeatUsageState {
   /** True until the first read for the current month resolves. */
@@ -33,6 +40,8 @@ export interface SeatUsageState {
   month: string;
   /** Latest seat-usage result, or null before the first read / non-desktop. */
   usage: ICommandEveSeatUsageResult | null;
+  /** Strict SG-1 actual for the team meter; unavailable is represented by null-valued provenance, never zero. */
+  agentUsage: VerifiedAgentUsageSnapshot;
   /**
    * True when the server returned real data (`ok:true`). False on version-skew
    * (function not deployed) / no bearer / non-desktop — the card then shows the
@@ -82,10 +91,13 @@ export function useSeatUsage(initialMonth: string = currentUsageMonth()): SeatUs
     void load(month);
   }, [load, month]);
 
+  const agentUsage = useMemo(() => verifiedAgentUsageFromSeatUsage(usage, month, TEAM_METER_AGENT_IDS), [usage, month]);
+
   return {
     loading,
     month,
     usage,
+    agentUsage,
     available: usage?.ok === true,
     setMonth,
     refresh,

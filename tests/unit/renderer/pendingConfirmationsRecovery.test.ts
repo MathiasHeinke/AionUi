@@ -10,6 +10,7 @@ import {
   buildPendingConfirmationMessage,
   hasPermissionMessageForCallId,
   removePermissionMessage,
+  upsertPendingConfirmationMessage,
   usePendingConfirmationsRecovery,
 } from '@/renderer/pages/conversation/Messages/usePendingConfirmationsRecovery';
 
@@ -80,6 +81,31 @@ const confirmation: IConfirmation<string> = {
   options: [{ label: 'Allow', value: 'allow_once' }],
 };
 
+function withAuthority(
+  base: IConfirmation<string>,
+  confirmationVersion: number,
+  lifecycle = 'pending',
+  sessionEpoch = 1
+): IConfirmation<string> {
+  return {
+    ...base,
+    authority: {
+      protocol_version: 1,
+      operation_id: base.call_id,
+      operation_digest: `digest-${base.call_id}`,
+      confirmation_version: confirmationVersion,
+      policy_revision: 4,
+      session_epoch: sessionEpoch,
+      created_at_ms: 100,
+      expires_at_ms: 10_000,
+      lifecycle,
+      classification: 'routine_edit',
+      required_authority: null,
+      runtime_receipt_digest: 'runtime-receipt',
+    },
+  } as IConfirmation<string>;
+}
+
 function Wrapper({ children }: PropsWithChildren): JSX.Element {
   return React.createElement(MessageListProvider, { value: [] }, children);
 }
@@ -133,6 +159,76 @@ describe('pending confirmations recovery', () => {
     ] as TMessage[];
 
     expect(hasPermissionMessageForCallId(list, 'tool-1')).toBe(true);
+  });
+
+  it('replaces a live ACP card with the authoritative recovered projection', () => {
+    const live = [
+      {
+        id: 'acp-card',
+        msg_id: 'acp-message',
+        type: 'acp_permission',
+        conversation_id: 'conv-1',
+        position: 'left',
+        content: {
+          session_id: 'session-1',
+          options: [],
+          tool_call: { tool_call_id: 'tool-1' },
+        },
+      },
+    ] as TMessage[];
+
+    const result = upsertPendingConfirmationMessage(live, 'conv-1', withAuthority(confirmation, 2));
+
+    expect(result).toHaveLength(1);
+    expect(result[0].type).toBe('permission');
+  });
+
+  it('ignores stale authority versions but accepts lifecycle updates at the current version', () => {
+    const current = buildPendingConfirmationMessage('conv-1', withAuthority(confirmation, 4));
+    const stale = upsertPendingConfirmationMessage(
+      [current],
+      'conv-1',
+      withAuthority({ ...confirmation, action: 'expired' }, 3, 'expired')
+    );
+    expect(stale[0]).toBe(current);
+
+    const updated = upsertPendingConfirmationMessage(
+      [current],
+      'conv-1',
+      withAuthority({ ...confirmation, action: 'expired' }, 4, 'expired')
+    );
+    expect(updated).toHaveLength(1);
+    expect(updated[0].type).toBe('permission');
+    if (updated[0].type === 'permission') {
+      expect(updated[0].content.action).toBe('expired');
+    }
+  });
+
+  it('rejects a delayed card from an older runtime even when its numeric version is larger', () => {
+    const currentConfirmation = withAuthority(confirmation, 1, 'pending', 1) as IConfirmation<string> & {
+      authority: Record<string, unknown>;
+    };
+    currentConfirmation.authority = {
+      ...currentConfirmation.authority,
+      created_at_ms: 2_000,
+      runtime_receipt_digest: 'runtime-new',
+    };
+    const delayedOld = withAuthority(
+      { ...confirmation, action: 'expired' },
+      99,
+      'expired',
+      99
+    ) as IConfirmation<string> & { authority: Record<string, unknown> };
+    delayedOld.authority = {
+      ...delayedOld.authority,
+      created_at_ms: 1_000,
+      runtime_receipt_digest: 'runtime-old',
+    };
+    const current = buildPendingConfirmationMessage('conv-1', currentConfirmation);
+
+    const result = upsertPendingConfirmationMessage([current], 'conv-1', delayedOld);
+
+    expect(result[0]).toBe(current);
   });
 
   it('removes recovered permission messages by confirmation id or call_id', () => {

@@ -11,9 +11,13 @@ import {
   currentUsageMonth,
   emptySeatUsage,
   isValidUsageMonth,
+  parseAgentUsageLedgerEnvelope,
   parseSeatUsageResponse,
   partitionSeatUsageForViewer,
   priorUsageMonth,
+  verifiedAgentUsageFromSeatUsage,
+  verifyAgentUsageLedger,
+  type AgentUsageLedgerEnvelope,
   type SeatUsageResponse,
   type SeatUsageRow,
 } from '../../../packages/desktop/src/common/config/seatUsageCore';
@@ -41,6 +45,112 @@ describe('seatUsageCore — month helpers', () => {
     expect(priorUsageMonth('2026-01')).toBe('2025-12');
     // A malformed anchor degrades to the current month, never throws.
     expect(isValidUsageMonth(priorUsageMonth('garbage'))).toBe(true);
+  });
+});
+
+describe('seatUsageCore — strict SG-1 agent ledger', () => {
+  const now = new Date('2026-07-20T12:00:00.000Z');
+  const envelope: AgentUsageLedgerEnvelope = {
+    version: 'command-eve-agent-usage/v1',
+    immutable: true,
+    complete: true,
+    period: '2026-07',
+    as_of: '2026-07-20T11:55:00.000Z',
+    rows: [
+      {
+        ledger_event_id: 'evt-subscription-1',
+        routing_receipt_id: 'route-subscription-1',
+        agent_id: 'content-writer',
+        period: '2026-07',
+        route: 'subscription',
+        recorded_at: '2026-07-20T10:00:00.000Z',
+        immutable: true,
+        calls: 3,
+      },
+      {
+        ledger_event_id: 'evt-byok-1',
+        routing_receipt_id: 'route-byok-1',
+        agent_id: 'eval-research',
+        period: '2026-07',
+        route: 'byok',
+        recorded_at: '2026-07-20T10:30:00.000Z',
+        immutable: true,
+        calls: 2,
+      },
+      {
+        ledger_event_id: 'evt-local-1',
+        routing_receipt_id: 'route-local-1',
+        agent_id: 'house-keeper',
+        period: '2026-07',
+        route: 'local',
+        recorded_at: '2026-07-20T11:00:00.000Z',
+        immutable: true,
+        calls: 4,
+      },
+    ],
+  };
+
+  it('exposes an actual only for a complete immutable matching agent + period + route proof', () => {
+    const parsed = parseAgentUsageLedgerEnvelope(envelope);
+    const actual = verifyAgentUsageLedger(parsed, '2026-07', ['content-writer', 'eval-research', 'house-keeper'], now);
+    expect(actual.status).toBe('available');
+    if (actual.status !== 'available') throw new Error('expected an available SG-1 snapshot');
+    expect(actual.total_calls).toBe(9);
+    expect(actual.rows.map((row) => row.route)).toEqual(['subscription', 'byok', 'local']);
+    expect(actual.rows[0].routing_receipt_id).toBe('route-subscription-1');
+  });
+
+  it('keeps missing and malformed proofs unavailable with a null actual, never a fabricated zero/local route', () => {
+    const missing = verifiedAgentUsageFromSeatUsage({ ok: true }, '2026-07', ['content-writer'], now);
+    expect(missing).toMatchObject({ status: 'unavailable', total_calls: null, rows: [] });
+
+    const malformed = parseAgentUsageLedgerEnvelope({
+      ...envelope,
+      rows: [{ ...envelope.rows[0], route: 'probably-local' }],
+    });
+    expect(malformed).toBeNull();
+    const actual = verifyAgentUsageLedger(malformed, '2026-07', ['content-writer'], now);
+    expect(actual).toMatchObject({ status: 'unavailable', reason: 'missing-or-malformed', total_calls: null });
+  });
+
+  it('fails the whole snapshot closed for stale, wrong-period or unexpected-agent rows', () => {
+    expect(
+      verifyAgentUsageLedger(
+        envelope,
+        '2026-07',
+        ['content-writer', 'eval-research', 'house-keeper'],
+        new Date('2026-07-22T12:00:00Z')
+      )
+    ).toMatchObject({ status: 'unavailable', reason: 'stale', total_calls: null });
+    expect(verifyAgentUsageLedger(envelope, '2026-06', ['content-writer'], now)).toMatchObject({
+      status: 'unavailable',
+      reason: 'period-mismatch',
+      total_calls: null,
+    });
+    expect(verifyAgentUsageLedger(envelope, '2026-07', ['content-writer'], now)).toMatchObject({
+      status: 'unavailable',
+      reason: 'agent-mismatch',
+      total_calls: null,
+    });
+  });
+
+  it('rejects duplicate ledger ids so a replay cannot inflate actual usage', () => {
+    expect(
+      parseAgentUsageLedgerEnvelope({
+        ...envelope,
+        rows: [envelope.rows[0], { ...envelope.rows[1], ledger_event_id: envelope.rows[0].ledger_event_id }],
+      })
+    ).toBeNull();
+  });
+
+  it('carries a valid agent envelope through the existing seat-usage response without altering seat totals', () => {
+    const parsed = parseSeatUsageResponse(
+      { ok: true, month: '2026-07', seats: [], total: { calls: 12 }, agent_usage: envelope },
+      '2026-07'
+    );
+    expect(parsed.ok).toBe(true);
+    expect(parsed.total.calls).toBe(12);
+    expect(parsed.agent_usage?.rows).toHaveLength(3);
   });
 });
 
@@ -240,6 +350,7 @@ describe('seatUsageCore — partitionSeatUsageForViewer (C1: main-side wire part
       raw_eur_cents: 310,
       credits: 155,
     },
+    agent_usage: null,
   };
 
   it('owner/all-seat summary (visibleSeatId=null): returns the response UNCHANGED', () => {
@@ -260,6 +371,7 @@ describe('seatUsageCore — partitionSeatUsageForViewer (C1: main-side wire part
     expect(out.total.raw_eur_cents).toBe(100);
     expect(out.total.calls).toBe(4);
     expect(out.total.credits).toBe(50);
+    expect(out.agent_usage).toBeNull();
   });
 
   it('a viewer with no attributed usage: empty seats + zero total (never falls back to account-wide)', () => {

@@ -17,6 +17,21 @@ export type PermissionOptionView = PermissionOptionLike & {
   exactSessionIntent: boolean;
 };
 
+export type PermissionAuthorityMetadata = {
+  protocol_version: number;
+  operation_id: string;
+  operation_digest: string;
+  confirmation_version: number;
+  policy_revision: number;
+  session_epoch: number;
+  created_at_ms: number;
+  expires_at_ms: number;
+  lifecycle: string;
+  classification: string;
+  required_authority?: string;
+  runtime_receipt_digest: string;
+};
+
 const INACTIVE_PERMISSION_STATUSES = new Set([
   'expired',
   'cancelled',
@@ -63,6 +78,88 @@ function normalizeToken(value: unknown): string {
     .trim()
     .toLowerCase()
     .replace(/[\s-]+/g, '_');
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function safeInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+/** Parse only the safe, server-authored metadata envelope. Unknown shapes do not gain authority. */
+export function parsePermissionAuthorityMetadata(value: unknown): PermissionAuthorityMetadata | null {
+  const record = objectRecord(value);
+  if (!record) return null;
+  const protocolVersion = safeInteger(record.protocol_version);
+  const confirmationVersion = safeInteger(record.confirmation_version);
+  const policyRevision = safeInteger(record.policy_revision);
+  const sessionEpoch = safeInteger(record.session_epoch);
+  const createdAt = safeInteger(record.created_at_ms);
+  const expiresAt = safeInteger(record.expires_at_ms);
+  const requiredStrings = [
+    record.operation_id,
+    record.operation_digest,
+    record.lifecycle,
+    record.classification,
+    record.runtime_receipt_digest,
+  ];
+  if (
+    protocolVersion === null ||
+    confirmationVersion === null ||
+    policyRevision === null ||
+    sessionEpoch === null ||
+    createdAt === null ||
+    expiresAt === null ||
+    requiredStrings.some((field) => typeof field !== 'string' || field.length === 0)
+  ) {
+    return null;
+  }
+  const requiredAuthority = record.required_authority;
+  if (requiredAuthority !== undefined && requiredAuthority !== null && typeof requiredAuthority !== 'string') {
+    return null;
+  }
+  return {
+    protocol_version: protocolVersion,
+    operation_id: record.operation_id as string,
+    operation_digest: record.operation_digest as string,
+    confirmation_version: confirmationVersion,
+    policy_revision: policyRevision,
+    session_epoch: sessionEpoch,
+    created_at_ms: createdAt,
+    expires_at_ms: expiresAt,
+    lifecycle: record.lifecycle as string,
+    classification: record.classification as string,
+    ...(typeof requiredAuthority === 'string' ? { required_authority: requiredAuthority } : {}),
+    runtime_receipt_digest: record.runtime_receipt_digest as string,
+  };
+}
+
+export function permissionAuthorityFromConfirmation(value: unknown): PermissionAuthorityMetadata | null {
+  const confirmation = objectRecord(value);
+  return parsePermissionAuthorityMetadata(confirmation?.authority);
+}
+
+/**
+ * Lifecycle updates may retain a confirmation_version, so equal versions are
+ * accepted. Older versions and unversioned frames cannot replace an already
+ * authoritative projection.
+ */
+export function shouldApplyPermissionConfirmation(existing: unknown, incoming: unknown): boolean {
+  const current = permissionAuthorityFromConfirmation(existing);
+  const next = permissionAuthorityFromConfirmation(incoming);
+  if (!current) return true;
+  if (!next) return false;
+  if (
+    next.runtime_receipt_digest !== current.runtime_receipt_digest ||
+    next.operation_id !== current.operation_id ||
+    next.operation_digest !== current.operation_digest
+  ) {
+    return next.created_at_ms > current.created_at_ms;
+  }
+  if (next.session_epoch !== current.session_epoch) return next.session_epoch > current.session_epoch;
+  return next.confirmation_version >= current.confirmation_version;
 }
 
 function optionTokens(option: PermissionOptionLike): string[] {

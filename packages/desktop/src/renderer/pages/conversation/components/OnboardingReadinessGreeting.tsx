@@ -25,19 +25,11 @@
  * HONESTY: no secret/API-key prompt, no learned-from-seed or connector claim.
  */
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ipcBridge } from '@/common';
-import { useConversationContextSafe } from '@/renderer/hooks/context/ConversationContext';
 import { useOnboardingStatus } from '@renderer/hooks/useOnboardingStatus';
-import { useStartscreenNote } from '@renderer/hooks/useStartscreenNote';
-import {
-  markConversationGenerating,
-  clearConversationGenerating,
-} from '@renderer/services/commandEveGenerationActivity';
 import { buildFallbackGreeting } from '@/common/config/onboardingGreetingCore';
-import { buildNoteFrame } from '@/common/config/startscreenNoteCore';
 import type { CommandEveGreetingGap, CommandEveGreetingLinkTarget } from '@/common/config/onboardingGreetingCore';
 
 /**
@@ -91,87 +83,10 @@ const GapRow: React.FC<{ gap: CommandEveGreetingGap; onNavigate: (route: string)
   );
 };
 
-/**
- * v1.6 Slice 2 ("Die Hinterlassene Hand") — EVE's handover note block. The
- * SYSTEM owns only the frame (title + honest age label from the file's mtime);
- * every word inside is hers, rendered VERBATIM (pre-wrap, no markdown pipeline —
- * her words, unedited). Her `next:` entries are the only tap-affordances on the
- * surface: a tap sends that suggestion as the operator's message into the
- * current conversation ("Chips aus ihrem Mund" — she authored them, the
- * renderer only makes them tappable).
- */
-const HandoverNoteBlock: React.FC<{
-  note: { body_md: string; next: string[]; mtimeMs: number };
-}> = ({ note }) => {
-  const { i18n } = useTranslation();
-  const conversation = useConversationContextSafe();
-  const [sending, setSending] = useState(false);
-  const frame = useMemo(() => buildNoteFrame(note.mtimeMs, Date.now(), i18n.language), [note.mtimeMs, i18n.language]);
-
-  const onTapNext = useCallback(
-    async (text: string) => {
-      const conversationId = conversation?.conversation_id;
-      if (!conversationId || sending) return;
-      setSending(true);
-      // 1.7.3 (Codex #2): this send bypasses AcpSendBox, so mark generation here too
-      // for the seat-switch guard's submit→start window.
-      markConversationGenerating(conversationId);
-      try {
-        // Sends HER suggestion as the operator's visible message — the reply is
-        // a real agent turn; the emptySlot disappears when the message lands.
-        await ipcBridge.acpConversation.sendMessage.invoke({
-          input: text,
-          conversation_id: conversationId,
-        });
-      } catch (error) {
-        clearConversationGenerating(conversationId);
-        console.error('Handover-note suggestion send failed:', error);
-        setSending(false);
-      }
-    },
-    [conversation?.conversation_id, sending]
-  );
-
-  return (
-    <div
-      data-testid='eve-handover-note'
-      data-age-class={frame.age_class}
-      className='flex flex-col gap-8px w-full px-14px py-12px rd-10px bg-fill-2 text-left'
-    >
-      <div className='flex items-baseline justify-between gap-8px'>
-        <span className='text-12px font-medium text-t-primary'>{frame.title}</span>
-        <span data-testid='eve-handover-note-age' className='text-11px text-t-tertiary shrink-0'>
-          {frame.age_label}
-        </span>
-      </div>
-      <div data-testid='eve-handover-note-body' className='text-13px text-t-secondary leading-20px whitespace-pre-wrap'>
-        {note.body_md}
-      </div>
-      {note.next.length > 0 && conversation?.conversation_id ? (
-        <div className='flex flex-wrap gap-6px m-t-4px'>
-          {note.next.map((entry, index) => (
-            <button
-              key={index}
-              type='button'
-              data-testid={`eve-handover-note-next-${index}`}
-              disabled={sending}
-              className='px-10px py-6px rd-8px bg-fill-3 text-12px text-t-primary cursor-pointer hover:bg-fill-4 disabled:opacity-50 border-none'
-              onClick={() => void onTapNext(entry)}
-            >
-              {entry}
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-};
-
 const OnboardingReadinessGreeting: React.FC = () => {
   const navigate = useNavigate();
   const { i18n } = useTranslation();
   const { loading, greeting, error } = useOnboardingStatus();
-  const { loading: noteLoading, note } = useStartscreenNote();
 
   const onNavigate = useCallback(
     (route: string) => {
@@ -191,15 +106,11 @@ const OnboardingReadinessGreeting: React.FC = () => {
   );
   const view = greeting ?? fallback;
 
-  // Quiet while loading and on non-desktop — the empty chat renders as before.
-  if (loading || noteLoading || (!view && !note)) return null;
-
-  // Authorization split (Turnier-Invariante): when EVE's note exists and the
-  // system has nothing that MUST be said (no blockers, no unknown status), her
-  // voice owns the surface — the generic system headline is suppressed. The
-  // system card stays whenever it carries real information: gaps, degraded
-  // status, or when no note exists (cold start).
-  const showSystemCard = Boolean(view) && (!note || view!.degraded === true || !view!.ready || view!.gaps.length > 0);
+  // A seat-level handover artifact must never become implicit content of a
+  // newly-created conversation. Its storage/read surface remains available for
+  // a later explicitly chosen overview placement, but the chat emptySlot does
+  // not read or render it.
+  if (loading || !view) return null;
 
   return (
     <div
@@ -208,22 +119,17 @@ const OnboardingReadinessGreeting: React.FC = () => {
       data-degraded={view?.degraded ? 'true' : undefined}
       className='flex flex-col items-center gap-16px px-24px text-center max-w-480px w-full'
     >
-      {note ? <HandoverNoteBlock note={note} /> : null}
-      {showSystemCard && view ? (
-        <>
-          <div className='flex flex-col gap-6px'>
-            <span className='text-18px font-semibold text-t-primary'>{view.headline}</span>
-            <span className='text-13px text-t-secondary'>{view.subline}</span>
-          </div>
-          {!view.ready && view.gaps.length > 0 && (
-            <div className='flex flex-col gap-8px w-full'>
-              {view.gaps.map((gap) => (
-                <GapRow key={gap.id} gap={gap} onNavigate={onNavigate} />
-              ))}
-            </div>
-          )}
-        </>
-      ) : null}
+      <div className='flex flex-col gap-6px'>
+        <span className='text-18px font-semibold text-t-primary'>{view.headline}</span>
+        <span className='text-13px text-t-secondary'>{view.subline}</span>
+      </div>
+      {!view.ready && view.gaps.length > 0 && (
+        <div className='flex flex-col gap-8px w-full'>
+          {view.gaps.map((gap) => (
+            <GapRow key={gap.id} gap={gap} onNavigate={onNavigate} />
+          ))}
+        </div>
+      )}
     </div>
   );
 };

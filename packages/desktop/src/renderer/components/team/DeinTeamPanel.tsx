@@ -43,9 +43,10 @@ import {
   type EveTeamWorkerStatus,
   type EveTeamWorkerStatusMap,
 } from '@/common/config/eveTeamControlsCore';
-import { evaluateBudgetGate, projectMonthlySpend } from '@/common/config/eveTeamBudgetCore';
+import { buildTeamPlanActualMeter, evaluateBudgetGate, projectMonthlySpend } from '@/common/config/eveTeamBudgetCore';
 import { ipcBridge } from '@/common';
 import { useConfig } from '@renderer/hooks/config/useConfig';
+import { useSeatUsage } from '@renderer/hooks/useSeatUsage';
 import ProjectedSpendMeter from '@renderer/components/team/ProjectedSpendMeter';
 import { Button, Message, Popconfirm, Tag } from '@arco-design/web-react';
 import { Pause, PlayOne, Power, UserPositioning } from '@icon-park/react';
@@ -249,6 +250,7 @@ const DeinTeamPanel: React.FC = () => {
   const { t } = useTranslation();
   const [persisted, setPersisted] = useConfig('commandEve.teamWorkerStatus');
   const statuses: EveTeamWorkerStatusMap = useMemo(() => persisted ?? {}, [persisted]);
+  const { agentUsage } = useSeatUsage();
 
   const { governance, operators } = useMemo(() => {
     const governanceRoles: EveTeamRole[] = [];
@@ -262,6 +264,7 @@ const DeinTeamPanel: React.FC = () => {
   // Live PRE-VISIBLE projection (P0 #1): the running month-end spend = sum of the
   // ACTIVE workers' grade salaries, recomputed from the persisted status map.
   const projection = useMemo(() => projectMonthlySpend(statuses), [statuses]);
+  const planActualMeter = useMemo(() => buildTeamPlanActualMeter(projection, agentUsage), [projection, agentUsage]);
 
   const handleAction = useCallback(
     (role: EveTeamRole, action: EveTeamControlAction) => {
@@ -289,9 +292,9 @@ const DeinTeamPanel: React.FC = () => {
 
   return (
     <div className='w-full'>
-      {/* PRE-VISIBLE projected-budget meter (P0 #1): always-on running total of
-          what the active team will cost this month vs the included base hull. */}
-      <ProjectedSpendMeter projection={projection} />
+      {/* Plan stays a roster salary-band plan. Actual is rendered only from a
+          complete, current SG-1 agent/period/route ledger proof. */}
+      <ProjectedSpendMeter meter={planActualMeter} />
       {governance.length > 0 ? (
         <div className='mb-3'>
           <div className='text-xs uppercase tracking-wide text-t-secondary mb-1'>

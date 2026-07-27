@@ -11,6 +11,7 @@ import {
   isPermissionCardInactive,
   isPermissionClassificationUnverified,
   normalizePermissionOptions,
+  permissionAuthorityFromConfirmation,
 } from '@/renderer/pages/conversation/Messages/acp/permissionCardPolicy';
 import { Button, Card, Radio, Typography } from '@arco-design/web-react';
 import React, { useMemo, useState } from 'react';
@@ -34,15 +35,19 @@ const MessagePermission: React.FC<MessagePermissionProps> = React.memo(({ messag
   const { t } = useTranslation();
   const { options = [], description, title, action, call_id, command_type } = message.content || {};
   const contentRecord = (message.content || {}) as unknown as Record<string, unknown>;
+  const authority = permissionAuthorityFromConfirmation(message.content);
   const metadata =
     contentRecord.metadata && typeof contentRecord.metadata === 'object'
       ? (contentRecord.metadata as Record<string, unknown>)
       : undefined;
   const actionStatus = isPermissionCardInactive(action) ? action : undefined;
-  const cardStatus = contentRecord.status ?? contentRecord.lifecycle_status ?? actionStatus;
+  const cardStatus = authority?.lifecycle ?? contentRecord.status ?? contentRecord.lifecycle_status ?? actionStatus;
   const inactive = isCommandEve && isPermissionCardInactive(cardStatus);
   const classification =
-    contentRecord.classification ?? contentRecord.permission_classification ?? metadata?.classification;
+    authority?.classification ??
+    contentRecord.classification ??
+    contentRecord.permission_classification ??
+    metadata?.classification;
   const unverified = isCommandEve && isPermissionClassificationUnverified(classification);
   const normalizedOptions = useMemo(
     () =>
@@ -108,6 +113,12 @@ const MessagePermission: React.FC<MessagePermissionProps> = React.memo(({ messag
       data-testid='message-permission-card'
       data-permission-status={normalizedStatus || 'pending'}
       data-permission-inactive={inactive ? 'true' : 'false'}
+      data-permission-classification={authority?.classification}
+      data-permission-required-authority={authority?.required_authority}
+      data-permission-confirmation-version={authority?.confirmation_version}
+      data-permission-policy-revision={authority?.policy_revision}
+      data-permission-session-epoch={authority?.session_epoch}
+      data-permission-expires-at-ms={authority?.expires_at_ms}
     >
       <div className='space-y-4'>
         <div className='flex items-center space-x-2'>

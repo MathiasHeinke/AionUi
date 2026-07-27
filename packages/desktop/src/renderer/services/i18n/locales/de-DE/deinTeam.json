@@ -32,8 +32,8 @@
     "hireForSprint": "Für Sprint einstellen"
   },
   "confirm": {
-    "budgetTitle": "Über dem Basis-Budget",
-    "budgetBody": "{{role}} einstellen bringt deine voraussichtlichen Kosten auf {{projected}} €/Monat — {{overage}} € über dem enthaltenen Basis-Budget von {{hull}} €. Zusätzliche Kosten fallen an. Trotzdem einstellen?",
+    "budgetTitle": "Über dem Planrahmen",
+    "budgetBody": "{{role}} einstellen bringt den monatlichen Planwert auf {{projected}} € — {{overage}} € über dem Planrahmen von {{hull}} €. Das ist ein Planwert, keine Ist-Abrechnung. Trotzdem einstellen?",
     "hireAnyway": "Trotzdem einstellen",
     "floorTitle": "Dein letzter Mitarbeiter geht",
     "floorBody": "Einen kostenlosen lokalen Mitarbeiter behalten? Deine Firma bleibt nie ganz leer — der gratis Hauspförtner läuft weiter.",
@@ -44,13 +44,25 @@
     "floorRestored": "Der letzte bezahlte Mitarbeiter ist aus. Der kostenlose Hauspförtner übernimmt den Empfang."
   },
   "budget": {
-    "title": "Voraussichtliche Kosten / Monat",
+    "title": "Plan vs. Ist",
+    "planValue": "Plan {{plan}} / {{hull}}",
     "activePaid": "Aktive kostenpflichtige Mitarbeiter: {{count}}",
+    "planTooltip": "Planwerte aktiver Rollen: {{count}}",
     "monthShort": "Mon.",
-    "tooltipRemaining": "Noch {{amount}} im Basis-Budget frei",
-    "tooltipOverage": "{{amount}} über dem Basis-Budget",
-    "withinBudget": "Im enthaltenen Basis-Budget — noch {{amount}} frei.",
-    "overBudget": "Über dem Basis-Budget um {{amount}} — zusätzliche Kosten fallen an."
+    "tooltipRemaining": "Noch {{amount}} im Planrahmen frei",
+    "tooltipOverage": "{{amount}} über dem Planrahmen",
+    "withinBudget": "Planwert aktiver Rollen — noch {{amount}} im Planrahmen. Keine Ist-Abrechnung.",
+    "overBudget": "Planrahmen um {{amount}} überschritten. Keine Ist-Abrechnung.",
+    "actualAvailable": "Ist · {{count}} bestätigte Einsätze · {{period}} · {{routes}}",
+    "actualUnavailable": "Ist · nicht verfügbar — keine passende aktuelle Ledger-Provenienz.",
+    "actualProofTitle": "SG-1-Ledgerbelege für {{period}}",
+    "actualCalls": "{{count}} Einsätze",
+    "receipt": "Routing-Beleg {{id}}",
+    "routes": {
+      "subscription": "Abo-Lane",
+      "byok": "BYOK-Lane",
+      "local": "Lokale Lane"
+    }
   },
   "skills": {
     "strategy": "Strategie",

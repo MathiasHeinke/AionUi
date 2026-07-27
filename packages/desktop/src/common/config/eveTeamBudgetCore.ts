@@ -37,6 +37,7 @@ import {
   type EveTeamControlAction,
   type EveTeamWorkerStatusMap,
 } from './eveTeamControlsCore';
+import type { VerifiedAgentUsageSnapshot } from './seatUsageCore';
 
 /**
  * The included monthly base "hull" in EUR — the all-inclusive subscription floor
@@ -70,6 +71,28 @@ export interface ProjectedSpend {
   remainingEur: number;
   /** How much the projection exceeds the hull (€, 0 when it fits). */
   overageEur: number;
+}
+
+/**
+ * Honest team-meter model: the salary-band plan and the SG-1-ledger actual are
+ * deliberately separate. In particular, an unavailable actual keeps a `null`
+ * value; it is never coerced to zero or inferred from the plan/roster.
+ */
+export interface TeamPlanActualMeter {
+  plan: ProjectedSpend;
+  actual: VerifiedAgentUsageSnapshot;
+  actualCalls: number | null;
+}
+
+export function buildTeamPlanActualMeter(
+  plan: ProjectedSpend,
+  actual: VerifiedAgentUsageSnapshot
+): TeamPlanActualMeter {
+  return {
+    plan,
+    actual,
+    actualCalls: actual.status === 'available' ? actual.total_calls : null,
+  };
 }
 
 /**

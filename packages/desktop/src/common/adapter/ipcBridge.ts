@@ -71,6 +71,7 @@ import type {
   CommandEveManagedVisualTurnAuthorizationRequest,
   CommandEveManagedVisualTurnAuthorizationResult,
 } from '../config/eveManagedVisualTurnCore';
+import type { AgentUsageLedgerEnvelope } from '../config/seatUsageCore';
 import type {
   ITeamAgentRemovedEvent,
   ITeamAgentRenamedEvent,
@@ -1780,6 +1781,8 @@ export interface ICommandEveSeatUsageResult {
   month: string;
   seats: ICommandEveSeatUsageRow[];
   total: Omit<ICommandEveSeatUsageRow, 'seat_id'>;
+  /** Complete verified SG-1 proof for owner views; null on quiet/malformed/delegate paths. */
+  agent_usage: AgentUsageLedgerEnvelope | null;
 }
 
 // Phase 4 / A5: the result of a seat switch (the GATE-NULL runtime keystone).

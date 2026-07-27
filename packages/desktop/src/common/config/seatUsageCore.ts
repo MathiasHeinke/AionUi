@@ -62,7 +62,78 @@ export interface SeatUsageResponse {
   month: string;
   seats: SeatUsageRow[];
   total: Omit<SeatUsageRow, 'seat_id'>;
+  /**
+   * Optional, server-attested SG-1 agent ledger. `null` is the only safe value
+   * for older, missing or malformed payloads; consumers must never derive an
+   * agent route or an "actual" value from the seat aggregates above.
+   */
+  agent_usage: AgentUsageLedgerEnvelope | null;
 }
+
+/** Exact data payload crossing `command-eve.seat-usage` Main → renderer IPC. */
+export interface SeatUsageIpcResult extends SeatUsageResponse {
+  version: 'command-eve-seat-usage/v0';
+}
+
+// ---------------------------------------------------------------------------
+// SG-1 agent-ledger contract (strict, provenance-first)
+// ---------------------------------------------------------------------------
+
+/** Canonical route decisions the honest team meter may reproduce verbatim. */
+export type AgentUsageRoute = 'subscription' | 'byok' | 'local';
+
+/** One immutable SG-1 usage event plus the routing receipt that authorized it. */
+export interface AgentUsageLedgerRow {
+  ledger_event_id: string;
+  routing_receipt_id: string;
+  agent_id: string;
+  period: string;
+  route: AgentUsageRoute;
+  recorded_at: string;
+  immutable: true;
+  /** Actual recorded invocations represented by this immutable ledger row. */
+  calls: number;
+}
+
+/**
+ * Complete server snapshot for one period. Both `immutable` and `complete` are
+ * required: without either assertion, aggregating the rows could turn a partial
+ * or mutable response into a false team-wide "actual" claim.
+ */
+export interface AgentUsageLedgerEnvelope {
+  version: 'command-eve-agent-usage/v1';
+  immutable: true;
+  complete: true;
+  period: string;
+  as_of: string;
+  rows: readonly AgentUsageLedgerRow[];
+}
+
+export const AGENT_USAGE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+export type AgentUsageUnavailableReason =
+  | 'missing-or-malformed'
+  | 'period-mismatch'
+  | 'stale'
+  | 'agent-mismatch'
+  | 'no-matching-rows';
+
+export type VerifiedAgentUsageSnapshot =
+  | {
+      status: 'unavailable';
+      period: string;
+      reason: AgentUsageUnavailableReason;
+      rows: readonly [];
+      total_calls: null;
+      as_of: null;
+    }
+  | {
+      status: 'available';
+      period: string;
+      rows: readonly AgentUsageLedgerRow[];
+      total_calls: number;
+      as_of: string;
+    };
 
 // ---------------------------------------------------------------------------
 // Month helpers (UTC calendar month; pure)
@@ -100,6 +171,178 @@ export function priorUsageMonth(month: string): string {
 
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 
+const nonEmptyString = (value: unknown): string | null =>
+  typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+
+const ISO_INSTANT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+
+const finiteTimestamp = (value: unknown): string | null => {
+  const text = nonEmptyString(value);
+  return text && ISO_INSTANT_RE.test(text) && Number.isFinite(Date.parse(text)) ? text : null;
+};
+
+const isAgentUsageRoute = (value: unknown): value is AgentUsageRoute =>
+  value === 'subscription' || value === 'byok' || value === 'local';
+
+function parseAgentUsageLedgerRow(raw: unknown): AgentUsageLedgerRow | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const row = raw as Record<string, unknown>;
+  const ledgerEventId = nonEmptyString(row.ledger_event_id);
+  const routingReceiptId = nonEmptyString(row.routing_receipt_id);
+  const agentId = nonEmptyString(row.agent_id);
+  const recordedAt = finiteTimestamp(row.recorded_at);
+  if (
+    !ledgerEventId ||
+    !routingReceiptId ||
+    !agentId ||
+    !isValidUsageMonth(row.period) ||
+    !isAgentUsageRoute(row.route) ||
+    !recordedAt ||
+    row.immutable !== true ||
+    typeof row.calls !== 'number' ||
+    !Number.isSafeInteger(row.calls) ||
+    row.calls <= 0
+  ) {
+    return null;
+  }
+  return {
+    ledger_event_id: ledgerEventId,
+    routing_receipt_id: routingReceiptId,
+    agent_id: agentId,
+    period: row.period,
+    route: row.route,
+    recorded_at: recordedAt,
+    immutable: true,
+    calls: row.calls,
+  };
+}
+
+/**
+ * Parse the optional agent ledger as one atomic proof. A single malformed or
+ * duplicate row invalidates the entire envelope instead of silently producing a
+ * plausible-looking partial total.
+ */
+export function parseAgentUsageLedgerEnvelope(raw: unknown): AgentUsageLedgerEnvelope | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const envelope = raw as Record<string, unknown>;
+  if (
+    envelope.version !== 'command-eve-agent-usage/v1' ||
+    envelope.immutable !== true ||
+    envelope.complete !== true ||
+    !isValidUsageMonth(envelope.period) ||
+    !finiteTimestamp(envelope.as_of) ||
+    !Array.isArray(envelope.rows)
+  ) {
+    return null;
+  }
+  const asOf = finiteTimestamp(envelope.as_of);
+  if (!asOf) return null;
+
+  const rows: AgentUsageLedgerRow[] = [];
+  const ledgerIds = new Set<string>();
+  for (const rawRow of envelope.rows) {
+    const row = parseAgentUsageLedgerRow(rawRow);
+    if (!row || ledgerIds.has(row.ledger_event_id)) return null;
+    ledgerIds.add(row.ledger_event_id);
+    rows.push(row);
+  }
+
+  return {
+    version: 'command-eve-agent-usage/v1',
+    immutable: true,
+    complete: true,
+    period: envelope.period,
+    as_of: asOf,
+    rows,
+  };
+}
+
+function unavailableAgentUsage(period: string, reason: AgentUsageUnavailableReason): VerifiedAgentUsageSnapshot {
+  return { status: 'unavailable', period, reason, rows: [], total_calls: null, as_of: null };
+}
+
+/**
+ * Verify a parsed SG-1 envelope for the exact period and displayed agent set.
+ * No filtering or fallback is allowed: one mismatched row makes the whole
+ * snapshot unavailable, preventing a subset from being presented as the total.
+ */
+export function verifyAgentUsageLedger(
+  envelope: AgentUsageLedgerEnvelope | null,
+  expectedPeriod: string,
+  displayedAgentIds: readonly string[],
+  now: Date = new Date(),
+  maxAgeMs: number = AGENT_USAGE_MAX_AGE_MS
+): VerifiedAgentUsageSnapshot {
+  const period = isValidUsageMonth(expectedPeriod) ? expectedPeriod : currentUsageMonth(now);
+  if (!envelope) return unavailableAgentUsage(period, 'missing-or-malformed');
+  if (envelope.period !== period || envelope.rows.some((row) => row.period !== period)) {
+    return unavailableAgentUsage(period, 'period-mismatch');
+  }
+  if (envelope.rows.some((row) => currentUsageMonth(new Date(row.recorded_at)) !== period)) {
+    return unavailableAgentUsage(period, 'period-mismatch');
+  }
+
+  const asOfMs = Date.parse(envelope.as_of);
+  const nowMs = now.getTime();
+  if (!Number.isFinite(asOfMs) || asOfMs > nowMs + 5 * 60 * 1000 || nowMs - asOfMs > maxAgeMs) {
+    return unavailableAgentUsage(period, 'stale');
+  }
+
+  const allowed = new Set(displayedAgentIds);
+  if (envelope.rows.some((row) => !allowed.has(row.agent_id))) {
+    return unavailableAgentUsage(period, 'agent-mismatch');
+  }
+  if (envelope.rows.length === 0) return unavailableAgentUsage(period, 'no-matching-rows');
+
+  const rowAfterSnapshot = envelope.rows.some((row) => Date.parse(row.recorded_at) > asOfMs + 5 * 60 * 1000);
+  if (rowAfterSnapshot) return unavailableAgentUsage(period, 'stale');
+
+  const totalCalls = envelope.rows.reduce((sum, row) => sum + row.calls, 0);
+  if (!Number.isSafeInteger(totalCalls)) return unavailableAgentUsage(period, 'missing-or-malformed');
+
+  return {
+    status: 'available',
+    period,
+    rows: envelope.rows,
+    total_calls: totalCalls,
+    as_of: envelope.as_of,
+  };
+}
+
+/** Read and verify the optional agent ledger from a seat-usage shaped value. */
+export function verifiedAgentUsageFromSeatUsage(
+  raw: unknown,
+  expectedPeriod: string,
+  displayedAgentIds: readonly string[],
+  now: Date = new Date(),
+  maxAgeMs: number = AGENT_USAGE_MAX_AGE_MS
+): VerifiedAgentUsageSnapshot {
+  const candidate = raw && typeof raw === 'object' ? (raw as Record<string, unknown>).agent_usage : null;
+  return verifyAgentUsageLedger(
+    parseAgentUsageLedgerEnvelope(candidate),
+    expectedPeriod,
+    displayedAgentIds,
+    now,
+    maxAgeMs
+  );
+}
+
+/**
+ * Shape the already parsed and seat-partitioned response for IPC. Deliberately
+ * copies only the typed fields so raw provider bodies, headers or secret-adjacent
+ * wire data can never hitchhike to the renderer.
+ */
+export function buildSeatUsageIpcResult(scoped: SeatUsageResponse): SeatUsageIpcResult {
+  return {
+    version: 'command-eve-seat-usage/v0',
+    ok: scoped.ok,
+    month: scoped.month,
+    seats: scoped.seats,
+    total: scoped.total,
+    agent_usage: scoped.agent_usage,
+  };
+}
+
 /** An empty, unavailable model — the resting/version-skew state. */
 export function emptySeatUsage(month: string): SeatUsageResponse {
   return {
@@ -115,6 +358,7 @@ export function emptySeatUsage(month: string): SeatUsageResponse {
       raw_eur_cents: 0,
       credits: 0,
     },
+    agent_usage: null,
   };
 }
 
@@ -164,7 +408,13 @@ export function parseSeatUsageResponse(raw: unknown, requestedMonth: string): Se
     credits: num(totalRaw.credits),
   };
 
-  return { ok: true, month: isValidUsageMonth(month) ? month : currentUsageMonth(), seats, total };
+  return {
+    ok: true,
+    month: isValidUsageMonth(month) ? month : currentUsageMonth(),
+    seats,
+    total,
+    agent_usage: parseAgentUsageLedgerEnvelope(obj.agent_usage),
+  };
 }
 
 /**
@@ -203,7 +453,10 @@ export function partitionSeatUsageForViewer(
     }),
     { calls: 0, ok_calls: 0, prompt_tokens: 0, completion_tokens: 0, retail_eur_cents: 0, raw_eur_cents: 0, credits: 0 }
   );
-  return { ok: response.ok, month: response.month, seats, total };
+  // The SG-1 envelope is agent-scoped but does not itself carry seat identity.
+  // Until the server supplies a seat-bound proof, a delegate partition must not
+  // receive it; only the already-authorized owner/all-seat path above may keep it.
+  return { ok: response.ok, month: response.month, seats, total, agent_usage: null };
 }
 
 // ---------------------------------------------------------------------------

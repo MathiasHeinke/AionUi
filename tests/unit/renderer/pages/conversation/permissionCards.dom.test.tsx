@@ -108,6 +108,33 @@ function makeConfirmation(status?: string, action = 'exec'): IMessagePermission 
   } as IMessagePermission;
 }
 
+function addAuthority(
+  message: IMessagePermission,
+  overrides: Partial<Record<string, unknown>> = {}
+): IMessagePermission {
+  return {
+    ...message,
+    content: {
+      ...message.content,
+      authority: {
+        protocol_version: 1,
+        operation_id: message.content.call_id,
+        operation_digest: 'operation-digest',
+        confirmation_version: 7,
+        policy_revision: 4,
+        session_epoch: 2,
+        created_at_ms: 100,
+        expires_at_ms: 10_000,
+        lifecycle: 'pending',
+        classification: 'hg4',
+        required_authority: 'founder',
+        runtime_receipt_digest: 'runtime-receipt',
+        ...overrides,
+      },
+    },
+  } as IMessagePermission;
+}
+
 describe('Command EVE permission card policy', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -172,6 +199,20 @@ describe('Command EVE permission card policy', () => {
 
     expect(screen.getByTestId('message-permission-card')).toHaveAttribute('data-permission-inactive', 'true');
     expect(screen.getByTestId('message-permission-inactive-banner')).toBeTruthy();
+    expect(screen.getByTestId('message-permission-confirm')).toBeDisabled();
+  });
+
+  it('uses the server authority lifecycle and exposes revision metadata for E2E', () => {
+    render(<MessagePermission message={addAuthority(makeConfirmation(), { lifecycle: 'expired' })} isCommandEve />);
+
+    const card = screen.getByTestId('message-permission-card');
+    expect(card).toHaveAttribute('data-permission-inactive', 'true');
+    expect(card).toHaveAttribute('data-permission-status', 'expired');
+    expect(card).toHaveAttribute('data-permission-classification', 'hg4');
+    expect(card).toHaveAttribute('data-permission-required-authority', 'founder');
+    expect(card).toHaveAttribute('data-permission-confirmation-version', '7');
+    expect(card).toHaveAttribute('data-permission-policy-revision', '4');
+    expect(card).toHaveAttribute('data-permission-session-epoch', '2');
     expect(screen.getByTestId('message-permission-confirm')).toBeDisabled();
   });
 
