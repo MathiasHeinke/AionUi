@@ -40,7 +40,7 @@ describe('Command EVE / Hermes permission modes', () => {
     expect(merged.find((m) => m.value === 'accept_edits')?.label).toBe('Semi-autonomous');
   });
 
-  it('bounds the conversation menu and models HG4 delegation as ack-gated renderer authority', () => {
+  it('bounds the conversation menu to real Hermes modes and hides legacy Guarded Auto', () => {
     const bounded = boundCommandEveModeMenu(
       [
         ...getAgentModes('hermes'),
@@ -50,15 +50,9 @@ describe('Command EVE / Hermes permission modes', () => {
       true
     );
 
-    expect(bounded.map((mode) => mode.value)).toEqual([
-      'default',
-      'accept_edits',
-      'dont_ask',
-      COMMAND_EVE_HG4_DELEGATED_MODE,
-    ]);
-    expect(bounded.at(-1)?.label).toContain('this chat');
-    expect(bounded.at(-1)?.description).toContain('Warned sensitive actions through HG3.5');
-    expect(commandEveBackendMode(COMMAND_EVE_HG4_DELEGATED_MODE)).toBe('dont_ask');
+    expect(bounded.map((mode) => mode.value)).toEqual(['default', 'accept_edits', 'dont_ask']);
+    expect(bounded.some((mode) => mode.value === COMMAND_EVE_HG4_DELEGATED_MODE)).toBe(false);
+    expect(commandEveBackendMode(COMMAND_EVE_HG4_DELEGATED_MODE)).toBe('default');
     expect(isCommandEveModeExpansion('dont_ask', COMMAND_EVE_HG4_DELEGATED_MODE)).toBe(true);
     expect(isCommandEveModeExpansion(COMMAND_EVE_HG4_DELEGATED_MODE, 'default')).toBe(false);
   });
@@ -67,7 +61,6 @@ describe('Command EVE / Hermes permission modes', () => {
     expect(boundCommandEveModeMenu([{ value: 'dont_ask', label: 'Auto' }], true).map((mode) => mode.value)).toEqual([
       'default',
       'dont_ask',
-      COMMAND_EVE_HG4_DELEGATED_MODE,
     ]);
   });
 });

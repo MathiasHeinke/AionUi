@@ -4782,6 +4782,12 @@ function writeHermesRuntimeFiles(
     `  max_concurrent_children: ${maxConcurrentDelegates}`,
     `  max_async_children: ${maxConcurrentDelegates}`,
     '  max_spawn_depth: 1',
+    // 1.820 C0 authority containment: Hermes historically persisted broad
+    // "Always approve" patterns here and loaded them before Desktop/AionCore
+    // could make a per-operation decision. Re-emitting an explicit empty list on
+    // every boot and seat provisioning pass revokes those legacy class-wide
+    // grants without relying on the currently installed profile being clean.
+    'command_allowlist: []',
     'skills:',
     // creation_nudge_interval > 0 re-enables the background skill-review fork.
     // 0 is an explicit kill-switch and overrides Hermes' own default 10 (FACT

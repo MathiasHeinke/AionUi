@@ -4,62 +4,53 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import type { AcpPermissionRequest } from '@/common/types/platform/acpTypes';
 import {
   isAutoApproveMode,
   pickAllowOptionId,
   resolveAcpAutoApprove,
 } from '@/renderer/pages/conversation/platforms/acp/acpAutoApprove';
-import type { AcpPermissionRequest } from '@/common/types/platform/acpTypes';
 import { COMMAND_EVE_HG4_DELEGATED_MODE } from '@/renderer/utils/model/agentModes';
+import { describe, expect, it, vi } from 'vitest';
 
-/**
- * A realistic ACP request_permission payload — exactly the shape Hermes emits for
- * a write_text_file/edit tool call (the "Approve edit: …html" the founder saw).
- */
 function makeEditPermissionRequest(): AcpPermissionRequest {
   return {
     session_id: 'sess-1',
     options: [
-      { option_id: 'opt-allow-once', name: 'Allow', kind: 'allow_once' },
-      { option_id: 'opt-allow-always', name: 'Allow for session', kind: 'allow_always' },
-      { option_id: 'opt-reject-once', name: 'Reject', kind: 'reject_once' },
+      { option_id: 'allow_once', name: 'Allow once', kind: 'allow_once' },
+      { option_id: 'allow_session', name: 'Allow for session', kind: 'allow_always' },
+      { option_id: 'reject_once', name: 'Reject', kind: 'reject_once' },
     ],
     tool_call: {
       tool_call_id: 'call-42',
       kind: 'edit',
-      title: 'Approve edit: /Users/x/hermes-temp-1/stille-steuer-v2.html',
+      title: 'Approve edit: /workspace/example.html',
       raw_input: { description: 'write file' },
     },
   };
 }
 
-describe('acpAutoApprove — isAutoApproveMode (SECURITY: EVE escalation requires scoped HG4)', () => {
-  it('requires the explicit EVE HG4 delegation while retaining other backends native auto modes', () => {
+describe('acpAutoApprove — mode containment', () => {
+  it('keeps legacy EVE modes out while retaining native auto modes for other backends', () => {
     expect(isAutoApproveMode('dont_ask')).toBe(false);
-    expect(isAutoApproveMode(COMMAND_EVE_HG4_DELEGATED_MODE)).toBe(true);
+    expect(isAutoApproveMode(COMMAND_EVE_HG4_DELEGATED_MODE)).toBe(false);
     expect(isAutoApproveMode('yolo')).toBe(true);
-    expect(isAutoApproveMode('bypassPermissions')).toBe(true); // claude synonym
+    expect(isAutoApproveMode('bypassPermissions')).toBe(true);
   });
 
-  it('does NOT auto-approve the gating modes — they must keep asking', () => {
-    expect(isAutoApproveMode('default')).toBe(false); // Standard
-    expect(isAutoApproveMode('accept_edits')).toBe(false); // Änderungen übernehmen
-    expect(isAutoApproveMode('auto_edit')).toBe(false); // accept-edits synonym
-    expect(isAutoApproveMode('acceptEdits')).toBe(false);
-    expect(isAutoApproveMode('plan')).toBe(false);
-    expect(isAutoApproveMode(undefined)).toBe(false);
-    expect(isAutoApproveMode(null)).toBe(false);
-    expect(isAutoApproveMode('')).toBe(false);
+  it('does not auto-approve gating modes or missing values', () => {
+    for (const mode of ['default', 'accept_edits', 'auto_edit', 'acceptEdits', 'plan', undefined, null, '']) {
+      expect(isAutoApproveMode(mode)).toBe(false);
+    }
   });
 });
 
-describe('acpAutoApprove — pickAllowOptionId', () => {
-  it('prefers allow_once over allow_always (minimum grant, no silent escalation)', () => {
-    expect(pickAllowOptionId(makeEditPermissionRequest().options)).toBe('opt-allow-once');
+describe('acpAutoApprove — minimum native grant', () => {
+  it('prefers allow_once over a broader option', () => {
+    expect(pickAllowOptionId(makeEditPermissionRequest().options)).toBe('allow_once');
   });
 
-  it('falls back to allow_always when no allow_once is offered', () => {
+  it('preserves the existing non-EVE fallback when only allow_always is offered', () => {
     expect(
       pickAllowOptionId([
         { option_id: 'a', name: 'Allow always', kind: 'allow_always' },
@@ -68,238 +59,82 @@ describe('acpAutoApprove — pickAllowOptionId', () => {
     ).toBe('a');
   });
 
-  it('returns null when the request offers NO allow option (never fabricate an approval)', () => {
-    expect(
-      pickAllowOptionId([
-        { option_id: 'r1', name: 'Reject', kind: 'reject_once' },
-        { option_id: 'r2', name: 'Reject always', kind: 'reject_always' },
-      ])
-    ).toBeNull();
+  it('returns null when no allow option exists', () => {
+    expect(pickAllowOptionId([{ option_id: 'r', name: 'Reject', kind: 'reject_once' }])).toBeNull();
     expect(pickAllowOptionId([])).toBeNull();
     expect(pickAllowOptionId(undefined)).toBeNull();
   });
 });
 
-describe('acpAutoApprove — resolveAcpAutoApprove', () => {
-  it('plain EVE dont_ask gates an escalated request; scoped HG4 delegation allows through HG3.5', () => {
-    expect(resolveAcpAutoApprove('dont_ask', makeEditPermissionRequest())).toEqual({
-      autoApprove: false,
-      optionId: null,
-    });
-    expect(resolveAcpAutoApprove(COMMAND_EVE_HG4_DELEGATED_MODE, makeEditPermissionRequest())).toEqual({
+describe('acpAutoApprove — Command EVE renderer authority', () => {
+  it('never auto-approves an EVE request, including stale HG3.5 and native-looking yolo values', () => {
+    for (const mode of ['dont_ask', COMMAND_EVE_HG4_DELEGATED_MODE, 'yolo', 'bypassPermissions']) {
+      expect(resolveAcpAutoApprove(mode, makeEditPermissionRequest(), 'hermes')).toEqual({
+        autoApprove: false,
+        optionId: null,
+      });
+    }
+  });
+
+  it('retains native auto-approve behavior for a non-EVE backend', () => {
+    expect(resolveAcpAutoApprove('yolo', makeEditPermissionRequest(), 'qwen')).toEqual({
       autoApprove: true,
-      optionId: 'opt-allow-once',
-    });
-    expect(resolveAcpAutoApprove('yolo', makeEditPermissionRequest())).toEqual({
-      autoApprove: true,
-      optionId: 'opt-allow-once',
-    });
-    expect(resolveAcpAutoApprove('yolo', makeEditPermissionRequest(), 'hermes')).toEqual({
-      autoApprove: false,
-      optionId: null,
+      optionId: 'allow_once',
     });
   });
 
-  it('never auto-approves a request explicitly marked as the final HG4 gate', () => {
-    const request: AcpPermissionRequest = {
+  it('does not fabricate an approval when the backend offers only reject', () => {
+    const rejectOnly = {
       ...makeEditPermissionRequest(),
-      tool_call: {
-        ...makeEditPermissionRequest().tool_call,
-        raw_input: { description: 'irreversible action', human_gate: 'HG-4' },
-      },
+      options: [{ option_id: 'r', name: 'Reject', kind: 'reject_once' as const }],
     };
-    expect(resolveAcpAutoApprove(COMMAND_EVE_HG4_DELEGATED_MODE, request)).toEqual({
-      autoApprove: false,
-      optionId: null,
-    });
-  });
-
-  it('recognizes human_gate_level metadata as an explicit final HG4 gate', () => {
-    const request: AcpPermissionRequest = {
-      ...makeEditPermissionRequest(),
-      tool_call: {
-        ...makeEditPermissionRequest().tool_call,
-        raw_input: { metadata: { human_gate_level: 'HG4' } },
-      },
-    };
-
-    expect(resolveAcpAutoApprove(COMMAND_EVE_HG4_DELEGATED_MODE, request)).toEqual({
-      autoApprove: false,
-      optionId: null,
-    });
-  });
-
-  it('recognizes a numeric human_gate_level as an explicit final HG4 gate', () => {
-    const request: AcpPermissionRequest = {
-      ...makeEditPermissionRequest(),
-      tool_call: {
-        ...makeEditPermissionRequest().tool_call,
-        raw_input: { metadata: { human_gate_level: 4 } },
-      },
-    };
-
-    expect(resolveAcpAutoApprove(COMMAND_EVE_HG4_DELEGATED_MODE, request)).toEqual({
-      autoApprove: false,
-      optionId: null,
-    });
-  });
-
-  it('gating modes → never auto-approve, regardless of options', () => {
-    expect(resolveAcpAutoApprove('default', makeEditPermissionRequest())).toEqual({
-      autoApprove: false,
-      optionId: null,
-    });
-    expect(resolveAcpAutoApprove('accept_edits', makeEditPermissionRequest())).toEqual({
-      autoApprove: false,
-      optionId: null,
-    });
-  });
-
-  it('YOLO but the request has no allow option → do NOT auto-approve (fall back to dialog)', () => {
-    const rejectOnly: AcpPermissionRequest = {
-      ...makeEditPermissionRequest(),
-      options: [{ option_id: 'r', name: 'Reject', kind: 'reject_once' }],
-    };
-    expect(resolveAcpAutoApprove('dont_ask', rejectOnly)).toEqual({ autoApprove: false, optionId: null });
+    expect(resolveAcpAutoApprove('yolo', rejectOnly, 'qwen')).toEqual({ autoApprove: false, optionId: null });
   });
 });
 
-/**
- * FULL-CHAIN: reproduce the exact branch the ACP message handler (useAcpMessage's
- * `acp_permission` case) runs, against a real request_permission payload, and prove
- * the end-to-end behavior:
- *   - mode = plain EVE dont_ask → renderer keeps the escalation dialog.
- *   - mode = explicit scoped HG4 delegation → desktop AUTO-answers through HG3.5.
- *   - mode = "Standard" (default) → desktop renders the dialog AND does NOT answer.
- *
- * This mirrors the handler 1:1: resolve the decision from the live mode, and when it
- * auto-approves, POST the allow option (confirmMessage) keyed on the tool_call_id
- * instead of adding the permission message to the conversation.
- */
-describe('acpAutoApprove — FULL CHAIN: request_permission → auto-allow vs gate', () => {
-  // Faithful re-creation of the handler's auto-approve branch. `confirmMessage` and
-  // `renderDialog` are the two mutually-exclusive sinks; exactly one fires.
+describe('acpAutoApprove — request_permission integration branch', () => {
   function handleAcpPermission(args: {
     mode: string | undefined;
+    backend: string;
     request: AcpPermissionRequest;
-    msg_id: string;
-    conversation_id: string;
-    confirmMessage: (p: { confirm_key: string; msg_id: string; conversation_id: string; call_id: string }) => void;
+    confirmMessage: (optionId: string) => void;
     renderDialog: (request: AcpPermissionRequest) => void;
-    answeredCallIds: Set<string>;
   }) {
-    const { mode, request, msg_id, conversation_id, confirmMessage, renderDialog, answeredCallIds } = args;
-    const callId = request.tool_call?.tool_call_id || msg_id;
-    const decision = resolveAcpAutoApprove(mode, request);
+    const decision = resolveAcpAutoApprove(args.mode, args.request, args.backend);
     if (decision.autoApprove && decision.optionId) {
-      // Already auto-answered this call (replay/reconnect): silently no-op — do
-      // not re-POST and do not pop the dialog for a request we already allowed.
-      if (answeredCallIds.has(callId)) return;
-      answeredCallIds.add(callId);
-      confirmMessage({ confirm_key: decision.optionId, msg_id, conversation_id, call_id: callId });
-      return; // do NOT render the gating dialog
+      args.confirmMessage(decision.optionId);
+      return;
     }
-    renderDialog(request);
+    args.renderDialog(args.request);
   }
 
-  it('plain EVE dont_ask keeps a first-delivery escalation in the dialog', () => {
+  it('renders a manual dialog for a stale EVE HG3.5 value', () => {
     const confirmMessage = vi.fn();
     const renderDialog = vi.fn();
     handleAcpPermission({
-      mode: 'dont_ask',
+      mode: COMMAND_EVE_HG4_DELEGATED_MODE,
+      backend: 'hermes',
       request: makeEditPermissionRequest(),
-      msg_id: 'm1',
-      conversation_id: 'c8c96df2',
       confirmMessage,
       renderDialog,
-      answeredCallIds: new Set(),
     });
 
     expect(confirmMessage).not.toHaveBeenCalled();
     expect(renderDialog).toHaveBeenCalledTimes(1);
   });
 
-  it('explicit conversation-scoped HG4 delegation auto-allows through HG3.5', () => {
+  it('keeps the native non-EVE yolo branch intact', () => {
     const confirmMessage = vi.fn();
     const renderDialog = vi.fn();
     handleAcpPermission({
-      mode: COMMAND_EVE_HG4_DELEGATED_MODE,
+      mode: 'yolo',
+      backend: 'qwen',
       request: makeEditPermissionRequest(),
-      msg_id: 'm1',
-      conversation_id: 'c1',
       confirmMessage,
       renderDialog,
-      answeredCallIds: new Set(),
     });
-    expect(confirmMessage).toHaveBeenCalledTimes(1);
+
+    expect(confirmMessage).toHaveBeenCalledWith('allow_once');
     expect(renderDialog).not.toHaveBeenCalled();
-  });
-
-  it('mode "Standard" (default): shows the dialog, does NOT auto-answer (still gates)', () => {
-    const confirmMessage = vi.fn();
-    const renderDialog = vi.fn();
-    handleAcpPermission({
-      mode: 'default',
-      request: makeEditPermissionRequest(),
-      msg_id: 'm1',
-      conversation_id: 'c1',
-      confirmMessage,
-      renderDialog,
-      answeredCallIds: new Set(),
-    });
-
-    expect(renderDialog).toHaveBeenCalledTimes(1);
-    expect(confirmMessage).not.toHaveBeenCalled();
-  });
-
-  it('mode "Änderungen übernehmen" (accept_edits): still gates (shows dialog)', () => {
-    const confirmMessage = vi.fn();
-    const renderDialog = vi.fn();
-    handleAcpPermission({
-      mode: 'accept_edits',
-      request: makeEditPermissionRequest(),
-      msg_id: 'm1',
-      conversation_id: 'c1',
-      confirmMessage,
-      renderDialog,
-      answeredCallIds: new Set(),
-    });
-    expect(renderDialog).toHaveBeenCalledTimes(1);
-    expect(confirmMessage).not.toHaveBeenCalled();
-  });
-
-  it('scoped HG4: a re-delivered request for the same call_id is auto-answered only ONCE', () => {
-    const confirmMessage = vi.fn();
-    const renderDialog = vi.fn();
-    const answeredCallIds = new Set<string>();
-    const common = {
-      mode: COMMAND_EVE_HG4_DELEGATED_MODE,
-      request: makeEditPermissionRequest(),
-      msg_id: 'm1',
-      conversation_id: 'c1',
-      confirmMessage,
-      renderDialog,
-      answeredCallIds,
-    };
-    handleAcpPermission(common);
-    handleAcpPermission(common); // replay / reconnect
-    expect(confirmMessage).toHaveBeenCalledTimes(1);
-    expect(renderDialog).not.toHaveBeenCalled();
-  });
-
-  it('scoped HG4 but reject-only request gates (cannot fabricate an allow)', () => {
-    const confirmMessage = vi.fn();
-    const renderDialog = vi.fn();
-    handleAcpPermission({
-      mode: COMMAND_EVE_HG4_DELEGATED_MODE,
-      request: { ...makeEditPermissionRequest(), options: [{ option_id: 'r', name: 'Reject', kind: 'reject_once' }] },
-      msg_id: 'm1',
-      conversation_id: 'c1',
-      confirmMessage,
-      renderDialog,
-      answeredCallIds: new Set(),
-    });
-    expect(confirmMessage).not.toHaveBeenCalled();
-    expect(renderDialog).toHaveBeenCalledTimes(1);
   });
 });

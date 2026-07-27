@@ -209,65 +209,73 @@ const MessageListSkeleton: React.FC = () => {
   );
 };
 
-const MessageItem: React.FC<{ message: TMessage; highlighted?: boolean }> = React.memo(
-  HOC((props) => {
-    const { message, highlighted } = props as { message: TMessage; highlighted?: boolean };
-    return (
-      <div
-        id={`message-${message.id}`}
-        data-testid={`message-${message.type}-${message.position}`}
-        data-message-type={message.type}
-        data-message-position={message.position}
-        className={classNames(
-          'min-w-0 flex items-start message-item [&>div]:max-w-full px-8px m-t-10px max-w-full md:max-w-780px mx-auto',
-          message.type,
-          {
-            'justify-center': message.position === 'center',
-            'justify-end': message.position === 'right',
-            'justify-start': message.position === 'left',
-          }
-        )}
-        style={highlighted ? highlightStyle : undefined}
-      >
-        {props.children}
-      </div>
-    );
-  })(({ message }) => {
-    const { t } = useTranslation();
-    switch (message.type) {
-      case 'text':
-        return <MessageText message={message}></MessageText>;
-      case 'tips':
-        return <MessageTips message={message}></MessageTips>;
-      case 'tool_call':
-        return <MessageToolCall message={message}></MessageToolCall>;
-      case 'tool_group':
-        return <MessageToolGroup message={message}></MessageToolGroup>;
-      case 'agent_status':
-        return <MessageAgentStatus message={message}></MessageAgentStatus>;
-      case 'permission':
-        return <MessagePermission message={message}></MessagePermission>;
-      case 'acp_permission':
-        return <MessageAcpPermission message={message}></MessageAcpPermission>;
-      case 'acp_tool_call':
-        return <MessageAcpToolCall message={message}></MessageAcpToolCall>;
-      case 'plan':
-        return <MessagePlan message={message}></MessagePlan>;
-      case 'thinking':
-        return <MessageThinking message={message}></MessageThinking>;
-      case 'available_commands':
-        return null;
-      default:
-        return <div>{t('messages.unknownMessageType', { type: getUnhandledMessageType(message) })}</div>;
-    }
-  }),
-  (prev, next) =>
-    prev.message.id === next.message.id &&
-    prev.message.content === next.message.content &&
-    prev.message.position === next.message.position &&
-    prev.message.type === next.message.type &&
-    prev.highlighted === next.highlighted
-);
+const MessageItem: React.FC<{ message: TMessage; highlighted?: boolean; commandEvePermissionPolicy?: boolean }> =
+  React.memo(
+    HOC((props) => {
+      const { message, highlighted } = props as {
+        message: TMessage;
+        highlighted?: boolean;
+        commandEvePermissionPolicy?: boolean;
+      };
+      return (
+        <div
+          id={`message-${message.id}`}
+          data-testid={`message-${message.type}-${message.position}`}
+          data-message-type={message.type}
+          data-message-position={message.position}
+          className={classNames(
+            'min-w-0 flex items-start message-item [&>div]:max-w-full px-8px m-t-10px max-w-full md:max-w-780px mx-auto',
+            message.type,
+            {
+              'justify-center': message.position === 'center',
+              'justify-end': message.position === 'right',
+              'justify-start': message.position === 'left',
+            }
+          )}
+          style={highlighted ? highlightStyle : undefined}
+        >
+          {props.children}
+        </div>
+      );
+    })(({ message, commandEvePermissionPolicy }) => {
+      const { t } = useTranslation();
+      switch (message.type) {
+        case 'text':
+          return <MessageText message={message}></MessageText>;
+        case 'tips':
+          return <MessageTips message={message}></MessageTips>;
+        case 'tool_call':
+          return <MessageToolCall message={message}></MessageToolCall>;
+        case 'tool_group':
+          return <MessageToolGroup message={message}></MessageToolGroup>;
+        case 'agent_status':
+          return <MessageAgentStatus message={message}></MessageAgentStatus>;
+        case 'permission':
+          return <MessagePermission message={message} isCommandEve={commandEvePermissionPolicy}></MessagePermission>;
+        case 'acp_permission':
+          return (
+            <MessageAcpPermission message={message} isCommandEve={commandEvePermissionPolicy}></MessageAcpPermission>
+          );
+        case 'acp_tool_call':
+          return <MessageAcpToolCall message={message}></MessageAcpToolCall>;
+        case 'plan':
+          return <MessagePlan message={message}></MessagePlan>;
+        case 'thinking':
+          return <MessageThinking message={message}></MessageThinking>;
+        case 'available_commands':
+          return null;
+        default:
+          return <div>{t('messages.unknownMessageType', { type: getUnhandledMessageType(message) })}</div>;
+      }
+    }),
+    (prev, next) =>
+      prev.message.id === next.message.id &&
+      prev.message.content === next.message.content &&
+      prev.message.position === next.message.position &&
+      prev.message.type === next.message.type &&
+      prev.commandEvePermissionPolicy === next.commandEvePermissionPolicy &&
+      prev.highlighted === next.highlighted
+  );
 
 const MessageList: React.FC<{
   className?: string;
@@ -275,12 +283,15 @@ const MessageList: React.FC<{
   tailSlot?: React.ReactNode;
   suppressEmptySlot?: boolean;
   historyPagination?: MessageHistoryPagination;
+  /** Apply Command EVE's fail-closed permission-card containment. */
+  commandEvePermissionPolicy?: boolean;
 }> = ({
   className,
   emptySlot,
   tailSlot,
   suppressEmptySlot = false,
   historyPagination = emptyMessageHistoryPagination,
+  commandEvePermissionPolicy = false,
 }) => {
   const list = useMessageList();
   const isMessageListLoading = useMessageListLoading();
@@ -670,7 +681,14 @@ const MessageList: React.FC<{
         </div>
       );
     }
-    return <MessageItem message={item as TMessage} key={(item as TMessage).id} highlighted={highlighted}></MessageItem>;
+    return (
+      <MessageItem
+        message={item as TMessage}
+        key={(item as TMessage).id}
+        highlighted={highlighted}
+        commandEvePermissionPolicy={commandEvePermissionPolicy}
+      ></MessageItem>
+    );
   };
 
   if (processedList.length === 0 && (isMessageListLoading || suppressEmptySlot) && !tailSlot) {

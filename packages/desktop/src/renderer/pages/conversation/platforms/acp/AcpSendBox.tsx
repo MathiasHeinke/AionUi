@@ -27,11 +27,8 @@ import { useAgentModesForBackend } from '@/renderer/hooks/agent/useAgentModesFor
 import {
   boundCommandEveModeMenu,
   commandEveBackendMode,
-  COMMAND_EVE_HG4_DELEGATED_MODE,
   createModeLabelFormatter,
-  hasActiveEveHg4Delegation,
   isCommandEveModeExpansion,
-  persistEvePermissionAuthority,
 } from '@/renderer/utils/model/agentModes';
 import { useEveInferenceSelection } from '@/renderer/hooks/agent/useEveInferenceSelection';
 import { isEveInferenceSelection, resolveWireTierFromSelection } from '@/common/config/eveInferenceCore';
@@ -216,7 +213,7 @@ const AcpSendBox: React.FC<{
     setDocumentPreparation,
   });
   const availablePermissionModes = useMemo(
-    () => (isEveConversation ? boundCommandEveModeMenu(availableAgentModes, true) : availableAgentModes),
+    () => (isEveConversation ? boundCommandEveModeMenu(availableAgentModes) : availableAgentModes),
     [availableAgentModes, isEveConversation]
   );
 
@@ -258,11 +255,7 @@ const AcpSendBox: React.FC<{
       .then((result) => {
         if (cancelled || !result) return;
         if (result.initialized !== false) {
-          setCurrentMode(
-            isEveConversation && result.mode === 'dont_ask' && hasActiveEveHg4Delegation(backend, conversation_id)
-              ? COMMAND_EVE_HG4_DELEGATED_MODE
-              : result.mode
-          );
+          setCurrentMode(result.mode);
         }
       })
       .catch(() => {});
@@ -279,28 +272,11 @@ const AcpSendBox: React.FC<{
       if (isEveConversation) {
         const requestedBackendMode = commandEveBackendMode(mode);
         const isExpansion = isCommandEveModeExpansion(previousMode, mode);
-        const hg4Delegated = mode === COMMAND_EVE_HG4_DELEGATED_MODE;
-        let restrictionPersistenceFailed = false;
 
         if (!isExpansion) {
           setCurrentMode(mode);
           emitter.emit('acp.permission.mode', { conversation_id, mode });
-          try {
-            await persistEvePermissionAuthority({
-              backend,
-              conversationId: conversation_id,
-              preferredMode: requestedBackendMode,
-              hg4Delegated: false,
-            });
-          } catch (error) {
-            restrictionPersistenceFailed = true;
-            console.error('[AcpSendBox] Failed to persist mobile EVE revocation:', error);
-            Message.warning(
-              t('agentMode.eve.revocationPersistFailed', {
-                defaultValue: 'Restriction is active locally, but its audit record could not be persisted.',
-              })
-            );
-          }
+          await savePreferredMode(backend, requestedBackendMode);
         }
 
         try {
@@ -320,32 +296,13 @@ const AcpSendBox: React.FC<{
           }
 
           if (isExpansion) {
-            try {
-              await persistEvePermissionAuthority({
-                backend,
-                conversationId: conversation_id,
-                preferredMode: requestedBackendMode,
-                hg4Delegated,
-              });
-            } catch (error) {
-              setCurrentMode(confirmedMode);
-              emitter.emit('acp.permission.mode', { conversation_id, mode: confirmedMode });
-              console.error('[AcpSendBox] Failed to persist mobile EVE expansion:', error);
-              Message.warning(
-                t('agentMode.eve.expansionPersistFailed', {
-                  defaultValue: hg4Delegated
-                    ? 'HG4 delegation was not persisted. Sensitive actions will continue to ask.'
-                    : 'The mode is active for this conversation, but the preference was not persisted.',
-                })
-              );
-              return;
-            }
+            await savePreferredMode(backend, requestedBackendMode);
             setCurrentMode(mode);
             emitter.emit('acp.permission.mode', { conversation_id, mode });
           }
 
           if (isLeaderInTeam) teamPermission?.propagateMode?.(confirmedMode);
-          if (!restrictionPersistenceFailed) Message.success(t('agentMode.switchSuccess'));
+          Message.success(t('agentMode.switchSuccess'));
         } catch (error) {
           if (isExpansion) {
             setCurrentMode(previousMode);

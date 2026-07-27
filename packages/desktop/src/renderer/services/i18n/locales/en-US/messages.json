@@ -75,6 +75,21 @@
   "noOptionsAvailable": "No options available",
   "processing": "Processing...",
   "responseSentSuccessfully": "Response sent successfully",
+  "permissionExactSession": "Allow this exact operation in this session",
+  "permissionUnverifiedTitle": "Unverified operation",
+  "permissionUnverifiedDescription": "EVE could not verify this operation's safety class, so it asks by design. Review the exact operation before allowing it.",
+  "permissionResponseFailed": "The permission response could not be applied. The operation remains unapproved.",
+  "permissionStatus": {
+    "expired": "This permission request has expired.",
+    "cancelled": "This permission request was cancelled.",
+    "canceled": "This permission request was canceled.",
+    "superseded": "This permission request was replaced by a newer request.",
+    "allowed": "This operation was already allowed.",
+    "denied": "This operation was already denied.",
+    "rejected": "This operation was already rejected.",
+    "resolved": "This permission request is already resolved.",
+    "completed": "This permission request is already completed."
+  },
   "confirmation": {
     "applyChange": "Apply this change?",
     "allowExecution": "Allow execution?",

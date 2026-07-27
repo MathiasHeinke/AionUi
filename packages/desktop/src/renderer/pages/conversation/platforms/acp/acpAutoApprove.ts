@@ -6,7 +6,6 @@
 
 import type { AcpPermissionOption, AcpPermissionRequest } from '@/common/types/platform/acpTypes';
 import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
-import { COMMAND_EVE_HG4_DELEGATED_MODE } from '@/renderer/utils/model/agentModes';
 
 /**
  * Desktop-side ACP auto-approve resolver.
@@ -22,25 +21,21 @@ import { COMMAND_EVE_HG4_DELEGATED_MODE } from '@/renderer/utils/model/agentMode
  * accepted the mode, and that must not strand a running turn behind a stale dialog.
  *
  * THE RENDERER FALLBACK (this module):
- * Hermes already applies the founder's global `dont_ask` authority to routine
- * actions. A permission request that still reaches the renderer is therefore an
- * escalation, not another routine action. Plain `dont_ask` must render that gate.
- * The renderer may answer it only when the user explicitly delegated HG4 authority
- * for this conversation through HG3.5.
+ * Hermes applies its own real session modes. A permission request that still
+ * reaches the renderer is an escalation and Command EVE must render it. The
+ * renderer has no server-attested HG classification, so it cannot auto-answer.
  *
  * SECURITY:
- * - EVE `dont_ask` keeps routine backend authority but does NOT renderer-auto-allow.
- * - `dont_ask_hg4` is a renderer-only, conversation-scoped grant through HG3.5.
- * - A request explicitly marked HG4 always remains gated.
+ * - Every EVE permission request remains manual in the renderer.
+ * - Legacy `dont_ask_hg4` state is inert and never grants renderer authority.
  * - Other ACP backends retain their native `yolo` / `bypassPermissions` behavior.
  */
 
 /**
- * Plain EVE `dont_ask` is intentionally absent: Hermes owns routine approvals and
- * every permission request it still emits is an escalation requiring either a dialog
- * or the explicit scoped HG4 grant.
+ * Command EVE values are intentionally absent. This set is only for other ACP
+ * backends whose native auto mode is already part of their renderer contract.
  */
-const AUTO_APPROVE_MODES: ReadonlySet<string> = new Set([COMMAND_EVE_HG4_DELEGATED_MODE, 'yolo', 'bypassPermissions']);
+const AUTO_APPROVE_MODES: ReadonlySet<string> = new Set(['yolo', 'bypassPermissions']);
 
 /**
  * True only for a renderer-approved auto-approve authority. Plain EVE `dont_ask`
@@ -49,54 +44,6 @@ const AUTO_APPROVE_MODES: ReadonlySet<string> = new Set([COMMAND_EVE_HG4_DELEGAT
 export function isAutoApproveMode(mode: string | undefined | null): boolean {
   if (!mode) return false;
   return AUTO_APPROVE_MODES.has(mode);
-}
-
-function recordValue(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === 'object' ? (value as Record<string, unknown>) : undefined;
-}
-
-/** Detect an explicit final-HG4 marker without guessing from paths or tool names. */
-function requiresFinalHg4(request: Pick<AcpPermissionRequest, 'tool_call'> | undefined | null): boolean {
-  if (!request) return false;
-  const requestRecord = request as unknown as Record<string, unknown>;
-  const rawInput = recordValue(request.tool_call?.raw_input);
-  const risk = recordValue(rawInput?.risk) ?? recordValue(requestRecord.risk);
-  const policy = recordValue(rawInput?.permission) ?? recordValue(requestRecord.permission);
-  const metadata = recordValue(rawInput?.metadata) ?? recordValue(requestRecord.metadata);
-  const candidates = [
-    requestRecord.human_gate,
-    requestRecord.humanGate,
-    requestRecord.human_gate_level,
-    requestRecord.humanGateLevel,
-    requestRecord.required_human_gate,
-    requestRecord.requiredHumanGate,
-    rawInput?.human_gate,
-    rawInput?.humanGate,
-    rawInput?.human_gate_level,
-    rawInput?.humanGateLevel,
-    rawInput?.required_human_gate,
-    rawInput?.requiredHumanGate,
-    risk?.human_gate,
-    risk?.humanGate,
-    risk?.human_gate_level,
-    risk?.humanGateLevel,
-    policy?.human_gate,
-    policy?.humanGate,
-    policy?.human_gate_level,
-    policy?.humanGateLevel,
-    metadata?.human_gate,
-    metadata?.humanGate,
-    metadata?.human_gate_level,
-    metadata?.humanGateLevel,
-    metadata?.required_human_gate,
-    metadata?.requiredHumanGate,
-  ];
-  return candidates.some((value) => {
-    if (typeof value === 'number') return Number.isFinite(value) && value === 4;
-    if (typeof value !== 'string') return false;
-    const normalized = value.trim();
-    return normalized === '4' || /\bHG\s*-?\s*4\b/i.test(normalized);
-  });
 }
 
 /**
@@ -130,8 +77,8 @@ export interface AutoApproveDecision {
  * to auto-allow and with which option.
  *
  * Returns `{ autoApprove: false }` whenever:
+ *  - this is any Command EVE permission request, OR
  *  - the mode has no renderer auto-approve authority, OR
- *  - the scoped EVE delegation receives a request explicitly marked HG4, OR
  *  - the request offers no allow option (we never fabricate an approval).
  */
 export function resolveAcpAutoApprove(
@@ -139,13 +86,8 @@ export function resolveAcpAutoApprove(
   request: Pick<AcpPermissionRequest, 'options' | 'tool_call'> | undefined | null,
   backend?: string
 ): AutoApproveDecision {
-  if (isCommandEveAcpConversation(backend) && mode !== COMMAND_EVE_HG4_DELEGATED_MODE) {
-    return { autoApprove: false, optionId: null };
-  }
+  if (isCommandEveAcpConversation(backend)) return { autoApprove: false, optionId: null };
   if (!isAutoApproveMode(mode)) return { autoApprove: false, optionId: null };
-  if (mode === COMMAND_EVE_HG4_DELEGATED_MODE && requiresFinalHg4(request)) {
-    return { autoApprove: false, optionId: null };
-  }
   const optionId = pickAllowOptionId(request?.options);
   if (!optionId) return { autoApprove: false, optionId: null };
   return { autoApprove: true, optionId };

@@ -1376,16 +1376,14 @@ describe('AcpSendBox', () => {
     expect(runtimeViewMock.markStopRequested).toHaveBeenCalledWith('turn-1');
   });
 
-  it('offers a per-chat HG4 delegation on mobile and publishes it only after backend ack and persistence', async () => {
+  it('hides legacy HG4 delegation on mobile and publishes only a real backend mode', async () => {
     layoutIsMobileMock.current = true;
     agentModesMock.current = [
       { value: 'default', label: 'Ask every time' },
       { value: 'dont_ask', label: 'Auto' },
+      { value: COMMAND_EVE_HG4_DELEGATED_MODE, label: 'Legacy Guarded Auto' },
     ];
-    const backendAck = createDeferred<{ mode: string; initialized: boolean }>();
-    const persistence = createDeferred<void>();
-    setModeInvokeMock.mockReturnValue(backendAck.promise);
-    configSetMock.mockReturnValue(persistence.promise);
+    setModeInvokeMock.mockResolvedValue({ mode: 'dont_ask', initialized: true });
 
     render(
       <AcpSendBox
@@ -1407,54 +1405,23 @@ describe('AcpSendBox', () => {
         }>
       | undefined;
     const permissionEntry = entries?.find((entry) => entry.key === 'permission');
-    const delegatedOption = permissionEntry?.submenu?.options.find(
-      (option) => option.key === COMMAND_EVE_HG4_DELEGATED_MODE
-    );
-    expect(delegatedOption?.label).toContain('this chat');
-    expect(delegatedOption?.description).toContain('this conversation');
+    expect(
+      permissionEntry?.submenu?.options.find((option) => option.key === COMMAND_EVE_HG4_DELEGATED_MODE)
+    ).toBeUndefined();
+    expect(permissionEntry?.submenu?.options.find((option) => option.key === 'dont_ask')).toBeTruthy();
 
-    act(() => permissionEntry?.submenu?.onSelect(COMMAND_EVE_HG4_DELEGATED_MODE));
+    act(() => permissionEntry?.submenu?.onSelect('dont_ask'));
     await waitFor(() =>
       expect(setModeInvokeMock).toHaveBeenCalledWith({ conversation_id: 'conv-1', mode: 'dont_ask' })
     );
-    expect(configSetMock).not.toHaveBeenCalled();
-    expect(emitterEmitMock).not.toHaveBeenCalledWith('acp.permission.mode', {
-      conversation_id: 'conv-1',
-      mode: COMMAND_EVE_HG4_DELEGATED_MODE,
-    });
-
-    await act(async () => backendAck.resolve({ mode: 'dont_ask', initialized: true }));
     await waitFor(() => expect(configSetMock).toHaveBeenCalled());
-    expect(configSetMock).toHaveBeenCalledWith(
-      'acp.config',
-      expect.objectContaining({
-        hermes: expect.objectContaining({
-          preferredMode: 'dont_ask',
-          hg4Delegations: expect.objectContaining({
-            'conv-1': expect.objectContaining({
-              active: true,
-              scope: 'conversation',
-              authority: 'through_hg3_5',
-            }),
-          }),
-        }),
-      })
-    );
-    expect(emitterEmitMock).not.toHaveBeenCalledWith('acp.permission.mode', {
+    expect(emitterEmitMock).toHaveBeenCalledWith('acp.permission.mode', {
       conversation_id: 'conv-1',
-      mode: COMMAND_EVE_HG4_DELEGATED_MODE,
+      mode: 'dont_ask',
     });
-
-    await act(async () => persistence.resolve(undefined));
-    await waitFor(() =>
-      expect(emitterEmitMock).toHaveBeenCalledWith('acp.permission.mode', {
-        conversation_id: 'conv-1',
-        mode: COMMAND_EVE_HG4_DELEGATED_MODE,
-      })
-    );
   });
 
-  it('restores and immediately revokes a persisted mobile grant even when backend setMode fails', async () => {
+  it('ignores a persisted mobile HG4 record and shows only the real backend mode', async () => {
     layoutIsMobileMock.current = true;
     agentModesMock.current = [
       { value: 'default', label: 'Ask every time' },
@@ -1482,7 +1449,6 @@ describe('AcpSendBox', () => {
         : undefined
     );
     getModeInvokeMock.mockResolvedValue({ mode: 'dont_ask', initialized: true });
-    setModeInvokeMock.mockRejectedValue(new Error('backend unavailable'));
 
     render(
       <AcpSendBox
@@ -1504,41 +1470,12 @@ describe('AcpSendBox', () => {
           }>
         | undefined;
       const permissionEntry = entries?.find((entry) => entry.key === 'permission');
+      expect(permissionEntry?.submenu?.options.find((option) => option.key === 'dont_ask')?.active).toBe(true);
       expect(
-        permissionEntry?.submenu?.options.find((option) => option.key === COMMAND_EVE_HG4_DELEGATED_MODE)?.active
-      ).toBe(true);
+        permissionEntry?.submenu?.options.find((option) => option.key === COMMAND_EVE_HG4_DELEGATED_MODE)
+      ).toBeUndefined();
     });
-
-    const entries = mobileActionSheetPropsMock.current?.entries as
-      | Array<{ key: string; submenu?: { onSelect: (key: string) => void } }>
-      | undefined;
-    act(() => entries?.find((entry) => entry.key === 'permission')?.submenu?.onSelect('default'));
-
-    await waitFor(() => expect(setModeInvokeMock).toHaveBeenCalledWith({ conversation_id: 'conv-1', mode: 'default' }));
-    expect(emitterEmitMock).toHaveBeenCalledWith('acp.permission.mode', {
-      conversation_id: 'conv-1',
-      mode: 'default',
-    });
-    expect(configSetMock).toHaveBeenCalledWith(
-      'acp.config',
-      expect.objectContaining({
-        hermes: expect.objectContaining({
-          preferredMode: 'default',
-          hg4Delegations: expect.objectContaining({
-            'conv-1': expect.objectContaining({ active: false, revokedAt: expect.any(String) }),
-          }),
-          hg4DelegationAudit: expect.arrayContaining([
-            expect.objectContaining({ event: 'revoked', conversationId: 'conv-1' }),
-          ]),
-        }),
-      })
-    );
-    expect(emitterEmitMock.mock.invocationCallOrder.at(-1)).toBeLessThan(
-      configSetMock.mock.invocationCallOrder.at(-1)!
-    );
-    expect(emitterEmitMock.mock.invocationCallOrder.at(-1)).toBeLessThan(
-      setModeInvokeMock.mock.invocationCallOrder.at(-1)!
-    );
+    expect(setModeInvokeMock).not.toHaveBeenCalled();
   });
 
   it('publishes a restrictive mobile permission mode before backend acknowledgement', async () => {

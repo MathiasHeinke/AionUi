@@ -5,6 +5,7 @@
  */
 
 import type { IConversationMcpStatus } from '@/common/config/storage';
+import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
 import { ConversationProvider } from '@/renderer/hooks/context/ConversationContext';
 import { useTeamPermission } from '@/renderer/pages/team/hooks/TeamPermissionContext';
 import FlexFullContainer from '@renderer/components/layout/FlexFullContainer';
@@ -127,6 +128,7 @@ const AcpChat: React.FC<{
             <MessageList
               className='flex-1'
               emptySlot={emptySlot}
+              commandEvePermissionPolicy={isCommandEveAcpConversation(backend)}
               suppressEmptySlot={
                 !messageState.hasHydratedRunningState ||
                 messageState.running ||
