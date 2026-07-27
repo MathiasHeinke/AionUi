@@ -138,19 +138,89 @@ describe('the sealed set never hangs off a rung', () => {
     const routineWithMoney: EveAuthorityGrant = {
       ladder: 2,
       capabilities: { 'spend.money': true },
+      limits: { 'spend.money': { dailyCents: 5000 } },
       updatedBy: 'user',
     };
-    // The seal is open, but rung 2 does not admit irreversible actions.
-    expect(grantAllows({ class: 'irreversible', sealed: 'spend.money' }, routineWithMoney)).toBe(false);
-    // And an unsealed capability does not leak into its neighbours.
-    expect(grantAllows({ class: 'workspace_edit', sealed: 'publish.outward' }, routineWithMoney)).toBe(false);
-    // Both conditions met — this is the only shape that proceeds.
-    const fullWithMoney: EveAuthorityGrant = {
-      ladder: 5,
-      capabilities: { 'spend.money': true },
+    // The budget works at rung 2 — "fifty euros a day" is not a claim about files.
+    expect(grantAllows({ class: 'irreversible', sealed: 'spend.money', amountCents: 100 }, routineWithMoney)).toBe(
+      true
+    );
+    // But it buys nothing beyond itself: rung 2 still refuses irreversible work,
+    // and an open seal does not leak into its neighbours.
+    expect(grantAllows({ class: 'irreversible' }, routineWithMoney)).toBe(false);
+    expect(grantAllows({ class: 'irreversible', sealed: 'publish.outward' }, routineWithMoney)).toBe(false);
+  });
+
+  it('rung 0 is the hard off-switch even for an open seal', () => {
+    const watchWithEverything: EveAuthorityGrant = {
+      ladder: 0,
+      capabilities: Object.fromEntries(EVE_SEALED_CAPABILITIES.map((c) => [c, true])),
+      limits: { 'spend.money': { dailyCents: 100000 } },
       updatedBy: 'user',
     };
-    expect(grantAllows({ class: 'irreversible', sealed: 'spend.money' }, fullWithMoney)).toBe(true);
+    expect(grantAllows({ class: 'read' }, watchWithEverything)).toBe(true);
+    for (const sealed of EVE_SEALED_CAPABILITIES) {
+      expect(
+        grantAllows({ class: 'irreversible', sealed, amountCents: 1 }, watchWithEverything),
+        `${sealed} must not act through rung 0`
+      ).toBe(false);
+    }
+  });
+});
+
+describe('money is the seal that is not a boolean', () => {
+  const withBudget = (dailyCents: number): EveAuthorityGrant => ({
+    ladder: 3,
+    capabilities: { 'spend.money': true },
+    limits: { 'spend.money': { dailyCents } },
+    updatedBy: 'user',
+  });
+
+  it('spends inside the daily ceiling and stops at it', () => {
+    const grant = withBudget(5000); // 50 EUR
+    const spend = (amountCents: number, spentTodayCents: number) =>
+      grantAllows({ class: 'irreversible', sealed: 'spend.money', amountCents, spentTodayCents }, grant);
+    expect(spend(1000, 0)).toBe(true);
+    expect(spend(1000, 4000)).toBe(true); // exactly on the ceiling still counts
+    expect(spend(1001, 4000)).toBe(false); // one cent over does not
+    expect(spend(1, 5000)).toBe(false);
+  });
+
+  it('refuses an unsealed budget, an unknown price and nonsense numbers', () => {
+    const noLimit: EveAuthorityGrant = { ladder: 5, capabilities: { 'spend.money': true }, updatedBy: 'user' };
+    // Unsealed but unbounded is a blank cheque, so it is refused rather than treated as unlimited.
+    expect(grantAllows({ class: 'irreversible', sealed: 'spend.money', amountCents: 1 }, noLimit)).toBe(false);
+
+    const grant = withBudget(5000);
+    // An action that cannot say what it costs cannot be paid for.
+    expect(grantAllows({ class: 'irreversible', sealed: 'spend.money' }, grant)).toBe(false);
+    for (const amountCents of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(grantAllows({ class: 'irreversible', sealed: 'spend.money', amountCents }, grant)).toBe(false);
+    }
+    expect(
+      grantAllows({ class: 'irreversible', sealed: 'spend.money', amountCents: 1, spentTodayCents: -100 }, grant)
+    ).toBe(false);
+  });
+
+  it('rejects a stored grant whose limit is not a usable amount', () => {
+    for (const dailyCents of [0, -1, Number.NaN, 'viel'] as unknown[]) {
+      expect(
+        isEveAuthorityGrant({
+          ladder: 3,
+          capabilities: { 'spend.money': true },
+          limits: { 'spend.money': { dailyCents } },
+          updatedBy: 'user',
+        })
+      ).toBe(false);
+    }
+    expect(
+      isEveAuthorityGrant({
+        ladder: 3,
+        capabilities: { 'spend.money': true },
+        limits: { 'publish.outward': { dailyCents: 10 } },
+        updatedBy: 'user',
+      })
+    ).toBe(false);
   });
 });
 

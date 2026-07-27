@@ -33,11 +33,14 @@ export type EveActionClass =
   | 'unclassified';
 
 /**
- * Capabilities that a ladder rung NEVER grants, no matter how high.
+ * Capabilities no ladder rung ever grants, at any height, and which are also not
+ * BOUND to a rung: each is its own switch, usable from rung 1 upward.
  *
  * Raising a rung is a convenience decision; unsealing one of these is a trust
  * decision. If money hung off rung 5, everyone who meant "just get on with it"
- * would silently also buy "and spend my money". They do not share a control.
+ * would silently also buy "and spend my money" — so they do not share a control.
+ * And the converse matters just as much: "this card, fifty euros a day" is not a
+ * statement about files, so it must not require rung 5 either.
  */
 export type EveSealedCapability =
   | 'spend.money'
@@ -84,6 +87,12 @@ export interface EveAuthorityGrant {
   capabilities: Readonly<Partial<Record<EveSealedCapability, boolean>>>;
   /** ISO timestamp per capability, recording WHEN the human unsealed it. */
   grantedAt?: Readonly<Partial<Record<EveSealedCapability, string>>>;
+  /**
+   * Bounds that come WITH a seal. Today only money has one, because only money
+   * has a natural unit. An unsealed `spend.money` without a limit here is refused
+   * rather than treated as unlimited.
+   */
+  limits?: Readonly<{ 'spend.money'?: { dailyCents: number } }>;
   /** 'user' = a human chose this. 'migration' = derived from an older stored value. */
   updatedBy: 'user' | 'migration';
 }
@@ -97,10 +106,14 @@ export const EVE_AUTHORITY_FAIL_CLOSED: EveAuthorityGrant = {
 
 export interface EveAction {
   class: EveActionClass;
-  /** Set when this action needs a sealed capability. Both the rung AND the seal must permit. */
+  /** Set when this action needs a sealed capability. The seal alone is the authority (rung 0 aside). */
   sealed?: EveSealedCapability;
   /** Short human-readable description, used in the escalation sentence. */
   description?: string;
+  /** `spend.money` only: what this action costs, in cents. Absent = refused. */
+  amountCents?: number;
+  /** `spend.money` only: what today has already cost, in cents. */
+  spentTodayCents?: number;
 }
 
 /**
@@ -147,14 +160,42 @@ function capabilityGranted(grant: EveAuthorityGrant, capability: EveSealedCapabi
  * new grant. `decideAuthority` never calls anything that could make this true.
  */
 export function grantAllows(action: EveAction, grant: EveAuthorityGrant): boolean {
-  // Unknown is not harmless. No rung admits it, including rung 5.
+  // Unknown is not harmless. Nothing admits it, at any rung, ever.
   if (action.class === 'unclassified') return false;
-  if (!RUNG_ADMITS[grant.ladder]?.includes(action.class)) return false;
-  // A sealed action needs BOTH: the rung must admit its class, and the human must
-  // have unsealed it. This is why rung 5 is "everything except the sealed set",
-  // and why unsealing money does not also hand over rung-5 behaviour.
-  if (action.sealed && !capabilityGranted(grant, action.sealed)) return false;
-  return true;
+
+  // Rung 0 is the hard off-switch: "change nothing" would contradict itself if an
+  // open seal could still act through it. Every other rung leaves the seals alone.
+  if (grant.ladder === 0) return action.class === 'read';
+
+  if (action.sealed) {
+    // A seal is its OWN decision, not the crown of the ladder. "This card, fifty
+    // euros a day" says nothing about files: someone may keep EVE cautious about
+    // everything else and still hand it a budget. So the rung does not also have
+    // to admit the class — the human unsealing it IS the authority.
+    if (!capabilityGranted(grant, action.sealed)) return false;
+    if (action.sealed === 'spend.money') return spendWithinDailyLimit(action, grant);
+    return true;
+  }
+
+  return RUNG_ADMITS[grant.ladder]?.includes(action.class) === true;
+}
+
+/**
+ * Money is the one seal that is not a boolean. An unsealed `spend.money` without
+ * an amount would be a blank cheque, so the grant carries a daily ceiling and the
+ * action carries what it costs plus what today has already cost.
+ *
+ * Every uncertainty resolves to "no": no limit configured, an unknown price, a
+ * negative or non-finite number, or a total that would cross the ceiling.
+ */
+function spendWithinDailyLimit(action: EveAction, grant: EveAuthorityGrant): boolean {
+  const dailyCents = grant.limits?.['spend.money']?.dailyCents;
+  if (typeof dailyCents !== 'number' || !Number.isFinite(dailyCents) || dailyCents <= 0) return false;
+  const cost = action.amountCents;
+  if (typeof cost !== 'number' || !Number.isFinite(cost) || cost < 0) return false;
+  const spent = action.spentTodayCents ?? 0;
+  if (!Number.isFinite(spent) || spent < 0) return false;
+  return spent + cost <= dailyCents;
 }
 
 /**
@@ -255,6 +296,15 @@ export function isEveAuthorityGrant(value: unknown): value is EveAuthorityGrant 
   for (const [key, flag] of Object.entries(capabilities)) {
     if (!EVE_SEALED_CAPABILITIES.includes(key as EveSealedCapability)) return false;
     if (typeof flag !== 'boolean') return false;
+  }
+  const limits = candidate.limits;
+  if (limits !== undefined) {
+    if (!limits || typeof limits !== 'object') return false;
+    for (const [key, bound] of Object.entries(limits)) {
+      if (key !== 'spend.money') return false;
+      const daily = (bound as { dailyCents?: unknown } | null)?.dailyCents;
+      if (typeof daily !== 'number' || !Number.isFinite(daily) || daily <= 0) return false;
+    }
   }
   return true;
 }
