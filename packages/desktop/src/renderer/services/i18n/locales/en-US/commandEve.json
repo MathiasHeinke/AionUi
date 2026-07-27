@@ -8,5 +8,64 @@
     "switchWhileGeneratingTitle": "A response is still running",
     "switchWhileGeneratingBody": "Switching seats aborts and discards the running response. Switch anyway?",
     "switchAnyway": "Switch anyway"
+  },
+  "authority": {
+    "notConfirmedYet": "This setting came from an older version and you never confirmed it. Have a look.",
+    "ladderTitle": "How independently EVE works",
+    "ladderDescription": "One rung. It governs the everyday decisions — not the delicate ones below.",
+    "sealsTitle": "What EVE may only do with explicit permission",
+    "sealsDescription": "These five hang off no rung. Even on “Full” they stay off until you switch each one on.",
+    "grantedAt": "Granted by you on {{date}}",
+    "dailyBudget": "At most per day",
+    "budgetMissing": "Without an amount EVE spends nothing",
+    "budgetHigh": "That is a high daily amount. It is saved — please check you did not mistype.",
+    "rung": {
+      "watch": {
+        "title": "Watch only",
+        "body": "EVE reads, thinks along and suggests. It changes nothing, not even what you granted."
+      },
+      "ask": {
+        "title": "Ask me",
+        "body": "EVE asks before every change. You see each step before it happens."
+      },
+      "routine": {
+        "title": "Routine",
+        "body": "EVE reads and writes inside your workspace. For commands it asks."
+      },
+      "work": {
+        "title": "Working",
+        "body": "Plus routine commands: tests, builds, read-only git."
+      },
+      "independent": {
+        "title": "Independent",
+        "body": "Plus everything reversible, including outside the workspace."
+      },
+      "full": {
+        "title": "Full",
+        "body": "Plus irreversible work. The five below still stay off."
+      }
+    },
+    "seal": {
+      "money": {
+        "title": "Spend money",
+        "body": "Paid models and services — up to the amount you set here."
+      },
+      "publish": {
+        "title": "Publish and send",
+        "body": "Emails, posts, anything that reaches other people."
+      },
+      "delete": {
+        "title": "Delete outside the workspace",
+        "body": "Touch files that do not belong to the project."
+      },
+      "credentials": {
+        "title": "Read credentials",
+        "body": "See secrets and keys in clear text."
+      },
+      "deploy": {
+        "title": "Write to production",
+        "body": "Deploy or change live systems."
+      }
+    }
   }
 }

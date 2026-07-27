@@ -2354,6 +2354,7 @@ export type I18nKey =
   | 'settings.assistantsList'
   | 'settings.assistantsListDescription'
   | 'settings.authMethod'
+  | 'settings.authority'
   | 'settings.autoInjectedSkills'
   | 'settings.autoInjectedSkillsBadge'
   | 'settings.autoPreviewOfficeFiles'

@@ -1250,11 +1250,26 @@
       "title": "Connect an integration",
       "desc": "Enable vetted connectors — keys stay in the vault, never in chat."
     },
-    "team": { "title": "Your team", "desc": "Manage roles, budget, and your connected tools." },
-    "skills": { "title": "What EVE can do", "desc": "The skills library — including skills EVE authored herself." },
-    "privacy": { "title": "Privacy", "desc": "Telemetry is off by default. Review and control it here." },
-    "budget": { "title": "Budget & credits", "desc": "Manage your spend cap, credits and packs." },
-    "name": { "title": "How EVE addresses you", "desc": "Confirm how EVE should address you." }
+    "team": {
+      "title": "Your team",
+      "desc": "Manage roles, budget, and your connected tools."
+    },
+    "skills": {
+      "title": "What EVE can do",
+      "desc": "The skills library — including skills EVE authored herself."
+    },
+    "privacy": {
+      "title": "Privacy",
+      "desc": "Telemetry is off by default. Review and control it here."
+    },
+    "budget": {
+      "title": "Budget & credits",
+      "desc": "Manage your spend cap, credits and packs."
+    },
+    "name": {
+      "title": "How EVE addresses you",
+      "desc": "Confirm how EVE should address you."
+    }
   },
   "commandEveSkillStorage": "Stored locally on this Mac",
   "commandEveAppearance": {
@@ -1298,5 +1313,6 @@
     "adaptiveTintDescription": "Uses a light or dark readability tint that follows EVE's appearance.",
     "backgroundUploadFailed": "The background image could not be stored. Choose a PNG, JPEG, WebP, GIF or BMP below 2 MB.",
     "saveFailed": "Appearance settings could not be saved."
-  }
+  },
+  "authority": "Permissions"
 }

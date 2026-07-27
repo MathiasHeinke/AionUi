@@ -8,5 +8,64 @@
     "switchWhileGeneratingTitle": "Antwort läuft noch",
     "switchWhileGeneratingBody": "Beim Seat-Wechsel wird die laufende Antwort abgebrochen und verworfen. Trotzdem wechseln?",
     "switchAnyway": "Trotzdem wechseln"
+  },
+  "authority": {
+    "notConfirmedYet": "Diese Einstellung stammt noch aus einer älteren Version und wurde von dir nie bestätigt. Sieh sie einmal durch.",
+    "ladderTitle": "Wie selbstständig EVE arbeitet",
+    "ladderDescription": "Eine Stufe. Sie regelt die alltäglichen Entscheidungen — nicht die heiklen darunter.",
+    "sealsTitle": "Was EVE nur mit ausdrücklicher Erlaubnis darf",
+    "sealsDescription": "Diese fünf hängen an keiner Stufe. Auch auf „Voll“ bleiben sie aus, bis du sie einzeln anschaltest.",
+    "grantedAt": "Von dir freigegeben am {{date}}",
+    "dailyBudget": "Höchstens pro Tag",
+    "budgetMissing": "Ohne Betrag gibt EVE nichts aus",
+    "budgetHigh": "Das ist ein hoher Tagesbetrag. Er ist gespeichert — sieh bitte kurz nach, ob du dich vertippt hast.",
+    "rung": {
+      "watch": {
+        "title": "Nur zusehen",
+        "body": "EVE liest, denkt mit und schlägt vor. Sie ändert nichts, auch nichts Freigegebenes."
+      },
+      "ask": {
+        "title": "Fragen",
+        "body": "EVE fragt vor jeder Änderung. Du siehst jeden Schritt, bevor er passiert."
+      },
+      "routine": {
+        "title": "Routine",
+        "body": "EVE liest und schreibt in deinem Arbeitsordner. Für Befehle fragt sie."
+      },
+      "work": {
+        "title": "Arbeiten",
+        "body": "Zusätzlich Routine-Befehle: Tests, Builds, lesende git-Abfragen."
+      },
+      "independent": {
+        "title": "Selbstständig",
+        "body": "Zusätzlich alles Umkehrbare, auch außerhalb des Arbeitsordners."
+      },
+      "full": {
+        "title": "Voll",
+        "body": "Zusätzlich Unumkehrbares. Die fünf unten bleiben trotzdem aus."
+      }
+    },
+    "seal": {
+      "money": {
+        "title": "Geld ausgeben",
+        "body": "Bezahlte Modelle und Dienste — bis zu dem Betrag, den du hier festlegst."
+      },
+      "publish": {
+        "title": "Veröffentlichen und senden",
+        "body": "E-Mails, Beiträge, alles, was andere Menschen erreicht."
+      },
+      "delete": {
+        "title": "Löschen außerhalb des Arbeitsordners",
+        "body": "Dateien anfassen, die nicht zum Projekt gehören."
+      },
+      "credentials": {
+        "title": "Zugangsdaten lesen",
+        "body": "Secrets und Schlüssel im Klartext sehen."
+      },
+      "deploy": {
+        "title": "In Produktion schreiben",
+        "body": "Live-Systeme deployen oder verändern."
+      }
+    }
   }
 }
