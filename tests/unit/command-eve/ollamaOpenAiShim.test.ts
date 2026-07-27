@@ -631,6 +631,7 @@ describe('Command EVE Ollama OpenAI shim warm-up', () => {
     });
 
     expect(response.status).toBe(200);
+    expect(response.headers.get('x-command-eve-inference-lane')).toBe('managed_local');
     expect(upstreamAuthorization).toBe('Bearer test-only-local-key');
     expect(upstreamBody?.model).toBe('command-eve-bonsai-27b-q2');
     expect(upstreamBody?.max_tokens).toBe(4096);
@@ -823,6 +824,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
     const json = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
 
     expect(response.status).toBe(200);
+    expect(response.headers.get('x-command-eve-inference-lane')).toBe('eve_cloud');
     expect(json.choices?.[0]?.message?.content).toBe('eve-cloud-ok');
     // The function — not Ollama — saw the request.
     expect(ollamaSeen).toBe(false);
@@ -1026,6 +1028,7 @@ describe('Command EVE shim — EVE cloud routing', () => {
     });
 
     expect(response.status).toBe(200);
+    expect(response.headers.get('x-command-eve-inference-lane')).toBe('ollama_local');
     expect(ollamaSeen).toBe(true);
     // The EVE function was never touched.
     expect(fnSeen.body).toBeUndefined();
