@@ -1,0 +1,169 @@
+{
+  "contract_revision": "COMPA-819-pre-split-v1",
+  "normalization": {
+    "checked_at": "<iso-timestamp>",
+    "provider_authorization": "Bearer [redacted]"
+  },
+  "cases": [
+    {
+      "id": "image-provider-disabled",
+      "request": {
+        "provider": "xai",
+        "capability": "image_generation",
+        "privacyLane": "cloud_auto",
+        "directProviderKeyPresentInDesktop": false,
+        "requestId": "golden-image"
+      },
+      "expected_status": 501,
+      "expected_body": {
+        "ok": false,
+        "gateway": "eve-multimodal",
+        "provider": "xai",
+        "reason": "provider-not-enabled",
+        "message": "eve-multimodal gateway is deployed but provider execution is not enabled yet.",
+        "checked_at": "<iso-timestamp>",
+        "request_id": "golden-image",
+        "capability": "image_generation",
+        "residency": {
+          "requestedPrivacyLane": "cloud_auto",
+          "effectiveResidency": "us_cloud",
+          "confirmation": "server-must-confirm-us-cloud"
+        },
+        "artifact": {
+          "status": "not_created",
+          "kind": "image"
+        },
+        "license": {
+          "verified": true,
+          "edition": "standard"
+        }
+      }
+    },
+    {
+      "id": "pptx-vision-provider-disabled",
+      "request": {
+        "provider": "xai",
+        "capability": "vision",
+        "privacyLane": "cloud_auto",
+        "directProviderKeyPresentInDesktop": false,
+        "requestId": "golden-pptx",
+        "file_name": "deck.pptx",
+        "file_media_type": "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      },
+      "expected_status": 501,
+      "expected_body": {
+        "ok": false,
+        "gateway": "eve-multimodal",
+        "provider": "xai",
+        "reason": "provider-not-enabled",
+        "message": "eve-multimodal gateway is deployed but provider execution is not enabled yet.",
+        "checked_at": "<iso-timestamp>",
+        "request_id": "golden-pptx",
+        "capability": "vision",
+        "residency": {
+          "requestedPrivacyLane": "cloud_auto",
+          "effectiveResidency": "us_cloud",
+          "confirmation": "server-must-confirm-us-cloud"
+        },
+        "artifact": {
+          "status": "not_created",
+          "kind": "text"
+        },
+        "license": {
+          "verified": true,
+          "edition": "standard"
+        }
+      }
+    },
+    {
+      "id": "tts-provider-success",
+      "request": {
+        "provider": "xai",
+        "capability": "tts",
+        "privacyLane": "cloud_us",
+        "directProviderKeyPresentInDesktop": false,
+        "requestId": "golden-tts",
+        "text": "Golden TTS text.",
+        "voice_id": "eve",
+        "language": "en"
+      },
+      "expected_status": 200,
+      "expected_body": {
+        "ok": true,
+        "gateway": "eve-multimodal",
+        "provider": "xai",
+        "reason": "provider-complete",
+        "message": "xAI TTS audio generated.",
+        "checked_at": "<iso-timestamp>",
+        "request_id": "golden-tts",
+        "capability": "tts",
+        "residency": {
+          "requestedPrivacyLane": "cloud_us",
+          "effectiveResidency": "us_cloud",
+          "confirmation": "explicit-us-cloud"
+        },
+        "artifact": {
+          "status": "created",
+          "kind": "audio",
+          "mime_type": "audio/mpeg",
+          "encoding": "base64",
+          "data_base64": "AQID",
+          "bytes": 3
+        },
+        "tts": {
+          "voice_id": "eve",
+          "language": "en",
+          "text_length": 16,
+          "output_format": {
+            "codec": "mp3"
+          }
+        },
+        "license": {
+          "verified": true,
+          "edition": "standard"
+        }
+      },
+      "expected_provider_call": {
+        "url": "https://api.x.ai/v1/tts",
+        "method": "POST",
+        "authorization": "Bearer [redacted]",
+        "content_type": "application/json",
+        "body": {
+          "text": "Golden TTS text.",
+          "voice_id": "eve",
+          "language": "en"
+        }
+      }
+    },
+    {
+      "id": "authorization-missing-license",
+      "request": {
+        "provider": "xai",
+        "capability": "image_generation"
+      },
+      "omit_license": true,
+      "expected_status": 401,
+      "expected_body": {
+        "ok": false,
+        "gateway": "eve-multimodal",
+        "provider": "xai",
+        "reason": "missing-license",
+        "message": "A CEVE license bearer is required.",
+        "checked_at": "<iso-timestamp>"
+      }
+    },
+    {
+      "id": "error-invalid-json",
+      "raw_body": "{",
+      "expected_status": 400,
+      "expected_body": {
+        "ok": false,
+        "gateway": "eve-multimodal",
+        "provider": "xai",
+        "reason": "invalid-json",
+        "message": "eve-multimodal requires a valid JSON body.",
+        "checked_at": "<iso-timestamp>"
+      }
+    }
+  ]
+}
