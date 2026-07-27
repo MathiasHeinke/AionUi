@@ -321,8 +321,8 @@
     "darwin-arm64": {
       "kind": "command-eve-source-build",
       "repository": "MathiasHeinke/AionCore",
-      "commit": "03abab408255a053b3230445829ae58eaa127578",
-      "sha256": "36147946dee45e73ffcfe67cc8be97b89d813e0e9cda7ec0b6f518cdae33fe6b"
+      "commit": "18913f5446aafca7eedcf25836d549d28a7002e4",
+      "sha256": "6188f51491b0b8c5d2215e7d395bb2ce5026fdda29f27036416f05f0d3998820"
     },
     "darwin-x64": {
       "kind": "upstream-release-archive",
