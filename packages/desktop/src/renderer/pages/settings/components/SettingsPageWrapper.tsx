@@ -15,6 +15,7 @@ import {
   Info,
   Lightning,
   LinkCloud,
+  Lock,
   Puzzle,
   Robot,
   Shield,
@@ -90,6 +91,12 @@ export function getBuiltinSettingsNavItems(isDesktop: boolean, t: TranslateFn): 
       path: 'webui',
     },
     pet: { id: 'pet', label: t('pet.desktopPet'), icon: <Cat theme='outline' size='16' />, path: 'pet' },
+    authority: {
+      id: 'authority',
+      label: t('settings.authority', { defaultValue: 'Freigaben' }),
+      icon: <Lock theme='outline' size='16' />,
+      path: 'authority',
+    },
     privacy: {
       id: 'privacy',
       label: t('settings.privacy.navLabel', { defaultValue: 'Privacy' }),
