@@ -10,7 +10,6 @@ import {
   CODEX_MODE_READ_ONLY,
 } from '@/common/types/codex/codexModes';
 import { COMMAND_EVE_DEFAULT_ACP_BACKEND } from '@/common/config/commandEveShell';
-import { configService } from '@/common/config/configService';
 
 /**
  * Agent mode option interface
@@ -78,7 +77,8 @@ export const AGENT_MODES: Record<string, AgentModeOption[]> = {
     {
       value: 'dont_ask',
       label: 'Auto',
-      description: 'Auto-allow file edits for this session except sensitive paths.',
+      description:
+        'Automatically allow file edits and terminal commands in this chat where policy permits; hard blocks and sensitive-operation gates still apply.',
     },
   ],
   gemini: [
@@ -107,148 +107,24 @@ export const AGENT_MODES: Record<string, AgentModeOption[]> = {
   ],
 };
 
-/** Renderer-only mode that records an explicit HG4 delegation for one EVE conversation. */
+/** Legacy renderer-only value. It is never offered or auto-approved in Command EVE 1.820. */
 export const COMMAND_EVE_HG4_DELEGATED_MODE = 'dont_ask_hg4';
-
-/** The delegated ceiling: EVE may decide through HG3.5; actions marked HG4 still ask. */
-export const COMMAND_EVE_HG4_DELEGATION_AUTHORITY = 'through_hg3_5';
-
-/** Conservative persisted scope. A broader grant requires a separate explicit UI choice. */
-export const COMMAND_EVE_HG4_DELEGATION_SCOPE = 'conversation';
 
 const COMMAND_EVE_BACKEND_MODE_ORDER = ['default', 'accept_edits', 'dont_ask'] as const;
 const COMMAND_EVE_MODE_AUTHORITY_RANK: Readonly<Record<string, number>> = {
   default: 0,
   accept_edits: 1,
   dont_ask: 2,
-  [COMMAND_EVE_HG4_DELEGATED_MODE]: 3,
 };
-
-const COMMAND_EVE_HG4_MODE_OPTION: AgentModeOption = {
-  value: COMMAND_EVE_HG4_DELEGATED_MODE,
-  label: 'Auto through HG3.5 (this chat)',
-  description:
-    'Explicit HG4 delegation for this conversation. Warned sensitive actions through HG3.5 may run; HG4 actions still ask.',
-};
-
-type EveHg4DelegationRecord = {
-  active: boolean;
-  scope: typeof COMMAND_EVE_HG4_DELEGATION_SCOPE;
-  authority: typeof COMMAND_EVE_HG4_DELEGATION_AUTHORITY;
-  conversationId: string;
-  backendMode: 'dont_ask';
-  grantedAt?: string;
-  riskAcknowledgedAt?: string;
-  revokedAt?: string;
-  updatedAt: string;
-};
-
-type EveHg4DelegationAuditEntry = {
-  event: 'granted' | 'revoked';
-  scope: typeof COMMAND_EVE_HG4_DELEGATION_SCOPE;
-  authority: typeof COMMAND_EVE_HG4_DELEGATION_AUTHORITY;
-  conversationId: string;
-  backendMode: 'dont_ask';
-  timestamp: string;
-};
-
-type EvePermissionBackendConfig = {
-  preferredMode?: string;
-  hg4Delegations?: Record<string, EveHg4DelegationRecord>;
-  hg4DelegationAudit?: EveHg4DelegationAuditEntry[];
-};
-
-const EVE_HG4_AUDIT_LIMIT = 50;
-
-/** Validate a durable, explicitly acknowledged grant for exactly one EVE conversation. */
-export function hasActiveEveHg4Delegation(backend: string, conversationId: string): boolean {
-  const config = configService.get('acp.config');
-  const backendConfig = config?.[backend] as EvePermissionBackendConfig | undefined;
-  const grant = backendConfig?.hg4Delegations?.[conversationId];
-  return Boolean(
-    backendConfig?.preferredMode === 'dont_ask' &&
-    grant?.active === true &&
-    grant.scope === COMMAND_EVE_HG4_DELEGATION_SCOPE &&
-    grant.authority === COMMAND_EVE_HG4_DELEGATION_AUTHORITY &&
-    grant.conversationId === conversationId &&
-    grant.backendMode === 'dont_ask' &&
-    typeof grant.grantedAt === 'string' &&
-    typeof grant.riskAcknowledgedAt === 'string'
-  );
-}
-
-/** Persist or revoke one conversation-scoped HG4 delegation and append its audit event. */
-export async function persistEvePermissionAuthority(input: {
-  backend: string;
-  conversationId: string;
-  preferredMode: string;
-  hg4Delegated: boolean;
-}): Promise<void> {
-  const config = configService.get('acp.config');
-  const backendConfig = (config?.[input.backend] ?? {}) as EvePermissionBackendConfig;
-  const previousGrant = backendConfig.hg4Delegations?.[input.conversationId];
-  const timestamp = new Date().toISOString();
-  const nextDelegations = { ...backendConfig.hg4Delegations };
-  const nextAudit = Array.isArray(backendConfig.hg4DelegationAudit) ? [...backendConfig.hg4DelegationAudit] : [];
-
-  if (input.hg4Delegated) {
-    nextDelegations[input.conversationId] = {
-      active: true,
-      scope: COMMAND_EVE_HG4_DELEGATION_SCOPE,
-      authority: COMMAND_EVE_HG4_DELEGATION_AUTHORITY,
-      conversationId: input.conversationId,
-      backendMode: 'dont_ask',
-      grantedAt: timestamp,
-      riskAcknowledgedAt: timestamp,
-      updatedAt: timestamp,
-    };
-    nextAudit.push({
-      event: 'granted',
-      scope: COMMAND_EVE_HG4_DELEGATION_SCOPE,
-      authority: COMMAND_EVE_HG4_DELEGATION_AUTHORITY,
-      conversationId: input.conversationId,
-      backendMode: 'dont_ask',
-      timestamp,
-    });
-  } else if (previousGrant) {
-    nextDelegations[input.conversationId] = {
-      ...previousGrant,
-      active: false,
-      revokedAt: timestamp,
-      updatedAt: timestamp,
-    };
-    if (previousGrant.active) {
-      nextAudit.push({
-        event: 'revoked',
-        scope: COMMAND_EVE_HG4_DELEGATION_SCOPE,
-        authority: COMMAND_EVE_HG4_DELEGATION_AUTHORITY,
-        conversationId: input.conversationId,
-        backendMode: 'dont_ask',
-        timestamp,
-      });
-    }
-  }
-
-  const nextConfig = {
-    ...config,
-    [input.backend]: {
-      ...backendConfig,
-      preferredMode: input.preferredMode,
-      hg4Delegations: nextDelegations,
-      hg4DelegationAudit: nextAudit.slice(-EVE_HG4_AUDIT_LIMIT),
-    },
-  } as unknown as NonNullable<typeof config>;
-  await configService.set('acp.config', nextConfig);
-}
 
 /**
- * Bound the EVE selector to the three real Hermes modes plus the explicit,
- * conversation-scoped HG4 delegation. Runtime/cached values outside this
- * allowlist never become clickable permission modes.
+ * Bound the EVE selector to the three real Hermes modes. Runtime/cached values
+ * outside this allowlist never become clickable permission modes. The second
+ * argument remains for source compatibility but cannot expose legacy Guarded Auto.
  */
 export function boundCommandEveModeMenu(
   modes: ReadonlyArray<AgentModeOption>,
-  includeHg4Delegation: boolean
+  _includeHg4Delegation = false
 ): AgentModeOption[] {
   const offeredValues = new Set(modes.map((mode) => mode.value));
   const staticModes = new Map(AGENT_MODES.hermes.map((mode) => [mode.value, mode]));
@@ -260,15 +136,12 @@ export function boundCommandEveModeMenu(
     return mode ? [{ ...mode }] : [];
   });
 
-  if (includeHg4Delegation && offeredValues.has('dont_ask')) {
-    bounded.push({ ...COMMAND_EVE_HG4_MODE_OPTION });
-  }
   return bounded;
 }
 
-/** Map the renderer-only HG4 grant back to the real mode understood by Hermes. */
+/** Fail closed when stale persisted UI state still contains the removed HG4 alias. */
 export function commandEveBackendMode(mode: string): string {
-  return mode === COMMAND_EVE_HG4_DELEGATED_MODE ? 'dont_ask' : mode;
+  return mode === COMMAND_EVE_HG4_DELEGATED_MODE ? 'default' : mode;
 }
 
 /** True when a requested EVE mode widens authority and therefore requires backend acknowledgement first. */
@@ -339,14 +212,12 @@ const EVE_MODE_I18N_KEY: Record<string, string> = {
   default: 'agentMode.eve.ask',
   accept_edits: 'agentMode.eve.acceptEdits',
   dont_ask: 'agentMode.eve.yolo',
-  [COMMAND_EVE_HG4_DELEGATED_MODE]: 'agentMode.eve.autoThroughHg35',
 };
 
 const EVE_MODE_DESCRIPTION_I18N_KEY: Record<string, string> = {
   default: 'agentMode.eve.askDescription',
   accept_edits: 'agentMode.eve.acceptEditsDescription',
   dont_ask: 'agentMode.eve.yoloDescription',
-  [COMMAND_EVE_HG4_DELEGATED_MODE]: 'agentMode.eve.autoThroughHg35Description',
 };
 
 /**

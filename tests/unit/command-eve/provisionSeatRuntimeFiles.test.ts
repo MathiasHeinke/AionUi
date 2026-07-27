@@ -274,6 +274,39 @@ describe('(e) fail-safe — an unsafe seat id never escapes seats/', () => {
   });
 });
 
+describe('(f) 1.820 upgrade revokes legacy class-wide Hermes grants', () => {
+  it.each([
+    { label: 'legacy root home', seatId: null },
+    { label: 'isolated seat home', seatId: REAL_UUID_A },
+  ])('reconciles a legacy command_allowlist in the $label without changing other managed config', ({ seatId }) => {
+    const userData = makeUserData();
+    const first = provisionSeatRuntimeFiles({ userDataPath: userData, seatId });
+    expect(first.ok).toBe(true);
+
+    const configPath = path.join(first.hermes_home, 'config.yaml');
+    const managedConfig = fs.readFileSync(configPath, 'utf8');
+    expect(managedConfig).toContain('command_allowlist: []');
+
+    // Model an <=1.819 profile after Hermes persisted an "Allow always"
+    // pattern. The next 1.820 reconcile must revoke that authority while
+    // preserving every other Desktop-managed config byte.
+    const legacyConfig = managedConfig.replace(
+      'command_allowlist: []',
+      'command_allowlist:\n- script execution via -e/-c flag'
+    );
+    expect(legacyConfig).not.toBe(managedConfig);
+    fs.writeFileSync(configPath, legacyConfig, { mode: 0o600 });
+
+    const upgraded = provisionSeatRuntimeFiles({ userDataPath: userData, seatId });
+    expect(upgraded.ok).toBe(true);
+    const upgradedConfig = fs.readFileSync(configPath, 'utf8');
+
+    expect(upgradedConfig).toBe(managedConfig);
+    expect(upgradedConfig).toContain('command_allowlist: []');
+    expect(upgradedConfig).not.toContain('script execution via -e/-c flag');
+  });
+});
+
 describe('(H4) hasValidSeatRuntimeFiles — the seat-switch fail-closed gate', () => {
   const makeHome = (): string => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'command-eve-h4-home-'));

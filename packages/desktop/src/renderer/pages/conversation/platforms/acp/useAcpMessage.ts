@@ -690,10 +690,10 @@ export const useAcpMessage = (conversation_id: string, options?: { skipWarmup?: 
             runningRef.current = true;
           }
 
-          // Renderer fallback. Plain EVE `dont_ask` does not enter this branch:
-          // Hermes already consumes routine authority, so a permission that reaches
-          // the renderer is an escalation. Only an explicit scoped HG4 delegation
-          // may auto-answer requests through HG3.5; explicit HG4 stays in the dialog.
+          // Renderer fallback. Hermes already consumes routine authority, so any
+          // EVE permission that reaches this layer is an escalation and remains a
+          // visible manual gate. Other ACP backends retain their native renderer
+          // auto-mode behavior through resolveAcpAutoApprove.
           const request = message.data as AcpPermissionRequest | undefined;
           const callId = request?.tool_call?.tool_call_id || message.msg_id;
           const decision = resolveAcpAutoApprove(permissionModeRef.current, request, permissionBackendRef.current);

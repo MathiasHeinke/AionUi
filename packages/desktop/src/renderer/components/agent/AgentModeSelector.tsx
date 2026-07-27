@@ -16,12 +16,9 @@ import {
 import {
   boundCommandEveModeMenu,
   commandEveBackendMode,
-  COMMAND_EVE_HG4_DELEGATED_MODE,
   createModeDescriptionFormatter,
   getAgentModes,
-  hasActiveEveHg4Delegation,
   isCommandEveModeExpansion,
-  persistEvePermissionAuthority,
   resolveModeForBackend,
   supportsModeSwitch,
   type AgentModeOption,
@@ -149,29 +146,18 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
   }, [backend]);
 
   // Priority: dynamicModes (runtime) > cachedModes (from cache) > static fallback.
-  // EVE then applies a strict allowlist and adds the explicit scoped HG4 grant
-  // only inside an actual conversation.
+  // EVE then applies a strict allowlist of the three real Hermes modes. Legacy
+  // renderer-only Guarded Auto values never become selectable again.
   const offeredModes = useMemo(() => {
     if (dynamicModes && dynamicModes.length > 0) return dynamicModes;
     if (cachedModes.length > 0) return cachedModes;
     return getAgentModes(backend);
   }, [dynamicModes, cachedModes, backend]);
   const modes = useMemo(
-    () => (isEveConversation ? boundCommandEveModeMenu(offeredModes, Boolean(conversation_id)) : offeredModes),
-    [conversation_id, isEveConversation, offeredModes]
+    () => (isEveConversation ? boundCommandEveModeMenu(offeredModes) : offeredModes),
+    [isEveConversation, offeredModes]
   );
   const defaultMode = modes[0]?.value ?? 'default';
-  const normalizeEveDisplayMode = useCallback(
-    (mode: string | undefined): string | undefined => {
-      if (!isEveConversation || !backend || !conversation_id || !mode) return mode;
-      const hasDelegation = hasActiveEveHg4Delegation(backend, conversation_id);
-      if (mode === COMMAND_EVE_HG4_DELEGATED_MODE) {
-        return hasDelegation ? mode : 'dont_ask';
-      }
-      return hasDelegation && mode === 'dont_ask' ? COMMAND_EVE_HG4_DELEGATED_MODE : mode;
-    },
-    [backend, conversation_id, isEveConversation]
-  );
   // Validate initialMode against available modes; fall back to backend's default
   // when the provided value doesn't match (e.g. opencode has 'build'/'plan', not 'default').
   // resolveModeForBackend ALSO maps cross-backend synonyms (e.g. a saved
@@ -179,10 +165,7 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
   // "YOLO set in the start view resets to Standard in the chat" — the start screen
   // stored 'yolo' but hermes only knows default/accept_edits/dont_ask, so the plain
   // some()-match snapped it back to the default.
-  const validInitialMode =
-    isEveConversation && conversation_id
-      ? (normalizeEveDisplayMode(resolveModeForBackend(initialMode, modes)) ?? defaultMode)
-      : (resolveConversationMode(backend, initialMode, modes) ?? defaultMode);
+  const validInitialMode = resolveConversationMode(backend, initialMode, modes) ?? defaultMode;
   const [current_mode, setCurrentMode] = useState<string>(validInitialMode);
   const [isLoading, setIsLoading] = useState(false);
   const [modeSyncWarning, setModeSyncWarning] = useState<string | null>(null);
@@ -229,11 +212,7 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
     // synonym like 'yolo' resolves to hermes' 'dont_ask' instead of snapping to
     // the default — this effect re-runs on every conversation/backend switch and
     // was silently RE-OVERRIDING the line-146 seed back to Standard.
-    setCurrentMode(
-      isEveConversation && conversation_id
-        ? (normalizeEveDisplayMode(resolveModeForBackend(initialMode, modes)) ?? defaultMode)
-        : (resolveConversationMode(backend, initialMode, modes) ?? defaultMode)
-    );
+    setCurrentMode(resolveConversationMode(backend, initialMode, modes) ?? defaultMode);
     setModeSyncWarning(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversation_id, backend]);
@@ -247,12 +226,9 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
     if (initialMode === appliedInitialModeRef.current) return;
     appliedInitialModeRef.current = initialMode;
     if (userSelectedModeRef.current) return;
-    const valid =
-      isEveConversation && conversation_id
-        ? (normalizeEveDisplayMode(resolveModeForBackend(initialMode, modes)) ?? defaultMode)
-        : (resolveConversationMode(backend, initialMode, modes) ?? defaultMode);
+    const valid = resolveConversationMode(backend, initialMode, modes) ?? defaultMode;
     setCurrentMode(valid);
-  }, [backend, conversation_id, defaultMode, initialMode, isEveConversation, modes, normalizeEveDisplayMode]);
+  }, [backend, defaultMode, initialMode, modes]);
 
   // Sync mode from backend when mounting or switching conversation tabs.
   // This is a PASSIVE read used to reflect the backend's live mode — it must
@@ -277,14 +253,14 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
         if (result.initialized === false) return;
         const backendMode = resolveModeForBackend(result.mode, modes);
         const preferredEveMode = isEveConversation ? resolveStoredPreferredMode(backend, modes) : undefined;
-        const backendDisplayMode = normalizeEveDisplayMode(backendMode);
+        const backendDisplayMode = backendMode;
 
         // Command EVE's routine permission choice is a founder-level global
         // preference. Restrictive changes become local authority immediately;
-        // wider authority, including a persisted HG4 grant, is shown/published
-        // only after the backend confirms the matching real Hermes mode.
+        // wider authority is shown/published only after the backend confirms
+        // the matching real Hermes mode.
         if (preferredEveMode && backendMode !== preferredEveMode) {
-          const preferredDisplayMode = normalizeEveDisplayMode(preferredEveMode) ?? preferredEveMode;
+          const preferredDisplayMode = preferredEveMode;
           const isExpansion = isCommandEveModeExpansion(backendDisplayMode ?? defaultMode, preferredDisplayMode);
           if (!isExpansion) {
             setCurrentMode(preferredDisplayMode);
@@ -314,7 +290,7 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
           const confirmedMode = resolveModeForBackend(confirmed?.mode, modes);
           if (confirmedMode !== preferredEveMode) {
             if (isExpansion) {
-              const confirmedDisplayMode = normalizeEveDisplayMode(confirmedMode) ?? backendDisplayMode;
+              const confirmedDisplayMode = confirmedMode ?? backendDisplayMode;
               if (confirmedDisplayMode) {
                 setCurrentMode(confirmedDisplayMode);
                 publishAcknowledgedMode(confirmedDisplayMode);
@@ -396,7 +372,6 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
     initialMode,
     isEveConversation,
     modes,
-    normalizeEveDisplayMode,
     publishAcknowledgedMode,
     t,
   ]);
@@ -426,33 +401,15 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
       if (backend && isEveConversation) {
         const requestedBackendMode = commandEveBackendMode(mode);
         const isExpansion = isCommandEveModeExpansion(previousMode, mode);
-        const hg4Delegated = mode === COMMAND_EVE_HG4_DELEGATED_MODE;
-        let restrictionPersistenceFailed = false;
 
-        // Revocation is fail-safe and immediate: remove renderer authority, update
-        // the truthful local UI, and persist the narrower preference before asking
-        // the backend. A failed backend write must never restore broader authority.
+        // Restrictions become truthful local state immediately. Expansions only
+        // become visible after the real Hermes mode is acknowledged.
         if (!isExpansion) {
           setCurrentMode(mode);
           setModeSyncWarning(null);
           publishAcknowledgedMode(mode);
           onModeChanged?.(requestedBackendMode);
-          try {
-            await persistEvePermissionAuthority({
-              backend,
-              conversationId: conversation_id,
-              preferredMode: requestedBackendMode,
-              hg4Delegated: false,
-            });
-          } catch (error) {
-            restrictionPersistenceFailed = true;
-            const warning = t('agentMode.eve.revocationPersistFailed', {
-              defaultValue: 'Restriction is active locally, but its audit record could not be persisted.',
-            });
-            setModeSyncWarning(warning);
-            Message.warning(warning);
-            console.warn('[AgentModeSelector] EVE revocation persistence failed:', error);
-          }
+          await savePreferredMode(backend, requestedBackendMode);
         }
 
         setIsLoading(true);
@@ -484,35 +441,12 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
           }
 
           if (isExpansion) {
-            try {
-              await persistEvePermissionAuthority({
-                backend,
-                conversationId: conversation_id,
-                preferredMode: requestedBackendMode,
-                hg4Delegated,
-              });
-            } catch (error) {
-              // Backend `dont_ask` may be active, but without a durable grant the
-              // renderer must stay at routine authority and keep escalations gated.
-              setCurrentMode(confirmedMode);
-              publishAcknowledgedMode(confirmedMode);
-              onModeChanged?.(confirmedMode);
-              const warning = t('agentMode.eve.expansionPersistFailed', {
-                defaultValue: hg4Delegated
-                  ? 'HG4 delegation was not persisted. Sensitive actions will continue to ask.'
-                  : 'The mode is active for this conversation, but the preference was not persisted.',
-              });
-              setModeSyncWarning(warning);
-              Message.warning(warning);
-              console.warn('[AgentModeSelector] EVE expansion persistence failed:', error);
-              return;
-            }
-
+            await savePreferredMode(backend, requestedBackendMode);
             setCurrentMode(mode);
             publishAcknowledgedMode(mode);
           }
 
-          if (!restrictionPersistenceFailed) setModeSyncWarning(null);
+          setModeSyncWarning(null);
           onModeChanged?.(confirmedMode);
         } catch (error) {
           if (isExpansion) {

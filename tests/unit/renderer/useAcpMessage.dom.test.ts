@@ -1041,7 +1041,7 @@ describe('useAcpMessage', () => {
       expect(addOrUpdateMessageMock).toHaveBeenCalledTimes(2);
     });
 
-    it('auto-approves through HG3.5 after the selector publishes a persisted scoped HG4 delegation', async () => {
+    it('keeps a stale renderer HG3.5 publish gated', async () => {
       conversationGetInvokeMock.mockResolvedValue({
         type: 'acp',
         status: 'idle',
@@ -1058,11 +1058,11 @@ describe('useAcpMessage', () => {
         emitPermission('call-selector-ack');
       });
 
-      await waitFor(() => expect(confirmMessageInvokeMock).toHaveBeenCalledTimes(1));
-      expect(addOrUpdateMessageMock).not.toHaveBeenCalled();
+      expect(confirmMessageInvokeMock).not.toHaveBeenCalled();
+      expect(addOrUpdateMessageMock).toHaveBeenCalledTimes(1);
     });
 
-    it('captures a child passive grant publish during initial mount', async () => {
+    it('does not let a child passive legacy grant widen authority during initial mount', async () => {
       conversationGetInvokeMock.mockResolvedValue({
         type: 'acp',
         status: 'idle',
@@ -1073,8 +1073,8 @@ describe('useAcpMessage', () => {
       await waitFor(() => expect(responseStreamHandlerRef.current).toBeTypeOf('function'));
       act(() => emitPermission('call-restored-on-mount'));
 
-      await waitFor(() => expect(confirmMessageInvokeMock).toHaveBeenCalledTimes(1));
-      expect(addOrUpdateMessageMock).not.toHaveBeenCalled();
+      expect(confirmMessageInvokeMock).not.toHaveBeenCalled();
+      expect(addOrUpdateMessageMock).toHaveBeenCalledTimes(1);
     });
 
     it('does not let a stale backend trace widen authority after immediate local revocation', async () => {
