@@ -2,6 +2,7 @@ import type { AcpInitializeResult, AcpSessionConfigOption, AcpSessionModes } fro
 import type { SpeechToTextConfig } from '@/common/types/provider/speech';
 import type { ICssTheme, IMcpServer, TProviderWithModel } from '@/common/config/storage';
 import type { Theme } from '@/common/theme/types';
+import type { EveAuthorityGrant } from './eveAuthorityCore';
 
 export type ConfigKeyMap = {
   'google.config': {
@@ -112,6 +113,22 @@ export type ConfigKeyMap = {
    */
   'commandEve.inferenceSelection': string | undefined;
   'commandEve.executionMode': 'observed' | 'delegated' | 'autonomous' | undefined;
+  /**
+   * THE approval record. One graduated grant, read identically by the start
+   * screen and by a live session, so the two can no longer drift apart (three
+   * places used to resolve the same mode key by three different rules).
+   *
+   * Shape: {@link EveAuthorityGrant} — `ladder` 0..5 plus the sealed capability
+   * switches, each unsealed on its own and never by a rung. `limits` carries the
+   * daily ceiling that must accompany an unsealed `spend.money`.
+   *
+   * Absent ⇒ migrate once from the legacy per-backend `acp.config[*].preferredMode`
+   * (see `resolveStoredGrant`). A migrated grant NEVER unseals a capability:
+   * nobody consented to that, and a value restored from disk is input, never
+   * authority.
+   */
+  'commandEve.authority': EveAuthorityGrant | undefined;
+
   /**
    * "Dein Team" per-worker active/paused state. A map of stable roster
    * `agent_id` → 'active' | 'paused' | 'off'. Absent ids fall back to the

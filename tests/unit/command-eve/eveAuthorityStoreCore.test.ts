@@ -1,0 +1,155 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  EVE_AUTHORITY_FAIL_CLOSED,
+  EVE_SEALED_CAPABILITIES,
+  grantAllows,
+  type EveAuthorityGrant,
+} from '@/common/config/eveAuthorityCore';
+import {
+  COMMAND_EVE_LEGACY_BACKEND,
+  HIGH_DAILY_BUDGET_CENTS,
+  classifyDailyBudget,
+  grantNeedsAttention,
+  isUnconfirmedGrant,
+  resolveStoredGrant,
+  withDailyBudget,
+  withLadder,
+  withSeal,
+} from '@/common/config/eveAuthorityStoreCore';
+
+const NOW = '2026-07-27T21:00:00.000Z';
+
+describe('one record, resolved the same way everywhere', () => {
+  it('prefers a valid stored grant over the legacy value', () => {
+    const stored: EveAuthorityGrant = { ladder: 4, capabilities: {}, updatedBy: 'user' };
+    const resolved = resolveStoredGrant(stored, { [COMMAND_EVE_LEGACY_BACKEND]: { preferredMode: 'plan' } });
+    expect(resolved).toBe(stored);
+  });
+
+  it('migrates once from the legacy per-backend mode when nothing is stored', () => {
+    const resolved = resolveStoredGrant(undefined, {
+      [COMMAND_EVE_LEGACY_BACKEND]: { preferredMode: 'accept_edits' },
+    });
+    expect(resolved.ladder).toBe(2);
+    expect(resolved.updatedBy).toBe('migration');
+    expect(isUnconfirmedGrant(resolved)).toBe(true);
+  });
+
+  it('never opens a seal while migrating, whatever the legacy value claimed', () => {
+    for (const preferredMode of ['yolo', 'bypassPermissions', 'full-access', 'auto']) {
+      const resolved = resolveStoredGrant(undefined, { [COMMAND_EVE_LEGACY_BACKEND]: { preferredMode } });
+      for (const sealed of EVE_SEALED_CAPABILITIES) {
+        expect(resolved.capabilities[sealed]).toBeUndefined();
+        expect(grantAllows({ class: 'irreversible', sealed, amountCents: 1 }, resolved)).toBe(false);
+      }
+    }
+  });
+
+  it('falls closed on malformed stored state instead of repairing it', () => {
+    for (const bad of [null, 42, 'ladder: 5', { ladder: 9, capabilities: {}, updatedBy: 'user' }]) {
+      expect(resolveStoredGrant(bad, null)).toBe(EVE_AUTHORITY_FAIL_CLOSED);
+    }
+    expect(resolveStoredGrant(undefined, {})).toBe(EVE_AUTHORITY_FAIL_CLOSED);
+    expect(resolveStoredGrant(undefined, { [COMMAND_EVE_LEGACY_BACKEND]: { preferredMode: '   ' } })).toBe(
+      EVE_AUTHORITY_FAIL_CLOSED
+    );
+  });
+
+  it('ignores another backend’s legacy mode', () => {
+    // Other backends keep their own preference for their own agents. Only the
+    // Command EVE lane seeds the shared grant.
+    const resolved = resolveStoredGrant(undefined, { codex: { preferredMode: 'full-access' } });
+    expect(resolved).toBe(EVE_AUTHORITY_FAIL_CLOSED);
+  });
+});
+
+describe('moving the ladder never touches a seal', () => {
+  it('keeps open seals and their dates when the rung changes', () => {
+    const opened = withSeal({ ladder: 1, capabilities: {}, updatedBy: 'user' }, 'publish.outward', true, NOW);
+    const moved = withLadder(opened, 5);
+    expect(moved.ladder).toBe(5);
+    expect(moved.capabilities['publish.outward']).toBe(true);
+    expect(moved.grantedAt?.['publish.outward']).toBe(NOW);
+  });
+
+  it('opens no seal when the rung goes to the top', () => {
+    const top = withLadder({ ladder: 1, capabilities: {}, updatedBy: 'user' }, 5);
+    for (const sealed of EVE_SEALED_CAPABILITIES) {
+      expect(top.capabilities[sealed]).toBeUndefined();
+    }
+  });
+
+  it('refuses a rung that is not a rung, leaving the grant untouched', () => {
+    const grant: EveAuthorityGrant = { ladder: 2, capabilities: {}, updatedBy: 'user' };
+    for (const bad of [6, -1, 2.5, '3', null, undefined]) {
+      expect(withLadder(grant, bad)).toBe(grant);
+    }
+  });
+});
+
+describe('a seal records when it was given, and leaves no trace when revoked', () => {
+  it('stamps the moment the human opened it', () => {
+    const grant = withSeal({ ladder: 3, capabilities: {}, updatedBy: 'migration' }, 'deploy.production', true, NOW);
+    expect(grant.capabilities['deploy.production']).toBe(true);
+    expect(grant.grantedAt?.['deploy.production']).toBe(NOW);
+    expect(grant.updatedBy).toBe('user');
+  });
+
+  it('drops the flag, the date and — for money — the budget on revoke', () => {
+    let grant = withSeal({ ladder: 3, capabilities: {}, updatedBy: 'user' }, 'spend.money', true, NOW);
+    grant = withDailyBudget(grant, 5000);
+    expect(grant.limits?.['spend.money']?.dailyCents).toBe(5000);
+
+    grant = withSeal(grant, 'spend.money', false, NOW);
+    expect(grant.capabilities['spend.money']).toBeUndefined();
+    expect(grant.grantedAt?.['spend.money']).toBeUndefined();
+    // Re-opening must require naming an amount again — a revoked budget that
+    // silently comes back would be a grant nobody re-gave.
+    expect(grant.limits?.['spend.money']).toBeUndefined();
+    const reopened = withSeal(grant, 'spend.money', true, NOW);
+    expect(grantAllows({ class: 'irreversible', sealed: 'spend.money', amountCents: 1 }, reopened)).toBe(false);
+  });
+
+  it('revoking one seal does not disturb its neighbours', () => {
+    let grant: EveAuthorityGrant = { ladder: 4, capabilities: {}, updatedBy: 'user' };
+    grant = withSeal(grant, 'publish.outward', true, NOW);
+    grant = withSeal(grant, 'credentials.read', true, NOW);
+    grant = withSeal(grant, 'publish.outward', false, NOW);
+    expect(grant.capabilities['publish.outward']).toBeUndefined();
+    expect(grant.capabilities['credentials.read']).toBe(true);
+  });
+});
+
+describe('a budget nobody typed is a budget nobody agreed to', () => {
+  it('classifies amounts the settings panel may store', () => {
+    expect(classifyDailyBudget(5000)).toBe('ok');
+    expect(classifyDailyBudget(1)).toBe('ok');
+    expect(classifyDailyBudget(HIGH_DAILY_BUDGET_CENTS + 1)).toBe('confirm');
+    for (const bad of [0, -1, 12.5, Number.NaN, Number.POSITIVE_INFINITY, '50', null, undefined]) {
+      expect(classifyDailyBudget(bad)).toBe('invalid');
+    }
+  });
+
+  it('leaves the grant untouched when the amount is rejected', () => {
+    const grant: EveAuthorityGrant = { ladder: 3, capabilities: { 'spend.money': true }, updatedBy: 'user' };
+    for (const bad of [0, -5, 1.5, Number.NaN]) {
+      expect(withDailyBudget(grant, bad)).toBe(grant);
+    }
+  });
+
+  it('names the one incoherent shape so the panel can say it out loud', () => {
+    const moneyNoBudget: EveAuthorityGrant = {
+      ladder: 5,
+      capabilities: { 'spend.money': true },
+      updatedBy: 'user',
+    };
+    // Refused at decision time anyway — but silence here would read as a broken
+    // feature: a switch that is on and an EVE that never spends.
+    expect(grantAllows({ class: 'irreversible', sealed: 'spend.money', amountCents: 1 }, moneyNoBudget)).toBe(false);
+    expect(grantNeedsAttention(moneyNoBudget)).toBe('money-without-budget');
+
+    expect(grantNeedsAttention(withDailyBudget(moneyNoBudget, 5000))).toBeNull();
+    expect(grantNeedsAttention({ ladder: 5, capabilities: {}, updatedBy: 'user' })).toBeNull();
+  });
+});
