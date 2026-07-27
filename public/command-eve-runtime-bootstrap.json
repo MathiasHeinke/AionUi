@@ -1,10 +1,13 @@
 {
   "version": "command-eve-runtime-bootstrap-manifest/v0",
-  "release": "1.819.3",
+  "release": "1.820.0",
   "hermes": {
     "package": "hermes-agent",
     "version": "0.17.0",
-    "extras": ["acp", "mcp"]
+    "extras": [
+      "acp",
+      "mcp"
+    ]
   },
   "local_runtime": {
     "provider": "ollama",
@@ -74,7 +77,7 @@
       },
       {
         "id": "colibri-glm-5-2-uncensored-max",
-        "label": "Colibrì GLM-5.2 Uncensored local max opt-in",
+        "label": "Colibr\u00ec GLM-5.2 Uncensored local max opt-in",
         "model_ref": "colibri:glm-5.2-fp8-uncensored-int4",
         "runtime": "colibri",
         "lane": "colibri",
@@ -92,6 +95,11 @@
     "allow_homebrew_install": true,
     "allow_model_pull": true,
     "model_weights_in_app_bundle": false,
-    "fail_closed_reason_codes": ["BLOCKED_RAM", "BLOCKED_DISK", "OLLAMA_MISSING", "MODEL_NOT_FETCHED"]
+    "fail_closed_reason_codes": [
+      "BLOCKED_RAM",
+      "BLOCKED_DISK",
+      "OLLAMA_MISSING",
+      "MODEL_NOT_FETCHED"
+    ]
   }
 }
