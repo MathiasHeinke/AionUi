@@ -1710,6 +1710,10 @@ async function handleChatCompletions(
     const eveRoute = forceLocalVision ? { active: false } : await options.eveRouting(body);
     body.messages = asMessages(body.messages).map(stripManagedVisualTurnAuthorization);
     if (eveRoute?.active) {
+      // Content-free route proof consumed by the bounded compression receipt.
+      // This reveals no model/tier and lets local-only tests prove that the
+      // authenticated loopback shim did not choose an external lane.
+      response.setHeader('x-command-eve-inference-lane', 'eve_cloud');
       // SG-1 A1: the attribution token rides the X-EVE-Dispatch HEADER, never the
       // body — so a client that stuffs `body.agent_id` cannot spoof a role.
       const dispatchToken = headerToken(request.headers['x-eve-dispatch']);
@@ -1780,6 +1784,7 @@ async function handleChatCompletions(
     }
   }
   if (localOpenAiRoute?.active) {
+    response.setHeader('x-command-eve-inference-lane', 'managed_local');
     await handleLocalOpenAiCompletions(request, body, response, options, localOpenAiRoute);
     return;
   }
@@ -1793,6 +1798,7 @@ async function handleChatCompletions(
     }
     body.messages = preparedVision.messages;
   }
+  response.setHeader('x-command-eve-inference-lane', 'ollama_local');
   const upstreamScope = createUpstreamRequestScope(request, response, options);
   try {
     const upstream = await fetchOllama(
