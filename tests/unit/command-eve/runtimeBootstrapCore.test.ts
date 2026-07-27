@@ -497,6 +497,16 @@ describe('Command EVE runtime bootstrap core', () => {
     expect(fs.existsSync(path.join(paths.hermesHome, 'config.yaml'))).toBe(true);
     const configYaml = fs.readFileSync(path.join(paths.hermesHome, 'config.yaml'), 'utf8');
     expect(configYaml).toMatch(/delegation:\s*\n\s*max_concurrent_children: 1\s*\n\s*max_async_children: 1/);
+    // 1.820 authority seam: Hermes must ALWAYS ask and never decide by itself.
+    // AionCore is the only authority — it takes the per-operation decision
+    // against the user's graduated grant. Until 1.820 this rested on nothing but
+    // Hermes' own built-in default; a wheel bump flipping that default to 'smart'
+    // would have handed the decision back to Hermes with no gate saying a word.
+    // This assertion is that gate. If it fails, the ladder governs nothing.
+    expect(configYaml).toMatch(/approvals:\s*\n\s*mode: manual/);
+    // And Hermes' own persistent class-wide grants stay revoked on every boot,
+    // so no authority can accumulate outside what the user can see and withdraw.
+    expect(configYaml).toContain('command_allowlist: []');
     expect(fs.existsSync(paths.hermesShim)).toBe(true);
     // The receipt still finishes 'ready' — the cloud lane is genuinely provisioned.
     expect(receipt.status).toBe('ready');
@@ -1100,7 +1110,9 @@ describe('Command EVE runtime bootstrap core', () => {
       // The adopted session MUST reuse the id AionCore is holding — a new id
       // would leave the client prompting the stale one forever.
       expect(providerOverride).toContain('manager._sessions[session_id] = state');
-      expect(providerOverride).toContain('def _command_eve_adopt_acp_session(manager: Any, session_id: str, cwd: str = ".")');
+      expect(providerOverride).toContain(
+        'def _command_eve_adopt_acp_session(manager: Any, session_id: str, cwd: str = ".")'
+      );
       // The silent _restore failure modes must log a reason.
       expect(providerOverride).toContain('SessionManager._restore = command_eve_restore');
       // Installed BOTH lazily (per provider call) and at module import, exactly

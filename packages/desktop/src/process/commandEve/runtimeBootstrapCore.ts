@@ -5126,6 +5126,23 @@ function writeHermesRuntimeFiles(
     // every boot and seat provisioning pass revokes those legacy class-wide
     // grants without relying on the currently installed profile being clean.
     'command_allowlist: []',
+    // 1.820: Hermes must ALWAYS ask, and must never decide by itself.
+    //
+    // AionCore is the only authority in this product: `command_eve_transport_mode`
+    // pins Hermes to its ask-mode, the per-operation decision is taken there
+    // against the user's graduated grant, and Hermes' job is to raise the
+    // question, not to answer it.
+    //
+    // Until now that rested on nothing but Hermes' own built-in default
+    // (`_get_approval_mode` falls back to 'manual' — FACT tools/approval.py).
+    // An undeclared default is not a gate. A wheel bump that changed it to
+    // 'smart' would hand the decision back to Hermes, EVE would start
+    // self-approving, the desktop ladder would govern nothing, and no gate we
+    // own would have said a word. So the value is now stated out loud, on every
+    // boot, and `runtimeBootstrapCore.test.ts` fails if it ever goes missing or
+    // changes.
+    'approvals:',
+    '  mode: manual',
     'skills:',
     // creation_nudge_interval > 0 re-enables the background skill-review fork.
     // 0 is an explicit kill-switch and overrides Hermes' own default 10 (FACT
