@@ -55,6 +55,10 @@ vi.mock('@/renderer/components/settings/SettingsSection', () => ({
 }));
 
 vi.mock('@arco-design/web-react', () => {
+  // These stubs cannot be hoisted out of the factory: vitest hoists `vi.mock`
+  // above the imports, so a factory that closed over an outer binding would read
+  // it before initialisation. The lint rule's advice is wrong in this position.
+  // eslint-disable-next-line unicorn/consistent-function-scoping
   const RadioGroup = ({
     value,
     onChange,
@@ -68,6 +72,7 @@ vi.mock('@arco-design/web-react', () => {
       {children}
     </div>
   );
+  // eslint-disable-next-line unicorn/consistent-function-scoping
   const Radio = ({ value, children }: { value: number; children: React.ReactNode }) => (
     <label data-testid={`rung-${value}`}>{children}</label>
   );
