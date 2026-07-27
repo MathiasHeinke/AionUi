@@ -127,7 +127,7 @@ describe('Settings → Freigaben offers only what something enforces', () => {
     store['acp.config'] = { hermes: { preferredMode: 'dont_ask' } };
     const Panel = await importPanel();
     render(<Panel />);
-    expect(await screen.findByText('commandEve:authority.notConfirmedYet')).toBeTruthy();
+    expect(await screen.findByText('commandEve.authority.notConfirmedYet')).toBeTruthy();
     expect(screen.getByTestId('ladder').getAttribute('data-value')).toBe('3');
   });
 });
@@ -188,7 +188,7 @@ describe('what EVE remembered', () => {
     store['commandEve.authority'] = { ladder: 2, capabilities: {}, updatedBy: 'user' } satisfies EveAuthorityGrant;
     const Panel = await importPanel();
     render(<Panel />);
-    expect(await screen.findByText('commandEve:authority.rememberedEmpty')).toBeTruthy();
+    expect(await screen.findByText('commandEve.authority.rememberedEmpty')).toBeTruthy();
     expect(screen.queryByTestId('remembered-row')).toBeNull();
   });
 });
