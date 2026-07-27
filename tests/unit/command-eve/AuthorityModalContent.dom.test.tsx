@@ -83,6 +83,11 @@ vi.mock('@arco-design/web-react', () => {
       <button data-testid='seal' data-checked={checked ? 'on' : 'off'} onClick={() => onChange(!checked)} />
     ),
     InputNumber: ({ value }: { value?: number }) => <input data-testid='budget' value={value ?? ''} readOnly />,
+    Button: ({ children, onClick }: { children: React.ReactNode; onClick: () => void }) => (
+      <button data-testid='forget' onClick={onClick}>
+        {children}
+      </button>
+    ),
     Tag: ({ children }: { children: React.ReactNode }) => <span data-testid='tag'>{children}</span>,
     Message: { warning: vi.fn() },
   };
@@ -142,6 +147,29 @@ describe('Settings → Freigaben', () => {
     // Unsealed but with no amount yet: the panel must say so rather than look
     // like a switch that is on while EVE never spends.
     expect(await screen.findByTestId('tag')).toBeTruthy();
+  });
+
+  it('lists what EVE remembered and withdraws exactly one row', async () => {
+    store['commandEve.authority'] = {
+      ladder: 3,
+      capabilities: {},
+      updatedBy: 'user',
+      rememberedCommands: [
+        { command: 'git status', grantedAt: '2026-07-27T22:00:00.000Z' },
+        { command: 'bun run test', grantedAt: '2026-07-27T22:05:00.000Z' },
+      ],
+    } satisfies EveAuthorityGrant;
+    const Panel = await importPanel();
+    render(<Panel />);
+
+    expect(await screen.findAllByTestId('remembered-row')).toHaveLength(2);
+    // Withdrawing is the property that makes remembering acceptable at all: an
+    // authority the human cannot take back is not an authority, it is a leak.
+    (await screen.findAllByTestId('forget'))[0]?.click();
+
+    await waitFor(() => expect(setSpy).toHaveBeenCalled());
+    const written = setSpy.mock.calls.at(-1)?.[1] as EveAuthorityGrant;
+    expect(written.rememberedCommands).toEqual([{ command: 'bun run test', grantedAt: '2026-07-27T22:05:00.000Z' }]);
   });
 
   it('says plainly when the stored value was migrated and never confirmed', async () => {

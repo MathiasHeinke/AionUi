@@ -23,6 +23,7 @@ import {
   type EveLadderRung,
   type EveSealedCapability,
 } from '@/common/config/eveAuthorityCore';
+import { readRememberedCommands } from '@/common/config/eveRememberedCommandsCore';
 import {
   classifyDailyBudget,
   grantNeedsAttention,
@@ -31,10 +32,11 @@ import {
   withDailyBudget,
   withLadder,
   withSeal,
+  withoutRememberedCommand,
 } from '@/common/config/eveAuthorityStoreCore';
 import AionScrollArea from '@/renderer/components/base/AionScrollArea';
 import SettingsSection from '@/renderer/components/settings/SettingsSection';
-import { InputNumber, Message, Radio, Switch, Tag } from '@arco-design/web-react';
+import { Button, InputNumber, Message, Radio, Switch, Tag } from '@arco-design/web-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -87,6 +89,7 @@ const AuthorityModalContent: React.FC = () => {
   }, []);
 
   const attention = useMemo(() => (grant ? grantNeedsAttention(grant) : null), [grant]);
+  const remembered = useMemo(() => (grant ? readRememberedCommands(grant.rememberedCommands) : []), [grant]);
 
   if (!grant) return null;
 
@@ -98,6 +101,11 @@ const AuthorityModalContent: React.FC = () => {
     const next = withSeal(grant, capability, open, new Date().toISOString());
     if (capability === 'spend.money' && !open) setBudgetEur(undefined);
     void persist(next);
+  };
+
+  const onForget = (command: string): void => {
+    if (!grant) return;
+    void persist(withoutRememberedCommand(grant, command));
   };
 
   const onBudget = (value: number | undefined) => {
@@ -181,6 +189,37 @@ const AuthorityModalContent: React.FC = () => {
               );
             })}
           </div>
+        </SettingsSection>
+
+        <SettingsSection
+          title={t('commandEve:authority.rememberedTitle')}
+          description={t('commandEve:authority.rememberedDescription')}
+        >
+          {remembered.length === 0 ? (
+            <div className='text-13px op-70'>{t('commandEve:authority.rememberedEmpty')}</div>
+          ) : (
+            <div className='flex flex-col gap-8px'>
+              {remembered.map((entry) => (
+                <div
+                  key={entry.command}
+                  className='flex items-center justify-between gap-16px'
+                  data-testid='remembered-row'
+                >
+                  <div className='min-w-0'>
+                    <code className='text-13px break-all'>{entry.command}</code>
+                    <div className='text-12px op-60'>
+                      {t('commandEve:authority.grantedAt', {
+                        date: new Date(entry.grantedAt).toLocaleDateString(),
+                      })}
+                    </div>
+                  </div>
+                  <Button size='mini' status='danger' onClick={() => onForget(entry.command)}>
+                    {t('commandEve:authority.forget')}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
         </SettingsSection>
       </div>
     </AionScrollArea>

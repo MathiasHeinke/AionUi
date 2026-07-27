@@ -17,6 +17,7 @@
  * what lets the migration and the seal bookkeeping be tested directly.
  */
 
+import { forgetCommand, rememberCommand, readRememberedCommands } from './eveRememberedCommandsCore';
 import {
   EVE_AUTHORITY_FAIL_CLOSED,
   EVE_LADDER_RUNGS,
@@ -156,4 +157,30 @@ export function grantNeedsAttention(grant: EveAuthorityGrant): 'money-without-bu
   return classifyDailyBudget(daily) === 'ok' || classifyDailyBudget(daily) === 'confirm'
     ? null
     : 'money-without-budget';
+}
+
+/**
+ * The human said "you may always do this" on a permission card.
+ *
+ * Deliberately NOT Hermes' own "always" button: that one calls
+ * `approve_permanent(pattern_key)`, and `pattern_key` is the DESCRIPTION of a
+ * regex category — one click would grant the whole class. This stores the
+ * literal command instead, and the seat's allowlist is regenerated from it.
+ *
+ * A rejected candidate leaves the grant untouched, so nothing lands in the
+ * allowlist that the human did not see on the card.
+ */
+export function withRememberedCommand(grant: EveAuthorityGrant, command: string, now: string): EveAuthorityGrant {
+  const existing = readRememberedCommands(grant.rememberedCommands);
+  const next = rememberCommand(existing, command, now);
+  if (next === existing) return grant;
+  return { ...grant, rememberedCommands: next, updatedBy: 'user' };
+}
+
+/** The human withdrew one remembered command. The next boot emits the allowlist without it. */
+export function withoutRememberedCommand(grant: EveAuthorityGrant, command: string): EveAuthorityGrant {
+  const existing = readRememberedCommands(grant.rememberedCommands);
+  const next = forgetCommand(existing, command);
+  if (next.length === existing.length) return grant;
+  return { ...grant, rememberedCommands: next, updatedBy: 'user' };
 }

@@ -85,6 +85,12 @@ export const SEAT_SCOPED_CONFIG_KEYS: ReadonlySet<string> = new Set<string>([
   // off in HIS own seat (e.g. writing a brief with real contact data) while every
   // client seat keeps its own DSGVO posture. Never install-global.
   'commandEve.egressRedactionMode',
+  // 1.820: the approval grant, including the commands this seat's human said EVE
+  // may always run. Per seat for the same reason as the redaction switch, only
+  // sharper: a command one client approved must never be pre-approved while EVE
+  // works inside another client's seat. Install-global here would silently make
+  // "per seat" false.
+  'commandEve.authority',
 ]);
 
 /** True when this key must be routed through `seatScopedKey`. */

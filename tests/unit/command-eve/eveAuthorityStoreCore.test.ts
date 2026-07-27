@@ -15,7 +15,9 @@ import {
   resolveStoredGrant,
   withDailyBudget,
   withLadder,
+  withRememberedCommand,
   withSeal,
+  withoutRememberedCommand,
 } from '@/common/config/eveAuthorityStoreCore';
 
 const NOW = '2026-07-27T21:00:00.000Z';
@@ -151,5 +153,41 @@ describe('a budget nobody typed is a budget nobody agreed to', () => {
 
     expect(grantNeedsAttention(withDailyBudget(moneyNoBudget, 5000))).toBeNull();
     expect(grantNeedsAttention({ ladder: 5, capabilities: {}, updatedBy: 'user' })).toBeNull();
+  });
+});
+
+describe('"you may always do this" — our record, not Hermes button', () => {
+  const base: EveAuthorityGrant = { ladder: 2, capabilities: {}, updatedBy: 'migration' };
+
+  it('stores the literal command and marks the grant as chosen by a person', () => {
+    const next = withRememberedCommand(base, 'git status', NOW);
+    expect(next.rememberedCommands).toEqual([{ command: 'git status', grantedAt: NOW }]);
+    expect(next.updatedBy).toBe('user');
+  });
+
+  it('leaves the grant untouched when the card offered something unstorable', () => {
+    // Nothing may land in the allowlist that the human did not see on the card,
+    // and nothing may be stored that Hermes could never match.
+    for (const bad of ['', '   ', 'ls && rm -rf build', 'podman *']) {
+      expect(withRememberedCommand(base, bad, NOW)).toBe(base);
+    }
+    // A second grant of the same command is a no-op, not a duplicate row.
+    const once = withRememberedCommand(base, 'git status', NOW);
+    expect(withRememberedCommand(once, 'git status', NOW)).toBe(once);
+  });
+
+  it('withdraws one command and leaves the others standing', () => {
+    let grant = withRememberedCommand(base, 'git status', NOW);
+    grant = withRememberedCommand(grant, 'bun run test', NOW);
+    const revoked = withoutRememberedCommand(grant, 'git status');
+    expect(revoked.rememberedCommands).toEqual([{ command: 'bun run test', grantedAt: NOW }]);
+    // Withdrawing something that was never granted changes nothing at all.
+    expect(withoutRememberedCommand(revoked, 'never granted')).toBe(revoked);
+  });
+
+  it('keeps remembered commands when the ladder or a seal moves', () => {
+    const grant = withRememberedCommand(base, 'git status', NOW);
+    expect(withLadder(grant, 5).rememberedCommands).toEqual(grant.rememberedCommands);
+    expect(withSeal(grant, 'publish.outward', true, NOW).rememberedCommands).toEqual(grant.rememberedCommands);
   });
 });

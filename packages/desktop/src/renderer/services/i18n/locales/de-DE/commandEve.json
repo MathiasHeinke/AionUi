@@ -66,6 +66,10 @@
         "title": "In Produktion schreiben",
         "body": "Live-Systeme deployen oder verändern."
       }
-    }
+    },
+    "rememberedTitle": "Was EVE sich gemerkt hat",
+    "rememberedDescription": "Befehle, die du für diesen Seat dauerhaft erlaubt hast. EVE fragt danach nicht mehr — bis du sie hier zurücknimmst.",
+    "rememberedEmpty": "Noch nichts gemerkt. EVE fragt bei jedem Befehl.",
+    "forget": "Zurücknehmen"
   }
 }

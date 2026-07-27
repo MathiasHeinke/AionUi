@@ -66,6 +66,10 @@
         "title": "Write to production",
         "body": "Deploy or change live systems."
       }
-    }
+    },
+    "rememberedTitle": "What EVE has remembered",
+    "rememberedDescription": "Commands you allowed permanently for this seat. EVE stops asking for them — until you withdraw one here.",
+    "rememberedEmpty": "Nothing remembered yet. EVE asks for every command.",
+    "forget": "Withdraw"
   }
 }

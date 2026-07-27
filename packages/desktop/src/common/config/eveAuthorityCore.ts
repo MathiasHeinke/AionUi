@@ -22,6 +22,8 @@
  * they cannot drift apart.
  */
 
+import { readRememberedCommands, type EveRememberedCommand } from './eveRememberedCommandsCore';
+
 /** How consequential an action is. Ordered: each rung of the ladder admits a prefix of this list. */
 export type EveActionClass =
   | 'read'
@@ -84,6 +86,14 @@ export function mayOfferToAct(rung: EveLadderRung): boolean {
 
 export interface EveAuthorityGrant {
   ladder: EveLadderRung;
+  /**
+   * The literal commands this seat's human said EVE may always run.
+   *
+   * Lives on the grant so the whole approval posture of a seat is ONE record —
+   * one thing to read, one thing to show, one thing to revoke. The seat's Hermes
+   * `command_allowlist` is a projection of this, never the other way round.
+   */
+  rememberedCommands?: readonly EveRememberedCommand[];
   capabilities: Readonly<Partial<Record<EveSealedCapability, boolean>>>;
   /** ISO timestamp per capability, recording WHEN the human unsealed it. */
   grantedAt?: Readonly<Partial<Record<EveSealedCapability, string>>>;
@@ -296,6 +306,15 @@ export function isEveAuthorityGrant(value: unknown): value is EveAuthorityGrant 
   for (const [key, flag] of Object.entries(capabilities)) {
     if (!EVE_SEALED_CAPABILITIES.includes(key as EveSealedCapability)) return false;
     if (typeof flag !== 'boolean') return false;
+  }
+  if (candidate.rememberedCommands !== undefined) {
+    // A row that does not survive re-validation invalidates the whole record
+    // rather than being quietly dropped here: the panel must never show fewer
+    // grants than the projection would emit, or a revoke could miss one.
+    if (!Array.isArray(candidate.rememberedCommands)) return false;
+    if (readRememberedCommands(candidate.rememberedCommands).length !== candidate.rememberedCommands.length) {
+      return false;
+    }
   }
   const limits = candidate.limits;
   if (limits !== undefined) {

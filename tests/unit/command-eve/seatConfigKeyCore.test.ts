@@ -70,9 +70,14 @@ describe('(b) cross-seat fence — two seats → two distinct keys', () => {
 });
 
 describe('(c) the allowlist is explicit + auditable', () => {
-  it('exposes exactly the 8 per-seat keys', () => {
+  it('exposes exactly the 9 per-seat keys', () => {
+    // Pinned on purpose: adding or removing a key here has to be a decision
+    // somebody made, not a diff nobody noticed. 1.820 adds the approval grant —
+    // a command one client approved must never be pre-approved inside another
+    // client's seat.
     expect([...SEAT_SCOPED_CONFIG_KEYS].toSorted()).toEqual(
       [
+        'commandEve.authority',
         'commandEve.churnSignal',
         'commandEve.clientSeedDismissed',
         'commandEve.clientSeeded',
