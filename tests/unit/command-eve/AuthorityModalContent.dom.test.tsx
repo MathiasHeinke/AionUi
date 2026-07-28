@@ -20,18 +20,44 @@
 
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import type { EveAuthorityGrant } from '@/common/config/eveAuthorityCore';
 
 const store: Record<string, unknown> = {};
+const subscribers = new Map<string, Set<() => void>>();
+
+function notifyKey(key: string): void {
+  for (const callback of subscribers.get(key) ?? []) callback();
+}
+
 const setSpy = vi.fn(async (key: string, value: unknown) => {
   store[key] = value;
+  notifyKey(key);
 });
 
+/**
+ * Close to the real service in the two ways that matter here.
+ *
+ * `get` is SYNCHRONOUS: `useConfig` hands it to `useSyncExternalStore` as the
+ * snapshot, and an async get would return a fresh promise on every render and
+ * spin forever. The panel used to await it, which hid that.
+ *
+ * `subscribe` exists because that is the channel a seat switch arrives on —
+ * `rebindSeat` re-homes the cache and re-notifies each seat-scoped key whose
+ * value differs under the new seat. A panel that only reads on mount is deaf to
+ * it.
+ */
 vi.mock('@/common/config/configService', () => ({
   configService: {
-    get: async (key: string) => store[key],
+    get: (key: string) => store[key],
     set: setSpy,
+    subscribe: (key: string, callback: () => void) => {
+      const forKey = subscribers.get(key) ?? new Set<() => void>();
+      forKey.add(callback);
+      subscribers.set(key, forKey);
+      return () => forKey.delete(callback);
+    },
+    whenReady: async () => {},
   },
 }));
 
@@ -101,6 +127,7 @@ const lastWrite = (key: string): unknown => setSpy.mock.calls.filter((call) => c
 
 beforeEach(() => {
   for (const key of Object.keys(store)) delete store[key];
+  subscribers.clear();
   setSpy.mockClear();
   vi.resetModules();
 });
@@ -129,6 +156,44 @@ describe('Settings → Freigaben offers only what something enforces', () => {
     render(<Panel />);
     expect(await screen.findByText('commandEve.authority.notConfirmedYet')).toBeTruthy();
     expect(screen.getByTestId('ladder').getAttribute('data-value')).toBe('3');
+  });
+});
+
+describe('the page states the ACTIVE seat, not the one you came from', () => {
+  it('follows a seat switch without being remounted', async () => {
+    // Seat A chose "arbeiten".
+    store['commandEve.authority'] = { ladder: 3, capabilities: {}, updatedBy: 'user' } satisfies EveAuthorityGrant;
+    const Panel = await importPanel();
+    render(<Panel />);
+    expect((await screen.findByTestId('ladder')).getAttribute('data-value')).toBe('3');
+
+    // Switching to seat B: `rebindSeat` clears the cache, re-homes it to B's
+    // namespace and re-notifies the seat-scoped key. Seat B never chose, so it
+    // resolves fail-closed.
+    await act(async () => {
+      delete store['commandEve.authority'];
+      notifyKey('commandEve.authority');
+    });
+
+    // Before this was reactive the page kept showing "3" here — telling the
+    // operator EVE may work unasked in a seat that is actually set to ask. The
+    // page is the only statement of that fact the operator gets.
+    await waitFor(() => expect(screen.getByTestId('ladder').getAttribute('data-value')).toBe('1'));
+    expect(screen.getByText('commandEve.authority.notConfirmedYet')).toBeTruthy();
+  });
+
+  it('follows a switch INTO a seat that chose more autonomy', async () => {
+    const Panel = await importPanel();
+    render(<Panel />);
+    expect((await screen.findByTestId('ladder')).getAttribute('data-value')).toBe('1');
+
+    await act(async () => {
+      store['commandEve.authority'] = { ladder: 3, capabilities: {}, updatedBy: 'user' } satisfies EveAuthorityGrant;
+      notifyKey('commandEve.authority');
+    });
+
+    await waitFor(() => expect(screen.getByTestId('ladder').getAttribute('data-value')).toBe('3'));
+    expect(screen.queryByText('commandEve.authority.notConfirmedYet')).toBeNull();
   });
 });
 

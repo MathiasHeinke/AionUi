@@ -30,6 +30,7 @@ import {
   type AgentSource,
 } from '@/renderer/utils/model/agentTypes';
 import { getAgentModes } from '@/renderer/utils/model/agentModes';
+import { useConfig } from '@/renderer/hooks/config/useConfig';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import useSWR from 'swr';
 import {
@@ -456,6 +457,15 @@ export const useGuidAgentSelection = ({
     _setSelectedAcpModel(handshakeModels?.current_model_id ?? null);
   }, [selectedAgentKey, availableAgentsData, is_presetAgent, currentEffectiveAgentInfo.agent_type]);
 
+  // Subscribed, not read once. `commandEve.authority` is seat-scoped, so
+  // `rebindSeat` re-notifies it when the value differs under the new seat. The
+  // mode effect below resolves through `getModePreference`, which is a plain
+  // read: without this subscription in its dependencies the start screen kept
+  // showing the PREVIOUS seat's mode after a switch — the same one-shot-read
+  // staleness the Freigaben page had, on the second of the two surfaces the
+  // founder required to agree.
+  const [eveAuthorityGrant] = useConfig('commandEve.authority');
+
   // Read preferred mode or fallback to legacy yoloMode config
   useEffect(() => {
     // For preset agents, use the effective backend type for config lookup and mode saving
@@ -543,7 +553,7 @@ export const useGuidAgentSelection = ({
     return () => {
       cancelled = true;
     };
-  }, [selectedAgent, is_presetAgent, currentEffectiveAgentInfo.agent_type, availableAgentsData]);
+  }, [selectedAgent, is_presetAgent, currentEffectiveAgentInfo.agent_type, availableAgentsData, eveAuthorityGrant]);
 
   const currentAcpCachedModelInfo = useMemo(() => {
     // For preset agents, resolve to the actual backend type for model list lookup

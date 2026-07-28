@@ -27,6 +27,7 @@ import {
 } from '@/common/config/eveAuthorityStoreCore';
 import AionScrollArea from '@/renderer/components/base/AionScrollArea';
 import SettingsSection from '@/renderer/components/settings/SettingsSection';
+import { useConfig } from '@/renderer/hooks/config/useConfig';
 import { Button, Radio } from '@arco-design/web-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -43,26 +44,43 @@ const RUNG_KEYS: Record<EveLadderRung, string> = {
 
 const AuthorityModalContent: React.FC = () => {
   const { t } = useTranslation();
-  const [grant, setGrant] = useState<EveAuthorityGrant | null>(null);
 
+  // Read the grant REACTIVELY, not once on mount.
+  //
+  // `commandEve.authority` is seat-scoped, and `rebindSeat` re-notifies every
+  // seat-scoped key whose value differs under the new seat. A one-shot
+  // `configService.get` in a mount effect does not hear that: switching seats
+  // with this page open left the PREVIOUS seat's ladder on screen until the
+  // page was remounted — in both directions, so it could show "Fragen" while
+  // the active seat was actually at "Arbeiten". On the page whose whole job is
+  // to state what EVE may do unasked, that is the page lying about the seat you
+  // are in. Verified in the packaged 1.820.0 app, not deduced.
+  //
+  // `useDayZeroOnboarding` already carries this exact lesson for
+  // `commandEve.clientSeedDismissed`; this is the same fix on the same
+  // mechanism.
+  const [storedGrant] = useConfig('commandEve.authority');
+  const [legacyAcpConfig] = useConfig('acp.config');
+
+  // useConfig's first snapshot is a synchronous read that can land BEFORE the
+  // config cache has finished loading, and `initialize()` does not notify per
+  // key. Render nothing until it is ready rather than briefly showing a default
+  // nobody chose — a flash of the wrong rung is the same defect in miniature.
+  const [ready, setReady] = useState(false);
   useEffect(() => {
     let cancelled = false;
-    void (async () => {
-      const [stored, legacy] = await Promise.all([
-        configService.get('commandEve.authority'),
-        configService.get('acp.config'),
-      ]);
-      if (cancelled) return;
-      const resolved = resolveStoredGrant(stored, legacy);
-      setGrant(resolved);
-    })();
+    void configService.whenReady().then(() => {
+      if (!cancelled) setReady(true);
+    });
     return () => {
       cancelled = true;
     };
   }, []);
 
+  const grant = useMemo(() => resolveStoredGrant(storedGrant, legacyAcpConfig), [storedGrant, legacyAcpConfig]);
+
   const persist = useCallback(async (next: EveAuthorityGrant) => {
-    setGrant(next);
+    // No local mirror of the value: the write notifies, `useConfig` re-reads.
     // The seat-scoped grant IS the record, and it is the only thing written.
     //
     // This used to also mirror the choice into `acp.config[hermes].preferredMode`
@@ -74,16 +92,17 @@ const AuthorityModalContent: React.FC = () => {
     await configService.set('commandEve.authority', next);
   }, []);
 
-  const remembered = useMemo(() => (grant ? readRememberedCommands(grant.rememberedCommands) : []), [grant]);
+  const remembered = useMemo(() => readRememberedCommands(grant.rememberedCommands), [grant]);
 
-  if (!grant) return null;
+  // `grant` is always resolved (resolveStoredGrant falls back closed); what we
+  // wait for is the config cache, not the value.
+  if (!ready) return null;
 
   const onLadder = (value: EveLadderRung): void => {
     void persist(withLadder(grant, value));
   };
 
   const onForget = (command: string): void => {
-    if (!grant) return;
     void persist(withoutRememberedCommand(grant, command));
   };
 
