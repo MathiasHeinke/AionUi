@@ -451,6 +451,53 @@ describe('(H4) hasValidSeatRuntimeFiles — the seat-switch fail-closed gate', (
   });
 });
 
+describe('the authority gate must cover every model provider the seat can be given', () => {
+  it('every emitted MODEL provider resolves to the profile that carries the gate', () => {
+    // P1 (Kimi, delta review) — the mechanism is real even though the EVE lane
+    // cannot reach it today. `build_api_kwargs_extras` is called from exactly one
+    // place in the wheel (agent/transports/chat_completions.py:529, inside
+    // `_build_kwargs_from_profile`), and the legacy fallback at :286 skips it. So
+    // the authority gate lives on OUR profile, and it protects only model calls
+    // that RESOLVE to our profile.
+    //
+    // Today every model provider the emitter writes — custom, ollama, local — is
+    // the registered name or one of its aliases, so the gate covers the lane.
+    // `copilot-acp` is written under `delegation:` and is a CLI launcher, not a
+    // model provider; it never reaches the chat-completions transport.
+    //
+    // That is a fact about today, and facts about today rot. This test turns it
+    // into something the build checks: add a model provider outside the profile
+    // and the gate silently stops covering it — here, loudly.
+    const userData = makeUserData();
+    setActiveSeatId(REAL_UUID_A);
+    const seatHome = resolveCommandEveRuntimeBootstrapPaths(userData).hermesHome;
+    provisionSeatRuntimeFiles({ userDataPath: userData, seatId: REAL_UUID_A });
+
+    const config = fs.readFileSync(path.join(seatHome, 'config.yaml'), 'utf8');
+    const emitted = new Set<string>();
+    let underDelegation = false;
+    for (const line of config.split(/\r?\n/)) {
+      if (/^\S/.test(line)) underDelegation = line.startsWith('delegation:');
+      const match = /^\s+provider:\s*([^\s#]+)/.exec(line);
+      if (match && !underDelegation) emitted.add(match[1]);
+    }
+    expect(emitted.size).toBeGreaterThan(0);
+
+    const shim = fs.readFileSync(path.join(seatHome, 'plugins', 'model-providers', 'custom', '__init__.py'), 'utf8');
+    const name = /name="([^"]+)"/.exec(shim)?.[1];
+    const aliasBlock = /aliases=\(([^)]*)\)/.exec(shim)?.[1] ?? '';
+    const covered = new Set<string>([
+      ...(name ? [name] : []),
+      ...Array.from(aliasBlock.matchAll(/"([^"]+)"/g), (m) => m[1]),
+    ]);
+    expect(covered.size).toBeGreaterThan(1);
+
+    const uncovered = [...emitted].filter((p) => !covered.has(p));
+    expect(uncovered).toEqual([]);
+    clearActiveSeat();
+  });
+});
+
 describe('seatRuntimeConfigKeepsManualApprovals — what the config SAYS, not that it exists', () => {
   it('rejects only an EXPLICIT non-manual mode', () => {
     expect(seatRuntimeConfigKeepsManualApprovals('approvals:\n  mode: smart\n')).toBe(false);
