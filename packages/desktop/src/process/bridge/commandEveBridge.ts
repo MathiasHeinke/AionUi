@@ -340,9 +340,20 @@ async function resolveCommandEveWorkerRuntimeInputsForSwitch(): Promise<{
   claudeDelegate: import('@/common/config/eveWorkerAssignmentCore').ResolvedClaudeDelegate | null;
   /** 1.6.3 Team-Realität: roster + live status + worker for the SOUL team directive. */
   teamRoles: import('@/common/config/eveWorkerAssignmentCore').EveTeamDirectiveRole[];
+  /**
+   * 1.820: the TARGET seat's remembered command grants.
+   *
+   * P1 (final integrator audit, Codex): the boot path was fixed to read these and
+   * this one was not, so a seat SWITCH re-provisioned the target seat with an
+   * empty allowlist and silently dropped every grant that seat's human had given.
+   * Same defect as the boot path, second call site — which is exactly why the
+   * first fix should have been checked against every caller, not one.
+   */
+  rememberedCommands: readonly import('@/common/config/eveRememberedCommandsCore').EveRememberedCommand[];
 }> {
   try {
     const { readCommandEveSettingsFromBackend } = await import('@process/commandEve/commandEveBackendSettingsRead');
+    const { rememberedCommandsFromSettings } = await import('@/common/config/eveAuthorityStoreCore');
     const { buildTeamDirectiveRoles, codexRuntimeForConfig, resolveAssignedClaudeDelegate } =
       await import('@/common/config/eveWorkerAssignmentCore');
     const { applyLauncherWiring } = await import('@process/commandEve/eveWorkerLauncherCore');
@@ -366,6 +377,7 @@ async function resolveCommandEveWorkerRuntimeInputsForSwitch(): Promise<{
     const bag = await readCommandEveSettingsFromBackend([
       'commandEve.workerAssignments',
       'commandEve.teamWorkerStatus',
+      'commandEve.authority',
     ]);
     const assignmentsRaw = bag['commandEve.workerAssignments'];
     const statusesRaw = bag['commandEve.teamWorkerStatus'];
@@ -394,6 +406,8 @@ async function resolveCommandEveWorkerRuntimeInputsForSwitch(): Promise<{
         honcho: resolveActiveSeatHonchoRenderForBridge(),
       }),
       teamRoles: buildTeamDirectiveRoles(assignments, statuses),
+      // Seat-scoped: this is the TARGET seat's record, never a sibling's.
+      rememberedCommands: rememberedCommandsFromSettings(bag),
     };
   } catch (error) {
     clearHermesDelegateTransportEnv(process.env);
@@ -403,7 +417,9 @@ async function resolveCommandEveWorkerRuntimeInputsForSwitch(): Promise<{
       '[Command EVE] seat-switch worker-runtime input read UNREACHABLE; last-known-good runtime files will be kept (no re-provision):',
       error
     );
-    return { reachable: false, codexRuntime: '', claudeDelegate: null, teamRoles: [] };
+    // Fail-CLOSED on the grants too: an unreadable store must never be read as
+    // "everything this seat once allowed is still allowed".
+    return { reachable: false, codexRuntime: '', claudeDelegate: null, teamRoles: [], rememberedCommands: [] };
   }
 }
 

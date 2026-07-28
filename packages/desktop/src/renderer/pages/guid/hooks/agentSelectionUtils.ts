@@ -9,8 +9,8 @@ import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
 import { CODEX_MODE_NATIVE_FULL_ACCESS, normalizeCodexMode } from '@/common/types/codex/codexModes';
 import type { AgentSource } from '@/renderer/utils/model/agentTypes';
 import { getAgentModes, resolveModeForBackend, type AgentModeOption } from '@/renderer/utils/model/agentModes';
-import { isEveAuthorityGrant } from '@/common/config/eveAuthorityCore';
-import { backendModeForGrant } from '@/common/config/eveAuthorityStoreCore';
+import { EVE_AUTHORITY_FAIL_CLOSED, isEveAuthorityGrant } from '@/common/config/eveAuthorityCore';
+import { backendModeForGrant, ladderFromBackendMode, withLadder } from '@/common/config/eveAuthorityStoreCore';
 
 type ModePreference = {
   preferredMode?: string;
@@ -97,6 +97,23 @@ export async function savePreferredMode(agentKey: string, mode: string): Promise
       const config = configService.get('aionrs.config');
       await configService.set('aionrs.config', { ...config, preferredMode: mode });
     } else if (agentKey !== 'custom') {
+      // P1 (final integrator audit, Codex): the reader prefers the seat-scoped
+      // grant, so writing ONLY the legacy key made an in-chat RESTRICTION vanish
+      // on restart — pick "Fragen" in a session whose grant says rung 3, and the
+      // next session silently reopens at `dont_ask`. Silent re-widening is exactly
+      // the consent break this whole layer exists to prevent, and my own reader
+      // change introduced it.
+      //
+      // So for the Command EVE lane the pill writes the RECORD the reader reads,
+      // and mirrors the legacy key for anything still consulting it directly.
+      if (isCommandEveAcpConversation(agentKey)) {
+        const rung = ladderFromBackendMode(mode);
+        if (rung !== null) {
+          const stored = configService.get('commandEve.authority');
+          const grant = isEveAuthorityGrant(stored) ? stored : EVE_AUTHORITY_FAIL_CLOSED;
+          await configService.set('commandEve.authority', withLadder(grant, rung));
+        }
+      }
       const config = configService.get('acp.config');
       const backendConfig = config?.[agentKey as string] || {};
       await configService.set('acp.config', { ...config, [agentKey]: { ...backendConfig, preferredMode: mode } });

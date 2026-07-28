@@ -6,7 +6,11 @@
 
 import type { Assistant } from '@/common/types/agent/assistantTypes';
 import type { AgentMetadata } from '@/renderer/utils/model/agentTypes';
-import { resolveConversationMode, resolveStoredPreferredMode } from '@/renderer/pages/guid/hooks/agentSelectionUtils';
+import {
+  savePreferredMode,
+  resolveConversationMode,
+  resolveStoredPreferredMode,
+} from '@/renderer/pages/guid/hooks/agentSelectionUtils';
 import {
   buildCliAgentParams,
   buildPresetAssistantParams,
@@ -14,7 +18,8 @@ import {
 import { getAgentModes } from '@/renderer/utils/model/agentModes';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { configGetMock, loadPresetAssistantResourcesMock } = vi.hoisted(() => ({
+const { configGetMock, configSetMock, loadPresetAssistantResourcesMock } = vi.hoisted(() => ({
+  configSetMock: vi.fn(),
   configGetMock: vi.fn(),
   loadPresetAssistantResourcesMock: vi.fn(),
 }));
@@ -22,7 +27,7 @@ const { configGetMock, loadPresetAssistantResourcesMock } = vi.hoisted(() => ({
 vi.mock('@/common/config/configService', () => ({
   configService: {
     get: configGetMock,
-    set: vi.fn().mockResolvedValue(undefined),
+    set: configSetMock,
   },
 }));
 
@@ -91,6 +96,29 @@ describe('EVE permission authority', () => {
     });
     // A malformed grant is not a grant: fall back, never force.
     expect(resolveStoredPreferredMode('hermes', modes)).toBe('dont_ask');
+  });
+
+  it('an in-chat restriction survives the restart it used to vanish across', async () => {
+    // P1 (final integrator audit, Codex): the reader prefers the seat grant, so a
+    // pill that wrote only the legacy key let a RESTRICTION disappear — pick
+    // "Fragen" with a rung-3 grant, restart, and the session silently reopened at
+    // dont_ask. Silent re-widening is the consent break this layer exists to stop.
+    const written: Record<string, unknown> = {};
+    configSetMock.mockImplementation(async (key: string, value: unknown) => {
+      written[key] = value;
+    });
+    configGetMock.mockImplementation((key: string) => {
+      if (key === 'commandEve.authority') return { ladder: 3, capabilities: {}, updatedBy: 'user' };
+      if (key === 'acp.config') return { hermes: { preferredMode: 'dont_ask' } };
+      return undefined;
+    });
+
+    await savePreferredMode('hermes', 'default');
+
+    // The record the reader actually reads must carry the narrower choice.
+    expect((written['commandEve.authority'] as { ladder: number }).ladder).toBe(1);
+    // And the legacy key is still mirrored for anything consulting it directly.
+    expect((written['acp.config'] as Record<string, { preferredMode?: string }>).hermes?.preferredMode).toBe('default');
   });
 
   it('keeps other agents session-local even when they have a stored preference', () => {

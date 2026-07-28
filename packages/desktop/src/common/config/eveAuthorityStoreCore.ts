@@ -248,3 +248,12 @@ export function rememberedCommandsFromSettings(bag: Record<string, unknown> | nu
   const grant = readEveAuthorityGrant(bag['commandEve.authority']);
   return readRememberedCommands(grant.rememberedCommands);
 }
+
+/** The rung a backend mode corresponds to, or null when it is not one we enforce. */
+export function ladderFromBackendMode(mode: string | null | undefined): EveLadderRung | null {
+  const value = String(mode ?? '').trim();
+  for (const rung of ENFORCED_LADDER_RUNGS) {
+    if (ladderToBackendMode(rung) === value) return rung;
+  }
+  return null;
+}
