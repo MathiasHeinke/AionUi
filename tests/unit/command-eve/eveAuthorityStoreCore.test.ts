@@ -15,6 +15,9 @@ import {
   resolveStoredGrant,
   withDailyBudget,
   withLadder,
+  backendModeForGrant,
+  isEnforcedLadderRung,
+  rememberedCommandsFromSettings,
   withRememberedCommand,
   withSeal,
   withoutRememberedCommand,
@@ -189,5 +192,59 @@ describe('"you may always do this" — our record, not Hermes button', () => {
     const grant = withRememberedCommand(base, 'git status', NOW);
     expect(withLadder(grant, 5).rememberedCommands).toEqual(grant.rememberedCommands);
     expect(withSeal(grant, 'publish.outward', true, NOW).rememberedCommands).toEqual(grant.rememberedCommands);
+  });
+});
+
+describe('the grants reach the runtime from the store alone', () => {
+  it('resolves what the seat remembered out of a raw settings bag', () => {
+    // P1 (independent review, Grok): the emitter accepted the grants and the
+    // provisioning test passed them BY HAND, so nothing caught that no production
+    // caller ever read them. A test that injects the value cannot catch a caller
+    // that never supplies one — so this one starts from the store, like the real
+    // resolver does.
+    const bag = {
+      'commandEve.authority': {
+        ladder: 3,
+        capabilities: {},
+        updatedBy: 'user',
+        rememberedCommands: [{ command: 'git status', grantedAt: NOW }],
+      },
+    };
+    expect(rememberedCommandsFromSettings(bag)).toEqual([{ command: 'git status', grantedAt: NOW }]);
+  });
+
+  it('fails closed on an unreadable or empty bag', () => {
+    // Never "everything the user once allowed is still allowed" — an empty list
+    // just means EVE asks again.
+    for (const bad of [null, undefined, {}, { 'commandEve.authority': 'nonsense' }, { 'commandEve.authority': null }]) {
+      expect(rememberedCommandsFromSettings(bad as Record<string, unknown>)).toEqual([]);
+    }
+  });
+
+  it('drops a row that would never match, even straight from the store', () => {
+    const bag = {
+      'commandEve.authority': {
+        ladder: 2,
+        capabilities: {},
+        updatedBy: 'user',
+        rememberedCommands: [
+          { command: 'ls && rm -rf /', grantedAt: NOW },
+          { command: 'bun run test', grantedAt: NOW },
+        ],
+      },
+    };
+    expect(rememberedCommandsFromSettings(bag)).toEqual([{ command: 'bun run test', grantedAt: NOW }]);
+  });
+});
+
+describe('a rung only reaches the UI when something enforces it', () => {
+  it('maps the three enforced rungs and refuses the rest', () => {
+    expect(backendModeForGrant({ ladder: 1, capabilities: {}, updatedBy: 'user' })).toBe('default');
+    expect(backendModeForGrant({ ladder: 2, capabilities: {}, updatedBy: 'user' })).toBe('accept_edits');
+    expect(backendModeForGrant({ ladder: 3, capabilities: {}, updatedBy: 'user' })).toBe('dont_ask');
+    for (const ladder of [0, 4, 5] as const) {
+      expect(backendModeForGrant({ ladder, capabilities: {}, updatedBy: 'user' })).toBeNull();
+      expect(isEnforcedLadderRung(ladder)).toBe(false);
+    }
   });
 });

@@ -19,6 +19,7 @@
 
 import { forgetCommand, rememberCommand, readRememberedCommands } from './eveRememberedCommandsCore';
 import {
+  readEveAuthorityGrant,
   EVE_AUTHORITY_FAIL_CLOSED,
   EVE_LADDER_RUNGS,
   isEveAuthorityGrant,
@@ -228,4 +229,22 @@ export function isEnforcedLadderRung(rung: EveLadderRung): boolean {
  */
 export function backendModeForGrant(grant: EveAuthorityGrant): string | null {
   return ladderToBackendMode(grant.ladder);
+}
+
+/**
+ * The seat's remembered commands, taken from a raw backend-settings bag.
+ *
+ * Exists as its own function because the inline version lived in the Electron
+ * main entry point, where it could not be tested — and that is exactly where it
+ * was missing: the emitter accepted the grants, the tests passed them by hand,
+ * and no production caller ever read them (P1, independent review). A test that
+ * has to inject the value cannot catch a caller that never supplies it.
+ *
+ * Fail-CLOSED: an unreadable or malformed bag yields an empty list, never "all
+ * the grants from last time". An empty list simply means EVE asks again.
+ */
+export function rememberedCommandsFromSettings(bag: Record<string, unknown> | null | undefined) {
+  if (!bag || typeof bag !== 'object') return [];
+  const grant = readEveAuthorityGrant(bag['commandEve.authority']);
+  return readRememberedCommands(grant.rememberedCommands);
 }

@@ -9,6 +9,8 @@ import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
 import { CODEX_MODE_NATIVE_FULL_ACCESS, normalizeCodexMode } from '@/common/types/codex/codexModes';
 import type { AgentSource } from '@/renderer/utils/model/agentTypes';
 import { getAgentModes, resolveModeForBackend, type AgentModeOption } from '@/renderer/utils/model/agentModes';
+import { readEveAuthorityGrant } from '@/common/config/eveAuthorityCore';
+import { backendModeForGrant } from '@/common/config/eveAuthorityStoreCore';
 
 type ModePreference = {
   preferredMode?: string;
@@ -25,6 +27,19 @@ const LEGACY_YOLO_MODE_MAP: Partial<Record<string, string>> = {
 function getModePreference(agentKey: string): ModePreference | undefined {
   if (agentKey === 'aionrs') {
     return configService.get('aionrs.config');
+  }
+
+  // P1 (independent review, Grok): `commandEve.authority` is seat-scoped,
+  // `acp.config` is NOT. Reading the mode only from `acp.config` let one seat's
+  // ladder choice govern every other seat — seat A picking "Arbeiten"
+  // (`dont_ask`) would open the same autonomy inside a client's seat whose own
+  // grant was narrower. The seat-scoped grant therefore WINS when it exists;
+  // `acp.config` remains the fallback for installs that have never opened the
+  // Freigaben page and for every non-Command-EVE backend.
+  if (isCommandEveAcpConversation(agentKey)) {
+    const grant = readEveAuthorityGrant(configService.get('commandEve.authority'));
+    const seatMode = backendModeForGrant(grant);
+    if (seatMode) return { preferredMode: seatMode };
   }
 
   return configService.get('acp.config')?.[agentKey];

@@ -22,7 +22,7 @@
  * they cannot drift apart.
  */
 
-import { readRememberedCommands, type EveRememberedCommand } from './eveRememberedCommandsCore';
+import type { EveRememberedCommand } from './eveRememberedCommandsCore';
 
 /** How consequential an action is. Ordered: each rung of the ladder admits a prefix of this list. */
 export type EveActionClass =
@@ -307,15 +307,15 @@ export function isEveAuthorityGrant(value: unknown): value is EveAuthorityGrant 
     if (!EVE_SEALED_CAPABILITIES.includes(key as EveSealedCapability)) return false;
     if (typeof flag !== 'boolean') return false;
   }
-  if (candidate.rememberedCommands !== undefined) {
-    // A row that does not survive re-validation invalidates the whole record
-    // rather than being quietly dropped here: the panel must never show fewer
-    // grants than the projection would emit, or a revoke could miss one.
-    if (!Array.isArray(candidate.rememberedCommands)) return false;
-    if (readRememberedCommands(candidate.rememberedCommands).length !== candidate.rememberedCommands.length) {
-      return false;
-    }
-  }
+  if (candidate.rememberedCommands !== undefined && !Array.isArray(candidate.rememberedCommands)) return false;
+  // Individual rows are NOT validated here on purpose. `readRememberedCommands`
+  // drops anything unusable, and BOTH readers of this field — the Freigaben list
+  // and the config.yaml projection — go through it, so they always agree.
+  //
+  // The first cut rejected the entire grant when one row failed. That was
+  // collateral, not safety: a single hand-edited line would silently reset the
+  // human's LADDER to fail-closed as well. Losing a grant nobody revoked is its
+  // own defect.
   const limits = candidate.limits;
   if (limits !== undefined) {
     if (!limits || typeof limits !== 'object') return false;

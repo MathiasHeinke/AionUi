@@ -89,6 +89,8 @@ import {
 } from './process/commandEve/inferenceSelectionBackendRead';
 import { resolveCommandEveManagedVisualTurn } from './process/commandEve/managedVisualTurnAuthorizationCore';
 import { readCommandEveSettingsFromBackend } from './process/commandEve/commandEveBackendSettingsRead';
+import { type EveRememberedCommand } from '@/common/config/eveRememberedCommandsCore';
+import { rememberedCommandsFromSettings } from '@/common/config/eveAuthorityStoreCore';
 import { createTeamWorkerStatusResolver } from './process/commandEve/teamWorkerStatusResolverCore';
 import { createEgressRedactionModeResolver } from './process/commandEve/egressRedactionModeResolverCore';
 import {
@@ -804,6 +806,16 @@ async function resolveCommandEveWorkerRuntimeInputs(): Promise<{
   claudeDelegate: ReturnType<typeof resolveAssignedClaudeDelegate>;
   /** 1.6.3 Team-Realität: roster + live status + worker for the SOUL team directive. */
   teamRoles: EveTeamDirectiveRole[];
+  /**
+   * 1.820: the commands THIS SEAT's human said EVE may always run.
+   *
+   * P1 (independent review, Grok): the emitter accepted this and the tests passed
+   * it explicitly, but no production caller ever read it — so a user could tick
+   * "always allow this command", see it listed in Freigaben, and Hermes would
+   * never learn about it. Green feature, no effect. It is resolved HERE because
+   * both provisioning call sites already spread this object.
+   */
+  rememberedCommands: readonly EveRememberedCommand[];
 }> {
   try {
     // S9 #3 store-split fix: worker assignments + team status are RENDERER-written
@@ -815,9 +827,14 @@ async function resolveCommandEveWorkerRuntimeInputs(): Promise<{
     const bag = await readCommandEveSettingsFromBackend([
       'commandEve.workerAssignments',
       'commandEve.teamWorkerStatus',
+      'commandEve.authority',
     ]);
     const assignmentsRaw = bag['commandEve.workerAssignments'];
     const statusesRaw = bag['commandEve.teamWorkerStatus'];
+    // Seat-scoped by `SEAT_SCOPED_CONFIG_KEYS`, so this reads THIS seat's grants
+    // and never a sibling client's. Re-validated on read: a row that reached the
+    // store by another route is not trusted for already being there.
+    const rememberedCommands = rememberedCommandsFromSettings(bag);
     const assignments =
       assignmentsRaw && typeof assignmentsRaw === 'object'
         ? (Object.fromEntries(
@@ -846,13 +863,22 @@ async function resolveCommandEveWorkerRuntimeInputs(): Promise<{
         packaged: app.isPackaged,
       }),
       teamRoles: buildTeamDirectiveRoles(assignments, statuses),
+      rememberedCommands,
     };
   } catch (error) {
     clearHermesDelegateTransportEnv(process.env);
     console.warn('[Command EVE] worker-runtime input resolver failed; no external worker wired:', error);
     // Fail-soft on the TEAM directive too: with no readable settings the roster
     // defaults still describe the team truthfully (default statuses, no worker).
-    return { codexRuntime: '', claudeDelegate: null, teamRoles: buildTeamDirectiveRoles({}, {}) };
+    // Fail-CLOSED on the grants: unreadable settings must never be read as
+    // "everything the user once allowed is still allowed" — an empty list simply
+    // means EVE asks again.
+    return {
+      codexRuntime: '',
+      claudeDelegate: null,
+      teamRoles: buildTeamDirectiveRoles({}, {}),
+      rememberedCommands: [],
+    };
   }
 }
 
