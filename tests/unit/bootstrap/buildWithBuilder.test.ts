@@ -120,6 +120,20 @@ childProcess.execSync = function mockedExecSync(command) {
         rmSync(tempDir, { recursive: true, force: true });
       }
     },
-    30_000
+    // 120s (was 30s). This case spawns a REAL `node scripts/build-with-builder.js`
+    // child; the whole file costs 6.9s in isolation but the mac/arm64 case alone
+    // ran past 30s inside the full suite (measured: the file took 32.2s there),
+    // because `maxWorkers: '60%'` keeps heavy jsdom and process-spawning files
+    // competing for cores. That is the same headroom problem vitest.config.ts
+    // already documents at the suite level — its cap was tuned against 119 files
+    // and the suite is now 533.
+    //
+    // Only the BUDGET moves. Nothing about the target contract this test asserts
+    // is relaxed: a timeout can never turn a failing assertion green, and a real
+    // hang now surfaces as a 120s stall instead of a red that says nothing about
+    // the contract. Raising it is what keeps this gate readable; leaving it would
+    // have made "suite green" unavailable for the 1.820 release for a reason
+    // unrelated to any defect.
+    120_000
   );
 });
