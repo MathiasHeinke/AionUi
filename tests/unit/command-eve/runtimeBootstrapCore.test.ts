@@ -1026,6 +1026,19 @@ describe('Command EVE runtime bootstrap core', () => {
       );
       expect(providerOverride).toContain('disable_session_yolo');
       expect(providerOverride).not.toContain('enable_session_yolo');
+      // P2 (Fable as CAO, confirmed by two independent arms): the patch
+      // installer returns quietly when its import fails, and a log line on
+      // Hermes' stderr never reaches receipt.warnings — so a dead authority gate
+      // looked exactly like a healthy boot. The check must REFUSE the model call,
+      // and it must sit where a model call is being built, not at import time
+      // (this module is imported before the ACP layer necessarily is, and the
+      // installer is retried lazily on every call).
+      expect(providerOverride).toContain('_require_command_eve_permission_authority_patch()');
+      expect(providerOverride).toContain('raise RuntimeError(');
+      const buildExtras = providerOverride.slice(providerOverride.indexOf('def build_api_kwargs_extras('));
+      expect(buildExtras.slice(0, buildExtras.indexOf('extra_body: dict[str, Any] = {}'))).toContain(
+        '_require_command_eve_permission_authority_patch()'
+      );
       expect(providerOverride).toContain('and parsed.port == 25811');
       expect(providerOverride).toContain('re.fullmatch(r"[a-f0-9]{64}", token)');
       expect(providerOverride).toContain('top_level["reasoning_effort"] = "none"');
