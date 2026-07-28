@@ -34,10 +34,7 @@ const AuthoritySettings: React.FC = () => {
       <AionScrollArea className='flex-1 min-h-0 pb-16px' disableOverflow={isPageMode}>
         <SettingsPageHeader
           title={t('settings.authority', { defaultValue: 'Freigaben' })}
-          description={t('commandEve.authority.pageDescription', {
-            defaultValue:
-              'Lege fest, was EVE ohne Rückfrage tun darf — und nimm jederzeit zurück, was sie sich gemerkt hat.',
-          })}
+          description={t('commandEve.authority.pageDescription')}
         />
         <AuthorityPanel />
       </AionScrollArea>

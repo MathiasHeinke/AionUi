@@ -70,6 +70,7 @@
     "rememberedTitle": "Was EVE sich gemerkt hat",
     "rememberedDescription": "Befehle, die du für diesen Seat dauerhaft erlaubt hast. EVE fragt danach nicht mehr — bis du sie hier zurücknimmst.",
     "rememberedEmpty": "Noch nichts gemerkt. EVE fragt bei jedem Befehl.",
-    "forget": "Zurücknehmen"
+    "forget": "Zurücknehmen",
+    "pageDescription": "Lege fest, was EVE ohne Rückfrage tun darf — und nimm jederzeit zurück, was sie sich gemerkt hat."
   }
 }
