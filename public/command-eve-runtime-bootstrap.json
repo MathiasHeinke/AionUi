@@ -4,10 +4,7 @@
   "hermes": {
     "package": "hermes-agent",
     "version": "0.17.0",
-    "extras": [
-      "acp",
-      "mcp"
-    ]
+    "extras": ["acp", "mcp"]
   },
   "local_runtime": {
     "provider": "ollama",
@@ -95,11 +92,6 @@
     "allow_homebrew_install": true,
     "allow_model_pull": true,
     "model_weights_in_app_bundle": false,
-    "fail_closed_reason_codes": [
-      "BLOCKED_RAM",
-      "BLOCKED_DISK",
-      "OLLAMA_MISSING",
-      "MODEL_NOT_FETCHED"
-    ]
+    "fail_closed_reason_codes": ["BLOCKED_RAM", "BLOCKED_DISK", "OLLAMA_MISSING", "MODEL_NOT_FETCHED"]
   }
 }
