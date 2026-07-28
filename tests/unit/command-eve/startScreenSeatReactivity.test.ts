@@ -59,4 +59,16 @@ describe('the start screen follows the active seat', () => {
     // disagree inside a single seat again.
     expect(source).toContain('getModePreference(configKey as string)');
   });
+
+  it('decides the displayed mode through resolveStartScreenMode, and tells it the seat moved', () => {
+    // Subscribing alone was not enough: the effect re-ran but could only ever
+    // RAISE the mode, so a seat with nothing stored kept the previous seat's
+    // (verified in the packaged 1.820.0 build). The reset lives in
+    // `resolveStartScreenMode`, and it is inert unless this hook passes
+    // `seatChanged` — which is why both halves are pinned here rather than just
+    // the call. The behavioural proof is resolveStartScreenMode.test.ts.
+    expect(source).toContain('resolveStartScreenMode({');
+    expect(source).toContain('seatChanged');
+    expect(source).toContain('modeSeatGrantRef.current !== eveAuthorityGrant');
+  });
 });

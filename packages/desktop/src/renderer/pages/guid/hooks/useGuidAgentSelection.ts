@@ -6,11 +6,7 @@
 
 import { ipcBridge } from '@/common';
 import { DEFAULT_CODEX_MODELS } from '@/common/types/codex/codexModels';
-import {
-  CODEX_MODE_NATIVE_DEFAULT,
-  CODEX_MODE_NATIVE_FULL_ACCESS,
-  normalizeCodexMode,
-} from '@/common/types/codex/codexModes';
+import { CODEX_MODE_NATIVE_DEFAULT } from '@/common/types/codex/codexModes';
 import {
   COMMAND_EVE_ASSISTANT_ID,
   COMMAND_EVE_ASSISTANT_KEY,
@@ -37,8 +33,12 @@ import {
   savePreferredMode,
   savePreferredModelId,
   getModePreference,
+  resolveStartScreenMode,
   getAgentKey as getAgentKeyUtil,
 } from './agentSelectionUtils';
+
+/** Sentinel for "no grant resolved against yet"; no stored grant can equal it. */
+const SEAT_GRANT_UNSET = Symbol('seat-grant-unset');
 import { usePresetAssistantResolver } from './usePresetAssistantResolver';
 import { useAgentAvailability } from './useAgentAvailability';
 import { useCustomAgentsLoader } from './useCustomAgentsLoader';
@@ -157,6 +157,12 @@ export const useGuidAgentSelection = ({
   // unconditional `_setSelectedMode(fallbackMode)` would reset an explicit pick
   // back to 'default' mid-send (the start-screen permission-reset bug).
   const modeFallbackAppliedForRef = useRef<string | null>(null);
+  // Tracks the seat-scoped grant the mode was last resolved against, so the
+  // effect can tell a SEAT SWITCH (different grant) from an SWR revalidation
+  // (same grant). Only the former may reset the displayed mode — see
+  // `resolveStartScreenMode`. Starts as a sentinel no grant can equal so the
+  // first resolve counts as a change.
+  const modeSeatGrantRef = useRef<unknown>(SEAT_GRANT_UNSET);
   const [selectedAcpModel, _setSelectedAcpModel] = useState<string | null>(null);
 
   // Wrap setSelectedAgentKey to also save to storage
@@ -486,6 +492,11 @@ export const useGuidAgentSelection = ({
       modeFallbackAppliedForRef.current = configKey;
       _setSelectedMode(fallbackMode);
     }
+    // A seat switch re-homes the config cache, so `commandEve.authority` comes
+    // back as a different value (or none at all). An SWR revalidation carries
+    // the identical one. Only the former may reset the displayed mode below.
+    const seatChanged = modeSeatGrantRef.current !== eveAuthorityGrant;
+    modeSeatGrantRef.current = eveAuthorityGrant;
     if (!configKey) return;
 
     let cancelled = false;
@@ -519,30 +530,18 @@ export const useGuidAgentSelection = ({
           return;
         }
 
-        // 1. Use preferredMode if valid
-        const normalizedPreferred = configKey === 'codex' ? normalizeCodexMode(preferred) : preferred;
-        if (normalizedPreferred) {
-          const modes = getAgentModes(configKey);
-          if (modes.some((m) => m.value === normalizedPreferred)) {
-            _setSelectedMode(normalizedPreferred);
-            return;
-          }
-        }
-
-        // 2. Fallback: legacy yoloMode
-        if (yoloMode) {
-          const yoloValues: Record<string, string> = {
-            claude: 'bypassPermissions',
-            gemini: 'yolo',
-            codex: CODEX_MODE_NATIVE_FULL_ACCESS,
-            qwen: 'yolo',
-            // hermes (EVE) spells YOLO as 'dont_ask'; the bare 'yolo' fallback below
-            // saved a value hermes doesn't know → the in-session selector snapped it
-            // back to the default ("Standard"). Save the value hermes actually offers.
-            hermes: 'dont_ask',
-          };
-          _setSelectedMode(yoloValues[configKey] || 'yolo');
-        }
+        // Stored preference first, then legacy yoloMode, then — only when the
+        // SEAT changed — the backend's default. That last branch is what stops
+        // the previous seat's mode from standing after a switch; see
+        // `resolveStartScreenMode`.
+        const resolved = resolveStartScreenMode({
+          agentKey: configKey,
+          preferred,
+          yoloMode,
+          fallbackMode,
+          seatChanged,
+        });
+        if (resolved) _setSelectedMode(resolved);
       } catch {
         /* silent */
       }

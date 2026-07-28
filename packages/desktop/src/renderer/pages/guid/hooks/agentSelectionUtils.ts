@@ -63,6 +63,42 @@ export function getModePreference(agentKey: string): ModePreference | undefined 
   return configService.get('acp.config')?.[agentKey];
 }
 
+/**
+ * What the start screen must show for the seat that is active NOW.
+ *
+ * Returns the mode to display, or `undefined` to leave the current one alone.
+ *
+ * The third branch is the reason this function exists. The first two can only
+ * ever RAISE the displayed mode: a seat that stored nothing takes neither, so
+ * before this the start screen simply kept the PREVIOUS seat's mode after a
+ * switch — offering an autonomy that seat never chose. Verified in the packaged
+ * 1.820.0 build: switching from a seat at "Auto-Edits" into a seat with no grant
+ * left "Auto-Edits" on screen. Subscribing to the seat-scoped grant made the
+ * effect re-run, which was necessary and not sufficient; a read that can only
+ * widen is still a leak, just a slower one.
+ *
+ * `seatChanged` is what keeps the reset from clobbering an explicit pick. A mode
+ * the human picks is persisted, so a re-run finds it in branch 1 and never
+ * reaches here; an SWR revalidation carries the same grant and is not a seat
+ * change. Only an actual move between seats resets.
+ */
+export function resolveStartScreenMode(input: {
+  agentKey: string;
+  preferred: string | undefined;
+  yoloMode: boolean;
+  fallbackMode: string;
+  seatChanged: boolean;
+}): string | undefined {
+  const { agentKey, preferred, yoloMode, fallbackMode, seatChanged } = input;
+
+  const normalized = agentKey === 'codex' ? normalizeCodexMode(preferred) : preferred;
+  if (normalized && getAgentModes(agentKey).some((mode) => mode.value === normalized)) return normalized;
+
+  if (yoloMode) return LEGACY_YOLO_MODE_MAP[agentKey] ?? 'yolo';
+
+  return seatChanged ? fallbackMode : undefined;
+}
+
 /** Resolve the persisted preference to a mode the selected backend actually supports. */
 export function resolveStoredPreferredMode(
   agentKey: string | undefined,
