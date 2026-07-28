@@ -117,8 +117,41 @@ describe('EVE permission authority', () => {
 
     // The record the reader actually reads must carry the narrower choice.
     expect((written['commandEve.authority'] as { ladder: number }).ladder).toBe(1);
-    // And the legacy key is still mirrored for anything consulting it directly.
-    expect((written['acp.config'] as Record<string, { preferredMode?: string }>).hermes?.preferredMode).toBe('default');
+    // And NOTHING is mirrored into the install-global key — see the seat-leak
+    // test below for why that mirror had to go.
+    expect(written['acp.config']).toBeUndefined();
+  });
+
+  it('never lets one seat write the install-global key another seat reads', async () => {
+    // P1 (Kimi, desktop review): `commandEve.authority` is seat-scoped,
+    // `acp.config` is NOT. While the EVE lane mirrored its choice into the
+    // global key, seat A picking "Arbeiten" handed `dont_ask` to every seat that
+    // had never opened Freigaben — including a client's. The mirror is gone;
+    // the only remaining global read is a value that predates 1.820.
+    const written: Record<string, unknown> = {};
+    configSetMock.mockImplementation(async (key: string, value: unknown) => {
+      written[key] = value;
+    });
+    configGetMock.mockImplementation((key: string) => {
+      if (key === 'commandEve.authority') return { ladder: 1, capabilities: {}, updatedBy: 'user' };
+      return undefined;
+    });
+
+    // Seat A widens to the top enforced rung.
+    await savePreferredMode('hermes', 'dont_ask');
+    expect((written['commandEve.authority'] as { ladder: number }).ladder).toBe(3);
+    expect(written['acp.config']).toBeUndefined();
+
+    // Seat B has no grant of its own. It must not inherit seat A's choice — the
+    // only thing it can see is the pre-1.820 install value, here none at all.
+    configGetMock.mockImplementation(() => undefined);
+    expect(resolveStoredPreferredMode('hermes', getAgentModes('hermes'))).toBeUndefined();
+
+    // Every other backend keeps writing the global key exactly as before.
+    await savePreferredMode('claude', 'bypassPermissions');
+    expect((written['acp.config'] as Record<string, { preferredMode?: string }>).claude?.preferredMode).toBe(
+      'bypassPermissions'
+    );
   });
 
   it('keeps other agents session-local even when they have a stored preference', () => {

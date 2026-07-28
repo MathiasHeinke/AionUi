@@ -16,12 +16,10 @@
  */
 
 import { configService } from '@/common/config/configService';
-import { type EveAuthorityGrant, type EveLadderRung, type EveSealedCapability } from '@/common/config/eveAuthorityCore';
+import { type EveAuthorityGrant, type EveLadderRung } from '@/common/config/eveAuthorityCore';
 import { readRememberedCommands } from '@/common/config/eveRememberedCommandsCore';
-import { COMMAND_EVE_LEGACY_BACKEND } from '@/common/config/eveAuthorityStoreCore';
 import {
   ENFORCED_LADDER_RUNGS,
-  backendModeForGrant,
   isUnconfirmedGrant,
   resolveStoredGrant,
   withLadder,
@@ -65,20 +63,15 @@ const AuthorityModalContent: React.FC = () => {
 
   const persist = useCallback(async (next: EveAuthorityGrant) => {
     setGrant(next);
+    // The seat-scoped grant IS the record, and it is the only thing written.
+    //
+    // This used to also mirror the choice into `acp.config[hermes].preferredMode`
+    // so the session-opening path — which read that key raw — would see it. But
+    // `acp.config` is install-global while the grant is per seat, so the mirror
+    // carried one seat's decision into every seat that had never made one (P1,
+    // Kimi). The session paths now read the grant through `getModePreference`,
+    // which is what makes dropping the mirror safe rather than inert.
     await configService.set('commandEve.authority', next);
-    // The grant is the record; `acp.config[hermes].preferredMode` is what the
-    // session-opening path already reads. Writing only the record would leave a
-    // setting that stores a preference and changes nothing — the exact defect
-    // class this whole change exists to remove.
-    const mode = backendModeForGrant(next);
-    if (mode) {
-      const acp = (await configService.get('acp.config')) ?? {};
-      const backend = (acp as Record<string, Record<string, unknown>>)[COMMAND_EVE_LEGACY_BACKEND] ?? {};
-      await configService.set('acp.config', {
-        ...(acp as Record<string, unknown>),
-        [COMMAND_EVE_LEGACY_BACKEND]: { ...backend, preferredMode: mode },
-      });
-    }
   }, []);
 
   const remembered = useMemo(() => (grant ? readRememberedCommands(grant.rememberedCommands) : []), [grant]);
@@ -105,7 +98,20 @@ const AuthorityModalContent: React.FC = () => {
           title={t('commandEve.authority.ladderTitle')}
           description={t('commandEve.authority.ladderDescription')}
         >
-          <Radio.Group direction='vertical' value={grant.ladder} onChange={onLadder} className='flex flex-col gap-12px'>
+          {/*
+            A stored rung the product does not enforce (rung 4, inherited from a
+            legacy `yolo` value) has no option to sit on. Showing it as the
+            selected value would present a state nobody chose — and which has no
+            effect, since `backendModeForGrant` returns null for it — as the
+            human's decision. Nothing is preselected instead, and the
+            "not confirmed yet" banner above says why (P2, Kimi).
+          */}
+          <Radio.Group
+            direction='vertical'
+            value={ENFORCED_LADDER_RUNGS.includes(grant.ladder) ? grant.ladder : undefined}
+            onChange={onLadder}
+            className='flex flex-col gap-12px'
+          >
             {ENFORCED_LADDER_RUNGS.map((rung) => (
               <Radio key={rung} value={rung}>
                 <span className='font-medium'>{t(`commandEve.${RUNG_KEYS[rung]}.title`)}</span>

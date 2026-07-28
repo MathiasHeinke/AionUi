@@ -133,20 +133,33 @@ describe('Settings → Freigaben offers only what something enforces', () => {
 });
 
 describe('choosing a rung actually takes effect', () => {
-  it('writes the record AND the key the session-opening path reads', async () => {
+  it('writes the seat record and NOTHING install-global', async () => {
     store['commandEve.authority'] = { ladder: 1, capabilities: {}, updatedBy: 'user' } satisfies EveAuthorityGrant;
     const Panel = await importPanel();
     render(<Panel />);
 
     (await screen.findByTestId('ladder')).click();
 
-    await waitFor(() => expect(setSpy.mock.calls.some((call) => call[0] === 'acp.config')).toBe(true));
+    await waitFor(() => expect(setSpy.mock.calls.some((call) => call[0] === 'commandEve.authority')).toBe(true));
     expect((lastWrite('commandEve.authority') as EveAuthorityGrant).ladder).toBe(3);
-    // Without this second write the panel would store an intention and change
-    // nothing.
-    expect((lastWrite('acp.config') as Record<string, { preferredMode?: string }>).hermes?.preferredMode).toBe(
-      'dont_ask'
-    );
+    // The panel used to ALSO mirror the choice into `acp.config[hermes]` so the
+    // session path — which read that key raw — would see it. `acp.config` is
+    // install-global and the grant is per seat, so that mirror handed one seat's
+    // decision to every seat that had never made one (P1, Kimi). The session
+    // paths read the grant now, which is what makes dropping the mirror an
+    // effective change rather than an inert one.
+    expect(setSpy.mock.calls.some((call) => call[0] === 'acp.config')).toBe(false);
+  });
+
+  it('does not present a rung it cannot enforce as the human choice', async () => {
+    // A legacy `yolo` install migrates to rung 4, which has no radio option and
+    // no backend mode. Showing it as the selected value would dress a state
+    // nobody chose — and which does nothing — as a decision (P2, Kimi).
+    store['commandEve.authority'] = { ladder: 4, capabilities: {}, updatedBy: 'migration' } satisfies EveAuthorityGrant;
+    const Panel = await importPanel();
+    render(<Panel />);
+    expect(await screen.findByText('commandEve.authority.notConfirmedYet')).toBeTruthy();
+    expect(screen.getByTestId('ladder').getAttribute('data-value')).toBeNull();
   });
 
   it('opens no sealed capability by moving the ladder', async () => {

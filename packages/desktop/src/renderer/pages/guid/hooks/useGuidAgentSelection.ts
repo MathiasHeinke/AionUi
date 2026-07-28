@@ -32,7 +32,12 @@ import {
 import { getAgentModes } from '@/renderer/utils/model/agentModes';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import useSWR from 'swr';
-import { savePreferredMode, savePreferredModelId, getAgentKey as getAgentKeyUtil } from './agentSelectionUtils';
+import {
+  savePreferredMode,
+  savePreferredModelId,
+  getModePreference,
+  getAgentKey as getAgentKeyUtil,
+} from './agentSelectionUtils';
 import { usePresetAssistantResolver } from './usePresetAssistantResolver';
 import { useAgentAvailability } from './useAgentAvailability';
 import { useCustomAgentsLoader } from './useCustomAgentsLoader';
@@ -485,10 +490,15 @@ export const useGuidAgentSelection = ({
           const config = configService.get('aionrs.config');
           preferred = config?.preferredMode;
         } else {
-          const config = configService.get('acp.config');
-          const backendConfig = config?.[configKey as string] as Record<string, unknown> | undefined;
-          preferred = backendConfig?.preferredMode as string | undefined;
-          yoloMode = (backendConfig?.yoloMode as boolean) ?? false;
+          // Through the SAME resolver the session uses. Reading `acp.config` raw
+          // here meant the start screen answered from the install-global key
+          // while the session answered from the seat's grant — the two surfaces
+          // the founder required to agree could disagree inside one seat, and a
+          // seat that had never chosen anything started at whatever the last
+          // seat picked (P1 root cause, verified in this file).
+          const preference = getModePreference(configKey as string);
+          preferred = preference?.preferredMode;
+          yoloMode = preference?.yoloMode ?? false;
         }
 
         if (cancelled) return;

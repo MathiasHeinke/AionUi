@@ -127,7 +127,12 @@ const MessageAcpPermission: React.FC<MessageAcpPermissionProps> = React.memo(({ 
   };
 
   const handleConfirm = async () => {
-    if (hasResponded || !selected || inactive) return;
+    // `isResponding` too, not just `hasResponded`: the latter is only set after
+    // the round trip, so two clicks before the re-render sent two confirms. The
+    // second one cannot widen anything (AionCore is idempotent for the same
+    // decision), but a different second pick surfaced a conflict error to a user
+    // who had done nothing wrong (P3, Kimi).
+    if (hasResponded || isResponding || !selected || inactive) return;
     if (!normalizedOptions.some((option) => option.id === selected)) return;
 
     setIsResponding(true);

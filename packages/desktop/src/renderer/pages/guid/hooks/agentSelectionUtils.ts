@@ -24,24 +24,35 @@ const LEGACY_YOLO_MODE_MAP: Partial<Record<string, string>> = {
   qwen: 'yolo',
 };
 
-function getModePreference(agentKey: string): ModePreference | undefined {
+/**
+ * The mode preference for one backend.
+ *
+ * EXPORTED because the start screen must resolve it the same way the session
+ * does. It previously read `acp.config` raw, so a seat's own ladder governed the
+ * session while the install-global value governed the start screen — the two
+ * surfaces the founder explicitly required to agree could disagree inside a
+ * single seat.
+ */
+export function getModePreference(agentKey: string): ModePreference | undefined {
   if (agentKey === 'aionrs') {
     return configService.get('aionrs.config');
   }
 
-  // P1 (independent review, Grok): `commandEve.authority` is seat-scoped,
-  // `acp.config` is NOT. Reading the mode only from `acp.config` let one seat's
-  // ladder choice govern every other seat — seat A picking "Arbeiten"
-  // (`dont_ask`) would open the same autonomy inside a client's seat whose own
-  // grant was narrower. The seat-scoped grant therefore WINS when it exists;
-  // `acp.config` remains the fallback for installs that have never opened the
-  // Freigaben page and for every non-Command-EVE backend.
+  // P1 (independent review, Grok; re-found and sharpened by Kimi): the grant is
+  // seat-scoped, `acp.config` is NOT. Seat A picking "Arbeiten" (`dont_ask`)
+  // must never govern a client's seat that chose nothing.
+  //
+  // Two halves, and only both together close it:
+  //   1. the seat-scoped grant WINS whenever one exists (here), and
+  //   2. the Command EVE lane NEVER WRITES `acp.config` any more (see
+  //      `savePreferredMode` and the Freigaben panel).
+  //
+  // With (2) in place this fallback can only ever hold a value that predates
+  // 1.820 — an install-wide setting that already governed every seat before the
+  // upgrade. Reading it keeps existing users on the mode they chose (dropping
+  // them to "ask" is caught by the pre-existing EVE-permission-authority tests);
+  // it can no longer carry one seat's fresh decision into another.
   if (isCommandEveAcpConversation(agentKey)) {
-    // Only a REAL stored grant may win. `readEveAuthorityGrant` falls back to the
-    // fail-closed default, and using that here would have silently dropped every
-    // existing install from its chosen mode to "ask" on upgrade — caught by the
-    // pre-existing EVE-permission-authority tests, which is exactly what they
-    // are for. No grant on disk ⇒ nothing has changed for that user.
     const stored = configService.get('commandEve.authority');
     if (isEveAuthorityGrant(stored)) {
       const seatMode = backendModeForGrant(stored);
@@ -113,6 +124,16 @@ export async function savePreferredMode(agentKey: string, mode: string): Promise
           const grant = isEveAuthorityGrant(stored) ? stored : EVE_AUTHORITY_FAIL_CLOSED;
           await configService.set('commandEve.authority', withLadder(grant, rung));
         }
+        // And NOTHING else. The legacy mirror used to be written here too, which
+        // is how one seat's choice reached every seat that had never chosen
+        // (P1, Kimi): `acp.config` is install-global, the grant is not. Every
+        // Command EVE reader now goes through `getModePreference`, so the mirror
+        // bought nothing and leaked authority sideways.
+        //
+        // A mode this lane cannot express as a rung leaves NO record, so the
+        // reader keeps whatever it had. That direction is safe — it can only
+        // hold or narrow, never widen — and it stays inside this seat.
+        return;
       }
       const config = configService.get('acp.config');
       const backendConfig = config?.[agentKey as string] || {};

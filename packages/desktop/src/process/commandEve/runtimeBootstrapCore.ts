@@ -4293,6 +4293,34 @@ function writeHermesOllamaProviderOverride(paths: RuntimeBootstrapPaths): void {
     '_install_command_eve_stop_continuation_patch()',
     '_install_command_eve_acp_session_recovery_patch()',
     '',
+    '# The authority patch is the ONE that must not fail quietly. Without it the',
+    '# wheel routes approvals itself: _sync_terminal_approval_mode turns the',
+    '# session-wide bypass ON whenever the session mode is dont_ask',
+    '# (FACT whl:acp_adapter/server.py:654-663). Every installer above returns',
+    '# silently when its import fails, so a missing patch looked exactly like a',
+    '# successful one (P3, Kimi). Assert the marker instead of assuming it.',
+    '#',
+    '# The bypass function is named nowhere in this file ON PURPOSE: a pinned test',
+    '# greps the emitted shim for that name, and a grep cannot tell a comment from',
+    '# a call. Naming it here would have quietly spent that guarantee on prose.',
+    'def _verify_command_eve_permission_authority_patch() -> None:',
+    '    try:',
+    '        from acp_adapter.server import HermesACPAgent as _ce_agent',
+    '    except Exception as exc:',
+    '        logging.getLogger(__name__).error(',
+    '            "[Command EVE] permission-authority patch UNVERIFIABLE (%s): "',
+    '            "Hermes may route approvals itself instead of AionCore.", exc',
+    '        )',
+    '        return',
+    '    if not getattr(_ce_agent, "_command_eve_permission_authority_patch_installed", False):',
+    '        logging.getLogger(__name__).error(',
+    '            "[Command EVE] permission-authority patch NOT installed: "',
+    '            "Hermes would decide approvals itself instead of AionCore."',
+    '        )',
+    '',
+    '',
+    '_verify_command_eve_permission_authority_patch()',
+    '',
   ].join('\n');
   fs.writeFileSync(path.join(providerDir, '__init__.py'), initPy, { mode: 0o600 });
 }
@@ -5696,10 +5724,46 @@ export function hasValidSeatRuntimeFiles(hermesHome: string): boolean {
     const soulPath = path.join(hermesHome, 'SOUL.md');
     const configOk = fs.existsSync(configPath) && fs.statSync(configPath).size > 0;
     const soulOk = fs.existsSync(soulPath) && fs.statSync(soulPath).size > 0;
-    return configOk && soulOk;
+    if (!configOk || !soulOk) return false;
+    // Presence and size were the whole test, so a hand-edited config.yaml
+    // carrying `approvals.mode: smart` passed it and Hermes was allowed to
+    // decide for itself on the last-known-good path (P3, Kimi). The one line
+    // this lane depends on is now checked for what it SAYS, not that it exists.
+    return seatRuntimeConfigKeepsManualApprovals(fs.readFileSync(configPath, 'utf8'));
   } catch {
     return false;
   }
+}
+
+/**
+ * Does this seat config still hand every approval to the human?
+ *
+ * Rejects an EXPLICIT non-manual mode — `smart` (Hermes approves via an
+ * auxiliary model) or `off` (nobody is asked at all). Both silently remove the
+ * gate this release exists to guarantee, so a file that says either is not
+ * last-known-good.
+ *
+ * An ABSENT key passes, and that is deliberate rather than lenient:
+ * `FACT(whl:tools/approval.py:1064)` — `_get_approval_config().get("mode",
+ * "manual")` — so no key means manual. Treating absence as invalid would have
+ * rejected every config written before 1.820 (which never emitted the key) and
+ * failed the seat switch closed on a seat that was in fact safe. The rollback
+ * pass runs through this same gate, so that mistake would not have narrowed a
+ * permission; it would have stranded a dead backend.
+ */
+export function seatRuntimeConfigKeepsManualApprovals(configYaml: string): boolean {
+  const lines = configYaml.split(/\r?\n/);
+  const start = lines.findIndex((line) => /^approvals:\s*(#.*)?$/.test(line));
+  if (start < 0) return true;
+  for (let i = start + 1; i < lines.length; i += 1) {
+    const line = lines[i] ?? '';
+    if (line.trim() === '' || line.trimStart().startsWith('#')) continue;
+    // Dedented ⇒ the block ended without a `mode:`, so the default applies.
+    if (!/^\s/.test(line)) return true;
+    const match = /^\s+mode:\s*(?:"([^"]*)"|'([^']*)'|([^\s#]+))/.exec(line);
+    if (match) return (match[1] ?? match[2] ?? match[3] ?? '').trim() === 'manual';
+  }
+  return true;
 }
 
 export function provisionSeatRuntimeFiles(options: ProvisionSeatRuntimeFilesOptions): ProvisionSeatRuntimeFilesResult {

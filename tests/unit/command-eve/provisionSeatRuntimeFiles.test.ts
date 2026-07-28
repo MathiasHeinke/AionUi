@@ -38,6 +38,7 @@ import {
   hasValidSeatRuntimeFiles,
   provisionSeatRuntimeFiles,
   resolveCommandEveRuntimeBootstrapPaths,
+  seatRuntimeConfigKeepsManualApprovals,
 } from '@/process/commandEve/runtimeBootstrapCore';
 import {
   SEATS_SUBDIR,
@@ -423,5 +424,54 @@ describe('(H4) hasValidSeatRuntimeFiles — the seat-switch fail-closed gate', (
     expect(res.ok).toBe(true);
     expect(hasValidSeatRuntimeFiles(seatHome)).toBe(true);
     clearActiveSeat();
+  });
+
+  it('false when the last-known-good config hands approvals BACK to Hermes', () => {
+    // P3 (Kimi): existence + size was the whole test, so a hand-edited
+    // `approvals.mode: smart` was "last-known-good" and the seat booted on a
+    // config where Hermes approves via an auxiliary model instead of asking.
+    const home = makeHome();
+    fs.writeFileSync(path.join(home, 'SOUL.md'), '# EVE\n');
+    fs.writeFileSync(path.join(home, 'config.yaml'), 'approvals:\n  mode: smart\n');
+    expect(hasValidSeatRuntimeFiles(home)).toBe(false);
+    fs.writeFileSync(path.join(home, 'config.yaml'), 'approvals:\n  mode: manual\n');
+    expect(hasValidSeatRuntimeFiles(home)).toBe(true);
+  });
+
+  it('a REAL provisioned config satisfies the approvals check it is judged by', () => {
+    // The gate and the emitter must agree, or the product fails its own check.
+    const userData = makeUserData();
+    setActiveSeatId(REAL_UUID_A);
+    const seatHome = resolveCommandEveRuntimeBootstrapPaths(userData).hermesHome;
+    provisionSeatRuntimeFiles({ userDataPath: userData, seatId: REAL_UUID_A });
+    const config = fs.readFileSync(path.join(seatHome, 'config.yaml'), 'utf8');
+    expect(config).toContain('approvals:\n  mode: manual');
+    expect(seatRuntimeConfigKeepsManualApprovals(config)).toBe(true);
+    clearActiveSeat();
+  });
+});
+
+describe('seatRuntimeConfigKeepsManualApprovals — what the config SAYS, not that it exists', () => {
+  it('rejects only an EXPLICIT non-manual mode', () => {
+    expect(seatRuntimeConfigKeepsManualApprovals('approvals:\n  mode: smart\n')).toBe(false);
+    expect(seatRuntimeConfigKeepsManualApprovals('approvals:\n  mode: off\n')).toBe(false);
+    expect(seatRuntimeConfigKeepsManualApprovals('approvals:\n  mode: manual\n')).toBe(true);
+    expect(seatRuntimeConfigKeepsManualApprovals('approvals:\n  mode: "manual"\n')).toBe(true);
+  });
+
+  it('accepts an ABSENT key, because absent MEANS manual', () => {
+    // FACT(whl:tools/approval.py:1064) — `.get("mode", "manual")`. Treating
+    // absence as invalid would reject every config written before 1.820 and fail
+    // the seat switch closed on a seat that is in fact safe; the rollback pass
+    // runs through this same gate, so that would strand a dead backend rather
+    // than narrow a permission.
+    expect(seatRuntimeConfigKeepsManualApprovals('memory_enabled: true\n')).toBe(true);
+    expect(seatRuntimeConfigKeepsManualApprovals('approvals:\n  cron_mode: deny\nskills:\n')).toBe(true);
+    expect(seatRuntimeConfigKeepsManualApprovals('')).toBe(true);
+  });
+
+  it('does not let a `mode:` under a different key answer for approvals', () => {
+    expect(seatRuntimeConfigKeepsManualApprovals('agent:\n  mode: smart\napprovals:\n  mode: manual\n')).toBe(true);
+    expect(seatRuntimeConfigKeepsManualApprovals('approvals:\n  mode: smart\nagent:\n  mode: manual\n')).toBe(false);
   });
 });

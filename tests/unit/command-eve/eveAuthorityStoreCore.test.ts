@@ -162,10 +162,20 @@ describe('a budget nobody typed is a budget nobody agreed to', () => {
 describe('"you may always do this" — our record, not Hermes button', () => {
   const base: EveAuthorityGrant = { ladder: 2, capabilities: {}, updatedBy: 'migration' };
 
-  it('stores the literal command and marks the grant as chosen by a person', () => {
+  it('stores the literal command WITHOUT claiming the ladder was chosen', () => {
     const next = withRememberedCommand(base, 'git status', NOW);
     expect(next.rememberedCommands).toEqual([{ command: 'git status', grantedAt: NOW }]);
-    expect(next.updatedBy).toBe('user');
+    // P2 (Kimi): this used to stamp `updatedBy: 'user'`. `updatedBy` records
+    // whether a human picked the LADDER, and remembering one command is not that
+    // decision — so a rung a migration invented was presented as confirmed and
+    // the "not confirmed yet" banner went quiet on a state nobody chose.
+    expect(next.updatedBy).toBe('migration');
+    expect(withRememberedCommand({ ...base, updatedBy: 'user' }, 'git status', NOW).updatedBy).toBe('user');
+  });
+
+  it('withdrawing a command likewise says nothing about the ladder', () => {
+    const withCommand = withRememberedCommand(base, 'git status', NOW);
+    expect(withoutRememberedCommand(withCommand, 'git status').updatedBy).toBe('migration');
   });
 
   it('leaves the grant untouched when the card offered something unstorable', () => {

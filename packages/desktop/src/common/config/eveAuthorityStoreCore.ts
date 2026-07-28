@@ -175,7 +175,12 @@ export function withRememberedCommand(grant: EveAuthorityGrant, command: string,
   const existing = readRememberedCommands(grant.rememberedCommands);
   const next = rememberCommand(existing, command, now);
   if (next === existing) return grant;
-  return { ...grant, rememberedCommands: next, updatedBy: 'user' };
+  // `updatedBy` is deliberately CARRIED, not set to 'user'. It records whether a
+  // human chose the LADDER, and remembering one command is not that choice.
+  // Stamping it here made a grant that a migration invented look confirmed, and
+  // silenced the "you have not confirmed this yet" banner on a rung nobody
+  // picked (P2, Kimi).
+  return { ...grant, rememberedCommands: next };
 }
 
 /** The human withdrew one remembered command. The next boot emits the allowlist without it. */
@@ -183,7 +188,9 @@ export function withoutRememberedCommand(grant: EveAuthorityGrant, command: stri
   const existing = readRememberedCommands(grant.rememberedCommands);
   const next = forgetCommand(existing, command);
   if (next.length === existing.length) return grant;
-  return { ...grant, rememberedCommands: next, updatedBy: 'user' };
+  // Same reasoning as `withRememberedCommand`: withdrawing a command says
+  // nothing about the ladder, so it must not mark the ladder as confirmed.
+  return { ...grant, rememberedCommands: next };
 }
 
 /**
