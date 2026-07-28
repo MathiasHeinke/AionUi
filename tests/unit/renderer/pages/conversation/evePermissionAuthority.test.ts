@@ -70,6 +70,29 @@ describe('EVE permission authority', () => {
     expect(resolveConversationMode('hermes', 'default', modes)).toBe('dont_ask');
   });
 
+  it('lets a REAL seat grant win, and leaves an install without one untouched', () => {
+    // The seat-scoped grant is what makes "per seat" true for the EFFECTIVE mode:
+    // acp.config is install-global, so without this a client seat would inherit
+    // the operator's ladder. But it may only win when a grant actually EXISTS —
+    // reading the fail-closed fallback here would silently drop every existing
+    // install from its chosen mode to "ask" on upgrade.
+    const modes = getAgentModes('hermes');
+    configGetMock.mockImplementation((key: string) => {
+      if (key === 'acp.config') return { hermes: { preferredMode: 'dont_ask' } };
+      if (key === 'commandEve.authority') return { ladder: 1, capabilities: {}, updatedBy: 'user' };
+      return undefined;
+    });
+    expect(resolveStoredPreferredMode('hermes', modes)).toBe('default');
+
+    configGetMock.mockImplementation((key: string) => {
+      if (key === 'acp.config') return { hermes: { preferredMode: 'dont_ask' } };
+      if (key === 'commandEve.authority') return { ladder: 9, capabilities: {}, updatedBy: 'user' };
+      return undefined;
+    });
+    // A malformed grant is not a grant: fall back, never force.
+    expect(resolveStoredPreferredMode('hermes', modes)).toBe('dont_ask');
+  });
+
   it('keeps other agents session-local even when they have a stored preference', () => {
     expect(resolveConversationMode('claude', 'default', getAgentModes('claude'))).toBe('default');
   });

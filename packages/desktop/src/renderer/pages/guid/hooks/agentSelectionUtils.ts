@@ -9,7 +9,7 @@ import { isCommandEveAcpConversation } from '@/common/config/commandEveShell';
 import { CODEX_MODE_NATIVE_FULL_ACCESS, normalizeCodexMode } from '@/common/types/codex/codexModes';
 import type { AgentSource } from '@/renderer/utils/model/agentTypes';
 import { getAgentModes, resolveModeForBackend, type AgentModeOption } from '@/renderer/utils/model/agentModes';
-import { readEveAuthorityGrant } from '@/common/config/eveAuthorityCore';
+import { isEveAuthorityGrant } from '@/common/config/eveAuthorityCore';
 import { backendModeForGrant } from '@/common/config/eveAuthorityStoreCore';
 
 type ModePreference = {
@@ -37,9 +37,16 @@ function getModePreference(agentKey: string): ModePreference | undefined {
   // `acp.config` remains the fallback for installs that have never opened the
   // Freigaben page and for every non-Command-EVE backend.
   if (isCommandEveAcpConversation(agentKey)) {
-    const grant = readEveAuthorityGrant(configService.get('commandEve.authority'));
-    const seatMode = backendModeForGrant(grant);
-    if (seatMode) return { preferredMode: seatMode };
+    // Only a REAL stored grant may win. `readEveAuthorityGrant` falls back to the
+    // fail-closed default, and using that here would have silently dropped every
+    // existing install from its chosen mode to "ask" on upgrade — caught by the
+    // pre-existing EVE-permission-authority tests, which is exactly what they
+    // are for. No grant on disk ⇒ nothing has changed for that user.
+    const stored = configService.get('commandEve.authority');
+    if (isEveAuthorityGrant(stored)) {
+      const seatMode = backendModeForGrant(stored);
+      if (seatMode) return { preferredMode: seatMode };
+    }
   }
 
   return configService.get('acp.config')?.[agentKey];
