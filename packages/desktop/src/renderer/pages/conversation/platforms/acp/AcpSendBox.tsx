@@ -644,10 +644,16 @@ Please check your local CLI tool authentication status`,
   const [videoTierId, setVideoTierId] = useState<VideoQualityTier>(DEFAULT_VIDEO_TIER_ID);
 
   // Show the quality selector only while the DRAFT already routes to the video
-  // lane — the same predicate the send path uses, so the control cannot appear
-  // for a message that would not be a video, nor stay hidden for one that would.
-  // Two surfaces, one classifier: if they disagreed, the user would pick a tier
-  // that never applied.
+  // lane, using the same predicate the send path uses.
+  //
+  // Same predicate, DIFFERENT input, and the asymmetry is the point: the send
+  // path classifies the enriched message (draft + reply quote + DOM snippets +
+  // send-time speech transcript), which is always a superset of the draft. So
+  // the picker can never appear for a send that will NOT be a video — but it can
+  // stay hidden for one that will. That case is handled where it matters, at the
+  // send: no visible picker means no honoured selection, and the request goes out
+  // at the cheap default. An earlier version of this comment claimed the two
+  // surfaces read the same text; CAO disproved it on 6c59706a.
   const draftRoutesToVideo = useMemo(
     () =>
       isEveConversation &&
@@ -1024,8 +1030,17 @@ Please check your local CLI tool authentication status`,
 
       controls.clearSelection();
 
-      // Heavy-lane guardrail (DUX-6, FAIL-SAFE): every send surface, including
-      // the fresh-chat handoff, reaches this same cost wall before video work.
+      // Heavy-lane routing (DUX-6, FAIL-SAFE): every send surface, including the
+      // fresh-chat handoff, classifies here before video work starts.
+      //
+      // NOTE the input. This classifies `message` — what SendBox hands to onSend,
+      // which is the draft PLUS whatever SendBox added on the way: a reply quote,
+      // DOM snippets, a speech transcript captured at send time. The quality pill
+      // classifies the raw draft. So the two are NOT the same text, and `message`
+      // is always the superset: the pill can be hidden for a send that does route
+      // to video (quote a video request, answer "ja bitte"), but never visible for
+      // one that does not. CAO proved this on 6c59706a; an earlier comment here
+      // claimed the opposite and was wrong.
       const routesToVideo =
         isEveConversation &&
         isVideoLaneRequest({
@@ -1036,8 +1051,13 @@ Please check your local CLI tool authentication status`,
       if (routesToVideo) {
         documentPreparationInFlightRef.current = false;
         setDocumentPreparation(null);
+        // A selection only counts if the user could SEE it. On the divergence
+        // above the picker never appeared, so there is no choice to honour and we
+        // fall to the cheap default rather than spending a stale HD pick that the
+        // user cannot connect to this send. Structural, not documented: the
+        // expensive direction is unreachable instead of merely discouraged.
         videoCostWall.requestVideo(
-          { tierId: videoTierId },
+          { tierId: draftRoutesToVideo ? videoTierId : DEFAULT_VIDEO_TIER_ID },
           (resolved) => {
             const resolvedMessage = buildResolvedVideoMessage(message, resolved);
             const dispatch = dispatchMessage(
@@ -1048,6 +1068,10 @@ Please check your local CLI tool authentication status`,
               visualContexts.length || undefined
             );
             markConversationDocumentPreparationSettled(conversation_id);
+            // The tier is per REQUEST, not per conversation: "default stays
+            // Fast/Standard" has to be true for the next video too. Without this
+            // an HD pick outlives its own send and silently prices a later one.
+            setVideoTierId(DEFAULT_VIDEO_TIER_ID);
             void dispatch
               .then((accepted) => {
                 if (!accepted) controls.restoreDraftAndFiles();
@@ -1095,6 +1119,7 @@ Please check your local CLI tool authentication status`,
       preparePresentationFiles,
       videoCostWall.requestVideo,
       videoTierId,
+      draftRoutesToVideo,
     ]
   );
 

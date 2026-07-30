@@ -9,8 +9,8 @@
  * all pure:
  *   (1) cost preview math (rounds UP; min 1s duration; tier multiplier).
  *   (2) DEFAULT tier = Fast/720p (cheaper); 1080p is the explicit upgrade.
- *   (3) the submit GATE invariant: video ALWAYS requires confirm; allowed only
- *       after confirm.
+ *   (3) the submit GATE invariant: video NEVER requires a confirmation — asking
+ *       for a video is the authorisation for it.
  *   (4) explicit-upgrade guard (1080p only via an explicit user toggle).
  *
  * No Electron/fs/network — same pattern as creditsCore.test.ts.
@@ -149,9 +149,15 @@ describe('estimateVideoCost — preview math', () => {
 
 // This block previously pinned the opposite invariant ("video ALWAYS requires
 // confirm"). That modal asked the user to approve a cost they had just asked to
-// incur — a second question, not a boundary. The limit that protects money is
-// server-side and untouched: the inference function reads spend_cap_eur_cents and
-// its debit path refuses on `insufficient`.
+// incur — a second question, not a boundary.
+//
+// The limit that protects money is server-side and untouched: `reservePaidLane`
+// loads the balance and answers 402 via `canAfford` BEFORE the upstream call,
+// refusing on both `insufficient_credits` and `spend_cap_exceeded`. Verified
+// against the DEPLOYED bytes, not just the repo (prod eve-inference-core.ts:926,
+// 946; credits-core.ts:378,407,427). An earlier version of this comment named the
+// post-generation debit path instead — that branch is a retry, not a refusal, and
+// citing it made a brake sound like it lived somewhere it does not.
 describe('buildVideoSubmitGate — no per-generation confirmation', () => {
   it('does not require a confirmation and allows the request', () => {
     const gate = buildVideoSubmitGate();
@@ -334,11 +340,49 @@ describe('buildResolvedVideoMessage — confirm carries the resolved tier/resolu
     expect(out).toContain('credits<=340');
   });
 
-  it('is idempotent — never double-stamps the directive', () => {
+  it('never double-stamps: re-resolving the same selection is a no-op', () => {
     const once = buildResolvedVideoMessage('clip pls', { tierId: 'fast', estimatedCredits: 120 });
-    const twice = buildResolvedVideoMessage(once, { tierId: 'hd', estimatedCredits: 999 });
+    const twice = buildResolvedVideoMessage(once, { tierId: 'fast', estimatedCredits: 120 });
     expect(twice).toBe(once);
     expect((twice.match(/\[EVE:VIDEO /g) ?? []).length).toBe(1);
+  });
+
+  it('REPLACES a stale directive instead of preserving it', () => {
+    // The regression this pins: a stamped message returns to the composer via
+    // arrow-up history or by editing a queued item. The old code kept the first
+    // stamp, so picking HD on a recalled Fast message dispatched tier=fast — the
+    // pill said one thing and the agent was told another. The previous version of
+    // THIS test asserted the broken behaviour (`expect(twice).toBe(once)` across
+    // different tiers), so the defect had a guard protecting it.
+    const stamped = buildResolvedVideoMessage('clip pls', { tierId: 'fast', estimatedCredits: 120 });
+    const upgraded = buildResolvedVideoMessage(stamped, { tierId: 'hd', estimatedCredits: 340 });
+
+    expect(upgraded).toContain('tier=hd');
+    expect(upgraded).toContain('resolution=1080p');
+    expect(upgraded).toContain('credits<=340');
+    expect(upgraded).not.toContain('tier=fast');
+    expect((upgraded.match(/\[EVE:VIDEO /g) ?? []).length).toBe(1);
+    expect(upgraded).toContain('clip pls');
+  });
+
+  it('downgrades just as honestly as it upgrades', () => {
+    // The expensive direction of the same bug: a recalled HD message must not
+    // keep billing HD once the user has picked Fast.
+    const stamped = buildResolvedVideoMessage('clip pls', { tierId: 'hd', estimatedCredits: 340 });
+    const downgraded = buildResolvedVideoMessage(stamped, { tierId: 'fast', estimatedCredits: 120 });
+
+    expect(downgraded).toContain('tier=fast');
+    expect(downgraded).not.toContain('tier=hd');
+    expect((downgraded.match(/\[EVE:VIDEO /g) ?? []).length).toBe(1);
+  });
+
+  it('clears more than one inherited directive', () => {
+    const doubled =
+      'clip pls\n\n[EVE:VIDEO tier=fast resolution=720p quality=fast credits<=120]\n\n[EVE:VIDEO tier=hd resolution=1080p quality=hd credits<=340]';
+    const out = buildResolvedVideoMessage(doubled, { tierId: 'fast', estimatedCredits: 120 });
+    expect((out.match(/\[EVE:VIDEO /g) ?? []).length).toBe(1);
+    expect(out).toContain('tier=fast');
+    expect(out.startsWith('clip pls')).toBe(true);
   });
 
   it('still emits the directive even when the original text is empty', () => {

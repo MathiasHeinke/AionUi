@@ -1847,4 +1847,118 @@ describe('AcpSendBox', () => {
     expect(input).toContain('credits<=340');
     expect(modalConfirmMock).not.toHaveBeenCalled();
   });
+  it('ignores a tier the user never saw: no visible picker means the cheap default', async () => {
+    // CAO's divergence case, made structural. SendBox enriches the draft before
+    // onSend (reply quote, DOM snippets, a speech transcript captured at send
+    // time), so a message can route to video while the draft alone does not —
+    // and the picker was therefore never shown. The double models exactly that:
+    // the draft is inert, the dispatched message is the video request.
+    // Step 1: a real video draft, so the picker IS shown and HD IS chosen. Without
+    // this the test would pass on the default alone and prove nothing.
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
+    sendMessageInvokeMock.mockResolvedValue({});
+
+    const { rerender } = render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    act(() => {
+      screen.getByTestId('video-quality-option-hd').click();
+    });
+    expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-selected-tier', 'hd');
+
+    // Step 2: the draft becomes inert, so the picker disappears — but the message
+    // SendBox hands to onSend still carries the video intent via the reply quote.
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'ja bitte, mach das' };
+    sendBoxMessageMock.current = '> Sollen wir ein Video über den Launch erstellen?\n\nja bitte, mach das';
+    rerender(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    expect(screen.queryByTestId('video-quality-pill')).toBeNull();
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    const input = sendMessageInvokeMock.mock.calls[0][0].input as string;
+    // It still routes to video (the enriched message carries the intent) — but at
+    // the cheap default, never at a stale HD pick the user cannot connect to it.
+    expect(input).toContain('tier=fast');
+    expect(input).not.toContain('tier=hd');
+  });
+
+  it('does not let an HD pick outlive its own send', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
+    sendBoxMessageMock.current = 'erstelle ein Video über unser Produkt';
+    sendMessageInvokeMock.mockResolvedValue({});
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    act(() => {
+      screen.getByTestId('video-quality-option-hd').click();
+    });
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(sendMessageInvokeMock.mock.calls[0][0].input as string).toContain('tier=hd');
+
+    // "Default stays Fast/Standard" has to hold for the NEXT video too.
+    await waitFor(() => expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-selected-tier', 'fast'));
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(2));
+    expect(sendMessageInvokeMock.mock.calls[1][0].input as string).toContain('tier=fast');
+  });
+
+  it('re-stamps a recalled video message at the tier now selected', async () => {
+    // Arrow-up history returns the DISPATCHED text, stamp included. Picking HD on
+    // it must win; the old code kept the inherited fast stamp.
+    const recalled =
+      'erstelle ein Video über unser Produkt\n\n[EVE:VIDEO tier=fast resolution=720p quality=fast credits<=120]';
+    draftDataMock.current = { atPath: [], uploadFile: [], content: recalled };
+    sendBoxMessageMock.current = recalled;
+    sendMessageInvokeMock.mockResolvedValue({});
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    act(() => {
+      screen.getByTestId('video-quality-option-hd').click();
+    });
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    const input = sendMessageInvokeMock.mock.calls[0][0].input as string;
+    expect(input).toContain('tier=hd');
+    expect(input).not.toContain('tier=fast');
+    expect((input.match(/\[EVE:VIDEO /g) ?? []).length).toBe(1);
+  });
 });

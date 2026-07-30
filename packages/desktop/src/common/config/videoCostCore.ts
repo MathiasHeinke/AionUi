@@ -22,9 +22,10 @@
  * `canAfford`) and answers 402 on `insufficient_credits` or `spend_cap_exceeded`.
  * That is the brake. This module never was one.
  *
- * The cheaper Fast/720p tier remains the default. NOTE: with the wall gone the
- * 1080p upgrade has no UI to select it — `isExplicitUpgrade` is retained for the
- * eventual replacement surface, and the loss is tracked rather than pretended away.
+ * The cheaper Fast/720p tier remains the default. Removing the wall did briefly
+ * leave 1080p with no way to select it; the replacement surface now exists as an
+ * inline, non-blocking picker in the composer (VideoQualityPill), so
+ * `isExplicitUpgrade` describes a real user action again rather than a lost one.
  *
  * PURE (no Electron, no fs, no network) so the math and the classifier stay
  * unit-testable in plain Node, mirroring `creditsCore.ts` / `eveInferenceCore.ts`.
@@ -365,9 +366,19 @@ export interface ResolvedVideoSelection {
  * the request the videomarketer/video lane receives matches exactly what the
  * user saw and approved.
  *
- * The directive is a deterministic suffix (idempotent: not appended twice) so it
- * is both human-legible and parseable by the agent. The original intent text is
- * preserved verbatim ahead of it.
+ * The directive is a deterministic suffix, so it is both human-legible and
+ * parseable by the agent. The original intent text is preserved verbatim ahead
+ * of it.
+ *
+ * A pre-existing directive is REPLACED, not preserved. It used to be kept ("never
+ * double-stamp"), which was correct about the symptom and wrong about the cure:
+ * a stamped message comes back into the composer through arrow-up history and
+ * through editing a queued item, and keeping the old stamp meant the user could
+ * pick HD, watch the pill say HD, and dispatch `tier=fast` — or inherit a stale
+ * `tier=hd` while the pill read Fast and be billed for it. Found by CAO audit on
+ * 6c59706a with an executed proof. Replacing is still idempotent for the case
+ * that motivated the skip (same input, same output) and is correct for the case
+ * it got wrong.
  */
 export function buildResolvedVideoMessage(originalMessage: string, resolved: ResolvedVideoSelection): string {
   const tier = getVideoTier(resolved.tierId);
@@ -375,7 +386,9 @@ export function buildResolvedVideoMessage(originalMessage: string, resolved: Res
     `[EVE:VIDEO tier=${tier.id} resolution=${tier.resolution} ` +
     `quality=${tier.isUpgrade ? 'hd' : 'fast'} credits<=${resolved.estimatedCredits}]`;
   const base = typeof originalMessage === 'string' ? originalMessage : '';
-  if (base.includes('[EVE:VIDEO ')) return base; // idempotent — never double-stamp.
-  const trimmed = base.replace(/\s+$/, '');
+  // Strip EVERY prior directive (a recalled message could carry more than one)
+  // together with the blank line that separated it, then re-stamp the fresh one.
+  const stripped = base.replace(/\n*\[EVE:VIDEO [^\]]*\]/g, '');
+  const trimmed = stripped.replace(/\s+$/, '');
   return trimmed.length > 0 ? `${trimmed}\n\n${directive}` : directive;
 }
