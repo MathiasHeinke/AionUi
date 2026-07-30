@@ -67,6 +67,7 @@ import type {
   CommandEvePresentationPrepareResult,
 } from '../config/evePresentationIntelligenceCore';
 import type { CommandEveImagePrepareRequest, CommandEveImagePrepareResult } from '../config/eveImageIntelligenceCore';
+import type { CommandEveVideoGenerateRequest, VideoGenerationOutcome } from '../config/videoGenerationRequestCore';
 import type {
   CommandEveManagedVisualTurnAuthorizationRequest,
   CommandEveManagedVisualTurnAuthorizationResult,
@@ -1868,6 +1869,14 @@ export const commandEve = {
   // sends only a bounded JPEG preview through the same managed ZDR gateway.
   imagePrepare: bridge.buildProvider<IBridgeResponse<CommandEveImagePrepareResult>, CommandEveImagePrepareRequest>(
     'command-eve.image-prepare'
+  ),
+  // Managed video generation. MAIN attaches the CEVE bearer and talks to the
+  // multimodal gateway; the renderer never sees a credential and there is no
+  // provider key on this side. The gateway refuses (capability, credits, spend
+  // cap, replay, daily cap) BEFORE any upstream call, so a refusal here costs
+  // nothing but a round trip.
+  videoGenerate: bridge.buildProvider<IBridgeResponse<VideoGenerationOutcome>, CommandEveVideoGenerateRequest>(
+    'command-eve.video-generate'
   ),
   // Main-authoritative per-seat visual policy. Renderer supplies no target seat
   // for reads/receipt issuance; expectedSeatId on mutation is only a stale fence.

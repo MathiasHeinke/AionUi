@@ -11,7 +11,7 @@
  *   (2) DEFAULT tier = Fast/720p (cheaper); 1080p is the explicit upgrade.
  *   (3) the submit GATE invariant: video NEVER requires a confirmation — asking
  *       for a video is the authorisation for it.
- *   (4) explicit-upgrade guard (1080p only via an explicit user toggle).
+ *   (4) capability matrix: 1080p needs an image input AND grok-imagine-video-1.5.
  *
  * No Electron/fs/network — same pattern as creditsCore.test.ts.
  */
@@ -27,6 +27,9 @@ import {
   isExplicitUpgrade,
   isVideoGenerationRequest,
   isVideoLaneRequest,
+  isVideoTierAvailable,
+  listAvailableVideoTiers,
+  deriveVideoCreditsPerSecond,
   requestRoutesToVideoLane,
   VIDEO_LANE_AGENT_ID,
   VIDEO_TIERS,
@@ -59,24 +62,20 @@ describe('VIDEO_TIERS — default + upgrade shape', () => {
     expect(hd.creditsPerSecond).toBeGreaterThan(fast.creditsPerSecond);
   });
 
-  // DUX-2: the per-second credit rate MUST equal the backend Seedance debit
-  // (1 credit = 1 US-cent). SSOT = eve-app `eve-model-registry` Seedance
-  // usd_price: Fast/720p $0.2419/s → ceil 24; Standard/1080p $0.682/s → ceil 68.
-  // The prior 8/20 figures under-stated the real charge by ~3× (dishonest
-  // preview). If the registry usd_price changes, update BOTH the registry and
-  // VIDEO_TIERS, and this pin.
-  it('pins per-second credits to the CALIBRATED backend Seedance rate (1 credit = 1 US-cent)', () => {
-    expect(getVideoTier('fast').creditsPerSecond).toBe(24); // ceil($0.2419/s × 100)
-    expect(getVideoTier('hd').creditsPerSecond).toBe(68); //   ceil($0.682/s × 100)
+  // The per-second credit rate MUST equal the derivation from the OFFICIAL xAI
+  // model profile. These three tests previously pinned SEEDANCE figures (24/68
+  // cr/s) for a lane that routes to xAI — they were guards protecting the wrong
+  // number, so a correction would have looked like a regression.
+  it('pins per-second credits to the real xAI model profile', () => {
+    expect(getVideoTier('sd').creditsPerSecond).toBe(100); // 480p  $0.05/s
+    expect(getVideoTier('fast').creditsPerSecond).toBe(140); // 720p  $0.07/s
+    expect(getVideoTier('hd').creditsPerSecond).toBe(500); // 1080p $0.25/s
   });
 
-  it('the calibrated rates are no LONGER the old ~3× under-stated 8/20', () => {
-    // Regression guard: the honesty bug was the preview being ~3× below debit.
-    expect(getVideoTier('fast').creditsPerSecond).not.toBe(8);
-    expect(getVideoTier('hd').creditsPerSecond).not.toBe(20);
-    // And the calibrated rates are within ~1 credit of the registry USD cents.
-    expect(getVideoTier('fast').creditsPerSecond).toBeCloseTo(24.19, 0);
-    expect(getVideoTier('hd').creditsPerSecond).toBeCloseTo(68.2, 0);
+  it('each tier names the model that can actually produce it', () => {
+    expect(getVideoTier('sd').model).toBe('grok-imagine-video');
+    expect(getVideoTier('fast').model).toBe('grok-imagine-video');
+    expect(getVideoTier('hd').model).toBe('grok-imagine-video-1.5');
   });
 
   it('getVideoTier falls back to the default tier for an unknown id', () => {
@@ -85,27 +84,18 @@ describe('VIDEO_TIERS — default + upgrade shape', () => {
     expect(getVideoTier(undefined).id).toBe('fast');
   });
 
-  // M3.7 — HONEST unit-mismatch guard (NOT a blind recalibration). The
-  // creditsCore credit unit is 0.1 ct (1000 credits/€), but this preview is
-  // pinned to 1 credit = 1 US-cent (24/68 cr/s). That is a factor-~10 UNDER-state
-  // relative to the 0.1ct-unit debit — deliberately LEFT as-is because the real
-  // video charge is authoritative SERVER-side (per-token/second markup at
-  // consumption), and a blind ×10 here could over/under-state depending on
-  // whether the server debits video at cost or at markup. This test PINS the
-  // known figures + the mismatch so the founder margin decision is visible and a
-  // future change is a conscious edit, not an accident. See videoCostCore.ts.
-  it('DOCUMENTS the 1cr=1ct calibration (founder margin decision vs the 0.1ct credit unit)', () => {
-    // The preview is pinned to the 1cr=1ct calibration (Seedance USD cents).
-    expect(getVideoTier('fast').creditsPerSecond).toBe(24);
-    expect(getVideoTier('hd').creditsPerSecond).toBe(68);
-    // A 5s Fast clip previews 120 credits at THIS calibration.
-    expect(estimateVideoCost({ durationSeconds: 5, tierId: 'fast' }).estimatedCredits).toBe(120);
-    // At the creditsCore 0.1ct unit the AT-COST figure would be ~10× higher
-    // (~240/680 cr/s). This is NOT applied here — recalibrating is a founder
-    // margin decision against the live server debit (report open-point M3.7).
-    const zeroPointOneCtUnitFast = 24 * 10; // ~$0.2419/s at 0.1ct/credit, at cost
-    expect(zeroPointOneCtUnitFast).toBe(240);
-    expect(getVideoTier('fast').creditsPerSecond).not.toBe(zeroPointOneCtUnitFast);
+  // The old M3.7 "unit mismatch" note is RESOLVED, not deferred. It documented a
+  // preview pinned to 1 credit = 1 US-cent while creditsCore priced 10 credits per
+  // EUR cent, and parked the ~10x gap as a founder margin decision. The gap was
+  // never a margin question — it was two different units meeting in one file. The
+  // rates now come from the real model profile through the real conversion, so
+  // preview and debit speak the same unit and there is nothing left to reconcile.
+  it('prices through the internal conversion, not a private 1cr=1ct unit', () => {
+    // x2 metered floor, then 10 credits per EUR cent — the credits-core ratio.
+    expect(getVideoTier('fast').creditsPerSecond).toBe(7 * 2 * 10);
+    expect(getVideoTier('hd').creditsPerSecond).toBe(25 * 2 * 10);
+    // The old private unit would have produced the raw USD cents as credits.
+    expect(getVideoTier('fast').creditsPerSecond).not.toBe(7);
   });
 });
 
@@ -119,15 +109,15 @@ describe('estimateVideoCost — preview math', () => {
     expect(preview.durationSeconds).toBe(DEFAULT_VIDEO_DURATION_SECONDS);
     expect(preview.tier.id).toBe('fast');
     expect(preview.isUpgrade).toBe(false);
-    // CALIBRATED: 5s × 24 credits/s = 120 (Seedance Fast 720p, matches debit).
-    expect(preview.estimatedCredits).toBe(120);
+    // 5s x 140 credits/s = 700 (720p on grok-imagine-video, derived from $0.07/s).
+    expect(preview.estimatedCredits).toBe(700);
   });
 
   it('rounds the estimate UP so the preview never under-states', () => {
-    // 3.2s → ceil(duration) 4s × 24 credits/s = 96 (duration ceil first).
+    // 3.2s -> ceil(duration) 4s x 140 credits/s = 560 (duration ceil first).
     const preview = estimateVideoCost({ durationSeconds: 3.2 });
     expect(preview.durationSeconds).toBe(4);
-    expect(preview.estimatedCredits).toBe(96);
+    expect(preview.estimatedCredits).toBe(560);
   });
 
   it('floors a degenerate (0/negative) duration to the default clip length', () => {
@@ -417,5 +407,79 @@ describe('buildResolvedVideoMessage — confirm carries the resolved tier/resolu
     const resolved = buildResolvedVideoMessage(original, { tierId: 'hd', estimatedCredits: 340 });
     // Confirming must NOT just re-fire the original text — it carries the spec.
     expect(resolved).not.toBe(original);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Capability matrix — what the provider can ACTUALLY produce
+// ---------------------------------------------------------------------------
+
+describe('video capability matrix (official xAI model profiles)', () => {
+  it('offers a text prompt only 480p and 720p — never 1080p', () => {
+    const tiers = listAvailableVideoTiers({ inputMode: 'text' });
+    expect(tiers.map((t) => t.resolution)).toEqual(['480p', '720p']);
+    expect(tiers.every((t) => t.model === 'grok-imagine-video')).toBe(true);
+  });
+
+  it('text + 1080p is IMPOSSIBLE — 1.5 is image-to-video only', () => {
+    // The negative case that drove this correction. grok-imagine-video (the only
+    // text-to-video model) tops out at 720p; grok-imagine-video-1.5 reaches 1080p
+    // but cannot take a bare prompt. Offering HD for text was a promise the
+    // provider cannot keep, no matter what the entitlement says.
+    expect(isVideoTierAvailable('hd', { inputMode: 'text' })).toBe(false);
+    expect(isVideoTierAvailable('hd', { inputMode: 'text', hd15Available: true })).toBe(false);
+  });
+
+  it('image + 1080p requires 1.5 to be genuinely available', () => {
+    expect(isVideoTierAvailable('hd', { inputMode: 'image' })).toBe(false);
+    expect(isVideoTierAvailable('hd', { inputMode: 'image', hd15Available: true })).toBe(true);
+  });
+
+  it('1080p resolves to grok-imagine-video-1.5, nothing else', () => {
+    const hd = listAvailableVideoTiers({ inputMode: 'image', hd15Available: true }).find(
+      (t) => t.resolution === '1080p'
+    );
+    expect(hd?.model).toBe('grok-imagine-video-1.5');
+    expect(hd?.requiresImageInput).toBe(true);
+  });
+
+  it('text + 720p resolves to grok-imagine-video', () => {
+    const fast = listAvailableVideoTiers({ inputMode: 'text' }).find((t) => t.resolution === '720p');
+    expect(fast?.model).toBe('grok-imagine-video');
+    expect(fast?.id).toBe('fast');
+    expect(fast?.isDefault).toBe(true);
+  });
+
+  it('480p and 720p stay on the cheaper base model even with an image', () => {
+    const tiers = listAvailableVideoTiers({ inputMode: 'image', hd15Available: true });
+    expect(tiers.find((t) => t.resolution === '480p')?.model).toBe('grok-imagine-video');
+    expect(tiers.find((t) => t.resolution === '720p')?.model).toBe('grok-imagine-video');
+  });
+});
+
+describe('credits derive from the real model profile, not from Seedance', () => {
+  it('derives each tier through the internal conversion (x2 floor, 10 cr/EUR cent)', () => {
+    expect(deriveVideoCreditsPerSecond(0.05)).toBe(100);
+    expect(deriveVideoCreditsPerSecond(0.07)).toBe(140);
+    expect(deriveVideoCreditsPerSecond(0.25)).toBe(500);
+  });
+
+  it('every tier constant EQUALS its own derivation — no hand-tuned numbers', () => {
+    for (const tier of VIDEO_TIERS) {
+      expect(tier.creditsPerSecond).toBe(deriveVideoCreditsPerSecond(tier.usdPerSecond));
+    }
+  });
+
+  it('the Seedance constants are GONE', () => {
+    // 24 and 68 cr/s priced a Seedance lane that this product does not call. A 5s
+    // 720p clip previewed 120 credits against a real ~700 — understated ~6x.
+    const rates = VIDEO_TIERS.map((t) => t.creditsPerSecond);
+    expect(rates).not.toContain(24);
+    expect(rates).not.toContain(68);
+    expect(VIDEO_TIERS.every((t) => t.model.startsWith('grok-imagine-video'))).toBe(true);
+  });
+
+  it('prices a 5s 720p clip at the real rate', () => {
+    expect(estimateVideoCost({ durationSeconds: 5, tierId: 'fast' }).estimatedCredits).toBe(700);
   });
 });

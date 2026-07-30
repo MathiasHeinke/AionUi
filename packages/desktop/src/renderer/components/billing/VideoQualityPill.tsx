@@ -26,7 +26,12 @@
 
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { estimateVideoCost, VIDEO_TIERS, type VideoQualityTier } from '@/common/config/videoCostCore';
+import {
+  estimateVideoCost,
+  listAvailableVideoTiers,
+  type VideoInputMode,
+  type VideoQualityTier,
+} from '@/common/config/videoCostCore';
 import './billing.css';
 
 export interface VideoQualityPillProps {
@@ -38,12 +43,32 @@ export interface VideoQualityPillProps {
   durationSeconds?: number;
   /** Hide the control entirely (the draft does not route to video). */
   visible: boolean;
+  /**
+   * Whether the pending request carries an image. This is not cosmetic: 1080p is
+   * only reachable from an image, because the model that produces it does not do
+   * text-to-video at all.
+   */
+  inputMode: VideoInputMode;
+  /** Whether grok-imagine-video-1.5 is genuinely available. Unproven => no 1080p. */
+  hd15Available?: boolean;
 }
 
-const VideoQualityPill: React.FC<VideoQualityPillProps> = ({ value, onChange, durationSeconds, visible }) => {
+const VideoQualityPill: React.FC<VideoQualityPillProps> = ({
+  value,
+  onChange,
+  durationSeconds,
+  visible,
+  inputMode,
+  hd15Available,
+}) => {
   const { t } = useTranslation();
 
   if (!visible) return null;
+
+  // Only what this request can ACTUALLY produce. A text prompt gets two options,
+  // not three with one that would fail on submit.
+  const tiers = listAvailableVideoTiers({ inputMode, hd15Available });
+  if (tiers.length === 0) return null;
 
   const preview = estimateVideoCost({ durationSeconds, tierId: value });
 
@@ -56,7 +81,7 @@ const VideoQualityPill: React.FC<VideoQualityPillProps> = ({ value, onChange, du
         role='radiogroup'
         aria-label={t('credits.video.qualityLabel', { defaultValue: 'Qualität' })}
       >
-        {VIDEO_TIERS.map((tier) => {
+        {tiers.map((tier) => {
           const selected = tier.id === value;
           return (
             <button
@@ -68,10 +93,7 @@ const VideoQualityPill: React.FC<VideoQualityPillProps> = ({ value, onChange, du
               data-testid={`video-quality-option-${tier.id}`}
               onClick={() => onChange(tier.id)}
             >
-              {tier.isUpgrade
-                ? t('credits.video.tierHd', { defaultValue: 'HD-Qualität' })
-                : t('credits.video.tierFast', { defaultValue: 'Fast (Standard)' })}
-              <span className='video-quality-pill__resolution'>{tier.resolution}</span>
+              {tier.resolution}
             </button>
           );
         })}

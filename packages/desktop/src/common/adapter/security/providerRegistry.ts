@@ -116,6 +116,7 @@ export const RENDERER_PROVIDER_KEYS = [
   'command-eve.team-manage-reject',
   'command-eve.telemetry-consent-get',
   'command-eve.telemetry-consent-set',
+  'command-eve.video-generate',
   'command-eve.warm-local-model',
   'is-dev-tools-opened',
   'notification.show',
@@ -288,6 +289,8 @@ export const RENDERER_PROVIDER_PAYLOAD_CLASSES = {
   'command-eve.team-manage-reject': 'record',
   'command-eve.telemetry-consent-get': 'void',
   'command-eve.telemetry-consent-set': 'record',
+  // Prompt, tier, duration and an optional base64 image + its SHA-256 receipt.
+  'command-eve.video-generate': 'record',
   'command-eve.warm-local-model': 'optional-record',
   'is-dev-tools-opened': 'void',
   'notification.show': 'record',

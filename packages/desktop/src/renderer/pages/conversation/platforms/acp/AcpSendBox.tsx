@@ -97,10 +97,14 @@ import {
   isVideoLaneRequest,
   buildResolvedVideoMessage,
   VIDEO_LANE_AGENT_ID,
+  DEFAULT_VIDEO_DURATION_SECONDS,
   DEFAULT_VIDEO_TIER_ID,
+  isVideoTierAvailable,
+  type VideoInputMode,
   type VideoQualityTier,
 } from '@/common/config/videoCostCore';
 import VideoQualityPill from '@/renderer/components/billing/VideoQualityPill';
+import { isImageFile } from '@/common/chat/imageGenCore';
 import { addressesVideoMarketer } from '@/common/config/eveTeamRoster';
 
 const useAcpSendBoxDraft = getSendBoxDraftHook('acp', {
@@ -664,6 +668,14 @@ Please check your local CLI tool authentication status`,
     [content, isEveConversation]
   );
 
+  // 1080p exists only as image->video: grok-imagine-video-1.5 reaches it but does
+  // not accept a bare prompt, and grok-imagine-video (which does) stops at 720p.
+  // So the picker's options depend on whether an image is attached RIGHT NOW.
+  const videoInputMode: VideoInputMode = useMemo(
+    () => (uploadFile.some((path) => isImageFile(path)) ? 'image' : 'text'),
+    [uploadFile]
+  );
+
   const dispatchSteer = useCallback(
     async (input: string, requestId?: string) => {
       const turnId = runtimeView.activeTurnId ?? (await waitForConversationActiveTurnId(conversation_id));
@@ -1056,9 +1068,59 @@ Please check your local CLI tool authentication status`,
         // fall to the cheap default rather than spending a stale HD pick that the
         // user cannot connect to this send. Structural, not documented: the
         // expensive direction is unreachable instead of merely discouraged.
+        // Two guards, in order. A tier the user could not SEE does not count
+        // (below), and a tier the provider cannot PRODUCE is refused rather than
+        // silently downgraded — a downgrade would bill 720p for a 1080p promise.
+        const selectedTier = draftRoutesToVideo ? videoTierId : DEFAULT_VIDEO_TIER_ID;
+        const producibleTier = isVideoTierAvailable(selectedTier, { inputMode: videoInputMode })
+          ? selectedTier
+          : DEFAULT_VIDEO_TIER_ID;
         videoCostWall.requestVideo(
-          { tierId: draftRoutesToVideo ? videoTierId : DEFAULT_VIDEO_TIER_ID },
+          { tierId: producibleTier },
           (resolved) => {
+            // The REAL generation. Until now this lane only stamped a directive
+            // into the text and hoped something downstream honoured it; the
+            // deployed gateway had no video branch at all, so nothing ever did.
+            // MAIN now calls the endpoint, and the outcome — a playable video or
+            // a specific refusal — is what reaches the conversation.
+            void ipcBridge.commandEve.videoGenerate
+              .invoke({
+                prompt: message,
+                tierId: resolved.tierId,
+                durationSeconds: DEFAULT_VIDEO_DURATION_SECONDS,
+              })
+              .then((response) => {
+                const outcome = response?.data;
+                if (!response?.success || !outcome) {
+                  Message.error({
+                    content: t('credits.video.failed', {
+                      defaultValue: 'Die Videoerstellung konnte nicht gestartet werden.',
+                    }),
+                    duration: 6000,
+                  });
+                  return;
+                }
+                if (outcome.ok === false) {
+                  // The server's reason, not a generic sentence. Distinguishing
+                  // "out of credits" from "1080p needs an image" is the whole
+                  // point of the gateway returning six different refusals.
+                  Message.error({ content: outcome.message, duration: 8000 });
+                  return;
+                }
+                emitter.emit('acp.video.generated', {
+                  conversation_id,
+                  artifact: outcome.artifact,
+                });
+              })
+              .catch(() => {
+                Message.error({
+                  content: t('credits.video.failed', {
+                    defaultValue: 'Die Videoerstellung konnte nicht gestartet werden.',
+                  }),
+                  duration: 6000,
+                });
+              });
+
             const resolvedMessage = buildResolvedVideoMessage(message, resolved);
             const dispatch = dispatchMessage(
               resolvedMessage,
@@ -1127,6 +1189,7 @@ Please check your local CLI tool authentication status`,
       videoCostWall.requestVideo,
       videoTierId,
       draftRoutesToVideo,
+      videoInputMode,
     ]
   );
 
@@ -1652,7 +1715,12 @@ Please check your local CLI tool authentication status`,
           <>
             {/* Quality picker for the pending video. Renders in the draft band,
                 never as an overlay — it cannot intercept or delay a send. */}
-            <VideoQualityPill visible={draftRoutesToVideo} value={videoTierId} onChange={setVideoTierId} />
+            <VideoQualityPill
+              visible={draftRoutesToVideo}
+              value={videoTierId}
+              onChange={setVideoTierId}
+              inputMode={videoInputMode}
+            />
             {uploadFile.length > 0 && (
               <HorizontalFileList>
                 {uploadFile.map((path) => (

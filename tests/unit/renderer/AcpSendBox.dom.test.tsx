@@ -20,6 +20,7 @@ const {
   presentationPrepareInvokeMock,
   cloudVisualPolicyReceiptInvokeMock,
   managedVisualTurnAuthorizeInvokeMock,
+  videoGenerateInvokeMock,
   pptPreviewStartInvokeMock,
   pptPreviewStopInvokeMock,
   addOrUpdateMessageMock,
@@ -63,6 +64,7 @@ const {
   presentationPrepareInvokeMock: vi.fn(),
   cloudVisualPolicyReceiptInvokeMock: vi.fn(),
   managedVisualTurnAuthorizeInvokeMock: vi.fn(),
+  videoGenerateInvokeMock: vi.fn(),
   pptPreviewStartInvokeMock: vi.fn(),
   pptPreviewStopInvokeMock: vi.fn(),
   addOrUpdateMessageMock: vi.fn(),
@@ -169,6 +171,9 @@ vi.mock('@/common', () => ({
       },
       managedVisualTurnAuthorize: {
         invoke: managedVisualTurnAuthorizeInvokeMock,
+      },
+      videoGenerate: {
+        invoke: videoGenerateInvokeMock,
       },
     },
     pptPreview: {
@@ -485,6 +490,24 @@ describe('AcpSendBox', () => {
     presentationPrepareInvokeMock.mockReset();
     cloudVisualPolicyReceiptInvokeMock.mockReset();
     managedVisualTurnAuthorizeInvokeMock.mockReset();
+    videoGenerateInvokeMock.mockReset();
+    videoGenerateInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        ok: true,
+        artifact: {
+          mimeType: 'video/mp4',
+          dataBase64: 'AAAA',
+          bytes: 3,
+          sha256: 'e'.repeat(64),
+          resolution: '720p',
+          model: 'grok-imagine-video',
+          tierId: 'fast',
+          durationSeconds: 5,
+          estimatedCredits: 700,
+        },
+      },
+    });
     pptPreviewStartInvokeMock.mockReset();
     pptPreviewStopInvokeMock.mockReset();
     modalConfirmMock.mockReset();
@@ -1814,7 +1837,7 @@ describe('AcpSendBox', () => {
     expect(modalConfirmMock).not.toHaveBeenCalled();
   });
 
-  it('carries an explicit HD choice into the dispatched request', async () => {
+  it('refuses a 1080p tier the provider cannot produce from a text prompt', async () => {
     draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
     sendBoxMessageMock.current = 'erstelle ein Video über unser Produkt';
     sendMessageInvokeMock.mockResolvedValue({});
@@ -1828,10 +1851,10 @@ describe('AcpSendBox', () => {
       />
     );
 
-    act(() => {
-      screen.getByTestId('video-quality-option-hd').click();
-    });
-    expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-selected-tier', 'hd');
+    // There is no 1080p option at all for a text draft: grok-imagine-video stops
+    // at 720p and grok-imagine-video-1.5, which reaches 1080p, cannot take a bare
+    // prompt. The picker therefore never renders it.
+    expect(screen.queryByTestId('video-quality-option-hd')).toBeNull();
 
     await act(async () => {
       screen.getByRole('button', { name: 'send' }).click();
@@ -1839,12 +1862,10 @@ describe('AcpSendBox', () => {
 
     await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
     const input = sendMessageInvokeMock.mock.calls[0][0].input as string;
-    // The whole point: the tier the user picked is the tier the agent is told to
-    // use. A regression that drops it would silently bill HD intent at 720p —
-    // or worse, quietly resolve back to fast while the UI still reads HD.
-    expect(input).toContain('tier=hd');
-    expect(input).toContain('resolution=1080p');
-    expect(input).toContain('credits<=340');
+    // It dispatches at a tier that CAN be produced, and says so honestly.
+    expect(input).toContain('tier=fast');
+    expect(input).toContain('resolution=720p');
+    expect(input).not.toContain('1080p');
     expect(modalConfirmMock).not.toHaveBeenCalled();
   });
   it('ignores a tier the user never saw: no visible picker means the cheap default', async () => {
@@ -1867,9 +1888,9 @@ describe('AcpSendBox', () => {
       />
     );
     act(() => {
-      screen.getByTestId('video-quality-option-hd').click();
+      screen.getByTestId('video-quality-option-sd').click();
     });
-    expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-selected-tier', 'hd');
+    expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-selected-tier', 'sd');
 
     // Step 2: the draft becomes inert, so the picker disappears — but the message
     // SendBox hands to onSend still carries the video intent via the reply quote.
@@ -1894,7 +1915,7 @@ describe('AcpSendBox', () => {
     // It still routes to video (the enriched message carries the intent) — but at
     // the cheap default, never at a stale HD pick the user cannot connect to it.
     expect(input).toContain('tier=fast');
-    expect(input).not.toContain('tier=hd');
+    expect(input).not.toContain('tier=sd');
   });
 
   it('does not let an HD pick outlive its own send', async () => {
@@ -1912,13 +1933,13 @@ describe('AcpSendBox', () => {
     );
 
     act(() => {
-      screen.getByTestId('video-quality-option-hd').click();
+      screen.getByTestId('video-quality-option-sd').click();
     });
     await act(async () => {
       screen.getByRole('button', { name: 'send' }).click();
     });
     await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
-    expect(sendMessageInvokeMock.mock.calls[0][0].input as string).toContain('tier=hd');
+    expect(sendMessageInvokeMock.mock.calls[0][0].input as string).toContain('tier=sd');
 
     // "Default stays Fast/Standard" has to hold for the NEXT video too.
     await waitFor(() => expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-selected-tier', 'fast'));
@@ -1949,7 +1970,7 @@ describe('AcpSendBox', () => {
     );
 
     act(() => {
-      screen.getByTestId('video-quality-option-hd').click();
+      screen.getByTestId('video-quality-option-sd').click();
     });
     await act(async () => {
       screen.getByRole('button', { name: 'send' }).click();
@@ -1957,8 +1978,69 @@ describe('AcpSendBox', () => {
 
     await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
     const input = sendMessageInvokeMock.mock.calls[0][0].input as string;
-    expect(input).toContain('tier=hd');
+    expect(input).toContain('tier=sd');
     expect(input).not.toContain('tier=fast');
     expect((input.match(/\[EVE:VIDEO /g) ?? []).length).toBe(1);
+  });
+  it('calls the REAL video endpoint, not just a prompt stamp', async () => {
+    // The defect this closes: the lane used to stamp "[EVE:VIDEO ...]" into the
+    // text and stop. The deployed gateway had no video branch at all, so the
+    // stamp travelled and nothing generated. A stamp alone is not a video.
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
+    sendBoxMessageMock.current = 'erstelle ein Video über unser Produkt';
+    sendMessageInvokeMock.mockResolvedValue({});
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
+    const sent = videoGenerateInvokeMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(sent.tierId).toBe('fast');
+    expect(sent.prompt).toContain('Video');
+    expect(typeof sent.durationSeconds).toBe('number');
+  });
+
+  it('shows the server reason when a video is refused, not a generic sentence', async () => {
+    // Six distinct refusals exist server-side; flattening them here would waste
+    // every one of them. This pins that the spend-cap sentence reaches the user.
+    videoGenerateInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        ok: false,
+        reasonCode: 'spend_cap_exceeded',
+        message: 'Dieses Video würde das Ausgabenlimit für den aktuellen Zeitraum überschreiten.',
+        retryable: false,
+      },
+    });
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
+    sendBoxMessageMock.current = 'erstelle ein Video über unser Produkt';
+    sendMessageInvokeMock.mockResolvedValue({});
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() => expect(messageErrorMock).toHaveBeenCalled());
+    const shown = messageErrorMock.mock.calls.at(-1)?.[0] as { content?: string } | undefined;
+    expect(shown?.content).toContain('Ausgabenlimit');
   });
 });

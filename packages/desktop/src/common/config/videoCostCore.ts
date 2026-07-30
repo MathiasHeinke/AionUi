@@ -17,15 +17,25 @@
  * way attaching an image is the authorisation to analyse it. The confirmation was
  * a second question about an intent the request already carried.
  *
- * What still protects the money is server-side and unchanged: the inference edge
- * function reserves the spend BEFORE the upstream call (`reservePaidLane` →
- * `canAfford`) and answers 402 on `insufficient_credits` or `spend_cap_exceeded`.
- * That is the brake. This module never was one.
+ * What protects the money is server-side. This module never was a brake, and the
+ * brake it used to name was the wrong one: `reservePaidLane` → `canAfford` lives
+ * in eve-inference, and video does not go through eve-inference at all — the
+ * deployed function contains no reference to video. Video routes to
+ * `eve-multimodal`, and its reservation runs there, before the provider call.
+ * Citing the inference brake here made a limit sound like it covered a lane it
+ * has never seen.
  *
- * The cheaper Fast/720p tier remains the default. Removing the wall did briefly
- * leave 1080p with no way to select it; the replacement surface now exists as an
- * inline, non-blocking picker in the composer (VideoQualityPill), so
- * `isExplicitUpgrade` describes a real user action again rather than a lost one.
+ * The cheaper Fast/720p tier remains the default, and the picker is inline and
+ * non-blocking (VideoQualityPill).
+ *
+ * The tier list is CAPABILITY-AWARE, and that is not a refinement — it is a
+ * correction. The selector previously offered 1080p to everyone. Per the official
+ * xAI model profiles, `grok-imagine-video` (the only text-to-video model) tops out
+ * at 720p, and `grok-imagine-video-1.5`, which does reach 1080p, is IMAGE->VIDEO
+ * ONLY. So a bare prompt can never yield 1080p, and offering it was a promise the
+ * provider cannot keep. `listAvailableVideoTiers` returns only what the request can
+ * actually produce; `isVideoTierAvailable` refuses the rest at submit rather than
+ * quietly downgrading — a silent downgrade would charge 720p for a 1080p promise.
  *
  * PURE (no Electron, no fs, no network) so the math and the classifier stay
  * unit-testable in plain Node, mirroring `creditsCore.ts` / `eveInferenceCore.ts`.
@@ -35,65 +45,163 @@
 // Tiers (Fast/720p default; 1080p = explicit upgrade)
 // ---------------------------------------------------------------------------
 
-/** Video quality tier ids. `fast` is the default; `hd` (1080p) is the upgrade. */
-export type VideoQualityTier = 'fast' | 'hd';
+/** Video quality tier ids. `fast` (720p) is the default. */
+export type VideoQualityTier = 'sd' | 'fast' | 'hd';
 
-/** Supported video resolutions. 720p rides with `fast`, 1080p with `hd`. */
-export type VideoResolution = '720p' | '1080p';
+/** Supported video resolutions. */
+export type VideoResolution = '480p' | '720p' | '1080p';
+
+/** The two xAI video models, which differ in what they ACCEPT, not just price. */
+export type VideoModelId = 'grok-imagine-video' | 'grok-imagine-video-1.5';
+
+/** What the user actually gave us: a prompt alone, or a prompt plus an image. */
+export type VideoInputMode = 'text' | 'image';
 
 export interface VideoTierSpec {
   id: VideoQualityTier;
   resolution: VideoResolution;
+  /** The xAI model that can actually produce this resolution. */
+  model: VideoModelId;
+  /** Provider list price per generated second, in USD. From the model profile. */
+  usdPerSecond: number;
   /**
-   * Credits per second of generated video at this tier — calibrated to the
-   * backend Seedance per-second USD price at 1 credit = 1 US-cent of AT-COST
-   * spend:
+   * Retail credits per generated second, DERIVED from `usdPerSecond` through the
+   * existing internal conversion — not hand-tuned, not the raw USD relabelled:
    *
-   *   SSOT: eve-app `eve-model-registry` Seedance `usd_price` (per-second).
-   *     - Seedance Fast 720p   ≈ $0.2419/s  →  ≈ 24 credits/s  (ceil(24.19)).
-   *     - Seedance Standard 1080p ≈ $0.682/s →  ≈ 68 credits/s  (ceil(68.2)).
+   *   raw cents -> retailCostEurCents(raw, <un-tiered>) -> x CREDITS_PER_EUR_CENT
    *
-   * ⚠️ KNOWN UNIT MISMATCH (M3.7, founder margin decision — NOT blindly changed):
-   * `creditsCore` defines the credit unit as 0.1 ct (CREDIT_UNIT_EUR = 0.001 €,
-   * 1000 credits/€), whereas THIS preview is pinned to 1 credit = 1 US-cent. At
-   * the 0.1ct unit the AT-COST figure would be ~10× higher (~242/682 cr/s), and
-   * WITH the per-tier consumption markup (2–8×) higher still. This preview is
-   * therefore an UNDER-STATE relative to the real 0.1ct-unit debit.
+   * i.e. the universal DEFAULT_MARKUP_FACTOR = 2 floor (credits-core states the
+   * metered image/video/music lane takes exactly that floor) and 10 credits per
+   * EUR cent. See `deriveVideoCreditsPerSecond` for the executable derivation.
    *
-   * These figures are deliberately LEFT as-is because the real video debit is
-   * NOT driven by this desktop preview — the server (eve-inference, per-token /
-   * per-second markup at consumption) is authoritative on every charge, and a
-   * blind ×10 here would over/under-state depending on whether the server debits
-   * video at cost or at markup (unverified from the sandbox). Recalibrating to
-   * ~240/680 cr/s + markup is a MARGIN decision that must be made against the
-   * live server contract — see the founder note in the M3+M4 report. If the
-   * registry `usd_price` OR the credit-unit calibration changes, update BOTH the
-   * backend registry and these constants (the test pins them — see
-   * videoCostCore.test.ts). Per-second credits are rounded UP so the preview is
-   * a ceiling of the 1cr=1ct calibration, never an under-state of THAT unit.
+   * ONE assumption is stated rather than hidden: there is no USD->EUR converter
+   * anywhere in this codebase (eve-inference never needs one — OpenRouter reports
+   * `cost_eur_cents` directly). USD cents are therefore treated 1:1 as EUR cents.
+   * Since EUR > USD that OVER-states the cost slightly and can never under-charge,
+   * which is the safe direction for a preview — but it is an assumption, and if a
+   * real FX source appears this is the line to change.
    */
   creditsPerSecond: number;
-  /** True for the cheaper DEFAULT tier (Fast/720p). Exactly one tier is default. */
+  /** True for the resting default tier (Fast/720p). Exactly one tier is default. */
   isDefault: boolean;
-  /** True iff selecting this tier is an explicit upgrade (1080p). */
+  /** True iff selecting this tier costs more than the default. */
   isUpgrade: boolean;
+  /**
+   * True iff this tier can ONLY be produced from an image input. grok-imagine-video-1.5
+   * is image->video ONLY per the official model page — it does not do text-to-video —
+   * so every tier that needs it is unreachable for a bare prompt.
+   */
+  requiresImageInput: boolean;
 }
 
 /**
- * The two video tiers (spec / war-game guardrail). Fast/720p is the resting
- * default; HD/1080p is the explicit upgrade.
+ * Derive retail credits/second from a provider USD/second list price, through the
+ * existing internal conversion. Kept as a function so the derivation is executable
+ * and testable instead of a comment next to a magic number.
  *
- * `creditsPerSecond` is pinned to the backend Seedance `usd_price` at 1 credit =
- * 1 US-cent (Fast/720p $0.2419/s → 24; HD/1080p $0.682/s → 68). NOTE (M3.7): this
- * calibration is a factor ~10 BELOW the creditsCore 0.1ct credit unit and is
- * LEFT unchanged pending a founder margin decision against the live server debit
- * — see the creditsPerSecond doc above. SSOT = eve-app `eve-model-registry`. Do
- * not hand-tune these in isolation.
+ * Mirrors `credits-core.ts`: DEFAULT_MARKUP_FACTOR = 2 (the un-tiered metered floor
+ * that the image/video/music lane takes) and CREDITS_PER_EUR_CENT = 10.
+ */
+export const VIDEO_MARKUP_FACTOR = 2;
+export const VIDEO_CREDITS_PER_EUR_CENT = 10;
+
+export function deriveVideoCreditsPerSecond(usdPerSecond: number): number {
+  // ROUND to integer cents FIRST, then stay in integer arithmetic. `0.05 * 100`
+  // is 5.000000000000001 in IEEE-754, and a later ceil() turns that into 101
+  // credits instead of 100 — a price that is wrong by a rounding artefact. This
+  // is the same float trap credits-core calls out when it stores CREDITS_PER_EUR_CENT
+  // as an integer ratio rather than dividing by 0.1. Provider list prices are
+  // quoted in whole cents, so rounding here loses nothing real.
+  const rawCents = Math.round(usdPerSecond * 100); // USD cents, 1:1 as EUR cents (above)
+  return rawCents * VIDEO_MARKUP_FACTOR * VIDEO_CREDITS_PER_EUR_CENT;
+}
+
+/**
+ * The video tiers, from the OFFICIAL xAI model profiles.
+ *
+ * This table previously carried SEEDANCE prices (24 / 68 credits/s) for a lane
+ * that routes to xAI. Both the provider attribution and the figures were wrong:
+ * the real 720p rate is 140 credits/s, so a 5s clip previewed 120 credits against
+ * a true ~700. Off by a factor of ~6, in the direction that flatters us.
+ *
+ *   grok-imagine-video       text/image/video -> video, 480p $0.05/s, 720p $0.07/s.
+ *                            NO 1080p. This is the only text-to-video model.
+ *   grok-imagine-video-1.5   480p $0.08/s, 720p $0.14/s, 1080p $0.25/s — but
+ *                            IMAGE -> VIDEO ONLY. It cannot take a bare prompt.
+ *
+ * The consequence drives the whole selector: there is no 1080p for a text prompt.
+ * Offering it would be a promise the provider cannot keep. 480p/720p stay on the
+ * cheaper base model even when an image is present; 1.5 is only reached for 1080p.
  */
 export const VIDEO_TIERS: readonly VideoTierSpec[] = [
-  { id: 'fast', resolution: '720p', creditsPerSecond: 24, isDefault: true, isUpgrade: false },
-  { id: 'hd', resolution: '1080p', creditsPerSecond: 68, isDefault: false, isUpgrade: true },
+  {
+    id: 'sd',
+    resolution: '480p',
+    model: 'grok-imagine-video',
+    usdPerSecond: 0.05,
+    creditsPerSecond: 100,
+    isDefault: false,
+    isUpgrade: false,
+    requiresImageInput: false,
+  },
+  {
+    id: 'fast',
+    resolution: '720p',
+    model: 'grok-imagine-video',
+    usdPerSecond: 0.07,
+    creditsPerSecond: 140,
+    isDefault: true,
+    isUpgrade: false,
+    requiresImageInput: false,
+  },
+  {
+    id: 'hd',
+    resolution: '1080p',
+    model: 'grok-imagine-video-1.5',
+    usdPerSecond: 0.25,
+    creditsPerSecond: 500,
+    isDefault: false,
+    isUpgrade: true,
+    requiresImageInput: true,
+  },
 ] as const;
+
+/** What the caller knows about the pending request when choosing a tier. */
+export interface VideoTierAvailability {
+  /** Does the request carry an image the model can animate? */
+  inputMode: VideoInputMode;
+  /**
+   * Is grok-imagine-video-1.5 actually reachable on the existing xAI entitlement?
+   * Defaults to FALSE and must be proven, not assumed: an unavailable model that
+   * we advertise is the same defect as a resolution the model cannot produce.
+   */
+  hd15Available?: boolean;
+}
+
+/**
+ * The tiers that are genuinely offerable for THIS request. Anything that cannot
+ * be produced is not returned — the honest selector shows two options for a text
+ * prompt, not three with one that fails on submit.
+ */
+export function listAvailableVideoTiers(availability: VideoTierAvailability): readonly VideoTierSpec[] {
+  const hasImage = availability.inputMode === 'image';
+  const hd15 = availability.hd15Available === true;
+  return VIDEO_TIERS.filter((tier) => {
+    if (tier.requiresImageInput && !hasImage) return false;
+    if (tier.model === 'grok-imagine-video-1.5' && !hd15) return false;
+    return true;
+  });
+}
+
+/**
+ * Is this tier actually producible for the request? The submit path calls this so
+ * an impossible tier is refused with a precise capability error instead of being
+ * silently downgraded — a silent downgrade would bill 720p while the user was
+ * shown 1080p, which is the exact dishonesty this lane keeps producing.
+ */
+export function isVideoTierAvailable(tierId: VideoQualityTier, availability: VideoTierAvailability): boolean {
+  return listAvailableVideoTiers(availability).some((tier) => tier.id === tierId);
+}
 
 /** The cheaper Fast/720p tier id — the default the wall pre-selects. */
 export const DEFAULT_VIDEO_TIER_ID: VideoQualityTier = 'fast';
