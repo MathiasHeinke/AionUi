@@ -26,13 +26,28 @@ export const VIDEO_GENERATION_CAPABILITY = 'video_generation' as const;
  * What the renderer asks MAIN for. Lives here, not in the process bridge, because
  * `common/` must never import from `process/` — the IPC declaration needs this
  * type and the layering only allows it to look downwards.
+ *
+ * There is deliberately no `imageBase64`/`imageSha256` here. The renderer never
+ * reads file bytes or computes a hash itself — that would be exactly the
+ * arbitrary-path-read this lane must refuse. It sends `imagePath`, a path Main
+ * has ALREADY grant-verified (the same native-file-selection grant every other
+ * EVE visual lane uses); Main re-reads that exact file and re-hashes what it
+ * actually read before anything reaches the gateway.
  */
 export interface CommandEveVideoGenerateRequest {
   prompt: string;
   tierId: VideoQualityTier;
   durationSeconds: number;
-  imageBase64?: string;
-  imageSha256?: string;
+  /**
+   * Optional so the pre-existing gateway-communication tests keep exercising the
+   * gateway call in isolation. Every real caller (the send-path) always supplies
+   * it; when it is absent, the local durable-artifact save is skipped rather than
+   * faked — a video that cannot be attributed to a conversation is not persisted
+   * as one.
+   */
+  conversationId?: string;
+  /** The attached, grant-verified image path for image->video (see above). */
+  imagePath?: string;
 }
 
 export interface VideoGenerationRequest {
@@ -196,14 +211,21 @@ export function parseVideoGenerationResponse(status: number, raw: unknown): Vide
 }
 
 /**
- * Turn a generated video into the payload the existing artifact renderer already
- * knows how to show and save.
+ * Shape a generated video for display.
  *
- * Deliberately reusing `IGeneratedConversationArtifact` rather than inventing a
- * second display path: the chat can already render, preview and persist generated
- * media, and a parallel mechanism would drift from it. The description carries the
- * RESOLVED resolution and the credits actually reserved, so what the user reads
- * afterwards matches what was produced — not what was requested.
+ * NOT YET WIRED, and the reason is written here rather than discovered later.
+ * The chat's artifact renderer derives artifacts from a `MEDIA: <source>` line in
+ * a message, and it resolves that source as an https URL or a file path
+ * (`hermesMediaDirectiveCore.ts:148,186`). A `data:` URL is neither, so a video
+ * handed over this way would not render. Making it visible therefore needs MAIN
+ * to write the bytes to a seat-scoped file and emit its path — a real slice with
+ * storage and cleanup, not a call site.
+ *
+ * Until that exists, a successful generation is reported to the user but not
+ * displayed, and this function has no production caller. It is kept because the
+ * label logic is the part worth preserving: the description carries the RESOLVED
+ * resolution and the credits estimate, so what the user reads matches what the
+ * server produced rather than what was requested.
  */
 export function buildVideoArtifactPayload(artifact: VideoGenerationArtifact): {
   artifact_type: 'video';
@@ -224,3 +246,108 @@ export function buildVideoArtifactPayload(artifact: VideoGenerationArtifact): {
     bytes: artifact.bytes,
   };
 }
+
+// ---------------------------------------------------------------------------
+// The DURABLE artifact (survives a conversation reload)
+// ---------------------------------------------------------------------------
+
+/**
+ * `buildVideoArtifactPayload` above embeds the whole clip as a `data_url` —
+ * fine for an immediate in-memory preview, but a `data_url` lives only in
+ * renderer JS memory and is gone the moment the conversation view remounts.
+ * That is the exact "ephemeral toast-only" failure this lane must not repeat
+ * (see the read-aloud audio artifact, which does the same thing and says so).
+ *
+ * The durable form instead references a `path` MAIN already saved to disk
+ * (mirrors how generated images are saved: bytes to a real file, referenced by
+ * path, never re-shipped as base64). `MessageGeneratedArtifact` already knows
+ * how to read and play a `path`-based artifact.
+ */
+export interface CommandEveVideoConversationArtifactPayload {
+  artifact_type: 'video';
+  title: string;
+  description: string;
+  path: string;
+  mime_type: string;
+  hash: string;
+  size: number;
+}
+
+export interface CommandEveVideoConversationArtifact {
+  id: string;
+  conversation_id: string;
+  kind: 'video';
+  status: 'active';
+  payload: CommandEveVideoConversationArtifactPayload;
+  created_at: number;
+  updated_at: number;
+}
+
+export function buildVideoConversationArtifactPayload(
+  artifact: VideoGenerationArtifact,
+  path: string
+): CommandEveVideoConversationArtifactPayload {
+  return {
+    artifact_type: 'video',
+    title: `Video ${artifact.resolution}`,
+    description: `${artifact.resolution} · ${artifact.durationSeconds}s · ca. ${artifact.estimatedCredits} Credits · ${artifact.model}`,
+    path,
+    mime_type: artifact.mimeType,
+    hash: artifact.sha256,
+    size: artifact.bytes,
+  };
+}
+
+export function buildVideoConversationArtifact(input: {
+  artifact: VideoGenerationArtifact;
+  path: string;
+  id: string;
+  conversationId: string;
+  createdAtMs: number;
+}): CommandEveVideoConversationArtifact {
+  return {
+    id: input.id,
+    conversation_id: input.conversationId,
+    kind: 'video',
+    status: 'active',
+    payload: buildVideoConversationArtifactPayload(input.artifact, input.path),
+    created_at: input.createdAtMs,
+    updated_at: input.createdAtMs,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Image->video safety: 1080p is unreachable without a validated image
+// ---------------------------------------------------------------------------
+
+/**
+ * `hd` (1080p) is `grok-imagine-video-1.5`, which is IMAGE->VIDEO ONLY (see
+ * `videoCostCore`). The renderer already hides the picker option, but a picker
+ * is UI, not a boundary — this is the fail-closed check that refuses the tier
+ * server-request-side when no validated image made it through, so a stale
+ * client, a replayed request, or a future regression cannot buy a 1080p promise
+ * the provider cannot keep.
+ */
+export function refuseVideoTierWithoutImage(
+  tierId: VideoQualityTier,
+  hasImage: boolean
+): { ok: false; reasonCode: 'video-tier-unavailable'; message: string; retryable: false } | null {
+  if (!getVideoTier(tierId).requiresImageInput || hasImage) return null;
+  return {
+    ok: false,
+    reasonCode: 'video-tier-unavailable',
+    message: 'Diese Videoqualität benötigt ein angehängtes Bild (Bild-zu-Video).',
+    retryable: false,
+  };
+}
+
+/**
+ * The wire result of `command-eve.video-generate`. Identical to
+ * {@link VideoGenerationOutcome} on the failure branch; on success it carries
+ * BOTH the raw artifact (unchanged, for any caller still reading it directly)
+ * and — whenever a `conversationId` was supplied — the durable, path-based
+ * artifact the renderer must upsert into the conversation's artifact list.
+ */
+export type CommandEveVideoGenerateResult =
+  | { ok: true; artifact: VideoGenerationArtifact; conversationArtifact?: CommandEveVideoConversationArtifact }
+  | { ok: false; reasonCode: string; message: string; retryable: boolean };
