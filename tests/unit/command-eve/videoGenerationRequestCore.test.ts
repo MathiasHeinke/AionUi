@@ -15,10 +15,12 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  buildVideoConversationArtifact,
   buildVideoGenerationBody,
   describeVideoRefusal,
   buildVideoArtifactPayload,
   parseVideoGenerationResponse,
+  refuseVideoTierWithoutImage,
 } from '@/common/config/videoGenerationRequestCore';
 
 describe('buildVideoGenerationBody', () => {
@@ -204,5 +206,69 @@ describe('buildVideoArtifactPayload — what the user sees is what was produced'
     expect(payload.title).toContain('480p');
     expect(payload.description).toContain('480p');
     expect(payload.description).not.toContain('720p');
+  });
+});
+
+describe('refuseVideoTierWithoutImage — 1080p is unreachable without a validated image', () => {
+  it('refuses hd (1080p) when no image made it through', () => {
+    const refusal = refuseVideoTierWithoutImage('hd', false);
+    expect(refusal).not.toBeNull();
+    expect(refusal?.reasonCode).toBe('video-tier-unavailable');
+    expect(refusal?.retryable).toBe(false);
+  });
+
+  it('allows hd once a validated image is present', () => {
+    expect(refuseVideoTierWithoutImage('hd', true)).toBeNull();
+  });
+
+  it('never gates a tier that does not need an image', () => {
+    expect(refuseVideoTierWithoutImage('fast', false)).toBeNull();
+    expect(refuseVideoTierWithoutImage('sd', false)).toBeNull();
+  });
+});
+
+describe('buildVideoConversationArtifact — the DURABLE, path-based artifact', () => {
+  const artifact = {
+    mimeType: 'video/mp4',
+    dataBase64: 'AAAA',
+    bytes: 3,
+    sha256: 'f'.repeat(64),
+    resolution: '720p',
+    model: 'grok-imagine-video',
+    tierId: 'fast' as const,
+    durationSeconds: 5,
+    estimatedCredits: 700,
+  };
+
+  it('references a local file PATH, never a data: URL', () => {
+    const conversationArtifact = buildVideoConversationArtifact({
+      artifact,
+      path: '/tmp/Downloads/Command EVE Videos/conv-1/artifact-1.mp4',
+      id: 'artifact-1',
+      conversationId: 'conv-1',
+      createdAtMs: 1000,
+    });
+
+    expect(conversationArtifact.id).toBe('artifact-1');
+    expect(conversationArtifact.conversation_id).toBe('conv-1');
+    expect(conversationArtifact.kind).toBe('video');
+    expect(conversationArtifact.status).toBe('active');
+    expect(conversationArtifact.payload.path).toBe('/tmp/Downloads/Command EVE Videos/conv-1/artifact-1.mp4');
+    expect(conversationArtifact.payload).not.toHaveProperty('data_url');
+    expect(conversationArtifact.payload.hash).toBe('f'.repeat(64));
+    expect(conversationArtifact.created_at).toBe(1000);
+    expect(conversationArtifact.updated_at).toBe(1000);
+  });
+
+  it('states the RESOLVED resolution and the real credit figure, same as the ephemeral payload', () => {
+    const conversationArtifact = buildVideoConversationArtifact({
+      artifact,
+      path: '/tmp/video.mp4',
+      id: 'artifact-1',
+      conversationId: 'conv-1',
+      createdAtMs: 1000,
+    });
+    expect(conversationArtifact.payload.description).toContain('720p');
+    expect(conversationArtifact.payload.description).toContain('700');
   });
 });

@@ -506,6 +506,23 @@ describe('AcpSendBox', () => {
           durationSeconds: 5,
           estimatedCredits: 700,
         },
+        conversationArtifact: {
+          id: 'video-artifact-1',
+          conversation_id: 'conv-1',
+          kind: 'video',
+          status: 'active',
+          payload: {
+            artifact_type: 'video',
+            title: 'Video 720p',
+            description: '720p · 5s · ca. 700 Credits · grok-imagine-video',
+            path: '/tmp/Downloads/video-artifact-1.mp4',
+            mime_type: 'video/mp4',
+            hash: 'e'.repeat(64),
+            size: 3,
+          },
+          created_at: 1000,
+          updated_at: 1000,
+        },
       },
     });
     pptPreviewStartInvokeMock.mockReset();
@@ -1811,10 +1828,9 @@ describe('AcpSendBox', () => {
     expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-selected-tier', 'fast');
   });
 
-  it('sends a video at the default tier without any confirmation step', async () => {
+  it('sends a video at the default tier without any confirmation step, and never dispatches to the agent', async () => {
     draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
     sendBoxMessageMock.current = 'erstelle ein Video über unser Produkt';
-    sendMessageInvokeMock.mockResolvedValue({});
 
     render(
       <AcpSendBox
@@ -1829,18 +1845,17 @@ describe('AcpSendBox', () => {
       screen.getByRole('button', { name: 'send' }).click();
     });
 
-    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
-    const input = sendMessageInvokeMock.mock.calls[0][0].input as string;
-    expect(input).toContain('tier=fast');
-    expect(input).toContain('resolution=720p');
-    // The wall is gone: no modal was opened on the way to dispatch.
+    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
+    expect(videoGenerateInvokeMock.mock.calls[0][0]).toMatchObject({ tierId: 'fast', conversationId: 'conv-1' });
+    // The wall is gone: no modal was opened on the way to dispatch. And there is
+    // no second path to the agent for a managed video request.
     expect(modalConfirmMock).not.toHaveBeenCalled();
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
   });
 
   it('refuses a 1080p tier the provider cannot produce from a text prompt', async () => {
     draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
     sendBoxMessageMock.current = 'erstelle ein Video über unser Produkt';
-    sendMessageInvokeMock.mockResolvedValue({});
 
     render(
       <AcpSendBox
@@ -1860,13 +1875,11 @@ describe('AcpSendBox', () => {
       screen.getByRole('button', { name: 'send' }).click();
     });
 
-    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
-    const input = sendMessageInvokeMock.mock.calls[0][0].input as string;
-    // It dispatches at a tier that CAN be produced, and says so honestly.
-    expect(input).toContain('tier=fast');
-    expect(input).toContain('resolution=720p');
-    expect(input).not.toContain('1080p');
+    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
+    // It generates at a tier that CAN be produced, and never claims 1080p.
+    expect(videoGenerateInvokeMock.mock.calls[0][0]).toMatchObject({ tierId: 'fast' });
     expect(modalConfirmMock).not.toHaveBeenCalled();
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
   });
   it('ignores a tier the user never saw: no visible picker means the cheap default', async () => {
     // CAO's divergence case, made structural. SendBox enriches the draft before
@@ -1877,7 +1890,6 @@ describe('AcpSendBox', () => {
     // Step 1: a real video draft, so the picker IS shown and HD IS chosen. Without
     // this the test would pass on the default alone and prove nothing.
     draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
-    sendMessageInvokeMock.mockResolvedValue({});
 
     const { rerender } = render(
       <AcpSendBox
@@ -1910,18 +1922,15 @@ describe('AcpSendBox', () => {
       screen.getByRole('button', { name: 'send' }).click();
     });
 
-    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
-    const input = sendMessageInvokeMock.mock.calls[0][0].input as string;
+    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
     // It still routes to video (the enriched message carries the intent) — but at
     // the cheap default, never at a stale HD pick the user cannot connect to it.
-    expect(input).toContain('tier=fast');
-    expect(input).not.toContain('tier=sd');
+    expect(videoGenerateInvokeMock.mock.calls[0][0]).toMatchObject({ tierId: 'fast' });
   });
 
   it('does not let an HD pick outlive its own send', async () => {
     draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
     sendBoxMessageMock.current = 'erstelle ein Video über unser Produkt';
-    sendMessageInvokeMock.mockResolvedValue({});
 
     render(
       <AcpSendBox
@@ -1938,8 +1947,8 @@ describe('AcpSendBox', () => {
     await act(async () => {
       screen.getByRole('button', { name: 'send' }).click();
     });
-    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
-    expect(sendMessageInvokeMock.mock.calls[0][0].input as string).toContain('tier=sd');
+    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
+    expect(videoGenerateInvokeMock.mock.calls[0][0]).toMatchObject({ tierId: 'sd' });
 
     // "Default stays Fast/Standard" has to hold for the NEXT video too.
     await waitFor(() => expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-selected-tier', 'fast'));
@@ -1947,41 +1956,10 @@ describe('AcpSendBox', () => {
     await act(async () => {
       screen.getByRole('button', { name: 'send' }).click();
     });
-    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(2));
-    expect(sendMessageInvokeMock.mock.calls[1][0].input as string).toContain('tier=fast');
+    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(2));
+    expect(videoGenerateInvokeMock.mock.calls[1][0]).toMatchObject({ tierId: 'fast' });
   });
 
-  it('re-stamps a recalled video message at the tier now selected', async () => {
-    // Arrow-up history returns the DISPATCHED text, stamp included. Picking HD on
-    // it must win; the old code kept the inherited fast stamp.
-    const recalled =
-      'erstelle ein Video über unser Produkt\n\n[EVE:VIDEO tier=fast resolution=720p quality=fast credits<=120]';
-    draftDataMock.current = { atPath: [], uploadFile: [], content: recalled };
-    sendBoxMessageMock.current = recalled;
-    sendMessageInvokeMock.mockResolvedValue({});
-
-    render(
-      <AcpSendBox
-        conversation_id='conv-1'
-        backend='hermes'
-        workspacePath='/tmp/workspace'
-        messageState={makeMessageState()}
-      />
-    );
-
-    act(() => {
-      screen.getByTestId('video-quality-option-sd').click();
-    });
-    await act(async () => {
-      screen.getByRole('button', { name: 'send' }).click();
-    });
-
-    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
-    const input = sendMessageInvokeMock.mock.calls[0][0].input as string;
-    expect(input).toContain('tier=sd');
-    expect(input).not.toContain('tier=fast');
-    expect((input.match(/\[EVE:VIDEO /g) ?? []).length).toBe(1);
-  });
   it('calls the REAL video endpoint, not just a prompt stamp', async () => {
     // The defect this closes: the lane used to stamp "[EVE:VIDEO ...]" into the
     // text and stop. The deployed gateway had no video branch at all, so the
@@ -2024,7 +2002,6 @@ describe('AcpSendBox', () => {
     });
     draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
     sendBoxMessageMock.current = 'erstelle ein Video über unser Produkt';
-    sendMessageInvokeMock.mockResolvedValue({});
 
     render(
       <AcpSendBox
@@ -2042,5 +2019,135 @@ describe('AcpSendBox', () => {
     await waitFor(() => expect(messageErrorMock).toHaveBeenCalled());
     const shown = messageErrorMock.mock.calls.at(-1)?.[0] as { content?: string } | undefined;
     expect(shown?.content).toContain('Ausgabenlimit');
+    // A refusal must never create a fake success artifact — there is nothing to show.
+    expect(emitterEmitMock).not.toHaveBeenCalledWith('acp.video.generated', expect.anything());
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+  });
+
+  it('starts exactly one provider job per send, and never dispatches the same intent to the agent', async () => {
+    // A managed video request used to ALSO dispatch a `[EVE:VIDEO ...]`-stamped
+    // message into the normal ACP turn — a second path that could ask the
+    // agent/runtime to execute the same generation intent again. One user send
+    // must call videoGenerate exactly once and must never send that message.
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
+    sendBoxMessageMock.current = 'erstelle ein Video über unser Produkt';
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+  });
+
+  it('forwards the attached image path and conversation id for image-to-video, without any cloud vision call', async () => {
+    // A video intent must never trigger presentation/image cloud analysis: the
+    // attached image is a VIDEO SOURCE, not a vision-analysis request. The old
+    // ordering ran the image-intelligence pipeline (and its visual-policy
+    // receipt) for every send, including a video one, before routing was even
+    // decided — this pins that it no longer does.
+    draftDataMock.current = {
+      atPath: [],
+      uploadFile: ['/tmp/photo.png'],
+      content: 'erstelle ein Video über unser Produkt',
+    };
+    sendBoxMessageMock.current = 'erstelle ein Video über unser Produkt';
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
+    const sent = videoGenerateInvokeMock.mock.calls[0][0] as Record<string, unknown>;
+    // Only the PATH crosses the boundary — Main re-reads and re-hashes it. The
+    // renderer never computes or forwards bytes/a digest itself.
+    expect(sent.imagePath).toBe('/tmp/photo.png');
+    expect(sent.conversationId).toBe('conv-1');
+    expect(sent).not.toHaveProperty('imageBase64');
+    expect(sent).not.toHaveProperty('imageSha256');
+    // Hard assertion (not a mocked workaround): the vision-analysis pipeline and
+    // its visual-policy receipt are never invoked for an image->video send.
+    expect(imagePrepareInvokeMock).not.toHaveBeenCalled();
+    expect(cloudVisualPolicyReceiptInvokeMock).not.toHaveBeenCalled();
+    expect(managedVisualTurnAuthorizeInvokeMock).not.toHaveBeenCalled();
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+  });
+
+  it('a text-only send never carries an image path', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
+    sendBoxMessageMock.current = 'erstelle ein Video über unser Produkt';
+    sendMessageInvokeMock.mockResolvedValue({});
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() => expect(videoGenerateInvokeMock).toHaveBeenCalledTimes(1));
+    const sent = videoGenerateInvokeMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(sent).not.toHaveProperty('imagePath');
+  });
+
+  it('a successful generation emits the durable, path-based artifact for this conversation', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
+    sendBoxMessageMock.current = 'erstelle ein Video über unser Produkt';
+    sendMessageInvokeMock.mockResolvedValue({});
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() =>
+      expect(emitterEmitMock).toHaveBeenCalledWith('acp.video.generated', {
+        conversation_id: 'conv-1',
+        artifact: expect.objectContaining({
+          id: 'video-artifact-1',
+          conversation_id: 'conv-1',
+          kind: 'video',
+          status: 'active',
+          payload: expect.objectContaining({
+            artifact_type: 'video',
+            // A local file PATH, never a data: URL — the ephemeral,
+            // does-not-survive-reload shape this lane must not repeat.
+            path: '/tmp/Downloads/video-artifact-1.mp4',
+          }),
+        }),
+      })
+    );
   });
 });

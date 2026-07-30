@@ -6,6 +6,7 @@
 
 import { ipcBridge } from '@/common';
 import type { IConversationArtifact, IConversationArtifactStatus } from '@/common/adapter/ipcBridge';
+import { useAddEventListener } from '@/renderer/utils/emitter';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 type ConversationArtifactContextValue = {
@@ -68,20 +69,46 @@ export const ConversationArtifactProvider: React.FC<React.PropsWithChildren<{ co
     let alive = true;
     setArtifacts([]);
 
-    void ipcBridge.conversation.listArtifacts
-      .invoke({ conversation_id })
-      .then((items) => {
-        if (!alive) return;
-        setArtifacts(upsertArtifacts([], items));
-      })
-      .catch((error) => {
+    // AionCore's own artifacts (`listArtifacts`) and the desktop's local durable
+    // store (`videoArtifactsList`) are two independent sources: AionCore never
+    // learns about a video generated through the direct Main -> gateway call, so
+    // it cannot return it. Fetching both on every load — including switching
+    // back to this conversation — is what makes a generated video survive a
+    // reload instead of only existing until this provider unmounts.
+    void Promise.all([
+      ipcBridge.conversation.listArtifacts.invoke({ conversation_id }).catch((error): IConversationArtifact[] => {
         console.error('[ConversationArtifactProvider] Failed to load artifacts:', error);
-      });
+        return [];
+      }),
+      ipcBridge.commandEve.videoArtifactsList
+        .invoke({ conversationId: conversation_id })
+        .then((response) => response?.data ?? [])
+        .catch((error): IConversationArtifact[] => {
+          console.error('[ConversationArtifactProvider] Failed to load local video artifacts:', error);
+          return [];
+        }),
+    ]).then(([remoteArtifacts, localVideoArtifacts]) => {
+      if (!alive) return;
+      setArtifacts(upsertArtifacts([], [...remoteArtifacts, ...localVideoArtifacts]));
+    });
 
     return () => {
       alive = false;
     };
   }, [conversation_id]);
+
+  // Immediate feedback for the send that just finished: the durable save
+  // above already happened in Main (this artifact is the one Main returned
+  // after writing it to disk), so upserting it here is not a "toast" — it is
+  // the SAME artifact the next load will also find via videoArtifactsList.
+  useAddEventListener(
+    'acp.video.generated',
+    (event) => {
+      if (event.conversation_id !== conversation_id) return;
+      upsertArtifact(event.artifact);
+    },
+    [conversation_id, upsertArtifact]
+  );
 
   useEffect(() => {
     if (!conversation_id) return;

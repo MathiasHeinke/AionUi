@@ -95,7 +95,6 @@ import type { UseAcpMessageReturn } from './useAcpMessage';
 import { useVideoCostWall } from '@/renderer/hooks/useVideoCostWall';
 import {
   isVideoLaneRequest,
-  buildResolvedVideoMessage,
   VIDEO_LANE_AGENT_ID,
   DEFAULT_VIDEO_DURATION_SECONDS,
   DEFAULT_VIDEO_TIER_ID,
@@ -104,6 +103,7 @@ import {
   type VideoQualityTier,
 } from '@/common/config/videoCostCore';
 import VideoQualityPill from '@/renderer/components/billing/VideoQualityPill';
+import { isImageFile } from '@/common/chat/imageGenCore';
 import { addressesVideoMarketer } from '@/common/config/eveTeamRoster';
 
 const useAcpSendBoxDraft = getSendBoxDraftHook('acp', {
@@ -476,11 +476,13 @@ const AcpSendBox: React.FC<{
           const flowId = `visual_${uuid().replace(/-/g, '')}`;
           const receiptResult = await ipcBridge.commandEve.cloudVisualPolicyReceipt.invoke({ flowId });
           if (!receiptResult.success || !receiptResult.data?.ok) {
+            // CommandEveCloudVisualPolicyReceiptResult carries no `message` field on
+            // either branch (see cloudVisualPolicyCore.ts) — the translated sentence
+            // is the only honest content here, matching issueVisualAuthority below.
             throw new Error(
-              receiptResult.data?.message ||
-                t('conversation.visual.managedCloudFailed', {
-                  defaultValue: 'Cloud visual analysis is disabled or unavailable for this seat.',
-                })
+              t('conversation.visual.managedCloudFailed', {
+                defaultValue: 'Cloud visual analysis is disabled or unavailable for this seat.',
+              })
             );
           }
           const authorization = await ipcBridge.commandEve.managedVisualTurnAuthorize.invoke({
@@ -670,19 +672,18 @@ Please check your local CLI tool authentication status`,
   // 1080p exists only as image->video: grok-imagine-video-1.5 reaches it but does
   // not accept a bare prompt, and grok-imagine-video (which does) stops at 720p.
   //
-  // FIXED AT 'text', on purpose. An earlier version derived this from attached
-  // images — while the request built below sends prompt, tier and duration and
-  // NEVER the image bytes. That combination offers the user a mode the request
-  // cannot deliver: the picker would widen on an attachment, and the server would
-  // then refuse the very tier it had just been shown, because no image arrived.
-  // An attached image is likewise NOT animated today; it goes to the vision lane.
-  //
-  // So the honest state is text-to-video only, and the picker shows exactly the
-  // two tiers that reach the user. Sending the image bytes is a real slice — the
-  // renderer would have to read and hash the file and the payload ceiling would
-  // have to move — not a flag flip, and pretending otherwise here would put the
-  // promise back one line above the code that breaks it.
-  const videoInputMode: VideoInputMode = 'text';
+  // This was briefly fixed at 'text', because the request built below sent
+  // prompt, tier and duration and NEVER the image bytes — a picker that widened
+  // on an attachment was a promise the send could not keep. That gap is now
+  // closed: the send below forwards the attached image's PATH, and MAIN (not
+  // this renderer) re-reads that grant-verified file and computes its hash
+  // before anything reaches the gateway. So deriving the mode from the actual
+  // attachment is honest again — the request really does carry what the picker
+  // shows.
+  const videoInputMode: VideoInputMode = useMemo(
+    () => (uploadFile.some((path) => isImageFile(path)) ? 'image' : 'text'),
+    [uploadFile]
+  );
 
   const dispatchSteer = useCallback(
     async (input: string, requestId?: string) => {
@@ -896,6 +897,136 @@ Please check your local CLI tool authentication status`,
         return false;
       }
 
+      // Heavy-lane routing (DUX-6, FAIL-SAFE) classifies BEFORE any document
+      // preparation runs — not after it. A video intent must never trigger
+      // presentation/image cloud analysis: an attached image on a video send is
+      // a VIDEO SOURCE, not a vision-analysis request, and running it through
+      // that pipeline first would spend an unrelated cloud call and could
+      // surface a consent/policy flow the video lane never asked for. Founder
+      // review 2026-07-31 rejected the earlier ordering for exactly this: it ran
+      // image/presentation prep for every send, including a video one, before
+      // this check ever ran.
+      //
+      // NOTE the input. This classifies `message` — what SendBox hands to onSend,
+      // which is the draft PLUS whatever SendBox added on the way: a reply quote,
+      // DOM snippets, a speech transcript captured at send time. The quality pill
+      // classifies the raw draft. So the two are NOT the same text, and `message`
+      // is always the superset: the pill can be hidden for a send that does route
+      // to video (quote a video request, answer "ja bitte"), but never visible for
+      // one that does not. CAO proved this on 6c59706a; an earlier comment here
+      // claimed the opposite and was wrong.
+      const routesToVideo =
+        isEveConversation &&
+        isVideoLaneRequest({
+          message,
+          resolvedAgentId: addressesVideoMarketer(message) ? VIDEO_LANE_AGENT_ID : null,
+        });
+
+      if (routesToVideo) {
+        // Only a single supported image source travels with a video request —
+        // the exact file `videoInputMode` already looked at. Its PATH is
+        // forwarded as-is; MAIN re-reads it through the grant-verified, bounded
+        // local-image boundary and computes the base64/SHA-256 that actually
+        // reaches the gateway. This never calls prepareImageFiles /
+        // preparePresentationFiles, so the existing file-selection grant for
+        // that image is left untouched for MAIN — no cloud vision call, no
+        // sidecar, no visual-policy receipt for a video request.
+        const attachedImagePath = allFiles.find((filePath) => isImageFile(filePath));
+        controls.clearSelection();
+
+        // A selection only counts if the user could SEE it. On the divergence
+        // above the picker never appeared, so there is no choice to honour and we
+        // fall to the cheap default rather than spending a stale HD pick that the
+        // user cannot connect to this send. Structural, not documented: the
+        // expensive direction is unreachable instead of merely discouraged.
+        // Two guards, in order. A tier the user could not SEE does not count
+        // (below), and a tier the provider cannot PRODUCE is refused rather than
+        // silently downgraded — a downgrade would bill 720p for a 1080p promise.
+        const selectedTier = draftRoutesToVideo ? videoTierId : DEFAULT_VIDEO_TIER_ID;
+        const producibleTier = isVideoTierAvailable(selectedTier, { inputMode: videoInputMode })
+          ? selectedTier
+          : DEFAULT_VIDEO_TIER_ID;
+
+        videoCostWall.requestVideo(
+          { tierId: producibleTier },
+          (resolved) => {
+            // The ONLY provider job this send starts. An earlier revision ALSO
+            // dispatched a `[EVE:VIDEO ...]`-stamped message into the normal ACP
+            // turn — a second path that could ask the agent/runtime to execute
+            // the same generation intent again. One user send now creates AT
+            // MOST ONE provider video job: this call, and nothing else — no
+            // message is sent to the agent for a managed video request.
+            void ipcBridge.commandEve.videoGenerate
+              .invoke({
+                prompt: message,
+                tierId: resolved.tierId,
+                durationSeconds: DEFAULT_VIDEO_DURATION_SECONDS,
+                conversationId: conversation_id,
+                ...(attachedImagePath ? { imagePath: attachedImagePath } : {}),
+              })
+              .then((response) => {
+                const outcome = response?.data;
+                if (!response?.success || !outcome) {
+                  Message.error({
+                    content: t('credits.video.failed', {
+                      defaultValue: 'Die Videoerstellung konnte nicht gestartet werden.',
+                    }),
+                    duration: 6000,
+                  });
+                  controls.restoreDraftAndFiles();
+                  return;
+                }
+                if (outcome.ok === false) {
+                  // The server's reason, not a generic sentence. Distinguishing
+                  // "out of credits" from "1080p needs an image" is the whole
+                  // point of the gateway returning six different refusals. No
+                  // artifact is emitted on a refusal — there is nothing to show.
+                  Message.error({ content: outcome.message, duration: 8000 });
+                  controls.restoreDraftAndFiles();
+                  return;
+                }
+                // conversationArtifact is the durable, path-based record MAIN
+                // already saved to disk (and to its own local artifact store) —
+                // NOT the raw base64 artifact. Emitting only when present keeps
+                // this lane from ever showing a "success" with nothing to play.
+                // MessageList renders it directly from the artifact list, so no
+                // chat message needs to carry it.
+                if (outcome.conversationArtifact) {
+                  emitter.emit('acp.video.generated', {
+                    conversation_id,
+                    artifact: outcome.conversationArtifact,
+                  });
+                }
+              })
+              .catch(() => {
+                Message.error({
+                  content: t('credits.video.failed', {
+                    defaultValue: 'Die Videoerstellung konnte nicht gestartet werden.',
+                  }),
+                  duration: 6000,
+                });
+                controls.restoreDraftAndFiles();
+              });
+
+            // The tier is per REQUEST, not per conversation: "default stays
+            // Fast/Standard" has to be true for the next video too. Without this
+            // an HD pick outlives its own send and silently prices a later one.
+            //
+            // DELIBERATE, do not "fix": this resets even on a later failure, so
+            // the user gets their text back with the tier at Fast. Re-arming an
+            // expensive choice across an error boundary is the "quietly did
+            // something else" class twice over. The state stays legible — the
+            // restored draft still routes to video, so the picker is visible and
+            // reads Fast, one click from HD.
+            setVideoTierId(DEFAULT_VIDEO_TIER_ID);
+          },
+          () => {
+            controls.restoreDraftAndFiles();
+          }
+        );
+        return true;
+      }
+
       const hasDocumentFiles =
         isEveConversation &&
         allFiles.some(
@@ -1049,121 +1180,6 @@ Please check your local CLI tool authentication status`,
       const visuallyPreparedFiles = imagePreparation.files;
 
       controls.clearSelection();
-
-      // Heavy-lane routing (DUX-6, FAIL-SAFE): every send surface, including the
-      // fresh-chat handoff, classifies here before video work starts.
-      //
-      // NOTE the input. This classifies `message` — what SendBox hands to onSend,
-      // which is the draft PLUS whatever SendBox added on the way: a reply quote,
-      // DOM snippets, a speech transcript captured at send time. The quality pill
-      // classifies the raw draft. So the two are NOT the same text, and `message`
-      // is always the superset: the pill can be hidden for a send that does route
-      // to video (quote a video request, answer "ja bitte"), but never visible for
-      // one that does not. CAO proved this on 6c59706a; an earlier comment here
-      // claimed the opposite and was wrong.
-      const routesToVideo =
-        isEveConversation &&
-        isVideoLaneRequest({
-          message,
-          resolvedAgentId: addressesVideoMarketer(message) ? VIDEO_LANE_AGENT_ID : null,
-        });
-
-      if (routesToVideo) {
-        documentPreparationInFlightRef.current = false;
-        setDocumentPreparation(null);
-        // A selection only counts if the user could SEE it. On the divergence
-        // above the picker never appeared, so there is no choice to honour and we
-        // fall to the cheap default rather than spending a stale HD pick that the
-        // user cannot connect to this send. Structural, not documented: the
-        // expensive direction is unreachable instead of merely discouraged.
-        // Two guards, in order. A tier the user could not SEE does not count
-        // (below), and a tier the provider cannot PRODUCE is refused rather than
-        // silently downgraded — a downgrade would bill 720p for a 1080p promise.
-        const selectedTier = draftRoutesToVideo ? videoTierId : DEFAULT_VIDEO_TIER_ID;
-        const producibleTier = isVideoTierAvailable(selectedTier, { inputMode: videoInputMode })
-          ? selectedTier
-          : DEFAULT_VIDEO_TIER_ID;
-        videoCostWall.requestVideo(
-          { tierId: producibleTier },
-          (resolved) => {
-            // The REAL generation. Until now this lane only stamped a directive
-            // into the text and hoped something downstream honoured it; the
-            // deployed gateway had no video branch at all, so nothing ever did.
-            // MAIN now calls the endpoint, and the outcome — a playable video or
-            // a specific refusal — is what reaches the conversation.
-            void ipcBridge.commandEve.videoGenerate
-              .invoke({
-                prompt: message,
-                tierId: resolved.tierId,
-                durationSeconds: DEFAULT_VIDEO_DURATION_SECONDS,
-              })
-              .then((response) => {
-                const outcome = response?.data;
-                if (!response?.success || !outcome) {
-                  Message.error({
-                    content: t('credits.video.failed', {
-                      defaultValue: 'Die Videoerstellung konnte nicht gestartet werden.',
-                    }),
-                    duration: 6000,
-                  });
-                  return;
-                }
-                if (outcome.ok === false) {
-                  // The server's reason, not a generic sentence. Distinguishing
-                  // "out of credits" from "1080p needs an image" is the whole
-                  // point of the gateway returning six different refusals.
-                  Message.error({ content: outcome.message, duration: 8000 });
-                  return;
-                }
-                emitter.emit('acp.video.generated', {
-                  conversation_id,
-                  artifact: outcome.artifact,
-                });
-              })
-              .catch(() => {
-                Message.error({
-                  content: t('credits.video.failed', {
-                    defaultValue: 'Die Videoerstellung konnte nicht gestartet werden.',
-                  }),
-                  duration: 6000,
-                });
-              });
-
-            const resolvedMessage = buildResolvedVideoMessage(message, resolved);
-            const dispatch = dispatchMessage(
-              resolvedMessage,
-              visuallyPreparedFiles,
-              allFiles,
-              preparedContext,
-              visualContexts.length || undefined
-            );
-            markConversationDocumentPreparationSettled(conversation_id);
-            // The tier is per REQUEST, not per conversation: "default stays
-            // Fast/Standard" has to be true for the next video too. Without this
-            // an HD pick outlives its own send and silently prices a later one.
-            //
-            // DELIBERATE, do not "fix": this resets even when the dispatch below
-            // fails and the draft is restored, so the user gets their text back
-            // with the tier at Fast. Re-arming an expensive choice across an error
-            // boundary is the "quietly did something else" class twice over. The
-            // state stays legible — the restored draft still routes to video, so
-            // the picker is visible and reads Fast, one click from HD.
-            setVideoTierId(DEFAULT_VIDEO_TIER_ID);
-            void dispatch
-              .then((accepted) => {
-                if (!accepted) controls.restoreDraftAndFiles();
-              })
-              .catch(() => {
-                controls.restoreDraftAndFiles();
-              });
-          },
-          () => {
-            controls.restoreDraftAndFiles();
-            markConversationDocumentPreparationSettled(conversation_id);
-          }
-        );
-        return true;
-      }
 
       try {
         const accepted = await dispatchMessage(

@@ -116,6 +116,7 @@ export const RENDERER_PROVIDER_KEYS = [
   'command-eve.team-manage-reject',
   'command-eve.telemetry-consent-get',
   'command-eve.telemetry-consent-set',
+  'command-eve.video-artifacts-list',
   'command-eve.video-generate',
   'command-eve.warm-local-model',
   'is-dev-tools-opened',
@@ -289,7 +290,10 @@ export const RENDERER_PROVIDER_PAYLOAD_CLASSES = {
   'command-eve.team-manage-reject': 'record',
   'command-eve.telemetry-consent-get': 'void',
   'command-eve.telemetry-consent-set': 'record',
-  // Prompt, tier, duration and an optional base64 image + its SHA-256 receipt.
+  // conversationId only — reads MAIN's own local durable video-artifact store.
+  'command-eve.video-artifacts-list': 'record',
+  // Prompt, tier, duration, conversationId and an optional grant-verified image
+  // PATH. Main re-reads that path and computes the base64/SHA-256 itself.
   'command-eve.video-generate': 'record',
   'command-eve.warm-local-model': 'optional-record',
   'is-dev-tools-opened': 'void',

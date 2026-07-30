@@ -77,7 +77,7 @@ function sourceMimeType(filePath: string, bytes: Uint8Array): LocalImageInspecti
   return null;
 }
 
-function readBoundedImageSource(filePath: string): {
+export function readBoundedImageSource(filePath: string): {
   stat: fs.Stats;
   bytes: Uint8Array;
   mimeType: LocalImageInspection['sourceMimeType'];

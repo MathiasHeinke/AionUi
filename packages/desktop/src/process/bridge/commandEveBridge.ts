@@ -151,7 +151,10 @@ import {
 import { parseCloudOcrMarkdownPages } from '@process/commandEve/document/pdfIntelligenceCore';
 import { readCommandEveLimitedResponseText } from '@process/commandEve/limitedFetchResponse';
 import { handleCommandEveImagePrepare } from '@process/bridge/commandEveImageBridge';
-import { handleCommandEveVideoGenerate } from '@process/bridge/commandEveVideoBridge';
+import {
+  handleCommandEveVideoArtifactsList,
+  handleCommandEveVideoGenerate,
+} from '@process/bridge/commandEveVideoBridge';
 import { handleCommandEvePresentationPrepare } from '@process/bridge/commandEvePresentationBridge';
 import { consumeCommandEveFileSelectionPathGrant } from '@process/commandEve/fileSelectionGrantCore';
 import { authorizeCommandEveManagedVisualTurn } from '@process/commandEve/managedVisualTurnAuthorizationCore';
@@ -2137,6 +2140,7 @@ export function initCommandEveBridge(): void {
 
   bridge.buildProvider('command-eve.image-prepare').provider(handleCommandEveImagePrepare);
   bridge.buildProvider('command-eve.video-generate').provider(handleCommandEveVideoGenerate);
+  bridge.buildProvider('command-eve.video-artifacts-list').provider(handleCommandEveVideoArtifactsList);
 
   bridge.buildProvider('command-eve.cloud-visual-policy-read').provider(async () => {
     const policy = await readCommandEveCloudVisualPolicy();

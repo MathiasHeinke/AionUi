@@ -67,7 +67,11 @@ import type {
   CommandEvePresentationPrepareResult,
 } from '../config/evePresentationIntelligenceCore';
 import type { CommandEveImagePrepareRequest, CommandEveImagePrepareResult } from '../config/eveImageIntelligenceCore';
-import type { CommandEveVideoGenerateRequest, VideoGenerationOutcome } from '../config/videoGenerationRequestCore';
+import type {
+  CommandEveVideoConversationArtifact,
+  CommandEveVideoGenerateRequest,
+  CommandEveVideoGenerateResult,
+} from '../config/videoGenerationRequestCore';
 import type {
   CommandEveManagedVisualTurnAuthorizationRequest,
   CommandEveManagedVisualTurnAuthorizationResult,
@@ -1874,10 +1878,20 @@ export const commandEve = {
   // multimodal gateway; the renderer never sees a credential and there is no
   // provider key on this side. The gateway refuses (capability, credits, spend
   // cap, replay, daily cap) BEFORE any upstream call, so a refusal here costs
-  // nothing but a round trip.
-  videoGenerate: bridge.buildProvider<IBridgeResponse<VideoGenerationOutcome>, CommandEveVideoGenerateRequest>(
+  // nothing but a round trip. A success also carries the durable, path-based
+  // conversation artifact MAIN already saved to disk.
+  videoGenerate: bridge.buildProvider<IBridgeResponse<CommandEveVideoGenerateResult>, CommandEveVideoGenerateRequest>(
     'command-eve.video-generate'
   ),
+  // Local, desktop-owned durability for managed video artifacts (see
+  // videoArtifactStore.ts): AionCore never learns about a video generated
+  // through the direct call above, so it cannot return it from its own
+  // listArtifacts. The renderer merges this list in on load so a generated
+  // video survives switching away from the conversation and back.
+  videoArtifactsList: bridge.buildProvider<
+    IBridgeResponse<CommandEveVideoConversationArtifact[]>,
+    { conversationId: string }
+  >('command-eve.video-artifacts-list'),
   // Main-authoritative per-seat visual policy. Renderer supplies no target seat
   // for reads/receipt issuance; expectedSeatId on mutation is only a stale fence.
   cloudVisualPolicyRead: bridge.buildProvider<IBridgeResponse<CommandEveCloudVisualPolicyState>, void>(

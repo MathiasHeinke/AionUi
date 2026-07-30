@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { VideoGenerationArtifact } from '@/common/config/videoGenerationRequestCore';
+import type { CommandEveVideoConversationArtifact } from '@/common/config/videoGenerationRequestCore';
 import EventEmitter from 'eventemitter3';
 import type { DependencyList } from 'react';
 import { useEffect } from 'react';
@@ -25,7 +25,7 @@ interface EventTypes {
   'aionrs.workspace.refresh': void;
   'acp.selected.file': [Array<string | FileOrFolderItem>];
   /** A managed video finished generating and is ready to show and save. */
-  'acp.video.generated': [{ conversation_id: string; artifact: VideoGenerationArtifact }];
+  'acp.video.generated': [{ conversation_id: string; artifact: CommandEveVideoConversationArtifact }];
   'acp.selected.file.append': [Array<string | FileOrFolderItem>];
   'acp.selected.file.clear': void;
   'acp.workspace.refresh': void;

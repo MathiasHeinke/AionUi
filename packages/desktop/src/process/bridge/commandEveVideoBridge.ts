@@ -16,15 +16,26 @@
  * on this side at all.
  */
 
-import { randomUUID } from 'node:crypto';
+import crypto, { randomUUID } from 'node:crypto';
 import { EVE_MULTIMODAL_FUNCTION_URL } from '@/common/config/eveMultimodalGatewayCore';
 import { readLicenseWire } from '@/common/config/licenseWireAtRest';
 import { getDataPath } from '@process/utils/utils';
+import { areCommandEveFileSelectionPathsGranted } from '@process/commandEve/fileSelectionGrantCore';
+import { getActiveSeatId } from '@process/commandEve/seatContextCore';
+import { readBoundedImageSource } from '@process/commandEve/document/imageIntelligenceService';
 import {
+  saveGeneratedVideoFile,
+  saveVideoArtifactRecord,
+  listVideoArtifactRecords,
+} from '@process/commandEve/videoArtifactStore';
+import {
+  buildVideoConversationArtifact,
   buildVideoGenerationBody,
   parseVideoGenerationResponse,
+  refuseVideoTierWithoutImage,
+  type CommandEveVideoConversationArtifact,
   type CommandEveVideoGenerateRequest,
-  type VideoGenerationOutcome,
+  type CommandEveVideoGenerateResult,
 } from '@/common/config/videoGenerationRequestCore';
 
 export type { CommandEveVideoGenerateRequest };
@@ -33,12 +44,27 @@ export interface CommandEveVideoBridgeDeps {
   getDataPath: typeof getDataPath;
   fetch: typeof fetch;
   newRequestId: () => string;
+  /** A separate id for the durable artifact record — distinct from the wire request id. */
+  newArtifactId: () => string;
+  getActiveSeatId: typeof getActiveSeatId;
+  areFileSelectionPathsGranted: typeof areCommandEveFileSelectionPathsGranted;
+  /** Reads and validates the attached image at rest — the same bounded local
+   * boundary `imageIntelligenceService` uses for the vision lane. */
+  readImageSource: (filePath: string) => { bytes: Uint8Array };
+  saveVideoFile: typeof saveGeneratedVideoFile;
+  saveArtifactRecord: typeof saveVideoArtifactRecord;
 }
 
 const productionDeps: CommandEveVideoBridgeDeps = {
   getDataPath,
   fetch: (...args) => fetch(...args),
   newRequestId: () => randomUUID(),
+  newArtifactId: () => randomUUID(),
+  getActiveSeatId,
+  areFileSelectionPathsGranted: areCommandEveFileSelectionPathsGranted,
+  readImageSource: (filePath: string) => readBoundedImageSource(filePath),
+  saveVideoFile: saveGeneratedVideoFile,
+  saveArtifactRecord: saveVideoArtifactRecord,
 };
 
 /**
@@ -54,7 +80,7 @@ const MAX_VIDEO_RESPONSE_BYTES = 160 * 1024 * 1024;
 export async function handleCommandEveVideoGenerate(
   request?: CommandEveVideoGenerateRequest,
   deps: CommandEveVideoBridgeDeps = productionDeps
-): Promise<VideoGenerationOutcome> {
+): Promise<CommandEveVideoGenerateResult> {
   if (!request || typeof request.prompt !== 'string' || request.prompt.trim().length === 0) {
     return {
       ok: false,
@@ -63,6 +89,13 @@ export async function handleCommandEveVideoGenerate(
       retryable: false,
     };
   }
+
+  // Cheap, local, BEFORE the license/network round trip: 1080p (`hd`) is
+  // grok-imagine-video-1.5, which is image->video ONLY. A request claiming it
+  // without an attached image is refused here — never silently downgraded and
+  // never forwarded to spend a round trip finding out.
+  const tierGateRefusal = refuseVideoTierWithoutImage(request.tierId, typeof request.imagePath === 'string');
+  if (tierGateRefusal) return tierGateRefusal;
 
   const wireResult = readLicenseWire(deps.getDataPath());
   if (!wireResult.ok || !wireResult.wire) {
@@ -74,13 +107,47 @@ export async function handleCommandEveVideoGenerate(
     };
   }
 
+  let imageBase64: string | undefined;
+  let imageSha256: string | undefined;
+  if (typeof request.imagePath === 'string') {
+    let seatId: string;
+    try {
+      seatId = deps.getActiveSeatId();
+    } catch {
+      return {
+        ok: false,
+        reasonCode: 'video-image-not-granted',
+        message: 'Für deine Sicherheit: Wähle das Bild erneut aus, bevor daraus ein Video erstellt wird.',
+        retryable: false,
+      };
+    }
+    if (!deps.areFileSelectionPathsGranted({ filePaths: [request.imagePath], seatId, purpose: 'read' })) {
+      return {
+        ok: false,
+        reasonCode: 'video-image-not-granted',
+        message: 'Für deine Sicherheit: Wähle das Bild erneut aus, bevor daraus ein Video erstellt wird.',
+        retryable: false,
+      };
+    }
+    try {
+      const source = deps.readImageSource(request.imagePath);
+      imageBase64 = Buffer.from(source.bytes).toString('base64');
+      imageSha256 = crypto.createHash('sha256').update(source.bytes).digest('hex');
+    } catch {
+      return {
+        ok: false,
+        reasonCode: 'video-image-unreadable',
+        message: 'Das angehängte Bild konnte nicht gelesen werden. Wähle es erneut aus.',
+        retryable: false,
+      };
+    }
+  }
+
   const body = buildVideoGenerationBody({
     prompt: request.prompt.trim(),
     tierId: request.tierId,
     durationSeconds: request.durationSeconds,
-    ...(request.imageBase64 === undefined
-      ? {}
-      : { imageBase64: request.imageBase64, imageSha256: request.imageSha256 }),
+    ...(imageBase64 === undefined ? {} : { imageBase64, imageSha256 }),
     requestId: deps.newRequestId(),
   });
 
@@ -117,7 +184,44 @@ export async function handleCommandEveVideoGenerate(
     }
     // Status AND body together — the body carries the reason, and a malformed 200
     // is a failure, not a success. Both judgements live in the pure core.
-    return parseVideoGenerationResponse(response.status, raw);
+    const outcome = parseVideoGenerationResponse(response.status, raw);
+    if (!outcome.ok) return outcome;
+
+    // A successful generation must become a playable, locally persisted
+    // conversation artifact — not just a value that lives in this response.
+    // Persistence is skipped, never faked, when no conversationId was supplied
+    // (the pre-existing gateway-communication tests do not need it); every real
+    // caller (the send-path) always supplies one.
+    if (!request.conversationId) return outcome;
+
+    try {
+      const artifactId = deps.newArtifactId();
+      const path = deps.saveVideoFile({
+        conversationId: request.conversationId,
+        artifactId,
+        dataBase64: outcome.artifact.dataBase64,
+        mimeType: outcome.artifact.mimeType,
+      });
+      const conversationArtifact = buildVideoConversationArtifact({
+        artifact: outcome.artifact,
+        path,
+        id: artifactId,
+        conversationId: request.conversationId,
+        createdAtMs: Date.now(),
+      });
+      deps.saveArtifactRecord(deps.getDataPath(), conversationArtifact);
+      return { ...outcome, conversationArtifact };
+    } catch {
+      // The clip was genuinely generated (and billed) upstream — telling the
+      // user it "failed" would be as dishonest as a fake success. This reason
+      // code says exactly what happened: produced, not saved.
+      return {
+        ok: false,
+        reasonCode: 'video-artifact-save-failed',
+        message: 'Das Video wurde erstellt, konnte aber nicht lokal gespeichert werden.',
+        retryable: false,
+      };
+    }
   } catch (error) {
     const name = error && typeof error === 'object' && 'name' in error ? String(error.name) : '';
     return name === 'AbortError'
@@ -136,4 +240,29 @@ export async function handleCommandEveVideoGenerate(
   } finally {
     clearTimeout(timer);
   }
+}
+
+export interface CommandEveVideoArtifactsListDeps {
+  getDataPath: typeof getDataPath;
+  listArtifactRecords: typeof listVideoArtifactRecords;
+}
+
+const productionListDeps: CommandEveVideoArtifactsListDeps = {
+  getDataPath,
+  listArtifactRecords: listVideoArtifactRecords,
+};
+
+/**
+ * Everything this desktop has locally and durably saved for a conversation —
+ * the counterpart AionCore's own `listArtifacts` cannot provide, since AionCore
+ * never learns about a video generated through this direct Main -> gateway
+ * call. The renderer merges this list with AionCore's on load, so a video
+ * survives switching away from the conversation and back.
+ */
+export async function handleCommandEveVideoArtifactsList(
+  request?: { conversationId?: string },
+  deps: CommandEveVideoArtifactsListDeps = productionListDeps
+): Promise<CommandEveVideoConversationArtifact[]> {
+  if (!request || typeof request.conversationId !== 'string' || request.conversationId.length === 0) return [];
+  return deps.listArtifactRecords(deps.getDataPath(), request.conversationId);
 }
