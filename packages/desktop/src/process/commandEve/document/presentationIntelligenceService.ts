@@ -58,6 +58,7 @@ export async function preparePresentationWithVision(input: {
   analyzeBatch: PresentationVisionBatchAnalyzer;
   officeCliRunner?: OfficeCliJsonRunner;
   pngToJpegConverter?: PngToJpegConverter;
+  assertPersistenceAllowed?: () => void;
 }): Promise<CommandEvePreparedPresentationDocument> {
   if (input.inspection.cachedDocument) return input.inspection.cachedDocument;
   await assertPresentationSourceUnchanged(input.inspection);
@@ -152,6 +153,7 @@ export async function preparePresentationWithVision(input: {
   }
   const sidecarPath = path.join(input.inspection.cacheDirectory, 'document.md');
   const manifestPath = path.join(input.inspection.cacheDirectory, 'manifest.json');
+  input.assertPersistenceAllowed?.();
   writePrivateDocumentAtomic(input.hermesHome, sidecarPath, sidecar);
   writePrivateDocumentAtomic(
     input.hermesHome,

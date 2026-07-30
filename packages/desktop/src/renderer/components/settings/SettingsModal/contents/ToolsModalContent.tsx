@@ -7,6 +7,11 @@
 import { configService } from '@/common/config/configService';
 import type { ConfigKeyMap } from '@/common/config/configKeys';
 import { removeImageGenerationEnvKeys, resolveImageGenerationMcpEnv } from '@/common/config/imageGenerationMcpEnv';
+import {
+  DEFAULT_SPEECH_TO_TEXT_CONFIG,
+  failClosedSpeechToTextConfig,
+  normalizeSpeechToTextConfig,
+} from '@/common/config/speechToTextConfigCore';
 import { mcpService } from '@/common/adapter/ipcBridge';
 import { type IMcpServer, BUILTIN_IMAGE_GEN_ID, BUILTIN_IMAGE_GEN_NAME } from '@/common/config/storage';
 import { isImageGenSupported } from '@/common/utils/imageModelAllowlist';
@@ -38,61 +43,6 @@ const areEnvRecordsEqual = (a: Record<string, string>, b: Record<string, string>
   const bKeys = Object.keys(b);
   return aKeys.length === bKeys.length && aKeys.every((key) => a[key] === b[key]);
 };
-const DEFAULT_SPEECH_TO_TEXT_CONFIG: SpeechToTextConfig = {
-  enabled: false,
-  // DEFAULT to the on-device 'local' lane (bundled faster-whisper, keyless, DSGVO-clean).
-  // Was 'openai' — a mismatch that made a user who simply flipped "enabled" silently pick
-  // the cloud-no-key lane (which 400s) instead of the local lane that actually works.
-  provider: 'local',
-  openai: {
-    api_key: '',
-    base_url: '',
-    language: '',
-    model: 'whisper-1',
-  },
-  deepgram: {
-    api_key: '',
-    base_url: '',
-    detectLanguage: true,
-    language: '',
-    model: 'nova-2',
-    punctuate: true,
-    smartFormat: true,
-  },
-  local: {
-    // 'small' transcribes German noticeably better than 'base' and is still fast on an M1.
-    model: 'small',
-    language: '',
-  },
-  // Groq cloud STT. No api_key here BY DESIGN — the key is read at runtime from
-  // ~/.hermes/.env, never stored in the desktop config.
-  groq: {
-    model: 'whisper-large-v3-turbo',
-    language: '',
-  },
-};
-
-const normalizeSpeechToTextConfig = (config?: SpeechToTextConfig): SpeechToTextConfig => ({
-  ...DEFAULT_SPEECH_TO_TEXT_CONFIG,
-  ...config,
-  openai: {
-    ...DEFAULT_SPEECH_TO_TEXT_CONFIG.openai,
-    ...config?.openai,
-  },
-  deepgram: {
-    ...DEFAULT_SPEECH_TO_TEXT_CONFIG.deepgram,
-    ...config?.deepgram,
-  },
-  local: {
-    ...DEFAULT_SPEECH_TO_TEXT_CONFIG.local,
-    ...config?.local,
-  },
-  groq: {
-    ...DEFAULT_SPEECH_TO_TEXT_CONFIG.groq,
-    ...config?.groq,
-  },
-});
-
 const SpeechToTextSettingsSection: React.FC<{
   config: SpeechToTextConfig;
   onChange: (updater: (current: SpeechToTextConfig) => SpeechToTextConfig) => void;
@@ -201,7 +151,7 @@ const SpeechToTextSettingsSection: React.FC<{
               <div className='text-13px text-t-secondary mb-4px'>{t('settings.speechToTextProviderLocalHint')}</div>
               <Form.Item label={renderSpeechToTextFieldLabel('settings.speechToTextModel', 'optional')}>
                 <AionSelect
-                  value={config.local?.model || 'base'}
+                  value={config.local?.model || DEFAULT_SPEECH_TO_TEXT_CONFIG.local?.model}
                   onChange={(value) => handleLocalChange('model', value)}
                 >
                   <AionSelect.Option value='tiny'>tiny (~75 MB)</AionSelect.Option>
@@ -601,6 +551,7 @@ const ToolsModalContent: React.FC = () => {
   useEffect(() => {
     const loadConfigs = async () => {
       try {
+        await configService.whenReady();
         const storedModel = configService.get('tools.imageGenerationModel');
         const storedSpeechToTextConfig = configService.get('tools.speechToText');
         if (storedModel) {
@@ -608,6 +559,7 @@ const ToolsModalContent: React.FC = () => {
         }
         setSpeechToTextConfig(normalizeSpeechToTextConfig(storedSpeechToTextConfig));
       } catch (error) {
+        setSpeechToTextConfig(failClosedSpeechToTextConfig());
         console.error('Failed to load tools config:', error);
       }
     };
@@ -774,7 +726,9 @@ const ToolsModalContent: React.FC = () => {
           }
           await syncMcpServerEnv(imageGenerationModel);
         }
-        const updatedServer = await mcpService.toggleServer.invoke({ id: builtinImageGenServer.id });
+        const updatedServer = await mcpService.toggleServer.invoke({
+          id: builtinImageGenServer.id,
+        });
         await saveMcpServers((prevServers) =>
           prevServers.map((server) => (server.id === updatedServer.id ? { ...server, ...updatedServer } : server))
         );

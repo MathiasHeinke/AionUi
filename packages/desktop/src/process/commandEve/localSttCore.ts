@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { DEFAULT_LOCAL_SPEECH_TO_TEXT_MODEL } from '@/common/config/speechToTextConfigCore';
 import type {
   CommandEveLocalSttRequest,
   SpeechToTextAudioBuffer,
@@ -31,7 +32,6 @@ import { resolveCommandEveRuntimeBootstrapPaths } from './runtimeBootstrapCore';
 // stays pinned to `stt.provider: local` as the floor, and the desktop's STT
 // setting picks the lane each call.
 
-const DEFAULT_LOCAL_MODEL = 'base';
 const DEFAULT_GROQ_MODEL = 'whisper-large-v3-turbo';
 const DEFAULT_TIMEOUT_MS = 180_000; // first call may lazy-install + download a model
 // Groq is a network round-trip; cap it well under the local model-download ceiling.
@@ -219,7 +219,9 @@ export async function transcribeLocalSpeech(
   const tmpDir = options.tmpDir ?? os.tmpdir();
   const provider = request.provider === 'groq' ? 'groq' : 'local';
   const model =
-    provider === 'groq' ? request.groqModel || DEFAULT_GROQ_MODEL : request.localModel || DEFAULT_LOCAL_MODEL;
+    provider === 'groq'
+      ? request.groqModel || DEFAULT_GROQ_MODEL
+      : request.localModel || DEFAULT_LOCAL_SPEECH_TO_TEXT_MODEL;
 
   // Groq: read the key from ~/.hermes/.env at runtime and pass it ONLY into the
   // child env. If it's missing, fail with an actionable code instead of letting

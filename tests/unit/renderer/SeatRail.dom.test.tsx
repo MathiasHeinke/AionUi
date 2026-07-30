@@ -16,14 +16,30 @@ import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
-const { switchToMock, openExternalMock, useSeatAccessMock, messageErrorMock } = vi.hoisted(() => ({
+const {
+  switchToMock,
+  openExternalMock,
+  useSeatAccessMock,
+  messageErrorMock,
+  modalConfirmMock,
+  isAnyGeneratingMock,
+  clearGenerationForBackendRespawnMock,
+} = vi.hoisted(() => ({
   switchToMock: vi.fn(),
   openExternalMock: vi.fn(),
   useSeatAccessMock: vi.fn(),
   messageErrorMock: vi.fn(),
+  modalConfirmMock: vi.fn(),
+  isAnyGeneratingMock: vi.fn(() => false),
+  clearGenerationForBackendRespawnMock: vi.fn(),
 }));
 
 vi.mock('@renderer/hooks/useSeatAccess', () => ({ useSeatAccess: useSeatAccessMock }));
+vi.mock('@renderer/services/commandEveGenerationActivity', () => ({
+  isAnyGenerating: isAnyGeneratingMock,
+  ensureAcpGenerationTracking: vi.fn(),
+  clearGenerationForBackendRespawn: clearGenerationForBackendRespawnMock,
+}));
 // APP→WEB AUTH HANDOFF: the "+" now opens via openAccountWeb (MAIN attaches the
 // desktop session so the operator lands logged in); we assert the RELATIVE path.
 vi.mock('@renderer/utils/platform', () => ({ openAccountWeb: openExternalMock, openExternalUrl: vi.fn() }));
@@ -38,6 +54,7 @@ vi.mock('react-i18next', () => ({
 vi.mock('@arco-design/web-react', () => ({
   Tooltip: ({ children }: { children: React.ReactNode }) => children,
   Message: { error: messageErrorMock },
+  Modal: { confirm: modalConfirmMock },
 }));
 
 import SeatRail, { seatColor, seatInitials, contrastText } from '@renderer/components/seats/SeatRail';
@@ -69,6 +86,7 @@ function mockAccess(over: Over = {}) {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  isAnyGeneratingMock.mockReturnValue(false);
 });
 
 describe('SeatRail', () => {
@@ -99,6 +117,46 @@ describe('SeatRail', () => {
     mockAccess({ switching: true });
     render(<SeatRail />);
     fireEvent.click(screen.getByTestId('seat-rail-seat-s2'));
+    expect(switchToMock).not.toHaveBeenCalled();
+  });
+
+  it('protects a running turn until the operator confirms the seat switch', () => {
+    isAnyGeneratingMock.mockReturnValue(true);
+    mockAccess();
+    render(<SeatRail />);
+
+    fireEvent.click(screen.getByTestId('seat-rail-seat-s2'));
+
+    expect(modalConfirmMock).toHaveBeenCalledTimes(1);
+    expect(modalConfirmMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Antwort läuft noch',
+        okText: 'Trotzdem wechseln',
+        cancelText: 'Abbrechen',
+        onOk: expect.any(Function),
+      })
+    );
+    expect(clearGenerationForBackendRespawnMock).not.toHaveBeenCalled();
+    expect(switchToMock).not.toHaveBeenCalled();
+
+    const onOk = modalConfirmMock.mock.calls[0]?.[0]?.onOk as (() => void) | undefined;
+    expect(onOk).toBeTypeOf('function');
+    onOk?.();
+
+    expect(clearGenerationForBackendRespawnMock).toHaveBeenCalledTimes(1);
+    expect(switchToMock).toHaveBeenCalledTimes(1);
+    expect(switchToMock).toHaveBeenCalledWith('s2');
+  });
+
+  it('keeps the current seat when a running-turn switch prompt is cancelled', () => {
+    isAnyGeneratingMock.mockReturnValue(true);
+    mockAccess();
+    render(<SeatRail />);
+
+    fireEvent.click(screen.getByTestId('seat-rail-seat-s2'));
+
+    expect(modalConfirmMock).toHaveBeenCalledTimes(1);
+    expect(clearGenerationForBackendRespawnMock).not.toHaveBeenCalled();
     expect(switchToMock).not.toHaveBeenCalled();
   });
 
@@ -151,6 +209,19 @@ describe('SeatRail', () => {
     expect(rail.className).toContain('command-eve-seat-rail--expanded');
     fireEvent.click(screen.getByTestId('seat-rail-toggle'));
     expect(screen.getByTestId('seat-rail').className).toContain('command-eve-seat-rail--collapsed');
+  });
+
+  it('keeps the same seat navigation reachable in compact narrow-layout mode', () => {
+    mockAccess();
+    render(<SeatRail compact />);
+
+    const rail = screen.getByTestId('seat-rail');
+    expect(rail.className).toContain('command-eve-seat-rail--compact');
+    expect(rail.className).toContain('command-eve-seat-rail--collapsed');
+    expect(screen.queryByTestId('seat-rail-toggle')).toBeNull();
+    expect(screen.getByTestId('seat-rail-seat-s1').getAttribute('aria-current')).toBe('true');
+    expect(screen.getByTestId('seat-rail-seat-s2')).toBeTruthy();
+    expect(screen.getByTestId('seat-rail-add')).toBeTruthy();
   });
 
   it('surfaces a failed switch (lastSwitchError) instead of failing silently', () => {

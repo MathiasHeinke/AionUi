@@ -183,9 +183,7 @@
     }
   },
   "visual": {
-    "managedCloudTitle": "Diese visuelle Analyse sicher in der Cloud beantworten?",
-    "managedCloudDescription": "EVE hat {{files}} lokal vorbereitet. Für die vollständige Antwort werden ausschließlich die vorbereiteten, begrenzten Vorschauen und extrahierten Inhalte einmalig über den verwalteten OpenRouter-ZDR-Pfad verarbeitet: kein Training, kein Anbieter-Key in der App. Originaldateien bleiben auf diesem Mac. Abbrechen lässt Entwurf und Dateien ungesendet.",
-    "managedCloudConfirm": "Einmal sicher analysieren",
+    "sourceLimit": "Wähle pro Nachricht höchstens sechs Bilder oder Präsentationen aus.",
     "managedCloudFailed": "Die verwaltete visuelle Analyse konnte nicht freigegeben werden. Entwurf und Dateien bleiben ungesendet."
   },
   "commandEveRuntimePreparing": "EVE bereitet die lokale Runtime vor. Das kann beim ersten Start oder nach Modellwechsel etwas dauern.",

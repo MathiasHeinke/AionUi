@@ -154,7 +154,18 @@ import { handleCommandEveImagePrepare } from '@process/bridge/commandEveImageBri
 import { handleCommandEvePresentationPrepare } from '@process/bridge/commandEvePresentationBridge';
 import { consumeCommandEveFileSelectionPathGrant } from '@process/commandEve/fileSelectionGrantCore';
 import { authorizeCommandEveManagedVisualTurn } from '@process/commandEve/managedVisualTurnAuthorizationCore';
+import {
+  issueCommandEveCloudVisualPolicyReceipt,
+  readCommandEveCloudVisualPolicy,
+  retireCommandEveCloudVisualPolicyReceipt,
+  setCommandEveCloudVisualPolicy,
+  verifyCommandEveCloudVisualPolicyReceipt,
+} from '@process/commandEve/visual/cloudVisualPolicyMain';
 import type { CommandEveManagedVisualTurnAuthorizationRequest } from '@/common/config/eveManagedVisualTurnCore';
+import type {
+  CommandEveCloudVisualPolicyMutationRequest,
+  CommandEveCloudVisualPolicyReceiptRequest,
+} from '@/common/config/visual/cloudVisualPolicyCore';
 import {
   SEAT_USAGE_FUNCTION_URL,
   buildSeatUsageIpcResult,
@@ -167,6 +178,7 @@ import {
 import { ProcessConfig, getSkillsDir, getCronSkillsDir } from '@process/utils/initStorage';
 import { getDataPath } from '@process/utils/utils';
 import {
+  getActiveSeatContextRevision,
   getActiveSeatId,
   getActiveSeatKind,
   isActiveSeatLegacy,
@@ -283,8 +295,43 @@ async function syncRegistrationIdentityArtifactsBestEffort(userDataPath: string)
  * seat (getActiveSeatId) inside the core — the ring must follow what actually
  * spawned, not a possibly-stale/absent server pointer.
  */
+const COMMAND_EVE_E2E_CLIENT_SEAT_ID = '5f22e4d4-7c85-4f9d-bcc3-4d4f8ad8b781';
+
+/**
+ * Narrow two-key E2E seam for the real SeatRail → Main switch lifecycle.
+ *
+ * The synthetic input enters BEFORE the production parser and authorization
+ * boundary. Founder remains synthesized by resolveSeatAccess, and every switch
+ * still runs through parseMySeats, isSeatSwitchAuthorized, applySeatSwitch,
+ * runtime provisioning, backend restart, and config rebind. Neither key alone
+ * changes production behavior, and the fixed roster contains no customer data.
+ */
+function readE2ESyntheticSeatRoster(): unknown | null {
+  if (process.env.AIONUI_E2E_TEST !== '1' || process.env.COMMAND_EVE_E2E_SEAT_ROSTER !== 'founder-client') {
+    return null;
+  }
+
+  const activeSeatId = getActiveSeatId();
+  return {
+    account: {
+      id: 'command-eve-seat-rail-e2e',
+      role: 'admin',
+    },
+    seats: [
+      {
+        tenant_id: COMMAND_EVE_E2E_CLIENT_SEAT_ID,
+        name: 'E2E Kundenplatz',
+        kind: 'client',
+        role: 'admin',
+        is_active: activeSeatId === COMMAND_EVE_E2E_CLIENT_SEAT_ID,
+      },
+    ],
+    active_seat_id: activeSeatId,
+  };
+}
+
 async function readMySeatsWire(): Promise<unknown | null> {
-  return readMySeatsWireCore(getDataPath());
+  return readE2ESyntheticSeatRoster() ?? readMySeatsWireCore(getDataPath());
 }
 
 /**
@@ -2089,17 +2136,73 @@ export function initCommandEveBridge(): void {
 
   bridge.buildProvider('command-eve.image-prepare').provider(handleCommandEveImagePrepare);
 
+  bridge.buildProvider('command-eve.cloud-visual-policy-read').provider(async () => {
+    const policy = await readCommandEveCloudVisualPolicy();
+    return { success: policy.status !== 'unavailable', data: policy };
+  });
+
+  bridge
+    .buildProvider('command-eve.cloud-visual-policy-receipt')
+    .provider(async (request?: CommandEveCloudVisualPolicyReceiptRequest) => {
+      const result = await issueCommandEveCloudVisualPolicyReceipt(request?.flowId ?? '');
+      return {
+        success: result.ok,
+        msg: result.ok ? undefined : result.policy.reason,
+        data: result,
+      };
+    });
+
+  bridge
+    .buildProvider('command-eve.cloud-visual-policy-set')
+    .provider(async (request?: CommandEveCloudVisualPolicyMutationRequest) => {
+      const result = request
+        ? await setCommandEveCloudVisualPolicy(request)
+        : { ok: false, policy: await readCommandEveCloudVisualPolicy() };
+      return {
+        success: result.ok,
+        msg: result.ok ? undefined : result.policy.reason,
+        data: result,
+      };
+    });
+
   bridge
     .buildProvider('command-eve.managed-visual-turn-authorize')
     .provider(async (request?: CommandEveManagedVisualTurnAuthorizationRequest) => {
       const userDataPath = getDataPath();
+      const seatId = getActiveSeatId();
+      const seatContextRevision = getActiveSeatContextRevision();
+      const receipt = verifyCommandEveCloudVisualPolicyReceipt(request?.visualPolicyReceipt, request?.flowId ?? '');
+      const policy = receipt.ok ? await readCommandEveCloudVisualPolicy() : undefined;
+      const freshReceipt =
+        receipt.ok &&
+        receipt.seatId === seatId &&
+        receipt.seatContextRevision === seatContextRevision &&
+        policy?.status === 'enabled' &&
+        policy.seatId === seatId
+          ? {
+              seatId: receipt.seatId,
+              seatContextRevision: receipt.seatContextRevision,
+              flowId: receipt.flowId,
+              receiptId: request?.visualPolicyReceipt?.receiptId ?? '',
+            }
+          : undefined;
       const entitlement = getEntitlementStatus({ userDataPath });
       const wire = readLicenseWire(userDataPath);
+      const seatStillMatches = getActiveSeatId() === seatId && getActiveSeatContextRevision() === seatContextRevision;
       const result = authorizeCommandEveManagedVisualTurn({
         request,
-        seatId: getActiveSeatId(),
+        seatId,
+        seatContextRevision,
+        verifiedReceipt: seatStillMatches ? freshReceipt : undefined,
         hasPaidSeat: entitlement.state === 'entitled' && entitlement.has_paid_seat === true,
         hasLicenseWire: wire.ok && Boolean(wire.wire),
+        retireVerifiedReceipt: () =>
+          Boolean(
+            receipt.ok &&
+            freshReceipt &&
+            request?.visualPolicyReceipt &&
+            retireCommandEveCloudVisualPolicyReceipt(request.visualPolicyReceipt, request.flowId ?? '', receipt)
+          ),
       });
       return {
         success: result.ok,

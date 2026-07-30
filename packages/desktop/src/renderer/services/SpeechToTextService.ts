@@ -6,6 +6,7 @@
 
 import { ipcBridge } from '@/common';
 import { configService } from '@/common/config/configService';
+import { normalizeSpeechToTextConfig } from '@/common/config/speechToTextConfigCore';
 import type { SpeechToTextConfig, SpeechToTextResult } from '@/common/types/provider/speech';
 import { isElectronDesktop } from '@/renderer/utils/platform';
 
@@ -56,6 +57,12 @@ const parseWebResponse = async (response: XMLHttpRequest): Promise<SpeechToTextR
 
 export async function transcribeAudioBlob(blob: Blob, languageHint?: string): Promise<SpeechToTextResult> {
   ensureAudioSize(blob);
+  await configService.whenReady();
+  const storedSttConfig = configService.get('tools.speechToText') as SpeechToTextConfig | undefined;
+  const sttConfig = normalizeSpeechToTextConfig(storedSttConfig);
+  if (sttConfig.enabled === false) {
+    throw new Error('STT_DISABLED');
+  }
 
   const mimeType = blob.type || 'audio/webm';
   const file_name = createAudioFileName(mimeType);
@@ -80,15 +87,14 @@ export async function transcribeAudioBlob(blob: Blob, languageHint?: string): Pr
     // fehlgeschlagen" even though the local lane works. Only the venv lanes
     // (local/groq) go through speechToTextLocal; openai/deepgram stay on the
     // aioncore /api/stt cloud lane.
-    const sttConfig = configService.get('tools.speechToText') as SpeechToTextConfig | undefined;
-    const provider = sttConfig?.provider;
-    const useVenvLane = !provider || provider === 'local' || provider === 'groq';
+    const provider = sttConfig.provider;
+    const useVenvLane = provider === 'local' || provider === 'groq';
     if (useVenvLane) {
       const response = await ipcBridge.commandEve.speechToTextLocal.invoke({
         ...payload,
         provider: provider === 'groq' ? 'groq' : 'local',
-        localModel: sttConfig?.local?.model,
-        groqModel: sttConfig?.groq?.model,
+        localModel: sttConfig.local?.model,
+        groqModel: sttConfig.groq?.model,
       });
       if (!response.success || !response.data) {
         throw new Error(response.msg || 'STT_REQUEST_FAILED');

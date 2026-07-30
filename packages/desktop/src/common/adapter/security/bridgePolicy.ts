@@ -103,6 +103,23 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+function assertCloudVisualReceipt(value: unknown): void {
+  if (!isRecord(value)) throw new Error('Invalid cloud visual policy receipt.');
+  const allowedKeys = new Set(['version', 'receiptId', 'flowId', 'expiresAt']);
+  if (!hasOnlyKeys(value, allowedKeys) || Object.keys(value).length !== allowedKeys.size) {
+    throw new Error('Invalid cloud visual policy receipt keys.');
+  }
+  if (
+    value.version !== 'command-eve-cloud-visual-policy/v1' ||
+    !/^[A-Za-z0-9_-]{32,128}$/.test(String(value.receiptId)) ||
+    !/^[A-Za-z0-9_-]{16,96}$/.test(String(value.flowId)) ||
+    typeof value.expiresAt !== 'string' ||
+    !Number.isFinite(Date.parse(value.expiresAt))
+  ) {
+    throw new Error('Invalid cloud visual policy receipt fields.');
+  }
+}
+
 function assertExactStringPayload(
   payload: Record<string, unknown>,
   requiredKeys: readonly string[],
@@ -135,12 +152,69 @@ function assertHighRiskProviderPayload(providerKey: RendererProviderKey, payload
     case 'command-eve.kanban-acp-apply':
       assertExactStringPayload(payload, ['intent_id', 'mutation_hash']);
       return;
-    case 'command-eve.managed-visual-turn-authorize': {
-      const allowedKeys = new Set(['consentVersion', 'preferredTier', 'sourceCount']);
-      if (!hasOnlyKeys(payload, allowedKeys)) throw new Error('Invalid managed visual turn payload keys.');
-      if (payload.consentVersion !== 'command-eve-managed-visual-turn-consent/v1') {
-        throw new Error('Invalid managed visual turn consent version.');
+    case 'command-eve.cloud-visual-policy-receipt': {
+      assertExactStringPayload(payload, ['flowId']);
+      if (!/^[A-Za-z0-9_-]{16,96}$/.test(String(payload.flowId))) {
+        throw new Error('Invalid cloud visual policy flow id.');
       }
+      return;
+    }
+    case 'command-eve.cloud-visual-policy-set': {
+      const allowedKeys = new Set(['expectedSeatId', 'enabled']);
+      if (!hasOnlyKeys(payload, allowedKeys)) throw new Error('Invalid cloud visual policy mutation keys.');
+      if (!isNonEmptyString(payload.expectedSeatId) || typeof payload.enabled !== 'boolean') {
+        throw new Error('Invalid cloud visual policy mutation.');
+      }
+      return;
+    }
+    case 'command-eve.image-prepare':
+    case 'command-eve.presentation-prepare': {
+      const allowedKeys = new Set([
+        'filePaths',
+        'allowCloudVision',
+        'flowId',
+        'visualPolicyReceipt',
+        'privacyLane',
+        'locale',
+        'requestId',
+      ]);
+      if (!hasOnlyKeys(payload, allowedKeys)) throw new Error('Invalid visual preparation payload keys.');
+      if (
+        !Array.isArray(payload.filePaths) ||
+        payload.filePaths.some((value) => typeof value !== 'string' || value.length === 0)
+      ) {
+        throw new Error('Invalid visual preparation file paths.');
+      }
+      if (Object.hasOwn(payload, 'allowCloudVision') && typeof payload.allowCloudVision !== 'boolean') {
+        throw new Error('Invalid deprecated cloud visual compatibility flag.');
+      }
+      if (Object.hasOwn(payload, 'flowId') && !/^[A-Za-z0-9_-]{16,96}$/.test(String(payload.flowId))) {
+        throw new Error('Invalid visual preparation flow id.');
+      }
+      if (Object.hasOwn(payload, 'visualPolicyReceipt')) {
+        assertCloudVisualReceipt(payload.visualPolicyReceipt);
+      }
+      if (
+        Object.hasOwn(payload, 'privacyLane') &&
+        !['cloud_auto', 'local_only'].includes(String(payload.privacyLane))
+      ) {
+        throw new Error('Invalid visual preparation privacy lane.');
+      }
+      if (Object.hasOwn(payload, 'locale') && !['de-DE', 'en-US'].includes(String(payload.locale))) {
+        throw new Error('Invalid visual preparation locale.');
+      }
+      if (Object.hasOwn(payload, 'requestId') && !isNonEmptyString(payload.requestId)) {
+        throw new Error('Invalid visual preparation request id.');
+      }
+      return;
+    }
+    case 'command-eve.managed-visual-turn-authorize': {
+      const allowedKeys = new Set(['consentVersion', 'flowId', 'visualPolicyReceipt', 'preferredTier', 'sourceCount']);
+      if (!hasOnlyKeys(payload, allowedKeys)) throw new Error('Invalid managed visual turn payload keys.');
+      if (!/^[A-Za-z0-9_-]{16,96}$/.test(String(payload.flowId))) {
+        throw new Error('Invalid managed visual turn flow id.');
+      }
+      assertCloudVisualReceipt(payload.visualPolicyReceipt);
       if (
         !Number.isInteger(payload.sourceCount) ||
         Number(payload.sourceCount) < 1 ||

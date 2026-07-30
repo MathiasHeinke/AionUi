@@ -10,15 +10,24 @@
  *   AIONUI_BACKEND_BINARY (explicit) → AIONUI_BACKEND_LOCAL_BINARY →
  *   resources/bundled-aioncore → PATH → ~/.cargo/bin
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
   aioncoreBinaryCandidates,
+  aioncoreBinaryName,
   provisionAioncoreLocalCapability,
   resolveAioncoreBinary,
 } from '../../e2e/helpers/aioncoreBinary';
+import {
+  resolveBinaryPath,
+  resolveE2EBackendBinaryOverride,
+} from '../../../packages/desktop/src/process/backend/binaryResolver';
+
+vi.mock('node:child_process', () => ({
+  execSync: vi.fn(),
+}));
 
 const CWD = '/repo';
 const HOME_DIR = '/home/tester';
@@ -33,6 +42,11 @@ const PATH_BIN_A = path.join(PATH_DIR_A, 'aioncore');
 const PATH_BIN_B = path.join(PATH_DIR_B, 'aioncore');
 
 const BASE_OPTIONS = { cwd: CWD, homeDir: HOME_DIR, platform: PLATFORM, arch: ARCH } as const;
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.clearAllMocks();
+});
 
 function envWith(overrides: Record<string, string>): NodeJS.ProcessEnv {
   return { ...overrides } as NodeJS.ProcessEnv;
@@ -158,6 +172,57 @@ describe('resolveAioncoreBinary env contract', () => {
 
     expect(candidates.every((c) => c.path.endsWith('aioncore.exe'))).toBe(true);
     expect(candidates.map((c) => c.source)).toEqual(['bundled-resources', 'PATH', 'cargo-home']);
+  });
+});
+
+describe('desktop E2E backend injection contract', () => {
+  it('uses an exact executable file before bundled resolution only in explicit E2E mode', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aioncore-e2e-override-'));
+    const override = path.join(root, aioncoreBinaryName(process.platform));
+    fs.writeFileSync(override, 'synthetic executable');
+    if (process.platform !== 'win32') fs.chmodSync(override, 0o700);
+
+    try {
+      vi.stubEnv('AIONUI_E2E_TEST', '1');
+      vi.stubEnv('AIONUI_BACKEND_BINARY', override);
+
+      expect(resolveBinaryPath()).toBe(override);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('ignores the override outside explicit E2E mode', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aioncore-non-e2e-override-'));
+    const override = path.join(root, aioncoreBinaryName(process.platform));
+    fs.writeFileSync(override, 'synthetic executable');
+    if (process.platform !== 'win32') fs.chmodSync(override, 0o700);
+
+    try {
+      vi.stubEnv('AIONUI_E2E_TEST', '0');
+      vi.stubEnv('AIONUI_BACKEND_BINARY', override);
+
+      expect(resolveE2EBackendBinaryOverride()).toBeNull();
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('fails loudly instead of falling back when the explicit E2E override is invalid', () => {
+    const missing = path.join(os.tmpdir(), `missing-aioncore-${process.pid}`);
+    vi.stubEnv('AIONUI_E2E_TEST', '1');
+    vi.stubEnv('AIONUI_BACKEND_BINARY', missing);
+
+    expect(() => resolveBinaryPath()).toThrow(
+      'AIONUI_BACKEND_BINARY must resolve to an executable file when AIONUI_E2E_TEST=1.'
+    );
+  });
+
+  it('rejects relative E2E overrides before touching the filesystem', () => {
+    vi.stubEnv('AIONUI_E2E_TEST', '1');
+    vi.stubEnv('AIONUI_BACKEND_BINARY', './target/debug/aioncore');
+
+    expect(() => resolveBinaryPath()).toThrow('AIONUI_BACKEND_BINARY must be an absolute path when AIONUI_E2E_TEST=1.');
   });
 });
 

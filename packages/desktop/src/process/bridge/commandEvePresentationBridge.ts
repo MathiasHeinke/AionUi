@@ -27,10 +27,36 @@ import {
 } from '@process/commandEve/document/presentationIntelligenceService';
 import { readCommandEveLimitedResponseText } from '@process/commandEve/limitedFetchResponse';
 import { areCommandEveFileSelectionPathsGranted } from '@process/commandEve/fileSelectionGrantCore';
-import { getActiveSeatId, resolveActiveSeatHome } from '@process/commandEve/seatContextCore';
+import { getActiveSeatContextRevision, getActiveSeatId, resolveSeatHome } from '@process/commandEve/seatContextCore';
+import {
+  readCommandEveCloudVisualPolicy,
+  verifyCommandEveCloudVisualPolicyReceipt,
+} from '@process/commandEve/visual/cloudVisualPolicyMain';
 import { getDataPath } from '@process/utils/utils';
 
 type CommandEveBridgeEnvelope<T> = { data?: T };
+
+export type CommandEvePresentationBridgeDeps = {
+  getActiveSeatId: typeof getActiveSeatId;
+  getActiveSeatContextRevision: typeof getActiveSeatContextRevision;
+  resolveSeatHome: typeof resolveSeatHome;
+  getDataPath: typeof getDataPath;
+  areFileSelectionPathsGranted: typeof areCommandEveFileSelectionPathsGranted;
+  readVisualPolicy: typeof readCommandEveCloudVisualPolicy;
+  verifyVisualPolicyReceipt: typeof verifyCommandEveCloudVisualPolicyReceipt;
+  fetch: typeof fetch;
+};
+
+const productionDeps: CommandEvePresentationBridgeDeps = {
+  getActiveSeatId,
+  getActiveSeatContextRevision,
+  resolveSeatHome,
+  getDataPath,
+  areFileSelectionPathsGranted: areCommandEveFileSelectionPathsGranted,
+  readVisualPolicy: readCommandEveCloudVisualPolicy,
+  verifyVisualPolicyReceipt: verifyCommandEveCloudVisualPolicyReceipt,
+  fetch: (...args) => fetch(...args),
+};
 
 function unwrapRequest<T>(request?: T | CommandEveBridgeEnvelope<T>): T | undefined {
   if (request && typeof request === 'object' && 'data' in request) {
@@ -40,18 +66,49 @@ function unwrapRequest<T>(request?: T | CommandEveBridgeEnvelope<T>): T | undefi
 }
 
 export async function handleCommandEvePresentationPrepare(
-  request?: CommandEvePresentationPrepareRequest | CommandEveBridgeEnvelope<CommandEvePresentationPrepareRequest>
+  request?: CommandEvePresentationPrepareRequest | CommandEveBridgeEnvelope<CommandEvePresentationPrepareRequest>,
+  deps: CommandEvePresentationBridgeDeps = productionDeps
 ) {
   const payload = unwrapRequest<CommandEvePresentationPrepareRequest>(request);
+  let capturedSeatId: string;
+  let capturedSeatContextRevision: number;
+  let hermesHome: string;
+  try {
+    capturedSeatId = deps.getActiveSeatId();
+    capturedSeatContextRevision = deps.getActiveSeatContextRevision();
+    hermesHome = deps.resolveSeatHome(deps.getDataPath(), capturedSeatId).hermesHome;
+  } catch {
+    return {
+      success: false,
+      msg: 'EVE_PRESENTATION_SEAT_UNAVAILABLE',
+      data: {
+        version: COMMAND_EVE_PRESENTATION_INTELLIGENCE_VERSION,
+        ok: false as const,
+        reason_code: 'EVE_PRESENTATION_SEAT_UNAVAILABLE',
+        documents: [],
+        prepared_files: [],
+        requires_cloud_vision_consent: false,
+      },
+    };
+  }
+  const seatStillMatches = (): boolean =>
+    deps.getActiveSeatId() === capturedSeatId && deps.getActiveSeatContextRevision() === capturedSeatContextRevision;
   const filePaths = Array.from(
     new Set((Array.isArray(payload?.filePaths) ? payload.filePaths : []).filter((value) => typeof value === 'string'))
   );
+  const selectedFilesStillGranted = (): boolean =>
+    seatStillMatches() &&
+    deps.areFileSelectionPathsGranted({
+      filePaths,
+      seatId: capturedSeatId,
+      purpose: 'read',
+    });
   const readyDocuments: CommandEvePreparedPresentationDocument[] = [];
   const preparedFiles = (): string[] => readyDocuments.map((document) => document.sidecar_path);
   const failure = (
     reasonCode: string,
     message?: string,
-    options?: { requiresConsent?: boolean; pendingNames?: string[] }
+    options?: { requiresConsent?: boolean; pendingNames?: string[]; suppressDocuments?: boolean }
   ) => ({
     success: false,
     msg: reasonCode,
@@ -60,8 +117,8 @@ export async function handleCommandEvePresentationPrepare(
       ok: false as const,
       reason_code: reasonCode,
       ...(message ? { message } : {}),
-      documents: readyDocuments,
-      prepared_files: preparedFiles(),
+      documents: options?.suppressDocuments === true ? [] : readyDocuments,
+      prepared_files: options?.suppressDocuments === true ? [] : preparedFiles(),
       requires_cloud_vision_consent: options?.requiresConsent === true,
       ...(options?.pendingNames?.length ? { pending_source_names: options.pendingNames } : {}),
     },
@@ -70,20 +127,13 @@ export async function handleCommandEvePresentationPrepare(
   if (filePaths.length === 0 || filePaths.length > 3) {
     return failure('EVE_PRESENTATION_BAD_FILE_COUNT', 'Select between one and three PPTX files per message.');
   }
-  if (
-    !areCommandEveFileSelectionPathsGranted({
-      filePaths,
-      seatId: getActiveSeatId(),
-      purpose: 'read',
-    })
-  ) {
+  if (!selectedFilesStillGranted()) {
     return failure(
       'EVE_PRESENTATION_SOURCE_NOT_USER_SELECTED',
       'For your safety, select the presentation again before EVE reads or uploads it.'
     );
   }
 
-  const hermesHome = resolveActiveSeatHome(getDataPath()).hermesHome;
   const inspections: LocalPresentationInspection[] = [];
   for (const filePath of filePaths) {
     try {
@@ -103,21 +153,31 @@ export async function handleCommandEvePresentationPrepare(
     return failure('EVE_PRESENTATION_TOO_MANY_SLIDES', 'A single message can analyze at most 200 presentation slides.');
   }
   const pending = inspections.filter((inspection) => !inspection.cachedDocument);
-  if (pending.length > 0 && payload?.allowCloudVision !== true) {
-    return failure(
-      'EVE_PRESENTATION_CLOUD_VISION_CONSENT_REQUIRED',
-      'Visual presentation analysis requires explicit cloud-processing consent.',
-      {
-        requiresConsent: true,
-        pendingNames: pending.map((inspection) => inspection.sourceName),
-      }
-    );
-  }
-
   if (pending.length > 0) {
+    const receipt = deps.verifyVisualPolicyReceipt(payload?.visualPolicyReceipt, payload?.flowId ?? '');
+    if (!receipt.ok) {
+      return failure(
+        'EVE_PRESENTATION_CLOUD_VISUAL_POLICY_REQUIRED',
+        'Presentation analysis requires a fresh visual-policy receipt.',
+        {
+          pendingNames: pending.map((inspection) => inspection.sourceName),
+          suppressDocuments: true,
+        }
+      );
+    }
+    if (
+      receipt.seatId !== capturedSeatId ||
+      receipt.seatContextRevision !== capturedSeatContextRevision ||
+      !selectedFilesStillGranted()
+    ) {
+      return failure(
+        'EVE_PRESENTATION_SEAT_CHANGED',
+        'The active seat changed. Select the presentation again and retry.'
+      );
+    }
     if (!COMMAND_EVE_MANAGED_VISION_ENABLED) return failure('EVE_PRESENTATION_CLOUD_VISION_NOT_ENABLED');
     const privacyLane = payload?.privacyLane ?? 'cloud_auto';
-    const wireResult = readLicenseWire(getDataPath());
+    const wireResult = readLicenseWire(deps.getDataPath());
     const gate = resolveCommandEveMultimodalGate({
       provider: 'openrouter',
       capability: 'vision',
@@ -138,6 +198,14 @@ export async function handleCommandEvePresentationPrepare(
           hermesHome,
           locale: payload?.locale === 'en-US' ? 'en-US' : 'de-DE',
           requestId: payload?.requestId || `pptx-${Date.now().toString(36)}`,
+          assertPersistenceAllowed: () => {
+            if (!selectedFilesStillGranted()) {
+              throw new CommandEvePresentationPreparationError(
+                'EVE_PRESENTATION_SEAT_CHANGED',
+                'The active seat changed before the prepared presentation could be saved.'
+              );
+            }
+          },
           analyzeBatch: async (batch) => {
             const built = buildCommandEvePresentationVisionRequest({
               fileName: batch.fileName,
@@ -161,7 +229,22 @@ export async function handleCommandEvePresentationPrepare(
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(), 90_000);
             try {
-              const response = await fetch(gate.functionUrl, {
+              if (!selectedFilesStillGranted()) {
+                throw new CommandEvePresentationPreparationError(
+                  'EVE_PRESENTATION_VISUAL_POLICY_STALE',
+                  'Presentation analysis authorization is stale for the active seat.'
+                );
+              }
+              const policy = await deps.readVisualPolicy();
+              if (policy.status !== 'enabled' || policy.seatId !== capturedSeatId || !selectedFilesStillGranted()) {
+                throw new CommandEvePresentationPreparationError(
+                  policy.status === 'disabled'
+                    ? 'EVE_PRESENTATION_CLOUD_VISUAL_POLICY_DISABLED'
+                    : 'EVE_PRESENTATION_CLOUD_VISUAL_POLICY_UNAVAILABLE',
+                  'Cloud presentation analysis is not enabled for the active seat.'
+                );
+              }
+              const response = await deps.fetch(gate.functionUrl, {
                 method: 'POST',
                 headers: {
                   Authorization: `Bearer ${wireResult.wire}`,
@@ -177,6 +260,12 @@ export async function handleCommandEvePresentationPrepare(
                 response,
                 COMMAND_EVE_PRESENTATION_MAX_CLOUD_RESPONSE_BYTES
               );
+              if (!selectedFilesStillGranted()) {
+                throw new CommandEvePresentationPreparationError(
+                  'EVE_PRESENTATION_SEAT_CHANGED',
+                  'The active seat changed before the prepared presentation could be saved.'
+                );
+              }
               if (responseText.ok === false) {
                 throw new CommandEvePresentationPreparationError(
                   'EVE_PRESENTATION_VISION_RESPONSE_TOO_LARGE',

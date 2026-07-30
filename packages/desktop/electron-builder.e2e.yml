@@ -1,0 +1,22 @@
+# Non-distributable Playwright proof package. It extends the production package
+# layout and resource contract, but keeps Electron's CLI inspect arguments alive
+# because Playwright attaches through --inspect=0. Production remains governed by
+# electron-builder.yml and scripts/electronFusePolicy.js with this fuse disabled.
+extends: packages/desktop/electron-builder.yml
+
+directories:
+  output: out/e2e-packaged
+
+electronFuses:
+  enableNodeCliInspectArguments: true
+
+afterPack: scripts/afterPackE2E.js
+afterSign: null
+afterAllArtifactBuild: null
+
+mac:
+  target:
+    - dir
+  identity: null
+
+publish: null

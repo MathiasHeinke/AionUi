@@ -4,14 +4,20 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import type { CommandEveCloudVisualPolicyReceipt } from './visual/cloudVisualPolicyCore';
+
 export const COMMAND_EVE_MANAGED_VISUAL_TURN_VERSION = 'command-eve-managed-visual-turn/v1' as const;
+/** @deprecated Historical wire compatibility only; it no longer authorizes managed visual work. */
 export const COMMAND_EVE_MANAGED_VISUAL_TURN_CONSENT_VERSION = 'command-eve-managed-visual-turn-consent/v1' as const;
 
 export type CommandEveManagedVisualTurnTier = 'standard' | 'high' | 'xhigh' | 'max' | 'ultra';
 export type CommandEveManagedVisualTurnPreferredTier = Exclude<CommandEveManagedVisualTurnTier, 'standard'>;
 
 export type CommandEveManagedVisualTurnAuthorizationRequest = {
-  consentVersion: typeof COMMAND_EVE_MANAGED_VISUAL_TURN_CONSENT_VERSION;
+  /** @deprecated Ignored as authority. */
+  consentVersion?: typeof COMMAND_EVE_MANAGED_VISUAL_TURN_CONSENT_VERSION;
+  flowId?: string;
+  visualPolicyReceipt?: CommandEveCloudVisualPolicyReceipt;
   preferredTier?: CommandEveManagedVisualTurnPreferredTier;
   sourceCount: number;
 };

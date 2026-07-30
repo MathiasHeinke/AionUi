@@ -30,6 +30,33 @@ describe('packaged Electron fuse policy', () => {
     });
   });
 
+  it('keeps the inspect-enabled Playwright package isolated and non-distributable', () => {
+    const configPath = path.resolve(process.cwd(), 'packages/desktop/electron-builder.e2e.yml');
+    const config = YAML.parse(readFileSync(configPath, 'utf8')) as {
+      extends?: string;
+      directories?: { output?: string };
+      electronFuses?: Record<string, boolean>;
+      afterPack?: string;
+      afterSign?: unknown;
+      afterAllArtifactBuild?: unknown;
+      mac?: { target?: string[]; identity?: unknown };
+      publish?: unknown;
+    };
+
+    expect(config.extends).toBe('packages/desktop/electron-builder.yml');
+    expect(config.directories?.output).toBe('out/e2e-packaged');
+    expect(config.electronFuses).toEqual({ enableNodeCliInspectArguments: true });
+    expect(config.afterPack).toBe('scripts/afterPackE2E.js');
+    expect(config.afterSign).toBeNull();
+    expect(config.afterAllArtifactBuild).toBeNull();
+    expect(config.mac).toEqual({ target: ['dir'], identity: null });
+    expect(config.publish).toBeNull();
+
+    const hookSource = readFileSync(path.resolve(process.cwd(), 'scripts/afterPackE2E.js'), 'utf8');
+    expect(hookSource).toContain("const E2E_ATTACHMENT_MARKER = '.command-eve-e2e-packaged-attachment'");
+    expect(hookSource).toContain("flag: 'wx'");
+  });
+
   it('sets every fuse known to the installed Electron fuse library explicitly', () => {
     const fuseIndexes = Object.values(FuseV1Options).filter((value): value is number => typeof value === 'number');
 
@@ -63,5 +90,40 @@ describe('packaged Electron fuse policy', () => {
     expect(buildPackagedElectronFusePolicy({ electronPlatformName: 'win32' }, 'arm64')).toMatchObject({
       resetAdHocDarwinSignature: false,
     });
+  });
+
+  it('keeps CLI inspect disabled unless a separately fused E2E package explicitly opts in', () => {
+    const previous = process.env.COMMAND_EVE_E2E_PACKAGED_BUILD;
+    try {
+      delete process.env.COMMAND_EVE_E2E_PACKAGED_BUILD;
+      expect(() =>
+        buildPackagedElectronFusePolicy({ electronPlatformName: 'darwin' }, 'arm64', {
+          enableNodeCliInspectArguments: true,
+        })
+      ).toThrow(/COMMAND_EVE_E2E_PACKAGED_BUILD=1/);
+
+      process.env.COMMAND_EVE_E2E_PACKAGED_BUILD = '1';
+      expect(
+        buildPackagedElectronFusePolicy({ electronPlatformName: 'darwin' }, 'arm64', {
+          enableNodeCliInspectArguments: true,
+        })[FuseV1Options.EnableNodeCliInspectArguments]
+      ).toBe(true);
+      expect(
+        buildPackagedElectronFusePolicy({ electronPlatformName: 'darwin' }, 'arm64')[
+          FuseV1Options.EnableNodeCliInspectArguments
+        ]
+      ).toBe(false);
+    } finally {
+      if (previous === undefined) delete process.env.COMMAND_EVE_E2E_PACKAGED_BUILD;
+      else process.env.COMMAND_EVE_E2E_PACKAGED_BUILD = previous;
+    }
+  });
+
+  it('rejects any test override outside the one Playwright attachment fuse', () => {
+    expect(() =>
+      buildPackagedElectronFusePolicy({ electronPlatformName: 'darwin' }, 'arm64', {
+        runAsNode: true,
+      })
+    ).toThrow(/Unsupported packaged Electron fuse override/);
   });
 });

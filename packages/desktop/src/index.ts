@@ -82,13 +82,14 @@ import {
 } from './process/commandEve/runtimeBootstrapCore';
 import { shouldRestartWindowsBackendAfterRuntimeBootstrap } from './process/commandEve/windows/runtimeActivationCore';
 import { readHonchoReadyState } from './process/commandEve/honchoReadyStateFile';
-import { getActiveSeatId } from './process/commandEve/seatContextCore';
+import { getActiveSeatContextRevision, getActiveSeatId } from './process/commandEve/seatContextCore';
 import {
   readInferenceSelectionFromBackendStrict,
   resolveEveCloudRouteFromBackend,
 } from './process/commandEve/inferenceSelectionBackendRead';
 import { resolveCommandEveManagedVisualTurn } from './process/commandEve/managedVisualTurnAuthorizationCore';
 import { readCommandEveSettingsFromBackend } from './process/commandEve/commandEveBackendSettingsRead';
+import { readCommandEveCloudVisualPolicy } from './process/commandEve/visual/cloudVisualPolicyMain';
 import { type EveRememberedCommand } from '@/common/config/eveRememberedCommandsCore';
 import { rememberedCommandsFromSettings } from '@/common/config/eveAuthorityStoreCore';
 import { createTeamWorkerStatusResolver } from './process/commandEve/teamWorkerStatusResolverCore';
@@ -521,7 +522,9 @@ function buildCommandEveShimRoutingResolver(): (
   body?: Record<string, unknown>
 ) => Promise<CommandEveEveCloudRoute | undefined> {
   return async (body) => {
-    const managedVisualTurn = resolveCommandEveManagedVisualTurn(body, getActiveSeatId());
+    const seatId = getActiveSeatId();
+    const seatContextRevision = getActiveSeatContextRevision();
+    const managedVisualTurn = resolveCommandEveManagedVisualTurn(body, seatId, seatContextRevision);
     if (managedVisualTurn.status === 'invalid') {
       throw new Error(
         `Managed visual turn authorization is invalid (${managedVisualTurn.reason_code}). Reconfirm cloud processing and retry.`
@@ -529,11 +532,21 @@ function buildCommandEveShimRoutingResolver(): (
     }
     if (managedVisualTurn.status === 'authorized') {
       const wireResult = readLicenseWire(getDataPath());
+      const claim = managedVisualTurn.visualPolicyClaim;
       return {
         active: true,
         functionUrl: EVE_INFERENCE_FUNCTION_URL,
         license: wireResult.ok ? wireResult.wire : undefined,
         tier: managedVisualTurn.tier,
+        authorizeManagedVisualEgress: async () => {
+          const policy = await readCommandEveCloudVisualPolicy();
+          return (
+            policy.status === 'enabled' &&
+            policy.seatId === claim.seatId &&
+            getActiveSeatId() === claim.seatId &&
+            getActiveSeatContextRevision() === claim.seatContextRevision
+          );
+        },
       };
     }
 

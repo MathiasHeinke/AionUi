@@ -71,6 +71,13 @@ import type {
   CommandEveManagedVisualTurnAuthorizationRequest,
   CommandEveManagedVisualTurnAuthorizationResult,
 } from '../config/eveManagedVisualTurnCore';
+import type {
+  CommandEveCloudVisualPolicyMutationRequest,
+  CommandEveCloudVisualPolicyMutationResult,
+  CommandEveCloudVisualPolicyReceiptRequest,
+  CommandEveCloudVisualPolicyReceiptResult,
+  CommandEveCloudVisualPolicyState,
+} from '../config/visual/cloudVisualPolicyCore';
 import type { AgentUsageLedgerEnvelope } from '../config/seatUsageCore';
 import type {
   ITeamAgentRemovedEvent,
@@ -1862,6 +1869,19 @@ export const commandEve = {
   imagePrepare: bridge.buildProvider<IBridgeResponse<CommandEveImagePrepareResult>, CommandEveImagePrepareRequest>(
     'command-eve.image-prepare'
   ),
+  // Main-authoritative per-seat visual policy. Renderer supplies no target seat
+  // for reads/receipt issuance; expectedSeatId on mutation is only a stale fence.
+  cloudVisualPolicyRead: bridge.buildProvider<IBridgeResponse<CommandEveCloudVisualPolicyState>, void>(
+    'command-eve.cloud-visual-policy-read'
+  ),
+  cloudVisualPolicyReceipt: bridge.buildProvider<
+    IBridgeResponse<CommandEveCloudVisualPolicyReceiptResult>,
+    CommandEveCloudVisualPolicyReceiptRequest
+  >('command-eve.cloud-visual-policy-receipt'),
+  cloudVisualPolicySet: bridge.buildProvider<
+    IBridgeResponse<CommandEveCloudVisualPolicyMutationResult>,
+    CommandEveCloudVisualPolicyMutationRequest
+  >('command-eve.cloud-visual-policy-set'),
   // One-turn managed synthesis authorization. MAIN returns only a short-lived
   // opaque marker; the license bearer and provider key never cross the bridge.
   managedVisualTurnAuthorize: bridge.buildProvider<
@@ -3297,6 +3317,8 @@ export interface IResponseMessage {
   hidden?: boolean;
   /** Replace accumulated text for the same msg_id instead of appending. */
   replace?: boolean;
+  /** Whether this live payload was persisted before it was broadcast. */
+  durable?: boolean;
 }
 
 export type IGeneratedArtifactKind = 'media' | 'image' | 'video' | 'audio' | 'html' | 'file';

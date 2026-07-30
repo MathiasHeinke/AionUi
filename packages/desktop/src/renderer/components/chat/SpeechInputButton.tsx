@@ -181,6 +181,7 @@ const SpeechInputButton = React.forwardRef<SpeechInputButtonHandle, SpeechInputB
 
       const syncSpeechToTextEnabled = async () => {
         try {
+          await configService.whenReady();
           const config = configService.get('tools.speechToText');
           if (cancelled) {
             return;

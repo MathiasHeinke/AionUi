@@ -6,6 +6,10 @@
 
 import type { TMessage } from '@/common/chat/chatLib';
 import { useAddOrUpdateMessage } from '@/renderer/pages/conversation/Messages/hooks';
+import {
+  clearConversationGenerating,
+  markConversationGenerating,
+} from '@/renderer/services/commandEveGenerationActivity';
 import React, { useEffect } from 'react';
 
 const STREAM_TICK_MS = 35;
@@ -21,6 +25,8 @@ type StreamController = {
   runScenario: (options?: RunScenarioOptions) => Promise<void>;
   emitInfoTip: (code: string, content: string) => Promise<void>;
   emitFollowUpExchange: () => Promise<void>;
+  beginGenerating: () => void;
+  clearGenerating: () => void;
 };
 
 type StreamRegistry = {
@@ -164,6 +170,12 @@ const AcpE2EStreamInjector: React.FC<{ conversationId: string }> = ({ conversati
         await new Promise<void>((resolve) => {
           window.setTimeout(resolve, STREAM_TICK_MS);
         });
+      },
+      beginGenerating: () => {
+        markConversationGenerating(conversationId);
+      },
+      clearGenerating: () => {
+        clearConversationGenerating(conversationId);
       },
       emitFollowUpExchange: async () => {
         const userMsgId = `e2e-follow-up-user-${Date.now()}`;

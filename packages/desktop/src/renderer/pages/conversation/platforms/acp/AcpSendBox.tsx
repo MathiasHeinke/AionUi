@@ -78,9 +78,10 @@ import {
   composeCommandEvePreparedContext,
 } from '@/common/config/evePreparedContextCore';
 import {
-  COMMAND_EVE_MANAGED_VISUAL_TURN_CONSENT_VERSION,
+  extractCommandEveManagedVisualTurnToken,
   resolveCommandEveManagedVisualPreferredTier,
 } from '@/common/config/eveManagedVisualTurnCore';
+import type { CommandEveCloudVisualPolicyReceipt } from '@/common/config/visual/cloudVisualPolicyCore';
 import { Message, Modal, Tag } from '@arco-design/web-react';
 import { Brain, EditOne, MagicHat, Shield, Time } from '@icon-park/react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -445,19 +446,64 @@ const AcpSendBox: React.FC<{
       files,
       displayFiles,
       preparedContext,
-    }: Pick<ConversationCommandQueueItem, 'input' | 'files' | 'displayFiles' | 'preparedContext'>) => {
-      const agentInput = buildCommandEvePreparedAgentInput(input, preparedContext);
+      managedVisualSourceCount,
+    }: Pick<
+      ConversationCommandQueueItem,
+      'input' | 'files' | 'displayFiles' | 'preparedContext' | 'managedVisualSourceCount'
+    >) => {
+      try {
+        let dispatchPreparedContext = preparedContext;
+      if (managedVisualSourceCount !== undefined) {
+        if (
+          !dispatchPreparedContext ||
+          extractCommandEveManagedVisualTurnToken(dispatchPreparedContext) !== undefined ||
+          !Number.isInteger(managedVisualSourceCount) ||
+          managedVisualSourceCount < 1 ||
+          managedVisualSourceCount > 6
+        ) {
+          throw new Error('EVE_MANAGED_VISUAL_DISPATCH_RECIPE_INVALID');
+        }
+
+        const flowId = `visual_${uuid().replace(/-/g, '')}`;
+        const receiptResult = await ipcBridge.commandEve.cloudVisualPolicyReceipt.invoke({ flowId });
+        if (!receiptResult.success || !receiptResult.data?.ok) {
+          throw new Error(
+            receiptResult.data?.message ||
+              t('conversation.visual.managedCloudFailed', {
+                defaultValue: 'Cloud visual analysis is disabled or unavailable for this seat.',
+              })
+          );
+        }
+        const authorization = await ipcBridge.commandEve.managedVisualTurnAuthorize.invoke({
+          flowId,
+          visualPolicyReceipt: receiptResult.data.receipt,
+          preferredTier: resolveCommandEveManagedVisualPreferredTier(
+            resolveWireTierFromSelection(eveInference.selection)
+          ),
+          sourceCount: managedVisualSourceCount,
+        });
+        if (!authorization.success || !authorization.data?.ok || !authorization.data.marker) {
+          throw new Error(
+            authorization.data?.message ||
+              t('conversation.visual.managedCloudFailed', {
+                defaultValue: 'Managed visual analysis could not be authorized. Please try again.',
+              })
+          );
+        }
+        dispatchPreparedContext = `${authorization.data.marker}\n${dispatchPreparedContext}`;
+      }
+
+      const agentInput = buildCommandEvePreparedAgentInput(input, dispatchPreparedContext);
       const displayMessage = buildDisplayMessage(agentInput, displayFiles ?? files, workspacePath || '');
 
-      runtimeView.markSendStarted();
-      // 1.7.3 (Codex #2): mark generation at SEND time so the seat-switch guard
-      // covers the window between submit and the first `start` stream event, during
-      // which the response stream is silent. The stream's finish/error clears it on
-      // a real turn; the catch below clears it if the send never starts.
-      markConversationGenerating(conversation_id);
-      setAiProcessing(true);
+        runtimeView.markSendStarted();
+        // 1.7.3 (Codex #2): mark generation at SEND time so the seat-switch guard
+        // covers the window between submit and the first `start` stream event, during
+        // which the response stream is silent. The stream's finish/error clears it on
+        // a real turn; the catch below clears it if the send never starts.
+        markConversationGenerating(conversation_id);
+        setAiProcessing(true);
 
-      try {
         if (teamPermission) await teamPermission.warmupSession();
         void checkAndUpdateTitle(conversation_id, input);
         const result = await ipcBridge.acpConversation.sendMessage.invoke({
@@ -538,7 +584,18 @@ Please check your local CLI tool authentication status`,
         emitter.emit('acp.workspace.refresh');
       }
     },
-    [backend, checkAndUpdateTitle, conversation_id, resetState, runtimeView, setAiProcessing, t, workspacePath]
+    [
+      backend,
+      checkAndUpdateTitle,
+      conversation_id,
+      eveInference.selection,
+      resetState,
+      runtimeView,
+      setAiProcessing,
+      t,
+      teamPermission,
+      workspacePath,
+    ]
   );
 
   const {
@@ -621,7 +678,13 @@ Please check your local CLI tool authentication status`,
   // the normal send and the post-confirm video send route through this so the
   // queue/in-flight semantics are identical.
   const dispatchMessage = useCallback(
-    async (message: string, agentFiles: string[], displayFiles: string[] = agentFiles, preparedContext?: string) => {
+    async (
+      message: string,
+      agentFiles: string[],
+      displayFiles: string[] = agentFiles,
+      preparedContext?: string,
+      managedVisualSourceCount?: number
+    ) => {
       const requestedBusyControlCommand = runtimeView.isProcessing
         ? buildConversationBusyControlCommand({ input: message, mode: busySendMode })
         : null;
@@ -665,9 +728,23 @@ Please check your local CLI tool authentication status`,
           hasPendingCommands,
         })
       ) {
-        return enqueue({ input: queuedMessage, files: agentFiles, displayFiles, preparedContext }) !== null;
+        return (
+          enqueue({
+            input: queuedMessage,
+            files: agentFiles,
+            displayFiles,
+            preparedContext,
+            managedVisualSourceCount,
+          }) !== null
+        );
       }
-      await executeCommand({ input: queuedMessage, files: agentFiles, displayFiles, preparedContext });
+      await executeCommand({
+        input: queuedMessage,
+        files: agentFiles,
+        displayFiles,
+        preparedContext,
+        managedVisualSourceCount,
+      });
       return true;
     },
     [busySendMode, dispatchSteer, enqueue, executeCommand, hasPendingCommands, isBusy, runtimeView.isProcessing, t]
@@ -785,20 +862,118 @@ Please check your local CLI tool authentication status`,
         markConversationDocumentPreparationSettled(conversation_id);
         return false;
       }
-      const presentationPreparation = await preparePresentationFiles(pdfPreparedFiles);
-      // A cancelled/failed vision gate follows the same no-loss contract.
+      const visualSourceCount = pdfPreparedFiles.filter(
+        (file) => isCommandEvePresentationPath(file) || isCommandEveImagePath(file)
+      ).length;
+      let visualAuthority:
+        | {
+            flowId: string;
+            visualPolicyReceipt: CommandEveCloudVisualPolicyReceipt;
+          }
+        | undefined;
+      if (isEveConversation && visualSourceCount > 6) {
+        controls.restoreDraftAndFiles();
+        documentPreparationInFlightRef.current = false;
+        markConversationDocumentPreparationSettled(conversation_id);
+        Message.error({
+          content: t('conversation.visual.sourceLimit', {
+            defaultValue: 'Select no more than six images or presentations per turn.',
+          }),
+          duration: 6000,
+        });
+        return false;
+      }
+
+      const flowId = visualSourceCount > 0 ? `visual_${uuid().replace(/-/g, '')}` : undefined;
+      const issueVisualAuthority = async () => {
+        if (!flowId) return undefined;
+        try {
+          const receiptResult = await ipcBridge.commandEve.cloudVisualPolicyReceipt.invoke({ flowId });
+          if (!receiptResult.success || !receiptResult.data?.ok) {
+            setDocumentPreparation({
+              phase: 'presentation_error',
+              fileCount: visualSourceCount,
+              startedAt: Date.now(),
+            });
+            Message.error({
+              content: t('conversation.visual.managedCloudFailed', {
+                defaultValue: 'Cloud visual analysis is disabled or unavailable for this seat.',
+              }),
+              duration: 6000,
+            });
+            return undefined;
+          }
+          return { flowId, visualPolicyReceipt: receiptResult.data.receipt };
+        } catch (error) {
+          setDocumentPreparation({ phase: 'presentation_error', fileCount: visualSourceCount, startedAt: Date.now() });
+          Message.error({
+            content:
+              getConversationRuntimeWorkspaceErrorMessage(error, t) ||
+              t('conversation.visual.managedCloudFailed', {
+                defaultValue: 'Cloud visual analysis is disabled or unavailable for this seat.',
+              }),
+            duration: 6000,
+          });
+          return undefined;
+        }
+      };
+      const stopAfterVisualAuthorityFailure = () => {
+        controls.restoreDraftAndFiles();
+        documentPreparationInFlightRef.current = false;
+        markConversationDocumentPreparationSettled(conversation_id);
+      };
+
+      // Always let Main inspect PPTX/image sources locally first. A receipt is
+      // requested only when Main reports that uncached cloud work is pending; if
+      // every sidecar is already local, issuance is deferred until marker minting.
+      let presentationPreparation = await preparePresentationFiles(pdfPreparedFiles);
       if (presentationPreparation === null) {
         controls.restoreDraftAndFiles();
         documentPreparationInFlightRef.current = false;
         markConversationDocumentPreparationSettled(conversation_id);
         return false;
       }
-      const imagePreparation = await prepareImageFiles(presentationPreparation.files);
+      let imagePreparation = await prepareImageFiles(presentationPreparation.files);
       if (imagePreparation === null) {
         controls.restoreDraftAndFiles();
         documentPreparationInFlightRef.current = false;
         markConversationDocumentPreparationSettled(conversation_id);
         return false;
+      }
+
+      if (presentationPreparation.requiresVisualPolicyReceipt || imagePreparation.requiresVisualPolicyReceipt) {
+        visualAuthority = await issueVisualAuthority();
+        if (!visualAuthority) {
+          stopAfterVisualAuthorityFailure();
+          return false;
+        }
+
+        if (presentationPreparation.requiresVisualPolicyReceipt) {
+          const retriedPresentationPreparation = await preparePresentationFiles(pdfPreparedFiles, visualAuthority);
+          if (retriedPresentationPreparation === null) {
+            controls.restoreDraftAndFiles();
+            documentPreparationInFlightRef.current = false;
+            markConversationDocumentPreparationSettled(conversation_id);
+            return false;
+          }
+          presentationPreparation = retriedPresentationPreparation;
+        }
+
+        if (imagePreparation.requiresVisualPolicyReceipt) {
+          const retriedImagePreparation = await prepareImageFiles(presentationPreparation.files, visualAuthority);
+          if (retriedImagePreparation === null) {
+            controls.restoreDraftAndFiles();
+            documentPreparationInFlightRef.current = false;
+            markConversationDocumentPreparationSettled(conversation_id);
+            return false;
+          }
+          imagePreparation = retriedImagePreparation;
+        } else {
+          imagePreparation = {
+            ...imagePreparation,
+            files: Array.from(new Set([...presentationPreparation.files, ...imagePreparation.files])),
+          };
+        }
       }
 
       const visualContexts = [...presentationPreparation.contexts, ...imagePreparation.contexts];
@@ -818,65 +993,7 @@ Please check your local CLI tool authentication status`,
         });
         return false;
       }
-      let preparedContext = composedContext?.context;
-      if (preparedContext) {
-        const priorConsent = presentationPreparation.cloudConsentGranted || imagePreparation.cloudConsentGranted;
-        if (!priorConsent) {
-          setDocumentPreparation({
-            phase: 'awaiting_cloud_vision',
-            fileCount: visualContexts.length,
-            startedAt: Date.now(),
-          });
-          const approved = await new Promise<boolean>((resolve) => {
-            Modal.confirm({
-              title: t('conversation.visual.managedCloudTitle'),
-              content: t('conversation.visual.managedCloudDescription', {
-                files: visualContexts.map((context) => context.sourceName).join(', '),
-              }),
-              okText: t('conversation.visual.managedCloudConfirm'),
-              cancelText: t('common.cancel'),
-              onOk: () => resolve(true),
-              onCancel: () => resolve(false),
-              closable: true,
-            });
-          });
-          if (!approved) {
-            controls.restoreDraftAndFiles();
-            documentPreparationInFlightRef.current = false;
-            markConversationDocumentPreparationSettled(conversation_id);
-            setDocumentPreparation(null);
-            return false;
-          }
-        }
-
-        const authorization = await ipcBridge.commandEve.managedVisualTurnAuthorize.invoke({
-          consentVersion: COMMAND_EVE_MANAGED_VISUAL_TURN_CONSENT_VERSION,
-          preferredTier: resolveCommandEveManagedVisualPreferredTier(
-            resolveWireTierFromSelection(eveInference.selection)
-          ),
-          sourceCount: visualContexts.length,
-        });
-        if (!authorization.success || !authorization.data?.ok || !authorization.data.marker) {
-          controls.restoreDraftAndFiles();
-          documentPreparationInFlightRef.current = false;
-          markConversationDocumentPreparationSettled(conversation_id);
-          setDocumentPreparation({
-            phase: 'presentation_error',
-            fileCount: visualContexts.length,
-            startedAt: Date.now(),
-          });
-          Message.error({
-            content:
-              authorization.data?.message ||
-              t('conversation.visual.managedCloudFailed', {
-                defaultValue: 'Managed visual analysis could not be authorized. Please try again.',
-              }),
-            duration: 6000,
-          });
-          return false;
-        }
-        preparedContext = `${authorization.data.marker}\n${preparedContext}`;
-      }
+      const preparedContext = composedContext?.context;
       const visuallyPreparedFiles = imagePreparation.files;
 
       controls.clearSelection();
@@ -897,7 +1014,13 @@ Please check your local CLI tool authentication status`,
           {},
           (resolved) => {
             const resolvedMessage = buildResolvedVideoMessage(message, resolved);
-            const dispatch = dispatchMessage(resolvedMessage, visuallyPreparedFiles, allFiles, preparedContext);
+            const dispatch = dispatchMessage(
+              resolvedMessage,
+              visuallyPreparedFiles,
+              allFiles,
+              preparedContext,
+              visualContexts.length || undefined
+            );
             markConversationDocumentPreparationSettled(conversation_id);
             void dispatch
               .then((accepted) => {
@@ -916,7 +1039,13 @@ Please check your local CLI tool authentication status`,
       }
 
       try {
-        const accepted = await dispatchMessage(message, visuallyPreparedFiles, allFiles, preparedContext);
+        const accepted = await dispatchMessage(
+          message,
+          visuallyPreparedFiles,
+          allFiles,
+          preparedContext,
+          visualContexts.length || undefined
+        );
         if (!accepted) controls.restoreDraftAndFiles();
         return accepted;
       } catch (error) {

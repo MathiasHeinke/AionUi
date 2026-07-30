@@ -4,6 +4,19 @@ export type CdpStartupPolicyInput = {
   configEnabled?: boolean;
 };
 
+export const COMMAND_EVE_E2E_PACKAGED_ATTACHMENT_MARKER = '.command-eve-e2e-packaged-attachment';
+
+type PackagedE2EAttachmentPolicyInput = {
+  isPackaged: boolean;
+  e2eTest: boolean;
+  attachmentRequested: boolean;
+  packageMarkerPresent: boolean;
+};
+
+export function shouldAllowNonDistributableE2EAttachment(input: PackagedE2EAttachmentPolicyInput): boolean {
+  return input.isPackaged && input.e2eTest && input.attachmentRequested && input.packageMarkerPresent;
+}
+
 const PACKAGED_CDP_SWITCHES = [
   'remote-debugging-port',
   'remote-debugging-address',
@@ -14,12 +27,13 @@ const PACKAGED_CDP_SWITCHES = [
 
 type PackagedCdpCommandLineInput = {
   isPackaged: boolean;
+  allowNonDistributableE2EAttachment?: boolean;
   argv: string[];
   removeSwitch: (name: string) => void;
 };
 
 export function hardenPackagedCdpCommandLine(input: PackagedCdpCommandLineInput): string[] {
-  if (!input.isPackaged) return [];
+  if (!input.isPackaged || input.allowNonDistributableE2EAttachment === true) return [];
 
   const stripped = new Set<string>();
   for (const switchName of PACKAGED_CDP_SWITCHES) {

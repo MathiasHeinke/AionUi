@@ -112,6 +112,13 @@ export function provisionCommandEveShimAuthTokenFile(dataPath: string): string {
  * Ollama lane. Returning `{ active: true, functionUrl, license, tier }` routes
  * it to the function with `Authorization: Bearer <license>` and `tier` in body.
  */
+export type CommandEveManagedVisualPolicyClaim = Readonly<{
+  seatId: string;
+  seatContextRevision: number;
+  flowId: string;
+  receiptId: string;
+}>;
+
 export type CommandEveEveCloudRoute = {
   active: boolean;
   /** Absolute https URL of the eve-inference Edge Function. */
@@ -120,6 +127,11 @@ export type CommandEveEveCloudRoute = {
   license?: string;
   /** Wire tier value POSTed in the body (e.g. "standard"). */
   tier?: string;
+  /**
+   * Main-only final egress gate for a consumed managed-visual marker. Ordinary
+   * cloud chat and Honcho routes omit this callback and remain unchanged.
+   */
+  authorizeManagedVisualEgress?: () => boolean | Promise<boolean>;
 };
 
 /**
@@ -1372,6 +1384,24 @@ async function handleEveCloudCompletions(
     ...(body.parallel_tool_calls !== undefined ? { parallel_tool_calls: body.parallel_tool_calls } : {}),
     ...(body.response_format !== undefined ? { response_format: body.response_format } : {}),
   };
+
+  if (route.authorizeManagedVisualEgress) {
+    let authorized = false;
+    try {
+      authorized = await route.authorizeManagedVisualEgress();
+    } catch {
+      authorized = false;
+    }
+    if (!authorized) {
+      jsonResponse(response, 409, {
+        error: {
+          code: 'EVE_MANAGED_VISUAL_POLICY_STALE',
+          message: 'Cloud visual analysis is no longer enabled for the active seat. Reattach the files and retry.',
+        },
+      });
+      return;
+    }
+  }
 
   const upstreamScope = createUpstreamRequestScope(request, response, options);
   try {

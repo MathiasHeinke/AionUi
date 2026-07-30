@@ -185,6 +185,63 @@ describe('Command EVE image intelligence', () => {
     });
   });
 
+  it.each([
+    {
+      name: 'A to B seat switch',
+      mutate: (state: { seatId: string; revision: number }) => {
+        state.seatId = 'seat-b';
+        state.revision += 1;
+      },
+    },
+    {
+      name: 'A to B to A revision change',
+      mutate: (state: { seatId: string; revision: number }) => {
+        state.seatId = 'seat-b';
+        state.revision += 1;
+        state.seatId = 'seat-a';
+        state.revision += 1;
+      },
+    },
+  ])('blocks image sidecar persistence after $name following cloud analysis', async ({ mutate }) => {
+    const root = temporaryRoot();
+    const hermesHome = path.join(root, 'hermes');
+    fs.mkdirSync(hermesHome, { mode: 0o700 });
+    const sourcePath = path.join(root, 'screenshot.png');
+    fs.writeFileSync(sourcePath, pngBytes());
+    const inspection = inspectLocalImage({ filePath: sourcePath, hermesHome });
+    const captured = { seatId: 'seat-a', revision: 1 };
+    const current = { ...captured };
+    const events: string[] = [];
+
+    await expect(
+      prepareImageWithVision({
+        inspection,
+        hermesHome,
+        locale: 'de-DE',
+        requestId: 'image-seat-fence-test',
+        normalizeImage: async () => jpegBytes(),
+        analyze: async () => {
+          events.push('analyze');
+          mutate(current);
+          return { markdown: '## Image 1\n\nVisible evidence.', model: 'google/gemini-2.5-flash' };
+        },
+        assertPersistenceAllowed: () => {
+          events.push('assert-persistence');
+          if (current.seatId !== captured.seatId || current.revision !== captured.revision) {
+            throw new CommandEveImagePreparationError(
+              'EVE_IMAGE_SEAT_CHANGED',
+              'The active seat changed before the prepared image could be saved.'
+            );
+          }
+        },
+      })
+    ).rejects.toMatchObject({ reasonCode: 'EVE_IMAGE_SEAT_CHANGED' });
+
+    expect(events).toEqual(['analyze', 'assert-persistence']);
+    expect(fs.existsSync(path.join(inspection.cacheDirectory, 'document.md'))).toBe(false);
+    expect(fs.existsSync(path.join(inspection.cacheDirectory, 'manifest.json'))).toBe(false);
+  });
+
   it('rejects symlink and extension-magic spoofing before cloud analysis', () => {
     const root = temporaryRoot();
     const hermesHome = path.join(root, 'hermes');

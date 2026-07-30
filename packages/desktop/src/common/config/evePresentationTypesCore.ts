@@ -5,6 +5,7 @@
  */
 
 import type { CommandEvePrivacyLane } from './eveMultimodalGatewayCore';
+import type { CommandEveCloudVisualPolicyReceipt } from './visual/cloudVisualPolicyCore';
 
 export const COMMAND_EVE_PRESENTATION_INTELLIGENCE_VERSION = 'command-eve-presentation-intelligence/v0' as const;
 export const COMMAND_EVE_PRESENTATION_MAX_LOCAL_BYTES = 50 * 1024 * 1024;
@@ -19,7 +20,10 @@ export type CommandEvePresentationLocale = 'de-DE' | 'en-US';
 
 export type CommandEvePresentationPrepareRequest = {
   filePaths?: string[];
+  /** @deprecated Wire-compatible only. Main never treats this as authority. */
   allowCloudVision?: boolean;
+  flowId?: string;
+  visualPolicyReceipt?: CommandEveCloudVisualPolicyReceipt;
   privacyLane?: CommandEvePrivacyLane;
   locale?: CommandEvePresentationLocale;
   requestId?: string;

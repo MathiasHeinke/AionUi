@@ -85,6 +85,11 @@ export const SEAT_SCOPED_CONFIG_KEYS: ReadonlySet<string> = new Set<string>([
   // off in HIS own seat (e.g. writing a brief with real contact data) while every
   // client seat keeps its own DSGVO posture. Never install-global.
   'commandEve.egressRedactionMode',
+  // 1.820.1: the managed cloud visual-analysis opt-out is per seat. A real seat
+  // must never inherit the founder/legacy key, a sibling's false/true, or a stale
+  // value after switching seats. Main performs strict exact-key reads; this
+  // allowlist also keeps ordinary renderer config persistence physically scoped.
+  'commandEve.cloudVisualAnalysisEnabled',
   // 1.820: the approval grant, including the commands this seat's human said EVE
   // may always run. Per seat for the same reason as the redaction switch, only
   // sharper: a command one client approved must never be pre-approved while EVE

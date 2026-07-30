@@ -1079,6 +1079,10 @@ describe('Command EVE runtime bootstrap core', () => {
         nonretry_attempts: 1,
         timeout_attempts: 2,
         effective_lane: 'ollama_local',
+        policy_threshold_tokens: 6_144,
+        fallback_context_length: 4_096,
+        fallback_threshold_tokens: 2_048,
+        context_patch_installed: true,
         status_events: ['tool', 'step'],
         receipt_mode: '0600',
       });

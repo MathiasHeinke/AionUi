@@ -246,6 +246,87 @@ describe('presentation intelligence local service', () => {
     });
   });
 
+  it.each([
+    {
+      name: 'A to B seat switch',
+      mutate: (state: { seatId: string; revision: number }) => {
+        state.seatId = 'seat-b';
+        state.revision += 1;
+      },
+    },
+    {
+      name: 'A to B to A revision change',
+      mutate: (state: { seatId: string; revision: number }) => {
+        state.seatId = 'seat-b';
+        state.revision += 1;
+        state.seatId = 'seat-a';
+        state.revision += 1;
+      },
+    },
+  ])('blocks presentation sidecar persistence after $name following cloud analysis', async ({ mutate }) => {
+    const { home, pptx } = fixture();
+    const officeCliRunner: OfficeCliJsonRunner = vi.fn(async (args) => {
+      if (args.includes('stats')) return { success: true, data: { slides: 3 } };
+      if (args.includes('text')) {
+        return {
+          success: true,
+          data: {
+            slides: [
+              { index: 1, texts: ['Title'] },
+              { index: 2, texts: ['Chart'] },
+              { index: 3, texts: ['Outlook'] },
+            ],
+          },
+        };
+      }
+      if (args.includes('screenshot')) {
+        const output = args[args.indexOf('--out') + 1];
+        fs.writeFileSync(output, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+        return { success: true, data: output };
+      }
+      throw new Error(`Unexpected OfficeCLI args: ${args.join(' ')}`);
+    });
+    const inspection = await inspectLocalPresentation({ filePath: pptx, hermesHome: home, officeCliRunner });
+    const captured = { seatId: 'seat-a', revision: 1 };
+    const current = { ...captured };
+    const events: string[] = [];
+
+    await expect(
+      preparePresentationWithVision({
+        inspection,
+        hermesHome: home,
+        locale: 'de-DE',
+        requestId: 'presentation-seat-fence-test',
+        officeCliRunner,
+        pngToJpegConverter: async () => new Uint8Array([0xff, 0xd8, 0x01, 0x02, 0xff, 0xd9]),
+        analyzeBatch: async (batch) => {
+          events.push('analyze');
+          mutate(current);
+          return {
+            markdown: batch.images
+              .map((image) => `## Slide ${image.slideNumber}\n\nVisual evidence for ${image.slideNumber}.`)
+              .join('\n\n'),
+            model: 'google/gemini-2.5-flash',
+            slideNumbers: batch.images.map((image) => image.slideNumber),
+          };
+        },
+        assertPersistenceAllowed: () => {
+          events.push('assert-persistence');
+          if (current.seatId !== captured.seatId || current.revision !== captured.revision) {
+            throw new CommandEvePresentationPreparationError(
+              'EVE_PRESENTATION_SEAT_CHANGED',
+              'The active seat changed before the prepared presentation could be saved.'
+            );
+          }
+        },
+      })
+    ).rejects.toMatchObject({ reasonCode: 'EVE_PRESENTATION_SEAT_CHANGED' });
+
+    expect(events).toEqual(['analyze', 'assert-persistence']);
+    expect(fs.existsSync(path.join(inspection.cacheDirectory, 'document.md'))).toBe(false);
+    expect(fs.existsSync(path.join(inspection.cacheDirectory, 'manifest.json'))).toBe(false);
+  });
+
   it('rejects symlink sources and malformed ZIP payloads before invoking OfficeCLI', async () => {
     const { root, home, pptx } = fixture();
     const linked = path.join(root, 'linked.pptx');

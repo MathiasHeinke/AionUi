@@ -45,16 +45,28 @@ function resolvePackagedElectronPath({ electronPlatformName, appOutDir, packager
   return existingPath;
 }
 
-function buildPackagedElectronFusePolicy(context, targetArch) {
+function buildPackagedElectronFusePolicy(context, targetArch, overrides = {}) {
+  const allowedOverrides = ['enableNodeCliInspectArguments'];
+  const unknownOverrides = Object.keys(overrides).filter((key) => !allowedOverrides.includes(key));
+  if (unknownOverrides.length > 0) {
+    throw new Error(`Unsupported packaged Electron fuse override(s): ${unknownOverrides.join(', ')}`);
+  }
+  if (overrides.enableNodeCliInspectArguments === true && process.env.COMMAND_EVE_E2E_PACKAGED_BUILD !== '1') {
+    throw new Error('Enabling Electron CLI inspect arguments requires COMMAND_EVE_E2E_PACKAGED_BUILD=1.');
+  }
+
   return {
     ...PACKAGED_ELECTRON_FUSE_POLICY,
+    ...(overrides.enableNodeCliInspectArguments === true
+      ? { [FuseV1Options.EnableNodeCliInspectArguments]: true }
+      : {}),
     resetAdHocDarwinSignature: context.electronPlatformName === 'darwin' && targetArch === 'arm64',
   };
 }
 
-async function applyPackagedElectronFusePolicy(context, targetArch) {
+async function applyPackagedElectronFusePolicy(context, targetArch, overrides = {}) {
   const electronPath = resolvePackagedElectronPath(context);
-  await flipFuses(electronPath, buildPackagedElectronFusePolicy(context, targetArch));
+  await flipFuses(electronPath, buildPackagedElectronFusePolicy(context, targetArch, overrides));
   console.log(`   ✓ Explicit Electron fuse policy applied: ${electronPath}`);
 }
 

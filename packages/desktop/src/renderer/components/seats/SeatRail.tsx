@@ -133,12 +133,18 @@ function switchErrorMessage(code: string): string {
   }
 }
 
-const SeatRail: React.FC = () => {
+export interface SeatRailProps {
+  /** Keep the same authoritative rail reachable on narrow layouts without taking 72px. */
+  compact?: boolean;
+}
+
+const SeatRail: React.FC<SeatRailProps> = ({ compact = false }) => {
   const { t } = useTranslation();
   const { loading, access, switching, switchTo, lastSwitchError, switchErrorNonce } = useSeatAccess();
   const [expanded, setExpanded] = useState(true);
 
   const visible = !loading && access.role === 'admin';
+  const renderedExpanded = !compact && expanded;
 
   // 1.7.3 (Codex #1): make sure the global ACP generation tracker is attached from
   // the moment the seat rail exists — BEFORE any switch — so isAnyGenerating() is
@@ -152,9 +158,9 @@ const SeatRail: React.FC = () => {
   // content centered for admins. 0 when hidden/unmounted (non-admins unaffected).
   useEffect(() => {
     const root = document.documentElement;
-    root.style.setProperty('--seat-rail-width', visible ? (expanded ? '72px' : '40px') : '0px');
+    root.style.setProperty('--seat-rail-width', visible ? (renderedExpanded ? '72px' : '40px') : '0px');
     return () => root.style.setProperty('--seat-rail-width', '0px');
-  }, [visible, expanded]);
+  }, [visible, renderedExpanded]);
 
   // SURFACE a failed switch (CONFIRMED-HIGH fix). useSeatAccess nulls lastSwitchError
   // at the start of every switchTo and sets it on each failure path, so null→code is a
@@ -170,7 +176,7 @@ const SeatRail: React.FC = () => {
   // Admins only (see the security note above). Nothing renders otherwise.
   if (!visible) return null;
 
-  const toggleLabel = expanded
+  const toggleLabel = renderedExpanded
     ? t('commandEve.seatRail.collapse', 'Leiste einklappen')
     : t('commandEve.seatRail.expand', 'Leiste ausklappen');
 
@@ -178,7 +184,8 @@ const SeatRail: React.FC = () => {
     <nav
       className={[
         'command-eve-seat-rail',
-        expanded ? 'command-eve-seat-rail--expanded' : 'command-eve-seat-rail--collapsed',
+        renderedExpanded ? 'command-eve-seat-rail--expanded' : 'command-eve-seat-rail--collapsed',
+        compact ? 'command-eve-seat-rail--compact' : '',
         switching ? 'command-eve-seat-rail--switching' : '',
       ]
         .filter(Boolean)
@@ -200,18 +207,24 @@ const SeatRail: React.FC = () => {
         <CommandEveGlyph size={22} />
       </div>
 
-      <Tooltip content={toggleLabel} position='right' trigger={['hover', 'focus']}>
-        <button
-          type='button'
-          className='seat-rail__toggle'
-          data-testid='seat-rail-toggle'
-          aria-label={toggleLabel}
-          aria-expanded={expanded}
-          onClick={() => setExpanded((e) => !e)}
-        >
-          {expanded ? <ExpandLeft size={16} aria-hidden='true' /> : <ExpandRight size={16} aria-hidden='true' />}
-        </button>
-      </Tooltip>
+      {!compact && (
+        <Tooltip content={toggleLabel} position='right' trigger={['hover', 'focus']}>
+          <button
+            type='button'
+            className='seat-rail__toggle'
+            data-testid='seat-rail-toggle'
+            aria-label={toggleLabel}
+            aria-expanded={renderedExpanded}
+            onClick={() => setExpanded((e) => !e)}
+          >
+            {renderedExpanded ? (
+              <ExpandLeft size={16} aria-hidden='true' />
+            ) : (
+              <ExpandRight size={16} aria-hidden='true' />
+            )}
+          </button>
+        </Tooltip>
+      )}
 
       {/* Only the seat LIST scrolls. The toggle (above) and "+" (below) sit OUTSIDE
           this region so the "add client" affordance stays bottom-pinned even when an
@@ -266,7 +279,7 @@ const SeatRail: React.FC = () => {
                   className='seat-rail__dot'
                   style={{ ['--seat-color' as never]: color, ['--seat-text' as never]: contrastText(color) }}
                 >
-                  {expanded ? seatInitials(seat.name) : null}
+                  {renderedExpanded ? seatInitials(seat.name) : null}
                 </span>
               </button>
             </Tooltip>

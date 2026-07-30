@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { hardenPackagedCdpCommandLine, shouldEnableCdpAtStartup } from '@/process/security/cdpSecurityCore';
+import {
+  hardenPackagedCdpCommandLine,
+  shouldAllowNonDistributableE2EAttachment,
+  shouldEnableCdpAtStartup,
+} from '@/process/security/cdpSecurityCore';
 
 describe('cdpSecurityCore', () => {
   it('keeps CDP disabled in packaged builds even when the environment asks for it', () => {
@@ -52,6 +56,45 @@ describe('cdpSecurityCore', () => {
 
     expect(hardenPackagedCdpCommandLine({ isPackaged: false, argv, removeSwitch })).toEqual([]);
     expect(argv).toEqual(['electron', '--remote-debugging-port=9230']);
+    expect(removeSwitch).not.toHaveBeenCalled();
+  });
+
+  it('requires packaged mode, both runtime gates, and the E2E package marker for attachment', () => {
+    expect(
+      shouldAllowNonDistributableE2EAttachment({
+        isPackaged: true,
+        e2eTest: true,
+        attachmentRequested: true,
+        packageMarkerPresent: true,
+      })
+    ).toBe(true);
+
+    for (const missingGate of ['isPackaged', 'e2eTest', 'attachmentRequested', 'packageMarkerPresent'] as const) {
+      expect(
+        shouldAllowNonDistributableE2EAttachment({
+          isPackaged: true,
+          e2eTest: true,
+          attachmentRequested: true,
+          packageMarkerPresent: true,
+          [missingGate]: false,
+        })
+      ).toBe(false);
+    }
+  });
+
+  it('keeps Playwright attachment switches only after the packaged attachment policy passes', () => {
+    const argv = ['/Applications/Command EVE', '--inspect=0', '--remote-debugging-port=0'];
+    const removeSwitch = vi.fn();
+
+    expect(
+      hardenPackagedCdpCommandLine({
+        isPackaged: true,
+        allowNonDistributableE2EAttachment: true,
+        argv,
+        removeSwitch,
+      })
+    ).toEqual([]);
+    expect(argv).toEqual(['/Applications/Command EVE', '--inspect=0', '--remote-debugging-port=0']);
     expect(removeSwitch).not.toHaveBeenCalled();
   });
 });

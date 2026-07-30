@@ -11,6 +11,7 @@ import sys
 import tempfile
 import threading
 import time
+import types
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -24,7 +25,12 @@ def load_selected_provider_symbols() -> dict[str, object]:
     tree = ast.parse(SOURCE, filename=str(PROVIDER_PATH))
     selected_names = {
         "_command_eve_shim_token",
+        "_command_eve_shim_headers",
         "_command_eve_is_local_shim_base",
+        "_command_eve_context_policy_url",
+        "_command_eve_apply_context_policy",
+        "_command_eve_refresh_context_policy",
+        "_install_command_eve_context_policy_patch",
         "_command_eve_compression_http_call",
         "_command_eve_write_compression_receipt",
         "_command_eve_start_compression_status",
@@ -36,8 +42,15 @@ def load_selected_provider_symbols() -> dict[str, object]:
         "_COMMAND_EVE_COMPRESSION_TOTAL_BUDGET_S",
         "_command_eve_compression_state",
     }
-    allowed_imports = {"http.client", "json", "os", "re", "threading", "time"}
-    allowed_from = {"pathlib", "types", "typing", "urllib.parse", "__future__"}
+    allowed_imports = {"http.client", "json", "logging", "os", "re", "threading", "time"}
+    allowed_from = {
+        "pathlib",
+        "types",
+        "typing",
+        "urllib.parse",
+        "urllib.request",
+        "__future__",
+    }
     body: list[ast.stmt] = []
     for node in tree.body:
         if isinstance(node, ast.Import) and all(alias.name in allowed_imports for alias in node.names):
@@ -59,6 +72,77 @@ def load_selected_provider_symbols() -> dict[str, object]:
 
 
 NAMESPACE = load_selected_provider_symbols()
+
+
+class FakeContextCompressor:
+    def __init__(self) -> None:
+        self.model = "command-eve-test"
+        self.base_url = "http://127.0.0.1:25811/v1"
+        self.api_key = ""
+        self.provider = "custom"
+        self.api_mode = "openai"
+        self.context_length = 4_096
+        self.threshold_percent = 0.50
+        self.update_history: list[tuple[int, float]] = []
+
+    def update_model(self, _model: str, context_length: int, **_kwargs: object) -> None:
+        self.context_length = context_length
+        self.update_history.append((context_length, self.threshold_percent))
+
+    def should_compress(self, estimated_tokens: int) -> bool:
+        return estimated_tokens >= int(self.context_length * self.threshold_percent)
+
+    def should_defer_preflight_to_real_usage(self, estimated_tokens: int) -> bool:
+        return estimated_tokens < int(self.context_length * self.threshold_percent)
+
+
+class FakePolicyResponse:
+    def __init__(self, payload: dict[str, object]):
+        self.payload = payload
+
+    def __enter__(self) -> "FakePolicyResponse":
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def read(self, _limit: int) -> bytes:
+        return json.dumps(self.payload).encode("utf-8")
+
+
+policy_payload: dict[str, object] = {
+    "version": "command-eve-context-policy/v1",
+    "hard_limit_tokens": 8_192,
+    "compression_threshold": 0.75,
+    "lane": "cloud",
+}
+NAMESPACE["urlopen"] = lambda *_args, **_kwargs: FakePolicyResponse(policy_payload)
+agent_module = types.ModuleType("agent")
+context_compressor_module = types.ModuleType("agent.context_compressor")
+context_compressor_module.ContextCompressor = FakeContextCompressor
+agent_module.context_compressor = context_compressor_module
+sys.modules["agent"] = agent_module
+sys.modules["agent.context_compressor"] = context_compressor_module
+NAMESPACE["_install_command_eve_context_policy_patch"]()
+
+compressor = FakeContextCompressor()
+assert compressor.should_compress(6_143) is False
+assert compressor.context_length == 8_192
+assert compressor.threshold_percent == 0.75
+assert compressor.should_compress(6_144) is True
+assert compressor.should_defer_preflight_to_real_usage(6_143) is True
+assert compressor.should_defer_preflight_to_real_usage(6_144) is False
+assert compressor.update_history == [(8_192, 0.75)]
+
+# A failed refresh after a cloud policy must restore the captured local policy.
+compressor._command_eve_context_policy_refresh_at = 0.0
+NAMESPACE["urlopen"] = lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("synthetic policy outage"))
+assert compressor.should_compress(2_047) is False
+assert compressor.context_length == 4_096
+assert compressor.threshold_percent == 0.50
+assert compressor.should_compress(2_048) is True
+assert compressor._command_eve_context_policy_signature == (4_096, 0.50, "local-fallback")
+
 strict_loopback_check = NAMESPACE["_command_eve_is_local_shim_base"]
 assert strict_loopback_check("http://127.0.0.1:25811/v1") is True
 assert strict_loopback_check("https://example.invalid/v1") is False
@@ -235,6 +319,14 @@ print(
             "timeout_attempts": timeout_attempts,
             "timeout_elapsed_ms": round(timeout_elapsed * 1000),
             "effective_lane": "ollama_local",
+            "policy_threshold_tokens": 6_144,
+            "fallback_context_length": compressor.context_length,
+            "fallback_threshold_tokens": int(
+                compressor.context_length * compressor.threshold_percent
+            ),
+            "context_patch_installed": bool(
+                FakeContextCompressor._command_eve_context_policy_patch_installed
+            ),
             "status_events": [kind for kind, _ in events],
             "receipt_mode": "0600",
         }

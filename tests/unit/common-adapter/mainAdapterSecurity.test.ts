@@ -113,6 +113,26 @@ function validProviderPayload(providerKey: RendererProviderKey): string {
       return providerPayload(providerKey, { intent_id: 'intent-1' });
     case 'command-eve.kanban-acp-apply':
       return providerPayload(providerKey, { intent_id: 'intent-1', mutation_hash: 'sha256:abc' });
+    case 'command-eve.cloud-visual-policy-receipt':
+      return providerPayload(providerKey, { flowId: 'visual_flow_0123456789abcdef' });
+    case 'command-eve.cloud-visual-policy-set':
+      return providerPayload(providerKey, { expectedSeatId: 'seat-1', enabled: false });
+    case 'command-eve.image-prepare':
+      return providerPayload(providerKey, { filePaths: ['/tmp/image.png'] });
+    case 'command-eve.presentation-prepare':
+      return providerPayload(providerKey, { filePaths: ['/tmp/deck.pptx'] });
+    case 'command-eve.managed-visual-turn-authorize':
+      return providerPayload(providerKey, {
+        flowId: 'visual_flow_0123456789abcdef',
+        visualPolicyReceipt: {
+          version: 'command-eve-cloud-visual-policy/v1',
+          receiptId: 'r'.repeat(43),
+          flowId: 'visual_flow_0123456789abcdef',
+          expiresAt: '2026-07-29T00:05:00.000Z',
+        },
+        preferredTier: 'high',
+        sourceCount: 1,
+      });
     case 'update-system-info':
       return providerPayload(providerKey, { cacheDir: '/tmp/cache', workDir: '/tmp/work' });
     default:
@@ -301,6 +321,57 @@ describe('main adapter IPC trust boundary', () => {
     expect(() => handler(event, constructorPayload)).toThrow('prototype key');
     expect(() => handler(event, providerPayload('update.check', deeplyNested))).toThrow('nesting depth');
     expect(state.emitter.emit).not.toHaveBeenCalled();
+  });
+
+  it('enforces exact Main visual-policy receipt, mutation, preparation, and marker schemas', async () => {
+    const { webContents, handler } = await setup();
+    const event = { sender: webContents, senderFrame: webContents.mainFrame };
+
+    for (const providerKey of [
+      'command-eve.cloud-visual-policy-receipt',
+      'command-eve.cloud-visual-policy-set',
+      'command-eve.image-prepare',
+      'command-eve.presentation-prepare',
+      'command-eve.managed-visual-turn-authorize',
+    ] as const) {
+      await handler(event, validProviderPayload(providerKey));
+    }
+    expect(state.emitter.emit).toHaveBeenCalledTimes(5);
+
+    expect(() =>
+      handler(
+        event,
+        providerPayload('command-eve.cloud-visual-policy-receipt', {
+          flowId: 'visual_flow_0123456789abcdef',
+          seatId: 'forged-seat',
+        })
+      )
+    ).toThrow('payload keys');
+    expect(() =>
+      handler(
+        event,
+        providerPayload('command-eve.cloud-visual-policy-set', { expectedSeatId: 'seat-1', enabled: 'true' })
+      )
+    ).toThrow('mutation');
+    expect(() =>
+      handler(
+        event,
+        providerPayload('command-eve.image-prepare', {
+          filePaths: ['/tmp/image.png'],
+          visualPolicyReceipt: { version: 'wrong' },
+        })
+      )
+    ).toThrow('receipt');
+    expect(() =>
+      handler(
+        event,
+        providerPayload('command-eve.managed-visual-turn-authorize', {
+          consentVersion: 'command-eve-managed-visual-turn-consent/v1',
+          sourceCount: 1,
+        })
+      )
+    ).toThrow('flow id');
+    expect(state.emitter.emit).toHaveBeenCalledTimes(5);
   });
 
   it('accepts only the exact string-path schema for update-system-info', async () => {

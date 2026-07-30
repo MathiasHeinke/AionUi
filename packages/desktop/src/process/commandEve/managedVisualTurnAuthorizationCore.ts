@@ -6,7 +6,6 @@
 
 import crypto from 'node:crypto';
 import {
-  COMMAND_EVE_MANAGED_VISUAL_TURN_CONSENT_VERSION,
   COMMAND_EVE_MANAGED_VISUAL_TURN_VERSION,
   commandEveManagedVisualTurnMarker,
   extractCommandEveManagedVisualTurnToken,
@@ -20,13 +19,25 @@ const MAX_AUTHORIZATIONS = 64;
 
 type AuthorizationRecord = {
   seatId: string;
+  seatContextRevision: number;
+  flowId: string;
+  receiptId: string;
   tier: CommandEveManagedVisualTurnTier;
   expiresAtMs: number;
 };
 
 export type CommandEveManagedVisualTurnResolution =
   | { status: 'absent' }
-  | { status: 'authorized'; tier: CommandEveManagedVisualTurnTier }
+  | {
+      status: 'authorized';
+      tier: CommandEveManagedVisualTurnTier;
+      visualPolicyClaim: {
+        seatId: string;
+        seatContextRevision: number;
+        flowId: string;
+        receiptId: string;
+      };
+    }
   | {
       status: 'invalid';
       reason_code: 'AUTHORIZATION_EXPIRED' | 'AUTHORIZATION_SEAT_MISMATCH' | 'AUTHORIZATION_UNKNOWN';
@@ -76,8 +87,16 @@ function latestUserText(body: Record<string, unknown>): string | undefined {
 export function authorizeCommandEveManagedVisualTurn(input: {
   request?: CommandEveManagedVisualTurnAuthorizationRequest;
   seatId: string;
+  seatContextRevision: number;
+  verifiedReceipt?: {
+    seatId: string;
+    seatContextRevision: number;
+    flowId: string;
+    receiptId: string;
+  };
   hasPaidSeat: boolean;
   hasLicenseWire: boolean;
+  retireVerifiedReceipt: () => boolean;
   nowMs?: number;
   randomToken?: () => string;
 }): CommandEveManagedVisualTurnAuthorizationResult {
@@ -89,8 +108,20 @@ export function authorizeCommandEveManagedVisualTurn(input: {
     message,
   });
 
-  if (request?.consentVersion !== COMMAND_EVE_MANAGED_VISUAL_TURN_CONSENT_VERSION) {
-    return failure('EVE_MANAGED_VISUAL_CONSENT_REQUIRED', 'Managed visual analysis requires fresh explicit consent.');
+  const verifiedReceipt = input.verifiedReceipt;
+  if (
+    !request?.flowId ||
+    !request.visualPolicyReceipt ||
+    !verifiedReceipt ||
+    verifiedReceipt.flowId !== request.flowId ||
+    verifiedReceipt.receiptId !== request.visualPolicyReceipt.receiptId ||
+    verifiedReceipt.seatId !== input.seatId ||
+    verifiedReceipt.seatContextRevision !== input.seatContextRevision
+  ) {
+    return failure(
+      'EVE_MANAGED_VISUAL_POLICY_RECEIPT_REQUIRED',
+      'Managed visual analysis requires a fresh seat-bound visual-policy receipt.'
+    );
   }
   if (!Number.isInteger(request.sourceCount) || request.sourceCount < 1 || request.sourceCount > 6) {
     return failure('EVE_MANAGED_VISUAL_BAD_SOURCE_COUNT', 'Select between one and six visual files per turn.');
@@ -112,8 +143,21 @@ export function authorizeCommandEveManagedVisualTurn(input: {
   } catch {
     return failure('EVE_MANAGED_VISUAL_TOKEN_INVALID', 'Managed visual analysis could not create an authorization.');
   }
+  if (!input.retireVerifiedReceipt()) {
+    return failure(
+      'EVE_MANAGED_VISUAL_POLICY_RECEIPT_REQUIRED',
+      'Managed visual analysis requires a fresh seat-bound visual-policy receipt.'
+    );
+  }
   const expiresAtMs = nowMs + AUTHORIZATION_TTL_MS;
-  authorizations.set(token, { seatId: input.seatId, tier, expiresAtMs });
+  authorizations.set(token, {
+    seatId: input.seatId,
+    seatContextRevision: input.seatContextRevision,
+    flowId: verifiedReceipt.flowId,
+    receiptId: verifiedReceipt.receiptId,
+    tier,
+    expiresAtMs,
+  });
   return {
     version: COMMAND_EVE_MANAGED_VISUAL_TURN_VERSION,
     ok: true,
@@ -126,6 +170,7 @@ export function authorizeCommandEveManagedVisualTurn(input: {
 export function resolveCommandEveManagedVisualTurn(
   body: Record<string, unknown> | undefined,
   seatId: string,
+  seatContextRevision: number,
   nowMs = Date.now()
 ): CommandEveManagedVisualTurnResolution {
   const token = extractCommandEveManagedVisualTurnToken(body ? latestUserText(body) : undefined);
@@ -136,14 +181,23 @@ export function resolveCommandEveManagedVisualTurn(
     authorizations.delete(token);
     return { status: 'invalid', reason_code: 'AUTHORIZATION_EXPIRED' };
   }
-  if (record.seatId !== seatId) {
+  if (record.seatId !== seatId || record.seatContextRevision !== seatContextRevision) {
     return { status: 'invalid', reason_code: 'AUTHORIZATION_SEAT_MISMATCH' };
   }
   // One consent marker authorizes exactly one upstream request. Delete before
   // returning so retries/replays cannot silently spend again; a failed request
   // must obtain a fresh, user-visible authorization.
   authorizations.delete(token);
-  return { status: 'authorized', tier: record.tier };
+  return {
+    status: 'authorized',
+    tier: record.tier,
+    visualPolicyClaim: {
+      seatId: record.seatId,
+      seatContextRevision: record.seatContextRevision,
+      flowId: record.flowId,
+      receiptId: record.receiptId,
+    },
+  };
 }
 
 export function clearCommandEveManagedVisualTurnAuthorizationsForTests(): void {

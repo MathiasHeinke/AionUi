@@ -5,6 +5,7 @@
  */
 
 import type { CommandEvePrivacyLane } from './eveMultimodalGatewayCore';
+import type { CommandEveCloudVisualPolicyReceipt } from './visual/cloudVisualPolicyCore';
 
 export const COMMAND_EVE_IMAGE_INTELLIGENCE_VERSION = 'command-eve-image-intelligence/v0' as const;
 export const COMMAND_EVE_IMAGE_MAX_LOCAL_BYTES = 20 * 1024 * 1024;
@@ -17,7 +18,10 @@ export type CommandEveImageLocale = 'de-DE' | 'en-US';
 
 export type CommandEveImagePrepareRequest = {
   filePaths?: string[];
+  /** @deprecated Wire-compatible only. Main never treats this as authority. */
   allowCloudVision?: boolean;
+  flowId?: string;
+  visualPolicyReceipt?: CommandEveCloudVisualPolicyReceipt;
   privacyLane?: CommandEvePrivacyLane;
   locale?: CommandEveImageLocale;
   requestId?: string;

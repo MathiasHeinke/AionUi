@@ -18,6 +18,7 @@ const {
   pdfPrepareInvokeMock,
   imagePrepareInvokeMock,
   presentationPrepareInvokeMock,
+  cloudVisualPolicyReceiptInvokeMock,
   managedVisualTurnAuthorizeInvokeMock,
   pptPreviewStartInvokeMock,
   pptPreviewStopInvokeMock,
@@ -35,6 +36,7 @@ const {
   queuePauseMock,
   queueLockMock,
   queueUnlockMock,
+  queueOnExecuteMock,
   shouldEnqueueMock,
   runtimeViewMock,
   draftDataMock,
@@ -53,12 +55,14 @@ const {
   configSetMock,
   initialMessageParamsMock,
   buildDisplayMessageMock,
+  videoCostWallPropsMock,
 } = vi.hoisted(() => ({
   sendMessageInvokeMock: vi.fn(),
   steerInvokeMock: vi.fn(),
   pdfPrepareInvokeMock: vi.fn(),
   imagePrepareInvokeMock: vi.fn(),
   presentationPrepareInvokeMock: vi.fn(),
+  cloudVisualPolicyReceiptInvokeMock: vi.fn(),
   managedVisualTurnAuthorizeInvokeMock: vi.fn(),
   pptPreviewStartInvokeMock: vi.fn(),
   pptPreviewStopInvokeMock: vi.fn(),
@@ -78,6 +82,9 @@ const {
   queuePauseMock: vi.fn(),
   queueLockMock: vi.fn(),
   queueUnlockMock: vi.fn(),
+  queueOnExecuteMock: {
+    current: null as ((item: Record<string, unknown>) => Promise<void>) | null,
+  },
   shouldEnqueueMock: vi.fn(),
   runtimeViewMock: {
     hydrated: true,
@@ -117,6 +124,7 @@ const {
     current: null as { sendInitialMessage?: (input: string, files: string[]) => Promise<boolean> } | null,
   },
   buildDisplayMessageMock: vi.fn((input: string) => input),
+  videoCostWallPropsMock: { current: null as Record<string, unknown> | null },
 }));
 
 function createDeferred<T>() {
@@ -157,6 +165,9 @@ vi.mock('@/common', () => ({
       },
       presentationPrepare: {
         invoke: presentationPrepareInvokeMock,
+      },
+      cloudVisualPolicyReceipt: {
+        invoke: cloudVisualPolicyReceiptInvokeMock,
       },
       managedVisualTurnAuthorize: {
         invoke: managedVisualTurnAuthorizeInvokeMock,
@@ -261,6 +272,12 @@ vi.mock('@/renderer/components/chat/MobileActionSheet', () => ({
   useAttachEntry: () => ({ entries: [], hiddenFileInput: null }),
 }));
 vi.mock('@/renderer/components/chat/ThoughtDisplay', () => ({ default: () => null }));
+vi.mock('@/renderer/components/billing/VideoCostWall', () => ({
+  default: (props: Record<string, unknown>) => {
+    videoCostWallPropsMock.current = props;
+    return null;
+  },
+}));
 vi.mock('@/renderer/components/media/FileAttachButton', () => ({ default: () => null }));
 vi.mock('@/renderer/components/media/FilePreview', () => ({ default: () => null }));
 vi.mock('@/renderer/components/media/HorizontalFileList', () => ({
@@ -321,22 +338,25 @@ vi.mock('@/renderer/pages/conversation/platforms/useConversationCommandQueue', (
     return mode === 'steer' ? { mode, input: `/steer ${trimmed}` } : null;
   },
   shouldEnqueueConversationCommand: shouldEnqueueMock,
-  useConversationCommandQueue: () => ({
-    items: queueItemsMock.current,
-    isPaused: false,
-    isInteractionLocked: false,
-    hasPendingCommands: false,
-    enqueue: queueEnqueueMock,
-    remove: queueRemoveMock,
-    restore: queueRestoreMock,
-    clear: vi.fn(),
-    reorder: vi.fn(),
-    pause: queuePauseMock,
-    resume: vi.fn(),
-    lockInteraction: queueLockMock,
-    unlockInteraction: queueUnlockMock,
-    resetActiveExecution: vi.fn(),
-  }),
+  useConversationCommandQueue: (input: { onExecute: (item: Record<string, unknown>) => Promise<void> }) => {
+    queueOnExecuteMock.current = input.onExecute;
+    return {
+      items: queueItemsMock.current,
+      isPaused: false,
+      isInteractionLocked: false,
+      hasPendingCommands: false,
+      enqueue: queueEnqueueMock,
+      remove: queueRemoveMock,
+      restore: queueRestoreMock,
+      clear: vi.fn(),
+      reorder: vi.fn(),
+      pause: queuePauseMock,
+      resume: vi.fn(),
+      lockInteraction: queueLockMock,
+      unlockInteraction: queueUnlockMock,
+      resetActiveExecution: vi.fn(),
+    };
+  },
 }));
 vi.mock('@/renderer/pages/conversation/runtime/useConversationRuntimeView', () => ({
   useConversationRuntimeView: () => ({
@@ -440,6 +460,7 @@ describe('AcpSendBox', () => {
     vi.clearAllMocks();
     sendBoxPropsMock.current = null;
     queuePanelPropsMock.current = null;
+    queueOnExecuteMock.current = null;
     mobileActionSheetPropsMock.current = null;
     initialMessageParamsMock.current = null;
     queueItemsMock.current = [];
@@ -462,12 +483,33 @@ describe('AcpSendBox', () => {
     pdfPrepareInvokeMock.mockReset();
     imagePrepareInvokeMock.mockReset();
     presentationPrepareInvokeMock.mockReset();
+    cloudVisualPolicyReceiptInvokeMock.mockReset();
     managedVisualTurnAuthorizeInvokeMock.mockReset();
     pptPreviewStartInvokeMock.mockReset();
     pptPreviewStopInvokeMock.mockReset();
     modalConfirmMock.mockReset();
     pptPreviewStartInvokeMock.mockResolvedValue({ url: '/api/ppt-proxy/41000' });
     pptPreviewStopInvokeMock.mockResolvedValue(undefined);
+    cloudVisualPolicyReceiptInvokeMock.mockImplementation(({ flowId }: { flowId: string }) =>
+      Promise.resolve({
+        success: true,
+        data: {
+          ok: true,
+          policy: {
+            status: 'enabled',
+            reason: 'enabled_by_product_default',
+            seatId: 'owner',
+            physicalKey: 'commandEve.cloudVisualAnalysisEnabled',
+          },
+          receipt: {
+            version: 'command-eve-cloud-visual-policy/v1',
+            receiptId: 'R'.repeat(43),
+            flowId,
+            expiresAt: '2099-01-01T00:00:00.000Z',
+          },
+        },
+      })
+    );
     managedVisualTurnAuthorizeInvokeMock.mockResolvedValue({
       success: true,
       data: {
@@ -712,37 +754,22 @@ describe('AcpSendBox', () => {
     expect(sendBoxPropsMock.current?.loading).toBe(false);
   });
 
-  it('routes a PPTX through local rendering, explicit managed vision consent and a private sidecar', async () => {
+  it('inspects a cached PPTX locally and mints one receipt only before the managed marker', async () => {
     draftDataMock.current = { atPath: [], uploadFile: ['/tmp/board-deck.pptx'], content: '' };
-    modalConfirmMock.mockImplementation((options: { onOk?: () => void }) => {
-      options.onOk?.();
+    presentationPrepareInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        ok: true,
+        documents: [
+          {
+            source_path: '/tmp/board-deck.pptx',
+            source_name: 'board-deck.pptx',
+            sidecar_path: '/tmp/hermes/document-intelligence/presentation/deck/document.md',
+            prompt_context: '## PPTX slide 1\n\nTitle slide.',
+          },
+        ],
+      },
     });
-    presentationPrepareInvokeMock
-      .mockResolvedValueOnce({
-        success: false,
-        data: {
-          ok: false,
-          reason_code: 'EVE_PRESENTATION_CLOUD_VISION_CONSENT_REQUIRED',
-          requires_cloud_vision_consent: true,
-          pending_source_names: ['board-deck.pptx'],
-          documents: [],
-          prepared_files: [],
-        },
-      })
-      .mockResolvedValueOnce({
-        success: true,
-        data: {
-          ok: true,
-          documents: [
-            {
-              source_path: '/tmp/board-deck.pptx',
-              source_name: 'board-deck.pptx',
-              sidecar_path: '/tmp/hermes/document-intelligence/presentation/deck/document.md',
-              prompt_context: '## PPTX slide 1\n\nTitle slide.',
-            },
-          ],
-        },
-      });
     sendMessageInvokeMock.mockResolvedValue({
       turn_id: 'turn-pptx',
       msg_id: 'message-pptx',
@@ -766,31 +793,36 @@ describe('AcpSendBox', () => {
       />
     );
 
-    await act(async () => {
-      screen.getByRole('button', { name: 'send' }).click();
-    });
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
 
-    await waitFor(() => expect(presentationPrepareInvokeMock).toHaveBeenCalledTimes(2));
-    expect(pptPreviewStartInvokeMock).not.toHaveBeenCalled();
-    expect(presentationPrepareInvokeMock.mock.calls[0]?.[0]).toEqual(
+    await waitFor(() => expect(presentationPrepareInvokeMock).toHaveBeenCalledTimes(1));
+    expect(cloudVisualPolicyReceiptInvokeMock).toHaveBeenCalledTimes(1);
+    const { flowId } = cloudVisualPolicyReceiptInvokeMock.mock.calls[0][0] as { flowId: string };
+    const authority = {
+      flowId,
+      visualPolicyReceipt: expect.objectContaining({
+        version: 'command-eve-cloud-visual-policy/v1',
+        flowId,
+      }),
+    };
+    expect(presentationPrepareInvokeMock).toHaveBeenCalledWith(
       expect.objectContaining({
         filePaths: ['/tmp/board-deck.pptx'],
-        allowCloudVision: false,
         privacyLane: 'cloud_auto',
       })
     );
-    expect(presentationPrepareInvokeMock.mock.calls[1]?.[0]).toEqual(
-      expect.objectContaining({
-        filePaths: ['/tmp/board-deck.pptx'],
-        allowCloudVision: true,
-        privacyLane: 'cloud_auto',
-      })
+    expect(presentationPrepareInvokeMock.mock.calls[0]?.[0]).not.toHaveProperty('flowId');
+    expect(presentationPrepareInvokeMock.mock.calls[0]?.[0]).not.toHaveProperty('visualPolicyReceipt');
+    expect(presentationPrepareInvokeMock.mock.calls[0]?.[0]).not.toHaveProperty('allowCloudVision');
+    expect(presentationPrepareInvokeMock.mock.invocationCallOrder[0]).toBeLessThan(
+      cloudVisualPolicyReceiptInvokeMock.mock.invocationCallOrder[0]
     );
-    expect(modalConfirmMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: 'conversation.presentation.cloudVisionTitle',
-        okText: 'conversation.presentation.cloudVisionConfirm',
-      })
+    expect(cloudVisualPolicyReceiptInvokeMock.mock.invocationCallOrder[0]).toBeLessThan(
+      managedVisualTurnAuthorizeInvokeMock.mock.invocationCallOrder[0]
+    );
+    expect(modalConfirmMock).not.toHaveBeenCalled();
+    expect(managedVisualTurnAuthorizeInvokeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ ...authority, preferredTier: 'high', sourceCount: 1 })
     );
     await waitFor(() =>
       expect(sendMessageInvokeMock).toHaveBeenCalledWith({
@@ -799,16 +831,12 @@ describe('AcpSendBox', () => {
         files: ['/tmp/board-deck.pptx', '/tmp/hermes/document-intelligence/presentation/deck/document.md'],
       })
     );
-    expect(managedVisualTurnAuthorizeInvokeMock).toHaveBeenCalledWith(
-      expect.objectContaining({ preferredTier: 'high', sourceCount: 1 })
-    );
-    expect(pptPreviewStopInvokeMock).not.toHaveBeenCalled();
+    expect(pptPreviewStartInvokeMock).not.toHaveBeenCalled();
     expect(pdfPrepareInvokeMock).not.toHaveBeenCalled();
   });
 
   it('validates a PPTX before bootstrapping a missing OfficeCLI engine', async () => {
     draftDataMock.current = { atPath: [], uploadFile: ['/tmp/board-deck.pptx'], content: '' };
-    modalConfirmMock.mockImplementation((options: { onOk?: () => void }) => options.onOk?.());
     presentationPrepareInvokeMock
       .mockResolvedValueOnce({
         success: false,
@@ -816,17 +844,6 @@ describe('AcpSendBox', () => {
           ok: false,
           reason_code: 'EVE_PRESENTATION_ENGINE_UNAVAILABLE',
           requires_cloud_vision_consent: false,
-          documents: [],
-          prepared_files: [],
-        },
-      })
-      .mockResolvedValueOnce({
-        success: false,
-        data: {
-          ok: false,
-          reason_code: 'EVE_PRESENTATION_CLOUD_VISION_CONSENT_REQUIRED',
-          requires_cloud_vision_consent: true,
-          pending_source_names: ['board-deck.pptx'],
           documents: [],
           prepared_files: [],
         },
@@ -870,7 +887,13 @@ describe('AcpSendBox', () => {
 
     await act(async () => screen.getByRole('button', { name: 'send' }).click());
 
-    await waitFor(() => expect(presentationPrepareInvokeMock).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(presentationPrepareInvokeMock).toHaveBeenCalledTimes(2));
+    expect(cloudVisualPolicyReceiptInvokeMock).toHaveBeenCalledTimes(1);
+    expect(presentationPrepareInvokeMock.mock.invocationCallOrder[0]).toBeLessThan(
+      cloudVisualPolicyReceiptInvokeMock.mock.invocationCallOrder[0]
+    );
+    expect(presentationPrepareInvokeMock.mock.calls[0]?.[0]).not.toHaveProperty('visualPolicyReceipt');
+    expect(presentationPrepareInvokeMock.mock.calls[1]?.[0]).not.toHaveProperty('visualPolicyReceipt');
     expect(pptPreviewStartInvokeMock).toHaveBeenCalledTimes(1);
     expect(pptPreviewStartInvokeMock).toHaveBeenCalledWith({
       file_path: '/tmp/board-deck.pptx',
@@ -884,39 +907,25 @@ describe('AcpSendBox', () => {
     );
     await waitFor(() => expect(pptPreviewStopInvokeMock).toHaveBeenCalledWith({ file_path: '/tmp/board-deck.pptx' }));
     await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(modalConfirmMock).not.toHaveBeenCalled();
   });
 
-  it('routes a normal image through managed vision without OfficeCLI or Ollama', async () => {
+  it('inspects a cached image locally and mints one receipt only before the managed marker', async () => {
     draftDataMock.current = { atPath: [], uploadFile: ['/tmp/screenshot.png'], content: '' };
-    modalConfirmMock.mockImplementation((options: { onOk?: () => void }) => {
-      options.onOk?.();
+    imagePrepareInvokeMock.mockResolvedValue({
+      success: true,
+      data: {
+        ok: true,
+        documents: [
+          {
+            source_path: '/tmp/screenshot.png',
+            source_name: 'screenshot.png',
+            sidecar_path: '/tmp/hermes/document-intelligence/image/hash/document.md',
+            prompt_context: '## Image 1\n\nA screenshot.',
+          },
+        ],
+      },
     });
-    imagePrepareInvokeMock
-      .mockResolvedValueOnce({
-        success: false,
-        data: {
-          ok: false,
-          reason_code: 'EVE_IMAGE_CLOUD_VISION_CONSENT_REQUIRED',
-          requires_cloud_vision_consent: true,
-          pending_source_names: ['screenshot.png'],
-          documents: [],
-          prepared_files: [],
-        },
-      })
-      .mockResolvedValueOnce({
-        success: true,
-        data: {
-          ok: true,
-          documents: [
-            {
-              source_path: '/tmp/screenshot.png',
-              source_name: 'screenshot.png',
-              sidecar_path: '/tmp/hermes/document-intelligence/image/hash/document.md',
-              prompt_context: '## Image 1\n\nA screenshot.',
-            },
-          ],
-        },
-      });
     sendMessageInvokeMock.mockResolvedValue({
       turn_id: 'turn-image',
       msg_id: 'message-image',
@@ -940,31 +949,27 @@ describe('AcpSendBox', () => {
       />
     );
 
-    await act(async () => {
-      screen.getByRole('button', { name: 'send' }).click();
-    });
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
 
-    await waitFor(() => expect(imagePrepareInvokeMock).toHaveBeenCalledTimes(2));
-    expect(imagePrepareInvokeMock.mock.calls[0]?.[0]).toEqual(
+    await waitFor(() => expect(imagePrepareInvokeMock).toHaveBeenCalledTimes(1));
+    expect(cloudVisualPolicyReceiptInvokeMock).toHaveBeenCalledTimes(1);
+    const { flowId } = cloudVisualPolicyReceiptInvokeMock.mock.calls[0][0] as { flowId: string };
+    expect(imagePrepareInvokeMock).toHaveBeenCalledWith(
       expect.objectContaining({
         filePaths: ['/tmp/screenshot.png'],
-        allowCloudVision: false,
         privacyLane: 'cloud_auto',
       })
     );
-    expect(imagePrepareInvokeMock.mock.calls[1]?.[0]).toEqual(
-      expect.objectContaining({
-        filePaths: ['/tmp/screenshot.png'],
-        allowCloudVision: true,
-        privacyLane: 'cloud_auto',
-      })
+    expect(imagePrepareInvokeMock.mock.calls[0]?.[0]).not.toHaveProperty('flowId');
+    expect(imagePrepareInvokeMock.mock.calls[0]?.[0]).not.toHaveProperty('visualPolicyReceipt');
+    expect(imagePrepareInvokeMock.mock.calls[0]?.[0]).not.toHaveProperty('allowCloudVision');
+    expect(imagePrepareInvokeMock.mock.invocationCallOrder[0]).toBeLessThan(
+      cloudVisualPolicyReceiptInvokeMock.mock.invocationCallOrder[0]
     );
-    expect(modalConfirmMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: 'conversation.image.cloudVisionTitle',
-        okText: 'conversation.image.cloudVisionConfirm',
-      })
+    expect(cloudVisualPolicyReceiptInvokeMock.mock.invocationCallOrder[0]).toBeLessThan(
+      managedVisualTurnAuthorizeInvokeMock.mock.invocationCallOrder[0]
     );
+    expect(modalConfirmMock).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(sendMessageInvokeMock).toHaveBeenCalledWith({
         input: expect.stringContaining('Hello'),
@@ -973,10 +978,238 @@ describe('AcpSendBox', () => {
       })
     );
     expect(managedVisualTurnAuthorizeInvokeMock).toHaveBeenCalledWith(
-      expect.objectContaining({ preferredTier: 'high', sourceCount: 1 })
+      expect.objectContaining({ flowId, preferredTier: 'high', sourceCount: 1 })
     );
     expect(pptPreviewStartInvokeMock).not.toHaveBeenCalled();
     expect(pdfPrepareInvokeMock).not.toHaveBeenCalled();
+  });
+
+  it('starts mixed image and PPTX inspection locally, then retries both with one shared receipt', async () => {
+    draftDataMock.current = {
+      atPath: [],
+      uploadFile: ['/tmp/board-deck.pptx', '/tmp/screenshot.png'],
+      content: '',
+    };
+    presentationPrepareInvokeMock
+      .mockResolvedValueOnce({
+        success: false,
+        data: {
+          ok: false,
+          reason_code: 'EVE_PRESENTATION_CLOUD_VISUAL_POLICY_REQUIRED',
+          documents: [],
+          prepared_files: [],
+          requires_cloud_vision_consent: false,
+        },
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: {
+          ok: true,
+          documents: [
+            {
+              source_path: '/tmp/board-deck.pptx',
+              source_name: 'board-deck.pptx',
+              sidecar_path: '/tmp/hermes/document-intelligence/presentation/deck/document.md',
+              prompt_context: '## PPTX slide 1\n\nTitle slide.',
+            },
+          ],
+        },
+      });
+    imagePrepareInvokeMock
+      .mockResolvedValueOnce({
+        success: false,
+        data: {
+          ok: false,
+          reason_code: 'EVE_IMAGE_CLOUD_VISUAL_POLICY_REQUIRED',
+          documents: [],
+          prepared_files: [],
+          requires_cloud_vision_consent: false,
+        },
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: {
+          ok: true,
+          documents: [
+            {
+              source_path: '/tmp/screenshot.png',
+              source_name: 'screenshot.png',
+              sidecar_path: '/tmp/hermes/document-intelligence/image/hash/document.md',
+              prompt_context: '## Image 1\n\nA screenshot.',
+            },
+          ],
+        },
+      });
+    sendMessageInvokeMock.mockResolvedValue({});
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    expect(cloudVisualPolicyReceiptInvokeMock).toHaveBeenCalledTimes(2);
+    expect(presentationPrepareInvokeMock).toHaveBeenCalledTimes(2);
+    expect(imagePrepareInvokeMock).toHaveBeenCalledTimes(2);
+    const { flowId } = cloudVisualPolicyReceiptInvokeMock.mock.calls[0][0] as { flowId: string };
+    const { flowId: dispatchFlowId } = cloudVisualPolicyReceiptInvokeMock.mock.calls[1][0] as { flowId: string };
+    expect(dispatchFlowId).not.toBe(flowId);
+    expect(presentationPrepareInvokeMock.mock.calls[0]?.[0]).not.toHaveProperty('visualPolicyReceipt');
+    expect(imagePrepareInvokeMock.mock.calls[0]?.[0]).not.toHaveProperty('visualPolicyReceipt');
+    expect(presentationPrepareInvokeMock.mock.invocationCallOrder[0]).toBeLessThan(
+      cloudVisualPolicyReceiptInvokeMock.mock.invocationCallOrder[0]
+    );
+    expect(imagePrepareInvokeMock.mock.invocationCallOrder[0]).toBeLessThan(
+      cloudVisualPolicyReceiptInvokeMock.mock.invocationCallOrder[0]
+    );
+    expect(presentationPrepareInvokeMock.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({ flowId, visualPolicyReceipt: expect.objectContaining({ flowId }) })
+    );
+    expect(imagePrepareInvokeMock.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({ flowId, visualPolicyReceipt: expect.objectContaining({ flowId }) })
+    );
+    expect(managedVisualTurnAuthorizeInvokeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        flowId: dispatchFlowId,
+        visualPolicyReceipt: expect.objectContaining({ flowId: dispatchFlowId }),
+        sourceCount: 2,
+      })
+    );
+    expect(modalConfirmMock).not.toHaveBeenCalled();
+  });
+
+  it('inspects locally before a denied receipt and preserves the draft with no bypass dialog', async () => {
+    draftDataMock.current = {
+      atPath: ['/tmp/context.png'],
+      uploadFile: ['/tmp/screenshot.png'],
+      content: 'Keep this visual draft',
+    };
+    sendBoxMessageMock.current = 'Keep this visual draft';
+    imagePrepareInvokeMock.mockResolvedValue({
+      success: false,
+      data: {
+        ok: false,
+        reason_code: 'EVE_IMAGE_CLOUD_VISUAL_POLICY_REQUIRED',
+        documents: [],
+        prepared_files: [],
+        requires_cloud_vision_consent: false,
+      },
+    });
+    cloudVisualPolicyReceiptInvokeMock.mockResolvedValue({
+      success: false,
+      data: {
+        ok: false,
+        policy: {
+          status: 'disabled',
+          reason: 'disabled_by_operator',
+          seatId: 'owner',
+          physicalKey: 'commandEve.cloudVisualAnalysisEnabled',
+        },
+      },
+    });
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+
+    await waitFor(() => expect(messageErrorMock).toHaveBeenCalledTimes(1));
+    expect(presentationPrepareInvokeMock).not.toHaveBeenCalled();
+    expect(imagePrepareInvokeMock).toHaveBeenCalledTimes(1);
+    expect(imagePrepareInvokeMock.mock.calls[0]?.[0]).not.toHaveProperty('visualPolicyReceipt');
+    expect(imagePrepareInvokeMock.mock.invocationCallOrder[0]).toBeLessThan(
+      cloudVisualPolicyReceiptInvokeMock.mock.invocationCallOrder[0]
+    );
+    expect(managedVisualTurnAuthorizeInvokeMock).not.toHaveBeenCalled();
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+    expect(modalConfirmMock).not.toHaveBeenCalled();
+    expect(setUploadFileMock).toHaveBeenCalledWith(['/tmp/screenshot.png']);
+    expect(draftMutateMock).toHaveBeenCalled();
+    expect(emitterEmitMock).toHaveBeenCalledWith('acp.selected.file', ['/tmp/context.png']);
+  });
+
+  it('rejects more than six visual sources before receipt or preparation', async () => {
+    draftDataMock.current = {
+      atPath: [],
+      uploadFile: Array.from({ length: 7 }, (_, index) => `/tmp/image-${index + 1}.png`),
+      content: 'Keep this draft',
+    };
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+
+    await waitFor(() => expect(messageErrorMock).toHaveBeenCalledTimes(1));
+    expect(cloudVisualPolicyReceiptInvokeMock).not.toHaveBeenCalled();
+    expect(imagePrepareInvokeMock).not.toHaveBeenCalled();
+    expect(presentationPrepareInvokeMock).not.toHaveBeenCalled();
+    expect(sendMessageInvokeMock).not.toHaveBeenCalled();
+    expect(modalConfirmMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps PDF OCR consent separate from visual policy receipts', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: ['/tmp/scanned.pdf'], content: '' };
+    pdfPrepareInvokeMock
+      .mockResolvedValueOnce({
+        success: false,
+        data: {
+          ok: false,
+          requires_cloud_ocr_consent: true,
+          pending_source_names: ['scanned.pdf'],
+          documents: [],
+        },
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: {
+          ok: true,
+          documents: [
+            {
+              source_path: '/tmp/scanned.pdf',
+              sidecar_path: '/tmp/hermes/document-intelligence/scanned.md',
+            },
+          ],
+        },
+      });
+    modalConfirmMock.mockImplementation((options: { onOk?: () => void }) => options.onOk?.());
+    sendMessageInvokeMock.mockResolvedValue({});
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    await act(async () => screen.getByRole('button', { name: 'send' }).click());
+
+    await waitFor(() => expect(pdfPrepareInvokeMock).toHaveBeenCalledTimes(2));
+    expect(modalConfirmMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'conversation.pdf.cloudOcrTitle',
+        okText: 'conversation.pdf.cloudOcrConfirm',
+      })
+    );
+    expect(cloudVisualPolicyReceiptInvokeMock).not.toHaveBeenCalled();
+    expect(managedVisualTurnAuthorizeInvokeMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
   });
 
   it('resets ACP loading state when sendMessage fails before any stream error arrives', async () => {

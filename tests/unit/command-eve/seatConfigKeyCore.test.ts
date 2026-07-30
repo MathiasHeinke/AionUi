@@ -58,8 +58,12 @@ describe('(b) cross-seat fence — two seats → two distinct keys', () => {
     expect(b).not.toBe('commandEve.clientSeeded');
   });
 
-  it('repeats for teamWorkerStatus and executionMode', () => {
-    for (const key of ['commandEve.teamWorkerStatus', 'commandEve.executionMode']) {
+  it('repeats for teamWorkerStatus, executionMode, and cloud visual policy', () => {
+    for (const key of [
+      'commandEve.teamWorkerStatus',
+      'commandEve.executionMode',
+      'commandEve.cloudVisualAnalysisEnabled',
+    ]) {
       const a = seatScopedKey(key, SEAT_A);
       const b = seatScopedKey(key, SEAT_B);
       expect(a).not.toBe(b);
@@ -67,10 +71,16 @@ describe('(b) cross-seat fence — two seats → two distinct keys', () => {
       expect(b.startsWith(`${SEAT_KEY_PREFIX}${SEAT_B}:`)).toBe(true);
     }
   });
+
+  it('keeps the legacy owner visual policy key unprefixed', () => {
+    expect(seatScopedKey('commandEve.cloudVisualAnalysisEnabled', LEGACY_SEAT_ID)).toBe(
+      'commandEve.cloudVisualAnalysisEnabled'
+    );
+  });
 });
 
 describe('(c) the allowlist is explicit + auditable', () => {
-  it('exposes exactly the 9 per-seat keys', () => {
+  it('exposes exactly the 10 per-seat keys', () => {
     // Pinned on purpose: adding or removing a key here has to be a decision
     // somebody made, not a diff nobody noticed. 1.820 adds the approval grant —
     // a command one client approved must never be pre-approved inside another
@@ -80,6 +90,7 @@ describe('(c) the allowlist is explicit + auditable', () => {
         'commandEve.authority',
         'commandEve.churnSignal',
         'commandEve.clientSeedDismissed',
+        'commandEve.cloudVisualAnalysisEnabled',
         'commandEve.clientSeeded',
         'commandEve.egressRedactionMode',
         'commandEve.executionMode',
@@ -102,7 +113,7 @@ describe('(c) the allowlist is explicit + auditable', () => {
     }
   });
 
-  it('the 8 allowlisted keys ARE seat-scoped', () => {
+  it('every allowlisted key is seat-scoped', () => {
     for (const key of SEAT_SCOPED_CONFIG_KEYS) {
       expect(isSeatScopedConfigKey(key)).toBe(true);
     }

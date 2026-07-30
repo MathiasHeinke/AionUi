@@ -258,6 +258,7 @@ export async function prepareImageWithVision(input: {
   requestId: string;
   analyze: ImageVisionAnalyzer;
   normalizeImage?: ImageToJpegNormalizer;
+  assertPersistenceAllowed?: () => void;
 }): Promise<CommandEvePreparedImageDocument> {
   if (input.inspection.cachedDocument) return input.inspection.cachedDocument;
   const source = readBoundedImageSource(input.inspection.sourcePath);
@@ -300,6 +301,7 @@ export async function prepareImageWithVision(input: {
   }
   const sidecarPath = path.join(input.inspection.cacheDirectory, 'document.md');
   const manifestPath = path.join(input.inspection.cacheDirectory, 'manifest.json');
+  input.assertPersistenceAllowed?.();
   writePrivateDocumentAtomic(input.hermesHome, sidecarPath, sidecar);
   writePrivateDocumentAtomic(
     input.hermesHome,

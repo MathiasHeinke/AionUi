@@ -3,6 +3,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { IResponseMessage } from '@/common/adapter/ipcBridge';
 
 type SocketListenerMap = {
   open: Array<() => void>;
@@ -90,6 +91,28 @@ describe('httpBridge realtime recovery', () => {
 
     FakeWebSocket.instances[1].dispatchOpen();
     expect(connected).toHaveBeenLastCalledWith({ reconnected: true });
+  });
+
+  it('forwards non-durable live message metadata without reconstruction', async () => {
+    const { wsEmitter } = await import('@/common/adapter/httpBridge');
+    const stream = vi.fn();
+    wsEmitter<IResponseMessage>('message.stream').on(stream);
+
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatchOpen();
+    const payload: IResponseMessage = {
+      type: 'tips',
+      data: { content: 'Safe retryable failure', type: 'error' },
+      msg_id: 'ephemeral:turn-1:send-failure',
+      turn_id: 'turn-1',
+      conversation_id: 'conversation-1',
+      durable: false,
+      replace: false,
+    };
+    socket.dispatchMessage('message.stream', payload);
+
+    expect(stream).toHaveBeenCalledOnce();
+    expect(stream).toHaveBeenCalledWith(payload);
   });
 
   it('answers the AionCore heartbeat so a mounted chat keeps its realtime stream', async () => {

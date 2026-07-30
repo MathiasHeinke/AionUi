@@ -12,7 +12,7 @@
 
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 const { navigateSpy, openAccountWebSpy, statusState } = vi.hoisted(() => ({
   navigateSpy: vi.fn(),
@@ -77,6 +77,25 @@ describe('ErsteSchritteModalContent — the 1.7.2 Day-0 hub', () => {
     fireEvent.click(container.querySelector('[data-testid="erste-schritte-step-kunde"]')!);
     expect(openAccountWebSpy).toHaveBeenCalledWith('/account?intent=add_seat');
     expect(navigateSpy).not.toHaveBeenCalled();
+  });
+
+  it('discloses the complete sensory boundary and links to tools and privacy', () => {
+    const { container } = render(<ErsteSchritteModalContent />);
+    const sensory = container.querySelector('[data-testid="erste-schritte-sensory"]');
+    expect(sensory).not.toBeNull();
+    expect(sensory).toHaveTextContent('bewusst anhängst');
+    expect(sensory).toHaveTextContent('Originale bleiben lokal');
+    expect(sensory).toHaveTextContent('pro Platz');
+    expect(sensory).toHaveTextContent('erst nach deinem Klick');
+    expect(sensory).toHaveTextContent('lokale Spracherkennung ist Standard');
+    expect(sensory).toHaveTextContent('Cloud-STT optional');
+    expect(sensory).toHaveTextContent('Vorlesen wird nur durch dich gestartet');
+    expect(sensory).toHaveTextContent('Kamera, Bildschirmbeobachtung, Hotword, Daueraufnahme und autonome Sprache');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Fähigkeiten → Werkzeuge & Sprache' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Datenschutz' }));
+    expect(navigateSpy).toHaveBeenNthCalledWith(1, '/settings/tools');
+    expect(navigateSpy).toHaveBeenNthCalledWith(2, '/settings/privacy');
   });
 
   it("keeps a null-model read honest: no 'done' chip anywhere", () => {

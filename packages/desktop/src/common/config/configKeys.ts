@@ -47,6 +47,13 @@ export type ConfigKeyMap = {
   'theme.userThemes': Theme[];
   /** Normalized in the renderer before use; kept unknown at the storage boundary. */
   'commandEve.visualPreferences': unknown;
+  /**
+   * PER-SEAT managed cloud visual-analysis opt-out. A successful read with no
+   * exact physical key is product-default enabled; exact false disables it.
+   * Main treats every other stored value and every read/seat failure as
+   * unavailable. Enabling removes the exact key rather than persisting true.
+   */
+  'commandEve.cloudVisualAnalysisEnabled': boolean | undefined;
   'aionrs.config': { preferredMode?: string } | undefined;
   'aionrs.defaultModel': { id: string; use_model: string } | undefined;
   'tools.imageGenerationModel': TProviderWithModel & { switch?: boolean };

@@ -325,9 +325,11 @@ const Layout: React.FC<{
           )}
 
           <ArcoLayout className={'size-full layout flex-1 min-h-0'}>
-            {/* Command EVE: the far-left CLIENT/SEAT rail (admins only; fail-closed
-                hidden for delegates / non-seat installs). Sits left of the Sider. */}
-            {COMMAND_EVE_SHELL_ENABLED && !isMobile && <SeatRail />}
+            {/* Command EVE: the authoritative CLIENT/SEAT rail (admins only;
+                fail-closed hidden for delegates / non-seat installs). Narrow
+                layouts keep the same rail compact instead of removing all seat
+                navigation. It remains left of the conversation Sider. */}
+            {COMMAND_EVE_SHELL_ENABLED && <SeatRail compact={isMobile} />}
             <ArcoLayout.Sider
               collapsedWidth={isMobile ? 0 : 0}
               collapsed={collapsed}

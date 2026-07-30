@@ -64,16 +64,16 @@ describe('transcribeLocalSpeech (on-device STT core)', () => {
     expect(args[4]).toBe('small');
   });
 
-  it('defaults the model to base when none is given', async () => {
+  it('uses the shared product-default local model when none is given', async () => {
     const { runner, options } = harness({
       ok: true,
       stdout: JSON.stringify({ success: true, transcript: 'x' }),
       stderr: '',
     });
     const result = await transcribeLocalSpeech(makeRequest(), options);
-    expect(result.model).toBe('base');
+    expect(result.model).toBe('small');
     expect(runner.mock.calls[0][1][3]).toBe('local');
-    expect(runner.mock.calls[0][1][4]).toBe('base');
+    expect(runner.mock.calls[0][1][4]).toBe('small');
   });
 
   it('routes provider=groq with the key injected into the child env (never logged)', async () => {

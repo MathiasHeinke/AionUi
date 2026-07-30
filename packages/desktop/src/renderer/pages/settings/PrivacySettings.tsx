@@ -14,10 +14,14 @@
  * switch is what actually enables or disables all telemetry.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Switch } from '@arco-design/web-react';
 import { useTranslation } from 'react-i18next';
 import { bridge } from '@office-ai/platform';
+import { ipcBridge } from '@/common';
+import { configService } from '@/common/config/configService';
+import type { CommandEveCloudVisualPolicyState } from '@/common/config/visual/cloudVisualPolicyCore';
+import { useActiveSeatId } from '@/renderer/hooks/useActiveSeatId';
 import { isElectronDesktop } from '@/renderer/utils/platform';
 import SettingsPageWrapper from './components/SettingsPageWrapper';
 import PreferenceRow from '@/renderer/components/settings/PreferenceRow';
@@ -72,6 +76,11 @@ const PrivacySettings: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [cloudVoiceConsent, setCloudVoiceConsentState] = useState(false);
   const [cloudVoiceSaving, setCloudVoiceSaving] = useState(false);
+  const [visualPolicy, setVisualPolicy] = useState<CommandEveCloudVisualPolicyState | null>(null);
+  const [visualPolicyLoading, setVisualPolicyLoading] = useState(true);
+  const [visualPolicySaving, setVisualPolicySaving] = useState(false);
+  const activeSeatId = useActiveSeatId();
+  const visualPolicyRequestGenerationRef = useRef(0);
   const { t } = useTranslation();
   const viewMode = useSettingsViewMode();
   const isPageMode = viewMode === 'page';
@@ -80,6 +89,16 @@ const PrivacySettings: React.FC = () => {
   useEffect(() => {
     if (!isDesktop) return;
     let cancelled = false;
+    const loadForSeat = activeSeatId;
+    const requestGeneration = visualPolicyRequestGenerationRef.current + 1;
+    visualPolicyRequestGenerationRef.current = requestGeneration;
+    const loadStillCurrent = (): boolean =>
+      !cancelled &&
+      visualPolicyRequestGenerationRef.current === requestGeneration &&
+      loadForSeat === configService.getCurrentSeatId();
+    setVisualPolicy(null);
+    setVisualPolicyLoading(true);
+    setVisualPolicySaving(false);
     getConsent()
       .then((result) => {
         if (!cancelled) setConsentState(result?.consent === true);
@@ -96,10 +115,28 @@ const PrivacySettings: React.FC = () => {
         // Fail closed: if we can't read consent, show it as off.
         if (!cancelled) setCloudVoiceConsentState(false);
       });
+    ipcBridge.commandEve.cloudVisualPolicyRead
+      .invoke()
+      .then((result) => {
+        if (!loadStillCurrent()) return;
+        const policy = result?.data;
+        const healthyPolicyForSeat =
+          result?.success === true &&
+          policy &&
+          (policy.status === 'enabled' || policy.status === 'disabled') &&
+          policy.seatId === loadForSeat;
+        setVisualPolicy(healthyPolicyForSeat ? policy : null);
+      })
+      .catch(() => {
+        if (loadStillCurrent()) setVisualPolicy(null);
+      })
+      .finally(() => {
+        if (loadStillCurrent()) setVisualPolicyLoading(false);
+      });
     return () => {
       cancelled = true;
     };
-  }, [isDesktop]);
+  }, [activeSeatId, isDesktop]);
 
   const handleConsentChange = useCallback(
     (checked: boolean) => {
@@ -145,7 +182,42 @@ const PrivacySettings: React.FC = () => {
     [cloudVoiceConsent]
   );
 
+  const handleVisualPolicyChange = useCallback(
+    (enabled: boolean) => {
+      if (visualPolicyLoading || visualPolicySaving || visualPolicy?.status === 'unavailable') return;
+      const expectedSeatId = activeSeatId;
+      const requestGeneration = visualPolicyRequestGenerationRef.current + 1;
+      visualPolicyRequestGenerationRef.current = requestGeneration;
+      const mutationStillCurrent = (): boolean =>
+        visualPolicyRequestGenerationRef.current === requestGeneration &&
+        expectedSeatId === configService.getCurrentSeatId();
+      setVisualPolicySaving(true);
+      ipcBridge.commandEve.cloudVisualPolicySet
+        .invoke({ expectedSeatId, enabled })
+        .then((result) => {
+          if (!mutationStillCurrent()) return;
+          const policy = result?.data?.policy;
+          const healthyPolicyForSeat =
+            result?.success === true &&
+            result.data?.ok === true &&
+            policy &&
+            (policy.status === 'enabled' || policy.status === 'disabled') &&
+            policy.seatId === expectedSeatId;
+          setVisualPolicy(healthyPolicyForSeat ? policy : null);
+        })
+        .catch(() => {
+          if (mutationStillCurrent()) setVisualPolicy(null);
+        })
+        .finally(() => {
+          if (mutationStillCurrent()) setVisualPolicySaving(false);
+        });
+    },
+    [activeSeatId, visualPolicy?.status, visualPolicyLoading, visualPolicySaving]
+  );
+
   const disclosure = t('settings.privacy.disclosure', { defaultValue: TELEMETRY_DISCLOSURE });
+  const visualPolicyAvailable = visualPolicy?.status === 'enabled' || visualPolicy?.status === 'disabled';
+  const visualPolicyChecked = visualPolicy?.status === 'enabled';
 
   if (!isDesktop) {
     return (
@@ -181,7 +253,8 @@ const PrivacySettings: React.FC = () => {
         <SettingsSection
           title={t('settings.privacy.permissionsTitle', { defaultValue: 'Datenfreigaben' })}
           description={t('settings.privacy.permissionsDescription', {
-            defaultValue: 'Beide Freigaben sind standardmäßig deaktiviert und können jederzeit widerrufen werden.',
+            defaultValue:
+              'Telemetry and cloud voice output are off by default. Cloud visual analysis is enabled per seat by product default and can be revoked at any time.',
           })}
           bodyClassName='eve-settings-list'
         >
@@ -204,6 +277,31 @@ const PrivacySettings: React.FC = () => {
             })}
           >
             <Switch checked={cloudVoiceConsent} disabled={cloudVoiceSaving} onChange={handleCloudVoiceConsentChange} />
+          </PreferenceRow>
+          <PreferenceRow
+            testId='visual-policy-row'
+            label={t('settings.privacy.cloudVisualLabel', {
+              defaultValue: 'Allow cloud visual analysis in this seat',
+            })}
+            description={
+              visualPolicyLoading
+                ? t('settings.privacy.cloudVisualLoading', { defaultValue: 'Reading this seat’s setting…' })
+                : !visualPolicyAvailable
+                  ? t('settings.privacy.cloudVisualUnavailable', {
+                      defaultValue: 'This setting is currently unavailable. Cloud visual analysis stays blocked.',
+                    })
+                  : t('settings.privacy.cloudVisualDescription', {
+                      defaultValue:
+                        'EVE analyzes only images and presentations you consciously attach. Originals stay local; bounded image previews, slide representations and prepared context may cross the managed cloud visual lane. Seats stay separated, and you can revoke this at any time.',
+                    })
+            }
+          >
+            <Switch
+              checked={visualPolicyChecked}
+              disabled={visualPolicyLoading || visualPolicySaving || !visualPolicyAvailable}
+              loading={visualPolicyLoading || visualPolicySaving}
+              onChange={handleVisualPolicyChange}
+            />
           </PreferenceRow>
         </SettingsSection>
         <SettingsSection

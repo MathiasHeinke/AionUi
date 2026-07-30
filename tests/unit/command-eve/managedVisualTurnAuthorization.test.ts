@@ -1,4 +1,4 @@
-/**
+/*
  * @license
  * Copyright 2025 AionUi (aionui.com)
  * SPDX-License-Identifier: Apache-2.0
@@ -6,10 +6,10 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  COMMAND_EVE_MANAGED_VISUAL_TURN_CONSENT_VERSION,
   extractCommandEveManagedVisualTurnToken,
   resolveCommandEveManagedVisualPreferredTier,
   stripCommandEveManagedVisualTurnMarkers,
+  type CommandEveManagedVisualTurnAuthorizationRequest,
 } from '@/common/config/eveManagedVisualTurnCore';
 import {
   authorizeCommandEveManagedVisualTurn,
@@ -19,99 +19,127 @@ import {
 
 const TOKEN_A = 'A'.repeat(43);
 const TOKEN_B = 'B'.repeat(43);
+const SEAT_A = 'seat-a';
+const SEAT_B = 'seat-b';
+const REVISION_A = 7;
+const FLOW_A = 'visual_flow_0123456789abcdef';
+const RECEIPT_ID = 'r'.repeat(43);
+const RECEIPT = {
+  version: 'command-eve-cloud-visual-policy/v1' as const,
+  receiptId: RECEIPT_ID,
+  flowId: FLOW_A,
+  expiresAt: new Date(301_000).toISOString(),
+};
 
-const request = (preferredTier: 'high' | 'xhigh' | 'max' | 'ultra' = 'high') => ({
-  consentVersion: COMMAND_EVE_MANAGED_VISUAL_TURN_CONSENT_VERSION,
+const request = (
+  preferredTier: 'high' | 'xhigh' | 'max' | 'ultra' = 'high'
+): CommandEveManagedVisualTurnAuthorizationRequest => ({
+  flowId: FLOW_A,
+  visualPolicyReceipt: RECEIPT,
   preferredTier,
   sourceCount: 1,
 });
+
+const verifiedReceipt = {
+  seatId: SEAT_A,
+  seatContextRevision: REVISION_A,
+  flowId: FLOW_A,
+  receiptId: RECEIPT_ID,
+};
+
+function authorize(overrides: Partial<Parameters<typeof authorizeCommandEveManagedVisualTurn>[0]> = {}) {
+  return authorizeCommandEveManagedVisualTurn({
+    request: request(),
+    seatId: SEAT_A,
+    seatContextRevision: REVISION_A,
+    verifiedReceipt,
+    hasPaidSeat: true,
+    hasLicenseWire: true,
+    retireVerifiedReceipt: () => true,
+    nowMs: 1_000,
+    randomToken: () => TOKEN_A,
+    ...overrides,
+  });
+}
 
 describe('managed visual turn authorization', () => {
   afterEach(() => clearCommandEveManagedVisualTurnAuthorizationsForTests());
 
   it('gives a paid seat at least high and preserves an explicit ultra selection', () => {
-    const high = authorizeCommandEveManagedVisualTurn({
-      request: request('high'),
-      seatId: 'seat-paid',
-      hasPaidSeat: true,
-      hasLicenseWire: true,
-      nowMs: 1_000,
-      randomToken: () => TOKEN_A,
-    });
-    const ultra = authorizeCommandEveManagedVisualTurn({
-      request: request('ultra'),
-      seatId: 'seat-paid',
-      hasPaidSeat: true,
-      hasLicenseWire: true,
-      nowMs: 1_000,
-      randomToken: () => TOKEN_B,
-    });
+    const high = authorize({ request: request('high') });
+    const ultra = authorize({ request: request('ultra'), randomToken: () => TOKEN_B });
     expect(high).toMatchObject({ ok: true, tier: 'high' });
     expect(ultra).toMatchObject({ ok: true, tier: 'ultra' });
   });
 
   it('keeps free seats on the managed standard entitlement lane instead of local inference', () => {
-    const result = authorizeCommandEveManagedVisualTurn({
-      request: request('ultra'),
-      seatId: 'seat-free',
-      hasPaidSeat: false,
-      hasLicenseWire: true,
-      nowMs: 1_000,
-      randomToken: () => TOKEN_A,
+    expect(authorize({ request: request('ultra'), hasPaidSeat: false })).toMatchObject({
+      ok: true,
+      tier: 'standard',
     });
-    expect(result).toMatchObject({ ok: true, tier: 'standard' });
   });
 
-  it('binds the opaque marker to the seat and expires fail-closed', () => {
-    const authorization = authorizeCommandEveManagedVisualTurn({
-      request: request('max'),
-      seatId: 'seat-a',
-      hasPaidSeat: true,
-      hasLicenseWire: true,
-      nowMs: 1_000,
-      randomToken: () => TOKEN_A,
+  it('requires the verified flow receipt and rejects historical consent-only input', () => {
+    expect(authorize({ verifiedReceipt: undefined })).toMatchObject({
+      ok: false,
+      reason_code: 'EVE_MANAGED_VISUAL_POLICY_RECEIPT_REQUIRED',
     });
+    expect(
+      authorize({
+        request: {
+          consentVersion: 'command-eve-managed-visual-turn-consent/v1',
+          preferredTier: 'high',
+          sourceCount: 1,
+        },
+      })
+    ).toMatchObject({ ok: false, reason_code: 'EVE_MANAGED_VISUAL_POLICY_RECEIPT_REQUIRED' });
+    expect(
+      authorize({
+        verifiedReceipt: { ...verifiedReceipt, receiptId: 'x'.repeat(43) },
+      })
+    ).toMatchObject({ ok: false, reason_code: 'EVE_MANAGED_VISUAL_POLICY_RECEIPT_REQUIRED' });
+  });
+
+  it('binds the opaque marker to seat plus monotonic revision and consumes it once', () => {
+    const authorization = authorize({ request: request('max') });
     if (!authorization.marker) throw new Error('expected marker');
     const body = { messages: [{ role: 'user', content: `${authorization.marker}\nAnalyze the deck.` }] };
-    expect(resolveCommandEveManagedVisualTurn(body, 'seat-b', 2_000)).toMatchObject({
+
+    expect(resolveCommandEveManagedVisualTurn(body, SEAT_B, REVISION_A, 2_000)).toMatchObject({
       status: 'invalid',
       reason_code: 'AUTHORIZATION_SEAT_MISMATCH',
     });
-    expect(resolveCommandEveManagedVisualTurn(body, 'seat-a', 2_000)).toEqual({
+    expect(resolveCommandEveManagedVisualTurn(body, SEAT_A, REVISION_A + 2, 2_000)).toMatchObject({
+      status: 'invalid',
+      reason_code: 'AUTHORIZATION_SEAT_MISMATCH',
+    });
+    expect(resolveCommandEveManagedVisualTurn(body, SEAT_A, REVISION_A, 2_000)).toEqual({
       status: 'authorized',
       tier: 'max',
+      visualPolicyClaim: verifiedReceipt,
     });
-    expect(resolveCommandEveManagedVisualTurn(body, 'seat-a', 2_001)).toMatchObject({
+    expect(resolveCommandEveManagedVisualTurn(body, SEAT_A, REVISION_A, 2_001)).toMatchObject({
       status: 'invalid',
       reason_code: 'AUTHORIZATION_UNKNOWN',
     });
+  });
 
-    const expiringAuthorization = authorizeCommandEveManagedVisualTurn({
-      request: request('high'),
-      seatId: 'seat-a',
-      hasPaidSeat: true,
-      hasLicenseWire: true,
-      nowMs: 1_000,
-      randomToken: () => TOKEN_B,
-    });
-    if (!expiringAuthorization.marker) throw new Error('expected expiring marker');
-    const expiringBody = {
-      messages: [{ role: 'user', content: `${expiringAuthorization.marker}\nAnalyze the deck.` }],
-    };
-    expect(resolveCommandEveManagedVisualTurn(expiringBody, 'seat-a', 1_000 + 15 * 60 * 1000)).toMatchObject({
+  it('expires fail-closed and never restores a consumed marker', () => {
+    const authorization = authorize();
+    if (!authorization.marker) throw new Error('expected marker');
+    const body = { messages: [{ role: 'user', content: authorization.marker }] };
+    expect(resolveCommandEveManagedVisualTurn(body, SEAT_A, REVISION_A, 1_000 + 15 * 60 * 1000)).toMatchObject({
       status: 'invalid',
       reason_code: 'AUTHORIZATION_EXPIRED',
+    });
+    expect(resolveCommandEveManagedVisualTurn(body, SEAT_A, REVISION_A, 2_000)).toMatchObject({
+      status: 'invalid',
+      reason_code: 'AUTHORIZATION_UNKNOWN',
     });
   });
 
   it('uses only the latest user turn and strips the authorization before model handling', () => {
-    const authorization = authorizeCommandEveManagedVisualTurn({
-      request: request(),
-      seatId: 'seat-a',
-      hasPaidSeat: true,
-      hasLicenseWire: true,
-      randomToken: () => TOKEN_A,
-    });
+    const authorization = authorize();
     if (!authorization.marker) throw new Error('expected marker');
     const body = {
       messages: [
@@ -120,7 +148,7 @@ describe('managed visual turn authorization', () => {
         { role: 'user', content: 'Thanks.' },
       ],
     };
-    expect(resolveCommandEveManagedVisualTurn(body, 'seat-a')).toEqual({ status: 'absent' });
+    expect(resolveCommandEveManagedVisualTurn(body, SEAT_A, REVISION_A)).toEqual({ status: 'absent' });
     expect(extractCommandEveManagedVisualTurnToken(authorization.marker)).toBe(TOKEN_A);
     expect(stripCommandEveManagedVisualTurnMarkers(`${authorization.marker}\nAnalyze the deck.`)).toBe(
       'Analyze the deck.'
@@ -128,15 +156,8 @@ describe('managed visual turn authorization', () => {
   });
 
   it('recognizes Hermes structured text parts without replaying an older authorization', () => {
-    const authorization = authorizeCommandEveManagedVisualTurn({
-      request: request('high'),
-      seatId: 'seat-a',
-      hasPaidSeat: true,
-      hasLicenseWire: true,
-      randomToken: () => TOKEN_A,
-    });
+    const authorization = authorize();
     if (!authorization.marker) throw new Error('expected marker');
-
     const structured = {
       messages: [
         {
@@ -145,9 +166,10 @@ describe('managed visual turn authorization', () => {
         },
       ],
     };
-    expect(resolveCommandEveManagedVisualTurn(structured, 'seat-a')).toEqual({
+    expect(resolveCommandEveManagedVisualTurn(structured, SEAT_A, REVISION_A, 2_000)).toEqual({
       status: 'authorized',
       tier: 'high',
+      visualPolicyClaim: verifiedReceipt,
     });
 
     const newerNonTextUserTurn = {
@@ -157,34 +179,50 @@ describe('managed visual turn authorization', () => {
         { role: 'user', content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } }] },
       ],
     };
-    expect(resolveCommandEveManagedVisualTurn(newerNonTextUserTurn, 'seat-a')).toEqual({ status: 'absent' });
+    expect(resolveCommandEveManagedVisualTurn(newerNonTextUserTurn, SEAT_A, REVISION_A)).toEqual({
+      status: 'absent',
+    });
   });
 
-  it('rejects missing consent, license and malformed source counts', () => {
-    expect(
-      authorizeCommandEveManagedVisualTurn({
-        request: { ...request(), consentVersion: 'wrong' as never },
-        seatId: 'seat-a',
-        hasPaidSeat: true,
-        hasLicenseWire: true,
-      })
-    ).toMatchObject({ ok: false, reason_code: 'EVE_MANAGED_VISUAL_CONSENT_REQUIRED' });
-    expect(
-      authorizeCommandEveManagedVisualTurn({
-        request: request(),
-        seatId: 'seat-a',
-        hasPaidSeat: true,
-        hasLicenseWire: false,
-      })
-    ).toMatchObject({ ok: false, reason_code: 'EVE_MANAGED_VISUAL_NO_BEARER' });
-    expect(
-      authorizeCommandEveManagedVisualTurn({
-        request: { ...request(), sourceCount: 7 },
-        seatId: 'seat-a',
-        hasPaidSeat: true,
-        hasLicenseWire: true,
-      })
-    ).toMatchObject({ ok: false, reason_code: 'EVE_MANAGED_VISUAL_BAD_SOURCE_COUNT' });
+  it('retires the verified receipt only after every earlier marker gate passes', () => {
+    let retireCalls = 0;
+    const retireVerifiedReceipt = () => {
+      retireCalls += 1;
+      return true;
+    };
+
+    expect(authorize({ hasLicenseWire: false, retireVerifiedReceipt })).toMatchObject({
+      ok: false,
+      reason_code: 'EVE_MANAGED_VISUAL_NO_BEARER',
+    });
+    expect(authorize({ request: { ...request(), sourceCount: 7 }, retireVerifiedReceipt })).toMatchObject({
+      ok: false,
+      reason_code: 'EVE_MANAGED_VISUAL_BAD_SOURCE_COUNT',
+    });
+    expect(retireCalls).toBe(0);
+
+    expect(authorize({ retireVerifiedReceipt })).toMatchObject({ ok: true });
+    expect(retireCalls).toBe(1);
+  });
+
+  it('mints no marker when atomic receipt retirement loses a race', () => {
+    const result = authorize({ retireVerifiedReceipt: () => false });
+    expect(result).toMatchObject({
+      ok: false,
+      reason_code: 'EVE_MANAGED_VISUAL_POLICY_RECEIPT_REQUIRED',
+    });
+    expect(result).not.toHaveProperty('marker');
+  });
+
+  it('rejects missing license and malformed source counts', () => {
+    expect(authorize({ hasLicenseWire: false })).toMatchObject({
+      ok: false,
+      reason_code: 'EVE_MANAGED_VISUAL_NO_BEARER',
+    });
+    expect(authorize({ request: { ...request(), sourceCount: 7 } })).toMatchObject({
+      ok: false,
+      reason_code: 'EVE_MANAGED_VISUAL_BAD_SOURCE_COUNT',
+    });
   });
 
   it('maps local and standard picker selections to high while preserving higher paid tiers', () => {

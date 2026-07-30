@@ -201,6 +201,24 @@ const ErsteSchritteModalContent: React.FC = () => {
       </SettingsSection>
 
       <SettingsSection
+        title={t('settings.ersteSchritteSensoryTitle', { defaultValue: 'Sehen und hören' })}
+        description={t('settings.ersteSchritteSensoryDescription', {
+          defaultValue:
+            'EVE sieht nur Bilder und Präsentationen, die du bewusst anhängst. Originale bleiben lokal; begrenzte visuelle Repräsentationen und vorbereiteter Kontext können die verwaltete Cloud-Lane nutzen. Du kannst dies pro Platz unter Datenschutz widerrufen. Das sichtbare Mikrofon startet erst nach deinem Klick und der Betriebssystem-Freigabe; lokale Spracherkennung ist Standard, Cloud-STT optional. Vorlesen wird nur durch dich gestartet, und Cloud-Sprachausgabe bleibt separat standardmäßig aus. Kamera, Bildschirmbeobachtung, Hotword, Daueraufnahme und autonome Sprache werden nicht verwendet.',
+        })}
+        testId='erste-schritte-sensory'
+      >
+        <div className='erste-schritte-settings__sensory-actions'>
+          <Button type='text' onClick={() => onNavigate('/settings/tools')}>
+            {t('settings.ersteSchritteSensoryToolsLink', { defaultValue: 'Fähigkeiten → Werkzeuge & Sprache' })}
+          </Button>
+          <Button type='text' onClick={() => onNavigate('/settings/privacy')}>
+            {t('settings.ersteSchritteSensoryPrivacyLink', { defaultValue: 'Datenschutz' })}
+          </Button>
+        </div>
+      </SettingsSection>
+
+      <SettingsSection
         title={t('settings.ersteSchritteNextSteps', { defaultValue: 'Nächste Schritte' })}
         description={t('settings.ersteSchritteNextStepsDescription', {
           defaultValue: 'Öffne genau den Bereich, den du als Nächstes einrichten oder prüfen möchtest.',

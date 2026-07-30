@@ -1,4 +1,4 @@
-/**
+/*
  * @license
  * Copyright 2025 AionUi (aionui.com)
  * SPDX-License-Identifier: Apache-2.0
@@ -6,13 +6,14 @@
 
 import { useCallback, type Dispatch, type SetStateAction } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Message, Modal } from '@arco-design/web-react';
+import { Message } from '@arco-design/web-react';
 import { ipcBridge } from '@/common';
 import {
   isCommandEvePresentationPath,
   mergeCommandEvePreparedPresentationFiles,
 } from '@/common/config/evePresentationIntelligenceCore';
 import { isCommandEveImagePath, mergeCommandEvePreparedImageFiles } from '@/common/config/eveImageIntelligenceCore';
+import type { CommandEveCloudVisualPolicyReceipt } from '@/common/config/visual/cloudVisualPolicyCore';
 import { getConversationRuntimeWorkspaceErrorMessage } from '@/renderer/pages/conversation/utils/conversationCreateError';
 import type { CommandEvePreparedContextInput } from '@/common/config/evePreparedContextCore';
 import type { AcpDocumentPreparationState } from './AcpDocumentPreparationStatus';
@@ -21,8 +22,13 @@ type SetPreparation = Dispatch<SetStateAction<AcpDocumentPreparationState | null
 export type CommandEveVisualPreparationResult = {
   files: string[];
   contexts: CommandEvePreparedContextInput[];
-  cloudConsentGranted: boolean;
+  requiresVisualPolicyReceipt: boolean;
 };
+
+export type CommandEveVisualPreparationAuthority = Readonly<{
+  flowId: string;
+  visualPolicyReceipt: CommandEveCloudVisualPolicyReceipt;
+}>;
 
 function resolvedLocale(i18n: { resolvedLanguage?: string; language?: string }): 'de-DE' | 'en-US' {
   return String(i18n.resolvedLanguage || i18n.language || 'de-DE')
@@ -40,10 +46,13 @@ export function useCommandEveVisualPreparation(input: {
   const { t, i18n } = useTranslation();
 
   const preparePresentationFiles = useCallback(
-    async (files: string[]): Promise<CommandEveVisualPreparationResult | null> => {
-      if (!input.isEveConversation) return { files, contexts: [], cloudConsentGranted: false };
+    async (
+      files: string[],
+      authority?: CommandEveVisualPreparationAuthority
+    ): Promise<CommandEveVisualPreparationResult | null> => {
+      if (!input.isEveConversation) return { files, contexts: [], requiresVisualPolicyReceipt: false };
       const presentationFiles = files.filter(isCommandEvePresentationPath);
-      if (presentationFiles.length === 0) return { files, contexts: [], cloudConsentGranted: false };
+      if (presentationFiles.length === 0) return { files, contexts: [], requiresVisualPolicyReceipt: false };
 
       const startedAt = Date.now();
       const startedPreviewFiles: string[] = [];
@@ -53,26 +62,22 @@ export function useCommandEveVisualPreparation(input: {
         startedAt,
       });
 
+      const invoke = () =>
+        ipcBridge.commandEve.presentationPrepare.invoke({
+          filePaths: presentationFiles,
+          ...authority,
+          privacyLane: 'cloud_auto',
+          locale: resolvedLocale(i18n),
+          requestId: `pptx-${Date.now().toString(36)}`,
+        });
+
       try {
-        const invoke = (allowCloudVision: boolean) =>
-          ipcBridge.commandEve.presentationPrepare.invoke({
-            filePaths: presentationFiles,
-            allowCloudVision,
-            privacyLane: 'cloud_auto',
-            locale: resolvedLocale(i18n),
-            requestId: `pptx-${Date.now().toString(36)}`,
-          });
+        let response = await invoke();
+        let failure = response.data?.ok === false ? response.data : undefined;
 
-        let response = await invoke(false);
-        let initialFailure = response.data?.ok === false ? response.data : undefined;
-
-        // The first inspect call validates the PPTX container, source path and
-        // archive bounds before any OfficeCLI process sees it. Only when that
-        // safe inspection reports a missing engine do we reuse the existing
-        // signed Office preview bootstrap to install/start the small renderer.
-        // Bootstrapping the first already-validated deck is sufficient because
-        // OfficeCLI is shared by the following bounded inspection pass.
-        if (initialFailure?.reason_code === 'EVE_PRESENTATION_ENGINE_UNAVAILABLE') {
+        // OfficeCLI bootstrapping remains local and happens only after the safe
+        // package inspection has identified the missing engine.
+        if (failure?.reason_code === 'EVE_PRESENTATION_ENGINE_UNAVAILABLE') {
           const bootstrapFile = presentationFiles[0];
           const preview = await ipcBridge.pptPreview.start.invoke({
             file_path: bootstrapFile,
@@ -88,88 +93,33 @@ export function useCommandEveVisualPreparation(input: {
             return null;
           }
           startedPreviewFiles.push(bootstrapFile);
-          response = await invoke(false);
-          initialFailure = response.data?.ok === false ? response.data : undefined;
+          response = await invoke();
+          failure = response.data?.ok === false ? response.data : undefined;
         }
 
-        if (response.success && response.data?.ok) {
-          input.setDocumentPreparation({
-            phase: 'presentation_handoff',
-            fileCount: presentationFiles.length,
-            startedAt,
-          });
-          return {
-            files: mergeCommandEvePreparedPresentationFiles(files, response.data.documents),
-            contexts: response.data.documents.map((document) => ({
-              kind: 'presentation',
-              sourceName: document.source_name,
-              markdown: document.prompt_context,
-            })),
-            cloudConsentGranted: false,
-          };
-        }
-
-        if (initialFailure?.requires_cloud_vision_consent !== true) {
-          input.setDocumentPreparation({
-            phase: 'presentation_error',
-            fileCount: presentationFiles.length,
-            startedAt,
-          });
-          Message.error({
-            content: initialFailure?.message || t('conversation.presentation.prepareFailed'),
-            duration: 6000,
-          });
-          return null;
-        }
-
-        input.setDocumentPreparation({
-          phase: 'awaiting_cloud_vision',
-          fileCount: presentationFiles.length,
-          startedAt,
-        });
-        const approved = await new Promise<boolean>((resolve) => {
-          Modal.confirm({
-            title: t('conversation.presentation.cloudVisionTitle'),
-            content: t('conversation.presentation.cloudVisionDescription', {
-              files:
-                initialFailure.pending_source_names?.join(', ') || t('conversation.presentation.selectedDocuments'),
-            }),
-            okText: t('conversation.presentation.cloudVisionConfirm'),
-            cancelText: t('common.cancel'),
-            onOk: () => resolve(true),
-            onCancel: () => resolve(false),
-            closable: true,
-          });
-        });
-        if (!approved) {
-          input.setDocumentPreparation(null);
-          return null;
-        }
-
-        input.setDocumentPreparation({
-          phase: 'reading_cloud_vision',
-          fileCount: presentationFiles.length,
-          startedAt,
-        });
-        response = await invoke(true);
         if (!response.success || !response.data?.ok) {
-          input.setDocumentPreparation({
-            phase: 'presentation_error',
-            fileCount: presentationFiles.length,
-            startedAt,
-          });
-          const cloudFailure = response.data?.ok === false ? response.data : undefined;
-          Message.error({
-            content: cloudFailure?.message || t('conversation.presentation.cloudVisionFailed'),
-            duration: 6000,
-          });
+          if (failure?.reason_code === 'EVE_PRESENTATION_CLOUD_VISUAL_POLICY_REQUIRED' && authority === undefined) {
+            input.setDocumentPreparation({
+              phase: 'awaiting_cloud_vision',
+              fileCount: presentationFiles.length,
+              startedAt,
+            });
+            return {
+              files: mergeCommandEvePreparedPresentationFiles(files, failure.documents),
+              contexts: failure.documents.map((document) => ({
+                kind: 'presentation',
+                sourceName: document.source_name,
+                markdown: document.prompt_context,
+              })),
+              requiresVisualPolicyReceipt: true,
+            };
+          }
+          input.setDocumentPreparation({ phase: 'presentation_error', fileCount: presentationFiles.length, startedAt });
+          Message.error({ content: failure?.message || t('conversation.presentation.prepareFailed'), duration: 6000 });
           return null;
         }
-        input.setDocumentPreparation({
-          phase: 'presentation_handoff',
-          fileCount: presentationFiles.length,
-          startedAt,
-        });
+
+        input.setDocumentPreparation({ phase: 'presentation_handoff', fileCount: presentationFiles.length, startedAt });
         return {
           files: mergeCommandEvePreparedPresentationFiles(files, response.data.documents),
           contexts: response.data.documents.map((document) => ({
@@ -177,15 +127,11 @@ export function useCommandEveVisualPreparation(input: {
             sourceName: document.source_name,
             markdown: document.prompt_context,
           })),
-          cloudConsentGranted: true,
+          requiresVisualPolicyReceipt: false,
         };
       } catch (error) {
         console.error('[AcpSendBox] Presentation preparation failed:', error);
-        input.setDocumentPreparation({
-          phase: 'presentation_error',
-          fileCount: presentationFiles.length,
-          startedAt,
-        });
+        input.setDocumentPreparation({ phase: 'presentation_error', fileCount: presentationFiles.length, startedAt });
         Message.error({
           content:
             getConversationRuntimeWorkspaceErrorMessage(error, t) || t('conversation.presentation.prepareFailed'),
@@ -202,74 +148,47 @@ export function useCommandEveVisualPreparation(input: {
   );
 
   const prepareImageFiles = useCallback(
-    async (files: string[]): Promise<CommandEveVisualPreparationResult | null> => {
-      if (!input.isEveConversation) return { files, contexts: [], cloudConsentGranted: false };
+    async (
+      files: string[],
+      authority?: CommandEveVisualPreparationAuthority
+    ): Promise<CommandEveVisualPreparationResult | null> => {
+      if (!input.isEveConversation) return { files, contexts: [], requiresVisualPolicyReceipt: false };
       const imageFiles = files.filter(isCommandEveImagePath);
-      if (imageFiles.length === 0) return { files, contexts: [], cloudConsentGranted: false };
+      if (imageFiles.length === 0) return { files, contexts: [], requiresVisualPolicyReceipt: false };
 
       const startedAt = Date.now();
       input.setDocumentPreparation({ phase: 'reading_image_local', fileCount: imageFiles.length, startedAt });
-      const invoke = (allowCloudVision: boolean) =>
-        ipcBridge.commandEve.imagePrepare.invoke({
+      try {
+        const response = await ipcBridge.commandEve.imagePrepare.invoke({
           filePaths: imageFiles,
-          allowCloudVision,
+          ...authority,
           privacyLane: 'cloud_auto',
           locale: resolvedLocale(i18n),
           requestId: `image-${Date.now().toString(36)}`,
         });
-
-      try {
-        let response = await invoke(false);
-        if (response.success && response.data?.ok) {
-          input.setDocumentPreparation({ phase: 'image_handoff', fileCount: imageFiles.length, startedAt });
-          return {
-            files: mergeCommandEvePreparedImageFiles(files, response.data.documents),
-            contexts: response.data.documents.map((document) => ({
-              kind: 'image',
-              sourceName: document.source_name,
-              markdown: document.prompt_context,
-            })),
-            cloudConsentGranted: false,
-          };
-        }
-
-        const initialFailure = response.data?.ok === false ? response.data : undefined;
-        if (initialFailure?.requires_cloud_vision_consent !== true) {
-          input.setDocumentPreparation({ phase: 'image_error', fileCount: imageFiles.length, startedAt });
-          Message.error({ content: initialFailure?.message || t('conversation.image.prepareFailed'), duration: 6000 });
-          return null;
-        }
-
-        input.setDocumentPreparation({ phase: 'awaiting_image_cloud_vision', fileCount: imageFiles.length, startedAt });
-        const approved = await new Promise<boolean>((resolve) => {
-          Modal.confirm({
-            title: t('conversation.image.cloudVisionTitle'),
-            content: t('conversation.image.cloudVisionDescription', {
-              files: initialFailure.pending_source_names?.join(', ') || t('conversation.image.selectedImages'),
-            }),
-            okText: t('conversation.image.cloudVisionConfirm'),
-            cancelText: t('common.cancel'),
-            onOk: () => resolve(true),
-            onCancel: () => resolve(false),
-            closable: true,
-          });
-        });
-        if (!approved) {
-          input.setDocumentPreparation(null);
-          return null;
-        }
-
-        input.setDocumentPreparation({ phase: 'reading_image_cloud_vision', fileCount: imageFiles.length, startedAt });
-        response = await invoke(true);
         if (!response.success || !response.data?.ok) {
+          const failure = response.data?.ok === false ? response.data : undefined;
+          if (failure?.reason_code === 'EVE_IMAGE_CLOUD_VISUAL_POLICY_REQUIRED' && authority === undefined) {
+            input.setDocumentPreparation({
+              phase: 'awaiting_image_cloud_vision',
+              fileCount: imageFiles.length,
+              startedAt,
+            });
+            return {
+              files: mergeCommandEvePreparedImageFiles(files, failure.documents),
+              contexts: failure.documents.map((document) => ({
+                kind: 'image',
+                sourceName: document.source_name,
+                markdown: document.prompt_context,
+              })),
+              requiresVisualPolicyReceipt: true,
+            };
+          }
           input.setDocumentPreparation({ phase: 'image_error', fileCount: imageFiles.length, startedAt });
-          const cloudFailure = response.data?.ok === false ? response.data : undefined;
-          Message.error({
-            content: cloudFailure?.message || t('conversation.image.cloudVisionFailed'),
-            duration: 6000,
-          });
+          Message.error({ content: failure?.message || t('conversation.image.prepareFailed'), duration: 6000 });
           return null;
         }
+
         input.setDocumentPreparation({ phase: 'image_handoff', fileCount: imageFiles.length, startedAt });
         return {
           files: mergeCommandEvePreparedImageFiles(files, response.data.documents),
@@ -278,7 +197,7 @@ export function useCommandEveVisualPreparation(input: {
             sourceName: document.source_name,
             markdown: document.prompt_context,
           })),
-          cloudConsentGranted: true,
+          requiresVisualPolicyReceipt: false,
         };
       } catch (error) {
         console.error('[AcpSendBox] Image preparation failed:', error);

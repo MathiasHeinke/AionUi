@@ -256,6 +256,8 @@ describe('ISO-8 GATE-NULL — seat A can never reach seat B across all 6 isolati
   it('the full disjointness oracle holds for two distinct real seats (ISO-1…ISO-5)', () => {
     const { a, b } = buildSurfaces();
     assertFullyDisjoint(a, b, { aToken: ENTITY_A, bToken: ENTITY_B });
+    expect(a.configKeys).toContain(`seat:${SEAT_A}:commandEve.cloudVisualAnalysisEnabled`);
+    expect(b.configKeys).toContain(`seat:${SEAT_B}:commandEve.cloudVisualAnalysisEnabled`);
     // And cross-check: seat A's tracer never appears anywhere in seat B's surface.
     const bSurfaceBlob = JSON.stringify(b);
     expect(bSurfaceBlob).not.toContain(SEAT_A);

@@ -184,9 +184,7 @@
     }
   },
   "visual": {
-    "managedCloudTitle": "Answer this visual analysis securely in the cloud?",
-    "managedCloudDescription": "EVE prepared {{files}} locally. To create the complete answer, only the prepared bounded previews and extracted content are processed once through the managed OpenRouter ZDR route: no training and no provider key in the app. Original files stay on this Mac. Cancel keeps the draft and files unsent.",
-    "managedCloudConfirm": "Analyze securely once",
+    "sourceLimit": "Select no more than six images or presentations per turn.",
     "managedCloudFailed": "Managed visual analysis could not be authorized. The draft and files remain unsent."
   },
   "createFailed": "Failed to create conversation",

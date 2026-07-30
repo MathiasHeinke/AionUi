@@ -135,18 +135,26 @@ const SHIM_JSON_HEADERS = {
 
 let eveFnServer: http.Server | undefined;
 
-type EveFnSeen = { body?: Record<string, unknown>; authHeader?: string | null; path?: string };
+type EveFnSeen = { body?: Record<string, unknown>; authHeader?: string | null; path?: string; attempts?: number };
 
 /** A fake eve-inference function (returns an OpenAI-compatible completion). */
-async function startFakeEveFunction(seen: EveFnSeen, opts?: { status?: number }): Promise<string> {
+async function startFakeEveFunction(
+  seen: EveFnSeen,
+  opts?: { status?: number; responseBody?: unknown }
+): Promise<string> {
   eveFnServer = http.createServer((request, response) => {
     void (async () => {
+      seen.attempts = (seen.attempts ?? 0) + 1;
       seen.path = new URL(request.url || '/', 'http://127.0.0.1').pathname;
       seen.authHeader = request.headers.authorization ?? null;
       seen.body = await readRequestBody(request);
-      writeJson(response, opts?.status ?? 200, {
-        choices: [{ message: { role: 'assistant', content: 'eve-cloud-ok' }, finish_reason: 'stop' }],
-      });
+      writeJson(
+        response,
+        opts?.status ?? 200,
+        opts?.responseBody ?? {
+          choices: [{ message: { role: 'assistant', content: 'eve-cloud-ok' }, finish_reason: 'stop' }],
+        }
+      );
     })().catch((error) => {
       writeJson(response, 500, { error: error instanceof Error ? error.message : String(error) });
     });
@@ -797,6 +805,49 @@ describe('Command EVE shim — EVE cloud routing', () => {
     expect(JSON.stringify(fnSeen.body?.messages)).toContain('Analyze the four-slide deck.');
   });
 
+  it('blocks a consumed managed-visual turn when the final seat policy was revoked', async () => {
+    const ollamaBaseUrl = await startFakeOpenAiServer(() => {});
+    const fnSeen: EveFnSeen = {};
+    const fnUrl = await startFakeEveFunction(fnSeen);
+    const marker = commandEveManagedVisualTurnMarker('R'.repeat(43));
+    let finalPolicyChecks = 0;
+
+    shimServerUrl = await startCommandEveOllamaOpenAiShim({
+      port: 0,
+      ollamaBaseUrl,
+      eveRouting: () => ({
+        active: true,
+        functionUrl: fnUrl,
+        license: FAKE_LICENSE,
+        tier: 'high',
+        authorizeManagedVisualEgress: () => {
+          finalPolicyChecks += 1;
+          return false;
+        },
+      }),
+    });
+
+    const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: SHIM_JSON_HEADERS,
+      body: JSON.stringify({
+        model: 'custom:command-eve-gemma4-e4b-64k:latest',
+        messages: [{ role: 'user', content: `${marker}\nAnalyze the selected image.` }],
+        stream: false,
+      }),
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: 'EVE_MANAGED_VISUAL_POLICY_STALE',
+        message: 'Cloud visual analysis is no longer enabled for the active seat. Reattach the files and retry.',
+      },
+    });
+    expect(finalPolicyChecks).toBe(1);
+    expect(fnSeen.attempts).toBeUndefined();
+  });
+
   it('routes an EVE-tier chat to the eve-inference function with bearer + tier, not to Ollama', async () => {
     let ollamaSeen = false;
     const ollamaBaseUrl = await startFakeOpenAiServer(() => {
@@ -838,6 +889,53 @@ describe('Command EVE shim — EVE cloud routing', () => {
     expect(fnSeen.body?.session_id).toBeUndefined();
     expect(fnSeen.body?.cache_scope).toBe(commandEveCacheScope('hermes-session-private-1', 'seat-1'));
   });
+
+  it.each([
+    {
+      status: 402,
+      responseBody: {
+        error: {
+          type: 'payment_required',
+          message: 'Synthetic upstream reserved 65536 output tokens but the test balance is smaller.',
+        },
+      },
+    },
+    {
+      status: 500,
+      responseBody: { error: { type: 'upstream_failure', message: 'Synthetic upstream failure.' } },
+    },
+  ])(
+    'omits output-token limits and makes one paid-upstream attempt for HTTP $status',
+    async ({ status, responseBody }) => {
+      const ollamaBaseUrl = await startFakeOpenAiServer(() => {});
+      const fnSeen: EveFnSeen = {};
+      const fnUrl = await startFakeEveFunction(fnSeen, { status, responseBody });
+
+      shimServerUrl = await startCommandEveOllamaOpenAiShim({
+        port: 0,
+        ollamaBaseUrl,
+        eveRouting: () => ({ active: true, functionUrl: fnUrl, license: FAKE_LICENSE, tier: 'max' }),
+      });
+
+      const response = await fetch(`${shimServerUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: SHIM_JSON_HEADERS,
+        body: JSON.stringify({
+          model: 'custom:command-eve-gemma4-e4b-64k:latest',
+          messages: [{ role: 'user', content: 'Synthetic provenance turn.' }],
+          stream: false,
+          max_tokens: 65_536,
+          max_completion_tokens: 65_535,
+        }),
+      });
+
+      expect(response.status).toBe(status);
+      expect(await response.json()).toEqual(responseBody);
+      expect(fnSeen.attempts).toBe(1);
+      expect(fnSeen.body).not.toHaveProperty('max_tokens');
+      expect(fnSeen.body).not.toHaveProperty('max_completion_tokens');
+    }
+  );
 
   it('strips native image_url parts before the EVE cloud lane sees them', async () => {
     const ollamaBaseUrl = await startFakeOpenAiServer(() => {});

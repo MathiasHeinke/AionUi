@@ -16,11 +16,23 @@ import {
   COMMAND_EVE_SHELL_ENABLED,
   getCommandEveAppName,
 } from '@/common/config/commandEveShell';
-import { hardenPackagedCdpCommandLine, shouldEnableCdpAtStartup } from '../security/cdpSecurityCore';
+import {
+  COMMAND_EVE_E2E_PACKAGED_ATTACHMENT_MARKER,
+  hardenPackagedCdpCommandLine,
+  shouldAllowNonDistributableE2EAttachment,
+  shouldEnableCdpAtStartup,
+} from '../security/cdpSecurityCore';
 import { applyGpuRecoveryFlags } from './gpuRecovery';
 
+const allowNonDistributableE2EAttachment = shouldAllowNonDistributableE2EAttachment({
+  isPackaged: app.isPackaged,
+  e2eTest: process.env.AIONUI_E2E_TEST === '1',
+  attachmentRequested: process.env.COMMAND_EVE_E2E_PACKAGED_ATTACHMENT === '1',
+  packageMarkerPresent: fs.existsSync(path.join(process.resourcesPath, COMMAND_EVE_E2E_PACKAGED_ATTACHMENT_MARKER)),
+});
 const strippedPackagedCdpSwitches = hardenPackagedCdpCommandLine({
   isPackaged: app.isPackaged,
+  allowNonDistributableE2EAttachment,
   argv: process.argv,
   removeSwitch: (name) => app.commandLine.removeSwitch(name),
 });
