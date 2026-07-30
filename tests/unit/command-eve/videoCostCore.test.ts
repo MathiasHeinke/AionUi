@@ -227,6 +227,32 @@ describe('isVideoGenerationRequest — high-precision generation-intent detectio
     expect(isVideoGenerationRequest(undefined)).toBe(false);
   });
 
+  // These six sentences all MATCHED before the cost wall was removed. That was
+  // tolerable while a confirmation stood behind the classifier — an over-firing
+  // pattern cost one cancel click. It is not tolerable now: requestRoutesToVideoLane
+  // ORs this regex with the capability checks, so a match alone routes an ordinary
+  // message into the paid video lane with nothing left to catch it.
+  it('does not route ordinary requests into the paid video lane', () => {
+    expect(isVideoGenerationRequest('Create a short summary of this meeting')).toBe(false);
+    expect(isVideoGenerationRequest('Make a short story for my blog')).toBe(false);
+    expect(isVideoGenerationRequest('Can you write and design an ad for Google Ads (text only)?')).toBe(false);
+    expect(isVideoGenerationRequest('Edit this blog post about our new ad campaign')).toBe(false);
+    expect(isVideoGenerationRequest('Ich will heute Abend einen Film schauen — hast du Tipps?')).toBe(false);
+    expect(isVideoGenerationRequest('Cut the intro from the audio clip')).toBe(false);
+  });
+
+  // The narrowing must not cost genuine recall. A real editing request still
+  // reaches the lane through the capability / addressed agent / skill branches of
+  // requestRoutesToVideoLane; what these pin is that the obvious phrasings survive.
+  it('still recognises genuine generation intent', () => {
+    expect(isVideoGenerationRequest('please create a short reel for TikTok')).toBe(true);
+    expect(isVideoGenerationRequest('render an animation of the logo')).toBe(true);
+    expect(isVideoGenerationRequest('build a promo video for the launch')).toBe(true);
+    expect(isVideoGenerationRequest('mach mir einen Werbespot für Instagram')).toBe(true);
+    expect(isVideoGenerationRequest('Trailer produzieren für das neue Produkt')).toBe(true);
+    expect(isVideoGenerationRequest('cut me a youtube short from this')).toBe(true);
+  });
+
   // DUX-6: the hardened classifier must catch MORE real video-intent phrasings
   // (ad/spot/trailer/promo formats, more verbs, both word orders) so fewer heavy
   // requests slip past — without tripping on a mere mention.

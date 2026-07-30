@@ -5,19 +5,24 @@
  */
 
 /**
- * Video PRE-SUBMIT cost-wall (Lane 3, war-game guardrail).
+ * PARKED — NOT RENDERED ANYWHERE. Nothing imports this component.
  *
- * Video is the most expensive action in the credit economy, so the desktop
- * NEVER fires a generation silently. Before a video request this modal shows a
- * transparent cost preview — "Dieses ~5s-Video kostet ca. N Credits —
- * fortfahren?" — and REQUIRES an explicit confirm. The cheaper Fast/720p tier is
- * the DEFAULT; 1080p is an explicit, opt-in UPGRADE the user must toggle.
+ * It was the pre-submit cost wall: a modal that asked the user to approve the
+ * credits for a video they had just asked for. That confirmation is gone —
+ * asking for a video is the authorisation for it — so the SendBox no longer
+ * mounts this, and `useVideoCostWall` no longer has a visible/confirm/cancel
+ * surface to drive it.
  *
- * The cost MATH and the default-tier DECISION live in the PURE `videoCostCore`
- * (unit-tested); this component is the presentation + the confirm wiring. It is
- * controlled: the SendBox opens it for a pending video request, and `onConfirm`
- * receives the user's resolved tier so the request fires at exactly the price
- * shown.
+ * Kept for one reason only: the 1080p/HD tier had no other selector, so removing
+ * the wall also removed the only way to choose it. Whether HD comes back as a
+ * non-blocking picker or is dropped is a product decision; this file is the
+ * existing tier UI to build that from. If that decision goes the other way,
+ * delete this file together with the `credits.video.*` strings and the
+ * `video-cost-wall` CSS.
+ *
+ * Do not re-mount it as a gate. The brake that protects the spend is server-side:
+ * `reservePaidLane` → `canAfford` answers 402 on `insufficient_credits` or
+ * `spend_cap_exceeded` before the upstream call ever happens.
  */
 
 import React, { useMemo, useState } from 'react';

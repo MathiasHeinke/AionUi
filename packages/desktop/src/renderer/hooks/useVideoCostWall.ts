@@ -17,9 +17,10 @@
  * same way attaching an image is the authorisation to analyse it.
  *
  * The limit that actually protects money is elsewhere and unaffected: the
- * inference edge function reads `spend_cap_eur_cents` and its debit path refuses
- * on `insufficient`, so an exceeded cap or an empty balance stops the spend at
- * the money boundary regardless of what the renderer shows.
+ * inference edge function reserves the spend BEFORE calling upstream
+ * (`reservePaidLane` → `canAfford`) and answers 402 on `insufficient_credits` or
+ * `spend_cap_exceeded`. That pre-flight gate is the brake — not the ledger
+ * reconcile afterwards, which only retries.
  *
  * The cost does not vanish with the wall. The resolved tier and credit figure are
  * handed to `run`, which weaves them into the dispatched message, so the number

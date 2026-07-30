@@ -5,23 +5,29 @@
  */
 
 /**
- * Command EVE VIDEO generation cost-wall — pure core (Lane 3, war-game guardrail).
+ * Command EVE VIDEO generation — pure cost core.
  *
- * Video is the single MOST expensive action in the credit economy: one ~5s clip
- * can cost an order of magnitude more credits than a chat turn or an image. The
- * pricing/trial war-game flagged the heavy video lane as a margin-drain risk, so
- * the desktop NEVER fires a video generation silently:
+ * Video is the most expensive action in the credit economy: one ~5s clip can cost
+ * an order of magnitude more than a chat turn or an image. This module owns the
+ * credit MATH, the default-tier DECISION and the intent classifier.
  *
- *   1. Before any video request the user sees a transparent COST PREVIEW
- *      ("Dieses ~5s-Video kostet ca. N Credits — fortfahren?") and must
- *      EXPLICITLY confirm.
- *   2. The cheaper Fast/720p tier is the DEFAULT. 1080p (and any "high" quality)
- *      is an explicit, opt-in UPGRADE — never the default selection.
+ * It used to open a blocking cost preview before every generation and this header
+ * said the desktop "NEVER fires a video generation silently". That is no longer
+ * how the product works: asking for a video is the authorisation for it, the same
+ * way attaching an image is the authorisation to analyse it. The confirmation was
+ * a second question about an intent the request already carried.
  *
- * This module is PURE (no Electron, no fs, no network) so the credit MATH and
- * the default-tier DECISION are unit-testable in plain Node (vitest), mirroring
- * `creditsCore.ts` / `eveInferenceCore.ts`. The renderer (`VideoCostWall.tsx`)
- * is presentation + the confirm wiring on top of this.
+ * What still protects the money is server-side and unchanged: the inference edge
+ * function reserves the spend BEFORE the upstream call (`reservePaidLane` →
+ * `canAfford`) and answers 402 on `insufficient_credits` or `spend_cap_exceeded`.
+ * That is the brake. This module never was one.
+ *
+ * The cheaper Fast/720p tier remains the default. NOTE: with the wall gone the
+ * 1080p upgrade has no UI to select it — `isExplicitUpgrade` is retained for the
+ * eventual replacement surface, and the loss is tracked rather than pretended away.
+ *
+ * PURE (no Electron, no fs, no network) so the math and the classifier stay
+ * unit-testable in plain Node, mirroring `creditsCore.ts` / `eveInferenceCore.ts`.
  */
 
 // ---------------------------------------------------------------------------
@@ -166,11 +172,16 @@ export interface VideoSubmitGate {
  * incur. That is not a safety boundary, it is a second question: the request
  * itself already carried the intent.
  *
- * The real brake was never here. It is server-side and fail-closed: the
- * inference edge function reads `spend_cap_eur_cents` and its debit path refuses
- * on `insufficient`, so an exhausted balance or an exceeded cap stops the spend
- * at the money boundary whether or not a modal was shown. Removing the modal
- * removes a confirmation, not a limit.
+ * The real brake was never here. It is server-side, fail-closed, and it runs
+ * BEFORE the upstream call: `reservePaidLane` loads the balance and answers 402
+ * rather than proceeding, via `canAfford`, which refuses on both
+ * `insufficient_credits` and `spend_cap_exceeded`
+ * (Company.OS supabase/functions/_shared/eve-inference-core.ts and credits-core.ts).
+ *
+ * Not to be confused with `commitDebit` in eve-inference/index.ts: that is the
+ * post-generation ledger reconcile, and its `insufficient` branch is a retry, not
+ * a refusal. An earlier revision of this comment cited it as the brake. It is not
+ * one, and naming the wrong mechanism is how a limit gets believed into existence.
  *
  * The estimate does not disappear with the wall: the resolved tier and credit
  * figure travel into the dispatched message (`buildResolvedVideoMessage`), so
@@ -203,26 +214,45 @@ export function isExplicitUpgrade(args: { selectedTierId: VideoQualityTier; user
 // ---------------------------------------------------------------------------
 
 /**
- * Phrases that signal the user is asking to GENERATE a video (the heavy lane),
- * not merely mentioning the word "video". Kept deliberately high-precision so a
- * chat that only references videos ("schau dir dieses Video an") does NOT trip
- * the cost-wall — the wall only fires on an actual generation request. Matched
- * case-insensitively against the trimmed message; DE + EN coverage.
+ * Phrases that signal the user is asking to GENERATE a video, not merely
+ * mentioning one. Matched case-insensitively against the trimmed message; DE + EN.
  *
- * The list pairs a video noun with a creation verb (or a well-known short-form
- * format the videomarketer produces) so the signal is a *generation* intent.
+ * PRECISION OVER RECALL, and that is a deliberate reversal. This list used to be
+ * wide because a cost wall stood behind it: an over-firing pattern only cost the
+ * user a cancel click. The wall is gone — asking for a video is now the
+ * authorisation — so a false positive routes a perfectly ordinary message into
+ * the video lane and spends on it with nothing left to catch the mistake.
+ *
+ * These nouns were removed for exactly that reason, each with a real sentence
+ * that tripped it: `short(s)` ("create a short summary of this meeting"),
+ * `story/stories` ("make a short story for my blog"), `ad/advert` ("design an ad
+ * for Google Ads, text only"), and bare German `film` ("ich will heute Abend
+ * einen Film schauen"). The verbs `edit` and `cut` went with them ("edit this
+ * blog post about our new ad campaign"), and German `will`, which is a plain
+ * future auxiliary.
+ *
+ * Losing those does not lose genuine video edits: a real editing request still
+ * reaches the lane through the capability, the addressed videomarketer or a video
+ * skill (see {@link requestRoutesToVideoLane}). Only the regex-ONLY path narrows,
+ * and that is the path with no other check behind it.
+ *
+ * `youtube shorts` survives in the format list, where it is unambiguous.
  */
 const VIDEO_GENERATION_PATTERNS: readonly RegExp[] = [
-  // EN: "generate/create/make/produce/edit a video/clip/reel/short/spot/ad"
-  /\b(generate|create|make|produce|render|animate|edit|cut|film|shoot|design|build|whip\s+up)\b[^.!?]{0,60}\b(video|clip|reel|short|shorts|tiktok|tik[-\s]?tok|animation|spot|ad|advert|commercial|trailer|montage|footage|story|stories|movie)s?\b/i,
-  // EN: noun-first — "a video for ... — create it", "video ad", "promo video"
-  /\b(video|clip|reel|short|kurzvideo|tiktok|tik[-\s]?tok|animation|spot|trailer)s?\b[^.!?]{0,60}\b(generate|create|make|produce|render|animate|edit|cut|film|shoot|design|build|für\s+mich|for\s+me)\b/i,
+  // EN: "generate/create/make/produce a video/clip/reel/animation/trailer"
+  /\b(generate|create|make|produce|render|animate|shoot|design|build|whip\s+up)\b[^.!?]{0,60}\b(video|clip|reel|tiktok|tik[-\s]?tok|animation|commercial|trailer|montage|footage|movie)s?\b/i,
+  // EN: noun-first — "a video for ... — create it", "promo video"
+  /\b(video|clip|reel|kurzvideo|tiktok|tik[-\s]?tok|animation|trailer)s?\b[^.!?]{0,60}\b(generate|create|make|produce|render|animate|shoot|design|build|für\s+mich|for\s+me)\b/i,
   // EN: format/lane keywords — "text-to-video", "ai video", "video generation"
-  /\b(text[-\s]?to[-\s]?video|img[-\s]?to[-\s]?video|image[-\s]?to[-\s]?video|video\s+gen(eration)?|ai\s+video|video\s+ad|promo\s+video|explainer\s+video|product\s+video)\b/i,
-  // DE: "erstelle/mach/generiere/produziere/schneide/drehe/brauche ein Video/Clip/Reel/Short"
-  /\b(erstell|erstelle|erstellst|mach|mache|machst|generier|generiere|generierst|produzier|produziere|dreh|drehe|drehst|erzeug|erzeuge|schneid|schneide|bau|baue|design|entwirf|brauch|brauche|brauchst|braucht|will|möcht|möchte|möchtest|hätte?\s+gern)\b[^.!?]{0,60}\b(video|clip|reel|short|shorts|kurzvideo|tiktok|tik[-\s]?tok|animation|spot|werbespot|werbevideo|trailer|imagefilm|film|produktvideo)s?\b/i,
-  // DE: verb-after-noun — "Video erstellen/generieren/schneiden/produzieren"
-  /\b(video|clip|reel|short|shorts|kurzvideo|tiktok|tik[-\s]?tok|animation|spot|werbespot|werbevideo|trailer|imagefilm|produktvideo)s?\b[^.!?]{0,60}\b(erstellen|erstell|generieren|generier|drehen|dreh|produzieren|produzier|machen|mach|erzeugen|erzeug|schneiden|schneid|bauen|bau|für\s+mich)\b/i,
+  /\b(text[-\s]?to[-\s]?video|img[-\s]?to[-\s]?video|image[-\s]?to[-\s]?video|video\s+gen(eration)?|ai\s+video|video\s+ad|promo\s+video|explainer\s+video|product\s+video|youtube\s+shorts?)\b/i,
+  // DE: "erstelle/mach/generiere/produziere/drehe/schneide ein Video/Clip/Reel".
+  // `schneid` stays here although English `cut` was dropped: the ambiguity that
+  // forced `cut` out is English-only ("cut the intro from the audio clip"), while
+  // the German nouns this pairs with — Werbespot, Kurzvideo, Imagefilm — carry the
+  // video meaning on their own.
+  /\b(erstell|erstelle|erstellst|mach|mache|machst|generier|generiere|generierst|produzier|produziere|dreh|drehe|drehst|erzeug|erzeuge|schneid|schneide|bau|baue|design|entwirf|brauch|brauche|brauchst|braucht|möcht|möchte|möchtest|hätte?\s+gern)\b[^.!?]{0,60}\b(video|clip|reel|kurzvideo|tiktok|tik[-\s]?tok|animation|werbespot|werbevideo|trailer|imagefilm|produktvideo)s?\b/i,
+  // DE: verb-after-noun — "Video erstellen/generieren/produzieren"
+  /\b(video|clip|reel|kurzvideo|tiktok|tik[-\s]?tok|animation|werbespot|werbevideo|trailer|imagefilm|produktvideo)s?\b[^.!?]{0,60}\b(erstellen|erstell|generieren|generier|drehen|dreh|produzieren|produzier|machen|mach|erzeugen|erzeug|bauen|bau|für\s+mich)\b/i,
 ];
 
 /**
@@ -230,13 +260,13 @@ const VIDEO_GENERATION_PATTERNS: readonly RegExp[] = [
  * (the heavy paid lane). Pure + dependency-light so the send-path can decide,
  * BEFORE submitting, whether to route through the cost-wall.
  *
- * IMPORTANT (DUX-6): this regex is a HELPFUL pre-filter, NOT the sole gate. A
- * narrow NL regex will always have false-negatives, and a missed video request
- * silently bypasses the most expensive lane in the credit economy. The send-path
- * MUST ALSO gate on the resolved video capability / addressed videomarketer
- * (see {@link isVideoLaneRequest} / {@link requestRoutesToVideoLane}). The regex
- * widens recall (DE/EN, more verbs + short-form/ad/spot/trailer formats), but the
- * fail-safe is the capability gate, not this function.
+ * READ {@link requestRoutesToVideoLane} BEFORE WIDENING THIS. That function ORs
+ * this regex with the capability, the addressed agent and the video skills — so
+ * a match here is SUFFICIENT on its own to route into the video lane. An older
+ * comment here claimed the opposite ("a helpful pre-filter, NOT the sole gate …
+ * the fail-safe is the capability gate, not this function"); that was never true
+ * of the code, and with the cost wall removed it was actively misleading, because
+ * it invited widening a pattern that now spends money unattended.
  *
  * Empty / whitespace / non-string input is never a video request.
  */
