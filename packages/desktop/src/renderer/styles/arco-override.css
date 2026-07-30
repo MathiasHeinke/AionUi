@@ -204,6 +204,15 @@ html body .arco-btn:not(.arco-btn-shape-circle):not(.arco-btn-shape-round) {
   gap: 8px !important;
 }
 
+/* A permission mode EVE could not confirm must be visible without hovering.
+   The pill carries data-mode-sync-state="warning" for exactly that state; until
+   this rule existed the only signal was the `title` tooltip, which made an
+   unconfirmed authority look identical to a confirmed one. */
+.agent-mode-compact-pill[data-mode-sync-state='warning'] {
+  border-color: var(--warning) !important;
+  color: var(--warning) !important;
+}
+
 .arco-btn-primary.arco-btn-disabled {
   background-color: var(--eve-row-selected-bg) !important;
   border-color: var(--glass-panel-border) !important;

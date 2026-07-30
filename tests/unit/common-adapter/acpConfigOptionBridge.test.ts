@@ -80,6 +80,41 @@ describe('ACP mode/model config-options bridge', () => {
     );
   });
 
+  // Regression: the mapper used to fabricate `default` plus `initialized: true`
+  // for a payload that carried no mode option. The permission pill then showed
+  // "Ask" for a session whose real mode was never reported, and every caller's
+  // `initialized === false` guard was unreachable.
+  it('reports an absent mode option as un-established instead of fabricating Ask', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(jsonResponse({ config_options: [] }));
+
+    await expect(acpConversation.getMode.invoke({ conversation_id: 'conversation-1' })).resolves.toEqual({
+      mode: 'default',
+      initialized: false,
+    });
+  });
+
+  it('does not present a mode option without a value as established', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        config_options: [
+          { id: 'mode', category: 'mode', type: 'select', options: [{ value: 'default', name: 'Default' }] },
+        ],
+      })
+    );
+
+    await expect(acpConversation.getMode.invoke({ conversation_id: 'conversation-1' })).resolves.toEqual({
+      mode: 'default',
+      initialized: false,
+    });
+  });
+
+  // Deliberately NOT asserted: that `confirmation: 'command_ack'` means
+  // un-established. Nothing in this repo evidences the backend ever answering
+  // `'observed'`, so treating an ack as a failure could leave a widening
+  // permanently unconfirmed. Pin it only once the backend contract is proven.
+
   it('maps the model catalog and writes model through config-options/model', async () => {
     const fetchMock = vi.mocked(fetch);
     const payload = {

@@ -2512,9 +2512,25 @@ function mapModeConfigResponse(response: AcpConfigOptionsResponse | AcpSetConfig
   initialized: boolean;
 } {
   const option = findAcpConfigOption(response, 'mode');
+  const reported = option?.current_value ?? option?.selected_value;
+  // A payload that carries no mode option says NOTHING about the live session
+  // mode. Fabricating `default` here plus a hard-coded `initialized: true` made
+  // the permission pill claim "Ask" whenever the backend simply did not answer,
+  // and made every caller's "never adopt an un-established mode" guard
+  // unreachable. Report the absence instead, so those guards do their job.
+  //
+  // `mode` keeps the `default` placeholder so the shape stays stable, but it is
+  // only meaningful once `initialized` is true — it is a fallback, not a claim.
+  //
+  // Deliberately NOT folded in: `confirmation === 'command_ack'`. It reads like
+  // "accepted but not yet observed", which would make it un-established too, but
+  // nothing in this repo evidences that the backend ever answers `'observed'`.
+  // If `command_ack` is simply its success reply, treating it as un-established
+  // would leave a widening permanently unconfirmed. Needs a proven backend
+  // contract before it becomes a rule.
   return {
-    mode: option?.current_value ?? option?.selected_value ?? 'default',
-    initialized: true,
+    mode: reported ?? 'default',
+    initialized: reported !== undefined,
   };
 }
 

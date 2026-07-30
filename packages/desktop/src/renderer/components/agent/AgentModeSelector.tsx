@@ -248,9 +248,41 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
         if (cancelled || !result) return;
         // The user's explicit pick wins, always.
         if (userSelectedModeRef.current) return;
-        // Before the manager is initialized, getMode returns
-        // { mode: 'default', initialized: false } — never adopt that.
-        if (result.initialized === false) return;
+        // The backend reported no established mode. Nothing may be adopted from
+        // that — but it is equally no reason to keep DISPLAYING more authority
+        // than this seat's own stored grant. Returning outright here was a real
+        // regression: with a silent backend and a stale wide `session_mode`, the
+        // pill kept claiming the wider mode while the stored preference was the
+        // narrow one. The rule below ("restrictive changes become local authority
+        // immediately") has to hold when the backend says nothing, so this path
+        // may only ever NARROW what is shown — never widen it.
+        if (result.initialized === false) {
+          // Nothing may be ADOPTED from a non-answer. Narrowing is normally not
+          // needed either: `resolveConversationMode` (agentSelectionUtils.ts:137)
+          // seeds EVE conversations from this seat's stored grant ahead of any
+          // stale `session_mode`, so with the full three-mode menu the displayed
+          // mode cannot exceed the stored authority.
+          //
+          // That is NOT an invariant, and the comment must not claim it is: if the
+          // backend advertises a partial mode list that omits the stored rung but
+          // includes a wider stale one (grant `accept_edits`, menu
+          // ['default','dont_ask'], session_mode 'dont_ask'), resolveModeForBackend
+          // finds no synonym, the stored preference falls through, and the seed
+          // lands above the grant. Needs a malformed capability advertisement, so
+          // it is a follow-up rather than a second guard here — but it can fire.
+          //
+          // What DOES have to happen: un-established is not the same as
+          // confirmed. Mark the pill so a mode nobody could verify never reads as
+          // a settled state.
+          if (isEveConversation) {
+            setModeSyncWarning(
+              t('agentMode.eve.expansionNotConfirmed', {
+                defaultValue: 'EVE did not confirm the broader permission mode. The previous mode remains active.',
+              })
+            );
+          }
+          return;
+        }
         const backendMode = resolveModeForBackend(result.mode, modes);
         const preferredEveMode = isEveConversation ? resolveStoredPreferredMode(backend, modes) : undefined;
         const backendDisplayMode = backendMode;
@@ -276,6 +308,16 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
             if (isExpansion && backendDisplayMode) {
               setCurrentMode(backendDisplayMode);
               publishAcknowledgedMode(backendDisplayMode);
+              // The stored choice is WIDER than what the backend holds and the sync
+              // failed. This branch used to drop the pill to the narrower mode with
+              // no signal at all, which is exactly how a downgrade to "Ask" read as
+              // a confirmed state. Mark the pill (tooltip + data-mode-sync-state);
+              // deliberately no toast, because this path runs on every mount.
+              setModeSyncWarning(
+                t('agentMode.eve.expansionNotConfirmed', {
+                  defaultValue: 'EVE did not confirm the broader permission mode. The previous mode remains active.',
+                })
+              );
             } else {
               const warning = t('agentMode.eve.restrictionSyncFailed', {
                 defaultValue: 'Restriction is active locally, but EVE could not confirm the backend change.',
@@ -287,7 +329,11 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
             return;
           }
           if (cancelled || userSelectedModeRef.current) return;
-          const confirmedMode = resolveModeForBackend(confirmed?.mode, modes);
+          // An un-established answer — no mode option reported, or a bare
+          // `command_ack` meaning "accepted, not yet observed applied" — is not
+          // evidence about the live mode. Never let it move the pill.
+          const confirmedMode =
+            confirmed?.initialized === false ? undefined : resolveModeForBackend(confirmed?.mode, modes);
           if (confirmedMode !== preferredEveMode) {
             if (isExpansion) {
               const confirmedDisplayMode = confirmedMode ?? backendDisplayMode;
@@ -295,6 +341,13 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
                 setCurrentMode(confirmedDisplayMode);
                 publishAcknowledgedMode(confirmedDisplayMode);
               }
+              // Same reasoning as the catch above: a requested widening that was
+              // not confirmed must not look like a settled state.
+              setModeSyncWarning(
+                t('agentMode.eve.expansionNotConfirmed', {
+                  defaultValue: 'EVE did not confirm the broader permission mode. The previous mode remains active.',
+                })
+              );
             } else {
               setModeSyncWarning(
                 t('agentMode.eve.restrictionSyncFailed', {
@@ -419,7 +472,13 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
             conversation_id,
             mode: requestedBackendMode,
           });
-          const confirmedMode = resolveModeForBackend(confirmed?.mode, modes);
+          // An un-established answer carries the `default` placeholder, not a
+          // reported mode. Without this the restriction case cleared the warning
+          // and showed an unreported set as settled (placeholder happens to equal
+          // a `default` request), and the expansion case adopted the placeholder
+          // as "truthful" over the mode that was actually active.
+          const confirmedMode =
+            confirmed?.initialized === false ? undefined : resolveModeForBackend(confirmed?.mode, modes);
           if (confirmedMode !== requestedBackendMode) {
             if (isExpansion) {
               const truthfulMode = confirmedMode ?? previousMode;
@@ -480,6 +539,11 @@ const AgentModeSelector: React.FC<AgentModeSelectorProps> = ({
       try {
         await beforeRuntimeSync?.();
         const confirmed = await ipcBridge.acpConversation.setMode.invoke({ conversation_id, mode });
+        // An un-established answer carries the `default` placeholder, not a real
+        // mode. Adopting it snapped the pill back to "Ask" over the pick the user
+        // had just made — the same fabricated-default defect the EVE branch above
+        // guards against. Keep the optimistic pick from line ~520 instead.
+        if (confirmed?.initialized === false) return;
         const confirmedMode = resolveModeForBackend(confirmed?.mode, modes);
         if (!confirmedMode) return;
 

@@ -102,6 +102,88 @@ describe('AgentModeSelector Command EVE C0 containment', () => {
     });
   });
 
+  // PINS PRE-EXISTING BEHAVIOUR, not the mapper fix: an independent review argued
+  // that a silent backend would leave a stale WIDE session_mode on the pill while
+  // this seat's stored grant was the narrow one. It does not, because
+  // resolveConversationMode (agentSelectionUtils.ts:137) seeds EVE conversations
+  // from the stored grant ahead of session_mode. This test exists to keep that
+  // precedence from being reversed later — it passes with or without the fix.
+  it('seeds from the stored restriction, not from a stale wide session_mode', async () => {
+    configGetMock.mockImplementation((key: string) => {
+      if (key === 'acp.config') return { hermes: { preferredMode: 'default' } };
+      return undefined;
+    });
+    getModeInvokeMock.mockResolvedValue({ mode: 'default', initialized: false });
+
+    render(<AgentModeSelector backend='hermes' conversation_id='eve-chat' initialMode='dont_ask' compact />);
+
+    await waitFor(() => expect(screen.getByTestId('mode-selector')).toHaveAttribute('data-current-mode', 'default'));
+    expect(setModeInvokeMock).not.toHaveBeenCalled();
+  });
+
+  // The pill SEEDS from this seat's stored grant, so a wide grant is displayed
+  // before any backend confirmation — by design, it is the operator's own choice.
+  // What must not happen is that an unverifiable wide mode reads as settled.
+  it('marks a wide stored grant as unconfirmed when the backend reports nothing', async () => {
+    configGetMock.mockImplementation((key: string) => {
+      if (key === 'acp.config') return { hermes: { preferredMode: 'dont_ask' } };
+      return undefined;
+    });
+    getModeInvokeMock.mockResolvedValue({ mode: 'default', initialized: false });
+
+    render(<AgentModeSelector backend='hermes' conversation_id='eve-chat' initialMode='default' compact />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('agent-mode-selector-hermes')).toHaveAttribute('data-mode-sync-state', 'warning')
+    );
+    expect(setModeInvokeMock).not.toHaveBeenCalled();
+  });
+
+  // Regression: the passive-sync path dropped the pill to the narrower mode with no
+  // signal whatsoever when a widening was not confirmed — a downgrade to "Ask" that
+  // looked like a settled state. The in-session pick path always warned; this one did not.
+  it('marks the pill when a requested widening is not confirmed', async () => {
+    getModeInvokeMock.mockResolvedValue({ mode: 'default', initialized: true });
+    setModeInvokeMock.mockResolvedValue({ mode: 'default', initialized: true });
+
+    render(<AgentModeSelector backend='hermes' conversation_id='eve-chat' initialMode='default' compact />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('agent-mode-selector-hermes')).toHaveAttribute('data-mode-sync-state', 'warning')
+    );
+  });
+
+  it('marks the pill when the widening round-trip fails outright', async () => {
+    getModeInvokeMock.mockResolvedValue({ mode: 'default', initialized: true });
+    setModeInvokeMock.mockRejectedValue(new Error('backend unreachable'));
+
+    render(<AgentModeSelector backend='hermes' conversation_id='eve-chat' initialMode='default' compact />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('agent-mode-selector-hermes')).toHaveAttribute('data-mode-sync-state', 'warning')
+    );
+  });
+
+  // Regression: on a NON-EVE backend the in-session pick adopted whatever setMode
+  // echoed back. With no mode option in the payload that is the fabricated
+  // `default` placeholder, so the pill snapped to "Default" over the choice the
+  // user had just made — the same defect the EVE branch guards against.
+  it('keeps a non-EVE pick when setMode answers un-established', async () => {
+    getModeInvokeMock.mockResolvedValue({ mode: 'default', initialized: true });
+    setModeInvokeMock.mockResolvedValue({ mode: 'default', initialized: false });
+
+    render(<AgentModeSelector backend='claude' conversation_id='claude-chat' initialMode='default' compact />);
+
+    await waitFor(() => expect(getModeInvokeMock).toHaveBeenCalledWith({ conversation_id: 'claude-chat' }));
+    fireEvent.click(screen.getByTestId('agent-mode-selector-claude'));
+    fireEvent.click(await screen.findByTestId('aionrs-mode-option-bypassPermissions'));
+
+    await waitFor(() =>
+      expect(setModeInvokeMock).toHaveBeenCalledWith({ conversation_id: 'claude-chat', mode: 'bypassPermissions' })
+    );
+    expect(screen.getByTestId('mode-selector')).toHaveAttribute('data-current-mode', 'bypassPermissions');
+  });
+
   it('does not apply another ACP backend preference to a conversation', async () => {
     getModeInvokeMock.mockResolvedValue({ mode: 'default', initialized: true });
 
