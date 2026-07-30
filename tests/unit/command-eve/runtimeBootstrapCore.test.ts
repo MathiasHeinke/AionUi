@@ -1026,6 +1026,24 @@ describe('Command EVE runtime bootstrap core', () => {
       );
       expect(providerOverride).toContain('disable_session_yolo');
       expect(providerOverride).not.toContain('enable_session_yolo');
+      // The silent-turn-death fix. Hermes returns retry exhaustion as data, the ACP
+      // adapter suppresses it once any text streamed, and AionCore only probes
+      // stderr for turns that rendered nothing — so a turn that dies after a tool
+      // call reports end_turn and the operator sees the conversation simply stop.
+      // These pin the wiring that turns it into a visible chat message; the
+      // behavioural proof is a live failing turn, not this test.
+      expect(providerOverride).toContain('class _CommandEveTurnFailureHandler(logging.Handler):');
+      expect(providerOverride).toContain('logging.getLogger("agent.conversation_loop")');
+      expect(providerOverride).toContain('_install_command_eve_turn_failure_capture()');
+      expect(providerOverride).toContain('seq_before = int(_COMMAND_EVE_TURN_FAILURE["seq"])');
+      expect(providerOverride).toContain('acp.update_agent_message_text(failure_text)');
+      // Queued prompts and corrections re-enter through self._prompt_impl — which is
+      // this very wrapper — so without claiming the sequence number every frame above
+      // an inner failure would report it again. Typing a follow-up mid-turn would show
+      // the same error twice.
+      expect(providerOverride).toContain('_COMMAND_EVE_TURN_FAILURE["consumed"] = seq_after');
+      // Never ship the raw line: it carries the provider response verbatim.
+      expect(providerOverride).toContain('def _command_eve_redact_turn_failure(text: str) -> str:');
       // P2 (Fable as CAO, confirmed by two independent arms): the patch
       // installer returns quietly when its import fails, and a log line on
       // Hermes' stderr never reaches receipt.warnings — so a dead authority gate
@@ -2898,5 +2916,49 @@ describe('T4.5 F2 — hint budget: fixed clauses survive a runaway single-line b
     expect(entityMatch).not.toBeNull();
     expect(Array.from(entityMatch![1]).length).toBeLessThanOrEqual(120);
     expect(entityMatch![1].endsWith('…')).toBe(true);
+  });
+
+  // Contract between two artifacts that drift independently: the interpreter we
+  // probe for, and the compiled wheels we ship beside it. lxml and pillow are
+  // cp3XX-specific; probe a different minor and the runtime comes up WITHOUT them
+  // while saying nothing, because Hermes is pure Python and starts happily either
+  // way. Nothing pinned this before, and "newest-first" — justified by Hermes'
+  // own 3.11-3.13 range, which says nothing about compiled wheels — is exactly
+  // how a python3.13 got picked for a cp312 bundle.
+  it('probes the interpreter ABI the bundled binary wheels need, ahead of any newer one', () => {
+    const repoRoot = process.cwd();
+    const resourcesDir = path.join(repoRoot, 'resources');
+
+    const wheels: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else if (entry.name.endsWith('.whl')) wheels.push(entry.name);
+      }
+    };
+    walk(resourcesDir);
+    expect(wheels.length).toBeGreaterThan(0);
+
+    // Every ABI-pinned wheel must agree on one CPython minor; two would mean the
+    // bundle cannot be satisfied by any single interpreter.
+    const abiTags = new Set(
+      wheels.map((name) => /-(cp3\d+)-/.exec(name)?.[1]).filter((tag): tag is string => Boolean(tag))
+    );
+    expect(abiTags.size).toBe(1);
+    const requiredMinor = `3.${[...abiTags][0].slice(3)}`; // cp312 -> 3.12
+
+    const source = fs.readFileSync(
+      path.join(repoRoot, 'packages', 'desktop', 'src', 'process', 'commandEve', 'runtimeBootstrapCore.ts'),
+      'utf8'
+    );
+    const firstUnixCandidate = /const UNIX_PYTHON_BINARY_CANDIDATES = \['([^']+)'/.exec(source)?.[1];
+    const firstSupportedMinor = /const SUPPORTED_PYTHON_MINORS = \['([^']+)'/.exec(source)?.[1];
+    expect(firstUnixCandidate).toBe(`python${requiredMinor}`);
+    expect(firstSupportedMinor).toBe(requiredMinor);
+
+    // And the interpreter we actually bundle must be that same minor.
+    const bundledSegments = /const DARWIN_BUNDLED_PYTHON_REL_SEGMENTS = \[([^\]]+)\]/.exec(source)?.[1] ?? '';
+    expect(bundledSegments).toContain(`python${requiredMinor}`);
   });
 });
