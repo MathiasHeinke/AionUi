@@ -139,35 +139,50 @@ export function estimateVideoCost(request: VideoCostRequest): VideoCostPreview {
 }
 
 // ---------------------------------------------------------------------------
-// The pre-submit gate decision (explicit-confirm guardrail)
+// The pre-submit gate decision
 // ---------------------------------------------------------------------------
 
 /**
- * The pre-submit gate state. The wall MUST require an explicit confirm before a
- * video request fires; this models the decision purely so the renderer cannot
- * accidentally let a video through un-confirmed.
+ * The pre-submit gate state for a video request.
  */
 export interface VideoSubmitGate {
-  /** Whether the cost-wall must be shown before submitting (always true for video). */
+  /**
+   * Whether a blocking confirmation must be shown before submitting. FALSE:
+   * asking to generate a video IS the authorisation for it, exactly as attaching
+   * an image is the authorisation to analyse it.
+   */
   requiresConfirm: boolean;
-  /** Whether the request is currently allowed to proceed (only after confirm). */
+  /** Whether the request may proceed. */
   allowed: boolean;
-  /** The default tier the wall pre-selects (the cheaper Fast/720p). */
+  /** The tier a request resolves to when the user did not pick one (Fast/720p). */
   defaultTierId: VideoQualityTier;
 }
 
 /**
- * Build the pre-submit gate for a video request. `confirmed` reflects whether
- * the user has explicitly pressed "fortfahren" in the wall for THIS request.
+ * Build the pre-submit gate for a video request.
  *
- * INVARIANT: video ALWAYS `requiresConfirm`; it is only `allowed` once
- * `confirmed === true`. There is no path where a video submits without the user
- * having seen the cost preview and confirmed.
+ * This used to hard-code `requiresConfirm: true` — every single generation
+ * opened a modal that asked the user to approve a cost they had just asked to
+ * incur. That is not a safety boundary, it is a second question: the request
+ * itself already carried the intent.
+ *
+ * The real brake was never here. It is server-side and fail-closed: the
+ * inference edge function reads `spend_cap_eur_cents` and its debit path refuses
+ * on `insufficient`, so an exhausted balance or an exceeded cap stops the spend
+ * at the money boundary whether or not a modal was shown. Removing the modal
+ * removes a confirmation, not a limit.
+ *
+ * The estimate does not disappear with the wall: the resolved tier and credit
+ * figure travel into the dispatched message (`buildResolvedVideoMessage`), so
+ * the number stays visible without blocking on it.
+ *
+ * Still gated elsewhere, unchanged: a provider that is not configured, new
+ * billing, and any new sensitive egress.
  */
-export function buildVideoSubmitGate(args: { confirmed: boolean }): VideoSubmitGate {
+export function buildVideoSubmitGate(): VideoSubmitGate {
   return {
-    requiresConfirm: true,
-    allowed: args.confirmed === true,
+    requiresConfirm: false,
+    allowed: true,
     defaultTierId: DEFAULT_VIDEO_TIER_ID,
   };
 }

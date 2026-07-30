@@ -92,7 +92,6 @@ import AcpDocumentPreparationStatus, { type AcpDocumentPreparationState } from '
 import { useCommandEveVisualPreparation } from './useCommandEveVisualPreparation';
 import { useAcpInitialMessage } from './useAcpInitialMessage';
 import type { UseAcpMessageReturn } from './useAcpMessage';
-import VideoCostWall from '@/renderer/components/billing/VideoCostWall';
 import { useVideoCostWall } from '@/renderer/hooks/useVideoCostWall';
 import { isVideoLaneRequest, buildResolvedVideoMessage, VIDEO_LANE_AGENT_ID } from '@/common/config/videoCostCore';
 import { addressesVideoMarketer } from '@/common/config/eveTeamRoster';
@@ -453,48 +452,48 @@ const AcpSendBox: React.FC<{
     >) => {
       try {
         let dispatchPreparedContext = preparedContext;
-      if (managedVisualSourceCount !== undefined) {
-        if (
-          !dispatchPreparedContext ||
-          extractCommandEveManagedVisualTurnToken(dispatchPreparedContext) !== undefined ||
-          !Number.isInteger(managedVisualSourceCount) ||
-          managedVisualSourceCount < 1 ||
-          managedVisualSourceCount > 6
-        ) {
-          throw new Error('EVE_MANAGED_VISUAL_DISPATCH_RECIPE_INVALID');
+        if (managedVisualSourceCount !== undefined) {
+          if (
+            !dispatchPreparedContext ||
+            extractCommandEveManagedVisualTurnToken(dispatchPreparedContext) !== undefined ||
+            !Number.isInteger(managedVisualSourceCount) ||
+            managedVisualSourceCount < 1 ||
+            managedVisualSourceCount > 6
+          ) {
+            throw new Error('EVE_MANAGED_VISUAL_DISPATCH_RECIPE_INVALID');
+          }
+
+          const flowId = `visual_${uuid().replace(/-/g, '')}`;
+          const receiptResult = await ipcBridge.commandEve.cloudVisualPolicyReceipt.invoke({ flowId });
+          if (!receiptResult.success || !receiptResult.data?.ok) {
+            throw new Error(
+              receiptResult.data?.message ||
+                t('conversation.visual.managedCloudFailed', {
+                  defaultValue: 'Cloud visual analysis is disabled or unavailable for this seat.',
+                })
+            );
+          }
+          const authorization = await ipcBridge.commandEve.managedVisualTurnAuthorize.invoke({
+            flowId,
+            visualPolicyReceipt: receiptResult.data.receipt,
+            preferredTier: resolveCommandEveManagedVisualPreferredTier(
+              resolveWireTierFromSelection(eveInference.selection)
+            ),
+            sourceCount: managedVisualSourceCount,
+          });
+          if (!authorization.success || !authorization.data?.ok || !authorization.data.marker) {
+            throw new Error(
+              authorization.data?.message ||
+                t('conversation.visual.managedCloudFailed', {
+                  defaultValue: 'Managed visual analysis could not be authorized. Please try again.',
+                })
+            );
+          }
+          dispatchPreparedContext = `${authorization.data.marker}\n${dispatchPreparedContext}`;
         }
 
-        const flowId = `visual_${uuid().replace(/-/g, '')}`;
-        const receiptResult = await ipcBridge.commandEve.cloudVisualPolicyReceipt.invoke({ flowId });
-        if (!receiptResult.success || !receiptResult.data?.ok) {
-          throw new Error(
-            receiptResult.data?.message ||
-              t('conversation.visual.managedCloudFailed', {
-                defaultValue: 'Cloud visual analysis is disabled or unavailable for this seat.',
-              })
-          );
-        }
-        const authorization = await ipcBridge.commandEve.managedVisualTurnAuthorize.invoke({
-          flowId,
-          visualPolicyReceipt: receiptResult.data.receipt,
-          preferredTier: resolveCommandEveManagedVisualPreferredTier(
-            resolveWireTierFromSelection(eveInference.selection)
-          ),
-          sourceCount: managedVisualSourceCount,
-        });
-        if (!authorization.success || !authorization.data?.ok || !authorization.data.marker) {
-          throw new Error(
-            authorization.data?.message ||
-              t('conversation.visual.managedCloudFailed', {
-                defaultValue: 'Managed visual analysis could not be authorized. Please try again.',
-              })
-          );
-        }
-        dispatchPreparedContext = `${authorization.data.marker}\n${dispatchPreparedContext}`;
-      }
-
-      const agentInput = buildCommandEvePreparedAgentInput(input, dispatchPreparedContext);
-      const displayMessage = buildDisplayMessage(agentInput, displayFiles ?? files, workspacePath || '');
+        const agentInput = buildCommandEvePreparedAgentInput(input, dispatchPreparedContext);
+        const displayMessage = buildDisplayMessage(agentInput, displayFiles ?? files, workspacePath || '');
 
         runtimeView.markSendStarted();
         // 1.7.3 (Codex #2): mark generation at SEND time so the seat-switch guard
@@ -1455,15 +1454,6 @@ Please check your local CLI tool authentication status`,
 
   return (
     <div className='acp-send-box max-w-800px w-full mx-auto flex flex-col mt-auto mb-16px'>
-      {/* Video PRE-SUBMIT cost-wall (alpha.9 OI#2): the wall opens for a pending
-          video-generation request and requires an explicit confirm before the
-          actual request is dispatched. Fast/720p default; 1080p explicit upgrade. */}
-      <VideoCostWall
-        visible={videoCostWall.visible}
-        durationSeconds={videoCostWall.durationSeconds}
-        onCancel={videoCostWall.cancel}
-        onConfirm={videoCostWall.confirm}
-      />
       <AcpDocumentPreparationStatus state={documentPreparation} />
       <CommandQueuePanel
         items={queuedCommands}

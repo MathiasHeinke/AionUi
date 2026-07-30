@@ -55,7 +55,6 @@ const {
   configSetMock,
   initialMessageParamsMock,
   buildDisplayMessageMock,
-  videoCostWallPropsMock,
 } = vi.hoisted(() => ({
   sendMessageInvokeMock: vi.fn(),
   steerInvokeMock: vi.fn(),
@@ -124,7 +123,6 @@ const {
     current: null as { sendInitialMessage?: (input: string, files: string[]) => Promise<boolean> } | null,
   },
   buildDisplayMessageMock: vi.fn((input: string) => input),
-  videoCostWallPropsMock: { current: null as Record<string, unknown> | null },
 }));
 
 function createDeferred<T>() {
@@ -272,12 +270,6 @@ vi.mock('@/renderer/components/chat/MobileActionSheet', () => ({
   useAttachEntry: () => ({ entries: [], hiddenFileInput: null }),
 }));
 vi.mock('@/renderer/components/chat/ThoughtDisplay', () => ({ default: () => null }));
-vi.mock('@/renderer/components/billing/VideoCostWall', () => ({
-  default: (props: Record<string, unknown>) => {
-    videoCostWallPropsMock.current = props;
-    return null;
-  },
-}));
 vi.mock('@/renderer/components/media/FileAttachButton', () => ({ default: () => null }));
 vi.mock('@/renderer/components/media/FilePreview', () => ({ default: () => null }));
 vi.mock('@/renderer/components/media/HorizontalFileList', () => ({

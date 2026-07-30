@@ -144,21 +144,34 @@ describe('estimateVideoCost — preview math', () => {
 });
 
 // ---------------------------------------------------------------------------
-// (3) the submit gate invariant — video ALWAYS requires confirm
+// (3) the submit gate — asking for a video IS the authorisation
 // ---------------------------------------------------------------------------
 
-describe('buildVideoSubmitGate — explicit-confirm invariant', () => {
-  it('always requires confirm and is NOT allowed before confirm', () => {
-    const gate = buildVideoSubmitGate({ confirmed: false });
-    expect(gate.requiresConfirm).toBe(true);
-    expect(gate.allowed).toBe(false);
-    expect(gate.defaultTierId).toBe('fast');
+// This block previously pinned the opposite invariant ("video ALWAYS requires
+// confirm"). That modal asked the user to approve a cost they had just asked to
+// incur — a second question, not a boundary. The limit that protects money is
+// server-side and untouched: the inference function reads spend_cap_eur_cents and
+// its debit path refuses on `insufficient`.
+describe('buildVideoSubmitGate — no per-generation confirmation', () => {
+  it('does not require a confirmation and allows the request', () => {
+    const gate = buildVideoSubmitGate();
+    expect(gate.requiresConfirm).toBe(false);
+    expect(gate.allowed).toBe(true);
   });
 
-  it('is allowed only once the user has explicitly confirmed', () => {
-    const gate = buildVideoSubmitGate({ confirmed: true });
-    expect(gate.requiresConfirm).toBe(true);
-    expect(gate.allowed).toBe(true);
+  it('still resolves to the cheaper Fast/720p tier by default', () => {
+    expect(buildVideoSubmitGate().defaultTierId).toBe('fast');
+  });
+
+  // The wall is gone; the number must not go with it. A caller that submits
+  // without a chosen tier still gets a conservative, non-zero credit figure to
+  // put in front of the operator.
+  it('keeps a usable estimate for the default tier so the cost stays visible', () => {
+    const gate = buildVideoSubmitGate();
+    const preview = estimateVideoCost({ tierId: gate.defaultTierId, durationSeconds: undefined });
+    expect(preview.tier.id).toBe('fast');
+    expect(preview.estimatedCredits).toBeGreaterThan(0);
+    expect(preview.isUpgrade).toBe(false);
   });
 });
 
