@@ -104,7 +104,6 @@ import {
   type VideoQualityTier,
 } from '@/common/config/videoCostCore';
 import VideoQualityPill from '@/renderer/components/billing/VideoQualityPill';
-import { isImageFile } from '@/common/chat/imageGenCore';
 import { addressesVideoMarketer } from '@/common/config/eveTeamRoster';
 
 const useAcpSendBoxDraft = getSendBoxDraftHook('acp', {
@@ -670,11 +669,20 @@ Please check your local CLI tool authentication status`,
 
   // 1080p exists only as image->video: grok-imagine-video-1.5 reaches it but does
   // not accept a bare prompt, and grok-imagine-video (which does) stops at 720p.
-  // So the picker's options depend on whether an image is attached RIGHT NOW.
-  const videoInputMode: VideoInputMode = useMemo(
-    () => (uploadFile.some((path) => isImageFile(path)) ? 'image' : 'text'),
-    [uploadFile]
-  );
+  //
+  // FIXED AT 'text', on purpose. An earlier version derived this from attached
+  // images — while the request built below sends prompt, tier and duration and
+  // NEVER the image bytes. That combination offers the user a mode the request
+  // cannot deliver: the picker would widen on an attachment, and the server would
+  // then refuse the very tier it had just been shown, because no image arrived.
+  // An attached image is likewise NOT animated today; it goes to the vision lane.
+  //
+  // So the honest state is text-to-video only, and the picker shows exactly the
+  // two tiers that reach the user. Sending the image bytes is a real slice — the
+  // renderer would have to read and hash the file and the payload ceiling would
+  // have to move — not a flag flip, and pretending otherwise here would put the
+  // promise back one line above the code that breaks it.
+  const videoInputMode: VideoInputMode = 'text';
 
   const dispatchSteer = useCallback(
     async (input: string, requestId?: string) => {
