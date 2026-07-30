@@ -388,7 +388,15 @@ export function buildResolvedVideoMessage(originalMessage: string, resolved: Res
   const base = typeof originalMessage === 'string' ? originalMessage : '';
   // Strip EVERY prior directive (a recalled message could carry more than one)
   // together with the blank line that separated it, then re-stamp the fresh one.
-  const stripped = base.replace(/\n*\[EVE:VIDEO [^\]]*\]/g, '');
+  //
+  // `[^\]\n]*`, NOT `[^\]]*`: the class must not cross a line break. The emitted
+  // directive never contains a newline, so binding it to one line matches every
+  // real stamp — while the unbound version would swallow everything between a
+  // user-typed "[EVE:VIDEO " and the next "]" anywhere later in the message,
+  // silently deleting their text. CAO found that on ce8f90e7 with a worked
+  // example. Removing a single-line lookalike is deliberate: it stops a typed
+  // string from impersonating a resolved spec.
+  const stripped = base.replace(/\n*\[EVE:VIDEO [^\]\n]*\]/g, '');
   const trimmed = stripped.replace(/\s+$/, '');
   return trimmed.length > 0 ? `${trimmed}\n\n${directive}` : directive;
 }

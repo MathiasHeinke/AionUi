@@ -1071,6 +1071,13 @@ Please check your local CLI tool authentication status`,
             // The tier is per REQUEST, not per conversation: "default stays
             // Fast/Standard" has to be true for the next video too. Without this
             // an HD pick outlives its own send and silently prices a later one.
+            //
+            // DELIBERATE, do not "fix": this resets even when the dispatch below
+            // fails and the draft is restored, so the user gets their text back
+            // with the tier at Fast. Re-arming an expensive choice across an error
+            // boundary is the "quietly did something else" class twice over. The
+            // state stays legible — the restored draft still routes to video, so
+            // the picker is visible and reads Fast, one click from HD.
             setVideoTierId(DEFAULT_VIDEO_TIER_ID);
             void dispatch
               .then((accepted) => {
