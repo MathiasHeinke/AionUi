@@ -160,7 +160,7 @@
     "phase": {
       "reading_presentation_local": "{{count}} Präsentation wird lokal vorbereitet",
       "reading_presentation_local_other": "{{count}} Präsentationen werden lokal vorbereitet",
-      "awaiting_cloud_vision": "Präsentation bereit · wartet auf deine Analyse-Freigabe",
+      "awaiting_cloud_vision": "Präsentation bereit · Analyse wird vorbereitet",
       "reading_cloud_vision": "Folien werden sicher visuell analysiert",
       "presentation_handoff": "Präsentation verstanden · Analyse wird an EVE übergeben",
       "presentation_error": "Präsentation konnte nicht verarbeitet werden · Nachricht blieb ungesendet"
@@ -176,7 +176,7 @@
     "phase": {
       "reading_image_local": "{{count}} Bild wird lokal vorbereitet",
       "reading_image_local_other": "{{count}} Bilder werden lokal vorbereitet",
-      "awaiting_image_cloud_vision": "Bild bereit · wartet auf deine Analyse-Freigabe",
+      "awaiting_image_cloud_vision": "Bild bereit · Analyse wird vorbereitet",
       "reading_image_cloud_vision": "Bild wird sicher visuell analysiert",
       "image_handoff": "Bild verstanden · Analyse wird an EVE übergeben",
       "image_error": "Bild konnte nicht verarbeitet werden · Nachricht blieb ungesendet"

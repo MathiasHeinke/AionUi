@@ -161,7 +161,7 @@
     "phase": {
       "reading_presentation_local": "Preparing {{count}} presentation locally",
       "reading_presentation_local_other": "Preparing {{count}} presentations locally",
-      "awaiting_cloud_vision": "Presentation ready · waiting for analysis approval",
+      "awaiting_cloud_vision": "Presentation ready · preparing analysis",
       "reading_cloud_vision": "Analyzing slides visually and securely",
       "presentation_handoff": "Presentation understood · handing analysis to EVE",
       "presentation_error": "Presentation processing failed · message was not sent"
@@ -177,7 +177,7 @@
     "phase": {
       "reading_image_local": "Preparing {{count}} image locally",
       "reading_image_local_other": "Preparing {{count}} images locally",
-      "awaiting_image_cloud_vision": "Image ready · waiting for analysis approval",
+      "awaiting_image_cloud_vision": "Image ready · preparing analysis",
       "reading_image_cloud_vision": "Analyzing image visually and securely",
       "image_handoff": "Image understood · handing analysis to EVE",
       "image_error": "Image processing failed · message was not sent"
