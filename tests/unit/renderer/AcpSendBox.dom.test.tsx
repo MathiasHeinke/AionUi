@@ -191,10 +191,18 @@ vi.mock('@/common/config/configService', () => ({
 }));
 
 vi.mock('@/renderer/components/chat/SendBox', () => ({
-  default: (props: { onSend: (message: string) => Promise<void>; rightTools?: React.ReactNode }) => {
+  default: (props: {
+    onSend: (message: string) => Promise<void>;
+    rightTools?: React.ReactNode;
+    prefix?: React.ReactNode;
+  }) => {
     sendBoxPropsMock.current = props as unknown as Record<string, unknown>;
     return (
       <>
+        {/* The real SendBox renders `prefix` (the draft band: file chips, folder
+            tags, the video-quality picker). The double used to drop it, which
+            made anything mounted there invisible to these tests. */}
+        {props.prefix}
         {props.rightTools}
         <button
           type='button'
@@ -1746,5 +1754,97 @@ describe('AcpSendBox', () => {
       setMode.resolve({ mode: 'default', initialized: true });
     });
     expect(emitterEmitMock).toHaveBeenCalledTimes(1);
+  });
+  // -------------------------------------------------------------------------
+  // Video lane: the inline quality picker (1.820.1)
+  // -------------------------------------------------------------------------
+  // The pre-submit cost wall is gone — asking for a video IS the authorisation
+  // for it. Removing it also removed the only surface that could select 1080p,
+  // so HD came back as an inline picker. These tests pin the two things that
+  // must both hold: HD reaches the dispatched request, and nothing asks a second
+  // question on the way there.
+
+  it('offers the quality picker only once the draft actually routes to video', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'summarise this meeting' };
+    const { rerender } = render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    expect(screen.queryByTestId('video-quality-pill')).toBeNull();
+
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
+    rerender(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+    expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-selected-tier', 'fast');
+  });
+
+  it('sends a video at the default tier without any confirmation step', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
+    sendBoxMessageMock.current = 'erstelle ein Video über unser Produkt';
+    sendMessageInvokeMock.mockResolvedValue({});
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    const input = sendMessageInvokeMock.mock.calls[0][0].input as string;
+    expect(input).toContain('tier=fast');
+    expect(input).toContain('resolution=720p');
+    // The wall is gone: no modal was opened on the way to dispatch.
+    expect(modalConfirmMock).not.toHaveBeenCalled();
+  });
+
+  it('carries an explicit HD choice into the dispatched request', async () => {
+    draftDataMock.current = { atPath: [], uploadFile: [], content: 'erstelle ein Video über unser Produkt' };
+    sendBoxMessageMock.current = 'erstelle ein Video über unser Produkt';
+    sendMessageInvokeMock.mockResolvedValue({});
+
+    render(
+      <AcpSendBox
+        conversation_id='conv-1'
+        backend='hermes'
+        workspacePath='/tmp/workspace'
+        messageState={makeMessageState()}
+      />
+    );
+
+    act(() => {
+      screen.getByTestId('video-quality-option-hd').click();
+    });
+    expect(screen.getByTestId('video-quality-pill')).toHaveAttribute('data-selected-tier', 'hd');
+
+    await act(async () => {
+      screen.getByRole('button', { name: 'send' }).click();
+    });
+
+    await waitFor(() => expect(sendMessageInvokeMock).toHaveBeenCalledTimes(1));
+    const input = sendMessageInvokeMock.mock.calls[0][0].input as string;
+    // The whole point: the tier the user picked is the tier the agent is told to
+    // use. A regression that drops it would silently bill HD intent at 720p —
+    // or worse, quietly resolve back to fast while the UI still reads HD.
+    expect(input).toContain('tier=hd');
+    expect(input).toContain('resolution=1080p');
+    expect(input).toContain('credits<=340');
+    expect(modalConfirmMock).not.toHaveBeenCalled();
   });
 });

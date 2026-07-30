@@ -7,9 +7,13 @@
 /**
  * Video submit seam.
  *
- * A caller that wants to start a video calls `requestVideo({ durationSeconds }, run)`
- * and the run fires immediately, resolved to the default tier and its credit
- * estimate.
+ * A caller that wants to start a video calls
+ * `requestVideo({ durationSeconds, tierId }, run)` and the run fires immediately,
+ * resolved to the passed tier (or the Fast/720p default) and its credit estimate.
+ *
+ * `tierId` is the inline quality selection. It arrives as data, NOT as a reason to
+ * ask a question: choosing 1080p and pressing send is one decision, not two. The
+ * selector is a picker, never a gate — see VideoQualityPill.
  *
  * This used to open a blocking cost wall on EVERY generation: the user asked for
  * a video, and the product asked back whether they meant it. That is a second
@@ -46,27 +50,38 @@ export interface VideoCostWallState {
    * (exceeded cap) still needs a path that restores the composer draft. It is
    * not invoked while the gate allows the request.
    */
-  requestVideo: (request: { durationSeconds?: number }, run: VideoRun, onCancel?: VideoCancel) => void;
+  requestVideo: (
+    request: { durationSeconds?: number; tierId?: VideoQualityTier },
+    run: VideoRun,
+    onCancel?: VideoCancel
+  ) => void;
 }
 
 export function useVideoCostWall(): VideoCostWallState {
-  const requestVideo = useCallback((request: { durationSeconds?: number }, run: VideoRun, onCancel?: VideoCancel) => {
-    const gate = buildVideoSubmitGate();
-    const preview = estimateVideoCost({
-      tierId: gate.defaultTierId,
-      durationSeconds: request.durationSeconds,
-    });
+  const requestVideo = useCallback(
+    (request: { durationSeconds?: number; tierId?: VideoQualityTier }, run: VideoRun, onCancel?: VideoCancel) => {
+      const gate = buildVideoSubmitGate();
+      // An explicit inline selection wins; absent one, the cheaper default. Note
+      // `??`, not `||`: the tier is a string union, but a falsy-coalescing bug
+      // here would silently downgrade a paid HD request, which is exactly the
+      // class of "quietly did something else" this slice exists to remove.
+      const preview = estimateVideoCost({
+        tierId: request.tierId ?? gate.defaultTierId,
+        durationSeconds: request.durationSeconds,
+      });
 
-    // Fail-closed on anything the gate refuses. Today the gate always allows —
-    // the real refusal lives server-side — but a caller that loses its draft
-    // silently would be the worse failure, so the restore path stays wired.
-    if (!gate.allowed) {
-      onCancel?.();
-      return;
-    }
+      // Fail-closed on anything the gate refuses. Today the gate always allows —
+      // the real refusal lives server-side — but a caller that loses its draft
+      // silently would be the worse failure, so the restore path stays wired.
+      if (!gate.allowed) {
+        onCancel?.();
+        return;
+      }
 
-    void run({ tierId: preview.tier.id, estimatedCredits: preview.estimatedCredits });
-  }, []);
+      void run({ tierId: preview.tier.id, estimatedCredits: preview.estimatedCredits });
+    },
+    []
+  );
 
   return { requestVideo };
 }

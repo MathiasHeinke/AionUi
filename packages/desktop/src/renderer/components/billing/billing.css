@@ -218,3 +218,55 @@
   color: var(--text-secondary, #4b5563);
   margin: 4px 0 12px;
 }
+
+/* ---- inline video-quality selector (1.820.1) ----
+   Lives in the composer's prefix band, next to file chips. It is a picker, not a
+   gate: no overlay, no backdrop, nothing that can swallow a send. Kept visually
+   quiet so it reads as part of the draft, not as a question being asked. */
+.video-quality-pill {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-secondary, #e5e7eb);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text-secondary, #4b5563);
+}
+.video-quality-pill__label {
+  font-weight: 600;
+}
+.video-quality-pill__options {
+  display: flex;
+  gap: 4px;
+}
+.video-quality-pill__option {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.video-quality-pill__option:hover {
+  border-color: var(--border-secondary, #e5e7eb);
+}
+.video-quality-pill__option.is-selected {
+  border-color: var(--color-primary-6, #2563eb);
+  color: var(--color-primary-6, #2563eb);
+  font-weight: 600;
+}
+.video-quality-pill__resolution {
+  opacity: 0.7;
+}
+.video-quality-pill__estimate {
+  margin-left: auto;
+  opacity: 0.8;
+  font-variant-numeric: tabular-nums;
+}

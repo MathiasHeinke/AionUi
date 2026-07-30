@@ -93,7 +93,14 @@ import { useCommandEveVisualPreparation } from './useCommandEveVisualPreparation
 import { useAcpInitialMessage } from './useAcpInitialMessage';
 import type { UseAcpMessageReturn } from './useAcpMessage';
 import { useVideoCostWall } from '@/renderer/hooks/useVideoCostWall';
-import { isVideoLaneRequest, buildResolvedVideoMessage, VIDEO_LANE_AGENT_ID } from '@/common/config/videoCostCore';
+import {
+  isVideoLaneRequest,
+  buildResolvedVideoMessage,
+  VIDEO_LANE_AGENT_ID,
+  DEFAULT_VIDEO_TIER_ID,
+  type VideoQualityTier,
+} from '@/common/config/videoCostCore';
+import VideoQualityPill from '@/renderer/components/billing/VideoQualityPill';
 import { addressesVideoMarketer } from '@/common/config/eveTeamRoster';
 
 const useAcpSendBoxDraft = getSendBoxDraftHook('acp', {
@@ -624,12 +631,32 @@ Please check your local CLI tool authentication status`,
     onExecute: executeCommand,
   });
 
-  // Video PRE-SUBMIT cost-wall controller (alpha.9 OI#2 wiring). Video is the
-  // single most expensive action; this is the seam that guarantees the
-  // transparent cost preview ALWAYS fires + requires an explicit confirm BEFORE
-  // a video generation request is submitted. Fast/720p is the default; 1080p is
-  // an explicit upgrade inside the wall.
+  // Video submit seam. Video is the most expensive single action, so the cost
+  // stays visible — but it is no longer a question. There is no confirm step:
+  // asking for a video IS the authorisation to make one. The tier below travels
+  // into the dispatched message, so the price the user saw is the spec the agent
+  // receives. The only thing that may REFUSE is the server-side pre-flight
+  // reservation (reservePaidLane -> canAfford, 402).
   const videoCostWall = useVideoCostWall();
+
+  // Inline quality selection. Fast/720p until the user clicks HD — never
+  // auto-upgraded, which is what keeps the "explicit upgrade" property true.
+  const [videoTierId, setVideoTierId] = useState<VideoQualityTier>(DEFAULT_VIDEO_TIER_ID);
+
+  // Show the quality selector only while the DRAFT already routes to the video
+  // lane — the same predicate the send path uses, so the control cannot appear
+  // for a message that would not be a video, nor stay hidden for one that would.
+  // Two surfaces, one classifier: if they disagreed, the user would pick a tier
+  // that never applied.
+  const draftRoutesToVideo = useMemo(
+    () =>
+      isEveConversation &&
+      isVideoLaneRequest({
+        message: content,
+        resolvedAgentId: addressesVideoMarketer(content) ? VIDEO_LANE_AGENT_ID : null,
+      }),
+    [content, isEveConversation]
+  );
 
   const dispatchSteer = useCallback(
     async (input: string, requestId?: string) => {
@@ -1010,7 +1037,7 @@ Please check your local CLI tool authentication status`,
         documentPreparationInFlightRef.current = false;
         setDocumentPreparation(null);
         videoCostWall.requestVideo(
-          {},
+          { tierId: videoTierId },
           (resolved) => {
             const resolvedMessage = buildResolvedVideoMessage(message, resolved);
             const dispatch = dispatchMessage(
@@ -1067,6 +1094,7 @@ Please check your local CLI tool authentication status`,
       prepareImageFiles,
       preparePresentationFiles,
       videoCostWall.requestVideo,
+      videoTierId,
     ]
   );
 
@@ -1590,6 +1618,9 @@ Please check your local CLI tool authentication status`,
         }
         prefix={
           <>
+            {/* Quality picker for the pending video. Renders in the draft band,
+                never as an overlay — it cannot intercept or delay a send. */}
+            <VideoQualityPill visible={draftRoutesToVideo} value={videoTierId} onChange={setVideoTierId} />
             {uploadFile.length > 0 && (
               <HorizontalFileList>
                 {uploadFile.map((path) => (
