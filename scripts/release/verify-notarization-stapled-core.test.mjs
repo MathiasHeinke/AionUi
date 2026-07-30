@@ -17,12 +17,22 @@ test('builds stapler validate args for a DMG path', () => {
 test('builds spctl open-assessment args with the primary-signature context', () => {
   assert.deepEqual(buildSpctlAssessArgs('/tmp/Command EVE.dmg'), [
     '-a',
+    '-vvv',
     '-t',
     'open',
     '--context',
     'context:primary-signature',
     '/tmp/Command EVE.dmg',
   ]);
+});
+
+test('asks spctl verbosely — without -vvv it prints nothing and the gate reads no verdict', () => {
+  // Regression pin. The args omitted -vvv, so spctl stayed silent on success, the
+  // /accepted/ match ran against an empty string, and the gate concluded "no
+  // verdict" on every healthy artifact — then blamed Apple for deprecating the
+  // tool. Measured: gate args -> 0 chars; with -vvv -> "accepted / source=
+  // Notarized Developer ID". A gate that cannot hear the answer is not a gate.
+  assert.ok(buildSpctlAssessArgs('/tmp/x.dmg').includes('-vvv'));
 });
 
 test('stapler validate passes on the worked string with exit 0', () => {

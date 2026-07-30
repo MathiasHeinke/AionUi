@@ -18,10 +18,18 @@ export function buildStaplerValidateArgs(artifactPath) {
 
 // Gatekeeper assessment for a DMG opened by the user. `spctl -a` is for apps;
 // for a disk image we assess the open/install operation:
-//   spctl -a -t open --context context:primary-signature <dmg>
+//   spctl -a -vvv -t open --context context:primary-signature <dmg>
 // A notarized, stapled DMG reports "accepted" with "source=Notarized Developer ID".
+//
+// `-vvv` is LOAD-BEARING. Without it spctl is silent on success — it signals only
+// through its exit code and prints nothing at all. This gate used to omit it and
+// therefore matched an empty string against /accepted/, concluded "no verdict",
+// and blamed Apple: a comment here asserted that spctl was "effectively deprecated
+// for DMGs on macOS 15/26". That was a misdiagnosis. Measured on the 1.820.1
+// artifact: gate args -> 0 characters of output; the same args plus `-vvv` -> 136
+// characters beginning "accepted / source=Notarized Developer ID".
 export function buildSpctlAssessArgs(artifactPath) {
-  return ['-a', '-t', 'open', '--context', 'context:primary-signature', artifactPath];
+  return ['-a', '-vvv', '-t', 'open', '--context', 'context:primary-signature', artifactPath];
 }
 
 const STAPLER_VALIDATE_OK = /the validate action worked/i;
@@ -56,12 +64,13 @@ export function evaluateStaplerValidate({ exitCode, output = '' } = {}) {
 }
 
 // Decide a Gatekeeper assessment from its exit code + output. `spctl` writes its
-// verdict to stderr. `rejected: true` is the ONLY hard-block signal (an explicit
-// Gatekeeper rejection). Every other non-accepted outcome is INCONCLUSIVE, because
-// Apple has effectively deprecated `spctl --assess` for DMGs on macOS 15/26 — it
-// often exits 0 with no verdict text even for a correctly notarized+stapled DMG.
-// `stapler validate` (checked first, fail-closed) is the authoritative offline
-// Gatekeeper proof; this is only a secondary signal.
+// verdict to stderr, and only when asked verbosely (see buildSpctlAssessArgs).
+//
+// `rejected: true` is the hard-block signal. A silent exit-0 is still treated as
+// INCONCLUSIVE rather than a pass, because absence of a verdict is not a verdict —
+// but with `-vvv` restored that branch should now be genuinely rare instead of the
+// normal outcome it had quietly become. `stapler validate` (checked first,
+// fail-closed) remains the authoritative offline Gatekeeper proof.
 export function evaluateSpctlAssessment({ exitCode, output = '' } = {}) {
   const text = asText(output);
   if (SPCTL_REJECTED.test(text)) {
