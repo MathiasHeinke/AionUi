@@ -5105,7 +5105,8 @@ function refreshManagedOperatorSeed(existing: string, nextBlock: string): string
 // the autonomous half — make the substrate exist + honest.)
 export function seedFounderUserProfile(
   paths: RuntimeBootstrapPaths,
-  firstRunProfile: RuntimeBootstrapIdentityProfile
+  firstRunProfile: RuntimeBootstrapIdentityProfile,
+  options: { allowConfirmedRegistrationInsert?: boolean } = {}
 ): boolean {
   const memDir = path.join(paths.hermesHome, 'memories');
   const userMdPath = path.join(memDir, 'USER.md');
@@ -5127,8 +5128,27 @@ export function seedFounderUserProfile(
     const existing = fs.existsSync(userMdPath) ? fs.readFileSync(userMdPath, 'utf8') : '';
     if (existing.trim()) {
       const refreshed = refreshManagedOperatorSeed(existing, managedIdentity);
-      if (refreshed === null || refreshed === existing) return false;
-      fs.writeFileSync(userMdPath, refreshed, { mode: 0o600 });
+      if (refreshed === existing) return false;
+      if (refreshed !== null) {
+        fs.writeFileSync(userMdPath, refreshed, { mode: 0o600 });
+        return true;
+      }
+
+      // A pre-marker install may already have a user-grown USER.md that is not
+      // safe to rewrite or heuristically adopt. An explicit registration sync
+      // is the one authoritative moment where we may add the managed identity
+      // block without deleting or changing a single existing byte. Ordinary
+      // boot remains conservative and leaves arbitrary memory untouched.
+      const hasPartialManagedSeed =
+        existing.includes(OPERATOR_SEED_MARKER_BEGIN) || existing.includes(OPERATOR_SEED_MARKER_END);
+      const mayInsertConfirmedRegistration =
+        options.allowConfirmedRegistrationInsert === true &&
+        firstRunProfile.source === 'registration' &&
+        firstRunProfile.needs_confirmation === false &&
+        !hasPartialManagedSeed;
+      if (!mayInsertConfirmedRegistration) return false;
+
+      fs.writeFileSync(userMdPath, `${managedIdentity}${OPERATOR_ENTRY_DELIMITER}${existing}`, { mode: 0o600 });
       return true;
     }
 
@@ -7183,7 +7203,9 @@ export async function syncCommandEveRegistrationIdentityArtifacts(
     });
     writeJsonAtomic(paths.firstRunProfile, profile);
 
-    const operatorSeedChanged = seedFounderUserProfile(paths, profile);
+    const operatorSeedChanged = seedFounderUserProfile(paths, profile, {
+      allowConfirmedRegistrationInsert: true,
+    });
     const legacy = isLegacySeatId(activeSeatId);
     const tierStamp = stampUserMdTiersToHome({
       hermesHome: paths.hermesHome,

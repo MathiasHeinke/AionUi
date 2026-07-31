@@ -73,6 +73,33 @@ describe('seedFounderUserProfile — durable founder memory bootstrap', () => {
     expect(fs.readFileSync(userMd, 'utf8')).toBe('Operator heißt Mathias, mag knappe Antworten ohne Floskeln.');
   });
 
+  it('adds a confirmed registration seed without changing grown memory during explicit reconciliation', () => {
+    const paths = freshPaths();
+    const userMd = path.join(paths.hermesHome, 'memories', 'USER.md');
+    const grownMemory = 'Operator bevorzugt knappe Antworten.\nEine gewachsene Erinnerung bleibt exakt erhalten.\n';
+    fs.mkdirSync(path.dirname(userMd), { recursive: true });
+    fs.writeFileSync(userMd, grownMemory);
+
+    const confirmedProfile = mkProfile({
+      source: 'registration',
+      confidence: 'verified',
+      needs_confirmation: false,
+      founder_name: 'Confirmed Founder',
+      company_name: 'Confirmed Company',
+    });
+    const wrote = seedFounderUserProfile(paths, confirmedProfile, {
+      allowConfirmedRegistrationInsert: true,
+    });
+
+    const reconciled = fs.readFileSync(userMd, 'utf8');
+    expect(wrote).toBe(true);
+    expect(reconciled).toContain('<!-- CE:OPERATOR-SEED:v1 -->');
+    expect(reconciled).toContain('# Operator\nName: Confirmed Founder\nFirma/Brand: Confirmed Company');
+    expect(reconciled.endsWith(grownMemory)).toBe(true);
+    expect(seedFounderUserProfile(paths, confirmedProfile, { allowConfirmedRegistrationInsert: true })).toBe(false);
+    expect(fs.readFileSync(userMd, 'utf8')).toBe(reconciled);
+  });
+
   it('migrates the legacy machine seed and refreshes only the confirmed operator identity', () => {
     const paths = freshPaths();
     const userMd = path.join(paths.hermesHome, 'memories', 'USER.md');
@@ -165,5 +192,45 @@ describe('seedFounderUserProfile — durable founder memory bootstrap', () => {
       company_name: 'FYN Labs Release QA',
       profile_path: paths.firstRunProfile,
     });
+  });
+
+  it('reconciles confirmed registration into an unmanaged grown USER.md without clobbering it', async () => {
+    const paths = freshPaths();
+    const userMd = path.join(paths.hermesHome, 'memories', 'USER.md');
+    const grownMemory = 'Bestehende Erinnerung aus einer älteren Installation.\n';
+    fs.mkdirSync(path.dirname(userMd), { recursive: true });
+    fs.writeFileSync(userMd, grownMemory);
+    fs.mkdirSync(path.dirname(paths.receiptPath), { recursive: true });
+    fs.writeFileSync(
+      paths.receiptPath,
+      JSON.stringify({
+        version: COMMAND_EVE_RUNTIME_BOOTSTRAP_VERSION,
+        app_release: '1.820.1',
+        stages: [],
+      })
+    );
+    expect(
+      registerTenant(
+        {
+          name: 'Explicit Founder',
+          company: 'Explicit Company',
+          email: 'explicit-founder@example.invalid',
+          consent: true,
+        },
+        { userDataPath: paths.userDataPath, now: () => new Date('2026-07-31T05:00:00.000Z') }
+      ).ok
+    ).toBe(true);
+
+    const synced = await syncCommandEveRegistrationIdentityArtifacts(paths.userDataPath, {
+      env: {},
+      now: () => new Date('2026-07-31T05:00:01.000Z'),
+      displayNameLookup: () => '',
+    });
+
+    expect(synced.ok).toBe(true);
+    expect(synced.operator_seed_changed).toBe(true);
+    const reconciled = fs.readFileSync(userMd, 'utf8');
+    expect(reconciled).toContain('# Operator\nName: Explicit Founder\nFirma/Brand: Explicit Company');
+    expect(reconciled).toContain(grownMemory);
   });
 });
