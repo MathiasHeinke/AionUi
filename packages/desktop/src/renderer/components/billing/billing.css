@@ -255,6 +255,16 @@
 .video-quality-pill__option:hover {
   border-color: var(--border-secondary, #e5e7eb);
 }
+/* Keyboard focus has to be VISIBLE on a control that decides what a video
+   costs. Without this, tabbing through the options moved an invisible focus and
+   the only way to learn where it was, was to press a key and read the price
+   afterwards. Deliberately an outline and not another border-colour: it cannot
+   be confused with `.is-selected` (focused is not chosen), and an outline does
+   not participate in layout, so nothing shifts as focus moves. */
+.video-quality-pill__option:focus-visible {
+  outline: 2px solid var(--color-primary-6, #2563eb);
+  outline-offset: 2px;
+}
 .video-quality-pill__option.is-selected {
   border-color: var(--color-primary-6, #2563eb);
   color: var(--color-primary-6, #2563eb);
